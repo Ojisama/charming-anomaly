@@ -374,6 +374,10 @@ export function initUI(hooks) {
     const int = chapterAvailable(meta, browseChapterId) ? CHAPTERS[browseChapterId]?.render?.bgColor : null
     const hex = int == null ? 'transparent' : '#' + (int & 0xffffff).toString(16).padStart(6, '0')
     document.documentElement.style.setProperty('--tint', hex)
+    // The open panel wears the BINDING of the volume you tapped, so it reads as that book pulled
+    // off the shelf rather than as a separate card. Set on the root for the same reason --tint is:
+    // it has to outlive renderTitle's innerHTML rewrite and follow you into the Shop tab.
+    document.documentElement.style.setProperty('--cloth-sel', BOOKS[shopBookId()]?.cloth ?? '#3d5c47')
   }
 
   function bookcaseHtml() {
@@ -518,10 +522,24 @@ export function initUI(hooks) {
       <p class="diff-hint">${chMeta.difficulty === 1
         ? t('the base game')
         : `${diffHintLead(browseChapterId, chMeta.difficulty)} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% ${t('enemy HP')} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_DMG_PER_LEVEL) * 100)}% ${t('enemy damage')} · <b class="diff-hint-reward">+${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% ${t('coins')}</b>`}</p>
-      ${chMeta.maxDifficulty < cap ? `<p class="diff-hint diff-hint--locked">${tt('win level {n} to unlock {m}', { n: chMeta.maxDifficulty, m: chMeta.maxDifficulty + 1 })}</p>` : ''}` : ''
+      ` : ''
+    // Across the FOOT of the spread, not on the recto: at half width this sentence wraps to two
+    // lines in both languages, and those two lines were most of why the panel still pushed the
+    // bookcase past its scroll box. Full width it is one line.
+    const ladderHint = heroUnlocked && chMeta.maxDifficulty < cap
+      ? `<p class="diff-hint diff-hint--locked">${tt('win level {n} to unlock {m}', { n: chMeta.maxDifficulty, m: chMeta.maxDifficulty + 1 })}</p>`
+      : ''
+    // A two-page SPREAD, not a stack: the volume you tapped, opened. Verso carries the chapter's
+    // identity, recto the run you are about to start. It exists for a measured reason as much as a
+    // thematic one — stacked, this panel was 255px of a 745px phone and the bookcase overflowed by
+    // 33px, which silently ate the whole second shelf's brass plate (its only "Book 2" label).
+    // Side by side the panel is ~170px, so the shelf clears at every viewport this game ships to.
     return `
-      ${detailHeadHtml()}
-      ${playBlock}
+      <div class="spread">
+        <div class="page page--verso">${detailHeadHtml()}</div>
+        <div class="page page--recto">${playBlock}</div>
+      </div>
+      ${ladderHint}
       <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>`
   }
 
@@ -567,7 +585,22 @@ export function initUI(hooks) {
     paintRoom()
     // After the wholesale innerHTML rewrite, never before it.
     focusRenameField()
+    markBookcaseScroll()
   }
+
+  // A clipped shelf and a short shelf look identical, and the thing that goes first is the brass
+  // plate — the only place a Book's name and star total are written. So when the case really does
+  // not fit, its bottom edge fades to say there is more below. Measured, not inferred from the
+  // number of Books: two Books overflow a 375x667 phone and three fit a tall one.
+  // rAF because the class is decided from a layout that the innerHTML rewrite one line up has not
+  // produced yet; `resize` because the answer changes on rotation with no re-render of its own.
+  function markBookcaseScroll() {
+    requestAnimationFrame(() => {
+      const bc = screens.title.querySelector('.bookcase')
+      if (bc) bc.classList.toggle('bookcase--more', bc.scrollHeight - bc.clientHeight > 2)
+    })
+  }
+  addEventListener('resize', markBookcaseScroll)
 
   // v6.7 settings sheet. The title used to float four separate things over the artwork — 🌐, 💾, the
   // coins badge and the build stamp — which is most of what "there's a lot on the page" meant, and
@@ -956,13 +989,21 @@ export function initUI(hooks) {
           <span class="shop-rail">${notches}</span>
         </button>`
     }).join('')
-    // Nav (below) replaces the old "← Back" header. The book name sits beside the balance, or a
-    // returning player who just browsed into a book with its own (freshly reset) purse reads the
-    // lower number as a bug rather than as "this is a different book's coins".
+    // Nav (below) replaces the old "← Back" header. Every book the shelf shows gets a SPINE TAB
+    // beside the balance, in that book's own cloth. There is one shop screen but one shop PER BOOK
+    // — separate purse, separate levels, and Undertow has three lines book 1 does not — and until
+    // v7.x the only sign of that was this book's name in grey text: the tab silently served
+    // whichever book the title carousel last settled on, with nothing here to say so and no way to
+    // switch without going back and tapping a spine. Reading titleBookshelf rather than BOOK_ORDER
+    // is what keeps a tab from appearing for a book whose shelf is hidden (the wip gate).
+    const books = titleBookshelf(meta).filter((s) => s.started)
+    const tabs = books.map((s) => `
+      <button class="book-tab${s.book === bookId ? ' book-tab--on' : ''}" data-book="${s.book}"
+              style="--cloth:${s.cloth}"${s.book === bookId ? ' aria-current="true"' : ''}>${t(s.name)}</button>`).join('')
     setHtml(screens.shop, `
       <header class="shop-head">
         <span class="shop-balance">🪙 <b>${bm.coins}</b></span>
-        <span class="shop-book">${t(BOOKS[bookId].name)}</span>
+        <span class="shop-books">${tabs}</span>
       </header>
       <div class="shop-rows">${cards}</div>
       ${shopFootHtml(bookId, slots, cost)}
@@ -2189,7 +2230,7 @@ export function initUI(hooks) {
   }, { passive: false })
 
   root.addEventListener('click', (e) => {
-    const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable], [data-subject], [data-dev], [data-vol]')
+    const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable], [data-subject], [data-dev], [data-vol], [data-book]')
     if (!el) return
     if (el.dataset.dev !== undefined) {
       // The screen stays open — testing a card usually means stacking two or three of them, and
@@ -2209,6 +2250,19 @@ export function initUI(hooks) {
       if (chapterAvailable(meta, id) && id !== meta.chapter) hooks.onChapter(id)
       else playSfx('click')
       renderTitle()
+      return
+    }
+    // A shop spine tab. It moves browseChapterId — the same one pointer the shelf, the coin badge
+    // and shopBookId all read — so the two screens still cannot disagree about which book you are
+    // in. It does NOT call onChapter: switching purses to compare prices is browsing, and it must
+    // not overwrite the chapter you last chose to PLAY (the ribbon on the shelf).
+    if (el.dataset.book !== undefined) {
+      const b = el.dataset.book
+      if (bookOf(browseChapterId) === b) return
+      browseChapterId = BOOKS[b].chapters.find((id) => chapterAvailable(meta, id)) ?? BOOKS[b].chapters[0]
+      playSfx('click')
+      paintRoom()
+      renderShop()
       return
     }
     if (el.dataset.buy !== undefined) {

@@ -261,12 +261,17 @@ body {
 
 /* the shadow the bookcase throws onto the desk in front of it */
 .bookcase { box-shadow: 0 10px 16px -8px rgba(30, 18, 8, 0.65); }
-/* the panel is a card lying on that desk — it needs its own ground, or cream text sits on wood */
+/* The panel is the VOLUME YOU TAPPED, lying open on the desk. Its cover is that book's own cloth
+   (--cloth-sel, published by paintRoom alongside --tint) so the shelf and the panel are visibly
+   the same object; the pages inside are cream, or the text would sit on wood. */
 .title-below {
-  background: linear-gradient(180deg, var(--cream-soft), var(--cream));
-  border: 2px solid rgba(92, 64, 40, 0.35);
-  border-radius: 16px;
-  box-shadow: 0 12px 22px -12px rgba(30, 18, 8, 0.7);
+  background: var(--cloth-sel, #3d5c47);
+  border-radius: 5px 5px 12px 12px;
+  padding: 7px 7px 9px;
+  box-shadow:
+    0 12px 22px -10px rgba(30, 18, 8, 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transition: background 0.4s ease;
 }
 
 
@@ -307,7 +312,36 @@ body {
    nothing (no gap left behind) on the sac view, which never renders this span. A returning player
    who just browsed into Book 2 needs this — its purse resets to 100, and the balance alone would
    read as book 1's coins having been wiped. */
-.shop-book { margin-left: auto; color: var(--ink-soft); font-weight: 700; font-size: 0.9rem; }
+/* One tab per book, each in its own cloth — the same binding colour its spines wear on the shelf,
+   so "which purse am I spending" is answered by recognition rather than by reading. They sit in
+   the balance's row, so the tabs cost no height over the grey label they replace. */
+.shop-books { margin-left: auto; min-width: 0; display: flex; gap: 5px; overflow-x: auto; }
+.book-tab {
+  flex: 0 0 auto;
+  padding: 5px 11px 6px;
+  border: 0;
+  /* squared top, rounded foot: a book standing on the shelf, not a pill */
+  border-radius: 3px 3px 9px 9px;
+  background: var(--cloth);
+  color: #e3c584;
+  font: inherit;
+  font-weight: 800;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  /* Shelved, not disabled: an inset wash darkens the cloth while keeping its HUE, where the
+     opacity fade this replaced turned book 1's green to mud against the oak and read as a control
+     you could not press. */
+  box-shadow: inset 0 0 0 99px rgba(24, 14, 4, 0.42);
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+/* the selected book is pulled out of the row, exactly as its volume is on the shelf */
+.book-tab--on {
+  transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 5px 9px -3px rgba(30, 18, 8, 0.65);
+}
+.book-tab:active { transform: translateY(1px); }
+.book-tab:focus-visible { outline: 3px solid var(--mint-dark); outline-offset: 2px; }
 .shop-rows {
   width: 100%;
   max-width: 540px;
@@ -1049,6 +1083,11 @@ body {
      over an earlier one. The gap is empty wall, so the ribbon may overlap it freely. */
   gap: 18px;
   overflow-y: auto;
+  /* `end`, not `start`: what a half-scrolled shelf loses is its BRASS PLATE — the only place a
+     Book's name and star total are written — so the bottom of an étage is the edge worth snapping.
+     `proximity` so a deliberate drag past a shelf is not fought. */
+  scroll-snap-type: y proximity;
+  overscroll-behavior: contain;
   padding: 16px 0 2px;
   background:
     radial-gradient(130% 60% at 50% 0%, rgba(255, 255, 255, 0.5), transparent 60%),
@@ -1068,7 +1107,15 @@ body {
   mix-blend-mode: soft-light;
   transition: background 0.4s ease;
 }
-.etage { position: relative; z-index: 1; flex: 0 0 auto; display: flex; flex-direction: column; }
+.etage { position: relative; z-index: 1; flex: 0 0 auto; display: flex; flex-direction: column; scroll-snap-align: end; }
+/* Set by markBookcaseScroll (ui.js) when the case genuinely does not fit, and only then. Gating it
+   on the BOOK COUNT instead was wrong at both ends: two books overflow a 375x667 phone by 16px with
+   no fade, and three books on a tall screen would get a fade over nothing. The measurement is the
+   only thing that knows. */
+.bookcase--more {
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 26px), transparent);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 26px), transparent);
+}
 .shelf-row {
   display: flex;
   align-items: flex-end;
@@ -1166,6 +1213,13 @@ body {
    volume on its own — the documented icon-only fallback, applied by height rather than by taste. */
 @media (max-height: 700px) {
   .vol-nm { display: none; }
+}
+/* Below ~720px of viewport, two étages plus the open volume no longer clear the case, and what
+   overflows first is a BRASS PLATE — the only place a Book's name and star total are written. The
+   row gives up height instead: a spine 20px shorter is still a spine, an unlabelled shelf is not a
+   Book. Measured, not guessed: 28px over at 320x700 before this rule, 0 after. */
+@media (max-height: 720px) {
+  .shelf-row { height: clamp(72px, 13.5vh, 152px); }
 }
 /* difficulty beaten, stacked at the foot where a real spine carries the publisher's device */
 .vol-stars { flex: none; display: flex; flex-direction: column; align-items: center; font-size: 0.44rem; line-height: 0.92; font-style: normal; }
@@ -1292,18 +1346,77 @@ body {
 
 /* the panel under the bookcase (chapter identity + difficulty row + Play); Play pins to the bottom */
 .title-below {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
   /* `flex: none`, not `1 1 auto`: this panel and the bookcase would otherwise split the leftover
      height between them, and the case is the part that needs it. */
   flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
   width: calc(100% - 20px);
   max-width: 470px;
-  padding: 12px 12px 14px;
 }
+/* Play spans the whole spread, not a page: it is the action of the volume, and a button confined
+   to the recto is 168px wide with a 340px max-width that does nothing. */
+/* .btn--big's 1.5rem/64px is sized for a button standing alone on a screen. Inside the covers it
+   is bigger than either page's heading and, measured, 18px of the 11px the bookcase was still
+   overflowing by. Full width already makes it unmissable. */
+.title-below .btn--play {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  min-height: 50px;
+  padding: 9px 20px;
+  font-size: 1.2rem;
+}
+/* the ladder note sits on the book's cloth, so it reads as printed on the cover, not on a page */
+.title-below > .diff-hint--locked { margin: -1px 0 0; text-align: center; color: rgba(255, 255, 255, 0.82); font-size: 0.68rem; }
+
+/* ---- the open volume: a two-page spread ---- */
+/* The gutter is a real background layer rather than a border, so the two pages read as one folded
+   sheet. `align-items: stretch` is load-bearing: it is what makes both pages the height of the
+   taller one, which is what gives the spread a straight bottom edge. */
+.spread {
+  display: flex;
+  align-items: stretch;
+  border-radius: 3px 3px 8px 8px;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(120, 96, 60, 0.28), rgba(120, 96, 60, 0) 12px),
+    linear-gradient(270deg, rgba(120, 96, 60, 0.28), rgba(120, 96, 60, 0) 12px),
+    linear-gradient(180deg, var(--cream-soft), var(--cream));
+}
+.page {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 10px 12px;
+}
+/* the fold: a hairline with the paper curving away from it on both sides */
+.page--recto {
+  border-left: 1px solid rgba(92, 64, 40, 0.3);
+  box-shadow: inset 9px 0 12px -9px rgba(92, 64, 40, 0.55);
+}
+.page--verso {
+  box-shadow: inset -9px 0 12px -9px rgba(92, 64, 40, 0.55);
+}
+/* Verso is a column, so the head's row layout has to unwind — the identity reads top-to-bottom
+   like a title page: icon, name, tagline, cast, best. */
+.page--verso .detail-head { flex-direction: column; gap: 6px; text-align: center; }
+.page--verso .detail-name { align-items: center; text-align: center; }
+.page--verso .detail-name b { font-size: 0.95rem; white-space: normal; }
+.page--verso .detail-name small { white-space: normal; }
+/* Half the width means the pips must DIVIDE that width rather than be sized in px: a fixed 34px
+   pip is 170px of a 168px page, so five of them wrapped a sixth line onto the spread and the panel
+   came out TALLER than the stack it replaced (measured 273px vs 255px). `flex: 1 1 0` cannot wrap
+   at any viewport or any ladder length. */
+.page--recto { justify-content: flex-start; }
+.page--recto .diff-row { flex-wrap: wrap; width: 100%; justify-content: center; }
+.page--recto .diff-label { flex: 1 0 100%; margin: 0 0 6px; text-align: center; }
+.page--recto .diff-pip { flex: 1 1 0; width: auto; min-width: 0; padding: 0; }
+.page--recto .diff-hint { text-align: center; }
 
 /* ---- booster slots (title) ---- */
 .booster-row {

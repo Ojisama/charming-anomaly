@@ -4601,12 +4601,14 @@ function runBooks() {
     assert.strictEqual((mainSrc.match(/playableChapterId\(meta\)/g) ?? []).length, 2,
       'onPlay and onDifficulty must BOTH use playableChapterId — onDifficulty writes into the ledger of whatever onPlay launches, so they cannot disagree')
     // A VOLUME's availability is decided once, in config.js's titleBookshelf, and arrives as
-    // `vol.unlocked` — so volHtml has no gate of its own to get wrong. Five sites remain, and the
-    // fifth is easy to forget: paintRoom washes the room in the selected chapter's own colour, and
-    // a LOCKED chapter must tint nothing, or the shelf hands out the palette of a chapter it is
-    // otherwise careful not to name.
-    assert.strictEqual((uiSrc.match(/chapterAvailable\(meta, /g) ?? []).length, 5,
-      'ui.js must gate the detail head, the Play button, the brief, the volume tap and the room tint on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
+    // `vol.unlocked` — so volHtml has no gate of its own to get wrong. Six sites remain, and the
+    // last two are easy to forget: paintRoom washes the room in the selected chapter's own colour,
+    // and a LOCKED chapter must tint nothing, or the shelf hands out the palette of a chapter it is
+    // otherwise careful not to name; and the shop's book tab (v7.x) has to LAND on a chapter, so an
+    // ungated pick would drop browseChapterId onto a locked one and the title screen you return to
+    // would show "???" over a dead Play button.
+    assert.strictEqual((uiSrc.match(/chapterAvailable\(meta, /g) ?? []).length, 6,
+      'ui.js must gate the detail head, the Play button, the brief, the volume tap, the room tint and the shop book tab on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
     // ...and the one that MOVED must actually be there, or every volume shelves as a playable spine.
     assert.ok(/unlocked: chapterAvailable\(meta, id\)/.test(configSrc),
       'titleBookshelf no longer decides volume availability with chapterAvailable — a WIP chapter would shelve as a playable spine')
@@ -4912,6 +4914,48 @@ function runBookProgression() {
     assert.deepStrictEqual(Object.keys(BOOK_UNLOCK_LINES).filter((id) => !arrivable.includes(id)), [],
       'BOOK_UNLOCK_LINES has a row for a book nothing can unlock — dead copy that run XX will still demand French for')
     console.log(`PASS run BP.q2 (book-unlock badge): ${arrivable.length} arrivable book(s) [${arrivable.join(' ')}] all have a {n} line, wired through main.js -> ui.js -> styles.css`)
+  }
+
+  // (q3) The two places a BOOK is a thing the player can see and choose. Both are source-text
+  // lints because the suite can import neither ui.js nor styles.css, and both guard a failure that
+  // is SILENT on screen rather than a throw.
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+    // The shop is one screen serving one shop PER BOOK — separate purse, separate levels, and
+    // Undertow has three lines book 1 does not. Until v7.x the only sign of that was the book's
+    // name in grey text, and the only way to change books was to leave, tap a spine and come back.
+    assert.ok(/data-book="\$\{s\.book\}"/.test(uiSrc),
+      'the shop header must emit a data-book tab per book — without it the screen silently serves whichever book the title carousel last settled on, with no way to switch and nothing saying which')
+    assert.ok(/if \(el\.dataset\.book !== undefined\)/.test(uiSrc),
+      'a data-book tab with no click branch is a button that does nothing — the tabs would render and the shop would never change')
+    assert.ok(/const books = titleBookshelf\(meta\)\.filter\(/.test(uiSrc),
+      'the tabs must come from titleBookshelf, not BOOK_ORDER — that is the one place the WIP gate lives, and a tab for a book whose shelf is hidden announces the book the shelf is careful not to')
+    // The tab must not persist meta.chapter: switching purses to compare prices is browsing.
+    const tabBranch = uiSrc.slice(uiSrc.indexOf("if (el.dataset.book !== undefined)"), uiSrc.indexOf("if (el.dataset.book !== undefined)") + 500)
+    assert.ok(!/hooks\.onChapter/.test(tabBranch),
+      'the shop book tab must not call onChapter — comparing two books\' prices would overwrite the chapter you last chose to PLAY, moving the ribbon on the shelf behind your back')
+    assert.ok(/\.book-tab\s*\{/.test(css) && /\.book-tab--on\s*\{/.test(css),
+      'the book tabs need both a rule and a selected rule — with only one, every book looks equally current and the tab strip says nothing')
+
+    // A clipped shelf and a short shelf look identical. What overflows first is a shelf-board's
+    // brass plate, which is the ONLY place a Book's name and star total are written — that is the
+    // bug this pair was written for (Book 2 sat unlabelled below the fold on a 410x745 phone).
+    assert.ok(/bc\.scrollHeight - bc\.clientHeight > 2/.test(uiSrc),
+      'the bookcase fade must be toggled from a MEASUREMENT — gating it on the number of books was wrong at both ends: two books overflow a 375x667 phone with no fade, three fit a tall screen and would get one over nothing')
+    assert.ok(/addEventListener\('resize', markBookcaseScroll\)/.test(uiSrc),
+      'the fade must be re-measured on resize — rotation changes the answer and nothing else re-renders the title')
+    assert.ok(/\.bookcase--more\s*\{/.test(css), '.bookcase--more has no rule, so the class toggles nothing and the shelf clips silently again')
+    assert.ok(/scroll-snap-align: end/.test(css),
+      'the etage must snap on its END — a shelf snapped by its top parks its brass plate under the fold, which is the exact thing being fixed')
+
+    // The panel is a SPREAD. Stacked it was 255px of a 745px phone and the case overflowed by 33.
+    assert.ok(/class="page page--verso"/.test(uiSrc) && /class="page page--recto"/.test(uiSrc),
+      'titleBelowHtml must render two pages — the stacked panel is what pushed the second shelf out of the case')
+    assert.ok(/\.page--recto \.diff-pip \{[^}]*flex: 1 1 0/.test(css),
+      'the difficulty pips must DIVIDE the recto rather than be sized in px — a fixed 34px pip is 170px of a 168px page, and five of them wrapped the panel TALLER than the stack it replaced')
+    console.log(`PASS run BP.q3 (book navigation): shop book tabs gated by titleBookshelf and browse-only, bookcase fade measured not counted, ${['verso', 'recto'].length}-page spread with flex pips`)
   }
 
   // (r) nextBook was imported for the finding above and had NO direct coverage of its own —
