@@ -43,7 +43,7 @@
 //
 // The tuning block below is now a READOUT of config.js, not a parallel set of knobs: the pool it
 // measures is the shipped one. Override a line there to try a value before touching config.js.
-import { createRun } from '../src/state.js'
+import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim, applyChoice, anomalyWeightFor, buildLevelUpChoices } from '../src/sim.js'
 import * as C from '../src/config.js'
 
@@ -170,13 +170,23 @@ const COUNT_MOD = {
 // encode that; --shop=N overrides.
 const SHOP_LV = Number(args.find((a) => a.startsWith('--shop='))?.slice(7) ??
   (SLOTS >= 4 ? 2 : SLOTS === 3 ? 6 : 8))
-const makeMeta = () => ({
-  coins: 0,
-  shop: Object.fromEntries(Object.keys(C.SHOP).map((id) => [id, Math.min(SHOP_LV, C.MAX_SHOP_LEVEL)])),
-  best: { time: 0, kills: 0 },
-  runs: 0,
-  choiceSlots: SLOTS,
-})
+// Probe metas are hand-built and never pass through loadMeta, so they must construct the book
+// shape the same way the game does. CHAPTER picks the book once (a single invocation only ever
+// measures one chapter), and --shop=N has to land in THAT book's purse: book1's shop lives on
+// `meta` itself (ensureBookMeta returns meta for it and never builds meta.shop), while every other
+// book's shop lives at meta.books[id].shop, built fresh at 0 by ensureBookMeta. A flat
+// `Object.keys(C.SHOP)` write only ever reached the first of those, so --shop=N against an Undertow
+// chapter was a silent no-op.
+const BOOK_ID = C.bookOf(CHAPTER) ?? C.BOOK_ORDER[0]
+const makeMeta = () => {
+  const meta = { coins: 0, shop: {}, best: { time: 0, kills: 0 }, runs: 0, choiceSlots: SLOTS, chapters: {} }
+  ensureChapterMeta(meta, CHAPTER)
+  meta.chapters[CHAPTER].unlocked = true
+  const bm = ensureBookMeta(meta, BOOK_ID)
+  for (const id of Object.keys(C.shopLines(BOOK_ID))) bm.shop[id] = Math.min(SHOP_LV, C.MAX_SHOP_LEVEL)
+  bm.choiceSlots = SLOTS
+  return meta
+}
 
 const rarityMult = (r) => C.RARITIES[r]?.mult ?? 1
 
@@ -300,6 +310,8 @@ function measure() {
     // proposed-vs-proposed comparisons legible at all.
     Math.random = mulberry32(0x5eed + n * 7919)
     const run = createRun(makeMeta(), { chapter: CHAPTER, difficulty: DIFF })
+    // createRun(meta, opts) takes an OPTIONS OBJECT — a positional call silently gives body at d1.
+    if (n === 0 && run.chapter !== CHAPTER) { console.error(`ABORT: asked for ${CHAPTER}, got ${run.chapter}`); process.exit(1) }
     run.choiceSlots = SLOTS
     // --offset=N: enemy HP multiplier applied to the PROPOSED pipeline only, to measure how much
     // clawback neutralises the pool's power gain. enemyHpMul is a live per-spawn knob
@@ -487,7 +499,7 @@ function measure() {
 
 const f1 = (n) => n.toFixed(1)
 function report(r) {
-  console.log(`\n== ${CHAPTER} slots=${SLOTS} runs=${RUNS} policy=${POLICY}` +
+  console.log(`\n== ${CHAPTER} (book ${BOOK_ID}) slots=${SLOTS} shop=${SHOP_LV}/10 runs=${RUNS} policy=${POLICY}` +
     (REROLLS > 0 ? `  rerolls=${REROLLS}/screen (decay ${C.REROLL_RARITY_DECAY}^min(${REROLLS},${C.REROLL_RARITY_CAP}) on \`normal\`)` : ''))
   console.log(`level ${f1(r.level)}  cards/run ${f1(r.cards)}  weaponLvSum ${f1(r.weaponLv)}  coins/run ${f1(r.coins)} (cap ${C.COIN_CAP_PER_RUN})`)
   console.log(`kills/run ${f1(r.kills)} (elites ${f1(r.eliteKills)})  fires/run ${f1(r.fires)} (${f1(r.fires / r.liveT)}/s over ${f1(r.liveT)}s alive)`)
@@ -542,7 +554,7 @@ function fidelity(r) {
 
 function survivalReport(r) {
   const med = (xs) => { if (!xs.length) return NaN; const s = [...xs].sort((x, y) => x - y); return s[s.length >> 1] }
-  console.log(`\n== SURVIVAL (${CHAPTER} slots=${SLOTS} d${DIFF} shop=${SHOP_LV}/10 runs=${RUNS} picks=${POLICY}${OFFSET !== 1 ? ` enemyHP x${OFFSET}` : ''}${XPMUL !== 1 ? ` xpMul x${XPMUL} (= xpForLevel 5+level*${(4 / XPMUL).toFixed(2)})` : ''})`)
+  console.log(`\n== SURVIVAL (${CHAPTER} book=${BOOK_ID} slots=${SLOTS} d${DIFF} shop=${SHOP_LV}/10 runs=${RUNS} picks=${POLICY}${OFFSET !== 1 ? ` enemyHP x${OFFSET}` : ''}${XPMUL !== 1 ? ` xpMul x${XPMUL} (= xpForLevel 5+level*${(4 / XPMUL).toFixed(2)})` : ''})`)
   if (RESHAPED) {
     console.log(`   hpScale tail: START ${LATE_START}s RATE ${LATE_RATE} (shipped ${C.HP_SCALE_LATE_START}s ${C.HP_SCALE_LATE_RATE})`)
     console.log(`   vs shipped -> ` + [120, 150, 180, 210, 240, 270, 300]

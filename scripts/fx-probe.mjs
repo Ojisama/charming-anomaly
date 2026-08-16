@@ -46,6 +46,12 @@
 import { writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
+// Node-side only, for the header print below — this file otherwise never builds a meta itself. It
+// seeds a save via the REAL localStorage + loadMeta() path in-browser (see the bootstrap string
+// below), which is what already keeps it honest about the book shape: loadMeta's own migrations
+// (ensureBookMeta, unlockBook, the meta.lightThief copy-forward) run for real, unlike the other four
+// probes that hand createRun a meta directly and bypass loadMeta entirely.
+import { bookOf } from '../src/config.js'
 
 const argv = process.argv.slice(2)
 const arg = (name, dflt) => {
@@ -64,6 +70,11 @@ const chapter = arg('chapter', 'city')
 const waitMs = +arg('wait', '16000')
 const W = +arg('w', '390')
 const H = +arg('h', '844')
+// Header states what this shot will actually measure — the createRun(meta, opts) options-object
+// trap (CLAUDE.md) silently degrades an unresolvable chapter id to Body at difficulty 1, and this
+// print is what would catch it if bootstrap's seeded `chapter` field were ever wrong. Confirmed
+// again below, against window.__run.chapter, once the page actually boots.
+console.log(`fx-probe: scene=${scenePath} chapter=${chapter} book=${bookOf(chapter) ?? 'book1'} frames=${frames} ${W}x${H}`)
 
 function findChrome() {
   if (process.env.CHROME_HEADLESS_SHELL) return process.env.CHROME_HEADLESS_SHELL
@@ -315,6 +326,12 @@ for (let i = 0; i < Math.ceil(waitMs / 500) + 40; i++) {
   await sleep(500)
 }
 if (!ready) die('scene never became ready — raise --wait, or check that the page reached a run')
+
+// Confirm the run that actually booted is the chapter this shot claims to be — playableChapterId
+// (main.js) or a stale/garbage seed could otherwise have quietly landed on CHAPTER_ORDER[0].
+const actualChapter = await evaluate('window.__run && window.__run.chapter')
+if (actualChapter !== chapter) die(`asked for chapter=${chapter}, but window.__run.chapter=${actualChapter}`)
+console.log(`run.chapter confirmed: ${actualChapter}`)
 
 for (let i = 0; i < frames; i++) {
   await evaluate(`window.__fxScrub(${frames > 1 ? (i / (frames - 1)).toFixed(4) : '0'})`)

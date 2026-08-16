@@ -52,9 +52,9 @@
 // ponytail: seeds and duration are fixed inputs, not a convergence check. Three 300s runs ranks
 // tunings; it does not resolve a 2% difference between two COLD_MUL values.
 
-import { createRun } from '../src/state.js'
+import { createRun, ensureBookMeta } from '../src/state.js'
 import { stepSim, applyChoice } from '../src/sim.js'
-import { SHOP, CHAPTERS } from '../src/config.js'
+import { CHAPTERS, bookOf, shopLines, BOOK_ORDER } from '../src/config.js'
 
 const argv = process.argv.slice(2)
 const arg = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 && argv[i + 1] != null ? argv[i + 1] : d }
@@ -150,22 +150,32 @@ function mulberry32(seed) {
   }
 }
 
-const makeMeta = () => ({
-  coins: 0,
-  shop: Object.fromEntries(Object.keys(SHOP).map((id) => [id, 0])),
-  best: { time: 0, kills: 0 },
-  runs: 0,
-  // Unlock every chapter, exactly as a real save would: with chapters:{} ensureChapterMeta defaults
-  // `unlocked` to body alone and resolveChapterId quietly falls back.
-  chapters: Object.fromEntries(Object.keys(CHAPTERS).map((id) => [id, { unlocked: true, maxDifficulty: 5 }])),
-})
+// --chapters can list chapters from more than one book in a single invocation, so the book has to
+// be resolved PER CHAPTER rather than once — hand-built meta never passes through loadMeta, so it
+// has to build each book's shop shape itself: ensureBookMeta returns `meta` for book1 but a fresh
+// meta.books[id] for every other book, and only shopLines(bookId) knows that book's own lines.
+// All zero here (no shop knob on this probe), but built the honest way regardless.
+const makeMeta = (chapter) => {
+  const meta = {
+    coins: 0,
+    shop: {},
+    best: { time: 0, kills: 0 },
+    runs: 0,
+    // Unlock every chapter, exactly as a real save would: with chapters:{} ensureChapterMeta defaults
+    // `unlocked` to body alone and resolveChapterId quietly falls back.
+    chapters: Object.fromEntries(Object.keys(CHAPTERS).map((id) => [id, { unlocked: true, maxDifficulty: 5 }])),
+  }
+  const bm = ensureBookMeta(meta, bookOf(chapter) ?? BOOK_ORDER[0])
+  for (const id of Object.keys(shopLines(bookOf(chapter) ?? BOOK_ORDER[0]))) bm.shop[id] = 0
+  return meta
+}
 
 // One run. Returns a per-enemy trace: every HP removal, with the enemy's identity.
 // Immortal + accepting level-ups: the question is "how much damage does a real build put into an
 // enemy", so the player must keep levelling and must not die and cut the run short.
 function trace(chapter, seed) {
   Math.random = mulberry32(seed)
-  const run = createRun(makeMeta(), { chapter, difficulty: DIFFICULTY })
+  const run = createRun(makeMeta(chapter), { chapter, difficulty: DIFFICULTY })
   if (run.chapter !== chapter) throw new Error(`asked for ${chapter}, got ${run.chapter}`)
   run.player.maxHP = run.player.hp = 1e9
 
@@ -278,7 +288,7 @@ for (const chapter of CHAPTERS_ARG) {
   const fracs = evs.map((e) => e.frac).sort((a, b) => a - b)
   const big = evs.filter((e) => e.frac >= 0.25).length
 
-  console.log(`== ${chapter} ==  ${evs.length} damage events over ${SEEDS.length} runs`)
+  console.log(`== ${chapter} (book ${bookOf(chapter) ?? BOOK_ORDER[0]}) ==  ${evs.length} damage events over ${SEEDS.length} runs`)
   console.log(`   per-event share of maxHP: median ${(fracs[fracs.length >> 1] ?? 0).toFixed(4)}  p95 ${(fracs[Math.floor(fracs.length * 0.95)] ?? 0).toFixed(4)}  max ${(fracs[fracs.length - 1] ?? 0).toFixed(3)}`)
   // A single event removing >=25% of an enemy's own max HP is the signature of a maxHP-PROPORTIONAL
   // source -- city traffic and garden's mower deal e.maxHP * 0.5, the pounce trap 0.25. Those

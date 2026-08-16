@@ -51,9 +51,9 @@
 // ponytail: seeds and duration are fixed inputs, not a convergence check — five 240s runs is
 // enough to rank weapons but not to resolve a 3% balance difference. Raise --seeds if you need that.
 
-import { createRun } from '../src/state.js'
+import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim } from '../src/sim.js'
-import { SHOP, WEAPONS, CHAPTERS } from '../src/config.js'
+import { WEAPONS, CHAPTERS, bookOf, shopLines, BOOK_ORDER } from '../src/config.js'
 
 const argv = process.argv.slice(2)
 const arg = (name, dflt) => {
@@ -83,18 +83,25 @@ function mulberry32(seed) {
   }
 }
 
+// Hand-built meta, never through loadMeta, so it must go through the real book accessors —
+// ensureBookMeta returns `meta` itself for book1 but a fresh meta.books[id] for every other book,
+// and only shopLines(bookId) knows that book's own shop lines (Undertow's deepLungs/slowBurn/
+// bigGulp). All zero here (no --shop flag on this probe), but built the honest way regardless.
+const BOOK_ID = bookOf(CHAPTER) ?? BOOK_ORDER[0]
 function makeMeta() {
-  return {
-    coins: 0,
-    shop: Object.fromEntries(Object.keys(SHOP).map((id) => [id, 0])),
-    best: { time: 0, kills: 0 },
-    runs: 0,
-  }
+  const meta = { coins: 0, shop: {}, best: { time: 0, kills: 0 }, runs: 0, chapters: {} }
+  ensureChapterMeta(meta, CHAPTER)
+  meta.chapters[CHAPTER].unlocked = true
+  const bm = ensureBookMeta(meta, BOOK_ID)
+  for (const id of Object.keys(shopLines(BOOK_ID))) bm.shop[id] = 0
+  return meta
 }
 
 function census(id, level, seed) {
   Math.random = mulberry32(seed)
   const run = createRun(makeMeta(), { chapter: CHAPTER, difficulty: DIFFICULTY })
+  // createRun(meta, opts) takes an OPTIONS OBJECT — a positional call silently gives body at d1.
+  if (run.chapter !== CHAPTER) { console.error(`ABORT: asked for ${CHAPTER}, got ${run.chapter}`); process.exit(1) }
   // Survival is not what is being measured — a weapon that lets the player die scores its own
   // short run, which reads as "low output" for entirely the wrong reason. (The testVictory idiom.)
   run.player.maxHP = run.player.hp = 1e9
@@ -211,7 +218,7 @@ function census(id, level, seed) {
 
 const pad = (s, n) => String(s).padStart(n)
 
-console.log(`chapter ${CHAPTER}, difficulty ${DIFFICULTY}, ${SECS}s x ${SEEDS.length} seeds, one weapon equipped, all offers refused`)
+console.log(`chapter ${CHAPTER} (book ${BOOK_ID}), difficulty ${DIFFICULTY}, ${SECS}s x ${SEEDS.length} seeds, one weapon equipped, all offers refused`)
 if (CHAPTERS[CHAPTER]?.resource) {
   const res = CHAPTERS[CHAPTER].resource
   // v7.55 §5.3: Humidity (The Surf) is the first resource to declare a `damage` block, so its raw

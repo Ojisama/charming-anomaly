@@ -41,9 +41,9 @@
 // That inversion is deliberate: the census asks what one weapon does and an auto-picked passive is
 // power it did not earn, whereas this asks whether the bar keeps up with a REAL run, and a real run
 // takes cards and kills far more than a starter-only one ever would.
-import { createRun } from '../src/state.js'
+import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim, applyChoice, onSandbar } from '../src/sim.js'
-import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor } from '../src/config.js'
+import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines } from '../src/config.js'
 
 // --chapter <id> (v7.x, run US.c): The Surf shares this same `resource`/refill-circle vocabulary
 // (Humidity, tide pools via the generalised streamShafts) as The Shelf's Light, so the probe reads
@@ -51,6 +51,10 @@ import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScroll
 // 'shelf' unchanged for every call this file already documents.
 const argChapter = process.argv.indexOf('--chapter')
 const CHAPTER = argChapter >= 0 ? process.argv[argChapter + 1] : 'shelf'
+// --shop=N (v7.x, Task 9's Slow Burn gate): the permanent book-shop level, 0..10, same flag
+// spelling as pool-probe.mjs. Task 9 needs to compare Lv0 against Lv10 of Undertow's own lines
+// (deepLungs/slowBurn/bigGulp) — the probe had no way to move that knob before this.
+const SHOP_LV = Number(process.argv.find((a) => a.startsWith('--shop='))?.slice(7) ?? 0)
 const DIFFICULTY = 1
 const DURATION = 300
 const DT = 1 / 60
@@ -63,10 +67,18 @@ const mulberry32 = (a) => () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296
 }
 
-const meta = {
-  coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: CHAPTER, dev: true,
-  chapters: Object.fromEntries(['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond', CHAPTER]
-    .map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: DIFFICULTY }])),
+// Probe metas are hand-built and never pass through loadMeta, so they must construct the book
+// shape the same way the game does — a bare spread of `lightThief` has been a silent no-op since
+// the unlock moved into books[b].unlocks (see state.js's killRefill snapshot at createRun).
+const bookOfChapter = bookOf(CHAPTER)
+function probeMeta({ thief = false, shopLevel = SHOP_LV } = {}) {
+  const meta = { coins: 0, shop: {}, choiceSlots: 2, best: {}, runs: 0, chapters: {}, dev: true }
+  ensureChapterMeta(meta, CHAPTER)
+  meta.chapters[CHAPTER].unlocked = true
+  const bm = ensureBookMeta(meta, bookOfChapter)
+  if (thief) bm.unlocks.lightThief = true
+  for (const id of Object.keys(shopLines(bookOfChapter))) bm.shop[id] = shopLevel
+  return meta
 }
 
 const res = CHAPTERS[CHAPTER].resource
@@ -176,7 +188,7 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
   for (let r = 0; r < RUNS; r++) {
     const orig = Math.random
     Math.random = mulberry32(1234 + r * 7919)
-    const run = createRun({ ...meta, lightThief: thief }, { chapter: CHAPTER, difficulty: DIFFICULTY })
+    const run = createRun(probeMeta({ thief }), { chapter: CHAPTER, difficulty: DIFFICULTY })
     if (run.chapter !== CHAPTER) { console.error(`ABORT: asked for ${CHAPTER}, got ${run.chapter}`); process.exit(1) }
 
     let inShaft = 0, steps = 0, pulses = 0, charged = 0, atZero = 0, atMax = 0, armed = 0
@@ -235,7 +247,7 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
 }
 
 const avg = (rows, k) => rows.reduce((a, x) => a + x[k], 0) / rows.length
-console.log(`chapter=${CHAPTER} difficulty=${DIFFICULTY} ${DURATION}s x ${RUNS} seeded runs, immortal + kiting`)
+console.log(`chapter=${CHAPTER} book=${bookOfChapter} difficulty=${DIFFICULTY} shop=Lv${SHOP_LV}/10 ${DURATION}s x ${RUNS} seeded runs, immortal + kiting`)
 console.log(`resource: drain ${res.drain}/s  refill ${res.refill}/s in-refill-circle  kill +${res.killRefill} (Light Thief only)  max ${res.max}`)
 if (res.dark) {
   console.log(`dark:     below ${(res.dark.from * 100).toFixed(0)}/${res.max} the screen dims (to alpha ${res.dark.dim}) and you slow (to x${res.dark.speedFloor}), linearly to empty`)
