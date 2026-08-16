@@ -5992,6 +5992,35 @@ export function createRenderer(app) {
       g.beginPath().moveTo(-7, 2).lineTo(2, -5).stroke({ width: 1.1, color: 0x474d55, alpha: 0.5 })
       T.rockChunk = bake(g)
     }
+    {
+      // Net Toss in flight (trawl, run.lobs with `snare`). A GATHERED BUNDLE, not a spread mesh:
+      // it is a net that has been balled up and thrown, and it opens only where it lands. Drawn
+      // from directly overhead like everything else in this file that is not a building.
+      // WARM, because the wall it is borrowed from is cold — see GEAR_VIS by updateGear for why
+      // the player's own gear may never share the trawl wall's palette.
+      const g = new Graphics()
+      const pts = []
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2
+        const rr = 13 * (0.74 + hash(i * 3.71 + 8.9) * 0.42)
+        pts.push(Math.cos(a) * rr, Math.sin(a) * rr)
+      }
+      g.poly(pts).fill(0x8a5220).stroke({ width: 1.6, color: 0xf0a94a })
+      // Twine over the bundle: a few chords, so it reads as MESH at 13px rather than as a sack.
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI
+        g.beginPath()
+          .moveTo(Math.cos(a) * -11, Math.sin(a) * -11)
+          .lineTo(Math.cos(a) * 11, Math.sin(a) * 11)
+          .stroke({ width: 1, color: 0xf0a94a, alpha: 0.75 })
+      }
+      // Sinkers around the rim — the weights that make it drop and the reason it holds.
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 + 0.4
+        g.circle(Math.cos(a) * 12, Math.sin(a) * 12, 2.4).fill(0xf25f3a)
+      }
+      T.tossNet = bake(g)
+    }
     // ---- voxel boulder (hills district, skies — v5.9.1 art experiment) ------------------------
     // "the 'rocks'?? asset is just ugly" (playtest report). T.rockChunk right above is kept EXACTLY
     // as-is — it still does its other job (run.lobs, the kaiju's thrown masonry) untouched — this
@@ -8122,6 +8151,12 @@ export function createRenderer(app) {
   // Neither is a pool: clearing them IS the reset, the same idiom breathG uses (see clearWorld).
   const netWakeG = new Graphics()
   const netG = new Graphics()
+  // The player's own gear, and it sits beside netG ABOVE the crowd for exactly the reason netG
+  // does: a net drawn under the bodies it has caught reads as something lying on the bottom, which
+  // is the opposite of "you are held by this". Same idiom again — not pools; clearing them IS the
+  // between-run reset (see clearWorld).
+  const longlineG = new Graphics()
+  const snareG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
@@ -8129,7 +8164,7 @@ export function createRenderer(app) {
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
-    enemyShadowLayer, enemyLayer, enemyCrownLayer, netG,
+    enemyShadowLayer, enemyLayer, enemyCrownLayer, netG, longlineG, snareG,
     bloomLayer, lureLayer, shieldG, affixLayer, crustG, lockLayer, playerC, breakerG, splashG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
@@ -10318,6 +10353,137 @@ export function createRenderer(app) {
           netG.moveTo(edge, y).lineTo(edge + (edge === a ? -1 : 1) * (6 + (k & 1) * 7), y * 0.82)
             .stroke({ width: 2, color: NET_VIS.torn, alpha: 0.9, cap: 'round' })
         }
+      }
+    }
+  }
+
+  // ---- The Trawl's own gear: Longline (run.longlines) and Net Toss's landed mesh ---------------
+  //
+  // ⚠ THE PLAYER'S GEAR IS WARM AND THE WALL IS COLD, and that is the whole reason this does not
+  // reuse NET_VIS one screen away from it. Both objects are literally fishing nets and one of them
+  // kills you on contact — if they share a palette, the player's own fence reads as an incoming
+  // wall every time it is set, in a chapter whose entire skill is knowing where the wall is. The
+  // chapter's floor and the wall are the cold half of the frame; amber and hot orange appear here
+  // and nowhere else in it, so anything warm on screen is unambiguously YOURS.
+  const GEAR_VIS = {
+    rope: 0xe8963c, ropeDark: 0x8a5218,   // the set line, and its weighted under-stroke
+    hook: 0xffd98a,                        // the hooks — the brightest thing in the chapter
+    float: 0xf25f3a,                       // floats and sinkers, the one saturated red
+    mesh: 0xf0a94a, meshFill: 0x7a4517,    // a thrown net's twine and the water it darkens
+    snood: 26,                             // px between hooks along a set line
+    floatGap: 96,                          // px between floats
+    fade: 0.7,                             // s of fade-out at the end of a line's life
+  }
+
+  // Landed Net Toss meshes. RENDER-LOCAL and aged here, because the sim keeps no entity after the
+  // throw lands — the hold lives on the enemies as `stunT` and nothing else survives the frame. A
+  // fixed ring buffer, the `whips` idiom: no allocation per cast and an automatic ceiling on how
+  // much mesh can be on screen at once.
+  const MAX_SNARES = 10
+  const snares = []
+  for (let i = 0; i < MAX_SNARES; i++) snares.push({ live: false, x: 0, y: 0, r: 0, t: 0, dur: 1 })
+  let snareCursor = 0
+  function pushSnare(x, y, r, dur) {
+    const s = snares[snareCursor]
+    snareCursor = (snareCursor + 1) % MAX_SNARES
+    s.live = true; s.x = x; s.y = y; s.r = r; s.t = 0
+    // The mesh is drawn for as long as the hold it bought. `hold` is the pre-diminishing-returns
+    // figure the weapon casts with, so a heavily-resisted pack is released before the drawing
+    // finishes — deliberately: the tell is "a net landed here", not a per-body status readout,
+    // and each body already carries the stun pose render reads off `stunT`.
+    s.dur = Math.max(0.2, dur)
+  }
+
+  // Both shapes, redrawn from scratch every frame. dt=0 (paused behind a modal) ages nothing but
+  // still draws, so a frozen frame keeps its gear — the same rule the particles follow.
+  function updateGear(run, dt) {
+    longlineG.clear()
+    snareG.clear()
+
+    for (const l of run.longlines || []) {
+      // (nx, ny) is the NORMAL, so the rope itself runs along its perpendicular. Getting this pair
+      // the wrong way round draws every line at 90 degrees to the thing that is actually damaging,
+      // which looks entirely plausible until a body dies beside the rope instead of on it.
+      const ax = -l.ny, ay = l.nx
+      const h = l.len / 2
+      const x0 = l.x - ax * h, y0 = l.y - ay * h
+      const x1 = l.x + ax * h, y1 = l.y + ay * h
+      const fade = Math.min(1, Math.max(0, l.life / GEAR_VIS.fade))
+      // The weighted under-stroke first, then the line over it: two passes make a rope read as
+      // having thickness without a gradient, and the dark pass is what keeps it legible when it
+      // crosses a pale patch of floor.
+      //
+      // ⚠ THESE WIDTHS ARE THE DIFFERENCE BETWEEN A ROPE AND A GIRDER, and the first shot got it
+      // wrong. At 5.5/2.4px and alpha 0.95 the line drew as a solid orange BAR spanning the screen
+      // — opaque, saturated, and heavier than anything else in the frame — which is exactly the
+      // "reads as a laser" failure the snoods below exist to prevent, arriving through the main
+      // stroke instead. Thin and slightly translucent is what makes it gear lying in water: the
+      // floor has to show through it, or it is a painted line on top of the world.
+      longlineG.moveTo(x0, y0).lineTo(x1, y1)
+        .stroke({ width: 3.6, color: GEAR_VIS.ropeDark, alpha: 0.42 * fade, cap: 'round' })
+      longlineG.moveTo(x0, y0).lineTo(x1, y1)
+        .stroke({ width: 1.5, color: GEAR_VIS.rope, alpha: 0.8 * fade, cap: 'round' })
+      // Snoods: the short branch lines that carry the hooks, alternating sides down the rope. This
+      // is what makes it a LONGLINE from overhead rather than a piece of string — a bare segment
+      // reads as a laser, which is the one thing this weapon must not look like.
+      const n = Math.max(2, Math.floor(l.len / GEAR_VIS.snood))
+      for (let i = 0; i <= n; i++) {
+        const t = i / n
+        const px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t
+        const s = (i & 1) ? 1 : -1
+        const len = 7 + (i % 3) * 2
+        const hx = px + l.nx * s * len, hy = py + l.ny * s * len
+        longlineG.moveTo(px, py).lineTo(hx, hy)
+          .stroke({ width: 1.2, color: GEAR_VIS.rope, alpha: 0.7 * fade, cap: 'round' })
+        longlineG.circle(hx, hy, 2.1).fill({ color: GEAR_VIS.hook, alpha: 0.95 * fade })
+      }
+      // Floats, spaced in WORLD px rather than per line, so a long line gets more of them and the
+      // spacing is a property of the gear instead of a property of the level.
+      const fn = Math.max(1, Math.round(l.len / GEAR_VIS.floatGap))
+      for (let i = 0; i <= fn; i++) {
+        const t = fn === 0 ? 0.5 : i / fn
+        const px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t
+        longlineG.circle(px, py, 3.4).fill({ color: GEAR_VIS.float, alpha: 0.9 * fade })
+        longlineG.circle(px, py, 3.4).stroke({ width: 1, color: 0x3a1a08, alpha: 0.5 * fade })
+      }
+    }
+
+    for (const s of snares) {
+      if (!s.live) continue
+      s.t += dt
+      if (s.t >= s.dur) { s.live = false; continue }
+      // ⚠ BOTH ENVELOPES ARE FIXED TIMES, NOT FRACTIONS OF THE HOLD, and the first cut had them as
+      // fractions (open over the first 12% of life, fade over the last 30%). That is a bug with a
+      // mod attached to it: Heavy Mesh buys a LONGER hold, and under fractional envelopes a longer
+      // hold made the net OPEN IN SLOW MOTION — the better the card, the more sluggish the weapon
+      // looked. A net opens as fast as a net opens, whatever it then holds for. Found by shooting
+      // an inflated hold to photograph the fresh state and getting a tiny half-drawn mesh back.
+      const OPEN_T = 0.14, FADE_T = 0.35
+      const open = Math.min(1, s.t / OPEN_T)
+      const a = open * Math.min(1, Math.max(0, (s.dur - s.t) / FADE_T))
+      const r = s.r * (0.35 + 0.65 * open)
+      // ⚠ THE MESH ALPHAS ARE LOAD-BEARING and the first shot had them far too low (fill 0.22,
+      // rings 0.55, radials 0.42). A net over a pack IS the whole card, and at those values it was
+      // barely findable in its own probe frame — a hold with no visible cause reads as the enemies
+      // randomly stopping, which is the "mechanic with no tell" failure this repo has shipped
+      // before. It has to be the second most obvious thing on screen after the wall.
+      snareG.circle(s.x, s.y, r).fill({ color: GEAR_VIS.meshFill, alpha: 0.38 * a })
+      // Concentric rings + radials: a net seen from directly overhead, which is a web, not a dome.
+      for (let i = 1; i <= 3; i++) {
+        snareG.circle(s.x, s.y, r * (i / 3.4))
+          .stroke({ width: 1.6, color: GEAR_VIS.mesh, alpha: 0.85 * a })
+      }
+      for (let i = 0; i < 10; i++) {
+        const ang = (i / 10) * Math.PI * 2
+        snareG.moveTo(s.x, s.y).lineTo(s.x + Math.cos(ang) * r, s.y + Math.sin(ang) * r)
+          .stroke({ width: 1.3, color: GEAR_VIS.mesh, alpha: 0.65 * a })
+      }
+      // The weighted rim is what says "this is closed and you are inside it".
+      snareG.circle(s.x, s.y, r).stroke({ width: 2.6, color: GEAR_VIS.rope, alpha: 0.8 * a })
+      for (let i = 0; i < 8; i++) {
+        const ang = (i / 8) * Math.PI * 2 + 0.2
+        snareG.circle(s.x + Math.cos(ang) * r, s.y + Math.sin(ang) * r, 2.8)
+          .fill({ color: GEAR_VIS.float, alpha: 0.85 * a })
       }
     }
   }
@@ -13360,9 +13526,13 @@ export function createRenderer(app) {
     const shadow = spriteOf(T.playerShadow)
     shadow.tint = 0x000000
     const chunk = spriteOf(T.rockChunk)
-    root.addChild(shadow, chunk)
+    // Two payloads share this rig: the kaiju's masonry and the Trawl's thrown net. One sprite each
+    // and a visibility swap, rather than two pools — the flight, the parabola and the shadow are
+    // identical and are the whole reason run.lobs was reused for Net Toss in the first place.
+    const net = spriteOf(T.tossNet)
+    root.addChild(shadow, chunk, net)
     lobLayer.addChild(root)
-    return { root, shadow, chunk }
+    return { root, shadow, chunk, net }
   }
   let lobCount = 0
   function syncLobs(run) {
@@ -13380,10 +13550,21 @@ export function createRenderer(app) {
       lv.root.position.set(gx, gy)
       lv.shadow.position.set(0, 0)
       lv.shadow.alpha = 0.1 + 0.2 * (1 - hop / 160)
-      lv.shadow.scale.set((lb.r / PLAYER.radius) * 0.5 * (1 - 0.3 * (hop / 160)))
-      lv.chunk.position.set(0, -hop)
-      lv.chunk.rotation = k * 9 + i
-      lv.chunk.scale.set((lb.r || 20) / 12)
+      // The shadow tracks the THROWN OBJECT, not the landing radius — for a net those are different
+      // numbers (a 13px bundle that opens to 142px), and using r here painted a shadow the size of
+      // the whole detonation under a ball in mid-air.
+      const shadowR = lb.snare > 0 ? 14 : lb.r
+      lv.shadow.scale.set((shadowR / PLAYER.radius) * 0.5 * (1 - 0.3 * (hop / 160)))
+      // Which payload. A net TUMBLES more slowly than a rock and is scaled off its own bundle size
+      // rather than off `r` — r is where it will OPEN, not how big the thrown ball is, and scaling
+      // a 13px bundle to a 142px radius fills the screen with one sprite.
+      const isNet = lb.snare > 0
+      const body = isNet ? lv.net : lv.chunk
+      lv.chunk.visible = !isNet
+      lv.net.visible = isNet
+      body.position.set(0, -hop)
+      body.rotation = isNet ? k * 3.4 + i : k * 9 + i
+      body.scale.set(isNet ? 1 : (lb.r || 20) / 12)
     }
     for (let i = list.length; i < lobCount; i++) lobPool[i].root.visible = false
     lobCount = list.length
@@ -14604,9 +14785,21 @@ export function createRenderer(app) {
           addShake(2, 0.1)
           break
         case 'toss':
-          // debris toss: the lobs themselves are visible entities (syncLobs) — the event only
-          // kicks the screen so the throw has weight
+          // debris toss AND net toss: the lobs themselves are visible entities (syncLobs) — the
+          // event only kicks the screen so the throw has weight
           addShake(1.5, 0.08)
+          break
+        case 'longline':
+          // The line itself is drawn from run.longlines every frame (updateGear), because it
+          // persists — the event is only the moment of paying it out.
+          addShake(1.2, 0.07)
+          break
+        case 'snare':
+          // The landed mesh has no sim entity behind it (the hold lives on each body as `stunT`),
+          // so THIS is where the drawing is born — see pushSnare. The kick scales with the catch:
+          // a net over five bodies should land harder than one that closed on empty water.
+          pushSnare(e.x, e.y, e.radius, e.hold)
+          addShake(e.caught > 0 ? 2.6 : 1.2, e.caught > 0 ? 0.12 : 0.07)
           break
         case 'clawRake':
           // Claw Rake: three parallel gashes (spawnClaw — NOT the whip's swoosh; see there). A
@@ -14762,6 +14955,13 @@ export function createRenderer(app) {
     // hanging over the summary screen and the next chapter.
     netG.clear()
     netWakeG.clear()
+    // The player's gear, same idiom. `snares` is render-local state with no run.* entity behind it,
+    // so unlike run.longlines it does NOT empty itself when the run object is replaced — clearing
+    // the Graphics alone would leave every live slot to redraw its mesh on the next frame of the
+    // next run. The flag is the reset; the Graphics clear only hides the current frame.
+    longlineG.clear()
+    snareG.clear()
+    for (const s of snares) s.live = false
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
@@ -16086,6 +16286,7 @@ export function createRenderer(app) {
     updateEddies(run, dt)
     updateShafts(run)
     updateNet(run)            // v7.x The Trawl: no-op (both Graphics cleared) unless run.net exists
+    updateGear(run, dt)       // v7.97 the Trawl's own gear: set lines + landed Net Toss meshes
     updateSwell(run, dt, cx, cy)
     drawBreakers(run)
     drawCrusts(run)

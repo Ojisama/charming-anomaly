@@ -38,6 +38,7 @@ import {
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
+  LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
   BOOKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
@@ -1377,7 +1378,11 @@ function testAnomalySlate() {
       // "fixture spawned nothing" rather than as a missing patch. That is the CLAUDE.md rename trap
       // in its other direction: a list of QUOTED STRINGS no identifier sweep and no new-weapon
       // checklist can see.
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs']
+      // ⚠ THESE ARE run.* FIELD NAMES AS QUOTED STRINGS, which no rename or identifier sweep can
+      // see — CLAUDE.md documents this exact array as the place `run.geysers` was missed. A weapon
+      // whose output lands in a field absent from here reports "fixture spawned nothing —
+      // untestable", which is this list being out of date and not the weapon being broken.
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines']
       const FX = ['whip', 'clawRake', 'roar', 'tail']
       const spread = (id, weaponId) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
@@ -12578,6 +12583,7 @@ try {
   run(testLaneAxis)
   run(testReefAirBurst)
   run(testTrawlNet)
+  run(testTrawlNatives)
   run(testDevMenu)
   run(testModalPopBookkeeping)
   run(testUndertowLadder)
@@ -16267,6 +16273,312 @@ function testTrawlNet() {
   }
 
   console.log(`PASS run TR (The Trawl's net, Feed and Breach): the wall damages the player AND the crowd, the wake behind it is the only thing that feeds either, Breach cuts a door both sides can use, an empty bar still cuts one, and the warning is ${TRAWL_LEAD_MUL} view radii on every screen`)
+}
+
+// ---- run LG: The Trawl's two natives, Longline and Net Toss ------------------------------------
+// Every case here is written as an EFFECT — HP that moved, a body that stopped, a bullet that did
+// or did not exist — never as "the field I set is set". A scenario asserting that a line was pushed
+// onto run.longlines passes with the whole damage loop deleted.
+//
+// THE PLAYER IS DISARMED IN EVERY CASE THAT MEASURES ENEMY HP (`run.weapons.length = 0` before the
+// weapon under test is equipped). This is not tidiness: the sibling run TR shipped a case captioned
+// "the net kills both sides" that passed with the net's enemy damage MUTATED OUT, because the
+// enemy was quietly being killed by the player's own auto-attacking starter. An assertion that
+// reads the wrong killer is worse than no assertion, because it reports green.
+function testTrawlNatives() {
+  const dt = 1 / 60
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  // A quiet Trawl: no spawns, no wall, nothing but what each case puts on the table. `run.net` is
+  // nulled every step because the chapter's own wall damages enemies too, and a case measuring a
+  // weapon's damage must not be measuring the chapter's.
+  const rig = (weaponId, level = 1, seed = 20260817) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'trawl', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'trawl', 'run LG did not start in The Trawl')
+    run.player.hp = run.player.maxHP = 100000
+    run.mods.spawnMul = 0
+    run.enemies.length = 0
+    run.weapons.length = 0                       // see the block comment above — this is load-bearing
+    if (weaponId) run.weapons.push({ id: weaponId, level })
+    return run
+  }
+  const step = (run, n) => {
+    for (let i = 0; i < n; i++) {
+      run.net = null
+      run._netAcc = 1e9                          // and never let another pass arrive
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+    }
+  }
+  // A body that stands still and cannot fight back, so the only thing that can move its HP is the
+  // weapon under test. maxHP is large enough that nothing here kills it and ends the measurement.
+  let nextId = 90000
+  const dummy = (run, x, y) => {
+    const e = {
+      id: nextId++, x, y, type: 'normal', hp: 100000, maxHP: 100000, radius: 14,
+      speed: 0, dmg: 0, kb: { x: 0, y: 0 }, hitFlash: 0, xp: 1,
+      frozen: 0, chill: 0, venom: 0, ignite: 0, fearT: 0, fearCd: 0, stunT: 0,
+      enrageT: 0, _ccDR: 1, flags: [], affixes: [], bloomSlowT: 0,
+    }
+    run.enemies.push(e)
+    return e
+  }
+
+  // ⚠ THE AIM IS DECIDED BY THE NEAREST ENEMY (surfAim), so any body placed to be measured is also
+  // a body VOTING ON WHERE THE ROPE GOES. The first cut of the cases below placed three targets and
+  // a distant "bait" and assumed the rope ran across the bait's bearing; the nearest target won the
+  // vote instead, the rope was never where the test thought, and TWO mutations survived — an
+  // infinite line and a per-tick lock both measured green. Cast FIRST with one body on the table,
+  // then read the line's real geometry and place targets against it.
+  //
+  // `run.weapons.length = 0` after the cast is the second half: leaving the weapon equipped lets
+  // later casts lay more ropes at new bearings, and a body then dies to a rope the case never
+  // examined.
+  const setLines = (run, expected = 1) => {
+    const bait = dummy(run, 600, 0)
+    for (let i = 0; i < 600 && run.longlines.length < expected; i++) step(run, 1)
+    assert.strictEqual(run.longlines.length, expected,
+      `run LG: expected ${expected} line(s) from one cast, got ${run.longlines.length} — the fire site is not laying what the mod asks for`)
+    run.weapons.length = 0                       // no further casts: the rope under test is the only one
+    run.enemies.length = 0                       // the bait has done its job and must not be measured
+    void bait
+    return run.longlines
+  }
+  // A point `across` px off the rope and `along` px from its centre, in the rope's own frame.
+  const onLine = (l, along, across) => ({
+    x: l.x + (-l.ny) * along + l.nx * across,
+    y: l.y + (l.nx) * along + l.ny * across,
+  })
+
+  // (a) THE LINE HURTS ALONG ITS LENGTH AND STOPS AT ITS ENDS. Three bodies placed in the rope's
+  // OWN frame: on it, clear across it, and past its END but exactly on its axis.
+  //
+  // The third body is the whole point. Dropping the `along` test makes the line INFINITE, and an
+  // infinite line is indistinguishable from a correct one for as long as the crowd happens to sit
+  // in front of the player — which, in a chapter where the crowd chases you, is essentially always.
+  {
+    const run = rig('longline', 5)
+    const [l] = setLines(run)
+    const at = (along, across) => { const p = onLine(l, along, across); return dummy(run, p.x, p.y) }
+    const on = at(l.len * 0.3, 0)                // on the rope, well inside its half-length
+    const beside = at(0, LONGLINE_HALF_W + 90)   // same centre, 90px clear across it
+    const pastEnd = at(l.len / 2 + 120, 0)       // on the rope's LINE, past its end
+    step(run, 180)
+    const lost = (e) => e.maxHP - e.hp
+    assert.ok(lost(on) > 0, 'run LG.a: a body lying on the set line took NO damage — the line does not grind, or the across-test is inverted')
+    assert.strictEqual(lost(beside), 0, `run LG.a: a body ${LONGLINE_HALF_W + 90}px CLEAR of the line took ${lost(beside)} damage — the rope is not a rope, it is a field`)
+    assert.strictEqual(lost(pastEnd), 0,
+      `run LG.a: a body past the line's END took ${lost(pastEnd)} damage — the \`along\` test is missing and the line is INFINITE, which looks correct whenever the crowd is in front of you`)
+    console.log(`PASS run LG.a (the line is a segment): on the rope ${lost(on)}, ${LONGLINE_HALF_W + 90}px beside it ${lost(beside)}, ${Math.round(l.len / 2 + 120)}px along past its end ${lost(pastEnd)}`)
+  }
+
+  // (b) THE CATCH IS ONCE PER BODY PER LINE, NOT PER TICK.
+  //
+  // Counted as APPLICATIONS, not as time held, and that distinction is why the first cut of this
+  // case was worthless. Asserting "the body goes free again" passes with the guard deleted: at
+  // every tick the CC-DR budget has already driven the scale to CC_DR_FLOOR, so a per-tick 0.5s
+  // snag lands as 0.125s against a 0.40s tick and the body IS free in between. The lock the guard
+  // prevents is real but the DR hides its symptom — so count the thing the rule is actually about.
+  {
+    const run = rig('longline', 5)
+    const [l] = setLines(run)
+    const p = onLine(l, 0, 0)
+    const held = dummy(run, p.x, p.y)
+    let applications = 0, prev = 0, peak = 0
+    for (let i = 0; i < 200 && run.longlines.length > 0; i++) {
+      step(run, 1)
+      const s = held.stunT || 0
+      if (s > prev + 1e-9) applications++
+      peak = Math.max(peak, s)
+      prev = s
+    }
+    assert.ok(applications > 0, 'run LG.b: nothing on the rope was ever caught — the snag never fires, and a longline that does not hook is a laser')
+    assert.strictEqual(applications, 1,
+      `run LG.b: one body on one rope was caught ${applications} times — the snag is refreshing per TICK rather than once per line, which is the permanent lock LONGLINE_SNAG's comment exists to prevent`)
+    assert.ok(peak <= LONGLINE_SNAG + 1e-6,
+      `run LG.b: the hold peaked at ${peak.toFixed(2)}s against a ${LONGLINE_SNAG}s snag — it is being scaled up rather than down`)
+    console.log(`PASS run LG.b (the catch is once per line): exactly ${applications} catch over the whole life of one rope, peaking at ${peak.toFixed(2)}s <= ${LONGLINE_SNAG}s`)
+  }
+
+  // (c) TWIN SET LAYS LINES AT DISTINCT POSITIONS. Asserted as positions, never as a count: three
+  // ropes spawned on top of each other satisfy `length === 3` perfectly and render as one rope,
+  // which is the "same hit, bigger" shape that reads on screen as no change at all (CLAUDE.md).
+  {
+    const solo = rig('longline', 5)
+    setLines(solo, 1)
+
+    const twin = rig('longline', 5)
+    twin.weaponMods.longline = { twinSet: 2 }
+    const lines = setLines(twin, 3)
+    const spots = new Set(lines.map((x) => `${Math.round(x.x)},${Math.round(x.y)}`))
+    assert.strictEqual(spots.size, lines.length,
+      `run LG.c: ${lines.length} lines occupy only ${spots.size} distinct positions — the count moved but the spacing divisor did not, so the extra rope is stacked on the first and draws as one`)
+    // And they are spread across the rope's NORMAL (a fence in depth), not smeared along its length.
+    const offs = lines.map((x) => x.x * lines[0].nx + x.y * lines[0].ny).sort((a, b) => a - b)
+    const gap = offs[1] - offs[0]
+    assert.ok(Math.abs(gap - LONGLINE_TWIN_GAP) < 1,
+      `run LG.c: consecutive ropes sit ${gap.toFixed(0)}px apart against a declared gap of ${LONGLINE_TWIN_GAP}px`)
+    console.log(`PASS run LG.c (Twin Set spreads): ${lines.length} lines at ${spots.size} distinct positions, ${gap.toFixed(0)}px apart, against 1 unmodded`)
+  }
+
+  // (d) THE LINE IS SET AND LEFT. It is gear, not an aura: walking away must not bring it along.
+  // The mutation this exists for is anchoring the rope to the player, which is what every other
+  // player-centred weapon in this file does and would look entirely reasonable in review.
+  {
+    const run = rig('longline', 5)
+    const [l] = setLines(run)
+    const at = { x: l.x, y: l.y }
+    const from = { x: run.player.x, y: run.player.y }
+    for (let i = 0; i < 90; i++) { run.net = null; run._netAcc = 1e9; stepSim(run, { x: 1, y: 0 }, dt); run.events.length = 0 }
+    const moved = Math.hypot(run.player.x - from.x, run.player.y - from.y)
+    const drift = Math.hypot(l.x - at.x, l.y - at.y)
+    assert.ok(moved > 200, `run LG.d: the player only travelled ${moved.toFixed(0)}px — the rig cannot tell a set line from a followed one`)
+    assert.ok(run.longlines.includes(l), 'run LG.d: the line expired before the player got clear — raise setDur or shorten the walk')
+    assert.ok(drift < 1,
+      `run LG.d: the line moved ${drift.toFixed(0)}px while the player walked ${moved.toFixed(0)}px — it is anchored to the player, and the whole card is that it is NOT`)
+    console.log(`PASS run LG.d (set and left): the player walked ${moved.toFixed(0)}px and the rope drifted ${drift.toFixed(1)}px`)
+  }
+
+  // (e) NET TOSS HOLDS A GROUP, AND ONLY WHAT IS UNDER IT. "Group" is the claim the card makes over
+  // Pincer, so it is asserted as several bodies held at once from a single throw.
+  {
+    const run = rig('netToss', 5)
+    const stats = WEAPONS.netToss.levels[4]
+    // A tight pack well inside the mesh, and one body far outside any throw's radius.
+    const pack = [dummy(run, 300, 0), dummy(run, 320, 30), dummy(run, 280, -30), dummy(run, 310, -15)]
+    const far = dummy(run, 300, stats.r + 900)
+    let maxHeldAtOnce = 0, farEverHeld = 0
+    for (let i = 0; i < 400; i++) {
+      run.net = null; run._netAcc = 1e9
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      maxHeldAtOnce = Math.max(maxHeldAtOnce, pack.filter((e) => (e.stunT || 0) > 0).length)
+      if ((far.stunT || 0) > 0) farEverHeld++
+    }
+    assert.ok(maxHeldAtOnce >= 3,
+      `run LG.e: at most ${maxHeldAtOnce} of 4 packed bodies were held at once — this is a single-target stun wearing a group hold's name`)
+    assert.strictEqual(farEverHeld, 0, `run LG.e: a body ${stats.r + 900}px from the pack was held on ${farEverHeld} frames — the mesh has no radius`)
+    console.log(`PASS run LG.e (a group hold): ${maxHeldAtOnce} of 4 held by one throw, and nothing ${stats.r + 900}px away ever was`)
+  }
+
+  // (f) THE HOLD IS PRICED BY THE CC BUDGET, AND SOME BODIES CANNOT BE HELD AT ALL.
+  //
+  // ⚠ The obvious version of this case is wrong and was written first: "the SECOND catch on the
+  // same body is shorter than the first". It fails against correct code, because CC_DR_RECOVER is
+  // 2.5s and Net Toss's cadence is 2.35-3.4s — a body caught by consecutive throws has recovered
+  // in between, and a full-strength second hold is the shipped system working exactly as designed
+  // (the DR taxes CADENCE, not weapons). What is actually observable is the two halves below.
+  {
+    // f1: a body whose resistance is already spent is held for LESS. Two runs, one seed, identical
+    // in every way except the state of the target's CC budget when the net lands. Dead if ccScale
+    // is not read at the application site.
+    const holdOn = (spent) => {
+      const run = rig('netToss', 5)
+      const e = dummy(run, 300, 0)
+      if (spent) e._ccDR = CC_DR_FLOOR
+      for (let i = 0; i < 600; i++) {
+        run.net = null; run._netAcc = 1e9
+        // Hold the budget pinned: stepStatuses recovers _ccDR every frame, and the net takes ~0.4s
+        // of flight to arrive, which is long enough to climb most of the way back on its own.
+        if (spent) e._ccDR = CC_DR_FLOOR
+        stepSim(run, { x: 0, y: 0 }, dt)
+        run.events.length = 0
+        if ((e.stunT || 0) > 0) return e.stunT
+      }
+      return 0
+    }
+    const fresh = holdOn(false), taxed = holdOn(true)
+    assert.ok(fresh > 0, 'run LG.f: a body under the mesh was never held at all')
+    assert.ok(taxed > 0, 'run LG.f: a CC-taxed body was never held at all — the floor is not a floor, it is a wall')
+    assert.ok(taxed < fresh - 1e-6,
+      `run LG.f: a body at the CC floor was held for ${taxed.toFixed(2)}s, the same as a fresh one (${fresh.toFixed(2)}s) — the hold ignores ccScale and is priced as if no other control had ever landed`)
+
+    // f2: `anchored` bodies are never held. resistsCC is the affix's whole purpose, and a group
+    // hold that ignored it would make the one card designed to stop the player trivial.
+    const run = rig('netToss', 5)
+    const anchored = dummy(run, 300, 0)
+    anchored.affixes = ['anchored']
+    let everHeld = 0
+    for (let i = 0; i < 400; i++) {
+      run.net = null; run._netAcc = 1e9
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      if ((anchored.stunT || 0) > 0) everHeld++
+    }
+    assert.strictEqual(everHeld, 0, `run LG.f: an 'anchored' body was held on ${everHeld} frames — resistsCC is not consulted and the affix does nothing against this weapon`)
+    assert.ok(anchored.maxHP - anchored.hp > 0, 'run LG.f: the anchored body took no damage either — it was never under a net, so the case proves nothing')
+    console.log(`PASS run LG.f (the hold is priced, and anchored bodies are not): fresh ${fresh.toFixed(2)}s vs CC-floored ${taxed.toFixed(2)}s, and 'anchored' held 0 frames while still taking damage`)
+  }
+
+  // (g) A NET IS NOT A ROCK. Net Toss rides run.lobs, which Debris Toss also uses, and stepLobs
+  // reads `shrapnel` off run.weaponMods once for EVERY lob in the list regardless of which weapon
+  // made it. A build holding both weapons therefore sprays Debris Toss splinters out of the
+  // player's fishing nets unless the snare branch sits ABOVE the shrapnel block. Nothing throws on
+  // this and no other assertion in the suite can see it.
+  {
+    const run = rig('netToss', 5)
+    run.weaponMods.debrisToss = { shrapnel: 6 }  // the mod, without the weapon that earns it
+    dummy(run, 300, 0)
+    let bullets = 0
+    for (let i = 0; i < 400; i++) {
+      run.net = null; run._netAcc = 1e9
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      bullets = Math.max(bullets, run.bullets.length)
+    }
+    assert.strictEqual(bullets, 0,
+      `run LG.g: ${bullets} shrapnel bullet(s) came out of a Net Toss — the snare branch has fallen BELOW the shrapnel block in stepLobs and one weapon is now firing another's mod`)
+    console.log('PASS run LG.g (a net is not a rock): Debris Toss shrapnel at 6 produced 0 bullets from Net Toss')
+  }
+
+  // (h) BOTH STATS REACH THE PAUSE BUILD SHEET. A key in levels[] that is not in STAT_KEYS is
+  // simply ABSENT from the sheet, with no warning — the trap CLAUDE.md documents. `setDur` and
+  // `hold` are both new keys, and both are deliberately not the shared `duration` (labelled
+  // 'Burns for', which is a lie about a rope and about a net).
+  {
+    const run = rig(null)
+    run.weapons.push({ id: 'longline', level: 3 }, { id: 'netToss', level: 3 })
+    const sheet = buildReadout(run)
+    const rowsFor = (id) => (sheet.weapons.find((w) => w.id === id)?.stats ?? []).map((s) => s.key)
+    const lineRows = rowsFor('longline'), netRows = rowsFor('netToss')
+    assert.ok(lineRows.includes('setDur'), `run LG.h: the Longline sheet shows [${lineRows}] — 'setDur' is missing from STAT_KEYS and the player cannot see how long a line lasts`)
+    assert.ok(netRows.includes('hold'), `run LG.h: the Net Toss sheet shows [${netRows}] — 'hold' is missing from STAT_KEYS and the player cannot see the stat the card is sold on`)
+    for (const key of ['setDur', 'hold']) {
+      const label = STAT_KEYS.find((s) => s.key === key)?.label
+      assert.ok(label && label !== 'Burns for', `run LG.h: '${key}' has no label of its own`)
+      assert.ok(FR[label], `run LG.h: the build-sheet label '${label}' has no French — it ships in English on a translated sheet`)
+    }
+    assert.ok(lineRows.length <= 5 && netRows.length <= 5,
+      `run LG.h: ${Math.max(lineRows.length, netRows.length)} stat rows — over the sheet's cap, and the cadence row falls off the bottom`)
+    console.log(`PASS run LG.h (both stats reach the sheet): Longline [${lineRows}], Net Toss [${netRows}], both labelled and translated`)
+  }
+
+  // (i) THE CHAPTER ACTUALLY FIELDS THEM. A weapon can be perfect and unreachable: the pool is a
+  // separate list, and the spec's whole point was that this chapter stop fighting with borrowed
+  // gear. Asserted against the shipped tables rather than a literal, so a later retune moves the
+  // test with the config.
+  {
+    const pool = CHAPTERS.trawl.weapons
+    assert.ok(pool.includes('longline') && pool.includes('netToss'),
+      `run LG.i: The Trawl's pool is [${pool}] — its own natives are not in it`)
+    assert.strictEqual(CHAPTERS.trawl.starter, 'longline', `run LG.i: the starter is '${CHAPTERS.trawl.starter}', not the chapter's own weapon`)
+    // Every weapon in the pool must be offerable, i.e. present in WEAPONS at all.
+    for (const id of pool) assert.ok(WEAPONS[id], `run LG.i: '${id}' is in The Trawl's pool and not in WEAPONS`)
+    // The mod budget the spec sets: ~4 apiece, and cut a weapon rather than invent mods.
+    for (const id of ['longline', 'netToss']) {
+      const n = Object.keys(WEAPON_MODS[id] ?? {}).length
+      assert.ok(n > 0 && n <= 4, `run LG.i: '${id}' carries ${n} mods against the spec's ceiling of 4 — the pool dilutes one invented mod at a time`)
+    }
+    console.log(`PASS run LG.i (the chapter fields them): pool [${pool}], starter '${CHAPTERS.trawl.starter}', ${Object.keys(WEAPON_MODS.longline).length}+${Object.keys(WEAPON_MODS.netToss).length} mods inside the budget`)
+  }
+
+  console.log("PASS run LG (The Trawl's natives): the line is a finite segment that is set and left and catches once per body, and the net holds a group on the CC budget without borrowing another weapon's shrapnel")
 }
 
 // ---- run MT: the in-run controls do not depend on a compatibility click ------------------------

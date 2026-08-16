@@ -166,6 +166,7 @@ import {
   BREAKER_BACKWASH_DMG_FRAC,
   SHELL_RETARGET_R, SHELL_SPLASH_LIFE, SHELL_R,
   BARNACLE_JUMP_R, BARNACLE_FAN, BARNACLE_LARVA_R,
+  LONGLINE_HALF_W, LONGLINE_SNAG, LONGLINE_TWIN_GAP, LONGLINE_MAX_LIVE,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
   BLANK_STANDOFF_MIN, BLANK_STANDOFF_MAX, BLANK_TRAIL_DT, BLANK_TRAIL_MAX,
@@ -5067,6 +5068,12 @@ const WEAPON_STAT_MODS = {
   breaker:       { swell: ['dmg', 'pct'], longshore: ['radius', 'pct'], broadCrest: ['arc', 'pct'] },
   skippingShell: { skimmer: ['dmg', 'pct'], flatStone: ['skips', 'flat'], wideSplash: ['r', 'pct'] },
   barnacles:     { grinder: ['dmg', 'pct'], encrust: ['crustDur', 'pct'], spawnfall: ['count', 'flat'], seedbed: ['jumps', 'flat'] },
+  // The Trawl's two natives. `twinSet` and `doubleHaul` are absent for the reason the block above
+  // gives: they are per-cast COUNTS with no key in levels[], so they are read at the fire site like
+  // hole's `singularity`. Everything else folds, which is also what puts the modified number (not
+  // the base one) on the pause build sheet.
+  longline:      { barbed: ['dmg', 'pct'], longSet: ['length', 'pct'], deepSet: ['setDur', 'pct'] },
+  netToss:       { wideNet: ['r', 'pct'], heavyMesh: ['hold', 'pct'], weighted: ['dmg', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -5197,6 +5204,8 @@ function stepWeapons(run, dt) {
     else if (w.id === 'breaker') stepBreakerWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'skippingShell') stepShellWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'barnacles') stepBarnacleWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'longline') stepLonglineWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'netToss') stepNetTossWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -5211,6 +5220,7 @@ function stepWeapons(run, dt) {
   stepClawSlashes(run, dt)
   stepZones(run, dt)
   stepLobs(run, dt)
+  stepLonglines(run, dt)
   // v7.23 skies. stepDrags moves bodies, so it runs BEFORE the dead sweep below and before
   // stepArcs, whose fork is rebuilt from live positions — a hooked aircraft should already be at
   // its new spot when the breath decides where to jump.
@@ -7701,6 +7711,32 @@ function stepLobs(run, dt) {
     if (lo.t < lo.flight) continue
     lo._done = true
 
+    // A NET TOSS lands here, not a chunk of debris: same flight, a hold instead of a burst.
+    // THIS BRANCH MUST STAY ABOVE THE SHRAPNEL BLOCK BELOW. `shrapnel` is read once off
+    // run.weaponMods for every lob in the list regardless of which weapon made it, so a build
+    // holding Debris Toss and Net Toss together would otherwise spray Debris Toss splinters out of
+    // the player's fishing nets — a cross-weapon leak that nothing throws on and no test would see.
+    if (lo.snare > 0) {
+      const rSq = lo.r * lo.r
+      let caught = 0
+      for (const e of run.enemies) {
+        if (e._dead || isAlly(e)) continue
+        const dx = e.x - lo.tx, dy = e.y - lo.ty
+        if (dx * dx + dy * dy > rSq) continue
+        applyDamage(run, e, lo.dmg)
+        // Through the CC-DR budget like every other control in the game. Without it a rare weapon
+        // holding a whole pack for 1.75s on a 2.6s cadence is a permanent lock, and elites — which
+        // resistsCC exists to protect — would be trivialised by the one card that stops them.
+        if (!e._dead && !resistsCC(e)) {
+          e.stunT = Math.max(e.stunT || 0, lo.snare * ccScale(run, e))
+          spendCC(run, e)
+          caught++
+        }
+      }
+      run.events.push({ type: 'snare', x: lo.tx, y: lo.ty, radius: lo.r, hold: lo.snare, caught })
+      continue
+    }
+
     const rSq = lo.r * lo.r
     for (const e of run.enemies) {
       if (e._dead) continue
@@ -8117,6 +8153,110 @@ function spreadBarnacle(run, host, c) {
     applyBarnacle(run, n.e, { dur: c.dur, dmg: c.dmg, tick: c.tick, jumps: c.jumps - 1 })
     left--
   }
+}
+
+// -- The Trawl's two natives (v7.97) ------------------------------------------------------------
+// Both are the humans' gear pointed back at the water, and between them they do the two jobs the
+// chapter actually needs: keep the pack OFF you, and hold it STILL for the net to arrive into.
+// Neither of them executes, because the chapter's own wall already does that.
+//   longline  a SEGMENT that is set and left — run.longlines, the one new array. Nothing else in
+//             the game is a static line: every other area denial is a disc (holes, mines, zones,
+//             blooms) or a moving front (novas).
+//             ⚠ It is deliberately NOT a swept beam. run.beams already carries `swept`+`rotSpeed`+
+//             `arms` and that IS Pulsar Sweep; a longline rotating about the player would have been
+//             a third rotating rake with a new name on it.
+//   netToss   a thrown GROUP HOLD, riding run.lobs for the flight and adding no array at all (the
+//             `snare` branch in stepLobs). Pincer answers one approach; this stops a pack.
+// Both aim through surfAim — nearest enemy first, facing only as the fallback. A kiting player's
+// heading points AWAY from the swarm, which in this chapter is most of the time, so aiming by
+// facing alone would fire every cast into empty water (fireFlagella's rule, v5.1.2).
+
+function stepLonglineWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => fireLongline(run, stats))
+}
+
+// Sets the line PERPENDICULAR to the aim, `offset` px along it — a fence between the player and the
+// pack. It does not follow the player afterwards and is not anchored to them: it is gear that was
+// set and is left, which is the whole reason the weapon rewards a chapter spent running.
+function fireLongline(run, stats) {
+  const p = run.player
+  const aim = surfAim(run)
+  // (nx, ny) is the line's NORMAL, so it points along the aim and the rope lies across it.
+  const nx = Math.cos(aim), ny = Math.sin(aim)
+  // ONE local for the count, used as both the loop bound AND the spacing divisor below. Written
+  // twice with different values, the extra ropes stack on the first one — and three ropes sharing a
+  // position render identically to one rope, i.e. to no change at all (see the Ipecac orbit bug).
+  const lines = ipecacN(run, 1 + (run.weaponMods.longline?.twinSet ?? 0))
+  for (let i = 0; i < lines; i++) {
+    const d = stats.offset + (i - (lines - 1) / 2) * LONGLINE_TWIN_GAP
+    run.longlines.push({
+      x: p.x + nx * d, y: p.y + ny * d, nx, ny,
+      half: LONGLINE_HALF_W, len: stats.length,
+      dmg: stats.dmg, tick: stats.tick, acc: 0,
+      life: stats.setDur, duration: stats.setDur,
+      snagged: new Set(),
+    })
+  }
+  run.events.push({ type: 'longline', x: p.x, y: p.y, angle: aim, count: lines })
+  // Drops the OLDEST, like ZONE_MAX_LIVE: cutting the newest would eat the cast just made.
+  if (run.longlines.length > LONGLINE_MAX_LIVE) run.longlines = run.longlines.slice(-LONGLINE_MAX_LIVE)
+}
+
+// Ages every set line and grinds whatever is lying across it.
+//
+// The hit test is the net wall's netDist/netAlong pair, in that order: distance ACROSS the rope
+// first (the cheap reject), then distance ALONG it against half the length. Getting the second test
+// wrong is the silent failure here — drop it and the line is infinite, which looks exactly like a
+// correct line as long as the crowd happens to be in front of you.
+function stepLonglines(run, dt) {
+  if (run.longlines.length === 0) return
+  for (const l of run.longlines) {
+    l.life -= dt
+    l.acc += dt
+    const ticks = Math.floor(l.acc / l.tick)
+    if (ticks <= 0) continue
+    l.acc -= ticks * l.tick
+    const halfLen = l.len / 2
+    for (const e of run.enemies) {
+      if (e._dead || isAlly(e)) continue
+      const dx = e.x - l.x, dy = e.y - l.y
+      const across = dx * l.nx + dy * l.ny
+      if (Math.abs(across) > l.half + e.radius) continue
+      const along = dx * -l.ny + dy * l.nx
+      if (Math.abs(along) > halfLen) continue
+      applyDamage(run, e, l.dmg * ticks)
+      // THE CATCH — once per body per THIS line, never per tick. LONGLINE_SNAG (0.5s) against a
+      // 0.40s tick is longer than the interval between applications, so a per-tick refresh is a
+      // permanent lock: the fence would stop being a fence and become an invulnerability field.
+      // Buying more catches is what Twin Set is for.
+      if (!e._dead && !l.snagged.has(e.id) && !resistsCC(e)) {
+        l.snagged.add(e.id)
+        e.stunT = Math.max(e.stunT || 0, LONGLINE_SNAG * ccScale(run, e))
+        spendCC(run, e)
+      }
+    }
+  }
+  run.longlines = run.longlines.filter((l) => l.life > 0)
+}
+
+// Net Toss. The throw is a run.lobs entry carrying `snare` — see the branch at the top of stepLobs
+// for the landing, and state.js's lobs[] doc for why that branch sits ABOVE the shrapnel block.
+function stepNetTossWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  const nets = ipecacN(run, 1 + (run.weaponMods.netToss?.doubleHaul ?? 0))
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
+    for (let i = 0; i < nets; i++) {
+      // pickBloomSpot lands on a real body when there is one in range and scatters when there is
+      // not, which is what makes a second net go somewhere useful rather than on top of the first.
+      const spot = pickBloomSpot(run, stats.castRange)
+      run.lobs.push({
+        x: p.x, y: p.y, fromX: p.x, fromY: p.y, tx: spot.x, ty: spot.y,
+        t: 0, flight: stats.flight, r: stats.r, dmg: stats.dmg,
+        snare: stats.hold,
+      })
+    }
+    run.events.push({ type: 'toss', x: p.x, y: p.y })
+  })
 }
 
 // ---- Pickups ------------------------------------------------------------------------

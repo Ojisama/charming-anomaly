@@ -49,6 +49,8 @@ const UI = {
   // so this one appears in the picked-mods list where the extra width costs nothing.
   'Fork range': 'Portée des bonds',
   'Runs for': 'Durée',
+  'Line lasts': 'Ligne',
+  'Holds for': 'Maintien',
   'Burns for': 'Brûlure',
   'dmg': 'dég',          // no period: weapons with base dmg under 10 render a decimal, and
                          // '6.3 dég. x3' puts two dots three characters apart at 11px
@@ -545,6 +547,18 @@ const CONFIG = {
   'Skims a shell that skips off the sand, splashing at every touch.': 'Fait ricocher une coquille sur le sable : une gerbe à chaque rebond.',
   'Barnacles': 'Balanes',
   'Seeds larvae that crust onto what they hit — and jump to the next body when it dies.': 'Sème des larves qui s\'incrustent sur ce qu\'elles touchent — et sautent sur le corps suivant à sa mort.',
+  // The Trawl (Book 2 chapter 4) — two natives, both named by the OWNER, and in both cases the
+  // plainly-readable option over the exact fishing term. 'Palangre' and 'Épervier' are what a
+  // French fisherman calls this gear and both were rejected: a weapon name has to land on a player
+  // who does not fish. Do not "correct" these toward the domain vocabulary.
+  //   'ferré' is kept, though — it is the fishing verb for setting a hook in a fish and it is also
+  //   ordinary French, so it costs the reader nothing and says exactly what the hooks do.
+  //   The Filet Lesté desc deliberately does NOT repeat 'filet lesté', which is now the card's own
+  //   name: a card whose description restates its title wastes the only two lines it has.
+  'Longline': 'Ligne à Hameçons',
+  'Sets a baited line across their path. Everything that touches it is hooked and bleeds.': 'Pose une ligne appâtée en travers de leur route. Tout ce qui la touche est ferré et saigne.',
+  'Net Toss': 'Filet Lesté',
+  'Throws a weighted net over a pack and holds them where they stand.': 'Jeté sur un groupe entier, il le cloue sur place.',
   'Membrane Piercer': 'Perce-Membrane',
   'antigen pierce': 'perforation d\'antigène',
   'Split Strain': 'Souche Divisée',
@@ -859,6 +873,26 @@ const CONFIG = {
   'extra larva(e) per cast': 'larve(s) supplémentaire(s) par lancer',
   'Seedbed': 'Naissain',
   'extra jump(s) when a crusted body dies': 'saut(s) supplémentaire(s) à la mort d\'un corps incrusté',
+  // The Trawl's two natives. 'par tic' matches the Balanes rows just above — the same wording for
+  // the same idea, so a player reading two grinder cards is not told it twice in two ways.
+  'Barbed Hooks': 'Hameçons Barbelés',
+  'hook damage per tick': 'dégâts des hameçons par tic',
+  'Long Set': 'Longue Pose',
+  'line length': 'longueur de la ligne',
+  'Deep Set': 'Pose Profonde',
+  'how long a set line lasts': 'durée de la ligne posée',
+  'Twin Set': 'Double Pose',
+  'extra line(s) per cast': 'ligne(s) supplémentaire(s) par lancer',
+  'Wide Net': 'Grand Filet',
+  'net radius': 'rayon du filet',
+  'Heavy Mesh': 'Maille Lourde',
+  // 'maintien' rather than 'immobilisation': it is the same word as the build sheet's own row label
+  // for this stat, so the card and the sheet say one word for one thing (the rule the Coquille
+  // Ricochet comment states), and it fits a narrow row where the longer noun does not.
+  'how long the hold lasts': 'durée du maintien',
+  'Weighted': 'Lesté',
+  'Double Haul': 'Double Lancer',
+  'extra net(s) per cast': 'filet(s) supplémentaire(s) par lancer',
   'Power Gel': 'Gel de Puissance',
   '+5% damage': '+5% dégâts',
   'Twitchy': 'Nerveux',

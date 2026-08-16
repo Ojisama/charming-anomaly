@@ -1767,6 +1767,109 @@ export const WEAPONS = {
       { dmg: 10, interval: 2.15, count: 4, castRange: 320, speed: 580, crustDur: 5.0, tick: 0.5, jumps: 3 },
     ],
   },
+  // -- The Trawl's two natives (spec §7) -------------------------------------------------------
+  // The chapter is the humans' gear pointed back at the water, so both weapons ARE fishing gear.
+  // The shapes they claim, and why neither is a weapon this game already has:
+  //   longline  A LINE YOU LEAVE BEHIND. Every other area denial in the game is a disc (holes,
+  //             mines, zones, blooms) or a moving front (novas). Nothing else is a static segment.
+  //             ⚠ It is NOT a swept beam: run.beams already carries `swept` + `rotSpeed` + `arms`
+  //             and that is Pulsar Sweep. A longline that rotated around the player would be a
+  //             third rotating rake wearing a different name.
+  //   netToss   A GROUP HOLD. Pincer answers ONE approach; this stops a pack. It reuses run.lobs
+  //             wholesale for the throw (see the snare branch in stepLobs) and adds no array.
+  // Both damage-and-control rather than burst, because the chapter's own wall does the executing:
+  // what the player needs from their gear is to keep the crowd OFF them and STILL long enough for
+  // the net to arrive. Longline is the starter and Net Toss the rare — the pair is a fence and a
+  // snare, which is the whole fishing verb split in two.
+  longline: {
+    name: 'Longline',
+    desc: 'Sets a baited line across their path. Everything that touches it is hooked and bleeds.',
+    icon: '🪝', rarity: 'normal',
+    // Laid PERPENDICULAR to the nearest enemy, `offset` px toward them — a fence between you and
+    // the pack, which works standing still as well as running. (Laying it in the player's wake
+    // instead was the first idea and it is Fin Hit's job: a weapon that only works while moving is
+    // The Deep's claim, not this one.)
+    //   dmg      damage per TICK, not per cast. Small on purpose — a line is a grinder, and the
+    //            value is the number of bodies crossing it, never the number on one of them.
+    //   length   the segment's full length. LONGLINE_HALF_W is its thickness and is fixed: a line
+    //            that got thicker with level would stop being a line.
+    //   setDur   how long a set line stays in the water. Deliberately NOT `duration` — that key is
+    //            shared with the beam weapons and the build sheet labels it 'Burns for', which is a
+    //            lie about a rope. Same reasoning as barnacles' `crustDur` above.
+    //   offset   how far ahead of the player the line is set.
+    // The catch (LONGLINE_SNAG) fires ONCE PER BODY PER LINE — see the `snagged` set in
+    // stepLonglines. A stun refreshed every tick would be a permanent lock, and at tick 0.40s
+    // against a 0.5s stun that is exactly what a per-tick application would produce.
+    // PINNED AGAINST BREAKER, the book's other normal-rarity starter, measured in ONE census
+    // invocation off one RNG stream (weapon-census.mjs --chapter surf, 240s x 5 seeds):
+    //
+    //                          L1 eff  L5 eff  L5 waste  L5 dud  L5 hits/s
+    //   Breaker                    66     100       23%      8%        4.0
+    //   Longline (first cut)       87     133       12%      3%        8.9
+    //   Longline (dmg -25%)        81     123        9%      2%       11.0
+    //   Longline (shipped)         66     107        9%      4%        9.4
+    //
+    // The first cut sat a third above the sibling starter AND was the most reliable weapon in the
+    // table — a grinder wastes little and almost never fires at nothing, where a burst starter
+    // whiffs 8% of its casts outright. Reliability is already an edge, so parity on paper is the
+    // ceiling here, not the target.
+    //
+    // ⚠ DAMAGE IS THE WRONG KNOB ON A GRINDER, and the middle row is the proof: cutting dmg 25%
+    // bought only 7% less dps, because weaker ticks leave bodies alive to eat MORE ticks — hits/s
+    // rose 8.9 -> 11.0 and absorbed most of the cut. The weapon's throughput is set by how much
+    // LINE-TIME is in the water, not by the number on a tick. `setDur` is therefore what came down
+    // (6.0 -> 4.2 at L5): it is the count of lines live at once, setDur/interval, which now runs
+    // 1.3 at L1 to 2.1 at L5. Reach for the coverage stat, not the damage stat, on anything that
+    // ticks. The snag is untouched throughout — the catch is what the card IS, the damage is what
+    // it costs.
+    // ⚠ Do NOT read these against the numbers the same census prints for --chapter trawl (Longline
+    // 318/411 on the first cut there). `eff dps` is a global enemy-HP diff, so in the Trawl it
+    // credits every weapon with the chapter's own net — roughly two thirds of the figure. Surf is
+    // the control chapter precisely because nothing in it damages the crowd on its own.
+    levels: [
+      { dmg: 5,  interval: 2.60, length: 260, setDur: 3.4, tick: 0.40, offset: 90 },
+      { dmg: 6,  interval: 2.45, length: 285, setDur: 3.6, tick: 0.40, offset: 95 },
+      { dmg: 8,  interval: 2.30, length: 315, setDur: 3.8, tick: 0.40, offset: 100 },
+      { dmg: 10, interval: 2.15, length: 345, setDur: 4.0, tick: 0.40, offset: 105 },
+      { dmg: 13, interval: 2.00, length: 380, setDur: 4.2, tick: 0.40, offset: 110 },
+    ],
+  },
+  netToss: {
+    name: 'Net Toss',
+    desc: 'Throws a weighted net over a pack and holds them where they stand.',
+    icon: '🕸️', rarity: 'rare',
+    //   r       the mesh's radius where it lands. This is the stat that decides whether it is a
+    //           group hold or an expensive single-target stun, so it is the one `wideNet` buys.
+    //   hold    seconds held, BEFORE diminishing returns. Every application goes through
+    //           ccScale/spendCC like every other control in the game, so a pack caught twice in a
+    //           row is held for less the second time and an elite resists outright — without that,
+    //           a rare weapon with a 1.75s group stun on a 2.6s cadence is a permanent lock.
+    //   flight  seconds in the air. Long enough to read as thrown, short enough that a fast pack
+    //           has not walked out of the landing spot.
+    // Pinned against the book's other two rares in ONE census invocation (--chapter surf, the
+    // control chapter — see the warning in WEAPONS.longline about reading trawl numbers):
+    //
+    //                          L5 eff  L5 waste   the reading
+    //   Skipping Shell            114       26%
+    //   Barnacles                  93        8%   the other rare bought for what it DOES
+    //   Net Toss (first cut)       87       26%   bottom of the rares AND the most wasteful
+    //   Net Toss (cadence +10%)    82       26%   MORE casts measured WORSE — see below
+    //   Net Toss (shipped)         88       25%
+    //
+    // Two knobs were tried and the first one moved it backwards. At 26% waste the burst is already
+    // overkilling what it lands on, so neither a bigger number nor more casts buys anything — both
+    // are spent on corpses. `r` is the knob that matches what the card IS: a wider mesh catches more
+    // BODIES per throw, which is more hold as well as more damage, and it is the one stat whose
+    // increase cannot be eaten by overkill. It stays the lowest-damage rare in the book on purpose —
+    // the hold is the rest of the price, and Barnacles at 93 is the honest neighbour to sit beside.
+    levels: [
+      { dmg: 22, interval: 3.40, r: 100, hold: 1.10, flight: 0.42, castRange: 260 },
+      { dmg: 27, interval: 3.20, r: 109, hold: 1.25, flight: 0.42, castRange: 275 },
+      { dmg: 34, interval: 3.00, r: 119, hold: 1.40, flight: 0.42, castRange: 290 },
+      { dmg: 42, interval: 2.80, r: 130, hold: 1.55, flight: 0.42, castRange: 305 },
+      { dmg: 52, interval: 2.60, r: 142, hold: 1.75, flight: 0.42, castRange: 320 },
+    ],
+  },
 }
 export const MAX_WEAPON_LEVEL = 5
 export const MAX_WEAPONS = 4 // equipped cap; new weapons stop appearing once reached
@@ -2368,6 +2471,29 @@ export const WEAPON_MODS = {
     // percentage of a number that is 1. Read at the jump site (stepBarnacles).
     seedbed:    { name: 'Seedbed',     desc: 'extra jump(s) when a crusted body dies', icon: '🦪', kind: 'tier' },
   },
+  // Four apiece for the Trawl's natives, and four is the CEILING, not a starting point (spec §7:
+  // the pool's real mod budget is ~28, and the rule is to cut a weapon rather than invent mods).
+  // Each of these buys exactly one stat the weapon already has — there is no behavioural mod here
+  // because neither weapon has a second behaviour to switch on, and inventing one to fill a slot is
+  // what dilutes the pool.
+  longline: {
+    // 'hook damage per tick' for the same reason barnacles says 'crust damage per tick' above: the
+    // number is small because it is per tick, and a player reading it as a per-hit number concludes
+    // the weapon is broken. Name the thing, not the event.
+    barbed:   { name: 'Barbed Hooks', desc: 'hook damage per tick', icon: '🪝', base: 0.30, kind: 'pct' },
+    longSet:  { name: 'Long Set',     desc: 'line length', icon: '📏', base: 0.25, kind: 'pct' },
+    deepSet:  { name: 'Deep Set',     desc: 'how long a set line lasts', icon: '⌛', base: 0.25, kind: 'pct' },
+    // A flat count, not a percentage: +30% of one line is one line. The second rope also doubles
+    // the CATCHES available, since the snag is once per body per line — so this is the control mod
+    // as much as the damage one, which is why it is the tier pick.
+    twinSet:  { name: 'Twin Set',     desc: 'extra line(s) per cast', icon: '🔷', kind: 'tier' },
+  },
+  netToss: {
+    wideNet:   { name: 'Wide Net',   desc: 'net radius', icon: '⭕', base: 0.25, kind: 'pct' },
+    heavyMesh: { name: 'Heavy Mesh', desc: 'how long the hold lasts', icon: '⏳', base: 0.25, kind: 'pct' },
+    weighted:  { name: 'Weighted',   desc: 'impact damage', icon: '💥', base: 0.30, kind: 'pct' },
+    doubleHaul:{ name: 'Double Haul', desc: 'extra net(s) per cast', icon: '🔷', kind: 'tier' },
+  },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
 // Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
@@ -2446,6 +2572,10 @@ export const STAT_KEYS = [
   // and a shell crust does not burn. Barnacles emit dmg, count, jumps, crustDur + every = 5,
   // exactly at the cap — a sixth key on that weapon would push its cadence row off the bottom.
   { key: 'crustDur', label: 'Crust lasts' },
+  // Same reasoning as crustDur, twice more: `duration` below is labelled 'Burns for' and is shared
+  // with the beam weapons, which is a lie about a rope in the water and about a net over a pack.
+  { key: 'setDur', label: 'Line lasts' },
+  { key: 'hold', label: 'Holds for' },
   { key: 'duration', label: 'Burns for' },
   { key: 'maxR', label: 'Radius' },
   { key: 'range', label: 'Range' },
@@ -2976,6 +3106,26 @@ export const BARNACLE_LARVA_R = 8
 // spread is a reward for fighting inside a pack, and a long jump would make it work identically on
 // a scattered field, which is the version of this weapon with no decision in it.
 export const BARNACLE_JUMP_R = 190
+
+// ---- The Trawl's two natives ---------------------------------------------------------------
+// LONGLINE_HALF_W: how close to the segment counts as touching it, and therefore the line's whole
+// visual thickness. Fixed across levels on purpose — `length` is what grows, and a rope that also
+// got fatter would slide toward being a rectangle. Read it against the smallest enemy radius
+// (~14px): a body has to genuinely cross the rope, not merely pass near it.
+export const LONGLINE_HALF_W = 22
+// LONGLINE_SNAG: the catch, in seconds. ONCE PER BODY PER LINE (the `snagged` set in
+// stepLonglines) — never per tick. At tick 0.40s a per-tick 0.5s stun is a permanent lock, which
+// turns a fence into an invulnerability field; the once-per-line rule is what makes `twinSet` and
+// laying a second line the way you buy MORE control, rather than the line itself being infinite.
+export const LONGLINE_SNAG = 0.5
+// Twin Set lays parallel lines this far apart. Wider than LONGLINE_HALF_W * 2 so the two ropes are
+// visibly separate and a body is caught by each in turn; much wider and the pack walks between them.
+export const LONGLINE_TWIN_GAP = 54
+// Live-line cap. A readability guard first (the water fills with rope at high fire rate) and a
+// balance one second. Drops the OLDEST, like ZONE_MAX_LIVE — cutting the newest would eat the cast
+// the player just made.
+export const LONGLINE_MAX_LIVE = 8
+
 /** The split ladder for a `first` sub-beam count: [first, first-1, ..., 2]. See the block above. */
 export const prismLadder = (first) => {
   const out = []
@@ -4927,27 +5077,22 @@ CHAPTERS.trawl = {
   // then spawnMul is the wrong knob and maxAliveMul is the right one.
   balance: { spawnMul: 0.8, enemyHpMul: 1, maxAliveMul: 0.85 },
 
-  // ---- the arsenal. BORROWED, and picked for the CHAPTER'S PROBLEM rather than for the theme —
-  // the same basis The Reef's placeholder set states for itself. The problem here is that you spend
-  // this chapter running in a straight line with the crowd behind you and a wall periodically making
-  // you turn, so the three shapes that matter are: something that does not care which way you face,
-  // something that holds a group in place, and something that reaches along a line.
-  //   clawRake      — a fast arc at whatever is nearest. The least clever of the three, hence the
-  //                   starter: the unusual cards are what the other two slots are for.
-  //   hole          — swallows the swarm. The nearest shipped neighbour to Net Toss, the group hold
-  //                   this chapter is meant to get, so the slot is kept warm by its own cousin.
-  //   chitterShriek — hurts, shoves and panics at once, aimed at nothing. The answer to a crowd
-  //                   standing between you and the wake, and the one weapon here whose output does
-  //                   not care which way a fleeing player happens to be facing.
+  // ---- the arsenal. The chapter's problem is that you spend it running in a straight line with the
+  // crowd behind you and a wall periodically making you turn, so what the gear has to do is keep the
+  // pack OFF you and STILL — the chapter's own net does the executing.
+  //   longline — the starter. A fence set between you and the pack; see WEAPONS.longline.
+  //   netToss  — the pack held where it stands, for the wall to arrive into.
+  //   hole     — swallows the swarm. The one borrowed slot, kept because a vortex is the third
+  //              answer to a crowd (move it) that neither native gives, and because it is ABSTRACT.
   //
-  // ⚠ ALL THREE ARE ALSO CHOSEN FOR THEIR SPRITES, which is not usually a weapon criterion and is
-  // one here because a borrowed weapon brings its old chapter's ART with it. The first cut of this
-  // list opened with the Boomerang, on the honest reasoning that "out along a line and back" is
-  // Longline's shape one weapon early — and the first probe frame of the chapter came back with an
-  // ORANGE MAPLE LEAF spinning through the open ocean, because T.boomerang is baked as a leaf and
-  // the card is called Boomerang Leaf. These three are abstract (an arc, a vortex, a sound ring) and
-  // so carry no biome with them. Check the sprite, not only the shape, when borrowing.
-  weapons: ['clawRake', 'hole', 'chitterShriek'], starter: 'clawRake',
+  // ⚠ THE BORROWED SLOT IS CHOSEN FOR ITS SPRITE AS WELL AS ITS SHAPE, which is not usually a weapon
+  // criterion and is one here because a borrowed weapon brings its old chapter's ART with it. The
+  // first cut of this list opened with the Boomerang, on the honest reasoning that "out along a line
+  // and back" is Longline's shape one weapon early — and the first probe frame of the chapter came
+  // back with an ORANGE MAPLE LEAF spinning through the open ocean, because T.boomerang is baked as
+  // a leaf and the card is called Boomerang Leaf. A vortex carries no biome with it. Check the
+  // sprite, not only the shape, when borrowing.
+  weapons: ['longline', 'netToss', 'hole'], starter: 'longline',
 
   // ---- render-only (ZERO sim effect) ----
   // DEEPER AGAIN. The book's floors step down one measured stop per chapter (obstacle-contrast.mjs's
