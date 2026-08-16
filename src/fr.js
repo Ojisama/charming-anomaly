@@ -988,7 +988,7 @@ const CONFIG = {
   'Starting weapon begins at Lv 2': 'L\'arme de départ commence au Niv. 2',
   // Book names (BOOKS[].name) — on screen for the first time, on the shelf's brass plate.
   'The Anomaly': 'L\'Anomalie',
-  'Undertow': 'La Lame de Fond',
+  'Undertow': 'Lame de Fond',
   // Spine names (CHAPTER_SPINE, config.js) — the chapter name with its article dropped, because a
   // spine sets its title vertically and has about 110px of height for it.
   'Body': 'Corps',
@@ -999,8 +999,8 @@ const CONFIG = {
   'Skies': 'Cieux',
   'Beyond': 'Au-delà',
   'Blank': 'Blanc',
-  'Surf': 'Ressac',
-  'Shelf': 'Plateau',
+  'Surf': 'Snorkeling',
+  'Shelf': 'Large',
   'Reef': 'Récif',
   'Book {n}': 'Livre {n}',
   'locked chapter': 'chapitre verrouillé',
@@ -1017,8 +1017,12 @@ const CONFIG = {
   // The Shelf (Book 2). 'Krill' is the French word too. 'Méduse Lune' over the real common
   // name 'Aurélie', which is correct but reads as a first name rather than an animal.
   // The Surf (Book 2 chapter 1).
-  'The Surf': 'Le Ressac',
+  'The Surf': 'Snorkeling',
+  'The Shelf': 'Le Large',
+  'The Reef': 'Le Récif',
   'the tide decides': 'la marée décide',
+  'the light only goes down': 'la lumière ne fait que descendre',
+  'the current only runs one way': 'le courant ne va que dans un sens',
   'Sand Hopper': 'Puce de mer',
   'Shore Crab': 'Crabe vert',
   'Sea Roach': 'Cloporte de mer',
