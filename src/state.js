@@ -1652,6 +1652,13 @@ export function createRun(meta, opts = {}) {
     // null between passes, and null forever in every chapter whose signature is not `trawl`.
     net: null,
     _netAcc: TRAWL_FIRST_PASS,   // NOT the interval — see its block for why the first pass is early
+    // v7.x The Deep. _scentT: seconds left on the Scent window the skill button bought; while it
+    // is up, stepScent keeps every body inside SCENT_R marked and the player moves at
+    // SCENT_SPEED_MUL. _finPrevA / _finSide are Fin Hit's memory of which way you were last
+    // swimming and which side the fin last swung — see fireFinHit for why both are needed.
+    _scentT: 0,
+    _finPrevA: null,
+    _finSide: 1,
     _obstacleSeed: obstacleSeed,
     _obstacleRev: 0,
     // v5.9.1 bugfix (see obstacles[]/_crushed doc above): permanent per-run memory of which

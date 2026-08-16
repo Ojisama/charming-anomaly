@@ -167,6 +167,9 @@ import {
   SHELL_RETARGET_R, SHELL_SPLASH_LIFE, SHELL_R,
   BARNACLE_JUMP_R, BARNACLE_FAN, BARNACLE_LARVA_R,
   LONGLINE_HALF_W, LONGLINE_SNAG, LONGLINE_TWIN_GAP, LONGLINE_MAX_LIVE,
+  ANGLER_FEED_R, ANGLER_GAPE_T, ANGLER_CLOSE_MUL, ANGLER_BITE_R, ANGLER_BITE_DMG, ANGLER_BITE_CD,
+  SCENT_R, SCENT_DUR_MIN, SCENT_DUR_AT_FULL, SCENT_DMG_MUL, SCENT_SPEED_MUL,
+  FINHIT_SPEED_CAP, FINHIT_TURN_MIN, FINHIT_SWEEP_BIAS,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
   BLANK_STANDOFF_MIN, BLANK_STANDOFF_MAX, BLANK_TRAIL_DT, BLANK_TRAIL_MAX,
@@ -253,6 +256,10 @@ export function stepSim(run, input, dt) {
   stepShafts(run)         // ...and DRIFT them; the streamer above only decides existence (see its doc)
   streamSandbars(run)     // Book 2 surf: materialize/drop dry patches (no-op elsewhere)
   stepCharge(run, dt)     // v7.x Book 2: the resource bar (no-op unless the chapter declares one)
+  // v7.x The Deep. AFTER stepCharge and BEFORE the weapons, because the mark it refreshes is read
+  // by every damage site this frame — marking after the weapons had fired would give the player a
+  // window one frame short and, on a 1.3s minimum duration, that is a visible fraction of the card.
+  stepScent(run, dt)
   streamTraps(run)        // v6.5 undergrowth identity: materialize/drop snap traps (no-op outside predators)
   streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
   stepEnemySeparation(run) // v6.5.1: push overlapping enemies apart (owner directive: no 100% stacks)
@@ -270,6 +277,7 @@ export function stepSim(run, input, dt) {
   if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
   if (stepDrown(run, dt)) return // phase is now 'dead' (The Reef: an empty Air bar, v7.x)
   if (stepTrawl(run, dt)) return // phase is now 'dead' (The Trawl: the net wall, v7.x)
+  if (stepAnglers(run, dt)) return // phase is now 'dead' (The Deep: the anglerfish's bite, v7.x)
   if (stepStrips(run, dt)) return // phase is now 'dead' (garden pesticide spray-strip DoT — v5.3)
   if (stepTraps(run, dt)) return // phase is now 'dead' (undergrowth snap trap — v5.4)
   if (stepLanes(run, dt)) return // phase is now 'dead' (city traffic — v5.4)
@@ -621,7 +629,15 @@ function stepPlayerMovement(run, input, dt) {
   const tireMul = _dres?.tire ? 1 - (1 - _dres.tire.speedFloor) * tiredness(run.charge, _dres) : 1
   const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
-  const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul
+  // SCENT (v7.x, The Deep): "or move faster towards your prey" — the owner's own framing for the
+  // button. MULTIPLIED, not MIN-composed with the three slows above, and the asymmetry is right:
+  // those three are floors on how slow the world may make you, while this is a bonus you BOUGHT.
+  // Folding it into the MIN would mean spending a full bar did nothing whenever a web was underfoot.
+  // Note also that this chapter's own dark is the one that does NOT slow (resource.dark.speedFloor
+  // is 1 here), so in The Deep light is what makes you fast rather than dark being what makes you
+  // slow — see CHAPTERS.deep's header.
+  const scentMul = (run._scentT ?? 0) > 0 ? SCENT_SPEED_MUL : 1
+  const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul * scentMul
 
   // v5.18 THE LANE (see CHAPTERS.beyond.lane). You do not roam here: you advance up the lane at a
   // fixed rate forever and the joystick gives you nothing but the two directions across it. Because
@@ -1231,6 +1247,16 @@ function stepRepulse(run, input, dt) {
   // The floor is the RADIUS, not the existence of the hole (BREACH_R_MIN, and see its block): this
   // chapter's other half makes an empty bar SLOW, so a bar that also could not cut would let the two
   // halves conspire into the structural trap spec §8.2 forbids.
+  // THE SCENT (v7.x, The Deep — CHAPTERS[].scent). The same press, the same cooldown and the same
+  // `t` a third time. Ungated, unlike the breach: there is no "in reach" condition to meet because
+  // the smell is cast from the player and finds whatever is out there — in a chapter where you
+  // cannot see, a button with a targeting requirement would be a button you cannot aim.
+  // SCENT_DUR_MIN, never 0, on the same no-spiral floor argument as BURST_DUR_MIN and BREACH_R_MIN:
+  // an empty bar may leave you weaker, never structurally unable to act.
+  if (ch.scent) {
+    run._scentT = SCENT_DUR_MIN + (SCENT_DUR_AT_FULL - SCENT_DUR_MIN) * t
+    run.events.push({ type: 'scent', x: p.x, y: p.y, r: SCENT_R, charged: t, dur: run._scentT })
+  }
   if (ch.breach && run.net && run.net.holes.length < BREACH_MAX_HOLES) {
     const nt = run.net
     if (Math.abs(p.x * nt.nx + p.y * nt.ny - nt.pos) <= BREACH_REACH) {
@@ -1387,6 +1413,13 @@ function freshEnemyFields() {
     // freezes it, enrage speeds it up and hardens its contact damage. Ticked in stepEnemyMovement.
     fearT: 0, fearCd: 0, _ccDR: 1, stunT: 0, enrageT: 0,
     bloomSlowT: 0, // v6.4: a plain speed debuff (folds into slowMul), refreshed by stepBlooms
+    // v7.x The Deep, both PUBLISHED for render.js (see the status block there):
+    //   scentT  seconds left on the Scent mark. Amplifies every source of damage (dealDamage) and
+    //           is what render outlines the body with. Refreshed by stepScent, decayed above.
+    //   gape    0..1, how far an anglerfish's mouth is open, i.e. how close it is to biting. On
+    //           every enemy rather than only on anglers so the shape of a body never changes shape
+    //           mid-run, which is the same reason bloomSlowT sits here.
+    scentT: 0, gape: 0, _biteCd: 0,
     _shockCd: 0,
     // Two rolling windows of PLAYER damage as a share of this enemy's own maxHP: cold clears its
     // own on freeze, which is exactly why they are not shared. `_elFrozen` / `_elResist` are the
@@ -1490,7 +1523,24 @@ function spawnEnemy(run, opts = {}) {
   // same index as the old plain `Math.floor(Math.random() * n)` for the same draw (see git history
   // for the proof) — so every pre-v6.3 roster is bit-identical under this rewrite.
   const eligiblePool = rosterPool.filter((r) => (r.minT ?? 0) <= run.time)
-  const pool = eligiblePool.length > 0 ? eligiblePool : rosterPool
+  // v7.x `maxAlive`: a HARD CEILING on how many of one roster entry may exist at once, filtered
+  // exactly like minT above and with the same "never empty the pool" fallback.
+  //
+  // It exists because The Deep's anglerfish is STATIONARY (speedMul 0.18, unshakeable) and is
+  // therefore the first roster entry in the game that never walks into the player and never dies.
+  // Every one that spawns is still there five minutes later, so an ordinary spawn weight does not
+  // control its density — it controls its ACCUMULATION RATE. Measured before the cap:
+  // charge-probe reported the refill reachable 82.7% of the run under the DO-NOTHING control and
+  // 96.7% under a greedy one, %DARK at 0, and a hoarding player pinned at a full bar — i.e. the
+  // chapter's whole resource was decoration, in the chapter whose premise is that light is scarce.
+  // Any future roster entry that does not chase the player will need this too.
+  const capped = eligiblePool.filter((r) => {
+    if (r.maxAlive == null) return true
+    let n = 0
+    for (const e of run.enemies) if (!e._dead && e.rosterId === r.id && ++n >= r.maxAlive) return false
+    return true
+  })
+  const pool = capped.length > 0 ? capped : (eligiblePool.length > 0 ? eligiblePool : rosterPool)
   let roster = forced
   if (!roster && pool.length > 0) {
     let t = Math.random() * pool.reduce((s, r) => s + (r.weight ?? 1), 0)
@@ -1883,6 +1933,11 @@ function stepEnemyMovement(run, dt) {
     if (e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt)
     if (e.enrageT > 0) e.enrageT = Math.max(0, e.enrageT - dt)
     if (e.bloomSlowT > 0) e.bloomSlowT = Math.max(0, e.bloomSlowT - dt) // v6.4: refreshed by stepBlooms while inside a cloud
+    // v7.x The Deep: refreshed by stepScent while inside the smell, exactly as bloomSlowT is by
+    // stepBlooms. The decay HAS to live here and not in stepScent — stepScent only walks the bodies
+    // currently in range, so a body that swims OUT of the radius would otherwise keep the mark, and
+    // its damage amp, for the rest of the run.
+    if (e.scentT > 0) e.scentT = Math.max(0, e.scentT - dt)
 
     // soapTrail elite flag (v5.0, e.g. pond's soap-bubble elites): drops a damaging pool node
     // into the shared run.pools array every SOAP_INTERVAL while alive (see stepPools below).
@@ -3551,6 +3606,92 @@ function stepTrawl(run, dt) {
   return hurtPlayer(run, TRAWL_DMG * ticks, true, 'trawl')
 }
 
+// -- The Deep's anglerfish: a refill point that bites (v7.x) ------------------------------------
+//
+// ONE AUTHORITY FOR THE FEED RANGE, and it has to be one. The gape (below) and the refill
+// (stepCharge) are the two halves of the same promise — "stand here and you are being fed, and the
+// mouth opening is how long you have left" — and if those two tests were written separately the
+// mouth would open at a range the bar does not fill at. That is the single largest defect class in
+// this repo: one fact authored in two places, neither of them an import, so nothing throws.
+const feedingAt = (e, x, y) => {
+  const dx = e.x - x, dy = e.y - y
+  return dx * dx + dy * dy <= ANGLER_FEED_R * ANGLER_FEED_R
+}
+const isAngler = (e) => !e._dead && e.flags && e.flags.includes('angler')
+
+/** The anglerfish currently feeding the point (x, y), or null. Read by stepCharge for the refill. */
+export function anglerFeeding(run, x, y) {
+  for (const e of run.enemies) if (isAngler(e) && feedingAt(e, x, y)) return e
+  return null
+}
+
+// Ages every anglerfish's gape and lets the ones that reach a full mouth bite.
+// Returns true if the player died, matching stepTrawl/stepRocks/stepPools' contract.
+//
+// `gape` (0..1) is PUBLISHED ON THE ENEMY, deliberately, because render.js draws status off named
+// fields it reads straight from the body and never learns a new one on its own. A gape kept in a
+// private field would be a mouth that never opens — and this chapter's entire risk/reward is a tell
+// drawn on an animal's face, so an invisible gape is not a missing polish item, it is the mechanic
+// silently deleted. Same lesson as the v7.5x freeze that shipped with no ice tint.
+//
+// TIME AT THIS FISH, NOT THE BAR'S LEVEL — see the ANGLER_* block in config.js for why the obvious
+// alternative is strictly worse.
+function stepAnglers(run, dt) {
+  if (CHAPTERS[run.chapter].signature?.type !== 'dark') return false
+  const p = run.player
+  let died = false
+  for (const e of run.enemies) {
+    if (!isAngler(e)) continue
+    e._biteCd = Math.max(0, (e._biteCd ?? 0) - dt)
+    // A fish on its bite cooldown has just swallowed and is not feeding anyone: its mouth stays
+    // shut, which is also the visible signal that this one is spent and you should find another.
+    const feeding = e._biteCd <= 0 && feedingAt(e, p.x, p.y)
+    const rate = feeding ? 1 / ANGLER_GAPE_T : -ANGLER_CLOSE_MUL / ANGLER_GAPE_T
+    e.gape = Math.max(0, Math.min(1, (e.gape ?? 0) + rate * dt))
+    if (e.gape < 1) continue
+    // THE BITE. The gape resets and the fish goes on cooldown whether or not the bite CONNECTS —
+    // backing out of the bite radius in the last moment is the skill the shorter ANGLER_BITE_R
+    // exists to reward, and it has to actually cost the fish its turn or the player would simply be
+    // bitten the instant they drift back in.
+    e.gape = 0
+    e._biteCd = ANGLER_BITE_CD
+    const dx = e.x - p.x, dy = e.y - p.y
+    const connects = dx * dx + dy * dy <= ANGLER_BITE_R * ANGLER_BITE_R
+    run.events.push({ type: 'anglerBite', x: e.x, y: e.y, id: e.id, hit: connects })
+    // NOT dot: this is one discrete strike, so it should respect the invulnerability window like
+    // any other hit. The Trawl's net is the opposite case (a place you are standing in) and passes
+    // dot: true for exactly that reason — the two are worth reading together.
+    if (connects && !died && hurtPlayer(run, ANGLER_BITE_DMG, false, 'anglerBite')) died = true
+  }
+  return died
+}
+
+// -- The Deep's Scent (v7.x) -------------------------------------------------------------------
+// Fired from stepRepulse like The Reef's burst and The Trawl's breach — same press, same cooldown,
+// same `t`. This is only the part that has to happen every frame afterwards: age the window, and
+// keep the mark on everything inside the radius.
+//
+// RE-MARKED EVERY FRAME rather than stamped once at the press. The alternative reads as a smaller
+// change than it is: a one-shot stamp marks the bodies that happened to be in range on the frame
+// the button went down, so a body that swims INTO the smell is untouched by it, and the card
+// becomes "damage the crowd you already had" instead of "hunt for a few seconds". It also means the
+// radius keeps up with the player, which is what "close on them faster" is for.
+//
+// `scentT` is published on the enemy for render.js to outline, for the same reason `gape` above is.
+function stepScent(run, dt) {
+  if (!CHAPTERS[run.chapter].scent) return
+  run._scentT = Math.max(0, (run._scentT ?? 0) - dt)
+  if (run._scentT <= 0) return
+  const p = run.player
+  const rSq = SCENT_R * SCENT_R
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const dx = e.x - p.x, dy = e.y - p.y
+    if (dx * dx + dy * dy > rSq) continue
+    e.scentT = run._scentT
+  }
+}
+
 // The chapter resource bar (v7.x Book 2). A chapter-gated no-op exactly like stepCurrents and
 // streamTraps - a chapter that declares no `resource` returns on the first line and its run.charge
 // stays the 0 createRun gave it, which is what lets this live in main from day one with no flag.
@@ -3580,6 +3721,12 @@ export function stepCharge(run, dt) {
   // finds all three; this chapter's is the churn behind a wall moving at 75 px/s, and there is
   // nowhere on the map to stand. run.shafts is empty here, so this is the only branch that can fire.
   if (inWake(run, p.x, p.y)) c += res.refill * dt
+  // THE DEEP'S REFILL IS A CREATURE, and the only one in the game. Not a streamed field like the
+  // shafts above and not a moving region like the Trawl's wake — an anglerfish is a roster entry
+  // with a proximity check, which is why this chapter needed no new spatial system at all. The same
+  // `feedingAt` test drives the mouth opening on its face (stepAnglers), so the range you are being
+  // fed at and the range the tell is counting down at cannot drift apart.
+  if (anglerFeeding(run, p.x, p.y)) c += res.refill * dt
   run.charge = Math.max(0, Math.min(res.max, c))
 }
 
@@ -4682,6 +4829,12 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     const rout = run.weaponMods.chitterShriek?.panicRout ?? 0
     if (rout > 0) dmg *= (1 + rout)
   }
+  // SCENT (v7.x, The Deep): a marked body takes amplified damage from EVERY source, which is why
+  // it sits here beside the venom amp and panicRout rather than inside a weapon. The button is sold
+  // as "see them better, so you can do more damage" — a bonus that only applied to direct weapon
+  // hits would quietly exclude burns, arcs and hazards, i.e. exactly the damage a player who just
+  // spent their whole bar is relying on.
+  if ((enemy.scentT || 0) > 0) dmg *= SCENT_DMG_MUL
   dmg = Math.round(dmg)
 
   // THE SHORE CRAB'S GUARD. Only the HP removal is refused; everything below still runs, and that
@@ -5074,6 +5227,10 @@ const WEAPON_STAT_MODS = {
   // the base one) on the pause build sheet.
   longline:      { barbed: ['dmg', 'pct'], longSet: ['length', 'pct'], deepSet: ['setDur', 'pct'] },
   netToss:       { wideNet: ['r', 'pct'], heavyMesh: ['hold', 'pct'], weighted: ['dmg', 'pct'] },
+  // The Deep's native. `thrash` is absent for the reason the pond block above gives: it is an
+  // attack-RATE mod, and folding one into `interval` would slow the weapon down. It divides the
+  // interval at the fire site instead and is registered in WEAPON_RATE_MODS.
+  finHit:        { serrated: ['dmg', 'pct'], broadFin: ['arc', 'pct'], longFin: ['range', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -5206,6 +5363,7 @@ function stepWeapons(run, dt) {
     else if (w.id === 'barnacles') stepBarnacleWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'longline') stepLonglineWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'netToss') stepNetTossWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'finHit') stepFinHitWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -8257,6 +8415,57 @@ function stepNetTossWeapon(run, w, stats, fireRateMul, dt) {
     }
     run.events.push({ type: 'toss', x: p.x, y: p.y })
   })
+}
+
+// -- Fin Hit (v7.x, The Deep's native) ---------------------------------------------------------
+// The only movement-coupled weapon in the game. Both halves read the player's own motion and
+// neither reads where the enemies are, which is what makes it feel like the animal's body rather
+// than a weapon the animal is carrying.
+//
+// It reuses run.novas with an `arc` — the Breaker's sector machinery, including the once-per-body
+// `hit` set that stops an expanding front re-hitting as it passes. No new entity, no new array.
+function stepFinHitWeapon(run, w, stats, fireRateMul, dt) {
+  const thrash = run.weaponMods.finHit?.thrash ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + thrash)), dt, () => fireFinHit(run, stats))
+}
+
+function fireFinHit(run, stats) {
+  const p = run.player
+  // p.vx/p.vy are stepPlayerMovement's own velocity in px/s — the same snapshot the skies' artillery
+  // leads its shells with, so this reads the player's REAL speed after every slow, floor and boost
+  // rather than re-deriving it from the input.
+  const speed = Math.hypot(p.vx, p.vy)
+  const power = Math.min(FINHIT_SPEED_CAP, speed / PLAYER.baseSpeed)
+  // THE ZERO AT A STANDSTILL IS THE CARD, not an edge case to paper over — see WEAPONS.finHit, and
+  // the ANOMALIES.stillness interaction its description states out loud. Returning early also means
+  // a stationary player emits no event, so the fin does not visibly swing while doing nothing.
+  if (power <= 0) return
+
+  const heading = Math.atan2(p.vy, p.vx)
+  // The signed turn since the last sweep, wrapped into (-pi, pi] so that crossing the ±pi seam
+  // reads as a small turn rather than a full reversal.
+  const prev = run._finPrevA
+  const turn = prev == null ? 0 : Math.atan2(Math.sin(heading - prev), Math.cos(heading - prev))
+  run._finPrevA = heading
+
+  // OUTSIDE OF THE TURN when you are turning, ALTERNATING when you are not. The second half is what
+  // stops the weapon being dead on a straight line, and together they are the "damage where you
+  // turn" the spec asks for: swim straight and the body beats side to side, cut a corner and the
+  // whole sweep goes to the outside of it.
+  let side
+  if (Math.abs(turn) > FINHIT_TURN_MIN) side = Math.sign(turn)
+  else side = run._finSide = -(run._finSide || 1)
+  // Square to the heading, then biased BACKWARD — see FINHIT_SWEEP_BIAS for the measurement that
+  // put it there. The sweep still reads as "out to the side", it just covers the shoulder.
+  const angle = heading + side * (Math.PI / 2 + FINHIT_SWEEP_BIAS)
+
+  for (const a of ipecacAngles(run, angle)) {
+    spawnNova(run, p.x, p.y, stats.range, stats.dmg * power, stats.knockback, 0, { arc: stats.arc, angle: a })
+  }
+  // `power` rides the event so render can swing a harder-looking fin when the shark is moving fast —
+  // the card's whole claim is that speed matters, and a sweep drawn identically at 0.3 and at 1.6
+  // would be that claim being invisible.
+  run.events.push({ type: 'finHit', x: p.x, y: p.y, angle, arc: stats.arc, range: stats.range, power })
 }
 
 // ---- Pickups ------------------------------------------------------------------------
