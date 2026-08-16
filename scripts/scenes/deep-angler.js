@@ -45,29 +45,44 @@ for (const e of marked) e.scentT = 3
 // empty bar this chapter is almost entirely black, which is correct and unphotographable.
 run.charge = 92        // of a 100 max; the scene sandbox has no CHAPTERS import, hence the literal
 
+// Keep TWO slime patches, not the dozen the breed laid down. The hagfish drops one every few
+// seconds while it walks, so a warmed-up field is carpeted in them — which is honest, and which
+// buries the two tells this frame exists to judge. Two is enough to see what slime looks like
+// beside a gape without the gape being under it. (The stacked case is its own question, and it is
+// the one the bake's alphas were tuned against — see slimeTex.)
+if (run.webs) run.webs.length = Math.min(run.webs.length, 2)
+
+// ⚠ POSITIONS GO THROUGH H.place, NEVER BY WRITING e.x/e.y. H.pin() — which every frame callback
+// here calls, and which is what keeps a pinned cast alive and un-flashed — restores `e._fx/_fy`,
+// and ONLY H.place sets those. Assigning x/y directly and then calling pin() writes `undefined`
+// into both, so the whole cast renders at NaN and simply is not there. That is exactly what the
+// first three shots of this scene did: the note printed `enemies=14 anglers=4 dead=0` beside an
+// empty frame, because the note reads the positions BEFORE pin() overwrites them.
 const layout = () => {
-  const p = run.player
-  // The anglerfish in a row across the front, spaced wider than ANGLER_FEED_R so their gapes read
-  // as four separate animals rather than as one cluster.
-  anglers.forEach((e, i) => {
-    e.x = p.x - 330 + i * 220
-    e.y = p.y - 250
-    e.gape = GAPES[i]          // re-pinned: stepAnglers closes a mouth whose player is not near it
+  H.place((i, p) => {
+    // The anglerfish in a row across the front, spaced wider than ANGLER_FEED_R so their gapes read
+    // as four separate animals rather than as one cluster.
+    if (i < anglers.length) return { x: p.x - 330 + i * 220, y: p.y - 250 }
+    // The rest bunched below the player, under the Scent mark.
+    const k = i - anglers.length
+    const a = (k / Math.max(1, marked.length)) * Math.PI * 2
+    return { x: p.x + Math.cos(a) * 210, y: p.y + 210 + Math.sin(a) * 110 }
   })
-  marked.forEach((e, i) => {
-    const a = (i / marked.length) * Math.PI * 2
-    e.x = p.x + Math.cos(a) * 210
-    e.y = p.y + 190 + Math.sin(a) * 110
-    e.scentT = 3
-  })
+  // Re-pinned every frame: stepAnglers closes a mouth whose player is not standing next to it, and
+  // stepEnemyMovement decays the mark. Both are the shipped code doing its job — this scene is
+  // photographing a range of states that no single moment of play would hold still.
+  anglers.forEach((e, i) => { e.gape = GAPES[i] })
+  marked.forEach((e) => { e.scentT = 3 })
 }
 layout()
 
 H.note(`${run.chapter} charge=${Math.round(run.charge)} gapes=${GAPES.join('/')} ` +
-  `marked=${marked.length} viewR=${Math.round(run.viewRadius)} ` +
-  `light radius = 0.62 x the screen's longest side at a full bar`)
+  `marked=${marked.length} enemies=${run.enemies.length} anglers=${anglers.length} ` +
+  `a0=${anglers[0] ? Math.round(anglers[0].x - run.player.x) + ',' + Math.round(anglers[0].y - run.player.y) : 'none'} ` +
+  `dead=${run.enemies.filter((e) => e._dead).length} viewR=${Math.round(run.viewRadius)}`)
 
 return () => {
+  if (run.webs) run.webs.length = Math.min(run.webs.length, 2)   // the breed keeps laying more
   layout()
   // A pinned cast being struck every frame never stops flashing, and a field of white silhouettes
   // cannot be judged against the tells drawn over it.
