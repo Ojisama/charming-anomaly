@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta } from './state.js'
@@ -11,7 +11,7 @@ const CAST_ART = Object.fromEntries(
     .map(([path, url]) => [path.slice(path.lastIndexOf('/') + 1, -4), url]),
 )
 
-const SCREEN_NAMES = ['title', 'shop', 'daily', 'brief', 'hud', 'levelup', 'pause', 'summary', 'dev', 'codex']
+const SCREEN_NAMES = ['title', 'shop', 'brief', 'hud', 'levelup', 'pause', 'summary', 'dev', 'codex']
 const CHOICE_ICONS = { weapon: '⭐', passive: '💪', mod: '⭐', element: '✨', heal: '🍡' }
 // v6.6.18 mis-tap guard: the level-up modal appears mid-fight, right where a thumb is already
 // reaching for the joystick, so a tap in the first instants is a stray press far more often than
@@ -155,11 +155,10 @@ function formatShopBonus(bookId, id, levels) {
  *       main.js spends ANOMALY_REROLL_COST to replace THAT ONE anomaly and re-shows the brief; the
  *       buttons render disabled when bm.coins can't cover it. Rerolling the whole set is still
  *       free — back out to the title and press Play — which is exactly why the paid one is targeted.
- *     - onPlay(mode): mode is 'classic' | 'daily'. 'classic' fires from the title
+ *     - onPlay(): fires from the title
  *       Play button and from the summary "Play again" button (which replays whatever mode the
- *       just-ended run used). 'daily' fires from the daily briefing screen's Start button.
  *       It carries no boosters: since v6.7 classic boosters are picked one screen later, on the
- *       pre-run summary, and arrive via onBriefStart. Boosters never applied to daily runs at all.
+ *       pre-run summary, and arrive via onBriefStart.
  *     - onChoose(i, subject): a level-up card tap (or its digit/enter key). `subject` is a WEAPON
  *       ID and is only ever non-null for a SUBJECTED anomaly card (v7.5 SPECIALIST), which opens a
  *       chooser before the pick is spent. NOT fired for the first
@@ -189,13 +188,13 @@ function formatShopBonus(bookId, id, levels) {
  *     - onSlot(n): title's 💾 save-slot picker (v6.4.6 — see slotsOpen/slotsModalHtml), fired
  *       when tapping an inactive slot row. main.js writes the slot pointer and reloads the page,
  *       same "nothing left to re-render" idiom as onReset — never fires for the already-active slot.
- *   ui.showScreen('title' | 'shop' | 'daily' | 'hud' | 'levelup' | 'pause' | 'summary', data?)
+ *   ui.showScreen('title' | 'shop' | 'hud' | 'levelup' | 'pause' | 'summary', data?)
  *     - 'levelup' data: { choices, rerollCost, rerollCurrency, coins, hp } — choices is
  *       run.levelUpChoices (run.choiceSlots cards, all shown); the rest drive the Reroll button.
  *       rerollCurrency is 'coins' or (under the BLOOD MONEY anomaly, v7.2) 'hp', and it decides
  *       both the label's icon and which wallet the disabled check reads. Both come from sim.js's
  *       rerollPrice, never computed here — see that function for why.
- *     - 'pause' data: { mutators: string[], mode: string, build: object }
+ *     - 'pause' data: { mutators: string[], build: object }
  *       mutators = run.mutators (omit/empty for classic runs); mode = the run mode chip;
  *       build = buildReadout(run) — the pause sheet's weapon/passive/element/Rupture sections,
  *       and `build.anomalies` is what the Rupture section reads. See main.js's pause hook.
@@ -223,7 +222,7 @@ function formatShopBonus(bookId, id, levels) {
  *       one), deliberately: a half-translated announcement is worse than the silence it replaced.
  *       All four can and do appear together. renderSummary itself
  *       resolves which chapter was just
- *       played (meta.chapter for classic, dailyChapter(todayKey()) for daily — the data object
+ *       played (meta.chapter — the data object
  *       doesn't carry it) purely to show its icon/name in the header, unrelated to these unlocks.
  *   ui.updateHUD(run, events)   called every frame while playing — renders run.mutators as HUD
  *     chips. events is this frame's drained run.events array. v6.9 removed its only consumer
@@ -239,9 +238,9 @@ export function initUI(hooks) {
 
   for (const name of SCREEN_NAMES) {
     const el = document.createElement('div')
-    // The three MENU tabs share one room (.room-oak, styles.css). Gameplay screens must not
+    // The two MENU screens share one room (.room-oak, styles.css). Gameplay screens must not
     // have it: the hud sits over the live canvas and an opaque background would hide the game.
-    const ROOM = ['title', 'shop', 'daily']
+    const ROOM = ['title', 'shop']
     el.className = `screen screen--${name}${ROOM.includes(name) ? ' room-oak' : ''}`
     el.dataset.ui = ''            // keeps input.js from anchoring the joystick on menu touches
     root.appendChild(el)
@@ -270,7 +269,7 @@ export function initUI(hooks) {
   // ---- title -----------------------------------------------------------
   // Session-local pre-run booster selection (v4.5). Not saved to meta — plain in-memory Set,
   // scoped to this initUI() call. Only applies to classic runs (see onBriefStart hook doc above);
-  // cleared as soon as a run actually starts (see the 'play'/'daily-start' click cases below).
+  // cleared as soon as a run actually starts (see the 'play' click case below).
   let selectedConsumables = new Set()
 
   // v5.2 title redesign — UI-local browse state (not persisted, scoped to this initUI call):
@@ -436,25 +435,6 @@ export function initUI(hooks) {
       </div>`
   }
 
-  // Fixed bottom nav, shared by every menu screen (v5.2): Shop | Battle | Daily. `active` is one of
-  // 'shop' | 'battle' | 'daily' — that tab renders highlighted + inert (see switchTab). The Daily
-  // tab badges today's dailyChapter icon.
-  function navHtml(active) {
-    const dailyIcon = CHAPTERS[dailyChapter(todayKey())]?.icon ?? '🌀'
-    const tab = (act, icon, label, extra = '') => {
-      const on = active === act
-      return `<button class="nav-tab${on ? ' nav-tab--active' : ''}" data-act="${act}"${on ? ' aria-current="page"' : ''}>
-          <span class="nav-tab-icon">${icon}${extra}</span><span class="nav-tab-label">${label}</span>
-        </button>`
-    }
-    return `
-      <nav class="menu-nav">
-        ${tab('shop', '🛒', t('Shop'))}
-        ${tab('battle', '⚔️', t('Battle'))}
-        ${tab('daily', '🌀', t('Daily'), `<sup class="nav-tab-badge">${dailyIcon}</sup>`)}
-      </nav>`
-  }
-
   // Everything BELOW the carousel: the difficulty row + hint + booster slots (unlocked chapters
   // only) and the Play button. Split out so scroll-driven selection can rebuild JUST this part
   // (via updateTitleBelow) without touching the carousel node and resetting its scroll position.
@@ -540,7 +520,10 @@ export function initUI(hooks) {
         <div class="page page--recto">${playBlock}</div>
       </div>
       ${ladderHint}
-      <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>`
+      <div class="volume-acts">
+        <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
+        <button class="btn btn--shop" data-act="shop">🛒&nbsp; ${t('Shop')}</button>
+      </div>`
   }
 
   // Surgical update after a difficulty pip is tapped: rebuild only the panel under the bookcase.
@@ -577,7 +560,6 @@ export function initUI(hooks) {
       </header>
       ${bookcaseHtml()}
       <div class="title-below">${titleBelowHtml()}</div>
-      ${navHtml('battle')}
       ${settingsSheetHtml()}
       ${slotsModalHtml()}
       ${renameSheetHtml()}
@@ -1004,10 +986,10 @@ export function initUI(hooks) {
       <header class="shop-head">
         <span class="shop-balance">🪙 <b>${bm.coins}</b></span>
         <span class="shop-books">${tabs}</span>
+        <button class="pill-btn shop-close" data-act="shop-close" aria-label="${t('Close')}">✕</button>
       </header>
       <div class="shop-rows">${cards}</div>
       ${shopFootHtml(bookId, slots, cost)}
-      ${navHtml('shop')}
       ${resetModalHtml()}
     `)
   }
@@ -1636,7 +1618,7 @@ export function initUI(hooks) {
     }
   }
 
-  // ---- daily briefing (shown before a daily run starts) ---------------------
+  // ---- anomaly effect chips (shared by the pre-run brief and the pause/summary recaps) ----
   // Human labels for MUTATORS effect keys + whether a value above 1 helps the player
   // (drives the green/red chip color; a nerf direction shows red).
   const EFFECT_LABELS = {
@@ -1676,44 +1658,6 @@ export function initUI(hooks) {
 
   function effectChips(effects) {
     return effectChipList(effects).map((c) => c.html).join('')
-  }
-
-  // One anomaly explainer card (icon + name + desc + effect chips) — the daily briefing's own
-  // card. The daily never offers a reroll (one shared seed for everyone; a paid swap would break
-  // the whole premise), and the classic brief draws its own compact row — see briefAnomHtml.
-  function mutatorCardHtml(id) {
-    const m = MUTATORS[id]
-    return `
-      <div class="daily-mutator">
-        <span class="daily-mutator-icon">${m?.icon ?? '❔'}</span>
-        <span class="daily-mutator-body">
-          <span class="daily-mutator-name">${t(m?.name ?? id)}</span>
-          <span class="daily-mutator-desc">${t(m?.desc ?? '')}</span>
-          <span class="daily-mutator-fx">${m ? effectChips(m.effects ?? {}) : ''}</span>
-        </span>
-      </div>`
-  }
-
-  function renderDaily() {
-    const chId = dailyChapter(todayKey())
-    const ids = dailyMutators(todayKey(), chId) // chapter-scoped pool — must match main.js's roll
-    const chapter = CHAPTERS[chId]
-    const isPreview = !chapterAvailable(meta, chId)
-    setHtml(screens.daily, `
-      <div class="modal daily-brief" data-pop="daily">
-        <h2 class="modal-title">🌀 ${t('Daily Anomaly')}</h2>
-        <p class="daily-date">${todayKey()}</p>
-        <div class="daily-chapter">
-          <span class="daily-chapter-icon">${chapter.icon}</span>
-          <span class="daily-chapter-name">${t(chapter.name)}</span>
-          ${isPreview ? `<span class="daily-chapter-preview">${t('preview')}</span>` : ''}
-        </div>
-        ${ids.map((id) => mutatorCardHtml(id)).join('')}
-        <p class="daily-note">${t('Everyone gets the same anomaly today — new one at midnight.')}</p>
-        <button class="btn btn--big" data-act="daily-start">▶&nbsp; ${t('Start Daily Run')}</button>
-      </div>
-      ${navHtml('daily')}
-    `)
   }
 
   // ---- classic pre-run summary (v6.0.2 briefing, widened v6.7) ---------------
@@ -1768,8 +1712,11 @@ export function initUI(hooks) {
     const reroll = d.reroll && ids.length ? { afford: briefBm.coins >= ANOMALY_REROLL_COST } : null
     const eyebrow = (txt, note) => `<div class="brief-eyebrow">${t(txt)}${note ? `<i>${note}</i>` : ''}</div>`
     setHtml(screens.brief, `
-      <div class="modal daily-brief brief" data-pop="brief">
+      <div class="modal brief-panel brief" data-pop="brief">
         <div class="brief-head">
+          <!-- Backing out of the brief used to be a tap on the bottom nav's Battle tab. With the
+               nav gone this button is the ONLY way back, and nothing is spent yet either way. -->
+          <button class="pill-btn" data-act="brief-back" aria-label="${t('Back')}">←</button>
           <div class="brief-headtext">
             <h2 class="brief-title">${chapter.icon} ${t(chapter.name)}</h2>
             <div class="brief-diff">${t('difficulty')} <b>${d.difficulty ?? 1}</b></div>
@@ -1779,13 +1726,12 @@ export function initUI(hooks) {
         ${ids.length ? `
           ${eyebrow('Anomalies', reroll ? tt('reroll {n}', { n: ANOMALY_REROLL_COST }) : '')}
           <div class="brief-anoms">${ids.map((id, i) => briefAnomHtml(id, i, reroll)).join('')}</div>
-          ${d.chapterId === 'blank' ? `<p class="daily-note">${t('The Blank\'s ladder is fixed — each difficulty adds its named modifier.')}</p>` : ''}
-        ` : `<p class="daily-note">${t('the base game')}</p>`}
+          ${d.chapterId === 'blank' ? `<p class="brief-note">${t('The Blank\'s ladder is fixed — each difficulty adds its named modifier.')}</p>` : ''}
+        ` : `<p class="brief-note">${t('the base game')}</p>`}
         ${eyebrow('Boosters', t('this run only'))}
         ${boosterSlotsHtml()}
         <button class="btn btn--big" data-act="brief-start">▶&nbsp; ${t('Start')}</button>
       </div>
-      ${navHtml('battle')}
       ${boosterSheetHtml(briefBookId)}
     `)
   }
@@ -1963,7 +1909,7 @@ export function initUI(hooks) {
     const mutatorIds = d.mutators || []
     const mutatorBlock = mutatorIds.length ? `
       <div class="pause-mutators">
-        <div class="pause-mutators-head">🌀 ${d.mode === 'daily' ? t('Daily Anomaly') : t('Anomalies')}</div>
+        <div class="pause-mutators-head">🌀 ${t('Anomalies')}</div>
         ${mutatorIds.map((id) => `
           <div class="pause-mutator-line">
             <span class="pause-mutator-icon">${MUTATORS[id]?.icon ?? '❔'}</span>
@@ -2090,13 +2036,12 @@ export function initUI(hooks) {
     const mutatorIds = d.mutators || []
     // The data object doesn't carry which chapter was played (see the header contract above) —
     // reconstruct it: classic runs play whatever's currently selected (meta.chapter can't have
-    // changed mid-run, the chapter row only lives on the title screen); daily runs play the
-    // date-seeded chapter, recomputed the same way the daily briefing screen does.
-    const chapterId = d.mode === 'daily' ? dailyChapter(todayKey()) : meta.chapter
+    // changed mid-run, the chapter row only lives on the title screen).
+    const chapterId = meta.chapter
     const chapter = CHAPTERS[chapterId] ?? CHAPTERS[CHAPTER_ORDER[0]]
     const mutatorBlock = mutatorIds.length ? `
       <div class="summary-mutators">
-        <div class="summary-mutators-head">🌀 ${d.mode === 'daily' ? t('Daily Anomaly') : t('Anomalies')}</div>
+        <div class="summary-mutators-head">🌀 ${t('Anomalies')}</div>
         ${mutatorIds.map((id) => `<div class="summary-mutator-line">${MUTATORS[id]?.icon ?? '❔'} ${t(MUTATORS[id]?.name ?? id)}</div>`).join('')}
       </div>` : ''
     setHtml(screens.summary, `
@@ -2120,7 +2065,7 @@ export function initUI(hooks) {
         <div class="earned">🪙 +${d.earned}
           ${d.bonus > 0 ? `<span class="earned-bonus">+${d.bonus} ${t('finish bonus')}</span>` : ''}
         </div>
-        <button class="btn btn--big" data-act="play" data-mode="${d.mode ?? 'classic'}">▶&nbsp; ${d.nextDifficulty ? t('Next level') : t('Play again')}</button>
+        <button class="btn btn--big" data-act="play">▶&nbsp; ${d.nextDifficulty ? t('Next level') : t('Play again')}</button>
         <button class="btn btn--soft" data-act="quit">${t('Menu')}</button>
       </div>
     `)
@@ -2134,7 +2079,6 @@ export function initUI(hooks) {
     if (name !== active) popShown.clear()
     if (name === 'title') renderTitle()
     else if (name === 'shop') renderShop()
-    else if (name === 'daily') renderDaily()
     else if (name === 'brief') renderBrief(data ?? {})
     else if (name === 'levelup') renderLevelup(data ?? {})
     else if (name === 'pause') renderPause(data ?? {})
@@ -2159,9 +2103,10 @@ export function initUI(hooks) {
     active = name
   }
 
-  // Persistent bottom-nav tab switch (v5.2). `target` is the destination SCREEN ('title' | 'shop' |
-  // 'daily'); a tap on the tab already showing is inert. Leaving the shop resets its transient
-  // modal state (sacrifice / reset) — the cleanup the old '← Back' case used to own.
+  // Menu screen switch. `target` is 'title' or 'shop'; switching to the screen already showing is
+  // inert. Leaving the shop resets its transient modal state (sacrifice / reset) — the cleanup the
+  // old '← Back' case used to own, and the reason both doors route through here rather than
+  // calling showScreen directly.
   function resetShopModals() {
     sacrificeOpen = false
     sacrificePicks = {}
@@ -2289,12 +2234,11 @@ export function initUI(hooks) {
       case 'play': {
         // v6.7: boosters are picked on the pre-run brief now, so Play never carries any. The
         // summary screen's "Play again" reaches this case too and takes the same path.
-        const mode = el.dataset.mode || 'classic'
         selectedConsumables.clear()
         boostersOpen = false
         slotsOpen = false // keyboard focus can reach Play behind a backdrop — don't strand the modal open on return
         settingsOpen = false
-        hooks.onPlay(mode)
+        hooks.onPlay()
         break
       }
       case 'boosters-open':
@@ -2310,12 +2254,11 @@ export function initUI(hooks) {
         playSfx('click')
         renderBrief(lastBriefData ?? {})
         break
-      // Persistent bottom nav (v5.2): 'battle' → title, 'shop' → shop, 'daily' → daily. A tap on
-      // the current tab is inert. See switchTab (leaving the shop resets its modal state).
-      case 'battle': switchTab('title'); break
+      // The Shop is a page of the volume you have open, reached from its cover and closed back
+      // to the shelf; the brief backs out the same way. Both go through switchTab, which is what
+      // resets the shop's transient sacrifice/reset state on the way out.
       case 'shop': switchTab('shop'); break
-      case 'daily': switchTab('daily'); break
-      case 'daily-start': selectedConsumables.clear(); hooks.onPlay('daily'); break
+      case 'shop-close': case 'brief-back': switchTab('title'); break
       // v6.7 settings sheet — the one ⚙ that replaced the title's floating 🌐 / 💾 / build stamp.
       case 'settings':
         playSfx('click')
