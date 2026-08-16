@@ -4866,7 +4866,72 @@ function runBookProgression() {
       'onSacrifice must write a non-slot unlock to bm.unlocks[target]')
   }
 
-  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, and main.js's purchase hooks + ui.js's call sites route through an explicit book id`)
+  // (u) TASK 6 — formatShopBonus (ui.js) must be sign-aware, not a percent-vs-flat discriminator
+  // with a hardcoded '+'. Slow Burn (BOOK_SHOP.undertow.slowBurn) is the first REDUCTION line in
+  // the game: stored as a POSITIVE perLevel with reduction: true, so a bare '+' would render its
+  // sacrifice-view "current -> after" preview as "+-40%" — the screen where the player chooses
+  // what to destroy. formatShopBonus is a private closure and cannot be called from here (ui.js is
+  // not importable — no jsdom, and initUI() touches document.getElementById on its first line), so
+  // this reads the function as TEXT (same idiom as run UG.k / the sacTargets block above) and pins
+  // the EXACT sign expression rather than just the word "reduction" — a mutation that mentions
+  // reduction while mapping the sign backwards (line.reduction ? '+' : '-') would still satisfy a
+  // bare /reduction/ match, which is why this checks the whole ternary, not a keyword.
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const start = uiSrc.indexOf('function formatShopBonus(bookId, id, levels) {')
+    assert.ok(start > 0, 'ui.js must still declare function formatShopBonus(bookId, id, levels) {')
+    const end = uiSrc.indexOf('\n}\n', start)
+    assert.ok(end > start, 'could not find the end of formatShopBonus')
+    const body = uiSrc.slice(start, end)
+    assert.doesNotMatch(body, /`\+\$\{Math\.round\(per \* levels \* 100\)\}%`/,
+      'the hardcoded + in formatShopBonus must be sign-aware')
+    assert.match(body, /const sign = line\.reduction \? '-' : '\+'/,
+      "formatShopBonus must map reduction:true to '-' and everything else to '+' — a backwards or missing mapping renders Slow Burn's -4%/level as a gain")
+    assert.match(body, /return per < 1 \? `\$\{sign\}\$\{Math\.round\(per \* levels \* 100\)\}%` : `\$\{sign\}\$\{Math\.round\(per \* levels\)\}`/,
+      'both the percent and flat branches must use the computed sign, not a bare literal')
+
+    // Cross-check the fact the sign logic depends on: Slow Burn really is declared as reduction:true
+    // with a POSITIVE perLevel in config.js (real, importable data) — if that ever flips, the sign
+    // expression above stops meaning what this comment says it means.
+    assert.strictEqual(shopLines('undertow').slowBurn.reduction, true, "config.js must keep slowBurn's reduction: true flag")
+    assert.ok(shopLines('undertow').slowBurn.perLevel > 0, "slowBurn's perLevel must stay POSITIVE — reduction:true is what flips its sign, not a negative perLevel")
+  }
+
+  // (v) TASK 6 — .shop-rows must not hardcode 8 rows: Undertow has 11 lines (8 universal + 3 of
+  // its own, see (a) above). A hardcoded repeat(8, ...) produces TWO defects, not one — overflow
+  // past row 8, and a HEIGHT STEP even where it fits (only the first 8 rows are 1fr; the rest fall
+  // into implicit grid-auto-rows:auto at a shorter height). The --sac variant already used the fix
+  // (grid-auto-rows); the base rule must match it now, so a book's row count is never baked in.
+  {
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.doesNotMatch(css, /grid-template-rows:\s*repeat\(8,/,
+      '.shop-rows hardcodes 8 rows; Undertow has 11 and rows 9-11 fall into grid-auto-rows at a different height')
+    assert.match(css, /\.shop-rows\s*\{[^}]*grid-auto-rows:\s*minmax\(max-content,\s*1fr\)/,
+      '.shop-rows must grow every row uniformly via grid-auto-rows, matching how many lines shopLines(bookId) actually has')
+  }
+
+  // (w) RULING 2 (Task 6 amendment, 2026-08-16) — onBuy had NO id-validity check against
+  // shopLines(bookId), unlike onSacrifice's own picks loop. That was unreachable before this task
+  // (no book-specific shop line ever rendered a data-buy button); Task 6 is what makes one
+  // renderable, so a crafted data-buy for e.g. 'deepLungs' while browsing book 1 must not spend
+  // book 1's coins on a line book 1 does not have (shopCost resolves ids GLOBALLY, so nothing else
+  // would refuse it). main.js is source-text-only here (not importable — see (t) above).
+  {
+    const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    const start = mainSrc.indexOf('onBuy(id, bookId) {')
+    assert.ok(start > 0, 'main.js must still declare onBuy(id, bookId) {')
+    const end = mainSrc.indexOf('\n  },\n', start)
+    assert.ok(end > start, 'could not find the end of onBuy')
+    const body = mainSrc.slice(start, end)
+    const guardAt = body.search(/if \(!shopLines\(bookId\)\[id\]\) return false/)
+    assert.ok(guardAt >= 0,
+      'onBuy must refuse an id absent from shopLines(bookId) — the same style onSacrifice already uses for its own picks')
+    const spendAt = body.search(/bm\.coins\s*-=\s*cost/)
+    assert.ok(spendAt >= 0, 'precondition: onBuy must still spend coins somewhere in its body')
+    assert.ok(guardAt < spendAt, 'the id-validity guard must run BEFORE coins are spent, or an invalid id still costs the player')
+  }
+
+  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, and onBuy validates its id before spending`)
 }
 run(runBookProgression)
 
@@ -5517,15 +5582,12 @@ function runLightThief() {
     assert.ok(/run\.killRefill/.test(src), 'sim.js must read the run-level snapshot')
   }
 
-  // (d) the shop rung. Two claims that are made in prose in config.js and are otherwise unguarded:
-  // it is the CHEAPEST thing on the sacrifice screen, and it is dev-gated so a WIP chapter's unlock
-  // is not advertised to players who cannot reach the chapter.
+  // (d) the shop rung. One claim made in prose in config.js and otherwise unguarded: it is the
+  // CHEAPEST thing on the sacrifice screen. (Task 6 REMOVED the old meta.dev gate here — see the
+  // block below for why reachability now does that job instead, and what replaced it.)
   {
     assert.ok(LIGHT_THIEF_COST < SACRIFICE_COSTS[0],
       `Light Thief (${LIGHT_THIEF_COST}) must undercut the 3rd card slot (${SACRIFICE_COSTS[0]}) — it is meant to be a plausible FIRST sacrifice`)
-    const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
-    assert.ok(/meta\.dev === true && meta\.lightThief !== true/.test(ui),
-      'the Light Thief rung must be gated on meta.dev — otherwise the shop advertises a Book 2 unlock, naming a resource no reachable chapter has')
     const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
     // Task 5: onSacrifice gained a trailing bookId, defaulted to BOOK_ORDER[0] alongside target's
     // own 'slot' default — same "an older caller keeps meaning what it used to" reasoning.
@@ -5539,7 +5601,59 @@ function runLightThief() {
       'onSacrifice must refuse an already-owned unlock itself (reading bm.unlocks, not the legacy meta.lightThief) rather than trusting the button to be absent')
   }
 
-  console.log(`PASS run LT (Light Thief): +${res.killRefill}/kill ONLY when bought, 0 unbought and 0 for 5 truthy-but-not-true saves, clamped, sim.js never reads meta, rung costs ${LIGHT_THIEF_COST} (under the ${SACRIFICE_COSTS[0]} card slot) and is dev-gated`)
+  // (e) RULING 1 (Task 6, 2026-08-16 amendment) — ui.js's sacTargets used to hand-roll its own
+  // Light Thief branch: a hardcoded id: 'thief' behind a bare meta.dev check, reading the LEGACY
+  // meta.lightThief for "already bought". That was TWO bugs at once, both silent: onSacrifice
+  // resolves a non-'slot' target's cost as BOOK_UNLOCKS[bookId]?.[target]?.cost (Task 5), and
+  // BOOK_UNLOCKS.undertow's real key is 'lightThief' — so the mismatched id made Light Thief
+  // permanently unpurchasable (cost always resolved to null, the button never lit even when
+  // affordable), and the meta.lightThief read meant the button would never disappear after a
+  // purchase either, since Task 5's onSacrifice no longer writes that legacy field at all (it
+  // writes bm.unlocks[target] — see (d) above and Task 5's ruling G).
+  //
+  // ui.js cannot be imported and driven directly here: initUI() calls document.getElementById at
+  // its very first line and this suite runs in plain node (no jsdom in package.json — verified),
+  // so sacTargets is unreachable as a live function. Same situation run UG.k documents for
+  // render.js's Pixi hooks — read the function as TEXT and assert the wiring, rather than skip
+  // the guard entirely.
+  {
+    const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const start = ui.indexOf('function sacTargets(bookId) {')
+    assert.ok(start > 0, 'ui.js must still declare function sacTargets(bookId) { — this block reads it as text')
+    const end = ui.indexOf('\n  }\n', start)
+    assert.ok(end > start, 'could not find the end of sacTargets')
+    const body = ui.slice(start, end)
+
+    // No hand-rolled meta.dev gate left in the function that emits targets — reachability (an
+    // Undertow target only ever exists to be asked for once the book itself is browsable) is what
+    // gates this now, per the ruling. A meta.dev check reappearing here is the exact shape of the
+    // regression: it is what let a hardcoded, driftable id sit right next to it.
+    assert.doesNotMatch(body, /meta\.dev/,
+      'sacTargets must not gate on meta.dev directly — reachability already gates an Undertow target (see the ruling comment above sacTargets in ui.js)')
+    assert.doesNotMatch(body, /meta\.lightThief/,
+      "sacTargets must not read the legacy meta.lightThief — Task 5's onSacrifice writes the unlock to bm.unlocks[target], and reading the old field is exactly why the button never disappeared after a purchase")
+
+    // The already-owned gate must read THIS BOOK's own purse, keyed by the loop's own id.
+    assert.ok(/if \(bm\.unlocks\?\.\[id\] === true\) continue/.test(body),
+      'sacTargets must gate on bm.unlocks?.[id] === true (this book\'s own purse), not a Book-1-shaped legacy field')
+
+    // The structural proof for "every id sacTargets can emit is either 'slot' or a real key of
+    // BOOK_UNLOCKS[bookId]": the ONLY branch that can push a non-'slot' id must destructure that
+    // id straight out of Object.entries(BOOK_UNLOCKS[bookId] ?? {}) and push that SAME binding —
+    // never a separately-typed literal, which is exactly how 'thief' drifted from the table's real
+    // key 'lightThief' with nothing to catch it.
+    assert.ok(/for \(const \[id, u\] of Object\.entries\(BOOK_UNLOCKS\[bookId\] \?\? \{\}\)\)/.test(body),
+      'sacTargets must iterate Object.entries(BOOK_UNLOCKS[bookId] ?? {}) by its own keys')
+    assert.ok(/out\.push\(\{ id, cost: u\.cost/.test(body),
+      "the BOOK_UNLOCKS branch must push the LOOP's own `id` binding — a separately-typed id here (however named) can silently stop matching the table's real key")
+    // Every OTHER id: assignment in the function body must be the literal 'slot' — if it is
+    // anything else, some branch is hardcoding an id instead of reading it off BOOK_UNLOCKS.
+    const idLiterals = [...body.matchAll(/\bid:\s*'([^']+)'/g)].map((m) => m[1])
+    assert.deepStrictEqual(idLiterals, ['slot'],
+      `sacTargets may only hardcode 'slot' as a literal id; every other emitted id must come from the BOOK_UNLOCKS loop above — found literal id(s): ${JSON.stringify(idLiterals)}`)
+  }
+
+  console.log(`PASS run LT (Light Thief): +${res.killRefill}/kill ONLY when bought, 0 unbought and 0 for 5 truthy-but-not-true saves, clamped, sim.js never reads meta, rung costs ${LIGHT_THIEF_COST} (under the ${SACRIFICE_COSTS[0]} card slot), and sacTargets emits only 'slot' or a real BOOK_UNLOCKS[bookId] key`)
 }
 run(runLightThief)
 

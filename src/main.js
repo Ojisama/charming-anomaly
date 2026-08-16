@@ -184,6 +184,11 @@ const ui = initUI({
   // the moment a Book 2 chapter is browsable.
   onBuy(id, bookId) {
     const bm = ensureBookMeta(meta, bookId)
+    // Same style as onSacrifice's own line-validity check below: shopLines(bookId) resolves ids
+    // GLOBALLY (shopCost doesn't know which book is asking), so without this a crafted data-buy
+    // for a Book 2 line (e.g. deepLungs) while browsing Book 1 would spend book 1's coins and
+    // write a shop line Book 1 does not have.
+    if (!shopLines(bookId)[id]) return false
     const level = bm.shop[id] ?? 0
     const cost = shopCost(id, level)
     if (level >= MAX_SHOP_LEVEL || bm.coins < cost) return false

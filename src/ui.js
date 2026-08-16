@@ -1,8 +1,8 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleChapterList, chaosStatus, PULSE_CHARGE_COST, LIGHT_THIEF_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleChapterList, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
-import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX } from './state.js'
+import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta } from './state.js'
 
 // Chapter-card cast thumbnails, keyed by rosterId: './cast/tardigrade.png' -> 'tardigrade'.
 // See the castArt note in initUI for where they come from and why they are files.
@@ -123,12 +123,16 @@ function lerpColor(a, b, t) {
   return `rgb(${r}, ${g}, ${b2})`
 }
 
-// Formats a SHOP stat's total bonus at a given level the same way its shop-row desc reads
+// Formats a book's shop-line total bonus at a given level the same way its shop-row desc reads
 // (e.g. "+25%" for percentage stats, "+150" for flat ones like maxHP) — used by the sacrifice
-// modal's per-row "current -> after" preview.
-function formatShopBonus(id, levels) {
-  const per = SHOP[id].perLevel
-  return per < 1 ? `+${Math.round(per * levels * 100)}%` : `+${Math.round(per * levels)}`
+// modal's per-row "current -> after" preview. `reduction` lines (Slow Burn) store a POSITIVE
+// perLevel and display as a decrease — storing -0.04 instead would render "+-40%" here and invert
+// the `per < 1` percent test one line down.
+function formatShopBonus(bookId, id, levels) {
+  const line = shopLines(bookId)[id]
+  const per = line.perLevel
+  const sign = line.reduction ? '-' : '+'
+  return per < 1 ? `${sign}${Math.round(per * levels * 100)}%` : `${sign}${Math.round(per * levels)}`
 }
 
 /**
@@ -182,8 +186,11 @@ function formatShopBonus(id, levels) {
  *       button. picks is { [statId]: count }, the shop levels offered per stat. `target` (v7.x)
  *       names WHAT the offer buys — 'slot' for the 3rd/4th level-up card slot (sum === sacrificeCost(
  *       meta.choiceSlots)) or a BOOK_UNLOCKS[bookId] key, e.g. 'lightThief' for Book 2's Light Thief
- *       (sum === that entry's cost). Book-specific targets only exist behind meta.dev; see
- *       sacTargets. `bookId` is shopBookId() — same reasoning as onBuy above.
+ *       (sum === that entry's cost). A book-specific target only ever appears once that book is
+ *       REACHABLE — an Undertow target needs an Undertow chapter browsable, which needs the book
+ *       unlocked, which needs meta.dev while it is wip (see sacTargets, and unlockBook in state.js)
+ *       — so sacTargets carries no separate meta.dev check of its own. `bookId` is shopBookId() —
+ *       same reasoning as onBuy above.
  *       Returns true/false; the UI closes the modal and re-renders the shop either way (main.js
  *       already validates, so false should only happen if the two ever disagree).
  *     - onReset(): shop's "🗑 Reset all progress" button, after its own confirm modal. Full
@@ -466,14 +473,16 @@ export function initUI(hooks) {
 
   // Bottom sheet (same .modal-backdrop idiom as the sacrifice modal): the 3 CONSUMABLES as toggle
   // rows. A row is greyed (disabled) when adding it would push the running selection cost past
-  // meta.coins (cheapest-first affordability still finally resolved in main.js's onBriefStart).
-  function boosterSheetHtml() {
+  // the PLAYED chapter's own book purse (bookId — cheapest-first affordability still finally
+  // resolved in main.js's onBriefStart, off the same bookOf(chapter) resolution).
+  function boosterSheetHtml(bookId) {
     if (!boostersOpen) return ''
+    const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
     const selectedCost = [...selectedConsumables].reduce((sum, id) => sum + (CONSUMABLES[id]?.cost ?? 0), 0)
     const rows = Object.entries(CONSUMABLES).map(([id, item]) => {
       const selected = selectedConsumables.has(id)
       const otherCost = selectedCost - (selected ? item.cost : 0)
-      const afford = selected || (meta.coins - otherCost) >= item.cost
+      const afford = selected || (bm.coins - otherCost) >= item.cost
       return `
         <button class="booster-item${selected ? ' booster-item--on' : ''}" data-consumable="${id}" ${afford ? '' : 'disabled'}>
           <span class="booster-item-icon">${item.icon}</span>
@@ -641,6 +650,10 @@ export function initUI(hooks) {
     // creates one — and falling back to an unvalidated pointer would put the alien id straight back
     // (R1, config.js).
     if (!meta.chapters?.[browseChapterId]) browseChapterId = playableChapterId(meta)
+    // The badge reads the BROWSED book's purse (shopBookId — same resolution the shop and onBuy
+    // use), not always meta.coins: once a Book 2 chapter is a browsable preview card, showing
+    // book 1's coins here while Play/onBuy spend book 2's would be silently wrong.
+    const titleBm = bookMeta(meta, shopBookId()) ?? ensureBookMeta(meta, shopBookId())
     setHtml(screens.title, `
       <header class="title-bar">
         <button class="pill-btn" data-act="settings" aria-label="${t('Settings')}">⚙</button>
@@ -649,7 +662,7 @@ export function initUI(hooks) {
         <!-- data-act="dev-tap-wip": seven quick taps toggle the WIP gate (meta.dev), which is what
              reveals work-in-progress chapters. Same gesture as the HUD badge's hidden dev menu and
              the same two constants, but its own counter and its own case — see 'dev-tap-wip'. -->
-        <div class="coins-badge" data-act="dev-tap-wip">🪙 <b>${meta.coins}</b></div>
+        <div class="coins-badge" data-act="dev-tap-wip">🪙 <b>${titleBm.coins}</b></div>
       </header>
       ${carouselHtml()}
       <div class="title-below">${titleBelowHtml()}</div>
@@ -807,27 +820,31 @@ export function initUI(hooks) {
     return Object.values(sacrificePicks).reduce((sum, n) => sum + n, 0)
   }
 
-  // What a sacrifice can BUY (v7.x). Until Book 2 there was exactly one answer — the next level-up
-  // card slot — and the whole flow was written around that assumption, from the shop pill's label
-  // to the confirm handler. Light Thief is the second, so the target became data.
+  // What a sacrifice can BUY (v7.x): the book's OWN BOOK_UNLOCKS entries (Light Thief today, more
+  // later) plus the universal next level-up card slot. The emitted `id` is the BOOK_UNLOCKS key
+  // itself (e.g. 'lightThief'), not a UI-invented label — a hand-rolled id here ('thief') is
+  // exactly the bug that made Light Thief unpurchasable: onSacrifice resolves a non-'slot' target
+  // via BOOK_UNLOCKS[bookId]?.[target]?.cost, so a mismatched id resolves to a null cost and the
+  // purchase can never succeed. The already-bought gate reads bm.unlocks?.[id], not a Book
+  // 1-shaped meta.lightThief, for the same reason.
+  //
+  // No meta.dev gate here — that job now belongs to reachability. An Undertow target only ever
+  // appears when bookId is 'undertow', which only happens when the title carousel is browsing an
+  // Undertow chapter, which requires the book unlocked, which requires meta.dev while the book is
+  // wip (see unlockBook, state.js). With the book locked, sacTargets(bookId) simply has no
+  // BOOK_UNLOCKS[bookId] to iterate, so book 1 is byte-identical to before.
   //
   // Cheapest first, which is also the order the toggles appear in the view: at 15 levels Light
-  // Thief undercuts the 3rd slot's 20 deliberately (see LIGHT_THIEF_COST), so it should read first.
-  //
-  // GATED ON meta.dev, and that is not tidiness. The Shelf is a WIP chapter nobody can reach
-  // without the seven-tap gate, and a permanent unlock advertised on the shop screen — with a
-  // description naming a resource that does not exist in any chapter a player can load — leaks
-  // Book 2 to everyone. With the gate off, sacTargets() returns exactly what it always returned,
-  // so the shop is byte-identical for a real player.
-  function sacTargets() {
+  // Thief undercuts the 3rd slot's 20 deliberately (see LIGHT_THIEF_COST in config.js), so it
+  // should read first.
+  function sacTargets(bookId) {
+    const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
     const out = []
-    if (meta.dev === true && meta.lightThief !== true) {
-      out.push({
-        id: 'thief', cost: LIGHT_THIEF_COST, icon: '🔦', label: t('Light Thief'), short: t('Light Thief'),
-        desc: tt('Kills give back Light — sacrifice {cost} upgrade levels (no coin refund).', { cost: LIGHT_THIEF_COST }),
-      })
+    for (const [id, u] of Object.entries(BOOK_UNLOCKS[bookId] ?? {})) {
+      if (bm.unlocks?.[id] === true) continue
+      out.push({ id, cost: u.cost, icon: u.icon, label: t(u.name), short: t(u.name), desc: tt(u.desc, { cost: u.cost }) })
     }
-    const slots = meta.choiceSlots ?? 2
+    const slots = bm.choiceSlots ?? 2
     const slotCost = sacrificeCost(slots)
     if (slotCost != null) {
       const nth = slots === 2 ? t('3rd') : t('4th')
@@ -839,13 +856,13 @@ export function initUI(hooks) {
         desc: tt('Unlock the {nth} upgrade slot — sacrifice {cost} upgrade levels (no coin refund).', { nth, cost: slotCost }),
       })
     }
-    return out
+    return out.sort((a, b) => a.cost - b.cost) // cheapest first, as today
   }
   // The target currently being offered toward. Resolved rather than stored, so a target that stops
   // existing mid-session (bought in another tab, or the dev gate switched off under it) can never
   // leave the view pointing at a purchase that cannot happen.
-  function activeTarget() {
-    const list = sacTargets()
+  function activeTarget(bookId) {
+    const list = sacTargets(bookId)
     return list.find((x) => x.id === sacrificeTarget) ?? list[0] ?? null
   }
 
@@ -855,13 +872,14 @@ export function initUI(hooks) {
   // cost); the paragraph moved inside the modal the pill opens, so nothing is lost, and the
   // reset link shares the same row as a 🗑 square. Both live in .shop-foot, a fixed-height flex
   // row, which is what lets .shop-rows own every remaining pixel (see styles.css).
-  function shopFootHtml(slots, cost) {
-    const owned = Object.values(meta.shop).reduce((sum, l) => sum + l, 0)
+  function shopFootHtml(bookId, slots, cost) {
+    const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
+    const owned = Object.values(bm.shop).reduce((sum, l) => sum + l, 0)
     // ONE pill, still — the target choice lives inside the view it opens, not out here. .shop-foot
     // is a fixed-height flex row that already shares its width with the reset square, and a second
     // pill is exactly the kind of thing that fits at 390px and overflows at 320. The pill tracks
     // the CHEAPEST available target so it lights up as early as anything is affordable.
-    const targets = sacTargets()
+    const targets = sacTargets(bookId)
     const cheapest = targets[0] ?? null
     let sac
     if (!cheapest) {
@@ -895,7 +913,9 @@ export function initUI(hooks) {
   // replaces the shop's contents in place, and the bottom nav is withheld while it is up — you are
   // in a committed Cancel/Confirm flow, so wandering off to Battle mid-offer should take an
   // explicit cancel. Same header/rows/footer skeleton as the upgrade list.
-  function sacrificeViewHtml(target) {
+  function sacrificeViewHtml(target, bookId) {
+    const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
+    const lines = shopLines(bookId)
     const cost = target.cost
     const offered = sacrificeOffered()
     const ready = offered === cost
@@ -911,8 +931,8 @@ export function initUI(hooks) {
     // and effect, so the eight things you are choosing between look identical on both screens
     // (they were "Power Gel" here and "💥 +5% damage" one tap away). The rail does double duty
     // that the pips could not: mint = levels you keep, red = levels on the altar, plain = empty.
-    const rows = Object.entries(SHOP).filter(([id]) => (meta.shop[id] ?? 0) > 0).map(([id, item]) => {
-      const level = meta.shop[id]
+    const rows = Object.entries(lines).filter(([id]) => (bm.shop[id] ?? 0) > 0).map(([id, item]) => {
+      const level = bm.shop[id]
       const picked = sacrificePicks[id] ?? 0
       const kept = level - picked
       const canOffer = picked < level && !full
@@ -924,7 +944,7 @@ export function initUI(hooks) {
       // me", and once you have offered some, "what am I about to lose" (total now → total after).
       // Swapping in place is what keeps this a one-line row instead of the old four-line block.
       const mid = picked > 0
-        ? `<span class="sac-row-before">${formatShopBonus(id, level)}</span> → <span class="sac-row-after">${formatShopBonus(id, kept)}</span>`
+        ? `<span class="sac-row-before">${formatShopBonus(bookId, id, level)}</span> → <span class="sac-row-after">${formatShopBonus(bookId, id, kept)}</span>`
         : t(item.desc)
       // A div, not a button: the row holds two real buttons now and buttons cannot nest. Offering
       // and taking back are both per-row, which is why the altar no longer needs its chip strip.
@@ -946,7 +966,7 @@ export function initUI(hooks) {
     // strip is a row of one button that does nothing, which is worse than no strip, and one target
     // is what every non-dev save has. Switching target clears the altar (see the handler): the
     // costs differ, so carrying an offer across would silently leave you over or under.
-    const targets = sacTargets()
+    const targets = sacTargets(bookId)
     const targetStrip = targets.length < 2 ? '' : `
       <div class="sac-targets">
         ${targets.map((x) => `
@@ -987,34 +1007,37 @@ export function initUI(hooks) {
   }
 
   function renderShop(bounceId) {
-    const slots = meta.choiceSlots ?? 2
+    const bookId = shopBookId()
+    const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
+    const slots = bm.choiceSlots ?? 2
     const cost = sacrificeCost(slots)
     // v7.x: gated on a TARGET existing rather than on the slot cost alone — with all 4 slots
     // unlocked, sacrificeCost is null while Light Thief may still be buyable.
-    const target = activeTarget()
+    const target = activeTarget(bookId)
     // The sacrifice list takes over the shop screen rather than floating above it (see
     // sacrificeViewHtml). --sac drops the bottom-nav padding reservation, since the nav is not
     // rendered while a Cancel/Confirm flow is up.
     screens.shop.classList.toggle('screen--sac', sacrificeOpen && target != null)
     if (sacrificeOpen && target != null) {
-      setHtml(screens.shop, sacrificeViewHtml(target))
+      setHtml(screens.shop, sacrificeViewHtml(target, bookId))
       return
     }
     // v6.6 card: the NAME is gone from the face. A purchase turns on the effect and the price —
     // "Power Gel" is flavour the player already knows by icon after one session, and it was
     // costing the biggest type on the card plus a whole line. The effect takes that slot, and the
     // name survives in aria-label so screen readers and the sacrifice list still speak it.
-    // v6.6.2 (owner picked this shape over the two-column cards): ONE COLUMN of eight rows. A full
-    // -width row is what lets the effect sit on a single line and never ellipsize, in either
-    // language — horizontal room is the scarce axis at 320px, and every previous attempt lost
-    // labels to a meter competing for the same line. So the meter is not on the line: ten discrete
-    // notches ride the row's bottom edge, and reading down the column shows the whole build at
-    // once. The price is an explicit gold "buy" chip rather than a bare number.
-    const cards = Object.entries(SHOP).map(([id, item]) => {
-      const level = meta.shop[id]
+    // v6.6.2 (owner picked this shape over the two-column cards): ONE COLUMN of rows (eight for
+    // book 1, more for a book with its own lines — see shopLines). A full-width row is what lets
+    // the effect sit on a single line and never ellipsize, in either language — horizontal room is
+    // the scarce axis at 320px, and every previous attempt lost labels to a meter competing for
+    // the same line. So the meter is not on the line: ten discrete notches ride the row's bottom
+    // edge, and reading down the column shows the whole build at once. The price is an explicit
+    // gold "buy" chip rather than a bare number.
+    const cards = Object.entries(shopLines(bookId)).map(([id, item]) => {
+      const level = bm.shop[id] ?? 0
       const maxed = level >= MAX_SHOP_LEVEL
       const buyCost = maxed ? 0 : shopCost(id, level)
-      const afford = !maxed && meta.coins >= buyCost
+      const afford = !maxed && bm.coins >= buyCost
       const notches = Array.from({ length: MAX_SHOP_LEVEL },
         (_, i) => `<i class="notch${i < level ? ' notch--on' : ''}"></i>`).join('')
       const label = `${t(item.name)} — ${t(item.desc)} · ${level}/${MAX_SHOP_LEVEL} · ${maxed ? 'MAX' : `🪙 ${buyCost}`}`
@@ -1034,11 +1057,16 @@ export function initUI(hooks) {
           <span class="shop-rail">${notches}</span>
         </button>`
     }).join('')
-    // Nav (below) replaces the old "← Back" header.
+    // Nav (below) replaces the old "← Back" header. The book name sits beside the balance, or a
+    // returning player who just browsed into a book with its own (freshly reset) purse reads the
+    // lower number as a bug rather than as "this is a different book's coins".
     setHtml(screens.shop, `
-      <header class="shop-head"><span class="shop-balance">🪙 <b>${meta.coins}</b></span></header>
+      <header class="shop-head">
+        <span class="shop-balance">🪙 <b>${bm.coins}</b></span>
+        <span class="shop-book">${t(BOOKS[bookId].name)}</span>
+      </header>
       <div class="shop-rows">${cards}</div>
-      ${shopFootHtml(slots, cost)}
+      ${shopFootHtml(bookId, slots, cost)}
       ${navHtml('shop')}
       ${resetModalHtml()}
     `)
@@ -1786,8 +1814,14 @@ export function initUI(hooks) {
   function renderBrief(d) {
     lastBriefData = d
     const chapter = CHAPTERS[d.chapterId] ?? CHAPTERS.body
+    // The purse this screen spends from is the CHAPTER ABOUT TO BE PLAYED's own book — not
+    // shopBookId() (the title carousel's browse state). Resolving it the same way main.js's
+    // startClassic/onBriefReroll do (bookOf(chapter) ?? BOOK_ORDER[0]) is what keeps the balance
+    // shown here, the reroll affordability, and the coins actually spent from ever disagreeing.
+    const briefBookId = bookOf(d.chapterId) ?? BOOK_ORDER[0]
+    const briefBm = bookMeta(meta, briefBookId) ?? ensureBookMeta(meta, briefBookId)
     const ids = d.mutators ?? []
-    const reroll = d.reroll && ids.length ? { afford: meta.coins >= ANOMALY_REROLL_COST } : null
+    const reroll = d.reroll && ids.length ? { afford: briefBm.coins >= ANOMALY_REROLL_COST } : null
     const eyebrow = (txt, note) => `<div class="brief-eyebrow">${t(txt)}${note ? `<i>${note}</i>` : ''}</div>`
     setHtml(screens.brief, `
       <div class="modal daily-brief brief" data-pop="brief">
@@ -1796,7 +1830,7 @@ export function initUI(hooks) {
             <h2 class="brief-title">${chapter.icon} ${t(chapter.name)}</h2>
             <div class="brief-diff">${t('difficulty')} <b>${d.difficulty ?? 1}</b></div>
           </div>
-          <div class="coins-badge">🪙 <b>${meta.coins}</b></div>
+          <div class="coins-badge">🪙 <b>${briefBm.coins}</b></div>
         </div>
         ${ids.length ? `
           ${eyebrow('Anomalies', reroll ? tt('reroll {n}', { n: ANOMALY_REROLL_COST }) : '')}
@@ -1808,7 +1842,7 @@ export function initUI(hooks) {
         <button class="btn btn--big" data-act="brief-start">▶&nbsp; ${t('Start')}</button>
       </div>
       ${navHtml('battle')}
-      ${boosterSheetHtml()}
+      ${boosterSheetHtml(briefBookId)}
     `)
   }
 
@@ -2473,7 +2507,7 @@ export function initUI(hooks) {
         sacrificeBounceId = null
         // Open on the CHEAPEST target, matching the pill the player just tapped (shopFootHtml
         // labels itself with that same target) rather than whatever was selected last session.
-        sacrificeTarget = sacTargets()[0]?.id ?? null
+        sacrificeTarget = sacTargets(shopBookId())[0]?.id ?? null
         playSfx('click')
         renderShop()
         break
@@ -2503,11 +2537,13 @@ export function initUI(hooks) {
         // whole-row tap: offer ONE more level of this stat onto the altar, capped at both the
         // stat's owned level and the sacrifice's total cost
         const id = el.dataset.id
+        const bookId = shopBookId()
         // The ACTIVE target's cost, not the slot's — Light Thief costs 15 where the 3rd slot costs
         // 20, and reading the slot's number here would cap the altar at the wrong total.
-        const cost = activeTarget()?.cost ?? null
+        const cost = activeTarget(bookId)?.cost ?? null
         const have = sacrificePicks[id] ?? 0
-        if (cost != null && sacrificeOffered() < cost && have < (meta.shop[id] ?? 0)) {
+        const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
+        if (cost != null && sacrificeOffered() < cost && have < (bm.shop[id] ?? 0)) {
           sacrificePicks[id] = have + 1
           sacrificeBounceId = id
           playSfx('click')
@@ -2531,7 +2567,7 @@ export function initUI(hooks) {
       }
       case 'sacrifice-confirm': {
         // main.js plays the 'buy' sfx itself on success; nothing extra to do here either way.
-        const target = activeTarget()
+        const target = activeTarget(shopBookId())
         if (target != null && sacrificeOffered() === target.cost) hooks.onSacrifice(sacrificePicks, target.id, shopBookId())
         sacrificeOpen = false
         sacrificePicks = {}
