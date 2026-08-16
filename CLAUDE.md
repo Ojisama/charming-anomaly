@@ -210,6 +210,11 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   **Ship amends HEAD with `git commit --amend -m`, which replaces the WHOLE message — any BODY on
   that commit is destroyed.** So write the reasoning where it survives: on the commits below the
   release, or push the branch first (the pre-amend commit stays reachable there) and ship after.
+  **After ship, the branch you already pushed has DIVERGED** — ship amended HEAD, so your local
+  branch is no longer a descendant of its remote copy and a second `git push` is rejected as
+  non-fast-forward. Push the next commit to a NEW branch name (`git push origin HEAD:<name>-2`)
+  rather than force-pushing; the point of that push is only to keep the commit BODY reachable, so
+  a fresh name costs nothing and `--force` is never the answer.
   Also expect the retry path to fire for real: it merged `main` and renumbered twice in one
   afternoon while another session was shipping, which is working as designed — check
   `git log --oneline origin/main..HEAD` comes back empty afterwards rather than assuming.
@@ -285,6 +290,15 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   escape. It was caught by eye, from a screenshot that looked unchanged. Introduce ONE local for the
   count and use it in both places, and assert **distinct positions** rather than a count — a count
   passes happily when things spawn on top of each other (run PB7's every-weapon block does this).
+- **`.screen` is `position: absolute; inset: 0`, and a screen-level class must NEVER re-declare
+  `position`.** Every menu screen is absolutely positioned by that one base rule; a later
+  same-specificity class saying `position: relative` overrides it, the element collapses from
+  `inset: 0` to auto height, and its background stops wherever its content does. That is what it
+  looks like: the Shop's oak panelling ended 565px down a 844px screen with the old canvas showing
+  beneath it, and nothing else was visibly wrong. `.screen` being positioned already makes it the
+  containing block for an `::before { inset: 0 }` overlay, so the declaration is never needed in
+  the first place. Found by printing `getComputedStyle(el).position` and the element's height into
+  the page — reading the stylesheet does not show you which rule won.
 - Balance changes go in `config.js` and nowhere else. If you're typing a magic number into sim.js, it belongs in config.js as a named export.
 - **A red `sim-test` band is not proof your change caused it — several bands are eyeballed literals
   under 3σ.** The suite seeds `Math.random` once per scenario, so ANY change that alters how many
