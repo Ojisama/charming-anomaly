@@ -123,7 +123,6 @@ const UI = {
   'Settings': 'Réglages',
   'Save slots': 'Emplacements de sauvegarde',
   // screen-reader only (aria-label), lowercase to match how they read aloud in context
-  'progress': 'progression',
   'add booster': 'ajouter un booster',
   'language': 'langue',
   'skill button': 'bouton d\'action',
@@ -190,7 +189,6 @@ const UI = {
   'Chapter unlocked: {name}!': 'Chapitre débloqué : {name} !',
   // v6.7 carousel counter. Stands alone in front of a numeral ("Chapitre 3"), so it takes no
   // article and no agreement — the single word is the whole string on purpose.
-  'Chapter': 'Chapitre',
   'THE BLANK — the antibody that let you go wants you back': 'LE BLANC — l\'anticorps qui t\'a laissé filer veut que tu reviennes',
   'finish bonus': 'bonus de fin',
   // v7.5 SPECIALIST on the build sheet ("Spécialiste : Borne Incendie"). NBSP before the colon —
@@ -988,6 +986,25 @@ const CONFIG = {
   'Start with 2 level-ups banked': 'Commence avec 2 montées de niveau en réserve',
   'Charged Core': 'Noyau Chargé',
   'Starting weapon begins at Lv 2': 'L\'arme de départ commence au Niv. 2',
+  // Book names (BOOKS[].name) — on screen for the first time, on the shelf's brass plate.
+  'The Anomaly': 'L\'Anomalie',
+  'Undertow': 'Lame de Fond',
+  // Spine names (CHAPTER_SPINE, config.js) — the chapter name with its article dropped, because a
+  // spine sets its title vertically and has about 110px of height for it.
+  'Body': 'Corps',
+  'Pond': 'Mare',
+  'Garden': 'Jardin',
+  'Undergrowth': 'Sous-Bois',
+  'City': 'Ville',
+  'Skies': 'Cieux',
+  'Beyond': 'Au-delà',
+  'Blank': 'Blanc',
+  'Surf': 'Snorkeling',
+  'Shelf': 'Large',
+  'Reef': 'Récif',
+  'Trawl': 'Chalut',
+  'Book {n}': 'Livre {n}',
+  'locked chapter': 'chapitre verrouillé',
   'The Body': 'Le Corps',
   'escape the host': 'échappe-toi de l\'hôte',
   'Red Blood Cell': 'Globule Rouge',
@@ -1001,8 +1018,20 @@ const CONFIG = {
   // The Shelf (Book 2). 'Krill' is the French word too. 'Méduse Lune' over the real common
   // name 'Aurélie', which is correct but reads as a first name rather than an animal.
   // The Surf (Book 2 chapter 1).
-  'The Surf': 'Le Ressac',
+  'The Surf': 'Snorkeling',
+  'The Shelf': 'Le Large',
+  'The Reef': 'Le Récif',
   'the tide decides': 'la marée décide',
+  'the light only goes down': 'la lumière ne fait que diminuer',
+  'the current only runs one way': 'le courant décide pour toi',
+  // The Trawl (Book 2 chapter 4). 'Le Chalut' is the net itself — 'chalutage' is the activity and
+  // 'drague' is a different gear (and slang for chatting someone up).
+  // THE TAGLINE IS THE OWNER'S OWN LINE, not a translation of the English, and deliberately so:
+  // the English says the net is indifferent to you, and this says the humans will catch every one
+  // of you. Same chapter, aimed from the other end. If the English is ever brought into line with
+  // it, remember the English string IS the key — changing it orphans this entry.
+  'The Trawl': 'Le Chalut',
+  'the net is not aiming at you': 'Ils vous pêcheront tous',
   'Sand Hopper': 'Puce de mer',
   'Shore Crab': 'Crabe vert',
   'Sea Roach': 'Cloporte de mer',

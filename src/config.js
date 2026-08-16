@@ -3502,13 +3502,19 @@ export const COIN_CAP_PER_RUN = 999
 //
 // `hidden` is for chapters that belong to a book but sit outside its ladder — The Blank is Book 1's,
 // unlocked by winning The Beyond at 5 rather than by finishing the chapter before it.
+// `cloth` is the Book's binding colour on the title bookcase — every volume standing on that
+// étage is bound in it, and a LOCKED volume is turned fore-edge out with only its boards showing,
+// so the cloth is the sole thing tying a covered chapter to the Book that owns it. Render-only,
+// like CHAPTERS[].render: no sim meaning. Pick a dark one — the spine's foil title and its gold
+// stars are drawn on top, and both need the contrast.
 export const BOOKS = {
   book1: {
     name: 'The Anomaly',
+    cloth: '#3d5c47',
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  undertow: { name: 'Undertow', chapters: ['surf', 'shelf', 'reef', 'trawl'], hidden: [], wip: true },
+  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl'], hidden: [], wip: true },
 }
 export const CHAPTER_ORDER = BOOKS.book1.chapters
 // Every id on any book's LADDER. Deliberately excludes `hidden`: The Blank has always sat outside
@@ -5800,30 +5806,62 @@ export const playableChapterId = (meta) => {
 export const chapterAvailable = (meta, id) =>
   !!meta?.chapters?.[id]?.unlocked || (meta?.dev === true && isWipChapter(id))
 
-// Which chapters the title carousel shows: every unlocked chapter, plus the first still-locked one
-// as an anonymous "???" preview. Pure function of the save — it was module-local in ui.js until
-// v7.x, and it moved here because it is chapter DATA logic with no DOM in it, and because the WIP
-// gate below is only a real gate if the suite can assert it (ui.js cannot be imported headless:
-// import.meta.glob is Vite-only).
-export function titleChapterList(meta) {
-  const ids = CHAPTER_ORDER.filter((id) => meta.chapters?.[id]?.unlocked)
-  const locked = nextChapter(ids[ids.length - 1] ?? CHAPTER_ORDER[0])
-  if (locked && !meta.chapters?.[locked]?.unlocked) ids.push(locked)
-  const base = ids.length ? ids : [CHAPTER_ORDER[0]]
-  // v5.24: The Blank lives OUTSIDE CHAPTER_ORDER (see config.js) so nextChapter can never surface
-  // it — appended explicitly instead. Unlocked: a real card. Not yet, but Beyond has been pushed to
-  // its ceiling (one win away): a "???" mystery card. Otherwise it must never appear at all.
-  if (meta.chapters?.blank?.unlocked) base.push('blank')
-  // >= not ===: R3 (state.js) keeps a future build's higher maxDifficulty as stored, and a strict
-  // equality against this build's ceiling would make the "???" card vanish for exactly the players
-  // who have gone furthest. undefined/null still compare false, so nothing else changes.
-  else if (meta.chapters?.beyond?.maxDifficulty >= MAX_DIFFICULTY) base.push('blank')
-  // v7.x: a WIP book's chapters are appended ONLY behind the dev gate, the same explicit-append
-  // idiom The Blank uses one line up and for the same reason — they live outside CHAPTER_ORDER, so
-  // the filter above structurally cannot surface them. This append is the only way to reach one,
-  // which is what makes meta.dev a real gate rather than a decoration.
-  if (meta.dev) for (const b of Object.values(BOOKS)) if (b.wip) base.push(...b.chapters)
-  return base
+// The name printed on a chapter's SPINE — its own name with the article dropped. A spine is about
+// 47px wide and reads its title VERTICALLY, which leaves roughly 110px of height for it: 'The
+// Undergrowth' needs about 135px and simply does not fit, while 'Undergrowth' does.
+//
+// Its own table rather than a `short` key inside each CHAPTERS entry, for one reason: run XX's
+// French coverage walk enumerates config TABLES, and a key buried in a chapter's body would be
+// exempt from it by construction — which is exactly how two City enemies, every weapon mod and the
+// whole elements rework each shipped untranslated. As a table it is one line in that walk.
+export const CHAPTER_SPINE = {
+  body: 'Body', pond: 'Pond', garden: 'Garden', undergrowth: 'Undergrowth',
+  city: 'City', skies: 'Skies', beyond: 'Beyond', blank: 'Blank',
+  surf: 'Surf', shelf: 'Shelf', reef: 'Reef', trawl: 'Trawl',
+}
+// Falls back to the full name rather than throwing: a chapter added without a spine entry renders
+// with its article and looks slightly wrong, which is a far better failure than a blank spine.
+export const spineName = (id) => CHAPTER_SPINE[id] ?? CHAPTERS[id]?.name ?? id
+
+// The BOOKCASE the title screen draws: one ÉTAGE per Book, one VOLUME per chapter. Pure function
+// of the save, no DOM, so the suite can assert it — ui.js cannot be imported headless because
+// import.meta.glob is Vite-only, which is the same reason titleChapterList lived here before it.
+//
+// This replaces titleChapterList, which flattened every Book into ONE strip. That is what made The
+// Surf render as "CHAPTER 8" — the counter indexed the flat list — and why nothing separated The
+// Beyond from the next Book at all. Grouping by Book fixes both without a counter.
+//
+// Three states, and they are the whole design:
+//   - an unlocked chapter is a SPINE: cloth, icon, vertical title, one gold star per difficulty won
+//   - a locked chapter in a STARTED Book is a volume turned fore-edge out with a padlock printed on
+//     the page edges — you can see a book is there without being told which
+//   - a Book with nothing unlocked at all comes back `started: false`, and ui.js drapes ONE dust
+//     sheet over the whole étage rather than covering each volume. That is deliberate: per-volume
+//     covers would count the chapters, and for a Book you have never opened the count is the tease.
+//
+// A `hidden` chapter (The Blank) joins its own Book's étage, and only once unlocked. Before that it
+// must not even occupy a covered slot, or the shelf silently counts a chapter whose existence the
+// carousel went to some trouble to withhold.
+export function titleBookshelf(meta) {
+  const shelf = []
+  for (const [book, def] of Object.entries(BOOKS)) {
+    // The WIP gate, unchanged in meaning: a work-in-progress Book is absent entirely rather than
+    // drawn as a sheeted étage, because a sheet announces that a Book exists.
+    if (def.wip && meta?.dev !== true) continue
+    const ids = [...def.chapters, ...def.hidden.filter((id) => meta?.chapters?.[id]?.unlocked)]
+    const volumes = ids.map((id) => ({ id, unlocked: chapterAvailable(meta, id) }))
+    shelf.push({
+      book,
+      name: def.name,
+      cloth: def.cloth,
+      started: volumes.some((v) => v.unlocked),
+      // Summed from `won`, the highest difficulty actually beaten (state.js) — NOT maxDifficulty,
+      // which is the highest UNLOCKED and stops moving once the ladder is finished.
+      stars: volumes.reduce((n, v) => n + Math.max(0, Number(meta?.chapters?.[v.id]?.won) || 0), 0),
+      volumes,
+    })
+  }
+  return shelf
 }
 // Date-seeded over SHIPPED chapters (CHAPTER_ORDER); reuses the FNV-1a + mulberry32 helpers
 // dailyMutators already uses (below), with a distinct salt ('chapter') so the two daily picks
