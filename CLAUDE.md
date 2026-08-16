@@ -225,6 +225,18 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   landed, takes the number free at that moment, and retries — so neither a duplicate nor a gap can
   reach the log. (`scripts/ship.mjs --selftest` asserts the numbering; the race path was proven
   end-to-end against a throwaway remote.)
+- **`main` MOVES WHILE YOU WORK, AND IT CAN DELETE THE FUNCTION YOU ARE REWRITING.** Several sessions
+  ship to this repo concurrently. Checking `origin/main` once, at the start, is not enough for
+  anything that takes hours: on 2026-08-16 a per-book-progression branch spent a whole task
+  rewriting `titleChapterList` to walk every book, while another session **deleted that function
+  outright** and replaced it with `titleBookshelf`, which grouped by book natively and fixed the
+  same bug better. That task's production code and its four assertions were thrown away at merge
+  time, and `main` had advanced **13 versions** (v7.92→v7.98, a new chapter and a title-screen
+  rework) since the branch started. `git fetch && git log --oneline HEAD..origin/main` costs one
+  second. Run it: before you start rewriting any shared function, again before you write the plan
+  that assumes its shape, and again before shipping. When the answer is "someone already did this,
+  differently", **take theirs** — resurrecting your version against a deleted function is how two
+  designs end up half-merged. See also the memory `concurrent-sessions-ship-to-main`.
 - **The stamp no longer needs the release commit at HEAD.** `buildStamp()` (`vite.config.js`) reads
   HEAD's subject, and when that isn't a release it falls back to the most recent `vX.Y.Z` in HEAD's
   ancestry, marked `v7.7.0+ · <sha>` — the `+` meaning "there are commits after that release". A
@@ -450,9 +462,9 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 
 `sim.js`/`config.js`/`state.js` import cleanly into plain node, which makes "what does this actually
 do over a real run" a 30-line script rather than a browser session. `scripts/weapon-census.mjs` and
-`scripts/pool-probe.mjs` are the worked examples. Four traps, all of which produced CONFIDENT WRONG
-NUMBERS in v7.16 — every one of them fails silently, and three of them were only caught because a
-downstream detail looked odd:
+`scripts/pool-probe.mjs` are the worked examples. Five traps. The first four produced CONFIDENT
+WRONG NUMBERS in v7.16 and the fifth was found in 2026-08-16; every one of them fails silently, and
+three of the original four were only caught because a downstream detail looked odd:
 
 - **`createRun(meta, opts)` TAKES AN OPTIONS OBJECT.** `createRun(meta, 'undergrowth', 3)` does not
   throw and does not warn — `opts` is a string, `opts.chapter` is undefined, and you get **body at
@@ -462,6 +474,19 @@ downstream detail looked odd:
 - **The probe meta must UNLOCK the chapters**, exactly like a seeded save (see the browser section
   below). With `chapters: {}` `ensureChapterMeta` defaults `unlocked` to `id === 'body'` and
   `resolveChapterId` falls back — the same wrong-chapter failure, from a different direction.
+- **A PROBE THAT CANNOT MEASURE MUST NOT PRINT NUMBERS — abort, loudly, with a non-zero exit.**
+  The positional order for `pool-probe.mjs` is `<chapter> <slots> <runs> <policy>`, so the plausible
+  `pool-probe body 4 dps` omits `runs` and lands `'dps'` in that slot. `Number('dps')` is `NaN`,
+  every loop bounded by it runs zero times — and it used to print **every heading with `NaN` under
+  it and exit 0**, including `short pools 0/0  (MUST be 0)`, which reads as a PASS when nothing ran
+  at all. That is the worst shape a harness can fail in: not an error, but a confident answer to a
+  question it never asked. It now aborts on all four positionals with a message naming the mistake
+  (v7.99+). Two rules follow for any probe you write or extend: validate every argument that
+  indexes a loop bound, and treat a **silent fallback** as the same defect — `pool-probe`'s
+  `choose()` tests `'random'` and `'defense'` and lets everything else become the dps bot, so
+  `defence` (the spelling this file prints in its own output) quietly measured the wrong policy.
+  This is the companion to the print-the-denominator rule: `0/75` proves a run happened, `0/0`
+  proves nothing and looks identical.
 - **SEED `Math.random`** (mulberry32, as test/sim-test.js does) and average several runs. Unseeded,
   the same build measured 11 and then 34 contact hits — enough to invent or erase any effect you
   are about to report. Seed per run, use the same seed set on both sides of an A/B.

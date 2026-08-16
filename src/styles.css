@@ -923,6 +923,14 @@ body {
   border-color: #5d3fa0;
   color: #5d3fa0;
 }
+/* book-unlock badge (v7.x) — the deepest unlock there is, so it takes the new book's own binding
+   colour (BOOKS.undertow.cloth) rather than a fourth arbitrary accent, and stacks below the
+   chapter badge that opened it. */
+.summary-unlock--book {
+  background: #dceaf3;
+  border-color: #1f5c7c;
+  color: #1f5c7c;
+}
 
 /* ---- floating joystick (visual only, never blocks touches) ---- */
 #ui > .joy { pointer-events: none; }
