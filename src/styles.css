@@ -282,6 +282,38 @@ body {
   gap: 8px;
   padding-bottom: calc(84px + env(safe-area-inset-bottom));
 }
+/* One tab per Book. The swatch is that Book's binding cloth (BOOKS[].cloth), the same colour its
+   volumes are bound in on the shelf — which is what ties the two screens together without the tab
+   having to spell out a name that will not fit at 320px. */
+.shop-tabs {
+  width: 100%;
+  max-width: 540px;
+  flex-shrink: 0;
+  display: flex;
+  gap: 5px;
+}
+.shop-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 6px;
+  border: 2px solid var(--cream-edge);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  background: var(--cream-soft);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.shop-tab--on { background: var(--mint); border-color: var(--mint-dark); color: var(--ink); }
+.shop-tab-sw { width: 9px; height: 15px; border-radius: 2px; flex: none; }
+
 .shop-head {
   width: 100%;
   max-width: 540px;

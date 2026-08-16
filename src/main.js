@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, LIGHT_THIEF_COST, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN } from './config.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, lightThiefCost, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -286,16 +286,16 @@ const ui = initUI({
   // belt and braces, and now it has to, because `target` arrives from a data- attribute.
   //
   // v7.x: `target` names WHICH unlock. 'slot' is the original 3rd/4th level-up card slot
-  // (meta.choiceSlots, sacrificeCost); 'thief' is Book 2's Light Thief (meta.lightThief,
-  // LIGHT_THIEF_COST). Defaulted to 'slot' so an older caller -- or a replayed event from a stale
+  // (meta.choiceSlots, sacrificeCost); 'thief' is Undertow's Light Thief (meta.lightThief, a
+  // 0..3 LEVEL priced by lightThiefCost). Defaulted to 'slot' so an older caller -- or a stale
   // DOM -- keeps meaning exactly what it used to.
   onSacrifice(picks, target = 'slot') {
     const slots = meta.choiceSlots ?? 2
     // Resolve the cost from the target FIRST, and refuse an already-owned unlock here rather than
-    // trusting the button to be absent. The two costs differ (15 vs 20/40), so charging the wrong
+    // trusting the button to be absent. The costs differ (5/10/15 vs 20/40), so charging the wrong
     // one is a silent overcharge rather than an error.
     let cost = null
-    if (target === 'thief') cost = meta.lightThief === true ? null : LIGHT_THIEF_COST
+    if (target === 'thief') cost = lightThiefCost(meta.lightThief)
     else if (target === 'slot') cost = slots >= 4 ? null : sacrificeCost(slots)
     if (cost == null) return false
     let total = 0
@@ -305,7 +305,7 @@ const ui = initUI({
     }
     if (total !== cost) return false
     for (const [id, count] of Object.entries(picks)) meta.shop[id] -= count
-    if (target === 'thief') meta.lightThief = true
+    if (target === 'thief') meta.lightThief = (Number(meta.lightThief) || 0) + 1
     else meta.choiceSlots = slots + 1
     saveMeta(meta)
     playSfx('buy')

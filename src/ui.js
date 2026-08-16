@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, LIGHT_THIEF_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS } from './config.js'
+import { SHOP, shopCost, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, lightThiefCost, MAX_LIGHT_THIEF, LIGHT_THIEF_BOOK, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX } from './state.js'
@@ -276,6 +276,9 @@ export function initUI(hooks) {
   // chapter must browse a shipped one. resolveChapterId would happily return it (it is a real
   // chapter) and the below-carousel block would then describe a card the carousel is not showing.
   let browseChapterId = playableChapterId(meta)
+  // Which Book's upgrades the shop is showing. Not persisted: the shop opens on Book 1, whose
+  // eight coin lines are the ones a player buys on almost every visit.
+  let shopBookId = 'book1'
   let boostersOpen = false
 
   // v6.7.2 cast art: rosterId -> URL of that creature's thumbnail, resolved at BUILD time from
@@ -703,10 +706,10 @@ export function initUI(hooks) {
   // so the shop is byte-identical for a real player.
   function sacTargets() {
     const out = []
-    if (meta.dev === true && meta.lightThief !== true) {
+    if (meta.dev === true && lightThiefCost(meta.lightThief) != null) {
       out.push({
-        id: 'thief', cost: LIGHT_THIEF_COST, icon: '🔦', label: t('Light Thief'), short: t('Light Thief'),
-        desc: tt('Kills give back Light — sacrifice {cost} upgrade levels (no coin refund).', { cost: LIGHT_THIEF_COST }),
+        id: 'thief', cost: lightThiefCost(meta.lightThief), icon: '🔦', label: t('Light Thief'), short: t('Light Thief'),
+        desc: tt('Kills give back Light — sacrifice {cost} upgrade levels (no coin refund).', { cost: lightThiefCost(meta.lightThief) }),
       })
     }
     const slots = meta.choiceSlots ?? 2
@@ -743,8 +746,10 @@ export function initUI(hooks) {
     // is a fixed-height flex row that already shares its width with the reset square, and a second
     // pill is exactly the kind of thing that fits at 390px and overflows at 320. The pill tracks
     // the CHEAPEST available target so it lights up as early as anything is affordable.
-    const targets = sacTargets()
-    const cheapest = targets[0] ?? null
+    // The card-slot ladder ONLY. Light Thief has its own row in Undertow's tab now, and leaving it
+    // in this pill would hijack it — the pill shows the CHEAPEST target and Light Thief's first
+    // level is 5 against the 3rd slot's 20, so it would never show the slots again.
+    const cheapest = sacTargets().find((x) => x.id === 'slot') ?? null
     let sac
     if (!cheapest) {
       sac = `<div class="shop-sac shop-sac--done">🩸 ${t('All 4 upgrade slots unlocked.')}</div>`
@@ -868,6 +873,45 @@ export function initUI(hooks) {
       </div>`
   }
 
+  // One tab per Book, from the same model the bookcase draws (titleBookshelf) so the two screens
+  // can never disagree about which Books exist — including the WIP gate, which that function
+  // already applies. The swatch is the Book's binding cloth, so a tab reads as the shelf it owns
+  // even when its name is clipped.
+  function shopTabsHtml() {
+    const books = titleBookshelf(meta)
+    if (books.length < 2) return ''   // one Book is not a choice; the strip would be chrome
+    return `<div class="shop-tabs">${books.map((b, i) => `
+      <button class="shop-tab${b.book === shopBookId ? ' shop-tab--on' : ''}" data-act="shop-book" data-book="${b.book}">
+        <span class="shop-tab-sw" style="background:${b.cloth}"></span>
+        <span class="shop-tab-nm">${tt('Book {n}', { n: i + 1 })}</span>
+      </button>`).join('')}</div>`
+  }
+
+  // Undertow's Light Thief. Not a SHOP row: it is paid in SACRIFICED shop levels rather than coins,
+  // so it carries a levels price and opens the sacrifice flow instead of buying in place. Three
+  // levels (LIGHT_THIEF_COSTS), which is why it earns a rail like every coin line has.
+  function thiefRowHtml() {
+    const level = Number(meta.lightThief) || 0
+    const cost = lightThiefCost(level)
+    const maxed = cost == null
+    const owned = Object.values(meta.shop).reduce((sum, l) => sum + l, 0)
+    const afford = !maxed && owned >= cost
+    const notches = Array.from({ length: MAX_LIGHT_THIEF },
+      (_, i) => `<i class="notch${i < level ? ' notch--on' : ''}"></i>`).join('')
+    const price = maxed ? 'MAX' : tt('sacrifice {n}', { n: cost })  // bare, as the coin rows do — 'MAX' is 'MAX' in both languages
+    return `
+      <button class="card shop-row${afford || maxed ? '' : ' card--disabled'}${maxed ? ' shop-row--maxed' : ''}"
+              data-act="sacrifice-start" data-target="thief" ${afford ? '' : 'disabled'}
+              aria-label="${t('Light Thief')} — ${t('Kills give back Light')} · ${level}/${MAX_LIGHT_THIEF} · ${price}">
+        <span class="shop-row-in">
+          <span class="shop-row-icon">🔦</span>
+          <span class="shop-row-effect">${t('Kills give back Light')}</span>
+          <span class="shop-row-buy">${price}</span>
+        </span>
+        <span class="shop-rail">${notches}</span>
+      </button>`
+  }
+
   function renderShop(bounceId) {
     const slots = meta.choiceSlots ?? 2
     const cost = sacrificeCost(slots)
@@ -892,7 +936,7 @@ export function initUI(hooks) {
     // labels to a meter competing for the same line. So the meter is not on the line: ten discrete
     // notches ride the row's bottom edge, and reading down the column shows the whole build at
     // once. The price is an explicit gold "buy" chip rather than a bare number.
-    const cards = Object.entries(SHOP).map(([id, item]) => {
+    const cards = Object.entries(SHOP).filter(([, item]) => item.book === shopBookId).map(([id, item]) => {
       const level = meta.shop[id]
       const maxed = level >= MAX_SHOP_LEVEL
       const buyCost = maxed ? 0 : shopCost(id, level)
@@ -919,7 +963,8 @@ export function initUI(hooks) {
     // Nav (below) replaces the old "← Back" header.
     setHtml(screens.shop, `
       <header class="shop-head"><span class="shop-balance">🪙 <b>${meta.coins}</b></span></header>
-      <div class="shop-rows">${cards}</div>
+      ${shopTabsHtml()}
+      <div class="shop-rows">${cards}${shopBookId === LIGHT_THIEF_BOOK ? thiefRowHtml() : ''}</div>
       ${shopFootHtml(slots, cost)}
       ${navHtml('shop')}
       ${resetModalHtml()}
@@ -2357,13 +2402,21 @@ export function initUI(hooks) {
       case 'quit': playSfx('click'); hooks.onQuit(); break
       case 'skill': hooks.onSkill(); break
       case 'reroll': if (lvArmed() && !lvRevealing) hooks.onReroll(); break
+      case 'shop-book':
+        if (el.dataset.book !== shopBookId) {
+          shopBookId = el.dataset.book
+          playSfx('click')
+          renderShop()
+        }
+        break
       case 'sacrifice-start':
         sacrificeOpen = true
         sacrificePicks = {}
         sacrificeBounceId = null
-        // Open on the CHEAPEST target, matching the pill the player just tapped (shopFootHtml
-        // labels itself with that same target) rather than whatever was selected last session.
-        sacrificeTarget = sacTargets()[0]?.id ?? null
+        // Open on the target the tapped control NAMES. The foot pill is the card-slot ladder and
+        // Light Thief's row names 'thief'; falling back to the cheapest would open the wrong one
+        // from whichever control happened to be cheaper.
+        sacrificeTarget = el.dataset.target ?? sacTargets().find((x) => x.id === 'slot')?.id ?? null
         playSfx('click')
         renderShop()
         break

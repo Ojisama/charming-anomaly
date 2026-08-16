@@ -6,8 +6,7 @@ import {
   EARLY_CALM, MAX_CHOICE_SLOTS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
-  pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS,
-} from './config.js'
+  pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, MAX_LIGHT_THIEF } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -280,7 +279,13 @@ export function loadMeta() {
       // Light Thief (Book 2): the permanent "kills give light back" unlock, bought with shop levels
       // on the sacrifice screen. Coerced for the same reason as m.dev above — createRun tests
       // `=== true`, so a truthy-but-not-true value would grant it everywhere else and deny it there.
+      // v7.x: a LEVEL (0..3), not a boolean. `true` is a save that paid the old single 15-level
+      // price and had the full effect, so it migrates to the TOP level — never take away what was
+      // bought. Anything else coerces through Number and clamps, so a tampered value cannot grant
+      // a level that does not exist.
       m.lightThief = m.lightThief === true
+        ? MAX_LIGHT_THIEF
+        : Math.max(0, Math.min(MAX_LIGHT_THIEF, Math.floor(Number(m.lightThief) || 0)))
       m.schema ??= 1 // R4: absent means written BEFORE the field existed, so it IS format 1 (not SCHEMA)
       // Both additive, both `??=` repairs, so an older build round-trips a newer save untouched.
       // Deliberately NOT baked to an English default like 'Save 1': the i18n contract (v6.1) is that
@@ -304,7 +309,7 @@ export function loadMeta() {
     lang: 'en', // v6.1 i18n (see the loadMeta migration above)
     skillSide: 'left', // right-handed default (see the loadMeta migration above)
     dev: false, // WIP gate, off for every real player (see the loadMeta migration above)
-    lightThief: false, // Book 2's permanent kills-give-light unlock (see the loadMeta migration above)
+    lightThief: 0, // Undertow's kills-give-light upgrade, 0..MAX_LIGHT_THIEF (see the loadMeta migration above)
     schema: SCHEMA, // R4: a brand-new save really IS this build's format (loadMeta's repair says 1)
     // loadMeta's repairs are IN-MEMORY ONLY and never written back, so a save that has not been
     // re-saved since the upgrade has no `name`/`savedAt` key ON DISK — and §3.2 pushes exportSlot,
@@ -902,7 +907,7 @@ function generateWells(sig) {
  *   comes off zero so a partial tick banked before you reached a pocket is never spent minutes
  *   later. 0 and untouched everywhere else.
  * killRefill: number — light per kill, snapshotted at createRun from meta.lightThief (the permanent
- *   Light Thief unlock, LIGHT_THIEF_COST shop levels on the sacrifice screen). 0 unbought, and 0
+ *   Light Thief upgrade, LIGHT_THIEF_COSTS shop levels on the sacrifice screen). 0 unbought, and 0
  *   in every chapter with no resource. It exists as a RUN field, rather than sim.js consulting
  *   meta, because sim.js must never see meta — see the plan's R1.
  * _driftSeed (sim-internal, not a render contract): a random phase offset (createRun, Math.
@@ -1619,11 +1624,19 @@ export function createRun(meta, opts = {}) {
     // early-outs there, so the field is inert rather than absent (R2 — one shape for all runs).
     charge: CHAPTERS[chapter].resource?.max ?? 0,
     // Light per kill, SNAPSHOTTED from the permanent Light Thief unlock (meta.lightThief, bought
-    // for LIGHT_THIEF_COST shop levels). This exists as a run field rather than sim.js reading
+    // for LIGHT_THIEF_COSTS shop levels). This exists as a run field rather than sim.js reading
     // meta because sim.js must never see meta at all — it plays what it is handed, which is what
     // makes a dev-gated chapter playtest as the thing that eventually ships. 0 unbought, and 0 for
     // every chapter that declares no resource.
-    killRefill: meta.lightThief === true ? (CHAPTERS[chapter].resource?.killRefill ?? 0) : 0,
+    // Scales with the Light Thief LEVEL: the chapter's own killRefill is the value at full level,
+    // so level 3 is exactly what a bought unlock always gave and 1 and 2 are thirds of it.
+    // `true` is read as FULL, exactly as loadMeta migrates it. loadMeta always runs first in the
+    // app, but Number(true) is 1 — so a raw legacy boolean reaching here any other way would
+    // silently downgrade a paid-for unlock to a third of itself rather than failing loudly.
+    killRefill: (CHAPTERS[chapter].resource?.killRefill ?? 0)
+      * (meta.lightThief === true
+        ? 1
+        : Math.max(0, Math.min(MAX_LIGHT_THIEF, Math.floor(Number(meta.lightThief) || 0))) / MAX_LIGHT_THIEF),
     // v7.x The Reef (see the doc block above): seconds of Burst dash left, and the drowning DoT's
     // part-tick accumulator. The rampage pattern again — every run carries both, and only a chapter
     // declaring `burst` / a `resource.drown` block ever moves them off 0.

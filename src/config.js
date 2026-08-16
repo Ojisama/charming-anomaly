@@ -3439,16 +3439,23 @@ export const GEM_VALUE = 1
 // ---- Meta shop (permanent upgrades, cost in coins) ----------------------------
 // `icon` is UI-only (v6.6 shop redesign): one emoji per card so the grid is scannable by shape
 // instead of by reading eight names. Same role as WEAPONS/ELEMENTS icons — no sim meaning.
+// `book` is which Book's tab the line appears under in the shop. These eight are BOOK 1's
+// upgrades — The Anomaly's — not a neutral global set, which is what the shop used to imply by
+// showing them with no attribution at all while the title screen organised everything by Book.
+// A new Book's coin-bought line declares its own `book` here and needs no other wiring.
 export const SHOP = {
-  damage:     { name: 'Power Gel',    desc: '+5% damage',       perLevel: 0.05, base: 20, icon: '💥' },
-  fireRate:   { name: 'Twitchy',      desc: '+4% fire rate',    perLevel: 0.04, base: 20, icon: '⚡' },
-  critChance: { name: 'Lucky Eye',    desc: '+2% crit chance',  perLevel: 0.02, base: 30, icon: '🎯' },
-  critDamage: { name: 'Mean Streak',  desc: '+15% crit damage', perLevel: 0.15, base: 30, icon: '💢' },
-  maxHP:      { name: 'Big Mochi',    desc: '+15 max HP',       perLevel: 15,   base: 15, icon: '❤️' },
-  moveSpeed:  { name: 'Slippery',     desc: '+4% move speed',   perLevel: 0.04, base: 25, icon: '💨' },
-  magnet:     { name: 'Magnetic Charm', desc: '+12% gem magnet', perLevel: 0.12, base: 15, icon: '🧲' },
-  coinGain:   { name: 'Coin Nose',    desc: '+10% coins found', perLevel: 0.10, base: 40, icon: '🪙' },
+  damage:     { name: 'Power Gel',    desc: '+5% damage',       perLevel: 0.05, base: 20, icon: '💥', book: 'book1' },
+  fireRate:   { name: 'Twitchy',      desc: '+4% fire rate',    perLevel: 0.04, base: 20, icon: '⚡', book: 'book1' },
+  critChance: { name: 'Lucky Eye',    desc: '+2% crit chance',  perLevel: 0.02, base: 30, icon: '🎯', book: 'book1' },
+  critDamage: { name: 'Mean Streak',  desc: '+15% crit damage', perLevel: 0.15, base: 30, icon: '💢', book: 'book1' },
+  maxHP:      { name: 'Big Mochi',    desc: '+15 max HP',       perLevel: 15,   base: 15, icon: '❤️', book: 'book1' },
+  moveSpeed:  { name: 'Slippery',     desc: '+4% move speed',   perLevel: 0.04, base: 25, icon: '💨', book: 'book1' },
+  magnet:     { name: 'Magnetic Charm', desc: '+12% gem magnet', perLevel: 0.12, base: 15, icon: '🧲', book: 'book1' },
+  coinGain:   { name: 'Coin Nose',    desc: '+10% coins found', perLevel: 0.10, base: 40, icon: '🪙', book: 'book1' },
 }
+// Light Thief is not a SHOP row — it is priced in sacrificed shop levels, not coins — so it names
+// its Book here instead.
+export const LIGHT_THIEF_BOOK = 'undertow'
 export const MAX_SHOP_LEVEL = 10
 // v7.49 (owner directive): the old bare 1.6^level curve got a surcharge on top — +20% on the FIRST
 // level, rising linearly to +200% on the LAST. `level` is the count already owned, so the last
@@ -4249,7 +4256,7 @@ CHAPTERS.shelf = {
   // about -1.6/s, so it empties in roughly a minute — the drain bites without being a countdown.
   //
   // v7.x REVISION (owner, 2026-08-12), on two counts:
-  //   - `killRefill` is now SHOP-ONLY. It is the value you get once LIGHT_THIEF_COST is paid, and
+  //   - `killRefill` is now SHOP-ONLY. It is the value you get at FULL Light Thief level, and
   //     zero until then — createRun gates it into run.killRefill so sim.js never reads meta. The
   //     first cut had it on by default at 0.5/kill, which was both unbought and invisible: 0.5 of a
   //     100 bar is a rounding error next to a 2.2/s drain. Bought, it is worth roughly a third of
@@ -6266,7 +6273,7 @@ export const BREACH_MAX_HOLES = 6        // per pass; a wall cut to lace is not 
 //
 // WHICH drawback is an owner ruling, taken 2026-08-12 against three alternatives. Move speed, not
 // damage and not accuracy, because weapons auto-fire: a slow player still kills at the same rate,
-// so kills still pay (with LIGHT_THIEF bought) and the state is escapable. Damage-down and
+// so kills still pay (with Light Thief bought) and the state is escapable. Damage-down and
 // shots-go-wide both cut the kill rate, which is the same spiral the Pulse's floor exists to
 // prevent, one level up.
 //
@@ -6394,7 +6401,16 @@ export const DROWN_TICK = 0.5            // s between drowning ticks while the b
 // because that is the game's existing vocabulary for "permanent, and it costs you something you
 // already own". 15 sits deliberately BELOW the 3rd card slot's 20: it is the cheapest thing on that
 // screen, so it is a plausible first sacrifice rather than a late-game luxury.
-export const LIGHT_THIEF_COST = 15
+// Light Thief is Undertow's permanent upgrade: kills give back Light. THREE levels, each paid in
+// sacrificed shop levels (no coin refund) — 5, then 10, then 15, so the first step is cheap enough
+// to try and the last is a real commitment. Owner ruling; it used to be a single 15-level unlock,
+// which made it an all-or-nothing purchase in a shop where every other line has a ladder.
+// The chapter's own `resource.killRefill` is the value at FULL level, so the balance ceiling is
+// unchanged and levels 1 and 2 are fractions of it (see createRun in state.js).
+export const LIGHT_THIEF_COSTS = [5, 10, 15]
+export const MAX_LIGHT_THIEF = LIGHT_THIEF_COSTS.length
+// Cost of the NEXT level, or null when there is none left to buy. `level` is how many are owned.
+export const lightThiefCost = (level) => LIGHT_THIEF_COSTS[Math.max(0, Number(level) || 0)] ?? null
 
 // ---- Asteroids (v5.21, lane chapters — gated on CHAPTERS[chapter].lane) ------------------------
 // Drifting rock that hurts EVERYONE. It is the lane's only neutral party: it damages the player on

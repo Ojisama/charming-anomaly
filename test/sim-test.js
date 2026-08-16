@@ -72,7 +72,7 @@ import {
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
-  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COST, SACRIFICE_COSTS, LATCH_SLOW_MUL,
+  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COSTS, MAX_LIGHT_THIEF, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
@@ -5159,12 +5159,21 @@ function runLightThief() {
       'an unbought save must take 0 light per kill')
     assert.strictEqual(createRun(meta(true), { chapter: 'shelf', difficulty: 1 }).killRefill, res.killRefill,
       'a bought save must take the chapter resource killRefill')
-    // Coerced, not truthy: every other gate in the save tests === true, and a save carrying 1 or
-    // 'yes' that granted the unlock HERE while denying it everywhere else is the worst shape.
-    for (const bad of [1, 'yes', {}, [], 'true']) {
-      assert.strictEqual(createRun({ ...meta(false), lightThief: bad }, { chapter: 'shelf', difficulty: 1 }).killRefill, 0,
-        `lightThief: ${JSON.stringify(bad)} is not true and must not grant the unlock`)
+    // The LADDER: three levels, each a third of the chapter's own killRefill, so full level is
+    // exactly what the old single-purchase unlock always gave and the balance ceiling is unmoved.
+    for (const lv of [1, 2, 3]) {
+      assert.ok(Math.abs(createRun({ ...meta(false), lightThief: lv }, { chapter: 'shelf', difficulty: 1 }).killRefill
+        - res.killRefill * lv / MAX_LIGHT_THIEF) < 1e-9, `level ${lv} must take ${lv}/${MAX_LIGHT_THIEF} of the chapter refill`)
     }
+    // Junk is not a level. A numeric level is now MEANINGFUL, so the old "must be === true" rule is
+    // gone — what has to hold instead is that nothing un-numeric grants anything, and that a value
+    // past the top of the ladder cannot buy a level that does not exist.
+    for (const bad of ['yes', {}, [], 'true', NaN, -3]) {
+      assert.strictEqual(createRun({ ...meta(false), lightThief: bad }, { chapter: 'shelf', difficulty: 1 }).killRefill, 0,
+        `lightThief: ${JSON.stringify(bad)} is not a level and must grant nothing`)
+    }
+    assert.strictEqual(createRun({ ...meta(false), lightThief: 99 }, { chapter: 'shelf', difficulty: 1 }).killRefill, res.killRefill,
+      'a level past the top of the ladder clamps to the top rather than scaling past the chapter refill')
     assert.strictEqual(createRun(meta(true), { chapter: 'pond', difficulty: 1 }).killRefill, 0,
       'a chapter with no resource takes 0 per kill even when the unlock is owned')
   }
@@ -5242,19 +5251,31 @@ function runLightThief() {
   // it is the CHEAPEST thing on the sacrifice screen, and it is dev-gated so a WIP chapter's unlock
   // is not advertised to players who cannot reach the chapter.
   {
-    assert.ok(LIGHT_THIEF_COST < SACRIFICE_COSTS[0],
-      `Light Thief (${LIGHT_THIEF_COST}) must undercut the 3rd card slot (${SACRIFICE_COSTS[0]}) — it is meant to be a plausible FIRST sacrifice`)
+    assert.ok(LIGHT_THIEF_COSTS[0] < SACRIFICE_COSTS[0],
+      `Light Thief's first level (${LIGHT_THIEF_COSTS[0]}) must undercut the 3rd card slot (${SACRIFICE_COSTS[0]}) — it is meant to be a plausible FIRST sacrifice`)
+    assert.deepStrictEqual([...LIGHT_THIEF_COSTS].sort((a, b) => a - b), LIGHT_THIEF_COSTS,
+      'the ladder must get more expensive, not less — a cheaper later level makes the earlier one a trap')
     const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
-    assert.ok(/meta\.dev === true && meta\.lightThief !== true/.test(ui),
-      'the Light Thief rung must be gated on meta.dev — otherwise the shop advertises a Book 2 unlock, naming a resource no reachable chapter has')
+    assert.ok(/meta\.dev === true && lightThiefCost\(meta\.lightThief\) != null/.test(ui),
+      'the Light Thief rung must be gated on meta.dev — otherwise the shop advertises an Undertow unlock, naming a resource no reachable chapter has')
+    // The foot pill must offer the CARD SLOTS only. It shows the cheapest target, and Light Thief's
+    // first level (5) undercuts the 3rd slot (20) by design — so leaving it in the pool would mean
+    // the slot ladder never appears in the pill again.
+    assert.ok(/sacTargets\(\)\.find\(\(x\) => x\.id === 'slot'\)/.test(ui),
+      'the shop foot must pick the slot target explicitly, or Light Thief hijacks the pill it no longer belongs in')
+    // Light Thief lives in its own Book's tab now, so the row must NAME its target rather than
+    // relying on "cheapest" — which is the slot ladder from the foot and the thief from the row.
+    assert.ok(/data-target="thief"/.test(ui), "Light Thief's row must name its own sacrifice target")
+    assert.ok(/sacrificeTarget = el\.dataset\.target \?\?/.test(ui),
+      'sacrifice-start must honour the target the tapped control names, or the row opens the card-slot flow')
     const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
     assert.ok(/onSacrifice\(picks, target = 'slot'\)/.test(main),
       "onSacrifice must default target to 'slot', so an older caller keeps meaning what it used to")
-    assert.ok(/meta\.lightThief === true \? null : LIGHT_THIEF_COST/.test(main),
-      'onSacrifice must refuse an already-owned Light Thief itself rather than trusting the button to be absent')
+    assert.ok(/cost = lightThiefCost\(meta\.lightThief\)/.test(main),
+      'onSacrifice must price Light Thief from the ladder itself, so a maxed one costs null and is refused here rather than by the button being absent')
   }
 
-  console.log(`PASS run LT (Light Thief): +${res.killRefill}/kill ONLY when bought, 0 unbought and 0 for 5 truthy-but-not-true saves, clamped, sim.js never reads meta, rung costs ${LIGHT_THIEF_COST} (under the ${SACRIFICE_COSTS[0]} card slot) and is dev-gated`)
+  console.log(`PASS run LT (Light Thief): ${MAX_LIGHT_THIEF} levels at ${LIGHT_THIEF_COSTS.join('/')} sacrificed levels, +${res.killRefill}/kill at full and thirds below, 0 for 6 junk saves, over-max clamps, bar clamps, sim.js never reads meta, first rung under the ${SACRIFICE_COSTS[0]} card slot and dev-gated`)
 }
 run(runLightThief)
 

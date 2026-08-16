@@ -1004,6 +1004,8 @@ const CONFIG = {
   'Reef': 'Récif',
   'Trawl': 'Chalut',
   'Book {n}': 'Livre {n}',
+  'sacrifice {n}': 'sacrifier {n}',
+  'Kills give back Light': 'les kills redonnent de la Lumière',
   'locked chapter': 'chapitre verrouillé',
   'The Body': 'Le Corps',
   'escape the host': 'échappe-toi de l\'hôte',
