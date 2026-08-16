@@ -42,7 +42,7 @@
 // power it did not earn, whereas this asks whether the bar keeps up with a REAL run, and a real run
 // takes cards and kills far more than a starter-only one ever would.
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
-import { stepSim, applyChoice, onSandbar, inWake } from '../src/sim.js'
+import { stepSim, applyChoice, onSandbar, inWake, anglerFeeding } from '../src/sim.js'
 import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines, MAX_SHOP_LEVEL, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL } from '../src/config.js'
 
 // --chapter <id> (v7.x, run US.c): The Surf shares this same `resource`/refill-circle vocabulary
@@ -110,7 +110,12 @@ const spec = refillSpec(sig) // the refill-circle geometry, whichever chapter (S
 // The abort below has to know the difference, or the one chapter whose refill is not a place looks
 // to this probe exactly like a chapter someone forgot to finish.
 const trawlCh = sig?.type === 'trawl'
-if (!res || (!spec && !trawlCh)) { console.error(`ABORT: ${CHAPTER} declares no resource/refill geometry — nothing to probe`); process.exit(1) }
+// THE DEEP'S REFILL IS A CREATURE, for the same reason and with the same consequence: no cell, no
+// chance, no radius on the map, because the thing that feeds you is a roster entry with a mouth.
+// Both exemptions are listed here rather than loosening the abort, so a chapter that genuinely
+// forgot its refill geometry still fails loudly.
+const deepCh = sig?.type === 'dark'
+if (!res || (!spec && !trawlCh && !deepCh)) { console.error(`ABORT: ${CHAPTER} declares no resource/refill geometry — nothing to probe`); process.exit(1) }
 
 // Spend policies. ONE policy cannot tell "the bar cannot fill" apart from "this player spent it
 // all": a greedy player pins the bar at zero under every tune there is, which is exactly what the
@@ -240,6 +245,54 @@ const LANE_MOVES = {
   },
 }
 
+// ---- DEEP MOVEMENT (v7.x, The Deep) ----------------------------------------------------------
+// A FOURTH family, and the reason is now familiar: `seek` in MOVES walks toward the nearest entry of
+// run.shafts, which is permanently empty here because this chapter's refill is an ANIMAL. Run the
+// default family and every row reads "the mechanic is unreachable", which would be a property of
+// the rig.
+//
+// This chapter's decision is not "where is the food" — the food swims up to you — it is HOW LONG
+// YOU DARE STAY, because the anglerfish's mouth opens the whole time you feed and then it bites.
+// So the trio brackets greed rather than distance:
+//   ignore — the plain kiting walk. THE DO-NOTHING CONTROL. It is not a strawman: anglerfish are
+//            stationary and numerous, so a player who never aims for one still drifts through
+//            feeding range by accident, and this row prices exactly that accident. If it comes back
+//            healthy, the bar is decoration.
+//   feed   — swim to the nearest anglerfish when the bar is low, and BACK OFF at ANGLER_BACKOFF
+//            gape — the disciplined player, who takes the food and leaves before the mouth shuts.
+//   greedy — swim to the nearest anglerfish and never leave. The upper bound on the bar and the
+//            lower bound on the player's health: it should hold the fullest bar in the table AND
+//            eat every bite in the chapter. A tune where greedy is simply best has no card in it.
+const ANGLER_BACKOFF = 0.72        // gape at which `feed` turns and runs. Rig-only, not a game number.
+const nearestAngler = (run) => {
+  const p = run.player
+  let best = null, bd = Infinity
+  for (const e of run.enemies) {
+    if (e._dead || !(e.flags && e.flags.includes('angler'))) continue
+    const d = Math.hypot(e.x - p.x, e.y - p.y)
+    if (d < bd) { bd = d; best = e }
+  }
+  return best
+}
+const DEEP_MOVES = {
+  ignore: () => null,
+  feed: (run) => {
+    const p = run.player
+    const a = nearestAngler(run)
+    if (!a) return null
+    // Full bar, or this mouth is nearly shut: leave. Swimming directly AWAY rather than merely
+    // stopping, because standing still inside the feed ring is the same thing as staying.
+    const away = run.charge >= res.max - 0.01 || (a.gape ?? 0) >= ANGLER_BACKOFF
+    const ang = Math.atan2(a.y - p.y, a.x - p.x)
+    return away ? ang + Math.PI : ang
+  },
+  greedy: (run) => {
+    const p = run.player
+    const a = nearestAngler(run)
+    return a ? Math.atan2(a.y - p.y, a.x - p.x) : null
+  },
+}
+
 // The SECOND axis (v7.x): Light Thief, the permanent unlock that makes kills give light back.
 // Owner ruling — it is bought, never default — so `false` IS the baseline this chapter must be
 // tuned to survive on, and `true` is what the purchase is supposed to feel like buying. Running
@@ -248,7 +301,7 @@ const LANE_MOVES = {
 // re-phasing trap — every seeded probe in this repo has fallen for it at least once).
 const results = {}
 for (const thief of [false, true]) {
-for (const [mname, moveAt] of Object.entries(laneCh ? LANE_MOVES : trawlCh ? TRAWL_MOVES : MOVES)) {
+for (const [mname, moveAt] of Object.entries(laneCh ? LANE_MOVES : trawlCh ? TRAWL_MOVES : deepCh ? DEEP_MOVES : MOVES)) {
 for (const [pname, wants] of Object.entries(POLICIES)) {
   const rows = []
   for (let r = 0; r < RUNS; r++) {
@@ -257,7 +310,7 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
     const run = createRun(probeMeta({ thief }), { chapter: CHAPTER, difficulty: DIFFICULTY })
     if (run.chapter !== CHAPTER) { console.error(`ABORT: asked for ${CHAPTER}, got ${run.chapter}`); process.exit(1) }
 
-    let inShaft = 0, steps = 0, pulses = 0, charged = 0, atZero = 0, atMax = 0, armed = 0
+    let inShaft = 0, steps = 0, pulses = 0, charged = 0, atZero = 0, atMax = 0, armed = 0, bites = 0
     let dark = 0, darkSum = 0, onBar = 0
     let sum = 0, min = Infinity, max = -Infinity
     let heading = 0
@@ -275,6 +328,10 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
       const move = laneCh ? want
         : (() => { const aim = want ?? heading; return { x: Math.cos(aim), y: Math.sin(aim) } })()
       stepSim(run, { x: move.x, y: move.y, skill }, DT)
+      // The bite is the whole card in The Deep, so it is counted BEFORE the drain rather than
+      // inferred from the damage column — damage taken conflates a bite with the crowd, and the
+      // question this probe has to answer is whether the greedy row actually pays for its bar.
+      for (const ev of run.events) if (ev.type === 'anglerBite' && ev.hit) bites++
       run.events.length = 0                                // drain, exactly as main.js does
       if (run.phase === 'levelup') { applyChoice(run, 0); run.phase = 'playing' }
       // Immortal: the rig measures the bar, not this walk's survival. Restored AFTER the step so
@@ -287,7 +344,8 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
       // three of the four, and the moving wake for The Trawl. One column, because the QUESTION is
       // the same one ("how much of the run was this player being fed") and a chapter-specific column
       // name is how a reader ends up comparing two different measurements.
-      if (run.shafts.some((sh) => Math.hypot(sh.x - pl.x, sh.y - pl.y) <= sh.r) || inWake(run, pl.x, pl.y)) inShaft++
+      if (run.shafts.some((sh) => Math.hypot(sh.x - pl.x, sh.y - pl.y) <= sh.r) || inWake(run, pl.x, pl.y) ||
+          anglerFeeding(run, pl.x, pl.y)) inShaft++
       // Sandbars (v7.x Surf only — onSandbar is a no-op false for any chapter with no run.sandbars
       // entries, so this column reads 0 for The Shelf without a chapter-type branch here).
       if (onSandbar(run)) onBar++
@@ -311,7 +369,7 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
     Math.random = orig
     rows.push({ mean: sum / steps, min, max, inShaft: inShaft / steps, atZero: atZero / steps,
                 atMax: atMax / steps, armed: armed / steps, dark: dark / steps, meanDark: darkSum / steps,
-                onBar: onBar / steps, pulses, charged, kills: run.kills, secs: steps * DT, samples })
+                onBar: onBar / steps, pulses, charged, bites, kills: run.kills, secs: steps * DT, samples })
   }
   results[`${thief ? 'thief' : 'base '} ${mname.padEnd(4)} ${pname}`] = rows
 }
@@ -356,7 +414,7 @@ if (sig.bars) {
 }
 console.log(`pulse:    costs ${PULSE_CHARGE_COST}; a full (resolved) bar is ${(previewRun.chargeMax / PULSE_CHARGE_COST).toFixed(1)} charged pulses`)
 console.log('')
-console.log('policy              mean    %at0   %atMax  %armed %inRefill   %DARK  meanDark   %onBar  pulses  charged  kills   secs')
+console.log('policy              mean    %at0   %atMax  %armed %inRefill   %DARK  meanDark   %onBar  pulses  charged   bites  kills   secs')
 for (const [pname, rows] of Object.entries(results)) {
   console.log(
     pname.padEnd(19) +
@@ -370,6 +428,7 @@ for (const [pname, rows] of Object.entries(results)) {
     (avg(rows, 'onBar') * 100).toFixed(1).padStart(9) +
     avg(rows, 'pulses').toFixed(0).padStart(8) +
     avg(rows, 'charged').toFixed(0).padStart(9) +
+    avg(rows, 'bites').toFixed(1).padStart(8) +
     avg(rows, 'kills').toFixed(0).padStart(7) +
     avg(rows, 'secs').toFixed(0).padStart(7))
 }

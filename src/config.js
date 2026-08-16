@@ -2025,6 +2025,56 @@ export const WEAPONS = {
       { dmg: 21, interval: 1.70, length: 560, width: 38, duration: 0.40, tick: 0.13 },
     ],
   },
+  // -- The Deep's native (spec §6.5) -------------------------------------------------------------
+  finHit: {
+    name: 'Fin Hit',
+    desc: 'Your own body, swung where you turn. Worthless standing still — it hits as hard as you swim.',
+    icon: '🦈', rarity: 'normal',
+    // MOVEMENT-COUPLED, and the only weapon in the game that is. Two halves, both of which need the
+    // player to be moving, and neither of which asks them to aim:
+    //   WHERE   a sector swung to the OUTSIDE OF YOUR TURN — the shark's body doing what a body does
+    //           when it changes direction. Swimming straight, it alternates sides like a tail beat.
+    //           Nothing else here decides its direction from the player's steering rather than from
+    //           where the enemies are, which is what makes it feel like the animal instead of a gun.
+    //   HOW HARD  damage scales LINEARLY WITH YOUR CURRENT SPEED, from 0 at a standstill to full at
+    //           base speed, and it keeps climbing past that to FINHIT_SPEED_CAP — so Zoomies and
+    //           every move-speed source finally has a weapon that reads them.
+    //
+    // ⚠ THE ZERO AT A STANDSTILL IS REAL AND IS THE CARD. It is also why the desc says so out loud:
+    // ANOMALIES.stillness ramps damage the longer you DO NOT MOVE, is `weight: 1` and unconditional,
+    // so it WILL be offered in this chapter, and the two cards cancel each other exactly. A player
+    // who takes both has one of them switched off at all times, and nothing else in the game would
+    // tell them that.
+    //
+    // ⚠ QUOTE THIS WEAPON AT `--stick 1` OR NOT AT ALL. weapon-census.mjs walks a FIXED input whose
+    // default magnitude is 0.447 — measured, 98 px/s against a 220 px/s base — so the default rig
+    // runs this card at 45% power and prints a plausible row that is 2.24x too low. It is the first
+    // weapon in the game that reads the player's speed, and the `--stick` flag was added for it.
+    //
+    // Pinned against Breaker and Longline, the book's other two normal-rarity starters, in ONE
+    // invocation at `--stick 1` (surf, 240s x 5 seeds):
+    //
+    //              L1 eff   L5 eff   L5 waste   L5 dud
+    //   Fin Hit        62      118        23%      21%
+    //   Breaker        63      126        21%       5%
+    //   Longline       70      121         8%       3%
+    //
+    // Parity at both levels WHEN MOVING, which is the deal: the same output as its siblings for a
+    // card that pays with a hard zero at a standstill. The dud column is the other half of that
+    // price and is meant to be high — this is the one weapon that does not aim, so a fifth of its
+    // sweeps find nothing. Do not "fix" that by aiming it; aiming it deletes the card.
+    //
+    // The first cut measured 165 at L5 in real-play terms (74 on the 45% rig) and was cut 32%, then
+    // the backward sweep bias raised its hit rate and it needed cutting again — see
+    // FINHIT_SWEEP_BIAS. Both knobs move throughput, so retune them together, not in sequence.
+    levels: [
+      { dmg: 20, interval: 1.05, range: 132, arc: 1.70, knockback: 55 },
+      { dmg: 25, interval: 1.00, range: 140, arc: 1.78, knockback: 60 },
+      { dmg: 31, interval: 0.94, range: 150, arc: 1.86, knockback: 66 },
+      { dmg: 39, interval: 0.88, range: 160, arc: 1.95, knockback: 72 },
+      { dmg: 48, interval: 0.82, range: 172, arc: 2.05, knockback: 80 },
+    ],
+  },
 }
 export const MAX_WEAPON_LEVEL = 5
 export const MAX_WEAPONS = 4 // equipped cap; new weapons stop appearing once reached
@@ -2682,6 +2732,16 @@ export const WEAPON_MODS = {
     broadEdge: { name: 'Broad Edge', desc: 'lance width', icon: '🪭', base: 0.28, kind: 'pct' },
     heldLance: { name: 'Held Lance', desc: 'how long the lance is held', icon: '⌛', base: 0.25, kind: 'pct' },
   },
+  finHit: {
+    serrated:  { name: 'Serrated',   desc: 'fin damage', icon: '💥', base: 0.30, kind: 'pct' },
+    broadFin:  { name: 'Broad Fin',  desc: 'how wide the sweep is', icon: '📐', base: 0.22, kind: 'pct' },
+    longFin:   { name: 'Long Fin',   desc: 'sweep reach', icon: '📏', base: 0.25, kind: 'pct' },
+    // The cadence mod, registered in WEAPON_RATE_MODS below rather than folded into levels[] —
+    // folding an attack-rate mod into `interval` would SLOW the weapon, which is the trap that block
+    // documents. Named for what a shark does, and it is the mod that compounds hardest with the
+    // speed scaling: swimming fast already makes each hit bigger, so more of them is more of both.
+    thrash:    { name: 'Thrash',     desc: 'sweep rate', icon: '⚡', base: 0.20, kind: 'pct' },
+  },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
 // Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
@@ -2704,7 +2764,7 @@ export const WEAPON_RATE_MODS = {
   clawRake: 'quickPaws', quillBurst: 'rapidQuills', chitterShriek: 'rapidShriek',
   burstHydrant: 'rapidHydrant', roar: 'rapidRoar', tailLash: 'quickTail',
   debrisToss: 'rapidToss', realityShard: 'rapidShard', pulsarSweep: 'rapidSweep',
-  atomicBreath: 'quickBreath', skippingShell: 'fastSkim', foxfire: 'quickKindle',
+  atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash', foxfire: 'quickKindle',
 }
 // Same problem for per-cast COUNTS: nearly every one folds through WEAPON_STAT_MODS, but the star's
 // multishot is read straight off run.weaponMods at its fire site. Without this the readout would
@@ -3347,6 +3407,58 @@ export const FOXFIRE_GLOOM = 1.6
 // lance still reaches 252px, comfortably past the 205px radius of the shaft you are trying to get
 // back to.
 export const SUNLANCE_REACH_MIN = 0.45
+// ---- The Deep's anglerfish: a refill point that bites ----------------------------------------
+// The spec calls this the best thing in the book, and the reason is that it is the only refill in
+// the game whose TIMER IS DRAWN ON THE ENEMY'S FACE. You swim up to it, it feeds you, its mouth
+// opens wider the longer you stay, and when the gape is full it bites for real damage.
+//
+// ⚠ THE GAPE IS DRIVEN BY TIME SPENT AT THIS FISH, NOT BY THE BAR'S LEVEL, and the difference is the
+// whole card. Driving it off `run.charge` was the first design and it is strictly worse: the bar is
+// already on the HUD, so the "tell" would have been a second copy of information the player is
+// looking at anyway, and every anglerfish in the chapter would open and close in unison. Per-fish
+// and per-visit means the tell is something you can only learn by LOOKING AT THE ANIMAL, moving to a
+// different fish genuinely resets the gamble, and "one more second" is literally one more second.
+export const ANGLER_FEED_R = 200        // px, centre-to-centre, within which you feed and the gape opens
+export const ANGLER_GAPE_T = 2.6        // s of feeding to go from shut to a full gape — i.e. to the bite
+// Closes faster than it opens, so backing off for a moment genuinely resets the gamble rather than
+// merely pausing it. Equal rates would make the whole chapter one long approach to a single bite.
+export const ANGLER_CLOSE_MUL = 1.9
+export const ANGLER_BITE_R = 170        // px, the bite's own reach — SHORTER than the feed radius, so
+                                        // the outer part of the feeding ring is a genuinely safe place
+                                        // to top up slowly, and the fast refill is the risky one
+export const ANGLER_BITE_DMG = 30
+export const ANGLER_BITE_CD = 2.5       // s before this fish can bite again (its gape restarts from 0)
+
+// ---- The Deep's Scent -------------------------------------------------------------------------
+// The button. Owner's framing: "you use the light to see the weak points, or to see the enemies
+// better, so you can do more damage or move faster towards your prey."
+// Three of those four are here; the weak points are not (see CHAPTERS.deep's header for why).
+// Bought with the SAME press, cooldown and `t` as the Pulse — never a second button, never a second
+// bar (spec §5.2, one gimmick / one button / one second job).
+export const SCENT_R = 620              // px, how far the smell carries — marks, amps and is drawn
+export const SCENT_DUR_MIN = 1.3        // s on an EMPTY bar. Never 0: spec §8.2's no-spiral floor.
+export const SCENT_DUR_AT_FULL = 4.2
+export const SCENT_DMG_MUL = 1.5        // damage multiplier against a marked body
+export const SCENT_SPEED_MUL = 1.26     // and you close on them faster while it lasts
+
+// ---- Fin Hit's movement coupling --------------------------------------------------------------
+// Damage scales with the player's ACTUAL speed as a fraction of PLAYER.baseSpeed (220 px/s), so:
+// standing still is 0, a normal swim is 1.0, and every move-speed source in the game pushes past
+// that up to this cap. The cap exists because the multiplier compounds with `serrated` and with
+// every ordinary damage passive, and an uncapped speed term would make Zoomies the best damage
+// card in the chapter rather than a good one.
+export const FINHIT_SPEED_CAP = 1.6
+// Radians of heading change since the last sweep before the fin commits to that side. Below it the
+// player is swimming straight and the fin ALTERNATES, which is a tail beat; without a threshold the
+// float noise in a held joystick direction would pick a random side every sweep and the weapon
+// would read as having no rule at all.
+export const FINHIT_TURN_MIN = 0.12
+// Extra radians BEHIND square, added to the 90 degrees the sweep already sits off the heading. A
+// tail beat drives water BACKWARD, and — more to the point — the crowd in this genre is behind you,
+// because you are running away from it. At a dead 90 degrees the sector points at empty water on
+// either flank and the census measured 26% of casts landing nothing at all at L5; biasing the
+// centre back to ~110 degrees puts the swept wedge over the shoulder where the chasers actually are.
+export const FINHIT_SWEEP_BIAS = 0.35
 
 /** The split ladder for a `first` sub-beam count: [first, first-1, ..., 2]. See the block above. */
 export const prismLadder = (first) => {
@@ -3958,7 +4070,7 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl'], hidden: [], wip: true, startCoins: 100 },
+  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'deep'], hidden: [], wip: true, startCoins: 100 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -5443,6 +5555,182 @@ CHAPTERS.trawl = {
     eliteIridescent: [0xbfe8ff, 0xd9f2ff, 0xcfe8e0],
   },
 }
+
+// ---- Book 2 chapter 5: The Deep ---------------------------------------------------------------
+// "You are the shark. Ships, containers and drums are the terrain. Humans cannot reach." The book's
+// arc lands here: the humans who were the whole threat in The Trawl cannot follow you down, and what
+// is left of them is wreckage on the bottom.
+//
+// A WHOLE LITERAL, never a spread. The Shelf and The Surf spread The Pond and both carry a warning
+// about it, because a spread shares its nested objects BY REFERENCE — editing `signature` or
+// `render` in place afterwards silently rewrites the chapter it was copied from. Written out, this
+// chapter cannot reach into another one.
+//
+// THREE THINGS THE SPEC ASKED FOR THAT ARE NOT HERE, named rather than quietly dropped:
+//   * Scent revealing BREAKABLE WEAK POINTS in the wreck field. The spec's own justification was
+//     that it "reuses the Reef's crush path and Squid Ink's perception branch" — neither exists.
+//     There is no weak-point system in this codebase (`crushable` is a skies flag meaning "an
+//     aircraft, harmless on contact"), and Squid Ink is still unbuilt. Inventing a destructible-
+//     terrain system to satisfy one clause of a button is how a chapter's scope doubles. The other
+//     three things the owner's own framing names — see them better, hurt them more, close faster —
+//     are all here.
+//   * The Kraken. Design deferred by the owner, and it needs the generalisation The Blank's seven
+//     hardcoded string literals never got.
+CHAPTERS.deep = {
+  name: 'The Deep',
+  tagline: 'nothing up there can reach you',
+  icon: '🦈',
+
+  // THE DARKEST CHAPTER, and the one where the light finally matters. The rig is The Shelf's,
+  // shipped and tuned — same `dark` block, same lightmap in render.js, same linear radius across the
+  // whole bar. What changes is the numbers, and one of them is a mechanic:
+  //
+  //   speedFloor 1, i.e. NO SPEED PENALTY, unlike The Shelf. Deliberate, and it is the chapter's
+  //   inversion: you are the apex predator here, so the dark does not slow the shark down — it
+  //   only decides how much of the water you can SEE. Light does not stop being punishing; it stops
+  //   being punishing in the same way twice. Spending it on Scent then BUYS speed (SCENT_SPEED_MUL),
+  //   so in this chapter light is what makes you fast rather than dark being what makes you slow.
+  //   Stacking a Shelf-style slow on top would also have been two penalties on one bar, against a
+  //   roster whose whole job is that you cannot see it coming.
+  //
+  //   radiusFull 0.50 against The Shelf's 1.0. Both are MULTIPLES OF THE SCREEN'S LONGEST SIDE (the
+  //   owner's spec, and the anchor three shipped attempts got wrong before it — see resource.dark in
+  //   CHAPTERS.shelf for why the half-diagonal is the wrong ruler). At 1.0 the rim is off-screen at a
+  //   full bar, which is right for the chapter called "the light only goes down" and wrong for the
+  //   bottom of the ocean: here a FULL bar must still leave the screen CORNERS dark, which is what
+  //   "the darkest chapter" has to mean if it means anything.
+  //
+  //   ⚠ THAT CLAIM IS AN INEQUALITY AND IT HAS TO BE CHECKED ON BOTH SCREENS, which is the whole of
+  //   the v7.58 scar (a light measured on a phone, where it was right, and wrong on a desktop). The
+  //   corners are dark only while radiusFull x longestSide < the HALF-DIAGONAL:
+  //     phone   390x844  -> 0.50 x 844 = 422px against a 465px half-diagonal  ✓
+  //     desktop 1280x800 -> 0.50 x 1280 = 640px against a 755px half-diagonal ✓
+  //   The first cut shipped 0.62 with this same paragraph attached, and 0.62 x 844 = 523 > 465 — the
+  //   light covered the phone's corners at a full bar and the comment asserted the opposite. Any
+  //   raise above ~0.55 makes the sentence above false again on the narrower screen.
+  //
+  // `from` is inert while speedFloor is 1 (darkness() feeds only the speed multiplier — see
+  // stepPlayerMovement), and is left at the Shelf's value so that turning the slow back on is a
+  // one-number change rather than a re-derivation.
+  signature: { type: 'dark' },
+
+  // THE BAR: Light. The anglerfish are the ONLY source — no shafts, no kill refill, nothing on the
+  // floor. That is what makes this chapter's refill "a place you can fight from, never a place you
+  // go to stop": the refill point is an enemy with its mouth open.
+  //
+  // killRefill 0 is load-bearing and is the difference between this chapter and every other one in
+  // the book. At any positive value the player can top the bar up by doing what they were going to
+  // do anyway, and the anglerfish stops being the only decision in the chapter.
+  //
+  // MEASURED: scripts/charge-probe.mjs --chapter deep, 300s x 3 seeded runs, immortal, under three
+  // MOVEMENT policies — because one policy cannot tell "the bar cannot fill" from "this player
+  // never went looking". The `full` spend row of each:
+  //
+  //   policy   mean  %at0  %DARK  %inRefill  bites   the reading
+  //   ignore   13.1    39     99       13.3    1.3   never seek a lure and you spend the run blind
+  //   feed     69.4     0     15       66.1   20.3   approach, take it, LEAVE before the mouth shuts
+  //   greedy   68.7     0     21       65.7   36.7   never leave: the same bar, 80% more bites
+  //
+  // The `greedy` row is the one that says the card works. Refusing to back off buys NO better bar
+  // than backing off does — the drain is slow enough that a disciplined player is already near the
+  // ceiling — and pays for that nothing with nearly double the bites. A tune where greed is simply
+  // the best policy has no decision in it, which is what the first cut measured before the
+  // anglerfish got a live cap (see `maxAlive` in the roster below).
+  resource: {
+    name: 'Light', drain: 2.0, refill: 16, killRefill: 0, max: 100,
+    dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.50, radiusEmpty: 0.06 },
+  },
+  scent: true,        // stepRepulse's third per-chapter branch, beside `burst` and `breach`
+
+  // THE ROSTER. The anglerfish is the chapter (see the ANGLER_* block): it does not chase, it feeds
+  // you while you stand near it, and it bites hard when its patience runs out. `angler` is its
+  // behaviour flag and `unshakeable` keeps it where it is — a refill point you can knock across the
+  // map with the Pulse is not a refill point.
+  //
+  // ⚠ THE ANGLERFISH IS `normal`, AND THE SPEC SAID `tank`. That deviation is forced and the reason
+  // is worth keeping, because it is a trap any new chapter with a special enemy can fall into:
+  // spawnEnemy picks the WAVE_TABLE spawn TYPE first and only then narrows to the roster entries
+  // wearing it, and WAVE_TABLE does not introduce `tank` until **t = 140s**. As a tank, this
+  // chapter's ONLY source of Light could not exist for the first two and a half minutes of a
+  // five-minute run — with a bar that empties in 50s. Measured, not reasoned: a 10-minute headless
+  // run of the chapter reported `anglerfish alive: 0`. A roster `weight` cannot fix it either (it
+  // narrows within an archetype, it cannot un-gate one), and neither can `archetypeMul`.
+  //   It loses nothing. "A tank when provoked" is a statement about what happens when you pick a
+  // fight with one, and hpMul 2.1 says that on any archetype.
+  //
+  // ⚠ `maxAlive: 4` IS LOAD-BEARING, AND IT IS THE ONLY ENTRY IN THE GAME THAT NEEDS IT. This is
+  // the first roster entry that never chases the player and therefore never dies on its own, so a
+  // spawn `weight` does not set its density — it sets its ACCUMULATION RATE, and over a 300s run
+  // that is a carpet. Measured before the cap (charge-probe, 300s x 3 seeds): the refill was
+  // reachable 82.7% of the run under the DO-NOTHING control, 96.7% under a greedy one, %DARK was 0,
+  // and a player who never pressed anything sat at a full bar. The chapter's entire resource was
+  // decoration, in the chapter whose premise is that light is scarce.
+  //   The cap needs a SECOND entry in the same archetype pool to hand the spawn to — spawnEnemy
+  // falls back to the uncapped pool rather than spawning nothing — which is why hagfish keeps the
+  // `normal` the spec gave it rather than being promoted to cover the tank slot.
+  //
+  // GULPER EEL IS AN ADDITION, not in the spec's three. A chapter must cover normal/fast/tank or
+  // the tank share of WAVE_TABLE (from t=140s) finds an empty roster pool, and every chapter that
+  // ships has all three. With the anglerfish holding `normal`, the spec's set left `tank` empty.
+  roster: [
+    { id: 'anglerfish', archetype: 'normal', name: 'Anglerfish', hpMul: 2.1, speedMul: 0.18, xpMul: 1.4, weight: 0.6, maxAlive: 4, flags: ['angler', 'unshakeable'] },
+    // Slime is literally a patch it leaves behind, which is what webZone already is — the flag and
+    // the animal are the same fact for once, rather than a behaviour borrowed onto a new skin.
+    { id: 'hagfish',    archetype: 'normal', name: 'Hagfish',    hpMul: 1,   speedMul: 0.92, flags: ['webZone'] },
+    { id: 'viperfish',  archetype: 'fast',   name: 'Viperfish',  hpMul: 0.9, speedMul: 1.08, flags: ['dashBurst'] },
+    // The big slow mouth. `latch` for the same reason webZone suits the hagfish: a gulper eel that
+    // grabs and holds is the flag and the animal being one fact rather than two.
+    { id: 'gulper',     archetype: 'tank',   name: 'Gulper Eel', hpMul: 1.9, speedMul: 0.62, flags: ['latch'] },
+  ],
+  eliteFlags: ['webZone'],
+
+  // The wreck field. Ships, containers and drums lying on the bottom — big and sparse, the Reef's
+  // size class rather than the Shelf's, because the fantasy is swimming BETWEEN hulls rather than
+  // around rocks. Plan view like everything else that is not a building: these are lying down.
+  obstacles: { count: 9, cell: 700, minR: 62, maxR: 138, minDist: 400 },
+
+  // One step on from The Trawl, the same size step Book 1 takes between its own chapters 4 and 5.
+  // The dark is doing work the numbers cannot see — an enemy you meet at 200px is a different fight
+  // from one you watched cross the screen — so the crowd is smaller here and hits harder rather than
+  // being simply denser.
+  balance: { spawnMul: 0.75, enemyHpMul: 1.15, enemyDmgMul: 1.1, maxAliveMul: 0.8 },
+
+  // ---- the arsenal. One native and two borrowed, and BOTH BORROWS ARE ABSTRACT CASTS — the rule
+  // The Trawl's own list block records after opening with a weapon whose sprite is a maple leaf.
+  //   finHit        the native. The shark's own body; see WEAPONS.finHit.
+  //   chitterShriek staggered violet panic rings (render.js) — a ring that hurts, shoves and panics,
+  //                 aimed at nothing. In a chapter where you cannot see, a weapon that does not need
+  //                 you to aim is the honest borrow, and a ring pulsing out of an animal in the dark
+  //                 is echolocation whatever the card calls it.
+  //   mines         a coral glow behind a red-pink diamond core (T.mine) — a planted light on the
+  //                 sea floor of a wreck field, which is what it already looks like.
+  weapons: ['finHit', 'chitterShriek', 'mines'], starter: 'finHit',
+
+  // ---- render-only (ZERO sim effect) ----
+  // The bottom of the descent. The floor steps down one more measured stop from The Trawl's, and the
+  // dark tint goes as close to black as this book allows: the blue is what keeps it reading as depth
+  // rather than as a screen fade (a UI event), and there is barely any of it left.
+  render: {
+    cast: ['anglerfish', 'hagfish', 'viperfish', 'gulper'],
+    form: 'fish', formScale: 1.7,   // the shark: the biggest body the player has had
+    bgColor: 0x03101d,
+    floorTint: 0x6f8ea6,
+    playerTint: 0xcfe6f2,
+    tail: true,
+    tailTint: 0x9fc4dc,
+    eliteIridescent: [0xa8d8f0, 0xc9e4f4, 0xbcd6cc],
+    darkTint: 0x000305,
+    // The hagfish's slow patch is SLIME, not silk. `webZone` is a chapter-agnostic flag whose only
+    // art was the garden spider's orb web, and the first probe frame of this chapter came back with
+    // the abyssal plain under giant white spider webs — the loudest thing on a screen whose premise
+    // is that there is almost no light. Render-only: the radius, the slow and the mechanic are
+    // byte-identical to the garden's, and only the drawing changes (see syncWebs).
+    webLook: 'slime',
+    // Marine snow, thinner and slower than The Trawl's: less of it survives this far down, and what
+    // does is falling through water nothing is stirring.
+    dust: { tint: 0xb8ccdc, alpha: 0.28, speedMul: 0.1, sway: 4 },
+  },
+}
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
 export const CURRENT_VIS = {
@@ -6294,7 +6582,7 @@ export const chapterAvailable = (meta, id) =>
 export const CHAPTER_SPINE = {
   body: 'Body', pond: 'Pond', garden: 'Garden', undergrowth: 'Undergrowth',
   city: 'City', skies: 'Skies', beyond: 'Beyond', blank: 'Blank',
-  surf: 'Surf', shelf: 'Shelf', reef: 'Reef', trawl: 'Trawl',
+  surf: 'Surf', shelf: 'Shelf', reef: 'Reef', trawl: 'Trawl', deep: 'Deep',
 }
 // Falls back to the full name rather than throwing: a chapter added without a spine entry renders
 // with its article and looks slightly wrong, which is a far better failure than a blank spine.
@@ -8717,7 +9005,7 @@ export const MUTATORS = {
   // a lie there — it'd roll as pure downside without saying so. v6.4: pond excluded too — a flat
   // player-slow stacked on the currents/eddy chapter breaks the escape-margin math (see the v6.4
   // "Pond identity" plan).
-  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond', 'shelf', 'surf', 'reef', 'trawl'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
+  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond', 'shelf', 'surf', 'reef', 'trawl', 'deep'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
   jumbo:    { name: 'Jumbo Anomalies',   icon: '🎈', desc: 'Big squishy enemies, bonus XP and coins.',     effects: { enemyRadiusMul: 1.25, enemyHpMul: 1.25, enemySpeedMul: 0.9, xpMul: 1.2, coinMul: 1.2 } },
   // v5.24: The Blank's named difficulty-ladder modifiers (CHAPTERS.blank.modsByDifficulty) are
   // MUTATORS entries too, so the existing HUD/pause chip machinery renders them for free — but

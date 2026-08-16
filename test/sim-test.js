@@ -40,6 +40,7 @@ import {
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
+  ANGLER_FEED_R, ANGLER_GAPE_T, ANGLER_BITE_R, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
@@ -1395,10 +1396,20 @@ function testAnomalySlate() {
       // untestable", which is this list being out of date and not the weapon being broken.
       const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines']
       const FX = ['whip', 'clawRake', 'roar', 'tail']
+      // ⚠ SOME WEAPONS CANNOT BE MEASURED BY A MOTIONLESS PLAYER. The fixture below holds the stick
+      // at zero, which is right for the other 22 weapons — it keeps the ring of targets and the
+      // player in a fixed relationship, so `seen` is comparable frame to frame. Fin Hit's damage
+      // and its very existence read the player's VELOCITY (it returns early at a standstill and
+      // spawns nothing), so a motionless fixture reports "spawned nothing — untestable" for a
+      // weapon that is working perfectly. The stick is therefore per-weapon, and the set is
+      // explicit rather than a heuristic: any future movement-coupled card has to be added here or
+      // it will fail this assertion with a message about the wrong thing.
+      const NEEDS_MOTION = new Set(['finHit'])
       const spread = (id, weaponId) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
         r.weapons = [{ id: weaponId, level: 3 }]
         r.time = 5
+        const stick = NEEDS_MOTION.has(weaponId) ? { x: 1, y: 0 } : { x: 0, y: 0 }
         // A ring of unkillable enemies, so every weapon has something to aim at, place a zone on,
         // or lock onto — and nothing dies to change the picture mid-cast.
         for (let i = 0; i < 12; i++) {
@@ -1407,7 +1418,12 @@ function testAnomalySlate() {
         }
         let best = 0
         for (let i = 0; i < 900; i++) {
-          stepSim(r, { x: 0, y: 0 }, dt)
+          stepSim(r, stick, dt)
+          // A moving player would otherwise leave the ring of targets behind within a second, and
+          // every weapon that aims at an enemy would then measure an empty field. Pinning keeps the
+          // fixture's geometry identical to the motionless case while still giving the sim a real
+          // velocity to read — the same trick run DP.g needs, and for the same reason.
+          if (stick.x || stick.y) { r.player.x = 0; r.player.y = 0 }
           const seen = new Set()
           // Keyed by SHAPE, not position alone. Several weapons spawn everything at the player and
           // differ only in heading (beams), in radius (novas — they spread by band, not by place)
@@ -13383,6 +13399,7 @@ try {
   run(testReefAirBurst)
   run(testTrawlNet)
   run(testTrawlNatives)
+  run(testTheDeep)
   run(testDevMenu)
   run(testModalPopBookkeeping)
   run(testUndertowLadder)
@@ -17660,6 +17677,341 @@ function testTrawlNatives() {
   }
 
   console.log("PASS run LG (The Trawl's natives): the line is a finite segment that is set and left and catches once per body, and the net holds a group on the CC budget without borrowing another weapon's shrapnel")
+}
+
+// ---- run DP: The Deep — the anglerfish, Scent, and Fin Hit ------------------------------------
+// The chapter's premise is that Light is scarce and the only source of it is an animal that bites,
+// so the cases below are about the SHAPE of that bargain rather than about any one number: does
+// standing near the fish feed you, does staying too long cost you, and does leaving in time save
+// you. Every case is written as an effect.
+function testTheDeep() {
+  const dt = 1 / 60
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  const res = CHAPTERS.deep.resource
+  // A quiet Deep: nothing spawns, nothing is equipped, and the bar starts wherever the case wants
+  // it. Weapons are cleared for the reason run LG's header gives at length — an auto-attacking
+  // starter is a second killer, and a case that measures the wrong killer reports green.
+  const rig = (weaponId = null, level = 5, seed = 20260818) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'deep', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'deep', 'run DP did not start in The Deep — the WIP gate or the meta is wrong')
+    run.player.hp = run.player.maxHP = 100000
+    run.mods.spawnMul = 0
+    run.enemies.length = 0
+    run.weapons.length = 0
+    if (weaponId) run.weapons.push({ id: weaponId, level })
+    return run
+  }
+  const step = (run, n, input = { x: 0, y: 0 }) => {
+    for (let i = 0; i < n; i++) { stepSim(run, input, dt); run.events.length = 0 }
+  }
+  let nextId = 70000
+  const fish = (run, x, y, flags = []) => {
+    const e = {
+      id: nextId++, x, y, type: 'normal', hp: 100000, maxHP: 100000, radius: 16,
+      speed: 0, dmg: 0, kb: { x: 0, y: 0 }, hitFlash: 0, xp: 1,
+      frozen: 0, chill: 0, venom: 0, ignite: 0, fearT: 0, fearCd: 0, stunT: 0,
+      enrageT: 0, _ccDR: 1, flags, affixes: [], bloomSlowT: 0, scentT: 0, gape: 0, _biteCd: 0,
+    }
+    run.enemies.push(e)
+    return e
+  }
+
+  // (a) THE ANGLERFISH IS THE ONLY FOOD. Three runs off one seed differing only in where the player
+  // stands and whether anything is there. Asserted as the bar moving, which is dead if the refill
+  // branch never fires, if the range is wrong, or if some other source is quietly topping it up.
+  {
+    const near = rig(); near.charge = 20
+    fish(near, 120, 0, ['angler'])          // inside ANGLER_FEED_R
+    step(near, 60)
+
+    const far = rig(); far.charge = 20
+    fish(far, ANGLER_FEED_R + 400, 0, ['angler'])
+    step(far, 60)
+
+    const none = rig(); none.charge = 20
+    fish(none, 120, 0, [])                  // a fish, but not an anglerfish
+    step(none, 60)
+
+    assert.ok(near.charge > 20, `run DP.a: standing 120px from an anglerfish for 1s left the bar at ${near.charge.toFixed(1)} — it does not feed`)
+    assert.ok(far.charge < 20, `run DP.a: standing ${ANGLER_FEED_R + 400}px away still filled the bar to ${far.charge.toFixed(1)} — the feed has no range`)
+    assert.ok(none.charge < 20, `run DP.a: a body with no 'angler' flag fed the player anyway (${none.charge.toFixed(1)}) — the flag is not being read`)
+    // And the chapter's own rule: kills give NOTHING. This is what makes the anglerfish the only
+    // decision in the chapter rather than one option among two.
+    assert.strictEqual(res.killRefill, 0,
+      `run DP.a: The Deep's killRefill is ${res.killRefill} — at any positive value the player tops the bar up by doing what they were going to do anyway, and the anglerfish stops being the only source`)
+    console.log(`PASS run DP.a (the only food bites): 20 -> ${near.charge.toFixed(1)} beside one, 20 -> ${far.charge.toFixed(1)} away from it, ${none.charge.toFixed(1)} beside a non-angler, killRefill ${res.killRefill}`)
+  }
+
+  // (b) THE MOUTH IS THE CLOCK, AND IT RUNS BACKWARDS WHEN YOU LEAVE. The gape is the chapter's
+  // only warning, and the close being FASTER than the open is what makes backing off a real reset
+  // rather than a pause — see ANGLER_CLOSE_MUL.
+  {
+    const run = rig()
+    const a = fish(run, 120, 0, ['angler'])
+    step(run, Math.round(ANGLER_GAPE_T * 0.5 * 60))
+    const opened = a.gape
+    assert.ok(opened > 0.35 && opened < 0.72,
+      `run DP.b: half a gape-time of feeding put the mouth at ${opened.toFixed(2)} — expected roughly half open, so the tell is not tracking the time spent`)
+    // Walk out of range and hold there.
+    a.x = 5000
+    step(run, Math.round(ANGLER_GAPE_T * 0.5 * 60))
+    assert.strictEqual(a.gape, 0,
+      `run DP.b: the mouth was still at ${a.gape.toFixed(2)} after leaving for as long as it took to open halfway — it closes no faster than it opens, so backing off only pauses the gamble`)
+    console.log(`PASS run DP.b (the mouth is the clock): opened to ${opened.toFixed(2)} in half a gape-time, fully shut after the same time away`)
+  }
+
+  // (c) THE BITE, AND THE WAY OUT OF IT. Two runs, identical until the last moment: one stays
+  // inside the bite radius and one drifts to the outer part of the feeding ring. Both must see the
+  // fish spend its turn — otherwise a player who dodged would simply be bitten the instant they
+  // drifted back in — and only one of them must be hurt.
+  {
+    const inside = rig()
+    const a1 = fish(inside, 100, 0, ['angler'])      // inside ANGLER_BITE_R
+    let hurt1 = 0
+    for (let i = 0; i < Math.round((ANGLER_GAPE_T + 0.3) * 60); i++) {
+      const before = inside.player.hp
+      stepSim(inside, { x: 0, y: 0 }, dt)
+      inside.events.length = 0
+      hurt1 += Math.max(0, before - inside.player.hp)
+    }
+
+    const edge = rig()
+    // Between the bite radius and the feed radius: still being fed, out of reach of the jaws.
+    const a2 = fish(edge, (ANGLER_BITE_R + ANGLER_FEED_R) / 2, 0, ['angler'])
+    let hurt2 = 0
+    for (let i = 0; i < Math.round((ANGLER_GAPE_T + 0.3) * 60); i++) {
+      const before = edge.player.hp
+      stepSim(edge, { x: 0, y: 0 }, dt)
+      edge.events.length = 0
+      hurt2 += Math.max(0, before - edge.player.hp)
+    }
+
+    assert.ok(hurt1 > 0, 'run DP.c: sitting inside the bite radius through a full gape cost NOTHING — the bite never lands')
+    assert.strictEqual(hurt2, 0,
+      `run DP.c: sitting between the bite radius (${ANGLER_BITE_R}) and the feed radius (${ANGLER_FEED_R}) still cost ${hurt2} HP — the two radii are the same number, so the outer ring is not the safe slow feed it is meant to be`)
+    assert.ok(a2._biteCd > 0,
+      'run DP.c: the fish that MISSED did not spend its turn — a dodged bite has to cost the fish its cooldown, or drifting back in is punished instantly')
+    assert.ok(a1.gape < 1 && a2.gape < 1, 'run DP.c: a mouth that has bitten did not reset')
+    console.log(`PASS run DP.c (the bite and the way out): ${hurt1} HP inside the jaws, ${hurt2} in the outer feeding ring, and the miss still spent the fish's turn`)
+  }
+
+  // (d) THE LIVE CAP IS WHAT MAKES THE CHAPTER A CHAPTER. Anglerfish never chase and so never die,
+  // so without `maxAlive` an ordinary spawn weight controls their ACCUMULATION rather than their
+  // density — measured at 82.7% of the run within feeding range under a do-nothing player, %DARK 0,
+  // and a hoarding player pinned at a full bar. Asserted against the shipped config, not a literal.
+  {
+    const entry = CHAPTERS.deep.roster.find((r) => r.id === 'anglerfish')
+    assert.ok(entry.maxAlive > 0, "run DP.d: the anglerfish has no maxAlive — it will carpet the map and the Light bar becomes decoration")
+    // The cap needs a SECOND entry in the same archetype pool to hand the spawn to, or spawnEnemy's
+    // never-empty-the-pool fallback quietly ignores it.
+    const sameArch = CHAPTERS.deep.roster.filter((r) => r.archetype === entry.archetype)
+    assert.ok(sameArch.length >= 2,
+      `run DP.d: '${entry.archetype}' holds only the capped anglerfish, so spawnEnemy falls back to the uncapped pool and maxAlive does nothing`)
+    // And it actually binds over a real run.
+    Math.random = mulberry32(4242)
+    const run = createRun(meta, { chapter: 'deep', difficulty: 3 })
+    run.player.hp = run.player.maxHP = 1e9
+    let peak = 0
+    for (let i = 0; i < 200 * 60; i++) {
+      stepSim(run, { x: Math.cos(i / 900), y: Math.sin(i / 900) }, dt)
+      run.events.length = 0
+      if (run.phase === 'levelup') { applyChoice(run, 0); run.phase = 'playing' }
+      if (run.phase !== 'playing') break
+      if ((i % 30) === 0) peak = Math.max(peak, run.enemies.filter((e) => e.rosterId === 'anglerfish' && !e._dead).length)
+    }
+    assert.ok(peak <= entry.maxAlive,
+      `run DP.d: ${peak} anglerfish alive at once against a cap of ${entry.maxAlive} — the cap is declared but not enforced`)
+    assert.ok(peak > 0, 'run DP.d: no anglerfish ever spawned in 200s — the chapter has no refill at all (check the archetype against WAVE_TABLE\'s gating)')
+    console.log(`PASS run DP.d (the live cap binds): peak ${peak} anglerfish alive against a cap of ${entry.maxAlive}, over 200s of a real run`)
+  }
+
+  // (e) SCENT MARKS A GROUP AND AMPLIFIES EVERY SOURCE. The button is sold as "see them better, so
+  // you can do more damage", and a bonus that only applied to direct weapon hits would quietly
+  // exclude burns, hazards and allies — i.e. exactly the damage a player who just spent their whole
+  // bar is relying on. Asserted through a HAZARD tick, which touches no weapon code at all.
+  {
+    const lit = rig(); lit.charge = res.max
+    const pack = [fish(lit, 200, 0), fish(lit, 220, 40), fish(lit, 180, -40)]
+    const far = fish(lit, SCENT_R + 600, 0)
+    stepSim(lit, { x: 0, y: 0, skill: true }, dt)   // press the button
+    lit.events.length = 0
+    step(lit, 2)
+    const marked = pack.filter((e) => (e.scentT || 0) > 0).length
+    assert.strictEqual(marked, pack.length, `run DP.e: only ${marked} of ${pack.length} bodies in the radius were marked — this is a single-target buff wearing a group's name`)
+    assert.strictEqual(far.scentT || 0, 0, `run DP.e: a body ${SCENT_R + 600}px away was marked — the smell has no radius`)
+
+    // The amp, measured on identical bodies with and without the mark, through a BURN rather than
+    // a weapon. That choice is the assertion: an ignite tick goes through dealDamage directly and
+    // never touches applyDamage or any weapon code, so an amp wired into a weapon's own hit would
+    // leave these two columns identical and this case would fail — which is the point. Measuring it
+    // with a weapon instead would pass on a weapon-only amp and prove nothing about "every source".
+    const ctl = rig()
+    const a = fish(ctl, 200, 0), b = fish(ctl, 220, 0)
+    b.scentT = 5
+    for (const e of [a, b]) { e.ignite = 5; e.igniteDps = 40 }
+    const hpA = a.hp, hpB = b.hp
+    step(ctl, 90)
+    const lostA = hpA - a.hp, lostB = hpB - b.hp
+    assert.ok(lostA > 0, 'run DP.e: the control body took no burn damage at all — the rig cannot see an amp')
+    assert.ok(lostB > lostA,
+      `run DP.e: a marked body took ${lostB} from the same hazard tick an unmarked one took ${lostA} from — the mark does not amplify, or it only reaches weapon hits`)
+    assert.ok(Math.abs(lostB / lostA - SCENT_DMG_MUL) < 0.02,
+      `run DP.e: the mark multiplied damage by ${(lostB / lostA).toFixed(2)} against a declared ${SCENT_DMG_MUL}`)
+    console.log(`PASS run DP.e (a group, and every source): ${marked}/${pack.length} marked and nothing at ${SCENT_R + 600}px, hazard damage x${(lostB / lostA).toFixed(2)}`)
+  }
+
+  // (f) SCENT BUYS SPEED, AND IT IS A BONUS RATHER THAN A FLOOR. Multiplied in, not MIN-composed
+  // with the chapter slows — folding it into the MIN would mean spending a full bar did nothing at
+  // all whenever anything else was slowing the player, which is when you would spend it.
+  {
+    const off = rig(); off.charge = res.max
+    step(off, 30, { x: 1, y: 0 })
+    const plain = Math.hypot(off.player.vx, off.player.vy)
+
+    const on = rig(); on.charge = res.max
+    stepSim(on, { x: 1, y: 0, skill: true }, dt)
+    on.events.length = 0
+    step(on, 20, { x: 1, y: 0 })
+    const scented = Math.hypot(on.player.vx, on.player.vy)
+
+    assert.ok(on._scentT > 0, 'run DP.f: the button did not open a Scent window at all')
+    assert.ok(Math.abs(scented / plain - SCENT_SPEED_MUL) < 0.02,
+      `run DP.f: Scent moved the player at x${(scented / plain).toFixed(3)} against a declared x${SCENT_SPEED_MUL}`)
+    // The chapter's own dark must NOT also slow: two penalties on one bar, in the chapter whose
+    // roster you cannot see coming.
+    assert.strictEqual(res.dark.speedFloor, 1,
+      `run DP.f: The Deep's dark carries speedFloor ${res.dark.speedFloor} — an empty bar now slows the player AND blinds them, which is The Shelf's bargain, not this one`)
+    console.log(`PASS run DP.f (light buys speed): ${plain.toFixed(0)} -> ${scented.toFixed(0)} px/s at x${(scented / plain).toFixed(2)}, and the dark itself never slows`)
+  }
+
+  // (g) FIN HIT IS ZERO AT A STANDSTILL AND SCALES WITH SPEED. The whole card, and the reason its
+  // description says so out loud — ANOMALIES.stillness is unconditional `weight: 1` and will be
+  // offered in this chapter, and it cancels this weapon exactly.
+  {
+    // ⚠ THE PLAYER IS PINNED AT THE ORIGIN AFTER EACH STEP, and without it this case measures the
+    // wrong thing entirely. p.vx/p.vy are set from the input every frame and are what Fin Hit
+    // reads, but the position they produce also carries the player AWAY: at full stick that is
+    // 880px over these 4 seconds, so the fastest run left its targets behind and scored ZERO while
+    // a third-speed run scored 17 — which reads exactly like "the damage ignores velocity" and is
+    // the opposite. Pinning isolates the speed term from the player outrunning the fight.
+    const swim = (input) => {
+      const run = rig('finHit', 5)
+      for (const d of [-1, 1]) fish(run, 60 * d, 40)
+      for (let i = 0; i < 240; i++) {
+        stepSim(run, input, dt)
+        run.events.length = 0
+        run.player.x = 0; run.player.y = 0
+      }
+      return run.enemies.reduce((s, e) => s + (e.maxHP - e.hp), 0)
+    }
+    const stillDmg = swim({ x: 0, y: 0 })
+    const slowDmg = swim({ x: 0.35, y: 0 })
+    const fastDmg = swim({ x: 1, y: 0 })
+
+    assert.strictEqual(stillDmg, 0,
+      `run DP.g: a motionless player dealt ${stillDmg} with Fin Hit — the zero at a standstill IS the card, and the stillness anomaly no longer cancels it`)
+    assert.ok(slowDmg > 0, 'run DP.g: a player moving at a third speed dealt nothing — the scaling has a floor it should not have')
+    assert.ok(fastDmg > slowDmg * 1.5,
+      `run DP.g: full speed dealt ${fastDmg} against ${slowDmg} at a third speed — the damage barely reads the player's velocity`)
+    console.log(`PASS run DP.g (it hits as hard as you swim): ${stillDmg} standing still, ${slowDmg} at a third speed, ${fastDmg} at full`)
+  }
+
+  // (h) THE SWEEP GOES TO THE OUTSIDE OF THE TURN. This is the half that makes the weapon read as a
+  // body rather than as a gun, and it is invisible in a damage total — so it is asserted on the
+  // event's own angle, relative to the heading, which is the number the renderer draws from.
+  {
+    // ⚠ THE TWO HALVES ARE MEASURED SEPARATELY, and the first cut did not do that. Swimming east
+    // and then turning north exercises the TURN branch for most of the run, so pinning the
+    // alternation to one side still produced both signs — the mutation survived a case that
+    // appeared to be testing it. A straight swim is the only condition under which the alternation
+    // is reachable at all, so that is where it has to be asserted.
+    const sweeps = (inputAt, frames) => {
+      const run = rig('finHit', 5)
+      const rel = []
+      for (let i = 0; i < frames; i++) {
+        stepSim(run, inputAt(i), dt)
+        for (const ev of run.events) {
+          if (ev.type !== 'finHit') continue
+          const h = Math.atan2(run.player.vy, run.player.vx)
+          rel.push(Math.atan2(Math.sin(ev.angle - h), Math.cos(ev.angle - h)))
+        }
+        run.events.length = 0
+      }
+      return rel
+    }
+
+    // Straight: the tail beat. Both flanks, alternating.
+    const straight = sweeps(() => ({ x: 1, y: 0 }), 600)
+    assert.ok(straight.length >= 6, `run DP.h: only ${straight.length} sweeps over a 10s straight swim — the rig cannot see the pattern`)
+    const left = straight.filter((a) => a > 0).length, right = straight.filter((a) => a < 0).length
+    assert.ok(left > 0 && right > 0,
+      `run DP.h: over a STRAIGHT swim the fin went ${left} one way and ${right} the other — it never alternates, so a player swimming straight only ever hits one flank`)
+
+    // Turning: the sweep commits to the OUTSIDE of the turn, so a sustained turn one way must put
+    // essentially every sweep on one side, and the other way on the other.
+    const ccw = sweeps((i) => ({ x: Math.cos(i * 0.012), y: Math.sin(i * 0.012) }), 600)
+    const cw = sweeps((i) => ({ x: Math.cos(-i * 0.012), y: Math.sin(-i * 0.012) }), 600)
+    const share = (arr, sign) => arr.filter((a) => Math.sign(a) === sign).length / Math.max(1, arr.length)
+    assert.ok(share(ccw, 1) > 0.8,
+      `run DP.h: turning one way put only ${(share(ccw, 1) * 100).toFixed(0)}% of sweeps on that side — the fin does not follow the turn`)
+    assert.ok(share(cw, -1) > 0.8,
+      `run DP.h: turning the other way put only ${(share(cw, -1) * 100).toFixed(0)}% of sweeps on that side — the fin does not follow the turn`)
+
+    // And never forward, never straight astern, in any of the three.
+    const bad = [...straight, ...ccw, ...cw].filter((a) => Math.abs(a) < 0.6 || Math.abs(a) > Math.PI - 0.35)
+    assert.deepStrictEqual(bad.map((a) => a.toFixed(2)), [],
+      `run DP.h: sweep(s) at ${bad.map((a) => a.toFixed(2))} rad off the heading — the fin is firing forward or straight astern instead of across the flank`)
+    console.log(`PASS run DP.h (out to the side, both sides): straight ${left}/${right} split, turns ${(share(ccw, 1) * 100).toFixed(0)}%/${(share(cw, -1) * 100).toFixed(0)}% to the outside, none forward or astern`)
+  }
+
+  // (i) THE CHAPTER IS ACTUALLY WIRED IN. Cheap, and it is the class of failure that ships a
+  // chapter reachable through the dev gate with a piece missing.
+  {
+    assert.ok(BOOKS.undertow.chapters.includes('deep'), "run DP.i: The Deep is not in Undertow's chapter list")
+    assert.ok(CHAPTER_SPINE.deep, 'run DP.i: no CHAPTER_SPINE entry — the bookcase draws its spine with the article on')
+    assert.ok(isWipChapter('deep'), 'run DP.i: The Deep is not WIP-gated, so it is reachable without the dev flag')
+    assert.strictEqual(CHAPTERS.deep.signature.type, 'dark', 'run DP.i: the signature is not `dark`, so stepAnglers and the lightmap both no-op')
+    assert.ok(CHAPTERS.deep.scent === true, 'run DP.i: the chapter does not declare `scent`, so the button spends the bar and does nothing')
+    assert.ok(CHAPTERS.deep.weapons.includes('finHit') && CHAPTERS.deep.starter === 'finHit',
+      `run DP.i: the pool is [${CHAPTERS.deep.weapons}] starting '${CHAPTERS.deep.starter}' — its own native is not fielded`)
+    // Every archetype covered, which is what stops the tank share of WAVE_TABLE finding an empty
+    // pool from t=140s and spawning an unskinned body.
+    const arch = new Set(CHAPTERS.deep.roster.map((r) => r.archetype))
+    for (const a of ['normal', 'fast', 'tank']) {
+      assert.ok(arch.has(a), `run DP.i: no '${a}' in The Deep's roster — WAVE_TABLE asks for it and finds nothing`)
+    }
+    console.log(`PASS run DP.i (wired in): in Undertow, spine '${CHAPTER_SPINE.deep}', WIP-gated, dark + scent, ${CHAPTERS.deep.roster.length} roster entries covering ${[...arch].sort().join('/')}`)
+  }
+
+  // (j) A FULL BAR STILL LEAVES THE CORNERS DARK, ON EVERY SCREEN. Asserted as a RATIO and never as
+  // pixels, which is the whole of the v7.58 scar: The Shelf's light was tuned on a phone, where it
+  // was right, and shipped leaving a desktop's corners vignetted at a full bar — because the
+  // quantity is compared against the screen and the two screens have different shapes.
+  //
+  // radiusFull is a multiple of the LONGEST SIDE; the corners sit at the HALF-DIAGONAL. So the
+  // chapter's premise holds only while radiusFull < halfDiagonal/longestSide, and that ratio is
+  // SMALLEST on the narrowest screen — the phone is the binding case, not the desktop.
+  {
+    const SCREENS = [[390, 844], [1280, 800], [844, 390]]   // phone portrait, desktop, phone landscape
+    const worst = Math.min(...SCREENS.map(([w, h]) => Math.hypot(w, h) / 2 / Math.max(w, h)))
+    const rf = CHAPTERS.deep.resource.dark.radiusFull
+    assert.ok(rf < worst,
+      `run DP.j: radiusFull ${rf} against a tightest half-diagonal ratio of ${worst.toFixed(4)} — at a FULL bar the light already covers the corners on at least one shipped screen, so "the darkest chapter" is not true there. This is the v7.58 failure exactly: a screen-relative quantity checked on one viewport.`)
+    // And the empty end must still leave SOMETHING lit, or an empty bar is a black screen rather
+    // than a punishing one — spec §8.2's no-spiral floor, applied to sight.
+    assert.ok(CHAPTERS.deep.resource.dark.radiusEmpty > 0.02,
+      `run DP.j: radiusEmpty ${CHAPTERS.deep.resource.dark.radiusEmpty} — an empty bar leaves the player unable to see their own body`)
+    console.log(`PASS run DP.j (dark on every screen): radiusFull ${rf} < ${worst.toFixed(4)}, the tightest of ${SCREENS.length} viewports, and radiusEmpty still lights ${CHAPTERS.deep.resource.dark.radiusEmpty} of it`)
+  }
+
+  console.log("PASS run DP (The Deep): the anglerfish is the only food and its mouth is the clock, leaving the jaws in time still costs the fish its turn, Scent marks a group and amplifies every source while buying speed, and Fin Hit is worth nothing standing still")
 }
 
 // ---- run MT: the in-run controls do not depend on a compatibility click ------------------------

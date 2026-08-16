@@ -2271,6 +2271,225 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 1.5, r)
   }
 
+  // ---- The Deep (Book 2 chapter 5) ------------------------------------------------------------
+  // Four bodies for the darkest floor in the game, and the whole set is built on ONE constraint:
+  // down here a body is not read by its colour, because there is barely any light on it. Every one
+  // of these separates on OUTLINE and on the placement of its few bright marks — a lure, a row of
+  // photophores, a mouth — which is also what deep-sea animals actually do to each other.
+  //
+  // All four are PLAN VIEW and lean 90, the ordinary case: each is bilaterally symmetric about its
+  // own +x nose with paired eyes, and none of them has an UP. (The Shelf's moon jelly is the one
+  // side-on body in the game and it is deliberate — see CLAUDE.md. Nothing here is that case.)
+  //
+  // ⚠ THE ANGLERFISH'S MOUTH IS NOT BAKED HERE. Its gape changes per fish per frame, and a bake is
+  // a texture made once at boot, so the opening mouth is drawn as a per-frame overlay from the
+  // published `gape` field (drawDeepTells). What is baked is the body, the teeth and the dark
+  // socket the gape opens over — the parts that never move.
+
+  // anglerfish: the chapter. Round, heavy, front-loaded, with a lure held out ahead on a stalk and a
+  // mouth that is most of the head. The ESCA is the only genuinely bright thing in the chapter and
+  // it is the thing the player navigates by, so it is drawn as a hot core inside a soft halo rather
+  // than as a flat dot.
+  function drawAnglerfish(g, elite, white) {
+    const r = 17
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x0a1016)
+    // ⚠ DARK, BUT NOT A VOID. A real deep-sea anglerfish is very nearly black, and the first cut
+    // painted it that way (0x2b2230 on a 0x03101d floor): the body disappeared entirely and the
+    // animal read as a floating dark pennant with a spike. The design intent survives — you
+    // navigate this chapter by the LURE, not by the fish — but the body still has to be findable
+    // once you are on top of it, or the thing you must judge a gape on is not on screen.
+    const skin = f(0x473b52)
+    const belly = f(0x6a5a78)
+    const tooth = f(0xe8e2d4)
+    const lw = Math.max(2, r * 0.11)
+    const noseX = r * 0.95
+    const len = r * 1.85
+    const spine = (t) => [noseX - t * len, 0]
+    // A globe, not a spindle: widest almost immediately and holding it, so the silhouette reads as
+    // a swimming head with a fish attached rather than as a fish with a big head.
+    const body = (t) => {
+      const rise = Math.pow(Math.min(1, t / 0.2), 0.5)
+      // A LOW exponent, so the body stays fat most of its length and only collapses at the wrist.
+      // At 1.15 it fell away linearly and the silhouette read as a tent — a cone with a spike —
+      // rather than as the globe an anglerfish is.
+      const fall = Math.pow(Math.max(0, 1 - (t - 0.2) / 0.78), 0.62)
+      return r * 0.62 * Math.max(0.07, t < 0.2 ? rise : fall)
+    }
+    groundShadow(r * 1.0, r * 0.7)
+    const [tx] = spine(0.97)
+    g.poly([tx + r * 0.05, 0, tx - r * 0.42, r * 0.34, tx - r * 0.3, 0, tx - r * 0.42, -r * 0.34])
+      .fill({ color: belly, alpha: 0.9 }).stroke({ width: lw * 0.45, color: line })
+    g.poly(spineOutline(spine, body, 34)).fill(skin).stroke({ width: lw, color: line })
+    if (!white) {
+      // THE SOCKET the gape opens over. Baked dark and permanent, so when drawDeepTells widens the
+      // mouth on top there is already blackness underneath it rather than body colour showing
+      // through a half-open jaw.
+      g.ellipse(noseX - r * 0.18, 0, r * 0.42, r * 0.5).fill({ color: f(0x07090d), alpha: 0.95 })
+      // Teeth: a ring of needles around the socket's rim. Few and long — a row of small ones turns
+      // to a grey smudge at sprite size, which is the failure mode the viperfish below shares.
+      for (let i = 0; i < 9; i++) {
+        const a = -1.15 + (i / 8) * 2.3
+        const bx = noseX - r * 0.18 + Math.cos(a) * r * 0.38
+        const by = Math.sin(a) * r * 0.46
+        g.poly([bx, by, bx + Math.cos(a) * r * 0.2, by + Math.sin(a) * r * 0.22,
+                bx - Math.sin(a) * r * 0.07, by + Math.cos(a) * r * 0.07])
+          .fill({ color: tooth, alpha: 0.92 })
+      }
+      // THE ILLICIUM: the stalk, arching forward over the head, with the esca at its tip. Offset in
+      // +y rather than dead centre so it does not sit on the body's own axis and vanish into it.
+      const ex = noseX + r * 0.52, ey = -r * 0.34
+      g.moveTo(noseX - r * 0.5, -r * 0.1).quadraticCurveTo(noseX + r * 0.3, -r * 0.7, ex, ey)
+        .stroke({ width: lw * 0.6, color: f(0x171420), alpha: 0.95 })
+      // Three stops rather than two, and wider than it looks like it needs to be: this is the only
+      // light source in the chapter and it is what the player crosses the screen toward.
+      g.circle(ex, ey, r * 0.52).fill({ color: f(0x5fd8c0), alpha: 0.16 })
+      g.circle(ex, ey, r * 0.30).fill({ color: f(0x7fe9d0), alpha: 0.38 })
+      g.circle(ex, ey, r * 0.17).fill({ color: f(0xaef4e2), alpha: 0.75 })
+      g.circle(ex, ey, r * 0.09).fill({ color: f(0xf2fffb), alpha: 1 })
+      for (const s of [-1, 1]) darkEye(g, noseX - r * 0.52, s * r * 0.25, r * 0.09, r * 0.085, 0x05070a, true)
+    }
+    if (elite) eliteCrown(-r * 1.1, r)
+  }
+
+  // hagfish: a rope. No fins, no shoulders, no taper worth the name — the one body in the game whose
+  // outline is very nearly a constant-width tube, which is exactly what separates it from every
+  // other fish on this floor without needing a single colour to survive the dark.
+  function drawHagfish(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x2a1f22)
+    const skin = f(0x8f6f72)
+    const pale = f(0xc0a29e)
+    const lw = Math.max(2, r * 0.09)
+    const noseX = r * 1.15
+    const len = r * 2.5
+    const spine = (t) => [noseX - t * len, Math.sin(t * 5.4) * r * 0.3]  // a body caught mid-writhe
+    const body = (t) => r * 0.19 * Math.max(0.35, 1 - Math.pow(Math.max(0, t - 0.72) / 0.28, 1.3) * 0.6)
+    groundShadow(r * 1.1, r * 0.3)
+    g.poly(spineOutline(spine, body, 40)).fill(skin).stroke({ width: lw, color: line })
+    if (!white) {
+      // THE SLIME PORES, the one mark it has: a row down each flank, which is literally where a
+      // hagfish's slime glands are and the tell for the webZone patch it leaves behind.
+      for (let i = 0; i < 9; i++) {
+        const t = 0.12 + i * 0.085
+        const [px, py] = spine(t)
+        const w = body(t)
+        for (const s of [-1, 1]) g.circle(px, py + s * w * 0.75, r * 0.048).fill({ color: pale, alpha: 0.8 })
+      }
+      // The head is barely a head — a blunt cap and four barbels, no jaw. A hagfish has no jaws at
+      // all, and the absence is the animal.
+      const [hx, hy] = spine(0.04)
+      g.circle(hx, hy, r * 0.21).fill({ color: skin }).stroke({ width: lw * 0.7, color: line })
+      for (let i = 0; i < 4; i++) {
+        const a = -0.9 + i * 0.6
+        g.moveTo(hx + r * 0.14, hy).lineTo(hx + r * 0.14 + Math.cos(a) * r * 0.34, hy + Math.sin(a) * r * 0.3)
+          .stroke({ width: Math.max(0.8, r * 0.03), color: pale, alpha: 0.8 })
+      }
+    }
+    if (elite) eliteCrown(-r * 1.4, r)
+  }
+
+  // viperfish: the fast slot, and it is all jaw and light. A thin dark ribbon you would lose against
+  // this floor entirely if not for two things: fangs too long to close over, and a line of
+  // photophores down each flank. Both are real viperfish anatomy and both are legible at 16px.
+  function drawViperfish(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x0b1418)
+    const skin = f(0x1f3038)
+    const glow = f(0x9fe0ff)
+    const tooth = f(0xf0efe4)
+    const lw = Math.max(2, r * 0.09)
+    const noseX = r * 1.1
+    const len = r * 2.4
+    const spine = (t) => [noseX - t * len, 0]
+    const body = (t) => {
+      const rise = Math.pow(Math.min(1, t / 0.22), 0.6)
+      const fall = Math.pow(Math.max(0, 1 - (t - 0.22) / 0.74), 1.7)
+      return r * 0.22 * Math.max(0.06, t < 0.22 ? rise : fall)
+    }
+    groundShadow(r * 1.0, r * 0.22)
+    const [tx] = spine(0.96)
+    g.poly([tx + r * 0.05, 0, tx - r * 0.5, r * 0.3, tx - r * 0.34, 0, tx - r * 0.5, -r * 0.3])
+      .fill({ color: skin, alpha: 0.9 }).stroke({ width: lw * 0.5, color: line })
+    g.poly(spineOutline(spine, body, 34)).fill(skin).stroke({ width: lw, color: line })
+    if (!white) {
+      // The fangs. FOUR, long, and reaching PAST the snout — a viperfish's teeth do not fit inside
+      // its mouth, and drawing a mouthful of small ones instead reads as a grey smudge.
+      for (const s of [-1, 1]) {
+        for (let i = 0; i < 2; i++) {
+          const bx = noseX - r * 0.1 - i * r * 0.16
+          const by = s * r * 0.1
+          g.poly([bx, by, bx + r * 0.42 - i * r * 0.1, by + s * r * 0.05, bx + r * 0.04, by + s * r * 0.09])
+            .fill({ color: tooth, alpha: 0.94 })
+        }
+      }
+      // Photophores: the row of lights down each flank, and the only colour on the animal.
+      for (let i = 0; i < 8; i++) {
+        const t = 0.22 + i * 0.085
+        const [px] = spine(t)
+        const w = body(t)
+        for (const s of [-1, 1]) {
+          g.circle(px, s * (w + r * 0.02), r * 0.055).fill({ color: glow, alpha: 0.85 })
+        }
+      }
+      for (const s of [-1, 1]) darkEye(g, noseX - r * 0.42, s * r * 0.11, r * 0.075, r * 0.07, 0x040a0d, true)
+    }
+    if (elite) eliteCrown(-r * 1.3, r)
+  }
+
+  // gulper eel: a mouth with a thread attached. The proportions ARE the animal — the head is most of
+  // the mass and the tail is a hair — so this is the one body here that needs no marks at all to be
+  // told apart from the other three at a glance, in the dark, at speed.
+  function drawGulperEel(g, elite, white) {
+    const r = 18
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x0d0a12)
+    const skin = f(0x241d2e)
+    const gum = f(0x5c2f3d)
+    const tipGlow = f(0xff9f6b)
+    const lw = Math.max(2, r * 0.1)
+    const noseX = r * 1.0
+    const len = r * 2.9
+    const spine = (t) => [noseX - t * len, Math.sin(t * 3.1) * r * 0.16]
+    // A hard, early peak and then a collapse to almost nothing: the pouch, then the whip.
+    const body = (t) => {
+      const rise = Math.pow(Math.min(1, t / 0.12), 0.45)
+      const fall = Math.pow(Math.max(0, 1 - (t - 0.12) / 0.88), 2.6)
+      return r * 0.66 * Math.max(0.035, t < 0.12 ? rise : fall)
+    }
+    groundShadow(r * 1.0, r * 0.55)
+    g.poly(spineOutline(spine, body, 40)).fill(skin).stroke({ width: lw, color: line })
+    if (!white) {
+      // The pouch, open. Drawn as a wedge from the hinge forward rather than as an ellipse, so the
+      // mouth has CORNERS and reads as hinged rather than as a hole cut in the head.
+      //
+      // ⚠ THE GUM IS THE ONLY REASON THIS READS AS A MOUTH. The first cut filled the pouch at
+      // 0x08060c against a 0x241d2e body — two near-blacks — and the thumbnail came back as a KITE:
+      // a dark wedge with a thread, no mouth in it at all. On a floor this dark an interior cannot
+      // be told from a body by its fill, so the opening is carried by a bright RIM instead, and the
+      // rim is thick enough to survive a 16px sprite.
+      g.poly([noseX - r * 0.62, 0, noseX + r * 0.34, -r * 0.62, noseX + r * 0.5, 0, noseX + r * 0.34, r * 0.62])
+        .fill({ color: f(0x0d0a14), alpha: 0.98 }).stroke({ width: lw * 1.15, color: gum })
+      for (const s of [-1, 1]) {
+        g.moveTo(noseX - r * 0.62, 0).lineTo(noseX + r * 0.34, s * r * 0.62)
+          .stroke({ width: lw * 1.3, color: gum, alpha: 1 })
+      }
+      // The jaw line across the gape's leading edge, pale: the lip. It closes the wedge into a shape
+      // the eye reads as a container rather than as a corner of the body.
+      g.moveTo(noseX + r * 0.34, -r * 0.62).lineTo(noseX + r * 0.5, 0).lineTo(noseX + r * 0.34, r * 0.62)
+        .stroke({ width: lw * 0.9, color: f(0xa8697a), alpha: 0.9 })
+      // The tail tip is luminous in the real animal, and here it doubles as the cue that the thread
+      // trailing behind the mouth is still part of the same creature.
+      const [ttx, tty] = spine(0.99)
+      g.circle(ttx, tty, r * 0.13).fill({ color: tipGlow, alpha: 0.28 })
+      g.circle(ttx, tty, r * 0.06).fill({ color: tipGlow, alpha: 0.85 })
+      for (const s of [-1, 1]) darkEye(g, noseX - r * 0.5, s * r * 0.2, r * 0.075, r * 0.07, 0x05040a, true)
+    }
+    if (elite) eliteCrown(-r * 1.1, r)
+  }
+
   // lionfish: the one body here that DOES share the reef's own hue, and it separates on shape alone.
   // From directly overhead a lionfish is not a fish outline at all — it is a STARBURST of pectoral
   // rays thrown out to both sides, wider than the body is long. No retint could have bought that
@@ -3700,6 +3919,13 @@ export function createRenderer(app) {
     // paired fins in ±y, and nothing in any of them could be called UP. A missing key here is
     // SILENT — syncEnemies falls through to a generic archetype blob. See the Trawl section of the
     // draw fns for why the tank is a mammal and the fast one is all outline.
+    // v7.x The Deep (Book 2 chapter 5). Four, not three — the chapter needed a tank the spec's set
+    // did not have (see CHAPTERS.deep's roster). All PLAN VIEW, all lean 90. The anglerfish's MOUTH
+    // is not in its bake: the gape is per-fish and per-frame, so it is an overlay (drawDeepTells).
+    anglerfish: { archetype: 'normal', draw: drawAnglerfish, lean: 90 }, // top-down: globe + lure on a stalk in -y, tooth ring at +x
+    hagfish: { archetype: 'normal', draw: drawHagfish, lean: 90 },       // top-down: near-constant-width rope, slime pores in ±y rows
+    viperfish: { archetype: 'fast', draw: drawViperfish, lean: 90 },     // top-down: thin ribbon, fangs past the snout, photophore rows
+    gulper: { archetype: 'tank', draw: drawGulperEel, lean: 90 },        // top-down: open pouch at +x collapsing to a whip at -x
     mackerel: { archetype: 'normal', draw: drawMackerel, lean: 90 }, // top-down: barred spindle, forked tail -x, eyes in a ±y pair
     tuna: { archetype: 'fast', draw: drawTuna, lean: 90 },           // top-down: crescent tail, sickle pectorals and finlets all ±y mirrored
     sealion: { archetype: 'tank', draw: drawSeaLion, lean: 90 },     // top-down: fore-flippers thrown wide ±y, blunt head +x, hind flippers -x
@@ -8168,6 +8394,10 @@ export function createRenderer(app) {
   // between-run reset (see clearWorld).
   const longlineG = new Graphics()
   const snareG = new Graphics()
+  // v7.x The Deep. Above the bodies it annotates, like crustG: a gape drawn UNDER the fish would
+  // be a mouth behind its own head, and a Scent outline under the crowd would be hidden by exactly
+  // the bodies it is marking.
+  const deepG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
@@ -8176,7 +8406,7 @@ export function createRenderer(app) {
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, lockLayer, playerC, breakerG, splashG, columnG,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, breakerG, splashG, columnG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -9044,6 +9274,43 @@ export function createRenderer(app) {
     // grows a wreck or a drum would otherwise crash rather than look wrong.
     obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x54606b, foot: 0x0d161f },
   }
+  // ---- The Deep (v7.x) -------------------------------------------------------------------
+  // A WRECK FIELD, and it inherits The Trawl's two hard-won rules wholesale, because this floor is
+  // one measured stop further down the same descent:
+  //   1. TINTS ARE AUTHORED HOT. floorTint multiplies (0.44, 0.56, 0.65 here — darker again than
+  //      the Trawl's), and it takes far more red than blue, so anything that looks right in a
+  //      swatch lands on screen green-grey. Raw red sits well above raw green in every entry below.
+  //   2. NOTHING STANDS UP. The prop set is a garden set, so any `upright` member reads as a plant
+  //      however it is tinted — and a plant on the abyssal floor, where there is no light at all to
+  //      grow by, is a worse lie here than it was one chapter up.
+  const HULL_TINTS = [0x8a6f5e, 0x7a6152]       // corroded steel: rust over grey, hot to land brown
+  const DRUM_TINTS = [0x94815c, 0x827150]       // drums and containers — the last of the paint
+  const OOZE_TINTS = [0x4a5a68, 0x41505d]       // abyssal ooze, dimmer than the Trawl's silt
+  const BIG_DEEP = [
+    // The hulls. Same lobed rosettes the Trawl bleaches into bags, but bigger and darker: from
+    // directly overhead a broken hull section IS a large irregular plate lying on the bottom.
+    { name: 'bush_b', tints: HULL_TINTS, upright: false, size: [110, 168] },
+    { name: 'bush_a', tints: OOZE_TINTS, upright: false, size: [96, 150] },
+  ]
+  const MID_DEEP = [
+    { name: 'bush_a', tints: DRUM_TINTS, upright: false, size: [52, 84] },
+    { name: 'bush_b', tints: OOZE_TINTS, upright: false, size: [46, 74] },
+    { name: 'bush_a', tints: HULL_TINTS, upright: false, size: [40, 66] },
+  ]
+  const DETAIL_DEEP = [
+    // Marine snow again, but THINNER and dimmer than the Trawl's: less of it makes it this far down,
+    // and the roster here has even less light to win against, so grit that reads as bright would be
+    // the most visible thing in the chapter.
+    { name: 'scatter_a', tint: 0xa8b6c2, alpha: 0.26, size: [18, 32] },
+    { name: 'scatter_b', tint: 0x94a3b0, alpha: 0.22, size: [15, 28] },
+    { name: 'pebble', baked: true, scale: [0.5, 1.0] },
+  ]
+  const BIOME_DEEP = {
+    big: BIG_DEEP, mid: MID_DEEP, detail: DETAIL_DEEP,
+    // Unlike The Trawl's, this one IS used: CHAPTERS.deep declares obstacles, because the wreck
+    // field is the chapter's terrain and swimming between hulls is the fantasy.
+    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x6b5c4e, foot: 0x070c12 },
+  }
   const BIOMES = {
     body: BIOME_BODY,
     pond: BIOME_POND,
@@ -9060,6 +9327,10 @@ export function createRenderer(app) {
     // it The Trawl draws VILLI and PLATELETS on the bottom of the ocean, because chapterBiome falls
     // back to BIOMES.body for an unknown id and nothing throws.
     trawl: BIOME_TRAWL,
+    // And again, for the fifth time in this book and the same silent failure: chapterBiome falls
+    // back to BIOMES.body for an unknown id, so a missing line here does not throw and does not
+    // warn — it draws VILLI AND PLATELETS on the abyssal plain.
+    deep: BIOME_DEEP,
     garden: BIOME_GARDEN,
     undergrowth: {
       big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,
@@ -10637,6 +10908,75 @@ export function createRenderer(app) {
         columnG.beginPath()
         columnG.circle(lo.tx + Math.cos(a) * d, lo.ty + Math.sin(a) * d, Math.max(1, r * 0.07))
         columnG.fill({ color: 0xffffff, alpha: 0.25 + 0.45 * k })
+      }
+    }
+  }
+
+  // ---- The Deep's two per-body tells (v7.x) ---------------------------------------------------
+  // Both read PUBLISHED contract fields off the enemy — `gape` and `scentT` — for the reason the
+  // crust above does, and for the reason the v7.5x freeze scar exists: render.js learns about a new
+  // mechanic only when sim publishes into a field it already reads, and a status kept private is
+  // indistinguishable on screen from a status that does not work.
+  //
+  // THE GAPE IS THE CHAPTER'S ONLY WARNING. It is the timer on the player's greed, drawn on the
+  // animal's face, and it cannot be baked: it changes per fish per frame and a bake is made once at
+  // boot. So the body, the tooth ring and the dark socket are baked (drawAnglerfish) and the OPENING
+  // is drawn here on top of them.
+  function drawDeepTells(run) {
+    deepG.clear()
+    if (!run.enemies) return
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const rad = e.radius || 16
+
+      // SCENT: a body you have smelled. An outline rather than a tint, deliberately — this chapter
+      // is nearly black and a tint on an already-dark body is invisible, while a rim survives any
+      // amount of darkness because it is drawn against the water rather than over the animal.
+      const st = e.scentT || 0
+      if (st > 0) {
+        const k = Math.min(1, st / 0.5)             // fades out over the last half-second
+        const pulse = 0.75 + 0.25 * Math.sin(animT * 6 + e.id * 0.9)
+        deepG.circle(e.x, e.y, rad * 1.18)
+          .stroke({ width: Math.max(1.6, rad * 0.13), color: 0xff8a5c, alpha: 0.75 * k * pulse })
+        deepG.circle(e.x, e.y, rad * 1.18).fill({ color: 0xff8a5c, alpha: 0.09 * k })
+      }
+
+      // GAPE: the mouth opening, centred on the head. The tooth ring in drawAnglerfish's bake sits
+      // at local +x, so this wedge has to point the same way the SPRITE does or the two would part
+      // company on screen — a mouth opening out of the fish's flank.
+      //
+      // ⚠ THE FACING IS RE-DERIVED HERE, and that is a knowing duplicate. syncEnemies keeps the
+      // smoothed heading on the SPRITE (s._dirX/_dirY), which this pass has no handle on. This look
+      // declares no `faceDir` and no `turnRate`, so its sprite snaps straight to the bearing toward
+      // the player every frame — which is exactly the line below, with no smoothing to diverge from.
+      // If the anglerfish is ever given either hook, this stops being true silently and the mouth
+      // will drift off the head: move the drawing into the sprite pass instead of patching it.
+      const gp = e.gape || 0
+      if (gp <= 0.02) continue
+      const a0 = Math.atan2(run.player.y - e.y, run.player.x - e.x)
+      const half = 0.22 + gp * 0.95                 // radians either side of the axis
+      const reach = rad * (0.55 + gp * 0.75)
+      const cx = e.x + Math.cos(a0) * rad * 0.22, cy = e.y + Math.sin(a0) * rad * 0.22
+      const pts = [cx, cy]
+      for (let i = 0; i <= 10; i++) {
+        const a = a0 - half + (i / 10) * half * 2
+        pts.push(cx + Math.cos(a) * reach, cy + Math.sin(a) * reach)
+      }
+      deepG.poly(pts).fill({ color: 0x07090d, alpha: 0.92 })
+      // The rim goes from cold to HOT as the bite approaches. Colour, not just size, because the
+      // player is reading this in the dark at the edge of their light: a shape change alone is a
+      // second-order cue and this is a first-order decision.
+      const hot = gp > 0.62
+      deepG.poly(pts).stroke({
+        width: Math.max(1.4, rad * (0.08 + gp * 0.09)),
+        color: hot ? 0xff5a3c : 0xb98a6a,
+        alpha: 0.55 + 0.45 * gp,
+      })
+      // At the very top of the gape the lure flares. This is the last half-second before the bite
+      // and it is the one moment the chapter shouts.
+      if (gp > 0.82) {
+        const flare = (gp - 0.82) / 0.18
+        deepG.circle(e.x, e.y, rad * (1.3 + flare * 0.5)).fill({ color: 0xff6a3a, alpha: 0.16 * flare })
       }
     }
   }
@@ -12506,24 +12846,83 @@ export function createRenderer(app) {
     g.stroke({ width: 0.8, color: 0xeef6fb, alpha: 0.7, cap: 'round' })
     return bake(g)
   })()
+  // SLIME, for The Deep's hagfish (run.webs again — same mechanic, same array, different animal).
+  //
+  // ⚠ THIS EXISTS BECAUSE AN FX BAKED FOR ONE BIOME IS WRONG ON THE NEXT ONE, and the first probe
+  // frame of The Deep is the evidence: the abyssal plain was covered in GIANT WHITE ORB-WEAVER
+  // WEBS, because `webZone` is a chapter-agnostic flag and the only art it had was a garden
+  // spider's. Nothing throws, no test can see it, and it was the loudest thing on a screen whose
+  // whole premise is that there is almost no light. A hagfish's slow patch is MUCUS: a low
+  // irregular sheet with no hub, no spokes and no rings — every one of which is a structure a
+  // spider builds and a hagfish cannot.
+  const SLIME_BAKE_RIM = 144
+  const slimeTex = (() => {
+    const g = new Graphics()
+    const R = SLIME_BAKE_RIM
+    // An irregular lobed outline rather than a circle: slime spreads by flowing, so its edge is
+    // uneven and its centre is wherever it landed.
+    const lobe = (scale, alpha, color) => {
+      const pts = []
+      for (let i = 0; i < 26; i++) {
+        const a = (i / 26) * Math.PI * 2
+        const rr = R * scale * (0.82 + hash(i * 3.7 + scale * 11) * 0.32)
+        pts.push(Math.cos(a) * rr, Math.sin(a) * rr)
+      }
+      g.poly(pts).fill({ color, alpha })
+    }
+    // ⚠ THESE ALPHAS ARE FOR THE STACK, NOT FOR ONE PATCH. Slime patches overlap heavily (a hagfish
+    // lays one every few seconds while it walks), and alpha compounds — the first cut used
+    // 0.20/0.16/0.14, which reads correctly in isolation and piles into a bright pale MASS around
+    // the player in a chapter whose premise is near-total darkness. Judge this on a frame with
+    // several overlapping, never on one.
+    lobe(1.0, 0.11, 0xbfe0d2)
+    lobe(0.78, 0.09, 0xd6efe2)
+    lobe(0.5, 0.08, 0xeafaf2)
+    // Strands: a hagfish's slime is famously FIBROUS — it comes out in threads that catch. A few
+    // long meandering ones, not a radial set, so it never reads as a wheel.
+    for (let i = 0; i < 7; i++) {
+      const a0 = hash(i * 5.3 + 1.7) * Math.PI * 2
+      const a1 = a0 + 1.4 + hash(i * 2.9) * 1.8
+      const r0 = R * (0.25 + hash(i * 7.1) * 0.55)
+      const r1 = R * (0.35 + hash(i * 4.4) * 0.6)
+      g.moveTo(Math.cos(a0) * r0, Math.sin(a0) * r0)
+        .quadraticCurveTo(0, 0, Math.cos(a1) * r1, Math.sin(a1) * r1)
+        .stroke({ width: R * 0.018, color: 0xe8fbf3, alpha: 0.32, cap: 'round' })
+    }
+    // Trapped bubbles — the one detail that says "this is a fluid" rather than "this is a stain".
+    for (let i = 0; i < 12; i++) {
+      const a = hash(i * 9.1 + 4.2) * Math.PI * 2
+      const d = R * hash(i * 6.6 + 2.2) * 0.85
+      g.circle(Math.cos(a) * d, Math.sin(a) * d, R * (0.014 + hash(i * 3.3) * 0.026))
+        .fill({ color: 0xf4fffb, alpha: 0.2 })
+    }
+    return bake(g)
+  })()
+
   const webPool = []
   function acquireWeb() {
     const spr = new Sprite(webTex.tex); spr.anchor.set(webTex.ax, webTex.ay)
     webLayer.addChild(spr)
     return { root: spr, spr }
   }
-  function syncWebs(list) {
+  // `slimy` is a RENDER-ONLY chapter flag (CHAPTERS[].render.webLook), so the mechanic, its radius
+  // and its slow are byte-identical in both chapters and only the drawing changes — which is the
+  // whole contract the `render` block exists to keep.
+  function syncWebs(list, slimy = false) {
     const n = list.length
+    const look = slimy ? slimeTex : webTex
+    const rim = slimy ? SLIME_BAKE_RIM : WEB_BAKE_RIM
     while (webPool.length < n) webPool.push(acquireWeb())
     for (let i = 0; i < n; i++) {
       const wv = webPool[i]
       const web = list[i]
       wv.root.visible = true
+      if (wv.spr.texture !== look.tex) { wv.spr.texture = look.tex; wv.spr.anchor.set(look.ax, look.ay) }
       wv.root.position.set(web.x, web.y)
       const fade = Math.min(1, web.t / 0.8) // dissolve over the last 0.8s of life
       const ph = hash(web.x * 0.11 + web.y * 0.07) // fixed per-patch seed (rotation + shimmer phase)
       wv.spr.rotation = ph * Math.PI * 2                        // fixed per position — no stamped tiling
-      wv.spr.scale.set(Math.max(web.r, 1) / WEB_BAKE_RIM)       // spoke tips land at EXACTLY r
+      wv.spr.scale.set(Math.max(web.r, 1) / rim)                // drawn extent == the tested extent
       wv.spr.alpha = fade * (0.86 + 0.14 * Math.sin(animT * 1.6 + ph * 6.28)) // cheap one-sprite shimmer
     }
     for (let i = n; i < prevCount.web; i++) webPool[i].root.visible = false
@@ -14903,6 +15302,29 @@ export function createRenderer(app) {
           // persists — the event is only the moment of paying it out.
           addShake(1.2, 0.07)
           break
+        case 'scent':
+          // The Deep's button. The MARK on each body is drawn every frame from `scentT`
+          // (drawDeepTells) because it persists and because bodies swim into it after the press —
+          // so this is only the cast itself: one expanding ring saying how far the smell reached.
+          // spawnRing is the shipped one-shot expander every other radial cue here already uses.
+          spawnRing(e.x, e.y, e.r, 0.4, T.novaRing, 0xff8a5c)
+          addShake(2 + 2 * (e.charged ?? 0), 0.12)
+          break
+        case 'anglerBite':
+          // A bite that CONNECTS is already carried by the `hurt` event's red vignette, so this is
+          // the fish's half: a short hard snap at the mouth. Drawn on a MISS too, and deliberately
+          // — the player who backed off in time has earned the right to see the jaws close on
+          // nothing, and a tell that only fires when you are hit teaches nothing about the timing.
+          spawnRing(e.x, e.y, 70, e.hit ? 0.3 : 0.18, T.novaRing, e.hit ? 0xff4a2a : 0x8a6a55)
+          addShake(e.hit ? 4.5 : 1.4, e.hit ? 0.16 : 0.07)
+          break
+        case 'finHit':
+          // The shark's own body. `power` is the speed scaling the card is sold on — a sweep drawn
+          // identically at a crawl and at a sprint would make the whole mechanic invisible — so it
+          // drives both the swoosh's reach and the kick.
+          spawnWhip(e.x, e.y, e.angle, e.range * (0.72 + 0.28 * e.power), e.arc)
+          addShake(1 + 2.4 * e.power, 0.07)
+          break
         case 'snare':
           // The landed mesh has no sim entity behind it (the hold lives on each body as `stunT`),
           // so THIS is where the drawing is born — see pushSnare. The kick scales with the catch:
@@ -15104,6 +15526,7 @@ export function createRenderer(app) {
     // Same idiom again: a Graphics, so clearing it IS the reset. A run that ends with columns still
     // in the air must not leave them hanging over the summary screen and the next chapter.
     columnG.clear()
+    deepG.clear()
     for (const s of snares) s.live = false
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
     for (const pool of [
@@ -16356,7 +16779,7 @@ export function createRenderer(app) {
     syncBinds(run)
     syncPools(run.pools || [])
     syncTrails(run.trails || [])
-    syncWebs(run.webs || [])
+    syncWebs(run.webs || [], CHAPTERS[run.chapter]?.render?.webLook === 'slime')
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
     // the chapter has no run.sandbars at all.
     // sandbarTex is a LIST now (one bake per outline) — the pool's default texture is the first, and
@@ -16434,6 +16857,7 @@ export function createRenderer(app) {
     drawBreakers(run)
     drawColumns(run)
     drawCrusts(run)
+    drawDeepTells(run)   // v7.x The Deep: the anglerfish's gape and the Scent outline
     updateDark(run, cx, cy)   // AFTER updateShafts: it cuts its holes from the same run.shafts list
     updateStorm(run, dt, cx, cy)
     updateRain(dt) // v6.3: own top-level call — chapterHasRain no longer implies chapterHasStorm
