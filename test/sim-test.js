@@ -32,6 +32,7 @@ import {
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS,
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN,
   WEAPONS, HOLE_SINGULARITY_FRAC,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
@@ -13372,6 +13373,7 @@ try {
   run(testSurfHumidity)
   run(testSurfHumidityDamage)
   run(testSurfWeapons)
+  run(testShelfWeapons)
   run(testCrabGuard)
   run(testSurfGulls)
   run(testPlayerForms)
@@ -16216,6 +16218,260 @@ function testBarnacles() {
   testBarnacleSpreadOnForeignKill()
 
   console.log(`PASS run US.e-3 (barnacles): a crust ticks its host down (dead with ${hostTAtDeath.toFixed(2)}s left of ${lvl.crustDur}s), seeds ${seeded.length} of 1 neighbour within ${BARNACLE_JUMP_R}px at a FULL ${child.t.toFixed(2)}s each and jumps=${child.jumps}, and reaches nothing at ${DISTANT_PX}px`)
+}
+
+// ---- run SH: The Shelf's three natives ---------------------------------------------------------
+// Every assertion here is on an EFFECT — damage that landed, a body that was reached, a position
+// that is genuinely somewhere else — and never on a stored number. The three failures this suite is
+// written against all pass a state check:
+//   - three columns spawned ON TOP OF EACH OTHER still count three (the per-cast-count trap), and
+//     render identically to one column.
+//   - a foxfire whose `maxR` grew still catches nobody if the growth is smaller than the gap to the
+//     next body.
+//   - a lance whose `length` shrank to nothing still exists in run.beams.
+function testShelfWeapons() {
+  testShelfPool()
+  testSunspear()
+  testFoxfire()
+  testSunlance()
+}
+
+function shelfRun(weaponId, level = 1) {
+  const meta = makeMeta()
+  meta.dev = true
+  ensureChapterMeta(meta)
+  const run = createRun(meta, { chapter: 'shelf', difficulty: 1 })
+  run.weapons = [{ id: weaponId, level }]
+  run.player.maxHP = run.player.hp = 1e9
+  run.enemies.length = 0
+  // The shafts stream in around the player and would refill the bar mid-fixture, which is the one
+  // thing every assertion below is trying to hold still. Dropping them makes run.charge a knob.
+  run.shafts.length = 0
+  return run
+}
+
+// (0) THE CHAPTER FIGHTS WITH ITS OWN GEAR. CHAPTERS.shelf spreads CHAPTERS.pond, so the pool is
+// inherited unless it is overridden — and an inherited pool is invisible in a diff of this file.
+function testShelfPool() {
+  const pool = CHAPTERS.shelf.weapons
+  for (const borrowed of ['flagella', 'mines', 'bloom']) {
+    assert.ok(!pool.includes(borrowed),
+      `The Shelf still offers ${borrowed} — the spread from CHAPTERS.pond is not overridden`)
+  }
+  assert.deepStrictEqual([...pool].sort(), ['foxfire', 'sunlance', 'sunspear'],
+    `The Shelf's pool is ${JSON.stringify(pool)}, not its three natives`)
+  assert.ok(pool.includes(CHAPTERS.shelf.starter),
+    `The Shelf starts you with ${CHAPTERS.shelf.starter}, which is not in its own pool`)
+  assert.strictEqual(CHAPTERS.shelf.starter, 'sunspear',
+    'The Shelf no longer starts on its own starter')
+}
+
+// (a) EVERY COLUMN OF A CAST LANDS SOMEWHERE ELSE — including the surplus ones.
+function testSunspear() {
+  Math.random = mulberry32(20260816)
+  const L = 5
+  const run = shelfRun('sunspear', L)
+  const p = run.player
+  const lvl = WEAPONS.sunspear.levels[L - 1]
+  assert.ok(lvl.count >= 3, `this fixture needs a multi-column level; L${L} casts ${lvl.count}`)
+
+  // THREE bodies, well apart and well inside castRange: the ordinary case, where every column has
+  // its own target and the padding ring never opens.
+  const bodies = [
+    makeStatusEnemy(run, { x: p.x + 150, y: p.y, hp: 1e6, speed: 0 }),
+    makeStatusEnemy(run, { x: p.x - 40, y: p.y + 160, hp: 1e6, speed: 0 }),
+    makeStatusEnemy(run, { x: p.x - 170, y: p.y - 60, hp: 1e6, speed: 0 }),
+  ]
+  run.enemies.push(...bodies)
+  const keep = new Set(bodies.map((e) => e.id))
+  const hp0 = bodies.map((e) => e.hp)
+
+  // Caught mid-fall: the columns are in run.lobs but have not landed, which is the only window in
+  // which their target positions can be read.
+  let cols = []
+  for (let i = 0; i < Math.round((lvl.interval + SUNSPEAR_FALL * 0.5) * 60); i++) {
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    run.events.length = 0
+    run.enemies = run.enemies.filter((e) => keep.has(e.id))
+    const live = run.lobs.filter((lo) => lo.column)
+    if (live.length > cols.length) cols = live.map((lo) => ({ x: lo.tx, y: lo.ty }))
+  }
+  assert.strictEqual(cols.length, lvl.count,
+    `a cast put ${cols.length} columns in run.lobs, not ${lvl.count}`)
+  assertDistinctSpots(cols, 'three bodies in range')
+
+  // ...and they landed ON the three bodies rather than merely near them.
+  stepPinned(run, SUNSPEAR_FALL + 0.1, 1 / 60, { x: 0, y: 0, skill: false }, keep)
+  for (let i = 0; i < bodies.length; i++) {
+    assert.ok(bodies[i].hp < hp0[i],
+      `body ${i} took nothing — the columns are not landing on the bodies they were called on`)
+  }
+
+  // THE PADDING RING. One body, three columns. The failure mode is that the surplus two stack on the
+  // first, which counts three, renders as one, and deals ONE column's damage. So the assertion is
+  // the damage: three columns on one body must cost it about three columns' worth.
+  Math.random = mulberry32(20260816)
+  const run2 = shelfRun('sunspear', L)
+  const p2 = run2.player
+  const lone = makeStatusEnemy(run2, { x: p2.x + 140, y: p2.y, hp: 1e6, speed: 0 })
+  run2.enemies.push(lone)
+  const keep2 = new Set([lone.id])
+  let padCols = []
+  for (let i = 0; i < Math.round((lvl.interval + SUNSPEAR_FALL * 0.5) * 60); i++) {
+    stepSim(run2, { x: 0, y: 0, skill: false }, 1 / 60)
+    run2.events.length = 0
+    run2.enemies = run2.enemies.filter((e) => keep2.has(e.id))
+    const live = run2.lobs.filter((lo) => lo.column)
+    if (live.length > padCols.length) padCols = live.map((lo) => ({ x: lo.tx, y: lo.ty }))
+  }
+  assert.strictEqual(padCols.length, lvl.count,
+    `one body in range produced ${padCols.length} columns, not ${lvl.count} — the surplus was dropped, so \`count\` does nothing against a lone target`)
+  assertDistinctSpots(padCols, 'one body in range (the padding ring)')
+
+  const loneHp0 = lone.hp
+  stepPinned(run2, SUNSPEAR_FALL + 0.1, 1 / 60, { x: 0, y: 0, skill: false }, keep2)
+  const took = loneHp0 - lone.hp
+  // SUNSPEAR_SPREAD (48) sits under the smallest splash radius, so every padded column still covers
+  // the body it was padded around. Two columns' worth is the floor that separates "the ring spread
+  // them and they all still hit" from "they stacked" (one column) or "they missed" (one column).
+  assert.ok(took > lvl.dmg * 2,
+    `a lone body took ${took.toFixed(0)} from ${lvl.count} columns of ${lvl.dmg} — the surplus columns either stacked or landed off the body`)
+
+  console.log(`PASS run SH.a (sunspear): a ${lvl.count}-column cast lands ${lvl.count} DISTINCT columns both with three bodies in range and with one (padding ring ${SUNSPEAR_SPREAD}px), and the lone body eats ${took.toFixed(0)} against one column's ${lvl.dmg}`)
+}
+
+/** Pairwise-distinct spot check. A count is what passes when three things spawn on one point, so
+ * this is the assertion the per-cast-count trap actually needs. */
+function assertDistinctSpots(spots, label) {
+  for (let i = 0; i < spots.length; i++) {
+    for (let j = i + 1; j < spots.length; j++) {
+      const d = Math.hypot(spots[i].x - spots[j].x, spots[i].y - spots[j].y)
+      assert.ok(d > 1,
+        `[${label}] columns ${i} and ${j} landed ${d.toFixed(2)}px apart — they are stacked, which renders identically to one column`)
+    }
+  }
+}
+
+// (b) THE DARK BUYS REACH, AND IT BUYS IT IN BODIES CAUGHT — not in a bigger number on the entity.
+function testFoxfire() {
+  const L = 5
+  const lvl = WEAPONS.foxfire.levels[L - 1]
+  // A ring of bodies in the band the gloom opens up: outside the lit radius, inside the dark one.
+  // Nothing here is reachable at a full bar, and all of it is reachable at an empty one, so the
+  // measurement is "who got burned" rather than "how big is maxR".
+  const BAND = (lvl.maxR + lvl.maxR * FOXFIRE_GLOOM) / 2
+
+  // THE RING IS PLACED AFTER THE CLOUD EXISTS, and that is a correctness detail rather than
+  // convenience: pickBloomSpot lands on a RANDOM body in range, so a ring that is already standing
+  // there is itself a candidate — the first cut of this fixture put the cloud on a ring body half
+  // the time and read the neighbours it caught as the gloom.
+  const cast = (charge) => {
+    Math.random = mulberry32(20260816)
+    const run = shelfRun('foxfire', L)
+    const p = run.player
+    run.charge = charge
+    const centre = makeStatusEnemy(run, { x: p.x, y: p.y + 20, hp: 1e6, speed: 0 })
+    run.enemies.push(centre)
+    const keep = new Set([centre.id])
+
+    const step = () => {
+      run.charge = charge   // stepCharge drains every frame; a drifting bar measures neither end
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      run.enemies = run.enemies.filter((e) => keep.has(e.id))
+    }
+    for (let i = 0; i < Math.round((lvl.interval + 0.5) * 60) && run.blooms.length === 0; i++) step()
+    assert.strictEqual(run.blooms.length, 1, 'the foxfire never kindled — the fixture is not exercising the weapon')
+    const bl = run.blooms[0]
+    // ONE cloud, measured to the end of its life. glowDur (4.4s at L5) outlives `interval` (2.4s), so
+    // a still-armed fixture fires again mid-window — onto a ring body, since the ring is in range by
+    // then — and the neighbours THAT cloud catches read as the first one's gloom.
+    run.weapons.length = 0
+
+    const ring = []
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2
+      const e = makeStatusEnemy(run, { x: bl.x + Math.cos(a) * BAND, y: bl.y + Math.sin(a) * BAND, hp: 1e6, speed: 0 })
+      ring.push(e); keep.add(e.id)
+    }
+    run.enemies.push(...ring)
+    const hp0 = ring.map((e) => e.hp)
+    for (let i = 0; i < Math.round(lvl.glowDur * 0.9 * 60); i++) step()
+
+    const burned = ring.filter((e, i) => e.hp < hp0[i]).length
+    const slowed = ring.some((e) => (e.bloomSlowT ?? 0) > 0) || (centre.bloomSlowT ?? 0) > 0
+    return { burned, slowed, of: ring.length }
+  }
+
+  const lit = cast(run0ChargeMax())
+  const dark = cast(0)
+  assert.strictEqual(lit.burned, 0,
+    `a foxfire cast at a FULL bar burned ${lit.burned}/${lit.of} bodies in the band beyond its lit radius — the band is mis-sized, or the gloom applies at every charge`)
+  assert.ok(dark.burned > 0,
+    `a foxfire cast at an EMPTY bar burned nothing in the band the gloom is supposed to open (${lvl.maxR} -> ${(lvl.maxR * FOXFIRE_GLOOM).toFixed(0)}px) — the dark buys no reach`)
+
+  // AND IT DOES NOT SLOW. run.blooms is shared with the Spore Bloom, whose slow is applied to every
+  // entry in the list; The Shelf already slows the player in the dark and must not hand out a
+  // second, unadvertised slow on a card whose text never mentions one.
+  assert.ok(!dark.slowed && !lit.slowed,
+    'a foxfire slowed what stood in it — it has inherited the Spore Bloom\'s slow through run.blooms')
+
+  console.log(`PASS run SH.b (foxfire): the band ${lvl.maxR}-${(lvl.maxR * FOXFIRE_GLOOM).toFixed(0)}px catches 0/${lit.of} at a full bar and ${dark.burned}/${dark.of} at an empty one, and neither cast slows anything`)
+}
+
+/** The bar's ceiling for a fresh Shelf run, read off a run rather than off config — Deep Lungs can
+ * raise run.chargeMax above resource.max, and every consumer in sim.js reads the run's own. */
+function run0ChargeMax() {
+  const meta = makeMeta()
+  ensureChapterMeta(meta)
+  return createRun(meta, { chapter: 'shelf', difficulty: 1 }).chargeMax
+}
+
+// (c) THE LANCE REACHES AS FAR AS THE BAR, AND AN EMPTY BAR STILL KILLS.
+function testSunlance() {
+  const L = 5
+  const lvl = WEAPONS.sunlance.levels[L - 1]
+  // FAR sits inside a full-bar lance and outside an empty-bar one; NEAR sits inside both. The floor
+  // is what NEAR tests: SUNLANCE_REACH_MIN going to 0 leaves a lance with no reach at all, which is
+  // the structural trap spec 8.2 forbids and which a length assertion alone would not notice.
+  const FAR = lvl.length * (SUNLANCE_REACH_MIN + (1 - SUNLANCE_REACH_MIN)) * 0.85
+  const NEAR = lvl.length * SUNLANCE_REACH_MIN * 0.6
+
+  const cast = (charge, dist) => {
+    Math.random = mulberry32(20260816)
+    const run = shelfRun('sunlance', L)
+    const p = run.player
+    run.charge = charge
+    // Both bodies on the +x axis: the near one is what surfAim locks onto, so the lance is aimed
+    // along the line both of them stand on.
+    const near = makeStatusEnemy(run, { x: p.x + 60, y: p.y, hp: 1e6, speed: 0 })
+    const mark = makeStatusEnemy(run, { x: p.x + dist, y: p.y, hp: 1e6, speed: 0 })
+    run.enemies.push(near, mark)
+    const keep = new Set([near.id, mark.id])
+    const hp0 = mark.hp, nearHp0 = near.hp
+    const steps = Math.round((lvl.interval + lvl.duration + 0.1) * 60)
+    for (let i = 0; i < steps; i++) {
+      run.charge = charge
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      run.enemies = run.enemies.filter((e) => keep.has(e.id))
+    }
+    return { markHit: mark.hp < hp0, nearHit: near.hp < nearHp0 }
+  }
+
+  const max = run0ChargeMax()
+  const full = cast(max, FAR)
+  const empty = cast(0, FAR)
+  const floor = cast(0, NEAR)
+
+  assert.ok(full.markHit,
+    `a body at ${FAR.toFixed(0)}px took nothing from a FULL-bar lance of ${lvl.length}px — the reach is not tracking the bar upward`)
+  assert.ok(!empty.markHit,
+    `a body at ${FAR.toFixed(0)}px was struck by an EMPTY-bar lance, which should reach only ${(lvl.length * SUNLANCE_REACH_MIN).toFixed(0)}px — the bar is not shortening it`)
+  assert.ok(floor.markHit && floor.nearHit,
+    `an EMPTY-bar lance struck nothing at ${NEAR.toFixed(0)}px — SUNLANCE_REACH_MIN is not holding the floor, so running dry disarms the weapon`)
+
+  console.log(`PASS run SH.c (sunlance): reach runs ${(lvl.length * SUNLANCE_REACH_MIN).toFixed(0)}px (empty) to ${lvl.length}px (full) — a body at ${FAR.toFixed(0)}px is hit only at a full bar, and one at ${NEAR.toFixed(0)}px is hit even at an empty one`)
 }
 
 // ---- run LN: The Beyond's lane is a GOLDEN MASTER ---------------------------------------------
