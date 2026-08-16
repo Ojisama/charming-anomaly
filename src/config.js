@@ -5627,6 +5627,17 @@ export const nextChapter = (id) => {
   return i < 0 ? null : (order[i + 1] ?? null)
 }
 
+// Is this chapter the LAST rung of its book's ladder? The book-unlock gate tests this rather than
+// `nextChapter(id) === null`, which is ALSO true of a hidden chapter and of an id no book claims.
+// The Blank is the live counter-example: nextChapter('blank') is null and its ladder caps at 3,
+// which is exactly CHAPTER_UNLOCK_DIFFICULTY, so a null check unlocks the next book off a Blank win.
+export const isBookFinale = (id) => {
+  const chapters = BOOKS[bookOf(id)]?.chapters ?? []
+  return chapters.length > 0 && chapters[chapters.length - 1] === id
+}
+// The book after this one on the shelf, or null.
+export const nextBook = (bookId) => BOOK_ORDER[BOOK_ORDER.indexOf(bookId) + 1] ?? null
+
 // The chapter the PLAY path may actually start — the one and only place the WIP gate belongs.
 // Deliberately NOT folded into resolveChapterId: createRun resolves a SECOND time (state.js) and
 // has no meta to consult there, so a dev-aware resolveChapterId would silently downgrade every

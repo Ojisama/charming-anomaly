@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
-import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, LIGHT_THIEF_COST, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN } from './config.js'
+import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
+import { shopCost, SHOP, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, LIGHT_THIEF_COST, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOKS, BOOK_ORDER, bookOf, isBookFinale, nextBook } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -411,7 +411,13 @@ function endRun(victory) {
   const bonus = Math.round(runBonusCoins(run.kills, run.player.level) * difficultyCoinMul(run.difficulty ?? 1))
   // v6.4.2 (owner directive): the kill bonus can still push a near-capped run over COIN_CAP_PER_RUN — clamp the final banked total too.
   const earned = Math.min(COIN_CAP_PER_RUN, run.coinsEarned + bonus)
-  meta.coins += earned
+  // Banked into the run's OWN book's purse (v7.x per-book progression) — not always meta.coins,
+  // which is book 1's alone. Routed through ensureBookMeta rather than `?? 0`: saveMeta below is
+  // called from inside the Pixi ticker and Pixi does not catch listener exceptions, so a throw
+  // here (a missing purse) would take down the frame loop in the one path that has just banked a
+  // run's coins — the write must land somewhere real. bookOf(run.chapter) can only be null for an
+  // id no book claims (a config bug elsewhere), so BOOK_ORDER[0] is the safe fallback, not a guess.
+  ensureBookMeta(meta, bookOf(run.chapter) ?? BOOK_ORDER[0]).coins += earned
   meta.runs += 1
   // meta.best: all-time aggregate across every chapter (see state.js doc block), kept
   // unconditionally alongside the per-chapter best below.
@@ -442,6 +448,8 @@ function endRun(victory) {
   // shouldn't keep announcing it).
   let unlockedChapter = null
   let unlockedChapterId = null
+  let unlockedBook = null
+  let unlockedBookCoins = 0
   if (victory && runMode === 'classic' && (run.difficulty ?? 1) >= CHAPTER_UNLOCK_DIFFICULTY) {
     const next = nextChapter(run.chapter)
     if (next) {
@@ -450,6 +458,14 @@ function endRun(victory) {
         nextMeta.unlocked = true
         unlockedChapter = CHAPTERS[next].name
         unlockedChapterId = next
+      }
+    } else if (isBookFinale(run.chapter)) {
+      // No next chapter AND this is the book's finale: open the next book. Not a bare
+      // `!next` test — that is also true of The Blank (see isBookFinale in config.js).
+      const nb = nextBook(bookOf(run.chapter))
+      if (nb && unlockBook(meta, nb)) {
+        unlockedBook = BOOKS[nb].name
+        unlockedBookCoins = BOOKS[nb].startCoins ?? 0
       }
     }
   }
@@ -489,6 +505,8 @@ function endRun(victory) {
     unlockedChapter,
     unlockedChapterId,
     unlockedHiddenChapter,
+    unlockedBook,
+    unlockedBookCoins,
   })
 }
 

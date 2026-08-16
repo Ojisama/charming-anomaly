@@ -1,7 +1,7 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta } from '../src/state.js'
+import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta, grantBook, unlockBook } from '../src/state.js'
 // sync.js keeps browser globals out of its module scope precisely so it can be imported here.
 import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRecord, RECORD_KEY } from '../src/sync.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
@@ -38,8 +38,8 @@ import {
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
-  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleChapterList,
-  CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
+  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleChapterList, isBookFinale, nextBook,
+  CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
@@ -206,6 +206,16 @@ function makeMeta() {
     best: { time: 0, kills: 0 },
     runs: 0,
   }
+}
+
+// Stubs localStorage with `blob` (as the raw JSON the save slot would hold) and calls loadMeta() —
+// the pattern the loadMeta-side scenarios already use (see testChoiceSlots/testChapters above),
+// pulled out to a helper because run BK's retroactive-unlock block needs it several times.
+function loadMetaFrom(blob) {
+  globalThis.localStorage = { getItem: () => JSON.stringify(blob), setItem: () => {} }
+  const m = loadMeta()
+  delete globalThis.localStorage
+  return m
 }
 
 function finite(n) {
@@ -4651,7 +4661,92 @@ function runBookProgression() {
     assert.strictEqual(createRun(rich, { chapter: 'surf' }).choiceSlots, 2, 'a book 2 run resets to 2 card slots')
   }
 
-  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them`)
+  // (l) THE GATE IS THE LAST CHAPTER, stated as a fact — not "nextChapter returned null", which
+  // is also true of The Blank (hidden, and its ladder tops out at exactly CHAPTER_UNLOCK_DIFFICULTY).
+  assert.strictEqual(nextChapter('blank'), null, 'precondition: The Blank has no next chapter')
+  assert.strictEqual(chapterMaxDifficulty('blank'), CHAPTER_UNLOCK_DIFFICULTY,
+    'precondition: a Blank win at its cap sits exactly at the book-unlock difficulty — this is why a null check is not enough')
+  assert.strictEqual(isBookFinale('beyond'), true, "The Beyond is book 1's finale")
+  assert.strictEqual(isBookFinale('blank'), false, 'The Blank is HIDDEN — winning it must not unlock the next book')
+  assert.strictEqual(isBookFinale('reef'), true, "The Reef is Undertow's finale")
+  assert.strictEqual(isBookFinale('pond'), false, 'a mid-ladder chapter is not a finale')
+
+  // (m) THE GRANT IS MONOTONE. Creating a purse pays nothing; granting twice pays once.
+  const g = makeMeta(); g.chapters = {}
+  ensureBookMeta(g, 'undertow')
+  assert.strictEqual(bookMeta(g, 'undertow').coins, 0, 'a purse that exists but was never granted holds 0')
+  assert.strictEqual(grantBook(g, 'undertow'), true, 'the first grant fires')
+  assert.strictEqual(bookMeta(g, 'undertow').coins, 100, 'the grant is BOOKS.undertow.startCoins')
+  assert.strictEqual(grantBook(g, 'undertow'), false, 'the second grant is a no-op')
+  assert.strictEqual(bookMeta(g, 'undertow').coins, 100, 'granting twice must not pay twice')
+  // ...and it survives the purse being spent to zero, which "creation is the grant" could not.
+  bookMeta(g, 'undertow').coins = 0
+  assert.strictEqual(grantBook(g, 'undertow'), false, 'a spent purse must not re-grant')
+
+  // (n) A FRESH SAVE HAS EXACTLY ONE PURSE, and it is book 1. This is the assertion that catches
+  // a fresh-meta literal that helpfully builds every book — which would hand 100 free coins to
+  // every new player and still pass a "purse === startCoins" test.
+  const fresh = makeMeta()
+  assert.ok(!fresh.books || Object.keys(fresh.books).length === 0,
+    'a fresh save must not pre-create any book 2+ purse')
+  assert.ok(!fresh.grants || Object.keys(fresh.grants).length === 0, 'a fresh save has granted nothing')
+
+  // (o) RETROACTIVE UNLOCK. A veteran beat The Beyond at 3+ BEFORE Undertow shipped. endRun can
+  // only fire on a live victory, so without this every existing player is locked out on ship day
+  // — including everyone holding The Blank, which requires a Beyond win at 5. loadMeta already
+  // runs exactly this chain for CHAPTERS (state.js) and its comment says why.
+  //
+  // Ruling (2026-08-16, overrides the original brief here): unlockBook refuses a WIP book unless
+  // meta.dev === true, and Undertow IS wip — so a save with NO dev flag correctly grants NOTHING.
+  // That is the more important half, because it is the path every real player is on until Book 2
+  // ships. Assert both halves: the WIP gate holding for a non-dev save, and the retroactive chain
+  // firing (once, idempotently) for a dev save.
+  const vetBlob = () => ({
+    schema: 1, coins: 4200, shop: {}, choiceSlots: 4, runs: 137, chapter: 'beyond', lang: 'fr',
+    best: { time: 300, kills: 4000 },
+    chapters: { beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 } },
+  })
+
+  // (o.1) THE WIP GATE HOLDS for every real player today: no meta.dev, so no grant and no unlock,
+  // no matter how thoroughly book 1 was beaten.
+  const notDev = loadMetaFrom(vetBlob())
+  assert.ok(!notDev.grants?.undertow, 'a non-dev save must NOT retroactively grant a WIP book')
+  assert.ok(!notDev.chapters.surf?.unlocked, "and must NOT unlock a WIP book's first chapter")
+
+  // (o.2) WITH DEV ON, the retroactive grant fires, exactly once, and is idempotent across reloads.
+  const vetDev = vetBlob(); vetDev.dev = true
+  const loaded = loadMetaFrom(vetDev)
+  assert.strictEqual(loaded.grants?.undertow, true, 'a Beyond win at 3+ already in the save grants Undertow on load (dev)')
+  assert.strictEqual(bookMeta(loaded, 'undertow').coins, 100, 'the retroactive grant pays exactly once')
+  assert.strictEqual(loaded.chapters.surf?.unlocked, true, "Undertow's first chapter unlocks retroactively")
+  // Idempotent across loads — the flag, not the purse, is what stops the second payout.
+  bookMeta(loaded, 'undertow').coins = 0
+  const twice = loadMetaFrom(loaded)
+  assert.strictEqual(bookMeta(twice, 'undertow').coins, 0, 'reloading must not re-grant')
+
+  // A dev player who never finished book 1 gets nothing — isolates the difficulty-threshold gate
+  // from the WIP gate (dev is already on here, so only the "beaten at 3+" fact is under test).
+  const rookie = { schema: 1, coins: 0, shop: {}, runs: 3, dev: true, chapters: { body: { unlocked: true, maxDifficulty: 2, difficulty: 1, won: 1 } } }
+  const r = loadMetaFrom(rookie)
+  assert.ok(!r.grants?.undertow, 'a player who has not beaten the finale at 3+ gets no grant')
+  assert.ok(!r.chapters.surf?.unlocked, 'and no Undertow unlock')
+
+  // (p) RULING B — meta.lightThief (Book 1-shaped legacy, design doc §1) copies forward ONCE into
+  // its new home, bookMeta(m,'undertow').unlocks.lightThief, which is the only place createRun
+  // reads it now. The old field must survive untouched (R2: never delete a meta field), and a run
+  // in an Undertow chapter must actually see the effect — not just the copied flag.
+  const thiefBlob = {
+    schema: 1, coins: 10, shop: {}, runs: 5, dev: true, lightThief: true,
+    chapters: { body: { unlocked: true, maxDifficulty: 1, difficulty: 1, best: { time: 0, kills: 0 } } },
+  }
+  const withThief = loadMetaFrom(thiefBlob)
+  assert.strictEqual(bookMeta(withThief, 'undertow').unlocks.lightThief, true,
+    "a top-level lightThief:true copies forward into bookMeta(m,'undertow').unlocks.lightThief on load")
+  assert.strictEqual(withThief.lightThief, true, 'the OLD field must survive untouched (R2 — never delete a meta field)')
+  const thiefRun = createRun(withThief, { chapter: 'surf' })
+  assert.ok(thiefRun.killRefill > 0, 'an Undertow run for a save carrying the copied-forward unlock gets a non-zero killRefill')
+
+  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, and meta.lightThief copies forward once`)
 }
 run(runBookProgression)
 

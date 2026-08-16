@@ -7,7 +7,7 @@ import {
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed,
-  BOOK_ORDER, shopLines, bookOf,
+  BOOKS, BOOK_ORDER, shopLines, bookOf,
 } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
@@ -161,8 +161,15 @@ let boundSlot = null
 //   book 2+'s own purse, entirely separate from book 1's above (see bookMeta/ensureBookMeta,
 //   config.js's BOOK_ORDER/shopLines/BOOK_UNLOCKS). Absent until a book is actually reached —
 //   ensureBookMeta creates it AT ZERO on first use, never as a payout; the coin GRANT on unlocking
-//   a book is main.js's job. Repaired in place, keyed by id, on every read (R3: a future build's
-//   extra shop line or extra book must survive an older build touching this save).
+//   a book goes through grantBook/unlockBook below. Repaired in place, keyed by id, on every read
+//   (R3: a future build's extra shop line or extra book must survive an older build touching this
+//   save).
+// meta.grants[bookId] = true — the monotone record of the 100-coin welcome (grantBook below).
+//   Absent means "never granted", regardless of what the purse currently holds: a purse's
+//   existence and balance are NOT proof of a grant (a UI read can create one at 0, a player can
+//   spend it to 0), so this is the one fact that decides whether the payout still happens. Set
+//   once, in the unlock path only (endRun's book-finale branch in main.js, or loadMeta's
+//   retroactive chain below), and never unset.
 
 // meta.schema: save-format version (see SCHEMA below). A brand-new save is stamped with SCHEMA;
 //   a save that PREDATES the field is by definition format 1, so loadMeta fills in 1 rather than
@@ -293,6 +300,32 @@ export function loadMeta() {
       // on the sacrifice screen. Coerced for the same reason as m.dev above — createRun tests
       // `=== true`, so a truthy-but-not-true value would grant it everywhere else and deny it there.
       m.lightThief = m.lightThief === true
+      // Retroactive BOOK unlock, exactly the same argument as the chapter chain above: a book
+      // that shipped AFTER the player already beat the previous book's finale at
+      // CHAPTER_UNLOCK_DIFFICULTY+ unlocks on load, because endRun could not unlock a book that
+      // did not exist yet. Without this, every veteran is locked out of Book 2 permanently —
+      // including everyone holding The Blank, which requires a Beyond win at 5. unlockBook still
+      // refuses a WIP book unless meta.dev is on (its own gate, read here already coerced above),
+      // so a real player sees and gets nothing until Book 2 actually ships.
+      for (let i = 1; i < BOOK_ORDER.length; i++) {
+        const prevFinale = BOOKS[BOOK_ORDER[i - 1]].chapters.at(-1)
+        const prev = m.chapters?.[prevFinale]
+        const beat = Math.max(Number(prev?.won) || 0, (Number(prev?.maxDifficulty) || 1) - 1)
+        if (beat >= CHAPTER_UNLOCK_DIFFICULTY) unlockBook(m, BOOK_ORDER[i])
+      }
+      // meta.lightThief (Book 1-shaped legacy — see BOOK_UNLOCKS.undertow in config.js and the
+      // design doc §1) copies forward ONCE into its new home, bookMeta(m,'undertow').unlocks.
+      // lightThief — the only place createRun (above in this file) reads it now. Never deletes the
+      // old field (R2 — an older build's onSacrifice still writes it) and never writes back the
+      // other way: copy only when the new location is UNSET, so a value already written at the new
+      // location (a future purchase flow writing there directly) is never clobbered. Without this,
+      // every existing dev save that already spent LIGHT_THIEF_COST levels loses killRefill on the
+      // very next load — silently, because a missing bm.unlocks.lightThief just reads as "unbought"
+      // rather than throwing.
+      if (m.lightThief === true) {
+        const ut = ensureBookMeta(m, 'undertow')
+        if (ut.unlocks.lightThief === undefined) ut.unlocks.lightThief = true
+      }
       m.schema ??= 1 // R4: absent means written BEFORE the field existed, so it IS format 1 (not SCHEMA)
       // Both additive, both `??=` repairs, so an older build round-trips a newer save untouched.
       // Deliberately NOT baked to an English default like 'Save 1': the i18n contract (v6.1) is that
@@ -450,6 +483,30 @@ export function ensureBookMeta(meta, bookId) {
   entry.choiceSlots = Math.max(2, Number(entry.choiceSlots) || 2)
   entry.unlocks = (entry.unlocks && typeof entry.unlocks === 'object' && !Array.isArray(entry.unlocks)) ? entry.unlocks : {}
   return entry
+}
+
+// The 100-coin welcome, recorded rather than inferred. meta.grants[bookId] is monotone and
+// additive: it survives the purse being spent, rebuilt, or created early by an incidental read.
+// Returns true only on the payout, so callers can gate the announcement on the grant itself.
+export function grantBook(meta, bookId) {
+  meta.grants ??= {}
+  if (meta.grants[bookId]) return false
+  const amount = BOOKS[bookId]?.startCoins ?? 0
+  meta.grants[bookId] = true
+  if (amount > 0) ensureBookMeta(meta, bookId).coins += amount
+  return true
+}
+
+// Unlock a book: its first chapter, plus the grant. Idempotent. Refuses a WIP book unless the
+// save is a dev save, which is what keeps Book 2 invisible until it ships.
+export function unlockBook(meta, bookId) {
+  if (!bookId || (BOOKS[bookId]?.wip === true && meta.dev !== true)) return false
+  const first = BOOKS[bookId].chapters[0]
+  const chMeta = ensureChapterMeta(meta, first)
+  const granted = grantBook(meta, bookId)
+  if (chMeta.unlocked && !granted) return false
+  chMeta.unlocked = true
+  return true
 }
 
 // Effective permanent multipliers/bonuses from ONE BOOK's shop levels. The book id is passed
