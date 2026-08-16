@@ -1,4 +1,4 @@
-# French drafts — The Reef (and the Pincer strings still unauthorised from The Surf)
+# French drafts — The Reef and The Trawl (and the Pincer strings still unauthorised from The Surf)
 
 Nothing here is applied. Per the standing rule, French copy is the owner's call, so these are drafts
 to pick from rather than a fait accompli. Pick one per row and I will apply them.
@@ -41,6 +41,57 @@ lionfish, because "Rascasse volante" is three syllables of unfamiliar and the ca
 Not yet built at the time of writing; drafts held until the English is fixed. Expect `Air` (identical
 in French) and a Burst verb, where the candidates are **Percée** (a breakthrough — same word used for
 a military breach), **Ruée** (a rush/charge) and **Élan** (momentum, gentler).
+
+---
+
+## The Trawl — chapter (added 2026-08-16)
+
+Status of the ⚠ above, one chapter on: run XX's denominator **is** fixed — it now derives from
+`BOOKS[].wip` (`shippedChapterIds()`), so the day Undertow drops its `wip` flag, all four chapters'
+strings go red together instead of shipping in English. That is why this list can still be assembled
+by hand without much risk: the suite is now the thing that will find what I miss.
+
+| English | A | B | C |
+|---|---|---|---|
+| `The Trawl` | **Le Chalut** | La Drague | Le Chalutage |
+| tagline `the net is not aiming at you` | **le filet ne vous vise pas** | le filet ne vise personne | rien ici ne vous vise |
+
+*Le Chalut* is the net itself; *le chalutage* is the activity; *la drague* is a different gear
+(dredging) and also slang for chatting someone up, which is a joke the chapter does not want.
+
+On the tagline: A is the literal English and keeps the second person — the point of the line is that
+the thing is indifferent *to you specifically*, which is unsettling in a way "aims at nobody" is not.
+B states the general fact and is colder. C is the widest and the least about the net.
+
+## The Trawl — creatures
+
+| English | A | B | Note |
+|---|---|---|---|
+| `Mackerel` | **Maquereau** | — | Unambiguous. ⚠ *maquereau* is also slang for "pimp"; it is nonetheless the ordinary word for the fish and no French speaker will misread it on a bestiary card. |
+| `Tuna` | **Thon** | Thon rouge | A is the plain word. B ("bluefin") is more precise and more evocative, and it is the tuna a trawler is actually chasing. |
+| `Sea Lion` | **Otarie** | Lion de mer | A is the correct French name and what everyone says. B is a calque that keeps the "lion", the same trade-off as the lionfish above — but here A is the common word rather than the technical one, so the argument for B is much weaker. |
+
+My lean: Maquereau / **Thon rouge** / Otarie.
+
+## The Trawl — bar and button
+
+| English | A | B | C |
+|---|---|---|---|
+| `Feed` (the bar) | **Pâture** | Ration | Festin |
+| `Breach` (the button) | **Brèche** | Déchirure | Percée |
+
+*Pâture* is what an animal feeds on — a food supply rather than a meal — which is exactly what the bar
+is. *Ration* is too administrative for a wild animal; *Festin* (feast) is the wrong register for
+something you are scraping out of churned water.
+
+*Brèche* is a gap torn in a barrier and is the standard military/siege word, so it carries "you made
+this hole" rather than "a hole exists". *Déchirure* is a tear in fabric, which is more literally what
+happens to a net but reads as damage rather than as a door. *Percée* was also offered for the Reef's
+Burst above — if that one is taken, this one should not be.
+
+⚠ None of the above is applied. The Trawl also has no card-copy strings yet: its three weapons are
+borrowed (`clawRake` / `hole` / `chitterShriek`) and already have French, and its two natives —
+Longline and Net Toss — are not built.
 
 ---
 

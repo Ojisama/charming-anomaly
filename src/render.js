@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, NOVA_LIFE, SHELL_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -2053,6 +2053,224 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 0.95, r)
   }
 
+  // ---- The Trawl (Book 2 chapter 4) — open water ------------------------------------------------
+  // The floor here is the darkest, coldest one in the book so far (bgColor 0x05203f under floorTint
+  // 0x93b6cc), and there is no decor competing for attention the way the reef's coral does. So this
+  // roster's separation problem is the OPPOSITE of the reef's: not "how do three warm bodies avoid a
+  // warm floor" but "how do three pelagic fish, which in life are all silver, avoid being the same
+  // fish three times". They separate on SILHOUETTE and on tail, which is also how you tell them apart
+  // in the water:
+  //   mackerel — a plain spindle with a small forked tail and a barred back. The baseline.
+  //   tuna     — thicker through the shoulder, tapering to a hard narrow wrist and a CRESCENT tail,
+  //              with long sickle pectorals swept back. The outline says "this one is fast" before
+  //              any colour does, which matters because dashBurst gives no telegraph of its own.
+  //   sea lion — NOT A FISH, and that is the whole design of the tank slot. Broad fore-flippers
+  //              thrown out to the sides, a blunt round whiskered head, hind flippers trailing. The
+  //              one body in the chapter that breaks the fish outline, and it is also the one that
+  //              is warm — a brown animal is a hue this water cannot reach, the same trick the Surf's
+  //              shore crab plays on pale sand.
+  // All three PLAN VIEW: they swim over open water with a definite nose, and unlike the moon jelly
+  // (the game's one deliberate side elevation) each is bilaterally symmetric about that nose with
+  // paired eyes and paired fins in ±y and nothing that could be called UP. See CLAUDE.md.
+
+  // mackerel: the flagless baseline, drawn as the plainest fish in the game. Steel-blue back with the
+  // wavy black bars a real mackerel wears, silver flanks. The bars run ACROSS the body rather than
+  // along it, which from directly above is the pattern's actual orientation — a fish's bars are on
+  // its back, and its back is what an overhead camera sees.
+  function drawMackerel(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x1b2733)
+    const back = f(0x4d7f9e)
+    const flank = f(0xc8dae6)
+    const fin = f(0x9fbccd)
+    const lw = Math.max(2, r * 0.1)
+    const noseX = r * 1.05
+    const len = r * 2.15
+    const spine = (t) => [noseX - t * len, 0]
+    // A mackerel is a slim fusiform: widest just past a third, tapering to a thin wrist before the
+    // tail. `pow` on the fall keeps that wrist genuinely narrow instead of a lazy cone.
+    const body = (t) => {
+      const rise = Math.pow(Math.min(1, t / 0.32), 0.55)
+      const fall = Math.pow(Math.max(0, 1 - (t - 0.32) / 0.62), 1.5)
+      return r * 0.34 * Math.max(0.08, t < 0.32 ? rise : fall)
+    }
+    groundShadow(r * 0.9, r * 0.35)
+    // Pectorals: short and low, swept back. A mackerel does not hover, so these are small.
+    const pt = 0.34
+    const [ptx] = spine(pt)
+    const pw = body(pt)
+    for (const s of [-1, 1]) {
+      g.poly([ptx, s * pw * 0.8, ptx - r * 0.34, s * (pw + r * 0.34), ptx - r * 0.4, s * (pw + r * 0.1)])
+        .fill({ color: fin, alpha: 0.9 }).stroke({ width: lw * 0.45, color: line })
+    }
+    // Caudal: forked, and hinged just short of the tip so no seam opens between fin and body.
+    const [tx] = spine(0.95)
+    g.poly([tx + r * 0.06, 0, tx - r * 0.62, r * 0.46, tx - r * 0.4, 0, tx - r * 0.62, -r * 0.46])
+      .fill({ color: fin, alpha: 0.92 }).stroke({ width: lw * 0.45, color: line })
+    g.poly(spineOutline(spine, body, 34)).fill(flank).stroke({ width: lw, color: line })
+    if (!white) {
+      // The back, cut from the body's own outline so it can never overhang the fish — the damselfish's
+      // bar trick, used here for the dorsal half instead of for stripes.
+      g.poly(spineOutline(spine, (t) => body(t) * 0.55, 28, 0.04, 0.93)).fill({ color: back, alpha: 0.95 })
+      // The bars: short strokes across the back, thinning toward the tail as a real one's do.
+      for (let i = 0; i < 6; i++) {
+        const t = 0.14 + i * 0.12
+        const [bx] = spine(t)
+        const w = body(t) * 0.5
+        g.moveTo(bx, -w).quadraticCurveTo(bx - r * 0.09, 0, bx, w)
+          .stroke({ width: lw * 0.72, color: f(0x14202b), alpha: 0.85 })
+      }
+      const [ex] = spine(0.1)
+      for (const s of [-1, 1]) darkEye(g, ex, s * body(0.1) * 0.66, r * 0.085, r * 0.08, 0x0d151d, true)
+    }
+    if (elite) eliteCrown(-r * 0.9, r)
+  }
+
+  // tuna: the fast slot, and the read is entirely in the outline. Deep through the shoulder, a hard
+  // narrow wrist, and a CRESCENT (lunate) caudal — the shape only the ocean's fastest fish have, and
+  // the one thing on screen that is unambiguously not the mackerel it is swimming beside.
+  function drawTuna(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x18242f)
+    const back = f(0x2f5f86)
+    const flank = f(0xdbe8f0)
+    const fin = f(0xf2c94c)   // the yellow finlets a real tuna carries — the one warm accent
+    const lw = Math.max(2, r * 0.1)
+    const noseX = r * 1.05
+    const len = r * 2.1
+    const spine = (t) => [noseX - t * len, 0]
+    // Fuller than the mackerel through 0.2-0.45 and pinched harder after it: same length, different
+    // distribution of it, which is what "built for speed" looks like from above.
+    const body = (t) => {
+      const rise = Math.pow(Math.min(1, t / 0.3), 0.42)
+      const fall = Math.pow(Math.max(0, 1 - (t - 0.3) / 0.6), 1.9)
+      return r * 0.46 * Math.max(0.07, t < 0.3 ? rise : fall)
+    }
+    groundShadow(r * 1.0, r * 0.4)
+    // Sickle pectorals: long, thin and swept hard back, reaching most of the way to the wrist.
+    const pt = 0.32
+    const [ptx] = spine(pt)
+    const pw = body(pt)
+    // Laid ALONG the body, not held out from it. The first cut put these at 0.62r of clearance in
+    // the bright flank colour with a hard outline, and they read as two white blades crossing the
+    // fish — a tuna folds its pectorals into grooves at speed, so the honest drawing is a narrow
+    // sliver close to the flank. No outline, and it inherits the flank colour, so it reads as part
+    // of the same animal rather than as something attached to it.
+    for (const s of [-1, 1]) {
+      g.poly([
+        ptx + r * 0.04, s * pw * 0.85,
+        ptx - r * 0.72, s * (pw + r * 0.3),
+        ptx - r * 0.9, s * (pw + r * 0.2),
+        ptx - r * 0.34, s * pw * 0.92,
+      ]).fill({ color: flank, alpha: 0.7 })
+    }
+    // THE CRESCENT. Two swept lobes meeting at a narrow centre, concave on the trailing edge — that
+    // concavity is the whole difference between this and the mackerel's fork, so it is drawn with a
+    // quadratic rather than a straight line back to the wrist.
+    const [tx] = spine(0.94)
+    for (const s of [-1, 1]) {
+      g.moveTo(tx, 0)
+        .quadraticCurveTo(tx - r * 0.14, s * r * 0.34, tx - r * 0.54, s * r * 0.7)
+        .quadraticCurveTo(tx - r * 0.3, s * r * 0.26, tx - r * 0.16, 0)
+        .fill({ color: back, alpha: 0.9 }).stroke({ width: lw * 0.4, color: line })
+    }
+    g.poly(spineOutline(spine, body, 34)).fill(flank).stroke({ width: lw, color: line })
+    if (!white) {
+      g.poly(spineOutline(spine, (t) => body(t) * 0.6, 28, 0.03, 0.92)).fill({ color: back, alpha: 0.95 })
+      // Finlets: the little yellow flags between the second dorsal and the tail, in ±y pairs. TINY —
+      // the first cut stood them off the body by 0.16r and they read as a row of spikes, which turned
+      // the whole animal into something mechanical. At 0.07r they are a serrated yellow edge, which
+      // is what they look like on a real fish and is still the second thing (after the crescent) that
+      // names it a tuna.
+      for (let i = 0; i < 4; i++) {
+        const t = 0.62 + i * 0.075
+        const [fx] = spine(t)
+        const w = body(t)
+        for (const s of [-1, 1]) {
+          g.poly([fx, s * w, fx - r * 0.07, s * (w + r * 0.07), fx - r * 0.13, s * w])
+            .fill({ color: fin, alpha: 0.85 })
+        }
+      }
+      const [ex] = spine(0.1)
+      for (const s of [-1, 1]) darkEye(g, ex, s * body(0.1) * 0.6, r * 0.1, r * 0.095, 0x0b1219, true)
+    }
+    if (elite) eliteCrown(-r * 1.0, r)
+  }
+
+  // sea lion: the tank, and the one body in this chapter that is not a fish. Everything about the
+  // drawing is chosen so that a glance separates it from the two fish beside it — a blunt ROUND head
+  // instead of a point, fore-flippers thrown WIDE to both sides instead of tucked back, and a warm
+  // brown coat where everything else here is silver over cold blue.
+  function drawSeaLion(g, elite, white) {
+    const r = 20
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x2a1d12)
+    const coat = f(0x8a5c33)
+    const belly = f(0xb98a5c)
+    const lw = Math.max(2, r * 0.1)
+    const noseX = r * 0.95
+    const len = r * 2.0
+    const spine = (t) => [noseX - t * len, 0]
+    // Blunt at the nose and full through the chest — a pinniped tapers toward the TAIL, which is the
+    // reverse of both fish here and is most of why the silhouette reads as a mammal.
+    // FULL THROUGH THE CHEST. 0.52r, not the 0.42 this started at: the flippers below reach well
+    // outside the outline, and on a narrow body they become the whole animal — the first probe frame
+    // read as a cross with a head on it because the body they hang off was three times thinner than
+    // they were long. A pinniped is a barrel, and the barrel has to win.
+    const body = (t) => {
+      const rise = Math.pow(Math.min(1, t / 0.16), 0.35)
+      const fall = Math.pow(Math.max(0, 1 - (t - 0.28) / 0.86), 1.15)
+      return r * 0.52 * Math.max(0.16, t < 0.28 ? rise : fall)
+    }
+    groundShadow(r * 1.05, r * 0.42)
+    // Fore-flippers: broad at the shoulder, raked backward, TAPERING TO A NEAR-POINT. All three of
+    // those are load-bearing and only the first two survived the first cut — its "tip" was two points
+    // 0.37r apart, i.e. a bar with a bevel, and a bar on a body is a plank at any tint. Width at the
+    // tip is now 0.19r against 0.42r at the root, and the reach is cut from pw + 0.95r to pw + 0.6r
+    // so the animal is a body with flippers rather than flippers with a body.
+    const pt = 0.34
+    const [ptx] = spine(pt)
+    const pw = body(pt)
+    for (const s of [-1, 1]) {
+      g.poly([
+        ptx + r * 0.18, s * pw * 0.7,
+        ptx - r * 0.42, s * (pw + r * 0.55),
+        ptx - r * 0.6, s * (pw + r * 0.6),
+        ptx - r * 0.34, s * (pw + r * 0.18),
+        ptx - r * 0.16, s * pw * 0.85,
+      ]).fill({ color: coat, alpha: 0.95 }).stroke({ width: lw * 0.5, color: line })
+    }
+    // Hind flippers: trailing, held together and splayed at the tips — same taper rule as above, and
+    // deliberately smaller than the fore pair so the silhouette has a front and a back.
+    const [hx] = spine(0.97)
+    for (const s of [-1, 1]) {
+      g.poly([hx + r * 0.08, s * r * 0.05, hx - r * 0.3, s * r * 0.3, hx - r * 0.4, s * r * 0.1, hx - r * 0.08, s * r * 0.02])
+        .fill({ color: coat, alpha: 0.92 }).stroke({ width: lw * 0.45, color: line })
+    }
+    g.poly(spineOutline(spine, body, 32)).fill(coat).stroke({ width: lw, color: line })
+    if (!white) {
+      g.poly(spineOutline(spine, (t) => body(t) * 0.5, 24, 0.2, 0.9)).fill({ color: belly, alpha: 0.5 })
+      // The head: a separate rounded mass at the nose, so the outline has a NECK. Two fish have no
+      // neck and cannot get one, so this is the cheapest single cue that this is another kind of animal.
+      const [hdx] = spine(0.07)
+      g.circle(hdx, 0, r * 0.4).fill({ color: coat, alpha: 1 }).stroke({ width: lw * 0.8, color: line })
+      g.circle(hdx + r * 0.3, 0, r * 0.12).fill({ color: f(0x241810) })   // muzzle
+      // Whiskers, in ±y pairs, the one detail that survives at sprite size as "this has a face".
+      for (const s of [-1, 1]) {
+        for (let i = 0; i < 3; i++) {
+          const a = s * (0.28 + i * 0.3)
+          g.moveTo(hdx + r * 0.3, s * r * 0.06)
+            .lineTo(hdx + r * 0.3 + Math.cos(a) * r * 0.5, s * r * 0.06 + Math.sin(a) * r * 0.42)
+            .stroke({ width: Math.max(0.8, r * 0.035), color: f(0xe8d5bd), alpha: 0.75 })
+        }
+      }
+      for (const s of [-1, 1]) darkEye(g, hdx + r * 0.06, s * r * 0.2, r * 0.09, r * 0.085, 0x120b06, true)
+    }
+    if (elite) eliteCrown(-r * 1.5, r)
+  }
+
   // lionfish: the one body here that DOES share the reef's own hue, and it separates on shape alone.
   // From directly overhead a lionfish is not a fish outline at all — it is a STARBURST of pectoral
   // rays thrown out to both sides, wider than the body is long. No retint could have bought that
@@ -3477,6 +3695,14 @@ export function createRenderer(app) {
       turnRate: (e) => (e._pounceState === 'leap' ? POUNCE_TURN_LEAP
         : e._pounceState === 'aim' ? POUNCE_TURN_AIM : POUNCE_TURN_IDLE),
     },
+    // v7.x The Trawl (Book 2 chapter 4). All three PLAN VIEW, all three lean 90, for the same reason
+    // the Reef's three are: each is bilaterally symmetric about its own +x nose with paired eyes and
+    // paired fins in ±y, and nothing in any of them could be called UP. A missing key here is
+    // SILENT — syncEnemies falls through to a generic archetype blob. See the Trawl section of the
+    // draw fns for why the tank is a mammal and the fast one is all outline.
+    mackerel: { archetype: 'normal', draw: drawMackerel, lean: 90 }, // top-down: barred spindle, forked tail -x, eyes in a ±y pair
+    tuna: { archetype: 'fast', draw: drawTuna, lean: 90 },           // top-down: crescent tail, sickle pectorals and finlets all ±y mirrored
+    sealion: { archetype: 'tank', draw: drawSeaLion, lean: 90 },     // top-down: fore-flippers thrown wide ±y, blunt head +x, hind flippers -x
     // v7.x The Surf (Book 2 chapter 1). A new roster, not a repaint — every flag here is new
     // (unshakeable, diveBomb) rather than carried over the way the Shelf's are. A missing key here
     // is SILENT — syncEnemies falls through to a generic archetype blob.
@@ -7889,14 +8115,21 @@ export function createRenderer(app) {
   // are the same picture, so there is no second stroker.
   // Palette law 2 (SKIES_PALETTE): both are the PLAYER's output, so both are atomic cyan-green.
   const breathG = new Graphics()
+  // v7.x The Trawl. TWO Graphics in two different places in this list, and the split is the point:
+  // the WAKE is churned water, so it belongs down with the floor washes where the crowd swims over
+  // it, and the MESH is a physical wall, so it belongs above the crowd — a net drawn under the fish
+  // reads as something lying on the bottom, which is the opposite of the thing you must not cross.
+  // Neither is a pool: clearing them IS the reset, the same idiom breathG uses (see clearWorld).
+  const netWakeG = new Graphics()
+  const netG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
-    enemyShadowLayer, enemyLayer, enemyCrownLayer,
+    enemyShadowLayer, enemyLayer, enemyCrownLayer, netG,
     bloomLayer, lureLayer, shieldG, affixLayer, crustG, lockLayer, playerC, breakerG, splashG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
@@ -8698,6 +8931,73 @@ export function createRenderer(app) {
     // audit's 2x by going darker still rather than by going black-and-cold — 3.73x, warm.
     obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x6e2a44, foot: 0x1c0a1a },
   }
+  // ---- The Trawl (v7.x Book 2 ch 4) — the boat's discharge, settled -----------------------------
+  // The third retint of the same shape-neutral prop PNGs, and the first one where the decor is not
+  // ALIVE. Spec §4 gives this chapter's pollution as "bags at mid-water, the boat's discharge", and
+  // what an overhead camera sees of that is what has already sunk: bags collapsed flat on the bottom,
+  // scraps of lost net, and the dull sheen of settled sediment.
+  //
+  // THE CONTRAST RULE IS INVERTED HERE, deliberately, and it is the one thing to preserve if these
+  // tints are ever touched. The Shelf, the Surf and the Reef all put their decor BELOW the effective
+  // floor and their roster ABOVE it, so scenery is dark and life is light. That works when the floor
+  // is mid-value. This floor is the darkest in the book (bg 0x05203f under floorTint 0x93b6cc), and
+  // pushing the decor below it would put rubbish at near-black on near-black — the props would simply
+  // be absent, which is not "sparse", it is a floor that looks broken. So the litter sits just ABOVE
+  // the floor in value and stays DESATURATED, while the roster is above it in value AND carries the
+  // only saturation in the chapter (the tuna's yellow finlets, the sea lion's brown coat). Value
+  // separates the litter from the water; SATURATION separates the life from the litter.
+  //
+  // Nothing here is green or growing. A weed tint in this family would read as The Shelf.
+  //
+  // ⚠ NO RADIAL ROSETTES — no `cluster_*` anywhere in this family, and that is a shot-driven rule
+  // rather than a preference. The first cut used cluster_a/cluster_c for flat litter, on the same
+  // reasoning the reef uses them for table coral, and the probe frame came back with what are
+  // unmistakably SNOWFLAKES scattered over the sea bed: a pale, symmetric, radially-branching shape
+  // on cold blue is snow, whatever the tint is called. The lobed `bush_*` masses read as crumpled
+  // sheet instead, which is what a bag on the bottom actually is. Same failure mode as the reef's
+  // `leaf`-is-a-maple-leaf note one block down, found the same way.
+  //
+  // ⚠ AND THE TINTS ARE AUTHORED HOT. floorTint 0x93b6cc multiplies every prop, i.e. (0.58, 0.71,
+  // 0.80) — it takes far more red than blue, so a tint that looks like dirty rope in a swatch lands
+  // on screen GREEN. The first NET_TINTS (0x7a7460) came out as grass tufts on the ocean floor. Raw
+  // red has to sit well above raw green here for the result to read warm-neutral.
+  const BAG_TINTS = [0x8494a1, 0x76858f]        // collapsed plastic, colour long since bleached out
+  const NET_TINTS = [0xa8875c, 0x96784f]        // lost monofilament and rope — hot, to land as tan
+  const SILT_TINTS = [0x5b6f7e, 0x516574]       // settled sediment, the dullest thing on the floor
+  const BIG_TRAWL = [
+    // A bag that has come down and spread. `bush_b` is a lobed rosette — the reef reads it as a brain
+    // coral head; from directly above, at this size and bleached, it is a sheet of plastic collapsed
+    // over the bottom. Deliberately NOT upright: it is lying there, not standing.
+    { name: 'bush_b', tints: BAG_TINTS, upright: false, size: [92, 140] },
+    { name: 'bush_a', tints: SILT_TINTS, upright: false, size: [84, 130] },
+  ]
+  const MID_TRAWL = [
+    { name: 'bush_a', tints: BAG_TINTS, upright: false, size: [48, 76] },
+    { name: 'bush_b', tints: SILT_TINTS, upright: false, size: [44, 70] },
+    // EVERYTHING HERE LIES DOWN. There is no upright member, which makes this the only biome in the
+    // game with none, and it is the third thing a probe frame had to teach: this prop set is a garden
+    // set, so ANY upright entry reads as a plant however it is tinted — `grass_c` came out as sea
+    // grass and `flower_a` as budded stalks, on a floor whose whole premise is that nothing grows
+    // here. Sunken litter lies on the bottom anyway, so the correct drawing and the available shapes
+    // agree for once. The ochre stays as the only warm note among the bags and silt.
+    { name: 'bush_a', tints: NET_TINTS, upright: false, size: [40, 62] },
+    { name: 'bush_b', tints: NET_TINTS, upright: false, size: [36, 58] },
+  ]
+  const DETAIL_TRAWL = [
+    // Marine snow on the bottom: the palest thing down here, but at low alpha so it stays grit rather
+    // than becoming the brightest surface in a chapter whose roster has to win on value.
+    { name: 'scatter_a', tint: 0xc6d3dc, alpha: 0.38, size: [20, 36] },
+    { name: 'scatter_b', tint: 0xb0bfc9, alpha: 0.32, size: [17, 31] },
+    { name: 'pebble', baked: true, scale: [0.6, 1.2] },
+  ]
+  const BIOME_TRAWL = {
+    big: BIG_TRAWL, mid: MID_TRAWL, detail: DETAIL_TRAWL,
+    // Unused today — CHAPTERS.trawl.obstacles is null, because open water is the point and there is
+    // nothing to hide behind from a hazard that is not aiming at you. Declared anyway so the family
+    // is complete: `obstacle` is read unconditionally by the obstacle bake, and a chapter that later
+    // grows a wreck or a drum would otherwise crash rather than look wrong.
+    obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x54606b, foot: 0x0d161f },
+  }
   const BIOMES = {
     body: BIOME_BODY,
     pond: BIOME_POND,
@@ -8710,6 +9010,10 @@ export function createRenderer(app) {
     // throw and does not warn, it silently draws ANOTHER chapter's world (chapterBiome falls back to
     // BIOMES.body, which is how The Surf shipped villi, platelets and plasma motes on its beach).
     reef: BIOME_REEF,
+    // Same load-bearing line as the three above it, and the failure is the loudest one yet: without
+    // it The Trawl draws VILLI and PLATELETS on the bottom of the ocean, because chapterBiome falls
+    // back to BIOMES.body for an unknown id and nothing throws.
+    trawl: BIOME_TRAWL,
     garden: BIOME_GARDEN,
     undergrowth: {
       big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,
@@ -9891,6 +10195,131 @@ export function createRenderer(app) {
   function clearShafts() {
     shaftLayer.visible = false
     for (const sv of shaftPool) { sv.body.visible = false; sv.glow.visible = false; sv.ring.visible = false }
+  }
+
+  // ---------------------------------------------------------------- the net (v7.x The Trawl)
+  // The sim carries the net as an infinite line — a unit normal `n` and a signed offset `pos` (see
+  // stepTrawl). Drawing an infinite line means drawing the piece of it that is on screen, so both
+  // Graphics work in a LOCAL frame that is re-anchored on the player every frame:
+  //
+  //   rotation = atan2(nx, -ny)  ->  local +x runs ALONG the wall, local +y points BEHIND it
+  //   position = the player's own projection onto the line
+  //
+  // so local x = 0 is always where the player is standing relative to the wall, local x is the same
+  // `t` coordinate the sim's holes are stored in (offset by the player's own t), and everything
+  // behind the mesh — the wake — is at positive local y. That last part is why the rotation is
+  // atan2(nx, -ny) and not atan2(ny, nx): the wake must land on the side the net has ALREADY crossed,
+  // and getting that backwards is invisible in code and obvious on screen only if you know which
+  // side to expect.
+  //
+  // REDRAWN EVERY FRAME, deliberately, where the shafts above cache on radius. There is no geometry
+  // to cache: `pos` advances continuously, the player's t slides, and a Breach edits the hole list
+  // mid-pass. It is a handful of strokes on one Graphics.
+  const NET_VIS = {
+    mesh: 0x2b3b47, meshLine: 0xd2dee6, rope: 0xe4d9a8,   // mesh body, twine, the head/foot ropes
+    wake: 0x6d7f88, wakeA: 0.24,                           // churned sediment behind the wall
+    torn: 0xf2e6b4,                                        // the bright frayed ends at a cut
+    cell: 34,                                              // px between twines — the mesh's own scale
+  }
+  function updateNet(run) {
+    const net = run.net
+    netG.clear()
+    netWakeG.clear()
+    if (!net) return
+    const p = run.player
+    // The player's coordinate ALONG the wall, and the world point that corresponds to. Local x is
+    // measured from here, so the drawn span always covers the screen however far the run has roamed.
+    const tp = p.x * -net.ny + p.y * net.nx
+    const ox = net.nx * net.pos + -net.ny * tp
+    const oy = net.ny * net.pos + net.nx * tp
+    const rot = Math.atan2(net.nx, -net.ny)
+    for (const G of [netG, netWakeG]) { G.position.set(ox, oy); G.rotation = rot }
+    // Half the drawn span. 1.6 x the view radius comfortably crosses either viewport at any rotation
+    // (the worst case is the wall running corner to corner, which needs the half-diagonal itself).
+    const L = Math.max(600, run.viewRadius * 1.6)
+    const half = TRAWL_HALF
+    const depth = TRAWL_WAKE_DEPTH
+
+    // THE WAKE, behind the mesh (positive local y). Sediment settling, so the freshest churn is the
+    // strip just behind the wall and it thins with distance back.
+    //
+    // FOURTEEN BANDS, NOT TWO. The first cut used two rects at 0.3 and 0.15 alpha and the probe
+    // frame came back reading as a lit ROAD crossing the ocean: two flat tones meet in a hard
+    // straight line, and a hard straight line down the middle of a soft thing is a road marking.
+    // Six steps still left faint stripes — on a squared falloff the alpha drops ~0.07 per step at
+    // the near end, which is above the threshold at which an edge is visible; fourteen puts every
+    // step under ~0.03 and the seams go. Peak alpha also came down: the wake has to be legible
+    // enough to steer into and quiet enough not to outshine the mesh, which is what kills you.
+    const BANDS = 14
+    for (let i = 0; i < BANDS; i++) {
+      const y0 = half + (depth * i) / BANDS
+      const k = 1 - i / BANDS
+      netWakeG.rect(-L, y0, L * 2, depth / BANDS + 1)
+        .fill({ color: NET_VIS.wake, alpha: NET_VIS.wakeA * k * k })
+    }
+    // Stirred-up streaks, drifting along the wall so the band reads as moving water rather than as a
+    // painted stripe. Short and varied in length: the first cut ran 16 identical 46px dashes and they
+    // read as rain on a window, because regular repetition of an identical mark is a texture and not
+    // a current. animT-driven, so they FREEZE behind a modal exactly like every other animation here
+    // — intended, not an oversight (see main.js's dt = 0).
+    for (let i = 0; i < 22; i++) {
+      const sx = ((i * 137.5 + animT * 40) % (L * 2)) - L
+      const f = (i * 0.37) % 1
+      const sy = half + depth * (0.08 + 0.8 * f)
+      const len = 14 + 26 * ((i * 0.61) % 1)
+      netWakeG.moveTo(sx, sy).lineTo(sx + len, sy)
+        .stroke({ width: 2.2, color: 0xc3d2da, alpha: 0.18 * (1 - f * 0.7), cap: 'round' })
+    }
+
+    // THE MESH, in the SEGMENTS a Breach has left of it. Holes are stored in the sim's own t space,
+    // so they shift by the player's t to land in local x. Sorted and walked as intervals: whatever is
+    // not a hole gets drawn, which means the picture and the damage test can never disagree about
+    // where the gap is — they are reading the same list the same way.
+    const cuts = net.holes
+      .map((h) => [h.t - tp - h.r, h.t - tp + h.r])
+      .sort((a, b) => a[0] - b[0])
+    const spans = []
+    let x = -L
+    for (const [a, b] of cuts) {
+      if (b <= -L || a >= L) continue
+      if (a > x) spans.push([x, Math.min(a, L)])
+      x = Math.max(x, Math.min(b, L))
+    }
+    if (x < L) spans.push([x, L])
+    for (const [a, b] of spans) {
+      if (b - a < 1) continue
+      // 0.34, not the 0.55 this started at: a net is mostly HOLE, and a dark band at half opacity
+      // reads as a plank floating on the water. The twines carry the object; the fill only has to
+      // darken the water enough that the wall is legible where it crosses a pale patch of floor.
+      netG.rect(a, -half, b - a, half * 2).fill({ color: NET_VIS.mesh, alpha: 0.34 })
+      // The twines. Two diagonal families make the diamond mesh a real net has; drawn per span so a
+      // cut genuinely removes the netting rather than painting a gap over it.
+      for (let d = Math.floor(a / NET_VIS.cell) * NET_VIS.cell; d < b + half * 2; d += NET_VIS.cell) {
+        for (const s of [-1, 1]) {
+          const x0 = Math.max(a, Math.min(b, d))
+          const x1 = Math.max(a, Math.min(b, d + s * half * 2))
+          if (x1 === x0) continue
+          netG.moveTo(x0, -half * s).lineTo(x1, half * s)
+            .stroke({ width: 1.6, color: NET_VIS.meshLine, alpha: 0.5 })
+        }
+      }
+      // Head and foot ropes: the two bright lines that make the wall read as a made object rather
+      // than as a shadow, and the thing you actually track from across the screen.
+      for (const s of [-1, 1]) {
+        netG.moveTo(a, s * half).lineTo(b, s * half)
+          .stroke({ width: 3.5, color: NET_VIS.rope, alpha: 0.85, cap: 'round' })
+      }
+      // Frayed ends, at every edge that is a CUT rather than the end of the drawn span. Without this
+      // a hole reads as the net simply not being there — the tell has to say "you did this".
+      for (const [edge, isCut] of [[a, a > -L], [b, b < L]]) {
+        if (!isCut) continue
+        for (let k = -2; k <= 2; k++) {
+          const y = (k / 2) * half
+          netG.moveTo(edge, y).lineTo(edge + (edge === a ? -1 : 1) * (6 + (k & 1) * 7), y * 0.82)
+            .stroke({ width: 2, color: NET_VIS.torn, alpha: 0.9, cap: 'round' })
+        }
+      }
+    }
   }
 
   // ---------------------------------------------------------------- swell (v7.x Book 2)
@@ -14070,6 +14499,21 @@ export function createRenderer(app) {
         case 'rockhit':
           spawnRing(e.x, e.y, 70, 0.26, T.novaWarm, 0xc9bda4)
           break
+        // v7.x The Trawl — Breach. NO SFX_FOR_EVENT ENTRY, and that is a decision rather than an
+        // omission: Breach fires on the SAME press as the Pulse, which already sounds ('hole'), so a
+        // second sample would double up on one button. The rule CLAUDE.md states is that an event
+        // earns a sound by being rare enough to bear one; this one is rare and already audible.
+        //
+        // The HOLE itself is persistent and is drawn by updateNet (frayed
+        // ends at every cut edge), so this event is only the moment of tearing: a ring at the cut
+        // scaled to the hole the spend actually bought, so an empty bar and a full one visibly do
+        // different amounts of damage to the wall. `e.r` and not a constant, for the same reason
+        // stepRepulse pushes its scaled radius rather than REPULSE_RADIUS — a burst that lies about
+        // its reach makes the cooldown feel arbitrary.
+        case 'breach':
+          spawnRing(e.x, e.y, e.r, 0.34, T.novaWarm, 0xf2e6b4)
+          spawnRing(e.x, e.y, e.r * 0.55, 0.22, T.novaWarm, 0xffffff)
+          break
         case 'revive':
           // Revive Token fired (see CONSUMABLES in config.js): a heart-warm double ring +
           // levelup-style burst sells the second chance; the sim already shoved enemies back.
@@ -14314,6 +14758,10 @@ export function createRenderer(app) {
     wellG.clear()
     bindG.clear()
     breathG.clear() // v7.23: a Graphics, not a pool — clearing it IS the reset (see redrawBreath)
+    // v7.x The Trawl: same idiom as breathG above. A run that ends mid-pass must not leave a net
+    // hanging over the summary screen and the next chapter.
+    netG.clear()
+    netWakeG.clear()
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
     for (const pool of [
       bulletPool, novaPool, orbPool, gemPool, coinPool,
@@ -15637,6 +16085,7 @@ export function createRenderer(app) {
     updateCurrents(run, dt, cx, cy)
     updateEddies(run, dt)
     updateShafts(run)
+    updateNet(run)            // v7.x The Trawl: no-op (both Graphics cleared) unless run.net exists
     updateSwell(run, dt, cx, cy)
     drawBreakers(run)
     drawCrusts(run)

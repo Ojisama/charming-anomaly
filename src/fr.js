@@ -1002,6 +1002,7 @@ const CONFIG = {
   'Surf': 'Snorkeling',
   'Shelf': 'Large',
   'Reef': 'Récif',
+  'Trawl': 'Chalut',
   'Book {n}': 'Livre {n}',
   'locked chapter': 'chapitre verrouillé',
   'The Body': 'Le Corps',
@@ -1023,6 +1024,14 @@ const CONFIG = {
   'the tide decides': 'la marée décide',
   'the light only goes down': 'la lumière ne fait que diminuer',
   'the current only runs one way': 'le courant décide pour toi',
+  // The Trawl (Book 2 chapter 4). 'Le Chalut' is the net itself — 'chalutage' is the activity and
+  // 'drague' is a different gear (and slang for chatting someone up).
+  // THE TAGLINE IS THE OWNER'S OWN LINE, not a translation of the English, and deliberately so:
+  // the English says the net is indifferent to you, and this says the humans will catch every one
+  // of you. Same chapter, aimed from the other end. If the English is ever brought into line with
+  // it, remember the English string IS the key — changing it orphans this entry.
+  'The Trawl': 'Le Chalut',
+  'the net is not aiming at you': 'Ils vous pêcheront tous',
   'Sand Hopper': 'Puce de mer',
   'Shore Crab': 'Crabe vert',
   'Sea Roach': 'Cloporte de mer',

@@ -153,6 +153,8 @@ import {
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
+  TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
+  BREACH_R_MIN, BREACH_R_AT_FULL, BREACH_REACH, BREACH_MAX_HOLES, tiredness,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
@@ -266,6 +268,7 @@ export function stepSim(run, input, dt) {
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
   if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
   if (stepDrown(run, dt)) return // phase is now 'dead' (The Reef: an empty Air bar, v7.x)
+  if (stepTrawl(run, dt)) return // phase is now 'dead' (The Trawl: the net wall, v7.x)
   if (stepStrips(run, dt)) return // phase is now 'dead' (garden pesticide spray-strip DoT — v5.3)
   if (stepTraps(run, dt)) return // phase is now 'dead' (undergrowth snap trap — v5.4)
   if (stepLanes(run, dt)) return // phase is now 'dead' (city traffic — v5.4)
@@ -608,7 +611,14 @@ function stepPlayerMovement(run, input, dt) {
   // dark above and for the same reason — multiplying would silently stack with latch/web/the dark.
   const _sig = CHAPTERS[run.chapter].signature
   const sandMul = _sig && _sig.type === 'tide' && onSandbar(run) ? _sig.bars.slowMul : 1
-  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul)
+  // TIRED (Book 2 / The Trawl): the bottom of the Feed bar takes your speed, on tiredness() — the
+  // same ramp the dark above runs on, deliberately sharing barRamp() so the two curves cannot drift.
+  // Same MIN composition as its two neighbours, and for the same reason: multiplying would make
+  // every latch, web and sandbar in this chapter strictly nastier than the same one elsewhere.
+  // The consequence is the chapter — at the floor you still move faster than the net, so running dry
+  // is a squeeze rather than a death sentence (spec §8.2), but the margin all but disappears.
+  const tireMul = _dres?.tire ? 1 - (1 - _dres.tire.speedFloor) * tiredness(run.charge, _dres) : 1
+  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
   const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul
 
@@ -1208,6 +1218,26 @@ function stepRepulse(run, input, dt) {
   // says an empty bar may leave the player slower, never structurally trapped, and in a lane where
   // the coral is solid "trapped" is a thing that can actually happen.
   if (ch.burst) run._burstT = BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t
+  // THE BREACH (v7.x, The Trawl — CHAPTERS[].breach). The same press, the same cooldown and the same
+  // `t` again: this chapter's answer to its own wall, and never a second button or a second bar. You
+  // tear the hole where YOU are on the net, and it lasts for the rest of that pass — a door you made,
+  // which the crowd will also use, because inNetHole does not ask who is standing in it.
+  //
+  // Gated on the net being in REACH, which is what stops the button being free: pressed on cooldown
+  // from anywhere, the wall would never be a decision. With the gate, breaching means turning back
+  // toward the thing that is killing you while it is still 500px out.
+  //
+  // The floor is the RADIUS, not the existence of the hole (BREACH_R_MIN, and see its block): this
+  // chapter's other half makes an empty bar SLOW, so a bar that also could not cut would let the two
+  // halves conspire into the structural trap spec §8.2 forbids.
+  if (ch.breach && run.net && run.net.holes.length < BREACH_MAX_HOLES) {
+    const nt = run.net
+    if (Math.abs(p.x * nt.nx + p.y * nt.ny - nt.pos) <= BREACH_REACH) {
+      const r = BREACH_R_MIN + (BREACH_R_AT_FULL - BREACH_R_MIN) * t
+      nt.holes.push({ t: p.x * -nt.ny + p.y * nt.nx, r })
+      run.events.push({ type: 'breach', x: p.x, y: p.y, r, charged: t })
+    }
+  }
   const radSq = radius * radius
   const lax = laneAxes(ch)
   for (const e of run.enemies) {
@@ -3423,6 +3453,103 @@ export function onSandbar(run) {
   return false
 }
 
+// -- The Trawl (v7.x Book 2 ch 4): a net wall that aims at nothing ---------------------------
+// See the TRAWL_* block in config.js for the design and for why the speed has a derived band. The
+// geometry, once, here: the net is an INFINITE LINE carried as a unit normal `n` and a signed offset
+// `pos`, and it sweeps by advancing `pos`. A point is ON the mesh when |dot(point, n) - pos| is
+// under the half-thickness, BEHIND it when that signed distance is negative, and its position ALONG
+// the wall is dot(point, tangent) where tangent = (-ny, nx).
+//
+// A line rather than an entity with ends, because the world is streamed and unbounded: at 300s the
+// player can be 20,000px from the origin, so "a wall that crosses the map" has no edges to span, and
+// a wall you can walk round is not a wall. Every test below is one dot product, so the cost is flat
+// in how far the player has roamed.
+//
+// ⚠ THE THREE FUNCTIONS BELOW ARE THE ONLY PLACE THAT ARITHMETIC IS WRITTEN. Everything else —
+// contact, the wake, Breach, the renderer — calls these. That is deliberate: a sign error in "which
+// side has the net already crossed" is invisible (the wake simply appears on the wrong side of a
+// wall, which looks like a tuning choice), and duplicating the expression is how it would get one.
+const netDist = (net, x, y) => x * net.nx + y * net.ny - net.pos   // signed: <0 = already crossed
+const netAlong = (net, x, y) => x * -net.ny + y * net.nx           // position ALONG the wall
+// Is this point in a torn hole? Same test for the player and for the crowd, which is the whole point
+// of Breach: the hole is a gap in a line, and the line does not know who is standing in it.
+const inNetHole = (net, x, y) => {
+  const t = netAlong(net, x, y)
+  for (const h of net.holes) if (Math.abs(t - h.t) <= h.r) return true
+  return false
+}
+
+// Is this point in the churned wake — the ONLY place Feed comes from? Behind the mesh (the water the
+// net has already been through) and within TRAWL_WAKE_DEPTH of it. Exported because stepCharge asks
+// it in place of the shaft loop every other Book 2 chapter uses, and render.js draws the same band.
+export function inWake(run, x, y) {
+  const net = run.net
+  if (!net) return false
+  const d = netDist(net, x, y)
+  return d < -TRAWL_HALF && d >= -(TRAWL_HALF + TRAWL_WAKE_DEPTH)
+}
+
+// Returns true if the player died, matching stepRocks/stepPools' contract — it is called from
+// stepSim's `if (stepX(...)) return` group for that reason.
+function stepTrawl(run, dt) {
+  if (CHAPTERS[run.chapter].signature?.type !== 'trawl') return false
+  const p = run.player
+  const net = run.net
+  if (!net) {
+    // The gap between passes is measured from the last pass CLEARING, not from its arrival, so a
+    // slow sweep across a wide desktop viewport does not eat its own downtime.
+    // The `??` fallback is TRAWL_FIRST_PASS and not TRAWL_INTERVAL, matching what createRun writes:
+    // it only fires for a run object someone assembled by hand (a probe, a test fixture), and an
+    // undefined countdown means "this run has not had a pass yet", which is the first-pass case. With
+    // the interval here instead, a hand-built rig would silently measure a different opening to the
+    // chapter than the game gives — the two-places-one-fact shape, in miniature.
+    run._netAcc = (run._netAcc ?? TRAWL_FIRST_PASS) - dt
+    if (run._netAcc > 0) return false
+    // A NEW DIRECTION EVERY PASS, and that is what stops "swim that way forever" being a strategy:
+    // outrunning one net is meant to work (spec §6.4 — outrunnable but not ignorable), and it costs
+    // you the wake, i.e. the whole chapter's food supply. The next pass then comes from somewhere
+    // else, so the price of never being caught is never eating.
+    const a = Math.random() * Math.PI * 2
+    const nx = Math.cos(a), ny = Math.sin(a)
+    // Screen-relative, never world px: the warning IS the mechanic, and a world-px lead would be a
+    // different amount of warning on a phone than on a desktop. See TRAWL_LEAD_MUL.
+    const lead = run.viewRadius * TRAWL_LEAD_MUL
+    const d0 = p.x * nx + p.y * ny
+    // Starts on the -n side and advances through the player. `end` is fixed at spawn rather than
+    // trailing the player, so a player who outruns the wall ends the pass early instead of towing it.
+    run.net = { nx, ny, pos: d0 - lead, end: d0 + lead, holes: [], _acc: 0 }
+    return false
+  }
+  net.pos += TRAWL_SPEED * dt
+  if (net.pos > net.end) { run.net = null; run._netAcc = TRAWL_INTERVAL; return false }
+
+  // Contact, on a tick rather than per frame — for the same reason stepRocks grinds on ROCK_TICK:
+  // 60 fractional hits a second is unreadable and floods the event stream.
+  net._acc += dt
+  let ticks = 0
+  while (net._acc >= TRAWL_TICK) { net._acc -= TRAWL_TICK; ticks++ }
+  if (ticks === 0) return false
+
+  // BOTH SIDES, in the same pass, on the same tick — the mechanic, not a side effect. Precedent is
+  // shipped twice: stepRocks and the undergrowth's snap traps, whose config block says outright
+  // "it damages BOTH sides, and that IS the mechanic".
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    if (Math.abs(netDist(net, e.x, e.y)) > TRAWL_HALF + e.radius) continue
+    if (inNetHole(net, e.x, e.y)) continue
+    dealDamage(run, e, TRAWL_ENEMY_DMG * ticks, false, false, true)   // hazard: the player did not deal it
+  }
+  if (Math.abs(netDist(net, p.x, p.y)) > TRAWL_HALF + PLAYER.radius) return false
+  if (inNetHole(net, p.x, p.y)) return false
+  // dot: true, which bypasses the invulnerability window on purpose. The net is a place you are
+  // standing in, like an acid pool or a spray strip, not a thing that hits you once — and an
+  // i-frame window would make swimming through the mesh free, which is the opposite of the chapter.
+  // The tell is the shipped one: hurtPlayer pushes {type:'hurt', dot:true}, which render.js already
+  // turns into a red vignette and shake and main.js already silences for audio. Publishing into a
+  // contract field render.js reads is the whole of the lesson the freeze scar taught.
+  return hurtPlayer(run, TRAWL_DMG * ticks, true, 'trawl')
+}
+
 // The chapter resource bar (v7.x Book 2). A chapter-gated no-op exactly like stepCurrents and
 // streamTraps - a chapter that declares no `resource` returns on the first line and its run.charge
 // stays the 0 createRun gave it, which is what lets this live in main from day one with no flag.
@@ -3447,6 +3574,11 @@ export function stepCharge(run, dt) {
     // drawn lobes where a field has them — so the water you can see is the water that refills you.
     if (inLobe(sh, p.x, p.y)) { c += res.refill * dt; break }
   }
+  // THE TRAWL'S REFILL IS NOT A PLACE (see CHAPTERS.trawl.signature). Every other Book 2 chapter's
+  // food is a circle on the map that streamShafts materialises into run.shafts, so the loop above
+  // finds all three; this chapter's is the churn behind a wall moving at 75 px/s, and there is
+  // nowhere on the map to stand. run.shafts is empty here, so this is the only branch that can fire.
+  if (inWake(run, p.x, p.y)) c += res.refill * dt
   run.charge = Math.max(0, Math.min(res.max, c))
 }
 

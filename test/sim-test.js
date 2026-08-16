@@ -109,6 +109,7 @@ import {
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, DROWN_TICK,
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
+  TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, BREACH_R_MIN, BREACH_R_AT_FULL, tiredness,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
@@ -4440,7 +4441,14 @@ function runBooks() {
   // then (both call sites were inert); a second book is what makes an outside id routine.
   assert.strictEqual(nextChapter('blank'), null, "nextChapter('blank') === null — The Blank is hidden, outside book 1's ladder")
   assert.strictEqual(nextChapter('shelf'), 'reef', "nextChapter('shelf') === 'reef' — the Undertow ladder walks its own book")
-  assert.strictEqual(nextChapter('reef'), null, "nextChapter('reef') === null — last chapter of its own book")
+  // DERIVED, not the literal 'reef' this line used to name. Undertow is being built one chapter at a
+  // time, so "the last chapter of that book" is a moving fact, and a hardcoded id turns every new
+  // chapter into a false red on a test that is not about that chapter at all — the same
+  // narrower-denominator-than-the-claim shape CLAUDE.md records for CHAPTER_ORDER. What is actually
+  // being asserted is that the walk STOPS at whatever the end currently is.
+  const undertow = BOOKS.undertow.chapters
+  const lastUndertow = undertow[undertow.length - 1]
+  assert.strictEqual(nextChapter(lastUndertow), null, `nextChapter('${lastUndertow}') === null — last chapter of its own book (${undertow.length} of them)`)
   assert.strictEqual(nextChapter('nope'), null, "nextChapter on an id no book claims === null, NOT 'body'")
   assert.strictEqual(nextChapter(undefined), null, 'nextChapter(undefined) === null')
   assert.strictEqual(nextChapter('body'), 'pond', 'nextChapter still walks book 1 normally')
@@ -12569,6 +12577,7 @@ try {
   run(testLaneGolden)
   run(testLaneAxis)
   run(testReefAirBurst)
+  run(testTrawlNet)
   run(testDevMenu)
   run(testModalPopBookkeeping)
   run(testUndertowLadder)
@@ -15961,6 +15970,305 @@ function testReefAirBurst() {
   console.log(`PASS run RF (The Reef's Air and Burst): the bar is decided by which side of the lane you commit to (0 vs ${res.max} over 150s), an empty bar drowns you at ${res.drown.dps}/s and stops the moment you breathe, the button dashes ${BURST_DUR_MIN}s empty and ${BURST_DUR_AT_FULL}s full, and the coral is solid across the lane only`)
 }
 
+// ---- run TR: The Trawl's net (the gimmick), Feed (the bar) and Breach (the button) --------------
+// Spec §5.2's three-part ask again, one chapter on. Every case is written as an EFFECT for the
+// reason run RF's header spells out and which bites harder here: this chapter's whole state is
+// timers and a moving offset, and ALL of them keep moving with the feature gutted. `run.charge`
+// falls on its own. `net.pos` advances whether or not anything reads it. `net.holes` grows whether
+// or not a hole stops damage. A test that asserted any of those would pass against a net that
+// touches nothing.
+//
+// The five silent failures this guards, none of which throws and all of which render plausibly:
+//   - the net sweeps past and damages NOBODY, so the chapter is an open field with scenery in it;
+//   - it damages the player but not the crowd (or the reverse), so "it aims at nothing" is a lie;
+//   - the wake does not feed, so Feed is a countdown with no supply and the bar is decoration;
+//   - Breach adds a hole that nothing reads, so the button is the Pulse with a cosmetic ring;
+//   - the wake lands on the side the net has NOT crossed — a pure sign error, which looks exactly
+//     like a design decision on screen and makes the chapter's only food source unreachable.
+function testTrawlNet() {
+  const dt = 1 / 60
+  const res = CHAPTERS.trawl.resource
+
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  const trawlRun = (seed = 20260816) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'trawl', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'trawl',
+      'run TR did not start in The Trawl — the WIP gate or the meta is wrong, and every number below would be another chapter')
+    run.player.hp = run.player.maxHP = 100000
+    run.mods.spawnMul = 0
+    run.viewRadius = 465   // the phone's half-diagonal: the device the warning has to work on
+    return run
+  }
+  // An empty world by default: most cases below measure the player, and a crowd contributes contact
+  // damage and knockback to exactly the quantities being read.
+  const quiet = (run) => { run.enemies.length = 0; run.events.length = 0 }
+  // Force a pass to be due NOW. run._netAcc is the sim's own countdown, so this fast-forwards the
+  // wait rather than building a net by hand — a hand-built net would be a second implementation of
+  // the thing under test and could not catch a spawn bug at all.
+  const summonNet = (run) => {
+    run._netAcc = 0
+    for (let i = 0; i < 300 && !run.net; i++) { stepSim(run, { x: 0, y: 0 }, dt); quiet(run) }
+    assert.ok(run.net, 'no net arrived within 5s of its countdown reaching zero — stepTrawl never spawns a pass')
+    return run.net
+  }
+  // Put the player at a signed distance `d` from the mesh, without touching the net at all.
+  const standAt = (run, d) => {
+    const n = run.net
+    const cur = run.player.x * n.nx + run.player.y * n.ny - n.pos
+    run.player.x += n.nx * (d - cur)
+    run.player.y += n.ny * (d - cur)
+  }
+
+  // (a) THE NET REACHES THE PLAYER AND HURTS, AND ONLY WHERE IT IS. Two runs off the same seed with
+  // the same everything except WHERE the player stands relative to the mesh. Standing in it costs
+  // HP; standing a few hundred px clear of it costs none. Asserted as a difference in damage taken,
+  // which is dead if stepTrawl never tests the player, if the half-thickness is wrong, or if the
+  // whole step is gated off for this chapter.
+  {
+    const inMesh = trawlRun()
+    summonNet(inMesh)
+    let hurtIn = 0
+    for (let i = 0; i < 120; i++) {
+      standAt(inMesh, 0)
+      const before = inMesh.player.hp
+      stepSim(inMesh, { x: 0, y: 0 }, dt)
+      hurtIn += before - inMesh.player.hp
+      quiet(inMesh)
+    }
+    const clear = trawlRun()
+    summonNet(clear)
+    let hurtClear = 0
+    for (let i = 0; i < 120; i++) {
+      standAt(clear, 300)   // ahead of the wall, well outside TRAWL_HALF + the player's radius
+      const before = clear.player.hp
+      stepSim(clear, { x: 0, y: 0 }, dt)
+      hurtClear += before - clear.player.hp
+      quiet(clear)
+    }
+    assert.ok(hurtIn > 0, 'standing in the mesh for 2s cost the player nothing — the net does not damage the player')
+    assert.strictEqual(hurtClear, 0, 'standing 300px clear of the mesh still hurt — the net damages a band far wider than it draws')
+    console.log(`PASS run TR.a (the net hurts, where it is): 2s in the mesh costs ${hurtIn.toFixed(0)} HP, 2s at 300px costs ${hurtClear.toFixed(0)}`)
+  }
+
+  // (b) IT KILLS BOTH SIDES, which is the chapter rather than a side effect. The same mesh, with an
+  // enemy standing in it and the player standing in it, and BOTH must lose HP in the same pass. A
+  // net that only hurt the player would be an ordinary hazard; one that only ground the crowd would
+  // be a gift. Only the pair is the mechanic, so only the pair is asserted.
+  {
+    const run = trawlRun()
+    const net = summonNet(run)
+    standAt(run, 0)
+    // NO WEAPONS. This is what makes the case mean anything: the player auto-attacks whatever is in
+    // range, so an enemy standing beside them loses HP whether or not the net ever touches it. The
+    // first cut of this case did not disarm the player and a mutation deleting the enemy-damage line
+    // outright SURVIVED it — a passing assertion that was reading clawRake and calling it the net.
+    run.weapons.length = 0
+    // The suite's own fixture, not spawnEnemy: run SQ confines every run.enemies.push to sim.js, and
+    // a test reaching for the real spawner would be the exact thing that lint exists to stop.
+    const e = makeStatusEnemy(run, { x: run.player.x + -net.ny * 40, y: run.player.y + net.nx * 40, speed: 0 })
+    run.enemies.push(e)
+    const eBefore = e.hp
+    const pBefore = run.player.hp
+    for (let i = 0; i < 60; i++) {
+      standAt(run, 0)
+      e.x = run.player.x + -net.ny * 40
+      e.y = run.player.y + net.nx * 40
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+    }
+    assert.ok(pBefore - run.player.hp > 0, 'the net did not hurt the player')
+    assert.ok(eBefore - e.hp > 0, 'the net did not hurt the enemy standing in it — "it aims at nothing" is only true of the player')
+    console.log(`PASS run TR.b (it kills both sides): 1s in the mesh takes ${(pBefore - run.player.hp).toFixed(0)} from the player and ${(eBefore - e.hp).toFixed(0)} from an enemy beside them`)
+  }
+
+  // (c) THE WAKE IS THE ONLY FOOD, AND IT IS BEHIND THE MESH. Three positions on the same net, off
+  // the same seed: in the wake the bar RISES, ahead of the wall it falls, and far behind it falls.
+  // The middle case is the sign check — if `behind` were computed with the opposite sign the bar
+  // would still rise somewhere, so a test that only proved "the bar can rise" would pass a net whose
+  // food is on the unreachable side. Also the do-nothing control for the whole resource: with no net
+  // at all there is nowhere in the chapter the bar can go up.
+  {
+    const feed = (d, withNet) => {
+      const run = trawlRun()
+      if (withNet) { summonNet(run); standAt(run, d) }
+      run.charge = 50
+      for (let i = 0; i < 60; i++) {
+        if (withNet) standAt(run, d)
+        stepSim(run, { x: 0, y: 0 }, dt)
+        quiet(run)
+      }
+      return run.charge - 50
+    }
+    const inWakeD = -(TRAWL_HALF + TRAWL_WAKE_DEPTH * 0.5)
+    const rose = feed(inWakeD, true)
+    const ahead = feed(TRAWL_HALF + 200, true)
+    const farBehind = feed(-(TRAWL_HALF + TRAWL_WAKE_DEPTH + 200), true)
+    const noNet = feed(0, false)
+    assert.ok(rose > 0, 'a second in the middle of the wake did not raise Feed — the chapter has no way to fill its bar')
+    assert.ok(ahead < 0, 'Feed rose while standing AHEAD of the net — the wake is on the side the net has not crossed yet')
+    assert.ok(farBehind < 0, 'Feed rose 200px past the back of the wake — the band has no far edge')
+    assert.ok(noNet < 0, 'Feed rose with no net on the map at all — something other than the wake is feeding it')
+    console.log(`PASS run TR.c (the wake is the only food, and it is behind): 1s in the wake ${rose > 0 ? '+' : ''}${rose.toFixed(1)}, ahead ${ahead.toFixed(1)}, past it ${farBehind.toFixed(1)}, no net at all ${noNet.toFixed(1)}`)
+  }
+
+  // (d) BREACH CUTS A DOOR, THE DOOR LASTS, AND THE CROWD USES IT. Damage taken standing in the mesh
+  // with a hole torn at your own position, against the same 2s without pressing the button. The hole
+  // must also still be there after the press, and an ENEMY inside it must be spared — that last part
+  // is the "a door you made, which the crowd will also use" clause, and it is the one a naive
+  // implementation gets wrong by testing the hole only for the player.
+  {
+    const cut = (press) => {
+      const run = trawlRun()
+      const net = summonNet(run)
+      run.charge = res.max
+      run.weapons.length = 0   // see (b): otherwise the enemy column below is measuring clawRake
+      let hurt = 0
+      const e = makeStatusEnemy(run, { x: run.player.x, y: run.player.y, speed: 0 })
+      run.enemies.push(e)
+      for (let i = 0; i < 120; i++) {
+        standAt(run, 0)
+        // 60px ALONG the wall: inside the hole (BREACH_R_AT_FULL is 220) but outside contact range
+        // (player 22 + enemy 16 = 38). At 20px the enemy was touching the player, and its contact
+        // damage landed in the very number this case reads as "damage from the net".
+        e.x = run.player.x + -net.ny * 60
+        e.y = run.player.y + net.nx * 60
+        const before = run.player.hp
+        stepSim(run, { x: 0, y: 0, skill: press && i === 0 }, dt)
+        hurt += before - run.player.hp
+        run.events.length = 0
+      }
+      return { hurt, holes: run.net ? run.net.holes.length : -1, enemyHurt: e.maxHP - e.hp }
+    }
+    const withoutBreach = cut(false)
+    const withBreach = cut(true)
+    assert.strictEqual(withoutBreach.holes, 0, 'a hole appeared without the button being pressed')
+    assert.strictEqual(withBreach.holes, 1, 'pressing the button in reach of the net tore no hole')
+    assert.ok(withBreach.hurt < withoutBreach.hurt,
+      `Breach did not reduce the damage of standing in the mesh (${withBreach.hurt} vs ${withoutBreach.hurt}) — the hole is drawn but nothing reads it`)
+    assert.ok(withBreach.enemyHurt < withoutBreach.enemyHurt,
+      'an enemy inside the torn hole still took net damage — the hole is tested for the player only, so the crowd cannot follow you through')
+    console.log(`PASS run TR.d (Breach cuts a door the crowd also uses): 2s in the mesh costs ${withoutBreach.hurt.toFixed(0)} HP unbreached and ${withBreach.hurt.toFixed(0)} through your own hole; the enemy in it takes ${withBreach.enemyHurt.toFixed(0)} against ${withoutBreach.enemyHurt.toFixed(0)}`)
+  }
+
+  // (e) THE NO-SPIRAL FLOOR, both halves of it, because in this chapter the bar's second job and the
+  // button share one bar and an empty one must not let them build a trap between them (spec §8.2).
+  //   - an EMPTY bar still cuts, just a smaller door;
+  //   - a fully TIRED player is still faster than the net.
+  // The second is arithmetic on shipped constants rather than a simulation, deliberately: it is the
+  // claim CHAPTERS.trawl.resource makes in prose, and prose does not fail when someone retunes
+  // speedFloor to 0.3 for feel.
+  {
+    const run = trawlRun()
+    summonNet(run)
+    run.charge = 0
+    standAt(run, 0)
+    stepSim(run, { x: 0, y: 0, skill: true }, dt)
+    assert.strictEqual(run.net.holes.length, 1, 'an empty Feed bar could not tear a hole at all — running dry is a structural trap')
+    assert.ok(Math.abs(run.net.holes[0].r - BREACH_R_MIN) < 1e-6,
+      `an empty bar tore a ${run.net.holes[0].r}px hole, not the BREACH_R_MIN ${BREACH_R_MIN} floor`)
+    assert.ok(BREACH_R_MIN > PLAYER.radius * 2,
+      `BREACH_R_MIN ${BREACH_R_MIN} is not comfortably wider than the player (${PLAYER.radius}) — the floor exists but does not fit through`)
+    const tiredSpeed = PLAYER.baseSpeed * res.tire.speedFloor
+    assert.ok(tiredSpeed > TRAWL_SPEED,
+      `a fully tired player moves at ${tiredSpeed} px/s against a ${TRAWL_SPEED} px/s net — running dry means the net catches you and you cannot leave`)
+    console.log(`PASS run TR.e (no-spiral floor): an empty bar still cuts a ${BREACH_R_MIN}px door, and a fully tired player still makes ${tiredSpeed.toFixed(0)} px/s against the net's ${TRAWL_SPEED}`)
+  }
+
+  // (f) THE TIRE IS REAL AND IT IS A RAMP. A full bar and an empty bar, same input, same seed: the
+  // empty one must travel measurably less far, and a bar just above the threshold must travel the
+  // full distance. The second half is what separates a ramp from a switch, and it is also what
+  // catches `tire` being read but never composed into slowMul — a value that is computed, logged and
+  // dropped moves nothing and throws nothing.
+  {
+    const walk = (charge) => {
+      const run = trawlRun()
+      run.charge = charge
+      const x0 = run.player.x, y0 = run.player.y
+      for (let i = 0; i < 60; i++) {
+        run.charge = charge   // held, so this measures the SPEED at that level and not the drain
+        stepSim(run, { x: 1, y: 0 }, dt)
+        quiet(run)
+      }
+      return Math.hypot(run.player.x - x0, run.player.y - y0)
+    }
+    const full = walk(res.max)
+    const atThreshold = walk(res.max * res.tire.from + 1)
+    const empty = walk(0)
+    assert.ok(empty < full * 0.95, `an empty Feed bar did not slow the player (${empty.toFixed(0)}px vs ${full.toFixed(0)}px in 1s) — tiredness() is computed and never applied`)
+    assert.ok(Math.abs(atThreshold - full) < 1, `a bar just above the ${res.tire.from} threshold was already slowed — the tire is a switch, not a ramp`)
+    assert.ok(empty > full * res.tire.speedFloor * 0.98, 'an empty bar slowed the player BELOW the declared floor — something is multiplying rather than joining by MIN')
+    console.log(`PASS run TR.f (Feed is your speed, on a ramp): 1s of walking covers ${full.toFixed(0)}px full, ${atThreshold.toFixed(0)}px at the threshold and ${empty.toFixed(0)}px empty (floor x${res.tire.speedFloor})`)
+  }
+
+  // (g) THE WARNING IS SCREEN-RELATIVE, asserted as a RATIO and never in px. A pass is spawned at
+  // TRAWL_LEAD_MUL x run.viewRadius, and a world-px lead would be a different amount of warning on a
+  // 390x844 phone (half-diagonal 465) than on a 1280x800 desktop (755) — which is the shipped bug
+  // The Shelf's dark had, recorded in CLAUDE.md, and the reason this case exists before anyone can
+  // report it. Two runs, identical but for the viewport.
+  {
+    const leadFor = (viewRadius) => {
+      const run = trawlRun()
+      run.viewRadius = viewRadius
+      run.player.x = 0; run.player.y = 0
+      const net = summonNet(run)
+      // Distance from the player to the mesh at the instant the pass appears, along its own normal.
+      return Math.abs(run.player.x * net.nx + run.player.y * net.ny - net.pos)
+    }
+    const phone = leadFor(465)
+    const desktop = leadFor(755)
+    assert.ok(Math.abs(phone / 465 - desktop / 755) < 0.02,
+      `the pass spawns ${phone.toFixed(0)}px out on a phone and ${desktop.toFixed(0)}px on a desktop — those are not the same FRACTION of the screen, so the warning is a different mechanic on each device`)
+    assert.ok(Math.abs(phone / 465 - TRAWL_LEAD_MUL) < 0.02,
+      `the lead is ${(phone / 465).toFixed(2)} view radii, not the declared TRAWL_LEAD_MUL ${TRAWL_LEAD_MUL}`)
+    console.log(`PASS run TR.g (the warning is screen-relative): the pass spawns ${(phone / 465).toFixed(2)} view radii out on both a phone (${phone.toFixed(0)}px) and a desktop (${desktop.toFixed(0)}px)`)
+  }
+
+  // (h) THE PASS ENDS, AND ANOTHER COMES. A net that is never dropped pins the chapter to one wall
+  // forever; one that is never re-spawned turns the chapter into an open field after 20 seconds. Both
+  // fail silently and both are invisible in any single frame.
+  {
+    const run = trawlRun()
+    summonNet(run)
+    let sawEnd = false, passes = 1
+    for (let i = 0; i < 60 * 120; i++) {
+      const had = !!run.net
+      stepSim(run, { x: 0, y: 0 }, dt)
+      quiet(run)
+      if (had && !run.net) sawEnd = true
+      if (!had && run.net) passes++
+    }
+    assert.ok(sawEnd, 'the first pass never ended in 120s — the net sweeps forever and the chapter is one wall')
+    assert.ok(passes >= 2, `only ${passes} pass(es) in 120s — a second one never arrived, so the chapter has no food after the first`)
+
+    // THE FIRST PASS ARRIVES BEFORE THE BAR STARTS BITING, which is a teaching decision and not a
+    // tuning one — the chapter has to show you the wall before it shows you the hunger, or the first
+    // half-minute is a player slowing down for no visible reason with no way to act on it. Measured
+    // as elapsed seconds in a FRESH run rather than by reading _netAcc, so setting the field back to
+    // TRAWL_INTERVAL fails here instead of passing a field-equality check.
+    const fresh = trawlRun()
+    let firstAt = null
+    for (let i = 0; i < 60 * 60 && firstAt === null; i++) {
+      stepSim(fresh, { x: 0, y: 0 }, dt)
+      quiet(fresh)
+      if (fresh.net) firstAt = i * dt
+    }
+    const tireAt = (res.max - res.max * res.tire.from) / res.drain
+    assert.ok(firstAt !== null, 'no pass at all in the first 60s of a fresh run')
+    assert.ok(firstAt < tireAt,
+      `the first net arrives at ${firstAt.toFixed(1)}s but the bar starts tiring the player at ${tireAt.toFixed(1)}s — the chapter teaches its hunger before its wall`)
+    console.log(`PASS run TR.h (the pass ends and another comes): ${passes} passes in 120s on TRAWL_INTERVAL ${TRAWL_INTERVAL}s, and the first arrives at ${firstAt.toFixed(1)}s — ahead of the ${tireAt.toFixed(1)}s at which Feed starts to bite`)
+  }
+
+  console.log(`PASS run TR (The Trawl's net, Feed and Breach): the wall damages the player AND the crowd, the wake behind it is the only thing that feeds either, Breach cuts a door both sides can use, an empty bar still cuts one, and the warning is ${TRAWL_LEAD_MUL} view radii on every screen`)
+}
+
 // ---- run MT: the in-run controls do not depend on a compatibility click ------------------------
 // Bug report, 2026-08-14: "when using the joystick to control I can't use the action button."
 //
@@ -16235,10 +16543,23 @@ function testUndertowLadder() {
   }
 
   // (c) the book's ladder is intact and the WIP gate still holds.
-  assert.deepStrictEqual(BOOKS.undertow.chapters, ['surf', 'shelf', 'reef'], 'the Undertow ladder is wrong')
+  // ASSERTED AS A PREFIX PLUS PROPERTIES, not as a literal list. Undertow is being built one chapter
+  // at a time, so a `deepStrictEqual` against the full array turns EVERY new chapter into a red on a
+  // test that is not about it — which is a test that has to be edited to stay passing, i.e. one
+  // nobody reads by the third time. What actually matters is that the SHIPPED order is never
+  // reordered, that every rung is real, and that nothing leaks between books.
+  const LADDER_PREFIX = ['surf', 'shelf', 'reef']
+  const undertowIds = BOOKS.undertow.chapters
+  assert.deepStrictEqual(undertowIds.slice(0, LADDER_PREFIX.length), LADDER_PREFIX,
+    'the Undertow ladder was REORDERED — its first three rungs are shipped and a save reads them by position')
+  for (const id of undertowIds) {
+    assert.ok(CHAPTERS[id], `BOOKS.undertow lists '${id}' but CHAPTERS has no such chapter — a dead rung`)
+    assert.ok(!CHAPTER_ORDER.includes(id), `'${id}' is in BOTH books' ladders`)
+  }
+  assert.strictEqual(new Set(undertowIds).size, undertowIds.length, 'the Undertow ladder repeats a chapter')
   assert.ok(!CHAPTER_ORDER.includes('surf'), 'a WIP chapter leaked into Book 1s ladder')
 
-  console.log(`PASS run US.g (undertow ladder): surf gentler than shelf on all ${AXES.length} balance axes (${AXES.map(([k]) => k).join(', ')}), sticky excludes ${BOOKS.undertow.chapters.length} chapters, WIP gate holds`)
+  console.log(`PASS run US.g (undertow ladder): surf gentler than shelf on all ${AXES.length} balance axes (${AXES.map(([k]) => k).join(', ')}), ladder is ${undertowIds.length} rungs [${undertowIds.join(' ')}], sticky excludes all of them, WIP gate holds`)
 
   // (d) THE MOON JELLY TUNE, and the roster lever it introduced. Owner's ask: -25% health, +25% xp.
   // Pinned as that arithmetic rather than as bare literals, the way the centipede cut is (run UG.a),

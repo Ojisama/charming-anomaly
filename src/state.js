@@ -6,7 +6,7 @@ import {
   EARLY_CALM, MAX_CHOICE_SLOTS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
-  pickWorldSeed, usesObstacleSeed,
+  pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS,
 } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
@@ -1629,6 +1629,15 @@ export function createRun(meta, opts = {}) {
     // declaring `burst` / a `resource.drown` block ever moves them off 0.
     _burstT: 0,
     _drownAcc: 0,
+    // v7.x The Trawl: the net wall, and the countdown to the next pass. `net` is a single OBJECT and
+    // not an array, because there is only ever one wall and it is an infinite LINE rather than an
+    // entity with a position — { nx, ny, pos, end, holes, _acc }, where (nx, ny) is the unit normal
+    // it advances along, `pos` the signed offset of the line, `end` the offset at which the pass is
+    // dropped, and `holes` the Breach cuts, each { t, r } on the wall's own tangent axis. See
+    // stepTrawl in sim.js for the arithmetic — it is written in exactly one place on purpose.
+    // null between passes, and null forever in every chapter whose signature is not `trawl`.
+    net: null,
+    _netAcc: TRAWL_FIRST_PASS,   // NOT the interval — see its block for why the first pass is early
     _obstacleSeed: obstacleSeed,
     _obstacleRev: 0,
     // v5.9.1 bugfix (see obstacles[]/_crushed doc above): permanent per-run memory of which
