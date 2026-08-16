@@ -1,7 +1,7 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX } from '../src/state.js'
+import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta } from '../src/state.js'
 // sync.js keeps browser globals out of its module scope precisely so it can be imported here.
 import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRecord, RECORD_KEY } from '../src/sync.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
@@ -4607,6 +4607,50 @@ function runBookProgression() {
       assert.ok(Number.isInteger(u.cost) && u.cost > 0, `BOOK_UNLOCKS.${bookId}.${id}.cost must be a positive integer`)
     }
   }
+  // (g)-(k) live in their own block: `ut` here is ensureBookMeta's return, and the outer scope
+  // already has a `ut` from (a) (shopLines('undertow')) — same function, so a bare re-declaration
+  // would be a SyntaxError, not a name shadowing bug.
+  {
+    // (g) bookMeta: book 1 IS the meta (its fields never moved — R2); other books nest.
+    const m = makeMeta()
+    m.chapters = {}
+    assert.strictEqual(bookMeta(m, 'book1'), m, 'bookMeta(meta, book1) returns meta itself — book 1 keeps its top-level fields')
+    assert.strictEqual(bookMeta(m, 'undertow'), null, 'an absent purse reads null, it is not conjured by a read')
+
+    // (h) ensureBookMeta is a PURE REPAIR. It never grants — that is the unlock path's job (Task 3).
+    const ut = ensureBookMeta(m, 'undertow')
+    assert.strictEqual(ut.coins, 0, 'ensureBookMeta creates a purse at ZERO — creation must not be a payout')
+    assert.strictEqual(ut.choiceSlots, 2, 'a new book starts at 2 card slots')
+    assert.deepStrictEqual(ut.unlocks, {}, 'a new book has no unlocks')
+    for (const id of Object.keys(shopLines('undertow'))) {
+      assert.strictEqual(ut.shop[id], 0, `new purse must carry line '${id}' at 0`)
+    }
+    ut.coins = 55
+    assert.strictEqual(ensureBookMeta(m, 'undertow').coins, 55, 'ensureBookMeta REPAIRS IN PLACE — it must not rebuild the entry')
+
+    // (i) A future build's unknown line and unknown BOOK survive the repair (R3: clamp on use,
+    // never on load). Rebuilding the map instead of repairing it would delete both.
+    m.books.undertow.shop.futureLine = 7
+    m.books.someBook3 = { coins: 12, shop: {}, choiceSlots: 3, unlocks: {} }
+    ensureBookMeta(m, 'undertow')
+    assert.strictEqual(m.books.undertow.shop.futureLine, 7, "a future build's shop line must survive the repair")
+    assert.strictEqual(m.books.someBook3.coins, 12, "a future build's whole BOOK must survive the repair")
+
+    // (j) UPGRADE ISOLATION — the reset is real. This is the assertion the whole design is for.
+    const rich = makeMeta()
+    rich.shop.damage = MAX_SHOP_LEVEL          // book 1 maxed
+    rich.chapters = { surf: { unlocked: true, maxDifficulty: 1, difficulty: 1, best: { time: 0, kills: 0 } } }
+    const b1run = createRun(rich, { chapter: 'body' })
+    const utrun = createRun(rich, { chapter: 'surf' })
+    assert.ok(b1run.player.damageMul > 1, 'book 1 upgrades apply in a book 1 chapter')
+    assert.strictEqual(utrun.player.damageMul, 1, "book 1's damage upgrade must NOT apply in an Undertow chapter")
+
+    // (k) SLOT RESET — 4 slots in book 1 does not deal 4 cards in book 2.
+    rich.choiceSlots = MAX_CHOICE_SLOTS
+    assert.strictEqual(createRun(rich, { chapter: 'body' }).choiceSlots, MAX_CHOICE_SLOTS, 'book 1 keeps its slots')
+    assert.strictEqual(createRun(rich, { chapter: 'surf' }).choiceSlots, 2, 'a book 2 run resets to 2 card slots')
+  }
+
   console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them`)
 }
 run(runBookProgression)
@@ -5165,8 +5209,11 @@ run(runRosterArt)
 // sim.js must never learn about meta to find that out.
 function runLightThief() {
   const res = CHAPTERS.shelf.resource
+  // 'shelf' is bookOf() 'undertow' (Task 2: per-book progression), so the unlock now lives at
+  // bm.unlocks.lightThief — meta.books.undertow.unlocks.lightThief here, not a top-level field.
   const meta = (thief) => ({
-    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true, lightThief: thief,
+    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true,
+    books: { undertow: { coins: 0, shop: {}, choiceSlots: 2, unlocks: { lightThief: thief } } },
     chapters: Object.fromEntries(['body', 'pond', 'shelf'].map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
   })
 
@@ -5179,7 +5226,7 @@ function runLightThief() {
     // Coerced, not truthy: every other gate in the save tests === true, and a save carrying 1 or
     // 'yes' that granted the unlock HERE while denying it everywhere else is the worst shape.
     for (const bad of [1, 'yes', {}, [], 'true']) {
-      assert.strictEqual(createRun({ ...meta(false), lightThief: bad }, { chapter: 'shelf', difficulty: 1 }).killRefill, 0,
+      assert.strictEqual(createRun(meta(bad), { chapter: 'shelf', difficulty: 1 }).killRefill, 0,
         `lightThief: ${JSON.stringify(bad)} is not true and must not grant the unlock`)
     }
     assert.strictEqual(createRun(meta(true), { chapter: 'pond', difficulty: 1 }).killRefill, 0,
