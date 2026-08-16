@@ -4554,6 +4554,30 @@ function runBooks() {
       `a raw per-chapter \`unlocked\` read is back in the title-rendering span — route it through chapterAvailable or a WIP chapter renders locked:\n${rawReads.join('\n')}`)
   }
 
+  // (j) The carousel must follow an unlocked book. Removing `wip` from a book is what SHIPS it,
+  // and before this the only line that surfaced another book's chapters was gated on `wip` —
+  // so shipping made Book 2 LESS reachable, not more.
+  const shipped = { ...BOOKS, undertow: { ...BOOKS.undertow, wip: false } }
+  const withBook2 = {
+    dev: false,
+    chapters: {
+      ...Object.fromEntries(CHAPTER_ORDER.map((id) => [id, { unlocked: true, maxDifficulty: 3 }])),
+      surf: { unlocked: true, maxDifficulty: 1 },
+    },
+  }
+  const list = titleChapterList(withBook2, shipped)
+  assert.ok(list.includes('surf'), 'an unlocked Undertow chapter must appear on the title carousel')
+  assert.ok(list.includes('beyond'), 'book 1 chapters are still listed')
+  assert.ok(!list.includes('reef'), 'a LOCKED chapter of the new book must not be listed as playable')
+  // The "???" tease crosses the boundary too: book 1 finished, book 2 not yet unlocked.
+  const onCusp = { dev: false, chapters: Object.fromEntries(CHAPTER_ORDER.map((id) => [id, { unlocked: true, maxDifficulty: 3 }])) }
+  const cuspList = titleChapterList(onCusp, shipped)
+  assert.ok(cuspList.includes('surf'), "the next BOOK's first chapter shows as the ??? preview once book 1's ladder is done")
+  // A player mid-book-1 sees nothing of book 2.
+  const early = { dev: false, chapters: { body: { unlocked: true, maxDifficulty: 1 } } }
+  assert.ok(!titleChapterList(early, shipped).some((id) => BOOKS.undertow.chapters.includes(id)),
+    'a player who has not finished book 1 must see no Undertow chapter at all')
+
   console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the carousel`)
 }
 run(runBooks)

@@ -5674,28 +5674,56 @@ export const chapterAvailable = (meta, id) =>
   !!meta?.chapters?.[id]?.unlocked || (meta?.dev === true && isWipChapter(id))
 
 // Which chapters the title carousel shows: every unlocked chapter, plus the first still-locked one
-// as an anonymous "???" preview. Pure function of the save — it was module-local in ui.js until
-// v7.x, and it moved here because it is chapter DATA logic with no DOM in it, and because the WIP
-// gate below is only a real gate if the suite can assert it (ui.js cannot be imported headless:
-// import.meta.glob is Vite-only).
-export function titleChapterList(meta) {
-  const ids = CHAPTER_ORDER.filter((id) => meta.chapters?.[id]?.unlocked)
-  const locked = nextChapter(ids[ids.length - 1] ?? CHAPTER_ORDER[0])
-  if (locked && !meta.chapters?.[locked]?.unlocked) ids.push(locked)
-  const base = ids.length ? ids : [CHAPTER_ORDER[0]]
-  // v5.24: The Blank lives OUTSIDE CHAPTER_ORDER (see config.js) so nextChapter can never surface
-  // it — appended explicitly instead. Unlocked: a real card. Not yet, but Beyond has been pushed to
-  // its ceiling (one win away): a "???" mystery card. Otherwise it must never appear at all.
+// as an anonymous "???" preview — walked once per book, in BOOK_ORDER, so the carousel follows a
+// save across a book boundary rather than stopping dead at the end of book 1. Pure function of the
+// save — it was module-local in ui.js until v7.x, and it moved here because it is chapter DATA
+// logic with no DOM in it, and because the WIP gate below is only a real gate if the suite can
+// assert it (ui.js cannot be imported headless: import.meta.glob is Vite-only).
+//
+// `books` is injectable (defaults to the live BOOKS) so the suite can simulate a SHIPPED Undertow
+// — `wip: false` — without editing config.js. Every real call site (ui.js) passes only `meta`, so
+// the default preserves today's behaviour for every Book-1-only save exactly.
+//
+// The "???" preview is `b.chapters[unlocked.length]`, which assumes a book's unlocked chapters
+// form a PREFIX of its ladder. That holds today: chapters unlock sequentially and loadMeta's
+// retroactive chain (testChapters (f)) fills any gap on load, and the `!…unlocked` guard below
+// means a non-prefix save simply shows no tease rather than the wrong one.
+//
+// There is exactly ONE tease in the whole carousel, and it sits at the FRONTIER: the first locked
+// chapter after the run of already-unlocked ones, wherever that lands — including a book's own
+// first chapter, once every book before it is entirely unlocked. `frontier` tracks whether every
+// book walked so far has been fully unlocked; the moment one isn't, no book after it gets a tease
+// either — a naive "unlocked.length > 0" per-book guard fails this both directions: it hides the
+// tease for an untouched book 2 the run has actually just reached (frontier true, unlocked empty),
+// and would show one for every later book too if that guard were simply dropped.
+export function titleChapterList(meta, books = BOOKS) {
+  const base = []
+  let frontier = true
+  for (const bookId of BOOK_ORDER) {
+    const b = books[bookId]
+    if (!b || (b.wip && !meta.dev)) continue
+    const unlocked = b.chapters.filter((id) => meta.chapters?.[id]?.unlocked)
+    base.push(...unlocked)
+    if (frontier) {
+      const locked = b.chapters[unlocked.length]
+      if (locked && !meta.chapters?.[locked]?.unlocked) base.push(locked)
+      if (unlocked.length < b.chapters.length) frontier = false
+    }
+    // v7.x: a WIP book behind the dev gate shows its WHOLE ladder, as before — meta.dev is the
+    // only way to reach a chapter with no unlock path yet, so it bypasses the frontier tease
+    // entirely rather than composing with it, the same way it bypasses the `unlocked` filter above.
+    if (b.wip && meta.dev) base.push(...b.chapters.filter((id) => !base.includes(id)))
+  }
+  if (!base.length) base.push(CHAPTER_ORDER[0])
+  // v5.24: The Blank lives OUTSIDE every book's ladder (see `hidden` in BOOKS) so the walk above
+  // can never surface it — appended explicitly instead. Unlocked: a real card. Not yet, but Beyond
+  // has been pushed to its ceiling (one win away): a "???" mystery card. Otherwise it must never
+  // appear at all.
   if (meta.chapters?.blank?.unlocked) base.push('blank')
   // >= not ===: R3 (state.js) keeps a future build's higher maxDifficulty as stored, and a strict
   // equality against this build's ceiling would make the "???" card vanish for exactly the players
   // who have gone furthest. undefined/null still compare false, so nothing else changes.
   else if (meta.chapters?.beyond?.maxDifficulty >= MAX_DIFFICULTY) base.push('blank')
-  // v7.x: a WIP book's chapters are appended ONLY behind the dev gate, the same explicit-append
-  // idiom The Blank uses one line up and for the same reason — they live outside CHAPTER_ORDER, so
-  // the filter above structurally cannot surface them. This append is the only way to reach one,
-  // which is what makes meta.dev a real gate rather than a decoration.
-  if (meta.dev) for (const b of Object.values(BOOKS)) if (b.wip) base.push(...b.chapters)
   return base
 }
 // Date-seeded over SHIPPED chapters (CHAPTER_ORDER); reuses the FNV-1a + mulberry32 helpers
