@@ -273,7 +273,8 @@ body {
      v7.x: grid-auto-rows, not a hardcoded repeat(8, ...) — a book's line count is shopLines(bookId).
      length now, not always 8 (Undertow's is 11), and a fixed repeat(8, ...) left rows past the 8th
      falling into implicit grid-auto-rows:auto at a DIFFERENT (shorter) height than the first eight.
-     This is the same rule the --sac variant below already used. */
+     The --sac variant used to carry this same rule as its own override; now that the base rule
+     matches it, that modifier was dropped as a duplicate rather than kept as dead weight. */
   grid-auto-rows: minmax(max-content, 1fr);
   gap: 4px;
   overflow-y: auto;
@@ -1489,9 +1490,11 @@ body {
   background: #dff5ec;
   animation: counter-pop 0.25s ease-out, ready-pulse 0.9s ease-in-out infinite;
 }
-/* the sacrifice list only holds stats you actually own, so its row count varies — auto rows
-   instead of the shop's fixed repeat(8) */
-.shop-rows--sac { grid-template-rows: none; grid-auto-rows: minmax(max-content, 1fr); }
+/* .shop-rows--sac used to diverge from the base .shop-rows rule (fixed repeat(8) rows there,
+   auto rows here — the sacrifice list only holds stats you actually own, so its count varies).
+   v7.x made the base rule itself grid-auto-rows for the same reason (Undertow's 11 shop lines
+   vs book 1's 8), so this modifier is now a verbatim duplicate and was dropped rather than kept
+   as dead weight. */
 .shop-foot--sac { gap: 10px; }
 .shop-foot--sac .btn { flex: 1; width: auto; min-width: 0; min-height: 46px; padding: 6px 8px; font-size: 0.84rem; }
 /* ---- sacrifice rows: the SHOP row component, reused verbatim ----

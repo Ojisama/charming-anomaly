@@ -3488,10 +3488,10 @@ export const BOOK_SHOP = {
   },
 }
 // The line table for one book. EVERY consumer goes through this — never SHOP directly, or a
-// book-specific line is invisible in exactly one place. Run BK's source-text lint guards it.
+// book-specific line is invisible in exactly one place. Run BP's source-text lint guards it.
 export const shopLines = (bookId) => ({ ...SHOP, ...(BOOK_SHOP[bookId] ?? {}) })
 // Every line in the game, for the lookups that are book-agnostic (shopCost). Line ids are
-// globally unique — run BK asserts it — which is what lets shopCost keep its two-arg signature
+// globally unique — run BP asserts it — which is what lets shopCost keep its two-arg signature
 // and spares ~6 call sites.
 const ALL_SHOP_LINES = Object.assign({}, SHOP, ...Object.values(BOOK_SHOP))
 export const shopCost = (id, level) => Math.min(
@@ -5659,7 +5659,7 @@ export const isBookFinale = (id) => {
 // The book after this one on the shelf, or null past the end AND for any id no book claims.
 // NOT `BOOK_ORDER[BOOK_ORDER.indexOf(bookId) + 1] ?? null` — indexOf(-1) + 1 indexes element 0,
 // so an unclaimed id would silently resolve to BOOK_ORDER[0] ('book1'). Same latent defect
-// nextChapter was fixed for above; caught here by run BK's direct nextBook('nope') coverage
+// nextChapter was fixed for above; caught here by run BP's direct nextBook('nope') coverage
 // before it ever reached a live call site (endRun's book-finale branch is only entered when
 // isBookFinale is true, which is itself false for a bookOf-less id — so this was never triggered
 // in practice, but the function's own contract must hold regardless of who currently guards it).

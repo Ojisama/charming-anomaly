@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, shopLines, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOKS, BOOK_ORDER, bookOf, isBookFinale, nextBook } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -181,8 +181,11 @@ const ui = initUI({
   // whatever chapter the title carousel last settled on (browseChapterId, ui.js). main.js cannot
   // recover that on its own: browseChapterId and meta.chapter deliberately diverge (a locked
   // preview card browses without persisting), so a guess here would spend the wrong book's coins
-  // the moment a Book 2 chapter is browsable.
-  onBuy(id, bookId) {
+  // the moment a Book 2 chapter is browsable. Defaulted to BOOK_ORDER[0], same as onSacrifice
+  // below and for the same reason: a 1-arg call (an older caller, a replayed event from a stale
+  // DOM) must keep meaning book 1, not `ensureBookMeta(meta, undefined)` writing a junk
+  // `meta.books.undefined` purse into the save.
+  onBuy(id, bookId = BOOK_ORDER[0]) {
     const bm = ensureBookMeta(meta, bookId)
     // Same style as onSacrifice's own line-validity check below: shopLines(bookId) resolves ids
     // GLOBALLY (shopCost doesn't know which book is asking), so without this a crafted data-buy
@@ -473,8 +476,6 @@ function endRun(victory) {
   // shouldn't keep announcing it).
   let unlockedChapter = null
   let unlockedChapterId = null
-  let unlockedBook = null
-  let unlockedBookCoins = 0
   if (victory && runMode === 'classic' && (run.difficulty ?? 1) >= CHAPTER_UNLOCK_DIFFICULTY) {
     const next = nextChapter(run.chapter)
     if (next) {
@@ -487,11 +488,16 @@ function endRun(victory) {
     } else if (isBookFinale(run.chapter)) {
       // No next chapter AND this is the book's finale: open the next book. Not a bare
       // `!next` test — that is also true of The Blank (see isBookFinale in config.js).
+      // Still unlocks (meta.chapters + the 100-coin grant) even though it produces NO summary
+      // banner: a book-unlock banner is deliberately deferred to the Book-2 launch (final review,
+      // 2026-08-16). Its copy has to live in a config TABLE, not a tt() literal here — run XX's
+      // config-table walk is what catches a missing French translation, and a literal in this
+      // function is invisible to it by construction (see the CLAUDE.md note on player-visible
+      // copy) — and the wording is the project owner's to choose personally. The path is also
+      // unreachable today (Undertow is `wip` and dev-gated), so there is no player-visible gap to
+      // paper over by wiring a banner with placeholder text.
       const nb = nextBook(bookOf(run.chapter))
-      if (nb && unlockBook(meta, nb)) {
-        unlockedBook = BOOKS[nb].name
-        unlockedBookCoins = BOOKS[nb].startCoins ?? 0
-      }
+      if (nb) unlockBook(meta, nb)
     }
   }
 
@@ -530,8 +536,6 @@ function endRun(victory) {
     unlockedChapter,
     unlockedChapterId,
     unlockedHiddenChapter,
-    unlockedBook,
-    unlockedBookCoins,
   })
 }
 

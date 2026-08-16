@@ -210,7 +210,7 @@ function makeMeta() {
 
 // Stubs localStorage with `blob` (as the raw JSON the save slot would hold) and calls loadMeta() —
 // the pattern the loadMeta-side scenarios already use (see testChoiceSlots/testChapters above),
-// pulled out to a helper because run BK's retroactive-unlock block needs it several times.
+// pulled out to a helper because run BP's retroactive-unlock block needs it several times.
 function loadMetaFrom(blob) {
   globalThis.localStorage = { getItem: () => JSON.stringify(blob), setItem: () => {} }
   const m = loadMeta()
@@ -4582,7 +4582,7 @@ function runBooks() {
 }
 run(runBooks)
 
-// ---- Run BK (book tables): per-book shop lines, unlocks and a total shopCost --------------
+// ---- Run BP (book progression): per-book shop lines, unlocks and a total shopCost ---------
 function runBookProgression() {
   // (a) Every book resolves a line table; book-specific lines merge OVER the universal eight.
   const b1 = shopLines('book1')
@@ -4816,6 +4816,14 @@ function runBookProgression() {
   assert.strictEqual(nextBook('book1'), 'undertow', "nextBook('book1') === 'undertow'")
   assert.strictEqual(nextBook('undertow'), null, "nextBook('undertow') === null — Undertow is the last shipped book")
   assert.strictEqual(nextBook('nope'), null, 'nextBook of an id no book claims === null')
+  // FINAL FIX ROUND, FIX 5 — unlockBook is exported and used `BOOKS[bookId].chapters[0]` with no
+  // guard against an id absent from BOOKS: the wip check above (`BOOKS[bookId]?.wip === true`)
+  // reads undefined?.wip as undefined, not true, so an unclaimed id survives that guard and would
+  // throw reading .chapters off undefined. Must refuse, not crash.
+  {
+    const um = makeMeta(); um.chapters = {}
+    assert.strictEqual(unlockBook(um, 'nope'), false, 'unlockBook of an id no book claims must return false, not throw')
+  }
 
   // (s) OLD-BUILD COMPATIBILITY. The entire architecture is "additive, so no migration". This is
   // the assertion that says so. Rev 1 of the spec moved book 1's fields into meta.books and
@@ -4857,7 +4865,7 @@ function runBookProgression() {
   // main.js is source-text-only here (not importable — see the CLAUDE.md note on run UG.k).
   {
     const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
-    assert.match(mainSrc, /onBuy\s*\(\s*id\s*,\s*bookId\s*\)/, 'onBuy must take an explicit bookId')
+    assert.match(mainSrc, /onBuy\s*\(\s*id\s*,\s*bookId[^)]*\)/, 'onBuy must take an explicit bookId')
     assert.match(mainSrc, /onSacrifice\s*\(\s*picks\s*,\s*target[^)]*,\s*bookId[^)]*\)/, 'onSacrifice must take an explicit bookId')
     assert.doesNotMatch(mainSrc, /meta\.shop\[/, 'main.js must not index meta.shop directly — it goes through bookMeta')
     assert.doesNotMatch(mainSrc, /meta\.coins\s*[-+]=/, 'main.js must not mutate meta.coins directly — it goes through bookMeta')
@@ -4942,8 +4950,8 @@ function runBookProgression() {
   // would refuse it). main.js is source-text-only here (not importable — see (t) above).
   {
     const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
-    const start = mainSrc.indexOf('onBuy(id, bookId) {')
-    assert.ok(start > 0, 'main.js must still declare onBuy(id, bookId) {')
+    const start = mainSrc.indexOf('onBuy(id, bookId = BOOK_ORDER[0]) {')
+    assert.ok(start > 0, 'main.js must still declare onBuy(id, bookId = BOOK_ORDER[0]) {')
     const end = mainSrc.indexOf('\n  },\n', start)
     assert.ok(end > start, 'could not find the end of onBuy')
     const body = mainSrc.slice(start, end)
@@ -5158,7 +5166,43 @@ function runBookProgression() {
     assert.deepStrictEqual(bkBare, [], `${bkFile} reads SHOP directly (${bkBare.join(', ')}) — use shopLines(bookId)`)
   }
 
-  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max, The Surf's opening balance (EARLY_CALM.surf + archetypeMul.tank) matches the 2026-08-16 owner ruling, ${bkAllChapters.length} chapters all resolve to a book, and no source file reads SHOP directly`)
+  // (ad) FINAL FIX ROUND, FIX 1 — meta.books/meta.grants must shape-guard against a non-nullish
+  // non-object, the same hardening ensureBookMeta already applies to entry.shop/.unlocks. `??=`
+  // does not fire for e.g. `books: 5`, so the very next line indexes a primitive — a TypeError,
+  // thrown INSIDE loadMeta's own `catch { corrupted save -> fresh }` (state.js), which wipes the
+  // WHOLE save, not just books. No shipped writer produces such a blob, but importSlot validates
+  // shop+chapters and NOT these two fields, so a tampered or foreign-build blob synced from
+  // another device passes straight through. Measured before this fix (see the final review):
+  //   {"books":5}     -> runs 0, coins 0, lang en   WIPED
+  //   {"grants":"x"}  -> runs 0, coins 0, lang en   WIPED
+  //   {"books":"x"}   -> runs 0, coins 0, lang en   WIPED
+  // The base blob below is deliberately built to reach BOTH repair sites regardless of which field
+  // is malformed: dev:true + a Beyond win at 5 (>= CHAPTER_UNLOCK_DIFFICULTY) drives the
+  // retroactive unlockBook -> grantBook -> ensureBookMeta chain (o, above), and lightThief:true
+  // alone drives the forward-copy's own ensureBookMeta call (p, above) — so a books-guard bug and a
+  // grants-guard bug are each independently reachable no matter which one this run happens to hit
+  // first.
+  const bkBadBase = () => ({
+    schema: 1, coins: 4200, shop: {}, choiceSlots: 4, runs: 137, chapter: 'beyond', lang: 'fr',
+    dev: true, lightThief: true,
+    best: { time: 300, kills: 4000 },
+    chapters: { beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 } },
+  })
+  for (const bad of [{ books: 5 }, { grants: 'x' }, { books: 'x' }]) {
+    const blob = { ...bkBadBase(), ...bad }
+    const m = loadMetaFrom(blob)
+    assert.strictEqual(m.runs, 137, `a malformed ${JSON.stringify(bad)} must not wipe runs`)
+    assert.strictEqual(m.coins, 4200, `a malformed ${JSON.stringify(bad)} must not wipe coins`)
+    assert.strictEqual(m.lang, 'fr', `a malformed ${JSON.stringify(bad)} must not wipe lang`)
+    // And the malformed field itself lands on a usable shape, not the raw primitive.
+    assert.ok(m.books && typeof m.books === 'object' && !Array.isArray(m.books),
+      `${JSON.stringify(bad)}: meta.books must repair to a plain object`)
+    assert.ok(m.grants && typeof m.grants === 'object' && !Array.isArray(m.grants),
+      `${JSON.stringify(bad)}: meta.grants must repair to a plain object`)
+  }
+  console.log('PASS run BP.ad (shape guard): meta.books/meta.grants survive books:5, grants:"x" and books:"x" without wiping the save')
+
+  console.log(`PASS run BP (book progression): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max, The Surf's opening balance (EARLY_CALM.surf + archetypeMul.tank) matches the 2026-08-16 owner ruling, ${bkAllChapters.length} chapters all resolve to a book, and no source file reads SHOP directly`)
 }
 run(runBookProgression)
 
@@ -12421,7 +12465,7 @@ function testFrenchDictionary() {
   // this walk documents eight lines above itself. The flat form (`for (const v of
   // Object.values(table)) need(v?.name)`) would yield the per-book dicts, read `.name` as
   // undefined off THOSE, and skip — a green coverage assert that covers nothing for either table.
-  // A hand-rolled French-coverage check for these two tables already exists in run BK
+  // A hand-rolled French-coverage check for these two tables already exists in run BP
   // (testBookProgression) — this is the CANONICAL config-table walk gaining the same coverage, so
   // a future table added here for an unrelated reason (the `dead`-key reverse check below, the
   // {placeholder} consistency check) covers Book copy too, not just "is it missing".
@@ -14133,12 +14177,20 @@ function testSpiderShare() {
   // making this the fourth chapter to hit the identical one-item-pool wall. Its cut is also a
   // CLUTTER fix — every live column paints an artillery telegraph — so it lands alongside dimming
   // that mark in SKIES_FX.artillery.
-  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city', 'skies']
-  for (const id of CHAPTER_ORDER) {
+  // v7.9x added surf (owner: "40% fewer Shore Crabs", 2026-08-16) — Book 2's onboarding chapter,
+  // outside CHAPTER_ORDER (book 1 only). FINAL FIX ROUND, FIX 6 — this loop used to walk
+  // CHAPTER_ORDER, which is exactly why surf's archetypeMul was invisible to it: the honest
+  // denominator for "does every chapter satisfy X" is Object.keys(CHAPTERS) (see CLAUDE.md), not
+  // CHAPTER_ORDER (book 1 only) or ALL_CHAPTER_IDS (drops every `hidden` id). Widening surfaced no
+  // real violation — surf's own archetypeMul was already valid (tank vocabulary, value in (0,1],
+  // pinned separately at run BP's (aa) block) — it only needed adding to this allowlist.
+  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city', 'skies', 'surf']
+  const spAllChapters = Object.keys(CHAPTERS)
+  for (const id of spAllChapters) {
     if (ARCHETYPE_MUL_CHAPTERS.includes(id)) continue
     assert.ok(CHAPTERS[id].archetypeMul === undefined, `expected no archetypeMul on '${id}' — only ${ARCHETYPE_MUL_CHAPTERS.join('/')} asked for it`)
   }
-  console.log('PASS run SP.e (scope): no other chapter carries an archetypeMul')
+  console.log(`PASS run SP.e (scope): no other chapter carries an archetypeMul (${spAllChapters.length} chapters checked, Object.keys(CHAPTERS) not CHAPTER_ORDER)`)
 
   // (f) THE VOCABULARY TRIPWIRE. archetypeMul is keyed by ARCHETYPE (normal/fast/tank), while
   // WAVE_TABLE is keyed by spawn TYPE (drone/wisp/tank). `tank` is its own inverse, so a key
@@ -14150,14 +14202,19 @@ function testSpiderShare() {
   // The value range is pinned for a second reason: pickWeighted returns the FIRST key when the
   // total is <= 0, so a negative multiplier would not throw — it would quietly collapse the whole
   // wave table to drones.
+  // Same CHAPTER_ORDER -> Object.keys(CHAPTERS) widening as (e) above — this used to have no
+  // vocabulary guard at all for surf (run BP's (aa) block carried a hand-rolled duplicate of this
+  // exact check specifically because this one couldn't see Book 2's chapters; that duplicate is
+  // now genuinely redundant with this widened sweep, but left in place rather than deleted, since
+  // it is not this fix round's job to touch run BP's block).
   const ARCHETYPES = new Set(Object.keys(ARCHETYPE_TYPE))
-  for (const id of CHAPTER_ORDER) {
+  for (const id of spAllChapters) {
     for (const [k, v] of Object.entries(CHAPTERS[id].archetypeMul ?? {})) {
       assert.ok(ARCHETYPES.has(k), `'${id}'.archetypeMul key '${k}' is not an archetype (${[...ARCHETYPES].join('/')}) — it would silently do nothing`)
       assert.ok(typeof v === 'number' && v >= 0 && Number.isFinite(v), `'${id}'.archetypeMul.${k} must be a finite number >= 0, got ${v}`)
     }
   }
-  console.log(`PASS run SP.f (vocabulary): every archetypeMul key is a real archetype (${[...ARCHETYPES].join('/')}), every value >= 0`)
+  console.log(`PASS run SP.f (vocabulary): every archetypeMul key is a real archetype (${[...ARCHETYPES].join('/')}), every value >= 0 (${spAllChapters.length} chapters checked)`)
 
   console.log('PASS run SP (spider share): the archetype multiplier reaches the pick, garden-only')
 }
@@ -17953,6 +18010,23 @@ function testVocabularies() {
     `BOOK_UNLOCKS id(s) never read off bm.unlocks in state.js: [${deadUnlocks.join(', ')}] — the sacrifice ` +
     `would spend the player's upgrade levels and grant nothing, silently.`)
 
+  // (f) FINAL FIX ROUND, FIX 4 — shopBonus's third argument (state.js). shopBonus(bm, bookId, id)
+  // resolves `(shopLines(bookId)[id]?.perLevel ?? 0)`, and the `?? 0` is REQUIRED now — book1
+  // legitimately lacks Undertow-only lines like deepLungs, so every call site is asking a book
+  // that may not carry that id. But the same `?? 0` also turned a MISTYPED id into a silent zero
+  // on the core stat pipeline: shopBonus(bm, 'book1', 'moveSped') would just return 0 forever, with
+  // no throw and no test noticing, because 0 is also the legitimate answer for "book1 has no
+  // deepLungs line". Every string literal passed as shopBonus's third argument must be a real id
+  // in the union of every book's shopLines.
+  const allShopLineIds = new Set(BOOK_ORDER.flatMap((b) => Object.keys(shopLines(b))))
+  const shopBonusIds = [...new Set([...state.matchAll(/shopBonus\(bm,\s*bookId,\s*'(\w+)'\)/g)].map((m) => m[1]))]
+  assert.ok(shopBonusIds.length > 0,
+    'run VO could not find any shopBonus(bm, bookId, \'...\') call sites in state.js — the regex may have gone stale')
+  const unknownShopBonusIds = shopBonusIds.filter((id) => !allShopLineIds.has(id))
+  assert.deepStrictEqual(unknownShopBonusIds, [],
+    `shopBonus id(s) in state.js that match no book's shop line: [${unknownShopBonusIds.join(', ')}] — ` +
+    `shopBonus's own '?? 0' turns a typo here into a silent zero on the stat it names, not a throw.`)
+
   console.log(`PASS run VO (vocabularies): ${declaredFlags.size} behaviour flags all read, ${Object.keys(ELITE_AFFIXES).length} affixes all read, ` +
-    `${wantedSfx.length} sfx names all defined, ${STRUCTURE_KINDS.length} structure kinds all skinned and sized, ${declaredUnlocks.size} BOOK_UNLOCKS id(s) all read off bm.unlocks`)
+    `${wantedSfx.length} sfx names all defined, ${STRUCTURE_KINDS.length} structure kinds all skinned and sized, ${declaredUnlocks.size} BOOK_UNLOCKS id(s) all read off bm.unlocks, ${shopBonusIds.length} shopBonus id(s) all resolve to a real shop line`)
 }

@@ -259,9 +259,9 @@ export function loadMeta() {
       // Book 1's OWN top-level `meta.shop` — never `meta.books[…].shop` — so this reads book 1's
       // line table via shopLines(BOOK_ORDER[0]), same as every other consumer, rather than the
       // universal table directly. Provably identical today (BOOK_SHOP.book1 must not exist — run
-      // BK asserts it), but reading the universal table's keys straight would silently stop
+      // BP asserts it), but reading the universal table's keys straight would silently stop
       // covering a future book1-specific line while every other call site already had it — the
-      // exact hazard run BK's source-text lint exists to catch.
+      // exact hazard run BP's source-text lint exists to catch.
       for (const id of Object.keys(shopLines(BOOK_ORDER[0]))) m.shop[id] = Number(m.shop[id]) || 0
       // v4 -> v5 migration (one-time, detected by the absence of meta.chapters): the top-level
       // difficulty ladder (whatever difficulty/maxDifficulty the save already had — see the
@@ -481,7 +481,13 @@ export function ensureBookMeta(meta, bookId) {
     meta.unlocks ??= {}
     return meta
   }
-  meta.books ??= {}
+  // ??= does not fire for a non-nullish non-object (e.g. a tampered/foreign blob's `books: 5`),
+  // and the next line would then assign a property onto a primitive — a TypeError, thrown inside
+  // loadMeta's own `catch { corrupted save -> fresh }` (WIPING the whole save, not just books).
+  // No shipped writer produces this shape, but importSlot validates shop+chapters and NOT this
+  // field, so a synced foreign/tampered blob reaches here untouched. Mirrors the same hardening
+  // already applied to entry.shop/.unlocks three lines below.
+  if (!meta.books || typeof meta.books !== 'object' || Array.isArray(meta.books)) meta.books = {}
   const entry = (meta.books[bookId] ??= { coins: 0, shop: {}, choiceSlots: 2, unlocks: {} })
   entry.coins = Number(entry.coins) || 0
   entry.shop = (entry.shop && typeof entry.shop === 'object' && !Array.isArray(entry.shop)) ? entry.shop : {}
@@ -495,7 +501,10 @@ export function ensureBookMeta(meta, bookId) {
 // additive: it survives the purse being spent, rebuilt, or created early by an incidental read.
 // Returns true only on the payout, so callers can gate the announcement on the grant itself.
 export function grantBook(meta, bookId) {
-  meta.grants ??= {}
+  // Same hazard and same fix as ensureBookMeta's meta.books guard above: ??= does not fire for a
+  // non-nullish non-object, so a tampered/foreign `grants: "x"` would otherwise throw on the next
+  // line, inside loadMeta's save-wipe catch.
+  if (!meta.grants || typeof meta.grants !== 'object' || Array.isArray(meta.grants)) meta.grants = {}
   if (meta.grants[bookId]) return false
   const amount = BOOKS[bookId]?.startCoins ?? 0
   meta.grants[bookId] = true
@@ -507,7 +516,11 @@ export function grantBook(meta, bookId) {
 // save is a dev save, which is what keeps Book 2 invisible until it ships.
 export function unlockBook(meta, bookId) {
   if (!bookId || (BOOKS[bookId]?.wip === true && meta.dev !== true)) return false
-  const first = BOOKS[bookId].chapters[0]
+  // Exported — a bookId absent from BOOKS survives the guard above (undefined?.wip is undefined,
+  // not true) and would otherwise throw reading .chapters off undefined. Optional-chain all the
+  // way to the element and refuse rather than crash.
+  const first = BOOKS[bookId]?.chapters?.[0]
+  if (!first) return false
   const chMeta = ensureChapterMeta(meta, first)
   const granted = grantBook(meta, bookId)
   if (chMeta.unlocked && !granted) return false

@@ -163,7 +163,7 @@ function formatShopBonus(bookId, id, levels) {
  *     - onBriefReroll(i): fired by an anomaly card's own 🎲 button (v6.0.4; per-card since v6.6.19,
  *       shown when data.reroll — classic non-blank only). i is that card's index in data.mutators.
  *       main.js spends ANOMALY_REROLL_COST to replace THAT ONE anomaly and re-shows the brief; the
- *       buttons render disabled when meta.coins can't cover it. Rerolling the whole set is still
+ *       buttons render disabled when bm.coins can't cover it. Rerolling the whole set is still
  *       free — back out to the title and press Play — which is exactly why the paid one is targeted.
  *     - onPlay(mode): mode is 'classic' | 'daily'. 'classic' fires from the title
  *       Play button and from the summary "Play again" button (which replays whatever mode the
@@ -185,7 +185,7 @@ function formatShopBonus(bookId, id, levels) {
  *     - onSacrifice(picks, target, bookId): fired by the sacrifice view's "Confirm sacrifice"
  *       button. picks is { [statId]: count }, the shop levels offered per stat. `target` (v7.x)
  *       names WHAT the offer buys — 'slot' for the 3rd/4th level-up card slot (sum === sacrificeCost(
- *       meta.choiceSlots)) or a BOOK_UNLOCKS[bookId] key, e.g. 'lightThief' for Book 2's Light Thief
+ *       bm.choiceSlots)) or a BOOK_UNLOCKS[bookId] key, e.g. 'lightThief' for Book 2's Light Thief
  *       (sum === that entry's cost). A book-specific target only ever appears once that book is
  *       REACHABLE — an Undertow target needs an Undertow chapter browsable, which needs the book
  *       unlocked, which needs meta.dev while it is wip (see sacTargets, and unlockBook in state.js)
