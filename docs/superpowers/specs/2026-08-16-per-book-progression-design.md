@@ -1,7 +1,7 @@
 # Per-book permanent progression
 
 **Date:** 2026-08-16
-**Status:** design approved, not implemented
+**Status:** design approved (rev 2, after adversarial review), not implemented
 
 ## Goal
 
@@ -9,97 +9,135 @@ Permanent progression becomes per-book. Each book has its own coin purse, its ow
 levels, and its own level-up card-slot ladder. Unlocking a book grants 100 coins to spend
 inside it. Book 1's fortune cannot be carried into Book 2.
 
-Owner rulings behind this (2026-08-16):
+Owner rulings (2026-08-16):
 
-- Coins are a **per-book purse**, not a global wallet. A shared wallet makes the 100-coin
-  grant a rounding error for anyone who has finished Book 1.
+- Coins are a **per-book purse**, not a global wallet.
 - Every book keeps the **same eight basic upgrade lines**, and **some books add their own**.
-- A book unlocks by **winning its predecessor's last chapter at difficulty 3+** — the same
-  gate every chapter unlock already uses.
+- A book unlocks by **winning its predecessor's last chapter at difficulty 3+**.
 - The sacrifice ladder buys the **3rd and 4th card slot per book**, plus **book-specific
   unlocks** (Light Thief today, more later).
+- `SACRIFICE_COSTS` **stays universal at 20/40**. Book 2 will ship with **5 or 6 chapters**,
+  not the 3 currently in `BOOKS.undertow` — which is what pays for the ladder.
+- The Surf's opening is gentled: **spawnMul 0.8, xpMul 1.3, 40% fewer tanks**.
+- The grant **stays 100 coins**. It is upgrade seed money; not covering a Revive (150) is
+  intended.
 
-## What this replaces
+## Revision history
 
-Today all permanent progression is flat and book-agnostic:
+Rev 1 specified moving `meta.coins` / `meta.shop` / `meta.choiceSlots` / `meta.lightThief`
+into `meta.books[bookId]` and **deleting the top-level fields** behind a `SCHEMA` bump.
+Adversarial review killed that. Verified by running today's shipped `loadMeta` against a
+rev-1-migrated save:
 
-| Field | Today | After |
-|---|---|---|
-| `meta.coins` | one bank | `meta.books[b].coins` |
-| `meta.shop` | 8 lines × 10 levels | `meta.books[b].shop` |
-| `meta.choiceSlots` | 2..4 globally | `meta.books[b].choiceSlots` |
-| `meta.lightThief` | one bool | `meta.books[b].unlocks.lightThief` |
+```
+input:  runs 137, chapter beyond, lang fr, name "Main", chapters.beyond {unlocked, maxD 5, won 5}
+output: runs 0, chapter body, lang en, name "", beyond {"unlocked":false,"maxDifficulty":1}
+```
 
-Unchanged and still global: `meta.runs`, `meta.best`, `meta.chapters`, `meta.lang`,
-`meta.skillSide`, `meta.dev`, `meta.name`, `meta.schema`.
+Total wipe, then written back over the slot by the next `saveMeta`. The mechanism is
+`state.js:240` — `for (const id of Object.keys(SHOP)) m.shop[id] = …` — throwing when `shop`
+is absent, and `state.js:295`'s `catch { /* corrupted save -> fresh */ }` swallowing it.
+`importSlot`'s own comment (`state.js:373-379`) names this exact scenario as the wipe it
+exists to prevent. Reachable by: a revert, a tab open from before the deploy, an un-updated
+device pushing its blob, or `public/sw.js`'s offline shell fallback booting a cached bundle.
+
+It also violates a rule this project already wrote down — **R2**
+(`2026-08-04-cross-device-save-sync-tech-strategy.md:124`): *"`meta` changes are additive.
+Never rename, never repurpose. A rename is a delete plus an add, and the old build carries
+the corpse forward."*
+
+**Rev 2 is additive by construction, and therefore has no migration at all.**
 
 ## 1. Save shape
 
+Book 1 keeps the fields it already has. `meta.books` holds **books 2 and up, only**:
+
 ```js
+// unchanged, still top level — this IS book 1's purse
+meta.coins, meta.shop, meta.choiceSlots
+
+// new, additive
+meta.unlocks = {}                       // book 1's sacrifice-bought flags (empty today)
 meta.books = {
-  book1:    { coins: 0, shop: { damage: 0, … }, choiceSlots: 2, unlocks: {} },
   undertow: { coins: 100, shop: { damage: 0, …, deepLungs: 0, slowBurn: 0, bigGulp: 0 },
               choiceSlots: 2, unlocks: { lightThief: true } },
 }
+meta.grants = { undertow: true }        // see §3 — monotone, never inferred
 ```
 
-`unlocks` is a bag of sacrifice-bought flags rather than a named field per unlock. That is
-the whole reason it exists: "more later" costs a `BOOK_UNLOCKS` row and nothing else — no
-new `meta.*` field, no new migration branch, no new `onSacrifice` target string.
+One accessor, and every read site goes through it:
 
-`ensureBookMeta(meta, bookId)` mirrors `ensureChapterMeta`: fetches the entry, creating and
-repairing it on every load, so a save written before a book existed always resolves. It
-seeds `coins` from `BOOKS[bookId].startCoins ?? 0` and fills every line of
-`shopLines(bookId)` with 0.
+```js
+export const bookMeta = (meta, bookId) =>
+  bookId === BOOK_ORDER[0] ? meta : (meta.books?.[bookId] ?? null)
+```
 
-### Why not hoist the active book
+For Book 1 it returns `meta` itself, which already carries `.coins`, `.shop` and
+`.choiceSlots` under exactly those names; `.unlocks` is the one field added to make the shape
+uniform. It is mildly leaky — a caller could reach `bm.runs` — and that is the whole price of
+the asymmetry. Everything below is what it buys.
 
-The alternative considered and rejected: keep `meta.coins` / `meta.shop` / `meta.choiceSlots`
-at the top level as *the current book's* values, and stash inactive books in
-`meta.books[id]`, swapping on book change. It preserves all ~40 existing read sites and all
-65 test references untouched.
+`meta.lightThief` **stays where it is** as Book 1-shaped legacy and is read as
+`meta.books.undertow.unlocks.lightThief` going forward; the old field is left in place rather
+than deleted (R2), and `loadMeta` copies it forward once if the new location is unset.
 
-It is rejected because it authors every number in two places and needs a notion of "which
-book is hoisted right now" that nothing else in the codebase has. That is precisely the
-defect class the architecture audit found to be 28% of everything that reached the live URL
-(CLAUDE.md, cross-file contracts). No read site actually needs the hoist: every one of them
-already has a chapter in hand, and `bookOf(chapter)` resolves the book from it.
+### What the asymmetry buys
+
+Rev 1 rejected exactly this shape as "asymmetric, and `bookOf` still has to branch". That was
+wrong, because the symmetric shape is not reachable without deleting fields, and deleting
+fields wipes saves. Concretely, rev 2 needs **none** of the following, all of which rev 1
+required and all of which were defects:
+
+- No `SCHEMA` bump. Old and new builds coexist indefinitely.
+- No migration branch, so no fresh-meta-on-throw path to get wrong.
+- No `importSlot` change. Every save still carries a top-level `shop`, so the guard at
+  `state.js:384` keeps working unmodified and keeps rejecting the four blobs `state.js:374`
+  enumerates. (Rev 1's prescribed fix here was backwards: requiring `books` would have refused
+  every legitimate blob pushed from an un-updated device and told the player their own save
+  was corrupt.)
+- No change to `slotSummary` or `saveSummary`. Both read raw, unmigrated blobs by design
+  (`state.js:82-89` says so), and both keep reporting Book 1's coins and upgrade count —
+  which remains the right "is this my main save" signal. Rev 1's three-level walk would have
+  reported **0** for every un-updated slot in the *undismissable* sync conflict modal,
+  inviting the player to overwrite their real save.
+- No round-trip risk. An old build's `loadMeta` mutates the same object it parsed, so unknown
+  keys (`books`, `grants`, `unlocks`) survive `saveMeta` untouched.
+
+There is no `isValidMeta` in this repo — rev 1 invented the name. The function is `importSlot`
+(`state.js:380`), and its only caller is `sync.js:154`. There is no `createMeta` either; the
+fresh-save literal lives inside `loadMeta` (`state.js:296-315`).
 
 ## 2. Config surface
 
 ```js
-// BOOKS gains one optional field.
-BOOKS.undertow.startCoins = 100        // absent on book1 => 0, so a fresh save is unchanged
-
-// Explicit order, for the same reason CHAPTER_ORDER is explicit.
+BOOKS.undertow.startCoins = 100          // absent on book1 => 0
 export const BOOK_ORDER = ['book1', 'undertow']
 
-// Extra upgrade lines, merged OVER SHOP per book.
-export const BOOK_SHOP = { undertow: { … } }
+export const BOOK_SHOP = { undertow: { deepLungs: {…}, slowBurn: {…}, bigGulp: {…} } }
 export const shopLines = (bookId) => ({ ...SHOP, ...(BOOK_SHOP[bookId] ?? {}) })
 
-// Extra sacrifice targets, per book.
 export const BOOK_UNLOCKS = {
-  undertow: {
-    lightThief: { cost: LIGHT_THIEF_COST, icon: '🔦', name: 'Light Thief',
-                  desc: 'Kills give back Light …' },
-  },
+  undertow: { lightThief: { cost: LIGHT_THIEF_COST, icon: '🔦', name: …, desc: … } },
 }
 ```
 
-`SACRIFICE_COSTS = [20, 40]` and `MAX_CHOICE_SLOTS` stay universal — every book re-earns its
-3rd and 4th slot on the same ladder. `MAX_SHOP_LEVEL`, `shopCost`, `SHOP_COST_CAP` are
-unchanged and apply to book-specific lines too.
+`SACRIFICE_COSTS = [20, 40]`, `MAX_CHOICE_SLOTS`, `MAX_SHOP_LEVEL` and `SHOP_COST_CAP` stay
+universal and unchanged.
 
-**Every consumer reads `shopLines(bookId)`, never `SHOP` directly.** That is the contract
-that keeps a book-specific line from being invisible in exactly one place.
+**`shopCost` is NOT unchanged — rev 1 said it was, and it throws.** It reads `SHOP[id].base`
+(`config.js:3462`); verified, `shopCost('deepLungs', 0)` raises `TypeError`. It must take the
+book (or the line object) and read `shopLines(book)[id].base`. It fires the moment Undertow's
+shop renders — `main.js:176` (`onBuy`) and `ui.js:1011` (`renderShop`).
+
+**Every consumer reads `shopLines(bookId)`, never `SHOP` directly.** `SHOP` is imported at
+`state.js:3`, `main.js:4` and `ui.js:2`, so this contract needs a source-text lint (the
+`run UG.k` grep idiom) or it will drift.
 
 ### Undertow's three book-specific lines
 
-All three of Undertow's chapters run a resource bar — Humidity (surf), Light (shelf), Air
-(reef) — each with `drain` / `refill` / `killRefill` / `max`. That shared spine is what makes
-a resource upgrade a *book* line rather than a chapter one, and it means none of the three is
-dead in any chapter of its own book.
+All three Undertow chapters carry a `resource` block — Humidity (surf, drain 0.3 / refill 20),
+Light (shelf, 2.2 / 18), Air (reef, 1.4 / 9). That shared spine is what makes these *book*
+lines rather than chapter ones, and none is dead in any chapter of its own book.
 
 | id | name | effect | hook |
 |---|---|---|---|
@@ -107,181 +145,248 @@ dead in any chapter of its own book.
 | `slowBurn` | Slow Burn 🕯️ | −4% resource drain per level | the drain rate applied in `stepSim` |
 | `bigGulp` | Big Gulp 💧 | +10% refill per pickup per level | the refill application site |
 
-**Slow Burn carries a known ceiling and it is the first thing to measure.** At Lv10 it is
-−40% drain; The Shelf's drain is 2.2/s, so a maxed player runs it at 1.32/s. That is enough
-to flatten the chapter's entire dark mechanic. The owner chose the line with that stated, so
-it ships — but `scripts/charge-probe.mjs` exists to answer exactly this question over real
-300s runs, and the implementation plan gates the shipped `perLevel` on running it at Lv0 vs
-Lv10 across both its spend policies **and both its movement policies** (the kiting rig lies
-about anything that slows you — see the script's header in CLAUDE.md). If the probe says the
-chapter degenerates, the knob is `perLevel`, not the line.
+**Slow Burn is the first REDUCTION line in the game, and the UI cannot render it.**
+`formatShopBonus` (`ui.js:129-131`) is `per < 1 ? '+' + round(per*levels*100) + '%' : …` — a
+percent-vs-flat discriminator with a hardcoded `+`, not a sign-aware formatter. Stored as
+`-0.04` it prints **`+-40%`**; stored as `+0.04` it prints `+40%` for a 40% *reduction*. This
+is the sacrifice view's "current → after" preview (`ui.js:922`), the screen where the player
+chooses what to destroy. The formatter needs a sign-aware branch and a `reduction: true` flag
+on the line, tested in both views.
 
-`killRefill` stays gated on `unlocks.lightThief` rather than becoming a shop line, unchanged
-from today apart from where the flag lives.
+**Slow Burn's ceiling stays a ship gate.** At Lv10 it is −40% drain; The Shelf drains 2.2/s,
+so a maxed player runs it at 1.32/s — enough to flatten the chapter's dark mechanic. The gate
+is `scripts/charge-probe.mjs` at Lv0 vs Lv10 across its **three** spend policies (`hoard`,
+`full`, `greedy` — `charge-probe.mjs:81-85`; rev 1 said two) and both movement policies. **The
+probe needs work before it can be that gate** — see §5.
 
-## 3. Unlock gate and the 100-coin grant
+## 3. Unlock gate and the grant
 
-In `endRun` (main.js), the existing chapter-unlock block already fires on a classic victory
-at `run.difficulty >= CHAPTER_UNLOCK_DIFFICULTY`. `nextChapter(run.chapter)` returns null at
-the end of a book. When it does, walk `BOOK_ORDER` to the next book instead:
+### The gate is the last chapter, stated explicitly
 
-- If the next book exists and its first chapter is not yet unlocked: unlock that chapter and
-  `ensureBookMeta` its purse, which seeds `startCoins`.
-- Guarded on "not already unlocked", so replaying the win announces nothing — the same idiom
-  as the chapter and Blank unlocks sitting beside it.
-- **`wip: true` blocks the unlock for a non-dev save.** Undertow is WIP today, so this ships
-  invisible to real players and flips on the day Book 2 lands — the same shape as
-  `sacTargets()`'s current dev gate on Light Thief.
+Rev 1 said "when `nextChapter` returns null, walk `BOOK_ORDER`". That is wrong:
+`nextChapter` returns null for **three** different facts — the last chapter of a book, a
+`hidden` chapter, and an id no book claims. Verified: `nextChapter('blank') === null` and
+`chapterMaxDifficulty('blank') === 3`, which *is* `CHAPTER_UNLOCK_DIFFICULTY`. So the null
+check unlocks Book 2 off a **Blank** win, which is not the book's last chapter.
 
-The summary screen's unlock banner gains a book variant: the book's name plus what the grant
-is. New player-visible copy, so it goes through `tt()` with `{coins}` as a placeholder, never
-a pre-interpolated string.
+Test the fact directly: `run.chapter === BOOKS[bookOf(run.chapter)].chapters.at(-1)`.
 
-The grant is expressed as *seeding a purse that did not exist*, not as `coins += 100` — see
-§4 for why that removes the double-grant failure mode entirely.
+### The grant is an explicit, monotone flag
 
-**What 100 coins buys**, measured against the shipped curve rather than estimated: the first
-levels cost maxHP 18, magnet 18, damage 24, fireRate 24, moveSpeed 30, critChance 36,
-critDamage 36, coinGain 48. 100 buys three or four of them (18+18+24+24 = 84, and the next
-cheapest purchase after that is 34). A seed, not a head start.
+Rev 1 made the grant a side effect of a purse being *created*, and argued that made
+double-granting impossible. It does the opposite — purse existence is not monotone, and all
+three reviewers broke it independently:
 
-## 4. Migration
+- Rev 1's own migration step 2 created `books.undertow` (to hold `lightThief`) with no
+  `coins` key, so the later grant found an existing entry and repaired `coins` to **0** while
+  the banner announced 100.
+- Seven-tap dev gate → the carousel appends WIP chapters (`config.js:5634`) → scrolling to
+  The Surf makes the title coin badge *render* the purse into existence at 100 → spend it →
+  toggle dev off. The real unlock months later finds 0.
+- The idiomatic spelling of the fresh-save literal (`Object.fromEntries(BOOK_ORDER.map(…))`,
+  mirroring `state.js:298`) grants 100 coins to **every brand-new save**. Rev 1's §7 test 4
+  passes under that bug.
 
-Bump `SCHEMA`. The migration branch must stamp `m.schema = SCHEMA`, the way the v4→v5 branch
-does.
+So: `meta.grants[bookId]` is set once, in the unlock path only, and the coins are added in the
+same statement. It is additive, monotone, and survives a purse being rebuilt by any path.
+`ensureBookMeta` becomes a **pure repair** that seeds `coins: 0` and never grants.
 
-Detected by the absence of `meta.books`:
+The test that catches the fresh-save leak is *"a fresh save has exactly one purse and it is
+book1"*, not *"the purse equals startCoins"*.
 
-1. `books.book1 = { coins: m.coins, shop: m.shop, choiceSlots: m.choiceSlots, unlocks: {} }`.
-2. `m.lightThief === true` → `books.undertow.unlocks.lightThief = true`. Only dev saves can
-   hold this today, but dropping it would silently un-buy a purchase.
-3. Delete `m.coins`, `m.shop`, `m.choiceSlots`, `m.lightThief` — the v4→v5 branch's precedent
-   for deleting migrated top-level fields.
-4. `ensureBookMeta(meta, 'book1')` to repair the entry just built. **Nothing pre-creates a
-   purse for a book that is not unlocked** — see below.
+### Retroactive unlock — required, same commit
 
-`ensureBookMeta` creates on demand, and that is the whole grant mechanism: the first time
-anything asks for a book's entry, it is created holding `startCoins`. Locked books are never
-asked for (the shop only ever renders the browsed chapter's book, and a locked chapter cannot
-be browsed), so a purse comes into existence at the moment of unlock and holds exactly 100.
-Making the grant a side effect of *creation* rather than an `+= 100` statement is what makes
-double-granting structurally impossible — there is no code path that can run it twice.
+`loadMeta` already runs a retroactive chapter-unlock chain (`state.js:257-264`) for exactly
+this class of problem; its comment says so. But it iterates `CHAPTER_ORDER` — **Book 1 only**.
 
-R3 (clamp on use, never on load) still holds per book: `loadMeta` floors `choiceSlots` at 2
-and preserves a future build's higher value; `createRun` clamps to `MAX_CHOICE_SLOTS`.
+With the gate living solely in `endRun`, every existing veteran is **permanently locked out**
+on ship day: a player who beat The Beyond at 3+ last month sees nothing, gets no grant, and
+has no hint that the requirement is a fight they already won. That includes everyone holding
+The Blank, since reaching it requires a Beyond win at 5.
 
-### The landmine
+The evidence is already in the save: `chapters.beyond.won >= CHAPTER_UNLOCK_DIFFICULTY`
+(stamped at `main.js:437`, backfilled at `state.js:210`). Extend the existing chain to cross
+book boundaries, granting through the same monotone path as §3. ~4 lines. It must land with
+the gate, not after Book 2 ships — post-hoc it becomes a second grant-timing problem.
 
-`isValidMeta` (state.js:384) rejects any blob whose top-level `shop` is not an object. That
-guard is the defense against a truncated save silently wiping the slot — state.js:374
-documents `{"coins":5,"chapters":{}}` as a blob that must be rejected. **After this change
-there is no top-level `shop`, so every existing save fails validation unless that check moves
-to `books` in the same commit.** It must reject a blob with no `books` object, and the
-migration path must run before validation or validate the pre-migration shape too.
+### The carousel cannot show another book, and `wip` does not gate what rev 1 thought
 
-Two doc sites state the old requirement and drift silently otherwise:
+`titleChapterList` (`config.js:5617-5636`) filters `CHAPTER_ORDER` (Book 1), takes its "???"
+preview from `nextChapter` (book-local, null past `beyond`), and reaches another book through
+exactly one line: `if (meta.dev) for (const b of Object.values(BOOKS)) if (b.wip) base.push(…)`.
 
-- CLAUDE.md's browser-probing rule, "a seeded save MUST carry `shop: {}`" → `books: {}`, with
-  a worked seed shape.
-- state.js's `run`/meta doc block (lines 152-161, 904, 1367-1371) names `meta.coins`,
-  `meta.shop`, `meta.choiceSlots` and `meta.lightThief` by path.
+So removing `wip: true` on ship day makes Undertow **less** reachable, not more — the dev
+append stops firing and nothing replaces it. Setting `chapters.surf.unlocked = true` changes
+nothing the title screen reads. Rev 1 claimed this seam was already handled; it is not.
+`titleChapterList` must be taught to cross the book boundary, and that is part of this work.
+
+## 4. UI
+
+The shop's balance header carries the book name beside the coins (`🪙 100 · Undertow`), or a
+returning player reads the reset as a bug.
+
+**`.shop-rows` hardcodes the row count**: `styles.css:267` is
+`grid-template-rows: repeat(8, minmax(max-content, 1fr))`. Undertow has 11 lines. Two defects,
+not one:
+
+- **Overflow.** At ~39.2px per row, 11 rows need ~477px against `viewportH − 209` available:
+  fits at 390×844, overflows by 19px at 375×667, 46px at 360×640 and **118px (about three
+  rows below the fold) at 320×568**.
+- **A height step even where it fits.** Only 8 rows are `1fr`; rows 9-11 fall into implicit
+  `grid-auto-rows: auto`, so at 390×844 rows 1-8 render ~59px and rows 9-11 ~39px. The `--sac`
+  variant already knows the fix (`styles.css:1484` uses `grid-auto-rows: minmax(max-content, 1fr)`).
+
+Rev 1 also misquoted the reason for the v6.6 shop redesign: `styles.css:253-256` says the
+eight rows were made to fit **without scrolling**; `ui.js:1000-1006` gives horizontal room at
+320px as the actual rationale.
+
+The sacrifice view is under *more* pressure than rev 1 claimed, not less: `.sac-targets`
+renders whenever there are ≥2 targets (`ui.js:945`), which for Undertow (Light Thief + the
+slot ladder) is every real player, where today it is dev-only.
+
+Measure at 320px with an injected style, not `resize_page` — it fails silently below ~500px.
+
+### The browsed chapter and the shop's chapter are not the same thing
+
+`browseChapterId` is a `let` inside `initUI` (`ui.js:285`); `onBuy(id)` / `onSacrifice(picks,
+target)` (`main.js:174`, `:292`) cannot see it and can only reach
+`bookOf(playableChapterId(meta))`. The two deliberately diverge — `ui.js:622` persists via
+`onChapter` only for *available* chapters ("the locked preview only browses"). Within Book 1
+they always name the same book, so nothing breaks today. The moment §3's carousel fix
+surfaces Book 2's first chapter as a preview card, **the title badge shows Undertow's purse
+while `onBuy` spends Book 1's**, silently. Pass the book id through the hook signature.
+
+`renderShop` is also reached from the bottom nav with no chapter argument, so "which book's
+shop is this" is answered by whatever the carousel last settled on — including after a run.
 
 ## 5. Read-site sweep
 
-Every site below has a chapter in hand and resolves its book with `bookOf(chapter)`. Listed
-in full rather than summarized, because "and update the call sites" is how one gets missed:
+Beyond rev 1's list (whose file:line references were all verified accurate), four categories
+it missed:
 
-**state.js**
-- `shopBonus(meta, id)` → takes a book entry, reads `shopLines(bookId)[id].perLevel`.
-- `createRun` — maxHP (1412), speed/magnet/critChance/critDamage/damageMul (1491-95),
-  fireRateMul/coinGainMul (1500-01), `choiceSlots` (1487), `killRefill` (1626). It already
-  receives `chapter`, so it resolves the book itself.
-- `slotSummary` (57) — coins becomes the **sum of every purse**. It is a "which of these is
-  my main save" heuristic and a sum keeps that meaning; §7.1 already notes coins run
-  backwards as a signal.
-- `saveSummary` (104-111) — `upgrades` becomes the sum of levels across every book's shop.
-- `loadMeta` numeric coercion (238, 240, 269, 283) moves inside the per-book repair.
-- `createMeta` (297-308) — replaces the four flat fields with `books`.
+- **`createRun`'s first statement has no chapter.** `state.js:1412` is
+  `const maxHP = PLAYER.baseHP + shopBonus(meta, 'maxHP')`; `const chapter =
+  resolveChapterId(opts.chapter)` is at `:1443`, **31 lines later**. A book-aware `shopBonus`
+  at 1412 is a TDZ `ReferenceError` on every run start. Using `opts.chapter` instead is the
+  silent version — it is unvalidated, which is what `resolveChapterId` exists for. Hoist the
+  chapter resolution above the first `shopBonus`.
+- **Five harness scripts hand-build a flat meta and are outside the test import graph**:
+  `charge-probe.mjs:67`/`:179`, `pool-probe.mjs:174-178`, `weapon-census.mjs:88-89`,
+  `element-probe.mjs:154-155`, `fx-probe.mjs:109-110`. `charge-probe` does
+  `createRun({ ...meta, lightThief: thief }, …)` — once `lightThief` lives in
+  `books[b].unlocks` that spread is a **no-op** and the probe prints a full thief/no-thief
+  table in which both halves are the no-thief run. §2 makes that probe the gate on Slow Burn.
+- **`endRun` must not bank into a purse that may not exist.** `saveMeta` sits at
+  `main.js:484`, *after* the bank, and `state.js:355-358` says a throw there takes down the
+  Pixi frame loop in the one path that has just banked a run's coins. Guard the bank with
+  `ensureBookMeta` at the call site; `?? 0` is not enough, the write must land somewhere.
+- **`ui.js:854`** already sums `Object.values(meta.shop)` with no `Number()||0`, where
+  `saveSummary:111` has the coercion and says why. Per-book shops multiply that.
 
-**main.js**
-- `onBuy` (174-179) — spends and levels within the browsed chapter's book.
-- `onSacrifice` (289-309) — `target` is now `'slot'` or a `BOOK_UNLOCKS` key; validation
-  walks `shopLines(book)`; writes `books[b].choiceSlots` or `books[b].unlocks[target]`.
-- `endRun` (414) — banks into `books[bookOf(run.chapter)].coins`.
-- consumables spend (35-41) and anomaly reroll (140-143) — both in the brief flow, chapter known.
-- `onReset` (322) — full wipe, every book.
+`bookOf` returns `null` for an unclaimed id (`config.js:5570`), and `run.chapter` is a
+`CHAPTERS` key, not an `ALL_CHAPTER_IDS` key — so `meta.books[null]` is reachable by adding a
+chapter and forgetting its `BOOKS` entry. Lint it (§7).
 
-**ui.js**
-- `formatShopBonus` (126-130) — `shopLines(book)[id]`.
-- title coin badge (647) — the **browsed chapter's** book purse, so browsing The Surf shows
-  Undertow's 100.
-- brief-sheet affordability (471), anomaly reroll affordability + badge (1785, 1794).
-- `sacTargets` (819-825) — reads `BOOK_UNLOCKS[book]` plus the universal slot ladder; the
-  hardcoded `thief` branch and its `meta.dev` gate are replaced by the book's own WIP gate.
-- `shopFootHtml` (854), `sacrificeViewHtml` rows (909-910), `renderShop` (985, 1008-1012),
-  balance header (1034), sacrifice handler (2505).
+**Daily runs** are Book 1 only (`dailyChapter` → `CHAPTER_ORDER`) and take neither consumables
+nor rerolls (`main.js:90-95` bypasses the brief), so there is no spend site. But a daily is
+playable on a chapter you have **not unlocked** (`ui.js:1724`, "preview"). If `dailyChapter`
+ever widens past Book 1, a preview daily on The Surf reaches `endRun` → a Book 2 purse for a
+player who has never beaten The Beyond. The monotone grant flag (§3) is what keeps that from
+being a payout; leave a comment saying so.
 
-**Daily runs** draw from `dailyChapter`, which is `CHAPTER_ORDER` (Book 1 only), so a daily
-banks into `book1`. No special case needed; worth one comment so it is not re-derived.
+## 6. The Surf's opening
 
-## 6. UI
+This change makes surf/d1-at-zero-upgrades the literal first run of a campaign. Measured
+today: body d1 runs an effective spawn of 0.30 (balance 0.75 × EARLY_CALM 0.40) at ×2.22 xp;
+The Surf runs **0.68 at ×1.0** — 2.3× the spawn rate at 45% of the xp. `EARLY_CALM` covers
+body, pond and garden only.
 
-The shop screen must say **which book's purse this is**, or a returning player reads the
-reset as a bug. The balance header carries the book name beside the coins: `🪙 100 · Undertow`.
-One line, and it is the whole affordance.
+Per the owner ruling:
 
-**Undertow's shop is 11 rows, not 8.** The v6.6 shop redesign exists because eight rows
-already scrolled on a small phone. 11 must be measured at 320px before it is called done —
-and per CLAUDE.md, `resize_page` fails silently below ~500px, so the check is an injected
-style constraining the screen and `.modal` to 320/294px with `innerWidth` read back, not a
-devtools resize. The sacrifice view filters to owned lines, so it is under less pressure.
+```js
+EARLY_CALM.surf = { spawnMul: 0.8, xpMul: 1.3 }
+CHAPTERS.surf.archetypeMul = { tank: 0.6 }     // 40% fewer Shore Crabs
+```
+
+`archetypeMul` is the shipped lever — `waveWeights` (`sim.js:696`) multiplies WAVE_TABLE
+weights by archetype, and garden (`{tank:0.73}`) and city (`{tank:0.825}`) already use it.
+Surf's `tank` is the Shore Crab (`hpMul: 2.2`, flags `unshakeable`/`guard`).
+
+**Assumption stated:** the tank cut is applied **chapter-wide**, at every difficulty, matching
+how garden and city declare theirs. Making it difficulty-1-only is not one line —
+`sim.js:1440` reads `CHAPTERS[run.chapter].archetypeMul` directly from config and never
+consults `createRun`'s `mods`, so a d1 gate means plumbing a new run field through the spawn
+path for every chapter. Flag for the owner if d1-only was intended.
+
+Note `CHAPTERS.surf = { ...CHAPTERS.pond, … }` (`config.js:4359`) — it spreads The Pond, and
+`config.js:4483` warns that some of its inherited arrays are shared **by reference**. Surf
+carries its own `balance` object (verified distinct from pond's), but check before mutating
+any inherited field in place.
 
 ## 7. Tests
 
-New scenarios in `test/sim-test.js`, each mutation-proved against a scratch tree (never the
-working tree — extract with `git archive`), and each asserting an **effect**, not that a field
-moved:
+Existing suite: **~100 meta-side lines** need rewriting (57 of 64 `choiceSlots` mentions are
+meta-side, plus 18 `coins:` literals, 23 `shop:` literals, 6 `lightThief` lines). Rev 1
+budgeted 9 new scenarios and never mentioned this. Because rev 2 leaves Book 1's fields where
+they are, **most of those keep working unchanged** — only fixtures that assert Book 2
+behaviour need the accessor.
 
-1. **Purse isolation** — earn in `body`, assert `books.book1.coins` rose and
-   `books.undertow.coins` did not. Mutation: bank into a fixed book.
-2. **Upgrade isolation** — max `book1.shop.damage`, `createRun` on a `surf` chapter, assert
-   `damageMul === 1`. This is the one that proves the reset is real.
-3. **Slot reset** — `book1.choiceSlots = 4`, assert a `surf` run deals 2 cards.
-4. **Unlock + grant fires once** — win `beyond` at 3 twice; `undertow` unlocked, purse is
-   exactly `startCoins`, second win changes nothing. Mutation: drop the already-unlocked
-   guard, and separately make the grant additive.
-5. **WIP gate** — a non-dev save winning `beyond` at 3 does *not* unlock a `wip` book.
-6. **Migration** — a flat pre-schema save produces the right `book1` entry, moves
-   `lightThief` into `undertow.unlocks`, and leaves no top-level `shop`/`coins`.
-7. **`isValidMeta`** — the truncated blobs state.js:374 enumerates are still rejected under
-   the new shape, and a valid migrated save is accepted.
-8. **`shopLines` merge** — `undertow` has all 8 basics plus its 3; `book1` has exactly 8.
-9. **run XX coverage** — `BOOK_SHOP` and `BOOK_UNLOCKS` join the config-table walk, and the
-   unlock banner's `tt()` template joins the placeholder-parity check. Watch it go red before
-   writing the French (CLAUDE.md: copy outside a config table has shipped untranslated four
-   times).
+New scenarios, each mutation-proved against a scratch tree (`git archive`, never the working
+tree), each asserting an **effect**:
 
-Run `node scripts/test-isolation.mjs` afterwards — this changes how many randoms several
-scenarios draw.
+1. **Old-build compatibility** — today's `loadMeta` (extracted at the pre-change ref) reading
+   a rev-2 save keeps runs, chapters, lang and coins intact, and round-trips `books`
+   untouched. This is the regression that rev 1 shipped; it is the most important test here.
+2. **Purse isolation** — earn in `body`, `meta.coins` rises, `books.undertow.coins` does not.
+3. **Upgrade isolation** — max `meta.shop.damage`, a `surf` run has `damageMul === 1`.
+4. **Slot reset** — `meta.choiceSlots = 4`, a `surf` run deals 2 cards.
+5. **Grant is monotone** — a purse created by a UI read holds 0; only the unlock path grants;
+   granting twice is a no-op; **a fresh save has exactly one purse and it is book1**.
+6. **Gate is the last chapter** — a Blank win at 3 does NOT unlock Book 2; a Beyond win at 3
+   does. Mutation: revert to the `nextChapter === null` check.
+7. **Retroactive unlock** — a save with `chapters.beyond.won >= 3` and no Undertow entry
+   unlocks and grants on load, once.
+8. **WIP gate** — a non-dev save winning `beyond` at 3 does not unlock a `wip` book.
+9. **`shopLines` merge** — `undertow` has 8 basics + 3; `book1` has exactly 8; `shopCost`
+   resolves for every line of every book.
+10. **`formatShopBonus` sign** — Slow Burn renders as a reduction in both the shop row and the
+    sacrifice preview, with no `+-`.
+11. **Lints** — every `Object.keys(CHAPTERS)` id resolves to a book; every `shopLines(b)` id
+    has French copy; a source-text grep proving no consumer reads `SHOP` directly.
+12. **run XX coverage** — `BOOK_SHOP` and `BOOK_UNLOCKS` are **two levels deep**, so the flat
+    table walk (`test/sim-test.js:11700-11702`, `Object.values(table)` → `v?.name`) yields the
+    per-book dicts, reads `undefined`, and skips. That is verbatim the WEAPON_MODS hole
+    documented eight lines below it — *"every weapon mod in the game was exempt from this
+    assert while appearing to be covered by it"*. Use the nested `WEAPON_MODS` idiom.
+
+The unlock banner's copy must live in a **config table** (`CHAPTER_UNLOCK_LINES` or an
+equivalent), not as a `tt()` literal in `ui.js` — run XX enumerates tables, so copy in a
+function or bare const is exempt by construction, which has shipped untranslated strings four
+times.
+
+Run `node scripts/test-isolation.mjs` afterwards.
 
 ## 8. Risks and levers
 
-**The cliff.** A player finishing Book 1 at 8×Lv10 with 4 card slots enters The Surf with
-zero and 2 slots. That is the requested design and it is right for a fresh campaign, but it
-only feels good if Undertow is tuned as a chapter-1 ladder rather than as a continuation of
-The Beyond. The lever is `BOOKS.undertow.startCoins`; the measurement is a mortal + kiting
-probe of surf/1 at 0 upgrades against body/1 at 0 upgrades, which is the honest comparison.
+**The cliff is smaller than rev 1 measured, because Book 2 is bigger.** Re-earning the ladder
+costs, cheapest-first against the shipped curve: Light Thief 570 coins, the 3rd slot 958, the
+3rd+4th together **22,699** — about 23 runs at `COIN_CAP_PER_RUN` 999, and 60 of the 80 levels
+the eight-line shop contains. The owner ruled 20/40 stays universal because Undertow will ship
+with 5-6 chapters rather than the 3 currently listed in `BOOKS.undertow`. **That chapter count
+is load-bearing for this decision** — if Book 2 ships at 3 chapters, revisit.
 
-**Slow Burn's ceiling**, §2 — gated on `charge-probe.mjs` before the `perLevel` is fixed.
+Undertow's 11 lines also raise its level ceiling from 80 to 110, so `shopFootHtml`'s
+`owned/cost` meter (`ui.js:854`) means something different per book. And because sacrifice
+picks are cheapest-first, `BOOK_SHOP`'s per-line `base` costs are effectively **the price of
+Book 2's card slots** — they are a ladder tuning decision, not just a shop tuning one.
 
-**Coin economy per book.** `COIN_CAP_PER_RUN`, `runBonusCoins` and `DIFFICULTY_COIN_PER_LEVEL`
-are unchanged and shared. Undertow's three chapters therefore fill their purse at Book 1's
-rate, which is the intended behaviour — the reset is about the starting point, not the income.
+**100 coins buys three or four opening levels** (maxHP 18, magnet 18, damage 24, fireRate 24 =
+84; the cheapest remaining purchase is then moveSpeed at **30**, so the last 16 buys nothing).
+It does not cover a Revive (150) — ruled intended.
 
 ## Out of scope
 
-- Retuning Undertow's difficulty ladder for a zero-upgrade opening.
-- Book-specific *card slot* costs (`SACRIFICE_COSTS` stays universal).
-- Any second book-specific unlock beyond Light Thief. `BOOK_UNLOCKS` is the seam; filling it
-  is a later change.
-- A cross-book prestige or carry-over of any kind.
+- Book-specific `SACRIFICE_COSTS` (owner ruling: universal 20/40).
+- Any second book-specific unlock beyond Light Thief. `BOOK_UNLOCKS` is the seam.
+- A cross-book prestige or carry-over.
+- Widening `dailyChapter` past Book 1 (see §5 for what it would require first).
