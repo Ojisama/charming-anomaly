@@ -38,7 +38,7 @@ import {
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
-  BOOKS, playableChapterId, isWipChapter, chapterAvailable, titleChapterList,
+  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleChapterList,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
@@ -4547,6 +4547,69 @@ function runBooks() {
   console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the carousel`)
 }
 run(runBooks)
+
+// ---- Run BK (book tables): per-book shop lines, unlocks and a total shopCost --------------
+function runBookProgression() {
+  // (a) Every book resolves a line table; book-specific lines merge OVER the universal eight.
+  const b1 = shopLines('book1')
+  const ut = shopLines('undertow')
+  assert.strictEqual(Object.keys(b1).length, Object.keys(SHOP).length,
+    'book1 has exactly the eight universal lines — BOOK_SHOP.book1 must not exist')
+  for (const id of Object.keys(SHOP)) assert.ok(ut[id], `undertow is missing universal line '${id}'`)
+  for (const id of ['deepLungs', 'slowBurn', 'bigGulp']) {
+    assert.ok(ut[id], `undertow is missing its own line '${id}'`)
+    assert.ok(!b1[id], `book1 must NOT see undertow's line '${id}'`)
+  }
+
+  // (b) Line ids are globally unique. shopCost resolves against ONE merged table so its
+  // signature never had to change, and that is only sound while ids cannot collide.
+  const seen = new Map()
+  for (const bookId of BOOK_ORDER) {
+    for (const [id, line] of Object.entries(shopLines(bookId))) {
+      const prev = seen.get(id)
+      if (prev && prev !== line) assert.fail(`shop line id '${id}' is defined differently in two books — shopCost cannot resolve it`)
+      seen.set(id, line)
+    }
+  }
+
+  // (c) shopCost resolves for EVERY line of EVERY book at every level, and stays finite.
+  // Before this change it read SHOP[id].base and threw a TypeError on any book-specific line.
+  for (const bookId of BOOK_ORDER) {
+    for (const id of Object.keys(shopLines(bookId))) {
+      for (let lv = 0; lv < MAX_SHOP_LEVEL; lv++) {
+        const c = shopCost(id, lv)
+        assert.ok(Number.isFinite(c) && c > 0, `shopCost('${id}', ${lv}) must be a positive finite number, got ${c}`)
+      }
+    }
+  }
+
+  // (d) Every line carries the fields the shop screen reads, or it renders blank.
+  for (const bookId of BOOK_ORDER) {
+    for (const [id, line] of Object.entries(shopLines(bookId))) {
+      for (const f of ['name', 'desc', 'perLevel', 'base', 'icon']) {
+        assert.ok(line[f] !== undefined, `shop line '${id}' is missing '${f}'`)
+      }
+    }
+  }
+
+  // (e) Only books after the first grant coins, and BOOK_ORDER matches BOOKS.
+  assert.deepStrictEqual(BOOK_ORDER, Object.keys(BOOKS), 'BOOK_ORDER must list every book, in order')
+  assert.ok(!BOOKS[BOOK_ORDER[0]].startCoins, 'the first book must NOT grant startCoins — a fresh save opens at 0')
+  assert.strictEqual(BOOKS.undertow.startCoins, 100, 'undertow grants 100 coins on unlock')
+
+  // (f) Every BOOK_UNLOCKS entry is a real sacrifice target shape.
+  for (const [bookId, table] of Object.entries(BOOK_UNLOCKS)) {
+    assert.ok(BOOK_ORDER.includes(bookId), `BOOK_UNLOCKS names unknown book '${bookId}'`)
+    for (const [id, u] of Object.entries(table)) {
+      for (const f of ['cost', 'icon', 'name', 'desc']) {
+        assert.ok(u[f] !== undefined, `BOOK_UNLOCKS.${bookId}.${id} is missing '${f}'`)
+      }
+      assert.ok(Number.isInteger(u.cost) && u.cost > 0, `BOOK_UNLOCKS.${bookId}.${id}.cost must be a positive integer`)
+    }
+  }
+  console.log(`PASS run BK (book tables): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them`)
+}
+run(runBookProgression)
 
 // ---- Run BL: The Shelf's mechanic (v7.x, Book 2 phase 2) --------------------------------
 // The bar, the shafts and the amplified Pulse. Every failure this guards is SILENT: a frozen shaft

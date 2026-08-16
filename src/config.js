@@ -3459,9 +3459,31 @@ export const MAX_SHOP_LEVEL = 10
 // at 8246, so its entry is headroom rather than a live clamp.
 export const SHOP_COST_CAP = { damage: 9999, maxHP: 9999, critChance: 9999, coinGain: 9999 }
 export const SHOP_COST_CAP_DEFAULT = 4999
+
+// ---- Book-specific upgrade lines (v7.x) --------------------------------------------
+// Every book gets the eight lines in SHOP. A book may add its own on top. Undertow's three all
+// act on the RESOURCE BAR, which is what makes them book lines rather than chapter ones: all
+// three of its chapters run one (Humidity/Light/Air), so none of them is dead in its own book.
+//
+// `reduction: true` marks a line whose perLevel is a DECREASE. formatShopBonus (ui.js) reads it —
+// without it, -0.04 renders as "+-40%".
+export const BOOK_SHOP = {
+  undertow: {
+    deepLungs: { name: 'Deep Lungs', desc: '+8% resource capacity', perLevel: 0.08, base: 20, icon: '🫁' },
+    slowBurn:  { name: 'Slow Burn',  desc: '-4% resource drain',    perLevel: 0.04, base: 30, icon: '🕯️', reduction: true },
+    bigGulp:   { name: 'Big Gulp',   desc: '+10% refill per pickup', perLevel: 0.10, base: 25, icon: '💧' },
+  },
+}
+// The line table for one book. EVERY consumer goes through this — never SHOP directly, or a
+// book-specific line is invisible in exactly one place. Run BK's source-text lint guards it.
+export const shopLines = (bookId) => ({ ...SHOP, ...(BOOK_SHOP[bookId] ?? {}) })
+// Every line in the game, for the lookups that are book-agnostic (shopCost). Line ids are
+// globally unique — run BK asserts it — which is what lets shopCost keep its two-arg signature
+// and spares ~6 call sites.
+const ALL_SHOP_LINES = Object.assign({}, SHOP, ...Object.values(BOOK_SHOP))
 export const shopCost = (id, level) => Math.min(
   SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT,
-  Math.round(SHOP[id].base * Math.pow(1.6, level) * (1.2 + 1.8 * (level / (MAX_SHOP_LEVEL - 1)))),
+  Math.round(ALL_SHOP_LINES[id].base * Math.pow(1.6, level) * (1.2 + 1.8 * (level / (MAX_SHOP_LEVEL - 1)))),
 )
 
 // Sacrifice already-purchased SHOP levels (no coin refund) to permanently unlock the 3rd/4th
@@ -3474,6 +3496,24 @@ export const sacrificeCost = (slots) => SACRIFICE_COSTS[slots - 2] ?? null  // s
 // that number rather than writing it back lower (R3, docs/superpowers/specs/
 // 2026-08-04-cross-device-save-sync-tech-strategy.md §2.4: clamp on use, never on load).
 export const MAX_CHOICE_SLOTS = 2 + SACRIFICE_COSTS.length
+
+// Light Thief's cost, hoisted ahead of BOOK_UNLOCKS below (same reason as HUMIDITY_DMG_FLOOR
+// above CHAPTERS: a const referenced inside an object literal must already be initialized).
+// See "Light Thief (v7.x Book 2)" further down in this file for the full rationale.
+export const LIGHT_THIEF_COST = 15
+
+// Sacrifice targets that belong to ONE book, alongside the universal card-slot ladder. This is
+// the seam for "more later": a new permanent unlock is a row here plus a read in state.js, not a
+// new meta field and a new onSacrifice branch. Keyed by book, then by the flag it sets in
+// bookMeta(meta, book).unlocks.
+export const BOOK_UNLOCKS = {
+  undertow: {
+    lightThief: {
+      cost: LIGHT_THIEF_COST, icon: '🔦', name: 'Light Thief',
+      desc: 'Kills give back Light — sacrifice {cost} upgrade levels (no coin refund).',
+    },
+  },
+}
 
 // End-of-run coin bonus: sqrt(kills) + level reached (owner directive). The sqrt flattens the
 // kill term so a long farm run can't outrun a short deep one, and levelling is paid directly.
@@ -3508,8 +3548,12 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  undertow: { name: 'Undertow', chapters: ['surf', 'shelf', 'reef'], hidden: [], wip: true },
+  undertow: { name: 'Undertow', chapters: ['surf', 'shelf', 'reef'], hidden: [], wip: true, startCoins: 100 },
 }
+// Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
+// campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
+// book whose purse lives at the top level of meta (see bookMeta in state.js).
+export const BOOK_ORDER = ['book1', 'undertow']
 export const CHAPTER_ORDER = BOOKS.book1.chapters
 // Every id on any book's LADDER. Deliberately excludes `hidden`: The Blank has always sat outside
 // every loop (saveSummary and ui.js both say so in their own comments, and ui.js's carousel repair
@@ -6077,7 +6121,8 @@ export const DROWN_TICK = 0.5            // s between drowning ticks while the b
 // because that is the game's existing vocabulary for "permanent, and it costs you something you
 // already own". 15 sits deliberately BELOW the 3rd card slot's 20: it is the cheapest thing on that
 // screen, so it is a plausible first sacrifice rather than a late-game luxury.
-export const LIGHT_THIEF_COST = 15
+// LIGHT_THIEF_COST itself lives up near SACRIFICE_COSTS (BOOK_UNLOCKS.undertow.lightThief
+// references it directly, and that table is built before this point in the file).
 
 // ---- Asteroids (v5.21, lane chapters — gated on CHAPTERS[chapter].lane) ------------------------
 // Drifting rock that hurts EVERYONE. It is the lane's only neutral party: it damages the player on
