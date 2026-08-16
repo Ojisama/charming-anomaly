@@ -206,37 +206,59 @@ body {
 .title-logo span:last-child { color: var(--mint-dark); }
 /* v5.1 title is a top-anchored column with a fixed bottom nav; reserve room for the nav so the
    scrollable content never hides under it. */
-/* The title screen paints its OWN room, opaquely. Every other screen lets the Pixi canvas show
-   through as its backdrop — hide the canvas and the page is black, because nothing in CSS was ever
-   painting it — and that backdrop is drifting creatures on cream, which belongs to the diorama
-   title it was drawn for. The bookcase needs a room, so this screen stops borrowing the canvas.
-   Two surfaces: a warm wall behind the case, and the DESK it stands on, which is what the panel
-   below rests on. The desk's top edge carries the shadow the case casts onto it. */
-.screen--title {
-  justify-content: flex-start;
-  gap: 10px;
-  overflow-y: auto;
-  padding-top: calc(10px + env(safe-area-inset-top));
-  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+/* THE ROOM. Every menu tab paints it, opaquely. Before this they all let the Pixi canvas show
+   through as their backdrop — hide the canvas and the page is black, because nothing in CSS was
+   ever painting it — and that backdrop is drifting creatures on cream, drawn for the diorama title
+   the bookcase replaced. Battle, Shop and Daily now share one room so switching tabs does not jump
+   between two art directions.
+
+   Oak, not walnut: this is a pastel game and a dark study took the whole menu somewhere else.
+
+   The grain is four repeating gradients whose periods (3, 7, 11, 19px) share no common factor, so
+   the combined pattern does not visibly repeat — a single period reads as corduroy, which is what
+   the first cut of this looked like. Plank seams every 84px carry a dark line with a lit edge,
+   because a panelled wall is boards and the seams are what say so. */
+.room-oak {
   background:
-    radial-gradient(115% 42% at 50% 0%, rgba(255, 246, 224, 0.5), transparent 64%),
-    repeating-linear-gradient(92deg, rgba(60, 40, 22, 0.05) 0 2px, transparent 2px 7px),
-    linear-gradient(180deg, #7d5a39, #6b4c30 42%, #5c4028);
-  position: relative;
+    radial-gradient(120% 46% at 50% 0%, rgba(255, 249, 231, 0.55), transparent 66%),
+    repeating-linear-gradient(90deg,
+      transparent 0 82px,
+      rgba(74, 50, 28, 0.30) 82px 83px,
+      rgba(255, 240, 210, 0.22) 83px 84px),
+    repeating-linear-gradient(90deg, rgba(96, 66, 38, 0.055) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(96, 66, 38, 0.045) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(90deg, rgba(122, 88, 52, 0.05) 0 2px, transparent 2px 11px),
+    repeating-linear-gradient(90deg, rgba(60, 40, 22, 0.042) 0 1px, transparent 1px 19px),
+    linear-gradient(180deg, #d0b48d, #c2a377 46%, #b0906a);
+  /* NO `position` here. `.screen` is already absolute, so ::before's inset:0 resolves against it
+     anyway — and declaring `relative` at equal specificity but later in the file overrode that
+     absolute, collapsing every menu screen from inset:0 to auto height. The Shop's oak stopped
+     565px down and the old canvas showed below it. */
 }
-/* the desk catches the same chapter light, much fainter — the room moves as one */
-.screen--title::before {
+/* The chapter's own colour, washed over whatever room you are standing in. --tint is set on the
+   ROOT (ui.js paintRoom) rather than on one screen, so it survives a tab change and the Shop keeps
+   the light of the chapter you picked. soft-light shifts the hue and leaves the grain alone. */
+.room-oak::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
   background: var(--tint, transparent);
-  opacity: 0.22;
+  opacity: 0.3;
   mix-blend-mode: soft-light;
   transition: background 0.4s ease;
 }
-.screen--title > * { position: relative; z-index: 1; }
+.room-oak > * { position: relative; z-index: 1; }
+
+.screen--title {
+  justify-content: flex-start;
+  gap: 10px;
+  overflow-y: auto;
+  padding-top: calc(10px + env(safe-area-inset-top));
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+}
+
 /* the shadow the bookcase throws onto the desk in front of it */
 .bookcase { box-shadow: 0 10px 16px -8px rgba(30, 18, 8, 0.65); }
 /* the panel is a card lying on that desk — it needs its own ground, or cream text sits on wood */
@@ -1003,9 +1025,11 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  gap: 8px;
+  /* 18px, not 8: a selected volume lifts out of its row and its ribbon rises above that. Any
+     less and the ribbon crosses the brass plate of the shelf ABOVE, because a later étage paints
+     over an earlier one. The gap is empty wall, so the ribbon may overlap it freely. */
+  gap: 18px;
   overflow-y: auto;
-  /* 16px, not 8: the selected volume lifts 12px out of the row and would clip its own ribbon. */
   padding: 16px 0 2px;
   background:
     radial-gradient(130% 60% at 50% 0%, rgba(255, 255, 255, 0.5), transparent 60%),
@@ -1044,8 +1068,8 @@ body {
   content: "";
   display: block;
   height: 8px;
-  background: #5e422a;
-  box-shadow: 0 6px 10px -5px rgba(0, 0, 0, 0.5);
+  background: #8a6440;
+  box-shadow: 0 6px 10px -5px rgba(0, 0, 0, 0.4);
 }
 .shelf-plate {
   display: inline-flex;
@@ -1065,7 +1089,7 @@ body {
 .shelf-board > .shelf-plate { position: relative; z-index: 1; }
 .shelf-plate .shelf-stars { letter-spacing: 0; font-size: 0.62rem; }
 .shelf-board {
-  background: linear-gradient(180deg, #a67c50, #8a6440);
+  background: linear-gradient(180deg, #c8a273, #ad8757);
   border-top: 1px solid rgba(255, 255, 255, 0.26);
   padding-top: 2px;
 }
@@ -1131,16 +1155,16 @@ body {
 /* the chapter you last played keeps a ribbon in it */
 .vol-rib {
   position: absolute;
-  top: -13px;
+  top: -8px;
   left: 50%;
   width: 10px;
-  height: 24px;
+  height: 18px;
   margin-left: -5px;
   border-radius: 2px 2px 0 0;
   background: var(--pink);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
-.vol--sel { transform: translateY(-12px); outline: 2px solid var(--mint); outline-offset: 2px; box-shadow: 0 14px 18px -9px rgba(0, 0, 0, 0.6); }
+.vol--sel { transform: translateY(-8px); outline: 2px solid var(--mint); outline-offset: 2px; box-shadow: 0 14px 18px -9px rgba(0, 0, 0, 0.6); }
 .vol:focus-visible { outline: 3px solid var(--mint-dark); outline-offset: 2px; }
 
 /* A LOCKED volume, turned fore-edge out. The tell that makes this read as a book rather than a
