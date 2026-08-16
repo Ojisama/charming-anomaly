@@ -62,7 +62,7 @@
 
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim } from '../src/sim.js'
-import { WEAPONS, CHAPTERS, bookOf, shopLines, BOOK_ORDER } from '../src/config.js'
+import { WEAPONS, CHAPTERS, PLAYER, bookOf, shopLines, BOOK_ORDER } from '../src/config.js'
 import os from 'node:os'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -81,6 +81,17 @@ const LEVELS = arg('level', null) ? [Number(arg('level'))] : [1, 5]
 const WEAPON_IDS = arg('weapons', null)?.split(',') ?? CHAPTERS[CHAPTER]?.weapons ?? []
 const MODS = Object.fromEntries((arg('mods', '') || '').split(',').filter(Boolean)
   .map((kv) => { const [k, v] = kv.split('='); return [k, Number(v)] }))
+// --stick <0..1>: the MAGNITUDE of the fixed input this rig walks with. The default reproduces the
+// historical (0.4, 0.2) exactly, so every number this script has ever printed is unchanged.
+//
+// It exists because of Fin Hit (The Deep), the first weapon in the game whose DAMAGE reads the
+// player's actual speed. The default input is magnitude 0.447, i.e. 98 px/s against a 220 px/s base,
+// so this harness measures that one weapon at 45% of the power a real player spends most of a run
+// at — and it does so SILENTLY, printing a plausible row that is 2.24x too low. Any future
+// movement-coupled card has the same problem. Quote such a weapon at `--stick 1`, and say which.
+const STICK = Number(arg('stick', '0.4472135955'))
+const IN_X = 0.4 / 0.4472135955 * STICK
+const IN_Y = 0.2 / 0.4472135955 * STICK
 
 const DT = 1 / 60
 
@@ -144,7 +155,7 @@ function census(id, level, seed) {
     before.clear()
     for (const e of run.enemies) before.set(e.id, e.hp)
 
-    stepSim(run, { x: 0.4, y: 0.2 }, DT)
+    stepSim(run, { x: IN_X, y: IN_Y }, DT)
     // v7.x Book 2: a chapter resource AMPLIFIES the player's Pulse, so in a resource chapter the
     // numbers below are measured against some state of that bar. Reported so a reading is never
     // quoted without it — 0 everywhere else, since createRun leaves charge at 0 with no resource.
@@ -297,6 +308,11 @@ const RESULTS = await runAll()
 const pad = (s, n) => String(s).padStart(n)
 
 console.log(`chapter ${CHAPTER} (book ${BOOK_ID}), difficulty ${DIFFICULTY}, ${SECS}s x ${SEEDS.length} seeds, one weapon equipped, all offers refused`)
+// Printed unconditionally, because a rig property that changes a number has to appear beside the
+// number. A reader comparing two tables with different --stick values and no label would attribute
+// the whole difference to the code under test.
+console.log(`walk: stick ${STICK.toFixed(3)} = ${(STICK * PLAYER.baseSpeed).toFixed(0)} px/s ` +
+  `(${(STICK * 100).toFixed(0)}% of base) — MOVEMENT-COUPLED weapons read this directly; pass --stick 1 for a full-speed player`)
 if (CHAPTERS[CHAPTER]?.resource) {
   const res = CHAPTERS[CHAPTER].resource
   // v7.55 §5.3: Humidity (The Surf) is the first resource to declare a `damage` block, so its raw
