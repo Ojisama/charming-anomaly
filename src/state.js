@@ -7,8 +7,7 @@ import {
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS,
-  BOOKS, BOOK_ORDER, shopLines, bookOf, SLOW_BURN_FLOOR,
-} from './config.js'
+  BOOKS, BOOK_ORDER, shopLines, bookOf, SLOW_BURN_FLOOR, unlockLevel, unlockMax } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -1803,11 +1802,15 @@ export function createRun(meta, opts = {}) {
     // mechanic gated on its own unlock, not "a refill pickup".
     chargeRefillMul: 1 + shopBonus(bm, bookId, 'bigGulp'),
     // Light per kill, SNAPSHOTTED from the permanent Light Thief unlock (bm.unlocks.lightThief,
-    // bought for LIGHT_THIEF_COST shop levels — see BOOK_UNLOCKS.undertow in config.js). This
+    // bought over LIGHT_THIEF_COSTS shop levels — see BOOK_UNLOCKS.undertow in config.js). This
     // exists as a run field rather than sim.js reading meta because sim.js must never see meta at
     // all — it plays what it is handed, which is what makes a dev-gated chapter playtest as the
     // thing that eventually ships. 0 unbought, and 0 for every chapter that declares no resource.
-    killRefill: bm.unlocks?.lightThief === true ? (CHAPTERS[chapter].resource?.killRefill ?? 0) : 0,
+    // Scales with the Light Thief LEVEL: the chapter's own killRefill is the value at FULL level,
+    // so a maxed ladder is exactly what the old single purchase always gave and the balance ceiling
+    // has not moved. unlockLevel also reads a pre-ladder `true` as full.
+    killRefill: (CHAPTERS[chapter].resource?.killRefill ?? 0)
+      * (unlockLevel(bm, bookId, 'lightThief') / Math.max(1, unlockMax(bookId, 'lightThief'))),
     // v7.x The Reef (see the doc block above): seconds of Burst dash left, and the drowning DoT's
     // part-tick accumulator. The rampage pattern again — every run carries both, and only a chapter
     // declaring `burst` / a `resource.drown` block ever moves them off 0.

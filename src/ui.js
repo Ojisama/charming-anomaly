@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta } from './state.js'
@@ -721,15 +721,21 @@ export function initUI(hooks) {
   // wip (see unlockBook, state.js). With the book locked, sacTargets(bookId) simply has no
   // BOOK_UNLOCKS[bookId] to iterate, so book 1 is byte-identical to before.
   //
-  // Cheapest first, which is also the order the toggles appear in the view: at 15 levels Light
-  // Thief undercuts the 3rd slot's 20 deliberately (see LIGHT_THIEF_COST in config.js), so it
-  // should read first.
+  // Cheapest first, which is also the order the toggles appear in the view: Light Thief's first
+  // rung is 5 against the 3rd slot's 20 (see LIGHT_THIEF_COSTS in config.js), so it reads first.
   function sacTargets(bookId) {
     const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
     const out = []
     for (const [id, u] of Object.entries(BOOK_UNLOCKS[bookId] ?? {})) {
-      if (bm.unlocks?.[id] === true) continue
-      out.push({ id, cost: u.cost, icon: u.icon, label: t(u.name), short: t(u.name), desc: tt(u.desc, { cost: u.cost }) })
+      // The NEXT rung's price, and null once the ladder is finished — which is also the
+      // already-bought gate, so a maxed unlock drops out of the list without a second test.
+      const cost = unlockCost(bookId, id, unlockLevel(bm, bookId, id))
+      if (cost == null) continue
+      const lv = unlockLevel(bm, bookId, id), max = unlockMax(bookId, id)
+      // The name carries the rung once there is more than one, so the sacrifice screen says which
+      // level you are buying rather than offering the same row three times over.
+      const label = max > 1 ? `${t(u.name)} ${lv + 1}/${max}` : t(u.name)
+      out.push({ id, cost, icon: u.icon, label, short: label, desc: tt(u.desc, { cost }) })
     }
     const slots = bm.choiceSlots ?? 2
     const slotCost = sacrificeCost(slots)

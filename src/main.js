@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, shopLines, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -323,7 +323,7 @@ const ui = initUI({
     // trusting the button to be absent.
     let cost
     if (target === 'slot') cost = sacrificeCost(slots)
-    else cost = bm.unlocks?.[target] === true ? null : BOOK_UNLOCKS[bookId]?.[target]?.cost
+    else cost = unlockCost(bookId, target, unlockLevel(bm, bookId, target))
     if (cost == null) return false
     const lines = shopLines(bookId)
     let offered = 0
@@ -334,7 +334,7 @@ const ui = initUI({
     if (offered !== cost) return false
     for (const [id, count] of Object.entries(picks)) bm.shop[id] -= count
     if (target === 'slot') bm.choiceSlots = slots + 1
-    else (bm.unlocks ??= {})[target] = true
+    else (bm.unlocks ??= {})[target] = unlockLevel(bm, bookId, target) + 1
     saveMeta(meta)
     playSfx('buy')
     return true

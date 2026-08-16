@@ -73,7 +73,7 @@ import {
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
-  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COST, SACRIFICE_COSTS, LATCH_SLOW_MUL,
+  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COSTS, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
@@ -4667,10 +4667,18 @@ function runBookProgression() {
   for (const [bookId, table] of Object.entries(BOOK_UNLOCKS)) {
     assert.ok(BOOK_ORDER.includes(bookId), `BOOK_UNLOCKS names unknown book '${bookId}'`)
     for (const [id, u] of Object.entries(table)) {
-      for (const f of ['cost', 'icon', 'name', 'desc']) {
+      for (const f of ['costs', 'icon', 'name', 'desc']) {
         assert.ok(u[f] !== undefined, `BOOK_UNLOCKS.${bookId}.${id} is missing '${f}'`)
       }
-      assert.ok(Number.isInteger(u.cost) && u.cost > 0, `BOOK_UNLOCKS.${bookId}.${id}.cost must be a positive integer`)
+      // `costs` is the LADDER: one positive-integer price per level, in buying order. A single-
+      // purchase unlock is a one-entry array, so there is exactly one shape here and nothing
+      // downstream has to branch on "does this one have levels".
+      assert.ok(Array.isArray(u.costs) && u.costs.length > 0,
+        `BOOK_UNLOCKS.${bookId}.${id}.costs must be a non-empty array — a single purchase is [n]`)
+      assert.ok(u.costs.every((c) => Number.isInteger(c) && c > 0),
+        `BOOK_UNLOCKS.${bookId}.${id}.costs must all be positive integers`)
+      assert.deepStrictEqual([...u.costs].sort((a, b) => a - b), u.costs,
+        `BOOK_UNLOCKS.${bookId}.${id}.costs must ascend — a cheaper later rung makes the earlier one a trap`)
     }
   }
   // (g)-(k) live in their own block: `ut` here is ensureBookMeta's return, and the outer scope
@@ -4936,8 +4944,12 @@ function runBookProgression() {
     // the concern Task 3's implementer carried forward into this task.
     assert.doesNotMatch(mainSrc, /meta\.lightThief\s*=\s*true/,
       'onSacrifice must never write the legacy top-level meta.lightThief again (ruling G) — the unlock goes through bookMeta(meta,bookId).unlocks[target] only')
-    assert.match(mainSrc, /\(bm\.unlocks\s*\?\?=\s*\{\}\)\[target\]\s*=\s*true/,
-      'onSacrifice must write a non-slot unlock to bm.unlocks[target]')
+    // The LEVEL, not `true`: unlocks are ladders now (BOOK_UNLOCKS[].costs), and writing `true`
+    // would jump a part-bought ladder straight to the top — unlockLevel reads `true` as full, so
+    // buying rung 1 would silently hand over rungs 2 and 3 as well. Ruling G is unchanged: the
+    // write still goes to bm.unlocks[target] and nowhere else.
+    assert.match(mainSrc, /\(bm\.unlocks\s*\?\?=\s*\{\}\)\[target\]\s*=\s*unlockLevel\(bm, bookId, target\) \+ 1/,
+      'onSacrifice must write the next LEVEL to bm.unlocks[target] — writing `true` maxes a part-bought ladder')
   }
 
   // (u) TASK 6 — formatShopBonus (ui.js) must be sign-aware, not a percent-vs-flat discriminator
@@ -5851,12 +5863,23 @@ function runLightThief() {
       'an unbought save must take 0 light per kill')
     assert.strictEqual(createRun(meta(true), { chapter: 'shelf', difficulty: 1 }).killRefill, res.killRefill,
       'a bought save must take the chapter resource killRefill')
-    // Coerced, not truthy: every other gate in the save tests === true, and a save carrying 1 or
-    // 'yes' that granted the unlock HERE while denying it everywhere else is the worst shape.
-    for (const bad of [1, 'yes', {}, [], 'true']) {
-      assert.strictEqual(createRun(meta(bad), { chapter: 'shelf', difficulty: 1 }).killRefill, 0,
-        `lightThief: ${JSON.stringify(bad)} is not true and must not grant the unlock`)
+    // THE LADDER (owner ruling, 3 rungs): each level is a third of the chapter's own killRefill,
+    // so a maxed ladder is exactly what the old single purchase gave and the ceiling has not moved.
+    // `true` is a pre-ladder save that paid the full 15 — it reads as the TOP level, never less.
+    const MAXLT = unlockMax('undertow', 'lightThief')
+    for (const lv of [1, 2, 3]) {
+      assert.ok(Math.abs(createRun(meta(lv), { chapter: 'shelf', difficulty: 1 }).killRefill
+        - res.killRefill * lv / MAXLT) < 1e-9, `level ${lv} must take ${lv}/${MAXLT} of the chapter refill`)
     }
+    // A numeric level is MEANINGFUL now, so the old "must be === true" rule is gone. What has to
+    // hold instead: nothing un-numeric grants anything, and a value past the top of the ladder
+    // clamps rather than scaling the refill past the chapter's own figure.
+    for (const bad of ['yes', {}, [], 'true', NaN, -3, false]) {
+      assert.strictEqual(createRun(meta(bad), { chapter: 'shelf', difficulty: 1 }).killRefill, 0,
+        `lightThief: ${JSON.stringify(bad)} is not a level and must grant nothing`)
+    }
+    assert.strictEqual(createRun(meta(99), { chapter: 'shelf', difficulty: 1 }).killRefill, res.killRefill,
+      'a level past the top of the ladder clamps to the top rather than scaling past the chapter refill')
     assert.strictEqual(createRun(meta(true), { chapter: 'pond', difficulty: 1 }).killRefill, 0,
       'a chapter with no resource takes 0 per kill even when the unlock is owned')
   }
@@ -5934,8 +5957,16 @@ function runLightThief() {
   // CHEAPEST thing on the sacrifice screen. (Task 6 REMOVED the old meta.dev gate here — see the
   // block below for why reachability now does that job instead, and what replaced it.)
   {
-    assert.ok(LIGHT_THIEF_COST < SACRIFICE_COSTS[0],
-      `Light Thief (${LIGHT_THIEF_COST}) must undercut the 3rd card slot (${SACRIFICE_COSTS[0]}) — it is meant to be a plausible FIRST sacrifice`)
+    assert.ok(LIGHT_THIEF_COSTS[0] < SACRIFICE_COSTS[0],
+      `Light Thief's first rung (${LIGHT_THIEF_COSTS[0]}) must undercut the 3rd card slot (${SACRIFICE_COSTS[0]}) — it is meant to be a plausible FIRST sacrifice`)
+    assert.deepStrictEqual([...LIGHT_THIEF_COSTS].sort((a, b) => a - b), LIGHT_THIEF_COSTS,
+      'a ladder must get more expensive, not less — a cheaper later rung makes the earlier one a trap')
+    // unlockCost IS the already-bought gate: null once the ladder is finished. A separate
+    // `=== true` test alongside it would go stale the moment an unlock gains a second rung.
+    assert.strictEqual(unlockCost('undertow', 'lightThief', LIGHT_THIEF_COSTS.length), null,
+      'a finished ladder must price its next rung as null, which is what removes it from sacTargets')
+    assert.strictEqual(unlockLevel({ unlocks: { lightThief: true } }, 'undertow', 'lightThief'), LIGHT_THIEF_COSTS.length,
+      'a pre-ladder `true` must read as the TOP level — that save paid the full single price and must not lose it')
     const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
     // Task 5: onSacrifice gained a trailing bookId, defaulted to BOOK_ORDER[0] alongside target's
     // own 'slot' default — same "an older caller keeps meaning what it used to" reasoning.
@@ -5945,8 +5976,10 @@ function runLightThief() {
     // shaped literal), and the already-owned check reads the NEW per-book location
     // (bm.unlocks[target], since createRun's killRefill has read bm.unlocks.lightThief since
     // Task 2) rather than the legacy top-level meta.lightThief.
-    assert.ok(/bm\.unlocks\?\.\[target\] === true \? null : BOOK_UNLOCKS\[bookId\]\?\.\[target\]\?\.cost/.test(main),
-      'onSacrifice must refuse an already-owned unlock itself (reading bm.unlocks, not the legacy meta.lightThief) rather than trusting the button to be absent')
+    assert.ok(/cost = unlockCost\(bookId, target, unlockLevel\(bm, bookId, target\)\)/.test(main),
+      'onSacrifice must price the NEXT rung from the ladder (reading bm.unlocks via unlockLevel, not the legacy meta.lightThief) — a finished ladder prices null and is refused here rather than by the button being absent')
+    assert.ok(/\(bm\.unlocks \?\?= \{\}\)\[target\] = unlockLevel\(bm, bookId, target\) \+ 1/.test(main),
+      'onSacrifice must store the new LEVEL, not `true` — writing true would jump a part-bought ladder straight to the top')
   }
 
   // (e) RULING 1 (Task 6, 2026-08-16 amendment) — ui.js's sacTargets used to hand-roll its own
@@ -5981,9 +6014,15 @@ function runLightThief() {
     assert.doesNotMatch(body, /meta\.lightThief/,
       "sacTargets must not read the legacy meta.lightThief — Task 5's onSacrifice writes the unlock to bm.unlocks[target], and reading the old field is exactly why the button never disappeared after a purchase")
 
-    // The already-owned gate must read THIS BOOK's own purse, keyed by the loop's own id.
-    assert.ok(/if \(bm\.unlocks\?\.\[id\] === true\) continue/.test(body),
-      'sacTargets must gate on bm.unlocks?.[id] === true (this book\'s own purse), not a Book-1-shaped legacy field')
+    // The already-owned gate must read THIS BOOK's own purse, keyed by the loop's own id. Unlocks
+    // are LADDERS now, so the gate is "the next rung prices null" rather than a boolean — one
+    // expression that both prices the offer and retires it, where a separate `=== true` test
+    // alongside it would go stale the moment an unlock gained a second rung. unlockLevel takes
+    // `bm`, so it is still this book's purse and never a Book-1-shaped legacy field.
+    assert.ok(/const cost = unlockCost\(bookId, id, unlockLevel\(bm, bookId, id\)\)/.test(body),
+      "sacTargets must price the next rung from THIS book's purse via unlockLevel(bm, …), not a Book-1-shaped legacy field")
+    assert.ok(/if \(cost == null\) continue/.test(body),
+      'sacTargets must drop an unlock whose ladder is finished — that null IS the already-bought gate')
 
     // The structural proof for "every id sacTargets can emit is either 'slot' or a real key of
     // BOOK_UNLOCKS[bookId]": the ONLY branch that can push a non-'slot' id must destructure that
@@ -5992,7 +6031,9 @@ function runLightThief() {
     // key 'lightThief' with nothing to catch it.
     assert.ok(/for \(const \[id, u\] of Object\.entries\(BOOK_UNLOCKS\[bookId\] \?\? \{\}\)\)/.test(body),
       'sacTargets must iterate Object.entries(BOOK_UNLOCKS[bookId] ?? {}) by its own keys')
-    assert.ok(/out\.push\(\{ id, cost: u\.cost/.test(body),
+    // `cost` is the local holding the NEXT rung's price now, not u.cost — but the point of this
+    // assertion is the `id` binding, which must still be the loop's own.
+    assert.ok(/out\.push\(\{ id, cost,/.test(body),
       "the BOOK_UNLOCKS branch must push the LOOP's own `id` binding — a separately-typed id here (however named) can silently stop matching the table's real key")
     // Every OTHER id: assignment in the function body must be the literal 'slot' — if it is
     // anything else, some branch is hardcoding an id instead of reading it off BOOK_UNLOCKS.
@@ -6001,7 +6042,7 @@ function runLightThief() {
       `sacTargets may only hardcode 'slot' as a literal id; every other emitted id must come from the BOOK_UNLOCKS loop above — found literal id(s): ${JSON.stringify(idLiterals)}`)
   }
 
-  console.log(`PASS run LT (Light Thief): +${res.killRefill}/kill ONLY when bought, 0 unbought and 0 for 5 truthy-but-not-true saves, clamped, sim.js never reads meta, rung costs ${LIGHT_THIEF_COST} (under the ${SACRIFICE_COSTS[0]} card slot), and sacTargets emits only 'slot' or a real BOOK_UNLOCKS[bookId] key`)
+  console.log(`PASS run LT (Light Thief): ${LIGHT_THIEF_COSTS.length} rungs at ${LIGHT_THIEF_COSTS.join('/')} sacrificed levels, +${res.killRefill}/kill at full and thirds below, 0 for 7 junk saves, over-max clamps, pre-ladder true reads as top, bar clamps, sim.js never reads meta, first rung under the ${SACRIFICE_COSTS[0]} card slot, and sacTargets emits only 'slot' or a real BOOK_UNLOCKS[bookId] key`)
 }
 run(runLightThief)
 

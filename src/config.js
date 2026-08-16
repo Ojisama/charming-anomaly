@@ -3660,22 +3660,41 @@ export const sacrificeCost = (slots) => SACRIFICE_COSTS[slots - 2] ?? null  // s
 // 2026-08-04-cross-device-save-sync-tech-strategy.md §2.4: clamp on use, never on load).
 export const MAX_CHOICE_SLOTS = 2 + SACRIFICE_COSTS.length
 
-// Light Thief's cost, hoisted ahead of BOOK_UNLOCKS below (same reason as HUMIDITY_DMG_FLOOR
+// Light Thief's costs, hoisted ahead of BOOK_UNLOCKS below (same reason as HUMIDITY_DMG_FLOOR
 // above CHAPTERS: a const referenced inside an object literal must already be initialized).
 // See "Light Thief (v7.x Book 2)" further down in this file for the full rationale.
-export const LIGHT_THIEF_COST = 15
+//
+// THREE levels, not one purchase (owner ruling): 5, then 10, then 15 sacrificed shop levels. The
+// first rung is cheap enough to try and the last is a real commitment, where a single 15 made it
+// all-or-nothing in a shop where every other line has a ladder.
+export const LIGHT_THIEF_COSTS = [5, 10, 15]
 
 // Sacrifice targets that belong to ONE book, alongside the universal card-slot ladder. This is
 // the seam for "more later": a new permanent unlock is a row here plus a read in state.js, not a
 // new meta field and a new onSacrifice branch. Keyed by book, then by the flag it sets in
 // bookMeta(meta, book).unlocks.
+// `costs` is a LADDER: one entry per level, in the order they are bought. A single-purchase unlock
+// is simply a one-entry array, so there is one shape here and no branch anywhere downstream.
 export const BOOK_UNLOCKS = {
   undertow: {
     lightThief: {
-      cost: LIGHT_THIEF_COST, icon: '🔦', name: 'Light Thief',
+      costs: LIGHT_THIEF_COSTS, icon: '🔦', name: 'Light Thief',
       desc: 'Kills give back Light — sacrifice {cost} upgrade levels (no coin refund).',
     },
   },
+}
+// How many levels an unlock has, the cost of the NEXT one (null when there is none left), and the
+// level a save actually owns.
+export const unlockMax = (bookId, id) => BOOK_UNLOCKS[bookId]?.[id]?.costs.length ?? 0
+export const unlockCost = (bookId, id, level) =>
+  BOOK_UNLOCKS[bookId]?.[id]?.costs[Math.max(0, Math.floor(Number(level) || 0))] ?? null
+// `true` is a save from before the ladder: it paid the single full price and had the whole effect,
+// so it reads as the TOP level. Never take away what was bought. Everything else coerces and
+// clamps, so a tampered value cannot grant a level that does not exist.
+export const unlockLevel = (bm, bookId, id) => {
+  const v = bm?.unlocks?.[id]
+  const max = unlockMax(bookId, id)
+  return v === true ? max : Math.max(0, Math.min(max, Math.floor(Number(v) || 0)))
 }
 
 // End-of-run coin bonus: sqrt(kills) + level reached (owner directive). The sqrt flattens the
@@ -4456,7 +4475,7 @@ CHAPTERS.shelf = {
   // about -1.6/s, so it empties in roughly a minute — the drain bites without being a countdown.
   //
   // v7.x REVISION (owner, 2026-08-12), on two counts:
-  //   - `killRefill` is now SHOP-ONLY. It is the value you get once LIGHT_THIEF_COST is paid, and
+  //   - `killRefill` is now SHOP-ONLY. It is the value you get at FULL Light Thief level, and
   //     zero until then — createRun gates it into run.killRefill so sim.js never reads meta. The
   //     first cut had it on by default at 0.5/kill, which was both unbought and invisible: 0.5 of a
   //     100 bar is a rounding error next to a 2.2/s drain. Bought, it is worth roughly a third of
@@ -6642,7 +6661,7 @@ export const DROWN_TICK = 0.5            // s between drowning ticks while the b
 // because that is the game's existing vocabulary for "permanent, and it costs you something you
 // already own". 15 sits deliberately BELOW the 3rd card slot's 20: it is the cheapest thing on that
 // screen, so it is a plausible first sacrifice rather than a late-game luxury.
-// LIGHT_THIEF_COST itself lives up near SACRIFICE_COSTS (BOOK_UNLOCKS.undertow.lightThief
+// LIGHT_THIEF_COSTS itself lives up near SACRIFICE_COSTS (BOOK_UNLOCKS.undertow.lightThief
 // references it directly, and that table is built before this point in the file).
 
 // ---- Asteroids (v5.21, lane chapters — gated on CHAPTERS[chapter].lane) ------------------------
