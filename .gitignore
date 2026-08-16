@@ -8,3 +8,7 @@ dist/
 
 # verification screenshots (never commit — they land in the worktree root during browser checks)
 /*.png
+
+# subagent-driven-development scratch: per-plan ledger, task briefs, reports and review packages.
+# Regenerated from the plan and git history; the plan in docs/ is the artifact worth keeping.
+.superpowers/
