@@ -225,7 +225,10 @@ export function initUI(hooks) {
 
   for (const name of SCREEN_NAMES) {
     const el = document.createElement('div')
-    el.className = `screen screen--${name}`
+    // The three MENU tabs share one room (.room-oak, styles.css). Gameplay screens must not
+    // have it: the hud sits over the live canvas and an opaque background would hide the game.
+    const ROOM = ['title', 'shop', 'daily']
+    el.className = `screen screen--${name}${ROOM.includes(name) ? ' room-oak' : ''}`
     el.dataset.ui = ''            // keeps input.js from anchoring the joystick on menu touches
     root.appendChild(el)
     screens[name] = el
@@ -344,14 +347,15 @@ export function initUI(hooks) {
   }
 
   // The room takes the SELECTED chapter's colour. CHAPTERS[id].render.bgColor is a Pixi int
-  // (0xrrggbb), so it needs the two-line conversion the hero card's gradient used to do; the value
-  // is set as a custom property on the SCREEN element, which survives renderTitle's innerHTML
-  // rewrite — set it on anything inside and the CSS transition has nothing to interpolate from.
+  // (0xrrggbb), so it needs the two-line conversion the hero card's gradient used to do.
+  // Set on the ROOT, not on a screen: the tint has to survive both renderTitle's innerHTML rewrite
+  // AND a tab change, so the Shop stands in the light of the chapter you just picked. Anything set
+  // inside the rebuilt markup would also give the CSS transition nothing to interpolate from.
   // A locked volume tints nothing: you have not seen that chapter, so the room stays neutral.
   function paintRoom() {
     const int = chapterAvailable(meta, browseChapterId) ? CHAPTERS[browseChapterId]?.render?.bgColor : null
     const hex = int == null ? 'transparent' : '#' + (int & 0xffffff).toString(16).padStart(6, '0')
-    screens.title.style.setProperty('--tint', hex)
+    document.documentElement.style.setProperty('--tint', hex)
   }
 
   function bookcaseHtml() {
