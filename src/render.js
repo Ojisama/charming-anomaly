@@ -2294,8 +2294,13 @@ export function createRenderer(app) {
     const r = 17
     const f = (c) => white ? 0xffffff : c
     const line = f(0x0a1016)
-    const skin = f(0x2b2230)
-    const belly = f(0x453950)
+    // ⚠ DARK, BUT NOT A VOID. A real deep-sea anglerfish is very nearly black, and the first cut
+    // painted it that way (0x2b2230 on a 0x03101d floor): the body disappeared entirely and the
+    // animal read as a floating dark pennant with a spike. The design intent survives — you
+    // navigate this chapter by the LURE, not by the fish — but the body still has to be findable
+    // once you are on top of it, or the thing you must judge a gape on is not on screen.
+    const skin = f(0x473b52)
+    const belly = f(0x6a5a78)
     const tooth = f(0xe8e2d4)
     const lw = Math.max(2, r * 0.11)
     const noseX = r * 0.95
@@ -2305,7 +2310,10 @@ export function createRenderer(app) {
     // a swimming head with a fish attached rather than as a fish with a big head.
     const body = (t) => {
       const rise = Math.pow(Math.min(1, t / 0.2), 0.5)
-      const fall = Math.pow(Math.max(0, 1 - (t - 0.2) / 0.78), 1.15)
+      // A LOW exponent, so the body stays fat most of its length and only collapses at the wrist.
+      // At 1.15 it fell away linearly and the silhouette read as a tent — a cone with a spike —
+      // rather than as the globe an anglerfish is.
+      const fall = Math.pow(Math.max(0, 1 - (t - 0.2) / 0.78), 0.62)
       return r * 0.62 * Math.max(0.07, t < 0.2 ? rise : fall)
     }
     groundShadow(r * 1.0, r * 0.7)
@@ -2333,9 +2341,12 @@ export function createRenderer(app) {
       const ex = noseX + r * 0.52, ey = -r * 0.34
       g.moveTo(noseX - r * 0.5, -r * 0.1).quadraticCurveTo(noseX + r * 0.3, -r * 0.7, ex, ey)
         .stroke({ width: lw * 0.6, color: f(0x171420), alpha: 0.95 })
-      g.circle(ex, ey, r * 0.3).fill({ color: f(0x7fe9d0), alpha: 0.22 })
-      g.circle(ex, ey, r * 0.17).fill({ color: f(0xaef4e2), alpha: 0.55 })
-      g.circle(ex, ey, r * 0.09).fill({ color: f(0xf2fffb), alpha: 0.95 })
+      // Three stops rather than two, and wider than it looks like it needs to be: this is the only
+      // light source in the chapter and it is what the player crosses the screen toward.
+      g.circle(ex, ey, r * 0.52).fill({ color: f(0x5fd8c0), alpha: 0.16 })
+      g.circle(ex, ey, r * 0.30).fill({ color: f(0x7fe9d0), alpha: 0.38 })
+      g.circle(ex, ey, r * 0.17).fill({ color: f(0xaef4e2), alpha: 0.75 })
+      g.circle(ex, ey, r * 0.09).fill({ color: f(0xf2fffb), alpha: 1 })
       for (const s of [-1, 1]) darkEye(g, noseX - r * 0.52, s * r * 0.25, r * 0.09, r * 0.085, 0x05070a, true)
     }
     if (elite) eliteCrown(-r * 1.1, r)
@@ -12740,24 +12751,83 @@ export function createRenderer(app) {
     g.stroke({ width: 0.8, color: 0xeef6fb, alpha: 0.7, cap: 'round' })
     return bake(g)
   })()
+  // SLIME, for The Deep's hagfish (run.webs again — same mechanic, same array, different animal).
+  //
+  // ⚠ THIS EXISTS BECAUSE AN FX BAKED FOR ONE BIOME IS WRONG ON THE NEXT ONE, and the first probe
+  // frame of The Deep is the evidence: the abyssal plain was covered in GIANT WHITE ORB-WEAVER
+  // WEBS, because `webZone` is a chapter-agnostic flag and the only art it had was a garden
+  // spider's. Nothing throws, no test can see it, and it was the loudest thing on a screen whose
+  // whole premise is that there is almost no light. A hagfish's slow patch is MUCUS: a low
+  // irregular sheet with no hub, no spokes and no rings — every one of which is a structure a
+  // spider builds and a hagfish cannot.
+  const SLIME_BAKE_RIM = 144
+  const slimeTex = (() => {
+    const g = new Graphics()
+    const R = SLIME_BAKE_RIM
+    // An irregular lobed outline rather than a circle: slime spreads by flowing, so its edge is
+    // uneven and its centre is wherever it landed.
+    const lobe = (scale, alpha, color) => {
+      const pts = []
+      for (let i = 0; i < 26; i++) {
+        const a = (i / 26) * Math.PI * 2
+        const rr = R * scale * (0.82 + hash(i * 3.7 + scale * 11) * 0.32)
+        pts.push(Math.cos(a) * rr, Math.sin(a) * rr)
+      }
+      g.poly(pts).fill({ color, alpha })
+    }
+    // ⚠ THESE ALPHAS ARE FOR THE STACK, NOT FOR ONE PATCH. Slime patches overlap heavily (a hagfish
+    // lays one every few seconds while it walks), and alpha compounds — the first cut used
+    // 0.20/0.16/0.14, which reads correctly in isolation and piles into a bright pale MASS around
+    // the player in a chapter whose premise is near-total darkness. Judge this on a frame with
+    // several overlapping, never on one.
+    lobe(1.0, 0.11, 0xbfe0d2)
+    lobe(0.78, 0.09, 0xd6efe2)
+    lobe(0.5, 0.08, 0xeafaf2)
+    // Strands: a hagfish's slime is famously FIBROUS — it comes out in threads that catch. A few
+    // long meandering ones, not a radial set, so it never reads as a wheel.
+    for (let i = 0; i < 7; i++) {
+      const a0 = hash(i * 5.3 + 1.7) * Math.PI * 2
+      const a1 = a0 + 1.4 + hash(i * 2.9) * 1.8
+      const r0 = R * (0.25 + hash(i * 7.1) * 0.55)
+      const r1 = R * (0.35 + hash(i * 4.4) * 0.6)
+      g.moveTo(Math.cos(a0) * r0, Math.sin(a0) * r0)
+        .quadraticCurveTo(0, 0, Math.cos(a1) * r1, Math.sin(a1) * r1)
+        .stroke({ width: R * 0.018, color: 0xe8fbf3, alpha: 0.32, cap: 'round' })
+    }
+    // Trapped bubbles — the one detail that says "this is a fluid" rather than "this is a stain".
+    for (let i = 0; i < 12; i++) {
+      const a = hash(i * 9.1 + 4.2) * Math.PI * 2
+      const d = R * hash(i * 6.6 + 2.2) * 0.85
+      g.circle(Math.cos(a) * d, Math.sin(a) * d, R * (0.014 + hash(i * 3.3) * 0.026))
+        .fill({ color: 0xf4fffb, alpha: 0.2 })
+    }
+    return bake(g)
+  })()
+
   const webPool = []
   function acquireWeb() {
     const spr = new Sprite(webTex.tex); spr.anchor.set(webTex.ax, webTex.ay)
     webLayer.addChild(spr)
     return { root: spr, spr }
   }
-  function syncWebs(list) {
+  // `slimy` is a RENDER-ONLY chapter flag (CHAPTERS[].render.webLook), so the mechanic, its radius
+  // and its slow are byte-identical in both chapters and only the drawing changes — which is the
+  // whole contract the `render` block exists to keep.
+  function syncWebs(list, slimy = false) {
     const n = list.length
+    const look = slimy ? slimeTex : webTex
+    const rim = slimy ? SLIME_BAKE_RIM : WEB_BAKE_RIM
     while (webPool.length < n) webPool.push(acquireWeb())
     for (let i = 0; i < n; i++) {
       const wv = webPool[i]
       const web = list[i]
       wv.root.visible = true
+      if (wv.spr.texture !== look.tex) { wv.spr.texture = look.tex; wv.spr.anchor.set(look.ax, look.ay) }
       wv.root.position.set(web.x, web.y)
       const fade = Math.min(1, web.t / 0.8) // dissolve over the last 0.8s of life
       const ph = hash(web.x * 0.11 + web.y * 0.07) // fixed per-patch seed (rotation + shimmer phase)
       wv.spr.rotation = ph * Math.PI * 2                        // fixed per position — no stamped tiling
-      wv.spr.scale.set(Math.max(web.r, 1) / WEB_BAKE_RIM)       // spoke tips land at EXACTLY r
+      wv.spr.scale.set(Math.max(web.r, 1) / rim)                // drawn extent == the tested extent
       wv.spr.alpha = fade * (0.86 + 0.14 * Math.sin(animT * 1.6 + ph * 6.28)) // cheap one-sprite shimmer
     }
     for (let i = n; i < prevCount.web; i++) webPool[i].root.visible = false
@@ -16568,7 +16638,7 @@ export function createRenderer(app) {
     syncBinds(run)
     syncPools(run.pools || [])
     syncTrails(run.trails || [])
-    syncWebs(run.webs || [])
+    syncWebs(run.webs || [], CHAPTERS[run.chapter]?.render?.webLook === 'slime')
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
     // the chapter has no run.sandbars at all.
     // sandbarTex is a LIST now (one bake per outline) — the pool's default texture is the first, and

@@ -17734,6 +17734,27 @@ function testTheDeep() {
     console.log(`PASS run DP.i (wired in): in Undertow, spine '${CHAPTER_SPINE.deep}', WIP-gated, dark + scent, ${CHAPTERS.deep.roster.length} roster entries covering ${[...arch].sort().join('/')}`)
   }
 
+  // (j) A FULL BAR STILL LEAVES THE CORNERS DARK, ON EVERY SCREEN. Asserted as a RATIO and never as
+  // pixels, which is the whole of the v7.58 scar: The Shelf's light was tuned on a phone, where it
+  // was right, and shipped leaving a desktop's corners vignetted at a full bar — because the
+  // quantity is compared against the screen and the two screens have different shapes.
+  //
+  // radiusFull is a multiple of the LONGEST SIDE; the corners sit at the HALF-DIAGONAL. So the
+  // chapter's premise holds only while radiusFull < halfDiagonal/longestSide, and that ratio is
+  // SMALLEST on the narrowest screen — the phone is the binding case, not the desktop.
+  {
+    const SCREENS = [[390, 844], [1280, 800], [844, 390]]   // phone portrait, desktop, phone landscape
+    const worst = Math.min(...SCREENS.map(([w, h]) => Math.hypot(w, h) / 2 / Math.max(w, h)))
+    const rf = CHAPTERS.deep.resource.dark.radiusFull
+    assert.ok(rf < worst,
+      `run DP.j: radiusFull ${rf} against a tightest half-diagonal ratio of ${worst.toFixed(4)} — at a FULL bar the light already covers the corners on at least one shipped screen, so "the darkest chapter" is not true there. This is the v7.58 failure exactly: a screen-relative quantity checked on one viewport.`)
+    // And the empty end must still leave SOMETHING lit, or an empty bar is a black screen rather
+    // than a punishing one — spec §8.2's no-spiral floor, applied to sight.
+    assert.ok(CHAPTERS.deep.resource.dark.radiusEmpty > 0.02,
+      `run DP.j: radiusEmpty ${CHAPTERS.deep.resource.dark.radiusEmpty} — an empty bar leaves the player unable to see their own body`)
+    console.log(`PASS run DP.j (dark on every screen): radiusFull ${rf} < ${worst.toFixed(4)}, the tightest of ${SCREENS.length} viewports, and radiusEmpty still lights ${CHAPTERS.deep.resource.dark.radiusEmpty} of it`)
+  }
+
   console.log("PASS run DP (The Deep): the anglerfish is the only food and its mouth is the clock, leaving the jaws in time still costs the fish its turn, Scent marks a group and amplifies every source while buying speed, and Fin Hit is worth nothing standing still")
 }
 

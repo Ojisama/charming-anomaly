@@ -5366,12 +5366,21 @@ CHAPTERS.deep = {
   //   Stacking a Shelf-style slow on top would also have been two penalties on one bar, against a
   //   roster whose whole job is that you cannot see it coming.
   //
-  //   radiusFull 0.62 against The Shelf's 1.0. Both are MULTIPLES OF THE SCREEN'S LONGEST SIDE (the
+  //   radiusFull 0.50 against The Shelf's 1.0. Both are MULTIPLES OF THE SCREEN'S LONGEST SIDE (the
   //   owner's spec, and the anchor three shipped attempts got wrong before it — see resource.dark in
   //   CHAPTERS.shelf for why the half-diagonal is the wrong ruler). At 1.0 the rim is off-screen at a
   //   full bar, which is right for the chapter called "the light only goes down" and wrong for the
-  //   bottom of the ocean: here a FULL bar still leaves the screen edges dark, which is what "the
-  //   darkest chapter" has to mean if it means anything. 0.62 x 844 = 523px on a phone.
+  //   bottom of the ocean: here a FULL bar must still leave the screen CORNERS dark, which is what
+  //   "the darkest chapter" has to mean if it means anything.
+  //
+  //   ⚠ THAT CLAIM IS AN INEQUALITY AND IT HAS TO BE CHECKED ON BOTH SCREENS, which is the whole of
+  //   the v7.58 scar (a light measured on a phone, where it was right, and wrong on a desktop). The
+  //   corners are dark only while radiusFull x longestSide < the HALF-DIAGONAL:
+  //     phone   390x844  -> 0.50 x 844 = 422px against a 465px half-diagonal  ✓
+  //     desktop 1280x800 -> 0.50 x 1280 = 640px against a 755px half-diagonal ✓
+  //   The first cut shipped 0.62 with this same paragraph attached, and 0.62 x 844 = 523 > 465 — the
+  //   light covered the phone's corners at a full bar and the comment asserted the opposite. Any
+  //   raise above ~0.55 makes the sentence above false again on the narrower screen.
   //
   // `from` is inert while speedFloor is 1 (darkness() feeds only the speed multiplier — see
   // stepPlayerMovement), and is left at the Shelf's value so that turning the slow back on is a
@@ -5402,7 +5411,7 @@ CHAPTERS.deep = {
   // anglerfish got a live cap (see `maxAlive` in the roster below).
   resource: {
     name: 'Light', drain: 2.0, refill: 16, killRefill: 0, max: 100,
-    dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.62, radiusEmpty: 0.06 },
+    dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.50, radiusEmpty: 0.06 },
   },
   scent: true,        // stepRepulse's third per-chapter branch, beside `burst` and `breach`
 
@@ -5484,6 +5493,12 @@ CHAPTERS.deep = {
     tailTint: 0x9fc4dc,
     eliteIridescent: [0xa8d8f0, 0xc9e4f4, 0xbcd6cc],
     darkTint: 0x000305,
+    // The hagfish's slow patch is SLIME, not silk. `webZone` is a chapter-agnostic flag whose only
+    // art was the garden spider's orb web, and the first probe frame of this chapter came back with
+    // the abyssal plain under giant white spider webs — the loudest thing on a screen whose premise
+    // is that there is almost no light. Render-only: the radius, the slow and the mechanic are
+    // byte-identical to the garden's, and only the drawing changes (see syncWebs).
+    webLook: 'slime',
     // Marine snow, thinner and slower than The Trawl's: less of it survives this far down, and what
     // does is falling through water nothing is stirring.
     dust: { tint: 0xb8ccdc, alpha: 0.28, speedMul: 0.1, sway: 4 },
