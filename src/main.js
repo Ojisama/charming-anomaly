@@ -433,6 +433,15 @@ const SFX_FOR_EVENT = {
   // 'crust' gets NO entry, deliberately, for the same reason SUBMISSION's expiry has none: larvae
   // take hold several times a second in a crowd, and it is already carried by the hit sfx of the
   // ticks that follow it. The tell for a crust is visual (the chalky tint in render.js).
+  //
+  // The Trawl's gear. A net dropping through water borrows the vortex whoosh, which is the closest
+  // voice in the bank to a weighted mesh closing — and the pairing matches Debris Toss exactly:
+  // 'toss' (the throw) has no entry for either weapon, and the LANDING is what you hear.
+  snare: 'hole',
+  // 'longline' gets NO entry, on the rule the 'tail' and 'crust' entries above already state: the
+  // line is heard through the hits it lands, its tell is visual (an amber rope with hooks, the only
+  // warm thing in a cold chapter), and a bespoke voice every 2.0-2.6s for the whole run is a
+  // metronome rather than feedback.
 }
 
 function endRun(victory) {

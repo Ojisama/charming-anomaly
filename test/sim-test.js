@@ -38,7 +38,8 @@ import {
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
-  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleChapterList, isBookFinale, nextBook, bookOf,
+  LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
+  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
@@ -109,6 +110,7 @@ import {
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, DROWN_TICK,
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
+  TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, BREACH_R_MIN, BREACH_R_AT_FULL, tiredness,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
@@ -1386,7 +1388,11 @@ function testAnomalySlate() {
       // "fixture spawned nothing" rather than as a missing patch. That is the CLAUDE.md rename trap
       // in its other direction: a list of QUOTED STRINGS no identifier sweep and no new-weapon
       // checklist can see.
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs']
+      // ⚠ THESE ARE run.* FIELD NAMES AS QUOTED STRINGS, which no rename or identifier sweep can
+      // see — CLAUDE.md documents this exact array as the place `run.geysers` was missed. A weapon
+      // whose output lands in a field absent from here reports "fixture spawned nothing —
+      // untestable", which is this list being out of date and not the weapon being broken.
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines']
       const FX = ['whip', 'clawRake', 'roar', 'tail']
       const spread = (id, weaponId) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
@@ -4375,26 +4381,23 @@ function testChapters() {
   assert.strictEqual(notEarned.chapters.garden.unlocked, false, 'pond maxDifficulty 3 (won only lvl 2) leaves garden locked')
   delete globalThis.localStorage
 
-  // (g) v7.35 SOURCE tripwire. ui.js is not headless-testable (DOM), and settle() — the carousel's
-  // scroll handler — is the ONLY writer of meta.chapter in the whole game (main.js's onChapter is
-  // its only caller). It picks the card nearest the carousel's centre by getBoundingClientRect, and
-  // a display:none screen measures EVERY card at rect 0: every distance ties at 0, the loop keeps
-  // the first card, and 'body' silently becomes the player's saved chapter. It shipped, and the
-  // symptom surfaced a whole run later — flick the carousel to The Beyond, tap Play inside the
-  // 130ms debounce, and 'scrollend' settles correctly while the still-armed timer fires 130ms after
-  // the title is hidden. The Beyond run you started was right; the summary's "Next level" started
-  // The Body, crediting the wrong ledger. Both halves are asserted: the layout guard, and settle
-  // disarming the debounce so scrollend and the timeout can never both read one gesture.
+  // (g) SOURCE tripwire. ui.js is not headless-testable (DOM), and the volume tap is the ONLY
+  // writer of meta.chapter in the whole game — main.js's onChapter is its only caller, and that is
+  // what keeps the save's single writer single. Two ways it can go wrong, both silent:
+  //   - persisting a chapter the player cannot play. A turned-around volume is tappable on purpose
+  //     (it puts the unlock line in the detail panel), so without the availability check a tap on a
+  //     padlocked volume would write it to meta.chapter, and the summary's "Next level" would then
+  //     offer a locked chapter.
+  //   - writing meta.chapter from ui.js at all, which forks the save's ownership.
+  // This replaced a tripwire on the carousel's settle(): a scroll handler electing the nearest card
+  // by getBoundingClientRect could pick the wrong one on a display:none screen (every rect ties at
+  // 0) and raced its own debounce. Tapping a button has neither failure mode.
   {
     const src = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
-    const settle = src.slice(src.indexOf('const settle = () =>'), src.indexOf("car.addEventListener('scrollend'"))
-    assert.ok(settle.length > 0 && settle.length < 4000, 'could not isolate settle() in ui.js — the tripwire below is measuring nothing')
-    assert.ok(/if \(!car\.clientWidth\) return/.test(settle),
-      'settle() lost its layout guard: on a display:none title every card ties at distance 0 and it silently elects the FIRST card (body) as meta.chapter')
-    assert.ok(/clearTimeout\(timer\)/.test(settle),
-      'settle() no longer disarms the scroll debounce, so scrollend leaves a timer that fires after the title is hidden — the exact v7.35 race')
-    assert.ok(settle.indexOf('if (!car.clientWidth) return') < settle.indexOf('getBoundingClientRect'),
-      'the layout guard must come BEFORE settle() measures anything, or it is measuring the zeroed rects it exists to reject')
+    const tap = src.slice(src.indexOf('if (el.dataset.vol !== undefined)'), src.indexOf('if (el.dataset.buy !== undefined)'))
+    assert.ok(tap.length > 0 && tap.length < 1400, 'could not isolate the volume-tap handler in ui.js — the tripwire below is measuring nothing')
+    assert.ok(/chapterAvailable\(meta, id\) && id !== meta\.chapter/.test(tap),
+      'a volume tap no longer checks chapterAvailable before persisting — tapping a padlocked volume would save a chapter that cannot be played')
     assert.strictEqual((src.match(/meta\.chapter = /g) ?? []).length, 0, 'ui.js must not write meta.chapter directly — it goes through hooks.onChapter (main.js) so the save stays the single writer')
   }
 
@@ -4453,7 +4456,14 @@ function runBooks() {
   // then (both call sites were inert); a second book is what makes an outside id routine.
   assert.strictEqual(nextChapter('blank'), null, "nextChapter('blank') === null — The Blank is hidden, outside book 1's ladder")
   assert.strictEqual(nextChapter('shelf'), 'reef', "nextChapter('shelf') === 'reef' — the Undertow ladder walks its own book")
-  assert.strictEqual(nextChapter('reef'), null, "nextChapter('reef') === null — last chapter of its own book")
+  // DERIVED, not the literal 'reef' this line used to name. Undertow is being built one chapter at a
+  // time, so "the last chapter of that book" is a moving fact, and a hardcoded id turns every new
+  // chapter into a false red on a test that is not about that chapter at all — the same
+  // narrower-denominator-than-the-claim shape CLAUDE.md records for CHAPTER_ORDER. What is actually
+  // being asserted is that the walk STOPS at whatever the end currently is.
+  const undertow = BOOKS.undertow.chapters
+  const lastUndertow = undertow[undertow.length - 1]
+  assert.strictEqual(nextChapter(lastUndertow), null, `nextChapter('${lastUndertow}') === null — last chapter of its own book (${undertow.length} of them)`)
   assert.strictEqual(nextChapter('nope'), null, "nextChapter on an id no book claims === null, NOT 'body'")
   assert.strictEqual(nextChapter(undefined), null, 'nextChapter(undefined) === null')
   assert.strictEqual(nextChapter('body'), 'pond', 'nextChapter still walks book 1 normally')
@@ -4508,11 +4518,43 @@ function runBooks() {
   // (e) Gate ON: the carousel LISTS it and the selection guard ACCEPTS it. Without both, phase 2
   // ships a chapter nothing can select — and every other assertion in this file still passes.
   const listed = { chapters: Object.fromEntries(CHAPTER_ORDER.map((id) => [id, { unlocked: true, maxDifficulty: 1, difficulty: 1 }])), dev: true }
-  assert.ok(titleChapterList(listed).includes('shelf'), 'gate on: the title carousel must list the WIP chapter, or it cannot be selected')
+  // Same three assertions the carousel had, against the bookcase that replaced it: what matters is
+  // still which chapter ids a player can reach, not the shape they are drawn in.
+  const shelved = (m) => titleBookshelf(m).flatMap((sh) => sh.volumes.map((v) => v.id))
+  assert.ok(shelved(listed).includes('shelf'), 'gate on: the bookcase must shelve the WIP chapter, or it cannot be selected')
   listed.dev = false
-  assert.ok(!titleChapterList(listed).includes('shelf'), 'gate off: the title carousel must NOT list the WIP chapter')
-  assert.deepStrictEqual(titleChapterList(listed).filter((id) => id !== 'blank'), CHAPTER_ORDER,
-    'gate off: the carousel is exactly book 1 (plus The Blank when earned) — the refactor must not change what a player sees')
+  assert.ok(!shelved(listed).includes('shelf'), 'gate off: the bookcase must NOT shelve the WIP chapter')
+  assert.deepStrictEqual(shelved(listed).filter((id) => id !== 'blank'), CHAPTER_ORDER,
+    'gate off: the shelf is exactly book 1 (plus The Blank when earned) — the redesign must not change what a player sees')
+  // A WIP Book must be ABSENT, not drawn as a sheeted étage: an étage announces that a Book exists,
+  // which is the whole thing the gate is for. Asserting only on chapter ids (above) cannot see this
+  // — the étage could be there with every volume covered and every id still absent from the flat list.
+  assert.deepStrictEqual(titleBookshelf(listed).map((sh) => sh.book), ['book1'],
+    'gate off: an unshipped Book has no étage at all — a covered shelf still says a Book is there')
+
+  // (e2) The bookcase model itself. Each of these guards a state that renders as a DIFFERENT object
+  // on the shelf, and every one of them fails silently — a wrong `started` draws a dust sheet over a
+  // Book you can play, and a hidden chapter counted early adds a covered volume for a chapter whose
+  // existence the shelf is supposed to withhold.
+  const fresh = { dev: false, chapters: { body: { unlocked: true, won: 2 } } }
+  const b1 = titleBookshelf(fresh)[0]
+  assert.strictEqual(b1.started, true, 'a Book with one unlocked chapter is STARTED (volumes, not a dust sheet)')
+  assert.strictEqual(b1.volumes.length, CHAPTER_ORDER.length,
+    'an unstarted chapter still occupies a covered volume — the étage is the Book, not just what you own')
+  assert.ok(!b1.volumes.some((v) => v.id === 'blank'),
+    'The Blank must NOT be shelved before it is unlocked — a covered volume counts a chapter nobody should know about yet')
+  assert.strictEqual(b1.stars, 2, 'stars sum `won` (difficulties actually beaten), not maxDifficulty')
+  const earned = { dev: false, chapters: { body: { unlocked: true, won: 5 }, blank: { unlocked: true, won: 1 } } }
+  assert.ok(titleBookshelf(earned)[0].volumes.some((v) => v.id === 'blank' && v.unlocked),
+    'once earned, The Blank joins its OWN Book\'s étage rather than vanishing outside every shelf')
+  assert.strictEqual(titleBookshelf(earned)[0].stars, 6, 'a hidden chapter\'s stars count toward its Book')
+  assert.strictEqual(titleBookshelf({ dev: false, chapters: {} })[0].started, false,
+    'a Book with nothing unlocked is NOT started — ui.js drapes one sheet over the étage, because the chapter count is the tease')
+  // The spine name is what a 47px volume actually prints, and a missing entry silently falls back to
+  // the full name with its article, which does not fit vertically. Every shelved chapter needs one.
+  for (const id of Object.keys(CHAPTERS)) {
+    assert.ok(CHAPTER_SPINE[id], `CHAPTER_SPINE is missing '${id}' — its spine would print the article and overflow`)
+  }
   // (f) chapterAvailable is the single permission the card, the Play button, the scroll-persist,
   // the brief and onChapter all read. Listing the chapter is NOT enough: the first cut of phase 1
   // fixed only onChapter, and The Shelf duly appeared in the carousel as a locked "???" card with a
@@ -4534,18 +4576,27 @@ function runBooks() {
   {
     const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
     const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const configSrc = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8')
     assert.ok(/if \(!chapterAvailable\(meta, id\)\) return/.test(mainSrc),
       'main.js onChapter no longer gates on chapterAvailable — the carousel would list the chapter and refuse every tap on it')
     assert.ok(!/const chapterId = resolveChapterId\(meta\.chapter\)/.test(mainSrc),
       'main.js still resolves the play path with resolveChapterId — it must use playableChapterId, or the gate does not apply where it matters')
     assert.strictEqual((mainSrc.match(/playableChapterId\(meta\)/g) ?? []).length, 2,
       'onPlay and onDifficulty must BOTH use playableChapterId — onDifficulty writes into the ledger of whatever onPlay launches, so they cannot disagree')
+    // A VOLUME's availability is decided once, in config.js's titleBookshelf, and arrives as
+    // `vol.unlocked` — so volHtml has no gate of its own to get wrong. Five sites remain, and the
+    // fifth is easy to forget: paintRoom washes the room in the selected chapter's own colour, and
+    // a LOCKED chapter must tint nothing, or the shelf hands out the palette of a chapter it is
+    // otherwise careful not to name.
     assert.strictEqual((uiSrc.match(/chapterAvailable\(meta, /g) ?? []).length, 5,
-      'ui.js must gate the hero CARD, the carousel dot, the Play button, the scroll-persist and the brief on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
+      'ui.js must gate the detail head, the Play button, the brief, the volume tap and the room tint on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
+    // ...and the one that MOVED must actually be there, or every volume shelves as a playable spine.
+    assert.ok(/unlocked: chapterAvailable\(meta, id\)/.test(configSrc),
+      'titleBookshelf no longer decides volume availability with chapterAvailable — a WIP chapter would shelve as a playable spine')
     // The count above is the assertion that keeps missing one. It read 4 and passed while
     // heroCardHtml still gated itself, so The Shelf had a live Play button above a padlocked "???"
     // card — caught by a screenshot. So also sweep the whole title-rendering span for a raw read.
-    const titleSpan = uiSrc.slice(uiSrc.indexOf('function heroCardHtml'), uiSrc.indexOf('function wireCarousel'))
+    const titleSpan = uiSrc.slice(uiSrc.indexOf('function volHtml'), uiSrc.indexOf('function boosterSlotsHtml'))
     const rawReads = titleSpan.split('\n').filter((l) => /chapters\?\.\[[a-zA-Z]+\]\?\.unlocked/.test(l) && !l.includes('//'))
       // Counting how much of BOOK 1 is finished is not an availability decision, and must keep
       // reading the raw flag — the completion badge must never count a WIP chapter as progress.
@@ -4554,31 +4605,12 @@ function runBooks() {
       `a raw per-chapter \`unlocked\` read is back in the title-rendering span — route it through chapterAvailable or a WIP chapter renders locked:\n${rawReads.join('\n')}`)
   }
 
-  // (j) The carousel must follow an unlocked book. Removing `wip` from a book is what SHIPS it,
-  // and before this the only line that surfaced another book's chapters was gated on `wip` —
-  // so shipping made Book 2 LESS reachable, not more.
-  const shipped = { ...BOOKS, undertow: { ...BOOKS.undertow, wip: false } }
-  const withBook2 = {
-    dev: false,
-    chapters: {
-      ...Object.fromEntries(CHAPTER_ORDER.map((id) => [id, { unlocked: true, maxDifficulty: 3 }])),
-      surf: { unlocked: true, maxDifficulty: 1 },
-    },
-  }
-  const list = titleChapterList(withBook2, shipped)
-  assert.ok(list.includes('surf'), 'an unlocked Undertow chapter must appear on the title carousel')
-  assert.ok(list.includes('beyond'), 'book 1 chapters are still listed')
-  assert.ok(!list.includes('reef'), 'a LOCKED chapter of the new book must not be listed as playable')
-  // The "???" tease crosses the boundary too: book 1 finished, book 2 not yet unlocked.
-  const onCusp = { dev: false, chapters: Object.fromEntries(CHAPTER_ORDER.map((id) => [id, { unlocked: true, maxDifficulty: 3 }])) }
-  const cuspList = titleChapterList(onCusp, shipped)
-  assert.ok(cuspList.includes('surf'), "the next BOOK's first chapter shows as the ??? preview once book 1's ladder is done")
-  // A player mid-book-1 sees nothing of book 2.
-  const early = { dev: false, chapters: { body: { unlocked: true, maxDifficulty: 1 } } }
-  assert.ok(!titleChapterList(early, shipped).some((id) => BOOKS.undertow.chapters.includes(id)),
-    'a player who has not finished book 1 must see no Undertow chapter at all')
-
-  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the carousel`)
+  // The cross-book carousel assertions that lived here are GONE, deliberately: origin/main deleted
+  // titleChapterList outright and replaced it with titleBookshelf, which groups by book natively
+  // and so already fixes the bug they were written to guard (a book becoming LESS reachable the
+  // day its `wip` flag comes off). Their replacement is main's own titleBookshelf coverage — do
+  // not resurrect these against the deleted function.
+  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the bookcase`)
 }
 run(runBooks)
 
@@ -4692,8 +4724,18 @@ function runBookProgression() {
     'precondition: a Blank win at its cap sits exactly at the book-unlock difficulty — this is why a null check is not enough')
   assert.strictEqual(isBookFinale('beyond'), true, "The Beyond is book 1's finale")
   assert.strictEqual(isBookFinale('blank'), false, 'The Blank is HIDDEN — winning it must not unlock the next book')
-  assert.strictEqual(isBookFinale('reef'), true, "The Reef is Undertow's finale")
   assert.strictEqual(isBookFinale('pond'), false, 'a mid-ladder chapter is not a finale')
+  // Undertow's finale is asserted DERIVED, not hardcoded. This line used to read
+  // isBookFinale('reef') === true and went red the moment The Trawl shipped as a fourth Undertow
+  // chapter — the production code was right (it reads chapters.at(-1)) and only the test's guess
+  // was stale. Deriving it means a fifth chapter moves the finale without a false red; the
+  // assertion that still carries weight is the NEGATIVE one below it, which pins that a chapter
+  // demoted out of last place stops being a finale.
+  const utLast = BOOKS.undertow.chapters.at(-1)
+  assert.strictEqual(isBookFinale(utLast), true, `Undertow's finale is its last chapter (${utLast})`)
+  for (const id of BOOKS.undertow.chapters.slice(0, -1)) {
+    assert.strictEqual(isBookFinale(id), false, `'${id}' is not last in Undertow's ladder, so it must not gate the next book`)
+  }
 
   // (m) THE GRANT IS MONOTONE. Creating a purse pays nothing; granting twice pays once.
   const g = makeMeta(); g.chapters = {}
@@ -12479,6 +12521,12 @@ function testFrenchDictionary() {
   for (const v of Object.values(ELITE_AFFIXES ?? {})) need(v?.name)
   for (const v of Object.values(CHAPTER_ENDINGS ?? {})) { need(v?.victory); need(v?.death) }
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
+  for (const v of Object.values(CHAPTERS ?? {})) { need(v?.name); need(v?.tagline) }
+  // BOOKS[].name is on screen from v7.x (the shelf's brass plate) and no walk above reached it —
+  // both Books would have shipped in English the day the bookcase landed.
+  for (const v of Object.values(BOOKS ?? {})) need(v?.name)
+  // The spine names. A flat id -> string table, so the generic name/desc walk above cannot see it.
+  for (const v of Object.values(CHAPTER_SPINE ?? {})) need(v)
   // The pause build sheet's stat labels. These were unreachable by this walk until STAT_KEYS became
   // a config TABLE: the words lived in a bare const inside ui.js, and this walk enumerates tables,
   // so five of them shipped rendering in English on the French sheet. Merging the two registries
@@ -13290,6 +13338,8 @@ try {
   run(testLaneGolden)
   run(testLaneAxis)
   run(testReefAirBurst)
+  run(testTrawlNet)
+  run(testTrawlNatives)
   run(testDevMenu)
   run(testModalPopBookkeeping)
   run(testUndertowLadder)
@@ -16710,6 +16760,611 @@ function testReefAirBurst() {
   console.log(`PASS run RF (The Reef's Air and Burst): the bar is decided by which side of the lane you commit to (0 vs ${res.max} over 150s), an empty bar drowns you at ${res.drown.dps}/s and stops the moment you breathe, the button dashes ${BURST_DUR_MIN}s empty and ${BURST_DUR_AT_FULL}s full, and the coral is solid across the lane only`)
 }
 
+// ---- run TR: The Trawl's net (the gimmick), Feed (the bar) and Breach (the button) --------------
+// Spec §5.2's three-part ask again, one chapter on. Every case is written as an EFFECT for the
+// reason run RF's header spells out and which bites harder here: this chapter's whole state is
+// timers and a moving offset, and ALL of them keep moving with the feature gutted. `run.charge`
+// falls on its own. `net.pos` advances whether or not anything reads it. `net.holes` grows whether
+// or not a hole stops damage. A test that asserted any of those would pass against a net that
+// touches nothing.
+//
+// The five silent failures this guards, none of which throws and all of which render plausibly:
+//   - the net sweeps past and damages NOBODY, so the chapter is an open field with scenery in it;
+//   - it damages the player but not the crowd (or the reverse), so "it aims at nothing" is a lie;
+//   - the wake does not feed, so Feed is a countdown with no supply and the bar is decoration;
+//   - Breach adds a hole that nothing reads, so the button is the Pulse with a cosmetic ring;
+//   - the wake lands on the side the net has NOT crossed — a pure sign error, which looks exactly
+//     like a design decision on screen and makes the chapter's only food source unreachable.
+function testTrawlNet() {
+  const dt = 1 / 60
+  const res = CHAPTERS.trawl.resource
+
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  const trawlRun = (seed = 20260816) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'trawl', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'trawl',
+      'run TR did not start in The Trawl — the WIP gate or the meta is wrong, and every number below would be another chapter')
+    run.player.hp = run.player.maxHP = 100000
+    run.mods.spawnMul = 0
+    run.viewRadius = 465   // the phone's half-diagonal: the device the warning has to work on
+    return run
+  }
+  // An empty world by default: most cases below measure the player, and a crowd contributes contact
+  // damage and knockback to exactly the quantities being read.
+  const quiet = (run) => { run.enemies.length = 0; run.events.length = 0 }
+  // Force a pass to be due NOW. run._netAcc is the sim's own countdown, so this fast-forwards the
+  // wait rather than building a net by hand — a hand-built net would be a second implementation of
+  // the thing under test and could not catch a spawn bug at all.
+  const summonNet = (run) => {
+    run._netAcc = 0
+    for (let i = 0; i < 300 && !run.net; i++) { stepSim(run, { x: 0, y: 0 }, dt); quiet(run) }
+    assert.ok(run.net, 'no net arrived within 5s of its countdown reaching zero — stepTrawl never spawns a pass')
+    return run.net
+  }
+  // Put the player at a signed distance `d` from the mesh, without touching the net at all.
+  const standAt = (run, d) => {
+    const n = run.net
+    const cur = run.player.x * n.nx + run.player.y * n.ny - n.pos
+    run.player.x += n.nx * (d - cur)
+    run.player.y += n.ny * (d - cur)
+  }
+
+  // (a) THE NET REACHES THE PLAYER AND HURTS, AND ONLY WHERE IT IS. Two runs off the same seed with
+  // the same everything except WHERE the player stands relative to the mesh. Standing in it costs
+  // HP; standing a few hundred px clear of it costs none. Asserted as a difference in damage taken,
+  // which is dead if stepTrawl never tests the player, if the half-thickness is wrong, or if the
+  // whole step is gated off for this chapter.
+  {
+    const inMesh = trawlRun()
+    summonNet(inMesh)
+    let hurtIn = 0
+    for (let i = 0; i < 120; i++) {
+      standAt(inMesh, 0)
+      const before = inMesh.player.hp
+      stepSim(inMesh, { x: 0, y: 0 }, dt)
+      hurtIn += before - inMesh.player.hp
+      quiet(inMesh)
+    }
+    const clear = trawlRun()
+    summonNet(clear)
+    let hurtClear = 0
+    for (let i = 0; i < 120; i++) {
+      standAt(clear, 300)   // ahead of the wall, well outside TRAWL_HALF + the player's radius
+      const before = clear.player.hp
+      stepSim(clear, { x: 0, y: 0 }, dt)
+      hurtClear += before - clear.player.hp
+      quiet(clear)
+    }
+    assert.ok(hurtIn > 0, 'standing in the mesh for 2s cost the player nothing — the net does not damage the player')
+    assert.strictEqual(hurtClear, 0, 'standing 300px clear of the mesh still hurt — the net damages a band far wider than it draws')
+    console.log(`PASS run TR.a (the net hurts, where it is): 2s in the mesh costs ${hurtIn.toFixed(0)} HP, 2s at 300px costs ${hurtClear.toFixed(0)}`)
+  }
+
+  // (b) IT KILLS BOTH SIDES, which is the chapter rather than a side effect. The same mesh, with an
+  // enemy standing in it and the player standing in it, and BOTH must lose HP in the same pass. A
+  // net that only hurt the player would be an ordinary hazard; one that only ground the crowd would
+  // be a gift. Only the pair is the mechanic, so only the pair is asserted.
+  {
+    const run = trawlRun()
+    const net = summonNet(run)
+    standAt(run, 0)
+    // NO WEAPONS. This is what makes the case mean anything: the player auto-attacks whatever is in
+    // range, so an enemy standing beside them loses HP whether or not the net ever touches it. The
+    // first cut of this case did not disarm the player and a mutation deleting the enemy-damage line
+    // outright SURVIVED it — a passing assertion that was reading clawRake and calling it the net.
+    run.weapons.length = 0
+    // The suite's own fixture, not spawnEnemy: run SQ confines every run.enemies.push to sim.js, and
+    // a test reaching for the real spawner would be the exact thing that lint exists to stop.
+    const e = makeStatusEnemy(run, { x: run.player.x + -net.ny * 40, y: run.player.y + net.nx * 40, speed: 0 })
+    run.enemies.push(e)
+    const eBefore = e.hp
+    const pBefore = run.player.hp
+    for (let i = 0; i < 60; i++) {
+      standAt(run, 0)
+      e.x = run.player.x + -net.ny * 40
+      e.y = run.player.y + net.nx * 40
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+    }
+    assert.ok(pBefore - run.player.hp > 0, 'the net did not hurt the player')
+    assert.ok(eBefore - e.hp > 0, 'the net did not hurt the enemy standing in it — "it aims at nothing" is only true of the player')
+    console.log(`PASS run TR.b (it kills both sides): 1s in the mesh takes ${(pBefore - run.player.hp).toFixed(0)} from the player and ${(eBefore - e.hp).toFixed(0)} from an enemy beside them`)
+  }
+
+  // (c) THE WAKE IS THE ONLY FOOD, AND IT IS BEHIND THE MESH. Three positions on the same net, off
+  // the same seed: in the wake the bar RISES, ahead of the wall it falls, and far behind it falls.
+  // The middle case is the sign check — if `behind` were computed with the opposite sign the bar
+  // would still rise somewhere, so a test that only proved "the bar can rise" would pass a net whose
+  // food is on the unreachable side. Also the do-nothing control for the whole resource: with no net
+  // at all there is nowhere in the chapter the bar can go up.
+  {
+    const feed = (d, withNet) => {
+      const run = trawlRun()
+      if (withNet) { summonNet(run); standAt(run, d) }
+      run.charge = 50
+      for (let i = 0; i < 60; i++) {
+        if (withNet) standAt(run, d)
+        stepSim(run, { x: 0, y: 0 }, dt)
+        quiet(run)
+      }
+      return run.charge - 50
+    }
+    const inWakeD = -(TRAWL_HALF + TRAWL_WAKE_DEPTH * 0.5)
+    const rose = feed(inWakeD, true)
+    const ahead = feed(TRAWL_HALF + 200, true)
+    const farBehind = feed(-(TRAWL_HALF + TRAWL_WAKE_DEPTH + 200), true)
+    const noNet = feed(0, false)
+    assert.ok(rose > 0, 'a second in the middle of the wake did not raise Feed — the chapter has no way to fill its bar')
+    assert.ok(ahead < 0, 'Feed rose while standing AHEAD of the net — the wake is on the side the net has not crossed yet')
+    assert.ok(farBehind < 0, 'Feed rose 200px past the back of the wake — the band has no far edge')
+    assert.ok(noNet < 0, 'Feed rose with no net on the map at all — something other than the wake is feeding it')
+    console.log(`PASS run TR.c (the wake is the only food, and it is behind): 1s in the wake ${rose > 0 ? '+' : ''}${rose.toFixed(1)}, ahead ${ahead.toFixed(1)}, past it ${farBehind.toFixed(1)}, no net at all ${noNet.toFixed(1)}`)
+  }
+
+  // (d) BREACH CUTS A DOOR, THE DOOR LASTS, AND THE CROWD USES IT. Damage taken standing in the mesh
+  // with a hole torn at your own position, against the same 2s without pressing the button. The hole
+  // must also still be there after the press, and an ENEMY inside it must be spared — that last part
+  // is the "a door you made, which the crowd will also use" clause, and it is the one a naive
+  // implementation gets wrong by testing the hole only for the player.
+  {
+    const cut = (press) => {
+      const run = trawlRun()
+      const net = summonNet(run)
+      run.charge = res.max
+      run.weapons.length = 0   // see (b): otherwise the enemy column below is measuring clawRake
+      let hurt = 0
+      const e = makeStatusEnemy(run, { x: run.player.x, y: run.player.y, speed: 0 })
+      run.enemies.push(e)
+      for (let i = 0; i < 120; i++) {
+        standAt(run, 0)
+        // 60px ALONG the wall: inside the hole (BREACH_R_AT_FULL is 220) but outside contact range
+        // (player 22 + enemy 16 = 38). At 20px the enemy was touching the player, and its contact
+        // damage landed in the very number this case reads as "damage from the net".
+        e.x = run.player.x + -net.ny * 60
+        e.y = run.player.y + net.nx * 60
+        const before = run.player.hp
+        stepSim(run, { x: 0, y: 0, skill: press && i === 0 }, dt)
+        hurt += before - run.player.hp
+        run.events.length = 0
+      }
+      return { hurt, holes: run.net ? run.net.holes.length : -1, enemyHurt: e.maxHP - e.hp }
+    }
+    const withoutBreach = cut(false)
+    const withBreach = cut(true)
+    assert.strictEqual(withoutBreach.holes, 0, 'a hole appeared without the button being pressed')
+    assert.strictEqual(withBreach.holes, 1, 'pressing the button in reach of the net tore no hole')
+    assert.ok(withBreach.hurt < withoutBreach.hurt,
+      `Breach did not reduce the damage of standing in the mesh (${withBreach.hurt} vs ${withoutBreach.hurt}) — the hole is drawn but nothing reads it`)
+    assert.ok(withBreach.enemyHurt < withoutBreach.enemyHurt,
+      'an enemy inside the torn hole still took net damage — the hole is tested for the player only, so the crowd cannot follow you through')
+    console.log(`PASS run TR.d (Breach cuts a door the crowd also uses): 2s in the mesh costs ${withoutBreach.hurt.toFixed(0)} HP unbreached and ${withBreach.hurt.toFixed(0)} through your own hole; the enemy in it takes ${withBreach.enemyHurt.toFixed(0)} against ${withoutBreach.enemyHurt.toFixed(0)}`)
+  }
+
+  // (e) THE NO-SPIRAL FLOOR, both halves of it, because in this chapter the bar's second job and the
+  // button share one bar and an empty one must not let them build a trap between them (spec §8.2).
+  //   - an EMPTY bar still cuts, just a smaller door;
+  //   - a fully TIRED player is still faster than the net.
+  // The second is arithmetic on shipped constants rather than a simulation, deliberately: it is the
+  // claim CHAPTERS.trawl.resource makes in prose, and prose does not fail when someone retunes
+  // speedFloor to 0.3 for feel.
+  {
+    const run = trawlRun()
+    summonNet(run)
+    run.charge = 0
+    standAt(run, 0)
+    stepSim(run, { x: 0, y: 0, skill: true }, dt)
+    assert.strictEqual(run.net.holes.length, 1, 'an empty Feed bar could not tear a hole at all — running dry is a structural trap')
+    assert.ok(Math.abs(run.net.holes[0].r - BREACH_R_MIN) < 1e-6,
+      `an empty bar tore a ${run.net.holes[0].r}px hole, not the BREACH_R_MIN ${BREACH_R_MIN} floor`)
+    assert.ok(BREACH_R_MIN > PLAYER.radius * 2,
+      `BREACH_R_MIN ${BREACH_R_MIN} is not comfortably wider than the player (${PLAYER.radius}) — the floor exists but does not fit through`)
+    const tiredSpeed = PLAYER.baseSpeed * res.tire.speedFloor
+    assert.ok(tiredSpeed > TRAWL_SPEED,
+      `a fully tired player moves at ${tiredSpeed} px/s against a ${TRAWL_SPEED} px/s net — running dry means the net catches you and you cannot leave`)
+    console.log(`PASS run TR.e (no-spiral floor): an empty bar still cuts a ${BREACH_R_MIN}px door, and a fully tired player still makes ${tiredSpeed.toFixed(0)} px/s against the net's ${TRAWL_SPEED}`)
+  }
+
+  // (f) THE TIRE IS REAL AND IT IS A RAMP. A full bar and an empty bar, same input, same seed: the
+  // empty one must travel measurably less far, and a bar just above the threshold must travel the
+  // full distance. The second half is what separates a ramp from a switch, and it is also what
+  // catches `tire` being read but never composed into slowMul — a value that is computed, logged and
+  // dropped moves nothing and throws nothing.
+  {
+    const walk = (charge) => {
+      const run = trawlRun()
+      run.charge = charge
+      const x0 = run.player.x, y0 = run.player.y
+      for (let i = 0; i < 60; i++) {
+        run.charge = charge   // held, so this measures the SPEED at that level and not the drain
+        stepSim(run, { x: 1, y: 0 }, dt)
+        quiet(run)
+      }
+      return Math.hypot(run.player.x - x0, run.player.y - y0)
+    }
+    const full = walk(res.max)
+    const atThreshold = walk(res.max * res.tire.from + 1)
+    const empty = walk(0)
+    assert.ok(empty < full * 0.95, `an empty Feed bar did not slow the player (${empty.toFixed(0)}px vs ${full.toFixed(0)}px in 1s) — tiredness() is computed and never applied`)
+    assert.ok(Math.abs(atThreshold - full) < 1, `a bar just above the ${res.tire.from} threshold was already slowed — the tire is a switch, not a ramp`)
+    assert.ok(empty > full * res.tire.speedFloor * 0.98, 'an empty bar slowed the player BELOW the declared floor — something is multiplying rather than joining by MIN')
+    console.log(`PASS run TR.f (Feed is your speed, on a ramp): 1s of walking covers ${full.toFixed(0)}px full, ${atThreshold.toFixed(0)}px at the threshold and ${empty.toFixed(0)}px empty (floor x${res.tire.speedFloor})`)
+  }
+
+  // (g) THE WARNING IS SCREEN-RELATIVE, asserted as a RATIO and never in px. A pass is spawned at
+  // TRAWL_LEAD_MUL x run.viewRadius, and a world-px lead would be a different amount of warning on a
+  // 390x844 phone (half-diagonal 465) than on a 1280x800 desktop (755) — which is the shipped bug
+  // The Shelf's dark had, recorded in CLAUDE.md, and the reason this case exists before anyone can
+  // report it. Two runs, identical but for the viewport.
+  {
+    const leadFor = (viewRadius) => {
+      const run = trawlRun()
+      run.viewRadius = viewRadius
+      run.player.x = 0; run.player.y = 0
+      const net = summonNet(run)
+      // Distance from the player to the mesh at the instant the pass appears, along its own normal.
+      return Math.abs(run.player.x * net.nx + run.player.y * net.ny - net.pos)
+    }
+    const phone = leadFor(465)
+    const desktop = leadFor(755)
+    assert.ok(Math.abs(phone / 465 - desktop / 755) < 0.02,
+      `the pass spawns ${phone.toFixed(0)}px out on a phone and ${desktop.toFixed(0)}px on a desktop — those are not the same FRACTION of the screen, so the warning is a different mechanic on each device`)
+    assert.ok(Math.abs(phone / 465 - TRAWL_LEAD_MUL) < 0.02,
+      `the lead is ${(phone / 465).toFixed(2)} view radii, not the declared TRAWL_LEAD_MUL ${TRAWL_LEAD_MUL}`)
+    console.log(`PASS run TR.g (the warning is screen-relative): the pass spawns ${(phone / 465).toFixed(2)} view radii out on both a phone (${phone.toFixed(0)}px) and a desktop (${desktop.toFixed(0)}px)`)
+  }
+
+  // (h) THE PASS ENDS, AND ANOTHER COMES. A net that is never dropped pins the chapter to one wall
+  // forever; one that is never re-spawned turns the chapter into an open field after 20 seconds. Both
+  // fail silently and both are invisible in any single frame.
+  {
+    const run = trawlRun()
+    summonNet(run)
+    let sawEnd = false, passes = 1
+    for (let i = 0; i < 60 * 120; i++) {
+      const had = !!run.net
+      stepSim(run, { x: 0, y: 0 }, dt)
+      quiet(run)
+      if (had && !run.net) sawEnd = true
+      if (!had && run.net) passes++
+    }
+    assert.ok(sawEnd, 'the first pass never ended in 120s — the net sweeps forever and the chapter is one wall')
+    assert.ok(passes >= 2, `only ${passes} pass(es) in 120s — a second one never arrived, so the chapter has no food after the first`)
+
+    // THE FIRST PASS ARRIVES BEFORE THE BAR STARTS BITING, which is a teaching decision and not a
+    // tuning one — the chapter has to show you the wall before it shows you the hunger, or the first
+    // half-minute is a player slowing down for no visible reason with no way to act on it. Measured
+    // as elapsed seconds in a FRESH run rather than by reading _netAcc, so setting the field back to
+    // TRAWL_INTERVAL fails here instead of passing a field-equality check.
+    const fresh = trawlRun()
+    let firstAt = null
+    for (let i = 0; i < 60 * 60 && firstAt === null; i++) {
+      stepSim(fresh, { x: 0, y: 0 }, dt)
+      quiet(fresh)
+      if (fresh.net) firstAt = i * dt
+    }
+    const tireAt = (res.max - res.max * res.tire.from) / res.drain
+    assert.ok(firstAt !== null, 'no pass at all in the first 60s of a fresh run')
+    assert.ok(firstAt < tireAt,
+      `the first net arrives at ${firstAt.toFixed(1)}s but the bar starts tiring the player at ${tireAt.toFixed(1)}s — the chapter teaches its hunger before its wall`)
+    console.log(`PASS run TR.h (the pass ends and another comes): ${passes} passes in 120s on TRAWL_INTERVAL ${TRAWL_INTERVAL}s, and the first arrives at ${firstAt.toFixed(1)}s — ahead of the ${tireAt.toFixed(1)}s at which Feed starts to bite`)
+  }
+
+  console.log(`PASS run TR (The Trawl's net, Feed and Breach): the wall damages the player AND the crowd, the wake behind it is the only thing that feeds either, Breach cuts a door both sides can use, an empty bar still cuts one, and the warning is ${TRAWL_LEAD_MUL} view radii on every screen`)
+}
+
+// ---- run LG: The Trawl's two natives, Longline and Net Toss ------------------------------------
+// Every case here is written as an EFFECT — HP that moved, a body that stopped, a bullet that did
+// or did not exist — never as "the field I set is set". A scenario asserting that a line was pushed
+// onto run.longlines passes with the whole damage loop deleted.
+//
+// THE PLAYER IS DISARMED IN EVERY CASE THAT MEASURES ENEMY HP (`run.weapons.length = 0` before the
+// weapon under test is equipped). This is not tidiness: the sibling run TR shipped a case captioned
+// "the net kills both sides" that passed with the net's enemy damage MUTATED OUT, because the
+// enemy was quietly being killed by the player's own auto-attacking starter. An assertion that
+// reads the wrong killer is worse than no assertion, because it reports green.
+function testTrawlNatives() {
+  const dt = 1 / 60
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  // A quiet Trawl: no spawns, no wall, nothing but what each case puts on the table. `run.net` is
+  // nulled every step because the chapter's own wall damages enemies too, and a case measuring a
+  // weapon's damage must not be measuring the chapter's.
+  const rig = (weaponId, level = 1, seed = 20260817) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'trawl', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'trawl', 'run LG did not start in The Trawl')
+    run.player.hp = run.player.maxHP = 100000
+    run.mods.spawnMul = 0
+    run.enemies.length = 0
+    run.weapons.length = 0                       // see the block comment above — this is load-bearing
+    if (weaponId) run.weapons.push({ id: weaponId, level })
+    return run
+  }
+  const step = (run, n) => {
+    for (let i = 0; i < n; i++) {
+      run.net = null
+      run._netAcc = 1e9                          // and never let another pass arrive
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+    }
+  }
+  // A body that stands still and cannot fight back, so the only thing that can move its HP is the
+  // weapon under test. maxHP is large enough that nothing here kills it and ends the measurement.
+  let nextId = 90000
+  const dummy = (run, x, y) => {
+    const e = {
+      id: nextId++, x, y, type: 'normal', hp: 100000, maxHP: 100000, radius: 14,
+      speed: 0, dmg: 0, kb: { x: 0, y: 0 }, hitFlash: 0, xp: 1,
+      frozen: 0, chill: 0, venom: 0, ignite: 0, fearT: 0, fearCd: 0, stunT: 0,
+      enrageT: 0, _ccDR: 1, flags: [], affixes: [], bloomSlowT: 0,
+    }
+    run.enemies.push(e)
+    return e
+  }
+
+  // ⚠ THE AIM IS DECIDED BY THE NEAREST ENEMY (surfAim), so any body placed to be measured is also
+  // a body VOTING ON WHERE THE ROPE GOES. The first cut of the cases below placed three targets and
+  // a distant "bait" and assumed the rope ran across the bait's bearing; the nearest target won the
+  // vote instead, the rope was never where the test thought, and TWO mutations survived — an
+  // infinite line and a per-tick lock both measured green. Cast FIRST with one body on the table,
+  // then read the line's real geometry and place targets against it.
+  //
+  // `run.weapons.length = 0` after the cast is the second half: leaving the weapon equipped lets
+  // later casts lay more ropes at new bearings, and a body then dies to a rope the case never
+  // examined.
+  const setLines = (run, expected = 1) => {
+    const bait = dummy(run, 600, 0)
+    for (let i = 0; i < 600 && run.longlines.length < expected; i++) step(run, 1)
+    assert.strictEqual(run.longlines.length, expected,
+      `run LG: expected ${expected} line(s) from one cast, got ${run.longlines.length} — the fire site is not laying what the mod asks for`)
+    run.weapons.length = 0                       // no further casts: the rope under test is the only one
+    run.enemies.length = 0                       // the bait has done its job and must not be measured
+    void bait
+    return run.longlines
+  }
+  // A point `across` px off the rope and `along` px from its centre, in the rope's own frame.
+  const onLine = (l, along, across) => ({
+    x: l.x + (-l.ny) * along + l.nx * across,
+    y: l.y + (l.nx) * along + l.ny * across,
+  })
+
+  // (a) THE LINE HURTS ALONG ITS LENGTH AND STOPS AT ITS ENDS. Three bodies placed in the rope's
+  // OWN frame: on it, clear across it, and past its END but exactly on its axis.
+  //
+  // The third body is the whole point. Dropping the `along` test makes the line INFINITE, and an
+  // infinite line is indistinguishable from a correct one for as long as the crowd happens to sit
+  // in front of the player — which, in a chapter where the crowd chases you, is essentially always.
+  {
+    const run = rig('longline', 5)
+    const [l] = setLines(run)
+    const at = (along, across) => { const p = onLine(l, along, across); return dummy(run, p.x, p.y) }
+    const on = at(l.len * 0.3, 0)                // on the rope, well inside its half-length
+    const beside = at(0, LONGLINE_HALF_W + 90)   // same centre, 90px clear across it
+    const pastEnd = at(l.len / 2 + 120, 0)       // on the rope's LINE, past its end
+    step(run, 180)
+    const lost = (e) => e.maxHP - e.hp
+    assert.ok(lost(on) > 0, 'run LG.a: a body lying on the set line took NO damage — the line does not grind, or the across-test is inverted')
+    assert.strictEqual(lost(beside), 0, `run LG.a: a body ${LONGLINE_HALF_W + 90}px CLEAR of the line took ${lost(beside)} damage — the rope is not a rope, it is a field`)
+    assert.strictEqual(lost(pastEnd), 0,
+      `run LG.a: a body past the line's END took ${lost(pastEnd)} damage — the \`along\` test is missing and the line is INFINITE, which looks correct whenever the crowd is in front of you`)
+    console.log(`PASS run LG.a (the line is a segment): on the rope ${lost(on)}, ${LONGLINE_HALF_W + 90}px beside it ${lost(beside)}, ${Math.round(l.len / 2 + 120)}px along past its end ${lost(pastEnd)}`)
+  }
+
+  // (b) THE CATCH IS ONCE PER BODY PER LINE, NOT PER TICK.
+  //
+  // Counted as APPLICATIONS, not as time held, and that distinction is why the first cut of this
+  // case was worthless. Asserting "the body goes free again" passes with the guard deleted: at
+  // every tick the CC-DR budget has already driven the scale to CC_DR_FLOOR, so a per-tick 0.5s
+  // snag lands as 0.125s against a 0.40s tick and the body IS free in between. The lock the guard
+  // prevents is real but the DR hides its symptom — so count the thing the rule is actually about.
+  {
+    const run = rig('longline', 5)
+    const [l] = setLines(run)
+    const p = onLine(l, 0, 0)
+    const held = dummy(run, p.x, p.y)
+    let applications = 0, prev = 0, peak = 0
+    for (let i = 0; i < 200 && run.longlines.length > 0; i++) {
+      step(run, 1)
+      const s = held.stunT || 0
+      if (s > prev + 1e-9) applications++
+      peak = Math.max(peak, s)
+      prev = s
+    }
+    assert.ok(applications > 0, 'run LG.b: nothing on the rope was ever caught — the snag never fires, and a longline that does not hook is a laser')
+    assert.strictEqual(applications, 1,
+      `run LG.b: one body on one rope was caught ${applications} times — the snag is refreshing per TICK rather than once per line, which is the permanent lock LONGLINE_SNAG's comment exists to prevent`)
+    assert.ok(peak <= LONGLINE_SNAG + 1e-6,
+      `run LG.b: the hold peaked at ${peak.toFixed(2)}s against a ${LONGLINE_SNAG}s snag — it is being scaled up rather than down`)
+    console.log(`PASS run LG.b (the catch is once per line): exactly ${applications} catch over the whole life of one rope, peaking at ${peak.toFixed(2)}s <= ${LONGLINE_SNAG}s`)
+  }
+
+  // (c) TWIN SET LAYS LINES AT DISTINCT POSITIONS. Asserted as positions, never as a count: three
+  // ropes spawned on top of each other satisfy `length === 3` perfectly and render as one rope,
+  // which is the "same hit, bigger" shape that reads on screen as no change at all (CLAUDE.md).
+  {
+    const solo = rig('longline', 5)
+    setLines(solo, 1)
+
+    const twin = rig('longline', 5)
+    twin.weaponMods.longline = { twinSet: 2 }
+    const lines = setLines(twin, 3)
+    const spots = new Set(lines.map((x) => `${Math.round(x.x)},${Math.round(x.y)}`))
+    assert.strictEqual(spots.size, lines.length,
+      `run LG.c: ${lines.length} lines occupy only ${spots.size} distinct positions — the count moved but the spacing divisor did not, so the extra rope is stacked on the first and draws as one`)
+    // And they are spread across the rope's NORMAL (a fence in depth), not smeared along its length.
+    const offs = lines.map((x) => x.x * lines[0].nx + x.y * lines[0].ny).sort((a, b) => a - b)
+    const gap = offs[1] - offs[0]
+    assert.ok(Math.abs(gap - LONGLINE_TWIN_GAP) < 1,
+      `run LG.c: consecutive ropes sit ${gap.toFixed(0)}px apart against a declared gap of ${LONGLINE_TWIN_GAP}px`)
+    console.log(`PASS run LG.c (Twin Set spreads): ${lines.length} lines at ${spots.size} distinct positions, ${gap.toFixed(0)}px apart, against 1 unmodded`)
+  }
+
+  // (d) THE LINE IS SET AND LEFT. It is gear, not an aura: walking away must not bring it along.
+  // The mutation this exists for is anchoring the rope to the player, which is what every other
+  // player-centred weapon in this file does and would look entirely reasonable in review.
+  {
+    const run = rig('longline', 5)
+    const [l] = setLines(run)
+    const at = { x: l.x, y: l.y }
+    const from = { x: run.player.x, y: run.player.y }
+    for (let i = 0; i < 90; i++) { run.net = null; run._netAcc = 1e9; stepSim(run, { x: 1, y: 0 }, dt); run.events.length = 0 }
+    const moved = Math.hypot(run.player.x - from.x, run.player.y - from.y)
+    const drift = Math.hypot(l.x - at.x, l.y - at.y)
+    assert.ok(moved > 200, `run LG.d: the player only travelled ${moved.toFixed(0)}px — the rig cannot tell a set line from a followed one`)
+    assert.ok(run.longlines.includes(l), 'run LG.d: the line expired before the player got clear — raise setDur or shorten the walk')
+    assert.ok(drift < 1,
+      `run LG.d: the line moved ${drift.toFixed(0)}px while the player walked ${moved.toFixed(0)}px — it is anchored to the player, and the whole card is that it is NOT`)
+    console.log(`PASS run LG.d (set and left): the player walked ${moved.toFixed(0)}px and the rope drifted ${drift.toFixed(1)}px`)
+  }
+
+  // (e) NET TOSS HOLDS A GROUP, AND ONLY WHAT IS UNDER IT. "Group" is the claim the card makes over
+  // Pincer, so it is asserted as several bodies held at once from a single throw.
+  {
+    const run = rig('netToss', 5)
+    const stats = WEAPONS.netToss.levels[4]
+    // A tight pack well inside the mesh, and one body far outside any throw's radius.
+    const pack = [dummy(run, 300, 0), dummy(run, 320, 30), dummy(run, 280, -30), dummy(run, 310, -15)]
+    const far = dummy(run, 300, stats.r + 900)
+    let maxHeldAtOnce = 0, farEverHeld = 0
+    for (let i = 0; i < 400; i++) {
+      run.net = null; run._netAcc = 1e9
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      maxHeldAtOnce = Math.max(maxHeldAtOnce, pack.filter((e) => (e.stunT || 0) > 0).length)
+      if ((far.stunT || 0) > 0) farEverHeld++
+    }
+    assert.ok(maxHeldAtOnce >= 3,
+      `run LG.e: at most ${maxHeldAtOnce} of 4 packed bodies were held at once — this is a single-target stun wearing a group hold's name`)
+    assert.strictEqual(farEverHeld, 0, `run LG.e: a body ${stats.r + 900}px from the pack was held on ${farEverHeld} frames — the mesh has no radius`)
+    console.log(`PASS run LG.e (a group hold): ${maxHeldAtOnce} of 4 held by one throw, and nothing ${stats.r + 900}px away ever was`)
+  }
+
+  // (f) THE HOLD IS PRICED BY THE CC BUDGET, AND SOME BODIES CANNOT BE HELD AT ALL.
+  //
+  // ⚠ The obvious version of this case is wrong and was written first: "the SECOND catch on the
+  // same body is shorter than the first". It fails against correct code, because CC_DR_RECOVER is
+  // 2.5s and Net Toss's cadence is 2.35-3.4s — a body caught by consecutive throws has recovered
+  // in between, and a full-strength second hold is the shipped system working exactly as designed
+  // (the DR taxes CADENCE, not weapons). What is actually observable is the two halves below.
+  {
+    // f1: a body whose resistance is already spent is held for LESS. Two runs, one seed, identical
+    // in every way except the state of the target's CC budget when the net lands. Dead if ccScale
+    // is not read at the application site.
+    const holdOn = (spent) => {
+      const run = rig('netToss', 5)
+      const e = dummy(run, 300, 0)
+      if (spent) e._ccDR = CC_DR_FLOOR
+      for (let i = 0; i < 600; i++) {
+        run.net = null; run._netAcc = 1e9
+        // Hold the budget pinned: stepStatuses recovers _ccDR every frame, and the net takes ~0.4s
+        // of flight to arrive, which is long enough to climb most of the way back on its own.
+        if (spent) e._ccDR = CC_DR_FLOOR
+        stepSim(run, { x: 0, y: 0 }, dt)
+        run.events.length = 0
+        if ((e.stunT || 0) > 0) return e.stunT
+      }
+      return 0
+    }
+    const fresh = holdOn(false), taxed = holdOn(true)
+    assert.ok(fresh > 0, 'run LG.f: a body under the mesh was never held at all')
+    assert.ok(taxed > 0, 'run LG.f: a CC-taxed body was never held at all — the floor is not a floor, it is a wall')
+    assert.ok(taxed < fresh - 1e-6,
+      `run LG.f: a body at the CC floor was held for ${taxed.toFixed(2)}s, the same as a fresh one (${fresh.toFixed(2)}s) — the hold ignores ccScale and is priced as if no other control had ever landed`)
+
+    // f2: `anchored` bodies are never held. resistsCC is the affix's whole purpose, and a group
+    // hold that ignored it would make the one card designed to stop the player trivial.
+    const run = rig('netToss', 5)
+    const anchored = dummy(run, 300, 0)
+    anchored.affixes = ['anchored']
+    let everHeld = 0
+    for (let i = 0; i < 400; i++) {
+      run.net = null; run._netAcc = 1e9
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      if ((anchored.stunT || 0) > 0) everHeld++
+    }
+    assert.strictEqual(everHeld, 0, `run LG.f: an 'anchored' body was held on ${everHeld} frames — resistsCC is not consulted and the affix does nothing against this weapon`)
+    assert.ok(anchored.maxHP - anchored.hp > 0, 'run LG.f: the anchored body took no damage either — it was never under a net, so the case proves nothing')
+    console.log(`PASS run LG.f (the hold is priced, and anchored bodies are not): fresh ${fresh.toFixed(2)}s vs CC-floored ${taxed.toFixed(2)}s, and 'anchored' held 0 frames while still taking damage`)
+  }
+
+  // (g) A NET IS NOT A ROCK. Net Toss rides run.lobs, which Debris Toss also uses, and stepLobs
+  // reads `shrapnel` off run.weaponMods once for EVERY lob in the list regardless of which weapon
+  // made it. A build holding both weapons therefore sprays Debris Toss splinters out of the
+  // player's fishing nets unless the snare branch sits ABOVE the shrapnel block. Nothing throws on
+  // this and no other assertion in the suite can see it.
+  {
+    const run = rig('netToss', 5)
+    run.weaponMods.debrisToss = { shrapnel: 6 }  // the mod, without the weapon that earns it
+    dummy(run, 300, 0)
+    let bullets = 0
+    for (let i = 0; i < 400; i++) {
+      run.net = null; run._netAcc = 1e9
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      bullets = Math.max(bullets, run.bullets.length)
+    }
+    assert.strictEqual(bullets, 0,
+      `run LG.g: ${bullets} shrapnel bullet(s) came out of a Net Toss — the snare branch has fallen BELOW the shrapnel block in stepLobs and one weapon is now firing another's mod`)
+    console.log('PASS run LG.g (a net is not a rock): Debris Toss shrapnel at 6 produced 0 bullets from Net Toss')
+  }
+
+  // (h) BOTH STATS REACH THE PAUSE BUILD SHEET. A key in levels[] that is not in STAT_KEYS is
+  // simply ABSENT from the sheet, with no warning — the trap CLAUDE.md documents. `setDur` and
+  // `hold` are both new keys, and both are deliberately not the shared `duration` (labelled
+  // 'Burns for', which is a lie about a rope and about a net).
+  {
+    const run = rig(null)
+    run.weapons.push({ id: 'longline', level: 3 }, { id: 'netToss', level: 3 })
+    const sheet = buildReadout(run)
+    const rowsFor = (id) => (sheet.weapons.find((w) => w.id === id)?.stats ?? []).map((s) => s.key)
+    const lineRows = rowsFor('longline'), netRows = rowsFor('netToss')
+    assert.ok(lineRows.includes('setDur'), `run LG.h: the Longline sheet shows [${lineRows}] — 'setDur' is missing from STAT_KEYS and the player cannot see how long a line lasts`)
+    assert.ok(netRows.includes('hold'), `run LG.h: the Net Toss sheet shows [${netRows}] — 'hold' is missing from STAT_KEYS and the player cannot see the stat the card is sold on`)
+    for (const key of ['setDur', 'hold']) {
+      const label = STAT_KEYS.find((s) => s.key === key)?.label
+      assert.ok(label && label !== 'Burns for', `run LG.h: '${key}' has no label of its own`)
+      assert.ok(FR[label], `run LG.h: the build-sheet label '${label}' has no French — it ships in English on a translated sheet`)
+    }
+    assert.ok(lineRows.length <= 5 && netRows.length <= 5,
+      `run LG.h: ${Math.max(lineRows.length, netRows.length)} stat rows — over the sheet's cap, and the cadence row falls off the bottom`)
+    console.log(`PASS run LG.h (both stats reach the sheet): Longline [${lineRows}], Net Toss [${netRows}], both labelled and translated`)
+  }
+
+  // (i) THE CHAPTER ACTUALLY FIELDS THEM. A weapon can be perfect and unreachable: the pool is a
+  // separate list, and the spec's whole point was that this chapter stop fighting with borrowed
+  // gear. Asserted against the shipped tables rather than a literal, so a later retune moves the
+  // test with the config.
+  {
+    const pool = CHAPTERS.trawl.weapons
+    assert.ok(pool.includes('longline') && pool.includes('netToss'),
+      `run LG.i: The Trawl's pool is [${pool}] — its own natives are not in it`)
+    assert.strictEqual(CHAPTERS.trawl.starter, 'longline', `run LG.i: the starter is '${CHAPTERS.trawl.starter}', not the chapter's own weapon`)
+    // Every weapon in the pool must be offerable, i.e. present in WEAPONS at all.
+    for (const id of pool) assert.ok(WEAPONS[id], `run LG.i: '${id}' is in The Trawl's pool and not in WEAPONS`)
+    // The mod budget the spec sets: ~4 apiece, and cut a weapon rather than invent mods.
+    for (const id of ['longline', 'netToss']) {
+      const n = Object.keys(WEAPON_MODS[id] ?? {}).length
+      assert.ok(n > 0 && n <= 4, `run LG.i: '${id}' carries ${n} mods against the spec's ceiling of 4 — the pool dilutes one invented mod at a time`)
+    }
+    console.log(`PASS run LG.i (the chapter fields them): pool [${pool}], starter '${CHAPTERS.trawl.starter}', ${Object.keys(WEAPON_MODS.longline).length}+${Object.keys(WEAPON_MODS.netToss).length} mods inside the budget`)
+  }
+
+  console.log("PASS run LG (The Trawl's natives): the line is a finite segment that is set and left and catches once per body, and the net holds a group on the CC budget without borrowing another weapon's shrapnel")
+}
+
 // ---- run MT: the in-run controls do not depend on a compatibility click ------------------------
 // Bug report, 2026-08-14: "when using the joystick to control I can't use the action button."
 //
@@ -16984,10 +17639,23 @@ function testUndertowLadder() {
   }
 
   // (c) the book's ladder is intact and the WIP gate still holds.
-  assert.deepStrictEqual(BOOKS.undertow.chapters, ['surf', 'shelf', 'reef'], 'the Undertow ladder is wrong')
+  // ASSERTED AS A PREFIX PLUS PROPERTIES, not as a literal list. Undertow is being built one chapter
+  // at a time, so a `deepStrictEqual` against the full array turns EVERY new chapter into a red on a
+  // test that is not about it — which is a test that has to be edited to stay passing, i.e. one
+  // nobody reads by the third time. What actually matters is that the SHIPPED order is never
+  // reordered, that every rung is real, and that nothing leaks between books.
+  const LADDER_PREFIX = ['surf', 'shelf', 'reef']
+  const undertowIds = BOOKS.undertow.chapters
+  assert.deepStrictEqual(undertowIds.slice(0, LADDER_PREFIX.length), LADDER_PREFIX,
+    'the Undertow ladder was REORDERED — its first three rungs are shipped and a save reads them by position')
+  for (const id of undertowIds) {
+    assert.ok(CHAPTERS[id], `BOOKS.undertow lists '${id}' but CHAPTERS has no such chapter — a dead rung`)
+    assert.ok(!CHAPTER_ORDER.includes(id), `'${id}' is in BOTH books' ladders`)
+  }
+  assert.strictEqual(new Set(undertowIds).size, undertowIds.length, 'the Undertow ladder repeats a chapter')
   assert.ok(!CHAPTER_ORDER.includes('surf'), 'a WIP chapter leaked into Book 1s ladder')
 
-  console.log(`PASS run US.g (undertow ladder): surf gentler than shelf on all ${AXES.length} balance axes (${AXES.map(([k]) => k).join(', ')}), sticky excludes ${BOOKS.undertow.chapters.length} chapters, WIP gate holds`)
+  console.log(`PASS run US.g (undertow ladder): surf gentler than shelf on all ${AXES.length} balance axes (${AXES.map(([k]) => k).join(', ')}), ladder is ${undertowIds.length} rungs [${undertowIds.join(' ')}], sticky excludes all of them, WIP gate holds`)
 
   // (d) THE MOON JELLY TUNE, and the roster lever it introduced. Owner's ask: -25% health, +25% xp.
   // Pinned as that arithmetic rather than as bare literals, the way the centipede cut is (run UG.a),
@@ -17533,6 +18201,7 @@ function testElementsRedesign() {
   // alternative is booting a DOM.
   {
     const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const configSrc = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8')
     const opens = [...uiSrc.matchAll(/data-act="codex-open"/g)]
     assert.strictEqual(opens.length, 1, `${opens.length} Codex entry points in ui.js — the pause screen is the only one with a run to read potency from`)
     const pause = uiSrc.slice(uiSrc.indexOf('setHtml(screens.pause'))
@@ -17583,6 +18252,7 @@ function testElementsRedesign() {
       }
     }
     const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const configSrc = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8')
     assert.ok(/<s class="lv-was">/.test(uiSrc), 'the level-up card no longer strikes the replaced figure')
     const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
     assert.ok(/^\.lv-was\b/m.test(css), '.lv-was has no rule in styles.css — the old figure renders as ordinary ' +
@@ -17606,6 +18276,7 @@ function testElementsRedesign() {
         `${id} marks a player-figures line at potency 0, where the player has none`)
     }
     const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const configSrc = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8')
     assert.ok(/codex-p--mine/.test(uiSrc), 'renderCodex no longer sets the class that sets those figures apart')
     const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
     assert.ok(/^\.codex-p--mine\b/m.test(css), '.codex-p--mine has no rule — the line renders as ordinary body text')
@@ -17970,6 +18641,17 @@ function testVocabularies() {
   assert.deepStrictEqual(deadAffixes, [],
     `${deadAffixes.length} elite affix(es) can be ROLLED but are never read by sim.js: [${deadAffixes.join(', ')}]. ` +
     `The player sees the affix named on the elite and it does nothing.`)
+
+  // Every affix's TELL is a badge above the sprite, and syncAffixBadges draws `info.icon` with a
+  // literal '?' fallback. So a missing icon is not a crash and not a blank — it is a question mark
+  // hovering over an enemy, which reads as a deliberate mystery affix rather than as a data hole.
+  // Worth pinning precisely because that path is DATA-DRIVEN: the affix ids never appear in
+  // render.js at all, so grepping for them there suggests these affixes have no visual, and they
+  // all do. (This assertion exists because that grep fooled me.)
+  const iconless = Object.entries(ELITE_AFFIXES).filter(([, v]) => !v?.icon).map(([k]) => k)
+  assert.deepStrictEqual(iconless, [], `elite affix(es) with no icon: [${iconless.join(', ')}] — they render as '?' above the enemy`)
+  assert.ok(/t\.text = info \? info\.icon : '\?'/.test(render),
+    "render.js no longer draws affix badges from ELITE_AFFIXES[id].icon — the icon field may now be dead, and this assertion is guarding a contract that moved")
 
   // (c) SFX NAMES. SFX_FOR_EVENT maps an event type to a NAME, and main.js plays it as
   // `SFX[name]?.()` — the optional call is what makes a wrong name silent instead of a crash.

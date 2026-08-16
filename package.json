@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "node test/sim-test.js",
     "test:fast": "node test/sim-test.js --fast",
+    "smoke": "node scripts/smoke.mjs",
     "ship": "node scripts/ship.mjs"
   },
   "dependencies": {

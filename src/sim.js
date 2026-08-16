@@ -153,6 +153,8 @@ import {
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
+  TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
+  BREACH_R_MIN, BREACH_R_AT_FULL, BREACH_REACH, BREACH_MAX_HOLES, tiredness,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
@@ -164,6 +166,7 @@ import {
   BREAKER_BACKWASH_DMG_FRAC,
   SHELL_RETARGET_R, SHELL_SPLASH_LIFE, SHELL_R,
   BARNACLE_JUMP_R, BARNACLE_FAN, BARNACLE_LARVA_R,
+  LONGLINE_HALF_W, LONGLINE_SNAG, LONGLINE_TWIN_GAP, LONGLINE_MAX_LIVE,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
   BLANK_STANDOFF_MIN, BLANK_STANDOFF_MAX, BLANK_TRAIL_DT, BLANK_TRAIL_MAX,
@@ -266,6 +269,7 @@ export function stepSim(run, input, dt) {
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
   if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
   if (stepDrown(run, dt)) return // phase is now 'dead' (The Reef: an empty Air bar, v7.x)
+  if (stepTrawl(run, dt)) return // phase is now 'dead' (The Trawl: the net wall, v7.x)
   if (stepStrips(run, dt)) return // phase is now 'dead' (garden pesticide spray-strip DoT — v5.3)
   if (stepTraps(run, dt)) return // phase is now 'dead' (undergrowth snap trap — v5.4)
   if (stepLanes(run, dt)) return // phase is now 'dead' (city traffic — v5.4)
@@ -610,7 +614,14 @@ function stepPlayerMovement(run, input, dt) {
   // dark above and for the same reason — multiplying would silently stack with latch/web/the dark.
   const _sig = CHAPTERS[run.chapter].signature
   const sandMul = _sig && _sig.type === 'tide' && onSandbar(run) ? _sig.bars.slowMul : 1
-  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul)
+  // TIRED (Book 2 / The Trawl): the bottom of the Feed bar takes your speed, on tiredness() — the
+  // same ramp the dark above runs on, deliberately sharing barRamp() so the two curves cannot drift.
+  // Same MIN composition as its two neighbours, and for the same reason: multiplying would make
+  // every latch, web and sandbar in this chapter strictly nastier than the same one elsewhere.
+  // The consequence is the chapter — at the floor you still move faster than the net, so running dry
+  // is a squeeze rather than a death sentence (spec §8.2), but the margin all but disappears.
+  const tireMul = _dres?.tire ? 1 - (1 - _dres.tire.speedFloor) * tiredness(run.charge, _dres) : 1
+  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
   const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul
 
@@ -1210,6 +1221,26 @@ function stepRepulse(run, input, dt) {
   // says an empty bar may leave the player slower, never structurally trapped, and in a lane where
   // the coral is solid "trapped" is a thing that can actually happen.
   if (ch.burst) run._burstT = BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t
+  // THE BREACH (v7.x, The Trawl — CHAPTERS[].breach). The same press, the same cooldown and the same
+  // `t` again: this chapter's answer to its own wall, and never a second button or a second bar. You
+  // tear the hole where YOU are on the net, and it lasts for the rest of that pass — a door you made,
+  // which the crowd will also use, because inNetHole does not ask who is standing in it.
+  //
+  // Gated on the net being in REACH, which is what stops the button being free: pressed on cooldown
+  // from anywhere, the wall would never be a decision. With the gate, breaching means turning back
+  // toward the thing that is killing you while it is still 500px out.
+  //
+  // The floor is the RADIUS, not the existence of the hole (BREACH_R_MIN, and see its block): this
+  // chapter's other half makes an empty bar SLOW, so a bar that also could not cut would let the two
+  // halves conspire into the structural trap spec §8.2 forbids.
+  if (ch.breach && run.net && run.net.holes.length < BREACH_MAX_HOLES) {
+    const nt = run.net
+    if (Math.abs(p.x * nt.nx + p.y * nt.ny - nt.pos) <= BREACH_REACH) {
+      const r = BREACH_R_MIN + (BREACH_R_AT_FULL - BREACH_R_MIN) * t
+      nt.holes.push({ t: p.x * -nt.ny + p.y * nt.nx, r })
+      run.events.push({ type: 'breach', x: p.x, y: p.y, r, charged: t })
+    }
+  }
   const radSq = radius * radius
   const lax = laneAxes(ch)
   for (const e of run.enemies) {
@@ -3425,6 +3456,103 @@ export function onSandbar(run) {
   return false
 }
 
+// -- The Trawl (v7.x Book 2 ch 4): a net wall that aims at nothing ---------------------------
+// See the TRAWL_* block in config.js for the design and for why the speed has a derived band. The
+// geometry, once, here: the net is an INFINITE LINE carried as a unit normal `n` and a signed offset
+// `pos`, and it sweeps by advancing `pos`. A point is ON the mesh when |dot(point, n) - pos| is
+// under the half-thickness, BEHIND it when that signed distance is negative, and its position ALONG
+// the wall is dot(point, tangent) where tangent = (-ny, nx).
+//
+// A line rather than an entity with ends, because the world is streamed and unbounded: at 300s the
+// player can be 20,000px from the origin, so "a wall that crosses the map" has no edges to span, and
+// a wall you can walk round is not a wall. Every test below is one dot product, so the cost is flat
+// in how far the player has roamed.
+//
+// ⚠ THE THREE FUNCTIONS BELOW ARE THE ONLY PLACE THAT ARITHMETIC IS WRITTEN. Everything else —
+// contact, the wake, Breach, the renderer — calls these. That is deliberate: a sign error in "which
+// side has the net already crossed" is invisible (the wake simply appears on the wrong side of a
+// wall, which looks like a tuning choice), and duplicating the expression is how it would get one.
+const netDist = (net, x, y) => x * net.nx + y * net.ny - net.pos   // signed: <0 = already crossed
+const netAlong = (net, x, y) => x * -net.ny + y * net.nx           // position ALONG the wall
+// Is this point in a torn hole? Same test for the player and for the crowd, which is the whole point
+// of Breach: the hole is a gap in a line, and the line does not know who is standing in it.
+const inNetHole = (net, x, y) => {
+  const t = netAlong(net, x, y)
+  for (const h of net.holes) if (Math.abs(t - h.t) <= h.r) return true
+  return false
+}
+
+// Is this point in the churned wake — the ONLY place Feed comes from? Behind the mesh (the water the
+// net has already been through) and within TRAWL_WAKE_DEPTH of it. Exported because stepCharge asks
+// it in place of the shaft loop every other Book 2 chapter uses, and render.js draws the same band.
+export function inWake(run, x, y) {
+  const net = run.net
+  if (!net) return false
+  const d = netDist(net, x, y)
+  return d < -TRAWL_HALF && d >= -(TRAWL_HALF + TRAWL_WAKE_DEPTH)
+}
+
+// Returns true if the player died, matching stepRocks/stepPools' contract — it is called from
+// stepSim's `if (stepX(...)) return` group for that reason.
+function stepTrawl(run, dt) {
+  if (CHAPTERS[run.chapter].signature?.type !== 'trawl') return false
+  const p = run.player
+  const net = run.net
+  if (!net) {
+    // The gap between passes is measured from the last pass CLEARING, not from its arrival, so a
+    // slow sweep across a wide desktop viewport does not eat its own downtime.
+    // The `??` fallback is TRAWL_FIRST_PASS and not TRAWL_INTERVAL, matching what createRun writes:
+    // it only fires for a run object someone assembled by hand (a probe, a test fixture), and an
+    // undefined countdown means "this run has not had a pass yet", which is the first-pass case. With
+    // the interval here instead, a hand-built rig would silently measure a different opening to the
+    // chapter than the game gives — the two-places-one-fact shape, in miniature.
+    run._netAcc = (run._netAcc ?? TRAWL_FIRST_PASS) - dt
+    if (run._netAcc > 0) return false
+    // A NEW DIRECTION EVERY PASS, and that is what stops "swim that way forever" being a strategy:
+    // outrunning one net is meant to work (spec §6.4 — outrunnable but not ignorable), and it costs
+    // you the wake, i.e. the whole chapter's food supply. The next pass then comes from somewhere
+    // else, so the price of never being caught is never eating.
+    const a = Math.random() * Math.PI * 2
+    const nx = Math.cos(a), ny = Math.sin(a)
+    // Screen-relative, never world px: the warning IS the mechanic, and a world-px lead would be a
+    // different amount of warning on a phone than on a desktop. See TRAWL_LEAD_MUL.
+    const lead = run.viewRadius * TRAWL_LEAD_MUL
+    const d0 = p.x * nx + p.y * ny
+    // Starts on the -n side and advances through the player. `end` is fixed at spawn rather than
+    // trailing the player, so a player who outruns the wall ends the pass early instead of towing it.
+    run.net = { nx, ny, pos: d0 - lead, end: d0 + lead, holes: [], _acc: 0 }
+    return false
+  }
+  net.pos += TRAWL_SPEED * dt
+  if (net.pos > net.end) { run.net = null; run._netAcc = TRAWL_INTERVAL; return false }
+
+  // Contact, on a tick rather than per frame — for the same reason stepRocks grinds on ROCK_TICK:
+  // 60 fractional hits a second is unreadable and floods the event stream.
+  net._acc += dt
+  let ticks = 0
+  while (net._acc >= TRAWL_TICK) { net._acc -= TRAWL_TICK; ticks++ }
+  if (ticks === 0) return false
+
+  // BOTH SIDES, in the same pass, on the same tick — the mechanic, not a side effect. Precedent is
+  // shipped twice: stepRocks and the undergrowth's snap traps, whose config block says outright
+  // "it damages BOTH sides, and that IS the mechanic".
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    if (Math.abs(netDist(net, e.x, e.y)) > TRAWL_HALF + e.radius) continue
+    if (inNetHole(net, e.x, e.y)) continue
+    dealDamage(run, e, TRAWL_ENEMY_DMG * ticks, false, false, true)   // hazard: the player did not deal it
+  }
+  if (Math.abs(netDist(net, p.x, p.y)) > TRAWL_HALF + PLAYER.radius) return false
+  if (inNetHole(net, p.x, p.y)) return false
+  // dot: true, which bypasses the invulnerability window on purpose. The net is a place you are
+  // standing in, like an acid pool or a spray strip, not a thing that hits you once — and an
+  // i-frame window would make swimming through the mesh free, which is the opposite of the chapter.
+  // The tell is the shipped one: hurtPlayer pushes {type:'hurt', dot:true}, which render.js already
+  // turns into a red vignette and shake and main.js already silences for audio. Publishing into a
+  // contract field render.js reads is the whole of the lesson the freeze scar taught.
+  return hurtPlayer(run, TRAWL_DMG * ticks, true, 'trawl')
+}
+
 // The chapter resource bar (v7.x Book 2). A chapter-gated no-op exactly like stepCurrents and
 // streamTraps - a chapter that declares no `resource` returns on the first line and its run.charge
 // stays the 0 createRun gave it, which is what lets this live in main from day one with no flag.
@@ -3452,11 +3580,16 @@ export function stepCharge(run, dt) {
     // drawn lobes where a field has them — so the water you can see is the water that refills you.
     if (inLobe(sh, p.x, p.y)) { c += res.refill * run.chargeRefillMul * dt; break }
   }
+  // THE TRAWL'S REFILL IS NOT A PLACE (see CHAPTERS.trawl.signature). Every other Book 2 chapter's
+  // food is a circle on the map that streamShafts materialises into run.shafts, so the loop above
+  // finds all three; this chapter's is the churn behind a wall moving at 75 px/s, and there is
+  // nowhere on the map to stand. run.shafts is empty here, so this is the only branch that can fire.
+  if (inWake(run, p.x, p.y)) c += res.refill * dt
   // v7.x Book 2 Task 9: run.chargeMax, not res.max — Deep Lungs raises the RUN's own ceiling, and
   // this is one of TWO sites that must clamp against it (the other is the Light Thief kill-refill,
   // below in dealDamage's kill branch). Missing either one is a flicker: the bar would refill past
   // its cap on a kill and snap back down on the very next tick through whichever site still reads
-  // the config max.
+  // the config max. The Trawl's wake refill above feeds `c`, so it is clamped by this line too.
   run.charge = Math.max(0, Math.min(run.chargeMax, c))
 }
 
@@ -4950,6 +5083,12 @@ const WEAPON_STAT_MODS = {
   breaker:       { swell: ['dmg', 'pct'], longshore: ['radius', 'pct'], broadCrest: ['arc', 'pct'] },
   skippingShell: { skimmer: ['dmg', 'pct'], flatStone: ['skips', 'flat'], wideSplash: ['r', 'pct'] },
   barnacles:     { grinder: ['dmg', 'pct'], encrust: ['crustDur', 'pct'], spawnfall: ['count', 'flat'], seedbed: ['jumps', 'flat'] },
+  // The Trawl's two natives. `twinSet` and `doubleHaul` are absent for the reason the block above
+  // gives: they are per-cast COUNTS with no key in levels[], so they are read at the fire site like
+  // hole's `singularity`. Everything else folds, which is also what puts the modified number (not
+  // the base one) on the pause build sheet.
+  longline:      { barbed: ['dmg', 'pct'], longSet: ['length', 'pct'], deepSet: ['setDur', 'pct'] },
+  netToss:       { wideNet: ['r', 'pct'], heavyMesh: ['hold', 'pct'], weighted: ['dmg', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -5080,6 +5219,8 @@ function stepWeapons(run, dt) {
     else if (w.id === 'breaker') stepBreakerWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'skippingShell') stepShellWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'barnacles') stepBarnacleWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'longline') stepLonglineWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'netToss') stepNetTossWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -5094,6 +5235,7 @@ function stepWeapons(run, dt) {
   stepClawSlashes(run, dt)
   stepZones(run, dt)
   stepLobs(run, dt)
+  stepLonglines(run, dt)
   // v7.23 skies. stepDrags moves bodies, so it runs BEFORE the dead sweep below and before
   // stepArcs, whose fork is rebuilt from live positions — a hooked aircraft should already be at
   // its new spot when the breath decides where to jump.
@@ -7585,6 +7727,32 @@ function stepLobs(run, dt) {
     if (lo.t < lo.flight) continue
     lo._done = true
 
+    // A NET TOSS lands here, not a chunk of debris: same flight, a hold instead of a burst.
+    // THIS BRANCH MUST STAY ABOVE THE SHRAPNEL BLOCK BELOW. `shrapnel` is read once off
+    // run.weaponMods for every lob in the list regardless of which weapon made it, so a build
+    // holding Debris Toss and Net Toss together would otherwise spray Debris Toss splinters out of
+    // the player's fishing nets — a cross-weapon leak that nothing throws on and no test would see.
+    if (lo.snare > 0) {
+      const rSq = lo.r * lo.r
+      let caught = 0
+      for (const e of run.enemies) {
+        if (e._dead || isAlly(e)) continue
+        const dx = e.x - lo.tx, dy = e.y - lo.ty
+        if (dx * dx + dy * dy > rSq) continue
+        applyDamage(run, e, lo.dmg)
+        // Through the CC-DR budget like every other control in the game. Without it a rare weapon
+        // holding a whole pack for 1.75s on a 2.6s cadence is a permanent lock, and elites — which
+        // resistsCC exists to protect — would be trivialised by the one card that stops them.
+        if (!e._dead && !resistsCC(e)) {
+          e.stunT = Math.max(e.stunT || 0, lo.snare * ccScale(run, e))
+          spendCC(run, e)
+          caught++
+        }
+      }
+      run.events.push({ type: 'snare', x: lo.tx, y: lo.ty, radius: lo.r, hold: lo.snare, caught })
+      continue
+    }
+
     const rSq = lo.r * lo.r
     for (const e of run.enemies) {
       if (e._dead) continue
@@ -8001,6 +8169,110 @@ function spreadBarnacle(run, host, c) {
     applyBarnacle(run, n.e, { dur: c.dur, dmg: c.dmg, tick: c.tick, jumps: c.jumps - 1 })
     left--
   }
+}
+
+// -- The Trawl's two natives (v7.97) ------------------------------------------------------------
+// Both are the humans' gear pointed back at the water, and between them they do the two jobs the
+// chapter actually needs: keep the pack OFF you, and hold it STILL for the net to arrive into.
+// Neither of them executes, because the chapter's own wall already does that.
+//   longline  a SEGMENT that is set and left — run.longlines, the one new array. Nothing else in
+//             the game is a static line: every other area denial is a disc (holes, mines, zones,
+//             blooms) or a moving front (novas).
+//             ⚠ It is deliberately NOT a swept beam. run.beams already carries `swept`+`rotSpeed`+
+//             `arms` and that IS Pulsar Sweep; a longline rotating about the player would have been
+//             a third rotating rake with a new name on it.
+//   netToss   a thrown GROUP HOLD, riding run.lobs for the flight and adding no array at all (the
+//             `snare` branch in stepLobs). Pincer answers one approach; this stops a pack.
+// Both aim through surfAim — nearest enemy first, facing only as the fallback. A kiting player's
+// heading points AWAY from the swarm, which in this chapter is most of the time, so aiming by
+// facing alone would fire every cast into empty water (fireFlagella's rule, v5.1.2).
+
+function stepLonglineWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => fireLongline(run, stats))
+}
+
+// Sets the line PERPENDICULAR to the aim, `offset` px along it — a fence between the player and the
+// pack. It does not follow the player afterwards and is not anchored to them: it is gear that was
+// set and is left, which is the whole reason the weapon rewards a chapter spent running.
+function fireLongline(run, stats) {
+  const p = run.player
+  const aim = surfAim(run)
+  // (nx, ny) is the line's NORMAL, so it points along the aim and the rope lies across it.
+  const nx = Math.cos(aim), ny = Math.sin(aim)
+  // ONE local for the count, used as both the loop bound AND the spacing divisor below. Written
+  // twice with different values, the extra ropes stack on the first one — and three ropes sharing a
+  // position render identically to one rope, i.e. to no change at all (see the Ipecac orbit bug).
+  const lines = ipecacN(run, 1 + (run.weaponMods.longline?.twinSet ?? 0))
+  for (let i = 0; i < lines; i++) {
+    const d = stats.offset + (i - (lines - 1) / 2) * LONGLINE_TWIN_GAP
+    run.longlines.push({
+      x: p.x + nx * d, y: p.y + ny * d, nx, ny,
+      half: LONGLINE_HALF_W, len: stats.length,
+      dmg: stats.dmg, tick: stats.tick, acc: 0,
+      life: stats.setDur, duration: stats.setDur,
+      snagged: new Set(),
+    })
+  }
+  run.events.push({ type: 'longline', x: p.x, y: p.y, angle: aim, count: lines })
+  // Drops the OLDEST, like ZONE_MAX_LIVE: cutting the newest would eat the cast just made.
+  if (run.longlines.length > LONGLINE_MAX_LIVE) run.longlines = run.longlines.slice(-LONGLINE_MAX_LIVE)
+}
+
+// Ages every set line and grinds whatever is lying across it.
+//
+// The hit test is the net wall's netDist/netAlong pair, in that order: distance ACROSS the rope
+// first (the cheap reject), then distance ALONG it against half the length. Getting the second test
+// wrong is the silent failure here — drop it and the line is infinite, which looks exactly like a
+// correct line as long as the crowd happens to be in front of you.
+function stepLonglines(run, dt) {
+  if (run.longlines.length === 0) return
+  for (const l of run.longlines) {
+    l.life -= dt
+    l.acc += dt
+    const ticks = Math.floor(l.acc / l.tick)
+    if (ticks <= 0) continue
+    l.acc -= ticks * l.tick
+    const halfLen = l.len / 2
+    for (const e of run.enemies) {
+      if (e._dead || isAlly(e)) continue
+      const dx = e.x - l.x, dy = e.y - l.y
+      const across = dx * l.nx + dy * l.ny
+      if (Math.abs(across) > l.half + e.radius) continue
+      const along = dx * -l.ny + dy * l.nx
+      if (Math.abs(along) > halfLen) continue
+      applyDamage(run, e, l.dmg * ticks)
+      // THE CATCH — once per body per THIS line, never per tick. LONGLINE_SNAG (0.5s) against a
+      // 0.40s tick is longer than the interval between applications, so a per-tick refresh is a
+      // permanent lock: the fence would stop being a fence and become an invulnerability field.
+      // Buying more catches is what Twin Set is for.
+      if (!e._dead && !l.snagged.has(e.id) && !resistsCC(e)) {
+        l.snagged.add(e.id)
+        e.stunT = Math.max(e.stunT || 0, LONGLINE_SNAG * ccScale(run, e))
+        spendCC(run, e)
+      }
+    }
+  }
+  run.longlines = run.longlines.filter((l) => l.life > 0)
+}
+
+// Net Toss. The throw is a run.lobs entry carrying `snare` — see the branch at the top of stepLobs
+// for the landing, and state.js's lobs[] doc for why that branch sits ABOVE the shrapnel block.
+function stepNetTossWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  const nets = ipecacN(run, 1 + (run.weaponMods.netToss?.doubleHaul ?? 0))
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
+    for (let i = 0; i < nets; i++) {
+      // pickBloomSpot lands on a real body when there is one in range and scatters when there is
+      // not, which is what makes a second net go somewhere useful rather than on top of the first.
+      const spot = pickBloomSpot(run, stats.castRange)
+      run.lobs.push({
+        x: p.x, y: p.y, fromX: p.x, fromY: p.y, tx: spot.x, ty: spot.y,
+        t: 0, flight: stats.flight, r: stats.r, dmg: stats.dmg,
+        snare: stats.hold,
+      })
+    }
+    run.events.push({ type: 'toss', x: p.x, y: p.y })
+  })
 }
 
 // ---- Pickups ------------------------------------------------------------------------

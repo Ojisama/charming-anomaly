@@ -42,8 +42,8 @@
 // power it did not earn, whereas this asks whether the bar keeps up with a REAL run, and a real run
 // takes cards and kills far more than a starter-only one ever would.
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
-import { stepSim, applyChoice, onSandbar } from '../src/sim.js'
-import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines, MAX_SHOP_LEVEL } from '../src/config.js'
+import { stepSim, applyChoice, onSandbar, inWake } from '../src/sim.js'
+import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines, MAX_SHOP_LEVEL, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL } from '../src/config.js'
 
 // --chapter <id> (v7.x, run US.c): The Surf shares this same `resource`/refill-circle vocabulary
 // (Humidity, tide pools via the generalised streamShafts) as The Shelf's Light, so the probe reads
@@ -105,7 +105,12 @@ function probeMeta({ thief = false, shopLevel = SHOP_LV } = {}) {
 const res = CHAPTERS[CHAPTER].resource
 const sig = CHAPTERS[CHAPTER].signature
 const spec = refillSpec(sig) // the refill-circle geometry, whichever chapter (Shelf's shafts / Surf's pools)
-if (!res || !spec) { console.error(`ABORT: ${CHAPTER} declares no resource/refill geometry — nothing to probe`); process.exit(1) }
+// THE TRAWL HAS NO REFILL GEOMETRY AND THAT IS ITS DESIGN, not a missing config block: its food is
+// the churned wake behind a moving wall, so there is no cell size, no chance and no radius to read.
+// The abort below has to know the difference, or the one chapter whose refill is not a place looks
+// to this probe exactly like a chapter someone forgot to finish.
+const trawlCh = sig?.type === 'trawl'
+if (!res || (!spec && !trawlCh)) { console.error(`ABORT: ${CHAPTER} declares no resource/refill geometry — nothing to probe`); process.exit(1) }
 
 // Spend policies. ONE policy cannot tell "the bar cannot fill" apart from "this player spent it
 // all": a greedy player pins the bar at zero under every tune there is, which is exactly what the
@@ -147,6 +152,43 @@ const MOVES = {
       if (d < bd) { bd = d; best = sh }
     }
     return best ? Math.atan2(best.y - p.y, best.x - p.x) : null
+  },
+}
+
+// ---- TRAWL MOVEMENT (v7.x, The Trawl) ---------------------------------------------------------
+// A THIRD family, for the same reason the lane needed a second one: the two policies above both
+// assume the refill is a FIXED PLACE on the map, and `seek` literally walks toward the nearest
+// entry of run.shafts — which is permanently empty here. Run it anyway and every row comes back
+// "the mechanic is unreachable", which is a property of the rig, not of the chapter.
+//
+// The Book 2 plan named this in advance: "the honest model is 'run from the net', which is a
+// heading, not a circle." These three are the poles of that one decision, and the trio is the
+// answer — never one row alone:
+//   ignore — the plain kiting walk, unchanged. THE DO-NOTHING CONTROL, and it is not a strawman
+//            here in the way `centre` is in the lane: the wake is 420px deep and sweeps at 75 px/s,
+//            so it WASHES OVER a player who never moves, for free, ~5.6s per pass. This row exists
+//            precisely to price that, and pricing it is what moved drain 1.1 -> 2.6: at the first
+//            tune, ignoring the chapter came out at a mean of 80/100.
+//   flee   — swim straight down the net's own normal, i.e. stay ahead of the sweep. Legal, and
+//            spec §6.4 requires it to be (outrunnable but not ignorable) — this row measures what
+//            it COSTS, which is the entire food supply.
+//   ride   — hold station in the wake, 40% of the way back. The upper bound on a player working the
+//            mechanic, and it means holding a lane beside a wall that kills on contact.
+// Headings, like MOVES above, because this chapter is free-roam — only the lane throws an axis away.
+const TRAWL_MOVES = {
+  ignore: () => null,
+  flee: (run) => (run.net ? Math.atan2(run.net.ny, run.net.nx) : null),
+  ride: (run) => {
+    const net = run.net
+    if (!net) return null
+    const p = run.player
+    // Signed distance from the mesh, negative behind it. Written out rather than imported: sim.js
+    // keeps netDist private on purpose (one place owns that arithmetic), and a probe that mirrors it
+    // is a probe that can disagree with the game — so this is the one place to check first if a
+    // %inRefill column ever reads impossibly.
+    const d = p.x * net.nx + p.y * net.ny - net.pos
+    const want = -(30 + TRAWL_WAKE_DEPTH * 0.4)   // TRAWL_HALF + 40% back into the churn
+    return d > want ? Math.atan2(-net.ny, -net.nx) : Math.atan2(net.ny, net.nx)
   },
 }
 
@@ -206,7 +248,7 @@ const LANE_MOVES = {
 // re-phasing trap — every seeded probe in this repo has fallen for it at least once).
 const results = {}
 for (const thief of [false, true]) {
-for (const [mname, moveAt] of Object.entries(laneCh ? LANE_MOVES : MOVES)) {
+for (const [mname, moveAt] of Object.entries(laneCh ? LANE_MOVES : trawlCh ? TRAWL_MOVES : MOVES)) {
 for (const [pname, wants] of Object.entries(POLICIES)) {
   const rows = []
   for (let r = 0; r < RUNS; r++) {
@@ -241,7 +283,11 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
       if (run.phase !== 'playing') break
 
       const pl = run.player
-      if (run.shafts.some((sh) => Math.hypot(sh.x - pl.x, sh.y - pl.y) <= sh.r)) inShaft++
+      // "In the refill", whichever shape this chapter's refill has — a shaft/pool/pocket circle for
+      // three of the four, and the moving wake for The Trawl. One column, because the QUESTION is
+      // the same one ("how much of the run was this player being fed") and a chapter-specific column
+      // name is how a reader ends up comparing two different measurements.
+      if (run.shafts.some((sh) => Math.hypot(sh.x - pl.x, sh.y - pl.y) <= sh.r) || inWake(run, pl.x, pl.y)) inShaft++
       // Sandbars (v7.x Surf only — onSandbar is a no-op false for any chapter with no run.sandbars
       // entries, so this column reads 0 for The Shelf without a chapter-type branch here).
       if (onSandbar(run)) onBar++
@@ -290,16 +336,27 @@ if (res.dark) {
 } else {
   console.log('dark:     none — this chapter declares no resource.dark block')
 }
-console.log(`refill:   cell ${spec.cell} chance ${spec.chance} r ${spec.r}` +
-  (spec.driftAmp ? `  drift ${spec.driftAmp}px x ${spec.driftHz}rad/s = ${(spec.driftAmp * spec.driftHz).toFixed(1)} px/s peak` : '  no drift'))
-console.log(`coverage: ${(100 * spec.chance * Math.PI * spec.r * spec.r / (spec.cell * spec.cell)).toFixed(1)}% of the plane refills (chance x pi r^2 / cell^2)`)
+if (spec) {
+  console.log(`refill:   cell ${spec.cell} chance ${spec.chance} r ${spec.r}` +
+    (spec.driftAmp ? `  drift ${spec.driftAmp}px x ${spec.driftHz}rad/s = ${(spec.driftAmp * spec.driftHz).toFixed(1)} px/s peak` : '  no drift'))
+  console.log(`coverage: ${(100 * spec.chance * Math.PI * spec.r * spec.r / (spec.cell * spec.cell)).toFixed(1)}% of the plane refills (chance x pi r^2 / cell^2)`)
+} else {
+  // No coverage figure exists for a refill that is not a place. What replaces it is the DUTY CYCLE:
+  // how much of the run a net is even on the map, which is the ceiling on how much of it can be
+  // spent eating. Printed rather than assumed, because it is set by the viewport (TRAWL_LEAD_MUL)
+  // and so differs between a phone and a desktop — the one number here a reader would guess wrong.
+  const sweep = (2 * TRAWL_LEAD_MUL * 465) / TRAWL_SPEED
+  console.log(`refill:   the churned wake behind the net — ${TRAWL_WAKE_DEPTH}px deep, moving at ${TRAWL_SPEED} px/s. No fixed geometry.`)
+  console.log(`duty:     a pass sweeps for ${sweep.toFixed(1)}s (phone, viewRadius 465), then ${TRAWL_INTERVAL}s of nothing` +
+    ` — a net is present ${(100 * sweep / (sweep + TRAWL_INTERVAL)).toFixed(0)}% of the run`)
+}
 if (sig.bars) {
   console.log(`sandbars: cell ${sig.bars.cell} chance ${sig.bars.chance} r ${sig.bars.r}  slowMul x${sig.bars.slowMul}  drainMul x${sig.bars.drainMul}` +
     ` — ${(100 * sig.bars.chance * Math.PI * sig.bars.r * sig.bars.r / (sig.bars.cell * sig.bars.cell)).toFixed(1)}% of the plane is dry ground`)
 }
 console.log(`pulse:    costs ${PULSE_CHARGE_COST}; a full (resolved) bar is ${(previewRun.chargeMax / PULSE_CHARGE_COST).toFixed(1)} charged pulses`)
 console.log('')
-console.log('policy              mean    %at0   %atMax  %armed  %inLight   %DARK  meanDark   %onBar  pulses  charged  kills   secs')
+console.log('policy              mean    %at0   %atMax  %armed %inRefill   %DARK  meanDark   %onBar  pulses  charged  kills   secs')
 for (const [pname, rows] of Object.entries(results)) {
   console.log(
     pname.padEnd(19) +

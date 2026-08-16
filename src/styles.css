@@ -206,12 +206,67 @@ body {
 .title-logo span:last-child { color: var(--mint-dark); }
 /* v5.1 title is a top-anchored column with a fixed bottom nav; reserve room for the nav so the
    scrollable content never hides under it. */
+/* THE ROOM. Every menu tab paints it, opaquely. Before this they all let the Pixi canvas show
+   through as their backdrop — hide the canvas and the page is black, because nothing in CSS was
+   ever painting it — and that backdrop is drifting creatures on cream, drawn for the diorama title
+   the bookcase replaced. Battle, Shop and Daily now share one room so switching tabs does not jump
+   between two art directions.
+
+   Oak, not walnut: this is a pastel game and a dark study took the whole menu somewhere else.
+
+   The grain is four repeating gradients whose periods (3, 7, 11, 19px) share no common factor, so
+   the combined pattern does not visibly repeat — a single period reads as corduroy, which is what
+   the first cut of this looked like. Plank seams every 84px carry a dark line with a lit edge,
+   because a panelled wall is boards and the seams are what say so. */
+.room-oak {
+  background:
+    radial-gradient(120% 46% at 50% 0%, rgba(255, 249, 231, 0.55), transparent 66%),
+    repeating-linear-gradient(90deg,
+      transparent 0 82px,
+      rgba(74, 50, 28, 0.30) 82px 83px,
+      rgba(255, 240, 210, 0.22) 83px 84px),
+    repeating-linear-gradient(90deg, rgba(96, 66, 38, 0.055) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(96, 66, 38, 0.045) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(90deg, rgba(122, 88, 52, 0.05) 0 2px, transparent 2px 11px),
+    repeating-linear-gradient(90deg, rgba(60, 40, 22, 0.042) 0 1px, transparent 1px 19px),
+    linear-gradient(180deg, #d0b48d, #c2a377 46%, #b0906a);
+  /* NO `position` here. `.screen` is already absolute, so ::before's inset:0 resolves against it
+     anyway — and declaring `relative` at equal specificity but later in the file overrode that
+     absolute, collapsing every menu screen from inset:0 to auto height. The Shop's oak stopped
+     565px down and the old canvas showed below it. */
+}
+/* The chapter's own colour, washed over whatever room you are standing in. --tint is set on the
+   ROOT (ui.js paintRoom) rather than on one screen, so it survives a tab change and the Shop keeps
+   the light of the chapter you picked. soft-light shifts the hue and leaves the grain alone. */
+.room-oak::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--tint, transparent);
+  opacity: 0.3;
+  mix-blend-mode: soft-light;
+  transition: background 0.4s ease;
+}
+.room-oak > * { position: relative; z-index: 1; }
+
 .screen--title {
   justify-content: flex-start;
   gap: 10px;
   overflow-y: auto;
   padding-top: calc(10px + env(safe-area-inset-top));
   padding-bottom: calc(84px + env(safe-area-inset-bottom));
+}
+
+/* the shadow the bookcase throws onto the desk in front of it */
+.bookcase { box-shadow: 0 10px 16px -8px rgba(30, 18, 8, 0.65); }
+/* the panel is a card lying on that desk — it needs its own ground, or cream text sits on wood */
+.title-below {
+  background: linear-gradient(180deg, var(--cream-soft), var(--cream));
+  border: 2px solid rgba(92, 64, 40, 0.35);
+  border-radius: 16px;
+  box-shadow: 0 12px 22px -12px rgba(30, 18, 8, 0.7);
 }
 
 
@@ -903,10 +958,7 @@ body {
   .title-logo, .modal, .lv-card, .card--bounce, .lv-card[data-rarity="mythic"],
   .modal-backdrop, .confirm-sheet, .sacrifice-counter,
   .sacrifice-counter--ready,
-  .amb, .hero-creature, .hero-star--pulse,
   .rampage-bar--active { animation: none; } /* v5.8: the RAMPAGE glow pulse is still infinite */
-  /* the drifting ambient decor only reads as motion — hide it entirely when motion is unwanted */
-  .hero-ambient { display: none; }
 }
 
 /* daily-anomaly briefing screen (shown between title and a daily run); .screen--brief is the
@@ -957,233 +1009,292 @@ body {
 .fx-chip--bad { background: #fde2e6; color: #c23a52; }
 .daily-note { font-weight: 600; font-size: 0.74rem; color: var(--ink-soft); }
 
-/* ---- chapter carousel + diorama hero cards (v5.2 title centerpiece) ---- */
-/* Native CSS scroll-snap strip: one diorama card per chapter, prev/next PEEKING at both edges
-   (card ~85% wide, 7.5% side padding leaves room for the neighbours + centre-snapping). The
-   per-chapter gradient + text colour are inline (from CHAPTERS[id].render.bgColor, ui.js); the
-   card's ambient shapes, glowing creature and ★ row are decorative CSS below, gated on
-   .hero-card--light for dark-on-light chapters and disabled under prefers-reduced-motion. */
-.chapter-carousel {
-  flex-shrink: 0; /* fixed-height row in the title's flex column — never let it squish */
-  display: flex;
-  gap: 12px;
+/* ---- the title BOOKCASE (v7.x centrepiece) ----------------------------------
+   One ÉTAGE per Book, one VOLUME per chapter (bookcaseHtml/etageHtml/volHtml, ui.js). The Book's
+   binding cloth arrives as the inline custom property --cloth on .etage, so every volume on a
+   board is bound alike and a LOCKED volume — turned fore-edge out, showing only its boards — is
+   still visibly one of that Book's.
+   Volume WIDTH is flex with a cap, never fixed px: Book 1 is seven chapters and eight once The
+   Blank is earned, so the row has to absorb the extra rather than push it off the shelf. Volume
+   HEIGHT rides --vh (a percentage cycled by position in ui.js) so the row is not a bar chart. */
+.bookcase {
+  /* width:100% is load-bearing: .screen--title centres its children, so without it the case
+     shrinks to its content and the volumes' `flex: 1 1 0` has nothing to expand into — seven
+     spines end up ~20px wide in the middle of an empty screen. */
   width: 100%;
-  max-width: 460px;
-  padding: 6px 8%;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: none;            /* Firefox */
-  touch-action: pan-x;
-  overscroll-behavior-x: contain;
-}
-.chapter-carousel::-webkit-scrollbar { display: none; } /* WebKit/Blink */
-/* v6.7 (user, redesign A): the neighbours peek again — 8% gutters either side, so the edge of the
-   next chapter is always on screen and the game reads as a shelf instead of a single card.
-   This is NOT a return of v5.3.1's rejected version: that one drew shorter, contentless slabs
-   BESIDE the card, which read as a background frame. What peeks here is the real neighbouring
-   card, full height, with its own art — the gutter is padding on the scroller, not a new element.
-   The card itself is still exactly one viewport wide (flex 0 0 100% of the padded content box),
-   which is also what lets the first and last cards centre under scroll-snap. */
-.hero-card {
+  /* Capped like every other screen's content column (.shop-head is 540). Without it a desktop
+     shelf is 1280px of board with seven 58px volumes huddled in the middle — the volumes cap their
+     own width, so the extra all goes to empty shelf. */
+  max-width: 520px;
+  /* `0 1 auto`, not `1 1 auto`: the case takes only the height its étages need and lets the desk
+     start right below the last board. With `1` a save with one Book showed a storey of empty wall.
+     It still SHRINKS (and scrolls) once there are more étages than fit, which is what a third Book
+     will want. */
+  flex: 0 1 auto;
+  min-height: 0;
   position: relative;
-  flex: 0 0 100%;
-  scroll-snap-align: center;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  justify-content: flex-start;
+  /* 18px, not 8: a selected volume lifts out of its row and its ribbon rises above that. Any
+     less and the ribbon crosses the brass plate of the shelf ABOVE, because a later étage paints
+     over an earlier one. The gap is empty wall, so the ribbon may overlap it freely. */
+  gap: 18px;
+  overflow-y: auto;
+  padding: 16px 0 2px;
+  background:
+    radial-gradient(130% 60% at 50% 0%, rgba(255, 255, 255, 0.5), transparent 60%),
+    linear-gradient(180deg, #e6dec9, #d2c5a8);
+}
+/* The selected chapter's own colour, washed over the room. `soft-light` keeps the wall's paper
+   texture and only shifts its hue, where a flat overlay would grey it out. --tint is set from
+   ui.js's paintRoom (transparent for a locked volume — an unseen chapter colours nothing). */
+.bookcase::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--tint, transparent);
+  opacity: 0.55;
+  mix-blend-mode: soft-light;
+  transition: background 0.4s ease;
+}
+.etage { position: relative; z-index: 1; flex: 0 0 auto; display: flex; flex-direction: column; }
+.shelf-row {
+  display: flex;
+  align-items: flex-end;
   justify-content: center;
-  gap: 6px;
-  min-height: 356px;
-  padding: 22px 18px 104px;
-  border-radius: 24px;
-  color: #f5f9f7;
-  /* no drop shadow: the carousel's overflow clips it into a hard grey band under the card
-     (user-reported "grey backdrop at the bottom") — full-bleed cards don't need to float */
-  overflow: hidden;
+  gap: 4px;
+  /* Sized so two étages plus the detail panel fit a 390x844 phone without the top row clipping.
+     The case scrolls past that, which is what a third Book will need anyway. */
+  height: clamp(84px, 17.5vh, 152px);
+  padding: 0 14px;
 }
-.hero-card--locked {
-  background: linear-gradient(160deg, #6a6a78, #3a3a46 60%, #26262e);
-  filter: grayscale(0.4);
-}
-/* v6.7 scene: three soft horizon bands built from plain black/white alpha, so they land correctly
-   on ANY chapter's bgColor without a per-chapter art asset — a lit sky wash, a mid ridge, a dark
-   near ridge. This is the "the cards are a bit blank" fix that costs nothing per chapter. */
-.hero-scene { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-.hero-band { position: absolute; left: -12%; right: -12%; border-radius: 50% 50% 0 0; }
-.hero-band--far { bottom: 26%; height: 34%; background: rgba(255, 255, 255, 0.10); }
-.hero-band--mid { bottom: 12%; height: 30%; background: rgba(0, 0, 0, 0.13); }
-.hero-band--near { bottom: -8%; height: 28%; background: rgba(0, 0, 0, 0.24); }
-/* On a light chapter (cream Body, white Blank) black ridges read as dirt — invert the stack so the
-   scene stays a set of soft hills instead of a stain. */
-.hero-card--light .hero-band--far { background: rgba(255, 255, 255, 0.42); }
-.hero-card--light .hero-band--mid { background: rgba(53, 53, 74, 0.07); }
-.hero-card--light .hero-band--near { background: rgba(53, 53, 74, 0.13); }
 
-/* ambient drifting decor (soft, blurred, low-opacity — see CHAPTER_AMBIENT in ui.js) */
-.hero-ambient { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-.amb {
-  position: absolute;
-  border-radius: 50%;
-  will-change: transform, opacity;
+/* the board, and the brass plate naming the Book. The plate is a LABEL — nothing on the shelf is
+   tappable except a volume, so it must not look like a control. */
+.shelf-board { flex: none; }
+.shelf-board::after {
+  content: "";
+  display: block;
+  height: 8px;
+  background: #8a6440;
+  box-shadow: 0 6px 10px -5px rgba(0, 0, 0, 0.4);
 }
-.amb-cell {
-  background: rgba(255, 232, 240, 0.5);
-  box-shadow: 0 0 9px 3px rgba(255, 222, 236, 0.35);
-  animation: amb-drift linear infinite;
-}
-.amb-bubble {
-  bottom: -22px;
-  background: rgba(222, 246, 255, 0.32);
-  box-shadow: inset 0 0 4px rgba(255, 255, 255, 0.6), 0 0 6px 2px rgba(200, 240, 255, 0.28);
-  animation: amb-rise linear infinite;
-}
-@keyframes amb-drift {
-  0%   { transform: translate(0, 0); opacity: 0; }
-  20%  { opacity: 1; }
-  80%  { opacity: 1; }
-  100% { transform: translate(var(--dx, 8px), var(--dy, -14px)); opacity: 0; }
-}
-@keyframes amb-rise {
-  0%   { transform: translateY(0); opacity: 0; }
-  15%  { opacity: 0.85; }
-  85%  { opacity: 0.85; }
-  100% { transform: translateY(-150px); opacity: 0; }
-}
-/* creature: chapter emoji in a soft glow ring, gentle idle bob */
-.hero-creature {
-  position: relative;
-  display: flex;
+.shelf-plate {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  animation: hero-bob 2.6s ease-in-out infinite;
+  gap: 6px;
+  margin-left: 16px;
+  padding: 2px 9px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #c9a961, #8a7238);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: #33240f;
 }
-.hero-glow {
-  position: absolute;
-  width: 94px;
-  height: 94px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0) 68%);
+.shelf-board > .shelf-plate { position: relative; z-index: 1; }
+.shelf-plate .shelf-stars { letter-spacing: 0; font-size: 0.62rem; }
+.shelf-board {
+  background: linear-gradient(180deg, #c8a273, #ad8757);
+  border-top: 1px solid rgba(255, 255, 255, 0.26);
+  padding-top: 2px;
 }
-.hero-card--light .hero-glow { background: radial-gradient(circle, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0) 68%); }
-@keyframes hero-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
-}
-.hero-icon { position: relative; font-size: 3.9rem; line-height: 1; filter: drop-shadow(0 8px 8px rgba(0, 0, 0, 0.3)); }
-/* Grounds the creature: without it the emoji floats in the gradient with nothing under it, which is
-   most of why the old card read as a sticker on a colour. It does NOT bob with the creature — a
-   shadow that rises with its owner is the one thing that makes a bob look wrong. */
-.hero-shadow {
-  position: absolute;
-  bottom: -16px;
-  width: 74px;
-  height: 12px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.26);
-  filter: blur(3px);
-}
-.hero-card--light .hero-shadow { background: rgba(53, 53, 74, 0.16); }
-/* The name/tagline/cast/stars block is pinned to the card's bottom so every chapter's text starts
-   on the same line — the creature is what changes size between chapters, not the copy. */
-.hero-foot {
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 14px;
+
+/* a VOLUME — one chapter, standing up */
+.vol {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 58px;
+  height: var(--vh, 96%);
+  padding: 6px 0 5px;
+  border: 0;
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(95deg, var(--cloth) 0 76%, rgba(0, 0, 0, 0.42));
+  background-blend-mode: normal;
+  color: #e3c584;
+  font: inherit;
+  cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  justify-content: space-between;
+  box-shadow:
+    inset -4px 0 7px -4px rgba(0, 0, 0, 0.6),
+    inset 3px 0 4px -3px rgba(255, 255, 255, 0.2),
+    0 6px 10px -6px rgba(0, 0, 0, 0.5);
 }
-/* the cast: the chapter's own creatures, drawn with the game's baked art (render.js castThumbs via
-   main.js -> hooks.castArt). The token is a pale disc on every chapter, dark ones included: these
-   sprites are lit for their own biome floor, and a dark creature on a dark card disappeared. */
-.hero-cast { display: flex; gap: 6px; margin-top: 1px; }
-.hero-face {
-  width: 32px;
-  height: 32px;
+/* every second and third volume takes a slightly different cut of the same cloth — one bolt, not
+   one colour, which is what stops a row of seven reading as a bar chart */
+/* One bolt of cloth, not one flat colour. Excluded for TURNED volumes: the filter would land on
+   the page block instead of the boards and stripe the paper light/dark down the row. */
+.vol:not(.vol--turned):nth-child(2n) { filter: brightness(1.1); }
+.vol:not(.vol--turned):nth-child(3n) { filter: brightness(0.92); }
+.vol-band { width: 64%; height: 1.5px; flex: none; border-radius: 2px; background: currentColor; opacity: 0.62; }
+.vol-ico { flex: none; font-size: 1rem; line-height: 1; }
+/* A PLAIN BLOCK, not a flex container. `writing-mode` flips a flex container's main axis, and the
+   combination stopped `overflow: hidden` from clipping — 'Undergrowth', the one name long enough
+   to overrun its spine, spilled through the tail band and over the stars. text-align does the
+   centring along the vertical line box instead, and the clip then works as a real backstop. */
+.vol-nm {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 4px 0;
+  writing-mode: vertical-rl;
+  text-align: center;
+  font-size: 0.47rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+/* Below this the spine has no room for a vertical title at all, and the chapter ICON carries the
+   volume on its own — the documented icon-only fallback, applied by height rather than by taste. */
+@media (max-height: 700px) {
+  .vol-nm { display: none; }
+}
+/* difficulty beaten, stacked at the foot where a real spine carries the publisher's device */
+.vol-stars { flex: none; display: flex; flex-direction: column; align-items: center; font-size: 0.44rem; line-height: 0.92; font-style: normal; }
+.vol-star { color: rgba(227, 197, 132, 0.34); font-style: normal; }
+.vol-star--on { color: var(--gold); }
+/* the chapter you last played keeps a ribbon in it */
+.vol-rib {
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 10px;
+  height: 18px;
+  margin-left: -5px;
+  border-radius: 2px 2px 0 0;
+  background: var(--pink);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+.vol--sel { transform: translateY(-8px); outline: 2px solid var(--mint); outline-offset: 2px; box-shadow: 0 14px 18px -9px rgba(0, 0, 0, 0.6); }
+.vol:focus-visible { outline: 3px solid var(--mint-dark); outline-offset: 2px; }
+
+/* A LOCKED volume, turned fore-edge out. The tell that makes this read as a book rather than a
+   plank is THE SQUARE: the cover boards (the .vol background, i.e. the Book's cloth) stand proud
+   of the page block on left, right and top. The block itself is lit at both boards and shaded
+   through the centre, because a rounded book's fore-edge is concave. */
+.vol--turned { padding: 3px 3px 0; justify-content: stretch; }
+.vol-pg {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 1px 1px 0 0;
+  overflow: hidden;
+  background: linear-gradient(90deg, #f1e8d5 0 6%, #e2d5b6 26%, #cfbf9a 50%, #e4d7b9 74%, #f1e8d5);
+  box-shadow: inset 0 2px 2px -1px rgba(255, 255, 255, 0.8), inset 0 -4px 6px -4px rgba(90, 66, 36, 0.45);
+}
+/* FORE-EDGE PRINTING: the padlock sits on the paper and the leaves are drawn OVER it, so the
+   striation cuts through the glyph exactly as ink across a stack of page edges does. 90deg and a
+   2px WHOLE-pixel period: a fractional period lands on half-pixels and the leaves render at
+   uneven widths, and any angle off 90 tilts every leaf and the block reads as skewed. */
+.vol-pg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: repeating-linear-gradient(90deg,
+    rgba(146, 124, 88, 0.32) 0 1px,
+    rgba(255, 252, 244, 0.34) 1px 2px);
+}
+.vol-lock {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  width: 60%;
+  max-width: 26px;
+  height: auto;
+  transform: translate(-50%, -50%);
+  color: rgba(84, 62, 34, 0.62);
+}
+
+/* A Book with NOTHING unlocked keeps one dust sheet over the whole étage — per-volume covers would
+   count its chapters, and for a Book you have never opened the count is the tease. The mask cuts a
+   scalloped hem; if a browser drops it the sheet is simply square, which still reads. */
+.dust-sheet {
+  flex: 1 1 auto;
+  align-self: stretch;
+  margin-top: 22%;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(101deg,
+    #dbcea9 0 6%, #b9a87d 17%, #ddd0ac 27%, #bcab80 40%,
+    #dfd2ae 52%, #b7a67b 65%, #dbcea9 77%, #c0af84 89%, #d5c8a3);
+  box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.5), inset -7px 0 11px -7px rgba(0, 0, 0, 0.4);
+  filter: drop-shadow(0 6px 8px rgba(60, 44, 22, 0.4));
+  -webkit-mask: radial-gradient(circle 9px at 9px 100%, transparent 9px, #000 9.5px) 0 0 / 18px 100%;
+  mask: radial-gradient(circle 9px at 9px 100%, transparent 9px, #000 9.5px) 0 0 / 18px 100%;
+}
+
+/* the detail panel's head: the chapter's identity, which a 47px spine has no room for and the
+   hero card used to carry. The only remaining consumer of the src/cast/*.png thumbnails. */
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0 2px;
+}
+.detail-ico {
+  flex: none;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.82);
-  border: 2px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.22);
+  border-radius: 11px;
+  border: 2px solid var(--cream-edge);
+  background: var(--cream);
+  font-size: 1.25rem;
 }
-.hero-face img {
-  max-width: 24px;
-  max-height: 24px;
-  /* the sprites are baked at game scale and vary a lot in size (a tank column dwarfs a tadpole);
-     contain keeps each one whole inside the disc instead of cropping the big ones */
-  object-fit: contain;
-}
-.hero-card--light .hero-face { background: rgba(255, 255, 255, 0.92); border-color: rgba(53, 53, 74, 0.14); }
-.hero-card--locked .hero-icon { opacity: 0.85; }
-.hero-name { font-size: 1.6rem; font-weight: 900; letter-spacing: -0.01em; text-align: center; }
-.hero-tagline { font-size: 0.82rem; font-weight: 700; opacity: 0.9; text-align: center; }
-/* ★ progress row — filled = levels BEATEN (maxDifficulty-1); the 5th pulses hollow at MAX */
-.hero-stars { display: flex; gap: 3px; margin-top: 3px; font-size: 1rem; line-height: 1; }
-.hero-star { color: rgba(255, 255, 255, 0.42); }
-.hero-card--light .hero-star { color: rgba(53, 53, 74, 0.28); }
-.hero-star--on { color: var(--gold); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); }
-.hero-star--pulse { color: var(--gold); animation: star-pulse 2s ease-in-out infinite; }
-/* `.hero-card--light .hero-star` above is a two-class selector and outranks the single-class
-   --on/--pulse rules, so on the cream chapters (Body, Blank) EVERY star rendered grey and those
-   cards looked unplayed no matter how many levels you had won. Re-state the lit colours at the
-   same weight rather than reordering: the hollow-star rule genuinely needs the descendant form. */
-.hero-card--light .hero-star--on,
-.hero-card--light .hero-star--pulse { color: var(--gold-edge); text-shadow: none; }
-@keyframes star-pulse {
-  0%, 100% { opacity: 0.45; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.16); }
-}
-/* best time as a corner chip, out of the foot's column: it is a record, not part of the pitch */
-.hero-best {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  padding: 3px 9px;
+/* the name must not wrap: two lines here push the card tall enough to clip the bottom shelf */
+.detail-name { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; line-height: 1.18; text-align: left; }
+.detail-name b { font-size: 1.05rem; font-weight: 900; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail-name small { font-size: 0.7rem; font-weight: 700; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail-cast { flex: none; display: flex; gap: 3px; }
+.detail-face {
+  width: 22px;
+  height: 22px;
   border-radius: 999px;
-  font-size: 0.64rem;
-  font-weight: 800;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+  background: var(--cream-soft);
+  border: 2px solid var(--cream-edge);
 }
-.hero-card--light .hero-best { background: rgba(255, 255, 255, 0.62); border-color: rgba(53, 53, 74, 0.16); }
-
-/* v6.7: "Chapter 3" — the position, and the TOTAL only once everything is unlocked (see
-   chapterCounterLabel in ui.js; printing the total earlier gives away both how much game is left
-   and that a hidden 8th exists). Empty string renders an empty box, which is why it has no
-   min-height: on a save with one chapter there is nothing to count and nothing to show. */
-.carousel-count {
-  flex-shrink: 0;
-  font-size: 0.68rem;
+.detail-face img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.detail-best {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 2px solid var(--cream-edge);
+  background: var(--cream);
+  font-size: 0.58rem;
   font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   color: var(--ink-soft);
+  white-space: nowrap;
 }
 
-/* page dots under the carousel — active dot elongates mint (mockup-C idiom) */
-.carousel-dots { display: flex; flex-shrink: 0; justify-content: center; gap: 6px; margin-top: 2px; }
-.carousel-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--cream-edge);
-  transition: width 0.2s, background 0.2s;
-}
-.carousel-dot--active { width: 18px; background: var(--mint-dark); }
-.carousel-dot--locked { background: #b9b2a0; }
-.carousel-dot--locked.carousel-dot--active { background: #8a8272; }
-
-/* below-carousel column (difficulty row + booster slots + Play); Play pins to the bottom */
+/* the panel under the bookcase (chapter identity + difficulty row + Play); Play pins to the bottom */
 .title-below {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  flex: 1 1 auto;
+  /* `flex: none`, not `1 1 auto`: this panel and the bookcase would otherwise split the leftover
+     height between them, and the case is the part that needs it. */
+  flex: none;
+  width: calc(100% - 20px);
+  max-width: 470px;
+  padding: 12px 12px 14px;
 }
 
 /* ---- booster slots (title) ---- */

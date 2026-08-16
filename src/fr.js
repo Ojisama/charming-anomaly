@@ -49,6 +49,8 @@ const UI = {
   // so this one appears in the picked-mods list where the extra width costs nothing.
   'Fork range': 'Portée des bonds',
   'Runs for': 'Durée',
+  'Line lasts': 'Ligne',
+  'Holds for': 'Maintien',
   'Burns for': 'Brûlure',
   'dmg': 'dég',          // no period: weapons with base dmg under 10 render a decimal, and
                          // '6.3 dég. x3' puts two dots three characters apart at 11px
@@ -123,7 +125,6 @@ const UI = {
   'Settings': 'Réglages',
   'Save slots': 'Emplacements de sauvegarde',
   // screen-reader only (aria-label), lowercase to match how they read aloud in context
-  'progress': 'progression',
   'add booster': 'ajouter un booster',
   'language': 'langue',
   'skill button': 'bouton d\'action',
@@ -190,7 +191,6 @@ const UI = {
   'Chapter unlocked: {name}!': 'Chapitre débloqué : {name} !',
   // v6.7 carousel counter. Stands alone in front of a numeral ("Chapitre 3"), so it takes no
   // article and no agreement — the single word is the whole string on purpose.
-  'Chapter': 'Chapitre',
   'THE BLANK — the antibody that let you go wants you back': 'LE BLANC — l\'anticorps qui t\'a laissé filer veut que tu reviennes',
   'finish bonus': 'bonus de fin',
   // v7.5 SPECIALIST on the build sheet ("Spécialiste : Borne Incendie"). NBSP before the colon —
@@ -547,6 +547,18 @@ const CONFIG = {
   'Skims a shell that skips off the sand, splashing at every touch.': 'Fait ricocher une coquille sur le sable : une gerbe à chaque rebond.',
   'Barnacles': 'Balanes',
   'Seeds larvae that crust onto what they hit — and jump to the next body when it dies.': 'Sème des larves qui s\'incrustent sur ce qu\'elles touchent — et sautent sur le corps suivant à sa mort.',
+  // The Trawl (Book 2 chapter 4) — two natives, both named by the OWNER, and in both cases the
+  // plainly-readable option over the exact fishing term. 'Palangre' and 'Épervier' are what a
+  // French fisherman calls this gear and both were rejected: a weapon name has to land on a player
+  // who does not fish. Do not "correct" these toward the domain vocabulary.
+  //   'ferré' is kept, though — it is the fishing verb for setting a hook in a fish and it is also
+  //   ordinary French, so it costs the reader nothing and says exactly what the hooks do.
+  //   The Filet Lesté desc deliberately does NOT repeat 'filet lesté', which is now the card's own
+  //   name: a card whose description restates its title wastes the only two lines it has.
+  'Longline': 'Ligne à Hameçons',
+  'Sets a baited line across their path. Everything that touches it is hooked and bleeds.': 'Pose une ligne appâtée en travers de leur route. Tout ce qui la touche est ferré et saigne.',
+  'Net Toss': 'Filet Lesté',
+  'Throws a weighted net over a pack and holds them where they stand.': 'Jeté sur un groupe entier, il le cloue sur place.',
   'Membrane Piercer': 'Perce-Membrane',
   'antigen pierce': 'perforation d\'antigène',
   'Split Strain': 'Souche Divisée',
@@ -861,6 +873,26 @@ const CONFIG = {
   'extra larva(e) per cast': 'larve(s) supplémentaire(s) par lancer',
   'Seedbed': 'Naissain',
   'extra jump(s) when a crusted body dies': 'saut(s) supplémentaire(s) à la mort d\'un corps incrusté',
+  // The Trawl's two natives. 'par tic' matches the Balanes rows just above — the same wording for
+  // the same idea, so a player reading two grinder cards is not told it twice in two ways.
+  'Barbed Hooks': 'Hameçons Barbelés',
+  'hook damage per tick': 'dégâts des hameçons par tic',
+  'Long Set': 'Longue Pose',
+  'line length': 'longueur de la ligne',
+  'Deep Set': 'Pose Profonde',
+  'how long a set line lasts': 'durée de la ligne posée',
+  'Twin Set': 'Double Pose',
+  'extra line(s) per cast': 'ligne(s) supplémentaire(s) par lancer',
+  'Wide Net': 'Grand Filet',
+  'net radius': 'rayon du filet',
+  'Heavy Mesh': 'Maille Lourde',
+  // 'maintien' rather than 'immobilisation': it is the same word as the build sheet's own row label
+  // for this stat, so the card and the sheet say one word for one thing (the rule the Coquille
+  // Ricochet comment states), and it fits a narrow row where the longer noun does not.
+  'how long the hold lasts': 'durée du maintien',
+  'Weighted': 'Lesté',
+  'Double Haul': 'Double Lancer',
+  'extra net(s) per cast': 'filet(s) supplémentaire(s) par lancer',
   'Power Gel': 'Gel de Puissance',
   '+5% damage': '+5% dégâts',
   'Twitchy': 'Nerveux',
@@ -996,10 +1028,27 @@ const CONFIG = {
   'Start with 2 level-ups banked': 'Commence avec 2 montées de niveau en réserve',
   'Charged Core': 'Noyau Chargé',
   'Starting weapon begins at Lv 2': 'L\'arme de départ commence au Niv. 2',
-  // BOOKS[*].name (Task 6, per-book progression) — shown on the shop's balance header, beside the
-  // coin count, and on the title screen wherever a book (as opposed to a chapter) is named.
+  // Book names (BOOKS[].name) — on the shelf's brass plate, and (per-book progression) on the
+  // shop's balance header beside the coin count, which is where a player learns whose purse they
+  // are spending.
   'The Anomaly': 'L\'Anomalie',
-  'Undertow': 'Courant de Fond',
+  'Undertow': 'Lame de Fond',
+  // Spine names (CHAPTER_SPINE, config.js) — the chapter name with its article dropped, because a
+  // spine sets its title vertically and has about 110px of height for it.
+  'Body': 'Corps',
+  'Pond': 'Mare',
+  'Garden': 'Jardin',
+  'Undergrowth': 'Sous-Bois',
+  'City': 'Ville',
+  'Skies': 'Cieux',
+  'Beyond': 'Au-delà',
+  'Blank': 'Blanc',
+  'Surf': 'Snorkeling',
+  'Shelf': 'Large',
+  'Reef': 'Récif',
+  'Trawl': 'Chalut',
+  'Book {n}': 'Livre {n}',
+  'locked chapter': 'chapitre verrouillé',
   'The Body': 'Le Corps',
   'escape the host': 'échappe-toi de l\'hôte',
   'Red Blood Cell': 'Globule Rouge',
@@ -1013,8 +1062,20 @@ const CONFIG = {
   // The Shelf (Book 2). 'Krill' is the French word too. 'Méduse Lune' over the real common
   // name 'Aurélie', which is correct but reads as a first name rather than an animal.
   // The Surf (Book 2 chapter 1).
-  'The Surf': 'Le Ressac',
+  'The Surf': 'Snorkeling',
+  'The Shelf': 'Le Large',
+  'The Reef': 'Le Récif',
   'the tide decides': 'la marée décide',
+  'the light only goes down': 'la lumière ne fait que diminuer',
+  'the current only runs one way': 'le courant décide pour toi',
+  // The Trawl (Book 2 chapter 4). 'Le Chalut' is the net itself — 'chalutage' is the activity and
+  // 'drague' is a different gear (and slang for chatting someone up).
+  // THE TAGLINE IS THE OWNER'S OWN LINE, not a translation of the English, and deliberately so:
+  // the English says the net is indifferent to you, and this says the humans will catch every one
+  // of you. Same chapter, aimed from the other end. If the English is ever brought into line with
+  // it, remember the English string IS the key — changing it orphans this entry.
+  'The Trawl': 'Le Chalut',
+  'the net is not aiming at you': 'Ils vous pêcheront tous',
   'Sand Hopper': 'Puce de mer',
   'Shore Crab': 'Crabe vert',
   'Sea Roach': 'Cloporte de mer',

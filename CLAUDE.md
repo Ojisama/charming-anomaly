@@ -342,6 +342,15 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   Bell-UP with tentacles hanging down would instead have a distinct UP, i.e. `lean: 30`. Pick the
   wrong one and nothing throws — the body just never turns while its trailing parts point in one
   fixed screen direction. Run RA asserts both halves for the jelly.
+- **A BORROWED WEAPON BRINGS ITS OLD CHAPTER'S ART WITH IT.** A new chapter's arsenal is normally
+  picked for what the weapons DO — the Reef's placeholder set says so explicitly, "picked for the
+  LANE rather than for the theme" — and that reasoning is sound and still lands you a maple leaf in
+  the open ocean. v7.x's Trawl opened with the Boomerang on the honest ground that "out along a line
+  and back" is its unbuilt native's shape one weapon early; `T.boomerang` is baked as a LEAF (the
+  card is Boomerang Leaf), so the first probe frame of a chapter set in mid-water had an orange
+  autumn leaf spinning through it. The check is one grep of the bake, not a judgement call: find the
+  weapon's `T.<id>` in render.js and look at what it draws. Prefer abstract casts (an arc, a vortex,
+  a sound ring) when borrowing across biomes, and shoot the chapter before believing the list.
 - **UI that depicts a game entity uses the game's art, not a lookalike.** render.js already draws every creature (`ROSTER_LOOKS`), every weapon and every prop; if a menu needs to show one, route the real thing out (the `src/cast/*.png` bake is the worked example) rather than reaching for an emoji or a stand-in shape. v6.7.1 shipped 🐜🐝🕷️ per chapter and the tardigrade came out as 🐻 — a bear — while `drawTardigrade` sat in render.js the whole time. Emoji only survive where the glyph *is* the thing (a coin, a lock).
 - **Say when something is a stand-in.** If you do ship a placeholder or an approximation, name it as one in the commit and the report. That 🐻 shipped under a code comment calling it "the cheapest honest answer", which read as a considered decision and cost a review round-trip to undo.
 - `.gitignore` covers `node_modules/`, `dist/`, `.claude/worktrees/`, `.wrangler/` and `/*.png` — **and no other scratch artifact**. The last one is the trap: only a `.png` at the repo ROOT is ignored. A PNG in a subdirectory is not; neither is a `.json` dump, nor a screenshot in any other format. A 464 KB `_p4.jpg` sat tracked at the repo root for eleven versions for exactly that reason. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.

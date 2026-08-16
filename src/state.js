@@ -6,7 +6,7 @@ import {
   EARLY_CALM, MAX_CHOICE_SLOTS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
-  pickWorldSeed, usesObstacleSeed,
+  pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS,
   BOOKS, BOOK_ORDER, shopLines, bookOf, SLOW_BURN_FLOOR,
 } from './config.js'
 
@@ -1314,6 +1314,20 @@ function generateWells(sig) {
  *   for dmg in r against ENEMIES only (never the player), emits {type:'explode', x:tx, y:ty,
  *   radius:r} and is removed. A lob is a projectile for gravity-well purposes (a well bends its
  *   landing point) but it is NOT a run.bullets entry. See stepDebrisWeapon/stepLobs in sim.js.
+ *   OPTIONAL `snare: hold` (seconds) makes it a NET TOSS instead: same flight, but on landing it
+ *   holds everything in r (e.stunT, through the CC-DR budget) and emits {type:'snare'} rather than
+ *   {type:'explode'}. The branch sits ABOVE the debrisToss shrapnel block in stepLobs on purpose —
+ *   `shrapnel` is read off run.weaponMods for EVERY lob, so a build holding both weapons would
+ *   otherwise spray Debris Toss splinters out of the player's fishing nets.
+ * longlines[i]: { x, y, nx, ny, half, len, dmg, tick, acc, life, duration, snagged } — Longline's
+ *   set lines (trawl weapon). A SEGMENT, not a disc: (x,y) is the centre, (nx,ny) the unit NORMAL,
+ *   `len` the full length and `half` the hit thickness either side. A body is on the line when its
+ *   perpendicular distance is <= half AND its distance along the line is <= len/2 — the same two
+ *   tests, in that order, as the net wall's netDist/netAlong pair.
+ *   The line does not move and is not anchored to the player: it is gear that was SET and is left.
+ *   `snagged` is a Set of enemy ids that have already been caught by THIS line — the catch is once
+ *   per body per line, never per tick, or a 0.5s stun on a 0.40s tick is a permanent lock (see
+ *   LONGLINE_SNAG). `acc` accumulates dt and spends it in whole `tick`s, the run.holes idiom.
  * drags[i]: { id, t, dur, dmg, hitIds } — an aircraft the Tail Lash has hooked and is reeling in
  *   (v7.23 skies). `id` is the enemy's id; t counts UP to dur (LASH_PULL_T). stepDrags moves the
  *   body toward the player and CLEARS its e.kb, so the reel owns that body's motion outright. It
@@ -1799,6 +1813,15 @@ export function createRun(meta, opts = {}) {
     // declaring `burst` / a `resource.drown` block ever moves them off 0.
     _burstT: 0,
     _drownAcc: 0,
+    // v7.x The Trawl: the net wall, and the countdown to the next pass. `net` is a single OBJECT and
+    // not an array, because there is only ever one wall and it is an infinite LINE rather than an
+    // entity with a position — { nx, ny, pos, end, holes, _acc }, where (nx, ny) is the unit normal
+    // it advances along, `pos` the signed offset of the line, `end` the offset at which the pass is
+    // dropped, and `holes` the Breach cuts, each { t, r } on the wall's own tangent axis. See
+    // stepTrawl in sim.js for the arithmetic — it is written in exactly one place on purpose.
+    // null between passes, and null forever in every chapter whose signature is not `trawl`.
+    net: null,
+    _netAcc: TRAWL_FIRST_PASS,   // NOT the interval — see its block for why the first pass is early
     _obstacleSeed: obstacleSeed,
     _obstacleRev: 0,
     // v5.9.1 bugfix (see obstacles[]/_crushed doc above): permanent per-run memory of which
@@ -1865,6 +1888,10 @@ export function createRun(meta, opts = {}) {
     debris: [],
     zones: [],
     lobs: [],
+    // v7.97 trawl. longlines: set lines of hooks — { x, y, nx, ny, half, dmg, tick, acc, life,
+    // duration, snagged }. A lob carrying `snare` is a Net Toss in flight and lands as a hold
+    // rather than a burst (stepLobs), so Net Toss adds no array of its own.
+    longlines: [],
     // v7.23 skies. drags: aircraft being reeled in by the Tail Lash — { id, t, dur, dmg, hitIds }.
     // arcs: live Atomic Breath forks — { life, duration, charge, tick, acc, dmg, jumps, arcRange,
     // falloutBonus, nodes }, where `nodes` is the polyline player->body->body rebuilt every tick.

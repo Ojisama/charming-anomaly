@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleChapterList, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, dailyMutators, todayKey, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta } from './state.js'
@@ -61,37 +61,27 @@ function selectedChapterMeta(meta) {
   return meta.chapters?.[meta.chapter] ?? { maxDifficulty: 1, difficulty: 1 }
 }
 
-// v5.2 title redesign: the chapter picker is a native CSS scroll-snap CAROUSEL (carouselHtml,
-// inside initUI) — one diorama "hero card" (heroCardHtml) per chapter, laid out horizontally so
-// the prev/next cards PEEK at both edges. Cards come from titleChapterList: every unlocked chapter
-// plus the first locked one, which renders as an anonymous dark "???" preview whose Play is
-// disabled. Page dots (carouselDotsHtml) sit under the strip. Selection follows the SCROLL: when a
-// card settles under the viewport centre (scrollend, with a scroll-timeout fallback for Safari) the
-// browsed chapter updates; an unlocked one persists via hooks.onChapter, the locked one never
-// reaches it. The v5.1 single-card + ‹ › arrows + custom touch swipe (navChapter, heroTouch*) are
-// gone — native scroll handles paging.
-// The carousel list itself lives in config.js (titleChapterList) — it is a pure function of the
-// save, with no DOM in it, which is what lets the suite assert the WIP gate for real rather than
-// by grepping this file.
-
-// Pixi int colour (0xrrggbb) -> '#rrggbb'; shade() blends a hex toward white (amt > 0) or black
-// (amt < 0) by |amt| for the hero card's diorama gradient stops; luminance() picks dark-on-light
-// vs light-on-dark card text so every chapter's per-bgColor gradient still reads.
-function pixiHex(int) {
-  return '#' + (int & 0xffffff).toString(16).padStart(6, '0')
-}
-function shade(hex, amt) {
-  const n = parseInt(hex.slice(1), 16)
-  const t = amt < 0 ? 0 : 255, p = Math.min(1, Math.abs(amt))
-  const r = Math.round(((n >> 16) & 255) + (t - ((n >> 16) & 255)) * p)
-  const g = Math.round(((n >> 8) & 255) + (t - ((n >> 8) & 255)) * p)
-  const b = Math.round((n & 255) + (t - (n & 255)) * p)
-  return `rgb(${r}, ${g}, ${b})`
-}
-function luminance(hex) {
-  const n = parseInt(hex.slice(1), 16)
-  return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
-}
+// v7.x title: the chapter picker is a BOOKCASE. One ÉTAGE per Book, one VOLUME per chapter —
+// Book 1's seven chapters standing together on the top board, Undertow's on the second — so the
+// whole game is one screen with no carousel to scroll and no drill-in. Tap a spine, the detail
+// panel below fills in, Play. Three volume states (bookcaseHtml / etageHtml / volHtml, inside
+// initUI):
+//   - unlocked: a SPINE in its Book's binding cloth (BOOKS[].cloth), carrying the chapter icon, its
+//     name set VERTICALLY in foil, and one gold star per difficulty won. The chapter you last
+//     played stands proud of the row with a pink ribbon in it.
+//   - locked, in a Book you have started: the volume is turned FORE-EDGE OUT — its boards seen
+//     edge-on framing a recessed page block, with a padlock printed across the leaves. You can see
+//     a book is there without being told which one.
+//   - a Book with nothing unlocked: one dust sheet over the whole étage, because for a Book you
+//     have never opened the chapter COUNT is the tease.
+// Volume width is FLEX with a cap, never fixed px: Book 1 is seven chapters today and eight once
+// The Blank is earned, and a width tuned for seven puts the eighth off the shelf.
+// The shelf model itself lives in config.js (titleBookshelf) — a pure function of the save with no
+// DOM in it, which is what lets the suite assert the WIP gate for real rather than by grepping
+// this file.
+// A chapter's name, tagline and cast faces live in the panel BELOW the shelf (detailHeadHtml) —
+// a spine has no room for them, and that panel is the only consumer of CAST_ART left, so it is
+// what keeps the scripts/bake-cast.mjs thumbnails reachable.
 
 // The furthest-progressed chapter this save has unlocked (last CHAPTER_ORDER id whose
 // chapters[id].unlocked is true) — used to phrase the "win X at difficulty 3+" hint under the
@@ -140,7 +130,7 @@ function formatShopBonus(bookId, id, levels) {
  *   const ui = initUI({ meta, onPlay(mode), onBuy(id, bookId)->bool, onChoose(i),
  *                       onPauseToggle, onQuit, onDifficulty(d), onChapter(id), onReroll(), onSkill(),
  *                       onSacrifice(picks, target, bookId)->bool, onReset(), onSlot(n) })
- *     - onChapter(id): title screen's chapter carousel (v5.2 — see carouselHtml/wireCarousel).
+ *     - onChapter(id): title screen's bookcase (v7.x — see bookcaseHtml/volHtml).
  *       Fires only for unlocked CHAPTER_ORDER ids as the scroll SETTLES a card under the viewport
  *       centre (the locked preview card never calls it) — main.js re-guards via
  *       ensureChapterMeta(meta, id).unlocked, sets meta.chapter, saveMeta, plays 'click'. ui.js
@@ -243,7 +233,10 @@ export function initUI(hooks) {
 
   for (const name of SCREEN_NAMES) {
     const el = document.createElement('div')
-    el.className = `screen screen--${name}`
+    // The three MENU tabs share one room (.room-oak, styles.css). Gameplay screens must not
+    // have it: the hud sits over the live canvas and an opaque background would hide the game.
+    const ROOM = ['title', 'shop', 'daily']
+    el.className = `screen screen--${name}${ROOM.includes(name) ? ' room-oak' : ''}`
     el.dataset.ui = ''            // keeps input.js from anchoring the joystick on menu touches
     root.appendChild(el)
     screens[name] = el
@@ -276,9 +269,9 @@ export function initUI(hooks) {
 
   // v5.2 title redesign — UI-local browse state (not persisted, scoped to this initUI call):
   //   browseChapterId: which carousel card is currently centred. Starts at the saved meta.chapter;
-  //     native scroll moves it across titleChapterList (see wireCarousel). When it settles on an
-  //     unlocked chapter we persist the selection via hooks.onChapter (so meta.chapter tracks it);
-  //     the locked preview card never calls onChapter and its Play button is disabled.
+  //     tapping a volume moves it across the bookcase (see the data-vol case in the click
+  //     handler). Selecting an unlocked chapter persists via hooks.onChapter (so meta.chapter
+  //     tracks it); a turned-around locked volume only browses, and its Play button is disabled.
   //   boostersOpen: whether the booster bottom-sheet is up (replaces the v5.0.1 run-options panel).
   //   R1 (resolveChapterId, config.js): meta.chapter is a pointer into CHAPTERS, so a save from a
   //     build that shipped a chapter this one lacks can name one that isn't here. main.js resolves
@@ -304,153 +297,81 @@ export function initUI(hooks) {
   // This replaced extracting the textures live at boot. That was always in sync but cost a GPU
   // readback per creature before the first paint, which on a slow context was seconds of black.
 
-  // Per-chapter DECORATIVE ambient shapes for the diorama card (v5.2). Pure CSS overlay INSIDE the
-  // DOM card (the "no procedural shapes" rule is about the Pixi canvas, not this HTML overlay):
-  //   body → soft cells/blobs drifting slowly; pond → small bubbles rising. Each item carries its
-  // own position/size/loop-duration/delay so the loop never looks synchronised. Locked cards get
-  // none. All motion is transform/opacity only + reduced-motion-gated (see styles.css).
-  const CHAPTER_AMBIENT = {
-    body: {
-      cls: 'amb-cell',
-      items: [
-        { x: 14, y: 24, s: 26, d: 12, delay: 0, dx: 10, dy: -16 },
-        { x: 72, y: 30, s: 18, d: 10, delay: 2.5, dx: -12, dy: -12 },
-        { x: 40, y: 60, s: 30, d: 14, delay: 1.2, dx: 8, dy: -20 },
-        { x: 84, y: 66, s: 14, d: 9, delay: 4, dx: -8, dy: -14 },
-        { x: 26, y: 78, s: 20, d: 11, delay: 3.2, dx: 14, dy: -10 },
-      ],
-    },
-    pond: {
-      cls: 'amb-bubble',
-      items: [
-        { x: 18, s: 14, d: 9, delay: 0 },
-        { x: 34, s: 10, d: 7.5, delay: 2 },
-        { x: 50, s: 18, d: 11, delay: 1 },
-        { x: 63, s: 12, d: 8.5, delay: 3.5 },
-        { x: 78, s: 9, d: 7, delay: 0.8 },
-        { x: 88, s: 15, d: 10, delay: 4.2 },
-      ],
-    },
-  }
-  function ambientHtml(id) {
-    const spec = CHAPTER_AMBIENT[id]
-    if (!spec) return ''
-    return spec.items.map((it) => {
-      const pos = spec.cls === 'amb-bubble'
-        ? `left:${it.x}%;`
-        : `left:${it.x}%; top:${it.y}%; --dx:${it.dx}px; --dy:${it.dy}px;`
-      return `<span class="amb ${spec.cls}" style="${pos} width:${it.s}px; height:${it.s}px; animation-duration:${it.d}s; animation-delay:${it.delay}s"></span>`
-    }).join('')
-  }
+  // Volume heights, cycled by position so a shelf is not a bar chart but never reshuffles between
+  // renders either. Offset per Book so two étages do not share a silhouette.
+  // Kept within 6 points: the tallest name ('Undergrowth') has to fit the SHORTEST spine it can
+  // land on, and a wider spread starves it.
+  const VOL_H = [100, 96, 99, 94, 98, 95, 100, 97]
 
-  // One diorama card for chapter `id`. Unlocked: per-chapter gradient (from render.bgColor) with a
-  // drifting ambient layer, a glowing bobbing creature (the chapter emoji), a ★ progress row and a
-  // "best" line. Locked: flat greyscale + 🔒 + "???" + unlock hint, no ambient/stars.
-  //
-  // ★ ROW SEMANTICS (v6.6.12): one gold star per difficulty actually WON — chMeta.won, which endRun
-  // stamps on every classic victory. Row length is per-chapter (chapterMaxDifficulty), so blank's
-  // ladder caps at 3 and its card shows 3 stars, not 5.
-  // This used to read `maxDifficulty - 1`, and that could never fill the last star for ANY chapter:
-  // maxDifficulty is the highest UNLOCKED level, winning the ladder's last level has nothing left to
-  // unlock, so the number stops one short of the row's length. The save simply had no field for
-  // "beat the hardest one" — the old comment here called that "not inventing a win-flag", but a
-  // player who beats level 5 has earned the fifth star and the card owed them one. The one case that
-  // did work (Beyond, via meta.chapters.blank.unlocked) is now a retroactive repair inside
-  // ensureChapterMeta, so it also reaches saveSummary instead of living only in this template.
-  // The hollow last star still PULSES when that level is unlocked but not yet won — a "one to go"
-  // tease, which is what it always should have meant.
-  function heroCardHtml(id) {
-    if (!chapterAvailable(meta, id)) {
-      const tagline = id === 'blank'
-        ? t('win The Beyond at level 5 — something has been counting')
-        : tt('win {name} at difficulty 3+', { name: t(CHAPTERS[furthestUnlockedChapterId(meta)].name) })
-      return `
-        <div class="hero-card hero-card--locked" data-chapter="${id}" data-hero>
-          <span class="hero-icon">🔒</span>
-          <span class="hero-name">???</span>
-          <span class="hero-tagline">${tagline}</span>
-        </div>`
+  // Printed on the page edges of a turned-around volume. Inline SVG, not the 🔒 emoji: a colour
+  // emoji on a page edge reads as a sticker stuck to the book rather than as fore-edge printing.
+  const LOCK_SVG = '<svg class="vol-lock" viewBox="0 0 24 24" aria-hidden="true">'
+    + '<path d="M7.5 10.5V7a4.5 4.5 0 0 1 9 0v3.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>'
+    + '<rect x="4" y="10.5" width="16" height="11" rx="2.6" fill="currentColor"/></svg>'
+
+  // One volume. A locked one is still a BUTTON and still selectable — tapping it puts its unlock
+  // condition in the detail panel, which is what the old locked "???" hero card did. It carries no
+  // name and no icon, so selecting it reveals nothing the shelf was hiding.
+  function volHtml(vol, i, off) {
+    const sel = vol.id === browseChapterId
+    const h = VOL_H[(i + off) % VOL_H.length]
+    if (!vol.unlocked) {
+      return `<button class="vol vol--turned${sel ? ' vol--sel' : ''}" data-vol="${vol.id}"
+          style="--vh:${h}%" aria-label="${t('locked chapter')}">
+          <span class="vol-pg">${LOCK_SVG}</span>
+        </button>`
     }
-    const chapter = CHAPTERS[id]
-    const chMeta = meta.chapters[id]
-    const base = pixiHex(chapter.render.bgColor)
-    const light = luminance(base) > 0.5
-    const bg = light
-      ? `linear-gradient(160deg, ${shade(base, 0.4)}, ${base} 58%, ${shade(base, -0.1)})`
-      : `linear-gradient(160deg, ${shade(base, 0.22)}, ${base} 55%, ${shade(base, -0.32)})`
-    const cap = chapterMaxDifficulty(id)
-    // v6.6.12: the highest level actually WON (state.js's ensureChapterMeta, which backfills it from
-    // the old maxDifficulty - 1 rule and applies the one retroactive Beyond repair). The old
-    // expression capped at cap - 1, because winning the last level unlocks nothing and maxDifficulty
-    // stops moving — so no chapter could ever show its final star.
+    const chapter = CHAPTERS[vol.id]
+    const chMeta = meta.chapters?.[vol.id] ?? {}
+    const cap = chapterMaxDifficulty(vol.id)
+    // `won` (state.js), not maxDifficulty - 1: maxDifficulty is the highest UNLOCKED level, so
+    // winning a ladder's last level leaves nothing to unlock and the old expression could never
+    // fill any chapter's final star.
     const filled = Math.max(0, Number(chMeta.won) || 0)
-    const stars = Array.from({ length: cap }, (_, i) => {
-      const on = i < filled
-      const pulse = !on && i === cap - 1 && chMeta.maxDifficulty === cap
-      return `<span class="hero-star${on ? ' hero-star--on' : ''}${pulse ? ' hero-star--pulse' : ''}">${on ? '★' : '☆'}</span>`
-    }).join('')
-    const best = chMeta.best?.time ? `<span class="hero-best">${t('best')} ${fmtTime(chMeta.best.time)}</span>` : ''
-    // v6.7: the cast — three faces from CHAPTERS[id].render.cast (config.js), which says what you
-    // will actually be running away from in there. v6.7.2: those are roster IDS now, drawn with the
-    // game's own baked art (CAST_ART, the src/cast/*.png glob at the top of this file). The first
-    // cut used an emoji per enemy and there is no glyph for most of this bestiary, so the
-    // tardigrade went out as 🐻.
-    // A named face with no baked file is skipped rather than drawn as an empty disc — that only
-    // happens if bake-cast.mjs has not been re-run for a newly added id, and a short row reads as a
-    // chapter with a small cast, where a blank disc reads as broken.
-    const cast = (chapter.render.cast ?? [])
-      .filter((rid) => CAST_ART[rid])
-      .map((rid) => `<span class="hero-face"><img src="${CAST_ART[rid]}" alt="" draggable="false"></span>`)
-      .join('')
-    return `
-      <div class="hero-card${light ? ' hero-card--light' : ''}" data-chapter="${id}" data-hero style="background:${bg}; color:${light ? 'var(--ink)' : '#f5f9f7'}">
-        <div class="hero-ambient" aria-hidden="true">${ambientHtml(id)}</div>
-        <div class="hero-scene" aria-hidden="true"><i class="hero-band hero-band--far"></i><i class="hero-band hero-band--mid"></i><i class="hero-band hero-band--near"></i></div>
-        ${best}
-        <div class="hero-creature">
-          <span class="hero-glow"></span>
-          <span class="hero-icon">${chapter.icon}</span>
-          <span class="hero-shadow"></span>
-        </div>
-        <div class="hero-foot">
-          <span class="hero-name">${t(chapter.name)}</span>
-          <span class="hero-tagline">${t(chapter.tagline)}</span>
-          ${cast ? `<div class="hero-cast" aria-hidden="true">${cast}</div>` : ''}
-          <div class="hero-stars" aria-label="${t('progress')}">${stars}</div>
-        </div>
-      </div>`
+    const stars = Array.from({ length: cap }, (_, s) =>
+      `<i class="vol-star${s < filled ? ' vol-star--on' : ''}">★</i>`).join('')
+    return `<button class="vol${sel ? ' vol--sel' : ''}" data-vol="${vol.id}" style="--vh:${h}%"
+        aria-label="${t(chapter.name)}"${sel ? ' aria-current="true"' : ''}>
+        ${vol.id === meta.chapter ? '<i class="vol-rib" aria-hidden="true"></i>' : ''}
+        <i class="vol-band" aria-hidden="true"></i>
+        <span class="vol-ico" aria-hidden="true">${chapter.icon}</span>
+        <span class="vol-nm">${t(spineName(vol.id))}</span>
+        <span class="vol-stars" aria-hidden="true">${stars}</span>
+        <i class="vol-band" aria-hidden="true"></i>
+      </button>`
   }
 
-  // "CHAPTER 3" under the strip — the POSITION only. The total is deliberately withheld until every
-  // chapter is unlocked (owner directive): printing "3 of 8" on a fresh save hands away both how much
-  // game is left and the existence of the hidden 8th, which the carousel itself is careful never to
-  // reveal (see titleChapterList). Once there is nothing left to spoil the total joins it as a
-  // completion badge. Position is the index in the carousel list, which is a prefix of CHAPTER_ORDER
-  // plus at most the one locked tease, so it matches the chapter's real number either way.
-  function chapterCounterLabel(list) {
-    const i = list.indexOf(browseChapterId)
-    if (i < 0) return ''
-    const everything = CHAPTER_ORDER.every((cid) => meta.chapters?.[cid]?.unlocked) && !!meta.chapters?.blank?.unlocked
-    // Composed from one translated word plus digits, rather than a whole sentence per form: the only
-    // thing the FR dictionary has to carry here is 'Chapter', and a slash needs no translation at all.
-    return everything
-      ? `${t('Chapter')} ${i + 1} / ${list.length}`
-      : `${t('Chapter')} ${i + 1}`
+  // One étage: its row of volumes and the board they stand on, with the Book's brass plate.
+  // The plate is a LABEL, not a control — nothing on the shelf is tappable except a volume.
+  function etageHtml(shelf, n, i) {
+    const row = shelf.started
+      ? shelf.volumes.map((v, k) => volHtml(v, k, i * 3)).join('')
+      : '<span class="dust-sheet" aria-hidden="true"></span>'
+    const label = shelf.started
+      ? `${tt('Book {n}', { n })} · ${t(shelf.name)}`
+      : `${tt('Book {n}', { n })} · ? ? ?`
+    const stars = shelf.started ? ` <b class="shelf-stars">★ ${shelf.stars}</b>` : ''
+    return `
+      <section class="etage" style="--cloth:${shelf.cloth}" aria-label="${label}">
+        <div class="shelf-row">${row}</div>
+        <div class="shelf-board"><span class="shelf-plate">${label}${stars}</span></div>
+      </section>`
   }
 
-  // The scroll-snap carousel: one card per titleChapterList entry, plus page dots under it. The
-  // active/locked dot state mirrors browseChapterId and is patched in place by updateTitleBelow.
-  function carouselHtml() {
-    const list = titleChapterList(meta)
-    const cards = list.map((id) => heroCardHtml(id)).join('')
-    const dots = list.map((id) => {
-      const locked = !chapterAvailable(meta, id)
-      return `<span class="carousel-dot${id === browseChapterId ? ' carousel-dot--active' : ''}${locked ? ' carousel-dot--locked' : ''}" data-dot="${id}"></span>`
-    }).join('')
-    return `
-      <div class="chapter-carousel" data-carousel>${cards}</div>
-      <div class="carousel-count">${chapterCounterLabel(list)}</div>
-      <div class="carousel-dots">${dots}</div>`
+  // The room takes the SELECTED chapter's colour. CHAPTERS[id].render.bgColor is a Pixi int
+  // (0xrrggbb), so it needs the two-line conversion the hero card's gradient used to do.
+  // Set on the ROOT, not on a screen: the tint has to survive both renderTitle's innerHTML rewrite
+  // AND a tab change, so the Shop stands in the light of the chapter you just picked. Anything set
+  // inside the rebuilt markup would also give the CSS transition nothing to interpolate from.
+  // A locked volume tints nothing: you have not seen that chapter, so the room stays neutral.
+  function paintRoom() {
+    const int = chapterAvailable(meta, browseChapterId) ? CHAPTERS[browseChapterId]?.render?.bgColor : null
+    const hex = int == null ? 'transparent' : '#' + (int & 0xffffff).toString(16).padStart(6, '0')
+    document.documentElement.style.setProperty('--tint', hex)
+  }
+
+  function bookcaseHtml() {
+    return `<div class="bookcase">${titleBookshelf(meta).map((s, i) => etageHtml(s, i + 1, i)).join('')}</div>`
   }
 
   // 3 booster slots: session-selected consumables fill left-to-right, the rest show ＋. Any slot
@@ -538,6 +459,43 @@ export function initUI(hooks) {
     return level === 2 ? t('+1 random anomaly') : tt('+{n} random anomalies', { n: level - 1 })
   }
 
+  // The detail panel's head — the chapter's identity, which the hero card used to carry and a 47px
+  // spine cannot. This is the only place the cast thumbnails (CAST_ART, baked by
+  // scripts/bake-cast.mjs from render.js's own creature textures) still appear, so deleting it
+  // would quietly orphan them.
+  function detailHeadHtml() {
+    const id = browseChapterId
+    if (!chapterAvailable(meta, id)) {
+      // Named neither by the volume nor here: a locked chapter's identity is the thing the turned
+      // volume exists to withhold.
+      const line = id === 'blank'
+        ? t('win The Beyond at level 5 — something has been counting')
+        : tt('win {name} at difficulty 3+', { name: t(CHAPTERS[furthestUnlockedChapterId(meta)].name) })
+      return `
+        <div class="detail-head">
+          <span class="detail-ico">🔒</span>
+          <span class="detail-name"><b>???</b><small>${line}</small></span>
+        </div>`
+    }
+    const chapter = CHAPTERS[id]
+    const chMeta = meta.chapters?.[id] ?? {}
+    // A named face with no baked file is skipped rather than drawn as an empty disc — that only
+    // happens when bake-cast.mjs has not been re-run for a newly added id, and a short row reads as
+    // a small cast where a blank disc reads as broken.
+    const cast = (chapter.render.cast ?? [])
+      .filter((rid) => CAST_ART[rid])
+      .map((rid) => `<span class="detail-face"><img src="${CAST_ART[rid]}" alt="" draggable="false"></span>`)
+      .join('')
+    const best = chMeta.best?.time ? `<span class="detail-best">${t('best')} ${fmtTime(chMeta.best.time)}</span>` : ''
+    return `
+      <div class="detail-head">
+        <span class="detail-ico">${chapter.icon}</span>
+        <span class="detail-name"><b>${t(chapter.name)}</b><small>${t(chapter.tagline)}</small></span>
+        ${cast ? `<span class="detail-cast" aria-hidden="true">${cast}</span>` : ''}
+        ${best}
+      </div>`
+  }
+
   function titleBelowHtml() {
     const heroUnlocked = chapterAvailable(meta, browseChapterId)
     const chMeta = meta.chapters?.[browseChapterId] ?? { maxDifficulty: 1, difficulty: 1 }
@@ -556,94 +514,23 @@ export function initUI(hooks) {
         : `${diffHintLead(browseChapterId, chMeta.difficulty)} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% ${t('enemy HP')} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_DMG_PER_LEVEL) * 100)}% ${t('enemy damage')} · <b class="diff-hint-reward">+${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% ${t('coins')}</b>`}</p>
       ${chMeta.maxDifficulty < cap ? `<p class="diff-hint diff-hint--locked">${tt('win level {n} to unlock {m}', { n: chMeta.maxDifficulty, m: chMeta.maxDifficulty + 1 })}</p>` : ''}` : ''
     return `
+      ${detailHeadHtml()}
       ${playBlock}
       <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>`
   }
 
-  // Surgical update after a scroll settles / a difficulty pip is tapped: rebuild only the
-  // below-carousel block and re-point the active/locked page dots — the carousel node (and its
-  // live scroll offset) is left untouched, so the strip doesn't jump back to the start.
+  // Surgical update after a difficulty pip is tapped: rebuild only the panel under the bookcase.
+  // Selecting a different VOLUME goes through renderTitle instead — the shelf itself has to
+  // re-render to move the selection ring and the ribbon, and unlike the carousel it has no scroll
+  // offset to lose, which is what forced the surgical path in the first place.
   function updateTitleBelow() {
     const below = screens.title.querySelector('.title-below')
     if (below) below.innerHTML = titleBelowHtml()
-    for (const dot of screens.title.querySelectorAll('.carousel-dot')) {
-      dot.classList.toggle('carousel-dot--active', dot.dataset.dot === browseChapterId)
-    }
-    // The counter names the card you just scrolled to, so it moves with the dots (v6.7). Text only:
-    // the node always exists (carouselHtml renders it even when empty), so it can never go missing.
-    const count = screens.title.querySelector('.carousel-count')
-    if (count) count.textContent = chapterCounterLabel(titleChapterList(meta))
   }
 
   // Centre the browsed card in the carousel WITHOUT animation. Must run while the title screen is
   // visible (a display:none element measures as zero-width) — hence it's also called from
   // showScreen right after the screen is shown, not only from renderTitle.
-  function positionCarousel() {
-    const car = screens.title.querySelector('[data-carousel]')
-    if (!car) return
-    const t = car.querySelector(`[data-chapter="${browseChapterId}"]`)
-    if (!t) return
-    // Centre t by shifting scrollLeft by how far t's centre sits from the carousel's centre.
-    // Measured via getBoundingClientRect (viewport space) NOT offsetLeft: a card's offsetLeft is
-    // relative to the positioned .screen--title ancestor, so on a WIDE screen (where the 460px
-    // carousel is centred with a large left gutter) it's offset from the scroller's own content by
-    // that gutter — which mis-centred the last chapters off-screen. Rects avoid the mismatch.
-    const carMid = car.getBoundingClientRect().left + car.clientWidth / 2
-    const tMid = t.getBoundingClientRect().left + t.clientWidth / 2
-    car.scrollLeft = Math.max(0, car.scrollLeft + (tMid - carMid))
-  }
-
-  // Attach the scroll-settle selection to a freshly-rendered carousel. Safari lacks 'scrollend', so
-  // a debounced scroll-timeout backs it up — both funnel into settle(), and settle() disarms the
-  // debounce so the two can never fire for the same gesture (v7.35, see the race below).
-  function wireCarousel() {
-    const car = screens.title.querySelector('[data-carousel]')
-    if (!car) return
-    positionCarousel()
-    let timer = null
-    const settle = () => {
-      // Disarm the debounce first. 'scrollend' and the timeout are two reads of ONE gesture, and
-      // before v7.35 scrollend running settle left the timer armed, so it fired again 130ms later —
-      // by which time the player may have tapped Play and the title screen is display:none. That
-      // second run is what the guard below catches, and clearing here is what stops it happening at
-      // all on every browser that has scrollend.
-      if (timer) { clearTimeout(timer); timer = null }
-      // A display:none screen measures EVERY card at rect 0, so every distance below ties at 0 and
-      // the loop keeps the first card it saw — 'body'. That silently rewrote meta.chapter, and the
-      // symptom appeared a whole run later: flick the carousel to The Beyond, tap Play inside the
-      // 130ms window, play the Beyond run you correctly got, then watch the summary's "Next level"
-      // start The Body. The comment above used to reason that a second settle is "a no-op once
-      // browseChapterId already matches the centred card" — true only while the screen is laid out,
-      // which is exactly the assumption that broke.
-      if (!car.clientWidth) return
-      // Pick the card whose centre is nearest the carousel's centre, both in viewport space
-      // (getBoundingClientRect). Do NOT use el.offsetLeft here: it's relative to the positioned
-      // .screen--title, not the scroller, so on wide screens it's shifted by the carousel's left
-      // gutter and settle would select a card several to the left of the one actually centred —
-      // making the last chapters unselectable on desktop (the carousel is full-width on phones,
-      // gutter ~0, which is why this only bit wide screens).
-      const carMid = car.getBoundingClientRect().left + car.clientWidth / 2
-      let best = null, bestDist = Infinity
-      for (const el of car.querySelectorAll('[data-chapter]')) {
-        const c = el.getBoundingClientRect().left + el.clientWidth / 2
-        const dist = Math.abs(c - carMid)
-        if (dist < bestDist) { bestDist = dist; best = el }
-      }
-      if (!best || best.dataset.chapter === browseChapterId) return
-      browseChapterId = best.dataset.chapter
-      // Unlocked + a real change persists via onChapter (which itself plays 'click'); the locked
-      // preview only browses, so click here instead. Then patch the below-carousel block in place.
-      if (chapterAvailable(meta, browseChapterId) && browseChapterId !== meta.chapter) hooks.onChapter(browseChapterId)
-      else playSfx('click')
-      updateTitleBelow()
-    }
-    car.addEventListener('scrollend', settle)
-    car.addEventListener('scroll', () => {
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(settle, 130)
-    }, { passive: true })
-  }
-
   function renderTitle() {
     // resolveChapterId, not raw meta.chapter: this fires when the browsed chapter has no ledger
     // entry — reachable for 'blank', which lives outside CHAPTER_ORDER so ensureChapterMeta never
@@ -664,14 +551,14 @@ export function initUI(hooks) {
              the same two constants, but its own counter and its own case — see 'dev-tap-wip'. -->
         <div class="coins-badge" data-act="dev-tap-wip">🪙 <b>${titleBm.coins}</b></div>
       </header>
-      ${carouselHtml()}
+      ${bookcaseHtml()}
       <div class="title-below">${titleBelowHtml()}</div>
       ${navHtml('battle')}
       ${settingsSheetHtml()}
       ${slotsModalHtml()}
       ${renameSheetHtml()}
     `)
-    wireCarousel()
+    paintRoom()
     // After the wholesale innerHTML rewrite, never before it.
     focusRenameField()
   }
@@ -2208,10 +2095,6 @@ export function initUI(hooks) {
     for (const [n, el] of Object.entries(screens)) {
       el.classList.toggle('screen--visible', n === name || (hudUnder && n === 'hud'))
     }
-    // The carousel can only be scroll-positioned once the title screen is actually visible (a
-    // display:none element measures as zero-width, so renderTitle's own positionCarousel no-ops on
-    // first show / tab-return) — re-run it now that the screen is laid out.
-    if (name === 'title') positionCarousel()
     // keyboard nav for the level-up cards is only live while that screen shows
     document.removeEventListener('keydown', onLevelupKeydown)
     if (name === 'levelup') document.addEventListener('keydown', onLevelupKeydown)
@@ -2293,7 +2176,7 @@ export function initUI(hooks) {
   }, { passive: false })
 
   root.addEventListener('click', (e) => {
-    const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable], [data-subject], [data-dev]')
+    const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable], [data-subject], [data-dev], [data-vol]')
     if (!el) return
     if (el.dataset.dev !== undefined) {
       // The screen stays open — testing a card usually means stacking two or three of them, and
@@ -2301,6 +2184,18 @@ export function initUI(hooks) {
       // "New!" now reads "Lv 2").
       hooks.onDevTake?.(Number(el.dataset.dev))
       playSfx('buy')
+      return
+    }
+    if (el.dataset.vol !== undefined) {
+      const id = el.dataset.vol
+      if (id === browseChapterId) return
+      browseChapterId = id
+      // Unlocked + a real change persists via onChapter (which plays 'click' itself); a locked
+      // volume only browses, so click here instead. Then re-render the whole title: the shelf has
+      // to redraw to move the selection ring and the ribbon.
+      if (chapterAvailable(meta, id) && id !== meta.chapter) hooks.onChapter(id)
+      else playSfx('click')
+      renderTitle()
       return
     }
     if (el.dataset.buy !== undefined) {
