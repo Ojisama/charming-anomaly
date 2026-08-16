@@ -349,13 +349,27 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   of them captioned "the flush moves to the BOTTOM"; it was caught by re-reading the harness, not by
   running it. Diff the entries, and prefer a mutation that expresses the pathology (move the call)
   over one that merely removes the code.
-- **A new weapon STAT has to be registered twice, and fails silently otherwise.** Adding a key to a
-  weapon's `levels[]` is not enough for it to appear on the pause build sheet: `buildReadout`
-  (sim.js) only copies keys on its own hardcoded whitelist array, and `STAT_LABEL` (ui.js) supplies
-  the row label — miss either and the stat is simply absent, with no warning. Add the French too
-  (run XX asserts config coverage, not UI-chrome coverage, so it will not catch a missing label).
-  The whitelist is ordered and the sheet caps at `STAT_MAX_ROWS`, so where you insert the key
-  decides which stats get dropped.
+- **A new weapon STAT is registered in ONE place — `STAT_KEYS` (config.js) — and is silently absent
+  from the pause build sheet if you skip it.** This used to be two lists in two files (an ordered
+  whitelist inside `buildReadout` in sim.js, plus `STAT_LABEL` in ui.js) and a stat needed both;
+  v7.x merged them, and **ui.js now needs no edit at all for a new weapon or a new stat** — its
+  `STAT_LABEL` is derived from `STAT_KEYS`. Add the French for the new label too (run XX walks
+  `STAT_KEYS`, so it *will* catch a missing one — but only the label, never the row order). The
+  table is ORDERED and ui.js appends the cadence row then slices to `STAT_MAX_ROWS` (5, ui.js), so
+  where you insert the key decides which stats fall off the bottom.
+- **A new weapon MOD's display name must not already exist in fr.js.** The dictionary is keyed by
+  the English source string, so a second mod called `Slow Burn` silently inherits the first one's
+  translation — a real French word, on the right screen, describing the wrong thing, and run XX is
+  perfectly happy because the key IS covered. It is also just confusing to have two. Grep fr.js for
+  the name before adding it. (The Shelf's Foxfire hit this and shipped as `Long Burn` instead.)
+- **A SHARED ENTITY ARRAY HAS MORE RENDER CONSUMERS THAN THE ONE YOU EDITED.** `run.lobs` has
+  THREE — `syncLobs` (the thrown-object rig), `redrawHazards` (the amber landing ring), and now
+  `drawColumns` — and nothing about the array says so. The Shelf's Sunspear reused `run.lobs`, was
+  filtered out of `syncLobs`, and still came back wearing a Debris Toss landing ring: two telegraphs
+  on one strike, which read as "the effect looks like soap bubbles" rather than as a missed site.
+  **Reading the render code named the wrong culprit twice; one ablation pass (hide the layer, shoot
+  the same frame) found it immediately.** Before reusing an array, `grep -n "run.<array>" src/render.js`
+  and check every hit, then ablate to confirm what is actually drawing what you see.
 - **An on/off weapon mod that must be EPIC cannot be `kind: 'switch'`.** `makeWeaponModCard` tests
   `kind === 'switch'` and returns null above normal rarity BEFORE it ever looks at `values`, so a
   switch is a normal-rarity card by construction. Use `values: { epic: 1 }` (the Beam Prism idiom)

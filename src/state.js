@@ -1377,6 +1377,37 @@ function generateWells(sig) {
  *   {type:'crust', x, y}   a larva has taken hold on a fresh body (not on a refresh).
  *   {type:'skip', x, y, r} one Skipping Shell touch-down. x,y is where it LANDED, r the splash.
  *
+ * THE SHELF's three natives add NO run.* array either, on the same argument. Each is an existing
+ * entity carrying one extra field, and that field is what the renderer branches on:
+ *   - Sunspear: a run.lobs entry carrying `column: true`, whose `fromX/fromY` ARE its `tx/ty` — so
+ *     stepLobs' shared lerp moves it nowhere and it simply hangs for SUNSPEAR_FALL and lands. THREE
+ *     drawers read run.lobs, and a column must be excluded from two of them: syncLobs (the thrown-
+ *     object rig, whose parabola and shadow would make a shaft of light into a thrown rock) and
+ *     redrawHazards (the amber Debris Toss landing ring, which double-telegraphs it). drawColumns
+ *     owns the look. The landing branch in stepLobs sits ABOVE the shrapnel block for the same
+ *     reason the net's does.
+ *   - Foxfire: a run.blooms entry carrying `look: 'foxfire'` and `slow: 0`. `look` keeps the Spore
+ *     Bloom's own mods off it — stepBlooms reads sporeburst/tideCarried ONCE for the whole list, so
+ *     without the gate a build holding both would spore-burst and tide-drift a foxfire — and drives
+ *     the cold near-white tint in syncBlooms. `slow: 0` opts it out of the pond's continuous slow.
+ *     Its `maxR` is the DARK BONUS ALREADY APPLIED: FOXFIRE_GLOOM is snapshot at cast, so the cloud
+ *     keeps the size the bar bought it however the bar moves afterwards.
+ *   - Sunlance: a run.beams entry carrying `look: 'sunlance'` with `rotSpeed: 0`. It is NOT `swept`,
+ *     which is why `swept` alone could no longer choose the palette — an unswept beam fell into the
+ *     Neon Beam's crimson. It takes the third blade bake (T.beamSun). Its `length` is the reach the
+ *     bar bought at cast (SUNLANCE_REACH_MIN at empty, full at full) and is never re-read.
+ *   {type:'sunspear', x, y, count}  a cast; x,y is the PLAYER (the columns are elsewhere), `count`
+ *                                   how many columns it called. Sfx only — the columns draw
+ *                                   themselves from run.lobs every frame.
+ *   {type:'sunfall', x, y, radius}  one column LANDING. Deliberately no sfx: at L5 that is three of
+ *                                   them 0.26s after one cast.
+ *   {type:'foxfire', x, y, gloom}   a foxfire kindled. `gloom` is 1 in full light up to
+ *                                   FOXFIRE_GLOOM at an empty bar, and drives the spark burst's
+ *                                   count and reach — the one moment the dark's bonus is visible as
+ *                                   an event rather than as a quietly wider circle.
+ *   {type:'sunlance', angle, reach} a lance cast. Carries no x,y: the beam is anchored on the
+ *                                   player and drawn from run.beams.
+ *
  * v5.4 weapons (see WEAPONS/WEAPON_MODS in config.js for the per-weapon mod semantics). Entity
  * reuse rather than new arrays: Quill Burst's quills, Reality Shard's shards, the tornado's flung
  * chunks and Debris Toss' splinters are all ordinary run.bullets entries tagged weapon:'quill' /

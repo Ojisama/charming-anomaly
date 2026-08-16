@@ -1870,6 +1870,161 @@ export const WEAPONS = {
       { dmg: 52, interval: 2.60, r: 142, hold: 1.75, flight: 0.42, castRange: 320 },
     ],
   },
+  // -- The Shelf's three natives ---------------------------------------------------------------
+  // The chapter is one resource seen from three sides. `resource` (CHAPTERS.shelf) is a bar that
+  // drains in the dark and refills in a sun shaft, and until now it bought exactly one thing: the
+  // Pulse's shove. These three make it a BUILD decision as well as a timer — the starter ignores it,
+  // and the two rares read it in opposite directions, so a player who owns both is never simply
+  // "topped up" or "empty", they are always strong at one end of their own bar.
+  //
+  // ⚠ THIS IS NOT resourceDamageMul, AND THE DIFFERENCE IS THE WHOLE ARGUMENT. That helper's block
+  // says §5.3 spent the book's ONE licence for a bar that drives weapon output, spent it on The
+  // Surf's Humidity, and that The Shelf is deliberately untouched by it. Two things keep that rule
+  // intact here:
+  //   - it is COVERAGE that moves, never a damage multiplier. A bloom's radius and a lance's reach
+  //     are things the player watches change on screen; the reviewed failure was a multiplier you
+  //     cannot feel in its top half and fall off a cliff in its bottom, and neither of these is a
+  //     multiplier on a number at all. (It is also the knob WEAPONS.longline's block proves is the
+  //     real one on anything that ticks: throughput is set by how much of the field you cover, not
+  //     by the number on a tick.)
+  //   - it is OPT-IN PER CARD, not per chapter. resourceDamageMul taxes every weapon a chapter has;
+  //     these are two cards out of a pool, and Sunspear — the starter, the one weapon every Shelf
+  //     run begins with — reads the bar not at all. A run that never picks a rare never meets this.
+  // Neither rare can spiral, for the same reason BURST_DUR_MIN and BREACH_R_MIN exist: Sunlance is
+  // the one that gets WORSE as the bar empties, so its reach has a floor (SUNLANCE_REACH_MIN) and an
+  // empty bar still fires a real lance. Foxfire moves the other way and needs no floor.
+  //
+  // NO NEW run.* ARRAY, which is the standard THE SURF's block above sets. A column is a run.lobs
+  // entry that falls instead of flying, a foxfire is a run.blooms entry, a lance is a run.beams
+  // entry that does not rotate.
+  sunspear: {
+    name: 'Sunspear',
+    desc: 'Calls down a column of light on what is nearest. More columns as it grows.',
+    icon: '☀️', rarity: 'normal',
+    // The chapter's starter and the tagline made literal — the light only goes down. A column is a
+    // run.lobs entry whose `fromX/fromY` ARE its target, so it does not travel: it hangs for
+    // SUNSPEAR_FALL seconds as a telegraph and then lands. That is the whole trick, and it is why
+    // this needed no entity of its own (see the `column` branch in stepLobs).
+    //   count      columns per cast, and THE LEVEL AXIS. L5 is three separate strikes on three
+    //              separate bodies, never one fatter strike — see sunspearSpots in sim.js, which
+    //              picks DISTINCT enemies and pads any shortfall onto a ring rather than stacking.
+    //   r          splash radius where a column lands.
+    //   castRange  how far out it will look for a body to drop on.
+    // ⚠ `count` IS WRITTEN TWICE — as the loop bound AND as the divisor that spaces the padding
+    // ring — which is the failure CLAUDE.md documents at length: multiply one and the extra columns
+    // land on top of each other, which renders identically to no change at all. sunspearSpots
+    // therefore takes ONE `count` and derives both from it, and run SH.a asserts DISTINCT POSITIONS
+    // rather than a count, because a count passes happily when three columns share a point.
+    // Pinned against Breaker and Longline, the book's other two normal-rarity starters. This one
+    // aims, so it wastes far less than a cone and whiffs far less than a burst; the price is that it
+    // covers only where bodies already are, and it can do nothing at all on an empty field.
+    //
+    // MEASURED, ONE census invocation (--chapter shelf, 240s x 5 seeds, L1 and L5) so every row is
+    // off one RNG stream and the ORDER is the reading, never the absolute value:
+    //
+    //                      L1 eff  L5 eff  L5 waste  L5 dud
+    //   Breaker                63     106       45%     11%   the book's other BURST starter
+    //   Longline               73     156       11%      4%   the book's other starter, a grinder
+    //   Sunspear (shipped)     56     123       29%      6%
+    //   Barnacles              19     114        9%      2%   the rare band, for scale
+    //   Net Toss               65     111       34%      2%
+    //
+    // It opens BELOW the sibling burst starter and ends above it, which is `count` doing its job:
+    // 1 -> 3 columns is the level axis, so the weapon grows by covering more of the field rather
+    // than by hitting harder, and a chapter-1 player is not handed the top of the table.
+    // ⚠ DAMAGE WAS THE WRONG KNOB, AND THE FIRST CUT PROVED IT: -23% on `dmg` measured BETTER
+    // (135 -> 140 eff), because weaker columns leave bodies alive to eat MORE columns — waste fell
+    // 34% -> 29% and hits/s rose 3.8 -> 4.8, which more than absorbed the cut. `r` is what came down
+    // instead (82 -> 66 at L5). That is WEAPONS.longline's rule about grinders, and it applies here
+    // because a multi-strike that re-aims at whatever is still standing IS one.
+    levels: [
+      { dmg: 17, interval: 2.10, count: 1, r: 50, castRange: 300 },
+      { dmg: 21, interval: 1.98, count: 1, r: 54, castRange: 320 },
+      { dmg: 26, interval: 1.85, count: 2, r: 58, castRange: 340 },
+      { dmg: 32, interval: 1.72, count: 2, r: 62, castRange: 360 },
+      { dmg: 40, interval: 1.60, count: 3, r: 66, castRange: 380 },
+    ],
+  },
+  foxfire: {
+    name: 'Foxfire',
+    desc: 'A cold fire that barely shows in the light and takes hold in the dark.',
+    icon: '🌘', rarity: 'rare',
+    // The card that gives the dark an UPSIDE. The chapter measures at 63% of a run spent dark (see
+    // CHAPTERS.shelf.resource), which until now was pure cost: no sight, and a move-speed penalty.
+    // This is the first thing in the chapter that pays you for being down there.
+    //   dmg      damage per TICK, not per cast — a foxfire is a grinder like the longline and the
+    //            crust, and the value is the number of bodies standing in it.
+    //   maxR     the bloom's radius IN THE LIGHT. What the dark buys is up to FOXFIRE_GLOOM times
+    //            this, and the multiplier is SNAPSHOT AT CAST rather than tracked per tick: a fire
+    //            you lit while you were dark keeps the hold it took, which is what makes it a
+    //            decision ("cast it now, while it will catch") instead of a number that wobbles.
+    //   glowDur  how long it burns. NOT `duration`: that key is shared with the beam weapons and
+    //            the build sheet labels it 'Burns for', which would be the same words for two
+    //            different things on one screen. Same reasoning as barnacles' `crustDur`.
+    // It reuses run.blooms wholesale and carries `slow: 0` — the pond's Spore Bloom slows what
+    // stands in it, and inheriting that here would hand a second slow to the one chapter that
+    // already has one, unadvertised, on a card whose text says nothing about it.
+    //
+    // MEASURED in the same invocation as Sunspear above. The rare band it has to sit in is
+    // Barnacles 114 and Net Toss 111:
+    //
+    //                                  L5 eff  L5 waste  hits/s
+    //   Foxfire (first cut)               159       11%    12.8
+    //   Foxfire (radius -19%)             139       12%    11.2
+    //   Foxfire (shipped, tick -29%)      109        9%    12.0
+    //
+    // COVERAGE WAS TRIED FIRST, on WEAPONS.longline's rule, and it SATURATED: a same-stream probe
+    // carrying 1.6x the radius bought only +23% (139 -> 171), because this chapter's spawn rate caps
+    // what any grinder can remove and the extra area lands on water. Tick damage was the knob with
+    // leverage left, and at 9% waste there was no overkill to absorb it — which is the OPPOSITE of
+    // the reading Sunspear gave two blocks up. Neither knob is right by default; measure which one
+    // the weapon is currently bounded by.
+    //
+    // ⚠ THE CEILING IS 160, AND IT IS ONLY REACHED ON A FULLY EMPTY BAR. The same probe pinned at
+    // maximum gloom read 160 eff, ~40% clear of the rare band. That is not the number this card
+    // plays at: scripts/charge-probe.mjs measures a real Shelf run at 63% dark and MEAN DEPTH 0.29,
+    // so a typical gloom is about 1.17 rather than 1.6 and play sits near the 109 end. The 160 is
+    // what a player buys by running on empty — which costs them the Pulse and 40% of their move
+    // speed at the same time. That trade IS the card, and it is why the base had to come down to
+    // the bottom of the band rather than the middle of it.
+    levels: [
+      { dmg: 4,  interval: 3.00, maxR: 54, glowDur: 2.4, castRange: 280 },
+      { dmg: 5,  interval: 2.85, maxR: 59, glowDur: 2.6, castRange: 295 },
+      { dmg: 6,  interval: 2.70, maxR: 64, glowDur: 2.8, castRange: 310 },
+      { dmg: 8,  interval: 2.55, maxR: 69, glowDur: 3.0, castRange: 325 },
+      { dmg: 10, interval: 2.40, maxR: 74, glowDur: 3.2, castRange: 340 },
+    ],
+  },
+  sunlance: {
+    name: 'Sunlance',
+    desc: 'Spears a shaft of hard light through the crowd. It reaches as far as your Light does.',
+    icon: '✴️', rarity: 'rare',
+    // Foxfire's mirror, and the reason the pair is worth more than either alone: they are strong at
+    // opposite ends of the same bar, so the bar stops being a thing you keep topped up and becomes a
+    // thing you STEER. A lance is a run.beams entry with `rotSpeed: 0` — it does not sweep, which is
+    // deliberate and is the one shape this weapon must not have (run.beams already carries
+    // `swept` + `arms`, and that is Pulsar Sweep; a third rotating rake is what CLAUDE.md warns the
+    // Trawl's longline away from too).
+    //   length    reach at a FULL bar. At an empty one it is SUNLANCE_REACH_MIN of this and still a
+    //             real weapon — the no-spiral floor, in the same idiom as BURST_DUR_MIN.
+    //   duration  how long the lance is held out. It ticks while it is there, so a body walking
+    //             across the line during those frames is struck as surely as one standing on it.
+    //   dmg       per TICK. duration/tick is 3 ticks, so a body held on the line for the whole
+    //             stab takes three of these.
+    // MEASURED in the same invocation: 122 eff at L5 at 18% waste, against the rare band's 114
+    // (Barnacles) and 111 (Net Toss). Left there rather than trimmed onto the anchor, deliberately:
+    // the census rig sits at a charge of 63, which is 80% reach, and this is the one card in the
+    // chapter that gets WORSE as the bar empties. A real run is under half a bar for 63% of its
+    // length, so this weapon's PLAY average sits below the number above rather than on it — trimming
+    // to parity with a static rare would ship it under the band it is supposed to be in.
+    levels: [
+      { dmg: 10, interval: 2.20, length: 360, width: 26, duration: 0.40, tick: 0.13 },
+      { dmg: 12, interval: 2.08, length: 405, width: 29, duration: 0.40, tick: 0.13 },
+      { dmg: 14, interval: 1.96, length: 455, width: 32, duration: 0.40, tick: 0.13 },
+      { dmg: 17, interval: 1.84, length: 505, width: 35, duration: 0.40, tick: 0.13 },
+      { dmg: 21, interval: 1.70, length: 560, width: 38, duration: 0.40, tick: 0.13 },
+    ],
+  },
   // -- The Deep's native (spec §6.5) -------------------------------------------------------------
   finHit: {
     name: 'Fin Hit',
@@ -2544,6 +2699,39 @@ export const WEAPON_MODS = {
     weighted:  { name: 'Weighted',   desc: 'impact damage', icon: '💥', base: 0.30, kind: 'pct' },
     doubleHaul:{ name: 'Double Haul', desc: 'extra net(s) per cast', icon: '🔷', kind: 'tier' },
   },
+  // Four apiece for The Shelf's three natives, the same ceiling the two blocks above hold to. Each
+  // buys one stat the weapon already has; none of them buys the BAR. That is the line this chapter
+  // has to keep — a mod that widened the dark's bonus or raised the lance's floor would be selling
+  // the chapter's own resource back to the player as a card, and the resource has to stay the thing
+  // you steer with your feet.
+  sunspear: {
+    highNoon:  { name: 'High Noon',  desc: 'column damage', icon: '💥', base: 0.30, kind: 'pct' },
+    broadBeam: { name: 'Broad Beam', desc: 'column radius', icon: '⭕', base: 0.28, kind: 'pct' },
+    zenith:    { name: 'Zenith',     desc: 'how far a column can be called', icon: '📏', base: 0.25, kind: 'pct' },
+    // A flat count, not a percentage: +30% of one column is one column. It folds through
+    // WEAPON_STAT_MODS as 'flat' because `count` is a real key in levels[] — which also means
+    // sunspearSpots reads the MODIFIED count and the padding ring divides by that same number.
+    secondSun: { name: 'Second Sun', desc: 'extra column(s) per cast', icon: '🔷', kind: 'tier' },
+  },
+  foxfire: {
+    // 'foxfire damage per tick', for the reason barnacles and longline both spell out above: the
+    // number is small because it is per tick, and a player reading it as a per-hit number concludes
+    // the card is broken.
+    emberfeed:  { name: 'Emberfeed',   desc: 'foxfire damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
+    gloaming:   { name: 'Gloaming',    desc: 'foxfire radius', icon: '⭕', base: 0.28, kind: 'pct' },
+    // NOT 'Slow Burn': that display name is already taken, and the French dictionary is keyed by the
+    // ENGLISH SOURCE STRING — so a second mod called 'Slow Burn' would silently inherit the other
+    // one's translation ('Économe', i.e. thrifty), which is not what this buys. A duplicate display
+    // name is also just confusing on its own. Check the name against fr.js before adding a mod.
+    longBurn:   { name: 'Long Burn',   desc: 'how long a foxfire burns', icon: '⌛', base: 0.25, kind: 'pct' },
+    quickKindle:{ name: 'Quick Kindle', desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  },
+  sunlance: {
+    whetted:   { name: 'Whetted',   desc: 'lance damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
+    farReach:  { name: 'Far Reach', desc: 'lance length', icon: '📏', base: 0.25, kind: 'pct' },
+    broadEdge: { name: 'Broad Edge', desc: 'lance width', icon: '🪭', base: 0.28, kind: 'pct' },
+    heldLance: { name: 'Held Lance', desc: 'how long the lance is held', icon: '⌛', base: 0.25, kind: 'pct' },
+  },
   finHit: {
     serrated:  { name: 'Serrated',   desc: 'fin damage', icon: '💥', base: 0.30, kind: 'pct' },
     broadFin:  { name: 'Broad Fin',  desc: 'how wide the sweep is', icon: '📐', base: 0.22, kind: 'pct' },
@@ -2576,7 +2764,7 @@ export const WEAPON_RATE_MODS = {
   clawRake: 'quickPaws', quillBurst: 'rapidQuills', chitterShriek: 'rapidShriek',
   burstHydrant: 'rapidHydrant', roar: 'rapidRoar', tailLash: 'quickTail',
   debrisToss: 'rapidToss', realityShard: 'rapidShard', pulsarSweep: 'rapidSweep',
-  atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash',
+  atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash', foxfire: 'quickKindle',
 }
 // Same problem for per-cast COUNTS: nearly every one folds through WEAPON_STAT_MODS, but the star's
 // multishot is read straight off run.weaponMods at its fire site. Without this the readout would
@@ -2635,6 +2823,10 @@ export const STAT_KEYS = [
   // Same reasoning as crustDur, twice more: `duration` below is labelled 'Burns for' and is shared
   // with the beam weapons, which is a lie about a rope in the water and about a net over a pack.
   { key: 'setDur', label: 'Line lasts' },
+  // Foxfire's own duration key. Not `duration` ('Burns for') even though a foxfire literally burns:
+  // that key is the beam weapons' and a Shelf run can hold a Sunlance at the same time, which would
+  // put the same two words on two rows meaning two different things.
+  { key: 'glowDur', label: 'Glow lasts' },
   { key: 'hold', label: 'Holds for' },
   { key: 'duration', label: 'Burns for' },
   { key: 'maxR', label: 'Radius' },
@@ -3186,6 +3378,35 @@ export const LONGLINE_TWIN_GAP = 54
 // the player just made.
 export const LONGLINE_MAX_LIVE = 8
 
+// ---- The Shelf's three natives ---------------------------------------------------------------
+// How long a Sunspear column hangs before it lands. It is a TELEGRAPH, so it has to be long enough
+// to see and short enough that the body it was called on is still standing there: at the roster's
+// top speed (krill, speedMul 1, ~120 px/s at this chapter's balance) a body walks 31px in this
+// window, against a splash radius of 62-82. So a column that was aimed correctly still lands on
+// what it was aimed at, and a player still gets a frame of warning to read.
+export const SUNSPEAR_FALL = 0.26
+// Where a SURPLUS column goes when the field holds fewer bodies than the cast has columns. They are
+// pushed onto a ring of this radius around the last real target, evenly divided — which keeps the
+// cast's full output AND keeps every column at a distinct position. Both halves matter: stacking
+// them renders identically to not having fired them (CLAUDE.md's per-cast-count trap), and dropping
+// them makes `count` — the weapon's whole level axis — do nothing against a lone tank.
+// Under the splash radius at every level that can actually pad. Padding only happens when `count`
+// exceeds the bodies in range, so it cannot fire below L3 (count 1 until then) — and L3's r is 58,
+// against which 48 still leaves a padded column covering the body it was padded around rather than
+// missing beside it. Re-check this pair if either the `r` ladder or `count` moves.
+export const SUNSPEAR_SPREAD = 48
+// What a fully dark bar multiplies a foxfire's radius by, snapshot at the moment it is cast. 1.6 on
+// the radius is 2.56x the AREA, which is the number that matters for a thing that ticks on whatever
+// stands in it — and it is why this is the radius rather than the damage (see WEAPONS.longline's
+// block: on a grinder, coverage is throughput and the damage number is not).
+export const FOXFIRE_GLOOM = 1.6
+// The Sunlance's reach at an EMPTY bar, as a fraction of its `length`. The no-spiral floor, in the
+// same idiom as BURST_DUR_MIN and BREACH_R_MIN: this is the one card in the chapter that gets worse
+// as the bar empties, and the bar empties fastest exactly when a player is in trouble, so a lance
+// that shrank to nothing would be the structural trap spec §8.2 forbids. At 0.45 an empty-bar L5
+// lance still reaches 252px, comfortably past the 205px radius of the shaft you are trying to get
+// back to.
+export const SUNLANCE_REACH_MIN = 0.45
 // ---- The Deep's anglerfish: a refill point that bites ----------------------------------------
 // The spec calls this the best thing in the book, and the reason is that it is the only refill in
 // the game whose TIMER IS DRAWN ON THE ENEMY'S FACE. You swim up to it, it feeds you, its mouth
@@ -4518,6 +4739,12 @@ CHAPTERS.shelf = {
   name: 'The Shelf',
   tagline: 'the light only goes down',
   icon: '🌊',
+
+  // The spread above brings in The Pond's pool (flagella/mines/bloom) and its starter, which is what
+  // this chapter fought with for its whole life. These three are its own — see the block at the end
+  // of WEAPONS for what they are and why the two rares are allowed to read the chapter bar when
+  // resourceDamageMul's block says Book 2 spent that licence elsewhere.
+  weapons: ['sunspear', 'foxfire', 'sunlance'], starter: 'sunspear',
 
   // ---- Book 2's mechanic (phase 2). Everything ABOVE this line is still the pond's. ----
   // A NEW object, never a mutation: the spread shares pond's nested objects by reference, so
