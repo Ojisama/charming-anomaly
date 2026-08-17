@@ -1035,6 +1035,17 @@ function generateWells(sig) {
  *   the lane's scroll rate, because it is the player's own button and not a force acting on them),
  *   and stepCrush treats it as a third entry point to the permanent obstacle-removal path.
  *   0 on every run of every other chapter.
+ * _shorebreakT: number — seconds of Surf Shorebreak left (CHAPTERS[chapter].shorebreak). Set by
+ *   stepRepulse on the same press, cooldown and charge spend as everything else on that button, to
+ *   SHOREBREAK_DUR_MIN + (SHOREBREAK_DUR_AT_FULL - SHOREBREAK_DUR_MIN) * t — an EMPTY bar still
+ *   gets a crest, the same no-spiral floor _burstT has.
+ *   THE ONE THAT IS NOT ADDITIVE: a `shorebreak` chapter's press fires this INSTEAD of the Pulse's
+ *   shove, so stepRepulse returns straight after setting it and The Surf emits no `repulse` event
+ *   at all. Read only by stepShorebreak, which each frame pushes (an acceleration into e.kb) and
+ *   re-stamps e.stunT to SHOREBREAK_STAGGER on every non-ally body within SHOREBREAK_RADIUS of the
+ *   player — so the window rides with you rather than staying where the button went down.
+ *   render.js reads it directly to draw the crest for as long as it lasts (drawShorebreak).
+ *   0 on every run of every other chapter.
  * _drownAcc: number — the part-tick accumulator for the DoT above, reset to 0 the moment `charge`
  *   comes off zero so a partial tick banked before you reached a pocket is never spent minutes
  *   later. 0 and untouched everywhere else.
@@ -1847,6 +1858,9 @@ export function createRun(meta, opts = {}) {
     // declaring `burst` / a `resource.drown` block ever moves them off 0.
     _burstT: 0,
     _drownAcc: 0,
+    // v7.x The Surf: seconds of Shorebreak left. Same pattern — every run carries it, and only a
+    // chapter declaring `shorebreak` ever moves it off 0.
+    _shorebreakT: 0,
     // v7.x The Trawl: the net wall, and the countdown to the next pass. `net` is a single OBJECT and
     // not an array, because there is only ever one wall and it is an infinite LINE rather than an
     // entity with a position — { nx, ny, pos, end, holes, _acc }, where (nx, ny) is the unit normal

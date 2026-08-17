@@ -154,6 +154,7 @@ import {
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
+  SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
   BREACH_R_MIN, BREACH_R_AT_FULL, BREACH_REACH, BREACH_MAX_HOLES, tiredness,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
@@ -261,6 +262,11 @@ export function stepSim(run, input, dt) {
   // by every damage site this frame — marking after the weapons had fired would give the player a
   // window one frame short and, on a 1.3s minimum duration, that is a visible fraction of the card.
   stepScent(run, dt)
+  // v7.x The Surf. BEFORE stepEnemySeparation and stepEnemyMovement, because both of the things it
+  // writes are read downstream this same frame: e.kb is integrated in stepEnemyMovement, and e.stunT
+  // is checked there above every behavior flag. Pushing after movement would land the whole wave one
+  // frame late, which on the 0.9s floor is a measurable slice of the move.
+  stepShorebreak(run, dt)
   streamTraps(run)        // v6.5 undergrowth identity: materialize/drop snap traps (no-op outside predators)
   streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
   stepEnemySeparation(run) // v6.5.1: push overlapping enemies apart (owner directive: no 100% stacks)
@@ -1222,6 +1228,19 @@ function stepRepulse(run, input, dt) {
   const spend = res ? Math.min(run.charge, PULSE_CHARGE_COST) : 0
   const t = res ? spend / PULSE_CHARGE_COST : 0
   if (spend > 0) run.charge -= spend
+  // THE SHOREBREAK (v7.x, The Surf — CHAPTERS[].shorebreak). Same press, same cooldown, same `t`
+  // as the burst, the breach and the scent — and then it RETURNS, which is the one thing none of
+  // those three do. A `wave` chapter does not also fire the shove: no `repulse` event, no impulse
+  // loop below, no 'hole' sample. The wave IS the button here, sustained by stepWave for a duration
+  // the spend bought, and the SHOREBREAK_* block in config.js has the argument for why firing both would
+  // cancel rather than compound. Returning here also means a chapter can never end up with two
+  // second verbs at once, which is the design's own "one gimmick, one button" rule made structural
+  // rather than a thing you have to remember while adding the fifth one.
+  if (ch.shorebreak) {
+    run._shorebreakT = SHOREBREAK_DUR_MIN + (SHOREBREAK_DUR_AT_FULL - SHOREBREAK_DUR_MIN) * t
+    run.events.push({ type: 'shorebreak', x: p.x, y: p.y, r: SHOREBREAK_RADIUS, charged: t, dur: run._shorebreakT })
+    return
+  }
   const radius = REPULSE_RADIUS + (PULSE_RADIUS_AT_FULL - REPULSE_RADIUS) * t
   const force = REPULSE_FORCE + (PULSE_FORCE_AT_FULL - REPULSE_FORCE) * t
   // The SCALED radius, not the constant. render.js draws both rings at e.r under a comment saying
@@ -1867,7 +1886,7 @@ function stepEnemyMovement(run, dt) {
       // affixSpeedMul is passed through (unlike the other machines, which take enrageMul alone)
       // because dashBurst used to ride the plain seek and therefore honoured pacer/frenzy. Keeping
       // it means this change commits the DIRECTION and nothing else — no silent balance shift.
-      stepDashBurst(e, tx, ty, dt, slowMul, affixSpeedMul * enrageMul)
+      stepDashBurst(run, e, tx, ty, dt, slowMul, affixSpeedMul * enrageMul)
     } else if (e.flags && e.flags.includes('diveBomb')) {
       stepDiveBomb(run, e, tx, ty, dt, slowMul)
     } else if (e.flags && e.flags.includes('pounce')) {
@@ -2227,7 +2246,7 @@ function stepAerialStrike(e, tx, ty, dt, slowMul, spdMul, airLiveCount) {
 // The rule this restores is already the game's own, stated at the pull beam: a threat may be
 // impossible to IGNORE but never impossible to ESCAPE. Committing the heading is what turns the
 // dash from an unavoidable hit into a dodge — the speed is not the problem and is untouched.
-function stepDashBurst(e, tx, ty, dt, slowMul, spdMul) {
+function stepDashBurst(run, e, tx, ty, dt, slowMul, spdMul) {
   if (e._dashPhase === undefined) { e._dashPhase = 'idle'; e._dashT = DASH_IDLE_T }
   e._dashT -= dt
   const dx = tx - e.x, dy = ty - e.y
@@ -2235,10 +2254,18 @@ function stepDashBurst(e, tx, ty, dt, slowMul, spdMul) {
   const ux = dx / d, uy = dy / d
   let vx = 0, vy = 0
   if (e._dashPhase === 'idle') {
-    const spd = e.speed * spdMul * DASH_IDLE_SPEED_MUL
+    // Off screen it does not idle and it does not commit — it WALKS IN, at full speed, and the idle
+    // clock is wound back to the top so the whole wind-up happens where the player can see it. See
+    // the DASH_* block in config.js for both halves of why (the v6.6.24 visibility rule, and why
+    // idling out of sight at 0.4x would be worse than the bug it fixes).
+    const seen = canCommitFrom(run, e)
+    const spd = e.speed * spdMul * (seen ? DASH_IDLE_SPEED_MUL : 1)
     vx = ux * spd; vy = uy * spd
     // lock the heading on the way OUT of idle — this is the last moment it looks at you
-    if (e._dashT <= 0) { e._dashPhase = 'dash'; e._dashT += DASH_T; e._dashDirX = ux; e._dashDirY = uy }
+    if (e._dashT <= 0) {
+      if (seen) { e._dashPhase = 'dash'; e._dashT += DASH_T; e._dashDirX = ux; e._dashDirY = uy }
+      else e._dashT = DASH_IDLE_T
+    }
   } else {
     const spd = e.speed * spdMul * DASH_SPEED_MUL
     vx = e._dashDirX * spd; vy = e._dashDirY * spd
@@ -3692,6 +3719,48 @@ function stepScent(run, dt) {
     const dx = e.x - p.x, dy = e.y - p.y
     if (dx * dx + dy * dy > rSq) continue
     e.scentT = run._scentT
+  }
+}
+
+// -- The Surf's Wave (v7.x) ---------------------------------------------------------------------
+// Fired from stepRepulse like the burst, the breach and the scent — same press, same cooldown, same
+// `t` — and this is the part that has to happen every frame afterwards: age the window, then push
+// and stagger whatever is still inside it.
+//
+// IT RIDES THE PLAYER, not the position the button was pressed at. stepScent above makes the same
+// choice for the same reason: a window anchored where the press happened is a window you walk out
+// of, which would turn a 2.4s move into a 2.4s reason to stand still. The whole ask is about
+// CROSSING something, so the wave has to travel with the thing doing the crossing.
+//
+// The push is an ACCELERATION (note the `* dt`) rather than an impulse, which is the difference
+// between a plough and the old shove fired 60 times a second — see SHOREBREAK_FORCE in config.js for the
+// terminal-speed maths. It is the same idiom stepNodes uses for its carry.
+//
+// ALLIES ARE SKIPPED, which is a deliberate divergence from the Pulse's own loop (that one shoves
+// everything in run.enemies, allies included). Shoving your own summon is a shrug; a stagger
+// REFRESHED every frame for up to 2.4s would disable it for the whole window, and a button that
+// turns off your allies is a button you learn not to press next to them.
+function stepShorebreak(run, dt) {
+  if (!CHAPTERS[run.chapter].shorebreak) return
+  run._shorebreakT = Math.max(0, (run._shorebreakT ?? 0) - dt)
+  if (run._shorebreakT <= 0) return
+  const p = run.player
+  const rSq = SHOREBREAK_RADIUS * SHOREBREAK_RADIUS
+  const lax = laneAxes(CHAPTERS[run.chapter])
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e)) continue
+    const dx = e.x - p.x, dy = e.y - p.y
+    const dsq = dx * dx + dy * dy
+    if (dsq > rSq) continue
+    const d = Math.sqrt(dsq)
+    // Dead centre has no direction to push along; laneAxes gives the same up-lane fallback the
+    // Pulse's loop uses, so a body sitting exactly on the player still goes the way the rest do.
+    const ux = d > 1e-6 ? dx / d : lax.fx
+    const uy = d > 1e-6 ? dy / d : lax.fy
+    const falloff = 1 - d / SHOREBREAK_RADIUS
+    e.kb.x += ux * SHOREBREAK_FORCE * falloff * dt
+    e.kb.y += uy * SHOREBREAK_FORCE * falloff * dt
+    e.stunT = Math.max(e.stunT || 0, SHOREBREAK_STAGGER)
   }
 }
 

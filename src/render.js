@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -18,6 +18,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
+  LURE_GLOW, // The Deep: the anglerfish's esca, punched through the dark scrim in updateDark
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
 
@@ -2285,6 +2286,28 @@ export function createRenderer(app) {
   // a texture made once at boot, so the opening mouth is drawn as a per-frame overlay from the
   // published `gape` field (drawDeepTells). What is baked is the body, the teeth and the dark
   // socket the gape opens over — the parts that never move.
+  //
+  // WHICH MEANS WHERE THE FACE IS IS ONE FACT AUTHORED IN TWO PLACES, and that is this repo's
+  // largest defect class. ANGLER_MOUTH is the one authority: drawAnglerfish bakes the socket and the
+  // tooth ring off it, drawDeepTells opens the wedge over them off it.
+  //   Two coordinate systems meet here, hence the ratio. The bake is drawn at a fixed reference
+  // r = 17 and syncEnemies scales the sprite by e.radius / ROSTER_BASE_R.normal (16), so a bake
+  // fraction f of r lands at f x 17/16 of the LIVE radius. Everything below is stated as a fraction
+  // of the live radius, and the bake divides back out.
+  //   It went wrong silently and stayed invisible for exactly as long as the animal was small. The
+  // wedge used to sit at 0.22 of the radius — near the body's CENTRE — while the baked socket is out
+  // at the nose. On a 16px fish that is a 12px error nobody can see; at radiusMul 4 it is 47px, and
+  // the frame comes back with a jaw hanging in the water beside a fish. Anything anchored on a body
+  // in fractions of ITS OWN radius has this property: the mistake scales with the animal.
+  const ANGLER_BAKE_R = 17          // drawAnglerfish's own reference r
+  const ANGLER_MOUTH = {
+    at: 0.77,     // socket centre along the facing axis (the bake's noseX - 0.18r)
+    shut: 0.44,   // the wedge at a barely-open mouth: the socket ellipse it opens over
+    open: 0.95,   // and at a full gape — PAST the tooth tips (0.38 + 0.2), a jaw unhinging
+    arc: 1.15,    // radians either side of the axis at a full gape: the tooth ring's own span
+    shutArc: 0.20,
+    toLive: ANGLER_BAKE_R / 16,     // bake fraction -> fraction of the live radius (ROSTER_BASE_R.normal)
+  }
 
   // anglerfish: the chapter. Round, heavy, front-loaded, with a lure held out ahead on a stalk and a
   // mouth that is most of the head. The ESCA is the only genuinely bright thing in the chapter and
@@ -2324,13 +2347,15 @@ export function createRenderer(app) {
     if (!white) {
       // THE SOCKET the gape opens over. Baked dark and permanent, so when drawDeepTells widens the
       // mouth on top there is already blackness underneath it rather than body colour showing
-      // through a half-open jaw.
-      g.ellipse(noseX - r * 0.18, 0, r * 0.42, r * 0.5).fill({ color: f(0x07090d), alpha: 0.95 })
+      // through a half-open jaw. Its centre is ANGLER_MOUTH.at, and that is the whole point of the
+      // const — the overlay opens at exactly the same place, whatever the animal's size.
+      const mx = r * ANGLER_MOUTH.at
+      g.ellipse(mx, 0, r * 0.42, r * 0.5).fill({ color: f(0x07090d), alpha: 0.95 })
       // Teeth: a ring of needles around the socket's rim. Few and long — a row of small ones turns
       // to a grey smudge at sprite size, which is the failure mode the viperfish below shares.
       for (let i = 0; i < 9; i++) {
-        const a = -1.15 + (i / 8) * 2.3
-        const bx = noseX - r * 0.18 + Math.cos(a) * r * 0.38
+        const a = -ANGLER_MOUTH.arc + (i / 8) * ANGLER_MOUTH.arc * 2
+        const bx = mx + Math.cos(a) * r * 0.38
         const by = Math.sin(a) * r * 0.46
         g.poly([bx, by, bx + Math.cos(a) * r * 0.2, by + Math.sin(a) * r * 0.22,
                 bx - Math.sin(a) * r * 0.07, by + Math.cos(a) * r * 0.07])
@@ -8364,6 +8389,11 @@ export function createRenderer(app) {
   // anything on the floor, and both therefore belong over the crowd: a ripple you can see a body
   // through is a ripple under it, which is the one thing it is not.
   const splashG = new Graphics()
+  // The Surf's Wave (the chapter's button). Beside splashG and for its argument: this is the water's
+  // SURFACE, so it belongs over the crowd — a crest you can see a body through is a crest under it,
+  // which is the one thing a bow wave is not. NOT additive, unlike columnG: that one is light in a
+  // dark chapter, this one is foam on a bright beach, and adding white to pale sand just clips.
+  const shorebreakG = new Graphics()
   // Barnacle crusts, drawn OVER the bodies they are growing on — they sit on top of the enemy
   // sprite, so this has to be added after the entity layer, not with the ground effects.
   const crustG = new Graphics()
@@ -8406,7 +8436,7 @@ export function createRenderer(app) {
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, breakerG, splashG, columnG,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, breakerG, splashG, columnG, shorebreakG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -10954,9 +10984,14 @@ export function createRenderer(app) {
       const gp = e.gape || 0
       if (gp <= 0.02) continue
       const a0 = Math.atan2(run.player.y - e.y, run.player.x - e.x)
-      const half = 0.22 + gp * 0.95                 // radians either side of the axis
-      const reach = rad * (0.55 + gp * 0.75)
-      const cx = e.x + Math.cos(a0) * rad * 0.22, cy = e.y + Math.sin(a0) * rad * 0.22
+      // ON THE FACE, not near the body's centre — every number here is ANGLER_MOUTH's, converted
+      // from the bake's reference r to this animal's live radius. See ANGLER_MOUTH for why the old
+      // hand-tuned 0.22/0.55/0.75 were invisible on a 16px fish and a floating jaw on a 64px one.
+      const M = ANGLER_MOUTH
+      const half = M.shutArc + gp * (M.arc - M.shutArc)   // radians either side of the axis
+      const reach = rad * M.toLive * (M.shut + gp * (M.open - M.shut))
+      const off = rad * M.toLive * M.at
+      const cx = e.x + Math.cos(a0) * off, cy = e.y + Math.sin(a0) * off
       const pts = [cx, cy]
       for (let i = 0; i <= 10; i++) {
         const a = a0 - half + (i / 10) * half * 2
@@ -10978,6 +11013,61 @@ export function createRenderer(app) {
         const flare = (gp - 0.82) / 0.18
         deepG.circle(e.x, e.y, rad * (1.3 + flare * 0.5)).fill({ color: 0xff6a3a, alpha: 0.16 * flare })
       }
+    }
+  }
+
+  // The Surf's Shorebreak — the chapter's button, live for as long as run._shorebreakT says.
+  //
+  // PLAN VIEW. The camera looks straight down, so a bow wave is a RING OF FOAM with ripples inside
+  // it, never the side-on breaker silhouette the word "wave" pulls you toward — that is exactly the
+  // v6.8 Trash Tornado error, and this chapter already ships the right answer twice (drawBreakers
+  // below draws the shore break as arcs from above, and spawnSplash as rings).
+  //
+  // The RIPPLES ARE THE WHOLE READ, not decoration. A static ring centred on the player is a
+  // shield — which is the option the owner did not pick. Water travelling outward is what says the
+  // thing is pushing, and pushing is the entire mechanic.
+  //
+  // Drawn AT SHOREBREAK_RADIUS, the sim's own number, on the contract the Pulse's rings already keep: a
+  // burst that lies about its reach makes the cooldown feel arbitrary.
+  function drawShorebreak(run, t) {
+    shorebreakG.clear()
+    const left = run?._shorebreakT ?? 0
+    if (left <= 0) return
+    const p = run.player
+    // Fades on the way OUT only, over the last 0.35s. There is no total duration to normalise
+    // against — every press buys a different one — so the alpha keys off the time REMAINING, which
+    // is the one quantity that means the same thing at every spend.
+    const fade = Math.min(1, left / 0.35)
+    const R = SHOREBREAK_RADIUS
+    const G = shorebreakG
+    // beginPath() before EVERY shape. Pixi v8 appends circle()/arc() to the open path, so two
+    // concentric circles under one fill() paint the donut between them and one stroke() outlines
+    // both — the bug that shipped a mystery ring around every Sunspear column.
+    const ring = (r, w, color, alpha) => {
+      if (alpha <= 0.004 || r <= 0) return
+      G.beginPath()
+      G.circle(p.x, p.y, r)
+      G.stroke({ width: w, color, alpha })
+    }
+    G.beginPath()
+    G.circle(p.x, p.y, R)
+    G.fill({ color: 0x9fd8ff, alpha: 0.07 * fade })
+
+    // THE FOAM BANK. The rim is a BAND, not a line: five strokes stacked across ~28px with the alpha
+    // falling off both ways, which is what a soft edge costs when there is no blur to reach for.
+    // Owner's pick off a three-way sheet shot on one identical frame — against a single thin stroke
+    // (which read as a soap-bubble outline, i.e. as the bubble option he did not choose) and against
+    // a rim broken into scattered foam arcs (which read as separate floating objects at gameplay
+    // size rather than as churn).
+    for (let i = -2; i <= 2; i++) {
+      ring(R + i * 7, 9 - Math.abs(i) * 1.6, 0xffffff, (0.50 - Math.abs(i) * 0.11) * fade)
+    }
+    // The ripple train, riding from 0.18R outward. THIS IS THE READ, not decoration: a static ring
+    // centred on the player is a shield, and water travelling outward is the only thing in the
+    // drawing that says the crest is pushing — which is the entire mechanic.
+    for (let i = 0; i < 5; i++) {
+      const k = (t * 1.05 + i / 5) % 1
+      ring(R * (0.18 + 0.82 * k), 2 + 3 * (1 - k), 0xeaf8ff, 0.30 * (1 - k) * fade)
     }
   }
 
@@ -11187,6 +11277,34 @@ export function createRenderer(app) {
       darkCtx.arc(sx * s, sy * s, sh.r * s, 0, Math.PI * 2)
       darkCtx.fill()
     }
+
+    // THE LURES (The Deep). drawAnglerfish sells the esca as the only bright thing in the chapter
+    // and the thing the player crosses the screen toward — but that is a sprite inside `world`, and
+    // this scrim multiplies `world` to black without caring how bright anything under it is. Shot
+    // before this existed (scripts/scenes/deep-lure.js at charge 20, phone): of four anglerfish at
+    // 90/180/300/410px, only the one at 90 — already inside ANGLER_FEED_R — was on screen at all.
+    // A dark chapter whose only refill is invisible at a low bar is a death spiral, not a mechanic.
+    //   PARTIAL, never a punch-out. A shaft removes the darkness because standing in one is meant to
+    // let you play normally; a lure is a beacon, and it must not hand you the crowd standing next to
+    // it. LURE_GLOW.lit is the whole of that distinction.
+    //   'lighten' and not the plain fill above: these overlap the player's own lamp, and a fill
+    // would stamp a DIMMER disc into the middle of it — light adds, it does not replace.
+    darkCtx.globalCompositeOperation = 'lighten'
+    for (const e of run.enemies) {
+      if (e._dead || !e.flags || !e.flags.includes('angler')) continue
+      const ex = e.x + cx, ey = e.y + cy
+      const gr = e.radius * LURE_GLOW.frac
+      if (ex + gr < 0 || ex - gr > w || ey + gr < 0 || ey - gr > h) continue
+      const lg = darkCtx.createRadialGradient(ex * s, ey * s, 0, ex * s, ey * s, Math.max(1, gr * s))
+      lg.addColorStop(0, rgbAt(LURE_GLOW.lit))
+      lg.addColorStop(1, rgbAt(0))
+      darkCtx.fillStyle = lg
+      darkCtx.beginPath()
+      darkCtx.arc(ex * s, ey * s, Math.max(1, gr * s), 0, Math.PI * 2)
+      darkCtx.fill()
+    }
+    darkCtx.globalCompositeOperation = 'source-over'
+
     darkTex.source.update()
     darkSprite.setSize(w, h)
     // Neither tinted nor faded: the COLOUR is the darkness and the sprite is opaque. Doing either
@@ -15188,6 +15306,15 @@ export function createRenderer(app) {
         case 'rockhit':
           spawnRing(e.x, e.y, 70, 0.26, T.novaWarm, 0xc9bda4)
           break
+        // v7.x The Surf — the Shorebreak going up. This is ONLY the moment of the press: the crest
+        // itself lasts for run._shorebreakT and is drawn every frame by drawShorebreak, which is
+        // what a duration move needs and what a one-shot ring cannot say. Two rings so the press has
+        // a front, at e.r (the sim's own radius) on the same contract every other button keeps —
+        // a burst that lies about its reach makes the cooldown feel arbitrary.
+        case 'shorebreak':
+          spawnRing(e.x, e.y, e.r, 0.30, T.novaWarm, 0xffffff)
+          spawnRing(e.x, e.y, e.r * 0.55, 0.22, T.novaWarm, 0xbfe8ff)
+          break
         // v7.x The Trawl — Breach. NO SFX_FOR_EVENT ENTRY, and that is a decision rather than an
         // omission: Breach fires on the SAME press as the Pulse, which already sounds ('hole'), so a
         // second sample would double up on one button. The rule CLAUDE.md states is that an event
@@ -15526,6 +15653,11 @@ export function createRenderer(app) {
     // Same idiom again: a Graphics, so clearing it IS the reset. A run that ends with columns still
     // in the air must not leave them hanging over the summary screen and the next chapter.
     columnG.clear()
+    // Same idiom, and it matters more here than for the columns: the crest keys off
+    // run._shorebreakT, and a run that ends mid-Shorebreak is replaced by one whose _shorebreakT is
+    // undefined — so without this the last frame's foam would sit on the summary screen with
+    // nothing left to clear it.
+    shorebreakG.clear()
     deepG.clear()
     for (const s of snares) s.live = false
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
@@ -16856,6 +16988,7 @@ export function createRenderer(app) {
     updateSwell(run, dt, cx, cy)
     drawBreakers(run)
     drawColumns(run)
+    drawShorebreak(run, animT)
     drawCrusts(run)
     drawDeepTells(run)   // v7.x The Deep: the anglerfish's gape and the Scent outline
     updateDark(run, cx, cy)   // AFTER updateShafts: it cuts its holes from the same run.shafts list

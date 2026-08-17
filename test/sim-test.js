@@ -40,7 +40,7 @@ import {
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
-  ANGLER_FEED_R, ANGLER_GAPE_T, ANGLER_BITE_R, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
+  ANGLER_FEED_R, ANGLER_GAPE_T, ANGLER_BITE_R, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
@@ -75,6 +75,7 @@ import {
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
+  SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COSTS, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
@@ -5625,6 +5626,181 @@ function runShelf() {
 }
 run(runShelf)
 
+// ---- Run SK: THE SHOREBREAK (v7.x, The Surf's skill button) ------------------------------------
+// SK and not SB: `run SB` is already the SUBMISSION ally block, and two unrelated groups sharing a
+// prefix makes a red band in the output unreadable at exactly the moment you need to read it.
+// The Surf's skill button used to fire the Pulse — one frame of shove, then a 6s cooldown. Owner,
+// 2026-08-16: it "should be revamped to a bubble shield or wave shield that lasts for a bit so the
+// player can go through a wall of circling enemies", then picked the wave over the bubble. So it is
+// now a crest that rides with the player for a duration the spend buys, pushing and staggering what
+// it touches on every frame it is live — and, uniquely among the four chapter buttons, REPLACING
+// the shove rather than riding along with it.
+//
+// Every block below asserts where the BODIES ended up. A _shorebreakT that counts down is exactly
+// what a deleted push would also do, so the timer is never the subject.
+function runShorebreak() {
+  const RES = CHAPTERS.surf.resource
+  const sbMeta = () => { const m = makeMeta(); m.dev = true; ensureChapterMeta(m); return m }
+  const dt = 1 / 60
+
+  // A ring of bodies well inside SHOREBREAK_RADIUS, all walking at the player. THE SPEED IS THE
+  // POINT: against a stationary crowd any push at all "opens a corridor", so a fixture like that
+  // would pass with the force at a tenth of its value. A crowd closing at 120px/s means the wave has
+  // to beat their approach before the measurement moves at all.
+  const ringRun = (charge) => {
+    Math.random = mulberry32(20260816)
+    const run = createRun(sbMeta(), { chapter: 'surf', difficulty: 1 })
+    run.weapons = []
+    run.player.maxHP = run.player.hp = 1e9
+    run.enemies.length = 0
+    const ids = []
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2
+      const e = makeStatusEnemy(run, {
+        x: run.player.x + Math.cos(a) * 150,
+        y: run.player.y + Math.sin(a) * 150,
+        hp: 1e6, speed: 120,
+      })
+      run.enemies.push(e)
+      ids.push(e.id)
+    }
+    run.charge = charge
+    run.repulseCd = 0
+    return { run, ids }
+  }
+  // Measured from the PLAYER every time, never from a fixed origin: the tide shoves the player
+  // sideways all run (signature.surge 46px/s), so an origin-relative distance would be reading the
+  // chapter's own current as if it were the button.
+  const meanDist = (o) => {
+    const p = o.run.player
+    const ds = o.ids.map((id) => o.run.enemies.find((e) => e.id === id)).filter(Boolean)
+      .map((e) => Math.hypot(e.x - p.x, e.y - p.y))
+    return ds.reduce((a, b) => a + b, 0) / Math.max(1, ds.length)
+  }
+  const advance = (o, secs, press) => {
+    let first = true
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      stepSim(o.run, { x: 0, y: 0, skill: press && first }, dt)
+      first = false
+    }
+  }
+
+  // (a) IT OPENS A CORRIDOR, against a do-nothing control. The control is not ceremony: without it
+  // "the crowd ended up 250px away" is unreadable, because that is also roughly where an untouched
+  // ring of seekers ends up if the fixture forgot to make them walk.
+  {
+    const ctl = ringRun(RES.max)
+    const before = meanDist(ctl)
+    advance(ctl, SHOREBREAK_DUR_AT_FULL, false)
+    const ctlAfter = meanDist(ctl)
+
+    const hit = ringRun(RES.max)
+    advance(hit, SHOREBREAK_DUR_AT_FULL, true)
+    const hitAfter = meanDist(hit)
+
+    assert(ctlAfter < before - 20,
+      `the control must CLOSE on the player (${before.toFixed(0)} -> ${ctlAfter.toFixed(0)}px) or this fixture proves nothing`)
+    // Stated as a FRACTION OF THE CREST, never in px. The claim being made is "the crowd ends up out
+    // near the rim instead of on top of you", and that is what these two say at any radius — a px
+    // literal would have had to be retuned when SHOREBREAK_RADIUS moved 300 -> 190, which is exactly
+    // the moment a band stops meaning anything and starts being a number that makes the test green.
+    assert(hitAfter > SHOREBREAK_RADIUS * 0.8,
+      `the Shorebreak must hold the crowd out near its rim: ${hitAfter.toFixed(0)}px against a ${SHOREBREAK_RADIUS}px crest`)
+    assert(hitAfter > ctlAfter + SHOREBREAK_RADIUS * 0.5,
+      `the Shorebreak must open a corridor: pressed ${hitAfter.toFixed(0)}px vs control ${ctlAfter.toFixed(0)}px`)
+    console.log(`PASS run SK.a (corridor): ring at ${before.toFixed(0)}px -> control ${ctlAfter.toFixed(0)}px, pressed ${hitAfter.toFixed(0)}px`)
+  }
+
+  // (b) IT IS SUSTAINED, NOT AN IMPULSE — the whole reason it is not just a bigger Pulse. Most of the
+  // push must land AFTER the frame the button went down. This is the block that fails if someone
+  // "simplifies" the per-frame acceleration back into a one-shot kb impulse, which is a change no
+  // duration assertion and no event assertion can see.
+  {
+    const o = ringRun(RES.max)
+    const start = meanDist(o)
+    stepSim(o.run, { x: 0, y: 0, skill: true }, dt)
+    const afterFirst = meanDist(o)
+    advance(o, SHOREBREAK_DUR_AT_FULL - dt, false)
+    const afterRest = meanDist(o)
+    const firstFrame = afterFirst - start
+    const rest = afterRest - afterFirst
+    assert(rest > firstFrame * 5,
+      `the push must be sustained, not an impulse: frame 1 moved ${firstFrame.toFixed(1)}px, the remaining ${SHOREBREAK_DUR_AT_FULL}s moved ${rest.toFixed(1)}px`)
+    console.log(`PASS run SK.b (sustained): frame 1 ${firstFrame.toFixed(1)}px vs ${rest.toFixed(0)}px over the rest of the window`)
+  }
+
+  // (c) THE NO-SPIRAL FLOOR (spec §8.2). An EMPTY bar still gets a crest — shorter, never absent.
+  // Without this, running dry in a chapter whose bar ALSO multiplies your damage would leave a
+  // player with no answer and no way to earn one.
+  {
+    const ctl = ringRun(0)
+    advance(ctl, SHOREBREAK_DUR_MIN, false)
+    const ctlAfter = meanDist(ctl)
+    const hit = ringRun(0)
+    advance(hit, SHOREBREAK_DUR_MIN, true)
+    const hitAfter = meanDist(hit)
+    assert.strictEqual(hit.run.charge, 0, 'an empty bar spends nothing')
+    assert(hitAfter > ctlAfter + SHOREBREAK_RADIUS * 0.25,
+      `an empty bar must still push: ${hitAfter.toFixed(0)}px vs control ${ctlAfter.toFixed(0)}px`)
+    console.log(`PASS run SK.c (empty-bar floor): ${hitAfter.toFixed(0)}px vs control ${ctlAfter.toFixed(0)}px over the ${SHOREBREAK_DUR_MIN}s floor`)
+  }
+
+  // (d) THE SPEND BUYS DURATION. Both measured over the SAME long window, so the only thing that can
+  // separate them is how much of that window the crest was alive for.
+  {
+    const win = SHOREBREAK_DUR_AT_FULL + 0.4
+    const empty = ringRun(0)
+    advance(empty, win, true)
+    const full = ringRun(RES.max)
+    advance(full, win, true)
+    assert(meanDist(full) > meanDist(empty) + SHOREBREAK_RADIUS * 0.4,
+      `a full spend must push for longer than an empty bar: ${meanDist(full).toFixed(0)}px vs ${meanDist(empty).toFixed(0)}px`)
+    console.log(`PASS run SK.d (spend buys duration): empty ${meanDist(empty).toFixed(0)}px, full ${meanDist(full).toFixed(0)}px over one ${win.toFixed(1)}s window`)
+  }
+
+  // (e) IT REPLACES THE PULSE, and only in this chapter. The Surf must emit no `repulse` at all —
+  // if it did, the player would get an 880px/s impulse AND the crest on one press, and would hear
+  // the shove's sample twice over. The Beyond shares stepRepulse and must be untouched.
+  {
+    const o = ringRun(RES.max)
+    stepSim(o.run, { x: 0, y: 0, skill: true }, dt)
+    const sb = o.run.events.find((e) => e.type === 'shorebreak')
+    assert.ok(sb, 'The Surf must emit a shorebreak event on the press')
+    assert.ok(Math.abs(sb.r - SHOREBREAK_RADIUS) < 1e-9, `the event must carry the real radius ${SHOREBREAK_RADIUS}, got ${sb.r}`)
+    assert.ok(!o.run.events.some((e) => e.type === 'repulse'),
+      'The Surf must NOT also fire the Pulse — the Shorebreak replaces it')
+
+    Math.random = mulberry32(31337)
+    const lane = createRun(sbMeta(), { chapter: 'beyond', difficulty: 1 })
+    lane.repulseCd = 0
+    stepSim(lane, { x: 0, y: 0, skill: true }, dt)
+    assert.ok(lane.events.some((e) => e.type === 'repulse'), 'The Beyond must still fire its repulse')
+    assert.ok(!lane.events.some((e) => e.type === 'shorebreak'), 'only a `shorebreak` chapter may fire one')
+    console.log(`PASS run SK.e (replaces the Pulse): surf emits shorebreak r=${sb.r} and no repulse; beyond unchanged`)
+  }
+
+  // (f) ALLIES ARE NOT STAGGERED. A deliberate divergence from the Pulse, which shoves everything in
+  // run.enemies: a shove is a shrug, but a stagger REFRESHED every frame for up to 2.4s would switch
+  // your own summon off for the whole window, and a button that disables your allies is one you
+  // learn not to press near them.
+  {
+    const o = ringRun(RES.max)
+    const ally = makeStatusEnemy(o.run, { x: o.run.player.x + 60, y: o.run.player.y, hp: 1e6, speed: 0 })
+    ally.allyT = 99
+    o.run.enemies.push(ally)
+    for (let i = 0; i < 20; i++) stepSim(o.run, { x: 0, y: 0, skill: i === 0 }, dt)
+    const a = o.run.enemies.find((e) => e.id === ally.id)
+    assert.ok(a, 'the ally must survive the window')
+    assert.ok((a.stunT ?? 0) <= 0, `an ally must not be staggered by your own Shorebreak (stunT=${(a.stunT ?? 0).toFixed(2)})`)
+    const foe = o.run.enemies.find((e) => o.ids.includes(e.id))
+    assert.ok((foe.stunT ?? 0) > 0, 'a non-ally inside the crest must be staggered, or this block is vacuous')
+    console.log(`PASS run SK.f (allies spared): ally stunT=${(a.stunT ?? 0).toFixed(2)}, enemy stunT=${(foe.stunT ?? 0).toFixed(2)} of ${SHOREBREAK_STAGGER}`)
+  }
+
+  console.log(`PASS run SK (The Shorebreak): opens a corridor a walking crowd cannot close, sustained rather than impulsive, ${SHOREBREAK_DUR_MIN}s floor on an empty bar rising to ${SHOREBREAK_DUR_AT_FULL}s, replaces the Pulse in surf only, spares allies`)
+}
+run(runShorebreak)
+
 // ---- Run DK: THE DARK (v7.x Book 2, owner directive) --------------------------------------
 // "if we're stealing light, then our surroundings should be dark, and darker the less light we
 // have", plus a drawback while you are down there — move speed, chosen over damage and accuracy
@@ -5858,8 +6034,24 @@ function runDark() {
       'the lightmap canvas must be opaque: an alpha channel here is the thing that did not survive on the owner\'s device')
     assert.ok(/darkSprite\.alpha = 1/.test(src) && /darkSprite\.tint = 0xffffff/.test(src),
       'the dark sprite must be neither faded nor tinted — the colour IS the darkness, and doing either puts the effect back on the broken channel')
-    assert.ok(!/globalCompositeOperation/.test(src),
-      'no canvas compositing operator may come back: destination-out is what carried the effect in alpha')
+    // NO OPERATOR THAT CAN WRITE TRANSPARENCY. This used to be a blanket ban on
+    // globalCompositeOperation, and the ban was aimed at the wrong noun: what broke on the owner's
+    // device was not "an operator" but the effect living in the ALPHA channel, which then had to
+    // survive a texture upload. Every operator below can put transparency into an opaque canvas's
+    // pixels — `destination-out` is the one that actually shipped the blackout — so they stay
+    // banned by name. `lighten` is a pure per-channel max on colour and cannot reach alpha at all,
+    // which is exactly why the lure glow is allowed to use it: light ADDS, and a plain fill would
+    // stamp a dimmer disc into the middle of the player's own lamp instead.
+    const ALPHA_OPS = /globalCompositeOperation\s*=\s*'(destination-out|destination-in|destination-atop|source-in|source-out|source-atop|xor|copy)'/
+    assert.ok(!ALPHA_OPS.test(src),
+      'no alpha-writing canvas operator may come back: destination-out is what carried the effect in alpha, and this canvas is opaque by contract')
+    // And whatever operator IS set must be put back. A leaked 'lighten' would survive into the next
+    // frame's opening fillRect — which paints the dark — so the background could only ever get
+    // brighter and the chapter would wash out over a few seconds. Silent, and untraceable by eye.
+    const opSets = src.match(/globalCompositeOperation\s*=\s*'[a-z-]+'/g) || []
+    const resets = opSets.filter((o) => /'source-over'/.test(o)).length
+    assert.strictEqual(opSets.length, resets * 2,
+      `every globalCompositeOperation must be paired with a reset to 'source-over' — found ${opSets.length} set(s) and ${resets} reset(s), so one leaks into the next frame's background fill`)
     assert.ok(!/LIGHT_BLOB/.test(src),
       'the pre-baked offscreen lamp must stay deleted — its drawImage is the operation that produced nothing on the owner\'s device')
     // The player's lamp and the shafts must both be plain fills, i.e. the SAME primitive that was
@@ -6395,7 +6587,13 @@ function testChapterBehaviors() {
   {
     const run = createRun(makeMeta())
     run.weapons = []
-    run.player.x = 5000; run.player.y = 0 // far away: fixed seek direction, never contacts
+    // ON SCREEN, and on the x axis so the seek direction is a fixed +x for the whole window — the
+    // property this block actually needs. It used to be parked at 5000px for that, which stopped
+    // working when the dash grew its canCommitFrom gate (v7.x): out there the machine never leaves
+    // idle, and the assert below read idleRate === dashRate === full speed. 400 is inside the
+    // default headless viewport's half-width (viewW 480 - COMMIT_EDGE_PAD 28 = 452) with room to
+    // spare, and far enough that nothing ever contacts. See V.c3 for the off-screen half.
+    run.player.x = 400; run.player.y = 0
     const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 100 })
     e.flags = ['dashBurst']
     run.enemies.push(e)
@@ -6416,6 +6614,45 @@ function testChapterBehaviors() {
     const dashRate = dashDist / DASH_T
     assert(dashRate > idleRate * 3, `expected dash-phase speed >> idle-phase speed (idleRate=${idleRate.toFixed(1)}, dashRate=${dashRate.toFixed(1)})`)
     console.log(`PASS run V.c (dashBurst): idleRate=${idleRate.toFixed(1)}px/s dashRate=${dashRate.toFixed(1)}px/s`)
+  }
+
+  // (c3) dashBurst does NOT commit from off screen, and does not loiter out there either.
+  // Owner, 2026-08-16, about The Surf's Sea Roach: "like all other dashers in the game, they should
+  // [not] dash on you from outside your screen." diveBomb and pounce got that gate in v6.6.24 on the
+  // same complaint about the garden's wasps; dashBurst never did, because it is the one dash machine
+  // with NO distance test at all — a pure DASH_IDLE_T timer that fires wherever the body happens to
+  // be. Enemies spawn at run.viewRadius + SPAWN_RING, i.e. always off screen, so a fresh dasher
+  // could complete its whole wind-up out of sight and arrive already dashing.
+  //
+  // BOTH HALVES ARE ASSERTED, because fixing only the first would be worse than the bug. Gating the
+  // commit while leaving the idle phase at DASH_IDLE_SPEED_MUL (0.4) means the crowd crawls just out
+  // of view — the spawn ring is a RADIUS and the gate is a RECTANGLE, so on a phone's short axis
+  // that is several seconds of an empty-looking chapter. So: no dash off screen, AND full approach
+  // speed while it is out there.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.x = 5000; run.player.y = 0 // far outside viewW (480) — cannot be on screen
+    const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 100 })
+    e.flags = ['dashBurst']
+    run.enemies.push(e)
+
+    // Four full idle periods: on the old code this dashes three times over that window.
+    const steps = Math.round((DASH_IDLE_T * 4) / dt)
+    const startX = e.x
+    let sawDash = false
+    for (let i = 0; i < steps; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const cur = run.enemies.find((en) => en.id === e.id)
+      if (cur && cur._dashPhase === 'dash') sawDash = true
+    }
+    const after = run.enemies.find((en) => en.id === e.id)
+    assert(!sawDash, 'a dasher must never enter its dash phase while it is off screen')
+    // ...and it closed at full speed rather than the 0.4x idle crawl. Compared against the RATE, not
+    // a px literal, so the band survives a change to DASH_IDLE_T or to the window length above.
+    const rate = (after.x - startX) / (DASH_IDLE_T * 4)
+    assert(rate > 90, `an off-screen dasher must walk in at full speed, not the idle crawl (got ${rate.toFixed(1)}px/s of 100)`)
+    console.log(`PASS run V.c3 (dashBurst off-screen gate): no dash in ${(DASH_IDLE_T * 4).toFixed(1)}s out of view, closed at ${rate.toFixed(1)}px/s`)
   }
 
   // (c2) dashBurst COMMITS its heading: a dash must never track a player who sidesteps out of it.
@@ -18139,7 +18376,58 @@ function testTheDeep() {
     console.log(`PASS run DP.j (dark on every screen): radiusFull ${rf} < ${worst.toFixed(4)}, the tightest of ${SCREENS.length} viewports, and radiusEmpty still lights ${CHAPTERS.deep.resource.dark.radiusEmpty} of it`)
   }
 
-  console.log("PASS run DP (The Deep): the anglerfish is the only food and its mouth is the clock, leaving the jaws in time still costs the fish its turn, Scent marks a group and amplifies every source while buying speed, and Fin Hit is worth nothing standing still")
+  // (k) IT IS A MONSTROSITY, AND YOU CAN FIND IT IN THE DARK. Owner, 2026-08-17: "the anglerfish was
+  // supposed to be a huge monstrosity trap-like outer-wilds like. Not a small enemy." Two halves,
+  // and each one shipped broken in a way nothing else here could see:
+  //   SIZE lives on the ROSTER, not in the bake. drawAnglerfish is drawn at a fixed reference r and
+  //   syncEnemies scales it by e.radius / look.baseR, so archetype `normal` with no `radiusMul` is a
+  //   16px animal — two thirds of the player's 22 — whatever the drawing looks like on its own.
+  //   Asserted on a REAL SPAWNED BODY, because radiusMul has to survive spawnEnemy's archetype and
+  //   elite maths, not merely be present in the table.
+  {
+    const entry = CHAPTERS.deep.roster.find((r) => r.id === 'anglerfish')
+    assert.ok(entry.radiusMul >= 3,
+      `run DP.k: anglerfish radiusMul ${entry.radiusMul ?? 'unset'} — at archetype '${entry.archetype}' that is a ${ENEMIES[entry.archetype === 'normal' ? 'drone' : entry.archetype].radius * (entry.radiusMul ?? 1)}px body against a ${PLAYER.radius}px player. This is a landmark you decide to approach, not a mob.`)
+    Math.random = mulberry32(9182)
+    const run = createRun(meta, { chapter: 'deep', difficulty: 3 })
+    run.player.hp = run.player.maxHP = 1e9
+    let seen = null
+    for (let i = 0; i < 120 * 60 && !seen; i++) {
+      stepSim(run, { x: Math.cos(i / 900), y: Math.sin(i / 900) }, dt)
+      run.events.length = 0
+      if (run.phase === 'levelup') { applyChoice(run, 0); run.phase = 'playing' }
+      if (run.phase !== 'playing') break
+      seen = run.enemies.find((e) => e.rosterId === 'anglerfish' && !e._dead && !e.elite) || null
+    }
+    assert.ok(seen, 'run DP.k: no anglerfish spawned in 120s, so nothing was measured')
+    assert.ok(seen.radius > PLAYER.radius * 2,
+      `run DP.k: a spawned anglerfish came out at ${seen.radius}px against a ${PLAYER.radius}px player — radiusMul is in the table but is not reaching the body`)
+
+    // THE LURE HAS TO PUNCH THROUGH THE DARK. The esca is a sprite inside `world`; darkLayer is a
+    // multiply scrim above `world` that does not care how bright anything under it is. Shot before
+    // the fix (scripts/scenes/deep-lure.js, charge 20 on a phone): of four anglerfish at
+    // 90/180/300/410px, only the one already inside ANGLER_FEED_R was on screen. There is no way to
+    // catch that from the sim side — the mechanic is entirely a handful of lines in updateDark — so
+    // this is a source-text lint, the run UG.k trick.
+    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(/includes\('angler'\)/.test(rsrc) && /LURE_GLOW/.test(rsrc),
+      "run DP.k: render.js never looks for the `angler` flag while building the lightmap — the chapter's only refill is invisible at exactly the bar level that sends you looking for it")
+    // Anchored on two FUNCTION declarations, not on a section-header comment: 'storm overlay' also
+    // appears in a doc block 11k lines earlier, and indexOf takes the first — which silently slices
+    // a backwards, empty range and fails every assertion below with a misleading message.
+    const dStart = rsrc.indexOf('function updateDark')
+    const dark = rsrc.slice(dStart, rsrc.indexOf('function updateStorm', dStart))
+    assert.ok(dStart >= 0 && dark.length > 500, 'run DP.k: could not slice updateDark out of render.js — the anchors have moved')
+    assert.ok(/LURE_GLOW/.test(dark),
+      'run DP.k: LURE_GLOW is imported but not used inside updateDark — the glow has to be painted into the LIGHTMAP, not drawn over the scrim as another sprite')
+    assert.ok(/addColorStop\(0, rgbAt\(LURE_GLOW\.lit\)\)/.test(dark),
+      'run DP.k: the lure must be a PARTIAL hole (rgbAt(LURE_GLOW.lit)), never a punch-out — a full one hands the player the crowd standing next to the fish, and the dark is meant to cost information about the crowd')
+    assert.ok(LURE_GLOW.lit > 0 && LURE_GLOW.lit < 1,
+      `run DP.k: LURE_GLOW.lit ${LURE_GLOW.lit} — at 0 the beacon does not exist and at 1 it is a sun lamp`)
+    console.log(`PASS run DP.k (a monstrosity you can find): radiusMul ${entry.radiusMul}, a spawned body at ${seen.radius}px against a ${PLAYER.radius}px player, and the lure punched into the lightmap at ${LURE_GLOW.lit} lit over ${LURE_GLOW.frac}x its own radius`)
+  }
+
+  console.log("PASS run DP (The Deep): the anglerfish is a landmark-sized monstrosity whose lure survives the dark, it is the only food and its mouth is the clock, leaving the jaws in time still costs the fish its turn, Scent marks a group and amplifies every source while buying speed, and Fin Hit is worth nothing standing still")
 }
 
 // ---- run MT: the in-run controls do not depend on a compatibility click ------------------------
