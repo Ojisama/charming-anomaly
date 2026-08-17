@@ -68,7 +68,8 @@ function selectedChapterMeta(meta) {
 // initUI):
 //   - unlocked: a SPINE in its Book's binding cloth (BOOKS[].cloth), carrying the chapter icon, its
 //     name set VERTICALLY in foil, and one gold star per difficulty won. The chapter you last
-//     played stands proud of the row with a pink ribbon in it.
+//     played stands proud of the row with a pink ribbon in it. A volume's HEIGHT is how far up its
+//     difficulty ladder you have got (volH) — shortest never won, tallest cleared.
 //   - locked, in a Book you have started: the volume is turned FORE-EDGE OUT — its boards seen
 //     edge-on framing a recessed page block, with a padlock printed across the leaves. You can see
 //     a book is there without being told which one.
@@ -302,11 +303,17 @@ export function initUI(hooks) {
   // This replaced extracting the textures live at boot. That was always in sync but cost a GPU
   // readback per creature before the first paint, which on a slow context was seconds of black.
 
-  // Volume heights, cycled by position so a shelf is not a bar chart but never reshuffles between
-  // renders either. Offset per Book so two étages do not share a silhouette.
-  // Kept within 6 points: the tallest name ('Undergrowth') has to fit the SHORTEST spine it can
-  // land on, and a wider spread starves it.
-  const VOL_H = [100, 96, 99, 94, 98, 95, 100, 97]
+  // Volume height is PROGRESS: 94% for a chapter whose ladder you have never beaten, 100% once you
+  // have won its LAST difficulty — so a finished shelf stands even and a gap in the row is a
+  // chapter still owing you something. Normalised by the chapter's own cap (The Blank's is 3), or
+  // it could never reach full height.
+  // Kept within 6 points, as the old positional cycle was: the tallest name ('Undergrowth') has to
+  // fit the SHORTEST spine, and a wider spread starves it.
+  const VOL_H_MIN = 94, VOL_H_SPAN = 6
+  function volH(id) {
+    const won = Math.max(0, Number(meta.chapters?.[id]?.won) || 0)
+    return VOL_H_MIN + VOL_H_SPAN * Math.min(1, won / chapterMaxDifficulty(id))
+  }
 
   // Printed on the page edges of a turned-around volume. Inline SVG, not the 🔒 emoji: a colour
   // emoji on a page edge reads as a sticker stuck to the book rather than as fore-edge printing.
@@ -317,9 +324,9 @@ export function initUI(hooks) {
   // One volume. A locked one is still a BUTTON and still selectable — tapping it puts its unlock
   // condition in the detail panel, which is what the old locked "???" hero card did. It carries no
   // name and no icon, so selecting it reveals nothing the shelf was hiding.
-  function volHtml(vol, i, off) {
+  function volHtml(vol) {
     const sel = vol.id === browseChapterId
-    const h = VOL_H[(i + off) % VOL_H.length]
+    const h = volH(vol.id)
     if (!vol.unlocked) {
       return `<button class="vol vol--turned${sel ? ' vol--sel' : ''}" data-vol="${vol.id}"
           style="--vh:${h}%" aria-label="${t('locked chapter')}">
@@ -348,9 +355,9 @@ export function initUI(hooks) {
 
   // One étage: its row of volumes and the board they stand on, with the Book's brass plate.
   // The plate is a LABEL, not a control — nothing on the shelf is tappable except a volume.
-  function etageHtml(shelf, n, i) {
+  function etageHtml(shelf, n) {
     const row = shelf.started
-      ? shelf.volumes.map((v, k) => volHtml(v, k, i * 3)).join('')
+      ? shelf.volumes.map((v) => volHtml(v)).join('')
       : '<span class="dust-sheet" aria-hidden="true"></span>'
     const label = shelf.started
       ? `${tt('Book {n}', { n })} · ${t(shelf.name)}`
@@ -383,7 +390,7 @@ export function initUI(hooks) {
     const shelves = titleBookshelf(meta)
     // --shelves is the row-height DIVISOR (see .shelf-row, styles.css): the case fills the screen
     // whatever the Book count, instead of being sized for two and leaving one standing in bare desk.
-    return `<div class="bookcase" style="--shelves:${shelves.length}">${shelves.map((s, i) => etageHtml(s, i + 1, i)).join('')}</div>`
+    return `<div class="bookcase" style="--shelves:${shelves.length}">${shelves.map((s, i) => etageHtml(s, i + 1)).join('')}</div>`
   }
 
   // 3 booster slots: session-selected consumables fill left-to-right, the rest show ＋. Any slot

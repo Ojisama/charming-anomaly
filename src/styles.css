@@ -1037,7 +1037,7 @@ body {
    still visibly one of that Book's.
    Volume WIDTH is flex with a cap, never fixed px: Book 1 is seven chapters and eight once The
    Blank is earned, so the row has to absorb the extra rather than push it off the shelf. Volume
-   HEIGHT rides --vh (a percentage cycled by position in ui.js) so the row is not a bar chart. */
+   HEIGHT rides --vh (a percentage set in ui.js from the highest difficulty won in that chapter). */
 .bookcase {
   /* width:100% is load-bearing: .screen--title centres its children, so without it the case
      shrinks to its content and the volumes' `flex: 1 1 0` has nothing to expand into — seven
