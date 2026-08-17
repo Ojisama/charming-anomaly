@@ -4871,6 +4871,118 @@ export function createRenderer(app) {
       g.beginPath().moveTo(-9, -2).lineTo(9, -3).stroke({ width: 1, color: line, alpha: 0.5 })
       T.bone = bake(g)
     }
+    // Half-length the sunken ship is BAKED at. Not its size on screen — updateWreckHull scales the
+    // sprite so that CHAPTERS.wreck.render.hull.len is the only place the real dimension is stated.
+    // 220 rather than something huge because a bake is a texture: this is the resolution the hull is
+    // sampled at, and at the alpha and distance it draws it never earns more.
+    const HULL_REF = 220
+    // ---- The Wreck's obstacles (v7.x) ----------------------------------------------------------
+    // THE CHAPTER IS CALLED THE WRECK AND UNTIL THIS BLOCK IT CONTAINED NO SHIP. Its nine obstacles
+    // were drawn by BIOMES.wreck = BIOME_REEF, so the hull plates its own config comment describes
+    // came out as CORAL HEADS AND SEA WHIPS (owner, 2026-08-17: "there is no sunken ship asset or
+    // design in the level").
+    //
+    // Three bakes, PLAN VIEW and MASS-CENTRED, on the `root`/`bone` idiom rather than the skies'
+    // `topDown` plan system — these lie on the bottom, they are not buildings standing up, and
+    // borrowing `rubble` (the one existing debris bake) was rejected for exactly that: it is drawn
+    // with a lit top face and a shaded base, i.e. a 3/4 elevation, which is the projection error
+    // that cost a whole version on the Trash Tornado.
+    //
+    // Palette is authored HOT for the same reason BIOME_TRAWL's own block records: floorTint
+    // multiplies everything, and here it is 0x9ec4b8, which takes noticeably more red than green.
+    // A rust that looks right in a swatch lands olive on screen.
+    {
+      // hull plate: a buckled sheet of ship plating, torn off along one edge. The rivet line is what
+      // makes it a SHIP and not a rock — it is the only man-made repeat in the chapter's floor.
+      const g = new Graphics()
+      const steel = 0x8a6247
+      const line = 0x2e1d14
+      g.poly([-34, -6, -19, -21, 12, -24, 33, -11, 30, 12, 4, 22, -25, 16]).fill(steel).stroke({ width: 1.8, color: line })
+      // the tear: a ragged edge eating into the plate, so it reads as broken off rather than cut
+      g.poly([12, -24, 6, -13, 17, -8, 8, 1, 20, 6, 33, -11]).fill({ color: 0x5e412f, alpha: 0.55 })
+      g.beginPath() // rivets, two runs parallel to the surviving edges
+      for (let i = 0; i < 7; i++) g.circle(-27 + i * 8.6, -8 + i * 3.1, 1.5)
+      for (let i = 0; i < 5; i++) g.circle(-20 + i * 8.2, 12 - i * 1.1, 1.4)
+      g.fill({ color: 0x3b2618, alpha: 0.7 })
+      g.beginPath() // buckle creases — hairline, the "crushed" read
+      g.moveTo(-19, -21).lineTo(-8, 14)
+      g.moveTo(-2, -23).lineTo(6, 21)
+      g.stroke({ width: 1.2, color: 0x5a3d2b, alpha: 0.55 })
+      T.hullPlate = bake(g)
+    }
+    {
+      // hull rib: a frame member out of the open side of the boat, curved the way a hull is curved.
+      // taperStroke for the same reason the root arch uses it — a constant-width arc reads as tubing.
+      const g = new Graphics()
+      const steel = 0x7d5a42
+      taperStroke(g, [[-42, 10], [-24, -13], [2, -22], [27, -13], [42, 9]], 9, 4, steel, 4)
+      // two stubs of the plating still riveted to it, which is what says RIB rather than pipe
+      for (const [x, y, w] of [[-19, -12, 13], [14, -14, 11]]) {
+        g.rect(x - w / 2, y - 3, w, 7).fill({ color: 0x6b4c37, alpha: 0.85 }).stroke({ width: 1.1, color: 0x2e1d14 })
+      }
+      g.beginPath()
+      for (let i = 0; i < 6; i++) g.circle(-32 + i * 13, 2 - Math.abs(i - 2.5) * 5.5, 1.4)
+      g.fill({ color: 0x33210f, alpha: 0.65 })
+      T.hullRib = bake(g)
+    }
+    {
+      // drum: a barrel on its side, and it is THE OBJECT THIS CHAPTER'S HAZARD COMES OUT OF — the
+      // leak's slicks are what these spilled (see CHAPTERS.wreck.signature). Drawn open-ended and
+      // stained, so a player who never reads a word can connect the barrels to the bad water.
+      const g = new Graphics()
+      const body = 0x9a7346
+      const line = 0x2b1c12
+      g.roundRect(-26, -14, 52, 28, 5).fill(body).stroke({ width: 1.8, color: line })
+      g.beginPath() // rolling hoops
+      for (const x of [-11, 10]) g.moveTo(x, -14).lineTo(x, 14)
+      g.stroke({ width: 3, color: 0x6f4f2d })
+      g.ellipse(-26, 0, 4.5, 13).fill(0x3a2718).stroke({ width: 1.4, color: line })   // the open end
+      // what came out of it, pooled at the open end. The one saturated note in the chapter's floor.
+      g.ellipse(-38, 3, 13, 8).fill({ color: 0x2d3b2a, alpha: 0.5 })
+      g.ellipse(-33, 1, 8, 5).fill({ color: 0x1f2e22, alpha: 0.45 })
+      T.drum = bake(g)
+    }
+    {
+      // THE SUNKEN SHIP — the thing the chapter is named after and did not contain. A trawler on the
+      // bottom, seen from directly overhead like everything else that is not a building, and BROKEN
+      // IN TWO: the gap between the sections is the single detail that makes it a wreck rather than
+      // a boat, and at the alpha this draws at it is most of what survives.
+      //
+      // Baked at HULL_REF half-length and scaled by CHAPTERS.wreck.render.hull.len — so the config
+      // number is the only place the size is stated. Drawn in near-neutral values because the layer
+      // tints and fades the whole thing (it is hazed by the water column between you and it); every
+      // colour here is a VALUE relationship, not a hue.
+      const g = new Graphics()
+      const plate = 0xffffff
+      const deck = 0xd8d8d8
+      const dark = 0x6a6a6a
+      const L = HULL_REF, B = HULL_REF * 0.215
+      // Forward section: pointed bow, full midships, torn off just abaft of amidships.
+      g.poly([L, 0, L * 0.74, -B * 0.6, L * 0.24, -B, -L * 0.06, -B * 0.95,
+              -L * 0.02, B * 0.95, L * 0.24, B, L * 0.74, B * 0.6]).fill(plate)
+      // Aft section, offset and canted — it settled separately, which is why there is a gap at all.
+      g.poly([-L * 0.16, -B * 0.9, -L * 0.66, -B * 0.99, -L, -B * 0.8,
+              -L, B * 0.72, -L * 0.66, B * 0.9, -L * 0.16, B * 0.78]).fill(plate)
+      // Deck inset: a second, smaller outline inside the hull line, which is what reads as freeboard
+      // from above. Without it the two polys are flat cut-outs and the boat has no thickness at all.
+      g.poly([L * 0.86, 0, L * 0.66, -B * 0.44, L * 0.2, -B * 0.78, -L * 0.08, -B * 0.74,
+              -L * 0.05, B * 0.74, L * 0.2, B * 0.78, L * 0.66, B * 0.44]).fill({ color: deck, alpha: 0.55 })
+      // Deckhouse, aft on the forward section — the block a fishing boat is recognisable by.
+      g.roundRect(-L * 0.02, -B * 0.5, L * 0.2, B, L * 0.03).fill({ color: deck, alpha: 0.8 }).stroke({ width: L * 0.008, color: dark, alpha: 0.5 })
+      // Hold hatches forward, and the trawl gantry over the stern.
+      for (const hx of [L * 0.3, L * 0.5]) g.rect(hx, -B * 0.34, L * 0.11, B * 0.68).fill({ color: dark, alpha: 0.32 })
+      g.beginPath()
+      g.moveTo(-L * 0.6, -B * 0.8).lineTo(-L * 0.88, -B * 0.2).moveTo(-L * 0.6, B * 0.8).lineTo(-L * 0.88, B * 0.2)
+      g.moveTo(-L * 0.88, -B * 0.2).lineTo(-L * 0.88, B * 0.2)
+      g.stroke({ width: L * 0.014, color: deck, alpha: 0.7 })
+      // The break: ragged plating either side of the gap, so the two sections read as TORN apart
+      // rather than as two boats parked end to end.
+      g.beginPath()
+      g.moveTo(-L * 0.06, -B * 0.95).lineTo(-L * 0.11, -B * 0.5).lineTo(-L * 0.04, -B * 0.1).lineTo(-L * 0.1, B * 0.4).lineTo(-L * 0.02, B * 0.95)
+      g.moveTo(-L * 0.16, -B * 0.9).lineTo(-L * 0.22, -B * 0.4).lineTo(-L * 0.14, B * 0.1).lineTo(-L * 0.2, B * 0.78)
+      g.stroke({ width: L * 0.01, color: dark, alpha: 0.8 })
+      T.wreckHull = bake(g)
+    }
     {
       // fire hydrant (city): upright, origin at the base. Dome cap, side nozzles, base flange —
       // a silhouette every player already knows, so it only needs its proportions right.
@@ -7988,7 +8100,20 @@ export function createRenderer(app) {
   // (see updateGroundField). blotchLayer above it now carries only texture. Separating the two is the
   // fix for the checkerboard — see updateGroundField's header for the full account.
   const groundLayer = new Container()
-  floorLayer.addChild(groundLayer, blotchLayer, roadLayer, roadDecalLayer, junctionLayer, ruinLayer,
+  // v7.x The Wreck: THE SUNKEN SHIP, on parallax. Owner: "I'd like a big sunken ship behind with
+  // parallax effect."
+  //
+  // WHY IT IS A CHILD OF floorLayer RATHER THAN A STAGE LAYER, which is the one structural decision
+  // here: groundLayer paints the terrain colour as an OPAQUE continuous field, so anything under
+  // `world` is simply not visible. It therefore sits directly above the ground colour and below
+  // every prop and blotch — which is also what is physically true, since silt settles ON a wreck.
+  //
+  // The parallax is bought by cancelling part of its own parent's transform: world sits at (cx, cy),
+  // so a child offset by cx * (p - 1) lands at cx * p, i.e. it scrolls at p of the camera's rate.
+  // In a game whose camera looks straight DOWN, slower-than-the-world reads as further from the
+  // camera, and further down is DEEPER — a wreck on a terrace below you, seen through the water.
+  const hullLayer = new Container()
+  floorLayer.addChild(groundLayer, hullLayer, blotchLayer, roadLayer, roadDecalLayer, junctionLayer, ruinLayer,
     bigLayer, midLayer, detailLayer, clutterLayer, edgeLayer)
 
   const entitiesLayer = new Container()
@@ -8376,10 +8501,15 @@ export function createRenderer(app) {
   // be a mouth behind its own head, and a Scent outline under the crowd would be hidden by exactly
   // the bodies it is marking.
   const deepG = new Graphics()
+  // v7.x The Wreck: pollution spills (run.slicks). Floor-level, immediately over the acid pools it
+  // is a cousin of and UNDER the obstacles — a drum lying in its own leak has to sit on top of it.
+  // One cleared-and-redrawn Graphics rather than a pool: OBSTACLE_STREAM_RADIUS and a 900px cell put
+  // at most a handful on screen, and the outline is per-slick anyway (see lobePoly).
+  const slickG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, trailLayer, webLayer, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
@@ -9289,6 +9419,58 @@ export function createRenderer(app) {
     // field is the chapter's terrain and swimming between hulls is the fantasy.
     obstacle: { clumps: OBSTACLE_CLUMPS, tint: 0x6b5c4e, foot: 0x070c12 },
   }
+  // ---- The Wreck (v7.x Book 2 ch 4) — silt, steel and spilled cargo ---------------------------
+  // Its own family at last. This chapter shipped as `wreck: BIOME_REEF` — a rushed borrow that put
+  // CORAL HEADS AND SEA WHIPS on a sea floor whose whole premise is a dead trawler, and it is what
+  // the owner saw ("there is no sunken ship asset or design in the level").
+  //
+  // The method is BIOME_TRAWL's, and so are its two hard-won rules, because this floor is the same
+  // kind of place one chapter early:
+  //   NOTHING GROWS AND NOTHING STANDS UP. Every entry lies down. This is a garden prop set, so an
+  //   upright member reads as a plant however it is tinted — the failure that cost the Trawl three
+  //   probe frames — and a wreck field with sea grass on it is The Shelf.
+  //   NO RADIAL ROSETTES. No `cluster_*` anywhere: a pale symmetric radially-branching shape on
+  //   cold blue reads as a SNOWFLAKE, whatever the tint is called. The lobed `bush_*` masses read
+  //   as crumpled sheet, which is what fallen plating and rotted netting actually are.
+  // The one thing this family adds that The Trawl's does not is RUST — the warm, saturated note.
+  // Everything human down here is oxidising, and it is the only warmth in the chapter.
+  // ⚠ Tints authored HOT: floorTint 0x9ec4b8 = (0.62, 0.77, 0.72), which takes more red than green,
+  // so a rust that reads right in a swatch lands olive on screen.
+  const RUST_TINTS = [0xc4703a, 0xb0632f]       // oxidised steel — the chapter's only warm colour
+  const PLATE_TINTS = [0x7d8a90, 0x6e7a80]      // painted plating with the paint mostly gone
+  const SILT_WRECK_TINTS = [0x5d6b64, 0x53605a] // bottom sediment, the dullest thing here
+  const BIG_WRECK = [
+    // Fallen sheet: `bush_b`'s lobed mass, which The Trawl reads as collapsed plastic and the reef
+    // reads as brain coral. At this size, rusted and lying down, it is a section of deck that came
+    // off the boat.
+    { name: 'bush_b', tints: RUST_TINTS, upright: false, size: [94, 142] },
+    { name: 'bush_a', tints: PLATE_TINTS, upright: false, size: [86, 132] },
+  ]
+  const MID_WRECK = [
+    { name: 'bush_a', tints: RUST_TINTS, upright: false, size: [46, 74] },
+    { name: 'bush_b', tints: PLATE_TINTS, upright: false, size: [42, 68] },
+    { name: 'bush_a', tints: SILT_WRECK_TINTS, upright: false, size: [40, 64] },
+    // Rotted netting silted into the bottom — the wreck's own gear, not The Trawl's live net.
+    { name: 'bush_b', tints: SILT_WRECK_TINTS, upright: false, size: [38, 60] },
+  ]
+  const DETAIL_WRECK = [
+    // Rust flake and shell grit. Warmer and dimmer than The Trawl's marine snow: this is stuff that
+    // came off the boat, not stuff falling from the surface.
+    { name: 'scatter_a', tint: 0xd8a271, alpha: 0.3, size: [18, 33] },
+    { name: 'scatter_b', tint: 0xa8b0ad, alpha: 0.28, size: [15, 29] },
+    { name: 'pebble', baked: true, scale: [0.6, 1.2] },
+  ]
+  const BIOME_WRECK = {
+    big: BIG_WRECK, mid: MID_WRECK, detail: DETAIL_WRECK,
+    // THE HULL PLATES, AT LAST DRAWN AS HULL PLATES. `baked`, not `clumps`: the clump path is
+    // foliage mounds, which is what made these coral. Three plan-view bakes on the `root`/`bone`
+    // idiom — see their block above, and note `drum` is the object the chapter's leak comes out of,
+    // so the hazard has a visible cause on the floor rather than being weather.
+    // Tint is near-neutral because these bakes carry their own rust; foot is dark but NOT black —
+    // the same call BIOME_SURF's block explains, since a pure-black ring on this floor punches a
+    // manhole. Re-run scripts/obstacle-contrast.mjs after touching either.
+    obstacle: { baked: ['hullPlate', 'hullRib', 'drum'], tint: 0xe8ddd2, foot: 0x101d24 },
+  }
   const BIOMES = {
     body: BIOME_BODY,
     pond: BIOME_POND,
@@ -9311,17 +9493,12 @@ export function createRenderer(app) {
     deep: BIOME_DEEP,
     // AND A SIXTH TIME. Five consecutive comments above this line warn about this exact silent
     // failure and The Wreck shipped it anyway: with no entry here chapterBiome falls back to
-    // BIOMES.body, so a chapter on the sea floor drew VILLI, PLATELETS and PLASMA MOTES. It was in
-    // a screenshot that had already been taken and read — for the player sprite, not the floor.
-    //   The second-order failure is worse than wrong props and is why this line is not optional for
-    // THIS chapter specifically: BIOME_BODY has never needed an obstacle `foot`, because
-    // CHAPTERS.body.obstacles is null. The Wreck declares nine. `tintMul(undefined, floorAt)` is
-    // 0x000000, so every hull-plate footprint would have drawn as a hard pure-black ring at full
-    // alpha on pale blue water.
-    //   BIOME_REEF by reference, which is exactly what CHAPTERS.wreck.render claims to borrow —
-    // sharing the object is safe here because a biome is read-only decor, unlike the CHAPTERS
-    // entries whose own header explains why they are whole literals.
-    wreck: BIOME_REEF,
+    // BIOMES.body, so a chapter on the sea floor drew VILLI, PLATELETS and PLASMA MOTES.
+    //   It then shipped `wreck: BIOME_REEF` as the fix, which cleared the crash risk and left the
+    // chapter drawing CORAL HEADS AND SEA WHIPS over a dead trawler. That is the version the owner
+    // saw: "there is no sunken ship asset or design in the level." Having an entry here is
+    // necessary and is not sufficient — the entry has to be the chapter's own place.
+    wreck: BIOME_WRECK,
     garden: BIOME_GARDEN,
     undergrowth: {
       big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,
@@ -10411,6 +10588,85 @@ export function createRenderer(app) {
       pts.push(ox + Math.cos(a) * rr, oy + Math.sin(a) * rr)
     }
     return pts
+  }
+
+  // ---- The Wreck's sunken ship, on parallax (v7.x) ---------------------------------------------
+  // A GRID, NOT ONE SHIP, and on an infinite map that is the only honest answer: a single hull at
+  // the run origin is a landmark you swim away from in twenty seconds, after which the chapter is
+  // called The Wreck and has no wreck in it. See CHAPTERS.wreck.render.hull for the spacing and for
+  // why parallax reads as DEPTH under a camera that looks straight down.
+  //
+  // The whole thing is four pooled sprites: `cell` is ~2.4 screen-heights, so at most a couple of
+  // cells intersect the view at once and the pool is a safety margin rather than a working set.
+  const HULL_POOL = 4
+  const hullSprites = []
+  function updateWreckHull(cx, cy) {
+    const cfg = chapterRender.hull
+    if (!cfg) { hullLayer.visible = false; return }
+    hullLayer.visible = true
+    // Cancel part of the parent's transform: world sits at (cx, cy), so this lands at cx * parallax.
+    hullLayer.position.set(cx * (cfg.parallax - 1), cy * (cfg.parallax - 1))
+    // Where the viewport lands in PARALLAX space. -cx is the camera's world origin, so -cx * p is
+    // the same point measured in the slower-scrolling frame the hulls are placed in.
+    const px = -cx * cfg.parallax
+    const py = -cy * cfg.parallax
+    const cs = cfg.cell
+    const halfW = viewW() / 2 + cfg.len
+    const halfH = viewH() / 2 + cfg.len
+    const i0 = Math.floor((px - halfW) / cs), i1 = Math.floor((px + halfW) / cs)
+    const j0 = Math.floor((py - halfH) / cs), j1 = Math.floor((py + halfH) / cs)
+    let n = 0
+    for (let i = i0; i <= i1 && n < HULL_POOL; i++) {
+      for (let j = j0; j <= j1 && n < HULL_POOL; j++) {
+        // Hashed off the CELL, not off a counter, so a hull keeps its identity when the player
+        // leaves and comes back — the same rule streamObstacles' skin cache follows.
+        const h = hash(i * 3.7 + j * 11.3 + 5.1)
+        if (h > 0.55) continue          // not every cell holds one; a regular lattice reads as tiling
+        let sp = hullSprites[n]
+        if (!sp) {
+          sp = new Sprite(T.wreckHull.tex)
+          sp.anchor.set(T.wreckHull.ax, T.wreckHull.ay)
+          hullLayer.addChild(sp)
+          hullSprites[n] = sp
+        }
+        sp.visible = true
+        // Jitter inside the cell and a full-circle heading, both hashed off the cell: a field of
+        // wrecks all pointing the same way is a fleet, not a graveyard.
+        sp.position.set(
+          (i + 0.5) * cs + (hash(i * 7.1 + j * 2.9 + 13.3) - 0.5) * cs * 0.5,
+          (j + 0.5) * cs + (hash(i * 2.3 + j * 5.7 + 29.7) - 0.5) * cs * 0.5,
+        )
+        sp.rotation = hash(i * 1.9 + j * 8.3 + 41.9) * Math.PI * 2
+        sp.scale.set(cfg.len / (HULL_REF * 2))
+        sp.tint = cfg.tint
+        sp.alpha = cfg.alpha
+        n++
+      }
+    }
+    for (let k = n; k < hullSprites.length; k++) hullSprites[k].visible = false
+  }
+
+  // ---- The Wreck's pollution spills (v7.x) -----------------------------------------------------
+  // run.slicks, drawn from the SAME lobePoly the sim tests standing-in against (inLobe, config.js) —
+  // one definition, two consumers, which is the only reason the edge you can see is the edge that
+  // hurts. A rim stroke on top because a hazard's boundary is a contract the player learns by eye,
+  // the same rule an obstacle footprint follows.
+  function syncSlicks(run) {
+    slickG.clear()
+    if (!run.slicks || !run.slicks.length) return
+    for (const sl of run.slicks) {
+      const pts = lobePoly(sl.r, sl.shape, sl.rot, sl.x, sl.y)
+      // The film itself: dark and dead, because that is what it does to the water.
+      slickG.poly(pts).fill({ color: 0x14181a, alpha: 0.5 })
+      // The sheen. Two offset inner lobes in oil's own colours, breathing on animT so the surface
+      // is not a static decal — a spill that never moves reads as a hole in the floor.
+      const br = 1 + Math.sin(animT * 0.6 + sl.x * 0.01) * 0.03
+      slickG.poly(lobePoly(sl.r * 0.72 * br, sl.shape, sl.rot + 0.4, sl.x - sl.r * 0.08, sl.y + sl.r * 0.05))
+        .fill({ color: 0x6a3f7a, alpha: 0.3 })
+      slickG.poly(lobePoly(sl.r * 0.46 * br, sl.shape, sl.rot - 0.6, sl.x + sl.r * 0.1, sl.y - sl.r * 0.06))
+        .fill({ color: 0x3f6a5a, alpha: 0.28 })
+      slickG.poly(pts).stroke({ width: 3, color: 0x2b2016, alpha: 0.72 })
+    }
   }
 
   const shaftPool = []
@@ -14422,6 +14678,21 @@ export function createRenderer(app) {
   const GASH_FILL = 0xf0834a    // warm rust, straight off the reference
   const GASH_RIM = 0x5c1c0a     // dark rim: what actually separates the gashes on the loam floor
   const CLAW_DRIFT = 0.10       // fraction of range the tines rake outward as they fade
+  // GNASH'S JAWS (v7.x, The Wreck). The same pool, the same baked gash, laid out as a MOUTH instead
+  // of a paw — and the difference between the two reads is entirely in these four numbers, which is
+  // why this is a table and not a second rig. A rake is three gashes at STAGGERED reaches splaying
+  // slightly and drifting OUTWARD; a bite is two arcs at ONE reach, far apart, CLOSING onto the
+  // bearing as they fade. The faint third tine sits at the centre so the moment they meet has
+  // something in it rather than being a gap.
+  const BITE_TINE_R = [1.0, 1.0, 0.6]
+  const BITE_TINE_FAN = [-0.34, 0.34, 0]
+  const BITE_FAN_MAX = 0.34     // == max |BITE_TINE_FAN|, for the q solve in updateClaws
+  const BITE_TINE_A = [1.0, 1.0, 0.4]
+  // Fraction of the fan spent by the end of the life. UNDER 1 ON PURPOSE: at 1 the jaws pass
+  // through each other and the last frame is two gashes crossed like scissors, which is a shear and
+  // not a bite. They should meet and stop.
+  const BITE_CLOSE = 0.78
+  const BITE_DRAW_IN = 0.12     // fraction of range the jaws come in as they close
   const claws = []
   for (let i = 0; i < MAX_CLAWS; i++) claws.push({ live: false, x: 0, y: 0, angle: 0, range: 0, arc: 0, t: 0, dur: 0.16, root: null, tines: null })
   let clawCursor = 0
@@ -14457,7 +14728,11 @@ export function createRenderer(app) {
     s.anchor.set(gashTex.ax, gashTex.ay) // the arc's center → sits on the player
     return s
   }
-  function spawnClaw(x, y, angle, range, arc) {
+  // `bite` (v7.x, The Wreck's Gnash) picks the JAW layout out of the BITE_* tables instead of the
+  // rake's. Deliberately the same pool and the same three pooled tines rather than a second rig:
+  // both tables are three entries long precisely so a slot can be recycled between the two weapons
+  // without rebuilding its children, which is the one thing that would have forced a split.
+  function spawnClaw(x, y, angle, range, arc, bite = false) {
     const cp = claws[clawCursor]
     clawCursor = (clawCursor + 1) % MAX_CLAWS
     if (!cp.root) {
@@ -14467,6 +14742,7 @@ export function createRenderer(app) {
       whipLayer.addChild(cp.root)
     }
     cp.live = true
+    cp.bite = bite
     cp.x = x; cp.y = y; cp.angle = angle; cp.range = range; cp.arc = arc || 1
     cp.t = 0
     cp.root.visible = true
@@ -14479,12 +14755,23 @@ export function createRenderer(app) {
       const k = cp.t / cp.dur
       cp.root.position.set(cp.x, cp.y)
       const flash = Math.sin(Math.PI * k) // ramp in then out, exactly like the whip's
+      // Which animal this slot is drawing. A bite spends its whole angular budget on the GAP
+      // between the jaws, so it must not also sweep — a mouth that slides sideways while it closes
+      // is a rake again.
+      const tR = cp.bite ? BITE_TINE_R : CLAW_TINE_R
+      const tF = cp.bite ? BITE_TINE_FAN : CLAW_TINE_FAN
+      const tA = cp.bite ? BITE_TINE_A : CLAW_TINE_A
+      const fanMax = cp.bite ? BITE_FAN_MAX : CLAW_FAN_MAX
+      const sweepAmt = cp.bite ? 0 : CLAW_SWEEP
       // The whole rake sweeps only a LITTLE across the wedge (the fan already covers it) and rakes
       // outward as it fades — a swing would re-read as the whip.
-      const sweep = cp.angle + cp.arc * (k - 0.5) * CLAW_SWEEP
+      const sweep = cp.angle + cp.arc * (k - 0.5) * sweepAmt
+      // THE CLOSE. The bite's fan shrinks toward the bearing over its life and its reach comes in a
+      // little with it; the rake does neither (fanK 1, and its own outward drift below).
+      const fanK = cp.bite ? 1 - BITE_CLOSE * k : 1
       // ...and it lands ON `range`, never past it: rake outward INTO the hitbox edge, don't
       // overshoot it (a plain 1 + DRIFT*k put the outer gash 10% beyond what the sector tests).
-      const reach = 1 - CLAW_DRIFT + CLAW_DRIFT * k
+      const reach = cp.bite ? 1 - BITE_DRAW_IN * k : 1 - CLAW_DRIFT + CLAW_DRIFT * k
       // The gash is baked at a FIXED GASH_SPAN, but the wedge the sim tests is cp.arc — which
       // changes with level and with wideRake. Squash across the bearing so the DRAWN wedge is the
       // TESTED wedge: scaling y by q maps a local angle a to atan(q*tan a), so the span follows q.
@@ -14499,18 +14786,18 @@ export function createRenderer(app) {
       // epic picks to five mixed rare/epic ones — inside what a real build rolls. Past this point
       // the drawn wedge stops tracking the hitbox (it saturates instead of inverting), which is the
       // lesser of the two wrongs and the only one that still looks like a claw.
-      const budget = Math.min(cp.arc * (0.5 - CLAW_FAN_MAX - CLAW_SWEEP * 0.5), Math.PI * 0.5 - 0.02)
+      const budget = Math.min(cp.arc * (0.5 - fanMax - sweepAmt * 0.5), Math.PI * 0.5 - 0.02)
       const q = Math.tan(budget) / Math.tan(GASH_SPAN * 0.5)
       for (let i = 0; i < cp.tines.length; i++) {
         const tine = cp.tines[i]
-        const rad = cp.range * CLAW_TINE_R[i] * reach
+        const rad = cp.range * tR[i] * reach
         // Anchored at its arc's center and bulging +x from it, so rotation IS the bearing and the
         // x-scale IS the reach. Thickness is radial, so near the belly it rides sx and the squash
         // barely blunts the tips.
         const sx = rad / GASH_R
         tine.scale.set(sx, sx * q)
-        tine.rotation = sweep + CLAW_TINE_FAN[i] * cp.arc
-        tine.alpha = Math.pow(flash, 1.3) * 0.95 * CLAW_TINE_A[i]
+        tine.rotation = sweep + tF[i] * cp.arc * fanK
+        tine.alpha = Math.pow(flash, 1.3) * 0.95 * tA[i]
       }
     }
   }
@@ -15580,6 +15867,13 @@ export function createRenderer(app) {
           // would rattle the screen nonstop.
           spawnClaw(e.x, e.y, e.angle, e.range, e.arc)
           addShake(1.2, 0.07)
+          break
+        case 'gnash':
+          // Gnash (The Wreck): the same pooled tines as the rake above, laid out as JAWS that close
+          // — see the BITE_* tables. Shake a touch heavier than the rake's and on a slower cadence:
+          // this is a committed bite, not a shred.
+          spawnClaw(e.x, e.y, e.angle, e.range, e.arc, true)
+          addShake(1.8, 0.09)
           break
         case 'strafeLock':
           // Jet strafe wind-up (v5.9.1, see updateStrafeLocks above) — a WARNING, not an impact, so
@@ -17055,6 +17349,9 @@ export function createRenderer(app) {
     world.position.set(cx * mapZoom, cy * mapZoom)
     updateGroundField(cx, cy)
     updateFloorLayer(cx, cy)
+    // v7.x The Wreck: the sunken ship behind. Camera-driven like its two neighbours rather than
+    // run-driven — it is scenery in a parallax frame, with no sim entity anywhere behind it.
+    updateWreckHull(cx, cy)
     updateCaustics(cx, cy, dt)
     // v5.10 skies ground enumeration (spec §4.3): junctions and crush ruins are placed
     // ANALYTICALLY from the road grid + the render-local crush ledger, not by an extra
@@ -17086,6 +17383,7 @@ export function createRenderer(app) {
     syncWells(run)
     syncBinds(run)
     syncPools(run.pools || [])
+    syncSlicks(run)   // v7.x The Wreck: pollution spills (no-op in every other chapter)
     syncTrails(run.trails || [])
     syncWebs(run.webs || [], CHAPTERS[run.chapter]?.render?.webLook === 'slime')
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
@@ -17512,6 +17810,13 @@ export function createRenderer(app) {
     // here too: a chapter change that turns the water off would otherwise leave last run's warm
     // discs burning over a beach that no longer has sandbars under them.
     for (const s of drySandPool) s.visible = false
+    // The Wreck's two (v7.x), named here for the same reason the three above are: neither is in the
+    // flat-pool sweep. `hullSprites` lives in floorLayer rather than in the entity pools, and its
+    // own updater hides what it does not use — but only while a `hull` config exists, so leaving
+    // this out would carry a sunken trawler into whatever chapter came next. `slickG` is a
+    // redrawn Graphics, invisible to a sweep that sets `.visible` on sprites.
+    for (const s of hullSprites) s.visible = false
+    slickG.clear()
     // Latch the per-chapter palette BEFORE clearing/repainting so the floor repopulates and the
     // player rig tints under the new chapter. Title (run == null) falls back to the body look.
     const cfg = run ? CHAPTERS[run.chapter] : null
@@ -17724,6 +18029,16 @@ export function createRenderer(app) {
         const s = new Sprite()
         placeRock(s, { x: 0, y: 0, r: 15, rot: 0.5 })   // via placeRock for its warm-stone tint,
         return [s, null]                                // which is the whole reason it reads as a hazard
+      },
+      // The Wreck's leak. Painted by the shipped draw function off a one-entity stub, like `pool`
+      // below — and like it, the ALPHA is the one thing not inherited from the world: syncSlicks
+      // draws at 0.5 so a spill does not hide the floor it sits on, a pressure that does not exist
+      // in a 20px slot with nothing behind it. `shape: 0` rather than a random lobe, so the icon is
+      // the same drawing every run.
+      slick: () => {
+        syncSlicks({ slicks: [{ x: 0, y: 0, r: 20, shape: 0, rot: 0 }] })
+        slickG.alpha = 1
+        return [slickG, () => { slickG.clear(); slickG.alpha = 1 }]
       },
       traffic: () => [spriteOf(T.car), null],
       mower: () => [spriteOf(T.mower), null],

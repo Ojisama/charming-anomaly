@@ -579,6 +579,10 @@ const CONFIG = {
   'Your own body, swung where you turn. Worthless standing still — it hits as hard as you swim.': 'Votre propre corps, lancé où vous tournez. Inutile à l\'arrêt : il frappe aussi fort que vous nagez.',
   'Longline': 'Ligne à Hameçons',
   'Sets a baited line across their path. Everything that touches it is hooked and bleeds.': 'Pose une ligne appâtée en travers de leur route. Tout ce qui la touche est ferré et saigne.',
+  // The Wreck's native (v7.x). 'Gnash' is the tooth-grinding verb; 'Croc' (fang) carries the
+  // animal where a literal 'Broiement' would carry the dentistry. ⚠ DRAFT — owner ruling pending.
+  'Gnash': 'Croc',
+  'Snaps a short bite in front of you. The closer the body, the deeper it goes.': 'Claque une courte morsure devant vous. Plus le corps est proche, plus elle s\'enfonce.',
   'Net Toss': 'Filet Lesté',
   'Throws a weighted net over a pack and holds them where they stand.': 'Jeté sur un groupe entier, il le cloue sur place.',
   'Membrane Piercer': 'Perce-Membrane',
@@ -724,6 +728,18 @@ const CONFIG = {
   'extra decoy(s) per cast': 'leurre(s) bonus par lancer',
   'Sticky Scent': 'Odeur Collante',
   'burst leaves a slow zone': 'l\'explosion laisse une zone qui ralentit',
+  // gnash's five (v7.x). One family on 'morsure', the way the fin's three are one family on
+  // 'nageoire'. ⚠ DRAFT — owner ruling pending on 'Croc', 'Sang dans l\'Eau' and 'Tonneau'.
+  'Deep Bite': 'Morsure Profonde',
+  'bite damage': 'dégâts de morsure',
+  'Wide Jaw': 'Gueule Large',
+  'bite width': 'largeur de morsure',
+  'Quick Snap': 'Claquement Vif',
+  'bite rate': 'cadence de morsure',
+  'Blood in the Water': 'Sang dans l\'Eau',
+  'bite damage against wounded prey': 'dégâts de morsure sur une proie blessée',
+  'Death Roll': 'Tonneau de la Mort',
+  'holds bitten prey for {n}s': 'immobilise la proie mordue pendant {n} s',
   'Rending Claws': 'Griffes Déchirantes',
   'claw damage': 'dégâts des griffes',
   'Wide Rake': 'Griffure Large',
@@ -1236,6 +1252,7 @@ const CONFIG = {
   'Lionfish': 'Poisson-lion',
   'Drowning': 'Noyade',
   'Starvation': 'Famine',
+  'The Leak': 'La Fuite',
   'The Net': 'Le Filet',
   'Swallowed': 'Avalé',
   'Caustic Pools': 'Flaques caustiques',

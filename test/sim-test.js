@@ -134,6 +134,9 @@ import {
   // elements redesign (Run EL)
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
   STAT_KEYS,
+  // The Wreck's prey rework (Run WK)
+  PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_SHOAL_SIZE,
+  GNASH_MAW_MUL, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow } from '../src/sim.js'
 
@@ -1400,7 +1403,12 @@ function testAnomalySlate() {
       // whose output lands in a field absent from here reports "fixture spawned nothing —
       // untestable", which is this list being out of date and not the weapon being broken.
       const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines']
-      const FX = ['whip', 'clawRake', 'roar', 'tail']
+      // Same class of quoted-string list as LISTS above, and it bit for real: `gnash` (The Wreck's
+      // native, v7.x) spawns no entity at all — its whole output is this event — so the day it
+      // landed this fixture reported "spawned nothing — untestable here" for a weapon that was
+      // firing correctly. A melee weapon whose event type is missing from this array is invisible
+      // to the assertion below.
+      const FX = ['whip', 'clawRake', 'roar', 'tail', 'gnash']
       // ⚠ SOME WEAPONS CANNOT BE MEASURED BY A MOTIONLESS PLAYER. The fixture below holds the stick
       // at zero, which is right for the other 22 weapons — it keeps the ring of targets and the
       // player in a fixed relationship, so `seen` is comparable frame to frame. Fin Hit's damage
@@ -6291,6 +6299,214 @@ function runShorebreak() {
   console.log(`PASS run SK (The Shorebreak): opens a corridor a walking crowd cannot close, sustained rather than impulsive, ${SHOREBREAK_DUR_MIN}s floor on an empty bar rising to ${SHOREBREAK_DUR_AT_FULL}s, replaces the Pulse in surf only, spares allies`)
 }
 run(runShorebreak)
+
+// ---- Run PY: THE WRECK, after the premise turned round (v7.x, owner directive) ----------------
+// "about you, a shark, chasing after schools of fishes that run in fear. Turning around the premise
+// of the game." Every other chapter in this game resolves to "walk at the player"; this one is the
+// exception, and the exception has to be guarded on both of its halves.
+//
+// WHAT MAKES THIS WORTH A SCENARIO rather than a config assert: `skittish` is ONE flag saying TWO
+// things, in two places, with no import between them — it inverts movement (stepPrey) and it
+// disarms contact damage (contactHarmless). Delete either half and the chapter still runs, still
+// spawns, and still looks approximately right in a screenshot, and it is a different game. A fish
+// that flees but still bites is an aggro chapter with extra steps; a fish that bites nothing but
+// walks at you is a piñata parade.
+//
+// Every block below asserts an EFFECT against a CONTROL with the feature removed, because an
+// assertion that only reads a flag back passes with the mechanic deleted.
+function runPrey() {
+  const dt = 1 / 60
+  const wkMeta = () => { const m = makeMeta(); m.dev = true; ensureChapterMeta(m); return m }
+  // Immortal, weaponless, motionless by default. Weapons would kill the subject mid-measurement and
+  // the fixture would then be reading an empty field, which is the "spawned nothing" trap in its
+  // other direction.
+  const mk = (seed = 20260817) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(wkMeta(), { chapter: 'wreck', difficulty: 1 })
+    run.weapons = []
+    run.player.maxHP = run.player.hp = 1e9
+    run.enemies.length = 0
+    return run
+  }
+  // PIN BY IDENTITY, NEVER BY INDEX — this chapter spawns hard (spawnMul 2.2), so a subject left in
+  // the live array is one splice away from being some other fish, and nothing would say so.
+  const only = (run, es) => { run.enemies.length = 0; run.enemies.push(...es) }
+  const put = (run, o) => {
+    const e = makeStatusEnemy(run, o)
+    e.flags = o.flags ?? []
+    return e
+  }
+
+  // -- WK.a: they RUN. The whole premise, with the flag removed as the control. -----------------
+  {
+    const measure = (flags) => {
+      const run = mk()
+      const p = run.player
+      // Well inside PREY_SIGHT_R, so a skittish fish has seen the player from frame one.
+      const e = put(run, { x: p.x + 120, y: p.y, hp: 1e6, speed: 90, flags })
+      const d0 = Math.hypot(e.x - p.x, e.y - p.y)
+      for (let i = 0; i < Math.round(2 / dt); i++) {
+        only(run, [e])
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return Math.hypot(e.x - run.player.x, e.y - run.player.y) - d0
+    }
+    const prey = measure(['skittish'])
+    const control = measure([])
+    assert.ok(prey > 60, `a skittish fish must RUN: it ended ${prey.toFixed(0)}px further out over 2s, wanted > 60`)
+    assert.ok(control < -60, `the control must still CHASE, or this block proves nothing about the flag (moved ${control.toFixed(0)}px)`)
+    console.log(`PASS run PY.a (they run): skittish +${prey.toFixed(0)}px in 2s vs the same fish flagless at ${control.toFixed(0)}px`)
+  }
+
+  // -- WK.b: they CANNOT HURT YOU. The half that lives in a different function. -----------------
+  // Sat ON the player, which is the worst case the chapter can produce and the one 620 concurrent
+  // bodies will find on their own.
+  {
+    const measure = (flags) => {
+      const run = mk()
+      const p = run.player
+      const e = put(run, { x: p.x, y: p.y, hp: 1e6, speed: 0, flags })
+      const hp0 = p.hp
+      for (let i = 0; i < Math.round(5 / dt); i++) {
+        only(run, [e])
+        e.x = run.player.x; e.y = run.player.y   // held on top of the player, not merely nearby
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return hp0 - run.player.hp
+    }
+    const prey = measure(['skittish'])
+    const control = measure([])
+    assert.strictEqual(prey, 0, `prey must deal EXACTLY zero contact damage; it dealt ${prey}. hurtPlayer floors a hit at 1, so a roster dmgMul of 0 is not enough on its own — this needs contactHarmless`)
+    assert.ok(control > 0, `the control must still bite, or this block passes with contact damage deleted globally (took ${control})`)
+    console.log(`PASS run PY.b (harmless): 5s sat on the player costs 0 HP, where the same fish flagless costs ${control}`)
+  }
+
+  // -- WK.c: they run as a SCHOOL. -------------------------------------------------------------
+  // The cheap part of the design and the part most likely to be "simplified" away later: the shoal
+  // is an id bucket, so two fish spawned together must break the same way and two from different
+  // buckets must not. Without it the field scatters radially and there are no schools at all.
+  // MEASURED OUTSIDE PREY_SIGHT_R, ON THE MILL, and that is the fixture decision that makes this
+  // block mean anything. Inside the sight radius the heading is 70% "straight away from the player"
+  // (PREY_FLEE_BLEND), so two fish a few px apart share a heading whatever the shoal says and the
+  // assertion would pass with the bucket deleted. Worse, at that spacing they overlap, and the
+  // separation pass shoves them apart hard enough to be the only thing the measurement sees — the
+  // first cut of this block read 0.41 rad between two fish in ONE shoal for exactly that reason.
+  // Out here the drift heading is the ONLY input, which is the one thing being tested.
+  {
+    const run = mk()
+    const p = run.player
+    const D = PREY_SIGHT_R + 160
+    const a = put(run, { x: p.x + D, y: p.y, hp: 1e6, speed: 90, flags: ['skittish'] })
+    const b = put(run, { x: p.x - D, y: p.y, hp: 1e6, speed: 90, flags: ['skittish'] })
+    const c = put(run, { x: p.x, y: p.y + D, hp: 1e6, speed: 90, flags: ['skittish'] })
+    // Ids PINNED, not inherited from the spawn counter: two consecutive ids land in different
+    // buckets whenever the first is the last of its bucket, which is a 1-in-PREY_SHOAL_SIZE chance
+    // of a mystery red on an unrelated edit.
+    a.id = 2 * PREY_SHOAL_SIZE
+    b.id = a.id + 1                        // same school as `a`
+    c.id = a.id + PREY_SHOAL_SIZE          // deliberately the next school along
+    const start = [a, b, c].map((e) => ({ x: e.x, y: e.y }))
+    for (let i = 0; i < Math.round(1.5 / dt); i++) {
+      only(run, [a, b, c])
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    const head = (e, s) => Math.atan2(e.y - s.y, e.x - s.x)
+    const gap = (u, v) => Math.abs(((u - v + Math.PI * 3) % (Math.PI * 2)) - Math.PI)
+    const hA = head(a, start[0]), hB = head(b, start[1]), hC = head(c, start[2])
+    assert.ok(gap(hA, hB) < 0.2, `two fish in one shoal must break together (headings ${gap(hA, hB).toFixed(2)} rad apart, wanted < 0.2)`)
+    assert.ok(gap(hA, hC) > 0.4, `two fish in DIFFERENT shoals must not (headings ${gap(hA, hC).toFixed(2)} rad apart, wanted > 0.4) — if this fails the id bucket is not reaching the heading and the whole field is one school`)
+    console.log(`PASS run PY.c (schools): same bucket breaks ${gap(hA, hB).toFixed(2)} rad apart, a neighbouring shoal ${gap(hA, hC).toFixed(2)} rad`)
+  }
+
+  // -- WK.d: GNASH pays for closing. -----------------------------------------------------------
+  // The falloff runs backwards to every other reach number in the game, which is exactly the kind of
+  // inversion a later editor "fixes". Measured as damage DEALT over many casts at two distances on
+  // one seed, not as a single hit: GNASH_BASE_CRIT puts 10 points of crit on every bite.
+  {
+    const lv = WEAPONS.gnash.levels[0]
+    const total = (frac) => {
+      const run = mk(20260818)
+      run.weapons = [{ id: 'gnash', level: 1 }]
+      const p = run.player
+      const e = put(run, { x: p.x + lv.range * frac, y: p.y, hp: 1e12, speed: 0 })
+      let dealt = 0
+      for (let i = 0; i < Math.round(20 / dt); i++) {
+        only(run, [e])
+        e.x = run.player.x + lv.range * frac; e.y = run.player.y
+        const before = e.hp
+        stepSim(run, { x: 0, y: 0 }, dt)
+        dealt += before - e.hp
+      }
+      return dealt
+    }
+    const jaw = total(0.05)
+    const tip = total(0.95)
+    assert.ok(tip > 0, 'the tip of the bite must still land, or the falloff is a range cut')
+    const ratio = jaw / tip
+    const want = (1 + 0.95 * (GNASH_MAW_MUL - 1)) / (1 + 0.05 * (GNASH_MAW_MUL - 1))
+    // The band is wide enough for crit noise on one seed and far too narrow to survive the ramp
+    // being deleted, which lands the ratio at exactly 1.0.
+    assert.ok(ratio > 1.45 && ratio < 2.15, `a bite at the jaw must be worth ~${want.toFixed(2)}x one at the tip; measured ${ratio.toFixed(2)}x (${jaw} vs ${tip})`)
+    console.log(`PASS run PY.d (the bite pays for closing): ${ratio.toFixed(2)}x more damage at the jaw than at the tip over 20s (predicted ${want.toFixed(2)}x)`)
+  }
+
+  // -- WK.e: THE LEAK is the only thing that can kill you, and it FOULS you. --------------------
+  // Two effects on one hazard, and the second is the one with no other guard: the slow LINGERS past
+  // the rim, which is the whole difference between a decision and a tax.
+  {
+    const soak = (withSlick) => {
+      const run = mk()
+      // One step first, so streamSlicks does its cell scan and then early-returns for good (the
+      // player never leaves the cell). A spill pushed before that scan would be spliced out.
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (withSlick) run.slicks.push({ x: run.player.x, y: run.player.y, r: 400, shape: null, rot: 0, _cell: 'test' })
+      const hp0 = run.player.hp
+      const x0 = run.player.x
+      for (let i = 0; i < Math.round(3 / dt); i++) {
+        run.enemies.length = 0
+        stepSim(run, { x: 1, y: 0 }, dt)
+      }
+      return { lost: hp0 - run.player.hp, moved: run.player.x - x0, run }
+    }
+    const inIt = soak(true)
+    const out = soak(false)
+    assert.ok(inIt.lost >= SLICK_DPS * 3 * 0.8, `3s in a spill must cost about ${SLICK_DPS * 3} HP; it cost ${inIt.lost}`)
+    assert.strictEqual(out.lost, 0, `the same 3s outside one must cost nothing; it cost ${out.lost}`)
+    const slowRatio = inIt.moved / out.moved
+    assert.ok(slowRatio < SLICK_SLOW_MUL + 0.06, `oil must slow you to about x${SLICK_SLOW_MUL}; measured x${slowRatio.toFixed(2)}`)
+    // THE LINGER. The spill is removed — the player has swum clear — and must still be fouled.
+    const r = inIt.run
+    r.slicks.length = 0
+    const lx = r.player.x
+    const secs = SLICK_SLOW_T * 0.6
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      r.enemies.length = 0
+      stepSim(r, { x: 1, y: 0 }, dt)
+    }
+    const afterRatio = (r.player.x - lx) / (out.moved * secs / 3)
+    assert.ok(afterRatio < SLICK_SLOW_MUL + 0.1, `the fouling must OUTLIVE the rim for ${SLICK_SLOW_T}s; measured x${afterRatio.toFixed(2)} of clean speed immediately after leaving`)
+    console.log(`PASS run PY.e (the leak): 3s inside costs ${inIt.lost} HP and x${slowRatio.toFixed(2)} speed against 0 and x1 outside, and the fouling holds at x${afterRatio.toFixed(2)} once you are clear`)
+  }
+
+  // -- WK.f: a spill is NOT a refill circle. ---------------------------------------------------
+  // The one-line guard on the decision that keeps run.slicks out of run.shafts. stepCharge loops
+  // run.shafts handing out resource; if a slick ever lands in that array the chapter's bar THANKS
+  // the player for standing in poison, and nothing throws.
+  {
+    const run = mk()
+    stepSim(run, { x: 0, y: 0 }, dt)
+    run.charge = 10
+    run.slicks.push({ x: run.player.x, y: run.player.y, r: 400, shape: null, rot: 0, _cell: 'test' })
+    const c0 = run.charge
+    for (let i = 0; i < Math.round(2 / dt); i++) { run.enemies.length = 0; stepSim(run, { x: 0, y: 0 }, dt) }
+    assert.ok(run.charge <= c0, `standing in a spill must never RAISE Bloodlust (${c0} -> ${run.charge}) — that is what putting slicks in run.shafts would do`)
+    assert.strictEqual(run.shafts.length, 0, 'The Wreck declares no refill circle at all, so run.shafts must stay empty — a non-empty one means refillSpec() started recognising the leak')
+    console.log(`PASS run PY.f (a spill is not a refill): 2s in one takes Bloodlust ${c0} -> ${run.charge.toFixed(1)}, and run.shafts stays empty`)
+  }
+
+  console.log('PASS run PY (The Wreck: prey): the roster runs from you in schools and cannot touch you, the bite pays for closing, and the leak is the only thing in the chapter that can kill you')
+}
+run(runPrey)
 
 // ---- Run DK: THE DARK (v7.x Book 2, owner directive) --------------------------------------
 // "if we're stealing light, then our surroundings should be dark, and darker the less light we

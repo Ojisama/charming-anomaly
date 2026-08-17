@@ -437,6 +437,12 @@ const SFX_FOR_EVENT = {
   // voice in the bank to a weighted mesh closing — and the pairing matches Debris Toss exactly:
   // 'toss' (the throw) has no entry for either weapon, and the LANDING is what you hear.
   snare: 'hole',
+  // 'gnash' gets NO entry, and it is the same ruling as 'tail'/'crust'/'longline' below rather than
+  // an oversight — run EV is satisfied by its render case (the closing jaws, render.js). The Wreck's
+  // native fires every 0.42-0.60s before any fire-rate source, i.e. ~2/s in a real build, which is
+  // the cadence CLAUDE.md's rule names as too fast to bear a bespoke voice. It is also exactly what
+  // 'clawRake' does — the weapon whose sector geometry gnash reuses has never had an entry either,
+  // and both are heard through the hits they land.
   // 'longline' gets NO entry, on the rule the 'tail' and 'crust' entries above already state: the
   // line is heard through the hits it lands, its tell is visual (an amber rope with hooks, the only
   // warm thing in a cold chapter), and a bespoke voice every 2.0-2.6s for the whole run is a

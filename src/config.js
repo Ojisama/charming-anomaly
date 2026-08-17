@@ -2052,6 +2052,41 @@ export const WEAPONS = {
       { dmg: 48, interval: 0.82, range: 172, arc: 2.05, knockback: 80 },
     ],
   },
+  // -- The Wreck's native (spec §9, built v7.x with the prey rework) -----------------------------
+  gnash: {
+    name: 'Gnash',
+    desc: 'Snaps a short bite in front of you. The closer the body, the deeper it goes.',
+    icon: '🦷', rarity: 'normal',
+    // THE CHAPTER'S THESIS AS A WEAPON. The Wreck pays you for closing on food that is running
+    // away; this is the card that says so — a sector at HALF the reach of the two melee starters,
+    // whose damage rises from x1 at the tip of the arc to GNASH_MAW_MUL at the jaw. It is bad at
+    // range on purpose and there is no reason to be at range here.
+    //
+    // NOT A SECOND FIN HIT, and the axis is the whole distinction: finHit reads the player's SPEED
+    // and swings to the outside of your turn, gnash reads the TARGET'S DISTANCE and points where
+    // you aim. One is the animal's body, the other is its mouth. They are also two chapters apart
+    // and never share a pool outside `blank`.
+    //
+    // ⚠ KNOCKBACK IS ZERO AND THAT IS A DESIGN DECISION, NOT AN OMISSION. Every other melee weapon
+    // in the game shoves what it hits, because everywhere else the crowd is walking into you and
+    // buying space is the point. Here the crowd is LEAVING: a bite that shoves pushes your dinner
+    // further away, out of the very falloff band that makes the next bite worth more. Adding
+    // knockback to this weapon would make it worse the harder it hit.
+    //
+    // Geometry is clawRake/flagella/finHit's shipped `inSector` sweep — a new bake and a new tuning
+    // table, not a new system.
+    // ⚠ UNMEASURED FIRST CUT. Pitched between the two melee starters at the JAW and under both at
+    // the tip: dmg 15 x GNASH_MAW_MUL 1.9 = 28.5 at L1 point blank against flagella's flat 14 and
+    // the rake's 11, on a cadence between theirs. weapon-census it against Fin Hit and Breaker in
+    // ONE invocation before quoting any of it.
+    levels: [
+      { dmg: 15, rate: 0.60, range: 78, arc: 1.05 },
+      { dmg: 18, rate: 0.56, range: 82, arc: 1.10 },
+      { dmg: 22, rate: 0.52, range: 86, arc: 1.16 },
+      { dmg: 27, rate: 0.47, range: 92, arc: 1.22 },
+      { dmg: 34, rate: 0.42, range: 98, arc: 1.30 },
+    ],
+  },
 }
 export const MAX_WEAPON_LEVEL = 5
 export const MAX_WEAPONS = 4 // equipped cap; new weapons stop appearing once reached
@@ -2388,6 +2423,26 @@ export const WEAPON_MODS = {
   // ambushPredator (v6.5, behavioral — see slashClaws/AMBUSH_R): conditional-vs-flat vs rend — counts
   // an armed OR sprung trap near the PLAYER, so springing your own trap can't turn the buff off
   // (that anti-synergy is why the pre-panel 0.30/armed-only draft lost to plain rend).
+  // deepBite/wideJaw fold into gnash's levels[] via WEAPON_STAT_MODS; quickSnap (attack rate)
+  // divides the interval at the fire site for the reason every rate mod does — folding it into
+  // `rate` would SLOW the weapon. bloodInTheWater and deathRoll are behavioral (see biteGnash).
+  //
+  // THERE IS NO REACH MOD, and it is the one card a reader will expect to find here. Gnash's damage
+  // is a linear falloff over its OWN range (GNASH_MAW_MUL at the jaw, x1 at the tip), so a mod that
+  // lengthened the sweep would stretch the ramp over the new distance and make every bite outside
+  // the old reach weaker than the card that bought it. Long Claws works on the rake because the
+  // rake's damage does not know where in the arc it landed.
+  gnash: {
+    deepBite:        { name: 'Deep Bite',  desc: 'bite damage', icon: '🦷', base: 0.35, kind: 'pct' },
+    wideJaw:         { name: 'Wide Jaw',   desc: 'bite width',  icon: '🪝', base: 0.30, kind: 'pct' },
+    quickSnap:       { name: 'Quick Snap', desc: 'bite rate',   icon: '💨', base: 0.25, kind: 'pct' },
+    bloodInTheWater: { name: 'Blood in the Water', desc: 'bite damage against wounded prey', icon: '🩸', base: 0.55, kind: 'pct' },
+    // `secs`, not `tier`: a tier mod banks an integer COUNT of things-per-cast, and this banks a
+    // DURATION. That kind exists precisely so the raw product does not reach the player as
+    // 1.4000000000000001. The desc names PREY rather than saying "holds for {n}s" — in the one
+    // chapter where the player is the fast thing, an unqualified hold reads as a buff on you.
+    deathRoll:       { name: 'Death Roll', desc: 'holds bitten prey for {n}s', icon: '🌀', base: 0.35, kind: 'secs' },
+  },
   clawRake: {
     rend:        { name: 'Rending Claws', desc: 'claw damage', icon: '🩸', base: 0.35, kind: 'pct' },
     wideRake:    { name: 'Wide Rake',     desc: 'claw sweep width', icon: '🪭', base: 0.30, kind: 'pct' },
@@ -2738,6 +2793,7 @@ export const WEAPON_RATE_MODS = {
   burstHydrant: 'rapidHydrant', roar: 'rapidRoar', tailLash: 'quickTail',
   debrisToss: 'rapidToss', realityShard: 'rapidShard', pulsarSweep: 'rapidSweep',
   atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash', foxfire: 'quickKindle',
+  gnash: 'quickSnap',
 }
 // Same problem for per-cast COUNTS: nearly every one folds through WEAPON_STAT_MODS, but the star's
 // multishot is read straight off run.weaponMods at its fire site. Without this the readout would
@@ -5457,49 +5513,93 @@ CHAPTERS.reef = {
 CHAPTERS.wreck = {
   name: 'The Wreck', tagline: 'stop and you starve', icon: '⚓',
 
-  // BORROWED ARSENAL — placeholder until Gnash lands (a short forward bite arc whose damage rises
-  // as the target gets closer, i.e. the chapter's thesis as a weapon). Picked for RANGE rather than
-  // for the theme: this chapter pays you for being in the crowd, so a pool that rewarded standing
-  // off would be arguing with its own bar. The stinger is a forward cone, the quill ring does not
-  // care which way you face, and both are already Book 2 marine art.
-  // ⚠ Re-check the bake before ever calling this list final — a borrowed weapon brings its old
-  // chapter's art with it, and that is a grep of T.<id> in render.js, not a judgement call.
-  weapons: ['stinger', 'quillBurst', 'mines'], starter: 'stinger',
+  // ---- THE ARSENAL, AND IT IS PICKED AGAINST A TARGET THAT RUNS AWAY -------------------------
+  // Every other chapter's pool is chosen against a crowd that closes on you, which is why "does it
+  // fire in all directions" is normally a virtue. Here it is the opposite: the crowd is LEAVING, so
+  // the volume of fire behind and beside the player lands on empty water.
+  //   gnash   the native, and the chapter's thesis as a weapon: a short forward bite whose damage
+  //           RISES the closer the body is. It is bad at range and there is no reason to be at
+  //           range here. Geometry is clawRake/flagella's shipped sector — a new bake and a new
+  //           tuning table, not a new system.
+  //   stinger a cone of needles at the NEAREST enemy. A fleeing fish is by definition in front of
+  //           you, so the one weapon whose whole weakness elsewhere is dumping a volley into the
+  //           closest body is the weapon that chases down a runner here.
+  //   mines   planted, and they do not care that nothing walks into them on purpose. YOU drive the
+  //           shoal onto them — the only weapon in the game whose value goes UP when the target
+  //           flees, because a scattering school picks its heading from where you are standing.
+  //
+  // quillBurst was DROPPED in the rework and the reason is the whole design: a ring centred on the
+  // player is the one shape that is empty in this chapter. It was the right borrow when the wreck
+  // was an aggro level and became wrong the moment the roster turned into food.
+  // ⚠ The borrowed-art check is a grep, not a judgement call: T.stinger and T.mine both bake
+  // abstract casts (a needle, a planted glow), so neither drags another biome's noun in here.
+  weapons: ['gnash', 'stinger', 'mines'], starter: 'gnash',
 
-  // ⚠ THE REEF'S ROSTER, BY ID, ON PURPOSE — this chapter has no creatures of its own yet.
+  // ---- THE ROSTER IS FOOD. This is the one chapter where "enemy" is a lie the code tells. ------
+  // Owner, 2026-08-17: "about you, a shark, chasing after schools of fishes that run in fear.
+  // Turning around the premise of the game."
   //
-  // Reusing the IDS rather than inventing three is what makes "borrowed" true instead of merely
-  // claimed. syncEnemies resolves a look as `T.roster[rosterId] || T.enemies[archetype]`
-  // (syncEnemies, render.js), so an id with no ROSTER_LOOKS entry does NOT fall back to a sibling fish —
-  // it falls back to the GENERIC BOOK 1 ARCHETYPE BLOB. Three invented ids here would have put
-  // three grey blobs in an ocean chapter and nothing would have thrown.
+  // Two of the three carry `skittish`, which is one flag saying two things because they are one
+  // design fact: it RUNS from you, and it CANNOT HURT YOU (contactHarmless, sim.js). Nothing on
+  // this map is aiming at the player — the thing that kills you is the leak, below.
   //
-  // The Wreck's own three (a flagless shoal baseline, a `guard` tank that cannot be chewed on
-  // demand, and a `pounce` fast) are DESIGNED BUT NOT AGREED, and they are held out of this table
-  // until they have been through the enemy-design gates rather than being numbered here first.
-  // Their one real open question is recorded where it will be found: `guard` is the chapter's only
-  // answer to "why is this not just holding the stick down", and WAVE_TABLE does not introduce
-  // `tank` until t = 140s — so as a tank that answer is absent for the first half of a 300s run.
-  // CHAPTERS.deep's roster block records the same gate biting the same way one chapter later.
+  // ⚠ BORROWED IDS, STILL, AND DELIBERATELY. syncEnemies resolves a look as
+  // `T.roster[rosterId] || T.enemies[archetype]` (render.js), so an invented id does NOT fall back
+  // to a sibling fish — it falls back to the GENERIC BOOK 1 ARCHETYPE BLOB, which is three grey
+  // blobs in an ocean chapter with nothing thrown. These three are baked and they are the right
+  // three animals: mackerel are THE schooling fish, a damselfish is a small reef fish that scatters
+  // over wreckage, and a moray is the animal that actually lives inside a sunken hull. The trawl
+  // also fields a mackerel; a chapter reusing another's id is precedented all through this book.
+  //
+  // THE HUNT IS A TRIANGLE, and it falls out of shipped archetype speeds rather than being tuned:
+  //   mackerel   90 x 0.85 x PREY_FLEE_MUL = 103 px/s. You outswim it. The staple, and the bar's
+  //              whole income — this is why spawnMul goes up rather than the refill.
+  //   damselfish 165 x 1.0 x PREY_FLEE_MUL = 223 px/s, i.e. FASTER THAN THE PLAYER'S 220. It cannot
+  //              be caught by chasing it, at all, ever. It is what the Lunge button exists for, and
+  //              it is the reason the button's cost/refill wash is the chapter's core loop rather
+  //              than a nicety.
+  //   moray      does NOT flee — no `skittish`, so it runs the ordinary seek and comes to you. It
+  //              is still harmless (`dmgMul: 0`); what it has is `guard`, which windows it
+  //              invulnerable and open on a timer. It is the answer to "why is this not just
+  //              holding the stick down": the fat prize you have to TIME rather than outrun.
+  // ⚠ WAVE_TABLE does not introduce `tank` until t = 140s, so that answer is absent for the first
+  // half of a 300s run — the same gate CHAPTERS.deep's roster block records biting it too.
+  //
+  // `dmgMul: 0` on the moray is belt and braces: `skittish` already disarms the other two through
+  // contactHarmless, and the moray has no skittish to disarm it. hurtPlayer floors a hit at 1, so
+  // zero here would still be 1 damage per touch without contactHarmless — see that function.
   roster: [
-    { id: 'damselfish', archetype: 'normal', name: 'Damselfish', hpMul: 1,   speedMul: 1,    flags: [] },
-    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.2, speedMul: 0.7,  flags: ['latch'] },
-    { id: 'lionfish',   archetype: 'fast',   name: 'Lionfish',   hpMul: 0.9, speedMul: 1.15, flags: ['pounce'] },
+    { id: 'mackerel',   archetype: 'normal', name: 'Mackerel',   hpMul: 0.55, speedMul: 0.85, dmgMul: 0, flags: ['skittish'] },
+    { id: 'damselfish', archetype: 'fast',   name: 'Damselfish', hpMul: 0.4,  speedMul: 1,    dmgMul: 0, flags: ['skittish'] },
+    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.2,  speedMul: 0.7,  dmgMul: 0, flags: ['guard'] },
   ],
   eliteFlags: ['soapTrail'],   // shared with surf/shelf/reef/trawl. NOT the whole book: deep is webZone
 
-  // NO SIGNATURE, and that is an owner ruling (2026-08-17) rather than an omission: asked to pick a
-  // threat class of its own — a ghost net, a settling hull, leaking cargo — he ruled "being an aggro
-  // level is sufficient". The gimmick IS the bar. `body` is the precedent for a null signature.
+  // THE LEAK. Owner ruling 2026-08-17, and it REVERSES the ruling taken earlier the same day —
+  // "being an aggro level is sufficient", i.e. signature: null — because the premise moved under it.
+  // That ruling was correct for a chapter whose crowd was hunting you. Once the roster became food,
+  // "the gimmick IS the bar" left a chapter with no way to lose except a tempo failure, and the
+  // owner's own question was the right one: "do sharks have predators? We could add traps maybe,
+  // human traps, or pollution?"
   //
-  // It is also the right call structurally: of the three chapters before this one, all three bought
-  // a spatial system — The Surf's tide pools and sandbars, The Shelf's shafts, The Reef's pockets
-  // plus a whole lane — and a fourth would have been the fourth in a row. This chapter's identity
-  // is a tempo, which costs no spatial system at all.
-  //   (An earlier draft of this paragraph said "the four chapters before this one" and listed
-  // `maws`, which is The Deep's and comes two chapters LATER; The Trawl, which does precede it,
-  // bought no circles at all. Corrected rather than deleted because the count is the argument.)
-  signature: null,
+  // Pollution, not traps, and the reason is a noun rather than a mechanic: The Trawl is the net, one
+  // chapter later, and two adjacent chapters whose hazard is human gear tangled in the water are one
+  // chapter told twice. This is the book's own line made literal instead — "the boat IS the
+  // pollution", dead industry here and living industry next door.
+  //
+  // See SLICK_* above for the numbers and for why this rides refillCircleAt but lives in run.slicks
+  // rather than run.shafts.
+  signature: {
+    type: 'leak',
+    // chance/cell together set how much of the floor is poisoned. 0.34 of a 900px cell at r 190
+    // covers roughly a tenth of the plane — enough that a straight line across the map usually
+    // meets one and never enough to wall a route off, which is the whole difference between a
+    // hazard you route around and a hazard you resent. ⚠ UNMEASURED FIRST CUT.
+    // `blob: true` because a spill has an outline and a bubble does not: LOBE_SHAPES is the same
+    // lobed-outline opt-in The Surf's tide pools use, and sim and render both read the stored
+    // shape/rot rather than re-deriving it (the documented way those two drift apart).
+    slicks: { cell: 900, chance: 0.34, r: 190, minDist: 620, salt: 50, blob: true },
+  },
 
   // BLOODLUST. Ambient drain, always, everywhere — no sandbar makes it worse and no place makes it
   // better, because there is no place. `refill: 0` is load-bearing rather than a default: there is
@@ -5565,32 +5665,87 @@ CHAPTERS.wreck = {
   // The button. See LUNGE_* above for the cast.
   lunge: true,
 
-  // ⚠ UNMEASURED FIRST CUT, and it is doing something the other tables are not: it deliberately runs
-  // MORE BODIES AND SOFTER ONES than the chapters either side (reef 0.76/0.95/0.75, trawl
-  // 0.8/1/0.85). That is not a difficulty statement, it is a REFILL statement — a bar fed only by
-  // kills cannot be held up by a competent player if the field is thin, and the chapter would be a
-  // starvation simulator whatever the drain said. xpMul comes down because the kill count goes up
-  // and the level pace should not.
-  balance: { spawnMul: 0.95, enemyHpMul: 0.9, maxAliveMul: 0.95, xpMul: 0.85 },
+  // ⚠ UNMEASURED FIRST CUT. This is by a wide margin the densest and softest table in the game
+  // (reef 0.76/0.95/0.75, trawl 0.8/1/0.85, and the previous cut of THIS chapter 0.95/0.9/0.95),
+  // and every one of those four numbers is a consequence of the roster being food rather than a
+  // difficulty statement:
+  //   spawnMul 2.2    "very numerous" is the owner's word and it is the picture the chapter is for.
+  //                   It is also arithmetic: prey RUN, so a given fish is in reach for a fraction
+  //                   of the time an enemy that walks at you would be. A field tuned for a crowd
+  //                   that closes is a thin field once it turns and leaves.
+  //   enemyHpMul 0.45 x the roster's own hpMul, so a mackerel lands at ~5 HP — one bite, no
+  //                   chewing. A bait ball that takes two hits per fish is not a bait ball, it is a
+  //                   wall of HP wearing fish sprites.
+  //   maxAliveMul 1.55 -> 620 concurrent. Held under a doubling ON PURPOSE and it is a perf number
+  //                   as much as a design one: this has not been profiled on a phone, and fleeing
+  //                   bodies spread out (cheaper separation) but also stay alive longer.
+  //   xpMul 0.5       the kill count roughly triples; level pace should not.
+  // ⚠ THE RESOURCE BLOCK ABOVE WAS FITTED TO THE OLD CHAPTER AND IS NOW LYING. drainPerSpawn is
+  // denominated in spawnRate(t), so raising spawnMul to 2.2 raises the DRAIN 2.3x by itself, while
+  // the kill rate moves by some other factor entirely. Re-run scripts/charge-probe.mjs before any
+  // balance claim about this chapter leaves the branch — that is the same gate the previous cut
+  // wrote for itself, and the premise change invalidated its answer.
+  balance: { spawnMul: 2.2, enemyHpMul: 0.45, maxAliveMul: 1.55, xpMul: 0.5 },
 
   // ---- render-only (ZERO sim effect) ----
-  // ⚠ PHASE 1: The Reef's floor, borrowed whole, including its cast thumbnails. The wreck's own
-  // palette (a hull is rust and dead steel on a silted bottom, and the decor is neither coral-warm
-  // nor open-water blue) is phase 2, along with the three bakes. formScale 1.42 is real and is the
-  // one thing in this block that is not borrowed — it is the step between the reef fish (1.3) and
-  // the big fish (1.55), which is the book's growth arc and is visible immediately.
+  // formScale 1.42 is the book's growth arc and is NOT a shark: owner ruling 2026-08-17, asked
+  // directly whether The Wreck should take the shark identity from The Deep (which owns it — 1.7,
+  // `finHit`, "the shark's own body"). He kept the arc: "predator, not literally a shark". So this
+  // chapter is where you START hunting rather than reacting, one step bigger than the reef fish
+  // (1.3) and one step under the big fish (1.55). The premise inversion is in the roster and the
+  // bar, not in the body.
   render: {
-    cast: ['damselfish', 'lionfish', 'moray'],
+    cast: ['mackerel', 'damselfish', 'moray'],
     form: 'fish',
     formScale: 1.42,
+    // THE SUNKEN SHIP. Owner, 2026-08-17: "there is no sunken ship asset or design in the level",
+    // and "I'd like a big sunken ship behind with parallax effect".
+    //
+    // He was right twice over — the chapter shipped with `wreck: BIOME_REEF` in render.js, so the
+    // nine obstacles this block calls hull plates drew as CORAL HEADS AND SEA WHIPS, and there was
+    // no ship anywhere at all. BIOME_WRECK (render.js) fixes the first half; this fixes the second.
+    //
+    // WHY PARALLAX IS COHERENT IN A TOP-DOWN GAME, since the camera looks straight down and every
+    // sprite in this repo is a plan view: a layer that scrolls SLOWER than the world reads as
+    // further from the camera, and further from a downward camera means DEEPER. So the hull is not
+    // "behind" in the side-scroller sense — it is a wreck lying on a terrace below you, seen
+    // through the water you are swimming in. That is why it is hazed and desaturated rather than
+    // drawn at full strength, and it is why it must stay UNDER the floor decor: silt settles on top
+    // of a wreck, not under it.
+    //
+    // A GRID, NOT ONE SHIP, and that is the only honest answer on an infinite map. A single hull at
+    // the run origin is a landmark you swim away from in twenty seconds, after which the chapter is
+    // called The Wreck and has no wreck in it. `cell` is deliberately huge so two are never on
+    // screen together and the repeat cannot read as tiling; variant and rotation are hashed per
+    // cell off the run's own obstacle seed, like every other streamed field here.
+    hull: {
+      cell: 3200,        // px between wrecks, in PARALLAX space. ~2.4 screen-heights apart.
+      parallax: 0.45,    // fraction of camera motion the layer takes. 1 = welded to the world, 0 =
+                         // pinned to the screen. Under 1 = deeper. Far under and it reads as a
+                         // painted backdrop that slides, which is the failure mode to shoot for.
+      len: 1560, beam: 340,   // px, at parallax scale — a trawler, lying over
+      tint: 0x14242c,    // dead steel, already most of the way to the background
+      alpha: 0.5,        // hazed by the water column between you and it
+    },
     // The bar's tell. Opt-in per chapter so pHot keeps meaning "berserk" everywhere else — see
     // LUST_TINT_MAX. Render-only, like everything in this block.
     lustTell: true,
-    bgColor: 0x0a3358,
-    floorTint: 0xa9cfe0,
+    // ITS OWN PALETTE AT LAST — this block used to be The Reef's, borrowed whole and labelled
+    // "phase 2" for the day someone gave the chapter a floor. A wreck sits on SILT, not on clean
+    // sand and not on coral, so the tint carries a green-grey cast its two neighbours refuse: The
+    // Reef is warm and saturated, The Trawl is clean open blue, and this is the murk between them.
+    // Effective floor (bgColor x floorTint, the obstacle-contrast.mjs model) lands between the two,
+    // which is the book's depth ladder — reef #06294d, HERE, trawl #021732.
+    // ⚠ Re-run scripts/obstacle-contrast.mjs after touching either number: BIOME_WRECK's steel is
+    // the palest obstacle family in the book and it is the one that has to stay clear of the roster.
+    bgColor: 0x082a44,
+    floorTint: 0x9ec4b8,
     playerTint: 0xffffff,
     tail: false,
     eliteIridescent: [0xc4f0ff, 0xd9fff0, 0xffd9e8],
+    // Silt, not marine snow: heavier and slower than The Trawl's, because this is bottom sediment
+    // stirred by a crowd of fish rather than detritus falling from the surface.
+    dust: { tint: 0xbfae94, alpha: 0.3, speedMul: 0.12, sway: 5 },
   },
 }
 // Book 2 chapter 5 — THE ONE THING THAT IS NOT AIMING AT YOU. Written as a WHOLE literal for the
@@ -7270,6 +7425,97 @@ export const LUNGE_KILL_REFILL = 45
 // inside a full bar still reads as the berserk.
 export const LUST_TINT_MAX = 0.34
 
+// ---- GNASH (v7.x, The Wreck's native) ---------------------------------------------------------
+// The falloff, and it runs the OPPOSITE way to every other reach number in this file. A body at the
+// jaw takes GNASH_MAW_MUL x the card's damage; a body at the very tip of the arc takes exactly the
+// card's damage. Linear in between, off the enemy's centre distance against the sweep's own range —
+// so the mod that lengthens the reach also dilutes the ramp, which is why there is no reach mod.
+export const GNASH_MAW_MUL = 1.9
+// The rake's +10 points of crit is the precedent; a bite is the same kind of committed melee.
+export const GNASH_BASE_CRIT = 10
+// bloodInTheWater: below this fraction of max HP a body counts as wounded and the mod's bonus
+// applies. A third, not a half, so it is a finisher rather than a flat damage mod wearing a
+// condition — at half, the majority of a soft prey chapter's bodies qualify on the FIRST bite and
+// the card is just Deep Bite again.
+export const GNASH_FINISH_FRAC = 0.34
+// deathRoll (WEAPON_MODS.gnash) is THE MOD MOST ADAPTED TO THIS CHAPTER — where the whole
+// difficulty is that dinner is faster than you, a bite that stops the thing it lands on is worth
+// more than damage. Its duration lives on the card as `base` rather than as a constant here,
+// because the card's banked bonus IS the number the sim reads and a second copy is the one-fact-
+// two-places trap. Two facts about it that are NOT on the card:
+//   - it is routed through ccScale/spendCC like every other stun in this file, so it takes CC
+//     diminishing returns and cannot become the permanent field-wide lock v7.16 removed;
+//   - it publishes to `stunT`, which render.js already reads and holds the pose for. A private
+//     field would be a status with no tell, which is exactly what "cold does nothing" looked like.
+
+// ---- PREY (v7.x, The Wreck) — the `skittish` flag ---------------------------------------------
+// THE ONE THING IN THIS GAME THAT IS NOT COMING FOR YOU. Every other creature in every other
+// chapter resolves to "walk at the player"; a skittish one walks AWAY, and it cannot hurt you at
+// all (contactHarmless, sim.js). Both halves are the same design fact — this is food — which is
+// why they hang off one flag rather than two.
+//
+// The flee itself is not new code: `fearT` has inverted the seek since v5.4 and render.js already
+// reads it. What is new is that it is PERMANENT and INTRINSIC rather than a status a weapon
+// applies, and that distinction is load-bearing rather than pedantic — v7.16 removed fear's
+// disarm precisely because a field-wide permanent fear made an unkillable machine-gun lock out of
+// a weapon mod. A roster flag cannot be stacked, refreshed or spread by a build.
+export const PREY_SIGHT_R = 340        // px. Outside it the shoal has not seen you and mills about.
+// x the fish's OWN speed while running. The whole hunt falls out of this number against the three
+// archetype base speeds (ENEMIES above) and the player's 220:
+//   normal 90 x 0.85 x 1.35 = 103 px/s  — easy meat, and the bar's staple
+//   fast  165 x 1.00 x 1.35 = 223 px/s  — FASTER THAN YOU. It cannot be caught by swimming at it;
+//                                         it is what the Lunge button (900 px/s) is for.
+//   the tank does not flee at all — see CHAPTERS.wreck.roster.
+// So do not read 1.35 as flavour: raise it and the fast prey becomes uncatchable full stop, lower
+// it and the button stops having a job.
+export const PREY_FLEE_MUL = 1.35
+export const PREY_DRIFT_MUL = 0.30     // x its own speed while it has not seen you — a slow mill
+export const PREY_TURN_RATE = 0.45     // rad/s the idle drift heading swings
+// A SCHOOL FOR THE PRICE OF A MODULO. Consecutive enemy ids arrive in the same spawn burst, so
+// bucketing by id gives fish that appeared together a shared drift heading and a shared escape
+// heading — they mill as a body and they break as a body. That is what reads as a shoal on screen.
+// Deliberately NOT boids: neighbour queries over 500+ bodies to buy the same silhouette is the
+// trade this repo's separation pass already regretted once.
+// ponytail: id buckets, not neighbours — if schools ever need to MERGE or SPLIT on contact, that
+// is when this becomes a real flocking pass and not before.
+export const PREY_SHOAL_SIZE = 16
+// How much of the escape heading is "straight away from you" vs "the way my school is already
+// going". At 1.0 a shoal explodes radially like a firework, which is the one silhouette a bait
+// ball never makes; the blend is what keeps it a body of fish peeling off in a direction.
+export const PREY_FLEE_BLEND = 0.7
+
+// ---- THE LEAK (v7.x, The Wreck's signature) ----------------------------------------------------
+// THE BOAT IS THE POLLUTION. Owner ruling 2026-08-17, taken when the chapter turned into a hunt:
+// with the whole roster demoted to food, nothing on the map is a threat any more, and a chapter you
+// cannot lose is not a chapter. The threat had to be human — a shark's only predators are orcas and
+// people — and it had to not be a NET, because The Trawl one chapter later is the net and owns that
+// noun outright.
+//
+// So the wreck leaks. Drums and cargo split open on the bottom, and what comes out of them sits
+// there. It does not chase, does not aim, does not spawn on a timer and does not know the player
+// exists — the same "not aiming at you" grammar The Trawl's net is built on, one chapter early and
+// in a form that stays still. What makes it dangerous is entirely that the food is on the other
+// side of it.
+//
+// Geometry is refillCircleAt's (sim.js) — the same pure cell->circle function that already places
+// The Shelf's shafts, The Surf's pools and The Reef's pockets. This is the fourth field through it
+// and the first that HURTS rather than feeds, which is why it lives in run.slicks and not in
+// run.shafts: stepCharge loops run.shafts to hand out resource, and a poison the bar thanks you for
+// standing in would be exactly the kind of one-word semantic collision this file keeps warning
+// about. Salt 50 — obstacles hold 0-4, eddies 11-14, traps 15-17, refill circles 20-23 and 30-34,
+// The Reef's pockets 40-45.
+export const SLICK_TICK = 0.5          // s between damage ticks, DROWN_TICK/STARVE_TICK's cadence
+// ⚠ 6 dps IS AN UNMEASURED FIRST CUT and must not be quoted. It is deliberately ABOVE starve's 4:
+// starving is a self-inflicted tempo failure with the fix in front of you, while a slick is a place
+// you chose to swim into, and the chapter has nothing else that can kill you. x SLICK_TICK 0.5 = 3
+// exactly, so the config number survives hurtPlayer's dot rounding (STARVE_TICK's own scar).
+export const SLICK_DPS = 6
+// The one thing it does besides damage, and it is the half that makes it a decision rather than a
+// tax: oil fouls you. You come out the other side slower than you went in, for a moment, which is
+// how a shortcut through a slick costs you the fish you were chasing as well as the health.
+export const SLICK_SLOW_MUL = 0.62
+export const SLICK_SLOW_T = 1.4        // s the fouling lasts after you leave
+
 // ---- THE TRAWL (v7.x Book 2 ch 4 — chapters whose signature is `trawl`) ------------------------
 // A net wall crosses the map on a timer, from a direction, and it AIMS AT NOTHING. It kills the
 // player and it kills the crowd, in the same pass, on the same tick. That last part is the chapter,
@@ -7727,6 +7973,10 @@ export const DMG_SRC_NAME = {
   // Its own row rather than sharing 'Drowning' — they are the same DoT mechanism, and the whole
   // reason they are separate functions is that they mean opposite things (see stepStarve).
   starve: 'Starvation',
+  // THE WRECK's other one, and after the prey rework it is the chapter's ONLY external killer — the
+  // whole roster is food and cannot damage the player at all (contactHarmless). A run that ends
+  // here ends on this row or on Starvation, and nothing else.
+  slick: 'The Leak',
   trawl: 'The Net',            // The Trawl: the mesh wall
   devour: 'Swallowed',         // The Deep: an anglerfish maw closed on you (a run.shafts entry)
   // Book 1's hazards — with the caveat that `pool` is the single most widespread hazard in the game
@@ -7809,6 +8059,7 @@ export const DMG_SRC_NO_ART = {
   // DoT can carry a drawing, so "it is a state, not a world object" is NOT the argument here and must
   // not be borrowed from the two anomalies below. DELETE THIS LINE when hazardThumbs.starve lands.
   starve: 'OWED — The Wreck phase 2 has not authored its art yet, not a permanent exemption',
+  slick: 'OWED — bakes from hazardThumbs.slick; run scripts/bake-cast.mjs (needs a browser)',
   // Costs you chose to pay. Neither has a world object; their honest picture is the anomaly card.
   overload: 'a card you took, not a thing in the world',
   bloodMoney: 'a card you took, not a thing in the world',
