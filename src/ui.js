@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -741,6 +741,13 @@ export function initUI(hooks) {
   let sacrificePicks = {} // statId -> levels offered so far this sacrifice session
   let sacrificeBounceId = null
   let sacrificeTarget = null // which unlock the offer is FOR — see sacTargets/activeTarget below
+  // WHICH ECONOMY THE SHOP IS SHOWING. The shop spends two currencies — coins buy upgrade levels,
+  // and upgrade LEVELS buy the permanent unlocks — and until v7.x the second one was a single pill
+  // in the footer naming only the CHEAPEST target. That hid every other target completely: with
+  // Light Thief at 5 levels on the shelf, Undertow's 3rd card slot at 20 was not on the screen at
+  // all, and neither was the one line saying what Light Thief does (it existed, in the modal). Two
+  // labelled halves instead, each naming its own currency, each listing everything it sells.
+  let shopTab = 'upgrades' // 'upgrades' | 'sacrifices'
   // Reset-all-progress confirmation: a backdrop + a small confirm/cancel sheet. Still a modal (a
   // destructive yes/no genuinely wants to block), unlike the sacrifice list which is a view now.
   let resetOpen = false
@@ -773,26 +780,29 @@ export function initUI(hooks) {
       // already-bought gate, so a maxed unlock drops out of the list without a second test.
       const cost = unlockCost(bookId, id, unlockLevel(bm, bookId, id))
       if (cost == null) continue
-      const lv = unlockLevel(bm, bookId, id), max = unlockMax(bookId, id)
-      // The name carries the rung once there is more than one, so the sacrifice screen says which
-      // level you are buying rather than offering the same row three times over.
-      const label = max > 1 ? `${t(u.name)} ${lv + 1}/${max}` : t(u.name)
-      out.push({ id, cost, icon: u.icon, label, short: label, desc: tt(u.desc, { cost }) })
+      // The unlock list shows the rung on its own line now (sacTargetRowsHtml), so `label` is the
+      // bare name — a name reading "Light Thief 2/3" was the only way to say which rung you were
+      // buying back when the target lived in a 202px pill.
+      out.push({ id, cost, icon: u.icon, label: t(u.name), does: t(u.desc) })
     }
     const slots = bm.choiceSlots ?? 2
     const slotCost = sacrificeCost(slots)
     if (slotCost != null) {
       const nth = slots === 2 ? t('3rd') : t('4th')
       out.push({
-        // `short` is what the target STRIP shows, and it exists because `label` does not fit there:
-        // the strip splits 288px between two buttons at 320px, and "3rd upgrade slot" ellipsized to
-        // "3rd upgrad...". The pill on the shop screen has the full row to itself and keeps `label`.
-        id: 'slot', cost: slotCost, icon: '🩸', label: tt('{nth} upgrade slot', { nth }), short: tt('{nth} slot', { nth }),
-        desc: tt('Unlock the {nth} upgrade slot — sacrifice {cost} upgrade levels (no coin refund).', { nth, cost: slotCost }),
+        id: 'slot', cost: slotCost, icon: '🩸', label: tt('{nth} upgrade slot', { nth }),
+        does: t('One more choice at every level-up.'),
       })
     }
     return out.sort((a, b) => a.cost - b.cost) // cheapest first, as today
   }
+  // The full sentence, for the offer view: what it does, then what it costs. Composed here rather
+  // than stored in config so the effect line can be shown on its own wherever the price is already
+  // on screen — see BOOK_UNLOCKS in config.js.
+  // TWO SENTENCES, not a dash-joined clause: `does` already ends in a full stop (it has to — the
+  // unlock list shows it alone), so " — " after it renders as "…level-up. — sacrifice 20 levels".
+  const sacTargetSentence = (x) =>
+    `${x.does} ${tt('Sacrifice {n} upgrade levels (no coin refund).', { n: x.cost })}`
   // The target currently being offered toward. Resolved rather than stored, so a target that stops
   // existing mid-session (bought in another tab, or the dev gate switched off under it) can never
   // leave the view pointing at a purchase that cannot happen.
@@ -807,39 +817,83 @@ export function initUI(hooks) {
   // cost); the paragraph moved inside the modal the pill opens, so nothing is lost, and the
   // reset link shares the same row as a 🗑 square. Both live in .shop-foot, a fixed-height flex
   // row, which is what lets .shop-rows own every remaining pixel (see styles.css).
-  function shopFootHtml(bookId, slots, cost) {
-    const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
-    const owned = Object.values(bm.shop).reduce((sum, l) => sum + l, 0)
-    // ONE pill, still — the target choice lives inside the view it opens, not out here. .shop-foot
-    // is a fixed-height flex row that already shares its width with the reset square, and a second
-    // pill is exactly the kind of thing that fits at 390px and overflows at 320. The pill tracks
-    // the CHEAPEST available target so it lights up as early as anything is affordable.
-    const targets = sacTargets(bookId)
-    const cheapest = targets[0] ?? null
-    let sac
-    if (!cheapest) {
-      sac = `<div class="shop-sac shop-sac--done">🩸 ${t('All 4 upgrade slots unlocked.')}</div>`
-    } else {
-      const afford = owned >= cheapest.cost
-      const pct = Math.min(100, Math.round((owned / cheapest.cost) * 100))
-      // The fraction is progress toward the requirement, not an inventory count — so it reads
-      // "20/20" once you qualify, never "21/20". (The modal shows what you actually own.)
-      const have = Math.min(owned, cheapest.cost)
-      const cost = cheapest.cost
-      sac = `
-        <button class="shop-sac${afford ? ' shop-sac--ready' : ''}" data-act="sacrifice-start" ${afford ? '' : 'disabled'}>
-          <span class="shop-sac-label">${cheapest.icon} ${cheapest.label}</span>
-          <span class="shop-sac-track">
-            <span class="shop-sac-meter"><i style="width:${pct}%"></i></span>
-            <span class="shop-sac-count">${have}/${cost}</span>
-          </span>
-        </button>`
-    }
+  // The foot is the reset square and nothing else now. The sacrifice pill that used to share this
+  // row is gone: it was one control standing in for a whole list (see shopTab above), and the list
+  // is on the screen proper.
+  function shopFootHtml() {
     return `
       <div class="shop-foot">
-        ${sac}
         <button class="reset-link" data-act="reset-start" aria-label="${t('Reset all progress')}" title="${t('Reset all progress')}">🗑</button>
       </div>`
+  }
+
+  // The two halves of the shop, each naming its own currency and how much of itself is done. The
+  // counts are what make this more than navigation: "34 / 110 niveaux" and "1 sur 5" are the only
+  // place either economy states its own size.
+  function purseSwitchHtml(bookId) {
+    const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
+    const levels = Object.values(bm.shop).reduce((sum, l) => sum + l, 0)
+    const buyable = Object.keys(shopLines(bookId)).length * MAX_SHOP_LEVEL
+    // RUNGS, not rows: Light Thief is ONE row on the list — sacTargets only ever offers a ladder's
+    // next step — but three separate purchases. So `done` must be summed from what has been PAID,
+    // never derived as rungs minus rows: that reads 3 of 5 on a save that has bought nothing,
+    // because two of Light Thief's three unbought rungs are not rows yet either.
+    const unlockIds = Object.keys(BOOK_UNLOCKS[bookId] ?? {})
+    const rungs = SACRIFICE_COSTS.length + unlockIds.reduce((n, id) => n + unlockMax(bookId, id), 0)
+    const done = Math.max(0, (bm.choiceSlots ?? 2) - 2)
+      + unlockIds.reduce((n, id) => n + unlockLevel(bm, bookId, id), 0)
+    const on = shopTab === 'sacrifices'
+    return `
+      <div class="purse-switch">
+        <button class="purse-tab${on ? '' : ' purse-tab--on'}" data-act="shop-tab" data-tab="upgrades">
+          <b>🪙 ${t('Upgrades')}</b><small>${tt('{n} / {m} levels', { n: levels, m: buyable })}</small>
+        </button>
+        <button class="purse-tab purse-tab--levels${on ? ' purse-tab--on' : ''}" data-act="shop-tab" data-tab="sacrifices">
+          <b>🩸 ${t('Sacrifices')}</b><small>${tt('{n} of {m}', { n: done, m: rungs })}</small>
+        </button>
+      </div>`
+  }
+
+  // EVERY TARGET, ALWAYS, WITH WHAT IT DOES. The desc has existed in config since the ladder
+  // shipped and is already translated; it was simply never rendered outside the offer view, and
+  // then only for whichever target was selected. A row you cannot afford stays on the list and
+  // carries a meter toward its price, because "what is there to work toward" is the question this
+  // screen exists to answer.
+  function sacTargetRowsHtml(bookId) {
+    const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
+    const levels = Object.values(bm.shop).reduce((sum, l) => sum + l, 0)
+    const targets = sacTargets(bookId)
+    if (!targets.length) return `<div class="sac-all-done">🩸 ${t('Everything in this book is unlocked.')}</div>`
+    // THE ONLY PLACE THE GAME EXPLAINS ITS SECOND CURRENCY. Everything else on this half states a
+    // price in "levels" and trusts the player to work out that those are levels they already bought
+    // and will lose. It is also what this list stands in: a ladder offers one rung at a time, so
+    // there are two or three rows on an 844px screen.
+    const lead = `<p class="sac-lead">${t('Paid with upgrade levels you already own. They are spent, not refunded.')}</p>`
+    return lead + targets.map((x) => {
+      const afford = levels >= x.cost
+      const pct = Math.min(100, Math.round((levels / x.cost) * 100))
+      // `rung` only when the ladder has more than one — "palier 1 sur 1" is noise on a
+      // single-purchase unlock, which is what both card slots are.
+      const max = x.id === 'slot' ? 1 : unlockMax(bookId, x.id)
+      const rung = max > 1 ? tt('step {n} of {m}', { n: unlockLevel(bm, bookId, x.id) + 1, m: max }) : ''
+      return `
+        <div class="sac-offer${afford ? '' : ' sac-offer--short'}">
+          <button class="sac-offer-top" data-act="sacrifice-start" data-id="${x.id}" ${afford ? '' : 'disabled'}>
+            <span class="sac-offer-ico">${x.icon}</span>
+            <span class="sac-offer-name">
+              <b>${x.label}</b>
+              ${rung ? `<small>${rung}</small>` : ''}
+            </span>
+            <span class="sac-offer-price">${afford ? tt('give up {n}', { n: x.cost }) : tt('{n} levels', { n: x.cost })}</span>
+          </button>
+          <p class="sac-offer-does">${x.does}</p>
+          ${afford ? '' : `
+            <div class="sac-offer-bank">
+              <i><span style="width:${pct}%"></span></i>
+              <b>${levels}/${x.cost}</b>
+            </div>`}
+        </div>`
+    }).join('')
   }
 
   // v6.6.3: the sacrifice list is a VIEW, not a modal. It used to be a 523px sheet floating inside
@@ -897,28 +951,15 @@ export function initUI(hooks) {
         </div>`
     }).join('')
 
-    // v7.x: the target toggles. Rendered ONLY when there is a real choice — with one target this
-    // strip is a row of one button that does nothing, which is worse than no strip, and one target
-    // is what every non-dev save has. Switching target clears the altar (see the handler): the
-    // costs differ, so carrying an offer across would silently leave you over or under.
-    const targets = sacTargets(bookId)
-    const targetStrip = targets.length < 2 ? '' : `
-      <div class="sac-targets">
-        ${targets.map((x) => `
-          <button class="sac-target${x.id === target.id ? ' sac-target--on' : ''}" data-act="sacrifice-target" data-id="${x.id}">
-            <span class="sac-target-label">${x.icon} ${x.short ?? x.label}</span>
-            <span class="sac-target-cost">${x.cost}</span>
-          </button>`).join('')}
-      </div>`
-
-    // v6.6: the "what does this buy me" line lives here now — the shop screen no longer carries a
-    // standing panel to hold it (see shopFootHtml). v7.x: it is the target's own copy.
+    // No target STRIP any more: you chose the target by tapping its row on the unlock list, which
+    // is a screen that shows all of them with their descriptions rather than two abbreviated
+    // buttons sharing 288px. The header names the one you picked instead.
     return `
       <header class="shop-head shop-head--sac">
         <span class="sacrifice-counter${ready ? ' sacrifice-counter--ready' : ''}" style="color:${counterColor}">🩸 ${tt('Offered {offered}/{cost}', { offered, cost })}</span>
       </header>
-      ${targetStrip}
-      <p class="sacrifice-desc">${target.desc}</p>
+      <p class="sacrifice-for">${target.icon} <b>${target.label}</b></p>
+      <p class="sacrifice-desc">${sacTargetSentence(target)}</p>
       <div class="shop-rows shop-rows--sac">${rows}</div>
       <footer class="shop-foot shop-foot--sac">
         <button class="btn btn--soft btn--small" data-act="sacrifice-cancel">${t('Cancel')}</button>
@@ -1003,14 +1044,26 @@ export function initUI(hooks) {
     const tabs = books.map((s) => `
       <button class="book-tab${s.book === bookId ? ' book-tab--on' : ''}" data-book="${s.book}"
               style="--cloth:${s.cloth}"${s.book === bookId ? ' aria-current="true"' : ''}>${t(s.name)}</button>`).join('')
+    // THE BALANCE SWAPS WITH THE TAB, and it is the one gesture that teaches the second economy:
+    // the same pill, in the other currency, showing what THIS half of the shop spends. A gold
+    // coin count standing over a list priced in levels is the shape that made the sacrifices read
+    // as an oddity bolted onto the shop rather than as half of it.
+    const onSac = shopTab === 'sacrifices'
+    const levels = Object.values(bm.shop).reduce((sum, l) => sum + l, 0)
+    const balance = onSac
+      ? `<span class="shop-balance shop-balance--levels">🩸 <b>${levels}</b></span>`
+      : `<span class="shop-balance">🪙 <b>${bm.coins}</b></span>`
+    // grid-auto-rows: minmax(max-content, 1fr) grows 8-11 coin rows to fill a tall screen (v6.6).
+    // An unlock list is 2-5 rows and 1fr would make each a fifth of the screen, so it opts out.
     setHtml(screens.shop, `
       <header class="shop-head">
-        <span class="shop-balance">🪙 <b>${bm.coins}</b></span>
+        ${balance}
         <span class="shop-books">${tabs}</span>
         <button class="pill-btn shop-close" data-act="shop-close" aria-label="${t('Close')}">✕</button>
       </header>
-      <div class="shop-rows">${cards}</div>
-      ${shopFootHtml(bookId, slots, cost)}
+      ${purseSwitchHtml(bookId)}
+      <div class="shop-rows${onSac ? ' shop-rows--targets' : ''}">${onSac ? sacTargetRowsHtml(bookId) : cards}</div>
+      ${shopFootHtml()}
       ${resetModalHtml()}
     `)
   }
@@ -2134,6 +2187,9 @@ export function initUI(hooks) {
     sacrificeBounceId = null
     sacrificeTarget = null
     resetOpen = false
+    // Back to coins on re-entry: buying an upgrade is the everyday visit and a sacrifice is
+    // something a save does a handful of times, so the common case gets the opening screen.
+    shopTab = 'upgrades'
   }
   function switchTab(target) {
     if (active === target) return
@@ -2431,28 +2487,31 @@ export function initUI(hooks) {
       case 'quit': playSfx('click'); hooks.onQuit(); break
       case 'skill': hooks.onSkill(); break
       case 'reroll': if (lvArmed() && !lvRevealing) hooks.onReroll(); break
-      case 'sacrifice-start':
-        sacrificeOpen = true
-        sacrificePicks = {}
-        sacrificeBounceId = null
-        // Open on the CHEAPEST target, matching the pill the player just tapped (shopFootHtml
-        // labels itself with that same target) rather than whatever was selected last session.
-        sacrificeTarget = sacTargets(shopBookId())[0]?.id ?? null
-        playSfx('click')
-        renderShop()
-        break
-      case 'sacrifice-target': {
-        // Switching what you are buying CLEARS the altar. The targets cost different numbers of
-        // levels, so carrying an offer across would leave you silently over the new cost (confirm
-        // stays dead, with no visible reason) or under it.
-        const id = el.dataset.id
-        if (id !== sacrificeTarget) {
-          sacrificeTarget = id
-          sacrificePicks = {}
-          sacrificeBounceId = null
+      // Which half of the shop is on screen — coins, or upgrade levels. See shopTab.
+      case 'shop-tab': {
+        const tab = el.dataset.tab
+        if (tab !== shopTab) {
+          shopTab = tab
           playSfx('click')
           renderShop()
         }
+        break
+      }
+      case 'sacrifice-start': {
+        // The target comes from the ROW that was tapped, not from a cheapest-first guess: the
+        // unlock list shows every target, so which one you meant is no longer ambiguous. Still
+        // validated against sacTargets — a row can go stale between render and tap (bought in
+        // another tab, the dev gate switched off under it). A stale id opens NOTHING rather than
+        // falling through to activeTarget's list[0], which would silently start an offer toward a
+        // different purchase than the one the player pressed.
+        const wanted = sacTargets(shopBookId()).find((x) => x.id === el.dataset.id)
+        if (!wanted) { renderShop(); break }
+        sacrificeOpen = true
+        sacrificePicks = {}
+        sacrificeBounceId = null
+        sacrificeTarget = wanted.id
+        playSfx('click')
+        renderShop()
         break
       }
       case 'sacrifice-cancel':

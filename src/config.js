@@ -4042,9 +4042,14 @@ export const LIGHT_THIEF_COSTS = [5, 10, 15]
 // is simply a one-entry array, so there is one shape here and no branch anywhere downstream.
 export const BOOK_UNLOCKS = {
   undertow: {
+    // `desc` is the EFFECT ALONE, with no price clause: it is rendered on the shop's unlock list
+    // beside a chip already showing the cost, and the offer view composes the "sacrifice N levels"
+    // sentence itself. It used to carry a {cost} template and so could only be shown somewhere the
+    // cost was in scope — which is most of why the one line saying what this unlock DOES never
+    // appeared until you were two taps into a modal.
     lightThief: {
       costs: LIGHT_THIEF_COSTS, icon: '🔦', name: 'Light Thief',
-      desc: 'Kills give back Light — sacrifice {cost} upgrade levels (no coin refund).',
+      desc: 'Kills give back Light.',
     },
   },
 }

@@ -4966,6 +4966,43 @@ function runBookProgression() {
     console.log('PASS run BP.q3 (book navigation): shop book tabs gated by titleBookshelf and browse-only, bookcase fade measured not counted, 2-page spread with flex pips, --shelves + --shop-pct both authored and read')
   }
 
+  // (q4b) EVERY CONFIG CONSTANT ui.js USES IS ACTUALLY IMPORTED. ui.js cannot be imported by this
+  // suite (it needs a DOM), so a bare identifier in it is a ReferenceError nothing here can see —
+  // and the symptom is not a blank page: renderShop throws, showScreen's switch never completes,
+  // and the PREVIOUS screen stays up. That reads exactly like "the button did nothing". It happened
+  // for real building this shop: SACRIFICE_COSTS was dropped from the import list while moving
+  // arithmetic to state.js, the suite stayed green, and the Shop silently would not open.
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    // Everything ui.js brings in, from any module...
+    const imported = new Set()
+    for (const m of uiSrc.matchAll(/import \{([^}]+)\} from/g)) {
+      for (const name of m[1].split(',')) imported.add(name.trim().split(/\s+as\s+/).pop())
+    }
+    // ...plus anything it declares itself, at any scope (SCREEN_NAMES, CAST_ART, DEV_TAPS_TO_OPEN…).
+    for (const m of uiSrc.matchAll(/(?:const|let|var|function)\s+([A-Z][A-Z0-9_]{2,})\b/g)) imported.add(m[1])
+    // ...and destructured locals, which is how a few config tables are unpacked.
+    for (const m of uiSrc.matchAll(/(?:const|let)\s*\{([^}]+)\}\s*=/g)) {
+      for (const name of m[1].split(',')) imported.add(name.trim().split(':').pop().trim())
+    }
+    // CONSTANT_CASE only: those are the config imports, and a lowercase helper would drown this in
+    // false positives from properties and locals. Strip strings and comments first — a CONSTANT_CASE
+    // word inside a comment or a translated string is not a reference.
+    const code = uiSrc
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/\/\/[^\n]*/g, ' ')
+      .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+      .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+      .replace(/`(?:[^`\\]|\\.)*`/g, '``')
+    const used = new Set()
+    for (const m of code.matchAll(/(^|[^.\w$'"])([A-Z][A-Z0-9_]{2,})\b/gm)) used.add(m[2])
+    const missing = [...used].filter((n) => !imported.has(n) && !(n in globalThis)).sort()
+    assert.deepStrictEqual(missing, [],
+      `ui.js references these CONSTANT_CASE names without importing or declaring them — each is a ReferenceError that leaves the previous screen on display instead of throwing visibly:\n${missing.join(', ')}`)
+    assert.ok(used.size > 30, `only ${used.size} CONSTANT_CASE references found in ui.js — the scan is broken, not the code`)
+    console.log(`PASS run BP.q4b (ui.js constants): all ${used.size} CONSTANT_CASE references resolve to an import or a local declaration`)
+  }
+
   // (q5) THE SHOP DOOR'S COMPLETION METER. bookProgress counts UPGRADE LEVELS, and the whole reason
   // it lives in state.js is so this block can call it — the same arithmetic inside ui.js had no
   // guard at all. Sacrifices are the interesting half: they are paid in shop LEVELS, so buying one
