@@ -400,6 +400,11 @@ const SFX_FOR_EVENT = {
   // v5.21 lane (beyond): the active shove reuses the hole whoosh, and a rock clipping the player
   // is an ordinary hurt — it is damage, not a special occasion.
   repulse: 'hole', rockhit: 'hurt',
+  // v7.x The Surf: the Shorebreak REPLACES the shove in that chapter, so it does not inherit the
+  // shove's sound by sitting on the same press — surf never emits `repulse` at all any more. It
+  // takes the same whoosh, which is both the right voice for a wall of water and the reason the
+  // swap is inaudible as a regression: one press, one sample, exactly as before.
+  shorebreak: 'hole',
   // v5.24 The Blank: the boss's scripted arrival/final kill and the P2 node yank each get their
   // own beat (audio.js) — the fight only has three of these total, no throttling needed.
   bossSpawn: 'bossRise', bossDead: 'bossFall', yank: 'zap',
