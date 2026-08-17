@@ -196,6 +196,11 @@ body {
    screen on a name the player already knows, and the chapter is the thing worth looking at. */
 .title-logo {
   margin: 0;
+  /* The header is ⚙ + wordmark and nothing else since the balance moved onto the Shop door, so the
+     wordmark has to reserve the pill's width on the RIGHT to stay on the bar's true centre —
+     `space-between` alone would hang it 22px off-axis against the one remaining control. */
+  flex: 1 1 auto;
+  margin-right: 44px;
   text-align: center;
   font-size: clamp(0.82rem, 3.6vw, 1.05rem);
   font-weight: 900;
@@ -945,7 +950,7 @@ body {
 /* chapter played, shown under the summary screen's headline (v5.0) */
 .summary-chapter { margin: -6px 0 0; font-weight: 800; font-size: 0.95rem; color: var(--ink-soft); }
 
-/* difficulty-unlock celebration badge on the summary screen (v4.10) — mint, matches diff-hint-reward */
+/* difficulty-unlock celebration badge on the summary screen (v4.10) — mint */
 .summary-unlock {
   padding: 8px 10px;
   border-radius: 12px;
@@ -1095,9 +1100,13 @@ body {
   align-items: flex-end;
   justify-content: center;
   gap: 4px;
-  /* Sized so two étages plus the detail panel fit a 390x844 phone without the top row clipping.
-     The case scrolls past that, which is what a third Book will need anyway. */
-  height: clamp(76px, 19vh, 168px);
+  /* Sized so every étage plus the detail panel fits a 390x844 phone without the top row clipping —
+     hence the DIVISOR. --shelves is the étage count, published by bookcaseHtml (ui.js); a flat
+     19vh sized the row for the two-Book case and left one Book standing in ~310px of bare desk,
+     with spines a third the height of the shelf they stand on. 38vh/1 caps out at 290px (a ~1:6
+     spine, which is what a hardback actually is) and 38vh/2 lands on 160px, the height two Books
+     have today. The case still scrolls past that, which is what a third Book will need anyway. */
+  height: clamp(76px, calc(38vh / var(--shelves, 1)), 290px);
   padding: 0 14px;
 }
 
@@ -1345,11 +1354,21 @@ body {
    this book's cover and not on a bar that follows you everywhere. */
 .volume-acts { display: flex; align-items: stretch; gap: 7px; width: 100%; }
 .volume-acts .btn--play { flex: 1 1 auto; min-width: 0; }
+/* The door carries the BOOK's purse and the BOOK's completion — see titleBelowHtml for why those
+   two numbers live here and not in the header. --shop-pct (inline, from shopProgress) drives the
+   fill; it is a bare percentage so the bar needs no width maths of its own. */
 .btn--shop {
+  position: relative;
+  overflow: hidden;
   flex: 0 0 auto;
   min-width: 0;
   min-height: 50px;
-  padding: 9px 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 8px 13px 9px;
   border: 3px solid var(--gold-edge);
   border-radius: var(--radius);
   background: var(--gold);
@@ -1361,13 +1380,32 @@ body {
   box-shadow: 0 4px 0 var(--gold-edge);
   cursor: pointer;
 }
+.shop-btn-purse { font-size: 0.78rem; font-weight: 900; }
+/* The completion meter: a track that is always the full width, with the fill over it — an empty
+   shop reads as an empty groove, where a bare fill would read as a missing element. The number
+   rides beside it because a short bar alone does not say short OF WHAT. */
+.shop-btn-meter { display: flex; align-items: center; gap: 4px; width: 100%; margin-top: 2px; }
+.shop-btn-meter i { position: relative; flex: 1 1 auto; height: 5px; border-radius: 3px; background: rgba(74, 58, 0, 0.22); }
+.shop-btn-meter i::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--shop-pct, 0%);
+  border-radius: 3px;
+  background: #4a3a00;
+  opacity: 0.72;
+}
+.shop-btn-meter b { flex: none; font-size: 0.56rem; font-weight: 900; opacity: 0.8; }
 .btn--shop:active { transform: translateY(2px); box-shadow: none; }
 .btn--shop:focus-visible { outline: 3px solid var(--mint-dark); outline-offset: 2px; }
 /* At 320px "Play"+"Shop" side by side is tight in both languages; the shop keeps its icon only.
    Its aria-label still speaks the word, so the control is not losing its name, only its type. */
 @media (max-width: 360px) {
-  .btn--shop { font-size: 0; padding: 9px 15px; }
-  .btn--shop::first-letter { font-size: 1.15rem; }
+  .btn--shop { padding: 8px 15px 13px; }
+  .shop-btn-label { font-size: 0; }
+  .shop-btn-label::first-letter { font-size: 1.15rem; }
 }
 
 /* ---- the open volume: a two-page spread ---- */
@@ -1411,11 +1449,26 @@ body {
    pip is 170px of a 168px page, so five of them wrapped a sixth line onto the spread and the panel
    came out TALLER than the stack it replaced (measured 273px vs 255px). `flex: 1 1 0` cannot wrap
    at any viewport or any ladder length. */
-.page--recto { justify-content: flex-start; }
+/* `center`, not flex-start: with the difficulty PARAGRAPH gone the recto is a label and a row of
+   pips against a verso carrying icon + name + tagline + cast, so top-aligning left the right-hand
+   page visibly half empty. */
+.page--recto { justify-content: center; }
 .page--recto .diff-row { flex-wrap: wrap; width: 100%; justify-content: center; }
 .page--recto .diff-label { flex: 1 0 100%; margin: 0 0 6px; text-align: center; }
 .page--recto .diff-pip { flex: 1 1 0; width: auto; min-width: 0; padding: 0; }
 .page--recto .diff-hint { text-align: center; }
+
+/* The ladder's payout, foil-stamped beside the label. See titleBelowHtml for why this replaced a
+   four-line paragraph. */
+.diff-reward-chip {
+  display: inline-block;
+  margin-left: 7px; padding: 1px 7px; border-radius: 999px;
+  background: var(--gold); color: #4a3a00; font-size: 0.68rem; font-weight: 900;
+  letter-spacing: 0;
+  /* At 320px the label row wraps; without this the chip itself breaks and the coin lands on a
+     line of its own outside the pill. Wrapping BEFORE the chip is fine, inside it is not. */
+  white-space: nowrap;
+}
 
 /* ---- booster slots (title) ---- */
 .booster-row {
@@ -1566,7 +1619,6 @@ body {
 .diff-pip--locked { opacity: 0.5; cursor: default; }
 .diff-pip--locked:active { transform: none; }
 .diff-hint { font-weight: 600; font-size: 0.72rem; color: var(--ink-soft); margin-top: -4px; }
-.diff-hint-reward { color: #1e7d4f; }
 .diff-hint--locked { margin-top: 0; }
 
 /* sacrifice section (shop screen, v4.8/v4.9): sacrifice owned SHOP levels for a permanent 3rd/4th

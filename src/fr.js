@@ -75,8 +75,6 @@ const UI = {
   'Difficulty': 'Difficulté',
   'difficulty': 'difficulté',
   'the base game': 'le jeu de base',
-  '+1 random anomaly': '+1 anomalie aléatoire',
-  '+{n} random anomalies': '+{n} anomalies aléatoires',
   'enemy HP': 'PV ennemis',
   'coins': 'pièces',
   'win level {n} to unlock {m}': 'gagne le niveau {n} pour débloquer le {m}',

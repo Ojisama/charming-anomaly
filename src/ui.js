@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_HP_PER_LEVEL, DIFFICULTY_DMG_PER_LEVEL, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta } from './state.js'
@@ -380,7 +380,10 @@ export function initUI(hooks) {
   }
 
   function bookcaseHtml() {
-    return `<div class="bookcase">${titleBookshelf(meta).map((s, i) => etageHtml(s, i + 1, i)).join('')}</div>`
+    const shelves = titleBookshelf(meta)
+    // --shelves is the row-height DIVISOR (see .shelf-row, styles.css): the case fills the screen
+    // whatever the Book count, instead of being sized for two and leaving one standing in bare desk.
+    return `<div class="bookcase" style="--shelves:${shelves.length}">${shelves.map((s, i) => etageHtml(s, i + 1, i)).join('')}</div>`
   }
 
   // 3 booster slots: session-selected consumables fill left-to-right, the rest show ＋. Any slot
@@ -435,18 +438,12 @@ export function initUI(hooks) {
       </div>`
   }
 
-  // Everything BELOW the carousel: the difficulty row + hint + booster slots (unlocked chapters
-  // only) and the Play button. Split out so scroll-driven selection can rebuild JUST this part
-  // (via updateTitleBelow) without touching the carousel node and resetting its scroll position.
-  // v5.24: blank's ladder has no random anomalies — instead each level names its cumulative
-  // CHAPTERS.blank.modsByDifficulty entries (MUTATORS[id].name), same +HP/+coins tail as everyone
-  // else. Level 1 is always 'the base game' below, same as any chapter, since modsByDifficulty[1]
-  // is empty.
-  function diffHintLead(id, level) {
-    if (id === 'blank') {
-      return (CHAPTERS.blank.modsByDifficulty[level] ?? []).map((mid) => t(MUTATORS[mid]?.name ?? mid)).join(' + ')
-    }
-    return level === 2 ? t('+1 random anomaly') : tt('+{n} random anomalies', { n: level - 1 })
+  // What The Blank's difficulty level turns on, by name. Its ladder deals no random anomalies —
+  // each level names its cumulative CHAPTERS.blank.modsByDifficulty entries (MUTATORS[id].name)
+  // instead — which is why it is the one chapter whose ladder still writes a line under the pips
+  // (see titleBelowHtml). Level 1 is empty, same as everyone else's.
+  function blankMutatorNames(level) {
+    return (CHAPTERS.blank.modsByDifficulty[level] ?? []).map((mid) => t(MUTATORS[mid]?.name ?? mid)).join(' + ')
   }
 
   // The detail panel's head — the chapter's identity, which the hero card used to carry and a 47px
@@ -486,22 +483,43 @@ export function initUI(hooks) {
       </div>`
   }
 
+  // How far through THIS book's shop you are: levels bought over levels buyable. Every line in the
+  // book counts, so a book with its own extra lines (Undertow's three) has its own denominator —
+  // which is the point, the number is about the book on screen and not about the game.
+  // It can go DOWN: a sacrifice spends bought levels, and the same `owned` sum is already what the
+  // shop's own sacrifice meter counts (shopFootHtml), so the two never disagree.
+  function shopProgress(bookId) {
+    const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
+    const owned = Object.values(bm.shop ?? {}).reduce((sum, l) => sum + (Number(l) || 0), 0)
+    const max = Object.keys(shopLines(bookId)).length * MAX_SHOP_LEVEL
+    return { coins: bm.coins, pct: max > 0 ? Math.round((owned / max) * 100) : 0 }
+  }
+
   function titleBelowHtml() {
     const heroUnlocked = chapterAvailable(meta, browseChapterId)
     const chMeta = meta.chapters?.[browseChapterId] ?? { maxDifficulty: 1, difficulty: 1 }
     const cap = chapterMaxDifficulty(browseChapterId)
+    // The ladder's whole reward, as a chip on the label rather than the four-line paragraph this
+    // used to be. The +HP/+damage percentages are gone on purpose: the pip number already says
+    // "harder", and the anomaly COUNT is level - 1, which the lit pips also say. What no pip can
+    // say is the payout, so that is the one thing kept.
+    const coinPct = Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)
+    const rewardChip = chMeta.difficulty > 1 ? `<b class="diff-reward-chip">+${coinPct}% 🪙</b>` : ''
+    // ...with ONE exception, and it is not a style choice: The Blank's levels are NAMED mutators,
+    // not a count of random anomalies, so nothing else on this screen says what level 3 of The
+    // Blank actually turns on. Every other chapter's line was derivable, and is gone.
+    const mutatorLine = browseChapterId === 'blank' && chMeta.difficulty > 1
+      ? `<p class="diff-hint">${blankMutatorNames(chMeta.difficulty)}</p>` : ''
     const playBlock = heroUnlocked ? `
       <div class="diff-row">
-        <span class="diff-label">${t('Difficulty')}</span>
+        <span class="diff-label">${t('Difficulty')}${rewardChip}</span>
         ${Array.from({ length: cap }, (_, i) => {
           const d = i + 1
           if (d > chMeta.maxDifficulty) return `<button class="diff-pip diff-pip--locked" data-act="diff" data-diff="${d}" disabled>🔒</button>`
           return `<button class="diff-pip${d <= chMeta.difficulty ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
         }).join('')}
       </div>
-      <p class="diff-hint">${chMeta.difficulty === 1
-        ? t('the base game')
-        : `${diffHintLead(browseChapterId, chMeta.difficulty)} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_HP_PER_LEVEL) * 100)}% ${t('enemy HP')} · +${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_DMG_PER_LEVEL) * 100)}% ${t('enemy damage')} · <b class="diff-hint-reward">+${Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)}% ${t('coins')}</b>`}</p>
+      ${mutatorLine}
       ` : ''
     // Across the FOOT of the spread, not on the recto: at half width this sentence wraps to two
     // lines in both languages, and those two lines were most of why the panel still pushed the
@@ -514,6 +532,11 @@ export function initUI(hooks) {
     // thematic one — stacked, this panel was 255px of a 745px phone and the bookcase overflowed by
     // 33px, which silently ate the whole second shelf's brass plate (its only "Book 2" label).
     // Side by side the panel is ~170px, so the shelf clears at every viewport this game ships to.
+    // The Shop door carries the BOOK's purse and the BOOK's completion, because that is the only
+    // thing on this screen that says which shop it is: the coins you see here are the ones it
+    // spends, and the meter fills for this book alone. That is also why the header no longer shows
+    // a coin badge — one balance, on the door it belongs to, instead of the same number twice.
+    const { coins, pct } = shopProgress(shopBookId())
     return `
       <div class="spread">
         <div class="page page--verso">${detailHeadHtml()}</div>
@@ -522,7 +545,11 @@ export function initUI(hooks) {
       ${ladderHint}
       <div class="volume-acts">
         <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
-        <button class="btn btn--shop" data-act="shop">🛒&nbsp; ${t('Shop')}</button>
+        <button class="btn btn--shop" data-act="shop" style="--shop-pct:${pct}%" aria-label="${t('Shop')}">
+          <span class="shop-btn-label">🛒&nbsp; ${t('Shop')}</span>
+          <small class="shop-btn-purse">🪙 ${coins}</small>
+          <span class="shop-btn-meter"><i></i><b>${pct}%</b></span>
+        </button>
       </div>`
   }
 
@@ -544,19 +571,17 @@ export function initUI(hooks) {
     // creates one — and falling back to an unvalidated pointer would put the alien id straight back
     // (R1, config.js).
     if (!meta.chapters?.[browseChapterId]) browseChapterId = playableChapterId(meta)
-    // The badge reads the BROWSED book's purse (shopBookId — same resolution the shop and onBuy
-    // use), not always meta.coins: once a Book 2 chapter is a browsable preview card, showing
-    // book 1's coins here while Play/onBuy spend book 2's would be silently wrong.
-    const titleBm = bookMeta(meta, shopBookId()) ?? ensureBookMeta(meta, shopBookId())
     setHtml(screens.title, `
       <header class="title-bar">
         <button class="pill-btn" data-act="settings" aria-label="${t('Settings')}">⚙</button>
-        <h1 class="title-logo"><span>Charming</span> <span>Anomaly</span></h1>
-        ${meta.dev ? '<span class="dev-pill">DEV</span>' : ''}
         <!-- data-act="dev-tap-wip": seven quick taps toggle the WIP gate (meta.dev), which is what
              reveals work-in-progress chapters. Same gesture as the HUD badge's hidden dev menu and
-             the same two constants, but its own counter and its own case — see 'dev-tap-wip'. -->
-        <div class="coins-badge" data-act="dev-tap-wip">🪙 <b>${titleBm.coins}</b></div>
+             the same two constants, but its own counter and its own case — see 'dev-tap-wip'.
+             It sat on the header's coin badge until the balance moved onto the Shop door; the LOGO
+             is the replacement because it is the only other thing up here that is not a control,
+             so seven taps on it cannot also fire something else. -->
+        <h1 class="title-logo" data-act="dev-tap-wip"><span>Charming</span> <span>Anomaly</span></h1>
+        ${meta.dev ? '<span class="dev-pill">DEV</span>' : ''}
       </header>
       ${bookcaseHtml()}
       <div class="title-below">${titleBelowHtml()}</div>
@@ -2377,7 +2402,7 @@ export function initUI(hooks) {
       // (it's the only module that knows whether a run exists to go back to).
       case 'codex-open': playSfx('click'); hooks.onCodexOpen?.(el.dataset.from || 'title'); break
       case 'codex-close': playSfx('click'); hooks.onCodexClose?.(el.dataset.from || 'title'); break
-      // The WIP gate, on the TITLE coin badge. Seven taps flips meta.dev, which is what makes
+      // The WIP gate, on the TITLE wordmark. Seven taps flips meta.dev, which is what makes
       // work-in-progress chapters visible at all. renderTitle() repaints so the DEV pill appears
       // or vanishes on the same tap — a hidden flag with no tell is how WIP content reaches
       // players by accident. Same constants as 'dev-tap' above, separate counter (see wipTaps).

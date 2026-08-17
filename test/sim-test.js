@@ -4931,7 +4931,38 @@ function runBookProgression() {
       'titleBelowHtml must render two pages — the stacked panel is what pushed the second shelf out of the case')
     assert.ok(/\.page--recto \.diff-pip \{[^}]*flex: 1 1 0/.test(css),
       'the difficulty pips must DIVIDE the recto rather than be sized in px — a fixed 34px pip is 170px of a 168px page, and five of them wrapped the panel TALLER than the stack it replaced')
-    console.log(`PASS run BP.q3 (book navigation): shop book tabs gated by titleBookshelf and browse-only, bookcase fade measured not counted, ${['verso', 'recto'].length}-page spread with flex pips`)
+
+    // TWO CSS CUSTOM PROPERTIES, EACH AUTHORED IN ui.js AND READ IN styles.css. No import joins
+    // them, and each has a var() FALLBACK, so a broken half is not a blank screen or a throw —
+    // it is a plausible-looking screen with the wrong number in it.
+    //
+    // --shelves is the shelf-row height DIVISOR. Dropped from the markup it falls back to 1, and
+    // two Books get a one-Book row height — 290px each, which overflows a 390x844 phone and parks
+    // Book 2's brass plate under the fold, the exact bug the fade assertions above exist for.
+    assert.ok(/--shelves:\$\{shelves\.length\}/.test(uiSrc),
+      'bookcaseHtml must publish --shelves from the ETAGE COUNT — a hardcoded number (or none, falling back to 1) sizes every Book count as though it were one, and two Books then overflow the phone silently')
+    assert.ok(/calc\(38vh \/ var\(--shelves, 1\)\)/.test(css),
+      '.shelf-row height must divide by var(--shelves) — a flat vh is what left ONE Book standing in ~310px of bare desk with spines a third the height of their own shelf')
+    // --shop-pct is the completion meter's fill. Missing, it falls back to 0% and every save on
+    // earth reads "empty shop" next to a number saying otherwise.
+    assert.ok(/style="--shop-pct:\$\{pct\}%"/.test(uiSrc),
+      'the Shop door must publish --shop-pct — without it the meter falls back to 0% and reads "nothing bought" on a maxed save, beside a percentage that disagrees')
+    assert.ok(/width: var\(--shop-pct, 0%\)/.test(css),
+      'the meter fill must read var(--shop-pct) — a fixed width is a bar that never moves, which looks exactly like a shop you cannot make progress in')
+
+    // The title screen's ONLY balance is on the Shop door, and it is the book's purse plus the
+    // book's completion — that pair is the only thing on the screen saying WHICH shop it is.
+    // Losing either half leaves a button labelled "Shop" and nothing else, which is where it
+    // started.
+    const doorBlock = uiSrc.slice(uiSrc.indexOf('class="btn btn--shop"'), uiSrc.indexOf('class="btn btn--shop"') + 400)
+    assert.ok(/shop-btn-purse/.test(doorBlock) && /shop-btn-meter/.test(doorBlock),
+      'the Shop door must carry BOTH the purse and the completion meter — they are the whole of what ties it to the book on screen')
+    assert.ok(/\.shop-btn-meter i::after\s*\{/.test(css),
+      '.shop-btn-meter needs its fill rule — the track alone renders as a permanently empty groove')
+    assert.ok(!/class="coins-badge" data-act/.test(uiSrc),
+      'the title header must not carry a coins badge as well — two balances for one purse is what moving it onto the door was for')
+
+    console.log('PASS run BP.q3 (book navigation): shop book tabs gated by titleBookshelf and browse-only, bookcase fade measured not counted, 2-page spread with flex pips, --shelves + --shop-pct both authored and read')
   }
 
   // (q4) EVERY DOOR HAS A HANDLER, AND EVERY SCREEN HAS A DOOR. Deleting the bottom nav (v7.x)
