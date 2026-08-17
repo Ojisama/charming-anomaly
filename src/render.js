@@ -17658,22 +17658,30 @@ export function createRenderer(app) {
   async function hazardThumbs(ids) {
     // Extract whatever display object a builder hands back. A shared Graphics may legitimately be
     // hidden or faded when we borrow it, and generateTexture would then capture nothing.
-    async function grab(target) {
+    // `frame` (optional, local coords) CROPS the capture instead of taking the object's full bounds.
+    // It exists because a soft-edged FX sprite's bounds include a wide ring of near-transparent
+    // falloff: the pool disc measured 30x30 of visible green inside a 50x50 capture, and ui.js's
+    // `object-fit: contain` then letterboxes that whole 50x50 into a 20px slot, so 40% of the icon is
+    // padding and the green lands small. Owner: "too much white around the green". The pixel audit had
+    // already flagged it as a mostly-empty frame and it was waved through on the strength of a
+    // screenshot — the measurement was right.
+    async function grab(target, frame) {
       const wasVisible = target.visible
       const wasAlpha = target.alpha
       target.visible = true
       target.alpha = 1
       try {
-        return await R.extract.base64(target)
+        return await R.extract.base64(frame ? { target, frame } : target)
       } finally {
         target.visible = wasVisible
         target.alpha = wasAlpha
       }
     }
 
-    // Each builder returns [displayObject, cleanup]. The cleanup exists because four of these borrow
-    // a LIVE shared object (poolLayer's disc pool, stripG, bombG) rather than making their own, and
-    // leaving a hazard painted into a world Graphics would show it in the next run.
+    // Each builder returns [displayObject, cleanup, frame?]. The cleanup exists because four of these
+    // borrow a LIVE shared object (poolLayer's disc pool, stripG, bombG) rather than making their own,
+    // and leaving a hazard painted into a world Graphics would show it in the next run. `frame` is the
+    // optional crop above, and only the soft-edged FX sprites need it.
     const build = {
       // ---- straight off a texture the game already baked -------------------------------------
       // spriteOf keeps the bake's own anchor, so the thumbnail is framed the way the world frames it.
@@ -17731,7 +17739,13 @@ export function createRenderer(app) {
         // Tint, scale and structure still come from syncPools; only alpha is overridden.
         poolPool[0].a.alpha = 1
         poolPool[0].b.alpha = 1
-        return [poolPool[0].root, () => syncPools([])]
+        // CROPPED to the green's own extent. r=20 asks fxScale for a 40px core, but circle_05's soft
+        // falloff put the last visible pixel at ~15 from centre inside 50px of bounds — so the capture
+        // was 40% padding before ui.js had even letterboxed it. HALF_PX is deliberately just inside
+        // that measured 15, which trims only the faintest few percent of alpha and leaves a disc that
+        // fills its slot. Both discs sit at the container's origin, so a centred frame is correct.
+        const HALF_PX = 14
+        return [poolPool[0].root, () => syncPools([]), new Rectangle(-HALF_PX, -HALF_PX, HALF_PX * 2, HALF_PX * 2)]
       },
       erase: () => {
         redrawStrips({ strips: [{ x: 0, y: 0, angle: -0.5, len: 44, w: 17, fuse: 0, t: 99, look: 'erase' }] })
@@ -17820,9 +17834,9 @@ export function createRenderer(app) {
       if (!make) continue
       let cleanup = null
       try {
-        const [target, done] = make()
+        const [target, done, frame] = make()
         cleanup = done
-        out[id] = await grab(target)
+        out[id] = await grab(target, frame)
       } catch {
         // Same contract as castThumbs: a missing thumbnail costs one slot and the script reports it.
       } finally {
