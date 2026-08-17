@@ -2,7 +2,7 @@
 import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
-import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta } from './state.js'
+import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
 
 // Chapter-card cast thumbnails, keyed by rosterId: './cast/tardigrade.png' -> 'tardigrade'.
 // See the castArt note in initUI for where they come from and why they are files.
@@ -483,16 +483,12 @@ export function initUI(hooks) {
       </div>`
   }
 
-  // How far through THIS book's shop you are: levels bought over levels buyable. Every line in the
-  // book counts, so a book with its own extra lines (Undertow's three) has its own denominator —
-  // which is the point, the number is about the book on screen and not about the game.
-  // It can go DOWN: a sacrifice spends bought levels, and the same `owned` sum is already what the
-  // shop's own sacrifice meter counts (shopFootHtml), so the two never disagree.
-  function shopProgress(bookId) {
+  // The Shop door's two numbers: the book's purse, and how far through the book's permanent upgrades
+  // it is. The percentage is bookProgress (state.js), which is where the arithmetic lives and where
+  // the suite can reach it — sacrifices are counted on both sides of it, see the note there.
+  function shopDoor(bookId) {
     const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
-    const owned = Object.values(bm.shop ?? {}).reduce((sum, l) => sum + (Number(l) || 0), 0)
-    const max = Object.keys(shopLines(bookId)).length * MAX_SHOP_LEVEL
-    return { coins: bm.coins, pct: max > 0 ? Math.round((owned / max) * 100) : 0 }
+    return { coins: bm.coins, pct: bookProgress(bm, bookId).pct }
   }
 
   function titleBelowHtml() {
@@ -536,7 +532,7 @@ export function initUI(hooks) {
     // thing on this screen that says which shop it is: the coins you see here are the ones it
     // spends, and the meter fills for this book alone. That is also why the header no longer shows
     // a coin badge — one balance, on the door it belongs to, instead of the same number twice.
-    const { coins, pct } = shopProgress(shopBookId())
+    const { coins, pct } = shopDoor(shopBookId())
     return `
       <div class="spread">
         <div class="page page--verso">${detailHeadHtml()}</div>
