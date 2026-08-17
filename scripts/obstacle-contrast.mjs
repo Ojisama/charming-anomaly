@@ -42,6 +42,8 @@ const RIM_ALPHA = 1.00 // baked footprint rim alpha (fully opaque hard contract 
 const FOOT = {
   garden: 0x243617, pond: 0x243617, shelf: 0x122029, surf: 0x3d3324, reef: 0x1c0a1a,
   trawl: 0x0d161f, deep: 0x070c12,
+  // The Wreck borrows The Reef's BIOMES entry wholesale in phase 1, so it shares the reef foot.
+  wreck: 0x1c0a1a,
   // The Twilight is ALIASED to BIOME_SHELF's prop family (render.js), so it shares its foot.
   twilight: 0x122029,
   // District chapters: the value their obstacle style resolves to on the district the audit reads.
