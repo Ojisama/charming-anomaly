@@ -1,9 +1,9 @@
-// Scene: The Shelf at every level of its Light bar, from a full bar to an empty one. Book 2's
+// Scene: The Twilight at every level of its Light bar, from a full bar to an empty one. Book 2's
 // mechanic is "the world dims as you run out", and that is a RAMP — it cannot be judged from one
 // still, and it cannot be judged from a screenshot of a live run either, because the bar is moving
 // while you shoot it.
 //
-//   node scripts/fx-probe.mjs --scene scripts/scenes/shelf-dark.js --chapter shelf --out /tmp/sd --frames 7
+//   node scripts/fx-probe.mjs --scene scripts/scenes/twilight-dark.js --chapter twilight --out /tmp/sd --frames 7
 //
 // Frame 0 is a full bar (no scrim at all), the last frame is empty (peak dim + the slow at its
 // floor). The shaft in frame is a REAL streamed shaft moved into view, not an invented one, so the
@@ -11,7 +11,7 @@
 
 // A crowd around the player at two radii — the dark's cost is that you cannot see these arriving,
 // so a frame with nothing in it would show the dimming and hide the point of it.
-// 10, not 16: The Shelf runs maxAliveMul 0.5, so a bigger cast can exceed what the chapter will
+// 10, not 16: The Twilight runs maxAliveMul 0.5, so a bigger cast can exceed what the chapter will
 // keep alive at t=0 and H.breed spends its whole tick budget waiting for a 16th that cannot exist.
 H.breed(10)
 H.keep(10)

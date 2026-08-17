@@ -1,8 +1,8 @@
-// Scene: The Shelf's Sunspear, mid-fall and landing. A column is a run.lobs entry that never
+// Scene: The Twilight's Sunspear, mid-fall and landing. A column is a run.lobs entry that never
 // travels (fromX/fromY are its target), so what is on screen while it falls is drawn by
 // drawColumns — an aperture closing onto the splash radius, with motes converging inward.
 //
-//   node scripts/fx-probe.mjs --scene scripts/scenes/shelf-sunspear.js --out /tmp/ss --frames 14 --chapter shelf
+//   node scripts/fx-probe.mjs --scene scripts/scenes/twilight-sunspear.js --out /tmp/ss --frames 14 --chapter twilight
 //
 // What the frames have to answer, in order:
 //   1. is the telegraph READABLE as light coming down, or as a blast that already happened?

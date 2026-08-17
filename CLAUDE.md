@@ -31,7 +31,7 @@ node scripts/shot.mjs <url> <out.png> [waitMs] [w] [h] [seed.js]   # phone-viewp
 node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js --out /tmp/pr --frames 14
                                      # reproducible in-game frames of ONE effect, for A/B-ing a look
 node scripts/prop-scale.mjs          # PROP_SCALE ladder audit + render.js bare-`scale:` regression grep
-node scripts/charge-probe.mjs        # what a chapter RESOURCE bar (The Shelf's Light) actually does
+node scripts/charge-probe.mjs        # what a chapter RESOURCE bar (The Twilight's Light) actually does
                                      # over real 300s runs, across THREE axes: spend policy, MOVEMENT
                                      # policy, and whether Light Thief is bought. One spend policy
                                      # cannot tell "the bar cannot fill" from "this player spent it
@@ -305,7 +305,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   Blank and the whole of Book 2.** It is `BOOKS.book1.chapters`; `ALL_CHAPTER_IDS` adds the other
   books' ladders but still drops every `hidden` id. The honest denominator for "does every chapter
   satisfy X" is `Object.keys(CHAPTERS)`. This is not theoretical: run RA (roster art) was written
-  specifically to guard The Shelf's new roster, shipped green over `CHAPTER_ORDER`, and a mutation
+  specifically to guard the new Book 2 roster, shipped green over `CHAPTER_ORDER`, and a mutation
   deleting the copepod's `ROSTER_LOOKS` entry passed it — the test could not see the only chapter it
   existed for. The tell is a count in the PASS line that you have not checked against reality: it
   read "25 roster entries across 7 chapters" when the answer is 35 across 9. Print the denominator
@@ -384,10 +384,10 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   the English source string, so a second mod called `Slow Burn` silently inherits the first one's
   translation — a real French word, on the right screen, describing the wrong thing, and run XX is
   perfectly happy because the key IS covered. It is also just confusing to have two. Grep fr.js for
-  the name before adding it. (The Shelf's Foxfire hit this and shipped as `Long Burn` instead.)
+  the name before adding it. (The Twilight's Foxfire hit this and shipped as `Long Burn` instead.)
 - **A SHARED ENTITY ARRAY HAS MORE RENDER CONSUMERS THAN THE ONE YOU EDITED.** `run.lobs` has
   THREE — `syncLobs` (the thrown-object rig), `redrawHazards` (the amber landing ring), and now
-  `drawColumns` — and nothing about the array says so. The Shelf's Sunspear reused `run.lobs`, was
+  `drawColumns` — and nothing about the array says so. The Twilight's Sunspear reused `run.lobs`, was
   filtered out of `syncLobs`, and still came back wearing a Debris Toss landing ring: two telegraphs
   on one strike, which read as "the effect looks like soap bubbles" rather than as a missed site.
   **Reading the render code named the wrong culprit twice; one ablation pass (hide the layer, shoot
@@ -657,7 +657,7 @@ src path as argv). That also keeps the mutation rule intact — the working tree
   `fx-probe.mjs` defaults to a 390x844 phone; pass `--w 1280 --h 800` for the second. The phone's
   half-diagonal is 465px and the desktop's is 755px, so any quantity compared against the screen —
   a radius, a cull margin, a vignette, an early-out — can be a different mechanic on each, and the
-  one you shot will look correct. v7.58 shipped a full-bar early-out for The Shelf's dark with a
+  one you shot will look correct. v7.58 shipped a full-bar early-out for the light chapter's dark with a
   config comment calling it a considered decision; it was measured on the phone alone, where it is
   right, and on a desktop the same code left the corners vignetted at a full bar. It came back as a
   bug report within the hour (v7.60 fixed it by stating the light in screen half-diagonals). Assert

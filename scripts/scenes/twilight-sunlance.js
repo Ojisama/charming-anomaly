@@ -1,8 +1,8 @@
-// Scene: The Shelf's Sunlance at both ends of the bar. A lance is a run.beams entry with
+// Scene: The Twilight's Sunlance at both ends of the bar. A lance is a run.beams entry with
 // rotSpeed 0 — it does not sweep — whose LENGTH is bought with Light: full at a full bar, down to
 // SUNLANCE_REACH_MIN of it at an empty one.
 //
-//   node scripts/fx-probe.mjs --scene scripts/scenes/shelf-sunlance.js --out /tmp/sl --frames 12 --chapter shelf
+//   node scripts/fx-probe.mjs --scene scripts/scenes/twilight-sunlance.js --out /tmp/sl --frames 12 --chapter twilight
 //
 // What the frames have to answer:
 //   1. is it clearly SUNLIGHT and not the Neon Beam? The two share run.beams AND the beam pool, and

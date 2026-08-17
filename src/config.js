@@ -1847,7 +1847,7 @@ export const WEAPONS = {
       { dmg: 52, interval: 2.60, r: 142, hold: 1.75, flight: 0.42, castRange: 320 },
     ],
   },
-  // -- The Shelf's three natives ---------------------------------------------------------------
+  // -- The Twilight's three natives ---------------------------------------------------------------
   // The chapter is one resource seen from three sides. `resource` (CHAPTERS.shelf) is a bar that
   // drains in the dark and refills in a sun shaft, and until now it bought exactly one thing: the
   // Pulse's shove. These three make it a BUILD decision as well as a timer — the starter ignores it,
@@ -1856,7 +1856,7 @@ export const WEAPONS = {
   //
   // ⚠ THIS IS NOT resourceDamageMul, AND THE DIFFERENCE IS THE WHOLE ARGUMENT. That helper's block
   // says §5.3 spent the book's ONE licence for a bar that drives weapon output, spent it on The
-  // Surf's Humidity, and that The Shelf is deliberately untouched by it. Two things keep that rule
+  // Surf's Humidity, and that The Twilight is deliberately untouched by it. Two things keep that rule
   // intact here:
   //   - it is COVERAGE that moves, never a damage multiplier. A bloom's radius and a lance's reach
   //     are things the player watches change on screen; the reviewed failure was a multiplier you
@@ -2672,7 +2672,7 @@ export const WEAPON_MODS = {
     weighted:  { name: 'Weighted',   desc: 'impact damage', icon: '💥', base: 0.30, kind: 'pct' },
     doubleHaul:{ name: 'Double Haul', desc: 'extra net(s) per cast', icon: '🔷', kind: 'tier' },
   },
-  // Four apiece for The Shelf's three natives, the same ceiling the two blocks above hold to. Each
+  // Four apiece for The Twilight's three natives, the same ceiling the two blocks above hold to. Each
   // buys one stat the weapon already has; none of them buys the BAR. That is the line this chapter
   // has to keep — a mod that widened the dark's bonus or raised the lance's floor would be selling
   // the chapter's own resource back to the player as a card, and the resource has to stay the thing
@@ -3370,7 +3370,7 @@ export const LONGLINE_TWIN_GAP = 54
 // the player just made.
 export const LONGLINE_MAX_LIVE = 8
 
-// ---- The Shelf's three natives ---------------------------------------------------------------
+// ---- The Twilight's three natives ---------------------------------------------------------------
 // How long a Sunspear column hangs before it lands. It is a TELEGRAPH, so it has to be long enough
 // to see and short enough that the body it was called on is still standing there: at the roster's
 // top speed (krill, speedMul 1, ~120 px/s at this chapter's balance) a body walks 31px in this
@@ -3432,7 +3432,7 @@ export const SUNLANCE_REACH_MIN = 0.45
 // shoved, frozen, feared and counted as a kill, and needed `maxAlive` to stop it carpeting the map.
 // Every one of those is a property of a MOB, and none of them belongs to a thing that is supposed to
 // be lying on the sea floor with its mouth open, waiting.
-//   `signature.maws` puts it in the same vocabulary as The Surf's tide `pools`, The Shelf's sun
+//   `signature.maws` puts it in the same vocabulary as The Surf's tide `pools`, The Twilight's sun
 // `shafts` and The Reef's air `pockets` — a streamed field of circles the player stands in, keyed on
 // run._obstacleSeed, materialised by streamShafts into run.shafts and refilled from by stepCharge.
 // refillSpec() is the ONE function that answers "where does this chapter's food come from", so
@@ -5121,10 +5121,22 @@ CHAPTERS.shelf = {
     tailTint: 0xa9c4bb,
     eliteIridescent: [0xd8e8d4, 0xffe9c8, 0xcfe4dd],
 
-    // The colour of the MURK (render.js updateDark), where the light chapters put a blue-black. An
-    // olive-black: what closes in here is filth, and the whole point of §6.2 is that the shipped
-    // scrim does not care which. The CURVE it multiplies lives with the mechanic in resource.dark.
-    darkTint: 0x141a12,
+    // The colour of the MURK (render.js updateDark), where the light chapters put a blue-black.
+    //
+    // ⚠ THIS IS THE NUMBER THAT DECIDES WHETHER THE CHAPTER IS A REDESIGN OR A RESKIN, and the
+    // first cut got it wrong in a way only a screenshot could show. It was 0x141a12, an olive-BLACK,
+    // chosen by analogy with the light chapters' 0x00060b — and at dim 1.0 the far field became an
+    // absence of light, so an empty bar read as NIGHT IN SEPIA. That is The Twilight wearing a
+    // different hue, which is exactly what §6.2 exists to avoid.
+    //
+    // The physics is the fix. Darkness is the ABSENCE of light: dim and high-contrast, and black is
+    // the right end of it. Murk is the SCATTERING of light: turbid shallow water in daylight is
+    // BRIGHT and low-contrast — you cannot see far because the water throws light back at you, not
+    // because there is none. So the far field here has to stay luminous and go flat, which means a
+    // pale silty tone, not a dark one. The scrim is a MULTIPLY, so this value is roughly the
+    // fraction of the floor that survives at full murk: ~0.55, i.e. hazed out rather than blacked
+    // out. Judge it on scripts/scenes/shelf-murk.js, whose whole first question is this one.
+    darkTint: 0x8c9a80,
 
     // SWELL (v7.x): the waves — STAYED WITH THE SLOT when the light left. Surface waves seen from
     // below belong in shallow water and cannot be seen at 2.5, which is why this block did not
@@ -5254,7 +5266,7 @@ CHAPTERS.surf = {
     // the run ORIGIN. No drift: a pool is a hole in the sand, and the thing that moves in this
     // chapter is the water, not the ground.
     // `blob` opts this field into a lobed outline (LOBE_SHAPES) rather than a disc. Per-field, not
-    // chapter-wide: The Shelf's sun shafts and The Reef's air pockets are round things and stay
+    // chapter-wide: The Twilight's sun shafts and The Reef's air pockets are round things and stay
     // round. See `chance` below for what the lobes cost in area and how it was paid back.
     pools: { cell: 700, chance: 0.77, r: 165, minDist: 420, blob: true },
   },
@@ -5427,8 +5439,8 @@ CHAPTERS.surf = {
 // `{ ...CHAPTERS.shelf }`, deliberately: the spread shares every nested object BY REFERENCE
 // (CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles is literally true in shipped code), and
 // this chapter overrides every one of them anyway — so spreading would buy nothing but the standing
-// risk that a later edit "modifies" one in place and silently rewrites The Shelf's. It also means
-// The Shelf's `resource` (Light) and `signature` (sun shafts) do NOT leak in, which is the whole
+// risk that a later edit "modifies" one in place and silently rewrites The Twilight's. It also means
+// The Twilight's `resource` (Light) and `signature` (sun shafts) do NOT leak in, which is the whole
 // difference between a shell to build on and a copy of chapter 2 that scrolls.
 //
 // THE LANE, SIDEWAYS. `lane: true` is what The Beyond has always meant — the view auto-scrolls, you
@@ -5541,7 +5553,7 @@ CHAPTERS.reef = {
   // shipped mitigation and prices itself accordingly (28% -> 11%).
   //
   // killRefill 0.2 AND NOT THE SHELF'S 1.5, because the chapter kills six times as fast: the lane
-  // runs two spawners and the probe measures ~4.8 kills/s here against ~0.8 on The Shelf. At 1.2 it
+  // runs two spawners and the probe measures ~4.8 kills/s here against ~0.8 on The Twilight. At 1.2 it
   // paid 5.8/s against a 1.4/s drain and simply ABOLISHED the bar — `thief centre hoard` pinned at
   // 100 with the player never touching a pocket, i.e. the purchase deleting the chapter's mechanic
   // rather than changing how it is played. Read a killRefill against its chapter's KILL RATE, never
@@ -5592,7 +5604,8 @@ CHAPTERS.reef = {
   // ---- render-only (ZERO sim effect) ----
   // DEEPER WATER THAN THE SHELF'S, ON PURPOSE. bgColor/floorTint are the pair render.js composites
   // into the "effective floor" every prop and creature is judged against (the model in
-  // scripts/obstacle-contrast.mjs): The Shelf's 0x18567f/0x9fd6f0 lands at WCAG luminance 0.210,
+  // scripts/obstacle-contrast.mjs): slot 2 held WCAG luminance 0.210 as 0x18567f/0x9fd6f0 when it was
+  // the light chapter, and holds roughly that rung as the murk chapter's 0x2e4f52/0xb6c9bd,
   // these land at 0.150 — one clear step darker, i.e. deeper water. That step is what buys the reef
   // its own identity, because the chapter's decor is WARM (coral reds, magentas, violets — see
   // BIOME_REEF in render.js) and warm decor needs a floor that is unambiguously cold and dark to sit
@@ -5603,7 +5616,7 @@ CHAPTERS.reef = {
   //   tints are authored several steps hotter than the colour they are meant to end up as. Cool the
   //   tint further and the corals cannot read as coral at all; warm it and the water stops being blue.
   // form: 'fish' + formScale — ONE body serves all of Book 2 and grows a step per chapter (The Surf
-  // leaves it at the default 1, The Shelf is next). playerTint MUST stay white with a `form`:
+  // leaves it at the default 1, The Shelf is 1.15 and The Twilight 1.62). playerTint MUST stay white with a `form`:
   // syncPlayer forces white for the body itself, but the level-up MINIME copies read this value
   // directly and a tinted one turns them into coloured ghosts of the fish (see CHAPTERS.surf.render).
   render: {
@@ -5775,7 +5788,7 @@ CHAPTERS.trawl = {
 
   // ---- render-only (ZERO sim effect) ----
   // DEEPER AGAIN. The book's floors step down one measured stop per chapter (obstacle-contrast.mjs's
-  // model — mean blotch x floorTint over bgColor): The Shelf 0.210, The Reef 0.150, and this one
+  // model — mean blotch x floorTint over bgColor): slot 2 at ~0.210, The Reef 0.150, and this one
   // lands lower still, which is what "no bottom in sight" has to mean in a game that always draws a
   // floor. The Deep gets the bottom of that ladder, so this stops short of it deliberately.
   //
@@ -5836,11 +5849,12 @@ CHAPTERS.deep = {
   tagline: 'nothing up there can reach you',
   icon: '🦈',
 
-  // THE DARKEST CHAPTER, and the one where the light finally matters. The rig is The Shelf's,
+  // THE DARKEST CHAPTER, and the one where the light finally matters. The rig is The Twilight's,
   // shipped and tuned — same `dark` block, same lightmap in render.js, same linear radius across the
   // whole bar. What changes is the numbers, and one of them is a mechanic:
   //
-  //   speedFloor 1, i.e. NO SPEED PENALTY, unlike The Shelf. Deliberate, and it is the chapter's
+  //   speedFloor 1, i.e. NO SPEED PENALTY, unlike The Twilight. (The Shelf is also 1, for its own
+  //   reason — its murk costs sight only. The chapter this contrasts with is the DARK one.) Deliberate, and it is the chapter's
   //   inversion: you are the apex predator here, so the dark does not slow the shark down — it
   //   only decides how much of the water you can SEE. Light does not stop being punishing; it stops
   //   being punishing in the same way twice. Spending it on Scent then BUYS speed (SCENT_SPEED_MUL),
@@ -5848,9 +5862,9 @@ CHAPTERS.deep = {
   //   Stacking a Shelf-style slow on top would also have been two penalties on one bar, against a
   //   roster whose whole job is that you cannot see it coming.
   //
-  //   radiusFull 0.50 against The Shelf's 1.0. Both are MULTIPLES OF THE SCREEN'S LONGEST SIDE (the
+  //   radiusFull 0.50 against The Twilight's 1.0. Both are MULTIPLES OF THE SCREEN'S LONGEST SIDE (the
   //   owner's spec, and the anchor three shipped attempts got wrong before it — see resource.dark in
-  //   CHAPTERS.shelf for why the half-diagonal is the wrong ruler). At 1.0 the rim is off-screen at a
+  //   CHAPTERS.twilight for why the half-diagonal is the wrong ruler). At 1.0 the rim is off-screen at a
   //   full bar, which is right for the chapter called "the light only goes down" and wrong for the
   //   bottom of the ocean: here a FULL bar must still leave the screen CORNERS dark, which is what
   //   "the darkest chapter" has to mean if it means anything.
@@ -5869,7 +5883,7 @@ CHAPTERS.deep = {
   // one-number change rather than a re-derivation.
 
   // THE MAWS. A streamed field of anglerfish lying on the bottom, in the same vocabulary as The
-  // Surf's tide pools and The Shelf's sun shafts — see the MAW_* block for why the chapter's refill
+  // Surf's tide pools and The Twilight's sun shafts — see the MAW_* block for why the chapter's refill
   // is a circle rather than a roster entry, and `type: 'dark'` above for the light itself.
   //
   // r 200 IS "SIZE 6" IN THE OWNER'S UNITS. The enemy cut it replaces topped out at radiusMul 6 =

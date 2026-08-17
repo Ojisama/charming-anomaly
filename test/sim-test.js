@@ -19979,6 +19979,25 @@ function testUndertowLadder() {
         `formScale is not increasing at ${scales[i][0]} (${scales[i - 1][1]} -> ${scales[i][1]}) — the fish must grow down the book`)
     }
 
+    // (e3b) THE BOOK DESCENDS, asserted as floor LUMINANCE and not as contrast. `bgColor` is the
+    // water between the blotches and is the honest proxy here; the full model (mean blotch x
+    // floorTint over bgColor) lives in scripts/obstacle-contrast.mjs and is NOT re-implemented here,
+    // because two copies of one model is the drift this suite's source-text lints exist to stop.
+    //
+    // ⚠ LUMINANCE, NOT CONTRAST. The first draft of this guard asserted "floor contrast strictly
+    // decreasing", which would have enforced "the game gets progressively less legible" — the exact
+    // opposite of why that audit exists. Contrast wants a per-chapter FLOOR; only brightness descends.
+    const rel = (c) => { // WCAG relative luminance of a 0xRRGGBB
+      const ch = (v) => { const s = (v / 255); return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4) }
+      return 0.2126 * ch(c >> 16 & 255) + 0.7152 * ch(c >> 8 & 255) + 0.0722 * ch(c & 255)
+    }
+    const lums = undertowIds.map((id) => [id, rel(CHAPTERS[id].render.bgColor)])
+    for (let i = 1; i < lums.length; i++) {
+      assert.ok(lums[i][1] < lums[i - 1][1],
+        `Book 2 stops descending at ${lums[i][0]}: bgColor luminance ${lums[i - 1][1].toFixed(3)} -> ${lums[i][1].toFixed(3)}. ` +
+        'The book goes DOWN — every rung must be darker water than the one above it.')
+    }
+
     // (e4) refillLook VOCABULARY, both directions. A chapter can declare a look render.js has never
     // heard of (it silently falls back to the shape-derived one, i.e. the murk chapter draws warm
     // gold sun columns), or render.js can carry a branch no chapter reaches.

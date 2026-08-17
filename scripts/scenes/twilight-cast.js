@@ -1,7 +1,7 @@
-// Scene: The Shelf's three new creatures, side by side and holding still, in both their normal and
+// Scene: The Twilight's three new creatures, side by side and holding still, in both their normal and
 // elite bakes.
 //
-//   node scripts/fx-probe.mjs --scene scripts/scenes/shelf-cast.js --chapter shelf --out /tmp/sc --frames 2
+//   node scripts/fx-probe.mjs --scene scripts/scenes/twilight-cast.js --chapter twilight --out /tmp/sc --frames 2
 //
 // WHY IT OVERRIDES rosterId RATHER THAN WAITING FOR A SPAWN: WAVE_TABLE gates archetypes by TIME
 // (tank not until t=140s, fast not until 40s — see the headless-probe section of CLAUDE.md), so a

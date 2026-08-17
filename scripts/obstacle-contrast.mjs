@@ -1,3 +1,4 @@
+import { CHAPTERS } from '../src/config.js'
 // Obstacle footprint contrast audit.
 //
 // Model (per the brief): the "effective floor" a player sees is the average floor-BLOTCH colour
@@ -29,21 +30,42 @@ function effFloor(bgColor, floorTint) {
 
 // Per chapter: bgColor + floorTint (config.js) and the obstacle style foot colour (render.js BIOMES).
 const RIM_ALPHA = 1.00 // baked footprint rim alpha (fully opaque hard contract line)
-const CHAP = [
-  { id: 'pond',        bg: 0x2e6258, tint: 0x66c2a9, foot: 0x243617 },
-  // v7.x Book 2. Hand-transcribed like every row above — this table mirrors config.js and
-  // render.js rather than importing them, so a chapter added there is INVISIBLE here until
-  // someone adds it. That is the trap: the audit prints a clean six-row table and says nothing
-  // about the seventh biome at all.
-  { id: 'shelf',       bg: 0x18567f, tint: 0x9fd6f0, foot: 0x122029 },
-  { id: 'surf',        bg: 0xbca27a, tint: 0xe0c79c, foot: 0x3d3324 },
-  { id: 'reef',        bg: 0x0a3358, tint: 0xa9cfe0, foot: 0x1c0a1a },
-  { id: 'garden',      bg: 0x4e8240, tint: 0xaad066, foot: 0x243617 },
-  { id: 'undergrowth', bg: 0x2b2417, tint: 0x8a7a4e, foot: 0xffffff },
-  { id: 'city',        bg: 0x2c2f38, tint: 0x9aa0ac, foot: 0x161a20 },
-  { id: 'skies',       bg: 0x2a3240, tint: 0x717c88, foot: 0x38332b },
-  { id: 'beyond',      bg: 0x120a26, tint: 0x6a5fa0, foot: 0xffffff },
-]
+// `bg` and `tint` are READ FROM config.js, not transcribed. They used to be hand-copied here, and
+// the table's own comment named the trap without escaping it: "this table mirrors config.js and
+// render.js rather than importing them, so a chapter added there is INVISIBLE here until someone
+// adds it." It then went stale exactly that way — the row for `shelf` still carried the palette of
+// a chapter that had moved to another slot under another name, so the audit measured a floor no
+// chapter had and reported it as fact (2026-08-17).
+//
+// `foot` genuinely lives in render.js's BIOMES and is not importable from here, so it stays a
+// transcription — but a chapter with no entry now FAILS LOUDLY below rather than vanishing.
+const FOOT = {
+  garden: 0x243617, pond: 0x243617, shelf: 0x122029, surf: 0x3d3324, reef: 0x1c0a1a,
+  trawl: 0x0d161f, deep: 0x070c12,
+  // The Twilight is ALIASED to BIOME_SHELF's prop family (render.js), so it shares its foot.
+  twilight: 0x122029,
+  // District chapters: the value their obstacle style resolves to on the district the audit reads.
+  undergrowth: 0xffffff, city: 0x161a20, skies: 0x38332b, beyond: 0xffffff,
+}
+// Chapters with no obstacle footprint at all, so there is nothing for this audit to measure. Listed
+// rather than filtered silently: "absent because it has no footprints" and "absent because someone
+// forgot" have to be different outcomes, which is the whole lesson of the stale row above.
+const NO_FOOTPRINT = new Set(['body', 'blank'])
+
+const ALL = Object.keys(CHAPTERS)
+const CHAP = ALL
+  .filter((id) => !NO_FOOTPRINT.has(id))
+  .map((id) => ({ id, bg: CHAPTERS[id].render?.bgColor, tint: CHAPTERS[id].render?.floorTint, foot: FOOT[id] }))
+
+// PRINT THE DENOMINATOR, and abort rather than quietly skipping. A chapter missing from FOOT used to
+// be a chapter that simply did not appear in the output; now it names itself, because "the audit
+// printed a clean table" and "the audit covered every chapter" are otherwise the same screenful.
+const missing = CHAP.filter((c) => c.foot === undefined || c.bg === undefined || c.tint === undefined).map((c) => c.id)
+if (missing.length) {
+  console.error(`ABORT: nothing to measure for ${missing.join(', ')} — add a foot colour above (render.js BIOMES.<id>.obstacle.foot), or list it in NO_FOOTPRINT with a reason`)
+  process.exit(1)
+}
+console.log(`${CHAP.length} of ${ALL.length} chapters measured (${[...NO_FOOTPRINT].join(', ')} have no obstacle footprint)\n`)
 
 console.log('biome         floorL   rimL    ratio  dir')
 for (const c of CHAP) {

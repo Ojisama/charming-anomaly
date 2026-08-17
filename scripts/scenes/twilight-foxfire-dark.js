@@ -1,8 +1,8 @@
 // Scene: a Foxfire cast in the DARK, shot honestly — the bar stays where it was cast.
 //
-//   node scripts/fx-probe.mjs --scene scripts/scenes/shelf-foxfire-dark.js --chapter shelf --out /tmp/ffd --frames 5
+//   node scripts/fx-probe.mjs --scene scripts/scenes/twilight-foxfire-dark.js --chapter twilight --out /tmp/ffd --frames 5
 //
-// scripts/scenes/shelf-foxfire.js — the scene this weapon shipped on — writes `run.charge =
+// scripts/scenes/twilight-foxfire.js — the scene this weapon shipped on — writes `run.charge =
 // run.chargeMax` on EVERY captured frame, and says why in its own header: "the honest way to shoot
 // the dark cast — bar at zero — is a black rectangle with the effect somewhere inside it". That
 // sentence is the bug, not a limitation of the probe: the chapter measures 63% of a run dark, the
