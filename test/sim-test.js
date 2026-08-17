@@ -5651,6 +5651,18 @@ function runBookProgression() {
     // the sacrifice offer header interpolated `target.icon` straight into the markup and so
     // rendered a raw 🦴 above a screenful of drawn glyphs. It shipped, and no assertion could see
     // it — the drawing existed, it just was not asked for. Caught by SHOOTING the third screen.
+    // sacTargets synthesises the rows the sacrifice screens draw, so every row it emits must carry
+    // a `family` — without one shopIcon falls back to ATK red, and Scavenger (declared `res`)
+    // painted red on the offer header while every assertion stayed green.
+    const sacBlock = uiSrc.slice(uiSrc.indexOf('function sacTargets('), uiSrc.indexOf('\n  }', uiSrc.indexOf('function sacTargets(')))
+    assert.ok(sacBlock.includes('out.push({'), 'could not find sacTargets in ui.js — this check is asserting nothing')
+    const pushes = [...sacBlock.matchAll(/out\.push\(\{[^}]*\}/g)].map((m) => m[0])
+    assert.ok(pushes.length >= 2, `expected at least 2 out.push sites in sacTargets, found ${pushes.length}`)
+    for (const push of pushes) {
+      assert.ok(/\bfamily\s*:/.test(push),
+        `a sacTargets row is emitted without a family, so its icon paints in shopIcon's fallback hue: ${push.replace(/\s+/g, ' ').slice(0, 110)}`)
+    }
+
     const ICON_SITES = ['sac-offer-ico', 'shop-row-icon', 'sacrifice-for']
     for (const site of ICON_SITES) {
       const lines = uiSrc.split('\n').filter((l) => l.includes(`"${site}"`) && l.includes('${'))

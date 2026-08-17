@@ -894,14 +894,17 @@ export function initUI(hooks) {
       // The unlock list shows the rung on its own line now (sacTargetRowsHtml), so `label` is the
       // bare name — a name reading "Light Thief 2/3" was the only way to say which rung you were
       // buying back when the target lived in a 202px pill.
-      out.push({ id, cost, icon: u.icon, label: t(u.name), does: t(u.desc) })
+      // `family` rides along or the icon silently paints in shopIcon's fallback hue — Scavenger is
+      // declared `res` and drew ATK red on the offer header, which is the taxonomy contradicting
+      // itself on the one screen that shows the unlock alone.
+      out.push({ id, cost, icon: u.icon, family: u.family, label: t(u.name), does: t(u.desc) })
     }
     const slots = bm.choiceSlots ?? 2
     const slotCost = sacrificeCost(slots)
     if (slotCost != null) {
       const nth = slots === 2 ? t('3rd') : t('4th')
       out.push({
-        id: 'slot', cost: slotCost, icon: '🩸', label: tt('{nth} upgrade slot', { nth }),
+        id: 'slot', cost: slotCost, icon: '🩸', family: 'vit', label: tt('{nth} upgrade slot', { nth }),
         does: t('One more choice at every level-up.'),
       })
     }
