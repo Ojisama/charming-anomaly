@@ -5647,7 +5647,20 @@ function runBookProgression() {
       assert.ok(drawn.includes(id),
         `shop line '${id}' has no SHOP_ICONS entry in ui.js — it falls back to its emoji, alone in a column of drawn glyphs`)
     }
-    console.log(`PASS run BP.af (shop families): ${FAMS.length} families [${FAMS.join(' ')}] with 3 hex tones each, declared on all ${seen.size} lines + every book unlock, each family in one unbroken run per book, and all ${drawn.length} ids drawn rather than falling back to emoji`)
+    // ...and every SITE that shows one routes through shopIcon. Having a drawing is not enough:
+    // the sacrifice offer header interpolated `target.icon` straight into the markup and so
+    // rendered a raw 🦴 above a screenful of drawn glyphs. It shipped, and no assertion could see
+    // it — the drawing existed, it just was not asked for. Caught by SHOOTING the third screen.
+    const ICON_SITES = ['sac-offer-ico', 'shop-row-icon', 'sacrifice-for']
+    for (const site of ICON_SITES) {
+      const lines = uiSrc.split('\n').filter((l) => l.includes(`"${site}"`) && l.includes('${'))
+      assert.ok(lines.length > 0, `no interpolating markup line found for .${site} — this check is asserting nothing`)
+      for (const l of lines) {
+        assert.ok(l.includes('shopIcon('),
+          `.${site} interpolates an icon without shopIcon(): ${l.trim().slice(0, 110)}\nA bare .icon renders the EMOJI fallback, alone among drawn glyphs.`)
+      }
+    }
+    console.log(`PASS run BP.af (shop families): ${FAMS.length} families [${FAMS.join(' ')}] with 3 hex tones each, declared on all ${seen.size} lines + every book unlock, each family in one unbroken run per book, all ${drawn.length} ids drawn rather than falling back to emoji, and all ${ICON_SITES.length} render sites route through shopIcon`)
   }
 
   console.log(`PASS run BP (book progression): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max, The Surf's opening balance (EARLY_CALM.surf + archetypeMul.tank) matches the 2026-08-17 owner rulings, ${bkAllChapters.length} chapters all resolve to a book, and no source file reads SHOP directly`)
