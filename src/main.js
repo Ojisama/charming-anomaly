@@ -408,6 +408,11 @@ const SFX_FOR_EVENT = {
   // v5.24 The Blank: the boss's scripted arrival/final kill and the P2 node yank each get their
   // own beat (audio.js) — the fight only has three of these total, no throttling needed.
   bossSpawn: 'bossRise', bossDead: 'bossFall', yank: 'zap',
+  // v7.x The Deep: an anglerfish maw closing on the player. Borrows the boss's falling note rather
+  // than taking a new synth — it is the chapter's worst moment and the voice is already "something
+  // large just happened to you". No throttle entry: MAW_SHUT_T alone caps one maw at a swallow
+  // every 4s, and a player collecting two at once has bigger problems than the audio graph.
+  devour: 'bossFall',
   // v6.2: the shriek used to arrive as a generic 'shoot' — same voice, its own event. Blinks are
   // deliberately silent (a per-bullet ~0.5s cadence would machine-gun any voice we gave it).
   shriek: 'shoot',

@@ -40,7 +40,7 @@ import {
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
-  ANGLER_FEED_R, ANGLER_GAPE_T, ANGLER_BITE_R, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
+  MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
@@ -18057,113 +18057,145 @@ function testTheDeep() {
     return e
   }
 
-  // (a) THE ANGLERFISH IS THE ONLY FOOD. Three runs off one seed differing only in where the player
-  // stands and whether anything is there. Asserted as the bar moving, which is dead if the refill
-  // branch never fires, if the range is wrong, or if some other source is quietly topping it up.
+  // A MAW, planted by hand. streamShafts would materialise these off the terrain seed wherever the
+  // player happens to be; every block below needs one at a KNOWN distance, so they are pushed
+  // straight onto the list the streamer fills. Everything downstream is the shipped code path —
+  // stepCharge and stepMaws only ever see run.shafts.
+  const maw = (run, x, y, r = CHAPTERS.deep.signature.maws.r) => {
+    const sh = { x: run.player.x + x, y: run.player.y + y, bx: run.player.x + x, by: run.player.y + y,
+      r, phase: 0.7, gape: 0, _shutT: 0, _cell: 'test' + x + ',' + y }
+    run.shafts.push(sh)
+    return sh
+  }
+
+  // (a) THE MAW IS THE ONLY FOOD. Three runs off one seed differing only in where the player stands
+  // and whether anything is there. Asserted as the bar moving, which is dead if the refill branch
+  // never fires, if the radius is wrong, or if some other source is quietly topping it up.
   {
-    const near = rig(); near.charge = 20
-    fish(near, 120, 0, ['angler'])          // inside ANGLER_FEED_R
+    const R = CHAPTERS.deep.signature.maws.r
+    const near = rig(); near.charge = 20; near.shafts.length = 0
+    maw(near, R * 0.5, 0)                   // inside the mouth
     step(near, 60)
 
-    const far = rig(); far.charge = 20
-    fish(far, ANGLER_FEED_R + 400, 0, ['angler'])
+    const far = rig(); far.charge = 20; far.shafts.length = 0
+    maw(far, R + 400, 0)
     step(far, 60)
 
-    const none = rig(); none.charge = 20
-    fish(none, 120, 0, [])                  // a fish, but not an anglerfish
-    step(none, 60)
+    const none = rig(); none.charge = 20; none.shafts.length = 0
+    step(none, 60)                          // no maw at all
 
-    assert.ok(near.charge > 20, `run DP.a: standing 120px from an anglerfish for 1s left the bar at ${near.charge.toFixed(1)} — it does not feed`)
-    assert.ok(far.charge < 20, `run DP.a: standing ${ANGLER_FEED_R + 400}px away still filled the bar to ${far.charge.toFixed(1)} — the feed has no range`)
-    assert.ok(none.charge < 20, `run DP.a: a body with no 'angler' flag fed the player anyway (${none.charge.toFixed(1)}) — the flag is not being read`)
-    // And the chapter's own rule: kills give NOTHING. This is what makes the anglerfish the only
-    // decision in the chapter rather than one option among two.
+    assert.ok(near.charge > 20, `run DP.a: standing inside a maw for 1s left the bar at ${near.charge.toFixed(1)} — it does not feed`)
+    assert.ok(far.charge < 20, `run DP.a: standing ${R + 400}px away still filled the bar to ${far.charge.toFixed(1)} — the mouth has no edge`)
+    assert.ok(none.charge < 20, `run DP.a: the bar rose to ${none.charge.toFixed(1)} with no maw on the map — something else is feeding it`)
+    // A SHUT MOUTH FEEDS NOBODY. The same fact stepCharge and the lure punch both read; without it
+    // a maw that has just swallowed you keeps topping you up while its jaws are visibly closed,
+    // which makes being eaten free.
+    const spent = rig(); spent.charge = 20; spent.shafts.length = 0
+    maw(spent, 0, 0)._shutT = 3
+    step(spent, 60)
+    assert.ok(spent.charge < 20,
+      `run DP.a: a maw on its post-swallow cooldown still fed the player (${spent.charge.toFixed(1)}) — _shutT is declared but stepCharge does not read it`)
+    // And the chapter's own rule: kills give NOTHING. This is what makes the maw the only decision
+    // in the chapter rather than one option among two.
     assert.strictEqual(res.killRefill, 0,
-      `run DP.a: The Deep's killRefill is ${res.killRefill} — at any positive value the player tops the bar up by doing what they were going to do anyway, and the anglerfish stops being the only source`)
-    console.log(`PASS run DP.a (the only food bites): 20 -> ${near.charge.toFixed(1)} beside one, 20 -> ${far.charge.toFixed(1)} away from it, ${none.charge.toFixed(1)} beside a non-angler, killRefill ${res.killRefill}`)
+      `run DP.a: The Deep's killRefill is ${res.killRefill} — at any positive value the player tops the bar up by doing what they were going to do anyway, and the maw stops being the only source`)
+    console.log(`PASS run DP.a (the only food bites): 20 -> ${near.charge.toFixed(1)} inside a maw, ${far.charge.toFixed(1)} outside one, ${none.charge.toFixed(1)} with none, ${spent.charge.toFixed(1)} in a spent one, killRefill ${res.killRefill}`)
   }
 
   // (b) THE MOUTH IS THE CLOCK, AND IT RUNS BACKWARDS WHEN YOU LEAVE. The gape is the chapter's
   // only warning, and the close being FASTER than the open is what makes backing off a real reset
-  // rather than a pause — see ANGLER_CLOSE_MUL.
+  // rather than a pause — see MAW_CLOSE_MUL.
   {
-    const run = rig()
-    const a = fish(run, 120, 0, ['angler'])
-    step(run, Math.round(ANGLER_GAPE_T * 0.5 * 60))
-    const opened = a.gape
+    const run = rig(); run.shafts.length = 0
+    const m = maw(run, 0, 0)
+    step(run, Math.round(MAW_GAPE_T * 0.5 * 60))
+    const opened = m.gape
     assert.ok(opened > 0.35 && opened < 0.72,
-      `run DP.b: half a gape-time of feeding put the mouth at ${opened.toFixed(2)} — expected roughly half open, so the tell is not tracking the time spent`)
-    // Walk out of range and hold there.
-    a.x = 5000
-    step(run, Math.round(ANGLER_GAPE_T * 0.5 * 60))
-    assert.strictEqual(a.gape, 0,
-      `run DP.b: the mouth was still at ${a.gape.toFixed(2)} after leaving for as long as it took to open halfway — it closes no faster than it opens, so backing off only pauses the gamble`)
-    console.log(`PASS run DP.b (the mouth is the clock): opened to ${opened.toFixed(2)} in half a gape-time, fully shut after the same time away`)
+      `run DP.b: half a gape-time inside a maw put the mouth at ${opened.toFixed(2)} — expected roughly half closed, so the tell is not tracking the time spent`)
+    // Walk out of the mouth and hold there.
+    m.x = run.player.x + 5000
+    step(run, Math.round(MAW_GAPE_T * 0.5 * 60))
+    assert.strictEqual(m.gape, 0,
+      `run DP.b: the mouth was still at ${m.gape.toFixed(2)} after leaving for as long as it took to close halfway — it shuts no faster than it opens, so backing off only pauses the gamble`)
+    console.log(`PASS run DP.b (the mouth is the clock): closed to ${opened.toFixed(2)} in half a gape-time, fully open again after the same time away`)
   }
 
-  // (c) THE BITE, AND THE WAY OUT OF IT. Two runs, identical until the last moment: one stays
-  // inside the bite radius and one drifts to the outer part of the feeding ring. Both must see the
-  // fish spend its turn — otherwise a player who dodged would simply be bitten the instant they
-  // drifted back in — and only one of them must be hurt.
+  // (c) THE DEVOUR, AND THE WAY OUT OF IT. Two runs, identical until the last moment: one stays in
+  // the mouth through a full gape and one leaves just before it shuts. THE WHOLE CIRCLE IS THE
+  // MOUTH, so the escape is TIME and not distance — which is exactly what this pair asserts, and
+  // what the earlier two-radii cut got wrong by making it a map-reading problem instead.
   {
-    const inside = rig()
-    const a1 = fish(inside, 100, 0, ['angler'])      // inside ANGLER_BITE_R
-    let hurt1 = 0
-    for (let i = 0; i < Math.round((ANGLER_GAPE_T + 0.3) * 60); i++) {
-      const before = inside.player.hp
-      stepSim(inside, { x: 0, y: 0 }, dt)
-      inside.events.length = 0
-      hurt1 += Math.max(0, before - inside.player.hp)
+    const R = CHAPTERS.deep.signature.maws.r
+    const stayed = rig(); stayed.charge = 50; stayed.shafts.length = 0
+    stayed.player.hp = stayed.player.maxHP = 100
+    const m1 = maw(stayed, 0, 0)
+    let hurt1 = 0, devours = 0
+    for (let i = 0; i < Math.round((MAW_GAPE_T + 0.3) * 60); i++) {
+      const before = stayed.player.hp
+      stepSim(stayed, { x: 0, y: 0 }, dt)
+      for (const ev of stayed.events) if (ev.type === 'devour') devours++
+      stayed.events.length = 0
+      hurt1 += Math.max(0, before - stayed.player.hp)
     }
 
-    const edge = rig()
-    // Between the bite radius and the feed radius: still being fed, out of reach of the jaws.
-    const a2 = fish(edge, (ANGLER_BITE_R + ANGLER_FEED_R) / 2, 0, ['angler'])
+    const left = rig(); left.charge = 50; left.shafts.length = 0
+    left.player.hp = left.player.maxHP = 100
+    const m2 = maw(left, 0, 0)
     let hurt2 = 0
-    for (let i = 0; i < Math.round((ANGLER_GAPE_T + 0.3) * 60); i++) {
-      const before = edge.player.hp
-      stepSim(edge, { x: 0, y: 0 }, dt)
-      edge.events.length = 0
-      hurt2 += Math.max(0, before - edge.player.hp)
+    for (let i = 0; i < Math.round((MAW_GAPE_T + 0.3) * 60); i++) {
+      // Out of the mouth with a quarter of the gape still to run — the dodge the tell exists for.
+      if (m2.gape > 0.75) m2.x = left.player.x + R + 500
+      const before = left.player.hp
+      stepSim(left, { x: 0, y: 0 }, dt)
+      left.events.length = 0
+      hurt2 += Math.max(0, before - left.player.hp)
     }
 
-    assert.ok(hurt1 > 0, 'run DP.c: sitting inside the bite radius through a full gape cost NOTHING — the bite never lands')
+    assert.strictEqual(devours, 1, `run DP.c: a full gape inside a maw emitted ${devours} devour events — expected exactly one`)
+    assert.strictEqual(hurt1, Math.round(100 * MAW_DEVOUR_FRAC),
+      `run DP.c: staying through a full gape cost ${hurt1} HP of a 100 max — expected ${Math.round(100 * MAW_DEVOUR_FRAC)}, i.e. MAW_DEVOUR_FRAC landing on hurtPlayer's own cap`)
     assert.strictEqual(hurt2, 0,
-      `run DP.c: sitting between the bite radius (${ANGLER_BITE_R}) and the feed radius (${ANGLER_FEED_R}) still cost ${hurt2} HP — the two radii are the same number, so the outer ring is not the safe slow feed it is meant to be`)
-    assert.ok(a2._biteCd > 0,
-      'run DP.c: the fish that MISSED did not spend its turn — a dodged bite has to cost the fish its cooldown, or drifting back in is punished instantly')
-    assert.ok(a1.gape < 1 && a2.gape < 1, 'run DP.c: a mouth that has bitten did not reset')
-    console.log(`PASS run DP.c (the bite and the way out): ${hurt1} HP inside the jaws, ${hurt2} in the outer feeding ring, and the miss still spent the fish's turn`)
+      `run DP.c: leaving the mouth before it shut still cost ${hurt2} HP — the escape is supposed to be the seconds, and this says it is not one`)
+    // IT TAKES THE LIGHT TOO, which is the half that reads as being eaten and the only hazard in
+    // the game priced in the chapter's own resource. Asserted against the run that got AWAY, so a
+    // charge of 0 cannot be confused with "the bar happened to drain".
+    assert.strictEqual(stayed.charge, 0,
+      `run DP.c: being devoured left the bar at ${stayed.charge.toFixed(1)} — the swallow is supposed to take the light with it`)
+    assert.ok(left.charge > 0, 'run DP.c: precondition — the run that escaped must still hold light, or the assertion above proves nothing')
+    assert.ok(m1._shutT > 0, 'run DP.c: the maw that swallowed did not go on its cooldown, so it can swallow again on the very next frame')
+    assert.strictEqual(m1.gape, 0, 'run DP.c: a mouth that has swallowed did not reset')
+    console.log(`PASS run DP.c (the devour and the way out): ${hurt1} HP and the bar to ${stayed.charge} for staying, ${hurt2} HP and ${left.charge.toFixed(0)} light for leaving in time`)
   }
 
-  // (d) THE LIVE CAP IS WHAT MAKES THE CHAPTER A CHAPTER. Anglerfish never chase and so never die,
-  // so without `maxAlive` an ordinary spawn weight controls their ACCUMULATION rather than their
-  // density — measured at 82.7% of the run within feeding range under a do-nothing player, %DARK 0,
-  // and a hoarding player pinned at a full bar. Asserted against the shipped config, not a literal.
+  // (d) IT IS A CIRCLE ON THE MAP, NOT A MOB — and this is the assertion that would have caught the
+  // whole first cut. Owner, 2026-08-17: "the anglerfishes dont move, they are not enemies, they are
+  // traps." Shipped as a roster entry it spawned on the WAVE_TABLE clock, could be killed, shoved
+  // and frozen, and needed a live cap to stop it carpeting the floor; none of that is a property of
+  // a thing lying on the sea floor with its mouth open.
   {
-    const entry = CHAPTERS.deep.roster.find((r) => r.id === 'anglerfish')
-    assert.ok(entry.maxAlive > 0, "run DP.d: the anglerfish has no maxAlive — it will carpet the map and the Light bar becomes decoration")
-    // The cap needs a SECOND entry in the same archetype pool to hand the spawn to, or spawnEnemy's
-    // never-empty-the-pool fallback quietly ignores it.
-    const sameArch = CHAPTERS.deep.roster.filter((r) => r.archetype === entry.archetype)
-    assert.ok(sameArch.length >= 2,
-      `run DP.d: '${entry.archetype}' holds only the capped anglerfish, so spawnEnemy falls back to the uncapped pool and maxAlive does nothing`)
-    // And it actually binds over a real run.
+    assert.ok(!CHAPTERS.deep.roster.some((r) => r.id === 'anglerfish'),
+      'run DP.d: the anglerfish is back in The Deep\'s roster — it is signature.maws, a refill circle, and a roster entry gets a wave-table spawn clock and a health bar it must not have')
+    const spec = CHAPTERS.deep.signature.maws
+    assert.ok(spec && spec.r > 0 && spec.cell > 0, 'run DP.d: The Deep declares no signature.maws, so streamShafts has nothing to materialise')
+    assert.strictEqual(refillSpec(CHAPTERS.deep.signature), spec,
+      'run DP.d: refillSpec does not resolve The Deep to its maws — streamShafts, stepCharge and render.js all ask it the same question, so this is the chapter having no refill at all')
+    // And it actually streams over a real run, from t=0 — the thing the roster cut could not do,
+    // since WAVE_TABLE gates `tank` until t=140s and every archetype has a clock of some kind.
     Math.random = mulberry32(4242)
     const run = createRun(meta, { chapter: 'deep', difficulty: 3 })
     run.player.hp = run.player.maxHP = 1e9
-    let peak = 0
+    let peak = run.shafts.length
     for (let i = 0; i < 200 * 60; i++) {
       stepSim(run, { x: Math.cos(i / 900), y: Math.sin(i / 900) }, dt)
       run.events.length = 0
       if (run.phase === 'levelup') { applyChoice(run, 0); run.phase = 'playing' }
       if (run.phase !== 'playing') break
-      if ((i % 30) === 0) peak = Math.max(peak, run.enemies.filter((e) => e.rosterId === 'anglerfish' && !e._dead).length)
+      if ((i % 30) === 0) peak = Math.max(peak, run.shafts.length)
     }
-    assert.ok(peak <= entry.maxAlive,
-      `run DP.d: ${peak} anglerfish alive at once against a cap of ${entry.maxAlive} — the cap is declared but not enforced`)
-    assert.ok(peak > 0, 'run DP.d: no anglerfish ever spawned in 200s — the chapter has no refill at all (check the archetype against WAVE_TABLE\'s gating)')
-    console.log(`PASS run DP.d (the live cap binds): peak ${peak} anglerfish alive against a cap of ${entry.maxAlive}, over 200s of a real run`)
+    assert.ok(peak > 0, 'run DP.d: no maw ever streamed in 200s — the chapter has no refill at all (check usesObstacleSeed and the minDist against the spawn ring)')
+    assert.ok(!run.enemies.some((e) => e.rosterId === 'anglerfish'),
+      'run DP.d: an anglerfish spawned as an ENEMY over a real run — something still lists it in the roster')
+    console.log(`PASS run DP.d (a circle, not a mob): not in the roster, refillSpec resolves signature.maws, peak ${peak} maw(s) streamed over 200s of a real run`)
   }
 
   // (e) SCENT MARKS A GROUP AND AMPLIFIES EVERY SOURCE. The button is sold as "see them better, so
@@ -18345,58 +18377,62 @@ function testTheDeep() {
     console.log(`PASS run DP.j (dark on every screen): radiusFull ${rf} < ${worst.toFixed(4)}, the tightest of ${SCREENS.length} viewports, and radiusEmpty still lights ${CHAPTERS.deep.resource.dark.radiusEmpty} of it`)
   }
 
-  // (k) IT IS A MONSTROSITY, AND YOU CAN FIND IT IN THE DARK. Owner, 2026-08-17: "the anglerfish was
-  // supposed to be a huge monstrosity trap-like outer-wilds like. Not a small enemy." Two halves,
-  // and each one shipped broken in a way nothing else here could see:
-  //   SIZE lives on the ROSTER, not in the bake. drawAnglerfish is drawn at a fixed reference r and
-  //   syncEnemies scales it by e.radius / look.baseR, so archetype `normal` with no `radiusMul` is a
-  //   16px animal — two thirds of the player's 22 — whatever the drawing looks like on its own.
-  //   Asserted on a REAL SPAWNED BODY, because radiusMul has to survive spawnEnemy's archetype and
-  //   elite maths, not merely be present in the table.
+  // (k) HUGE, AND HIDDEN, AND THE TELL IS DRAWN ON IT. Owner, 2026-08-17: "I want a huge hidden
+  // anglerfish like size 6, but as a trap." All three halves fail SILENTLY and none of them is
+  // reachable from the sim, so this block is half config assertion and half source-text lint on
+  // render.js — the run UG.k trick.
   {
-    const entry = CHAPTERS.deep.roster.find((r) => r.id === 'anglerfish')
-    assert.ok(entry.radiusMul >= 3,
-      `run DP.k: anglerfish radiusMul ${entry.radiusMul ?? 'unset'} — at archetype '${entry.archetype}' that is a ${ENEMIES[entry.archetype === 'normal' ? 'drone' : entry.archetype].radius * (entry.radiusMul ?? 1)}px body against a ${PLAYER.radius}px player. This is a landmark you decide to approach, not a mob.`)
-    Math.random = mulberry32(9182)
-    const run = createRun(meta, { chapter: 'deep', difficulty: 3 })
-    run.player.hp = run.player.maxHP = 1e9
-    let seen = null
-    for (let i = 0; i < 120 * 60 && !seen; i++) {
-      stepSim(run, { x: Math.cos(i / 900), y: Math.sin(i / 900) }, dt)
-      run.events.length = 0
-      if (run.phase === 'levelup') { applyChoice(run, 0); run.phase = 'playing' }
-      if (run.phase !== 'playing') break
-      seen = run.enemies.find((e) => e.rosterId === 'anglerfish' && !e._dead && !e.elite) || null
-    }
-    assert.ok(seen, 'run DP.k: no anglerfish spawned in 120s, so nothing was measured')
-    assert.ok(seen.radius > PLAYER.radius * 2,
-      `run DP.k: a spawned anglerfish came out at ${seen.radius}px against a ${PLAYER.radius}px player — radiusMul is in the table but is not reaching the body`)
+    const spec = CHAPTERS.deep.signature.maws
+    // HUGE. Stated against the PLAYER, because that is the comparison the word is about: the enemy
+    // cut this replaces topped out at a 96px body, and a maw has to be a place you stand inside.
+    assert.ok(spec.r > PLAYER.radius * 6,
+      `run DP.k: a maw's r is ${spec.r} against a ${PLAYER.radius}px player — that is not something you swim INTO, which is the whole of "a huge anglerfish, as a trap"`)
+    // ...and it must still fit inside its own streaming cell with the jitter slack refillCircleAt
+    // gives it, or the field silently thins out to nothing.
+    assert.ok(spec.cell / 2 - spec.r - 20 > 0,
+      `run DP.k: a maw of r ${spec.r} leaves no jitter slack in a ${spec.cell}px cell — refillCircleAt clamps to 0 and every maw lands dead centre of its cell, in a visible grid`)
 
-    // THE LURE HAS TO PUNCH THROUGH THE DARK. The esca is a sprite inside `world`; darkLayer is a
-    // multiply scrim above `world` that does not care how bright anything under it is. Shot before
-    // the fix (scripts/scenes/deep-lure.js, charge 20 on a phone): of four anglerfish at
-    // 90/180/300/410px, only the one already inside ANGLER_FEED_R was on screen. There is no way to
-    // catch that from the sim side — the mechanic is entirely a handful of lines in updateDark — so
-    // this is a source-text lint, the run UG.k trick.
+    // HIDDEN. The animal is drawn inside `world` and the dark is a multiply scrim above `world`, so
+    // the ONLY thing that reaches the player from a distance is what updateDark punches through —
+    // and what it punches is the lure alone, partially. Two ways this dies quietly: punching the
+    // whole circle out (then the mouth is lit and nothing is hidden), or not punching at all (then
+    // the bait is invisible too, which is the death spiral the earlier cut shipped).
+    // COMMENTS STRIPPED BEFORE ANY OF THIS IS LINTED, and that is not tidiness. The first cut of
+    // the gape assertion below was mutation-proved and came back MISSED: `sh.gape` appears in the
+    // paragraph ABOVE the maw branch explaining what it draws, so deleting the line that actually
+    // reads it left the grep green. A source-text lint that matches its own documentation is a
+    // check that checks nothing, and it is worse than none because it is quoted as proof.
+    const code = (t) => t.replace(/^\s*\/\/.*$/gm, '')
     const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    assert.ok(/includes\('angler'\)/.test(rsrc) && /LURE_GLOW/.test(rsrc),
-      "run DP.k: render.js never looks for the `angler` flag while building the lightmap — the chapter's only refill is invisible at exactly the bar level that sends you looking for it")
-    // Anchored on two FUNCTION declarations, not on a section-header comment: 'storm overlay' also
-    // appears in a doc block 11k lines earlier, and indexOf takes the first — which silently slices
-    // a backwards, empty range and fails every assertion below with a misleading message.
     const dStart = rsrc.indexOf('function updateDark')
-    const dark = rsrc.slice(dStart, rsrc.indexOf('function updateStorm', dStart))
+    const dark = code(rsrc.slice(dStart, rsrc.indexOf('function updateStorm', dStart)))
     assert.ok(dStart >= 0 && dark.length > 500, 'run DP.k: could not slice updateDark out of render.js — the anchors have moved')
-    assert.ok(/LURE_GLOW/.test(dark),
-      'run DP.k: LURE_GLOW is imported but not used inside updateDark — the glow has to be painted into the LIGHTMAP, not drawn over the scrim as another sprite')
-    assert.ok(/addColorStop\(0, rgbAt\(LURE_GLOW\.lit\)\)/.test(dark),
-      'run DP.k: the lure must be a PARTIAL hole (rgbAt(LURE_GLOW.lit)), never a punch-out — a full one hands the player the crowd standing next to the fish, and the dark is meant to cost information about the crowd')
-    assert.ok(LURE_GLOW.lit > 0 && LURE_GLOW.lit < 1,
-      `run DP.k: LURE_GLOW.lit ${LURE_GLOW.lit} — at 0 the beacon does not exist and at 1 it is a sun lamp`)
-    console.log(`PASS run DP.k (a monstrosity you can find): radiusMul ${entry.radiusMul}, a spawned body at ${seen.radius}px against a ${PLAYER.radius}px player, and the lure punched into the lightmap at ${LURE_GLOW.lit} lit over ${LURE_GLOW.frac}x its own radius`)
+    assert.ok(/if \(!chapterHasMaws\) \{/.test(dark),
+      "run DP.k: updateDark punches every run.shafts circle out of the darkness unconditionally — in The Deep that lights the inside of the mouth you are standing in, and the chapter's whole premise is that you arrive without seeing it")
+    assert.ok(/addColorStop\(0, rgbAt\(LURE_GLOW\.core\)\)/.test(dark) && /rgbAt\(LURE_GLOW\.lit\)/.test(dark),
+      'run DP.k: the lure is not a three-stop partial hole — a single stop either leaves the bait multiplied to grey (shot: a dead disc) or floods the mouth with light')
+    assert.ok(/_shutT/.test(dark),
+      'run DP.k: updateDark lights every maw regardless of _shutT — a spent mouth must go dark, or "there is nothing for you here" is something the player can only discover by arriving')
+    assert.ok(LURE_GLOW.lit > 0 && LURE_GLOW.lit < LURE_GLOW.core && LURE_GLOW.core < 1,
+      `run DP.k: LURE_GLOW lit ${LURE_GLOW.lit} / core ${LURE_GLOW.core} — the core must be the brighter of the two and neither may reach 1, or the bait and the mouth stop being different brightnesses`)
+
+    // THE TELL. The gape is drawn by updateShafts' maw branch, off the very field stepMaws counts.
+    const uStart = rsrc.indexOf('function updateShafts')
+    const shafts = code(rsrc.slice(uStart, rsrc.indexOf('function clearShafts', uStart)))
+    assert.ok(uStart >= 0 && shafts.length > 500, 'run DP.k: could not slice updateShafts out of render.js — the anchors have moved')
+    assert.ok(/sh\.gape/.test(shafts) && /MAW_VIS/.test(shafts),
+      "run DP.k: updateShafts never reads sh.gape — the countdown the player's whole decision rests on is not drawn anywhere")
+    // The needles grow inward and the RIM DOES NOT MOVE. That is a gameplay contract, not a look:
+    // stepCharge and stepMaws both test against sh.r, so a drawn edge that contracted with the gape
+    // would put the boundary you can see somewhere other than the one you must cross.
+    assert.ok(/g\.circle\(0, 0, sh\.r\)\.stroke/.test(shafts),
+      'run DP.k: the maw rim is not stroked at sh.r — the escape boundary the player reads by eye has drifted off the one the sim tests')
+    assert.ok(MAW_VIS.toothFull > MAW_VIS.toothShut,
+      `run DP.k: MAW_VIS teeth do not lengthen with the gape (${MAW_VIS.toothShut} -> ${MAW_VIS.toothFull}) — the mouth never visibly closes`)
+    console.log(`PASS run DP.k (huge, hidden, and drawn): r ${spec.r} against a ${PLAYER.radius}px player in a ${spec.cell}px cell, the lure punched at ${LURE_GLOW.lit}/${LURE_GLOW.core} while the mouth stays dark, teeth ${MAW_VIS.toothShut}->${MAW_VIS.toothFull} of r and the rim pinned at r`)
   }
 
-  console.log("PASS run DP (The Deep): the anglerfish is a landmark-sized monstrosity whose lure survives the dark, it is the only food and its mouth is the clock, leaving the jaws in time still costs the fish its turn, Scent marks a group and amplifies every source while buying speed, and Fin Hit is worth nothing standing still")
+  console.log("PASS run DP (The Deep): the anglerfish is a refill CIRCLE and not a mob, huge and hidden behind its own lure, it is the only food and its mouth is the clock, staying costs half your health AND all your light while leaving in time costs nothing, Scent marks a group and amplifies every source while buying speed, and Fin Hit is worth nothing standing still")
 }
 
 // ---- run MT: the in-run controls do not depend on a compatibility click ------------------------

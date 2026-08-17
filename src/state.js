@@ -941,13 +941,23 @@ function generateWells(sig) {
  *   currentForce (sim.js) — see that function's own doc for the pull/swirl math — not by any
  *   dedicated stepEddies (there's nothing to step: the force IS the effect, applied where the
  *   force is already applied, to the player and every enemy, and to a tideCarried bloom cloud).
- * shafts[i]: { x, y, bx, by, r, phase, _cell } — v7.x Book 2: streamed REFILL CIRCLES the player
- *   stands in to refill `charge`. ONE list fed from any of three places, decided by refillSpec()
- *   (config.js): The Shelf's sun shafts (its signature IS the refill spec: cell/chance/r/minDist/
- *   driftAmp/driftHz sit directly on it), The Surf's tide pools (CHAPTERS.surf.signature.pools — no
- *   drift, since a pool is a hole in the sand rather than something that moves) and The Reef's air
- *   pockets (CHAPTERS.reef.signature.pockets — no drift either, and the ONLY thing that refills
- *   Air). Same _obstacleSeed cell-hash idiom as eddies above and own _shaftCellI/_shaftCellJ cursor
+ * shafts[i]: { x, y, bx, by, r, phase, _cell, gape?, _shutT? } — v7.x Book 2: streamed REFILL
+ *   CIRCLES the player stands in to refill `charge`. ONE list fed from any of FOUR places, decided
+ *   by refillSpec() (config.js): The Shelf's sun shafts (its signature IS the refill spec:
+ *   cell/chance/r/minDist/driftAmp/driftHz sit directly on it), The Surf's tide pools
+ *   (CHAPTERS.surf.signature.pools — no drift, since a pool is a hole in the sand rather than
+ *   something that moves), The Reef's air pockets (CHAPTERS.reef.signature.pockets — no drift
+ *   either, and the ONLY thing that refills Air), and The Deep's anglerfish MAWS
+ *   (CHAPTERS.deep.signature.maws).
+ *     THE MAWS ARE THE ONE THAT IS NOT A PLACE — it is an animal, and it is the only refill circle
+ *   that can kill you. Owner, 2026-08-17: "the anglerfishes dont move, they are not enemies, they
+ *   are traps." `gape` (0..1) is how far its mouth has closed on the player standing in it and
+ *   `_shutT` (s) is how long it stays spent after it swallows; both are written ONLY by stepMaws
+ *   and read by stepCharge (a shut mouth feeds nobody, via inMaw) and by render.js's updateShafts
+ *   maw branch, which IS the tell — the teeth reaching in and the rim going from cold to hot are
+ *   drawn straight off `gape`. Undefined on every other chapter's circles, where inMaw's `_shutT`
+ *   guard reads 0 and the test collapses to the plain inLobe it always was.
+ *   Same _obstacleSeed cell-hash idiom as eddies above and own _shaftCellI/_shaftCellJ cursor
  *   — shared by every chapter's refill circles, since only one of them is ever streaming at a time.
  *   The SALT BLOCK is the spec's, not the streamer's (spec.salt, default 20): 20-23 for the shafts
  *   and the pools, 40-43 for the pockets. A salt is what stops two streamed fields landing in
@@ -968,8 +978,10 @@ function generateWells(sig) {
  *   stepCharge's shaft test. Zero RNG at step time, like every streamer above.
  * charge: number — the chapter resource bar (CHAPTERS[chapter].resource — The Shelf's 'Light', The
  *   Surf's 'Humidity' and The Reef's 'Air'). Drains passively, refills inside a refill circle
- *   (run.shafts: a shaft here, a tide pool there, an air pocket in the third) and (with Light Thief
- *   bought) per kill, clamped to [0, resource.max].
+ *   (run.shafts: a shaft here, a tide pool there, an air pocket in the third, an anglerfish's open
+ *   mouth in the fourth) and (with Light Thief bought) per kill, clamped to [0, resource.max].
+ *   The Deep also SPENDS it involuntarily: being devoured by a maw zeroes the bar outright, which
+ *   is the only place in the game a hazard is priced in the chapter's own resource.
  *   0 and untouched in every chapter without a resource.
  *   It drives FOUR things, and each arrived separately:
  *     1. the Pulse's strength (PULSE_* in config.js; an empty bar still fires the shipped

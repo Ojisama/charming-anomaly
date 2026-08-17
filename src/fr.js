@@ -1133,7 +1133,6 @@ const CONFIG = {
   'Sea Roach': 'Cloporte de mer',
   'Copepod': 'Copépode',
   'Krill': 'Krill',
-  'Anglerfish': 'Poisson-Lanterne',
   'Hagfish': 'Poisson-Gluant',
   'Viperfish': 'Poisson-Vipère',
   'Gulper Eel': 'Grande-Gueule',

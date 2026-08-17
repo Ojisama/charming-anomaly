@@ -3407,58 +3407,91 @@ export const FOXFIRE_GLOOM = 1.6
 // lance still reaches 252px, comfortably past the 205px radius of the shaft you are trying to get
 // back to.
 export const SUNLANCE_REACH_MIN = 0.45
-// ---- The Deep's anglerfish: a refill point that bites ----------------------------------------
-// The spec calls this the best thing in the book, and the reason is that it is the only refill in
-// the game whose TIMER IS DRAWN ON THE ENEMY'S FACE. You swim up to it, it feeds you, its mouth
-// opens wider the longer you stay, and when the gape is full it bites for real damage.
+// ---- The Deep's anglerfish: the refill IS the trap ---------------------------------------------
+// Owner, 2026-08-17: "I want a huge hidden anglerfish like size 6, but as a trap. In the surf there
+// are pools that refill your bar. In the deep i want those pools to be the anglerfishes that refill
+// your light, but if you stay too close too long, they devour you." And, settling it: "the
+// anglerfishes dont move, they are not enemies, they are traps."
 //
-// ⚠ THE GAPE IS DRIVEN BY TIME SPENT AT THIS FISH, NOT BY THE BAR'S LEVEL, and the difference is the
-// whole card. Driving it off `run.charge` was the first design and it is strictly worse: the bar is
-// already on the HUD, so the "tell" would have been a second copy of information the player is
-// looking at anyway, and every anglerfish in the chapter would open and close in unison. Per-fish
-// and per-visit means the tell is something you can only learn by LOOKING AT THE ANIMAL, moving to a
-// different fish genuinely resets the gamble, and "one more second" is literally one more second.
+// SO AN ANGLERFISH IS A REFILL CIRCLE, NOT A ROSTER ENTRY. That is the whole of this rewrite and it
+// is a change of SYSTEM, not of numbers. The first cut made it an enemy with a proximity check —
+// which meant it spawned on the WAVE_TABLE clock, wandered in from off screen, could be killed,
+// shoved, frozen, feared and counted as a kill, and needed `maxAlive` to stop it carpeting the map.
+// Every one of those is a property of a MOB, and none of them belongs to a thing that is supposed to
+// be lying on the sea floor with its mouth open, waiting.
+//   `signature.maws` puts it in the same vocabulary as The Surf's tide `pools`, The Shelf's sun
+// `shafts` and The Reef's air `pockets` — a streamed field of circles the player stands in, keyed on
+// run._obstacleSeed, materialised by streamShafts into run.shafts and refilled from by stepCharge.
+// refillSpec() is the ONE function that answers "where does this chapter's food come from", so
+// teaching it one more field name is the entire wiring. The chapter needed no new spatial system; it
+// needed the one it already had.
 //
-// ⚠ IT IS A LANDMARK, NOT A MOB (owner, 2026-08-17: "the anglerfish was supposed to be a huge
-// monstrosity trap-like outer-wilds like. Not a small enemy."). The first cut shipped it at the
-// roster's DEFAULT size — archetype `normal`, i.e. ENEMIES.drone.radius 16, the smallest body in
-// the game — so the chapter's whole premise was carried by a sprite two thirds the size of the
-// player's, four of them milling about. Everything below that reads as a tuning number is really
-// that one correction: `radiusMul` and `maxAlive` on the roster entry.
-//   THE RADII BELOW DID NOT MOVE WITH IT, and the first cut's instinct to grow them alongside the
-// body was measured and rejected. At feed 300 / bite 235 the feeding ring is 2.25x the AREA, and
-// charge-probe read the chapter getting LIGHTER as the fish got bigger: the `feed` policy's mean bar
-// went 69 -> 82 and %DARK 15 -> 1, i.e. the chapter's own gimmick switched off. Held at 200/170 the
-// ring HUGS a 64px animal — you feed from 136px off its skin and are bitten from 106px — which is
-// the trap reading anyway: you have to get into its face, not stand in its neighbourhood.
-export const ANGLER_FEED_R = 200        // px, centre-to-centre, within which you feed and the gape opens
-export const ANGLER_GAPE_T = 2.6        // s of feeding to go from shut to a full gape — i.e. to the bite
-// Closes faster than it opens, so backing off for a moment genuinely resets the gamble rather than
-// merely pausing it. Equal rates would make the whole chapter one long approach to a single bite.
-export const ANGLER_CLOSE_MUL = 1.9
-export const ANGLER_BITE_R = 170        // px, the bite's own reach — SHORTER than the feed radius, so
-                                        // the outer part of the feeding ring is a genuinely safe place
-                                        // to top up slowly, and the fast refill is the risky one
-// Half your life at base maxHP, which is exactly HURT_CAP_FRAC — i.e. this is the one hit in the
-// game tuned to LAND ON the anti-one-shot cap rather than under it. Deliberate: a monstrosity you
-// walked into the mouth of should be the worst thing that can happen to you in a single frame, and
-// the cap is what still keeps it from being a death.
-export const ANGLER_BITE_DMG = 50
-export const ANGLER_BITE_CD = 2.5       // s before this fish can bite again (its gape restarts from 0)
-// RENDER-ONLY, and it is what makes the sentence "you navigate this chapter by the lure" TRUE.
-// drawAnglerfish sells the esca as the only bright thing down here and the thing you cross the
-// screen toward — but that is a sprite inside `world`, and the dark is a MULTIPLY scrim sitting on
-// the stage above it, so the lure was multiplied to black at any range the player might navigate
-// from. Photographed before the fix (scripts/scenes/deep-lure.js, charge 20 on a phone): of four
-// anglerfish at 90/180/300/410px, only the one at 90 — already inside the feed radius — was on
-// screen at all. That is a death spiral, not a dark chapter: the bar falls, the only refill in the
-// chapter becomes unfindable, and the fall continues.
-//   `lit` is deliberately PARTIAL. A full punch-out would show you the crowd standing next to the
-// fish, and the dark is meant to cost you information about the crowd (see darkLayer's own block in
-// render.js). 0.5 says "there is a light over there" and nothing else.
+// WHAT MAKES IT A TRAP RATHER THAN A POOL is `gape`, and the geometry is deliberately the simplest
+// statement of the owner's sentence: THE WHOLE CIRCLE IS THE MOUTH. There is no safe outer ring and
+// no inner kill zone — the escape is TIME, not distance, because "if you stay too close too long" is
+// a clock, and drawing it as two radii would turn it into a map-reading problem instead. You are in
+// the mouth or you are out of it; the mouth opens while you feed and shuts on whatever is inside.
+export const MAW_GAPE_T = 3.2           // s inside a maw to go from shut to full — i.e. to the swallow
+// Closes faster than it opens, so backing off genuinely resets the gamble rather than pausing it.
+// Equal rates would make the chapter one long approach to a single unavoidable swallow.
+export const MAW_CLOSE_MUL = 1.9
+// THE DEVOUR. Two halves, and the second is the one that reads as being eaten:
+//   - damage at exactly HURT_CAP_FRAC of max HP. hurtPlayer caps a single non-dot hit there
+//     (v6.3.4's anti-one-shot guard), so this is the largest hit the game permits, and asking for
+//     more would silently deliver the same number. Two swallows from full is dead.
+//   - IT TAKES THE LIGHT. You came here for light and it swallowed you along with it, so the bar
+//     goes to zero: you leave the mouth at half health, blind, in the dark, needing to find another
+//     maw. That costs far more than a bigger number would, and it is the only punishment in the
+//     chapter denominated in the chapter's own resource.
+export const MAW_DEVOUR_FRAC = 0.5      // of max HP — HURT_CAP_FRAC exactly; see above
+export const MAW_SHUT_T = 4.0           // s the mouth stays shut afterwards: it does not feed and its
+                                        // lure goes out. The visible signal that this one is spent.
+// RENDER-ONLY, and it is what makes "a HIDDEN anglerfish" true rather than merely dark.
+// The body is drawn inside `world`, and the dark is a MULTIPLY scrim on the stage above `world` — so
+// at any distance the animal is simply not there, and the only thing you can see is what punches
+// through the scrim. That is exactly the trap: from across the map an anglerfish is a single green
+// light, and the mouth around it does not exist until you are inside it. Photographed on the earlier
+// ENEMY cut, before this punch existed (Light 20/100 on a phone): of four anglerfish at
+// 90/180/300/410px only the one at 90 was on screen at all — which is a death spiral rather than a
+// trap, because the bait was invisible too. scripts/scenes/deep-hunt.js is the surviving frame:
+// a real streamed maw at a known range on a low bar, which is the shot that has to keep passing.
+//   `lit` is deliberately PARTIAL: a full punch-out would light the mouth you are standing in and
+// hand you the crowd around it, and the whole point is that the bait is visible and the animal is
+// not.
+//   THREE STOPS, NOT TWO, and the innermost one is the bait itself. Shot with a single `lit` stop
+// (scripts/scenes/deep-maw.js): the esca came out a dead grey disc, because it is drawn inside
+// `world` like everything else and a half-lit scrim multiplies white down to half. A lure that is
+// the same value as the water around it is not a lure. `core` un-multiplies the bait alone —
+// `coreFrac` of the glow's radius, i.e. a pinprick — while the mouth it hangs in front of stays at
+// `lit`. The two numbers are the difference between "a light out there" and "a lit room out there".
 export const LURE_GLOW = {
-  frac: 3.2,   // glow radius as a multiple of the fish's own radius — it scales when the body does
-  lit: 0.5,    // 0 = the chapter's dark, 1 = a shaft. How lit the glow's centre is.
+  frac: 1.15,      // glow radius as a multiple of the maw's own r — a halo just past the jaws
+  lit: 0.5,        // 0 = the chapter's dark, 1 = a shaft. How lit the body of the glow is.
+  core: 0.96,      // ...and at the very centre, where the esca is drawn
+  coreFrac: 0.12,  // how much of the glow's radius that core covers
+}
+// How a maw is drawn (render.js, updateShafts' `maw` branch). Every other refill field in the game
+// caches its geometry on the radius and redraws once; this one is redrawn every frame, because the
+// gape is the drawing.
+//
+// ⚠ THE TEETH GROW INWARD, THE MOUTH'S EDGE DOES NOT MOVE. That is the one decision in this block
+// and it is a gameplay one, not a look. The obvious drawing of "closing" is the tooth ring
+// contracting toward the centre — and it would put the thing you can SEE at a different radius from
+// the thing stepCharge and stepMaws actually TEST, at every moment except the two ends. The escape
+// boundary has to be findable by eye under pressure, so the rim stays exactly at `r` for the whole
+// countdown and the needles reaching in from it are what says how long you have left.
+export const MAW_VIS = {
+  head: 0x140e1c, headA: 0.62, headFrac: 1.26,  // the body behind the mouth — a rim of animal around the hole
+  throat: 0x05070b, throatA: 0.72,              // inside the mouth: darker than any floor this chapter has
+  tooth: 0xe8e2d4, toothA: 0.9,
+  teeth: 22,                                    // needles around the ring
+  toothW: 0.05,                                 // each needle's base width, as a fraction of r
+  toothShut: 0.09, toothFull: 0.40,             // needle length at gape 0 and gape 1, as fractions of r
+  rimCold: 0x7d6a58, rimHot: 0xff5a3c,          // the rim as the swallow approaches — colour, not just size
+  rimW: 3, rimWGape: 5,                         // stroke width at gape 0, and how much it grows by
+  escaCore: 0xf2fffb, escaMid: 0xaef4e2, escaHalo: 0x5fd8c0,
+  escaR: 0.075,                                 // the bait's core radius, as a fraction of r
+  shutA: 0.35,                                  // everything dims to this while the mouth is shut and spent
 }
 
 // ---- The Deep's Scent -------------------------------------------------------------------------
@@ -5651,89 +5684,74 @@ CHAPTERS.deep = {
   // `from` is inert while speedFloor is 1 (darkness() feeds only the speed multiplier — see
   // stepPlayerMovement), and is left at the Shelf's value so that turning the slow back on is a
   // one-number change rather than a re-derivation.
-  signature: { type: 'dark' },
 
-  // THE BAR: Light. The anglerfish are the ONLY source — no shafts, no kill refill, nothing on the
-  // floor. That is what makes this chapter's refill "a place you can fight from, never a place you
-  // go to stop": the refill point is an enemy with its mouth open.
+  // THE MAWS. A streamed field of anglerfish lying on the bottom, in the same vocabulary as The
+  // Surf's tide pools and The Shelf's sun shafts — see the MAW_* block for why the chapter's refill
+  // is a circle rather than a roster entry, and `type: 'dark'` above for the light itself.
+  //
+  // r 200 IS "SIZE 6" IN THE OWNER'S UNITS. The enemy cut it replaces topped out at radiusMul 6 =
+  // a 96px body; a maw is the whole animal, so its jaws ring a 200px circle and the drawing spans
+  // ~460px — comfortably wider than a phone screen. You do not see one coming, you arrive inside it.
+  //
+  // SPARSER THAN EVERY OTHER REFILL IN THE BOOK (chance 0.42 against the Shelf's 0.62, the Surf's
+  // 0.77 and the Reef's 0.50), and a bigger cell with it. Two reasons and they point the same way:
+  // this is the darkest chapter, so light has to be worth crossing the map for; and every one of
+  // these is a decision to walk into a mouth, which stops being a decision if there is always
+  // another one in sight.
+  signature: { type: 'dark', maws: { cell: 900, chance: 0.42, r: 200, minDist: 460 } },
+
+  // THE BAR: Light. The maws above are the ONLY source — no shafts, no kill refill, nothing else on
+  // the floor. That is what makes this chapter's refill "a place you can fight from, never a place
+  // you go to stop": the refill point is a mouth that is closing.
   //
   // killRefill 0 is load-bearing and is the difference between this chapter and every other one in
-  // the book. At any positive value the player can top the bar up by doing what they were going to
-  // do anyway, and the anglerfish stops being the only decision in the chapter.
+  // the book. At any positive value the player tops the bar up by doing what they were going to do
+  // anyway, and walking into a mouth stops being the only decision in the chapter.
   //
   // MEASURED: scripts/charge-probe.mjs --chapter deep, 300s x 3 seeded runs, immortal, under three
-  // MOVEMENT policies — because one policy cannot tell "the bar cannot fill" from "this player
-  // never went looking". The `full` spend row of each:
+  // MOVEMENT policies — because one policy cannot tell "the bar cannot fill" from "this player never
+  // went looking". The `full` spend row of each:
   //
-  //   policy   mean  %at0  %DARK  %inRefill  bites   the reading
-  //   ignore   10.5    48     99       10.6    1.3   never seek a lure and you spend the run blind
-  //   feed     73.3     0     10       70.3   23.0   approach, take it, LEAVE before the mouth shuts
-  //   greedy   82.6     0      3       82.7   49.0   never leave: a better bar, and twice the bites
+  //   policy   mean  %at0  %DARK  %inMaw  devours   the reading
+  //   ignore   10.0    48     99     7.8      0.3   never seek a lure and you spend the run blind
+  //   feed     78.1     1      5    64.8      0.7   approach, take it, LEAVE before the mouth shuts
+  //   greedy   12.0    50     99    49.5     46.7   never leave: eaten 47 times, and BLIND ANYWAY
   //
-  // The `greedy` row is the one that says the card works, and WHAT IT SAYS CHANGED WHEN THE FISH GOT
-  // BIG (2026-08-17). It used to read "greed buys no better bar and pays double the bites", i.e.
-  // greed was a dominated option. At two big anglerfish instead of four small ones it buys a real
-  // +9 mean and takes the dark from 10% of the run to 3% — so the trade is now light FOR blood
-  // rather than nothing for blood, and what makes it a decision is on the other side of the ledger:
-  // ANGLER_BITE_DMG is 50, exactly HURT_CAP_FRAC of base maxHP, so those 49 bites are 26 full health
-  // bars. A dominated option is not a decision either; this one has a real price on both sides.
-  //   The `ignore` row is the CONTROL and the one that answers "does this chapter have the dark from
-  // the chapter before it" — 99% of the run dark, a bar at 10 of 100, 48% of it pinned at empty. The
-  // dark is emphatically there. What was missing until the lure was punched through the scrim (see
-  // LURE_GLOW) is that a player at 10 could not SEE a way out of it, which is not the same failure
-  // and does not have the same fix.
+  // THE GREEDY ROW IS THE WHOLE MECHANIC, and it only reads this way because a devour zeroes the
+  // bar. A player who refuses to leave spends HALF THE RUN inside a mouth — 49.5% against the
+  // disciplined player's 64.8%, i.e. very nearly as much feeding — and ends on a mean of 12 against
+  // 78, at 99% dark, because every few seconds the thing feeding them takes it all back. Greed does
+  // not merely cost more than it earns here; it costs you the exact resource you were greedy for,
+  // and it does it while looking like the row that is doing the most of the right thing.
+  //   That is the shape the earlier ENEMY cut could not reach. There, greed bought a genuinely
+  // better bar (mean 82.6 against 73.3) and paid in health alone, so the decision was a damage
+  // trade the player could out-heal. Pricing the punishment in the chapter's own resource is what
+  // makes it a trap rather than a toll.
+  //   The `ignore` row is the CONTROL and answers "does this chapter have the dark from the chapter
+  // before it": 99% of the run dark, a bar at 10 of 100, half of it pinned at empty. It does.
   resource: {
     name: 'Light', drain: 2.0, refill: 16, killRefill: 0, max: 100,
     dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.50, radiusEmpty: 0.06 },
   },
   scent: true,        // stepRepulse's third per-chapter branch, beside `burst` and `breach`
 
-  // THE ROSTER. The anglerfish is the chapter (see the ANGLER_* block): it does not chase, it feeds
-  // you while you stand near it, and it bites hard when its patience runs out. `angler` is its
-  // behaviour flag and `unshakeable` keeps it where it is — a refill point you can knock across the
-  // map with the Pulse is not a refill point.
+  // THE ROSTER, AND THE ANGLERFISH IS NOT IN IT. Owner, 2026-08-17: "the anglerfishes dont move,
+  // they are not enemies, they are traps." It is `signature.maws` above — a streamed refill circle,
+  // the same system The Surf's tide pools use — and the MAW_* block in this file says why at length.
   //
-  // ⚠ THE ANGLERFISH IS `normal`, AND THE SPEC SAID `tank`. That deviation is forced and the reason
-  // is worth keeping, because it is a trap any new chapter with a special enemy can fall into:
-  // spawnEnemy picks the WAVE_TABLE spawn TYPE first and only then narrows to the roster entries
-  // wearing it, and WAVE_TABLE does not introduce `tank` until **t = 140s**. As a tank, this
-  // chapter's ONLY source of Light could not exist for the first two and a half minutes of a
-  // five-minute run — with a bar that empties in 50s. Measured, not reasoned: a 10-minute headless
-  // run of the chapter reported `anglerfish alive: 0`. A roster `weight` cannot fix it either (it
-  // narrows within an archetype, it cannot un-gate one), and neither can `archetypeMul`.
-  //   It loses nothing. "A tank when provoked" is a statement about what happens when you pick a
-  // fight with one, and `hpMul` says that on any archetype.
+  // WHAT THAT COST, and it is the reason the deletion is worth a paragraph rather than a line: the
+  // earlier cut held `normal` for a forced reason, and removing it un-forces that reason rather than
+  // leaving a hole. spawnEnemy picks the WAVE_TABLE spawn TYPE first and only then narrows to the
+  // roster entries wearing it, and WAVE_TABLE does not introduce `tank` until t = 140s — so as a
+  // tank the chapter's only source of Light could not have existed for the first two and a half
+  // minutes of a five-minute run. That whole trap simply does not apply to a streamed field: a maw
+  // is on the map from t = 0 because streamShafts materialises it from the terrain seed, with no
+  // archetype, no wave clock and no live cap to keep it from carpeting the floor.
   //
-  // ⚠ `radiusMul: 4` AND `maxAlive: 2` ARE THE ANIMAL. Owner, 2026-08-17: "the anglerfish was
-  // supposed to be a huge monstrosity trap-like outer-wilds like. Not a small enemy." Archetype
-  // `normal` means ENEMIES.drone.radius 16 — the SMALLEST body in the game, two thirds of the
-  // player's 22 — so without `radiusMul` the chapter's entire premise was a sprite you had to hunt
-  // for on screen, four of them at a time. At 4 it is a 64px body: three times the player, and
-  // syncEnemies draws it at `e.radius / look.baseR` so the art follows for free.
-  //   The pair is one decision, not two. A monstrosity you meet FOUR of is scenery; the trap
-  // fantasy needs each one to be a place on the map you decide to approach. `maxAlive: 2` is what
-  // buys that, and it is also what puts the chapter's dark back — see the charge-probe table above,
-  // where the cap is the whole difference between a bar that cycles and a bar that sits full.
-  //   `hpMul: 9` for the same reason: you do not clear a landmark on the way past. It is closer to
-  // terrain than to a body, `unshakeable` already keeps the Pulse from shoving it, and `xpMul: 3`
-  // is what killing one anyway is worth.
-  //
-  // ⚠ `maxAlive` IS LOAD-BEARING, AND IT IS THE ONLY ENTRY IN THE GAME THAT NEEDS IT. This is
-  // the first roster entry that never chases the player and therefore never dies on its own, so a
-  // spawn `weight` does not set its density — it sets its ACCUMULATION RATE, and over a 300s run
-  // that is a carpet. Measured before the cap (charge-probe, 300s x 3 seeds): the refill was
-  // reachable 82.7% of the run under the DO-NOTHING control, 96.7% under a greedy one, %DARK was 0,
-  // and a player who never pressed anything sat at a full bar. The chapter's entire resource was
-  // decoration, in the chapter whose premise is that light is scarce.
-  //   The cap needs a SECOND entry in the same archetype pool to hand the spawn to — spawnEnemy
-  // falls back to the uncapped pool rather than spawning nothing — which is why hagfish keeps the
-  // `normal` the spec gave it rather than being promoted to cover the tank slot.
-  //
-  // GULPER EEL IS AN ADDITION, not in the spec's three. A chapter must cover normal/fast/tank or
-  // the tank share of WAVE_TABLE (from t=140s) finds an empty roster pool, and every chapter that
-  // ships has all three. With the anglerfish holding `normal`, the spec's set left `tank` empty.
+  // The three that remain still cover normal/fast/tank, which every chapter must — the tank share of
+  // WAVE_TABLE from t=140s otherwise finds an empty pool. The gulper eel was added for exactly that
+  // reason back when the anglerfish held `normal`, and it keeps the slot now for its own sake.
   roster: [
-    { id: 'anglerfish', archetype: 'normal', name: 'Anglerfish', hpMul: 9, speedMul: 0.18, xpMul: 3, weight: 0.6, maxAlive: 2, radiusMul: 4, flags: ['angler', 'unshakeable'] },
     // Slime is literally a patch it leaves behind, which is what webZone already is — the flag and
     // the animal are the same fact for once, rather than a behaviour borrowed onto a new skin.
     { id: 'hagfish',    archetype: 'normal', name: 'Hagfish',    hpMul: 1,   speedMul: 0.92, flags: ['webZone'] },
@@ -5771,7 +5789,10 @@ CHAPTERS.deep = {
   // dark tint goes as close to black as this book allows: the blue is what keeps it reading as depth
   // rather than as a screen fade (a UI event), and there is barely any of it left.
   render: {
-    cast: ['anglerfish', 'hagfish', 'viperfish', 'gulper'],
+    // The maw is NOT in the cast: `cast` is roster thumbnails (scripts/bake-cast.mjs bakes them
+    // from ROSTER_LOOKS), and the anglerfish is no longer a roster entry. Its art lives in
+    // T.maw instead — a whole animal ringing a 200px circle, which is not a 34px portrait.
+    cast: ['hagfish', 'viperfish', 'gulper'],
     form: 'fish', formScale: 1.7,   // the shark: the biggest body the player has had
     bgColor: 0x03101d,
     floorTint: 0x6f8ea6,
@@ -7232,7 +7253,12 @@ export const lightRadius = (charge, res, maxDim, max = res?.max) => {
 // tests that can disagree; that is not hypothetical, it is exactly how The Surf's tide pools — its
 // entire refill mechanic — shipped invisible behind a `signature.type === 'shafts'` test in
 // render.js while the sim was streaming them fine.
-export const refillSpec = (sig) => (sig?.type === 'shafts' ? sig : (sig?.pools ?? sig?.pockets ?? null))
+// `maws` (v7.x, The Deep) is the fourth name and the one that is not a place at all — it is an
+// animal with its mouth open. It reads through here for exactly the reason this function exists:
+// streaming, refilling and drawing a field of circles is one problem with one answer, and the only
+// thing The Deep changes is what happens if you STAY (stepMaws). A chapter that had grown its own
+// streamer for this would have grown its own bugs for it too.
+export const refillSpec = (sig) => (sig?.type === 'shafts' ? sig : (sig?.pools ?? sig?.pockets ?? sig?.maws ?? null))
 
 // DOES THIS CHAPTER NEED run._obstacleSeed? Five streamers hash off that one seed — obstacles,
 // eddies, traps, refill circles and sandbars — but createRun used to draw it for the FIRST of them

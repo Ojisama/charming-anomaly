@@ -42,7 +42,7 @@
 // power it did not earn, whereas this asks whether the bar keeps up with a REAL run, and a real run
 // takes cards and kills far more than a starter-only one ever would.
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
-import { stepSim, applyChoice, onSandbar, inWake, anglerFeeding } from '../src/sim.js'
+import { stepSim, applyChoice, onSandbar, inWake, inMaw } from '../src/sim.js'
 import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines, MAX_SHOP_LEVEL, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL } from '../src/config.js'
 
 // --chapter <id> (v7.x, run US.c): The Surf shares this same `resource`/refill-circle vocabulary
@@ -264,13 +264,17 @@ const LANE_MOVES = {
 //            lower bound on the player's health: it should hold the fullest bar in the table AND
 //            eat every bite in the chapter. A tune where greedy is simply best has no card in it.
 const ANGLER_BACKOFF = 0.72        // gape at which `feed` turns and runs. Rig-only, not a game number.
+// A maw is a run.shafts entry, not an enemy (v7.x: "they are not enemies, they are traps"), so the
+// rig walks the same list every other chapter's refill circles live in. A SHUT maw is skipped: it
+// cannot feed you, so a policy that kept steering at one would be modelling a player who has not
+// noticed the lure went out — which is not a floor on skill, it is a bug in the rig.
 const nearestAngler = (run) => {
   const p = run.player
   let best = null, bd = Infinity
-  for (const e of run.enemies) {
-    if (e._dead || !(e.flags && e.flags.includes('angler'))) continue
-    const d = Math.hypot(e.x - p.x, e.y - p.y)
-    if (d < bd) { bd = d; best = e }
+  for (const sh of run.shafts) {
+    if ((sh._shutT ?? 0) > 0) continue
+    const d = Math.hypot(sh.x - p.x, sh.y - p.y)
+    if (d < bd) { bd = d; best = sh }
   }
   return best
 }
@@ -331,7 +335,7 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
       // The bite is the whole card in The Deep, so it is counted BEFORE the drain rather than
       // inferred from the damage column — damage taken conflates a bite with the crowd, and the
       // question this probe has to answer is whether the greedy row actually pays for its bar.
-      for (const ev of run.events) if (ev.type === 'anglerBite' && ev.hit) bites++
+      for (const ev of run.events) if (ev.type === 'devour') bites++
       run.events.length = 0                                // drain, exactly as main.js does
       if (run.phase === 'levelup') { applyChoice(run, 0); run.phase = 'playing' }
       // Immortal: the rig measures the bar, not this walk's survival. Restored AFTER the step so
@@ -344,8 +348,7 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
       // three of the four, and the moving wake for The Trawl. One column, because the QUESTION is
       // the same one ("how much of the run was this player being fed") and a chapter-specific column
       // name is how a reader ends up comparing two different measurements.
-      if (run.shafts.some((sh) => Math.hypot(sh.x - pl.x, sh.y - pl.y) <= sh.r) || inWake(run, pl.x, pl.y) ||
-          anglerFeeding(run, pl.x, pl.y)) inShaft++
+      if (run.shafts.some((sh) => inMaw(sh, pl.x, pl.y)) || inWake(run, pl.x, pl.y)) inShaft++
       // Sandbars (v7.x Surf only — onSandbar is a no-op false for any chapter with no run.sandbars
       // entries, so this column reads 0 for The Shelf without a chapter-type branch here).
       if (onSandbar(run)) onBar++

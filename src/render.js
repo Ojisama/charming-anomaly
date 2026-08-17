@@ -18,7 +18,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
-  LURE_GLOW, // The Deep: the anglerfish's esca, punched through the dark scrim in updateDark
+  LURE_GLOW, MAW_VIS, // The Deep: the anglerfish maw and its esca punched through the dark scrim
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
 
@@ -243,6 +243,7 @@ export function createRenderer(app) {
   // `signature.type === 'shafts'` and The Surf's pools — its entire refill mechanic — were
   // invisible. Read by updateShafts.
   let refillLook = null
+  let chapterHasMaws = false   // The Deep: the refill field is an animal (see updateShafts' maw branch)
   // v7.x Book 2: the active chapter's swell block (CHAPTERS[].render.swell) or null. A CONFIG
   // OBJECT rather than a boolean, unlike its neighbours here, because updateSwell reads six numbers
   // off it every frame and re-deriving them from run.chapter per crest per frame is the kind of
@@ -2287,96 +2288,6 @@ export function createRenderer(app) {
   // published `gape` field (drawDeepTells). What is baked is the body, the teeth and the dark
   // socket the gape opens over — the parts that never move.
   //
-  // WHICH MEANS WHERE THE FACE IS IS ONE FACT AUTHORED IN TWO PLACES, and that is this repo's
-  // largest defect class. ANGLER_MOUTH is the one authority: drawAnglerfish bakes the socket and the
-  // tooth ring off it, drawDeepTells opens the wedge over them off it.
-  //   Two coordinate systems meet here, hence the ratio. The bake is drawn at a fixed reference
-  // r = 17 and syncEnemies scales the sprite by e.radius / ROSTER_BASE_R.normal (16), so a bake
-  // fraction f of r lands at f x 17/16 of the LIVE radius. Everything below is stated as a fraction
-  // of the live radius, and the bake divides back out.
-  //   It went wrong silently and stayed invisible for exactly as long as the animal was small. The
-  // wedge used to sit at 0.22 of the radius — near the body's CENTRE — while the baked socket is out
-  // at the nose. On a 16px fish that is a 12px error nobody can see; at radiusMul 4 it is 47px, and
-  // the frame comes back with a jaw hanging in the water beside a fish. Anything anchored on a body
-  // in fractions of ITS OWN radius has this property: the mistake scales with the animal.
-  const ANGLER_BAKE_R = 17          // drawAnglerfish's own reference r
-  const ANGLER_MOUTH = {
-    at: 0.77,     // socket centre along the facing axis (the bake's noseX - 0.18r)
-    shut: 0.44,   // the wedge at a barely-open mouth: the socket ellipse it opens over
-    open: 0.95,   // and at a full gape — PAST the tooth tips (0.38 + 0.2), a jaw unhinging
-    arc: 1.15,    // radians either side of the axis at a full gape: the tooth ring's own span
-    shutArc: 0.20,
-    toLive: ANGLER_BAKE_R / 16,     // bake fraction -> fraction of the live radius (ROSTER_BASE_R.normal)
-  }
-
-  // anglerfish: the chapter. Round, heavy, front-loaded, with a lure held out ahead on a stalk and a
-  // mouth that is most of the head. The ESCA is the only genuinely bright thing in the chapter and
-  // it is the thing the player navigates by, so it is drawn as a hot core inside a soft halo rather
-  // than as a flat dot.
-  function drawAnglerfish(g, elite, white) {
-    const r = 17
-    const f = (c) => white ? 0xffffff : c
-    const line = f(0x0a1016)
-    // ⚠ DARK, BUT NOT A VOID. A real deep-sea anglerfish is very nearly black, and the first cut
-    // painted it that way (0x2b2230 on a 0x03101d floor): the body disappeared entirely and the
-    // animal read as a floating dark pennant with a spike. The design intent survives — you
-    // navigate this chapter by the LURE, not by the fish — but the body still has to be findable
-    // once you are on top of it, or the thing you must judge a gape on is not on screen.
-    const skin = f(0x473b52)
-    const belly = f(0x6a5a78)
-    const tooth = f(0xe8e2d4)
-    const lw = Math.max(2, r * 0.11)
-    const noseX = r * 0.95
-    const len = r * 1.85
-    const spine = (t) => [noseX - t * len, 0]
-    // A globe, not a spindle: widest almost immediately and holding it, so the silhouette reads as
-    // a swimming head with a fish attached rather than as a fish with a big head.
-    const body = (t) => {
-      const rise = Math.pow(Math.min(1, t / 0.2), 0.5)
-      // A LOW exponent, so the body stays fat most of its length and only collapses at the wrist.
-      // At 1.15 it fell away linearly and the silhouette read as a tent — a cone with a spike —
-      // rather than as the globe an anglerfish is.
-      const fall = Math.pow(Math.max(0, 1 - (t - 0.2) / 0.78), 0.62)
-      return r * 0.62 * Math.max(0.07, t < 0.2 ? rise : fall)
-    }
-    groundShadow(r * 1.0, r * 0.7)
-    const [tx] = spine(0.97)
-    g.poly([tx + r * 0.05, 0, tx - r * 0.42, r * 0.34, tx - r * 0.3, 0, tx - r * 0.42, -r * 0.34])
-      .fill({ color: belly, alpha: 0.9 }).stroke({ width: lw * 0.45, color: line })
-    g.poly(spineOutline(spine, body, 34)).fill(skin).stroke({ width: lw, color: line })
-    if (!white) {
-      // THE SOCKET the gape opens over. Baked dark and permanent, so when drawDeepTells widens the
-      // mouth on top there is already blackness underneath it rather than body colour showing
-      // through a half-open jaw. Its centre is ANGLER_MOUTH.at, and that is the whole point of the
-      // const — the overlay opens at exactly the same place, whatever the animal's size.
-      const mx = r * ANGLER_MOUTH.at
-      g.ellipse(mx, 0, r * 0.42, r * 0.5).fill({ color: f(0x07090d), alpha: 0.95 })
-      // Teeth: a ring of needles around the socket's rim. Few and long — a row of small ones turns
-      // to a grey smudge at sprite size, which is the failure mode the viperfish below shares.
-      for (let i = 0; i < 9; i++) {
-        const a = -ANGLER_MOUTH.arc + (i / 8) * ANGLER_MOUTH.arc * 2
-        const bx = mx + Math.cos(a) * r * 0.38
-        const by = Math.sin(a) * r * 0.46
-        g.poly([bx, by, bx + Math.cos(a) * r * 0.2, by + Math.sin(a) * r * 0.22,
-                bx - Math.sin(a) * r * 0.07, by + Math.cos(a) * r * 0.07])
-          .fill({ color: tooth, alpha: 0.92 })
-      }
-      // THE ILLICIUM: the stalk, arching forward over the head, with the esca at its tip. Offset in
-      // +y rather than dead centre so it does not sit on the body's own axis and vanish into it.
-      const ex = noseX + r * 0.52, ey = -r * 0.34
-      g.moveTo(noseX - r * 0.5, -r * 0.1).quadraticCurveTo(noseX + r * 0.3, -r * 0.7, ex, ey)
-        .stroke({ width: lw * 0.6, color: f(0x171420), alpha: 0.95 })
-      // Three stops rather than two, and wider than it looks like it needs to be: this is the only
-      // light source in the chapter and it is what the player crosses the screen toward.
-      g.circle(ex, ey, r * 0.52).fill({ color: f(0x5fd8c0), alpha: 0.16 })
-      g.circle(ex, ey, r * 0.30).fill({ color: f(0x7fe9d0), alpha: 0.38 })
-      g.circle(ex, ey, r * 0.17).fill({ color: f(0xaef4e2), alpha: 0.75 })
-      g.circle(ex, ey, r * 0.09).fill({ color: f(0xf2fffb), alpha: 1 })
-      for (const s of [-1, 1]) darkEye(g, noseX - r * 0.52, s * r * 0.25, r * 0.09, r * 0.085, 0x05070a, true)
-    }
-    if (elite) eliteCrown(-r * 1.1, r)
-  }
-
   // hagfish: a rope. No fins, no shoulders, no taper worth the name — the one body in the game whose
   // outline is very nearly a constant-width tube, which is exactly what separates it from every
   // other fish on this floor without needing a single colour to survive the dark.
@@ -3944,10 +3855,9 @@ export function createRenderer(app) {
     // paired fins in ±y, and nothing in any of them could be called UP. A missing key here is
     // SILENT — syncEnemies falls through to a generic archetype blob. See the Trawl section of the
     // draw fns for why the tank is a mammal and the fast one is all outline.
-    // v7.x The Deep (Book 2 chapter 5). Four, not three — the chapter needed a tank the spec's set
-    // did not have (see CHAPTERS.deep's roster). All PLAN VIEW, all lean 90. The anglerfish's MOUTH
-    // is not in its bake: the gape is per-fish and per-frame, so it is an overlay (drawDeepTells).
-    anglerfish: { archetype: 'normal', draw: drawAnglerfish, lean: 90 }, // top-down: globe + lure on a stalk in -y, tooth ring at +x
+    // v7.x The Deep (Book 2 chapter 5). THREE, and the anglerfish is not among them — it is a refill
+    // circle rather than a roster entry (owner: "they are not enemies, they are traps"), so its art
+    // is drawn straight into updateShafts' maw branch at the circle's own r. All PLAN VIEW, lean 90.
     hagfish: { archetype: 'normal', draw: drawHagfish, lean: 90 },       // top-down: near-constant-width rope, slime pores in ±y rows
     viperfish: { archetype: 'fast', draw: drawViperfish, lean: 90 },     // top-down: thin ribbon, fangs past the snout, photophore rows
     gulper: { archetype: 'tank', draw: drawGulperEel, lean: 90 },        // top-down: open pouch at +x collapsing to a whip at -x
@@ -10469,6 +10379,7 @@ export function createRenderer(app) {
     shaftLayer.visible = true
     const pool = refillLook === 'pool'
     const pocket = refillLook === 'pocket'
+    const maw = refillLook === 'maw'
     const P = pocket ? AIR_POCKET_VIS : TIDE_POOL_VIS
     const list = run.shafts
     while (shaftPool.length < list.length) shaftPool.push(acquireShaft())
@@ -10483,6 +10394,80 @@ export function createRenderer(app) {
       sv.body.position.set(sh.x, sh.y)
       sv.glow.position.set(sh.x, sh.y)
       sv.ring.position.set(sh.x, sh.y)
+      // THE MAW (The Deep). The only refill field that is an ANIMAL, and the only one redrawn every
+      // frame — because `gape` is the drawing, and a geometry cache keyed on the radius would freeze
+      // the countdown at whatever it was on the frame the circle streamed in.
+      //
+      // The whole thing is drawn from the sim's own `sh.r` and `sh.gape`, so what you see closing is
+      // literally what stepMaws is counting. See MAW_VIS for why the needles grow inward instead of
+      // the ring contracting — the rim you must cross to escape never moves.
+      if (maw) {
+        const M = MAW_VIS
+        const gp = sh.gape || 0
+        const shut = (sh._shutT ?? 0) > 0
+        const A = shut ? M.shutA : 1
+        sv.glow.visible = false     // the lure is punched into the LIGHTMAP (updateDark), not stacked here
+        sv.ring.clear()
+        const g = sv.body
+        g.clear()
+        // THE WHOLE GRAPHICS IS ROTATED, and that is what lets the body be drawn with ellipses in a
+        // local frame where +x runs back down the animal. `phase` is the hash-derived angle
+        // refillCircleAt already stores on every circle for drift — free here, deterministic, and it
+        // is what keeps a field of maws from all lying the same way like furniture.
+        //   Everything else in this branch is radially symmetric (a ring of teeth, a rim, a bait at
+        // the centre), so rotating costs nothing and no term below has to carry a bearing.
+        g.rotation = sh.phase ?? 0
+        // THE ANIMAL BEHIND THE MOUTH. Drawn first and darkest — it is the half the chapter hides.
+        // At any distance the multiply scrim flattens it to nothing and only the bait punches
+        // through, which is the owner's "huge HIDDEN anglerfish": you steer at a green light and
+        // find out what it was attached to on arrival.
+        g.ellipse(sh.r * 0.86, 0, sh.r * 1.24, sh.r * 0.96).fill({ color: M.head, alpha: M.headA * A })
+        // The tail, off the far end — the one silhouette cue that says fish rather than crater.
+        const tx = sh.r * 2.0
+        g.poly([tx - sh.r * 0.1, 0, tx + sh.r * 0.62, sh.r * 0.5, tx + sh.r * 0.44, 0, tx + sh.r * 0.62, -sh.r * 0.5])
+          .fill({ color: M.head, alpha: M.headA * 0.85 * A })
+        // The head's own rim, then the throat inside the mouth: darker than any floor this chapter
+        // has, so the hole reads as a hole even where the player's lamp reaches it.
+        g.circle(0, 0, sh.r * M.headFrac).fill({ color: M.head, alpha: M.headA * A })
+        g.circle(0, 0, sh.r).fill({ color: M.throat, alpha: M.throatA * A })
+        // The needles: fixed at the rim, reaching further in as the mouth closes. See MAW_VIS for
+        // why they grow instead of the ring contracting — the edge you must cross never moves.
+        const len = sh.r * (M.toothShut + (M.toothFull - M.toothShut) * (shut ? 1 : gp))
+        const halfW = sh.r * M.toothW * 0.5
+        for (let t = 0; t < M.teeth; t++) {
+          const a = (t / M.teeth) * Math.PI * 2
+          const ca = Math.cos(a), sa = Math.sin(a)
+          g.poly([
+            (sh.r + halfW * 0.4) * ca - halfW * sa, (sh.r + halfW * 0.4) * sa + halfW * ca,
+            (sh.r + halfW * 0.4) * ca + halfW * sa, (sh.r + halfW * 0.4) * sa - halfW * ca,
+            (sh.r - len) * ca, (sh.r - len) * sa,
+          ]).fill({ color: M.tooth, alpha: M.toothA * A })
+        }
+        // The rim goes cold -> HOT as the swallow approaches. Colour and not only width, because the
+        // player is reading this at the edge of their own light: a size change alone is a
+        // second-order cue and this is a first-order decision.
+        g.circle(0, 0, sh.r).stroke({
+          width: M.rimW + M.rimWGape * gp,
+          color: shut ? M.rimCold : lerpTint(M.rimCold, M.rimHot, gp),
+          alpha: (0.5 + 0.45 * gp) * A,
+        })
+        // THE ILLICIUM AND THE BAIT. The stalk arches forward off the animal's back and hangs the
+        // esca over the middle of its own mouth — which is the whole trick the fish is playing, and
+        // the reason the glow updateDark punches through the scrim sits at the circle's CENTRE.
+        // Out entirely while the mouth is shut: a spent maw is unlit, and that is visible from
+        // across the map rather than discovered on arrival.
+        if (!shut) {
+          const er = sh.r * M.escaR
+          g.moveTo(sh.r * 1.5, -sh.r * 0.2)
+            .quadraticCurveTo(sh.r * 0.9, -sh.r * 1.15, 0, 0)
+            .stroke({ width: Math.max(2, sh.r * 0.035), color: M.head, alpha: 0.9 })
+          g.circle(0, 0, er * 3.4).fill({ color: M.escaHalo, alpha: 0.14 })
+          g.circle(0, 0, er * 2.0).fill({ color: M.escaHalo, alpha: 0.34 })
+          g.circle(0, 0, er * 1.2).fill({ color: M.escaMid, alpha: 0.7 })
+          g.circle(0, 0, er).fill({ color: M.escaCore, alpha: 1 })
+        }
+        continue
+      }
       // Breathe, out of phase per circle (i, not animT alone) so a field of them does not pulse in
       // unison — the same trick placeEddy uses for its twirl layers. The pool's is slower and
       // shallower, and it wanders the SIZE rather than only the alpha: calm water, not a beacon.
@@ -10948,10 +10933,9 @@ export function createRenderer(app) {
   // mechanic only when sim publishes into a field it already reads, and a status kept private is
   // indistinguishable on screen from a status that does not work.
   //
-  // THE GAPE IS THE CHAPTER'S ONLY WARNING. It is the timer on the player's greed, drawn on the
-  // animal's face, and it cannot be baked: it changes per fish per frame and a bake is made once at
-  // boot. So the body, the tooth ring and the dark socket are baked (drawAnglerfish) and the OPENING
-  // is drawn here on top of them.
+  // The Deep's per-BODY tell, and only that one. The gape used to live here too, back when an
+  // anglerfish was a roster entry; it is a refill circle now (owner: "they are not enemies, they are
+  // traps") and updateShafts' maw branch draws it, off the same `sh.gape` stepMaws counts.
   function drawDeepTells(run) {
     deepG.clear()
     if (!run.enemies) return
@@ -10971,48 +10955,6 @@ export function createRenderer(app) {
         deepG.circle(e.x, e.y, rad * 1.18).fill({ color: 0xff8a5c, alpha: 0.09 * k })
       }
 
-      // GAPE: the mouth opening, centred on the head. The tooth ring in drawAnglerfish's bake sits
-      // at local +x, so this wedge has to point the same way the SPRITE does or the two would part
-      // company on screen — a mouth opening out of the fish's flank.
-      //
-      // ⚠ THE FACING IS RE-DERIVED HERE, and that is a knowing duplicate. syncEnemies keeps the
-      // smoothed heading on the SPRITE (s._dirX/_dirY), which this pass has no handle on. This look
-      // declares no `faceDir` and no `turnRate`, so its sprite snaps straight to the bearing toward
-      // the player every frame — which is exactly the line below, with no smoothing to diverge from.
-      // If the anglerfish is ever given either hook, this stops being true silently and the mouth
-      // will drift off the head: move the drawing into the sprite pass instead of patching it.
-      const gp = e.gape || 0
-      if (gp <= 0.02) continue
-      const a0 = Math.atan2(run.player.y - e.y, run.player.x - e.x)
-      // ON THE FACE, not near the body's centre — every number here is ANGLER_MOUTH's, converted
-      // from the bake's reference r to this animal's live radius. See ANGLER_MOUTH for why the old
-      // hand-tuned 0.22/0.55/0.75 were invisible on a 16px fish and a floating jaw on a 64px one.
-      const M = ANGLER_MOUTH
-      const half = M.shutArc + gp * (M.arc - M.shutArc)   // radians either side of the axis
-      const reach = rad * M.toLive * (M.shut + gp * (M.open - M.shut))
-      const off = rad * M.toLive * M.at
-      const cx = e.x + Math.cos(a0) * off, cy = e.y + Math.sin(a0) * off
-      const pts = [cx, cy]
-      for (let i = 0; i <= 10; i++) {
-        const a = a0 - half + (i / 10) * half * 2
-        pts.push(cx + Math.cos(a) * reach, cy + Math.sin(a) * reach)
-      }
-      deepG.poly(pts).fill({ color: 0x07090d, alpha: 0.92 })
-      // The rim goes from cold to HOT as the bite approaches. Colour, not just size, because the
-      // player is reading this in the dark at the edge of their light: a shape change alone is a
-      // second-order cue and this is a first-order decision.
-      const hot = gp > 0.62
-      deepG.poly(pts).stroke({
-        width: Math.max(1.4, rad * (0.08 + gp * 0.09)),
-        color: hot ? 0xff5a3c : 0xb98a6a,
-        alpha: 0.55 + 0.45 * gp,
-      })
-      // At the very top of the gape the lure flares. This is the last half-second before the bite
-      // and it is the one moment the chapter shouts.
-      if (gp > 0.82) {
-        const flare = (gp - 0.82) / 0.18
-        deepG.circle(e.x, e.y, rad * (1.3 + flare * 0.5)).fill({ color: 0xff6a3a, alpha: 0.16 * flare })
-      }
     }
   }
 
@@ -11267,36 +11209,52 @@ export function createRenderer(app) {
     darkCtx.arc(px * s, py * s, lampR, 0, Math.PI * 2)
     darkCtx.fill()
 
-    darkCtx.fillStyle = '#fff'
-    for (const sh of run.shafts) {
-      const sx = sh.x + cx, sy = sh.y + cy
-      if (sx + sh.r < 0 || sx - sh.r > w || sy + sh.r < 0 || sy - sh.r > h) continue
-      // Hard discs, not blobs: a shaft is a pool of full daylight with an edge you can stand on the
-      // wrong side of, and sim.js tests that radius exactly (stepCharge).
-      darkCtx.beginPath()
-      darkCtx.arc(sx * s, sy * s, sh.r * s, 0, Math.PI * 2)
-      darkCtx.fill()
+    // A MAW IS NOT A LIGHT, AND THIS IS THE LINE THAT SAYS SO. Every other refill circle in the game
+    // clears the darkness it sits in — a sun shaft, a tide pool, a pocket of air are all places you
+    // can see in. The Deep's maws feed your own LAMP instead: the bar rises, lightRadius grows, and
+    // the light you gain is carried on you rather than pooled on the floor. Punching them out here
+    // would light the inside of the mouth you are standing in, i.e. show you the animal at exactly
+    // the moment the chapter wants you to have arrived without seeing it.
+    if (!chapterHasMaws) {
+      darkCtx.fillStyle = '#fff'
+      for (const sh of run.shafts) {
+        const sx = sh.x + cx, sy = sh.y + cy
+        if (sx + sh.r < 0 || sx - sh.r > w || sy + sh.r < 0 || sy - sh.r > h) continue
+        // Hard discs, not blobs: a shaft is a pool of full daylight with an edge you can stand on the
+        // wrong side of, and sim.js tests that radius exactly (stepCharge).
+        darkCtx.beginPath()
+        darkCtx.arc(sx * s, sy * s, sh.r * s, 0, Math.PI * 2)
+        darkCtx.fill()
+      }
     }
 
-    // THE LURES (The Deep). drawAnglerfish sells the esca as the only bright thing in the chapter
-    // and the thing the player crosses the screen toward — but that is a sprite inside `world`, and
-    // this scrim multiplies `world` to black without caring how bright anything under it is. Shot
-    // before this existed (scripts/scenes/deep-lure.js at charge 20, phone): of four anglerfish at
-    // 90/180/300/410px, only the one at 90 — already inside ANGLER_FEED_R — was on screen at all.
-    // A dark chapter whose only refill is invisible at a low bar is a death spiral, not a mechanic.
+    // THE LURES (The Deep). The esca is the ONLY part of a maw that reaches the player from a
+    // distance, and that is the mechanic rather than a side effect: owner, 2026-08-17, "I want a
+    // huge hidden anglerfish". The animal is drawn inside `world` and this scrim multiplies `world`
+    // to black without caring how bright anything under it is, so from across the map an anglerfish
+    // is one green light and the 400px mouth around it does not exist. You do not see one coming;
+    // you arrive inside it.
+    //   Shot on the earlier ENEMY cut, before this punch existed (Light 20/100, phone): of four
+    // anglerfish at 90/180/300/410px only the one at 90 was on screen at all. With the bait
+    // invisible too, a low bar was a death spiral rather than a trap. scripts/scenes/deep-hunt.js
+    // is the shot that keeps this honest — a real streamed maw at a known range, on a low bar.
     //   PARTIAL, never a punch-out. A shaft removes the darkness because standing in one is meant to
-    // let you play normally; a lure is a beacon, and it must not hand you the crowd standing next to
-    // it. LURE_GLOW.lit is the whole of that distinction.
+    // let you play normally; a lure is bait, and it must not light the jaws it is hanging in front
+    // of. LURE_GLOW.lit is the whole of that distinction.
+    //   A SHUT MOUTH SHOWS NO LIGHT (`_shutT`, set by stepMaws when it swallows). That is the same
+    // fact stepCharge reads to stop feeding you, drawn: a spent maw goes dark, so "there is nothing
+    // for you here" is something you can see from across the map instead of discovering on arrival.
     //   'lighten' and not the plain fill above: these overlap the player's own lamp, and a fill
     // would stamp a DIMMER disc into the middle of it — light adds, it does not replace.
     darkCtx.globalCompositeOperation = 'lighten'
-    for (const e of run.enemies) {
-      if (e._dead || !e.flags || !e.flags.includes('angler')) continue
-      const ex = e.x + cx, ey = e.y + cy
-      const gr = e.radius * LURE_GLOW.frac
+    for (const sh of run.shafts) {
+      if (!chapterHasMaws || (sh._shutT ?? 0) > 0) continue
+      const ex = sh.x + cx, ey = sh.y + cy
+      const gr = sh.r * LURE_GLOW.frac
       if (ex + gr < 0 || ex - gr > w || ey + gr < 0 || ey - gr > h) continue
       const lg = darkCtx.createRadialGradient(ex * s, ey * s, 0, ex * s, ey * s, Math.max(1, gr * s))
-      lg.addColorStop(0, rgbAt(LURE_GLOW.lit))
+      lg.addColorStop(0, rgbAt(LURE_GLOW.core))              // the esca itself, near-unmultiplied
+      lg.addColorStop(LURE_GLOW.coreFrac, rgbAt(LURE_GLOW.lit))
       lg.addColorStop(1, rgbAt(0))
       darkCtx.fillStyle = lg
       darkCtx.beginPath()
@@ -15437,13 +15395,15 @@ export function createRenderer(app) {
           spawnRing(e.x, e.y, e.r, 0.4, T.novaRing, 0xff8a5c)
           addShake(2 + 2 * (e.charged ?? 0), 0.12)
           break
-        case 'anglerBite':
-          // A bite that CONNECTS is already carried by the `hurt` event's red vignette, so this is
-          // the fish's half: a short hard snap at the mouth. Drawn on a MISS too, and deliberately
-          // — the player who backed off in time has earned the right to see the jaws close on
-          // nothing, and a tell that only fires when you are hit teaches nothing about the timing.
-          spawnRing(e.x, e.y, 70, e.hit ? 0.3 : 0.18, T.novaRing, e.hit ? 0xff4a2a : 0x8a6a55)
-          addShake(e.hit ? 4.5 : 1.4, e.hit ? 0.16 : 0.07)
+        case 'devour':
+          // A maw closing on the player. The damage half is already carried by the `hurt` event's
+          // red vignette, so this is the animal's half — a ring the size of the MOUTH, snapping
+          // shut, at the mouth's own radius rather than at a literal because a maw's r is config.
+          // No miss branch, unlike the enemy cut this replaces: the whole circle is the mouth, so
+          // reaching a full gape inside it IS being swallowed and there is nothing to dodge at the
+          // last frame — the seconds before it were the dodge.
+          spawnRing(e.x, e.y, e.r, 0.34, T.novaRing, 0xff4a2a)
+          addShake(6, 0.22)
           break
         case 'finHit':
           // The shark's own body. `power` is the speed scaling the card is sold on — a sweep drawn
@@ -16990,7 +16950,7 @@ export function createRenderer(app) {
     drawColumns(run)
     drawShorebreak(run, animT)
     drawCrusts(run)
-    drawDeepTells(run)   // v7.x The Deep: the anglerfish's gape and the Scent outline
+    drawDeepTells(run)   // v7.x The Deep: the Scent outline (the maw's gape is drawn by updateShafts)
     updateDark(run, cx, cy)   // AFTER updateShafts: it cuts its holes from the same run.shafts list
     updateStorm(run, dt, cx, cy)
     updateRain(dt) // v6.3: own top-level call — chapterHasRain no longer implies chapterHasStorm
@@ -17361,9 +17321,13 @@ export function createRenderer(app) {
     // hang off signature.pools, and streamShafts fills run.shafts from whichever one exists. Asking
     // the same question the streamer asks is what keeps "the sim made a circle" and "the renderer
     // draws a circle" from being two independent chapter tests that can disagree.
+    // `maws` is tested by NAME rather than by sigType, because The Deep's signature type is `dark`
+    // — the light — and the refill hangs off it as a second field. Asking for the field is asking
+    // refillSpec's own question; asking for the type would have quietly fallen through to 'pool'.
     refillLook = cfg?.signature && refillSpec(cfg.signature)
-      ? (sigType === 'shafts' ? 'shaft' : sigType === 'air' ? 'pocket' : 'pool')
+      ? (cfg.signature.maws ? 'maw' : sigType === 'shafts' ? 'shaft' : sigType === 'air' ? 'pocket' : 'pool')
       : null
+    chapterHasMaws = refillLook === 'maw'
     swellCfg = cfg?.render?.swell ?? null
     chapterHasStorm = !!chapterRender.storm
     // v6.3: `storm` implies both — skies stays bit-identical (storm was always rain+ruins there);

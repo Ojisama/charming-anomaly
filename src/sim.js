@@ -169,7 +169,7 @@ import {
   SHELL_RETARGET_R, SHELL_SPLASH_LIFE, SHELL_R,
   BARNACLE_JUMP_R, BARNACLE_FAN, BARNACLE_LARVA_R,
   LONGLINE_HALF_W, LONGLINE_SNAG, LONGLINE_TWIN_GAP, LONGLINE_MAX_LIVE,
-  ANGLER_FEED_R, ANGLER_GAPE_T, ANGLER_CLOSE_MUL, ANGLER_BITE_R, ANGLER_BITE_DMG, ANGLER_BITE_CD,
+  MAW_GAPE_T, MAW_CLOSE_MUL, MAW_DEVOUR_FRAC, MAW_SHUT_T,
   SCENT_R, SCENT_DUR_MIN, SCENT_DUR_AT_FULL, SCENT_DMG_MUL, SCENT_SPEED_MUL,
   FINHIT_SPEED_CAP, FINHIT_TURN_MIN, FINHIT_SWEEP_BIAS,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
@@ -284,7 +284,7 @@ export function stepSim(run, input, dt) {
   if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
   if (stepDrown(run, dt)) return // phase is now 'dead' (The Reef: an empty Air bar, v7.x)
   if (stepTrawl(run, dt)) return // phase is now 'dead' (The Trawl: the net wall, v7.x)
-  if (stepAnglers(run, dt)) return // phase is now 'dead' (The Deep: the anglerfish's bite, v7.x)
+  if (stepMaws(run, dt)) return // phase is now 'dead' (The Deep: an anglerfish swallowed you, v7.x)
   if (stepStrips(run, dt)) return // phase is now 'dead' (garden pesticide spray-strip DoT — v5.3)
   if (stepTraps(run, dt)) return // phase is now 'dead' (undergrowth snap trap — v5.4)
   if (stepLanes(run, dt)) return // phase is now 'dead' (city traffic — v5.4)
@@ -3636,62 +3636,67 @@ function stepTrawl(run, dt) {
   return hurtPlayer(run, TRAWL_DMG * ticks, true, 'trawl')
 }
 
-// -- The Deep's anglerfish: a refill point that bites (v7.x) ------------------------------------
+// -- The Deep's anglerfish: the refill IS the trap (v7.x) --------------------------------------
 //
-// ONE AUTHORITY FOR THE FEED RANGE, and it has to be one. The gape (below) and the refill
-// (stepCharge) are the two halves of the same promise — "stand here and you are being fed, and the
+// A maw is a run.shafts entry, not an enemy — see the MAW_* block in config.js for the owner's
+// framing and CHAPTERS.deep.signature.maws for the field. What that buys here is that this function
+// owns exactly ONE thing (what happens if you stay) and inherits streaming, the refill and the
+// in-circle test from the machinery every other Book 2 chapter already uses.
+//
+// ONE AUTHORITY FOR "AM I IN THE MOUTH", and it has to be one. The gape below and the refill in
+// stepCharge are the two halves of the same promise — "stand here and you are being fed, and the
 // mouth opening is how long you have left" — and if those two tests were written separately the
 // mouth would open at a range the bar does not fill at. That is the single largest defect class in
-// this repo: one fact authored in two places, neither of them an import, so nothing throws.
-const feedingAt = (e, x, y) => {
-  const dx = e.x - x, dy = e.y - y
-  return dx * dx + dy * dy <= ANGLER_FEED_R * ANGLER_FEED_R
-}
-const isAngler = (e) => !e._dead && e.flags && e.flags.includes('angler')
+// this repo: one fact authored in two places, neither of them an import, so nothing throws. Both
+// call inLobe, which is the same test every other refill circle in the game is checked with.
+export const inMaw = (sh, x, y) => (sh._shutT ?? 0) <= 0 && inLobe(sh, x, y)
 
-/** The anglerfish currently feeding the point (x, y), or null. Read by stepCharge for the refill. */
-export function anglerFeeding(run, x, y) {
-  for (const e of run.enemies) if (isAngler(e) && feedingAt(e, x, y)) return e
+/** The maw currently feeding the point (x, y), or null. Read by stepCharge for the refill. */
+export function mawFeeding(run, x, y) {
+  if (!CHAPTERS[run.chapter].signature?.maws) return null
+  for (const sh of run.shafts) if (inMaw(sh, x, y)) return sh
   return null
 }
 
-// Ages every anglerfish's gape and lets the ones that reach a full mouth bite.
+// Ages every maw's gape and lets the ones that reach a full mouth swallow.
 // Returns true if the player died, matching stepTrawl/stepRocks/stepPools' contract.
 //
-// `gape` (0..1) is PUBLISHED ON THE ENEMY, deliberately, because render.js draws status off named
-// fields it reads straight from the body and never learns a new one on its own. A gape kept in a
-// private field would be a mouth that never opens — and this chapter's entire risk/reward is a tell
-// drawn on an animal's face, so an invisible gape is not a missing polish item, it is the mechanic
-// silently deleted. Same lesson as the v7.5x freeze that shipped with no ice tint.
+// `gape` (0..1) and `_shutT` are PUBLISHED ON THE SHAFT, deliberately, because render.js draws this
+// chapter's whole tell off them (updateShafts' maw branch) and never learns a new field on its own.
+// A gape kept private would be a mouth that never opens — and the chapter's entire risk/reward is a
+// countdown drawn on an animal's face, so an invisible gape is not a missing polish item, it is the
+// mechanic silently deleted. Same lesson as the v7.5x freeze that shipped with no ice tint.
 //
-// TIME AT THIS FISH, NOT THE BAR'S LEVEL — see the ANGLER_* block in config.js for why the obvious
-// alternative is strictly worse.
-function stepAnglers(run, dt) {
-  if (CHAPTERS[run.chapter].signature?.type !== 'dark') return false
+// TIME IN THIS MOUTH, NOT THE BAR'S LEVEL. Driving the gape off run.charge was the first design and
+// it is strictly worse: the bar is already on the HUD, so the tell would be a second copy of what
+// the player is looking at anyway, and every maw in the chapter would open and shut in unison.
+// Per-maw and per-visit means the tell is something you can only learn by LOOKING AT THE ANIMAL,
+// moving to a different one genuinely resets the gamble, and "one more second" is one more second.
+function stepMaws(run, dt) {
+  if (!CHAPTERS[run.chapter].signature?.maws) return false
   const p = run.player
   let died = false
-  for (const e of run.enemies) {
-    if (!isAngler(e)) continue
-    e._biteCd = Math.max(0, (e._biteCd ?? 0) - dt)
-    // A fish on its bite cooldown has just swallowed and is not feeding anyone: its mouth stays
-    // shut, which is also the visible signal that this one is spent and you should find another.
-    const feeding = e._biteCd <= 0 && feedingAt(e, p.x, p.y)
-    const rate = feeding ? 1 / ANGLER_GAPE_T : -ANGLER_CLOSE_MUL / ANGLER_GAPE_T
-    e.gape = Math.max(0, Math.min(1, (e.gape ?? 0) + rate * dt))
-    if (e.gape < 1) continue
-    // THE BITE. The gape resets and the fish goes on cooldown whether or not the bite CONNECTS —
-    // backing out of the bite radius in the last moment is the skill the shorter ANGLER_BITE_R
-    // exists to reward, and it has to actually cost the fish its turn or the player would simply be
-    // bitten the instant they drift back in.
-    e.gape = 0
-    e._biteCd = ANGLER_BITE_CD
-    const dx = e.x - p.x, dy = e.y - p.y
-    const connects = dx * dx + dy * dy <= ANGLER_BITE_R * ANGLER_BITE_R
-    run.events.push({ type: 'anglerBite', x: e.x, y: e.y, id: e.id, hit: connects })
-    // NOT dot: this is one discrete strike, so it should respect the invulnerability window like
-    // any other hit. The Trawl's net is the opposite case (a place you are standing in) and passes
-    // dot: true for exactly that reason — the two are worth reading together.
-    if (connects && !died && hurtPlayer(run, ANGLER_BITE_DMG, false, 'anglerBite')) died = true
+  for (const sh of run.shafts) {
+    sh._shutT = Math.max(0, (sh._shutT ?? 0) - dt)
+    // A maw that has just swallowed is shut: it feeds nobody and its lure is out, which is also the
+    // visible signal that this one is spent and you should go and find another.
+    const feeding = inMaw(sh, p.x, p.y)
+    const rate = feeding ? 1 / MAW_GAPE_T : -MAW_CLOSE_MUL / MAW_GAPE_T
+    sh.gape = Math.max(0, Math.min(1, (sh.gape ?? 0) + rate * dt))
+    if (sh.gape < 1) continue
+    // THE DEVOUR. The whole circle is the mouth, so reaching a full gape while inside it IS being
+    // swallowed — there is no second radius to have escaped to, only the seconds you did not take.
+    sh.gape = 0
+    sh._shutT = MAW_SHUT_T
+    run.events.push({ type: 'devour', x: sh.x, y: sh.y, r: sh.r })
+    // IT TAKES THE LIGHT TOO, and that is the half that reads as being eaten. Zeroed BEFORE the
+    // damage, so a devour that kills you still shows an empty bar on the summary rather than the
+    // one you died holding.
+    run.charge = 0
+    // NOT dot: one discrete swallow, so it respects the invulnerability window like any other hit.
+    // The Trawl's net is the opposite case (a place you are standing in) and passes dot: true for
+    // exactly that reason — the two are worth reading together.
+    if (!died && hurtPlayer(run, p.maxHP * MAW_DEVOUR_FRAC, false, 'devour')) died = true
   }
   return died
 }
@@ -3786,28 +3791,28 @@ export function stepCharge(run, dt) {
   let c = run.charge - res.drain * dryMul * run.chargeDrainMul * dt
   const p = run.player
   for (const sh of run.shafts) {
-    // Inside the circle's own outline: standing IN the light, not brushing its edge. inLobe is that
-    // same centre-to-centre test for a round field (every one but The Surf's pools), and follows the
+    // Inside the circle's own outline: standing IN the light, not brushing its edge. inMaw is that
+    // same centre-to-centre test for a round field (every one but The Surf's pools), following the
     // drawn lobes where a field has them — so the water you can see is the water that refills you.
-    if (inLobe(sh, p.x, p.y)) { c += res.refill * run.chargeRefillMul * dt; break }
+    //
+    // ONE TEST FOR ALL FOUR FIELDS, INCLUDING THE DEEP'S MAWS. inMaw is inLobe plus "and this mouth
+    // is not shut", and `_shutT` is a field only stepMaws ever writes — so for a sun shaft, a tide
+    // pool and an air pocket it is undefined, reads 0, and this is byte-for-byte the old inLobe
+    // call. Using the stricter test everywhere is what keeps "the circle that feeds you" and "the
+    // circle whose mouth is counting down" from becoming two different circles: a maw that has just
+    // swallowed you must not still be topping you up while its jaws are visibly closed.
+    if (inMaw(sh, p.x, p.y)) { c += res.refill * run.chargeRefillMul * dt; break }
   }
   // THE TRAWL'S REFILL IS NOT A PLACE (see CHAPTERS.trawl.signature). Every other Book 2 chapter's
   // food is a circle on the map that streamShafts materialises into run.shafts, so the loop above
-  // finds all three; this chapter's is the churn behind a wall moving at 75 px/s, and there is
+  // finds all four; this chapter's is the churn behind a wall moving at 75 px/s, and there is
   // nowhere on the map to stand. run.shafts is empty here, so this is the only branch that can fire.
   if (inWake(run, p.x, p.y)) c += res.refill * dt
-  // THE DEEP'S REFILL IS A CREATURE, and the only one in the game. Not a streamed field like the
-  // shafts above and not a moving region like the Trawl's wake — an anglerfish is a roster entry
-  // with a proximity check, which is why this chapter needed no new spatial system at all. The same
-  // `feedingAt` test drives the mouth opening on its face (stepAnglers), so the range you are being
-  // fed at and the range the tell is counting down at cannot drift apart.
-  if (anglerFeeding(run, p.x, p.y)) c += res.refill * dt
   // v7.x Book 2 Task 9: run.chargeMax, not res.max — Deep Lungs raises the RUN's own ceiling, and
   // this is one of TWO sites that must clamp against it (the other is the Light Thief kill-refill,
   // below in dealDamage's kill branch). Missing either one is a flicker: the bar would refill past
   // its cap on a kill and snap back down on the very next tick through whichever site still reads
-  // the config max. The Trawl's wake refill and The Deep's anglerfish both feed `c`, so they are
-  // clamped by this line too.
+  // the config max. The Trawl's wake refill feeds `c` too, so it is clamped by this line as well.
   run.charge = Math.max(0, Math.min(run.chargeMax, c))
 }
 
