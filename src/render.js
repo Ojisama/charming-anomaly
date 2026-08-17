@@ -10986,7 +10986,7 @@ export function createRenderer(app) {
     }
   }
 
-  // The Surf's Wave — the chapter's button, live for as long as run._shorebreakT says.
+  // The Surf's Shorebreak — the chapter's button, live for as long as run._shorebreakT says.
   //
   // PLAN VIEW. The camera looks straight down, so a bow wave is a RING OF FOAM with ripples inside
   // it, never the side-on breaker silhouette the word "wave" pulls you toward — that is exactly the

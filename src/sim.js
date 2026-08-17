@@ -1228,7 +1228,7 @@ function stepRepulse(run, input, dt) {
   const spend = res ? Math.min(run.charge, PULSE_CHARGE_COST) : 0
   const t = res ? spend / PULSE_CHARGE_COST : 0
   if (spend > 0) run.charge -= spend
-  // THE WAVE (v7.x, The Surf — CHAPTERS[].shorebreak). The same press, the same cooldown and the same `t`
+  // THE SHOREBREAK (v7.x, The Surf — CHAPTERS[].shorebreak). Same press, same cooldown, same `t`
   // as the burst, the breach and the scent — and then it RETURNS, which is the one thing none of
   // those three do. A `wave` chapter does not also fire the shove: no `repulse` event, no impulse
   // loop below, no 'hole' sample. The wave IS the button here, sustained by stepWave for a duration
