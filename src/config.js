@@ -3050,13 +3050,32 @@ export const FEAR_SPEED_MUL = 1.25    // fleeing enemies scatter a bit faster th
 //      on a 3.8s cycle is ~47%, at any fire rate. A fixed constant rather than "as long as the fear
 //      lasted" so the `terror` mod (+35% duration) still buys uptime instead of extending its own
 //      lockout and doing nothing.
-//   2. `unshakeable` (roster flag) — see the tank entries in CHAPTERS. Immune to fear AND to weapon
-//      knockback, exactly as the `anchored` elite affix already was. One per chapter, always the
-//      TANK: the slow heavy thing shrugging off a shriek reads without being taught, and it needs
-//      no new art because the creature is already visually distinct.
+//   2. `unshakeable` (roster flag) — see the tank entries in CHAPTERS. One per chapter, always the
+//      TANK. It RESISTS crowd control; it is never immune to it (see UNSHAKEABLE_CC_MUL).
 // Feared enemies now also STILL DEAL CONTACT DAMAGE (contactHarmless no longer checks fearT) — they
 // run from you, but a fleeing thing pinned against the crowd behind it is still a threat.
 export const FEAR_REFRACTORY = 2      // s an enemy is fear-proof after its own fear runs out
+
+// ONLY THE `anchored` ELITE AFFIX IGNORES CROWD CONTROL OUTRIGHT. Owner ruling, 2026-08-17: "Tanks
+// should not be immune to Fear, knockback and other CC, except if they have the elite modifiers
+// related. The CCs should instead be harder to proc, but never impossible." This is the same ruling
+// the elements redesign already applied to freeze and chill (see elNeverFreezes in sim.js, owner
+// ruling 2026-08-13) — a roster tank resists by being heavy, not by being exempt.
+//
+// So `unshakeable` is a MULTIPLIER on every player-sourced control that lands on the tank, folded
+// into ccScale so it reaches every status at once — fear duration, knockback, stun, and any control
+// written after this line. A shriek turns a toad for 0.63s of its 1.8s rather than for none.
+// Uptime, not just magnitude, is what this buys: fear runs its duration and then arms
+// FEAR_REFRACTORY regardless, so a tank flees 0.63s out of every 2.63s (24%) against an ordinary
+// enemy's 1.8 out of 3.8 (47%). Half the uptime and a third of the shove, and never a zero — which
+// is what "harder to proc, but never impossible" asks for.
+//
+// Why the immunity was safe to delete: it was fix #2 of three for the v7.16 machine-gun lock, and
+// the other two both outlived it. FEAR_REFRACTORY caps fear uptime by the ENEMY's timer at any fire
+// rate, and v7.17's CC_DR_* pricing then solved the whole class generically, for every status
+// including ones not written yet. A blanket per-roster exemption on top of those is a special case
+// paying for a bug that is already fixed twice over.
+export const UNSHAKEABLE_CC_MUL = 0.35   // an `unshakeable` tank takes this much of any control
 
 // ---- GLOBAL CROWD-CONTROL PRICING (v7.17) ------------------------------------------------------
 // THE CLASS OF BUG, not one instance of it: every crowd-control effect in this game is applied PER
