@@ -19,6 +19,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
   LURE_GLOW, MAW_VIS, // The Deep: the anglerfish maw and its esca punched through the dark scrim
+  FOXFIRE_GLOW,       // The Shelf: a foxfire punched through the same scrim — a fire is a light
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
 
@@ -11298,6 +11299,28 @@ export function createRenderer(app) {
       darkCtx.arc(ex * s, ey * s, Math.max(1, gr * s), 0, Math.PI * 2)
       darkCtx.fill()
     }
+
+    // THE SHELF'S FOXFIRE — a fire is a light, and this is the line that says so (FOXFIRE_GLOW).
+    // Same primitive and same 'lighten' pass as the lures above, for the same reason: the cloud is
+    // drawn inside `world` and this scrim multiplies `world` down without caring what is under it,
+    // so a fire cast outside the lamp was not faint, it was absent. Its own fade drives the light
+    // (bloomFade), so the pool of floor dies with the cloud rather than outliving it.
+    for (const bl of run.blooms) {
+      if (bl.look !== 'foxfire' || bl.r <= 0) continue
+      const fx = bl.x + cx, fy = bl.y + cy
+      const fr = bl.r * FOXFIRE_GLOW.frac
+      if (fx + fr < 0 || fx - fr > w || fy + fr < 0 || fy - fr > h) continue
+      const f = bloomFade(bl)
+      if (f <= 0.01) continue
+      const fg = darkCtx.createRadialGradient(fx * s, fy * s, 0, fx * s, fy * s, Math.max(1, fr * s))
+      fg.addColorStop(0, rgbAt(FOXFIRE_GLOW.core * f))
+      fg.addColorStop(FOXFIRE_GLOW.coreFrac, rgbAt(FOXFIRE_GLOW.lit * f))
+      fg.addColorStop(1, rgbAt(0))
+      darkCtx.fillStyle = fg
+      darkCtx.beginPath()
+      darkCtx.arc(fx * s, fy * s, Math.max(1, fr * s), 0, Math.PI * 2)
+      darkCtx.fill()
+    }
     darkCtx.globalCompositeOperation = 'source-over'
 
     darkTex.source.update()
@@ -12808,6 +12831,13 @@ export function createRenderer(app) {
 
   // Toxin blooms (run.blooms): expanding venom-green clouds. Three stacked soft puffs sized to the
   // sim-grown radius `r`, alpha ramps in as the cloud forms and out as it expires (t → dur).
+  // ONE fade for two readers that must not drift: the puffs' alpha here, and the light a Foxfire
+  // punches into the dark (updateDark). A cloud whose light outlives its body is a lamp on an empty
+  // patch of floor.
+  function bloomFade(bl) {
+    const dur = Math.max(0.001, bl.dur)
+    return Math.max(0, Math.min(Math.min(1, bl.t / (dur * 0.2)), Math.min(1, (dur - bl.t) / (dur * 0.25))))
+  }
   const bloomPool = []
   function acquireBloom() {
     const root = new Container()
@@ -12832,10 +12862,7 @@ export function createRenderer(app) {
       const bl = list[i]
       bv.root.visible = true
       bv.root.position.set(bl.x, bl.y)
-      const dur = Math.max(0.001, bl.dur)
-      const inA = Math.min(1, bl.t / (dur * 0.2))
-      const outA = Math.min(1, (dur - bl.t) / (dur * 0.25))
-      const alpha = Math.max(0, Math.min(inA, outA))
+      const alpha = bloomFade(bl)
       const sc = fxScale(T.fx.circle_05, Math.max(bl.r, 1) * 2)
       let inEddy = false
       if (tideCarried) {

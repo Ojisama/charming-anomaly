@@ -3392,6 +3392,27 @@ export const SUNSPEAR_SPREAD = 48
 // stands in it — and it is why this is the radius rather than the damage (see WEAPONS.longline's
 // block: on a grinder, coverage is throughput and the damage number is not).
 export const FOXFIRE_GLOOM = 1.6
+// RENDER-ONLY, and it is what makes the card true. A foxfire is drawn inside `world`; the dark is a
+// MULTIPLY scrim on the stage above `world` at dim 1.0 — so a cloud cast outside the player's lamp
+// is not dim, it is ABSENT, exactly as The Deep's anglerfish was before LURE_GLOW existed. Shot on
+// scripts/scenes/shelf-foxfire-dark.js: an L5 cloud at full gloom (maxR 118) staged 233px out was
+// clearly readable at a full bar, a ghost at a quarter bar, and gone at an empty one — i.e. the one
+// card in the game that pays you for being dark had no picture in the dark, which is where it is
+// worth taking. It also has no SFX by design (main.js), so on an empty bar it was floating damage
+// numbers over black.
+//   A FIRE IS A LIGHT, so it punches the lightmap like a lure does, and the stops mean the same
+// things (see LURE_GLOW): `lit` is how lit the pool of floor is, `core` un-multiplies the cloud's own
+// body so the mint puffs keep their value instead of being multiplied down to grey.
+//   Deliberately NOT a full punch-out like a sun shaft: a shaft is somewhere you play normally, and
+// a fire you can see by is not the same offer as daylight. The radius rides `r`, which already
+// carries the gloom the cast was made at — so a fire lit deep in the dark lights more floor, with no
+// second knob to keep in step.
+export const FOXFIRE_GLOW = {
+  frac: 1.5,       // glow radius as a multiple of the cloud's own r — the fire lights past what it burns
+  lit: 0.55,       // 0 = the chapter's dark, 1 = a shaft
+  core: 0.95,      // ...at the centre, where the puffs are drawn
+  coreFrac: 0.5,   // how much of the glow's radius that core covers
+}
 // The Sunlance's reach at an EMPTY bar, as a fraction of its `length`. The no-spiral floor, in the
 // same idiom as BURST_DUR_MIN and BREACH_R_MIN: this is the one card in the chapter that gets worse
 // as the bar empties, and the bar empties fastest exactly when a player is in trouble, so a lance
