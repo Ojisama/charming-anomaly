@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, shopLines, lineMax, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName } from './config.js'
+import { shopCost, shopLines, lineMax, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -2201,18 +2201,17 @@ export function initUI(hooks) {
     // false statement — the same reason the probe harnesses print their denominators.
     const shown = rows.slice(0, DMG_ROWS_MAX)
     const restTotal = rows.slice(DMG_ROWS_MAX).reduce((s, [, v]) => s + v, 0)
-    // `src` is the tally key, and it is also the CAST_ART key — the thumbnails are baked from
-    // render.js's own creature textures and keyed by rosterId (scripts/bake-cast.mjs), so a creature
-    // row shows THE GAME'S ART rather than a lookalike. That rule is why the chapter cards stopped
-    // using emoji: v6.7.1 shipped 🐻 for the tardigrade while drawTardigrade sat in render.js.
-    // A HAZARD row gets an EMPTY slot of the same width, deliberately, and that is a stand-in rather
-    // than a design: drowning, traffic, snap traps and the rest are drawn per-frame as Graphics and
-    // have no baked texture to extract, so there is nothing honest to put here yet. An empty
-    // fixed-width slot keeps the names in one column; inventing an icon would be the emoji mistake
-    // again, one layer up.
+    // `src` is the tally key, and dmgSrcArt maps it to the CAST_ART key — normally itself. Every
+    // thumbnail in src/cast/ is baked from render.js's own drawing (scripts/bake-cast.mjs): creatures
+    // from their roster textures, hazards from the very draw functions that paint them in-world. So a
+    // row shows THE GAME'S ART rather than a lookalike, which is why the chapter cards stopped using
+    // emoji — v6.7.1 shipped 🐻 for the tardigrade while drawTardigrade sat in render.js.
+    // A few sources still show an EMPTY slot of the same width, and that is now a decision with a
+    // written reason rather than a stand-in: see DMG_SRC_NO_ART in config.js, which run DA.g holds to
+    // partition DMG_SRC_NAME exactly. The slot stays fixed-width so every name starts in one column.
     const line = (src, label, v) => {
       const pct = Math.round((v / total) * 100)
-      const art = src ? CAST_ART[src] : null
+      const art = src ? CAST_ART[dmgSrcArt(src)] : null
       // The bar is the row's own background, sized by the share — no extra element, and it degrades
       // to a plain labelled percentage if the style ever fails to load.
       return `<div class="dmg-row"><span class="dmg-bar" style="width:${pct}%"></span>` +
