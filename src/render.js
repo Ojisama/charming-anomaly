@@ -17645,11 +17645,6 @@ export function createRenderer(app) {
   // the part that carries the hazard's identity, and a shape chosen to survive 20 pixels.
   //
   // DELIBERATELY ABSENT, so the gaps are decisions rather than oversights:
-  //   beam    — the abduction beam draws in the SHARED elite-telegraph amber (0xffd24a/0xffe37a, the
-  //             same fill and rim the traffic lanes, erasure strips and flashlight cone use, see the
-  //             block above redrawTele). An icon from its own art would be an amber band that reads
-  //             identically to three other rows, and the beyond's "UFO" has no saucer texture to
-  //             borrow — drawing one is NEW ART and therefore the owner's call.
   //   overload, bloodMoney — costs you chose to pay. Neither has a world object at all; the honest
   //             picture is the anomaly card, which is a different surface from a creature thumbnail.
   //   unknown, drone, wisp, tank — unreachable. Every hurtPlayer call site is labelled (run DA.d) and
@@ -17800,6 +17795,29 @@ export function createRenderer(app) {
         g.fill({ color: M.tooth, alpha: M.toothA })
         g.circle(0, 0, R0).stroke({ width: M.rimW, color: M.rimHot, alpha: 0.85 })
         g.circle(R0 * 0.12, -R0 * 0.14, R0 * 0.15).fill({ color: M.escaCore, alpha: 1 })
+        return [g, null]
+      },
+      beam: () => {
+        // THE SAUCER, FROM ABOVE. Owner's pick from three shot variants (the other two were a fishing
+        // hook and a hook on a taut line — his own suggestion, "maybe hooks or fishing rods"), and this
+        // is the only one of the three that keeps the projection every other icon here uses: the camera
+        // looks straight down, so a craft hanging over you is concentric, not a silhouette.
+        //
+        // THE SAUCER BODY IS NEW ART, said plainly because this file's rules require it — there is no
+        // saucer texture in the game, the beyond's "UFO" is an elite affix on an ordinary roster entry,
+        // and that is exactly why this row had no picture until now. The two ambers ARE the shipped
+        // ones (0xffd24a fill / 0xffe37a rim, the shared elite-telegraph pair the pull beam draws its
+        // range ring and tether with), so the halo around the hull is the colour the player saw.
+        //
+        // Reviewed against the neighbour it most resembles and cleared: The Pull is also concentric
+        // rings, but `yank` is The Blank's boss and `beam` is The Beyond's elite — one run is one
+        // chapter, so the two labels can never appear in the same recap.
+        const g = new Graphics()
+        g.circle(0, 0, 15).stroke({ width: 2, color: 0xffd24a, alpha: 0.55 })   // the range ring
+        g.circle(0, 0, 10.5).fill({ color: 0xffe37a, alpha: 0.3 })              // the tractor wash
+        g.circle(0, 0, 8).fill({ color: 0x5b6472, alpha: 1 })                   // hull
+        g.circle(0, 0, 8).stroke({ width: 1.6, color: 0x2b3038, alpha: 1 })
+        g.circle(0, 0, 3.6).fill({ color: 0xbfe8ff, alpha: 1 })                 // the emitter dome
         return [g, null]
       },
       trawl: () => {

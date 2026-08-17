@@ -7489,10 +7489,10 @@ export function dmgSrcArt(src) {
 // src/cast/<key>.png baked from render.js's hazardThumbs. Run DA.g asserts that partition is exact,
 // so adding a damage source without deciding its picture is a red suite rather than a blank column.
 export const DMG_SRC_NO_ART = {
-  // The abduction beam draws in the SHARED elite-telegraph amber (the same fill/rim as the traffic
-  // lanes, the erasure strips and the flashlight cone), and the beyond's "UFO" has no saucer texture.
-  // An icon from its real art would read identically to three other rows; a new drawing is new art.
-  beam: 'no art of its own — shared telegraph amber, and no saucer texture to borrow',
+  // `beam` used to sit here — "no art of its own, shared telegraph amber, no saucer texture to borrow".
+  // The owner picked a saucer from three shot variants, so it has a drawing now (hazardThumbs.beam,
+  // and the hull is new art, said out loud there). Left as a note only because the reason it was
+  // blank is the reason the drawing had to be authored rather than extracted.
   // Costs you chose to pay. Neither has a world object; their honest picture is the anomaly card.
   overload: 'a card you took, not a thing in the world',
   bloodMoney: 'a card you took, not a thing in the world',

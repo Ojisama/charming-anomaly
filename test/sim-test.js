@@ -18156,6 +18156,14 @@ function testDeathAttribution() {
     const strays = [...aliased, ...blank].filter((k) => !DMG_SRC_NAME[k]).sort()
     assert.deepStrictEqual(strays, [],
       `run DA.g: DMG_SRC_ART/DMG_SRC_NO_ART name source(s) absent from DMG_SRC_NAME: [${strays.join(', ')}]`)
+    // A source cannot both HAVE a thumbnail and carry a written reason for having none. The file would
+    // win silently and the reason would be a lie a future reader trusts — which is this whole feature's
+    // failure mode one level up. Caught for real: `beam` was declared art-less, then the owner picked a
+    // saucer from three variants, and removing the stale entry is easy to forget.
+    const contradicted = blank.filter((k) => have.has(k)).sort()
+    assert.deepStrictEqual(contradicted, [],
+      `run DA.g: source(s) declared art-less in DMG_SRC_NO_ART that DO have src/cast/<src>.png: ` +
+      `[${contradicted.join(', ')}] — the file is what the summary shows, so delete the stale entry`)
     // Every alias must point at a real creature that HAS art — the whole point of aliasing is to reuse
     // a baked portrait, and a typo'd target is a blank row that looks exactly like the original bug.
     const rosterAll = new Set(Object.values(CHAPTERS).flatMap((c) => (c.roster ?? []).map((r) => r.id)))
