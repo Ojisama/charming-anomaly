@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, shopLines, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -17,7 +17,6 @@ async function boot() {
 const meta = loadMeta()
 setLang(meta.lang) // i18n before any screen renders — ui.js translates at render time
 let run = null
-let runMode = 'classic'
 // v6.0.2: a classic run staged behind the pre-run summary screen — set by onPlay, consumed by
 // onBriefStart. Overwritten by the next Play if the player backs out via the nav (nothing was
 // created or spent, so abandoning it is free).
@@ -85,18 +84,8 @@ initInput(document.body)
 
 const ui = initUI({
   meta,
-  onPlay(mode) {
+  onPlay() {
     initAudio()
-    runMode = mode
-    // Daily = fixed shared seed, date-seeded chapter (see dailyChapter in config.js), base
-    // difficulty — allowed on a chapter this player hasn't unlocked yet (spec: preview day).
-    // Its anomaly is already explained by the daily briefing screen the player just came from.
-    if (mode === 'daily') {
-      const chapter = dailyChapter(todayKey())
-      run = createRun(meta, { chapter, mutators: dailyMutators(todayKey(), chapter) })
-      beginRun()
-      return
-    }
     // Classic = the selected chapter (meta.chapter) at ITS OWN difficulty ladder (level 1 adds
     // nothing, each level above adds one random mutator + enemy HP) — see meta.chapters[id] in
     // state.js. v6.0.2: the run does NOT start yet — the pre-run summary explains the anomalies
@@ -371,7 +360,7 @@ const ui = initUI({
 // buildReadout is a read-only projection (see sim.js): main is the only place allowed to hand sim
 // data to ui, which never imports sim. Two callers — a plain pause, and the same sheet opened
 // over a level-up.
-const pauseData = () => ({ mutators: run.mutators, mode: runMode, build: buildReadout(run) })
+const pauseData = () => ({ mutators: run.mutators, build: buildReadout(run) })
 
 // Everything the level-up screen needs to render its cards + footer buttons.
 function levelupData() {
@@ -483,14 +472,14 @@ function endRun(victory) {
   // at the ceiling (winning a lower, already-unlocked level doesn't re-unlock anything), and
   // only while there's a level left to unlock.
   const runChapterMaxDifficulty = chapterMaxDifficulty(run.chapter)
-  const unlockedDifficulty = victory && runMode === 'classic' &&
+  const unlockedDifficulty = victory &&
     (run.difficulty ?? 1) >= chMeta.maxDifficulty && chMeta.maxDifficulty < runChapterMaxDifficulty
   if (unlockedDifficulty) chMeta.maxDifficulty = Math.min(runChapterMaxDifficulty, (run.difficulty ?? 1) + 1)
   // v6.6.12: record the level actually WON, separately from the level unlocked. Winning the ladder's
   // last level unlocks nothing (the guard above requires maxDifficulty < the cap), so before this the
   // save had no way to express "beat the hardest one" and the hero card's final star never lit.
   // Math.max, not assignment: replaying an easier level must not walk the record back down.
-  if (victory && runMode === 'classic') chMeta.won = Math.max(Number(chMeta.won) || 0, run.difficulty ?? 1)
+  if (victory) chMeta.won = Math.max(Number(chMeta.won) || 0, run.difficulty ?? 1)
 
   // Chapter unlock (v5.0): winning a classic run at difficulty 3+ unlocks the NEXT chapter (see
   // nextChapter in config.js), if there is one and it isn't already unlocked. Guarded on "not
@@ -499,7 +488,7 @@ function endRun(victory) {
   let unlockedChapter = null
   let unlockedChapterId = null
   let unlockedBook = null
-  if (victory && runMode === 'classic' && (run.difficulty ?? 1) >= CHAPTER_UNLOCK_DIFFICULTY) {
+  if (victory && (run.difficulty ?? 1) >= CHAPTER_UNLOCK_DIFFICULTY) {
     const next = nextChapter(run.chapter)
     if (next) {
       const nextMeta = ensureChapterMeta(meta, next)
@@ -525,7 +514,7 @@ function endRun(victory) {
   // Blank — no entry in CHAPTER_ORDER, no per-difficulty ladder tie-in, just this one gate.
   // Guarded on "not already unlocked" so replaying the win doesn't keep announcing it.
   let unlockedHiddenChapter = null
-  if (victory && runMode === 'classic' && run.chapter === 'beyond' && (run.difficulty ?? 1) >= 5) {
+  if (victory && run.chapter === 'beyond' && (run.difficulty ?? 1) >= 5) {
     const blankMeta = ensureChapterMeta(meta, 'blank')
     if (!blankMeta.unlocked) {
       blankMeta.unlocked = true
@@ -538,7 +527,7 @@ function endRun(victory) {
   // Play button, which reads chMeta.difficulty — actually starts it (via the pre-run summary).
   // Wins at the cap, deaths and dailies keep "Play again".
   let nextDifficulty = null
-  if (victory && runMode === 'classic') {
+  if (victory) {
     // R3 (state.js's ensureChapterMeta): chMeta.maxDifficulty may now sit ABOVE this build's
     // ladder — a save from a build that shipped more levels keeps its number instead of being
     // written back lower — so cap the bump with the chapter's own ceiling too. Without it, a win
@@ -551,7 +540,7 @@ function endRun(victory) {
   saveMeta(meta)
   ui.showScreen('summary', {
     victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus,
-    mutators: run.mutators, mode: runMode, nextDifficulty,
+    mutators: run.mutators, nextDifficulty,
     unlockedDifficulty: unlockedDifficulty ? chMeta.maxDifficulty : null,
     unlockedChapter,
     unlockedChapterId,

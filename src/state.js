@@ -884,8 +884,8 @@ function generateWells(sig) {
  * render as `e.src === 'overload'` on a hurt event, never as an event type.
  *
  * mutators (v4.0): run.mutators is the array of MUTATORS ids (see config.js) selected before
- * the run started — opts.mutators passed to createRun, e.g. from the Daily Anomaly
- * (dailyMutators(todayKey())) or a future free-pick screen. run.mods is the derived,
+ * the run started — opts.mutators passed to createRun (the difficulty ladder's roll, or a
+ * future free-pick screen). run.mods is the derived,
  * pre-multiplied modifier object (mergeMutatorMods(run.mutators)) that sim.js reads at fixed
  * points (spawn rate, concurrent-enemy cap, enemy hp/speed/dmg/radius, elite cadence, contact
  * damage taken, player outgoing damage, player move speed, magnet range, xp/coin pickup value,
@@ -1564,7 +1564,7 @@ function generateWells(sig) {
  *   ceiling written by a future build (see ensureBookMeta) — then constant for the run's duration
  *   (unlocking a slot mid-meta-shop never retroactively changes an in-progress run). Permanently
  *   unlocked in the meta shop by sacrificing SHOP levels (see sacrificeCost in config.js and
- *   hooks.onSacrifice in main.js) — applies to every mode, including Daily.
+ *   hooks.onSacrifice in main.js).
  *
  * v5.24 — The Blank (hidden scripted boss chapter, gated on CHAPTERS[chapter].scripted; see
  * BLANK_* in config.js and sim.js's stepBossScript, the chapter's ONLY spawner). v6.3.1 doubled
@@ -1627,7 +1627,7 @@ export function createRun(meta, opts = {}) {
   // chapter's starter weapon and, via CHAPTERS[run.chapter].weapons, scopes sim.js's level-up
   // weapon pool (weaponCandidates/buildLevelUpChoices) to that chapter's natives for the whole
   // run. Caller (main.js) is responsible for sourcing opts.difficulty/opts.mutators from that
-  // same chapter's meta.chapters[id] ladder/daily mutators — createRun itself doesn't read
+  // same chapter's meta.chapters[id] ladder — createRun itself doesn't read
   // meta.chapters. main.js keeps that contract across the fallback below by resolving meta.chapter
   // through the SAME helper before it reads any ladder (see resolveChapterId in config.js).
   //
@@ -1644,7 +1644,7 @@ export function createRun(meta, opts = {}) {
   // (chapter itself is resolved above, hoisted ahead of the book/shopBonus lookups it now feeds.)
   // v6.4.1/v6.4.3 early-calm (see EARLY_CALM in config.js): explicit-difficulty-1 runs of the
   // onboarding chapters thin the swarm and fatten each kill's xp, per chapter. opts.difficulty
-  // (not the defaulted local) on purpose — daily runs and tests omit it and must keep baseline.
+  // (not the defaulted local) on purpose — tests omit it and must keep baseline.
   // Keyed on the VALIDATED id so an unknown chapter degrades to a real body run, easing included.
   const calm = opts.difficulty === 1 ? EARLY_CALM[chapter] : null
   if (calm) {

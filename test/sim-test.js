@@ -26,7 +26,7 @@ import {
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND,
-  MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
+  MUTATORS, mergeMutatorMods, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS,
@@ -42,7 +42,7 @@ import {
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
   ANGLER_FEED_R, ANGLER_GAPE_T, ANGLER_BITE_R, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
-  CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
+  CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
@@ -3015,7 +3015,7 @@ function testEscalation() {
   console.log(`PASS run I (escalating difficulty): spawnRate(300)=${spawnRate(300).toFixed(2)} hpScale(300)=${hpScale(300).toFixed(2)} eliteStep(290)=${eliteEveryAt(290).toFixed(2)} earlyAlive=${earlyAlive} lateAlive=${lateAlive}`)
 }
 
-// Mutators (v4.0): mergeMutatorMods math, dailyMutators determinism, and that run.mods
+// Mutators (v4.0): mergeMutatorMods math, and that run.mods
 // actually moves the needle at each of its application points in sim.js.
 function testMutators() {
   const dt = 1 / 60
@@ -3035,16 +3035,6 @@ function testMutators() {
   assert.strictEqual(stacked.xpMul, MUTATORS.overtime.effects.xpMul)
   assert.strictEqual(stacked.enemyHpMul, MUTATORS.bulky.effects.enemyHpMul)
   assert.strictEqual(stacked.coinMul, MUTATORS.bulky.effects.coinMul)
-
-  // dailyMutators: deterministic per date key, DAILY_MUTATOR_COUNT distinct valid ids.
-  assert(/^\d{4}-\d{2}-\d{2}$/.test(todayKey()), `expected todayKey() to look like YYYY-MM-DD, got ${todayKey()}`)
-  const day = '2026-07-15'
-  const firstRoll = dailyMutators(day)
-  const secondRoll = dailyMutators(day)
-  assert.deepStrictEqual(firstRoll, secondRoll, 'expected dailyMutators to be deterministic for the same date key')
-  assert.strictEqual(firstRoll.length, DAILY_MUTATOR_COUNT, `expected ${DAILY_MUTATOR_COUNT} daily mutators, got ${firstRoll.length}`)
-  assert.strictEqual(new Set(firstRoll).size, firstRoll.length, 'expected distinct daily mutator ids')
-  for (const id of firstRoll) assert(id in MUTATORS, `unexpected mutator id from dailyMutators: ${id}`)
 
   // spawnMul: spawn accumulation has no RNG in it (only enemy type/position do), so doubling
   // it should almost exactly double the total number of enemies spawned over the same time.
@@ -3102,7 +3092,7 @@ function testMutators() {
   const boostedHurt = hurtDamage(2)
   assert(boostedHurt > normalHurt, `expected contactDmgTakenMul to increase hurt damage (normal=${normalHurt}, boosted=${boostedHurt})`)
 
-  console.log(`PASS run J (mutators): daily=${JSON.stringify(firstRoll)} spawns baseline=${baselineSpawned} doubled=${doubledSpawned} hurt normal=${normalHurt} boosted=${boostedHurt}`)
+  console.log(`PASS run J (mutators): spawns baseline=${baselineSpawned} doubled=${doubledSpawned} hurt normal=${normalHurt} boosted=${boostedHurt}`)
 }
 
 // Elite affixes (v4.0): craft elites with forced affixes (via makeStatusEnemy's affixes
@@ -4354,18 +4344,6 @@ function testChapters() {
   }
   assert.strictEqual(nextChapter(CHAPTER_ORDER[CHAPTER_ORDER.length - 1]), null, `nextChapter('${CHAPTER_ORDER[CHAPTER_ORDER.length - 1]}') === null (last shipped chapter)`)
 
-  // (d) dailyChapter is deterministic per date key, and both shipped chapters are reachable
-  // over a spread of dates (date-seeded across CHAPTER_ORDER).
-  assert.strictEqual(dailyChapter('2026-07-16'), dailyChapter('2026-07-16'), 'dailyChapter is deterministic for a given date key')
-  const seen = new Set()
-  for (let d = 1; d <= 28; d++) {
-    seen.add(dailyChapter(`2026-08-${String(d).padStart(2, '0')}`))
-  }
-  for (const id of CHAPTER_ORDER) {
-    assert(seen.has(id), `dailyChapter should reach chapter '${id}' over a spread of dates`)
-  }
-  assert.strictEqual(seen.size, CHAPTER_ORDER.length, 'dailyChapter never returns an id outside CHAPTER_ORDER')
-
   // (e) ensureChapterMeta clamps garbage entries into range and fills in missing fields — except
   // maxDifficulty, which is only floored: a value above this build's ladder is preserved (R3).
   const garbageMeta = { chapters: { pond: { unlocked: true, maxDifficulty: 99, difficulty: -5 } } }
@@ -4460,7 +4438,7 @@ function testChapters() {
     assert.ok(!/\brun\.dev\b/.test(simSrc), 'sim.js reads run.dev — the WIP gate must not reach the run object (plan R1)')
   }
 
-  console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, dailyChapter, garbage clamps, retroactive unlock, carousel settle guards, WIP gate coercion + R1')
+  console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, garbage clamps, retroactive unlock, carousel settle guards, WIP gate coercion + R1')
 }
 
 // ---- Run BK: books + the WIP gate (v7.x, Book 2 phase 1) ---------------------------------
@@ -4488,16 +4466,12 @@ function runBooks() {
   assert.strictEqual(nextChapter('beyond'), null, "nextChapter past book 1's end === null")
 
   // (b) A WIP chapter must be unreachable by every route that does NOT ask for it by name: the
-  // shipped order, the daily draw (a full year of date keys), and the unlock chain.
+  // shipped order and the unlock chain.
   const wip = Object.values(BOOKS).filter((b) => b.wip).flatMap((b) => b.chapters)
   assert.ok(wip.length > 0, 'expected at least one WIP chapter, or this whole run asserts nothing')
   for (const id of wip) {
     assert.ok(!CHAPTER_ORDER.includes(id), `WIP chapter '${id}' must not be in CHAPTER_ORDER — that alias is what keeps it out of every shipped loop`)
     assert.ok(Object.hasOwn(CHAPTERS, id), `WIP chapter '${id}' must be a real CHAPTERS entry, or the gate guards nothing`)
-  }
-  for (let d = 0; d < 366; d++) {
-    const key = `2026-${String(1 + (d % 12)).padStart(2, '0')}-${String(1 + (d % 28)).padStart(2, '0')}`
-    assert.ok(!wip.includes(dailyChapter(key)), `dailyChapter('${key}') surfaced a WIP chapter — the daily draws from CHAPTER_ORDER only`)
   }
   for (const id of CHAPTER_ORDER) {
     assert.ok(!wip.includes(nextChapter(id)), `nextChapter('${id}') surfaced a WIP chapter — the unlock chain must never cross books`)
@@ -4603,11 +4577,15 @@ function runBooks() {
       'onPlay and onDifficulty must BOTH use playableChapterId — onDifficulty writes into the ledger of whatever onPlay launches, so they cannot disagree')
     // A VOLUME's availability is decided once, in config.js's titleBookshelf, and arrives as
     // `vol.unlocked` — so volHtml has no gate of its own to get wrong. Five sites remain, and the
-    // fifth is easy to forget: paintRoom washes the room in the selected chapter's own colour, and
-    // a LOCKED chapter must tint nothing, or the shelf hands out the palette of a chapter it is
-    // otherwise careful not to name.
+    // last two are easy to forget: paintRoom washes the room in the selected chapter's own colour,
+    // and a LOCKED chapter must tint nothing, or the shelf hands out the palette of a chapter it is
+    // otherwise careful not to name; and the shop's book tab (v7.x) has to LAND on a chapter, so an
+    // ungated pick would drop browseChapterId onto a locked one and the title screen you return to
+    // would show "???" over a dead Play button. (It was six until the Daily was deleted — its
+    // briefing screen badged a locked chapter as a "preview", the one place the gate was allowed
+    // to pass.)
     assert.strictEqual((uiSrc.match(/chapterAvailable\(meta, /g) ?? []).length, 5,
-      'ui.js must gate the detail head, the Play button, the brief, the volume tap and the room tint on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
+      'ui.js must gate the room tint, the detail head, the Play button, the volume tap and the shop book tab on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
     // ...and the one that MOVED must actually be there, or every volume shelves as a playable spine.
     assert.ok(/unlocked: chapterAvailable\(meta, id\)/.test(configSrc),
       'titleBookshelf no longer decides volume availability with chapterAvailable — a WIP chapter would shelve as a playable spine')
@@ -4628,7 +4606,7 @@ function runBooks() {
   // and so already fixes the bug they were written to guard (a book becoming LESS reachable the
   // day its `wip` flag comes off). Their replacement is main's own titleBookshelf coverage — do
   // not resurrect these against the deleted function.
-  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the bookcase`)
+  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/unlock, gated both ways through createRun and the bookcase`)
 }
 run(runBooks)
 
@@ -4913,6 +4891,90 @@ function runBookProgression() {
     assert.deepStrictEqual(Object.keys(BOOK_UNLOCK_LINES).filter((id) => !arrivable.includes(id)), [],
       'BOOK_UNLOCK_LINES has a row for a book nothing can unlock — dead copy that run XX will still demand French for')
     console.log(`PASS run BP.q2 (book-unlock badge): ${arrivable.length} arrivable book(s) [${arrivable.join(' ')}] all have a {n} line, wired through main.js -> ui.js -> styles.css`)
+  }
+
+  // (q3) The two places a BOOK is a thing the player can see and choose. Both are source-text
+  // lints because the suite can import neither ui.js nor styles.css, and both guard a failure that
+  // is SILENT on screen rather than a throw.
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+    // The shop is one screen serving one shop PER BOOK — separate purse, separate levels, and
+    // Undertow has three lines book 1 does not. Until v7.x the only sign of that was the book's
+    // name in grey text, and the only way to change books was to leave, tap a spine and come back.
+    assert.ok(/data-book="\$\{s\.book\}"/.test(uiSrc),
+      'the shop header must emit a data-book tab per book — without it the screen silently serves whichever book the title carousel last settled on, with no way to switch and nothing saying which')
+    assert.ok(/if \(el\.dataset\.book !== undefined\)/.test(uiSrc),
+      'a data-book tab with no click branch is a button that does nothing — the tabs would render and the shop would never change')
+    assert.ok(/const books = titleBookshelf\(meta\)\.filter\(/.test(uiSrc),
+      'the tabs must come from titleBookshelf, not BOOK_ORDER — that is the one place the WIP gate lives, and a tab for a book whose shelf is hidden announces the book the shelf is careful not to')
+    // The tab must not persist meta.chapter: switching purses to compare prices is browsing.
+    const tabBranch = uiSrc.slice(uiSrc.indexOf("if (el.dataset.book !== undefined)"), uiSrc.indexOf("if (el.dataset.book !== undefined)") + 500)
+    assert.ok(!/hooks\.onChapter/.test(tabBranch),
+      'the shop book tab must not call onChapter — comparing two books\' prices would overwrite the chapter you last chose to PLAY, moving the ribbon on the shelf behind your back')
+    assert.ok(/\.book-tab\s*\{/.test(css) && /\.book-tab--on\s*\{/.test(css),
+      'the book tabs need both a rule and a selected rule — with only one, every book looks equally current and the tab strip says nothing')
+
+    // A clipped shelf and a short shelf look identical. What overflows first is a shelf-board's
+    // brass plate, which is the ONLY place a Book's name and star total are written — that is the
+    // bug this pair was written for (Book 2 sat unlabelled below the fold on a 410x745 phone).
+    assert.ok(/bc\.scrollHeight - bc\.clientHeight > 2/.test(uiSrc),
+      'the bookcase fade must be toggled from a MEASUREMENT — gating it on the number of books was wrong at both ends: two books overflow a 375x667 phone with no fade, three fit a tall screen and would get one over nothing')
+    assert.ok(/addEventListener\('resize', markBookcaseScroll\)/.test(uiSrc),
+      'the fade must be re-measured on resize — rotation changes the answer and nothing else re-renders the title')
+    assert.ok(/\.bookcase--more\s*\{/.test(css), '.bookcase--more has no rule, so the class toggles nothing and the shelf clips silently again')
+    assert.ok(/scroll-snap-align: end/.test(css),
+      'the etage must snap on its END — a shelf snapped by its top parks its brass plate under the fold, which is the exact thing being fixed')
+
+    // The panel is a SPREAD. Stacked it was 255px of a 745px phone and the case overflowed by 33.
+    assert.ok(/class="page page--verso"/.test(uiSrc) && /class="page page--recto"/.test(uiSrc),
+      'titleBelowHtml must render two pages — the stacked panel is what pushed the second shelf out of the case')
+    assert.ok(/\.page--recto \.diff-pip \{[^}]*flex: 1 1 0/.test(css),
+      'the difficulty pips must DIVIDE the recto rather than be sized in px — a fixed 34px pip is 170px of a 168px page, and five of them wrapped the panel TALLER than the stack it replaced')
+    console.log(`PASS run BP.q3 (book navigation): shop book tabs gated by titleBookshelf and browse-only, bookcase fade measured not counted, ${['verso', 'recto'].length}-page spread with flex pips`)
+  }
+
+  // (q4) EVERY DOOR HAS A HANDLER, AND EVERY SCREEN HAS A DOOR. Deleting the bottom nav (v7.x)
+  // deleted the only route into the Shop and the only way back out of the pre-run brief; both
+  // failures are a button that does nothing or a screen you cannot leave, and neither throws.
+  // Nothing in the suite could see the nav — it had zero assertions of its own — so it went.
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+    // The general form: every literal data-act the markup emits must have a case in the one
+    // delegated click handler. `${act}` is the save-slot rows' computed value — its two real
+    // values are asserted just below, since a regex cannot resolve it.
+    const emitted = [...uiSrc.matchAll(/data-act="([a-z-]+)"/g)].map((m) => m[1])
+    const uniq = [...new Set(emitted)].sort()
+    assert.ok(uniq.length > 25, `only ${uniq.length} data-act values found — the scan is broken, not the code`)
+    const handled = new Set([...uiSrc.matchAll(/case '([a-z-]+)':/g)].map((m) => m[1]))
+    const orphans = uniq.filter((a) => !handled.has(a))
+    assert.deepStrictEqual(orphans, [],
+      `these controls emit a data-act with no case in the click delegate — each is a button that does nothing:\n${orphans.join(', ')}`)
+    const slotDefault = uiSrc.match(/function slotRowHtml\(n, \{ act = '([a-z-]+)'/)?.[1]
+    assert.ok(slotDefault && handled.has(slotDefault),
+      `slotRowHtml's computed data-act ('${slotDefault}') has no case in the delegate — the save-slot rows would be inert, and the regex scan above cannot see a \${act} to catch it`)
+
+    // ...and the specific doors that replaced the nav. A screen reachable by nothing is invisible.
+    assert.ok(/data-act="shop"/.test(uiSrc), 'nothing opens the Shop — the bottom nav was its only route and it is gone')
+    assert.ok(/data-act="shop-close"/.test(uiSrc), 'nothing closes the Shop — the nav used to be the way back to the shelf')
+    assert.ok(/data-act="brief-back"/.test(uiSrc), 'the pre-run brief has no way out — it leaned on the nav, which is gone, and nothing is spent yet so it MUST be escapable')
+    // Matched on a declaration the BASE rule owns, not on the selector: `.btn--shop` appears twice
+    // (the rule, and the narrow-screen override that drops the label), so a bare selector test is
+    // satisfied by the override alone and a deleted base rule walks straight past it.
+    assert.ok(/\.btn--shop \{[^}]*background:/.test(css),
+      '.btn--shop has no base rule, so the Shop door renders as an unstyled button on the volume cover')
+
+    // The nav is really gone, in both files. A leftover rule is dead weight; leftover markup is a
+    // bar with no handler.
+    for (const [name, src] of [['ui.js', uiSrc], ['styles.css', css]]) {
+      assert.ok(!/menu-nav|nav-tab/.test(src), `${name} still references the deleted bottom nav`)
+    }
+    // The Daily went with it — a mode with no entry point is dead code that still has to be read.
+    assert.ok(!/dailyChapter|dailyMutators|todayKey/.test(uiSrc), 'ui.js still calls a deleted daily export — that is a ReferenceError at render time, not a lint')
+    console.log(`PASS run BP.q4 (doors): ${uniq.length} data-act values all handled, Shop opens + closes, brief escapable, no nav or daily left in ui.js/styles.css`)
   }
 
   // (r) nextBook was imported for the finding above and had NO direct coverage of its own —
@@ -7244,16 +7306,11 @@ function testGarden() {
     console.log('PASS run X.g (garden pool offers only boomerang/stinger/lure weapons + mods)')
   }
 
-  // (h) garden sits after pond in the arc and the Daily can land on it (a preview day).
+  // (h) garden sits after pond in the arc.
   {
     assert(CHAPTER_ORDER.includes('garden'), 'expected garden in CHAPTER_ORDER')
     assert.strictEqual(nextChapter('pond'), 'garden', "expected nextChapter('pond') === 'garden'")
-    let dailyHitGarden = false
-    for (let d = 1; d <= 60 && !dailyHitGarden; d++) {
-      if (dailyChapter(`2026-09-${String(((d - 1) % 30) + 1).padStart(2, '0')}`) === 'garden') dailyHitGarden = true
-    }
-    assert(dailyHitGarden, 'expected the Daily Anomaly to land on garden over a spread of dates')
-    console.log('PASS run X.h (garden in arc + daily reachable)')
+    console.log('PASS run X.h (garden in arc)')
   }
 
   // Balance band (run W style): a fully-leveled Stinger + 2 mods clears a realistic converging ring
@@ -10153,8 +10210,8 @@ function testChapterAnomalies() {
   assert(!all('pond').includes('sticky'), 'v6.4: sticky must not roll in the pond either (MUTATORS.sticky.exclude)')
   assert(!all(undefined).includes('riptide'), 'a chapterless roll excludes every scoped anomaly')
   for (const ch of CHAPTER_ORDER) assert(!all(ch).includes('accelResponse'), 'hidden entries never roll anywhere')
-  const daily = dailyMutators('2026-07-31', 'beyond')
-  assert(!daily.includes('sticky') && !daily.includes('riptide'), 'the daily pool is chapter-scoped too')
+  const rolled = randomMutators(2, 'beyond')
+  assert(!rolled.includes('sticky') && !rolled.includes('riptide'), "randomMutators' pool is chapter-scoped too")
 
   const r1 = createRun(makeMeta(), { chapter: 'beyond', mutators: ['supermassive'] })
   assert.strictEqual(r1.mods.wellForceMul, 1.8, 'supermassive lands in run.mods.wellForceMul')
@@ -10178,7 +10235,7 @@ function testChapterAnomalies() {
     const moreCount = more.traps.length
 
     assert(moreCount > baseCount, `expected trap season's higher occupancy chance to stream more traps (${baseCount} -> ${moreCount})`)
-    console.log(`PASS run GG (chapter anomalies): scoped pools, scoped daily, wellForceMul 1.8, traps ${baseCount}->${moreCount}`)
+    console.log(`PASS run GG (chapter anomalies): scoped pools, wellForceMul 1.8, traps ${baseCount}->${moreCount}`)
   }
 }
 
@@ -10392,8 +10449,8 @@ function testRemaster() {
   {
     const shipped = shippedChapterIds()
     // The denominator must be DERIVED, and this is what proves it still is. A full-suite mutation
-    // cannot reach here — flipping undertow's wip flag trips three earlier guards in runBooks
-    // (`wip.length > 0`, isWipChapter, the dailyChapter sweep) — so assert the relationship
+    // cannot reach here — flipping undertow's wip flag trips two earlier guards in runBooks
+    // (`wip.length > 0`, isWipChapter) — so assert the relationship
     // directly: every wip chapter is excluded, and there is at least one, or the exclusion is
     // vacuous and someone could hardcode this list again without a single test noticing.
     const wipIds = Object.values(BOOKS).filter((b) => b.wip).flatMap((b) => b.chapters)
@@ -11842,7 +11899,7 @@ function testPondIdentity() {
 // v6.4.1/v6.4.3 (owner directives, Run OO): explicit difficulty-1 runs of the three onboarding
 // chapters (EARLY_CALM: body/pond/garden) spawn fewer enemies and pay proportionally more xp
 // per kill, per chapter (body is the gentlest) — gated on opts.difficulty === 1 EXPLICITLY, not
-// the defaulted local, since daily runs and (almost) every test call createRun without a
+// the defaulted local, since (almost) every test calls createRun without a
 // difficulty and must keep baseline density. v6.4.5: body/pond additionally carry a
 // CHAPTERS[id].balance block (Run RR) that eases spawn/dmg AND fattens xp (compensating the
 // thinner swarm) at EVERY difficulty with no gate at all — every spawnMul/xpMul expectation below
@@ -11905,7 +11962,7 @@ function testEarlyCalm() {
     console.log(`PASS run OO.c (chapter not in EARLY_CALM or spawn/xp balance): ${subject} at d1 keeps baseline spawnMul/xpMul=1`)
   }
 
-  // (d) difficulty omitted entirely (the daily/test shape) — the local `difficulty` defaults to 1
+  // (d) difficulty omitted entirely (the test shape) — the local `difficulty` defaults to 1
   // internally, but opts.difficulty stays undefined, so the EARLY_CALM gate must NOT fire. The
   // chapter balance block, unlike EARLY_CALM, has no gate — it fires here too, so pond's
   // spawnMul/xpMul are the balance factors alone (0.75/1.25), not baseline 1/1.
@@ -11918,7 +11975,7 @@ function testEarlyCalm() {
       `expected pond (no difficulty opt) mods.spawnMul ≈ ${expectedSpawn}, got ${run.mods.spawnMul}`)
     assert(Math.abs(run.mods.xpMul - expectedXp) < EPS,
       `expected pond (no difficulty opt) mods.xpMul ≈ ${expectedXp}, got ${run.mods.xpMul}`)
-    console.log(`PASS run OO.d (difficulty omitted): pond with no opts.difficulty keeps EARLY_CALM off but balance on (spawnMul≈${expectedSpawn}, xpMul≈${expectedXp}) — daily/test shape`)
+    console.log(`PASS run OO.d (difficulty omitted): pond with no opts.difficulty keeps EARLY_CALM off but balance on (spawnMul≈${expectedSpawn}, xpMul≈${expectedXp}) — test shape`)
   }
 
   // (e) mutator stack: overtime (spawnMul:1.4, xpMul:1.3, see MUTATORS in config.js) composes
@@ -12039,7 +12096,7 @@ function testOpeningCredit() {
 function testChapterBalance() {
   const EPS = 1e-9
 
-  // (a) body, difficulty omitted entirely (the daily/test shape — EARLY_CALM never fires without
+  // (a) body, difficulty omitted entirely (the test shape — EARLY_CALM never fires without
   // an explicit opts.difficulty): balance alone thins spawn, softens contact damage, and fattens xp.
   {
     Math.random = mulberry32(20260714)
@@ -12053,7 +12110,7 @@ function testChapterBalance() {
     // v6.4.9 (owner directive): body enemies also carry 25% less HP — body-only, pond keeps hp 1.
     assert(Math.abs(run.mods.enemyHpMul - 0.75) < EPS,
       `expected body (no difficulty opt) mods.enemyHpMul ≈ 0.75, got ${run.mods.enemyHpMul}`)
-    console.log(`PASS run RR.a (body baseline balance, daily shape): spawnMul=${run.mods.spawnMul}, enemyDmgMul=${run.mods.enemyDmgMul}, enemyHpMul=${run.mods.enemyHpMul}, xpMul=${run.mods.xpMul}`)
+    console.log(`PASS run RR.a (body baseline balance, omitted-difficulty shape): spawnMul=${run.mods.spawnMul}, enemyDmgMul=${run.mods.enemyDmgMul}, enemyHpMul=${run.mods.enemyHpMul}, xpMul=${run.mods.xpMul}`)
   }
 
   // (b) pond, explicit difficulty 3: EARLY_CALM doesn't fire (d1-only), but balance has no gate at

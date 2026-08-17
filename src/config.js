@@ -31,7 +31,7 @@ export const RARITIES = {
   // multiplier to scale. The key is not decorative: every reader that walks RARITY_ORDER reads
   // .mult (test run PT.a, scripts/pool-probe.mjs's card scorer), and a missing one reads NaN.
   // The NAME is not "Anomaly" (v6.7.7): the game already spends that word on three other things
-  // the same player reads in the same session — the pre-run MUTATORS ("Daily Anomaly", "Reroll
+  // the same player reads in the same session — the pre-run MUTATORS ("Reroll
   // this anomaly", and a briefing that literally reads "Anomalies bend the rules of this run"),
   // the ENEMIES (MUTATORS.overtime.desc), and the player themselves (fr.js 'You': 'Ton
   // anomalie'). A teal card chipped ANOMALY therefore reads as a fourth mutator administered by
@@ -3493,8 +3493,7 @@ export const MAX_ELEMENT_PICKS = 8
 // ---- Difficulty (classic runs; picked on the title screen, saved in meta) -----------
 // Level 1 = the base game. Each level above 1 adds one RANDOM mutator to the run AND stacks
 // +DIFFICULTY_HP_PER_LEVEL enemy HP and +DIFFICULTY_DMG_PER_LEVEL enemy damage (multiplied into
-// run.mods.enemyHpMul/enemyDmgMul on top of whatever the mutators themselves do). The Daily
-// Anomaly ignores this (fixed shared seed).
+// run.mods.enemyHpMul/enemyDmgMul on top of whatever the mutators themselves do).
 export const MAX_DIFFICULTY = 5
 // Winning a classic run at this difficulty (or higher) unlocks the next chapter — used by
 // endRun (main.js) at victory time AND by loadMeta (state.js) retroactively, since a chapter
@@ -3514,7 +3513,7 @@ export const difficultyCoinMul = (d) => 1 + DIFFICULTY_COIN_PER_LEVEL * (Math.ma
 // v6.4.1/v6.4.3 (owner directives): difficulty 1 of the onboarding chapters spawns thinner but
 // pays more xp per kill, per chapter — body (level 1-1) is the gentlest. Applied in createRun
 // (state.js) ONLY when the caller passes difficulty 1 EXPLICITLY (main.js's classic ladder always
-// does): daily runs and tests omit opts.difficulty, so they keep baseline density on purpose.
+// does): tests omit opts.difficulty, so they keep baseline density on purpose.
 export const EARLY_CALM = {
   body:   { spawnMul: 0.40, xpMul: 2.22 }, // v6.4.3: 0.6·0.67 / 1.67·1.33 — another -33% / +33%
   pond:   { spawnMul: 0.6,  xpMul: 1.67 },
@@ -4044,14 +4043,14 @@ export const COIN_CAP_PER_RUN = 999
 // Pure data — sim stays theme-agnostic and reads roster archetypes/behavior flags, weapon
 // pools, and signature/obstacle config from the run's chapter snapshot (see state.js
 // createRun). v5.4 completes the seven-chapter arc from the design doc — CHAPTER_ORDER is the
-// single source of truth for sequencing, daily seeding, and how many chapters currently ship.
+// single source of truth for sequencing and how many chapters currently ship.
 // ---- Books (v7.x) ------------------------------------------------------------------
 // A book is a campaign: its own chapters, its own ladder, its own protagonist. Book 1 is the
 // shipped game. A book marked `wip` is hidden from players entirely and reachable only behind
 // meta.dev — see playableChapterId and titleBookshelf below.
 //
 // CHAPTER_ORDER is an ALIAS for book 1's chapters, and that is the whole design of this refactor:
-// every existing read site — slot summaries, the daily draw, the retroactive unlock chain, ~40 test
+// every existing read site — slot summaries, the retroactive unlock chain, ~40 test
 // assertions — keeps working untouched and keeps meaning "the shipped chapters, in order". Adding a
 // book therefore cannot break Book 1 by omission; the only way to reach another book's chapters is
 // to ask for that book by name.
@@ -4678,8 +4677,8 @@ export const CHAPTERS = {
     },
   },
 }
-// v5.24: The Blank — hidden 8th chapter, deliberately OUTSIDE CHAPTER_ORDER (never in the daily
-// rotation, never in the difficulty-3 chapter-unlock chain — see nextChapter/dailyChapter above).
+// v5.24: The Blank — hidden 8th chapter, deliberately OUTSIDE CHAPTER_ORDER (never in the
+// difficulty-3 chapter-unlock chain — see nextChapter above).
 // Unlocked by winning a classic run of The Beyond at difficulty 5 (main.js endRun). Not a
 // survival run: `scripted: true` tells sim.js to run stepBossScript as the ONLY spawner (ordinary
 // spawning, elites, formations, obstacles and the 300s victory timer are all gated off) and tells
@@ -6636,11 +6635,6 @@ export function titleBookshelf(meta) {
   }
   return shelf
 }
-// Date-seeded over SHIPPED chapters (CHAPTER_ORDER); reuses the FNV-1a + mulberry32 helpers
-// dailyMutators already uses (below), with a distinct salt ('chapter') so the two daily picks
-// are independent draws from the same date key.
-export const dailyChapter = (dateKey) => CHAPTER_ORDER[hashString(dateKey + 'chapter') % CHAPTER_ORDER.length]
-
 // ---- Chapter behavior flags (v5.0 task 3, see sim.js) -------------------------------
 // Maps a roster entry's `archetype` (config.js CHAPTERS[id].roster, see above) onto the
 // existing spawn-type keys (ENEMIES above) that drive its base hp/speed/dmg/radius/xp —
@@ -9097,7 +9091,7 @@ export const REROLL_BASE_COST = 10     // coins, first reroll of a run
 export const REROLL_COST_MUL = 1.5     // cost multiplier per reroll already used this run
 export const rerollCost = (used) => Math.ceil(REROLL_BASE_COST * Math.pow(REROLL_COST_MUL, used))
 // v6.0.4: reroll the classic pre-run anomaly roll from the briefing screen (flat cost, repeatable
-// while affordable). Not offered for The Blank (fixed ladder) or the daily (shared seed).
+// while affordable). Not offered for The Blank (fixed ladder).
 export const ANOMALY_REROLL_COST = 100
 
 // ---- Mutators (pre-run modifiers; see run.mods in state.js) ----
@@ -9123,7 +9117,7 @@ export const MUTATORS = {
   jumbo:    { name: 'Jumbo Anomalies',   icon: '🎈', desc: 'Big squishy enemies, bonus XP and coins.',     effects: { enemyRadiusMul: 1.25, enemyHpMul: 1.25, enemySpeedMul: 0.9, xpMul: 1.2, coinMul: 1.2 } },
   // v5.24: The Blank's named difficulty-ladder modifiers (CHAPTERS.blank.modsByDifficulty) are
   // MUTATORS entries too, so the existing HUD/pause chip machinery renders them for free — but
-  // `hidden: true` pulls them out of randomMutators/dailyMutators' pools (below) since they're
+  // `hidden: true` pulls them out of randomMutators' pool (below) since they're
   // assigned by the chapter's fixed ladder, never rolled. Their `effects` are a no-op: the actual
   // behavior (faster telegraphs, death residue) is read directly off run.mutators by sim.js.
   accelResponse: { name: 'Accelerated Response', icon: '⚡', desc: 'its telegraphs are 25% faster',      hidden: true, effects: {} },
@@ -9174,58 +9168,6 @@ export function mergeMutatorMods(ids) {
   return mods
 }
 
-// ---- Daily Anomaly (deterministic daily mutator pair) ------------------------------
-// A fixed number of mutators are "featured" each real-world day, the same for every
-// player: dailyMutators(todayKey()) hashes the date string into a PRNG seed so the
-// pick is stable across repeated calls/sessions without persisting anything.
-export const DAILY_MUTATOR_COUNT = 2
-
-// Local-date YYYY-MM-DD key (not UTC, so the daily set flips at local midnight for
-// the player rather than at a possibly-yesterday UTC boundary).
-export function todayKey() {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-// Tiny FNV-1a-style string hash -> 32-bit seed.
-function hashString(s) {
-  let h = 2166136261
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return h >>> 0
-}
-
-// mulberry32: small deterministic PRNG (same construction test/sim-test.js uses to seed
-// Math.random) — kept as a private, self-contained generator here so dailyMutators never
-// depends on (or perturbs) the global Math.random stream.
-function mulberry32(seed) {
-  return function () {
-    seed |= 0
-    seed = (seed + 0x6d2b79f5) | 0
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-// Deterministic: the same dateKey always returns the same DAILY_MUTATOR_COUNT distinct
-// mutator ids (order is part of the result, but callers should treat it as a set).
-export function dailyMutators(dateKey, chapterId) {
-  const rand = mulberry32(hashString(dateKey))
-  const pool = mutatorPool(chapterId)
-  const picked = []
-  for (let i = 0; i < DAILY_MUTATOR_COUNT && pool.length > 0; i++) {
-    const idx = Math.floor(rand() * pool.length)
-    picked.push(pool[idx])
-    pool.splice(idx, 1)
-  }
-  return picked
-}
 
 // ---- Elite affixes (rolled at elite spawn; see enemy.affixes in state.js) ----------
 export const ELITE_AFFIXES = {
