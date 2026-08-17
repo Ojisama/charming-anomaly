@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -9297,6 +9297,13 @@ export function createRenderer(app) {
     // decorative: chapterBiome falls back to BIOMES.body for an unknown id, so without this line
     // The Shelf draws villi and platelets under a blue tint.
     shelf: BIOME_SHELF,
+    // ⚠ THE TWILIGHT IS ALIASED TO THE SHELF'S FAMILY, AND THAT IS A NAMED STAND-IN (2026-08-17).
+    // These are shelf-floor props seen four chapters deeper, carried by the two chapters' very
+    // different floorTints rather than by their own art. Defensible only because they are already
+    // OCEAN props — the failure this repo has actually shipped is the other kind, where The Shelf
+    // spent a version aliased to BIOME_POND and drew reeds in open water. Phase 3 authors
+    // BIOME_TWILIGHT; until then this line is the difference between a stand-in and villi.
+    twilight: BIOME_SHELF,
     // Load-bearing for the same reason as the line above it: a chapter with no BIOMES entry does not
     // throw and does not warn, it silently draws ANOTHER chapter's world (chapterBiome falls back to
     // BIOMES.body, which is how The Surf shipped villi, platelets and plasma motes on its beach).
@@ -10418,6 +10425,7 @@ export function createRenderer(app) {
     const pool = refillLook === 'pool'
     const pocket = refillLook === 'pocket'
     const maw = refillLook === 'maw'
+    const upwelling = refillLook === 'upwelling'
     const P = pocket ? AIR_POCKET_VIS : TIDE_POOL_VIS
     const list = run.shafts
     while (shaftPool.length < list.length) shaftPool.push(acquireShaft())
@@ -10541,6 +10549,23 @@ export function createRenderer(app) {
           sv.body.circle(0, 0, ar).fill({ color: P.air, alpha: P.airA })
           sv.body.circle(-ar * 0.16, -ar * 0.13, ar * 0.5).fill({ color: P.lobe, alpha: P.lobeA })
           sv.ring.circle(0, 0, sh.r).stroke({ width: P.rimW, color: P.rim, alpha: P.rimA })
+        } else if (upwelling) {
+          // CLEAN WATER (The Shelf). The sun-shaft branch at the bottom of this chain, inverted in
+          // temperature — see UPWELLING_VIS for why these two have to be told apart by eye rather
+          // than trusted to differ because their chapters do. Same geometry, opposite arrival.
+          //
+          // ⚠ IT SITS ABOVE THE `pool` BRANCH ON PURPOSE. Run TP source-slices that branch by
+          // searching for its own opening line and reading to the next else, then asserts the slice
+          // strokes nothing and draws no circles. A look inserted BELOW pool lands inside that slice
+          // and fails an assertion about a chapter it has nothing to do with, so put new looks above
+          // it. Do not quote either anchor line verbatim in a comment either: indexOf finds the
+          // comment first and the slice becomes a fragment of prose. (Both mistakes made here, in
+          // that order, on 2026-08-17.)
+          const U = UPWELLING_VIS
+          sv.glow.tint = U.sheen
+          sv.body.circle(0, 0, sh.r).fill({ color: U.core, alpha: U.coreA })
+          sv.ring.circle(0, 0, sh.r).stroke({ width: U.rimW, color: U.rim, alpha: U.rimA })
+          sv.ring.circle(0, 0, sh.r * U.innerFrac).stroke({ width: U.rimW * 0.6, color: U.rim, alpha: U.rimA * 0.5 })
         } else if (pool) {
           // Concentric depth steps, outside in, each darker than the one around it — see
           // TIDE_POOL_VIS for why the collar, the shelf and the meniscus are gone. `ring` stays
@@ -17509,8 +17534,16 @@ export function createRenderer(app) {
     // `maws` is tested by NAME rather than by sigType, because The Deep's signature type is `dark`
     // — the light — and the refill hangs off it as a second field. Asking for the field is asking
     // refillSpec's own question; asking for the type would have quietly fallen through to 'pool'.
+    // An explicit `signature.refillLook` WINS over the shape-derived answer, and that override is
+    // what lets two chapters share a signature shape without sharing a drawing. The Shelf's
+    // upwellings are the sun-shaft field exactly — same cell, chance, radius and drift — so the
+    // derivation below would hand a murk chapter warm gold sun columns, which is the borrowed-art
+    // trap with no borrowed weapon involved. Declared rather than derived because the sim and the
+    // renderer must keep agreeing about the GEOMETRY (that is what asking refillSpec's own question
+    // buys) while disagreeing about the paint.
     refillLook = cfg?.signature && refillSpec(cfg.signature)
-      ? (cfg.signature.maws ? 'maw' : sigType === 'shafts' ? 'shaft' : sigType === 'air' ? 'pocket' : 'pool')
+      ? (cfg.signature.refillLook
+          ?? (cfg.signature.maws ? 'maw' : sigType === 'shafts' ? 'shaft' : sigType === 'air' ? 'pocket' : 'pool'))
       : null
     chapterHasMaws = refillLook === 'maw'
     swellCfg = cfg?.render?.swell ?? null

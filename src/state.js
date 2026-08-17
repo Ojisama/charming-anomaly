@@ -278,14 +278,39 @@ export function loadMeta() {
       // gate on needs no migration and cannot produce a chapter with no ledger. Harmless for a
       // player — ensureChapterMeta defaults `unlocked` to `id === 'body'`, so a WIP entry is created
       // locked and nothing on the title reads it unless meta.dev is on.
+      // v7.x THE SHELF -> THE TWILIGHT (2026-08-17). The light chapter kept its whole mechanic and
+      // moved from slot 2 to slot 5 under a new id, and a NEW chapter took the id `shelf` at slot 2.
+      // Without this, the ledger silently MISATTRIBUTES rather than losing anything, which is worse:
+      // `chapters.shelf` (five wins, best times) would be read as the murk chapter's, so a
+      // never-played chapter shows five gold stars on the bookcase, while `twilight` is created by
+      // ensureChapterMeta below as `unlocked: id === 'body'` — i.e. LOCKED, holding none of the
+      // progress it actually earned.
+      //
+      // Runs at most once, guarded on `twilight` being absent, and MOVES rather than copies: the
+      // entry belongs to the light, which is now called twilight, and slot 2 is a genuinely new
+      // chapter that should start where every new chapter starts. Deleting the old key is safe under
+      // R2 (additive-only) because the key is not being removed from the SCHEMA — it is immediately
+      // recreated by ensureChapterMeta on the next line, fresh.
+      if (m.chapters && m.chapters.shelf && !m.chapters.twilight) {
+        m.chapters.twilight = m.chapters.shelf
+        delete m.chapters.shelf
+      }
       for (const id of ALL_CHAPTER_IDS) ensureChapterMeta(m, id)
       // Retroactive chapter unlocks: a chapter that shipped AFTER the player already beat the
       // previous one at CHAPTER_UNLOCK_DIFFICULTY+ unlocks on load — winning level d raises that
       // chapter's maxDifficulty to d+1, so maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY proves the
       // qualifying win even though endRun couldn't unlock a chapter that didn't exist yet.
-      for (let i = 1; i < CHAPTER_ORDER.length; i++) {
-        const prev = m.chapters[CHAPTER_ORDER[i - 1]]
-        if (prev?.maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY) m.chapters[CHAPTER_ORDER[i]].unlocked = true
+      //
+      // EVERY BOOK'S LADDER, not CHAPTER_ORDER's. This loop read `CHAPTER_ORDER` (which is
+      // BOOKS.book1.chapters) until 2026-08-17, so it had never run for Book 2 at all — a chapter
+      // inserted into the middle of the Undertow ladder left a LOCKED rung sitting under an unlocked
+      // one, re-openable only by re-beating the chapter before it. Found in adversarial review of
+      // the murk-chapter change; the fix is worth more than the change that prompted it.
+      for (const book of Object.values(BOOKS)) {
+        for (let i = 1; i < book.chapters.length; i++) {
+          const prev = m.chapters[book.chapters[i - 1]]
+          if (prev?.maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY) m.chapters[book.chapters[i]].unlocked = true
+        }
       }
       // R3 (see ensureChapterMeta above): floor only. A future build's higher choiceSlots is kept
       // exactly as stored — clamping it here would persist the smaller number — and createRun
