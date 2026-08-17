@@ -7,7 +7,7 @@ import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRec
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 import {
-  SHOP, shopCost, MAX_SHOP_LEVEL, lineMax, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
+  SHOP, shopCost, MAX_SHOP_LEVEL, lineMax, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
   PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
   REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
@@ -5602,6 +5602,52 @@ function runBookProgression() {
       assert.ok(/lineMax\(/.test(code), `${f} must call lineMax()`)
     }
     console.log(`PASS run BP.ae (per-line level caps): ${capped.length} shortened line(s) [${capped.join(' ')}], ladder endpoints pinned to the ${MAX_SHOP_LEVEL}-level curve and monotone throughout, last rungs ${capped.map((id) => shopCost(id, lineMax(id) - 1)).join('/')} all over 1000, a legacy ${MAX_SHOP_LEVEL}-level save pays out ${lineMax('deepLungs')} while keeping ${MAX_SHOP_LEVEL} on disk, and neither ui.js nor main.js reads the global cap`)
+
+    // (af) SHOP FAMILIES — the four colour blocks. `family` is DECLARED on the line rather than
+    // inferred from its position, and the three things that make that worth anything are all
+    // silent when broken: a line with no family renders in the fallback colour and quietly joins
+    // the wrong block, a family with no palette entry does the same, and a line inserted between
+    // two blocks splits a colour run in half while every other test stays green.
+    const FAMS = Object.keys(SHOP_FAMILY)
+    assert.ok(FAMS.length >= 2, 'SHOP_FAMILY needs more than one family or the colour coding says nothing')
+    for (const [fam, p] of Object.entries(SHOP_FAMILY)) {
+      for (const tone of ['ico', 'edge', 'lite']) {
+        assert.ok(/^#[0-9a-f]{6}$/i.test(p[tone] ?? ''),
+          `SHOP_FAMILY.${fam}.${tone} must be a '#rrggbb' hex — ui.js writes it straight into an inline style, so a bad value fails silently as an uncoloured glyph. Got ${JSON.stringify(p[tone])}`)
+      }
+    }
+    // Declared on every line of every book, and on every book unlock.
+    for (const bookId of BOOK_ORDER) {
+      for (const [id, line] of Object.entries(shopLines(bookId))) {
+        assert.ok(FAMS.includes(line.family),
+          `${bookId}.${id} has family ${JSON.stringify(line.family)}, which is not one of [${FAMS.join(' ')}]`)
+      }
+      for (const [id, u] of Object.entries(BOOK_UNLOCKS[bookId] ?? {})) {
+        assert.ok(FAMS.includes(u.family),
+          `BOOK_UNLOCKS.${bookId}.${id} has family ${JSON.stringify(u.family)}, which is not one of [${FAMS.join(' ')}]`)
+      }
+    }
+    // CONTIGUOUS, which is the whole point of declaring it (owner: "regroup explicitly"). The
+    // table's order IS the render order — renderShop maps Object.entries(shopLines(bookId)) — so a
+    // family that appears, stops and reappears puts two separated blocks of one colour on screen.
+    for (const bookId of BOOK_ORDER) {
+      const order = Object.values(shopLines(bookId)).map((l) => l.family)
+      const runs = order.filter((f, i) => f !== order[i - 1])
+      assert.strictEqual(runs.length, new Set(runs).size,
+        `${bookId}: the shop table's families must each appear in ONE unbroken run — the order is [${order.join(' ')}], which returns to a family it had already left. renderShop walks this table in order, so that is two separated blocks of one colour.`)
+    }
+    // And every line is actually DRAWN. A line with no SHOP_ICONS entry silently falls back to its
+    // emoji, which is the exact thing the drawn set replaced — one stray emoji in a column of
+    // eleven drawn glyphs reads as a rendering bug.
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const iconBlock = uiSrc.slice(uiSrc.indexOf('const SHOP_ICONS = {'), uiSrc.indexOf('\n}', uiSrc.indexOf('const SHOP_ICONS = {')))
+    assert.ok(iconBlock.length > 200, 'could not find SHOP_ICONS in ui.js — this check is asserting nothing')
+    const drawn = [...iconBlock.matchAll(/^\s{2}(\w+):/gm)].map((m) => m[1])
+    for (const id of [...seen.keys(), ...Object.keys(BOOK_UNLOCKS).flatMap((b) => Object.keys(BOOK_UNLOCKS[b])), 'slot']) {
+      assert.ok(drawn.includes(id),
+        `shop line '${id}' has no SHOP_ICONS entry in ui.js — it falls back to its emoji, alone in a column of drawn glyphs`)
+    }
+    console.log(`PASS run BP.af (shop families): ${FAMS.length} families [${FAMS.join(' ')}] with 3 hex tones each, declared on all ${seen.size} lines + every book unlock, each family in one unbroken run per book, and all ${drawn.length} ids drawn rather than falling back to emoji`)
   }
 
   console.log(`PASS run BP (book progression): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max, The Surf's opening balance (EARLY_CALM.surf + archetypeMul.tank) matches the 2026-08-17 owner rulings, ${bkAllChapters.length} chapters all resolve to a book, and no source file reads SHOP directly`)
