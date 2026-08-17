@@ -5169,7 +5169,16 @@ CHAPTERS.surf = {
   // The Surf is Book 2's onboarding chapter, so it takes the gentle numbers The Shelf held while IT
   // was chapter 1. Humidity taxes damage on top of everything here (see resourceDamageMul), which is
   // a pressure no other first chapter carries — hence spawnMul under the pond's own 0.75.
-  balance: { spawnMul: 0.68, enemyDmgMul: 0.7, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.55 },
+  //
+  // enemyDmgMul (owner ruling 2026-08-17, "chapter 2.1 is too hard ... the dmg of all enemies should
+  // be 25% lower"): 0.7 -> 0.525, read as RELATIVE to the number already here, the same way v6.4.3's
+  // "-33%/+33%" and the "-25% density" ruling one line up in EARLY_CALM were. This is the
+  // CHAPTER-WIDE lever (state.js's `bal` block) rather than a per-creature roster.dmgMul, so it
+  // moves every creature on the beach at every difficulty and composes with the Sea Roach's own
+  // 0.5 instead of overwriting it. It does NOT reach the gull: that hazard's blast is a flat
+  // GULL_DMG on a run.bombs entry and never passes through run.mods.enemyDmgMul — it is halved at
+  // its own constant, so the two rulings stay independent knobs.
+  balance: { spawnMul: 0.68, enemyDmgMul: 0.525, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.55 },
 
   // Fewer Shore Crabs (owner rulings 2026-08-16, then a further "20% less crabs" on 2026-08-17).
   // CHAPTER-WIDE, at every difficulty, matching how garden ({tank: 0.73}) and city ({tank: 0.825})
@@ -9137,7 +9146,13 @@ export const GULL_FUSE = 1.3        // s of shadow before it lands — one beat 
 export const GULL_RADIUS = 62       // px. Deliberately under BOMBARDMENT_RADIUS (85): the owner
                                     // asked for a small radius, and a bird is a point threat where
                                     // a shell is an area one
-export const GULL_DMG = 16
+// Owner ruling 2026-08-17 ("dmg of seagulls 50% lower"), 16 -> 8. Flat, and deliberately outside
+// every scaling term in the game: stepGullStrike puts this straight onto the run.bombs entry, so it
+// rides neither dmgScale(run.time) nor run.mods.enemyDmgMul nor the difficulty tax. That is why the
+// same ruling's chapter-wide "-25% on all enemies" (CHAPTERS.surf.balance.enemyDmgMul) does not
+// touch the bird, and why this halving does not double-dip on it either.
+// The shorebreak also makes the player immune to it outright — see the gate in stepBombs (sim.js).
+export const GULL_DMG = 8
 // How often the plunge aims at the PLAYER rather than at some enemy. Not 50/50: gulls outnumber you
 // on their own beach and most of what is alive down there is not you, so a mostly-ambient hazard
 // that occasionally has your name on it reads as wildlife rather than as artillery.
