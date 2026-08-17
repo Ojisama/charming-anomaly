@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, shopLines, lineMax, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
+import { shopCost, shopLines, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -15,47 +15,93 @@ import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta
 // The three RESOURCE lines share a vessel so they read as one system rather than three unrelated
 // buys: a tank that grows, a glass that runs slow, a vessel being poured into.
 //
-// `config.icon` (the emoji) stays on every line as the FALLBACK below — a new line added without
-// an entry here still renders something rather than a blank box, which is the failure mode a
-// lookup table like this otherwise ships silently.
-// EVERY GLYPH FILLS ~20 OF THE 24 BOX. The first cut drew several inside the middle third, and at
-// 21px on a phone that is the difference between an icon and a smudge — the star and the heart
-// read while the crosshair and the tank beside them looked like punctuation. Judged by cropping
-// the row strip out of a real capture and scaling it 3x, not by reading the paths.
+// `config.icon` (the emoji) stays on every line as the FALLBACK below — a line added without an
+// entry here still renders something rather than a blank box, which is the failure mode a lookup
+// table like this otherwise ships silently.
+//
+// FILLED AND THREE-TONE, NOT HAIRLINE OUTLINES (owner, 2026-08-17: "icon colors and more
+// stylised"). A 1.9px stroke glyph is the productivity-app idiom and it sat wrong on a screen of
+// chunky cream cards with 3px navy borders and a hard drop shadow. These are solid bodies in the
+// family's `ico`, outlined in its `edge`, with the details punched out in `lite` — the same
+// weight as the cards they sit on. Two classes, both painted from the shared palette in
+// config.js (SHOP_FAMILY): `.f` = body in the family colour, `.l` = detail in the light tone.
+// Both carry the same darker `edge` outline — colour alone has nowhere near enough contrast at
+// 22px on cream, which is exactly how the emoji set failed.
+//
+// EVERY GLYPH FILLS ~20 OF THE 24 BOX. Drawing inside the middle third is the difference between
+// an icon and a smudge at 21px, and it is invisible while you are reading paths — judged by
+// cloning the rendered SVGs out of a live capture at 84px.
 const SHOP_ICONS = {
-  // sword, not a burst: the burst shape belongs to critDamage's star and two starbursts side by
-  // side is exactly the 💥/💢 collision this set exists to end.
-  damage:     '<path d="M14.5 17.5 3 6V3h3l11.5 11.5"/><path d="m13 19 6-6"/><path d="m16 16 4 4"/><path d="m19 21 2-2"/>',
-  fireRate:   '<path d="M13 1.5 4 13.5h7l-1 9 9-12h-7z"/>',
-  // reticle = the CHANCE of a crit; the star = its SIZE. Different questions, different shapes.
-  // No outer ring on purpose: that ring is the coin below, and two big circles on one screen is
-  // the same collision in a new costume.
-  critChance: '<circle cx="12" cy="12" r="3.2"/><path d="M12 1.5v6M12 16.5v6M1.5 12h6M16.5 12h6"/>',
-  critDamage: '<path d="m12 2 3 6.7 7.3.8-5.4 4.9 1.5 7.1L12 17.9 5.6 21.5l1.5-7.1L1.7 9.5 9 8.7z"/>',
-  maxHP:      '<path d="M12 21S3 15.4 3 9.8A5 5 0 0 1 12 6.9a5 5 0 0 1 9 2.9c0 5.6-9 11.2-9 11.2z"/>',
-  moveSpeed:  '<path d="M2 7.5h12M2 12h8M2 16.5h12"/><path d="m16.5 6.5 5.5 5.5-5.5 5.5"/>',
-  // Horseshoe, poles UP and OPEN, with a band across each prong. Capping the tips (the previous
-  // cut did) fuses the outer and inner curves into one solid U with no poles at all — which is
-  // what it rendered as, and a magnet without poles is just a letter.
-  magnet:     '<path d="M4.5 3v9a7.5 7.5 0 0 0 15 0V3"/><path d="M10 3v9a2 2 0 0 0 4 0V3"/><path d="M4.5 8.5h5.5M14 8.5h5.5"/>',
-  // A RIMMED DISC. The stacked ellipses of the first cut are the universal "database" glyph, and
-  // the overlapping-arc second cut drew nothing visible at all — the arc's chord and radius put
-  // it under the circle it was meant to peek out from.
-  coinGain:   '<circle cx="12" cy="12" r="8.8"/><circle cx="12" cy="12" r="3.6"/>',
-  // The resource trio share a VESSEL so they read as one system: a tank that holds more, a glass
-  // that runs slower, a basin being poured into.
-  deepLungs:  '<rect x="5.5" y="3.5" width="13" height="17" rx="3.4"/><path d="M5.5 12.5h13"/>',
-  slowBurn:   '<path d="M6 2.5h12M6 21.5h12"/><path d="M6 2.5c0 5.5 6 6.5 6 9.5s-6 4-6 9.5"/><path d="M18 2.5c0 5.5-6 6.5-6 9.5s6 4 6 9.5"/>',
-  bigGulp:    '<path d="M12 1.5v9.5"/><path d="m7.8 6.8 4.2 4.2 4.2-4.2"/><path d="M3.5 13.5v2.5a6 6 0 0 0 6 6h5a6 6 0 0 0 6-6v-2.5z"/>',
+  // sword, not a burst: the burst shape belongs to critDamage's star, and two starbursts side by
+  // side is exactly the 💥/💢 collision this whole set exists to end.
+  damage: '<path class="f" d="M12 1.4 15 6.6v7.9H9V6.6z"/><path class="l" d="M12 3.6 13.6 7v6.2h-3.2V7z"/>'
+    + '<rect class="f" x="6.2" y="14.2" width="11.6" height="2.9" rx="1.4"/>'
+    + '<rect class="f" x="10.4" y="16.8" width="3.2" height="4" rx="1.2"/>'
+    + '<circle class="f" cx="12" cy="21.4" r="1.9"/>',
+  fireRate: '<path class="f" d="M13.6 1.2 4.6 13.4h5.6l-1.2 9.4 9.4-12.6h-5.6z"/>'
+    + '<path class="l" d="M12.4 4.6 7.9 11.5h3.5l-.6 4.7 4.6-6.4h-3.2z"/>',
+  // concentric target = the CHANCE of a crit; the star below = its SIZE. The two crit lines were
+  // 🎯 and 💢, which at row size were one red starburst twice.
+  critChance: '<circle class="f" cx="12" cy="12" r="10.4"/><circle class="l" cx="12" cy="12" r="6.8"/>'
+    + '<circle class="f" cx="12" cy="12" r="3.2"/>',
+  critDamage: '<path class="f" d="m12 1.2 3.2 7 7.6.9-5.7 5.1 1.6 7.5-6.7-3.8-6.7 3.8 1.6-7.5-5.7-5.1 7.6-.9z"/>'
+    + '<path class="l" d="m12 5.6 1.7 3.7 4 .5-3 2.7.8 3.9-3.5-2-3.5 2 .8-3.9-3-2.7 4-.5z"/>',
+  maxHP: '<path class="f" d="M12 22.2S1.8 16 1.8 9.4A5.6 5.6 0 0 1 12 6.2a5.6 5.6 0 0 1 10.2 3.2c0 6.6-10.2 12.8-10.2 12.8z"/>'
+    + '<path class="l" d="M6.6 7.2a2.6 2.6 0 0 1 2.6 1.5c.4.9-.6 1.6-1.3 1-.6-.5-1.4-.4-1.8.2-.5.7-1.6.1-1.3-.8a2.6 2.6 0 0 1 1.8-1.9z"/>',
+  moveSpeed: '<path class="f" d="M8.4 2.6 21.4 12 8.4 21.4z"/><path class="l" d="M10.8 7.3 17.2 12l-6.4 4.7z"/>'
+    + '<rect class="f" x="1.2" y="6.4" width="6" height="2.9" rx="1.4"/>'
+    + '<rect class="f" x="1.2" y="10.6" width="4.4" height="2.9" rx="1.4"/>'
+    + '<rect class="f" x="1.2" y="14.8" width="6" height="2.9" rx="1.4"/>',
+  // Horseshoe, poles UP, with the tips in the light tone — that banded tip is the one detail that
+  // makes a U read as a magnet. A previous outline cut capped the tips and fused the outer and
+  // inner curves into a solid letter with no poles at all.
+  magnet: '<path class="f" d="M3 2.4h6.4v10.1a2.6 2.6 0 0 0 5.2 0V2.4H21v10.1a9 9 0 0 1-18 0z"/>'
+    + '<rect class="l" x="3" y="2.4" width="6.4" height="3.6" rx="1"/>'
+    + '<rect class="l" x="14.6" y="2.4" width="6.4" height="3.6" rx="1"/>',
+  // TWO COINS, offset. A single disc is the target above with its rings removed, and the stacked
+  // ellipses an earlier cut used are the universal "database" glyph — storage, not money.
+  coinGain: '<circle class="f" cx="14.6" cy="9.4" r="8"/><circle class="l" cx="14.6" cy="9.4" r="4.6"/>'
+    + '<circle class="f" cx="9.4" cy="14.6" r="8"/><circle class="l" cx="9.4" cy="14.6" r="4.6"/>',
+  // The resource trio share a VESSEL so they read as one system rather than three unrelated buys:
+  // a tank that holds more, a glass that runs slower, a basin being poured into.
+  // a CANISTER with a neck and a fill level, not a bare rounded rect — that read as a battery,
+  // which is a container of the wrong kind and the only icon in the set that needed its label.
+  // The light band is the EMPTY headroom, so the coloured part below it is what you own.
+  deepLungs: '<rect class="f" x="9.5" y="1.2" width="5" height="4.4" rx="1.5"/>'
+    + '<rect class="f" x="4.4" y="4.6" width="15.2" height="18.2" rx="4.6"/>'
+    + '<rect class="l" x="6.6" y="6.8" width="10.8" height="5.8" rx="2.4"/>',
+  slowBurn: '<rect class="f" x="4.4" y="1.2" width="15.2" height="2.8" rx="1.2"/>'
+    + '<rect class="f" x="4.4" y="20" width="15.2" height="2.8" rx="1.2"/>'
+    + '<path class="f" d="M6.6 4h10.8c0 5-4.4 6.6-4.4 8s4.4 3 4.4 8H6.6c0-5 4.4-6.6 4.4-8s-4.4-3-4.4-8z"/>'
+    + '<path class="l" d="M8.9 5.9h6.2c0 3-3.1 4.6-3.1 6.1s3.1 3.1 3.1 6.1H8.9c0-3 3.1-4.6 3.1-6.1S8.9 8.9 8.9 5.9z"/>'
+    + '<path class="f" d="M9.4 20h5.2c0-2.4-2.6-3.6-2.6-3.6s-2.6 1.2-2.6 3.6z"/>',
+  bigGulp: '<path class="f" d="M12 .8s4.6 5.4 4.6 8.2a4.6 4.6 0 0 1-9.2 0C7.4 6.2 12 .8 12 .8z"/>'
+    + '<path class="l" d="M10.4 8.6c0-1.1.9-2.6.9-2.6s-2.5 2.1-2.5 3.6a1 1 0 0 0 2 0z"/>'
+    + '<path class="f" d="M2.6 13.2h18.8v2.4a7 7 0 0 1-7 7h-4.8a7 7 0 0 1-7-7z"/>'
+    + '<path class="l" d="M5 15.4h14c0 3.2-2.4 5-5 5h-4c-2.6 0-5-1.8-5-5z"/>',
   // sacrifice targets (BOOK_UNLOCKS + the card-slot ladder), same screen, same language
-  slot:       '<rect x="2" y="4" width="8.5" height="16" rx="2.2"/><rect x="13.5" y="4" width="8.5" height="16" rx="2.2" stroke-dasharray="3 2.6"/><path d="M17.75 8.5v7M14.25 12h7"/>',
+  slot: '<rect class="f" x="1.4" y="3.4" width="9" height="17.2" rx="2.6"/>'
+    + '<rect class="l" x="3.4" y="5.6" width="5" height="12.8" rx="1.4"/>'
+    + '<rect class="f" x="13.6" y="3.4" width="9" height="17.2" rx="2.6"/>'
+    + '<path class="l" d="M17.1 7.6h2v3.4h3.4v2h-3.4v3.4h-2V13h-3.4v-2h3.4z"/>',
   // a bone: one shaft, two lobes at each end
-  lightThief: '<path d="m8.6 15.4 6.8-6.8"/><circle cx="6.4" cy="15.1" r="2.6"/><circle cx="8.9" cy="17.6" r="2.6"/><circle cx="15.1" cy="6.4" r="2.6"/><circle cx="17.6" cy="8.9" r="2.6"/>',
+  lightThief: '<path class="f" d="m7.6 16.4 8.8-8.8 2.4 2.4-8.8 8.8z"/>'
+    + '<circle class="f" cx="5.8" cy="14.6" r="3.4"/><circle class="f" cx="9.4" cy="18.2" r="3.4"/>'
+    + '<circle class="f" cx="14.6" cy="5.8" r="3.4"/><circle class="f" cx="18.2" cy="9.4" r="3.4"/>',
 }
-// One <svg> per line, or the config emoji when a line has no drawing yet.
-const shopIcon = (id, emoji) => (SHOP_ICONS[id]
-  ? `<svg class="shop-ico" viewBox="0 0 24 24" aria-hidden="true">${SHOP_ICONS[id]}</svg>`
-  : (emoji ?? ''))
+// COLOUR BY FAMILY, NOT BY LINE. Eleven hues is a swatch book; four is a grouping the player can
+// learn, and it says something true — what a line is FOR. The family is DECLARED on the line in
+// config.js (SHOP.family) rather than mapped here, so this file cannot disagree with the table
+// about which block a row belongs to. `slot` is the card-slot ladder, which ui.js synthesises and
+// so is the one id with no config row of its own.
+// The three tones ride CSS custom properties, so a row's own state still reaches the glyph.
+const shopIcon = (id, emoji, family) => {
+  if (!SHOP_ICONS[id]) return emoji ?? ''
+  const fam = family ?? (id === 'slot' ? 'vit' : 'atk')
+  const p = SHOP_FAMILY[fam] ?? SHOP_FAMILY.atk
+  return `<svg class="shop-ico" viewBox="0 0 24 24" aria-hidden="true"`
+    + ` style="--ico:${p.ico};--ico-edge:${p.edge};--ico-lite:${p.lite}">${SHOP_ICONS[id]}</svg>`
+}
 
 // Chapter-card cast thumbnails, keyed by rosterId: './cast/tardigrade.png' -> 'tardigrade'.
 // See the castArt note in initUI for where they come from and why they are files.
@@ -944,7 +990,7 @@ export function initUI(hooks) {
       return `
         <div class="sac-offer${afford ? '' : ' sac-offer--short'}">
           <button class="sac-offer-top" data-act="sacrifice-start" data-id="${x.id}" ${afford ? '' : 'disabled'}>
-            <span class="sac-offer-ico">${shopIcon(x.id, x.icon)}</span>
+            <span class="sac-offer-ico">${shopIcon(x.id, x.icon, x.family)}</span>
             <span class="sac-offer-name">
               <b>${x.label}</b>
               ${rung ? `<small>${rung}</small>` : ''}
@@ -1005,7 +1051,7 @@ export function initUI(hooks) {
       return `
         <div class="card shop-row sac-row${id === sacrificeBounceId ? ' card--bounce' : ''}">
           <span class="shop-row-in">
-            <span class="shop-row-icon">${shopIcon(id, item.icon)}</span>
+            <span class="shop-row-icon">${shopIcon(id, item.icon, item.family)}</span>
             <span class="shop-row-effect">${mid}</span>
             <button class="sac-btn sac-btn--offer" data-act="sacrifice-offer" data-id="${id}" ${canOffer ? '' : 'disabled'}
                     aria-label="${t('Offer')} — ${t(item.name)}">🩸<b>+</b></button>
@@ -1094,7 +1140,7 @@ export function initUI(hooks) {
           <!-- v6.0.2: layout lives on an inner span, NOT the button — iOS Safari doesn't reliably
                grow a flex <button> around its content. The button is a plain block. -->
           <span class="shop-row-in">
-            <span class="shop-row-icon">${shopIcon(id, item.icon)}</span>
+            <span class="shop-row-icon">${shopIcon(id, item.icon, item.family)}</span>
             <span class="shop-row-effect shop-row-stack"><b>${t(item.name)}</b><small>${t(item.desc)}</small></span>
             <span class="shop-row-buy">${maxed ? 'MAX' : tt('buy : 🪙 {n}', { n: buyCost })}</span>
           </span>

@@ -3994,17 +3994,34 @@ export const xpForLevel = (level) => 5 + level * 4
 export const GEM_VALUE = 1
 
 // ---- Meta shop (permanent upgrades, cost in coins) ----------------------------
-// `icon` is UI-only (v6.6 shop redesign): one emoji per card so the grid is scannable by shape
-// instead of by reading eight names. Same role as WEAPONS/ELEMENTS icons — no sim meaning.
+// `icon` is the emoji FALLBACK only — ui.js draws every one of these (SHOP_ICONS) and the emoji
+// is what a line added without a drawing gets, so the row is never a blank box.
+//
+// `family` is what the row is FOR, and it is DECLARED rather than inferred from position. It picks
+// the icon's colour (SHOP_FAMILY below), and the table's order is asserted to keep each family
+// contiguous — so the four colour blocks on the screen can never drift apart from a careless
+// insertion. Four of them, and they are the whole taxonomy:
+//   atk  — you hit harder      vit  — you last longer
+//   loot — you leave richer    res  — the chapter's own resource bar (Book 2's lines)
 export const SHOP = {
-  damage:     { name: 'Power Gel',    desc: '+5% damage',       perLevel: 0.05, base: 20, icon: '💥' },
-  fireRate:   { name: 'Twitchy',      desc: '+4% fire rate',    perLevel: 0.04, base: 20, icon: '⚡' },
-  critChance: { name: 'Lucky Eye',    desc: '+2% crit chance',  perLevel: 0.02, base: 30, icon: '🎯' },
-  critDamage: { name: 'Mean Streak',  desc: '+15% crit damage', perLevel: 0.15, base: 30, icon: '💢' },
-  maxHP:      { name: 'Big Mochi',    desc: '+15 max HP',       perLevel: 15,   base: 15, icon: '❤️' },
-  moveSpeed:  { name: 'Slippery',     desc: '+4% move speed',   perLevel: 0.04, base: 25, icon: '💨' },
-  magnet:     { name: 'Magnetic Charm', desc: '+12% gem magnet', perLevel: 0.12, base: 15, icon: '🧲' },
-  coinGain:   { name: 'Coin Nose',    desc: '+10% coins found', perLevel: 0.10, base: 40, icon: '🪙' },
+  damage:     { name: 'Power Gel',    desc: '+5% damage',       perLevel: 0.05, base: 20, icon: '💥', family: 'atk' },
+  fireRate:   { name: 'Twitchy',      desc: '+4% fire rate',    perLevel: 0.04, base: 20, icon: '⚡', family: 'atk' },
+  critChance: { name: 'Lucky Eye',    desc: '+2% crit chance',  perLevel: 0.02, base: 30, icon: '🎯', family: 'atk' },
+  critDamage: { name: 'Mean Streak',  desc: '+15% crit damage', perLevel: 0.15, base: 30, icon: '💢', family: 'atk' },
+  maxHP:      { name: 'Big Mochi',    desc: '+15 max HP',       perLevel: 15,   base: 15, icon: '❤️', family: 'vit' },
+  moveSpeed:  { name: 'Slippery',     desc: '+4% move speed',   perLevel: 0.04, base: 25, icon: '💨', family: 'vit' },
+  magnet:     { name: 'Magnetic Charm', desc: '+12% gem magnet', perLevel: 0.12, base: 15, icon: '🧲', family: 'loot' },
+  coinGain:   { name: 'Coin Nose',    desc: '+10% coins found', perLevel: 0.10, base: 40, icon: '🪙', family: 'loot' },
+}
+// The palette a family paints with. Three tones each, because the icons are FILLED rather than
+// stroked: a body, a darker edge that outlines it, and a light tone for the details inside.
+// `res` is BOOKS.undertow.cloth lightened to hold its own on cream — the lines that exist in one
+// book alone wear that book's colour.
+export const SHOP_FAMILY = {
+  atk:  { ico: '#d2415c', edge: '#8e2338', lite: '#ffdbe2' },
+  vit:  { ico: '#2f9a7b', edge: '#1c6350', lite: '#d3f2e7' },
+  loot: { ico: '#e0a91c', edge: '#8f6708', lite: '#ffeec2' },
+  res:  { ico: '#3585b3', edge: '#1f5c7c', lite: '#d5ebf7' },
 }
 export const MAX_SHOP_LEVEL = 10
 // v7.49 (owner directive): the old bare 1.6^level curve got a surcharge on top — +20% on the FIRST
@@ -4040,9 +4057,9 @@ export const BOOK_SHOP = {
     // PLAIN NAMES, unlike the eight universal lines' flavour ones (owner, 2026-08-17). These three
     // are the newest thing on the screen and the only ones naming a system the player met one
     // chapter ago; "Deep Lungs" made you decode a joke before you could tell what you were buying.
-    deepLungs: { name: 'Resource Capacity', desc: '+12% resource capacity', perLevel: 0.12, base: 20, icon: '🫁', maxLevel: 5 },
-    slowBurn:  { name: 'Resource Drain',    desc: '-6% resource drain',     perLevel: 0.06, base: 30, icon: '🕯️', reduction: true, maxLevel: 5 },
-    bigGulp:   { name: 'Resource Refill',   desc: '+15% refill per pickup', perLevel: 0.15, base: 25, icon: '💧', maxLevel: 5 },
+    deepLungs: { name: 'Resource Capacity', desc: '+12% resource capacity', perLevel: 0.12, base: 20, icon: '🫁', maxLevel: 5, family: 'res' },
+    slowBurn:  { name: 'Resource Drain',    desc: '-6% resource drain',     perLevel: 0.06, base: 30, icon: '🕯️', reduction: true, maxLevel: 5, family: 'res' },
+    bigGulp:   { name: 'Resource Refill',   desc: '+15% refill per pickup', perLevel: 0.15, base: 25, icon: '💧', maxLevel: 5, family: 'res' },
   },
 }
 // The line table for one book. EVERY consumer goes through this — never SHOP directly, or a
@@ -4111,7 +4128,7 @@ export const BOOK_UNLOCKS = {
     // exactly one of the four chapters where it does anything (The Deep's killRefill is 0).
     lightThief: {
       costs: LIGHT_THIEF_COSTS, icon: '🦴', name: 'Scavenger',
-      desc: 'Kills give back resource.',
+      desc: 'Kills give back resource.', family: 'res',
     },
   },
 }

@@ -415,10 +415,19 @@ body {
 /* Drawn shop icons (SHOP_ICONS in ui.js) — same stroke language as .rr-ico and .vol-lock.
    currentColor, so a row inherits its own state: the maxed row's gold and the unaffordable row's
    fade come for free, which an emoji could never do. */
-.shop-ico {
-  width: 21px; height: 21px; flex: none;
-  fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
-}
+/* Drawn shop icons (SHOP_ICONS in ui.js) — FILLED and three-tone, matching the weight of the
+   chunky cards they sit on rather than the hairline idiom of .rr-ico. The three tones arrive as
+   custom properties set inline per row, from the family palette in config.js (SHOP_FAMILY):
+     .f  the body, in the family colour        .l  details punched out in the light tone
+   Every part carries the same `edge` outline, which is what keeps a 22px glyph from dissolving
+   into a coloured blob on a cream row — colour alone has nowhere near enough contrast at this
+   size, and that is exactly how the emoji it replaced failed. */
+.shop-ico { width: 22px; height: 22px; flex: none; overflow: visible; }
+.shop-ico .f { fill: var(--ico); stroke: var(--ico-edge); stroke-width: 1.5; stroke-linejoin: round; }
+.shop-ico .l { fill: var(--ico-lite); stroke: var(--ico-edge); stroke-width: 1.2; stroke-linejoin: round; }
+/* A row you cannot afford fades wholesale; the icon has to fade with it or it shouts from a
+   greyed row. opacity, not a colour swap, so the family stays recognisable. */
+.card--disabled .shop-ico { opacity: 0.45; }
 .sac-offer-ico .shop-ico { width: 23px; height: 23px; }
 .shop-row-effect {
   flex: 1;
@@ -1842,6 +1851,16 @@ body {
 /* display:flex, not a bare line box: an inline <svg> taller than the 1.1rem line height is CLIPPED
    rather than centred, and the tell is an icon missing its bottom third. Emoji never showed it. */
 .sac-offer-ico { flex: none; display: flex; align-items: center; font-size: 1.1rem; line-height: 1; }
+/* THE SACRIFICE CARD IS THE BOOK'S CLOTH, NOT CREAM — a family-coloured icon lands blue-on-blue
+   there and disappears. Inverted to cream-on-cloth instead; the family carries no information on
+   this list anyway, where every row is the same one.
+   !important is load-bearing: shopIcon writes the family tones as an INLINE style (the palette
+   lives in config.js, which a stylesheet cannot read), and an inline custom property beats any
+   selector without it. Dropping it silently restores the invisible blue-on-blue. */
+.sac-offer-ico .shop-ico {
+  width: 25px; height: 25px;
+  --ico: #f2ead6 !important; --ico-lite: #fffdf6 !important; --ico-edge: #22303c !important;
+}
 .sac-offer-name { flex: 1; min-width: 0; }
 .sac-offer-name b { display: block; font-size: 0.86rem; font-weight: 900; line-height: 1.2; }
 .sac-offer-name small { display: block; margin-top: 1px; font-size: 0.58rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.72; }
