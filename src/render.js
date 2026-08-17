@@ -9309,6 +9309,19 @@ export function createRenderer(app) {
     // back to BIOMES.body for an unknown id, so a missing line here does not throw and does not
     // warn — it draws VILLI AND PLATELETS on the abyssal plain.
     deep: BIOME_DEEP,
+    // AND A SIXTH TIME. Five consecutive comments above this line warn about this exact silent
+    // failure and The Wreck shipped it anyway: with no entry here chapterBiome falls back to
+    // BIOMES.body, so a chapter on the sea floor drew VILLI, PLATELETS and PLASMA MOTES. It was in
+    // a screenshot that had already been taken and read — for the player sprite, not the floor.
+    //   The second-order failure is worse than wrong props and is why this line is not optional for
+    // THIS chapter specifically: BIOME_BODY has never needed an obstacle `foot`, because
+    // CHAPTERS.body.obstacles is null. The Wreck declares nine. `tintMul(undefined, floorAt)` is
+    // 0x000000, so every hull-plate footprint would have drawn as a hard pure-black ring at full
+    // alpha on pale blue water.
+    //   BIOME_REEF by reference, which is exactly what CHAPTERS.wreck.render claims to borrow —
+    // sharing the object is safe here because a biome is read-only decor, unlike the CHAPTERS
+    // entries whose own header explains why they are whole literals.
+    wreck: BIOME_REEF,
     garden: BIOME_GARDEN,
     undergrowth: {
       big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,

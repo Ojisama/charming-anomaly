@@ -1159,6 +1159,31 @@ function generateWells(sig) {
  * _drownAcc: number — the part-tick accumulator for the DoT above, reset to 0 the moment `charge`
  *   comes off zero so a partial tick banked before you reached a pocket is never spent minutes
  *   later. 0 and untouched everywhere else.
+ * _lungeT: number — seconds of Wreck Lunge dash left (CHAPTERS[chapter].lunge). Set by stepRepulse
+ *   on the same press, cooldown and charge spend as the Pulse, to LUNGE_DUR_AT_FULL * t — and
+ *   UNLIKE _burstT/_shorebreakT there is deliberately NO floor term, so an empty bar gets 0 and
+ *   falls back to the shipped shove. That is the same no-spiral rule reaching its limit rather than
+ *   an exception to it: a lunge exists to buy a kill that refills the bar, so a free one would be a
+ *   free refill in the one chapter whose bar is only ever paid for in kills. There was once a
+ *   second `t > 0` guard beside it; it was deleted because two guards for one rule mask each
+ *   other's defects (see stepRepulse). Read in two places: stepPlayerMovement's non-lane branch
+ *   REPLACES the stick with _lungeX/_lungeY * LUNGE_SPEED while it is positive, and stepBite ends
+ *   the dash by zeroing it on contact. 0 on every run of every other chapter.
+ * _lungeMoved: number — px this dash has carried the player so far, reset to 0 at the press.
+ *   stepBite refuses to land while it is 0, and that is a STEP-ORDERING fix rather than a nicety:
+ *   stepRepulse runs after stepPlayerMovement and stepBite runs later in the same step, so on the
+ *   press frame the player has not moved yet and a body already standing in reach was bitten
+ *   instantly — 45 charge for 0px of dash. In a chapter that pays you for standing in a crowd that
+ *   is the common case. 0 and untouched everywhere else.
+ * _lungeX, _lungeY: number — the unit direction that dash travels, latched at press time from
+ *   nearestEnemy (falling back to facingAngle) rather than from the stick, because a bite that goes
+ *   where the stick points is a bite you miss with. The press also publishes the angle into
+ *   p.facingAngle, which is the field render.js actually rotates the body off — without that the
+ *   fish swims sideways through the move. 0 and untouched everywhere else.
+ * _starveAcc: number — the Wreck's part-tick accumulator, the exact twin of _drownAcc above and
+ *   reset on the same rule. Two fields rather than one because the two DoTs answer opposite
+ *   problems (a routing failure vs a tempo failure) and a shared accumulator would let a chapter
+ *   declaring both bank one's part-tick into the other. 0 and untouched everywhere else.
  * killRefill: number — light per kill, snapshotted at createRun from bm.unlocks.lightThief (the
  *   permanent Light Thief unlock, LIGHT_THIEF_COST shop levels on the sacrifice screen; bm is
  *   Undertow's own bookMeta entry — see BOOK_UNLOCKS.undertow in config.js). 0 unbought, and 0
@@ -1968,6 +1993,14 @@ export function createRun(meta, opts = {}) {
     // declaring `burst` / a `resource.drown` block ever moves them off 0.
     _burstT: 0,
     _drownAcc: 0,
+    // v7.x The Wreck: seconds of Lunge dash left, the unit direction it travels, and the starving
+    // DoT's part-tick accumulator. Same pattern as every line around it — every run carries all
+    // four, and only a chapter declaring `lunge` / a `resource.starve` block ever moves them off 0.
+    _lungeT: 0,
+    _lungeX: 0,
+    _lungeY: 0,
+    _lungeMoved: 0,
+    _starveAcc: 0,
     // v7.x The Surf: seconds of Shorebreak left. Same pattern — every run carries it, and only a
     // chapter declaring `shorebreak` ever moves it off 0.
     _shorebreakT: 0,
