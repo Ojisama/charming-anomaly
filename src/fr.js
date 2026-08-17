@@ -108,7 +108,7 @@ const UI = {
     'Payés avec des niveaux d\'amélioration déjà achetés. Ils sont dépensés, sans remboursement.',
   // The effect alone, with no price clause — see BOOK_UNLOCKS in config.js for why it is split.
   'One more choice at every level-up.': 'Un choix de plus à chaque montée de niveau.',
-  'Kills give back Light.': 'Les éliminations rendent de la Lumière.',
+  'Kills give back resource.': 'Les éliminations rendent de la ressource.',
   'Sacrifice {n} upgrade levels (no coin refund).':
     'Sacrifie {n} niveaux d\'amélioration (aucun remboursement).',
   '3rd': '3e',
@@ -116,7 +116,7 @@ const UI = {
   // Book 2 (dev-gated). 'Voleur de Lumiere' keeps the owner's own framing - he described the
   // mechanic as STEALING light - rather than a neutral 'Recuperateur'. Its effect line lives with
   // the other unlock effects above, since both targets are rows on the same list.
-  'Light Thief': 'Voleur de Lumière',
+  'Scavenger': 'Charognard',
   // 'achat' (noun) not 'acheter' (verb): the chip sits at the end of a row whose label needs every
   // remaining px, and the verb is 4 characters longer for no added clarity on a buy button.
   'buy : 🪙 {n}': 'achat : 🪙 {n}',
@@ -966,12 +966,12 @@ const CONFIG = {
   '+10% coins found': '+10% pièces',
   // BOOK_SHOP.undertow (Task 6, per-book progression) — Undertow's three own shop lines, merged
   // on top of the eight above by shopLines('undertow'). All three act on a chapter's resource bar.
-  'Deep Lungs': 'Apnée',
-  '+8% resource capacity': '+8% de capacité',
-  'Slow Burn': 'Économe',
-  "-4% resource drain": "-4% d'usure",
-  'Big Gulp': 'Grande Lampée',
-  '+10% refill per pickup': '+10% par ramassage',
+  'Resource Capacity': 'Capacité de ressource',
+  '+12% resource capacity': '+12% de capacité',
+  'Resource Drain': 'Usure de ressource',
+  "-6% resource drain": "-6% d'usure",
+  'Resource Refill': 'Recharge de ressource',
+  '+15% refill per pickup': '+15% par ramassage',
   'Fire Infusion': 'Infusion de Feu',
   'Cold Infusion': 'Infusion de Givre',
   'Lightning Infusion': 'Infusion de Foudre',

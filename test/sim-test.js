@@ -7,7 +7,7 @@ import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRec
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 import {
-  SHOP, shopCost, MAX_SHOP_LEVEL, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
+  SHOP, shopCost, MAX_SHOP_LEVEL, lineMax, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
   PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
   REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
@@ -5011,7 +5011,7 @@ function runBookProgression() {
   // DELETES levels out of bm.shop, and a meter that credited only the denominator would run
   // backwards at the exact moment the player made progress.
   {
-    const maxedShop = (bookId) => Object.fromEntries(Object.keys(shopLines(bookId)).map((id) => [id, MAX_SHOP_LEVEL]))
+    const maxedShop = (bookId) => Object.fromEntries(Object.keys(shopLines(bookId)).map((id) => [id, lineMax(id)]))
     const sacTotal = SACRIFICE_COSTS.reduce((a, b) => a + b, 0)
 
     // The denominator, stated per book, so a config change that silently moves the meter is visible
@@ -5020,10 +5020,11 @@ function runBookProgression() {
       const lines = Object.keys(shopLines(bookId)).length
       const unlocks = Object.entries(BOOK_UNLOCKS[bookId] ?? {})
       const unlockTotal = unlocks.reduce((sum, [, u]) => sum + u.costs.reduce((a, b) => a + b, 0), 0)
-      const expect = lines * MAX_SHOP_LEVEL + sacTotal + unlockTotal
+      const levelTotal = Object.keys(shopLines(bookId)).reduce((sum, id) => sum + lineMax(id), 0)
+      const expect = levelTotal + sacTotal + unlockTotal
       const fresh = { shop: {}, choiceSlots: 2, unlocks: {} }
       assert.strictEqual(bookProgress(fresh, bookId).total, expect,
-        `${bookId}: the denominator must be every buyable LEVEL — ${lines} lines x ${MAX_SHOP_LEVEL} + ${sacTotal} card-slot levels + ${unlockTotal} unlock levels = ${expect}. Counting LINES instead of levels reads 8/80 as "8 of 8 things", and leaving the sacrifices out means 100% is reachable with the card slots unbought.`)
+        `${bookId}: the denominator must be every buyable LEVEL — ${levelTotal} across ${lines} lines (summed per line: a line may sell fewer than MAX_SHOP_LEVEL) + ${sacTotal} card-slot levels + ${unlockTotal} unlock levels = ${expect}. Counting LINES instead of levels reads 8/80 as "8 of 8 things"; counting every line at the GLOBAL cap prints a denominator no player can reach.`)
       assert.strictEqual(bookProgress(fresh, bookId).pct, 0, `${bookId}: a fresh book must read 0%`)
 
       // Spent out means spent out: every line maxed, every card slot, every unlock rung.
@@ -5051,7 +5052,7 @@ function runBookProgression() {
     const ids = Object.keys(shopLines('book1'))
     const saved = {}
     let left = price
-    for (const id of ids) { const take = Math.min(MAX_SHOP_LEVEL, left); if (take > 0) saved[id] = take; left -= take }
+    for (const id of ids) { const take = Math.min(lineMax(id), left); if (take > 0) saved[id] = take; left -= take }
     assert.strictEqual(left, 0, `could not stage ${price} levels across ${ids.length} book 1 lines — the fixture is broken, not the code`)
     const before = bookProgress({ shop: saved, choiceSlots: 2, unlocks: {} }, 'book1').pct
     const after = bookProgress({ shop: {}, choiceSlots: 3, unlocks: {} }, 'book1').pct
@@ -5064,7 +5065,7 @@ function runBookProgression() {
     const rung = unlockCost('undertow', uid, 0)
     const uSaved = {}
     let uLeft = rung
-    for (const id of Object.keys(shopLines('undertow'))) { const take = Math.min(MAX_SHOP_LEVEL, uLeft); if (take > 0) uSaved[id] = take; uLeft -= take }
+    for (const id of Object.keys(shopLines('undertow'))) { const take = Math.min(lineMax(id), uLeft); if (take > 0) uSaved[id] = take; uLeft -= take }
     const uBefore = bookProgress({ shop: uSaved, choiceSlots: 2, unlocks: {} }, 'undertow').pct
     const uAfter = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: 1 } }, 'undertow').pct
     assert.strictEqual(uAfter, uBefore,
@@ -5318,12 +5319,12 @@ function runBookProgression() {
     const base = makeMeta(); base.chapters = {}
     const r0 = createRun(base, { chapter })
     const up = makeMeta(); up.chapters = {}
-    ensureBookMeta(up, 'undertow').shop.deepLungs = MAX_SHOP_LEVEL
+    ensureBookMeta(up, 'undertow').shop.deepLungs = lineMax('deepLungs')
     const r1 = createRun(up, { chapter })
     assert.ok(r1.chargeMax > r0.chargeMax,
       `deepLungs must raise the resource ceiling in '${chapter}' (${r0.chargeMax} -> ${r1.chargeMax})`)
-    assert.ok(Math.abs(r1.chargeMax / r0.chargeMax - (1 + 0.08 * MAX_SHOP_LEVEL)) < 1e-6,
-      'deepLungs scales linearly at 8% per level')
+    assert.ok(Math.abs(r1.chargeMax / r0.chargeMax - (1 + BOOK_SHOP.undertow.deepLungs.perLevel * lineMax('deepLungs'))) < 1e-6,
+      `deepLungs scales linearly at ${BOOK_SHOP.undertow.deepLungs.perLevel} per level x ${lineMax('deepLungs')} levels`)
     assert.strictEqual(r1.charge, r1.chargeMax, 'the bar starts full at the RAISED ceiling')
   }
 
@@ -5333,7 +5334,7 @@ function runBookProgression() {
   // to the OLD config max in one tick, the only explanation left is the clamp still reading config.
   {
     const m = makeMeta(); m.chapters = {}
-    ensureBookMeta(m, 'undertow').shop.deepLungs = MAX_SHOP_LEVEL
+    ensureBookMeta(m, 'undertow').shop.deepLungs = lineMax('deepLungs')
     const run = createRun(m, { chapter: 'shelf' })
     const configMax = CHAPTERS.shelf.resource.max
     assert.ok(run.chargeMax > configMax, 'precondition: deepLungs must raise the ceiling above the config max for this probe to mean anything')
@@ -5355,7 +5356,7 @@ function runBookProgression() {
   {
     const m = makeMeta(); m.chapters = {}
     const bm2 = ensureBookMeta(m, 'undertow')
-    bm2.shop.deepLungs = MAX_SHOP_LEVEL
+    bm2.shop.deepLungs = lineMax('deepLungs')
     bm2.unlocks.lightThief = true
     Math.random = mulberry32(1)
     const run = createRun(m, { chapter: 'shelf', difficulty: 1 })
@@ -5433,7 +5434,7 @@ function runBookProgression() {
       "paintCharge's clamp formula moved — the mirrored computation below no longer matches the shipped one")
 
     const m = makeMeta(); m.chapters = {}
-    ensureBookMeta(m, 'undertow').shop.deepLungs = MAX_SHOP_LEVEL
+    ensureBookMeta(m, 'undertow').shop.deepLungs = lineMax('deepLungs')
     const run = createRun(m, { chapter: 'shelf' })
     const configMax = CHAPTERS.shelf.resource.max
     assert.ok(run.chargeMax > configMax, 'precondition: deepLungs must raise the ceiling above the config max')
@@ -5539,6 +5540,68 @@ function runBookProgression() {
       `${JSON.stringify(bad)}: meta.grants must repair to a plain object`)
   }
   console.log('PASS run BP.ad (shape guard): meta.books/meta.grants survive books:5, grants:"x" and books:"x" without wiping the save')
+
+  // (ae) PER-LINE LEVEL CAPS (v7.x). A line may sell fewer levels than MAX_SHOP_LEVEL, and every
+  // one of this feature's failure modes is SILENT: a bare MAX_SHOP_LEVEL left in a notch rail
+  // draws ten pips on a five-level line, one left in the buy guard sells an eleventh level nobody
+  // priced, and a legacy save holding the old count pays out a bonus the shop no longer offers.
+  {
+    // `seen` (block b above) is the merged every-book line table, built and uniqueness-checked there.
+    const capped = [...seen.keys()].filter((id) => lineMax(id) !== MAX_SHOP_LEVEL)
+    assert.ok(capped.length > 0,
+      'no line overrides maxLevel — this whole block is asserting nothing. Delete it or restore the override.')
+
+    // 1. THE PRICE LADDER'S ENDPOINTS ARE FIXED, whatever the level count. A short line takes the
+    // same first and last rung as a full-length one on the same base; it just strides between
+    // them. Without this a halved line is simply a cheap line, which is the opposite of the tune.
+    for (const [id, line] of seen) {
+      const max = lineMax(id)
+      const base = line.base
+      const ceiling = SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT
+      const fullLast = Math.min(ceiling,
+        Math.round(base * Math.pow(1.6, MAX_SHOP_LEVEL - 1) * (1.2 + 1.8)))
+      assert.strictEqual(shopCost(id, 0), Math.min(ceiling, Math.round(base * 1.2)),
+        `${id}: the FIRST rung must cost base x 1.2 whatever maxLevel is`)
+      assert.strictEqual(shopCost(id, max - 1), fullLast,
+        `${id}: the LAST rung (level ${max - 1} of ${max}) must cost what a ${MAX_SHOP_LEVEL}-level line on base ${base} charges for its last — ${fullLast}. It reads ${shopCost(id, max - 1)}, so shortening the line made it cheaper instead of steeper.`)
+      // ...and the ladder never goes backwards on the way there.
+      for (let l = 1; l < max; l++) {
+        assert.ok(shopCost(id, l) >= shopCost(id, l - 1),
+          `${id}: rung ${l} (${shopCost(id, l)}) is cheaper than rung ${l - 1} (${shopCost(id, l - 1)})`)
+      }
+    }
+    // The owner's floor for a shortened line: its last level is a real commitment, not pocket change.
+    for (const id of capped) {
+      assert.ok(shopCost(id, lineMax(id) - 1) > 1000,
+        `${id}: a shortened line's last level must cost more than 1000 — it costs ${shopCost(id, lineMax(id) - 1)}`)
+    }
+
+    // 2. A LEGACY SAVE IS CLAMPED ON USE, NOT ON LOAD (R3). deepLungs sold 10 levels before this
+    // tune; a save holding 10 keeps the 10 on disk and is PAID for lineMax of them.
+    const legacy = makeMeta(); legacy.chapters = {}
+    const lbm = ensureBookMeta(legacy, 'undertow')
+    lbm.shop.deepLungs = MAX_SHOP_LEVEL          // the pre-tune count
+    const rLegacy = createRun(legacy, { chapter: 'surf', difficulty: 1 })
+    const atCap = makeMeta(); atCap.chapters = {}
+    ensureBookMeta(atCap, 'undertow').shop.deepLungs = lineMax('deepLungs')
+    const rCap = createRun(atCap, { chapter: 'surf', difficulty: 1 })
+    assert.strictEqual(rLegacy.chargeMax, rCap.chargeMax,
+      `a save holding ${MAX_SHOP_LEVEL} of deepLungs must pay out only lineMax (${lineMax('deepLungs')}) — it reads ${rLegacy.chargeMax} against ${rCap.chargeMax}`)
+    assert.strictEqual(lbm.shop.deepLungs, MAX_SHOP_LEVEL,
+      'and the SAVE must still hold 10: clamping on load is what an older build reads back as a loss (R3)')
+
+    // 3. NO BARE MAX_SHOP_LEVEL LEFT IN A LEVEL-COUNT POSITION. Source text, because the two
+    // files that would break are the two the suite cannot import. ui.js draws the rails and the
+    // MAX chip; main.js guards the purchase. Both must ask the LINE.
+    for (const f of ['src/ui.js', 'src/main.js']) {
+      const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')
+      const code = src.split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n')
+      assert.ok(!/MAX_SHOP_LEVEL/.test(code),
+        `${f} still references MAX_SHOP_LEVEL outside a comment. Every level count there must go through lineMax(id) — a bare global draws a 10-notch rail on a 5-level line and sells an unpriced 6th.`)
+      assert.ok(/lineMax\(/.test(code), `${f} must call lineMax()`)
+    }
+    console.log(`PASS run BP.ae (per-line level caps): ${capped.length} shortened line(s) [${capped.join(' ')}], ladder endpoints pinned to the ${MAX_SHOP_LEVEL}-level curve and monotone throughout, last rungs ${capped.map((id) => shopCost(id, lineMax(id) - 1)).join('/')} all over 1000, a legacy ${MAX_SHOP_LEVEL}-level save pays out ${lineMax('deepLungs')} while keeping ${MAX_SHOP_LEVEL} on disk, and neither ui.js nor main.js reads the global cap`)
+  }
 
   console.log(`PASS run BP (book progression): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max, The Surf's opening balance (EARLY_CALM.surf + archetypeMul.tank) matches the 2026-08-17 owner rulings, ${bkAllChapters.length} chapters all resolve to a book, and no source file reads SHOP directly`)
 }
@@ -6200,7 +6263,7 @@ function runDark() {
     // reads fully lit against the OLD max must read DARK once the run's raised ceiling is supplied —
     // a caller still dividing by res.max cannot see this, which is exactly how the chapter's dark
     // fell silent for the whole band Deep Lungs added.
-    const bigMax = res.max * (1 + 0.08 * MAX_SHOP_LEVEL)   // Deep Lungs at max level: +80%
+    const bigMax = res.max * (1 + BOOK_SHOP.undertow.deepLungs.perLevel * lineMax('deepLungs'))   // Deep Lungs at max level
     assert.strictEqual(darkness(70, res, res.max), 0,
       'precondition: 70 against the OLD max of 100 must read fully lit (70/100=0.7 >= the 0.5 threshold)')
     assert.ok(darkness(70, res, bigMax) > 0,
@@ -6271,7 +6334,7 @@ function runDark() {
     // motionless" defect Finding 1 reported. Prove the collapse first (so this is provably testing
     // the regression, not asserting two arbitrary unequal numbers), then prove the run's own
     // (raised) ceiling un-collapses it.
-    const bigMax2 = res.max * (1 + 0.08 * MAX_SHOP_LEVEL)
+    const bigMax2 = res.max * (1 + BOOK_SHOP.undertow.deepLungs.perLevel * lineMax('deepLungs'))
     assert.strictEqual(lightRadius(res.max * 1.1, res, PHONE, res.max), lightRadius(res.max * 1.7, res, PHONE, res.max),
       'precondition: against the OLD max, two different charges above it must both saturate at radiusFull — that saturation is the bug')
     assert.notStrictEqual(lightRadius(res.max * 1.1, res, PHONE, bigMax2), lightRadius(res.max * 1.7, res, PHONE, bigMax2),
@@ -16701,7 +16764,7 @@ function testSurfHumidityDamage() {
   {
     assert.strictEqual(resourceDamageMul(res.max * 0.5, res), resourceDamageMul(res.max * 0.5, res, res.max),
       'omitting max must still mean res.max, or every 2-arg call site above just changed meaning')
-    const bigMax = res.max * (1 + 0.08 * MAX_SHOP_LEVEL)
+    const bigMax = res.max * (1 + BOOK_SHOP.undertow.deepLungs.perLevel * lineMax('deepLungs'))
     assert.strictEqual(resourceDamageMul(res.max * 1.1, res, res.max), resourceDamageMul(res.max * 1.7, res, res.max),
       'precondition: against the OLD max, two different charges above it must both saturate at 1 (full damage) — that saturation is the bug')
     assert.notStrictEqual(resourceDamageMul(res.max * 1.1, res, bigMax), resourceDamageMul(res.max * 1.7, res, bigMax),

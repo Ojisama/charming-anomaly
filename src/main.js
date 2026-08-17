@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, shopLines, MAX_SHOP_LEVEL, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
+import { shopCost, shopLines, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -183,7 +183,7 @@ const ui = initUI({
     if (!shopLines(bookId)[id]) return false
     const level = bm.shop[id] ?? 0
     const cost = shopCost(id, level)
-    if (level >= MAX_SHOP_LEVEL || bm.coins < cost) return false
+    if (level >= lineMax(id) || bm.coins < cost) return false
     bm.coins -= cost
     bm.shop[id] = level + 1
     saveMeta(meta)

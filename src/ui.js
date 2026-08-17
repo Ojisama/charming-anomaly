@@ -1,8 +1,61 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName } from './config.js'
+import { shopCost, shopLines, lineMax, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
+
+// ---- Shop line icons (v7.x) --------------------------------------------------------------
+// DRAWN, NOT EMOJI (owner ruling, 2026-08-17), in the same 24px stroke idiom as ICO_REROLL and
+// LOCK_SVG below — one visual language for every icon this UI draws. The emoji set they replace
+// failed the only job an icon has at 19px: 💥 damage and 💢 crit damage were the same small
+// starburst, ⚡ fire rate and 💨 move speed were the same "fast" smear, and 🕯️ rendered as a
+// near-invisible sliver. A stroke glyph is legible at row size because it is six strokes, not a
+// colour photograph shrunk to nothing.
+//
+// The three RESOURCE lines share a vessel so they read as one system rather than three unrelated
+// buys: a tank that grows, a glass that runs slow, a vessel being poured into.
+//
+// `config.icon` (the emoji) stays on every line as the FALLBACK below — a new line added without
+// an entry here still renders something rather than a blank box, which is the failure mode a
+// lookup table like this otherwise ships silently.
+// EVERY GLYPH FILLS ~20 OF THE 24 BOX. The first cut drew several inside the middle third, and at
+// 21px on a phone that is the difference between an icon and a smudge — the star and the heart
+// read while the crosshair and the tank beside them looked like punctuation. Judged by cropping
+// the row strip out of a real capture and scaling it 3x, not by reading the paths.
+const SHOP_ICONS = {
+  // sword, not a burst: the burst shape belongs to critDamage's star and two starbursts side by
+  // side is exactly the 💥/💢 collision this set exists to end.
+  damage:     '<path d="M14.5 17.5 3 6V3h3l11.5 11.5"/><path d="m13 19 6-6"/><path d="m16 16 4 4"/><path d="m19 21 2-2"/>',
+  fireRate:   '<path d="M13 1.5 4 13.5h7l-1 9 9-12h-7z"/>',
+  // reticle = the CHANCE of a crit; the star = its SIZE. Different questions, different shapes.
+  // No outer ring on purpose: that ring is the coin below, and two big circles on one screen is
+  // the same collision in a new costume.
+  critChance: '<circle cx="12" cy="12" r="3.2"/><path d="M12 1.5v6M12 16.5v6M1.5 12h6M16.5 12h6"/>',
+  critDamage: '<path d="m12 2 3 6.7 7.3.8-5.4 4.9 1.5 7.1L12 17.9 5.6 21.5l1.5-7.1L1.7 9.5 9 8.7z"/>',
+  maxHP:      '<path d="M12 21S3 15.4 3 9.8A5 5 0 0 1 12 6.9a5 5 0 0 1 9 2.9c0 5.6-9 11.2-9 11.2z"/>',
+  moveSpeed:  '<path d="M2 7.5h12M2 12h8M2 16.5h12"/><path d="m16.5 6.5 5.5 5.5-5.5 5.5"/>',
+  // Horseshoe, poles UP and OPEN, with a band across each prong. Capping the tips (the previous
+  // cut did) fuses the outer and inner curves into one solid U with no poles at all — which is
+  // what it rendered as, and a magnet without poles is just a letter.
+  magnet:     '<path d="M4.5 3v9a7.5 7.5 0 0 0 15 0V3"/><path d="M10 3v9a2 2 0 0 0 4 0V3"/><path d="M4.5 8.5h5.5M14 8.5h5.5"/>',
+  // A RIMMED DISC. The stacked ellipses of the first cut are the universal "database" glyph, and
+  // the overlapping-arc second cut drew nothing visible at all — the arc's chord and radius put
+  // it under the circle it was meant to peek out from.
+  coinGain:   '<circle cx="12" cy="12" r="8.8"/><circle cx="12" cy="12" r="3.6"/>',
+  // The resource trio share a VESSEL so they read as one system: a tank that holds more, a glass
+  // that runs slower, a basin being poured into.
+  deepLungs:  '<rect x="5.5" y="3.5" width="13" height="17" rx="3.4"/><path d="M5.5 12.5h13"/>',
+  slowBurn:   '<path d="M6 2.5h12M6 21.5h12"/><path d="M6 2.5c0 5.5 6 6.5 6 9.5s-6 4-6 9.5"/><path d="M18 2.5c0 5.5-6 6.5-6 9.5s6 4 6 9.5"/>',
+  bigGulp:    '<path d="M12 1.5v9.5"/><path d="m7.8 6.8 4.2 4.2 4.2-4.2"/><path d="M3.5 13.5v2.5a6 6 0 0 0 6 6h5a6 6 0 0 0 6-6v-2.5z"/>',
+  // sacrifice targets (BOOK_UNLOCKS + the card-slot ladder), same screen, same language
+  slot:       '<rect x="2" y="4" width="8.5" height="16" rx="2.2"/><rect x="13.5" y="4" width="8.5" height="16" rx="2.2" stroke-dasharray="3 2.6"/><path d="M17.75 8.5v7M14.25 12h7"/>',
+  // a bone: one shaft, two lobes at each end
+  lightThief: '<path d="m8.6 15.4 6.8-6.8"/><circle cx="6.4" cy="15.1" r="2.6"/><circle cx="8.9" cy="17.6" r="2.6"/><circle cx="15.1" cy="6.4" r="2.6"/><circle cx="17.6" cy="8.9" r="2.6"/>',
+}
+// One <svg> per line, or the config emoji when a line has no drawing yet.
+const shopIcon = (id, emoji) => (SHOP_ICONS[id]
+  ? `<svg class="shop-ico" viewBox="0 0 24 24" aria-hidden="true">${SHOP_ICONS[id]}</svg>`
+  : (emoji ?? ''))
 
 // Chapter-card cast thumbnails, keyed by rosterId: './cast/tardigrade.png' -> 'tardigrade'.
 // See the castArt note in initUI for where they come from and why they are files.
@@ -116,7 +169,7 @@ function lerpColor(a, b, t) {
 
 // Formats a book's shop-line total bonus at a given level the same way its shop-row desc reads
 // (e.g. "+25%" for percentage stats, "+150" for flat ones like maxHP) — used by the sacrifice
-// modal's per-row "current -> after" preview. `reduction` lines (Slow Burn) store a POSITIVE
+// modal's per-row "current -> after" preview. `reduction` lines (slowBurn) store a POSITIVE
 // perLevel and display as a decrease — storing -0.04 instead would render "+-40%" here and invert
 // the `per < 1` percent test one line down.
 function formatShopBonus(bookId, id, levels) {
@@ -845,7 +898,7 @@ export function initUI(hooks) {
   function purseSwitchHtml(bookId) {
     const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
     const levels = Object.values(bm.shop).reduce((sum, l) => sum + l, 0)
-    const buyable = Object.keys(shopLines(bookId)).length * MAX_SHOP_LEVEL
+    const buyable = Object.keys(shopLines(bookId)).reduce((sum, id) => sum + lineMax(id), 0)
     // RUNGS, not rows: Light Thief is ONE row on the list — sacTargets only ever offers a ladder's
     // next step — but three separate purchases. So `done` must be summed from what has been PAID,
     // never derived as rungs minus rows: that reads 3 of 5 on a save that has bought nothing,
@@ -891,7 +944,7 @@ export function initUI(hooks) {
       return `
         <div class="sac-offer${afford ? '' : ' sac-offer--short'}">
           <button class="sac-offer-top" data-act="sacrifice-start" data-id="${x.id}" ${afford ? '' : 'disabled'}>
-            <span class="sac-offer-ico">${x.icon}</span>
+            <span class="sac-offer-ico">${shopIcon(x.id, x.icon)}</span>
             <span class="sac-offer-name">
               <b>${x.label}</b>
               ${rung ? `<small>${rung}</small>` : ''}
@@ -937,7 +990,7 @@ export function initUI(hooks) {
       const picked = sacrificePicks[id] ?? 0
       const kept = level - picked
       const canOffer = picked < level && !full
-      const notches = Array.from({ length: MAX_SHOP_LEVEL }, (_, i) => {
+      const notches = Array.from({ length: lineMax(id) }, (_, i) => {
         const cls = i < kept ? 'notch notch--on' : i < level ? 'notch notch--lost' : 'notch'
         return `<i class="${cls}"></i>`
       }).join('')
@@ -952,7 +1005,7 @@ export function initUI(hooks) {
       return `
         <div class="card shop-row sac-row${id === sacrificeBounceId ? ' card--bounce' : ''}">
           <span class="shop-row-in">
-            <span class="shop-row-icon">${item.icon}</span>
+            <span class="shop-row-icon">${shopIcon(id, item.icon)}</span>
             <span class="shop-row-effect">${mid}</span>
             <button class="sac-btn sac-btn--offer" data-act="sacrifice-offer" data-id="${id}" ${canOffer ? '' : 'disabled'}
                     aria-label="${t('Offer')} — ${t(item.name)}">🩸<b>+</b></button>
@@ -1010,25 +1063,28 @@ export function initUI(hooks) {
       setHtml(screens.shop, sacrificeViewHtml(target, bookId))
       return
     }
-    // v6.6 card: the NAME is gone from the face. A purchase turns on the effect and the price —
-    // "Power Gel" is flavour the player already knows by icon after one session, and it was
-    // costing the biggest type on the card plus a whole line. The effect takes that slot, and the
-    // name survives in aria-label so screen readers and the sacrifice list still speak it.
+    // The card carries NAME over EFFECT, with the price as a gold chip and the level meter riding
+    // the bottom edge. The name is on the face because the icon cannot carry a row's identity on
+    // its own: for two versions the row was the effect alone, which left eleven emoji to say which
+    // upgrade you were looking at, and two of them were the same small starburst. Both halves are
+    // stacked in ONE column so neither competes with the other for horizontal room — that is the
+    // scarce axis at 320px, and every attempt that put a second thing ON the line lost a label.
     // v6.6.2 (owner picked this shape over the two-column cards): ONE COLUMN of rows (eight for
-    // book 1, more for a book with its own lines — see shopLines). A full-width row is what lets
-    // the effect sit on a single line and never ellipsize, in either language — horizontal room is
-    // the scarce axis at 320px, and every previous attempt lost labels to a meter competing for
-    // the same line. So the meter is not on the line: ten discrete notches ride the row's bottom
-    // edge, and reading down the column shows the whole build at once. The price is an explicit
-    // gold "buy" chip rather than a bare number.
+    // book 1, more for a book with its own lines — see shopLines). The meter is likewise not on
+    // the line: discrete notches ride the row's bottom edge, one per level the LINE sells, and
+    // reading down the column shows the whole build at once.
     const cards = Object.entries(shopLines(bookId)).map(([id, item]) => {
       const level = bm.shop[id] ?? 0
-      const maxed = level >= MAX_SHOP_LEVEL
+      // Per LINE, not the global cap: Book 2's three bar lines sell 5 deeper levels, so the rail
+      // must draw 5 notches and MAX must land on the 5th. A rail sized by the global would show a
+      // line as half-bought forever, with a buy chip that stopped responding.
+      const max = lineMax(id)
+      const maxed = level >= max
       const buyCost = maxed ? 0 : shopCost(id, level)
       const afford = !maxed && bm.coins >= buyCost
-      const notches = Array.from({ length: MAX_SHOP_LEVEL },
+      const notches = Array.from({ length: max },
         (_, i) => `<i class="notch${i < level ? ' notch--on' : ''}"></i>`).join('')
-      const label = `${t(item.name)} — ${t(item.desc)} · ${level}/${MAX_SHOP_LEVEL} · ${maxed ? 'MAX' : `🪙 ${buyCost}`}`
+      const label = `${t(item.name)} — ${t(item.desc)} · ${level}/${max} · ${maxed ? 'MAX' : `🪙 ${buyCost}`}`
       return `
         <!-- maxed is NOT disabled-looking: a finished upgrade is an achievement, not a dead
              control. It gets the gold treatment instead of the grey one (onBuy already no-ops on
@@ -1038,8 +1094,8 @@ export function initUI(hooks) {
           <!-- v6.0.2: layout lives on an inner span, NOT the button — iOS Safari doesn't reliably
                grow a flex <button> around its content. The button is a plain block. -->
           <span class="shop-row-in">
-            <span class="shop-row-icon">${item.icon}</span>
-            <span class="shop-row-effect">${t(item.desc)}</span>
+            <span class="shop-row-icon">${shopIcon(id, item.icon)}</span>
+            <span class="shop-row-effect shop-row-stack"><b>${t(item.name)}</b><small>${t(item.desc)}</small></span>
             <span class="shop-row-buy">${maxed ? 'MAX' : tt('buy : 🪙 {n}', { n: buyCost })}</span>
           </span>
           <span class="shop-rail">${notches}</span>

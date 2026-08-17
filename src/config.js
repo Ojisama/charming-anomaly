@@ -3999,20 +3999,29 @@ export const SHOP_COST_CAP_DEFAULT = 4999
 // ---- Book-specific upgrade lines (v7.x) --------------------------------------------
 // Every book gets the eight lines in SHOP. A book may add its own on top. Undertow's three all
 // act on the RESOURCE BAR, which is what makes them book lines rather than chapter ones: all
-// three of its chapters run one (Humidity/Light/Air), so none of them is dead in its own book.
+// FIVE of its chapters run one (Humidity/Light/Air/Feed/Light), so none of them is dead in its
+// own book.
 //
 // `reduction: true` marks a line whose perLevel is a DECREASE. formatShopBonus (ui.js) reads it —
 // without it, -0.04 renders as "+-40%".
 //
-// Slow Burn's floor on chargeDrainMul (state.js createRun): stops a future MAX_SHOP_LEVEL raise
-// from inverting the drain into a refill. At today's 10 levels x 4%/level this never binds (floor
-// is 0.5, the tuned ceiling is 0.6) — it exists for the level cap that hasn't shipped yet.
+// `maxLevel` overrides MAX_SHOP_LEVEL for ONE line — see lineMax/shopCost below for how the price
+// ladder follows it. Every consumer of a level count must go through lineMax, never the global.
+//
+// slowBurn's floor on chargeDrainMul (state.js createRun): stops a future maxLevel raise
+// from inverting the drain into a refill. At today's 5 levels x 6%/level this never binds (floor
+// is 0.5, the tuned ceiling is 0.7) — it exists for the level cap that hasn't shipped yet.
 export const SLOW_BURN_FLOOR = 0.5
+// balance_decision : book-2 bar lines halve to 5 deeper levels 2026-08-17
+//  - shopBonus (state.js) clamps to lineMax, so a save holding 10 of these reads as 5
 export const BOOK_SHOP = {
   undertow: {
-    deepLungs: { name: 'Deep Lungs', desc: '+8% resource capacity', perLevel: 0.08, base: 20, icon: '🫁' },
-    slowBurn:  { name: 'Slow Burn',  desc: '-4% resource drain',    perLevel: 0.04, base: 30, icon: '🕯️', reduction: true },
-    bigGulp:   { name: 'Big Gulp',   desc: '+10% refill per pickup', perLevel: 0.10, base: 25, icon: '💧' },
+    // PLAIN NAMES, unlike the eight universal lines' flavour ones (owner, 2026-08-17). These three
+    // are the newest thing on the screen and the only ones naming a system the player met one
+    // chapter ago; "Deep Lungs" made you decode a joke before you could tell what you were buying.
+    deepLungs: { name: 'Resource Capacity', desc: '+12% resource capacity', perLevel: 0.12, base: 20, icon: '🫁', maxLevel: 5 },
+    slowBurn:  { name: 'Resource Drain',    desc: '-6% resource drain',     perLevel: 0.06, base: 30, icon: '🕯️', reduction: true, maxLevel: 5 },
+    bigGulp:   { name: 'Resource Refill',   desc: '+15% refill per pickup', perLevel: 0.15, base: 25, icon: '💧', maxLevel: 5 },
   },
 }
 // The line table for one book. EVERY consumer goes through this — never SHOP directly, or a
@@ -4022,10 +4031,23 @@ export const shopLines = (bookId) => ({ ...SHOP, ...(BOOK_SHOP[bookId] ?? {}) })
 // globally unique — run BP asserts it — which is what lets shopCost keep its two-arg signature
 // and spares ~6 call sites.
 const ALL_SHOP_LINES = Object.assign({}, SHOP, ...Object.values(BOOK_SHOP))
-export const shopCost = (id, level) => Math.min(
-  SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT,
-  Math.round(ALL_SHOP_LINES[id].base * Math.pow(1.6, level) * (1.2 + 1.8 * (level / (MAX_SHOP_LEVEL - 1)))),
-)
+// How many levels ONE line sells. The global is the default; a line may buy fewer, deeper ones.
+// EVERY level count goes through this — a bare MAX_SHOP_LEVEL in a notch rail, a `maxed` test or a
+// progress denominator is the one-fact-two-places bug this file is built around, and it fails
+// silently: a 5-level line draws 10 notches and sells an 11th level nobody priced.
+export const lineMax = (id) => ALL_SHOP_LINES[id]?.maxLevel ?? MAX_SHOP_LEVEL
+// A SHORT LINE WALKS THE SAME PRICE LADDER IN FEWER, BIGGER STRIDES. `l` re-expresses the line's
+// own level as a position on the ten-rung curve, so a 5-level line's first and last purchases cost
+// exactly what a 10-level line's do — halving the levels raises the price per level instead of
+// making the line cheap. Dividing by `MAX_SHOP_LEVEL - 1` below is therefore still correct: `l` is
+// already in that ladder's units, not the line's.
+export const shopCost = (id, level) => {
+  const l = level * ((MAX_SHOP_LEVEL - 1) / Math.max(1, lineMax(id) - 1))
+  return Math.min(
+    SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT,
+    Math.round(ALL_SHOP_LINES[id].base * Math.pow(1.6, l) * (1.2 + 1.8 * (l / (MAX_SHOP_LEVEL - 1)))),
+  )
+}
 
 // Sacrifice already-purchased SHOP levels (no coin refund) to permanently unlock the 3rd/4th
 // level-up card slot (see meta.choiceSlots in state.js and hooks.onSacrifice in main.js).
@@ -4060,9 +4082,15 @@ export const BOOK_UNLOCKS = {
     // sentence itself. It used to carry a {cost} template and so could only be shown somewhere the
     // cost was in scope — which is most of why the one line saying what this unlock DOES never
     // appeared until you were two taps into a modal.
+    // THE KEY IS A SAVE FIELD (bm.unlocks.lightThief, plus the legacy top-level meta.lightThief the
+    // loadMeta migration reads) and is frozen by R2 — additive only, never rename. The DISPLAY name
+    // moved to Scavenger in v7.x and the key cannot follow it, which is why the two disagree.
+    // Why it moved: the unlock is BOOK-WIDE and was named after one chapter's bar. It gives kills
+    // back Humidity in The Surf, Air in The Reef and Feed in The Trawl — "Light Thief" is true in
+    // exactly one of the four chapters where it does anything (The Deep's killRefill is 0).
     lightThief: {
-      costs: LIGHT_THIEF_COSTS, icon: '🔦', name: 'Light Thief',
-      desc: 'Kills give back Light.',
+      costs: LIGHT_THIEF_COSTS, icon: '🦴', name: 'Scavenger',
+      desc: 'Kills give back resource.',
     },
   },
 }

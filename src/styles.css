@@ -412,6 +412,14 @@ body {
    intrinsic line box is ~2x its font-size no matter the line-height, and eight rows each 12px
    taller than they need is the difference between fitting a 320x568 screen and scrolling. */
 .shop-row-icon { flex-shrink: 0; display: flex; align-items: center; height: 1.2em; font-size: 1rem; line-height: 1; }
+/* Drawn shop icons (SHOP_ICONS in ui.js) — same stroke language as .rr-ico and .vol-lock.
+   currentColor, so a row inherits its own state: the maxed row's gold and the unaffordable row's
+   fade come for free, which an emoji could never do. */
+.shop-ico {
+  width: 21px; height: 21px; flex: none;
+  fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
+}
+.sac-offer-ico .shop-ico { width: 23px; height: 23px; }
 .shop-row-effect {
   flex: 1;
   min-width: 0;
@@ -421,6 +429,13 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* v7.x: the row carries its NAME again, over the effect. v6.6 had stripped it on the grounds that
+   "Power Gel" is flavour you learn in one session — but that left the ICON as the row's entire
+   identity, and eleven emoji at 21px cannot carry that (see SHOP_ICONS in ui.js). Two lines cost
+   nothing here: the rows already stretch to fill the screen, so this is empty space, not scroll. */
+.shop-row-stack { display: flex; flex-direction: column; gap: 1px; white-space: normal; }
+.shop-row-stack b { font-size: 0.82rem; font-weight: 800; line-height: 1.15; }
+.shop-row-stack small { font-size: 0.7rem; font-weight: 700; opacity: 0.62; line-height: 1.15; }
 /* the price is a real chip, not a bare number: "what does a tap cost" should not have to be
    inferred from the row being tappable */
 .shop-row-buy {
@@ -1824,7 +1839,9 @@ body {
 }
 .sac-offer-top[disabled] { cursor: default; }
 .sac-offer-top:not([disabled]):active { transform: translateY(1px); }
-.sac-offer-ico { flex: none; font-size: 1.1rem; line-height: 1; }
+/* display:flex, not a bare line box: an inline <svg> taller than the 1.1rem line height is CLIPPED
+   rather than centred, and the tell is an icon missing its bottom third. Emoji never showed it. */
+.sac-offer-ico { flex: none; display: flex; align-items: center; font-size: 1.1rem; line-height: 1; }
 .sac-offer-name { flex: 1; min-width: 0; }
 .sac-offer-name b { display: block; font-size: 0.86rem; font-weight: 900; line-height: 1.2; }
 .sac-offer-name small { display: block; margin-top: 1px; font-size: 0.58rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.72; }
