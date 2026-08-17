@@ -352,7 +352,6 @@ export function initUI(hooks) {
     return `<button class="vol${sel ? ' vol--sel' : ''}" data-vol="${vol.id}" style="--vh:${h}%"
         aria-label="${t(chapter.name)}"${sel ? ' aria-current="true"' : ''}>
         ${vol.id === meta.chapter ? '<i class="vol-rib" aria-hidden="true"></i>' : ''}
-        <i class="vol-band" aria-hidden="true"></i>
         <span class="vol-ico" aria-hidden="true">${chapter.icon}</span>
         <span class="vol-nm">${t(spineName(vol.id))}</span>
         <span class="vol-stars" aria-hidden="true">${stars}</span>

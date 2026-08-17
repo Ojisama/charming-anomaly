@@ -1180,14 +1180,21 @@ body {
   padding-top: 2px;
 }
 
-/* a VOLUME — one chapter, standing up */
+/* a VOLUME — one chapter, standing up. Three registers, head to tail: the HEAD PANEL carrying
+   the chapter icon on its own darker ground, the title stamped large in gilt down the backstrip,
+   and the difficulty stars laid across the foot. */
 .vol {
+  /* the head panel's depth. Read by the ::before that paints it AND by .vol-ico, which is sized
+     to it so the icon is centred IN the panel rather than sitting in the cloth below it. */
+  --head: 34px;
   position: relative;
   flex: 1 1 0;
   min-width: 0;
   max-width: 58px;
   height: var(--vh, 96%);
-  padding: 6px 0 5px;
+  /* no padding at the head: the icon's own box IS the panel, so a top pad would push it out of
+     the very band it is meant to sit in */
+  padding: 0 0 5px;
   border: 0;
   border-radius: 3px 3px 1px 1px;
   background: linear-gradient(95deg, var(--cloth) 0 76%, rgba(0, 0, 0, 0.42));
@@ -1210,34 +1217,81 @@ body {
    the page block instead of the boards and stripe the paper light/dark down the row. */
 .vol:not(.vol--turned):nth-child(2n) { filter: brightness(1.1); }
 .vol:not(.vol--turned):nth-child(3n) { filter: brightness(0.92); }
-.vol-band { width: 64%; height: 1.5px; flex: none; border-radius: 2px; background: currentColor; opacity: 0.62; }
-.vol-ico { flex: none; font-size: 1rem; line-height: 1; }
+/* THE HEAD PANEL: a darker cut of the same cloth under the icon, closed by a gilt double rule.
+   Excluded for TURNED volumes — their cloth is the cover boards, and a band across those reads
+   as a stripe painted on the boards rather than as a panel on a backstrip. */
+.vol:not(.vol--turned)::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: var(--head);
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(95deg, rgba(0, 0, 0, 0.22) 0 76%, rgba(0, 0, 0, 0.5));
+  box-shadow: 0 1px 0 rgba(227, 197, 132, 0.8), 0 3px 0 rgba(227, 197, 132, 0.45);
+}
+/* Above the panel. NOT .vol-rib: it is absolutely positioned, and `position: relative` drops it
+   back into the flex flow, where its 18px silently shoves the icon down the spine — on the ONE
+   volume that has a ribbon, i.e. the one you last played. */
+.vol-ico, .vol-nm, .vol-stars { position: relative; z-index: 1; }
+/* sized to the panel so the icon is centred in it */
+.vol-ico {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--head);
+  font-size: 1.05rem;
+  line-height: 1;
+}
 /* A PLAIN BLOCK, not a flex container. `writing-mode` flips a flex container's main axis, and the
    combination stopped `overflow: hidden` from clipping — 'Undergrowth', the one name long enough
    to overrun its spine, spilled over the stars. text-align does the
    centring along the vertical line box instead, and the clip then works as a real backstop. */
+/* Every px of padding here is charged against the LONGEST name: 'Undergrowth' only just fits a
+   bare spine, so this block is what decides whether it clips. The stars were a vertical COLUMN
+   before, and moving them to a row across the foot is what bought the room for this size. */
 .vol-nm {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
-  padding: 4px 0;
+  padding: 12px 0 10px;
   writing-mode: vertical-rl;
   text-align: center;
-  font-size: 0.47rem;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: 0.55rem;
+  font-weight: 900;
+  letter-spacing: 0.13em;
   text-transform: uppercase;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+  color: #f4dda6;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+/* THE TITLE SIZE IS BOUNDED BY THE ROW, AND THE ROW IS A FRACTION OF THE VIEWPORT — so a size
+   that fits the phone is not a size that fits. 'Undergrowth' at 0.55rem needs 105px, and a volume
+   gives its title `row - 48px` (head panel 34 + star row 9 + foot pad 5), so it needs a 153px row:
+   at two Books the row is 38vh/2, which means a window 805px tall. The 390x844 phone clears that
+   by 7px and a desktop window at 800 does not — measured, after both of those shots looked
+   perfectly fine. Below the threshold, print the title SMALLER rather than clipped.
+   // ponytail: two breakpoints, not a formula. Ceiling: a THIRD Book divides the row again and no
+   // fixed size fits it (that already clipped before this design) — at which point the honest fix
+   // is to raise the icon-only cutoff below, not to add a third step here. */
+@media (max-height: 810px) {
+  .vol-nm { padding: 4px 0; font-size: 0.45rem; letter-spacing: 0.06em; }
 }
 /* Below this the spine has no room for a vertical title at all, and the chapter ICON carries the
    volume on its own — the documented icon-only fallback, applied by height rather than by taste. */
 @media (max-height: 700px) {
   .vol-nm { display: none; }
 }
-/* difficulty beaten, stacked at the foot where a real spine carries the publisher's device */
-.vol-stars { flex: none; display: flex; flex-direction: column; align-items: center; font-size: 0.44rem; line-height: 0.92; font-style: normal; }
-.vol-star { color: rgba(227, 197, 132, 0.34); font-style: normal; }
-.vol-star--on { color: var(--gold); }
+/* difficulty beaten, laid ACROSS the foot where a real spine carries the publisher's device.
+   A row, not a column: a column costs the title the height it needs, and it is also harder to
+   count — five stars side by side read as "2 of 5" at a glance.
+   The unearned stars are DARK rather than pale gold: pale gold reads as content you have and
+   makes an untouched chapter look busy, which is what the old column did. */
+.vol-stars { flex: none; display: flex; flex-direction: row; align-items: flex-end; justify-content: center; gap: 0; font-size: 0.5rem; line-height: 1; font-style: normal; }
+.vol-star { color: rgba(0, 0, 0, 0.34); font-style: normal; }
+.vol-star--on { color: var(--gold); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45); }
 /* the chapter you last played keeps a ribbon in it */
 .vol-rib {
   position: absolute;
