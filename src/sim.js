@@ -2331,6 +2331,11 @@ function stepDashBurst(run, e, tx, ty, dt, slowMul, spdMul) {
   // in particular, which is the one furthest from the declaration and the easiest to miss.
   const idleT = DASH_IDLE_T * (e.dash?.restMul ?? 1)
   const dashT = DASH_T * (e.dash?.lenMul ?? 1)
+  // spdMul softens the LUNGE ITSELF, and only the lunge — never the idle, and never the off-screen
+  // walk-in below, which has to stay at full speed or the crowd crawls out of sight for seconds (the
+  // DASH_* block in config.js measures that). It multiplies with lenMul rather than replacing it, so
+  // a creature carrying both travels lenMul x spdMul of the distance, not lenMul of it.
+  const dashSpdMul = DASH_SPEED_MUL * (e.dash?.spdMul ?? 1)
   if (e._dashPhase === undefined) { e._dashPhase = 'idle'; e._dashT = idleT }
   e._dashT -= dt
   const dx = tx - e.x, dy = ty - e.y
@@ -2357,7 +2362,7 @@ function stepDashBurst(run, e, tx, ty, dt, slowMul, spdMul) {
       e._dashPhase = 'dash'; e._dashT += dashT; e._dashDirX = ux; e._dashDirY = uy
     }
   } else {
-    const spd = e.speed * spdMul * DASH_SPEED_MUL
+    const spd = e.speed * spdMul * dashSpdMul
     vx = e._dashDirX * spd; vy = e._dashDirY * spd
     if (e._dashT <= 0) { e._dashPhase = 'idle'; e._dashT += idleT }
   }
