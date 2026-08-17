@@ -1699,11 +1699,11 @@ export const WEAPONS = {
     // normal-rarity STARTER covering roughly a third of the circle, so it trades the ring's whole
     // coverage for reach and cadence. Damage sits under the burst's at every level.
     levels: [
-      { dmg: 16, interval: 2.00, radius: 210, arc: 1.60, knockback: 120, carry: 1100 },
-      { dmg: 20, interval: 1.85, radius: 230, arc: 1.75, knockback: 135, carry: 1200 },
-      { dmg: 25, interval: 1.70, radius: 255, arc: 1.90, knockback: 150, carry: 1320 },
-      { dmg: 31, interval: 1.55, radius: 280, arc: 2.05, knockback: 170, carry: 1450 },
-      { dmg: 39, interval: 1.40, radius: 310, arc: 2.20, knockback: 190, carry: 1600 },
+      { dmg: 16, interval: 1.67, radius: 210, arc: 1.60, knockback: 120, carry: 1100 },
+      { dmg: 20, interval: 1.54, radius: 230, arc: 1.75, knockback: 135, carry: 1200 },
+      { dmg: 25, interval: 1.42, radius: 255, arc: 1.90, knockback: 150, carry: 1320 },
+      { dmg: 31, interval: 1.29, radius: 280, arc: 2.05, knockback: 170, carry: 1450 },
+      { dmg: 39, interval: 1.17, radius: 310, arc: 2.20, knockback: 190, carry: 1600 },
     ],
   },
   skippingShell: {
