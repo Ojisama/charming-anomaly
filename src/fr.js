@@ -75,8 +75,6 @@ const UI = {
   'Difficulty': 'Difficulté',
   'difficulty': 'difficulté',
   'the base game': 'le jeu de base',
-  '+1 random anomaly': '+1 anomalie aléatoire',
-  '+{n} random anomalies': '+{n} anomalies aléatoires',
   'enemy HP': 'PV ennemis',
   'coins': 'pièces',
   'win level {n} to unlock {m}': 'gagne le niveau {n} pour débloquer le {m}',
@@ -90,26 +88,41 @@ const UI = {
   'Done': 'OK',
 
   // shop
+  // The two halves of the shop (purseSwitchHtml, ui.js). 'Sacrifices' is the owner's own word and
+  // is spelled identically in French — kept rather than softened to 'Déblocages', because it warns
+  // you what the price is before you tap.
+  'Upgrades': 'Améliorations',
+  'Sacrifices': 'Sacrifices',
+  '{n} / {m} levels': '{n} / {m} niveaux',
+  '{n} of {m}': '{n} sur {m}',
+  // The unlock list's rows. 'céder' on the row (what you do), 'sacrifier' on the confirm (what it
+  // is) — the same split as Retirer/Annuler below, and for the same reason.
+  'step {n} of {m}': 'palier {n} sur {m}',
+  'give up {n}': 'céder {n}',
+  '{n} levels': '{n} niveaux',
+  'Everything in this book is unlocked.': 'Tout est débloqué dans ce livre.',
+  // The one standing sentence on the Sacrifices half — the only place the game says what its second
+  // currency IS. Every price on that screen reads "N niveaux" and nothing else explains that those
+  // are levels already bought, and lost.
+  'Paid with upgrade levels you already own. They are spent, not refunded.':
+    'Payés avec des niveaux d\'amélioration déjà achetés. Ils sont dépensés, sans remboursement.',
+  // The effect alone, with no price clause — see BOOK_UNLOCKS in config.js for why it is split.
+  'One more choice at every level-up.': 'Un choix de plus à chaque montée de niveau.',
+  'Kills give back Light.': 'Les éliminations rendent de la Lumière.',
+  'Sacrifice {n} upgrade levels (no coin refund).':
+    'Sacrifie {n} niveaux d\'amélioration (aucun remboursement).',
   '3rd': '3e',
   '4th': '4e',
-  'All 4 upgrade slots unlocked.': 'Les 4 emplacements d\'amélioration sont débloqués.',
-  'Unlock the {nth} upgrade slot — sacrifice {cost} upgrade levels (no coin refund).':
-    'Débloque le {nth} emplacement d\'amélioration — sacrifie {cost} niveaux d\'amélioration (aucun remboursement).',
   // Book 2 (dev-gated). 'Voleur de Lumiere' keeps the owner's own framing - he described the
-  // mechanic as STEALING light - rather than a neutral 'Recuperateur'. Same sentence shape as the
-  // slot line above, so the two sacrifice targets read as siblings on one screen.
+  // mechanic as STEALING light - rather than a neutral 'Recuperateur'. Its effect line lives with
+  // the other unlock effects above, since both targets are rows on the same list.
   'Light Thief': 'Voleur de Lumière',
-  'Kills give back Light — sacrifice {cost} upgrade levels (no coin refund).':
-    'Les éliminations rendent de la Lumière — sacrifie {cost} niveaux d\'amélioration (aucun remboursement).',
   // 'achat' (noun) not 'acheter' (verb): the chip sits at the end of a row whose label needs every
   // remaining px, and the verb is 4 characters longer for no added clarity on a buy button.
   'buy : 🪙 {n}': 'achat : 🪙 {n}',
-  // Deliberately shorter than the English: the full phrase is 217px in a 202px pill on a 320px
-  // phone. The modal this pill opens spells it out ("emplacement d'amélioration") in full.
-  '{nth} upgrade slot': '{nth} emplacement',
-  // The sacrifice view's target STRIP, narrower still than the shop pill above — two buttons
-  // sharing 288px at 320px wide.
-  '{nth} slot': '{nth} empl.',
+  // Full phrase: the 202px pill that forced the abbreviation is gone, and this now labels a
+  // full-width row on the unlock list.
+  '{nth} upgrade slot': '{nth} emplacement d\'amélioration',
   'Offer': 'Offrir',
   // 'Retirer', not 'Annuler': the sacrifice screen shows this per-row ↺ button AND a footer
   // Cancel at the same time, and both would otherwise read 'Annuler'. Undo takes back one offered

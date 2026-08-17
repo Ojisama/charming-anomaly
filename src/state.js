@@ -7,7 +7,8 @@ import {
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS,
-  BOOKS, BOOK_ORDER, shopLines, bookOf, SLOW_BURN_FLOOR, unlockLevel, unlockMax } from './config.js'
+  BOOKS, BOOK_ORDER, shopLines, bookOf, SLOW_BURN_FLOOR, unlockLevel, unlockMax,
+  MAX_SHOP_LEVEL, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -534,6 +535,40 @@ function shopBonus(bm, bookId, id) {
   return (shopLines(bookId)[id]?.perLevel ?? 0) * (bm.shop?.[id] ?? 0)
 }
 
+// How far through ONE BOOK's permanent upgrades a save is, counted in UPGRADE LEVELS: every level of
+// every line is one unit, so a line is worth its own depth. The cap is global (MAX_SHOP_LEVEL), so
+// the day it becomes 12 every line counts 12 and this follows without an edit.
+//
+// SACRIFICES COUNT ON BOTH SIDES. They are bought with shop LEVELS rather than coins — which makes
+// them upgrades you buy like any other, so they belong in `total` — and crediting only `total` would
+// be worse than leaving them out: buying the 3rd card slot deletes 20 levels out of bm.shop, so the
+// meter would run BACKWARDS at the exact moment the player made progress. Credited both sides it is
+// monotone, and 100% means the book is spent out: every line maxed, both card slots, every rung of
+// every BOOK_UNLOCKS ladder.
+//
+// Lives here rather than in ui.js because it is a number derived from a bm and the config tables,
+// like shopBonus above — and because ui.js is not importable by the test suite, so the arithmetic
+// would have had no guard at all.
+export function bookProgress(bm, bookId) {
+  let owned = Object.values(bm?.shop ?? {}).reduce((sum, l) => sum + (Number(l) || 0), 0)
+  let total = Object.keys(shopLines(bookId)).length * MAX_SHOP_LEVEL
+  // choiceSlots counts slots OWNED and starts at 2, so slots - 2 is how many rungs are paid for.
+  // Needs no clamp at either end and had one until a mutation test proved it dead: the forEach below
+  // bounds `i` to the ladder, so a tampered slot count credits nothing extra, and a negative makes
+  // `i < slotsPaid` false for every rung. `|| 2` is what keeps a junk value out, not the arithmetic.
+  const slotsPaid = (Number(bm?.choiceSlots) || 2) - 2
+  SACRIFICE_COSTS.forEach((cost, i) => { total += cost; if (i < slotsPaid) owned += cost })
+  for (const id of Object.keys(BOOK_UNLOCKS[bookId] ?? {})) {
+    const paid = unlockLevel(bm, bookId, id)   // resolves the legacy `true` to the top rung
+    for (let i = 0; i < unlockMax(bookId, id); i++) {
+      const cost = unlockCost(bookId, id, i) ?? 0
+      total += cost
+      if (i < paid) owned += cost
+    }
+  }
+  return { owned, total, pct: total > 0 ? Math.round((owned / total) * 100) : 0 }
+}
+
 // Obstacles STREAM around the player (v5.6.13, sim.js streamObstacles) instead of being
 // rejection-sampled once here — the old origin field left everything beyond
 // OBSTACLE_FIELD_RADIUS obstacle-free. createRun only rolls the run's obstacle seed: an unseeded
@@ -643,7 +678,10 @@ function generateWells(sig) {
  *               ARCHETYPE_TYPE maps the roster entry matching this enemy's spawn type (drone/
  *               wisp/tank) to an archetype ('normal'/'fast'/'tank'), a random roster entry of
  *               that archetype is picked (hpMul/speedMul applied to hp/maxHP/speed, xpMul to xp
- *               — what the kill is WORTH, which moves independently of how tough it is), and its
+ *               — what the kill is WORTH, which moves independently of how tough it is, and
+ *               v7.x's dmgMul to contact damage — the per-CREATURE damage lever, as against
+ *               ENEMIES[type].dmg which moves that archetype in every chapter and
+ *               balance.enemyDmgMul which moves every creature in this one), and its
  *               `flags` are copied in; elites additionally get CHAPTERS[chapter].eliteFlags
  *               appended (so an elite can carry both its roster's own flags and its chapter's
  *               elite-only ones). Always present (possibly []), safe to check unconditionally.
@@ -671,6 +709,14 @@ function generateWells(sig) {
  *               MOWER_GAP_MIN..MAX seconds once run.time passes MOWER_FIRST_T, one pass at a time.
  *               It was briefly an elite flag (v6.6.14) and before that 'sprayStrip', which marked a
  *               rectangle on the player from an elite that could be anywhere — no visible cause.
+ * dash (v7.x): the picked roster entry's optional `dash` object, `{restMul, lenMul}`, or null —
+ *               per-CREATURE overrides for the dashBurst timings, multiplying DASH_IDLE_T and
+ *               DASH_T respectively. Read only by stepDashBurst, which resolves both once at the
+ *               top and uses the resolved values at all four places it sets a phase timer (reading
+ *               a global at any one of them is a silent half-override; the off-screen rewind is the
+ *               easiest to miss and run RO.d exists for it). null on every enemy in the game except
+ *               The Surf's Sea Roach — the point of the field is that a chapter can soften ONE of
+ *               its creatures without moving DASH_* for the four other chapters that share them.
  * rosterId (v5.0): the picked roster entry's id (config.js), or null if the chapter's roster had
  *               no entry for this enemy's archetype — reserved for render/HUD skins later, no
  *               sim.js behavior keys off it directly (flags/hpMul/speedMul already applied).

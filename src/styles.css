@@ -196,6 +196,11 @@ body {
    screen on a name the player already knows, and the chapter is the thing worth looking at. */
 .title-logo {
   margin: 0;
+  /* The header is ⚙ + wordmark and nothing else since the balance moved onto the Shop door, so the
+     wordmark has to reserve the pill's width on the RIGHT to stay on the bar's true centre —
+     `space-between` alone would hang it 22px off-axis against the one remaining control. */
+  flex: 1 1 auto;
+  margin-right: 44px;
   text-align: center;
   font-size: clamp(0.82rem, 3.6vw, 1.05rem);
   font-weight: 900;
@@ -945,7 +950,7 @@ body {
 /* chapter played, shown under the summary screen's headline (v5.0) */
 .summary-chapter { margin: -6px 0 0; font-weight: 800; font-size: 0.95rem; color: var(--ink-soft); }
 
-/* difficulty-unlock celebration badge on the summary screen (v4.10) — mint, matches diff-hint-reward */
+/* difficulty-unlock celebration badge on the summary screen (v4.10) — mint */
 .summary-unlock {
   padding: 8px 10px;
   border-radius: 12px;
@@ -1095,9 +1100,13 @@ body {
   align-items: flex-end;
   justify-content: center;
   gap: 4px;
-  /* Sized so two étages plus the detail panel fit a 390x844 phone without the top row clipping.
-     The case scrolls past that, which is what a third Book will need anyway. */
-  height: clamp(76px, 19vh, 168px);
+  /* Sized so every étage plus the detail panel fits a 390x844 phone without the top row clipping —
+     hence the DIVISOR. --shelves is the étage count, published by bookcaseHtml (ui.js); a flat
+     19vh sized the row for the two-Book case and left one Book standing in ~310px of bare desk,
+     with spines a third the height of the shelf they stand on. 38vh/1 caps out at 290px (a ~1:6
+     spine, which is what a hardback actually is) and 38vh/2 lands on 160px, the height two Books
+     have today. The case still scrolls past that, which is what a third Book will need anyway. */
+  height: clamp(76px, calc(38vh / var(--shelves, 1)), 290px);
   padding: 0 14px;
 }
 
@@ -1345,11 +1354,21 @@ body {
    this book's cover and not on a bar that follows you everywhere. */
 .volume-acts { display: flex; align-items: stretch; gap: 7px; width: 100%; }
 .volume-acts .btn--play { flex: 1 1 auto; min-width: 0; }
+/* The door carries the BOOK's purse and the BOOK's completion — see titleBelowHtml for why those
+   two numbers live here and not in the header. --shop-pct (inline, from shopProgress) drives the
+   fill; it is a bare percentage so the bar needs no width maths of its own. */
 .btn--shop {
+  position: relative;
+  overflow: hidden;
   flex: 0 0 auto;
   min-width: 0;
   min-height: 50px;
-  padding: 9px 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 8px 13px 9px;
   border: 3px solid var(--gold-edge);
   border-radius: var(--radius);
   background: var(--gold);
@@ -1361,13 +1380,32 @@ body {
   box-shadow: 0 4px 0 var(--gold-edge);
   cursor: pointer;
 }
+.shop-btn-purse { font-size: 0.78rem; font-weight: 900; }
+/* The completion meter: a track that is always the full width, with the fill over it — an empty
+   shop reads as an empty groove, where a bare fill would read as a missing element. The number
+   rides beside it because a short bar alone does not say short OF WHAT. */
+.shop-btn-meter { display: flex; align-items: center; gap: 4px; width: 100%; margin-top: 2px; }
+.shop-btn-meter i { position: relative; flex: 1 1 auto; height: 5px; border-radius: 3px; background: rgba(74, 58, 0, 0.22); }
+.shop-btn-meter i::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--shop-pct, 0%);
+  border-radius: 3px;
+  background: #4a3a00;
+  opacity: 0.72;
+}
+.shop-btn-meter b { flex: none; font-size: 0.56rem; font-weight: 900; opacity: 0.8; }
 .btn--shop:active { transform: translateY(2px); box-shadow: none; }
 .btn--shop:focus-visible { outline: 3px solid var(--mint-dark); outline-offset: 2px; }
 /* At 320px "Play"+"Shop" side by side is tight in both languages; the shop keeps its icon only.
    Its aria-label still speaks the word, so the control is not losing its name, only its type. */
 @media (max-width: 360px) {
-  .btn--shop { font-size: 0; padding: 9px 15px; }
-  .btn--shop::first-letter { font-size: 1.15rem; }
+  .btn--shop { padding: 8px 15px 13px; }
+  .shop-btn-label { font-size: 0; }
+  .shop-btn-label::first-letter { font-size: 1.15rem; }
 }
 
 /* ---- the open volume: a two-page spread ---- */
@@ -1411,11 +1449,26 @@ body {
    pip is 170px of a 168px page, so five of them wrapped a sixth line onto the spread and the panel
    came out TALLER than the stack it replaced (measured 273px vs 255px). `flex: 1 1 0` cannot wrap
    at any viewport or any ladder length. */
-.page--recto { justify-content: flex-start; }
+/* `center`, not flex-start: with the difficulty PARAGRAPH gone the recto is a label and a row of
+   pips against a verso carrying icon + name + tagline + cast, so top-aligning left the right-hand
+   page visibly half empty. */
+.page--recto { justify-content: center; }
 .page--recto .diff-row { flex-wrap: wrap; width: 100%; justify-content: center; }
 .page--recto .diff-label { flex: 1 0 100%; margin: 0 0 6px; text-align: center; }
 .page--recto .diff-pip { flex: 1 1 0; width: auto; min-width: 0; padding: 0; }
 .page--recto .diff-hint { text-align: center; }
+
+/* The ladder's payout, foil-stamped beside the label. See titleBelowHtml for why this replaced a
+   four-line paragraph. */
+.diff-reward-chip {
+  display: inline-block;
+  margin-left: 7px; padding: 1px 7px; border-radius: 999px;
+  background: var(--gold); color: #4a3a00; font-size: 0.68rem; font-weight: 900;
+  letter-spacing: 0;
+  /* At 320px the label row wraps; without this the chip itself breaks and the coin lands on a
+     line of its own outside the pill. Wrapping BEFORE the chip is fine, inside it is not. */
+  white-space: nowrap;
+}
 
 /* ---- booster slots (title) ---- */
 .booster-row {
@@ -1566,79 +1619,124 @@ body {
 .diff-pip--locked { opacity: 0.5; cursor: default; }
 .diff-pip--locked:active { transform: none; }
 .diff-hint { font-weight: 600; font-size: 0.72rem; color: var(--ink-soft); margin-top: -4px; }
-.diff-hint-reward { color: #1e7d4f; }
 .diff-hint--locked { margin-top: 0; }
 
 /* sacrifice section (shop screen, v4.8/v4.9): sacrifice owned SHOP levels for a permanent 3rd/4th
    level-up card slot. Danger accent (matches .fx-chip--bad) since it's a one-way, no-refund cost. */
-/* v6.6 shop footer: one fixed-height row holding the sacrifice pill and the reset square. It
-   replaces the old standing .sacrifice-panel (a centered paragraph + button, ~170px) — the
-   paragraph now lives inside the modal the pill opens, and the height it gave back is what the
-   grid above uses to fit four rows without scrolling. */
+/* The footer is the reset square alone now. It held a sacrifice pill until v7.x — one control
+   standing in for a whole list of unlocks, naming only the cheapest — and that list is a half of
+   the shop proper (see .purse-switch). */
 .shop-foot {
   width: 100%;
   max-width: 540px;
   flex-shrink: 0;
   display: flex;
   align-items: stretch;
+  justify-content: flex-end;
   gap: 8px;
 }
-.shop-sac {
+.sacrifice-desc { flex-shrink: 0; width: 100%; max-width: 540px; margin: 0; font-size: 0.74rem; line-height: 1.25; font-weight: 600; color: var(--ink-soft); text-align: center; }
+/* WHICH unlock the offer is toward. The target strip this replaced made you pick from two
+   abbreviated buttons; you pick from the full list now, so this only has to confirm the choice. */
+.sacrifice-for { flex-shrink: 0; margin: 0; font-size: 0.88rem; font-weight: 800; text-align: center; color: var(--ink); }
+
+/* ---- the shop's two halves ---- */
+/* Coins buy upgrade levels; upgrade LEVELS buy the permanent unlocks. Two currencies, so two
+   labelled halves, each stating its own size — "34 / 110 levels" and "1 of 5" are the only place
+   either economy says how big it is. The selected half wears its own currency's colour, which is
+   also what the header balance switches to (renderShop), so the pill and the tab agree. */
+.purse-switch { flex-shrink: 0; width: 100%; max-width: 540px; display: flex; gap: 6px; }
+.purse-tab {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 5px;
-  padding: 8px 12px;
-  border: 3px solid var(--danger);
-  border-radius: 14px;
-  background: var(--danger-soft);
-  color: var(--danger-edge);
+  align-items: center;
+  gap: 1px;
+  padding: 6px 4px;
+  border: 2px solid rgba(53, 53, 74, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.36);
+  color: var(--ink);
   font: inherit;
-  font-weight: 800;
+  cursor: pointer;
+}
+/* The label must survive 320px in both languages, where this row is 294px for two tabs. */
+.purse-tab b { font-size: 0.74rem; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.purse-tab small { font-size: 0.56rem; font-weight: 800; opacity: 0.72; font-variant-numeric: tabular-nums; }
+.purse-tab--on { background: var(--gold); border-color: var(--gold-edge); color: #4a3a00; box-shadow: 0 3px 0 var(--gold-edge); }
+.purse-tab--on.purse-tab--levels { background: var(--danger); border-color: var(--danger-edge); color: #fff2f2; box-shadow: 0 3px 0 var(--danger-edge); }
+.purse-tab:active { transform: translateY(1px); }
+/* The levels purse: the same pill as the coin balance, in the other currency. */
+.shop-balance--levels { border-color: var(--danger-edge); background: var(--danger); color: #fff2f2; box-shadow: 0 3px 0 var(--danger-edge); }
+
+/* ---- the unlock list ---- */
+/* .shop-rows grows 8-11 coin rows to fill a tall screen (grid-auto-rows: minmax(max-content, 1fr),
+   v6.6). An unlock list is 2-5 rows, where 1fr makes each a fifth of the screen, so it opts out. */
+.shop-rows--targets { grid-auto-rows: max-content; align-content: start; }
+/* The one standing sentence on this half — see sacTargetRowsHtml for why it earns its lines. */
+.sac-lead { margin: 0 0 2px; padding: 0 2px; font-size: 0.7rem; line-height: 1.35; font-weight: 700; color: rgba(53, 53, 74, 0.72); }
+/* An unlock is stamped into the BINDING where an upgrade is printed on the page: it sits on the
+   selected book's own cloth, not on cream. It is permanent for the whole book and paid in a
+   different currency, and the cloth says both without a second accent fighting the gold. */
+.sac-offer {
+  border: 2px solid rgba(0, 0, 0, 0.35);
+  border-radius: 12px;
+  padding: 8px 10px 9px;
+  background: var(--cloth-sel, #3d5c47);
+  color: #f2ead6;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+.sac-offer--short { opacity: 0.62; }
+.sac-offer-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.shop-sac[disabled] { opacity: 0.62; cursor: default; }
-.shop-sac--done { justify-content: center; font-size: 0.8rem; text-align: center; }
-.shop-sac--ready { box-shadow: 0 3px 0 var(--danger); }
-.shop-sac:not([disabled]):active { transform: translateY(2px); box-shadow: none; }
-.shop-sac-label { font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.shop-sac-track { display: flex; align-items: center; gap: 8px; }
-.shop-sac-meter { flex: 1; min-width: 16px; height: 6px; border-radius: 999px; background: rgba(53, 53, 74, 0.14); overflow: hidden; }
-.shop-sac-meter > i { display: block; height: 100%; border-radius: 999px; background: var(--danger); }
-.shop-sac-count { flex-shrink: 0; font-size: 0.72rem; font-weight: 800; color: var(--danger); }
-.sacrifice-desc { flex-shrink: 0; width: 100%; max-width: 540px; margin: 0; font-size: 0.74rem; line-height: 1.25; font-weight: 600; color: var(--ink-soft); text-align: center; }
-
-/* v7.x: WHAT the offer buys, when there is more than one answer (Book 2's Light Thief joined the
-   3rd/4th card slot). Rendered only for a real choice — see sacrificeViewHtml — so a normal save
-   never sees this row and the view's height is unchanged for it.
-   `flex: 1` on the buttons rather than a fixed width: the labels differ in length between English
-   and French, and this row shares the 294px the sacrifice view has at 320px. */
-.sac-targets { flex-shrink: 0; width: 100%; max-width: 540px; display: flex; gap: 8px; }
-.sac-target {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 6px 10px;
-  border: 2px solid rgba(53, 53, 74, 0.18);
-  border-radius: 12px;
-  background: var(--card);
-  color: var(--ink-soft);
-  font: inherit;
-  font-weight: 800;
-  cursor: pointer;
+.sac-offer-top[disabled] { cursor: default; }
+.sac-offer-top:not([disabled]):active { transform: translateY(1px); }
+.sac-offer-ico { flex: none; font-size: 1.1rem; line-height: 1; }
+.sac-offer-name { flex: 1; min-width: 0; }
+.sac-offer-name b { display: block; font-size: 0.86rem; font-weight: 900; line-height: 1.2; }
+.sac-offer-name small { display: block; margin-top: 1px; font-size: 0.58rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.72; }
+.sac-offer-price {
+  flex: none;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff2f2;
+  font-size: 0.66rem;
+  font-weight: 900;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
-.sac-target-label { min-width: 0; font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sac-target-cost { flex-shrink: 0; font-size: 0.72rem; color: var(--danger); }
-/* The selected target carries the same danger accent as the pill that opened this view, so "what
-   I am buying" and "what it costs me" read as one object rather than two unrelated controls. */
-.sac-target--on { border-color: var(--danger); background: var(--danger-soft); color: var(--danger-edge); }
-.sac-target:not(.sac-target--on):active { transform: translateY(1px); }
+.sac-offer--short .sac-offer-price { background: rgba(255, 255, 255, 0.18); color: #f2ead6; }
+/* The line that answers "what IS this?". It has existed in config since the ladder shipped — it
+   was simply never rendered outside the offer view, and there only for the selected target. */
+.sac-offer-does { margin: 4px 0 0; font-size: 0.72rem; line-height: 1.32; color: rgba(242, 234, 214, 0.88); }
+/* Progress toward a price you cannot pay yet: an unlock stays on the list rather than vanishing,
+   because "what is there to work toward" is the question this half of the shop answers. */
+.sac-offer-bank { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+.sac-offer-bank i { flex: 1; height: 4px; border-radius: 3px; background: rgba(0, 0, 0, 0.34); overflow: hidden; }
+.sac-offer-bank i > span { display: block; height: 100%; border-radius: 3px; background: #e0708a; }
+.sac-offer-bank b { flex: none; font-size: 0.58rem; font-weight: 800; opacity: 0.86; font-variant-numeric: tabular-nums; }
+.sac-all-done {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.34);
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-align: center;
+}
 
 /* ---- generic modal backdrop (sacrifice sheet + reset confirm both use it) ---- */
 .modal-backdrop {
