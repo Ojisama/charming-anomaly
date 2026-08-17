@@ -5833,15 +5833,32 @@ function runRoachSoftening() {
   // hurtPlayer's rounding and armor path too — and measured against the SAME roach with the override
   // temporarily lifted, which is the only control that holds the archetype base, the chapter's own
   // balance.enemyDmgMul and the spawn-time damage ramp all fixed.
+  //
+  // AMP EXISTS BECAUSE hurtPlayer ROUNDS EVERY HIT TO AN INTEGER, AND THIS FIXTURE HAD DRIFTED TO
+  // WHERE THAT ROUNDING WAS THE WHOLE MEASUREMENT. Measured on the 2026-08-17 chapter-wide cut
+  // (balance.enemyDmgMul 0.7 -> 0.525): the roach's RAW swing is 3.061 against 1.531 — a clean
+  // x0.500 — but Math.round takes those to 3 and 2, so 13 contact hits read 39 HP against 26 and
+  // the ratio came out x0.667 and failed. Nothing about the mechanic had moved; the proxy had
+  // simply run out of resolution, and at 3 HP a hit one integer IS a third of the answer.
+  // Amplifying both arms by the same constant restores it without changing what is being asked:
+  // the ratio is invariant under it, the code path is identical, and e.dmg is baked at spawn from
+  // run.mods.enemyDmgMul so this must be set BEFORE the search loop below. At x100 the swings are
+  // 306.1 and 153.1, where a half-integer is a 0.2% error instead of a 33% one. It multiplies no
+  // RNG draw, so the spawn stream — and the specific non-elite roach this block is so careful to
+  // pin — is byte-for-byte the one it found before.
+  // The honest alternative was widening the tolerance, which would have hidden the pathology this
+  // block exists to catch rather than measuring past it.
   {
     const entry = CHAPTERS.surf.roster.find((r) => r.id === 'searoach')
     const saved = entry.dmgMul
+    const AMP = 100
     const bite = () => {
       Math.random = mulberry32(515151)
       const meta = makeMeta(); meta.dev = true; ensureChapterMeta(meta)
       const run = createRun(meta, { chapter: 'surf', difficulty: 1 })
       run.weapons = []
       run.passives.armor = 0
+      run.mods.enemyDmgMul *= AMP
       run.player.maxHP = run.player.hp = 1e6
       // A real spawned roach, through the real path: a hand-built one would carry whatever dmg the
       // fixture chose and could not see a missing `roster?.dmgMul` in spawnEnemy at all.
@@ -19761,7 +19778,49 @@ function testSurfGulls() {
     }
     assert.strictEqual(aimedAtAlly, 0, 'a gull targeted the player\'s own ally')
   }
-  console.log(`PASS run US.j (surf gulls): the gull left the roster and the fast slot is filled, plunges fire on their own clock in surf only, feed on enemies as well as the player, share stepBombs' both-sides blast, carry src through the explode event, and never target your ally`)
+
+  // (f) THE SHOREBREAK BLOCKS THE GULL (owner ruling 2026-08-17). Three arms, because the one-arm
+  // version of this passes under two different mutations that both ship a broken chapter:
+  //   1. wave up   + gull bomb  -> the player takes NOTHING, and the enemy beside them still does.
+  //   2. wave DOWN + gull bomb  -> the player takes damage. The do-nothing control: without it, a
+  //      fixture that quietly stopped placing the bomb (wrong position, wrong fuse, a step that
+  //      never detonates) would read as "the immunity works" while asserting nothing at all.
+  //   3. wave up   + a NON-gull bomb -> the player still takes damage. run.bombs is shared with the
+  //      skies' bombardment and every volatile elite core, so dropping the `b.src === 'gull'` half
+  //      of the gate turns this button into a universal panic button in chapters that never priced
+  //      one. Arm 1 alone cannot see that; this arm is the only thing standing on it.
+  // The button is PRESSED rather than `_shorebreakT` being assigned, so the shipped stepRepulse path
+  // is what arms it — assigning the field would keep passing if the press stopped reaching the cast.
+  {
+    const arm = (press, src) => {
+      const run = rig(91005)
+      const near = makeStatusEnemy(run, { x: run.player.x + 10, y: run.player.y, hp: 1e6, speed: 0 })
+      run.enemies.push(near)
+      stepSim(run, { x: 0, y: 0, skill: press }, 1 / 60)
+      run.events.length = 0
+      run.bombs.length = 0            // drop anything the chapter's own clock plunged this frame
+      run.player.hp = run.player.maxHP
+      run.player.invuln = 0           // the warm-up step must not spend the window we are measuring
+      const up = (run._shorebreakT ?? 0) > 0
+      assert.strictEqual(up, press, `pressing the skill ${press ? 'did not arm' : 'armed'} the shorebreak — the fixture is not testing what it says`)
+      run.bombs.push({ x: run.player.x, y: run.player.y, radius: GULL_RADIUS, fuse: 0.001, duration: GULL_FUSE, dmg: GULL_DMG, src })
+      const php0 = run.player.hp, ehp0 = near.hp
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      return { playerLost: php0 - run.player.hp, enemyLost: ehp0 - near.hp }
+    }
+    const shielded = arm(true, 'gull')
+    const bare = arm(false, 'gull')
+    const shell = arm(true, 'shell')
+    assert.ok(bare.playerLost > 0,
+      'the CONTROL took no damage — a gull blast centred on an unshielded player did nothing, so this block proves nothing about the shield')
+    assert.strictEqual(shielded.playerLost, 0,
+      `a gull blast hurt the player for ${shielded.playerLost} through an active shorebreak`)
+    assert.ok(shielded.enemyLost > 0,
+      'the shorebreak also stopped the gull hurting the CROWD — the bird is a third party on the beach and its blast on your enemies is still your work')
+    assert.ok(shell.playerLost > 0,
+      'a NON-gull bomb was blocked by the shorebreak too — the gate lost its `src` test and every bombardment chapter just got a panic button')
+  }
+  console.log(`PASS run US.j (surf gulls): the gull left the roster and the fast slot is filled, plunges fire on their own clock in surf only, feed on enemies as well as the player, share stepBombs' both-sides blast, carry src through the explode event, never target your ally, and an active shorebreak blocks a gull blast (${GULL_DMG} dmg) on the player while it still lands on the crowd and still lets a non-gull bomb through`)
 }
 
 // ---- run EL: the element system --------------------------------------------------------------
