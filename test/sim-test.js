@@ -26,12 +26,13 @@ import {
   BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, STILLNESS_RAMP, CHAOS_PACT_PERIOD, CHAOS_PACT_SURGE,
   ALIGNMENT_POTENCY_MUL, DEADFALL_REARM_MUL, SOY_MILK_FIRE_MUL, SOY_MILK_DMG_MUL, SOY_MILK_CC_MUL,
   ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND,
-  MUTATORS, mergeMutatorMods, dailyMutators, todayKey, DAILY_MUTATOR_COUNT, randomMutators, rerollMutator,
+  MUTATORS, mergeMutatorMods, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS,
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN,
   WEAPONS, HOLE_SINGULARITY_FRAC,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
@@ -41,7 +42,7 @@ import {
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
   ANGLER_FEED_R, ANGLER_GAPE_T, ANGLER_BITE_R, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
-  CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
+  CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
@@ -74,6 +75,7 @@ import {
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
+  SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COSTS, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
@@ -83,7 +85,7 @@ import {
   BLANK_PHASE_LEVELS, BLANK_BOSS_SPEED_P3, BLANK_READ3_T, BLANK_BAND_LEN, BLANK_FAN_N,
   BLANK_BAND_W, BLANK_BAND_DPS, BLANK_BAND_GROW, STATUS_TICK,
   BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL, BLANK_WAVE_GAP,
-  SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES,
+  SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES,
   // v6.3.1 difficulty pass (Run LL)
   BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
   BLANK_SHOT_T, BLANK_SHOT_TURN, BLANK_ACCEL_MUL, BLANK_DESPERATE_MUL,
@@ -3013,7 +3015,7 @@ function testEscalation() {
   console.log(`PASS run I (escalating difficulty): spawnRate(300)=${spawnRate(300).toFixed(2)} hpScale(300)=${hpScale(300).toFixed(2)} eliteStep(290)=${eliteEveryAt(290).toFixed(2)} earlyAlive=${earlyAlive} lateAlive=${lateAlive}`)
 }
 
-// Mutators (v4.0): mergeMutatorMods math, dailyMutators determinism, and that run.mods
+// Mutators (v4.0): mergeMutatorMods math, and that run.mods
 // actually moves the needle at each of its application points in sim.js.
 function testMutators() {
   const dt = 1 / 60
@@ -3033,16 +3035,6 @@ function testMutators() {
   assert.strictEqual(stacked.xpMul, MUTATORS.overtime.effects.xpMul)
   assert.strictEqual(stacked.enemyHpMul, MUTATORS.bulky.effects.enemyHpMul)
   assert.strictEqual(stacked.coinMul, MUTATORS.bulky.effects.coinMul)
-
-  // dailyMutators: deterministic per date key, DAILY_MUTATOR_COUNT distinct valid ids.
-  assert(/^\d{4}-\d{2}-\d{2}$/.test(todayKey()), `expected todayKey() to look like YYYY-MM-DD, got ${todayKey()}`)
-  const day = '2026-07-15'
-  const firstRoll = dailyMutators(day)
-  const secondRoll = dailyMutators(day)
-  assert.deepStrictEqual(firstRoll, secondRoll, 'expected dailyMutators to be deterministic for the same date key')
-  assert.strictEqual(firstRoll.length, DAILY_MUTATOR_COUNT, `expected ${DAILY_MUTATOR_COUNT} daily mutators, got ${firstRoll.length}`)
-  assert.strictEqual(new Set(firstRoll).size, firstRoll.length, 'expected distinct daily mutator ids')
-  for (const id of firstRoll) assert(id in MUTATORS, `unexpected mutator id from dailyMutators: ${id}`)
 
   // spawnMul: spawn accumulation has no RNG in it (only enemy type/position do), so doubling
   // it should almost exactly double the total number of enemies spawned over the same time.
@@ -3100,7 +3092,7 @@ function testMutators() {
   const boostedHurt = hurtDamage(2)
   assert(boostedHurt > normalHurt, `expected contactDmgTakenMul to increase hurt damage (normal=${normalHurt}, boosted=${boostedHurt})`)
 
-  console.log(`PASS run J (mutators): daily=${JSON.stringify(firstRoll)} spawns baseline=${baselineSpawned} doubled=${doubledSpawned} hurt normal=${normalHurt} boosted=${boostedHurt}`)
+  console.log(`PASS run J (mutators): spawns baseline=${baselineSpawned} doubled=${doubledSpawned} hurt normal=${normalHurt} boosted=${boostedHurt}`)
 }
 
 // Elite affixes (v4.0): craft elites with forced affixes (via makeStatusEnemy's affixes
@@ -4352,18 +4344,6 @@ function testChapters() {
   }
   assert.strictEqual(nextChapter(CHAPTER_ORDER[CHAPTER_ORDER.length - 1]), null, `nextChapter('${CHAPTER_ORDER[CHAPTER_ORDER.length - 1]}') === null (last shipped chapter)`)
 
-  // (d) dailyChapter is deterministic per date key, and both shipped chapters are reachable
-  // over a spread of dates (date-seeded across CHAPTER_ORDER).
-  assert.strictEqual(dailyChapter('2026-07-16'), dailyChapter('2026-07-16'), 'dailyChapter is deterministic for a given date key')
-  const seen = new Set()
-  for (let d = 1; d <= 28; d++) {
-    seen.add(dailyChapter(`2026-08-${String(d).padStart(2, '0')}`))
-  }
-  for (const id of CHAPTER_ORDER) {
-    assert(seen.has(id), `dailyChapter should reach chapter '${id}' over a spread of dates`)
-  }
-  assert.strictEqual(seen.size, CHAPTER_ORDER.length, 'dailyChapter never returns an id outside CHAPTER_ORDER')
-
   // (e) ensureChapterMeta clamps garbage entries into range and fills in missing fields — except
   // maxDifficulty, which is only floored: a value above this build's ladder is preserved (R3).
   const garbageMeta = { chapters: { pond: { unlocked: true, maxDifficulty: 99, difficulty: -5 } } }
@@ -4458,7 +4438,7 @@ function testChapters() {
     assert.ok(!/\brun\.dev\b/.test(simSrc), 'sim.js reads run.dev — the WIP gate must not reach the run object (plan R1)')
   }
 
-  console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, dailyChapter, garbage clamps, retroactive unlock, carousel settle guards, WIP gate coercion + R1')
+  console.log('PASS run T (chapter data model + meta migration): fresh defaults, v4 migration, nextChapter, garbage clamps, retroactive unlock, carousel settle guards, WIP gate coercion + R1')
 }
 
 // ---- Run BK: books + the WIP gate (v7.x, Book 2 phase 1) ---------------------------------
@@ -4486,16 +4466,12 @@ function runBooks() {
   assert.strictEqual(nextChapter('beyond'), null, "nextChapter past book 1's end === null")
 
   // (b) A WIP chapter must be unreachable by every route that does NOT ask for it by name: the
-  // shipped order, the daily draw (a full year of date keys), and the unlock chain.
+  // shipped order and the unlock chain.
   const wip = Object.values(BOOKS).filter((b) => b.wip).flatMap((b) => b.chapters)
   assert.ok(wip.length > 0, 'expected at least one WIP chapter, or this whole run asserts nothing')
   for (const id of wip) {
     assert.ok(!CHAPTER_ORDER.includes(id), `WIP chapter '${id}' must not be in CHAPTER_ORDER — that alias is what keeps it out of every shipped loop`)
     assert.ok(Object.hasOwn(CHAPTERS, id), `WIP chapter '${id}' must be a real CHAPTERS entry, or the gate guards nothing`)
-  }
-  for (let d = 0; d < 366; d++) {
-    const key = `2026-${String(1 + (d % 12)).padStart(2, '0')}-${String(1 + (d % 28)).padStart(2, '0')}`
-    assert.ok(!wip.includes(dailyChapter(key)), `dailyChapter('${key}') surfaced a WIP chapter — the daily draws from CHAPTER_ORDER only`)
   }
   for (const id of CHAPTER_ORDER) {
     assert.ok(!wip.includes(nextChapter(id)), `nextChapter('${id}') surfaced a WIP chapter — the unlock chain must never cross books`)
@@ -4601,11 +4577,15 @@ function runBooks() {
       'onPlay and onDifficulty must BOTH use playableChapterId — onDifficulty writes into the ledger of whatever onPlay launches, so they cannot disagree')
     // A VOLUME's availability is decided once, in config.js's titleBookshelf, and arrives as
     // `vol.unlocked` — so volHtml has no gate of its own to get wrong. Five sites remain, and the
-    // fifth is easy to forget: paintRoom washes the room in the selected chapter's own colour, and
-    // a LOCKED chapter must tint nothing, or the shelf hands out the palette of a chapter it is
-    // otherwise careful not to name.
+    // last two are easy to forget: paintRoom washes the room in the selected chapter's own colour,
+    // and a LOCKED chapter must tint nothing, or the shelf hands out the palette of a chapter it is
+    // otherwise careful not to name; and the shop's book tab (v7.x) has to LAND on a chapter, so an
+    // ungated pick would drop browseChapterId onto a locked one and the title screen you return to
+    // would show "???" over a dead Play button. (It was six until the Daily was deleted — its
+    // briefing screen badged a locked chapter as a "preview", the one place the gate was allowed
+    // to pass.)
     assert.strictEqual((uiSrc.match(/chapterAvailable\(meta, /g) ?? []).length, 5,
-      'ui.js must gate the detail head, the Play button, the brief, the volume tap and the room tint on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
+      'ui.js must gate the room tint, the detail head, the Play button, the volume tap and the shop book tab on chapterAvailable — any one left reading `unlocked` directly is a chapter you can see and cannot play')
     // ...and the one that MOVED must actually be there, or every volume shelves as a playable spine.
     assert.ok(/unlocked: chapterAvailable\(meta, id\)/.test(configSrc),
       'titleBookshelf no longer decides volume availability with chapterAvailable — a WIP chapter would shelve as a playable spine')
@@ -4626,7 +4606,7 @@ function runBooks() {
   // and so already fixes the bug they were written to guard (a book becoming LESS reachable the
   // day its `wip` flag comes off). Their replacement is main's own titleBookshelf coverage — do
   // not resurrect these against the deleted function.
-  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/daily/unlock, gated both ways through createRun and the bookcase`)
+  console.log(`PASS run BK (books + WIP gate): nextChapter is book-local, ${wip.length} WIP chapter(s) unreachable by order/unlock, gated both ways through createRun and the bookcase`)
 }
 run(runBooks)
 
@@ -4874,6 +4854,127 @@ function runBookProgression() {
     const bareBank = body.split('\n').filter((l) => /meta\.coins\s*\+=/.test(l))
     assert.deepStrictEqual(bareBank, [],
       `endRun must not bank coins with a bare "meta.coins +=" — that credits every book's earnings to book 1's purse. Offending line(s):\n${bareBank.join('\n')}`)
+
+    // The BADGE (v7.x). Two halves, each of which fails silently and independently: a return
+    // value that is never captured announces nothing, and a captured flag that never reaches
+    // showScreen also announces nothing. Gating on unlockBook's return (rather than on `nb`) is
+    // the part that matters — grantBook's monotone meta.grants flag makes the second finale
+    // return false, so an unconditional assignment would re-announce the book on every replay.
+    assert.ok(/if \(nb && unlockBook\(meta, nb\)\) unlockedBook = nb/.test(body),
+      `endRun must gate unlockedBook on unlockBook's RETURN value — assigning it from a bare "if (nb)" re-announces the book every time the finale is replayed. endRun currently reads:\n${body}`)
+    assert.ok(/^\s*unlockedBook,\s*$/m.test(body),
+      `endRun must forward unlockedBook in the showScreen('summary') payload — captured and not forwarded renders no badge at all. endRun currently reads:\n${body}`)
+  }
+
+  // (q2) The badge's other three files. The table, the renderer and the stylesheet have no import
+  // between them, which is the 28%-of-all-defects shape this suite lints as source text.
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/BOOK_UNLOCK_LINES\[d\.unlockedBook\]/.test(uiSrc),
+      'ui.js must read BOOK_UNLOCK_LINES[d.unlockedBook] — a payload field nothing renders is exactly the silent grant this badge exists to end')
+    assert.ok(/summary-unlock--book/.test(uiSrc), 'the badge must carry the .summary-unlock--book class')
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    assert.ok(/\.summary-unlock--book\s*\{/.test(css),
+      '.summary-unlock--book needs a CSS rule of its own — .summary-unlock--hidden shipped without one and silently inherited the mint DIFFICULTY accent, which nobody noticed')
+
+    // Every book you can ARRIVE at needs a row. BOOK_ORDER[0] is where you start, so nothing
+    // unlocks it. A missing row renders NO badge (ui.js has no fallback string on purpose —
+    // a half-translated announcement is worse than the silence it replaced), so this must be an
+    // assert rather than a default.
+    const arrivable = BOOK_ORDER.slice(1)
+    assert.ok(arrivable.length > 0, 'no arrivable book, so this sweep cannot show its denominator responds to anything')
+    for (const id of arrivable) {
+      assert.ok(BOOK_UNLOCK_LINES[id], `BOOK_UNLOCK_LINES missing '${id}' — unlocking it would announce nothing`)
+      assert.ok(/\{n\}/.test(BOOK_UNLOCK_LINES[id]),
+        `BOOK_UNLOCK_LINES.${id} must state the welcome purse through the {n} TEMPLATE, never a baked-in number — the English string IS the translation key, so a literal 100 orphans the French the day startCoins is retuned`)
+    }
+    assert.deepStrictEqual(Object.keys(BOOK_UNLOCK_LINES).filter((id) => !arrivable.includes(id)), [],
+      'BOOK_UNLOCK_LINES has a row for a book nothing can unlock — dead copy that run XX will still demand French for')
+    console.log(`PASS run BP.q2 (book-unlock badge): ${arrivable.length} arrivable book(s) [${arrivable.join(' ')}] all have a {n} line, wired through main.js -> ui.js -> styles.css`)
+  }
+
+  // (q3) The two places a BOOK is a thing the player can see and choose. Both are source-text
+  // lints because the suite can import neither ui.js nor styles.css, and both guard a failure that
+  // is SILENT on screen rather than a throw.
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+    // The shop is one screen serving one shop PER BOOK — separate purse, separate levels, and
+    // Undertow has three lines book 1 does not. Until v7.x the only sign of that was the book's
+    // name in grey text, and the only way to change books was to leave, tap a spine and come back.
+    assert.ok(/data-book="\$\{s\.book\}"/.test(uiSrc),
+      'the shop header must emit a data-book tab per book — without it the screen silently serves whichever book the title carousel last settled on, with no way to switch and nothing saying which')
+    assert.ok(/if \(el\.dataset\.book !== undefined\)/.test(uiSrc),
+      'a data-book tab with no click branch is a button that does nothing — the tabs would render and the shop would never change')
+    assert.ok(/const books = titleBookshelf\(meta\)\.filter\(/.test(uiSrc),
+      'the tabs must come from titleBookshelf, not BOOK_ORDER — that is the one place the WIP gate lives, and a tab for a book whose shelf is hidden announces the book the shelf is careful not to')
+    // The tab must not persist meta.chapter: switching purses to compare prices is browsing.
+    const tabBranch = uiSrc.slice(uiSrc.indexOf("if (el.dataset.book !== undefined)"), uiSrc.indexOf("if (el.dataset.book !== undefined)") + 500)
+    assert.ok(!/hooks\.onChapter/.test(tabBranch),
+      'the shop book tab must not call onChapter — comparing two books\' prices would overwrite the chapter you last chose to PLAY, moving the ribbon on the shelf behind your back')
+    assert.ok(/\.book-tab\s*\{/.test(css) && /\.book-tab--on\s*\{/.test(css),
+      'the book tabs need both a rule and a selected rule — with only one, every book looks equally current and the tab strip says nothing')
+
+    // A clipped shelf and a short shelf look identical. What overflows first is a shelf-board's
+    // brass plate, which is the ONLY place a Book's name and star total are written — that is the
+    // bug this pair was written for (Book 2 sat unlabelled below the fold on a 410x745 phone).
+    assert.ok(/bc\.scrollHeight - bc\.clientHeight > 2/.test(uiSrc),
+      'the bookcase fade must be toggled from a MEASUREMENT — gating it on the number of books was wrong at both ends: two books overflow a 375x667 phone with no fade, three fit a tall screen and would get one over nothing')
+    assert.ok(/addEventListener\('resize', markBookcaseScroll\)/.test(uiSrc),
+      'the fade must be re-measured on resize — rotation changes the answer and nothing else re-renders the title')
+    assert.ok(/\.bookcase--more\s*\{/.test(css), '.bookcase--more has no rule, so the class toggles nothing and the shelf clips silently again')
+    assert.ok(/scroll-snap-align: end/.test(css),
+      'the etage must snap on its END — a shelf snapped by its top parks its brass plate under the fold, which is the exact thing being fixed')
+
+    // The panel is a SPREAD. Stacked it was 255px of a 745px phone and the case overflowed by 33.
+    assert.ok(/class="page page--verso"/.test(uiSrc) && /class="page page--recto"/.test(uiSrc),
+      'titleBelowHtml must render two pages — the stacked panel is what pushed the second shelf out of the case')
+    assert.ok(/\.page--recto \.diff-pip \{[^}]*flex: 1 1 0/.test(css),
+      'the difficulty pips must DIVIDE the recto rather than be sized in px — a fixed 34px pip is 170px of a 168px page, and five of them wrapped the panel TALLER than the stack it replaced')
+    console.log(`PASS run BP.q3 (book navigation): shop book tabs gated by titleBookshelf and browse-only, bookcase fade measured not counted, ${['verso', 'recto'].length}-page spread with flex pips`)
+  }
+
+  // (q4) EVERY DOOR HAS A HANDLER, AND EVERY SCREEN HAS A DOOR. Deleting the bottom nav (v7.x)
+  // deleted the only route into the Shop and the only way back out of the pre-run brief; both
+  // failures are a button that does nothing or a screen you cannot leave, and neither throws.
+  // Nothing in the suite could see the nav — it had zero assertions of its own — so it went.
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+    // The general form: every literal data-act the markup emits must have a case in the one
+    // delegated click handler. `${act}` is the save-slot rows' computed value — its two real
+    // values are asserted just below, since a regex cannot resolve it.
+    const emitted = [...uiSrc.matchAll(/data-act="([a-z-]+)"/g)].map((m) => m[1])
+    const uniq = [...new Set(emitted)].sort()
+    assert.ok(uniq.length > 25, `only ${uniq.length} data-act values found — the scan is broken, not the code`)
+    const handled = new Set([...uiSrc.matchAll(/case '([a-z-]+)':/g)].map((m) => m[1]))
+    const orphans = uniq.filter((a) => !handled.has(a))
+    assert.deepStrictEqual(orphans, [],
+      `these controls emit a data-act with no case in the click delegate — each is a button that does nothing:\n${orphans.join(', ')}`)
+    const slotDefault = uiSrc.match(/function slotRowHtml\(n, \{ act = '([a-z-]+)'/)?.[1]
+    assert.ok(slotDefault && handled.has(slotDefault),
+      `slotRowHtml's computed data-act ('${slotDefault}') has no case in the delegate — the save-slot rows would be inert, and the regex scan above cannot see a \${act} to catch it`)
+
+    // ...and the specific doors that replaced the nav. A screen reachable by nothing is invisible.
+    assert.ok(/data-act="shop"/.test(uiSrc), 'nothing opens the Shop — the bottom nav was its only route and it is gone')
+    assert.ok(/data-act="shop-close"/.test(uiSrc), 'nothing closes the Shop — the nav used to be the way back to the shelf')
+    assert.ok(/data-act="brief-back"/.test(uiSrc), 'the pre-run brief has no way out — it leaned on the nav, which is gone, and nothing is spent yet so it MUST be escapable')
+    // Matched on a declaration the BASE rule owns, not on the selector: `.btn--shop` appears twice
+    // (the rule, and the narrow-screen override that drops the label), so a bare selector test is
+    // satisfied by the override alone and a deleted base rule walks straight past it.
+    assert.ok(/\.btn--shop \{[^}]*background:/.test(css),
+      '.btn--shop has no base rule, so the Shop door renders as an unstyled button on the volume cover')
+
+    // The nav is really gone, in both files. A leftover rule is dead weight; leftover markup is a
+    // bar with no handler.
+    for (const [name, src] of [['ui.js', uiSrc], ['styles.css', css]]) {
+      assert.ok(!/menu-nav|nav-tab/.test(src), `${name} still references the deleted bottom nav`)
+    }
+    // The Daily went with it — a mode with no entry point is dead code that still has to be read.
+    assert.ok(!/dailyChapter|dailyMutators|todayKey/.test(uiSrc), 'ui.js still calls a deleted daily export — that is a ReferenceError at render time, not a lint')
+    console.log(`PASS run BP.q4 (doors): ${uniq.length} data-act values all handled, Shop opens + closes, brief escapable, no nav or daily left in ui.js/styles.css`)
   }
 
   // (r) nextBook was imported for the finding above and had NO direct coverage of its own —
@@ -5493,6 +5594,181 @@ function runShelf() {
   console.log(`PASS run BL (The Shelf): bar drains/refills/clamps, shafts DRIFT with no cell crossing at exactly ${sig.driftAmp}px and ${(sig.driftAmp * sig.driftHz).toFixed(0)} px/s, RNG-free streaming, empty bar keeps the ${REPULSE_RADIUS}px floor and a full spend pushes ${PULSE_RADIUS_AT_FULL}px, pond and beyond untouched`)
 }
 run(runShelf)
+
+// ---- Run SK: THE SHOREBREAK (v7.x, The Surf's skill button) ------------------------------------
+// SK and not SB: `run SB` is already the SUBMISSION ally block, and two unrelated groups sharing a
+// prefix makes a red band in the output unreadable at exactly the moment you need to read it.
+// The Surf's skill button used to fire the Pulse — one frame of shove, then a 6s cooldown. Owner,
+// 2026-08-16: it "should be revamped to a bubble shield or wave shield that lasts for a bit so the
+// player can go through a wall of circling enemies", then picked the wave over the bubble. So it is
+// now a crest that rides with the player for a duration the spend buys, pushing and staggering what
+// it touches on every frame it is live — and, uniquely among the four chapter buttons, REPLACING
+// the shove rather than riding along with it.
+//
+// Every block below asserts where the BODIES ended up. A _shorebreakT that counts down is exactly
+// what a deleted push would also do, so the timer is never the subject.
+function runShorebreak() {
+  const RES = CHAPTERS.surf.resource
+  const sbMeta = () => { const m = makeMeta(); m.dev = true; ensureChapterMeta(m); return m }
+  const dt = 1 / 60
+
+  // A ring of bodies well inside SHOREBREAK_RADIUS, all walking at the player. THE SPEED IS THE
+  // POINT: against a stationary crowd any push at all "opens a corridor", so a fixture like that
+  // would pass with the force at a tenth of its value. A crowd closing at 120px/s means the wave has
+  // to beat their approach before the measurement moves at all.
+  const ringRun = (charge) => {
+    Math.random = mulberry32(20260816)
+    const run = createRun(sbMeta(), { chapter: 'surf', difficulty: 1 })
+    run.weapons = []
+    run.player.maxHP = run.player.hp = 1e9
+    run.enemies.length = 0
+    const ids = []
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2
+      const e = makeStatusEnemy(run, {
+        x: run.player.x + Math.cos(a) * 150,
+        y: run.player.y + Math.sin(a) * 150,
+        hp: 1e6, speed: 120,
+      })
+      run.enemies.push(e)
+      ids.push(e.id)
+    }
+    run.charge = charge
+    run.repulseCd = 0
+    return { run, ids }
+  }
+  // Measured from the PLAYER every time, never from a fixed origin: the tide shoves the player
+  // sideways all run (signature.surge 46px/s), so an origin-relative distance would be reading the
+  // chapter's own current as if it were the button.
+  const meanDist = (o) => {
+    const p = o.run.player
+    const ds = o.ids.map((id) => o.run.enemies.find((e) => e.id === id)).filter(Boolean)
+      .map((e) => Math.hypot(e.x - p.x, e.y - p.y))
+    return ds.reduce((a, b) => a + b, 0) / Math.max(1, ds.length)
+  }
+  const advance = (o, secs, press) => {
+    let first = true
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      stepSim(o.run, { x: 0, y: 0, skill: press && first }, dt)
+      first = false
+    }
+  }
+
+  // (a) IT OPENS A CORRIDOR, against a do-nothing control. The control is not ceremony: without it
+  // "the crowd ended up 250px away" is unreadable, because that is also roughly where an untouched
+  // ring of seekers ends up if the fixture forgot to make them walk.
+  {
+    const ctl = ringRun(RES.max)
+    const before = meanDist(ctl)
+    advance(ctl, SHOREBREAK_DUR_AT_FULL, false)
+    const ctlAfter = meanDist(ctl)
+
+    const hit = ringRun(RES.max)
+    advance(hit, SHOREBREAK_DUR_AT_FULL, true)
+    const hitAfter = meanDist(hit)
+
+    assert(ctlAfter < before - 20,
+      `the control must CLOSE on the player (${before.toFixed(0)} -> ${ctlAfter.toFixed(0)}px) or this fixture proves nothing`)
+    // Stated as a FRACTION OF THE CREST, never in px. The claim being made is "the crowd ends up out
+    // near the rim instead of on top of you", and that is what these two say at any radius — a px
+    // literal would have had to be retuned when SHOREBREAK_RADIUS moved 300 -> 190, which is exactly
+    // the moment a band stops meaning anything and starts being a number that makes the test green.
+    assert(hitAfter > SHOREBREAK_RADIUS * 0.8,
+      `the Shorebreak must hold the crowd out near its rim: ${hitAfter.toFixed(0)}px against a ${SHOREBREAK_RADIUS}px crest`)
+    assert(hitAfter > ctlAfter + SHOREBREAK_RADIUS * 0.5,
+      `the Shorebreak must open a corridor: pressed ${hitAfter.toFixed(0)}px vs control ${ctlAfter.toFixed(0)}px`)
+    console.log(`PASS run SK.a (corridor): ring at ${before.toFixed(0)}px -> control ${ctlAfter.toFixed(0)}px, pressed ${hitAfter.toFixed(0)}px`)
+  }
+
+  // (b) IT IS SUSTAINED, NOT AN IMPULSE — the whole reason it is not just a bigger Pulse. Most of the
+  // push must land AFTER the frame the button went down. This is the block that fails if someone
+  // "simplifies" the per-frame acceleration back into a one-shot kb impulse, which is a change no
+  // duration assertion and no event assertion can see.
+  {
+    const o = ringRun(RES.max)
+    const start = meanDist(o)
+    stepSim(o.run, { x: 0, y: 0, skill: true }, dt)
+    const afterFirst = meanDist(o)
+    advance(o, SHOREBREAK_DUR_AT_FULL - dt, false)
+    const afterRest = meanDist(o)
+    const firstFrame = afterFirst - start
+    const rest = afterRest - afterFirst
+    assert(rest > firstFrame * 5,
+      `the push must be sustained, not an impulse: frame 1 moved ${firstFrame.toFixed(1)}px, the remaining ${SHOREBREAK_DUR_AT_FULL}s moved ${rest.toFixed(1)}px`)
+    console.log(`PASS run SK.b (sustained): frame 1 ${firstFrame.toFixed(1)}px vs ${rest.toFixed(0)}px over the rest of the window`)
+  }
+
+  // (c) THE NO-SPIRAL FLOOR (spec §8.2). An EMPTY bar still gets a crest — shorter, never absent.
+  // Without this, running dry in a chapter whose bar ALSO multiplies your damage would leave a
+  // player with no answer and no way to earn one.
+  {
+    const ctl = ringRun(0)
+    advance(ctl, SHOREBREAK_DUR_MIN, false)
+    const ctlAfter = meanDist(ctl)
+    const hit = ringRun(0)
+    advance(hit, SHOREBREAK_DUR_MIN, true)
+    const hitAfter = meanDist(hit)
+    assert.strictEqual(hit.run.charge, 0, 'an empty bar spends nothing')
+    assert(hitAfter > ctlAfter + SHOREBREAK_RADIUS * 0.25,
+      `an empty bar must still push: ${hitAfter.toFixed(0)}px vs control ${ctlAfter.toFixed(0)}px`)
+    console.log(`PASS run SK.c (empty-bar floor): ${hitAfter.toFixed(0)}px vs control ${ctlAfter.toFixed(0)}px over the ${SHOREBREAK_DUR_MIN}s floor`)
+  }
+
+  // (d) THE SPEND BUYS DURATION. Both measured over the SAME long window, so the only thing that can
+  // separate them is how much of that window the crest was alive for.
+  {
+    const win = SHOREBREAK_DUR_AT_FULL + 0.4
+    const empty = ringRun(0)
+    advance(empty, win, true)
+    const full = ringRun(RES.max)
+    advance(full, win, true)
+    assert(meanDist(full) > meanDist(empty) + SHOREBREAK_RADIUS * 0.4,
+      `a full spend must push for longer than an empty bar: ${meanDist(full).toFixed(0)}px vs ${meanDist(empty).toFixed(0)}px`)
+    console.log(`PASS run SK.d (spend buys duration): empty ${meanDist(empty).toFixed(0)}px, full ${meanDist(full).toFixed(0)}px over one ${win.toFixed(1)}s window`)
+  }
+
+  // (e) IT REPLACES THE PULSE, and only in this chapter. The Surf must emit no `repulse` at all —
+  // if it did, the player would get an 880px/s impulse AND the crest on one press, and would hear
+  // the shove's sample twice over. The Beyond shares stepRepulse and must be untouched.
+  {
+    const o = ringRun(RES.max)
+    stepSim(o.run, { x: 0, y: 0, skill: true }, dt)
+    const sb = o.run.events.find((e) => e.type === 'shorebreak')
+    assert.ok(sb, 'The Surf must emit a shorebreak event on the press')
+    assert.ok(Math.abs(sb.r - SHOREBREAK_RADIUS) < 1e-9, `the event must carry the real radius ${SHOREBREAK_RADIUS}, got ${sb.r}`)
+    assert.ok(!o.run.events.some((e) => e.type === 'repulse'),
+      'The Surf must NOT also fire the Pulse — the Shorebreak replaces it')
+
+    Math.random = mulberry32(31337)
+    const lane = createRun(sbMeta(), { chapter: 'beyond', difficulty: 1 })
+    lane.repulseCd = 0
+    stepSim(lane, { x: 0, y: 0, skill: true }, dt)
+    assert.ok(lane.events.some((e) => e.type === 'repulse'), 'The Beyond must still fire its repulse')
+    assert.ok(!lane.events.some((e) => e.type === 'shorebreak'), 'only a `shorebreak` chapter may fire one')
+    console.log(`PASS run SK.e (replaces the Pulse): surf emits shorebreak r=${sb.r} and no repulse; beyond unchanged`)
+  }
+
+  // (f) ALLIES ARE NOT STAGGERED. A deliberate divergence from the Pulse, which shoves everything in
+  // run.enemies: a shove is a shrug, but a stagger REFRESHED every frame for up to 2.4s would switch
+  // your own summon off for the whole window, and a button that disables your allies is one you
+  // learn not to press near them.
+  {
+    const o = ringRun(RES.max)
+    const ally = makeStatusEnemy(o.run, { x: o.run.player.x + 60, y: o.run.player.y, hp: 1e6, speed: 0 })
+    ally.allyT = 99
+    o.run.enemies.push(ally)
+    for (let i = 0; i < 20; i++) stepSim(o.run, { x: 0, y: 0, skill: i === 0 }, dt)
+    const a = o.run.enemies.find((e) => e.id === ally.id)
+    assert.ok(a, 'the ally must survive the window')
+    assert.ok((a.stunT ?? 0) <= 0, `an ally must not be staggered by your own Shorebreak (stunT=${(a.stunT ?? 0).toFixed(2)})`)
+    const foe = o.run.enemies.find((e) => o.ids.includes(e.id))
+    assert.ok((foe.stunT ?? 0) > 0, 'a non-ally inside the crest must be staggered, or this block is vacuous')
+    console.log(`PASS run SK.f (allies spared): ally stunT=${(a.stunT ?? 0).toFixed(2)}, enemy stunT=${(foe.stunT ?? 0).toFixed(2)} of ${SHOREBREAK_STAGGER}`)
+  }
+
+  console.log(`PASS run SK (The Shorebreak): opens a corridor a walking crowd cannot close, sustained rather than impulsive, ${SHOREBREAK_DUR_MIN}s floor on an empty bar rising to ${SHOREBREAK_DUR_AT_FULL}s, replaces the Pulse in surf only, spares allies`)
+}
+run(runShorebreak)
 
 // ---- Run DK: THE DARK (v7.x Book 2, owner directive) --------------------------------------
 // "if we're stealing light, then our surroundings should be dark, and darker the less light we
@@ -6280,7 +6556,13 @@ function testChapterBehaviors() {
   {
     const run = createRun(makeMeta())
     run.weapons = []
-    run.player.x = 5000; run.player.y = 0 // far away: fixed seek direction, never contacts
+    // ON SCREEN, and on the x axis so the seek direction is a fixed +x for the whole window — the
+    // property this block actually needs. It used to be parked at 5000px for that, which stopped
+    // working when the dash grew its canCommitFrom gate (v7.x): out there the machine never leaves
+    // idle, and the assert below read idleRate === dashRate === full speed. 400 is inside the
+    // default headless viewport's half-width (viewW 480 - COMMIT_EDGE_PAD 28 = 452) with room to
+    // spare, and far enough that nothing ever contacts. See V.c3 for the off-screen half.
+    run.player.x = 400; run.player.y = 0
     const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 100 })
     e.flags = ['dashBurst']
     run.enemies.push(e)
@@ -6301,6 +6583,45 @@ function testChapterBehaviors() {
     const dashRate = dashDist / DASH_T
     assert(dashRate > idleRate * 3, `expected dash-phase speed >> idle-phase speed (idleRate=${idleRate.toFixed(1)}, dashRate=${dashRate.toFixed(1)})`)
     console.log(`PASS run V.c (dashBurst): idleRate=${idleRate.toFixed(1)}px/s dashRate=${dashRate.toFixed(1)}px/s`)
+  }
+
+  // (c3) dashBurst does NOT commit from off screen, and does not loiter out there either.
+  // Owner, 2026-08-16, about The Surf's Sea Roach: "like all other dashers in the game, they should
+  // [not] dash on you from outside your screen." diveBomb and pounce got that gate in v6.6.24 on the
+  // same complaint about the garden's wasps; dashBurst never did, because it is the one dash machine
+  // with NO distance test at all — a pure DASH_IDLE_T timer that fires wherever the body happens to
+  // be. Enemies spawn at run.viewRadius + SPAWN_RING, i.e. always off screen, so a fresh dasher
+  // could complete its whole wind-up out of sight and arrive already dashing.
+  //
+  // BOTH HALVES ARE ASSERTED, because fixing only the first would be worse than the bug. Gating the
+  // commit while leaving the idle phase at DASH_IDLE_SPEED_MUL (0.4) means the crowd crawls just out
+  // of view — the spawn ring is a RADIUS and the gate is a RECTANGLE, so on a phone's short axis
+  // that is several seconds of an empty-looking chapter. So: no dash off screen, AND full approach
+  // speed while it is out there.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.x = 5000; run.player.y = 0 // far outside viewW (480) — cannot be on screen
+    const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 100 })
+    e.flags = ['dashBurst']
+    run.enemies.push(e)
+
+    // Four full idle periods: on the old code this dashes three times over that window.
+    const steps = Math.round((DASH_IDLE_T * 4) / dt)
+    const startX = e.x
+    let sawDash = false
+    for (let i = 0; i < steps; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const cur = run.enemies.find((en) => en.id === e.id)
+      if (cur && cur._dashPhase === 'dash') sawDash = true
+    }
+    const after = run.enemies.find((en) => en.id === e.id)
+    assert(!sawDash, 'a dasher must never enter its dash phase while it is off screen')
+    // ...and it closed at full speed rather than the 0.4x idle crawl. Compared against the RATE, not
+    // a px literal, so the band survives a change to DASH_IDLE_T or to the window length above.
+    const rate = (after.x - startX) / (DASH_IDLE_T * 4)
+    assert(rate > 90, `an off-screen dasher must walk in at full speed, not the idle crawl (got ${rate.toFixed(1)}px/s of 100)`)
+    console.log(`PASS run V.c3 (dashBurst off-screen gate): no dash in ${(DASH_IDLE_T * 4).toFixed(1)}s out of view, closed at ${rate.toFixed(1)}px/s`)
   }
 
   // (c2) dashBurst COMMITS its heading: a dash must never track a player who sidesteps out of it.
@@ -7001,16 +7322,11 @@ function testGarden() {
     console.log('PASS run X.g (garden pool offers only boomerang/stinger/lure weapons + mods)')
   }
 
-  // (h) garden sits after pond in the arc and the Daily can land on it (a preview day).
+  // (h) garden sits after pond in the arc.
   {
     assert(CHAPTER_ORDER.includes('garden'), 'expected garden in CHAPTER_ORDER')
     assert.strictEqual(nextChapter('pond'), 'garden', "expected nextChapter('pond') === 'garden'")
-    let dailyHitGarden = false
-    for (let d = 1; d <= 60 && !dailyHitGarden; d++) {
-      if (dailyChapter(`2026-09-${String(((d - 1) % 30) + 1).padStart(2, '0')}`) === 'garden') dailyHitGarden = true
-    }
-    assert(dailyHitGarden, 'expected the Daily Anomaly to land on garden over a spread of dates')
-    console.log('PASS run X.h (garden in arc + daily reachable)')
+    console.log('PASS run X.h (garden in arc)')
   }
 
   // Balance band (run W style): a fully-leveled Stinger + 2 mods clears a realistic converging ring
@@ -9910,8 +10226,8 @@ function testChapterAnomalies() {
   assert(!all('pond').includes('sticky'), 'v6.4: sticky must not roll in the pond either (MUTATORS.sticky.exclude)')
   assert(!all(undefined).includes('riptide'), 'a chapterless roll excludes every scoped anomaly')
   for (const ch of CHAPTER_ORDER) assert(!all(ch).includes('accelResponse'), 'hidden entries never roll anywhere')
-  const daily = dailyMutators('2026-07-31', 'beyond')
-  assert(!daily.includes('sticky') && !daily.includes('riptide'), 'the daily pool is chapter-scoped too')
+  const rolled = randomMutators(2, 'beyond')
+  assert(!rolled.includes('sticky') && !rolled.includes('riptide'), "randomMutators' pool is chapter-scoped too")
 
   const r1 = createRun(makeMeta(), { chapter: 'beyond', mutators: ['supermassive'] })
   assert.strictEqual(r1.mods.wellForceMul, 1.8, 'supermassive lands in run.mods.wellForceMul')
@@ -9935,7 +10251,7 @@ function testChapterAnomalies() {
     const moreCount = more.traps.length
 
     assert(moreCount > baseCount, `expected trap season's higher occupancy chance to stream more traps (${baseCount} -> ${moreCount})`)
-    console.log(`PASS run GG (chapter anomalies): scoped pools, scoped daily, wellForceMul 1.8, traps ${baseCount}->${moreCount}`)
+    console.log(`PASS run GG (chapter anomalies): scoped pools, wellForceMul 1.8, traps ${baseCount}->${moreCount}`)
   }
 }
 
@@ -10149,8 +10465,8 @@ function testRemaster() {
   {
     const shipped = shippedChapterIds()
     // The denominator must be DERIVED, and this is what proves it still is. A full-suite mutation
-    // cannot reach here — flipping undertow's wip flag trips three earlier guards in runBooks
-    // (`wip.length > 0`, isWipChapter, the dailyChapter sweep) — so assert the relationship
+    // cannot reach here — flipping undertow's wip flag trips two earlier guards in runBooks
+    // (`wip.length > 0`, isWipChapter) — so assert the relationship
     // directly: every wip chapter is excluded, and there is at least one, or the exclusion is
     // vacuous and someone could hardcode this list again without a single test noticing.
     const wipIds = Object.values(BOOKS).filter((b) => b.wip).flatMap((b) => b.chapters)
@@ -11599,7 +11915,7 @@ function testPondIdentity() {
 // v6.4.1/v6.4.3 (owner directives, Run OO): explicit difficulty-1 runs of the three onboarding
 // chapters (EARLY_CALM: body/pond/garden) spawn fewer enemies and pay proportionally more xp
 // per kill, per chapter (body is the gentlest) — gated on opts.difficulty === 1 EXPLICITLY, not
-// the defaulted local, since daily runs and (almost) every test call createRun without a
+// the defaulted local, since (almost) every test calls createRun without a
 // difficulty and must keep baseline density. v6.4.5: body/pond additionally carry a
 // CHAPTERS[id].balance block (Run RR) that eases spawn/dmg AND fattens xp (compensating the
 // thinner swarm) at EVERY difficulty with no gate at all — every spawnMul/xpMul expectation below
@@ -11662,7 +11978,7 @@ function testEarlyCalm() {
     console.log(`PASS run OO.c (chapter not in EARLY_CALM or spawn/xp balance): ${subject} at d1 keeps baseline spawnMul/xpMul=1`)
   }
 
-  // (d) difficulty omitted entirely (the daily/test shape) — the local `difficulty` defaults to 1
+  // (d) difficulty omitted entirely (the test shape) — the local `difficulty` defaults to 1
   // internally, but opts.difficulty stays undefined, so the EARLY_CALM gate must NOT fire. The
   // chapter balance block, unlike EARLY_CALM, has no gate — it fires here too, so pond's
   // spawnMul/xpMul are the balance factors alone (0.75/1.25), not baseline 1/1.
@@ -11675,7 +11991,7 @@ function testEarlyCalm() {
       `expected pond (no difficulty opt) mods.spawnMul ≈ ${expectedSpawn}, got ${run.mods.spawnMul}`)
     assert(Math.abs(run.mods.xpMul - expectedXp) < EPS,
       `expected pond (no difficulty opt) mods.xpMul ≈ ${expectedXp}, got ${run.mods.xpMul}`)
-    console.log(`PASS run OO.d (difficulty omitted): pond with no opts.difficulty keeps EARLY_CALM off but balance on (spawnMul≈${expectedSpawn}, xpMul≈${expectedXp}) — daily/test shape`)
+    console.log(`PASS run OO.d (difficulty omitted): pond with no opts.difficulty keeps EARLY_CALM off but balance on (spawnMul≈${expectedSpawn}, xpMul≈${expectedXp}) — test shape`)
   }
 
   // (e) mutator stack: overtime (spawnMul:1.4, xpMul:1.3, see MUTATORS in config.js) composes
@@ -11796,7 +12112,7 @@ function testOpeningCredit() {
 function testChapterBalance() {
   const EPS = 1e-9
 
-  // (a) body, difficulty omitted entirely (the daily/test shape — EARLY_CALM never fires without
+  // (a) body, difficulty omitted entirely (the test shape — EARLY_CALM never fires without
   // an explicit opts.difficulty): balance alone thins spawn, softens contact damage, and fattens xp.
   {
     Math.random = mulberry32(20260714)
@@ -11810,7 +12126,7 @@ function testChapterBalance() {
     // v6.4.9 (owner directive): body enemies also carry 25% less HP — body-only, pond keeps hp 1.
     assert(Math.abs(run.mods.enemyHpMul - 0.75) < EPS,
       `expected body (no difficulty opt) mods.enemyHpMul ≈ 0.75, got ${run.mods.enemyHpMul}`)
-    console.log(`PASS run RR.a (body baseline balance, daily shape): spawnMul=${run.mods.spawnMul}, enemyDmgMul=${run.mods.enemyDmgMul}, enemyHpMul=${run.mods.enemyHpMul}, xpMul=${run.mods.xpMul}`)
+    console.log(`PASS run RR.a (body baseline balance, omitted-difficulty shape): spawnMul=${run.mods.spawnMul}, enemyDmgMul=${run.mods.enemyDmgMul}, enemyHpMul=${run.mods.enemyHpMul}, xpMul=${run.mods.xpMul}`)
   }
 
   // (b) pond, explicit difficulty 3: EARLY_CALM doesn't fire (d1-only), but balance has no gate at
@@ -12594,6 +12910,9 @@ function testFrenchDictionary() {
   for (const v of Object.values(ELITE_AFFIXES ?? {})) need(v?.name)
   for (const v of Object.values(CHAPTER_ENDINGS ?? {})) { need(v?.victory); need(v?.death) }
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
+  // Same flat id -> string shape, one book down. Joined here the day the table landed rather than
+  // the day someone noticed the badge was English — the whole point of this walk.
+  for (const v of Object.values(BOOK_UNLOCK_LINES ?? {})) need(v)
   for (const v of Object.values(CHAPTERS ?? {})) { need(v?.name); need(v?.tagline) }
   // BOOKS[].name is on screen from v7.x (the shelf's brass plate) and no walk above reached it —
   // both Books would have shipped in English the day the bookcase landed.
@@ -13404,6 +13723,7 @@ try {
   run(testSurfHumidity)
   run(testSurfHumidityDamage)
   run(testSurfWeapons)
+  run(testShelfWeapons)
   run(testCrabGuard)
   run(testSurfGulls)
   run(testPlayerForms)
@@ -16249,6 +16569,260 @@ function testBarnacles() {
   testBarnacleSpreadOnForeignKill()
 
   console.log(`PASS run US.e-3 (barnacles): a crust ticks its host down (dead with ${hostTAtDeath.toFixed(2)}s left of ${lvl.crustDur}s), seeds ${seeded.length} of 1 neighbour within ${BARNACLE_JUMP_R}px at a FULL ${child.t.toFixed(2)}s each and jumps=${child.jumps}, and reaches nothing at ${DISTANT_PX}px`)
+}
+
+// ---- run SH: The Shelf's three natives ---------------------------------------------------------
+// Every assertion here is on an EFFECT — damage that landed, a body that was reached, a position
+// that is genuinely somewhere else — and never on a stored number. The three failures this suite is
+// written against all pass a state check:
+//   - three columns spawned ON TOP OF EACH OTHER still count three (the per-cast-count trap), and
+//     render identically to one column.
+//   - a foxfire whose `maxR` grew still catches nobody if the growth is smaller than the gap to the
+//     next body.
+//   - a lance whose `length` shrank to nothing still exists in run.beams.
+function testShelfWeapons() {
+  testShelfPool()
+  testSunspear()
+  testFoxfire()
+  testSunlance()
+}
+
+function shelfRun(weaponId, level = 1) {
+  const meta = makeMeta()
+  meta.dev = true
+  ensureChapterMeta(meta)
+  const run = createRun(meta, { chapter: 'shelf', difficulty: 1 })
+  run.weapons = [{ id: weaponId, level }]
+  run.player.maxHP = run.player.hp = 1e9
+  run.enemies.length = 0
+  // The shafts stream in around the player and would refill the bar mid-fixture, which is the one
+  // thing every assertion below is trying to hold still. Dropping them makes run.charge a knob.
+  run.shafts.length = 0
+  return run
+}
+
+// (0) THE CHAPTER FIGHTS WITH ITS OWN GEAR. CHAPTERS.shelf spreads CHAPTERS.pond, so the pool is
+// inherited unless it is overridden — and an inherited pool is invisible in a diff of this file.
+function testShelfPool() {
+  const pool = CHAPTERS.shelf.weapons
+  for (const borrowed of ['flagella', 'mines', 'bloom']) {
+    assert.ok(!pool.includes(borrowed),
+      `The Shelf still offers ${borrowed} — the spread from CHAPTERS.pond is not overridden`)
+  }
+  assert.deepStrictEqual([...pool].sort(), ['foxfire', 'sunlance', 'sunspear'],
+    `The Shelf's pool is ${JSON.stringify(pool)}, not its three natives`)
+  assert.ok(pool.includes(CHAPTERS.shelf.starter),
+    `The Shelf starts you with ${CHAPTERS.shelf.starter}, which is not in its own pool`)
+  assert.strictEqual(CHAPTERS.shelf.starter, 'sunspear',
+    'The Shelf no longer starts on its own starter')
+}
+
+// (a) EVERY COLUMN OF A CAST LANDS SOMEWHERE ELSE — including the surplus ones.
+function testSunspear() {
+  Math.random = mulberry32(20260816)
+  const L = 5
+  const run = shelfRun('sunspear', L)
+  const p = run.player
+  const lvl = WEAPONS.sunspear.levels[L - 1]
+  assert.ok(lvl.count >= 3, `this fixture needs a multi-column level; L${L} casts ${lvl.count}`)
+
+  // THREE bodies, well apart and well inside castRange: the ordinary case, where every column has
+  // its own target and the padding ring never opens.
+  const bodies = [
+    makeStatusEnemy(run, { x: p.x + 150, y: p.y, hp: 1e6, speed: 0 }),
+    makeStatusEnemy(run, { x: p.x - 40, y: p.y + 160, hp: 1e6, speed: 0 }),
+    makeStatusEnemy(run, { x: p.x - 170, y: p.y - 60, hp: 1e6, speed: 0 }),
+  ]
+  run.enemies.push(...bodies)
+  const keep = new Set(bodies.map((e) => e.id))
+  const hp0 = bodies.map((e) => e.hp)
+
+  // Caught mid-fall: the columns are in run.lobs but have not landed, which is the only window in
+  // which their target positions can be read.
+  let cols = []
+  for (let i = 0; i < Math.round((lvl.interval + SUNSPEAR_FALL * 0.5) * 60); i++) {
+    stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+    run.events.length = 0
+    run.enemies = run.enemies.filter((e) => keep.has(e.id))
+    const live = run.lobs.filter((lo) => lo.column)
+    if (live.length > cols.length) cols = live.map((lo) => ({ x: lo.tx, y: lo.ty }))
+  }
+  assert.strictEqual(cols.length, lvl.count,
+    `a cast put ${cols.length} columns in run.lobs, not ${lvl.count}`)
+  assertDistinctSpots(cols, 'three bodies in range')
+
+  // ...and they landed ON the three bodies rather than merely near them.
+  stepPinned(run, SUNSPEAR_FALL + 0.1, 1 / 60, { x: 0, y: 0, skill: false }, keep)
+  for (let i = 0; i < bodies.length; i++) {
+    assert.ok(bodies[i].hp < hp0[i],
+      `body ${i} took nothing — the columns are not landing on the bodies they were called on`)
+  }
+
+  // THE PADDING RING. One body, three columns. The failure mode is that the surplus two stack on the
+  // first, which counts three, renders as one, and deals ONE column's damage. So the assertion is
+  // the damage: three columns on one body must cost it about three columns' worth.
+  Math.random = mulberry32(20260816)
+  const run2 = shelfRun('sunspear', L)
+  const p2 = run2.player
+  const lone = makeStatusEnemy(run2, { x: p2.x + 140, y: p2.y, hp: 1e6, speed: 0 })
+  run2.enemies.push(lone)
+  const keep2 = new Set([lone.id])
+  let padCols = []
+  for (let i = 0; i < Math.round((lvl.interval + SUNSPEAR_FALL * 0.5) * 60); i++) {
+    stepSim(run2, { x: 0, y: 0, skill: false }, 1 / 60)
+    run2.events.length = 0
+    run2.enemies = run2.enemies.filter((e) => keep2.has(e.id))
+    const live = run2.lobs.filter((lo) => lo.column)
+    if (live.length > padCols.length) padCols = live.map((lo) => ({ x: lo.tx, y: lo.ty }))
+  }
+  assert.strictEqual(padCols.length, lvl.count,
+    `one body in range produced ${padCols.length} columns, not ${lvl.count} — the surplus was dropped, so \`count\` does nothing against a lone target`)
+  assertDistinctSpots(padCols, 'one body in range (the padding ring)')
+
+  const loneHp0 = lone.hp
+  stepPinned(run2, SUNSPEAR_FALL + 0.1, 1 / 60, { x: 0, y: 0, skill: false }, keep2)
+  const took = loneHp0 - lone.hp
+  // SUNSPEAR_SPREAD (48) sits under the smallest splash radius, so every padded column still covers
+  // the body it was padded around. Two columns' worth is the floor that separates "the ring spread
+  // them and they all still hit" from "they stacked" (one column) or "they missed" (one column).
+  assert.ok(took > lvl.dmg * 2,
+    `a lone body took ${took.toFixed(0)} from ${lvl.count} columns of ${lvl.dmg} — the surplus columns either stacked or landed off the body`)
+
+  console.log(`PASS run SH.a (sunspear): a ${lvl.count}-column cast lands ${lvl.count} DISTINCT columns both with three bodies in range and with one (padding ring ${SUNSPEAR_SPREAD}px), and the lone body eats ${took.toFixed(0)} against one column's ${lvl.dmg}`)
+}
+
+/** Pairwise-distinct spot check. A count is what passes when three things spawn on one point, so
+ * this is the assertion the per-cast-count trap actually needs. */
+function assertDistinctSpots(spots, label) {
+  for (let i = 0; i < spots.length; i++) {
+    for (let j = i + 1; j < spots.length; j++) {
+      const d = Math.hypot(spots[i].x - spots[j].x, spots[i].y - spots[j].y)
+      assert.ok(d > 1,
+        `[${label}] columns ${i} and ${j} landed ${d.toFixed(2)}px apart — they are stacked, which renders identically to one column`)
+    }
+  }
+}
+
+// (b) THE DARK BUYS REACH, AND IT BUYS IT IN BODIES CAUGHT — not in a bigger number on the entity.
+function testFoxfire() {
+  const L = 5
+  const lvl = WEAPONS.foxfire.levels[L - 1]
+  // A ring of bodies in the band the gloom opens up: outside the lit radius, inside the dark one.
+  // Nothing here is reachable at a full bar, and all of it is reachable at an empty one, so the
+  // measurement is "who got burned" rather than "how big is maxR".
+  const BAND = (lvl.maxR + lvl.maxR * FOXFIRE_GLOOM) / 2
+
+  // THE RING IS PLACED AFTER THE CLOUD EXISTS, and that is a correctness detail rather than
+  // convenience: pickBloomSpot lands on a RANDOM body in range, so a ring that is already standing
+  // there is itself a candidate — the first cut of this fixture put the cloud on a ring body half
+  // the time and read the neighbours it caught as the gloom.
+  const cast = (charge) => {
+    Math.random = mulberry32(20260816)
+    const run = shelfRun('foxfire', L)
+    const p = run.player
+    run.charge = charge
+    const centre = makeStatusEnemy(run, { x: p.x, y: p.y + 20, hp: 1e6, speed: 0 })
+    run.enemies.push(centre)
+    const keep = new Set([centre.id])
+
+    const step = () => {
+      run.charge = charge   // stepCharge drains every frame; a drifting bar measures neither end
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      run.enemies = run.enemies.filter((e) => keep.has(e.id))
+    }
+    for (let i = 0; i < Math.round((lvl.interval + 0.5) * 60) && run.blooms.length === 0; i++) step()
+    assert.strictEqual(run.blooms.length, 1, 'the foxfire never kindled — the fixture is not exercising the weapon')
+    const bl = run.blooms[0]
+    // ONE cloud, measured to the end of its life. glowDur (4.4s at L5) outlives `interval` (2.4s), so
+    // a still-armed fixture fires again mid-window — onto a ring body, since the ring is in range by
+    // then — and the neighbours THAT cloud catches read as the first one's gloom.
+    run.weapons.length = 0
+
+    const ring = []
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2
+      const e = makeStatusEnemy(run, { x: bl.x + Math.cos(a) * BAND, y: bl.y + Math.sin(a) * BAND, hp: 1e6, speed: 0 })
+      ring.push(e); keep.add(e.id)
+    }
+    run.enemies.push(...ring)
+    const hp0 = ring.map((e) => e.hp)
+    for (let i = 0; i < Math.round(lvl.glowDur * 0.9 * 60); i++) step()
+
+    const burned = ring.filter((e, i) => e.hp < hp0[i]).length
+    const slowed = ring.some((e) => (e.bloomSlowT ?? 0) > 0) || (centre.bloomSlowT ?? 0) > 0
+    return { burned, slowed, of: ring.length }
+  }
+
+  const lit = cast(run0ChargeMax())
+  const dark = cast(0)
+  assert.strictEqual(lit.burned, 0,
+    `a foxfire cast at a FULL bar burned ${lit.burned}/${lit.of} bodies in the band beyond its lit radius — the band is mis-sized, or the gloom applies at every charge`)
+  assert.ok(dark.burned > 0,
+    `a foxfire cast at an EMPTY bar burned nothing in the band the gloom is supposed to open (${lvl.maxR} -> ${(lvl.maxR * FOXFIRE_GLOOM).toFixed(0)}px) — the dark buys no reach`)
+
+  // AND IT DOES NOT SLOW. run.blooms is shared with the Spore Bloom, whose slow is applied to every
+  // entry in the list; The Shelf already slows the player in the dark and must not hand out a
+  // second, unadvertised slow on a card whose text never mentions one.
+  assert.ok(!dark.slowed && !lit.slowed,
+    'a foxfire slowed what stood in it — it has inherited the Spore Bloom\'s slow through run.blooms')
+
+  console.log(`PASS run SH.b (foxfire): the band ${lvl.maxR}-${(lvl.maxR * FOXFIRE_GLOOM).toFixed(0)}px catches 0/${lit.of} at a full bar and ${dark.burned}/${dark.of} at an empty one, and neither cast slows anything`)
+}
+
+/** The bar's ceiling for a fresh Shelf run, read off a run rather than off config — Deep Lungs can
+ * raise run.chargeMax above resource.max, and every consumer in sim.js reads the run's own. */
+function run0ChargeMax() {
+  const meta = makeMeta()
+  ensureChapterMeta(meta)
+  return createRun(meta, { chapter: 'shelf', difficulty: 1 }).chargeMax
+}
+
+// (c) THE LANCE REACHES AS FAR AS THE BAR, AND AN EMPTY BAR STILL KILLS.
+function testSunlance() {
+  const L = 5
+  const lvl = WEAPONS.sunlance.levels[L - 1]
+  // FAR sits inside a full-bar lance and outside an empty-bar one; NEAR sits inside both. The floor
+  // is what NEAR tests: SUNLANCE_REACH_MIN going to 0 leaves a lance with no reach at all, which is
+  // the structural trap spec 8.2 forbids and which a length assertion alone would not notice.
+  const FAR = lvl.length * (SUNLANCE_REACH_MIN + (1 - SUNLANCE_REACH_MIN)) * 0.85
+  const NEAR = lvl.length * SUNLANCE_REACH_MIN * 0.6
+
+  const cast = (charge, dist) => {
+    Math.random = mulberry32(20260816)
+    const run = shelfRun('sunlance', L)
+    const p = run.player
+    run.charge = charge
+    // Both bodies on the +x axis: the near one is what surfAim locks onto, so the lance is aimed
+    // along the line both of them stand on.
+    const near = makeStatusEnemy(run, { x: p.x + 60, y: p.y, hp: 1e6, speed: 0 })
+    const mark = makeStatusEnemy(run, { x: p.x + dist, y: p.y, hp: 1e6, speed: 0 })
+    run.enemies.push(near, mark)
+    const keep = new Set([near.id, mark.id])
+    const hp0 = mark.hp, nearHp0 = near.hp
+    const steps = Math.round((lvl.interval + lvl.duration + 0.1) * 60)
+    for (let i = 0; i < steps; i++) {
+      run.charge = charge
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      run.enemies = run.enemies.filter((e) => keep.has(e.id))
+    }
+    return { markHit: mark.hp < hp0, nearHit: near.hp < nearHp0 }
+  }
+
+  const max = run0ChargeMax()
+  const full = cast(max, FAR)
+  const empty = cast(0, FAR)
+  const floor = cast(0, NEAR)
+
+  assert.ok(full.markHit,
+    `a body at ${FAR.toFixed(0)}px took nothing from a FULL-bar lance of ${lvl.length}px — the reach is not tracking the bar upward`)
+  assert.ok(!empty.markHit,
+    `a body at ${FAR.toFixed(0)}px was struck by an EMPTY-bar lance, which should reach only ${(lvl.length * SUNLANCE_REACH_MIN).toFixed(0)}px — the bar is not shortening it`)
+  assert.ok(floor.markHit && floor.nearHit,
+    `an EMPTY-bar lance struck nothing at ${NEAR.toFixed(0)}px — SUNLANCE_REACH_MIN is not holding the floor, so running dry disarms the weapon`)
+
+  console.log(`PASS run SH.c (sunlance): reach runs ${(lvl.length * SUNLANCE_REACH_MIN).toFixed(0)}px (empty) to ${lvl.length}px (full) — a body at ${FAR.toFixed(0)}px is hit only at a full bar, and one at ${NEAR.toFixed(0)}px is hit even at an empty one`)
 }
 
 // ---- run LN: The Beyond's lane is a GOLDEN MASTER ---------------------------------------------

@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, shopLines, MAX_SHOP_LEVEL, runBonusCoins, dailyMutators, todayKey, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, dailyChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -17,7 +17,6 @@ async function boot() {
 const meta = loadMeta()
 setLang(meta.lang) // i18n before any screen renders — ui.js translates at render time
 let run = null
-let runMode = 'classic'
 // v6.0.2: a classic run staged behind the pre-run summary screen — set by onPlay, consumed by
 // onBriefStart. Overwritten by the next Play if the player backs out via the nav (nothing was
 // created or spent, so abandoning it is free).
@@ -85,18 +84,8 @@ initInput(document.body)
 
 const ui = initUI({
   meta,
-  onPlay(mode) {
+  onPlay() {
     initAudio()
-    runMode = mode
-    // Daily = fixed shared seed, date-seeded chapter (see dailyChapter in config.js), base
-    // difficulty — allowed on a chapter this player hasn't unlocked yet (spec: preview day).
-    // Its anomaly is already explained by the daily briefing screen the player just came from.
-    if (mode === 'daily') {
-      const chapter = dailyChapter(todayKey())
-      run = createRun(meta, { chapter, mutators: dailyMutators(todayKey(), chapter) })
-      beginRun()
-      return
-    }
     // Classic = the selected chapter (meta.chapter) at ITS OWN difficulty ladder (level 1 adds
     // nothing, each level above adds one random mutator + enemy HP) — see meta.chapters[id] in
     // state.js. v6.0.2: the run does NOT start yet — the pre-run summary explains the anomalies
@@ -371,7 +360,7 @@ const ui = initUI({
 // buildReadout is a read-only projection (see sim.js): main is the only place allowed to hand sim
 // data to ui, which never imports sim. Two callers — a plain pause, and the same sheet opened
 // over a level-up.
-const pauseData = () => ({ mutators: run.mutators, mode: runMode, build: buildReadout(run) })
+const pauseData = () => ({ mutators: run.mutators, build: buildReadout(run) })
 
 // Everything the level-up screen needs to render its cards + footer buttons.
 function levelupData() {
@@ -411,6 +400,11 @@ const SFX_FOR_EVENT = {
   // v5.21 lane (beyond): the active shove reuses the hole whoosh, and a rock clipping the player
   // is an ordinary hurt — it is damage, not a special occasion.
   repulse: 'hole', rockhit: 'hurt',
+  // v7.x The Surf: the Shorebreak REPLACES the shove in that chapter, so it does not inherit the
+  // shove's sound by sitting on the same press — surf never emits `repulse` at all any more. It
+  // takes the same whoosh, which is both the right voice for a wall of water and the reason the
+  // swap is inaudible as a regression: one press, one sample, exactly as before.
+  shorebreak: 'hole',
   // v5.24 The Blank: the boss's scripted arrival/final kill and the P2 node yank each get their
   // own beat (audio.js) — the fight only has three of these total, no throttling needed.
   bossSpawn: 'bossRise', bossDead: 'bossFall', yank: 'zap',
@@ -442,6 +436,14 @@ const SFX_FOR_EVENT = {
   // line is heard through the hits it lands, its tell is visual (an amber rope with hooks, the only
   // warm thing in a cold chapter), and a bespoke voice every 2.0-2.6s for the whole run is a
   // metronome rather than feedback.
+  //
+  // The Shelf. Two entries for three weapons, and the two absences are the same ruling as above.
+  // 'sunspear' is the CAST — one voice per cast however many columns it calls — and 'sunfall', the
+  // landing, has NO entry: at L5 that is three landings 0.26s after one cast, which is the machine
+  // gun 'crust' and 'skip' are both written around. The column's tell is the flash it lands with.
+  // 'foxfire' has none either, matching the Spore Bloom it shares run.blooms with: a cloud settling
+  // is not a percussive event, and its damage is heard through the ticks.
+  sunspear: 'shoot', sunlance: 'beam',
 }
 
 function endRun(victory) {
@@ -470,14 +472,14 @@ function endRun(victory) {
   // at the ceiling (winning a lower, already-unlocked level doesn't re-unlock anything), and
   // only while there's a level left to unlock.
   const runChapterMaxDifficulty = chapterMaxDifficulty(run.chapter)
-  const unlockedDifficulty = victory && runMode === 'classic' &&
+  const unlockedDifficulty = victory &&
     (run.difficulty ?? 1) >= chMeta.maxDifficulty && chMeta.maxDifficulty < runChapterMaxDifficulty
   if (unlockedDifficulty) chMeta.maxDifficulty = Math.min(runChapterMaxDifficulty, (run.difficulty ?? 1) + 1)
   // v6.6.12: record the level actually WON, separately from the level unlocked. Winning the ladder's
   // last level unlocks nothing (the guard above requires maxDifficulty < the cap), so before this the
   // save had no way to express "beat the hardest one" and the hero card's final star never lit.
   // Math.max, not assignment: replaying an easier level must not walk the record back down.
-  if (victory && runMode === 'classic') chMeta.won = Math.max(Number(chMeta.won) || 0, run.difficulty ?? 1)
+  if (victory) chMeta.won = Math.max(Number(chMeta.won) || 0, run.difficulty ?? 1)
 
   // Chapter unlock (v5.0): winning a classic run at difficulty 3+ unlocks the NEXT chapter (see
   // nextChapter in config.js), if there is one and it isn't already unlocked. Guarded on "not
@@ -485,7 +487,8 @@ function endRun(victory) {
   // shouldn't keep announcing it).
   let unlockedChapter = null
   let unlockedChapterId = null
-  if (victory && runMode === 'classic' && (run.difficulty ?? 1) >= CHAPTER_UNLOCK_DIFFICULTY) {
+  let unlockedBook = null
+  if (victory && (run.difficulty ?? 1) >= CHAPTER_UNLOCK_DIFFICULTY) {
     const next = nextChapter(run.chapter)
     if (next) {
       const nextMeta = ensureChapterMeta(meta, next)
@@ -497,16 +500,13 @@ function endRun(victory) {
     } else if (isBookFinale(run.chapter)) {
       // No next chapter AND this is the book's finale: open the next book. Not a bare
       // `!next` test — that is also true of The Blank (see isBookFinale in config.js).
-      // Still unlocks (meta.chapters + the 100-coin grant) even though it produces NO summary
-      // banner: a book-unlock banner is deliberately deferred to the Book-2 launch (final review,
-      // 2026-08-16). Its copy has to live in a config TABLE, not a tt() literal here — run XX's
-      // config-table walk is what catches a missing French translation, and a literal in this
-      // function is invisible to it by construction (see the CLAUDE.md note on player-visible
-      // copy) — and the wording is the project owner's to choose personally. The path is also
-      // unreachable today (Undertow is `wip` and dev-gated), so there is no player-visible gap to
-      // paper over by wiring a banner with placeholder text.
+      // unlockBook returns true only when it actually CHANGED something (opened the first
+      // chapter, or paid the welcome purse), which is exactly the gate the badge wants: the
+      // monotone meta.grants flag in grantBook makes a replayed finale return false, so the
+      // announcement fires on the run that earned it and never again. Copy lives in
+      // BOOK_UNLOCK_LINES rather than here — run XX walks config tables, not this function.
       const nb = nextBook(bookOf(run.chapter))
-      if (nb) unlockBook(meta, nb)
+      if (nb && unlockBook(meta, nb)) unlockedBook = nb
     }
   }
 
@@ -514,7 +514,7 @@ function endRun(victory) {
   // Blank — no entry in CHAPTER_ORDER, no per-difficulty ladder tie-in, just this one gate.
   // Guarded on "not already unlocked" so replaying the win doesn't keep announcing it.
   let unlockedHiddenChapter = null
-  if (victory && runMode === 'classic' && run.chapter === 'beyond' && (run.difficulty ?? 1) >= 5) {
+  if (victory && run.chapter === 'beyond' && (run.difficulty ?? 1) >= 5) {
     const blankMeta = ensureChapterMeta(meta, 'blank')
     if (!blankMeta.unlocked) {
       blankMeta.unlocked = true
@@ -527,7 +527,7 @@ function endRun(victory) {
   // Play button, which reads chMeta.difficulty — actually starts it (via the pre-run summary).
   // Wins at the cap, deaths and dailies keep "Play again".
   let nextDifficulty = null
-  if (victory && runMode === 'classic') {
+  if (victory) {
     // R3 (state.js's ensureChapterMeta): chMeta.maxDifficulty may now sit ABOVE this build's
     // ladder — a save from a build that shipped more levels keeps its number instead of being
     // written back lower — so cap the bump with the chapter's own ceiling too. Without it, a win
@@ -540,11 +540,12 @@ function endRun(victory) {
   saveMeta(meta)
   ui.showScreen('summary', {
     victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus,
-    mutators: run.mutators, mode: runMode, nextDifficulty,
+    mutators: run.mutators, nextDifficulty,
     unlockedDifficulty: unlockedDifficulty ? chMeta.maxDifficulty : null,
     unlockedChapter,
     unlockedChapterId,
     unlockedHiddenChapter,
+    unlockedBook,
   })
 }
 

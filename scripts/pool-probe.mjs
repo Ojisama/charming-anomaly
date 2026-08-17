@@ -88,6 +88,28 @@ const CHAPTER = pos[0] ?? 'body'
 const SLOTS = Number(pos[1] ?? 2)
 const RUNS = Number(pos[2] ?? 40)
 const POLICY = pos[3] ?? 'random'
+
+// THE POSITIONAL ORDER IS <chapter> <slots> <runs> <policy>, AND A SHORT INVOCATION USED TO PRINT
+// A FULL TABLE OF NaN WITH EXIT 0. `pool-probe body 4 dps` omits `runs`, so 'dps' lands in the
+// RUNS slot, Number('dps') is NaN, every loop bounded by it runs zero times — and the probe still
+// printed every heading with NaN under it, including `short pools 0/0  (MUST be 0)`, which reads
+// as a PASS when nothing ran at all. That is the worst shape a harness can fail in: not an error,
+// but a confident answer to a question it never asked. A probe that cannot measure must not print
+// numbers.
+//
+// POLICY is guarded for the same reason one step quieter: `choose()` tests 'random' and 'defense'
+// explicitly and lets EVERYTHING ELSE fall through to the dps branch, so a typo silently measures
+// the wrong bot. 'defence' is the trap with teeth — this file prints that very spelling in its own
+// defence row, so the British spelling is one a reader of the output would naturally type back.
+const POLICIES = ['random', 'defense', 'dps']
+const USAGE = 'usage: node scripts/pool-probe.mjs <chapter> <slots> <runs> <policy> [--flags]'
+const bail = (msg) => { console.error(`ABORT: ${msg}\n${USAGE}`); process.exit(1) }
+if (!Object.hasOwn(C.CHAPTERS, CHAPTER)) bail(`'${CHAPTER}' is not a chapter id (positional 1)`)
+if (!Number.isFinite(SLOTS) || SLOTS < 1) bail(`slots must be a positive number, got '${pos[1]}' (positional 2)`)
+if (!Number.isFinite(RUNS) || RUNS < 1) {
+  bail(`runs must be a positive number, got '${pos[2]}' (positional 3) — if you meant '${pos[2]}' as the POLICY, you omitted runs: the order is <chapter> <slots> <runs> <policy>`)
+}
+if (!POLICIES.includes(POLICY)) bail(`'${POLICY}' is not a policy (positional 4) — expected one of: ${POLICIES.join(', ')}`)
 const SURVIVAL = flags.has('--survival')
 const DIFF = Number(args.find((a) => a.startsWith('--diff='))?.slice(7) ?? 1)
 const OFFSET = Number(args.find((a) => a.startsWith('--offset='))?.slice(9) ?? 1)

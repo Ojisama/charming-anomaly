@@ -50,6 +50,7 @@ const UI = {
   'Fork range': 'Portée des bonds',
   'Runs for': 'Durée',
   'Line lasts': 'Ligne',
+  'Glow lasts': 'Lueur',
   'Holds for': 'Maintien',
   'Burns for': 'Brûlure',
   'dmg': 'dég',          // no period: weapons with base dmg under 10 render a decimal, and
@@ -63,10 +64,10 @@ const UI = {
   'You': 'Ton anomalie',
   'Elements': 'Éléments',
   '{n} picks': '{n} choix',
-  // nav + title
+  // title + the volume's own doors. 'Back' is NOT here: the Codex block already carries it, and a
+  // second copy is a dead entry the duplicate-key lint fails on.
   'Shop': 'Boutique',
-  'Battle': 'Combat',
-  'Daily': 'Défi',
+  'Close': 'Fermer',
   'Play': 'Jouer',
   'Play again': 'Rejouer',
   'Next level': 'Niveau suivant',
@@ -157,16 +158,11 @@ const UI = {
   'New!': 'Nouveau !',
 
   // briefings + anomalies
-  'Daily Anomaly': 'Anomalie du jour',
   'Anomalies': 'Anomalies',
   // 'reroll' stays English: it is the term French players use for this action (owner's call,
   // v7.2.1), so the legend does not translate even though the aria-label below still says
   // 'Relancer cette anomalie' — that one is prose read aloud, not a label on a control.
   'reroll {n}': 'reroll {n}',
-  'preview': 'aperçu',
-  'Everyone gets the same anomaly today — new one at midnight.':
-    'Tout le monde a la même anomalie aujourd\'hui — nouvelle à minuit.',
-  'Start Daily Run': 'Lancer le défi du jour',
   'Start': 'Commencer',
   'The Blank\'s ladder is fixed — each difficulty adds its named modifier.':
     'L\'échelle du Blanc est fixe — chaque difficulté ajoute son modificateur attitré.',
@@ -234,7 +230,7 @@ const UI = {
   // torn open" with no domestic sense.
   //
   // Why a fresh noun at all: the tier was called 'Anomaly'/'Anomalie', and 'anomalie' is already
-  // spent on ELEVEN user-facing FR strings — the Daily's mutators ('Anomalie du jour', 'Relancer
+  // spent on ELEVEN user-facing FR strings — the run's mutators ('Relancer
   // cette anomalie', 'Les anomalies tordent les règles de cette partie'), MUTATORS.overtime and
   // .jumbo, and the player themselves ('Ton anomalie', line 35). The two obvious alternatives are
   // taken too: 'Faille' by tornSeam and 'Singularité' by hole. And no ADJECTIVE can join the
@@ -487,6 +483,8 @@ const CONFIG = {
   'The City — a report has been filed': 'La Ville — un signalement a été déposé',
   'The Skies — this time they\'re not hiding it': 'Les Cieux — cette fois ils ne s\'en cachent plus',
   'The Beyond — you were never the only anomaly': 'L\'Au-delà — tu n\'as jamais été la seule anomalie',
+  // v7.x book-unlock badge (BOOK_UNLOCK_LINES). {n} is the welcome purse — keep the placeholder.
+  'UNDERTOW — a second book opens, for a new adventure… 🪙 {n} to begin': 'LAME DE FOND — un deuxième livre s\'ouvre pour une nouvelle aventure… 🪙 {n} pour commencer',
   'Toxic Shock': 'Choc Toxique',
   'Elite acid pools burn far hotter. Richer coins.': 'Les flaques d\'acide des élites brûlent bien plus fort. Pièces plus riches.',
   'Spike Protein': 'Protéine Spike',
@@ -541,6 +539,12 @@ const CONFIG = {
   // actually read on a hull or a rock; 'Bernacles' is the goose barnacle, a different animal.
   // 'gerbe' for the shell's splash rather than 'éclaboussure': a gerbe is the spray thrown UP by an
   // impact, which is the thing being drawn, and it is one word instead of five syllables on a card.
+  'Sunspear': 'Rai de Lumière',
+  'Calls down a column of light on what is nearest. More columns as it grows.': 'Abat une colonne de lumière sur ce qui est le plus proche. Et davantage de colonnes en montant de niveau.',
+  'Foxfire': 'Feu Follet',
+  'A cold fire that barely shows in the light and takes hold in the dark.': 'Un feu froid qui se voit à peine dans la lumière et qui prend dans le noir.',
+  'Sunlance': 'Lance Solaire',
+  'Spears a shaft of hard light through the crowd. It reaches as far as your Light does.': 'Transperce la foule d\'un trait de lumière dure. Sa portée est celle de votre Lumière.',
   'Breaker': 'Déferlante',
   'A wave rolls out ahead of you, dragging what it catches along with it.': 'Une vague déferle devant vous et emporte tout ce qu\'elle attrape.',
   'Skipping Shell': 'Coquille Ricochet',
@@ -870,6 +874,29 @@ const CONFIG = {
   'Wide Splash': 'Grande Gerbe',
   'splash radius': 'rayon de la gerbe',
   'Fast Skim': 'Lancer Rapide',
+  'High Noon': 'Plein Midi',
+  'column damage': 'dégâts de la colonne',
+  'Broad Beam': 'Faisceau Large',
+  'column radius': 'rayon de la colonne',
+  'Zenith': 'Zénith',
+  'how far a column can be called': 'portée d\'appel d\'une colonne',
+  'Second Sun': 'Second Soleil',
+  'extra column(s) per cast': 'colonne(s) supplémentaire(s) par lancer',
+  'Quick Kindle': 'Allumage Rapide',
+  'Emberfeed': 'Attise-Braise',
+  'foxfire damage per tick': 'dégâts du feu follet par tic',
+  'Gloaming': 'Crépuscule',
+  'foxfire radius': 'rayon du feu follet',
+  'Long Burn': 'Combustion Longue',
+  'how long a foxfire burns': 'durée de combustion du feu follet',
+  'Whetted': 'Affûtée',
+  'lance damage per tick': 'dégâts de la lance par tic',
+  'Far Reach': 'Longue Portée',
+  'lance length': 'longueur de la lance',
+  'Broad Edge': 'Tranchant Large',
+  'lance width': 'largeur de la lance',
+  'Held Lance': 'Lance Maintenue',
+  'how long the lance is held': 'durée de maintien de la lance',
   'Grinder': 'Râpe',
   'crust damage per tick': 'dégâts de la croûte par tic',
   'Encrust': 'Incrustation',

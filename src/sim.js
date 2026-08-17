@@ -152,7 +152,9 @@ import {
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
+  SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
   BREACH_R_MIN, BREACH_R_AT_FULL, BREACH_REACH, BREACH_MAX_HOLES, tiredness,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
@@ -260,6 +262,11 @@ export function stepSim(run, input, dt) {
   // by every damage site this frame — marking after the weapons had fired would give the player a
   // window one frame short and, on a 1.3s minimum duration, that is a visible fraction of the card.
   stepScent(run, dt)
+  // v7.x The Surf. BEFORE stepEnemySeparation and stepEnemyMovement, because both of the things it
+  // writes are read downstream this same frame: e.kb is integrated in stepEnemyMovement, and e.stunT
+  // is checked there above every behavior flag. Pushing after movement would land the whole wave one
+  // frame late, which on the 0.9s floor is a measurable slice of the move.
+  stepShorebreak(run, dt)
   streamTraps(run)        // v6.5 undergrowth identity: materialize/drop snap traps (no-op outside predators)
   streamObstacles(run)    // v5.6.13: materialize/drop obstacle cells as the player roams
   stepEnemySeparation(run) // v6.5.1: push overlapping enemies apart (owner directive: no 100% stacks)
@@ -1221,6 +1228,19 @@ function stepRepulse(run, input, dt) {
   const spend = res ? Math.min(run.charge, PULSE_CHARGE_COST) : 0
   const t = res ? spend / PULSE_CHARGE_COST : 0
   if (spend > 0) run.charge -= spend
+  // THE SHOREBREAK (v7.x, The Surf — CHAPTERS[].shorebreak). Same press, same cooldown, same `t`
+  // as the burst, the breach and the scent — and then it RETURNS, which is the one thing none of
+  // those three do. A `wave` chapter does not also fire the shove: no `repulse` event, no impulse
+  // loop below, no 'hole' sample. The wave IS the button here, sustained by stepWave for a duration
+  // the spend bought, and the SHOREBREAK_* block in config.js has the argument for why firing both would
+  // cancel rather than compound. Returning here also means a chapter can never end up with two
+  // second verbs at once, which is the design's own "one gimmick, one button" rule made structural
+  // rather than a thing you have to remember while adding the fifth one.
+  if (ch.shorebreak) {
+    run._shorebreakT = SHOREBREAK_DUR_MIN + (SHOREBREAK_DUR_AT_FULL - SHOREBREAK_DUR_MIN) * t
+    run.events.push({ type: 'shorebreak', x: p.x, y: p.y, r: SHOREBREAK_RADIUS, charged: t, dur: run._shorebreakT })
+    return
+  }
   const radius = REPULSE_RADIUS + (PULSE_RADIUS_AT_FULL - REPULSE_RADIUS) * t
   const force = REPULSE_FORCE + (PULSE_FORCE_AT_FULL - REPULSE_FORCE) * t
   // The SCALED radius, not the constant. render.js draws both rings at e.r under a comment saying
@@ -1866,7 +1886,7 @@ function stepEnemyMovement(run, dt) {
       // affixSpeedMul is passed through (unlike the other machines, which take enrageMul alone)
       // because dashBurst used to ride the plain seek and therefore honoured pacer/frenzy. Keeping
       // it means this change commits the DIRECTION and nothing else — no silent balance shift.
-      stepDashBurst(e, tx, ty, dt, slowMul, affixSpeedMul * enrageMul)
+      stepDashBurst(run, e, tx, ty, dt, slowMul, affixSpeedMul * enrageMul)
     } else if (e.flags && e.flags.includes('diveBomb')) {
       stepDiveBomb(run, e, tx, ty, dt, slowMul)
     } else if (e.flags && e.flags.includes('pounce')) {
@@ -2226,7 +2246,7 @@ function stepAerialStrike(e, tx, ty, dt, slowMul, spdMul, airLiveCount) {
 // The rule this restores is already the game's own, stated at the pull beam: a threat may be
 // impossible to IGNORE but never impossible to ESCAPE. Committing the heading is what turns the
 // dash from an unavoidable hit into a dodge — the speed is not the problem and is untouched.
-function stepDashBurst(e, tx, ty, dt, slowMul, spdMul) {
+function stepDashBurst(run, e, tx, ty, dt, slowMul, spdMul) {
   if (e._dashPhase === undefined) { e._dashPhase = 'idle'; e._dashT = DASH_IDLE_T }
   e._dashT -= dt
   const dx = tx - e.x, dy = ty - e.y
@@ -2234,10 +2254,18 @@ function stepDashBurst(e, tx, ty, dt, slowMul, spdMul) {
   const ux = dx / d, uy = dy / d
   let vx = 0, vy = 0
   if (e._dashPhase === 'idle') {
-    const spd = e.speed * spdMul * DASH_IDLE_SPEED_MUL
+    // Off screen it does not idle and it does not commit — it WALKS IN, at full speed, and the idle
+    // clock is wound back to the top so the whole wind-up happens where the player can see it. See
+    // the DASH_* block in config.js for both halves of why (the v6.6.24 visibility rule, and why
+    // idling out of sight at 0.4x would be worse than the bug it fixes).
+    const seen = canCommitFrom(run, e)
+    const spd = e.speed * spdMul * (seen ? DASH_IDLE_SPEED_MUL : 1)
     vx = ux * spd; vy = uy * spd
     // lock the heading on the way OUT of idle — this is the last moment it looks at you
-    if (e._dashT <= 0) { e._dashPhase = 'dash'; e._dashT += DASH_T; e._dashDirX = ux; e._dashDirY = uy }
+    if (e._dashT <= 0) {
+      if (seen) { e._dashPhase = 'dash'; e._dashT += DASH_T; e._dashDirX = ux; e._dashDirY = uy }
+      else e._dashT = DASH_IDLE_T
+    }
   } else {
     const spd = e.speed * spdMul * DASH_SPEED_MUL
     vx = e._dashDirX * spd; vy = e._dashDirY * spd
@@ -3691,6 +3719,48 @@ function stepScent(run, dt) {
     const dx = e.x - p.x, dy = e.y - p.y
     if (dx * dx + dy * dy > rSq) continue
     e.scentT = run._scentT
+  }
+}
+
+// -- The Surf's Wave (v7.x) ---------------------------------------------------------------------
+// Fired from stepRepulse like the burst, the breach and the scent — same press, same cooldown, same
+// `t` — and this is the part that has to happen every frame afterwards: age the window, then push
+// and stagger whatever is still inside it.
+//
+// IT RIDES THE PLAYER, not the position the button was pressed at. stepScent above makes the same
+// choice for the same reason: a window anchored where the press happened is a window you walk out
+// of, which would turn a 2.4s move into a 2.4s reason to stand still. The whole ask is about
+// CROSSING something, so the wave has to travel with the thing doing the crossing.
+//
+// The push is an ACCELERATION (note the `* dt`) rather than an impulse, which is the difference
+// between a plough and the old shove fired 60 times a second — see SHOREBREAK_FORCE in config.js for the
+// terminal-speed maths. It is the same idiom stepNodes uses for its carry.
+//
+// ALLIES ARE SKIPPED, which is a deliberate divergence from the Pulse's own loop (that one shoves
+// everything in run.enemies, allies included). Shoving your own summon is a shrug; a stagger
+// REFRESHED every frame for up to 2.4s would disable it for the whole window, and a button that
+// turns off your allies is a button you learn not to press next to them.
+function stepShorebreak(run, dt) {
+  if (!CHAPTERS[run.chapter].shorebreak) return
+  run._shorebreakT = Math.max(0, (run._shorebreakT ?? 0) - dt)
+  if (run._shorebreakT <= 0) return
+  const p = run.player
+  const rSq = SHOREBREAK_RADIUS * SHOREBREAK_RADIUS
+  const lax = laneAxes(CHAPTERS[run.chapter])
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e)) continue
+    const dx = e.x - p.x, dy = e.y - p.y
+    const dsq = dx * dx + dy * dy
+    if (dsq > rSq) continue
+    const d = Math.sqrt(dsq)
+    // Dead centre has no direction to push along; laneAxes gives the same up-lane fallback the
+    // Pulse's loop uses, so a body sitting exactly on the player still goes the way the rest do.
+    const ux = d > 1e-6 ? dx / d : lax.fx
+    const uy = d > 1e-6 ? dy / d : lax.fy
+    const falloff = 1 - d / SHOREBREAK_RADIUS
+    e.kb.x += ux * SHOREBREAK_FORCE * falloff * dt
+    e.kb.y += uy * SHOREBREAK_FORCE * falloff * dt
+    e.stunT = Math.max(e.stunT || 0, SHOREBREAK_STAGGER)
   }
 }
 
@@ -5243,6 +5313,15 @@ const WEAPON_STAT_MODS = {
   // the base one) on the pause build sheet.
   longline:      { barbed: ['dmg', 'pct'], longSet: ['length', 'pct'], deepSet: ['setDur', 'pct'] },
   netToss:       { wideNet: ['r', 'pct'], heavyMesh: ['hold', 'pct'], weighted: ['dmg', 'pct'] },
+  // The Shelf's three natives. `secondSun` folds as 'flat' rather than going through
+  // WEAPON_COUNT_MODS for the reason the Surf block above gives: `count` is a real key in levels[],
+  // so effectiveWeaponStats folds it and the pause sheet reports it without a second registration —
+  // and sunspearSpots reads the folded number as BOTH its loop bound and its padding divisor.
+  // `quickKindle` is absent here and registered in WEAPON_RATE_MODS instead: folding a rate pick
+  // into `interval` would SLOW the weapon.
+  sunspear:      { highNoon: ['dmg', 'pct'], broadBeam: ['r', 'pct'], zenith: ['castRange', 'pct'], secondSun: ['count', 'flat'] },
+  foxfire:       { emberfeed: ['dmg', 'pct'], gloaming: ['maxR', 'pct'], longBurn: ['glowDur', 'pct'] },
+  sunlance:      { whetted: ['dmg', 'pct'], farReach: ['length', 'pct'], broadEdge: ['width', 'pct'], heldLance: ['duration', 'pct'] },
   // The Deep's native. `thrash` is absent for the reason the pond block above gives: it is an
   // attack-RATE mod, and folding one into `interval` would slow the weapon down. It divides the
   // interval at the fire site instead and is registered in WEAPON_RATE_MODS.
@@ -5379,6 +5458,9 @@ function stepWeapons(run, dt) {
     else if (w.id === 'barnacles') stepBarnacleWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'longline') stepLonglineWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'netToss') stepNetTossWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'sunspear') stepSunspearWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'foxfire') stepFoxfireWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'sunlance') stepSunlanceWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'finHit') stepFinHitWeapon(run, w, stats, fireRateMul, dt)
   }
 
@@ -6745,20 +6827,30 @@ function stepBlooms(run, dt) {
     const growT = bl.dur * BLOOM_GROW_FRAC
     bl.r = bl.t >= growT ? bl.maxR : bl.maxR * (bl.t / Math.max(1e-6, growT))
 
-    if (tide > 0) {
+    // run.blooms is shared with The Shelf's Foxfire, which tags itself `look`. `sporeOn` and `tide`
+    // are read ONCE for the whole list off run.weaponMods.bloom, so without this gate a build
+    // holding both would drift a foxfire on the tide and spore-burst it — the same cross-weapon leak
+    // stepLobs guards between Net Toss and Debris Toss' shrapnel, and just as silent.
+    const pondTide = tide > 0 && !bl.look
+
+    if (pondTide) {
       const f = currentForce(run, bl.x, bl.y)
       bl.x += f.fx * dt * tide
       bl.y += f.fy * dt * tide
     }
 
-    const slowRSq = bl.r * bl.r
-    for (const e of run.enemies) {
-      if (e._dead || damageImmune(e)) continue
-      const sdx = e.x - bl.x, sdy = e.y - bl.y
-      if (sdx * sdx + sdy * sdy <= slowRSq) e.bloomSlowT = BLOOM_SLOW_T
+    // `slow: 0` opts a cloud out entirely (Foxfire does). The Shelf already slows the player in the
+    // dark; a card whose text never mentions a slow must not quietly add a second one.
+    if (bl.slow !== 0) {
+      const slowRSq = bl.r * bl.r
+      for (const e of run.enemies) {
+        if (e._dead || damageImmune(e)) continue
+        const sdx = e.x - bl.x, sdy = e.y - bl.y
+        if (sdx * sdx + sdy * sdy <= slowRSq) e.bloomSlowT = BLOOM_SLOW_T
+      }
     }
 
-    const tickDmg = tide > 0 ? bl.dmgPerTick * (1 + TIDE_DMG_BONUS * tide) : bl.dmgPerTick
+    const tickDmg = pondTide ? bl.dmgPerTick * (1 + TIDE_DMG_BONUS * tide) : bl.dmgPerTick
     bl._tickAcc = (bl._tickAcc ?? 0) + dt
     while (bl._tickAcc >= BLOOM_TICK) {
       bl._tickAcc -= BLOOM_TICK
@@ -6768,7 +6860,7 @@ function stepBlooms(run, dt) {
         const dx = e.x - bl.x, dy = e.y - bl.y
         if (dx * dx + dy * dy > rSq) continue
         applyDotDamage(run, e, tickDmg)
-        if (sporeOn && !bl._mini && e._dead) {
+        if (sporeOn && !bl.look && !bl._mini && e._dead) {
           minis.push({ x: e.x, y: e.y, maxR: bl.maxR * SPOREBURST_FRAC, dur: bl.dur, dmgPerTick: bl.dmgPerTick })
         }
       }
@@ -7912,6 +8004,21 @@ function stepLobs(run, dt) {
       continue
     }
 
+    // A SUNSPEAR column landing. Above the shrapnel block for exactly the reason the net is: a build
+    // holding Debris Toss alongside it would otherwise spray splinters out of a shaft of sunlight.
+    // The column never moved (fromX/fromY are its target), so lo.t crossing lo.flight is the whole
+    // of its fall.
+    if (lo.column) {
+      const rSq = lo.r * lo.r
+      for (const e of run.enemies) {
+        if (e._dead || isAlly(e)) continue
+        const dx = e.x - lo.tx, dy = e.y - lo.ty
+        if (dx * dx + dy * dy <= rSq) applyDamage(run, e, lo.dmg)
+      }
+      run.events.push({ type: 'sunfall', x: lo.tx, y: lo.ty, radius: lo.r })
+      continue
+    }
+
     const rSq = lo.r * lo.r
     for (const e of run.enemies) {
       if (e._dead) continue
@@ -8431,6 +8538,133 @@ function stepNetTossWeapon(run, w, stats, fireRateMul, dt) {
       })
     }
     run.events.push({ type: 'toss', x: p.x, y: p.y })
+  })
+}
+
+// ---- The Shelf's three natives (v7.x) ------------------------------------------------
+// See the block at the end of WEAPONS in config.js for the design, and in particular for why the
+// two rares are allowed to read run.charge when resourceDamageMul's own block says Book 2 spent
+// that licence on The Surf. None of the three adds a run.* array.
+
+/** Where this cast's columns land. `count` DISTINCT spots: the nearest bodies within castRange
+ * first, then — if the field holds fewer bodies than the cast has columns — a ring of surplus
+ * columns around the last real target.
+ *
+ * ⚠ THE PADDING RING IS WHY THIS IS A FUNCTION. A per-cast count is written twice in this codebase
+ * (as the loop bound and as the divisor that spaces what the loop spawns), and multiplying one
+ * without the other stacks the extra output on a single point — which renders identically to not
+ * having fired it. Here both readings come off `count` and `pad`, each declared once. The suite
+ * asserts DISTINCT POSITIONS rather than a count, because a count is exactly what passes when three
+ * columns share a spot. */
+function sunspearSpots(run, count, castRange) {
+  const p = run.player
+  const rangeSq = castRange * castRange
+  const near = run.enemies
+    .filter((e) => {
+      if (e._dead || isAlly(e)) return false   // SUBMISSION: never call the sun down on your own ally
+      const dx = e.x - p.x, dy = e.y - p.y
+      return dx * dx + dy * dy <= rangeSq
+    })
+    .sort((a, b) => ((a.x - p.x) ** 2 + (a.y - p.y) ** 2) - ((b.x - p.x) ** 2 + (b.y - p.y) ** 2))
+
+  const spots = near.slice(0, count).map((e) => ({ x: e.x, y: e.y }))
+  if (spots.length === 0) return spots        // nothing in reach: the cast is a dud, like any aimed weapon's
+
+  const pad = count - spots.length
+  const base = spots[spots.length - 1]
+  for (let i = 0; i < pad; i++) {
+    const a = (i / pad) * Math.PI * 2
+    spots.push({ x: base.x + Math.cos(a) * SUNSPEAR_SPREAD, y: base.y + Math.sin(a) * SUNSPEAR_SPREAD })
+  }
+  return spots
+}
+
+// Sunspear. Each column is a run.lobs entry whose `fromX/fromY` ARE its target, so the shared lerp
+// in stepLobs moves it nowhere: it hangs at the spot for SUNSPEAR_FALL as a telegraph and lands.
+// `column: true` is what picks the branch out of stepLobs — see there for why that branch, like the
+// net's, must sit above the shrapnel block.
+function stepSunspearWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  // IPECAC multiplies CASTS here, not headings. ipecacAngles is the wrong tool for this weapon: a
+  // column falls straight down and has no heading to spread across, so the extra casts are pushed
+  // off onto the same ring the padding uses instead of being rotated to nowhere.
+  const casts = ipecacN(run, 1)
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
+    // ONE local, read by sunspearSpots as both its loop bound and its padding divisor. It is already
+    // mod-folded: `secondSun` is ['count','flat'] in WEAPON_STAT_MODS, so a picked column is a real
+    // extra spot rather than a second cast landing on the first.
+    const count = Math.max(1, Math.round(stats.count))
+    const spots = sunspearSpots(run, count, stats.castRange)
+    for (let c = 0; c < casts; c++) {
+      // `casts` again as the divisor, for the same reason `count` is: the offsets have to SPREAD
+      // over however many casts there are, or IPECAC's extra output lands on the original's spots.
+      const a = (c / casts) * Math.PI * 2
+      const ox = c === 0 ? 0 : Math.cos(a) * SUNSPEAR_SPREAD
+      const oy = c === 0 ? 0 : Math.sin(a) * SUNSPEAR_SPREAD
+      for (const s of spots) {
+        const tx = s.x + ox, ty = s.y + oy
+        run.lobs.push({
+          x: tx, y: ty, fromX: tx, fromY: ty, tx, ty,
+          t: 0, flight: SUNSPEAR_FALL, r: stats.r, dmg: stats.dmg,
+          column: true,
+        })
+      }
+    }
+    run.events.push({ type: 'sunspear', x: p.x, y: p.y, count: spots.length * casts })
+  })
+}
+
+// Foxfire. A run.blooms entry, with the radius the dark buys BAKED IN AT CAST — see FOXFIRE_GLOOM.
+// Snapshot rather than per-tick, for the same reason fireBeam snapshots Strobe and the prism ladder:
+// a fire you lit while you were dark keeps the hold it took, so the cast is a decision instead of a
+// number that wobbles under a bar the player is also spending on the Pulse.
+function stepFoxfireWeapon(run, w, stats, fireRateMul, dt) {
+  const p = run.player
+  const quickKindle = run.weaponMods.foxfire?.quickKindle ?? 0
+  const clouds = ipecacN(run, 1)
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quickKindle)), dt, () => {
+    const gloom = 1 + (FOXFIRE_GLOOM - 1) * darkness(run.charge, CHAPTERS[run.chapter].resource, run.chargeMax)
+    for (let i = 0; i < clouds; i++) {
+      const spot = pickBloomSpot(run, stats.castRange)
+      run.blooms.push({
+        x: spot.x, y: spot.y, r: 0, maxR: stats.maxR * gloom, t: 0,
+        dur: stats.glowDur, dmgPerTick: stats.dmg,
+        // `look` keeps the Spore Bloom's own mods off this cloud (stepBlooms reads sporeburst and
+        // tideCarried once for the whole list, exactly like stepLobs reads shrapnel — the same
+        // cross-weapon leak, guarded the same way). `slow` keeps the pond's slow off it: the one
+        // chapter that already slows you must not hand out a second slow on a card that never
+        // mentions one.
+        look: 'foxfire', slow: 0,
+      })
+    }
+    // `gloom` rides the event so the renderer can burn the cast brighter when the dark bought it
+    // something — the tell for a bonus the player otherwise only sees as a slightly wider circle.
+    run.events.push({ type: 'foxfire', x: p.x, y: p.y, gloom })
+  })
+}
+
+// Sunlance. A run.beams entry with rotSpeed 0 — it is a stab held on one bearing, never a sweep.
+// (run.beams already carries `swept` + `arms`, and that is Pulsar Sweep; a third rotating rake is
+// the shape CLAUDE.md warns every new weapon away from.) Reach is the bar: full length at a full
+// bar, SUNLANCE_REACH_MIN of it at an empty one, linear in between.
+//
+// RAW charge, not darkness(), and that is the same split the chapter's own two schedules take (see
+// THE DARK in config.js): darkness() is flat above half a bar, which would make the top half of
+// this weapon's whole read do nothing. A continuous readout wants the raw bar.
+function stepSunlanceWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
+    const frac = run.chargeMax > 0 ? Math.min(1, Math.max(0, run.charge) / run.chargeMax) : 1
+    const reach = stats.length * (SUNLANCE_REACH_MIN + (1 - SUNLANCE_REACH_MIN) * frac)
+    const aim = surfAim(run)
+    for (const a of ipecacAngles(run, aim)) {
+      run.beams.push({
+        angle: a, life: stats.duration, duration: stats.duration, dmg: stats.dmg,
+        tick: stats.tick, width: stats.width, length: reach,
+        rotSpeed: 0, acc: 0, focusBonus: 0, prism: null,
+        look: 'sunlance',
+      })
+    }
+    run.events.push({ type: 'sunlance', angle: aim, reach })
   })
 }
 

@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -384,7 +384,7 @@ export function createRenderer(app) {
     }
   }
 
-  // maxLean 0: these are the archetype fallback blobs (daily/title/future chapters). They aren't drawn
+  // maxLean 0: these are the archetype fallback blobs (title/future chapters). They aren't drawn
   // nose-at-+x at all — the kawaii face looks straight OUT of the screen, eyes and smile symmetric
   // about the vertical — so there is nothing to aim. They mirror left/right and that's it.
   function makeEnemyLook(type, elite) {
@@ -4399,6 +4399,12 @@ export function createRenderer(app) {
       // the only saturated red in it. Same blade, folded into the chapter's own colour. Tinting
       // wasn't an option: a blue tint on a red bake multiplies to mud.
       T.beamSweep = blade(0x2d2a8c, 0x4b46d6, 0x8f7dff, 0xf0ecff)
+      // The Shelf's Sunlance is the THIRD weapon through run.beams, and it needed the third blade
+      // for the reason stated one line up: it is not `swept`, so it fell into the saber's arm and a
+      // shaft of SUNLIGHT came out crimson. Re-tinting the bar was tried first and is the mud this
+      // block already warns about — gold multiplied onto a red bake is brown. Baked warm instead:
+      // a white-hot core in a gold sheath, which is the one thing in the chapter that is not blue.
+      T.beamSun = blade(0x8a6a12, 0xd6a423, 0xffd85c, 0xfffdf0)
       T.beamRefLen = len
       T.beamRefWidth = w
     }
@@ -8374,10 +8380,20 @@ export function createRenderer(app) {
   // projectiles. One Graphics rather than a sprite pool — see drawBreakers for why an arc cannot be
   // a scaled texture.
   const breakerG = new Graphics()
+  // The Shelf's Sunspear. Additive, like every other light in this chapter (the sun shafts' own
+  // sheen is a `blendMode = 'add'` sprite): the chapter it lands in is dark, and a flat fill over a
+  // dark floor reads as paint rather than as light.
+  const columnG = new Graphics()
+  columnG.blendMode = 'add'
   // Splash rings (see spawnSplash). Beside breakerG because both are the water's SURFACE rather than
   // anything on the floor, and both therefore belong over the crowd: a ripple you can see a body
   // through is a ripple under it, which is the one thing it is not.
   const splashG = new Graphics()
+  // The Surf's Wave (the chapter's button). Beside splashG and for its argument: this is the water's
+  // SURFACE, so it belongs over the crowd — a crest you can see a body through is a crest under it,
+  // which is the one thing a bow wave is not. NOT additive, unlike columnG: that one is light in a
+  // dark chapter, this one is foam on a bright beach, and adding white to pale sand just clips.
+  const shorebreakG = new Graphics()
   // Barnacle crusts, drawn OVER the bodies they are growing on — they sit on top of the enemy
   // sprite, so this has to be added after the entity layer, not with the ground effects.
   const crustG = new Graphics()
@@ -8420,7 +8436,7 @@ export function createRenderer(app) {
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, breakerG, splashG,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, breakerG, splashG, columnG, shorebreakG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -10853,6 +10869,79 @@ export function createRenderer(app) {
     }
   }
 
+  // THE SUNSPEAR'S TELEGRAPH. A column is a run.lobs entry whose fromX/fromY ARE its target, so it
+  // never travels and there is nothing to draw in flight — what there is instead is light GATHERING
+  // on the spot it will land, which is the whole read of the weapon and the player's only warning.
+  //
+  // SEEN FROM DIRECTLY OVERHEAD, which is this camera's only projection. A column of light coming
+  // down at you is a disc with a bright rim; drawn as a cone with a wide top and a narrow foot it
+  // would be a side elevation, which is the mistake the Trash Tornado shipped and cost a whole
+  // version to undo. The one cue that the light arrives from ABOVE is the motes falling inward.
+  // OWNER'S PICK, off a three-way sheet shot on one identical frame: "A+rays" — the aperture's
+  // closing ring and its inward-falling motes, with the pool variant's converging rays kept on top.
+  // The ring is what says "this spot, now"; the rays are what say the light is coming from ABOVE.
+  // Neither alone did both: the ring alone read as a soap bubble, the rays alone as a soft smudge.
+  function drawColumns(run) {
+    columnG.clear()
+    if (!run.lobs || run.lobs.length === 0) return
+    for (const lo of run.lobs) {
+      if (!lo.column) continue
+      const k = Math.max(0, Math.min(1, lo.t / Math.max(0.001, lo.flight)))  // 0 = called, 1 = landing
+      const r = lo.r
+      // The aperture CLOSES onto the splash radius in every variant. A ring that grew instead would
+      // read as the blast that has not happened yet, which is the opposite of a warning.
+      const rim = r * (2.3 - 1.3 * k)
+
+      // ⚠ EVERY SHAPE OPENS ITS OWN PATH. circle() APPENDS to whatever path is already open, exactly
+      // as arc() does in drawBreakers below — so `circle(A); stroke(); circle(B); fill()` fills the
+      // region BETWEEN A and B and paints a donut nobody asked for. That is what the first probe of
+      // this weapon came back with: a crisp orange ring around every column, which is nowhere in
+      // this code. It was two concentric circles sharing one path. beginPath() is the fix, and the
+      // helpers below are how it stays fixed when a fourth shape is added.
+      const disc = (rad, color, alpha) => {
+        if (alpha <= 0.01 || rad < 0.5) return
+        columnG.beginPath()
+        columnG.circle(lo.tx, lo.ty, rad)
+        columnG.fill({ color, alpha })
+      }
+      const ring = (rad, width, color, alpha) => {
+        if (alpha <= 0.01 || rad < 0.5) return
+        columnG.beginPath()
+        columnG.circle(lo.tx, lo.ty, rad)
+        columnG.stroke({ width, color, alpha })
+      }
+
+      // THE APERTURE: a thin ring closing onto the splash radius, over a warm core that brightens.
+      ring(rim, Math.max(1.5, r * 0.06), 0xfff2c0, 0.18 + 0.5 * k)
+      disc(r * (0.35 + 0.65 * k), 0xffe9a8, 0.05 + 0.16 * k * k)
+
+      // CONVERGING RAYS: what a shaft of light seen from DIRECTLY ABOVE actually shows, and the one
+      // cue in the drawing that the light arrives from overhead rather than spreading along the
+      // floor. They reach inward as the strike closes, so they land with the ring.
+      const rays = 7
+      for (let i = 0; i < rays; i++) {
+        // `rays` again as the divisor, for the reason the mote count below states.
+        const a = (i / rays) * Math.PI * 2 + animT * 0.35
+        const outer = rim * 1.02, inner = rim * (0.42 + 0.4 * k)
+        columnG.beginPath()
+        columnG.moveTo(lo.tx + Math.cos(a) * inner, lo.ty + Math.sin(a) * inner)
+        columnG.lineTo(lo.tx + Math.cos(a) * outer, lo.ty + Math.sin(a) * outer)
+        columnG.stroke({ width: Math.max(1, r * 0.05), color: 0xfff6d8, alpha: 0.10 + 0.28 * k, cap: 'round' })
+      }
+      // ONE local for the mote count, used as the loop bound AND as the divisor that spaces them —
+      // the same rule sunspearSpots keeps in sim.js, for the same reason: two of these that disagree
+      // put every mote on one bearing, which is a picture of nothing.
+      const motes = 4
+      const d = rim * (1 - k * 0.85)
+      for (let i = 0; i < motes; i++) {
+        const a = (i / motes) * Math.PI * 2 + animT * 0.8
+        columnG.beginPath()
+        columnG.circle(lo.tx + Math.cos(a) * d, lo.ty + Math.sin(a) * d, Math.max(1, r * 0.07))
+        columnG.fill({ color: 0xffffff, alpha: 0.25 + 0.45 * k })
+      }
+    }
+  }
+
   // ---- The Deep's two per-body tells (v7.x) ---------------------------------------------------
   // Both read PUBLISHED contract fields off the enemy — `gape` and `scentT` — for the reason the
   // crust above does, and for the reason the v7.5x freeze scar exists: render.js learns about a new
@@ -10924,6 +11013,61 @@ export function createRenderer(app) {
         const flare = (gp - 0.82) / 0.18
         deepG.circle(e.x, e.y, rad * (1.3 + flare * 0.5)).fill({ color: 0xff6a3a, alpha: 0.16 * flare })
       }
+    }
+  }
+
+  // The Surf's Shorebreak — the chapter's button, live for as long as run._shorebreakT says.
+  //
+  // PLAN VIEW. The camera looks straight down, so a bow wave is a RING OF FOAM with ripples inside
+  // it, never the side-on breaker silhouette the word "wave" pulls you toward — that is exactly the
+  // v6.8 Trash Tornado error, and this chapter already ships the right answer twice (drawBreakers
+  // below draws the shore break as arcs from above, and spawnSplash as rings).
+  //
+  // The RIPPLES ARE THE WHOLE READ, not decoration. A static ring centred on the player is a
+  // shield — which is the option the owner did not pick. Water travelling outward is what says the
+  // thing is pushing, and pushing is the entire mechanic.
+  //
+  // Drawn AT SHOREBREAK_RADIUS, the sim's own number, on the contract the Pulse's rings already keep: a
+  // burst that lies about its reach makes the cooldown feel arbitrary.
+  function drawShorebreak(run, t) {
+    shorebreakG.clear()
+    const left = run?._shorebreakT ?? 0
+    if (left <= 0) return
+    const p = run.player
+    // Fades on the way OUT only, over the last 0.35s. There is no total duration to normalise
+    // against — every press buys a different one — so the alpha keys off the time REMAINING, which
+    // is the one quantity that means the same thing at every spend.
+    const fade = Math.min(1, left / 0.35)
+    const R = SHOREBREAK_RADIUS
+    const G = shorebreakG
+    // beginPath() before EVERY shape. Pixi v8 appends circle()/arc() to the open path, so two
+    // concentric circles under one fill() paint the donut between them and one stroke() outlines
+    // both — the bug that shipped a mystery ring around every Sunspear column.
+    const ring = (r, w, color, alpha) => {
+      if (alpha <= 0.004 || r <= 0) return
+      G.beginPath()
+      G.circle(p.x, p.y, r)
+      G.stroke({ width: w, color, alpha })
+    }
+    G.beginPath()
+    G.circle(p.x, p.y, R)
+    G.fill({ color: 0x9fd8ff, alpha: 0.07 * fade })
+
+    // THE FOAM BANK. The rim is a BAND, not a line: five strokes stacked across ~28px with the alpha
+    // falling off both ways, which is what a soft edge costs when there is no blur to reach for.
+    // Owner's pick off a three-way sheet shot on one identical frame — against a single thin stroke
+    // (which read as a soap-bubble outline, i.e. as the bubble option he did not choose) and against
+    // a rim broken into scattered foam arcs (which read as separate floating objects at gameplay
+    // size rather than as churn).
+    for (let i = -2; i <= 2; i++) {
+      ring(R + i * 7, 9 - Math.abs(i) * 1.6, 0xffffff, (0.50 - Math.abs(i) * 0.11) * fade)
+    }
+    // The ripple train, riding from 0.18R outward. THIS IS THE READ, not decoration: a static ring
+    // centred on the player is a shield, and water travelling outward is the only thing in the
+    // drawing that says the crest is pushing — which is the entire mechanic.
+    for (let i = 0; i < 5; i++) {
+      const k = (t * 1.05 + i / 5) % 1
+      ring(R * (0.18 + 0.82 * k), 2 + 3 * (1 - k), 0xeaf8ff, 0.30 * (1 - k) * fade)
     }
   }
 
@@ -12711,8 +12855,19 @@ export function createRenderer(app) {
         const ang = animT * 0.6 + k * 2.1
         s.position.set(Math.cos(ang) * off, Math.sin(ang) * off)
         s.scale.set(sc * (k === 0 ? 1 : 0.72) * (1 + 0.05 * Math.sin(animT * 3 + k)))
-        s.tint = inEddy ? (k % 2 ? 0x6fe0c0 : 0x3faea0) : (k % 2 ? 0x6fe04a : 0x3fae2f)
-        s.alpha = alpha * (k === 0 ? 0.5 : 0.4)
+        // The Shelf's Foxfire shares this pool. Near-WHITE with a mint fringe, not the blue it
+        // started as: this chapter's water is 0x18567f and its floor wash 0x9fd6f0, so a pale blue
+        // fire on it is a blue smudge on blue — the first probe of this weapon came back with the
+        // cloud all but invisible. What separates a cold fire from this floor is VALUE, not hue,
+        // exactly as CHAPTERS.shelf's own playerTint note says of the player blob. The mint is
+        // borrowed from the chapter's own eliteIridescent so it still belongs to the biome.
+        // It must also never be the Spore Bloom's green: the two are the same ENTITY, and a Shelf
+        // player reading their own fire as a pond toxin cloud is the failure to avoid.
+        const fox = bl.look === 'foxfire'
+        s.tint = fox
+          ? (k % 2 ? 0xeafcff : 0xd9ffe8)
+          : inEddy ? (k % 2 ? 0x6fe0c0 : 0x3faea0) : (k % 2 ? 0x6fe04a : 0x3fae2f)
+        s.alpha = alpha * (k === 0 ? 0.5 : 0.4) * (fox ? 1.45 : 1)
       }
     }
     for (let i = n; i < prevCount.bloom; i++) bloomPool[i].root.visible = false
@@ -13503,6 +13658,13 @@ export function createRenderer(app) {
       }
     }
     for (const lb of run.lobs || []) { // where the thrown chunk is going to land
+      // A Sunspear column is a run.lobs entry that draws its OWN telegraph (drawColumns), so this
+      // one is skipped — the THIRD consumer of run.lobs and the least obvious. Left in, every column
+      // wore an amber Debris Toss landing ring on top of its own aperture: two telegraphs for one
+      // strike, which is what made the first probe of the weapon read as soap bubbles rather than as
+      // light. It cost an ablation pass to find, because nothing about a shared array says which
+      // drawers will pick your entity up.
+      if (lb.column) continue
       const k = Math.max(0, Math.min(1, lb.t / Math.max(0.001, lb.flight)))
       hazardG.circle(lb.tx, lb.ty, lb.r).stroke({ width: 2, color: 0xffb37a, alpha: 0.25 + k * 0.45 })
       hazardG.circle(lb.tx, lb.ty, lb.r * k).fill({ color: 0xffb37a, alpha: 0.12 })
@@ -13664,7 +13826,7 @@ export function createRenderer(app) {
   // here is not a hint, it's the literal path. Sidestepping it always works; that's the contract.
   // Read off the phase state each sim step keeps on the enemy (_pounceState/_airState/
   // _chargeState/_beamState/_coneAngle), all of which MUST be guarded: the roster flags are
-  // per-chapter, and title/daily/archetype-fallback enemies carry none of them.
+  // per-chapter, and title/archetype-fallback enemies carry none of them.
   //
   // The colour IS the safety cue, the same rule redrawHazards' green zones follow. Four of these
   // five end in the player taking damage, so they speak the established amber hazard language of
@@ -13995,7 +14157,12 @@ export function createRenderer(app) {
   }
   let lobCount = 0
   function syncLobs(run) {
-    const list = run.lobs || []
+    // A Sunspear column is a run.lobs entry too, and it must NOT come through this rig: the parabola
+    // and the ground shadow are what make a lob a thrown object, and a shaft of light is not thrown.
+    // drawColumns owns them. Filtered rather than given a third payload sprite, and guarded by
+    // `.some` so every chapter without the weapon keeps the original zero-allocation path.
+    const src = run.lobs || []
+    const list = src.some((lo) => lo.column) ? src.filter((lo) => !lo.column) : src
     while (lobPool.length < list.length) lobPool.push(acquireLob())
     for (let i = 0; i < list.length; i++) {
       const lb = list[i]
@@ -15139,6 +15306,15 @@ export function createRenderer(app) {
         case 'rockhit':
           spawnRing(e.x, e.y, 70, 0.26, T.novaWarm, 0xc9bda4)
           break
+        // v7.x The Surf — the Shorebreak going up. This is ONLY the moment of the press: the crest
+        // itself lasts for run._shorebreakT and is drawn every frame by drawShorebreak, which is
+        // what a duration move needs and what a one-shot ring cannot say. Two rings so the press has
+        // a front, at e.r (the sim's own radius) on the same contract every other button keeps —
+        // a burst that lies about its reach makes the cooldown feel arbitrary.
+        case 'shorebreak':
+          spawnRing(e.x, e.y, e.r, 0.30, T.novaWarm, 0xffffff)
+          spawnRing(e.x, e.y, e.r * 0.55, 0.22, T.novaWarm, 0xbfe8ff)
+          break
         // v7.x The Trawl — Breach. NO SFX_FOR_EVENT ENTRY, and that is a decision rather than an
         // omission: Breach fires on the SAME press as the Pulse, which already sounds ('hole'), so a
         // second sample would double up on one button. The rule CLAUDE.md states is that an event
@@ -15341,6 +15517,37 @@ export function createRenderer(app) {
           beamSparkle(run.player.x, run.player.y)
           addShake(2, 0.12)
           break
+
+        // The Shelf. A column LANDING — white-hot, and thrown outward along the floor rather than
+        // up, because the light came down and what scatters is the water it hit. The fall itself is
+        // drawn every frame by drawColumns; this is only the last beat of it.
+        case 'sunfall': {
+          const n = 13
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2 + Math.random() * 0.35
+            const sp = 150 + Math.random() * 190
+            spawnParticle(T.fx.spark_04, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.20 + Math.random() * 0.10, 0.05, i % 3 ? 0xffffff : 0xffe9a8, 0.03, 1.3)
+          }
+          addShake(1.6, 0.08)
+          break
+        }
+
+        // A foxfire being struck. `gloom` is what the dark bought this cast (1 in full light, up to
+        // FOXFIRE_GLOOM at an empty bar) and it drives both the count and the reach of the sparks —
+        // this is the ONE moment the player can see that being dark paid them, since the bloom that
+        // follows is only quietly wider.
+        case 'foxfire': {
+          const g = Math.max(1, e.gloom ?? 1)
+          const n = Math.round(5 + 8 * (g - 1))
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2 + Math.random() * 0.5
+            const sp = (70 + Math.random() * 110) * g
+            spawnParticle(T.fx.spark_04, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.30 + Math.random() * 0.16, 0.05, i % 2 ? 0xbfe9ff : 0x4f8fd0, 0.02, 1.0)
+          }
+          break
+        }
         case 'shriek': // v6.2: the scream is no longer a recolored slime wave — staggered violet panic rings
           for (let i = 0; i < 3; i++) spawnRing(e.x, e.y, e.radius * (0.5 + i * 0.28), 0.3 + i * 0.09, T.nova, 0xb06cf0)
           addShake(2, 0.12)
@@ -15443,6 +15650,14 @@ export function createRenderer(app) {
     // next run. The flag is the reset; the Graphics clear only hides the current frame.
     longlineG.clear()
     snareG.clear()
+    // Same idiom again: a Graphics, so clearing it IS the reset. A run that ends with columns still
+    // in the air must not leave them hanging over the summary screen and the next chapter.
+    columnG.clear()
+    // Same idiom, and it matters more here than for the columns: the crest keys off
+    // run._shorebreakT, and a run that ends mid-Shorebreak is replaced by one whose _shorebreakT is
+    // undefined — so without this the last frame's foam would sit on the summary screen with
+    // nothing left to clear it.
+    shorebreakG.clear()
     deepG.clear()
     for (const s of snares) s.live = false
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
@@ -16293,7 +16508,7 @@ export function createRenderer(app) {
       }
       s._seen = true
       // prefer the per-rosterId themed silhouette; fall back to the archetype look for enemies
-      // whose rosterId has no baked creature (daily/title/future chapters)
+      // whose rosterId has no baked creature (title/future chapters)
       const rkey = e.rosterId ? e.rosterId + (e.elite ? '_elite' : '') : null
       const look = (rkey && T.roster[rkey]) || T.enemies[e.elite ? e.type + '_elite' : e.type]
       // Animated looks (look.frames, e.g. the centipede's baked wave phases): flip through the
@@ -16772,6 +16987,8 @@ export function createRenderer(app) {
     updateGear(run, dt)       // v7.97 the Trawl's own gear: set lines + landed Net Toss meshes
     updateSwell(run, dt, cx, cy)
     drawBreakers(run)
+    drawColumns(run)
+    drawShorebreak(run, animT)
     drawCrusts(run)
     drawDeepTells(run)   // v7.x The Deep: the anglerfish's gape and the Scent outline
     updateDark(run, cx, cy)   // AFTER updateShafts: it cuts its holes from the same run.shafts list
@@ -17035,9 +17252,14 @@ export function createRenderer(app) {
     // the whole weapon test — a pool slot serves either weapon, hence swapping here and not in
     // acquireBeam. Both bakes share geometry, so the anchor spriteOf set still holds.
     const swept = b.swept === true
-    bv.bar.texture = (swept ? T.beamSweep : T.beam).tex   // bake() returns {tex, ax, ay}, not a Texture
-    bv.tip.tint = bv.muzzle.tint = swept ? 0xa08cff : 0xff5a52
-    bv.streakA.tint = bv.streakB.tint = swept ? 0xdcd6ff : 0xffd9d4
+    // The Shelf's Sunlance is the third weapon through this pool, and `swept` alone can no longer
+    // decide the palette: a lance does NOT sweep (it is a stab held on one bearing), so it fell into
+    // the Neon Beam's arm and came out red — the one colour a shaft of sunlight cannot be. It keeps
+    // the unswept BAKE (it is a straight beam) and takes its own tints.
+    const lance = b.look === 'sunlance'
+    bv.bar.texture = (lance ? T.beamSun : swept ? T.beamSweep : T.beam).tex   // bake() returns {tex, ax, ay}
+    bv.tip.tint = bv.muzzle.tint = lance ? 0xfff0b8 : swept ? 0xa08cff : 0xff5a52
+    bv.streakA.tint = bv.streakB.tint = lance ? 0xffffff : swept ? 0xdcd6ff : 0xffd9d4
 
     const spawnElapsed = b.duration - b.life
     const spawnIn = spawnElapsed < 0.12 ? Math.max(0, spawnElapsed / 0.12) : 1 // width squashes in

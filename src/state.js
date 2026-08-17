@@ -884,8 +884,8 @@ function generateWells(sig) {
  * render as `e.src === 'overload'` on a hurt event, never as an event type.
  *
  * mutators (v4.0): run.mutators is the array of MUTATORS ids (see config.js) selected before
- * the run started — opts.mutators passed to createRun, e.g. from the Daily Anomaly
- * (dailyMutators(todayKey())) or a future free-pick screen. run.mods is the derived,
+ * the run started — opts.mutators passed to createRun (the difficulty ladder's roll, or a
+ * future free-pick screen). run.mods is the derived,
  * pre-multiplied modifier object (mergeMutatorMods(run.mutators)) that sim.js reads at fixed
  * points (spawn rate, concurrent-enemy cap, enemy hp/speed/dmg/radius, elite cadence, contact
  * damage taken, player outgoing damage, player move speed, magnet range, xp/coin pickup value,
@@ -1034,6 +1034,17 @@ function generateWells(sig) {
  *   scroll by BURST_SPEED_MUL while it is positive (the ONLY thing in the file allowed to change
  *   the lane's scroll rate, because it is the player's own button and not a force acting on them),
  *   and stepCrush treats it as a third entry point to the permanent obstacle-removal path.
+ *   0 on every run of every other chapter.
+ * _shorebreakT: number — seconds of Surf Shorebreak left (CHAPTERS[chapter].shorebreak). Set by
+ *   stepRepulse on the same press, cooldown and charge spend as everything else on that button, to
+ *   SHOREBREAK_DUR_MIN + (SHOREBREAK_DUR_AT_FULL - SHOREBREAK_DUR_MIN) * t — an EMPTY bar still
+ *   gets a crest, the same no-spiral floor _burstT has.
+ *   THE ONE THAT IS NOT ADDITIVE: a `shorebreak` chapter's press fires this INSTEAD of the Pulse's
+ *   shove, so stepRepulse returns straight after setting it and The Surf emits no `repulse` event
+ *   at all. Read only by stepShorebreak, which each frame pushes (an acceleration into e.kb) and
+ *   re-stamps e.stunT to SHOREBREAK_STAGGER on every non-ally body within SHOREBREAK_RADIUS of the
+ *   player — so the window rides with you rather than staying where the button went down.
+ *   render.js reads it directly to draw the crest for as long as it lasts (drawShorebreak).
  *   0 on every run of every other chapter.
  * _drownAcc: number — the part-tick accumulator for the DoT above, reset to 0 the moment `charge`
  *   comes off zero so a partial tick banked before you reached a pocket is never spent minutes
@@ -1377,6 +1388,37 @@ function generateWells(sig) {
  *   {type:'crust', x, y}   a larva has taken hold on a fresh body (not on a refresh).
  *   {type:'skip', x, y, r} one Skipping Shell touch-down. x,y is where it LANDED, r the splash.
  *
+ * THE SHELF's three natives add NO run.* array either, on the same argument. Each is an existing
+ * entity carrying one extra field, and that field is what the renderer branches on:
+ *   - Sunspear: a run.lobs entry carrying `column: true`, whose `fromX/fromY` ARE its `tx/ty` — so
+ *     stepLobs' shared lerp moves it nowhere and it simply hangs for SUNSPEAR_FALL and lands. THREE
+ *     drawers read run.lobs, and a column must be excluded from two of them: syncLobs (the thrown-
+ *     object rig, whose parabola and shadow would make a shaft of light into a thrown rock) and
+ *     redrawHazards (the amber Debris Toss landing ring, which double-telegraphs it). drawColumns
+ *     owns the look. The landing branch in stepLobs sits ABOVE the shrapnel block for the same
+ *     reason the net's does.
+ *   - Foxfire: a run.blooms entry carrying `look: 'foxfire'` and `slow: 0`. `look` keeps the Spore
+ *     Bloom's own mods off it — stepBlooms reads sporeburst/tideCarried ONCE for the whole list, so
+ *     without the gate a build holding both would spore-burst and tide-drift a foxfire — and drives
+ *     the cold near-white tint in syncBlooms. `slow: 0` opts it out of the pond's continuous slow.
+ *     Its `maxR` is the DARK BONUS ALREADY APPLIED: FOXFIRE_GLOOM is snapshot at cast, so the cloud
+ *     keeps the size the bar bought it however the bar moves afterwards.
+ *   - Sunlance: a run.beams entry carrying `look: 'sunlance'` with `rotSpeed: 0`. It is NOT `swept`,
+ *     which is why `swept` alone could no longer choose the palette — an unswept beam fell into the
+ *     Neon Beam's crimson. It takes the third blade bake (T.beamSun). Its `length` is the reach the
+ *     bar bought at cast (SUNLANCE_REACH_MIN at empty, full at full) and is never re-read.
+ *   {type:'sunspear', x, y, count}  a cast; x,y is the PLAYER (the columns are elsewhere), `count`
+ *                                   how many columns it called. Sfx only — the columns draw
+ *                                   themselves from run.lobs every frame.
+ *   {type:'sunfall', x, y, radius}  one column LANDING. Deliberately no sfx: at L5 that is three of
+ *                                   them 0.26s after one cast.
+ *   {type:'foxfire', x, y, gloom}   a foxfire kindled. `gloom` is 1 in full light up to
+ *                                   FOXFIRE_GLOOM at an empty bar, and drives the spark burst's
+ *                                   count and reach — the one moment the dark's bonus is visible as
+ *                                   an event rather than as a quietly wider circle.
+ *   {type:'sunlance', angle, reach} a lance cast. Carries no x,y: the beam is anchored on the
+ *                                   player and drawn from run.beams.
+ *
  * v5.4 weapons (see WEAPONS/WEAPON_MODS in config.js for the per-weapon mod semantics). Entity
  * reuse rather than new arrays: Quill Burst's quills, Reality Shard's shards, the tornado's flung
  * chunks and Debris Toss' splinters are all ordinary run.bullets entries tagged weapon:'quill' /
@@ -1522,7 +1564,7 @@ function generateWells(sig) {
  *   ceiling written by a future build (see ensureBookMeta) — then constant for the run's duration
  *   (unlocking a slot mid-meta-shop never retroactively changes an in-progress run). Permanently
  *   unlocked in the meta shop by sacrificing SHOP levels (see sacrificeCost in config.js and
- *   hooks.onSacrifice in main.js) — applies to every mode, including Daily.
+ *   hooks.onSacrifice in main.js).
  *
  * v5.24 — The Blank (hidden scripted boss chapter, gated on CHAPTERS[chapter].scripted; see
  * BLANK_* in config.js and sim.js's stepBossScript, the chapter's ONLY spawner). v6.3.1 doubled
@@ -1585,7 +1627,7 @@ export function createRun(meta, opts = {}) {
   // chapter's starter weapon and, via CHAPTERS[run.chapter].weapons, scopes sim.js's level-up
   // weapon pool (weaponCandidates/buildLevelUpChoices) to that chapter's natives for the whole
   // run. Caller (main.js) is responsible for sourcing opts.difficulty/opts.mutators from that
-  // same chapter's meta.chapters[id] ladder/daily mutators — createRun itself doesn't read
+  // same chapter's meta.chapters[id] ladder — createRun itself doesn't read
   // meta.chapters. main.js keeps that contract across the fallback below by resolving meta.chapter
   // through the SAME helper before it reads any ladder (see resolveChapterId in config.js).
   //
@@ -1602,7 +1644,7 @@ export function createRun(meta, opts = {}) {
   // (chapter itself is resolved above, hoisted ahead of the book/shopBonus lookups it now feeds.)
   // v6.4.1/v6.4.3 early-calm (see EARLY_CALM in config.js): explicit-difficulty-1 runs of the
   // onboarding chapters thin the swarm and fatten each kill's xp, per chapter. opts.difficulty
-  // (not the defaulted local) on purpose — daily runs and tests omit it and must keep baseline.
+  // (not the defaulted local) on purpose — tests omit it and must keep baseline.
   // Keyed on the VALIDATED id so an unknown chapter degrades to a real body run, easing included.
   const calm = opts.difficulty === 1 ? EARLY_CALM[chapter] : null
   if (calm) {
@@ -1816,6 +1858,9 @@ export function createRun(meta, opts = {}) {
     // declaring `burst` / a `resource.drown` block ever moves them off 0.
     _burstT: 0,
     _drownAcc: 0,
+    // v7.x The Surf: seconds of Shorebreak left. Same pattern — every run carries it, and only a
+    // chapter declaring `shorebreak` ever moves it off 0.
+    _shorebreakT: 0,
     // v7.x The Trawl: the net wall, and the countdown to the next pass. `net` is a single OBJECT and
     // not an array, because there is only ever one wall and it is an infinite LINE rather than an
     // entity with a position — { nx, ny, pos, end, holes, _acc }, where (nx, ny) is the unit normal

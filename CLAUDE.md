@@ -215,6 +215,19 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   non-fast-forward. Push the next commit to a NEW branch name (`git push origin HEAD:<name>-2`)
   rather than force-pushing; the point of that push is only to keep the commit BODY reachable, so
   a fresh name costs nothing and `--force` is never the answer.
+  **A REJECTED PUSH TO YOUR OWN BRANCH IS NOT ALWAYS YOUR OWN DIVERGENCE, AND GIT'S SUGGESTED FIX
+  IS THE DANGEROUS ONE.** Branch names get reused across sessions here, so `origin/<your-branch>`
+  can hold a feature commit you have never seen. git's hint on the rejection says *"use 'git pull'
+  before pushing again"* — do that on a shared name and you have merged someone else's UNSHIPPED,
+  untested work into the tree you are one command away from publishing under your release number.
+  On 2026-08-16 `origin/surf-weapons` carried `e49e607` ("The Surf gets three native weapons"),
+  absent from both `main` and the local branch of the same name; a pull-then-ship would have put it
+  on the live URL inside a release whose subject was about a summary badge. **Diff before you
+  reconcile:** `git log --oneline HEAD..origin/<branch>` names exactly what the remote has that you
+  do not. If it is not yours, do not pull it — move your commits to a NEW branch (`git switch -c
+  <topic>`) and ship from there, leaving the other session's branch untouched. The general rule:
+  `git log --oneline origin/main..HEAD` before shipping tells you what you are about to publish,
+  and it is the list you must actually READ, not just confirm is short.
   Also expect the retry path to fire for real: it merged `main` and renumbered twice in one
   afternoon while another session was shipping, which is working as designed — check
   `git log --oneline origin/main..HEAD` comes back empty afterwards rather than assuming.
@@ -225,6 +238,18 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   landed, takes the number free at that moment, and retries — so neither a duplicate nor a gap can
   reach the log. (`scripts/ship.mjs --selftest` asserts the numbering; the race path was proven
   end-to-end against a throwaway remote.)
+- **`main` MOVES WHILE YOU WORK, AND IT CAN DELETE THE FUNCTION YOU ARE REWRITING.** Several sessions
+  ship to this repo concurrently. Checking `origin/main` once, at the start, is not enough for
+  anything that takes hours: on 2026-08-16 a per-book-progression branch spent a whole task
+  rewriting `titleChapterList` to walk every book, while another session **deleted that function
+  outright** and replaced it with `titleBookshelf`, which grouped by book natively and fixed the
+  same bug better. That task's production code and its four assertions were thrown away at merge
+  time, and `main` had advanced **13 versions** (v7.92→v7.98, a new chapter and a title-screen
+  rework) since the branch started. `git fetch && git log --oneline HEAD..origin/main` costs one
+  second. Run it: before you start rewriting any shared function, again before you write the plan
+  that assumes its shape, and again before shipping. When the answer is "someone already did this,
+  differently", **take theirs** — resurrecting your version against a deleted function is how two
+  designs end up half-merged. See also the memory `concurrent-sessions-ship-to-main`.
 - **The stamp no longer needs the release commit at HEAD.** `buildStamp()` (`vite.config.js`) reads
   HEAD's subject, and when that isn't a release it falls back to the most recent `vX.Y.Z` in HEAD's
   ancestry, marked `v7.7.0+ · <sha>` — the `+` meaning "there are commits after that release". A
@@ -324,13 +349,27 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   of them captioned "the flush moves to the BOTTOM"; it was caught by re-reading the harness, not by
   running it. Diff the entries, and prefer a mutation that expresses the pathology (move the call)
   over one that merely removes the code.
-- **A new weapon STAT has to be registered twice, and fails silently otherwise.** Adding a key to a
-  weapon's `levels[]` is not enough for it to appear on the pause build sheet: `buildReadout`
-  (sim.js) only copies keys on its own hardcoded whitelist array, and `STAT_LABEL` (ui.js) supplies
-  the row label — miss either and the stat is simply absent, with no warning. Add the French too
-  (run XX asserts config coverage, not UI-chrome coverage, so it will not catch a missing label).
-  The whitelist is ordered and the sheet caps at `STAT_MAX_ROWS`, so where you insert the key
-  decides which stats get dropped.
+- **A new weapon STAT is registered in ONE place — `STAT_KEYS` (config.js) — and is silently absent
+  from the pause build sheet if you skip it.** This used to be two lists in two files (an ordered
+  whitelist inside `buildReadout` in sim.js, plus `STAT_LABEL` in ui.js) and a stat needed both;
+  v7.x merged them, and **ui.js now needs no edit at all for a new weapon or a new stat** — its
+  `STAT_LABEL` is derived from `STAT_KEYS`. Add the French for the new label too (run XX walks
+  `STAT_KEYS`, so it *will* catch a missing one — but only the label, never the row order). The
+  table is ORDERED and ui.js appends the cadence row then slices to `STAT_MAX_ROWS` (5, ui.js), so
+  where you insert the key decides which stats fall off the bottom.
+- **A new weapon MOD's display name must not already exist in fr.js.** The dictionary is keyed by
+  the English source string, so a second mod called `Slow Burn` silently inherits the first one's
+  translation — a real French word, on the right screen, describing the wrong thing, and run XX is
+  perfectly happy because the key IS covered. It is also just confusing to have two. Grep fr.js for
+  the name before adding it. (The Shelf's Foxfire hit this and shipped as `Long Burn` instead.)
+- **A SHARED ENTITY ARRAY HAS MORE RENDER CONSUMERS THAN THE ONE YOU EDITED.** `run.lobs` has
+  THREE — `syncLobs` (the thrown-object rig), `redrawHazards` (the amber landing ring), and now
+  `drawColumns` — and nothing about the array says so. The Shelf's Sunspear reused `run.lobs`, was
+  filtered out of `syncLobs`, and still came back wearing a Debris Toss landing ring: two telegraphs
+  on one strike, which read as "the effect looks like soap bubbles" rather than as a missed site.
+  **Reading the render code named the wrong culprit twice; one ablation pass (hide the layer, shoot
+  the same frame) found it immediately.** Before reusing an array, `grep -n "run.<array>" src/render.js`
+  and check every hit, then ablate to confirm what is actually drawing what you see.
 - **An on/off weapon mod that must be EPIC cannot be `kind: 'switch'`.** `makeWeaponModCard` tests
   `kind === 'switch'` and returns null above normal rarity BEFORE it ever looks at `values`, so a
   switch is a normal-rarity card by construction. Use `values: { epic: 1 }` (the Beam Prism idiom)
@@ -417,6 +456,27 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   - **A DISPLAY-name sweep over-matches user-facing copy.** `leaf blade` → `boomerang leaf` also
     rewrote the boomerang's five mod descriptions, shipping `'boomerang leaf(s) per throw'` — which
     is not English, and which every test passes happily. Nothing catches this but reading it.
+- **GREP THE NAME BEFORE YOU WRITE THE MECHANIC, and grep it as an IDENTIFIER, not as a word.**
+  Naming The Surf's button cost two full renames because every obvious word was already spoken for:
+  `wave` is three unrelated things (`WAVE_TABLE` the spawn schedule, `WEAPONS.wave`, `WAVE_ECHO_*`
+  its mod), `swell` is two (a Breaker mod whose display name is `Swell`, and the `render.swell`
+  water field that render.js's `updateSwell` draws), and `surge`, `riptide`, `backwash`, `breaker`,
+  `crest` and `undertow` are all taken as well. A `stepSwell` sitting beside an `updateSwell` doing
+  something unrelated is the same one-fact-two-places trap this file is built around, wearing a
+  different hat. One `grep -rn "<candidate>" src/` before the first line of code is the whole fix.
+- **A RENAME SWEEP CAN CLOBBER A PRE-EXISTING IDENTIFIER YOU DID NOT KNOW ABOUT — the failure mode
+  the two below do not cover, because here the name you are renaming *to* is the collision.**
+  Renaming a brand-new `waveG` to `swellG` silently overwrote the SHIPPED `swellG` (updateSwell's
+  Graphics), and the only symptom was `Identifier "swellG" has already been declared` from esbuild —
+  which reads as a typo in your own new code, not as "you just renamed someone else's". `npm test`
+  cannot see it: render.js is unimportable, and the file did not parse at all. Two rules:
+  - **Assert the count you expect for every replacement, and DO NOT WRITE THE FILE when it misses.**
+    A harness that logs a mismatch and writes anyway (mine did) leaves the tree half-renamed, which
+    is strictly harder to reason about than either end state.
+  - **Repair against `git show HEAD:<file>`, never against memory.** The first repair guessed the
+    original name was `waveG`, which built cleanly and was wrong — it had quietly renamed shipped
+    code. `git show HEAD:src/render.js` is the authority; diff the token COUNTS against it and
+    require they match before believing the tree is clean.
   The check that finds both, run after the sweep and before the commit:
   `git diff -U0 src/config.js | grep -E "name: '|desc: '"` — every user-facing string the rename
   touched, in one screen — plus a grep for the OLD token in quotes. Also leave verbatim quotations
@@ -436,9 +496,9 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 
 `sim.js`/`config.js`/`state.js` import cleanly into plain node, which makes "what does this actually
 do over a real run" a 30-line script rather than a browser session. `scripts/weapon-census.mjs` and
-`scripts/pool-probe.mjs` are the worked examples. Four traps, all of which produced CONFIDENT WRONG
-NUMBERS in v7.16 — every one of them fails silently, and three of them were only caught because a
-downstream detail looked odd:
+`scripts/pool-probe.mjs` are the worked examples. Five traps. The first four produced CONFIDENT
+WRONG NUMBERS in v7.16 and the fifth was found in 2026-08-16; every one of them fails silently, and
+three of the original four were only caught because a downstream detail looked odd:
 
 - **`createRun(meta, opts)` TAKES AN OPTIONS OBJECT.** `createRun(meta, 'undergrowth', 3)` does not
   throw and does not warn — `opts` is a string, `opts.chapter` is undefined, and you get **body at
@@ -448,6 +508,19 @@ downstream detail looked odd:
 - **The probe meta must UNLOCK the chapters**, exactly like a seeded save (see the browser section
   below). With `chapters: {}` `ensureChapterMeta` defaults `unlocked` to `id === 'body'` and
   `resolveChapterId` falls back — the same wrong-chapter failure, from a different direction.
+- **A PROBE THAT CANNOT MEASURE MUST NOT PRINT NUMBERS — abort, loudly, with a non-zero exit.**
+  The positional order for `pool-probe.mjs` is `<chapter> <slots> <runs> <policy>`, so the plausible
+  `pool-probe body 4 dps` omits `runs` and lands `'dps'` in that slot. `Number('dps')` is `NaN`,
+  every loop bounded by it runs zero times — and it used to print **every heading with `NaN` under
+  it and exit 0**, including `short pools 0/0  (MUST be 0)`, which reads as a PASS when nothing ran
+  at all. That is the worst shape a harness can fail in: not an error, but a confident answer to a
+  question it never asked. It now aborts on all four positionals with a message naming the mistake
+  (v7.99+). Two rules follow for any probe you write or extend: validate every argument that
+  indexes a loop bound, and treat a **silent fallback** as the same defect — `pool-probe`'s
+  `choose()` tests `'random'` and `'defense'` and lets everything else become the dps bot, so
+  `defence` (the spelling this file prints in its own output) quietly measured the wrong policy.
+  This is the companion to the print-the-denominator rule: `0/75` proves a run happened, `0/0`
+  proves nothing and looks identical.
 - **SEED `Math.random`** (mulberry32, as test/sim-test.js does) and average several runs. Unseeded,
   the same build measured 11 and then 34 contact hits — enough to invent or erase any effect you
   are about to report. Seed per run, use the same seed set on both sides of an A/B.

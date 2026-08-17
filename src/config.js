@@ -31,7 +31,7 @@ export const RARITIES = {
   // multiplier to scale. The key is not decorative: every reader that walks RARITY_ORDER reads
   // .mult (test run PT.a, scripts/pool-probe.mjs's card scorer), and a missing one reads NaN.
   // The NAME is not "Anomaly" (v6.7.7): the game already spends that word on three other things
-  // the same player reads in the same session — the pre-run MUTATORS ("Daily Anomaly", "Reroll
+  // the same player reads in the same session — the pre-run MUTATORS ("Reroll
   // this anomaly", and a briefing that literally reads "Anomalies bend the rules of this run"),
   // the ENEMIES (MUTATORS.overtime.desc), and the player themselves (fr.js 'You': 'Ton
   // anomalie'). A teal card chipped ANOMALY therefore reads as a fourth mutator administered by
@@ -1870,6 +1870,161 @@ export const WEAPONS = {
       { dmg: 52, interval: 2.60, r: 142, hold: 1.75, flight: 0.42, castRange: 320 },
     ],
   },
+  // -- The Shelf's three natives ---------------------------------------------------------------
+  // The chapter is one resource seen from three sides. `resource` (CHAPTERS.shelf) is a bar that
+  // drains in the dark and refills in a sun shaft, and until now it bought exactly one thing: the
+  // Pulse's shove. These three make it a BUILD decision as well as a timer — the starter ignores it,
+  // and the two rares read it in opposite directions, so a player who owns both is never simply
+  // "topped up" or "empty", they are always strong at one end of their own bar.
+  //
+  // ⚠ THIS IS NOT resourceDamageMul, AND THE DIFFERENCE IS THE WHOLE ARGUMENT. That helper's block
+  // says §5.3 spent the book's ONE licence for a bar that drives weapon output, spent it on The
+  // Surf's Humidity, and that The Shelf is deliberately untouched by it. Two things keep that rule
+  // intact here:
+  //   - it is COVERAGE that moves, never a damage multiplier. A bloom's radius and a lance's reach
+  //     are things the player watches change on screen; the reviewed failure was a multiplier you
+  //     cannot feel in its top half and fall off a cliff in its bottom, and neither of these is a
+  //     multiplier on a number at all. (It is also the knob WEAPONS.longline's block proves is the
+  //     real one on anything that ticks: throughput is set by how much of the field you cover, not
+  //     by the number on a tick.)
+  //   - it is OPT-IN PER CARD, not per chapter. resourceDamageMul taxes every weapon a chapter has;
+  //     these are two cards out of a pool, and Sunspear — the starter, the one weapon every Shelf
+  //     run begins with — reads the bar not at all. A run that never picks a rare never meets this.
+  // Neither rare can spiral, for the same reason BURST_DUR_MIN and BREACH_R_MIN exist: Sunlance is
+  // the one that gets WORSE as the bar empties, so its reach has a floor (SUNLANCE_REACH_MIN) and an
+  // empty bar still fires a real lance. Foxfire moves the other way and needs no floor.
+  //
+  // NO NEW run.* ARRAY, which is the standard THE SURF's block above sets. A column is a run.lobs
+  // entry that falls instead of flying, a foxfire is a run.blooms entry, a lance is a run.beams
+  // entry that does not rotate.
+  sunspear: {
+    name: 'Sunspear',
+    desc: 'Calls down a column of light on what is nearest. More columns as it grows.',
+    icon: '☀️', rarity: 'normal',
+    // The chapter's starter and the tagline made literal — the light only goes down. A column is a
+    // run.lobs entry whose `fromX/fromY` ARE its target, so it does not travel: it hangs for
+    // SUNSPEAR_FALL seconds as a telegraph and then lands. That is the whole trick, and it is why
+    // this needed no entity of its own (see the `column` branch in stepLobs).
+    //   count      columns per cast, and THE LEVEL AXIS. L5 is three separate strikes on three
+    //              separate bodies, never one fatter strike — see sunspearSpots in sim.js, which
+    //              picks DISTINCT enemies and pads any shortfall onto a ring rather than stacking.
+    //   r          splash radius where a column lands.
+    //   castRange  how far out it will look for a body to drop on.
+    // ⚠ `count` IS WRITTEN TWICE — as the loop bound AND as the divisor that spaces the padding
+    // ring — which is the failure CLAUDE.md documents at length: multiply one and the extra columns
+    // land on top of each other, which renders identically to no change at all. sunspearSpots
+    // therefore takes ONE `count` and derives both from it, and run SH.a asserts DISTINCT POSITIONS
+    // rather than a count, because a count passes happily when three columns share a point.
+    // Pinned against Breaker and Longline, the book's other two normal-rarity starters. This one
+    // aims, so it wastes far less than a cone and whiffs far less than a burst; the price is that it
+    // covers only where bodies already are, and it can do nothing at all on an empty field.
+    //
+    // MEASURED, ONE census invocation (--chapter shelf, 240s x 5 seeds, L1 and L5) so every row is
+    // off one RNG stream and the ORDER is the reading, never the absolute value:
+    //
+    //                      L1 eff  L5 eff  L5 waste  L5 dud
+    //   Breaker                63     106       45%     11%   the book's other BURST starter
+    //   Longline               73     156       11%      4%   the book's other starter, a grinder
+    //   Sunspear (shipped)     56     123       29%      6%
+    //   Barnacles              19     114        9%      2%   the rare band, for scale
+    //   Net Toss               65     111       34%      2%
+    //
+    // It opens BELOW the sibling burst starter and ends above it, which is `count` doing its job:
+    // 1 -> 3 columns is the level axis, so the weapon grows by covering more of the field rather
+    // than by hitting harder, and a chapter-1 player is not handed the top of the table.
+    // ⚠ DAMAGE WAS THE WRONG KNOB, AND THE FIRST CUT PROVED IT: -23% on `dmg` measured BETTER
+    // (135 -> 140 eff), because weaker columns leave bodies alive to eat MORE columns — waste fell
+    // 34% -> 29% and hits/s rose 3.8 -> 4.8, which more than absorbed the cut. `r` is what came down
+    // instead (82 -> 66 at L5). That is WEAPONS.longline's rule about grinders, and it applies here
+    // because a multi-strike that re-aims at whatever is still standing IS one.
+    levels: [
+      { dmg: 17, interval: 2.10, count: 1, r: 50, castRange: 300 },
+      { dmg: 21, interval: 1.98, count: 1, r: 54, castRange: 320 },
+      { dmg: 26, interval: 1.85, count: 2, r: 58, castRange: 340 },
+      { dmg: 32, interval: 1.72, count: 2, r: 62, castRange: 360 },
+      { dmg: 40, interval: 1.60, count: 3, r: 66, castRange: 380 },
+    ],
+  },
+  foxfire: {
+    name: 'Foxfire',
+    desc: 'A cold fire that barely shows in the light and takes hold in the dark.',
+    icon: '🌘', rarity: 'rare',
+    // The card that gives the dark an UPSIDE. The chapter measures at 63% of a run spent dark (see
+    // CHAPTERS.shelf.resource), which until now was pure cost: no sight, and a move-speed penalty.
+    // This is the first thing in the chapter that pays you for being down there.
+    //   dmg      damage per TICK, not per cast — a foxfire is a grinder like the longline and the
+    //            crust, and the value is the number of bodies standing in it.
+    //   maxR     the bloom's radius IN THE LIGHT. What the dark buys is up to FOXFIRE_GLOOM times
+    //            this, and the multiplier is SNAPSHOT AT CAST rather than tracked per tick: a fire
+    //            you lit while you were dark keeps the hold it took, which is what makes it a
+    //            decision ("cast it now, while it will catch") instead of a number that wobbles.
+    //   glowDur  how long it burns. NOT `duration`: that key is shared with the beam weapons and
+    //            the build sheet labels it 'Burns for', which would be the same words for two
+    //            different things on one screen. Same reasoning as barnacles' `crustDur`.
+    // It reuses run.blooms wholesale and carries `slow: 0` — the pond's Spore Bloom slows what
+    // stands in it, and inheriting that here would hand a second slow to the one chapter that
+    // already has one, unadvertised, on a card whose text says nothing about it.
+    //
+    // MEASURED in the same invocation as Sunspear above. The rare band it has to sit in is
+    // Barnacles 114 and Net Toss 111:
+    //
+    //                                  L5 eff  L5 waste  hits/s
+    //   Foxfire (first cut)               159       11%    12.8
+    //   Foxfire (radius -19%)             139       12%    11.2
+    //   Foxfire (shipped, tick -29%)      109        9%    12.0
+    //
+    // COVERAGE WAS TRIED FIRST, on WEAPONS.longline's rule, and it SATURATED: a same-stream probe
+    // carrying 1.6x the radius bought only +23% (139 -> 171), because this chapter's spawn rate caps
+    // what any grinder can remove and the extra area lands on water. Tick damage was the knob with
+    // leverage left, and at 9% waste there was no overkill to absorb it — which is the OPPOSITE of
+    // the reading Sunspear gave two blocks up. Neither knob is right by default; measure which one
+    // the weapon is currently bounded by.
+    //
+    // ⚠ THE CEILING IS 160, AND IT IS ONLY REACHED ON A FULLY EMPTY BAR. The same probe pinned at
+    // maximum gloom read 160 eff, ~40% clear of the rare band. That is not the number this card
+    // plays at: scripts/charge-probe.mjs measures a real Shelf run at 63% dark and MEAN DEPTH 0.29,
+    // so a typical gloom is about 1.17 rather than 1.6 and play sits near the 109 end. The 160 is
+    // what a player buys by running on empty — which costs them the Pulse and 40% of their move
+    // speed at the same time. That trade IS the card, and it is why the base had to come down to
+    // the bottom of the band rather than the middle of it.
+    levels: [
+      { dmg: 4,  interval: 3.00, maxR: 54, glowDur: 2.4, castRange: 280 },
+      { dmg: 5,  interval: 2.85, maxR: 59, glowDur: 2.6, castRange: 295 },
+      { dmg: 6,  interval: 2.70, maxR: 64, glowDur: 2.8, castRange: 310 },
+      { dmg: 8,  interval: 2.55, maxR: 69, glowDur: 3.0, castRange: 325 },
+      { dmg: 10, interval: 2.40, maxR: 74, glowDur: 3.2, castRange: 340 },
+    ],
+  },
+  sunlance: {
+    name: 'Sunlance',
+    desc: 'Spears a shaft of hard light through the crowd. It reaches as far as your Light does.',
+    icon: '✴️', rarity: 'rare',
+    // Foxfire's mirror, and the reason the pair is worth more than either alone: they are strong at
+    // opposite ends of the same bar, so the bar stops being a thing you keep topped up and becomes a
+    // thing you STEER. A lance is a run.beams entry with `rotSpeed: 0` — it does not sweep, which is
+    // deliberate and is the one shape this weapon must not have (run.beams already carries
+    // `swept` + `arms`, and that is Pulsar Sweep; a third rotating rake is what CLAUDE.md warns the
+    // Trawl's longline away from too).
+    //   length    reach at a FULL bar. At an empty one it is SUNLANCE_REACH_MIN of this and still a
+    //             real weapon — the no-spiral floor, in the same idiom as BURST_DUR_MIN.
+    //   duration  how long the lance is held out. It ticks while it is there, so a body walking
+    //             across the line during those frames is struck as surely as one standing on it.
+    //   dmg       per TICK. duration/tick is 3 ticks, so a body held on the line for the whole
+    //             stab takes three of these.
+    // MEASURED in the same invocation: 122 eff at L5 at 18% waste, against the rare band's 114
+    // (Barnacles) and 111 (Net Toss). Left there rather than trimmed onto the anchor, deliberately:
+    // the census rig sits at a charge of 63, which is 80% reach, and this is the one card in the
+    // chapter that gets WORSE as the bar empties. A real run is under half a bar for 63% of its
+    // length, so this weapon's PLAY average sits below the number above rather than on it — trimming
+    // to parity with a static rare would ship it under the band it is supposed to be in.
+    levels: [
+      { dmg: 10, interval: 2.20, length: 360, width: 26, duration: 0.40, tick: 0.13 },
+      { dmg: 12, interval: 2.08, length: 405, width: 29, duration: 0.40, tick: 0.13 },
+      { dmg: 14, interval: 1.96, length: 455, width: 32, duration: 0.40, tick: 0.13 },
+      { dmg: 17, interval: 1.84, length: 505, width: 35, duration: 0.40, tick: 0.13 },
+      { dmg: 21, interval: 1.70, length: 560, width: 38, duration: 0.40, tick: 0.13 },
+    ],
+  },
   // -- The Deep's native (spec §6.5) -------------------------------------------------------------
   finHit: {
     name: 'Fin Hit',
@@ -2544,6 +2699,39 @@ export const WEAPON_MODS = {
     weighted:  { name: 'Weighted',   desc: 'impact damage', icon: '💥', base: 0.30, kind: 'pct' },
     doubleHaul:{ name: 'Double Haul', desc: 'extra net(s) per cast', icon: '🔷', kind: 'tier' },
   },
+  // Four apiece for The Shelf's three natives, the same ceiling the two blocks above hold to. Each
+  // buys one stat the weapon already has; none of them buys the BAR. That is the line this chapter
+  // has to keep — a mod that widened the dark's bonus or raised the lance's floor would be selling
+  // the chapter's own resource back to the player as a card, and the resource has to stay the thing
+  // you steer with your feet.
+  sunspear: {
+    highNoon:  { name: 'High Noon',  desc: 'column damage', icon: '💥', base: 0.30, kind: 'pct' },
+    broadBeam: { name: 'Broad Beam', desc: 'column radius', icon: '⭕', base: 0.28, kind: 'pct' },
+    zenith:    { name: 'Zenith',     desc: 'how far a column can be called', icon: '📏', base: 0.25, kind: 'pct' },
+    // A flat count, not a percentage: +30% of one column is one column. It folds through
+    // WEAPON_STAT_MODS as 'flat' because `count` is a real key in levels[] — which also means
+    // sunspearSpots reads the MODIFIED count and the padding ring divides by that same number.
+    secondSun: { name: 'Second Sun', desc: 'extra column(s) per cast', icon: '🔷', kind: 'tier' },
+  },
+  foxfire: {
+    // 'foxfire damage per tick', for the reason barnacles and longline both spell out above: the
+    // number is small because it is per tick, and a player reading it as a per-hit number concludes
+    // the card is broken.
+    emberfeed:  { name: 'Emberfeed',   desc: 'foxfire damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
+    gloaming:   { name: 'Gloaming',    desc: 'foxfire radius', icon: '⭕', base: 0.28, kind: 'pct' },
+    // NOT 'Slow Burn': that display name is already taken, and the French dictionary is keyed by the
+    // ENGLISH SOURCE STRING — so a second mod called 'Slow Burn' would silently inherit the other
+    // one's translation ('Économe', i.e. thrifty), which is not what this buys. A duplicate display
+    // name is also just confusing on its own. Check the name against fr.js before adding a mod.
+    longBurn:   { name: 'Long Burn',   desc: 'how long a foxfire burns', icon: '⌛', base: 0.25, kind: 'pct' },
+    quickKindle:{ name: 'Quick Kindle', desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  },
+  sunlance: {
+    whetted:   { name: 'Whetted',   desc: 'lance damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
+    farReach:  { name: 'Far Reach', desc: 'lance length', icon: '📏', base: 0.25, kind: 'pct' },
+    broadEdge: { name: 'Broad Edge', desc: 'lance width', icon: '🪭', base: 0.28, kind: 'pct' },
+    heldLance: { name: 'Held Lance', desc: 'how long the lance is held', icon: '⌛', base: 0.25, kind: 'pct' },
+  },
   finHit: {
     serrated:  { name: 'Serrated',   desc: 'fin damage', icon: '💥', base: 0.30, kind: 'pct' },
     broadFin:  { name: 'Broad Fin',  desc: 'how wide the sweep is', icon: '📐', base: 0.22, kind: 'pct' },
@@ -2576,7 +2764,7 @@ export const WEAPON_RATE_MODS = {
   clawRake: 'quickPaws', quillBurst: 'rapidQuills', chitterShriek: 'rapidShriek',
   burstHydrant: 'rapidHydrant', roar: 'rapidRoar', tailLash: 'quickTail',
   debrisToss: 'rapidToss', realityShard: 'rapidShard', pulsarSweep: 'rapidSweep',
-  atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash',
+  atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash', foxfire: 'quickKindle',
 }
 // Same problem for per-cast COUNTS: nearly every one folds through WEAPON_STAT_MODS, but the star's
 // multishot is read straight off run.weaponMods at its fire site. Without this the readout would
@@ -2635,6 +2823,10 @@ export const STAT_KEYS = [
   // Same reasoning as crustDur, twice more: `duration` below is labelled 'Burns for' and is shared
   // with the beam weapons, which is a lie about a rope in the water and about a net over a pack.
   { key: 'setDur', label: 'Line lasts' },
+  // Foxfire's own duration key. Not `duration` ('Burns for') even though a foxfire literally burns:
+  // that key is the beam weapons' and a Shelf run can hold a Sunlance at the same time, which would
+  // put the same two words on two rows meaning two different things.
+  { key: 'glowDur', label: 'Glow lasts' },
   { key: 'hold', label: 'Holds for' },
   { key: 'duration', label: 'Burns for' },
   { key: 'maxR', label: 'Radius' },
@@ -3186,6 +3378,35 @@ export const LONGLINE_TWIN_GAP = 54
 // the player just made.
 export const LONGLINE_MAX_LIVE = 8
 
+// ---- The Shelf's three natives ---------------------------------------------------------------
+// How long a Sunspear column hangs before it lands. It is a TELEGRAPH, so it has to be long enough
+// to see and short enough that the body it was called on is still standing there: at the roster's
+// top speed (krill, speedMul 1, ~120 px/s at this chapter's balance) a body walks 31px in this
+// window, against a splash radius of 62-82. So a column that was aimed correctly still lands on
+// what it was aimed at, and a player still gets a frame of warning to read.
+export const SUNSPEAR_FALL = 0.26
+// Where a SURPLUS column goes when the field holds fewer bodies than the cast has columns. They are
+// pushed onto a ring of this radius around the last real target, evenly divided — which keeps the
+// cast's full output AND keeps every column at a distinct position. Both halves matter: stacking
+// them renders identically to not having fired them (CLAUDE.md's per-cast-count trap), and dropping
+// them makes `count` — the weapon's whole level axis — do nothing against a lone tank.
+// Under the splash radius at every level that can actually pad. Padding only happens when `count`
+// exceeds the bodies in range, so it cannot fire below L3 (count 1 until then) — and L3's r is 58,
+// against which 48 still leaves a padded column covering the body it was padded around rather than
+// missing beside it. Re-check this pair if either the `r` ladder or `count` moves.
+export const SUNSPEAR_SPREAD = 48
+// What a fully dark bar multiplies a foxfire's radius by, snapshot at the moment it is cast. 1.6 on
+// the radius is 2.56x the AREA, which is the number that matters for a thing that ticks on whatever
+// stands in it — and it is why this is the radius rather than the damage (see WEAPONS.longline's
+// block: on a grinder, coverage is throughput and the damage number is not).
+export const FOXFIRE_GLOOM = 1.6
+// The Sunlance's reach at an EMPTY bar, as a fraction of its `length`. The no-spiral floor, in the
+// same idiom as BURST_DUR_MIN and BREACH_R_MIN: this is the one card in the chapter that gets worse
+// as the bar empties, and the bar empties fastest exactly when a player is in trouble, so a lance
+// that shrank to nothing would be the structural trap spec §8.2 forbids. At 0.45 an empty-bar L5
+// lance still reaches 252px, comfortably past the 205px radius of the shaft you are trying to get
+// back to.
+export const SUNLANCE_REACH_MIN = 0.45
 // ---- The Deep's anglerfish: a refill point that bites ----------------------------------------
 // The spec calls this the best thing in the book, and the reason is that it is the only refill in
 // the game whose TIMER IS DRAWN ON THE ENEMY'S FACE. You swim up to it, it feeds you, its mouth
@@ -3304,8 +3525,7 @@ export const MAX_ELEMENT_PICKS = 8
 // ---- Difficulty (classic runs; picked on the title screen, saved in meta) -----------
 // Level 1 = the base game. Each level above 1 adds one RANDOM mutator to the run AND stacks
 // +DIFFICULTY_HP_PER_LEVEL enemy HP and +DIFFICULTY_DMG_PER_LEVEL enemy damage (multiplied into
-// run.mods.enemyHpMul/enemyDmgMul on top of whatever the mutators themselves do). The Daily
-// Anomaly ignores this (fixed shared seed).
+// run.mods.enemyHpMul/enemyDmgMul on top of whatever the mutators themselves do).
 export const MAX_DIFFICULTY = 5
 // Winning a classic run at this difficulty (or higher) unlocks the next chapter — used by
 // endRun (main.js) at victory time AND by loadMeta (state.js) retroactively, since a chapter
@@ -3325,7 +3545,7 @@ export const difficultyCoinMul = (d) => 1 + DIFFICULTY_COIN_PER_LEVEL * (Math.ma
 // v6.4.1/v6.4.3 (owner directives): difficulty 1 of the onboarding chapters spawns thinner but
 // pays more xp per kill, per chapter — body (level 1-1) is the gentlest. Applied in createRun
 // (state.js) ONLY when the caller passes difficulty 1 EXPLICITLY (main.js's classic ladder always
-// does): daily runs and tests omit opts.difficulty, so they keep baseline density on purpose.
+// does): tests omit opts.difficulty, so they keep baseline density on purpose.
 export const EARLY_CALM = {
   body:   { spawnMul: 0.40, xpMul: 2.22 }, // v6.4.3: 0.6·0.67 / 1.67·1.33 — another -33% / +33%
   pond:   { spawnMul: 0.6,  xpMul: 1.67 },
@@ -3855,14 +4075,14 @@ export const COIN_CAP_PER_RUN = 999
 // Pure data — sim stays theme-agnostic and reads roster archetypes/behavior flags, weapon
 // pools, and signature/obstacle config from the run's chapter snapshot (see state.js
 // createRun). v5.4 completes the seven-chapter arc from the design doc — CHAPTER_ORDER is the
-// single source of truth for sequencing, daily seeding, and how many chapters currently ship.
+// single source of truth for sequencing and how many chapters currently ship.
 // ---- Books (v7.x) ------------------------------------------------------------------
 // A book is a campaign: its own chapters, its own ladder, its own protagonist. Book 1 is the
 // shipped game. A book marked `wip` is hidden from players entirely and reachable only behind
 // meta.dev — see playableChapterId and titleBookshelf below.
 //
 // CHAPTER_ORDER is an ALIAS for book 1's chapters, and that is the whole design of this refactor:
-// every existing read site — slot summaries, the daily draw, the retroactive unlock chain, ~40 test
+// every existing read site — slot summaries, the retroactive unlock chain, ~40 test
 // assertions — keeps working untouched and keeps meaning "the shipped chapters, in order". Adding a
 // book therefore cannot break Book 1 by omission; the only way to reach another book's chapters is
 // to ask for that book by name.
@@ -4489,8 +4709,8 @@ export const CHAPTERS = {
     },
   },
 }
-// v5.24: The Blank — hidden 8th chapter, deliberately OUTSIDE CHAPTER_ORDER (never in the daily
-// rotation, never in the difficulty-3 chapter-unlock chain — see nextChapter/dailyChapter above).
+// v5.24: The Blank — hidden 8th chapter, deliberately OUTSIDE CHAPTER_ORDER (never in the
+// difficulty-3 chapter-unlock chain — see nextChapter above).
 // Unlocked by winning a classic run of The Beyond at difficulty 5 (main.js endRun). Not a
 // survival run: `scripted: true` tells sim.js to run stepBossScript as the ONLY spawner (ordinary
 // spawning, elites, formations, obstacles and the 300s victory timer are all gated off) and tells
@@ -4550,6 +4770,12 @@ CHAPTERS.shelf = {
   name: 'The Shelf',
   tagline: 'the light only goes down',
   icon: '🌊',
+
+  // The spread above brings in The Pond's pool (flagella/mines/bloom) and its starter, which is what
+  // this chapter fought with for its whole life. These three are its own — see the block at the end
+  // of WEAPONS for what they are and why the two rares are allowed to read the chapter bar when
+  // resourceDamageMul's block says Book 2 spent that licence elsewhere.
+  weapons: ['sunspear', 'foxfire', 'sunlance'], starter: 'sunspear',
 
   // ---- Book 2's mechanic (phase 2). Everything ABOVE this line is still the pond's. ----
   // A NEW object, never a mutation: the spread shares pond's nested objects by reference, so
@@ -4750,7 +4976,10 @@ CHAPTERS.surf = {
     // the chapter with no `fast` entry at all, and an empty archetype pool does not fail loudly:
     // spawnEnemy's `rosterPool` comes back empty and every fast spawn falls through to the generic
     // pink wisp blob, which by t=260 is 6/11 of everything on screen. The Sea Roach is that slot.
-    { id: 'searoach',   archetype: 'fast',   name: 'Sea Roach',   hpMul: 0.8, speedMul: 1.15, flags: ['dashBurst'] },
+    // hpMul 0.68 (owner ruling 2026-08-16: 15% less, was 0.8). It pairs with the 30% shorter DASH_T
+    // in the block above — the roach gives up reach AND durability together, so the chapter's one
+    // fast enemy is a thing that darts in and dies rather than a thing that arrives already on you.
+    { id: 'searoach',   archetype: 'fast',   name: 'Sea Roach',   hpMul: 0.68, speedMul: 1.15, flags: ['dashBurst'] },
   ],
 
   // The tide. `surge` is peak lateral speed in px/s and `period` a full surge->backwash cycle; the
@@ -4767,6 +4996,11 @@ CHAPTERS.surf = {
   // The Surf's is the tide. Declaring it as its own flag is the same idiom `resource`, `crush` and
   // `dispatch` use, and it is a no-op in every chapter that does not set it. See the GULL_* block.
   gulls: true,
+  // THE BUTTON. Same idiom as CHAPTERS.reef.burst / trawl.breach / deep.scent — a boolean the one
+  // shared stepRepulse branches on, so the chapter never gets a second button or a second bar. This
+  // is the only one of the four that REPLACES the Pulse's shove rather than adding to it; see the
+  // SHOREBREAK_* block in this file for why, and stepRepulse for where the skip happens.
+  shorebreak: true,
   signature: {
     type: 'tide', surge: 46, period: 14, axis: 0,
     // Sandbars: dry ground you can walk onto. `slowMul` composes with every other slow by MIN (see
@@ -6454,11 +6688,6 @@ export function titleBookshelf(meta) {
   }
   return shelf
 }
-// Date-seeded over SHIPPED chapters (CHAPTER_ORDER); reuses the FNV-1a + mulberry32 helpers
-// dailyMutators already uses (below), with a distinct salt ('chapter') so the two daily picks
-// are independent draws from the same date key.
-export const dailyChapter = (dateKey) => CHAPTER_ORDER[hashString(dateKey + 'chapter') % CHAPTER_ORDER.length]
-
 // ---- Chapter behavior flags (v5.0 task 3, see sim.js) -------------------------------
 // Maps a roster entry's `archetype` (config.js CHAPTERS[id].roster, see above) onto the
 // existing spawn-type keys (ENEMIES above) that drive its base hp/speed/dmg/radius/xp —
@@ -6691,6 +6920,74 @@ export const REPULSE_STUN = 0.55         // s of stun on top, so the shove reads
 export const PULSE_CHARGE_COST = 45      // charge a full-strength pulse spends; a full bar is two of them
 export const PULSE_RADIUS_AT_FULL = 620  // px at a full spend (floor REPULSE_RADIUS 340)
 export const PULSE_FORCE_AT_FULL = 1500  // px/s at a full spend (floor REPULSE_FORCE 880)
+
+// ---- THE SHOREBREAK (v7.x, The Surf — chapters declaring `shorebreak: true`) -------------------
+// NAMED `shorebreak` AFTER TWO COLLISIONS, and the list is worth keeping because every obvious word
+// for this move is already spoken for somewhere in this repo. `wave` is three things (WAVE_TABLE the
+// spawn schedule, WEAPONS.wave, WAVE_ECHO_* its mod) and would have made WAVE_RADIUS read as that
+// weapon's radius; `swell` is two (WEAPON_MODS.breaker.swell, name 'Swell', and the `render.swell`
+// water field that render.js's updateSwell draws — a stepSwell beside an updateSwell doing unrelated
+// work is exactly the trap CLAUDE.md is built around). Also taken: `surge` (signature.surge),
+// `riptide` (an ANOMALIES entry), `backwash` and `breaker` (both Breaker mods), `crest`
+// (broadCrest), `undertow` (the BOOK id). Shorebreak has zero hits in src/ and matches the register
+// of the other three buttons — BURST, BREACH, SCENT — which are named for what the press DOES.
+//
+// The Surf's half of the button, and the ONE chapter where the second verb REPLACES the Pulse's
+// shove instead of riding along with it. Owner, 2026-08-16: the button "should be revamped to a
+// bubble shield or wave shield that lasts for a bit so the player can go through a wall of circling
+// enemies", then picked the wave over the bubble — you plough through the wall rather than becoming
+// intangible to it, so the crowd you crossed stays scattered behind you.
+//
+// WHY A WINDOW AND NOT A BIGGER SHOVE. A shove is one frame of impulse: the ring is already closing
+// again while the 6s cooldown runs, so it answers a bad moment and cannot answer a bad PLACE. The
+// ask is explicitly about crossing something, which is a distance, which takes time. So the wave is
+// the same positional verb spread over a duration — it rides with the player, and the corridor it
+// opens is the one you are walking down.
+//
+// It still deals NO DAMAGE, for the reason REPULSE_CD's block gives at length: Book 2's second verb
+// is positional, and a button that also killed would collapse into another weapon on a cooldown.
+//
+// WHY THE INSTANT SHOVE IS SKIPPED rather than fired alongside (see stepRepulse): firing both puts
+// an 880-1500 px/s impulse on frame one and the wave's own push on every frame after, which reads
+// as the old Pulse with a tail rather than as a new move — and worse, the crowd that impulse flings
+// to the rim is a crowd the wave then never touches, so the two halves actively cancel.
+export const SHOREBREAK_DUR_MIN = 0.9          // s on an EMPTY bar — spec §8.2's no-spiral floor
+export const SHOREBREAK_DUR_AT_FULL = 2.4      // s at a full PULSE_CHARGE_COST spend
+// Deliberately UNDER the Pulse's 340px floor, let alone its 620px full spend. A sustained push does
+// not need the shove's reach: the shove has one frame to catch everything that matters, where the
+// crest gets every frame for up to 2.4s and travels with you, so its true footprint is this radius
+// swept along your path.
+//
+// 190 IS SET BY THE NARROWEST SCREEN, and it is the one number here that is not free. render.js
+// draws the rim AT this radius, on the contract every other button keeps — a burst that lies about
+// its reach makes the cooldown feel arbitrary — and the rim is the only place a player can read
+// where the push falls to zero. A 390x844 phone has a half-WIDTH of 195, so at 190 the whole crest
+// edge is on screen on every axis; the first cut at 300 put 105px of it past each side, meaning the
+// edge was unreadable on exactly the axis you walk along. Owner, 2026-08-16, off a three-way look
+// sheet: "let's do B but with less radius."
+//
+// It stays WORLD px rather than a fraction of the viewport, like every other reach in the book: this
+// is a gameplay quantity, and a screen-relative one would hand a desktop player a bigger button.
+// The screen only sets the CEILING.
+export const SHOREBREAK_RADIUS = 190           // px, centred on the player and moving with them
+// An ACCELERATION (px/s per second), not an impulse — the `n.carry` idiom in stepNodes, where the
+// comment spells the maths out: e.kb is a VELOCITY that decays at KB_DECAY_RATE (6/s), so a
+// constant push settles at a terminal speed of SHOREBREAK_FORCE / 6. 1300 puts that at ~217 px/s dead
+// centre, falling off linearly to 0 at SHOREBREAK_RADIUS.
+//
+// THAT NUMBER IS CHOSEN AGAINST ENEMY SPEED, NOT AGAINST REPULSE_FORCE. What the move has to
+// guarantee is that the wall cannot close while you are inside it, so terminal must beat the crowd's
+// own approach — the fast archetypes here run ~190 px/s — with enough margin to actually gain
+// ground. It must NOT be anchored to the shove's 880: sustained for 2.4s that is ~2000px of drift,
+// thirteen times what one Pulse moves a body, which does not open a corridor so much as evacuate
+// the map and leave you standing in an empty chapter.
+export const SHOREBREAK_FORCE = 1300
+// Refreshed every frame a body is inside, and short on purpose: it must expire almost as soon as
+// the wave leaves, so the read is "staggered while the surf is on me" and not a 2.4s lockdown in a
+// 300px bubble. `stunT` is the shipped contract field (stepEnemyMovement checks it above every
+// behavior flag, and render.js holds the pose off it), so the tell costs nothing new — and a body
+// that cannot act is a body that cannot dash back into the corridor you just made.
+export const SHOREBREAK_STAGGER = 0.22         // s, refreshed per frame while inside
 
 // ---- BURST (v7.x, The Reef — chapters declaring `burst: true`) ---------------------------------
 // The Reef's half of the same button. One press, one cooldown, one spend: the Pulse's shove above
@@ -7052,8 +7349,35 @@ export const WEAVE_AMP = 0.55   // rad, peak deviation of the heading from strai
 export const WEAVE_FREQ = 3.1   // rad/s of the weave's own sine — about one full S every 2s
 // dashBurst (e.g. pond's tadpole): alternates idle (slow) <-> dash (fast) toward the
 // player, both still along the normal seek direction — see stepEnemyMovement in sim.js.
+//
+// THE DASH IS GATED ON canCommitFrom, like diveBomb's dive and pounce's leap. v6.6.24 established
+// that rule for the whole game on an owner report — "if it's not displayed on the screen, it should
+// not be able to jump on you" — and dashBurst was the one dash machine that never got it, because
+// it is the one with no distance test of any kind: a pure DASH_IDLE_T timer that fires wherever the
+// body happens to be. Enemies spawn at run.viewRadius + SPAWN_RING, i.e. always off-screen, so a
+// fresh dasher could and did complete its whole idle phase out of sight and arrive already dashing.
+// Owner, 2026-08-16, asking for the same fix on The Surf's Sea Roach: "like all other dashers in
+// the game, they should [not] dash on you from outside your screen."
+//
+// Off screen the machine does NOT idle — it walks in at full speed (see stepDashBurst). Idling out
+// there would be strictly worse than the bug: DASH_IDLE_SPEED_MUL is 0.4, and the spawn ring is a
+// RADIUS while the gate is a RECTANGLE, so a body arriving along the short axis of a phone has ~358
+// px to cover before it is even eligible. At 0.4x that is ~4.7s of a crowd crawling just out of
+// sight, which reads as the chapter being empty. Full speed until seen, then the full idle wind-up
+// on screen where the player can read it, is the shape that keeps the pressure and buys the tell.
 export const DASH_IDLE_T = 1.1        // s, idle phase duration
-export const DASH_T = 0.5             // s, dash phase duration
+// 0.35 s of dash (owner ruling 2026-08-16: 30% shorter, was 0.5). The SPEED is deliberately
+// untouched — DASH_SPEED_MUL is what makes a burst read as a burst, and the v6.6 note above
+// stepDashBurst says the speed was never the complaint. Shortening the window shortens the LUNGE,
+// and measured off a real 150s Surf run rather than estimated (the Sea Roach spawns at 191.7 px/s,
+// x2.6 while dashing = 498 px/s):
+//   was  0.50s -> 249 px of committed travel = 128% of a 390px phone's half-width
+//   now  0.35s -> 174 px                     =  89%
+// That crossing of 100% is the whole point. A dash that travels further than half the screen can
+// begin at the edge of vision and end on the player, which is the same complaint the canCommitFrom
+// gate above answers from the other direction — one bounds where it may START, this bounds how far
+// it may GO once it has.
+export const DASH_T = 0.35            // s, dash phase duration
 export const DASH_IDLE_SPEED_MUL = 0.4
 export const DASH_SPEED_MUL = 2.6
 
@@ -8623,6 +8947,17 @@ export const CHAPTER_UNLOCK_LINES = {
   beyond:      'The Beyond — you were never the only anomaly',
 }
 
+// Book-unlock badge copy (v7.x), keyed by the book that just OPENED. Flat id -> string like
+// CHAPTER_UNLOCK_LINES above, and in a table for the same reason: run XX's config-table walk is
+// what catches a missing French translation, and a tt() literal in ui.js is invisible to it by
+// construction. {n} is the welcome purse (BOOKS[id].startCoins) — a tt() TEMPLATE, so the number
+// must never be baked into the string, or the key changes every time the grant is retuned and no
+// dictionary can hold enough of them. Every book except BOOK_ORDER[0] needs a row (run BU asserts
+// it): the first book is where you start, so it is never unlocked.
+export const BOOK_UNLOCK_LINES = {
+  undertow: 'UNDERTOW — a second book opens, for a new adventure… 🪙 {n} to begin',
+}
+
 // ---- The Blank (v5.24, hidden final boss chapter, see sim.js's stepBossScript) ----------------
 // Script table read by stepBossScript: even indices are wave blocks (3 discrete ring-spawned
 // waves each, advancing on clear-or-timeout), odd indices are boss phases (one run.enemies entry
@@ -8809,7 +9144,7 @@ export const REROLL_BASE_COST = 10     // coins, first reroll of a run
 export const REROLL_COST_MUL = 1.5     // cost multiplier per reroll already used this run
 export const rerollCost = (used) => Math.ceil(REROLL_BASE_COST * Math.pow(REROLL_COST_MUL, used))
 // v6.0.4: reroll the classic pre-run anomaly roll from the briefing screen (flat cost, repeatable
-// while affordable). Not offered for The Blank (fixed ladder) or the daily (shared seed).
+// while affordable). Not offered for The Blank (fixed ladder).
 export const ANOMALY_REROLL_COST = 100
 
 // ---- Mutators (pre-run modifiers; see run.mods in state.js) ----
@@ -8835,7 +9170,7 @@ export const MUTATORS = {
   jumbo:    { name: 'Jumbo Anomalies',   icon: '🎈', desc: 'Big squishy enemies, bonus XP and coins.',     effects: { enemyRadiusMul: 1.25, enemyHpMul: 1.25, enemySpeedMul: 0.9, xpMul: 1.2, coinMul: 1.2 } },
   // v5.24: The Blank's named difficulty-ladder modifiers (CHAPTERS.blank.modsByDifficulty) are
   // MUTATORS entries too, so the existing HUD/pause chip machinery renders them for free — but
-  // `hidden: true` pulls them out of randomMutators/dailyMutators' pools (below) since they're
+  // `hidden: true` pulls them out of randomMutators' pool (below) since they're
   // assigned by the chapter's fixed ladder, never rolled. Their `effects` are a no-op: the actual
   // behavior (faster telegraphs, death residue) is read directly off run.mutators by sim.js.
   accelResponse: { name: 'Accelerated Response', icon: '⚡', desc: 'its telegraphs are 25% faster',      hidden: true, effects: {} },
@@ -8886,58 +9221,6 @@ export function mergeMutatorMods(ids) {
   return mods
 }
 
-// ---- Daily Anomaly (deterministic daily mutator pair) ------------------------------
-// A fixed number of mutators are "featured" each real-world day, the same for every
-// player: dailyMutators(todayKey()) hashes the date string into a PRNG seed so the
-// pick is stable across repeated calls/sessions without persisting anything.
-export const DAILY_MUTATOR_COUNT = 2
-
-// Local-date YYYY-MM-DD key (not UTC, so the daily set flips at local midnight for
-// the player rather than at a possibly-yesterday UTC boundary).
-export function todayKey() {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-// Tiny FNV-1a-style string hash -> 32-bit seed.
-function hashString(s) {
-  let h = 2166136261
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return h >>> 0
-}
-
-// mulberry32: small deterministic PRNG (same construction test/sim-test.js uses to seed
-// Math.random) — kept as a private, self-contained generator here so dailyMutators never
-// depends on (or perturbs) the global Math.random stream.
-function mulberry32(seed) {
-  return function () {
-    seed |= 0
-    seed = (seed + 0x6d2b79f5) | 0
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-// Deterministic: the same dateKey always returns the same DAILY_MUTATOR_COUNT distinct
-// mutator ids (order is part of the result, but callers should treat it as a set).
-export function dailyMutators(dateKey, chapterId) {
-  const rand = mulberry32(hashString(dateKey))
-  const pool = mutatorPool(chapterId)
-  const picked = []
-  for (let i = 0; i < DAILY_MUTATOR_COUNT && pool.length > 0; i++) {
-    const idx = Math.floor(rand() * pool.length)
-    picked.push(pool[idx])
-    pool.splice(idx, 1)
-  }
-  return picked
-}
 
 // ---- Elite affixes (rolled at elite spawn; see enemy.affixes in state.js) ----------
 export const ELITE_AFFIXES = {
