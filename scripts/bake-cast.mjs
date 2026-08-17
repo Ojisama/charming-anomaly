@@ -38,8 +38,19 @@ function findChrome() {
 }
 
 const { CHAPTERS } = await import('../src/config.js')
-const ids = [...new Set(Object.values(CHAPTERS).flatMap((c) => c.render?.cast ?? []))]
-console.log(`baking ${ids.length} cast thumbnails:`, ids.join(', '))
+// EVERY ROSTER ENTRY, not just each chapter's curated `render.cast`. The cast lists exist to pick the
+// three or four faces a TITLE CARD shows, and they are a design choice — but from v7.120 the summary
+// screen's damage recap can name ANY creature that hurt you, and a creature with no baked thumbnail
+// shows an empty slot there. Widening the bake gives that screen the game's own art for all of them
+// (7 were missing: patrolDrone, invader, hulk, bindnode, antibody1..3) and changes nothing about the
+// title cards, which still read their own `render.cast`.
+// Object.values(CHAPTERS), never CHAPTER_ORDER — that is Book 1 only, and ALL_CHAPTER_IDS still drops
+// every `hidden` id, which is exactly where four of those seven live (The Blank's boss parts).
+const ids = [...new Set([
+  ...Object.values(CHAPTERS).flatMap((c) => c.render?.cast ?? []),
+  ...Object.values(CHAPTERS).flatMap((c) => (c.roster ?? []).map((r) => r.id)),
+])]
+console.log(`baking ${ids.length} cast thumbnails across ${Object.keys(CHAPTERS).length} chapters:`, ids.join(', '))
 
 const chrome = findChrome()
 if (!chrome) {

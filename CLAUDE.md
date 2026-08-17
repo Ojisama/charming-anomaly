@@ -98,7 +98,14 @@ rather than inventing a new mechanism: they cost ~200ms and they caught four con
 a pool that leaked its sprites into the next run, and five untranslated build-sheet rows on the day
 they were written. **The corollary for new copy: put player-visible strings in a config TABLE.**
 run XX enumerates tables, so copy in a function or a bare const is exempt from it by construction —
-that exemption has now shipped untranslated strings four separate times.
+that exemption has now shipped untranslated strings four separate times. **A table is not enough on
+its own: the walk reads `.name`/`.desc` one level deep, so copy NESTED deeper is just as invisible.**
+`CHAPTERS[].roster[].name` sat unwalked for the whole life of the project and three of the game's 46
+creature names were still English — found in v7.120 by SHOOTING the French panel, not by any assert,
+because a creature's name had no French-facing surface until the summary screen's "Killed by …" line
+invented one. **A new screen can CREATE an i18n gap, not only reveal one:** when you put an existing
+field in front of the player for the first time, check that field is in the walk, not just that its
+table is.
 
 **A PROFILER TELLS YOU WHERE TIME GOES, NEVER HOW MUCH A FIX SAVED.** `--cpu-prof` does not tax
 uniformly: it weighs allocation heavily, so optimising away allocations measures far better under
@@ -483,7 +490,14 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   alone: the sweep rewrote a playtest quote (`"leaf blade doesn't look like a leaf"`) into words
   nobody said.
 - **A WEAPON'S BEHAVIOUR IS CHAPTER-CONDITIONAL — read the branch its own chapter takes.** Several
-  systems fork on `CHAPTERS[id].lane`, and `beyond` is the only lane chapter. So `firePulsar`'s
+  systems fork on `CHAPTERS[id].lane`. **There are TWO lane chapters, not one: `beyond` (forward is
+  -y) and `reef` (`laneAxis: 'x'`, forward is +x).** This sentence read "`beyond` is the only lane
+  chapter" until v7.120, when the stale count caused a real bug: the death outro's iris is centred on
+  the player, a lane camera holds the player `LANE_CAMERA_FRAC` along the forward axis rather than at
+  the centre (20% across, in The Reef), and a sprite sized only against the screen therefore left a
+  hard dark band down the right of every Reef frame. **Anything screen-space anchored to the player
+  has an off-centre origin in a lane chapter** — see `irisCoverMul` in config.js. Grep `lane:` in
+  config.js rather than trusting a count written here, this one included. So `firePulsar`'s
   `lane ? PULSAR_FAN_ARC : 0` means the full-circle rotating rake — the behaviour its comments
   describe at length, and the one you will describe to the owner if you read the function
   top-to-bottom — **never happens in The Beyond**, the only chapter that offers the weapon: there it

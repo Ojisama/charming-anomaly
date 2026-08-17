@@ -7471,6 +7471,25 @@ export const DEATH_OUTRO = {
   // (its summary modal covers the screen on the next frame regardless).
 }
 
+// The death outro's progress: 0 at the killing blow, 1 at the summary — AND 1 FOREVER AFTER.
+//
+// ⚠ THE SATURATION IS THE POINT, and it is a pure function purely so that the suite can see it. The
+// first cut had run.deathT counting DOWN and derived progress as `1 - deathT/time`, which is correct
+// at every instant except the one that matters: the clock has to reach 0 to be finished, 0 is also
+// the value every run that is not dying carries, and the renderer must read that as "clear the dark".
+// So the terminating frame wiped the entire effect and the summary opened over a fully-lit world.
+//
+// The full suite, the isolation run and SEVEN mutations were all green against that. Every assertion
+// proved WIRING — a clock exists, it is advanced, render.js reads it — and no assertion could see
+// "the last frame is bright", because the end state lived in an inline expression inside an
+// unimportable file. It was found by eye, from a probe frame that came back brighter than the one
+// before it. Extracting the expression is what turns that into a testable claim (run DO.e).
+export function deathProgress(deathT) {
+  // Math.max floors a negative (nothing produces one today; the clamp costs nothing and means a
+  // future caller cannot drive the iris backwards). Math.min is the saturation.
+  return Math.min(1, Math.max(0, (deathT ?? 0) / DEATH_OUTRO.time))
+}
+
 // How big must the death outro's iris be, as a multiple of the screen, to cover the whole screen
 // while centred at (cx, cy)? Returns a multiplier >= `mult`, never less.
 //

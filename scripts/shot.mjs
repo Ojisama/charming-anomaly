@@ -18,6 +18,13 @@
 //      this drives CDP and sleeps on the wall clock instead.
 //   3. Seeding a save needs Page.addScriptToEvaluateOnNewDocument (the CDP form of the initScript
 //      rule in CLAUDE.md's Browser probing section), not setItem + reload.
+//   4. A DEAD DEV SERVER USED TO PRODUCE A PLAIN WHITE PNG, which is indistinguishable from "this
+//      screen renders nothing" — so the reflex is to go debug the screen. That cost several rounds
+//      in v7.120: a backgrounded `npx vite` had exited between tool calls, and two captures came
+//      back blank while the CSS and the module were both fine. The URL is now reachability-checked
+//      before the browser is even launched, and an unreachable one aborts NON-ZERO naming the port.
+//      This is CLAUDE.md's own rule for probes ("a probe that cannot measure must not print
+//      numbers, it must abort loudly") applied to the harness that kept breaking it.
 //
 // For pure DOM/CSS work on ui.js you usually do NOT need this at all — see the harness trick in
 // CLAUDE.md, which renders any screen without booting Pixi and shoots fine in any headless mode.
@@ -29,6 +36,29 @@ const [url, out, waitMs = '8000', W = '390', H = '844', seedFile] = process.argv
 if (!url || !out) {
   console.error('usage: node scripts/shot.mjs <url> <out.png> [waitMs] [w] [h] [seed.js]')
   process.exit(1)
+}
+
+// Is anything actually serving `url`? Checked BEFORE launching the browser, because the failure this
+// prevents is silent: Chrome renders its own error document for a refused connection, that document
+// is white, and a white PNG reads as a broken page rather than as a missing server.
+// Only http/https are checked — a file:// URL has no server to be down, and anything else is left
+// alone rather than guessed at.
+// A non-2xx/3xx STATUS is fine and deliberately not fatal: a 404 page is a legitimate thing to shoot.
+// The fatal case is "nothing answered at all".
+async function assertReachable(u) {
+  let parsed
+  try { parsed = new URL(u) } catch { return }   // not a URL we can check; let Chrome deal with it
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return
+  try {
+    const res = await fetch(u, { method: 'GET', signal: AbortSignal.timeout(4000) })
+    console.log(`shot: ${u} -> HTTP ${res.status}`)
+  } catch (e) {
+    console.error(`shot: NOTHING IS SERVING ${u} (${e.cause?.code ?? e.name}).`)
+    console.error(`      Not shooting — the capture would be Chrome's own error page, which is a`)
+    console.error(`      BLANK WHITE IMAGE and looks exactly like a screen that renders nothing.`)
+    console.error(`      Start the dev server first: npx vite --port ${parsed.port || 5173} --strictPort`)
+    process.exit(2)
+  }
 }
 
 function findChrome() {
@@ -50,6 +80,11 @@ if (!chrome) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const PORT = 9333 + (process.pid % 200)   // parallel sessions must not collide on the debug port
+// Before the browser exists, so a missing server costs one fetch instead of a browser launch, a
+// wait, and a misleading white PNG on disk. Top-level await is fine here — that ban is about
+// main.js and Pixi's bundled environment detection, not about node scripts.
+await assertReachable(url)
+
 const browser = spawn(chrome, [
   '--no-sandbox', '--hide-scrollbars', `--window-size=${W},${H}`,
   `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/shot-${process.pid}`, 'about:blank',

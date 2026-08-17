@@ -42,7 +42,7 @@ import {
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
   MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
-  DMG_SRC_NAME, dmgSrcName, DEATH_OUTRO, irisCoverMul, LANE_CAMERA_FRAC,
+  DMG_SRC_NAME, dmgSrcName, DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
@@ -18021,10 +18021,48 @@ function testDeathAttribution() {
       `into 'unknown' and shows the player a mystery row`)
   }
 
+  // (e) THE DAMAGE RECAP'S ART IS ON DISK FOR EVERY CREATURE THAT CAN KILL YOU. src/cast/*.png are
+  // GENERATED (scripts/bake-cast.mjs, from render.js's own creature textures) and CLAUDE.md says
+  // plainly that nothing warns you when they go stale — so a new roster entry silently gets a blank
+  // portrait on this screen. Checked against the filesystem because that is the only place the answer
+  // lives: ui.js's CAST_ART is an import.meta.glob, invisible to node.
+  // This also pins the bake's WIDENED id list: it used to bake only each chapter's curated
+  // `render.cast`, which left 7 roster entries with no thumbnail at all.
+  {
+    const dir = new URL('../src/cast/', import.meta.url)
+    const have = new Set(readdirSync(dir).filter((f) => f.endsWith('.png')).map((f) => f.slice(0, -4)))
+    const ids = [...new Set(Object.values(CHAPTERS).flatMap((c) => (c.roster ?? []).map((r) => r.id)))]
+    const artless = ids.filter((id) => !have.has(id)).sort()
+    assert.deepStrictEqual(artless, [],
+      `run DA.e: roster id(s) with no src/cast/<id>.png: [${artless.join(', ')}] — the summary's damage recap ` +
+      `would show a blank portrait for them. Re-bake with: node scripts/bake-cast.mjs`)
+  }
+
+  // (f) THE RECAP IS FOLDED BY DEFAULT AND THE FOLD IS WIRED. Owner ask — the open panel is six rows
+  // with portraits and it pushed the coin total and both buttons down the modal. ui.js is not
+  // importable (DOM), so this is a source lint, the same trick run UG.k uses on render.js.
+  {
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    assert.ok(/let dmgOpen = false/.test(uiSrc),
+      'run DA.f: the damage recap does not default to FOLDED — it would take over the summary modal again')
+    assert.ok(/case 'dmg-toggle'/.test(uiSrc) && /renderSummary\(lastSummaryData/.test(uiSrc),
+      'run DA.f: the fold has no toggle handler re-rendering from cached summary data — the CTA would be inert')
+    assert.ok(/name !== 'summary'\) dmgOpen = false/.test(uiSrc),
+      'run DA.f: dmgOpen is never reset on navigation — the recap would stay open across deaths ' +
+      'once opened, which is the un-folded layout it exists to avoid')
+    // The portraits are the GAME'S art, routed out of render.js, not emoji or a lookalike. v6.7.1
+    // shipped a bear for the tardigrade while drawTardigrade sat in render.js the whole time.
+    assert.ok(/CAST_ART\[src\]/.test(uiSrc),
+      'run DA.f: the recap rows do not read CAST_ART — a creature row would be showing something other ' +
+      'than the creature render.js draws')
+  }
+
   const rosterIds = new Set(Object.values(CHAPTERS).flatMap((c) => (c.roster ?? []).map((r) => r.id)))
   console.log(`PASS run DA (death attribution): tally sums to HP lost with nothing unknown, killedBy is the fatal source ` +
     `and survives a revive unset, ${Object.keys(DMG_SRC_NAME).length} DMG_SRC_NAME labels + every sim.js src literal + ` +
-    `all ${rosterIds.size} roster ids across ${Object.keys(CHAPTERS).length} chapters resolve to a name`)
+    `all ${rosterIds.size} roster ids across ${Object.keys(CHAPTERS).length} chapters resolve to a name AND have baked art, ` +
+    `recap folds closed by default`)
 }
 
 // run DO (v7.x): THE DEATH OUTRO. Owner report: "the player sees the death modal almost before
@@ -18106,6 +18144,11 @@ function testDeathOutro() {
     assert.ok(/irisCoverMul\(/.test(renderSrc),
       'run DO.c: render.js does not call irisCoverMul — the iris is sized off the raw multiplier again, ' +
       'so a lane chapter\'s off-centre camera leaves a band of screen undarkened')
+    // Same "correct but unused" gap for the progress ramp: (e) proves deathProgress saturates, and only
+    // this proves render.js asks it rather than recomputing the expression that did not.
+    assert.ok(/deathProgress\(/.test(renderSrc),
+      'run DO.c: render.js does not call deathProgress — the outro\'s progress is derived inline again, ' +
+      'which is where the non-saturating form lived that opened the summary over a lit world')
   }
 
   // (d) THE IRIS COVERS THE SCREEN FROM WHEREVER IT IS CENTRED, INCLUDING OFF-CENTRE. This is the
@@ -18149,7 +18192,44 @@ function testDeathOutro() {
       `multiplier at all, and the uncovered band is back`)
   }
 
-  console.log(`PASS run DO (death outro): ${D.time}s beat, iris covers the screen from all 9 centres x 2 viewports ` +
+  // (e) THE PROGRESS SATURATES AND HOLDS — the one claim in this whole feature that seven mutations,
+  // the full suite and the isolation run were ALL green against while it was false.
+  //
+  // The first cut counted run.deathT DOWN and read progress as `1 - deathT/time`. That is right at
+  // every instant except the last: the clock must reach 0 to be finished, 0 is also "this run is not
+  // dying" (the value every other run carries), and the renderer clears the dark on it. So the frame
+  // before the summary threw the whole effect away and the modal opened over a fully-lit world.
+  // Every existing assertion here proved WIRING — a clock exists, main.js advances it, render.js
+  // reads it — and none could see the END STATE, because it was an inline expression in an
+  // unimportable file. It was caught by eye, from a probe frame brighter than its predecessor.
+  // deathProgress exists so this is a claim about behaviour rather than about plumbing.
+  {
+    assert.strictEqual(deathProgress(0), 0, 'run DO.e: progress at the killing blow must be 0')
+    assert.ok(Math.abs(deathProgress(D.time / 2) - 0.5) < 1e-9,
+      `run DO.e: progress halfway through reads ${deathProgress(D.time / 2)} — the ramp is not linear in elapsed time`)
+    // The two that matter. An inverted (remaining-time) form fails the first; a non-saturating one
+    // fails the second, and both mean the dark is gone at the moment the summary appears.
+    assert.strictEqual(deathProgress(D.time), 1,
+      'run DO.e: progress is not 1 at the END of the outro — this is the inverted-clock bug, and it opens ' +
+      'the summary over a fully-lit world')
+    for (const over of [D.time * 1.001, D.time * 2, D.time * 60]) {
+      assert.strictEqual(deathProgress(over), 1,
+        `run DO.e: progress at ${over}s (past the ${D.time}s outro) is ${deathProgress(over)}, not 1 — it does not ` +
+        `SATURATE, so the dark would not hold behind the summary screen. main.js stops advancing run.deathT but ` +
+        `never resets it, so every frame after the outro asks for a value past the end.`)
+    }
+    // Monotonic non-decreasing across the whole domain, including past the end. Catches any wrapping,
+    // modulo or oscillating form that happens to hit the spot checks above.
+    let prev = -1
+    for (let t = 0; t <= D.time * 3; t += D.time / 40) {
+      const v = deathProgress(t)
+      assert.ok(v >= prev, `run DO.e: progress fell from ${prev} to ${v} at t=${t.toFixed(3)} — the dark would brighten mid-outro`)
+      prev = v
+    }
+  }
+
+  console.log(`PASS run DO (death outro): ${D.time}s beat, progress saturates at 1 and holds past the end, ` +
+    `iris covers the screen from all 9 centres x 2 viewports ` +
     `(lane camera raises x${D.irisTo} -> x${irisCoverMul(D.irisTo, 390 * (1 - LANE_CAMERA_FRAC), 422, 390, 844).toFixed(2)}), ` +
     `vent stops at ${D.ventT}s, main.js gates on the book and defers endRun, render.js reads run.deathT`)
 }
