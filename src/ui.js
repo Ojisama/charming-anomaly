@@ -1069,7 +1069,7 @@ export function initUI(hooks) {
       <header class="shop-head shop-head--sac">
         <span class="sacrifice-counter${ready ? ' sacrifice-counter--ready' : ''}" style="color:${counterColor}">🩸 ${tt('Offered {offered}/{cost}', { offered, cost })}</span>
       </header>
-      <p class="sacrifice-for">${target.icon} <b>${target.label}</b></p>
+      <p class="sacrifice-for">${shopIcon(target.id, target.icon, target.family)} <b>${target.label}</b></p>
       <p class="sacrifice-desc">${sacTargetSentence(target)}</p>
       <div class="shop-rows shop-rows--sac">${rows}</div>
       <footer class="shop-foot shop-foot--sac">

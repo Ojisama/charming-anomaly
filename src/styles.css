@@ -1783,7 +1783,13 @@ body {
 .sacrifice-desc { flex-shrink: 0; width: 100%; max-width: 540px; margin: 0; font-size: 0.74rem; line-height: 1.25; font-weight: 600; color: var(--ink-soft); text-align: center; }
 /* WHICH unlock the offer is toward. The target strip this replaced made you pick from two
    abbreviated buttons; you pick from the full list now, so this only has to confirm the choice. */
-.sacrifice-for { flex-shrink: 0; margin: 0; font-size: 0.88rem; font-weight: 800; text-align: center; color: var(--ink); }
+/* inline-flex so the drawn icon sits ON the baseline row rather than being clipped by the <p>'s
+   line box — the same trap .sac-offer-ico hit, and invisible with an emoji. */
+.sacrifice-for {
+  flex-shrink: 0; margin: 0; font-size: 0.88rem; font-weight: 800; color: var(--ink);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.sacrifice-for .shop-ico { width: 22px; height: 22px; }
 
 /* ---- the shop's two halves ---- */
 /* Coins buy upgrade levels; upgrade LEVELS buy the permanent unlocks. Two currencies, so two
