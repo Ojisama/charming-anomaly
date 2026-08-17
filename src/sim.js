@@ -106,7 +106,7 @@ import {
   CLAW_BASE_CRIT, CLAW_DOUBLE_EVERY, CLAW_DOUBLE_DELAY, CLAW_DOUBLE_DMG_FRAC,
   WEAVE_AMP, WEAVE_FREQ,
   QUILL_R, QUILL_RETALIATE_CD, QUILL_REBOUND_DMG_MUL, QUILL_REBOUND_SPEED_MUL,
-  FEAR_SPEED_MUL, FEAR_REFRACTORY, CC_DR_STEP, CC_DR_RECOVER, CC_DR_FLOOR,
+  FEAR_SPEED_MUL, FEAR_REFRACTORY, UNSHAKEABLE_CC_MUL, CC_DR_STEP, CC_DR_RECOVER, CC_DR_FLOOR,
   SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
   SHRIEK_SPINE_DMG_FRAC, SHRIEK_SPINE_SPEED, SHRIEK_SPINE_RANGE_MUL,
   // v5.4 city
@@ -2789,15 +2789,22 @@ function stepSubmission(run, dt) {
   }
 }
 
-// v7.16: does this enemy shrug off weapon crowd control — the sector sweeps' knockback, a nova's
-// knockback, and fear? Two sources, one meaning: the `anchored` ELITE AFFIX (which already had
-// every knockback immunity and now gains fear) and the `unshakeable` ROSTER FLAG carried by one
-// tank per chapter. Deliberately narrower than `anchored`'s other uses — this does NOT exempt an
-// enemy from hole pull, the straggler teleport, traffic or a hydrant launch, which are hazards
-// rather than the crowd control the machine-gun lock was built out of. See FEAR_REFRACTORY.
+// Does this enemy shrug off weapon crowd control OUTRIGHT — the sector sweeps' knockback, a nova's
+// knockback, and fear? ONE source: the `anchored` ELITE AFFIX. A roster tank is never immune; it
+// resists, through ccResist below (owner ruling 2026-08-17, see UNSHAKEABLE_CC_MUL in config.js —
+// the same ruling elNeverFreezes already applies to freeze). Deliberately narrower than
+// `anchored`'s other uses — this does NOT exempt an enemy from hole pull, the straggler teleport,
+// traffic or a hydrant launch, which are hazards rather than crowd control. See FEAR_REFRACTORY.
 function resistsCC(e) {
-  return !!(e.affixes && e.affixes.includes('anchored')) ||
-         !!(e.flags && e.flags.includes('unshakeable'))
+  return !!(e.affixes && e.affixes.includes('anchored'))
+}
+
+// The `unshakeable` ROSTER FLAG, one tank per chapter: how much of a landed control is it worth?
+// A per-enemy property of the creature, NOT a charge against the CC-DR budget — which is why it is
+// a plain multiplier readable at any site, including the nova carry that deliberately opts out of
+// ccScale. Never returns 0: that is the whole ruling.
+function ccResist(e) {
+  return (e.flags && e.flags.includes('unshakeable')) ? UNSHAKEABLE_CC_MUL : 1
 }
 
 // GLOBAL CROWD-CONTROL PRICING (v7.17) — see the CC_DR_* block in config.js for the measurements
@@ -2813,7 +2820,7 @@ function ccScale(run, e) {
   // within a cast is otherwise load-bearing: the roar's shove spent first, so its stagger read the
   // already-halved resistance and staggered for half as long as the shove shoved.
   const dr = e._ccSpentAt === run.time ? (e._ccDRPre ?? 1) : (e._ccDR ?? 1)
-  return dr * (run.player.ccMul ?? 1)
+  return dr * ccResist(e) * (run.player.ccMul ?? 1)
 }
 // ONCE PER FRAME PER ENEMY, not once per effect. A single cast often lands several controls on the
 // same enemy on the same frame — a roar shoves AND staggers, a shriek ring fears AND knocks back —
@@ -5971,9 +5978,13 @@ function stepNovas(run, dt) {
         // measured the ride down from 183px/s of terminal speed to 137 and made the weapon's one
         // distinguishing property nearly invisible. resistsCC still gates it, so an anchored elite
         // takes the damage and never moves, exactly as it does for every other shove in the game.
+        // ccResist is read DIRECTLY here rather than through ccScale: opting out of the per-frame
+        // DR charge is the argument above, but a heavy body still rides a wave less than a light
+        // one, and this is the one shove in the game that ccScale never reaches.
         if (n.carry > 0 && dist > 1e-6 && !resistsCC(e)) {
-          e.kb.x += (dx / dist) * n.carry * dt
-          e.kb.y += (dy / dist) * n.carry * dt
+          const cr = ccResist(e)
+          e.kb.x += (dx / dist) * n.carry * cr * dt
+          e.kb.y += (dy / dist) * n.carry * cr * dt
         }
         continue
       }
@@ -5992,7 +6003,8 @@ function stepNovas(run, dt) {
         if ((n.fear ?? 0) > 0 && (e.fearT ?? 0) <= 0 && (e.fearCd ?? 0) <= 0 && !resistsCC(e)) {
           e.fearT = n.fear * k
         }
-        // Anchored/unshakeable: still takes the damage above, just never gets knocked back.
+        // Anchored: still takes the damage above, just never gets knocked back. An `unshakeable`
+        // tank IS shoved and IS feared, at ccResist's share of both (see UNSHAKEABLE_CC_MUL).
         if (!resistsCC(e)) {
           const kdx = dist > 1e-6 ? dx / dist : 1
           const kdy = dist > 1e-6 ? dy / dist : 0

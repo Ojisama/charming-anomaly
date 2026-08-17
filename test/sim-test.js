@@ -71,6 +71,7 @@ import {
   PHASE_SOLID_T, PULL_BEAM_INTERVAL, PULL_BEAM_RANGE, PULL_BEAM_FORCE,
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL, FEAR_REFRACTORY,
+  UNSHAKEABLE_CC_MUL,
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
@@ -8822,26 +8823,61 @@ function testV54Weapons() {
         `MACHINE GUN's first shove was x${(firstGun / first).toFixed(2)} of baseline, want x${SOY_MILK_CC_MUL} — its x5 rate is free control otherwise`)
     }
 
-    // UNSHAKEABLE (v7.16): one tank per chapter ignores fear AND weapon knockback outright, so the
-    // wall has something that walks through it. Asserted on the shipped roster entry, not on a
-    // hand-set flag — the flag being absent from config is the failure this must catch.
+    // UNSHAKEABLE — one tank per chapter RESISTS crowd control, and is never immune to it. Owner
+    // ruling 2026-08-17: only the `anchored` ELITE AFFIX may ignore CC outright; a roster tank is
+    // "harder to proc, but never impossible". The roster half is asserted on the shipped entry, not
+    // on a hand-set flag — the flag being absent from config is the failure this must catch.
+    //
+    // DENOMINATOR: shippedChapterIds(), not CHAPTER_ORDER — which is BOOKS.book1.chapters and so
+    // cannot see The Blank at all (CLAUDE.md's run RA trap). Widening it to every key of CHAPTERS
+    // reports the honest state of Book 2: the Moray, the Sea Lion and the Gulper Eel were all
+    // designed WITHOUT the flag, and only The Shelf and The Surf carry it. That is a live design
+    // question for `undertow`, not a regression this change introduces, and flipping three tanks in
+    // an unshipped book to satisfy an assertion would be a balance change smuggled in as a test
+    // fix. shippedChapterIds() is derived from BOOKS[].wip, so it widens by itself the day undertow
+    // ships and demands an answer then — before a player sees it, not after.
     {
-      const tanks = CHAPTER_ORDER.map((id) => ({
-        id, tank: CHAPTERS[id].roster.find((x) => x.archetype === 'tank' && !x.formationOnly),
-      }))
-      for (const { id, tank } of tanks) {
+      const chapterIds = [...new Set(shippedChapterIds())]
+      for (const id of chapterIds) {
+        const tank = CHAPTERS[id].roster.find((x) => x.archetype === 'tank' && !x.formationOnly)
         assert.ok(tank && tank.flags.includes('unshakeable'),
-          `${id}'s tank (${tank ? tank.name : 'none'}) is not unshakeable — that chapter has no answer to a fear/knockback wall`)
+          `${id}'s tank (${tank ? tank.name : 'none'}) is not unshakeable — that chapter has no heavy that leans into a fear/knockback wall`)
       }
+
+      // One shriek ring, three bodies at EQUAL range so the shove is the same magnitude for each:
+      // a plain drone, an `unshakeable` tank, and an `anchored` elite.
+      const NOVA_FEAR = 1.8
       const r = weaponRun('undergrowth', 'chitterShriek')
       r.weapons = []
-      const e = makeStatusEnemy(r, { x: 0, y: 0, hp: 1e9, speed: 0 })
-      e.flags = ['unshakeable']
-      r.enemies.push(e)
-      r.novas.push({ x: 0, y: 0, r: 0, maxR: 400, dmg: 0, knockback: 500, fear: 1.8, life: 1, hit: new Set() })
-      stepQuiet(r, 1 / 60)
-      assert.strictEqual(e.fearT || 0, 0, 'an unshakeable enemy was feared')
-      assert.ok(Math.hypot(e.kb.x, e.kb.y) < 1e-9, `an unshakeable enemy was knocked back (${Math.hypot(e.kb.x, e.kb.y).toFixed(0)})`)
+      const plain = makeStatusEnemy(r, { x: 0, y: -30, hp: 1e9, speed: 0 })
+      const tank = makeStatusEnemy(r, { x: 0, y: 30, hp: 1e9, speed: 0 })
+      const rock = makeStatusEnemy(r, { x: 30, y: 0, hp: 1e9, speed: 0, elite: true, affixes: ['anchored'] })
+      plain.flags = []; rock.flags = []
+      tank.flags = ['unshakeable']
+      r.enemies.push(plain, tank, rock)
+      r.novas.push({ x: 0, y: 0, r: 0, maxR: 400, dmg: 0, knockback: 500, fear: NOVA_FEAR, life: 1, hit: new Set() })
+      let frames = 0
+      while ((plain.fearT || 0) <= 0 && frames < 40) { stepQuiet(r, 1 / 60); frames++ }
+      assert.ok((plain.fearT || 0) > 0, 'the ring never reached the plain drone — this block proves nothing')
+
+      const kb = (e) => Math.hypot(e.kb.x, e.kb.y)
+      // THE RULING, and the half that would silently regress: never zero.
+      assert.ok((tank.fearT || 0) > 0,
+        'an `unshakeable` tank was not feared AT ALL — only the `anchored` elite affix may be immune to CC')
+      assert.ok(kb(tank) > 0, 'an `unshakeable` tank was not knocked back AT ALL')
+      // ...and resisted by exactly the declared amount. fearT decays SUBTRACTIVELY, so the ratio
+      // moves every frame while the DIFFERENCE does not — assert the decay-invariant quantity.
+      assert.ok(Math.abs((plain.fearT - tank.fearT) - (1 - UNSHAKEABLE_CC_MUL) * NOVA_FEAR) < 1e-6,
+        `an \`unshakeable\` tank's fear was ${tank.fearT.toFixed(3)}s against a drone's ${plain.fearT.toFixed(3)}s — want a gap of ` +
+        `${((1 - UNSHAKEABLE_CC_MUL) * NOVA_FEAR).toFixed(3)}s (UNSHAKEABLE_CC_MUL ${UNSHAKEABLE_CC_MUL})`)
+      // Knockback decays MULTIPLICATIVELY, so here the ratio is the invariant one.
+      assert.ok(Math.abs(kb(tank) / kb(plain) - UNSHAKEABLE_CC_MUL) < 1e-6,
+        `an \`unshakeable\` tank took x${(kb(tank) / kb(plain)).toFixed(3)} of the shove, want x${UNSHAKEABLE_CC_MUL}`)
+      // The elite affix is still an OUTRIGHT immunity — that is what makes it the elite one.
+      assert.strictEqual(rock.fearT || 0, 0, 'an `anchored` elite was feared')
+      assert.ok(kb(rock) < 1e-9, `an \`anchored\` elite was knocked back (${kb(rock).toFixed(0)})`)
+      console.log(`PASS run CC (unshakeable resists, never immune): ${chapterIds.length} chapters' tanks flagged, ` +
+        `tank feared ${tank.fearT.toFixed(2)}s vs drone ${plain.fearT.toFixed(2)}s, shove x${(kb(tank) / kb(plain)).toFixed(2)}, anchored 0`)
     }
 
     // panicRout: the same hit lands harder on a fleeing foe.

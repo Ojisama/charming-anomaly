@@ -759,9 +759,11 @@ function generateWells(sig) {
  *               fearCd (s of fear IMMUNITY remaining, v7.16): armed to FEAR_REFRACTORY on the frame
  *                 fearT expires; while > 0 no ring can fear this enemy again. Caps fear uptime by
  *                 the enemy's own timer instead of by the weapon's cadence — without it any fire
- *                 rate shorter than the duration pins fear at 100%. Enemies that resist crowd
- *                 control outright (the `anchored` elite affix, the `unshakeable` roster flag on
- *                 one tank per chapter) are never feared or knocked back at all — see resistsCC.
+ *                 rate shorter than the duration pins fear at 100%. ONLY the `anchored` elite affix
+ *                 resists crowd control outright — it is never feared or knocked back at all (see
+ *                 resistsCC). The `unshakeable` roster flag on one tank per chapter is a RESISTANCE,
+ *                 not an immunity: it is feared and shoved for UNSHAKEABLE_CC_MUL of the usual, and
+ *                 never for none (see ccResist).
  *               stunT (s of stun remaining): while > 0 the enemy neither seeks nor deals contact
  *                 damage (knockback still carries it). Applied by the Burst Hydrant's launch mod,
  *                 the Roar's stagger mod (HYDRANT_STUN, and STAGGER_STUN_PER_PICK — the stagger
