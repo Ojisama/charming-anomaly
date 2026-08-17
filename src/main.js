@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, shopLines, MAX_SHOP_LEVEL, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -546,12 +546,60 @@ function endRun(victory) {
   ui.showScreen('summary', {
     victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus,
     mutators: run.mutators, nextDifficulty,
+    // v7.x "what happened to me": the fatal hit's source label and the whole run's damage tally
+    // (run.killedBy / run.dmgBySrc — see state.js's doc block). Passed raw, as LABELS not copy:
+    // resolving them to names is config.js's dmgSrcName and ui.js's job, and doing it here would put
+    // a third resolver between them.
+    killedBy: run.killedBy,
+    dmgBySrc: run.dmgBySrc,
     unlockedDifficulty: unlockedDifficulty ? chMeta.maxDifficulty : null,
     unlockedChapter,
     unlockedChapterId,
     unlockedHiddenChapter,
     unlockedBook,
   })
+}
+
+// ---- The death outro (v7.x, DEATH_OUTRO in config.js) ------------------------------------------
+// A beat between the killing blow and the summary screen. Lives HERE because main.js owns phase
+// transitions (see this file's header) and because the alternative — this timer plus a second one
+// inside render.js to drive the picture — is the same fact in two files.
+//
+// `skipArmed` is not a nicety. The input that killed you is usually still held (a thumb on the
+// joystick, a finger on a key), so a bare "any input skips" would consume the whole outro on the
+// frame it starts and the feature would look like it had never shipped. The outro therefore waits
+// for input to read IDLE once, and only then treats input as a skip — combined with skipLock, which
+// is the floor for a player who died standing still and is pressing nothing at all.
+let deathSkipArmed = false
+
+// Start the outro, or report that this chapter has none. Undertow only: the picture is a drowning
+// fish venting its last air, which is meaningless on a lawn, and a chapter with no outro must keep
+// the shipped instant-modal path rather than get a frozen frame with nothing happening in it.
+// COUNTS UP, and that is load-bearing rather than a preference. A remaining-time clock has to reach
+// 0 for the outro to be over, and 0 is also "this run is not dying" — the value every other run
+// carries and the one the renderer must treat as "clear the dark". So the terminating frame wiped the
+// iris and the summary opened over a fully-lit world, undoing the half of the effect whose whole job
+// is covering that handoff. Caught from the last frame of a probe sequence, which came back brighter
+// than the one before it.
+// Elapsed has no such collision: 0 means no outro, anything above it is progress, and once it passes
+// DEATH_OUTRO.time it simply STAYS there, so the dark holds behind the summary until the next run's
+// clearWorld. `dt` is seeded on this frame because the branch below is only entered while deathT > 0.
+function beginDeathOutro(dt) {
+  if (bookOf(run.chapter) !== 'undertow') return false
+  run.deathT = dt
+  deathSkipArmed = false
+  return true
+}
+
+// ponytail: a dead-centre tap does not skip. getInput() reports the joystick's VECTOR, so a touch
+// that never leaves the stick's centre is indistinguishable from no touch — dragging in any
+// direction, any WASD/arrow key, or the skill button all skip. Upgrade path if it ever matters:
+// input.js would have to expose a press EDGE rather than a held vector.
+function deathSkipPressed() {
+  const inp = getInput()
+  const moved = Math.abs(inp.x) > 0.2 || Math.abs(inp.y) > 0.2 || inp.skill
+  if (!moved) { deathSkipArmed = true; return false }
+  return deathSkipArmed
 }
 
 app.ticker.add((ticker) => {
@@ -575,8 +623,21 @@ app.ticker.add((ticker) => {
     }
     ui.updateHUD(run, events)
     if (run.phase === 'levelup') ui.showScreen('levelup', levelupData())
-    else if (run.phase === 'dead') endRun(false)
+    // The `dead` event has ALREADY reached the renderer on this frame (it was in `events` above),
+    // which is what spawns the vent and the shake. All this decides is whether the summary waits.
+    else if (run.phase === 'dead') { if (!beginDeathOutro(dt)) endRun(false) }
     else if (run.phase === 'victory') endRun(true)
+  } else if (run.deathT > 0 && run.deathT < DEATH_OUTRO.time) {
+    // THE OUTRO: a frozen sim and a live renderer. stepSim is deliberately not called (phase is
+    // already 'dead'), but sync gets the REAL dt — animT, the particle pools and the vent all run on
+    // it, so the world holds still while the death animation plays over it. This is the same
+    // frozen-world/moving-effect split scripts/fx-probe.mjs relies on.
+    run.deathT += dt
+    // A skip JUMPS TO THE END rather than to zero, so it lands on the same finished state the full
+    // outro does — the summary still opens over a darkened sea instead of snapping back to daylight.
+    if (run.deathT >= DEATH_OUTRO.skipLock && deathSkipPressed()) run.deathT = DEATH_OUTRO.time
+    renderer.sync(run, dt, [])
+    if (run.deathT >= DEATH_OUTRO.time) endRun(false)
   } else {
     renderer.sync(run, 0, [])   // frozen world behind modals
   }

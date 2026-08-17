@@ -1214,6 +1214,40 @@ const CONFIG = {
   'HP regen per second': 'régén. de PV par seconde',
   'Big Brain': 'Gros Cerveau',
   'XP gain': 'gain d\'XP',
+
+  // ---- What killed you (v7.x) --------------------------------------------------------------
+  // DMG_SRC_NAME (config.js) + the summary screen's two headers. 'Overload' and 'Blood Money'
+  // are deliberately ABSENT: DMG_SRC_NAME reuses those two anomalies' own English names as its
+  // keys, so the entries already above cover them, and a second 'Overload': line here would
+  // silently override the first (a duplicate key in an object literal is not an error).
+  // The Reef's roster (v7.x) — surfaced in French for the first time by the summary screen's
+  // "Tué par ..." line and its damage breakdown. These three were the ONLY untranslated names of the
+  // game's 46 roster entries; run XX now walks CHAPTERS[].roster[].name so the next one goes red.
+  'Damselfish': 'Demoiselle',
+  'Moray': 'Murène',
+  'Lionfish': 'Poisson-lion',
+  'Drowning': 'Noyade',
+  'The Net': 'Le Filet',
+  'Swallowed': 'Avalé',
+  'Caustic Pools': 'Flaques caustiques',
+  'Pesticide': 'Pesticide',
+  'Snap Traps': 'Pièges',
+  'Traffic': 'Circulation',
+  'Missiles': 'Missiles',
+  'Abduction Beam': 'Rayon d\'enlèvement',
+  'Blasts': 'Explosions',
+  'Asteroids': 'Astéroïdes',
+  'The Line': 'La Ligne',
+  'The Pull': 'L\'Attraction',
+  'Unknown': 'Inconnu',
+  'Drone': 'Drone',
+  'Wisp': 'Feu follet',
+  'Tank': 'Tank',
+  // The summary panel itself. 'Killed by {name}' is a tt() TEMPLATE, so the placeholder has to
+  // survive into the French or the player reads literal braces (run XX asserts parity).
+  'Killed by {name}': 'Tué par {name}',
+  'Damage taken': 'Dégâts subis',
+  'Other': 'Autre',
 }
 
 export const FR = { ...UI, ...CONFIG }

@@ -620,6 +620,31 @@ function generateWells(sig) {
  *   run.weapons directly (e.g. tests) and stepping normally; only the OFFER pool is scoped.
  *   Weapon mods (WEAPON_MODS) and elements stay global systems, unscoped by chapter.
  * phase: 'playing' | 'levelup' | 'paused' | 'dead' | 'victory'
+ *
+ * deathT (v7.x): seconds ELAPSED in the DEATH OUTRO — the beat between the killing blow and the
+ *   summary screen (DEATH_OUTRO in config.js). OWNED BY main.js, NOT BY THE SIM: sim.js never reads
+ *   or writes it, and stepSim does not run while it is counting (phase is already 'dead'). It is on
+ *   `run` rather than being main.js-local for exactly one reason — render.js needs the outro's
+ *   progress to draw it, and a second timer inside render.js would be the same fact in two files.
+ *   0 for every run that has not died, and stays 0 for a chapter with no outro (Book 1), which is
+ *   what makes the old instant-modal path the untouched default.
+ *   ELAPSED RATHER THAN REMAINING, and the distinction is a bug fix rather than a style choice: a
+ *   remaining-time clock must reach 0 to be finished, 0 is also the "not dying" value every other
+ *   run carries, and the renderer therefore cleared the whole effect on the last frame — the summary
+ *   opened over a fully-lit world, defeating the half of the outro that exists to cover that
+ *   handoff. Counting up, the value passes DEATH_OUTRO.time and simply STAYS there, so render.js's
+ *   progress saturates at 1 and the dark holds until the next run. Nothing resets it mid-run;
+ *   createRun's 0 and render.js's clearWorld are the whole lifecycle.
+ * killedBy (v7.x): the `src` label of the FATAL hit (see the hurt event's src below), or null while
+ *   alive. Written once, in hurtPlayer, on the branch that sets phase 'dead' — so a revive does not
+ *   set it, and the field cannot be overwritten by anything landing later in the same frame.
+ * dmgBySrc (v7.x): { [src]: hpTotal } tally of damage that actually LANDED on the player, keyed by
+ *   the same labels. Post-mitigation and post-cap (the value added is hurtPlayer's own `dmg`, not
+ *   its `rawDmg`), so this is HP the player really lost and the shares on the summary screen add up
+ *   to what the run's health bar actually did. Overheal is impossible here — unlike the enemy-side
+ *   `hit` event, which credits overkill in full and is the reason weapon-census diffs hp instead
+ *   (see CLAUDE.md). Damage prevented by RAMPAGE invulnerability is not tallied because it never
+ *   happened: hurtPlayer returns before this line.
  * events: drained by main.js every frame. Event shapes:
  *   { type:'hit', x, y, dmg, crit }          weapon damaged an enemy
  *   { type:'kill', x, y, elite, etype }      enemy died
@@ -639,13 +664,21 @@ function generateWells(sig) {
  *   { type:'hurt', dmg, dot?, src? }         player took damage (dot=true for pool/DoT ticks —
  *                                            see run.pools below and hurtPlayer in sim.js; absent/
  *                                            false for ordinary contact damage and bomb blasts).
- *                                            src (v7.2) names a SELF-INFLICTED cost and is read by
- *                                            the renderer only, never by the sim: 'overload' is a
- *                                            scheduled drain ~150x a run, so render damps it to a
- *                                            faint vignette instead of the full shake-and-flash,
- *                                            which would otherwise strobe for the whole run.
- *                                            'bloodMoney' is a reroll purchase and is NOT damped —
- *                                            one deliberate press should land like a hit.
+ *                                            src (v7.2) names WHAT DID THIS. Originally for the
+ *                                            renderer alone (a self-inflicted cost must not look
+ *                                            like being hit): 'overload' is a scheduled drain ~150x
+ *                                            a run, so render damps it to a faint vignette instead
+ *                                            of the full shake-and-flash, which would otherwise
+ *                                            strobe for the whole run. 'bloodMoney' is a reroll
+ *                                            purchase and is NOT damped — one deliberate press
+ *                                            should land like a hit.
+ *                                            v7.x: now populated by EVERY caller, because the same
+ *                                            label is what run.dmgBySrc/run.killedBy tally (below).
+ *                                            An enemy source is that enemy's ROSTER id ('seaRoach'),
+ *                                            falling back to its archetype ('normal'|'fast'|'tank')
+ *                                            for a chapter whose spawn carries no roster entry; every
+ *                                            other source is a hazard/cost id ('drown', 'trap',
+ *                                            'traffic', …) resolved to copy by DMG_SRC_NAME.
  *   { type:'revive', x, y }                  player death was prevented (see hurtPlayer in
  *                                            sim.js and run.revives below) — render draws a
  *                                            burst at (x,y), main.js plays a sfx
@@ -1950,6 +1983,13 @@ export function createRun(meta, opts = {}) {
     rampage: 0,
     rampageT: 0,
     _rampageGraceT: 0,  // v5.9.1 bugfix (see doc block above): s left before RAMPAGE_DECAY resumes
+    // v7.x death outro + damage attribution (see the doc block above). deathT is main.js's clock and
+    // the sim never touches it; killedBy/dmgBySrc are written by hurtPlayer and read by ui.js on the
+    // summary screen. Declared for EVERY run, not just Undertow's — the tally is chapter-agnostic
+    // (it is just "what hit me"), and only the OUTRO is book-scoped.
+    deathT: 0,
+    killedBy: null,
+    dmgBySrc: {},
     // v5.24 The Blank (see doc block above): rampage pattern again — these three fields exist on
     // every run but stepBossScript (sim.js) is the only thing that ever writes them, and it early-
     // returns unless CHAPTERS[chapter].scripted, so a non-blank run carries them inert forever.
