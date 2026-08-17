@@ -1,7 +1,7 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta, grantBook, unlockBook } from '../src/state.js'
+import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta, grantBook, unlockBook, bookProgress } from '../src/state.js'
 // sync.js keeps browser globals out of its module scope precisely so it can be imported here.
 import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRecord, RECORD_KEY } from '../src/sync.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
@@ -4964,6 +4964,80 @@ function runBookProgression() {
       'the title header must not carry a coins badge as well — two balances for one purse is what moving it onto the door was for')
 
     console.log('PASS run BP.q3 (book navigation): shop book tabs gated by titleBookshelf and browse-only, bookcase fade measured not counted, 2-page spread with flex pips, --shelves + --shop-pct both authored and read')
+  }
+
+  // (q5) THE SHOP DOOR'S COMPLETION METER. bookProgress counts UPGRADE LEVELS, and the whole reason
+  // it lives in state.js is so this block can call it — the same arithmetic inside ui.js had no
+  // guard at all. Sacrifices are the interesting half: they are paid in shop LEVELS, so buying one
+  // DELETES levels out of bm.shop, and a meter that credited only the denominator would run
+  // backwards at the exact moment the player made progress.
+  {
+    const maxedShop = (bookId) => Object.fromEntries(Object.keys(shopLines(bookId)).map((id) => [id, MAX_SHOP_LEVEL]))
+    const sacTotal = SACRIFICE_COSTS.reduce((a, b) => a + b, 0)
+
+    // The denominator, stated per book, so a config change that silently moves the meter is visible
+    // here rather than on a phone. It is LEVELS, not lines: a line is worth its own depth.
+    for (const bookId of BOOK_ORDER) {
+      const lines = Object.keys(shopLines(bookId)).length
+      const unlocks = Object.entries(BOOK_UNLOCKS[bookId] ?? {})
+      const unlockTotal = unlocks.reduce((sum, [, u]) => sum + u.costs.reduce((a, b) => a + b, 0), 0)
+      const expect = lines * MAX_SHOP_LEVEL + sacTotal + unlockTotal
+      const fresh = { shop: {}, choiceSlots: 2, unlocks: {} }
+      assert.strictEqual(bookProgress(fresh, bookId).total, expect,
+        `${bookId}: the denominator must be every buyable LEVEL — ${lines} lines x ${MAX_SHOP_LEVEL} + ${sacTotal} card-slot levels + ${unlockTotal} unlock levels = ${expect}. Counting LINES instead of levels reads 8/80 as "8 of 8 things", and leaving the sacrifices out means 100% is reachable with the card slots unbought.`)
+      assert.strictEqual(bookProgress(fresh, bookId).pct, 0, `${bookId}: a fresh book must read 0%`)
+
+      // Spent out means spent out: every line maxed, every card slot, every unlock rung.
+      const done = {
+        shop: maxedShop(bookId),
+        choiceSlots: MAX_CHOICE_SLOTS,
+        unlocks: Object.fromEntries(unlocks.map(([id]) => [id, unlockMax(bookId, id)])),
+      }
+      assert.strictEqual(bookProgress(done, bookId).pct, 100,
+        `${bookId}: a save with every line maxed, both card slots and every unlock rung must read exactly 100% — it reads ${bookProgress(done, bookId).pct}%`)
+
+      // ...and nothing reads past it. Held by the ladder ITERATION rather than by a clamp — a
+      // mutation test proved the clamp that used to be here could not fail, because the forEach
+      // over SACRIFICE_COSTS already bounds which rungs can be credited. Asserted anyway: the
+      // property is what matters, and the next edit to that loop is what would break it.
+      const tampered = { ...done, choiceSlots: MAX_CHOICE_SLOTS + 7 }
+      assert.strictEqual(bookProgress(tampered, bookId).pct, 100,
+        `${bookId}: choiceSlots beyond the ladder must clamp — it reads ${bookProgress(tampered, bookId).pct}%`)
+    }
+
+    // THE MONOTONE PROPERTY, which is the assertion this block exists for. Buy exactly the 3rd
+    // slot's price in levels, then spend them on the slot: the levels vanish from bm.shop and the
+    // percentage must NOT fall.
+    const price = SACRIFICE_COSTS[0]
+    const ids = Object.keys(shopLines('book1'))
+    const saved = {}
+    let left = price
+    for (const id of ids) { const take = Math.min(MAX_SHOP_LEVEL, left); if (take > 0) saved[id] = take; left -= take }
+    assert.strictEqual(left, 0, `could not stage ${price} levels across ${ids.length} book 1 lines — the fixture is broken, not the code`)
+    const before = bookProgress({ shop: saved, choiceSlots: 2, unlocks: {} }, 'book1').pct
+    const after = bookProgress({ shop: {}, choiceSlots: 3, unlocks: {} }, 'book1').pct
+    assert.ok(before > 0, `the pre-sacrifice fixture reads 0% — ${price} levels should move the meter, so this comparison would prove nothing`)
+    assert.strictEqual(after, before,
+      `SACRIFICING MUST NOT LOSE PROGRESS: ${price} levels bought reads ${before}%, and spending them on the 3rd card slot reads ${after}%. The levels are gone from bm.shop, so the thing they bought has to be credited back — otherwise the meter runs backwards on a purchase.`)
+
+    // The same for a BOOK_UNLOCKS rung, which is the book-specific ladder and a different branch.
+    const [uid] = Object.keys(BOOK_UNLOCKS.undertow)
+    const rung = unlockCost('undertow', uid, 0)
+    const uSaved = {}
+    let uLeft = rung
+    for (const id of Object.keys(shopLines('undertow'))) { const take = Math.min(MAX_SHOP_LEVEL, uLeft); if (take > 0) uSaved[id] = take; uLeft -= take }
+    const uBefore = bookProgress({ shop: uSaved, choiceSlots: 2, unlocks: {} }, 'undertow').pct
+    const uAfter = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: 1 } }, 'undertow').pct
+    assert.strictEqual(uAfter, uBefore,
+      `buying ${uid}'s first rung (${rung} levels) must not lose progress either: ${uBefore}% -> ${uAfter}%`)
+    // A legacy `true` unlock (a save from before the ladder) owns the TOP rung, not one.
+    const legacy = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: true } }, 'undertow')
+    const allRungs = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: unlockMax('undertow', uid) } }, 'undertow')
+    assert.strictEqual(legacy.owned, allRungs.owned,
+      `a pre-ladder \`${uid}: true\` save must be credited the whole ladder (${allRungs.owned} levels), not one rung — it got ${legacy.owned}`)
+
+    const totals = BOOK_ORDER.map((b) => `${b} ${bookProgress({ shop: {}, choiceSlots: 2, unlocks: {} }, b).total}`).join(', ')
+    console.log(`PASS run BP.q5 (shop completion meter): denominators in LEVELS [${totals}], fresh 0% and spent-out exactly 100% for ${BOOK_ORDER.length} books, an over-count of slots reads no higher, and a sacrifice is monotone on both ladders (${price} levels -> 3rd slot holds at ${before}%, ${rung} levels -> ${uid} holds at ${uBefore}%)`)
   }
 
   // (q4) EVERY DOOR HAS A HANDLER, AND EVERY SCREEN HAS A DOOR. Deleting the bottom nav (v7.x)
