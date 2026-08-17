@@ -32,7 +32,7 @@ import {
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS,
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_GLOW, SUNLANCE_REACH_MIN,
   WEAPONS, HOLE_SINGULARITY_FRAC,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
@@ -42,7 +42,8 @@ import {
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
   MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
-  DMG_SRC_NAME, dmgSrcName, DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
+  DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
+  DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
@@ -17263,7 +17264,38 @@ function testFoxfire() {
   assert.ok(!dark.slowed && !lit.slowed,
     'a foxfire slowed what stood in it — it has inherited the Spore Bloom\'s slow through run.blooms')
 
-  console.log(`PASS run SH.b (foxfire): the band ${lvl.maxR}-${(lvl.maxR * FOXFIRE_GLOOM).toFixed(0)}px catches 0/${lit.of} at a full bar and ${dark.burned}/${dark.of} at an empty one, and neither cast slows anything`)
+  // AND IT HAS TO BE ON SCREEN WHERE IT IS WORTH TAKING. Everything above passed on the day this
+  // card shipped invisible: the cloud is drawn inside `world` and the dark is a dim-1.0 MULTIPLY
+  // scrim on the stage above it, so a fire cast beyond the player's lamp was not faint, it was
+  // absent — for the 63% of a run this chapter spends dark, i.e. the whole reason to take the card.
+  // updateDark punches holes for the lamp, the shafts and The Deep's lures; a fire is a light too,
+  // and this asserts the punch exists rather than that a number moved.
+  const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const dstart = rsrc.indexOf('function updateDark(')
+  assert.ok(dstart > 0, 'updateDark is gone from render.js — the dark is drawn somewhere else now and this guard is blind')
+  // The next sibling declaration at this file's 2-space indent bounds the function.
+  const dbody = rsrc.slice(dstart, rsrc.indexOf('\n  function ', dstart + 10))
+  // ponytail: a source grep proves the punch is WRITTEN, never that it RUNS — wrapping the block in
+  // `if (false)` passes this and is invisible on screen. render.js is not importable, so the check
+  // that closes that gap is a picture: scripts/scenes/shelf-foxfire-dark.js, whose last frame is an
+  // empty bar. Shoot it if you touch the dark.
+  // ...ASSERT THE LOOP, NOT THE STRING. A first cut grepped only for the 'foxfire' test and stayed
+  // green when the loop was rewritten to iterate an empty array — the mutation table below it caught
+  // that, and iterating run.blooms is the part that cannot survive the pathology.
+  assert.ok(/for \(const \w+ of run\.blooms\)/.test(dbody) && dbody.includes("'foxfire'"),
+    'updateDark no longer walks run.blooms to punch the lightmap for a foxfire — in the dark the card is invisible, which is exactly where it is meant to pay')
+  assert.ok(dbody.includes('FOXFIRE_GLOW'),
+    'the foxfire punch does not read FOXFIRE_GLOW — its brightness has drifted out of config.js')
+  assert.ok(FOXFIRE_GLOW.lit > 0.05 && FOXFIRE_GLOW.frac > 0.5,
+    `FOXFIRE_GLOW is tuned to nothing (lit ${FOXFIRE_GLOW.lit}, frac ${FOXFIRE_GLOW.frac}) — the punch runs and lights nothing, which looks identical to no punch at all`)
+  // ONE fade for the light and the puffs: a lamp outliving the cloud it belongs to is the same
+  // one-fact-two-places drift, and it only shows in the last quarter-second of a burn.
+  const sstart = rsrc.indexOf('function syncBlooms(')
+  const sbody = rsrc.slice(sstart, rsrc.indexOf('\n  function ', sstart + 10))
+  assert.ok(dbody.includes('bloomFade(') && sbody.includes('bloomFade('),
+    'the foxfire light and the cloud puffs no longer share one fade — the light can now outlive its own fire')
+
+  console.log(`PASS run SH.b (foxfire): the band ${lvl.maxR}-${(lvl.maxR * FOXFIRE_GLOOM).toFixed(0)}px catches 0/${lit.of} at a full bar and ${dark.burned}/${dark.of} at an empty one, neither cast slows anything, and the cloud punches the dark it is cast into (lit ${FOXFIRE_GLOW.lit}, ${FOXFIRE_GLOW.frac}x r)`)
 }
 
 /** The bar's ceiling for a fresh Shelf run, read off a run rather than off config — Deep Lungs can
@@ -18073,23 +18105,59 @@ function testDeathAttribution() {
   // vocabulary checks.
   {
     const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
-    const labels = [...new Set([...src.matchAll(/hurtPlayer\(\s*run\s*,[^)]*?,\s*'(\w+)'\s*\)/g)].map((m) => m[1]))]
+    // PARSED, not pattern-matched. This used to be an alternation over the argument SHAPES a call site
+    // was allowed to use ('literal' or `a ?? b`), and the moment a real call needed a third shape — the
+    // lane's `lane.look === 'mower' ? 'mower' : 'traffic'` — the lint failed on correct code and had to
+    // be widened. A lint that must be edited whenever the code it guards gets an ordinary expression is
+    // a lint that will eventually be widened to match anything. So: find each call, split its arguments
+    // on TOP-LEVEL commas, and look at the fourth one, whatever it happens to be.
+    const argsOf = (from) => {
+      let i = from, depth = 0, q = null, cur = '', out = []
+      for (; i < src.length; i++) {
+        const c = src[i]
+        if (q) {                                        // inside a string: only its own quote ends it
+          cur += c
+          if (c === '\\') { cur += src[++i] ?? ''; continue }
+          if (c === q) q = null
+          continue
+        }
+        if (c === '"' || c === "'" || c === '`') { q = c; cur += c; continue }
+        if (c === '(' || c === '[' || c === '{') depth++
+        if (c === ')' && depth === 0) { out.push(cur); return out }
+        if (c === ')' || c === ']' || c === '}') depth--
+        if (c === ',' && depth === 0) { out.push(cur); cur = ''; continue }
+        cur += c
+      }
+      return out
+    }
+    // The lookbehind drops `function hurtPlayer(run, rawDmg, ...)` itself, which is otherwise counted
+    // as a caller that forgot its label and makes the count assert fail by exactly one, forever.
+    const sites = [...src.matchAll(/(?<!function )hurtPlayer\(/g)].map((m) => argsOf(m.index + m[0].length))
+    const calls = sites.length
+    // A label is any quoted string appearing in the FOURTH argument — one for a plain literal, two for
+    // the lane's ternary, and both of those must resolve.
+    const labels = [...new Set(sites.flatMap((a) => [...(a[3] ?? '').matchAll(/'(\w+)'/g)].map((m) => m[1])))]
+    assert.ok(calls >= 14,
+      `run DA.d found only ${calls} hurtPlayer call sites in sim.js — the scan has gone stale, and a lint ` +
+      `that matches nothing passes forever`)
     assert.ok(labels.length >= 10,
-      `run DA.d found only ${labels.length} src literals in sim.js's hurtPlayer calls — the regex has gone stale, ` +
-      `and a lint that matches nothing passes forever`)
+      `run DA.d found only ${labels.length} src literals across those call sites — same failure, one level in`)
     const unregistered = labels.filter((l) => !dmgSrcName(l)).sort()
     assert.deepStrictEqual(unregistered, [],
       `run DA.d: hurtPlayer src label(s) with no DMG_SRC_NAME entry: [${unregistered.join(', ')}] — the summary ` +
       `screen would render a blank or raw-id row for them`)
     // And the reverse direction: no hurtPlayer call may omit the label now that the tally depends on
     // it. Counted from source because the omission is legal JavaScript — `src` defaults to null.
-    // The lookbehind drops `function hurtPlayer(run, rawDmg, ...)` itself, which is otherwise counted
-    // as a caller that forgot its label and makes this assert fail by exactly one, forever.
-    const calls = [...src.matchAll(/(?<!function )hurtPlayer\(\s*run\s*,/g)].length
-    const labelled = [...src.matchAll(/hurtPlayer\(\s*run\s*,[^)]*?,\s*(?:'(?:\w+)'|[\w.]+\s*\?\?\s*[\w.]+)\s*\)/g)].length
-    assert.strictEqual(labelled, calls,
-      `run DA.d: ${calls} hurtPlayer call sites but only ${labelled} pass a src — an unlabelled one tallies ` +
+    const unlabelled = sites.filter((a) => !(a[3] ?? '').trim()).length
+    assert.strictEqual(unlabelled, 0,
+      `run DA.d: ${unlabelled} of ${calls} hurtPlayer call sites pass no src — an unlabelled one tallies ` +
       `into 'unknown' and shows the player a mystery row`)
+    // The parser itself must be working: every site should have parsed 3 or 4 arguments. A silent
+    // parse failure would return [] for each and make both asserts above vacuously true.
+    const malformed = sites.filter((a) => a.length < 3 || a.length > 4).length
+    assert.strictEqual(malformed, 0,
+      `run DA.d: ${malformed} hurtPlayer call sites parsed to an unexpected argument count — the argument ` +
+      `splitter is broken, and a broken splitter makes this whole block pass on anything`)
   }
 
   // (e) THE DAMAGE RECAP'S ART IS ON DISK FOR EVERY CREATURE THAT CAN KILL YOU. src/cast/*.png are
@@ -18124,15 +18192,156 @@ function testDeathAttribution() {
       'once opened, which is the un-folded layout it exists to avoid')
     // The portraits are the GAME'S art, routed out of render.js, not emoji or a lookalike. v6.7.1
     // shipped a bear for the tardigrade while drawTardigrade sat in render.js the whole time.
-    assert.ok(/CAST_ART\[src\]/.test(uiSrc),
-      'run DA.f: the recap rows do not read CAST_ART — a creature row would be showing something other ' +
-      'than the creature render.js draws')
+    assert.ok(/CAST_ART\[dmgSrcArt\(src\)\]/.test(uiSrc),
+      'run DA.f: the recap rows do not read CAST_ART through dmgSrcArt — either the row shows something ' +
+      'other than the art render.js draws, or the two aliased hazards (yank, leak) lost their picture')
+  }
+
+  // (g) EVERY DAMAGE SOURCE HAS A DECIDED PICTURE. The owner reported caustic pools showing no icon;
+  // the actual defect was broader — src/cast/ was keyed by rosterId only, so ALL 12 hazard labels drew
+  // an empty slot, and an empty slot is indistinguishable from a bake that failed. So the three fates
+  // a source can have are now data (DMG_SRC_ART aliases it to a creature, DMG_SRC_NO_ART records why
+  // it stays blank, everything else is baked by render.js's hazardThumbs) and this block asserts they
+  // PARTITION DMG_SRC_NAME exactly. That is what makes a newly-added damage source a red suite instead
+  // of another silent blank column.
+  {
+    const dir = new URL('../src/cast/', import.meta.url)
+    const have = new Set(readdirSync(dir).filter((f) => f.endsWith('.png')).map((f) => f.slice(0, -4)))
+    const keys = Object.keys(DMG_SRC_NAME)
+    const aliased = Object.keys(DMG_SRC_ART)
+    const blank = Object.keys(DMG_SRC_NO_ART)
+    // No source may be in two buckets — an alias plus a written excuse is a contradiction, and the
+    // subtraction bake-cast.mjs does to build its own id list would silently skip it.
+    const overlap = aliased.filter((k) => blank.includes(k)).sort()
+    assert.deepStrictEqual(overlap, [],
+      `run DA.g: source(s) both aliased and declared art-less: [${overlap.join(', ')}]`)
+    // Both tables may only name real sources, or they are documenting something that does not exist.
+    const strays = [...aliased, ...blank].filter((k) => !DMG_SRC_NAME[k]).sort()
+    assert.deepStrictEqual(strays, [],
+      `run DA.g: DMG_SRC_ART/DMG_SRC_NO_ART name source(s) absent from DMG_SRC_NAME: [${strays.join(', ')}]`)
+    // A source cannot both HAVE a thumbnail and carry a written reason for having none. The file would
+    // win silently and the reason would be a lie a future reader trusts — which is this whole feature's
+    // failure mode one level up. Caught for real: `beam` was declared art-less, then the owner picked a
+    // saucer from three variants, and removing the stale entry is easy to forget.
+    const contradicted = blank.filter((k) => have.has(k)).sort()
+    assert.deepStrictEqual(contradicted, [],
+      `run DA.g: source(s) declared art-less in DMG_SRC_NO_ART that DO have src/cast/<src>.png: ` +
+      `[${contradicted.join(', ')}] — the file is what the summary shows, so delete the stale entry`)
+    // Every alias must point at a real creature that HAS art — the whole point of aliasing is to reuse
+    // a baked portrait, and a typo'd target is a blank row that looks exactly like the original bug.
+    const rosterAll = new Set(Object.values(CHAPTERS).flatMap((c) => (c.roster ?? []).map((r) => r.id)))
+    for (const [src, art] of Object.entries(DMG_SRC_ART)) {
+      assert.ok(rosterAll.has(art),
+        `run DA.g: DMG_SRC_ART maps '${src}' to '${art}', which is not a roster id in any chapter`)
+      assert.ok(have.has(art),
+        `run DA.g: DMG_SRC_ART maps '${src}' to '${art}', which has no src/cast/${art}.png`)
+      assert.strictEqual(dmgSrcArt(src), art, `run DA.g: dmgSrcArt('${src}') does not return its alias`)
+    }
+    // The remainder — the hazards hazardThumbs bakes — must each be on disk.
+    const baked = keys.filter((k) => !DMG_SRC_ART[k] && !DMG_SRC_NO_ART[k])
+    assert.ok(baked.length >= 10,
+      `run DA.g expected at least 10 baked hazard thumbnails, found ${baked.length} — if the two tables ` +
+      `have grown to cover almost everything, this assert has stopped checking anything`)
+    const artless = baked.filter((k) => !have.has(k)).sort()
+    assert.deepStrictEqual(artless, [],
+      `run DA.g: damage source(s) with no src/cast/<src>.png and no written reason: [${artless.join(', ')}] — ` +
+      `either bake them (node scripts/bake-cast.mjs, which needs a hazardThumbs entry) or record why ` +
+      `they stay blank in DMG_SRC_NO_ART`)
+    // A non-aliased source must resolve its art to ITSELF, which is the contract bake-cast.mjs writes
+    // files under and ui.js looks them up by.
+    for (const k of baked) assert.strictEqual(dmgSrcArt(k), k, `run DA.g: dmgSrcArt('${k}') is not '${k}'`)
+    // And every written reason must be a real sentence, not an empty string standing in for one.
+    for (const [k, why] of Object.entries(DMG_SRC_NO_ART)) {
+      assert.ok(typeof why === 'string' && why.length > 12,
+        `run DA.g: DMG_SRC_NO_ART['${k}'] has no real reason written on it — the whole point of the ` +
+        `table is that a blank slot is a decision somebody can read`)
+    }
+  }
+
+  // (h) THE 'unreachable' CLAIMS IN DMG_SRC_NO_ART ARE TRUE. Three of its entries (drone/wisp/tank)
+  // justify having no art by asserting nothing can key on them: stepContactDamage falls back to
+  // `e.rosterId ?? e.type` only when a spawn found no roster entry, and every chapter roster covers
+  // every archetype. That is a claim about config, so check it against config rather than trusting the
+  // comment — a chapter shipped with a hole in its roster would put an art-less row on the screen.
+  // Object.keys(CHAPTERS) is the denominator, never CHAPTER_ORDER (Book 1 only) or ALL_CHAPTER_IDS
+  // (drops `hidden`) — the count is printed below so a shrinking sweep is visible.
+  {
+    const gaps = []
+    for (const [id, ch] of Object.entries(CHAPTERS)) {
+      const covered = new Set((ch.roster ?? []).filter((r) => !r.formationOnly).map((r) => r.archetype))
+      for (const a of ['normal', 'fast', 'tank']) if (!covered.has(a)) gaps.push(`${id}:${a}`)
+    }
+    assert.deepStrictEqual(gaps, [],
+      `run DA.h: chapter/archetype combination(s) with no roster entry: [${gaps.join(', ')}] — a spawn there ` +
+      `falls back to e.type, which DMG_SRC_NO_ART calls unreachable and gives no thumbnail. Either give ` +
+      `that archetype a roster entry or bake art for the fallback label.`)
+  }
+
+  // (i) THE RELABELLED SOURCES REPORT THEMSELVES — asserted as an EFFECT, by running the real steppers
+  // over a fixture, not as a source lint. Both bugs this covers were labels that had drifted off their
+  // producer and were invisible to every existing test:
+  //   'spray'   -> 'erase': the garden's pesticide strips were deleted in v6.6.14 and all three
+  //                remaining producers push look:'erase', so a player erased by The Blank's boss was
+  //                told PESTICIDE killed them. A source lint would have passed either way — the label
+  //                resolved to display copy the whole time, it just named the wrong thing.
+  //   'traffic' -> 'mower': run.lanes carries the city's taxi (look:'car') AND the garden's mower
+  //                (look:'mower') through one stepper, and a single label told a player mown down in a
+  //                flowerbed that TRAFFIC did it. The discriminator was already on the lane, unread.
+  // A label cannot be checked by asking whether it resolves; it has to be checked by causing the
+  // damage and reading which bucket it lands in.
+  {
+    const damageFrom = (seed, seedFixture) => {
+      const run = reefRun(seed)
+      run.player.maxHP = 100000
+      run.player.hp = run.player.maxHP
+      run.player.invuln = 0
+      seedFixture(run, run.player)
+      for (let i = 0; i < 90 && run.phase === 'playing'; i++) {
+        run.enemies.length = 0   // the crowd would add its own (correct) roster labels and muddy this
+        stepSim(run, { x: 0, y: 0 }, dt)
+        run.events.length = 0
+      }
+      return run.dmgBySrc
+    }
+    // A live erasure strip, wide enough that a stationary player is inside it whatever the rig does.
+    const erased = damageFrom(20260818, (run, p) => {
+      run.strips.push({ x: p.x, y: p.y, angle: 0, len: 600, w: 600, fuse: 0, t: 9, dps: 40, look: 'erase' })
+    })
+    assert.ok((erased.erase ?? 0) > 0,
+      `run DA.i: a live look:'erase' strip tallied nothing under 'erase' (got ${JSON.stringify(erased)})`)
+    assert.strictEqual(erased.spray, undefined,
+      `run DA.i: erasure damage is still landing in the 'spray' bucket — the summary would print ` +
+      `"Pesticide" for The Blank, which is the bug this label was renamed to fix`)
+    // The mower and the taxi ride the SAME stepper. Deck dimensions are deliberately oversized so the
+    // fixture cannot fail for a geometry reason it is not testing; sweep/t put the vehicle mid-lane,
+    // which is where the player is standing. cover:false keeps findCover out of it.
+    const lane = (look, dot) => (run, p) => {
+      run.lanes.push({
+        x: p.x, y: p.y, angle: 0, len: 200, w: 160, phase: 'sweep', t: 1, carT: 0,
+        sweep: 2, deckLen: 600, deckW: 600, dmg: 9, look, dot, cover: false, hitIds: new Set(),
+      })
+    }
+    const mown = damageFrom(20260819, lane('mower', true))
+    assert.ok((mown.mower ?? 0) > 0,
+      `run DA.i: a look:'mower' lane tallied nothing under 'mower' (got ${JSON.stringify(mown)})`)
+    assert.strictEqual(mown.traffic, undefined,
+      `run DA.i: the garden's mower is still tallying as 'traffic' — the summary would say the player ` +
+      `was killed by Traffic in a flowerbed`)
+    const run_over = damageFrom(20260820, lane('car', false))
+    assert.ok((run_over.traffic ?? 0) > 0,
+      `run DA.i: a look:'car' lane tallied nothing under 'traffic' (got ${JSON.stringify(run_over)}) — ` +
+      `splitting the mower out must not have taken the taxi with it`)
+    assert.strictEqual(run_over.mower, undefined,
+      `run DA.i: the city's taxi is tallying as 'mower' — the lane look test is inverted`)
   }
 
   const rosterIds = new Set(Object.values(CHAPTERS).flatMap((c) => (c.roster ?? []).map((r) => r.id)))
+  const bakedHazards = Object.keys(DMG_SRC_NAME).filter((k) => !DMG_SRC_ART[k] && !DMG_SRC_NO_ART[k])
   console.log(`PASS run DA (death attribution): tally sums to HP lost with nothing unknown, killedBy is the fatal source ` +
     `and survives a revive unset, ${Object.keys(DMG_SRC_NAME).length} DMG_SRC_NAME labels + every sim.js src literal + ` +
     `all ${rosterIds.size} roster ids across ${Object.keys(CHAPTERS).length} chapters resolve to a name AND have baked art, ` +
+    `every source has a decided picture (${bakedHazards.length} baked + ${Object.keys(DMG_SRC_ART).length} aliased + ` +
+    `${Object.keys(DMG_SRC_NO_ART).length} reasoned blank), erasure and mower damage report themselves, ` +
     `recap folds closed by default`)
 }
 

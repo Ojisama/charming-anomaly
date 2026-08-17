@@ -10,12 +10,16 @@
 //      (run.blooms) and a Shelf player must never read their own fire as a pond toxin cloud.
 //   3. does a cloud read as a fire taking hold, rather than as a puddle?
 //
-// ⚠ THE SIM'S BAR AND THE CAMERA'S BAR ARE HELD APART, deliberately. This chapter's light radius is
-// a function of run.charge, so the honest way to shoot the dark cast — bar at zero — is a black
-// rectangle with the effect somewhere inside it. The bar is therefore dropped to 0 only for the
-// frames in which the cast is COMPUTED, and put back up for every frame that is captured. That is
-// sound here precisely because gloom is snapshot at cast: the cloud keeps the size the dark bought
-// it no matter what the bar does afterwards, which is the mechanic, not a cheat around it.
+// ⚠ THE SIM'S BAR AND THE CAMERA'S BAR ARE HELD APART, deliberately — and this scene is therefore
+// ONLY valid for comparing the two RADII. It is not a picture of the card in play, and taking it for
+// one is how the weapon shipped with no visual at all: every captured frame here writes
+// `run.charge = run.chargeMax`, so the dark is never on screen, and in the dark the cloud used to be
+// absent rather than merely dim (see FOXFIRE_GLOW in config.js). Shoot
+// scripts/scenes/shelf-foxfire-dark.js for the bar the card is actually taken on.
+// The bar is dropped to 0 only for the frames in which the cast is COMPUTED, and put back up for
+// every frame that is captured. That is sound for the radius comparison precisely because gloom is
+// snapshot at cast: the cloud keeps the size the dark bought it no matter what the bar does
+// afterwards, which is the mechanic, not a cheat around it.
 const lightUp = () => { run.charge = run.chargeMax }
 
 H.weapon('foxfire', 5)

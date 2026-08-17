@@ -684,11 +684,18 @@ function generateWells(sig) {
  *                                            should land like a hit.
  *                                            v7.x: now populated by EVERY caller, because the same
  *                                            label is what run.dmgBySrc/run.killedBy tally (below).
- *                                            An enemy source is that enemy's ROSTER id ('seaRoach'),
- *                                            falling back to its archetype ('normal'|'fast'|'tank')
- *                                            for a chapter whose spawn carries no roster entry; every
- *                                            other source is a hazard/cost id ('drown', 'trap',
- *                                            'traffic', …) resolved to copy by DMG_SRC_NAME.
+ *                                            An enemy source is that enemy's ROSTER id ('searoach' —
+ *                                            lower case, the ids are not camelCased), falling back to
+ *                                            e.TYPE for a spawn that found no roster entry, which is
+ *                                            ARCHETYPE_TYPE's value and so 'drone'|'wisp'|'tank' and
+ *                                            NOT the archetype names 'normal'|'fast'|'tank'. (Every
+ *                                            chapter roster covers every archetype today, so that
+ *                                            fallback is unreachable — run DA.h holds it that way.)
+ *                                            Every other source is a hazard/cost id ('drown', 'trap',
+ *                                            'traffic', 'mower', 'erase', …) resolved to copy by
+ *                                            DMG_SRC_NAME. The same label also picks the summary's
+ *                                            THUMBNAIL, via dmgSrcArt -> src/cast/<id>.png; a source
+ *                                            with no picture must say why in DMG_SRC_NO_ART.
  *   { type:'revive', x, y }                  player death was prevented (see hurtPlayer in
  *                                            sim.js and run.revives below) — render draws a
  *                                            burst at (x,y), main.js plays a sfx
