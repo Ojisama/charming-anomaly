@@ -32,7 +32,7 @@ import {
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS,
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_GLOW, SUNLANCE_REACH_MIN,
   WEAPONS, HOLE_SINGULARITY_FRAC,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
@@ -17201,7 +17201,38 @@ function testFoxfire() {
   assert.ok(!dark.slowed && !lit.slowed,
     'a foxfire slowed what stood in it — it has inherited the Spore Bloom\'s slow through run.blooms')
 
-  console.log(`PASS run SH.b (foxfire): the band ${lvl.maxR}-${(lvl.maxR * FOXFIRE_GLOOM).toFixed(0)}px catches 0/${lit.of} at a full bar and ${dark.burned}/${dark.of} at an empty one, and neither cast slows anything`)
+  // AND IT HAS TO BE ON SCREEN WHERE IT IS WORTH TAKING. Everything above passed on the day this
+  // card shipped invisible: the cloud is drawn inside `world` and the dark is a dim-1.0 MULTIPLY
+  // scrim on the stage above it, so a fire cast beyond the player's lamp was not faint, it was
+  // absent — for the 63% of a run this chapter spends dark, i.e. the whole reason to take the card.
+  // updateDark punches holes for the lamp, the shafts and The Deep's lures; a fire is a light too,
+  // and this asserts the punch exists rather than that a number moved.
+  const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const dstart = rsrc.indexOf('function updateDark(')
+  assert.ok(dstart > 0, 'updateDark is gone from render.js — the dark is drawn somewhere else now and this guard is blind')
+  // The next sibling declaration at this file's 2-space indent bounds the function.
+  const dbody = rsrc.slice(dstart, rsrc.indexOf('\n  function ', dstart + 10))
+  // ponytail: a source grep proves the punch is WRITTEN, never that it RUNS — wrapping the block in
+  // `if (false)` passes this and is invisible on screen. render.js is not importable, so the check
+  // that closes that gap is a picture: scripts/scenes/shelf-foxfire-dark.js, whose last frame is an
+  // empty bar. Shoot it if you touch the dark.
+  // ...ASSERT THE LOOP, NOT THE STRING. A first cut grepped only for the 'foxfire' test and stayed
+  // green when the loop was rewritten to iterate an empty array — the mutation table below it caught
+  // that, and iterating run.blooms is the part that cannot survive the pathology.
+  assert.ok(/for \(const \w+ of run\.blooms\)/.test(dbody) && dbody.includes("'foxfire'"),
+    'updateDark no longer walks run.blooms to punch the lightmap for a foxfire — in the dark the card is invisible, which is exactly where it is meant to pay')
+  assert.ok(dbody.includes('FOXFIRE_GLOW'),
+    'the foxfire punch does not read FOXFIRE_GLOW — its brightness has drifted out of config.js')
+  assert.ok(FOXFIRE_GLOW.lit > 0.05 && FOXFIRE_GLOW.frac > 0.5,
+    `FOXFIRE_GLOW is tuned to nothing (lit ${FOXFIRE_GLOW.lit}, frac ${FOXFIRE_GLOW.frac}) — the punch runs and lights nothing, which looks identical to no punch at all`)
+  // ONE fade for the light and the puffs: a lamp outliving the cloud it belongs to is the same
+  // one-fact-two-places drift, and it only shows in the last quarter-second of a burn.
+  const sstart = rsrc.indexOf('function syncBlooms(')
+  const sbody = rsrc.slice(sstart, rsrc.indexOf('\n  function ', sstart + 10))
+  assert.ok(dbody.includes('bloomFade(') && sbody.includes('bloomFade('),
+    'the foxfire light and the cloud puffs no longer share one fade — the light can now outlive its own fire')
+
+  console.log(`PASS run SH.b (foxfire): the band ${lvl.maxR}-${(lvl.maxR * FOXFIRE_GLOOM).toFixed(0)}px catches 0/${lit.of} at a full bar and ${dark.burned}/${dark.of} at an empty one, neither cast slows anything, and the cloud punches the dark it is cast into (lit ${FOXFIRE_GLOW.lit}, ${FOXFIRE_GLOW.frac}x r)`)
 }
 
 /** The bar's ceiling for a fresh Shelf run, read off a run rather than off config — Deep Lungs can
