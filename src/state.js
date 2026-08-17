@@ -7,7 +7,8 @@ import {
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS,
-  BOOKS, BOOK_ORDER, shopLines, bookOf, SLOW_BURN_FLOOR, unlockLevel, unlockMax } from './config.js'
+  BOOKS, BOOK_ORDER, shopLines, bookOf, SLOW_BURN_FLOOR, unlockLevel, unlockMax,
+  MAX_SHOP_LEVEL, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -532,6 +533,40 @@ export function unlockBook(meta, bookId) {
 // `_bookId` field would be written onto the save blob.
 function shopBonus(bm, bookId, id) {
   return (shopLines(bookId)[id]?.perLevel ?? 0) * (bm.shop?.[id] ?? 0)
+}
+
+// How far through ONE BOOK's permanent upgrades a save is, counted in UPGRADE LEVELS: every level of
+// every line is one unit, so a line is worth its own depth. The cap is global (MAX_SHOP_LEVEL), so
+// the day it becomes 12 every line counts 12 and this follows without an edit.
+//
+// SACRIFICES COUNT ON BOTH SIDES. They are bought with shop LEVELS rather than coins — which makes
+// them upgrades you buy like any other, so they belong in `total` — and crediting only `total` would
+// be worse than leaving them out: buying the 3rd card slot deletes 20 levels out of bm.shop, so the
+// meter would run BACKWARDS at the exact moment the player made progress. Credited both sides it is
+// monotone, and 100% means the book is spent out: every line maxed, both card slots, every rung of
+// every BOOK_UNLOCKS ladder.
+//
+// Lives here rather than in ui.js because it is a number derived from a bm and the config tables,
+// like shopBonus above — and because ui.js is not importable by the test suite, so the arithmetic
+// would have had no guard at all.
+export function bookProgress(bm, bookId) {
+  let owned = Object.values(bm?.shop ?? {}).reduce((sum, l) => sum + (Number(l) || 0), 0)
+  let total = Object.keys(shopLines(bookId)).length * MAX_SHOP_LEVEL
+  // choiceSlots counts slots OWNED and starts at 2, so slots - 2 is how many rungs are paid for.
+  // Needs no clamp at either end and had one until a mutation test proved it dead: the forEach below
+  // bounds `i` to the ladder, so a tampered slot count credits nothing extra, and a negative makes
+  // `i < slotsPaid` false for every rung. `|| 2` is what keeps a junk value out, not the arithmetic.
+  const slotsPaid = (Number(bm?.choiceSlots) || 2) - 2
+  SACRIFICE_COSTS.forEach((cost, i) => { total += cost; if (i < slotsPaid) owned += cost })
+  for (const id of Object.keys(BOOK_UNLOCKS[bookId] ?? {})) {
+    const paid = unlockLevel(bm, bookId, id)   // resolves the legacy `true` to the top rung
+    for (let i = 0; i < unlockMax(bookId, id); i++) {
+      const cost = unlockCost(bookId, id, i) ?? 0
+      total += cost
+      if (i < paid) owned += cost
+    }
+  }
+  return { owned, total, pct: total > 0 ? Math.round((owned / total) * 100) : 0 }
 }
 
 // Obstacles STREAM around the player (v5.6.13, sim.js streamObstacles) instead of being
