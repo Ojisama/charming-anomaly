@@ -42,6 +42,7 @@ import {
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
   MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
+  DMG_SRC_NAME, dmgSrcName, DEATH_OUTRO, irisCoverMul, LANE_CAMERA_FRAC,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
@@ -13309,11 +13310,21 @@ function testFrenchDictionary() {
   // the day someone noticed the badge was English — the whole point of this walk.
   for (const v of Object.values(BOOK_UNLOCK_LINES ?? {})) need(v)
   for (const v of Object.values(CHAPTERS ?? {})) { need(v?.name); need(v?.tagline) }
+  // ROSTER NAMES (v7.x). One level deeper than the walk above, so `Object.values(CHAPTERS)` reading
+  // `.name` never reached them — and a creature's name had NO French-facing surface until the summary
+  // screen's "Killed by ..." line and its damage breakdown put it on a screen. Three of the game's 46
+  // entries turned out to be English (The Reef's, the newest roster); they were found by SHOOTING the
+  // French panel, not by any assert, which is the whole argument for joining them to this walk.
+  for (const ch of Object.values(CHAPTERS ?? {})) for (const r of ch?.roster ?? []) need(r?.name)
   // BOOKS[].name is on screen from v7.x (the shelf's brass plate) and no walk above reached it —
   // both Books would have shipped in English the day the bookcase landed.
   for (const v of Object.values(BOOKS ?? {})) need(v?.name)
   // The spine names. A flat id -> string table, so the generic name/desc walk above cannot see it.
   for (const v of Object.values(CHAPTER_SPINE ?? {})) need(v)
+  // What killed you (v7.x). Same flat id -> string shape, joined the day the table landed — the
+  // summary screen's killer line and every row of its damage breakdown resolve through here, so a
+  // missing entry is a French screen with English causes of death on it.
+  for (const v of Object.values(DMG_SRC_NAME ?? {})) need(v)
   // The pause build sheet's stat labels. These were unreachable by this walk until STAT_KEYS became
   // a config TABLE: the words lived in a bare const inside ui.js, and this walk enumerates tables,
   // so five of them shipped rendering in English on the French sheet. Merging the two registries
@@ -14133,6 +14144,8 @@ try {
   run(testModalPopBookkeeping)
   run(testUndertowLadder)
   run(testElementsRedesign)
+  run(testDeathAttribution)
+  run(testDeathOutro)
   run(testEventConsumers)
   run(testSpawnQueueInvariant)
   run(testPoolClearing)
@@ -17818,6 +17831,312 @@ function testReefAirBurst() {
 //   - Breach adds a hole that nothing reads, so the button is the Pulse with a cosmetic ring;
 //   - the wake lands on the side the net has NOT crossed — a pure sign error, which looks exactly
 //     like a design decision on screen and makes the chapter's only food source unreachable.
+// run DA (v7.x): WHAT KILLED ME, and where the run's damage went. The owner asked for "killed by
+// XXX" plus a per-source breakdown on the summary screen; run.killedBy and run.dmgBySrc (hurtPlayer,
+// sim.js) are that data, and ui.js does nothing but render them.
+//
+// THE INTERESTING FAILURE IS NOT "the tally is empty" — it is a tally that looks full and attributes
+// damage to the wrong thing, or lumps it all under 'unknown'. hurtPlayer takes `src` as an OPTIONAL
+// fourth argument defaulting to null, which means a call site that forgets it does not throw, does
+// not warn, and produces a perfectly plausible summary panel with one big mystery row on it. Blocks
+// (a) and (d) are aimed squarely at that: (d) is a source-text lint over every literal sim.js
+// actually passes, so a NEW damage path with an unregistered label fails here rather than on screen.
+function testDeathAttribution() {
+  const dt = 1 / 60
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  // Mortal, and it stands still and takes it — the opposite of the kiting rig. This scenario is
+  // about ATTRIBUTION, not survival: the question is whether the damage that lands is labelled, so
+  // the rig that maximises the number of distinct things landing is the right one. (See the rig
+  // table in CLAUDE.md for why a stationary rig may never be quoted as a win rate.)
+  const reefRun = (seed = 20260817) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'reef', difficulty: 3 })
+    assert.strictEqual(run.chapter, 'reef',
+      'run DA did not start in The Reef — every label below would be another chapter\'s roster')
+    return run
+  }
+
+  // (a) THE TALLY IS POPULATED, SUMS TO THE HP ACTUALLY LOST, AND HAS NOTHING IN 'unknown'.
+  // The sum is the assertion that matters: it proves the tally is counting hurtPlayer's POST-
+  // mitigation `dmg` and not its raw swing. Tallying rawDmg would over-report exactly the way the
+  // enemy-side `hit` event does (CLAUDE.md's "measuring damage from hit events over-reports"), and
+  // the summary's percentages would silently stop being shares of anything real.
+  // TWO sources are forced, not hoped for. A stationary player in The Reef is only ever hit by the
+  // crowd (measured: one label, `damselfish`, over 200s — its kills keep the Air bar topped up, so
+  // the chapter's own drowning never fires), and a one-row breakdown cannot distinguish a working
+  // tally from one that lumps everything under a single key. Pinning run.charge to 0 opens
+  // stepDrown, which is a DIFFERENT hurtPlayer call site with a different label and dot:true — so
+  // the block now covers the contact path, a DoT path, and the arithmetic joining them.
+  {
+    const run = reefRun()
+    run.player.maxHP = 100000   // survive long enough to collect both
+    run.player.hp = run.player.maxHP
+    let lost = 0
+    for (let i = 0; i < 60 * 90 && run.phase === 'playing'; i++) {
+      run.charge = 0            // hold the Air bar empty: the chapter's drown tick is now live
+      const before = run.player.hp
+      stepSim(run, { x: 0, y: 0 }, dt)
+      lost += Math.max(0, before - run.player.hp)
+      run.events.length = 0
+    }
+    const tally = run.dmgBySrc
+    const total = Object.values(tally).reduce((s, v) => s + v, 0)
+    assert.ok(total > 0,
+      'run DA.a: nothing was tallied over 90s of standing in The Reef with an empty Air bar — hurtPlayer is not writing run.dmgBySrc at all')
+    // Exact, not approximate: every path into the player's hp goes through hurtPlayer, so any
+    // mismatch means a damage path bypassed the funnel (in which case the summary can never add up).
+    assert.strictEqual(total, lost,
+      `run DA.a: tallied ${total} HP but the player actually lost ${lost} — either a damage path bypasses ` +
+      `hurtPlayer, or the tally is recording rawDmg instead of the mitigated dmg`)
+    assert.ok(!tally.unknown,
+      `run DA.a: ${tally.unknown} HP landed in the 'unknown' bucket — a hurtPlayer call site is not passing a src`)
+    // The two forced sources, by NAME. Asserting a count >= 2 would pass on two labels that are both
+    // wrong; naming them is what proves the label reaching the tally is the one the call site meant.
+    assert.ok(tally.drown > 0,
+      `run DA.a: the Air bar was held empty for 90s and no damage was tallied under 'drown' ` +
+      `(tally: ${JSON.stringify(tally)}) — stepDrown's src label is not reaching run.dmgBySrc`)
+    const creatures = Object.keys(tally).filter((k) => CHAPTERS.reef.roster.some((r) => r.id === k))
+    assert.ok(creatures.length >= 1,
+      `run DA.a: no damage tallied against any Reef roster id (tally: ${JSON.stringify(tally)}) — ` +
+      `stepContactDamage is not passing the enemy's own identity, so "killed by <creature>" is impossible`)
+  }
+
+  // (b) EVERY LABEL THE TALLY PRODUCES RESOLVES TO DISPLAY COPY. dmgSrcName returning null is what
+  // makes ui.js hide the killer line and print a raw internal id in the breakdown, so an
+  // unresolvable label is a visible defect rather than a missing nicety.
+  {
+    const run = reefRun(20260818)
+    run.player.maxHP = 100000
+    run.player.hp = run.player.maxHP
+    for (let i = 0; i < 60 * 90 && run.phase === 'playing'; i++) { run.charge = 0; stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
+    const unresolved = Object.keys(run.dmgBySrc).filter((k) => !dmgSrcName(k))
+    assert.deepStrictEqual(unresolved, [],
+      `run DA.b: damage source label(s) with no display copy: [${unresolved.join(', ')}] — add them to ` +
+      `DMG_SRC_NAME, or to a chapter roster if they are creatures`)
+  }
+
+  // (c) DEATH SETS killedBy, A REVIVE DOES NOT, AND THE LABEL IS THE THING THAT ACTUALLY KILLED YOU.
+  // Both halves matter. A killedBy written unconditionally at the top of hurtPlayer would pass a
+  // "is it set?" check and be the label of the LAST hit taken rather than the fatal one; and a
+  // Revive Token consumed at 0 HP must not leave a death recorded on a run that continued.
+  {
+    // Mortal and helpless: one contact hit ends it, so the fatal source is knowable.
+    const run = reefRun(20260819)
+    run.player.maxHP = 1
+    run.player.hp = 1
+    let guard = 0
+    while (run.phase === 'playing' && guard++ < 60 * 300) { stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
+    assert.strictEqual(run.phase, 'dead', 'run DA.c: a 1 HP player standing still in The Reef never died — the rig is wrong')
+    assert.ok(run.killedBy, 'run DA.c: the run ended in death with run.killedBy still null')
+    assert.ok(dmgSrcName(run.killedBy),
+      `run DA.c: killedBy '${run.killedBy}' does not resolve to display copy — the summary would print nothing`)
+    // The killer must be one of the things that actually did damage. This is what catches a
+    // killedBy assigned from the wrong variable: a label absent from the tally cannot have hit you.
+    assert.ok(run.dmgBySrc[run.killedBy] > 0,
+      `run DA.c: killedBy is '${run.killedBy}' but that source did no damage this run ` +
+      `(tally: ${JSON.stringify(run.dmgBySrc)}) — it is not the fatal hit's label`)
+
+    // The revive half, on a fresh run: consume the token instead of dying, and record no death.
+    const rev = reefRun(20260819)
+    rev.player.maxHP = 1
+    rev.player.hp = 1
+    rev.revives = 1
+    let g2 = 0
+    while (rev.revives > 0 && g2++ < 60 * 300) { stepSim(rev, { x: 0, y: 0 }, dt); rev.events.length = 0 }
+    assert.strictEqual(rev.revives, 0, 'run DA.c: the revive was never consumed — the rig cannot test the revive branch')
+    assert.strictEqual(rev.phase, 'playing', 'run DA.c: a consumed revive did not keep the run alive')
+    assert.strictEqual(rev.killedBy, null,
+      `run DA.c: a REVIVED run recorded killedBy '${rev.killedBy}' — killedBy is being set above the revive branch, ` +
+      `so a survived run would show a death cause on its summary`)
+  }
+
+  // (c2) EVERY CREATURE IN THE GAME CAN BE NAMED AS A KILLER, not just the ones a 90s probe met.
+  // stepContactDamage labels its hits with the enemy's roster id, so any id dmgSrcName cannot resolve
+  // is a death whose summary line prints a raw camelCase identifier at the player. Found for real
+  // while shooting the panel: a hand-written 'seaRoach' fixture rendered as "seaRoach" because the
+  // actual id is 'searoach' — the fallback works, and it is ugly, which is exactly why it must never
+  // be reached by a real label.
+  //
+  // Object.keys(CHAPTERS) IS THE DENOMINATOR, deliberately. CHAPTER_ORDER is Book 1 only and
+  // ALL_CHAPTER_IDS still drops every `hidden` id, so either would silently skip The Blank and parts
+  // of Undertow — the exact hole that let run RA ship green over the chapter it was written for
+  // (CLAUDE.md). The count is printed so a denominator that quietly shrinks is visible.
+  {
+    const ids = [...new Set(Object.values(CHAPTERS).flatMap((c) => (c.roster ?? []).map((r) => r.id)))]
+    assert.ok(ids.length >= 30,
+      `run DA.c2 found only ${ids.length} roster ids across ${Object.keys(CHAPTERS).length} chapters — ` +
+      `the sweep is reading the wrong shape, and a sweep that covers nothing passes forever`)
+    const unnamed = ids.filter((id) => !dmgSrcName(id)).sort()
+    assert.deepStrictEqual(unnamed, [],
+      `run DA.c2: roster id(s) with no resolvable name: [${unnamed.join(', ')}] — being killed by one ` +
+      `would print the raw identifier on the summary screen`)
+  }
+
+  // (d) THE CROSS-FILE LINT, and the cheapest guard here. Every `src` string literal sim.js hands
+  // hurtPlayer must resolve through dmgSrcName. Nothing imports the two together — config.js's table
+  // and sim.js's call sites are joined only by a string — so a new damage path with a label nobody
+  // registered throws nothing and ships as a blank row. Same idiom, and same reasoning, as run VO's
+  // vocabulary checks.
+  {
+    const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+    const labels = [...new Set([...src.matchAll(/hurtPlayer\(\s*run\s*,[^)]*?,\s*'(\w+)'\s*\)/g)].map((m) => m[1]))]
+    assert.ok(labels.length >= 10,
+      `run DA.d found only ${labels.length} src literals in sim.js's hurtPlayer calls — the regex has gone stale, ` +
+      `and a lint that matches nothing passes forever`)
+    const unregistered = labels.filter((l) => !dmgSrcName(l)).sort()
+    assert.deepStrictEqual(unregistered, [],
+      `run DA.d: hurtPlayer src label(s) with no DMG_SRC_NAME entry: [${unregistered.join(', ')}] — the summary ` +
+      `screen would render a blank or raw-id row for them`)
+    // And the reverse direction: no hurtPlayer call may omit the label now that the tally depends on
+    // it. Counted from source because the omission is legal JavaScript — `src` defaults to null.
+    // The lookbehind drops `function hurtPlayer(run, rawDmg, ...)` itself, which is otherwise counted
+    // as a caller that forgot its label and makes this assert fail by exactly one, forever.
+    const calls = [...src.matchAll(/(?<!function )hurtPlayer\(\s*run\s*,/g)].length
+    const labelled = [...src.matchAll(/hurtPlayer\(\s*run\s*,[^)]*?,\s*(?:'(?:\w+)'|[\w.]+\s*\?\?\s*[\w.]+)\s*\)/g)].length
+    assert.strictEqual(labelled, calls,
+      `run DA.d: ${calls} hurtPlayer call sites but only ${labelled} pass a src — an unlabelled one tallies ` +
+      `into 'unknown' and shows the player a mystery row`)
+  }
+
+  const rosterIds = new Set(Object.values(CHAPTERS).flatMap((c) => (c.roster ?? []).map((r) => r.id)))
+  console.log(`PASS run DA (death attribution): tally sums to HP lost with nothing unknown, killedBy is the fatal source ` +
+    `and survives a revive unset, ${Object.keys(DMG_SRC_NAME).length} DMG_SRC_NAME labels + every sim.js src literal + ` +
+    `all ${rosterIds.size} roster ids across ${Object.keys(CHAPTERS).length} chapters resolve to a name`)
+}
+
+// run DO (v7.x): THE DEATH OUTRO. Owner report: "the player sees the death modal almost before
+// seeing the enemy last hitting you." The beat between the killing blow and the summary lives in
+// main.js (run.deathT) and is painted by render.js — neither file is importable here, so this
+// scenario is deliberately a CONFIG-INVARIANT check plus two source-text lints. That is the cheapest
+// guard available for it and it covers the two ways the feature dies silently: a clock nobody reads,
+// and an iris tuned past the bound that keeps it covering the screen.
+function testDeathOutro() {
+  const D = DEATH_OUTRO
+
+  // (a) THE IRIS MAY NEVER SCALE BELOW THE SCREEN. The iris is one screen-fitted radial gradient, so
+  // a multiplier under 1.0 leaves the area outside the sprite completely untouched — on a 390x844
+  // phone that is two bright bands at the top and bottom of a "fade to black". This is the assertion
+  // that has to be a RATIO rather than px: the exact same code is correct on one viewport and broken
+  // on another, which is how v7.58's light early-out shipped (see the two-viewports rule in
+  // CLAUDE.md). Stated here as the invariant, so a future retune of irisTo cannot quietly cross it.
+  assert.ok(D.irisTo >= 1,
+    `run DO.a: DEATH_OUTRO.irisTo is ${D.irisTo} — below 1.0 the iris sprite is smaller than the screen and ` +
+    `cannot darken the corners. The closing must be done with the ALPHA ramp; the scale only comes down to 1.`)
+  assert.ok(D.irisFrom >= D.irisTo,
+    `run DO.a: irisFrom (${D.irisFrom}) is not above irisTo (${D.irisTo}) — the iris would OPEN as the player dies`)
+  assert.ok(D.irisHold >= 0 && D.irisHold < 1,
+    `run DO.a: irisHold ${D.irisHold} must be a fraction of the outro in [0,1) — at 1 the dark never starts`)
+  // The vent has to STOP before the summary does, or the last thing on screen is a body still
+  // breathing. This is the ordering the whole picture depends on: air out, then the light goes.
+  assert.ok(D.ventT < D.time,
+    `run DO.a: ventT ${D.ventT} >= time ${D.time} — the body would still be venting air when the summary appears`)
+  assert.ok(D.skipLock > 0 && D.skipLock < D.time,
+    `run DO.a: skipLock ${D.skipLock} must sit inside the outro — at 0 the input still held from the fight skips it instantly`)
+  assert.ok(D.roll > 0 && D.roll < 1,
+    `run DO.a: roll ${D.roll} is a y-scale MULTIPLIER (a plan-view body rolling onto its side gets thinner); ` +
+    `at 1 the body never rolls, at 0 it vanishes`)
+
+  // ⚠ EVERY SOURCE LINT BELOW READS COMMENT-STRIPPED SOURCE, and that is not fastidiousness — it is
+  // a mutation escape that actually happened while this scenario was being written. The first cut of
+  // (c) asserted `/run\.deathT/.test(renderSrc)` over the whole file; mutating render.js's only real
+  // read to a constant left the feature dead and the check GREEN, because this repo comments heavily
+  // and several of those comments name the field. A lint over raw source is a lint over prose.
+  const codeOnly = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\/\/.*$/gm, '')
+
+  // (b) main.js OWNS THE CLOCK AND GATES IT ON THE BOOK. A `run.deathT` that is never set is a
+  // feature that does not exist, and the gate is what keeps Book 1's instant-modal path untouched.
+  {
+    const mainSrc = codeOnly(readFileSync(new URL('../src/main.js', import.meta.url), 'utf8'))
+    assert.ok(/run\.deathT\s*\+=\s*dt/.test(mainSrc),
+      'run DO.b: main.js never advances run.deathT — the outro would never progress (and see the doc block ' +
+      'on run.deathT in state.js: it counts ELAPSED, so a "-= dt" here is the bug that wiped the dark on the last frame)')
+    assert.ok(/bookOf\(run\.chapter\)\s*!==\s*'undertow'/.test(mainSrc),
+      'run DO.b: main.js does not gate the outro on the book — Book 1 would get a frozen frame with no animation in it')
+    // The summary must be held back BY the clock. Without this the outro plays under an already-open
+    // modal, which is the shipped bug wearing an animation.
+    assert.ok(/run\.deathT\s*>=\s*DEATH_OUTRO\.time\)\s*endRun\(false\)/.test(mainSrc),
+      'run DO.b: main.js does not defer endRun until run.deathT reaches DEATH_OUTRO.time — the modal would still open immediately')
+    // The finished state must be REACHED, not zeroed: a skip that sets deathT back to 0 lands on the
+    // renderer's "not dying" value and snaps the world back to full brightness under the summary.
+    assert.ok(/run\.deathT\s*=\s*DEATH_OUTRO\.time/.test(mainSrc),
+      'run DO.b: the skip does not jump run.deathT to DEATH_OUTRO.time — skipping would end the outro in daylight')
+  }
+
+  // (c) render.js ACTUALLY READS THE CLOCK. This is the freeze-scar guard (CLAUDE.md: "a new mechanic
+  // is invisible until it reaches a contract field, and invisible is indistinguishable from broken").
+  // The v7.5x elements rework kept freeze in a private field render.js had never heard of and frozen
+  // enemies simply stopped dead, on the live URL. render.js is not importable, so assert on source.
+  {
+    const renderSrc = codeOnly(readFileSync(new URL('../src/render.js', import.meta.url), 'utf8'))
+    assert.ok(/run\.deathT/.test(renderSrc),
+      'run DO.c: render.js never reads run.deathT — main.js would hold the summary back over a frozen, unchanged frame')
+    assert.ok(/updateDeathOutro\(run,\s*dt\)/.test(renderSrc),
+      'run DO.c: updateDeathOutro is not called with the real dt — at dt 0 the vent never emits and the outro is a freeze')
+    // The dark is nearly opaque and it is the LAST thing a dead run drew, so a missing between-run
+    // clear opens the next run in darkness. Two independent clears exist (clearWorld and
+    // updateDeathOutro's own dT <= 0 branch); require the explicit one.
+    assert.ok(/deathIris\.alpha = 0/.test(renderSrc) && /deathFlat\.alpha = 0/.test(renderSrc),
+      'run DO.c: render.js never resets the outro sprites to alpha 0 — the next run would start in the dark')
+    // (d) below proves irisCoverMul is CORRECT; only this proves it is USED. Without it, deleting the
+    // call and going back to the raw irisFrom/irisTo ramp leaves a fully-tested helper nobody invokes
+    // and the uncovered lane band back on screen — which is exactly what a mutation run showed.
+    assert.ok(/irisCoverMul\(/.test(renderSrc),
+      'run DO.c: render.js does not call irisCoverMul — the iris is sized off the raw multiplier again, ' +
+      'so a lane chapter\'s off-centre camera leaves a band of screen undarkened')
+  }
+
+  // (d) THE IRIS COVERS THE SCREEN FROM WHEREVER IT IS CENTRED, INCLUDING OFF-CENTRE. This is the
+  // block that exists because the shipped bug was ON SCREEN in the first probe frames: the iris is
+  // centred on the BODY, and `lane: true` chapters hold the player off-centre deliberately — The Reef
+  // is an x-lane, so laneFrac puts the player at 1 - LANE_CAMERA_FRAC = 20% across. A 1.5x-screen
+  // sprite centred there reaches 371px of a 390px phone and leaves a hard dark band down the right
+  // side of every frame of the outro. irisCoverMul raises the multiplier to what the centre needs.
+  //
+  // Asserted as a RATIO against the real LANE_CAMERA_FRAC at BOTH viewports, never in px: a coverage
+  // bound checked at one screen size is the exact shape of the bug it is meant to prevent.
+  {
+    const VIEWPORTS = [[390, 844], [1280, 800]]   // the phone fx-probe defaults to, and a desktop
+    // Every centre the game can actually put the player at: dead centre (every non-lane chapter),
+    // and both ends of the lane fraction (a +x lane sits at 1-frac across, a -y lane at frac down).
+    const centres = [0.5, LANE_CAMERA_FRAC, 1 - LANE_CAMERA_FRAC]
+    for (const [w, h] of VIEWPORTS) {
+      for (const fx of centres) {
+        for (const fy of centres) {
+          const cx = w * fx, cy = h * fy
+          // Worst case is the CLOSED end, where the intent multiplier is at its smallest.
+          const m = irisCoverMul(D.irisTo, cx, cy, w, h)
+          const half = { x: (w * m) / 2, y: (h * m) / 2 }
+          // Reach every edge from this centre. A miss on any one is an uncovered strip of screen.
+          assert.ok(cx - half.x <= 0 && cx + half.x >= w && cy - half.y <= 0 && cy + half.y >= h,
+            `run DO.d: a ${w}x${h} iris at (${Math.round(cx)},${Math.round(cy)}) sized x${m.toFixed(2)} spans ` +
+            `x ${Math.round(cx - half.x)}..${Math.round(cx + half.x)}, y ${Math.round(cy - half.y)}..${Math.round(cy + half.y)} — ` +
+            `it does not cover the screen, so the fade to black would leave a visible band`)
+        }
+      }
+    }
+    // ...and it must be a FLOOR, not a rewrite: a centred subject has to get the tuned number back
+    // untouched, or every non-lane chapter silently loses the closing motion the knobs describe.
+    assert.strictEqual(irisCoverMul(D.irisFrom, 390 / 2, 844 / 2, 390, 844), D.irisFrom,
+      'run DO.d: irisCoverMul altered the multiplier for a screen-CENTRED iris — it must only ever raise it for an off-centre one')
+    // The lane case must genuinely be raised, or this whole block is testing a no-op. Guards against
+    // a future "simplification" of irisCoverMul back to returning `mult`.
+    const laneMul = irisCoverMul(D.irisTo, 390 * (1 - LANE_CAMERA_FRAC), 844 / 2, 390, 844)
+    assert.ok(laneMul > D.irisTo,
+      `run DO.d: irisCoverMul returned ${laneMul} for The Reef's 20%-across camera — it is not raising the ` +
+      `multiplier at all, and the uncovered band is back`)
+  }
+
+  console.log(`PASS run DO (death outro): ${D.time}s beat, iris covers the screen from all 9 centres x 2 viewports ` +
+    `(lane camera raises x${D.irisTo} -> x${irisCoverMul(D.irisTo, 390 * (1 - LANE_CAMERA_FRAC), 422, 390, 844).toFixed(2)}), ` +
+    `vent stops at ${D.ventT}s, main.js gates on the book and defers endRun, render.js reads run.deathT`)
+}
+
 function testTrawlNet() {
   const dt = 1 / 60
   const res = CHAPTERS.trawl.resource

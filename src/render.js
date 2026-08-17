@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -4332,6 +4332,28 @@ export function createRenderer(app) {
       T.vignette = Texture.from(c)
     }
 
+    // The death outro's iris (v7.x, DEATH_OUTRO). Same canvas-radial-gradient trick as the red
+    // vignette directly above and tinted per use, but a much TIGHTER ramp: the vignette is an
+    // edge-only blush that must never obscure the fight, and this one has to be able to close to a
+    // clear circle around the body with real black outside it.
+    // WHITE, not the deep-water colour — the sprite carries DEATH_OUTRO.irisTint, and a baked hue
+    // would multiply against it. The gradient encodes the SHAPE; config owns the colour.
+    // The outer stop at 118/256 (below the 181 corner radius) means every pixel past it takes the
+    // final stop, i.e. the texture's corners are fully opaque. That is what lets one screen-fitted
+    // sprite darken the whole rectangle instead of only the disc inside it.
+    {
+      const c = document.createElement('canvas')
+      c.width = c.height = 256
+      const ctx = c.getContext('2d')
+      const grad = ctx.createRadialGradient(128, 128, 52, 128, 128, 118)
+      grad.addColorStop(0, 'rgba(255,255,255,0)')
+      grad.addColorStop(0.55, 'rgba(255,255,255,0.72)')
+      grad.addColorStop(1, 'rgba(255,255,255,1)')
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, 256, 256)
+      T.deathIris = Texture.from(c)
+    }
+
 
     // storm blob (skies overlay, v5.6.18): a plain soft white radial gradient, center to fully
     // transparent at the edge — no Graphics gradient support, same canvas trick as the vignette
@@ -8178,8 +8200,23 @@ export function createRenderer(app) {
   // additive is a new concept here and it is a CORRECTNESS requirement, not a perf note. Each
   // sub-container draws from exactly ONE texture, or Pixi v8's batcher breaks on every
   // blend-mode/texture transition — three sub-containers, three draw calls.
+  // The death outro's dark (v7.x, DEATH_OUTRO). Two screen-space sprites, both driven by run.deathT:
+  // `deathIris` is the gradient closing in and `deathFlat` is the wash that finishes the job at the
+  // corners. Same Texture.WHITE + fitScreen idiom as lightningFlash/waterWash above.
+  //
+  // LAST ON THE STAGE — the only thing in this file allowed to sit ABOVE the red damage vignette.
+  // Every other layer here is under a standing rule that the safety and readability cues (floating
+  // damage numbers, the damage vignette) live between the player and the screen and must never be
+  // dimmed. That rule is about a fight in progress. Once run.deathT is counting there is no fight
+  // and nothing left to read: the run is over, the only job left is the handoff to the summary, and
+  // an instrument still burning brightly through the fade is the thing that would look broken.
+  const deathIris = new Sprite(T.deathIris)
+  deathIris.alpha = 0
+  deathIris.anchor.set(0.5)
+  const deathFlat = new Sprite(Texture.WHITE)
+  deathFlat.alpha = 0
   world.addChild(floorLayer, swellLayer, causticLayer, cloudShadowLayer, entitiesLayer)
-  app.stage.addChild(world, waterWash, aboveWater, darkLayer, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, lightningFlash, vignette)
+  app.stage.addChild(world, waterWash, aboveWater, darkLayer, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, lightningFlash, vignette, deathFlat, deathIris)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
 
   // v5.3 garden field layers (empty/hidden for other chapters, driven purely by run.trails/webs/
@@ -14829,6 +14866,84 @@ export function createRenderer(app) {
       waterWash.width = w
       waterWash.height = h
     }
+    // The death outro's flat wash. deathIris is deliberately NOT here: it is scaled relative to the
+    // screen every frame by updateDeathOutro (DEATH_OUTRO.irisFrom -> irisTo), so a cached
+    // exactly-screen-sized fit would be overwritten immediately.
+    if (deathFlat.width !== w || deathFlat.height !== h) {
+      deathFlat.width = w
+      deathFlat.height = h
+    }
+  }
+
+  // ---- The death outro (v7.x, DEATH_OUTRO in config.js) ------------------------------------------
+  // Owner report: "the player sees the death modal almost before seeing the enemy last hitting you."
+  // main.js owns the clock (run.deathT) and holds the summary back while it counts; this paints it.
+  // READS run.deathT, never writes it — the renderer does not mutate `run`, and a second timer here
+  // would be the same fact in two files.
+  //
+  // The sim is FROZEN while this runs (main.js does not call stepSim once phase is 'dead') but `dt`
+  // is real, so animT and the particle pool keep advancing. Everything that moves during the outro
+  // therefore has to move because THIS function moved it — which is also why the vent exists at all:
+  // a frozen crowd with nothing rising through it reads as a dropped frame, not as a held beat.
+  let deathVentAcc = 0
+  function updateDeathOutro(run, dt) {
+    const dT = run.deathT ?? 0
+    if (dT <= 0) {
+      // Not dying (or a chapter with no outro): make sure last run's dark is not still up. Cheap
+      // enough to do unconditionally, and it means the outro cannot leak into the next run through
+      // some path clearWorld does not cover.
+      if (deathIris.alpha !== 0) { deathIris.alpha = 0; deathFlat.alpha = 0 }
+      deathVentAcc = 0
+      return 0
+    }
+    const D = DEATH_OUTRO
+    // run.deathT is ELAPSED, not remaining — see beginDeathOutro in main.js for why (a remaining
+    // clock has to reach 0, and 0 is also "not dying", so the last frame wiped the dark and the
+    // summary opened over a lit world). SATURATES at 1 and stays there: once main.js stops advancing
+    // it the dark holds behind the summary screen instead of snapping back.
+    const elapsed = dT
+    const p = Math.min(1, dT / D.time)   // 0 at the killing blow, 1 at the summary and after
+
+    // THE VENT — the last breath leaving the body. A RATE that tapers to nothing at ventT, not a
+    // burst: a body running out of air stops, and one puff at t=0 is a pop rather than a death.
+    // Bubbles are the only thing here moving UP against everything else falling, which is what sells
+    // the picture as underwater rather than merely blue (CORAL_CRUSH's block makes the same point).
+    if (dt > 0 && elapsed < D.ventT) {
+      deathVentAcc += D.ventRate * (1 - elapsed / D.ventT) * dt
+      const bodyY = run.player.y + D.sink * p
+      while (deathVentAcc >= 1) {
+        deathVentAcc -= 1
+        const a = Math.random() * Math.PI * 2
+        const r = PLAYER.radius * 0.5 * Math.random()
+        spawnParticle(T.fx.circle_05, run.player.x + Math.cos(a) * r, bodyY + Math.sin(a) * r,
+          (Math.random() - 0.5) * D.ventSpread, -D.ventRise * (0.6 + Math.random() * 0.7),
+          D.ventLife * (0.7 + Math.random() * 0.5), D.ventScale * (0.6 + Math.random() * 0.9),
+          D.ventTint, 0.02, 0.7)
+      }
+    }
+
+    // THE DARK. `irisHold` gives the vent the stage first, then light loss with depth takes over.
+    // The gradient closes by ALPHA plus a scale that only ever comes down to exactly screen-sized —
+    // see irisFrom/irisTo in config.js for why going below 1.0 would leave bands uncovered on a
+    // phone. Centred on the BODY, not on the screen: the camera holds while the body sinks, so the
+    // clear circle has to travel with it or the last thing visible is empty water.
+    const irisP = Math.min(1, Math.max(0, (p - D.irisHold) / (1 - D.irisHold)))
+    const w = app.screen.width, h = app.screen.height
+    // World -> screen by hand rather than getGlobalPosition(): allocation-free, and it stays correct
+    // under map mode's world.scale (which is 1 in gameplay, but this is the whole cost of not caring).
+    // NOTE this is NOT the middle of the screen in a lane chapter — The Reef holds the player 20%
+    // across — which is the entire reason irisCoverMul exists. See its block in config.js.
+    const ix = world.position.x + run.player.x * world.scale.x
+    const iy = world.position.y + (run.player.y + D.sink * p) * world.scale.y
+    const mult = irisCoverMul(D.irisFrom + (D.irisTo - D.irisFrom) * irisP, ix, iy, w, h)
+    deathIris.width = w * mult
+    deathIris.height = h * mult
+    deathIris.tint = D.irisTint
+    deathIris.alpha = D.irisAlpha * irisP
+    deathIris.position.set(ix, iy)
+    deathFlat.tint = D.irisTint
+    deathFlat.alpha = D.flatAlpha * irisP * irisP   // squared: lands late, so the iris reads first
+    return p
   }
 
   // ------------------------------------------------------------------ events
@@ -15686,6 +15801,14 @@ export function createRenderer(app) {
     vignette.alpha = 0
     lightningFlashA = 0
     lightningFlash.alpha = 0
+    // The death outro's dark. It is the LAST thing the previous run drew and it is nearly opaque, so
+    // of everything in this function this is the one whose omission would be unmissable — a new run
+    // opening in the dark. updateDeathOutro also clears it whenever run.deathT is 0, which makes this
+    // belt-and-braces rather than the only guard; both are cheap and neither is the interesting case
+    // to get wrong.
+    deathIris.alpha = 0
+    deathFlat.alpha = 0
+    deathVentAcc = 0
     prevSkiesBombs = new Set()
     prevRampageT = 0
     animT = 0
@@ -15715,7 +15838,13 @@ export function createRenderer(app) {
   // `buffs` (v7.14): the two anomalies that change the player's SKIN rather than adding chrome —
   // { berserk, still }, both 0..1, built by playerBuffs() at the call site because this function
   // takes the PLAYER and both live on the run.
-  function syncPlayer(p, dt, rampageT = 0, buffs = null) {
+  // `deathP` (v7.x): the death outro's progress, 0..1, or 0 when not dying — see updateDeathOutro,
+  // which computes it and is the only caller that passes a non-zero one. Applied at the very BOTTOM
+  // of this function, after every normal transform has been written, because the pose is a
+  // post-multiply on whatever the live rig produced rather than a branch inside it: a dying player
+  // still has a chapter form, a facing and a breathe cycle, and re-deriving those here would be a
+  // second copy of forty lines that already work.
+  function syncPlayer(p, dt, rampageT = 0, buffs = null, deathP = 0) {
     playerC.position.set(p.x, p.y)
 
     // v5.11 kaiju redesign, generalised (undertow): swap the whole body/flash/shadow onto the
@@ -15977,6 +16106,31 @@ export function createRenderer(app) {
 
     // invuln blink
     playerC.alpha = p.invuln > 0 ? (Math.sin(animT * 32) > 0 ? 1 : 0.4) : 1
+
+    // ---- the death outro's pose (v7.x, DEATH_OUTRO) ----------------------------------------------
+    // A fish that has stopped swimming. Last in the function on purpose (see the deathP note on the
+    // signature): these are post-multiplies onto the transforms written above, so the body keeps its
+    // chapter form and its final facing and simply goes slack from there.
+    //
+    // ⚠ `roll` IS A Y-SCALE, NOT A ROTATION, AND THAT IS THE PROJECTION RULE. The camera looks
+    // straight down (CLAUDE.md: every creature is a plan view), so a fish turning belly-up does not
+    // TURN on screen — it gets thinner, because you start seeing its edge instead of its back. A
+    // rotation would just point the same flat fish somewhere else, which is a fish that changed its
+    // mind, not a fish that died. The v6.8 Trash Tornado shipped a whole version of the opposite
+    // mistake (a side elevation in a top-down game) and a screenshot passed it, so this is worth
+    // stating: ask whether the change is drawn from the same viewpoint as the sprites around it.
+    //
+    // `list` is added to bodyC.rotation, which the live rig has already set to the facing — so the
+    // body drifts on from wherever it was actually pointing rather than snapping to a canned angle.
+    // The SHADOW deliberately keeps its own scale (set above): a body lifting off the floor should
+    // not drag its shadow's shape with it, and the shadow fading with playerC.alpha is enough.
+    if (deathP > 0) {
+      const D = DEATH_OUTRO
+      bodyC.scale.y *= 1 - (1 - D.roll) * deathP
+      bodyC.rotation += D.list * deathP
+      playerC.position.set(p.x, p.y + D.sink * deathP)
+      playerC.alpha = 1 - (1 - D.dim) * deathP
+    }
   }
 
   // Elite affix badges: small Text icons floating above an elite's sprite, one per
@@ -16881,7 +17035,11 @@ export function createRenderer(app) {
     updateWake(run.player.x, run.player.y)
     syncPool(trapPool, trapLayer, run.traps || [], 'trap', T.trapArmed, placeTrap)
     syncPool(rockPool, rockLayer, run.rocks || [], 'rock', T.asteroid, placeRock)
-    syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run))
+    // BEFORE syncPlayer, and its return value is threaded straight in: the outro's progress is
+    // derived from run.deathT in exactly one place, so the vent, the dark and the body's pose cannot
+    // drift out of step with each other.
+    const deathP = updateDeathOutro(run, dt)
+    syncPlayer(run.player, dt, run.rampageT || 0, playerBuffs(run), deathP)
     syncEnemies(run)
     syncBlooms(run)
     syncLures(run.lures || [])

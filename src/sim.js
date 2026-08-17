@@ -1070,7 +1070,7 @@ function stepBossScript(run, dt) {
         p.x += (dx / d) * drag
         p.y += (dy / d) * drag
       }
-      if (hurtPlayer(run, BLANK_YANK_DMG)) playerDied = true
+      if (hurtPlayer(run, BLANK_YANK_DMG, false, 'yank')) playerDied = true
       for (const n of nodes) dealDamage(run, n, n.hp, false)
       run.events.push({ type: 'yank', x: p.x, y: p.y })
     }
@@ -1363,7 +1363,7 @@ function stepRocks(run, dt) {
     const prad = rk.r + PLAYER.radius
     if (pdx * pdx + pdy * pdy <= prad * prad && p.invuln <= 0) {
       run.events.push({ type: 'rockhit', x: rk.x, y: rk.y })
-      if (hurtPlayer(run, ROCK_DMG)) died = true
+      if (hurtPlayer(run, ROCK_DMG, false, 'rock')) died = true
     }
   }
   // Drop rocks once they are well behind — same threshold a leaked marcher uses.
@@ -1390,7 +1390,7 @@ function stepLeaks(run) {
     // removed FORMATION_COLS x LANE_LEAK_DMG in a single frame out of 100 max HP, and the chapter
     // killed the player in 15 seconds without an enemy ever touching them.
     if (p.invuln > 0) continue
-    if (hurtPlayer(run, LANE_LEAK_DMG)) return true
+    if (hurtPlayer(run, LANE_LEAK_DMG, false, 'leak')) return true
   }
   return false
 }
@@ -2609,6 +2609,22 @@ function hurtPlayer(run, rawDmg, dot = false, src = null) {
   p.hp -= dmg
   if (!dot) p.invuln = PLAYER.invulnTime
   run.events.push({ type: 'hurt', dmg, dot, src })
+  // v7.x damage attribution (run.dmgBySrc / run.killedBy — see state.js's doc block). This is the
+  // one funnel EVERY player-damage path already goes through, which is why the whole feature is
+  // three lines here rather than an accumulator at each of the sixteen call sites.
+  // TALLIES `dmg`, NEVER `rawDmg`: armor, contactDmgTakenMul and HURT_CAP_FRAC have all already been
+  // applied above, so this is HP the player actually lost and the summary's percentages add up to
+  // what the health bar really did. The enemy-side `hit` event does the opposite — it carries the raw
+  // swing and credits overkill in full, which is the documented reason weapon-census diffs hp
+  // instead (CLAUDE.md). Do not "fix" this to match it.
+  // `?? 'unknown'` is a real bucket, not a guard: it means a caller was added without a label, and a
+  // visible "Unknown" row on the summary screen is the cheapest possible way to notice that. Run DA
+  // asserts the bucket stays empty over a full run, so it cannot rot quietly.
+  if (dmg > 0) {
+    const tally = (run.dmgBySrc ??= {})
+    const srcKey = src ?? 'unknown'
+    tally[srcKey] = (tally[srcKey] ?? 0) + dmg
+  }
   // v7.2 anomaly slate. This is the one funnel every player-damage path already goes through, so
   // it is where "you got hit" means anything. The counter gates BERSERK and MARTYR's `when`
   // predicates — both cards are about taking damage, so neither should be offered to a player the
@@ -2675,6 +2691,11 @@ function hurtPlayer(run, rawDmg, dot = false, src = null) {
       run.events.push({ type: 'revive', x: p.x, y: p.y })
       return false
     }
+    // v7.x: what killed you, for the summary screen. Set HERE and only here — below the revive
+    // branch above, so surviving on a Revive Token does not record a death, and on the same
+    // statement as the phase flip, so nothing landing later in the frame can overwrite it (several
+    // step functions deliberately keep going after a death to finish their own iteration).
+    run.killedBy = src ?? 'unknown'
     run.phase = 'dead'
     run.events.push({ type: 'dead' })
     return true
@@ -2887,7 +2908,13 @@ function stepContactDamage(run) {
     // enrage (v5.4, flashlightCone elites): a lit-up enemy hits harder, not just faster.
     let dmg = (e.enrageT || 0) > 0 ? e.dmg * FLASHLIGHT_DMG_MUL : e.dmg
     if (CHAPTERS[run.chapter].lane) dmg *= LANE_CONTACT_MUL // see LANE_CONTACT_MUL: one axis to dodge on
-    return hurtPlayer(run, dmg) // one hit per frame; invuln now active either way
+    // v7.x: the src label is the ENEMY'S OWN roster id, which is what makes "killed by a Sea Roach"
+    // possible at all. Falls back to the archetype ('normal'|'fast'|'tank'|'wisp') for a spawn with
+    // no roster entry — chapter rosters are complete today, but formations and the scripted chapter
+    // can both put an enemy on the field, and an honest "Tank" beats an "Unknown" row. Elite status
+    // is deliberately NOT in the key: it would double every bucket to distinguish a modifier the
+    // player already saw, and the summary wants "what killed me", not a damage-source taxonomy.
+    return hurtPlayer(run, dmg, false, e.rosterId ?? e.type) // one hit per frame; invuln now active either way
   }
   return false
 }
@@ -2908,7 +2935,7 @@ function stepPools(run, dt) {
     pool._tickAcc = (pool._tickAcc ?? 0) + dt
     while (pool._tickAcc >= STATUS_TICK) {
       pool._tickAcc -= STATUS_TICK
-      if (!playerDied && hurtPlayer(run, pool.dps * STATUS_TICK, true)) playerDied = true
+      if (!playerDied && hurtPlayer(run, pool.dps * STATUS_TICK, true, 'pool')) playerDied = true
     }
   }
   run.pools = run.pools.filter((pl) => pl.t > 0)
@@ -4295,7 +4322,7 @@ function stepStrips(run, dt) {
     s._tickAcc = (s._tickAcc ?? 0) + dt
     while (s._tickAcc >= STATUS_TICK) {
       s._tickAcc -= STATUS_TICK
-      if (!playerDied && hurtPlayer(run, s.dps * STATUS_TICK, true)) playerDied = true
+      if (!playerDied && hurtPlayer(run, s.dps * STATUS_TICK, true, 'spray')) playerDied = true
     }
   }
   run.strips = run.strips.filter((s) => s.fuse > 0 || s.t > 0)
@@ -4345,7 +4372,7 @@ function stepTraps(run, dt) {
       const dx = p.x - tr.x, dy = p.y - tr.y
       if (dx * dx + dy * dy <= rSq) {
         springTrap(run, tr)
-        if (!playerDied && hurtPlayer(run, SNAP_TRAP_DMG)) playerDied = true
+        if (!playerDied && hurtPlayer(run, SNAP_TRAP_DMG, false, 'trap')) playerDied = true
         continue
       }
     }
@@ -4583,7 +4610,7 @@ function stepLanePasses(run, dt) {
         run._obstacleRev = (run._obstacleRev || 0) + 1
       } else {
         lane._hitPlayer = true // for a dot lane this IS the once-per-pass guard
-        if (hurtPlayer(run, lane.dmg, dotHit)) playerDied = true
+        if (hurtPlayer(run, lane.dmg, dotHit, 'traffic')) playerDied = true
       }
       // For a normal hit, invuln makes "once per pass" implicit, the way contact damage does.
     }
@@ -4801,7 +4828,7 @@ function stepEnemyShots(run, dt) {
     if (dx * dx + dy * dy > rad * rad) continue
     s._done = true
     run.events.push({ type: 'explode', x: s.x, y: s.y, radius: MISSILE_BLAST })
-    if (!playerDied && p.invuln <= 0 && hurtPlayer(run, s.dmg)) playerDied = true
+    if (!playerDied && p.invuln <= 0 && hurtPlayer(run, s.dmg, false, 'missile')) playerDied = true
   }
   run.enemyShots = run.enemyShots.filter((s) => !s._done)
   return playerDied
@@ -4846,7 +4873,7 @@ function stepPullBeams(run, dt) {
     e._beamAcc = (e._beamAcc ?? 0) + dt
     while (e._beamAcc >= STATUS_TICK) {
       e._beamAcc -= STATUS_TICK
-      if (!playerDied && hurtPlayer(run, PULL_BEAM_DPS * STATUS_TICK, true)) playerDied = true
+      if (!playerDied && hurtPlayer(run, PULL_BEAM_DPS * STATUS_TICK, true, 'beam')) playerDied = true
     }
   }
   return playerDied
@@ -4882,7 +4909,7 @@ function stepBombs(run, dt) {
       const dx = p.x - b.x, dy = p.y - b.y
       // The player side is FLAT, core or not (config.js CORE_BLAST_ENEMY_MUL): the card's cost is
       // priced against player maxHP, which does not ride hpScale.
-      if (dx * dx + dy * dy <= b.radius * b.radius && hurtPlayer(run, b.dmg)) playerDied = true
+      if (dx * dx + dy * dy <= b.radius * b.radius && hurtPlayer(run, b.dmg, false, 'bomb')) playerDied = true
     }
 
     const radSq = b.radius * b.radius

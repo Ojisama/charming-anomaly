@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax } from './config.js'
+import { shopCost, shopLines, MAX_SHOP_LEVEL, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -205,7 +205,14 @@ function formatShopBonus(bookId, id, levels) {
  *       ui.activeScreen() to tell those two directions apart.
  *     - 'summary' data: { victory, time, kills, level, earned, bonus, mutators?, mode,
  *       nextDifficulty?, unlockedDifficulty?, unlockedChapter?, unlockedHiddenChapter?,
- *       unlockedBook? }
+ *       unlockedBook?, killedBy?, dmgBySrc? }
+ *       killedBy / dmgBySrc (v7.x) are run.killedBy and run.dmgBySrc verbatim — the `src` LABEL of
+ *       the fatal hit, and a { label: hpTotal } tally of everything that landed. Labels, not copy:
+ *       config.js's dmgSrcName resolves both (an enemy label is a roster id, and its name already
+ *       lives in CHAPTERS[].roster), and renderSummary/damageBlock must not keep a second mapping.
+ *       killedBy renders as the .summary-killer line on DEATHS only and is skipped when the label
+ *       does not resolve; dmgBySrc renders as .summary-damage on wins too, since where a winning
+ *       run's health went is just as much a build report. Both absent/empty renders nothing.
  *       nextDifficulty (v6.4.4) is the difficulty a classic win just advanced the chapter's saved
  *       selection to (endRun bumps chMeta.difficulty when below the cap), else null — it flips the
  *       main button's label from "Play again" to "Next level"; the button's onPlay flow is
@@ -2111,6 +2118,44 @@ export function initUI(hooks) {
     `)
   }
 
+  // ---- "what happened to me" (v7.x) ----------------------------------------
+  // Owner ask, alongside the death outro: say what killed you, and where the run's damage actually
+  // went. Both read the same tally (run.dmgBySrc / run.killedBy — see state.js's doc block), and
+  // both resolve labels through config.js's dmgSrcName, which is the ONE resolver. Do not add a
+  // second lookup here: enemy labels are roster ids whose names live in CHAPTERS[].roster, and a
+  // local copy of that mapping is the drift this project's cross-file lint scenarios exist to catch.
+  //
+  // SHARES OF DAMAGE TAKEN, not of max HP. The denominator is the tally's own total, so the rows
+  // always add to 100% of the HP this run actually cost — healing, revives and a rising maxHP all
+  // make "% of your health" meaningless over 300 seconds, while "of everything that hurt me" stays
+  // true whatever the build did.
+  const DMG_ROWS_MAX = 5
+  function damageBlock(d) {
+    const tally = d.dmgBySrc || {}
+    const rows = Object.entries(tally).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
+    if (!rows.length) return ''
+    const total = rows.reduce((s, [, v]) => s + v, 0)
+    // Top N, with the remainder lumped into one honest "Other" row rather than dropped. A silent
+    // truncation would read as "these were all the things that hurt me", which is a different and
+    // false statement — the same reason the probe harnesses print their denominators.
+    const shown = rows.slice(0, DMG_ROWS_MAX)
+    const restTotal = rows.slice(DMG_ROWS_MAX).reduce((s, [, v]) => s + v, 0)
+    const line = (label, v) => {
+      const pct = Math.round((v / total) * 100)
+      // The bar is the row's own background, sized by the share — no extra element, and it degrades
+      // to a plain labelled percentage if the style ever fails to load.
+      return `<div class="dmg-row"><span class="dmg-bar" style="width:${pct}%"></span>` +
+        `<span class="dmg-name">${esc(label)}</span><b>${pct}%</b></div>`
+    }
+    const body = shown.map(([src, v]) => line(t(dmgSrcName(src) ?? src), v)).join('') +
+      (restTotal > 0 ? line(t('Other'), restTotal) : '')
+    return `
+      <div class="summary-damage">
+        <div class="summary-mutators-head">💔 ${t('Damage taken')}</div>
+        ${body}
+      </div>`
+  }
+
   // ---- summary modal -------------------------------------------------------
   function renderSummary(d) {
     const mutatorIds = d.mutators || []
@@ -2124,17 +2169,27 @@ export function initUI(hooks) {
         <div class="summary-mutators-head">🌀 ${t('Anomalies')}</div>
         ${mutatorIds.map((id) => `<div class="summary-mutator-line">${MUTATORS[id]?.icon ?? '❔'} ${t(MUTATORS[id]?.name ?? id)}</div>`).join('')}
       </div>` : ''
+    // Deaths only, and only when the label resolves: a win has no killer, and printing a raw
+    // internal id at the player would be worse than the silence. tt(), not a composed string — the
+    // key has to be the TEMPLATE so one dictionary entry covers every killer and French can put the
+    // name where French wants it (see the tt/elText rule in CLAUDE.md).
+    const killerName = d.victory ? null : dmgSrcName(d.killedBy)
+    const killedByLine = killerName
+      ? `<p class="summary-killer">☠️ ${tt('Killed by {name}', { name: t(killerName) })}</p>`
+      : ''
     setHtml(screens.summary, `
       <div class="modal" data-pop="summary">
         <h2 class="modal-title">${d.victory
           ? t(CHAPTER_ENDINGS[chapterId]?.victory ?? 'You escaped! 🎉')
           : t(CHAPTER_ENDINGS[chapterId]?.death ?? 'Squished… 💦')}</h2>
         <p class="summary-chapter">${chapter.icon} ${t(chapter.name)}</p>
+        ${killedByLine}
         <div class="stats">
           <div class="stat-row"><span>${t('Time')}</span><b>${fmtTime(d.time)}</b></div>
           <div class="stat-row"><span>${t('Kills')}</span><b>${d.kills}</b></div>
           <div class="stat-row"><span>${t('Level reached')}</span><b>${d.level}</b></div>
         </div>
+        ${damageBlock(d)}
         ${mutatorBlock}
         ${typeof d.unlockedDifficulty === 'number' ? `<div class="summary-unlock">🔓 ${tt('Difficulty {d} unlocked!', { d: d.unlockedDifficulty })}</div>` : ''}
         ${d.unlockedChapter ? `<div class="summary-unlock summary-unlock--chapter">🔓 ${CHAPTER_UNLOCK_LINES[d.unlockedChapterId]

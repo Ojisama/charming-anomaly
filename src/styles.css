@@ -950,6 +950,43 @@ body {
 /* chapter played, shown under the summary screen's headline (v5.0) */
 .summary-chapter { margin: -6px 0 0; font-weight: 800; font-size: 0.95rem; color: var(--ink-soft); }
 
+/* what killed you, + where the run's damage went (v7.x) — see damageBlock in ui.js.
+   NO `position` DECLARATION ON A SCREEN-LEVEL CLASS: these are inside .modal, not on .screen
+   itself, so they are safe — but .dmg-row DOES need position:relative, because .dmg-bar is the
+   row's own absolutely-positioned background and has nothing else to anchor to. */
+.summary-killer { margin: 2px 0 0; font-weight: 800; font-size: 0.92rem; color: #a33b4e; }
+.summary-damage {
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #fdeef0;
+  border: 2px solid #d4788c;
+  text-align: left;
+}
+.summary-damage .summary-mutators-head { color: #a33b4e; }
+.dmg-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 3px 4px;
+  border-radius: 6px;
+  overflow: hidden;   /* the bar is sized in %, so a 100% row must not bleed past the radius */
+}
+.dmg-bar {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  background: #f6c9d2;
+  border-radius: 6px;
+  z-index: 0;
+}
+/* Both siblings lift above the bar. A share and its label must stay legible at 100%, where the bar
+   is behind the whole row. */
+.dmg-row .dmg-name, .dmg-row b { position: relative; z-index: 1; }
+.dmg-name { flex: 1; }
+.dmg-row b { font-weight: 900; font-variant-numeric: tabular-nums; }
+
 /* difficulty-unlock celebration badge on the summary screen (v4.10) — mint */
 .summary-unlock {
   padding: 8px 10px;

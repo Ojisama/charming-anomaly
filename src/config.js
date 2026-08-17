@@ -7379,6 +7379,177 @@ export const resourceDamageMul = (charge, res, max = res?.max) => {
 // chime twice a second for as long as you are empty is the nagging SUBMISSION's expiry was denied.
 export const DROWN_TICK = 0.5            // s between drowning ticks while the bar is empty
 
+// ---- The death outro (v7.x Book 2) ------------------------------------------------------------
+// A BEAT BETWEEN THE KILLING BLOW AND THE SUMMARY. Owner report: "the player sees the death modal
+// almost before seeing the enemy last hitting you." That is literally true and it is not a tuning
+// problem — hurtPlayer sets phase 'dead' and main.js's very next line calls endRun, so the modal
+// goes up on the SAME frame the last hit lands. There were no frames to lengthen; this creates them.
+//
+// WHO OWNS THE CLOCK. main.js, in `run.deathT`, because main.js owns phase transitions (see its
+// header) and because the alternative — a timer in main.js for the modal and a second one in
+// render.js for the picture — is exactly the one-fact-two-places drift this project's whole test
+// strategy is built around. render.js READS run.deathT and never writes it, same as every other
+// contract field.
+//
+// UNDERTOW ONLY, deliberately. Book 1's chapters are not underwater and the vent/roll/sink below is
+// a drowning fish; a chapter with no outro keeps the shipped instant-modal behaviour rather than
+// getting a frozen frame with nothing happening in it, which would read as a hitch.
+//
+// SKIPPABLE, and that is not a nicety. You die a great many times in this genre; an unskippable
+// 1.3s every death is charming on run 3 and an obstacle on run 50. `skipLock` exists because the
+// input that killed you is usually still held — without it the joystick or a held key eats the
+// whole outro on the frame it starts, i.e. the feature would appear not to work at all.
+export const DEATH_OUTRO = {
+  time: 1.3,            // s from the killing blow to the summary screen
+  skipLock: 0.25,       // s before input can skip — the stick is still held from the fight
+  // The VENT: the last breath leaving the body. Bubbles are the only thing here moving UP while
+  // everything else falls, which is what sells the picture as underwater rather than merely blue —
+  // the same reasoning CORAL_CRUSH's block states for the coral burst, and the same particle idiom.
+  // A RATE, not a count: one burst is a pop, a stream that thins out is a body running out of air.
+  ventT: 0.75,          // s the vent lasts — well short of `time`, so the bubbles stop before the dark
+  // MEASURED FROM THE PROBE, not chosen. A linear taper emits rate x ventT / 2 bubbles in total, so
+  // the first cut's 34 was 13 bubbles for an entire death — countable, and it read as a few stray
+  // motes rather than as air leaving a body. 76 gives ~28, which is a stream.
+  ventRate: 76,         // bubbles/s at the start of the vent, tapering linearly to 0 at ventT
+  ventRise: 130,        // px/s upward
+  ventSpread: 46,       // px/s lateral scatter
+  ventLife: 1.15,       // s per bubble
+  ventScale: 0.05,      // as spawnParticle scale — matched to CORAL_CRUSH.bubbles
+  ventTint: 0xdff2ff,   // CORAL_CRUSH.bubbleTint — the chapter already has one colour for air
+  // The BODY: a fish that stops swimming. `roll` squashes the body's y scale toward a sliver, which
+  // in a PLAN VIEW is what turning belly-up looks like — the camera looks straight down (see the
+  // projection rule in CLAUDE.md), so a roll cannot be a rotation. `list` is the slow uncontrolled
+  // turn on top of it; `sink` drifts the whole rig down-screen away from the held camera.
+  roll: 0.34,           // final bodyC y-scale multiplier
+  list: 1.5,            // rad of drift over the outro
+  sink: 40,             // px the body settles
+  dim: 0.45,            // final playerC alpha. 0.3 in the first cut put the body BELOW the dimmed
+                        // floor's own value, so the creature the outro is about was the hardest thing
+                        // in the last frame to find — a fading body still has to be the subject.
+  // The DARK: light loss with depth, which is what drowning actually looks like. Closes from the
+  // edges in on the body, then goes flat — the iris both IS the "you're gone" beat and covers the
+  // handoff to the summary, so the modal no longer cuts into a live-looking world.
+  //
+  // ⚠ THE SCALE NEVER GOES BELOW 1.0, AND THAT IS A CORRECTNESS BOUND, NOT TASTE. The iris is one
+  // radial gradient sprite sized relative to the screen, so shrinking it below the screen leaves the
+  // area OUTSIDE the sprite untouched: on a 390x844 phone a sprite closed to a tight pinhole is
+  // ~500px across and does not reach the top and bottom, so the "fade to black" ends with two bright
+  // bands. That is the shipped-on-one-viewport bug this project has already paid for twice (v7.58's
+  // light early-out; see the two-viewports rule in CLAUDE.md). Closing is therefore done with the
+  // ALPHA RAMP, which cannot uncover anything, plus a scale that only ever comes DOWN TO 1.0.
+  //
+  // ⚠ AND 1.0 IS ONLY ENOUGH FOR A SPRITE CENTRED ON THE SCREEN. This iris is centred on the BODY,
+  // and `lane: true` chapters hold the player off-centre on purpose — The Reef puts them 20% across.
+  // The first probe of this effect had a hard dark band down the right side of every frame for
+  // exactly that reason. irisCoverMul (above) raises the multiplier to whatever the actual centre
+  // needs, so these two numbers are the intent and it is the floor; do not remove the call and trust
+  // the bound.
+  irisTint: 0x04121e,   // deep-water black-blue, not pure black — the sea, not a fade-out
+  irisFrom: 1.5,        // x screen: oversized, so its gradient ramp starts off-screen and dims little
+  irisTo: 1.0,          // x screen: the whole ramp is now on screen. NEVER less than 1 — see above.
+  irisAlpha: 1,         // peak alpha of the gradient
+  irisHold: 0.35,       // fraction of `time` the dark waits before starting — the vent gets the stage
+  // Short of 1 deliberately: the last thing on screen should be the body, faintly, not an empty black
+  // rectangle. 0.68 rather than the first cut's 0.58 because The Reef's tide pools are very
+  // light-valued objects and simply outlasted the dark at 0.58 — the brightest thing in the final
+  // frame was a pool, not the creature the frame is about.
+  flatAlpha: 0.68,
+  // NO SHAKE KNOB, deliberately. hurtPlayer pushes {type:'hurt'} for the fatal hit BEFORE it flips
+  // the phase, so render.js's existing hurt case has already fired a shake, a white/red body flash
+  // and the red vignette on this very frame — scaled by the hit's fraction of maxHP, so a killing
+  // blow is already the loudest one the game draws. A second shake on {type:'dead'} would double it
+  // and, because that event fires in every chapter, would also change Book 1 for no visible gain
+  // (its summary modal covers the screen on the next frame regardless).
+}
+
+// How big must the death outro's iris be, as a multiple of the screen, to cover the whole screen
+// while centred at (cx, cy)? Returns a multiplier >= `mult`, never less.
+//
+// ⚠ THIS EXISTS BECAUSE THE PLAYER IS NOT ALWAYS AT THE CENTRE OF THE SCREEN, AND THAT COST A ROUND.
+// The iris is centred on the BODY (the last thing you should see is yourself, not empty water), and
+// `lane: true` chapters deliberately hold the player off-centre — laneFrac in render.js puts them
+// LANE_CAMERA_FRAC of the way down/across the view. The Reef is an x-lane, so its player sits at
+// 1 - 0.8 = 20% across: 78px of a 390px phone. A sprite of width 1.5x the screen centred there
+// reaches only to 78 + 293 = 371 of 390, and the first probe frames came back with a hard-edged dark
+// BAND down the right side — the uncovered strip — at every frame of the outro.
+//
+// Two things this fixes that a comment alone did not. (1) `irisTo >= 1` guarantees coverage only
+// for a sprite centred on the SCREEN; the guarantee does not survive re-centring it on an
+// off-centre subject, which is what the config block above originally claimed. (2) It is now a
+// pure function of the geometry, so the suite can assert it against the real lane fraction at both
+// viewports instead of the bound being an untestable render-side expression (run DO.d).
+//
+// ONE multiplier for both axes, taken as whichever axis needs more, so the iris keeps the screen's
+// aspect the way the red vignette does. Scaling the axes independently would cover just as well but
+// change the iris's shape as it closed, which is a different effect than the one being tuned.
+export function irisCoverMul(mult, cx, cy, w, h) {
+  // Distance from the centre to the FURTHEST edge on each axis — the half-extent the sprite must
+  // reach. A centred subject gives w/2, i.e. a need of exactly 1.0 and no change to `mult` at all.
+  const needW = (2 * Math.max(cx, w - cx)) / w
+  const needH = (2 * Math.max(cy, h - cy)) / h
+  return Math.max(mult, needW, needH)
+}
+
+// ---- What killed you (v7.x) -------------------------------------------------------------------
+// Display copy for every non-enemy `src` label hurtPlayer can carry (run.dmgBySrc / run.killedBy —
+// see state.js's doc block). ENEMY sources are deliberately absent: they key on the roster id and
+// already have a translated name in CHAPTERS[].roster[].name, so duplicating them here would be the
+// one-fact-two-places drift this project's test strategy is built around. dmgSrcName below resolves
+// either kind, and it is the ONLY resolver — ui.js must not do its own lookup.
+//
+// A FLAT id -> string TABLE, on purpose. run XX's generic walk reads `.name`/`.desc` off table
+// values and so cannot see a bare string map, but the file already has the idiom for exactly this
+// (CHAPTER_SPINE, CHAPTER_UNLOCK_LINES) and run XX walks those explicitly with
+// `for (const v of Object.values(X)) need(v)`. DMG_SRC_NAME is joined to that list in the same
+// commit — copy in a function or a bare const is what has shipped untranslated four times.
+//
+// `unknown` is a real, reachable row, not a defensive default: hurtPlayer buckets an unlabelled
+// caller under it. Seeing "Unknown" on the summary is how a future damage path that forgot its label
+// announces itself, which is worth more than a silent misattribution to something else.
+export const DMG_SRC_NAME = {
+  // Book 2's hazards and resource costs
+  drown: 'Drowning',           // The Reef: an empty Air bar
+  trawl: 'The Net',            // The Trawl: the mesh wall
+  devour: 'Swallowed',         // The Deep: an anglerfish closed on you
+  // Book 1's hazards
+  pool: 'Caustic Pools',       // acidPool / soapTrail elite trails
+  spray: 'Pesticide',          // the garden's spray strips
+  trap: 'Snap Traps',          // the undergrowth
+  traffic: 'Traffic',          // the city's lanes
+  missile: 'Missiles',         // the city helicopter's volley
+  beam: 'Abduction Beam',      // the skies UFO
+  bomb: 'Blasts',              // volatile elites' corpse bombs
+  rock: 'Asteroids',           // The Beyond's drifting rocks
+  leak: 'The Line',            // The Beyond: invaders that got past you
+  yank: 'The Pull',            // The Blank's boss, phase 2
+  // Costs you chose to pay. Both are anomalies, and both names match the card's own so the summary
+  // reads as the card you took rather than as a mystery source of damage.
+  overload: 'Overload',
+  bloodMoney: 'Blood Money',
+  // The bucket that should always be empty — see the block comment above.
+  unknown: 'Unknown',
+  // Archetype fallbacks, for a spawn with no roster entry (stepContactDamage keys on
+  // `e.rosterId ?? e.type`). Rosters are complete today, so these are the formation/scripted-spawn
+  // safety net rather than the normal path.
+  drone: 'Drone', wisp: 'Wisp', tank: 'Tank',
+}
+
+// Resolve a `src` label to display copy. Enemy labels are roster ids, so they are looked up in the
+// roster of the chapter that has one — searched across CHAPTERS rather than only the run's own
+// chapter because a formation or the scripted chapter can field a creature the current chapter's
+// roster does not list, and a wrong-chapter name is worse than the id.
+// Returns null for a label nothing claims, so the caller decides whether to hide the row or print
+// the raw key; it never invents a name.
+export function dmgSrcName(src) {
+  if (!src) return null
+  if (DMG_SRC_NAME[src]) return DMG_SRC_NAME[src]
+  for (const ch of Object.values(CHAPTERS)) {
+    const hit = ch.roster?.find((r) => r.id === src)
+    if (hit) return hit.name
+  }
+  return null
+}
+
 // ---- Light Thief (v7.x Book 2) ----------------------------------------------------------------
 // Kills give light back — but ONLY once bought. Owner ruling, and a reversal of the first cut which
 // had it on by default: "none by default, only via the shop". So the baseline chapter is tuned to
