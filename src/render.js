@@ -15852,13 +15852,22 @@ export function createRenderer(app) {
   // tell is strongest on the hit and dies with the window — the tint IS the timer.
   //   STILLNESS's is the same ramp the damage multiplier reads (stepAnomalies), so the silhouette
   // and the damage can never disagree.
+  //   BLOODLUST (v7.x, The Wreck) rides here for the same structural reason the other two do, and
+  // it is why this function's null fast-path grew a third term: syncPlayer takes the PLAYER, and
+  // the bar lives on the run. Reaching for `run` inside syncPlayer instead throws
+  // `ReferenceError: run is not defined` — which npm test cannot see at all, because render.js is
+  // not importable by the suite, so the chapter was a blank page with a green board until it was
+  // shot. Unlike the two anomalies this one is a property of the CHAPTER, not of a card.
   function playerBuffs(run) {
     const a = run.anomalies
-    if (!a || (!a.berserk && !a.stillness)) return null
     const clamp01 = (v) => Math.max(0, Math.min(1, v))
+    const lust = chapterRender.lustTell ? clamp01((run.charge ?? 0) / (run.chargeMax || 1)) : 0
+    // Still null when nothing is on — the common case, and the one that must cost nothing.
+    if (!lust && (!a || (!a.berserk && !a.stillness))) return null
     return {
-      berserk: a.berserk ? clamp01((run._berserkT ?? 0) / BERSERK_DURATION) : 0,
-      still: a.stillness ? clamp01((run._stillT ?? 0) / STILLNESS_RAMP) : 0,
+      berserk: a?.berserk ? clamp01((run._berserkT ?? 0) / BERSERK_DURATION) : 0,
+      still: a?.stillness ? clamp01((run._stillT ?? 0) / STILLNESS_RAMP) : 0,
+      lust,
     }
   }
 
@@ -15954,13 +15963,12 @@ export function createRenderer(app) {
     // chapter, and at BERSERK_TINT_MAX it would sit at full wash for minutes and stop meaning
     // anything. MAX takes whichever is louder rather than adding them, so a berserk window inside a
     // full bar still reads as the berserk.
-    const lust = chapterRender.lustTell
-      ? LUST_TINT_MAX * Math.min(1, (run.charge ?? 0) / (run.chargeMax || 1))
+    pHot.alpha = buffs
+      ? Math.max(
+        LUST_TINT_MAX * buffs.lust,
+        BERSERK_TINT_MAX * Math.min(1, buffs.berserk / BERSERK_TINT_TAIL),
+      )
       : 0
-    pHot.alpha = Math.max(
-      lust,
-      buffs ? BERSERK_TINT_MAX * Math.min(1, buffs.berserk / BERSERK_TINT_TAIL) : 0,
-    )
     if (chapterRender.tail) {
       pTail.visible = true
       if (playerForm === 'kaiju') {
