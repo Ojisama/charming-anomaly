@@ -13209,7 +13209,7 @@ export function createRenderer(app) {
     prevCount.lure = n
   }
 
-  // Pesticide spray strips (run.strips): telegraphed rotated rectangles — one shared Graphics cleared/
+  // Erasure strips (run.strips): telegraphed rotated rectangles — one shared Graphics cleared/
   // redrawn per frame, same telegraph idiom as redrawBombs (Graphics is the sanctioned exception for
   // ground telegraphs). During `fuse`: a pulsing amber warning outline that ramps urgency toward 0
   // (no hazard fill yet). Once live: a filled acid-green hazard strip fading over its remaining life.
@@ -17601,5 +17601,209 @@ export function createRenderer(app) {
     return out
   }
 
-  return { reset, sync, idle, ready, setMapMode, castThumbs }
+  // v7.x: the same thing for the summary's DAMAGE RECAP hazard rows. Written to src/cast/<src>.png,
+  // the same directory and the same glob as the creature thumbnails, because ui.js's CAST_ART is
+  // already keyed by the tally's own `src` — so a hazard getting a picture needs no ui.js change at
+  // all. BUILD-TIME ONLY, exactly like castThumbs above, and for the same readPixels reason.
+  //
+  // WHY THIS DRIVES THE SHIPPED DRAW CODE RATHER THAN DRAWING ICONS. Most entries below either take a
+  // texture the game already baked, or call the very function that paints the hazard in-world with a
+  // one-entity stub list. That is not purity for its own sake: a hand-drawn 20px lookalike is the
+  // one-fact-two-places drift this project's whole test strategy exists to catch, AND it is more code
+  // than reusing the real thing. Retune the hazard and the icon follows on the next bake.
+  //
+  // Three entries cannot be extracted, and each says why in place. Where a hazard's look is inline in
+  // a per-frame function that needs a live run, the icon is composed from the palette CONSTANT that
+  // function reads (MAW_VIS, NET_VIS, DEATH_OUTRO.ventTint) — one authority for the colour, which is
+  // the part that carries the hazard's identity, and a shape chosen to survive 20 pixels.
+  //
+  // DELIBERATELY ABSENT, so the gaps are decisions rather than oversights:
+  //   beam    — the abduction beam draws in the SHARED elite-telegraph amber (0xffd24a/0xffe37a, the
+  //             same fill and rim the traffic lanes, erasure strips and flashlight cone use, see the
+  //             block above redrawTele). An icon from its own art would be an amber band that reads
+  //             identically to three other rows, and the beyond's "UFO" has no saucer texture to
+  //             borrow — drawing one is NEW ART and therefore the owner's call.
+  //   overload, bloodMoney — costs you chose to pay. Neither has a world object at all; the honest
+  //             picture is the anomaly card, which is a different surface from a creature thumbnail.
+  //   unknown, drone, wisp, tank — unreachable. Every hurtPlayer call site is labelled (run DA.d) and
+  //             all 13 chapters cover all three archetypes, so nothing can key on these today.
+  //   yank, leak — aliased to a CREATURE instead, see DMG_SRC_ART in config.js.
+  async function hazardThumbs(ids) {
+    // Extract whatever display object a builder hands back. A shared Graphics may legitimately be
+    // hidden or faded when we borrow it, and generateTexture would then capture nothing.
+    async function grab(target) {
+      const wasVisible = target.visible
+      const wasAlpha = target.alpha
+      target.visible = true
+      target.alpha = 1
+      try {
+        return await R.extract.base64(target)
+      } finally {
+        target.visible = wasVisible
+        target.alpha = wasAlpha
+      }
+    }
+
+    // Each builder returns [displayObject, cleanup]. The cleanup exists because four of these borrow
+    // a LIVE shared object (poolLayer's disc pool, stripG, bombG) rather than making their own, and
+    // leaving a hazard painted into a world Graphics would show it in the next run.
+    const build = {
+      // ---- straight off a texture the game already baked -------------------------------------
+      // spriteOf keeps the bake's own anchor, so the thumbnail is framed the way the world frames it.
+      trap: () => {
+        const s = new Sprite()
+        placeTrap(s, { x: 0, y: 0, r: 30, armed: true, rearmAt: 0 })   // the ARMED look: it is the threat
+        return [s, null]
+      },
+      rock: () => {
+        const s = new Sprite()
+        placeRock(s, { x: 0, y: 0, r: 15, rot: 0.5 })   // via placeRock for its warm-stone tint,
+        return [s, null]                                // which is the whole reason it reads as a hazard
+      },
+      traffic: () => [spriteOf(T.car), null],
+      mower: () => [spriteOf(T.mower), null],
+      missile: () => {
+        // T.missileDart, NOT T.missile — placeShot picks the dart in a STORM chapter, the skies is the
+        // only storm chapter, and the skies is where the helicopter's missileVolley lives. So the dart
+        // is what a player labelled "Missiles" actually saw; T.missile is the fallback the blank's
+        // boss fans use. Getting this backwards cost a round: T.missile is 26x8 of visible content at
+        // 21% mean opacity, a grey hairline once letterboxed into a 20px row.
+        //
+        // Angled, because a 3:1 projectile letterboxes into a square slot as a sliver whichever
+        // texture it is, and in-world the thing is always drawn rotated to its heading anyway. The
+        // short exhaust trail is placeShot's own particle and its own grey — nothing here is a new
+        // drawing, only the shipped article at the shipped scale, held still.
+        const c = new Container()
+        for (let i = 0; i < 4; i++) {
+          const p = new Sprite(T.fx.circle_05)
+          p.anchor.set(0.5)
+          p.position.set(-5 - i * 4, 5 + i * 4)              // back down the heading
+          p.scale.set(fxScale(T.fx.circle_05, 8 - i * 1.4))
+          p.tint = 0x9aa0a8                                  // placeShot's own exhaust grey
+          p.alpha = 0.8 - i * 0.16
+          c.addChild(p)
+        }
+        const s = spriteOf(T.missileDart)
+        s.scale.set(1.15)                                    // placeShot's own dart scale
+        s.rotation = -Math.PI / 4                            // up-right, across the square
+        s.position.set(5, -5)
+        c.addChild(s)
+        return [c, null]
+      },
+
+      // ---- painted by the shipped draw function, off a one-entity stub ------------------------
+      // t well past any fade, fuse spent: the icon is the LIVE hazard, not its telegraph.
+      pool: () => {
+        syncPools([{ x: 0, y: 0, r: 20, t: 99 }])
+        // OPACITY IS THE ONE THING AN ICON MUST NOT INHERIT FROM THE WORLD. syncPools paints the
+        // discs at alpha 0.5/0.55 so a pool does not hide the floor it sits on and so a stack of them
+        // is not soup — neither pressure exists in a 20px slot with nothing behind it. Measured
+        // before this line: 33% mean opacity and the visible disc covering 48% of its own frame
+        // (circle_05's soft falloff never crosses the alpha floor), which on the summary read as a
+        // faint green speck — the exact complaint that started this change, reproduced in the fix.
+        // Tint, scale and structure still come from syncPools; only alpha is overridden.
+        poolPool[0].a.alpha = 1
+        poolPool[0].b.alpha = 1
+        return [poolPool[0].root, () => syncPools([])]
+      },
+      erase: () => {
+        redrawStrips({ strips: [{ x: 0, y: 0, angle: -0.5, len: 44, w: 17, fuse: 0, t: 99, look: 'erase' }] })
+        return [stripG, () => stripG.clear()]
+      },
+      bomb: () => {
+        // No `src`, so bombSrc returns null and this takes the ordinary red-rim branch rather than a
+        // gull's shadow or the blank's violet. fuse/duration near spent = the rim at full urgency.
+        redrawBombs({ bombs: [{ x: 0, y: 0, radius: 20, fuse: 0.02, duration: 1 }] })
+        return [bombG, () => bombG.clear()]
+      },
+
+      // ---- composed, because there is nothing to extract --------------------------------------
+      drown: () => {
+        // DROWNING HAS NO WORLD OBJECT — it is the absence of air, so every possible icon is a
+        // composition and there is no extraction to prefer. The palette is still the game's, and
+        // specifically THE REEF'S: AIR_POCKET_VIS is the pocket that refills the very bar this label
+        // is about, and drowning is Reef-only (see DMG_SRC_NAME's note on the `drown` gate).
+        //
+        // NOT the death outro's ventTint, which was the first cut. Those bubbles are near-white
+        // because they sit on dark water; this panel is #fdeef0 parchment, and measured against it the
+        // near-white version scored a contrast ratio of 1.39 mean / 1.84 max — a ghost you could not
+        // find in the row. The pocket is drawn as a deep navy shade UNDER a pale air body, so taking
+        // BOTH gives a bubble that keeps the pale-air identity and still has an edge dark enough to
+        // see. Same trap as the chapter-agnostic FX tuned against dark floors: a colour that reads on
+        // one surface is not verified until it has been measured on the other.
+        const A = AIR_POCKET_VIS
+        const g = new Graphics()
+        for (const [dx, dy, r] of [[-4, 3, 9], [5, -3, 6], [0, -10, 3.5]]) {
+          g.circle(dx, dy, r).fill({ color: A.air, alpha: A.airA })
+          g.circle(dx, dy, r).stroke({ width: 2.2, color: A.shade, alpha: 0.95 })
+        }
+        return [g, null]
+      },
+      devour: () => {
+        // The Deep's maw, from the palette updateShafts' maw branch draws it with. Needles point
+        // INWARD, as they do in world (see MAW_VIS), and the esca is the bright bead that baits you in.
+        const M = MAW_VIS
+        const g = new Graphics()
+        const R0 = 15
+        g.circle(0, 0, R0).fill({ color: M.head, alpha: M.headA })
+        g.circle(0, 0, R0 * 0.66).fill({ color: M.throat, alpha: M.throatA })
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2
+          const base = R0 * 0.66
+          const tip = R0 * 0.3
+          g.moveTo(Math.cos(a + 0.17) * base, Math.sin(a + 0.17) * base)
+          g.lineTo(Math.cos(a) * tip, Math.sin(a) * tip)
+          g.lineTo(Math.cos(a - 0.17) * base, Math.sin(a - 0.17) * base)
+          g.closePath()
+        }
+        g.fill({ color: M.tooth, alpha: M.toothA })
+        g.circle(0, 0, R0).stroke({ width: M.rimW, color: M.rimHot, alpha: 0.85 })
+        g.circle(R0 * 0.12, -R0 * 0.14, R0 * 0.15).fill({ color: M.escaCore, alpha: 1 })
+        return [g, null]
+      },
+      trawl: () => {
+        // The Trawl's mesh wall, from updateNet's own NET_VIS. The HEAD ROPE along one edge is what
+        // makes a swatch of mesh read as the wall you must not cross.
+        const N = NET_VIS
+        const g = new Graphics()
+        const H = 15
+        g.rect(-H, -H, H * 2, H * 2).fill({ color: N.mesh, alpha: 0.92 })
+        // Twines CLIPPED to the mesh square. Drawn as full diagonals they overhang it, and the
+        // thumbnail's BOUNDS are what extract crops to — the first cut came out 32x73 for a 30x30
+        // swatch, which in a 20px slot is a sliver. Clipped parametrically along x, not by clamping
+        // both ends: clamping y independently moves the endpoint off the line and fans the twines out
+        // of parallel, which is a different (and wronger) drawing that still measures 30x30.
+        //   y = x + o (slope +1) and y = -x + o (slope -1), solved for the x-range inside the square.
+        for (let k = -2; k <= 2; k++) {
+          const o = k * H * 0.7
+          const aL = Math.max(-H, -H - o), aR = Math.min(H, H - o)          // y = x + o
+          if (aR > aL) g.moveTo(aL, aL + o).lineTo(aR, aR + o)
+          const bL = Math.max(-H, o - H), bR = Math.min(H, o + H)           // y = -x + o
+          if (bR > bL) g.moveTo(bL, -bL + o).lineTo(bR, -bR + o)
+        }
+        g.stroke({ width: 1.5, color: N.meshLine, alpha: 0.8 })
+        g.moveTo(-H, -H).lineTo(H, -H).stroke({ width: 2.8, color: N.rope, alpha: 0.95 })
+        return [g, null]
+      },
+    }
+
+    const out = {}
+    for (const id of ids) {
+      const make = build[id]
+      if (!make) continue
+      let cleanup = null
+      try {
+        const [target, done] = make()
+        cleanup = done
+        out[id] = await grab(target)
+      } catch {
+        // Same contract as castThumbs: a missing thumbnail costs one slot and the script reports it.
+      } finally {
+        if (cleanup) cleanup()
+      }
+    }
+    return out
+  }
+
+  return { reset, sync, idle, ready, setMapMode, castThumbs, hazardThumbs }
 }
