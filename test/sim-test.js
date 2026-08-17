@@ -75,6 +75,7 @@ import {
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
+  SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COSTS, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
@@ -5532,6 +5533,181 @@ function runShelf() {
 }
 run(runShelf)
 
+// ---- Run SK: THE SHOREBREAK (v7.x, The Surf's skill button) ------------------------------------
+// SK and not SB: `run SB` is already the SUBMISSION ally block, and two unrelated groups sharing a
+// prefix makes a red band in the output unreadable at exactly the moment you need to read it.
+// The Surf's skill button used to fire the Pulse — one frame of shove, then a 6s cooldown. Owner,
+// 2026-08-16: it "should be revamped to a bubble shield or wave shield that lasts for a bit so the
+// player can go through a wall of circling enemies", then picked the wave over the bubble. So it is
+// now a crest that rides with the player for a duration the spend buys, pushing and staggering what
+// it touches on every frame it is live — and, uniquely among the four chapter buttons, REPLACING
+// the shove rather than riding along with it.
+//
+// Every block below asserts where the BODIES ended up. A _shorebreakT that counts down is exactly
+// what a deleted push would also do, so the timer is never the subject.
+function runShorebreak() {
+  const RES = CHAPTERS.surf.resource
+  const sbMeta = () => { const m = makeMeta(); m.dev = true; ensureChapterMeta(m); return m }
+  const dt = 1 / 60
+
+  // A ring of bodies well inside SHOREBREAK_RADIUS, all walking at the player. THE SPEED IS THE
+  // POINT: against a stationary crowd any push at all "opens a corridor", so a fixture like that
+  // would pass with the force at a tenth of its value. A crowd closing at 120px/s means the wave has
+  // to beat their approach before the measurement moves at all.
+  const ringRun = (charge) => {
+    Math.random = mulberry32(20260816)
+    const run = createRun(sbMeta(), { chapter: 'surf', difficulty: 1 })
+    run.weapons = []
+    run.player.maxHP = run.player.hp = 1e9
+    run.enemies.length = 0
+    const ids = []
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2
+      const e = makeStatusEnemy(run, {
+        x: run.player.x + Math.cos(a) * 150,
+        y: run.player.y + Math.sin(a) * 150,
+        hp: 1e6, speed: 120,
+      })
+      run.enemies.push(e)
+      ids.push(e.id)
+    }
+    run.charge = charge
+    run.repulseCd = 0
+    return { run, ids }
+  }
+  // Measured from the PLAYER every time, never from a fixed origin: the tide shoves the player
+  // sideways all run (signature.surge 46px/s), so an origin-relative distance would be reading the
+  // chapter's own current as if it were the button.
+  const meanDist = (o) => {
+    const p = o.run.player
+    const ds = o.ids.map((id) => o.run.enemies.find((e) => e.id === id)).filter(Boolean)
+      .map((e) => Math.hypot(e.x - p.x, e.y - p.y))
+    return ds.reduce((a, b) => a + b, 0) / Math.max(1, ds.length)
+  }
+  const advance = (o, secs, press) => {
+    let first = true
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      stepSim(o.run, { x: 0, y: 0, skill: press && first }, dt)
+      first = false
+    }
+  }
+
+  // (a) IT OPENS A CORRIDOR, against a do-nothing control. The control is not ceremony: without it
+  // "the crowd ended up 250px away" is unreadable, because that is also roughly where an untouched
+  // ring of seekers ends up if the fixture forgot to make them walk.
+  {
+    const ctl = ringRun(RES.max)
+    const before = meanDist(ctl)
+    advance(ctl, SHOREBREAK_DUR_AT_FULL, false)
+    const ctlAfter = meanDist(ctl)
+
+    const hit = ringRun(RES.max)
+    advance(hit, SHOREBREAK_DUR_AT_FULL, true)
+    const hitAfter = meanDist(hit)
+
+    assert(ctlAfter < before - 20,
+      `the control must CLOSE on the player (${before.toFixed(0)} -> ${ctlAfter.toFixed(0)}px) or this fixture proves nothing`)
+    // Stated as a FRACTION OF THE CREST, never in px. The claim being made is "the crowd ends up out
+    // near the rim instead of on top of you", and that is what these two say at any radius — a px
+    // literal would have had to be retuned when SHOREBREAK_RADIUS moved 300 -> 190, which is exactly
+    // the moment a band stops meaning anything and starts being a number that makes the test green.
+    assert(hitAfter > SHOREBREAK_RADIUS * 0.8,
+      `the Shorebreak must hold the crowd out near its rim: ${hitAfter.toFixed(0)}px against a ${SHOREBREAK_RADIUS}px crest`)
+    assert(hitAfter > ctlAfter + SHOREBREAK_RADIUS * 0.5,
+      `the Shorebreak must open a corridor: pressed ${hitAfter.toFixed(0)}px vs control ${ctlAfter.toFixed(0)}px`)
+    console.log(`PASS run SK.a (corridor): ring at ${before.toFixed(0)}px -> control ${ctlAfter.toFixed(0)}px, pressed ${hitAfter.toFixed(0)}px`)
+  }
+
+  // (b) IT IS SUSTAINED, NOT AN IMPULSE — the whole reason it is not just a bigger Pulse. Most of the
+  // push must land AFTER the frame the button went down. This is the block that fails if someone
+  // "simplifies" the per-frame acceleration back into a one-shot kb impulse, which is a change no
+  // duration assertion and no event assertion can see.
+  {
+    const o = ringRun(RES.max)
+    const start = meanDist(o)
+    stepSim(o.run, { x: 0, y: 0, skill: true }, dt)
+    const afterFirst = meanDist(o)
+    advance(o, SHOREBREAK_DUR_AT_FULL - dt, false)
+    const afterRest = meanDist(o)
+    const firstFrame = afterFirst - start
+    const rest = afterRest - afterFirst
+    assert(rest > firstFrame * 5,
+      `the push must be sustained, not an impulse: frame 1 moved ${firstFrame.toFixed(1)}px, the remaining ${SHOREBREAK_DUR_AT_FULL}s moved ${rest.toFixed(1)}px`)
+    console.log(`PASS run SK.b (sustained): frame 1 ${firstFrame.toFixed(1)}px vs ${rest.toFixed(0)}px over the rest of the window`)
+  }
+
+  // (c) THE NO-SPIRAL FLOOR (spec §8.2). An EMPTY bar still gets a crest — shorter, never absent.
+  // Without this, running dry in a chapter whose bar ALSO multiplies your damage would leave a
+  // player with no answer and no way to earn one.
+  {
+    const ctl = ringRun(0)
+    advance(ctl, SHOREBREAK_DUR_MIN, false)
+    const ctlAfter = meanDist(ctl)
+    const hit = ringRun(0)
+    advance(hit, SHOREBREAK_DUR_MIN, true)
+    const hitAfter = meanDist(hit)
+    assert.strictEqual(hit.run.charge, 0, 'an empty bar spends nothing')
+    assert(hitAfter > ctlAfter + SHOREBREAK_RADIUS * 0.25,
+      `an empty bar must still push: ${hitAfter.toFixed(0)}px vs control ${ctlAfter.toFixed(0)}px`)
+    console.log(`PASS run SK.c (empty-bar floor): ${hitAfter.toFixed(0)}px vs control ${ctlAfter.toFixed(0)}px over the ${SHOREBREAK_DUR_MIN}s floor`)
+  }
+
+  // (d) THE SPEND BUYS DURATION. Both measured over the SAME long window, so the only thing that can
+  // separate them is how much of that window the crest was alive for.
+  {
+    const win = SHOREBREAK_DUR_AT_FULL + 0.4
+    const empty = ringRun(0)
+    advance(empty, win, true)
+    const full = ringRun(RES.max)
+    advance(full, win, true)
+    assert(meanDist(full) > meanDist(empty) + SHOREBREAK_RADIUS * 0.4,
+      `a full spend must push for longer than an empty bar: ${meanDist(full).toFixed(0)}px vs ${meanDist(empty).toFixed(0)}px`)
+    console.log(`PASS run SK.d (spend buys duration): empty ${meanDist(empty).toFixed(0)}px, full ${meanDist(full).toFixed(0)}px over one ${win.toFixed(1)}s window`)
+  }
+
+  // (e) IT REPLACES THE PULSE, and only in this chapter. The Surf must emit no `repulse` at all —
+  // if it did, the player would get an 880px/s impulse AND the crest on one press, and would hear
+  // the shove's sample twice over. The Beyond shares stepRepulse and must be untouched.
+  {
+    const o = ringRun(RES.max)
+    stepSim(o.run, { x: 0, y: 0, skill: true }, dt)
+    const sb = o.run.events.find((e) => e.type === 'shorebreak')
+    assert.ok(sb, 'The Surf must emit a shorebreak event on the press')
+    assert.ok(Math.abs(sb.r - SHOREBREAK_RADIUS) < 1e-9, `the event must carry the real radius ${SHOREBREAK_RADIUS}, got ${sb.r}`)
+    assert.ok(!o.run.events.some((e) => e.type === 'repulse'),
+      'The Surf must NOT also fire the Pulse — the Shorebreak replaces it')
+
+    Math.random = mulberry32(31337)
+    const lane = createRun(sbMeta(), { chapter: 'beyond', difficulty: 1 })
+    lane.repulseCd = 0
+    stepSim(lane, { x: 0, y: 0, skill: true }, dt)
+    assert.ok(lane.events.some((e) => e.type === 'repulse'), 'The Beyond must still fire its repulse')
+    assert.ok(!lane.events.some((e) => e.type === 'shorebreak'), 'only a `shorebreak` chapter may fire one')
+    console.log(`PASS run SK.e (replaces the Pulse): surf emits shorebreak r=${sb.r} and no repulse; beyond unchanged`)
+  }
+
+  // (f) ALLIES ARE NOT STAGGERED. A deliberate divergence from the Pulse, which shoves everything in
+  // run.enemies: a shove is a shrug, but a stagger REFRESHED every frame for up to 2.4s would switch
+  // your own summon off for the whole window, and a button that disables your allies is one you
+  // learn not to press near them.
+  {
+    const o = ringRun(RES.max)
+    const ally = makeStatusEnemy(o.run, { x: o.run.player.x + 60, y: o.run.player.y, hp: 1e6, speed: 0 })
+    ally.allyT = 99
+    o.run.enemies.push(ally)
+    for (let i = 0; i < 20; i++) stepSim(o.run, { x: 0, y: 0, skill: i === 0 }, dt)
+    const a = o.run.enemies.find((e) => e.id === ally.id)
+    assert.ok(a, 'the ally must survive the window')
+    assert.ok((a.stunT ?? 0) <= 0, `an ally must not be staggered by your own Shorebreak (stunT=${(a.stunT ?? 0).toFixed(2)})`)
+    const foe = o.run.enemies.find((e) => o.ids.includes(e.id))
+    assert.ok((foe.stunT ?? 0) > 0, 'a non-ally inside the crest must be staggered, or this block is vacuous')
+    console.log(`PASS run SK.f (allies spared): ally stunT=${(a.stunT ?? 0).toFixed(2)}, enemy stunT=${(foe.stunT ?? 0).toFixed(2)} of ${SHOREBREAK_STAGGER}`)
+  }
+
+  console.log(`PASS run SK (The Shorebreak): opens a corridor a walking crowd cannot close, sustained rather than impulsive, ${SHOREBREAK_DUR_MIN}s floor on an empty bar rising to ${SHOREBREAK_DUR_AT_FULL}s, replaces the Pulse in surf only, spares allies`)
+}
+run(runShorebreak)
+
 // ---- Run DK: THE DARK (v7.x Book 2, owner directive) --------------------------------------
 // "if we're stealing light, then our surroundings should be dark, and darker the less light we
 // have", plus a drawback while you are down there — move speed, chosen over damage and accuracy
@@ -6302,7 +6478,13 @@ function testChapterBehaviors() {
   {
     const run = createRun(makeMeta())
     run.weapons = []
-    run.player.x = 5000; run.player.y = 0 // far away: fixed seek direction, never contacts
+    // ON SCREEN, and on the x axis so the seek direction is a fixed +x for the whole window — the
+    // property this block actually needs. It used to be parked at 5000px for that, which stopped
+    // working when the dash grew its canCommitFrom gate (v7.x): out there the machine never leaves
+    // idle, and the assert below read idleRate === dashRate === full speed. 400 is inside the
+    // default headless viewport's half-width (viewW 480 - COMMIT_EDGE_PAD 28 = 452) with room to
+    // spare, and far enough that nothing ever contacts. See V.c3 for the off-screen half.
+    run.player.x = 400; run.player.y = 0
     const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 100 })
     e.flags = ['dashBurst']
     run.enemies.push(e)
@@ -6323,6 +6505,45 @@ function testChapterBehaviors() {
     const dashRate = dashDist / DASH_T
     assert(dashRate > idleRate * 3, `expected dash-phase speed >> idle-phase speed (idleRate=${idleRate.toFixed(1)}, dashRate=${dashRate.toFixed(1)})`)
     console.log(`PASS run V.c (dashBurst): idleRate=${idleRate.toFixed(1)}px/s dashRate=${dashRate.toFixed(1)}px/s`)
+  }
+
+  // (c3) dashBurst does NOT commit from off screen, and does not loiter out there either.
+  // Owner, 2026-08-16, about The Surf's Sea Roach: "like all other dashers in the game, they should
+  // [not] dash on you from outside your screen." diveBomb and pounce got that gate in v6.6.24 on the
+  // same complaint about the garden's wasps; dashBurst never did, because it is the one dash machine
+  // with NO distance test at all — a pure DASH_IDLE_T timer that fires wherever the body happens to
+  // be. Enemies spawn at run.viewRadius + SPAWN_RING, i.e. always off screen, so a fresh dasher
+  // could complete its whole wind-up out of sight and arrive already dashing.
+  //
+  // BOTH HALVES ARE ASSERTED, because fixing only the first would be worse than the bug. Gating the
+  // commit while leaving the idle phase at DASH_IDLE_SPEED_MUL (0.4) means the crowd crawls just out
+  // of view — the spawn ring is a RADIUS and the gate is a RECTANGLE, so on a phone's short axis
+  // that is several seconds of an empty-looking chapter. So: no dash off screen, AND full approach
+  // speed while it is out there.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.x = 5000; run.player.y = 0 // far outside viewW (480) — cannot be on screen
+    const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 100 })
+    e.flags = ['dashBurst']
+    run.enemies.push(e)
+
+    // Four full idle periods: on the old code this dashes three times over that window.
+    const steps = Math.round((DASH_IDLE_T * 4) / dt)
+    const startX = e.x
+    let sawDash = false
+    for (let i = 0; i < steps; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const cur = run.enemies.find((en) => en.id === e.id)
+      if (cur && cur._dashPhase === 'dash') sawDash = true
+    }
+    const after = run.enemies.find((en) => en.id === e.id)
+    assert(!sawDash, 'a dasher must never enter its dash phase while it is off screen')
+    // ...and it closed at full speed rather than the 0.4x idle crawl. Compared against the RATE, not
+    // a px literal, so the band survives a change to DASH_IDLE_T or to the window length above.
+    const rate = (after.x - startX) / (DASH_IDLE_T * 4)
+    assert(rate > 90, `an off-screen dasher must walk in at full speed, not the idle crawl (got ${rate.toFixed(1)}px/s of 100)`)
+    console.log(`PASS run V.c3 (dashBurst off-screen gate): no dash in ${(DASH_IDLE_T * 4).toFixed(1)}s out of view, closed at ${rate.toFixed(1)}px/s`)
   }
 
   // (c2) dashBurst COMMITS its heading: a dash must never track a player who sidesteps out of it.

@@ -4945,7 +4945,10 @@ CHAPTERS.surf = {
     // the chapter with no `fast` entry at all, and an empty archetype pool does not fail loudly:
     // spawnEnemy's `rosterPool` comes back empty and every fast spawn falls through to the generic
     // pink wisp blob, which by t=260 is 6/11 of everything on screen. The Sea Roach is that slot.
-    { id: 'searoach',   archetype: 'fast',   name: 'Sea Roach',   hpMul: 0.8, speedMul: 1.15, flags: ['dashBurst'] },
+    // hpMul 0.68 (owner ruling 2026-08-16: 15% less, was 0.8). It pairs with the 30% shorter DASH_T
+    // in the block above — the roach gives up reach AND durability together, so the chapter's one
+    // fast enemy is a thing that darts in and dies rather than a thing that arrives already on you.
+    { id: 'searoach',   archetype: 'fast',   name: 'Sea Roach',   hpMul: 0.68, speedMul: 1.15, flags: ['dashBurst'] },
   ],
 
   // The tide. `surge` is peak lateral speed in px/s and `period` a full surge->backwash cycle; the
@@ -4962,6 +4965,11 @@ CHAPTERS.surf = {
   // The Surf's is the tide. Declaring it as its own flag is the same idiom `resource`, `crush` and
   // `dispatch` use, and it is a no-op in every chapter that does not set it. See the GULL_* block.
   gulls: true,
+  // THE BUTTON. Same idiom as CHAPTERS.reef.burst / trawl.breach / deep.scent — a boolean the one
+  // shared stepRepulse branches on, so the chapter never gets a second button or a second bar. This
+  // is the only one of the four that REPLACES the Pulse's shove rather than adding to it; see the
+  // SHOREBREAK_* block in this file for why, and stepRepulse for where the skip happens.
+  shorebreak: true,
   signature: {
     type: 'tide', surge: 46, period: 14, axis: 0,
     // Sandbars: dry ground you can walk onto. `slowMul` composes with every other slow by MIN (see
@@ -6866,6 +6874,74 @@ export const PULSE_CHARGE_COST = 45      // charge a full-strength pulse spends;
 export const PULSE_RADIUS_AT_FULL = 620  // px at a full spend (floor REPULSE_RADIUS 340)
 export const PULSE_FORCE_AT_FULL = 1500  // px/s at a full spend (floor REPULSE_FORCE 880)
 
+// ---- THE SHOREBREAK (v7.x, The Surf — chapters declaring `shorebreak: true`) -------------------
+// NAMED `shorebreak` AFTER TWO COLLISIONS, and the list is worth keeping because every obvious word
+// for this move is already spoken for somewhere in this repo. `wave` is three things (WAVE_TABLE the
+// spawn schedule, WEAPONS.wave, WAVE_ECHO_* its mod) and would have made WAVE_RADIUS read as that
+// weapon's radius; `swell` is two (WEAPON_MODS.breaker.swell, name 'Swell', and the `render.swell`
+// water field that render.js's updateSwell draws — a stepSwell beside an updateSwell doing unrelated
+// work is exactly the trap CLAUDE.md is built around). Also taken: `surge` (signature.surge),
+// `riptide` (an ANOMALIES entry), `backwash` and `breaker` (both Breaker mods), `crest`
+// (broadCrest), `undertow` (the BOOK id). Shorebreak has zero hits in src/ and matches the register
+// of the other three buttons — BURST, BREACH, SCENT — which are named for what the press DOES.
+//
+// The Surf's half of the button, and the ONE chapter where the second verb REPLACES the Pulse's
+// shove instead of riding along with it. Owner, 2026-08-16: the button "should be revamped to a
+// bubble shield or wave shield that lasts for a bit so the player can go through a wall of circling
+// enemies", then picked the wave over the bubble — you plough through the wall rather than becoming
+// intangible to it, so the crowd you crossed stays scattered behind you.
+//
+// WHY A WINDOW AND NOT A BIGGER SHOVE. A shove is one frame of impulse: the ring is already closing
+// again while the 6s cooldown runs, so it answers a bad moment and cannot answer a bad PLACE. The
+// ask is explicitly about crossing something, which is a distance, which takes time. So the wave is
+// the same positional verb spread over a duration — it rides with the player, and the corridor it
+// opens is the one you are walking down.
+//
+// It still deals NO DAMAGE, for the reason REPULSE_CD's block gives at length: Book 2's second verb
+// is positional, and a button that also killed would collapse into another weapon on a cooldown.
+//
+// WHY THE INSTANT SHOVE IS SKIPPED rather than fired alongside (see stepRepulse): firing both puts
+// an 880-1500 px/s impulse on frame one and the wave's own push on every frame after, which reads
+// as the old Pulse with a tail rather than as a new move — and worse, the crowd that impulse flings
+// to the rim is a crowd the wave then never touches, so the two halves actively cancel.
+export const SHOREBREAK_DUR_MIN = 0.9          // s on an EMPTY bar — spec §8.2's no-spiral floor
+export const SHOREBREAK_DUR_AT_FULL = 2.4      // s at a full PULSE_CHARGE_COST spend
+// Deliberately UNDER the Pulse's 340px floor, let alone its 620px full spend. A sustained push does
+// not need the shove's reach: the shove has one frame to catch everything that matters, where the
+// crest gets every frame for up to 2.4s and travels with you, so its true footprint is this radius
+// swept along your path.
+//
+// 190 IS SET BY THE NARROWEST SCREEN, and it is the one number here that is not free. render.js
+// draws the rim AT this radius, on the contract every other button keeps — a burst that lies about
+// its reach makes the cooldown feel arbitrary — and the rim is the only place a player can read
+// where the push falls to zero. A 390x844 phone has a half-WIDTH of 195, so at 190 the whole crest
+// edge is on screen on every axis; the first cut at 300 put 105px of it past each side, meaning the
+// edge was unreadable on exactly the axis you walk along. Owner, 2026-08-16, off a three-way look
+// sheet: "let's do B but with less radius."
+//
+// It stays WORLD px rather than a fraction of the viewport, like every other reach in the book: this
+// is a gameplay quantity, and a screen-relative one would hand a desktop player a bigger button.
+// The screen only sets the CEILING.
+export const SHOREBREAK_RADIUS = 190           // px, centred on the player and moving with them
+// An ACCELERATION (px/s per second), not an impulse — the `n.carry` idiom in stepNodes, where the
+// comment spells the maths out: e.kb is a VELOCITY that decays at KB_DECAY_RATE (6/s), so a
+// constant push settles at a terminal speed of SHOREBREAK_FORCE / 6. 1300 puts that at ~217 px/s dead
+// centre, falling off linearly to 0 at SHOREBREAK_RADIUS.
+//
+// THAT NUMBER IS CHOSEN AGAINST ENEMY SPEED, NOT AGAINST REPULSE_FORCE. What the move has to
+// guarantee is that the wall cannot close while you are inside it, so terminal must beat the crowd's
+// own approach — the fast archetypes here run ~190 px/s — with enough margin to actually gain
+// ground. It must NOT be anchored to the shove's 880: sustained for 2.4s that is ~2000px of drift,
+// thirteen times what one Pulse moves a body, which does not open a corridor so much as evacuate
+// the map and leave you standing in an empty chapter.
+export const SHOREBREAK_FORCE = 1300
+// Refreshed every frame a body is inside, and short on purpose: it must expire almost as soon as
+// the wave leaves, so the read is "staggered while the surf is on me" and not a 2.4s lockdown in a
+// 300px bubble. `stunT` is the shipped contract field (stepEnemyMovement checks it above every
+// behavior flag, and render.js holds the pose off it), so the tell costs nothing new — and a body
+// that cannot act is a body that cannot dash back into the corridor you just made.
+export const SHOREBREAK_STAGGER = 0.22         // s, refreshed per frame while inside
+
 // ---- BURST (v7.x, The Reef — chapters declaring `burst: true`) ---------------------------------
 // The Reef's half of the same button. One press, one cooldown, one spend: the Pulse's shove above
 // fires exactly as it always does, and a `burst` chapter ALSO gets a forward dash that shatters
@@ -7226,8 +7302,35 @@ export const WEAVE_AMP = 0.55   // rad, peak deviation of the heading from strai
 export const WEAVE_FREQ = 3.1   // rad/s of the weave's own sine — about one full S every 2s
 // dashBurst (e.g. pond's tadpole): alternates idle (slow) <-> dash (fast) toward the
 // player, both still along the normal seek direction — see stepEnemyMovement in sim.js.
+//
+// THE DASH IS GATED ON canCommitFrom, like diveBomb's dive and pounce's leap. v6.6.24 established
+// that rule for the whole game on an owner report — "if it's not displayed on the screen, it should
+// not be able to jump on you" — and dashBurst was the one dash machine that never got it, because
+// it is the one with no distance test of any kind: a pure DASH_IDLE_T timer that fires wherever the
+// body happens to be. Enemies spawn at run.viewRadius + SPAWN_RING, i.e. always off-screen, so a
+// fresh dasher could and did complete its whole idle phase out of sight and arrive already dashing.
+// Owner, 2026-08-16, asking for the same fix on The Surf's Sea Roach: "like all other dashers in
+// the game, they should [not] dash on you from outside your screen."
+//
+// Off screen the machine does NOT idle — it walks in at full speed (see stepDashBurst). Idling out
+// there would be strictly worse than the bug: DASH_IDLE_SPEED_MUL is 0.4, and the spawn ring is a
+// RADIUS while the gate is a RECTANGLE, so a body arriving along the short axis of a phone has ~358
+// px to cover before it is even eligible. At 0.4x that is ~4.7s of a crowd crawling just out of
+// sight, which reads as the chapter being empty. Full speed until seen, then the full idle wind-up
+// on screen where the player can read it, is the shape that keeps the pressure and buys the tell.
 export const DASH_IDLE_T = 1.1        // s, idle phase duration
-export const DASH_T = 0.5             // s, dash phase duration
+// 0.35 s of dash (owner ruling 2026-08-16: 30% shorter, was 0.5). The SPEED is deliberately
+// untouched — DASH_SPEED_MUL is what makes a burst read as a burst, and the v6.6 note above
+// stepDashBurst says the speed was never the complaint. Shortening the window shortens the LUNGE,
+// and measured off a real 150s Surf run rather than estimated (the Sea Roach spawns at 191.7 px/s,
+// x2.6 while dashing = 498 px/s):
+//   was  0.50s -> 249 px of committed travel = 128% of a 390px phone's half-width
+//   now  0.35s -> 174 px                     =  89%
+// That crossing of 100% is the whole point. A dash that travels further than half the screen can
+// begin at the edge of vision and end on the player, which is the same complaint the canCommitFrom
+// gate above answers from the other direction — one bounds where it may START, this bounds how far
+// it may GO once it has.
+export const DASH_T = 0.35            // s, dash phase duration
 export const DASH_IDLE_SPEED_MUL = 0.4
 export const DASH_SPEED_MUL = 2.6
 
