@@ -18,6 +18,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
+  LURE_GLOW, // The Deep: the anglerfish's esca, punched through the dark scrim in updateDark
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
 
@@ -2285,6 +2286,28 @@ export function createRenderer(app) {
   // a texture made once at boot, so the opening mouth is drawn as a per-frame overlay from the
   // published `gape` field (drawDeepTells). What is baked is the body, the teeth and the dark
   // socket the gape opens over — the parts that never move.
+  //
+  // WHICH MEANS WHERE THE FACE IS IS ONE FACT AUTHORED IN TWO PLACES, and that is this repo's
+  // largest defect class. ANGLER_MOUTH is the one authority: drawAnglerfish bakes the socket and the
+  // tooth ring off it, drawDeepTells opens the wedge over them off it.
+  //   Two coordinate systems meet here, hence the ratio. The bake is drawn at a fixed reference
+  // r = 17 and syncEnemies scales the sprite by e.radius / ROSTER_BASE_R.normal (16), so a bake
+  // fraction f of r lands at f x 17/16 of the LIVE radius. Everything below is stated as a fraction
+  // of the live radius, and the bake divides back out.
+  //   It went wrong silently and stayed invisible for exactly as long as the animal was small. The
+  // wedge used to sit at 0.22 of the radius — near the body's CENTRE — while the baked socket is out
+  // at the nose. On a 16px fish that is a 12px error nobody can see; at radiusMul 4 it is 47px, and
+  // the frame comes back with a jaw hanging in the water beside a fish. Anything anchored on a body
+  // in fractions of ITS OWN radius has this property: the mistake scales with the animal.
+  const ANGLER_BAKE_R = 17          // drawAnglerfish's own reference r
+  const ANGLER_MOUTH = {
+    at: 0.77,     // socket centre along the facing axis (the bake's noseX - 0.18r)
+    shut: 0.44,   // the wedge at a barely-open mouth: the socket ellipse it opens over
+    open: 0.95,   // and at a full gape — PAST the tooth tips (0.38 + 0.2), a jaw unhinging
+    arc: 1.15,    // radians either side of the axis at a full gape: the tooth ring's own span
+    shutArc: 0.20,
+    toLive: ANGLER_BAKE_R / 16,     // bake fraction -> fraction of the live radius (ROSTER_BASE_R.normal)
+  }
 
   // anglerfish: the chapter. Round, heavy, front-loaded, with a lure held out ahead on a stalk and a
   // mouth that is most of the head. The ESCA is the only genuinely bright thing in the chapter and
@@ -2324,13 +2347,15 @@ export function createRenderer(app) {
     if (!white) {
       // THE SOCKET the gape opens over. Baked dark and permanent, so when drawDeepTells widens the
       // mouth on top there is already blackness underneath it rather than body colour showing
-      // through a half-open jaw.
-      g.ellipse(noseX - r * 0.18, 0, r * 0.42, r * 0.5).fill({ color: f(0x07090d), alpha: 0.95 })
+      // through a half-open jaw. Its centre is ANGLER_MOUTH.at, and that is the whole point of the
+      // const — the overlay opens at exactly the same place, whatever the animal's size.
+      const mx = r * ANGLER_MOUTH.at
+      g.ellipse(mx, 0, r * 0.42, r * 0.5).fill({ color: f(0x07090d), alpha: 0.95 })
       // Teeth: a ring of needles around the socket's rim. Few and long — a row of small ones turns
       // to a grey smudge at sprite size, which is the failure mode the viperfish below shares.
       for (let i = 0; i < 9; i++) {
-        const a = -1.15 + (i / 8) * 2.3
-        const bx = noseX - r * 0.18 + Math.cos(a) * r * 0.38
+        const a = -ANGLER_MOUTH.arc + (i / 8) * ANGLER_MOUTH.arc * 2
+        const bx = mx + Math.cos(a) * r * 0.38
         const by = Math.sin(a) * r * 0.46
         g.poly([bx, by, bx + Math.cos(a) * r * 0.2, by + Math.sin(a) * r * 0.22,
                 bx - Math.sin(a) * r * 0.07, by + Math.cos(a) * r * 0.07])
@@ -10870,9 +10895,14 @@ export function createRenderer(app) {
       const gp = e.gape || 0
       if (gp <= 0.02) continue
       const a0 = Math.atan2(run.player.y - e.y, run.player.x - e.x)
-      const half = 0.22 + gp * 0.95                 // radians either side of the axis
-      const reach = rad * (0.55 + gp * 0.75)
-      const cx = e.x + Math.cos(a0) * rad * 0.22, cy = e.y + Math.sin(a0) * rad * 0.22
+      // ON THE FACE, not near the body's centre — every number here is ANGLER_MOUTH's, converted
+      // from the bake's reference r to this animal's live radius. See ANGLER_MOUTH for why the old
+      // hand-tuned 0.22/0.55/0.75 were invisible on a 16px fish and a floating jaw on a 64px one.
+      const M = ANGLER_MOUTH
+      const half = M.shutArc + gp * (M.arc - M.shutArc)   // radians either side of the axis
+      const reach = rad * M.toLive * (M.shut + gp * (M.open - M.shut))
+      const off = rad * M.toLive * M.at
+      const cx = e.x + Math.cos(a0) * off, cy = e.y + Math.sin(a0) * off
       const pts = [cx, cy]
       for (let i = 0; i <= 10; i++) {
         const a = a0 - half + (i / 10) * half * 2
@@ -11103,6 +11133,34 @@ export function createRenderer(app) {
       darkCtx.arc(sx * s, sy * s, sh.r * s, 0, Math.PI * 2)
       darkCtx.fill()
     }
+
+    // THE LURES (The Deep). drawAnglerfish sells the esca as the only bright thing in the chapter
+    // and the thing the player crosses the screen toward — but that is a sprite inside `world`, and
+    // this scrim multiplies `world` to black without caring how bright anything under it is. Shot
+    // before this existed (scripts/scenes/deep-lure.js at charge 20, phone): of four anglerfish at
+    // 90/180/300/410px, only the one at 90 — already inside ANGLER_FEED_R — was on screen at all.
+    // A dark chapter whose only refill is invisible at a low bar is a death spiral, not a mechanic.
+    //   PARTIAL, never a punch-out. A shaft removes the darkness because standing in one is meant to
+    // let you play normally; a lure is a beacon, and it must not hand you the crowd standing next to
+    // it. LURE_GLOW.lit is the whole of that distinction.
+    //   'lighten' and not the plain fill above: these overlap the player's own lamp, and a fill
+    // would stamp a DIMMER disc into the middle of it — light adds, it does not replace.
+    darkCtx.globalCompositeOperation = 'lighten'
+    for (const e of run.enemies) {
+      if (e._dead || !e.flags || !e.flags.includes('angler')) continue
+      const ex = e.x + cx, ey = e.y + cy
+      const gr = e.radius * LURE_GLOW.frac
+      if (ex + gr < 0 || ex - gr > w || ey + gr < 0 || ey - gr > h) continue
+      const lg = darkCtx.createRadialGradient(ex * s, ey * s, 0, ex * s, ey * s, Math.max(1, gr * s))
+      lg.addColorStop(0, rgbAt(LURE_GLOW.lit))
+      lg.addColorStop(1, rgbAt(0))
+      darkCtx.fillStyle = lg
+      darkCtx.beginPath()
+      darkCtx.arc(ex * s, ey * s, Math.max(1, gr * s), 0, Math.PI * 2)
+      darkCtx.fill()
+    }
+    darkCtx.globalCompositeOperation = 'source-over'
+
     darkTex.source.update()
     darkSprite.setSize(w, h)
     // Neither tinted nor faded: the COLOUR is the darkness and the sprite is opaque. Doing either

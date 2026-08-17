@@ -3197,6 +3197,19 @@ export const LONGLINE_MAX_LIVE = 8
 // looking at anyway, and every anglerfish in the chapter would open and close in unison. Per-fish
 // and per-visit means the tell is something you can only learn by LOOKING AT THE ANIMAL, moving to a
 // different fish genuinely resets the gamble, and "one more second" is literally one more second.
+//
+// ⚠ IT IS A LANDMARK, NOT A MOB (owner, 2026-08-17: "the anglerfish was supposed to be a huge
+// monstrosity trap-like outer-wilds like. Not a small enemy."). The first cut shipped it at the
+// roster's DEFAULT size — archetype `normal`, i.e. ENEMIES.drone.radius 16, the smallest body in
+// the game — so the chapter's whole premise was carried by a sprite two thirds the size of the
+// player's, four of them milling about. Everything below that reads as a tuning number is really
+// that one correction: `radiusMul` and `maxAlive` on the roster entry.
+//   THE RADII BELOW DID NOT MOVE WITH IT, and the first cut's instinct to grow them alongside the
+// body was measured and rejected. At feed 300 / bite 235 the feeding ring is 2.25x the AREA, and
+// charge-probe read the chapter getting LIGHTER as the fish got bigger: the `feed` policy's mean bar
+// went 69 -> 82 and %DARK 15 -> 1, i.e. the chapter's own gimmick switched off. Held at 200/170 the
+// ring HUGS a 64px animal — you feed from 136px off its skin and are bitten from 106px — which is
+// the trap reading anyway: you have to get into its face, not stand in its neighbourhood.
 export const ANGLER_FEED_R = 200        // px, centre-to-centre, within which you feed and the gape opens
 export const ANGLER_GAPE_T = 2.6        // s of feeding to go from shut to a full gape — i.e. to the bite
 // Closes faster than it opens, so backing off for a moment genuinely resets the gamble rather than
@@ -3205,8 +3218,27 @@ export const ANGLER_CLOSE_MUL = 1.9
 export const ANGLER_BITE_R = 170        // px, the bite's own reach — SHORTER than the feed radius, so
                                         // the outer part of the feeding ring is a genuinely safe place
                                         // to top up slowly, and the fast refill is the risky one
-export const ANGLER_BITE_DMG = 30
+// Half your life at base maxHP, which is exactly HURT_CAP_FRAC — i.e. this is the one hit in the
+// game tuned to LAND ON the anti-one-shot cap rather than under it. Deliberate: a monstrosity you
+// walked into the mouth of should be the worst thing that can happen to you in a single frame, and
+// the cap is what still keeps it from being a death.
+export const ANGLER_BITE_DMG = 50
 export const ANGLER_BITE_CD = 2.5       // s before this fish can bite again (its gape restarts from 0)
+// RENDER-ONLY, and it is what makes the sentence "you navigate this chapter by the lure" TRUE.
+// drawAnglerfish sells the esca as the only bright thing down here and the thing you cross the
+// screen toward — but that is a sprite inside `world`, and the dark is a MULTIPLY scrim sitting on
+// the stage above it, so the lure was multiplied to black at any range the player might navigate
+// from. Photographed before the fix (scripts/scenes/deep-lure.js, charge 20 on a phone): of four
+// anglerfish at 90/180/300/410px, only the one at 90 — already inside the feed radius — was on
+// screen at all. That is a death spiral, not a dark chapter: the bar falls, the only refill in the
+// chapter becomes unfindable, and the fall continues.
+//   `lit` is deliberately PARTIAL. A full punch-out would show you the crowd standing next to the
+// fish, and the dark is meant to cost you information about the crowd (see darkLayer's own block in
+// render.js). 0.5 says "there is a light over there" and nothing else.
+export const LURE_GLOW = {
+  frac: 3.2,   // glow radius as a multiple of the fish's own radius — it scales when the body does
+  lit: 0.5,    // 0 = the chapter's dark, 1 = a shaft. How lit the glow's centre is.
+}
 
 // ---- The Deep's Scent -------------------------------------------------------------------------
 // The button. Owner's framing: "you use the light to see the weak points, or to see the enemies
@@ -5400,15 +5432,22 @@ CHAPTERS.deep = {
   // never went looking". The `full` spend row of each:
   //
   //   policy   mean  %at0  %DARK  %inRefill  bites   the reading
-  //   ignore   13.1    39     99       13.3    1.3   never seek a lure and you spend the run blind
-  //   feed     69.4     0     15       66.1   20.3   approach, take it, LEAVE before the mouth shuts
-  //   greedy   68.7     0     21       65.7   36.7   never leave: the same bar, 80% more bites
+  //   ignore   10.5    48     99       10.6    1.3   never seek a lure and you spend the run blind
+  //   feed     73.3     0     10       70.3   23.0   approach, take it, LEAVE before the mouth shuts
+  //   greedy   82.6     0      3       82.7   49.0   never leave: a better bar, and twice the bites
   //
-  // The `greedy` row is the one that says the card works. Refusing to back off buys NO better bar
-  // than backing off does — the drain is slow enough that a disciplined player is already near the
-  // ceiling — and pays for that nothing with nearly double the bites. A tune where greed is simply
-  // the best policy has no decision in it, which is what the first cut measured before the
-  // anglerfish got a live cap (see `maxAlive` in the roster below).
+  // The `greedy` row is the one that says the card works, and WHAT IT SAYS CHANGED WHEN THE FISH GOT
+  // BIG (2026-08-17). It used to read "greed buys no better bar and pays double the bites", i.e.
+  // greed was a dominated option. At two big anglerfish instead of four small ones it buys a real
+  // +9 mean and takes the dark from 10% of the run to 3% — so the trade is now light FOR blood
+  // rather than nothing for blood, and what makes it a decision is on the other side of the ledger:
+  // ANGLER_BITE_DMG is 50, exactly HURT_CAP_FRAC of base maxHP, so those 49 bites are 26 full health
+  // bars. A dominated option is not a decision either; this one has a real price on both sides.
+  //   The `ignore` row is the CONTROL and the one that answers "does this chapter have the dark from
+  // the chapter before it" — 99% of the run dark, a bar at 10 of 100, 48% of it pinned at empty. The
+  // dark is emphatically there. What was missing until the lure was punched through the scrim (see
+  // LURE_GLOW) is that a player at 10 could not SEE a way out of it, which is not the same failure
+  // and does not have the same fix.
   resource: {
     name: 'Light', drain: 2.0, refill: 16, killRefill: 0, max: 100,
     dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.50, radiusEmpty: 0.06 },
@@ -5429,9 +5468,23 @@ CHAPTERS.deep = {
   // run of the chapter reported `anglerfish alive: 0`. A roster `weight` cannot fix it either (it
   // narrows within an archetype, it cannot un-gate one), and neither can `archetypeMul`.
   //   It loses nothing. "A tank when provoked" is a statement about what happens when you pick a
-  // fight with one, and hpMul 2.1 says that on any archetype.
+  // fight with one, and `hpMul` says that on any archetype.
   //
-  // ⚠ `maxAlive: 4` IS LOAD-BEARING, AND IT IS THE ONLY ENTRY IN THE GAME THAT NEEDS IT. This is
+  // ⚠ `radiusMul: 4` AND `maxAlive: 2` ARE THE ANIMAL. Owner, 2026-08-17: "the anglerfish was
+  // supposed to be a huge monstrosity trap-like outer-wilds like. Not a small enemy." Archetype
+  // `normal` means ENEMIES.drone.radius 16 — the SMALLEST body in the game, two thirds of the
+  // player's 22 — so without `radiusMul` the chapter's entire premise was a sprite you had to hunt
+  // for on screen, four of them at a time. At 4 it is a 64px body: three times the player, and
+  // syncEnemies draws it at `e.radius / look.baseR` so the art follows for free.
+  //   The pair is one decision, not two. A monstrosity you meet FOUR of is scenery; the trap
+  // fantasy needs each one to be a place on the map you decide to approach. `maxAlive: 2` is what
+  // buys that, and it is also what puts the chapter's dark back — see the charge-probe table above,
+  // where the cap is the whole difference between a bar that cycles and a bar that sits full.
+  //   `hpMul: 9` for the same reason: you do not clear a landmark on the way past. It is closer to
+  // terrain than to a body, `unshakeable` already keeps the Pulse from shoving it, and `xpMul: 3`
+  // is what killing one anyway is worth.
+  //
+  // ⚠ `maxAlive` IS LOAD-BEARING, AND IT IS THE ONLY ENTRY IN THE GAME THAT NEEDS IT. This is
   // the first roster entry that never chases the player and therefore never dies on its own, so a
   // spawn `weight` does not set its density — it sets its ACCUMULATION RATE, and over a 300s run
   // that is a carpet. Measured before the cap (charge-probe, 300s x 3 seeds): the refill was
@@ -5446,7 +5499,7 @@ CHAPTERS.deep = {
   // the tank share of WAVE_TABLE (from t=140s) finds an empty roster pool, and every chapter that
   // ships has all three. With the anglerfish holding `normal`, the spec's set left `tank` empty.
   roster: [
-    { id: 'anglerfish', archetype: 'normal', name: 'Anglerfish', hpMul: 2.1, speedMul: 0.18, xpMul: 1.4, weight: 0.6, maxAlive: 4, flags: ['angler', 'unshakeable'] },
+    { id: 'anglerfish', archetype: 'normal', name: 'Anglerfish', hpMul: 9, speedMul: 0.18, xpMul: 3, weight: 0.6, maxAlive: 2, radiusMul: 4, flags: ['angler', 'unshakeable'] },
     // Slime is literally a patch it leaves behind, which is what webZone already is — the flag and
     // the animal are the same fact for once, rather than a behaviour borrowed onto a new skin.
     { id: 'hagfish',    archetype: 'normal', name: 'Hagfish',    hpMul: 1,   speedMul: 0.92, flags: ['webZone'] },

@@ -39,7 +39,7 @@ import {
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
-  ANGLER_FEED_R, ANGLER_GAPE_T, ANGLER_BITE_R, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
+  ANGLER_FEED_R, ANGLER_GAPE_T, ANGLER_BITE_R, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
   CHAPTERS, CHAPTER_ORDER, nextChapter, dailyChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
   ELEMENTS, CONSUMABLES,
@@ -5727,8 +5727,24 @@ function runDark() {
       'the lightmap canvas must be opaque: an alpha channel here is the thing that did not survive on the owner\'s device')
     assert.ok(/darkSprite\.alpha = 1/.test(src) && /darkSprite\.tint = 0xffffff/.test(src),
       'the dark sprite must be neither faded nor tinted — the colour IS the darkness, and doing either puts the effect back on the broken channel')
-    assert.ok(!/globalCompositeOperation/.test(src),
-      'no canvas compositing operator may come back: destination-out is what carried the effect in alpha')
+    // NO OPERATOR THAT CAN WRITE TRANSPARENCY. This used to be a blanket ban on
+    // globalCompositeOperation, and the ban was aimed at the wrong noun: what broke on the owner's
+    // device was not "an operator" but the effect living in the ALPHA channel, which then had to
+    // survive a texture upload. Every operator below can put transparency into an opaque canvas's
+    // pixels — `destination-out` is the one that actually shipped the blackout — so they stay
+    // banned by name. `lighten` is a pure per-channel max on colour and cannot reach alpha at all,
+    // which is exactly why the lure glow is allowed to use it: light ADDS, and a plain fill would
+    // stamp a dimmer disc into the middle of the player's own lamp instead.
+    const ALPHA_OPS = /globalCompositeOperation\s*=\s*'(destination-out|destination-in|destination-atop|source-in|source-out|source-atop|xor|copy)'/
+    assert.ok(!ALPHA_OPS.test(src),
+      'no alpha-writing canvas operator may come back: destination-out is what carried the effect in alpha, and this canvas is opaque by contract')
+    // And whatever operator IS set must be put back. A leaked 'lighten' would survive into the next
+    // frame's opening fillRect — which paints the dark — so the background could only ever get
+    // brighter and the chapter would wash out over a few seconds. Silent, and untraceable by eye.
+    const opSets = src.match(/globalCompositeOperation\s*=\s*'[a-z-]+'/g) || []
+    const resets = opSets.filter((o) => /'source-over'/.test(o)).length
+    assert.strictEqual(opSets.length, resets * 2,
+      `every globalCompositeOperation must be paired with a reset to 'source-over' — found ${opSets.length} set(s) and ${resets} reset(s), so one leaks into the next frame's background fill`)
     assert.ok(!/LIGHT_BLOB/.test(src),
       'the pre-baked offscreen lamp must stay deleted — its drawImage is the operation that produced nothing on the owner\'s device')
     // The player's lamp and the shafts must both be plain fills, i.e. the SAME primitive that was
@@ -17755,7 +17771,58 @@ function testTheDeep() {
     console.log(`PASS run DP.j (dark on every screen): radiusFull ${rf} < ${worst.toFixed(4)}, the tightest of ${SCREENS.length} viewports, and radiusEmpty still lights ${CHAPTERS.deep.resource.dark.radiusEmpty} of it`)
   }
 
-  console.log("PASS run DP (The Deep): the anglerfish is the only food and its mouth is the clock, leaving the jaws in time still costs the fish its turn, Scent marks a group and amplifies every source while buying speed, and Fin Hit is worth nothing standing still")
+  // (k) IT IS A MONSTROSITY, AND YOU CAN FIND IT IN THE DARK. Owner, 2026-08-17: "the anglerfish was
+  // supposed to be a huge monstrosity trap-like outer-wilds like. Not a small enemy." Two halves,
+  // and each one shipped broken in a way nothing else here could see:
+  //   SIZE lives on the ROSTER, not in the bake. drawAnglerfish is drawn at a fixed reference r and
+  //   syncEnemies scales it by e.radius / look.baseR, so archetype `normal` with no `radiusMul` is a
+  //   16px animal — two thirds of the player's 22 — whatever the drawing looks like on its own.
+  //   Asserted on a REAL SPAWNED BODY, because radiusMul has to survive spawnEnemy's archetype and
+  //   elite maths, not merely be present in the table.
+  {
+    const entry = CHAPTERS.deep.roster.find((r) => r.id === 'anglerfish')
+    assert.ok(entry.radiusMul >= 3,
+      `run DP.k: anglerfish radiusMul ${entry.radiusMul ?? 'unset'} — at archetype '${entry.archetype}' that is a ${ENEMIES[entry.archetype === 'normal' ? 'drone' : entry.archetype].radius * (entry.radiusMul ?? 1)}px body against a ${PLAYER.radius}px player. This is a landmark you decide to approach, not a mob.`)
+    Math.random = mulberry32(9182)
+    const run = createRun(meta, { chapter: 'deep', difficulty: 3 })
+    run.player.hp = run.player.maxHP = 1e9
+    let seen = null
+    for (let i = 0; i < 120 * 60 && !seen; i++) {
+      stepSim(run, { x: Math.cos(i / 900), y: Math.sin(i / 900) }, dt)
+      run.events.length = 0
+      if (run.phase === 'levelup') { applyChoice(run, 0); run.phase = 'playing' }
+      if (run.phase !== 'playing') break
+      seen = run.enemies.find((e) => e.rosterId === 'anglerfish' && !e._dead && !e.elite) || null
+    }
+    assert.ok(seen, 'run DP.k: no anglerfish spawned in 120s, so nothing was measured')
+    assert.ok(seen.radius > PLAYER.radius * 2,
+      `run DP.k: a spawned anglerfish came out at ${seen.radius}px against a ${PLAYER.radius}px player — radiusMul is in the table but is not reaching the body`)
+
+    // THE LURE HAS TO PUNCH THROUGH THE DARK. The esca is a sprite inside `world`; darkLayer is a
+    // multiply scrim above `world` that does not care how bright anything under it is. Shot before
+    // the fix (scripts/scenes/deep-lure.js, charge 20 on a phone): of four anglerfish at
+    // 90/180/300/410px, only the one already inside ANGLER_FEED_R was on screen. There is no way to
+    // catch that from the sim side — the mechanic is entirely a handful of lines in updateDark — so
+    // this is a source-text lint, the run UG.k trick.
+    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(/includes\('angler'\)/.test(rsrc) && /LURE_GLOW/.test(rsrc),
+      "run DP.k: render.js never looks for the `angler` flag while building the lightmap — the chapter's only refill is invisible at exactly the bar level that sends you looking for it")
+    // Anchored on two FUNCTION declarations, not on a section-header comment: 'storm overlay' also
+    // appears in a doc block 11k lines earlier, and indexOf takes the first — which silently slices
+    // a backwards, empty range and fails every assertion below with a misleading message.
+    const dStart = rsrc.indexOf('function updateDark')
+    const dark = rsrc.slice(dStart, rsrc.indexOf('function updateStorm', dStart))
+    assert.ok(dStart >= 0 && dark.length > 500, 'run DP.k: could not slice updateDark out of render.js — the anchors have moved')
+    assert.ok(/LURE_GLOW/.test(dark),
+      'run DP.k: LURE_GLOW is imported but not used inside updateDark — the glow has to be painted into the LIGHTMAP, not drawn over the scrim as another sprite')
+    assert.ok(/addColorStop\(0, rgbAt\(LURE_GLOW\.lit\)\)/.test(dark),
+      'run DP.k: the lure must be a PARTIAL hole (rgbAt(LURE_GLOW.lit)), never a punch-out — a full one hands the player the crowd standing next to the fish, and the dark is meant to cost information about the crowd')
+    assert.ok(LURE_GLOW.lit > 0 && LURE_GLOW.lit < 1,
+      `run DP.k: LURE_GLOW.lit ${LURE_GLOW.lit} — at 0 the beacon does not exist and at 1 it is a sun lamp`)
+    console.log(`PASS run DP.k (a monstrosity you can find): radiusMul ${entry.radiusMul}, a spawned body at ${seen.radius}px against a ${PLAYER.radius}px player, and the lure punched into the lightmap at ${LURE_GLOW.lit} lit over ${LURE_GLOW.frac}x its own radius`)
+  }
+
+  console.log("PASS run DP (The Deep): the anglerfish is a landmark-sized monstrosity whose lure survives the dark, it is the only food and its mouth is the clock, leaving the jaws in time still costs the fish its turn, Scent marks a group and amplifies every source while buying speed, and Fin Hit is worth nothing standing still")
 }
 
 // ---- run MT: the in-run controls do not depend on a compatibility click ------------------------
