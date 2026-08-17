@@ -5451,7 +5451,12 @@ function runBookProgression() {
   assert.ok(EARLY_CALM.surf, "The Surf needs an EARLY_CALM entry — it is a book's first chapter now")
   assert.strictEqual(EARLY_CALM.surf.spawnMul, 0.8, 'owner ruling 2026-08-16')
   assert.strictEqual(EARLY_CALM.surf.xpMul, 1.3, 'owner ruling 2026-08-16')
-  assert.strictEqual(CHAPTERS.surf.archetypeMul?.tank, 0.6, '40% fewer Shore Crabs (owner ruling 2026-08-16)')
+  // Shore Crabs, thinned twice: 40% on 2026-08-16, then a further "20% less crabs" on 2026-08-17.
+  // 0.41 and NOT 0.6 x 0.8 = 0.48, because these weights are relative and crabs are the chapter's
+  // tank — see the block above archetypeMul in config.js for the 5-seed x 300s census. Pinned as a
+  // literal in the same style as the two EARLY_CALM rulings above: an owner-set number that a later
+  // edit must not drift silently.
+  assert.strictEqual(CHAPTERS.surf.archetypeMul?.tank, 0.41, '20% fewer Shore Crabs again (owner ruling 2026-08-17), measured not derived')
   // The archetypeMul key must be a real ARCHETYPE, not a WAVE_TABLE spawn type — indexing the
   // wrong way silently did nothing until v5.5 (see TYPE_ARCHETYPE in config.js). run SP.f asserts
   // this same vocabulary but only over CHAPTER_ORDER (book 1) — surf is Book 2 and outside that
@@ -5736,6 +5741,209 @@ function runShelf() {
   console.log(`PASS run BL (The Shelf): bar drains/refills/clamps, shafts DRIFT with no cell crossing at exactly ${sig.driftAmp}px and ${(sig.driftAmp * sig.driftHz).toFixed(0)} px/s, RNG-free streaming, empty bar keeps the ${REPULSE_RADIUS}px floor and a full spend pushes ${PULSE_RADIUS_AT_FULL}px, pond and beyond untouched`)
 }
 run(runShelf)
+
+// ---- Run RO: PER-ROSTER SOFTENING (v7.x, The Surf's Sea Roach) ---------------------------------
+// Owner, 2026-08-17: "The dasher should dash much less often and less far. like 50%. And deal 50%
+// less dmg. It's the first level of the book, that's too harsh."
+//
+// That reason is about ONE CHAPTER, and the dash knobs are global — DASH_IDLE_T and DASH_T are
+// shared by pond's tadpole, shelf's krill, reef's tuna and trawl's viperfish as well. So the
+// softening is expressed as two NEW roster fields (`dash: {restMul, lenMul}` and `dmgMul`), and the
+// job of this block is to prove both are actually wired AND that they stay put: a per-roster
+// override that silently applied to everyone would look identical on The Surf and quietly halve the
+// fifth chapter of the book.
+function runRoachSoftening() {
+  const dt = 1 / 60
+  const OVERRIDE = CHAPTERS.surf.roster.find((r) => r.id === 'searoach').dash
+
+  // Two dashers in ONE run, identical but for the override, so the shared clock, the shared seed and
+  // the shared frame budget cannot explain any difference between them.
+  const pairRun = () => {
+    Math.random = mulberry32(7070)
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.x = 0; run.player.y = 0
+    const mk = (y, dash) => {
+      // x is well inside the default headless viewport (viewW 480 - COMMIT_EDGE_PAD 28 = 452), or
+      // the canCommitFrom gate would hold BOTH of them in idle forever and the ratio would read 0/0.
+      const e = makeStatusEnemy(run, { x: 300, y, hp: 1e6, speed: 100 })
+      e.flags = ['dashBurst']
+      e.dash = dash
+      run.enemies.push(e)
+      return e
+    }
+    return { run, plain: mk(-200, null), soft: mk(200, OVERRIDE) }
+  }
+
+  // (a) HALF AS OFTEN AND HALF AS FAR, against a plain dasher in the same run.
+  {
+    const { run, plain, soft } = pairRun()
+    const stat = { plain: { n: 0, d: 0 }, soft: { n: 0, d: 0 } }
+    let prevP = 'idle', prevS = 'idle'
+    const SECS = 120
+    for (let i = 0; i < Math.round(SECS / dt); i++) {
+      const p0 = { x: plain.x, y: plain.y }, s0 = { x: soft.x, y: soft.y }
+      // Re-park both every frame unless they are mid-dash: this measures the CLOCK and the LUNGE,
+      // not how far each one wandered toward the player between dashes.
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (plain._dashPhase === 'dash') {
+        if (prevP !== 'dash') stat.plain.n++
+        stat.plain.d += Math.hypot(plain.x - p0.x, plain.y - p0.y)
+      } else { plain.x = 300; plain.y = -200 }
+      if (soft._dashPhase === 'dash') {
+        if (prevS !== 'dash') stat.soft.n++
+        stat.soft.d += Math.hypot(soft.x - s0.x, soft.y - s0.y)
+      } else { soft.x = 300; soft.y = 200 }
+      prevP = plain._dashPhase; prevS = soft._dashPhase
+      run.player.hp = run.player.maxHP
+    }
+    assert(stat.plain.n > 40, `the control dasher must actually dash (${stat.plain.n} in ${SECS}s) or the ratios below are noise`)
+    const rate = stat.soft.n / stat.plain.n
+    const len = (stat.soft.d / stat.soft.n) / (stat.plain.d / stat.plain.n)
+    // Bands, not equalities: the count is an integer over a finite window and the last dash can be
+    // clipped by the end of it. +/-8% is far tighter than the pathologies that matter (an override
+    // that does nothing reads 1.00, one applied to the wrong knob reads 1.00 on the other).
+    assert(Math.abs(rate - 0.5) < 0.08, `the softened dasher must dash HALF as often, measured ${rate.toFixed(3)} (${stat.soft.n} vs ${stat.plain.n})`)
+    assert(Math.abs(len - 0.5) < 0.08, `and lunge HALF as far, measured ${len.toFixed(3)}`)
+    console.log(`PASS run RO.a (per-roster dash): ${stat.soft.n} dashes vs ${stat.plain.n} (x${rate.toFixed(2)}), lunge ${(stat.soft.d / stat.soft.n).toFixed(0)}px vs ${(stat.plain.d / stat.plain.n).toFixed(0)}px (x${len.toFixed(2)})`)
+  }
+
+  // (b) THE OVERRIDE DOES NOT LEAK. The four other chapters that carry dashBurst must be untouched —
+  // this is the assertion that would have caught "soften chapter 1" quietly reaching chapter 5.
+  {
+    const carriers = Object.entries(CHAPTERS)
+      .flatMap(([id, ch]) => (ch.roster ?? []).map((r) => [id, r]))
+      .filter(([, r]) => (r.flags ?? []).includes('dashBurst'))
+    assert(carriers.length >= 4, `expected several dashBurst carriers, found ${carriers.length}`)
+    const overridden = carriers.filter(([, r]) => r.dash || r.dmgMul != null).map(([id, r]) => `${id}/${r.id}`)
+    assert.deepStrictEqual(overridden, ['surf/searoach'],
+      `only The Surf's Sea Roach may carry the softening; found ${overridden.join(', ') || 'none'}`)
+    // And behaviourally: a carrier with no override still runs the shared globals.
+    const { run, plain } = pairRun()
+    for (let i = 0; i < Math.round(DASH_IDLE_T / dt) + 2; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(plain._dashPhase, 'dash',
+      `an un-overridden dasher must still commit after the global DASH_IDLE_T (${DASH_IDLE_T}s)`)
+    console.log(`PASS run RO.b (no leak): ${carriers.length} dashBurst carriers across the game, exactly 1 softened (${overridden[0]}), the rest still on the ${DASH_IDLE_T}s global`)
+  }
+
+  // (c) dmgMul HALVES WHAT THE PLAYER LOSES. Asserted as HP off the bar, not as e.dmg, so it covers
+  // hurtPlayer's rounding and armor path too — and measured against the SAME roach with the override
+  // temporarily lifted, which is the only control that holds the archetype base, the chapter's own
+  // balance.enemyDmgMul and the spawn-time damage ramp all fixed.
+  {
+    const entry = CHAPTERS.surf.roster.find((r) => r.id === 'searoach')
+    const saved = entry.dmgMul
+    const bite = () => {
+      Math.random = mulberry32(515151)
+      const meta = makeMeta(); meta.dev = true; ensureChapterMeta(meta)
+      const run = createRun(meta, { chapter: 'surf', difficulty: 1 })
+      run.weapons = []
+      run.passives.armor = 0
+      run.player.maxHP = run.player.hp = 1e6
+      // A real spawned roach, through the real path: a hand-built one would carry whatever dmg the
+      // fixture chose and could not see a missing `roster?.dmgMul` in spawnEnemy at all.
+      let e = null
+      for (let i = 0; i < 60 * 150 && !e; i++) {
+        stepSim(run, { x: 0, y: 0 }, dt)
+        e = run.enemies.find((x) => x.rosterId === 'searoach') ?? null
+      }
+      assert.ok(e, 'no Sea Roach spawned in 150s — cannot measure')
+      run.enemies = [e]
+      const before = run.player.hp
+      for (let i = 0; i < 600; i++) {
+        e.x = run.player.x; e.y = run.player.y      // parked on the player: contact every frame
+        e._dead = false; e.hp = e.maxHP
+        e.stunT = 0; e._dashPhase = 'idle'          // contactHarmless() skips a stunned body
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (run.enemies.length !== 1 || run.enemies[0] !== e) run.enemies = [e]
+      }
+      return before - run.player.hp
+    }
+    let full, halved
+    try {
+      entry.dmgMul = 1
+      full = bite()
+      entry.dmgMul = saved
+      halved = bite()
+    } finally { entry.dmgMul = saved }
+    assert(full > 0, 'the control must actually take damage, or this block proves nothing')
+    const ratio = halved / full
+    assert(Math.abs(ratio - saved) < 0.08,
+      `dmgMul ${saved} must halve what the player loses: ${halved} vs ${full} = x${ratio.toFixed(3)}`)
+    console.log(`PASS run RO.c (per-roster damage): ${halved} HP lost vs ${full} with the override lifted = x${ratio.toFixed(2)} (dmgMul ${saved})`)
+  }
+
+  // (d) THE OFF-SCREEN REWIND USES THE OVERRIDE TOO. stepDashBurst sets a phase timer in FOUR
+  // places, and the one that rewinds the clock while a dasher is out of view is the furthest from
+  // the declaration and the easiest to leave reading the global. Nothing above can see it: RO.a
+  // keeps both dashers on screen for the whole window, and V.c3's subject carries no override. This
+  // block exists because the mutation pass found that hole — a half-applied override would give the
+  // roach the SHORT 1.1s wind-up every time it walked into view, i.e. exactly the "arrives already
+  // on you" complaint, on the one enemy the wind-up was lengthened for.
+  {
+    Math.random = mulberry32(313131)
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.x = 0; run.player.y = 0
+    const e = makeStatusEnemy(run, { x: 5000, y: 0, hp: 1e6, speed: 100 })
+    e.flags = ['dashBurst']
+    e.dash = OVERRIDE
+    run.enemies.push(e)
+    // Out of view long enough that a global-length clock would have rewound several times.
+    for (let i = 0; i < Math.round(4 / dt); i++) { stepSim(run, { x: 0, y: 0 }, dt); e.x = 5000; e.y = 0 }
+    assert.notStrictEqual(e._dashPhase, 'dash', 'still must not dash from off screen')
+    // Now walk it into view and time the wind-up.
+    let frames = 0
+    for (; frames < Math.round(6 / dt); frames++) {
+      e.x = 300; e.y = 0
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (e._dashPhase === 'dash') break
+    }
+    const windUp = frames * dt
+    const want = DASH_IDLE_T * OVERRIDE.restMul
+    assert(Math.abs(windUp - want) < 0.25,
+      `an off-screen softened dasher must rewind to ITS OWN ${want.toFixed(2)}s wind-up, not the ${DASH_IDLE_T}s global — measured ${windUp.toFixed(2)}s`)
+    console.log(`PASS run RO.d (rewind honours the override): wound up ${windUp.toFixed(2)}s on entering view, against its own ${want.toFixed(2)}s and the ${DASH_IDLE_T}s global`)
+  }
+
+  // (e) A REAL SPAWNED ROACH CARRIES IT. Everything above but (c) hand-sets `e.dash`, so all of it
+  // would still pass if spawnEnemy stopped copying `roster.dash` onto the born enemy — the override
+  // would be perfect in config, perfect in stepDashBurst, and absent from every roach in the game.
+  // Measured as a CADENCE off a creature the chapter spawned for itself, not as a field read.
+  {
+    Math.random = mulberry32(626262)
+    const meta = makeMeta(); meta.dev = true; ensureChapterMeta(meta)
+    const run = createRun(meta, { chapter: 'surf', difficulty: 1 })
+    run.weapons = []
+    run.player.maxHP = run.player.hp = 1e9
+    let e = null
+    for (let i = 0; i < 60 * 150 && !e; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      e = run.enemies.find((x) => x.rosterId === 'searoach') ?? null
+    }
+    assert.ok(e, 'no Sea Roach spawned in 150s — cannot measure')
+    run.enemies = [e]
+    e._dashPhase = undefined; e._dashT = undefined
+    let dashes = 0, prev = 'idle'
+    const SECS = 60
+    for (let i = 0; i < Math.round(SECS / dt); i++) {
+      if (e._dashPhase !== 'dash') { e.x = run.player.x + 200; e.y = run.player.y }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (e._dashPhase === 'dash' && prev !== 'dash') dashes++
+      prev = e._dashPhase
+      if (run.enemies.length !== 1 || run.enemies[0] !== e) run.enemies = [e]
+      e._dead = false; e.hp = e.maxHP; run.player.hp = run.player.maxHP
+    }
+    const every = SECS / dashes
+    const want = DASH_IDLE_T * OVERRIDE.restMul + DASH_T * OVERRIDE.lenMul
+    assert(Math.abs(every - want) < 0.35,
+      `a chapter-spawned Sea Roach must dash on ITS OWN ${want.toFixed(2)}s cycle (the global is ${(DASH_IDLE_T + DASH_T).toFixed(2)}s) — measured one every ${every.toFixed(2)}s`)
+    console.log(`PASS run RO.e (the spawn path copies it): a chapter-spawned roach dashed ${dashes} times in ${SECS}s = one every ${every.toFixed(2)}s, against its own ${want.toFixed(2)}s and the ${(DASH_IDLE_T + DASH_T).toFixed(2)}s global`)
+  }
+
+  console.log('PASS run RO (Sea Roach softening): the roster can now soften ONE creature\'s dash cadence, reach and damage without moving the shared DASH_* globals or the chapter\'s balance block')
+}
+run(runRoachSoftening)
 
 // ---- Run SK: THE SHOREBREAK (v7.x, The Surf's skill button) ------------------------------------
 // SK and not SB: `run SB` is already the SUBMISSION ally block, and two unrelated groups sharing a
