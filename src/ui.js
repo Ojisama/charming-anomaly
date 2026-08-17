@@ -349,7 +349,6 @@ export function initUI(hooks) {
         <span class="vol-ico" aria-hidden="true">${chapter.icon}</span>
         <span class="vol-nm">${t(spineName(vol.id))}</span>
         <span class="vol-stars" aria-hidden="true">${stars}</span>
-        <i class="vol-band" aria-hidden="true"></i>
       </button>`
   }
 

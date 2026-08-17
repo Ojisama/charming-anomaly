@@ -1177,7 +1177,7 @@ body {
 .vol-ico { flex: none; font-size: 1rem; line-height: 1; }
 /* A PLAIN BLOCK, not a flex container. `writing-mode` flips a flex container's main axis, and the
    combination stopped `overflow: hidden` from clipping — 'Undergrowth', the one name long enough
-   to overrun its spine, spilled through the tail band and over the stars. text-align does the
+   to overrun its spine, spilled over the stars. text-align does the
    centring along the vertical line box instead, and the clip then works as a real backstop. */
 .vol-nm {
   flex: 1 1 0;
