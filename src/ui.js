@@ -2128,6 +2128,12 @@ export function initUI(hooks) {
   // always add to 100% of the HP this run actually cost — healing, revives and a rising maxHP all
   // make "% of your health" meaningless over 300 seconds, while "of everything that hurt me" stays
   // true whatever the build did.
+  // FOLDED BY DEFAULT (owner ask): the full breakdown is six rows with portraits and it pushed the
+  // coin total and both buttons down the modal. The recap is something you consult, not something you
+  // are shown — so it costs one row until you ask for it. Same disclosure idiom as the pause build
+  // sheet's sections (bd-caret, `▾`/`▸`, aria-expanded), and the same flag-plus-re-render mechanism
+  // as the brief screen's booster sheet, which is why lastSummaryData exists below.
+  let dmgOpen = false
   const DMG_ROWS_MAX = 5
   function damageBlock(d) {
     const tally = d.dmgBySrc || {}
@@ -2139,24 +2145,44 @@ export function initUI(hooks) {
     // false statement — the same reason the probe harnesses print their denominators.
     const shown = rows.slice(0, DMG_ROWS_MAX)
     const restTotal = rows.slice(DMG_ROWS_MAX).reduce((s, [, v]) => s + v, 0)
-    const line = (label, v) => {
+    // `src` is the tally key, and it is also the CAST_ART key — the thumbnails are baked from
+    // render.js's own creature textures and keyed by rosterId (scripts/bake-cast.mjs), so a creature
+    // row shows THE GAME'S ART rather than a lookalike. That rule is why the chapter cards stopped
+    // using emoji: v6.7.1 shipped 🐻 for the tardigrade while drawTardigrade sat in render.js.
+    // A HAZARD row gets an EMPTY slot of the same width, deliberately, and that is a stand-in rather
+    // than a design: drowning, traffic, snap traps and the rest are drawn per-frame as Graphics and
+    // have no baked texture to extract, so there is nothing honest to put here yet. An empty
+    // fixed-width slot keeps the names in one column; inventing an icon would be the emoji mistake
+    // again, one layer up.
+    const line = (src, label, v) => {
       const pct = Math.round((v / total) * 100)
+      const art = src ? CAST_ART[src] : null
       // The bar is the row's own background, sized by the share — no extra element, and it degrades
       // to a plain labelled percentage if the style ever fails to load.
       return `<div class="dmg-row"><span class="dmg-bar" style="width:${pct}%"></span>` +
+        (art ? `<img class="dmg-art" src="${art}" alt="">` : '<span class="dmg-art"></span>') +
         `<span class="dmg-name">${esc(label)}</span><b>${pct}%</b></div>`
     }
-    const body = shown.map(([src, v]) => line(t(dmgSrcName(src) ?? src), v)).join('') +
-      (restTotal > 0 ? line(t('Other'), restTotal) : '')
+    const body = shown.map(([src, v]) => line(src, t(dmgSrcName(src) ?? src), v)).join('') +
+      (restTotal > 0 ? line(null, t('Other'), restTotal) : '')
     return `
-      <div class="summary-damage">
-        <div class="summary-mutators-head">💔 ${t('Damage taken')}</div>
-        ${body}
+      <div class="summary-damage${dmgOpen ? ' summary-damage--open' : ''}">
+        <button class="dmg-toggle" data-act="dmg-toggle" aria-expanded="${dmgOpen}">
+          <span class="dmg-toggle-i">💔</span>
+          <span class="dmg-toggle-t">${t('Run Damage Recap')}</span>
+          <span class="bd-caret">${dmgOpen ? '▾' : '▸'}</span>
+        </button>
+        ${dmgOpen ? `<div class="dmg-body">${body}</div>` : ''}
       </div>`
   }
 
   // ---- summary modal -------------------------------------------------------
+  // Mirrors the data showScreen was called with, so folding the damage recap open can re-render this
+  // screen without main.js re-sending a run that has already ended. Exactly lastBriefData's job for
+  // the booster sheet, for exactly the same reason.
+  let lastSummaryData = null
   function renderSummary(d) {
+    lastSummaryData = d
     const mutatorIds = d.mutators || []
     // The data object doesn't carry which chapter was played (see the header contract above) —
     // reconstruct it: classic runs play whatever's currently selected (meta.chapter can't have
@@ -2211,6 +2237,11 @@ export function initUI(hooks) {
     // sheet you closed and re-open must pop in again. Re-showing the screen you are already on (a
     // level-up reroll) is a re-render, and keeps the memory.
     if (name !== active) popShown.clear()
+    // The damage recap re-folds whenever we NAVIGATE, so the next death opens closed — but not on a
+    // re-render of the summary itself, which is how the fold toggles at all. Guarding on the name
+    // rather than on `active` is what draws that line: a toggle re-render goes straight to
+    // renderSummary and never reaches showScreen.
+    if (name !== 'summary') dmgOpen = false
     if (name === 'title') renderTitle()
     else if (name === 'shop') renderShop()
     else if (name === 'brief') renderBrief(data ?? {})
@@ -2378,6 +2409,14 @@ export function initUI(hooks) {
         hooks.onPlay()
         break
       }
+      // The summary's damage recap. One act for both directions (unlike the booster sheet's
+      // open/close pair) because this is an inline fold with no backdrop to disambiguate a tap
+      // against — the button is the only thing that can be hit.
+      case 'dmg-toggle':
+        dmgOpen = !dmgOpen
+        playSfx('click')
+        renderSummary(lastSummaryData ?? {})
+        break
       case 'boosters-open':
         boostersOpen = true
         playSfx('click')

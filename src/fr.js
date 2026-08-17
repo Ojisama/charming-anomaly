@@ -1246,7 +1246,7 @@ const CONFIG = {
   // The summary panel itself. 'Killed by {name}' is a tt() TEMPLATE, so the placeholder has to
   // survive into the French or the player reads literal braces (run XX asserts parity).
   'Killed by {name}': 'Tué par {name}',
-  'Damage taken': 'Dégâts subis',
+  'Run Damage Recap': 'Récap des dégâts subis',
   'Other': 'Autre',
 }
 

@@ -956,13 +956,33 @@ body {
    row's own absolutely-positioned background and has nothing else to anchor to. */
 .summary-killer { margin: 2px 0 0; font-weight: 800; font-size: 0.92rem; color: #a33b4e; }
 .summary-damage {
-  padding: 8px 10px;
   border-radius: 12px;
   background: #fdeef0;
   border: 2px solid #d4788c;
   text-align: left;
+  overflow: hidden;   /* the fold's own corners, so an open body cannot square them off */
 }
-.summary-damage .summary-mutators-head { color: #a33b4e; }
+/* The disclosure row. Folded by default, so this is all the recap costs until it is asked for.
+   Padding lives here rather than on .summary-damage: the closed state must be exactly one row tall,
+   and a container padding would add a dead band under it. */
+.dmg-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: #a33b4e;
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+  text-align: left;
+}
+.dmg-toggle-t { flex: 1; }
+.dmg-toggle-i { flex: 0 0 auto; }
+.dmg-body { padding: 0 10px 8px; }
 .dmg-row {
   position: relative;
   display: flex;
@@ -981,11 +1001,21 @@ body {
   border-radius: 6px;
   z-index: 0;
 }
-/* Both siblings lift above the bar. A share and its label must stay legible at 100%, where the bar
-   is behind the whole row. */
-.dmg-row .dmg-name, .dmg-row b { position: relative; z-index: 1; }
+/* Every sibling lifts above the bar. A share, its label and its portrait must stay legible at 100%,
+   where the bar is behind the whole row. */
+.dmg-row .dmg-name, .dmg-row b, .dmg-row .dmg-art { position: relative; z-index: 1; }
 .dmg-name { flex: 1; }
 .dmg-row b { font-weight: 900; font-variant-numeric: tabular-nums; }
+/* The creature portrait — render.js's own baked art (src/cast/*.png), not a lookalike. A FIXED size
+   whether or not there is an image: a hazard row has no baked texture to show and gets the empty slot
+   so every name still starts in the same column. */
+.dmg-art {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  display: block;
+}
 
 /* difficulty-unlock celebration badge on the summary screen (v4.10) — mint */
 .summary-unlock {
