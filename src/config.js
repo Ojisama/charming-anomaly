@@ -5470,7 +5470,7 @@ CHAPTERS.wreck = {
   //
   // Reusing the IDS rather than inventing three is what makes "borrowed" true instead of merely
   // claimed. syncEnemies resolves a look as `T.roster[rosterId] || T.enemies[archetype]`
-  // (render.js:16654), so an id with no ROSTER_LOOKS entry does NOT fall back to a sibling fish —
+  // (syncEnemies, render.js), so an id with no ROSTER_LOOKS entry does NOT fall back to a sibling fish —
   // it falls back to the GENERIC BOOK 1 ARCHETYPE BLOB. Three invented ids here would have put
   // three grey blobs in an ocean chapter and nothing would have thrown.
   //
@@ -5486,15 +5486,19 @@ CHAPTERS.wreck = {
     { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.2, speedMul: 0.7,  flags: ['latch'] },
     { id: 'lionfish',   archetype: 'fast',   name: 'Lionfish',   hpMul: 0.9, speedMul: 1.15, flags: ['pounce'] },
   ],
-  eliteFlags: ['soapTrail'],   // the Undertow's own elite flag, shared with the rest of the book
+  eliteFlags: ['soapTrail'],   // shared with surf/shelf/reef/trawl. NOT the whole book: deep is webZone
 
   // NO SIGNATURE, and that is an owner ruling (2026-08-17) rather than an omission: asked to pick a
   // threat class of its own — a ghost net, a settling hull, leaking cargo — he ruled "being an aggro
   // level is sufficient". The gimmick IS the bar. `body` is the precedent for a null signature.
   //
-  // It is also the right call structurally: the four chapters before this one each bought a streamed
-  // field of circles (shafts, pools, pockets, maws), and a fifth would have been the fourth in a row.
-  // This chapter's identity is a tempo, which costs no spatial system at all.
+  // It is also the right call structurally: of the three chapters before this one, all three bought
+  // a spatial system — The Surf's tide pools and sandbars, The Shelf's shafts, The Reef's pockets
+  // plus a whole lane — and a fourth would have been the fourth in a row. This chapter's identity
+  // is a tempo, which costs no spatial system at all.
+  //   (An earlier draft of this paragraph said "the four chapters before this one" and listed
+  // `maws`, which is The Deep's and comes two chapters LATER; The Trawl, which does precede it,
+  // bought no circles at all. Corrected rather than deleted because the count is the argument.)
   signature: null,
 
   // BLOODLUST. Ambient drain, always, everywhere — no sandbar makes it worse and no place makes it
@@ -5524,10 +5528,33 @@ CHAPTERS.wreck = {
   // ABOLISHED the bar there). The gate is scripts/charge-probe.mjs on this chapter, both movement
   // policies, with the drain/killBase pair fitted to what it measures.
   resource: {
-    name: 'Bloodlust', drain: 5.0, refill: 0, killBase: 5, killRefill: 2, max: 100,
+    // `drainPerSpawn`, NOT `drain` — see stepCharge. The drain is 2.2 x spawnRate(t), i.e. it rides
+    // the same curve the crowd arrives on, because this is the only bar in the game fed by kills
+    // and the kill rate is not a constant (0.5/s at t=0 to ~15/s at t=280, about 30x). A constant
+    // drain floors the bar while the player is weakest and pins it once they are strong, which is
+    // the pressure curve running backwards against the difficulty curve.
+    // ⚠ 4.5 IS FITTED TO A MEASUREMENT, NOT CHOSEN, and the measurement is the SHARE of the run the
+    // bar spends being managed rather than pinned or empty (6 seeds x 300s, immortal, two movement
+    // policies). A first cut at 2.2 was fitted to "break-even at ~60% of the achievable kill rate",
+    // which sounds right and pins the bar anyway — a player achieving 100% of the achievable rate
+    // sits at the ceiling, so break-even has to sit NEAR it, not below it:
+    //     drainPerSpawn   hunt: %pinned / %empty / %LIVE      kite: %LIVE
+    //         2.2               82 /  6 / 12                      26
+    //         3.0               70 /  0 / 30                       -
+    //         4.5                8 / 16 / 76                      55
+    //         6.0                1 / 61 / 38                       -
+    // 4.5 is the peak and it is not a narrow one. The kite column is the other half of the result
+    // and is the chapter working as designed: a player who refuses to engage spends 40% of the run
+    // at zero, where one who hunts the crowd holds the bar. Re-measure after ANY change to this
+    // chapter's balance block — this number is denominated in the CROWD, not in seconds.
+    name: 'Bloodlust', drainPerSpawn: 4.5, refill: 0, killBase: 5, killRefill: 2, max: 100,
     damage: { floor: 1, peak: 1.8 },
     rate: { floor: 1, peak: 1.5 },
-    starve: { dps: 5 },
+    // 4, not 5, and the reason is arithmetic rather than balance: hurtPlayer ROUNDS a dot hit, so
+    // 5 x STARVE_TICK 0.5 = 2.5 -> 3, i.e. a config saying 5 and a game doing 6. STARVE_TICK's own
+    // block states that the cadence exists so the config number survives the multiply, and then the
+    // first number written against it did not. 4 x 0.5 = 2 exactly, as DROWN_TICK's own dps 4 does.
+    starve: { dps: 4 },
   },
 
   // Hull plates, ribs and spilled containers. Scenery with collision, in the shipped streamed-circle
@@ -7194,6 +7221,22 @@ export const LUNGE_DUR_AT_FULL = 0.30    // s at a full spend -> 270px. No _MIN 
 // must exceed the collision radius: the bite has to land before the body it is aimed at can shoulder
 // the player, or the move reads as bouncing off what it is supposed to be eating.
 export const LUNGE_BITE_MUL = 2.8
+// HOW FAR THE DASH MUST CARRY YOU BEFORE THE BITE ARMS. Without it the button had no dash at all in
+// its most common case: stepRepulse runs after stepPlayerMovement and stepBite later in the same
+// step, so a body already standing in the bite radius was bitten on the press frame — 45 charge, one
+// nibble, zero of the 270px. In a chapter whose whole premise is standing in a crowd, that is the
+// case rather than the corner.
+//
+// IT ALSO SETTLES WHAT THE TWO HALVES OF THE PRESS ARE FOR, which was the real problem underneath.
+// One press fires the Pulse AND the Lunge, and they had been pulling in opposite directions — the
+// shove throws the crowd away from you while the dash drags you into it. Arming the bite past the
+// shove's own business separates them cleanly: THE SHOVE HANDLES WHAT IS ON TOP OF YOU, THE LUNGE
+// HANDLES WHAT IS OUT THERE. Complementary rather than cancelling, off one button.
+//
+// 110px: comfortably past the bite's own reach (LUNGE_BITE_MUL x PLAYER.radius = 62, plus a body's
+// radius) so a mob that was adjacent at press time is genuinely left behind, and comfortably under
+// the 270px a full spend buys, so the armed window is most of the dash.
+export const LUNGE_ARM_DIST = 110
 // Flat, times the run's own damageMul, on MINIME_BURST_DMG's precedent — the shipped player ability
 // that also deals a one-off number. ONE BODY ONLY, the first one reached, and the bite ENDS the
 // dash: a move that cleaves a crowd is the Pulse with damage on it, and this chapter's bar wants you
@@ -7202,13 +7245,19 @@ export const LUNGE_BITE_MUL = 2.8
 // has never been measured against either. It is the second thing charge-probe has to answer, after
 // the drain/killBase pair.
 export const LUNGE_DMG = 46
-// THE WHOLE POINT. A kill BY THE BITE banks this much bar, against a 45 spend — so a lunge that
-// connects is net positive and a lunge that whiffs is the most expensive mistake in the chapter.
-// UNMEASURED: it is fitted to nothing until charge-probe runs this chapter, and it is the single
-// number most likely to be wrong, because it decides whether the optimal play is to hold the button
-// or to hoard for emergencies. Read it against the MEASURED kill rate, never against another
-// chapter's refill (the trap CHAPTERS.reef.resource's own block spells out).
-export const LUNGE_KILL_REFILL = 30
+// THE WHOLE POINT, and the number is set so the arithmetic actually says what the design claims.
+// A kill BY THE BITE banks this, and the ordinary killBase lands on the same kill, against a
+// PULSE_CHARGE_COST of 45. An earlier cut sat at 30, which with killBase's 5 came to 35 — i.e. a
+// connecting kill still cost you 10 net, while the block above it asserted the button "pays its own
+// cost back". It did not, and the suite's own PASS line printed the disproof (a full bar ending a
+// connecting kill on 87.4) without anything reading it as one.
+//   45 + 5 = 50 against 45: a lunge that connects is NET POSITIVE by 5, a lunge that whiffs costs
+// the full 45, and hoarding costs you the kills the button would have bought. That is the loop the
+// chapter exists for, and it only works if connecting is genuinely better than not pressing.
+// ⚠ Deliberately a near-wash rather than a big win: at a large surplus the optimal play collapses
+// back into holding the button down, which is the autoplay failure the roster's guard tank exists
+// to prevent. If this is ever raised, check that first.
+export const LUNGE_KILL_REFILL = 45
 
 // RENDER-ONLY. How red the player goes at a FULL Bloodlust bar, as pHot's alpha — the same
 // alpha-blended red silhouette the berserk anomaly uses, because the alternative was teaching

@@ -17711,13 +17711,26 @@ function testWreckBloodlust() {
     assert.strictEqual(run.shafts.length, 0,
       `${run.shafts.length} refill circles streamed into The Wreck — this chapter's bar is fed by kills and a place to stand would be a second source competing with it`)
 
-    // Idle: the bar only falls, at the configured rate.
-    const r2 = wreckRun()
-    r2.charge = res.max
-    for (let i = 0; i < Math.round(4 / dt); i++) { stepSim(r2, { x: 0, y: 0 }, dt); quiet(r2) }
-    const dropped = res.max - r2.charge
-    assert.ok(Math.abs(dropped - res.drain * 4) < res.drain * 0.5,
-      `4s of standing still moved the bar by ${dropped.toFixed(1)} and the drain says ${(res.drain * 4).toFixed(1)} — something else is feeding or draining it`)
+    // Idle: the bar only falls, at the rate the CLOCK says — and this chapter's drain is not a
+    // constant. `drainPerSpawn * spawnRate(t)` is the whole tune (the kill rate spans ~30x over a
+    // run, so a constant drain floors the bar while the player is weakest and pins it once they are
+    // strong). Asserted at TWO times, because a single sample cannot tell a curve from a constant:
+    // the late window must drain visibly faster than the early one, which is the property.
+    const drainOver = (t0, secs) => {
+      const r = wreckRun()
+      r.time = t0
+      r.charge = r.chargeMax
+      for (let i = 0; i < Math.round(secs / dt); i++) { stepSim(r, { x: 0, y: 0 }, dt); quiet(r); r.charge = Math.min(r.chargeMax, r.charge) }
+      return r.chargeMax - r.charge
+    }
+    const early = drainOver(0, 2)
+    const late = drainOver(200, 2)
+    const wantEarly = res.drainPerSpawn * spawnRate(1) * 2
+    assert.ok(Math.abs(early - wantEarly) < wantEarly * 0.4,
+      `2s of standing still at t=0 moved the bar by ${early.toFixed(1)}; drainPerSpawn x spawnRate says about ${wantEarly.toFixed(1)} — something else is feeding or draining it`)
+    assert.ok(late > early * 3,
+      `the drain at t=200 (${late.toFixed(1)} over 2s) is not meaningfully faster than at t=0 (${early.toFixed(1)}) — drainPerSpawn is in config and stepCharge is reading a constant, which is the tune this chapter exists to avoid`)
+    const dropped = late
 
     // A kill pays. `killBase` is the field under test and it is NOT shop-gated, so this must hold on
     // a meta that bought nothing — which is the whole difference from every other Book 2 chapter.
@@ -17743,7 +17756,7 @@ function testWreckBloodlust() {
     // Net of the drain that ran over the same frames, the bar must have gone UP by about killBase.
     assert.ok(r3.charge > before,
       `a kill left the bar at ${r3.charge.toFixed(1)} against ${before.toFixed(1)} before it — killBase is in config and nothing reads it, so this chapter's only refill does not exist`)
-    console.log(`PASS run WK.a (the refill is a kill): 0 circles streamed over a 6s walk, 4s idle cost ${dropped.toFixed(1)} at drain ${res.drain}, and one kill on an UNBOUGHT save took the bar ${before.toFixed(1)} -> ${r3.charge.toFixed(1)}`)
+    console.log(`PASS run WK.a (the refill is a kill): 0 circles streamed over a 6s walk, the drain rides the clock (${early.toFixed(1)} over 2s at t=0 vs ${dropped.toFixed(1)} at t=200), and one kill on an UNBOUGHT save took the bar ${before.toFixed(1)} -> ${r3.charge.toFixed(1)}`)
   }
 
   // (b) THE LINE PAYS, IT DOES NOT TAX — and The Surf is untouched by the generalisation.
@@ -17846,19 +17859,18 @@ function testWreckBloodlust() {
   // DISTANCE MOVED over one window against a not-pressed control, which is the only thing a dash can
   // be — the timer is a field, and a field that nothing reads passes a state assertion happily.
   {
-    const travel = (charge, press) => {
+    // The control: same window, same seed, no press. Proves the window itself moves the player 0px,
+    // so any distance below is the dash and not drift.
+    const idleTravel = () => {
       const run = wreckRun()
-      run.charge = charge
+      run.charge = res.max
       const x0 = run.player.x, y0 = run.player.y
-      let repulses = 0
       for (let i = 0; i < Math.round(0.5 / dt); i++) {
-        stepSim(run, { x: 0, y: 0 }, dt, )
-        for (const e of run.events) if (e.type === 'repulse') repulses++
+        stepSim(run, { x: 0, y: 0 }, dt)
         run.events.length = 0
         run.enemies.length = 0
-        if (i === 0 && press) { /* pressed on the first frame below */ }
       }
-      return { d: Math.hypot(run.player.x - x0, run.player.y - y0), repulses }
+      return { d: Math.hypot(run.player.x - x0, run.player.y - y0) }
     }
     // Pressed properly: the skill input has to arrive on a frame, so drive it explicitly.
     const press = (charge) => {
@@ -17876,7 +17888,7 @@ function testWreckBloodlust() {
       }
       return { d: Math.hypot(run.player.x - x0, run.player.y - y0), repulses, dmg: e.maxHP - e.hp, run }
     }
-    const idle = travel(res.max, false)
+    const idle = idleTravel()
     const full = press(res.max)
     const empty = press(0)
 
@@ -17889,6 +17901,59 @@ function testWreckBloodlust() {
       'an empty bar fired no shove either — the no-spiral floor is the shipped Pulse, and without it a starving player has no button at all')
     assert.ok(full.dmg > 0,
       `the dash reached the body and bit it for ${full.dmg} — a lunge that moves and does not bite is the Pulse with extra steps`)
+
+    // THE BITE MUST BE ON THE DAMAGE PIPELINE, and this is the chapter's headline claim rather than
+    // a detail: "the bar drives damage" is worth nothing if the chapter's own signature verb is the
+    // one attack the chapter's own bar does not buff. A first cut called dealDamage (the raw tail
+    // reserved for DoT ticks) and hand-multiplied p.damageMul, which reproduced exactly one of the
+    // six factors applyDamage folds — the bite read a flat 46 through a whole run, at any bar level,
+    // with any build. Measured as the RATIO between two bites at different bar levels, because that
+    // is the one factor this chapter owns and the only one a fixture can move cleanly.
+    // ALWAYS PRESSED AT A FULL BAR, then the bar is held at `during` for the rest of the dash. The
+    // spend decides the dash LENGTH and the bar decides the DAMAGE, so varying the bar at press time
+    // varies both and measures neither — at 2/100 the dash is 12px, never reaches LUNGE_ARM_DIST,
+    // and no bite lands at all. Pressing full and moving the bar afterwards isolates the multiplier,
+    // which is the one factor this chapter owns.
+    const biteAt = (during) => {
+      const run = wreckRun()
+      run.charge = res.max
+      run.player.critChance = 0   // a crit roll would make this a coin flip, not a measurement
+      const e = pin(run, 220, 1e9)
+      const x0 = run.player.x, y0 = run.player.y
+      for (let i = 0; i < Math.round(0.5 / dt); i++) {
+        stepSim(run, { x: 0, y: 0, skill: i === 0 }, dt)
+        run.events.length = 0
+        if (run.enemies.length !== 1 || run.enemies[0] !== e) run.enemies = [e]
+        e.x = x0 + 220; e.y = y0; e.stunT = 999; e.kb.x = 0; e.kb.y = 0
+        run.charge = during   // held from the frame after the press, so only the damage side moves
+      }
+      return e.maxHP - e.hp
+    }
+    const biteLow = biteAt(res.max * 0.02)
+    const biteFull = biteAt(res.max)
+    assert.ok(biteLow > 0 && biteFull > 0, `a bite fixture landed nothing (${biteLow} / ${biteFull}) — the fixture is broken, not the feature`)
+    assert.ok(biteFull > biteLow * 1.5,
+      `the bite did ${biteLow} at an empty bar and ${biteFull} at a full one — Bloodlust drives damage everywhere EXCEPT the chapter's own signature verb, which is what calling dealDamage instead of applyDamage does`)
+
+    // THE PRESS FRAME MUST STILL DASH. stepRepulse runs after stepPlayerMovement and stepBite runs
+    // later in the same step, so a body already inside the bite radius when you press used to be
+    // bitten before the player had moved at all: full charge spent, zero distance travelled. This
+    // is the case, not a corner — the chapter's whole premise is standing in a crowd.
+    {
+      const run = wreckRun()
+      run.charge = res.max
+      const near = pin(run, 30, 100000)   // already well inside LUNGE_BITE_MUL * PLAYER.radius
+      const x0 = run.player.x, y0 = run.player.y
+      for (let i = 0; i < Math.round(0.5 / dt); i++) {
+        stepSim(run, { x: 0, y: 0, skill: i === 0 }, dt)
+        run.events.length = 0
+        if (run.enemies.length !== 1 || run.enemies[0] !== near) run.enemies = [near]
+        near.stunT = 999; near.kb.x = 0; near.kb.y = 0
+      }
+      const moved = Math.hypot(run.player.x - x0, run.player.y - y0)
+      assert.ok(moved > LUNGE_SPEED * LUNGE_DUR_AT_FULL * 0.4,
+        `pressing with a body 30px away moved the player ${moved.toFixed(0)}px — the bite landed on the press frame, before the dash had carried anyone anywhere, so the charge bought a nibble instead of a lunge`)
+    }
 
     // THE PAYBACK, which is the whole button: a kill BY THE BITE banks LUNGE_KILL_REFILL.
     const run = wreckRun()

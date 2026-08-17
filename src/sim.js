@@ -154,7 +154,7 @@ import {
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
-  resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_DMG, LUNGE_KILL_REFILL,
+  resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
   BREACH_R_MIN, BREACH_R_AT_FULL, BREACH_REACH, BREACH_MAX_HOLES, tiredness,
@@ -685,6 +685,12 @@ function stepPlayerMovement(run, input, dt) {
     p.vx = run._lungeX * LUNGE_SPEED
     p.vy = run._lungeY * LUNGE_SPEED
     run._lungeT = Math.max(0, run._lungeT - dt)
+    // How far THIS dash has actually carried you. stepBite refuses to land until it is non-zero,
+    // and that is not a nicety: stepRepulse runs AFTER this function and stepBite runs later in the
+    // SAME step, so on the press frame the player has not moved yet and a body already standing in
+    // reach was bitten instantly — 45 charge spent, 0 of the advertised 270px travelled, one nibble.
+    // In a chapter that pays you for standing in a crowd that is the common case, not the corner.
+    run._lungeMoved = (run._lungeMoved ?? 0) + LUNGE_SPEED * dt
   } else {
     p.vx = ix * speed
     p.vy = iy * speed
@@ -702,7 +708,12 @@ function stepPlayerMovement(run, input, dt) {
   // (ARTILLERY_LEAD). Deliberately input-only: drift/pull forces aren't something a tank can read —
   // and in the lane the forward component is the scroll, which is exactly what a shell should lead.
 
-  p.moving = lane || len > 1e-6   // in the lane you are never stationary
+  // `_lungeT` is the third term for the same reason `lane` is the second: both are ways of moving
+  // that the STICK knows nothing about. render.js reads p.moving at four sites (the hop cycle, the
+  // shadow squash, the eye look), so without it the fish holds a full idle pose while crossing
+  // 270px at 900px/s — the same publish-into-the-contract-field fix p.facingAngle needed at the
+  // press site, and invisible for exactly the same reason.
+  p.moving = lane || len > 1e-6 || (run._lungeT ?? 0) > 0   // in the lane you are never stationary
   if (ix > 1e-6) p.facing = 1
   else if (ix < -1e-6) p.facing = -1
   // v5.0: last non-zero move direction as a full angle — render orients the pond tail to it, and
@@ -1292,11 +1303,26 @@ function stepRepulse(run, input, dt) {
   // bite that goes where the stick points is a bite you miss with. The direction is latched here and
   // read by stepPlayerMovement for the life of the dash.
   if (ch.lunge) {
-    const tgt = nearestEnemy(run, p.x, p.y)
+    // `nearestEnemy(run)` — ONE argument. Its signature is (run, pad = 100) and it measures from
+    // the player itself; passing (run, p.x, p.y) put the player's world X into `pad` and discarded
+    // p.y, making the acquisition radius |viewRadius + player.x|. That is a dead band centred on
+    // x = -viewRadius, two target-distances wide, in which the button silently stopped aiming at
+    // all — and an unbounded range at large +x, where it would launch at an off-screen body.
+    // Every one of the other eight call sites passes (run) alone.
+    const tgt = nearestEnemy(run)
     const ang = tgt ? Math.atan2(tgt.y - p.y, tgt.x - p.x) : (p.facingAngle ?? 0)
     run._lungeX = Math.cos(ang)
     run._lungeY = Math.sin(ang)
     run._lungeT = LUNGE_DUR_AT_FULL * t
+    run._lungeMoved = 0
+    // PUBLISH THE FACING, or the fish swims sideways through its own signature move. render.js
+    // rotates the body off `p.facingAngle` and nothing else, and that field is written only from
+    // the STICK (stepPlayerMovement) — so a dash deliberately aimed somewhere other than the stick
+    // is invisible to the renderer, which is the freeze scar's shape exactly: sim knows the
+    // direction, render is never told, and on screen it reads as a bug rather than as a lunge.
+    // The Reef's Burst never needed this because a lane pins facingAngle to the lane's own heading.
+    p.facingAngle = ang
+    p.facing = Math.cos(ang) >= 0 ? 1 : -1
   }
   // THE BREACH (v7.x, The Trawl — CHAPTERS[].breach). The same press, the same cooldown and the same
   // `t` again: this chapter's answer to its own wall, and never a second button or a second bar. You
@@ -3883,10 +3909,27 @@ export function stepCharge(run, dt) {
   if (!res) return
   const sig = CHAPTERS[run.chapter].signature
   const dryMul = sig && sig.type === 'tide' && onSandbar(run) ? sig.bars.drainMul : 1
+  // A DRAIN THAT RIDES THE RUN CLOCK (v7.x, The Wreck). Every other chapter's bar is fed by a PLACE,
+  // whose availability does not change over a run, so a constant drain is the right shape for them
+  // and `drainPerSpawn` is absent — this reads res.drain exactly as it always did.
+  //
+  // A bar fed by KILLS is different in kind, because the kill rate is not a constant: measured over
+  // 6 seeded 300s runs it spans roughly 0.5/s at t=0 to 15/s at t=280, about 30x. Against a constant
+  // drain that means the bar is floored while you are weakest and pinned once you are strong — the
+  // pressure curve running backwards against the difficulty curve. Two independent sweeps
+  // (drain 5..45 x killBase 0.5..5) found NO constant pair that works: the share of the run the bar
+  // spends actually being managed never cleared ~31%, and for a player who hunts the crowd, which
+  // is what this chapter asks for, it was 11%.
+  //
+  // spawnRate(t) is the curve the crowd itself arrives on (0.81/s -> 17.5/s over a run), so scaling
+  // the drain by it holds break-even at roughly a fixed FRACTION of the achievable kill rate at
+  // every point in the run, instead of at one moment of it. One expression, one existing curve, no
+  // new machinery — and it is opt-in per chapter, so nothing else in the game can see it.
+  const drainRate = res.drainPerSpawn != null ? res.drainPerSpawn * spawnRate(run.time) : res.drain
   // v7.x Book 2 Task 9: Slow Burn (chargeDrainMul) and Big Gulp (chargeRefillMul) scale the drain
   // and the in-circle refill respectively — both default to 1 (no-op) unbought, and both are 1 in
   // every chapter with no resource, so this is inert wherever it always was.
-  let c = run.charge - res.drain * dryMul * run.chargeDrainMul * dt
+  let c = run.charge - drainRate * dryMul * run.chargeDrainMul * dt
   const p = run.player
   for (const sh of run.shafts) {
     // Inside the circle's own outline: standing IN the light, not brushing its edge. inMaw is that
@@ -4295,7 +4338,10 @@ function stepObstacles(run) {
 // anything but silence, which is the freeze scar exactly.
 function stepBite(run) {
   const ch = CHAPTERS[run.chapter]
-  if (!ch.lunge || (run._lungeT ?? 0) <= 0) return
+  // `_lungeMoved` — the dash must have CARRIED you LUNGE_ARM_DIST before the bite can land. See that
+  // constant's block for both halves of why: the step-ordering bug it fixes, and the division of
+  // labour it settles between the shove (what is on top of you) and the dash (what is out there).
+  if (!ch.lunge || (run._lungeT ?? 0) <= 0 || (run._lungeMoved ?? 0) < LUNGE_ARM_DIST) return
   const p = run.player
   const reach = LUNGE_BITE_MUL * PLAYER.radius
   let best = null, bestD = Infinity
@@ -4306,7 +4352,15 @@ function stepBite(run) {
   }
   if (!best) return
   run._lungeT = 0
-  dealDamage(run, best, LUNGE_DMG * p.damageMul, false)
+  // applyDamage, NOT dealDamage. dealDamage is the raw path sim.js reserves for DoT ticks and arc
+  // damage, precisely so those do not re-roll crit or re-apply elements — and hand-multiplying
+  // p.damageMul on the way in reproduced exactly one of the six factors the real pipeline applies.
+  // A 45-charge signature button belongs on the pipeline: it should crit, it should carry the
+  // player's elements (ignite, freeze, venom), it should read passives, shop damage, anomalies and
+  // rampage. Above all it must read resourceDamageMul — without it, THIS CHAPTER'S OWN 1.0->1.8
+  // Bloodlust damage line did not apply to THIS CHAPTER'S OWN signature verb.
+  // MINIME_BURST_DMG, cited as the precedent for a flat number, reaches the enemy this way too.
+  applyDamage(run, best, LUNGE_DMG)
   // `_dead` rather than `hp <= 0`: dealDamage sets it on the kill branch, and it is the flag every
   // other consumer in this file reads. A shield can also eat the whole bite (SHIELD_HP_FRAC), in
   // which case nothing died and nothing is owed.

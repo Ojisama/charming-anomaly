@@ -2,7 +2,13 @@
 //
 //   npx vite --port 5203 --strictPort &
 //   node scripts/fx-probe.mjs --scene scripts/scenes/wreck-lust.js --out /tmp/lust --frames 5 \
-//     --url 'http://127.0.0.1:5203/'
+//     --chapter wreck --url 'http://127.0.0.1:5203/'
+//
+// ⚠ `--chapter wreck` IS NOT OPTIONAL AND ITS ABSENCE IS SILENT. fx-probe defaults to `city`, where
+// chapterRender.lustTell is undefined and run.charge/chargeMax are both 0 — so playerBuffs returns
+// null, pHot.alpha is 0, and all five frames come back as a City player with no wash whatsoever.
+// That reads as "the tell is invisible", which is a conclusion about this chapter drawn from a
+// picture of a different one. The header of this file shipped without the flag for one commit.
 //
 // FIVE FRAMES, AND THE FIRST AND LAST ARE THE CONTROLS. This chapter's bar drives damage and fire
 // rate, which are invisible on screen by construction — the owner picked that over visible growth,
