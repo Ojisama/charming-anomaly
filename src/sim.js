@@ -4905,18 +4905,9 @@ function stepBombs(run, dt) {
     b.fuse -= dt
     if (b.fuse > 0) continue
 
-    // THE SHOREBREAK BLOCKS THE GULL (owner ruling 2026-08-17, "seagull should not dmg you when
-    // shield is activated"). The Surf's button is the only thing in the game that puts a visible
-    // wall of water around the player for a sustained window, and a bird diving through it and
-    // still collecting is what made it read as not a shield at all.
-    //
-    // Gated on b.src === 'gull', NOT on the window alone: run.bombs is shared with the skies'
-    // bombardment and with every volatile elite core, and a blanket immunity here would quietly
-    // hand those chapters a panic button they were never balanced against. The ENEMY side of the
-    // blast below is untouched on purpose — a gull landing on the crowd while your wave is up is
-    // still doing your work, which is the whole "third party on the beach" framing of the hazard.
-    // No new tell: the wave is already drawn around the player for the entire window, so the thing
-    // you can see is the thing that saved you.
+    // balance_decision : an active shorebreak blocks a gull blast on the player 2026-08-17
+    //  - `src === 'gull'` is load-bearing: run.bombs is shared with the skies' bombardment and
+    //    every volatile elite core, which must NOT gain an immunity window. Enemy side untouched.
     const shielded = b.src === 'gull' && (run._shorebreakT ?? 0) > 0
     if (!playerDied && p.invuln <= 0 && !shielded) {
       const dx = p.x - b.x, dy = p.y - b.y
