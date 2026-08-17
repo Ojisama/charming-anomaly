@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -9324,6 +9324,19 @@ export function createRenderer(app) {
     // back to BIOMES.body for an unknown id, so a missing line here does not throw and does not
     // warn — it draws VILLI AND PLATELETS on the abyssal plain.
     deep: BIOME_DEEP,
+    // AND A SIXTH TIME. Five consecutive comments above this line warn about this exact silent
+    // failure and The Wreck shipped it anyway: with no entry here chapterBiome falls back to
+    // BIOMES.body, so a chapter on the sea floor drew VILLI, PLATELETS and PLASMA MOTES. It was in
+    // a screenshot that had already been taken and read — for the player sprite, not the floor.
+    //   The second-order failure is worse than wrong props and is why this line is not optional for
+    // THIS chapter specifically: BIOME_BODY has never needed an obstacle `foot`, because
+    // CHAPTERS.body.obstacles is null. The Wreck declares nine. `tintMul(undefined, floorAt)` is
+    // 0x000000, so every hull-plate footprint would have drawn as a hard pure-black ring at full
+    // alpha on pale blue water.
+    //   BIOME_REEF by reference, which is exactly what CHAPTERS.wreck.render claims to borrow —
+    // sharing the object is safe here because a biome is read-only decor, unlike the CHAPTERS
+    // entries whose own header explains why they are whole literals.
+    wreck: BIOME_REEF,
     garden: BIOME_GARDEN,
     undergrowth: {
       big: BIG_UNDERGROWTH, mid: MID_UNDERGROWTH, detail: DETAIL_UNDERGROWTH,
@@ -15885,13 +15898,22 @@ export function createRenderer(app) {
   // tell is strongest on the hit and dies with the window — the tint IS the timer.
   //   STILLNESS's is the same ramp the damage multiplier reads (stepAnomalies), so the silhouette
   // and the damage can never disagree.
+  //   BLOODLUST (v7.x, The Wreck) rides here for the same structural reason the other two do, and
+  // it is why this function's null fast-path grew a third term: syncPlayer takes the PLAYER, and
+  // the bar lives on the run. Reaching for `run` inside syncPlayer instead throws
+  // `ReferenceError: run is not defined` — which npm test cannot see at all, because render.js is
+  // not importable by the suite, so the chapter was a blank page with a green board until it was
+  // shot. Unlike the two anomalies this one is a property of the CHAPTER, not of a card.
   function playerBuffs(run) {
     const a = run.anomalies
-    if (!a || (!a.berserk && !a.stillness)) return null
     const clamp01 = (v) => Math.max(0, Math.min(1, v))
+    const lust = chapterRender.lustTell ? clamp01((run.charge ?? 0) / (run.chargeMax || 1)) : 0
+    // Still null when nothing is on — the common case, and the one that must cost nothing.
+    if (!lust && (!a || (!a.berserk && !a.stillness))) return null
     return {
-      berserk: a.berserk ? clamp01((run._berserkT ?? 0) / BERSERK_DURATION) : 0,
-      still: a.stillness ? clamp01((run._stillT ?? 0) / STILLNESS_RAMP) : 0,
+      berserk: a?.berserk ? clamp01((run._berserkT ?? 0) / BERSERK_DURATION) : 0,
+      still: a?.stillness ? clamp01((run._stillT ?? 0) / STILLNESS_RAMP) : 0,
+      lust,
     }
   }
 
@@ -15977,8 +15999,21 @@ export function createRenderer(app) {
     // hit and fading with _berserkT, so the wash IS the timer — no chrome, nothing to read.
     // An alpha-blended red silhouette, NOT a tint on pBody: see pHot's own note at the rig.
     pHot.tint = BERSERK_TINT
+    // BLOODLUST (v7.x, The Wreck) rides the SAME rig, and reusing it rather than teaching render.js
+    // a second red is the whole reason this tell was affordable. The chapter's bar drives damage and
+    // fire rate, and a multiplier is invisible — "cold does nothing" is what the v7.5x freeze looked
+    // like on screen, for exactly this reason — so the bar has to reach a contract field render.js
+    // already reads. It does not get its own constant: it is the same animal getting hot.
+    //   Capped BELOW berserk's own ceiling. Berserk is a rare, timed, run-defining window and must
+    // stay the strongest red the player ever sees; bloodlust is the ambient state of an entire
+    // chapter, and at BERSERK_TINT_MAX it would sit at full wash for minutes and stop meaning
+    // anything. MAX takes whichever is louder rather than adding them, so a berserk window inside a
+    // full bar still reads as the berserk.
     pHot.alpha = buffs
-      ? BERSERK_TINT_MAX * Math.min(1, buffs.berserk / BERSERK_TINT_TAIL)
+      ? Math.max(
+        LUST_TINT_MAX * buffs.lust,
+        BERSERK_TINT_MAX * Math.min(1, buffs.berserk / BERSERK_TINT_TAIL),
+      )
       : 0
     if (chapterRender.tail) {
       pTail.visible = true
