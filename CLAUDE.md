@@ -521,6 +521,29 @@ three of the original four were only caught because a downstream detail looked o
   `defence` (the spelling this file prints in its own output) quietly measured the wrong policy.
   This is the companion to the print-the-denominator rule: `0/75` proves a run happened, `0/0`
   proves nothing and looks identical.
+- **A HARNESS THAT *WRITES* MUST ABORT ON A FAILED PRECONDITION, NOT LOG AND CARRY ON.** The
+  mutating twin of the rule above, and it fails worse, because it leaves the TREE in a state neither
+  end of the change would produce. A v7.11x rename script asserted an expected occurrence count per
+  replacement and got every one of them wrong (the counts were guesses); it printed `MISMATCH` for
+  each, `continue`d — and then still ran `fs.writeFileSync` at the bottom of the loop, rewriting all
+  three files with the replacements that *had* matched. The output said the run failed and the disk
+  said it half-succeeded. Collect every edit, verify them ALL, and only then write; or exit non-zero
+  before touching anything. And prefer asserting a count you have MEASURED (`grep -c`) over one you
+  expect — a guessed count turns a safety rail into noise you learn to scroll past.
+- **PIN A SUBJECT BY IDENTITY, NEVER BY ARRAY POSITION OR LENGTH.** `run.enemies.length = 1` keeps
+  index 0, and a splice anywhere in the step moves your subject off it — after which the probe is
+  measuring some *other* entity, or none, and nothing says so. That fixture reported **7 dashes in
+  120s for a machine on a 1.45s cycle** (its subject had been dropped ~10s in and its state frozen
+  ever since), which reads exactly like a slow mechanic. `if (run.enemies.length !== 1 ||
+  run.enemies[0] !== e) run.enemies = [e]` is the fix, plus a floor assertion (`if (dashes < 5)
+  abort`) so the next silent drop is an error instead of a number.
+- **NORMALISE ANYTHING BAKED AT SPAWN BEFORE COMPARING IT ACROSS RUNS OR TREES.** `hp` and `dmg` are
+  frozen at spawn through `hpScale(t)` / `dmgScale(t)` (spawnEnemy), so two runs whose subject
+  happened to spawn at different times produce numbers that cannot be subtracted. An A/B of a change
+  that HALVES the Sea Roach's damage read "down 30%" for exactly this reason — and the tell was in
+  the same output the whole time, `maxHP 8` on one side against `66` on the other. Capture the clock
+  with the subject (`tSeen = run.time`) and report `dmg / dmgScale(tSeen)`; or force both sides to
+  sample the same moment. Same hazard for any `*Scale(run.time)` quantity.
 - **SEED `Math.random`** (mulberry32, as test/sim-test.js does) and average several runs. Unseeded,
   the same build measured 11 and then 34 contact hits — enough to invent or erase any effect you
   are about to report. Seed per run, use the same seed set on both sides of an A/B.
@@ -573,7 +596,20 @@ src path as argv). That also keeps the mutation rule intact — the working tree
   captures a frame sequence — `node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js
   --out /tmp/pr --frames 14`. Write a new scene file per effect; `beam-prism.js` is the worked
   example and documents the `H` helper surface (`weapon`/`breed`/`keep`/`place`/`pin`/`scrub`).
-  Stack the frames with `ffmpeg` into a labelled contact sheet or GIF. The three traps it exists to
+  Stack the frames with `ffmpeg` into a labelled contact sheet or GIF.
+
+  **TWO OPERATIONAL FACTS FIRST, because each costs a round and neither error names its own cause.**
+  (1) **It needs a dev server ALREADY RUNNING** — it navigates to `--url`, default
+  `http://127.0.0.1:5173/`, and does not start one. With nothing there the page is an error document
+  with an opaque origin, so the save-seeding initScript dies as
+  `DOMException: Failed to read the 'localStorage' property ... Access is denied`, followed by
+  `scene never became ready`. That names neither the port nor the missing server, and reads like a
+  broken scene. Start vite on a fresh port (`npx vite --port 5203 --strictPort`) and pass `--url`.
+  (2) **RUN INVOCATIONS ONE AT A TIME.** Two fx-probes launched in the same message both fail with
+  `scene never became ready`; run sequentially and both pass unchanged. Shooting N look variants is
+  therefore N sequential calls, not one parallel batch — budget the wall clock for it.
+
+  The three traps it exists to
   bake out, which cost real rounds in v6.7.7 and will again if you hand-roll a probe:
   - **One `initScript` seeding of `Math.random` does NOT give you the same frame twice.** The
     ticker runs free between boot and whenever the probe gets control, and each rendered frame

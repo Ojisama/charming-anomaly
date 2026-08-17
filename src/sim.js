@@ -1617,7 +1617,12 @@ function spawnEnemy(run, opts = {}) {
   // would buff the player. Read once at spawn, like the rest of this line.
   let hp = base.hp * hpScale(run.time, lateRateFor(run.chapter)) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul * (roster?.hpMul ?? 1)
   const speed = base.speed * speedCreepMul(run.time) * run.mods.enemySpeedMul * (roster?.speedMul ?? 1)
-  const dmg = base.dmg * dmgScale(run.time) * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul
+  // roster.dmgMul (v7.x): the per-creature damage term, added last and in the same shape as the
+  // hpMul/speedMul/radiusMul/xpMul lines around it. Until it existed, the only ways to make ONE
+  // roster entry hit softer were the archetype base in ENEMIES (which moves that archetype in every
+  // chapter) or the chapter's own balance.enemyDmgMul (which moves every creature in the chapter) —
+  // neither of which can say "this one enemy is too harsh", which is the note it was added for.
+  const dmg = base.dmg * dmgScale(run.time) * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul * (roster?.dmgMul ?? 1)
   const radius = base.radius * (isElite ? ELITE.sizeMul : 1) * run.mods.enemyRadiusMul * (roster?.radiusMul ?? 1)
 
   const affixes = isElite ? rollAffixes(run) : []
@@ -1640,6 +1645,11 @@ function spawnEnemy(run, opts = {}) {
     affixes,
     flags,
     rosterId: roster?.id ?? null,
+    // roster.dash (v7.x): per-creature overrides for the dashBurst timings, or null to take the
+    // shared DASH_* globals. Carried as ONE object rather than two loose fields so an enemy does not
+    // grow a column per knob, and so stepDashBurst's reader can see at a glance that the whole
+    // override is optional. null on every enemy in the game except The Surf's Sea Roach.
+    dash: roster?.dash ?? null,
     // xpMul is the roster's third stat lever, alongside hpMul/speedMul above: what a kill of
     // this creature is WORTH, independent of how much health it has. They are separate on
     // purpose — a chapter can make something cheaper to kill and still pay well for it.
@@ -2247,7 +2257,14 @@ function stepAerialStrike(e, tx, ty, dt, slowMul, spdMul, airLiveCount) {
 // impossible to IGNORE but never impossible to ESCAPE. Committing the heading is what turns the
 // dash from an unavoidable hit into a dodge — the speed is not the problem and is untouched.
 function stepDashBurst(run, e, tx, ty, dt, slowMul, spdMul) {
-  if (e._dashPhase === undefined) { e._dashPhase = 'idle'; e._dashT = DASH_IDLE_T }
+  // Resolved ONCE, at the top, and used at all FOUR places a phase timer is set below. The globals
+  // are the default; a roster entry may soften its own creature without touching the other four
+  // chapters' dashers (see e.dash in spawnEnemy, and the Sea Roach's entry in config.js). Reading
+  // DASH_IDLE_T directly anywhere in here would be a silent half-override — the off-screen rewind
+  // in particular, which is the one furthest from the declaration and the easiest to miss.
+  const idleT = DASH_IDLE_T * (e.dash?.restMul ?? 1)
+  const dashT = DASH_T * (e.dash?.lenMul ?? 1)
+  if (e._dashPhase === undefined) { e._dashPhase = 'idle'; e._dashT = idleT }
   e._dashT -= dt
   const dx = tx - e.x, dy = ty - e.y
   const d = Math.hypot(dx, dy) || 1
@@ -2261,15 +2278,21 @@ function stepDashBurst(run, e, tx, ty, dt, slowMul, spdMul) {
     const seen = canCommitFrom(run, e)
     const spd = e.speed * spdMul * (seen ? DASH_IDLE_SPEED_MUL : 1)
     vx = ux * spd; vy = uy * spd
-    // lock the heading on the way OUT of idle — this is the last moment it looks at you
-    if (e._dashT <= 0) {
-      if (seen) { e._dashPhase = 'dash'; e._dashT += DASH_T; e._dashDirX = ux; e._dashDirY = uy }
-      else e._dashT = DASH_IDLE_T
+    if (!seen) {
+      // HELD at the top of the clock while out of view, not merely rewound when it expires there.
+      // The difference is the whole tell. Rewinding on expiry leaves an arbitrary remainder on the
+      // timer, so a body that walks into view with 0.02s left lunges essentially on arrival — which
+      // is the "arrives already on you" complaint the gate was added to answer, surviving the gate.
+      // Holding it means entering view always buys the player a FULL wind-up to read.
+      e._dashT = idleT
+    } else if (e._dashT <= 0) {
+      // lock the heading on the way OUT of idle — this is the last moment it looks at you
+      e._dashPhase = 'dash'; e._dashT += dashT; e._dashDirX = ux; e._dashDirY = uy
     }
   } else {
     const spd = e.speed * spdMul * DASH_SPEED_MUL
     vx = e._dashDirX * spd; vy = e._dashDirY * spd
-    if (e._dashT <= 0) { e._dashPhase = 'idle'; e._dashT += DASH_IDLE_T }
+    if (e._dashT <= 0) { e._dashPhase = 'idle'; e._dashT += idleT }
   }
   e.x += vx * slowMul * dt
   e.y += vy * slowMul * dt

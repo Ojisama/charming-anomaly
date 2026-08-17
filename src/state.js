@@ -678,7 +678,10 @@ function generateWells(sig) {
  *               ARCHETYPE_TYPE maps the roster entry matching this enemy's spawn type (drone/
  *               wisp/tank) to an archetype ('normal'/'fast'/'tank'), a random roster entry of
  *               that archetype is picked (hpMul/speedMul applied to hp/maxHP/speed, xpMul to xp
- *               — what the kill is WORTH, which moves independently of how tough it is), and its
+ *               — what the kill is WORTH, which moves independently of how tough it is, and
+ *               v7.x's dmgMul to contact damage — the per-CREATURE damage lever, as against
+ *               ENEMIES[type].dmg which moves that archetype in every chapter and
+ *               balance.enemyDmgMul which moves every creature in this one), and its
  *               `flags` are copied in; elites additionally get CHAPTERS[chapter].eliteFlags
  *               appended (so an elite can carry both its roster's own flags and its chapter's
  *               elite-only ones). Always present (possibly []), safe to check unconditionally.
@@ -706,6 +709,14 @@ function generateWells(sig) {
  *               MOWER_GAP_MIN..MAX seconds once run.time passes MOWER_FIRST_T, one pass at a time.
  *               It was briefly an elite flag (v6.6.14) and before that 'sprayStrip', which marked a
  *               rectangle on the player from an elite that could be anywhere — no visible cause.
+ * dash (v7.x): the picked roster entry's optional `dash` object, `{restMul, lenMul}`, or null —
+ *               per-CREATURE overrides for the dashBurst timings, multiplying DASH_IDLE_T and
+ *               DASH_T respectively. Read only by stepDashBurst, which resolves both once at the
+ *               top and uses the resolved values at all four places it sets a phase timer (reading
+ *               a global at any one of them is a silent half-override; the off-screen rewind is the
+ *               easiest to miss and run RO.d exists for it). null on every enemy in the game except
+ *               The Surf's Sea Roach — the point of the field is that a chapter can soften ONE of
+ *               its creatures without moving DASH_* for the four other chapters that share them.
  * rosterId (v5.0): the picked roster entry's id (config.js), or null if the chapter's roster had
  *               no entry for this enemy's archetype — reserved for render/HUD skins later, no
  *               sim.js behavior keys off it directly (flags/hpMul/speedMul already applied).
