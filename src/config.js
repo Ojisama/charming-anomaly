@@ -4851,7 +4851,12 @@ CHAPTERS.twilight = {
   // numbers as a tune.
   roster: [
     { id: 'copepod', archetype: 'normal', name: 'Copepod',    hpMul: 1,   speedMul: 0.9, flags: ['split'] },
-    { id: 'krill',   archetype: 'fast',   name: 'Krill',      hpMul: 1,   speedMul: 1,   flags: ['dashBurst'] },
+    // balance_decision : krill dash half speed, half length, half as often 2026-08-17
+    //  - the three compound: 429 px/s x 0.35s = a 150px lunge becomes 215 px/s x 0.175s = 38px, so
+    //    the flick no longer crosses a body length. spdMul is a NEW knob; restMul is the Sea Roach's
+    //    number because the derivation is the same one (cycle = idle + dash, doubled).
+    { id: 'krill',   archetype: 'fast',   name: 'Krill',      hpMul: 1,   speedMul: 1,   flags: ['dashBurst'],
+      dash: { restMul: 2.48, lenMul: 0.5, spdMul: 0.5 } },
     { id: 'gulper',  archetype: 'tank',   name: 'Gulper Eel', hpMul: 1.9, speedMul: 0.62, flags: ['latch'] },
   ],
 

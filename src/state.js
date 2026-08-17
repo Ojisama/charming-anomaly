@@ -784,14 +784,18 @@ function generateWells(sig) {
  *               MOWER_GAP_MIN..MAX seconds once run.time passes MOWER_FIRST_T, one pass at a time.
  *               It was briefly an elite flag (v6.6.14) and before that 'sprayStrip', which marked a
  *               rectangle on the player from an elite that could be anywhere — no visible cause.
- * dash (v7.x): the picked roster entry's optional `dash` object, `{restMul, lenMul}`, or null —
- *               per-CREATURE overrides for the dashBurst timings, multiplying DASH_IDLE_T and
- *               DASH_T respectively. Read only by stepDashBurst, which resolves both once at the
+ * dash (v7.x): the picked roster entry's optional `dash` object, `{restMul, lenMul, spdMul}`, or
+ *               null — per-CREATURE overrides for the dashBurst machine, multiplying DASH_IDLE_T,
+ *               DASH_T and DASH_SPEED_MUL respectively. spdMul reaches the LUNGE only: the idle and
+ *               the off-screen walk-in keep their own speeds, and a creature carrying both spdMul
+ *               and lenMul lunges lenMul x spdMul as far.
+ *               Read only by stepDashBurst, which resolves all three once at the
  *               top and uses the resolved values at all four places it sets a phase timer (reading
  *               a global at any one of them is a silent half-override; the off-screen rewind is the
  *               easiest to miss and run RO.d exists for it). null on every enemy in the game except
- *               The Surf's Sea Roach — the point of the field is that a chapter can soften ONE of
- *               its creatures without moving DASH_* for the four other chapters that share them.
+ *               The Surf's Sea Roach and The Twilight's Krill — the point of the field is that a
+ *               chapter can soften ONE of its creatures without moving DASH_* for the other
+ *               chapters that share them. run RO.b pins the exact set that carries an override.
  * rosterId (v5.0): the picked roster entry's id (config.js), or null if the chapter's roster had
  *               no entry for this enemy's archetype — reserved for render/HUD skins later, no
  *               sim.js behavior keys off it directly (flags/hpMul/speedMul already applied).

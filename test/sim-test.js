@@ -5903,18 +5903,23 @@ run(runTwilight)
 // less dmg. It's the first level of the book, that's too harsh."
 //
 // That reason is about ONE CHAPTER, and the dash knobs are global — DASH_IDLE_T and DASH_T are
-// shared by pond's tadpole, shelf's krill, reef's tuna and trawl's viperfish as well. So the
-// softening is expressed as two NEW roster fields (`dash: {restMul, lenMul}` and `dmgMul`), and the
-// job of this block is to prove both are actually wired AND that they stay put: a per-roster
+// shared by pond's tadpole, twilight's krill, reef's tuna and trawl's viperfish as well. So the
+// softening is expressed as NEW roster fields (`dash: {restMul, lenMul, spdMul}` and `dmgMul`), and
+// the job of this block is to prove they are actually wired AND that they stay put: a per-roster
 // override that silently applied to everyone would look identical on The Surf and quietly halve the
 // fifth chapter of the book.
+//
+// spdMul and blocks (f)/(g) are the second customer, and the reason the field is a per-creature
+// OBJECT rather than a chapter knob. Owner, 2026-08-17: "Krill dash should be 50% slower and 50%
+// less frequent and 50% shorter" — the same shape of request about The Shelf's dasher, landing on
+// the same globals, and it must not reach The Surf's roach going the other way either.
 function runRoachSoftening() {
   const dt = 1 / 60
   const OVERRIDE = CHAPTERS.surf.roster.find((r) => r.id === 'searoach').dash
 
   // Two dashers in ONE run, identical but for the override, so the shared clock, the shared seed and
   // the shared frame budget cannot explain any difference between them.
-  const pairRun = () => {
+  const pairRun = (softDash = OVERRIDE) => {
     Math.random = mulberry32(7070)
     const run = createRun(makeMeta())
     run.weapons = []
@@ -5928,7 +5933,7 @@ function runRoachSoftening() {
       run.enemies.push(e)
       return e
     }
-    return { run, plain: mk(-200, null), soft: mk(200, OVERRIDE) }
+    return { run, plain: mk(-200, null), soft: mk(200, softDash) }
   }
 
   // (a) HALF AS OFTEN AND HALF AS FAR, against a plain dasher in the same run.
@@ -5972,14 +5977,17 @@ function runRoachSoftening() {
       .filter(([, r]) => (r.flags ?? []).includes('dashBurst'))
     assert(carriers.length >= 4, `expected several dashBurst carriers, found ${carriers.length}`)
     const overridden = carriers.filter(([, r]) => r.dash || r.dmgMul != null).map(([id, r]) => `${id}/${r.id}`)
-    assert.deepStrictEqual(overridden, ['surf/searoach'],
-      `only The Surf's Sea Roach may carry the softening; found ${overridden.join(', ') || 'none'}`)
+    // The EXACT set, sorted so the assertion does not also pin CHAPTERS' key order. Adding a third
+    // softened creature is meant to land here first: this line is the tripwire that makes "soften
+    // one chapter" impossible to do quietly to a chapter you were not thinking about.
+    assert.deepStrictEqual(overridden.slice().sort(), ['surf/searoach', 'twilight/krill'],
+      `only The Surf's Sea Roach and The Twilight's Krill may carry the softening; found ${overridden.join(', ') || 'none'}`)
     // And behaviourally: a carrier with no override still runs the shared globals.
     const { run, plain } = pairRun()
     for (let i = 0; i < Math.round(DASH_IDLE_T / dt) + 2; i++) stepSim(run, { x: 0, y: 0 }, dt)
     assert.strictEqual(plain._dashPhase, 'dash',
       `an un-overridden dasher must still commit after the global DASH_IDLE_T (${DASH_IDLE_T}s)`)
-    console.log(`PASS run RO.b (no leak): ${carriers.length} dashBurst carriers across the game, exactly 1 softened (${overridden[0]}), the rest still on the ${DASH_IDLE_T}s global`)
+    console.log(`PASS run RO.b (no leak): ${carriers.length} dashBurst carriers across the game, ${overridden.length} softened (${overridden.join(', ')}), the rest still on the ${DASH_IDLE_T}s global`)
   }
 
   // (c) dmgMul HALVES WHAT THE PLAYER LOSES. Asserted as HP off the bar, not as e.dmg, so it covers
@@ -6113,7 +6121,84 @@ function runRoachSoftening() {
     console.log(`PASS run RO.e (the spawn path copies it): a chapter-spawned roach dashed ${dashes} times in ${SECS}s = one every ${every.toFixed(2)}s, against its own ${want.toFixed(2)}s and the ${(DASH_IDLE_T + DASH_T).toFixed(2)}s global`)
   }
 
-  console.log('PASS run RO (Sea Roach softening): the roster can now soften ONE creature\'s dash cadence, reach and damage without moving the shared DASH_* globals or the chapter\'s balance block')
+  // (f) spdMul HALVES THE LUNGE'S SPEED AND LEAVES ITS WINDOW ALONE (v7.x, The Twilight's Krill).
+  // Owner, 2026-08-17: "Krill dash should be 50% slower and 50% less frequent and 50% shorter" —
+  // three knobs, and the third is new. It is the one easiest to wire to the wrong place, because
+  // shrinking the WINDOW instead of the SPEED halves the lunge's distance just as well: a
+  // distance-only assertion reads x0.5 either way and proves nothing about which knob moved. So
+  // this block measures px-per-dash-frame and the count of dash frames SEPARATELY, on a dasher
+  // carrying spdMul alone — whose window must still be the untouched global.
+  {
+    const { run, plain, soft } = pairRun({ spdMul: 0.5 })
+    // Both dashers are re-parked on every non-dash frame, so each idle frame's displacement IS one
+    // frame of idle movement. The frame a dash ENDS is skipped (prev === 'dash'): it moved at dash
+    // speed and only reads 'idle' afterwards, and folding one 4px frame into ~66 idle frames of
+    // 0.67px each is enough to drag the idle ratio to 0.96 and cost the assertion its resolution.
+    const st = { plain: { dashN: 0, dashD: 0, idleN: 0, idleD: 0 }, soft: { dashN: 0, dashD: 0, idleN: 0, idleD: 0 } }
+    let prevP = 'idle', prevS = 'idle'
+    const SECS = 60
+    for (let i = 0; i < Math.round(SECS / dt); i++) {
+      const p0 = { x: plain.x, y: plain.y }, s0 = { x: soft.x, y: soft.y }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const tally = (e, s, prev, px, py, hx, hy) => {
+        const moved = Math.hypot(e.x - px, e.y - py)
+        if (e._dashPhase === 'dash') { s.dashN++; s.dashD += moved }
+        else {
+          if (prev !== 'dash') { s.idleN++; s.idleD += moved }
+          e.x = hx; e.y = hy
+        }
+      }
+      tally(plain, st.plain, prevP, p0.x, p0.y, 300, -200)
+      tally(soft, st.soft, prevS, s0.x, s0.y, 300, 200)
+      prevP = plain._dashPhase; prevS = soft._dashPhase
+      run.player.hp = run.player.maxHP
+    }
+    assert(st.plain.dashN > 200, `the control must actually dash (${st.plain.dashN} dash frames in ${SECS}s) or the ratios below are noise`)
+    assert(st.plain.idleN > 200, `and must actually idle (${st.plain.idleN} idle frames) or the idle ratio is noise`)
+    const spd = (st.soft.dashD / st.soft.dashN) / (st.plain.dashD / st.plain.dashN)
+    const window = st.soft.dashN / st.plain.dashN
+    const idle = (st.soft.idleD / st.soft.idleN) / (st.plain.idleD / st.plain.idleN)
+    assert(Math.abs(spd - 0.5) < 0.04, `spdMul must HALVE the lunge's speed, measured x${spd.toFixed(3)} px/frame`)
+    assert(Math.abs(window - 1) < 0.08,
+      `and must NOT touch its window — dash frames read x${window.toFixed(3)}, so it is wired to the timer instead of the speed`)
+    assert(Math.abs(idle - 1) < 0.02,
+      `and must NOT touch the wind-up — idle speed read x${idle.toFixed(3)}, so it reached the idle branch (and with it the off-screen walk-in, which has to stay at full speed or the crowd crawls out of sight)`)
+    console.log(`PASS run RO.f (spdMul is the LUNGE's speed knob): ${(st.soft.dashD / st.soft.dashN).toFixed(2)} px/frame vs ${(st.plain.dashD / st.plain.dashN).toFixed(2)} (x${spd.toFixed(2)}), same window (x${window.toFixed(2)}), same wind-up (x${idle.toFixed(2)})`)
+  }
+
+  // (g) THE KRILL'S SHIPPED NUMBERS DELIVER ALL THREE HALVINGS. Everything above proves the three
+  // knobs are WIRED; this proves the values actually in config.js use them. The override is read
+  // from CHAPTERS, never retyped, so dropping one of the three from the roster entry lands here —
+  // and nothing else would notice, since RO.b only asks whether a `dash` object exists at all.
+  {
+    const KRILL = CHAPTERS.twilight.roster.find((r) => r.id === 'krill').dash
+    const { run, plain, soft } = pairRun(KRILL)
+    const st = { plain: { n: 0, d: 0, f: 0 }, soft: { n: 0, d: 0, f: 0 } }
+    let prevP = 'idle', prevS = 'idle'
+    const SECS = 120
+    for (let i = 0; i < Math.round(SECS / dt); i++) {
+      const p0 = { x: plain.x, y: plain.y }, s0 = { x: soft.x, y: soft.y }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (plain._dashPhase === 'dash') { st.plain.f++; st.plain.d += Math.hypot(plain.x - p0.x, plain.y - p0.y); if (prevP !== 'dash') st.plain.n++ }
+      else { plain.x = 300; plain.y = -200 }
+      if (soft._dashPhase === 'dash') { st.soft.f++; st.soft.d += Math.hypot(soft.x - s0.x, soft.y - s0.y); if (prevS !== 'dash') st.soft.n++ }
+      else { soft.x = 300; soft.y = 200 }
+      prevP = plain._dashPhase; prevS = soft._dashPhase
+      run.player.hp = run.player.maxHP
+    }
+    assert(st.plain.n > 40, `the control dasher must actually dash (${st.plain.n} in ${SECS}s) or the ratios below are noise`)
+    const rate = st.soft.n / st.plain.n
+    const spd = (st.soft.d / st.soft.f) / (st.plain.d / st.plain.f)
+    const reach = (st.soft.d / st.soft.n) / (st.plain.d / st.plain.n)
+    assert(Math.abs(rate - 0.5) < 0.08, `the krill must dash HALF as often, measured x${rate.toFixed(3)}`)
+    assert(Math.abs(spd - 0.5) < 0.04, `and HALF as fast, measured x${spd.toFixed(3)} px/frame`)
+    // The three compound: half the speed for half the window is a QUARTER of the distance. Asserted
+    // explicitly because it is the surprising half of the owner's ask and the number worth reading.
+    assert(Math.abs(reach - 0.25) < 0.05, `and lunge a QUARTER as far (half speed x half window), measured x${reach.toFixed(3)}`)
+    console.log(`PASS run RO.g (the krill's shipped tune): one dash every ${(SECS / st.soft.n).toFixed(2)}s vs ${(SECS / st.plain.n).toFixed(2)}s (x${rate.toFixed(2)}), at x${spd.toFixed(2)} speed, lunging ${(st.soft.d / st.soft.n).toFixed(0)}px vs ${(st.plain.d / st.plain.n).toFixed(0)}px (x${reach.toFixed(2)})`)
+  }
+
+  console.log('PASS run RO (per-roster softening): the roster can soften ONE creature\'s dash cadence, reach, SPEED and damage without moving the shared DASH_* globals or the chapter\'s balance block')
 }
 run(runRoachSoftening)
 
