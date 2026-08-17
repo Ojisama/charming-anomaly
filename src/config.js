@@ -4976,10 +4976,31 @@ CHAPTERS.surf = {
     // the chapter with no `fast` entry at all, and an empty archetype pool does not fail loudly:
     // spawnEnemy's `rosterPool` comes back empty and every fast spawn falls through to the generic
     // pink wisp blob, which by t=260 is 6/11 of everything on screen. The Sea Roach is that slot.
-    // hpMul 0.68 (owner ruling 2026-08-16: 15% less, was 0.8). It pairs with the 30% shorter DASH_T
-    // in the block above — the roach gives up reach AND durability together, so the chapter's one
-    // fast enemy is a thing that darts in and dies rather than a thing that arrives already on you.
-    { id: 'searoach',   archetype: 'fast',   name: 'Sea Roach',   hpMul: 0.68, speedMul: 1.15, flags: ['dashBurst'] },
+    // hpMul 0.68 (owner ruling 2026-08-16: 15% less, was 0.8): the chapter's one fast enemy is a
+    // thing that darts in and dies rather than a thing that arrives already on you.
+    //
+    // THE PER-ROSTER OVERRIDES BELOW EXIST BECAUSE THE DASH KNOBS ARE GLOBAL. Owner, 2026-08-17:
+    // "The dasher should dash much less often and less far. like 50%. And deal 50% less dmg. It's
+    // the first level of the book, that's too harsh." That reason is about THIS CHAPTER — but
+    // DASH_IDLE_T / DASH_T are shared by every dashBurst enemy in the game (pond's tadpole, shelf's
+    // krill, reef's tuna, trawl's viperfish), and halving the reach of The Trawl's dasher because
+    // Book 2's FIRST level is harsh would be a straightforward mistake. So the softening lives on
+    // the roster entry, where hpMul and speedMul already live, and the globals stay put.
+    //   dash.lenMul  0.5   -> DASH_T 0.35 x 0.5 = 0.175s. The dash SPEED is untouched (x2.6), so
+    //                        halving the window halves the LUNGE: 174px -> 87px, i.e. 45% of a
+    //                        390px phone's half-width, down from 89%.
+    //   dash.restMul 2.48  -> DASH_IDLE_T 1.1 x 2.48 = 2.728s. Derived, not eyeballed: "half as
+    //                        often" is about the whole CYCLE, and the cycle is idle + dash. It was
+    //                        1.1 + 0.35 = 1.45s; doubling it needs 2.90s total, and the dash half
+    //                        now only supplies 0.175s, so the rest must carry 2.725s. The shipped
+    //                        pair gives 2.903s — a dash every 2.90s against every 1.45s, which is
+    //                        0.4995 of the old rate.
+    //   dmgMul       0.5   -> a straight halving of contact damage, on top of the chapter's own
+    //                        balance.enemyDmgMul 0.7. See spawnEnemy: this is a NEW roster field,
+    //                        added in the same shape as hpMul/speedMul/radiusMul/xpMul, because no
+    //                        per-roster damage term existed at all before.
+    { id: 'searoach',   archetype: 'fast',   name: 'Sea Roach',   hpMul: 0.68, speedMul: 1.15, flags: ['dashBurst'],
+      dmgMul: 0.5, dash: { restMul: 2.48, lenMul: 0.5 } },
   ],
 
   // The tide. `surge` is peak lateral speed in px/s and `period` a full surge->backwash cycle; the
@@ -5090,13 +5111,28 @@ CHAPTERS.surf = {
   // a pressure no other first chapter carries — hence spawnMul under the pond's own 0.75.
   balance: { spawnMul: 0.68, enemyDmgMul: 0.7, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.55 },
 
-  // 40% fewer Shore Crabs (owner ruling 2026-08-16). CHAPTER-WIDE, at every difficulty, matching
-  // how garden ({tank: 0.73}) and city ({tank: 0.825}) declare theirs — NOT difficulty-1-only.
-  // Making it d1-only is not a config change: sim.js's spawnEnemy reads
-  // CHAPTERS[run.chapter].archetypeMul straight from this table (see waveWeights, sim.js) and never
-  // consults createRun's mods, so a d1 gate would mean plumbing a new run field through every
-  // chapter's spawn path. Say so here so the next reader does not "fix" it into a d1-only cut.
-  archetypeMul: { tank: 0.6 },
+  // Fewer Shore Crabs (owner rulings 2026-08-16, then a further "20% less crabs" on 2026-08-17).
+  // CHAPTER-WIDE, at every difficulty, matching how garden ({tank: 0.73}) and city ({tank: 0.825})
+  // declare theirs — NOT difficulty-1-only. Making it d1-only is not a config change: sim.js's
+  // spawnEnemy reads CHAPTERS[run.chapter].archetypeMul straight from this table (see waveWeights,
+  // sim.js) and never consults createRun's mods, so a d1 gate would mean plumbing a new run field
+  // through every chapter's spawn path. Say so here so the next reader does not "fix" it into a
+  // d1-only cut.
+  //
+  // ⚠ 0.41 IS MEASURED, NOT DERIVED, AND THE ARITHMETIC ANSWER IS WRONG BY HALF. "20% fewer crabs"
+  // looks like 0.6 x 0.8 = 0.48, and it is not, for the reason waveWeights states in its own
+  // comment: these weights are RELATIVE, so thinning `tank` hands its share to the other two rather
+  // than removing spawns. Worse, crabs are the chapter's TANK — they hold a maxAlive slot far
+  // longer than a hopper does, so cutting them speeds the whole chapter's turnover and the total
+  // spawn count RISES, diluting the cut again. Measured over 5 seeded 300s runs
+  // (scripts/spawn-census style probe, immortal + stationary, counting first sightings by roster id):
+  //   tank 0.6  -> 812 crabs of 4710 spawns (17.24%)   <- before
+  //   tank 0.48 -> 735 of 4906 (14.98%)  = only 9.5% fewer crabs, the naive answer
+  //   tank 0.41 -> 649 of 5014 (12.94%)  = 20.1% fewer  <- shipped
+  //   tank 0.35 -> 571 of 5097 (11.20%)  = 29.7% fewer, overshoot
+  // The rising denominator is real play, not a probe artifact: a beach with fewer crabs is a beach
+  // with MORE roaches and hoppers, which is why the roach was softened in the same pass.
+  archetypeMul: { tank: 0.41 },
 
   // ---- the arsenal. A NEW array, never a push onto the spread one: `...CHAPTERS.pond` above shares
   // pond's `weapons` array BY REFERENCE, so `CHAPTERS.surf.weapons.push(…)` would hand The Pond a
