@@ -1549,33 +1549,10 @@ export const WEAPONS = {
     // while the beam is still burning. That is what makes it read as lightning rather than a ray,
     // and it is also the mechanic — the breath keeps finding new bodies for its whole duration.
     levels: [
-      // v7.23 pass 2: dmg +28% over the first cut. Measured, not guessed — at the original ladder
-      // the census read 223 eff dps against Debris Toss' 231 and Tail Lash's 217, i.e. an EPIC
-      // tying the chapter's two rares, which is not what the rarity is charging for.
-      // v7.25 `interval` IS charge + duration, deliberately: BREATH_CHARGE_T (0.5) + duration, so
-      // the cycle timer comes ready exactly as the previous breath expires and the weapon is always
-      // either winding up or discharging (owner: "start charging again as soon as it finished
-      // firing"). Do not raise it above that sum without meaning to reintroduce dead air.
-      //
-      // Damage is down ~2.1x from the v7.24 numbers and that is not a nerf: duty cycle went from
-      // 1.4s of burn every 4.0s (35%) to 1.4s of every 1.9s (74%), so the same eff dps needs
-      // roughly half the per-tick damage. Measured, not derived — see the census in the commit.
-      // `range` is how far the breath reaches for its FIRST target; `arcRange` is how far it jumps
-      // between bodies after that. Two separate numbers on purpose — v7.23 used arcRange for both
-      // and the weapon could not see anything past 200px, and v7.25 over-corrected to the whole
-      // viewport (viewRadius + 100, ~520px on a phone), which is more initial reach than a breath
-      // should have (owner: "too much initial range"). This sits between: past arcRange so the
-      // original bug stays fixed, under debrisToss' 340+ castRange so the lob keeps its anti-air job.
-      // dmg is up ~15% from the first cut of these numbers: pulling the root in from the whole
-      // viewport to `range` costs real targets, and measured 298 -> 244 eff dps at L5, which put
-      // the EPIC back under the rare Tail Lash. The reach is the owner's call; the damage is what
-      // pays for it.
-      // JUMPS, not damage, is this weapon's lever, and that is worth writing down because it cost
-      // two census passes to learn: raising L5 damage 29 -> 32 moved eff dps 261 -> 259, i.e. not at
-      // all. With the root pulled in to `range` the binding constraint is how many bodies the fork
-      // can REACH, not how hard each tick lands — the extra damage went straight to overkill. One
-      // more fork at the top of the ladder is both the effective knob and the one that matches what
-      // the card is about.
+      // balance_decision : Atomic Breath tuned to clear the chapter's rares as an epic v7.23-v7.25
+      //  - JUMPS is the lever, not dmg: with the root pulled in to `range` the binding constraint
+      //    is bodies REACHED, and L5 dmg 29 -> 32 moved eff dps 261 -> 259 (all overkill). Also
+      //    `interval` IS BREATH_CHARGE_T + duration on purpose — raising it reintroduces dead air.
       { dmg: 10, jumps: 2, arcRange: 150, range: 240, duration: 1.00, interval: 1.50, tick: 0.14 },
       { dmg: 13, jumps: 3, arcRange: 160, range: 265, duration: 1.10, interval: 1.60, tick: 0.14 },
       { dmg: 16, jumps: 4, arcRange: 175, range: 290, duration: 1.20, interval: 1.70, tick: 0.13 },
@@ -2552,12 +2529,8 @@ export const WEAPON_MODS = {
   roar: {
     bellow:    { name: 'Bellow',      desc: 'roar damage', icon: '📢', base: 0.30, kind: 'pct' },
     wideRoar:  { name: 'Wide Roar',   desc: 'roar cone width', icon: '🪭', base: 0.30, kind: 'pct' },
-    // Owner directive, alongside the concentric-ripple rework: 0.30 -> 0.18, a 40% cut to the
-    // per-pick range bonus. A real late-run sheet showed +381% range = 1323px against a phone's
-    // ~420px view radius — the roar was killing things THREE SCREENS away, the inverse of the
-    // artillery problem v7.22 fixed, and it also meant the wavefront spent almost its whole life
-    // off-screen. The same picks now buy ~+229% (~905px): still the longest reach in the chapter,
-    // no longer several times what you can see.
+    // balance_decision : roar range per pick cut 40%, it reached three screens v7.22
+    //  - stacked picks bought 1323px against a phone's ~420px view radius; now ~905px.
     farRoar:   { name: 'Carrying Roar', desc: 'roar range', icon: '📏', base: 0.18, kind: 'pct' },
     rapidRoar: { name: 'Short Breath', desc: 'roar rate',   icon: '💨', base: 0.25, kind: 'pct' },
     // kind 'secs': not one of the four kinds makeWeaponModCard branches on, so it takes the default
@@ -3945,16 +3918,9 @@ export const maxAliveFor = (mods) => Math.round(MAX_ALIVE * (mods?.maxAliveMul ?
 // late-run — intended).
 export const ELITE_EVERY_START = 45  // seconds, first elite still at t=40 (see state.js _nextEliteAt)
 export const ELITE_EVERY_END = 12
-// ...and in the last chapter it shrinks FURTHER over the same window the HP tail uses (owner: more
-// elites at the end of the beyond). Fraction of EXTRA elites per unit time by RUN_DURATION, ramping
-// from 0 at HP_SCALE_LATE_START — so like CHAPTER_LATE_RATE it is self-targeting and cannot touch a
-// run that ends early. Same table shape, deliberately: these two are one difficulty ramp.
-//
-// 1.5 is not a mirror of the HP number and must not be "corrected" into one. THE ELITE CADENCE IS
-// COARSE: only ~7 elites land after t=150 at all, so +30% here buys exactly ONE more over a whole
-// run — measured, and the reason the owner was shown counts rather than percentages before picking.
-// At 1.5: 13 elites after t=150 instead of 7, 8 of them in the last minute instead of 4, gaps
-// closing to ~6s by t=300.
+// balance_decision : more elites late in The Beyond, ramping from HP_SCALE_LATE_START
+//  - 1.5 is NOT a mirror of the HP tail's number and must not be "corrected" into one. The cadence
+//    is coarse — only ~7 elites land after t=150 — so +30% would buy exactly one more all run.
 export const CHAPTER_LATE_ELITE = { beyond: 1.5 }
 export const lateEliteFor = (chapterId) => CHAPTER_LATE_ELITE[chapterId] ?? 0
 export const eliteEveryAt = (t, late = 0) => {
@@ -4190,19 +4156,10 @@ export const CHAPTERS = {
     eliteFlags: ['acidPool'],           // pill elites dissolve into acid pools
     signature: null,                    // intro chapter has no signature mechanic
     obstacles: null,                    // keeps the open field
-    // v6.4.5 (owner directive): chapter-wide baseline easing — every difficulty AND dailies run
-    // gentler here, with xp compensating the thinner swarm; difficulty taxes, mutators and the
-    // d1-only EARLY_CALM all stack on top. enemyHpMul (v6.4.9, owner directive): body enemies
-    // also carry 25% less HP.
-    // maxAliveMul 0.7 -> 0.45 in v6.6.6 (owner directive: "still way too many enemies in chapter 1
-    // in the last third"). The cap is the right knob and the late spawn RAMP is not, which is not
-    // obvious: damping SPAWN_LATE_QUAD for this chapter alone (measured at 0.5/0.35/0.25) only
-    // moved WHEN the field saturates, never WHETHER — past ~150s arrivals outrun any starter
-    // build's kill rate, so the field fills to the cap regardless and the cap alone sets the
-    // density you look at. Measured with the kite-recycler on, ~every alive enemy sits within a
-    // screen of the player, so this number IS the on-screen crowd. It also self-targets the last
-    // third: at d1 the field is ~27 alive at 150s and only reaches the cap around 250s, so
-    // lowering it leaves the first two thirds untouched.
+    // balance_decision : the body runs gentlest of all, every difficulty and dailies v6.4.5-v6.6.6
+    //  - maxAliveMul is the knob for a crowded LAST THIRD, not the spawn ramp: damping
+    //    SPAWN_LATE_QUAD only moved WHEN the field saturates, never whether. Past ~150s arrivals
+    //    outrun any starter build, so the cap alone sets the crowd you look at.
     balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.75, xpMul: 1.25, maxAliveMul: 0.45 },
     // ---- render-only (v5.0 task 6; interpreted by render.js, ZERO effect on sim) ----
     // body is the baseline look: bgColor = the app's clear colour (main.js); tints are
@@ -4239,12 +4196,7 @@ export const CHAPTERS = {
       eddies: { cell: 1000, chance: 0.5, r: 170, pull: 30, swirl: 120, minDist: 480 },
     },
     obstacles: { count: 14, minR: 26, maxR: 44, minDist: 220 }, // minDist from spawn point
-    // v6.4.5 (owner directive): chapter-wide baseline easing — every difficulty AND dailies run
-    // gentler here, with xp compensating the thinner swarm; difficulty taxes, mutators and the
-    // d1-only EARLY_CALM all stack on top. enemyHpMul (v6.4.10, owner directive): the per-chapter
-    // HP ladder — pond −15%.
-    // maxAliveMul 0.8 -> 0.6 in v6.6.7 (owner directive: "smooth out the chapter curve"): see the
-    // ladder note above MAX_ALIVE.
+    // balance_decision : pond eased chapter-wide, HP ladder -15% v6.4.5-v6.6.7
     balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.6 },
     // ---- render-only (v5.0 task 6) ---- murky teal-green water biome. render.js: multiplies
     // floorTint into every floor sprite's baked tint, sets the app clear colour to bgColor,
@@ -4284,49 +4236,19 @@ export const CHAPTERS = {
                                           // chapter hazard (see `mower` below) — it turns up on its
                                           // own schedule now, so an elite no longer summons one.
     mower: true,                          // ambient lawnmower passes; see the MOWER_* block
-    // v6.6.26 (owner: "20% less spiders"). Relative spawn-share multiplier keyed by ARCHETYPE
-    // (normal/fast/tank — the same vocabulary this roster is written in), applied to WAVE_TABLE
-    // before the pick; see waveWeights in sim.js, which does the archetype -> spawn-type
-    // translation. It has to live here rather than on the spider's roster entry: the spider is
-    // garden's only `tank`, so a roster weight would be weighted-picking a one-item pool — a
-    // silent no-op.
-    // 0.73, NOT 0.80, because the weights are RELATIVE: cutting tank hands its share to the other
-    // archetypes and the pick re-normalises, so a flat 0.80 only removes 14.5%. The exact figure
-    // comes from integrating spawnRate(t) * tankShare(t) over RUN_DURATION (the pick is an
-    // independent draw per arrival, so the expected count is closed-form): 0.73 -> -20.0%,
-    // 0.74 -> -19.3%, 0.72 -> -20.9%. Seeded sim runs can NOT settle this to better than ~3% — one
-    // different pick re-rolls the whole downstream stream — so the integral is the authority.
-    // -20.0% is the figure OVER A FULL 300s RUN. The cut is row-dependent, because the late
-    // WAVE_TABLE rows are tank-heavier: -23.6% in [140,200), -20.9% in [200,240), -19.1% past 260.
-    // A player who dies at 200s met ~24% fewer spiders, not 20%. It is also -20% against the build
-    // this feedback came from (v6.6.24); measured against v6.6.22 it is -24%, since v6.6.23 had
-    // already taken 5% off spawnMul.
-    // BODY COUNT is untouched — ants and wasps absorb the difference — but DIFFICULTY is not, and
-    // the two are not the same thing: a 90hp tank is replaced by a 20hp drone or a 10hp wisp, so
-    // this quietly removes 11.9% of the chapter's total enemy HP and 8.7% of its XP (both
-    // closed-form over the same integral; measured level-ups over 300s fell 29 -> 28). Stacked on
-    // v6.6.23's -10% HP that is ~-22% of the garden's HP pool across three releases for only -5%
-    // bodies. Worth knowing before the next nerf: the chapter has been softened more than the
-    // "5% fewer monsters" framing of those release notes suggests.
+    // balance_decision : 20% fewer garden spiders, the chapter's only tank v6.6.26
+    //  - RELATIVE weight, so 0.73 and NOT 0.80: the cut share re-normalises onto the other
+    //    archetypes and a flat 0.80 removes only 14.5%. Derive the next one by integrating
+    //    spawnRate(t)·tankShare(t); seeded runs cannot settle it closer than ~3%.
     archetypeMul: { tank: 0.73 },
     // Signature: dying trailFollow ants drop fading pheromone nodes (run.trails) that living ants
     // accelerate along. No field force (unlike currents) — the mechanic IS the ant behaviour, so
     // sim.js gates its trail logic on signature.type === 'pheromones' (future chapters' ants differ).
     signature: { type: 'pheromones' },
     obstacles: { count: 12, minR: 22, maxR: 40, minDist: 220 }, // grass stalks / pebbles
-    // v6.4.10 (owner directive): per-chapter enemy HP ladder — garden −5%.
-    // maxAliveMul 0.9 -> 0.75 in v6.6.7 (owner directive: "smooth out the chapter curve"): see the
-    // ladder note above MAX_ALIVE.
-    // v6.6.15 (owner): "reduce 20% the number of enemies" -> spawnMul 0.8, the same lever v6.4.5
-    // used for "25% fewer enemies" on body/pond. maxAliveMul (the density CEILING) is left alone —
-    // it was set to 0.75 in v6.6.7 for the chapter-curve pass and answers a different question.
-    // v6.6.23 (owner: "5% less monster hp and 5% less monster quantity in chapter 3"): 0.8 -> 0.76
-    // and 0.95 -> 0.9, each 5% off what was there. Quantity is spawnMul ALONE, deliberately:
-    // maxAliveMul is the concurrent cap, and measured over 5 seeds x 300s the garden field only
-    // reaches it in 0-6% of samples (avg alive 38 at d1, 79 at d5, against a cap of 300), so
-    // trimming the cap moves the enemies a player actually meets by 0-1.4% — it would look like a
-    // balance change and be a no-op. Cutting spawnMul 5% measures as ~5% fewer arrivals AND ~5%
-    // lower average alive, which is what the directive asks for.
+    // balance_decision : garden thinned and softened over four passes v6.4.10-v6.6.23
+    //  - quantity is spawnMul ALONE: the garden field reaches maxAliveMul in 0-6% of samples, so
+    //    trimming the cap here would look like a balance change and measure as a no-op.
     balance: { spawnMul: 0.76, enemyHpMul: 0.9, maxAliveMul: 0.75 },
     // ---- render-only (v5.3; interpreted by render.js, ZERO effect on sim) ---- sunlit lawn biome.
     // Clearly brighter/cheerier than the pond's murk: warm daylight green showing between the blades,
@@ -4396,37 +4318,11 @@ export const CHAPTERS = {
     // from the run's ORIGIN only (streamed cells far from the origin are never excluded). Every
     // other trap number stays a SNAP_TRAP_* constant below.
     signature: { type: 'predators', traps: { cell: 400, chance: 0.63, minDist: 200 } },
-    // v6.6.28 (owner: "20% less enemies"). Undergrowth had NO balance block at all until now, so
-    // this is the chapter's first entry in that ladder.
-    //
-    // spawnMul ALONE, matching garden's identical v6.6.15 request. The obvious extra lever is
-    // maxAliveMul, and it was in a draft of this block, because two critics measured that the
-    // arrival cut evaporates late in a WEAK run: at d3 with a starter-level build, spawnMul 0.8
-    // gives avg alive 271 vs 362 at t=180 and then 400 vs 400 at t=240 and t=270 — zero reduction
-    // past t~225s, because stepSpawning banks blocked spawns in an unbounded _spawnAcc rather than
-    // dropping them. Over a full run that turns "20% fewer" into a measured ~11%.
-    // It is still not the right lever HERE, because the concurrent cap is not free real estate: the
-    // v6.6.6/v6.6.7 density ladder is its own owner directive ("smooth out the chapter curve"), it
-    // runs 180/240/300 across the three onboarding chapters and is deliberately full 400 from
-    // undergrowth on, and it is required to climb in EVEN RATIO steps — the defect v6.6.7 fixed was
-    // a ladder that went +78% / +13% / +11%. Inserting 0.8 here makes garden->undergrowth a +6.7%
-    // step followed by a +25% one, i.e. re-creates exactly the shape that directive outlawed.
-    // So: this number is 20% fewer ARRIVALS, which is what it says and what garden shipped. The
-    // honest scope is that a run whose field is already pegged at the cap sees less than 20% —
-    // see run VV for the ladder this defers to.
-    // v6.6.33 (owner: "20% less toads"). Relative spawn-share multiplier keyed by ARCHETYPE,
-    // applied to WAVE_TABLE before the pick — the same lever and the same arithmetic as garden's
-    // v6.6.26 spider cut, and it lands on the same number for the same reason: WAVE_TABLE and
-    // spawnRate are GLOBAL, so the tank share over a 300s run is identical in every chapter.
-    // 0.73, NOT 0.80, because the weights are RELATIVE: scaling one weight by m does not cut its
-    // share by (1-m), it cuts it by m/(m*w + rest). Closed-form integral of
-    // spawnRate(t) * tankShare(t, m) over the run, bisected: 0.7309 is exact, and on the 2dp grid
-    // 0.73 -> -20.1%, 0.74 -> -19.3%, 0.72 -> -20.9%. Seeded sims cannot settle this to better than
-    // ~3% because the RNG stream diverges the moment one pick differs — do not "verify" it that way.
-    // This is a SHARE cut and stacks multiplicatively with the spawnMul below, which is a TOTAL cut:
-    // the owner asked for 20% fewer toads than they currently see, and that is what this gives.
-    // The toad is undergrowth's only `tank`, which is why this has to live here rather than as a
-    // roster weight — a roster weight would be weighted-picking a one-item pool, a silent no-op.
+    // balance_decision : 20% fewer undergrowth toads (share) and arrivals (total) v6.6.28/v6.6.33
+    //  - two different levers, stacking multiplicatively. archetypeMul is a RELATIVE share (0.73,
+    //    not 0.80 — see the garden spider block); spawnMul is a TOTAL arrival cut, and a run
+    //    already pegged at the concurrent cap sees less than 20% of it. maxAliveMul is NOT the
+    //    lever to reach for next: the 180/240/300 ladder must climb in even ratio steps (run VV).
     archetypeMul: { tank: 0.73 },
     balance: { spawnMul: 0.8 },
     obstacles: { count: 15, minR: 24, maxR: 46, minDist: 220 }, // roots / bones (traps are separate, see run.traps)
@@ -4569,21 +4465,10 @@ export const CHAPTERS = {
       { id: 'tankColumn', archetype: 'tank',   name: 'Tank Column', hpMul: 1.25, speedMul: 0.55, flags: ['artillery', 'unshakeable'] },
     ],
     eliteFlags: ['artillery'],            // AA-turret elites shell you too, just harder (see ARTILLERY_*)
-    // v7.21 (owner directive): 10% fewer tank columns. THE MULTIPLIER IS NOT THE CUT — waveWeights
-    // renormalises, so a share multiplier hands the removed weight to jets and helis and the count
-    // falls by LESS than the number you type. The obvious 0.9 delivers only -7.4%.
-    //
-    // Do not tune this by running seeded sims and comparing counts: changing the multiplier
-    // re-phases the entire Math.random stream, so adjacent values are independent samples rather
-    // than a trend. Measured 0.865 -> 212.0 tanks/run and 0.84 -> 220.5, i.e. BACKWARDS — the
-    // re-phasing trap CLAUDE.md documents for the test suite, showing up in a balance probe.
-    // It has a closed form instead: inside a wave row of tank share s the tank rate scales by
-    // exactly m/((1-s) + m*s), and the only measured input is how many tanks each row contributes
-    // (53.0 / 104.6 / 23.0 / 51.3 per run for the t>=140/200/240/260 rows; 231.9 total, 8 seeds x
-    // 300s). That solves to -10.00% at 0.8661, so 0.866 is -10.01% -> ~208.7 tanks/run.
-    //
-    // This is the second half of "the tank telegraph is too much": SKIES_FX.artillery dims each
-    // mark, this removes one in ten of them. v5.13 cut tank HP for the same clutter reason.
+    // balance_decision : 10% fewer skies tank columns, half of a telegraph-clutter pass v7.21
+    //  - ⚠ the multiplier is not the cut (0.9 gives -7.4%), and seeded sims CANNOT tune it: a new
+    //    multiplier re-phases the whole RNG stream, which read 0.865 and 0.84 backwards. Solve
+    //    m/((1-s) + m·s) per wave row instead — that is where 0.866 comes from.
     archetypeMul: { tank: 0.866 },
     // Signature: bombardment (area denial) — telegraphed artillery circles rain on the player's
     // area CONTINUOUSLY, independent of the artillery-flagged roster. Both feed run.bombs (the
@@ -5166,27 +5051,10 @@ CHAPTERS.surf = {
   //  - does not reach the gull: that blast is a flat GULL_DMG, tuned at its own constant
   balance: { spawnMul: 0.68, enemyDmgMul: 0.525, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.55 },
 
-  // Fewer Shore Crabs (owner rulings 2026-08-16, then a further "20% less crabs" on 2026-08-17).
-  // CHAPTER-WIDE, at every difficulty, matching how garden ({tank: 0.73}) and city ({tank: 0.825})
-  // declare theirs — NOT difficulty-1-only. Making it d1-only is not a config change: sim.js's
-  // spawnEnemy reads CHAPTERS[run.chapter].archetypeMul straight from this table (see waveWeights,
-  // sim.js) and never consults createRun's mods, so a d1 gate would mean plumbing a new run field
-  // through every chapter's spawn path. Say so here so the next reader does not "fix" it into a
-  // d1-only cut.
-  //
-  // ⚠ 0.41 IS MEASURED, NOT DERIVED, AND THE ARITHMETIC ANSWER IS WRONG BY HALF. "20% fewer crabs"
-  // looks like 0.6 x 0.8 = 0.48, and it is not, for the reason waveWeights states in its own
-  // comment: these weights are RELATIVE, so thinning `tank` hands its share to the other two rather
-  // than removing spawns. Worse, crabs are the chapter's TANK — they hold a maxAlive slot far
-  // longer than a hopper does, so cutting them speeds the whole chapter's turnover and the total
-  // spawn count RISES, diluting the cut again. Measured over 5 seeded 300s runs
-  // (scripts/spawn-census style probe, immortal + stationary, counting first sightings by roster id):
-  //   tank 0.6  -> 812 crabs of 4710 spawns (17.24%)   <- before
-  //   tank 0.48 -> 735 of 4906 (14.98%)  = only 9.5% fewer crabs, the naive answer
-  //   tank 0.41 -> 649 of 5014 (12.94%)  = 20.1% fewer  <- shipped
-  //   tank 0.35 -> 571 of 5097 (11.20%)  = 29.7% fewer, overshoot
-  // The rising denominator is real play, not a probe artifact: a beach with fewer crabs is a beach
-  // with MORE roaches and hoppers, which is why the roach was softened in the same pass.
+  // balance_decision : 20% fewer Shore Crabs, chapter-wide at every difficulty 2026-08-17
+  //  - ⚠ 0.41 is MEASURED, not derived: the arithmetic 0.6·0.8 = 0.48 gives only 9.5%. The weight
+  //    is relative AND crabs are the tank, so thinning them speeds turnover and the total spawn
+  //    count rises, diluting the cut twice. Re-measure any retune; do not compute it.
   archetypeMul: { tank: 0.41 },
 
   // ---- the arsenal. A NEW array, never a push onto the spread one: `...CHAPTERS.pond` above shares
@@ -6914,15 +6782,9 @@ export const MARCH_HOME_MUL = 0.55
 // alive count runs away to MAX_ALIVE, which is the unthreadable wall the paragraph above describes.
 export const LANE_SPAWN_MUL = 0.55       // ordinary (non-rank) spawning rate in the lane
 
-// Owner directive: "33% more enemies at the start, but finish at the same rate." The lane opens
-// denser and decays LINEARLY back to the shipped rate at SPAWN_LATE_START — the same no-step-change
-// shape as SPAWN_EARLY_BOOST, and pinned to that landmark because it is where spawnRate hands over
-// to its late quadratic, so from t=120 on the chapter is arithmetically identical to what shipped.
-// It multiplies BOTH lane spawners, which is not optional: measured over 5 seeds x 300s at d3, the
-// RANKS are 63% of the first 30s of arrivals (36 of 57). Putting the whole +33% on the ring stream
-// alone would need +89% on it and would flip the swarm/rank mix this chapter exists to merge.
-// Ranks take it as a SHORTER INTERVAL, not extra rows: row count is a rounded 1..3 (stepFormations)
-// and cannot express a third of a row — at these rates it stays pinned at 1 whatever you multiply.
+// balance_decision : the lane opens 33% denser and decays to the shipped rate by t=120
+//  - must multiply BOTH lane spawners: ranks are 63% of the first 30s, so putting it all on the
+//    ring stream would need +89% and would flip the swarm/rank mix the chapter exists to merge.
 export const LANE_EARLY_BOOST = 0.33     // +33% at t=0, +16.5% at t=60, +0% from t=120
 export const LANE_EARLY_UNTIL = SPAWN_LATE_START
 export const laneEarlyMul = (t) => (t >= LANE_EARLY_UNTIL ? 1 : 1 + LANE_EARLY_BOOST * (1 - t / LANE_EARLY_UNTIL))
@@ -7640,17 +7502,9 @@ export const WEAVE_FREQ = 3.1   // rad/s of the weave's own sine — about one f
 // sight, which reads as the chapter being empty. Full speed until seen, then the full idle wind-up
 // on screen where the player can read it, is the shape that keeps the pressure and buys the tell.
 export const DASH_IDLE_T = 1.1        // s, idle phase duration
-// 0.35 s of dash (owner ruling 2026-08-16: 30% shorter, was 0.5). The SPEED is deliberately
-// untouched — DASH_SPEED_MUL is what makes a burst read as a burst, and the v6.6 note above
-// stepDashBurst says the speed was never the complaint. Shortening the window shortens the LUNGE,
-// and measured off a real 150s Surf run rather than estimated (the Sea Roach spawns at 191.7 px/s,
-// x2.6 while dashing = 498 px/s):
-//   was  0.50s -> 249 px of committed travel = 128% of a 390px phone's half-width
-//   now  0.35s -> 174 px                     =  89%
-// That crossing of 100% is the whole point. A dash that travels further than half the screen can
-// begin at the edge of vision and end on the player, which is the same complaint the canCommitFrom
-// gate above answers from the other direction — one bounds where it may START, this bounds how far
-// it may GO once it has.
+// balance_decision : dash 30% shorter, so a lunge cannot cross half a screen 2026-08-16
+//  - the WINDOW, never DASH_SPEED_MUL: the speed is what makes a burst read as a burst, and was
+//    never the complaint. 0.5s travelled 249px (128% of a phone's half-width), 0.35s travels 174px.
 export const DASH_T = 0.35            // s, dash phase duration
 export const DASH_IDLE_SPEED_MUL = 0.4
 export const DASH_SPEED_MUL = 2.6
@@ -7993,23 +7847,9 @@ export const SKIES_KAIJU = {
   // scale against different references: the plate glow is sized relative to the BAKED PLATE it's
   // lighting up (small), the screen bloom is sized relative to the WHOLE BODY (big).
   plateGlowScale: 1.6, bloomScale: 3.4,
-  // v5.11 ("kaiju way too big", playtest report). The v5.10 bake was sized against the OLD ~44px
-  // blob it replaced and overshot: the body alone came out ~250px across on a 1900px viewport, next
-  // to towers that draw at ~96px, so the monster covered a seventh of the screen and buildings read
-  // as scenery scattered around it rather than as a city it was standing in. Scale is the whole
-  // point of a kaiju, and scale is RELATIVE — it is communicated by how much recognisable detail
-  // fits beside the creature, so a monster that crowds the detail out of frame reads SMALLER, not
-  // bigger. 0.62 puts the body at ~155px: still unmistakably the largest thing in the world, with
-  // room for a block of buildings alongside it.
-  //
-  // Applied to bodyC (the container holding body, flash, plates and the whole tail chain) rather
-  // than to each sprite, so every part of the rig scales together and the tail can't drift off the
-  // hip. The sim hitbox (PLAYER.radius, 22) is untouched — this is render-only, like the rest of
-  // this block.
-  // v7.21 (owner directive): 0.62 -> 0.496, a flat -20%. Render-only, as the note above says — the
-  // sim hitbox (PLAYER.radius, 22) does not move, so nothing about what hits you changes. Paired
-  // with enemyDrawScale 0.55 -> 0.605 (+10%) in CHAPTERS.skies.render: the two knobs push the same
-  // ratio from opposite ends, so the kaiju/aircraft size gap closes by ~27% in one step.
+  // balance_decision : kaiju drawn smaller twice, scale reads RELATIVE to nearby detail v5.11/v7.21
+  //  - RENDER-ONLY: the sim hitbox is PLAYER.radius (22) and does not move. Applied to bodyC so the
+  //    tail chain scales with the hip. A monster that crowds buildings out of frame reads SMALLER.
   bodyScale: 0.496,
   // v7.26: how far forward of the player's centre the MOUTH sits, in the same local pre-scale units
   // drawKaijuBody draws in (its head polygon runs y -60 to the snout tip at -134, so this sits just
@@ -8190,21 +8030,11 @@ export const WEB_SLOW_MUL = 0.6  // player move-speed multiplier while standing 
 export const POUNCE_RANGE = 140          // px, distance at which a holding toad commits to a leap
 export const POUNCE_LEAP_DIST = 188      // px the leap covers — must stay under a phone's 195px half-view
 export const POUNCE_HOLD_SPEED_MUL = 1.2 // seek speed while stalking (multiplier of its OWN speed)
-// v6.7.4. Measured after v6.7.3: the toad was catching a player who STOOD STILL and essentially
-// nobody else — 0% of leaps connected against a player holding the stick, and the +33% speed /
-// +25% distance of v6.7.3 moved that number by nothing. The reason was never speed or reach: the
-// heading locked at the START of a 0.9s crouch, and 0.9s at 220 px/s is ~198px of player travel
-// against a 48px-wide hitbox, so it was aiming at where you had been almost a second earlier.
-// Locking at LAUNCH instead fixes the connect rate outright (100% against a player at half speed)
-// and the owner refused it as "a homing toad" — correctly, that is not an ambush predator, it is a
-// tracking missile. So the wind-up is SPLIT: it lines up on you for POUNCE_AIM_TRACK_T, then the
-// heading freezes for the rest and the attack is committed from that instant. The dodge window is
-// the committed remainder plus the flight — (POUNCE_AIM_T - POUNCE_AIM_TRACK_T) + POUNCE_LEAP_T,
-// i.e. 0.6s, about 132px of travel at full speed against a 48px hitbox. Escapable on purpose, but
-// it now demands a reaction rather than merely not standing still.
-// The telegraph deliberately SWEEPS during the tracking half (owner: "the telegraph can move during
-// the first 0.3s") — render.js draws the lane straight off _pounceDir, so the lane following you
-// and then stopping IS the commit signal, and no extra art was needed to say it.
+// balance_decision : the toad's wind-up SPLITS into tracking then committed halves v6.7.4
+//  - not a speed or reach problem: locking the heading at the start of a 0.9s crouch aimed at
+//    where you were ~198px ago, so 0% of leaps connected against a moving player. Locking at
+//    LAUNCH fixes it but is "a homing toad" (owner). Dodge window is the committed remainder plus
+//    the flight, ~0.6s. The telegraph sweeps during the tracking half and stopping IS the commit.
 export const POUNCE_AIM_T = 0.60         // s, telegraphed crouch (dead stop). Was 0.90.
 export const POUNCE_AIM_TRACK_T = 0.30   // s of that crouch spent still tracking; the rest is committed.
                                          // MUST stay < POUNCE_AIM_T or the leap re-aims to the last
