@@ -311,6 +311,22 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   read "25 roster entries across 7 chapters" when the answer is 35 across 9. Print the denominator
   in every sweep's log line, and assert the set contains the id you are actually working on.
 - **`// ponytail:` comments** mark deliberate simplifications with their known ceiling and upgrade path — respect them; don't "fix" a marked shortcut without cause.
+- **A BALANCE DECISION GETS ONE LINE, IN A FIXED FORMAT — NOT AN ESSAY** (owner, 2026-08-17:
+  "stop adding so many comments about balance decisions etc. just have a common template"):
+
+  ```js
+  // balance_decision : [10 word desc max] [date]
+  //  - [optional: ONE bullet, only if it needs a warning]
+  ```
+
+  The bullet is for a warning a future editor would otherwise trip over ("does not reach the gull",
+  "`src === 'gull'` is load-bearing"), not for the reasoning, the measurement, the owner's quote, or
+  the history of previous tunes. **Where the reasoning goes instead: the commit body.** That is what
+  `git log`/`git blame` are for, and unlike a comment it cannot rot against the number it describes.
+  This rule EXISTS because those blocks were reaching 25 lines for a two-decimal change and the
+  arithmetic in them was already restating what the diff shows. Do not reinstate a deleted one.
+  Note the interaction with `npm run ship`: it amends HEAD with `-m` and destroys the body, so push
+  the branch (or write the reasoning on the commit BELOW the release) before shipping.
 - **A PER-CAST COUNT IS USUALLY WRITTEN TWICE — as the loop bound AND as the divisor that spaces
   what the loop spawns.** `for (i < stats.orbs)` with `angle = (i / stats.orbs) * 2pi`,
   `(i - (count - 1) / 2) * STAR_FAN`, `(2 * BOOMERANG_FAN) / (count - 1)`, `i / count` in the quill

@@ -5451,9 +5451,26 @@ function runBookProgression() {
   // at x1.0 — 2.3x the spawn rate at 45% of the xp, which was correct only while nobody reached it
   // without a stocked book-1 shop. Owner ruling 2026-08-16.
   assert.ok(EARLY_CALM.surf, "The Surf needs an EARLY_CALM entry — it is a book's first chapter now")
-  // Then again on 2026-08-17: "density -25% and XP +30%", relative to those numbers.
-  assert.strictEqual(EARLY_CALM.surf.spawnMul, 0.6, 'owner ruling 2026-08-17 (0.8 x 0.75)')
-  assert.strictEqual(EARLY_CALM.surf.xpMul, 1.69, 'owner ruling 2026-08-17 (1.3 x 1.3)')
+  // Then three more times on 2026-08-17, each relative to the last: "density -25% and XP +30%",
+  // then "another 10% less density and 10% more xp", then "another 20% less density and 30% more
+  // xp". 0.8·0.75·0.9·0.8 = 0.432 and 1.3·1.3·1.1·1.3 = 2.4167, rounded to the table's two decimals.
+  assert.strictEqual(EARLY_CALM.surf.spawnMul, 0.43, 'owner rulings 2026-08-17 (0.8 x 0.75 x 0.9 x 0.8)')
+  assert.strictEqual(EARLY_CALM.surf.xpMul, 2.42, 'owner rulings 2026-08-17 (1.3 x 1.3 x 1.1 x 1.3)')
+  // The EFFECTIVE d1 numbers, composed with the chapter balance. The literals above cannot see a
+  // later edit to CHAPTERS.surf.balance that quietly makes this the harshest opening again.
+  {
+    const eff = (id) => ({
+      spawn: CHAPTERS[id].balance.spawnMul * EARLY_CALM[id].spawnMul,
+      xp: CHAPTERS[id].balance.xpMul * EARLY_CALM[id].xpMul,
+    })
+    const surf = eff('surf'), body = eff('body'), pond = eff('pond')
+    assert.ok(surf.spawn <= body.spawn + 1e-9,
+      `The Surf's d1 spawn (${surf.spawn.toFixed(3)}) must not be denser than The Body's (${body.spawn.toFixed(3)}) — three "too hard" rulings put it at or under the game's gentlest opening`)
+    assert.ok(surf.xp >= body.xp - 1e-9,
+      `The Surf's d1 xp (x${surf.xp.toFixed(2)}) must not pay less than The Body's (x${body.xp.toFixed(2)})`)
+    assert.ok(surf.spawn < pond.spawn,
+      `The Surf's d1 spawn (${surf.spawn.toFixed(3)}) must stay under The Pond's (${pond.spawn.toFixed(3)})`)
+  }
   // Shore Crabs, thinned twice: 40% on 2026-08-16, then a further "20% less crabs" on 2026-08-17.
   // 0.41 and NOT 0.6 x 0.8 = 0.48, because these weights are relative and crabs are the chapter's
   // tank — see the block above archetypeMul in config.js for the 5-seed x 300s census. Pinned as a
@@ -5834,20 +5851,11 @@ function runRoachSoftening() {
   // temporarily lifted, which is the only control that holds the archetype base, the chapter's own
   // balance.enemyDmgMul and the spawn-time damage ramp all fixed.
   //
-  // AMP EXISTS BECAUSE hurtPlayer ROUNDS EVERY HIT TO AN INTEGER, AND THIS FIXTURE HAD DRIFTED TO
-  // WHERE THAT ROUNDING WAS THE WHOLE MEASUREMENT. Measured on the 2026-08-17 chapter-wide cut
-  // (balance.enemyDmgMul 0.7 -> 0.525): the roach's RAW swing is 3.061 against 1.531 — a clean
-  // x0.500 — but Math.round takes those to 3 and 2, so 13 contact hits read 39 HP against 26 and
-  // the ratio came out x0.667 and failed. Nothing about the mechanic had moved; the proxy had
-  // simply run out of resolution, and at 3 HP a hit one integer IS a third of the answer.
-  // Amplifying both arms by the same constant restores it without changing what is being asked:
-  // the ratio is invariant under it, the code path is identical, and e.dmg is baked at spawn from
-  // run.mods.enemyDmgMul so this must be set BEFORE the search loop below. At x100 the swings are
-  // 306.1 and 153.1, where a half-integer is a 0.2% error instead of a 33% one. It multiplies no
-  // RNG draw, so the spawn stream — and the specific non-elite roach this block is so careful to
-  // pin — is byte-for-byte the one it found before.
-  // The honest alternative was widening the tolerance, which would have hidden the pathology this
-  // block exists to catch rather than measuring past it.
+  // AMP EXISTS BECAUSE hurtPlayer ROUNDS EVERY HIT TO AN INTEGER. Once the chapter cut took the
+  // roach's raw swing to 3.061 vs 1.531 (a clean x0.500), Math.round made those 3 and 2 and the
+  // measured ratio read x0.667 — the mechanic had not moved, the proxy had run out of resolution.
+  // x100 on both arms leaves the ratio invariant, draws no extra randoms (so the same non-elite
+  // roach is still pinned) and must be set BEFORE the search loop, since e.dmg is baked at spawn.
   {
     const entry = CHAPTERS.surf.roster.find((r) => r.id === 'searoach')
     const saved = entry.dmgMul
@@ -19785,12 +19793,22 @@ function testSurfGulls() {
   // a gull that only ever aimed at the player would still catch the crowd standing on top of them
   // and the damage count would pass. A strike PLACED well outside its own blast radius from the
   // player is the only evidence that something other than the player was targeted.
+  //
+  // THE DISTANT PREY IS PARKED BY THE FIXTURE, not left to the chapter's own spawns. Relying on
+  // those coupled this block to EARLY_CALM.surf.spawnMul: the 2026-08-17 density cut (0.6 -> 0.43)
+  // starved the prey pool and all 11 plunges in the window went to the player, which reads exactly
+  // like the regression this block hunts. Nothing about the gull had changed — with the density
+  // alone reverted it passed. A held enemy makes the assertion say what it means at any density.
   {
     const run = rig(91002)
+    const far = makeStatusEnemy(run, { x: run.player.x + 400, y: run.player.y, hp: 1e6, speed: 0 })
     let awayFromPlayer = 0, total = 0
     for (let i = 0; i < 60 * 40; i++) {
       if (run.phase === 'levelup') { run.phase = 'playing'; continue }
       if (run.phase !== 'playing') break
+      if (!run.enemies.includes(far)) run.enemies.push(far)
+      far.x = run.player.x + 400; far.y = run.player.y
+      far._dead = false; far.hp = far.maxHP
       const before = run.bombs.length
       stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
       for (let b = before; b < run.bombs.length; b++) {
@@ -19859,18 +19877,13 @@ function testSurfGulls() {
     assert.strictEqual(aimedAtAlly, 0, 'a gull targeted the player\'s own ally')
   }
 
-  // (f) THE SHOREBREAK BLOCKS THE GULL (owner ruling 2026-08-17). Three arms, because the one-arm
-  // version of this passes under two different mutations that both ship a broken chapter:
-  //   1. wave up   + gull bomb  -> the player takes NOTHING, and the enemy beside them still does.
-  //   2. wave DOWN + gull bomb  -> the player takes damage. The do-nothing control: without it, a
-  //      fixture that quietly stopped placing the bomb (wrong position, wrong fuse, a step that
-  //      never detonates) would read as "the immunity works" while asserting nothing at all.
-  //   3. wave up   + a NON-gull bomb -> the player still takes damage. run.bombs is shared with the
-  //      skies' bombardment and every volatile elite core, so dropping the `b.src === 'gull'` half
-  //      of the gate turns this button into a universal panic button in chapters that never priced
-  //      one. Arm 1 alone cannot see that; this arm is the only thing standing on it.
-  // The button is PRESSED rather than `_shorebreakT` being assigned, so the shipped stepRepulse path
-  // is what arms it — assigning the field would keep passing if the press stopped reaching the cast.
+  // (f) THE SHOREBREAK BLOCKS THE GULL. Three arms, because one arm passes under two mutations that
+  // each ship a broken chapter:
+  //   1. wave up   + gull bomb     -> player takes nothing, the enemy beside them still does.
+  //   2. wave DOWN + gull bomb     -> player takes damage. The control: without it a fixture that
+  //      stopped placing the bomb would read as "the immunity works" while asserting nothing.
+  //   3. wave up   + NON-gull bomb -> player still takes damage, so the gate cannot go blanket.
+  // The button is PRESSED, not `_shorebreakT` assigned, so the shipped stepRepulse path arms it.
   {
     const arm = (press, src) => {
       const run = rig(91005)

@@ -3602,17 +3602,9 @@ export const EARLY_CALM = {
   body:   { spawnMul: 0.40, xpMul: 2.22 }, // v6.4.3: 0.6·0.67 / 1.67·1.33 — another -33% / +33%
   pond:   { spawnMul: 0.6,  xpMul: 1.67 },
   garden: { spawnMul: 0.6,  xpMul: 1.67 },
-  // v7.x: The Surf is Undertow's first chapter, and per-book progression makes surf/d1 the literal
-  // first run of a campaign — at zero upgrades, where it used to be reached with a stocked book-1
-  // shop. Measured before this change: body d1 ran an effective spawn of 0.30 (balance 0.75 x
-  // EARLY_CALM 0.40) at x2.22 xp; surf ran 0.68 at x1.0 — 2.3x the spawn rate at 45% of the xp,
-  // which was correct only while nobody reached it without a stocked book-1 shop. Owner ruling
-  // 2026-08-16: spawnMul 0.8, xpMul 1.3 — gentler than it was, harder than body/pond (owner:
-  // "Book 2 should be harder, but maybe not that hard"). Owner ruling 2026-08-17, "level 2-1:
-  // density -25% and XP +30%", read as relative to those numbers exactly as v6.4.3's "-33%/+33%"
-  // was: 0.8·0.75 / 1.3·1.3. Effective at d1 (composed with the chapter balance below) that is a
-  // spawn of 0.41 at x2.11 xp — between body (0.30 / x2.78) and pond (0.45 / x2.09).
-  surf:   { spawnMul: 0.6,  xpMul: 1.69 },
+  // balance_decision : Surf d1 thinned and paid up, four compounding rulings 2026-08-17
+  //  - now the game's gentlest opening (0.29 spawn / x3.03 xp) vs body's 0.30 / x2.78
+  surf:   { spawnMul: 0.43, xpMul: 2.42 },
 }
 // count distinct random mutator ids (Fisher-Yates over the full pool)
 // The roll pool for a given chapter: hidden entries never roll; `chapters` (allowlist) and
@@ -5170,14 +5162,8 @@ CHAPTERS.surf = {
   // was chapter 1. Humidity taxes damage on top of everything here (see resourceDamageMul), which is
   // a pressure no other first chapter carries — hence spawnMul under the pond's own 0.75.
   //
-  // enemyDmgMul (owner ruling 2026-08-17, "chapter 2.1 is too hard ... the dmg of all enemies should
-  // be 25% lower"): 0.7 -> 0.525, read as RELATIVE to the number already here, the same way v6.4.3's
-  // "-33%/+33%" and the "-25% density" ruling one line up in EARLY_CALM were. This is the
-  // CHAPTER-WIDE lever (state.js's `bal` block) rather than a per-creature roster.dmgMul, so it
-  // moves every creature on the beach at every difficulty and composes with the Sea Roach's own
-  // 0.5 instead of overwriting it. It does NOT reach the gull: that hazard's blast is a flat
-  // GULL_DMG on a run.bombs entry and never passes through run.mods.enemyDmgMul — it is halved at
-  // its own constant, so the two rulings stay independent knobs.
+  // balance_decision : every Surf enemy hits 25% softer, chapter-wide 2026-08-17
+  //  - does not reach the gull: that blast is a flat GULL_DMG, tuned at its own constant
   balance: { spawnMul: 0.68, enemyDmgMul: 0.525, enemyHpMul: 0.85, xpMul: 1.25, maxAliveMul: 0.55 },
 
   // Fewer Shore Crabs (owner rulings 2026-08-16, then a further "20% less crabs" on 2026-08-17).
@@ -9165,12 +9151,8 @@ export const GULL_FUSE = 1.3        // s of shadow before it lands — one beat 
 export const GULL_RADIUS = 62       // px. Deliberately under BOMBARDMENT_RADIUS (85): the owner
                                     // asked for a small radius, and a bird is a point threat where
                                     // a shell is an area one
-// Owner ruling 2026-08-17 ("dmg of seagulls 50% lower"), 16 -> 8. Flat, and deliberately outside
-// every scaling term in the game: stepGullStrike puts this straight onto the run.bombs entry, so it
-// rides neither dmgScale(run.time) nor run.mods.enemyDmgMul nor the difficulty tax. That is why the
-// same ruling's chapter-wide "-25% on all enemies" (CHAPTERS.surf.balance.enemyDmgMul) does not
-// touch the bird, and why this halving does not double-dip on it either.
-// The shorebreak also makes the player immune to it outright — see the gate in stepBombs (sim.js).
+// balance_decision : gull blast halved, and an active shorebreak blocks it 2026-08-17
+//  - flat: rides no dmgScale, no enemyDmgMul, no difficulty tax. Immunity gate is in stepBombs.
 export const GULL_DMG = 8
 // How often the plunge aims at the PLAYER rather than at some enemy. Not 50/50: gulls outnumber you
 // on their own beach and most of what is alive down there is not you, so a mostly-ambient hazard
