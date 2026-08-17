@@ -1,4 +1,7 @@
-// Bakes the title screen's chapter-card cast thumbnails to src/cast/<rosterId>.png.
+// Bakes src/cast/<id>.png — the title screen's chapter-card creature thumbnails, keyed by rosterId,
+// AND the summary damage recap's hazard thumbnails, keyed by the `src` label hurtPlayer carries.
+// One directory and one glob for both, because ui.js's CAST_ART is keyed by the damage tally's own
+// `src` and a roster id IS a src (see dmgSrcName/dmgSrcArt in config.js).
 //
 // WHY A SCRIPT AND NOT RUNTIME: these are the game's own creature textures, and the only thing that
 // can draw them is render.js — which needs Pixi and a GPU. The first cut extracted them live at
@@ -6,9 +9,11 @@
 // the GPU catches up; a late-game save asked for two dozen. Baked once into files, the cards just
 // reference URLs like any other asset and boot pays nothing.
 //
-// ponytail: hand-run, not wired into `npm run build`. Re-run it when a creature's art changes or a
-// chapter's `render.cast` names a new id — otherwise the cards keep showing the old drawing, which
-// nothing will warn you about. Wire it into the build if that bites more than once.
+// ponytail: hand-run, not wired into `npm run build`. Re-run it when a creature's art changes, when a
+// chapter's roster gains an id, or when a HAZARD's draw code or palette changes — otherwise the cards
+// and the recap keep showing the old drawing, which nothing will warn you about. (Run DA.e catches an
+// id with no file at all; it cannot catch a file that is merely stale.) Wire it into the build if that
+// bites more than once.
 //
 //   node scripts/bake-cast.mjs
 //
@@ -37,7 +42,7 @@ function findChrome() {
   return null
 }
 
-const { CHAPTERS } = await import('../src/config.js')
+const { CHAPTERS, DMG_SRC_NAME, DMG_SRC_ART, DMG_SRC_NO_ART } = await import('../src/config.js')
 // EVERY ROSTER ENTRY, not just each chapter's curated `render.cast`. The cast lists exist to pick the
 // three or four faces a TITLE CARD shows, and they are a design choice — but from v7.120 the summary
 // screen's damage recap can name ANY creature that hurt you, and a creature with no baked thumbnail
@@ -51,6 +56,17 @@ const ids = [...new Set([
   ...Object.values(CHAPTERS).flatMap((c) => (c.roster ?? []).map((r) => r.id)),
 ])]
 console.log(`baking ${ids.length} cast thumbnails across ${Object.keys(CHAPTERS).length} chapters:`, ids.join(', '))
+
+// HAZARD thumbnails, for the summary's damage recap. Derived, never hand-listed: every DMG_SRC_NAME
+// key that is neither aliased to a creature (DMG_SRC_ART) nor deliberately picture-less
+// (DMG_SRC_NO_ART) must come back with art. That subtraction is what makes a builder that THREW
+// distinguishable from a source that was never meant to have a picture — the same distinction whose
+// absence made 12 blank slots read as a working feature for a whole release.
+const hazardIds = Object.keys(DMG_SRC_NAME)
+  .filter((k) => !DMG_SRC_ART[k] && !DMG_SRC_NO_ART[k])
+console.log(`baking ${hazardIds.length} hazard thumbnails of ${Object.keys(DMG_SRC_NAME).length} damage sources:`, hazardIds.join(', '))
+console.log(`  aliased to a creature: ${Object.entries(DMG_SRC_ART).map(([k, v]) => `${k}->${v}`).join(', ')}`)
+console.log(`  deliberately no art:   ${Object.keys(DMG_SRC_NO_ART).join(', ')}`)
 
 const chrome = findChrome()
 if (!chrome) {
@@ -122,6 +138,16 @@ const res = await send('Runtime.evaluate', {
 })
 const art = res.result?.result?.value ?? {}
 
+// Sequential, not Promise.all: each extract is a GPU readback, and hazardThumbs BORROWS live shared
+// objects (the pool disc pool, stripG, bombG) for the duration of one build. Overlapping two builds
+// would have them paint over each other.
+const hres = await send('Runtime.evaluate', {
+  expression: `window.__renderer.hazardThumbs(${JSON.stringify(hazardIds)})`,
+  awaitPromise: true,
+  returnByValue: true,
+})
+const hazardArt = hres.result?.result?.value ?? {}
+
 mkdirSync(OUT, { recursive: true })
 let written = 0
 for (const id of ids) {
@@ -131,10 +157,18 @@ for (const id of ids) {
   writeFileSync(join(OUT, `${id}.png`), Buffer.from(b64, 'base64'))
   written++
 }
-console.log(`wrote ${written}/${ids.length} to src/cast/`)
+let hazardWritten = 0
+for (const id of hazardIds) {
+  const url = hazardArt[id]
+  if (!url) { console.warn(`  ! no art for hazard "${id}" — is it in render.js's hazardThumbs build table?`); continue }
+  const b64 = url.slice(url.indexOf(',') + 1)
+  writeFileSync(join(OUT, `${id}.png`), Buffer.from(b64, 'base64'))
+  hazardWritten++
+}
+console.log(`wrote ${written}/${ids.length} cast + ${hazardWritten}/${hazardIds.length} hazard thumbnails to src/cast/`)
 
 ws.close()
 browser.kill()
 vite.off('exit', dead)
 vite.kill()
-process.exit(written === ids.length ? 0 : 1)
+process.exit(written === ids.length && hazardWritten === hazardIds.length ? 0 : 1)

@@ -7382,22 +7382,41 @@ export function irisCoverMul(mult, cx, cy, w, h) {
 // `unknown` is a real, reachable row, not a defensive default: hurtPlayer buckets an unlabelled
 // caller under it. Seeing "Unknown" on the summary is how a future damage path that forgot its label
 // announces itself, which is worth more than a silent misattribution to something else.
+// EVERY COMMENT BELOW NAMES THE CHAPTER THAT PRODUCES THE LABEL, and it is not decoration: a label
+// whose comment drifted off its producer is a label the player is shown for the wrong thing. Three of
+// these were wrong when the audit of 2026-08-17 read them against the sim — `spray` was still called
+// Pesticide a whole version after the garden's spray strips were deleted (v6.6.14), `beam` was
+// credited to the skies when pullBeam is The Beyond's elite affix, and the missile helicopter was
+// credited to the city when it flies in the skies. Re-check the producer, not the comment.
 export const DMG_SRC_NAME = {
   // Book 2's hazards and resource costs
-  drown: 'Drowning',           // The Reef: an empty Air bar
+  // THE REEF ONLY, and this comment was briefly "every Book 2 chapter" until the audit checked:
+  // stepDrown returns early unless the chapter's resource declares `drown`, and The Reef's Air is the
+  // only one that does. Humidity, Feed and Light run dry into a SPEED or DAMAGE floor instead, which
+  // is not a hurtPlayer call at all. Guessing from "Book 2 is underwater" is how the wrong comment
+  // got written in the first place — read the gate.
+  drown: 'Drowning',
   trawl: 'The Net',            // The Trawl: the mesh wall
-  devour: 'Swallowed',         // The Deep: an anglerfish closed on you
-  // Book 1's hazards
-  pool: 'Caustic Pools',       // acidPool / soapTrail elite trails
-  spray: 'Pesticide',          // the garden's spray strips
+  devour: 'Swallowed',         // The Deep: an anglerfish maw closed on you (a run.shafts entry)
+  // Book 1's hazards — with the caveat that `pool` is the single most widespread hazard in the game
+  pool: 'Caustic Pools',       // acidPool (body) AND soapTrail, which is the elite affix in pond,
+                               // shelf, surf, reef and trawl — four of them Book 2. Not Book 1 only.
+  erase: 'Erasure',            // The Blank: boss bands, eraser wakes, immuneMemory residue. All
+                               // three push look:'erase' strips; NOTHING in the game sprays pesticide
+                               // any more, which is what this label used to claim.
   trap: 'Snap Traps',          // the undergrowth
-  traffic: 'Traffic',          // the city's lanes
-  missile: 'Missiles',         // the city helicopter's volley
-  beam: 'Abduction Beam',      // the skies UFO
-  bomb: 'Blasts',              // volatile elites' corpse bombs
+  traffic: 'Traffic',          // the city's lanes — look:'car'
+  mower: 'The Mower',          // the garden's lanes — look:'mower', same stepper, other vehicle.
+                               // Split out because "Killed by Traffic" is a lie about a lawnmower.
+  missile: 'Missiles',         // the SKIES helicopter's volley, plus The Blank's boss fans and its
+                               // standoff antibodies — every run.enemyShots entry draws as a missile
+                               // (placeShot), so one label matches what the player actually sees.
+  beam: 'Abduction Beam',      // THE BEYOND's pullBeam elite
+  bomb: 'Blasts',              // volatile elites' corpse bombs, the skies' artillery, Surf gulls
   rock: 'Asteroids',           // The Beyond's drifting rocks
-  leak: 'The Line',            // The Beyond: invaders that got past you
-  yank: 'The Pull',            // The Blank's boss, phase 2
+  leak: 'The Line',            // The Beyond: marching invaders that slipped behind you (stepLeaks
+                               // gates on `lane`, but only beyond fields `march` enemies)
+  yank: 'The Pull',            // The Blank's boss, phase 2 — the pull of its bind nodes
   // Costs you chose to pay. Both are anomalies, and both names match the card's own so the summary
   // reads as the card you took rather than as a mystery source of damage.
   overload: 'Overload',
@@ -7424,6 +7443,44 @@ export function dmgSrcName(src) {
     if (hit) return hit.name
   }
   return null
+}
+
+// Which baked thumbnail a `src` shows on the summary's damage recap, when it is not its own id.
+// src/cast/<id>.png is keyed by src for every hazard that has art of its own (scripts/bake-cast.mjs
+// bakes those from render.js's own draw code) — this table is only for the sources whose honest
+// picture is a CREATURE the game already draws, so aliasing costs no new art at all:
+//   yank — the drag is the pull of The Blank's bind nodes, and a bindnode is an enemy with a face.
+//   leak — a rank that slipped behind you, and stepFormations forces `rosterId: 'invader'` on ranks.
+// Not a general indirection: keep it at two entries and give a hazard its own bake instead. The
+// summary must never show a creature that did not do the thing (v6.7.1's 🐻 for the tardigrade is
+// the same mistake with a different mechanism).
+export const DMG_SRC_ART = { yank: 'bindnode', leak: 'invader' }
+
+/** Thumbnail id for a damage source: its alias if it has one, else the src itself. */
+export function dmgSrcArt(src) {
+  if (!src) return null
+  return DMG_SRC_ART[src] ?? src
+}
+
+// The damage sources that deliberately show NO picture, each with the reason, because an empty slot
+// is otherwise indistinguishable from a bake that failed — which is the whole bug being fixed here.
+// Together with DMG_SRC_ART this PARTITIONS DMG_SRC_NAME: every remaining key must have a
+// src/cast/<key>.png baked from render.js's hazardThumbs. Run DA.g asserts that partition is exact,
+// so adding a damage source without deciding its picture is a red suite rather than a blank column.
+export const DMG_SRC_NO_ART = {
+  // The abduction beam draws in the SHARED elite-telegraph amber (the same fill/rim as the traffic
+  // lanes, the erasure strips and the flashlight cone), and the beyond's "UFO" has no saucer texture.
+  // An icon from its real art would read identically to three other rows; a new drawing is new art.
+  beam: 'no art of its own — shared telegraph amber, and no saucer texture to borrow',
+  // Costs you chose to pay. Neither has a world object; their honest picture is the anomaly card.
+  overload: 'a card you took, not a thing in the world',
+  bloodMoney: 'a card you took, not a thing in the world',
+  // Unreachable: every hurtPlayer call site is labelled (run DA.d), and all 13 chapters cover all
+  // three archetypes, so nothing keys on the fallbacks today (run DA.h).
+  unknown: 'unreachable — every damage site is labelled',
+  drone: 'unreachable — every chapter roster covers `normal`',
+  wisp: 'unreachable — every chapter roster covers `fast`',
+  tank: 'unreachable — every chapter roster covers `tank`',
 }
 
 // ---- Light Thief (v7.x Book 2) ----------------------------------------------------------------

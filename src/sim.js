@@ -285,7 +285,7 @@ export function stepSim(run, input, dt) {
   if (stepDrown(run, dt)) return // phase is now 'dead' (The Reef: an empty Air bar, v7.x)
   if (stepTrawl(run, dt)) return // phase is now 'dead' (The Trawl: the net wall, v7.x)
   if (stepMaws(run, dt)) return // phase is now 'dead' (The Deep: an anglerfish swallowed you, v7.x)
-  if (stepStrips(run, dt)) return // phase is now 'dead' (garden pesticide spray-strip DoT — v5.3)
+  if (stepStrips(run, dt)) return // phase is now 'dead' (The Blank's erasure-strip DoT — v5.3)
   if (stepTraps(run, dt)) return // phase is now 'dead' (undergrowth snap trap — v5.4)
   if (stepLanes(run, dt)) return // phase is now 'dead' (city traffic — v5.4)
   if (stepEnemyShots(run, dt)) return // phase is now 'dead' (helicopter missile — v5.4)
@@ -4288,7 +4288,7 @@ function stepWebs(run, dt) {
   run.webs = run.webs.filter((web) => web.t > 0)
 }
 
-// -- Pesticide spray strips (v5.3 garden's sprayStrip elites) --------------------------
+// -- Erasure strips (v5.3; the garden's sprayStrip elites are long gone — v6.6.14) -----
 // Telegraphed rectangles marked on the player (stepEnemyMovement). Each strip counts down its
 // `fuse` (telegraph, no damage) first, then goes live and ticks dot-flagged damage to the PLAYER
 // standing inside the rotated rectangle for `t` seconds (like run.pools). Removed once spent.
@@ -4322,7 +4322,11 @@ function stepStrips(run, dt) {
     s._tickAcc = (s._tickAcc ?? 0) + dt
     while (s._tickAcc >= STATUS_TICK) {
       s._tickAcc -= STATUS_TICK
-      if (!playerDied && hurtPlayer(run, s.dps * STATUS_TICK, true, 'spray')) playerDied = true
+      // 'erase', NOT 'spray'. The garden's pesticide strips were deleted in v6.6.14 and every
+      // producer left pushes look:'erase' (the boss's bands, the eraser's wake, immuneMemory
+      // residue) — so the label went on telling a player killed by The Blank that Pesticide did it.
+      // Read the push sites, not the label: `grep -n "strips.push" src/sim.js` is the whole check.
+      if (!playerDied && hurtPlayer(run, s.dps * STATUS_TICK, true, 'erase')) playerDied = true
     }
   }
   run.strips = run.strips.filter((s) => s.fuse > 0 || s.t > 0)
@@ -4610,7 +4614,12 @@ function stepLanePasses(run, dt) {
         run._obstacleRev = (run._obstacleRev || 0) + 1
       } else {
         lane._hitPlayer = true // for a dot lane this IS the once-per-pass guard
-        if (hurtPlayer(run, lane.dmg, dotHit, 'traffic')) playerDied = true
+        // THE LANE ALREADY CARRIES ITS OWN IDENTITY — take the label off `look` rather than off the
+        // stepper, which serves two vehicles. run.lanes is pushed by the city's taxi (look:'car')
+        // and by the garden's mower (look:'mower'), and one shared 'traffic' label told a player
+        // mown down in a flowerbed that TRAFFIC killed them. Same class of bug as 'spray' above,
+        // and the same fix: the discriminator was already on the entity, unread.
+        if (hurtPlayer(run, lane.dmg, dotHit, lane.look === 'mower' ? 'mower' : 'traffic')) playerDied = true
       }
       // For a normal hit, invuln makes "once per pass" implicit, the way contact damage does.
     }
