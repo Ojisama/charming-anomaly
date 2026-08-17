@@ -124,7 +124,8 @@ import {
   // Book 2 The Surf: Humidity + tide pools (Run US.c)
   refillSpec,
   // Book 2 The Surf: Humidity drives damage (Run US.d)
-  HUMIDITY_DMG_FLOOR, resourceDamageMul,
+  HUMIDITY_DMG_FLOOR, resourceDamageMul, resourceRateMul,
+  LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_DMG, LUNGE_KILL_REFILL, LUNGE_BITE_MUL, STARVE_TICK,
   // Book 2 The Surf: the Shore Crab's guard (Run US.i)
   CRAB_GUARD_ARC,
   // Book 2 The Surf: the beach floor's look (Run US.j)
@@ -14297,6 +14298,7 @@ try {
   run(testLaneGolden)
   run(testLaneAxis)
   run(testReefAirBurst)
+  run(testWreckBloodlust)
   run(testTrawlNet)
   run(testTrawlNatives)
   run(testTheDeep)
@@ -17650,6 +17652,267 @@ function testLaneAxis() {
 //   - the Burst sets its timer and nothing reads it, so the button is the Pulse with extra steps;
 //   - the coral goes solid the shipped way, and the radial push-out shoves the player back DOWN a
 //     lane whose whole promise is that it does not.
+// ---- run WK: The Wreck's Bloodlust + Lunge (v7.x Book 2 chapter 4) ---------------------------
+// EVERY ASSERTION HERE IS AN EFFECT, NOT A FIELD. The four silent failures it guards all render
+// fine, throw nothing, and would leave a chapter that looks complete:
+//   - `killBase` sits in config and nothing reads it, so the bar has no refill at all and the
+//     chapter is a 20-second timer wearing a resource's clothes;
+//   - `resource.rate` sits in config and nothing reads it, so the bar's second job is half missing
+//     and a multiplier is exactly the thing you cannot see is absent;
+//   - the generalised ramp quietly moves The Surf, whose whole licence was granted on a MEASURED
+//     floor — a byte-identical claim is worth nothing unasserted;
+//   - the Lunge sets its timer and nothing reads it, so the button is the Pulse with extra steps
+//     (the same failure run RF.d exists to catch one chapter earlier).
+function testWreckBloodlust() {
+  const dt = 1 / 60
+  const res = CHAPTERS.wreck.resource
+
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  const quiet = (run) => { run.enemies.length = 0; run.events.length = 0 }
+  const wreckRun = (seed = 20260817) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'wreck', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'wreck', 'run WK did not start in the wreck — the WIP gate or the meta is wrong, and every number below would be another chapter')
+    run.player.hp = run.player.maxHP = 100000
+    run.mods.spawnMul = 0
+    return run
+  }
+  // A body pinned in front of the player, by IDENTITY rather than by index — a splice anywhere in
+  // the step moves a subject off run.enemies[0], after which the probe measures some other entity
+  // and nothing says so (the documented headless-probe scar).
+  const pin = (run, dist, hp = 100000) => {
+    run.enemies.length = 0
+    stepSim(run, { x: 0, y: 0 }, dt)
+    run.enemies.length = 0
+    const e = {
+      x: run.player.x + dist, y: run.player.y, vx: 0, vy: 0, kb: { x: 0, y: 0 },
+      hp, maxHP: hp, dmg: 0, radius: 14, speed: 0, xp: 1, type: 'drone',
+      rosterId: 'damselfish', elite: false, stunT: 999, slowT: 0, hitFlash: 0,
+    }
+    run.enemies.push(e)
+    return e
+  }
+
+  // (a) THE REFILL IS A KILL, AND THERE IS NOWHERE TO STAND. Three claims in one fixture, because
+  // they are the same claim from three sides: nothing streams a refill circle here, an idle player
+  // only ever falls, and a KILL is what puts it back.
+  {
+    const run = wreckRun()
+    // No field. streamShafts is the one function that materialises every other chapter's food, and
+    // refillSpec(null) gives it nothing to make — asserted after a real walk rather than at t=0,
+    // because "the field is empty before you move" is true of every chapter.
+    for (let i = 0; i < Math.round(6 / dt); i++) { stepSim(run, { x: 1, y: 0.3 }, dt); quiet(run) }
+    assert.strictEqual(run.shafts.length, 0,
+      `${run.shafts.length} refill circles streamed into The Wreck — this chapter's bar is fed by kills and a place to stand would be a second source competing with it`)
+
+    // Idle: the bar only falls, at the configured rate.
+    const r2 = wreckRun()
+    r2.charge = res.max
+    for (let i = 0; i < Math.round(4 / dt); i++) { stepSim(r2, { x: 0, y: 0 }, dt); quiet(r2) }
+    const dropped = res.max - r2.charge
+    assert.ok(Math.abs(dropped - res.drain * 4) < res.drain * 0.5,
+      `4s of standing still moved the bar by ${dropped.toFixed(1)} and the drain says ${(res.drain * 4).toFixed(1)} — something else is feeding or draining it`)
+
+    // A kill pays. `killBase` is the field under test and it is NOT shop-gated, so this must hold on
+    // a meta that bought nothing — which is the whole difference from every other Book 2 chapter.
+    const r3 = wreckRun()
+    assert.strictEqual(r3.killRefill, 0, 'run WK bought Scavenger by accident — killBase must be proven on an UNBOUGHT save, since that is the case every other chapter reads as zero')
+    r3.charge = 20
+    const victim = pin(r3, 60, 1)
+    const before = r3.charge
+    victim.hp = 0
+    // One step with the body already dead is not enough — dealDamage owns the kill branch, so the
+    // kill has to arrive through damage. Hit it with the lunge's own bite next case; here, drive it
+    // through the shipped contact path by handing it 0 HP and letting a weapon finish it.
+    r3.enemies.length = 0
+    const v2 = pin(r3, 40, 1)
+    let killed = false
+    for (let i = 0; i < Math.round(3 / dt) && !killed; i++) {
+      stepSim(r3, { x: 0, y: 0 }, dt)
+      if (v2._dead) killed = true
+      if (r3.enemies.length !== 1 || r3.enemies[0] !== v2) { if (!killed) r3.enemies = [v2] }
+      r3.events.length = 0
+    }
+    assert.ok(killed, 'run WK could not kill a 1 HP body in 3s — the fixture is broken, not the feature')
+    // Net of the drain that ran over the same frames, the bar must have gone UP by about killBase.
+    assert.ok(r3.charge > before,
+      `a kill left the bar at ${r3.charge.toFixed(1)} against ${before.toFixed(1)} before it — killBase is in config and nothing reads it, so this chapter's only refill does not exist`)
+    console.log(`PASS run WK.a (the refill is a kill): 0 circles streamed over a 6s walk, 4s idle cost ${dropped.toFixed(1)} at drain ${res.drain}, and one kill on an UNBOUGHT save took the bar ${before.toFixed(1)} -> ${r3.charge.toFixed(1)}`)
+  }
+
+  // (b) THE LINE PAYS, IT DOES NOT TAX — and The Surf is untouched by the generalisation.
+  // Asserted at BOTH ends and through buildReadout, because the config curve being right proves
+  // nothing about whether sim.js reads it: `rate` in particular has exactly one consumer.
+  {
+    assert.strictEqual(resourceDamageMul(0, res, res.max), 1,
+      'an EMPTY Bloodlust bar must deal exactly baseline damage. A floor below 1 is the death spiral this chapter was designed around — you would be worse at the one thing that refills you')
+    assert.ok(Math.abs(resourceDamageMul(res.max, res, res.max) - res.damage.peak) < 1e-9,
+      'a full bar must reach the configured damage peak')
+    assert.strictEqual(resourceRateMul(0, res, res.max), 1, 'an empty bar must fire at exactly baseline rate')
+    assert.ok(Math.abs(resourceRateMul(res.max, res, res.max) - res.rate.peak) < 1e-9,
+      'a full bar must reach the configured fire-rate peak')
+
+    // THE SURF, UNCHANGED. Its licence (§5.3) was granted on a measured floor, so "byte-identical"
+    // has to be an assertion rather than a claim in a comment.
+    const surf = CHAPTERS.surf.resource
+    assert.strictEqual(resourceDamageMul(0, surf, surf.max), HUMIDITY_DMG_FLOOR,
+      'the generalised ramp moved The Surf off its measured Humidity floor')
+    assert.strictEqual(resourceDamageMul(surf.max, surf, surf.max), 1, 'a full Humidity bar must still cost nothing')
+    assert.strictEqual(resourceRateMul(surf.max, surf, surf.max), 1,
+      'The Surf grew a fire-rate ramp it never declared — resourceRateMul must be inert for a resource with no `rate` block')
+
+    // ...and the wiring. buildReadout is the pause screen's own view of the cadence every weapon
+    // divides by, so if the bar does not move THIS number the second job is decoration.
+    // `every` is the SECONDS BETWEEN SHOTS (interval / rateDiv), so a faster weapon reports a
+    // SMALLER number — reading it as if bigger were better is how this assertion would pass
+    // backwards.
+    const cadence = (r) => buildReadout(r).weapons[0].stats.find((s) => s.key === 'every')?.value
+    const run = wreckRun()
+    run.charge = 0
+    const lo = cadence(run)
+    run.charge = run.chargeMax
+    const hi = cadence(run)
+    assert.ok(lo != null && hi != null, 'the readout carries no cadence row — the fixture is broken, not the feature')
+    assert.ok(hi < lo * 0.99,
+      `a full bar reported the same cadence as an empty one (${lo} -> ${hi}s between shots) — resource.rate is in config and globalFireRate does not reach it`)
+    assert.ok(Math.abs(lo / hi - res.rate.peak) < 1e-6,
+      `a full bar fires ${(lo / hi).toFixed(3)}x as often and the config says ${res.rate.peak}x — the readout and the ramp disagree`)
+    // And nowhere else: a chapter with no `rate` block must report the same cadence at both ends.
+    Math.random = mulberry32(20260817)
+    const reef = createRun(meta, { chapter: 'reef', difficulty: 1 })
+    reef.charge = 0
+    const rLo = cadence(reef)
+    reef.charge = reef.chargeMax
+    assert.strictEqual(cadence(reef), rLo,
+      'The Reef\'s cadence moved with its Air bar — the fire-rate ramp is not gated on the chapter declaring one')
+    console.log(`PASS run WK.b (the bar pays, never taxes): damage ${resourceDamageMul(0, res, res.max)} -> ${res.damage.peak}, rate ${resourceRateMul(0, res, res.max)} -> ${res.rate.peak}, readout cadence ${lo.toFixed(3)}s -> ${hi.toFixed(3)}s (x${(lo / hi).toFixed(2)}), and The Surf still floors at ${HUMIDITY_DMG_FLOOR} with no rate ramp`)
+  }
+
+  // (c) STARVING IS DAMAGE, IT ONLY EXISTS AT EMPTY, AND IT STOPS WHEN YOU EAT. run RF.c's shape
+  // one chapter later, deliberately — they are the same mechanism and the pair of tests is what
+  // proves each is gated on its OWN chapter's block rather than on "Book 2 is underwater".
+  {
+    const run = wreckRun()
+    const burn = (secs) => {
+      const hp0 = run.player.hp
+      let events = 0, dots = 0, srcs = 0
+      for (let i = 0; i < Math.round(secs / dt); i++) {
+        stepSim(run, { x: 0, y: 0 }, dt)
+        for (const e of run.events) if (e.type === 'hurt') { events++; if (e.dot) dots++; if (e.src === 'starve') srcs++ }
+        quiet(run)
+      }
+      return { lost: hp0 - run.player.hp, events, dots, srcs }
+    }
+    run.charge = 0
+    const w1 = burn(4)
+    const w2 = burn(4)
+    assert.ok(w1.lost >= res.starve.dps * 3 && w1.lost <= res.starve.dps * 5,
+      `4s on an empty bar must cost about ${res.starve.dps * 4} HP, cost ${w1.lost}`)
+    assert.ok(w2.lost >= res.starve.dps * 3,
+      `starving stopped after the first window (${w2.lost} HP over the second 4s) — it is a one-shot, not damage over time`)
+    assert.strictEqual(w1.events, w1.dots,
+      `${w1.events - w1.dots} starving hits arrived without dot:true — render.js's hurt case and main.js's audio gate both read that flag, so they would fire as if you had been struck`)
+    assert.strictEqual(w1.events, w1.srcs, 'every starving hit must name itself in e.src, or the death screen credits it to Unknown')
+    // Eat, and it stops. The bar coming off zero is the ONLY thing that ends it.
+    run.charge = res.max
+    const hp0 = run.player.hp
+    for (let i = 0; i < Math.round(3 / dt); i++) { stepSim(run, { x: 0, y: 0 }, dt); quiet(run) }
+    assert.strictEqual(run.player.hp, hp0,
+      `still starving with ${run.charge.toFixed(1)} in the bar — the damage is on a clock rather than on the bar`)
+    // And nowhere else. The Reef's bar goes to zero routinely and must cost DROWNING, never starving.
+    Math.random = mulberry32(20260817)
+    const reef = createRun(meta, { chapter: 'reef', difficulty: 1 })
+    reef.player.hp = reef.player.maxHP = 100000
+    reef.mods.spawnMul = 0
+    reef.charge = 0
+    let starveHits = 0
+    for (let i = 0; i < Math.round(6 / dt); i++) {
+      stepSim(reef, { x: 0, y: 0 }, dt)
+      for (const e of reef.events) if (e.type === 'hurt' && e.src === 'starve') starveHits++
+      reef.enemies.length = 0; reef.rocks.length = 0; reef.events.length = 0
+    }
+    assert.strictEqual(starveHits, 0,
+      `The Reef took ${starveHits} starving hits on an empty Air bar — stepStarve is not gated on the resource declaring it, and the death screen would name the wrong thing`)
+    console.log(`PASS run WK.c (starving): ${w1.lost} then ${w2.lost} HP over two 4s windows at empty, every hit flagged dot and src, 0 HP once the bar came off zero, and 0 starving hits on The Reef's own empty bar`)
+  }
+
+  // (d) THE LUNGE IS A DASH THAT BITES, AND AN EMPTY BAR GETS THE SHOVE INSTEAD. Measured as
+  // DISTANCE MOVED over one window against a not-pressed control, which is the only thing a dash can
+  // be — the timer is a field, and a field that nothing reads passes a state assertion happily.
+  {
+    const travel = (charge, press) => {
+      const run = wreckRun()
+      run.charge = charge
+      const x0 = run.player.x, y0 = run.player.y
+      let repulses = 0
+      for (let i = 0; i < Math.round(0.5 / dt); i++) {
+        stepSim(run, { x: 0, y: 0 }, dt, )
+        for (const e of run.events) if (e.type === 'repulse') repulses++
+        run.events.length = 0
+        run.enemies.length = 0
+        if (i === 0 && press) { /* pressed on the first frame below */ }
+      }
+      return { d: Math.hypot(run.player.x - x0, run.player.y - y0), repulses }
+    }
+    // Pressed properly: the skill input has to arrive on a frame, so drive it explicitly.
+    const press = (charge) => {
+      const run = wreckRun()
+      run.charge = charge
+      const e = pin(run, 200, 100000)
+      const x0 = run.player.x, y0 = run.player.y
+      let repulses = 0
+      for (let i = 0; i < Math.round(0.5 / dt); i++) {
+        stepSim(run, { x: 0, y: 0, skill: i === 0 }, dt)
+        for (const ev of run.events) if (ev.type === 'repulse') repulses++
+        run.events.length = 0
+        if (run.enemies.length !== 1 || run.enemies[0] !== e) run.enemies = [e]
+        e.x = x0 + 200; e.y = y0; e.stunT = 999; e.kb.x = 0; e.kb.y = 0
+      }
+      return { d: Math.hypot(run.player.x - x0, run.player.y - y0), repulses, dmg: e.maxHP - e.hp, run }
+    }
+    const idle = travel(res.max, false)
+    const full = press(res.max)
+    const empty = press(0)
+
+    assert.strictEqual(idle.d, 0, 'the control moved without input — the window is measuring something other than the dash')
+    assert.ok(full.d > LUNGE_SPEED * LUNGE_DUR_AT_FULL * 0.4,
+      `a full-bar press moved the player ${full.d.toFixed(0)}px; the dash alone is worth ~${(LUNGE_SPEED * LUNGE_DUR_AT_FULL).toFixed(0)}px, so the timer is set and nothing reads it`)
+    assert.strictEqual(empty.d, 0,
+      `an EMPTY bar dashed ${empty.d.toFixed(0)}px — the lunge must cost charge, or the chapter hands out a free refill to a player who has none`)
+    assert.ok(empty.repulses > 0,
+      'an empty bar fired no shove either — the no-spiral floor is the shipped Pulse, and without it a starving player has no button at all')
+    assert.ok(full.dmg > 0,
+      `the dash reached the body and bit it for ${full.dmg} — a lunge that moves and does not bite is the Pulse with extra steps`)
+
+    // THE PAYBACK, which is the whole button: a kill BY THE BITE banks LUNGE_KILL_REFILL.
+    const run = wreckRun()
+    run.charge = res.max
+    const victim = pin(run, 150, 1)
+    const spent = res.max - PULSE_CHARGE_COST
+    for (let i = 0; i < Math.round(0.5 / dt); i++) {
+      stepSim(run, { x: 0, y: 0, skill: i === 0 }, dt)
+      run.events.length = 0
+      if (!victim._dead && (run.enemies.length !== 1 || run.enemies[0] !== victim)) run.enemies = [victim]
+    }
+    assert.ok(victim._dead, 'the lunge never killed a 1 HP body it dashed into — the bite is not reaching')
+    // MEASURED AGAINST killBase, NOT AGAINST THE SPEND. The same kill also pays the ordinary
+    // per-kill refill, so `charge > spent` is satisfied by killBase alone and would pass with
+    // LUNGE_KILL_REFILL deleted outright — which is exactly what a mutation run caught it doing.
+    // The claim is that the BITE pays on top of that.
+    assert.ok(run.charge > spent + res.killBase + LUNGE_KILL_REFILL * 0.7,
+      `a kill by the bite left the bar at ${run.charge.toFixed(1)}; the spend was ${spent.toFixed(1)} and the ordinary kill refill alone accounts for ${(spent + res.killBase).toFixed(1)} — LUNGE_KILL_REFILL is what makes committing correct and hoarding a mistake, and nothing is paying it`)
+    console.log(`PASS run WK.d (the lunge): full bar dashed ${full.d.toFixed(0)}px and bit for ${full.dmg}, empty bar dashed 0px but still shoved, and a kill by the bite took the bar to ${run.charge.toFixed(1)} against ${spent.toFixed(1)} spent`)
+  }
+
+  console.log('PASS run WK (The Wreck): the refill is a kill and there is nowhere to stand, the bar pays without taxing and drives a cadence the readout agrees with, starving is a DoT gated on its own chapter, and the lunge dashes, bites and pays itself back while an empty bar keeps the shove')
+}
+
 function testReefAirBurst() {
   const dt = 1 / 60
   const res = CHAPTERS.reef.resource

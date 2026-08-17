@@ -154,6 +154,7 @@ import {
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
+  resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_DMG, LUNGE_KILL_REFILL,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
   BREACH_R_MIN, BREACH_R_AT_FULL, BREACH_REACH, BREACH_MAX_HOLES, tiredness,
@@ -272,6 +273,7 @@ export function stepSim(run, input, dt) {
   stepEnemySeparation(run) // v6.5.1: push overlapping enemies apart (owner directive: no 100% stacks)
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any) — terrain snaps last and wins
 
+  stepBite(run)           // v7.x The Wreck: the Lunge's bite, after the dash has moved the player
   stepCrush(run)          // v5.8 skies kaiju: destroy any structure overlapping the crush radius
   stepRampage(run, dt)    // v5.8 skies kaiju: rampage meter decay/trigger/drain (crush-gated, no-op elsewhere)
   stepTrails(run, dt)     // v5.3 garden: expire dropped pheromone nodes (no-op unless any exist)
@@ -283,6 +285,7 @@ export function stepSim(run, input, dt) {
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
   if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
   if (stepDrown(run, dt)) return // phase is now 'dead' (The Reef: an empty Air bar, v7.x)
+  if (stepStarve(run, dt)) return // phase is now 'dead' (The Wreck: an empty Bloodlust bar, v7.x)
   if (stepTrawl(run, dt)) return // phase is now 'dead' (The Trawl: the net wall, v7.x)
   if (stepMaws(run, dt)) return // phase is now 'dead' (The Deep: an anglerfish swallowed you, v7.x)
   if (stepStrips(run, dt)) return // phase is now 'dead' (The Blank's erasure-strip DoT — v5.3)
@@ -672,6 +675,16 @@ function stepPlayerMovement(run, input, dt) {
     p[ax.vCross] = (ax.cross === 'x' ? ix : iy) * speed * LANE_STRAFE_MUL
     p[ax.vFwd] = ax.dir * laneScrollFor(CHAPTERS[run.chapter]) * burstMul
     if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
+  } else if ((run._lungeT ?? 0) > 0) {
+    // THE LUNGE (v7.x, The Wreck). The free-roaming twin of the burst above, and it has to live in
+    // this function for the same reason: whatever owns the player's velocity owns the dash. The
+    // Reef's version multiplies a scroll the lane already provides; here there is no scroll, so the
+    // direction is latched at press time (run._lungeX/_lungeY, set by stepRepulse) and REPLACES the
+    // stick for as long as it lasts. Replacing rather than adding is deliberate — a lunge you can
+    // steer is a speed boost, and the whole cost of this button is that you commit to a line.
+    p.vx = run._lungeX * LUNGE_SPEED
+    p.vy = run._lungeY * LUNGE_SPEED
+    run._lungeT = Math.max(0, run._lungeT - dt)
   } else {
     p.vx = ix * speed
     p.vy = iy * speed
@@ -1257,6 +1270,34 @@ function stepRepulse(run, input, dt) {
   // says an empty bar may leave the player slower, never structurally trapped, and in a lane where
   // the coral is solid "trapped" is a thing that can actually happen.
   if (ch.burst) run._burstT = BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t
+  // THE LUNGE (v7.x, The Wreck — CHAPTERS[].lunge). Same press, same cooldown, same `t`, and the
+  // shove above still fires — this is additive like the burst, not a replacement like the shorebreak.
+  //
+  // THE FLOOR IS THE SHOVE ITSELF, and `LUNGE_DUR_AT_FULL * t` is the ONE thing that delivers it.
+  // Every other chapter's second verb has a non-zero floor (BURST_DUR_MIN, BREACH_R_MIN,
+  // SCENT_DUR_MIN) so an empty bar is weaker and never structurally trapped; here the duration goes
+  // to zero instead, which is the same rule reaching its limit rather than an exception to it. A
+  // lunge exists to buy a kill that refills the bar, so a free one on an empty bar would be a free
+  // refill, and this chapter's whole premise is that the bar is only ever paid for in kills. A
+  // starving player still gets the full v5.21 Pulse.
+  //
+  // ⚠ THERE WAS A `t > 0` GATE HERE AND IT IS DELIBERATELY GONE. It was a second, independent guard
+  // for that same rule, and a mutation run showed exactly what two guards for one fact buy you:
+  // each one MASKS a defect in the other, so flooring the duration to BURST_DUR_MIN's shape — the
+  // plausible mistake, since every other button has such a floor — was invisible to the suite.
+  // One mechanism, one test that can see it. Do not re-add the gate as an optimisation; the cost it
+  // saved was a single nearestEnemy scan on a press this chapter's player has no reason to make.
+  //
+  // Aimed at the NEAREST ENEMY, falling back to facingAngle — fireFlagella's shipped rule, because a
+  // bite that goes where the stick points is a bite you miss with. The direction is latched here and
+  // read by stepPlayerMovement for the life of the dash.
+  if (ch.lunge) {
+    const tgt = nearestEnemy(run, p.x, p.y)
+    const ang = tgt ? Math.atan2(tgt.y - p.y, tgt.x - p.x) : (p.facingAngle ?? 0)
+    run._lungeX = Math.cos(ang)
+    run._lungeY = Math.sin(ang)
+    run._lungeT = LUNGE_DUR_AT_FULL * t
+  }
   // THE BREACH (v7.x, The Trawl — CHAPTERS[].breach). The same press, the same cooldown and the same
   // `t` again: this chapter's answer to its own wall, and never a second button or a second bar. You
   // tear the hole where YOU are on the net, and it lasts for the rest of that pass — a door you made,
@@ -3903,6 +3944,34 @@ function stepDrown(run, dt) {
   return died
 }
 
+// -- Starving (v7.x, The Wreck) -------------------------------------------------------
+// stepDrown's shape, gated on `resource.starve`, and the duplication is deliberate rather than
+// unfactored. They are the same MECHANISM answering opposite PROBLEMS, and folding them into one
+// `dot` block would hide the only thing worth knowing about either: an empty Air bar is a ROUTING
+// failure — you did not cross the lane to a pocket, and the fix is somewhere on the map — where an
+// empty Bloodlust bar is a TEMPO failure, you stopped killing, and the fix is the body in front of
+// you. Same red pulse, different sentence, and a future editor who reads one should not have to
+// discover the other is welded to it.
+//
+// `src` is 'starve', which is what puts it in the death screen's damage recap under its own name
+// rather than inside drowning's row.
+//
+// Same contract as stepDrown/stepPools/stepTraps: returns true if the player died, so it belongs in
+// stepSim's `if (stepX(...)) return` group and never inside stepCharge, which cannot report a death
+// and runs long before the damage steps.
+function stepStarve(run, dt) {
+  const res = CHAPTERS[run.chapter].resource
+  if (!res || !res.starve) return false
+  if (run.charge > 0) { run._starveAcc = 0; return false }
+  run._starveAcc = (run._starveAcc ?? 0) + dt
+  let died = false
+  while (run._starveAcc >= STARVE_TICK) {
+    run._starveAcc -= STARVE_TICK
+    if (!died && hurtPlayer(run, res.starve.dps * STARVE_TICK, true, 'starve')) died = true
+  }
+  return died
+}
+
 // -- Snap traps (v6.5 undergrowth identity: streamed) ---------------------------------
 // Exact copy of streamEddies' idiom above (itself a copy of streamObstacles') — own cell size
 // (sig.traps.cell), own _trapCellI/_trapCellJ cell cursor (independent of streamObstacles' and
@@ -4204,6 +4273,46 @@ function stepObstacles(run) {
 // nothing is destructible at all. The two rampage lines stay behind `crush`: run.rampage is the
 // kaiju's meter, ui.js hides its bar for any chapter without `crush`, and a hidden bar filling in
 // the background is exactly the kind of state that surfaces two versions later as a mystery.
+// -- The bite (v7.x, The Wreck) --------------------------------------------------------
+// The half of the Lunge that is not movement. Runs after the player has moved (stepSim's order), so
+// it tests where the dash actually is this frame rather than where it started.
+//
+// ONE BODY, AND THE BITE ENDS THE DASH. Both halves of that are the design rather than an
+// optimisation: a dash that keeps going after connecting would sweep a crowd, which is the Pulse
+// with damage on it, and this chapter's bar is trying to make you CHOOSE a target. Stopping on
+// contact also gives the move a readable ending — you lunge, you connect, you stop — where a lunge
+// that carried on through would read as the bite having missed.
+//
+// A KILL BY THE BITE IS THE ONLY THING IN THE GAME THAT PAYS THE BUTTON BACK. LUNGE_KILL_REFILL
+// against a PULSE_CHARGE_COST spend is what makes committing the correct play and hoarding the
+// mistake — the loop the chapter exists for, as one line. It is clamped against run.chargeMax like
+// the other two charge-writing sites (stepCharge and the kill refill in dealDamage); a third site
+// that forgot would show up as the bar overfilling on a bite and snapping back on the next tick.
+//
+// NO NEW EVENT TYPE. dealDamage already pushes {type:'hit'} and, on a kill, {type:'kill'} — both of
+// which render.js and SFX_FOR_EVENT already consume — and the dash itself is 900px/s of player
+// movement, which is not subtle. A {type:'lunge'} would have needed a consumer in two files to be
+// anything but silence, which is the freeze scar exactly.
+function stepBite(run) {
+  const ch = CHAPTERS[run.chapter]
+  if (!ch.lunge || (run._lungeT ?? 0) <= 0) return
+  const p = run.player
+  const reach = LUNGE_BITE_MUL * PLAYER.radius
+  let best = null, bestD = Infinity
+  for (const e of run.enemies) {
+    if (e._dead || damageImmune(e)) continue
+    const d = Math.hypot(e.x - p.x, e.y - p.y)
+    if (d <= reach + e.radius && d < bestD) { best = e; bestD = d }
+  }
+  if (!best) return
+  run._lungeT = 0
+  dealDamage(run, best, LUNGE_DMG * p.damageMul, false)
+  // `_dead` rather than `hp <= 0`: dealDamage sets it on the kill branch, and it is the flag every
+  // other consumer in this file reads. A shield can also eat the whole bite (SHIELD_HP_FRAC), in
+  // which case nothing died and nothing is owed.
+  if (best._dead) run.charge = Math.min(run.chargeMax, run.charge + LUNGE_KILL_REFILL)
+}
+
 function stepCrush(run) {
   const ch = CHAPTERS[run.chapter]
   const bursting = ch.burst === true && (run._burstT ?? 0) > 0
@@ -5035,8 +5144,17 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     // NOT CHAPTERS[chapter].resource.max — this is the SECOND of the two clamp sites Deep Lungs
     // needs (see stepCharge's own note above); missing this one lets the bar refill past its cap on
     // a kill, only to be clamped back down by stepCharge's own (correct) clamp on the next tick.
+    //
+    // `killBase` (v7.x, The Wreck) is the OTHER half, and it is not shop-gated. The owner ruling
+    // above holds for every chapter whose bar is refilled by a PLACE — there, a free kill refill
+    // would be a second source competing with the chapter's own geometry, which is what abolished
+    // The Reef's bar at killRefill 1.2. The Wreck has no place: it declares `refill: 0` and no
+    // signature field, so a shop-only refill would mean a bar with no refill at all on an unbought
+    // save. Undefined in all five other chapters -> `?? 0` -> those chapters come out unchanged.
+    // Scavenger still stacks on top through run.killRefill.
     const _res = CHAPTERS[run.chapter].resource
-    if (_res && run.killRefill > 0) run.charge = Math.min(run.chargeMax, run.charge + run.killRefill)
+    const _gain = (_res?.killBase ?? 0) + run.killRefill
+    if (_res && _gain > 0) run.charge = Math.min(run.chargeMax, run.charge + _gain)
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
 
     const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)
@@ -5428,6 +5546,24 @@ function effectiveWeaponStats(run, w) {
   return stats
 }
 
+// The global fire-rate multiplier every weapon's cadence divides by. ONE function because this
+// expression was authored TWICE — once in stepWeapons and once in buildReadout, which exists
+// precisely so the pause screen does not report a weapon's paper numbers. Two copies of the term
+// that decides "the numbers you are actually firing" is the one-fact-two-places drift this
+// project's whole test strategy is built around, and it was one edit away from the pause sheet
+// quietly disagreeing with the game.
+//
+// resourceRateMul is a no-op for every chapter that declares no `resource.rate` block — which is
+// every chapter but The Wreck — so this is byte-identical everywhere it already ran.
+//
+// RAMPAGE IS NOT IN HERE, deliberately: buildReadout must not fold a transient window into a
+// build sheet the player reads while paused, so stepWeapons multiplies it on at its own call site
+// exactly as it always did.
+function globalFireRate(run) {
+  return run.player.fireRateMul * (1 + run.passives.fireRate)
+    * resourceRateMul(run.charge, CHAPTERS[run.chapter].resource, run.chargeMax)
+}
+
 /**
  * Read-only projection of the player's whole build, for the pause screen. Lives here because this
  * is where weapon maths lives: effectiveWeaponStats folds the stat mods, and the two maps in
@@ -5441,7 +5577,7 @@ function effectiveWeaponStats(run, w) {
 export function buildReadout(run) {
   const p = run.player
   // The global multiplier every weapon's cadence already divides by (see stepWeapons).
-  const globalRate = p.fireRateMul * (1 + run.passives.fireRate)
+  const globalRate = globalFireRate(run)
   const weapons = run.weapons.map((w) => {
     const cfg = WEAPONS[w.id]
     const base = cfg.levels[Math.min(cfg.levels.length, Math.max(1, w.level)) - 1] ?? {}
@@ -5500,7 +5636,7 @@ function stepWeapons(run, dt) {
   // run.debris is NOT cleared here. v6.8: a tornado carries its own position between frames
   // because it leaves the ring to hunt, so stepTornadoWeapon resizes the list instead of
   // rebuilding it. (run.orbs above is still the rewrite-every-frame contract.)
-  const fireRateMul = p.fireRateMul * (1 + run.passives.fireRate)
+  const fireRateMul = globalFireRate(run)
     * (run.rampageT > 0 ? RAMPAGE_FIRE_RATE_MUL : 1)   // v5.14, read-time only (see config)
 
   for (const w of run.weapons) {

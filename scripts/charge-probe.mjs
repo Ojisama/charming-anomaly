@@ -115,7 +115,12 @@ const trawlCh = sig?.type === 'trawl'
 // Both exemptions are listed here rather than loosening the abort, so a chapter that genuinely
 // forgot its refill geometry still fails loudly.
 const deepCh = sig?.type === 'dark'
-if (!res || (!spec && !trawlCh && !deepCh)) { console.error(`ABORT: ${CHAPTER} declares no resource/refill geometry — nothing to probe`); process.exit(1) }
+// THE WRECK'S REFILL IS A KILL, which is the third and most extreme version of the same thing: not
+// a place, not even a creature you swim to, just the act of killing. Keyed on `killBase` rather than
+// on the chapter id because that field IS the claim — a chapter with no refill geometry and no
+// baseline kill refill really has forgotten something, and must still fail loudly here.
+const killFedCh = (res?.killBase ?? 0) > 0
+if (!res || (!spec && !trawlCh && !deepCh && !killFedCh)) { console.error(`ABORT: ${CHAPTER} declares no resource/refill geometry — nothing to probe`); process.exit(1) }
 
 // Spend policies. ONE policy cannot tell "the bar cannot fill" apart from "this player spent it
 // all": a greedy player pins the bar at zero under every tune there is, which is exactly what the
@@ -389,7 +394,11 @@ const avg = (rows, k) => rows.reduce((a, x) => a + x[k], 0) / rows.length
 const modeLabel = LINE_ID ? `line=${LINE_ID}@Lv${LINE_LV}/10 (every other line 0)` : `shop=Lv${SHOP_LV}/10 (every line)`
 const previewRun = createRun(probeMeta({}), { chapter: CHAPTER, difficulty: DIFFICULTY })
 console.log(`chapter=${CHAPTER} book=${bookOfChapter} difficulty=${DIFFICULTY} ${modeLabel} ${DURATION}s x ${RUNS} seeded runs, immortal + kiting`)
-console.log(`resource: drain ${res.drain}/s  refill ${res.refill}/s in-refill-circle  kill +${res.killRefill} (Light Thief only)  config max ${res.max}  resolved chargeMax ${previewRun.chargeMax}`)
+// `killBase` is the NOT-shop-gated half (The Wreck), so the two are printed separately — a header
+// that folded them would report an unbought save as refilling on kills when only one chapter does.
+console.log(`resource: drain ${res.drain}/s  refill ${res.refill}/s in-refill-circle` +
+  ((res.killBase ?? 0) > 0 ? `  kill +${res.killBase} (always) +${res.killRefill} (Scavenger)` : `  kill +${res.killRefill} (Scavenger only)`) +
+  `  config max ${res.max}  resolved chargeMax ${previewRun.chargeMax}`)
 if (res.dark) {
   // The FRACTION threshold (res.dark.from) is fixed; the ABSOLUTE charge it fires at is not — Deep
   // Lungs raises chargeMax, so a Lv10 run's dark starts at 0.5 x 180 = 90, not 0.5 x 100 = 50.
@@ -401,7 +410,7 @@ if (spec) {
   console.log(`refill:   cell ${spec.cell} chance ${spec.chance} r ${spec.r}` +
     (spec.driftAmp ? `  drift ${spec.driftAmp}px x ${spec.driftHz}rad/s = ${(spec.driftAmp * spec.driftHz).toFixed(1)} px/s peak` : '  no drift'))
   console.log(`coverage: ${(100 * spec.chance * Math.PI * spec.r * spec.r / (spec.cell * spec.cell)).toFixed(1)}% of the plane refills (chance x pi r^2 / cell^2)`)
-} else {
+} else if (trawlCh) {
   // No coverage figure exists for a refill that is not a place. What replaces it is the DUTY CYCLE:
   // how much of the run a net is even on the map, which is the ceiling on how much of it can be
   // spent eating. Printed rather than assumed, because it is set by the viewport (TRAWL_LEAD_MUL)
@@ -410,8 +419,18 @@ if (spec) {
   console.log(`refill:   the churned wake behind the net — ${TRAWL_WAKE_DEPTH}px deep, moving at ${TRAWL_SPEED} px/s. No fixed geometry.`)
   console.log(`duty:     a pass sweeps for ${sweep.toFixed(1)}s (phone, viewRadius 465), then ${TRAWL_INTERVAL}s of nothing` +
     ` — a net is present ${(100 * sweep / (sweep + TRAWL_INTERVAL)).toFixed(0)}% of the run`)
+} else if (killFedCh) {
+  // ⚠ THIS BRANCH EXISTS BECAUSE THE TRAWL'S ONE ABOVE USED TO BE THE `else`. Pointed at The Wreck
+  // it printed "the churned wake behind the net — 420px deep, moving at 75 px/s" and a duty cycle,
+  // for a chapter that has no net at all: a probe describing the wrong chapter in a confident
+  // sentence, which is worse than a crash because it reads as a measurement. Every no-geometry
+  // chapter names ITSELF here from now on.
+  const hold = res.drain / res.killBase
+  console.log(`refill:   a kill, and nothing else — no cell, no radius, nowhere on the map to stand.`)
+  console.log(`break-even: ${hold.toFixed(2)} kills/s holds the bar level (drain ${res.drain} / killBase ${res.killBase}).` +
+    ` Read %at0 against the kills column, not against another chapter's number.`)
 }
-if (sig.bars) {
+if (sig?.bars) {
   console.log(`sandbars: cell ${sig.bars.cell} chance ${sig.bars.chance} r ${sig.bars.r}  slowMul x${sig.bars.slowMul}  drainMul x${sig.bars.drainMul}` +
     ` — ${(100 * sig.bars.chance * Math.PI * sig.bars.r * sig.bars.r / (sig.bars.cell * sig.bars.cell)).toFixed(1)}% of the plane is dry ground`)
 }

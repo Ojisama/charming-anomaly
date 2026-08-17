@@ -4185,7 +4185,7 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'deep'], hidden: [], wip: true, startCoins: 100 },
+  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'deep'], hidden: [], wip: true, startCoins: 100 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -5433,7 +5433,140 @@ CHAPTERS.reef = {
     eliteIridescent: [0xc4f0ff, 0xd9fff0, 0xffd9e8],
   },
 }
-// Book 2 chapter 4 — THE ONE THING THAT IS NOT AIMING AT YOU. Written as a WHOLE literal for the
+// Book 2 chapter 4 — THE ONE BAR YOU PUSH UP. Written as a WHOLE literal for the same reason every
+// chapter below is: `{ ...CHAPTERS.x }` shares every nested object BY REFERENCE, so an edit
+// "modifying" this chapter in place would silently rewrite another one's.
+//
+// Every other resource in this game is a punishment meter. It sits full, and it costs you as it
+// empties — slower, blinder, drowning. Bloodlust starts full, falls on a clock that nothing on the
+// map can slow, and the ONLY thing that puts it back is killing. There is no refill circle anywhere
+// in this chapter, which is what makes the book's own rule literal instead of merely satisfied:
+// "a refill point is a place you can fight from, never a place you go to stop" — here the refill IS
+// the fight, and there is nowhere to go.
+//
+// ⚠ NOT CALLED FRENZY, which is what it was designed as. `frenzy` is taken three times in this tree
+// — the `frenzied` elite affix (FRENZY_HP_FRAC/FRENZY_SPEED_MUL), the flagella weapon mod
+// `run.weaponMods.flagella.frenzy`, and `'Frenzy': 'Frénésie'` is ALREADY A KEY in fr.js, so a
+// chapter resource under that name would silently inherit a weapon mod's French. `Blood` is nearly
+// as bad: Blood Pact and Blood Money are both shipped anomalies and Blood Pact is itself
+// +damage-per-kill. One grep before the first line of code, per CLAUDE.md.
+//
+// ⚠ PHASE 1 — IT PLAYS, IT DOES NOT YET LOOK LIKE A WRECK. The arsenal, the three creature bakes and
+// the floor are BORROWED FROM THE REEF wholesale, exactly as The Reef and The Trawl each shipped
+// borrowed. What is real here is the bar, the button, the starving and the roster's behaviour.
+CHAPTERS.wreck = {
+  name: 'The Wreck', tagline: 'stop and you starve', icon: '⚓',
+
+  // BORROWED ARSENAL — placeholder until Gnash lands (a short forward bite arc whose damage rises
+  // as the target gets closer, i.e. the chapter's thesis as a weapon). Picked for RANGE rather than
+  // for the theme: this chapter pays you for being in the crowd, so a pool that rewarded standing
+  // off would be arguing with its own bar. The stinger is a forward cone, the quill ring does not
+  // care which way you face, and both are already Book 2 marine art.
+  // ⚠ Re-check the bake before ever calling this list final — a borrowed weapon brings its old
+  // chapter's art with it, and that is a grep of T.<id> in render.js, not a judgement call.
+  weapons: ['stinger', 'quillBurst', 'mines'], starter: 'stinger',
+
+  // ⚠ THE REEF'S ROSTER, BY ID, ON PURPOSE — this chapter has no creatures of its own yet.
+  //
+  // Reusing the IDS rather than inventing three is what makes "borrowed" true instead of merely
+  // claimed. syncEnemies resolves a look as `T.roster[rosterId] || T.enemies[archetype]`
+  // (render.js:16654), so an id with no ROSTER_LOOKS entry does NOT fall back to a sibling fish —
+  // it falls back to the GENERIC BOOK 1 ARCHETYPE BLOB. Three invented ids here would have put
+  // three grey blobs in an ocean chapter and nothing would have thrown.
+  //
+  // The Wreck's own three (a flagless shoal baseline, a `guard` tank that cannot be chewed on
+  // demand, and a `pounce` fast) are DESIGNED BUT NOT AGREED, and they are held out of this table
+  // until they have been through the enemy-design gates rather than being numbered here first.
+  // Their one real open question is recorded where it will be found: `guard` is the chapter's only
+  // answer to "why is this not just holding the stick down", and WAVE_TABLE does not introduce
+  // `tank` until t = 140s — so as a tank that answer is absent for the first half of a 300s run.
+  // CHAPTERS.deep's roster block records the same gate biting the same way one chapter later.
+  roster: [
+    { id: 'damselfish', archetype: 'normal', name: 'Damselfish', hpMul: 1,   speedMul: 1,    flags: [] },
+    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.2, speedMul: 0.7,  flags: ['latch'] },
+    { id: 'lionfish',   archetype: 'fast',   name: 'Lionfish',   hpMul: 0.9, speedMul: 1.15, flags: ['pounce'] },
+  ],
+  eliteFlags: ['soapTrail'],   // the Undertow's own elite flag, shared with the rest of the book
+
+  // NO SIGNATURE, and that is an owner ruling (2026-08-17) rather than an omission: asked to pick a
+  // threat class of its own — a ghost net, a settling hull, leaking cargo — he ruled "being an aggro
+  // level is sufficient". The gimmick IS the bar. `body` is the precedent for a null signature.
+  //
+  // It is also the right call structurally: the four chapters before this one each bought a streamed
+  // field of circles (shafts, pools, pockets, maws), and a fifth would have been the fourth in a row.
+  // This chapter's identity is a tempo, which costs no spatial system at all.
+  signature: null,
+
+  // BLOODLUST. Ambient drain, always, everywhere — no sandbar makes it worse and no place makes it
+  // better, because there is no place. `refill: 0` is load-bearing rather than a default: there is
+  // no field for refillSpec() to find, so stepCharge's shaft loop never fires and The Trawl is the
+  // precedent for a `resource` chapter with nothing to stand in.
+  //
+  // `killBase` IS THE CHAPTER. It is the per-kill refill that is NOT shop-gated — every other
+  // chapter's kill refill is Scavenger's and reads 0 on an unbought save (owner ruling: "none by
+  // default, only via the shop"). That rule cannot hold here, because a bar with no field and no
+  // baseline kill refill has no refill at all. Scavenger still stacks on top via `killRefill`.
+  //
+  // THE DAMAGE LINE IS ENTIRELY ABOVE 1.0, which is the opposite of Humidity's and is what makes
+  // this the one bar that pays rather than taxes. §5.3's licence was spent on a multiplier whose
+  // BOTTOM was 0.7; this one's bottom is exactly baseline, so an empty bar deals precisely what the
+  // rest of the game deals. That is the anti-spiral: hesitating makes you slower to kill and never
+  // weaker than a player in any other chapter, so "I stopped killing" cannot compound into "I can no
+  // longer kill". The same line drives fire rate through `rate`.
+  //
+  // `starve` is this bar's second job, and it is DROWNING'S MECHANISM ANSWERING THE OPPOSITE
+  // PROBLEM — see STARVE_TICK's block for why that duplication is deliberate.
+  //
+  // ⚠ EVERY NUMBER ON THIS LINE IS A GUESS AND MUST NOT BE QUOTED. drain 5.0 empties a full bar in
+  // 20s; killBase 5 holds it steady at exactly 1 kill/s — and NOBODY KNOWS THIS CHAPTER'S KILL RATE,
+  // because until this commit the chapter did not exist. CHAPTERS.reef.resource's own block is the
+  // worked example of what reading a refill against the wrong chapter's kill rate does (1.2 here
+  // ABOLISHED the bar there). The gate is scripts/charge-probe.mjs on this chapter, both movement
+  // policies, with the drain/killBase pair fitted to what it measures.
+  resource: {
+    name: 'Bloodlust', drain: 5.0, refill: 0, killBase: 5, killRefill: 2, max: 100,
+    damage: { floor: 1, peak: 1.8 },
+    rate: { floor: 1, peak: 1.5 },
+    starve: { dps: 5 },
+  },
+
+  // Hull plates, ribs and spilled containers. Scenery with collision, in the shipped streamed-circle
+  // field — it is what makes the place read as a wreck rather than as open water, and it is not a
+  // mechanic. Sized between the reef's coral heads and nothing at all.
+  obstacles: { count: 9, cell: 640, minR: 55, maxR: 120, minDist: 420 },
+
+  // The button. See LUNGE_* above for the cast.
+  lunge: true,
+
+  // ⚠ UNMEASURED FIRST CUT, and it is doing something the other tables are not: it deliberately runs
+  // MORE BODIES AND SOFTER ONES than the chapters either side (reef 0.76/0.95/0.75, trawl
+  // 0.8/1/0.85). That is not a difficulty statement, it is a REFILL statement — a bar fed only by
+  // kills cannot be held up by a competent player if the field is thin, and the chapter would be a
+  // starvation simulator whatever the drain said. xpMul comes down because the kill count goes up
+  // and the level pace should not.
+  balance: { spawnMul: 0.95, enemyHpMul: 0.9, maxAliveMul: 0.95, xpMul: 0.85 },
+
+  // ---- render-only (ZERO sim effect) ----
+  // ⚠ PHASE 1: The Reef's floor, borrowed whole, including its cast thumbnails. The wreck's own
+  // palette (a hull is rust and dead steel on a silted bottom, and the decor is neither coral-warm
+  // nor open-water blue) is phase 2, along with the three bakes. formScale 1.42 is real and is the
+  // one thing in this block that is not borrowed — it is the step between the reef fish (1.3) and
+  // the big fish (1.55), which is the book's growth arc and is visible immediately.
+  render: {
+    cast: ['damselfish', 'lionfish', 'moray'],
+    form: 'fish',
+    formScale: 1.42,
+    // The bar's tell. Opt-in per chapter so pHot keeps meaning "berserk" everywhere else — see
+    // LUST_TINT_MAX. Render-only, like everything in this block.
+    lustTell: true,
+    bgColor: 0x0a3358,
+    floorTint: 0xa9cfe0,
+    playerTint: 0xffffff,
+    tail: false,
+    eliteIridescent: [0xc4f0ff, 0xd9fff0, 0xffd9e8],
+  },
+}
+// Book 2 chapter 5 — THE ONE THING THAT IS NOT AIMING AT YOU. Written as a WHOLE literal for the
 // same reason CHAPTERS.reef and CHAPTERS.surf are: `{ ...CHAPTERS.x }` shares every nested object BY
 // REFERENCE (CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles is literally true in shipped code),
 // so a later edit "modifying" this chapter's balance or weapons in place would silently rewrite
@@ -6655,7 +6788,7 @@ export const chapterAvailable = (meta, id) =>
 export const CHAPTER_SPINE = {
   body: 'Body', pond: 'Pond', garden: 'Garden', undergrowth: 'Undergrowth',
   city: 'City', skies: 'Skies', beyond: 'Beyond', blank: 'Blank',
-  surf: 'Surf', shelf: 'Shelf', reef: 'Reef', trawl: 'Trawl', deep: 'Deep',
+  surf: 'Surf', shelf: 'Shelf', reef: 'Reef', wreck: 'Wreck', trawl: 'Trawl', deep: 'Deep',
 }
 // Falls back to the full name rather than throwing: a chapter added without a spine entry renders
 // with its article and looks slightly wrong, which is a far better failure than a blank spine.
@@ -7035,6 +7168,59 @@ export const BURST_DUR_AT_FULL = 0.75    // s of dash at a full PULSE_CHARGE_COS
 // main.js's 0.05 clamp), so the coral is always gone several frames before the push-out could fire.
 export const BURST_CRUSH_MUL = 2.5
 
+// ---- LUNGE (v7.x, The Wreck — chapters declaring `lunge: true`) --------------------------------
+// The Wreck's half of the same one button. Same press, same cooldown, same PULSE_CHARGE_COST spend
+// as the Pulse and the Burst — never a second button, never a second bar.
+//
+// IT IS THE ONLY BUTTON IN THE BOOK THAT PAYS ITS OWN COST BACK, and that is the chapter rather than
+// a generosity. Bloodlust is fed by kills and nothing else, so a button that spends bar to make a
+// kill more likely is the loop stated as a verb: commit and you accelerate, hoard and you stall. The
+// other four chapters' buttons all spend a bar you refill somewhere else, so none of them could have
+// this shape.
+//
+// A DASH-BITE RATHER THAN A DASH. The Reef's Burst buys an axis the lane denies you; The Wreck is
+// free-roaming and denies you nothing, so distance alone would be a worse Pulse. What this chapter
+// is short of is TIME — the bar is falling the whole time — so the button buys a kill, not a
+// position. Hence the damage on the first body and, above all, LUNGE_KILL_REFILL.
+//
+// THE NO-SPIRAL FLOOR IS THE SHIPPED SHOVE, not a weakened lunge, and that is the global invariant
+// (stepRepulse's `t = spend / cost` is 0 on an empty bar). A starving player still gets the v5.21
+// Pulse unchanged. That matters more here than anywhere else in the book: this is the one chapter
+// where being at zero is itself the failure state, so the button must not ALSO be gone.
+export const LUNGE_SPEED = 900           // px/s while the dash is live — well over baseSpeed 220
+export const LUNGE_DUR_AT_FULL = 0.30    // s at a full spend -> 270px. No _MIN twin: see above,
+                                         // an empty bar fires the shove instead of a short lunge.
+// x PLAYER.radius (22) -> 62px, a touch wider than BURST_CRUSH_MUL's 55 for the same reason that one
+// must exceed the collision radius: the bite has to land before the body it is aimed at can shoulder
+// the player, or the move reads as bouncing off what it is supposed to be eating.
+export const LUNGE_BITE_MUL = 2.8
+// Flat, times the run's own damageMul, on MINIME_BURST_DMG's precedent — the shipped player ability
+// that also deals a one-off number. ONE BODY ONLY, the first one reached, and the bite ENDS the
+// dash: a move that cleaves a crowd is the Pulse with damage on it, and this chapter's bar wants you
+// to choose a target rather than to sweep.
+// ⚠ FLAT MEANS IT DECAYS. A literal that is a real hit at t=60 is a scratch at t=300, and this one
+// has never been measured against either. It is the second thing charge-probe has to answer, after
+// the drain/killBase pair.
+export const LUNGE_DMG = 46
+// THE WHOLE POINT. A kill BY THE BITE banks this much bar, against a 45 spend — so a lunge that
+// connects is net positive and a lunge that whiffs is the most expensive mistake in the chapter.
+// UNMEASURED: it is fitted to nothing until charge-probe runs this chapter, and it is the single
+// number most likely to be wrong, because it decides whether the optimal play is to hold the button
+// or to hoard for emergencies. Read it against the MEASURED kill rate, never against another
+// chapter's refill (the trap CHAPTERS.reef.resource's own block spells out).
+export const LUNGE_KILL_REFILL = 30
+
+// RENDER-ONLY. How red the player goes at a FULL Bloodlust bar, as pHot's alpha — the same
+// alpha-blended red silhouette the berserk anomaly uses, because the alternative was teaching
+// render.js a second red for the same idea.
+//
+// DELIBERATELY UNDER BERSERK_TINT_MAX (0.5), and the gap is the point. Berserk is a rare timed
+// window that must stay the loudest red in the game; bloodlust is the ambient state of a whole
+// chapter, and at the same ceiling it would sit at full wash for minutes and stop carrying
+// information. render.js takes the MAX of the two rather than adding them, so a berserk window
+// inside a full bar still reads as the berserk.
+export const LUST_TINT_MAX = 0.34
+
 // ---- THE TRAWL (v7.x Book 2 ch 4 — chapters whose signature is `trawl`) ------------------------
 // A net wall crosses the map on a timer, from a direction, and it AIMS AT NOTHING. It kills the
 // player and it kills the crowd, in the same pass, on the same tick. That last part is the chapter,
@@ -7276,11 +7462,36 @@ export const usesObstacleSeed = (ch) => !!ch.obstacles || !!refillSpec(ch.signat
 //
 // `max` (v7.x Book 2 Task 9 fix round): same trailing-default idiom as darkness()/lightRadius()
 // above — defaults to res.max, a caller holding a run passes run.chargeMax instead.
-export const resourceDamageMul = (charge, res, max = res?.max) => {
-  const d = res?.damage
-  if (!d) return 1
-  return d.floor + (1 - d.floor) * Math.min(1, Math.max(0, charge) / (max || 1))
+// `peak` (v7.x, The Wreck): the line's TOP, defaulting to 1.0 — which is what every caller before
+// this chapter got implicitly, so The Surf comes out byte-identical (floor .7, no peak -> .7 + .3t,
+// character for character the expression this replaces). It exists because Bloodlust is the first
+// bar that pays rather than taxes: floor 1 / peak 1.8 is a line entirely ABOVE baseline, where
+// Humidity's is entirely below it. One curve, both directions, so there is never a second helper
+// to drift against this one.
+// The shared line. `b` absent -> 1, i.e. the chapter does not participate and pays nothing.
+const rampOn = (b, charge, max) => {
+  if (!b) return 1
+  const lo = b.floor ?? 1, hi = b.peak ?? 1
+  return lo + (hi - lo) * Math.min(1, Math.max(0, charge) / (max || 1))
 }
+export const resourceDamageMul = (charge, res, max = res?.max) => rampOn(res?.damage, charge, max)
+
+// The same line on `res.rate`, driving the global fire-rate multiplier. A separate BLOCK rather
+// than a second field on `damage` because a chapter may want one without the other, and separate
+// blocks are what make that expressible without a sentinel.
+export const resourceRateMul = (charge, res, max = res?.max) => rampOn(res?.rate, charge, max)
+
+// ---- STARVING (v7.x, The Wreck — resources declaring a `starve` block) -------------------------
+// The Reef's `drown` shape, one chapter later, and the duplication is deliberate rather than
+// factored: they are the same MECHANISM answering opposite PROBLEMS, and a shared `dot` block would
+// hide that. Air is a routing problem — you are at zero because you did not cross the lane to a
+// pocket, and the fix is on the map. Bloodlust is a tempo problem — you are at zero because you
+// stopped killing, and the fix is the thing in front of you. Same red pulse, different sentence.
+//
+// Same half-second cadence as DROWN_TICK and for the same two reasons (hurtPlayer rounds a DoT hit,
+// so the config number must survive the multiply; and two bigger beats read as a state where four
+// small ones read as static). Same shipped tell — {type:'hurt', dot:true} — and no new event.
+export const STARVE_TICK = 0.5
 
 // ---- DROWNING (v7.x, The Reef — resources declaring a `drown` block) ---------------------------
 // The Reef's second job for its bar, and the opposite SHAPE from The Surf's. §5.3 spends the book's
@@ -7462,6 +7673,11 @@ export const DMG_SRC_NAME = {
   // is not a hurtPlayer call at all. Guessing from "Book 2 is underwater" is how the wrong comment
   // got written in the first place — read the gate.
   drown: 'Drowning',
+  // THE WRECK ONLY, on the same gate-reading rule the comment above insists on: stepStarve returns
+  // early unless the chapter's resource declares `starve`, and Bloodlust is the only one that does.
+  // Its own row rather than sharing 'Drowning' — they are the same DoT mechanism, and the whole
+  // reason they are separate functions is that they mean opposite things (see stepStarve).
+  starve: 'Starvation',
   trawl: 'The Net',            // The Trawl: the mesh wall
   devour: 'Swallowed',         // The Deep: an anglerfish maw closed on you (a run.shafts entry)
   // Book 1's hazards — with the caveat that `pool` is the single most widespread hazard in the game
@@ -7538,6 +7754,12 @@ export const DMG_SRC_NO_ART = {
   // The owner picked a saucer from three shot variants, so it has a drawing now (hazardThumbs.beam,
   // and the hull is new art, said out loud there). Left as a note only because the reason it was
   // blank is the reason the drawing had to be authored rather than extracted.
+  // ⚠ OWED, NOT EXEMPT — the only entry in this table that is a debt rather than a reason, and it is
+  // written here so the guard does not block a chapter that cannot be played yet. The Wreck ships in
+  // two phases (see CHAPTERS.wreck) and every picture it needs is phase 2; `drown` proves a resource
+  // DoT can carry a drawing, so "it is a state, not a world object" is NOT the argument here and must
+  // not be borrowed from the two anomalies below. DELETE THIS LINE when hazardThumbs.starve lands.
+  starve: 'OWED — The Wreck phase 2 has not authored its art yet, not a permanent exemption',
   // Costs you chose to pay. Neither has a world object; their honest picture is the anomaly card.
   overload: 'a card you took, not a thing in the world',
   bloodMoney: 'a card you took, not a thing in the world',
@@ -9395,7 +9617,7 @@ export const MUTATORS = {
   // a lie there — it'd roll as pure downside without saying so. v6.4: pond excluded too — a flat
   // player-slow stacked on the currents/eddy chapter breaks the escape-margin math (see the v6.4
   // "Pond identity" plan).
-  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond', 'shelf', 'surf', 'reef', 'trawl', 'deep'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
+  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond', 'shelf', 'surf', 'reef', 'wreck', 'trawl', 'deep'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
   jumbo:    { name: 'Jumbo Anomalies',   icon: '🎈', desc: 'Big squishy enemies, bonus XP and coins.',     effects: { enemyRadiusMul: 1.25, enemyHpMul: 1.25, enemySpeedMul: 0.9, xpMul: 1.2, coinMul: 1.2 } },
   // v5.24: The Blank's named difficulty-ladder modifiers (CHAPTERS.blank.modsByDifficulty) are
   // MUTATORS entries too, so the existing HUD/pause chip machinery renders them for free — but

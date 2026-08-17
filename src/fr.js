@@ -1101,6 +1101,7 @@ const CONFIG = {
   'Surf': 'Snorkeling',
   'Shelf': 'Large',
   'Reef': 'Récif',
+  'Wreck': 'Épave',
   'Trawl': 'Chalut',
   'Book {n}': 'Livre {n}',
   'locked chapter': 'chapitre verrouillé',
@@ -1141,6 +1142,13 @@ const CONFIG = {
   'Deep': 'Abysses',
   'The Trawl': 'Le Chalut',
   'the net is not aiming at you': 'Ils vous pêcheront tous',
+  // The Wreck (Book 2 chapter 4). 'L'Épave' is the hull itself; 'Le Naufrage' would be the sinking
+  // as an event and 'La Carcasse' the body being eaten — the owner picked the place over both.
+  // THE TAGLINE IS THE OWNER'S OWN LINE, written by him rather than picked from the drafts: the
+  // English names the punishment ('stop and you starve') and this names the person it happens to.
+  // As everywhere in this file the English string IS the key, so changing it orphans this entry.
+  'The Wreck': 'L\'Épave',
+  'stop and you starve': 'Qui s\'arrête s\'affame',
   'Sand Hopper': 'Puce de mer',
   'Shore Crab': 'Crabe vert',
   'Sea Roach': 'Cloporte de mer',
@@ -1227,6 +1235,7 @@ const CONFIG = {
   'Moray': 'Murène',
   'Lionfish': 'Poisson-lion',
   'Drowning': 'Noyade',
+  'Starvation': 'Famine',
   'The Net': 'Le Filet',
   'Swallowed': 'Avalé',
   'Caustic Pools': 'Flaques caustiques',
