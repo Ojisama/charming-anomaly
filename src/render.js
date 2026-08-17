@@ -245,6 +245,7 @@ export function createRenderer(app) {
   // invisible. Read by updateShafts.
   let refillLook = null
   let chapterHasMaws = false   // The Deep: the refill field is an animal (see updateShafts' maw branch)
+  let refillDrawdown = 0       // The Shelf: seconds of occupancy that use an upwelling up (0 elsewhere)
   // v7.x Book 2: the active chapter's swell block (CHAPTERS[].render.swell) or null. A CONFIG
   // OBJECT rather than a boolean, unlike its neighbours here, because updateSwell reads six numbers
   // off it every frame and re-deriving them from run.chapter per crest per frame is the kind of
@@ -10542,6 +10543,14 @@ export function createRenderer(app) {
         const b = 1 + P.breathe * Math.sin(animT * 0.55 + i * 1.7)
         sv.glow.scale.set(fxScale(sv.glow.texture, sh.r * P.sheenFrac * b))
         sv.glow.alpha = P.sheenA * (0.85 + 0.15 * Math.sin(animT * 0.8 + i * 2.3))
+      } else if (upwelling) {
+        // The glow sprite is a RADIAL DISC, and on an upwelling that is the one thing it must not
+        // be: the whole point of the lobed outline is that this field is not a circle, and a bright
+        // round core in the middle of it re-asserts the circle the shape just escaped. So it is
+        // small and faint here — a suggestion that the water is clearer in the middle, not a beacon.
+        // Judge it against the sun shaft one branch down, which IS a beacon and should stay one.
+        sv.glow.scale.set(fxScale(sv.glow.texture, sh.r * 1.1))
+        sv.glow.alpha = UPWELLING_VIS.glowA * (0.85 + 0.15 * Math.sin(animT * 0.8 + i * 2.3))
       } else {
         sv.glow.scale.set(fxScale(sv.glow.texture, sh.r * 2.1))
         sv.glow.alpha = 0.62 + 0.10 * Math.sin(animT * 1.1 + i * 1.7)
@@ -10582,11 +10591,15 @@ export function createRenderer(app) {
           // it. Do not quote either anchor line verbatim in a comment either: indexOf finds the
           // comment first and the slice becomes a fragment of prose. (Both mistakes made here, in
           // that order, on 2026-08-17.)
+          // LOBED, not round (signature.blob). The same lobePoly the tide pools use, and for the
+          // same drawn-extent-is-tested-extent reason: inLobe follows these lobes, so the water you
+          // can see is the water that refills you. Each depth step is the SAME outline scaled, never
+          // a circle inside a lobe — that reads as a round hole with a ragged edge painted on.
           const U = UPWELLING_VIS
           sv.glow.tint = U.sheen
-          sv.body.circle(0, 0, sh.r).fill({ color: U.core, alpha: U.coreA })
-          sv.ring.circle(0, 0, sh.r).stroke({ width: U.rimW, color: U.rim, alpha: U.rimA })
-          sv.ring.circle(0, 0, sh.r * U.innerFrac).stroke({ width: U.rimW * 0.6, color: U.rim, alpha: U.rimA * 0.5 })
+          sv.body.poly(lobePoly(sh.r, sh.shape, sh.rot)).fill({ color: U.core, alpha: U.coreA })
+          sv.ring.poly(lobePoly(sh.r, sh.shape, sh.rot)).stroke({ width: U.rimW, color: U.rim, alpha: U.rimA })
+          sv.ring.poly(lobePoly(sh.r * U.innerFrac, sh.shape, sh.rot)).stroke({ width: U.rimW * 0.6, color: U.rim, alpha: U.rimA * 0.5 })
         } else if (pool) {
           // Concentric depth steps, outside in, each darker than the one around it — see
           // TIDE_POOL_VIS for why the collar, the shelf and the meniscus are gone. `ring` stays
@@ -10605,6 +10618,26 @@ export function createRenderer(app) {
           sv.glow.tint = 0xfff0c0
           sv.ring.circle(0, 0, sh.r).stroke({ width: 4, color: 0xffe9a8, alpha: 0.55 })
         }
+      }
+      // DRAWDOWN FADE (The Shelf). OUTSIDE the geometry cache above, because this changes every
+      // frame the player is standing in the circle and the cache only re-runs when the radius or the
+      // outline does. Alpha, not geometry: a shrinking radius would move the edge the sim tests
+      // against, and "the water you can see is the water that refills you" is the rule every field
+      // in this system holds to.
+      //
+      // Linear, off `sh.drawdown` — the SAME number stepCharge counts, published on the circle for
+      // exactly this. The owner asked for "disappear when you stand in them, linearly in 5s", so the
+      // five seconds have to be legible from the water and not from the bar.
+      if (refillDrawdown > 0) {
+        const t = Math.min(1, (sh.drawdown ?? 0) / refillDrawdown)
+        const f = 1 - t
+        sv.body.alpha = f
+        sv.ring.alpha = f
+        sv.glow.alpha *= f
+      } else if (sv.body.alpha !== 1) {
+        // A pool object is recycled across chapters, so a faded slot must not carry its alpha into
+        // a chapter with no drawdown — the silent kind of leak run CP exists to stop.
+        sv.body.alpha = sv.ring.alpha = 1
       }
     }
   }
@@ -17589,6 +17622,9 @@ export function createRenderer(app) {
           ?? (cfg.signature.maws ? 'maw' : sigType === 'shafts' ? 'shaft' : sigType === 'air' ? 'pocket' : 'pool'))
       : null
     chapterHasMaws = refillLook === 'maw'
+    // Latched beside refillLook and read from the same refillSpec answer, so the fade below and
+    // stepCharge's occupancy clock cannot end up reading two different numbers.
+    refillDrawdown = (cfg?.signature && refillSpec(cfg.signature)?.drawdownSecs) || 0
     swellCfg = cfg?.render?.swell ?? null
     chapterHasStorm = !!chapterRender.storm
     // v6.3: `storm` implies both — skies stays bit-identical (storm was always rain+ruins there);

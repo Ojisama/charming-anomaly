@@ -3450,9 +3450,10 @@ export function refillCircleAt(i, j, seed, spec) {
   const c = { x, y, r: spec.r, phase: obstacleCellHash(i, j, seed, s0 + 3) * Math.PI * 2 }
   // Lobed outline, opt-in per FIELD (see LOBE_SHAPES). The Twilight's sun shafts and The Reef's air
   // pockets stay circles deliberately — a column of light and a trapped bubble are both round
-  // things, and only The Surf's tide pools are a hole in the ground. Both are stored, never
-  // re-derived: render draws the outline from them and the sim tests position against them, and a
-  // second derivation is how the two would drift apart.
+  // things. The Surf's tide pools are a hole in the ground and The Shelf's upwellings are clean
+  // water pushing through silt, and neither has an edge a circle would describe. Both fields are
+  // stored, never re-derived: render draws the outline from them and the sim tests position against
+  // them, and a second derivation is how the two would drift apart.
   if (spec.blob) {
     c.shape = Math.floor(obstacleCellHash(i, j, seed, s0 + 4) * LOBE_SHAPES.length) % LOBE_SHAPES.length
     c.rot = obstacleCellHash(i, j, seed, s0 + 5) * Math.PI * 2
@@ -3932,6 +3933,9 @@ export function stepCharge(run, dt) {
   // every chapter with no resource, so this is inert wherever it always was.
   let c = run.charge - drainRate * dryMul * run.chargeDrainMul * dt
   const p = run.player
+  // Opt-in per FIELD, read through refillSpec() so this asks the streamer's own question rather
+  // than a second one that could disagree. 0/undefined everywhere but The Shelf.
+  const drawdownSecs = refillSpec(CHAPTERS[run.chapter]?.signature)?.drawdownSecs ?? 0
   for (const sh of run.shafts) {
     // Inside the circle's own outline: standing IN the light, not brushing its edge. inMaw is that
     // same centre-to-centre test for a round field (every one but The Surf's pools), following the
@@ -3943,7 +3947,23 @@ export function stepCharge(run, dt) {
     // call. Using the stricter test everywhere is what keeps "the circle that feeds you" and "the
     // circle whose mouth is counting down" from becoming two different circles: a maw that has just
     // swallowed you must not still be topping you up while its jaws are visibly closed.
-    if (inMaw(sh, p.x, p.y)) { c += res.refill * run.chargeRefillMul * dt; break }
+    if (!inMaw(sh, p.x, p.y)) continue
+    // DRAWDOWN (The Shelf's upwellings — signature.drawdownSecs). Standing in one USES IT UP: the
+    // occupancy clock runs only while you are inside, and at `drawdownSecs` the circle stops being
+    // food. `continue` rather than `break`, so a spent circle you are standing in does not mask a
+    // live one you are also touching — two upwellings overlap often enough at chance 0.62.
+    //
+    // `drawdown` is PUBLISHED ON THE CIRCLE, deliberately, for the same reason the maw's `gape` is:
+    // render.js fades the drawing off this exact number, so the five seconds the player watches are
+    // the five seconds stepCharge is counting rather than a parallel animation that can disagree.
+    // Undefined for every other field, which reads as 0 and leaves those byte-for-byte unchanged.
+    const life = drawdownSecs
+    if (life > 0) {
+      if ((sh.drawdown ?? 0) >= life) continue
+      sh.drawdown = (sh.drawdown ?? 0) + dt
+    }
+    c += res.refill * run.chargeRefillMul * dt
+    break
   }
   // THE TRAWL'S REFILL IS NOT A PLACE (see CHAPTERS.trawl.signature). Every other Book 2 chapter's
   // food is a circle on the map that streamShafts materialises into run.shafts, so the loop above

@@ -110,6 +110,9 @@ function probeMeta({ thief = false, shopLevel = SHOP_LV } = {}) {
 const res = CHAPTERS[CHAPTER].resource
 const sig = CHAPTERS[CHAPTER].signature
 const spec = refillSpec(sig) // the refill-circle geometry, whichever chapter (Shelf's shafts / Surf's pools)
+// Seconds of occupancy that use one circle up (The Shelf's upwellings). 0 everywhere else, which is
+// what keeps the seek policy below byte-for-byte unchanged in every chapter that has no drawdown.
+const DRAWDOWN = spec?.drawdownSecs ?? 0
 // THE TRAWL HAS NO REFILL GEOMETRY AND THAT IS ITS DESIGN, not a missing config block: its food is
 // the churned wake behind a moving wall, so there is no cell size, no chance and no radius to read.
 // The abort below has to know the difference, or the one chapter whose refill is not a place looks
@@ -163,6 +166,15 @@ const MOVES = {
     const p = run.player
     let best = null, bd = Infinity
     for (const sh of run.shafts) {
+      // ⚠ SKIP A SPENT CIRCLE (The Shelf's drawdown, v7.x). Without this the policy walks to the
+      // NEAREST circle and parks there for the rest of the run — and once an upwelling is used up,
+      // parking in it is the single worst thing a player can do. The first probe of the drawdown
+      // tune read 96.5% of the run spent INSIDE a refill circle and 97% of it dark, which is not a
+      // damning number about the chapter, it is a rig modelling a player who cannot tell that the
+      // water has run out. That is CLAUDE.md's own warning: before believing a probe, ask whether
+      // the RIG's geometry moved when the knob did. A mechanic whose whole point is "move on" needs
+      // a policy that can.
+      if (DRAWDOWN > 0 && (sh.drawdown ?? 0) >= DRAWDOWN) continue
       const d = Math.hypot(sh.x - p.x, sh.y - p.y)
       if (d < bd) { bd = d; best = sh }
     }

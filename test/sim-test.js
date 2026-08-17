@@ -20419,6 +20419,51 @@ function testUndertowLadder() {
       delete globalThis.localStorage
     }
 
+    // (e8) THE DRAWDOWN. Standing in an upwelling uses it up over `drawdownSecs`, and the failure
+    // mode is silence in both directions: a drawdown that never accumulates is an ordinary infinite
+    // refill (the chapter becomes The Twilight with a different palette), and one that never STOPS
+    // feeding is the same thing wearing a fade. Neither throws, and the bar looks plausible either
+    // way. Driven through stepSim rather than by reaching into stepCharge, which is not exported.
+    {
+      const sig = CHAPTERS.shelf.signature
+      const LIFE = sig.drawdownSecs
+      assert.ok(LIFE > 0, 'The Shelf declares no drawdownSecs — its upwellings are infinite again')
+      assert.strictEqual(sig.blob, true, 'The Shelf\'s upwellings lost their lobed outline and are discs again')
+
+      Math.random = mulberry32(4242)
+      const m = { coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true,
+        chapters: { shelf: { unlocked: true, maxDifficulty: 5, difficulty: 1 } } }
+      const run = createRun(m, { chapter: 'shelf', difficulty: 1 })
+      run.player.maxHP = run.player.hp = 1e9
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)   // stream the field in
+      run.events.length = 0
+      const sh = run.shafts[0]
+      assert.ok(sh, 'no upwelling streamed in, so this scenario proved nothing')
+      // Park the player dead centre and hold the bar low so the refill has somewhere to go.
+      const sit = () => { run.player.x = sh.x; run.player.y = sh.y }
+      run.charge = 10
+      sit(); stepSim(run, { x: 0, y: 0 }, 1 / 60); run.events.length = 0
+      assert.ok((sh.drawdown ?? 0) > 0, 'standing in an upwelling did not start its clock — sh.drawdown never moved')
+      const early = run.charge
+      sit(); stepSim(run, { x: 0, y: 0 }, 1 / 60); run.events.length = 0
+      assert.ok(run.charge > early, 'a live upwelling did not refill the bar')
+
+      // Burn it out, then prove it has STOPPED being food: with drain running and no refill, the
+      // bar must fall. Asserting `drawdown` capped alone would pass with the refill still flowing.
+      for (let i = 0; i < Math.ceil(LIFE * 60) + 30; i++) { sit(); stepSim(run, { x: 0, y: 0 }, 1 / 60); run.events.length = 0 }
+      assert.ok(sh.drawdown >= LIFE, `the clock stalled at ${sh.drawdown?.toFixed(2)} of ${LIFE}s`)
+      const spentAt = run.charge
+      for (let i = 0; i < 60; i++) { sit(); stepSim(run, { x: 0, y: 0 }, 1 / 60); run.events.length = 0 }
+      assert.ok(run.charge < spentAt,
+        `the bar rose from ${spentAt.toFixed(1)} to ${run.charge.toFixed(1)} while parked in a SPENT upwelling — it never stopped feeding`)
+
+      // render.js must fade off the sim's own number rather than animating its own clock.
+      assert.ok(rsrc2.includes('sh.drawdown'),
+        'render.js never reads sh.drawdown — the fade is a parallel animation that can disagree with the mechanic')
+      console.log(`PASS run US.k (upwelling drawdown): a lobed upwelling feeds the bar, its clock runs only while stood in, ` +
+        `and at ${LIFE}s it stops being food (bar fell to ${run.charge.toFixed(1)} while parked in it); render fades off the same field`)
+    }
+
     console.log(`PASS run US.j (shelf/twilight split): ${Object.keys(BARS).length} chapter bars map as designed (murk costs sight only, the dark still slows), ` +
       `the sun arsenal followed the light and no sun card is left in the murk, formScale climbs ${scales.map(([, s]) => s).join(' -> ')} across ${scales.length} rungs, ` +
       `refillLook '${[...declared].join("','")}' resolves both ways, ${Object.keys(CHAPTERS).length} chapters cast only their own roster, ` +

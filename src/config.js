@@ -5045,7 +5045,24 @@ CHAPTERS.shelf = {
   // borrowed weapon involved. Named `refillLook` rather than `look` on purpose: `look` is already
   // six unrelated reads in the same render neighbourhood (bl.look === 'foxfire', s.look === 'erase',
   // ln.look === 'mower', n.look === 'foam', b.look === 'sunlance').
-  signature: { type: 'shafts', refillLook: 'upwelling', cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
+  // `blob` opts the field into a LOBED outline (LOBE_SHAPES) rather than a disc, the same per-field
+  // flag The Surf's tide pools use. Owner, 2026-08-17: "the clean water spot look too much like
+  // light spots in other chapter… less circle, different shapes." A disc of pale light is what The
+  // Twilight's shafts and The Reef's air pockets already are, and three round bright patches across
+  // one book is the borrowed-look trap arriving by convergence rather than by copying. Clean water
+  // rising through silt has no edge a circle would describe.
+  //
+  // `drawdownSecs` is the mechanic (owner, same ruling): "they disappear when you stand in them,
+  // linearly in 5s". Standing in an upwelling USES IT UP — 5 seconds of occupancy and it is gone,
+  // fading the whole way so the clock is on screen rather than in the HUD. This is what makes the
+  // murk chapter's refill different in KIND from the sun shafts it borrowed its geometry from: a
+  // shaft is a place you can park, and parking is what the crowd is waiting for; an upwelling is a
+  // place you can park ONCE. The chapter's answer to "where is the water clear" stops being a fixed
+  // map you learn and becomes a thing you consume as you travel.
+  // ponytail: a spent upwelling is not remembered once it streams out of range, so walking far away
+  //   and back regenerates it. That reads as the water moving (which it does, driftAmp 60), and the
+  //   upgrade path if it ever matters is a per-cell spent-set on `run`, not a field on the circle.
+  signature: { type: 'shafts', refillLook: 'upwelling', blob: true, drawdownSecs: 5, cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
 
   // The bar. Same numbers as the light rig it reuses — drain 2.2 / refill 18 / killRefill 1.5 were
   // measured over 5 seeded 300s runs under three spend policies (see CHAPTERS.twilight.resource for
@@ -6483,10 +6500,21 @@ export const SANDBAR_VIS = {
 // the tested extent, so the edge you can see is the edge that refills you.
 // RAW final colours — shaftLayer lives in entitiesLayer and is never multiplied by render.floorTint.
 export const UPWELLING_VIS = {
-  core: 0xdff2ee, coreA: 0.30,        // the clear column itself, seen through the silt around it
-  rim: 0xeafffb, rimA: 0.5, rimW: 3,  // ON r — the boundary the mechanic is tested against
+  // BLUE, and the blue is the point (owner, 2026-08-17). The first cut was a pale green-white and
+  // read as "a light spot" — the same thing The Twilight's gold shafts and The Reef's silver air
+  // pockets already are, so a player crossing three chapters met one idea three times. Clean water
+  // in a silty green chapter is the one thing on screen that is NOT the local colour, and blue is
+  // what water reads as when the water around it has stopped reading as water.
+  core: 0xa8d4f0, coreA: 0.34,        // the clear water itself, seen through the silt around it
+  rim: 0xd4ecff, rimA: 0.48, rimW: 3, // ON r — the boundary the mechanic is tested against
   innerFrac: 0.62,                    // the second, fainter rim: depth without a hard edge
-  sheen: 0xcfeee6,                    // the additive glow sprite's tint, cool against the shaft's gold
+  sheen: 0x9cc8ea,                    // the additive glow sprite's tint, cold against the shaft's gold
+  glowA: 0.22,                        // faint and small: the outline is the shape, not this disc
+  // DRAWDOWN (signature.drawdownSecs). The circle fades linearly to nothing as it is used up, so the
+  // five seconds are legible from the water rather than from the bar. `floorA` is what survives at
+  // the very end — deliberately 0: "they disappear" was the ask, and a ghost left behind would read
+  // as a spot that still feeds you.
+  floorA: 0,
 }
 
 // PLAN VIEW OF TRAPPED AIR, which is the one thing on this list that is not a colour choice. A
