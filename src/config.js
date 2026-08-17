@@ -3608,8 +3608,11 @@ export const EARLY_CALM = {
   // EARLY_CALM 0.40) at x2.22 xp; surf ran 0.68 at x1.0 — 2.3x the spawn rate at 45% of the xp,
   // which was correct only while nobody reached it without a stocked book-1 shop. Owner ruling
   // 2026-08-16: spawnMul 0.8, xpMul 1.3 — gentler than it was, harder than body/pond (owner:
-  // "Book 2 should be harder, but maybe not that hard").
-  surf:   { spawnMul: 0.8,  xpMul: 1.3 },
+  // "Book 2 should be harder, but maybe not that hard"). Owner ruling 2026-08-17, "level 2-1:
+  // density -25% and XP +30%", read as relative to those numbers exactly as v6.4.3's "-33%/+33%"
+  // was: 0.8·0.75 / 1.3·1.3. Effective at d1 (composed with the chapter balance below) that is a
+  // spawn of 0.41 at x2.11 xp — between body (0.30 / x2.78) and pond (0.45 / x2.09).
+  surf:   { spawnMul: 0.6,  xpMul: 1.69 },
 }
 // count distinct random mutator ids (Fisher-Yates over the full pool)
 // The roll pool for a given chapter: hidden entries never roll; `chapters` (allowlist) and

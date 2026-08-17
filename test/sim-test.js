@@ -5450,8 +5450,9 @@ function runBookProgression() {
   // at x1.0 — 2.3x the spawn rate at 45% of the xp, which was correct only while nobody reached it
   // without a stocked book-1 shop. Owner ruling 2026-08-16.
   assert.ok(EARLY_CALM.surf, "The Surf needs an EARLY_CALM entry — it is a book's first chapter now")
-  assert.strictEqual(EARLY_CALM.surf.spawnMul, 0.8, 'owner ruling 2026-08-16')
-  assert.strictEqual(EARLY_CALM.surf.xpMul, 1.3, 'owner ruling 2026-08-16')
+  // Then again on 2026-08-17: "density -25% and XP +30%", relative to those numbers.
+  assert.strictEqual(EARLY_CALM.surf.spawnMul, 0.6, 'owner ruling 2026-08-17 (0.8 x 0.75)')
+  assert.strictEqual(EARLY_CALM.surf.xpMul, 1.69, 'owner ruling 2026-08-17 (1.3 x 1.3)')
   // Shore Crabs, thinned twice: 40% on 2026-08-16, then a further "20% less crabs" on 2026-08-17.
   // 0.41 and NOT 0.6 x 0.8 = 0.48, because these weights are relative and crabs are the chapter's
   // tank — see the block above archetypeMul in config.js for the 5-seed x 300s census. Pinned as a
@@ -5521,7 +5522,7 @@ function runBookProgression() {
   }
   console.log('PASS run BP.ad (shape guard): meta.books/meta.grants survive books:5, grants:"x" and books:"x" without wiping the save')
 
-  console.log(`PASS run BP (book progression): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max, The Surf's opening balance (EARLY_CALM.surf + archetypeMul.tank) matches the 2026-08-16 owner ruling, ${bkAllChapters.length} chapters all resolve to a book, and no source file reads SHOP directly`)
+  console.log(`PASS run BP (book progression): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max, The Surf's opening balance (EARLY_CALM.surf + archetypeMul.tank) matches the 2026-08-17 owner rulings, ${bkAllChapters.length} chapters all resolve to a book, and no source file reads SHOP directly`)
 }
 run(runBookProgression)
 
@@ -5843,12 +5844,20 @@ function runRoachSoftening() {
       run.player.maxHP = run.player.hp = 1e6
       // A real spawned roach, through the real path: a hand-built one would carry whatever dmg the
       // fixture chose and could not see a missing `roster?.dmgMul` in spawnEnemy at all.
+      //
+      // `!x.elite` PINS THE SUBJECT, and without it this block measures the wrong thing entirely.
+      // "The first searoach in the array" is whatever the spawn phasing hands over, and an elite one
+      // carries TWO terms the assertion below is not about: ELITE.dmgMul 1.5, and a volatile death
+      // bomb — which detonates on every one of the 600 frames that resurrect it, so its blast
+      // dominates the contact damage being measured. Changing EARLY_CALM.surf.spawnMul 0.8 -> 0.6
+      // re-phased the draw onto an elite and read x0.873 for an exactly-halved contact hit (306 vs
+      // 267 HP: 78 of it the roach, 228 of it bombs). Nothing about that number named its cause.
       let e = null
       for (let i = 0; i < 60 * 150 && !e; i++) {
         stepSim(run, { x: 0, y: 0 }, dt)
-        e = run.enemies.find((x) => x.rosterId === 'searoach') ?? null
+        e = run.enemies.find((x) => x.rosterId === 'searoach' && !x.elite) ?? null
       }
-      assert.ok(e, 'no Sea Roach spawned in 150s — cannot measure')
+      assert.ok(e, 'no ordinary (non-elite) Sea Roach spawned in 150s — cannot measure')
       run.enemies = [e]
       const before = run.player.hp
       for (let i = 0; i < 600; i++) {
