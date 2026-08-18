@@ -206,6 +206,7 @@ const UI = {
   'Your nickname': 'Ton pseudo',
   'It appears on the podium of every chapter you play.': 'Il apparaît sur le podium de chaque chapitre où tu joues.',
   '{min}-{max} characters': 'de {min} à {max} caractères',
+  'The best runs by everyone playing.': 'Les meilleures parties de tous les joueurs.',
   'No scores yet — be the first.': 'Aucun score pour l\'instant — sois le premier.',
   'Could not reach the podium. Check your connection.': 'Podium injoignable. Vérifie ta connexion.',
   'Difficulty {d} unlocked!': 'Difficulté {d} débloquée !',

@@ -14720,12 +14720,18 @@ function testLeaderboard() {
   // The trap that only shows up on the podium: slice() cuts UTF-16 units, so clamping can bisect an
   // astral character and leave a lone surrogate, which renders as a replacement box and passes every
   // other check here. 10 emoji is 20 units; the clamp must not leave half of the 6th behind.
-  const clamped = validNick('🐛'.repeat(10))
+  // THE FIXTURE HAS TO CUT INSIDE A PAIR, and an all-emoji name does not: 10 emoji is 20 units and
+  // slice(0, 10) lands exactly between the 5th and the 6th. Written that way this assertion passes
+  // with the trim deleted — it was, until the mutation harness said so. One odd-width character in
+  // front moves the cut into the middle of an emoji, which is the case that reaches the podium as a
+  // replacement box.
+  const clamped = validNick('a' + '🐛'.repeat(10))
   // \p{Cs} under the u flag matches only UNPAIRED surrogates — a whole emoji is one code point of
   // category So and does not match, which is the whole reason this is the right assertion. Testing
   // for any trailing surrogate instead fails on every legal emoji name.
   assert.ok(!/\p{Cs}/u.test(clamped), `clamping must not leave a lone surrogate: got ${JSON.stringify(clamped)}`)
-  assert.strictEqual(clamped, '🐛'.repeat(5), 'five whole emoji fit in ten UTF-16 units')
+  assert.strictEqual(clamped, 'a' + '🐛'.repeat(4), 'the bisected emoji is dropped whole, not left as half of one')
+  assert.strictEqual(validNick('🐛'.repeat(10)), '🐛'.repeat(5), 'and an even split keeps all five')
   // A control character in a name would corrupt the row it is drawn in, and unlike the length rule
   // there is no visible sign the player pasted one. Built from a char code rather than typed inline,
   // so the byte survives whatever edits this file next.
@@ -14773,6 +14779,7 @@ function testLeaderboard() {
     'Podium', 'Nickname', 'Pick a nickname', 'Your nickname',
     'It appears on the podium of every chapter you play.',
     '{min}-{max} characters',
+    'The best runs by everyone playing.',
     'No scores yet — be the first.',
     'Could not reach the podium. Check your connection.',
   ]

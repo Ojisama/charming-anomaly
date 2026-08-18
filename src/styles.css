@@ -2421,19 +2421,6 @@ body {
 .brief-rr:active:not(:disabled) { transform: translateY(1px); }
 .rr-ico { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
 
-/* ---- no-pop: the entrance-animation kill switch (v7.10) ----
-   Every screen re-renders by rewriting its innerHTML, which rebuilds an open modal from scratch —
-   and a brand-new element REPLAYS pop-in / sheet-up. That is why every sheet in the game popped in
-   again on each tap INSIDE it. setHtml (ui.js) marks the boxes that were already on screen before
-   the rewrite; this kills the entrance on them and on the sheet they wrap.
-   LAST IN THE FILE ON PURPOSE: `.no-pop` and `.modal-backdrop` have identical specificity, so the
-   later rule wins — declared next to @keyframes pop-in it lost to .modal-backdrop and the backdrop
-   kept flashing while the sheet inside it sat still.
-   Anything MEANT to replay per render (.sacrifice-counter, .card--bounce, the lv-card deal) carries
-   no data-pop and never gets this class. */
-.no-pop,
-.no-pop > .bottom-sheet,
-.no-pop > .confirm-sheet { animation: none; }
 
 /* ---- leaderboard (v7.x) -----------------------------------------------------------------------
    The podium is the BACK PAGE of the pre-run brief, and the two faces SWAP rather than co-exist:
@@ -2453,7 +2440,12 @@ body {
   to { transform: perspective(1100px) rotateY(0); opacity: 1; }
 }
 
-.brief-podium-btn { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; }
+/* Rides .settings-slots (icon + label + a muted right-hand note), which is already the shape of
+   every secondary row in this game. Only the width is new: on the brief it spans the panel, so it
+   reads as a page edge to turn rather than as one more button in a row of them. */
+.brief-podium { width: 100%; }
+.brief-podium .rr-ico { flex: none; }
+.podium-whose { margin: -2px 0 0; text-align: center; }
 
 /* One row renderer for both boards. The grid is rank / name / number, so a long nickname takes the
    slack and the number never moves — two podiums stacked read as one column of figures. */
@@ -2468,8 +2460,12 @@ body {
   font-weight: 700;
 }
 .podium-row:last-child { border-bottom: none; }
-.podium-nick { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.podium-score { font-weight: 900; font-variant-numeric: tabular-nums; }
+/* Both of these undo the centring .modal sets on the whole panel. Left for the names so three of
+   them read as a scannable column rather than three things floating at three widths, right for the
+   figures so 1200 sits under 90 by its last digit — which is what tabular-nums is FOR and what
+   centring quietly cancels. */
+.podium-nick { overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.podium-score { text-align: right; font-weight: 900; font-variant-numeric: tabular-nums; }
 
 /* The one saturated thing on the page. Rank 1 is a filled gold disc and 2/3 are empty cream ones —
    the whole hierarchy of a podium in the single element that has to carry it, which is why every
@@ -2526,6 +2522,11 @@ body {
   font-style: normal;
   font-weight: 900;
   vertical-align: 2px;
+  /* It ALWAYS arrives late — the score is submitted as this screen is drawn, so the rank lands a
+     few hundred ms after the number it sits beside. Without motion that reads as a rendering
+     glitch; with the game's own entrance it reads as an answer coming back. Reuses pop-in rather
+     than inventing a second entrance for one badge. */
+  animation: pop-in 0.34s ease-out backwards;
 }
 .rank-chip--1 { border-color: var(--gold-edge); background: var(--gold); }
 
@@ -2537,5 +2538,19 @@ body {
 .confirm-sheet-title .rr-ico { vertical-align: -3px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .brief-page--front, .brief-page--back, .podium-bone { animation: none; }
+  .brief-page--front, .brief-page--back, .podium-bone, .rank-chip { animation: none; }
 }
+
+/* ---- no-pop: the entrance-animation kill switch (v7.10) ----
+   Every screen re-renders by rewriting its innerHTML, which rebuilds an open modal from scratch —
+   and a brand-new element REPLAYS pop-in / sheet-up. That is why every sheet in the game popped in
+   again on each tap INSIDE it. setHtml (ui.js) marks the boxes that were already on screen before
+   the rewrite; this kills the entrance on them and on the sheet they wrap.
+   LAST IN THE FILE ON PURPOSE: `.no-pop` and `.modal-backdrop` have identical specificity, so the
+   later rule wins — declared next to @keyframes pop-in it lost to .modal-backdrop and the backdrop
+   kept flashing while the sheet inside it sat still.
+   Anything MEANT to replay per render (.sacrifice-counter, .card--bounce, the lv-card deal) carries
+   no data-pop and never gets this class. */
+.no-pop,
+.no-pop > .bottom-sheet,
+.no-pop > .confirm-sheet { animation: none; }

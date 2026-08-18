@@ -135,6 +135,56 @@ is "a flood of requests eventually 429s"    429   "$LAST"
 is "and an untouched code still works"      3     "$(field gen GET -H "$AUTH")"
 
 echo
+echo "-- leaderboard (/scores) --"
+# A SECOND FEATURE on the same Worker, and the one thing it must never do is disturb the first: the
+# assertions above all ran before this block and are re-checked at the end of it.
+#
+# Its own base URL and its own helpers, because nothing here is authenticated — passing $AUTH would
+# hide the property most worth asserting, that a board read needs no pairing code at all.
+SBASE="http://127.0.0.1:$PORT/scores"
+# A fresh chapter id per run, so repeated runs against one local D1 file cannot see each other's
+# rows — the same reason CODE is minted fresh above. Lowercase letters only: the Worker's shape
+# check is /^[a-z][a-z0-9]{0,15}$/.
+CH="t$(LC_ALL=C tr -dc 'a-z' </dev/urandom | head -c 8)"
+scall()  { curl -s -o "/tmp/ca-body.$$" -w '%{http_code}' -X "$1" "${@:2}"; printf '\n'; cat "/tmp/ca-body.$$"; printf '\n'; }
+sstatus() { scall "$@" | head -1; }
+sbody()   { scall "$@" | tail -n +2; }
+post()    { scall POST -H 'content-type: application/json' -d "$1" "$SBASE"; }
+
+is "an unknown board is 200, not 404"       200   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=3")"
+is "and it is empty rather than absent"     '{"kills":[],"level":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=3")"
+is "a board read carries no Authorization"  200   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=1")"
+
+is "a score is accepted"                    200   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":900,\"level\":20}" | head -1)"
+is "a second score is accepted"             200   "$(post "{\"nick\":\"Bob\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":500,\"level\":24}" | head -1)"
+# THE ASSERTION THE TWO BOARDS EXIST FOR. Bob has fewer kills and a higher level, so a single
+# ordering would put the same name on top of both — which is exactly what a copy-pasted second
+# query, or a tiebreak applied to the wrong column, silently produces.
+BOARDS=$(sbody GET "$SBASE?chapter=$CH&difficulty=3")
+lead() { printf '%s' "$BOARDS" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s)[process.argv[1]][0].nick)}catch{console.log("PARSE_ERROR:"+s.trim())}})' "$1"; }
+is "the kills board is led by the killer"   Ann   "$(lead kills)"
+is "the level board is led by the leveller" Bob   "$(lead level)"
+# Difficulty is part of the board's identity, not a filter applied afterwards.
+is "another difficulty is a separate board" '{"kills":[],"level":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
+
+echo "-- leaderboard rejections (shape only — this endpoint is deliberately credulous) --"
+is "a short nick is 400"                    400   "$(post "{\"nick\":\"Bo\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":5,\"level\":2}" | head -1)"
+is "a long nick is 400"                     400   "$(post "{\"nick\":\"12345678901\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":5,\"level\":2}" | head -1)"
+is "a malformed chapter is 400"             400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"DROP TABLE\",\"difficulty\":3,\"kills\":5,\"level\":2}" | head -1)"
+is "a difficulty out of range is 400"       400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":99,\"kills\":5,\"level\":2}" | head -1)"
+is "a non-integer score is 400"             400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":1.5,\"level\":2}" | head -1)"
+is "an unparseable envelope is 400"         400   "$(scall POST -H 'content-type: application/json' -d 'not json' "$SBASE" | head -1)"
+is "PUT to /scores is 405"                  405   "$(sstatus PUT "$SBASE")"
+is "a bad board read is 400"                400   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=abc")"
+# Nothing above may have written a row: a rejected submit that still inserted would be invisible
+# until someone opened the podium and found a stranger on it.
+is "no rejection wrote a row"               '{"kills":[],"level":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
+
+echo "-- the save contract is untouched by any of that --"
+is "save-sync still answers its own path"   3     "$(field gen GET -H "$AUTH")"
+is "and still 401s a malformed code"        401   "$(status GET -H 'Authorization: Bearer nope')"
+
+echo
 echo "passed $PASS, failed $FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
 echo "ALL WORKER TESTS PASSED"

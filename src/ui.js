@@ -2028,6 +2028,13 @@ export function initUI(hooks) {
     if (podiumState === null) {
       return `${eyebrow('Kills')}${podiumSkeleton()}${eyebrow('Level reached')}${podiumSkeleton()}`
     }
+    // Nobody has played this board at all. Said ONCE, with no section headings above it: the two
+    // boards are populated by the same runs, so an untouched chapter can only ever be empty on
+    // both — and printing the same sentence twice under two headings reads as the page having
+    // failed twice rather than as there being nothing here yet.
+    if (!podiumState.kills.length && !podiumState.level.length) {
+      return `<p class="brief-note podium-empty">${t('No scores yet — be the first.')}</p>`
+    }
     // Each board is scored by its OWN metric. Passing the rows through with a `score` field rather
     // than teaching podiumRowHtml which board it is drawing keeps one row renderer for both.
     const byKills = podiumState.kills.map((r) => ({ ...r, score: r.kills }))
@@ -2045,6 +2052,10 @@ export function initUI(hooks) {
             <div class="brief-diff">${chapter.icon} ${t(chapter.name)} · ${t('difficulty')} <b>${d.difficulty ?? 1}</b></div>
           </div>
         </div>
+        <!-- Whose scores these are. Without it the page is indistinguishable from a personal-best
+             screen, which this game already has (meta.chapters[id].best), and a player seeing two
+             names they do not recognise would read it as a bug rather than as the point. -->
+        <p class="brief-note podium-whose">${t('The best runs by everyone playing.')}</p>
         ${podiumBodyHtml()}
       </div>`
   }
@@ -2076,10 +2087,17 @@ export function initUI(hooks) {
             <h2 class="brief-title">${chapter.icon} ${t(chapter.name)}</h2>
             <div class="brief-diff">${t('difficulty')} <b>${d.difficulty ?? 1}</b></div>
           </div>
-          <button class="pill-btn brief-podium-btn" data-act="podium-open"
-            aria-label="${t('Podium')}" title="${t('Podium')}">${ICO_PODIUM}</button>
           <div class="coins-badge">🪙 <b>${briefBm.coins}</b></div>
         </div>
+        <!-- A LABELLED ROW, NOT A FOURTH HEADER BUTTON. It was an icon in the head, and a control
+             photographed next to the shipped one showed why that could not stay: a fourth child
+             squeezed .brief-headtext until "The Pond" wrapped onto two lines, on the shortest
+             chapter name in the game. The row costs 48px of a screen that has room and buys the
+             thing an icon in a corner never had — a player can tell what it opens without
+             pressing it. -->
+        <button class="btn btn--soft btn--small settings-slots brief-podium" data-act="podium-open">
+          ${ICO_PODIUM} ${t('Podium')} <i>→</i>
+        </button>
         ${ids.length ? `
           ${eyebrow('Anomalies', reroll ? tt('reroll {n}', { n: ANOMALY_REROLL_COST }) : '')}
           <div class="brief-anoms">${ids.map((id, i) => briefAnomHtml(id, i, reroll)).join('')}</div>
