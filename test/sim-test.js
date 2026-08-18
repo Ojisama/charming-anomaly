@@ -6754,7 +6754,43 @@ function runPrey() {
     console.log(`PASS run PY.k (the button dashes at food): with a tank 80px away and prey at 300px, the press carried the player ${dx.toFixed(0)}px toward the prey`)
   }
 
-  console.log('PASS run PY (The Wreck: prey): the roster runs from you in schools and cannot touch you, the bite pays for closing, and the leak is the only thing in the chapter that can kill you')
+  // -- PY.l: the OIL lands on the CROWD, not on your feet. ---------------------------------------
+  // Owner, 2026-08-18: "the mazout is a small trap zone that takes time to expand, starting from
+  // you. by the time it's expanded, you're already far away." A pool takes dur * BLOOM_GROW_FRAC
+  // (1.6-2.2s) to reach full size and the player crosses 350px in that time, so where it OPENS is
+  // the whole of whether it is ever touched — measured at 114px from the nearest body before this
+  // and 0 after, which tripled the enemy-seconds spent in it.
+  //
+  // slickTrail is the CONTROL and it is a real branch rather than a mirror: that mod's whole shape
+  // is a fence drawn behind a swimming player, so it must still lay at the feet. Asserting only the
+  // aimed case would pass with the branch deleted.
+  {
+    const place = (mods) => {
+      const run = mk(20260820)
+      run.weapons = [{ id: 'bilge', level: 1 }]
+      run.weaponMods.bilge = mods
+      const p = run.player
+      const x0 = p.x, y0 = p.y
+      const e = put(run, { x: x0 + 300, y: y0, hp: 1e12, speed: 0, flags: ['skittish'] })
+      let bl = null
+      for (let i = 0; i < Math.round(10 / dt) && !bl; i++) {
+        only(run, [e])
+        e.x = x0 + 300; e.y = y0
+        stepSim(run, { x: 0, y: 0 }, dt)
+        bl = run.blooms.find((b) => b.look === 'bilge')
+      }
+      assert.ok(bl, 'bilge never planted a pool in 10s — the fixture proves nothing either way')
+      return { toBody: Math.hypot(bl.x - e.x, bl.y - e.y), toFeet: Math.hypot(bl.x - x0, bl.y - y0) }
+    }
+    const aimed = place({})
+    const fence = place({ slickTrail: 1 })
+    assert.ok(aimed.toBody < 1, `the pool must open ON the body; it opened ${aimed.toBody.toFixed(0)}px from it`)
+    assert.ok(aimed.toFeet > 250, `...and out where the crowd is, not underfoot; it opened ${aimed.toFeet.toFixed(0)}px from the player`)
+    assert.ok(fence.toFeet < 1, `slickTrail draws a fence BEHIND you, so it must still lay at the feet; it opened ${fence.toFeet.toFixed(0)}px away`)
+    console.log(`PASS run PY.l (the oil lands on the crowd): an ordinary cast opens ${aimed.toFeet.toFixed(0)}px away, on the body, where slickTrail still lays at the player's feet`)
+  }
+
+  console.log('PASS run PY (The Wreck: prey): the roster runs from you in schools and cannot touch you, the bite pays for closing, the oil lands on the crowd, and the leak is the only thing in the chapter that can kill you')
 }
 run(runPrey)
 
