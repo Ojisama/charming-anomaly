@@ -200,6 +200,12 @@ const bootstrap = `(() => {
       // which makes it impossible to judge an effect against the sprites it sits over.
       pin() {
         for (const e of pinned) {
+          // keep() sets pinned to run.enemies ITSELF — the same array — so everything the sim spawns
+          // afterwards joins the pinned list without ever going through place(). Writing an
+          // undefined _fx into those is how a scene ends up with a field of NaN-positioned enemies,
+          // which renders as "the effect is invisible" and reads as a bug in the effect. Only
+          // bodies place() actually laid out are pinned.
+          if (e._fx === undefined || e._fy === undefined) continue
           e.x = e._fx; e.y = e._fy; e.hp = e.maxHP
           e._dead = false; e.kb.x = e.kb.y = 0; e.hitFlash = 0
         }
