@@ -83,7 +83,7 @@ import {
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
   newWeaponChance, NEW_WEAPON_MIN_RATE,
   REVIVE_HP_FRAC, REVIVE_INVULN, REVIVE_SHOVE_RADIUS, REVIVE_SHOVE_KB, HURT_CAP_FRAC,
-  ARCHETYPE_TYPE, TYPE_ARCHETYPE, LATCH_SLOW_T, LATCH_SLOW_MUL,
+  ARCHETYPE_TYPE, TYPE_ARCHETYPE, LATCH_SLOW_T, LATCH_SLOW_MUL, TANK_KB_REFRACTORY,
   SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, DASH_IDLE_SPEED_MUL, DASH_SPEED_MUL,
   ACID_R, ACID_DUR, ACID_DPS, SOAP_INTERVAL, SOAP_R, SOAP_DUR, SOAP_DPS,
@@ -2061,6 +2061,10 @@ function stepEnemyMovement(run, dt) {
     }
     // CC diminishing returns climb back to full over CC_DR_RECOVER seconds of not being controlled.
     if ((e._ccDR ?? 1) < 1) e._ccDR = Math.min(1, (e._ccDR ?? 1) + dt / CC_DR_RECOVER)
+    // A tank's knockback window (see claimKb). Armed on APPLICATION, unlike fear's — the thing being
+    // capped here is how often a shove may LAND, and a shove is instantaneous, so there is no
+    // duration to expire at.
+    if ((e._kbCd ?? 0) > 0) e._kbCd = Math.max(0, e._kbCd - dt)
     if (e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt)
     if (e.enrageT > 0) e.enrageT = Math.max(0, e.enrageT - dt)
     if (e.bloomSlowT > 0) e.bloomSlowT = Math.max(0, e.bloomSlowT - dt) // v6.4: refreshed by stepBlooms while inside a cloud
@@ -2957,6 +2961,24 @@ function spendCC(run, e) {
   e._ccSpentAt = run.time
   e._ccDRPre = e._ccDR ?? 1
   e._ccDR = Math.max(CC_DR_FLOOR, (e._ccDR ?? 1) * CC_DR_STEP)
+}
+
+// May this tank be MOVED right now? TEST-AND-ARM: it opens the window as it grants it, so the two
+// halves cannot drift apart at a second call site. Knockback only — a tank inside its window still
+// takes the damage, the fear and the stun of every hit that lands on it.
+//
+// This is FEAR_REFRACTORY's shape applied to the second status, and for the same reason: CC_DR
+// prices each application but nothing prices the CADENCE, so a shove small enough to be "fair" per
+// hit still walks a slow body off the screen when it lands often enough. Capping by the ENEMY's own
+// timer is what makes the fix independent of fire rate. See TANK_KB_REFRACTORY for the measurements.
+//
+// TANKS ONLY, and that is the whole scope: the threshold this defends is shove-px / speed, and only
+// the tank archetype is slow enough to lose the race at a cadence a player can actually reach.
+function claimKb(e) {
+  if (TYPE_ARCHETYPE[e.type] !== 'tank') return true
+  if ((e._kbCd ?? 0) > 0) return false
+  e._kbCd = TANK_KB_REFRACTORY
+  return true
 }
 
 // v5.4: is this enemy harmless to touch right now? The mirror of damageImmune (an enemy that can't
@@ -6406,7 +6428,7 @@ function stepNovas(run, dt) {
         }
         // Anchored: still takes the damage above, just never gets knocked back. An `unshakeable`
         // tank IS shoved and IS feared, at ccResist's share of both (see UNSHAKEABLE_CC_MUL).
-        if (!resistsCC(e)) {
+        if (!resistsCC(e) && claimKb(e)) {
           const kdx = dist > 1e-6 ? dx / dist : 1
           const kdy = dist > 1e-6 ? dy / dist : 0
           e.kb.x += kdx * n.knockback * k
@@ -8380,7 +8402,7 @@ function fireRoar(run, stats) {
 // Radial shove away from the player (the sector sweeps' knockback). Anchored elites take the
 // damage and stand their ground, exactly as they do against a nova.
 function shoveFromPlayer(run, e, knockback) {
-  if (resistsCC(e)) return
+  if (resistsCC(e) || !claimKb(e)) return
   const p = run.player
   const dx = e.x - p.x, dy = e.y - p.y
   const d = Math.hypot(dx, dy)

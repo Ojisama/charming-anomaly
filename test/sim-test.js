@@ -73,7 +73,7 @@ import {
   PHASE_SOLID_T, PULL_BEAM_INTERVAL, PULL_BEAM_RANGE, PULL_BEAM_FORCE,
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL, FEAR_REFRACTORY,
-  UNSHAKEABLE_CC_MUL,
+  UNSHAKEABLE_CC_MUL, TANK_KB_REFRACTORY,
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
@@ -9570,6 +9570,81 @@ function testV54Weapons() {
       assert.ok(kb(rock) < 1e-9, `an \`anchored\` elite was knocked back (${kb(rock).toFixed(0)})`)
       console.log(`PASS run CC (unshakeable resists, never immune): ${chapterIds.length} chapters' tanks flagged, ` +
         `tank feared ${tank.fearT.toFixed(2)}s vs drone ${plain.fearT.toFixed(2)}s, shove x${(kb(tank) / kb(plain)).toFixed(2)}, anchored 0`)
+    }
+
+    // TANK KNOCKBACK REFRACTORY (Le Large). CC_DR prices each shove but nothing priced the CADENCE,
+    // so a ring firing faster than the time a slow tank needs to walk one FLOORED shove back pushed
+    // it out without bound: Bubble Puff at +300% fire rate measured 3.3 jelly contact hits over 300s
+    // against 152 for no ring at all — invincible, standing still.
+    // Asserted by EFFECT, not by the timer: a mutant that ticks _kbCd but never gates on it passes
+    // any state check. The drone arm is the one that pins the SCOPE — tanks only.
+    {
+      const twoShoves = (type) => {
+        const r = weaponRun('shelf', 'bubblePuff')
+        r.weapons = []
+        const e = makeStatusEnemy(r, { x: 10, y: 0, hp: 1e9, speed: 0, type })  // inside the ring on frame 1: n.r starts at 0
+        e.flags = []
+        r.enemies.push(e)
+        const ring = () => r.novas.push({ x: 0, y: 0, r: 0, maxR: 400, dmg: 0, knockback: 300, fear: 0, life: 1, hit: new Set() })
+        ring(); stepQuiet(r, 1 / 60)
+        const first = Math.hypot(e.kb.x, e.kb.y)
+        e.kb.x = 0; e.kb.y = 0                 // zero it, so `second` is what the SECOND ring imparted
+        ring(); stepQuiet(r, 1 / 60)           // far inside TANK_KB_REFRACTORY
+        return { first, second: Math.hypot(e.kb.x, e.kb.y) }
+      }
+      const tank = twoShoves('tank'), drone = twoShoves('drone')
+      assert.ok(tank.first > 0, 'the FIRST shove on a tank must land in full — this taxes cadence, not weapons')
+      assert.ok(tank.second < 1e-9,
+        `a tank took a second shove (${tank.second.toFixed(1)}) inside its ${TANK_KB_REFRACTORY}s knockback window`)
+      assert.ok(drone.second > 0,
+        'a drone was refused its second shove — the refractory is TANKS ONLY, they are the only archetype slow enough to lose the race')
+
+      // THE WINDOW MUST OUTLAST THE RACE IT EXISTS TO STOP, for every tank a shove weapon can
+      // actually reach. A floored shove displaces kb x ccResist x CC_DR_FLOOR / KB_DECAY_RATE px;
+      // below (that / speed) seconds per ring, each shove out-runs the walk back and compounds.
+      // KB_DECAY_RATE is a sim.js-local const, so it is read as SOURCE TEXT rather than guessed —
+      // a stale copy here would silently move every threshold.
+      const simSrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+      const m = simSrc.match(/const KB_DECAY_RATE = ([\d.]+)/)
+      assert.ok(m, 'KB_DECAY_RATE not found in sim.js — the thresholds below cannot be derived')
+      const KB_DECAY = Number(m[1])
+      const pairs = []
+      for (const [cid, ch] of Object.entries(CHAPTERS)) {
+        for (const rr of ch.roster ?? []) {
+          if (rr.archetype !== 'tank') continue
+          const speed = ENEMIES.tank.speed * (rr.speedMul ?? 1)
+          const cc = (rr.flags ?? []).includes('unshakeable') ? UNSHAKEABLE_CC_MUL : 1
+          for (const wid of ch.weapons ?? []) {
+            for (const [i, lv] of (WEAPONS[wid]?.levels ?? []).entries()) {
+              if (!lv.knockback) continue
+              pairs.push({ what: `${cid}/${rr.id} vs ${wid} L${i + 1}`, thr: lv.knockback * cc * CC_DR_FLOOR / KB_DECAY / speed })
+            }
+          }
+        }
+      }
+      // THE SECOND SHOVE SITE. There are exactly two player-sourced ones — the nova ring (asserted
+      // by effect above) and `shoveFromPlayer`, which every melee sector weapon routes through
+      // (roar, whip, claw rake). The melee half has no cheap behavioural fixture, so it is guarded
+      // as SOURCE TEXT instead: without this, deleting its claimKb gate is a silent no-test change.
+      assert.ok(/function shoveFromPlayer\([^)]*\)\s*\{\s*\n\s*if \(resistsCC\(e\) \|\| !claimKb\(e\)\) return/.test(simSrc),
+        'shoveFromPlayer no longer gates on claimKb — every melee shove weapon can re-lock a tank at high fire rate')
+
+      assert.ok(pairs.length > 100, `only ${pairs.length} tank x shove-weapon pairs enumerated — the walk found nothing`)
+      const jelly = pairs.find((x) => x.what.startsWith('shelf/jelly vs bubblePuff L5'))
+      assert.ok(jelly, 'shelf/jelly vs bubblePuff L5 is not in the walk — the pair this fix was written for')
+      assert.ok(TANK_KB_REFRACTORY > jelly.thr * 1.2,
+        `TANK_KB_REFRACTORY ${TANK_KB_REFRACTORY}s has no margin over Le Large's own threshold ${jelly.thr.toFixed(3)}s`)
+      // KNOWN GAP, ratcheted so it cannot grow or be forgotten. 0.25 is the owner's number and it
+      // covers the chapter the lock was reported in; The Deep's gulper is the slowest tank that can
+      // meet a levelled Chitter Shriek, and needs 0.35s. Widen the constant or shrink this list —
+      // never extend it.
+      const uncovered = pairs.filter((x) => x.thr >= TANK_KB_REFRACTORY).map((x) => x.what).sort()
+      assert.deepStrictEqual(uncovered,
+        ['deep/gulper vs chitterShriek L3', 'deep/gulper vs chitterShriek L4', 'deep/gulper vs chitterShriek L5'],
+        `the set of tank x weapon pairs the ${TANK_KB_REFRACTORY}s window does NOT cover has changed: ${uncovered.join(', ') || '(none)'}`)
+      console.log(`PASS run CC.kb (tank shove refractory): first shove ${tank.first.toFixed(0)}, second 0 inside ${TANK_KB_REFRACTORY}s; ` +
+        `drone still shoved twice; ${pairs.length - uncovered.length}/${pairs.length} reachable tank x shove pairs covered ` +
+        `(Le Large's jelly needs ${jelly.thr.toFixed(3)}s), ${uncovered.length} known-uncovered`)
     }
 
     // panicRout: the same hit lands harder on a fleeing foe.
