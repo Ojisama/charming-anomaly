@@ -6754,40 +6754,62 @@ function runPrey() {
     console.log(`PASS run PY.k (the button dashes at food): with a tank 80px away and prey at 300px, the press carried the player ${dx.toFixed(0)}px toward the prey`)
   }
 
-  // -- PY.l: the OIL lands on the CROWD, not on your feet. ---------------------------------------
-  // Owner, 2026-08-18: "the mazout is a small trap zone that takes time to expand, starting from
-  // you. by the time it's expanded, you're already far away." A pool takes dur * BLOOM_GROW_FRAC
-  // (1.6-2.2s) to reach full size and the player crosses 350px in that time, so where it OPENS is
-  // the whole of whether it is ever touched — measured at 114px from the nearest body before this
-  // and 0 after, which tripled the enemy-seconds spent in it.
+  // -- PY.l: the OIL lands on a RANDOM VISIBLE body, not on your feet and not on the nearest. -----
+  // Two owner corrections, one block, because the second only makes sense against the first:
+  //   "the mazout is a small trap zone that takes time to expand, starting from you. by the time
+  //   it's expanded, you're already far away. instead, it should spawn under an enemy"
+  //   "no, this targets the closest enemy, which will be bitten in the next .5s. it should target
+  //   a random visible enemy"
+  // A pool takes dur * BLOOM_GROW_FRAC (1.6-2.2s) to reach full size and the player crosses ~350px
+  // in that time, so WHERE it opens is the whole of whether it is ever touched. And the nearest
+  // body is the one gnash's jaw and the Lunge are both already pointed at, so planting there buys
+  // a kill the build had already bought — a card that looks like it fires and changes nothing.
   //
-  // slickTrail is the CONTROL and it is a real branch rather than a mirror: that mod's whole shape
-  // is a fence drawn behind a swimming player, so it must still lay at the feet. Asserting only the
-  // aimed case would pass with the branch deleted.
+  // THREE PROPERTIES, and each has a control that fails on its own:
+  //   on a body            — vs slickTrail, which must still lay the fence at the feet
+  //   SPREAD over the crowd— vs "always the nearest", which passes every single-enemy fixture
+  //   on screen only       — vs a body parked outside run.viewW, which must never be chosen
   {
-    const place = (mods) => {
-      const run = mk(20260820)
+    const gather = (mods) => {
+      const run = mk(20260821)
       run.weapons = [{ id: 'bilge', level: 1 }]
       run.weaponMods.bilge = mods
       const p = run.player
       const x0 = p.x, y0 = p.y
-      const e = put(run, { x: x0 + 300, y: y0, hp: 1e12, speed: 0, flags: ['skittish'] })
-      let bl = null
-      for (let i = 0; i < Math.round(10 / dt) && !bl; i++) {
-        only(run, [e])
-        e.x = x0 + 300; e.y = y0
+      // Inside run.viewW/viewH (480/360 headless), at four clearly separated distances so "which
+      // one was chosen" is readable from the pool's position alone.
+      const at = [[120, 0], [240, 0], [360, 0], [0, 300]]
+      const crowd = at.map(([dx, dy]) => put(run, { x: x0 + dx, y: y0 + dy, hp: 1e12, speed: 0, flags: ['skittish'] }))
+      // Well outside the viewport. An effect that arrives from off-screen is worse than one that
+      // arrives too close, so this must never be picked.
+      const offScreen = put(run, { x: x0 + 2000, y: y0, hp: 1e12, speed: 0, flags: ['skittish'] })
+      const all = [...crowd, offScreen]
+      const seen = new Set()
+      const hits = []            // index into `all` for every pool planted, -1 for the feet
+      for (let i = 0; i < Math.round(120 / dt); i++) {
+        only(run, all)
+        all.forEach((e, k) => { e.x = x0 + (k < 4 ? at[k][0] : 2000); e.y = y0 + (k < 4 ? at[k][1] : 0) })
         stepSim(run, { x: 0, y: 0 }, dt)
-        bl = run.blooms.find((b) => b.look === 'bilge')
+        for (const bl of run.blooms) {
+          if (bl.look !== 'bilge' || seen.has(bl)) continue
+          seen.add(bl)
+          const k = all.findIndex((e) => Math.hypot(bl.x - e.x, bl.y - e.y) < 1)
+          hits.push(k >= 0 ? k : (Math.hypot(bl.x - x0, bl.y - y0) < 1 ? -1 : -2))
+        }
       }
-      assert.ok(bl, 'bilge never planted a pool in 10s — the fixture proves nothing either way')
-      return { toBody: Math.hypot(bl.x - e.x, bl.y - e.y), toFeet: Math.hypot(bl.x - x0, bl.y - y0) }
+      return hits
     }
-    const aimed = place({})
-    const fence = place({ slickTrail: 1 })
-    assert.ok(aimed.toBody < 1, `the pool must open ON the body; it opened ${aimed.toBody.toFixed(0)}px from it`)
-    assert.ok(aimed.toFeet > 250, `...and out where the crowd is, not underfoot; it opened ${aimed.toFeet.toFixed(0)}px from the player`)
-    assert.ok(fence.toFeet < 1, `slickTrail draws a fence BEHIND you, so it must still lay at the feet; it opened ${fence.toFeet.toFixed(0)}px away`)
-    console.log(`PASS run PY.l (the oil lands on the crowd): an ordinary cast opens ${aimed.toFeet.toFixed(0)}px away, on the body, where slickTrail still lays at the player's feet`)
+
+    const aimed = gather({})
+    const fence = gather({ slickTrail: 1 })
+    assert.ok(aimed.length >= 8, `bilge planted only ${aimed.length} pools in 120s — too few to say anything about their spread`)
+    assert.ok(!aimed.includes(-2), 'every pool must open ON a body, not at some third place')
+    assert.ok(!aimed.includes(-1), 'with the crowd on screen no pool may open at the player\'s feet')
+    assert.ok(!aimed.includes(4), 'a body outside run.viewW must never be chosen — that is a zone arriving from off-screen')
+    const distinct = new Set(aimed).size
+    assert.ok(distinct >= 3, `the oil must SPREAD over the visible crowd; it used ${distinct} of 4 bodies across ${aimed.length} casts (targeting the nearest would read 1)`)
+    assert.ok(fence.every((k) => k === -1), `slickTrail draws a fence BEHIND you, so every trail pool must lay at the feet; got ${fence.filter((k) => k !== -1).length} of ${fence.length} elsewhere`)
+    console.log(`PASS run PY.l (the oil lands on a random visible body): ${aimed.length} casts spread over ${distinct} of 4 on-screen bodies, never the off-screen one and never underfoot, where slickTrail's ${fence.length} pools all stay at the feet`)
   }
 
   console.log('PASS run PY (The Wreck: prey): the roster runs from you in schools and cannot touch you, the bite pays for closing, the oil lands on the crowd, and the leak is the only thing in the chapter that can kill you')

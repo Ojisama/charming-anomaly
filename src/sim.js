@@ -5658,6 +5658,34 @@ function nearestEnemy(run, pad = 100) {
   return target
 }
 
+// A UNIFORMLY RANDOM enemy that is actually ON SCREEN, or null. Owner, 2026-08-18: "this targets
+// the closest enemy, which will be bitten in the next .5s. it should target a random visible
+// enemy". The nearest body is the one gnash's jaw and the Lunge are BOTH already pointed at, so a
+// zone planted there spends itself on something that was about to die either way — the card looks
+// like it fired and does nothing you had not already bought.
+//
+// THE RECTANGLE, NOT THE RADIUS. run.viewRadius is the screen's half-DIAGONAL: on a portrait phone
+// it reaches ~465px while the horizontal half-view is only ~195, so picking by radius would plant
+// zones off the side of the screen — an effect arriving from nowhere, which is worse than one
+// arriving too close. run.viewW/viewH are the half-extents main.js keeps in step with the real
+// canvas (state.js), and they are what "visible" means here.
+//
+// ONE random draw rather than one per candidate: reservoir sampling would burn a crowd-sized number
+// of randoms on every cast, and this project's suite seeds Math.random once per scenario — a draw
+// count that moves with the crowd size re-phases every sampled statistic downstream of it.
+function randomVisibleEnemy(run) {
+  const p = run.player
+  const hw = run.viewW ?? run.viewRadius ?? 0
+  const hh = run.viewH ?? run.viewRadius ?? 0
+  const seen = []
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e)) continue
+    if (Math.abs(e.x - p.x) > hw || Math.abs(e.y - p.y) > hh) continue
+    seen.push(e)
+  }
+  return seen.length ? seen[Math.floor(Math.random() * seen.length)] : null
+}
+
 // ---- Weapons ------------------------------------------------------------------------
 
 // Maps each weapon's plain STAT mods (flat/pct, folded straight into a `levels[]` field) onto
@@ -7656,17 +7684,22 @@ function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
   const maxR = stats.maxR * (trail ? BILGE_TRAIL_R_MUL : 1)
   fireOnTimer(run, w.id, rate / fireRateMul, dt, () => {
     const p = run.player
-    // WHERE THE OIL LANDS (owner, 2026-08-18: "it should spawn under an enemy"). A pool that opens
-    // at your own feet in a chapter you cross at 220 px/s is behind you before it has finished
-    // growing — BLOOM_GROW_FRAC gives it 1.6-2.2s to reach full size, by which time the player has
-    // travelled twice its diameter. Planting it on a body puts it where the crowd already is.
-    //   nearestEnemy(run, 0) caps at the view radius rather than taking a cast range of its own, so
-    // the oil can never open off-screen; with nothing in sight it falls back to the player's feet
-    // and the card still fires rather than silently skipping a cast.
+    // WHERE THE OIL LANDS (owner, 2026-08-18: "it should spawn under an enemy" — then "this targets
+    // the closest enemy, which will be bitten in the next .5s. it should target a random visible
+    // enemy"). Two separate failures, and the second is the subtler one:
+    //   - at the player's FEET, a pool in a chapter you cross at 220 px/s is behind you before it
+    //     has finished growing. BLOOM_GROW_FRAC gives it 1.6-2.2s, in which the player travels
+    //     twice its diameter.
+    //   - on the NEAREST body, it lands on the one thing the jaw and the Lunge are already aimed
+    //     at. The zone reads as free because it is: that fish dies inside half a second whatever
+    //     the oil does, so the card spends a whole cast buying a kill you had already bought.
+    // A random VISIBLE body is the one that opens ground the player has not already taken.
+    //   With nothing on screen it falls back to the player's feet, so the card still fires rather
+    // than silently skipping a cast.
     //   slickTrail is the deliberate exception, and this is what finally makes that mod distinct
     // rather than just "smaller and more often": a fence is drawn BEHIND a swimming player, so the
     // trail keeps laying at the feet.
-    const tgt = trail ? null : nearestEnemy(run, 0)
+    const tgt = trail ? null : randomVisibleEnemy(run)
     const ox = tgt ? tgt.x : p.x
     const oy = tgt ? tgt.y : p.y
     // IPECAC's extra pools are SPREAD around the centre rather than stacked on it — three slicks
