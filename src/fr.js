@@ -108,7 +108,7 @@ const UI = {
     'Payés avec des niveaux d\'amélioration déjà achetés. Ils sont dépensés, sans remboursement.',
   // The effect alone, with no price clause — see BOOK_UNLOCKS in config.js for why it is split.
   'One more choice at every level-up.': 'Un choix de plus à chaque montée de niveau.',
-  'Kills give back resource.': 'Les éliminations rendent de la ressource.',
+  'Kills give back resource.': 'Tuer rend de la ressource.',
   'Sacrifice {n} upgrade levels (no coin refund).':
     'Sacrifie {n} niveaux d\'amélioration (aucun remboursement).',
   '3rd': '3e',
@@ -553,13 +553,13 @@ const CONFIG = {
   // 'gerbe' for the shell's splash rather than 'éclaboussure': a gerbe is the spray thrown UP by an
   // impact, which is the thing being drawn, and it is one word instead of five syllables on a card.
   'Sunspear': 'Rai de Lumière',
-  'Calls down a column of light on what is nearest. More columns as it grows.': 'Abat une colonne de lumière sur ce qui est le plus proche. Et davantage de colonnes en montant de niveau.',
+  'Calls down a column of light on what is nearest. More columns as it grows.': 'Abat une colonne de lumière sur ce qui est le plus proche. Plus de colonnes en montant de niveau.',
   'Foxfire': 'Feu Follet',
   'A cold fire that barely shows in the light and takes hold in the dark.': 'Un feu froid qui se voit à peine dans la lumière et qui prend dans le noir.',
   'Sunlance': 'Lance Solaire',
-  'Spears a shaft of hard light through the crowd. It reaches as far as your Light does.': 'Transperce la foule d\'un trait de lumière dure. Sa portée est celle de votre Lumière.',
+  'Spears a shaft of hard light through the crowd. It reaches as far as your Light does.': 'Transperce la foule d\'un trait de lumière dure. Sa portée est celle de ta Lumière.',
   'Breaker': 'Déferlante',
-  'A wave rolls out ahead of you, dragging what it catches along with it.': 'Une vague déferle devant vous et emporte tout ce qu\'elle attrape.',
+  'A wave rolls out ahead of you, dragging what it catches along with it.': 'Une vague déferle devant toi et emporte tout ce qu\'elle attrape.',
   'Skipping Shell': 'Coquille Ricochet',
   'Skims a shell that skips off the sand, splashing at every touch.': 'Fait ricocher une coquille sur le sable : une gerbe à chaque rebond.',
   'Barnacles': 'Balanes',
@@ -576,13 +576,13 @@ const CONFIG = {
   // and what a shark actually swings) precisely because it mirrors the English and the three
   // mods that hang off it — Nageoire Large, Longue Nageoire — read as one family with it.
   'Fin Hit': 'Coup de Nageoire',
-  'Your own body, swung where you turn. Worthless standing still — it hits as hard as you swim.': 'Votre propre corps, lancé où vous tournez. Inutile à l\'arrêt : il frappe aussi fort que vous nagez.',
+  'Your own body, swung where you turn. Worthless standing still — it hits as hard as you swim.': 'Ton propre corps, lancé où tu tournes. Inutile à l\'arrêt : il frappe aussi fort que tu nages.',
   'Longline': 'Ligne à Hameçons',
   'Sets a baited line across their path. Everything that touches it is hooked and bleeds.': 'Pose une ligne appâtée en travers de leur route. Tout ce qui la touche est ferré et saigne.',
-  // The Wreck's native (v7.x). Owner's pick, 2026-08-18, from Croc / Morsure / Mâchoire: 'Gnash' is
-  // the tooth-grinding verb, and 'Croc' (fang) carries the ANIMAL where a literal 'Broiement' would
-  // carry the dentistry. It also sits one syllable long beside The Deep's 'Coup de Nageoire'.
-  'Gnash': 'Croc',
+  // The Wreck's native (v7.x). Owner's pick, 2026-08-18, from Croc / Morsure / Mâchoire: the
+  // weapon takes the same noun as all five of its own mods (Morsure Profonde, Gueule Large…), the
+  // way The Deep's 'Coup de Nageoire' shares 'nageoire' with its three.
+  'Gnash': 'Morsure',
   'A short bite, straight ahead. The closer it lands, the deeper it goes.': 'Une morsure courte, droit devant. Plus elle frappe pr\u00e8s, plus elle s\'enfonce.',
   // The Wreck's herding kit (v7.x). Owner's picks, 2026-08-18.
   // 'App\u00e2t' over 'Bro\u00fbmage' (the exact term for chumming) because the card has to read at a
@@ -593,7 +593,7 @@ const CONFIG = {
   // marine oil spill and for the mar\u00e9e noire, so it names the POLLUTION rather than the part of the
   // boat it came from — which is this book's through-line and this chapter's own hazard.
   'Bilge': 'Mazout',
-  'Splits a drum. The oil crawls out, it drags on anything in it, and nothing will swim into it.': 'Fend un f\u00fbt. L\'huile s\'\u00e9chappe, freine ce qui s\'y trouve, et rien ne veut y nager.',
+  'Splits a drum. The oil crawls out, it drags on anything in it, and nothing will swim into it.': 'Fend un f\u00fbt. Le mazout s\'\u00e9chappe, freine ce qui s\'y trouve, et rien ne veut y nager.',
   'Net Toss': 'Filet Lesté',
   'Throws a weighted net over a pack and holds them where they stand.': 'Jeté sur un groupe entier, il le cloue sur place.',
   'Membrane Piercer': 'Perce-Membrane',
@@ -739,8 +739,11 @@ const CONFIG = {
   'extra decoy(s) per cast': 'leurre(s) bonus par lancer',
   'Sticky Scent': 'Odeur Collante',
   'burst leaves a slow zone': 'l\'explosion laisse une zone qui ralentit',
-  // gnash's five (v7.x). One family on 'morsure', the way the fin's three are one family on
-  // 'nageoire'. ⚠ DRAFT — owner ruling pending on 'Croc', 'Sang dans l\'Eau' and 'Tonneau'.
+  // gnash's five (v7.x). Three of them hang off 'morsure' with the weapon itself, the way the
+  // fin's three are one family on 'nageoire'; the two feeding cards do not.
+  // Owner kept 'L'Odeur du Sang' and 'Prise Mortelle' on 2026-08-18: the first is the
+  // French idiom the English is quoting, and the second names what the mod DOES (a hold) rather
+  // than the crocodile manoeuvre it is named after.
   'Deep Bite': 'Morsure Profonde',
   'bite damage': 'dégâts de morsure',
   // Not the literal 'Sang dans l'Eau': the owner picked the SMELL, which is the thing a shark is
@@ -754,7 +757,7 @@ const CONFIG = {
   // effect over the reference, and it fits the row.
   'Death Roll': 'Prise Mortelle',
   'holds bitten prey for {n}s': 'immobilise la proie mordue pendant {n} s',
-  'Bloodrush': 'Sang Chaud',
+  'Bloodrush': 'Coup de Sang',
   'move speed per bite for 2s, stacking 5 times': 'de vitesse par morsure pendant 2s, jusqu\'\u00e0 5 fois',
   'Gorge': 'Gavage',
   'eating an elite fills Bloodlust': 'd\u00e9vorer une \u00e9lite remplit la Soif de sang',
@@ -767,13 +770,13 @@ const CONFIG = {
   'Ripe Catch': 'Prise Faisand\u00e9e',
   'how long chum lasts': 'dur\u00e9e de l\'app\u00e2t',
   'Deep Chum': 'App\u00e2t Profond',
-  'baited fish hold their nerve closer to you': 'les poissons app\u00e2t\u00e9s tiennent bon plus pr\u00e8s de vous',
+  'baited fish hold their nerve closer to you': 'les poissons app\u00e2t\u00e9s tiennent bon plus pr\u00e8s de toi',
   'Split Seam': 'Couture Fendue',
   'oil spread': '\u00e9tendue du mazout',
-  'Thick Oil': 'Huile \u00c9paisse',
+  'Thick Oil': 'Mazout \u00c9pais',
   'how long the oil lasts': 'dur\u00e9e du mazout',
   'Trailing Slick': 'Nappe Tra\u00eenante',
-  'the oil pours behind you as you swim': 'le mazout se d\u00e9verse derri\u00e8re vous quand vous nagez',
+  'the oil pours behind you as you swim': 'le mazout se d\u00e9verse derri\u00e8re toi quand tu nages',
   'Rending Claws': 'Griffes Déchirantes',
   'claw damage': 'dégâts des griffes',
   'Wide Rake': 'Griffure Large',
@@ -913,9 +916,8 @@ const CONFIG = {
   'extra arm(s) per cast': 'bras bonus par lancer',
   'Collapse': 'Effondrement',
   'damage when the sweep ends': 'dégâts à la fin du balayage',
-  // The Surf's mods. 'Contre-Courant' for Backwash rather than 'Ressac': 'Le Ressac' is already
-  // this chapter's own name, and a mod card sharing the chapter's title reads as a chapter
-  // modifier rather than as a weapon upgrade.
+  // The Surf's mods. 'Ressac' is the exact word for the water sliding back off the beach, which
+  // is the wave this mod sends out behind you.
   // 'Dérive Littorale' is the real name of the longshore current, which is what the mod is named
   // after in English — a player who knows the beach gets the joke in both languages.
   // 'Naissain' for Seedbed is the French shellfish-farming word for spat, the larvae you seed a bed
@@ -928,8 +930,8 @@ const CONFIG = {
   'how far the wave rolls': 'jusqu\'où la vague déferle',
   'Broad Crest': 'Crête Large',
   'wave width': 'largeur de la vague',
-  'Backwash': 'Contre-Courant',
-  'a second wave rolls out behind you': 'une seconde vague déferle derrière vous',
+  'Backwash': 'Ressac',
+  'a second wave rolls out behind you': 'une seconde vague déferle derrière toi',
   'Skimmer': 'Coquille Tranchante',
   'shell damage': 'dégâts de la coquille',
   'Flat Stone': 'Galet Plat',
@@ -947,13 +949,13 @@ const CONFIG = {
   'extra column(s) per cast': 'colonne(s) supplémentaire(s) par lancer',
   'Quick Kindle': 'Allumage Rapide',
   'Emberfeed': 'Attise-Braise',
-  'foxfire damage per tick': 'dégâts du feu follet par tic',
+  'foxfire damage per tick': 'dégâts du feu follet par tick',
   'Gloaming': 'Crépuscule',
   'foxfire radius': 'rayon du feu follet',
   'Long Burn': 'Combustion Longue',
   'how long a foxfire burns': 'durée de combustion du feu follet',
   'Whetted': 'Affûtée',
-  'lance damage per tick': 'dégâts de la lance par tic',
+  'lance damage per tick': 'dégâts de la lance par tick',
   'Far Reach': 'Longue Portée',
   'lance length': 'longueur de la lance',
   'Broad Edge': 'Tranchant Large',
@@ -961,14 +963,14 @@ const CONFIG = {
   'Held Lance': 'Lance Maintenue',
   'how long the lance is held': 'durée de maintien de la lance',
   'Grinder': 'Râpe',
-  'crust damage per tick': 'dégâts de la croûte par tic',
+  'crust damage per tick': 'dégâts de la croûte par tick',
   'Encrust': 'Incrustation',
   'how long a crust lasts': 'durée de la croûte',
   'Spawnfall': 'Pluie de Larves',
   'extra larva(e) per cast': 'larve(s) supplémentaire(s) par lancer',
   'Seedbed': 'Naissain',
   'extra jump(s) when a crusted body dies': 'saut(s) supplémentaire(s) à la mort d\'un corps incrusté',
-  // The Trawl's two natives. 'par tic' matches the Balanes rows just above — the same wording for
+  // The Trawl's two natives. 'par tick' matches the Balanes rows just above — the same wording for
   // the same idea, so a player reading two grinder cards is not told it twice in two ways.
   // 'balayage' for the sweep across all three, so the card, the sheet and the mods say one word
   // for one thing — the rule the Coquille Ricochet entry states.
@@ -981,7 +983,7 @@ const CONFIG = {
   'Thrash': 'Battement',
   'sweep rate': 'cadence du balayage',
   'Barbed Hooks': 'Hameçons Barbelés',
-  'hook damage per tick': 'dégâts des hameçons par tic',
+  'hook damage per tick': 'dégâts des hameçons par tick',
   'Long Set': 'Longue Pose',
   'line length': 'longueur de la ligne',
   'Deep Set': 'Pose Profonde',
@@ -1018,8 +1020,8 @@ const CONFIG = {
   // on top of the eight above by shopLines('undertow'). All three act on a chapter's resource bar.
   'Resource Capacity': 'Capacité de ressource',
   '+12% resource capacity': '+12% de capacité',
-  'Resource Drain': 'Usure de ressource',
-  "-6% resource drain": "-6% d'usure",
+  'Resource Drain': 'Perte de ressource',
+  "-6% resource drain": '-6% de perte',
   'Resource Refill': 'Recharge de ressource',
   '+15% refill per pickup': '+15% par ramassage',
   'Fire Infusion': 'Infusion de Feu',
@@ -1148,7 +1150,7 @@ const CONFIG = {
   'Skies': 'Cieux',
   'Beyond': 'Au-delà',
   'Blank': 'Blanc',
-  'Surf': 'Snorkeling',
+  'Surf': 'Plage',
   'Shelf': 'Large',
   'Reef': 'Récif',
   'Wreck': 'Épave',
@@ -1171,13 +1173,13 @@ const CONFIG = {
   // with the light (diel migration is what the mesopelagic is made of), the moon jelly stayed at
   // The Shelf (Aurelia blooms are the signal of exactly the water that chapter is about).
   // The Surf (Book 2 chapter 1).
-  'The Surf': 'Snorkeling',
+  'The Surf': 'La Plage',
   'The Shelf': 'Le Large',
   // Le Large's three natives (v7.x). THE DESCRIPTIONS ARE THE OWNER'S OWN LINES, not
   // translations — same standing as The Trawl's and The Deep's taglines above. Silt Veil's
   // leads on the poison where the English leads on the scatter; the card does both, and the
   // English was widened to match rather than the French narrowed.
-  'Bubble Puff': 'Jet de bulles',
+  'Bubble Puff': 'Jet de Bulles',
   'Blows a cone of bubbles that shoves everything out of it.': 'Un cône de bulles qui repousse les assaillants.',
   // Its two mods. The descs follow the Breaker's pattern exactly ('wave damage' -> 'dégâts de la
   // vague'), keyed off the weapon's own French name, so the two width cards in Book 2 read alike.
@@ -1185,34 +1187,34 @@ const CONFIG = {
   'puff damage': 'dégâts du jet',
   'Flare': 'Éventail',
   'puff width': 'largeur du jet',
-  'Silt Veil': 'Voile de vase',
-  'Stirs the bottom into a cloud that poisons and scatters what swims in.': 'Soulève la vase pour empoisonner vos poursuivants.',
+  'Silt Veil': 'Voile de Vase',
+  'Stirs the bottom into a cloud that poisons and scatters what swims in.': 'Soulève la vase pour empoisonner tes poursuivants.',
   'Ballast': 'Lest',
   'Drops dumped weight on the crowd. What it lands in stays fouled.': 'Lance un débris. Crée une flaque d\'eau souillée à l\'impact.',
-  'in troubled water': 'En eaux troubles',
-  // The Twilight (Book 2 chapter 5). Owner's pick over 'La Pénombre' and 'Le Crépuscule':
-  // 'entre deux eaux' is the real French diving term for mid-water, neither surface nor bottom,
-  // and it places the chapter in the column rather than in a time of day.
-  'The Twilight': "L'Entre-deux-eaux",
-  'Twilight': 'Entre-deux',
+  'in troubled water': 'en eaux troubles',
+  // The Twilight (Book 2 chapter 5). Owner's pick, 2026-08-18: 'La Pénombre' is the half-light
+  // itself — the state the whole chapter is about — and the spine takes the same word with the
+  // article dropped, where a two-word name would not have fit the 110px slot.
+  'The Twilight': 'La Pénombre',
+  'Twilight': 'Pénombre',
   'The Reef': 'Le Récif',
 
   // Book 2's RESOURCE BARS (CHAPTERS[].resource.name). On the HUD rail from v7.x — before that the
   // field had no French-facing surface at all, which is exactly the gap CLAUDE.md warns a new
   // screen can CREATE rather than reveal. Joined to run XX's config walk in the same commit.
   // 'Air' is spelled identically in French, like 'Sacrifices' above.
-  'Humidity': 'Humidité',
-  'Clarity': 'Clarté',
+  'Humidity': 'Hydratation',
+  'Pollution': 'Pollution',
   'Light': 'Lumière',
   'Air': 'Air',
   // 'Soif de sang' is the standard French for bloodlust and keeps the bar's promise in the word:
   // it is a thirst that has to be fed, not a rage stat.
   'Bloodlust': 'Soif de sang',
-  // The Trawl's bar is the churn behind the net — what the crowd is feeding ON, so 'Pâture'
-  // (fodder, what you graze) rather than 'Faim' (hunger, the state) or 'Festin' (a feast, over).
-  'Feed': 'Pâture',
+  // The Trawl's bar is the churn behind the net — what the crowd is feeding ON, so 'Fretin' (the
+  // small fry, marine) rather than 'Faim' (hunger, the state) or 'Festin' (a feast, over).
+  'Feed': 'Fretin',
   'the tide decides': 'la marée décide',
-  'the light only goes down': 'la lumière ne fait que diminuer',
+  'the light only goes down': 'la lumière ne fait que baisser',
   'the current only runs one way': 'le courant décide pour toi',
   // The Trawl (Book 2 chapter 4). 'Le Chalut' is the net itself — 'chalutage' is the activity and
   // 'drague' is a different gear (and slang for chatting someone up).
@@ -1222,31 +1224,31 @@ const CONFIG = {
   // it, remember the English string IS the key — changing it orphans this entry.
   // The Deep (Book 2 chapter 5). The TAGLINE is the owner's own line, not a translation of the
   // English ('nothing up there can reach you'): it names THEM, and so answers The Trawl's
-  // 'Ils vous pêcheront tous' directly — the fishermen who caught everything one chapter ago
+  // 'ils vous pêcheront tous' directly — the fishermen who caught everything one chapter ago
   // cannot follow you down. Changing the English orphans this entry, because the English source
   // string IS the key.
   //   'Les Abysses' over a literal 'Le Profond': the latter is not idiomatic French for a place,
   //   and this is the word a French player has actually read for the deep ocean.
   'The Deep': 'Les Abysses',
-  'nothing up there can reach you': 'Ils ne descendent pas jusqu\'ici',
+  'nothing up there can reach you': 'ils ne descendent pas jusqu\'ici',
   'Deep': 'Abysses',
   'The Trawl': 'Le Chalut',
-  'the net is not aiming at you': 'Ils vous pêcheront tous',
+  'the net is not aiming at you': 'ils vous pêcheront tous',
   // The Wreck (Book 2 chapter 4). 'L'Épave' is the hull itself; 'Le Naufrage' would be the sinking
   // as an event and 'La Carcasse' the body being eaten — the owner picked the place over both.
   // THE TAGLINE IS THE OWNER'S OWN LINE, written by him rather than picked from the drafts: the
   // English names the punishment ('stop and you starve') and this names the person it happens to.
   // As everywhere in this file the English string IS the key, so changing it orphans this entry.
   'The Wreck': 'L\'Épave',
-  'stop and you starve': 'Qui s\'arrête s\'affame',
-  'Sand Hopper': 'Puce de mer',
-  'Shore Crab': 'Crabe vert',
-  'Sea Roach': 'Cloporte de mer',
+  'stop and you starve': 'qui s\'arrête s\'affame',
+  'Sand Hopper': 'Puce de Mer',
+  'Shore Crab': 'Crabe Vert',
+  'Sea Roach': 'Cloporte de Mer',
   'Copepod': 'Copépode',
   'Krill': 'Krill',
-  'Hagfish': 'Poisson-Gluant',
+  'Hagfish': 'Myxine Gluante',
   'Viperfish': 'Poisson-Vipère',
-  'Gulper Eel': 'Grande-Gueule',
+  'Gulper Eel': 'Grandgousier',
   // The Trawl's three, which shipped in v7.96 with no French at all. Roster `name`s are NOT in
   // run XX's coverage walk (it enumerates config tables for name/desc/title/from, and a roster
   // entry's name is inside an array inside a chapter), so the suite was fully green with three
@@ -1323,7 +1325,7 @@ const CONFIG = {
   // game's 46 roster entries; run XX now walks CHAPTERS[].roster[].name so the next one goes red.
   'Damselfish': 'Demoiselle',
   'Moray': 'Murène',
-  'Lionfish': 'Poisson-lion',
+  'Lionfish': 'Poisson-Lion',
   'Drowning': 'Noyade',
   'Starvation': 'Famine',
   'The Leak': 'La Fuite',

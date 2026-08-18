@@ -5350,7 +5350,7 @@ CHAPTERS.twilight = {
 
 // v7.x Book 2 ("Undertow") chapter 2 — THE SHELF, the murk chapter. Authored 2026-08-17, executing
 // §6.2 of the 2026-08-13 Undertow spec, which had been written and never built: "light is the wrong
-// resource for bright shallow water… The Shelf's resource becomes Clarity, and its antagonist is
+// resource for bright shallow water… The Shelf's resource becomes Pollution, and its antagonist is
 // the murk." Owner, restating the intent: "the idea was about murkiness / pollution / cleanness."
 //
 // This is the same SLOT the light chapter used to occupy, and it keeps everything that was encoded
@@ -5439,7 +5439,12 @@ CHAPTERS.shelf = {
   // 0.7 rather than The Twilight's 0.6, because this is slot 2 and that is slot 6 — the book should
   // still tighten as it descends rather than arriving at its full weight in the second chapter.
   resource: {
-    name: 'Clarity', drain: 2.2, refill: 18, killRefill: 1.5, max: 100,
+    // The one bar in Book 2 that FILLS as it goes wrong: it is pollution, not a supply. The sim
+    // still counts how clear the water is, exactly as the other five chapters count their resource
+    // — only the rail's readout is flipped, which is what `invert` means and all it means.
+    // ponytail: display-only. If anything ever needs the pollution NUMBER (a card, an event, a
+    //   summary row), give run.charge a real inverted twin rather than flipping it a second time.
+    name: 'Pollution', invert: true, drain: 2.2, refill: 18, killRefill: 1.5, max: 100,
     dark: { from: 0.5, speedFloor: 0.7, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
   },
 
