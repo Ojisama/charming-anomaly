@@ -77,6 +77,31 @@ BURST=$(for _ in $(seq 1 30); do curl -s -o /dev/null -w '%{http_code}\n' -X GET
 echo "  INFO  30-way concurrent burst: $(echo "$BURST" | grep -c 429) of 30 throttled (best-effort by design; see §10)"
 is "and an unrelated code is fine"   200  "$(status GET -H "$AUTH")"
 
+echo "-- the leaderboard, against the deployed database --"
+# THIS BLOCK EXISTS FOR ONE FAILURE, and it is the most likely one there is: deploying the Worker
+# without having run `npm run db:remote`, so the `scores` table is absent. From inside the game that
+# state is invisible — scores.js answers null on every failure, so a missing table, an offline
+# phone and a genuinely empty board are one indistinguishable "no scores yet". Only a live probe can
+# tell them apart, which is exactly what a post-deploy gate is for.
+#
+# It WRITES NOTHING. Every assertion here is a read or a rejected write, so running the gate can
+# never put a row on a real player's podium.
+SB="$HOST/scores"
+sstat() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+# A chapter id no build has ever shipped, so an empty answer proves the table can be QUERIED rather
+# than proving some real board happens to be empty.
+is "a board reads 200, so the table exists"  200  "$(sstat "$SB?chapter=zzsmoke&difficulty=3")"
+is "an unknown board is empty, not an error" '{"kills":[],"level":[]}' "$(curl -s "$SB?chapter=zzsmoke&difficulty=3")"
+is "and needs no pairing code"                200  "$(sstat "$SB?chapter=zzsmoke&difficulty=1")"
+is "a malformed board is 400"                 400  "$(sstat "$SB?chapter=zzsmoke&difficulty=abc")"
+# A rejected write, to prove validation is live without leaving anything behind.
+is "a short nick is refused"                  400  "$(sstat -X POST -H 'content-type: application/json' \
+  -d '{"nick":"Bo","chapter":"zzsmoke","difficulty":3,"kills":1,"level":1}' "$SB")"
+is "and it wrote nothing"                     '{"kills":[],"level":[]}' "$(curl -s "$SB?chapter=zzsmoke&difficulty=3")"
+# The save contract, after all of that: the two features share one Worker and one database, and this
+# is the assertion that says so out loud.
+is "save-sync is untouched by the above"      404  "$(status GET -H "$BAUTH")"
+
 echo
 echo "passed $PASS, failed $FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
