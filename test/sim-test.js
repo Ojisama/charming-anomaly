@@ -40,7 +40,7 @@ import {
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
-  MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
+  MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL, spendSecs,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
@@ -5437,7 +5437,9 @@ function runBookProgression() {
   // and motionless for the whole band above the old max, which is exactly what shipped before this.
   {
     const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
-    assert.ok(/paintCharge\(run\.charge, run\.chargeMax \?\? res\.max\)/.test(uiSrc),
+    // Open-ended on the third argument (the resource NAME, v7.x's rail label) — what this pins is
+    // the MAX, and a regex anchored on the closing paren would fail on any later argument.
+    assert.ok(/paintCharge\(run\.charge, run\.chargeMax \?\? res\.max[,)]/.test(uiSrc),
       'the HUD paint call must pass run.chargeMax (falling back to res.max only for a run object that predates the field), not res.max unconditionally')
     // paintCharge's own clamp formula, mirrored exactly below — pinned here so a change to the
     // shipped formula makes the mirror fail loudly instead of silently drifting from what it copies.
@@ -13938,6 +13940,11 @@ function testFrenchDictionary() {
   // entries turned out to be English (The Reef's, the newest roster); they were found by SHOOTING the
   // French panel, not by any assert, which is the whole argument for joining them to this walk.
   for (const ch of Object.values(CHAPTERS ?? {})) for (const r of ch?.roster ?? []) need(r?.name)
+  // RESOURCE NAMES (v7.x, owner 2026-08-18). Same one-level-deeper shape as the roster above, and
+  // the same story: Book 2's bars were named in config from the day they shipped, but the field had
+  // no French-facing surface until the HUD rail put the word on screen beside the number. A new
+  // screen can CREATE an i18n gap, not only reveal one — six chapters' worth here.
+  for (const ch of Object.values(CHAPTERS ?? {})) need(ch?.resource?.name)
   // BOOKS[].name is on screen from v7.x (the shelf's brass plate) and no walk above reached it —
   // both Books would have shipped in English the day the bookcase landed.
   for (const v of Object.values(BOOKS ?? {})) need(v?.name)
@@ -21047,6 +21054,40 @@ function testUndertowLadder() {
       const sig = CHAPTERS.shelf.signature
       const LIFE = sig.drawdownSecs
       assert.ok(LIFE > 0, 'The Shelf declares no drawdownSecs — its upwellings are infinite again')
+
+      // (e8.0) THE WHOLE BOOK DRAWS DOWN, NOT JUST THIS CHAPTER (owner, 2026-08-18: "in all zones of
+      // book 2 except pools in 2-1"). Asserted as a SET rather than one chapter at a time, because
+      // the failure mode of the second ruling is a field nobody remembered to opt in — silent, and
+      // indistinguishable from a chapter that is simply generous. The two exemptions are named here
+      // so removing one is a deliberate edit rather than a default.
+      const WANT_DRAWDOWN = ['shelf', 'twilight', 'reef']
+      const EXEMPT = ['surf', 'deep']
+      for (const id of WANT_DRAWDOWN) {
+        const spec = refillSpec(CHAPTERS[id].signature)
+        const res = CHAPTERS[id].resource
+        assert.ok(spec?.drawdownSecs > 0, `${id}'s refill field never draws down — its circles are infinite`)
+        // And it is the BOOK'S RULE, not a hand-picked number: a third of the bar, net of the drain.
+        // A per-chapter literal would drift the moment refill or drain is retuned, which is the
+        // one-fact-two-places class this suite exists to catch.
+        assert.ok(Math.abs(spec.drawdownSecs - spendSecs(res)) < 0.02,
+          `${id} draws down in ${spec.drawdownSecs}s, but a third of its bar takes ${spendSecs(res)}s`)
+      }
+      for (const id of EXEMPT) {
+        assert.ok(!refillSpec(CHAPTERS[id].signature)?.drawdownSecs,
+          `${id}'s refill field grew a drawdown — the ruling exempts it (see REFILL_ZONE_SPEND)`)
+      }
+      // ⚠ AND THE DEEP'S EXEMPTION IS LOAD-BEARING, not a rounding of the ruling. Its maw is the one
+      // refill circle that is also the chapter's trap: a drawdown fading it out before MAW_GAPE_T
+      // deletes the swallow, and run DP.c is the only thing that says so. Written as the arithmetic
+      // rather than as a comment, so a future tune that makes the two compatible MAY opt it in.
+      {
+        const deep = CHAPTERS.deep
+        const secs = spendSecs(deep.resource)
+        const dd = refillSpec(deep.signature)?.drawdownSecs
+        assert.ok(!dd || dd > MAW_GAPE_T,
+          `The Deep draws a maw down in ${dd}s (a third of its bar is ${secs}s) but MAW_GAPE_T is ` +
+          `${MAW_GAPE_T}s — every mouth in the chapter fades out before it can close`)
+      }
       assert.strictEqual(sig.blob, true, 'The Shelf\'s upwellings lost their lobed outline and are discs again')
 
       Math.random = mulberry32(4242)
@@ -21092,8 +21133,10 @@ function testUndertowLadder() {
         'updateDark punches the lightmap without reading sh.drawdown — a spent upwelling still clears the murk')
       assert.ok(/lobePoly/.test(punch),
         'updateDark punches a CIRCLE for a lobed field — it clears water outside the shape the sim tests')
-      console.log(`PASS run US.k (upwelling drawdown): a lobed upwelling feeds the bar, its clock runs only while stood in, ` +
-        `and at ${LIFE}s it stops being food (bar fell to ${run.charge.toFixed(1)} while parked in it); render fades off the same field`)
+      console.log(`PASS run US.k (refill drawdown): ${WANT_DRAWDOWN.length} Book 2 fields draw down on the book's own rule ` +
+        `[${WANT_DRAWDOWN.map((id) => id + ' ' + refillSpec(CHAPTERS[id].signature).drawdownSecs + 's').join(', ')}], ${EXEMPT.join('/')} exempt; ` +
+        `a lobed upwelling feeds the bar, its clock runs only while stood in, and at ${LIFE}s it stops being food ` +
+        `(bar fell to ${run.charge.toFixed(1)} while parked in it); render fades off the same field`)
     }
 
     console.log(`PASS run US.j (shelf/twilight split): ${Object.keys(BARS).length} chapter bars map as designed (the murk slows you less than the dark does), ` +
