@@ -5680,6 +5680,12 @@ function randomVisibleEnemy(run) {
   const seen = []
   for (const e of run.enemies) {
     if (e._dead || isAlly(e)) continue
+    // A body with no position must never be a target: a zone planted at NaN renders nothing at all,
+    // which is a silent no-op rather than an error. nearestEnemy gets this free — its `dSq <=
+    // rangeSq` is false for NaN, so such a body is simply never nearest — but a filter phrased as
+    // "outside, so skip" is false for NaN too, and therefore KEEPS it. Same data, opposite outcome,
+    // and it cost two probe rounds to see.
+    if (!Number.isFinite(e.x) || !Number.isFinite(e.y)) continue
     if (Math.abs(e.x - p.x) > hw || Math.abs(e.y - p.y) > hh) continue
     seen.push(e)
   }
