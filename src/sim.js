@@ -6347,6 +6347,10 @@ function stepNovas(run, dt) {
 
     for (const e of run.enemies) {
       if (e._dead) continue
+      // v5.4: a ghosted phase flicker passes through everything. applyDamage already refuses it,
+      // but the shove, the fear and n.hit did not — a ghosted moon jelly was shoved by a ring that
+      // could not hurt it, AND burned its slot in n.hit so it stayed untouched once it resolidified.
+      if (e._phaseSolid === false) continue
       const dx = e.x - n.x, dy = e.y - n.y
       const dist = Math.hypot(dx, dy)
       // The Breaker's sector gate. Normalised through atan2(sin, cos) rather than by subtracting

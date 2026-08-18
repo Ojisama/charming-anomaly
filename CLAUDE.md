@@ -418,6 +418,18 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   Bell-UP with tentacles hanging down would instead have a distinct UP, i.e. `lean: 30`. Pick the
   wrong one and nothing throws — the body just never turns while its trailing parts point in one
   fixed screen direction. Run RA asserts both halves for the jelly.
+  **v7.143 WIDENED THAT EXCEPTION FROM "sideways" TO "any orientation", and it is no longer about
+  creatures only.** Owner: "you're always drawing stuff either top down or facing view. this is
+  underwater, so stuff can be whatever 3D rotated." The no-floor argument does not care what kind
+  of thing is falling, so Ballast's five pieces of junk (`T.ballastJunk`) are drawn in
+  three-quarter with real foreshortening — the sentence above saying weapons are "all plan views"
+  is therefore true of every chapter with a floor and false in the water. Why it mattered: seen
+  from directly overhead an oil drum is a rounded rectangle, and FIVE rounds of surface detail on
+  a rounded rectangle failed to make one read as a drum (it came back as a sliced loaf, a crate, a
+  biscuit). No amount of paint fixes a silhouette. Turned in space the lid is an ellipse with two
+  bungs and the answer is instant. `ellPts()` next to `piece()` in render.js exists for exactly
+  this: `Graphics.ellipse` is axis-aligned, and every foreshortened circle is an ellipse that has
+  been TURNED, which is the whole of what separates a 3D read from a plan view.
 - **A BORROWED WEAPON BRINGS ITS OLD CHAPTER'S ART WITH IT.** A new chapter's arsenal is normally
   picked for what the weapons DO — the Reef's placeholder set says so explicitly, "picked for the
   LANE rather than for the theme" — and that reasoning is sound and still lands you a maple leaf in

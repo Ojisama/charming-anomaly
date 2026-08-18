@@ -8735,7 +8735,26 @@ function testV54Flags() {
       e._phaseSolid = true
     }
     assert(e.hp < ghostHp0, `expected a solid flicker to take damage, hp=${e.hp}`)
-    console.log(`PASS run Y.i (phase): ghost immune (hp=${ghostHp0}), solid hittable (hp=${e.hp.toFixed(0)})`)
+
+    // Le Large (The Shelf): its starter is a nova ring on the player and its tank is the phasing
+    // moon jelly. stepNovas skipped only `_dead`, so a ghosted jelly was SHOVED by a ring that
+    // could not hurt it — and was added to `n.hit`, burning its one hit on the window where the
+    // damage was refused. Both halves are asserted; the second is the silent one.
+    e._phaseSolid = false; e._phaseT = PHASE_SOLID_T
+    e.kb.x = 0; e.kb.y = 0
+    const hpBefore = e.hp
+    const nova = { x: e.x, y: e.y, r: 0, maxR: 400, dmg: 1e6, knockback: 900, fear: 0, life: NOVA_LIFE, hit: new Set() }
+    run.novas.push(nova)
+    for (let i = 0; i < Math.round(0.3 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      e._phaseSolid = false
+    }
+    const kb = Math.hypot(e.kb.x, e.kb.y)
+    assert(kb < 1, `expected a ghosted flicker to take no shove from a nova ring, kb=${kb.toFixed(1)}`)
+    assert(!nova.hit.has(e.id), 'expected the ring not to spend its one hit on a ghost it could not damage')
+    assert.strictEqual(e.hp, hpBefore, `expected the ring to deal no damage to a ghost, hp ${hpBefore} -> ${e.hp}`)
+    console.log(`PASS run Y.i (phase): ghost immune (hp=${ghostHp0}), solid hittable, and a nova ring neither shoved it (kb=${kb.toFixed(1)}) nor consumed its hit`)
   }
 
   // (j) pullBeam: a UFO's beam drags the player in and ticks dot damage — but at PULL_BEAM_FORCE

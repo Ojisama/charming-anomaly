@@ -6352,110 +6352,236 @@ export function createRenderer(app) {
       const junk = []
       const R = 34
       const piece = (draw) => { const g = new Graphics(); draw(g); junk.push(bake(g)) }
-
-      // 1. OIL DRUM. The object that actually fouls water, so it explains the stain it leaves.
-      piece((g) => {
-        const w = R * 1.92, h = R * 1.00
-        g.roundRect(-w / 2, -h / 2, w, h, h * 0.22).fill(0x8a4f28).stroke({ width: 2.6, color: 0x38200f })
-        // Chimes (the raised end rims) and rolling hoops, each a bright band over a dark gap —
-        // the pair is what makes it a drum rather than a tin.
-        for (const sx of [-1, 1]) {
-          g.rect(sx * w * 0.40 - w * 0.035, -h / 2 + 2, w * 0.07, h - 4).fill(0x1f1108)
-          g.roundRect(sx * (w * 0.5 - w * 0.085) - w * 0.045, -h / 2 + 2, w * 0.09, h - 4, 3)
-            .fill(0xc07f4e).stroke({ width: 1.4, color: 0x38200f })
-          g.rect(sx * w * 0.17 - w * 0.045, -h / 2 + 3, w * 0.03, h - 6).fill(0x2a170c)
-          g.rect(sx * w * 0.17 - w * 0.012, -h / 2 + 3, w * 0.055, h - 6).fill(0xb1703f)
+      // Points of an ellipse ROTATED by `rot`. Graphics.ellipse is axis-aligned, and every
+      // foreshortened circle below (a drum's lid, a chain link lying at an angle, a propeller hub)
+      // is an ellipse that has been turned — which is the whole of what makes a shape read as 3D
+      // rather than as a plan view. `a0`/`a1` cut an arc out of it for the near half of a cylinder.
+      const ellPts = (cx, cy, rx, ry, rot, n = 30, a0 = 0, a1 = Math.PI * 2) => {
+        const p = [], cs = Math.cos(rot), sn = Math.sin(rot)
+        for (let i = 0; i <= n; i++) {
+          const a = a0 + (a1 - a0) * (i / n)
+          const ex = Math.cos(a) * rx, ey = Math.sin(a) * ry
+          p.push(cx + ex * cs - ey * sn, cy + ex * sn + ey * cs)
         }
-        // A painted band, worn through in the middle.
-        g.rect(-w * 0.045, -h / 2 + 3, w * 0.09, h * 0.30).fill({ color: 0x2c3a2a, alpha: 0.85 })
-        g.rect(-w * 0.045, h * 0.10, w * 0.09, h * 0.36).fill({ color: 0x2c3a2a, alpha: 0.85 })
-        g.roundRect(-w / 2 + 5, -h / 2 + 4, w - 10, h * 0.18, 4).fill({ color: 0xe0a068, alpha: 0.32 })
-        // Corrosion, a stove-in dent, and the dark it is leaking. Asymmetric on purpose: a drum
-        // that has been dumped is damaged on one side, and symmetry reads as new.
-        g.ellipse(-w * 0.28, h * 0.22, w * 0.12, h * 0.20).fill({ color: 0x4a2a12, alpha: 0.75 })
-        g.ellipse(w * 0.30, -h * 0.16, w * 0.08, h * 0.16).fill({ color: 0x4a2a12, alpha: 0.55 })
-        g.ellipse(-w * 0.11, -h * 0.28, w * 0.07, h * 0.12).fill({ color: 0xd9a274, alpha: 0.4 })
-        g.ellipse(w * 0.43, h * 0.24, w * 0.12, h * 0.22).fill({ color: 0x1c2418, alpha: 0.8 })
-      })
+        return p
+      }
 
-      // 2. CINDER BLOCK. The hardest, most rectilinear outline in the set — the one piece that
-      // reads instantly at any angle. Sea-stained rather than fresh: bright concrete out-shouted
-      // every creature on screen.
+      // 1. OIL DRUM, THREE-QUARTER. The object that actually fouls water, so it explains the stain
+      // it leaves — and the piece that forced the whole set's projection to change.
+      //
+      // ⚠ NOT A PLAN VIEW, DELIBERATELY, and this is the second entry in this file to earn that
+      // (the Moon Jelly is the first). The camera looks straight down, so everything on a FLOOR is
+      // drawn from overhead — but a body falling through a water column has no floor, which is the
+      // exact reasoning that made the jelly side-on. Owner, 2026-08-18: "this is underwater, so
+      // stuff can be whatever 3D rotated."
+      //
+      // It matters most here. A drum seen from directly above is a rounded rectangle, and FIVE
+      // attempts at surface detail on a rounded rectangle failed to make one read as a drum: it came
+      // back as a sliced loaf, a crate, a biscuit. Turned in space you get the lid as an ELLIPSE with
+      // its two bungs and the ribbed body beneath, and there is nothing else it can be.
       piece((g) => {
-        const w = R * 1.70, h = R * 1.02
-        g.poly([-w / 2, -h / 2, w / 2, -h / 2, w / 2, h / 2, -w / 2 + 10, h / 2, -w / 2, h / 2 - 11])
-          .fill(0x8e9086).stroke({ width: 2.6, color: 0x2b2e2a })
-        g.rect(-w / 2 + 3, -h / 2 + 3, w - 6, h * 0.24).fill({ color: 0xb4b6a8, alpha: 0.5 })
-        for (const sx of [-1, 1]) {
-          g.roundRect(sx * w * 0.20 - w * 0.13, -h * 0.24, w * 0.26, h * 0.48, 2)
-            .fill(0x1b2622).stroke({ width: 1.6, color: 0x5c5f57 })
+        const BASE = 0x7a5330, EDGE = 0x2a1a0c, RUST = 0xa1622e
+        const TILT = -0.62                       // the drum's axis, off vertical
+        const cs = Math.cos(TILT), sn = Math.sin(TILT)
+        const P = (u, v) => [u * cs - v * sn, u * sn + v * cs]   // local (across, along) -> bake
+        const rr = R * 0.44, Lh = R * 0.72, ry = rr * 0.42
+        // The body: both sides, closed round the FAR end's near half so the tube has a bottom.
+        const body = [...P(-rr, -Lh), ...P(rr, -Lh)]
+        for (let i = 0; i <= 16; i++) {
+          const a = (i / 16) * Math.PI
+          body.push(...P(Math.cos(a) * rr, Lh + Math.sin(a) * ry))
         }
-        // Algae along the underside it has been lying on, and rust weeping from the reinforcement.
-        g.rect(-w / 2 + 4, h * 0.28, w - 8, h * 0.18).fill({ color: 0x5d6b46, alpha: 0.55 })
-        g.rect(-w * 0.34, h * 0.16, w * 0.15, h * 0.22).fill({ color: 0x9a5a2c, alpha: 0.5 })
-        g.rect(w * 0.11, -h * 0.44, w * 0.09, h * 0.20).fill({ color: 0x9a5a2c, alpha: 0.35 })
+        g.poly(body).fill(BASE).stroke({ width: 2.6, color: EDGE })
+        // The round of the tube: a lit strip up one side, shadow down the other.
+        g.poly([...P(-rr * 0.86, -Lh), ...P(-rr * 0.34, -Lh), ...P(-rr * 0.34, Lh), ...P(-rr * 0.86, Lh)])
+          .fill({ color: 0xb08050, alpha: 0.5 })
+        g.poly([...P(rr * 0.42, -Lh), ...P(rr, -Lh), ...P(rr, Lh), ...P(rr * 0.42, Lh)])
+          .fill({ color: 0x2a1a0c, alpha: 0.45 })
+        // Two rolling hoops, each the NEAR half of a ring round the tube — an arc, not a bar.
+        for (const hv of [-Lh * 0.30, Lh * 0.34]) {
+          const arc = []
+          for (let i = 0; i <= 16; i++) {
+            const a = (i / 16) * Math.PI
+            arc.push(...P(Math.cos(a) * rr, hv + Math.sin(a) * ry))
+          }
+          g.poly(arc).stroke({ width: R * 0.075, color: 0x5e3f22 })
+        }
+        // The lid: a turned circle, which is the whole read.
+        g.poly(ellPts(...P(0, -Lh), rr, ry, TILT)).fill(0x8f6238).stroke({ width: 2.6, color: EDGE })
+        g.poly(ellPts(...P(0, -Lh), rr * 0.80, ry * 0.80, TILT)).stroke({ width: 2, color: EDGE, alpha: 0.7 })
+        // Its two bungs, one big one small — the most recognisable thing a drum has.
+        g.poly(ellPts(...P(-rr * 0.40, -Lh - ry * 0.30), rr * 0.20, ry * 0.34, TILT)).fill(0x5e3f22).stroke({ width: 1.8, color: EDGE })
+        g.poly(ellPts(...P(rr * 0.38, -Lh + ry * 0.28), rr * 0.12, ry * 0.22, TILT)).fill(0x5e3f22).stroke({ width: 1.6, color: EDGE })
+        // Light along the near lip of the lid, then rust and filth over everything.
+        g.poly(ellPts(...P(0, -Lh), rr * 0.94, ry * 0.94, TILT, 20, Math.PI * 1.05, Math.PI * 1.85))
+          .stroke({ width: R * 0.05, color: 0xe8c79a, alpha: 0.6 })
+        g.ellipse(...P(-rr * 0.30, Lh * 0.20), R * 0.17, R * 0.20).fill({ color: RUST, alpha: 0.8 })
+        g.ellipse(...P(rr * 0.40, -Lh * 0.10), R * 0.10, R * 0.13).fill({ color: RUST, alpha: 0.55 })
+        g.ellipse(...P(0, Lh * 0.86), R * 0.16, R * 0.13).fill({ color: 0x18200f, alpha: 0.7 })
       })
-
-      // 3. ANCHOR. The card is called Lest and carries the anchor icon, so this is the piece the
-      // player is primed for. Every member is FAT: a first cut with true admiralty proportions
-      // turned to mush at the size this is actually seen.
+      // 2. CINDER BLOCK, THREE-QUARTER. The hardest, most rectilinear outline in the set — the one
+      // piece cast in a mould, in a chapter of fish and silt. Turned like the rest: you see the top
+      // face and two sides, and the two voids are OPENINGS with depth rather than painted holes,
+      // which is the whole difference between a block and a printed rectangle.
+      //
+      // Sea-stained rather than fresh: bright concrete out-shouted every creature on screen.
+      piece((g) => {
+        const TOP = 0x9a9c92, FRONT = 0x6e7067, SIDE = 0x53554d, EDGE = 0x24261f
+        const ANG = 0.34, SQ = 0.50, cs = Math.cos(ANG), sn = Math.sin(ANG)
+        const H = R * 0.30                       // how tall the block stands
+        // Ground plane (u along, v across) -> bake. `up` lifts a point onto the top face.
+        const G = (u, v, up = 0) => [u * cs - v * SQ * sn, u * sn + v * SQ * cs - up]
+        const a = R * 0.76, b = R * 0.44
+        // The two near side faces, then the top over them.
+        g.poly([...G(-a, b, H), ...G(a, b, H), ...G(a, b), ...G(-a, b)]).fill(FRONT).stroke({ width: 2.2, color: EDGE })
+        g.poly([...G(a, -b, H), ...G(a, b, H), ...G(a, b), ...G(a, -b)]).fill(SIDE).stroke({ width: 2.2, color: EDGE })
+        g.poly([...G(-a, -b, H), ...G(a, -b, H), ...G(a, b, H), ...G(-a, b, H)]).fill(TOP).stroke({ width: 2.4, color: EDGE })
+        // The two voids, each a hole in the top face with one lit inner wall below it.
+        for (const su of [-1, 1]) {
+          const u0 = su * a * 0.14, u1 = su * a * 0.64, v0 = -b * 0.52, v1 = b * 0.52
+          g.poly([...G(u0, v0, H), ...G(u1, v0, H), ...G(u1, v1, H), ...G(u0, v1, H)])
+            .fill(0x1b2622).stroke({ width: 1.8, color: 0x5c5f57 })
+          g.poly([...G(u0, v1, H), ...G(u1, v1, H), ...G(u1, v1, H * 0.45), ...G(u0, v1, H * 0.45)])
+            .fill({ color: 0x3d4a44, alpha: 0.8 })
+        }
+        // A chipped corner, algae where it has been lying, rust weeping from the reinforcement.
+        g.poly([...G(-a, b * 0.42, H), ...G(-a * 0.72, b, H), ...G(-a, b, H * 0.35)])
+          .fill({ color: 0x7f8177, alpha: 0.9 }).stroke({ width: 1.6, color: EDGE })
+        g.ellipse(...G(-a * 0.30, b, H * 0.30), R * 0.26, R * 0.10).fill({ color: 0x5d6b46, alpha: 0.6 })
+        g.ellipse(...G(a * 0.55, b * 0.30, H), R * 0.14, R * 0.09).fill({ color: 0x9a5a2c, alpha: 0.55 })
+        g.ellipse(...G(-a * 0.62, -b * 0.50, H), R * 0.11, R * 0.07).fill({ color: 0x9a5a2c, alpha: 0.4 })
+      })
+      // 3. ANCHOR, THREE-QUARTER. The card is called Lest and carries the anchor icon, so this is the
+      // silhouette the player is primed for. Turned in the water like everything else here, with a
+      // little of its own thickness showing under it.
+      //
+      // Every member is FAT: a first cut with true admiralty proportions turned to mush at the size
+      // this is actually seen.
       piece((g) => {
         const IRON = 0x39404a, EDGE = 0x14181d, LIT = 0xaab6bf
-        g.circle(0, -R * 0.80, R * 0.21).stroke({ width: R * 0.13, color: IRON })
-        g.circle(0, -R * 0.80, R * 0.21).stroke({ width: R * 0.05, color: LIT, alpha: 0.55 })
-        g.roundRect(-R * 0.78, -R * 0.66, R * 1.56, R * 0.22, 4).fill(IRON).stroke({ width: 2, color: EDGE })
-        g.roundRect(-R * 0.16, -R * 0.62, R * 0.32, R * 1.20, 4).fill(IRON).stroke({ width: 2, color: EDGE })
-        for (const sx of [-1, 1]) {
-          g.beginPath()
-          g.moveTo(0, R * 0.16)
-          g.quadraticCurveTo(sx * R * 0.92, R * 0.30, sx * R * 0.94, -R * 0.20)
-          g.lineTo(sx * R * 0.62, -R * 0.02)
-          g.lineTo(sx * R * 0.64, R * 0.26)
-          g.quadraticCurveTo(sx * R * 0.46, R * 0.44, 0, R * 0.56)
-          g.closePath()
-          g.fill(IRON).stroke({ width: 2, color: EDGE })
+        const ANG = 0.42, SQ = 0.66, cs = Math.cos(ANG), sn = Math.sin(ANG)
+        // Anchor-plane (u across, v along) -> bake. Turning the PLANE rather than each part is what
+        // keeps the ring, the stock and the flukes agreeing about which way the object faces.
+        const M = (u, v) => [u * cs - v * SQ * sn, u * sn + v * SQ * cs]
+        const box = (u0, v0, u1, v1) => [...M(u0, v0), ...M(u1, v0), ...M(u1, v1), ...M(u0, v1)]
+        // A quadratic sampled into points, since the curve has to go through M as well.
+        const q = (p0, p1, p2, n = 10) => {
+          const out = []
+          for (let i = 0; i <= n; i++) {
+            const t = i / n, w = 1 - t
+            out.push(...M(w * w * p0[0] + 2 * w * t * p1[0] + t * t * p2[0],
+                          w * w * p0[1] + 2 * w * t * p1[1] + t * t * p2[1]))
+          }
+          return out
         }
-        g.roundRect(-R * 0.72, -R * 0.62, R * 1.44, R * 0.07, 3).fill({ color: LIT, alpha: 0.5 })
-        g.roundRect(-R * 0.13, -R * 0.56, R * 0.10, R * 1.06, 3).fill({ color: LIT, alpha: 0.42 })
-        g.ellipse(0, R * 0.30, R * 0.20, R * 0.13).fill({ color: 0x9a5a2c, alpha: 0.55 })
-        g.ellipse(-R * 0.36, -R * 0.58, R * 0.16, R * 0.09).fill({ color: 0x9a5a2c, alpha: 0.4 })
+        const arm = (sx) => [
+          ...q([0, R * 0.16], [sx * R * 0.92, R * 0.30], [sx * R * 0.94, -R * 0.20]),
+          ...M(sx * R * 0.62, -R * 0.02), ...M(sx * R * 0.64, R * 0.26),
+          ...q([sx * R * 0.64, R * 0.26], [sx * R * 0.46, R * 0.44], [0, R * 0.56]),
+        ]
+        // Its own thickness: the whole silhouette once in near-black, dropped a few px.
+        const drop = R * 0.07
+        const shift = (p) => p.map((n, i) => (i % 2 ? n + drop : n))
+        for (const sx of [-1, 1]) g.poly(shift(arm(sx))).fill(EDGE)
+        g.poly(shift(box(-R * 0.16, -R * 0.62, R * 0.16, R * 0.58))).fill(EDGE)
+        g.poly(shift(box(-R * 0.78, -R * 0.66, R * 0.78, -R * 0.44))).fill(EDGE)
+        // Ring, stock and shank.
+        g.poly(ellPts(...M(0, -R * 0.80), R * 0.21, R * 0.21 * SQ, ANG)).stroke({ width: R * 0.13, color: IRON })
+        g.poly(ellPts(...M(0, -R * 0.80), R * 0.21, R * 0.21 * SQ, ANG)).stroke({ width: R * 0.05, color: LIT, alpha: 0.55 })
+        g.poly(box(-R * 0.78, -R * 0.66, R * 0.78, -R * 0.44)).fill(IRON).stroke({ width: 2, color: EDGE })
+        g.poly(box(-R * 0.16, -R * 0.62, R * 0.16, R * 0.58)).fill(IRON).stroke({ width: 2, color: EDGE })
+        // Arms and flukes: a thick crescent out of the crown to two broad spade points, which are
+        // oversized rather than accurate because the flukes are what say ANCHOR.
+        for (const sx of [-1, 1]) g.poly(arm(sx)).fill(IRON).stroke({ width: 2, color: EDGE })
+        // The up-left lit edges, which are what separate an iron object from murk this dim.
+        g.poly(box(-R * 0.72, -R * 0.64, R * 0.72, -R * 0.57)).fill({ color: LIT, alpha: 0.5 })
+        g.poly(box(-R * 0.13, -R * 0.56, -R * 0.03, R * 0.50)).fill({ color: LIT, alpha: 0.42 })
+        // Rust, at the joints only — scattered blobs read as dirt on the lens.
+        g.ellipse(...M(0, R * 0.30), R * 0.20, R * 0.13).fill({ color: 0x9a5a2c, alpha: 0.55 })
+        g.ellipse(...M(-R * 0.36, -R * 0.58), R * 0.16, R * 0.09).fill({ color: 0x9a5a2c, alpha: 0.4 })
       })
-
-      // 4. TYRE. The only ring in the set, and the only near-black — a hole in the middle is a
-      // silhouette nothing else here can be confused with, at any rotation.
+      // 4. TYRE, THREE-QUARTER. The only ring in the set and the only near-black. Turned, so the
+      // circle is an ellipse and you can see the tread band standing off the sidewall — a wheel seen
+      // square-on is a flat disc, and this chapter has no floor to justify one.
+      //
+      // ON ITS RIM, because the first cut read as a COG: its tread bars were the same width as its
+      // sidewall, so the whole thing was one repeating radial pattern. The wheel in the bore fixes
+      // that twice — pale metal gives the dark rubber something to be dark against, and a hub with
+      // lightening holes is not a gear-tooth pattern.
       piece((g) => {
-        g.circle(0, 0, R * 0.96).fill(0x2b2b2e).stroke({ width: 2.4, color: 0x131315 })
-        // Tread blocks around the crown. Coarse on purpose: fine tread is grey mush at this size.
-        for (let i = 0; i < 11; i++) {
-          const a = (i / 11) * Math.PI * 2
-          const c = Math.cos(a), s = Math.sin(a)
-          g.beginPath().moveTo(c * R * 0.60, s * R * 0.60).lineTo(c * R * 0.94, s * R * 0.94)
-            .stroke({ width: R * 0.15, color: 0x45454b })
+        const ROT = 0.42, S = 0.56
+        const rx = R * 0.94, ry = rx * S
+        const cs = Math.cos(ROT), sn = Math.sin(ROT)
+        // Wheel-plane coords -> bake. Every feature ON the wheel goes through this, which is what
+        // keeps the holes and the hub sitting in the same turned plane as the rim.
+        const PL = (u, v) => [u * cs - v * S * sn, u * sn + v * S * cs]
+        const dx = R * 0.10, dy = R * 0.17          // toward the far face: the tyre's own thickness
+        // The far face first, so the sliver of it that shows below the near face IS the thickness.
+        g.poly(ellPts(dx, dy, rx, ry, ROT)).fill(0x14141a).stroke({ width: 2, color: 0x0b0b0e })
+        // Tread, as bars across the band between the two faces.
+        for (let i = 0; i < 16; i++) {
+          const a = (i / 16) * Math.PI * 2
+          const [ax, ay] = PL(Math.cos(a) * rx, Math.sin(a) * rx)
+          g.beginPath().moveTo(ax, ay).lineTo(ax + dx, ay + dy).stroke({ width: R * 0.075, color: 0x3d3d43 })
         }
-        // The bore, filled with the dark of the water behind it.
-        g.circle(0, 0, R * 0.42).fill(0x16221f).stroke({ width: 2, color: 0x4a4a50 })
-        // Sidewall catching the light up-left, and the silt it has been sitting in.
-        g.circle(0, 0, R * 0.78).stroke({ width: R * 0.06, color: 0x63636b, alpha: 0.45 })
-        g.ellipse(R * 0.28, R * 0.52, R * 0.34, R * 0.20).fill({ color: 0x5d6b46, alpha: 0.5 })
+        // The near face.
+        g.poly(ellPts(0, 0, rx, ry, ROT)).fill(0x232326).stroke({ width: 2.4, color: 0x101012 })
+        g.poly(ellPts(0, 0, rx * 0.64, ry * 0.64, ROT)).fill(0x2c2c30).stroke({ width: 2, color: 0x101012 })
+        // The steel rim, its five lightening holes and its hub — all in the wheel's plane.
+        g.poly(ellPts(0, 0, rx * 0.55, ry * 0.55, ROT)).fill(0x8d9299).stroke({ width: 2, color: 0x2b2f33 })
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 5) * Math.PI * 2 + 0.3
+          const [hx, hy] = PL(Math.cos(a) * rx * 0.33, Math.sin(a) * rx * 0.33)
+          g.poly(ellPts(hx, hy, R * 0.115, R * 0.115 * S, ROT)).fill(0x171f1d)
+        }
+        g.poly(ellPts(0, 0, R * 0.15, R * 0.15 * S, ROT)).fill(0x6d7278).stroke({ width: 1.6, color: 0x2b2f33 })
+        // Light along the upper lip, rust bleeding out of the rim, silt banked on the low side.
+        g.poly(ellPts(0, 0, rx * 0.86, ry * 0.86, ROT, 20, Math.PI * 1.05, Math.PI * 1.9))
+          .stroke({ width: R * 0.07, color: 0x5a5a62, alpha: 0.5 })
+        g.ellipse(...PL(rx * 0.30, rx * 0.34), R * 0.15, R * 0.10).fill({ color: 0x8a5a2c, alpha: 0.45 })
+        g.ellipse(R * 0.18, ry * 0.92, R * 0.30, R * 0.14).fill({ color: 0x5d6b46, alpha: 0.5 })
       })
-
-      // 5. GIRDER. A cut length of structural steel: the L is an outline no natural object makes,
-      // and the bolt holes are the detail that says a building came apart to produce it.
+      // 5. GIRDER, THREE-QUARTER. A cut length of structural steel: an outline no natural object
+      // makes, and the bolt holes are the detail that says a building came apart to produce it.
+      // Foreshortened along its length — the far flange is smaller than the near one — because a
+      // beam drawn flat is the one piece here that would still look like a printed symbol.
+      //
+      // STRAIGHT, not an L. The first cut was an L, and an L tumbling reads as a BOOMERANG — a curve
+      // the eye closes for itself, which is the one thing a piece of structural steel must not look
+      // like. The web running down the middle in shadow is what makes this a beam and not a plank.
       piece((g) => {
-        const STEEL = 0x4d4038, EDGE = 0x1e1814
-        g.roundRect(-R * 0.92, -R * 0.18, R * 1.60, R * 0.36, 3).fill(STEEL).stroke({ width: 2.2, color: EDGE })
-        g.roundRect(R * 0.32, -R * 0.18, R * 0.36, R * 1.16, 3).fill(STEEL).stroke({ width: 2.2, color: EDGE })
-        // Lit upper flange.
-        g.roundRect(-R * 0.86, -R * 0.14, R * 1.48, R * 0.09, 3).fill({ color: 0x8a7767, alpha: 0.5 })
-        // Bolt holes.
-        for (const bx of [-0.66, -0.28, 0.10]) g.circle(R * bx, 0, R * 0.09).fill(0x141010)
-        g.circle(R * 0.50, R * 0.76, R * 0.09).fill(0x141010)
-        // Rust eating the cut ends.
-        g.ellipse(-R * 0.80, 0, R * 0.14, R * 0.17).fill({ color: 0x8f5427, alpha: 0.75 })
-        g.ellipse(R * 0.50, R * 0.94, R * 0.16, R * 0.14).fill({ color: 0x8f5427, alpha: 0.7 })
-        g.ellipse(R * 0.02, R * 0.10, R * 0.20, R * 0.10).fill({ color: 0x8f5427, alpha: 0.4 })
+        const STEEL = 0x5a4c40, EDGE = 0x241c16, LIT = 0x9b8878
+        const ANG = 0.52, cs = Math.cos(ANG), sn = Math.sin(ANG)
+        const A = (u, v) => [u * cs - v * sn, u * sn + v * cs]   // u along the beam, v across
+        const L = R * 0.90, sF = 0.60, sN = 1.16                 // far / near scale: the perspective
+        const wv = R * 0.19, fv = R * 0.46, ft = R * 0.13
+        // The web, tapering from the near end to the far one.
+        g.poly([...A(-L, -wv * sF), ...A(L, -wv * sN), ...A(L, wv * sN), ...A(-L, wv * sF)])
+          .fill(STEEL).stroke({ width: 2.2, color: EDGE })
+        // Both flanges, each sized by its own end.
+        for (const [u, k] of [[-L, sF], [L, sN]]) {
+          g.poly([...A(u - ft * k, -fv * k), ...A(u + ft * k, -fv * k), ...A(u + ft * k, fv * k), ...A(u - ft * k, fv * k)])
+            .fill(STEEL).stroke({ width: 2.2, color: EDGE })
+        }
+        // The web in shadow: the line that turns a plank into a section.
+        g.poly([...A(-L * 0.94, -wv * sF * 0.34), ...A(L * 0.94, -wv * sN * 0.34), ...A(L * 0.94, wv * sN * 0.34), ...A(-L * 0.94, wv * sF * 0.34)])
+          .fill({ color: 0x2f251d, alpha: 0.75 })
+        // Lit top edges, one along the web and one per flange.
+        g.poly([...A(-L * 0.96, -wv * sF), ...A(L * 0.96, -wv * sN), ...A(L * 0.96, -wv * sN * 0.62), ...A(-L * 0.96, -wv * sF * 0.62)])
+          .fill({ color: LIT, alpha: 0.5 })
+        for (const [u, k] of [[-L, sF], [L, sN]]) {
+          g.poly([...A(u - ft * k * 0.8, -fv * k), ...A(u + ft * k * 0.8, -fv * k), ...A(u + ft * k * 0.8, -fv * k * 0.66), ...A(u - ft * k * 0.8, -fv * k * 0.66)])
+            .fill({ color: LIT, alpha: 0.45 })
+        }
+        // Bolt holes down the web, each shrinking with its distance.
+        for (const t of [-0.34, 0.06, 0.46]) {
+          const k = sF + (sN - sF) * (t + 1) / 2
+          g.poly(ellPts(...A(L * t, 0), R * 0.085 * k, R * 0.085 * k * 0.55, ANG)).fill(0x14100c)
+        }
+        // Rust eating both cut ends.
+        g.ellipse(...A(-L * 0.96, fv * sF * 0.5), R * 0.14, R * 0.14).fill({ color: 0x8f5427, alpha: 0.7 })
+        g.ellipse(...A(L * 0.94, -fv * sN * 0.5), R * 0.16, R * 0.16).fill({ color: 0x8f5427, alpha: 0.6 })
       })
-
       T.ballastJunk = junk
     }
     {
