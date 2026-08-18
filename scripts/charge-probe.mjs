@@ -45,12 +45,17 @@ import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim, applyChoice, onSandbar, inWake, inMaw } from '../src/sim.js'
 import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines, MAX_SHOP_LEVEL, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, spawnRate } from '../src/config.js'
 
-// --chapter <id> (v7.x, run US.c): The Surf shares this same `resource`/refill-circle vocabulary
-// (Humidity, tide pools via the generalised streamShafts) as The Shelf's Light, so the probe reads
-// the geometry through refillSpec() below instead of Shelf-specific field names, and defaults to
-// 'shelf' unchanged for every call this file already documents.
+// --chapter <id> (v7.x, run US.c): every Book 2 chapter shares one `resource`/refill-circle
+// vocabulary (Humidity and tide pools, Clarity and upwellings, Light and sun shafts, Feed and the
+// net's wake, Light and the maws), so the probe reads the geometry through refillSpec() below rather
+// than through any one chapter's field names.
+//
+// DEFAULTS TO 'twilight', which is where the light this file's tables were measured against now
+// lives. It was 'shelf' until 2026-08-17; that id still resolves, but it is the MURK chapter now, so
+// a bare invocation would have quietly reproduced this file's documented numbers against a
+// different chapter — the same measured-the-wrong-thing failure the rename hit in the test suite.
 const argChapter = process.argv.indexOf('--chapter')
-const CHAPTER = argChapter >= 0 ? process.argv[argChapter + 1] : 'shelf'
+const CHAPTER = argChapter >= 0 ? process.argv[argChapter + 1] : 'twilight'
 // --shop=N (v7.x, Task 9's Slow Burn gate): the permanent book-shop level, 0..10, same flag
 // spelling as pool-probe.mjs. Task 9 needs to compare Lv0 against Lv10 of Undertow's own lines
 // (deepLungs/slowBurn/bigGulp) — the probe had no way to move that knob before this. Clamped

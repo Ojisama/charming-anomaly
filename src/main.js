@@ -448,7 +448,7 @@ const SFX_FOR_EVENT = {
   // warm thing in a cold chapter), and a bespoke voice every 2.0-2.6s for the whole run is a
   // metronome rather than feedback.
   //
-  // The Shelf. Two entries for three weapons, and the two absences are the same ruling as above.
+  // The Twilight. Two entries for three weapons, and the two absences are the same ruling as above.
   // 'sunspear' is the CAST — one voice per cast however many columns it calls — and 'sunfall', the
   // landing, has NO entry: at L5 that is three landings 0.26s after one cast, which is the machine
   // gun 'crust' and 'skip' are both written around. The column's tell is the flash it lands with.

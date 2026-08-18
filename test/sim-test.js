@@ -5693,16 +5693,16 @@ run(runBookProgression)
 // field looks correct in any still frame, a resource that leaks into other chapters shows up as
 // balance drift nobody attributes to it, and a pulse whose event lies about its radius draws the
 // wrong ring around a real shove.
-function runShelf() {
-  const shelfMeta = () => ({
-    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true,
-    chapters: Object.fromEntries([...CHAPTER_ORDER, 'shelf'].map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
+function runTwilight() {
+  const twilightMeta = () => ({
+    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'twilight', dev: true,
+    chapters: Object.fromEntries([...CHAPTER_ORDER, 'twilight'].map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
   })
-  const res = CHAPTERS.shelf.resource
-  const sig = CHAPTERS.shelf.signature
+  const res = CHAPTERS.twilight.resource
+  const sig = CHAPTERS.twilight.signature
   const mkRun = (seed = 20260812, opts = {}) => {
     Math.random = mulberry32(seed)
-    return createRun(shelfMeta(), { chapter: 'shelf', difficulty: 1, ...opts })
+    return createRun(twilightMeta(), { chapter: 'twilight', difficulty: 1, ...opts })
   }
   // Step without any of stepSim's other machinery mattering: no input, no skill.
   const idle = { x: 0, y: 0, skill: false }
@@ -5842,7 +5842,7 @@ function runShelf() {
   {
     const other = () => {
       Math.random = mulberry32(777)
-      const m = shelfMeta()
+      const m = twilightMeta()
       const r = createRun(m, { chapter: 'pond', difficulty: 1 })
       for (let i = 0; i < 240; i++) { stepSim(r, { x: 0.5, y: 0.3, skill: true }, 1 / 60); r.events.length = 0 }
       return r
@@ -5893,7 +5893,7 @@ function runShelf() {
   // be byte-identical to the shipped one — the lane chapter shares this function and nothing else.
   {
     Math.random = mulberry32(31337)
-    const lane = createRun(shelfMeta(), { chapter: 'beyond', difficulty: 1 })
+    const lane = createRun(twilightMeta(), { chapter: 'beyond', difficulty: 1 })
     lane.repulseCd = 0
     stepSim(lane, { x: 0, y: 0, skill: true }, 1 / 60)
     const ev = lane.events.find((e) => e.type === 'repulse')
@@ -5902,27 +5902,32 @@ function runShelf() {
     assert.strictEqual(lane.charge, 0, 'The Beyond has no resource and must never accrue charge')
   }
 
-  console.log(`PASS run BL (The Shelf): bar drains/refills/clamps, shafts DRIFT with no cell crossing at exactly ${sig.driftAmp}px and ${(sig.driftAmp * sig.driftHz).toFixed(0)} px/s, RNG-free streaming, empty bar keeps the ${REPULSE_RADIUS}px floor and a full spend pushes ${PULSE_RADIUS_AT_FULL}px, pond and beyond untouched`)
+  console.log(`PASS run BL (The Twilight): bar drains/refills/clamps, shafts DRIFT with no cell crossing at exactly ${sig.driftAmp}px and ${(sig.driftAmp * sig.driftHz).toFixed(0)} px/s, RNG-free streaming, empty bar keeps the ${REPULSE_RADIUS}px floor and a full spend pushes ${PULSE_RADIUS_AT_FULL}px, pond and beyond untouched`)
 }
-run(runShelf)
+run(runTwilight)
 
 // ---- Run RO: PER-ROSTER SOFTENING (v7.x, The Surf's Sea Roach) ---------------------------------
 // Owner, 2026-08-17: "The dasher should dash much less often and less far. like 50%. And deal 50%
 // less dmg. It's the first level of the book, that's too harsh."
 //
 // That reason is about ONE CHAPTER, and the dash knobs are global — DASH_IDLE_T and DASH_T are
-// shared by pond's tadpole, shelf's krill, reef's tuna and trawl's viperfish as well. So the
-// softening is expressed as two NEW roster fields (`dash: {restMul, lenMul}` and `dmgMul`), and the
-// job of this block is to prove both are actually wired AND that they stay put: a per-roster
+// shared by pond's tadpole, twilight's krill, reef's tuna and trawl's viperfish as well. So the
+// softening is expressed as NEW roster fields (`dash: {restMul, lenMul, spdMul}` and `dmgMul`), and
+// the job of this block is to prove they are actually wired AND that they stay put: a per-roster
 // override that silently applied to everyone would look identical on The Surf and quietly halve the
 // fifth chapter of the book.
+//
+// spdMul and blocks (f)/(g) are the second customer, and the reason the field is a per-creature
+// OBJECT rather than a chapter knob. Owner, 2026-08-17: "Krill dash should be 50% slower and 50%
+// less frequent and 50% shorter" — the same shape of request about The Shelf's dasher, landing on
+// the same globals, and it must not reach The Surf's roach going the other way either.
 function runRoachSoftening() {
   const dt = 1 / 60
   const OVERRIDE = CHAPTERS.surf.roster.find((r) => r.id === 'searoach').dash
 
   // Two dashers in ONE run, identical but for the override, so the shared clock, the shared seed and
   // the shared frame budget cannot explain any difference between them.
-  const pairRun = () => {
+  const pairRun = (softDash = OVERRIDE) => {
     Math.random = mulberry32(7070)
     const run = createRun(makeMeta())
     run.weapons = []
@@ -5936,7 +5941,7 @@ function runRoachSoftening() {
       run.enemies.push(e)
       return e
     }
-    return { run, plain: mk(-200, null), soft: mk(200, OVERRIDE) }
+    return { run, plain: mk(-200, null), soft: mk(200, softDash) }
   }
 
   // (a) HALF AS OFTEN AND HALF AS FAR, against a plain dasher in the same run.
@@ -5980,14 +5985,17 @@ function runRoachSoftening() {
       .filter(([, r]) => (r.flags ?? []).includes('dashBurst'))
     assert(carriers.length >= 4, `expected several dashBurst carriers, found ${carriers.length}`)
     const overridden = carriers.filter(([, r]) => r.dash || r.dmgMul != null).map(([id, r]) => `${id}/${r.id}`)
-    assert.deepStrictEqual(overridden, ['surf/searoach'],
-      `only The Surf's Sea Roach may carry the softening; found ${overridden.join(', ') || 'none'}`)
+    // The EXACT set, sorted so the assertion does not also pin CHAPTERS' key order. Adding a third
+    // softened creature is meant to land here first: this line is the tripwire that makes "soften
+    // one chapter" impossible to do quietly to a chapter you were not thinking about.
+    assert.deepStrictEqual(overridden.slice().sort(), ['surf/searoach', 'twilight/krill'],
+      `only The Surf's Sea Roach and The Twilight's Krill may carry the softening; found ${overridden.join(', ') || 'none'}`)
     // And behaviourally: a carrier with no override still runs the shared globals.
     const { run, plain } = pairRun()
     for (let i = 0; i < Math.round(DASH_IDLE_T / dt) + 2; i++) stepSim(run, { x: 0, y: 0 }, dt)
     assert.strictEqual(plain._dashPhase, 'dash',
       `an un-overridden dasher must still commit after the global DASH_IDLE_T (${DASH_IDLE_T}s)`)
-    console.log(`PASS run RO.b (no leak): ${carriers.length} dashBurst carriers across the game, exactly 1 softened (${overridden[0]}), the rest still on the ${DASH_IDLE_T}s global`)
+    console.log(`PASS run RO.b (no leak): ${carriers.length} dashBurst carriers across the game, ${overridden.length} softened (${overridden.join(', ')}), the rest still on the ${DASH_IDLE_T}s global`)
   }
 
   // (c) dmgMul HALVES WHAT THE PLAYER LOSES. Asserted as HP off the bar, not as e.dmg, so it covers
@@ -6121,7 +6129,84 @@ function runRoachSoftening() {
     console.log(`PASS run RO.e (the spawn path copies it): a chapter-spawned roach dashed ${dashes} times in ${SECS}s = one every ${every.toFixed(2)}s, against its own ${want.toFixed(2)}s and the ${(DASH_IDLE_T + DASH_T).toFixed(2)}s global`)
   }
 
-  console.log('PASS run RO (Sea Roach softening): the roster can now soften ONE creature\'s dash cadence, reach and damage without moving the shared DASH_* globals or the chapter\'s balance block')
+  // (f) spdMul HALVES THE LUNGE'S SPEED AND LEAVES ITS WINDOW ALONE (v7.x, The Twilight's Krill).
+  // Owner, 2026-08-17: "Krill dash should be 50% slower and 50% less frequent and 50% shorter" —
+  // three knobs, and the third is new. It is the one easiest to wire to the wrong place, because
+  // shrinking the WINDOW instead of the SPEED halves the lunge's distance just as well: a
+  // distance-only assertion reads x0.5 either way and proves nothing about which knob moved. So
+  // this block measures px-per-dash-frame and the count of dash frames SEPARATELY, on a dasher
+  // carrying spdMul alone — whose window must still be the untouched global.
+  {
+    const { run, plain, soft } = pairRun({ spdMul: 0.5 })
+    // Both dashers are re-parked on every non-dash frame, so each idle frame's displacement IS one
+    // frame of idle movement. The frame a dash ENDS is skipped (prev === 'dash'): it moved at dash
+    // speed and only reads 'idle' afterwards, and folding one 4px frame into ~66 idle frames of
+    // 0.67px each is enough to drag the idle ratio to 0.96 and cost the assertion its resolution.
+    const st = { plain: { dashN: 0, dashD: 0, idleN: 0, idleD: 0 }, soft: { dashN: 0, dashD: 0, idleN: 0, idleD: 0 } }
+    let prevP = 'idle', prevS = 'idle'
+    const SECS = 60
+    for (let i = 0; i < Math.round(SECS / dt); i++) {
+      const p0 = { x: plain.x, y: plain.y }, s0 = { x: soft.x, y: soft.y }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const tally = (e, s, prev, px, py, hx, hy) => {
+        const moved = Math.hypot(e.x - px, e.y - py)
+        if (e._dashPhase === 'dash') { s.dashN++; s.dashD += moved }
+        else {
+          if (prev !== 'dash') { s.idleN++; s.idleD += moved }
+          e.x = hx; e.y = hy
+        }
+      }
+      tally(plain, st.plain, prevP, p0.x, p0.y, 300, -200)
+      tally(soft, st.soft, prevS, s0.x, s0.y, 300, 200)
+      prevP = plain._dashPhase; prevS = soft._dashPhase
+      run.player.hp = run.player.maxHP
+    }
+    assert(st.plain.dashN > 200, `the control must actually dash (${st.plain.dashN} dash frames in ${SECS}s) or the ratios below are noise`)
+    assert(st.plain.idleN > 200, `and must actually idle (${st.plain.idleN} idle frames) or the idle ratio is noise`)
+    const spd = (st.soft.dashD / st.soft.dashN) / (st.plain.dashD / st.plain.dashN)
+    const window = st.soft.dashN / st.plain.dashN
+    const idle = (st.soft.idleD / st.soft.idleN) / (st.plain.idleD / st.plain.idleN)
+    assert(Math.abs(spd - 0.5) < 0.04, `spdMul must HALVE the lunge's speed, measured x${spd.toFixed(3)} px/frame`)
+    assert(Math.abs(window - 1) < 0.08,
+      `and must NOT touch its window — dash frames read x${window.toFixed(3)}, so it is wired to the timer instead of the speed`)
+    assert(Math.abs(idle - 1) < 0.02,
+      `and must NOT touch the wind-up — idle speed read x${idle.toFixed(3)}, so it reached the idle branch (and with it the off-screen walk-in, which has to stay at full speed or the crowd crawls out of sight)`)
+    console.log(`PASS run RO.f (spdMul is the LUNGE's speed knob): ${(st.soft.dashD / st.soft.dashN).toFixed(2)} px/frame vs ${(st.plain.dashD / st.plain.dashN).toFixed(2)} (x${spd.toFixed(2)}), same window (x${window.toFixed(2)}), same wind-up (x${idle.toFixed(2)})`)
+  }
+
+  // (g) THE KRILL'S SHIPPED NUMBERS DELIVER ALL THREE HALVINGS. Everything above proves the three
+  // knobs are WIRED; this proves the values actually in config.js use them. The override is read
+  // from CHAPTERS, never retyped, so dropping one of the three from the roster entry lands here —
+  // and nothing else would notice, since RO.b only asks whether a `dash` object exists at all.
+  {
+    const KRILL = CHAPTERS.twilight.roster.find((r) => r.id === 'krill').dash
+    const { run, plain, soft } = pairRun(KRILL)
+    const st = { plain: { n: 0, d: 0, f: 0 }, soft: { n: 0, d: 0, f: 0 } }
+    let prevP = 'idle', prevS = 'idle'
+    const SECS = 120
+    for (let i = 0; i < Math.round(SECS / dt); i++) {
+      const p0 = { x: plain.x, y: plain.y }, s0 = { x: soft.x, y: soft.y }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (plain._dashPhase === 'dash') { st.plain.f++; st.plain.d += Math.hypot(plain.x - p0.x, plain.y - p0.y); if (prevP !== 'dash') st.plain.n++ }
+      else { plain.x = 300; plain.y = -200 }
+      if (soft._dashPhase === 'dash') { st.soft.f++; st.soft.d += Math.hypot(soft.x - s0.x, soft.y - s0.y); if (prevS !== 'dash') st.soft.n++ }
+      else { soft.x = 300; soft.y = 200 }
+      prevP = plain._dashPhase; prevS = soft._dashPhase
+      run.player.hp = run.player.maxHP
+    }
+    assert(st.plain.n > 40, `the control dasher must actually dash (${st.plain.n} in ${SECS}s) or the ratios below are noise`)
+    const rate = st.soft.n / st.plain.n
+    const spd = (st.soft.d / st.soft.f) / (st.plain.d / st.plain.f)
+    const reach = (st.soft.d / st.soft.n) / (st.plain.d / st.plain.n)
+    assert(Math.abs(rate - 0.5) < 0.08, `the krill must dash HALF as often, measured x${rate.toFixed(3)}`)
+    assert(Math.abs(spd - 0.5) < 0.04, `and HALF as fast, measured x${spd.toFixed(3)} px/frame`)
+    // The three compound: half the speed for half the window is a QUARTER of the distance. Asserted
+    // explicitly because it is the surprising half of the owner's ask and the number worth reading.
+    assert(Math.abs(reach - 0.25) < 0.05, `and lunge a QUARTER as far (half speed x half window), measured x${reach.toFixed(3)}`)
+    console.log(`PASS run RO.g (the krill's shipped tune): one dash every ${(SECS / st.soft.n).toFixed(2)}s vs ${(SECS / st.plain.n).toFixed(2)}s (x${rate.toFixed(2)}), at x${spd.toFixed(2)} speed, lunging ${(st.soft.d / st.soft.n).toFixed(0)}px vs ${(st.plain.d / st.plain.n).toFixed(0)}px (x${reach.toFixed(2)})`)
+  }
+
+  console.log('PASS run RO (per-roster softening): the roster can soften ONE creature\'s dash cadence, reach, SPEED and damage without moving the shared DASH_* globals or the chapter\'s balance block')
 }
 run(runRoachSoftening)
 
@@ -6519,11 +6604,11 @@ run(runPrey)
 // world would dim on a different schedule from the one your legs are on, and the player would have
 // no way to tell what state they are in.
 function runDark() {
-  const res = CHAPTERS.shelf.resource
+  const res = CHAPTERS.twilight.resource
   const d = res.dark
-  const shelfMeta = () => ({
-    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true,
-    chapters: Object.fromEntries(['body', 'pond', 'shelf', 'beyond']
+  const twilightMeta = () => ({
+    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'twilight', dev: true,
+    chapters: Object.fromEntries(['body', 'pond', 'twilight', 'beyond']
       .map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
   })
 
@@ -6635,7 +6720,7 @@ function runDark() {
   // what fails if stepPlayer stops consulting the curve.
   const travel = (charge, extra) => {
     Math.random = mulberry32(4242)
-    const run = createRun(shelfMeta(), { chapter: 'shelf', difficulty: 1 })
+    const run = createRun(twilightMeta(), { chapter: 'twilight', difficulty: 1 })
     run.shafts.length = 0              // no refill: the bar must hold where it is put
     run.charge = charge
     if (extra) extra(run)
@@ -6689,12 +6774,12 @@ function runDark() {
   // keeps it out of this is one optional-chain away from being deleted by accident.
   {
     Math.random = mulberry32(4242)
-    const pond = createRun(shelfMeta(), { chapter: 'pond', difficulty: 1 })
+    const pond = createRun(twilightMeta(), { chapter: 'pond', difficulty: 1 })
     const x0 = pond.player.x
     for (let i = 0; i < 60; i++) { pond.charge = 0; stepSim(pond, { x: 1, y: 0 }, 1 / 60); pond.events.length = 0 }
     const dist = pond.player.x - x0
     Math.random = mulberry32(4242)
-    const pond2 = createRun(shelfMeta(), { chapter: 'pond', difficulty: 1 })
+    const pond2 = createRun(twilightMeta(), { chapter: 'pond', difficulty: 1 })
     const x1 = pond2.player.x
     for (let i = 0; i < 60; i++) { pond2.charge = 100; stepSim(pond2, { x: 1, y: 0 }, 1 / 60); pond2.events.length = 0 }
     assert.ok(Math.abs(dist - (pond2.player.x - x1)) < 1e-9,
@@ -6819,7 +6904,7 @@ run(runDark)
 //   - src/cast/*.png is GENERATED (scripts/bake-cast.mjs) and HAND-RUN. A chapter whose
 //     render.cast names a new id keeps showing the old drawing on its title card, and bake-cast's
 //     own header calls this out as a ponytail: nothing warns you.
-// v7.x walked straight through both: The Shelf's roster went amoeba/tadpole/tardigrade ->
+// v7.x walked straight through both: The Twilight's roster went amoeba/tadpole/tardigrade ->
 // copepod/krill/jelly, which is exactly the diff that strands a look key or a stale thumbnail.
 // render.js is not importable here (Vite-only import.meta.glob), so the look table is read as
 // SOURCE TEXT — the run UG.k trick.
@@ -6894,37 +6979,37 @@ run(runRosterArt)
 // guard that matters is the gate — an unbought save must get exactly zero light from kills, and
 // sim.js must never learn about meta to find that out.
 function runLightThief() {
-  const res = CHAPTERS.shelf.resource
-  // 'shelf' is bookOf() 'undertow' (Task 2: per-book progression), so the unlock now lives at
+  const res = CHAPTERS.twilight.resource
+  // 'twilight' is bookOf() 'undertow' (Task 2: per-book progression), so the unlock now lives at
   // bm.unlocks.lightThief — meta.books.undertow.unlocks.lightThief here, not a top-level field.
   const meta = (thief) => ({
-    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true,
+    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'twilight', dev: true,
     books: { undertow: { coins: 0, shop: {}, choiceSlots: 2, unlocks: { lightThief: thief } } },
-    chapters: Object.fromEntries(['body', 'pond', 'shelf'].map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
+    chapters: Object.fromEntries(['body', 'pond', 'twilight'].map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
   })
 
   // (a) the snapshot. createRun resolves the unlock ONCE, into a number.
   {
-    assert.strictEqual(createRun(meta(false), { chapter: 'shelf', difficulty: 1 }).killRefill, 0,
+    assert.strictEqual(createRun(meta(false), { chapter: 'twilight', difficulty: 1 }).killRefill, 0,
       'an unbought save must take 0 light per kill')
-    assert.strictEqual(createRun(meta(true), { chapter: 'shelf', difficulty: 1 }).killRefill, res.killRefill,
+    assert.strictEqual(createRun(meta(true), { chapter: 'twilight', difficulty: 1 }).killRefill, res.killRefill,
       'a bought save must take the chapter resource killRefill')
     // THE LADDER (owner ruling, 3 rungs): each level is a third of the chapter's own killRefill,
     // so a maxed ladder is exactly what the old single purchase gave and the ceiling has not moved.
     // `true` is a pre-ladder save that paid the full 15 — it reads as the TOP level, never less.
     const MAXLT = unlockMax('undertow', 'lightThief')
     for (const lv of [1, 2, 3]) {
-      assert.ok(Math.abs(createRun(meta(lv), { chapter: 'shelf', difficulty: 1 }).killRefill
+      assert.ok(Math.abs(createRun(meta(lv), { chapter: 'twilight', difficulty: 1 }).killRefill
         - res.killRefill * lv / MAXLT) < 1e-9, `level ${lv} must take ${lv}/${MAXLT} of the chapter refill`)
     }
     // A numeric level is MEANINGFUL now, so the old "must be === true" rule is gone. What has to
     // hold instead: nothing un-numeric grants anything, and a value past the top of the ladder
     // clamps rather than scaling the refill past the chapter's own figure.
     for (const bad of ['yes', {}, [], 'true', NaN, -3, false]) {
-      assert.strictEqual(createRun(meta(bad), { chapter: 'shelf', difficulty: 1 }).killRefill, 0,
+      assert.strictEqual(createRun(meta(bad), { chapter: 'twilight', difficulty: 1 }).killRefill, 0,
         `lightThief: ${JSON.stringify(bad)} is not a level and must grant nothing`)
     }
-    assert.strictEqual(createRun(meta(99), { chapter: 'shelf', difficulty: 1 }).killRefill, res.killRefill,
+    assert.strictEqual(createRun(meta(99), { chapter: 'twilight', difficulty: 1 }).killRefill, res.killRefill,
       'a level past the top of the ladder clamps to the top rather than scaling past the chapter refill')
     assert.strictEqual(createRun(meta(true), { chapter: 'pond', difficulty: 1 }).killRefill, 0,
       'a chapter with no resource takes 0 per kill even when the unlock is owned')
@@ -6941,7 +7026,7 @@ function runLightThief() {
   const PIN = 50
   const killRun = (thief) => {
     Math.random = mulberry32(90210)
-    const run = createRun(meta(thief), { chapter: 'shelf', difficulty: 1 })
+    const run = createRun(meta(thief), { chapter: 'twilight', difficulty: 1 })
     run.shafts.length = 0                       // no in-shaft refill: kills are the only credit
     run.player.hp = run.player.maxHP = 1e9      // immortal, so the run cannot end mid-measurement
     let gained = 0
@@ -6976,7 +7061,7 @@ function runLightThief() {
   // ...and it clamps. A bar over max is a rail drawn past the end of its own track.
   {
     Math.random = mulberry32(90210)
-    const run = createRun(meta(true), { chapter: 'shelf', difficulty: 1 })
+    const run = createRun(meta(true), { chapter: 'twilight', difficulty: 1 })
     run.player.hp = run.player.maxHP = 1e9
     let peak = 0
     for (let i = 0; i < 600; i++) {
@@ -17367,17 +17452,17 @@ function testBarnacles() {
 //     next body.
 //   - a lance whose `length` shrank to nothing still exists in run.beams.
 function testShelfWeapons() {
-  testShelfPool()
+  testTwilightPool()
   testSunspear()
   testFoxfire()
   testSunlance()
 }
 
-function shelfRun(weaponId, level = 1) {
+function twilightRun(weaponId, level = 1) {
   const meta = makeMeta()
   meta.dev = true
   ensureChapterMeta(meta)
-  const run = createRun(meta, { chapter: 'shelf', difficulty: 1 })
+  const run = createRun(meta, { chapter: 'twilight', difficulty: 1 })
   run.weapons = [{ id: weaponId, level }]
   run.player.maxHP = run.player.hp = 1e9
   run.enemies.length = 0
@@ -17387,27 +17472,27 @@ function shelfRun(weaponId, level = 1) {
   return run
 }
 
-// (0) THE CHAPTER FIGHTS WITH ITS OWN GEAR. CHAPTERS.shelf spreads CHAPTERS.pond, so the pool is
+// (0) THE CHAPTER FIGHTS WITH ITS OWN GEAR. CHAPTERS.twilight spreads CHAPTERS.pond, so the pool is
 // inherited unless it is overridden — and an inherited pool is invisible in a diff of this file.
-function testShelfPool() {
-  const pool = CHAPTERS.shelf.weapons
+function testTwilightPool() {
+  const pool = CHAPTERS.twilight.weapons
   for (const borrowed of ['flagella', 'mines', 'bloom']) {
     assert.ok(!pool.includes(borrowed),
-      `The Shelf still offers ${borrowed} — the spread from CHAPTERS.pond is not overridden`)
+      `The Twilight still offers ${borrowed} — the spread from CHAPTERS.pond is not overridden`)
   }
   assert.deepStrictEqual([...pool].sort(), ['foxfire', 'sunlance', 'sunspear'],
-    `The Shelf's pool is ${JSON.stringify(pool)}, not its three natives`)
-  assert.ok(pool.includes(CHAPTERS.shelf.starter),
-    `The Shelf starts you with ${CHAPTERS.shelf.starter}, which is not in its own pool`)
-  assert.strictEqual(CHAPTERS.shelf.starter, 'sunspear',
-    'The Shelf no longer starts on its own starter')
+    `The Twilight's pool is ${JSON.stringify(pool)}, not its three natives`)
+  assert.ok(pool.includes(CHAPTERS.twilight.starter),
+    `The Twilight starts you with ${CHAPTERS.twilight.starter}, which is not in its own pool`)
+  assert.strictEqual(CHAPTERS.twilight.starter, 'sunspear',
+    'The Twilight no longer starts on its own starter')
 }
 
 // (a) EVERY COLUMN OF A CAST LANDS SOMEWHERE ELSE — including the surplus ones.
 function testSunspear() {
   Math.random = mulberry32(20260816)
   const L = 5
-  const run = shelfRun('sunspear', L)
+  const run = twilightRun('sunspear', L)
   const p = run.player
   const lvl = WEAPONS.sunspear.levels[L - 1]
   assert.ok(lvl.count >= 3, `this fixture needs a multi-column level; L${L} casts ${lvl.count}`)
@@ -17448,7 +17533,7 @@ function testSunspear() {
   // first, which counts three, renders as one, and deals ONE column's damage. So the assertion is
   // the damage: three columns on one body must cost it about three columns' worth.
   Math.random = mulberry32(20260816)
-  const run2 = shelfRun('sunspear', L)
+  const run2 = twilightRun('sunspear', L)
   const p2 = run2.player
   const lone = makeStatusEnemy(run2, { x: p2.x + 140, y: p2.y, hp: 1e6, speed: 0 })
   run2.enemies.push(lone)
@@ -17504,7 +17589,7 @@ function testFoxfire() {
   // the time and read the neighbours it caught as the gloom.
   const cast = (charge) => {
     Math.random = mulberry32(20260816)
-    const run = shelfRun('foxfire', L)
+    const run = twilightRun('foxfire', L)
     const p = run.player
     run.charge = charge
     const centre = makeStatusEnemy(run, { x: p.x, y: p.y + 20, hp: 1e6, speed: 0 })
@@ -17548,7 +17633,7 @@ function testFoxfire() {
     `a foxfire cast at an EMPTY bar burned nothing in the band the gloom is supposed to open (${lvl.maxR} -> ${(lvl.maxR * FOXFIRE_GLOOM).toFixed(0)}px) — the dark buys no reach`)
 
   // AND IT DOES NOT SLOW. run.blooms is shared with the Spore Bloom, whose slow is applied to every
-  // entry in the list; The Shelf already slows the player in the dark and must not hand out a
+  // entry in the list; The Twilight already slows the player in the dark and must not hand out a
   // second, unadvertised slow on a card whose text never mentions one.
   assert.ok(!dark.slowed && !lit.slowed,
     'a foxfire slowed what stood in it — it has inherited the Spore Bloom\'s slow through run.blooms')
@@ -17592,7 +17677,7 @@ function testFoxfire() {
 function run0ChargeMax() {
   const meta = makeMeta()
   ensureChapterMeta(meta)
-  return createRun(meta, { chapter: 'shelf', difficulty: 1 }).chargeMax
+  return createRun(meta, { chapter: 'twilight', difficulty: 1 }).chargeMax
 }
 
 // (c) THE LANCE REACHES AS FAR AS THE BAR, AND AN EMPTY BAR STILL KILLS.
@@ -17607,7 +17692,7 @@ function testSunlance() {
 
   const cast = (charge, dist) => {
     Math.random = mulberry32(20260816)
-    const run = shelfRun('sunlance', L)
+    const run = twilightRun('sunlance', L)
     const p = run.player
     run.charge = charge
     // Both bodies on the +x axis: the near one is what surfAim locks onto, so the lance is aimed
@@ -20465,6 +20550,180 @@ function testUndertowLadder() {
       `a spawned Moon Jelly carries xp ${seen.xp}, not ${expected} — the roster's xpMul is not reaching ` +
       `the enemy, so the +25% is a number in a table that nothing reads`)
     console.log(`PASS run US.h (moon jelly): hpMul ${jelly.hpMul} (2.5 x 0.75), xpMul ${jelly.xpMul}, and a spawned jelly really carries ${seen.xp} xp`)
+  }
+
+  // (e) THE SHELF/TWILIGHT SPLIT (2026-08-17). The light mechanic moved from slot 2 to slot 5 under
+  // a new id and a NEW chapter took the id `shelf`. Every assertion here guards a way that split
+  // fails with NOTHING GOING RED, which is the whole reason it needed guarding: the murk chapter
+  // kept a `resource` with a `dark` sub-block and a `shafts` signature, so about twenty scenarios
+  // whose subject was the LIGHT still resolved, still ran and still passed after the rename — while
+  // measuring a chapter they were not written for.
+  {
+    // (e1) The fact the rename actually MOVES, asserted as an id -> bar map. The existing prefix
+    // check above cannot see this: LADDER_PREFIX is ['surf','shelf','reef'] and stays true while
+    // slot 2's MEANING is replaced wholesale.
+    const BARS = { surf: 'Humidity', shelf: 'Clarity', reef: 'Air', trawl: 'Feed', twilight: 'Light', deep: 'Light' }
+    for (const [id, bar] of Object.entries(BARS)) {
+      assert.strictEqual(CHAPTERS[id]?.resource?.name, bar,
+        `${id}'s bar is '${CHAPTERS[id]?.resource?.name}', not '${bar}' — the light and the murk have swapped or drifted`)
+    }
+    // The murk must NOT slow you: 2.4 (Feed) and 2.5 (the dark) already both do, and a third is the
+    // axis collapsing. This is the one number in the new chapter that is a decision rather than an
+    // inheritance, and nothing else in the suite would notice it reverting to the light's 0.6.
+    assert.strictEqual(CHAPTERS.shelf.resource.dark.speedFloor, 1,
+      'The Shelf\'s murk slows the player — it is meant to cost SIGHT only (see its resource block)')
+    assert.ok(CHAPTERS.twilight.resource.dark.speedFloor < 1,
+      'The Twilight\'s dark stopped slowing the player, which is The Deep\'s inversion, not this chapter\'s')
+
+    // (e2) THE ARSENAL FOLLOWED THE LIGHT, asserted semantically rather than as a source-text lint.
+    // A text lint was tried first and is the wrong instrument: `CHAPTERS.shelf.resource.dark` is a
+    // legitimate read now, because the murk chapter reuses the SAME radius rig under the same key,
+    // so "no scenario mentions it" cannot distinguish a light assertion from a murk one. What is
+    // checkable is that the three sun cards live with the bar they read.
+    //   Two of them are welded to it: Foxfire scales its radius by darkness() and punches the
+    //   lightmap, Sunlance's reach IS charge/chargeMax. In a chapter whose bar does not slow or
+    //   blind, Foxfire keeps firing and simply stops doing the thing it is for — no throw, no red.
+    const SUN = ['sunspear', 'foxfire', 'sunlance']
+    assert.deepStrictEqual(CHAPTERS.twilight.weapons, SUN,
+      'The Twilight no longer fields the three sun natives — the light moved and its arsenal did not follow')
+    for (const w of SUN) {
+      assert.ok(!CHAPTERS.shelf.weapons.includes(w),
+        `The Shelf offers ${w}, a sun card, in the chapter that is now about murk`)
+    }
+    // …and the suite's own coverage of the mechanic moved with it.
+    const tsrc = readFileSync(new URL('./sim-test.js', import.meta.url), 'utf8')
+    assert.ok(tsrc.includes('CHAPTERS.twilight.resource.dark'),
+      'nothing in the suite reads CHAPTERS.twilight.resource.dark — the light chapter moved and its coverage did not follow')
+
+    // (e3) formScale is a LADDER and the player grows down the book. The Shelf had no `form` at all
+    // before this change (it was still the Pond's blob, the only Book 2 chapter like it), so this
+    // also guards that gap staying closed.
+    const scales = undertowIds.map((id) => [id, CHAPTERS[id].render.formScale ?? 1])
+    for (const [id, s] of scales) {
+      assert.ok(CHAPTERS[id].render.form === 'fish', `${id} has no render.form — the player is not the fish there`)
+      assert.ok(s > 0, `${id} has formScale ${s}`)
+    }
+    for (let i = 1; i < scales.length; i++) {
+      assert.ok(scales[i][1] > scales[i - 1][1],
+        `formScale is not increasing at ${scales[i][0]} (${scales[i - 1][1]} -> ${scales[i][1]}) — the fish must grow down the book`)
+    }
+
+    // (e3b) THE BOOK DESCENDS, asserted as floor LUMINANCE and not as contrast. `bgColor` is the
+    // water between the blotches and is the honest proxy here; the full model (mean blotch x
+    // floorTint over bgColor) lives in scripts/obstacle-contrast.mjs and is NOT re-implemented here,
+    // because two copies of one model is the drift this suite's source-text lints exist to stop.
+    //
+    // ⚠ LUMINANCE, NOT CONTRAST. The first draft of this guard asserted "floor contrast strictly
+    // decreasing", which would have enforced "the game gets progressively less legible" — the exact
+    // opposite of why that audit exists. Contrast wants a per-chapter FLOOR; only brightness descends.
+    const rel = (c) => { // WCAG relative luminance of a 0xRRGGBB
+      const ch = (v) => { const s = (v / 255); return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4) }
+      return 0.2126 * ch(c >> 16 & 255) + 0.7152 * ch(c >> 8 & 255) + 0.0722 * ch(c & 255)
+    }
+    // NON-INCREASING, not strictly decreasing. A TIE is legitimate here and a rise is not: a chapter
+    // shipped in phases borrows a neighbour's palette wholesale as a named stand-in (The Wreck
+    // borrows The Reef's, and The Twilight borrows The Shelf's prop family), so equal rungs mean
+    // "not authored yet" and would make this guard a test that has to be edited to stay passing.
+    // The pathology worth catching is water getting BRIGHTER the deeper you go.
+    const lums = undertowIds.map((id) => [id, rel(CHAPTERS[id].render.bgColor)])
+    for (let i = 1; i < lums.length; i++) {
+      assert.ok(lums[i][1] <= lums[i - 1][1] + 1e-9,
+        `Book 2 gets BRIGHTER at ${lums[i][0]}: bgColor luminance ${lums[i - 1][1].toFixed(3)} -> ${lums[i][1].toFixed(3)}. ` +
+        'The book goes DOWN — no rung may be lighter water than the one above it.')
+    }
+    // …and it must actually descend overall, or "non-increasing" is satisfied by seven identical
+    // chapters. Ties are for stand-ins, not for the whole ladder.
+    assert.ok(lums[lums.length - 1][1] < lums[0][1] * 0.5,
+      `Book 2 does not descend: ${lums[0][0]} ${lums[0][1].toFixed(3)} -> ${lums[lums.length - 1][0]} ${lums[lums.length - 1][1].toFixed(3)}`)
+
+    // (e4) refillLook VOCABULARY, both directions. A chapter can declare a look render.js has never
+    // heard of (it silently falls back to the shape-derived one, i.e. the murk chapter draws warm
+    // gold sun columns), or render.js can carry a branch no chapter reaches.
+    const rsrc2 = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    const declared = new Set(Object.values(CHAPTERS).map((c) => c.signature?.refillLook).filter(Boolean))
+    assert.ok(declared.has('upwelling'), 'no chapter declares signature.refillLook — the override is dead config')
+    for (const look of declared) {
+      assert.ok(rsrc2.includes(`refillLook === '${look}'`),
+        `CHAPTERS declares refillLook '${look}' but render.js never tests for it — the chapter silently draws another chapter's refill`)
+    }
+    assert.ok(rsrc2.includes('cfg.signature.refillLook'),
+      'render.js no longer reads signature.refillLook — the declared override is not forwarded')
+
+    // (e5) render.cast must be drawn FROM THE CHAPTER'S OWN ROSTER. run RA already proves every cast
+    // id has a baked look and a title-card PNG, and both stayed true when the roster split — so a
+    // chapter can advertise creatures it no longer fields with nothing going red.
+    for (const id of Object.keys(CHAPTERS)) {
+      const cast = CHAPTERS[id].render?.cast ?? []
+      const own = new Set((CHAPTERS[id].roster ?? []).map((r) => r.id))
+      for (const cid of cast) {
+        assert.ok(own.has(cid),
+          `${id}'s title card casts '${cid}', which is not in its roster — the card advertises a creature the chapter does not spawn`)
+      }
+    }
+
+    // (e6) A ROSTER ID IS A FLAT GLOBAL NAMESPACE. dmgSrcName returns the FIRST match across every
+    // chapter, and ROSTER_LOOKS and src/cast/*.png are keyed by bare id, so a borrowed creature is
+    // fine but a REUSED id meaning two different animals would put the wrong name and the wrong
+    // picture on the summary screen. Duplicates are legal (this change borrows three, and `rat` has
+    // been in both undergrowth and city for a long time) — what is asserted is that they AGREE.
+    //
+    // ⚠ GRANDFATHERED: 'rat'. It is 'Rat' in undergrowth and 'Street Rat' in city, and has been for
+    // a long time — so one of those two chapters already puts the wrong name on the summary screen,
+    // whichever Object.keys(CHAPTERS) happens to yield first. Found by this assertion the day it was
+    // written (2026-08-17), left alone because both chapters are Book 1 and the change that added
+    // this guard was scoped to Book 2. Fixing it means renaming one of them, which is player-visible
+    // copy plus an fr.js key, i.e. its own commit. Do not widen this list to make a new duplicate
+    // pass — a new one is a bug you are about to ship, not a fact you inherited.
+    const NAME_CLASH_GRANDFATHERED = new Set(['rat'])
+    const byId = new Map()
+    for (const id of Object.keys(CHAPTERS)) {
+      for (const r of CHAPTERS[id].roster ?? []) {
+        const prev = byId.get(r.id)
+        if (prev) {
+          if (NAME_CLASH_GRANDFATHERED.has(r.id)) continue
+          assert.strictEqual(r.name, prev.name,
+            `roster id '${r.id}' is '${prev.name}' in ${prev.chapter} and '${r.name}' in ${id} — dmgSrcName returns whichever comes first, so one of them shows the wrong name and the wrong picture`)
+        } else byId.set(r.id, { name: r.name, chapter: id })
+      }
+    }
+
+    // (e7) THE SAVE MIGRATION. `chapters.shelf` used to hold the light chapter's ladder, and slot 2
+    // is now a different chapter. Without the move in loadMeta the failure is not a wipe, it is
+    // SILENT MISATTRIBUTION: a never-played murk chapter inherits five wins and someone else's best
+    // times, while `twilight` is created by ensureChapterMeta as `unlocked: id === 'body'` — locked,
+    // holding none of the progress it earned. Nothing looks wrong, which is what makes it worse.
+    {
+      // A REALISTIC dev save: the whole shipped five-rung Undertow ladder beaten, which is the only
+      // shape this migration ever meets. (Seeding `shelf` alone was tried first and made the no-gap
+      // check below fail for a reason that was the SEED's fault, not the migration's — slot 5 open
+      // over four rungs nobody had played. A fixture that cannot occur proves nothing about one that
+      // can.)
+      const rung = (d) => ({ unlocked: true, maxDifficulty: d, difficulty: d, won: d, best: { time: 0, kills: 0 } })
+      const seeded = { schema: SCHEMA, coins: 0, runs: 1, lang: 'en', chapter: 'body', shop: {}, best: {}, dev: true,
+        chapters: { surf: rung(5), reef: rung(5), trawl: rung(5), deep: rung(5),
+          shelf: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5, best: { time: 123, kills: 45 } } } }
+      globalThis.localStorage = { getItem: () => JSON.stringify(seeded), setItem: () => {}, removeItem: () => {} }
+      const m = loadMeta()
+      assert.strictEqual(m.chapters.twilight?.maxDifficulty, 5,
+        'the light chapter\'s ladder did not follow it to `twilight` — its progress is being read as the murk chapter\'s')
+      assert.strictEqual(m.chapters.twilight?.best?.time, 123, 'the moved ladder lost its best times')
+      assert.strictEqual(m.chapters.shelf?.maxDifficulty, 1,
+        'the NEW murk chapter inherited the light chapter\'s ladder — a chapter nobody has played shows its stars')
+      assert.strictEqual(m.chapters.shelf?.won ?? 0, 0, 'the new murk chapter inherited wins it never earned')
+      // …and the generalised retroactive unlock must leave no locked rung under an unlocked one.
+      // That loop read CHAPTER_ORDER (Book 1 only) until this change, so it had never run for Book 2.
+      let sawLocked = null
+      for (const id of BOOKS.undertow.chapters) {
+        if (!m.chapters[id].unlocked) sawLocked = id
+        else assert.ok(!sawLocked, `${id} is unlocked but ${sawLocked} below it is not — a locked rung under an open one`)
+      }
+      delete globalThis.localStorage
+    }
+
+    console.log(`PASS run US.j (shelf/twilight split): ${Object.keys(BARS).length} chapter bars map as designed (murk costs sight only, the dark still slows), ` +
+      `the sun arsenal followed the light and no sun card is left in the murk, formScale climbs ${scales.map(([, s]) => s).join(' -> ')} across ${scales.length} rungs, ` +
+      `refillLook '${[...declared].join("','")}' resolves both ways, ${Object.keys(CHAPTERS).length} chapters cast only their own roster, ` +
+      `and ${byId.size} roster ids agree on their names`)
   }
 }
 

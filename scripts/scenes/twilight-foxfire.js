@@ -1,8 +1,8 @@
-// Scene: The Shelf's Foxfire, LIT and DARK in the same frame. The radius the dark buys is baked in
+// Scene: The Twilight's Foxfire, LIT and DARK in the same frame. The radius the dark buys is baked in
 // at cast (FOXFIRE_GLOOM), so a cloud kindled while the bar was full and one kindled while it was
 // empty can coexist — which is the only way to get the card's whole mechanic into one picture.
 //
-//   node scripts/fx-probe.mjs --scene scripts/scenes/shelf-foxfire.js --out /tmp/ff --frames 10 --chapter shelf
+//   node scripts/fx-probe.mjs --scene scripts/scenes/twilight-foxfire.js --out /tmp/ff --frames 10 --chapter twilight
 //
 // What the frames have to answer:
 //   1. are the two clouds OBVIOUSLY different sizes, at a glance, without reading the note?
@@ -15,7 +15,7 @@
 // one is how the weapon shipped with no visual at all: every captured frame here writes
 // `run.charge = run.chargeMax`, so the dark is never on screen, and in the dark the cloud used to be
 // absent rather than merely dim (see FOXFIRE_GLOW in config.js). Shoot
-// scripts/scenes/shelf-foxfire-dark.js for the bar the card is actually taken on.
+// scripts/scenes/twilight-foxfire-dark.js for the bar the card is actually taken on.
 // The bar is dropped to 0 only for the frames in which the cast is COMPUTED, and put back up for
 // every frame that is captured. That is sound for the radius comparison precisely because gloom is
 // snapshot at cast: the cloud keeps the size the dark bought it no matter what the bar does

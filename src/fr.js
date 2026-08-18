@@ -1139,11 +1139,20 @@ const CONFIG = {
   'Amoeba': 'Amibe',
   'Tadpole': 'Têtard',
   'Tardigrade': 'Tardigrade',
-  // The Shelf (Book 2). 'Krill' is the French word too. 'Méduse Lune' over the real common
+  // Book 2 plankton. 'Krill' is the French word too. 'Méduse Lune' over the real common
   // name 'Aurélie', which is correct but reads as a first name rather than an animal.
+  // These three no longer share a chapter: the copepod and the krill went down to The Twilight
+  // with the light (diel migration is what the mesopelagic is made of), the moon jelly stayed at
+  // The Shelf (Aurelia blooms are the signal of exactly the water that chapter is about).
   // The Surf (Book 2 chapter 1).
   'The Surf': 'Snorkeling',
   'The Shelf': 'Le Large',
+  'in troubled water': 'En eaux troubles',
+  // The Twilight (Book 2 chapter 5). Owner's pick over 'La Pénombre' and 'Le Crépuscule':
+  // 'entre deux eaux' is the real French diving term for mid-water, neither surface nor bottom,
+  // and it places the chapter in the column rather than in a time of day.
+  'The Twilight': "L'Entre-deux-eaux",
+  'Twilight': 'Entre-deux',
   'The Reef': 'Le Récif',
   'the tide decides': 'la marée décide',
   'the light only goes down': 'la lumière ne fait que diminuer',

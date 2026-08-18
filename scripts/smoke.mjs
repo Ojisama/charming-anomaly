@@ -1,7 +1,7 @@
 // Does every chapter actually RENDER, at both screen sizes?
 //
 //   node scripts/smoke.mjs                        # every chapter, phone + desktop
-//   node scripts/smoke.mjs --chapter shelf        # one chapter
+//   node scripts/smoke.mjs --chapter twilight        # one chapter
 //   node scripts/smoke.mjs --phone                # skip the desktop pass
 //   node scripts/smoke.mjs --url http://127.0.0.1:5173/   # defaults to a dev server on 5173
 //

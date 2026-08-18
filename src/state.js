@@ -278,14 +278,39 @@ export function loadMeta() {
       // gate on needs no migration and cannot produce a chapter with no ledger. Harmless for a
       // player — ensureChapterMeta defaults `unlocked` to `id === 'body'`, so a WIP entry is created
       // locked and nothing on the title reads it unless meta.dev is on.
+      // v7.x THE SHELF -> THE TWILIGHT (2026-08-17). The light chapter kept its whole mechanic and
+      // moved from slot 2 to slot 5 under a new id, and a NEW chapter took the id `shelf` at slot 2.
+      // Without this, the ledger silently MISATTRIBUTES rather than losing anything, which is worse:
+      // `chapters.shelf` (five wins, best times) would be read as the murk chapter's, so a
+      // never-played chapter shows five gold stars on the bookcase, while `twilight` is created by
+      // ensureChapterMeta below as `unlocked: id === 'body'` — i.e. LOCKED, holding none of the
+      // progress it actually earned.
+      //
+      // Runs at most once, guarded on `twilight` being absent, and MOVES rather than copies: the
+      // entry belongs to the light, which is now called twilight, and slot 2 is a genuinely new
+      // chapter that should start where every new chapter starts. Deleting the old key is safe under
+      // R2 (additive-only) because the key is not being removed from the SCHEMA — it is immediately
+      // recreated by ensureChapterMeta on the next line, fresh.
+      if (m.chapters && m.chapters.shelf && !m.chapters.twilight) {
+        m.chapters.twilight = m.chapters.shelf
+        delete m.chapters.shelf
+      }
       for (const id of ALL_CHAPTER_IDS) ensureChapterMeta(m, id)
       // Retroactive chapter unlocks: a chapter that shipped AFTER the player already beat the
       // previous one at CHAPTER_UNLOCK_DIFFICULTY+ unlocks on load — winning level d raises that
       // chapter's maxDifficulty to d+1, so maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY proves the
       // qualifying win even though endRun couldn't unlock a chapter that didn't exist yet.
-      for (let i = 1; i < CHAPTER_ORDER.length; i++) {
-        const prev = m.chapters[CHAPTER_ORDER[i - 1]]
-        if (prev?.maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY) m.chapters[CHAPTER_ORDER[i]].unlocked = true
+      //
+      // EVERY BOOK'S LADDER, not CHAPTER_ORDER's. This loop read `CHAPTER_ORDER` (which is
+      // BOOKS.book1.chapters) until 2026-08-17, so it had never run for Book 2 at all — a chapter
+      // inserted into the middle of the Undertow ladder left a LOCKED rung sitting under an unlocked
+      // one, re-openable only by re-beating the chapter before it. Found in adversarial review of
+      // the murk-chapter change; the fix is worth more than the change that prompted it.
+      for (const book of Object.values(BOOKS)) {
+        for (let i = 1; i < book.chapters.length; i++) {
+          const prev = m.chapters[book.chapters[i - 1]]
+          if (prev?.maxDifficulty > CHAPTER_UNLOCK_DIFFICULTY) m.chapters[book.chapters[i]].unlocked = true
+        }
       }
       // R3 (see ensureChapterMeta above): floor only. A future build's higher choiceSlots is kept
       // exactly as stored — clamping it here would persist the smaller number — and createRun
@@ -706,7 +731,7 @@ function generateWells(sig) {
  *   because 63 loops in sim.js walk run.enemies with for...of while dealing damage, and for...of
  *   re-reads the array's length every iteration — so anything appended mid-loop is visited by that
  *   same loop. A splitter's children were therefore struck by the cast that killed their parent:
- *   measured at 495 of 657 children over 3 seeded 300s Shelf runs, with 378 of 526 child deaths
+ *   measured at 495 of 657 children over 3 seeded 300s Twilight runs, with 378 of 526 child deaths
  *   landing in the birth frame. Anything else that ever spawns an enemy mid-step belongs here too.
  *
  * enemies[i]: { id, type, x, y, hp, maxHP, radius, speed, dmg, elite, xp,
@@ -759,14 +784,18 @@ function generateWells(sig) {
  *               MOWER_GAP_MIN..MAX seconds once run.time passes MOWER_FIRST_T, one pass at a time.
  *               It was briefly an elite flag (v6.6.14) and before that 'sprayStrip', which marked a
  *               rectangle on the player from an elite that could be anywhere — no visible cause.
- * dash (v7.x): the picked roster entry's optional `dash` object, `{restMul, lenMul}`, or null —
- *               per-CREATURE overrides for the dashBurst timings, multiplying DASH_IDLE_T and
- *               DASH_T respectively. Read only by stepDashBurst, which resolves both once at the
+ * dash (v7.x): the picked roster entry's optional `dash` object, `{restMul, lenMul, spdMul}`, or
+ *               null — per-CREATURE overrides for the dashBurst machine, multiplying DASH_IDLE_T,
+ *               DASH_T and DASH_SPEED_MUL respectively. spdMul reaches the LUNGE only: the idle and
+ *               the off-screen walk-in keep their own speeds, and a creature carrying both spdMul
+ *               and lenMul lunges lenMul x spdMul as far.
+ *               Read only by stepDashBurst, which resolves all three once at the
  *               top and uses the resolved values at all four places it sets a phase timer (reading
  *               a global at any one of them is a silent half-override; the off-screen rewind is the
  *               easiest to miss and run RO.d exists for it). null on every enemy in the game except
- *               The Surf's Sea Roach — the point of the field is that a chapter can soften ONE of
- *               its creatures without moving DASH_* for the four other chapters that share them.
+ *               The Surf's Sea Roach and The Twilight's Krill — the point of the field is that a
+ *               chapter can soften ONE of its creatures without moving DASH_* for the other
+ *               chapters that share them. run RO.b pins the exact set that carries an override.
  * rosterId (v5.0): the picked roster entry's id (config.js), or null if the chapter's roster had
  *               no entry for this enemy's archetype — reserved for render/HUD skins later, no
  *               sim.js behavior keys off it directly (flags/hpMul/speedMul already applied).
@@ -1041,7 +1070,7 @@ function generateWells(sig) {
  *   force is already applied, to the player and every enemy, and to a tideCarried bloom cloud).
  * shafts[i]: { x, y, bx, by, r, phase, _cell, gape?, _shutT? } — v7.x Book 2: streamed REFILL
  *   CIRCLES the player stands in to refill `charge`. ONE list fed from any of FOUR places, decided
- *   by refillSpec() (config.js): The Shelf's sun shafts (its signature IS the refill spec:
+ *   by refillSpec() (config.js): The Twilight's sun shafts (its signature IS the refill spec:
  *   cell/chance/r/minDist/driftAmp/driftHz sit directly on it), The Surf's tide pools
  *   (CHAPTERS.surf.signature.pools — no drift, since a pool is a hole in the sand rather than
  *   something that moves), The Reef's air pockets (CHAPTERS.reef.signature.pockets — no drift
@@ -1063,8 +1092,8 @@ function generateWells(sig) {
  *   and a collision is silent, reading as "the mechanic spawns on top of the other one".
  *   UNLIKE eddies there IS a dedicated stepper: streamShafts decides existence only and
  *   early-returns unless the player crossed a cell boundary, so it structurally cannot move
- *   anything — stepShafts does that every frame, gated on signature.type === 'shafts' so only The
- *   Shelf's field drifts. bx/by are the streamed BASE position and x/y the drifted (or, on The
+ *   anything — stepShafts does that every frame, gated on signature.type === 'shafts', which BOTH
+ *   The Twilight (sun shafts) and The Shelf (clean-water upwellings) declare, so both fields drift. bx/by are the streamed BASE position and x/y the drifted (or, on The
  *   Surf, identical) one; drift is a pure function of run._realTime and `phase`, storing no state
  *   and consuming no RNG. _realTime and NOT run.time, which the Time Debt anomaly advances at 1.5x.
  * sandbars[i]: { x, y, r, _cell } — Book 2 / The Surf: streamed dry patches (CHAPTERS.surf.signature
@@ -1074,7 +1103,7 @@ function generateWells(sig) {
  *   ([] everywhere else). A sandbar never moves, so unlike a shaft it has no drift and no per-frame
  *   stepper — sim.js's onSandbar reads the list directly, centre-to-centre against `r`, exactly like
  *   stepCharge's shaft test. Zero RNG at step time, like every streamer above.
- * charge: number — the chapter resource bar (CHAPTERS[chapter].resource — The Shelf's 'Light', The
+ * charge: number — the chapter resource bar (CHAPTERS[chapter].resource — The Twilight's 'Light', The
  *   Surf's 'Humidity' and The Reef's 'Air'). Drains passively, refills inside a refill circle
  *   (run.shafts: a shaft here, a tide pool there, an air pocket in the third, an anglerfish's open
  *   mouth in the fourth) and (with Light Thief bought) per kill, clamped to [0, resource.max].
@@ -1097,7 +1126,7 @@ function generateWells(sig) {
  *        read their condition off the screen without consulting the rail. The first cut ramped the
  *        alpha of a uniform screen-wide sheet instead; owner: "you are the source light, you emit
  *        the light, but the less light you have, the less far you emit". Gated on `resource.dark`,
- *        which only The Shelf declares;
+ *        which The Shelf (murk), The Twilight (dark) and The Deep (dark) all declare;
  *     3. YOUR DAMAGE, on the chapters whose `resource` declares a `damage` block — currently The
  *        Surf's Humidity alone. resourceDamageMul(charge, res) (config.js) scales linearly from
  *        `damage.floor` at an empty bar to 1.0 at a full one, and both player-damage sites in sim.js
@@ -1504,7 +1533,7 @@ function generateWells(sig) {
  *   are distinguishable. Damage decays BREATH_JUMP_DMG_MUL per jump. See fireBreath/stepArcs.
  *
  * THE SURF's three natives add NO run.* array. Each is built from an entity the game already had,
- * which is the same argument The Shelf's block below makes about reusing run.bombs/run.strips:
+ * which is the same argument The Twilight's block below makes about reusing run.bombs/run.strips:
  *   - Breaker: a run.novas entry carrying `arc` (full cone angle, radians, centred on `angle`) and
  *     `carry` (px/s^2 of continued outward push). A nova WITHOUT those two behaves exactly as every
  *     nova always has — the sector gate and the carry are both skipped — so no other weapon moved.
@@ -1959,7 +1988,7 @@ export function createRun(meta, opts = {}) {
     // v7.x Book 2: REFILL CIRCLES (sim.js streamShafts/stepShafts), the same _obstacleSeed streaming
     // idiom as obstacles/eddies above with its OWN salts and its OWN cell cursor. Unconditional
     // like eddies, so every chapter carries the field, but only a signature refillSpec() recognises
-    // ever fills it — The Shelf's sun shafts, The Surf's tide pools and The Reef's air pockets,
+    // ever fills it — The Twilight's sun shafts, The Surf's tide pools and The Reef's air pockets,
     // which are the same circle with three names and three looks (render.js's refillLook draws
     // whichever). Kept as `shafts` rather than renamed: the field name is quoted as a string in the
     // test suite and in this doc block, which is one of the two silent failure modes CLAUDE.md's
@@ -1978,7 +2007,7 @@ export function createRun(meta, opts = {}) {
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
     _sandCellJ: null,
-    // The chapter's resource bar (CHAPTERS[chapter].resource — The Shelf's Light, The Surf's
+    // The chapter's resource bar (CHAPTERS[chapter].resource — The Twilight's Light, The Surf's
     // Humidity, The Reef's Air; see the charge doc above for what each one drives). Starts FULL, at
     // the (possibly Deep-Lungs-raised) ceiling below: the first minute of a run should teach the
     // drain, not open on an empty bar the player has not been shown how to fill. 0 for every

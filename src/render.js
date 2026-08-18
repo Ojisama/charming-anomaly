@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -19,7 +19,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
   LURE_GLOW, MAW_VIS, // The Deep: the anglerfish maw and its esca punched through the dark scrim
-  FOXFIRE_GLOW,       // The Shelf: a foxfire punched through the same scrim — a fire is a light
+  FOXFIRE_GLOW,       // The Twilight: a foxfire punched through the same scrim — a fire is a light
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
 
@@ -860,7 +860,13 @@ export function createRenderer(app) {
   // jelly". So the cast is the PLANKTON COLUMN, at the pond's own size class: nothing here is
   // bigger than the tardigrade it replaces, and two of the three are smaller.
   //
-  // The Shelf floor is mid-blue (bg 0x18567f under blotches multiplied by floorTint 0x9fd6f0), so —
+  // These three were baked for the chapter at slot 2 when it was still the light chapter, whose
+  // floor was mid-blue (bg 0x18567f, floorTint 0x9fd6f0). BOTH of those palettes moved on
+  // 2026-08-17 — the copepod and the krill went down to The Twilight (0x04192e / 0x80a0b8) and
+  // the jelly stayed at a Shelf that is now murk (0x2e4f52 / 0xb6c9bd) — so re-read the contrast
+  // argument below against BOTH floors rather than trusting it. It survives because it is an
+  // argument about VALUE and HUE separation, and both new floors are still mid-value, but that
+  // is a thing to check with a shot and not a thing to assume. Originally: mid-blue floor, so —
   // exactly as in the pond above — the three have to separate from the water on VALUE and HUE and
   // from each other as well. Warm is the whole opportunity: nothing else in this chapter is warm,
   // and it is also true to life (copepods and krill are carotenoid orange-red), so two of the three
@@ -1055,7 +1061,7 @@ export function createRenderer(app) {
   // reason — r = 26 is the hitbox, and the tentacles are overhang exactly like the tadpole's tail.
   //
   // It is a LANTERN: dark body, lit rim, a bead of light at every tentacle tip. This chapter dims
-  // its own world (The Shelf's Light bar), and a creature that EMITS rather than reflects is the one
+  // its own world (The Twilight's Light bar), and a creature that EMITS rather than reflects is the one
   // still readable at the edge of your lamp. That inverts the role it used to play in the cast, so
   // the art-direction block above is written to match rather than left to contradict it.
   //
@@ -3835,9 +3841,11 @@ export function createRenderer(app) {
     amoeba: { archetype: 'normal', draw: drawAmoeba, lean: 0 },        // radial blob, pseudopods in 4 directions; no nose
     tadpole: { archetype: 'fast', draw: drawTadpole, lean: 90 },       // top-down: nose +x, tail -x, lateral eyes in a ±y pair
     tardigrade: { archetype: 'tank', draw: drawTardigrade, lean: 30 }, // 3/4: all 7 legs at +y, eyespot at -y
-    // v7.x The Shelf (Book 2). Replaces the pond ids this chapter was standing in with; every flag
-    // is inherited unchanged, so these three are a repaint of amoeba/tadpole/tardigrade and not a
-    // re-tune. A missing key here is SILENT — syncEnemies falls through to a generic archetype blob.
+    // v7.x Book 2 plankton. Replaces the pond ids the chapter at slot 2 was standing in with; every
+    // flag is inherited unchanged, so these three are a repaint of amoeba/tadpole/tardigrade and not
+    // a re-tune. THEY NO LONGER SHARE A CHAPTER (2026-08-17): the copepod and the krill went down to
+    // The Twilight with the light, the moon jelly stayed at The Shelf, which is the murk chapter now.
+    // A missing key here is SILENT — syncEnemies falls through to a generic archetype blob.
     copepod: { archetype: 'normal', draw: drawCopepod, lean: 90 },     // top-down: antennae, legs, setae and egg sacs all ±y mirrored
     krill: { archetype: 'fast', draw: drawKrill, lean: 90 },           // top-down: stalked eyes, leg rows and tail fan all ±y mirrored
     // side elevation: apex +x, mouth and tentacles -x, mirrored about that axis — so it rotates
@@ -4323,7 +4331,7 @@ export function createRenderer(app) {
       // the only saturated red in it. Same blade, folded into the chapter's own colour. Tinting
       // wasn't an option: a blue tint on a red bake multiplies to mud.
       T.beamSweep = blade(0x2d2a8c, 0x4b46d6, 0x8f7dff, 0xf0ecff)
-      // The Shelf's Sunlance is the THIRD weapon through run.beams, and it needed the third blade
+      // The Twilight's Sunlance is the THIRD weapon through run.beams, and it needed the third blade
       // for the reason stated one line up: it is not `swept`, so it fell into the saber's arm and a
       // shaft of SUNLIGHT came out crimson. Re-tinting the bar was tried first and is the mud this
       // block already warns about — gold multiplied onto a red bake is brown. Baked warm instead:
@@ -8485,7 +8493,7 @@ export function createRenderer(app) {
   // projectiles. One Graphics rather than a sprite pool — see drawBreakers for why an arc cannot be
   // a scaled texture.
   const breakerG = new Graphics()
-  // The Shelf's Sunspear. Additive, like every other light in this chapter (the sun shafts' own
+  // The Twilight's Sunspear. Additive, like every other light in this chapter (the sun shafts' own
   // sheen is a `blendMode = 'add'` sprite): the chapter it lands in is dark, and a flat fill over a
   // dark floor reads as paint rather than as light.
   const columnG = new Graphics()
@@ -9514,6 +9522,13 @@ export function createRenderer(app) {
     // decorative: chapterBiome falls back to BIOMES.body for an unknown id, so without this line
     // The Shelf draws villi and platelets under a blue tint.
     shelf: BIOME_SHELF,
+    // ⚠ THE TWILIGHT IS ALIASED TO THE SHELF'S FAMILY, AND THAT IS A NAMED STAND-IN (2026-08-17).
+    // These are shelf-floor props seen four chapters deeper, carried by the two chapters' very
+    // different floorTints rather than by their own art. Defensible only because they are already
+    // OCEAN props — the failure this repo has actually shipped is the other kind, where The Shelf
+    // spent a version aliased to BIOME_POND and drew reeds in open water. Phase 3 authors
+    // BIOME_TWILIGHT; until then this line is the difference between a stand-in and villi.
+    twilight: BIOME_SHELF,
     // Load-bearing for the same reason as the line above it: a chapter with no BIOMES entry does not
     // throw and does not warn, it silently draws ANOTHER chapter's world (chapterBiome falls back to
     // BIOMES.body, which is how The Surf shipped villi, platelets and plasma motes on its beach).
@@ -10599,7 +10614,7 @@ export function createRenderer(app) {
   // all: this function early-returned on `signature.type === 'shafts'`, so the tide pools — the only
   // way to refill Humidity, which drives the chapter's damage — drew nothing whatsoever. The gate is
   // now refillLook (see reset), which asks the same refillSpec() question the streamer asks.
-  //   'shaft' — The Shelf. A warm additive column of light. `body` is unused and stays cleared.
+  //   'shaft' — The Twilight. A warm additive column of light. `body` is unused and stays cleared.
   //   'pool'  — The Surf. A hole in wet sand with water standing in it: a damp collar, a dark water
   //             body, an off-centre shallow shelf, a bright meniscus, and one soft additive sheen
   //             for the sky caught on the surface. Drawn from directly overhead like everything
@@ -10725,6 +10740,7 @@ export function createRenderer(app) {
     const pool = refillLook === 'pool'
     const pocket = refillLook === 'pocket'
     const maw = refillLook === 'maw'
+    const upwelling = refillLook === 'upwelling'
     const P = pocket ? AIR_POCKET_VIS : TIDE_POOL_VIS
     const list = run.shafts
     while (shaftPool.length < list.length) shaftPool.push(acquireShaft())
@@ -10848,6 +10864,23 @@ export function createRenderer(app) {
           sv.body.circle(0, 0, ar).fill({ color: P.air, alpha: P.airA })
           sv.body.circle(-ar * 0.16, -ar * 0.13, ar * 0.5).fill({ color: P.lobe, alpha: P.lobeA })
           sv.ring.circle(0, 0, sh.r).stroke({ width: P.rimW, color: P.rim, alpha: P.rimA })
+        } else if (upwelling) {
+          // CLEAN WATER (The Shelf). The sun-shaft branch at the bottom of this chain, inverted in
+          // temperature — see UPWELLING_VIS for why these two have to be told apart by eye rather
+          // than trusted to differ because their chapters do. Same geometry, opposite arrival.
+          //
+          // ⚠ IT SITS ABOVE THE `pool` BRANCH ON PURPOSE. Run TP source-slices that branch by
+          // searching for its own opening line and reading to the next else, then asserts the slice
+          // strokes nothing and draws no circles. A look inserted BELOW pool lands inside that slice
+          // and fails an assertion about a chapter it has nothing to do with, so put new looks above
+          // it. Do not quote either anchor line verbatim in a comment either: indexOf finds the
+          // comment first and the slice becomes a fragment of prose. (Both mistakes made here, in
+          // that order, on 2026-08-17.)
+          const U = UPWELLING_VIS
+          sv.glow.tint = U.sheen
+          sv.body.circle(0, 0, sh.r).fill({ color: U.core, alpha: U.coreA })
+          sv.ring.circle(0, 0, sh.r).stroke({ width: U.rimW, color: U.rim, alpha: U.rimA })
+          sv.ring.circle(0, 0, sh.r * U.innerFrac).stroke({ width: U.rimW * 0.6, color: U.rim, alpha: U.rimA * 0.5 })
         } else if (pool) {
           // Concentric depth steps, outside in, each darker than the one around it — see
           // TIDE_POOL_VIS for why the collar, the shelf and the meniscus are gone. `ring` stays
@@ -13184,7 +13217,7 @@ export function createRenderer(app) {
         const ang = animT * 0.6 + k * 2.1
         s.position.set(Math.cos(ang) * off, Math.sin(ang) * off)
         s.scale.set(sc * (k === 0 ? 1 : 0.72) * (1 + 0.05 * Math.sin(animT * 3 + k)))
-        // The Shelf's Foxfire shares this pool. Near-WHITE with a mint fringe, not the blue it
+        // The Twilight's Foxfire shares this pool. Near-WHITE with a mint fringe, not the blue it
         // started as: this chapter's water is 0x18567f and its floor wash 0x9fd6f0, so a pale blue
         // fire on it is a blue smudge on blue — the first probe of this weapon came back with the
         // cloud all but invisible. What separates a cold fire from this floor is VALUE, not hue,
@@ -15971,7 +16004,7 @@ export function createRenderer(app) {
           addShake(2, 0.12)
           break
 
-        // The Shelf. A column LANDING — white-hot, and thrown outward along the floor rather than
+        // The Twilight. A column LANDING — white-hot, and thrown outward along the floor rather than
         // up, because the light came down and what scatters is the water it hit. The fall itself is
         // drawn every frame by drawColumns; this is only the last beat of it.
         case 'sunfall': {
@@ -17774,7 +17807,7 @@ export function createRenderer(app) {
     // the whole weapon test — a pool slot serves either weapon, hence swapping here and not in
     // acquireBeam. Both bakes share geometry, so the anchor spriteOf set still holds.
     const swept = b.swept === true
-    // The Shelf's Sunlance is the third weapon through this pool, and `swept` alone can no longer
+    // The Twilight's Sunlance is the third weapon through this pool, and `swept` alone can no longer
     // decide the palette: a lance does NOT sweep (it is a stab held on one bearing), so it fell into
     // the Neon Beam's arm and came out red — the one colour a shaft of sunlight cannot be. It keeps
     // the unswept BAKE (it is a straight beam) and takes its own tints.
@@ -17886,15 +17919,23 @@ export function createRenderer(app) {
     flowVis = flowKind === 'tide' ? TIDE_VIS : CURRENT_VIS
     for (const p of currentStreaks) { p.a.tint = flowVis.tint; p.b.tint = flowVis.tint }
     chapterHasEddies = !!(sigType === 'currents' && cfg?.signature?.eddies)
-    // refillSpec() and not signature.type: The Shelf's shafts ARE its signature, The Surf's pools
+    // refillSpec() and not signature.type: a `shafts` signature IS its own refill spec, The Surf's pools
     // hang off signature.pools, and streamShafts fills run.shafts from whichever one exists. Asking
     // the same question the streamer asks is what keeps "the sim made a circle" and "the renderer
     // draws a circle" from being two independent chapter tests that can disagree.
     // `maws` is tested by NAME rather than by sigType, because The Deep's signature type is `dark`
     // — the light — and the refill hangs off it as a second field. Asking for the field is asking
     // refillSpec's own question; asking for the type would have quietly fallen through to 'pool'.
+    // An explicit `signature.refillLook` WINS over the shape-derived answer, and that override is
+    // what lets two chapters share a signature shape without sharing a drawing. The Shelf's
+    // upwellings are the sun-shaft field exactly — same cell, chance, radius and drift — so the
+    // derivation below would hand a murk chapter warm gold sun columns, which is the borrowed-art
+    // trap with no borrowed weapon involved. Declared rather than derived because the sim and the
+    // renderer must keep agreeing about the GEOMETRY (that is what asking refillSpec's own question
+    // buys) while disagreeing about the paint.
     refillLook = cfg?.signature && refillSpec(cfg.signature)
-      ? (cfg.signature.maws ? 'maw' : sigType === 'shafts' ? 'shaft' : sigType === 'air' ? 'pocket' : 'pool')
+      ? (cfg.signature.refillLook
+          ?? (cfg.signature.maws ? 'maw' : sigType === 'shafts' ? 'shaft' : sigType === 'air' ? 'pocket' : 'pool'))
       : null
     chapterHasMaws = refillLook === 'maw'
     swellCfg = cfg?.render?.swell ?? null
