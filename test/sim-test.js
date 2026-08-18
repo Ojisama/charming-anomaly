@@ -135,7 +135,7 @@ import {
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
   STAT_KEYS,
   // The Wreck's prey rework (Run WK)
-  PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_SHOAL_SIZE,
+  PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_SHOAL_SIZE, CHUM_PANIC_R,
   GNASH_MAW_MUL, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   BALLAST_RING,
 } from '../src/config.js'
@@ -5489,6 +5489,8 @@ function runBookProgression() {
   // literal in the same style as the two EARLY_CALM rulings above: an owner-set number that a later
   // edit must not drift silently.
   assert.strictEqual(CHAPTERS.surf.archetypeMul?.tank, 0.41, '20% fewer Shore Crabs again (owner ruling 2026-08-17), measured not derived')
+  // The Wreck's moray, pinned to the ruling that set it rather than to whatever the file says today.
+  assert.strictEqual(CHAPTERS.wreck.archetypeMul?.tank, 0.3, '70% fewer Morays (owner ruling 2026-08-18)')
   // The archetypeMul key must be a real ARCHETYPE, not a WAVE_TABLE spawn type — indexing the
   // wrong way silently did nothing until v5.5 (see TYPE_ARCHETYPE in config.js). run SP.f asserts
   // this same vocabulary but only over CHAPTER_ORDER (book 1) — surf is Book 2 and outside that
@@ -6423,7 +6425,7 @@ function runPrey() {
     return e
   }
 
-  // -- WK.a: they RUN. The whole premise, with the flag removed as the control. -----------------
+  // -- PY.a: they RUN. The whole premise, with the flag removed as the control. -----------------
   {
     const measure = (flags) => {
       const run = mk()
@@ -6444,7 +6446,7 @@ function runPrey() {
     console.log(`PASS run PY.a (they run): skittish +${prey.toFixed(0)}px in 2s vs the same fish flagless at ${control.toFixed(0)}px`)
   }
 
-  // -- WK.b: they CANNOT HURT YOU. The half that lives in a different function. -----------------
+  // -- PY.b: they CANNOT HURT YOU. The half that lives in a different function. -----------------
   // Sat ON the player, which is the worst case the chapter can produce and the one 620 concurrent
   // bodies will find on their own.
   {
@@ -6467,7 +6469,7 @@ function runPrey() {
     console.log(`PASS run PY.b (harmless): 5s sat on the player costs 0 HP, where the same fish flagless costs ${control}`)
   }
 
-  // -- WK.c: they run as a SCHOOL. -------------------------------------------------------------
+  // -- PY.c: they run as a SCHOOL. -------------------------------------------------------------
   // The cheap part of the design and the part most likely to be "simplified" away later: the shoal
   // is an id bucket, so two fish spawned together must break the same way and two from different
   // buckets must not. Without it the field scatters radially and there are no schools at all.
@@ -6504,39 +6506,73 @@ function runPrey() {
     console.log(`PASS run PY.c (schools): same bucket breaks ${gap(hA, hB).toFixed(2)} rad apart, a neighbouring shoal ${gap(hA, hC).toFixed(2)} rad`)
   }
 
-  // -- WK.d: GNASH pays for closing. -----------------------------------------------------------
+  // -- PY.d: GNASH pays for closing. -----------------------------------------------------------
   // The falloff runs backwards to every other reach number in the game, which is exactly the kind of
-  // inversion a later editor "fixes". Measured as damage DEALT over many casts at two distances on
-  // one seed, not as a single hit: GNASH_BASE_CRIT puts 10 points of crit on every bite.
+  // inversion a later editor "fixes".
+  //
+  // MEASURED ACROSS ONE CAST, NOT ACROSS TWO RUNS, and that is forced by the weapon itself: since
+  // the bite DARTS (PY.g), it closes on whatever it is aiming at, so a fixture that parks a lone
+  // body at the tip of the arc simply gets a bite that travelled — the far case cannot exist on its
+  // own any more. Two bodies on the same ray can: the dart takes its distance from the NEAREST, and
+  // with that one already inside the jaw nothing moves, so the far body is struck by the same sweep
+  // at a genuine tip distance. That is also the shape the ramp really has in play — several bodies,
+  // one cast, different depths.
   {
     const lv = WEAPONS.gnash.levels[0]
-    const total = (frac) => {
-      const run = mk(20260818)
-      run.weapons = [{ id: 'gnash', level: 1 }]
-      const p = run.player
-      const e = put(run, { x: p.x + lv.range * frac, y: p.y, hp: 1e12, speed: 0 })
-      let dealt = 0
-      for (let i = 0; i < Math.round(20 / dt); i++) {
-        only(run, [e])
-        e.x = run.player.x + lv.range * frac; e.y = run.player.y
-        const before = e.hp
-        stepSim(run, { x: 0, y: 0 }, dt)
-        dealt += before - e.hp
-      }
-      return dealt
+    const NEAR_F = 0.15, FAR_F = 0.9
+    const run = mk(20260818)
+    run.weapons = [{ id: 'gnash', level: 1 }]
+    const p = run.player
+    const x0 = p.x, y0 = p.y
+    const near = put(run, { x: x0 + lv.range * NEAR_F, y: y0, hp: 1e12, speed: 0 })
+    const far = put(run, { x: x0 + lv.range * FAR_F, y: y0, hp: 1e12, speed: 0 })
+    let dNear = 0, dFar = 0
+    for (let i = 0; i < Math.round(20 / dt); i++) {
+      only(run, [near, far])
+      run.player.x = x0; run.player.y = y0
+      near.x = x0 + lv.range * NEAR_F; near.y = y0
+      far.x = x0 + lv.range * FAR_F; far.y = y0
+      const bn = near.hp, bf = far.hp
+      stepSim(run, { x: 0, y: 0 }, dt)
+      dNear += bn - near.hp
+      dFar += bf - far.hp
     }
-    const jaw = total(0.05)
-    const tip = total(0.95)
-    assert.ok(tip > 0, 'the tip of the bite must still land, or the falloff is a range cut')
-    const ratio = jaw / tip
-    const want = (1 + 0.95 * (GNASH_MAW_MUL - 1)) / (1 + 0.05 * (GNASH_MAW_MUL - 1))
-    // The band is wide enough for crit noise on one seed and far too narrow to survive the ramp
-    // being deleted, which lands the ratio at exactly 1.0.
-    assert.ok(ratio > 1.45 && ratio < 2.15, `a bite at the jaw must be worth ~${want.toFixed(2)}x one at the tip; measured ${ratio.toFixed(2)}x (${jaw} vs ${tip})`)
-    console.log(`PASS run PY.d (the bite pays for closing): ${ratio.toFixed(2)}x more damage at the jaw than at the tip over 20s (predicted ${want.toFixed(2)}x)`)
+    assert.ok(dFar > 0, 'the far body must still be struck, or this is measuring a range cut rather than a falloff')
+    const ratio = dNear / dFar
+    const want = (1 + (1 - NEAR_F) * (GNASH_MAW_MUL - 1)) / (1 + (1 - FAR_F) * (GNASH_MAW_MUL - 1))
+    // Wide enough for crit noise on one seed (GNASH_BASE_CRIT puts 10 points on every bite) and far
+    // too narrow to survive the ramp being deleted, which lands the ratio at exactly 1.0.
+    assert.ok(ratio > 1.30 && ratio < 2.05, `in one cast, a body at ${NEAR_F} of the reach must take ~${want.toFixed(2)}x what one at ${FAR_F} takes; measured ${ratio.toFixed(2)}x (${dNear} vs ${dFar})`)
+    console.log(`PASS run PY.d (the bite pays for closing): one sweep deals ${ratio.toFixed(2)}x more to the near body than the far one over 20s (predicted ${want.toFixed(2)}x)`)
   }
 
-  // -- WK.e: THE LEAK is the only thing that can kill you, and it FOULS you. --------------------
+  // -- PY.g: the bite CLOSES THE GAP, and only when it needs to. --------------------------------
+  // The chapter's food is faster than its weapon's reach, so a bite that does not travel lands on
+  // water. Both halves are asserted, because the conditional is what keeps this from reading as
+  // teleporting: a target already inside the jaw must move the player ZERO px.
+  {
+    const lv = WEAPONS.gnash.levels[0]
+    const travel = (dist) => {
+      const run = mk(20260819)
+      run.weapons = [{ id: 'gnash', level: 1 }]
+      const p = run.player
+      const x0 = p.x, y0 = p.y
+      const e = put(run, { x: p.x + dist, y: p.y, hp: 1e12, speed: 0 })
+      for (let i = 0; i < Math.round(3 / dt); i++) {
+        only(run, [e])
+        e.x = x0 + dist; e.y = y0          // the TARGET is fixed in world space; the player may move
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return Math.hypot(run.player.x - x0, run.player.y - y0)
+    }
+    const far = travel(lv.range * 3)
+    const near = travel(lv.range * 0.2)
+    assert.ok(far > 40, `a bite at a body well out of reach must CLOSE on it; the player moved ${far.toFixed(0)}px`)
+    assert.ok(near < 1, `a bite at a body already inside the jaw must not move the player; it moved ${near.toFixed(1)}px — that is the difference between a lunging bite and a weapon that fights the stick`)
+    console.log(`PASS run PY.g (the bite closes): a far body pulls the player ${far.toFixed(0)}px, one already in the jaw pulls it ${near.toFixed(1)}px`)
+  }
+
+  // -- PY.e: THE LEAK is the only thing that can kill you, and it FOULS you. --------------------
   // Two effects on one hazard, and the second is the one with no other guard: the slow LINGERS past
   // the rim, which is the whole difference between a decision and a tax.
   {
@@ -6574,7 +6610,7 @@ function runPrey() {
     console.log(`PASS run PY.e (the leak): 3s inside costs ${inIt.lost} HP and x${slowRatio.toFixed(2)} speed against 0 and x1 outside, and the fouling holds at x${afterRatio.toFixed(2)} once you are clear`)
   }
 
-  // -- WK.f: a spill is NOT a refill circle. ---------------------------------------------------
+  // -- PY.f: a spill is NOT a refill circle. ---------------------------------------------------
   // The one-line guard on the decision that keeps run.slicks out of run.shafts. stepCharge loops
   // run.shafts handing out resource; if a slick ever lands in that array the chapter's bar THANKS
   // the player for standing in poison, and nothing throws.
@@ -6588,6 +6624,129 @@ function runPrey() {
     assert.ok(run.charge <= c0, `standing in a spill must never RAISE Bloodlust (${c0} -> ${run.charge}) — that is what putting slicks in run.shafts would do`)
     assert.strictEqual(run.shafts.length, 0, 'The Wreck declares no refill circle at all, so run.shafts must stay empty — a non-empty one means refillSpec() started recognising the leak')
     console.log(`PASS run PY.f (a spill is not a refill): 2s in one takes Bloodlust ${c0} -> ${run.charge.toFixed(1)}, and run.shafts stays empty`)
+  }
+
+  // -- PY.h: CHUM turns them round. -------------------------------------------------------------
+  // The one card in the game that makes something already running come back, and it is one boolean
+  // away from being its own opposite: the lure override sets the seek target and stepPrey FLEES the
+  // seek target, so an untagged bait is a repellent that reads as a bug and throws nothing. The
+  // control is the same decoy WITHOUT `bait`.
+  {
+    const gather = (bait) => {
+      const run = mk()
+      const p = run.player
+      // The fish sits between the player and the bait, outside CHUM_PANIC_R of the player so its
+      // nerve holds — inside that radius it bolts whatever the bait says, which is PY.i.
+      // 220px from the bait, which is INSIDE PREY_SIGHT_R — the control has to be able to see the
+      // decoy or it merely drifts, and a drift that happens to wander the right way passes a test
+      // about repulsion. (It did: the first cut put the fish 360px out, past the 340px sight
+      // radius, and the untagged control read +19px toward the thing it was supposed to flee.)
+      // Also outside CHUM_PANIC_R of the PLAYER, or the baited case would bolt instead — PY.i.
+      const e = put(run, { x: p.x + 400, y: p.y, hp: 1e6, speed: 90, flags: ['skittish'] })
+      const bx = p.x + 620, by = p.y
+      run.lures.length = 0
+      run.lures.push({ x: bx, y: by, t: 0, dur: 99, aggro: 900, burstR: 0, burstDmg: 0, bait })
+      const d0 = Math.hypot(e.x - bx, e.y - by)
+      for (let i = 0; i < Math.round(2 / dt); i++) {
+        only(run, [e])
+        if (run.lures.length === 0) run.lures.push({ x: bx, y: by, t: 0, dur: 99, aggro: 900, burstR: 0, burstDmg: 0, bait })
+        run.lures[0].t = 0
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return d0 - Math.hypot(e.x - bx, e.y - by)   // + = it closed on the bait
+    }
+    const baited = gather(true)
+    const plain = gather(false)
+    assert.ok(baited > 50, `a baited fish must come TO the chum; it closed ${baited.toFixed(0)}px in 2s`)
+    assert.ok(plain < 0, `the same decoy untagged must still repel, or the tag is doing nothing and the card only appears to work (moved ${plain.toFixed(0)}px)`)
+    console.log(`PASS run PY.h (chum gathers): a baited fish closes ${baited.toFixed(0)}px on it where the untagged decoy pushes it ${(-plain).toFixed(0)}px away`)
+  }
+
+  // -- PY.i: chum is not an off-switch. ----------------------------------------------------------
+  // The panic override, which is the only thing stopping the card from parking the whole chapter in
+  // one place: a fish that is baited AND close to the player bolts anyway.
+  {
+    const run = mk()
+    const p = run.player
+    // THE BAIT SITS BEHIND THE PLAYER, on the far side from the fish, and that geometry is the
+    // whole test. With the bait BEYOND the fish, "swim to the bait" and "flee the player" both move
+    // it the same way, so the fixture cannot tell the two apart — the mutation that deletes the
+    // panic override survived exactly that. Here they point in opposite directions: panicking sends
+    // the fish +x, and the broken behaviour sends it -x, back through the predator.
+    const e = put(run, { x: p.x + 60, y: p.y, hp: 1e6, speed: 90, flags: ['skittish'] })
+    const bx = p.x - 400, by = p.y
+    const x0 = e.x
+    const d0 = Math.hypot(e.x - p.x, e.y - p.y)
+    for (let i = 0; i < Math.round(1.5 / dt); i++) {
+      only(run, [e])
+      run.lures.length = 0
+      run.lures.push({ x: bx, y: by, t: 0, dur: 99, aggro: 900, burstR: 0, burstDmg: 0, bait: true })
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    const gained = e.x - x0
+    assert.ok(gained > 30, `a baited fish INSIDE ${CHUM_PANIC_R}px must still bolt AWAY from the player (+x), not back toward the bait behind it (-x); it moved ${gained.toFixed(0)}px`)
+    console.log(`PASS run PY.i (chum is not an off-switch): a baited fish ${Math.round(d0)}px from the player still bolts, +${gained.toFixed(0)}px in 1.5s`)
+  }
+
+  // -- PY.j: BILGE is a wall to prey and a drag to everything else. ------------------------------
+  // Both halves, because they look like they contradict each other and do not: prey refuse to enter,
+  // so the slow is what happens to the things that CANNOT refuse.
+  {
+    // THE TWO CASES START IN DIFFERENT PLACES, and they have to: each body must be driven into the
+    // oil BY ITS OWN BEHAVIOUR or the fixture proves nothing about the wall. Prey run away from the
+    // player, so a slick beyond them is in their path; a chaser walks toward the player, so its
+    // slick has to sit between the two. The first cut used one geometry for both and the control
+    // simply walked off in the other direction, never touching the oil it was meant to walk into.
+    const oil = (flags, startX) => {
+      const run = mk()
+      const p = run.player
+      const e = put(run, { x: p.x + startX, y: p.y, hp: 1e6, speed: 90, flags })
+      const bx = p.x + 420, by = p.y
+      let deepest = Infinity
+      for (let i = 0; i < Math.round(3 / dt); i++) {
+        only(run, [e])
+        run.blooms.length = 0
+        run.blooms.push({ x: bx, y: by, t: 0, r: 150, maxR: 150, dur: 99, dmgPerTick: 0, tick: 0, look: 'bilge', slow: 1 })
+        stepSim(run, { x: 0, y: 0 }, dt)
+        deepest = Math.min(deepest, Math.hypot(e.x - bx, e.y - by))
+      }
+      return deepest    // how close to the slick's CENTRE it ever got
+    }
+    const prey = oil(['skittish'], 150)   // fleeing +x takes it into the slick at +420
+    const other = oil([], 600)            // chasing -x takes it through the same slick
+    assert.ok(prey > 150 * 0.6, `prey must refuse the oil; the fish reached ${prey.toFixed(0)}px from the centre of a 150px slick`)
+    assert.ok(other < 150, `a non-prey body must NOT be walled out, or the card is a barrier against everything and the slow half is unreachable (reached ${other.toFixed(0)}px)`)
+    console.log(`PASS run PY.j (the oil is a wall to prey): a skittish fish never gets closer than ${prey.toFixed(0)}px to a 150px slick, where a flagless one walks to ${other.toFixed(0)}px`)
+  }
+
+  // -- PY.k: the button dashes at FOOD. ---------------------------------------------------------
+  // Owner ruling 2026-08-18. The moray is `guard`-windowed, so a Lunge that picks it can spend the
+  // bar on a body that refuses the damage and never pays LUNGE_KILL_REFILL back — and being the
+  // SLOWEST thing in the chapter it is very often the nearest, so the untargeted button chose the
+  // one wrong answer most of the time. The fixture puts the tank CLOSER, which is the case that
+  // used to fail.
+  {
+    const run = mk()
+    const p = run.player
+    run.weapons = []
+    run.charge = CHAPTERS.wreck.resource.max
+    run.repulseCd = 0
+    // Tank at 80px on the -x side; prey at 300px on the +x side. Nearest-anything picks the tank.
+    const tank = put(run, { x: p.x - 80, y: p.y, hp: 1e9, speed: 0, flags: ['guard'] })
+    tank.type = 'tank'
+    const prey = put(run, { x: p.x + 300, y: p.y, hp: 1e9, speed: 0, flags: ['skittish'] })
+    const x0 = p.x
+    let first = true
+    for (let i = 0; i < Math.round(0.4 / dt); i++) {
+      only(run, [tank, prey])
+      tank.x = x0 - 80; tank.y = p.y
+      prey.x = x0 + 300; prey.y = p.y
+      stepSim(run, { x: 0, y: 0, skill: first }, dt)
+      first = false
+    }
+    const dx = run.player.x - x0
+    assert.ok(dx > 30, `the Lunge must dash toward the PREY (+x) and not the nearer tank (-x); the player moved ${dx.toFixed(0)}px`)
+    console.log(`PASS run PY.k (the button dashes at food): with a tank 80px away and prey at 300px, the press carried the player ${dx.toFixed(0)}px toward the prey`)
   }
 
   console.log('PASS run PY (The Wreck: prey): the roster runs from you in schools and cannot touch you, the bite pays for closing, and the leak is the only thing in the chapter that can kill you')
@@ -15501,7 +15660,12 @@ function testSpiderShare() {
   // CHAPTER_ORDER (book 1 only) or ALL_CHAPTER_IDS (drops every `hidden` id). Widening surfaced no
   // real violation — surf's own archetypeMul was already valid (tank vocabulary, value in (0,1],
   // pinned separately at run BP's (aa) block) — it only needed adding to this allowlist.
-  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city', 'skies', 'surf']
+  // v7.x added wreck (owner: "70% less tanks (murènes)", 2026-08-18) — the sixth chapter to hit the
+  // identical one-item-pool wall, and the one where the lever does the most: the moray is the only
+  // body in that chapter you cannot eat on demand, so its share IS the chapter's texture. Weights
+  // being relative, the 0.7 it gives up goes to the two prey entries, which makes the field denser
+  // in food rather than emptier.
+  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city', 'skies', 'surf', 'wreck']
   const spAllChapters = Object.keys(CHAPTERS)
   for (const id of spAllChapters) {
     if (ARCHETYPE_MUL_CHAPTERS.includes(id)) continue
@@ -18386,13 +18550,20 @@ function testWreckBloodlust() {
       run.charge = res.max
       const near = pin(run, 30, 100000)   // already well inside LUNGE_BITE_MUL * PLAYER.radius
       const x0 = run.player.x, y0 = run.player.y
+      // PEAK displacement, not where the player finished. The claim under test is "the dash
+      // happened at all" — the failure it guards is a bite landing on the press frame and the dash
+      // never starting, i.e. a peak of ZERO. Reading the END position instead conflates the dash
+      // with whatever the player did in the 0.2s after it, and since v7.x that includes gnash's own
+      // dart, which pulls back toward the body this fixture leaves pinned BEHIND the player. That
+      // read 89px of a 135px dash and looked exactly like the defect, while the dash was intact.
+      let moved = 0
       for (let i = 0; i < Math.round(0.5 / dt); i++) {
         stepSim(run, { x: 0, y: 0, skill: i === 0 }, dt)
         run.events.length = 0
         if (run.enemies.length !== 1 || run.enemies[0] !== near) run.enemies = [near]
         near.stunT = 999; near.kb.x = 0; near.kb.y = 0
+        moved = Math.max(moved, Math.hypot(run.player.x - x0, run.player.y - y0))
       }
-      const moved = Math.hypot(run.player.x - x0, run.player.y - y0)
       assert.ok(moved > LUNGE_SPEED * LUNGE_DUR_AT_FULL * 0.4,
         `pressing with a body 30px away moved the player ${moved.toFixed(0)}px — the bite landed on the press frame, before the dash had carried anyone anywhere, so the charge bought a nibble instead of a lunge`)
     }

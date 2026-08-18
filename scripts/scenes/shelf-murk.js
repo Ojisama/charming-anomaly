@@ -43,17 +43,7 @@ if (run.shafts.length > 0) {
 // there is no decaying list here, the thing being scrubbed is a sim VALUE that both the renderer
 // and sim.js read through the same darkness() curve. Same shape as twilight-dark's, so the two
 // contact sheets can be laid side by side and compared frame for frame.
-// TWO sweeps in one scene, because the question that brought it back is about their INTERACTION.
-// The bar is held LOW and fixed so the murk is at its working strength in every frame, and what
-// moves across the sequence is the upwelling's own drawdown: frame 0 is fresh water, the last frame
-// is water that has been fully used up.
-//
-// What to look for: by the last frame the upwelling must be gone AND THE MURK MUST HAVE CLOSED OVER
-// IT. Reported from play 2026-08-18 — "faded out clear water pools still give light" — because
-// updateDark punched its hole unconditionally, so a circle that had visibly vanished and had
-// stopped refilling the bar was still cutting a full-strength window in the scrim.
 return (age) => {
-  run.charge = 15
-  for (const sh of run.shafts) sh.drawdown = 5 * age
+  run.charge = 100 * (1 - age)
   H.render()
 }

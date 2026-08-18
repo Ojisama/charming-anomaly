@@ -10830,8 +10830,18 @@ export function createRenderer(app) {
   // the same rule an obstacle footprint follows.
   function syncSlicks(run) {
     slickG.clear()
-    if (!run.slicks || !run.slicks.length) return
-    for (const sl of run.slicks) {
+    // THE PLAYER'S OWN OIL IS DRAWN BY THE HAZARD'S RENDERER (v7.x). A Bilge is a run.blooms entry,
+    // and through the bloom sprite pool it came out as a soft edgeless glow — unusable for a card
+    // whose whole job is to be a WALL, because a barrier you cannot see the edge of is not one.
+    // That is the same contract an obstacle's footprint ring states. Routing it through here gives
+    // it the lobed outline and the rim the chapter's own spills have, and says the other half of
+    // the design out loud: this card is the player doing the leak back.
+    //   syncBlooms filters `bilge` out at its own top, or the oil would draw twice — an edge with a
+    // glow sitting over it, which is the run.lobs three-consumers trap in miniature.
+    const oils = (run.blooms || []).filter((b) => b.look === 'bilge' && b.r > 0)
+    const all = (run.slicks || []).concat(oils)
+    if (!all.length) return
+    for (const sl of all) {
       const pts = lobePoly(sl.r, sl.shape, sl.rot, sl.x, sl.y)
       // The film itself: dark and dead, because that is what it does to the water.
       slickG.poly(pts).fill({ color: 0x14181a, alpha: 0.5 })
@@ -13372,7 +13382,12 @@ export function createRenderer(app) {
     return { root, puffs: [a, b, c] }
   }
   function syncBlooms(run) {
-    const list = run.blooms || []
+    // ⚠ `bilge` IS EXCLUDED HERE because syncSlicks draws it instead — with a lobed outline and a
+    // rim, which a card whose job is to be a WALL needs and this soft-sprite pool cannot give. Left
+    // in both, the same oil would draw twice: an edge with a glow sitting over it. That is the
+    // run.lobs three-consumers trap in miniature, and the reason this line is a comment as well as
+    // a filter.
+    const list = (run.blooms || []).filter((b) => b.look !== 'bilge')
     const n = list.length
     while (bloomPool.length < n) bloomPool.push(acquireBloom())
     // v6.4 Tide-Carried (WEAPON_MODS.bloom.tideCarried): with picks held, stepBlooms drifts each
@@ -13415,12 +13430,20 @@ export function createRenderer(app) {
         // the Spore Bloom's green (same entity, wrong chapter, and the player would read their
         // own silt as a pond toxin) and it must not be Foxfire's mint either.
         const silt = bl.look === 'silt'
+        // `bilge` is The Wreck's oil — the FOURTH card on this array, and the one that must least
+        // look like the other three. It is not a cloud in the water at all: it is a film ON the
+        // bottom, so it is DARK where silt is pale, and it carries the only iridescence in the set,
+        // which is what says oil rather than mud. That also matches the chapter's own hazard slicks
+        // (syncSlicks), deliberately — the card is the player doing the leak back, and a player who
+        // cannot see that their own weapon is the thing that hurts them has been told nothing.
+        const oil = bl.look === 'bilge'
         s.tint = fox
           ? (k % 2 ? 0xeafcff : 0xd9ffe8)
           : silt ? (k % 2 ? 0x9a9670 : 0x6e6a4c)
+          : oil ? (k % 2 ? 0x4b3a63 : 0x1b2128)
           : inEddy ? (k % 2 ? 0x6fe0c0 : 0x3faea0) : (k % 2 ? 0x6fe04a : 0x3fae2f)
         // Denser than a toxin cloud on purpose: this one's job is that you cannot see through it.
-        s.alpha = alpha * (k === 0 ? 0.5 : 0.4) * (fox ? 1.45 : silt ? 1.6 : 1)
+        s.alpha = alpha * (k === 0 ? 0.5 : 0.4) * (fox ? 1.45 : silt ? 1.6 : oil ? 1.7 : 1)
       }
     }
     for (let i = n; i < prevCount.bloom; i++) bloomPool[i].root.visible = false
@@ -13751,6 +13774,31 @@ export function createRenderer(app) {
         lv.eyeL.alpha = lv.eyeR.alpha = inA
         lv.eyeL.position.set(-pr * 0.36, -pr * 0.16)
         lv.eyeR.position.set(pr * 0.36, -pr * 0.16)
+        continue
+      }
+      // CHUM (v7.x, The Wreck) — a bait, not a beacon. Same pooled decoy as the Pheromone Lure and
+      // it must not wear its art: that is an AMBER GLOW WITH TWO SPINNING STARS, which on a sea
+      // floor reads as a magic pickup rather than as offal in the water. `lu.bait` is the sim's own
+      // tag (see stepChumWeapon), the same idiom `lu.minime` above already uses.
+      //   Drawn as a cold, dirty cloud that SPREADS rather than pulses: the stars are switched off
+      // outright, the glow goes murky green-brown, and the ring is dimmed to a soft edge so it reads
+      // as the smell dispersing. It also swells with `inA` instead of throbbing on `pulse` — a
+      // heartbeat is what makes the amber lure read as a device, and chum is not a device.
+      const bait = !!lu.bait
+      if (bait) {
+        lv.star1.visible = lv.star2.visible = false
+        // ⚠ SIZED FROM `lu.aggro`, NOT FROM A CONSTANT, and that is information rather than polish:
+        // this card's entire job is "the shoal will gather HERE", so the reach IS the thing the
+        // player is placing, and a bait drawn at a fixed size lies about it the moment Wide Slick is
+        // picked. Same contract an obstacle's footprint ring states — the edge you can see is the
+        // edge that acts.
+        const reach = lu.aggro || 240
+        // Warm, pale and dirty. The first cut was 0x6b6a3a at 0.42 and photographed as a faint
+        // smudge on a dark blue floor — invisible enough that a player could not tell they had cast.
+        lv.glow.tint = 0xa89a63; lv.glow.alpha = 0.5 * inA
+        lv.glow.scale.set(fxScale(T.fx.circle_05, reach * 0.55 + pulse * 6))
+        lv.ring.tint = 0xd8c489; lv.ring.alpha = 0.34 * inA
+        lv.ring.scale.set(fxScale(T.fx.light_02, reach * 0.95))
         continue
       }
       lv.glow.tint = 0xffd36b; lv.glow.alpha = 0.5 * inA * (0.7 + 0.3 * pulse)
@@ -17362,7 +17410,14 @@ export function createRenderer(app) {
       // frame, and look.faceDir is declared per LOOK, so it cannot express "this INSTANCE has a
       // different target". sim publishes the seek point it already computed as _tgtX/_tgtY.
       // Contract field, read guarded (`|| 0` idiom above): the sim half may not have landed.
-      if ((e.allyT || 0) > 0 && (e._tgtX !== undefined)) {
+      // v7.x THE WRECK: `skittish` joins the ally on this branch, and it is the same fix for the
+      // same reason. Owner: "the fish you can eat should not face you, they should run away from you
+      // in a school." Bearing is derived from run.player above, so a fleeing fish swam BACKWARDS —
+      // tail first, eyes on the predator — in every roster look, and a whole shoal of them read as
+      // an escort rather than an escape. stepPrey publishes its heading into the same _tgtX/_tgtY
+      // that SUBMISSION's allies already use; nothing here had to learn a new field.
+      const facesOwnHeading = (e.allyT || 0) > 0 || (e.flags && e.flags.includes('skittish'))
+      if (facesOwnHeading && (e._tgtX !== undefined)) {
         tdx = e._tgtX - e.x
         tdy = e._tgtY - e.y
       }
