@@ -73,7 +73,7 @@ import {
   PHASE_SOLID_T, PULL_BEAM_INTERVAL, PULL_BEAM_RANGE, PULL_BEAM_FORCE,
   GRAVITY_MIN_DIST, GRAVITY_MIN_GAP, GRAVITY_WELL_R, GRAVITY_FORCE,
   CLAW_DOUBLE_EVERY, CLAW_BASE_CRIT, QUILL_RETALIATE_CD, FEAR_SPEED_MUL, FEAR_REFRACTORY,
-  UNSHAKEABLE_CC_MUL,
+  UNSHAKEABLE_CC_MUL, TANK_KB_REFRACTORY,
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
@@ -6754,40 +6754,62 @@ function runPrey() {
     console.log(`PASS run PY.k (the button dashes at food): with a tank 80px away and prey at 300px, the press carried the player ${dx.toFixed(0)}px toward the prey`)
   }
 
-  // -- PY.l: the OIL lands on the CROWD, not on your feet. ---------------------------------------
-  // Owner, 2026-08-18: "the mazout is a small trap zone that takes time to expand, starting from
-  // you. by the time it's expanded, you're already far away." A pool takes dur * BLOOM_GROW_FRAC
-  // (1.6-2.2s) to reach full size and the player crosses 350px in that time, so where it OPENS is
-  // the whole of whether it is ever touched — measured at 114px from the nearest body before this
-  // and 0 after, which tripled the enemy-seconds spent in it.
+  // -- PY.l: the OIL lands on a RANDOM VISIBLE body, not on your feet and not on the nearest. -----
+  // Two owner corrections, one block, because the second only makes sense against the first:
+  //   "the mazout is a small trap zone that takes time to expand, starting from you. by the time
+  //   it's expanded, you're already far away. instead, it should spawn under an enemy"
+  //   "no, this targets the closest enemy, which will be bitten in the next .5s. it should target
+  //   a random visible enemy"
+  // A pool takes dur * BLOOM_GROW_FRAC (1.6-2.2s) to reach full size and the player crosses ~350px
+  // in that time, so WHERE it opens is the whole of whether it is ever touched. And the nearest
+  // body is the one gnash's jaw and the Lunge are both already pointed at, so planting there buys
+  // a kill the build had already bought — a card that looks like it fires and changes nothing.
   //
-  // slickTrail is the CONTROL and it is a real branch rather than a mirror: that mod's whole shape
-  // is a fence drawn behind a swimming player, so it must still lay at the feet. Asserting only the
-  // aimed case would pass with the branch deleted.
+  // THREE PROPERTIES, and each has a control that fails on its own:
+  //   on a body            — vs slickTrail, which must still lay the fence at the feet
+  //   SPREAD over the crowd— vs "always the nearest", which passes every single-enemy fixture
+  //   on screen only       — vs a body parked outside run.viewW, which must never be chosen
   {
-    const place = (mods) => {
-      const run = mk(20260820)
+    const gather = (mods) => {
+      const run = mk(20260821)
       run.weapons = [{ id: 'bilge', level: 1 }]
       run.weaponMods.bilge = mods
       const p = run.player
       const x0 = p.x, y0 = p.y
-      const e = put(run, { x: x0 + 300, y: y0, hp: 1e12, speed: 0, flags: ['skittish'] })
-      let bl = null
-      for (let i = 0; i < Math.round(10 / dt) && !bl; i++) {
-        only(run, [e])
-        e.x = x0 + 300; e.y = y0
+      // Inside run.viewW/viewH (480/360 headless), at four clearly separated distances so "which
+      // one was chosen" is readable from the pool's position alone.
+      const at = [[120, 0], [240, 0], [360, 0], [0, 300]]
+      const crowd = at.map(([dx, dy]) => put(run, { x: x0 + dx, y: y0 + dy, hp: 1e12, speed: 0, flags: ['skittish'] }))
+      // Well outside the viewport. An effect that arrives from off-screen is worse than one that
+      // arrives too close, so this must never be picked.
+      const offScreen = put(run, { x: x0 + 2000, y: y0, hp: 1e12, speed: 0, flags: ['skittish'] })
+      const all = [...crowd, offScreen]
+      const seen = new Set()
+      const hits = []            // index into `all` for every pool planted, -1 for the feet
+      for (let i = 0; i < Math.round(120 / dt); i++) {
+        only(run, all)
+        all.forEach((e, k) => { e.x = x0 + (k < 4 ? at[k][0] : 2000); e.y = y0 + (k < 4 ? at[k][1] : 0) })
         stepSim(run, { x: 0, y: 0 }, dt)
-        bl = run.blooms.find((b) => b.look === 'bilge')
+        for (const bl of run.blooms) {
+          if (bl.look !== 'bilge' || seen.has(bl)) continue
+          seen.add(bl)
+          const k = all.findIndex((e) => Math.hypot(bl.x - e.x, bl.y - e.y) < 1)
+          hits.push(k >= 0 ? k : (Math.hypot(bl.x - x0, bl.y - y0) < 1 ? -1 : -2))
+        }
       }
-      assert.ok(bl, 'bilge never planted a pool in 10s — the fixture proves nothing either way')
-      return { toBody: Math.hypot(bl.x - e.x, bl.y - e.y), toFeet: Math.hypot(bl.x - x0, bl.y - y0) }
+      return hits
     }
-    const aimed = place({})
-    const fence = place({ slickTrail: 1 })
-    assert.ok(aimed.toBody < 1, `the pool must open ON the body; it opened ${aimed.toBody.toFixed(0)}px from it`)
-    assert.ok(aimed.toFeet > 250, `...and out where the crowd is, not underfoot; it opened ${aimed.toFeet.toFixed(0)}px from the player`)
-    assert.ok(fence.toFeet < 1, `slickTrail draws a fence BEHIND you, so it must still lay at the feet; it opened ${fence.toFeet.toFixed(0)}px away`)
-    console.log(`PASS run PY.l (the oil lands on the crowd): an ordinary cast opens ${aimed.toFeet.toFixed(0)}px away, on the body, where slickTrail still lays at the player's feet`)
+
+    const aimed = gather({})
+    const fence = gather({ slickTrail: 1 })
+    assert.ok(aimed.length >= 8, `bilge planted only ${aimed.length} pools in 120s — too few to say anything about their spread`)
+    assert.ok(!aimed.includes(-2), 'every pool must open ON a body, not at some third place')
+    assert.ok(!aimed.includes(-1), 'with the crowd on screen no pool may open at the player\'s feet')
+    assert.ok(!aimed.includes(4), 'a body outside run.viewW must never be chosen — that is a zone arriving from off-screen')
+    const distinct = new Set(aimed).size
+    assert.ok(distinct >= 3, `the oil must SPREAD over the visible crowd; it used ${distinct} of 4 bodies across ${aimed.length} casts (targeting the nearest would read 1)`)
+    assert.ok(fence.every((k) => k === -1), `slickTrail draws a fence BEHIND you, so every trail pool must lay at the feet; got ${fence.filter((k) => k !== -1).length} of ${fence.length} elsewhere`)
+    console.log(`PASS run PY.l (the oil lands on a random visible body): ${aimed.length} casts spread over ${distinct} of 4 on-screen bodies, never the off-screen one and never underfoot, where slickTrail's ${fence.length} pools all stay at the feet`)
   }
 
   console.log('PASS run PY (The Wreck: prey): the roster runs from you in schools and cannot touch you, the bite pays for closing, the oil lands on the crowd, and the leak is the only thing in the chapter that can kill you')
@@ -9570,6 +9592,79 @@ function testV54Weapons() {
       assert.ok(kb(rock) < 1e-9, `an \`anchored\` elite was knocked back (${kb(rock).toFixed(0)})`)
       console.log(`PASS run CC (unshakeable resists, never immune): ${chapterIds.length} chapters' tanks flagged, ` +
         `tank feared ${tank.fearT.toFixed(2)}s vs drone ${plain.fearT.toFixed(2)}s, shove x${(kb(tank) / kb(plain)).toFixed(2)}, anchored 0`)
+    }
+
+    // TANK KNOCKBACK REFRACTORY (Le Large). CC_DR prices each shove but nothing priced the CADENCE,
+    // so a ring firing faster than the time a slow tank needs to walk one FLOORED shove back pushed
+    // it out without bound: Bubble Puff at +300% fire rate measured 3.3 jelly contact hits over 300s
+    // against 152 for no ring at all — invincible, standing still.
+    // Asserted by EFFECT, not by the timer: a mutant that ticks _kbCd but never gates on it passes
+    // any state check. The drone arm is the one that pins the SCOPE — tanks only.
+    {
+      const twoShoves = (type) => {
+        const r = weaponRun('shelf', 'bubblePuff')
+        r.weapons = []
+        const e = makeStatusEnemy(r, { x: 10, y: 0, hp: 1e9, speed: 0, type })  // inside the ring on frame 1: n.r starts at 0
+        e.flags = []
+        r.enemies.push(e)
+        const ring = () => r.novas.push({ x: 0, y: 0, r: 0, maxR: 400, dmg: 0, knockback: 300, fear: 0, life: 1, hit: new Set() })
+        ring(); stepQuiet(r, 1 / 60)
+        const first = Math.hypot(e.kb.x, e.kb.y)
+        e.kb.x = 0; e.kb.y = 0                 // zero it, so `second` is what the SECOND ring imparted
+        ring(); stepQuiet(r, 1 / 60)           // far inside TANK_KB_REFRACTORY
+        return { first, second: Math.hypot(e.kb.x, e.kb.y) }
+      }
+      const tank = twoShoves('tank'), drone = twoShoves('drone')
+      assert.ok(tank.first > 0, 'the FIRST shove on a tank must land in full — this taxes cadence, not weapons')
+      assert.ok(tank.second < 1e-9,
+        `a tank took a second shove (${tank.second.toFixed(1)}) inside its ${TANK_KB_REFRACTORY}s knockback window`)
+      assert.ok(drone.second > 0,
+        'a drone was refused its second shove — the refractory is TANKS ONLY, they are the only archetype slow enough to lose the race')
+
+      // THE WINDOW MUST OUTLAST THE RACE IT EXISTS TO STOP, for every tank a shove weapon can
+      // actually reach. A floored shove displaces kb x ccResist x CC_DR_FLOOR / KB_DECAY_RATE px;
+      // below (that / speed) seconds per ring, each shove out-runs the walk back and compounds.
+      // KB_DECAY_RATE is a sim.js-local const, so it is read as SOURCE TEXT rather than guessed —
+      // a stale copy here would silently move every threshold.
+      const simSrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+      const m = simSrc.match(/const KB_DECAY_RATE = ([\d.]+)/)
+      assert.ok(m, 'KB_DECAY_RATE not found in sim.js — the thresholds below cannot be derived')
+      const KB_DECAY = Number(m[1])
+      const pairs = []
+      for (const [cid, ch] of Object.entries(CHAPTERS)) {
+        for (const rr of ch.roster ?? []) {
+          if (rr.archetype !== 'tank') continue
+          const speed = ENEMIES.tank.speed * (rr.speedMul ?? 1)
+          const cc = (rr.flags ?? []).includes('unshakeable') ? UNSHAKEABLE_CC_MUL : 1
+          for (const wid of ch.weapons ?? []) {
+            for (const [i, lv] of (WEAPONS[wid]?.levels ?? []).entries()) {
+              if (!lv.knockback) continue
+              pairs.push({ what: `${cid}/${rr.id} vs ${wid} L${i + 1}`, thr: lv.knockback * cc * CC_DR_FLOOR / KB_DECAY / speed })
+            }
+          }
+        }
+      }
+      // THE SECOND SHOVE SITE. There are exactly two player-sourced ones — the nova ring (asserted
+      // by effect above) and `shoveFromPlayer`, which every melee sector weapon routes through
+      // (roar, whip, claw rake). The melee half has no cheap behavioural fixture, so it is guarded
+      // as SOURCE TEXT instead: without this, deleting its claimKb gate is a silent no-test change.
+      assert.ok(/function shoveFromPlayer\([^)]*\)\s*\{\s*\n\s*if \(resistsCC\(e\) \|\| !claimKb\(e\)\) return/.test(simSrc),
+        'shoveFromPlayer no longer gates on claimKb — every melee shove weapon can re-lock a tank at high fire rate')
+
+      assert.ok(pairs.length > 100, `only ${pairs.length} tank x shove-weapon pairs enumerated — the walk found nothing`)
+      const jelly = pairs.find((x) => x.what.startsWith('shelf/jelly vs bubblePuff L5'))
+      assert.ok(jelly, 'shelf/jelly vs bubblePuff L5 is not in the walk — the pair this fix was written for')
+      assert.ok(TANK_KB_REFRACTORY > jelly.thr * 1.2,
+        `TANK_KB_REFRACTORY ${TANK_KB_REFRACTORY}s has no margin over Le Large's own threshold ${jelly.thr.toFixed(3)}s`)
+      // EVERY reachable pair must be covered — the list is empty and must stay empty. It was three
+      // entries at the first cut's 0.25s (The Deep's gulper vs Chitter Shriek L3-L5, which needs
+      // 0.342s); 1s closes them with margin. Widen the constant, never extend this list.
+      const uncovered = pairs.filter((x) => x.thr >= TANK_KB_REFRACTORY).map((x) => x.what).sort()
+      assert.deepStrictEqual(uncovered, [],
+        `${uncovered.length} tank x weapon pair(s) can still out-cadence the ${TANK_KB_REFRACTORY}s window: ${uncovered.join(', ')}`)
+      console.log(`PASS run CC.kb (tank shove refractory): first shove ${tank.first.toFixed(0)}, second 0 inside ${TANK_KB_REFRACTORY}s; ` +
+        `drone still shoved twice; ${pairs.length - uncovered.length}/${pairs.length} reachable tank x shove pairs covered ` +
+        `(Le Large's jelly needs ${jelly.thr.toFixed(3)}s), ${uncovered.length} known-uncovered`)
     }
 
     // panicRout: the same hit lands harder on a fleeing foe.
