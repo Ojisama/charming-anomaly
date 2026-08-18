@@ -1203,7 +1203,7 @@ const CONFIG = {
   // screen can CREATE rather than reveal. Joined to run XX's config walk in the same commit.
   // 'Air' is spelled identically in French, like 'Sacrifices' above.
   'Humidity': 'Hydratation',
-  'Clarity': 'Clarté',
+  'Pollution': 'Pollution',
   'Light': 'Lumière',
   'Air': 'Air',
   // 'Soif de sang' is the standard French for bloodlust and keeps the bar's promise in the word:

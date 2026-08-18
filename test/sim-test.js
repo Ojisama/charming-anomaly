@@ -21442,11 +21442,33 @@ function testUndertowLadder() {
     // (e1) The fact the rename actually MOVES, asserted as an id -> bar map. The existing prefix
     // check above cannot see this: LADDER_PREFIX is ['surf','shelf','reef'] and stays true while
     // slot 2's MEANING is replaced wholesale.
-    const BARS = { surf: 'Humidity', shelf: 'Clarity', reef: 'Air', trawl: 'Feed', twilight: 'Light', deep: 'Light' }
+    const BARS = { surf: 'Humidity', shelf: 'Pollution', reef: 'Air', trawl: 'Feed', twilight: 'Light', deep: 'Light' }
     for (const [id, bar] of Object.entries(BARS)) {
       assert.strictEqual(CHAPTERS[id]?.resource?.name, bar,
         `${id}'s bar is '${CHAPTERS[id]?.resource?.name}', not '${bar}' — the light and the murk have swapped or drifted`)
     }
+    // (e1b) THE SHELF'S BAR READS BACKWARDS ON PURPOSE (owner, 2026-08-18: "this should be
+    // pollution and the bar should fill rather than empty and filled bar = bad"). The sim still
+    // counts how CLEAR the water is — nothing about the mechanic moved — so the whole ruling lives
+    // in one config flag that ui.js has to read, which is exactly the one-fact-in-two-places shape
+    // CLAUDE.md is built around. ui.js is not importable here (DOM), so this is a source-text lint
+    // like run UG.k: drop the flag, or stop forwarding it, or stop using it in either of the two
+    // places it has to apply, and the rail silently goes back to draining like the other five with
+    // nothing going red. It must also stay the ONLY inverted bar: five of Book 2's six sit at a
+    // comfortable full and cost you as they empty, and a second exception would make the shared
+    // reading unlearnable.
+    assert.strictEqual(CHAPTERS.shelf.resource.invert, true,
+      "The Shelf's Pollution bar lost its `invert` flag — the rail reads as a supply you are stocked up on again")
+    const inverted = Object.entries(CHAPTERS).filter(([, c]) => c.resource?.invert).map(([id]) => id)
+    assert.deepStrictEqual(inverted, ['shelf'],
+      `inverted resource bars are [${inverted}] — exactly one chapter may read backwards, or "full" means two opposite things in one book`)
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/paintCharge\([^)]*res\.invert/.test(uiSrc),
+      'ui.js no longer forwards res.invert into paintCharge — the flag is a config field nothing reads')
+    assert.ok(/invert \? 1 - frac : frac/.test(uiSrc),
+      "paintCharge no longer inverts the bar's HEIGHT — the Pollution rail empties as the water fouls")
+    assert.ok(/invert \? Math\.max\(0, max - charge\) : charge/.test(uiSrc),
+      'paintCharge no longer inverts the NUMBER — the rail would count down beside a bar filling up')
     // THE MURK SLOWS YOU, and it slows you LESS than the dark does. Owner from play, 2026-08-18,
     // overturning the speedFloor 1 this scenario used to assert — the argument for it was that 2.4
     // and 2.5 already both slow you, and it lost to the chapter being played, where a cost paid only
@@ -21700,7 +21722,7 @@ function testUndertowLadder() {
         `(bar fell to ${run.charge.toFixed(1)} while parked in it); render fades off the same field`)
     }
 
-    console.log(`PASS run US.j (shelf/twilight split): ${Object.keys(BARS).length} chapter bars map as designed (the murk slows you less than the dark does), ` +
+    console.log(`PASS run US.j (shelf/twilight split): ${Object.keys(BARS).length} chapter bars map as designed (the murk slows you less than the dark does; ${inverted.length} reads inverted, and ui.js flips both its height and its number), ` +
       `the sun arsenal followed the light and no sun card is left in the murk, formScale climbs ${scales.map(([, s]) => s).join(' -> ')} across ${scales.length} rungs, ` +
       `refillLook '${[...declared].join("','")}' resolves both ways, ${Object.keys(CHAPTERS).length} chapters cast only their own roster, ` +
       `and ${byId.size} roster ids agree on their names`)
