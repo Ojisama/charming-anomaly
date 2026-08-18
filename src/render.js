@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -6336,6 +6336,38 @@ export function createRenderer(app) {
       T.rockChunk = bake(g)
     }
     {
+      // BALLAST (shelf, run.lobs with look 'ballast'): a block of dumped weight, PLAN VIEW — the
+      // camera looks straight down, so this is the top face of a thing lying in the water, not a
+      // block seen from the side. Baked at r 34 and scaled DOWN to BALLAST_THROW_R, per the rule a
+      // sprite magnified from a small bake is stepped on every edge; the old path scaled a 12px
+      // rock 8-11x.
+      //
+      // It must not read as the kaiju's rockChunk (cold grey masonry) or as Debris Toss. So: rust
+      // and old iron rather than stone, a squarer silhouette than any natural chunk, and two rebar
+      // stubs — the tells that this was MADE and then dumped, which is the chapter's whole subject.
+      const g = new Graphics()
+      const R = 34
+      // The block. Six points on a squarish outline, jittered so it is cast-off rather than tidy.
+      const pts = []
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + 0.4
+        const rr = R * (0.78 + hash(i * 3.11 + 7.7) * 0.28)
+        pts.push(Math.cos(a) * rr, Math.sin(a) * rr * 0.92)
+      }
+      g.poly(pts).fill(0x6b4f36).stroke({ width: 2.4, color: 0x2e2318 })
+      // The lit top face, offset up-left like every other overhead solid in this game.
+      g.ellipse(-R * 0.14, -R * 0.16, R * 0.52, R * 0.40).fill({ color: 0x8f6c48, alpha: 0.85 })
+      // Rust bloom and a wet shadowed corner.
+      g.ellipse(R * 0.20, R * 0.18, R * 0.30, R * 0.22).fill({ color: 0x9a5a2c, alpha: 0.55 })
+      g.ellipse(R * 0.30, -R * 0.28, R * 0.20, R * 0.14).fill({ color: 0x3a2a1c, alpha: 0.45 })
+      // Two rebar stubs: the one detail that says this is not a rock.
+      g.beginPath().moveTo(-R * 0.55, -R * 0.45).lineTo(-R * 0.95, -R * 0.80)
+        .stroke({ width: 3.4, color: 0x4a3a26 })
+      g.beginPath().moveTo(R * 0.50, R * 0.42).lineTo(R * 0.88, R * 0.72)
+        .stroke({ width: 3.0, color: 0x4a3a26 })
+      T.ballastBlock = bake(g)
+    }
+    {
       // Net Toss in flight (trawl, run.lobs with `snare`). A GATHERED BUNDLE, not a spread mesh:
       // it is a net that has been balled up and thrown, and it opens only where it lands. Drawn
       // from directly overhead like everything else in this file that is not a building.
@@ -11631,12 +11663,39 @@ export function createRenderer(app) {
       for (const sh of run.shafts) {
         const sx = sh.x + cx, sy = sh.y + cy
         if (sx + sh.r < 0 || sx - sh.r > w || sy + sh.r < 0 || sy - sh.r > h) continue
-        // Hard discs, not blobs: a shaft is a pool of full daylight with an edge you can stand on the
-        // wrong side of, and sim.js tests that radius exactly (stepCharge).
+        // ⚠ A SPENT UPWELLING MUST STOP CLEARING (The Shelf, owner from play: "faded out clear water
+        // pools still give light"). This punch used to be unconditional, so a circle that had gone
+        // fully transparent in updateShafts — and had stopped refilling the bar in stepCharge —
+        // still cut a full-strength hole in the murk. Two of the three consumers agreed the water
+        // was used up and the third kept lighting it, which on screen is a patch of clear water that
+        // does nothing and never goes away.
+        //
+        // Faded on the SAME linear curve as the sprite and the sim clock, off the same field.
+        const fade = refillDrawdown > 0
+          ? 1 - Math.min(1, (sh.drawdown ?? 0) / refillDrawdown)
+          : 1
+        if (fade <= 0.004) continue
+        darkCtx.globalAlpha = fade
+        // FOLLOW THE LOBES where the field has them. A circle punched around a lobed upwelling
+        // clears water OUTSIDE the shape the player can see and the sim tests, which is the same
+        // drawn-extent-is-tested-extent rule every other refill field in this book holds to — it
+        // just had nowhere to go wrong until a blob field existed.
         darkCtx.beginPath()
-        darkCtx.arc(sx * s, sy * s, sh.r * s, 0, Math.PI * 2)
+        if (sh.shape != null) {
+          const pts = lobePoly(sh.r, sh.shape, sh.rot)
+          for (let k = 0; k < pts.length; k += 2) {
+            const px = (sx + pts[k]) * s, py = (sy + pts[k + 1]) * s
+            if (k === 0) darkCtx.moveTo(px, py); else darkCtx.lineTo(px, py)
+          }
+          darkCtx.closePath()
+        } else {
+          // Hard discs for the round fields: a shaft is a pool of full daylight with an edge you can
+          // stand on the wrong side of, and sim.js tests that radius exactly (stepCharge).
+          darkCtx.arc(sx * s, sy * s, sh.r * s, 0, Math.PI * 2)
+        }
         darkCtx.fill()
       }
+      darkCtx.globalAlpha = 1
     }
 
     // THE LURES (The Deep). The esca is the ONLY part of a maw that reaches the player from a
@@ -14558,9 +14617,13 @@ export function createRenderer(app) {
     // and a visibility swap, rather than two pools — the flight, the parabola and the shadow are
     // identical and are the whole reason run.lobs was reused for Net Toss in the first place.
     const net = spriteOf(T.tossNet)
-    root.addChild(shadow, chunk, net)
+    // A THIRD payload, for the same reason there is a second: the flight, the parabola and the
+    // shadow are identical and are the whole point of reusing run.lobs — only the thing in the air
+    // differs. One sprite each and a visibility swap beats three pools.
+    const ballast = spriteOf(T.ballastBlock)
+    root.addChild(shadow, chunk, net, ballast)
     lobLayer.addChild(root)
-    return { root, shadow, chunk, net }
+    return { root, shadow, chunk, net, ballast }
   }
   let lobCount = 0
   function syncLobs(run) {
@@ -14586,18 +14649,24 @@ export function createRenderer(app) {
       // The shadow tracks the THROWN OBJECT, not the landing radius — for a net those are different
       // numbers (a 13px bundle that opens to 142px), and using r here painted a shadow the size of
       // the whole detonation under a ball in mid-air.
-      const shadowR = lb.snare > 0 ? 14 : lb.r
+      const shadowR = lb.snare > 0 ? 14 : lb.look === 'ballast' ? BALLAST_THROW_R : lb.r
       lv.shadow.scale.set((shadowR / PLAYER.radius) * 0.5 * (1 - 0.3 * (hop / 160)))
       // Which payload. A net TUMBLES more slowly than a rock and is scaled off its own bundle size
       // rather than off `r` — r is where it will OPEN, not how big the thrown ball is, and scaling
       // a 13px bundle to a 142px radius fills the screen with one sprite.
       const isNet = lb.snare > 0
-      const body = isNet ? lv.net : lv.chunk
-      lv.chunk.visible = !isNet
+      const isBallast = lb.look === 'ballast'
+      const body = isNet ? lv.net : isBallast ? lv.ballast : lv.chunk
+      lv.chunk.visible = !isNet && !isBallast
+      lv.ballast.visible = isBallast
       lv.net.visible = isNet
       body.position.set(0, -hop)
-      body.rotation = isNet ? k * 3.4 + i : k * 9 + i
-      body.scale.set(isNet ? 1 : (lb.r || 20) / 12)
+      // A ballast TUMBLES SLOWLY. A dumped block is heavy and a rock chunk spinning at k*9 reads as
+      // light debris, which is most of why the two looked like the same weapon.
+      body.rotation = isNet ? k * 3.4 + i : isBallast ? k * 2.2 + i : k * 9 + i
+      // Scaled off its OWN size and never off `r`: r is the LANDING radius (96-134px here), and
+      // using it magnified a 12px bake up to 11x. Baked at 34 and scaled DOWN, per CLAUDE.md.
+      body.scale.set(isNet ? 1 : isBallast ? BALLAST_THROW_R / 34 : (lb.r || 20) / 12)
     }
     for (let i = list.length; i < lobCount; i++) lobPool[i].root.visible = false
     lobCount = list.length
