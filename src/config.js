@@ -2045,11 +2045,14 @@ export const WEAPONS = {
     // pointed where you MOVE would point at empty water, because a survivors player kites away
     // from the pack; that is fireFlagella's hard-won rule and this weapon inherits it.
     levels: [
-      { dmg: 14, rate: 0.92, r: 155, arc: 1.571, knockback: 210 },
-      { dmg: 17, rate: 0.86, r: 168, arc: 1.571, knockback: 230 },
-      { dmg: 20, rate: 0.80, r: 181, arc: 1.571, knockback: 250 },
-      { dmg: 25, rate: 0.75, r: 195, arc: 1.571, knockback: 270 },
-      { dmg: 29, rate: 0.70, r: 210, arc: 1.571, knockback: 300 },
+      // rate is /1.15 at every rung, 2026-08-18: the cone costs the card three quarters of its
+      // coverage, so the compensation is cadence rather than width — widening it back would undo
+      // the change the owner asked for. SMALLER IS FASTER here; `rate` is an interval.
+      { dmg: 14, rate: 0.800, r: 155, arc: 1.571, knockback: 210 },
+      { dmg: 17, rate: 0.748, r: 168, arc: 1.571, knockback: 230 },
+      { dmg: 20, rate: 0.696, r: 181, arc: 1.571, knockback: 250 },
+      { dmg: 25, rate: 0.652, r: 195, arc: 1.571, knockback: 270 },
+      { dmg: 29, rate: 0.609, r: 210, arc: 1.571, knockback: 300 },
     ],
   },
   siltVeil: {
@@ -4113,10 +4116,21 @@ export const ELEMENT_CODEX_INTRO = [
 ]
 
 // ---- Enemies -----------------------------------------------------------------
+// ⚠ THESE THREE NUMBERS ARE THE GAME'S HP BASELINE, NOT the body chapter's. Every chapter draws
+// its bodies from these archetypes and multiplies by its own `balance.enemyHpMul` and by the
+// roster entry's `hpMul`, so a change here moves all 15 chapters at once and leaves every ratio
+// the difficulty ladder was tuned around untouched. That is exactly why it is the right place for
+// a global adjustment and the wrong place for a chapter one.
+//
+// -15% across the board, 2026-08-18. Owner, after the Bubble Puff cone landed: "this was a big
+// nerf, let's decrease hp of all mobs by 15%". Two nerfs to that starter had stacked without
+// either knowing about the other — the cone cut its coverage to a quarter (v7.149) while the
+// per-body shove cooldowns cut how often it can hold anything off (v7.146/v7.147) — and the
+// compensation is deliberately global rather than scoped to The Shelf.
 export const ENEMIES = {
-  drone: { hp: 20, speed: 90,  dmg: 8,  radius: 16, xp: 1, coinChance: 0.10 },
-  wisp:  { hp: 10, speed: 165, dmg: 5,  radius: 12, xp: 1, coinChance: 0.08 },
-  tank:  { hp: 90, speed: 55,  dmg: 15, radius: 26, xp: 4, coinChance: 0.35 },
+  drone: { hp: 17, speed: 90,  dmg: 8,  radius: 16, xp: 1, coinChance: 0.10 },
+  wisp:  { hp: 8.5, speed: 165, dmg: 5,  radius: 12, xp: 1, coinChance: 0.08 },
+  tank:  { hp: 76.5, speed: 55,  dmg: 15, radius: 26, xp: 4, coinChance: 0.35 },
 }
 export const ELITE = { hpMul: 5, sizeMul: 1.5, dmgMul: 1.5, coins: 8, xpMul: 4 }
 
