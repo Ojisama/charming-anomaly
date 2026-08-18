@@ -579,8 +579,9 @@ const CONFIG = {
   'Your own body, swung where you turn. Worthless standing still — it hits as hard as you swim.': 'Votre propre corps, lancé où vous tournez. Inutile à l\'arrêt : il frappe aussi fort que vous nagez.',
   'Longline': 'Ligne à Hameçons',
   'Sets a baited line across their path. Everything that touches it is hooked and bleeds.': 'Pose une ligne appâtée en travers de leur route. Tout ce qui la touche est ferré et saigne.',
-  // The Wreck's native (v7.x). 'Gnash' is the tooth-grinding verb; 'Croc' (fang) carries the
-  // animal where a literal 'Broiement' would carry the dentistry. ⚠ DRAFT — owner ruling pending.
+  // The Wreck's native (v7.x). Owner's pick, 2026-08-18, from Croc / Morsure / Mâchoire: 'Gnash' is
+  // the tooth-grinding verb, and 'Croc' (fang) carries the ANIMAL where a literal 'Broiement' would
+  // carry the dentistry. It also sits one syllable long beside The Deep's 'Coup de Nageoire'.
   'Gnash': 'Croc',
   'Snaps a short bite in front of you. The closer the body, the deeper it goes.': 'Claque une courte morsure devant vous. Plus le corps est proche, plus elle s\'enfonce.',
   'Net Toss': 'Filet Lesté',
@@ -736,9 +737,16 @@ const CONFIG = {
   'bite width': 'largeur de morsure',
   'Quick Snap': 'Claquement Vif',
   'bite rate': 'cadence de morsure',
-  'Blood in the Water': 'Sang dans l\'Eau',
+  // Not the literal 'Sang dans l'Eau': the owner picked the SMELL, which is the thing a shark is
+  // actually famous for and the more idiomatic French. ('Curée' — the hunting term for falling on
+  // downed quarry — was the third option and is exactly this mod, but it is a word a lot of players
+  // would not know.)
+  'Blood in the Water': 'L\'Odeur du Sang',
   'bite damage against wounded prey': 'dégâts de morsure sur une proie blessée',
-  'Death Roll': 'Tonneau de la Mort',
+  // 'Tonneau de la Mort' is the accurate term for a crocodile's roll and is what this card is named
+  // after, but the mod's EFFECT is an immobilise and the player never sees a roll. Owner picked the
+  // effect over the reference, and it fits the row.
+  'Death Roll': 'Prise Mortelle',
   'holds bitten prey for {n}s': 'immobilise la proie mordue pendant {n} s',
   'Rending Claws': 'Griffes Déchirantes',
   'claw damage': 'dégâts des griffes',

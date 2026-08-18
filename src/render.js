@@ -225,6 +225,19 @@ export function createRenderer(app) {
   // Active chapter palette + which MOVING-WATER field this chapter's signature is, if any. Set once
   // per reset(run); read by the floor populate* callbacks, syncPlayer, obstacle/enemy tinting and
   // updateCurrents. Defaults to the neutral body look (title screen / chapters without render).
+  // Half-length the sunken ship is BAKED at. Not its size on screen — updateWreckHull scales the
+  // sprite so CHAPTERS.wreck.render.hull.len is the only place the real dimension is stated. 220
+  // rather than something huge because a bake is a texture: this is the resolution the hull is
+  // sampled at, and at the alpha and distance it draws it never earns more.
+  // ⚠ DECLARED HERE, ABOVE buildTextures' CALL, and it took two goes: renderer scope alone is
+  // not enough, because buildTextures runs during createRenderer and a `const` below that call is
+  // in its temporal dead zone. `npm run build` compiles either mistake happily; the only symptom of
+  // the first was a ReferenceError on the first frame of one chapter, and of the second a throw
+  // during boot. Both were found by SHOOTING the chapter, which is the point of doing that.
+  // (was: inside buildTextures' own block, where the per-frame updater cannot see it)
+  // and the per-frame updater are in different scopes, `npm run build` compiles the mistake
+  // happily, and the only symptom is a ReferenceError on the first frame of one chapter.
+  const HULL_REF = 220
   let chapterRender = BODY_RENDER
   // 'currents' (the pond's drift field), 'tide' (The Surf's alternating surge) or null. A STRING
   // rather than the boolean it started as, because both chapters draw the same pooled streak field
@@ -4871,11 +4884,6 @@ export function createRenderer(app) {
       g.beginPath().moveTo(-9, -2).lineTo(9, -3).stroke({ width: 1, color: line, alpha: 0.5 })
       T.bone = bake(g)
     }
-    // Half-length the sunken ship is BAKED at. Not its size on screen — updateWreckHull scales the
-    // sprite so that CHAPTERS.wreck.render.hull.len is the only place the real dimension is stated.
-    // 220 rather than something huge because a bake is a texture: this is the resolution the hull is
-    // sampled at, and at the alpha and distance it draws it never earns more.
-    const HULL_REF = 220
     // ---- The Wreck's obstacles (v7.x) ----------------------------------------------------------
     // THE CHAPTER IS CALLED THE WRECK AND UNTIL THIS BLOCK IT CONTAINED NO SHIP. Its nine obstacles
     // were drawn by BIOMES.wreck = BIOME_REEF, so the hull plates its own config comment describes
@@ -4945,42 +4953,66 @@ export function createRenderer(app) {
     {
       // THE SUNKEN SHIP — the thing the chapter is named after and did not contain. A trawler on the
       // bottom, seen from directly overhead like everything else that is not a building, and BROKEN
-      // IN TWO: the gap between the sections is the single detail that makes it a wreck rather than
-      // a boat, and at the alpha this draws at it is most of what survives.
+      // IN TWO: the gap between the sections is what makes it a wreck rather than a boat.
       //
-      // Baked at HULL_REF half-length and scaled by CHAPTERS.wreck.render.hull.len — so the config
-      // number is the only place the size is stated. Drawn in near-neutral values because the layer
-      // tints and fades the whole thing (it is hazed by the water column between you and it); every
-      // colour here is a VALUE relationship, not a hue.
+      // ⚠ IT IS DRAWN FOR ITS CROP, NOT FOR ITS WHOLE. This is the correction that came out of the
+      // frames and it is the one worth remembering: the hull is 620px long on a 390px-wide phone,
+      // so THE PLAYER ALMOST NEVER SEES ALL OF IT. The first cut put all its information at the
+      // extremities — a pointed bow, a gantry over the stern — and every real frame cropped to the
+      // middle, where there was nothing but flat fill. On screen that is a pale slab, not a ship.
+      // So the structure is now CONTINUOUS along the whole length: a spine, two deck rails and
+      // evenly spaced transverse frames, i.e. a manufactured rhythm that reads as built from any
+      // 390px window you cut out of it. Same rule as a tiling texture, arrived at the hard way.
+      //
+      // Baked at HULL_REF half-length and scaled by CHAPTERS.wreck.render.hull.len, so the config
+      // number is the only place the size is stated. Every colour here is a VALUE relationship —
+      // the layer applies one flat tint over the lot.
       const g = new Graphics()
       const plate = 0xffffff
-      const deck = 0xd8d8d8
-      const dark = 0x6a6a6a
+      const deck = 0xcfcfcf
+      const dark = 0x4a4a4a
       const L = HULL_REF, B = HULL_REF * 0.215
+      const edge = { width: L * 0.016, color: dark, alpha: 0.85 }
       // Forward section: pointed bow, full midships, torn off just abaft of amidships.
       g.poly([L, 0, L * 0.74, -B * 0.6, L * 0.24, -B, -L * 0.06, -B * 0.95,
-              -L * 0.02, B * 0.95, L * 0.24, B, L * 0.74, B * 0.6]).fill(plate)
+              -L * 0.02, B * 0.95, L * 0.24, B, L * 0.74, B * 0.6]).fill(plate).stroke(edge)
       // Aft section, offset and canted — it settled separately, which is why there is a gap at all.
       g.poly([-L * 0.16, -B * 0.9, -L * 0.66, -B * 0.99, -L, -B * 0.8,
-              -L, B * 0.72, -L * 0.66, B * 0.9, -L * 0.16, B * 0.78]).fill(plate)
-      // Deck inset: a second, smaller outline inside the hull line, which is what reads as freeboard
-      // from above. Without it the two polys are flat cut-outs and the boat has no thickness at all.
-      g.poly([L * 0.86, 0, L * 0.66, -B * 0.44, L * 0.2, -B * 0.78, -L * 0.08, -B * 0.74,
-              -L * 0.05, B * 0.74, L * 0.2, B * 0.78, L * 0.66, B * 0.44]).fill({ color: deck, alpha: 0.55 })
+              -L, B * 0.72, -L * 0.66, B * 0.9, -L * 0.16, B * 0.78]).fill(plate).stroke(edge)
+      // TRANSVERSE FRAMES, the whole length of both sections. This is the rhythm that makes a crop
+      // read as a ship: regular, parallel, and nothing in nature does it.
+      g.beginPath()
+      for (let k = -9; k <= 6; k++) {
+        const x = k * L * 0.1
+        if (x > -L * 0.16 && x < -L * 0.02) continue      // skip the break
+        const b = B * (x > L * 0.24 ? 0.6 : 0.9)
+        g.moveTo(x, -b).lineTo(x, b)
+      }
+      g.stroke({ width: L * 0.008, color: dark, alpha: 0.45 })
+      // Deck rails and the spine — the longitudinal half of that rhythm, and what gives the plan its
+      // freeboard from above.
+      g.beginPath()
+      for (const f of [-0.62, 0.62]) {
+        g.moveTo(L * 0.86, B * f * 0.2).lineTo(L * 0.2, B * f).lineTo(-L * 0.06, B * f)
+        g.moveTo(-L * 0.2, B * f).lineTo(-L * 0.92, B * f * 0.85)
+      }
+      g.moveTo(L * 0.9, 0).lineTo(-L * 0.06, 0)
+      g.moveTo(-L * 0.18, 0).lineTo(-L * 0.96, 0)
+      g.stroke({ width: L * 0.01, color: dark, alpha: 0.5 })
       // Deckhouse, aft on the forward section — the block a fishing boat is recognisable by.
-      g.roundRect(-L * 0.02, -B * 0.5, L * 0.2, B, L * 0.03).fill({ color: deck, alpha: 0.8 }).stroke({ width: L * 0.008, color: dark, alpha: 0.5 })
+      g.roundRect(-L * 0.02, -B * 0.5, L * 0.2, B, L * 0.03).fill({ color: deck, alpha: 0.9 }).stroke({ width: L * 0.01, color: dark, alpha: 0.7 })
       // Hold hatches forward, and the trawl gantry over the stern.
-      for (const hx of [L * 0.3, L * 0.5]) g.rect(hx, -B * 0.34, L * 0.11, B * 0.68).fill({ color: dark, alpha: 0.32 })
+      for (const hx of [L * 0.3, L * 0.5]) g.rect(hx, -B * 0.34, L * 0.11, B * 0.68).fill({ color: dark, alpha: 0.4 })
       g.beginPath()
       g.moveTo(-L * 0.6, -B * 0.8).lineTo(-L * 0.88, -B * 0.2).moveTo(-L * 0.6, B * 0.8).lineTo(-L * 0.88, B * 0.2)
       g.moveTo(-L * 0.88, -B * 0.2).lineTo(-L * 0.88, B * 0.2)
-      g.stroke({ width: L * 0.014, color: deck, alpha: 0.7 })
+      g.stroke({ width: L * 0.016, color: deck, alpha: 0.8 })
       // The break: ragged plating either side of the gap, so the two sections read as TORN apart
       // rather than as two boats parked end to end.
       g.beginPath()
       g.moveTo(-L * 0.06, -B * 0.95).lineTo(-L * 0.11, -B * 0.5).lineTo(-L * 0.04, -B * 0.1).lineTo(-L * 0.1, B * 0.4).lineTo(-L * 0.02, B * 0.95)
       g.moveTo(-L * 0.16, -B * 0.9).lineTo(-L * 0.22, -B * 0.4).lineTo(-L * 0.14, B * 0.1).lineTo(-L * 0.2, B * 0.78)
-      g.stroke({ width: L * 0.01, color: dark, alpha: 0.8 })
+      g.stroke({ width: L * 0.012, color: dark, alpha: 0.9 })
       T.wreckHull = bake(g)
     }
     {
@@ -9436,7 +9468,10 @@ export function createRenderer(app) {
   // Everything human down here is oxidising, and it is the only warmth in the chapter.
   // ⚠ Tints authored HOT: floorTint 0x9ec4b8 = (0.62, 0.77, 0.72), which takes more red than green,
   // so a rust that reads right in a swatch lands olive on screen.
-  const RUST_TINTS = [0xc4703a, 0xb0632f]       // oxidised steel — the chapter's only warm colour
+  // Pulled back from a first cut at 0xc4703a/0xb0632f, which photographed as ORANGE BUSHES: the
+  // prop is a lobed rosette, so the more saturated the tint the more it reads as something that
+  // grew there. Rust is still the chapter's only warm note, just a duller one.
+  const RUST_TINTS = [0xa8683f, 0x965c37]       // oxidised steel
   const PLATE_TINTS = [0x7d8a90, 0x6e7a80]      // painted plating with the paint mostly gone
   const SILT_WRECK_TINTS = [0x5d6b64, 0x53605a] // bottom sediment, the dullest thing here
   const BIG_WRECK = [
@@ -9469,7 +9504,7 @@ export function createRenderer(app) {
     // Tint is near-neutral because these bakes carry their own rust; foot is dark but NOT black —
     // the same call BIOME_SURF's block explains, since a pure-black ring on this floor punches a
     // manhole. Re-run scripts/obstacle-contrast.mjs after touching either.
-    obstacle: { baked: ['hullPlate', 'hullRib', 'drum'], tint: 0xe8ddd2, foot: 0x101d24 },
+    obstacle: { baked: ['hullPlate', 'hullRib', 'drum'], tint: 0xdcd2c6, foot: 0x2a3d45 },
   }
   const BIOMES = {
     body: BIOME_BODY,
@@ -10598,7 +10633,10 @@ export function createRenderer(app) {
   //
   // The whole thing is four pooled sprites: `cell` is ~2.4 screen-heights, so at most a couple of
   // cells intersect the view at once and the pool is a safety margin rather than a working set.
-  const HULL_POOL = 4
+  // 12, not 4: at cell 1250 a desktop viewport plus the hull's own length spans about seven
+  // cells, and a pool that runs out mid-loop drops the cells it had not reached yet — which
+  // shows up as wrecks flickering in and out as the camera pans, not as an error.
+  const HULL_POOL = 12
   const hullSprites = []
   function updateWreckHull(cx, cy) {
     const cfg = chapterRender.hull
@@ -10620,8 +10658,8 @@ export function createRenderer(app) {
       for (let j = j0; j <= j1 && n < HULL_POOL; j++) {
         // Hashed off the CELL, not off a counter, so a hull keeps its identity when the player
         // leaves and comes back — the same rule streamObstacles' skin cache follows.
-        const h = hash(i * 3.7 + j * 11.3 + 5.1)
-        if (h > 0.55) continue          // not every cell holds one; a regular lattice reads as tiling
+        // Not every cell holds one — a full lattice reads as tiling rather than as a graveyard.
+        if (hash(i * 3.7 + j * 11.3 + 5.1) > (cfg.chance ?? 0.7)) continue
         let sp = hullSprites[n]
         if (!sp) {
           sp = new Sprite(T.wreckHull.tex)
@@ -14684,10 +14722,16 @@ export function createRenderer(app) {
   // slightly and drifting OUTWARD; a bite is two arcs at ONE reach, far apart, CLOSING onto the
   // bearing as they fade. The faint third tine sits at the centre so the moment they meet has
   // something in it rather than being a gap.
-  const BITE_TINE_R = [1.0, 1.0, 0.6]
-  const BITE_TINE_FAN = [-0.34, 0.34, 0]
-  const BITE_FAN_MAX = 0.34     // == max |BITE_TINE_FAN|, for the q solve in updateClaws
-  const BITE_TINE_A = [1.0, 1.0, 0.4]
+  const BITE_TINE_R = [1.0, 1.0, 0.62]
+  // ⚠ 0.24, DOWN FROM 0.34, AND THE REASON IS THE q SOLVE RATHER THAN TASTE. updateClaws budgets
+  // the outermost drawn edge onto arc/2, so the fan and the gash SHARE one angular budget: every
+  // point spent separating the jaws is a point the gash gets squashed by. At 0.34 the two arcs came
+  // out as thin dark hairlines — photographed against the rake's three fat warm gashes they read as
+  // a different, weaker weapon, which is the opposite of the intent. At 0.24 they are still plainly
+  // two arcs with floor between them, and each one has a belly.
+  const BITE_TINE_FAN = [-0.24, 0.24, 0]
+  const BITE_FAN_MAX = 0.24     // == max |BITE_TINE_FAN|, for the q solve in updateClaws
+  const BITE_TINE_A = [1.0, 1.0, 0.55]
   // Fraction of the fan spent by the end of the life. UNDER 1 ON PURPOSE: at 1 the jaws pass
   // through each other and the last frame is two gashes crossed like scissors, which is a shear and
   // not a bite. They should meet and stop.

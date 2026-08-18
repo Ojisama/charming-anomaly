@@ -5718,14 +5718,33 @@ CHAPTERS.wreck = {
     // called The Wreck and has no wreck in it. `cell` is deliberately huge so two are never on
     // screen together and the repeat cannot read as tiling; variant and rotation are hashed per
     // cell off the run's own obstacle seed, like every other streamed field here.
+    // ⚠ EVERY NUMBER BELOW WAS CORRECTED FROM A SCREENSHOT, and the first cut was wrong in the two
+    // ways this repo keeps being wrong about art: it was invisible, and it was the wrong size.
     hull: {
-      cell: 3200,        // px between wrecks, in PARALLAX space. ~2.4 screen-heights apart.
+      // 1250, DOWN FROM 2200, AND THE REASON IS A SHAPE MISMATCH RATHER THAN A TASTE CALL. The grid
+      // is square and a hull is not: at 950 x 205 in a 2200 cell it covered 43% of the span across
+      // its length and 9% across its beam, so the chance of one intersecting the viewport at all
+      // was about one frame in twenty-five. On screen that is a chapter with no wreck in it, which
+      // is precisely the report this whole change answers. Measured off the frames, not reasoned.
+      cell: 1050,
+      chance: 0.8,       // under 1 so the field reads as a graveyard rather than as a lattice
       parallax: 0.45,    // fraction of camera motion the layer takes. 1 = welded to the world, 0 =
                          // pinned to the screen. Under 1 = deeper. Far under and it reads as a
                          // painted backdrop that slides, which is the failure mode to shoot for.
-      len: 1560, beam: 340,   // px, at parallax scale — a trawler, lying over
-      tint: 0x14242c,    // dead steel, already most of the way to the background
-      alpha: 0.5,        // hazed by the water column between you and it
+      // 620, DOWN FROM 1560 VIA 950, and both cuts were made from frames rather than from reasoning.
+      // At 1560 the hull was nearly four phone-screens long and what reached the player was never a
+      // ship, only an enormous edge crossing a corner; at 950 it was still a slab. A landmark has to
+      // FIT to read as one. 620 is ~15x the player's own body, which is a big ship.
+      len: 620,
+      // Lighter than the floor, not darker: underwater, distance makes a thing PALER and BLUER,
+      // because the water column between you and it scatters light in. The first cut used 0x14242c
+      // on the reasoning that dead steel is dark and it vanished completely.
+      // ⚠ THEN IT OVERSHOT. 0x54737d at alpha 0.6 was the BRIGHTEST thing in the chapter, and a
+      // backdrop that wins the frame is not a backdrop — it read as a pale wall rather than as
+      // something deep. This pair is the third reading, and the rule it follows is that the hull
+      // must be clearly separable from the floor and clearly quieter than the roster.
+      tint: 0x486a74,
+      alpha: 0.34,
     },
     // The bar's tell. Opt-in per chapter so pHot keeps meaning "berserk" everywhere else — see
     // LUST_TINT_MAX. Render-only, like everything in this block.
@@ -8059,7 +8078,6 @@ export const DMG_SRC_NO_ART = {
   // DoT can carry a drawing, so "it is a state, not a world object" is NOT the argument here and must
   // not be borrowed from the two anomalies below. DELETE THIS LINE when hazardThumbs.starve lands.
   starve: 'OWED — The Wreck phase 2 has not authored its art yet, not a permanent exemption',
-  slick: 'OWED — bakes from hazardThumbs.slick; run scripts/bake-cast.mjs (needs a browser)',
   // Costs you chose to pay. Neither has a world object; their honest picture is the anomaly card.
   overload: 'a card you took, not a thing in the world',
   bloodMoney: 'a card you took, not a thing in the world',
