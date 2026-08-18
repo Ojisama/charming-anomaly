@@ -81,7 +81,7 @@ import {
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COSTS, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
-  RING_N,
+  RING_N, RING_R_MUL, RING_POOL_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
@@ -6986,6 +6986,61 @@ function runPrey() {
     const step = 2 * Math.PI / RING_N
     const gap = 2 * radii[0] * Math.sin(step / 2)          // centre-to-centre along the circle
     assert.ok(gap <= ring.pools[0].maxR * 2, `the ring must close: neighbours are ${gap.toFixed(0)}px apart but only ${(ring.pools[0].maxR * 2).toFixed(0)}px wide`)
+    // AND IT ACTUALLY PENS. Everything above is geometry, and geometry is not the claim — the card
+    // says it traps. Prey are dropped in the middle with the player far outside PREY_SIGHT_R, so
+    // they are milling rather than fleeing, and the control is the identical drift with no ring at
+    // all. Note WHY the centre holds them rather than squeezing them out: the six avoidance vectors
+    // cancel exactly at the middle and point inward everywhere off it, so the pen is a stable well.
+    {
+      const penned = (withRing) => {
+        const run = mk(20260826)
+        run.weapons = []
+        const p = run.player
+        // INSIDE PREY_SIGHT_R (340), deliberately. A school with no reason to leave stays put with
+        // or without a pen, which is a control that proves nothing — the first cut of this fixture
+        // parked the player 900px away and read 6 of 6 on BOTH sides. The real case is the one the
+        // card is for: you close in, they bolt, and the oil is what decides whether they get out.
+        const cx = p.x + 300, cy = p.y
+        const school = [0, 1, 2, 3, 4, 5].map((k) => {
+          const a = (k / 6) * Math.PI * 2
+          return put(run, { x: cx + Math.cos(a) * 18, y: cy + Math.sin(a) * 18, hp: 1e12, speed: 60, flags: ['skittish'] })
+        })
+        if (withRing) {
+          const lv = WEAPONS.bilge.levels[0]
+          const pr = lv.maxR * RING_POOL_MUL
+          const rr = pr * RING_R_MUL
+          for (let j = 0; j < RING_N; j++) {
+            const t = (j / RING_N) * Math.PI * 2
+            run.blooms.push({
+              x: cx + Math.cos(t) * rr, y: cy + Math.sin(t) * rr,
+              t: 0, r: pr, maxR: pr, dur: 99, dmgPerTick: 0, tick: 0, look: 'bilge', shape: 0, rot: 0, slow: 1,
+            })
+          }
+        }
+        const keep = run.blooms.slice()
+        for (let i = 0; i < Math.round(5 / dt); i++) {
+          run.enemies.length = 0; run.enemies.push(...school)
+          run.blooms.length = 0; run.blooms.push(...keep)   // hold the pen open for the whole test
+          for (const b of run.blooms) { b.t = 0; b.r = b.maxR }
+          stepSim(run, { x: 0, y: 0 }, dt)
+        }
+        const rr = lvMaxR * RING_POOL_MUL * RING_R_MUL
+        // THE SPREAD, NOT A HEAD COUNT. "How many are still inside" is vacuous in any fixture where
+        // the control school does not leave either — it read 6 of 6 on both sides. What the pen
+        // actually does is hold the school TIGHTER than open water would, and that is a number that
+        // moves: it also catches the pathology the six-pool ring had, where the walls squeezed fish
+        // OUT through the gaps and the spread grew instead of shrinking.
+        return { spread: Math.max(...school.map((e) => Math.hypot(e.x - cx, e.y - cy))), rr }
+      }
+      const lvMaxR = WEAPONS.bilge.levels[0].maxR
+      const pen = penned(true)
+      const open = penned(false)
+      assert.ok(pen.spread < open.spread,
+        `the ring must hold the school TIGHTER than open water: spread ${pen.spread.toFixed(0)}px against ${open.spread.toFixed(0)}px unpenned`)
+      assert.ok(pen.spread < pen.rr,
+        `and it must hold them INSIDE the wall: the furthest fish reached ${pen.spread.toFixed(0)}px of a ${pen.rr.toFixed(0)}px ring`)
+      console.log(`PASS run PY.p2 (the pen holds): a school bolting from the player spreads to ${pen.spread.toFixed(0)}px inside a ${pen.rr.toFixed(0)}px ring, against ${open.spread.toFixed(0)}px with no ring at all`)
+    }
     console.log(`PASS run PY.p (the oil ring): ${RING_N} pools at ${radii[0].toFixed(0)}px around the target, ${gap.toFixed(0)}px apart against ${(ring.pools[0].maxR * 2).toFixed(0)}px of width, and nothing in the middle`)
   }
 

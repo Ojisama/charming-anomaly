@@ -18,7 +18,7 @@
 const p = run.player
 p.hp = p.maxHP = 99999
 
-H.note('frames: 1-3 bilge cast — the pool must open ON A FISH, not under the player')
+H.note('frames: 1 plain bilge | 2-3 OIL RING — the pen must be a ring with an empty middle')
 
 H.breed(8)
 const crowd = H.keep(4)
@@ -38,6 +38,9 @@ return () => {
   run.coins.length = 0
   p.hitFlash = 0
   H.pin()
+  // Frame 0 is the ordinary cast; from frame 1 the ring mod is on, so one shoot carries the
+  // comparison rather than two runs whose crowds landed differently.
+  if (i === 1) H.weapon('bilge', 5, { oilRing: 1 })
 
   let fired = false
   for (let k = 0; k < 900 && !fired; k++) {
