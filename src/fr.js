@@ -583,7 +583,17 @@ const CONFIG = {
   // the tooth-grinding verb, and 'Croc' (fang) carries the ANIMAL where a literal 'Broiement' would
   // carry the dentistry. It also sits one syllable long beside The Deep's 'Coup de Nageoire'.
   'Gnash': 'Croc',
-  'Snaps a short bite in front of you. The closer the body, the deeper it goes.': 'Claque une courte morsure devant vous. Plus le corps est proche, plus elle s\'enfonce.',
+  'Darts onto the nearest body and bites. The closer it lands, the deeper it goes.': 'Fonce sur le corps le plus proche et mord. Plus elle frappe pr\u00e8s, plus elle s\'enfonce.',
+  // The Wreck's herding kit (v7.x). Owner's picks, 2026-08-18.
+  // 'App\u00e2t' over 'Bro\u00fbmage' (the exact term for chumming) because the card has to read at a
+  // glance and bro\u00fbmage is a word most players have never met.
+  'Chum': 'App\u00e2t',
+  'Tears the rotted catch out of the hold. What was fleeing turns and gathers.': 'Arrache les prises pourries de la cale. Ce qui fuyait fait demi-tour et s\'attroupe.',
+  // 'Mazout' over the literal 'Sentine' (the bilge itself): mazout is the word French uses for a
+  // marine oil spill and for the mar\u00e9e noire, so it names the POLLUTION rather than the part of the
+  // boat it came from — which is this book's through-line and this chapter's own hazard.
+  'Bilge': 'Mazout',
+  'Splits a drum. The oil crawls out, it drags on anything in it, and nothing will swim into it.': 'Fend un f\u00fbt. L\'huile s\'\u00e9chappe, freine ce qui s\'y trouve, et rien ne veut y nager.',
   'Net Toss': 'Filet Lesté',
   'Throws a weighted net over a pack and holds them where they stand.': 'Jeté sur un groupe entier, il le cloue sur place.',
   'Membrane Piercer': 'Perce-Membrane',
@@ -748,6 +758,20 @@ const CONFIG = {
   // effect over the reference, and it fits the row.
   'Death Roll': 'Prise Mortelle',
   'holds bitten prey for {n}s': 'immobilise la proie mordue pendant {n} s',
+  // chum's three and bilge's three (v7.x). 'Nappe' is the word for an oil slick on water and carries
+  // both cards' spread, which is what makes them read as one chapter's gear.
+  'Wide Slick': 'Nappe Large',
+  'chum spread': 'port\u00e9e de l\'app\u00e2t',
+  'Ripe Catch': 'Prise Faisand\u00e9e',
+  'how long chum lasts': 'dur\u00e9e de l\'app\u00e2t',
+  'Deep Chum': 'App\u00e2t Profond',
+  'baited fish hold their nerve closer to you': 'les poissons app\u00e2t\u00e9s tiennent bon plus pr\u00e8s de vous',
+  'Split Seam': 'Couture Fendue',
+  'oil spread': '\u00e9tendue du mazout',
+  'Thick Oil': 'Huile \u00c9paisse',
+  'how long the oil lasts': 'dur\u00e9e du mazout',
+  'Trailing Slick': 'Nappe Tra\u00eenante',
+  'the oil pours behind you as you swim': 'le mazout se d\u00e9verse derri\u00e8re vous quand vous nagez',
   'Rending Claws': 'Griffes Déchirantes',
   'claw damage': 'dégâts des griffes',
   'Wide Rake': 'Griffure Large',
