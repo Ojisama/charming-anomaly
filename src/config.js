@@ -3645,13 +3645,24 @@ export const FOXFIRE_GLOW = {
 // that shrank to nothing would be the structural trap spec §8.2 forbids. At 0.45 an empty-bar L5
 // lance still reaches 252px, comfortably past the 205px radius of the shaft you are trying to get
 // back to.
+export const SUNLANCE_REACH_MIN = 0.45
+
 // BALLAST (The Shelf). Flight time, and the fallback throw distance when nothing is in range —
 // without the second one a cast with no target lands on the player's own head, which is not a
 // misfire the card should be able to make.
 export const BALLAST_FLIGHT = 0.42       // seconds from the throw to the landing
 export const BALLAST_BLIND_THROW = 260   // px ahead, when there is nothing to aim at
-
-export const SUNLANCE_REACH_MIN = 0.45
+// The size of the THROWN JUNK on screen, which is deliberately not `r`. `r` is where it will
+// LAND — 96 to 134px — and the lob rig scaled its payload by exactly that, off a 12px bake, so a
+// ballast flew as the kaiju's masonry chunk magnified 8-11x: the same sprite as Debris Toss and
+// stepped on every edge. Owner from play, 2026-08-18: "Lest looks too much like debris toss. It's
+// ugly and pixelated." The net beside it already had this fix and its comment already said why.
+export const BALLAST_THROW_R = 26
+// The landing ring. Debris Toss's is amber (0xffb37a) and Ballast shared it, which was a second
+// reason the two read as one weapon on top of the sprite — owner from play, 2026-08-18. Silt
+// ochre-green instead: still unmistakably "something lands here", and nowhere near the warm
+// peach that means the kaiju is throwing masonry at you.
+export const BALLAST_RING = { line: 0xb2c065, fill: 0x8d9c4a }
 // ---- The Deep's anglerfish: the refill IS the trap ---------------------------------------------
 // Owner, 2026-08-17: "I want a huge hidden anglerfish like size 6, but as a trap. In the surf there
 // are pools that refill your bar. In the deep i want those pools to be the anglerfishes that refill
@@ -4443,6 +4454,27 @@ export const ALL_CHAPTER_IDS = Object.values(BOOKS).flatMap((b) => b.chapters)
 // second literal — a `const` referenced inside an object literal must already be initialized, and
 // CHAPTERS is built as one literal below.
 export const HUMIDITY_DMG_FLOOR = 0.7
+
+// EVERY REFILL FIELD IN BOOK 2 DRAWS DOWN, NOT JUST THE SHELF'S (owner, 2026-08-18: "in all zones of
+// book 2 except pools in 2-1, the resource gathering zones should disappear when you've charged 33%
+// of your resource bar"). The mechanism is the one The Shelf shipped — `drawdownSecs` on the field,
+// the circle fading on the same number stepCharge counts — and this is only what sets it: the
+// owner's rule is a share of the BAR, so the seconds are derived from the chapter's own numbers
+// rather than written down three times.
+//
+// spendSecs() is net of the drain, because the bar is what the ruling is denominated in: at The
+// Shelf's 18/s against 2.2/s a third of the bar arrives in 2.1s, and at The Reef's 9/s against
+// 1.4/s it takes 4.3s. One clock for both would be two different rules wearing one number.
+// ponytail: the seconds are fixed at authoring time, so the two shop lines that move the arithmetic
+//   (Deep Lungs raises chargeMax, Big Gulp raises the refill) leave the SECONDS right and the SHARE
+//   slightly off — a maxed Deep Lungs turns a third of the bar into a fifth of it. The upgrade path
+//   is to meter the drawdown on charge GAINED in stepCharge instead of on dt, which costs the
+//   render fade its divisor and Big Gulp its per-circle value; not worth it until it is felt.
+// balance_decision : a refill circle is spent after a third of the bar 2026-08-18
+//  - The Deep is the one Book 2 field with none: a third of its bar arrives at 2.4s and its maw
+//    needs MAW_GAPE_T (3.2s) to swallow, so a drawdown would delete the trap the chapter is built on.
+export const REFILL_ZONE_SPEND = 0.33
+export const spendSecs = (res, spend = REFILL_ZONE_SPEND) => +((res.max * spend) / (res.refill - res.drain)).toFixed(2)
 export const CHAPTERS = {
   body: {
     name: 'The Body', tagline: 'escape the host', icon: '🦠',
@@ -5290,16 +5322,17 @@ CHAPTERS.shelf = {
   // rising through silt has no edge a circle would describe.
   //
   // `drawdownSecs` is the mechanic (owner, same ruling): "they disappear when you stand in them,
-  // linearly in 5s". Standing in an upwelling USES IT UP — 5 seconds of occupancy and it is gone,
-  // fading the whole way so the clock is on screen rather than in the HUD. This is what makes the
-  // murk chapter's refill different in KIND from the sun shafts it borrowed its geometry from: a
-  // shaft is a place you can park, and parking is what the crowd is waiting for; an upwelling is a
-  // place you can park ONCE. The chapter's answer to "where is the water clear" stops being a fixed
-  // map you learn and becomes a thing you consume as you travel.
-  // ponytail: a spent upwelling is not remembered once it streams out of range, so walking far away
-  //   and back regenerates it. That reads as the water moving (which it does, driftAmp 60), and the
-  //   upgrade path if it ever matters is a per-cell spent-set on `run`, not a field on the circle.
-  signature: { type: 'shafts', refillLook: 'upwelling', blob: true, drawdownSecs: 5, cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
+  // linearly in 5s". Standing in an upwelling USES IT UP, fading the whole way so the clock is on
+  // screen rather than in the HUD: an upwelling is a place you can park ONCE, and the chapter's
+  // answer to "where is the water clear" stops being a fixed map you learn and becomes a thing you
+  // consume as you travel. It is no longer written here, and no longer 5s: the second ruling
+  // (2026-08-18) made the drawdown a share of the BAR and gave it to the whole book, so every field
+  // that takes one is set together from REFILL_ZONE_SPEND, below CHAPTERS.deep. 2.09s here.
+  // ponytail: a spent circle is not remembered once it streams out of range, so walking far away and
+  //   back regenerates it — now true of three fields, not one. That reads as the water moving (which
+  //   it does, driftAmp 60), and the upgrade path if it ever matters is a per-cell spent-set on
+  //   `run`, not a field on the circle.
+  signature: { type: 'shafts', refillLook: 'upwelling', blob: true, cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
 
   // The bar. Same numbers as the light rig it reuses — drain 2.2 / refill 18 / killRefill 1.5 were
   // measured over 5 seeded 300s runs under three spend policies (see CHAPTERS.twilight.resource for
@@ -5308,15 +5341,17 @@ CHAPTERS.shelf = {
   // ⚠ Phase 3 changes two of three creatures, which changes the kill rate, which is what killRefill
   // is read against — re-run charge-probe's FULL refill sweep then, not just the Clear spend policy.
   //
-  // speedFloor 1 — THE MURK DOES NOT SLOW YOU, and this is the one number that is a decision rather
-  // than an inheritance. Three reasons. The murk is filth you push back, not exhaustion. The
-  // shipped tune of this rig with BOTH penalties recorded the highest damage taken of any row it
-  // measured, and §6.2's Clear adds a third cost on top by shrinking the resting radius. And 2.4
-  // (Feed) and 2.5 (the dark) already both slow you, so a third is the axis collapsing rather than
-  // a chapter having an identity.
+  // speedFloor 0.7 — THE MURK SLOWS YOU. Owner from play, 2026-08-18: "it should also slow you
+  // down". This overturns the speedFloor 1 that shipped in v7.133, whose argument was that 2.4
+  // (Feed) and 2.5 (the dark) already both slow you and a third would collapse the axis. That
+  // argument lost to the chapter actually being played: water you cannot see through is water you
+  // move carefully in, and a chapter whose only cost was sight turned out not to bite.
+  //
+  // 0.7 rather than The Twilight's 0.6, because this is slot 2 and that is slot 6 — the book should
+  // still tighten as it descends rather than arriving at its full weight in the second chapter.
   resource: {
     name: 'Clarity', drain: 2.2, refill: 18, killRefill: 1.5, max: 100,
-    dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
+    dark: { from: 0.5, speedFloor: 0.7, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
   },
 
   // ⚠ TWO OF THREE ARE BORROWED STAND-INS. The moon jelly is the one that is a design: Aurelia
@@ -5388,9 +5423,10 @@ CHAPTERS.shelf = {
     // BRIGHT and low-contrast — you cannot see far because the water throws light back at you, not
     // because there is none. So the far field here has to stay luminous and go flat, which means a
     // pale silty tone, not a dark one. The scrim is a MULTIPLY, so this value is roughly the
-    // fraction of the floor that survives at full murk: ~0.55, i.e. hazed out rather than blacked
-    // out. Judge it on scripts/scenes/shelf-murk.js, whose whole first question is this one.
-    darkTint: 0x8c9a80,
+    // fraction of the floor that survives at full murk: ~0.37, i.e. hazed out rather than blacked
+    // out. It was 0x8c9a80 (~0.55) until play called the murk too thin to read as a cost.
+    // Judge it on scripts/scenes/shelf-murk.js, whose whole first question is this one.
+    darkTint: 0x5f6b4e,
 
     // SWELL (v7.x): the waves — STAYED WITH THE SLOT when the light left. Surface waves seen from
     // below belong in shallow water and cannot be seen at 2.5, which is why this block did not
@@ -6458,6 +6494,11 @@ CHAPTERS.deep = {
   // this is the darkest chapter, so light has to be worth crossing the map for; and every one of
   // these is a decision to walk into a mouth, which stops being a decision if there is always
   // another one in sight.
+  // ⚠ NO `drawdownSecs` (the one Book 2 field with none — see REFILL_ZONE_SPEND). A third of this
+  // bar arrives at 2.4s inside a maw (16/s against a 2.0/s drain) where MAW_GAPE_T needs 3.2s, so a
+  // drawdown would fade every mouth in the chapter out a second before it could close. Run DP.c went
+  // red the day it was tried. The maw already takes itself away: it shuts for MAW_SHUT_T on a
+  // swallow, which is this chapter's own version of a circle you can only use once.
   signature: { type: 'dark', maws: { cell: 900, chance: 0.42, r: 200, minDist: 460 } },
 
   // THE BAR: Light. The maws above are the ONLY source — no shafts, no kill refill, nothing else on
@@ -6572,6 +6613,21 @@ CHAPTERS.deep = {
     dust: { tint: 0xb8ccdc, alpha: 0.28, speedMul: 0.1, sway: 4 },
   },
 }
+
+// THE DRAWDOWN, APPLIED TO THE WHOLE BOOK (owner, 2026-08-18 — see REFILL_ZONE_SPEND above). Written
+// HERE rather than inside each chapter's literal because the seconds are derived from that chapter's
+// OWN resource block, and a literal cannot reference a sibling key of the object it is inside. One
+// place also makes the exemptions readable as a list rather than as three absences.
+//   surf   — tide pools, exempt by the ruling itself ("except pools in 2-1"). The beach is scenery.
+//   wreck  — no refill field at all; Bloodlust is fed by killing.
+//   trawl  — its food is the net's wake, which is not a place and cannot be used up.
+//   deep   — exempt: see the ⚠ at CHAPTERS.deep.signature. The maw already takes itself away.
+for (const [id, spec] of [
+  ['shelf', CHAPTERS.shelf.signature],                 // upwellings: was a flat 5s, now the book's rule
+  ['twilight', CHAPTERS.twilight.signature],           // sun shafts
+  ['reef', CHAPTERS.reef.signature.pockets],           // air pockets
+]) spec.drawdownSecs = spendSecs(CHAPTERS[id].resource)
+
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
 export const CURRENT_VIS = {

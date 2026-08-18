@@ -2226,6 +2226,23 @@ body {
    never be told apart by position alone, since a left-handed player moves the button, not the rail. */
 .chaos-vrail--charge .chaos-vrail-track i { background: #ffb347; }
 .chaos-vrail--charge .chaos-vrail-num { color: #ffe0b0; }
+/* WHICH bar this is (v7.x). Book 2 gives every chapter a different noun for its rail — Humidity,
+   Clarity, Light, Air, Bloodlust, Feed — and a number in a colour cannot say which of them is
+   draining. Smaller than the count chip above it and letter-spaced so a one-word label reads as a
+   name rather than as a second readout; uppercase because the words are titles, not sentences. */
+.chaos-vrail--charge .chaos-vrail-label {
+  font-size: 0.56rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #ffcf94;
+  white-space: nowrap;
+}
+/* AND THE COLUMN PAYS FOR IT. The label adds ~24px (chip + gap) to a rail whose bottom clearance is
+   already measured: .charge--lanex parks it at top:56% to clear the fish, and on a 390x844 phone
+   that leaves the track ending 31px above the skill button. Left alone, the label pushes the track
+   down to 7px of that button. 24vh -> 21vh is the same 25px back, so every clearance this rail was
+   tuned against still holds and the readout is 3vh shorter, which nothing reads off. */
+.chaos-vrail--charge .chaos-vrail-track { height: 21vh; }
 /* Armed = the next press is a full-strength Pulse rather than the floor shove. A brightness step,
    not a hue step: the bar is still the same resource, and PULSE_CHARGE_COST is not a round fraction
    of max, so the height alone cannot show where the threshold is. */
