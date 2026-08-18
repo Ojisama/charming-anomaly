@@ -47,7 +47,7 @@ import {
   OVERLOAD_FIRE_MUL, OVERLOAD_DMG_MUL, OVERLOAD_HP_PER_SEC,
   AVARICE_HEAL_CHANCE, AVARICE_HEAL_HP, AVARICE_COIN_DROP_MUL,
   BLOOD_PACT_PER_KILL, BLOOD_PACT_PER_ELITE, BLOOD_MONEY_HP, BLOOD_MONEY_ESCALATION,
-  SUBMISSION_ELITE_EVERY_MUL, SUBMISSION_DURATION, SUBMISSION_DMG_FRAC, SUBMISSION_HIT_EVERY,
+  ELITE_SURGE_EVERY_MUL, SUBMISSION_DURATION, SUBMISSION_DMG_FRAC, SUBMISSION_HIT_EVERY,
   SUBMISSION_STRIP_FLAGS,
   STILLNESS_RAMP, STILLNESS_MAX_MUL, MARTYR_DMG_MUL, MARTYR_RADIUS,
   CHAOS_PACT_SPAWN_MUL, CHAOS_PACT_DMG_PER_WAVE, chaosSurgeActive, chaosWavesSurvived,
@@ -1616,11 +1616,16 @@ function elNeverFreezes(e) { return !!(e.affixes && e.affixes.includes('anchored
 // normal spawn-timer path in stepSpawning.
 function spawnEnemy(run, opts = {}) {
   const isElite = !opts.forceNormal && run.time >= run._nextEliteAt
-  // SUBMISSION brings its own elites (config: SUBMISSION_ELITE_EVERY_MUL). Read-time, never
+  // BOTH ELITE JACKPOTS BRING THEIR OWN ELITES (config: ELITE_SURGE_EVERY_MUL). Read-time, never
   // written into run.mods — that table is the run's mutator product and must stay fixed.
+  //
+  // ONCE, not once per card. `||` and not a product: holding Submission and Unstable Cores
+  // together is intended and they are specced to combine, but compounding the cadence would be
+  // 9x elites rather than 3x, and a jackpot pair should not quietly become a difficulty setting.
   if (isElite) {
+    const eliteSurge = run.anomalies?.submission || run.anomalies?.unstableCores
     run._nextEliteAt += eliteEveryAt(run.time, lateEliteFor(run.chapter)) * run.mods.eliteEveryMul
-      * (run.anomalies?.submission ? SUBMISSION_ELITE_EVERY_MUL : 1)
+      * (eliteSurge ? ELITE_SURGE_EVERY_MUL : 1)
   }
 
   const type = opts.type ?? pickWeighted(waveWeights(run.time, CHAPTERS[run.chapter].archetypeMul))
@@ -5786,6 +5791,9 @@ const WEAPON_STAT_MODS = {
   // it without a second registration. `backwash` and `fastSkim` are the exceptions and both are
   // registered elsewhere (a switch read at the cast site, and WEAPON_RATE_MODS respectively).
   breaker:       { swell: ['dmg', 'pct'], longshore: ['radius', 'pct'], broadCrest: ['arc', 'pct'] },
+  // The Shelf's starter. `flare` folds onto `arc` exactly as broadCrest does, which also means the
+  // pause build sheet reports the WIDENED cone rather than the base one.
+  bubblePuff:    { froth: ['dmg', 'pct'], flare: ['arc', 'pct'] },
   skippingShell: { skimmer: ['dmg', 'pct'], flatStone: ['skips', 'flat'], wideSplash: ['r', 'pct'] },
   barnacles:     { grinder: ['dmg', 'pct'], encrust: ['crustDur', 'pct'], spawnfall: ['count', 'flat'], seedbed: ['jumps', 'flat'] },
   // The Trawl's two natives. `twinSet` and `doubleHaul` are absent for the reason the block above
@@ -8854,11 +8862,26 @@ function stepLobs(run, dt) {
 
 // BUBBLE PUFF (starter). A ring on the player: spawnNova already carries `knockback` and a `look`
 // tag, so this is the Cytokine Burst's entity with the chapter's numbers and its own drawing.
+// BUBBLE PUFF. A cone, not a ring — owner, 2026-08-18. The sector gate and the once-per-body hit
+// set are spawnNova's and stepNovas', the same ones The Surf's Breaker rides on.
+//
+// ⚠ THE CAP IS ABOUT THE LOOK, NOT THE HIT TEST, and the first draft of this comment had it
+// backwards — a mutation run is what corrected it. stepNovas compares a NORMALISED bearing, which
+// can never exceed pi, so an arc of 20 radians already admits every body and needs no protecting.
+// What the cap buys is the RENDER: `arc: null` is spawnNova's "no sector", which is what puts a
+// fully-widened puff back on placeNova's full ring sprite instead of leaving drawBubblePuffs
+// sweeping a 20-radian wedge that wraps the circle several times over. So the top of the Flare
+// ladder is the clean ring the weapon started life as, rather than a wedge that happens to cover
+// everything. Do not "simplify" it away on the grounds that the sector maths copes: it does, and
+// that is not what this is for.
 function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
   fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => {
     const p = run.player
+    const full = stats.arc == null || stats.arc >= Math.PI * 2
+    const arc = full ? null : stats.arc
+    const angle = aimAngle(run)
     for (const r of ipecacRadii(run, stats.r)) {
-      spawnNova(run, p.x, p.y, r, stats.dmg, stats.knockback, 0, { look: 'bubble' })
+      spawnNova(run, p.x, p.y, r, stats.dmg, stats.knockback, 0, { look: 'bubble', arc, angle })
     }
   })
 }
@@ -9043,13 +9066,6 @@ function firePulsar(run, stats) {
 // Every one of the three aims the same way, and it is fireFlagella's hard-won rule (v5.1.2): the
 // NEAREST ENEMY first, and the last move direction only as a fallback. A kiting player's heading
 // points away from the swarm, so aiming by facing alone fires every cast into empty sand.
-function surfAim(run) {
-  const p = run.player
-  const target = nearestEnemy(run)
-  if (target) return Math.atan2(target.y - p.y, target.x - p.x)
-  if (p.facingAngle != null) return p.facingAngle
-  return p.facing >= 0 ? 0 : Math.PI
-}
 
 // -- Breaker (the chapter's starter) --------------------------------------------------------
 // A wave that rolls out ahead of you and drags what it catches along with it. The front is a nova
@@ -9065,13 +9081,13 @@ function stepBreakerWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
   const backwash = (run.weaponMods.breaker?.backwash ?? 0) > 0
   fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
-    const aim = surfAim(run)
+    const aim = aimAngle(run)
     for (const a of ipecacAngles(run, aim)) {
       spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback, 0,
-        { arc: stats.arc, angle: a, carry: stats.carry })
+        { look: 'breaker', arc: stats.arc, angle: a, carry: stats.carry })
       if (backwash) {
         spawnNova(run, p.x, p.y, stats.radius, stats.dmg * BREAKER_BACKWASH_DMG_FRAC, stats.knockback, 0,
-          { arc: stats.arc, angle: a + Math.PI, carry: stats.carry })
+          { look: 'breaker', arc: stats.arc, angle: a + Math.PI, carry: stats.carry })
       }
     }
     // render.js draws the crest from this event, so it carries the geometry rather than making the
@@ -9093,7 +9109,7 @@ function stepShellWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
   const fast = run.weaponMods.skippingShell?.fastSkim ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + fast)), dt, () => {
-    const aim = surfAim(run)
+    const aim = aimAngle(run)
     const skips = Math.max(1, Math.round(stats.skips))
     for (const a of ipecacAngles(run, aim)) {
       run.bullets.push({
@@ -9176,7 +9192,7 @@ function stepShellSkip(run, b, dt) {
 function stepBarnacleWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
   fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
-    const aim = surfAim(run)
+    const aim = aimAngle(run)
     // ONE local, used as the loop bound AND as the divisor that spaces what the loop spawns. Two
     // separate expressions here is the failure CLAUDE.md documents across eight weapon sites: the
     // extra larvae stack on one bearing and it renders identically to no change at all.
@@ -9306,7 +9322,7 @@ function spreadBarnacle(run, host, c) {
 //             a third rotating rake with a new name on it.
 //   netToss   a thrown GROUP HOLD, riding run.lobs for the flight and adding no array at all (the
 //             `snare` branch in stepLobs). Pincer answers one approach; this stops a pack.
-// Both aim through surfAim — nearest enemy first, facing only as the fallback. A kiting player's
+// Both aim through aimAngle — nearest enemy first, facing only as the fallback. A kiting player's
 // heading points AWAY from the swarm, which in this chapter is most of the time, so aiming by
 // facing alone would fire every cast into empty water (fireFlagella's rule, v5.1.2).
 
@@ -9319,7 +9335,7 @@ function stepLonglineWeapon(run, w, stats, fireRateMul, dt) {
 // set and is left, which is the whole reason the weapon rewards a chapter spent running.
 function fireLongline(run, stats) {
   const p = run.player
-  const aim = surfAim(run)
+  const aim = aimAngle(run)
   // (nx, ny) is the line's NORMAL, so it points along the aim and the rope lies across it.
   const nx = Math.cos(aim), ny = Math.sin(aim)
   // ONE local for the count, used as both the loop bound AND the spacing divisor below. Written
@@ -9512,7 +9528,7 @@ function stepSunlanceWeapon(run, w, stats, fireRateMul, dt) {
   fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
     const frac = run.chargeMax > 0 ? Math.min(1, Math.max(0, run.charge) / run.chargeMax) : 1
     const reach = stats.length * (SUNLANCE_REACH_MIN + (1 - SUNLANCE_REACH_MIN) * frac)
-    const aim = surfAim(run)
+    const aim = aimAngle(run)
     for (const a of ipecacAngles(run, aim)) {
       run.beams.push({
         angle: a, life: stats.duration, duration: stats.duration, dmg: stats.dmg,
@@ -9568,7 +9584,7 @@ function fireFinHit(run, stats) {
   const angle = heading + side * (Math.PI / 2 + FINHIT_SWEEP_BIAS)
 
   for (const a of ipecacAngles(run, angle)) {
-    spawnNova(run, p.x, p.y, stats.range, stats.dmg * power, stats.knockback, 0, { arc: stats.arc, angle: a })
+    spawnNova(run, p.x, p.y, stats.range, stats.dmg * power, stats.knockback, 0, { look: 'finHit', arc: stats.arc, angle: a })
   }
   // `power` rides the event so render can swing a harder-looking fin when the shark is moving fast —
   // the card's whole claim is that speed matters, and a sweep drawn identically at 0.3 and at 1.6

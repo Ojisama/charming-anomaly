@@ -15144,7 +15144,8 @@ try {
   run(testSurfHumidityDamage)
   run(testSurfWeapons)
   run(testTwilightWeapons)
-  run(testLeLargeWeapons)
+  run(testEliteSurge)
+run(testLeLargeWeapons)
   run(testCrabGuard)
   run(testSurfGulls)
   run(testPlayerForms)
@@ -18021,6 +18022,50 @@ function testTwilightWeapons() {
 // card: all three reuse a SHARED entity array, so "the weapon fired" is plainly visible in
 // run.novas / run.blooms / run.lobs while the thing the card actually exists for — the shove, the
 // fear, the stain — is one field on that entity which nothing would report missing.
+// ---- run ES (2026-08-18): both elite jackpots bring their own elites ---------------------------
+// Owner: "when picking up the exploding elites, there should be 3x more elites, like picking
+// submission." Measured as elites actually SPAWNED over a real run against a do-nothing control,
+// not as the constant being read: the multiplier is applied at one line in spawnEnemy, and a card
+// that fails to reach it looks identical to one that does until you count.
+function testEliteSurge() {
+  const elitesIn = (anomalies) => {
+    Math.random = mulberry32(20260818)
+    const meta = makeMeta()
+    const run = createRun(meta, { chapter: 'body', difficulty: 3 })
+    run.player.maxHP = run.player.hp = 1e9
+    if (anomalies) run.anomalies = { ...run.anomalies, ...anomalies }
+    // Ids, not a running count: an elite that dies before the next sample would otherwise never be
+    // counted, and the whole point is how many ARRIVED.
+    const seen = new Set()
+    for (let i = 0; i < 220 * 60; i++) {
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      run.player.hp = run.player.maxHP
+      for (const e of run.enemies) if (e.elite) seen.add(e.id)
+    }
+    return seen.size
+  }
+
+  const base = elitesIn(null)
+  const cores = elitesIn({ unstableCores: true })
+  const sub = elitesIn({ submission: true })
+  const both = elitesIn({ unstableCores: true, submission: true })
+
+  assert.ok(base >= 3, `the control saw ${base} elites in 120s — too few to divide by, so the rest of this proves nothing`)
+  // A band, not an equality: the cadence is a time curve and the last elite of a run lands wherever
+  // the clock stops. 2x is well clear of 1x and well under 3x, so it separates the two hypotheses.
+  assert.ok(cores > base * 2,
+    `Unstable Cores saw ${cores} elites against a control's ${base} — the card is not tripling the cadence`)
+  assert.ok(sub > base * 2, `Submission saw ${sub} against ${base} — the shared multiplier broke the card it came from`)
+  // AND THEY DO NOT COMPOUND. Holding both is intended; 9x elites is not.
+  assert.ok(both < base * 4.5,
+    `holding both cards saw ${both} elites against a control's ${base} — the multiplier is compounding, so the pair is a difficulty setting`)
+  assert.ok(Math.abs(both - cores) <= Math.max(2, cores * 0.35),
+    `both cards (${both}) landed far from either alone (${cores}) — expected one surge, applied once`)
+
+  console.log(`PASS run ES (elite surge): 220s runs see ${base} elites at base, ${cores} with Unstable Cores, ` +
+    `${sub} with Submission and ${both} with both — tripled by either card, applied once for the pair`)
+}
 function testLeLargeWeapons() {
   const largeRun = (weaponId, level) => {
     const meta = makeMeta()
@@ -18152,7 +18197,130 @@ function testLeLargeWeapons() {
     assert.ok(rsrc.includes('BALLAST_RING'), 'render.js does not read BALLAST_RING — the recoloured ring is dead config')
   }
 
-  console.log('PASS run LL (Le Large natives): Bubble Puff shoves and damages, Silt Veil fears AND poisons what stands in it, Ballast lands and leaves a stain')
+  // (e) THE PUFF IS A CONE, NOT A RING. Owner, 2026-08-18. Asserted as a body that must NOT be hit,
+  // because the sector gate lives in stepNovas and is shared with The Surf's Breaker — a weapon can
+  // therefore lose its `arc` in config and keep working perfectly, just as a full circle again.
+  {
+    Math.random = mulberry32(20260818)
+    const run = largeRun('bubblePuff', 1)
+    const p = run.player
+    // aimAngle takes the NEAREST body, so the close one in front decides where the cone points.
+    // The control MUST be farther away or it becomes the aim and the test asserts nothing.
+    const front = makeStatusEnemy(run, { x: p.x + 110, y: p.y, hp: 1e6, speed: 0 })
+    const back = makeStatusEnemy(run, { x: p.x - 150, y: p.y, hp: 1e6, speed: 0 })
+    run.enemies.push(front, back)
+    const keep = new Set([front.id, back.id])
+    const lvl = WEAPONS.bubblePuff.levels[0]
+    for (let i = 0; i < Math.round((lvl.rate + NOVA_LIFE + 0.2) * 60); i++) {
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      run.enemies = run.enemies.filter((e) => keep.has(e.id))
+      // Re-pinned every frame: the shove is the whole card, so an unpinned control drifts out of
+      // the geometry the assertion is about.
+      front.x = p.x + 110; front.y = p.y; back.x = p.x - 150; back.y = p.y
+      front.kb.x = front.kb.y = back.kb.x = back.kb.y = 0
+    }
+    assert.ok(front.hp < 1e6, 'the body the puff was aimed at took no damage')
+    assert.strictEqual(back.hp, 1e6,
+      'a body directly BEHIND the player was hit — `arc` is not bounding the puff, so it is still a full ring')
+  }
+
+  // (f) FLARE BUYS WIDTH, asserted as a body that changes from missed to hit. A percentage on a
+  // number nothing reads would pass a 'the stat went up' check and do nothing in the water.
+  {
+    const offAxis = (flare) => {
+      Math.random = mulberry32(20260818)
+      const run = largeRun('bubblePuff', 1)
+      if (flare) run.weaponMods.bubblePuff = { flare }
+      const p = run.player
+      // The aim body is nearest and dead ahead; the subject sits 70 degrees off it, outside a 90
+      // degree cone's 45 degree half-arc and inside a widened one.
+      const aimBody = makeStatusEnemy(run, { x: p.x + 60, y: p.y, hp: 1e6, speed: 0 })
+      const a = (70 * Math.PI) / 180
+      const sx = p.x + Math.cos(a) * 140, sy = p.y + Math.sin(a) * 140
+      const subject = makeStatusEnemy(run, { x: sx, y: sy, hp: 1e6, speed: 0 })
+      run.enemies.push(aimBody, subject)
+      const keep = new Set([aimBody.id, subject.id])
+      const lvl = WEAPONS.bubblePuff.levels[0]
+      for (let i = 0; i < Math.round((lvl.rate + NOVA_LIFE + 0.2) * 60); i++) {
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+        run.events.length = 0
+        run.enemies = run.enemies.filter((e) => keep.has(e.id))
+        aimBody.x = p.x + 60; aimBody.y = p.y; subject.x = sx; subject.y = sy
+        aimBody.kb.x = aimBody.kb.y = subject.kb.x = subject.kb.y = 0
+      }
+      return subject.hp < 1e6
+    }
+    assert.strictEqual(offAxis(0), false, 'a body 70 degrees off the aim was already inside the base 90 degree cone')
+    assert.strictEqual(offAxis(3), true, 'Flare did not widen the cone — the mod folds onto a number nothing reads')
+  }
+
+  // (g) THE CAP HANDS THE RING BACK — as a LOOK, which is the only thing it changes.
+  //
+  // The first cut of this block asserted that a fully-stacked Flare still hits a body behind the
+  // player, on the theory that an over-wide arc would wrap past pi and start excluding again. That
+  // is false and the mutation run proved it: stepNovas normalises the bearing, so a 20-radian arc
+  // already admits everything and the assertion passed with the cap deleted. What the cap decides
+  // is which RENDERER draws the puff — `arc: null` is the full-ring sprite, anything else is the
+  // wedge — so that is what gets asserted.
+  {
+    const capArc = (flare) => {
+      Math.random = mulberry32(20260818)
+      const run = largeRun('bubblePuff', 1)
+      if (flare) run.weaponMods.bubblePuff = { flare }
+      const p = run.player
+      const body = makeStatusEnemy(run, { x: p.x + 60, y: p.y, hp: 1e6, speed: 0 })
+      run.enemies.push(body)
+      const keep = new Set([body.id])
+      for (let i = 0; i < Math.round((WEAPONS.bubblePuff.levels[0].rate + 0.2) * 60); i++) {
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+        run.events.length = 0
+        run.enemies = run.enemies.filter((e) => keep.has(e.id))
+        body.x = p.x + 60; body.y = p.y; body.kb.x = body.kb.y = 0
+        if (run.novas.length > 0) return run.novas[0].arc
+      }
+      return undefined
+    }
+    const bare = capArc(0)
+    assert.ok(typeof bare === 'number' && bare > 0, `an unmodded puff spawned a nova with arc ${bare} — it is not a cone at all`)
+    assert.strictEqual(capArc(40), null,
+      'a fully stacked Flare still spawns a SECTOR nova — the 2pi cap is gone, so the widest puff draws a wedge ' +
+      'wrapping the circle several times instead of the clean ring that is meant to be the top of the ladder')
+  }
+  // (h) EVERY NOVA CARRYING A SECTOR NAMES ITS DRAWER. run.novas is shared, and drawBreakers used to
+  // claim EVERY nova with an `arc` — so The Deep's Fin Hit was drawing a Surf whitewater crest on
+  // top of its own fin sweep, and the Bubble Puff cone would have joined it. Source text because
+  // render.js is not importable; this is the guard that would have caught it.
+  {
+    const ssrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+    // A balanced-paren scan rather than a regex: the opts object has its own braces and commas, and
+    // a regex that stops at the first ')' truncates every call that contains one.
+    const calls = []
+    let at = 0
+    while ((at = ssrc.indexOf('spawnNova(', at)) !== -1) {
+      let depth = 0, i = at + 'spawnNova'.length
+      for (; i < ssrc.length; i++) {
+        if (ssrc[i] === '(') depth++
+        else if (ssrc[i] === ')') { depth--; if (depth === 0) break }
+      }
+      calls.push(ssrc.slice(at, i + 1))
+      at = i + 1
+    }
+    assert.ok(calls.length >= 4, `found ${calls.length} spawnNova calls — the scan is broken, not the code`)
+    const arced = calls.filter((c) => /\barc:/.test(c))
+    assert.ok(arced.length >= 3, `only ${arced.length} spawnNova calls carry a sector — expected the breaker, the fin and the puff`)
+    for (const c of arced) {
+      assert.ok(/\blook:/.test(c),
+        'a spawnNova call carries `arc` but no `look`, so no drawer owns it and drawBreakers will: ' + c.replace(/\s+/g, ' ').slice(0, 120))
+    }
+    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(rsrc.includes("if (n.look !== 'breaker') continue"),
+      'drawBreakers no longer gates on look — it is claiming every nova with a sector again')
+    assert.ok(rsrc.includes("n.look !== 'bubble' || n.arc == null"),
+      'the bubble cone has no drawer of its own, so a 90 degree puff renders as nothing at all')
+  }
+
+  console.log('PASS run LL (Le Large natives): Bubble Puff shoves and damages, Silt Veil fears AND poisons what stands in it, Ballast lands and leaves a stain, the puff is a 90 degree cone that Flare widens and the cap hands back as a ring, and every sector nova names its drawer')
 }
 
 function twilightRun(weaponId, level = 1) {
@@ -18450,10 +18618,18 @@ function testLaneGolden() {
   // above describes. What did NOT move is `py`: all three seeds still end at exactly -12600, which
   // is 180s x LANE_SCROLL_SPEED. That is the guarantee this scenario exists for, and it is the
   // reason this re-capture is honest rather than a red being papered over.
+  // RE-BAKED 2026-08-18 for the global -15% mob HP. A golden master exists to catch drift you did
+  // NOT intend, so re-baking one is only honest if the drift is the drift your change predicts —
+  // otherwise it is a regression being blessed. The prediction here was specific and was checked
+  // before these numbers were written down: bodies with 15% less HP die sooner, so KILLS MUST RISE.
+  // They did, on every seed (267->295, 311->330, 293->306), and `py` — the load-bearing forward
+  // axis, which is exactly 180s x LANE_SCROLL_SPEED and must never move — did not budge on any of
+  // them. `px` and the alive count swing freely because kill timing re-phases the seeded stream;
+  // that is what this master is FOR, not evidence against it.
   const BEYOND_GOLDEN = [
-    { seed: 11, px: 6.696, py: -12600, enemies: 136, rocks: 1, kills: 267 },
-    { seed: 22, px: -67.248, py: -12600, enemies: 107, rocks: 1, kills: 311 },
-    { seed: 33, px: -95.454, py: -12600, enemies: 111, rocks: 1, kills: 293 },
+    { seed: 11, px: -189.78, py: -12600, enemies: 114, rocks: 1, kills: 295 },
+    { seed: 22, px: -189.777, py: -12600, enemies: 101, rocks: 1, kills: 330 },
+    { seed: 33, px: 13.046, py: -12600, enemies: 117, rocks: 1, kills: 306 },
   ]
   const meta = makeMeta()
   for (const id of ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond']) {
