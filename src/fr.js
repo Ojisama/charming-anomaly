@@ -287,8 +287,8 @@ const UI = {
   // — it read as "whatever THE RUN kills". 'au fil de' is the collocation for "over the run";
   // 'grandir avec' means growing alongside something. And souffle/explose keeps the blast/blows-up
   // variation the English has, where explosion/explose echoed.
-  'Every elite drops an unstable core. Its blast grows with the run, and whatever it kills blows up too.':
-    "Chaque élite lâche un cœur instable. Son souffle grandit au fil de la partie, et tout ce qu'il tue explose à son tour.",
+  'Elites arrive three times as often, and every one drops an unstable core. Its blast grows with the run, and whatever it kills blows up too.':
+    "Les élites arrivent trois fois plus souvent, et chaque élite lâche un cœur instable. Son souffle grandit au fil de la partie, et tout ce qu'il tue explose à son tour.",
   // 'un élite' (owner call): elliptical for 'un [ennemi] élite', which is the count-noun sense a
   // player means. 'une élite' is dictionary-correct for the abstract noun but reads as an elite
   // CORPS. This is the first place the game commits to a gender — everywhere else uses the neutral
@@ -1176,7 +1176,13 @@ const CONFIG = {
   // leads on the poison where the English leads on the scatter; the card does both, and the
   // English was widened to match rather than the French narrowed.
   'Bubble Puff': 'Jet de bulles',
-  'Bursts a ring of bubbles that shoves everything off you.': 'Un anneau de bulles qui repousse les assaillants.',
+  'Blows a cone of bubbles that shoves everything out of it.': 'Un cône de bulles qui repousse les assaillants.',
+  // Its two mods. The descs follow the Breaker's pattern exactly ('wave damage' -> 'dégâts de la
+  // vague'), keyed off the weapon's own French name, so the two width cards in Book 2 read alike.
+  'Froth': 'Écume',
+  'puff damage': 'dégâts du jet',
+  'Flare': 'Éventail',
+  'puff width': 'largeur du jet',
   'Silt Veil': 'Voile de vase',
   'Stirs the bottom into a cloud that poisons and scatters what swims in.': 'Soulève la vase pour empoisonner vos poursuivants.',
   'Ballast': 'Lest',

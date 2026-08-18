@@ -465,7 +465,18 @@ export const BLOOD_PACT_PER_ELITE = 0.01
 // RAMPAGE's multipliers are read at use). Applied at spawnEnemy's cadence step.
 // Knock-on, stated rather than hidden: elites carry ELITE.coins and ELITE.xpMul, so 3x elites is
 // also ~3x elite coins and elite xp. On a jackpot that is intended, but it is a second buff.
-export const SUBMISSION_ELITE_EVERY_MUL = 1 / 3   // interval multiplier -> three times the elites
+//
+// ⚠ SHARED WITH UNSTABLE CORES since 2026-08-18 (owner: "when picking up the exploding elites,
+// there should be 3x more elites, like picking submission"), which is why it is no longer named
+// after Submission. Both cards are jackpots gated on the same elite kill and both are dead weight
+// at the base cadence — a card about what elites drop is worth as little without elites as a card
+// about what they become.
+//
+// THE TWO DO NOT COMPOUND. Holding both is intended and the spec names the combination as the
+// point (an ally's expiry fires its core), but multiplying the cadence twice is 9x elites, which
+// is not "three times as often" twice over — it is a different game mode. spawnEnemy applies this
+// once if EITHER card is held.
+export const ELITE_SURGE_EVERY_MUL = 1 / 3   // interval multiplier -> three times the elites
 export const SUBMISSION_DURATION = 20      // seconds the loan runs before the ally falls
 export const SUBMISSION_DMG_FRAC = 0.5     // the spec's "50% of your damage"; fire rate and crit are 100%
 // Contact is the ONLY attack most of the roster has — pounce, dive, charge and strafe all resolve
@@ -835,7 +846,7 @@ export const ANOMALIES = {
   unstableCores: {
     name: 'Unstable Cores', icon: '💥',
     from: 'you killed an elite and something went critical',
-    desc: 'Every elite drops an unstable core. Its blast grows with the run, and whatever it kills blows up too.',
+    desc: 'Elites arrive three times as often, and every one drops an unstable core. Its blast grows with the run, and whatever it kills blows up too.',
     // The hidden gate: this card teaches itself only to a player who has met an elite. Reads the
     // run counter, never run.enemies — an elite alive on screen is not the lesson.
     when: (r) => (r._eliteKills ?? 0) > 0,
@@ -2013,21 +2024,32 @@ export const WEAPONS = {
   // weapons decide what you can reach; they meet in the player's hands, not in a stat.
   bubblePuff: {
     name: 'Bubble Puff',
-    desc: 'Bursts a ring of bubbles that shoves everything off you.',
+    desc: 'Blows a cone of bubbles that shoves everything out of it.',
     icon: '🫧', rarity: 'normal',
-    // THE STARTER, named in §6.2 of the Undertow spec. A run.novas ring centred on the player, so it
-    // is the same entity the Cytokine Burst and the Skipping Shell's splash already use — tagged
-    // look: 'bubble' for the renderer, which sim never branches on.
-    //   r          the ring's outer radius. Short on purpose: this is the card that says "you are a
+    // THE STARTER, named in §6.2 of the Undertow spec. A run.novas entry LIMITED TO A SECTOR — the
+    // same machinery as The Surf's Breaker, which is where `arc` is documented at length — tagged
+    // look: 'bubble' so the renderer can tell it from a crest without inferring it from the radius.
+    //   arc        the FULL cone angle in radians, matching breaker/roar/flagella/clawRake's
+    //              convention (stepNovas halves it). 1.571 is 90 degrees.
+    //              ⚠ FLAT ACROSS THE LADDER, and that is the design rather than an oversight.
+    //              Owner, 2026-08-18: "i think the bubble puff shouldn't be 360 by default. maybe
+    //              90°, with mods to increase width." So WIDTH IS THE AXIS THE MODS OWN: levels buy
+    //              damage, reach and shove, and Flare is the only thing that buys coverage. The
+    //              Breaker grows its arc with level instead — do not copy that here, or Flare is
+    //              competing with the level-up for the same number.
+    //   r          the cone's outer radius. Short on purpose: this is the card that says "you are a
     //              small fish", and its answer to a crowd is to make room, not to delete it.
     //   knockback  the point of the card. A starter that only chips is a starter you replace; one
     //              that buys you a metre of water is one you keep taking levels in.
+    // It aims through aimAngle — nearest body first, facing only as the fallback. A cone that
+    // pointed where you MOVE would point at empty water, because a survivors player kites away
+    // from the pack; that is fireFlagella's hard-won rule and this weapon inherits it.
     levels: [
-      { dmg: 14, rate: 0.92, r: 155, knockback: 210 },
-      { dmg: 17, rate: 0.86, r: 168, knockback: 230 },
-      { dmg: 20, rate: 0.80, r: 181, knockback: 250 },
-      { dmg: 25, rate: 0.75, r: 195, knockback: 270 },
-      { dmg: 29, rate: 0.70, r: 210, knockback: 300 },
+      { dmg: 14, rate: 0.92, r: 155, arc: 1.571, knockback: 210 },
+      { dmg: 17, rate: 0.86, r: 168, arc: 1.571, knockback: 230 },
+      { dmg: 20, rate: 0.80, r: 181, arc: 1.571, knockback: 250 },
+      { dmg: 25, rate: 0.75, r: 195, arc: 1.571, knockback: 270 },
+      { dmg: 29, rate: 0.70, r: 210, arc: 1.571, knockback: 300 },
     ],
   },
   siltVeil: {
@@ -2852,6 +2874,15 @@ export const WEAPON_MODS = {
     // A switch that sends the wave the other way as well is the same want — more of the crowd
     // moved — expressed as something you can see happen. Read at the cast site (stepBreakerWeapon).
     backwash:   { name: 'Backwash',    desc: 'a second wave rolls out behind you', icon: '🌊', kind: 'switch' },
+  },
+  // The Shelf's starter. WIDTH IS THE POINT OF THIS SET: the weapon gives up the full circle it
+  // used to have and Flare is how a player buys it back, so the two cards below are the whole
+  // reason the cone is 90 degrees rather than 360. Flare compounds and stepBubblePuffWeapon caps
+  // the result at a full turn, so a build that stacks it does end up back at a ring — deliberately,
+  // as the top of that ladder rather than as a separate card.
+  bubblePuff: {
+    froth:      { name: 'Froth',       desc: 'puff damage',        icon: '💥', base: 0.30, kind: 'pct' },
+    flare:      { name: 'Flare',       desc: 'puff width',         icon: '🪭', base: 0.30, kind: 'pct' },
   },
   skippingShell: {
     skimmer:    { name: 'Skimmer',     desc: 'shell damage',       icon: '💥', base: 0.30, kind: 'pct' },

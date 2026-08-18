@@ -8690,6 +8690,11 @@ export function createRenderer(app) {
   // projectiles. One Graphics rather than a sprite pool — see drawBreakers for why an arc cannot be
   // a scaled texture.
   const breakerG = new Graphics()
+  // The Shelf's Bubble Puff cone. Its own Graphics rather than a share of breakerG, for the same
+  // reason the crest is a Graphics at all: the wedge's half-angle moves with the Flare mod, so it
+  // cannot be a baked texture — and it must not be drawn by drawBreakers, which would put The
+  // Surf's whitewater in a chapter of silt.
+  const puffG = new Graphics()
   // The Twilight's Sunspear. Additive, like every other light in this chapter (the sun shafts' own
   // sheen is a `blendMode = 'add'` sprite): the chapter it lands in is dark, and a flat fill over a
   // dark floor reads as paint rather than as light.
@@ -8751,7 +8756,7 @@ export function createRenderer(app) {
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     enemyShadowLayer, enemyLayer, enemyCrownLayer, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, breakerG, splashG, columnG, shorebreakG,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, breakerG, puffG, splashG, columnG, shorebreakG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -11630,11 +11635,71 @@ export function createRenderer(app) {
     }
   }
 
+  // THE BUBBLE PUFF CONE (The Shelf). A wedge of bubbles blown out in front of you.
+  //
+  // Drawn as BUBBLES rather than as a stroked wedge: a stroked sector reads as a contour — the
+  // outline of a shape rather than a thing in the water — which is the same argument drawBreakers
+  // records for the crest, and this chapter's whole visual language is silt and suspension. The
+  // faint filled sector underneath is there only so the COVERAGE is legible: the entire point of
+  // the card is now which quarter of the water you are clearing, and a scatter of bubbles alone
+  // leaves that to be inferred from where bodies happen to be flying.
+  //
+  // Positions come from the nova's own coordinates and the bubble index, NEVER from Math.random:
+  // a bubble reseeded every frame reads as static rather than as motion, a paused frame has to
+  // hold still, and two puffs alive at once must not flicker against each other. Same rule, and
+  // the same reason, as the crest's foam.
+  function drawBubblePuffs(run) {
+    puffG.clear()
+    if (!run.novas || run.novas.length === 0) return
+    for (const n of run.novas) {
+      if (n.look !== 'bubble' || n.arc == null) continue
+      const life = n.lifeMax || NOVA_LIFE
+      const k = Math.max(0, Math.min(1, n.life / life))    // 1 at the cast, 0 as it dies
+      const r = Math.max(2, n.r)
+      const half = n.arc / 2
+      const a0 = n.angle - half, a1 = n.angle + half
+      // The coverage wash. Very low alpha: it is a hint at the edges of the cone, not a shape.
+      puffG.moveTo(n.x, n.y)
+      puffG.arc(n.x, n.y, r, a0, a1)
+      puffG.closePath()
+      puffG.fill({ color: 0xcfe9f5, alpha: 0.09 * k })
+      // The bubbles. Mostly RINGS, because a bubble seen from above is a bright rim around a lens
+      // of water — a field of filled dots reads as spray or snow instead.
+      const N = 30
+      for (let i = 0; i < N; i++) {
+        const h1 = hash(n.x * 0.0131 + i * 1.77)
+        const h2 = hash(n.y * 0.0173 + i * 2.91)
+        const h3 = hash(i * 5.13 + 0.7)
+        // Biased OUTWARD (sqrt): scattering uniformly in radius piles bubbles at the apex, where
+        // the wedge is narrowest, and leaves the reach looking empty.
+        const rad = r * (0.30 + 0.70 * Math.sqrt(h2))
+        const a = a0 + h1 * n.arc
+        const bx = n.x + Math.cos(a) * rad
+        const by = n.y + Math.sin(a) * rad
+        const size = 1.6 + h3 * 4.4
+        const al = (0.30 + 0.45 * h3) * k
+        if (h3 > 0.78) {
+          puffG.circle(bx, by, size)
+          puffG.fill({ color: 0xffffff, alpha: al * 0.75 })
+        } else {
+          puffG.circle(bx, by, size)
+          puffG.stroke({ width: Math.max(0.9, size * 0.45), color: 0xffffff, alpha: al })
+        }
+      }
+    }
+  }
+
   function drawBreakers(run) {
     breakerG.clear()
     if (!run.novas || run.novas.length === 0) return
     for (const n of run.novas) {
-      if (n.arc == null) continue
+      // ⚠ BY LOOK, NOT BY `arc`. run.novas is shared, and this used to claim EVERY nova carrying a
+      // sector — so The Deep's Fin Hit was drawing a Surf whitewater crest on top of its own fin
+      // sweep (two telegraphs for one strike, the exact bug the Sunspear shipped with a Debris
+      // Toss landing ring), and The Shelf's Bubble Puff cone would have joined it the moment it
+      // stopped being a full circle. Every arc-carrying nova now names its drawer; run BN asserts
+      // that none of them is left unclaimed.
+      if (n.look !== 'breaker') continue
       const life = n.lifeMax || NOVA_LIFE
       const k = Math.max(0, Math.min(1, n.life / life))   // 1 at the cast, 0 as it dies
       const r = Math.max(2, n.r)
@@ -17910,6 +17975,7 @@ export function createRenderer(app) {
     updateGear(run, dt)       // v7.97 the Trawl's own gear: set lines + landed Net Toss meshes
     updateSwell(run, dt, cx, cy)
     drawBreakers(run)
+    drawBubblePuffs(run)
     drawColumns(run)
     drawShorebreak(run, animT)
     drawCrusts(run)
