@@ -51,7 +51,12 @@ return () => {
   for (let k = 0; k < 150; k++) { H.tickFx(1 / 60); H.pin(); p.hitFlash = 0 }
 
   const oil = run.blooms.filter((b) => b.look === 'bilge')
-  const d = oil.map((b) => Math.round(Math.hypot(b.x - p.x, b.y - p.y))).join(',')
-  H.note(`f${i}: ${oil.length} pool(s), ${d || '-'}px from the player, r=${oil.map((b) => Math.round(b.r)).join(',')}`)
+  const d = oil.map((b) => Math.round(Math.hypot(b.x - run.player.x, b.y - run.player.y))).join(',')
+  // The NaN counter stays. A field of positionless bodies renders as "the effect is invisible",
+  // which is indistinguishable from the effect being broken — this scene printed NaN for two rounds
+  // before anyone looked at where it came from (fx-probe's pin(), now guarded).
+  const nan = run.enemies.filter((e) => !Number.isFinite(e.x) || !Number.isFinite(e.y)).length
+  H.note(`f${i}: ${oil.length} pool(s) ${d || '-'}px from the player | ${run.enemies.length} enemies`
+    + ` | view ${run.viewW}x${run.viewH} | NaN-positioned ${nan} (MUST be 0)`)
   i++
 }
