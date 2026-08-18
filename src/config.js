@@ -5837,26 +5837,45 @@ CHAPTERS.wreck = {
   // ABOLISHED the bar there). The gate is scripts/charge-probe.mjs on this chapter, both movement
   // policies, with the drain/killBase pair fitted to what it measures.
   resource: {
-    // `drainPerSpawn`, NOT `drain` — see stepCharge. The drain is 2.2 x spawnRate(t), i.e. it rides
-    // the same curve the crowd arrives on, because this is the only bar in the game fed by kills
-    // and the kill rate is not a constant (0.5/s at t=0 to ~15/s at t=280, about 30x). A constant
-    // drain floors the bar while the player is weakest and pins it once they are strong, which is
-    // the pressure curve running backwards against the difficulty curve.
-    // ⚠ 4.5 IS FITTED TO A MEASUREMENT, NOT CHOSEN, and the measurement is the SHARE of the run the
-    // bar spends being managed rather than pinned or empty (6 seeds x 300s, immortal, two movement
-    // policies). A first cut at 2.2 was fitted to "break-even at ~60% of the achievable kill rate",
-    // which sounds right and pins the bar anyway — a player achieving 100% of the achievable rate
-    // sits at the ceiling, so break-even has to sit NEAR it, not below it:
-    //     drainPerSpawn   hunt: %pinned / %empty / %LIVE      kite: %LIVE
-    //         2.2               82 /  6 / 12                      26
-    //         3.0               70 /  0 / 30                       -
-    //         4.5                8 / 16 / 76                      55
-    //         6.0                1 / 61 / 38                       -
-    // 4.5 is the peak and it is not a narrow one. The kite column is the other half of the result
-    // and is the chapter working as designed: a player who refuses to engage spends 40% of the run
-    // at zero, where one who hunts the crowd holds the bar. Re-measure after ANY change to this
-    // chapter's balance block — this number is denominated in the CROWD, not in seconds.
-    name: 'Bloodlust', drainPerSpawn: 4.5, refill: 0, killBase: 5, killRefill: 2, max: 100,
+    // `drainPerSpawn`, NOT `drain` — see stepCharge. The drain rides the same curve the crowd
+    // arrives on, because this is the only bar in the game fed by kills and the kill rate is not a
+    // constant (0.5/s at t=0 to ~15/s at t=280).
+    //
+    // ⚠ REFITTED FOR THE PREY REWORK, AND THE OLD NUMBER WAS MEASURABLY WRONG. 4.5 was fitted when
+    // this chapter's spawnMul was 0.95; at 2.2 the same constant more than doubles the drain. Worse,
+    // the rig that produced that fit could not see this chapter at all — every movement policy in
+    // charge-probe.mjs modelled a player being CHASED, and this crowd runs away, so all of them
+    // measured a player who never eats. WRECK_MOVES (`hunt` against `ignore`) exists because of
+    // that, and this table is off it:
+    //      drainPerSpawn    hunt: mean / at-zero     ignore: mean / at-zero     separation
+    //           1.0             66.9 /  20%              52.8 /  23%              1.27x
+    //           1.6             56.8 /  29%              40.0 /  28%              1.42x
+    //           2.4             51.6 /  38%               9.6 /  58%              5.38x
+    //           4.5             25.4 /  51%               4.9 /  76%              5.18x
+    //   (base save, hoard spend, 3 seeds x 300s, immortal, `hunt` and `ignore` from WRECK_MOVES.)
+    //
+    // THE COLUMN THAT DECIDES IT IS THE SEPARATION, not either bar on its own — this chapter's
+    // thesis is "stop and you starve", so what has to be true is that ENGAGING pays and STANDING
+    // OFF does not. At 1.6 it barely does: a player who never closes still holds a mean of 40
+    // against a hunter's 56.8, which is a chapter about hunting where hunting is worth 40% more.
+    // At 2.4 the same comparison is 9.6 against 51.6 — engage and you are strong, stand off and the
+    // bar is gone — while a hunter still only sits at zero 38% of the time, against 4.5's 51%.
+    // 4.5 buys no more separation and simply starves the player who is doing the right thing.
+    // ⚠ 2.4 IS A MEASURED VALUE, not an interpolation between two that were. It was also very
+    // nearly skipped for wall-clock, and 1.6 was briefly committed in its place; the sweep's own
+    // table is why that is not what shipped. Do not re-tune this from three of the four rows.
+    //
+    // ⚠ ONE STRUCTURAL FINDING THE FIT DOES NOT ADDRESS, recorded because it is an owner decision
+    // and not a knob: break-even RISES with spawnRate(t) (~30x over a run) while the achievable kill
+    // rate does not — it is bounded by weapon dps and by how fast you can physically reach a fleeing
+    // fish. At EVERY value swept the per-10s trace has the same shape: pinned at 98-100 for the
+    // first ~140s, then zero for the last third, whatever the player does. The constant only slides
+    // where that cliff falls; it cannot make the bar cycle. That is not a death spiral — the damage
+    // floor is 1.0, so an empty bar deals exactly what the rest of the game deals — but the bar's
+    // upside is front-loaded and the final minutes cannot be influenced. Damping the law (a cap, or
+    // a sub-linear power on spawnRate) is the fix if that is not wanted, and it is not a change to
+    // make unasked.
+    name: 'Bloodlust', drainPerSpawn: 2.4, refill: 0, killBase: 5, killRefill: 2, max: 100,
     damage: { floor: 1, peak: 1.8 },
     rate: { floor: 1, peak: 1.5 },
     // 4, not 5, and the reason is arithmetic rather than balance: hurtPlayer ROUNDS a dot hit, so
