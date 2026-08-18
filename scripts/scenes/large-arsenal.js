@@ -24,25 +24,30 @@ H.place((i, p) => {
 // All three at L5, so the frame shows the arsenal at the size the census measured.
 // NOT three H.weapon() calls: that helper REPLACES run.weapons, so the first two would be silently
 // dropped and the frame would show one card while claiming to show three. Set the array once.
-run.weapons = [
-  { id: 'bubblePuff', level: 5 },
-  { id: 'siltVeil', level: 5 },
-  { id: 'ballast', level: 5 },
-]
+// BALLAST ALONE for this pass: the complaint was that it looked like Debris Toss and came out
+// pixelated, and a frame with three effects in it cannot answer a question about one sprite.
+run.weapons = [{ id: 'ballast', level: 5 }]
 
 // A pinned cast struck every frame never stops flashing white, and a white silhouette cannot be
 // judged against the effect sitting on top of it.
 for (const e of run.enemies) e.hitFlash = 0
 run.player.invuln = 0
 
+// A ballast is in the air for BALLAST_FLIGHT (0.42s) on a ~2.0s cadence, so letting the sim run and
+// hoping to catch one is a coin flip per frame — the first pass of this scene came back with six
+// frames and no weapon in any of them, which reads exactly like a weapon that does not fire. Pin
+// ONE and scrub its own flight clock instead: age 0 is the throw, age 1 is the landing.
+const p0 = run.player
+run.lobs.length = 0
+run.lobs.push({
+  fromX: p0.x - 40, fromY: p0.y + 30,
+  tx: p0.x + 210, ty: p0.y - 120,
+  t: 0, flight: 0.42, dmg: 52, r: 134, look: 'ballast',
+  stainDur: 4.4, stainDps: 11,
+})
+
 return (age) => {
-  // Run real time so the ring expands, the cloud grows and the weight completes its arc — none of
-  // these three can be read from a single still, and a frozen frame would show three shapes at
-  // whatever radius they happened to be born at.
-  // 1.4s PER FRAME, not 0.1. The three cadences at L5 are 0.70s / 3.2s / 2.0s, so a tenth of a
-  // second per frame runs the whole capture inside the FIRST cast of the fastest card and comes back
-  // showing an empty chapter — which reads exactly like three weapons that do not work.
-  H.tick(1.4)
+  for (const lo of run.lobs) lo.t = 0.42 * age
   for (const e of run.enemies) e.hitFlash = 0
   run.player.invuln = 0; run.player.hurtT = 0
   H.render()

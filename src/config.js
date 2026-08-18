@@ -3556,6 +3556,12 @@ export const FOXFIRE_GLOW = {
 // misfire the card should be able to make.
 export const BALLAST_FLIGHT = 0.42       // seconds from the throw to the landing
 export const BALLAST_BLIND_THROW = 260   // px ahead, when there is nothing to aim at
+// The size of the THROWN BLOCK on screen, which is deliberately not `r`. `r` is where it will
+// LAND — 96 to 134px — and the lob rig scaled its payload by exactly that, off a 12px bake, so a
+// ballast flew as the kaiju's masonry chunk magnified 8-11x: the same sprite as Debris Toss and
+// stepped on every edge. Owner from play, 2026-08-18: "Lest looks too much like debris toss. It's
+// ugly and pixelated." The net beside it already had this fix and its comment already said why.
+export const BALLAST_THROW_R = 26
 
 export const SUNLANCE_REACH_MIN = 0.45
 // ---- The Deep's anglerfish: the refill IS the trap ---------------------------------------------
@@ -5214,15 +5220,17 @@ CHAPTERS.shelf = {
   // ⚠ Phase 3 changes two of three creatures, which changes the kill rate, which is what killRefill
   // is read against — re-run charge-probe's FULL refill sweep then, not just the Clear spend policy.
   //
-  // speedFloor 1 — THE MURK DOES NOT SLOW YOU, and this is the one number that is a decision rather
-  // than an inheritance. Three reasons. The murk is filth you push back, not exhaustion. The
-  // shipped tune of this rig with BOTH penalties recorded the highest damage taken of any row it
-  // measured, and §6.2's Clear adds a third cost on top by shrinking the resting radius. And 2.4
-  // (Feed) and 2.5 (the dark) already both slow you, so a third is the axis collapsing rather than
-  // a chapter having an identity.
+  // speedFloor 0.7 — THE MURK SLOWS YOU. Owner from play, 2026-08-18: "it should also slow you
+  // down". This overturns the speedFloor 1 that shipped in v7.133, whose argument was that 2.4
+  // (Feed) and 2.5 (the dark) already both slow you and a third would collapse the axis. That
+  // argument lost to the chapter actually being played: water you cannot see through is water you
+  // move carefully in, and a chapter whose only cost was sight turned out not to bite.
+  //
+  // 0.7 rather than The Twilight's 0.6, because this is slot 2 and that is slot 6 — the book should
+  // still tighten as it descends rather than arriving at its full weight in the second chapter.
   resource: {
     name: 'Clarity', drain: 2.2, refill: 18, killRefill: 1.5, max: 100,
-    dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
+    dark: { from: 0.5, speedFloor: 0.7, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
   },
 
   // ⚠ TWO OF THREE ARE BORROWED STAND-INS. The moon jelly is the one that is a design: Aurelia
@@ -5296,7 +5304,7 @@ CHAPTERS.shelf = {
     // pale silty tone, not a dark one. The scrim is a MULTIPLY, so this value is roughly the
     // fraction of the floor that survives at full murk: ~0.55, i.e. hazed out rather than blacked
     // out. Judge it on scripts/scenes/shelf-murk.js, whose whole first question is this one.
-    darkTint: 0x8c9a80,
+    darkTint: 0x5f6b4e,
 
     // SWELL (v7.x): the waves — STAYED WITH THE SLOT when the light left. Surface waves seen from
     // below belong in shallow water and cannot be seen at 2.5, which is why this block did not

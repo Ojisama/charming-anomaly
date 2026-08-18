@@ -20667,13 +20667,19 @@ function testUndertowLadder() {
       assert.strictEqual(CHAPTERS[id]?.resource?.name, bar,
         `${id}'s bar is '${CHAPTERS[id]?.resource?.name}', not '${bar}' — the light and the murk have swapped or drifted`)
     }
-    // The murk must NOT slow you: 2.4 (Feed) and 2.5 (the dark) already both do, and a third is the
-    // axis collapsing. This is the one number in the new chapter that is a decision rather than an
-    // inheritance, and nothing else in the suite would notice it reverting to the light's 0.6.
-    assert.strictEqual(CHAPTERS.shelf.resource.dark.speedFloor, 1,
-      'The Shelf\'s murk slows the player — it is meant to cost SIGHT only (see its resource block)')
-    assert.ok(CHAPTERS.twilight.resource.dark.speedFloor < 1,
-      'The Twilight\'s dark stopped slowing the player, which is The Deep\'s inversion, not this chapter\'s')
+    // THE MURK SLOWS YOU, and it slows you LESS than the dark does. Owner from play, 2026-08-18,
+    // overturning the speedFloor 1 this scenario used to assert — the argument for it was that 2.4
+    // and 2.5 already both slow you, and it lost to the chapter being played, where a cost paid only
+    // in sight turned out not to bite. What is guarded now is the ORDER, not the value: slot 2 must
+    // stay gentler than slot 6, or the book arrives at its full weight in its second chapter.
+    const murk = CHAPTERS.shelf.resource.dark.speedFloor
+    const dark = CHAPTERS.twilight.resource.dark.speedFloor
+    assert.ok(murk < 1, 'The Shelf\'s murk stopped slowing the player (owner ruling 2026-08-18)')
+    assert.ok(dark < 1, 'The Twilight\'s dark stopped slowing the player, which is The Deep\'s inversion, not this chapter\'s')
+    assert.ok(murk > dark,
+      `The Shelf slows you as hard as The Twilight (${murk} vs ${dark}) — slot 2 must stay gentler than slot 6`)
+    assert.strictEqual(CHAPTERS.deep.resource.dark.speedFloor, 1,
+      'The Deep started slowing the player — its speedFloor 1 is that chapter\'s deliberate inversion')
 
     // (e2) THE ARSENAL FOLLOWED THE LIGHT, asserted semantically rather than as a source-text lint.
     // A text lint was tried first and is the wrong instrument: `CHAPTERS.shelf.resource.dark` is a
@@ -20861,11 +20867,24 @@ function testUndertowLadder() {
       // render.js must fade off the sim's own number rather than animating its own clock.
       assert.ok(rsrc2.includes('sh.drawdown'),
         'render.js never reads sh.drawdown — the fade is a parallel animation that can disagree with the mechanic')
+      // ⚠ AND THE LIGHTMAP PUNCH MUST FADE TOO. A refill circle has THREE consumers — the sim's
+      // occupancy clock, the sprite, and the hole updateDark cuts in the scrim — and the third was
+      // unconditional. A spent upwelling stopped refilling and went transparent while still clearing
+      // the murk at full strength: two consumers agreed the water was used up and the third kept
+      // lighting it, which on screen is a patch of clear water that does nothing and never goes
+      // away. Reported from play, 2026-08-18. SOURCE TEXT because updateDark draws into a canvas
+      // this suite cannot read — run UG.k's trick, and the only guard available here.
+      const punch = rsrc2.slice(rsrc2.indexOf('if (!chapterHasMaws) {'), rsrc2.indexOf('THE LURES'))
+      assert.ok(punch.length > 200, 'could not slice updateDark\'s punch-out block — the anchor moved')
+      assert.ok(/drawdown/.test(punch),
+        'updateDark punches the lightmap without reading sh.drawdown — a spent upwelling still clears the murk')
+      assert.ok(/lobePoly/.test(punch),
+        'updateDark punches a CIRCLE for a lobed field — it clears water outside the shape the sim tests')
       console.log(`PASS run US.k (upwelling drawdown): a lobed upwelling feeds the bar, its clock runs only while stood in, ` +
         `and at ${LIFE}s it stops being food (bar fell to ${run.charge.toFixed(1)} while parked in it); render fades off the same field`)
     }
 
-    console.log(`PASS run US.j (shelf/twilight split): ${Object.keys(BARS).length} chapter bars map as designed (murk costs sight only, the dark still slows), ` +
+    console.log(`PASS run US.j (shelf/twilight split): ${Object.keys(BARS).length} chapter bars map as designed (the murk slows you less than the dark does), ` +
       `the sun arsenal followed the light and no sun card is left in the murk, formScale climbs ${scales.map(([, s]) => s).join(' -> ')} across ${scales.length} rungs, ` +
       `refillLook '${[...declared].join("','")}' resolves both ways, ${Object.keys(CHAPTERS).length} chapters cast only their own roster, ` +
       `and ${byId.size} roster ids agree on their names`)
