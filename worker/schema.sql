@@ -25,7 +25,20 @@ CREATE TABLE IF NOT EXISTS scores (
   level      INTEGER NOT NULL,
   at         INTEGER NOT NULL   -- server clock, epoch ms
 );
--- One index per board. The second carries kills as a tiebreak so two runs that reached the same
--- level order by the more convincing one rather than by insertion accident.
-CREATE INDEX IF NOT EXISTS scores_kills ON scores (chapter, difficulty, kills DESC);
-CREATE INDEX IF NOT EXISTS scores_level ON scores (chapter, difficulty, level DESC, kills DESC);
+-- One index per board, and EACH MUST COVER THE WHOLE ORDER BY, `at` included. Without the trailing
+-- `at` SQLite can seek the partition but not the order, so it materialises every row for that
+-- (chapter, difficulty) and sorts:
+--     SEARCH scores USING INDEX scores_kills (chapter=? AND difficulty=?)
+--     USE TEMP B-TREE FOR LAST TERM OF ORDER BY
+-- which is the read this table's "no pruning, rows accumulate forever" decision is predicated on
+-- NOT being. With `at` in the index both plans are a bare SEARCH with no sort at all.
+-- The second index carries kills as a tiebreak so two runs that reached the same level order by
+-- the more convincing one rather than by insertion accident.
+--
+-- DROPPED FIRST, and that is the point: `CREATE INDEX IF NOT EXISTS` on an index that already
+-- exists is a silent no-op — it does not alter it — so a deployment that already ran the first
+-- version of this file would keep the sorting plan forever and this comment would be a lie.
+DROP INDEX IF EXISTS scores_kills;
+DROP INDEX IF EXISTS scores_level;
+CREATE INDEX IF NOT EXISTS scores_kills ON scores (chapter, difficulty, kills DESC, at ASC);
+CREATE INDEX IF NOT EXISTS scores_level ON scores (chapter, difficulty, level DESC, kills DESC, at ASC);

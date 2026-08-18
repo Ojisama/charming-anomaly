@@ -38,7 +38,13 @@ export function validNick(raw) {
   // slice() cuts UTF-16 units, so it can bisect an emoji and leave a lone high surrogate — which
   // renders as a replacement box and survives every other check here.
   if (/\p{Cs}$/u.test(s)) s = s.slice(0, -1)
-  return s.length >= NICK_MIN ? s : null
+  // TRIM AGAIN, and this one is not belt-and-braces. The clamp cuts at a fixed width with no regard
+  // for what is there, so a name whose 11th character is a space comes out of it with a TRAILING
+  // one: 'Alexandre Dupont' -> 'Alexandre '. The Worker trims before storing (it has to — it cannot
+  // trust a client), so the board would hold 'Alexandre' while meta.nick held 'Alexandre ', and
+  // every comparison between them is by string equality. Nothing throws; the player simply never
+  // sees their rank chip and never sees their own row highlighted, forever.
+  return (s = s.trim()).length >= NICK_MIN ? s : null
 }
 
 // Both calls answer null on ANY failure — offline, timeout, 4xx, malformed body. A leaderboard is

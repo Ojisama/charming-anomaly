@@ -2429,7 +2429,7 @@ body {
    carried entirely by an animation on whichever face is ARRIVING, hinged at the left like a spine.
    It fires exactly once per turn because both faces carry data-pop keys, and setHtml's .no-pop
    suppresses the replay on an ordinary re-render (a reroll, a late board arriving). */
-.brief-page--front, .brief-page--back {
+.brief-page--turn {
   transform-origin: left center;
   animation: page-turn 0.34s cubic-bezier(0.22, 0.75, 0.25, 1) backwards;
 }
@@ -2486,13 +2486,24 @@ body {
 
 /* Your own entries. A background wash rather than a coloured edge: the row is already a list item
    in a dashed list, and a second vertical rule beside the rank disc would be one stripe too many. */
+/* NEGATIVE MARGIN, NOT MORE PADDING. Raising the padding widened the row's content box, which slid
+   the rank disc 4px right and the score 4px left on your own row alone — in a list whose whole
+   point is that the discs stack in a column and the figures stack in another. The margin lets the
+   wash bleed past the row's edges instead, so nothing inside it moves. */
 .podium-row--me {
-  padding-left: 6px;
-  padding-right: 6px;
+  margin: 0 -6px;
+  padding-left: 8px;
+  padding-right: 8px;
   border-radius: 10px;
   background: rgba(125, 227, 195, 0.28);
 }
+/* The mint wash is a hue difference at ~1.1:1 against the panel, which is no difference at all in
+   daylight or to a colourblind player. The disc's edge changing colour AND the name gaining weight
+   are what actually carry "this one is you". */
 .podium-row--me .podium-nick { font-weight: 900; }
+.podium-row--me .podium-rank { border-color: var(--mint-dark); }
+
+.podium-retry { width: 100%; margin-top: 6px; font-size: 0.82rem; }
 
 .podium-empty { padding: 10px 2px; text-align: center; }
 
@@ -2512,16 +2523,22 @@ body {
 /* The summary's podium badge. It rides the number that earned it (Kills / Level reached) instead
    of adding a line, so a run that placed says so where the eye already is. */
 .rank-chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   margin-left: 7px;
-  padding: 1px 7px;
+  padding: 2px 7px;
   border: 2px solid var(--cream-edge);
   border-radius: 999px;
   background: var(--cream-soft);
   font-size: 0.72rem;
   font-style: normal;
   font-weight: 900;
-  vertical-align: 2px;
+  /* line-height 1 + middle, so the chip cannot make its .stat-row taller than the plain rows above
+     it. It arrives from the network AFTER the screen is drawn, and a row that grows on arrival
+     nudges the whole centred modal up by a few pixels. */
+  line-height: 1;
+  vertical-align: middle;
   /* It ALWAYS arrives late — the score is submitted as this screen is drawn, so the rank lands a
      few hundred ms after the number it sits beside. Without motion that reads as a rendering
      glitch; with the game's own entrance it reads as an answer coming back. Reuses pop-in rather
@@ -2536,9 +2553,10 @@ body {
 .nick-rule { font-size: 0.78rem; }
 .nick-rule--bad { color: var(--danger); font-weight: 800; }
 .confirm-sheet-title .rr-ico { vertical-align: -3px; }
+.rank-chip .rr-ico { width: 13px; height: 13px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .brief-page--front, .brief-page--back, .podium-bone, .rank-chip { animation: none; }
+  .brief-page--turn, .podium-bone, .rank-chip { animation: none; }
 }
 
 /* ---- no-pop: the entrance-animation kill switch (v7.10) ----

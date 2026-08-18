@@ -841,18 +841,24 @@ export function initUI(hooks) {
     const first = !meta.nick
     const ok = validNick(nickDraft) != null
     return `
-      <div class="modal-backdrop"${first ? '' : ' data-act="nick-cancel"'} data-pop="nick">
+      <div class="modal-backdrop nick-sheet"${first ? '' : ' data-act="nick-cancel"'} data-pop="nick">
         <div class="confirm-sheet">
           <h2 class="confirm-sheet-title">${ICO_PODIUM} ${t(first ? 'Pick a nickname' : 'Your nickname')}</h2>
-          <p class="confirm-sheet-body">${t('It appears on the podium of every chapter you play.')}</p>
+          <!-- Says it is PUBLIC, which is the fact a player needs before typing and the one the
+               first wording left out — "it appears on the podium" reads just as easily as a local
+               scoreboard, and forward-references a screen they have not seen yet. -->
+          <p class="confirm-sheet-body">${t('Other players see this name on the podium.')}</p>
+          <!-- ABOVE the input, not below it. A soft keyboard covers the bottom of this sheet (the
+               keydown handler's own comment says so), and below the field it hid both the reason
+               Done was disabled AND Done itself — so the keyboard's own Done key would fire
+               nick-save, which breaks silently on an invalid name, and nothing on screen said why.
+               It is a hint at rest and becomes the reason the button is dead, so there is only ever
+               one line here saying one thing. -->
+          <p class="confirm-sheet-body nick-rule${ok || !nickDraft ? '' : ' nick-rule--bad'}">${
+            tt('{min}-{max} characters', { min: NICK_MIN, max: NICK_MAX })}</p>
           <input class="text-field" id="nick-field" type="text" value="${esc(nickDraft)}"
             maxlength="${NICK_MAX}" autocapitalize="off" autocorrect="off" autocomplete="off"
             spellcheck="false" enterkeyhint="done" aria-label="${t('Nickname')}">
-          <!-- The rule, stated before it can be broken rather than as an error afterwards. It is a
-               hint at rest and turns into the reason the button is disabled, so there is only ever
-               one line of text here saying one thing. -->
-          <p class="confirm-sheet-body nick-rule${ok || !nickDraft ? '' : ' nick-rule--bad'}">${
-            tt('{min}-{max} characters', { min: NICK_MIN, max: NICK_MAX })}</p>
           <div class="confirm-sheet-actions">
             ${first ? '' : `<button class="btn btn--soft btn--small" data-act="nick-cancel">${t('Cancel')}</button>`}
             <button class="btn btn--small" data-act="nick-save" ${ok ? '' : 'disabled'}>${t('Done')}</button>
@@ -864,11 +870,13 @@ export function initUI(hooks) {
   // Restores what the wholesale innerHTML rewrite just destroyed. Caret to the end rather than a
   // preserved offset: the only thing that re-renders mid-rename is a full sheet redraw, after which
   // "carry on typing" is the right place to be.
-  // Queries by CLASS, not by either id: the title screen has two text fields now (save rename and
-  // nickname) and only one sheet is ever open, so "focus the one that is here" needs no bookkeeping
-  // and cannot go stale when a third arrives.
+  // The title screen has two text fields now (save rename and nickname). The nickname sheet is
+  // rendered LAST and therefore sits on top, so it wins when both are up — which the plain
+  // "whichever .text-field is here" query got backwards, since renameSheetHtml comes first in the
+  // markup and querySelector returns document order. Focusing the buried field would move focus out
+  // of the sheet the player is actually typing into on every render.
   function focusRenameField() {
-    const el = screens.title.querySelector('.text-field')
+    const el = screens.title.querySelector('#nick-field') ?? screens.title.querySelector('.text-field')
     if (!el) return
     el.focus()
     try { el.setSelectionRange(el.value.length, el.value.length) } catch { /* not all input types support it */ }
@@ -1947,7 +1955,14 @@ export function initUI(hooks) {
   // stroke language as ICO_REROLL above so the two read as one set, and drawn rather than 🏆 for
   // the reason the shop icons are: an emoji cannot inherit the button's colour, and its glyph is a
   // different picture on every platform.
-  const ICO_PODIUM = '<svg class="rr-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.4 10.5h5.2v9.6H9.4z"/><path d="M3.4 14.4h6v5.7h-6z"/><path d="M14.6 12.6h6v7.5h-6z"/><path d="M12 4v3"/><path d="M10.6 5.5h2.8"/></svg>'
+  //
+  // Two things the first cut got wrong, both only visible at the size it is actually used. The
+  // blocks ran short-tall-medium, i.e. 3rd-1st-2nd — a real podium is 2nd-1st-3rd and the wrong
+  // order is exactly the tell of a glyph assembled rather than drawn. And a small cross floated
+  // above the middle block as a "star": two ~2px strokes crossing, in round caps, with nothing
+  // connecting them to the shape below — at 19px that is a smudge, not a star. The blocks alone
+  // ARE the podium, so it is gone rather than redrawn.
+  const ICO_PODIUM = '<svg class="rr-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.4 8.6h5.2v11.5H9.4z"/><path d="M3.4 12.4h6v7.7h-6z"/><path d="M14.6 15.2h6v4.9h-6z"/></svg>'
   function briefAnomHtml(id, i, reroll) {
     const m = MUTATORS[id]
     const chips = effectChipList(m?.effects ?? {})
@@ -1982,6 +1997,14 @@ export function initUI(hooks) {
   let podiumOpen = false
   let podiumState = null   // null = loading, 'error', or { kills: [...], level: [...] }
   let podiumKey = ''       // 'chapter:difficulty' the state belongs to; a stale key must not paint
+  // ONE-SHOT: true only for the render that a flip causes. The page-turn cannot be left on the
+  // faces unconditionally, because renderBrief runs for a dozen unrelated reasons — a booster tap,
+  // the booster sheet, an anomaly reroll, the board arriving — and every one of them would spin the
+  // whole panel. Relying on setHtml's .no-pop to suppress those is not enough either: it would also
+  // replace the brief's ordinary pop-in entrance with a page-turn on the way IN from Play, which is
+  // a look change to a screen this feature was not asked to touch. Set by the two flip actions,
+  // consumed by the next render.
+  let briefTurn = false
 
   // No cache. Opening the podium always re-reads, because a board that has not moved costs one
   // small request and a board that HAS moved is the entire point of opening it.
@@ -2000,8 +2023,11 @@ export function initUI(hooks) {
 
   // Rank numeral in a disc. The craft rule against decorative 01/02/03 numbering does not apply
   // here: on a podium the number IS the information, and it is the only thing the eye needs.
+  // role="listitem" rather than a real <li>: the rows are a grid and an <ul> would bring list
+  // styling and a second box to undo, but a screen reader on a flat run of names and numbers has
+  // nothing to tell it where one entry ends and the next begins.
   const podiumRowHtml = (r, i) => `
-    <div class="podium-row${r.nick === meta.nick ? ' podium-row--me' : ''}">
+    <div class="podium-row${r.nick === meta.nick ? ' podium-row--me' : ''}" role="listitem">
       <span class="podium-rank podium-rank--${i + 1}">${i + 1}</span>
       <span class="podium-nick">${esc(r.nick)}</span>
       <b class="podium-score">${r.score}</b>
@@ -2016,15 +2042,23 @@ export function initUI(hooks) {
         <span class="podium-bone"></span>
       </div>`).join('') + '</div>'
 
-  const podiumBoardHtml = (rows) => `<div class="podium-rows">${rows.length
+  const podiumBoardHtml = (rows) => `<div class="podium-rows" role="list">${rows.length
     ? rows.map(podiumRowHtml).join('')
     : `<p class="brief-note podium-empty">${t('No scores yet — be the first.')}</p>`}</div>`
 
   function podiumBodyHtml() {
+    // A BUTTON, not a caption. The failure is almost always transient (a phone between cells), the
+    // fetch has an 8s timeout, and there is no cache — so "go back, turn the page again, wait
+    // again" was the entire recovery path for a tap that just needed repeating. It reuses
+    // podium-open, which is already exactly "load this board".
     if (podiumState === 'error') {
-      return `<p class="brief-note podium-empty">${t('Could not reach the podium. Check your connection.')}</p>`
+      return `<button class="btn btn--soft btn--small podium-retry" data-act="podium-open">${
+        t('Could not reach the podium. Tap to try again.')}</button>`
     }
-    const eyebrow = (txt) => `<div class="brief-eyebrow">${t(txt)}</div>`
+    // The <i> slot the anomaly section already uses for its reroll price. It answers the question a
+    // three-row list always raises — is that everyone, or the top of a longer list? — in the place
+    // the eye is already reading, and costs no line of its own.
+    const eyebrow = (txt) => `<div class="brief-eyebrow">${t(txt)}<i>${t('top 3')}</i></div>`
     if (podiumState === null) {
       return `${eyebrow('Kills')}${podiumSkeleton()}${eyebrow('Level reached')}${podiumSkeleton()}`
     }
@@ -2043,13 +2077,19 @@ export function initUI(hooks) {
   }
 
   function renderPodiumPage(d, chapter) {
+    // SAME HEADING AS THE FRONT PAGE, and the pill says which side you are on. Titling this page
+    // "Podium" put the one word that is identical on all 73 boards at 1.4rem, and demoted the only
+    // thing that identifies WHICH board into a 0.68rem pill — which then had to carry three times
+    // the text it was built for, and wraps in French ("LES SOUS-BOIS · DIFFICULTÉ 3"). Swapping
+    // them fixes the hierarchy and the overflow at once, and makes the two faces read as one card
+    // rather than as two screens.
     return `
-      <div class="modal brief-panel brief brief-page--back" data-pop="podium">
+      <div class="modal brief-panel brief brief-page--back${briefTurn ? ' brief-page--turn' : ''}" data-pop="podium">
         <div class="brief-head">
           <button class="pill-btn" data-act="podium-close" aria-label="${t('Back')}">←</button>
           <div class="brief-headtext">
-            <h2 class="brief-title">${t('Podium')}</h2>
-            <div class="brief-diff">${chapter.icon} ${t(chapter.name)} · ${t('difficulty')} <b>${d.difficulty ?? 1}</b></div>
+            <h2 class="brief-title">${chapter.icon} ${t(chapter.name)}</h2>
+            <div class="brief-diff">${t('Podium')} · ${t('difficulty')} <b>${d.difficulty ?? 1}</b></div>
           </div>
         </div>
         <!-- Whose scores these are. Without it the page is indistinguishable from a personal-best
@@ -2076,9 +2116,11 @@ export function initUI(hooks) {
     // would have to agree on a height, and these two never do — the front grows with the anomaly
     // list, the back with how many people have played. The page-turn is carried by an animation on
     // whichever face is arriving (styles.css), keyed off data-pop, so no measurement is involved.
-    if (podiumOpen) { setHtml(screens.brief, renderPodiumPage(d, chapter)); return }
+    if (podiumOpen) { setHtml(screens.brief, renderPodiumPage(d, chapter)); briefTurn = false; return }
+    const turn = briefTurn ? ' brief-page--turn' : ''
+    briefTurn = false
     setHtml(screens.brief, `
-      <div class="modal brief-panel brief brief-page--front" data-pop="brief">
+      <div class="modal brief-panel brief brief-page--front${turn}" data-pop="brief">
         <div class="brief-head">
           <!-- Backing out of the brief used to be a tap on the bottom nav's Battle tab. With the
                nav gone this button is the ONLY way back, and nothing is spent yet either way. -->
@@ -2473,13 +2515,21 @@ export function initUI(hooks) {
   // summary already prints Kills and Level reached, so the rank has a home where the eye is
   // already looking and the screen grows by nothing. `#1` rather than "1st" because an ordinal
   // needs translating and a numeral does not.
-  const rankChip = (n) => (n ? `<i class="rank-chip rank-chip--${n}">#${n}</i>` : '')
+  // Carries ICO_PODIUM, so the three surfaces the feature has — the brief's Podium row, the
+  // nickname sheet, and this — share one visual key. Without it "#1" beside a number is as easily
+  // a footnote marker as a rank, to a player who has never opened the board it refers to.
+  const rankChip = (n) => (n ? `<i class="rank-chip rank-chip--${n}">${ICO_PODIUM}#${n}</i>` : '')
 
-  // Filled in after the fact by setPodiumResult below: the score is submitted as the summary
-  // appears, so the rank always arrives late. Re-rendering from lastSummaryData is the same path
-  // the damage recap's fold already uses.
-  function setPodiumResult(res) {
-    if (!lastSummaryData || !res) return
+  // Filled in after the fact: the score is submitted as the summary appears, so the rank always
+  // arrives late. Re-rendering from lastSummaryData is the same path the damage recap's fold uses.
+  //
+  // `forData` IS THE GUARD, and it is the same one loadPodium has. Without it the rank lands on
+  // whatever summary happens to be showing when the request returns — so dying, tapping Play again
+  // and dying a second time inside the 8s window paints run 1's ranks onto run 2's numbers. Object
+  // identity rather than a counter: main.js passes back the very object it handed to showScreen, so
+  // there is no second thing to keep in step.
+  function setPodiumResult(forData, res) {
+    if (!res || lastSummaryData !== forData) return
     lastSummaryData.podium = res
     if (active === 'summary') renderSummary(lastSummaryData)
   }
@@ -2593,7 +2643,10 @@ export function initUI(hooks) {
   function switchTab(target) {
     if (active === target) return
     if (active === 'shop') resetShopModals()
-    if (active === 'title') { slotsOpen = false; settingsOpen = false } // don't strand a sheet open on return
+    // don't strand a sheet open on return. nickEditing belongs in this list for the same reason —
+    // the RENAME sheet, which reopens on the title with no way to tell it from the mandatory one.
+    // (The mandatory prompt is not stranded by this: it is driven by !meta.nick, not by the flag.)
+    if (active === 'title') { slotsOpen = false; settingsOpen = false; nickEditing = false }
     if (active === 'brief') boostersOpen = false // v6.7: same, for the booster sheet that lives there now
     playSfx('click')
     showScreen(target)
@@ -2603,11 +2656,20 @@ export function initUI(hooks) {
   // rewrite. Delegated, so it survives the field being destroyed and recreated on every re-render.
   root.addEventListener('input', (e) => {
     if (e.target.id === 'rename-field') renameDraft = e.target.value
-    // The nickname's Done button is enabled by what is typed, so unlike the save rename this one
-    // has to REDRAW on each keystroke. renderTitle destroys the live <input>, which is exactly the
-    // trap the draft-outside-the-render pattern exists for — the value and the caret are both put
-    // back by nickSheetHtml + focusRenameField, so typing survives.
-    else if (e.target.id === 'nick-field') { nickDraft = e.target.value; renderTitle() }
+    // The nickname's Done button is enabled by what is typed, so something has to change per
+    // keystroke — but NOT by re-rendering. renderTitle() destroys and rebuilds the live <input>,
+    // and focusRenameField puts the caret back at the END, which is right after a full sheet
+    // redraw and wrong here: put the caret in the middle of "Aurelien", type one character, and
+    // the next one lands at the end instead. Patch the two things that actually change, exactly as
+    // the dev filter's comment below says to.
+    else if (e.target.id === 'nick-field') {
+      nickDraft = e.target.value
+      const ok = validNick(nickDraft) != null
+      root.querySelector('[data-act="nick-save"]')?.toggleAttribute('disabled', !ok)
+      // The rule line turns red only once there is something to be wrong ABOUT — an empty field is
+      // not yet a mistake, and colouring it on open would greet every player with an error.
+      root.querySelector('.nick-rule')?.classList.toggle('nick-rule--bad', !ok && nickDraft.length > 0)
+    }
     // Repaint the LIST only, never the modal: rewriting screens.dev.innerHTML on every keystroke
     // would destroy the field being typed into and drop focus after one character.
     else if (e.target.id === 'dev-filter') { devFilter = e.target.value; paintDevList() }
@@ -2662,6 +2724,18 @@ export function initUI(hooks) {
   root.addEventListener('click', (e) => {
     const el = e.target.closest('[data-act], [data-buy], [data-choose], [data-consumable], [data-subject], [data-dev], [data-vol], [data-book]')
     if (!el) return
+    // THE NICKNAME SHEET IS A MODAL BACKDROP, WHICH BLOCKS THE POINTER AND NOTHING ELSE. Tab order
+    // is untouched by a `position: fixed` div, so on a keyboard you can walk straight past it onto
+    // Play and start a run — and this codebase already knows: `case 'play'` carries the comment
+    // "keyboard focus can reach Play behind a backdrop". The run then ends with meta.nick still
+    // empty, endRun submits nothing, and no screen anywhere says why.
+    // One guard rather than a clause on every case: while the sheet is up, the only live controls
+    // are the ones inside it. Cheaper than a focus trap and it cannot be forgotten by a case added
+    // later.
+    // Matched on .nick-sheet rather than on the data-pop key: run MP greps this file for
+    // `data-pop="…"` literals to prove every modal key is unique, and a SELECTOR spelled that way
+    // reads to it as a second modal declaring the same key.
+    if (nickPrompted() && !el.closest('.nick-sheet')) return
     if (el.dataset.dev !== undefined) {
       // The screen stays open — testing a card usually means stacking two or three of them, and
       // re-showing rebuilds the list against the run that just changed (a weapon card that read
@@ -2828,10 +2902,13 @@ export function initUI(hooks) {
         break
       }
       // ---- leaderboard nickname ----
+      // Opens OVER the settings sheet and deliberately leaves it open, exactly as slot-rename does
+      // over the slots sheet ("so Cancel lands back where the player was instead of dumping them on
+      // the title screen"). Closing it here meant changing your mind about your name cost you the
+      // settings sheet as well, and the language row you were on the way to.
       case 'nick-edit':
         nickEditing = true
         nickDraft = meta.nick ?? ''
-        settingsOpen = false // the sheet it was opened from would otherwise sit under this one
         playSfx('click')
         renderTitle()
         break
@@ -2857,13 +2934,17 @@ export function initUI(hooks) {
         break
       }
       // ---- the brief's podium page ----
+      // Also the RETRY: the error state re-uses this action, so a failed board is one tap from
+      // another attempt instead of two taps and a flip.
       case 'podium-open':
+        briefTurn = !podiumOpen // a retry redraws the page it is already on; it must not re-turn it
         podiumOpen = true
         loadPodium(lastBriefData?.chapterId ?? meta.chapter, lastBriefData?.difficulty ?? 1)
         playSfx('click')
         renderBrief(lastBriefData ?? {})
         break
       case 'podium-close':
+        briefTurn = true
         podiumOpen = false
         playSfx('click')
         renderBrief(lastBriefData ?? {})

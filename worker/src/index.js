@@ -118,6 +118,21 @@ async function readBoards(env, chapter, difficulty) {
 }
 
 async function scores(req, env) {
+  // EVERY METHOD, not just the writes. This is the only endpoint on this Worker a stranger can
+  // find — anonymous, unauthenticated, Access-Control-Allow-Origin: * — and a board read is two D1
+  // statements against the same 100k/day account budget §10 exists to narrow. The save path limits
+  // every method for the same reason; an earlier cut of this had the check inside the POST branch,
+  // which left the discoverable half of the feature uncapped.
+  //
+  // Keyed on the client IP, NOT on the nickname: a nickname is self-declared, so keying on it would
+  // let one abuser rate-limit everybody simply by claiming their name. Absent binding means no
+  // limit, same as the save path (`wrangler dev --local` does not always bind one).
+  if (env.LIMITER) {
+    const ip = req.headers.get('cf-connecting-ip') ?? 'local'
+    const { success } = await env.LIMITER.limit({ key: `scores:${ip}` })
+    if (!success) return json(429, { error: 'rate limited' })
+  }
+
   if (req.method === 'GET') {
     const params = new URL(req.url).searchParams
     const chapter = params.get('chapter')
@@ -127,14 +142,6 @@ async function scores(req, env) {
   }
 
   if (req.method === 'POST') {
-    // Keyed on the client IP, NOT on the nickname: a nickname is self-declared, so keying on it
-    // would let one abuser rate-limit everybody simply by claiming their name. Absent binding
-    // means no limit, same as the save path (`wrangler dev --local` does not always bind one).
-    if (env.LIMITER) {
-      const ip = req.headers.get('cf-connecting-ip') ?? 'local'
-      const { success } = await env.LIMITER.limit({ key: `scores:${ip}` })
-      if (!success) return json(429, { error: 'rate limited' })
-    }
     const { env: body, err } = await readEnvelope(req)
     if (err) return json(400, { error: err })
     const nick = typeof body.nick === 'string' ? body.nick.trim() : null
@@ -165,7 +172,21 @@ export default {
 
     // Leaderboard: its own path, its own (absent) auth, its own table. Before the code check
     // below, which would otherwise 401 every anonymous board read.
-    if (new URL(req.url).pathname === '/scores') return scores(req, env)
+    //
+    // THE CATCH IS LOAD-BEARING AND IS NOT DEFENSIVE PROGRAMMING. An exception escaping fetch() is
+    // answered by the Workers runtime's own 1101 page, which carries NO CORS HEADERS — so the
+    // browser rejects it before the client sees a status, and scores.js's blanket catch reports
+    // "Could not reach the podium" for what is really a database error. The one way to reach it is
+    // also the most likely day-one mistake: deploying this Worker without having run
+    // `npm run db:remote`, so the `scores` table does not exist. That state is then invisible from
+    // the game, from the console, and from the network tab.
+    if (new URL(req.url).pathname === '/scores') {
+      try {
+        return await scores(req, env)
+      } catch {
+        return json(500, { error: 'leaderboard unavailable' })
+      }
+    }
 
     const code = normalizeCode(req.headers.get('authorization'))
     if (!code) return json(401, { error: 'malformed code' }) // §10.2: before any D1 query

@@ -14717,6 +14717,13 @@ function testLeaderboard() {
   assert.strictEqual(validNick('Big   Bob'), 'Big Bob', 'runs of whitespace collapse — two names that look identical on the podium must BE identical')
   assert.strictEqual(validNick(null), null, 'a non-string is not a name')
   assert.strictEqual(validNick(undefined), null, 'an absent nickname is not a name')
+  // THE CLAMP CAN CUT ON A SPACE, and the result is a name the Worker silently rewrites: it trims
+  // before storing (it cannot trust a client), so the board would hold 'Alexandre' while meta.nick
+  // held 'Alexandre ' — and every use of the pair is a string comparison. Nothing throws; the
+  // player just never sees their rank chip and never sees their own row highlighted.
+  assert.strictEqual(validNick('Alexandre Dupont'), 'Alexandre', 'the clamp must not leave the space it cut on')
+  assert.strictEqual(validNick('Jean-Marc Bo'), 'Jean-Marc', 'same, for a name whose 11th character is the space')
+  assert.strictEqual(validNick(validNick('Alexandre Dupont')), 'Alexandre', 'and the result is stable under a second pass')
   // The trap that only shows up on the podium: slice() cuts UTF-16 units, so clamping can bisect an
   // astral character and leave a lone surrogate, which renders as a replacement box and passes every
   // other check here. 10 emoji is 20 units; the clamp must not leave half of the 6th behind.
@@ -14777,11 +14784,12 @@ function testLeaderboard() {
   const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
   const leaderboardCopy = [
     'Podium', 'Nickname', 'Pick a nickname', 'Your nickname',
-    'It appears on the podium of every chapter you play.',
+    'Other players see this name on the podium.',
     '{min}-{max} characters',
     'The best runs by everyone playing.',
+    'top 3',
     'No scores yet — be the first.',
-    'Could not reach the podium. Check your connection.',
+    'Could not reach the podium. Tap to try again.',
   ]
   for (const key of leaderboardCopy) {
     assert.ok(FR[key], `leaderboard string has no French: ${JSON.stringify(key)}`)
@@ -14805,6 +14813,23 @@ function testLeaderboard() {
   assert.strictEqual(workerMax, NICK_MAX, "the Worker's NICK_MAX must match scores.js's")
   assert.ok(/pathname === '\/scores'/.test(workerSrc) && workerSrc.indexOf("pathname === '/scores'") < workerSrc.indexOf('normalizeCode(req.headers'),
     'the /scores route must be handled BEFORE the save-sync code check, or every anonymous board read is answered 401')
+  // EVERY REAL CHAPTER ID must satisfy the Worker's shape check. The Worker is deliberately
+  // ignorant of chapter ids so it never needs a deploy when one is added — which is exactly why
+  // nothing on that side can catch an id it happens to refuse. A future `sea_floor` or a 17th
+  // character would 400 every submit AND every read for that chapter alone, silently, and the
+  // podium would simply be empty there forever. Object.keys(CHAPTERS), not CHAPTER_ORDER: that one
+  // is book 1 only and would skip the nine chapters most likely to be new.
+  // The Worker's own literal, lifted out of its source and re-run here — not a copy of it, which
+  // would be the two-places-one-fact trap this whole scenario exists to close.
+  const chapterLiteral = /const validChapter[^\n]*?(\/\^[^\n/]+\$\/)/.exec(workerSrc)?.[1]
+  assert.ok(chapterLiteral, "run LB could not lift validChapter's pattern out of the Worker — the regex has gone stale")
+  const chapterRe = new RegExp(chapterLiteral.slice(1, -1))
+  const allChapterIds = Object.keys(CHAPTERS)
+  const refused = allChapterIds.filter((id) => !chapterRe.test(id))
+  assert.ok(allChapterIds.length >= 15, `expected the whole chapter table, got ${allChapterIds.length}`)
+  assert.deepStrictEqual(refused, [],
+    `chapter id(s) the Worker's validChapter would refuse: [${refused.join(', ')}] — every submit and every ` +
+    `board read for those chapters 400s, and the podium is empty there with no error anywhere`)
 
   // (f) meta.nick is additive (R2) and defaults EMPTY on both paths — the fresh literal and
   // loadMeta's repair. '' is load-bearing: it is what fires the mandatory first-load prompt, so a
@@ -14817,9 +14842,10 @@ function testLeaderboard() {
   assert.ok(/nick: '',/.test(stateSrc),
     "the fresh-meta literal must carry nick: '' — loadMeta's repairs are in-memory only and never written back")
 
-  console.log(`PASS run LB (leaderboard): validNick holds ${NICK_MIN}-${NICK_MAX} through whitespace, clamping and a bisected emoji, ` +
+  console.log(`PASS run LB (leaderboard): validNick holds ${NICK_MIN}-${NICK_MAX} through whitespace, a cut-on-a-space clamp and a bisected emoji, ` +
     `podiumRank reads both boards independently, the dev-run gate is wired across sim.js + main.js, ` +
-    `${leaderboardCopy.length} strings have French with placeholders intact, and the Worker's range + route order agree with the client`)
+    `${leaderboardCopy.length} strings have French with placeholders intact, and the Worker's range, route order ` +
+    `and chapter pattern agree with the client across all ${allChapterIds.length} chapters`)
 }
 
 function testSyncDecisions() {

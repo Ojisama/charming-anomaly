@@ -580,7 +580,10 @@ function endRun(victory) {
   }
 
   saveMeta(meta)
-  ui.showScreen('summary', {
+  // Held in a local rather than passed as a literal: the leaderboard hands this exact object back
+  // to ui.setPodiumResult below, and identity is what proves the rank belongs to THIS run's summary
+  // and not to one the player has already replaced.
+  const summaryData = {
     victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus,
     mutators: run.mutators, nextDifficulty,
     // v7.x "what happened to me": the fatal hit's source label and the whole run's damage tally
@@ -594,7 +597,8 @@ function endRun(victory) {
     unlockedChapterId,
     unlockedHiddenChapter,
     unlockedBook,
-  })
+  }
+  ui.showScreen('summary', summaryData)
 
   // Leaderboard (v7.x). AFTER the summary is on screen and never awaited: the podium is the one
   // feature in this game allowed to simply not be there, so nothing about the end of a run may
@@ -611,7 +615,12 @@ function endRun(victory) {
     const kills = run.kills
     const level = run.player.level
     submitScore({ nick, chapter: run.chapter, difficulty: run.difficulty ?? 1, kills, level })
-      .then((boards) => ui.setPodiumResult(podiumRank(boards, nick, kills, level)))
+      .then((boards) => ui.setPodiumResult(summaryData, podiumRank(boards, nick, kills, level)))
+      // submitScore itself never rejects — scores.js catches everything — but renderSummary runs
+      // inside this .then, and an unhandled rejection here would land on a Pixi ticker frame, which
+      // does not catch listener exceptions (see saveMeta's own note above). A leaderboard is
+      // explicitly allowed to not be there; a dropped frame at the end of a run is not.
+      .catch(() => { /* the rank simply does not appear */ })
   }
 }
 
