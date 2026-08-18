@@ -757,7 +757,7 @@ const CONFIG = {
   // effect over the reference, and it fits the row.
   'Death Roll': 'Prise Mortelle',
   'holds bitten prey for {n}s': 'immobilise la proie mordue pendant {n} s',
-  'Bloodrush': 'Sang Chaud',
+  'Bloodrush': 'Coup de Sang',
   'move speed per bite for 2s, stacking 5 times': 'de vitesse par morsure pendant 2s, jusqu\'\u00e0 5 fois',
   'Gorge': 'Gavage',
   'eating an elite fills Bloodlust': 'd\u00e9vorer une \u00e9lite remplit la Soif de sang',
