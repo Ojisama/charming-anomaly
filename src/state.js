@@ -784,14 +784,18 @@ function generateWells(sig) {
  *               MOWER_GAP_MIN..MAX seconds once run.time passes MOWER_FIRST_T, one pass at a time.
  *               It was briefly an elite flag (v6.6.14) and before that 'sprayStrip', which marked a
  *               rectangle on the player from an elite that could be anywhere — no visible cause.
- * dash (v7.x): the picked roster entry's optional `dash` object, `{restMul, lenMul}`, or null —
- *               per-CREATURE overrides for the dashBurst timings, multiplying DASH_IDLE_T and
- *               DASH_T respectively. Read only by stepDashBurst, which resolves both once at the
+ * dash (v7.x): the picked roster entry's optional `dash` object, `{restMul, lenMul, spdMul}`, or
+ *               null — per-CREATURE overrides for the dashBurst machine, multiplying DASH_IDLE_T,
+ *               DASH_T and DASH_SPEED_MUL respectively. spdMul reaches the LUNGE only: the idle and
+ *               the off-screen walk-in keep their own speeds, and a creature carrying both spdMul
+ *               and lenMul lunges lenMul x spdMul as far.
+ *               Read only by stepDashBurst, which resolves all three once at the
  *               top and uses the resolved values at all four places it sets a phase timer (reading
  *               a global at any one of them is a silent half-override; the off-screen rewind is the
  *               easiest to miss and run RO.d exists for it). null on every enemy in the game except
- *               The Surf's Sea Roach — the point of the field is that a chapter can soften ONE of
- *               its creatures without moving DASH_* for the four other chapters that share them.
+ *               The Surf's Sea Roach and The Twilight's Krill — the point of the field is that a
+ *               chapter can soften ONE of its creatures without moving DASH_* for the other
+ *               chapters that share them. run RO.b pins the exact set that carries an override.
  * rosterId (v5.0): the picked roster entry's id (config.js), or null if the chapter's roster had
  *               no entry for this enemy's archetype — reserved for render/HUD skins later, no
  *               sim.js behavior keys off it directly (flags/hpMul/speedMul already applied).
@@ -1209,6 +1213,19 @@ function generateWells(sig) {
  *   reset on the same rule. Two fields rather than one because the two DoTs answer opposite
  *   problems (a routing failure vs a tempo failure) and a shared accumulator would let a chapter
  *   declaring both bank one's part-tick into the other. 0 and untouched everywhere else.
+ * slicks[i]: { x, y, r, shape, rot, _cell } — v7.x The Wreck: streamed POLLUTION SPILLS, the
+ *   chapter's signature (`{ type: 'leak', slicks: {...} }`) and the only thing in it that can kill
+ *   you, the roster being food. Same refillCircleAt geometry as run.shafts above, on salt block 50
+ *   and its own _slickCellI/_slickCellJ cursor; `blob: true` in the spec, so shape/rot carry a
+ *   LOBE_SHAPES outline that sim tests against (inLobe) and render draws from — stored, never
+ *   re-derived. A SEPARATE ARRAY from run.shafts deliberately: those are refill circles and
+ *   stepCharge loops them handing out resource. Empty in every other chapter.
+ * _slickAcc: number — the slick DoT's part-tick accumulator; _drownAcc/_starveAcc's third twin,
+ *   separate for the same reason they are separate from each other.
+ * _foulT: number — s of oil still on the player. Refreshed to SLICK_SLOW_T every frame inside a
+ *   spill and ticked down after leaving, exactly as bloomSlowT/fearT decay. Read in stepPlayer,
+ *   where it joins the MIN of the speed floors rather than multiplying into them (see the block
+ *   there). The LINGER is the design: a slow that ends at the rim is just a wider slick.
  * killRefill: number — light per kill, snapshotted at createRun from bm.unlocks.lightThief (the
  *   permanent Light Thief unlock, LIGHT_THIEF_COST shop levels on the sacrifice screen; bm is
  *   Undertow's own bookMeta entry — see BOOK_UNLOCKS.undertow in config.js). 0 unbought, and 0
@@ -1977,6 +1994,16 @@ export function createRun(meta, opts = {}) {
     // test suite and in this doc block, which is one of the two silent failure modes CLAUDE.md's
     // rename rule describes.
     shafts: [],
+    // v7.x The Wreck: POLLUTION SPILLS (sim.js streamSlicks/stepSlick). The same refillCircleAt
+    // geometry as `shafts` above on its own salt block (50) and its own cell cursor, and a SEPARATE
+    // ARRAY on purpose: stepCharge loops run.shafts handing out resource, and a poison the bar
+    // thanked you for standing in would be a semantic collision that never throws. Unconditional
+    // like every field above it, so runs have one shape (R2); only a `leak` signature fills it.
+    slicks: [],
+    _slickCellI: null,     // streaming cursor, independent of every other streamer's
+    _slickCellJ: null,
+    _slickAcc: 0,          // part-tick accumulator, the exact twin of _drownAcc/_starveAcc
+    _foulT: 0,             // s of oil still on you — lingers SLICK_SLOW_T past the rim (see sim.js)
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
     _sandCellJ: null,
