@@ -1188,6 +1188,21 @@ const CONFIG = {
   'The Twilight': "L'Entre-deux-eaux",
   'Twilight': 'Entre-deux',
   'The Reef': 'Le Récif',
+
+  // Book 2's RESOURCE BARS (CHAPTERS[].resource.name). On the HUD rail from v7.x — before that the
+  // field had no French-facing surface at all, which is exactly the gap CLAUDE.md warns a new
+  // screen can CREATE rather than reveal. Joined to run XX's config walk in the same commit.
+  // 'Air' is spelled identically in French, like 'Sacrifices' above.
+  'Humidity': 'Humidité',
+  'Clarity': 'Clarté',
+  'Light': 'Lumière',
+  'Air': 'Air',
+  // 'Soif de sang' is the standard French for bloodlust and keeps the bar's promise in the word:
+  // it is a thirst that has to be fed, not a rage stat.
+  'Bloodlust': 'Soif de sang',
+  // The Trawl's bar is the churn behind the net — what the crowd is feeding ON, so 'Pâture'
+  // (fodder, what you graze) rather than 'Faim' (hunger, the state) or 'Festin' (a feast, over).
+  'Feed': 'Pâture',
   'the tide decides': 'la marée décide',
   'the light only goes down': 'la lumière ne fait que diminuer',
   'the current only runs one way': 'le courant décide pour toi',
