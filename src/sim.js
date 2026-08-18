@@ -3180,7 +3180,11 @@ export function tideForce(run) {
   const sig = CHAPTERS[run.chapter].signature
   if (!sig || sig.type !== 'tide') return { fx: 0, fy: 0 }
   const s = Math.sin((run._realTime / sig.period) * Math.PI * 2)
-  return { fx: Math.cos(sig.axis) * sig.surge * s, fy: Math.sin(sig.axis) * sig.surge * s }
+  // Spring Tide turns the whole field up (tideSurgeMul), the same way Riptide does the pond's.
+  // Applied HERE and nowhere else: stepTide and render.js both read this function, so one multiply
+  // keeps "the water moved me" and "the water is moving" the same number under the mutator too.
+  const surge = sig.surge * run.mods.tideSurgeMul
+  return { fx: Math.cos(sig.axis) * surge * s, fy: Math.sin(sig.axis) * surge * s }
 }
 
 export function stepTide(run, dt) {

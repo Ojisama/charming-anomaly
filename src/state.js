@@ -7,7 +7,7 @@ import {
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS,
-  BOOKS, BOOK_ORDER, shopLines, bookOf, SLOW_BURN_FLOOR, unlockLevel, unlockMax,
+  BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, unlockLevel, unlockMax,
   lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
@@ -537,15 +537,18 @@ export function grantBook(meta, bookId) {
   return true
 }
 
-// Unlock a book: its first chapter, plus the grant. Idempotent. Refuses a WIP book unless the
-// save is a dev save, which is what keeps Book 2 invisible until it ships.
+// Unlock a book: its first chapter, plus the grant. Idempotent. Refuses a book whose FIRST chapter
+// is still WIP unless the save is a dev save — which is what kept Book 2 invisible until it shipped.
+//
+// The gate asks about the first chapter rather than the book because `wipFrom` is per chapter now
+// (config.js): a book is openable the moment its opener is written, and the chapters below it stay
+// gated on their own. Testing the book as a whole would have kept Undertow shut with The Surf live.
 export function unlockBook(meta, bookId) {
-  if (!bookId || (BOOKS[bookId]?.wip === true && meta.dev !== true)) return false
-  // Exported — a bookId absent from BOOKS survives the guard above (undefined?.wip is undefined,
-  // not true) and would otherwise throw reading .chapters off undefined. Optional-chain all the
-  // way to the element and refuse rather than crash.
+  // Exported — a bookId absent from BOOKS must refuse rather than throw reading .chapters off
+  // undefined. Optional-chain all the way to the element, and let the falsy `first` be the refusal.
   const first = BOOKS[bookId]?.chapters?.[0]
-  if (!first) return false
+  if (!bookId || !first) return false
+  if (isWipChapter(first) && meta.dev !== true) return false
   const chMeta = ensureChapterMeta(meta, first)
   const granted = grantBook(meta, bookId)
   if (chMeta.unlocked && !granted) return false

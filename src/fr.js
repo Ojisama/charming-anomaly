@@ -489,6 +489,10 @@ const CONFIG = {
   'Erased from the record… ✨': 'Effacé·e des registres… ✨',
   'THE ANTIBODY FAILED. 🎉': 'L\'ANTICORPS A ÉCHOUÉ. 🎉',
   'DELETED. ⬜': 'SUPPRIMÉ·E. ⬜',
+  // Undertow. 'Desséché·e' keeps the participle every other chapter death uses, and it is
+  // Humidity reaching zero rather than whatever landed the last hit — same as 'Filtré·e' for the pond.
+  'You rode it out! 🎉': 'Tu as laissé passer la marée ! 🎉',
+  'Dried out… ☀️': 'Desséché·e… ☀️',
   // v6.2 Remaster — watcher unlock lines
   'The Pond — word of you travels downstream': 'La Mare — la rumeur descend le courant',
   'The Garden — something marked your trail': 'Le Jardin — quelque chose a marqué ta piste',
@@ -1129,6 +1133,9 @@ const CONFIG = {
   'The bombardment barely pauses. Bonus XP.': 'Le bombardement ne s\'arrête presque jamais. XP en bonus.',
   'Supermassive': 'Supermassif',
   'The wells pull far harder — nothing flies straight. Richer coins.': 'Les puits gravitationnels attirent bien plus fort — plus rien ne vole droit. Pièces plus généreuses.',
+  // 'Grande Marée' over the precise 'vive-eau': it is what the tide is actually called.
+  'Spring Tide': 'Grande Marée',
+  'The tide shoves far harder. Richer coins.': 'La marée pousse bien plus fort. Pièces plus généreuses.',
   'Revive Token': 'Jeton de Résurrection',
   'Come back once at 50% HP': 'Reviens une fois à 50% PV',
   'Head Start': 'Longueur d\'Avance',
