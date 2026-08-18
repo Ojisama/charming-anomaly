@@ -155,6 +155,9 @@ import {
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BALLAST_FLIGHT, BALLAST_BLIND_THROW,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
+  GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC,
+  PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_TURN_RATE, PREY_SHOAL_SIZE, PREY_FLEE_BLEND,
+  SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
   BREACH_R_MIN, BREACH_R_AT_FULL, BREACH_REACH, BREACH_MAX_HOLES, tiredness,
@@ -256,6 +259,7 @@ export function stepSim(run, input, dt) {
   stepGullStrike(run, dt) // Book 2 surf: gulls plunge on whatever is alive (no-op elsewhere)
   streamEddies(run)       // v6.4 pond identity: materialize/drop eddy cells (no-op outside pond)
   streamShafts(run)       // v7.x Book 2: materialize/drop refill cells (no-op in a chapter with no refill field)
+  streamSlicks(run)       // v7.x The Wreck: materialize/drop pollution-spill cells (no-op elsewhere)
   stepShafts(run)         // ...and DRIFT them; the streamer above only decides existence (see its doc)
   streamSandbars(run)     // Book 2 surf: materialize/drop dry patches (no-op elsewhere)
   stepCharge(run, dt)     // v7.x Book 2: the resource bar (no-op unless the chapter declares one)
@@ -286,6 +290,7 @@ export function stepSim(run, input, dt) {
   if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
   if (stepDrown(run, dt)) return // phase is now 'dead' (The Reef: an empty Air bar, v7.x)
   if (stepStarve(run, dt)) return // phase is now 'dead' (The Wreck: an empty Bloodlust bar, v7.x)
+  if (stepSlick(run, dt)) return // phase is now 'dead' (The Wreck: standing in the leak, v7.x)
   if (stepTrawl(run, dt)) return // phase is now 'dead' (The Trawl: the net wall, v7.x)
   if (stepMaws(run, dt)) return // phase is now 'dead' (The Deep: an anglerfish swallowed you, v7.x)
   if (stepStrips(run, dt)) return // phase is now 'dead' (The Blank's erasure-strip DoT — v5.3)
@@ -639,7 +644,13 @@ function stepPlayerMovement(run, input, dt) {
   // The consequence is the chapter — at the floor you still move faster than the net, so running dry
   // is a squeeze rather than a death sentence (spec §8.2), but the margin all but disappears.
   const tireMul = _dres?.tire ? 1 - (1 - _dres.tire.speedFloor) * tiredness(run.charge, _dres) : 1
-  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul)
+  // FOULED (v7.x / The Wreck): oil sticks to you. Set by stepSlick while you are in a spill and for
+  // SLICK_SLOW_T after you leave — the lingering half is the point, because a slow that ends at the
+  // rim is just a wider slick. Same MIN composition as its four neighbours above and for the same
+  // reason they give: multiplying would make every latch and web in this chapter strictly nastier
+  // than the identical one anywhere else.
+  const foulMul = (run._foulT ?? 0) > 0 ? SLICK_SLOW_MUL : 1
+  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
   // SCENT (v7.x, The Deep): "or move faster towards your prey" — the owner's own framing for the
   // button. MULTIPLIED, not MIN-composed with the three slows above, and the asymmetry is right:
@@ -1959,6 +1970,12 @@ function stepEnemyMovement(run, dt) {
         e.x -= (dx / d) * e.speed * FEAR_SPEED_MUL * slowMul * dt
         e.y -= (dy / d) * e.speed * FEAR_SPEED_MUL * slowMul * dt
       }
+    } else if (e.flags && e.flags.includes('skittish')) {
+      // PREY (v7.x, The Wreck). The one branch in this chain that walks AWAY from the player.
+      // Sits directly under fear because it is the same motion for a different reason — fear is a
+      // status a weapon applied, this is what the animal IS — and above every behaviour machine
+      // because a fish that is running is not also running its hunting routine.
+      stepPrey(run, e, dx, dy, d, dt, slowMul)
     } else if (e.flags && e.flags.includes('dashBurst')) {
       // affixSpeedMul is passed through (unlike the other machines, which take enrageMul alone)
       // because dashBurst used to ride the plain seek and therefore honoured pacer/frenzy. Keeping
@@ -2331,6 +2348,11 @@ function stepDashBurst(run, e, tx, ty, dt, slowMul, spdMul) {
   // in particular, which is the one furthest from the declaration and the easiest to miss.
   const idleT = DASH_IDLE_T * (e.dash?.restMul ?? 1)
   const dashT = DASH_T * (e.dash?.lenMul ?? 1)
+  // spdMul softens the LUNGE ITSELF, and only the lunge — never the idle, and never the off-screen
+  // walk-in below, which has to stay at full speed or the crowd crawls out of sight for seconds (the
+  // DASH_* block in config.js measures that). It multiplies with lenMul rather than replacing it, so
+  // a creature carrying both travels lenMul x spdMul of the distance, not lenMul of it.
+  const dashSpdMul = DASH_SPEED_MUL * (e.dash?.spdMul ?? 1)
   if (e._dashPhase === undefined) { e._dashPhase = 'idle'; e._dashT = idleT }
   e._dashT -= dt
   const dx = tx - e.x, dy = ty - e.y
@@ -2357,7 +2379,7 @@ function stepDashBurst(run, e, tx, ty, dt, slowMul, spdMul) {
       e._dashPhase = 'dash'; e._dashT += dashT; e._dashDirX = ux; e._dashDirY = uy
     }
   } else {
-    const spd = e.speed * spdMul * DASH_SPEED_MUL
+    const spd = e.speed * spdMul * dashSpdMul
     vx = e._dashDirX * spd; vy = e._dashDirY * spd
     if (e._dashT <= 0) { e._dashPhase = 'idle'; e._dashT += idleT }
   }
@@ -2936,6 +2958,15 @@ function contactHarmless(e) {
   // lineCharge's 'stall' on the next line. 'circle'/'mark'/'strike' are ordinary: hittable AND able
   // to hit you, like any other enemy.
   if (e._airState === 'climb') return true
+  // PREY (v7.x, The Wreck). The other half of `skittish`, and it is one design fact rather than two:
+  // this is food. It runs from you (stepPrey) and it cannot hurt you, ever, in any state.
+  // THIS LINE IS WHY THE ROSTER'S `dmgMul: 0` IS NOT ENOUGH ON ITS OWN — hurtPlayer floors a hit at
+  // Math.max(1, ...), so a zero-damage fish would still take 1 HP off you every time you swam
+  // through one, and this chapter puts 600 of them on the map.
+  // Contrast the fear clause below, which was DELETED in v7.16 for making a machine-gun lock: a
+  // status any build could apply field-wide had to stop disarming, but a roster flag cannot be
+  // stacked, refreshed or spread, so the same rule does not apply to it.
+  if (e.flags && e.flags.includes('skittish')) return true
   // v7.16: STUN still disarms, FEAR no longer does. A feared enemy runs from you, but one pinned
   // against the crowd behind it is still a threat — half of the machine-gun lock was that a
   // permanent field-wide fear made every enemy on screen literally unable to touch you.
@@ -3504,6 +3535,75 @@ export function streamShafts(run) {
       run.shafts.push({ x: bx, y: by, bx, by, r: spec.r, phase: c.phase, shape: c.shape, rot: c.rot, _cell: key })
     }
   }
+}
+
+// -- The leak (v7.x, The Wreck's signature) ------------------------------------------------------
+// THE FIFTH FIELD THROUGH refillCircleAt AND THE FIRST THAT HURTS. Same pure cell->circle geometry
+// as The Shelf's shafts, The Surf's pools and The Reef's pockets, on its own salt block (50) so a
+// slick can never land on the same roll as an obstacle (0-4), an eddy (11-14) or a trap (15-17).
+//
+// ⚠ IT IS DELIBERATELY NOT IN run.shafts, and the temptation to put it there is real — the array
+// exists, the streamer exists, and `refillSpec` is two characters from finding it. stepCharge loops
+// run.shafts handing out RESOURCE. A poison the bloodlust bar thanked you for standing in is a
+// one-word semantic collision of exactly the kind this repo keeps shipping, and it would not throw.
+//
+// No drift and no lane clamp: a spill does not move, and no lane chapter declares a leak. The cell
+// cursor is its own (_slickCellI/J) so it scans independently of the other four streamers.
+export function streamSlicks(run) {
+  const sig = CHAPTERS[run.chapter].signature
+  const spec = sig && sig.type === 'leak' ? sig.slicks : null
+  if (!spec) return
+  if (run._obstacleSeed == null) return
+  const p = run.player
+  const cs = spec.cell
+  const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
+  if (ci === run._slickCellI && cj === run._slickCellJ) return  // field unchanged since the last scan
+  run._slickCellI = ci; run._slickCellJ = cj
+
+  for (let k = run.slicks.length - 1; k >= 0; k--) {
+    const sl = run.slicks[k]
+    if (Math.hypot(sl.x - p.x, sl.y - p.y) > OBSTACLE_DROP_RADIUS) run.slicks.splice(k, 1)
+  }
+  const live = new Set()
+  for (const sl of run.slicks) live.add(sl._cell)
+
+  const seed = run._obstacleSeed
+  const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
+  for (let i = ci - span; i <= ci + span; i++) {
+    for (let j = cj - span; j <= cj + span; j++) {
+      const key = i + ',' + j
+      if (live.has(key)) continue
+      const c = refillCircleAt(i, j, seed, spec)
+      if (!c) continue
+      if (Math.hypot(c.x - p.x, c.y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      // shape/rot STORED, never re-derived — render draws the outline from these and this file tests
+      // position against them, and re-deriving in one place is how the two drift apart.
+      run.slicks.push({ x: c.x, y: c.y, r: spec.r, shape: c.shape, rot: c.rot, _cell: key })
+    }
+  }
+}
+
+// Standing in a spill. Structurally stepDrown/stepStarve — a fixed-cadence DoT that returns true on
+// death — plus the fouling, which is the half that makes a slick a decision instead of a tax: you
+// come out slower than you went in, so a shortcut through one costs you the fish as well as the HP.
+// @returns true if the player died.
+function stepSlick(run, dt) {
+  if (run._foulT > 0) run._foulT = Math.max(0, run._foulT - dt)
+  if (!run.slicks.length) return false
+  const p = run.player
+  let inside = false
+  for (const sl of run.slicks) if (inLobe(sl, p.x, p.y)) { inside = true; break }
+  if (!inside) { run._slickAcc = 0; return false }
+  run._foulT = SLICK_SLOW_T
+  run._slickAcc = (run._slickAcc ?? 0) + dt
+  let died = false
+  while (run._slickAcc >= SLICK_TICK) {
+    run._slickAcc -= SLICK_TICK
+    // `dot: true` and a named src, exactly as drowning and starving are: the renderer's hurt
+    // reaction is keyed off both, and main.js's `if (e.dot) continue` already silences the audio.
+    if (!died && hurtPlayer(run, SLICK_DPS * SLICK_TICK, true, 'slick')) died = true
+  }
+  return died
 }
 
 // Shaft drift (v7.x). Pure function of run._realTime and the shaft's own phase: stores no state,
@@ -5557,6 +5657,9 @@ const WEAPON_STAT_MODS = {
   // (longQuills = range AND speed, longToss = castRange at the throw site). The rest is plain stat
   // folding.
   clawRake:      { rend: ['dmg', 'pct'], wideRake: ['arc', 'pct'], longClaws: ['range', 'pct'] },
+  // v7.x The Wreck. No `range` entry and that is deliberate — see WEAPON_MODS.gnash for why a reach
+  // mod would make the weapon worse. quickSnap divides at the fire site like every other rate mod.
+  gnash:         { deepBite: ['dmg', 'pct'], wideJaw: ['arc', 'pct'] },
   quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'] },
   chitterShriek: { terror: ['fear', 'pct'], shockwave: ['radius', 'pct'], shrill: ['dmg', 'pct'] },
   trashTornado:  { heavyTrash: ['dmg', 'pct'], wideHunt: ['hunt', 'pct'], fastWinds: ['travelSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
@@ -5751,6 +5854,7 @@ function stepWeapons(run, dt) {
     else if (w.id === 'foxfire') stepFoxfireWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'sunlance') stepSunlanceWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'finHit') stepFinHitWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'gnash') stepGnashWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -7359,6 +7463,93 @@ function inSector(ox, oy, angle, range, arc, e, fullCircle) {
 // damage. See the CLAW_* block in config.js before changing that.
 // quickPaws divides the interval (a `rate` fold would slow it); doubleSlash adds a follow-up slash
 // every CLAW_DOUBLE_EVERY-th rake; bleedClaws adds flagella's barbed bleed.
+// -- Prey (v7.x, The Wreck's `skittish` flag) ----------------------------------------------------
+// TWO STATES AND NO STATE VARIABLE. Outside PREY_SIGHT_R the fish has not seen you and mills along
+// its school's heading; inside it, it runs. Both headings are PURE FUNCTIONS of the fish's id and
+// run._realTime, which is what keeps this cheap enough to run on 600 bodies: no per-enemy stored
+// heading, no neighbour queries, no RNG, and nothing to reset when a fish streams out and back.
+//
+// THE SCHOOL IS A MODULO. Consecutive ids arrive in the same spawn burst, so bucketing by id gives
+// fish that appeared together one drift heading and one escape heading — they mill as a body and
+// they break as a body, which is the whole silhouette the chapter is for.
+// ponytail: id buckets, not boids. If schools ever need to MERGE, SPLIT or avoid each other, that
+// is when this becomes a real flocking pass — and not one line before.
+//
+// run._realTime, NOT run.time, for exactly the reason stepShafts uses it: the Time Debt anomaly
+// advances run.time at TIME_DEBT_MUL and would otherwise make every school in the chapter turn 50%
+// faster for the rest of that run.
+function stepPrey(run, e, dx, dy, d, dt, slowMul) {
+  if (slowMul <= 0) return
+  const shoal = Math.floor(e.id / PREY_SHOAL_SIZE)
+  // 2.399963 rad is the golden angle: consecutive shoals get headings as far apart as a sequence
+  // can make them, so two schools spawned back to back never set off in the same direction.
+  // Alternating the turn sign by shoal parity stops the whole field rotating in unison.
+  const drift = shoal * 2.399963 + run._realTime * PREY_TURN_RATE * (shoal % 2 ? 1 : -1)
+  let ux = Math.cos(drift)
+  let uy = Math.sin(drift)
+  let mul = PREY_DRIFT_MUL
+  if (d < PREY_SIGHT_R && d > 1e-6) {
+    // Seen you. The escape heading is BLENDED with the school's own rather than being straight
+    // away from you — at a pure radial the shoal explodes like a firework, which is the one
+    // silhouette a bait ball never makes. See PREY_FLEE_BLEND.
+    ux = (-dx / d) * PREY_FLEE_BLEND + ux * (1 - PREY_FLEE_BLEND)
+    uy = (-dy / d) * PREY_FLEE_BLEND + uy * (1 - PREY_FLEE_BLEND)
+    const m = Math.hypot(ux, uy) || 1
+    ux /= m; uy /= m
+    mul = PREY_FLEE_MUL
+  }
+  const step = e.speed * mul * slowMul * dt
+  e.x += ux * step
+  e.y += uy * step
+}
+
+// -- Gnash (v7.x, The Wreck's native) ------------------------------------------------------------
+// A short forward bite whose damage RISES the closer the body is. Structurally slashClaws with a
+// falloff and no knockback; see WEAPONS.gnash and the GNASH_* block in config.js for both design
+// decisions, and note in particular that the missing knockback is the design rather than an
+// oversight — this chapter's crowd is running away and shoving it is a downgrade.
+function stepGnashWeapon(run, w, stats, fireRateMul, dt) {
+  const quickSnap = run.weaponMods.gnash?.quickSnap ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickSnap)), dt, () => biteGnash(run, stats))
+}
+
+function biteGnash(run, stats) {
+  const p = run.player
+  const angle = aimAngle(run)
+  const mods = run.weaponMods.gnash
+  const finish = mods?.bloodInTheWater ?? 0
+  const hold = mods?.deathRoll ?? 0
+  // IPECAC: three bites at 120 degrees, de-duplicated across the set — fireFlagella's idiom, and
+  // the `struck` set is load-bearing there for the same reason (overlapping sectors would otherwise
+  // let one body eat three bites from one cast).
+  const struck = new Set()
+  for (const swing of ipecacAngles(run, angle)) {
+    for (const e of run.enemies) {
+      if (e._dead || struck.has(e)) continue
+      if (!inSector(p.x, p.y, swing, stats.range, stats.arc, e, false)) continue
+      struck.add(e)
+      // THE FALLOFF, and it runs backwards to every other reach number in this file: x1 at the tip
+      // of the sweep, xGNASH_MAW_MUL at the jaw. Measured on CENTRE distance, the same quantity
+      // inSector just tested, so a body that qualified cannot then score above 1 through rounding.
+      const d = Math.hypot(e.x - p.x, e.y - p.y)
+      const near = 1 - Math.min(1, d / stats.range)
+      let mul = 1 + near * (GNASH_MAW_MUL - 1)
+      // bloodInTheWater: the finisher. Read off CURRENT hp before the bite lands, so the card is
+      // "bite what is already hurt" and never "the last hit of every kill is bigger".
+      if (finish > 0 && e.maxHP > 0 && e.hp / e.maxHP < GNASH_FINISH_FRAC) mul *= 1 + finish
+      applyDamage(run, e, stats.dmg * mul, GNASH_BASE_CRIT)
+      // deathRoll: hold what you bit. Same one-line stun idiom as the mine, the hydrant and the
+      // longline — through ccScale/spendCC so it takes diminishing returns, and published to the
+      // `stunT` contract field render.js already reads.
+      if (hold > 0 && !e._dead && !resistsCC(e)) {
+        e.stunT = Math.max(e.stunT || 0, hold * ccScale(run, e))
+        spendCC(run, e)
+      }
+    }
+    run.events.push({ type: 'gnash', x: p.x, y: p.y, angle: swing, range: stats.range, arc: stats.arc })
+  }
+}
+
 function stepClawRake(run, w, stats, fireRateMul, dt) {
   const mods = run.weaponMods.clawRake
   const quickPaws = mods?.quickPaws ?? 0

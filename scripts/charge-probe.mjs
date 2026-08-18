@@ -43,7 +43,7 @@
 // takes cards and kills far more than a starter-only one ever would.
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim, applyChoice, onSandbar, inWake, inMaw } from '../src/sim.js'
-import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines, MAX_SHOP_LEVEL, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL } from '../src/config.js'
+import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines, MAX_SHOP_LEVEL, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, spawnRate } from '../src/config.js'
 
 // --chapter <id> (v7.x, run US.c): every Book 2 chapter shares one `resource`/refill-circle
 // vocabulary (Humidity and tide pools, Clarity and upwellings, Light and sun shafts, Feed and the
@@ -108,6 +108,14 @@ function probeMeta({ thief = false, shopLevel = SHOP_LV } = {}) {
 }
 
 const res = CHAPTERS[CHAPTER].resource
+// --drainPerSpawn=N (v7.x): override the ONE number that has to be fitted to a measurement rather
+// than chosen, so the fit is a sweep in one shell loop instead of a series of edits to config.js.
+// Applied to the live CHAPTERS object before any run is built, so sim.js reads it too.
+const DPS_OVERRIDE = Number(process.argv.find((a) => a.startsWith('--drainPerSpawn='))?.slice(16) ?? NaN)
+if (!Number.isNaN(DPS_OVERRIDE)) {
+  if (!(DPS_OVERRIDE > 0)) { console.error(`ABORT: --drainPerSpawn must be a positive number, got "${DPS_OVERRIDE}"`); process.exit(1) }
+  res.drainPerSpawn = DPS_OVERRIDE
+}
 const sig = CHAPTERS[CHAPTER].signature
 const spec = refillSpec(sig) // the refill-circle geometry, whichever chapter (Shelf's shafts / Surf's pools)
 // Seconds of occupancy that use one circle up (The Shelf's upwellings). 0 everywhere else, which is
@@ -202,6 +210,39 @@ const MOVES = {
 //   ride   — hold station in the wake, 40% of the way back. The upper bound on a player working the
 //            mechanic, and it means holding a lane beside a wall that kills on contact.
 // Headings, like MOVES above, because this chapter is free-roam — only the lane throws an axis away.
+// ---- WRECK MOVEMENT (v7.x, The Wreck after the prey rework) -----------------------------------
+// A FIFTH FAMILY, AND ITS ABSENCE PRODUCED THE CONFIDENT WRONG ANSWER THIS FILE KEEPS WARNING
+// ABOUT. Every family above models a player who is being CHASED — `kite` walks away from the crowd,
+// `seek` walks to a refill circle, `flee` outruns the net. The Wreck's crowd RUNS AWAY (the
+// `skittish` flag), and its only refill is a kill, so all three model a player who never eats.
+// Pointed at this chapter the shipped rig reported the bar pinned at zero for 76-84% of a 300s run
+// across every row, with `kite` and `seek` printing IDENTICAL numbers — which is the tell, since
+// `seek` differs from `kite` only by walking toward run.shafts and this chapter has none. That is
+// not a starving chapter, it is a rig walking away from its own food.
+//
+// The pair is the answer, never one row:
+//   ignore — the plain kiting walk. THE DO-NOTHING CONTROL, and a genuinely harsh one here: prey
+//            flee, so a player who does not close is a player whose food accelerates away from
+//            them. This row is the floor, and it is what the old rig was measuring by accident.
+//   hunt   — walk at the nearest body. The honest model of the chapter's own verb, and the only
+//            rig that can tell "the drain is too steep" apart from "nobody went and got dinner".
+// ⚠ `hunt` is a FLOOR on player skill and not a model of one: it always closes on the NEAREST fish,
+// which is often the one already fleeing hardest, and it never spends Lunge to cut off a runner.
+// A real player does better. Read its %at0 as the worst case for someone who is actually engaging.
+const WRECK_MOVES = {
+  ignore: () => null,
+  hunt: (run) => {
+    const p = run.player
+    let best = null, bd = Infinity
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      const d = Math.hypot(e.x - p.x, e.y - p.y)
+      if (d < bd) { bd = d; best = e }
+    }
+    return best ? Math.atan2(best.y - p.y, best.x - p.x) : null
+  },
+}
+
 const TRAWL_MOVES = {
   ignore: () => null,
   flee: (run) => (run.net ? Math.atan2(run.net.ny, run.net.nx) : null),
@@ -327,7 +368,9 @@ const DEEP_MOVES = {
 // re-phasing trap — every seeded probe in this repo has fallen for it at least once).
 const results = {}
 for (const thief of [false, true]) {
-for (const [mname, moveAt] of Object.entries(laneCh ? LANE_MOVES : trawlCh ? TRAWL_MOVES : deepCh ? DEEP_MOVES : MOVES)) {
+// killFedCh BEFORE the generic fallback: a chapter whose only refill is a kill needs a rig that
+// goes and gets one. See WRECK_MOVES for what the generic family measured instead.
+for (const [mname, moveAt] of Object.entries(laneCh ? LANE_MOVES : trawlCh ? TRAWL_MOVES : deepCh ? DEEP_MOVES : killFedCh ? WRECK_MOVES : MOVES)) {
 for (const [pname, wants] of Object.entries(POLICIES)) {
   const rows = []
   for (let r = 0; r < RUNS; r++) {
@@ -413,7 +456,7 @@ const previewRun = createRun(probeMeta({}), { chapter: CHAPTER, difficulty: DIFF
 console.log(`chapter=${CHAPTER} book=${bookOfChapter} difficulty=${DIFFICULTY} ${modeLabel} ${DURATION}s x ${RUNS} seeded runs, immortal + kiting`)
 // `killBase` is the NOT-shop-gated half (The Wreck), so the two are printed separately — a header
 // that folded them would report an unbought save as refilling on kills when only one chapter does.
-console.log(`resource: drain ${res.drain}/s  refill ${res.refill}/s in-refill-circle` +
+console.log(`resource: drain ${res.drain != null ? `${res.drain}/s` : `${res.drainPerSpawn}/spawn-unit (rides spawnRate)`}  refill ${res.refill}/s in-refill-circle` +
   ((res.killBase ?? 0) > 0 ? `  kill +${res.killBase} (always) +${res.killRefill} (Scavenger)` : `  kill +${res.killRefill} (Scavenger only)`) +
   `  config max ${res.max}  resolved chargeMax ${previewRun.chargeMax}`)
 if (res.dark) {
@@ -442,10 +485,23 @@ if (spec) {
   // for a chapter that has no net at all: a probe describing the wrong chapter in a confident
   // sentence, which is worse than a crash because it reads as a measurement. Every no-geometry
   // chapter names ITSELF here from now on.
-  const hold = res.drain / res.killBase
   console.log(`refill:   a kill, and nothing else — no cell, no radius, nowhere on the map to stand.`)
-  console.log(`break-even: ${hold.toFixed(2)} kills/s holds the bar level (drain ${res.drain} / killBase ${res.killBase}).` +
-    ` Read %at0 against the kills column, not against another chapter's number.`)
+  // ⚠ THE DRAIN IS NOT A CONSTANT HERE and the first version of these two lines pretended it was.
+  // The Wreck declares `drainPerSpawn`, not `drain`, so `res.drain` is undefined: the header printed
+  // "drain undefined/s" and the break-even printed "NaN kills/s holds the bar level" — a probe
+  // answering a question it never asked, in the shape of a measurement. A drain denominated in the
+  // CROWD has a different break-even at every second of the run, so what is printed now is the
+  // curve's ends and its midpoint, and never a single number.
+  if (res.drainPerSpawn != null) {
+    const at = (t) => (res.drainPerSpawn * spawnRate(t) * (CHAPTERS[CHAPTER].balance?.spawnMul ?? 1)) / res.killBase
+    console.log(`break-even: ${at(0).toFixed(2)} kills/s at t=0, ${at(150).toFixed(2)} at t=150, ${at(299).toFixed(2)} at t=299` +
+      ` (drainPerSpawn ${res.drainPerSpawn} x spawnRate(t) x spawnMul ${CHAPTERS[CHAPTER].balance?.spawnMul ?? 1} / killBase ${res.killBase}).` +
+      ` The bar's difficulty RISES with the crowd — read %at0 against the kills column.`)
+  } else {
+    const hold = res.drain / res.killBase
+    console.log(`break-even: ${hold.toFixed(2)} kills/s holds the bar level (drain ${res.drain} / killBase ${res.killBase}).` +
+      ` Read %at0 against the kills column, not against another chapter's number.`)
+  }
 }
 if (sig?.bars) {
   console.log(`sandbars: cell ${sig.bars.cell} chance ${sig.bars.chance} r ${sig.bars.r}  slowMul x${sig.bars.slowMul}  drainMul x${sig.bars.drainMul}` +
