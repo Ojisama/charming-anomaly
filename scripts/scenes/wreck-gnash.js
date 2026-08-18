@@ -36,7 +36,9 @@ H.weapon('gnash', 5)
 // events" trap, arrived at from the other direction. Three still spans the wedge.
 H.place((i, pl) => {
   const a = (i / 3 - 0.5) * 0.9
-  const r = 46 + i * 24
+  // Spread to span the SHIPPED reach (118-152px), not a reach the weapon had once — bodies bunched
+  // inside the jaw cannot show whether the drawn wedge agrees with the sector the sim tests.
+  const r = 60 + i * 45
   return { x: pl.x + Math.cos(a) * r, y: pl.y + Math.sin(a) * r }
 })
 

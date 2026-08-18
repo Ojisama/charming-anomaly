@@ -583,7 +583,7 @@ const CONFIG = {
   // the tooth-grinding verb, and 'Croc' (fang) carries the ANIMAL where a literal 'Broiement' would
   // carry the dentistry. It also sits one syllable long beside The Deep's 'Coup de Nageoire'.
   'Gnash': 'Croc',
-  'Darts onto the nearest body and bites. The closer it lands, the deeper it goes.': 'Fonce sur le corps le plus proche et mord. Plus elle frappe pr\u00e8s, plus elle s\'enfonce.',
+  'A short bite, straight ahead. The closer it lands, the deeper it goes.': 'Une morsure courte, droit devant. Plus elle frappe pr\u00e8s, plus elle s\'enfonce.',
   // The Wreck's herding kit (v7.x). Owner's picks, 2026-08-18.
   // 'App\u00e2t' over 'Bro\u00fbmage' (the exact term for chumming) because the card has to read at a
   // glance and bro\u00fbmage is a word most players have never met.

@@ -156,7 +156,7 @@ import {
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
   GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC,
-  GNASH_CLOSE_MAX, GNASH_CLOSE_FRAC, CHUM_PULL_MUL, CHUM_PANIC_R,
+  CHUM_PULL_MUL, CHUM_PANIC_R,
   BILGE_AVOID_PAD, BILGE_AVOID_BLEND, BILGE_TRAIL_RATE_MUL, BILGE_TRAIL_R_MUL,
   PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_TURN_RATE, PREY_SHOAL_SIZE, PREY_FLEE_BLEND,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
@@ -7606,48 +7606,7 @@ function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
 // oversight — this chapter's crowd is running away and shoving it is a downgrade.
 function stepGnashWeapon(run, w, stats, fireRateMul, dt) {
   const quickSnap = run.weaponMods.gnash?.quickSnap ?? 0
-  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickSnap)), dt, () => {
-    dartToBite(run, stats)
-    biteGnash(run, stats)
-  })
-}
-
-// THE DART (v7.x). Close the gap, then bite — in that order, in one cast, because a bite that
-// arrives where the fish WAS is the defect this exists to fix (see WEAPONS.gnash).
-//
-// A CEILING, NOT A DISTANCE. It moves only as far as it needs to bring the target inside
-// GNASH_CLOSE_FRAC of the jaw, and not at all if the target is already there — so the common case
-// of chewing through a shoal you are standing in moves the player zero px, and only a fish that is
-// getting away pulls you. That conditional is the whole difference between a lunging bite and a
-// weapon that fights the stick.
-//
-// Moves the player DIRECTLY rather than through run._lungeT: that field is the button's, it is read
-// by stepPlayerMovement for the life of a dash, and borrowing it would let an auto-firing weapon
-// cancel or extend a Lunge the player paid Bloodlust for. Two mechanics, two fields.
-function dartToBite(run, stats) {
-  const p = run.player
-  // THE WEAPON YIELDS TO THE BUTTON. A Lunge is a committed move the player spent Bloodlust on; an
-  // auto-firing dart that pulls them back toward whatever is nearest partly UNDOES it, and the
-  // amount it undoes is invisible — the button still fires, still bites, still refills, and simply
-  // travels less far than the card promised. The shipped Lunge test caught it: a press with a body
-  // 30px away carried the player 89px instead of the 135 the button is worth, because the dash went
-  // out and the next gnash cast dragged it back.
-  if ((run._lungeT ?? 0) > 0) return
-  const tgt = nearestEnemy(run)
-  if (!tgt) return
-  const dx = tgt.x - p.x, dy = tgt.y - p.y
-  const d = Math.hypot(dx, dy)
-  if (d < 1e-6) return
-  const want = stats.range * GNASH_CLOSE_FRAC
-  if (d <= want) return                       // already close enough — do not move the player at all
-  const step = Math.min(GNASH_CLOSE_MAX, d - want)
-  p.x += (dx / d) * step
-  p.y += (dy / d) * step
-  // Publish the facing, for the same reason the Lunge does: render rotates the body off
-  // p.facingAngle and nothing else, so a move the stick did not ask for is invisible without this
-  // and the fish appears to swim sideways through its own attack.
-  p.facingAngle = Math.atan2(dy, dx)
-  p.facing = dx >= 0 ? 1 : -1
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickSnap)), dt, () => biteGnash(run, stats))
 }
 
 // -- Chum (v7.x, The Wreck) ----------------------------------------------------------------------

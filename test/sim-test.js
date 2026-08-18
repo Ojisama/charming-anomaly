@@ -6509,13 +6509,9 @@ function runPrey() {
   // The falloff runs backwards to every other reach number in the game, which is exactly the kind of
   // inversion a later editor "fixes".
   //
-  // MEASURED ACROSS ONE CAST, NOT ACROSS TWO RUNS, and that is forced by the weapon itself: since
-  // the bite DARTS (PY.g), it closes on whatever it is aiming at, so a fixture that parks a lone
-  // body at the tip of the arc simply gets a bite that travelled — the far case cannot exist on its
-  // own any more. Two bodies on the same ray can: the dart takes its distance from the NEAREST, and
-  // with that one already inside the jaw nothing moves, so the far body is struck by the same sweep
-  // at a genuine tip distance. That is also the shape the ramp really has in play — several bodies,
-  // one cast, different depths.
+  // MEASURED ACROSS ONE CAST, NOT ACROSS TWO RUNS: two bodies on the same ray, struck by the same
+  // sweep at different depths. That is the shape the ramp really has in play, and unlike two runs
+  // it cannot be confounded by crits or spawns landing differently on either side.
   {
     const lv = WEAPONS.gnash.levels[0]
     const NEAR_F = 0.15, FAR_F = 0.9
@@ -6545,30 +6541,37 @@ function runPrey() {
     console.log(`PASS run PY.d (the bite pays for closing): one sweep deals ${ratio.toFixed(2)}x more to the near body than the far one over 20s (predicted ${want.toFixed(2)}x)`)
   }
 
-  // -- PY.g: the bite CLOSES THE GAP, and only when it needs to. --------------------------------
-  // The chapter's food is faster than its weapon's reach, so a bite that does not travel lands on
-  // water. Both halves are asserted, because the conditional is what keeps this from reading as
-  // teleporting: a target already inside the jaw must move the player ZERO px.
+  // -- PY.g: AN ATTACK NEVER MOVES THE PLAYER. -------------------------------------------------
+  // Owner, 2026-08-18: "attacks = no movement that's the golden rule. The action though can make
+  // you dash to nearest target." Stated over EVERY weapon in the game rather than over this
+  // chapter's three, because it is a rule about attacks and gnash was merely where it got broken.
+  //
+  // The rule is not vacuous: sim.js has four sites that move the player outright, and the other
+  // three are all things done TO you — the Blank's yank, the tide, an abduction beam. None is a
+  // weapon. The one sanctioned exception is the BUTTON, which is PY.k's subject and is why this
+  // block equips weapons only and sends no press.
   {
-    const lv = WEAPONS.gnash.levels[0]
-    const travel = (dist) => {
+    const ids = Object.keys(WEAPONS)
+    const moved = []
+    for (const id of ids) {
       const run = mk(20260819)
-      run.weapons = [{ id: 'gnash', level: 1 }]
+      run.weapons = [{ id, level: 1 }]
       const p = run.player
       const x0 = p.x, y0 = p.y
-      const e = put(run, { x: p.x + dist, y: p.y, hp: 1e12, speed: 0 })
-      for (let i = 0; i < Math.round(3 / dt); i++) {
+      // A body inside the shortest reach in the game, pinned every step so nothing the weapon does
+      // to IT can be mistaken for something done to the player.
+      const e = put(run, { x: x0 + 60, y: y0, hp: 1e12, speed: 0 })
+      for (let i = 0; i < Math.round(2 / dt); i++) {
         only(run, [e])
-        e.x = x0 + dist; e.y = y0          // the TARGET is fixed in world space; the player may move
+        e.x = x0 + 60; e.y = y0
         stepSim(run, { x: 0, y: 0 }, dt)
       }
-      return Math.hypot(run.player.x - x0, run.player.y - y0)
+      const d = Math.hypot(p.x - x0, p.y - y0)
+      if (d > 0.5) moved.push(`${id} ${d.toFixed(0)}px`)
     }
-    const far = travel(lv.range * 3)
-    const near = travel(lv.range * 0.2)
-    assert.ok(far > 40, `a bite at a body well out of reach must CLOSE on it; the player moved ${far.toFixed(0)}px`)
-    assert.ok(near < 1, `a bite at a body already inside the jaw must not move the player; it moved ${near.toFixed(1)}px — that is the difference between a lunging bite and a weapon that fights the stick`)
-    console.log(`PASS run PY.g (the bite closes): a far body pulls the player ${far.toFixed(0)}px, one already in the jaw pulls it ${near.toFixed(1)}px`)
+    assert.ok(ids.length > 20, `this sweep is only worth its name over the whole arsenal; it saw ${ids.length} weapons`)
+    assert.deepStrictEqual(moved, [], `an attack must never move the player. These did: ${moved.join(', ')}`)
+    console.log(`PASS run PY.g (attacks do not move you): all ${ids.length} weapons fired for 2s at a body in reach, every one of them left the player where it found them`)
   }
 
   // -- PY.e: THE LEAK is the only thing that can kill you, and it FOULS you. --------------------
