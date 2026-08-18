@@ -9634,14 +9634,12 @@ function testV54Weapons() {
       assert.ok(jelly, 'shelf/jelly vs bubblePuff L5 is not in the walk — the pair this fix was written for')
       assert.ok(TANK_KB_REFRACTORY > jelly.thr * 1.2,
         `TANK_KB_REFRACTORY ${TANK_KB_REFRACTORY}s has no margin over Le Large's own threshold ${jelly.thr.toFixed(3)}s`)
-      // KNOWN GAP, ratcheted so it cannot grow or be forgotten. 0.25 is the owner's number and it
-      // covers the chapter the lock was reported in; The Deep's gulper is the slowest tank that can
-      // meet a levelled Chitter Shriek, and needs 0.35s. Widen the constant or shrink this list —
-      // never extend it.
+      // EVERY reachable pair must be covered — the list is empty and must stay empty. It was three
+      // entries at the first cut's 0.25s (The Deep's gulper vs Chitter Shriek L3-L5, which needs
+      // 0.342s); 1s closes them with margin. Widen the constant, never extend this list.
       const uncovered = pairs.filter((x) => x.thr >= TANK_KB_REFRACTORY).map((x) => x.what).sort()
-      assert.deepStrictEqual(uncovered,
-        ['deep/gulper vs chitterShriek L3', 'deep/gulper vs chitterShriek L4', 'deep/gulper vs chitterShriek L5'],
-        `the set of tank x weapon pairs the ${TANK_KB_REFRACTORY}s window does NOT cover has changed: ${uncovered.join(', ') || '(none)'}`)
+      assert.deepStrictEqual(uncovered, [],
+        `${uncovered.length} tank x weapon pair(s) can still out-cadence the ${TANK_KB_REFRACTORY}s window: ${uncovered.join(', ')}`)
       console.log(`PASS run CC.kb (tank shove refractory): first shove ${tank.first.toFixed(0)}, second 0 inside ${TANK_KB_REFRACTORY}s; ` +
         `drone still shoved twice; ${pairs.length - uncovered.length}/${pairs.length} reachable tank x shove pairs covered ` +
         `(Le Large's jelly needs ${jelly.thr.toFixed(3)}s), ${uncovered.length} known-uncovered`)

@@ -3331,10 +3331,13 @@ export const CC_DR_FLOOR = 0.25     // never near zero: a hit should always do s
 // at 0.189s while the Sand Hopper needs 0.139s and the Sea Roach 0.066s. That is why the report
 // named the jellyfish. `unshakeable` does not save them: halving the shove does not outweigh being
 // the slowest thing on the field.
-// balance_decision : tanks may be shoved once per window, not per hit 2026-08-18
+// balance_decision : tanks may be shoved once per second, not per hit 2026-08-18
 //  - the window is the ENEMY's timer, so no fire rate can shorten it. It must stay above the worst
-//    shove-px/speed on the roster (0.189s today) or the lock simply returns at a higher cadence.
-export const TANK_KB_REFRACTORY = 0.25  // s a tank is immune to further KNOCKBACK after being shoved
+//    shove-px/speed in the game (0.342s, The Deep's gulper vs a maxed Chitter Shriek) or the lock
+//    simply returns at a higher cadence. At 1s it clears every pair with 2.9x to spare, and it is
+//    also LONGER than most rings' own base interval — so a tank now rides one shove per second
+//    whatever you are firing, which is the point: it walks in between them.
+export const TANK_KB_REFRACTORY = 1  // s a tank is immune to further KNOCKBACK after being shoved
 export const SHRIEK_ECHO_DELAY = 0.22 // s between an echoShriek cast and the next (cf. WAVE_ECHO_DELAY)
 export const SHRIEK_ECHO_DMG_FRAC = 0.6 // each echo's damage/fear, as a fraction of the original cast's
 // panicRout (behavioral): a FLEEING enemy (fearT > 0) takes (1 + bonus) × damage from EVERY source
