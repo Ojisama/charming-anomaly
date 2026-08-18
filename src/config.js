@@ -4227,16 +4227,20 @@ export const HP_SCALE_LATE_RATE = 0.005
 // +27.6% at 240, +30.0% at 300. Front-loaded, because the factor is (1 + rate * dt) and a ratio of
 // two such lines rises fastest at the start of the window — worth knowing before reading the
 // middle of the curve as a mistake.
-// ⚠ NO BOOK 2 KEYS, AND THAT IS A BUG RATHER THAN A DECISION (found 2026-08-17 in adversarial
-// review of the murk-chapter change). `lateRateFor` falls back to HP_SCALE_LATE_RATE for anything
-// absent, so all six Undertow chapters — including The Deep, the book's finale — currently run The
-// Body's gentlest late curve. Deliberately NOT fixed in that change: filling this table in would
-// silently re-difficulty The Surf, The Reef, The Trawl and The Deep, four chapters that change was
-// scoped to leave alone, and a balance move to four shipped chapters should be its own commit with
-// its own measurement. Book 2 wants its own six-rung ladder here.
+// ⚠ BOOK 2 IS STILL MOSTLY ABSENT, AND THAT IS A BUG RATHER THAN A DECISION (found 2026-08-17 in
+// adversarial review of the murk-chapter change). `lateRateFor` falls back to HP_SCALE_LATE_RATE
+// for anything absent, so the six chapters below The Surf — including The Deep, the book's finale —
+// still run The Body's gentlest late curve. They keep the fallback deliberately: none of them is
+// reachable by a player yet (BOOKS.undertow.wipFrom), and re-difficultying six unshipped chapters
+// is a balance move that belongs with the release that reveals them. Book 2 wants its own ladder
+// here, one rung per chapter, written as each one ships.
+//
+// balance_decision : The Surf takes the Pond's rung as Book 2's first 2026-08-18
+//  - only the chapter being REVEALED is filled in; the other six still fall back on purpose
 export const CHAPTER_LATE_RATE = {
   body: 0.005, pond: 0.010, garden: 0.015, undergrowth: 0.020,
   city: 0.028, skies: 0.036, beyond: 0.0605,
+  surf: 0.010,
 }
 // Unknown/absent chapter (the Blank, a test run with no chapter) keeps the shipped curve.
 export const lateRateFor = (chapterId) => CHAPTER_LATE_RATE[chapterId] ?? HP_SCALE_LATE_RATE
@@ -4501,8 +4505,18 @@ export const COIN_CAP_PER_RUN = 999
 // single source of truth for sequencing and how many chapters currently ship.
 // ---- Books (v7.x) ------------------------------------------------------------------
 // A book is a campaign: its own chapters, its own ladder, its own protagonist. Book 1 is the
-// shipped game. A book marked `wip` is hidden from players entirely and reachable only behind
-// meta.dev — see playableChapterId and titleBookshelf below.
+// shipped game.
+//
+// `wipFrom` IS AN INDEX INTO `chapters`, NOT A BOOLEAN, and that is what lets a book ship one
+// chapter at a time. Every chapter at that index or later is hidden from players entirely and
+// reachable only behind meta.dev — see isWipChapter, playableChapterId and titleBookshelf below.
+// Omit the key for a fully-shipped book; `wipFrom: 0` is the old `wip: true`, the whole book gated.
+// Undertow sits at 1: The Surf is live, the six below it are not.
+//
+// Revealing the next chapter is therefore BUMPING ONE NUMBER — and the suite's own denominator
+// (shippedChapterIds, test/sim-test.js) is derived from this, so the bump immediately demands that
+// chapter's endings, unlock line, French and unshakeable tank before it can go green. That is the
+// point: the checklist is the flag, not a document someone has to remember to read.
 //
 // CHAPTER_ORDER is an ALIAS for book 1's chapters, and that is the whole design of this refactor:
 // every existing read site — slot summaries, the retroactive unlock chain, ~40 test
@@ -4524,7 +4538,7 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'twilight', 'deep'], hidden: [], wip: true, startCoins: 100 },
+  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'twilight', 'deep'], hidden: [], wipFrom: 1, startCoins: 100 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -7545,8 +7559,22 @@ export const resolveChapterId = (id) => (Object.hasOwn(CHAPTERS, id) ? id : CHAP
 
 // Which book claims this chapter (ladder or hidden), or null for an id no book knows.
 export const bookOf = (id) => Object.keys(BOOKS).find((b) => BOOKS[b].chapters.includes(id) || BOOKS[b].hidden.includes(id)) ?? null
-// Is this chapter behind the WIP gate — i.e. does its book still need meta.dev to be reachable?
-export const isWipChapter = (id) => BOOKS[bookOf(id)]?.wip === true
+// Is this chapter behind the WIP gate — i.e. does it still need meta.dev to be reachable?
+//
+// PER CHAPTER, not per book (see `wipFrom` on BOOKS). The position in its OWN book's ladder is
+// what decides, so a book may be half-shipped: Undertow's wipFrom is 1, which makes The Surf live
+// and everything below it gated. `?? Infinity` is what keeps a book with no `wipFrom` fully
+// shipped, and index 0 is what makes `wipFrom: 0` mean the whole book.
+//
+// A `hidden` chapter is NOT on the ladder, so indexOf returns -1 and it can never be wip by
+// position — The Blank is earned rather than unfinished, and the two must not be conflated (the
+// old boolean got this right for free; the index form has to say so).
+export const isWipChapter = (id) => {
+  const book = BOOKS[bookOf(id)]
+  if (!book) return false
+  const i = book.chapters.indexOf(id)
+  return i >= 0 && i >= (book.wipFrom ?? Infinity)
+}
 
 // The next chapter in the id's OWN book, or null past its end and for any id no book claims.
 // Was `CHAPTER_ORDER[CHAPTER_ORDER.indexOf(id) + 1] ?? null`, which returned 'body' for every
@@ -7645,10 +7673,14 @@ export const spineName = (id) => CHAPTER_SPINE[id] ?? CHAPTERS[id]?.name ?? id
 export function titleBookshelf(meta) {
   const shelf = []
   for (const [book, def] of Object.entries(BOOKS)) {
-    // The WIP gate, unchanged in meaning: a work-in-progress Book is absent entirely rather than
-    // drawn as a sheeted étage, because a sheet announces that a Book exists.
-    if (def.wip && meta?.dev !== true) continue
-    const ids = [...def.chapters, ...def.hidden.filter((id) => meta?.chapters?.[id]?.unlocked)]
+    // The WIP gate, now PER CHAPTER (see isWipChapter). A gated chapter does not take a covered
+    // slot on the étage, for exactly the reason a locked `hidden` chapter does not: a fore-edge
+    // volume announces that a chapter is there, so drawing six of them for a book that has written
+    // one would count chapters that do not exist. A book with NOTHING live is absent entirely —
+    // same meaning the old boolean had, reached from the other end.
+    const ladder = def.chapters.filter((id) => meta?.dev === true || !isWipChapter(id))
+    if (ladder.length === 0) continue
+    const ids = [...ladder, ...def.hidden.filter((id) => meta?.chapters?.[id]?.unlocked)]
     const volumes = ids.map((id) => ({ id, unlocked: chapterAvailable(meta, id) }))
     shelf.push({
       book,
@@ -10395,6 +10427,10 @@ export const CHAPTER_ENDINGS = {
   skies:       { victory: 'They couldn\'t bring you down! 🎉',      death: 'Grounded… 💥' },
   beyond:      { victory: 'You crossed the edge of the map! 🎉',    death: 'Erased from the record… ✨' },
   blank:       { victory: 'THE ANTIBODY FAILED. 🎉',                death: 'DELETED. ⬜' },
+  // Undertow opens here. The death line names HUMIDITY rather than whatever landed the last hit:
+  // the bar is the chapter's own clock and the thing a beach kills you with, exactly as the pond
+  // kills you by filtering you out however you actually died.
+  surf:        { victory: 'You rode it out! 🎉',                    death: 'Dried out… ☀️' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',
@@ -10641,6 +10677,13 @@ export const MUTATORS = {
   // challenge (`exclude` on sticky above is the same rule from the other side). The body has no
   // signature, so it keeps the generic pool alone.
   riptide:      { name: 'Riptide',        icon: '🌊', desc: 'The currents shove twice as hard. Richer coins.',            chapters: ['pond'],        effects: { currentForceMul: 2, coinMul: 1.25 } },
+  // Undertow's first. x1.8 rather than Riptide's x2 because the tide is ZERO-MEAN and the pond's
+  // drift is not: a sine that peaks at 83 px/s spends the whole cycle reversing, so the number a
+  // player fights is the peak and there is no ceiling protecting them from it the way the pond's
+  // escape-margin math protects that field. 46 -> 83 keeps the peak under PLAYER baseSpeed 220,
+  // which is the hard bound CHAPTERS.surf.signature's own block sets: past that the surge stops
+  // being a push and becomes a wall.
+  springtide:   { name: 'Spring Tide',    icon: '🌊', desc: 'The tide shoves far harder. Richer coins.',                  chapters: ['surf'],        effects: { tideSurgeMul: 1.8, coinMul: 1.25 } },
   overscent:    { name: 'Overscent',      icon: '🌼', desc: 'Pheromone trails linger twice as long. Bonus XP.',           chapters: ['garden'],      effects: { pheromoneLifeMul: 2, xpMul: 1.15 } },
   // v6.5 panel: chance x1.5 is already a net player buff (free enemy-side trap clears scale with
   // it too) — coinMul was 1.3 pre-panel, trimmed to 1.15 so an attentive player kiting around the
@@ -10660,6 +10703,7 @@ const MUTATOR_MOD_KEYS = [
   'maxAliveMul',        // maxAliveFor (the concurrent-enemy cap; set per chapter, see MAX_ALIVE)
   // v5.25 chapter-anomaly knobs (each consumed at its signature's one site):
   'currentForceMul',    // currentForce (pond drift field strength)
+  'tideSurgeMul',       // tideForce (surf tide peak surge)
   'pheromoneLifeMul',   // dealDamage's trailFollow drop (garden trail lifetime)
   'trapCountMul',       // streamTraps (sim.js — undergrowth snap-trap cell chance)
   'trafficIntervalMul', // stepLanes cadence (city; <1 = more often, like eliteEveryMul)
