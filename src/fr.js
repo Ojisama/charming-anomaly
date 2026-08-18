@@ -1123,6 +1123,16 @@ const CONFIG = {
   // The Surf (Book 2 chapter 1).
   'The Surf': 'Snorkeling',
   'The Shelf': 'Le Large',
+  // Le Large's three natives (v7.x). THE DESCRIPTIONS ARE THE OWNER'S OWN LINES, not
+  // translations — same standing as The Trawl's and The Deep's taglines above. Silt Veil's
+  // leads on the poison where the English leads on the scatter; the card does both, and the
+  // English was widened to match rather than the French narrowed.
+  'Bubble Puff': 'Jet de bulles',
+  'Bursts a ring of bubbles that shoves everything off you.': 'Un anneau de bulles qui repousse les assaillants.',
+  'Silt Veil': 'Voile de vase',
+  'Stirs the bottom into a cloud that poisons and scatters what swims in.': 'Soulève la vase pour empoisonner vos poursuivants.',
+  'Ballast': 'Lest',
+  'Drops dumped weight on the crowd. What it lands in stays fouled.': 'Lance un débris. Crée une flaque d\'eau souillée à l\'impact.',
   'in troubled water': 'En eaux troubles',
   // The Twilight (Book 2 chapter 5). Owner's pick over 'La Pénombre' and 'Le Crépuscule':
   // 'entre deux eaux' is the real French diving term for mid-water, neither surface nor bottom,

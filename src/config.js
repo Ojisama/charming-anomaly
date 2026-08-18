@@ -2002,6 +2002,82 @@ export const WEAPONS = {
       { dmg: 21, interval: 1.70, length: 560, width: 38, duration: 0.40, tick: 0.13 },
     ],
   },
+  // ---- The Shelf's three natives (v7.x) -------------------------------------------------
+  // Le Large's arsenal, replacing the borrowed stand-ins (stinger/mines/hole) it opened with. The
+  // chapter is about not being able to see and about what has been dumped in the water, and these
+  // three are the second of those: the murk is not only the antagonist here, it is the material.
+  //
+  // NONE OF THEM READS THE CLARITY BAR, deliberately. The Twilight's Foxfire and Sunlance are the
+  // pair that live at opposite ends of a bar, and doing that twice in one book would make the two
+  // chapters the same chapter with different weather. Here the bar decides what you can SEE and the
+  // weapons decide what you can reach; they meet in the player's hands, not in a stat.
+  bubblePuff: {
+    name: 'Bubble Puff',
+    desc: 'Bursts a ring of bubbles that shoves everything off you.',
+    icon: '🫧', rarity: 'normal',
+    // THE STARTER, named in §6.2 of the Undertow spec. A run.novas ring centred on the player, so it
+    // is the same entity the Cytokine Burst and the Skipping Shell's splash already use — tagged
+    // look: 'bubble' for the renderer, which sim never branches on.
+    //   r          the ring's outer radius. Short on purpose: this is the card that says "you are a
+    //              small fish", and its answer to a crowd is to make room, not to delete it.
+    //   knockback  the point of the card. A starter that only chips is a starter you replace; one
+    //              that buys you a metre of water is one you keep taking levels in.
+    levels: [
+      { dmg: 14, rate: 0.92, r: 155, knockback: 210 },
+      { dmg: 17, rate: 0.86, r: 168, knockback: 230 },
+      { dmg: 20, rate: 0.80, r: 181, knockback: 250 },
+      { dmg: 25, rate: 0.75, r: 195, knockback: 270 },
+      { dmg: 29, rate: 0.70, r: 210, knockback: 300 },
+    ],
+  },
+  siltVeil: {
+    name: 'Silt Veil',
+    desc: 'Stirs the bottom into a cloud that poisons and scatters what swims in.',
+    icon: '🌫️', rarity: 'normal',
+    // A run.blooms entry tagged look: 'silt', dropped at the player's feet on a timer — the same
+    // array the pond's Toxin Bloom and The Twilight's Foxfire use, and the third card to carry a
+    // look tag so the three cannot be told apart by radius (which is a guess that starts being
+    // wrong the first time any of them is retuned).
+    //
+    // `fear` IS THE CARD, and it is published into e.fearT — the contract field the roster, the
+    // renderer and SFX_FOR_EVENT already read. A brand-new "blinded" flag would have needed its own
+    // tint, its own particle and its own sound before it was distinguishable from doing nothing,
+    // which is the failure CLAUDE.md's elements rework shipped. Fish scatter out of a silt cloud;
+    // that IS fear, and it already has a full tell.
+    //   `slow: 0` is set at cast: this chapter does not slow you and must not quietly slow them
+    //   either — a card whose text never mentions a slow must not add one.
+    levels: [
+      { dmgPerTick: 6,  rate: 4.4, maxR: 116, dur: 3.4, fear: 0.9 },
+      { dmgPerTick: 8,  rate: 4.1, maxR: 126, dur: 3.7, fear: 1.0 },
+      { dmgPerTick: 11, rate: 3.8, maxR: 136, dur: 4.0, fear: 1.1 },
+      { dmgPerTick: 13, rate: 3.5, maxR: 148, dur: 4.4, fear: 1.2 },
+      { dmgPerTick: 15, rate: 3.2, maxR: 162, dur: 4.8, fear: 1.4 },
+    ],
+  },
+  ballast: {
+    name: 'Ballast',
+    desc: 'Drops dumped weight on the crowd. What it lands in stays fouled.',
+    icon: '⚓', rarity: 'rare',
+    // THE POOL'S ONLY ANSWER TO DISTANCE. Bubble Puff is a ring on the player and Silt Veil is a
+    // cloud at their feet, so without this the chapter has no card that reaches and the whole
+    // arsenal is one radius. A run.lobs entry, the array Debris Toss and Sunspear already share.
+    //
+    // ⚠ run.lobs HAS THREE RENDER CONSUMERS (syncLobs, redrawHazards' amber landing ring, and
+    // drawColumns) and nothing about the array says so — the Sunspear shipped wearing Debris Toss's
+    // landing ring for exactly this reason. look: 'ballast' is filtered OUT of the other two.
+    //
+    // The stain is a second run.blooms entry pushed at the landing, so the lingering half of the
+    // card is the same cloud machinery Silt Veil uses rather than a fourth kind of zone. That is
+    // also what makes the two cards combine: a ballast dropped into your own veil is one patch of
+    // water doing both jobs.
+    levels: [
+      { dmg: 26, rate: 2.60, r: 96,  stainDur: 3.0, stainDps: 5 },
+      { dmg: 31, rate: 2.45, r: 104, stainDur: 3.3, stainDps: 6 },
+      { dmg: 37, rate: 2.30, r: 112, stainDur: 3.6, stainDps: 7 },
+      { dmg: 44, rate: 2.15, r: 122, stainDur: 4.0, stainDps: 9 },
+      { dmg: 52, rate: 2.00, r: 134, stainDur: 4.4, stainDps: 11 },
+    ],
+  },
   // -- The Deep's native (spec §6.5) -------------------------------------------------------------
   finHit: {
     name: 'Fin Hit',
@@ -3419,6 +3495,12 @@ export const FOXFIRE_GLOW = {
 // that shrank to nothing would be the structural trap spec §8.2 forbids. At 0.45 an empty-bar L5
 // lance still reaches 252px, comfortably past the 205px radius of the shaft you are trying to get
 // back to.
+// BALLAST (The Shelf). Flight time, and the fallback throw distance when nothing is in range —
+// without the second one a cast with no target lands on the player's own head, which is not a
+// misfire the card should be able to make.
+export const BALLAST_FLIGHT = 0.42       // seconds from the throw to the landing
+export const BALLAST_BLIND_THROW = 260   // px ahead, when there is nothing to aim at
+
 export const SUNLANCE_REACH_MIN = 0.45
 // ---- The Deep's anglerfish: the refill IS the trap ---------------------------------------------
 // Owner, 2026-08-17: "I want a huge hidden anglerfish like size 6, but as a trap. In the surf there
@@ -5030,7 +5112,7 @@ CHAPTERS.shelf = {
   //            a chapter about what has been dumped in the water, fighting with toxic cysts.
   //   hole     an abstract vortex, the third answer to a crowd (move it). Same reasoning, and the
   //            same weapon, The Trawl borrows for the same slot.
-  weapons: ['stinger', 'mines', 'hole'], starter: 'stinger',
+  weapons: ['bubblePuff', 'siltVeil', 'ballast'], starter: 'bubblePuff',
 
   // Clean-water upwellings. The GEOMETRY is the shipped sun-shaft field, unchanged and already
   // tuned — driftAmp x driftHz = 60 px/s has to stay above 33 (DEADZONE x baseSpeed, the joystick's

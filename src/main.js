@@ -448,6 +448,12 @@ const SFX_FOR_EVENT = {
   // gun 'crust' and 'skip' are both written around. The column's tell is the flash it lands with.
   // 'foxfire' has none either, matching the Spore Bloom it shares run.blooms with: a cloud settling
   // is not a percussive event, and its damage is heard through the ticks.
+  //
+  // The Shelf. NONE of its three natives gets an entry, and each absence is the same ruling as
+  // one already above it. 'bubblePuff' is a run.novas ring on a ~1s timer, which is the
+  // metronome case exactly. 'siltVeil' is a cloud settling, which is the 'foxfire' case. And
+  // 'ballast' lands every 2.0-2.6s, which is the 'longline' case verbatim — it has a render
+  // case instead, and the weight of it is carried by the screen shake.
   sunspear: 'shoot', sunlance: 'beam',
 }
 

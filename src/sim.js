@@ -152,7 +152,7 @@ import {
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BALLAST_FLIGHT, BALLAST_BLIND_THROW,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
@@ -5745,6 +5745,9 @@ function stepWeapons(run, dt) {
     else if (w.id === 'longline') stepLonglineWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'netToss') stepNetTossWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'sunspear') stepSunspearWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'bubblePuff') stepBubblePuffWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'siltVeil') stepSiltVeilWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'ballast') stepBallastWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'foxfire') stepFoxfireWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'sunlance') stepSunlanceWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'finHit') stepFinHitWeapon(run, w, stats, fireRateMul, dt)
@@ -7151,6 +7154,14 @@ function stepBlooms(run, dt) {
         const dx = e.x - bl.x, dy = e.y - bl.y
         if (dx * dx + dy * dy > rSq) continue
         applyDotDamage(run, e, tickDmg)
+        // SILT VEIL's fear. Gated on the same three conditions the nova path uses, and for the
+        // same reason: gating on the cooldown alone lets a persistent cloud re-apply every tick,
+        // a Math.max refresh then holds fearT at full for as long as the body stands in it, and
+        // that reads as a working refractory while measuring 100% uptime.
+        if ((bl.fear ?? 0) > 0 && (e.fearT ?? 0) <= 0 && (e.fearCd ?? 0) <= 0 && !resistsCC(e)) {
+          e.fearT = bl.fear * ccScale(run, e)
+          spendCC(run, e)
+        }
         if (sporeOn && !bl.look && !bl._mini && e._dead) {
           minis.push({ x: e.x, y: e.y, maxR: bl.maxR * SPOREBURST_FRAC, dur: bl.dur, dmgPerTick: bl.dmgPerTick })
         }
@@ -8310,6 +8321,25 @@ function stepLobs(run, dt) {
       continue
     }
 
+    // A BALLAST landing: impact damage, then the stain it leaves in the water. The stain is a
+    // run.blooms entry, so the lingering half of this card is the same cloud Silt Veil drops and
+    // needs no machinery of its own — and a ballast dropped into your own veil is one patch of
+    // water doing both jobs, which is the combo the pair was designed around.
+    if (lo.look === 'ballast') {
+      const bSq = lo.r * lo.r
+      for (const e of run.enemies) {
+        if (e._dead || isAlly(e)) continue
+        const dx = e.x - lo.tx, dy = e.y - lo.ty
+        if (dx * dx + dy * dy <= bSq) applyDamage(run, e, lo.dmg)
+      }
+      run.blooms.push({
+        x: lo.tx, y: lo.ty, r: 0, maxR: lo.r, t: 0, dur: lo.stainDur,
+        dmgPerTick: lo.stainDps * BLOOM_TICK, look: 'silt', slow: 0,
+      })
+      run.events.push({ type: 'ballast', x: lo.tx, y: lo.ty, radius: lo.r })
+      continue
+    }
+
     const rSq = lo.r * lo.r
     for (const e of run.enemies) {
       if (e._dead) continue
@@ -8337,6 +8367,65 @@ function stepLobs(run, dt) {
     }
   }
   run.lobs = run.lobs.filter((lo) => !lo._done)
+}
+
+// -- The Shelf's three natives (v7.x, Le Large) -------------------------------------------
+// All three reuse an existing entity array rather than introducing a fourth kind of zone:
+// run.novas (Bubble Puff), run.blooms (Silt Veil, and Ballast's stain), run.lobs (Ballast). That
+// is not only cheaper — it is what keeps them out of render.js's reset() hazard, where a pool in
+// the wrong list sets a dead property on a plain object and last run's entities stay on screen.
+
+// BUBBLE PUFF (starter). A ring on the player: spawnNova already carries `knockback` and a `look`
+// tag, so this is the Cytokine Burst's entity with the chapter's numbers and its own drawing.
+function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => {
+    const p = run.player
+    for (const r of ipecacRadii(run, stats.r)) {
+      spawnNova(run, p.x, p.y, r, stats.dmg, stats.knockback, 0, { look: 'bubble' })
+    }
+  })
+}
+
+// SILT VEIL. A cloud at the player's feet. `slow: 0` opts out of BLOOM_SLOW_T the way Foxfire does
+// — the murk chapter does not slow the player and must not quietly slow the crowd either — and
+// `fear` is the card, applied in stepBlooms against the shared fear cooldown so it cannot pin.
+function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => {
+    const p = run.player
+    const clouds = ipecacN(run, 1)
+    const ring = clouds > 1 ? stats.maxR * 0.85 : 0
+    for (let i = 0; i < clouds; i++) {
+      const a = (i / clouds) * Math.PI * 2
+      run.blooms.push({
+        x: p.x + Math.cos(a) * ring, y: p.y + Math.sin(a) * ring,
+        r: 0, maxR: stats.maxR, t: 0, dur: stats.dur,
+        dmgPerTick: stats.dmgPerTick, look: 'silt', slow: 0, fear: stats.fear,
+      })
+    }
+  })
+}
+
+// BALLAST. A lob at the nearest body, landing for `dmg` in `r` and leaving a stain. `column` is NOT
+// set: that flag is the Sunspear's hanging telegraph, and this one actually travels.
+function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => {
+    const p = run.player
+    const target = nearestEnemy(run)
+    const tx = target ? target.x : p.x + (p.facing >= 0 ? BALLAST_BLIND_THROW : -BALLAST_BLIND_THROW)
+    const ty = target ? target.y : p.y
+    const drops = ipecacN(run, 1)
+    const spread = drops > 1 ? stats.r * 1.15 : 0
+    for (let i = 0; i < drops; i++) {
+      const a = (i / drops) * Math.PI * 2
+      run.lobs.push({
+        fromX: p.x, fromY: p.y,
+        tx: tx + Math.cos(a) * spread, ty: ty + Math.sin(a) * spread,
+        t: 0, flight: BALLAST_FLIGHT,
+        dmg: stats.dmg, r: stats.r, look: 'ballast',
+        stainDur: stats.stainDur, stainDps: stats.stainDps,
+      })
+    }
+  })
 }
 
 // -- Reality Shard (v5.4 beyond starter) ---------------------------------------------------

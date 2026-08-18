@@ -12965,10 +12965,18 @@ export function createRenderer(app) {
         // It must also never be the Spore Bloom's green: the two are the same ENTITY, and a Shelf
         // player reading their own fire as a pond toxin cloud is the failure to avoid.
         const fox = bl.look === 'foxfire'
+        // `silt` is The Shelf's Silt Veil AND the stain a Ballast leaves — one look for both,
+        // because they are the same cloud and telling them apart on screen would be a promise
+        // the mechanic does not keep. Olive-brown: this is the BOTTOM, lifted. It must not be
+        // the Spore Bloom's green (same entity, wrong chapter, and the player would read their
+        // own silt as a pond toxin) and it must not be Foxfire's mint either.
+        const silt = bl.look === 'silt'
         s.tint = fox
           ? (k % 2 ? 0xeafcff : 0xd9ffe8)
+          : silt ? (k % 2 ? 0x9a9670 : 0x6e6a4c)
           : inEddy ? (k % 2 ? 0x6fe0c0 : 0x3faea0) : (k % 2 ? 0x6fe04a : 0x3fae2f)
-        s.alpha = alpha * (k === 0 ? 0.5 : 0.4) * (fox ? 1.45 : 1)
+        // Denser than a toxin cloud on purpose: this one's job is that you cannot see through it.
+        s.alpha = alpha * (k === 0 ? 0.5 : 0.4) * (fox ? 1.45 : silt ? 1.6 : 1)
       }
     }
     for (let i = n; i < prevCount.bloom; i++) bloomPool[i].root.visible = false
@@ -13766,6 +13774,10 @@ export function createRenderer(app) {
       // light. It cost an ablation pass to find, because nothing about a shared array says which
       // drawers will pick your entity up.
       if (lb.column) continue
+      // A BALLAST keeps this ring, deliberately. The exclusion above is for an entity that draws
+      // its OWN telegraph and would end up wearing two; a dropped weight draws none of its own
+      // and wants exactly this one — "something is about to land here, get out of it" is the
+      // whole read. Stated because the comment above makes skipping look like the house style.
       const k = Math.max(0, Math.min(1, lb.t / Math.max(0.001, lb.flight)))
       hazardG.circle(lb.tx, lb.ty, lb.r).stroke({ width: 2, color: 0xffb37a, alpha: 0.25 + k * 0.45 })
       hazardG.circle(lb.tx, lb.ty, lb.r * k).fill({ color: 0xffb37a, alpha: 0.12 })
@@ -15702,6 +15714,26 @@ export function createRenderer(app) {
         // The Twilight. A column LANDING — white-hot, and thrown outward along the floor rather than
         // up, because the light came down and what scatters is the water it hit. The fall itself is
         // drawn every frame by drawColumns; this is only the last beat of it.
+        // A BALLAST landing. The visual counterpart of sunfall one case down, and its opposite in
+        // every property: that is a column of light arriving, thirteen fast bright sparks; this is
+        // a dumped weight hitting a silted bottom, so the particles are SLOW, WIDE and DIRTY, and
+        // they are the bottom coming up rather than anything radiating out. circle_05 over
+        // spark_04 for the same reason — a spark is hot and this is not.
+        //
+        // The stain that follows is a run.blooms entry and draws itself; this case is only the
+        // impact. No SFX entry, on the rule main.js's 'longline' note states: a bespoke voice
+        // every 2.0-2.6s for a whole run is a metronome rather than feedback.
+        case 'ballast': {
+          const n = 11
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2 + Math.random() * 0.5
+            const sp = 40 + Math.random() * 70
+            spawnParticle(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.55 + Math.random() * 0.35, 0.16, i % 3 ? 0x8b8f6e : 0x6f7a5c, 0.02, 2.2)
+          }
+          addShake(2.4, 0.12)
+          break
+        }
         case 'sunfall': {
           const n = 13
           for (let i = 0; i < n; i++) {
@@ -17327,6 +17359,17 @@ export function createRenderer(app) {
       s.tint = 0x7a6144
       s.scale.set(Math.max(n.r, 1) / T.novaTexR)
       s.alpha = 0.42 * Math.max(0, 1 - n.r / n.maxR) + 0.18
+      return
+    }
+    // BUBBLE PUFF (The Shelf). Near-white, and the reason is the floor rather than the fiction:
+    // the default sky-blue below is a blue ring on blue-green silty water, which is the
+    // value-not-hue trap Foxfire hit one chapter up and came back from a probe all but invisible.
+    // Bubbles are white anyway, so the honest colour is also the legible one. Held a touch
+    // brighter at the end of its life than the default so the shove and the ring end together.
+    if (n.look === 'bubble') {
+      s.tint = 0xeaf7ff
+      s.scale.set(Math.max(n.r, 1) / T.novaTexR)
+      s.alpha = 0.85 * Math.max(0, 1 - n.r / n.maxR) + 0.16
       return
     }
     // v6.2: a panic nova reads violet; a slime wave stays sky-blue.

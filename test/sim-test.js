@@ -14290,7 +14290,8 @@ try {
   run(testSurfHumidity)
   run(testSurfHumidityDamage)
   run(testSurfWeapons)
-  run(testShelfWeapons)
+  run(testTwilightWeapons)
+  run(testLeLargeWeapons)
   run(testCrabGuard)
   run(testSurfGulls)
   run(testPlayerForms)
@@ -17150,11 +17151,110 @@ function testBarnacles() {
 //   - a foxfire whose `maxR` grew still catches nobody if the growth is smaller than the gap to the
 //     next body.
 //   - a lance whose `length` shrank to nothing still exists in run.beams.
-function testShelfWeapons() {
+function testTwilightWeapons() {
   testTwilightPool()
   testSunspear()
   testFoxfire()
   testSunlance()
+}
+
+// ---- run LL: Le Large's three natives (v7.x) --------------------------------------------------
+// Every assertion here guards a half that fails SILENTLY, and for these three that is most of the
+// card: all three reuse a SHARED entity array, so "the weapon fired" is plainly visible in
+// run.novas / run.blooms / run.lobs while the thing the card actually exists for — the shove, the
+// fear, the stain — is one field on that entity which nothing would report missing.
+function testLeLargeWeapons() {
+  const largeRun = (weaponId, level) => {
+    const meta = makeMeta()
+    meta.dev = true
+    meta.chapters = { shelf: { unlocked: true, maxDifficulty: 5, difficulty: 1 } }
+    const run = createRun(meta, { chapter: 'shelf', difficulty: 1 })
+    run.weapons = [{ id: weaponId, level }]
+    run.player.maxHP = run.player.hp = 1e9
+    run.enemies.length = 0
+    // The upwellings stream in around the player and would refill the bar mid-fixture. None of
+    // these three reads the bar, but a moving bar moves the Pulse, and the Pulse shoves too —
+    // which is exactly the effect assertion (a) is trying to attribute to Bubble Puff.
+    run.shafts.length = 0
+    return run
+  }
+  const only = (run, e) => { run.enemies = run.enemies.filter((x) => x.id === e.id) }
+
+  // (a) BUBBLE PUFF SHOVES. The card's whole job is making room, and a ring that damages without
+  // moving anything measures fine and plays like nothing. DISTANCE, not e.kb: knockback is written
+  // to a field and integrated later, so reading the field would pass with the integration deleted.
+  {
+    Math.random = mulberry32(80181)
+    const run = largeRun('bubblePuff', 5)
+    const p = run.player
+    const e = makeStatusEnemy(run, { x: p.x + 60, y: p.y, hp: 1e6, speed: 0 })
+    run.enemies.push(e)
+    const d0 = Math.hypot(e.x - p.x, e.y - p.y)
+    for (let i = 0; i < 240; i++) { stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0; only(run, e) }
+    const d1 = Math.hypot(e.x - p.x, e.y - p.y)
+    assert.ok(e.hp < 1e6, 'Bubble Puff never damaged anything')
+    assert.ok(d1 > d0 + 30, `Bubble Puff did not shove: ${d0.toFixed(0)}px -> ${d1.toFixed(0)}px`)
+  }
+
+  // (b) SILT VEIL FEARS AND POISONS. Both halves. The fear is published into e.fearT, a contract
+  // field a missing `fear:` on the cast would leave untouched with no other symptom; and a cloud
+  // that fears without ticking is a card whose own French says 'empoisonner'.
+  {
+    Math.random = mulberry32(80182)
+    const run = largeRun('siltVeil', 5)
+    const p = run.player
+    const e = makeStatusEnemy(run, { x: p.x + 20, y: p.y, hp: 1e6, speed: 0 })
+    run.enemies.push(e)
+    let sawFear = false, fearFrames = 0
+    // 15s, not 5: FEAR_REFRACTORY is 2s ON TOP of the fear's own duration, so applications are at
+    // least ~3.4s apart and a 5s window sees exactly one — nothing to compare a decay against.
+    const FRAMES = 900
+    for (let i = 0; i < FRAMES; i++) {
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0; only(run, e)
+      const ft = e.fearT ?? 0
+      if (ft > 0) { sawFear = true; fearFrames += 1 }
+      e.x = p.x + 20; e.y = p.y   // hold it in the cloud — fear would otherwise carry it out
+    }
+    assert.ok(run.blooms.some((b) => b.look === 'silt'), 'Silt Veil never dropped a silt-tagged cloud')
+    assert.ok(sawFear, 'Silt Veil never feared anything — the cloud is a plain toxin bloom')
+    assert.ok(e.hp < 1e6, 'Silt Veil feared without poisoning')
+    // …AND IT MUST NOT BE A PERMANENT LOCK. A PERSISTENT zone re-applies for as long as a body
+    // stands in it, which is the shape that turns a scare into a stunlock. FEAR_REFRACTORY (2s on
+    // top of the fear's own duration) is what actually prevents it, so this bound is guarding that
+    // the cloud goes through the ordinary fear path rather than writing e.fearT directly.
+    const uptime = fearFrames / FRAMES
+    assert.ok(uptime < 0.75,
+      `Silt Veil held a body feared ${(uptime * 100).toFixed(0)}% of the time it stood in the cloud — ` +
+      'that is a lock, not a scare. It is bypassing FEAR_REFRACTORY.')
+    // ⚠ MUTATION-SURVIVOR, RECORDED RATHER THAN PAPERED OVER: deleting `spendCC(run, e)` from the
+    // bloom's fear path passes everything here, and that is CORRECT rather than a hole. spendCC is
+    // the diminishing-returns ledger, and _ccDR recovers to full over CC_DR_RECOVER (2.5s) while
+    // this cloud cannot re-fear the same body inside fear + FEAR_REFRACTORY (>= 3.4s). DR has always
+    // recovered by the next application, so no assertion can see it without asserting something the
+    // design does not claim. The call stays because it is the shared convention and because that
+    // margin is one config edit wide — but it is not testable here, and pretending otherwise would
+    // have meant writing a check that passes for the wrong reason.
+  }
+
+  // (c) BALLAST LANDS, HURTS AND STAINS. The stain is the half that fails silently: the impact is
+  // loud and obvious, and a landing that pushed no bloom would look entirely correct.
+  {
+    Math.random = mulberry32(80183)
+    const run = largeRun('ballast', 5)
+    const p = run.player
+    const e = makeStatusEnemy(run, { x: p.x + 140, y: p.y, hp: 1e6, speed: 0 })
+    run.enemies.push(e)
+    let sawStain = false
+    for (let i = 0; i < 400; i++) {
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0; only(run, e)
+      if (run.blooms.some((b) => b.look === 'silt')) sawStain = true
+      e.x = p.x + 140; e.y = p.y
+    }
+    assert.ok(e.hp < 1e6, 'Ballast never damaged anything')
+    assert.ok(sawStain, 'Ballast left no stain — the lingering half of the card is missing')
+  }
+
+  console.log('PASS run LL (Le Large natives): Bubble Puff shoves and damages, Silt Veil fears AND poisons what stands in it, Ballast lands and leaves a stain')
 }
 
 function twilightRun(weaponId, level = 1) {
