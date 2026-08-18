@@ -40,7 +40,7 @@ import {
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
-  MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL,
+  MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL, spendSecs,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
@@ -5437,7 +5437,9 @@ function runBookProgression() {
   // and motionless for the whole band above the old max, which is exactly what shipped before this.
   {
     const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
-    assert.ok(/paintCharge\(run\.charge, run\.chargeMax \?\? res\.max\)/.test(uiSrc),
+    // Open-ended on the third argument (the resource NAME, v7.x's rail label) — what this pins is
+    // the MAX, and a regex anchored on the closing paren would fail on any later argument.
+    assert.ok(/paintCharge\(run\.charge, run\.chargeMax \?\? res\.max[,)]/.test(uiSrc),
       'the HUD paint call must pass run.chargeMax (falling back to res.max only for a run object that predates the field), not res.max unconditionally')
     // paintCharge's own clamp formula, mirrored exactly below — pinned here so a change to the
     // shipped formula makes the mirror fail loudly instead of silently drifting from what it copies.
@@ -6510,13 +6512,9 @@ function runPrey() {
   // The falloff runs backwards to every other reach number in the game, which is exactly the kind of
   // inversion a later editor "fixes".
   //
-  // MEASURED ACROSS ONE CAST, NOT ACROSS TWO RUNS, and that is forced by the weapon itself: since
-  // the bite DARTS (PY.g), it closes on whatever it is aiming at, so a fixture that parks a lone
-  // body at the tip of the arc simply gets a bite that travelled — the far case cannot exist on its
-  // own any more. Two bodies on the same ray can: the dart takes its distance from the NEAREST, and
-  // with that one already inside the jaw nothing moves, so the far body is struck by the same sweep
-  // at a genuine tip distance. That is also the shape the ramp really has in play — several bodies,
-  // one cast, different depths.
+  // MEASURED ACROSS ONE CAST, NOT ACROSS TWO RUNS: two bodies on the same ray, struck by the same
+  // sweep at different depths. That is the shape the ramp really has in play, and unlike two runs
+  // it cannot be confounded by crits or spawns landing differently on either side.
   {
     const lv = WEAPONS.gnash.levels[0]
     const NEAR_F = 0.15, FAR_F = 0.9
@@ -6546,30 +6544,37 @@ function runPrey() {
     console.log(`PASS run PY.d (the bite pays for closing): one sweep deals ${ratio.toFixed(2)}x more to the near body than the far one over 20s (predicted ${want.toFixed(2)}x)`)
   }
 
-  // -- PY.g: the bite CLOSES THE GAP, and only when it needs to. --------------------------------
-  // The chapter's food is faster than its weapon's reach, so a bite that does not travel lands on
-  // water. Both halves are asserted, because the conditional is what keeps this from reading as
-  // teleporting: a target already inside the jaw must move the player ZERO px.
+  // -- PY.g: AN ATTACK NEVER MOVES THE PLAYER. -------------------------------------------------
+  // Owner, 2026-08-18: "attacks = no movement that's the golden rule. The action though can make
+  // you dash to nearest target." Stated over EVERY weapon in the game rather than over this
+  // chapter's three, because it is a rule about attacks and gnash was merely where it got broken.
+  //
+  // The rule is not vacuous: sim.js has four sites that move the player outright, and the other
+  // three are all things done TO you — the Blank's yank, the tide, an abduction beam. None is a
+  // weapon. The one sanctioned exception is the BUTTON, which is PY.k's subject and is why this
+  // block equips weapons only and sends no press.
   {
-    const lv = WEAPONS.gnash.levels[0]
-    const travel = (dist) => {
+    const ids = Object.keys(WEAPONS)
+    const moved = []
+    for (const id of ids) {
       const run = mk(20260819)
-      run.weapons = [{ id: 'gnash', level: 1 }]
+      run.weapons = [{ id, level: 1 }]
       const p = run.player
       const x0 = p.x, y0 = p.y
-      const e = put(run, { x: p.x + dist, y: p.y, hp: 1e12, speed: 0 })
-      for (let i = 0; i < Math.round(3 / dt); i++) {
+      // A body inside the shortest reach in the game, pinned every step so nothing the weapon does
+      // to IT can be mistaken for something done to the player.
+      const e = put(run, { x: x0 + 60, y: y0, hp: 1e12, speed: 0 })
+      for (let i = 0; i < Math.round(2 / dt); i++) {
         only(run, [e])
-        e.x = x0 + dist; e.y = y0          // the TARGET is fixed in world space; the player may move
+        e.x = x0 + 60; e.y = y0
         stepSim(run, { x: 0, y: 0 }, dt)
       }
-      return Math.hypot(run.player.x - x0, run.player.y - y0)
+      const d = Math.hypot(p.x - x0, p.y - y0)
+      if (d > 0.5) moved.push(`${id} ${d.toFixed(0)}px`)
     }
-    const far = travel(lv.range * 3)
-    const near = travel(lv.range * 0.2)
-    assert.ok(far > 40, `a bite at a body well out of reach must CLOSE on it; the player moved ${far.toFixed(0)}px`)
-    assert.ok(near < 1, `a bite at a body already inside the jaw must not move the player; it moved ${near.toFixed(1)}px — that is the difference between a lunging bite and a weapon that fights the stick`)
-    console.log(`PASS run PY.g (the bite closes): a far body pulls the player ${far.toFixed(0)}px, one already in the jaw pulls it ${near.toFixed(1)}px`)
+    assert.ok(ids.length > 20, `this sweep is only worth its name over the whole arsenal; it saw ${ids.length} weapons`)
+    assert.deepStrictEqual(moved, [], `an attack must never move the player. These did: ${moved.join(', ')}`)
+    console.log(`PASS run PY.g (attacks do not move you): all ${ids.length} weapons fired for 2s at a body in reach, every one of them left the player where it found them`)
   }
 
   // -- PY.e: THE LEAK is the only thing that can kill you, and it FOULS you. --------------------
@@ -8694,7 +8699,26 @@ function testV54Flags() {
       e._phaseSolid = true
     }
     assert(e.hp < ghostHp0, `expected a solid flicker to take damage, hp=${e.hp}`)
-    console.log(`PASS run Y.i (phase): ghost immune (hp=${ghostHp0}), solid hittable (hp=${e.hp.toFixed(0)})`)
+
+    // Le Large (The Shelf): its starter is a nova ring on the player and its tank is the phasing
+    // moon jelly. stepNovas skipped only `_dead`, so a ghosted jelly was SHOVED by a ring that
+    // could not hurt it — and was added to `n.hit`, burning its one hit on the window where the
+    // damage was refused. Both halves are asserted; the second is the silent one.
+    e._phaseSolid = false; e._phaseT = PHASE_SOLID_T
+    e.kb.x = 0; e.kb.y = 0
+    const hpBefore = e.hp
+    const nova = { x: e.x, y: e.y, r: 0, maxR: 400, dmg: 1e6, knockback: 900, fear: 0, life: NOVA_LIFE, hit: new Set() }
+    run.novas.push(nova)
+    for (let i = 0; i < Math.round(0.3 / dt); i++) {
+      if (run.phase === 'levelup') { declineLevelUp(run); continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      e._phaseSolid = false
+    }
+    const kb = Math.hypot(e.kb.x, e.kb.y)
+    assert(kb < 1, `expected a ghosted flicker to take no shove from a nova ring, kb=${kb.toFixed(1)}`)
+    assert(!nova.hit.has(e.id), 'expected the ring not to spend its one hit on a ghost it could not damage')
+    assert.strictEqual(e.hp, hpBefore, `expected the ring to deal no damage to a ghost, hp ${hpBefore} -> ${e.hp}`)
+    console.log(`PASS run Y.i (phase): ghost immune (hp=${ghostHp0}), solid hittable, and a nova ring neither shoved it (kb=${kb.toFixed(1)}) nor consumed its hit`)
   }
 
   // (j) pullBeam: a UFO's beam drags the player in and ticks dot damage — but at PULL_BEAM_FORCE
@@ -13938,6 +13962,11 @@ function testFrenchDictionary() {
   // entries turned out to be English (The Reef's, the newest roster); they were found by SHOOTING the
   // French panel, not by any assert, which is the whole argument for joining them to this walk.
   for (const ch of Object.values(CHAPTERS ?? {})) for (const r of ch?.roster ?? []) need(r?.name)
+  // RESOURCE NAMES (v7.x, owner 2026-08-18). Same one-level-deeper shape as the roster above, and
+  // the same story: Book 2's bars were named in config from the day they shipped, but the field had
+  // no French-facing surface until the HUD rail put the word on screen beside the number. A new
+  // screen can CREATE an i18n gap, not only reveal one — six chapters' worth here.
+  for (const ch of Object.values(CHAPTERS ?? {})) need(ch?.resource?.name)
   // BOOKS[].name is on screen from v7.x (the shelf's brass plate) and no walk above reached it —
   // both Books would have shipped in English the day the bookcase landed.
   for (const v of Object.values(BOOKS ?? {})) need(v?.name)
@@ -21047,6 +21076,40 @@ function testUndertowLadder() {
       const sig = CHAPTERS.shelf.signature
       const LIFE = sig.drawdownSecs
       assert.ok(LIFE > 0, 'The Shelf declares no drawdownSecs — its upwellings are infinite again')
+
+      // (e8.0) THE WHOLE BOOK DRAWS DOWN, NOT JUST THIS CHAPTER (owner, 2026-08-18: "in all zones of
+      // book 2 except pools in 2-1"). Asserted as a SET rather than one chapter at a time, because
+      // the failure mode of the second ruling is a field nobody remembered to opt in — silent, and
+      // indistinguishable from a chapter that is simply generous. The two exemptions are named here
+      // so removing one is a deliberate edit rather than a default.
+      const WANT_DRAWDOWN = ['shelf', 'twilight', 'reef']
+      const EXEMPT = ['surf', 'deep']
+      for (const id of WANT_DRAWDOWN) {
+        const spec = refillSpec(CHAPTERS[id].signature)
+        const res = CHAPTERS[id].resource
+        assert.ok(spec?.drawdownSecs > 0, `${id}'s refill field never draws down — its circles are infinite`)
+        // And it is the BOOK'S RULE, not a hand-picked number: a third of the bar, net of the drain.
+        // A per-chapter literal would drift the moment refill or drain is retuned, which is the
+        // one-fact-two-places class this suite exists to catch.
+        assert.ok(Math.abs(spec.drawdownSecs - spendSecs(res)) < 0.02,
+          `${id} draws down in ${spec.drawdownSecs}s, but a third of its bar takes ${spendSecs(res)}s`)
+      }
+      for (const id of EXEMPT) {
+        assert.ok(!refillSpec(CHAPTERS[id].signature)?.drawdownSecs,
+          `${id}'s refill field grew a drawdown — the ruling exempts it (see REFILL_ZONE_SPEND)`)
+      }
+      // ⚠ AND THE DEEP'S EXEMPTION IS LOAD-BEARING, not a rounding of the ruling. Its maw is the one
+      // refill circle that is also the chapter's trap: a drawdown fading it out before MAW_GAPE_T
+      // deletes the swallow, and run DP.c is the only thing that says so. Written as the arithmetic
+      // rather than as a comment, so a future tune that makes the two compatible MAY opt it in.
+      {
+        const deep = CHAPTERS.deep
+        const secs = spendSecs(deep.resource)
+        const dd = refillSpec(deep.signature)?.drawdownSecs
+        assert.ok(!dd || dd > MAW_GAPE_T,
+          `The Deep draws a maw down in ${dd}s (a third of its bar is ${secs}s) but MAW_GAPE_T is ` +
+          `${MAW_GAPE_T}s — every mouth in the chapter fades out before it can close`)
+      }
       assert.strictEqual(sig.blob, true, 'The Shelf\'s upwellings lost their lobed outline and are discs again')
 
       Math.random = mulberry32(4242)
@@ -21092,8 +21155,10 @@ function testUndertowLadder() {
         'updateDark punches the lightmap without reading sh.drawdown — a spent upwelling still clears the murk')
       assert.ok(/lobePoly/.test(punch),
         'updateDark punches a CIRCLE for a lobed field — it clears water outside the shape the sim tests')
-      console.log(`PASS run US.k (upwelling drawdown): a lobed upwelling feeds the bar, its clock runs only while stood in, ` +
-        `and at ${LIFE}s it stops being food (bar fell to ${run.charge.toFixed(1)} while parked in it); render fades off the same field`)
+      console.log(`PASS run US.k (refill drawdown): ${WANT_DRAWDOWN.length} Book 2 fields draw down on the book's own rule ` +
+        `[${WANT_DRAWDOWN.map((id) => id + ' ' + refillSpec(CHAPTERS[id].signature).drawdownSecs + 's').join(', ')}], ${EXEMPT.join('/')} exempt; ` +
+        `a lobed upwelling feeds the bar, its clock runs only while stood in, and at ${LIFE}s it stops being food ` +
+        `(bar fell to ${run.charge.toFixed(1)} while parked in it); render fades off the same field`)
     }
 
     console.log(`PASS run US.j (shelf/twilight split): ${Object.keys(BARS).length} chapter bars map as designed (the murk slows you less than the dark does), ` +
