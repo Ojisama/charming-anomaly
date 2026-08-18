@@ -156,6 +156,8 @@ import {
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
   GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC,
+  GNASH_CLOSE_MAX, GNASH_CLOSE_FRAC, CHUM_PULL_MUL, CHUM_PANIC_R,
+  BILGE_AVOID_PAD, BILGE_AVOID_BLEND, BILGE_TRAIL_RATE_MUL, BILGE_TRAIL_R_MUL,
   PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_TURN_RATE, PREY_SHOAL_SIZE, PREY_FLEE_BLEND,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
@@ -1320,7 +1322,16 @@ function stepRepulse(run, input, dt) {
     // x = -viewRadius, two target-distances wide, in which the button silently stopped aiming at
     // all — and an unbounded range at large +x, where it would launch at an off-screen body.
     // Every one of the other eight call sites passes (run) alone.
-    const tgt = nearestEnemy(run)
+    // AIMED AT PREY, NOT AT WHATEVER IS NEAREST. Owner ruling 2026-08-18: "the action button should
+    // be a dash to a nearby non-tank enemy."
+    //   The moray is the one body in this chapter you cannot eat on demand — it is `guard`-windowed,
+    // so a Lunge that picks it spends the bar on a body that may simply refuse the damage, and
+    // LUNGE_KILL_REFILL never pays out. Since the moray is also the SLOWEST thing here, it is very
+    // often the nearest, so the untargeted button spent itself on the one wrong answer most of the
+    // time. Preferring prey makes the press mean "go eat that" instead of "go forward-ish".
+    //   Falls back to nearestEnemy when there is no prey in range, so the button never goes dead —
+    // an empty press that still shoves is the shipped floor and it stays.
+    const tgt = nearestPrey(run) ?? nearestEnemy(run)
     const ang = tgt ? Math.atan2(tgt.y - p.y, tgt.x - p.x) : (p.facingAngle ?? 0)
     run._lungeX = Math.cos(ang)
     run._lungeY = Math.sin(ang)
@@ -1876,6 +1887,7 @@ function stepEnemyMovement(run, dt) {
     // Seek target: the player by default, or the nearest Pheromone Lure decoy (v5.3 garden) whose
     // aggro radius this enemy sits inside — lured foes path to the decoy instead of the player.
     let tx = p.x, ty = p.y
+    let baited = false
     // SUBMISSION — THE RETARGET SEAM. This one line is what every movement machine below reads;
     // they are handed a POINT and never see run.player, which is why pointing an ally at the
     // nearest hostile makes seek, dash, charge, strafe, standoff, dive and pounce all aim correctly
@@ -1900,7 +1912,10 @@ function stepEnemyMovement(run, dt) {
       for (const lu of run.lures) {
         const ldx = lu.x - e.x, ldy = lu.y - e.y
         const lsq = ldx * ldx + ldy * ldy
-        if (lsq <= lu.aggro * lu.aggro && lsq < bestSq) { bestSq = lsq; tx = lu.x; ty = lu.y }
+        // `baited` (v7.x, The Wreck's Chum): WHICH decoy won, not merely that one did. stepPrey
+        // inverts its response to the seek target, so a bait that did not say so would be read as a
+        // thing to run from — the card doing the exact opposite of its own text, silently.
+        if (lsq <= lu.aggro * lu.aggro && lsq < bestSq) { bestSq = lsq; tx = lu.x; ty = lu.y; baited = !!lu.bait }
       }
     }
     // pastSeek flag (v5.24 blank's probes): hunt where the player WAS — a trail sample
@@ -1975,7 +1990,7 @@ function stepEnemyMovement(run, dt) {
       // Sits directly under fear because it is the same motion for a different reason — fear is a
       // status a weapon applied, this is what the animal IS — and above every behaviour machine
       // because a fish that is running is not also running its hunting routine.
-      stepPrey(run, e, dx, dy, d, dt, slowMul)
+      stepPrey(run, e, dx, dy, d, dt, slowMul, baited)
     } else if (e.flags && e.flags.includes('dashBurst')) {
       // affixSpeedMul is passed through (unlike the other machines, which take enrageMul alone)
       // because dashBurst used to ride the plain seek and therefore honoured pacer/frenzy. Keeping
@@ -5607,6 +5622,25 @@ function stepStatuses(run, dt) {
 }
 
 // Nearest enemy within (viewRadius + pad), or null. Shared by weapons that target on fire.
+// The nearest body that is FOOD — anything not mapped onto the `tank` archetype. Written against
+// the archetype rather than against `skittish` on purpose: a chapter could field a non-fleeing prey
+// animal, and what the Lunge must avoid is the thing that shrugs the bite off, which is the tank.
+// Returns null when there is none in range; every caller falls back to nearestEnemy.
+function nearestPrey(run, pad = 100) {
+  const p = run.player
+  const rangeSq = (run.viewRadius + pad) ** 2
+  let target = null
+  let bestSq = Infinity
+  for (const e of run.enemies) {
+    if (isAlly(e) || e._dead) continue
+    if (e.type === 'tank') continue
+    const dx = e.x - p.x, dy = e.y - p.y
+    const dSq = dx * dx + dy * dy
+    if (dSq <= rangeSq && dSq < bestSq) { bestSq = dSq; target = e }
+  }
+  return target
+}
+
 function nearestEnemy(run, pad = 100) {
   const p = run.player
   const rangeSq = (run.viewRadius + pad) ** 2
@@ -5660,6 +5694,9 @@ const WEAPON_STAT_MODS = {
   // v7.x The Wreck. No `range` entry and that is deliberate — see WEAPON_MODS.gnash for why a reach
   // mod would make the weapon worse. quickSnap divides at the fire site like every other rate mod.
   gnash:         { deepBite: ['dmg', 'pct'], wideJaw: ['arc', 'pct'] },
+  // v7.x The Wreck's herding kit. deepChum/slickTrail are behavioral and read at their own sites.
+  chum:          { widerChum: ['aggro', 'pct'], longerChum: ['dur', 'pct'] },
+  bilge:         { wideBilge: ['maxR', 'pct'], thickOil: ['dur', 'pct'] },
   quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'] },
   chitterShriek: { terror: ['fear', 'pct'], shockwave: ['radius', 'pct'], shrill: ['dmg', 'pct'] },
   trashTornado:  { heavyTrash: ['dmg', 'pct'], wideHunt: ['hunt', 'pct'], fastWinds: ['travelSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
@@ -5855,6 +5892,8 @@ function stepWeapons(run, dt) {
     else if (w.id === 'sunlance') stepSunlanceWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'finHit') stepFinHitWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'gnash') stepGnashWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'chum') stepChumWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'bilge') stepBilgeWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -7478,7 +7517,7 @@ function inSector(ox, oy, angle, range, arc, e, fullCircle) {
 // run._realTime, NOT run.time, for exactly the reason stepShafts uses it: the Time Debt anomaly
 // advances run.time at TIME_DEBT_MUL and would otherwise make every school in the chapter turn 50%
 // faster for the rest of that run.
-function stepPrey(run, e, dx, dy, d, dt, slowMul) {
+function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
   if (slowMul <= 0) return
   const shoal = Math.floor(e.id / PREY_SHOAL_SIZE)
   // 2.399963 rad is the golden angle: consecutive shoals get headings as far apart as a sequence
@@ -7498,9 +7537,66 @@ function stepPrey(run, e, dx, dy, d, dt, slowMul) {
     ux /= m; uy /= m
     mul = PREY_FLEE_MUL
   }
+  // CHUM (v7.x). `dx,dy` is the seek vector, and when the winning seek target was BAIT it points at
+  // the food rather than at the predator — so the fish swims down it instead of away. This is the
+  // one branch in the game where a skittish animal closes on something.
+  //   The panic override is what stops the card being an off-switch for the chapter: inside
+  // CHUM_PANIC_R of the PLAYER a baited fish bolts regardless, so you cannot park in your own bait
+  // ball and have dinner hold still — you have to come in from outside it. deepChum buys that
+  // radius down, never to zero.
+  if (baited) {
+    const pdx = run.player.x - e.x, pdy = run.player.y - e.y
+    const pd = Math.hypot(pdx, pdy)
+    const nerve = 1 - Math.min(0.85, run.weaponMods.chum?.deepChum ?? 0)
+    if (pd > CHUM_PANIC_R * nerve && d > 1e-6) {
+      ux = dx / d
+      uy = dy / d
+      mul = CHUM_PULL_MUL
+    } else if (pd > 1e-6) {
+      // BOLT FROM THE PLAYER, NOT FROM THE BAIT, and this branch has to exist explicitly. While a
+      // chum is up, `dx,dy` points at the CHUM for every fish in its radius — that is what the lure
+      // override does — so falling through to the ordinary flee above would have a panicking fish
+      // run from the food rather than from the predator, which on the far side of a bait ball means
+      // running straight AT the player. The bug reads as "the fish charge me sometimes".
+      ux = -pdx / pd
+      uy = -pdy / pd
+      mul = PREY_FLEE_MUL
+    }
+  }
+
+  // BILGE (v7.x). A skittish fish will not swim into the oil. Steering, not a wall it bounces off:
+  // the avoidance heading is BLENDED with whatever it was already doing (BILGE_AVOID_BLEND), so a
+  // shoal driven at a slick peels along it instead of pivoting on the spot, which is what makes the
+  // card a fence you herd against rather than a force field.
+  //   Only `skittish` reads this. Everything else swims in and slows, which is the other half of
+  // the card and the reason it is not purely a barrier.
+  for (const bl of run.blooms) {
+    if (bl.look !== 'bilge' || bl.r <= 0) continue
+    const bx = e.x - bl.x, by = e.y - bl.y
+    const bd = Math.hypot(bx, by)
+    const edge = bl.r + BILGE_AVOID_PAD
+    if (bd >= edge || bd < 1e-6) continue
+    // Push out along the radius, weighted by how far in it already is — a fish at the rim barely
+    // deflects, one that got inside turns hard to get out.
+    const w = BILGE_AVOID_BLEND * (1 - bd / edge)
+    ux = ux * (1 - w) + (bx / bd) * w
+    uy = uy * (1 - w) + (by / bd) * w
+    const m = Math.hypot(ux, uy) || 1
+    ux /= m; uy /= m
+  }
+
   const step = e.speed * mul * slowMul * dt
   e.x += ux * step
   e.y += uy * step
+  // FACE WHERE YOU ARE SWIMMING, NOT AT THE THING CHASING YOU. Owner, 2026-08-18: "the fish you can
+  // eat should not face you, they should run away from you in a school."
+  //   render.js derives every creature's bearing from run.player every frame, so by default a
+  // fleeing fish swims backwards — tail first, eyes on the predator, in all 48 roster looks. The
+  // fix publishes the heading into `_tgtX/_tgtY`, which is the SHIPPED contract field for "face
+  // this instead of the player" (SUBMISSION's allies already use it) rather than a new one render
+  // would have to be taught. 100px ahead is arbitrary and only its DIRECTION is read.
+  e._tgtX = e.x + ux * 100
+  e._tgtY = e.y + uy * 100
 }
 
 // -- Gnash (v7.x, The Wreck's native) ------------------------------------------------------------
@@ -7510,7 +7606,115 @@ function stepPrey(run, e, dx, dy, d, dt, slowMul) {
 // oversight — this chapter's crowd is running away and shoving it is a downgrade.
 function stepGnashWeapon(run, w, stats, fireRateMul, dt) {
   const quickSnap = run.weaponMods.gnash?.quickSnap ?? 0
-  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickSnap)), dt, () => biteGnash(run, stats))
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickSnap)), dt, () => {
+    dartToBite(run, stats)
+    biteGnash(run, stats)
+  })
+}
+
+// THE DART (v7.x). Close the gap, then bite — in that order, in one cast, because a bite that
+// arrives where the fish WAS is the defect this exists to fix (see WEAPONS.gnash).
+//
+// A CEILING, NOT A DISTANCE. It moves only as far as it needs to bring the target inside
+// GNASH_CLOSE_FRAC of the jaw, and not at all if the target is already there — so the common case
+// of chewing through a shoal you are standing in moves the player zero px, and only a fish that is
+// getting away pulls you. That conditional is the whole difference between a lunging bite and a
+// weapon that fights the stick.
+//
+// Moves the player DIRECTLY rather than through run._lungeT: that field is the button's, it is read
+// by stepPlayerMovement for the life of a dash, and borrowing it would let an auto-firing weapon
+// cancel or extend a Lunge the player paid Bloodlust for. Two mechanics, two fields.
+function dartToBite(run, stats) {
+  const p = run.player
+  // THE WEAPON YIELDS TO THE BUTTON. A Lunge is a committed move the player spent Bloodlust on; an
+  // auto-firing dart that pulls them back toward whatever is nearest partly UNDOES it, and the
+  // amount it undoes is invisible — the button still fires, still bites, still refills, and simply
+  // travels less far than the card promised. The shipped Lunge test caught it: a press with a body
+  // 30px away carried the player 89px instead of the 135 the button is worth, because the dash went
+  // out and the next gnash cast dragged it back.
+  if ((run._lungeT ?? 0) > 0) return
+  const tgt = nearestEnemy(run)
+  if (!tgt) return
+  const dx = tgt.x - p.x, dy = tgt.y - p.y
+  const d = Math.hypot(dx, dy)
+  if (d < 1e-6) return
+  const want = stats.range * GNASH_CLOSE_FRAC
+  if (d <= want) return                       // already close enough — do not move the player at all
+  const step = Math.min(GNASH_CLOSE_MAX, d - want)
+  p.x += (dx / d) * step
+  p.y += (dy / d) * step
+  // Publish the facing, for the same reason the Lunge does: render rotates the body off
+  // p.facingAngle and nothing else, so a move the stick did not ask for is invisible without this
+  // and the fish appears to swim sideways through its own attack.
+  p.facingAngle = Math.atan2(dy, dx)
+  p.facing = dx >= 0 ? 1 : -1
+}
+
+// -- Chum (v7.x, The Wreck) ----------------------------------------------------------------------
+// A run.lures entry with `bait: true` — the shipped decoy entity, tagged. See WEAPONS.chum for why
+// this is the same object as a Pheromone Lure and not a fourth kind of zone, and note that WITHOUT
+// the tag it would repel: stepPrey flees the seek target, and the lure override IS the seek target.
+function stepChumWeapon(run, w, stats, fireRateMul, dt) {
+  // ipecacN, like every other planted-zone weapon (stepBloomWeapon is the model): IPECAC triples
+  // what a cast puts on the map, and a weapon that ignores it fails run PB7 with a message about
+  // the fire site never being patched. Three baits, three separate spots — NOT one bait three times
+  // in the same place, which is the divisor half of that same assertion.
+  const baits = ipecacN(run, 1)
+  fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => {
+    const p = run.player
+    for (let k = 0; k < baits; k++) {
+    const a = Math.random() * Math.PI * 2
+    const r = Math.random() * stats.castRange
+    run.lures.push({
+      x: p.x + Math.cos(a) * r,
+      y: p.y + Math.sin(a) * r,
+      t: 0, dur: stats.dur, aggro: stats.aggro,
+      // No burst at all: this card is the gather. burstR/burstDmg 0 keeps it in the same array as
+      // the Pheromone Lure without inheriting its detonation, which would scatter the very ball it
+      // just spent four seconds forming.
+      burstR: 0, burstDmg: 0,
+      bait: true,
+    })
+    run.events.push({ type: 'chum', x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r, r: stats.aggro })
+    }
+  })
+}
+
+// -- Bilge (v7.x, The Wreck) ---------------------------------------------------------------------
+// A run.blooms entry tagged look: 'bilge' — the fourth card on that array. `dmgPerTick: 0` and
+// `slow` ON: this is a wall and a drag, not a damage zone. slickTrail drops it at the player's feet
+// every cast instead of ahead, which is what turns a series of circles into a drawn fence.
+function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
+  const pools = ipecacN(run, 1)
+  // slickTrail: cast far more often and much smaller, so the oil lays as a LINE behind a swimming
+  // player instead of a single circle. Both halves or neither — see BILGE_TRAIL_*.
+  const trail = (run.weaponMods.bilge?.slickTrail ?? 0) > 0
+  const rate = stats.rate * (trail ? BILGE_TRAIL_RATE_MUL : 1)
+  const maxR = stats.maxR * (trail ? BILGE_TRAIL_R_MUL : 1)
+  fireOnTimer(run, w.id, rate / fireRateMul, dt, () => {
+    const p = run.player
+    // IPECAC's extra pools are SPREAD around the player rather than stacked on them — three slicks
+    // in one spot is one slick, which is the failure run PB7 asserts distinct positions to catch.
+    // At pools === 1 the offset is zero, so the ordinary cast is byte-identical to before.
+    for (let k = 0; k < pools; k++) {
+    const a = (k / pools) * Math.PI * 2
+    const off = pools > 1 ? maxR * 0.9 : 0
+    run.blooms.push({
+      x: p.x + Math.cos(a) * off, y: p.y + Math.sin(a) * off, t: 0, r: 0, maxR, dur: stats.dur,
+      dmgPerTick: 0, tick: 0, look: 'bilge',
+      // A LOBED OUTLINE, stored at cast and never re-derived, exactly as the chapter's own hazard
+      // spills carry one (streamSlicks). render draws the player's oil through the SAME function
+      // that draws the leak's, so the card and the thing it is imitating are one drawing — which is
+      // the point of the card. A round blob would read as a light, and this has to read as a film.
+      shape: Math.floor(Math.random() * LOBE_SHAPES.length) % LOBE_SHAPES.length,
+      rot: Math.random() * Math.PI * 2,
+      // `slow: 1` opts INTO stepBlooms' slow branch, which Foxfire opts out of with 0. The magnitude
+      // is BILGE_SLOW, applied where bloomSlowT is read — this field is only the switch.
+      slow: 1,
+    })
+    run.events.push({ type: 'bilge', x: p.x + Math.cos(a) * off, y: p.y + Math.sin(a) * off, r: maxR })
+    }
+  })
 }
 
 function biteGnash(run, stats) {
