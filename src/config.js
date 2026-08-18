@@ -8028,13 +8028,19 @@ export const RUSH_DUR = 2.0          // s, refreshed by every landed bite
 export const RUSH_MAX_STACKS = 5     // ceiling, so a long chain cannot outrun the chapter entirely
 
 // ---- OIL RING (v7.x, bilge) --------------------------------------------------------------------
-// RING_N pools on a circle instead of one pool at the target. The radii are tuned so the pools just
-// touch at every weapon level: a ring pool is RING_POOL_MUL of the single pool it replaces, and the
-// circle's radius is RING_R_MUL of THAT — at L1 that is six 60px pools on a 114px circle, whose
-// circumference (716px) is just under the 720px of coverage they lay down. So the pen is closed at
-// cast and opens as the pools expire, rather than being a wall with a hole in it from the start.
-export const RING_N = 6
-export const RING_R_MUL = 1.9
+// RING_N pools on a circle instead of one pool at the target. Two constraints fight here and both
+// are load-bearing:
+//   CLOSURE. Neighbours must overlap, or prey walk out of the gap: 2*rr*sin(pi/RING_N) <= 2*pr.
+//     That caps rr at pr/sin(pi/RING_N) — 2*pr for six pools, 2.61*pr for eight.
+//   AN INTERIOR. The hole is rr - pr, and BILGE_AVOID_PAD (46px) eats into it from every side, so
+//     the free water in the middle is rr - pr - 46. At six pools and the maximum legal rr that is
+//     8px at L1 — no interior at all, and the ring's own avoidance then shoves the school out
+//     through the gaps. Measured: a 6-pool ring HELD 4 of 6 drifting fish where no ring at all
+//     held 5, i.e. it was worse than nothing.
+// Eight pools buys the room: at L1, eight 60px pools on a 144px circle, neighbours 110px apart
+// against 120px of width (closed), leaving an 84px hole and 38px of genuinely free water.
+export const RING_N = 8
+export const RING_R_MUL = 2.4
 export const RING_POOL_MUL = 0.5
 
 // bloodInTheWater: below this fraction of max HP a body counts as wounded and the mod's bonus
