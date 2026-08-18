@@ -2131,30 +2131,25 @@ export const WEAPONS = {
   // -- The Wreck's native (spec §9, built v7.x with the prey rework) -----------------------------
   gnash: {
     name: 'Gnash',
-    desc: 'Darts onto the nearest body and bites. The closer it lands, the deeper it goes.',
+    desc: 'A short bite, straight ahead. The closer it lands, the deeper it goes.',
     icon: '🦷', rarity: 'normal',
     // THE CHAPTER'S THESIS AS A WEAPON. The Wreck pays you for closing on food that is running
-    // away; this is the card that says so — a sector at HALF the reach of the two melee starters,
-    // whose damage rises from x1 at the tip of the arc to GNASH_MAW_MUL at the jaw. It is bad at
-    // range on purpose and there is no reason to be at range here.
+    // away; this is the card that says so — a sector UNDER the reach of the long melee starters,
+    // whose damage rises from x1 at the tip of the arc to GNASH_MAW_MUL at the jaw. The RAMP is the
+    // identity, not the absolute reach: there is no reason to be at range here, and the card pays
+    // you for every px you close.
     //
     // NOT A SECOND FIN HIT, and the axis is the whole distinction: finHit reads the player's SPEED
     // and swings to the outside of your turn, gnash reads the TARGET'S DISTANCE and points where
     // you aim. One is the animal's body, the other is its mouth. They are also two chapters apart
     // and never share a pool outside `blank`.
     //
-    // IT CLOSES THE GAP ITSELF (v7.x, owner: "stuff to dash"). THIS ALSO FIXES A REAL DEFECT the
-    // first cut shipped with: a 78-98px reach in the one chapter whose crowd RUNS AWAY at 103-223
-    // px/s means the jaw arrives where the fish was. The chapter's own weapon could not reach the
-    // chapter's own food, and no test could see it — the sector fires, the event draws, and the
-    // damage simply lands on nobody.
-    //   So the cast DARTS: up to GNASH_CLOSE_MAX px toward the target, and only as far as it needs
-    // to put the body inside the jaw. Deliberately SHORT and deliberately conditional — a weapon
-    // that yanks the player somewhere every 0.42s is fighting the stick, and the failure mode to
-    // shoot for is "it teleports", the same one v6.6.28 removed dashBurst from a chapter over.
-    //   NOT a second Lunge. The button is player-timed, 900 px/s, costs Bloodlust and banks a large
-    // refill on a kill; this is automatic, a fifth of the distance, and free. One is a resource
-    // decision, the other is the animal's ordinary way of eating.
+    // ⚠ IT DOES NOT CLOSE ITS OWN GAP, AND NOTHING IN THE GAME'S ARSENAL DOES (owner,
+    // 2026-08-18: "attacks = no movement that's the golden rule"). It is a short jaw in the one
+    // chapter whose crowd RUNS at 103-223 px/s, so the gap is the player's
+    // problem and the chapter sells three answers to it: the Lunge button, chum to turn them round,
+    // bilge to wall them off. A weapon that travelled would make all three redundant and read as a
+    // teleport. Run PY.g asserts the rule over every weapon in the game, not just this one.
     //
     // ⚠ KNOCKBACK IS ZERO AND THAT IS A DESIGN DECISION, NOT AN OMISSION. Every other melee weapon
     // in the game shoves what it hits, because everywhere else the crowd is walking into you and
@@ -2168,12 +2163,17 @@ export const WEAPONS = {
     // the tip: dmg 15 x GNASH_MAW_MUL 1.9 = 28.5 at L1 point blank against flagella's flat 14 and
     // the rake's 11, on a cadence between theirs. weapon-census it against Fin Hit and Breaker in
     // ONE invocation before quoting any of it.
+    // balance_decision : reach carries the closing the dart used to do 2026-08-18
+    //  - swept 78/100/118/135px base against the census: whiffed casts 60% -> 47%, kills/min
+    //    49 -> 78 at L1. It does NOT reach the dart's 26% and is not meant to — the rest of that
+    //    gap is the button's, chum's and bilge's job, and buying it back with reach would make all
+    //    three redundant.
     levels: [
-      { dmg: 15, rate: 0.60, range: 78, arc: 1.05 },
-      { dmg: 18, rate: 0.56, range: 82, arc: 1.10 },
-      { dmg: 22, rate: 0.52, range: 86, arc: 1.16 },
-      { dmg: 27, rate: 0.47, range: 92, arc: 1.22 },
-      { dmg: 34, rate: 0.42, range: 98, arc: 1.30 },
+      { dmg: 15, rate: 0.60, range: 118, arc: 1.05 },
+      { dmg: 18, rate: 0.56, range: 125, arc: 1.10 },
+      { dmg: 22, rate: 0.52, range: 133, arc: 1.16 },
+      { dmg: 27, rate: 0.47, range: 142, arc: 1.22 },
+      { dmg: 34, rate: 0.42, range: 152, arc: 1.30 },
     ],
   },
   // -- The Wreck's herding gear (v7.x, owner: "stuff to dash, to slow enemies, to circle them add
@@ -4454,6 +4454,27 @@ export const ALL_CHAPTER_IDS = Object.values(BOOKS).flatMap((b) => b.chapters)
 // second literal — a `const` referenced inside an object literal must already be initialized, and
 // CHAPTERS is built as one literal below.
 export const HUMIDITY_DMG_FLOOR = 0.7
+
+// EVERY REFILL FIELD IN BOOK 2 DRAWS DOWN, NOT JUST THE SHELF'S (owner, 2026-08-18: "in all zones of
+// book 2 except pools in 2-1, the resource gathering zones should disappear when you've charged 33%
+// of your resource bar"). The mechanism is the one The Shelf shipped — `drawdownSecs` on the field,
+// the circle fading on the same number stepCharge counts — and this is only what sets it: the
+// owner's rule is a share of the BAR, so the seconds are derived from the chapter's own numbers
+// rather than written down three times.
+//
+// spendSecs() is net of the drain, because the bar is what the ruling is denominated in: at The
+// Shelf's 18/s against 2.2/s a third of the bar arrives in 2.1s, and at The Reef's 9/s against
+// 1.4/s it takes 4.3s. One clock for both would be two different rules wearing one number.
+// ponytail: the seconds are fixed at authoring time, so the two shop lines that move the arithmetic
+//   (Deep Lungs raises chargeMax, Big Gulp raises the refill) leave the SECONDS right and the SHARE
+//   slightly off — a maxed Deep Lungs turns a third of the bar into a fifth of it. The upgrade path
+//   is to meter the drawdown on charge GAINED in stepCharge instead of on dt, which costs the
+//   render fade its divisor and Big Gulp its per-circle value; not worth it until it is felt.
+// balance_decision : a refill circle is spent after a third of the bar 2026-08-18
+//  - The Deep is the one Book 2 field with none: a third of its bar arrives at 2.4s and its maw
+//    needs MAW_GAPE_T (3.2s) to swallow, so a drawdown would delete the trap the chapter is built on.
+export const REFILL_ZONE_SPEND = 0.33
+export const spendSecs = (res, spend = REFILL_ZONE_SPEND) => +((res.max * spend) / (res.refill - res.drain)).toFixed(2)
 export const CHAPTERS = {
   body: {
     name: 'The Body', tagline: 'escape the host', icon: '🦠',
@@ -5301,16 +5322,17 @@ CHAPTERS.shelf = {
   // rising through silt has no edge a circle would describe.
   //
   // `drawdownSecs` is the mechanic (owner, same ruling): "they disappear when you stand in them,
-  // linearly in 5s". Standing in an upwelling USES IT UP — 5 seconds of occupancy and it is gone,
-  // fading the whole way so the clock is on screen rather than in the HUD. This is what makes the
-  // murk chapter's refill different in KIND from the sun shafts it borrowed its geometry from: a
-  // shaft is a place you can park, and parking is what the crowd is waiting for; an upwelling is a
-  // place you can park ONCE. The chapter's answer to "where is the water clear" stops being a fixed
-  // map you learn and becomes a thing you consume as you travel.
-  // ponytail: a spent upwelling is not remembered once it streams out of range, so walking far away
-  //   and back regenerates it. That reads as the water moving (which it does, driftAmp 60), and the
-  //   upgrade path if it ever matters is a per-cell spent-set on `run`, not a field on the circle.
-  signature: { type: 'shafts', refillLook: 'upwelling', blob: true, drawdownSecs: 5, cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
+  // linearly in 5s". Standing in an upwelling USES IT UP, fading the whole way so the clock is on
+  // screen rather than in the HUD: an upwelling is a place you can park ONCE, and the chapter's
+  // answer to "where is the water clear" stops being a fixed map you learn and becomes a thing you
+  // consume as you travel. It is no longer written here, and no longer 5s: the second ruling
+  // (2026-08-18) made the drawdown a share of the BAR and gave it to the whole book, so every field
+  // that takes one is set together from REFILL_ZONE_SPEND, below CHAPTERS.deep. 2.09s here.
+  // ponytail: a spent circle is not remembered once it streams out of range, so walking far away and
+  //   back regenerates it — now true of three fields, not one. That reads as the water moving (which
+  //   it does, driftAmp 60), and the upgrade path if it ever matters is a per-cell spent-set on
+  //   `run`, not a field on the circle.
+  signature: { type: 'shafts', refillLook: 'upwelling', blob: true, cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
 
   // The bar. Same numbers as the light rig it reuses — drain 2.2 / refill 18 / killRefill 1.5 were
   // measured over 5 seeded 300s runs under three spend policies (see CHAPTERS.twilight.resource for
@@ -6472,6 +6494,11 @@ CHAPTERS.deep = {
   // this is the darkest chapter, so light has to be worth crossing the map for; and every one of
   // these is a decision to walk into a mouth, which stops being a decision if there is always
   // another one in sight.
+  // ⚠ NO `drawdownSecs` (the one Book 2 field with none — see REFILL_ZONE_SPEND). A third of this
+  // bar arrives at 2.4s inside a maw (16/s against a 2.0/s drain) where MAW_GAPE_T needs 3.2s, so a
+  // drawdown would fade every mouth in the chapter out a second before it could close. Run DP.c went
+  // red the day it was tried. The maw already takes itself away: it shuts for MAW_SHUT_T on a
+  // swallow, which is this chapter's own version of a circle you can only use once.
   signature: { type: 'dark', maws: { cell: 900, chance: 0.42, r: 200, minDist: 460 } },
 
   // THE BAR: Light. The maws above are the ONLY source — no shafts, no kill refill, nothing else on
@@ -6586,6 +6613,21 @@ CHAPTERS.deep = {
     dust: { tint: 0xb8ccdc, alpha: 0.28, speedMul: 0.1, sway: 4 },
   },
 }
+
+// THE DRAWDOWN, APPLIED TO THE WHOLE BOOK (owner, 2026-08-18 — see REFILL_ZONE_SPEND above). Written
+// HERE rather than inside each chapter's literal because the seconds are derived from that chapter's
+// OWN resource block, and a literal cannot reference a sibling key of the object it is inside. One
+// place also makes the exemptions readable as a list rather than as three absences.
+//   surf   — tide pools, exempt by the ruling itself ("except pools in 2-1"). The beach is scenery.
+//   wreck  — no refill field at all; Bloodlust is fed by killing.
+//   trawl  — its food is the net's wake, which is not a place and cannot be used up.
+//   deep   — exempt: see the ⚠ at CHAPTERS.deep.signature. The maw already takes itself away.
+for (const [id, spec] of [
+  ['shelf', CHAPTERS.shelf.signature],                 // upwellings: was a flat 5s, now the book's rule
+  ['twilight', CHAPTERS.twilight.signature],           // sun shafts
+  ['reef', CHAPTERS.reef.signature.pockets],           // air pockets
+]) spec.drawdownSecs = spendSecs(CHAPTERS[id].resource)
+
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
 // currentForce field (sim.js) and advect along it, exaggerated for legibility over the gentle sim push.
 export const CURRENT_VIS = {
@@ -7942,19 +7984,6 @@ export const GNASH_FINISH_FRAC = 0.34
 //     diminishing returns and cannot become the permanent field-wide lock v7.16 removed;
 //   - it publishes to `stunT`, which render.js already reads and holds the pose for. A private
 //     field would be a status with no tell, which is exactly what "cold does nothing" looked like.
-
-// THE DART. How far a cast may pull the player toward its target, and it is a CEILING rather than a
-// distance: the cast closes only as far as it needs to put the body inside the jaw, so a bite that
-// was already in range moves the player not at all. That conditionality is the whole reason this
-// does not read as teleporting.
-// 96px against a 0.42s cadence at L5 is ~230 px/s of assisted closing speed — just over the
-// player's own 220, i.e. it converts a fish you were losing ground on into one you are gaining on,
-// and does not outrun the 223 px/s damselfish on its own. That fish still needs the button.
-export const GNASH_CLOSE_MAX = 96
-// Fraction of the jaw's reach the dart aims to leave the target at. Under 1 so the bite lands with
-// the body INSIDE the falloff's rich half rather than parked exactly on the rim, which would put
-// every darted bite at the weakest end of the ramp the weapon is built around.
-export const GNASH_CLOSE_FRAC = 0.45
 
 // ---- CHUM (v7.x, The Wreck) --------------------------------------------------------------------
 // A run.lures entry with `bait: true`. The tag is read in exactly two places — stepEnemyMovement's

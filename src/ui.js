@@ -1234,6 +1234,18 @@ export function initUI(hooks) {
            parked well above the button either way.) -->
       <div class="chaos-wrap" data-charge style="display:none;">
         <span class="chaos-vrail chaos-vrail--charge">
+          <!-- v7.x (owner, 2026-08-18): WHICH bar this is. Two vertical batteries ship on the same
+               screen and the chapter's resource is a different noun in every chapter (Humidity,
+               Clarity, Light, Air, Bloodlust, Feed) — a bare number and a colour cannot say which,
+               and the number is the one thing a new player has no name for. Same chip as the count
+               below it, so the two read as one object: name, value, bar.
+               ABOVE the rail rather than under it: an x-lane parks this column at top:56% (see
+               .charge--lanex), which puts its BOTTOM edge ~30px above the skill button — a word
+               sitting there reads as that button's caption, and the rail is a readout, not a
+               control. The ~24px the chip adds to the column is paid back in styles.css (the track
+               drops 24vh -> 21vh) so every clearance the lane tune was measured against still
+               holds: track bottom 700, button top 732, on a 390x844 phone. -->
+          <b class="chaos-vrail-num chaos-vrail-label" data-charge-label></b>
           <b class="chaos-vrail-num" data-charge-text></b>
           <span class="chaos-vrail-track"><i data-charge-fill></i></span>
         </span>
@@ -1297,7 +1309,7 @@ export function initUI(hooks) {
     // are cached and only the rail's height is repainted every frame — a per-frame textContent
     // write is the expensive half.
     chaosShown: undefined, chaosSecs: -1, chaosBonus: -1,
-    chargeShown: undefined, chargeNum: -1, chargeArmed: undefined, chargeLaneX: undefined,
+    chargeShown: undefined, chargeNum: -1, chargeArmed: undefined, chargeLaneX: undefined, chargeName: undefined,
   }
 
   function updateHUD(run, events) {
@@ -1471,17 +1483,17 @@ export function initUI(hooks) {
     // ceiling, and painting against the OLD config max pins this bar at full and motionless for
     // the whole band above it. Falls back to res.max for a run object that predates the field (or
     // any chapter with no resource, where it is moot — this call is already gated on `res`).
-    if (res) paintCharge(run.charge, run.chargeMax ?? res.max)
+    if (res) paintCharge(run.charge, run.chargeMax ?? res.max, res.name)
   }
 
   // The RESOURCE rail's per-frame paint, modelled on paintChaos below — refs looked up once (the
   // HUD markup is written exactly once at boot, so they cannot go stale) and every text write
   // guarded by a cache, because the textContent write is the expensive half of a per-frame readout.
   let chargeRefs = null
-  function paintCharge(charge, max) {
+  function paintCharge(charge, max, name) {
     if (!chargeRefs) {
       const q = (sel) => hud.chargeWrap.querySelector(sel)
-      chargeRefs = { text: q('[data-charge-text]'), fill: q('[data-charge-fill]') }
+      chargeRefs = { text: q('[data-charge-text]'), fill: q('[data-charge-fill]'), label: q('[data-charge-label]') }
     }
     const frac = max > 0 ? Math.max(0, Math.min(1, charge / max)) : 0
     chargeRefs.fill.style.height = `${frac * 100}%`
@@ -1496,6 +1508,13 @@ export function initUI(hooks) {
     }
     const n = Math.round(charge)
     if (n !== last.chargeNum) { last.chargeNum = n; chargeRefs.text.textContent = `${n}` }
+    // Latched, because re-translating a word that can only change between runs is a t() call and a
+    // textContent write every frame. The LANG is in the key, not just the name: the HUD markup is
+    // written once at boot and `last` outlives a title-screen language switch, so latching on the
+    // English source alone would leave the previous language's word on the rail for the rest of the
+    // session — the same run reading `Lumière` under an English HUD.
+    const key = name + '|' + getLang()
+    if (key !== last.chargeName) { last.chargeName = key; chargeRefs.label.textContent = t(name) }
   }
 
   // The CHAOS PACT rail's per-frame paint. Refs are looked up once — the HUD markup is written
