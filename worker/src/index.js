@@ -127,6 +127,7 @@ async function scores(req, env) {
   // Keyed on the client IP, NOT on the nickname: a nickname is self-declared, so keying on it would
   // let one abuser rate-limit everybody simply by claiming their name. Absent binding means no
   // limit, same as the save path (`wrangler dev --local` does not always bind one).
+  //
   // A BUCKET PER METHOD, and the method is in the key for a reason. Sharing one bucket across GET
   // and POST lets READS starve a WRITE: a few friends behind one household or carrier NAT — which
   // is this feature's entire stated audience — share an egress IP, the client caches nothing (every
