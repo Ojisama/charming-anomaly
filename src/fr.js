@@ -743,10 +743,6 @@ const CONFIG = {
   // 'nageoire'. ⚠ DRAFT — owner ruling pending on 'Croc', 'Sang dans l\'Eau' and 'Tonneau'.
   'Deep Bite': 'Morsure Profonde',
   'bite damage': 'dégâts de morsure',
-  'Wide Jaw': 'Gueule Large',
-  'bite width': 'largeur de morsure',
-  'Quick Snap': 'Claquement Vif',
-  'bite rate': 'cadence de morsure',
   // Not the literal 'Sang dans l'Eau': the owner picked the SMELL, which is the thing a shark is
   // actually famous for and the more idiomatic French. ('Curée' — the hunting term for falling on
   // downed quarry — was the third option and is exactly this mod, but it is a word a lot of players
@@ -758,6 +754,12 @@ const CONFIG = {
   // effect over the reference, and it fits the row.
   'Death Roll': 'Prise Mortelle',
   'holds bitten prey for {n}s': 'immobilise la proie mordue pendant {n} s',
+  'Bloodrush': 'Sang Chaud',
+  'move speed per bite for 2s, stacking 5 times': 'de vitesse par morsure pendant 2s, jusqu\'\u00e0 5 fois',
+  'Gorge': 'Gavage',
+  'eating an elite fills Bloodlust': 'd\u00e9vorer une \u00e9lite remplit la Soif de sang',
+  'Oil Ring': 'Anneau de Mazout',
+  'the oil lands as a ring, penning what is inside': 'le mazout tombe en anneau et enferme ce qui est dedans',
   // chum's three and bilge's three (v7.x). 'Nappe' is the word for an oil slick on water and carries
   // both cards' spread, which is what makes them read as one chapter's gear.
   'Wide Slick': 'Nappe Large',

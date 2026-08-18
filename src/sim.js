@@ -155,9 +155,10 @@ import {
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BALLAST_FLIGHT, BALLAST_BLIND_THROW,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
-  GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC,
+  GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC, RUSH_DUR, RUSH_MAX_STACKS,
   CHUM_PULL_MUL, CHUM_PANIC_R,
   BILGE_AVOID_PAD, BILGE_AVOID_BLEND, BILGE_TRAIL_RATE_MUL, BILGE_TRAIL_R_MUL,
+  RING_N, RING_R_MUL, RING_POOL_MUL,
   PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_TURN_RATE, PREY_SHOAL_SIZE, PREY_FLEE_BLEND,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
@@ -662,7 +663,13 @@ function stepPlayerMovement(run, input, dt) {
   // is 1 here), so in The Deep light is what makes you fast rather than dark being what makes you
   // slow — see CHAPTERS.deep's header.
   const scentMul = (run._scentT ?? 0) > 0 ? SCENT_SPEED_MUL : 1
-  const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul * scentMul
+  // BLOODRUSH (v7.x, gnash): momentum from landed bites. Multiplied for the same reason scentMul is
+  // — it is bought, not imposed. The stack count is the whole magnitude; the mod's own value is the
+  // per-stack fraction, so one fact lives in one place and the card's number IS the number applied.
+  const rushMul = (run._rushT ?? 0) > 0
+    ? 1 + (run.weaponMods.gnash?.bloodrush ?? 0) * (run._rushN ?? 0)
+    : 1
+  const speed = p.speed * (1 + run.passives.moveSpeed) * run.mods.playerSpeedMul * slowMul * rampMul * scentMul * rushMul
 
   // v5.18 THE LANE (see CHAPTERS.beyond.lane). You do not roam here: you advance up the lane at a
   // fixed rate forever and the joystick gives you nothing but the two directions across it. Because
@@ -738,6 +745,10 @@ function stepPlayerMovement(run, input, dt) {
 
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt)
   if (p.slowT > 0) p.slowT = Math.max(0, p.slowT - dt)
+  if ((run._rushT ?? 0) > 0) {
+    run._rushT = Math.max(0, run._rushT - dt)
+    if (run._rushT === 0) run._rushN = 0
+  }
 }
 
 function stepRegen(run, dt) {
@@ -5367,6 +5378,11 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     const _res = CHAPTERS[run.chapter].resource
     const _gain = (_res?.killBase ?? 0) + run.killRefill
     if (_res && _gain > 0) run.charge = Math.min(run.chargeMax, run.charge + _gain)
+    // GORGE (v7.x, gnash): "eating elites replenish full hunger bar". Placed here rather than at a
+    // bite site on purpose — the card says EATING an elite, so it must pay however the elite died,
+    // including to the oil, the leak or a Lunge. Guarded by the mod, which only gnash carries, so
+    // every chapter without it is bit-for-bit unchanged.
+    if (_res && enemy.elite && (run.weaponMods.gnash?.gorge ?? 0) > 0) run.charge = run.chargeMax
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
 
     const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)
@@ -5748,8 +5764,9 @@ const WEAPON_STAT_MODS = {
   // folding.
   clawRake:      { rend: ['dmg', 'pct'], wideRake: ['arc', 'pct'], longClaws: ['range', 'pct'] },
   // v7.x The Wreck. No `range` entry and that is deliberate — see WEAPON_MODS.gnash for why a reach
-  // mod would make the weapon worse. quickSnap divides at the fire site like every other rate mod.
-  gnash:         { deepBite: ['dmg', 'pct'], wideJaw: ['arc', 'pct'] },
+  // mod would make the weapon worse, and no `arc` or rate entry either: gnash sells behaviour
+  // (bloodrush, gorge, bloodInTheWater, deathRoll) rather than its own two most generic numbers.
+  gnash:         { deepBite: ['dmg', 'pct'] },
   // v7.x The Wreck's herding kit. deepChum/slickTrail are behavioral and read at their own sites.
   chum:          { widerChum: ['aggro', 'pct'], longerChum: ['dur', 'pct'] },
   bilge:         { wideBilge: ['maxR', 'pct'], thickOil: ['dur', 'pct'] },
@@ -7665,8 +7682,7 @@ function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
 // decisions, and note in particular that the missing knockback is the design rather than an
 // oversight — this chapter's crowd is running away and shoving it is a downgrade.
 function stepGnashWeapon(run, w, stats, fireRateMul, dt) {
-  const quickSnap = run.weaponMods.gnash?.quickSnap ?? 0
-  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickSnap)), dt, () => biteGnash(run, stats))
+  fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => biteGnash(run, stats))
 }
 
 // -- Chum (v7.x, The Wreck) ----------------------------------------------------------------------
@@ -7708,6 +7724,10 @@ function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
   // slickTrail: cast far more often and much smaller, so the oil lays as a LINE behind a swimming
   // player instead of a single circle. Both halves or neither — see BILGE_TRAIL_*.
   const trail = (run.weaponMods.bilge?.slickTrail ?? 0) > 0
+  // oilRing: lay the cast as a circle of pools around the target instead of one pool on it. Stands
+  // down under slickTrail — a fence drawn behind you and a ring thrown around a fish are two
+  // different answers to "where did the oil go", and silently doing both would be neither.
+  const ring = !trail && (run.weaponMods.bilge?.oilRing ?? 0) > 0
   const rate = stats.rate * (trail ? BILGE_TRAIL_RATE_MUL : 1)
   const maxR = stats.maxR * (trail ? BILGE_TRAIL_R_MUL : 1)
   fireOnTimer(run, w.id, rate / fireRateMul, dt, () => {
@@ -7730,27 +7750,47 @@ function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
     const tgt = trail ? null : randomVisibleEnemy(run)
     const ox = tgt ? tgt.x : p.x
     const oy = tgt ? tgt.y : p.y
+    // ONE POOL, LAID ONCE. Extracted because the ring needs to lay six of them and a second copy
+    // of this object literal is the one-fact-two-places trap this file is built around — the
+    // `shape`/`rot`/`slow` triple in particular has to be identical or a ring pool would draw as
+    // something other than oil.
+    const lay = (bx, by, r) => {
+      run.blooms.push({
+        x: bx, y: by, t: 0, r: 0, maxR: r, dur: stats.dur,
+        dmgPerTick: 0, tick: 0, look: 'bilge',
+        // A LOBED OUTLINE, stored at cast and never re-derived, exactly as the chapter's own hazard
+        // spills carry one (streamSlicks). render draws the player's oil through the SAME function
+        // that draws the leak's, so the card and the thing it is imitating are one drawing — which is
+        // the point of the card. A round blob would read as a light, and this has to read as a film.
+        shape: Math.floor(Math.random() * LOBE_SHAPES.length) % LOBE_SHAPES.length,
+        rot: Math.random() * Math.PI * 2,
+        // `slow: 1` opts INTO stepBlooms' slow branch, which Foxfire opts out of with 0. The magnitude
+        // is BILGE_SLOW, applied where bloomSlowT is read — this field is only the switch.
+        slow: 1,
+      })
+      run.events.push({ type: 'bilge', x: bx, y: by, r })
+    }
     // IPECAC's extra pools are SPREAD around the centre rather than stacked on it — three slicks
     // in one spot is one slick, which is the failure run PB7 asserts distinct positions to catch.
     // At pools === 1 the offset is zero.
     for (let k = 0; k < pools; k++) {
-    const a = (k / pools) * Math.PI * 2
-    const off = pools > 1 ? maxR * 0.9 : 0
-    const bx = ox + Math.cos(a) * off, by = oy + Math.sin(a) * off
-    run.blooms.push({
-      x: bx, y: by, t: 0, r: 0, maxR, dur: stats.dur,
-      dmgPerTick: 0, tick: 0, look: 'bilge',
-      // A LOBED OUTLINE, stored at cast and never re-derived, exactly as the chapter's own hazard
-      // spills carry one (streamSlicks). render draws the player's oil through the SAME function
-      // that draws the leak's, so the card and the thing it is imitating are one drawing — which is
-      // the point of the card. A round blob would read as a light, and this has to read as a film.
-      shape: Math.floor(Math.random() * LOBE_SHAPES.length) % LOBE_SHAPES.length,
-      rot: Math.random() * Math.PI * 2,
-      // `slow: 1` opts INTO stepBlooms' slow branch, which Foxfire opts out of with 0. The magnitude
-      // is BILGE_SLOW, applied where bloomSlowT is read — this field is only the switch.
-      slow: 1,
-    })
-    run.events.push({ type: 'bilge', x: bx, y: by, r: maxR })
+      const a = (k / pools) * Math.PI * 2
+      const off = pools > 1 ? maxR * 0.9 : 0
+      const bx = ox + Math.cos(a) * off, by = oy + Math.sin(a) * off
+      // OIL RING: the same cast spent as RING_N smaller pools on a circle instead of one big pool
+      // on the spot, so the target ends up INSIDE rather than under. Ipecac multiplies RINGS, not
+      // the pools within one — three rings is three pens, where 18 pools on one circle is the same
+      // pen drawn three times.
+      if (ring) {
+        const pr = maxR * RING_POOL_MUL
+        const rr = pr * RING_R_MUL
+        for (let j = 0; j < RING_N; j++) {
+          const t = (j / RING_N) * Math.PI * 2
+          lay(bx + Math.cos(t) * rr, by + Math.sin(t) * rr, pr)
+        }
+      } else {
+        lay(bx, by, maxR)
+      }
     }
   })
 }
@@ -7787,6 +7827,10 @@ function biteGnash(run, stats) {
         e.stunT = Math.max(e.stunT || 0, hold * ccScale(run, e))
         spendCC(run, e)
       }
+    }
+    if (struck.size > 0 && (mods?.bloodrush ?? 0) > 0) {
+      run._rushT = RUSH_DUR
+      run._rushN = Math.min(RUSH_MAX_STACKS, (run._rushN ?? 0) + 1)
     }
     run.events.push({ type: 'gnash', x: p.x, y: p.y, angle: swing, range: stats.range, arc: stats.arc })
   }

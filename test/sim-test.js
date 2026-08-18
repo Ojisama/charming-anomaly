@@ -81,6 +81,7 @@ import {
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COSTS, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
+  RING_N,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
@@ -6812,7 +6813,183 @@ function runPrey() {
     console.log(`PASS run PY.l (the oil lands on a random visible body): ${aimed.length} casts spread over ${distinct} of 4 on-screen bodies, never the off-screen one and never underfoot, where slickTrail's ${fence.length} pools all stay at the feet`)
   }
 
-  console.log('PASS run PY (The Wreck: prey): the roster runs from you in schools and cannot touch you, the bite pays for closing, the oil lands on the crowd, and the leak is the only thing in the chapter that can kill you')
+  // -- PY.m: the bite CRITS SOMETIMES, not always. -----------------------------------------------
+  // Owner, 2026-08-18: "bite has 100% crit chance i dont know why, so every bite mod is useless."
+  // GNASH_BASE_CRIT is added straight onto p.critChance by applyDamage, so it is a FRACTION in the
+  // same units as CLAW_BASE_CRIT (0.10 == "+10 points"). Shipped as `10` it made the comparison
+  // `Math.random() < 10` unconditionally true.
+  //
+  // WHY THE RATE AND NOT THE CONSTANT: reading the constant back asserts nothing — it is one unit
+  // conversion away from the thing that matters, which is exactly the step that was wrong. And the
+  // damage column could not see this either, because the chapter's prey die in one bite: the extra
+  // 40% went almost entirely into OVERKILL (census waste 53% -> 41% at L1 when it was fixed), so
+  // effective dps moved 23 -> 21 and kills/min 77.9 -> 74.6. A bug worth 1.4x damage was invisible
+  // in every number except the one the player actually sees, the crit flash on every single hit.
+  {
+    const run = mk(20260822)
+    run.weapons = [{ id: 'gnash', level: 1 }]
+    const p = run.player
+    const x0 = p.x, y0 = p.y
+    const bodies = [0, 1, 2, 3, 4].map((k) => put(run, { x: x0 + 40 + k * 12, y: y0 + (k - 2) * 8, hp: 1e12, speed: 0 }))
+    let hits = 0, crits = 0
+    for (let i = 0; i < Math.round(90 / dt); i++) {
+      only(run, bodies)
+      bodies.forEach((e, k) => { e.x = x0 + 40 + k * 12; e.y = y0 + (k - 2) * 8 })
+      run.events.length = 0
+      stepSim(run, { x: 0, y: 0 }, dt)
+      for (const ev of run.events) {
+        if (ev.type !== 'hit' || ev.dot) continue
+        hits++
+        if (ev.crit) crits++
+      }
+    }
+    assert.ok(hits > 300, `need a real sample to talk about a rate; only ${hits} bites landed`)
+    const rate = crits / hits
+    // PLAYER.baseCritChance 0.05 + GNASH_BASE_CRIT 0.10 = 0.15. At n>300, 1 sigma is under 2pts, so
+    // this band is >3 sigma either side of the truth and still excludes BOTH pathologies: the
+    // shipped 1.00, and the 0.05 left behind if the bonus is dropped altogether.
+    assert.ok(rate > 0.09 && rate < 0.24,
+      `gnash must crit about 15% of the time (0.05 base + 0.10 of its own); measured ${(rate * 100).toFixed(1)}% over ${hits} bites — 100% means GNASH_BASE_CRIT is in percent where applyDamage wants a fraction`)
+    console.log(`PASS run PY.m (the bite crits sometimes): ${(rate * 100).toFixed(1)}% of ${hits} bites crit, against the 15% its two sources add up to`)
+  }
+
+  // -- PY.n: BLOODRUSH builds on landed bites and drops when you stop. --------------------------
+  // Owner: "biting an enemy increases speed by 5% for 2s". Three properties, each with the control
+  // that makes it non-vacuous:
+  //   it is a SPEED change   — vs the same 3s with the mod unbought
+  //   it is paid for LANDING — vs biting open water, which must pay nothing at all
+  //   it LAPSES              — vs holding the buff forever once earned
+  // The middle one is the whole card: without it this is "+25% move speed" with a duration painted
+  // on, because gnash fires 1.5-2.4 times a second and would refresh the window forever.
+  {
+    const travel = (mods, withBody) => {
+      const run = mk(20260823)
+      run.weapons = [{ id: 'gnash', level: 1 }]
+      run.weaponMods.gnash = mods
+      const p = run.player
+      const x0 = p.x
+      // Held at a fixed OFFSET from the player rather than at a fixed point, so a swimming player
+      // keeps landing bites for the whole window. Pinned in world space instead, the player outruns
+      // it in a fifth of a second and the rush has lapsed long before the loop ends — which is what
+      // the first cut of this fixture did, and it read exactly like the card not working.
+      // 50px is inside the 118px jaw; 900px is well outside it, so those bites land on water.
+      const gap = withBody ? 50 : 900
+      const e = put(run, { x: p.x + gap, y: p.y, hp: 1e12, speed: 0 })
+      let peak = 0
+      for (let i = 0; i < Math.round(5 / dt); i++) {
+        only(run, [e])
+        e.x = run.player.x + gap; e.y = run.player.y
+        stepSim(run, { x: 1, y: 0 }, dt)
+        peak = Math.max(peak, run._rushN ?? 0)
+      }
+      return { moved: run.player.x - x0, stacks: peak }
+    }
+    const off = travel({}, true)
+    const on = travel({ bloodrush: 0.05 }, true)
+    const miss = travel({ bloodrush: 0.05 }, false)
+    assert.ok(on.stacks > 1, `biting must STACK the rush; it reached ${on.stacks}`)
+    assert.ok(on.moved > off.moved * 1.05,
+      `bloodrush must actually move the player faster: ${on.moved.toFixed(0)}px against ${off.moved.toFixed(0)}px unbought`)
+    assert.strictEqual(miss.stacks, 0, 'biting open water must bank no rush at all, or the card is a flat speed bonus')
+    assert.ok(Math.abs(miss.moved - off.moved) < 1,
+      `a build that never lands a bite must move exactly like one without the card; ${miss.moved.toFixed(0)} vs ${off.moved.toFixed(0)}`)
+
+    // ...and it LAPSES. Same run, bites stopped by emptying the field.
+    const run = mk(20260823)
+    run.weapons = [{ id: 'gnash', level: 1 }]
+    run.weaponMods.gnash = { bloodrush: 0.05 }
+    const p = run.player
+    const e = put(run, { x: p.x + 50, y: p.y, hp: 1e12, speed: 0 })
+    for (let i = 0; i < Math.round(3 / dt); i++) { only(run, [e]); e.x = p.x + 50; e.y = p.y; stepSim(run, { x: 0, y: 0 }, dt) }
+    const peak = run._rushN ?? 0
+    for (let i = 0; i < Math.round(3 / dt); i++) { only(run, []); stepSim(run, { x: 0, y: 0 }, dt) }
+    assert.ok(peak > 0 && (run._rushN ?? 0) === 0 && (run._rushT ?? 0) === 0,
+      `the rush must lapse once the bites stop: peaked at ${peak}, left ${run._rushN} stacks / ${(run._rushT ?? 0).toFixed(2)}s`)
+    console.log(`PASS run PY.n (bloodrush): landing bites stacks to ${on.stacks} and carries the player ${on.moved.toFixed(0)}px against ${off.moved.toFixed(0)}px unbought, biting water banks nothing, and ${peak} stacks lapse to 0 when the crowd is gone`)
+  }
+
+  // -- PY.o: GORGE pays on an ELITE and only on an elite. ---------------------------------------
+  // Owner: "eating elites replenish full hunger bar". It sits at the shared kill site in dealDamage
+  // rather than inside biteGnash, so it pays however the elite actually died — the oil, the leak
+  // and a Lunge all count as eating it. This fixture kills with the bite because that is the path
+  // it can drive deterministically; the placement is what the two mutations in the table cover.
+  //
+  // THE KILL MUST BE REAL. Setting e._dead by hand never runs the site under test at all, which is
+  // how the first cut of this block "passed" nothing — the body has to die THROUGH dealDamage.
+  {
+    const kill = (mods, elite) => {
+      const run = mk(20260824)
+      run.weapons = [{ id: 'gnash', level: 5 }]
+      run.weaponMods.gnash = mods
+      const e = put(run, { x: run.player.x + 40, y: run.player.y, hp: 40, speed: 0 })
+      e.maxHP = 40
+      e.elite = elite
+      run.charge = 1
+      const before = run.charge
+      for (let i = 0; i < Math.round(8 / dt) && !e._dead; i++) {
+        only(run, [e])
+        e.x = run.player.x + 40; e.y = run.player.y
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      assert.ok(e._dead, 'the fixture never killed the body, so it cannot say anything about a kill reward')
+      return { before, after: run.charge, max: run.chargeMax }
+    }
+    const plain = kill({ gorge: 1 }, false)
+    const elite = kill({ gorge: 1 }, true)
+    const unbought = kill({}, true)
+    assert.ok(elite.after >= elite.max - 1e-6,
+      `an elite kill must fill Bloodlust outright; it went ${elite.before} -> ${elite.after.toFixed(1)} of ${elite.max}`)
+    assert.ok(plain.after < plain.max * 0.9,
+      `a NON-elite kill must not fill the bar, or the card is "kills fill Bloodlust"; it reached ${plain.after.toFixed(1)} of ${plain.max}`)
+    assert.ok(unbought.after < unbought.max * 0.9,
+      `without the card an elite kill must pay only the ordinary killBase; it reached ${unbought.after.toFixed(1)} of ${unbought.max}`)
+    console.log(`PASS run PY.o (gorge): an elite kill takes Bloodlust to ${elite.after.toFixed(0)}/${elite.max}, where the same kill unbought reaches ${unbought.after.toFixed(1)} and a non-elite ${plain.after.toFixed(1)}`)
+  }
+
+  // -- PY.p: the OIL RING lays a ring, and it is a PEN rather than a puddle. ---------------------
+  // Owner: "the mazout could have fun mods like mazout rings that traps groups of enemies".
+  // Asserted as GEOMETRY, not as a count: RING_N pools that all landed on the same spot would pass
+  // any count assert and be one ordinary pool wearing a bigger number (the documented per-cast
+  // trap). So this measures the ring's radius spread AND that the middle is left open — the open
+  // middle is the entire mechanic, since it is where the shoal ends up.
+  {
+    const cast = (mods) => {
+      const run = mk(20260825)
+      run.weapons = [{ id: 'bilge', level: 1 }]
+      run.weaponMods.bilge = mods
+      const p = run.player
+      const x0 = p.x, y0 = p.y
+      const e = put(run, { x: x0 + 300, y: y0, hp: 1e12, speed: 0, flags: ['skittish'] })
+      let pools = []
+      for (let i = 0; i < Math.round(10 / dt) && !pools.length; i++) {
+        only(run, [e])
+        e.x = x0 + 300; e.y = y0
+        stepSim(run, { x: 0, y: 0 }, dt)
+        pools = run.blooms.filter((b) => b.look === 'bilge')
+      }
+      assert.ok(pools.length, 'bilge never planted — the fixture proves nothing')
+      return { pools, cx: e.x, cy: e.y }
+    }
+    const plain = cast({})
+    const ring = cast({ oilRing: 1 })
+    assert.strictEqual(plain.pools.length, 1, 'an ordinary cast is one pool')
+    assert.strictEqual(ring.pools.length, RING_N, `the ring lays RING_N pools; got ${ring.pools.length}`)
+    const radii = ring.pools.map((b) => Math.hypot(b.x - ring.cx, b.y - ring.cy))
+    const spread = Math.max(...radii) - Math.min(...radii)
+    assert.ok(Math.min(...radii) > 1, 'no ring pool may sit ON the target — the middle is the pen')
+    assert.ok(spread < 1, `every ring pool must sit at the same radius, or it is a smear not a ring; spread ${spread.toFixed(1)}px`)
+    // DISTINCT POSITIONS, not just a count.
+    const spots = new Set(ring.pools.map((b) => `${Math.round(b.x)},${Math.round(b.y)}`))
+    assert.strictEqual(spots.size, RING_N, `the ring's pools must be in ${RING_N} different places; they occupy ${spots.size}`)
+    // The pen must be CLOSED at cast: neighbouring pools have to overlap, or prey walk straight out
+    // of the gap and the card does nothing it says it does.
+    const step = 2 * Math.PI / RING_N
+    const gap = 2 * radii[0] * Math.sin(step / 2)          // centre-to-centre along the circle
+    assert.ok(gap <= ring.pools[0].maxR * 2, `the ring must close: neighbours are ${gap.toFixed(0)}px apart but only ${(ring.pools[0].maxR * 2).toFixed(0)}px wide`)
+    console.log(`PASS run PY.p (the oil ring): ${RING_N} pools at ${radii[0].toFixed(0)}px around the target, ${gap.toFixed(0)}px apart against ${(ring.pools[0].maxR * 2).toFixed(0)}px of width, and nothing in the middle`)
+  }
+
+  console.log('PASS run PY (The Wreck: prey): the roster runs from you in schools and cannot touch you, the bite pays for closing and crits only sometimes, the oil lands on the crowd and can be thrown as a pen, and the leak is the only thing in the chapter that can kill you')
 }
 run(runPrey)
 

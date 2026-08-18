@@ -2571,9 +2571,15 @@ export const WEAPON_MODS = {
   // ambushPredator (v6.5, behavioral — see slashClaws/AMBUSH_R): conditional-vs-flat vs rend — counts
   // an armed OR sprung trap near the PLAYER, so springing your own trap can't turn the buff off
   // (that anti-synergy is why the pre-panel 0.30/armed-only draft lost to plain rend).
-  // deepBite/wideJaw fold into gnash's levels[] via WEAPON_STAT_MODS; quickSnap (attack rate)
-  // divides the interval at the fire site for the reason every rate mod does — folding it into
-  // `rate` would SLOW the weapon. bloodInTheWater and deathRoll are behavioral (see biteGnash).
+  // deepBite folds into gnash's levels[] via WEAPON_STAT_MODS; bloodInTheWater, deathRoll,
+  // bloodrush and gorge are behavioral (see biteGnash, stepPlayerMovement and dealDamage).
+  //
+  // GNASH CARRIES NO WIDTH AND NO RATE MOD, and both were removed rather than never written (owner,
+  // 2026-08-18: "mods for this level are not relevant enough ... every bite mod is useless").
+  // A bite arc and a bite cadence are the two most generic numbers a melee weapon has — the rake
+  // already sells both — and in the one chapter where the crowd RUNS, neither answers the question
+  // the player is actually asking, which is "how do I get to it and what do I get for landing one".
+  // bloodrush and gorge are those two questions as cards.
   //
   // THERE IS NO REACH MOD, and it is the one card a reader will expect to find here. Gnash's damage
   // is a linear falloff over its OWN range (GNASH_MAW_MUL at the jaw, x1 at the tip), so a mod that
@@ -2582,8 +2588,17 @@ export const WEAPON_MODS = {
   // rake's damage does not know where in the arc it landed.
   gnash: {
     deepBite:        { name: 'Deep Bite',  desc: 'bite damage', icon: '🦷', base: 0.35, kind: 'pct' },
-    wideJaw:         { name: 'Wide Jaw',   desc: 'bite width',  icon: '🪝', base: 0.30, kind: 'pct' },
-    quickSnap:       { name: 'Quick Snap', desc: 'bite rate',   icon: '💨', base: 0.25, kind: 'pct' },
+    // THE MOMENTUM CARD. Stacking is what makes it a mechanic instead of a flat bonus with a
+    // duration painted on: gnash fires 1.5-2.4 times a second, so a non-stacking 2s window would be
+    // refreshed long before it ever lapsed and the card would just read "+5% move speed". Stacked,
+    // a chain of bites builds you up to RUSH_MAX_STACKS and losing the shoal costs it straight back.
+    bloodrush:       { name: 'Bloodrush',  desc: 'move speed per bite for 2s, stacking 5 times', icon: '🏊', base: 0.05, kind: 'pct' },
+    // THE ELITE PAYOFF. A switch rather than a tiered refill because a fraction of a bar is the one
+    // shape this must not have: Bloodlust drives your damage AND buys the Lunge, so "an elite pays
+    // 40% of a bar" is a number nobody can feel, while "an elite pays for everything" is a reason to
+    // go and pick a fight you were avoiding. Normal rarity, because makeWeaponModCard returns null
+    // for a switch above normal — see the note on trashTornado.sweepLoot for the epic idiom.
+    gorge:           { name: 'Gorge',      desc: 'eating an elite fills Bloodlust', icon: '🫀', kind: 'switch' },
     bloodInTheWater: { name: 'Blood in the Water', desc: 'bite damage against wounded prey', icon: '🩸', base: 0.55, kind: 'pct' },
     // `secs`, not `tier`: a tier mod banks an integer COUNT of things-per-cast, and this banks a
     // DURATION. That kind exists precisely so the raw product does not reach the player as
@@ -2609,6 +2624,14 @@ export const WEAPON_MODS = {
     // player is placing dots; with it they are cutting the water into rooms, which is the play the
     // card exists for.
     slickTrail: { name: 'Trailing Slick', desc: 'the oil pours behind you as you swim', icon: '〰️', kind: 'switch' },
+    // A PEN, NOT A CAGE (owner: "mazout rings that traps groups of enemies"). RING_N pools on a
+    // circle around the target instead of one pool on it — prey will not cross oil, so a shoal
+    // caught inside stays there. The gaps between pools are deliberately crossable: an airtight
+    // ring would be a hard lock on the chapter's own crowd, and this card is for gathering a
+    // mouthful, not for switching the level off. Mutually exclusive with slickTrail by shape — a
+    // fence drawn behind you and a ring thrown around a fish cannot both be where the oil went, so
+    // slickTrail wins and the ring stands down (see stepBilgeWeapon).
+    oilRing:    { name: 'Oil Ring',       desc: 'the oil lands as a ring, penning what is inside', icon: '⭕', kind: 'switch' },
   },
   clawRake: {
     rend:        { name: 'Rending Claws', desc: 'claw damage', icon: '🩸', base: 0.35, kind: 'pct' },
@@ -2963,7 +2986,6 @@ export const WEAPON_RATE_MODS = {
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.
-  gnash: 'quickSnap',
 }
 // Same problem for per-cast COUNTS: nearly every one folds through WEAPON_STAT_MODS, but the star's
 // multishot is read straight off run.weaponMods at its fire site. Without this the readout would
@@ -7991,7 +8013,30 @@ export const LUST_TINT_MAX = 0.34
 // so the mod that lengthens the reach also dilutes the ramp, which is why there is no reach mod.
 export const GNASH_MAW_MUL = 1.9
 // The rake's +10 points of crit is the precedent; a bite is the same kind of committed melee.
-export const GNASH_BASE_CRIT = 10
+// ⚠ A FRACTION, NOT A PERCENT. applyDamage adds this straight onto p.critChance (0.05), so the
+// units here are the same as CLAW_BASE_CRIT's: "+10 points" is 0.10. Written as `10` it makes
+// `Math.random() < 10` unconditionally true — every bite a guaranteed crit, and the card silently
+// dealing 1.40x its tuned damage (mean x1.5 against the intended x1.075). It shipped that way and
+// was found from play: "bite has 100% crit chance i dont know why". Run PY.m asserts the RATE.
+export const GNASH_BASE_CRIT = 0.10
+// ---- BLOODRUSH (v7.x, gnash) -------------------------------------------------------------------
+// Owner: "biting an enemy increases speed by 5% for 2s". The 5% is the card's own base; these two
+// are the shape around it. MULTIPLIED into the player's speed rather than MIN-composed with the
+// chapter's slows, for the reason SCENT_SPEED_MUL gives at the same site: those are floors on how
+// slow the world may make you, this is a bonus you bought.
+export const RUSH_DUR = 2.0          // s, refreshed by every landed bite
+export const RUSH_MAX_STACKS = 5     // ceiling, so a long chain cannot outrun the chapter entirely
+
+// ---- OIL RING (v7.x, bilge) --------------------------------------------------------------------
+// RING_N pools on a circle instead of one pool at the target. The radii are tuned so the pools just
+// touch at every weapon level: a ring pool is RING_POOL_MUL of the single pool it replaces, and the
+// circle's radius is RING_R_MUL of THAT — at L1 that is six 60px pools on a 114px circle, whose
+// circumference (716px) is just under the 720px of coverage they lay down. So the pen is closed at
+// cast and opens as the pools expire, rather than being a wall with a hole in it from the start.
+export const RING_N = 6
+export const RING_R_MUL = 1.9
+export const RING_POOL_MUL = 0.5
+
 // bloodInTheWater: below this fraction of max HP a body counts as wounded and the mod's bonus
 // applies. A third, not a half, so it is a finisher rather than a flat damage mod wearing a
 // condition — at half, the majority of a soft prey chapter's bodies qualify on the FIRST bite and

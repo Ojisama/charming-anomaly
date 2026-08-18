@@ -1226,6 +1226,12 @@ function generateWells(sig) {
  *   spill and ticked down after leaving, exactly as bloomSlowT/fearT decay. Read in stepPlayer,
  *   where it joins the MIN of the speed floors rather than multiplying into them (see the block
  *   there). The LINGER is the design: a slow that ends at the rim is just a wider slick.
+ * _rushT, _rushN: number — BLOODRUSH (gnash's `bloodrush` mod, The Wreck). _rushT is the window in
+ *   seconds, refreshed to RUSH_DUR by every bite that actually LANDS; _rushN is how many bites have
+ *   stacked, capped at RUSH_MAX_STACKS. Read in stepPlayerMovement, where the pair become a speed
+ *   MULTIPLIER (bought, so multiplied — unlike the chapter slows, which MIN-compose). Both drop to
+ *   0 together when the window lapses rather than decaying one stack at a time: losing the shoal is
+ *   meant to cost the whole run-up, which is what gives the card a failure state.
  * killRefill: number — light per kill, snapshotted at createRun from bm.unlocks.lightThief (the
  *   permanent Light Thief unlock, LIGHT_THIEF_COST shop levels on the sacrifice screen; bm is
  *   Undertow's own bookMeta entry — see BOOK_UNLOCKS.undertow in config.js). 0 unbought, and 0
@@ -2004,6 +2010,8 @@ export function createRun(meta, opts = {}) {
     _slickCellJ: null,
     _slickAcc: 0,          // part-tick accumulator, the exact twin of _drownAcc/_starveAcc
     _foulT: 0,             // s of oil still on you — lingers SLICK_SLOW_T past the rim (see sim.js)
+    _rushT: 0,             // s left on BLOODRUSH's window (gnash's bloodrush mod)
+    _rushN: 0,             // bites stacked on it, capped at RUSH_MAX_STACKS
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars
     _sandCellI: null,      // streaming cursor, independent of the obstacle/eddy/trap/shaft cursors
     _sandCellJ: null,
