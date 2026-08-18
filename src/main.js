@@ -8,6 +8,7 @@ import { initUI } from './ui.js'
 import { initInput, getInput, pressSkill } from './input.js'
 import { initAudio, playSfx } from './audio.js'
 import { setLang } from './i18n.js'
+import { submitScore, podiumRank, validNick } from './scores.js'
 
 // No top-level await: suspending module evaluation deadlocks Pixi's dynamically
 // imported environment code in the production bundle (TDZ/hang on a blank page).
@@ -355,6 +356,15 @@ const ui = initUI({
     else setSlotName(n, name)
     playSfx('click')
   },
+  // The leaderboard nickname (v7.x). Always the ACTIVE slot's meta and never patched on disk like
+  // onRename's other branch: the podium name belongs to whoever is playing right now, and there is
+  // no reason to reach into a save nobody has open. ui.js has already run it through validNick —
+  // saving the raw field here would be the one path that could put an illegal name on the board.
+  onNick(nick) {
+    meta.nick = nick
+    saveMeta(meta)
+    playSfx('click')
+  },
 })
 
 // buildReadout is a read-only projection (see sim.js): main is the only place allowed to hand sim
@@ -585,6 +595,24 @@ function endRun(victory) {
     unlockedHiddenChapter,
     unlockedBook,
   })
+
+  // Leaderboard (v7.x). AFTER the summary is on screen and never awaited: the podium is the one
+  // feature in this game allowed to simply not be there, so nothing about the end of a run may
+  // wait on the network. The rank comes back late and lands on the summary through
+  // ui.setPodiumResult, which no-ops if the player has already moved on.
+  //
+  // Two gates, both deliberate. `run._devUsed` is the owner's only integrity rule — a run holding
+  // a card from the hidden dev menu is not a score (sim.js sets it in devTake). validNick is what
+  // makes the nickname mandatory in practice rather than only in the UI: a save predating this
+  // build has meta.nick '' until the title screen's prompt is answered, and nothing is submitted
+  // in the meantime.
+  const nick = validNick(meta.nick)
+  if (nick && !run._devUsed) {
+    const kills = run.kills
+    const level = run.player.level
+    submitScore({ nick, chapter: run.chapter, difficulty: run.difficulty ?? 1, kills, level })
+      .then((boards) => ui.setPodiumResult(podiumRank(boards, nick, kills, level)))
+  }
 }
 
 // ---- The death outro (v7.x, DEATH_OUTRO in config.js) ------------------------------------------

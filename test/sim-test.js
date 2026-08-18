@@ -4,6 +4,9 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta, grantBook, unlockBook, bookProgress } from '../src/state.js'
 // sync.js keeps browser globals out of its module scope precisely so it can be imported here.
 import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRecord, RECORD_KEY } from '../src/sync.js'
+// scores.js follows sync.js's rule — no browser globals at module scope — so the leaderboard's two
+// pure functions are testable here with no network. See run LB.
+import { validNick, podiumRank, NICK_MIN, NICK_MAX } from '../src/scores.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 import {
@@ -14699,6 +14702,119 @@ function testLaneOpening() {
 // scope for exactly this reason, so the logic that decides whether to overwrite a save is testable.
 // The tech strategy calls this "the slice to over-test" — every scenario below is a data-loss path
 // the adversarial review found, not a happy path.
+// run LB — the leaderboard (v7.x). Four blocks, and only the first is about scores.js's own logic;
+// the other three are CROSS-FILE CONTRACTS, which is where every defect this feature can have
+// actually lives. Nothing here touches the network: the module keeps fetch out of its module scope
+// for the same reason sync.js does.
+function testLeaderboard() {
+  // (a) validNick — the one place that decides what a nickname IS. Effects, not state: each case
+  // is a string a player can really type and the name that must come out the other side.
+  assert.strictEqual(validNick('Bob'), 'Bob', 'the minimum length is accepted')
+  assert.strictEqual(validNick('Bo'), null, `${NICK_MIN - 1} characters is refused`)
+  assert.strictEqual(validNick('  Bob  '), 'Bob', 'surrounding whitespace is not part of the name')
+  assert.strictEqual(validNick('   '), null, 'whitespace alone is not a name')
+  assert.strictEqual(validNick('a'.repeat(30)), 'a'.repeat(NICK_MAX), 'an over-long name is clamped, not refused')
+  assert.strictEqual(validNick('Big   Bob'), 'Big Bob', 'runs of whitespace collapse — two names that look identical on the podium must BE identical')
+  assert.strictEqual(validNick(null), null, 'a non-string is not a name')
+  assert.strictEqual(validNick(undefined), null, 'an absent nickname is not a name')
+  // The trap that only shows up on the podium: slice() cuts UTF-16 units, so clamping can bisect an
+  // astral character and leave a lone surrogate, which renders as a replacement box and passes every
+  // other check here. 10 emoji is 20 units; the clamp must not leave half of the 6th behind.
+  const clamped = validNick('🐛'.repeat(10))
+  // \p{Cs} under the u flag matches only UNPAIRED surrogates — a whole emoji is one code point of
+  // category So and does not match, which is the whole reason this is the right assertion. Testing
+  // for any trailing surrogate instead fails on every legal emoji name.
+  assert.ok(!/\p{Cs}/u.test(clamped), `clamping must not leave a lone surrogate: got ${JSON.stringify(clamped)}`)
+  assert.strictEqual(clamped, '🐛'.repeat(5), 'five whole emoji fit in ten UTF-16 units')
+  // A control character in a name would corrupt the row it is drawn in, and unlike the length rule
+  // there is no visible sign the player pasted one. Built from a char code rather than typed inline,
+  // so the byte survives whatever edits this file next.
+  const bell = String.fromCharCode(7)
+  assert.strictEqual(validNick('Bo' + bell + 'b'), 'Bob', 'control characters are stripped rather than rejected')
+  assert.strictEqual(validNick('B' + bell + 'b'), null, 'and stripping one can take a name below the minimum')
+
+  // (b) podiumRank — where a just-submitted run landed, read off the boards the POST answered with.
+  const boards = {
+    kills: [{ nick: 'Ann', kills: 900, level: 20 }, { nick: 'Bob', kills: 500, level: 12 }],
+    level: [{ nick: 'Bob', kills: 500, level: 12 }, { nick: 'Ann', kills: 900, level: 20 }],
+  }
+  assert.deepStrictEqual(podiumRank(boards, 'Bob', 500, 12), { kills: 2, level: 1 },
+    'a run on both boards reports both ranks, and they are allowed to differ')
+  assert.strictEqual(podiumRank(boards, 'Cid', 10, 2), null, 'a run on neither board reports nothing at all')
+  assert.strictEqual(podiumRank(null, 'Bob', 500, 12), null, 'an unreachable board is not a rank of null-th')
+  assert.deepStrictEqual(podiumRank({ kills: [{ nick: 'Ann', kills: 900, level: 20 }], level: [] }, 'Ann', 900, 20),
+    { kills: 1, level: null }, 'one board without the other is still a result')
+
+  // (c) THE INTEGRITY RULE, ACROSS TWO FILES. The owner's only anti-cheat ruling is "dev runs don't
+  // count", and it is implemented as one write in sim.js and one read in main.js. Nothing imports
+  // the other, nothing throws if either half goes, and the symptom is a podium quietly full of
+  // dev-menu scores — so it is asserted as source text, the trick run UG.k uses.
+  const simSrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  const devTakeBody = /export function devTake\([\s\S]*?\n}/.exec(simSrc)?.[0]
+  assert.ok(devTakeBody, 'run LB could not find devTake in sim.js — the regex has gone stale')
+  assert.ok(/run\._devUsed\s*=\s*true/.test(devTakeBody),
+    'devTake must mark the run: it is the ONLY path by which a dev-menu card reaches a run, and the leaderboard gate reads nothing else')
+  const mainSrc2 = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+  const endRunBody = /function endRun\([\s\S]*?\n}\n/.exec(mainSrc2)?.[0]
+  assert.ok(endRunBody, 'run LB could not find endRun in main.js — the regex has gone stale')
+  assert.ok(/submitScore\(/.test(endRunBody), 'endRun is where a run is submitted; nothing else ends a run')
+  assert.ok(/!run\._devUsed/.test(endRunBody),
+    'endRun must refuse to submit a run that used the dev menu — without this the flag sim.js sets is dead code and the ruling is unimplemented')
+  assert.ok(/validNick\(meta\.nick\)/.test(endRunBody),
+    'endRun must resolve the nickname through validNick, not send meta.nick raw: that is the only path that could put an illegal name on a public board')
+
+  // (d) THE FRENCH. Every leaderboard string lives in ui.js, in a function — which run XX's coverage
+  // walk cannot see BY CONSTRUCTION, since it enumerates config TABLES. CLAUDE.md records that
+  // exemption shipping untranslated copy four separate times; this list is the guard for this
+  // feature's share of it. Checked in BOTH directions, so a string deleted from ui.js fails here
+  // too rather than leaving a dead dictionary entry nobody notices.
+  const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+  const leaderboardCopy = [
+    'Podium', 'Nickname', 'Pick a nickname', 'Your nickname',
+    'It appears on the podium of every chapter you play.',
+    '{min}-{max} characters',
+    'No scores yet — be the first.',
+    'Could not reach the podium. Check your connection.',
+  ]
+  for (const key of leaderboardCopy) {
+    assert.ok(FR[key], `leaderboard string has no French: ${JSON.stringify(key)}`)
+    assert.ok(uiSrc.includes(key), `run LB's copy list is stale — ui.js no longer contains ${JSON.stringify(key)}`)
+  }
+  // Placeholder parity, the failure that reads perfectly in review: a misspelt {min} prints literal
+  // braces at the player. run XX asserts this across the dictionary; it is repeated here because
+  // this is the only tt() template the feature has and it is the one that would carry the typo.
+  for (const ph of ['{min}', '{max}']) {
+    assert.ok(FR['{min}-{max} characters'].includes(ph),
+      `the French for the nickname rule drops ${ph} — the player would see the placeholder, not the number`)
+  }
+
+  // (e) THE RANGE, ACROSS THE NETWORK. scores.js clamps and the Worker refuses; if the two numbers
+  // ever disagree the client offers a name the server then rejects, and the score vanishes with no
+  // error anywhere. The Worker is not importable here (it is a Workers module), so read it as text.
+  const workerSrc = readFileSync(new URL('../worker/src/index.js', import.meta.url), 'utf8')
+  const workerMin = Number(/const NICK_MIN = (\d+)/.exec(workerSrc)?.[1])
+  const workerMax = Number(/const NICK_MAX = (\d+)/.exec(workerSrc)?.[1])
+  assert.strictEqual(workerMin, NICK_MIN, "the Worker's NICK_MIN must match scores.js's, or the client offers names the server refuses")
+  assert.strictEqual(workerMax, NICK_MAX, "the Worker's NICK_MAX must match scores.js's")
+  assert.ok(/pathname === '\/scores'/.test(workerSrc) && workerSrc.indexOf("pathname === '/scores'") < workerSrc.indexOf('normalizeCode(req.headers'),
+    'the /scores route must be handled BEFORE the save-sync code check, or every anonymous board read is answered 401')
+
+  // (f) meta.nick is additive (R2) and defaults EMPTY on both paths — the fresh literal and
+  // loadMeta's repair. '' is load-bearing: it is what fires the mandatory first-load prompt, so a
+  // repair that helpfully invented a placeholder would disable the whole flow with nothing failing.
+  // Read as source text rather than by calling loadMeta, which needs a localStorage this scenario
+  // has no business stubbing (run ZZ owns that, and its stub must stay the last thing installed).
+  const stateSrc = readFileSync(new URL('../src/state.js', import.meta.url), 'utf8')
+  assert.ok(/m\.nick \?\?= ''/.test(stateSrc),
+    "loadMeta must repair a missing meta.nick to '' — an older save has no such key and every reader would get undefined")
+  assert.ok(/nick: '',/.test(stateSrc),
+    "the fresh-meta literal must carry nick: '' — loadMeta's repairs are in-memory only and never written back")
+
+  console.log(`PASS run LB (leaderboard): validNick holds ${NICK_MIN}-${NICK_MAX} through whitespace, clamping and a bisected emoji, ` +
+    `podiumRank reads both boards independently, the dev-run gate is wired across sim.js + main.js, ` +
+    `${leaderboardCopy.length} strings have French with placeholders intact, and the Worker's range + route order agree with the client`)
+}
+
 function testSyncDecisions() {
   const KEY = 'charming-anomaly-save-v1'
   const store = new Map()
@@ -15257,6 +15373,7 @@ try {
   // so every saveMeta after it silently no-ops. Any future scenario that writes a save belongs above
   // this line.
   run(testSaveSummary)
+  run(testLeaderboard)
   run(testSyncDecisions)
   run(testPlaytestSweepAndBlades)
   run(testMower)

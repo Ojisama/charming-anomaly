@@ -16,7 +16,7 @@ const CODE_RE = /^[0-9A-HJKMNP-TV-Z]{16}$/
 // cap (Firefox honours more); it collapses preflights to ~one per two hours per browser.
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Authorization, Content-Type',
   'Access-Control-Max-Age': '7200',
 }
@@ -73,10 +73,99 @@ async function readEnvelope(req) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Leaderboard. A SECOND, UNRELATED FEATURE sharing this Worker and this database: no pairing code,
+// no Authorization header, no generation counter. It is handled before the save-sync auth block so
+// that block's 401 cannot swallow it, and it touches only the `scores` table — the save contract
+// above is unchanged.
+//
+// Deliberately credulous. The owner's ruling: "dev runs don't count, else trust the client for
+// now, it's just friends." The dev-menu exclusion therefore lives in the GAME (sim.js sets
+// run._devUsed, main.js refuses to submit) and everything here is a SHAPE check — enough that a
+// stray request cannot write junk the podium then has to render, not enough to stop anyone who
+// opens devtools. Do not mistake it for anti-cheat.
+// ---------------------------------------------------------------------------------------------
+
+const NICK_MIN = 3
+const NICK_MAX = 10
+
+// Mirrors validNick in src/scores.js, which is the one-fact-two-places trap this repo warns about
+// most. It is survivable here only because the two sides are not equals: the CLIENT normalizes
+// (trim, strip controls, clamp) and the SERVER only refuses what falls outside the range, so a
+// nick the client produced always passes and the two can never disagree about a legal name.
+const validNick = (v) =>
+  typeof v === 'string' && v.length >= NICK_MIN && v.length <= NICK_MAX && !/[\p{Cc}\p{Cs}]/u.test(v)
+
+// Chapter ids stay opaque to this Worker for the same reason the save blob does — the game must be
+// able to add a chapter without a Worker deploy. A shape check is all it is entitled to.
+const validChapter = (v) => typeof v === 'string' && /^[a-z][a-z0-9]{0,15}$/.test(v)
+const int = (v, lo, hi) => (Number.isInteger(v) && v >= lo && v <= hi ? v : null)
+
+const boardRow = (r) => ({ nick: r.nick, kills: r.kills, level: r.level, at: r.at })
+
+// `at ASC` on both boards so a tie goes to whoever got there FIRST. Without it SQLite is free to
+// return either row and the podium reorders itself between two reads of an unchanged board.
+async function readBoards(env, chapter, difficulty) {
+  const [byKills, byLevel] = await env.DB.batch([
+    env.DB.prepare(
+      'SELECT nick, kills, level, at FROM scores WHERE chapter = ? AND difficulty = ? ORDER BY kills DESC, at ASC LIMIT 3',
+    ).bind(chapter, difficulty),
+    env.DB.prepare(
+      'SELECT nick, kills, level, at FROM scores WHERE chapter = ? AND difficulty = ? ORDER BY level DESC, kills DESC, at ASC LIMIT 3',
+    ).bind(chapter, difficulty),
+  ])
+  return { kills: byKills.results.map(boardRow), level: byLevel.results.map(boardRow) }
+}
+
+async function scores(req, env) {
+  if (req.method === 'GET') {
+    const params = new URL(req.url).searchParams
+    const chapter = params.get('chapter')
+    const difficulty = int(Number(params.get('difficulty')), 1, 9)
+    if (!validChapter(chapter) || difficulty === null) return json(400, { error: 'bad board' })
+    return json(200, await readBoards(env, chapter, difficulty))
+  }
+
+  if (req.method === 'POST') {
+    // Keyed on the client IP, NOT on the nickname: a nickname is self-declared, so keying on it
+    // would let one abuser rate-limit everybody simply by claiming their name. Absent binding
+    // means no limit, same as the save path (`wrangler dev --local` does not always bind one).
+    if (env.LIMITER) {
+      const ip = req.headers.get('cf-connecting-ip') ?? 'local'
+      const { success } = await env.LIMITER.limit({ key: `scores:${ip}` })
+      if (!success) return json(429, { error: 'rate limited' })
+    }
+    const { env: body, err } = await readEnvelope(req)
+    if (err) return json(400, { error: err })
+    const nick = typeof body.nick === 'string' ? body.nick.trim() : null
+    const { chapter } = body
+    const difficulty = int(body.difficulty, 1, 9)
+    const kills = int(body.kills, 0, 99999)
+    const level = int(body.level, 1, 999)
+    if (!validNick(nick)) return json(400, { error: `nick must be ${NICK_MIN}-${NICK_MAX} characters` })
+    if (!validChapter(chapter)) return json(400, { error: 'bad chapter' })
+    if (difficulty === null || kills === null || level === null) return json(400, { error: 'bad score' })
+
+    await env.DB.prepare('INSERT INTO scores (chapter, difficulty, nick, kills, level, at) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(chapter, difficulty, nick, kills, level, Date.now())
+      .run()
+    // The boards come back in the same round trip, so a submit that landed is visibly a submit
+    // that landed rather than a 200 the client takes on faith — and the summary screen can say
+    // "you made the podium" without a second request.
+    return json(200, await readBoards(env, chapter, difficulty))
+  }
+
+  return json(405, { error: 'method not allowed' })
+}
+
 export default {
   async fetch(req, env) {
     // §10.3: short-circuit OPTIONS before auth and before D1.
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
+
+    // Leaderboard: its own path, its own (absent) auth, its own table. Before the code check
+    // below, which would otherwise 401 every anonymous board read.
+    if (new URL(req.url).pathname === '/scores') return scores(req, env)
 
     const code = normalizeCode(req.headers.get('authorization'))
     if (!code) return json(401, { error: 'malformed code' }) // §10.2: before any D1 query

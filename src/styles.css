@@ -2434,3 +2434,108 @@ body {
 .no-pop,
 .no-pop > .bottom-sheet,
 .no-pop > .confirm-sheet { animation: none; }
+
+/* ---- leaderboard (v7.x) -----------------------------------------------------------------------
+   The podium is the BACK PAGE of the pre-run brief, and the two faces SWAP rather than co-exist:
+   one panel is in the DOM at a time, so neither has to know the other's height (the front grows
+   with the anomaly list, the back with how many people have played). The page-turn is therefore
+   carried entirely by an animation on whichever face is ARRIVING, hinged at the left like a spine.
+   It fires exactly once per turn because both faces carry data-pop keys, and setHtml's .no-pop
+   suppresses the replay on an ordinary re-render (a reroll, a late board arriving). */
+.brief-page--front, .brief-page--back {
+  transform-origin: left center;
+  animation: page-turn 0.34s cubic-bezier(0.22, 0.75, 0.25, 1) backwards;
+}
+.brief-page--front { --turn-from: -74deg; }
+.brief-page--back { --turn-from: 74deg; }
+@keyframes page-turn {
+  from { transform: perspective(1100px) rotateY(var(--turn-from)); opacity: 0; }
+  to { transform: perspective(1100px) rotateY(0); opacity: 1; }
+}
+
+.brief-podium-btn { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; }
+
+/* One row renderer for both boards. The grid is rank / name / number, so a long nickname takes the
+   slack and the number never moves — two podiums stacked read as one column of figures. */
+.podium-rows { display: flex; flex-direction: column; }
+.podium-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 2px;
+  border-bottom: 2px dashed #e0d6c4; /* the summary's .stat-row separator — same kind of list */
+  font-weight: 700;
+}
+.podium-row:last-child { border-bottom: none; }
+.podium-nick { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.podium-score { font-weight: 900; font-variant-numeric: tabular-nums; }
+
+/* The one saturated thing on the page. Rank 1 is a filled gold disc and 2/3 are empty cream ones —
+   the whole hierarchy of a podium in the single element that has to carry it, which is why every
+   other row here is a plain line of text. */
+.podium-rank {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 3px solid var(--cream-edge);
+  border-radius: 999px;
+  background: var(--cream-soft);
+  font-size: 0.78rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.podium-rank--1 { border-color: var(--gold-edge); background: var(--gold); }
+
+/* Your own entries. A background wash rather than a coloured edge: the row is already a list item
+   in a dashed list, and a second vertical rule beside the rank disc would be one stripe too many. */
+.podium-row--me {
+  padding-left: 6px;
+  padding-right: 6px;
+  border-radius: 10px;
+  background: rgba(125, 227, 195, 0.28);
+}
+.podium-row--me .podium-nick { font-weight: 900; }
+
+.podium-empty { padding: 10px 2px; text-align: center; }
+
+/* Loading. Three placeholder rows, not a spinner: the row COUNT is known before the data is, so
+   the page holds its own shape and only the numbers arrive. */
+.podium-row--wait { grid-template-columns: auto 1fr; }
+.podium-row--wait .podium-rank { opacity: 0.45; }
+.podium-bone {
+  height: 11px;
+  border-radius: 999px;
+  background: var(--cream-edge);
+  opacity: 0.55;
+  animation: podium-wait 1.1s ease-in-out infinite;
+}
+@keyframes podium-wait { 50% { opacity: 0.22; } }
+
+/* The summary's podium badge. It rides the number that earned it (Kills / Level reached) instead
+   of adding a line, so a run that placed says so where the eye already is. */
+.rank-chip {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 7px;
+  border: 2px solid var(--cream-edge);
+  border-radius: 999px;
+  background: var(--cream-soft);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 900;
+  vertical-align: 2px;
+}
+.rank-chip--1 { border-color: var(--gold-edge); background: var(--gold); }
+
+/* The nickname sheet's rule line: a hint at rest, and the reason Done is disabled once the field
+   holds something illegal — one line saying one thing, never an error appearing under a hint that
+   already said it. */
+.nick-rule { font-size: 0.78rem; }
+.nick-rule--bad { color: var(--danger); font-weight: 800; }
+.confirm-sheet-title .rr-ico { vertical-align: -3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .brief-page--front, .brief-page--back, .podium-bone { animation: none; }
+}

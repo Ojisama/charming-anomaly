@@ -11,3 +11,21 @@ CREATE TABLE IF NOT EXISTS saves (
   prev_blob  TEXT,                 -- the blob this write replaced; operator-only undo (§7.3)
   prev_gen   INTEGER
 );
+
+-- Leaderboard (v7.x). One row per submitted run; the podium is the top 3 by each metric. No
+-- pruning and no dedup by nickname — the owner's call: "raw top 3", a board for friends.
+-- ponytail: rows accumulate forever. At a few runs a day that is thousands over the game's life
+-- against a 5 GB allowance, and both reads are 3-row index scans. Add a prune-on-insert if that
+-- ever stops being true.
+CREATE TABLE IF NOT EXISTS scores (
+  chapter    TEXT    NOT NULL,  -- CHAPTERS key, opaque here: the Worker knows no chapter ids
+  difficulty INTEGER NOT NULL,
+  nick       TEXT    NOT NULL,  -- 3-10 chars, whatever the player typed
+  kills      INTEGER NOT NULL,
+  level      INTEGER NOT NULL,
+  at         INTEGER NOT NULL   -- server clock, epoch ms
+);
+-- One index per board. The second carries kills as a tiebreak so two runs that reached the same
+-- level order by the more convincing one rather than by insertion accident.
+CREATE INDEX IF NOT EXISTS scores_kills ON scores (chapter, difficulty, kills DESC);
+CREATE INDEX IF NOT EXISTS scores_level ON scores (chapter, difficulty, level DESC, kills DESC);

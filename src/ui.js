@@ -3,6 +3,9 @@ import { shopCost, shopLines, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAP
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
+// The leaderboard's read side. ui.js fetching its own boards is deliberate — see the comment on
+// loadPodium for where the line between "hook" and "direct import" is drawn.
+import { fetchBoards, validNick, NICK_MIN, NICK_MAX } from './scores.js'
 
 // ---- Shop line icons (v7.x) --------------------------------------------------------------
 // DRAWN, NOT EMOJI (owner ruling, 2026-08-17), in the same 24px stroke idiom as ICO_REROLL and
@@ -695,6 +698,7 @@ export function initUI(hooks) {
       ${settingsSheetHtml()}
       ${slotsModalHtml()}
       ${renameSheetHtml()}
+      ${nickSheetHtml()}
     `)
     paintRoom()
     // After the wholesale innerHTML rewrite, never before it.
@@ -744,6 +748,11 @@ export function initUI(hooks) {
             <span class="settings-label">☉ ${t('skill button')}</span>
             <span class="settings-langs">${sideRows}</span>
           </div>
+          <!-- The rename lives here rather than beside the podium it feeds, because a name is
+               changed once and read constantly: putting it on the board would cost every visit a
+               control nobody wants. It shows the current name so the row answers "what am I called
+               again?" without opening anything. -->
+          <button class="btn btn--soft btn--small settings-slots" data-act="nick-edit">${ICO_PODIUM} ${t('Nickname')} <i>${esc(meta.nick || '—')}</i></button>
           <button class="btn btn--soft btn--small settings-slots" data-act="slots">💾 ${t('Save slots')} <i>${activeSlot()}/${SAVE_SLOTS}</i></button>
           ${buildStampHtml()}
           <button class="btn btn--soft btn--small sheet-done" data-act="settings-close">${t('Done')}</button>
@@ -814,12 +823,52 @@ export function initUI(hooks) {
       </div>`
   }
 
+  // ---- leaderboard nickname ---------------------------------------------------------------
+  // The name other players read on the podium (meta.nick), which is NOT meta.name — that one names
+  // the save slot and never leaves the device. Reuses the rename sheet's machinery exactly: the
+  // same out-of-render draft (renderTitle rewrites innerHTML wholesale and would otherwise destroy
+  // the live <input> on every keystroke that triggers a redraw), the same restore-and-focus.
+  //
+  // Mandatory by the owner's ruling. It has no Cancel until a nickname exists, so the very first
+  // load cannot get past it — which is the point: a board where half the entries are blank is not
+  // a board. Afterwards the same sheet is the rename, and then it does have a Cancel.
+  let nickEditing = false
+  let nickDraft = ''
+  const nickPrompted = () => nickEditing || !meta.nick
+
+  function nickSheetHtml() {
+    if (!nickPrompted()) return ''
+    const first = !meta.nick
+    const ok = validNick(nickDraft) != null
+    return `
+      <div class="modal-backdrop"${first ? '' : ' data-act="nick-cancel"'} data-pop="nick">
+        <div class="confirm-sheet">
+          <h2 class="confirm-sheet-title">${ICO_PODIUM} ${t(first ? 'Pick a nickname' : 'Your nickname')}</h2>
+          <p class="confirm-sheet-body">${t('It appears on the podium of every chapter you play.')}</p>
+          <input class="text-field" id="nick-field" type="text" value="${esc(nickDraft)}"
+            maxlength="${NICK_MAX}" autocapitalize="off" autocorrect="off" autocomplete="off"
+            spellcheck="false" enterkeyhint="done" aria-label="${t('Nickname')}">
+          <!-- The rule, stated before it can be broken rather than as an error afterwards. It is a
+               hint at rest and turns into the reason the button is disabled, so there is only ever
+               one line of text here saying one thing. -->
+          <p class="confirm-sheet-body nick-rule${ok || !nickDraft ? '' : ' nick-rule--bad'}">${
+            tt('{min}-{max} characters', { min: NICK_MIN, max: NICK_MAX })}</p>
+          <div class="confirm-sheet-actions">
+            ${first ? '' : `<button class="btn btn--soft btn--small" data-act="nick-cancel">${t('Cancel')}</button>`}
+            <button class="btn btn--small" data-act="nick-save" ${ok ? '' : 'disabled'}>${t('Done')}</button>
+          </div>
+        </div>
+      </div>`
+  }
+
   // Restores what the wholesale innerHTML rewrite just destroyed. Caret to the end rather than a
   // preserved offset: the only thing that re-renders mid-rename is a full sheet redraw, after which
   // "carry on typing" is the right place to be.
+  // Queries by CLASS, not by either id: the title screen has two text fields now (save rename and
+  // nickname) and only one sheet is ever open, so "focus the one that is here" needs no bookkeeping
+  // and cannot go stale when a third arrives.
   function focusRenameField() {
-    if (renameSlot == null) return
-    const el = screens.title.querySelector('#rename-field')
+    const el = screens.title.querySelector('.text-field')
     if (!el) return
     el.focus()
     try { el.setSelectionRange(el.value.length, el.value.length) } catch { /* not all input types support it */ }
@@ -1893,6 +1942,12 @@ export function initUI(hooks) {
   // The reroll price lives once, in the ANOMALIES rule — repeating it on every row said the same
   // number three times on one screen.
   const ICO_REROLL = '<svg class="rr-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 9.6A7.6 7.6 0 0 0 5.6 8.5"/><path d="M5 14.4A7.6 7.6 0 0 0 18.4 15.5"/><path d="M19.6 4.6 19 9.9l-5.2-.7"/><path d="m4.4 19.4.6-5.3 5.2.7"/></svg>'
+  // Three blocks, tallest in the middle: the podium silhouette itself, which reads as "ranking" at
+  // 19px where a trophy does not — a trophy is a prize, and this button opens a list. Same hairline
+  // stroke language as ICO_REROLL above so the two read as one set, and drawn rather than 🏆 for
+  // the reason the shop icons are: an emoji cannot inherit the button's colour, and its glyph is a
+  // different picture on every platform.
+  const ICO_PODIUM = '<svg class="rr-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.4 10.5h5.2v9.6H9.4z"/><path d="M3.4 14.4h6v5.7h-6z"/><path d="M14.6 12.6h6v7.5h-6z"/><path d="M12 4v3"/><path d="M10.6 5.5h2.8"/></svg>'
   function briefAnomHtml(id, i, reroll) {
     const m = MUTATORS[id]
     const chips = effectChipList(m?.effects ?? {})
@@ -1912,6 +1967,88 @@ export function initUI(hooks) {
       </div>`
   }
 
+  // ---- the brief's back page: the podium ------------------------------------------------------
+  // The leaderboard lives on the back of the pre-run brief rather than on a screen of its own,
+  // because the question it answers ("what is a good score here?") is only ever asked while
+  // looking at a chapter and a difficulty — which is exactly what the brief already holds. It is
+  // one board pair per (chapter, difficulty): the front page's difficulty is the back page's
+  // subject, so changing the level changes what you are reading.
+  //
+  // ui.js fetches this itself instead of going through a main.js hook, which is the seam every
+  // other cross-module fact uses. The line: hooks exist for things main.js OWNS — the run, meta
+  // writes, spending coins. A read-only board belongs to nobody, needs no game state, and routing
+  // it through main.js would add a hook, a callback and a re-render trigger to move data that has
+  // exactly one consumer, the screen it is drawn on.
+  let podiumOpen = false
+  let podiumState = null   // null = loading, 'error', or { kills: [...], level: [...] }
+  let podiumKey = ''       // 'chapter:difficulty' the state belongs to; a stale key must not paint
+
+  // No cache. Opening the podium always re-reads, because a board that has not moved costs one
+  // small request and a board that HAS moved is the entire point of opening it.
+  function loadPodium(chapterId, difficulty) {
+    const key = `${chapterId}:${difficulty}`
+    podiumKey = key
+    podiumState = null
+    fetchBoards(chapterId, difficulty).then((boards) => {
+      // Late answers from a board the player has already navigated away from must not paint over
+      // the one they are looking at — two flips in a row is enough to race this.
+      if (podiumKey !== key) return
+      podiumState = boards ?? 'error'
+      if (active === 'brief' && podiumOpen) renderBrief(lastBriefData ?? {})
+    })
+  }
+
+  // Rank numeral in a disc. The craft rule against decorative 01/02/03 numbering does not apply
+  // here: on a podium the number IS the information, and it is the only thing the eye needs.
+  const podiumRowHtml = (r, i) => `
+    <div class="podium-row${r.nick === meta.nick ? ' podium-row--me' : ''}">
+      <span class="podium-rank podium-rank--${i + 1}">${i + 1}</span>
+      <span class="podium-nick">${esc(r.nick)}</span>
+      <b class="podium-score">${r.score}</b>
+    </div>`
+
+  // Three dashed placeholders rather than a spinner: the row count is known before the data is, so
+  // the page can hold its own shape and only the numbers arrive.
+  const podiumSkeleton = () =>
+    '<div class="podium-rows">' + [0, 1, 2].map((i) => `
+      <div class="podium-row podium-row--wait">
+        <span class="podium-rank podium-rank--${i + 1}">${i + 1}</span>
+        <span class="podium-bone"></span>
+      </div>`).join('') + '</div>'
+
+  const podiumBoardHtml = (rows) => `<div class="podium-rows">${rows.length
+    ? rows.map(podiumRowHtml).join('')
+    : `<p class="brief-note podium-empty">${t('No scores yet — be the first.')}</p>`}</div>`
+
+  function podiumBodyHtml() {
+    if (podiumState === 'error') {
+      return `<p class="brief-note podium-empty">${t('Could not reach the podium. Check your connection.')}</p>`
+    }
+    const eyebrow = (txt) => `<div class="brief-eyebrow">${t(txt)}</div>`
+    if (podiumState === null) {
+      return `${eyebrow('Kills')}${podiumSkeleton()}${eyebrow('Level reached')}${podiumSkeleton()}`
+    }
+    // Each board is scored by its OWN metric. Passing the rows through with a `score` field rather
+    // than teaching podiumRowHtml which board it is drawing keeps one row renderer for both.
+    const byKills = podiumState.kills.map((r) => ({ ...r, score: r.kills }))
+    const byLevel = podiumState.level.map((r) => ({ ...r, score: r.level }))
+    return `${eyebrow('Kills')}${podiumBoardHtml(byKills)}${eyebrow('Level reached')}${podiumBoardHtml(byLevel)}`
+  }
+
+  function renderPodiumPage(d, chapter) {
+    return `
+      <div class="modal brief-panel brief brief-page--back" data-pop="podium">
+        <div class="brief-head">
+          <button class="pill-btn" data-act="podium-close" aria-label="${t('Back')}">←</button>
+          <div class="brief-headtext">
+            <h2 class="brief-title">${t('Podium')}</h2>
+            <div class="brief-diff">${chapter.icon} ${t(chapter.name)} · ${t('difficulty')} <b>${d.difficulty ?? 1}</b></div>
+          </div>
+        </div>
+        ${podiumBodyHtml()}
+      </div>`
+  }
+
   function renderBrief(d) {
     lastBriefData = d
     const chapter = CHAPTERS[d.chapterId] ?? CHAPTERS.body
@@ -1924,8 +2061,13 @@ export function initUI(hooks) {
     const ids = d.mutators ?? []
     const reroll = d.reroll && ids.length ? { afford: briefBm.coins >= ANOMALY_REROLL_COST } : null
     const eyebrow = (txt, note) => `<div class="brief-eyebrow">${t(txt)}${note ? `<i>${note}</i>` : ''}</div>`
+    // The back page replaces the front rather than sitting behind it. Two faces in one 3D card
+    // would have to agree on a height, and these two never do — the front grows with the anomaly
+    // list, the back with how many people have played. The page-turn is carried by an animation on
+    // whichever face is arriving (styles.css), keyed off data-pop, so no measurement is involved.
+    if (podiumOpen) { setHtml(screens.brief, renderPodiumPage(d, chapter)); return }
     setHtml(screens.brief, `
-      <div class="modal brief-panel brief" data-pop="brief">
+      <div class="modal brief-panel brief brief-page--front" data-pop="brief">
         <div class="brief-head">
           <!-- Backing out of the brief used to be a tap on the bottom nav's Battle tab. With the
                nav gone this button is the ONLY way back, and nothing is spent yet either way. -->
@@ -1934,6 +2076,8 @@ export function initUI(hooks) {
             <h2 class="brief-title">${chapter.icon} ${t(chapter.name)}</h2>
             <div class="brief-diff">${t('difficulty')} <b>${d.difficulty ?? 1}</b></div>
           </div>
+          <button class="pill-btn brief-podium-btn" data-act="podium-open"
+            aria-label="${t('Podium')}" title="${t('Podium')}">${ICO_PODIUM}</button>
           <div class="coins-badge">🪙 <b>${briefBm.coins}</b></div>
         </div>
         ${ids.length ? `
@@ -2307,6 +2451,21 @@ export function initUI(hooks) {
   // screen without main.js re-sending a run that has already ended. Exactly lastBriefData's job for
   // the booster sheet, for exactly the same reason.
   let lastSummaryData = null
+  // A podium finish is announced ON the number that earned it, not as a line of its own: the
+  // summary already prints Kills and Level reached, so the rank has a home where the eye is
+  // already looking and the screen grows by nothing. `#1` rather than "1st" because an ordinal
+  // needs translating and a numeral does not.
+  const rankChip = (n) => (n ? `<i class="rank-chip rank-chip--${n}">#${n}</i>` : '')
+
+  // Filled in after the fact by setPodiumResult below: the score is submitted as the summary
+  // appears, so the rank always arrives late. Re-rendering from lastSummaryData is the same path
+  // the damage recap's fold already uses.
+  function setPodiumResult(res) {
+    if (!lastSummaryData || !res) return
+    lastSummaryData.podium = res
+    if (active === 'summary') renderSummary(lastSummaryData)
+  }
+
   function renderSummary(d) {
     lastSummaryData = d
     const mutatorIds = d.mutators || []
@@ -2337,8 +2496,8 @@ export function initUI(hooks) {
         ${killedByLine}
         <div class="stats">
           <div class="stat-row"><span>${t('Time')}</span><b>${fmtTime(d.time)}</b></div>
-          <div class="stat-row"><span>${t('Kills')}</span><b>${d.kills}</b></div>
-          <div class="stat-row"><span>${t('Level reached')}</span><b>${d.level}</b></div>
+          <div class="stat-row"><span>${t('Kills')}</span><b>${d.kills}${rankChip(d.podium?.kills)}</b></div>
+          <div class="stat-row"><span>${t('Level reached')}</span><b>${d.level}${rankChip(d.podium?.level)}</b></div>
         </div>
         ${damageBlock(d)}
         ${mutatorBlock}
@@ -2368,6 +2527,11 @@ export function initUI(hooks) {
     // rather than on `active` is what draws that line: a toggle re-render goes straight to
     // renderSummary and never reaches showScreen.
     if (name !== 'summary') dmgOpen = false
+    // The brief always opens on its FRONT page. Here rather than in switchTab because the brief is
+    // left three ways — Back, Start, and a run ending onto the summary — and only this one is on
+    // every path. Landing on the podium when you pressed Play would be a screen nobody asked for,
+    // and the Start button is not on that face.
+    if (name !== 'brief') podiumOpen = false
     if (name === 'title') renderTitle()
     else if (name === 'shop') renderShop()
     else if (name === 'brief') renderBrief(data ?? {})
@@ -2421,17 +2585,26 @@ export function initUI(hooks) {
   // rewrite. Delegated, so it survives the field being destroyed and recreated on every re-render.
   root.addEventListener('input', (e) => {
     if (e.target.id === 'rename-field') renameDraft = e.target.value
+    // The nickname's Done button is enabled by what is typed, so unlike the save rename this one
+    // has to REDRAW on each keystroke. renderTitle destroys the live <input>, which is exactly the
+    // trap the draft-outside-the-render pattern exists for — the value and the caret are both put
+    // back by nickSheetHtml + focusRenameField, so typing survives.
+    else if (e.target.id === 'nick-field') { nickDraft = e.target.value; renderTitle() }
     // Repaint the LIST only, never the modal: rewriting screens.dev.innerHTML on every keystroke
     // would destroy the field being typed into and drop focus after one character.
     else if (e.target.id === 'dev-filter') { devFilter = e.target.value; paintDevList() }
   })
   root.addEventListener('keydown', (e) => {
-    if (e.target.id !== 'rename-field') return
+    const nick = e.target.id === 'nick-field'
+    if (!nick && e.target.id !== 'rename-field') return
     // Enter commits and Escape cancels, because a soft keyboard's "done" key is the only obvious
     // exit once it covers the buttons — which on iOS it does, since the sheet is centred in a
     // position:fixed backdrop and the visual viewport shrinks under it without moving the layout.
-    if (e.key === 'Enter') { e.preventDefault(); root.querySelector('[data-act="rename-save"]')?.click() }
-    else if (e.key === 'Escape') { e.preventDefault(); root.querySelector('[data-act="rename-cancel"]')?.click() }
+    // Escape on the FIRST nickname finds no cancel button and correctly does nothing: that sheet
+    // has no way out by design.
+    const act = (name) => root.querySelector(`[data-act="${name}"]`)
+    if (e.key === 'Enter') { e.preventDefault(); (nick ? act('nick-save') : act('rename-save'))?.click() }
+    else if (e.key === 'Escape') { e.preventDefault(); (nick ? act('nick-cancel') : act('rename-cancel'))?.click() }
   })
 
   // ---- one delegated click handler for every screen ---------------------------
@@ -2636,6 +2809,47 @@ export function initUI(hooks) {
         renderTitle()
         break
       }
+      // ---- leaderboard nickname ----
+      case 'nick-edit':
+        nickEditing = true
+        nickDraft = meta.nick ?? ''
+        settingsOpen = false // the sheet it was opened from would otherwise sit under this one
+        playSfx('click')
+        renderTitle()
+        break
+      case 'nick-cancel':
+        // Backdrop taps land here too; ignore the ones that bubbled from inside the sheet. There is
+        // no data-act on the backdrop at all while the nickname is still unset, so this cannot be
+        // the escape hatch out of the first-load prompt.
+        if (el.classList.contains('modal-backdrop') && el !== e.target) break
+        nickEditing = false
+        playSfx('click')
+        renderTitle()
+        break
+      case 'nick-save': {
+        // The LIVE field, for the same reason rename-save reads it: a paste or an autocomplete can
+        // commit text without ever firing `input`.
+        const field = screens.title.querySelector('#nick-field')
+        const chosen = validNick(field ? field.value : nickDraft)
+        if (!chosen) break // Done is disabled in this state; a stray Enter must not close the sheet
+        hooks.onNick?.(chosen)
+        nickEditing = false
+        playSfx('click')
+        renderTitle()
+        break
+      }
+      // ---- the brief's podium page ----
+      case 'podium-open':
+        podiumOpen = true
+        loadPodium(lastBriefData?.chapterId ?? meta.chapter, lastBriefData?.difficulty ?? 1)
+        playSfx('click')
+        renderBrief(lastBriefData ?? {})
+        break
+      case 'podium-close':
+        podiumOpen = false
+        playSfx('click')
+        renderBrief(lastBriefData ?? {})
+        break
       case 'brief-start': {
         // The booster picks are made on THIS screen (v6.7), so Start is what hands them over —
         // and clears them, exactly like the title's Play used to.
@@ -2816,5 +3030,5 @@ export function initUI(hooks) {
   })
 
   showScreen('title')
-  return { showScreen, updateHUD, activeScreen: () => active }
+  return { showScreen, updateHUD, activeScreen: () => active, setPodiumResult }
 }

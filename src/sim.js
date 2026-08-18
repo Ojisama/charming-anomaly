@@ -10155,6 +10155,11 @@ export function devCards(run, rarity = 'rare') {
 // takes exactly the code path a card taken from a level-up screen takes, so what you are testing
 // is the shipped behaviour and not a second implementation of it.
 export function devTake(run, card, subject = null) {
+  // The leaderboard's only integrity rule (owner: "dev runs don't count"). Set on TAKE rather than
+  // on opening the menu, because opening it changes nothing about the run — and set here rather
+  // than in main.js because this is the single path by which a dev card reaches a run, so a future
+  // caller cannot bypass it. main.js reads it in endRun and submits nothing.
+  run._devUsed = true
   run.levelUpChoices = [card]
   applyChoice(run, 0, subject)
 }

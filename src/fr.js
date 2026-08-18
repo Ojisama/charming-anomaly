@@ -196,6 +196,18 @@ const UI = {
   'Time': 'Temps',
   'Kills': 'Victimes',
   'Level reached': 'Niveau atteint',
+  // v7.x leaderboard. 'Podium' is the same word in both languages and still needs its key here, or
+  // the coverage assert reads it as an untranslated string. 'Pseudo' rather than 'surnom': it is
+  // what French players actually call the name they use online, and it fits the 26px rank row.
+  // `tu` throughout, like every other card in the game.
+  'Podium': 'Podium',
+  'Nickname': 'Pseudo',
+  'Pick a nickname': 'Choisis un pseudo',
+  'Your nickname': 'Ton pseudo',
+  'It appears on the podium of every chapter you play.': 'Il apparaît sur le podium de chaque chapitre où tu joues.',
+  '{min}-{max} characters': 'de {min} à {max} caractères',
+  'No scores yet — be the first.': 'Aucun score pour l\'instant — sois le premier.',
+  'Could not reach the podium. Check your connection.': 'Podium injoignable. Vérifie ta connexion.',
   'Difficulty {d} unlocked!': 'Difficulté {d} débloquée !',
   'Chapter unlocked: {name}!': 'Chapitre débloqué : {name} !',
   // v6.7 carousel counter. Stands alone in front of a numeral ("Chapitre 3"), so it takes no

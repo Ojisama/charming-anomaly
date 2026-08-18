@@ -150,6 +150,10 @@ let boundSlot = null
 //   load, floored but never capped (R3). Read by the ★ row (ui.js) and saveSummary's `beaten`.
 // meta.best: { time, kills } — all-time aggregate across every chapter, unrelated to any
 //   single chapters[id].best; still updated by endRun (main.js) on every run.
+// meta.nick: the leaderboard name, 3-10 chars, '' until chosen (scores.js owns the rule via
+//   validNick). NOT meta.name, which names the save SLOT and never leaves the device. '' is
+//   load-bearing: renderTitle shows the mandatory prompt for exactly that value, and endRun
+//   submits no score without it.
 // meta.coins / meta.shop / meta.choiceSlots / meta.runs: BOOK 1's own purse (v7.x per-book
 //   progression) — the fields it has always used, at the top level, UNCHANGED. choiceSlots is
 //   floored at 2 and, like maxDifficulty above, NOT capped on load — createRun clamps what this
@@ -366,6 +370,11 @@ export function loadMeta() {
       // the numbered fallback.
       m.name ??= ''
       m.savedAt ??= 0 // stamped by saveMeta below; 0 means "never written by a build that had this field"
+      // Leaderboard nickname (v7.x). Additive per R2, and NOT the same thing as `name`, which names
+      // the save slot: `name` is private to the device, `nick` is what other players read on the
+      // podium. An empty string means "never chosen", which is what makes the first-load prompt
+      // fire — so it must not be repaired into a placeholder here.
+      m.nick ??= ''
       return m
     }
   } catch { /* corrupted save -> fresh */ }
@@ -388,6 +397,7 @@ export function loadMeta() {
     // tolerates both being absent.
     name: '',
     savedAt: 0,
+    nick: '', // leaderboard name; '' is "never chosen" and fires the first-load prompt (see above)
   }
   for (const id of ALL_CHAPTER_IDS) ensureChapterMeta(fresh, id)  // see the loadMeta sweep above
   return fresh
@@ -1734,6 +1744,10 @@ function generateWells(sig) {
  *   by hurtPlayer (sim.js): instead of dying, the player is restored to maxHP *
  *   REVIVE_HP_FRAC, granted REVIVE_INVULN invulnerability, and every enemy within
  *   REVIVE_SHOVE_RADIUS is knocked back (a {type:'revive', x, y} event fires — see above).
+ * _devUsed: true once devTake (sim.js) has put a hidden-dev-menu card into this run. Absent on a
+ *   normal run — it is never initialised in createRun, because the honest default is "this field
+ *   was never set" and every reader is a truthiness test. endRun (main.js) submits no leaderboard
+ *   score when it is true; nothing else reads it and it affects no simulation.
  * _rerolls: count of level-up rerolls used so far this run (sim.js's rerollLevelUpChoices steps it
  *   and prices the next reroll off it via rerollCost(run._rerolls) — see config.js; main.js only
  *   reads it back to label the button).
