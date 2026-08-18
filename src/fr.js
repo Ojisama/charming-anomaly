@@ -739,8 +739,9 @@ const CONFIG = {
   'extra decoy(s) per cast': 'leurre(s) bonus par lancer',
   'Sticky Scent': 'Odeur Collante',
   'burst leaves a slow zone': 'l\'explosion laisse une zone qui ralentit',
-  // gnash's five (v7.x). One family on 'morsure', the way the fin's three are one family on
-  // 'nageoire'. Owner kept 'L'Odeur du Sang' and 'Prise Mortelle' on 2026-08-18: the first is the
+  // gnash's five (v7.x). Three of them hang off 'morsure' with the weapon itself, the way the
+  // fin's three are one family on 'nageoire'; the two feeding cards do not.
+  // Owner kept 'L'Odeur du Sang' and 'Prise Mortelle' on 2026-08-18: the first is the
   // French idiom the English is quoting, and the second names what the mod DOES (a hold) rather
   // than the crocodile manoeuvre it is named after.
   'Deep Bite': 'Morsure Profonde',
