@@ -3020,6 +3020,12 @@ function contactHarmless(e) {
   // status any build could apply field-wide had to stop disarming, but a roster flag cannot be
   // stacked, refreshed or spread, so the same rule does not apply to it.
   if (e.flags && e.flags.includes('skittish')) return true
+  // ZERO CONTACT DAMAGE MEANS ZERO. hurtPlayer floors every hit at Math.max(1, ...), so a roster
+  // that declares `dmgMul: 0` still took 1 HP per touch — the moray did 204 damage across three
+  // 300s runs that way, against the leak's 234, in the chapter built on the leak being the only
+  // thing that can kill you. `dmgMul: 0` is declared by nothing outside The Wreck's roster, so this
+  // changes that chapter and no other.
+  if ((e.dmg ?? 0) <= 0) return true
   // v7.16: STUN still disarms, FEAR no longer does. A feared enemy runs from you, but one pinned
   // against the crowd behind it is still a threat — half of the machine-gun lock was that a
   // permanent field-wide fear made every enemy on screen literally unable to touch you.
@@ -5388,6 +5394,11 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     // including to the oil, the leak or a Lunge. Guarded by the mod, which only gnash carries, so
     // every chapter without it is bit-for-bit unchanged.
     if (_res && enemy.elite && (run.weaponMods.gnash?.gorge ?? 0) > 0) run.charge = run.chargeMax
+    // tankRefill (v7.x, The Wreck): a moray is worth breaking off a chase for. Chapter-scoped by
+    // the field being absent everywhere else, and stacked on killBase rather than replacing it.
+    if (_res?.tankRefill && enemy.type === 'tank') {
+      run.charge = Math.min(run.chargeMax, run.charge + _res.tankRefill)
+    }
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
 
     const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)
@@ -7516,6 +7527,32 @@ function stepLures(run, dt) {
 // Shared by every v5.4 weapon that aims: the NEAREST enemy first, the last move direction only if
 // there is none, p.facing last. This is fireFlagella's hard-won rule (v5.1.2) — in a survivors-like
 // the player kites AWAY from the pack, so aiming at the move direction points at empty ground.
+// THE BITE PREFERS FOOD IN REACH (v7.x, owner: "prefer food, like the dash does"). aimAngle takes
+// the nearest body full stop, and in this chapter that is very often the moray: every fish flees
+// while the moray neither flees nor hurries, so it parks in your face and the bite follows it.
+// Measured at 32.8% of frames — a third of the chapter's only damage source, pointed away from the
+// thing the player is chasing.
+//
+// WITHIN THE JAW, NOT WITHIN SIGHT, and that gate is the whole reason a moray stays huntable. When
+// you break off to eat one the shoal has already run, so nothing else is in reach and the bite goes
+// where you aimed it. A sight-wide preference would point at a fish 300px away while the moray you
+// deliberately closed on sat 60px in front of you — which is the owner's other answer ("a prize
+// worth hunting") undone by his first one.
+function biteAim(run, range) {
+  const p = run.player
+  const rSq = range * range
+  let bestSq = Infinity
+  let target = null
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e) || e.type === 'tank') continue
+    const dx = e.x - p.x, dy = e.y - p.y
+    const dSq = dx * dx + dy * dy
+    if (dSq <= rSq && dSq < bestSq) { bestSq = dSq; target = e }
+  }
+  if (target) return Math.atan2(target.y - p.y, target.x - p.x)
+  return aimAngle(run)
+}
+
 function aimAngle(run) {
   const p = run.player
   const target = nearestEnemy(run)
@@ -7805,7 +7842,7 @@ function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
 
 function biteGnash(run, stats) {
   const p = run.player
-  const angle = aimAngle(run)
+  const angle = biteAim(run, stats.range)
   const mods = run.weaponMods.gnash
   const finish = mods?.bloodInTheWater ?? 0
   const hold = mods?.deathRoll ?? 0

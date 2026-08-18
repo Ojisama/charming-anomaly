@@ -7044,7 +7044,100 @@ function runPrey() {
     console.log(`PASS run PY.p (the oil ring): ${RING_N} pools at ${radii[0].toFixed(0)}px around the target, ${gap.toFixed(0)}px apart against ${(ring.pools[0].maxR * 2).toFixed(0)}px of width, and nothing in the middle`)
   }
 
-  console.log('PASS run PY (The Wreck: prey): the roster runs from you in schools and cannot touch you, the bite pays for closing and crits only sometimes, the oil lands on the crowd and can be thrown as a pen, and the leak is the only thing in the chapter that can kill you')
+  // -- PY.q: the bite prefers FOOD that is in reach, but still eats a moray you closed on. -------
+  // Owner: "i don't really see how the player is supposed to deal with murenes ... it's just that
+  // they slow you down and clutter the screen", then "prefer food, like the dash does".
+  // aimAngle takes the nearest body full stop. Every fish here flees while the moray neither flees
+  // nor hurries, so the moray parks in your face and the chapter's ONLY damage source follows it:
+  // measured at 32.8% of frames before this, 20.9% after.
+  //
+  // BOTH HALVES, because the owner also asked for morays to be a prize worth hunting and the two
+  // answers fight unless the preference is gated on REACH. A fish in the jaw wins; a moray alone in
+  // the jaw is still bitten, which is what happens when you break off the chase for one.
+  {
+    const aimedAt = (fishGap) => {
+      const run = mk(20260827)
+      run.weapons = [{ id: 'gnash', level: 1 }]
+      const p = run.player
+      const lv = WEAPONS.gnash.levels[0]
+      // The tank is nearer than the fish in BOTH cases — that is the situation being tested.
+      const tank = put(run, { x: p.x + 40, y: p.y, hp: 1e12, speed: 0 })
+      tank.type = 'tank'
+      const fish = put(run, { x: p.x, y: p.y + fishGap, hp: 1e12, speed: 0, flags: ['skittish'] })
+      let hitTank = 0, hitFish = 0
+      for (let i = 0; i < Math.round(6 / dt); i++) {
+        only(run, [tank, fish])
+        tank.x = p.x + 40; tank.y = p.y
+        fish.x = p.x; fish.y = p.y + fishGap
+        const t0 = tank.hp, f0 = fish.hp
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (tank.hp < t0) hitTank++
+        if (fish.hp < f0) hitFish++
+      }
+      return { hitTank, hitFish, range: lv.range }
+    }
+    const inJaw = aimedAt(70)                    // fish inside the 118px jaw
+    const outOfJaw = aimedAt(400)                // fish well beyond it: only the moray is in reach
+    assert.ok(inJaw.hitFish > 0 && inJaw.hitTank === 0,
+      `with food in the jaw the bite must go to the FOOD, even though the tank is nearer: fish ${inJaw.hitFish} hits, tank ${inJaw.hitTank}`)
+    assert.ok(outOfJaw.hitTank > 0,
+      `with no food in reach the bite must still eat the moray you closed on, or it stops being huntable: tank ${outOfJaw.hitTank} hits`)
+    console.log(`PASS run PY.q (the bite prefers food in reach): a fish 70px away takes ${inJaw.hitFish} hits while a nearer tank takes ${inJaw.hitTank}; move the fish to 400px and the tank takes ${outOfJaw.hitTank}`)
+  }
+
+  // -- PY.r: a moray cannot hurt you, and eating one pays. ---------------------------------------
+  // Two halves of "a prize worth hunting", each against a control.
+  //   HARMLESS: the roster says dmgMul 0 and hurtPlayer floors every hit at Math.max(1, ...), so
+  //   before contactHarmless honoured it the moray did 204 HP across three 300s runs — against the
+  //   leak's 234, in the chapter whose premise is that the leak is the only thing that can kill you.
+  //   WORTH EATING: tankRefill, on top of killBase, is the reason to break off a chase.
+  {
+    const res = CHAPTERS.wreck.resource
+    // (a) harmless, against the same body given real contact damage
+    const chip = (dmg) => {
+      const run = mk(20260828)
+      run.weapons = []
+      const p = run.player
+      p.maxHP = p.hp = 500
+      const e = put(run, { x: p.x, y: p.y, hp: 1e12, speed: 0 })
+      e.type = 'tank'
+      e.dmg = dmg
+      for (let i = 0; i < Math.round(5 / dt); i++) {
+        only(run, [e])
+        e.x = p.x; e.y = p.y
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return 500 - run.player.hp
+    }
+    const harmless = chip(0)
+    const armed = chip(7)
+    assert.strictEqual(harmless, 0, `a body declaring zero contact damage must cost nothing; it took ${harmless} HP`)
+    assert.ok(armed > 0, `the control must actually hurt, or this block is vacuous; it took ${armed} HP`)
+
+    // (b) eating one pays tankRefill on top of killBase, where an ordinary fish pays killBase alone
+    const eat = (asTank) => {
+      const run = mk(20260829)
+      run.weapons = [{ id: 'gnash', level: 5 }]
+      const e = put(run, { x: run.player.x + 40, y: run.player.y, hp: 40, speed: 0 })
+      e.maxHP = 40
+      if (asTank) e.type = 'tank'
+      run.charge = 0
+      for (let i = 0; i < Math.round(8 / dt) && !e._dead; i++) {
+        only(run, [e])
+        e.x = run.player.x + 40; e.y = run.player.y
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      assert.ok(e._dead, 'the fixture never killed the body')
+      return run.charge
+    }
+    const moray = eat(true)
+    const fish = eat(false)
+    assert.ok(moray >= fish + res.tankRefill * 0.9,
+      `eating a moray must pay tankRefill (${res.tankRefill}) on top of the ordinary kill: ${moray.toFixed(1)} against a fish's ${fish.toFixed(1)}`)
+    console.log(`PASS run PY.r (the moray is a harmless prize): 5s sat on one costs 0 HP where an armed body costs ${armed}, and eating it banks ${moray.toFixed(0)} Bloodlust against a fish's ${fish.toFixed(0)}`)
+  }
+
+  console.log('PASS run PY (The Wreck: prey): the roster runs from you in schools and cannot touch you, the bite prefers food in reach and crits only sometimes, the oil lands on the crowd and can be thrown as a pen, the moray is a harmless prize, and the leak is the only thing in the chapter that can kill you')
 }
 run(runPrey)
 

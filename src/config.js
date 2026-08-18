@@ -6080,20 +6080,32 @@ CHAPTERS.wreck = {
   //              be caught by chasing it, at all, ever. It is what the Lunge button exists for, and
   //              it is the reason the button's cost/refill wash is the chapter's core loop rather
   //              than a nicety.
-  //   moray      does NOT flee — no `skittish`, so it runs the ordinary seek and comes to you. It
-  //              is still harmless (`dmgMul: 0`); what it has is `guard`, which windows it
-  //              invulnerable and open on a timer. It is the answer to "why is this not just
-  //              holding the stick down": the fat prize you have to TIME rather than outrun.
+  //   moray      does NOT flee — no `skittish`, so it runs the ordinary seek and comes to you.
+  //              Harmless (`dmgMul: 0`, honoured by contactHarmless), slow, fat, and worth
+  //              `resource.tankRefill` of Bloodlust when eaten. It is the answer to "why is this
+  //              not just holding the stick down": the prize you break off the chase FOR.
+  //   ⚠ IT CARRIED THE CRAB'S `guard` UNTIL v7.x AND IT EARNED NOTHING. Measured over three 300s
+  //              runs with the full kit: the shield refused 7.6% of bites — far too few to read as
+  //              a timing puzzle — while 78% of morays never died at all and the bite was pointed
+  //              at one on 32.8% of FRAMES, because aimAngle takes the nearest body and a creature
+  //              that neither flees nor hurries is nearly always it. So the chapter's only damage
+  //              source spent a third of itself on a sponge the player had not chosen, which is
+  //              exactly what the owner reported: "they slow you down and clutter the screen".
+  //              The counter is biteAim (sim.js), not a shield.
   // ⚠ WAVE_TABLE does not introduce `tank` until t = 140s, so that answer is absent for the first
   // half of a 300s run — the same gate CHAPTERS.deep's roster block records biting it too.
   //
-  // `dmgMul: 0` on the moray is belt and braces: `skittish` already disarms the other two through
-  // contactHarmless, and the moray has no skittish to disarm it. hurtPlayer floors a hit at 1, so
-  // zero here would still be 1 damage per touch without contactHarmless — see that function.
+  // `dmgMul: 0` MEANS IT, and contactHarmless is what makes that true: hurtPlayer floors every hit
+  // at Math.max(1, ...), so before that clause existed the moray chipped 1 HP per touch and did 204
+  // damage across three 300s runs — against the leak's 234, in the one chapter whose whole premise
+  // is that the leak is the only thing that can kill you. The other two are disarmed by `skittish`
+  // as well; the moray has no skittish, and now needs none.
   roster: [
     { id: 'mackerel',   archetype: 'normal', name: 'Mackerel',   hpMul: 0.55, speedMul: 0.85, dmgMul: 0, flags: ['skittish'] },
     { id: 'damselfish', archetype: 'fast',   name: 'Damselfish', hpMul: 0.4,  speedMul: 1,    dmgMul: 0, flags: ['skittish'] },
-    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.2,  speedMul: 0.7,  dmgMul: 0, flags: ['guard'] },
+    // balance_decision : moray HP -40%, the chapter's kit is crowd control 2026-08-18
+    //  - chum and bilge deal NO damage at all, so gnash is the entire damage budget all run
+    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 1.32, speedMul: 0.7,  dmgMul: 0, flags: [] },
   ],
   eliteFlags: ['soapTrail'],   // shared with surf/shelf/reef/trawl. NOT the whole book: deep is webZone
 
@@ -6199,7 +6211,11 @@ CHAPTERS.wreck = {
     // upside is front-loaded and the final minutes cannot be influenced. Damping the law (a cap, or
     // a sub-linear power on spawnRate) is the fix if that is not wanted, and it is not a change to
     // make unasked.
-    name: 'Bloodlust', drainPerSpawn: 2.4, refill: 0, killBase: 5, killRefill: 2, max: 100,
+    // tankRefill (v7.x): what a MORAY is worth, on top of killBase, and the whole reason to break
+    // off a chase for one. Sized against the bar rather than against the kill: at 30 of a 100 bar
+    // it is three ordinary fish and change, which is enough to be a decision and short of the full
+    // bar Gorge pays for an elite — the elite must stay the bigger prize.
+    name: 'Bloodlust', drainPerSpawn: 2.4, refill: 0, killBase: 5, killRefill: 2, tankRefill: 30, max: 100,
     damage: { floor: 1, peak: 1.8 },
     rate: { floor: 1, peak: 1.5 },
     // 4, not 5, and the reason is arithmetic rather than balance: hurtPlayer ROUNDS a dot hit, so
