@@ -7656,14 +7656,28 @@ function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
   const maxR = stats.maxR * (trail ? BILGE_TRAIL_R_MUL : 1)
   fireOnTimer(run, w.id, rate / fireRateMul, dt, () => {
     const p = run.player
-    // IPECAC's extra pools are SPREAD around the player rather than stacked on them — three slicks
+    // WHERE THE OIL LANDS (owner, 2026-08-18: "it should spawn under an enemy"). A pool that opens
+    // at your own feet in a chapter you cross at 220 px/s is behind you before it has finished
+    // growing — BLOOM_GROW_FRAC gives it 1.6-2.2s to reach full size, by which time the player has
+    // travelled twice its diameter. Planting it on a body puts it where the crowd already is.
+    //   nearestEnemy(run, 0) caps at the view radius rather than taking a cast range of its own, so
+    // the oil can never open off-screen; with nothing in sight it falls back to the player's feet
+    // and the card still fires rather than silently skipping a cast.
+    //   slickTrail is the deliberate exception, and this is what finally makes that mod distinct
+    // rather than just "smaller and more often": a fence is drawn BEHIND a swimming player, so the
+    // trail keeps laying at the feet.
+    const tgt = trail ? null : nearestEnemy(run, 0)
+    const ox = tgt ? tgt.x : p.x
+    const oy = tgt ? tgt.y : p.y
+    // IPECAC's extra pools are SPREAD around the centre rather than stacked on it — three slicks
     // in one spot is one slick, which is the failure run PB7 asserts distinct positions to catch.
-    // At pools === 1 the offset is zero, so the ordinary cast is byte-identical to before.
+    // At pools === 1 the offset is zero.
     for (let k = 0; k < pools; k++) {
     const a = (k / pools) * Math.PI * 2
     const off = pools > 1 ? maxR * 0.9 : 0
+    const bx = ox + Math.cos(a) * off, by = oy + Math.sin(a) * off
     run.blooms.push({
-      x: p.x + Math.cos(a) * off, y: p.y + Math.sin(a) * off, t: 0, r: 0, maxR, dur: stats.dur,
+      x: bx, y: by, t: 0, r: 0, maxR, dur: stats.dur,
       dmgPerTick: 0, tick: 0, look: 'bilge',
       // A LOBED OUTLINE, stored at cast and never re-derived, exactly as the chapter's own hazard
       // spills carry one (streamSlicks). render draws the player's oil through the SAME function
@@ -7675,7 +7689,7 @@ function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
       // is BILGE_SLOW, applied where bloomSlowT is read — this field is only the switch.
       slow: 1,
     })
-    run.events.push({ type: 'bilge', x: p.x + Math.cos(a) * off, y: p.y + Math.sin(a) * off, r: maxR })
+    run.events.push({ type: 'bilge', x: bx, y: by, r: maxR })
     }
   })
 }
