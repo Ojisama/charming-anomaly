@@ -418,18 +418,24 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   Bell-UP with tentacles hanging down would instead have a distinct UP, i.e. `lean: 30`. Pick the
   wrong one and nothing throws — the body just never turns while its trailing parts point in one
   fixed screen direction. Run RA asserts both halves for the jelly.
-  **v7.143 WIDENED THAT EXCEPTION FROM "sideways" TO "any orientation", and it is no longer about
-  creatures only.** Owner: "you're always drawing stuff either top down or facing view. this is
-  underwater, so stuff can be whatever 3D rotated." The no-floor argument does not care what kind
-  of thing is falling, so Ballast's five pieces of junk (`T.ballastJunk`) are drawn in
-  three-quarter with real foreshortening — the sentence above saying weapons are "all plan views"
-  is therefore true of every chapter with a floor and false in the water. Why it mattered: seen
-  from directly overhead an oil drum is a rounded rectangle, and FIVE rounds of surface detail on
-  a rounded rectangle failed to make one read as a drum (it came back as a sliced loaf, a crate, a
-  biscuit). No amount of paint fixes a silhouette. Turned in space the lid is an ellipse with two
-  bungs and the answer is instant. `ellPts()` next to `piece()` in render.js exists for exactly
-  this: `Graphics.ellipse` is axis-aligned, and every foreshortened circle is an ellipse that has
-  been TURNED, which is the whole of what separates a 3D read from a plan view.
+  **v7.143-4 WIDENED THAT EXCEPTION FROM "sideways" TO "any orientation" — BUT IT IS A PERMISSION,
+  NOT A STYLE, and that distinction cost a release to learn.** Owner: "you're always drawing stuff
+  either top down or facing view. this is underwater, so stuff can be whatever 3D rotated." The
+  no-floor argument does not care what kind of thing is falling, so a piece of junk sinking through
+  water may be turned. **Turn a piece only when the turn BUYS something.** Of Ballast's five
+  (`T.ballastJunk`) exactly ONE is: the oil drum. Seen from directly overhead a drum is a rounded
+  rectangle, and five rounds of surface detail on a rounded rectangle failed to make one read as a
+  drum — it came back as a sliced loaf, a crate, a biscuit. No amount of paint fixes a silhouette;
+  turned in space the lid is an ellipse with two bungs and the answer is instant.
+  The same session then turned the other four for CONSISTENCY and shipped it, and the owner's
+  verdict was immediate: *"anchor / tyre were good before, here they just look like someone force
+  perspective on them they're ugly."* They were reverted the same day. The tell is worth having:
+  a wheel is radially symmetric and a beam is a long straight thing, so turning either adds no
+  information and only skews a shape that already read — which is exactly what "applied rather
+  than seen" looks like. **A mixed set is FINE**; the "it would be inconsistent" argument is what
+  produced the bad release, so do not reach for it again. `ellPts()` next to `piece()` in render.js
+  is the tool when a turn IS justified: `Graphics.ellipse` is axis-aligned, and every foreshortened
+  circle is an ellipse that has been TURNED.
 - **A BORROWED WEAPON BRINGS ITS OLD CHAPTER'S ART WITH IT.** A new chapter's arsenal is normally
   picked for what the weapons DO — the Reef's placeholder set says so explicitly, "picked for the
   LANE rather than for the theme" — and that reasoning is sound and still lands you a maple leaf in
