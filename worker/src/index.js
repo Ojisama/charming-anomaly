@@ -127,9 +127,17 @@ async function scores(req, env) {
   // Keyed on the client IP, NOT on the nickname: a nickname is self-declared, so keying on it would
   // let one abuser rate-limit everybody simply by claiming their name. Absent binding means no
   // limit, same as the save path (`wrangler dev --local` does not always bind one).
+  // A BUCKET PER METHOD, and the method is in the key for a reason. Sharing one bucket across GET
+  // and POST lets READS starve a WRITE: a few friends behind one household or carrier NAT — which
+  // is this feature's entire stated audience — share an egress IP, the client caches nothing (every
+  // podium open is a fresh GET, and the retry button is a one-tap way to spend another), so the
+  // bucket empties on browsing alone. The next run to end then POSTs into a 429, scores.js answers
+  // null on !res.ok, and the score is simply absent from the board with no error on any screen.
+  // Separate keys keep the read cap that hoisting this above the method switch was for, without
+  // letting reads cost anyone a score.
   if (env.LIMITER) {
     const ip = req.headers.get('cf-connecting-ip') ?? 'local'
-    const { success } = await env.LIMITER.limit({ key: `scores:${ip}` })
+    const { success } = await env.LIMITER.limit({ key: `scores:${req.method}:${ip}` })
     if (!success) return json(429, { error: 'rate limited' })
   }
 

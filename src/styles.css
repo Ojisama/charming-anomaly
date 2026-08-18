@@ -2502,6 +2502,11 @@ body {
    are what actually carry "this one is you". */
 .podium-row--me .podium-nick { font-weight: 900; }
 .podium-row--me .podium-rank { border-color: var(--mint-dark); }
+/* RANK BEATS OWNERSHIP on the top row, and this is a decision, not a cascade accident: without it
+   .podium-row--me .podium-rank (0-2-0) silently outranks .podium-rank--1 (0-1-0), so the one disc
+   the gold was designed for renders gold-filled with a green ring. Your own name at the top of a
+   board is not something you need help finding — the 900-weight nick still says "you". */
+.podium-row--me .podium-rank--1 { border-color: var(--gold-edge); }
 
 .podium-retry { width: 100%; margin-top: 6px; font-size: 0.82rem; }
 

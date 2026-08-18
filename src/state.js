@@ -54,8 +54,12 @@ export function slotSummary(n) {
       : 1
     // Number() both normalizes odd shapes and defuses a tampered string coins ("<img onerror=…>")
     // that the slot modal would otherwise interpolate into innerHTML.
-    // `name` is ADDED, never substituted — the shape asserted by SS.e stays valid.
-    return { coins: Number(m.coins) || 0, unlocked, total: CHAPTER_ORDER.length, name: cleanName(m.name) }
+    // `name` and `nick` are ADDED, never substituted — the shape asserted by SS.e stays valid.
+    // `nick` is here so a NEW SLOT can offer the nickname this device already answered with: the
+    // prompt is mandatory and meta is per-slot, so without it a second slot re-blocks the same
+    // person and makes them retype a name they have already chosen. Raw, because ui.js runs it
+    // through validNick before showing it — state.js must not learn the leaderboard's rules.
+    return { coins: Number(m.coins) || 0, unlocked, total: CHAPTER_ORDER.length, name: cleanName(m.name), nick: typeof m.nick === 'string' ? m.nick : '' }
   } catch { return null }
 }
 

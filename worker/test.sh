@@ -180,6 +180,20 @@ is "a bad board read is 400"                400   "$(sstatus GET "$SBASE?chapter
 # until someone opened the podium and found a stranger on it.
 is "no rejection wrote a row"               '{"kills":[],"level":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
 
+echo "-- a missing table answers 500 WITH CORS, not the runtime's own error page --"
+# THE DAY-ONE MISTAKE: deploying the Worker without running `npm run db:remote`. An exception
+# escaping fetch() is answered by the Workers 1101 page, which carries NO CORS headers — so the
+# browser rejects it before the client can see a status, and the game reports "could not reach the
+# podium" for a broken database. This is the only assertion that can tell those apart, so it drops
+# the table on purpose and puts it straight back.
+npx wrangler d1 execute charming-anomaly-sync --local --config wrangler.test.toml --command "DROP TABLE scores" >/dev/null 2>&1
+is "a missing table is 500, not a crash"    500   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=3")"
+# The header is the whole point — a 500 the browser discards is indistinguishable from being offline.
+CORSHDR=$(curl -s -D - -o /dev/null "$SBASE?chapter=$CH&difficulty=3" | grep -ci 'access-control-allow-origin')
+is "and it still carries CORS"              1     "$CORSHDR"
+npx wrangler d1 execute charming-anomaly-sync --local --config wrangler.test.toml --file=./schema.sql >/dev/null 2>&1
+is "the table is back"                      200   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=3")"
+
 echo "-- the save contract is untouched by any of that --"
 is "save-sync still answers its own path"   3     "$(field gen GET -H "$AUTH")"
 is "and still 401s a malformed code"        401   "$(status GET -H 'Authorization: Bearer nope')"

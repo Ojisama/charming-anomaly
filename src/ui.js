@@ -701,6 +701,14 @@ export function initUI(hooks) {
       ${nickSheetHtml()}
     `)
     paintRoom()
+    // THE MANDATORY SHEET, MADE ACTUALLY MANDATORY. A modal backdrop blocks the pointer and nothing
+    // else — Tab order is untouched by a `position: fixed` div — so keyboard focus walked onto Play
+    // behind it. The click guard stops the run starting, but focus still LANDED there and Enter did
+    // nothing with no explanation. `inert` removes the rest of the screen from the tab order and
+    // from hit-testing in one attribute; the click guard stays as the floor for a browser that does
+    // not support it. Cleared on every render, so it cannot outlive the sheet.
+    const blocked = nickPrompted()
+    for (const n of screens.title.children) n.toggleAttribute('inert', blocked && !n.classList.contains('nick-sheet'))
     // After the wholesale innerHTML rewrite, never before it.
     focusRenameField()
     markBookcaseScroll()
@@ -836,9 +844,26 @@ export function initUI(hooks) {
   let nickDraft = ''
   const nickPrompted = () => nickEditing || !meta.nick
 
+  // A NEW SLOT SHOULD NOT RE-ASK A QUESTION THIS DEVICE HAS ALREADY ANSWERED. meta is per-slot, so
+  // creating slot 2 lands on the mandatory prompt again — same person, same device, same name — and
+  // makes them retype it, or worse, mistype it and become two people on the board. Offering the
+  // nickname another slot already carries turns that into one tap on an already-enabled Done.
+  // Not applied to a RENAME: there the draft is your current name, which is the thing you came to
+  // change. First non-empty wins; slots are equal and there is no "primary" to prefer.
+  function nickFromAnySlot() {
+    for (let n = 1; n <= SAVE_SLOTS; n++) {
+      const found = validNick(slotSummary(n)?.nick)
+      if (found) return found
+    }
+    return ''
+  }
+
   function nickSheetHtml() {
     if (!nickPrompted()) return ''
     const first = !meta.nick
+    // Seeded once, on the render that opens the sheet, and only for the mandatory prompt — after
+    // that nickDraft is whatever the player is typing and must not be overwritten under them.
+    if (first && !nickDraft) nickDraft = nickFromAnySlot()
     const ok = validNick(nickDraft) != null
     return `
       <div class="modal-backdrop nick-sheet"${first ? '' : ' data-act="nick-cancel"'} data-pop="nick">
@@ -1996,7 +2021,7 @@ export function initUI(hooks) {
   // exactly one consumer, the screen it is drawn on.
   let podiumOpen = false
   let podiumState = null   // null = loading, 'error', or { kills: [...], level: [...] }
-  let podiumKey = ''       // 'chapter:difficulty' the state belongs to; a stale key must not paint
+  let podiumReq = 0        // monotonic; only the newest request may paint (see loadPodium)
   // ONE-SHOT: true only for the render that a flip causes. The page-turn cannot be left on the
   // faces unconditionally, because renderBrief runs for a dozen unrelated reasons — a booster tap,
   // the booster sheet, an anomaly reroll, the board arriving — and every one of them would spin the
@@ -2009,13 +2034,15 @@ export function initUI(hooks) {
   // No cache. Opening the podium always re-reads, because a board that has not moved costs one
   // small request and a board that HAS moved is the entire point of opening it.
   function loadPodium(chapterId, difficulty) {
-    const key = `${chapterId}:${difficulty}`
-    podiumKey = key
+    const mine = ++podiumReq
     podiumState = null
     fetchBoards(chapterId, difficulty).then((boards) => {
-      // Late answers from a board the player has already navigated away from must not paint over
-      // the one they are looking at — two flips in a row is enough to race this.
-      if (podiumKey !== key) return
+      // Late answers must not paint over what the player is looking at — two flips in a row is
+      // enough to race this. A monotonic token rather than the board's key, because the key cannot
+      // separate two in-flight requests for the SAME board: open, close, reopen the same chapter
+      // and difficulty while the first is still out, and both pass a key comparison — so if the
+      // first settles last and failed, an already-painted board flips to the error state.
+      if (podiumReq !== mine) return
       podiumState = boards ?? 'error'
       if (active === 'brief' && podiumOpen) renderBrief(lastBriefData ?? {})
     })
@@ -2035,16 +2062,22 @@ export function initUI(hooks) {
 
   // Three dashed placeholders rather than a spinner: the row count is known before the data is, so
   // the page can hold its own shape and only the numbers arrive.
+  // aria-hidden: the placeholder carries no information, and a screen reader announcing an
+  // unlabelled three-item list while the real one is still loading is worse than silence.
   const podiumSkeleton = () =>
-    '<div class="podium-rows">' + [0, 1, 2].map((i) => `
+    '<div class="podium-rows" aria-hidden="true">' + [0, 1, 2].map((i) => `
       <div class="podium-row podium-row--wait">
         <span class="podium-rank podium-rank--${i + 1}">${i + 1}</span>
         <span class="podium-bone"></span>
       </div>`).join('') + '</div>'
 
-  const podiumBoardHtml = (rows) => `<div class="podium-rows" role="list">${rows.length
-    ? rows.map(podiumRowHtml).join('')
-    : `<p class="brief-note podium-empty">${t('No scores yet — be the first.')}</p>`}</div>`
+  // The empty branch sits OUTSIDE role="list": a <p> inside one is an ARIA violation, and while it
+  // is unreachable today (both boards are fed by the same rows, so podiumBodyHtml's both-empty gate
+  // always catches it first) an unreachable wrong thing is still the wrong thing to leave for
+  // whoever makes it reachable.
+  const podiumBoardHtml = (rows) => (rows.length
+    ? `<div class="podium-rows" role="list">${rows.map(podiumRowHtml).join('')}</div>`
+    : `<p class="brief-note podium-empty">${t('No scores yet — be the first.')}</p>`)
 
   function podiumBodyHtml() {
     // A BUTTON, not a caption. The failure is almost always transient (a phone between cells), the
@@ -2518,7 +2551,13 @@ export function initUI(hooks) {
   // Carries ICO_PODIUM, so the three surfaces the feature has — the brief's Podium row, the
   // nickname sheet, and this — share one visual key. Without it "#1" beside a number is as easily
   // a footnote marker as a rank, to a player who has never opened the board it refers to.
-  const rankChip = (n) => (n ? `<i class="rank-chip rank-chip--${n}">${ICO_PODIUM}#${n}</i>` : '')
+  // data-pop, so setHtml's existing bookkeeping owns the entrance: NEW on the render where the rank
+  // lands (it animates), already-seen on any later one (it does not). Without it the chips replay
+  // their arrival every time the damage recap is folded — an entrance firing for something the
+  // player did not cause, which is the exact defect the whole .no-pop mechanism exists for. A blanket
+  // `.no-pop .rank-chip { animation: none }` looks like the fix and is not: the rank ALWAYS arrives
+  // on a re-render, so the box already carries .no-pop by then and the chip would never animate at all.
+  const rankChip = (n, board) => (n ? `<i class="rank-chip rank-chip--${n}" data-pop="rank-${board}">${ICO_PODIUM}#${n}</i>` : '')
 
   // Filled in after the fact: the score is submitted as the summary appears, so the rank always
   // arrives late. Re-rendering from lastSummaryData is the same path the damage recap's fold uses.
@@ -2564,8 +2603,8 @@ export function initUI(hooks) {
         ${killedByLine}
         <div class="stats">
           <div class="stat-row"><span>${t('Time')}</span><b>${fmtTime(d.time)}</b></div>
-          <div class="stat-row"><span>${t('Kills')}</span><b>${d.kills}${rankChip(d.podium?.kills)}</b></div>
-          <div class="stat-row"><span>${t('Level reached')}</span><b>${d.level}${rankChip(d.podium?.level)}</b></div>
+          <div class="stat-row"><span>${t('Kills')}</span><b>${d.kills}${rankChip(d.podium?.kills, 'kills')}</b></div>
+          <div class="stat-row"><span>${t('Level reached')}</span><b>${d.level}${rankChip(d.podium?.level, 'level')}</b></div>
         </div>
         ${damageBlock(d)}
         ${mutatorBlock}
@@ -2735,7 +2774,11 @@ export function initUI(hooks) {
     // Matched on .nick-sheet rather than on the data-pop key: run MP greps this file for
     // `data-pop="…"` literals to prove every modal key is unique, and a SELECTOR spelled that way
     // reads to it as a second modal declaring the same key.
-    if (nickPrompted() && !el.closest('.nick-sheet')) return
+    // `active === 'title'` is not redundant — it makes an invariant explicit that was otherwise
+    // load-bearing and unwritten. nickPrompted() knows nothing about screens, so without it this is
+    // a whole-app click kill switch that happens to be safe only because the title is the boot
+    // screen and no screen change is reachable without a click.
+    if (nickPrompted() && active === 'title' && !el.closest('.nick-sheet')) return
     if (el.dataset.dev !== undefined) {
       // The screen stays open — testing a card usually means stacking two or three of them, and
       // re-showing rebuilds the list against the run that just changed (a weapon card that read

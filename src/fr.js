@@ -208,8 +208,12 @@ const UI = {
   '{min}-{max} characters': 'de {min} à {max} caractères',
   'The best runs by everyone playing.': 'Les meilleures parties de tous les joueurs.',
   'top 3': 'top 3',
-  'No scores yet — be the first.': 'Aucun score pour l\'instant — sois le premier.',
-  'Could not reach the podium. Tap to try again.': 'Podium injoignable. Touche pour réessayer.',
+  // 'sois le premier' would need the ·e this file uses everywhere else (Écrabouillé·e, Desséché·e);
+  // 'à toi de commencer' carries the same invitation with no gender to agree at all.
+  'No scores yet — be the first.': 'Aucun score pour l\'instant — à toi de commencer.',
+  // 'Appuie', not 'Touche': `touche` is also the French noun for a keyboard KEY, so the line parses
+  // as "Key to retry", and toucher is not the verb French UI uses for a tap.
+  'Could not reach the podium. Tap to try again.': 'Podium injoignable. Appuie pour réessayer.',
   'Difficulty {d} unlocked!': 'Difficulté {d} débloquée !',
   'Chapter unlocked: {name}!': 'Chapitre débloqué : {name} !',
   // v6.7 carousel counter. Stands alone in front of a numeral ("Chapitre 3"), so it takes no

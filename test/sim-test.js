@@ -21633,7 +21633,11 @@ function testModalPopBookkeeping() {
   const noPop = css.indexOf('.no-pop,')
   assert.ok(noPop > 0, '.no-pop rule is gone from styles.css — every modal re-pops on re-render')
   const after = css.slice(noPop)
-  const losers = [...after.matchAll(/^\.([\w-]+)[^{}]*\{[^{}]*animation:\s*(pop-in|sheet-up)/gm)].map((m) => m[1])
+  // page-turn joined the alternation in v7.x. It is not cosmetic: the leaderboard shipped an
+  // entrance declared BELOW this kill switch, which is the exact defect this assertion exists for,
+  // and it was caught only because the same commit also moved a pop-in. An entrance animation this
+  // regex does not know the name of is one it cannot guard.
+  const losers = [...after.matchAll(/^\.([\w-]+)[^{}]*\{[^{}]*animation:\s*(pop-in|sheet-up|page-turn)/gm)].map((m) => m[1])
   assert.deepStrictEqual(losers, [],
     `.${losers[0]} declares an entrance animation AFTER the .no-pop kill rule and at the same ` +
     `specificity, so it wins the cascade and re-pops anyway — move .no-pop back to the end of the file`)
