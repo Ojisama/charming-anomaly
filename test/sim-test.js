@@ -18386,10 +18386,18 @@ function testLaneGolden() {
   // above describes. What did NOT move is `py`: all three seeds still end at exactly -12600, which
   // is 180s x LANE_SCROLL_SPEED. That is the guarantee this scenario exists for, and it is the
   // reason this re-capture is honest rather than a red being papered over.
+  // RE-BAKED 2026-08-18 for the global -15% mob HP. A golden master exists to catch drift you did
+  // NOT intend, so re-baking one is only honest if the drift is the drift your change predicts —
+  // otherwise it is a regression being blessed. The prediction here was specific and was checked
+  // before these numbers were written down: bodies with 15% less HP die sooner, so KILLS MUST RISE.
+  // They did, on every seed (267->295, 311->330, 293->306), and `py` — the load-bearing forward
+  // axis, which is exactly 180s x LANE_SCROLL_SPEED and must never move — did not budge on any of
+  // them. `px` and the alive count swing freely because kill timing re-phases the seeded stream;
+  // that is what this master is FOR, not evidence against it.
   const BEYOND_GOLDEN = [
-    { seed: 11, px: 6.696, py: -12600, enemies: 136, rocks: 1, kills: 267 },
-    { seed: 22, px: -67.248, py: -12600, enemies: 107, rocks: 1, kills: 311 },
-    { seed: 33, px: -95.454, py: -12600, enemies: 111, rocks: 1, kills: 293 },
+    { seed: 11, px: -189.78, py: -12600, enemies: 114, rocks: 1, kills: 295 },
+    { seed: 22, px: -189.777, py: -12600, enemies: 101, rocks: 1, kills: 330 },
+    { seed: 33, px: 13.046, py: -12600, enemies: 117, rocks: 1, kills: 306 },
   ]
   const meta = makeMeta()
   for (const id of ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond']) {
