@@ -437,6 +437,15 @@ const SFX_FOR_EVENT = {
   // voice in the bank to a weighted mesh closing — and the pairing matches Debris Toss exactly:
   // 'toss' (the throw) has no entry for either weapon, and the LANDING is what you hear.
   snare: 'hole',
+  // The Wreck's herding kit (v7.x). BOTH get a voice, and the rule that grants it is the cadence:
+  // chum casts every 3.4-5.0s and bilge every 3.0-4.2s, which is the far side of the "rare enough
+  // to bear one" line that keeps gnash and clawRake silent. Both also PLANT something that then
+  // sits there, so the sound is the only marker of the MOMENT — the entity cannot tell you when.
+  //   Both borrow 'hole', the vortex whoosh: a bucket of offal going over the side and a drum
+  // splitting are the same wet, low, one-off event, and it is the closest voice in the bank. Two
+  // cards sharing a sample is the pairing 'snare' above already makes with Debris Toss.
+  chum: 'hole',
+  bilge: 'hole',
   // 'gnash' gets NO entry, and it is the same ruling as 'tail'/'crust'/'longline' below rather than
   // an oversight — run EV is satisfied by its render case (the closing jaws, render.js). The Wreck's
   // native fires every 0.42-0.60s before any fire-rate source, i.e. ~2/s in a real build, which is

@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -6336,38 +6336,6 @@ export function createRenderer(app) {
       T.rockChunk = bake(g)
     }
     {
-      // BALLAST (shelf, run.lobs with look 'ballast'): a block of dumped weight, PLAN VIEW — the
-      // camera looks straight down, so this is the top face of a thing lying in the water, not a
-      // block seen from the side. Baked at r 34 and scaled DOWN to BALLAST_THROW_R, per the rule a
-      // sprite magnified from a small bake is stepped on every edge; the old path scaled a 12px
-      // rock 8-11x.
-      //
-      // It must not read as the kaiju's rockChunk (cold grey masonry) or as Debris Toss. So: rust
-      // and old iron rather than stone, a squarer silhouette than any natural chunk, and two rebar
-      // stubs — the tells that this was MADE and then dumped, which is the chapter's whole subject.
-      const g = new Graphics()
-      const R = 34
-      // The block. Six points on a squarish outline, jittered so it is cast-off rather than tidy.
-      const pts = []
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2 + 0.4
-        const rr = R * (0.78 + hash(i * 3.11 + 7.7) * 0.28)
-        pts.push(Math.cos(a) * rr, Math.sin(a) * rr * 0.92)
-      }
-      g.poly(pts).fill(0x6b4f36).stroke({ width: 2.4, color: 0x2e2318 })
-      // The lit top face, offset up-left like every other overhead solid in this game.
-      g.ellipse(-R * 0.14, -R * 0.16, R * 0.52, R * 0.40).fill({ color: 0x8f6c48, alpha: 0.85 })
-      // Rust bloom and a wet shadowed corner.
-      g.ellipse(R * 0.20, R * 0.18, R * 0.30, R * 0.22).fill({ color: 0x9a5a2c, alpha: 0.55 })
-      g.ellipse(R * 0.30, -R * 0.28, R * 0.20, R * 0.14).fill({ color: 0x3a2a1c, alpha: 0.45 })
-      // Two rebar stubs: the one detail that says this is not a rock.
-      g.beginPath().moveTo(-R * 0.55, -R * 0.45).lineTo(-R * 0.95, -R * 0.80)
-        .stroke({ width: 3.4, color: 0x4a3a26 })
-      g.beginPath().moveTo(R * 0.50, R * 0.42).lineTo(R * 0.88, R * 0.72)
-        .stroke({ width: 3.0, color: 0x4a3a26 })
-      T.ballastBlock = bake(g)
-    }
-    {
       // Net Toss in flight (trawl, run.lobs with `snare`). A GATHERED BUNDLE, not a spread mesh:
       // it is a net that has been balled up and thrown, and it opens only where it lands. Drawn
       // from directly overhead like everything else in this file that is not a building.
@@ -10739,8 +10707,18 @@ export function createRenderer(app) {
   // the same rule an obstacle footprint follows.
   function syncSlicks(run) {
     slickG.clear()
-    if (!run.slicks || !run.slicks.length) return
-    for (const sl of run.slicks) {
+    // THE PLAYER'S OWN OIL IS DRAWN BY THE HAZARD'S RENDERER (v7.x). A Bilge is a run.blooms entry,
+    // and through the bloom sprite pool it came out as a soft edgeless glow — unusable for a card
+    // whose whole job is to be a WALL, because a barrier you cannot see the edge of is not one.
+    // That is the same contract an obstacle's footprint ring states. Routing it through here gives
+    // it the lobed outline and the rim the chapter's own spills have, and says the other half of
+    // the design out loud: this card is the player doing the leak back.
+    //   syncBlooms filters `bilge` out at its own top, or the oil would draw twice — an edge with a
+    // glow sitting over it, which is the run.lobs three-consumers trap in miniature.
+    const oils = (run.blooms || []).filter((b) => b.look === 'bilge' && b.r > 0)
+    const all = (run.slicks || []).concat(oils)
+    if (!all.length) return
+    for (const sl of all) {
       const pts = lobePoly(sl.r, sl.shape, sl.rot, sl.x, sl.y)
       // The film itself: dark and dead, because that is what it does to the water.
       slickG.poly(pts).fill({ color: 0x14181a, alpha: 0.5 })
@@ -11663,39 +11641,12 @@ export function createRenderer(app) {
       for (const sh of run.shafts) {
         const sx = sh.x + cx, sy = sh.y + cy
         if (sx + sh.r < 0 || sx - sh.r > w || sy + sh.r < 0 || sy - sh.r > h) continue
-        // ⚠ A SPENT UPWELLING MUST STOP CLEARING (The Shelf, owner from play: "faded out clear water
-        // pools still give light"). This punch used to be unconditional, so a circle that had gone
-        // fully transparent in updateShafts — and had stopped refilling the bar in stepCharge —
-        // still cut a full-strength hole in the murk. Two of the three consumers agreed the water
-        // was used up and the third kept lighting it, which on screen is a patch of clear water that
-        // does nothing and never goes away.
-        //
-        // Faded on the SAME linear curve as the sprite and the sim clock, off the same field.
-        const fade = refillDrawdown > 0
-          ? 1 - Math.min(1, (sh.drawdown ?? 0) / refillDrawdown)
-          : 1
-        if (fade <= 0.004) continue
-        darkCtx.globalAlpha = fade
-        // FOLLOW THE LOBES where the field has them. A circle punched around a lobed upwelling
-        // clears water OUTSIDE the shape the player can see and the sim tests, which is the same
-        // drawn-extent-is-tested-extent rule every other refill field in this book holds to — it
-        // just had nowhere to go wrong until a blob field existed.
+        // Hard discs, not blobs: a shaft is a pool of full daylight with an edge you can stand on the
+        // wrong side of, and sim.js tests that radius exactly (stepCharge).
         darkCtx.beginPath()
-        if (sh.shape != null) {
-          const pts = lobePoly(sh.r, sh.shape, sh.rot)
-          for (let k = 0; k < pts.length; k += 2) {
-            const px = (sx + pts[k]) * s, py = (sy + pts[k + 1]) * s
-            if (k === 0) darkCtx.moveTo(px, py); else darkCtx.lineTo(px, py)
-          }
-          darkCtx.closePath()
-        } else {
-          // Hard discs for the round fields: a shaft is a pool of full daylight with an edge you can
-          // stand on the wrong side of, and sim.js tests that radius exactly (stepCharge).
-          darkCtx.arc(sx * s, sy * s, sh.r * s, 0, Math.PI * 2)
-        }
+        darkCtx.arc(sx * s, sy * s, sh.r * s, 0, Math.PI * 2)
         darkCtx.fill()
       }
-      darkCtx.globalAlpha = 1
     }
 
     // THE LURES (The Deep). The esca is the ONLY part of a maw that reaches the player from a
@@ -13281,7 +13232,12 @@ export function createRenderer(app) {
     return { root, puffs: [a, b, c] }
   }
   function syncBlooms(run) {
-    const list = run.blooms || []
+    // ⚠ `bilge` IS EXCLUDED HERE because syncSlicks draws it instead — with a lobed outline and a
+    // rim, which a card whose job is to be a WALL needs and this soft-sprite pool cannot give. Left
+    // in both, the same oil would draw twice: an edge with a glow sitting over it. That is the
+    // run.lobs three-consumers trap in miniature, and the reason this line is a comment as well as
+    // a filter.
+    const list = (run.blooms || []).filter((b) => b.look !== 'bilge')
     const n = list.length
     while (bloomPool.length < n) bloomPool.push(acquireBloom())
     // v6.4 Tide-Carried (WEAPON_MODS.bloom.tideCarried): with picks held, stepBlooms drifts each
@@ -13324,12 +13280,20 @@ export function createRenderer(app) {
         // the Spore Bloom's green (same entity, wrong chapter, and the player would read their
         // own silt as a pond toxin) and it must not be Foxfire's mint either.
         const silt = bl.look === 'silt'
+        // `bilge` is The Wreck's oil — the FOURTH card on this array, and the one that must least
+        // look like the other three. It is not a cloud in the water at all: it is a film ON the
+        // bottom, so it is DARK where silt is pale, and it carries the only iridescence in the set,
+        // which is what says oil rather than mud. That also matches the chapter's own hazard slicks
+        // (syncSlicks), deliberately — the card is the player doing the leak back, and a player who
+        // cannot see that their own weapon is the thing that hurts them has been told nothing.
+        const oil = bl.look === 'bilge'
         s.tint = fox
           ? (k % 2 ? 0xeafcff : 0xd9ffe8)
           : silt ? (k % 2 ? 0x9a9670 : 0x6e6a4c)
+          : oil ? (k % 2 ? 0x4b3a63 : 0x1b2128)
           : inEddy ? (k % 2 ? 0x6fe0c0 : 0x3faea0) : (k % 2 ? 0x6fe04a : 0x3fae2f)
         // Denser than a toxin cloud on purpose: this one's job is that you cannot see through it.
-        s.alpha = alpha * (k === 0 ? 0.5 : 0.4) * (fox ? 1.45 : silt ? 1.6 : 1)
+        s.alpha = alpha * (k === 0 ? 0.5 : 0.4) * (fox ? 1.45 : silt ? 1.6 : oil ? 1.7 : 1)
       }
     }
     for (let i = n; i < prevCount.bloom; i++) bloomPool[i].root.visible = false
@@ -13660,6 +13624,31 @@ export function createRenderer(app) {
         lv.eyeL.alpha = lv.eyeR.alpha = inA
         lv.eyeL.position.set(-pr * 0.36, -pr * 0.16)
         lv.eyeR.position.set(pr * 0.36, -pr * 0.16)
+        continue
+      }
+      // CHUM (v7.x, The Wreck) — a bait, not a beacon. Same pooled decoy as the Pheromone Lure and
+      // it must not wear its art: that is an AMBER GLOW WITH TWO SPINNING STARS, which on a sea
+      // floor reads as a magic pickup rather than as offal in the water. `lu.bait` is the sim's own
+      // tag (see stepChumWeapon), the same idiom `lu.minime` above already uses.
+      //   Drawn as a cold, dirty cloud that SPREADS rather than pulses: the stars are switched off
+      // outright, the glow goes murky green-brown, and the ring is dimmed to a soft edge so it reads
+      // as the smell dispersing. It also swells with `inA` instead of throbbing on `pulse` — a
+      // heartbeat is what makes the amber lure read as a device, and chum is not a device.
+      const bait = !!lu.bait
+      if (bait) {
+        lv.star1.visible = lv.star2.visible = false
+        // ⚠ SIZED FROM `lu.aggro`, NOT FROM A CONSTANT, and that is information rather than polish:
+        // this card's entire job is "the shoal will gather HERE", so the reach IS the thing the
+        // player is placing, and a bait drawn at a fixed size lies about it the moment Wide Slick is
+        // picked. Same contract an obstacle's footprint ring states — the edge you can see is the
+        // edge that acts.
+        const reach = lu.aggro || 240
+        // Warm, pale and dirty. The first cut was 0x6b6a3a at 0.42 and photographed as a faint
+        // smudge on a dark blue floor — invisible enough that a player could not tell they had cast.
+        lv.glow.tint = 0xa89a63; lv.glow.alpha = 0.5 * inA
+        lv.glow.scale.set(fxScale(T.fx.circle_05, reach * 0.55 + pulse * 6))
+        lv.ring.tint = 0xd8c489; lv.ring.alpha = 0.34 * inA
+        lv.ring.scale.set(fxScale(T.fx.light_02, reach * 0.95))
         continue
       }
       lv.glow.tint = 0xffd36b; lv.glow.alpha = 0.5 * inA * (0.7 + 0.3 * pulse)
@@ -14617,13 +14606,9 @@ export function createRenderer(app) {
     // and a visibility swap, rather than two pools — the flight, the parabola and the shadow are
     // identical and are the whole reason run.lobs was reused for Net Toss in the first place.
     const net = spriteOf(T.tossNet)
-    // A THIRD payload, for the same reason there is a second: the flight, the parabola and the
-    // shadow are identical and are the whole point of reusing run.lobs — only the thing in the air
-    // differs. One sprite each and a visibility swap beats three pools.
-    const ballast = spriteOf(T.ballastBlock)
-    root.addChild(shadow, chunk, net, ballast)
+    root.addChild(shadow, chunk, net)
     lobLayer.addChild(root)
-    return { root, shadow, chunk, net, ballast }
+    return { root, shadow, chunk, net }
   }
   let lobCount = 0
   function syncLobs(run) {
@@ -14649,24 +14634,18 @@ export function createRenderer(app) {
       // The shadow tracks the THROWN OBJECT, not the landing radius — for a net those are different
       // numbers (a 13px bundle that opens to 142px), and using r here painted a shadow the size of
       // the whole detonation under a ball in mid-air.
-      const shadowR = lb.snare > 0 ? 14 : lb.look === 'ballast' ? BALLAST_THROW_R : lb.r
+      const shadowR = lb.snare > 0 ? 14 : lb.r
       lv.shadow.scale.set((shadowR / PLAYER.radius) * 0.5 * (1 - 0.3 * (hop / 160)))
       // Which payload. A net TUMBLES more slowly than a rock and is scaled off its own bundle size
       // rather than off `r` — r is where it will OPEN, not how big the thrown ball is, and scaling
       // a 13px bundle to a 142px radius fills the screen with one sprite.
       const isNet = lb.snare > 0
-      const isBallast = lb.look === 'ballast'
-      const body = isNet ? lv.net : isBallast ? lv.ballast : lv.chunk
-      lv.chunk.visible = !isNet && !isBallast
-      lv.ballast.visible = isBallast
+      const body = isNet ? lv.net : lv.chunk
+      lv.chunk.visible = !isNet
       lv.net.visible = isNet
       body.position.set(0, -hop)
-      // A ballast TUMBLES SLOWLY. A dumped block is heavy and a rock chunk spinning at k*9 reads as
-      // light debris, which is most of why the two looked like the same weapon.
-      body.rotation = isNet ? k * 3.4 + i : isBallast ? k * 2.2 + i : k * 9 + i
-      // Scaled off its OWN size and never off `r`: r is the LANDING radius (96-134px here), and
-      // using it magnified a 12px bake up to 11x. Baked at 34 and scaled DOWN, per CLAUDE.md.
-      body.scale.set(isNet ? 1 : isBallast ? BALLAST_THROW_R / 34 : (lb.r || 20) / 12)
+      body.rotation = isNet ? k * 3.4 + i : k * 9 + i
+      body.scale.set(isNet ? 1 : (lb.r || 20) / 12)
     }
     for (let i = list.length; i < lobCount; i++) lobPool[i].root.visible = false
     lobCount = list.length
@@ -17256,7 +17235,14 @@ export function createRenderer(app) {
       // frame, and look.faceDir is declared per LOOK, so it cannot express "this INSTANCE has a
       // different target". sim publishes the seek point it already computed as _tgtX/_tgtY.
       // Contract field, read guarded (`|| 0` idiom above): the sim half may not have landed.
-      if ((e.allyT || 0) > 0 && (e._tgtX !== undefined)) {
+      // v7.x THE WRECK: `skittish` joins the ally on this branch, and it is the same fix for the
+      // same reason. Owner: "the fish you can eat should not face you, they should run away from you
+      // in a school." Bearing is derived from run.player above, so a fleeing fish swam BACKWARDS —
+      // tail first, eyes on the predator — in every roster look, and a whole shoal of them read as
+      // an escort rather than an escape. stepPrey publishes its heading into the same _tgtX/_tgtY
+      // that SUBMISSION's allies already use; nothing here had to learn a new field.
+      const facesOwnHeading = (e.allyT || 0) > 0 || (e.flags && e.flags.includes('skittish'))
+      if (facesOwnHeading && (e._tgtX !== undefined)) {
         tdx = e._tgtX - e.x
         tdy = e._tgtY - e.y
       }

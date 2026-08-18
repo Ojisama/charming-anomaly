@@ -2131,7 +2131,7 @@ export const WEAPONS = {
   // -- The Wreck's native (spec §9, built v7.x with the prey rework) -----------------------------
   gnash: {
     name: 'Gnash',
-    desc: 'Snaps a short bite in front of you. The closer the body, the deeper it goes.',
+    desc: 'Darts onto the nearest body and bites. The closer it lands, the deeper it goes.',
     icon: '🦷', rarity: 'normal',
     // THE CHAPTER'S THESIS AS A WEAPON. The Wreck pays you for closing on food that is running
     // away; this is the card that says so — a sector at HALF the reach of the two melee starters,
@@ -2142,6 +2142,19 @@ export const WEAPONS = {
     // and swings to the outside of your turn, gnash reads the TARGET'S DISTANCE and points where
     // you aim. One is the animal's body, the other is its mouth. They are also two chapters apart
     // and never share a pool outside `blank`.
+    //
+    // IT CLOSES THE GAP ITSELF (v7.x, owner: "stuff to dash"). THIS ALSO FIXES A REAL DEFECT the
+    // first cut shipped with: a 78-98px reach in the one chapter whose crowd RUNS AWAY at 103-223
+    // px/s means the jaw arrives where the fish was. The chapter's own weapon could not reach the
+    // chapter's own food, and no test could see it — the sector fires, the event draws, and the
+    // damage simply lands on nobody.
+    //   So the cast DARTS: up to GNASH_CLOSE_MAX px toward the target, and only as far as it needs
+    // to put the body inside the jaw. Deliberately SHORT and deliberately conditional — a weapon
+    // that yanks the player somewhere every 0.42s is fighting the stick, and the failure mode to
+    // shoot for is "it teleports", the same one v6.6.28 removed dashBurst from a chapter over.
+    //   NOT a second Lunge. The button is player-timed, 900 px/s, costs Bloodlust and banks a large
+    // refill on a kill; this is automatic, a fifth of the distance, and free. One is a resource
+    // decision, the other is the animal's ordinary way of eating.
     //
     // ⚠ KNOCKBACK IS ZERO AND THAT IS A DESIGN DECISION, NOT AN OMISSION. Every other melee weapon
     // in the game shoves what it hits, because everywhere else the crowd is walking into you and
@@ -2161,6 +2174,65 @@ export const WEAPONS = {
       { dmg: 22, rate: 0.52, range: 86, arc: 1.16 },
       { dmg: 27, rate: 0.47, range: 92, arc: 1.22 },
       { dmg: 34, rate: 0.42, range: 98, arc: 1.30 },
+    ],
+  },
+  // -- The Wreck's herding gear (v7.x, owner: "stuff to dash, to slow enemies, to circle them add
+  // barriers something") ------------------------------------------------------------------------
+  // THE CHAPTER'S PROBLEM IS NOT DAMAGE, IT IS REACH. Every other chapter's arsenal answers "how do
+  // I hurt the crowd"; this one's crowd is food that runs, so the question is "how do I get to eat
+  // it". These two are the answer and they are the opposite halves of one verb: chum GATHERS, bilge
+  // WALLS. Neither does much damage and that is deliberate — gnash is the mouth.
+  //
+  // ⚠ BOTH ARE DELIBERATELY DISTINCT FROM THE SHELF'S NEW SET, which landed on main while this was
+  // being written (v7.136.0: Bubble Puff, Silt Veil, Ballast). Silt Veil already SCATTERS with fear
+  // and Bubble Puff already SHOVES with a ring, so a wreck card that scattered or shoved would be
+  // that chapter's card in another hat. Chum is the inverse of a scatter and bilge is a wall.
+  chum: {
+    name: 'Chum',
+    desc: 'Tears the rotted catch out of the hold. What was fleeing turns and gathers.',
+    icon: '🪣', rarity: 'normal',
+    // THE INVERSE OF EVERY DECOY IN THE GAME. A Pheromone Lure taunts things that were already
+    // coming for you; this turns things that were RUNNING. That is the same entity — a point in
+    // run.lures with an aggro radius — so it is `bait: true` on the shipped array rather than a
+    // fourth kind of zone, and stepPrey reads the tag to swim TOWARD instead of away.
+    //
+    // ⚠ WITHOUT THE TAG IT WOULD DO THE EXACT OPPOSITE OF THE CARD. The lure override sets the seek
+    // target, and stepPrey flees from the seek target — so an untagged chum would be a repellent
+    // that reads as a bug, and nothing would throw.
+    //
+    // No burst and no damage: the card is the gather. `dur` is long and `rate` slow because a bait
+    // ball has to have time to form — a 1s gather is a flinch, not a shoal turning round.
+    levels: [
+      { rate: 5.0, castRange: 250, dur: 4.0, aggro: 240 },
+      { rate: 4.6, castRange: 265, dur: 4.4, aggro: 265 },
+      { rate: 4.2, castRange: 280, dur: 4.8, aggro: 290 },
+      { rate: 3.8, castRange: 300, dur: 5.2, aggro: 320 },
+      { rate: 3.4, castRange: 320, dur: 5.6, aggro: 355 },
+    ],
+  },
+  bilge: {
+    name: 'Bilge',
+    desc: 'Splits a drum. The oil crawls out, it drags on anything in it, and nothing will swim into it.',
+    icon: '🛢️', rarity: 'normal',
+    // THE BARRIER, and it is the chapter's own hazard turned into a tool: the leak is what kills you
+    // here (CHAPTERS.wreck.signature), and this card is you doing it back. That is the book's
+    // pollution through-line pointed at the player's hand rather than at the player.
+    //
+    // A run.blooms entry tagged look: 'bilge' — the fourth card on that array after the pond's Toxin
+    // Bloom, The Twilight's Foxfire and The Shelf's Silt Veil. `dmgPerTick: 0` because this is not a
+    // damage zone; what it does is SLOW (bloomSlowT, the shipped enemy-side contract field) and, for
+    // anything `skittish`, act as a wall it will not enter.
+    //
+    // THE TWO HALVES LOOK LIKE THEY FIGHT AND DO NOT. Prey refuse to enter, so the slow rarely
+    // catches them — that is the point: you do not lay this ON the shoal, you lay it where the shoal
+    // was going. The slow is what it does to everything that is NOT prey (the moray) and to prey you
+    // drive into it with a Lunge. One card, two readings, and the player learns the second one.
+    levels: [
+      { rate: 4.2, dur: 4.5, maxR: 120 },
+      { rate: 3.9, dur: 4.9, maxR: 132 },
+      { rate: 3.6, dur: 5.3, maxR: 144 },
+      { rate: 3.3, dur: 5.7, maxR: 158 },
+      { rate: 3.0, dur: 6.2, maxR: 174 },
     ],
   },
 }
@@ -2519,6 +2591,25 @@ export const WEAPON_MODS = {
     // chapter where the player is the fast thing, an unqualified hold reads as a buff on you.
     deathRoll:       { name: 'Death Roll', desc: 'holds bitten prey for {n}s', icon: '🌀', base: 0.35, kind: 'secs' },
   },
+  // chum's three. widerChum/longerChum fold into levels[] via WEAPON_STAT_MODS; deepChum is
+  // behavioral (it is read where the bait's pull is applied, in stepPrey).
+  chum: {
+    widerChum:  { name: 'Wide Slick',  desc: 'chum spread',              icon: '🌊', base: 0.30, kind: 'pct' },
+    longerChum: { name: 'Ripe Catch',  desc: 'how long chum lasts',      icon: '🐟', base: 0.35, kind: 'pct' },
+    // The one that changes what the card DOES rather than how much of it there is: a baited fish
+    // that keeps its nerve closer in. Priced against CHUM_PANIC_R, so at full stacks the ball still
+    // breaks — an unbreakable one would be a pause button on the chapter.
+    deepChum:   { name: 'Deep Chum',   desc: 'baited fish hold their nerve closer to you', icon: '🩸', base: 0.30, kind: 'pct' },
+  },
+  // thickOil/wideBilge fold into levels[] via WEAPON_STAT_MODS; slickTrail is behavioral.
+  bilge: {
+    wideBilge:  { name: 'Split Seam',  desc: 'oil spread',               icon: '🛢️', base: 0.30, kind: 'pct' },
+    thickOil:   { name: 'Thick Oil',   desc: 'how long the oil lasts',   icon: '⏳', base: 0.35, kind: 'pct' },
+    // Turns the wall into a fence you can DRAW. Without it a bilge is one circle at a time and the
+    // player is placing dots; with it they are cutting the water into rooms, which is the play the
+    // card exists for.
+    slickTrail: { name: 'Trailing Slick', desc: 'the oil pours behind you as you swim', icon: '〰️', kind: 'switch' },
+  },
   clawRake: {
     rend:        { name: 'Rending Claws', desc: 'claw damage', icon: '🩸', base: 0.35, kind: 'pct' },
     wideRake:    { name: 'Wide Rake',     desc: 'claw sweep width', icon: '🪭', base: 0.30, kind: 'pct' },
@@ -2869,6 +2960,9 @@ export const WEAPON_RATE_MODS = {
   burstHydrant: 'rapidHydrant', roar: 'rapidRoar', tailLash: 'quickTail',
   debrisToss: 'rapidToss', realityShard: 'rapidShard', pulsarSweep: 'rapidSweep',
   atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash', foxfire: 'quickKindle',
+  // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
+  // header says a weapon with none simply does not appear here. Naming one that does not exist
+  // would put a phantom row in the pause build sheet's cadence line.
   gnash: 'quickSnap',
 }
 // Same problem for per-cast COUNTS: nearly every one folds through WEAPON_STAT_MODS, but the star's
@@ -3556,12 +3650,6 @@ export const FOXFIRE_GLOW = {
 // misfire the card should be able to make.
 export const BALLAST_FLIGHT = 0.42       // seconds from the throw to the landing
 export const BALLAST_BLIND_THROW = 260   // px ahead, when there is nothing to aim at
-// The size of the THROWN BLOCK on screen, which is deliberately not `r`. `r` is where it will
-// LAND — 96 to 134px — and the lob rig scaled its payload by exactly that, off a 12px bake, so a
-// ballast flew as the kaiju's masonry chunk magnified 8-11x: the same sprite as Debris Toss and
-// stepped on every edge. Owner from play, 2026-08-18: "Lest looks too much like debris toss. It's
-// ugly and pixelated." The net beside it already had this fix and its comment already said why.
-export const BALLAST_THROW_R = 26
 
 export const SUNLANCE_REACH_MIN = 0.45
 // ---- The Deep's anglerfish: the refill IS the trap ---------------------------------------------
@@ -5220,17 +5308,15 @@ CHAPTERS.shelf = {
   // ⚠ Phase 3 changes two of three creatures, which changes the kill rate, which is what killRefill
   // is read against — re-run charge-probe's FULL refill sweep then, not just the Clear spend policy.
   //
-  // speedFloor 0.7 — THE MURK SLOWS YOU. Owner from play, 2026-08-18: "it should also slow you
-  // down". This overturns the speedFloor 1 that shipped in v7.133, whose argument was that 2.4
-  // (Feed) and 2.5 (the dark) already both slow you and a third would collapse the axis. That
-  // argument lost to the chapter actually being played: water you cannot see through is water you
-  // move carefully in, and a chapter whose only cost was sight turned out not to bite.
-  //
-  // 0.7 rather than The Twilight's 0.6, because this is slot 2 and that is slot 6 — the book should
-  // still tighten as it descends rather than arriving at its full weight in the second chapter.
+  // speedFloor 1 — THE MURK DOES NOT SLOW YOU, and this is the one number that is a decision rather
+  // than an inheritance. Three reasons. The murk is filth you push back, not exhaustion. The
+  // shipped tune of this rig with BOTH penalties recorded the highest damage taken of any row it
+  // measured, and §6.2's Clear adds a third cost on top by shrinking the resting radius. And 2.4
+  // (Feed) and 2.5 (the dark) already both slow you, so a third is the axis collapsing rather than
+  // a chapter having an identity.
   resource: {
     name: 'Clarity', drain: 2.2, refill: 18, killRefill: 1.5, max: 100,
-    dark: { from: 0.5, speedFloor: 0.7, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
+    dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
   },
 
   // ⚠ TWO OF THREE ARE BORROWED STAND-INS. The moon jelly is the one that is a design: Aurelia
@@ -5304,7 +5390,7 @@ CHAPTERS.shelf = {
     // pale silty tone, not a dark one. The scrim is a MULTIPLY, so this value is roughly the
     // fraction of the floor that survives at full murk: ~0.55, i.e. hazed out rather than blacked
     // out. Judge it on scripts/scenes/shelf-murk.js, whose whole first question is this one.
-    darkTint: 0x5f6b4e,
+    darkTint: 0x8c9a80,
 
     // SWELL (v7.x): the waves — STAYED WITH THE SLOT when the light left. Surface waves seen from
     // below belong in shallow water and cannot be seen at 2.5, which is why this block did not
@@ -5829,27 +5915,22 @@ CHAPTERS.reef = {
 CHAPTERS.wreck = {
   name: 'The Wreck', tagline: 'stop and you starve', icon: '⚓',
 
-  // ---- THE ARSENAL, AND IT IS PICKED AGAINST A TARGET THAT RUNS AWAY -------------------------
-  // Every other chapter's pool is chosen against a crowd that closes on you, which is why "does it
-  // fire in all directions" is normally a virtue. Here it is the opposite: the crowd is LEAVING, so
-  // the volume of fire behind and beside the player lands on empty water.
-  //   gnash   the native, and the chapter's thesis as a weapon: a short forward bite whose damage
-  //           RISES the closer the body is. It is bad at range and there is no reason to be at
-  //           range here. Geometry is clawRake/flagella's shipped sector — a new bake and a new
-  //           tuning table, not a new system.
-  //   stinger a cone of needles at the NEAREST enemy. A fleeing fish is by definition in front of
-  //           you, so the one weapon whose whole weakness elsewhere is dumping a volley into the
-  //           closest body is the weapon that chases down a runner here.
-  //   mines   planted, and they do not care that nothing walks into them on purpose. YOU drive the
-  //           shoal onto them — the only weapon in the game whose value goes UP when the target
-  //           flees, because a scattering school picks its heading from where you are standing.
+  // ---- THE ARSENAL, AND EVERY CARD IN IT IS ABOUT REACHING FOOD THAT RUNS -----------------------
+  // Owner, 2026-08-18: "the attacks must be changed to something more chapter related." They were
+  // The Garden's needle cone and a generic mine, borrowed for their SHAPE against a fleeing target,
+  // and shape was the wrong axis — a chapter reads by its nouns, and neither of those is a noun this
+  // place owns. All three are now the wreck's own.
   //
-  // quillBurst was DROPPED in the rework and the reason is the whole design: a ring centred on the
-  // player is the one shape that is empty in this chapter. It was the right borrow when the wreck
-  // was an aggro level and became wrong the moment the roster turned into food.
-  // ⚠ The borrowed-art check is a grep, not a judgement call: T.stinger and T.mine both bake
-  // abstract casts (a needle, a planted glow), so neither drags another biome's noun in here.
-  weapons: ['gnash', 'stinger', 'mines'], starter: 'gnash',
+  // Every other chapter's pool answers "how do I hurt the crowd". This one's crowd is food, and the
+  // real problem is that it is faster than you and leaving. So the pool is a HERDING KIT:
+  //   gnash  the mouth, and it now DARTS onto its target rather than snapping at where the fish
+  //          was — see its own block for why a 78-98px reach was a defect in this chapter.
+  //   chum   GATHERS. The one card in the game that turns something already running.
+  //   bilge  WALLS. Prey will not enter it, so it is how you take an escape route away; everything
+  //          that is not prey just slows in it.
+  // Between them the chapter's verbs are close, gather, cut off — which is how anything actually
+  // hunts a shoal, and none of it is a damage number.
+  weapons: ['gnash', 'chum', 'bilge'], starter: 'gnash',
 
   // ---- THE ROSTER IS FOOD. This is the one chapter where "enemy" is a lie the code tells. ------
   // Owner, 2026-08-17: "about you, a shark, chasing after schools of fishes that run in fear.
@@ -5890,6 +5971,17 @@ CHAPTERS.wreck = {
     { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.2,  speedMul: 0.7,  dmgMul: 0, flags: ['guard'] },
   ],
   eliteFlags: ['soapTrail'],   // shared with surf/shelf/reef/trawl. NOT the whole book: deep is webZone
+
+  // 70% FEWER MORAYS. Owner ruling 2026-08-18: "70% less tanks (murènes)". The moray is the one
+  // thing in this chapter that does not flee and cannot be eaten on demand, so it is the chapter's
+  // texture — and at WAVE_TABLE's stock tank share it was the texture rather than the accent.
+  //
+  // `archetypeMul`, NOT a roster `weight`, and the difference is load-bearing: spawnEnemy picks the
+  // TYPE first and only then narrows to the roster entries wearing it, so weighting a chapter's one
+  // and only `tank` is a weighted pick over a one-item pool — a silent no-op. See waveWeights.
+  // Weights are relative, so the 0.7 the moray gives up is handed to the mackerel and the damselfish
+  // and the total spawn count is untouched; this makes the field MORE prey, not emptier.
+  archetypeMul: { tank: 0.3 },
 
   // THE LEAK. Owner ruling 2026-08-17, and it REVERSES the ruling taken earlier the same day —
   // "being an aggro level is sufficient", i.e. signature: null — because the premise moved under it.
@@ -6061,16 +6153,22 @@ CHAPTERS.wreck = {
       // its length and 9% across its beam, so the chance of one intersecting the viewport at all
       // was about one frame in twenty-five. On screen that is a chapter with no wreck in it, which
       // is precisely the report this whole change answers. Measured off the frames, not reasoned.
-      cell: 1050,
+      // Owner, 2026-08-18: "boats should be wayyyy bigger." cell tracks len at ~1.35x so a bigger
+      // hull does not simply overlap its neighbour — the grid spacing and the object's own length
+      // are one decision, and moving either alone is how a graveyard turns into a pile-up.
+      cell: 2450,
       chance: 0.8,       // under 1 so the field reads as a graveyard rather than as a lattice
       parallax: 0.45,    // fraction of camera motion the layer takes. 1 = welded to the world, 0 =
                          // pinned to the screen. Under 1 = deeper. Far under and it reads as a
                          // painted backdrop that slides, which is the failure mode to shoot for.
-      // 620, DOWN FROM 1560 VIA 950, and both cuts were made from frames rather than from reasoning.
-      // At 1560 the hull was nearly four phone-screens long and what reached the player was never a
-      // ship, only an enormous edge crossing a corner; at 950 it was still a slab. A landmark has to
-      // FIT to read as one. 620 is ~15x the player's own body, which is a big ship.
-      len: 620,
+      // 1820. THE EARLIER CUT TO 620 FIXED THE WRONG HALF OF THE PROBLEM. At 1560 the hull read as a
+      // pale slab, and the diagnosis — "a landmark has to FIT" — was wrong: what actually failed was
+      // that all its detail sat at the bow and the stern, so the crop a player really sees was empty
+      // fill. That was fixed separately by making the structure CONTINUOUS (spine, deck rails,
+      // evenly spaced transverse frames), and once a crop reads as built, size stops being the
+      // constraint and starts being the point. Owner: "boats should be wayyyy bigger."
+      // 1820 is ~45x the player's own body and about two phone-screens down its length.
+      len: 1820,
       // Lighter than the floor, not darker: underwater, distance makes a thing PALER and BLUER,
       // because the water column between you and it scatters light in. The first cut used 0x14242c
       // on the reasoning that dead steel is dark and it vanished completely.
@@ -7830,6 +7928,51 @@ export const GNASH_FINISH_FRAC = 0.34
 //     diminishing returns and cannot become the permanent field-wide lock v7.16 removed;
 //   - it publishes to `stunT`, which render.js already reads and holds the pose for. A private
 //     field would be a status with no tell, which is exactly what "cold does nothing" looked like.
+
+// THE DART. How far a cast may pull the player toward its target, and it is a CEILING rather than a
+// distance: the cast closes only as far as it needs to put the body inside the jaw, so a bite that
+// was already in range moves the player not at all. That conditionality is the whole reason this
+// does not read as teleporting.
+// 96px against a 0.42s cadence at L5 is ~230 px/s of assisted closing speed — just over the
+// player's own 220, i.e. it converts a fish you were losing ground on into one you are gaining on,
+// and does not outrun the 223 px/s damselfish on its own. That fish still needs the button.
+export const GNASH_CLOSE_MAX = 96
+// Fraction of the jaw's reach the dart aims to leave the target at. Under 1 so the bite lands with
+// the body INSIDE the falloff's rich half rather than parked exactly on the rim, which would put
+// every darted bite at the weakest end of the ramp the weapon is built around.
+export const GNASH_CLOSE_FRAC = 0.45
+
+// ---- CHUM (v7.x, The Wreck) --------------------------------------------------------------------
+// A run.lures entry with `bait: true`. The tag is read in exactly two places — stepEnemyMovement's
+// lure override (which already sets the seek target) and stepPrey (which inverts its response to
+// it) — and nowhere else, because a bait and a decoy ARE the same object pointed at two kinds of
+// animal.
+// How hard a baited fish commits, as a fraction of its own speed. ABOVE PREY_DRIFT_MUL and below
+// PREY_FLEE_MUL: a shoal coming to food moves with more purpose than one milling about, and less
+// than one running for its life.
+export const CHUM_PULL_MUL = 0.85
+// Chum does not override PANIC. Inside this radius of the player a baited fish bolts anyway, which
+// is what stops the card from being an off-switch for the chapter: you cannot stand in your own
+// bait ball and have dinner hold still, you have to come in from outside it.
+export const CHUM_PANIC_R = 150
+
+// ---- BILGE (v7.x, The Wreck) -------------------------------------------------------------------
+// The oil's drag is BLOOM_SLOW's, not its own number. bloomSlowT is a boolean-ish window — it
+// records THAT a cloud touched this frame, never which one — so a second magnitude would need a
+// second field, a second decay and a second tell before it was distinguishable from the first. The
+// card quotes no figure, so there is nothing for a shared constant to make untrue.
+// slickTrail: the card stops being one circle at a time and becomes a line you draw. Implemented as
+// a faster, smaller cast rather than as a new entity — a trail IS a chain of pools, and the shipped
+// bloom already knows how to be one. The pair has to move together: keeping the radius while
+// tripling the cadence would carpet the map in oil, which is a wall against the whole chapter.
+export const BILGE_TRAIL_RATE_MUL = 0.36   // x the cast interval
+export const BILGE_TRAIL_R_MUL = 0.58      // x the pool radius
+// How far OUTSIDE the oil a skittish fish starts turning away. The wall has to have a shoulder or
+// prey clip the rim before they react and the barrier reads as porous.
+export const BILGE_AVOID_PAD = 46
+// How hard the avoidance steers, blended against whatever the fish was already doing. At 1 they
+// pivot on the spot, which reads as a force field; this is a fish declining to go that way.
+export const BILGE_AVOID_BLEND = 0.75
 
 // ---- PREY (v7.x, The Wreck) — the `skittish` flag ---------------------------------------------
 // THE ONE THING IN THIS GAME THAT IS NOT COMING FOR YOU. Every other creature in every other
