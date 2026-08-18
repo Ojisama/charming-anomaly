@@ -1235,8 +1235,8 @@ export function initUI(hooks) {
       <div class="chaos-wrap" data-charge style="display:none;">
         <span class="chaos-vrail chaos-vrail--charge">
           <!-- v7.x (owner, 2026-08-18): WHICH bar this is. Two vertical batteries ship on the same
-               screen and the chapter's resource is a different noun in every chapter (Humidity,
-               Clarity, Light, Air, Bloodlust, Feed) — a bare number and a colour cannot say which,
+               screen and the chapter's resource is a different noun in every chapter (Hydration,
+               Pollution, Light, Air, Bloodlust, Feed) — a bare number and a colour cannot say which,
                and the number is the one thing a new player has no name for. Same chip as the count
                below it, so the two read as one object: name, value, bar.
                ABOVE the rail rather than under it: an x-lane parks this column at top:56% (see
@@ -1483,20 +1483,23 @@ export function initUI(hooks) {
     // ceiling, and painting against the OLD config max pins this bar at full and motionless for
     // the whole band above it. Falls back to res.max for a run object that predates the field (or
     // any chapter with no resource, where it is moot — this call is already gated on `res`).
-    if (res) paintCharge(run.charge, run.chargeMax ?? res.max, res.name)
+    if (res) paintCharge(run.charge, run.chargeMax ?? res.max, res.name, !!res.invert)
   }
 
   // The RESOURCE rail's per-frame paint, modelled on paintChaos below — refs looked up once (the
   // HUD markup is written exactly once at boot, so they cannot go stale) and every text write
   // guarded by a cache, because the textContent write is the expensive half of a per-frame readout.
   let chargeRefs = null
-  function paintCharge(charge, max, name) {
+  function paintCharge(charge, max, name, invert) {
     if (!chargeRefs) {
       const q = (sel) => hud.chargeWrap.querySelector(sel)
       chargeRefs = { text: q('[data-charge-text]'), fill: q('[data-charge-fill]'), label: q('[data-charge-label]') }
     }
     const frac = max > 0 ? Math.max(0, Math.min(1, charge / max)) : 0
-    chargeRefs.fill.style.height = `${frac * 100}%`
+    // An INVERTED bar (CHAPTERS[].resource.invert — The Shelf's Pollution) fills as the run goes
+    // wrong instead of emptying. The rail is the complement of the sim's value, height and number
+    // both, so a full bar means the water is ruined rather than that you are stocked up.
+    chargeRefs.fill.style.height = `${(invert ? 1 - frac : frac) * 100}%`
     // Two readouts from one bar, because the quantity alone does not answer the only question the
     // player actually asks: the NUMBER is how much light is left, and the ARMED state is whether
     // the next press is a full-strength Pulse or the floor shove. A player reading only the height
@@ -1506,7 +1509,7 @@ export function initUI(hooks) {
       last.chargeArmed = armed
       hud.chargeWrap.classList.toggle('charge--armed', armed)
     }
-    const n = Math.round(charge)
+    const n = Math.round(invert ? Math.max(0, max - charge) : charge)
     if (n !== last.chargeNum) { last.chargeNum = n; chargeRefs.text.textContent = `${n}` }
     // Latched, because re-translating a word that can only change between runs is a t() call and a
     // textContent write every frame. The LANG is in the key, not just the name: the HUD markup is

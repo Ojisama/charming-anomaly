@@ -1,4 +1,5 @@
-// Scene: The Shelf's murk at every level of its Clarity bar, from a full bar to an empty one.
+// Scene: The Shelf's murk at every level of its Pollution bar (which reads inverted: a FULL rail
+// is ruined water). Frames run from clear water to fully fouled.
 //
 //   node scripts/fx-probe.mjs --scene scripts/scenes/shelf-murk.js --chapter shelf --out /tmp/sm --frames 7
 //
