@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R, BALLAST_RING,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -6336,36 +6336,127 @@ export function createRenderer(app) {
       T.rockChunk = bake(g)
     }
     {
-      // BALLAST (shelf, run.lobs with look 'ballast'): a block of dumped weight, PLAN VIEW — the
-      // camera looks straight down, so this is the top face of a thing lying in the water, not a
-      // block seen from the side. Baked at r 34 and scaled DOWN to BALLAST_THROW_R, per the rule a
-      // sprite magnified from a small bake is stepped on every edge; the old path scaled a 12px
-      // rock 8-11x.
+      // BALLAST (shelf, run.lobs with look 'ballast'): FIVE PIECES OF DUMPED JUNK, one picked per
+      // throw. Owner from play, 2026-08-18: "it's junk / debris, so it's normal if it's not always
+      // the same thing you throw" — and varying the object is also what finally separates this
+      // weapon from Debris Toss, which two rounds of redrawing ONE sprite did not.
       //
-      // It must not read as the kaiju's rockChunk (cold grey masonry) or as Debris Toss. So: rust
-      // and old iron rather than stone, a squarer silhouette than any natural chunk, and two rebar
-      // stubs — the tells that this was MADE and then dumped, which is the chapter's whole subject.
-      const g = new Graphics()
+      // PLAN VIEW, every one of them: the camera looks straight down, so these are things lying in
+      // the water seen from above, never side elevations. Baked at a nominal r 34 and scaled DOWN
+      // to BALLAST_THROW_R — `r` is where the thing LANDS (96-134px), and scaling a small bake by it
+      // is what made the first cut a rock magnified 8-11x.
+      //
+      // They are deliberately spread across VALUE and HUE as well as outline (pale concrete, black
+      // rubber, orange steel, blue-grey iron, dark rust), because two pieces of junk that differ
+      // only in silhouette still read as one object flickering.
+      const junk = []
       const R = 34
-      // The block. Six points on a squarish outline, jittered so it is cast-off rather than tidy.
-      const pts = []
-      for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2 + 0.4
-        const rr = R * (0.78 + hash(i * 3.11 + 7.7) * 0.28)
-        pts.push(Math.cos(a) * rr, Math.sin(a) * rr * 0.92)
-      }
-      g.poly(pts).fill(0x6b4f36).stroke({ width: 2.4, color: 0x2e2318 })
-      // The lit top face, offset up-left like every other overhead solid in this game.
-      g.ellipse(-R * 0.14, -R * 0.16, R * 0.52, R * 0.40).fill({ color: 0x8f6c48, alpha: 0.85 })
-      // Rust bloom and a wet shadowed corner.
-      g.ellipse(R * 0.20, R * 0.18, R * 0.30, R * 0.22).fill({ color: 0x9a5a2c, alpha: 0.55 })
-      g.ellipse(R * 0.30, -R * 0.28, R * 0.20, R * 0.14).fill({ color: 0x3a2a1c, alpha: 0.45 })
-      // Two rebar stubs: the one detail that says this is not a rock.
-      g.beginPath().moveTo(-R * 0.55, -R * 0.45).lineTo(-R * 0.95, -R * 0.80)
-        .stroke({ width: 3.4, color: 0x4a3a26 })
-      g.beginPath().moveTo(R * 0.50, R * 0.42).lineTo(R * 0.88, R * 0.72)
-        .stroke({ width: 3.0, color: 0x4a3a26 })
-      T.ballastBlock = bake(g)
+      const piece = (draw) => { const g = new Graphics(); draw(g); junk.push(bake(g)) }
+
+      // 1. OIL DRUM. The object that actually fouls water, so it explains the stain it leaves.
+      piece((g) => {
+        const w = R * 1.92, h = R * 1.00
+        g.roundRect(-w / 2, -h / 2, w, h, h * 0.22).fill(0x8a4f28).stroke({ width: 2.6, color: 0x38200f })
+        // Chimes (the raised end rims) and rolling hoops, each a bright band over a dark gap —
+        // the pair is what makes it a drum rather than a tin.
+        for (const sx of [-1, 1]) {
+          g.rect(sx * w * 0.40 - w * 0.035, -h / 2 + 2, w * 0.07, h - 4).fill(0x1f1108)
+          g.roundRect(sx * (w * 0.5 - w * 0.085) - w * 0.045, -h / 2 + 2, w * 0.09, h - 4, 3)
+            .fill(0xc07f4e).stroke({ width: 1.4, color: 0x38200f })
+          g.rect(sx * w * 0.17 - w * 0.045, -h / 2 + 3, w * 0.03, h - 6).fill(0x2a170c)
+          g.rect(sx * w * 0.17 - w * 0.012, -h / 2 + 3, w * 0.055, h - 6).fill(0xb1703f)
+        }
+        // A painted band, worn through in the middle.
+        g.rect(-w * 0.045, -h / 2 + 3, w * 0.09, h * 0.30).fill({ color: 0x2c3a2a, alpha: 0.85 })
+        g.rect(-w * 0.045, h * 0.10, w * 0.09, h * 0.36).fill({ color: 0x2c3a2a, alpha: 0.85 })
+        g.roundRect(-w / 2 + 5, -h / 2 + 4, w - 10, h * 0.18, 4).fill({ color: 0xe0a068, alpha: 0.32 })
+        // Corrosion, a stove-in dent, and the dark it is leaking. Asymmetric on purpose: a drum
+        // that has been dumped is damaged on one side, and symmetry reads as new.
+        g.ellipse(-w * 0.28, h * 0.22, w * 0.12, h * 0.20).fill({ color: 0x4a2a12, alpha: 0.75 })
+        g.ellipse(w * 0.30, -h * 0.16, w * 0.08, h * 0.16).fill({ color: 0x4a2a12, alpha: 0.55 })
+        g.ellipse(-w * 0.11, -h * 0.28, w * 0.07, h * 0.12).fill({ color: 0xd9a274, alpha: 0.4 })
+        g.ellipse(w * 0.43, h * 0.24, w * 0.12, h * 0.22).fill({ color: 0x1c2418, alpha: 0.8 })
+      })
+
+      // 2. CINDER BLOCK. The hardest, most rectilinear outline in the set — the one piece that
+      // reads instantly at any angle. Sea-stained rather than fresh: bright concrete out-shouted
+      // every creature on screen.
+      piece((g) => {
+        const w = R * 1.70, h = R * 1.02
+        g.poly([-w / 2, -h / 2, w / 2, -h / 2, w / 2, h / 2, -w / 2 + 10, h / 2, -w / 2, h / 2 - 11])
+          .fill(0x8e9086).stroke({ width: 2.6, color: 0x2b2e2a })
+        g.rect(-w / 2 + 3, -h / 2 + 3, w - 6, h * 0.24).fill({ color: 0xb4b6a8, alpha: 0.5 })
+        for (const sx of [-1, 1]) {
+          g.roundRect(sx * w * 0.20 - w * 0.13, -h * 0.24, w * 0.26, h * 0.48, 2)
+            .fill(0x1b2622).stroke({ width: 1.6, color: 0x5c5f57 })
+        }
+        // Algae along the underside it has been lying on, and rust weeping from the reinforcement.
+        g.rect(-w / 2 + 4, h * 0.28, w - 8, h * 0.18).fill({ color: 0x5d6b46, alpha: 0.55 })
+        g.rect(-w * 0.34, h * 0.16, w * 0.15, h * 0.22).fill({ color: 0x9a5a2c, alpha: 0.5 })
+        g.rect(w * 0.11, -h * 0.44, w * 0.09, h * 0.20).fill({ color: 0x9a5a2c, alpha: 0.35 })
+      })
+
+      // 3. ANCHOR. The card is called Lest and carries the anchor icon, so this is the piece the
+      // player is primed for. Every member is FAT: a first cut with true admiralty proportions
+      // turned to mush at the size this is actually seen.
+      piece((g) => {
+        const IRON = 0x39404a, EDGE = 0x14181d, LIT = 0xaab6bf
+        g.circle(0, -R * 0.80, R * 0.21).stroke({ width: R * 0.13, color: IRON })
+        g.circle(0, -R * 0.80, R * 0.21).stroke({ width: R * 0.05, color: LIT, alpha: 0.55 })
+        g.roundRect(-R * 0.78, -R * 0.66, R * 1.56, R * 0.22, 4).fill(IRON).stroke({ width: 2, color: EDGE })
+        g.roundRect(-R * 0.16, -R * 0.62, R * 0.32, R * 1.20, 4).fill(IRON).stroke({ width: 2, color: EDGE })
+        for (const sx of [-1, 1]) {
+          g.beginPath()
+          g.moveTo(0, R * 0.16)
+          g.quadraticCurveTo(sx * R * 0.92, R * 0.30, sx * R * 0.94, -R * 0.20)
+          g.lineTo(sx * R * 0.62, -R * 0.02)
+          g.lineTo(sx * R * 0.64, R * 0.26)
+          g.quadraticCurveTo(sx * R * 0.46, R * 0.44, 0, R * 0.56)
+          g.closePath()
+          g.fill(IRON).stroke({ width: 2, color: EDGE })
+        }
+        g.roundRect(-R * 0.72, -R * 0.62, R * 1.44, R * 0.07, 3).fill({ color: LIT, alpha: 0.5 })
+        g.roundRect(-R * 0.13, -R * 0.56, R * 0.10, R * 1.06, 3).fill({ color: LIT, alpha: 0.42 })
+        g.ellipse(0, R * 0.30, R * 0.20, R * 0.13).fill({ color: 0x9a5a2c, alpha: 0.55 })
+        g.ellipse(-R * 0.36, -R * 0.58, R * 0.16, R * 0.09).fill({ color: 0x9a5a2c, alpha: 0.4 })
+      })
+
+      // 4. TYRE. The only ring in the set, and the only near-black — a hole in the middle is a
+      // silhouette nothing else here can be confused with, at any rotation.
+      piece((g) => {
+        g.circle(0, 0, R * 0.96).fill(0x2b2b2e).stroke({ width: 2.4, color: 0x131315 })
+        // Tread blocks around the crown. Coarse on purpose: fine tread is grey mush at this size.
+        for (let i = 0; i < 11; i++) {
+          const a = (i / 11) * Math.PI * 2
+          const c = Math.cos(a), s = Math.sin(a)
+          g.beginPath().moveTo(c * R * 0.60, s * R * 0.60).lineTo(c * R * 0.94, s * R * 0.94)
+            .stroke({ width: R * 0.15, color: 0x45454b })
+        }
+        // The bore, filled with the dark of the water behind it.
+        g.circle(0, 0, R * 0.42).fill(0x16221f).stroke({ width: 2, color: 0x4a4a50 })
+        // Sidewall catching the light up-left, and the silt it has been sitting in.
+        g.circle(0, 0, R * 0.78).stroke({ width: R * 0.06, color: 0x63636b, alpha: 0.45 })
+        g.ellipse(R * 0.28, R * 0.52, R * 0.34, R * 0.20).fill({ color: 0x5d6b46, alpha: 0.5 })
+      })
+
+      // 5. GIRDER. A cut length of structural steel: the L is an outline no natural object makes,
+      // and the bolt holes are the detail that says a building came apart to produce it.
+      piece((g) => {
+        const STEEL = 0x4d4038, EDGE = 0x1e1814
+        g.roundRect(-R * 0.92, -R * 0.18, R * 1.60, R * 0.36, 3).fill(STEEL).stroke({ width: 2.2, color: EDGE })
+        g.roundRect(R * 0.32, -R * 0.18, R * 0.36, R * 1.16, 3).fill(STEEL).stroke({ width: 2.2, color: EDGE })
+        // Lit upper flange.
+        g.roundRect(-R * 0.86, -R * 0.14, R * 1.48, R * 0.09, 3).fill({ color: 0x8a7767, alpha: 0.5 })
+        // Bolt holes.
+        for (const bx of [-0.66, -0.28, 0.10]) g.circle(R * bx, 0, R * 0.09).fill(0x141010)
+        g.circle(R * 0.50, R * 0.76, R * 0.09).fill(0x141010)
+        // Rust eating the cut ends.
+        g.ellipse(-R * 0.80, 0, R * 0.14, R * 0.17).fill({ color: 0x8f5427, alpha: 0.75 })
+        g.ellipse(R * 0.50, R * 0.94, R * 0.16, R * 0.14).fill({ color: 0x8f5427, alpha: 0.7 })
+        g.ellipse(R * 0.02, R * 0.10, R * 0.20, R * 0.10).fill({ color: 0x8f5427, alpha: 0.4 })
+      })
+
+      T.ballastJunk = junk
     }
     {
       // Net Toss in flight (trawl, run.lobs with `snare`). A GATHERED BUNDLE, not a spread mesh:
@@ -14132,8 +14223,11 @@ export function createRenderer(app) {
       // and wants exactly this one — "something is about to land here, get out of it" is the
       // whole read. Stated because the comment above makes skipping look like the house style.
       const k = Math.max(0, Math.min(1, lb.t / Math.max(0.001, lb.flight)))
-      hazardG.circle(lb.tx, lb.ty, lb.r).stroke({ width: 2, color: 0xffb37a, alpha: 0.25 + k * 0.45 })
-      hazardG.circle(lb.tx, lb.ty, lb.r * k).fill({ color: 0xffb37a, alpha: 0.12 })
+      // ...but not in the SAME COLOUR. Amber is Debris Toss's, and a shared telegraph was a second
+      // reason the two weapons read as one; a ballast gets silt ochre-green instead.
+      const rc = lb.look === 'ballast' ? BALLAST_RING : { line: 0xffb37a, fill: 0xffb37a }
+      hazardG.circle(lb.tx, lb.ty, lb.r).stroke({ width: 2, color: rc.line, alpha: 0.25 + k * 0.45 })
+      hazardG.circle(lb.tx, lb.ty, lb.r * k).fill({ color: rc.fill, alpha: 0.12 })
     }
   }
 
@@ -14620,7 +14714,11 @@ export function createRenderer(app) {
     // A THIRD payload, for the same reason there is a second: the flight, the parabola and the
     // shadow are identical and are the whole point of reusing run.lobs — only the thing in the air
     // differs. One sprite each and a visibility swap beats three pools.
-    const ballast = spriteOf(T.ballastBlock)
+    //
+    // This one is a set of five and swaps TEXTURE per throw, rather than five more sprites. The
+    // anchor has to move with it: bake() trims to content, so the five have different bounds and
+    // different (ax, ay) — reusing the previous piece's anchor slides the junk off its own shadow.
+    const ballast = spriteOf(T.ballastJunk[0])
     root.addChild(shadow, chunk, net, ballast)
     lobLayer.addChild(root)
     return { root, shadow, chunk, net, ballast }
@@ -14656,6 +14754,14 @@ export function createRenderer(app) {
       // a 13px bundle to a 142px radius fills the screen with one sprite.
       const isNet = lb.snare > 0
       const isBallast = lb.look === 'ballast'
+      // WHICH piece of junk, hashed off the THROW's own target. Deliberately not the pool index
+      // `i` (which shifts the moment another lob lands, so the sprite would swap mid-flight) and
+      // deliberately not a Math.random in sim: this is cosmetic, and a new random draw per throw
+      // re-phases the seeded stream every scenario in the suite runs on, for nothing.
+      if (isBallast) {
+        const look = T.ballastJunk[Math.floor(hash(lb.tx * 0.017 + lb.ty * 0.031) * T.ballastJunk.length) % T.ballastJunk.length]
+        if (lv.ballast.texture !== look.tex) { lv.ballast.texture = look.tex; lv.ballast.anchor.set(look.ax, look.ay) }
+      }
       const body = isNet ? lv.net : isBallast ? lv.ballast : lv.chunk
       lv.chunk.visible = !isNet && !isBallast
       lv.ballast.visible = isBallast

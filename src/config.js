@@ -3562,6 +3562,11 @@ export const BALLAST_BLIND_THROW = 260   // px ahead, when there is nothing to a
 // stepped on every edge. Owner from play, 2026-08-18: "Lest looks too much like debris toss. It's
 // ugly and pixelated." The net beside it already had this fix and its comment already said why.
 export const BALLAST_THROW_R = 26
+// The landing ring. Debris Toss's is amber (0xffb37a) and Ballast shared it, which was a second
+// reason the two read as one weapon on top of the sprite -- owner from play, 2026-08-18. Silt
+// ochre-green instead: still unmistakably "something lands here", and nowhere near the warm
+// peach that means the kaiju is throwing masonry at you.
+export const BALLAST_RING = { line: 0xb2c065, fill: 0x8d9c4a }
 
 export const SUNLANCE_REACH_MIN = 0.45
 // ---- The Deep's anglerfish: the refill IS the trap ---------------------------------------------

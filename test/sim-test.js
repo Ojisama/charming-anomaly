@@ -137,6 +137,7 @@ import {
   // The Wreck's prey rework (Run WK)
   PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_SHOAL_SIZE,
   GNASH_MAW_MUL, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
+  BALLAST_RING,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow } from '../src/sim.js'
 
@@ -17553,6 +17554,46 @@ function testLeLargeWeapons() {
     }
     assert.ok(e.hp < 1e6, 'Ballast never damaged anything')
     assert.ok(sawStain, 'Ballast left no stain — the lingering half of the card is missing')
+  }
+
+  // (d) LEST THROWS JUNK, AND THE JUNK IS RENDER-SIDE ONLY — so nothing here can be asserted by
+  // running the sim. render.js is not importable, so this is a source-text lint in the house style
+  // (runs EV/SQ/CP/VO/XX), guarding the three ways the set fails SILENTLY. Owner from play,
+  // 2026-08-18: "it's junk / debris, so it's normal if it's not always the same thing you throw".
+  {
+    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+
+    // (d1) There is a SET, and it has enough in it to read as variety. One piece is the bug this
+    // replaced: two rounds of redrawing a single sprite failed to separate Lest from Debris Toss.
+    assert.ok(rsrc.includes('T.ballastJunk = junk'), 'render.js no longer bakes a junk SET for Ballast')
+    const pieces = (rsrc.match(/\n      piece\(\(g\) => \{/g) || []).length
+    assert.ok(pieces >= 4, `Ballast throws ${pieces} pieces of junk — too few to read as scavenged debris`)
+    assert.ok(!rsrc.includes('ballastBlock'),
+      'the old single ballastBlock bake is back — a second source of truth for what Lest throws')
+
+    // (d2) THE PIECE IS PICKED OFF THE THROW, NEVER OFF THE POOL INDEX. `i` is the lob's slot in
+    // lobPool, and slots shift the moment another lob lands — indexing the set by it swaps the
+    // sprite MID-FLIGHT, which reads as a flicker and has no error attached to it.
+    const pick = rsrc.match(/T\.ballastJunk\[[^\]]*\]/g) || []
+    const byThrow = pick.filter((m) => m.includes('lb.tx') || m.includes('lb.ty'))
+    assert.ok(byThrow.length >= 1,
+      `nothing indexes T.ballastJunk by the throw's own target (found ${JSON.stringify(pick)}) — ` +
+      'the piece is no longer stable for the length of one flight')
+    for (const m of pick) {
+      assert.ok(!/\[\s*i\s*\]/.test(m), `T.ballastJunk is indexed by the pool slot in ${m} — the junk will swap mid-flight`)
+    }
+
+    // (d3) A TEXTURE SWAP MUST MOVE THE ANCHOR. bake() trims to content, so the five pieces have
+    // different bounds and different (ax, ay); reusing the previous piece's anchor slides the junk
+    // off its own shadow, which is a wrong-looking frame with nothing thrown and nothing logged.
+    const swap = rsrc.slice(rsrc.indexOf('lv.ballast.texture'), rsrc.indexOf('lv.ballast.texture') + 260)
+    assert.ok(swap.includes('lv.ballast.anchor.set('),
+      'the ballast texture is swapped without re-anchoring — bake() trims per piece, so the junk will sit off its shadow')
+
+    // (d4) The landing ring is NOT Debris Toss's. Sharing the telegraph was the second reason the
+    // two weapons read as one, independently of the sprite.
+    assert.notStrictEqual(BALLAST_RING.line, 0xffb37a, "Ballast's landing ring is Debris Toss's amber again")
+    assert.ok(rsrc.includes('BALLAST_RING'), 'render.js does not read BALLAST_RING — the recoloured ring is dead config')
   }
 
   console.log('PASS run LL (Le Large natives): Bubble Puff shoves and damages, Silt Veil fears AND poisons what stands in it, Ballast lands and leaves a stain')
