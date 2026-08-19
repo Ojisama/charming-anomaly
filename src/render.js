@@ -239,7 +239,7 @@ export function createRenderer(app) {
   // happily, and the only symptom is a ReferenceError on the first frame of one chapter.
   const HULL_REF = 220
   let chapterRender = BODY_RENDER
-  // 'currents' (the pond's drift field), 'tide' (The Surf's alternating surge) or null. A STRING
+  // 'currents' (the pond's drift field), 'tide' (Undertow's alternating surge) or null. A STRING
   // rather than the boolean it started as, because both chapters draw the same pooled streak field
   // off a different force function — see updateCurrents, which samples currentForce or tideForce on
   // this. flowVis is the matching visual block (CURRENT_VIS / TIDE_VIS), latched here so the merge
@@ -18414,8 +18414,14 @@ export function createRenderer(app) {
     // The pond drifts, The Surf surges; every other chapter draws no flow field at all. Re-tinting
     // the whole streak pool here (rather than at construction, where it used to be fixed to the
     // pond's teal) is what lets one pool serve both looks.
+    // Asked of the chapter's `tide` block and not of its signature.type, for the same reason the
+    // refillSpec() note below gives: the streamer and the renderer must ask the same question. Since
+    // v7.x the tide runs in all seven Undertow chapters, six of which spend their signature on
+    // something else entirely — gating on signature.type === 'tide' would have left six chapters
+    // being pushed by water with nothing on screen moving, which is the exact failure the streak
+    // field was built to fix.
     const sigType = cfg?.signature?.type
-    flowKind = sigType === 'currents' ? 'currents' : sigType === 'tide' ? 'tide' : null
+    flowKind = cfg?.tide ? 'tide' : sigType === 'currents' ? 'currents' : null
     flowVis = flowKind === 'tide' ? TIDE_VIS : CURRENT_VIS
     for (const p of currentStreaks) { p.a.tint = flowVis.tint; p.b.tint = flowVis.tint }
     chapterHasEddies = !!(sigType === 'currents' && cfg?.signature?.eddies)

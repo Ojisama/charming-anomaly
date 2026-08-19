@@ -82,6 +82,14 @@ const SHOP_ICONS = {
     + '<path class="l" d="M10.4 8.6c0-1.1.9-2.6.9-2.6s-2.5 2.1-2.5 3.6a1 1 0 0 0 2 0z"/>'
     + '<path class="f" d="M2.6 13.2h18.8v2.4a7 7 0 0 1-7 7h-4.8a7 7 0 0 1-7-7z"/>'
     + '<path class="l" d="M5 15.4h14c0 3.2-2.4 5-5 5h-4c-2.6 0-5-1.8-5-5z"/>',
+  // An ANCHOR: ring, stock, stock-in-the-light, crossbar, and the two flukes as one curved sweep.
+  // Not the vessel the three resource icons share — this line does not touch the bar, and borrowing
+  // their glyph would say it did.
+  currentResist: '<circle class="f" cx="12" cy="3.4" r="3"/><circle class="l" cx="12" cy="3.4" r="1.2"/>'
+    + '<rect class="f" x="10.6" y="5.4" width="2.8" height="16.4" rx="1.2"/>'
+    + '<rect class="f" x="5.2" y="7.6" width="13.6" height="2.4" rx="1.2"/>'
+    + '<path class="f" d="M3.6 13.4a8.4 8.4 0 0 0 8.4 8.4 8.4 8.4 0 0 0 8.4-8.4h-2.8a5.6 5.6 0 0 1-11.2 0z"/>'
+    + '<path class="l" d="M2 12.2h4.4l-2.2 3.4zM17.6 12.2H22l-2.2 3.4z"/>',
   // sacrifice targets (BOOK_UNLOCKS + the card-slot ladder), same screen, same language
   slot: '<rect class="f" x="1.4" y="3.4" width="9" height="17.2" rx="2.6"/>'
     + '<rect class="l" x="3.4" y="5.6" width="5" height="12.8" rx="1.4"/>'
