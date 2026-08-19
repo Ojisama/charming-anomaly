@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, shopLines, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
+import { shopCost, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -182,6 +182,10 @@ const ui = initUI({
     // for a Book 2 line (e.g. deepLungs) while browsing Book 1 would spend book 1's coins and
     // write a shop line Book 1 does not have.
     if (!shopLines(bookId)[id]) return false
+    // A LOCKED LINE CANNOT BE BOUGHT, and this is the real gate - ui.js renders the row with no
+    // `data-buy`, but that is presentation, and the shop is one crafted event away from spending
+    // 19999 coins on a line the player has not earned.
+    if (!shopLineUnlocked(meta, bookId, id)) return false
     const level = bm.shop[id] ?? 0
     const cost = shopCost(id, level)
     if (level >= lineMax(id) || bm.coins < cost) return false

@@ -580,9 +580,11 @@ export function unlockBook(meta, bookId) {
 // lines went 10 -> 5 in v7.x — and a save holding the old count must keep its number on disk (an
 // older build still reads it, and a future build may raise the cap back) while this build pays out
 // only what it sells today. Without the clamp a legacy 10 of deepLungs reads as +120%.
+export function shopLevel(bm, id) {
+  return Math.min(lineMax(id), Math.max(0, Number(bm.shop?.[id]) || 0))
+}
 function shopBonus(bm, bookId, id) {
-  const level = Math.min(lineMax(id), Math.max(0, Number(bm.shop?.[id]) || 0))
-  return (shopLines(bookId)[id]?.perLevel ?? 0) * level
+  return (shopLines(bookId)[id]?.perLevel ?? 0) * shopLevel(bm, id)
 }
 
 // How far through ONE BOOK's permanent upgrades a save is, counted in UPGRADE LEVELS: every level of
@@ -675,6 +677,11 @@ function generateWells(sig) {
  *   run.weapons directly (e.g. tests) and stepping normally; only the OFFER pool is scoped.
  *   Weapon mods (WEAPON_MODS) and elements stay global systems, unscoped by chapter.
  * phase: 'playing' | 'levelup' | 'paused' | 'dead' | 'victory'
+ * skin (v7.x): 'cheeks' | null — a COSMETIC, snapshotted from this book's shop at createRun.
+ *   sim.js never reads it. render.js latches it in reset() beside playerForm and picks the
+ *   cheeks bake instead of the face for whichever body the chapter uses (blob, fish or kaiju);
+ *   the bakes are built in PAIRS at boot rather than branched at bake time, because the shop sits
+ *   between RUNS and not between page loads.
  *
  * deathT (v7.x): seconds ELAPSED in the DEATH OUTRO — the beat between the killing blow and the
  *   summary screen (DEATH_OUTRO in config.js). OWNED BY main.js, NOT BY THE SIM: sim.js never reads
@@ -1913,6 +1920,10 @@ export function createRun(meta, opts = {}) {
     events: [],
     chapter,
     difficulty,
+    // COSMETIC ONLY - nothing in sim.js reads it. render.js latches it in reset() beside playerForm
+    // and swaps the player's baked body for the cheeks one; the skin is bought per BOOK, like every
+    // other shop line, so it dresses whichever body this book uses.
+    skin: shopLevel(bm, 'cheeks') > 0 ? 'cheeks' : null,
     mutators: opts.mutators ?? [],
     mods,
     consumables,

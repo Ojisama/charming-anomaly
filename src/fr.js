@@ -1057,6 +1057,13 @@ const CONFIG = {
   '+12% gem magnet': '+12% aimant',
   'Coin Nose': 'Flair à Pièces',
   '+10% coins found': '+10% pièces',
+  // SHOP.cheeks — the cosmetic. 'Fessu' keeps the joke in one word the way the eight flavour names
+  // above do; a literal 'Coquin' would translate "cheeky" and lose the butt entirely.
+  // the locked row's own hint. It lives in ui.js, in a function — which run XX's coverage walk
+  // cannot see BY CONSTRUCTION (it enumerates config TABLES), so run BP's copy list guards it.
+  'chapters finished at max difficulty {n}/{max}': 'chapitres finis en difficulté max {n}/{max}',
+  'Cheeky': 'Fessu',
+  'your head becomes a butt': 'ta tête devient un derrière',
   // BOOK_SHOP.undertow (Task 6, per-book progression) — Undertow's three own shop lines, merged
   // on top of the eight above by shopLines('undertow'). All three act on a chapter's resource bar.
   'Resource Capacity': 'Capacité de ressource',
