@@ -5280,14 +5280,21 @@ export const CHAPTERS = {
 // every other chapter's pool (the final exam); roster mixes ordinary wave fodder (probe/binder/
 // eraser) with `formationOnly` entries only stepBossScript ever spawns by id: the binding node
 // (P2 tether) and the three antibody phases (the boss itself, one run.enemies entry per phase).
+// The union of all 7 book-1 pools — The Blank is the book's finale, so nothing is out of place
+// in it. Doubles as its STARTER pool.
+const BLANK_WEAPONS = ['star','orbit','wave','homing','flagella','mines','bloom','boomerang','stinger','lure',
+  'clawRake','quillBurst','chitterShriek','rainbow','trashTornado','burstHydrant',
+  'roar','tailLash','atomicBreath','debrisToss','realityShard','hole','pulsarSweep']
+
 CHAPTERS.blank = {
   name: 'The Blank', tagline: 'deletion in progress', icon: '⬜',
   scripted: true,          // gates victory timer + ordinary spawning (sim.js), HUD readout (ui.js)
   maxDifficultyCap: 3,     // per-chapter ladder ceiling (see chapterMaxDifficulty helper)
-  weapons: ['star','orbit','wave','homing','flagella','mines','bloom','boomerang','stinger','lure',
-            'clawRake','quillBurst','chitterShriek','rainbow','trashTornado','burstHydrant',
-            'roar','tailLash','atomicBreath','debrisToss','realityShard','hole','pulsarSweep'], // union of all 7 pools
-  starter: 'realityShard',
+  weapons: BLANK_WEAPONS,
+  // balance_decision : the blank rolls its starter from its own pool 2026-08-19
+  //  - an ARRAY, not a string: createRun (state.js) rolls one per run. Every other chapter keeps
+  //    a plain string, which is the only shape the rest of the game has ever seen.
+  starter: BLANK_WEAPONS,
   roster: [
     // probe speedMul 1.15 -> 1.3 (owner directive): 165 x 1.3 = 214 px/s, just under the player's 220 — it
     // shadows a runner and punishes any pause, but outrunning the opening wave still WORKS (the same rule

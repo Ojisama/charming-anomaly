@@ -676,7 +676,8 @@ function generateWells(sig) {
  *
  * chapter (v5.0): the run's CHAPTERS id (config.js), snapshotted at createRun (opts.chapter,
  *   default 'body') and constant for the run's duration. Picks the starting weapon
- *   (CHAPTERS[chapter].starter) and scopes sim.js's level-up weapon pool
+ *   (CHAPTERS[chapter].starter — an ARRAY there, as The Blank has, means one is rolled per
+ *   run) and scopes sim.js's level-up weapon pool
  *   (weaponCandidates/buildLevelUpChoices) to CHAPTERS[chapter].weapons — other chapters'
  *   natives never appear as offers, though nothing stops a weapon id from being pushed onto
  *   run.weapons directly (e.g. tests) and stepping normally; only the OFFER pool is scoped.
@@ -1916,6 +1917,10 @@ export function createRun(meta, opts = {}) {
   // draw happens between here and where _obstacleSeed used to sit, so the order this consumes the
   // shared stream in is unchanged (see _districtSeed's doc block above).
   const obstacleSeed = usesObstacleSeed(CHAPTERS[chapter]) ? (Math.random() * 0x7fffffff) | 0 : null
+  // A chapter's starter is normally one weapon id; The Blank's is an ARRAY, and the run rolls one
+  // out of it. Drawn AFTER obstacleSeed so every string-starter chapter's random stream is unchanged.
+  const starter = CHAPTERS[chapter].starter
+  const starterId = Array.isArray(starter) ? starter[(Math.random() * starter.length) | 0] : starter
   // v7.x Book 2 Task 9 (deepLungs): the chapter resource bar's ceiling, hoisted into a local so it
   // is authored ONCE and shared by both `chargeMax` and the starting `charge` below — a value this
   // repo's own CLAUDE.md documents as its single largest silently-drifting defect class when
@@ -1966,7 +1971,7 @@ export function createRun(meta, opts = {}) {
       moving: false,
       vx: 0, vy: 0,       // v5.4: this frame's own input velocity, px/s (see the doc block above)
     },
-    weapons: [{ id: CHAPTERS[chapter].starter, level: startWeaponLevel }],
+    weapons: [{ id: starterId, level: startWeaponLevel }],
     weaponTimers: {},      // id -> s until next fire
     // accumulated applied bonuses (base * rarity mult per pick) and pick counts
     passives: Object.fromEntries(Object.keys(PASSIVES).map((id) => [id, 0])),
