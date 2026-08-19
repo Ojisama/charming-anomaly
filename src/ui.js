@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, shopLines, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
+import { shopCost, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -35,6 +35,15 @@ import { fetchBoards, validNick, NICK_MIN, NICK_MAX } from './scores.js'
 // an icon and a smudge at 21px, and it is invisible while you are reading paths — judged by
 // cloning the rendered SVGs out of a live capture at 84px.
 const SHOP_ICONS = {
+  // cheeks: the skin's own silhouette at row size, generated from the SAME three-ellipse union
+  // drawButt uses (render.js) so the glyph and the body on screen cannot drift apart. ONE closed
+  // path for the outline plus one lit poly per cheek: .f and .l both carry a dark stroke here
+  // (styles.css), so overlapping shapes would show every internal seam - a hand-drawn cut did
+  // exactly that and read as a mask. The gap between the two lit cheeks IS the cleft, and the
+  // whole glyph is WIDER THAN TALL, which is most of what makes it read as a butt at 22px.
+  cheeks: '<path class="f" d="M12 19.4 L10.8 19.3 L9.7 19.1 L8.6 18.7 L7.6 18.1 L6.1 17.9 L4.6 17.4 L3.4 16.4 L2.4 15.1 L1.8 13.6 L1.6 12 L1.8 10.4 L2.4 8.9 L3.4 7.6 L4.6 6.6 L6.1 6.1 L7.6 5.9 L9.1 6.3 L10.4 6.9 L11.3 7.8 L12 8.8 L12.7 7.8 L13.6 6.9 L14.9 6.3 L16.4 5.9 L17.9 6.1 L19.4 6.6 L20.6 7.6 L21.6 8.9 L22.2 10.4 L22.4 12 L22.2 13.6 L21.6 15.1 L20.6 16.4 L19.4 17.4 L17.9 17.9 L16.4 18.1 L15.4 18.7 L14.3 19.1 L13.2 19.3Z"/>'
+    + '<path class="l" d="M16.5 16.1 L15.4 15.6 L14.4 14.9 L13.6 13.9 L13.2 12.7 L13.1 11.5 L13.3 10.2 L13.9 9.1 L14.8 8.2 L15.9 7.6 L17.1 7.3 L18.3 7.4 L19.4 7.8 L20.4 8.5 L21.2 9.5 L21.6 10.7 L21.7 11.9 L21.5 13.2 L20.9 14.3 L20 15.2 L18.9 15.8 L17.7 16.1Z"/>'
+    + '<path class="l" d="M7.5 16.1 L6.3 16.1 L5.1 15.8 L4 15.2 L3.1 14.3 L2.5 13.2 L2.3 11.9 L2.4 10.7 L2.8 9.5 L3.6 8.5 L4.6 7.8 L5.7 7.4 L6.9 7.3 L8.1 7.6 L9.2 8.2 L10.1 9.1 L10.7 10.2 L10.9 11.5 L10.8 12.7 L10.4 13.9 L9.6 14.9 L8.6 15.6Z"/>',
   // sword, not a burst: the burst shape belongs to critDamage's star, and two starbursts side by
   // side is exactly the 💥/💢 collision this whole set exists to end.
   damage: '<path class="f" d="M12 1.4 15 6.6v7.9H9V6.6z"/><path class="l" d="M12 3.6 13.6 7v6.2h-3.2V7z"/>'
@@ -1362,7 +1371,9 @@ export function initUI(hooks) {
     // and effect, so the eight things you are choosing between look identical on both screens
     // (they were "Power Gel" here and "💥 +5% damage" one tap away). The rail does double duty
     // that the pips could not: mint = levels you keep, red = levels on the altar, plain = empty.
-    const rows = Object.entries(lines).filter(([id]) => (bm.shop[id] ?? 0) > 0).map(([id, item]) => {
+    // A cosmetic has no per-level bonus, so it has nothing to say on a screen whose rows are
+    // literally "what one level of this gives you" — left in, an offered level reads "+0% -> +0%".
+    const rows = Object.entries(lines).filter(([id, l]) => (bm.shop[id] ?? 0) > 0 && !l.cosmetic).map(([id, item]) => {
       const level = bm.shop[id]
       const picked = sacrificePicks[id] ?? 0
       const kept = level - picked
@@ -1450,7 +1461,26 @@ export function initUI(hooks) {
     // book 1, more for a book with its own lines — see shopLines). The meter is likewise not on
     // the line: discrete notches ride the row's bottom edge, one per level the LINE sells, and
     // reading down the column shows the whole build at once.
+    // One count for every locked row on the screen (there is one today), read once rather than per
+    // row: it walks the book's whole chapter list.
+    const mastered = chaptersMastered(meta, bookId)
     const cards = Object.entries(shopLines(bookId)).map(([id, item]) => {
+      // LOCKED ROWS KEEP THEIR PLACE AND LOSE THEIR WORDS. The name and the effect are the thing
+      // being played for, so they are masked; the hint that replaces them states the count and the
+      // target, because "locked" on its own tells the player nothing about how to open it.
+      if (!shopLineUnlocked(meta, bookId, id)) {
+        const hint = tt('chapters finished at max difficulty {n}/{max}', { n: mastered, max: item.needsMastery })
+        const rail = Array.from({ length: lineMax(id) }, () => '<i class="notch"></i>').join('')
+        return `
+        <button class="card shop-row card--disabled" disabled aria-label="${hint}">
+          <span class="shop-row-in">
+            <span class="shop-row-icon">${shopIcon(id, item.icon, item.family)}</span>
+            <span class="shop-row-effect shop-row-stack"><b>???</b><small>${hint}</small></span>
+            <span class="shop-row-buy">🔒</span>
+          </span>
+          <span class="shop-rail">${rail}</span>
+        </button>`
+      }
       const level = bm.shop[id] ?? 0
       // Per LINE, not the global cap: Book 2's three bar lines sell 5 deeper levels, so the rail
       // must draw 5 notches and MAX must land on the 5th. A rail sized by the global would show a

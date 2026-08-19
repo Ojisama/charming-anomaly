@@ -4452,6 +4452,10 @@ export const GEM_VALUE = 1
 // insertion. Four of them, and they are the whole taxonomy:
 //   atk  — you hit harder      vit  — you last longer
 //   loot — you leave richer    res  — the chapter's own resource bar (Book 2's lines)
+// EARNING THE COSMETIC: chapters of ONE book finished at their own top difficulty. Declared here
+// rather than beside BOOKS below because SHOP.cheeks reads it inside an object literal, and a const
+// referenced there must already be initialized - the same hoist HUMIDITY_DMG_FLOOR needs.
+export const MASTERY_UNLOCK = 2
 export const SHOP = {
   damage:     { name: 'Power Gel',    desc: '+5% damage',       perLevel: 0.05, base: 20, icon: '💥', family: 'atk' },
   fireRate:   { name: 'Twitchy',      desc: '+4% fire rate',    perLevel: 0.04, base: 20, icon: '⚡', family: 'atk' },
@@ -4461,6 +4465,13 @@ export const SHOP = {
   moveSpeed:  { name: 'Slippery',     desc: '+4% move speed',   perLevel: 0.04, base: 25, icon: '💨', family: 'vit' },
   magnet:     { name: 'Magnetic Charm', desc: '+12% gem magnet', perLevel: 0.12, base: 15, icon: '🧲', family: 'loot' },
   coinGain:   { name: 'Coin Nose',    desc: '+10% coins found', perLevel: 0.10, base: 40, icon: '🪙', family: 'loot' },
+  // THE ONE LINE HERE THAT BUYS NO NUMBER. It swaps the player's head for a pair of cheeks
+  // (drawButt in render.js) on whichever body the book you bought it in uses - the blob and the
+  // kaiju in book 1, the fish in Undertow. `perLevel: 0` is honest rather than a placeholder:
+  // shopBonus multiplies it and there is no stat to move.
+  //   `cosmetic` keeps it off the SACRIFICE screen, whose rows are priced in "what one level of
+  // this gives you" - a row reading "+0% -> +0%" is what that screen would say about it.
+  cheeks:     { name: 'Cheeky', desc: 'your head becomes a butt', perLevel: 0, base: 0, cost: 19999, maxLevel: 1, cosmetic: true, needsMastery: MASTERY_UNLOCK, icon: '🍑', family: 'skin' },
 }
 // The palette a family paints with. Three tones each, because the icons are FILLED rather than
 // stroked: a body, a darker edge that outlines it, and a light tone for the details inside.
@@ -4471,6 +4482,9 @@ export const SHOP_FAMILY = {
   vit:  { ico: '#2f9a7b', edge: '#1c6350', lite: '#d3f2e7' },
   loot: { ico: '#e0a91c', edge: '#8f6708', lite: '#ffeec2' },
   res:  { ico: '#3585b3', edge: '#1f5c7c', lite: '#d5ebf7' },
+  // violet, because the four above have the warm/cool corners taken and a cosmetic must not read
+  // as an attack line (red) or a coin line (gold) at row size
+  skin: { ico: '#9a6fd0', edge: '#5c3d8a', lite: '#e8dcf7' },
 }
 export const MAX_SHOP_LEVEL = 10
 // v7.49 (owner directive): the old bare 1.6^level curve got a surcharge on top — +20% on the FIRST
@@ -4537,6 +4551,12 @@ export const lineMax = (id) => ALL_SHOP_LINES[id]?.maxLevel ?? MAX_SHOP_LEVEL
 // making the line cheap. Dividing by `MAX_SHOP_LEVEL - 1` below is therefore still correct: `l` is
 // already in that ladder's units, not the line's.
 export const shopCost = (id, level) => {
+  // A FLAT-PRICED LINE STATES ITS NUMBER. The ladder below is a function of the levels you already
+  // own, so a line selling ONE level has no ladder to climb - and landing that single price on a
+  // chosen figure through the curve would take TWO knobs (a `base` reverse-engineered through the
+  // 1.2 first-rung surcharge, plus a SHOP_COST_CAP entry to stop the default 4999 clamping it),
+  // which is one fact in two places for a number that is simply decided.
+  if (ALL_SHOP_LINES[id]?.cost != null) return ALL_SHOP_LINES[id].cost
   const l = level * ((MAX_SHOP_LEVEL - 1) / Math.max(1, lineMax(id) - 1))
   return Math.min(
     SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT,
@@ -4659,6 +4679,23 @@ export const BOOKS = {
 // book whose purse lives at the top level of meta (see bookMeta in state.js).
 export const BOOK_ORDER = ['book1', 'undertow']
 export const CHAPTER_ORDER = BOOKS.book1.chapters
+// A locked line sits on the shelf from the start with its name and effect MASKED and this count in
+// their place - a visible goal rather than a surprise, which is the whole reason it is not simply
+// absent from the list.
+//   Counted over ONE BOOK's own ladder, because the line is per book: every book sells its own copy
+// of the skin (SHOP is merged into every book's table by shopLines) and each is earned in its own
+// campaign.
+//   Against chapterMaxDifficulty(id) rather than the global MAX_DIFFICULTY: a chapter with a
+// shorter ladder (blank caps at 3) is finished when ITS top rung falls, and a bare 5 here would
+// make such a chapter uncountable forever. `won` is the highest difficulty actually BEATEN (main.js
+// writes it on victory) - never maxDifficulty, which is only how far the ladder has been UNLOCKED.
+export const chaptersMastered = (meta, bookId) => (BOOKS[bookId]?.chapters ?? [])
+  .filter((id) => (Number(meta?.chapters?.[id]?.won) || 0) >= chapterMaxDifficulty(id)).length
+// A line with no `needsMastery` is always offered, which is every line but the cosmetic.
+export const shopLineUnlocked = (meta, bookId, id) => {
+  const need = ALL_SHOP_LINES[id]?.needsMastery
+  return !need || chaptersMastered(meta, bookId) >= need
+}
 // Every id on any book's LADDER. Deliberately excludes `hidden`: The Blank has always sat outside
 // every loop (saveSummary and ui.js both say so in their own comments, and ui.js's carousel repair
 // branches on its ledger entry being ABSENT), so sweeping it in here would change shipped

@@ -140,6 +140,8 @@ import {
   // elements redesign (Run EL)
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
   STAT_KEYS,
+  // the cosmetic shop line and its mastery gate (Run BP.ag)
+  MASTERY_UNLOCK, chaptersMastered, shopLineUnlocked,
   // The Wreck's prey rework (Run WK)
   PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_SHOAL_SIZE, CHUM_PANIC_R,
   GNASH_MAW_MUL, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
@@ -4188,7 +4190,10 @@ function testGoldSinks() {
     assert.deepStrictEqual(SHOP_COST_CAP, { damage: 9999, maxHP: 9999, critChance: 9999, coinGain: 9999 },
       'the 9999 ceiling is owner-specified for exactly damage/maxHP/critChance/coinGain')
     assert.strictEqual(SHOP_COST_CAP_DEFAULT, 4999, 'every other shop line stops at 4999 (owner-specified)')
+    // Flat-priced lines (`cost`) skip the whole ramp — they sell one level at a stated number and
+    // are asserted on their own terms in run BP.ae. Everything else walks the curve.
     for (const id of Object.keys(SHOP)) {
+      if (SHOP[id].cost != null) continue
       const base = SHOP[id].base
       assert.strictEqual(shopCost(id, 0), Math.round(base * 1.2),
         `${id} level 0 should cost base * 1.2 (+20%), got ${shopCost(id, 0)} against base ${base}`)
@@ -4202,8 +4207,8 @@ function testGoldSinks() {
           `${id} cost went DOWN from level ${l - 1} (${shopCost(id, l - 1)}) to ${l} (${shopCost(id, l)})`)
       }
     }
-    const capped = Object.keys(SHOP).filter((id) =>
-      Math.round(SHOP[id].base * Math.pow(1.6, last) * 3) > (SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT))
+    const capped = Object.keys(SHOP).filter((id) => SHOP[id].cost == null
+      && Math.round(SHOP[id].base * Math.pow(1.6, last) * 3) > (SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT))
     assert.ok(capped.length > 0,
       'no shop line reaches its cost cap at max level — the cap is dead code, or the curve was retuned under it')
     assert.strictEqual(shopCost('damage', last), Math.round(SHOP.damage.base * Math.pow(1.6, last) * 3),
@@ -5621,7 +5626,26 @@ function runBookProgression() {
     // 1. THE PRICE LADDER'S ENDPOINTS ARE FIXED, whatever the level count. A short line takes the
     // same first and last rung as a full-length one on the same base; it just strides between
     // them. Without this a halved line is simply a cheap line, which is the opposite of the tune.
+    //
+    // A FLAT-PRICED LINE (`cost`) is exempt from the ladder and asserted on its own terms below:
+    // it has one level, so there is nothing to stride between, and the ladder's own endpoints are
+    // meaningless for it. The exemption is narrow ON PURPOSE — it applies only where `cost` is
+    // actually set, so deleting a ladder line's `base` cannot smuggle it out of these checks.
+    const flat = [...seen].filter(([, line]) => line.cost != null)
+    assert.ok(flat.length > 0,
+      'no line sets a flat `cost` — the exemption below is asserting nothing. Delete it or restore the line.')
+    for (const [id, line] of flat) {
+      assert.strictEqual(lineMax(id), 1,
+        `${id}: a flat-priced line must sell exactly ONE level — the price does not vary, so a second level would cost the same as the first`)
+      assert.strictEqual(shopCost(id, 0), line.cost,
+        `${id}: a flat-priced line must charge its own \`cost\` (${line.cost}), not the ladder's ${shopCost(id, 0)}`)
+      assert.ok(line.cosmetic,
+        `${id}: a flat price buys no stat ladder, so the line must be marked \`cosmetic\` — that flag is what keeps it off the sacrifice screen, whose rows read "what one level gives you"`)
+      assert.strictEqual(line.perLevel, 0,
+        `${id}: a cosmetic line must have perLevel 0 — shopBonus multiplies it into a stat, and a non-zero value would silently buff the player`)
+    }
     for (const [id, line] of seen) {
+      if (line.cost != null) continue
       const max = lineMax(id)
       const base = line.base
       const ceiling = SHOP_COST_CAP[id] ?? SHOP_COST_CAP_DEFAULT
@@ -5739,6 +5763,91 @@ function runBookProgression() {
       }
     }
     console.log(`PASS run BP.af (shop families): ${FAMS.length} families [${FAMS.join(' ')}] with 3 hex tones each, declared on all ${seen.size} lines + every book unlock, each family in one unbroken run per book, all ${drawn.length} ids drawn rather than falling back to emoji, and all ${ICON_SITES.length} render sites route through shopIcon`)
+  }
+
+  // (ag) THE COSMETIC'S MASTERY GATE. Every failure here is silent: the line is priced at 19999
+  // and gives no stat, so a gate that never opens looks exactly like a gate that opened and a skin
+  // the player cannot see. Four properties, and the per-book one is the whole point of the design.
+  {
+    const mk = () => {
+      const m = makeMeta()
+      m.chapters = {}
+      m.books = {}
+      return m
+    }
+    // the id must actually be gated — otherwise every assertion below passes against nothing
+    const gated = [...seen].filter(([, l]) => l.needsMastery)
+    assert.strictEqual(gated.length, 1,
+      `expected exactly one gated shop line, found ${gated.map(([id]) => id).join(', ') || 'none'}`)
+    const [GATE_ID, GATE_LINE] = gated[0]
+    assert.strictEqual(GATE_LINE.needsMastery, MASTERY_UNLOCK,
+      `${GATE_ID} must read its threshold from MASTERY_UNLOCK, not a second copy of the number`)
+
+    // 1. a fresh save is LOCKED, and stays locked one chapter short of the bar.
+    const fresh = mk()
+    assert.strictEqual(chaptersMastered(fresh, 'book1'), 0, 'a fresh save has mastered nothing')
+    assert.ok(!shopLineUnlocked(fresh, 'book1', GATE_ID), `${GATE_ID} must be locked on a fresh save`)
+    const win = (m, id) => { m.chapters[id] = { unlocked: true, maxDifficulty: chapterMaxDifficulty(id), difficulty: 1, won: chapterMaxDifficulty(id), best: { time: 0, kills: 0 } } }
+    const one = mk(); win(one, BOOKS.book1.chapters[0])
+    assert.strictEqual(chaptersMastered(one, 'book1'), 1)
+    assert.ok(!shopLineUnlocked(one, 'book1', GATE_ID),
+      `${GATE_ID} opened at 1 chapter — the threshold is ${MASTERY_UNLOCK}, so the gate is off by one`)
+
+    // 2. WON, NOT UNLOCKED. A ladder climbed to 5 without a win at 5 must not count: maxDifficulty
+    // is how far the ladder is OPEN, `won` is what has actually been beaten, and reading the wrong
+    // one hands the skin to anyone who merely reached the top difficulty once.
+    const climbed = mk()
+    climbed.chapters[BOOKS.book1.chapters[0]] = { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 0, best: { time: 0, kills: 0 } }
+    climbed.chapters[BOOKS.book1.chapters[1]] = { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 0, best: { time: 0, kills: 0 } }
+    assert.strictEqual(chaptersMastered(climbed, 'book1'), 0,
+      'an UNLOCKED top difficulty is not a WON one — chaptersMastered must read .won')
+
+    // 3. two wins at the top rung opens it.
+    const two = mk(); win(two, BOOKS.book1.chapters[0]); win(two, BOOKS.book1.chapters[1])
+    assert.strictEqual(chaptersMastered(two, 'book1'), MASTERY_UNLOCK)
+    assert.ok(shopLineUnlocked(two, 'book1', GATE_ID), `${GATE_ID} must open at ${MASTERY_UNLOCK} mastered chapters`)
+    // ...and a win BELOW the chapter's own top rung does not count.
+    const short = mk()
+    for (const id of BOOKS.book1.chapters.slice(0, 2)) {
+      short.chapters[id] = { unlocked: true, maxDifficulty: 5, difficulty: 1, won: chapterMaxDifficulty(id) - 1, best: { time: 0, kills: 0 } }
+    }
+    assert.ok(!shopLineUnlocked(short, 'book1', GATE_ID), 'one rung short of the top must not count as mastered')
+
+    // 4. PER BOOK. Mastering book 1 must not open Undertow's own copy of the line — each book
+    // sells its own and each is earned in its own campaign. This is the property the whole
+    // design rests on and the one a bookId-blind implementation would silently break.
+    assert.strictEqual(chaptersMastered(two, 'undertow'), 0,
+      'book 1 chapters must not count toward Undertow')
+    assert.ok(!shopLineUnlocked(two, 'undertow', GATE_ID),
+      `${GATE_ID} unlocked in Undertow off book 1's wins — the gate is not reading the book`)
+
+    // 5. the ungated lines are unaffected, in every book.
+    for (const bookId of BOOK_ORDER) {
+      for (const id of Object.keys(shopLines(bookId))) {
+        if (id === GATE_ID) continue
+        assert.ok(shopLineUnlocked(fresh, bookId, id), `${bookId}.${id} must not be gated`)
+      }
+    }
+
+    // 6. THE WIRING, as source text. Both halves fail silently: a row rendered without the gate
+    // sells the skin at once, and a gate in ui.js alone leaves onBuy spending 19999 on a crafted
+    // event. The hint's French is checked here too — it lives in a ui.js FUNCTION, which run XX's
+    // table walk cannot see by construction (CLAUDE.md records that exemption shipping
+    // untranslated copy four times).
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    assert.ok(uiSrc.includes('shopLineUnlocked(meta, bookId, id)'),
+      'renderShop does not consult shopLineUnlocked — a locked line renders as a buyable row')
+    assert.ok(/onBuy[\s\S]{0,900}shopLineUnlocked\(/.test(mainSrc),
+      'onBuy does not consult shopLineUnlocked — ui.js omitting data-buy is presentation, not a gate')
+    const HINT = 'chapters finished at max difficulty {n}/{max}'
+    assert.ok(uiSrc.includes(HINT), `ui.js no longer contains the unlock hint ${JSON.stringify(HINT)} — this list is stale`)
+    assert.ok(FR[HINT], 'the unlock hint has no French')
+    for (const ph of ['{n}', '{max}']) {
+      assert.ok(FR[HINT].includes(ph),
+        `the French unlock hint drops ${ph} — the player sees the placeholder, not the number`)
+    }
+    console.log(`PASS run BP.ag (mastery gate): ${GATE_ID} locked at 0 and 1 mastered chapters, open at ${MASTERY_UNLOCK}, reads .won not .maxDifficulty, counts per BOOK (book1 wins leave undertow locked), leaves the other ${seen.size - 1} lines ungated, and both renderShop and onBuy consult it`)
   }
 
   console.log(`PASS run BP (book progression): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max, The Surf's opening balance (EARLY_CALM.surf + archetypeMul.tank) matches the 2026-08-17 owner rulings, ${bkAllChapters.length} chapters all resolve to a book, and no source file reads SHOP directly`)
@@ -22023,8 +22132,13 @@ function testPlayerForms() {
   // picks a frame out of that array rather than reading one static {tex,ax,ay} bake.
   assert.ok(/function drawFish\(g, white, phase/.test(src),
     'drawFish has no phase param — the fish cannot swim, only a static bake')
-  assert.ok(/T\.fishBody\[wIdx\]/.test(src),
-    'syncPlayer does not index into a baked fish phase array — the fish form is back to one static texture')
+  // The CHEEKS skin (SHOP.cheeks) adds a SECOND pair of phase arrays, so this is now about all
+  // four: each must be indexed by the same animT-derived frame. Miss one and that variant freezes
+  // while its twin swims — and the skinned pair is a bug only a player who paid 19999 would see.
+  for (const arr of ['fishBody', 'fishFlash', 'fishButt', 'fishButtFlash']) {
+    assert.ok(new RegExp(`T\\.${arr}\\b[^\\n]*\\[wIdx\\]`).test(src),
+      `syncPlayer does not index T.${arr} by the animT frame — that fish body is back to one static texture`)
+  }
 
   // (e) the growth arc scales the body AND its shadow together. formScale is Book 2's "you grow in
   // each chapter" and it lives in exactly two places; applying it to the body alone leaves the fish

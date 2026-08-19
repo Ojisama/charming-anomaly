@@ -25,6 +25,9 @@ import { currentForce, tideForce } from './sim.js'
 
 
 const DARK = 0x3b3345
+// THE CHEEKS SKIN's own palette (SHOP.cheeks). Book 1 wears it outright; the fish and the kaiju
+// keep their own body colours and use only the drawing.
+const BUTT_PEACH = { fill: 0xf2b18e, shade: 0xc97c58, lit: 0xffd9c0, line: 0x8a4a30, crease: 0x9c583a, blush: 0xff9d9d }
 const JET_BAKE_R = 34   // v6.10: every jet texture bakes at this radius, so rig scale = gy.r / it
 // The hydrant is drawn at this many px ACROSS-ish regardless of the zone's damage radius. It is an
 // object, not a zone: it must not grow when the weapon levels. See syncJets.
@@ -292,6 +295,10 @@ export function createRenderer(app) {
   // (playerForm === 'kaiju'), so a chapter with no form — or a future form neither of them draws —
   // renders the generic blob exactly as before this pass.
   let playerForm = null
+  // The CHEEKS skin (SHOP.cheeks), latched in reset() beside playerForm and read the same way.
+  // syncPlayer takes the PLAYER, not the run - reaching for `run` inside it throws a
+  // ReferenceError that npm test cannot see, because render.js is not importable by the suite.
+  let playerSkin = null
   // How big the `fish` form is drawn in the active chapter (CHAPTERS[].render.formScale, default 1)
   // — Book 2's "you grow in each chapter" arc. Latched in reset() beside playerForm; read by
   // syncPlayer for the body AND its shadow, which must scale together or the fish stands on the
@@ -539,6 +546,124 @@ export function createRenderer(app) {
       done += segs[i]
     }
   }
+  // ============ THE CHEEKS SKIN (SHOP.cheeks) ============
+  // A BUTT. One drawing for all three player bodies (blob, fish head, kaiju head).
+  //
+  // LOCAL FRAME: the MERGED end (where the cheeks join, toward the thighs) is at +x, the CLEFT
+  // OPENING is at -x, and the two cheeks separate along +-y. Pass rot to aim the merged end at
+  // whatever the body calls forward.
+  //
+  // TWO ELLIPSES IS A PEANUT, NOT A BUTT, and that is the whole reason this exists: a symmetric
+  // union notches at BOTH ends, and a flat fill reads as two circles. So the outline notches at
+  // ONE end only (a third ellipse fills the other) and the volume is actually drawn - crease
+  // groove, under-shadow crescent, top highlight.
+  function buttOutline(style, W, H, n = 96) {
+    // ray x ellipse(centre ox,oy; radii a,b), largest positive t - the union is the max over lobes
+    const hit = (th, ox, oy, a, b) => {
+      const c = Math.cos(th), si = Math.sin(th)
+      const A = c * c / (a * a) + si * si / (b * b)
+      const B = -2 * (c * ox / (a * a) + si * oy / (b * b))
+      const C = ox * ox / (a * a) + oy * oy / (b * b) - 1
+      const d = B * B - 4 * A * C
+      if (d < 0) return 0
+      const t = (-B + Math.sqrt(d)) / (2 * A)
+      return t > 0 ? t : 0
+    }
+    // The merge ellipse is deliberately NARROWER than the cheeks (mb < off+cb): that taper toward
+    // the thighs is what stops the bottom reading as a flat-based molar.
+    const S = style === 2
+      ? { off: 0.44, ca: 0.76, cb: 0.48, mx: 0.38, ma: 0.62, mb: 0.92, thigh: 0 }   // heart: deepest cleft, flares toward the thighs
+      : style === 3
+        ? { off: 0.42, ca: 0.80, cb: 0.55, mx: 0.30, ma: 0.62, mb: 0.46, thigh: 1 } // peach + thigh tops, so the legs part below
+        : { off: 0.42, ca: 0.80, cb: 0.55, mx: 0.36, ma: 0.64, mb: 0.62, thigh: 0 } // peach: round and soft
+    const lobes = [
+      [0, -S.off * H, S.ca * W, S.cb * H],
+      [0, S.off * H, S.ca * W, S.cb * H],
+      [S.mx * W, 0, S.ma * W, S.mb * H],
+    ]
+    if (S.thigh) {
+      lobes.push([0.56 * W, -0.40 * H, 0.44 * W, 0.42 * H])
+      lobes.push([0.56 * W, 0.40 * H, 0.44 * W, 0.42 * H])
+    }
+    const pts = []
+    for (let i = 0; i < n; i++) {
+      const th = (i / n) * Math.PI * 2
+      let r = 0
+      for (const l of lobes) r = Math.max(r, hit(th, l[0], l[1], l[2], l[3]))
+      pts.push(Math.cos(th) * r, Math.sin(th) * r)
+    }
+    return pts
+  }
+
+  function ovalPts(cx, cy, rx, ry, rot = 0, n = 26) {
+    const c = Math.cos(rot), s2 = Math.sin(rot)
+    const q = []
+    for (let i = 0; i < n; i++) {
+      const th = (i / n) * Math.PI * 2
+      const x = Math.cos(th) * rx, y = Math.sin(th) * ry
+      q.push(cx + x * c - y * s2, cy + x * s2 + y * c)
+    }
+    return q
+  }
+
+  // style 1 peach | 2 heart | 3 peach + thigh tops.  col = {fill, shade, lit, line, crease, blush}
+  // mode 0 = the whole thing | 1 = RIM ONLY | 2 = PAINT ONLY. The split exists so a butt sharing a
+  // silhouette with a body (the fish) can put both rims down before either fill, which is what
+  // makes the two shapes union into one outline instead of showing an internal seam.
+  function drawButt(g, style, W, H, rot, cx, cy, col, white, mode = 0) {
+    const co = Math.cos(rot), si = Math.sin(rot)
+    const P = (x, y) => [cx + x * co - y * si, cy + x * si + y * co]
+    const map = (pts, k = 1, ox = 0, oy = 0) => {
+      const out = []
+      for (let i = 0; i < pts.length; i += 2) out.push(...P(pts[i] * k + ox, pts[i + 1] * k + oy))
+      return out
+    }
+    const shell = buttOutline(style, W, H)
+    if (mode !== 2) {
+      g.poly(map(shell)).fill(white ? 0xffffff : col.line)
+        .stroke({ width: 3.2, color: white ? 0xffffff : col.line })
+    }
+    if (mode === 1) return
+    if (white) { g.poly(map(shell)).fill(0xffffff); return }
+    const blob = (ox, oy, rx, ry, color, alpha, tilt = 0) => {
+      const q = []
+      const c2 = Math.cos(tilt), s2 = Math.sin(tilt)
+      for (let i = 0; i < 30; i++) {
+        const th = (i / 30) * Math.PI * 2
+        const x = Math.cos(th) * rx, y = Math.sin(th) * ry
+        q.push(...P(ox + x * c2 - y * s2, oy + x * s2 + y * c2))
+      }
+      g.poly(q).fill({ color, alpha })
+    }
+    // THE CLEFT IS A GAP, NOT A LINE. Everything is shadow first; then each cheek is drawn as its
+    // OWN convex mass on top, splayed apart at the back. What is left of the shadow between them is
+    // the cleft, and what is left around them is the fold under each cheek - both fall out of the
+    // geometry instead of being a stroke laid over one flat shape, which is what kept reading as a
+    // wedge cut into a leaf.
+    g.poly(map(shell)).fill(col.shade)
+    const cdx = -W * 0.04, coff = H * 0.47, cra = W * 0.63, crb = H * 0.47
+    for (const sg of [-1, 1]) {
+      blob(cdx, sg * coff, cra, crb, col.fill, 1, -sg * 0.20)
+      blob(cdx - W * 0.20, sg * (coff + H * 0.10), cra * 0.40, crb * 0.38, col.lit, 0.24, -sg * 0.20)
+    }
+    // the deepest point of the cleft, where it opens at the back
+    blob(-W * 0.42, 0, W * 0.15, H * 0.11, col.crease, 0.5)
+    // cute: one small blush low on each cheek. Needs a HIGH alpha to read - at 0.4 over a saturated
+    // body colour it desaturates into a grey smudge rather than turning pink.
+    for (const sg of [-1, 1]) blob(W * 0.18, sg * H * 0.52, W * 0.13, H * 0.11, col.blush, 0.7)
+  }
+
+  // BOOK 1's cut. The blob's whole body IS its head, so the whole body becomes the butt: merged end
+  // at +y (screen down, where the smile was), cleft opening at -y (where the eyes were).
+  //   It carries BUTT_PEACH rather than the blob's teal, which is why syncPlayer bypasses
+  // chapterRender.playerTint for it - the same rule the fish and kaiju bakes already follow, and
+  // for the same reason: a uniform multiply by a chapter's tint would drag a final palette back
+  // toward that chapter's hue.
+  function drawBlobButt(g, white) {
+    drawButt(g, 3, PLAYER.radius * 1.04, PLAYER.radius, Math.PI / 2, 0, 0, BUTT_PEACH, white)
+  }
+  // ==============================================================================
+
   // Half-width profile primitive: a sine bulge over u in [0,1] shaped by exponent k (k<1 = blunt
   // and full-shouldered, k>1 = slender). u is clamped and the sine floored at 0 because float
   // drift at the endpoints (0.28 + 0.72 === 1.0000000000000002) would otherwise hand Math.pow a
@@ -1832,7 +1957,7 @@ export function createRenderer(app) {
   // and the squash-stretch are two independent transforms, not one replacing the other.
   const FISH_R = 26
   const FISH_PHASES = 6
-  function drawFish(g, white, phase = 0) {
+  function drawFish(g, white, phase = 0, butt = false) {
     const r = FISH_R
     const f = (c) => white ? 0xffffff : c
     const bodyLit = f(0xf2a184), bodyMid = f(0xd97a5c), bodyShade = f(0x8a3a2c)
@@ -1887,7 +2012,21 @@ export function createRenderer(app) {
       ]).fill({ color: finFill, alpha: 0.9 }).stroke({ width: lw * 0.55, color: finEdge })
     }
 
-    g.poly(spineOutline(spine, body, 44)).fill(bodyMid).stroke({ width: lw, color: line })
+    const bodyPts = spineOutline(spine, body, 44)
+    if (butt) {
+      // the head becomes the butt: merged end forward (the nose), cleft opening back toward the
+      // body. Both RIMS go down before either fill, so the two shapes union into one outline.
+      const [hx, hy] = spine(0.16)
+      const [bx2, by2] = spine(0.36)
+      const rot = Math.atan2(hy - by2, hx - bx2)
+      const col = { fill: bodyMid, shade: bodyShade, lit: bodyLit, line, crease: bodyShade, blush: 0xff9d9d }
+      g.poly(bodyPts).fill(line).stroke({ width: lw * 2, color: line })
+      drawButt(g, 1, r * 0.64, r * 0.68, rot, hx, hy, col, white, 1)
+      g.poly(bodyPts).fill(bodyMid)
+      drawButt(g, 1, r * 0.64, r * 0.68, rot, hx, hy, col, white, 2)
+    } else {
+      g.poly(bodyPts).fill(bodyMid).stroke({ width: lw, color: line })
+    }
 
     if (!white) {
       // Countershading read from above: the dorsal ridge is the darkest line on the animal and it
@@ -1903,7 +2042,7 @@ export function createRenderer(app) {
       // Both eyes are visible from overhead — that is the plan view stating itself. On the snout,
       // where a fish's are, not back on the shoulders where they read as a frog's.
       const [ex, ey] = spine(0.16)
-      for (const s of [-1, 1]) darkEye(g, ex, ey + s * body(0.16) * 0.58, r * 0.085, r * 0.085, 0x1a0d05, true)
+      if (!butt) for (const s of [-1, 1]) darkEye(g, ex, ey + s * body(0.16) * 0.58, r * 0.085, r * 0.085, 0x1a0d05, true)
     }
   }
 
@@ -4181,6 +4320,13 @@ export function createRenderer(app) {
       g.ellipse(0, 0, pr, pr * 0.91).fill(0xffffff).stroke({ width: 3.5, color: 0xffffff })
       T.playerFlash = bake(g)
     }
+    // THE CHEEKS SKIN's blob body, baked alongside the face it replaces rather than instead of it.
+    // A skin is bought in the shop and the shop sits BETWEEN runs, not between page loads, so a
+    // bake that branched on the save would only change after a reload - which is indistinguishable
+    // from "the 19999 coins did nothing". syncPlayer swaps the texture instead, the same way it
+    // already swaps between the blob, the fish and the kaiju.
+    T.playerButt = (() => { const g = new Graphics(); drawBlobButt(g, false); return bake(g) })()
+    T.playerButtFlash = (() => { const g = new Graphics(); drawBlobButt(g, true); return bake(g) })()
     {
       const g = new Graphics()
       g.circle(0, 0, pr * 0.115).fill(0x2f3140)
@@ -4202,10 +4348,14 @@ export function createRenderer(app) {
     // ellipse is the honest shape and six of them would be six identical bakes.
     T.fishBody = []
     T.fishFlash = []
+    T.fishButt = []
+    T.fishButtFlash = []
     for (let wp = 0; wp < FISH_PHASES; wp++) {
       const ang = (wp / FISH_PHASES) * Math.PI * 2
       const bg = new Graphics(); drawFish(bg, false, ang); T.fishBody.push(bake(bg))
       const wg = new Graphics(); drawFish(wg, true, ang); T.fishFlash.push(bake(wg))
+      const cg = new Graphics(); drawFish(cg, false, ang, true); T.fishButt.push(bake(cg))
+      const cw = new Graphics(); drawFish(cw, true, ang, true); T.fishButtFlash.push(bake(cw))
     }
     T.fishShadow = (() => {
       const g = new Graphics()
@@ -7174,7 +7324,7 @@ export function createRenderer(app) {
       const left = rightPts.slice().reverse().map(([x, y]) => [-x, y])
       return rightPts.concat(left).flat()
     }
-    function drawKaijuBody(g, white) {
+    function drawKaijuBody(g, white, butt = false) {
       const bodyLit = white ? 0xffffff : K.bodyLit
       const bodyMid = white ? 0xffffff : K.bodyMid
       const bodyShade = white ? 0xffffff : K.bodyShade
@@ -7253,6 +7403,27 @@ export function createRenderer(app) {
           .fill(plateBase).stroke({ width: 1.2, color: plateEdge, alpha: 0.7 })
       }
 
+      if (butt) {
+        // the kaiju is the one body with a real, separate HEAD, so the swap is literal: skull, jaw,
+        // teeth, horns and eyes all go and a butt sits on the neck. Merged end at -y (the way the
+        // creature faces), cleft opening back toward the shoulders.
+        const col = { fill: bodyMid, shade: bodyShade, lit: bodyLit, line: bodyShade, crease: white ? 0xffffff : mix(K.bodyShade, 0x000000, 0.35), blush: 0xff9d9d }
+        // A NECK, because the torso is only 20 half-wide where the head meets it. The stock head is
+        // twice that and gets away with it only because its JAW poly bridges down to y=-36; drop
+        // the jaw and the same gap reads as a balloon on a string, which is exactly what it did.
+        // Rims first (neck, then butt), fills second, so the three shapes union into one outline.
+        const neck = [-36, -78, 36, -78, 30, -50, 0, -38, -30, -50]
+        g.poly(neck).fill(bodyShade).stroke({ width: 4, color: bodyShade })
+        // TURNED TO FACE FORWARD (+PI/2, not -PI/2): this is a BUTTFACE, so the cleft opens at the
+        // front where the creature looks and its deepest point lands where the jaw and teeth used
+        // to be. Pointed the other way the crack hid against the neck and the animal presented a
+        // smooth blank end, which is a butt seen from the wrong side.
+        drawButt(g, 1, 42, 40, Math.PI / 2, 0, -100, col, white, 1)
+        g.poly(neck).fill(bodyMid)
+        if (!white) g.ellipse(0, -52, 20, 13).fill({ color: bodyShade, alpha: 0.35 })  // the neck sits under the haunch
+        drawButt(g, 1, 42, 40, Math.PI / 2, 0, -100, col, white, 2)
+        return
+      }
       // head: skull tapering to a point between two small brow horns, a jaw with jagged teeth, and
       // two white-sclera eyes (pupils are the existing pooled T.pupil sprites — see syncPlayer)
       const headW = 42
@@ -7277,6 +7448,8 @@ export function createRenderer(app) {
     }
     T.kaijuBody = (() => { const g = new Graphics(); drawKaijuBody(g, false); return bake(g) })()
     T.kaijuFlash = (() => { const g = new Graphics(); drawKaijuBody(g, true); return bake(g) })()
+    T.kaijuButt = (() => { const g = new Graphics(); drawKaijuBody(g, false, true); return bake(g) })()
+    T.kaijuButtFlash = (() => { const g = new Graphics(); drawKaijuBody(g, true, true); return bake(g) })()
 
     // ground shadow: the kaiju's own bigger disc (T.playerShadow, the generic blob's, is far too
     // small once the silhouette above is this big) — see syncPlayer for the SKIES_SHADOW-direction
@@ -13946,6 +14119,17 @@ export function createRenderer(app) {
       const mini = !!lu.minime
       lv.star1.visible = lv.star2.visible = lv.ring.visible = !mini
       lv.body.visible = lv.shadow.visible = lv.eyeL.visible = lv.eyeR.visible = mini
+      // "A MINIME IS A SMALL YOU" is the whole contract, so it takes the skin as well - a decoy
+      // still wearing the face you paid to lose is the same one-fact-two-places drift this file is
+      // built around. The eyes are separate pooled sprites here, not baked into the body.
+      if (mini && playerSkin) {
+        if (lv.body.texture !== T.playerButt.tex) {
+          lv.body.texture = T.playerButt.tex; lv.body.anchor.set(T.playerButt.ax, T.playerButt.ay)
+        }
+        lv.eyeL.visible = lv.eyeR.visible = false
+      } else if (mini && lv.body.texture !== T.playerBody.tex) {
+        lv.body.texture = T.playerBody.tex; lv.body.anchor.set(T.playerBody.ax, T.playerBody.ay)
+      }
       if (mini) {
         // Keep a faint glow so it still reads as a DECOY the swarm wants, not as a second player —
         // dimmer and cooler than the beacon's, and under the body rather than around it.
@@ -13956,7 +14140,7 @@ export function createRenderer(app) {
         lv.shadow.position.set(0, 2)
         lv.body.alpha = inA
         lv.body.scale.set(MINIME_DRAW_SCALE)
-        lv.body.tint = chapterRender.playerTint   // the same tint the live player wears
+        lv.body.tint = playerSkin ? 0xffffff : chapterRender.playerTint   // the same tint the live player wears
         // Match the PLAYER's own rig, which flips rather than rotates outside the kaiju chapter —
         // a rotating body here would be a different projection from the thing it is a copy of.
         if (lu.vx) lv.body.scale.x = Math.sign(lu.vx) * MINIME_DRAW_SCALE
@@ -16755,10 +16939,12 @@ export function createRenderer(app) {
     // silhouette isn't centred the way the round blob is; guard on pBody alone (all three always
     // swap together) to keep this a single check.
     if (playerForm === 'kaiju') {
-      if (pBody.texture !== T.kaijuBody.tex) {
-        pBody.texture = T.kaijuBody.tex; pBody.anchor.set(T.kaijuBody.ax, T.kaijuBody.ay)
-        pFlash.texture = T.kaijuFlash.tex; pFlash.anchor.set(T.kaijuFlash.ax, T.kaijuFlash.ay)
-        pHot.texture = T.kaijuFlash.tex; pHot.anchor.set(T.kaijuFlash.ax, T.kaijuFlash.ay)
+      const kBody = playerSkin ? T.kaijuButt : T.kaijuBody
+      const kFlash = playerSkin ? T.kaijuButtFlash : T.kaijuFlash
+      if (pBody.texture !== kBody.tex) {
+        pBody.texture = kBody.tex; pBody.anchor.set(kBody.ax, kBody.ay)
+        pFlash.texture = kFlash.tex; pFlash.anchor.set(kFlash.ax, kFlash.ay)
+        pHot.texture = kFlash.tex; pHot.anchor.set(kFlash.ax, kFlash.ay)
         pShadow.texture = T.kaijuShadow.tex; pShadow.anchor.set(T.kaijuShadow.ax, T.kaijuShadow.ay)
       }
       // the region's ONE light direction (SKIES_SHADOW), scaled off the shadow's own reference
@@ -16776,7 +16962,8 @@ export function createRenderer(app) {
       // shadow like the generic blob's — this chapter has no light direction of its own the way
       // SKIES_SHADOW gives skies.
       const wIdx = Math.floor(animT * 10) % FISH_PHASES
-      const wBody = T.fishBody[wIdx], wFlash = T.fishFlash[wIdx]
+      const wBody = (playerSkin ? T.fishButt : T.fishBody)[wIdx]
+      const wFlash = (playerSkin ? T.fishButtFlash : T.fishFlash)[wIdx]
       if (pBody.texture !== wBody.tex) {
         pBody.texture = wBody.tex; pBody.anchor.set(wBody.ax, wBody.ay)
         pFlash.texture = wFlash.tex; pFlash.anchor.set(wFlash.ax, wFlash.ay)
@@ -16792,8 +16979,10 @@ export function createRenderer(app) {
       const rung = buffs && buffs.still > 0
         ? Math.min(STILL_STEPS - 1, Math.round(buffs.still * (STILL_STEPS - 1)))
         : 0
-      const bodyLook = rung > 0 ? T.playerStill[rung] : T.playerBody
-      const flashLook = rung > 0 ? T.playerStillFlash[rung] : T.playerFlash
+      // The skin wins over the STILLNESS morph ladder: that ladder sharpens the FACE's own
+      // silhouette toward a triangle, and there is no face here to sharpen.
+      const bodyLook = playerSkin ? T.playerButt : rung > 0 ? T.playerStill[rung] : T.playerBody
+      const flashLook = playerSkin ? T.playerButtFlash : rung > 0 ? T.playerStillFlash[rung] : T.playerFlash
       if (pBody.texture !== bodyLook.tex) {
         pBody.texture = bodyLook.tex; pBody.anchor.set(bodyLook.ax, bodyLook.ay)
       }
@@ -16813,7 +17002,7 @@ export function createRenderer(app) {
     // playerTint (0x7ad07a for skies, 0xffffff for surf) would push the kaiju's
     // pale sclera or the fish's fin and gill highlights toward the same hue as the body fill, right
     // when that contrast matters most.
-    pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish') ? 0xffffff : chapterRender.playerTint
+    pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish' || playerSkin) ? 0xffffff : chapterRender.playerTint
     // BERSERK (v7.14): the skin runs hot while the window is open. Strongest on the frame you are
     // hit and fading with _berserkT, so the wash IS the timer — no chrome, nothing to read.
     // An alpha-blended red silhouette, NOT a tint on pBody: see pHot's own note at the rig.
@@ -16978,7 +17167,10 @@ export function createRenderer(app) {
       : playerForm === 'fish' ? shadowSquash * formScale : shadowSquash)
 
     // pupil tracking (local +x flips with the body toward facing)
-    if (playerForm === 'kaiju') {
+    if (playerSkin) {
+      pupilL.scale.set(0)   // a butt has no eyes
+      pupilR.scale.set(0)
+    } else if (playerForm === 'kaiju') {
       // bigger head, further-set eyes (drawKaijuBody's sclera circles, radius 13 at ±22,-96) — same
       // tracking motion, just rescaled off the kaiju's own eye geometry instead of PLAYER.radius.
       const eyeR = 13, eyeOffX = 22, eyeOffY = -96
@@ -18455,6 +18647,7 @@ export function createRenderer(app) {
     chapterHasRuins = !!(chapterRender.storm || chapterRender.ruins)
     playerForm = chapterRender.form ?? null
     formScale = chapterRender.formScale ?? 1
+    playerSkin = run?.skin ?? null
     chapterHasLeaves = !!chapterRender.leaves
     // Read `cfg`, not CHAPTERS[run.chapter] — `run` is null on the quit-to-title path (main.js
     // onQuit), and dereferencing it here threw before ui.showScreen('title') could run, softlocking
