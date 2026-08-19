@@ -18,7 +18,8 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
-  LURE_GLOW, MAW_VIS, // The Deep: the anglerfish maw and its esca punched through the dark scrim
+  LURE_GLOW, MAW_VIS,
+  CHEEK_JIGGLE,       // the cheeks skin's spring — see syncPlayer's jiggle block // The Deep: the anglerfish maw and its esca punched through the dark scrim
   FOXFIRE_GLOW,       // The Twilight: a foxfire punched through the same scrim — a fire is a light
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
@@ -299,6 +300,10 @@ export function createRenderer(app) {
   // syncPlayer takes the PLAYER, not the run - reaching for `run` inside it throws a
   // ReferenceError that npm test cannot see, because render.js is not importable by the suite.
   let playerSkin = null
+  // The jiggle's spring: position, velocity, and last frame's player velocity so the KICK can be an
+  // acceleration. Screen space — converted into the body's own frame at the point of use, since
+  // bodyC carries the facing as a rotation (kaiju/fish) or an x-flip (everything else).
+  let jigX = 0, jigY = 0, jigVX = 0, jigVY = 0, jigVX0 = 0, jigVY0 = 0
   // How big the `fish` form is drawn in the active chapter (CHAPTERS[].render.formScale, default 1)
   // — Book 2's "you grow in each chapter" arc. Latched in reset() beside playerForm; read by
   // syncPlayer for the body AND its shadow, which must scale together or the fish stands on the
@@ -607,10 +612,20 @@ export function createRenderer(app) {
   }
 
   // style 1 peach | 2 heart | 3 peach + thigh tops.  col = {fill, shade, lit, line, crease, blush}
-  // mode 0 = the whole thing | 1 = RIM ONLY | 2 = PAINT ONLY. The split exists so a butt sharing a
-  // silhouette with a body (the fish) can put both rims down before either fill, which is what
-  // makes the two shapes union into one outline instead of showing an internal seam.
-  function drawButt(g, style, W, H, rot, cx, cy, col, white, mode = 0) {
+  //
+  // THREE NAMED LAYERS, and which one you ask for is the whole jiggle mechanism:
+  //   'rim'    the outline. Laid down BEFORE any fill so a butt sharing a silhouette with a body
+  //            (the fish, the kaiju's neck) unions with it instead of showing an internal seam.
+  //   'shell'  the shadow the cheeks sit in, plus the deepest point of the cleft. Never moves.
+  //   'cheeks' the two lit masses, their highlights and their blush. THE PART THAT JIGGLES - baked
+  //            into its own texture and carried by its own sprite, so it can slide and squash
+  //            inside an outline that stays put.
+  //   'body'   rim + shell, i.e. everything that does NOT move — what the body texture bakes.
+  //   'all'    all three, for anywhere the skin is drawn static (the mini-me).
+  // The cleft's dark point belongs to 'shell' rather than being painted last as it once was: it is
+  // the FOLD, so the cheeks must slide over it, and keeping it there is also what makes 'all'
+  // composite to exactly the same picture as shell-then-cheeks.
+  function drawButt(g, style, W, H, rot, cx, cy, col, white, part = 'all') {
     const co = Math.cos(rot), si = Math.sin(rot)
     const P = (x, y) => [cx + x * co - y * si, cy + x * si + y * co]
     const map = (pts, k = 1, ox = 0, oy = 0) => {
@@ -619,11 +634,11 @@ export function createRenderer(app) {
       return out
     }
     const shell = buttOutline(style, W, H)
-    if (mode !== 2) {
+    if (part !== 'shell' && part !== 'cheeks') {
       g.poly(map(shell)).fill(white ? 0xffffff : col.line)
         .stroke({ width: 3.2, color: white ? 0xffffff : col.line })
     }
-    if (mode === 1) return
+    if (part === 'rim') return
     if (white) { g.poly(map(shell)).fill(0xffffff); return }
     const blob = (ox, oy, rx, ry, color, alpha, tilt = 0) => {
       const q = []
@@ -640,14 +655,16 @@ export function createRenderer(app) {
     // the cleft, and what is left around them is the fold under each cheek - both fall out of the
     // geometry instead of being a stroke laid over one flat shape, which is what kept reading as a
     // wedge cut into a leaf.
-    g.poly(map(shell)).fill(col.shade)
+    if (part !== 'cheeks') {
+      g.poly(map(shell)).fill(col.shade)
+      blob(-W * 0.42, 0, W * 0.15, H * 0.11, col.crease, 0.5)   // the deepest point of the cleft
+    }
+    if (part === 'shell' || part === 'body') return
     const cdx = -W * 0.04, coff = H * 0.47, cra = W * 0.63, crb = H * 0.47
     for (const sg of [-1, 1]) {
       blob(cdx, sg * coff, cra, crb, col.fill, 1, -sg * 0.20)
       blob(cdx - W * 0.20, sg * (coff + H * 0.10), cra * 0.40, crb * 0.38, col.lit, 0.24, -sg * 0.20)
     }
-    // the deepest point of the cleft, where it opens at the back
-    blob(-W * 0.42, 0, W * 0.15, H * 0.11, col.crease, 0.5)
     // cute: one small blush low on each cheek. Needs a HIGH alpha to read - at 0.4 over a saturated
     // body colour it desaturates into a grey smudge rather than turning pink.
     for (const sg of [-1, 1]) blob(W * 0.18, sg * H * 0.52, W * 0.13, H * 0.11, col.blush, 0.7)
@@ -659,9 +676,13 @@ export function createRenderer(app) {
   // chapterRender.playerTint for it - the same rule the fish and kaiju bakes already follow, and
   // for the same reason: a uniform multiply by a chapter's tint would drag a final palette back
   // toward that chapter's hue.
-  function drawBlobButt(g, white) {
-    drawButt(g, 3, PLAYER.radius * 1.04, PLAYER.radius, Math.PI / 2, 0, 0, BUTT_PEACH, white)
+  function drawBlobButt(g, white, part = 'all') {
+    drawButt(g, 3, PLAYER.radius * 1.04, PLAYER.radius, Math.PI / 2, 0, 0, BUTT_PEACH, white, part)
   }
+  // Where each form's butt is CENTRED in its own drawing space. The jiggle scales about this point,
+  // so a wrong entry here squashes the cheeks toward the body's origin instead of about themselves
+  // — which on the kaiju (origin at mid-back, butt 100px away) is a slide, not a squash.
+  const BUTT_AT = { blob: [0, 0], kaiju: [0, -100] }
   // ==============================================================================
 
   // Half-width profile primitive: a sine bulge over u in [0,1] shaped by exponent k (k<1 = blunt
@@ -1957,7 +1978,10 @@ export function createRenderer(app) {
   // and the squash-stretch are two independent transforms, not one replacing the other.
   const FISH_R = 26
   const FISH_PHASES = 6
-  function drawFish(g, white, phase = 0, butt = false) {
+  // `part` is drawButt's ('all' | 'shell' | 'cheeks'); 'cheeks' draws ONLY the moving mass and
+  // nothing else of the fish. Returns the butt's centre in drawing space, which the jiggle needs as
+  // a pivot and which MOVES with the swim phase - so it is returned per bake, never a constant.
+  function drawFish(g, white, phase = 0, butt = false, part = 'all') {
     const r = FISH_R
     const f = (c) => white ? 0xffffff : c
     const bodyLit = f(0xf2a184), bodyMid = f(0xd97a5c), bodyShade = f(0x8a3a2c)
@@ -2013,6 +2037,7 @@ export function createRenderer(app) {
     }
 
     const bodyPts = spineOutline(spine, body, 44)
+    let buttAt = null
     if (butt) {
       // the head becomes the butt: merged end forward (the nose), cleft opening back toward the
       // body. Both RIMS go down before either fill, so the two shapes union into one outline.
@@ -2020,10 +2045,15 @@ export function createRenderer(app) {
       const [bx2, by2] = spine(0.36)
       const rot = Math.atan2(hy - by2, hx - bx2)
       const col = { fill: bodyMid, shade: bodyShade, lit: bodyLit, line, crease: bodyShade, blush: 0xff9d9d }
+      buttAt = [hx, hy]
+      if (part === 'cheeks') {
+        drawButt(g, 1, r * 0.64, r * 0.68, rot, hx, hy, col, white, 'cheeks')
+        return buttAt
+      }
       g.poly(bodyPts).fill(line).stroke({ width: lw * 2, color: line })
-      drawButt(g, 1, r * 0.64, r * 0.68, rot, hx, hy, col, white, 1)
+      drawButt(g, 1, r * 0.64, r * 0.68, rot, hx, hy, col, white, 'rim')
       g.poly(bodyPts).fill(bodyMid)
-      drawButt(g, 1, r * 0.64, r * 0.68, rot, hx, hy, col, white, 2)
+      drawButt(g, 1, r * 0.64, r * 0.68, rot, hx, hy, col, white, 'shell')
     } else {
       g.poly(bodyPts).fill(bodyMid).stroke({ width: lw, color: line })
     }
@@ -2044,6 +2074,7 @@ export function createRenderer(app) {
       const [ex, ey] = spine(0.16)
       if (!butt) for (const s of [-1, 1]) darkEye(g, ex, ey + s * body(0.16) * 0.58, r * 0.085, r * 0.085, 0x1a0d05, true)
     }
+    return buttAt
   }
 
   // --- Reef chapter (Book 2 ch 3, deep water over warm coral) ---
@@ -4323,10 +4354,17 @@ export function createRenderer(app) {
     // THE CHEEKS SKIN's blob body, baked alongside the face it replaces rather than instead of it.
     // A skin is bought in the shop and the shop sits BETWEEN runs, not between page loads, so a
     // bake that branched on the save would only change after a reload - which is indistinguishable
-    // from "the 19999 coins did nothing". syncPlayer swaps the texture instead, the same way it
+    // from "the coins did nothing". syncPlayer swaps the texture instead, the same way it
     // already swaps between the blob, the fish and the kaiju.
-    T.playerButt = (() => { const g = new Graphics(); drawBlobButt(g, false); return bake(g) })()
+    // Body and cheeks bake SEPARATELY so the cheeks can move (see CHEEK_JIGGLE). Every bake here
+    // is drawn in the same coordinate space, and bake() hands back an anchor that reproduces that
+    // space exactly when the sprite sits at (0,0) - which is what lets two differently-sized
+    // textures land on top of each other with no measured offset at all.
+    T.playerButt = (() => { const g = new Graphics(); drawBlobButt(g, false, 'body'); return bake(g) })()
+    T.playerCheeks = (() => { const g = new Graphics(); drawBlobButt(g, false, 'cheeks'); return bake(g) })()
     T.playerButtFlash = (() => { const g = new Graphics(); drawBlobButt(g, true); return bake(g) })()
+    // the whole thing in one texture, for the mini-me - a decoy is static and does not earn a rig
+    T.playerButtSolid = (() => { const g = new Graphics(); drawBlobButt(g, false, 'all'); return bake(g) })()
     {
       const g = new Graphics()
       g.circle(0, 0, pr * 0.115).fill(0x2f3140)
@@ -4350,12 +4388,17 @@ export function createRenderer(app) {
     T.fishFlash = []
     T.fishButt = []
     T.fishButtFlash = []
+    T.fishCheeks = []
+    T.fishCheekAt = []   // the butt's centre per swim phase — the jiggle's pivot, and it moves
     for (let wp = 0; wp < FISH_PHASES; wp++) {
       const ang = (wp / FISH_PHASES) * Math.PI * 2
       const bg = new Graphics(); drawFish(bg, false, ang); T.fishBody.push(bake(bg))
       const wg = new Graphics(); drawFish(wg, true, ang); T.fishFlash.push(bake(wg))
       const cg = new Graphics(); drawFish(cg, false, ang, true); T.fishButt.push(bake(cg))
       const cw = new Graphics(); drawFish(cw, true, ang, true); T.fishButtFlash.push(bake(cw))
+      const kg = new Graphics()
+      T.fishCheekAt.push(drawFish(kg, false, ang, true, 'cheeks'))
+      T.fishCheeks.push(bake(kg))
     }
     T.fishShadow = (() => {
       const g = new Graphics()
@@ -7324,7 +7367,7 @@ export function createRenderer(app) {
       const left = rightPts.slice().reverse().map(([x, y]) => [-x, y])
       return rightPts.concat(left).flat()
     }
-    function drawKaijuBody(g, white, butt = false) {
+    function drawKaijuBody(g, white, butt = false, part = 'all') {
       const bodyLit = white ? 0xffffff : K.bodyLit
       const bodyMid = white ? 0xffffff : K.bodyMid
       const bodyShade = white ? 0xffffff : K.bodyShade
@@ -7344,6 +7387,13 @@ export function createRenderer(app) {
       // reads at, the plain bodyMid fill plus a dark stroke plus three dark claw ticks read as a
       // near-black stub, not "a green limb with dark claws"; the lighter fill keeps the green
       // identity legible even where the claw ticks cover a good fraction of the small shape.
+      if (part === 'cheeks') {
+        // ONLY the moving mass. Everything below - limbs, torso, plates, the neck - is the body
+        // this layer slides over, and drawing any of it here would double it on screen.
+        const col = { fill: bodyMid, shade: bodyShade, lit: bodyLit, line: bodyShade, crease: mix(K.bodyShade, 0x000000, 0.35), blush: 0xff9d9d }
+        drawButt(g, 1, 42, 40, Math.PI / 2, 0, -100, col, false, 'cheeks')
+        return
+      }
       const limbFill = white ? 0xffffff : mix(bodyMid, bodyLit, 0.55)
       function limb(pts, clawAt, side) {
         const p = pts.map(([x, y]) => [x * side, y])
@@ -7418,10 +7468,10 @@ export function createRenderer(app) {
         // front where the creature looks and its deepest point lands where the jaw and teeth used
         // to be. Pointed the other way the crack hid against the neck and the animal presented a
         // smooth blank end, which is a butt seen from the wrong side.
-        drawButt(g, 1, 42, 40, Math.PI / 2, 0, -100, col, white, 1)
+        drawButt(g, 1, 42, 40, Math.PI / 2, 0, -100, col, white, 'rim')
         g.poly(neck).fill(bodyMid)
         if (!white) g.ellipse(0, -52, 20, 13).fill({ color: bodyShade, alpha: 0.35 })  // the neck sits under the haunch
-        drawButt(g, 1, 42, 40, Math.PI / 2, 0, -100, col, white, 2)
+        drawButt(g, 1, 42, 40, Math.PI / 2, 0, -100, col, white, 'shell')
         return
       }
       // head: skull tapering to a point between two small brow horns, a jaw with jagged teeth, and
@@ -7450,6 +7500,7 @@ export function createRenderer(app) {
     T.kaijuFlash = (() => { const g = new Graphics(); drawKaijuBody(g, true); return bake(g) })()
     T.kaijuButt = (() => { const g = new Graphics(); drawKaijuBody(g, false, true); return bake(g) })()
     T.kaijuButtFlash = (() => { const g = new Graphics(); drawKaijuBody(g, true, true); return bake(g) })()
+    T.kaijuCheeks = (() => { const g = new Graphics(); drawKaijuBody(g, false, true, 'cheeks'); return bake(g) })()
 
     // ground shadow: the kaiju's own bigger disc (T.playerShadow, the generic blob's, is far too
     // small once the silhouette above is this big) — see syncPlayer for the SKIES_SHADOW-direction
@@ -10649,7 +10700,26 @@ export function createRenderer(app) {
   // Sits above pBody and below the pupils, so the eyes stay sharp while the skin runs hot.
   const pHot = spriteOf(T.playerFlash)
   pHot.alpha = 0
-  bodyC.addChild(pBody, pHot, pupilL, pupilR, pFlash)
+  // THE CHEEKS SKIN's moving layer (CHEEK_JIGGLE). A CONTAINER around the sprite, not the sprite
+  // alone, and that is the whole reason it exists: a bake's own anchor reproduces its drawing space
+  // when the sprite sits at (0,0), so scaling the sprite would pivot about the BODY's origin - dead
+  // centre for the blob, but 100px from the butt on the kaiju, where a squash would read as a
+  // slide. cheekC parks on the butt's centre and pCheeks counter-offsets back to (0,0), so scale
+  // and offset both act about the cheeks themselves while the picture at rest is untouched.
+  //   Above pBody so it sits on the shadow shell, below pHot and pFlash so a berserk wash and a hit
+  // flash still cover the whole player.
+  const cheekC = new Container()
+  const pCheeks = spriteOf(T.playerCheeks)
+  cheekC.addChild(pCheeks)
+  cheekC.visible = false
+  // CLIPPED TO THE BODY'S OWN SILHOUETTE. Without this a cheek at full wobble crosses the rim and
+  // the outline appears to bulge, which is the one thing the layer split exists to prevent. The
+  // FLASH bake is already that silhouette in solid white — per form, and per swim phase for the
+  // fish — so the mask costs no new texture, only the sprite that wears it.
+  const pMask = spriteOf(T.playerButtFlash)
+  bodyC.addChild(pMask)
+  cheekC.mask = pMask
+  bodyC.addChild(pBody, cheekC, pHot, pupilL, pupilR, pFlash)
   // flagellum tail (pond/undergrowth skins): two stacked streak glyphs behind the blob, trailing
   // the player's facingAngle with a wiggle. Textures are fx sprites so they're assigned once the fx
   // sheet loads (buildFxTextures); this rig starts hidden and is revealed by chapterRender.tail.
@@ -14123,8 +14193,9 @@ export function createRenderer(app) {
       // still wearing the face you paid to lose is the same one-fact-two-places drift this file is
       // built around. The eyes are separate pooled sprites here, not baked into the body.
       if (mini && playerSkin) {
-        if (lv.body.texture !== T.playerButt.tex) {
-          lv.body.texture = T.playerButt.tex; lv.body.anchor.set(T.playerButt.ax, T.playerButt.ay)
+        if (lv.body.texture !== T.playerButtSolid.tex) {
+          lv.body.texture = T.playerButtSolid.tex
+          lv.body.anchor.set(T.playerButtSolid.ax, T.playerButtSolid.ay)
         }
         lv.eyeL.visible = lv.eyeR.visible = false
       } else if (mini && lv.body.texture !== T.playerBody.tex) {
@@ -16932,6 +17003,11 @@ export function createRenderer(app) {
   function syncPlayer(p, dt, rampageT = 0, buffs = null, deathP = 0) {
     playerC.position.set(p.x, p.y)
 
+    // Filled by whichever form branch runs below: the cheek layer's texture, the butt's centre in
+    // that body's drawing space (the jiggle's pivot), the silhouette that clips it, and the butt's
+    // own half-width — which is what CHEEK_JIGGLE.max is a fraction OF, so all three bodies wobble
+    // by the same proportion rather than by the same pixels.
+    let cheekLook = null, cheekAt = null, cheekMask = null, cheekW = 1
     // v5.11 kaiju redesign, generalised (undertow): swap the whole body/flash/shadow onto the
     // active chapter's dedicated bake (playerForm) and back onto the generic cross-chapter blob for
     // every chapter that declares no form — same texture-swap-if-changed idiom pRampageGlow uses
@@ -16941,6 +17017,7 @@ export function createRenderer(app) {
     if (playerForm === 'kaiju') {
       const kBody = playerSkin ? T.kaijuButt : T.kaijuBody
       const kFlash = playerSkin ? T.kaijuButtFlash : T.kaijuFlash
+      cheekLook = T.kaijuCheeks; cheekAt = BUTT_AT.kaiju; cheekMask = kFlash; cheekW = 42
       if (pBody.texture !== kBody.tex) {
         pBody.texture = kBody.tex; pBody.anchor.set(kBody.ax, kBody.ay)
         pFlash.texture = kFlash.tex; pFlash.anchor.set(kFlash.ax, kFlash.ay)
@@ -16964,6 +17041,9 @@ export function createRenderer(app) {
       const wIdx = Math.floor(animT * 10) % FISH_PHASES
       const wBody = (playerSkin ? T.fishButt : T.fishBody)[wIdx]
       const wFlash = (playerSkin ? T.fishButtFlash : T.fishFlash)[wIdx]
+      // the fish's butt centre MOVES with the swim phase, so the pivot is read per frame from the
+      // array the bake filled — a constant here would drift off the cheeks as the body undulates
+      cheekLook = T.fishCheeks[wIdx]; cheekAt = T.fishCheekAt[wIdx]; cheekMask = wFlash; cheekW = FISH_R * 0.64
       if (pBody.texture !== wBody.tex) {
         pBody.texture = wBody.tex; pBody.anchor.set(wBody.ax, wBody.ay)
         pFlash.texture = wFlash.tex; pFlash.anchor.set(wFlash.ax, wFlash.ay)
@@ -16983,6 +17063,7 @@ export function createRenderer(app) {
       // silhouette toward a triangle, and there is no face here to sharpen.
       const bodyLook = playerSkin ? T.playerButt : rung > 0 ? T.playerStill[rung] : T.playerBody
       const flashLook = playerSkin ? T.playerButtFlash : rung > 0 ? T.playerStillFlash[rung] : T.playerFlash
+      cheekLook = T.playerCheeks; cheekAt = BUTT_AT.blob; cheekMask = T.playerButtFlash; cheekW = PLAYER.radius * 1.04
       if (pBody.texture !== bodyLook.tex) {
         pBody.texture = bodyLook.tex; pBody.anchor.set(bodyLook.ax, bodyLook.ay)
       }
@@ -17160,6 +17241,50 @@ export function createRenderer(app) {
                            // this session drew a rotating form (kaiju/fish rotate bodyC above)
     }
     bodyC.y = by
+
+    // ---- BUTT JIGGLE (CHEEK_JIGGLE) -----------------------------------------------------------
+    // A damped spring kicked by the player's own ACCELERATION, not by velocity: soft mass lags a
+    // CHANGE of pace, so this fires when you set off, stop, or turn, and sits still while you hold
+    // a heading — which is what makes it read as weight rather than as a wobble animation playing.
+    //   Sits here, after bodyC's transform, because it has to be converted INTO that transform:
+    // bodyC carries the facing as a rotation (kaiju/fish) or as a negative x scale (everything
+    // else), so a screen-space offset handed straight to a child would flip with the sprite and
+    // lag the wrong way every time the player faced left.
+    if (playerSkin && cheekLook) {
+      cheekC.visible = true
+      if (pCheeks.texture !== cheekLook.tex) {
+        pCheeks.texture = cheekLook.tex; pCheeks.anchor.set(cheekLook.ax, cheekLook.ay)
+      }
+      if (pMask.texture !== cheekMask.tex) {
+        pMask.texture = cheekMask.tex; pMask.anchor.set(cheekMask.ax, cheekMask.ay)
+      }
+      const J = CHEEK_JIGGLE
+      const lim = J.max * cheekW
+      if (dt > 0) {
+        const ax = (p.vx - jigVX0) / dt, ay = (p.vy - jigVY0) / dt
+        jigVX0 = p.vx; jigVY0 = p.vy
+        jigVX += (-ax * J.kick - jigX * J.k) * dt
+        jigVY += (-ay * J.kick - jigY * J.k) * dt
+        // exp() rather than (1 - damp*dt): the ticker's dt is clamped to 0.05s but not fixed, and
+        // a linear decay term goes NEGATIVE past dt = 1/damp, which turns damping into a divergence
+        const d = Math.exp(-J.damp * dt)
+        jigVX *= d; jigVY *= d
+        jigX += jigVX * dt; jigY += jigVY * dt
+        const mag = Math.hypot(jigX, jigY)
+        if (mag > lim) { jigX *= lim / mag; jigY *= lim / mag }
+      }
+      const cr = Math.cos(-bodyC.rotation), sr = Math.sin(-bodyC.rotation)
+      let lx = jigX * cr - jigY * sr
+      const ly = jigX * sr + jigY * cr
+      if (bodyC.scale.x < 0) lx = -lx
+      const [bcx, bcy] = cheekAt
+      cheekC.position.set(bcx + lx, bcy + ly)
+      pCheeks.position.set(-bcx, -bcy)
+      // the mass smears along whichever way it is thrown. Small, and clipped by pMask either way.
+      cheekC.scale.set(1 + (Math.abs(lx) / lim) * J.squash * 0.20, 1 + (Math.abs(ly) / lim) * J.squash * 0.20)
+    } else if (cheekC.visible) {
+      cheekC.visible = false
+    }
     // The shadow is a sibling of bodyC, not a child, so it needs the same bodyScale applied by hand
     // — otherwise shrinking the kaiju would leave it standing on its old, much larger shadow.
     const shadowSquash = 1 - 0.12 * Math.abs(Math.sin(hop)) * (p.moving ? 1 : 0)
@@ -18648,6 +18773,7 @@ export function createRenderer(app) {
     playerForm = chapterRender.form ?? null
     formScale = chapterRender.formScale ?? 1
     playerSkin = run?.skin ?? null
+    jigX = jigY = jigVX = jigVY = jigVX0 = jigVY0 = 0   // a new run starts at rest
     chapterHasLeaves = !!chapterRender.leaves
     // Read `cfg`, not CHAPTERS[run.chapter] — `run` is null on the quit-to-title path (main.js
     // onQuit), and dereferencing it here threw before ui.showScreen('title') could run, softlocking

@@ -184,7 +184,7 @@ const ui = initUI({
     if (!shopLines(bookId)[id]) return false
     // A LOCKED LINE CANNOT BE BOUGHT, and this is the real gate - ui.js renders the row with no
     // `data-buy`, but that is presentation, and the shop is one crafted event away from spending
-    // 19999 coins on a line the player has not earned.
+    // the full price on a line the player has not earned.
     if (!shopLineUnlocked(meta, bookId, id)) return false
     const level = bm.shop[id] ?? 0
     const cost = shopCost(id, level)

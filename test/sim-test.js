@@ -141,7 +141,7 @@ import {
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
   STAT_KEYS,
   // the cosmetic shop line and its mastery gate (Run BP.ag)
-  MASTERY_UNLOCK, chaptersMastered, shopLineUnlocked,
+  MASTERY_UNLOCK, chaptersMastered, shopLineUnlocked, CHEEK_JIGGLE,
   // The Wreck's prey rework (Run WK)
   PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_SHOAL_SIZE, CHUM_PANIC_R,
   GNASH_MAW_MUL, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
@@ -5765,7 +5765,7 @@ function runBookProgression() {
     console.log(`PASS run BP.af (shop families): ${FAMS.length} families [${FAMS.join(' ')}] with 3 hex tones each, declared on all ${seen.size} lines + every book unlock, each family in one unbroken run per book, all ${drawn.length} ids drawn rather than falling back to emoji, and all ${ICON_SITES.length} render sites route through shopIcon`)
   }
 
-  // (ag) THE COSMETIC'S MASTERY GATE. Every failure here is silent: the line is priced at 19999
+  // (ag) THE COSMETIC'S MASTERY GATE. Every failure here is silent: the line is the priciest one
   // and gives no stat, so a gate that never opens looks exactly like a gate that opened and a skin
   // the player cannot see. Four properties, and the per-book one is the whole point of the design.
   {
@@ -5830,7 +5830,7 @@ function runBookProgression() {
     }
 
     // 6. THE WIRING, as source text. Both halves fail silently: a row rendered without the gate
-    // sells the skin at once, and a gate in ui.js alone leaves onBuy spending 19999 on a crafted
+    // sells the skin at once, and a gate in ui.js alone leaves onBuy spending the price on a crafted
     // event. The hint's French is checked here too — it lives in a ui.js FUNCTION, which run XX's
     // table walk cannot see by construction (CLAUDE.md records that exemption shipping
     // untranslated copy four times).
@@ -5847,7 +5847,37 @@ function runBookProgression() {
       assert.ok(FR[HINT].includes(ph),
         `the French unlock hint drops ${ph} — the player sees the placeholder, not the number`)
     }
-    console.log(`PASS run BP.ag (mastery gate): ${GATE_ID} locked at 0 and 1 mastered chapters, open at ${MASTERY_UNLOCK}, reads .won not .maxDifficulty, counts per BOOK (book1 wins leave undertow locked), leaves the other ${seen.size - 1} lines ungated, and both renderShop and onBuy consult it`)
+    // 7. THE JIGGLE (CHEEK_JIGGLE). render.js is not importable here, and EVERY failure mode of
+    // this effect renders as a perfectly correct STILL — the cheeks simply stop moving — so a
+    // screenshot cannot catch it and neither can anything but source text plus the numbers.
+    assert.ok(CHEEK_JIGGLE.damp > 0 && CHEEK_JIGGLE.k > 0,
+      'a non-positive spring constant or damping makes the jiggle diverge instead of settling')
+    assert.ok(CHEEK_JIGGLE.max > 0 && CHEEK_JIGGLE.max < 1,
+      'CHEEK_JIGGLE.max is a FRACTION of the butt half-width — at >= 1 the cheeks leave the body, at 0 they never move')
+    // The three layers must all be baked, and each has to be a DIFFERENT part: baking the body
+    // with the cheeks still on it leaves a static ghost under the moving ones, which is the one
+    // artifact that reads as a rendering bug rather than as no effect at all.
+    const rSrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    for (const [name, needle] of [
+      ['the blob body excludes its cheeks', "drawBlobButt(g, false, 'body')"],
+      ['the blob cheeks bake alone', "drawBlobButt(g, false, 'cheeks')"],
+      ['the fish cheeks bake alone', "drawFish(kg, false, ang, true, 'cheeks')"],
+      ['the kaiju cheeks bake alone', "drawKaijuBody(g, false, true, 'cheeks')"],
+      ['the fish body stops at the shell', "drawButt(g, 1, r * 0.64, r * 0.68, rot, hx, hy, col, white, 'shell')"],
+      ['the cheek layer is its own container', 'cheekC.addChild(pCheeks)'],
+      ['and is clipped to the silhouette', 'cheekC.mask = pMask'],
+      ['the spring is kicked by ACCELERATION, not velocity', '(p.vx - jigVX0) / dt'],
+      ['and is converted into the body frame', 'if (bodyC.scale.x < 0) lx = -lx'],
+    ]) {
+      assert.ok(rSrc.includes(needle),
+        `render.js no longer contains ${JSON.stringify(needle)} — ${name}. The jiggle fails SILENTLY: the frame still renders, the cheeks just never move.`)
+    }
+    // the pivot has to come from the bake, per swim phase: the fish's butt centre moves as it
+    // undulates, and a constant would slide the squash off the cheeks as the body flexes
+    assert.ok(rSrc.includes('T.fishCheekAt.push(') && rSrc.includes('cheekAt = T.fishCheekAt[wIdx]'),
+      'the fish jiggle no longer reads its pivot per swim phase — a fixed centre drifts off the cheeks as the body undulates')
+
+    console.log(`PASS run BP.ag (mastery gate): ${GATE_ID} locked at 0 and 1 mastered chapters, open at ${MASTERY_UNLOCK}, reads .won not .maxDifficulty, counts per BOOK (book1 wins leave undertow locked), leaves the other ${seen.size - 1} lines ungated, and both renderShop and onBuy consult it; the jiggle is a settling spring, clamped to a FRACTION of the butt, with all three layers baked apart and the pivot read per swim phase`)
   }
 
   console.log(`PASS run BP (book progression): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max, The Surf's opening balance (EARLY_CALM.surf + archetypeMul.tank) matches the 2026-08-17 owner rulings, ${bkAllChapters.length} chapters all resolve to a book, and no source file reads SHOP directly`)
@@ -22135,7 +22165,7 @@ function testPlayerForms() {
     'drawFish has no phase param — the fish cannot swim, only a static bake')
   // The CHEEKS skin (SHOP.cheeks) adds a SECOND pair of phase arrays, so this is now about all
   // four: each must be indexed by the same animT-derived frame. Miss one and that variant freezes
-  // while its twin swims — and the skinned pair is a bug only a player who paid 19999 would see.
+  // while its twin swims — and the skinned pair is a bug only a player who bought the skin would see.
   for (const arr of ['fishBody', 'fishFlash', 'fishButt', 'fishButtFlash']) {
     assert.ok(new RegExp(`T\\.${arr}\\b[^\\n]*\\[wIdx\\]`).test(src),
       `syncPlayer does not index T.${arr} by the animT frame — that fish body is back to one static texture`)

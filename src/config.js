@@ -4471,7 +4471,8 @@ export const SHOP = {
   // shopBonus multiplies it and there is no stat to move.
   //   `cosmetic` keeps it off the SACRIFICE screen, whose rows are priced in "what one level of
   // this gives you" - a row reading "+0% -> +0%" is what that screen would say about it.
-  cheeks:     { name: 'Cheeky', desc: 'your head becomes a butt', perLevel: 0, base: 0, cost: 19999, maxLevel: 1, cosmetic: true, needsMastery: MASTERY_UNLOCK, icon: '🍑', family: 'skin' },
+  //   It JIGGLES - see CHEEK_JIGGLE below for how, and why that is not a whole-sprite wobble.
+  cheeks:     { name: 'Cheeky', desc: 'your head becomes a butt', perLevel: 0, base: 0, cost: 9999, maxLevel: 1, cosmetic: true, needsMastery: MASTERY_UNLOCK, icon: '🍑', family: 'skin' },
 }
 // The palette a family paints with. Three tones each, because the icons are FILLED rather than
 // stroked: a body, a darker edge that outlines it, and a light tone for the details inside.
@@ -4494,6 +4495,21 @@ export const MAX_SHOP_LEVEL = 10
 // everything else stops at SHOP_COST_CAP_DEFAULT. The default BINDS today (critDamage and moveSpeed
 // blow past 4999 at level 9) — it is a real price, not a safety rail. coinGain sits under its 9999
 // at 8246, so its entry is headroom rather than a live clamp.
+// THE CHEEKS SKIN'S JIGGLE. A damped spring kicked by the player's own ACCELERATION, driving the
+// cheek mass alone: render.js bakes the outline and the shadow into the body and the two lit cheeks
+// into a separate layer over it, so the wobble reads as weight shifting INSIDE a rim that never
+// moves. Wobbling the whole sprite instead would deform the fish and the kaiju entire, which is not
+// what a butt does.
+//   `max` is a FRACTION OF THE BUTT'S OWN HALF-WIDTH, never px: the three bodies are drawn at
+// different sizes (the blob's butt is 23 half-wide, the kaiju's 42, the fish's 17) and a px clamp
+// would be three different mechanics. Same rule as every other screen-relative value here.
+export const CHEEK_JIGGLE = {
+  kick: 0.34,    // how hard a change in velocity throws the mass, per px/s^2
+  k: 130,        // spring constant back to rest; sets the wobble's pitch (~1.8 Hz here)
+  damp: 5.5,     // below ~4 it never settles, above ~10 there is no overshoot left to see
+  max: 0.26,     // clamp, as a fraction of the butt's half-width
+  squash: 0.8,   // how much of the offset also shows as squash along the travel direction
+}
 export const SHOP_COST_CAP = { damage: 9999, maxHP: 9999, critChance: 9999, coinGain: 9999 }
 export const SHOP_COST_CAP_DEFAULT = 4999
 
