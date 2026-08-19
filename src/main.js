@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
-import { shopCost, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
+import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -194,6 +194,29 @@ const ui = initUI({
     saveMeta(meta)
     playSfx('buy')
     return true
+  },
+  // THE MIRROR OF onBuy, and it takes a LIST because "refund everything" is one transaction:
+  // looping onRefund per line would save the blob once per line and pay the sfx once per line.
+  // `bookId` is ui.js's shopBookId() for the same reason onBuy takes it. Ids are validated
+  // against THIS book's lines — same crafted-event guard, and here it also stops a Book 2 line
+  // being zeroed out of Book 1's purse. Returns the coins paid back, 0 if nothing was owed.
+  onRefund(ids, bookId = BOOK_ORDER[0]) {
+    const bm = ensureBookMeta(meta, bookId)
+    const lines = shopLines(bookId)
+    let back = 0
+    for (const id of ids ?? []) {
+      const level = bm.shop[id] ?? 0
+      if (!lines[id] || level <= 0) continue
+      back += refundValue(id, level)
+      // Zeroed rather than paid-down: a line is refunded whole. refundValue clamps to lineMax, so
+      // a legacy over-level line loses the levels it was never paid for — see R3 in state.js.
+      bm.shop[id] = 0
+    }
+    if (back <= 0) return 0
+    bm.coins += back
+    saveMeta(meta)
+    playSfx('buy')
+    return back
   },
   // v7.5: `subject` is the weapon the player named on a SUBJECTED anomaly card (SPECIALIST). ui.js
   // passes it after its chooser; sim.js validates it against the run, so this stays glue.

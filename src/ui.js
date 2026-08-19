@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -249,7 +249,11 @@ function formatShopBonus(bookId, id, levels) {
  * Contract used by main.js:
  *   const ui = initUI({ meta, onPlay(mode), onBuy(id, bookId)->bool, onChoose(i),
  *                       onPauseToggle, onQuit, onDifficulty(d), onChapter(id), onReroll(), onSkill(),
- *                       onSacrifice(picks, target, bookId)->bool, onReset(), onSlot(n) })
+ *                       onSacrifice(picks, target, bookId)->bool, onRefund(ids, bookId)->coins,
+ *                       onReset(), onSlot(n) })
+ *     - onRefund(ids, bookId): sells the named upgrade lines back at REFUND_RATE, whole lines
+ *       only, and returns the coins paid back (0 if none were owned). One call takes the LIST so
+ *       "refund everything" is one transaction — see the refund sheet below.
  *     - onChapter(id): title screen's bookcase (v7.x — see bookcaseHtml/volHtml).
  *       Fires only for unlocked CHAPTER_ORDER ids as the scroll SETTLES a card under the viewport
  *       centre (the locked preview card never calls it) — main.js re-guards via
@@ -1218,6 +1222,11 @@ export function initUI(hooks) {
   // Reset-all-progress confirmation: a backdrop + a small confirm/cancel sheet. Still a modal (a
   // destructive yes/no genuinely wants to block), unlike the sacrifice list which is a view now.
   let resetOpen = false
+  // The refund sheet (v7.x): same ui-local, not-persisted shape as resetOpen above.
+  // refundAllAsk is the second tap on "refund everything" — the one control here that can empty a
+  // whole book's shop in one hit.
+  let refundOpen = false
+  let refundAllAsk = false
 
   function sacrificeOffered() {
     return Object.values(sacrificePicks).reduce((sum, n) => sum + n, 0)
@@ -1287,12 +1296,16 @@ export function initUI(hooks) {
   // cost); the paragraph moved inside the modal the pill opens, so nothing is lost, and the
   // reset link shares the same row as a 🗑 square. Both live in .shop-foot, a fixed-height flex
   // row, which is what lets .shop-rows own every remaining pixel (see styles.css).
-  // The foot is the reset square and nothing else now. The sacrifice pill that used to share this
+  // The foot is the reset square plus the refund pill. The sacrifice pill that used to share this
   // row is gone: it was one control standing in for a whole list (see shopTab above), and the list
   // is on the screen proper.
+  //   The refund control is LABELLED where reset is a bare 🗑, because there is no glyph for
+  // "sell it back" the way there is for "throw it away" — and the coin is the one emoji this file
+  // is allowed (the glyph IS the thing). It only opens the sheet; nothing is spent from here.
   function shopFootHtml() {
     return `
       <div class="shop-foot">
+        <button class="reset-link refund-link" data-act="refund-start">🪙 ${t('Refund')}</button>
         <button class="reset-link" data-act="reset-start" aria-label="${t('Reset all progress')}" title="${t('Reset all progress')}">🗑</button>
       </div>`
   }
@@ -1454,6 +1467,59 @@ export function initUI(hooks) {
       </div>`
   }
 
+  // REFUNDING (v7.x). A SHEET, not a mode on the rows: a shop row is already a <button>, and a
+  // second control inside a button is invalid markup that iOS renders unpredictably. Rows here are
+  // the SAME .card.shop-row as the buy list on purpose — same row, other direction — with the
+  // notch rail dropped (there is nothing to buy) and the price chip reading what it pays back.
+  //   THE RATE IS STATED IN WORDS, ONCE, ABOVE THE ROWS, and each row still prints its own number:
+  // a percentage alone makes the player do the arithmetic on a price ladder they never saw.
+  function refundSheetHtml(bookId) {
+    if (!refundOpen) return ''
+    const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
+    const lines = shopLines(bookId)
+    const owned = Object.keys(lines).filter((id) => (bm.shop[id] ?? 0) > 0)
+    const total = owned.reduce((sum, id) => sum + refundValue(id, bm.shop[id]), 0)
+    const lead = `<p class="confirm-sheet-body">${tt('You get back {pct}% of what you paid.', { pct: Math.round(REFUND_RATE * 100) })}</p>`
+    const allBtn = (act) => `<button class="btn btn--danger btn--small" data-act="${act}">${tt('Refund all : 🪙 {n}', { n: total })}</button>`
+    const rows = owned.map((id) => {
+      const item = lines[id]
+      const level = bm.shop[id]
+      const depth = tt('{n} / {m} levels', { n: level, m: lineMax(id) })
+      return `
+        <button class="card shop-row" data-act="refund-line" data-id="${id}"
+                aria-label="${t(item.name)} — ${depth} · 🪙 ${refundValue(id, level)}">
+          <span class="shop-row-in">
+            <span class="shop-row-icon">${shopIcon(id, item.icon, item.family)}</span>
+            <span class="shop-row-effect shop-row-stack"><b>${t(item.name)}</b><small>${depth}</small></span>
+            <span class="shop-row-buy">+🪙 ${refundValue(id, level)}</span>
+          </span>
+        </button>`
+    }).join('')
+    // ONE ROW IS ITS OWN CONFIRMATION — it names the line and the payout on the tap target itself.
+    // "Everything" is not: it is one tap that empties a book, so it asks.
+    const body = refundAllAsk
+      ? `
+        <h2 class="confirm-sheet-title">${t('Refund everything?')}</h2>
+        <p class="confirm-sheet-body">${t('Every level in this book goes back to zero.')}</p>
+        ${lead}
+        <div class="confirm-sheet-actions">
+          <button class="btn btn--soft btn--small" data-act="refund-cancel">${t('Cancel')}</button>
+          ${allBtn('refund-all-confirm')}
+        </div>`
+      : `
+        <h2 class="confirm-sheet-title">${t('Refund')}</h2>
+        ${lead}
+        ${owned.length ? rows : `<p class="confirm-sheet-body">${t('Nothing to refund.')}</p>`}
+        <div class="confirm-sheet-actions">
+          <button class="btn btn--soft btn--small" data-act="refund-cancel">${t('Cancel')}</button>
+          ${owned.length ? allBtn('refund-all') : ''}
+        </div>`
+    return `
+      <div class="modal-backdrop" data-act="refund-cancel" data-pop="refund">
+        <div class="confirm-sheet">${body}</div>
+      </div>`
+  }
+
   function renderShop(bounceId) {
     const bookId = shopBookId()
     const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
@@ -1559,6 +1625,7 @@ export function initUI(hooks) {
       <div class="shop-rows${onSac ? ' shop-rows--targets' : ''}">${onSac ? sacTargetRowsHtml(bookId) : cards}</div>
       ${shopFootHtml()}
       ${resetModalHtml()}
+      ${refundSheetHtml(bookId)}
     `)
   }
 
@@ -2832,6 +2899,8 @@ export function initUI(hooks) {
     sacrificeBounceId = null
     sacrificeTarget = null
     resetOpen = false
+    refundOpen = false
+    refundAllAsk = false
     // Back to coins on re-entry: buying an upgrade is the everyday visit and a sacrifice is
     // something a save does a handful of times, so the common case gets the opening screen.
     shopTab = 'upgrades'
@@ -3305,6 +3374,42 @@ export function initUI(hooks) {
         sacrificePicks = {}
         sacrificeBounceId = null
         sacrificeTarget = null
+        renderShop()
+        break
+      }
+      // The sheet is opened, closed and rebuilt here; main.js owns the coins. It plays the 'buy'
+      // sfx itself on a paid refund, same as onBuy — so these cases only click.
+      case 'refund-start':
+        refundOpen = true
+        refundAllAsk = false
+        playSfx('click')
+        renderShop()
+        break
+      case 'refund-cancel':
+        // A tap INSIDE the sheet bubbles to the backdrop; only the backdrop itself dismisses.
+        if (el.classList.contains('modal-backdrop') && el !== e.target) break
+        refundOpen = false
+        refundAllAsk = false
+        playSfx('click')
+        renderShop()
+        break
+      case 'refund-line':
+        // Stays open: refunding one line is rarely the whole errand, and the sheet rebuilds
+        // without the row that just went to zero.
+        if (!hooks.onRefund([el.dataset.id], shopBookId())) playSfx('click')
+        renderShop()
+        break
+      case 'refund-all':
+        refundAllAsk = true
+        playSfx('click')
+        renderShop()
+        break
+      case 'refund-all-confirm': {
+        const bookId = shopBookId()
+        const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
+        hooks.onRefund(Object.keys(shopLines(bookId)).filter((id) => (bm.shop[id] ?? 0) > 0), bookId)
+        refundOpen = false
+        refundAllAsk = false
         renderShop()
         break
       }

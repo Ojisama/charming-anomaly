@@ -10,7 +10,7 @@ import { validNick, podiumRank, NICK_MIN, NICK_MAX } from '../src/scores.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 import {
-  SHOP, shopCost, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
+  SHOP, shopCost, refundValue, REFUND_RATE, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
   PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
   REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
@@ -16052,6 +16052,7 @@ run(testLeLargeWeapons)
   run(testPoolClearing)
   run(testVocabularies)
   run(testScreenPositioning)
+  run(testRefund)
   console.log('ALL TESTS PASSED')
   runSummary()
 } catch (err) {
@@ -23906,4 +23907,104 @@ function testScreenPositioning() {
 
   const screenLevelRules = rules.filter((r) => r.sel.split(',').some((o) => SCREEN_LEVEL.test((o.trim().split(/\s|>|\+|~/).filter(Boolean).pop() || ''))))
   console.log(`PASS run SP (screen positioning): ${rules.length} CSS rules, ${screenLevelRules.length} screen-level, none re-declares position`)
+}
+
+// ---- Run RF: refunding upgrade levels (v7.x) ----------------------------------------------
+// Selling a line back is the shop's only BACKWARDS transaction, and every part of it fails
+// quietly. The payout is a sum over a price ladder the player never sees, so a wrong rate reads
+// as a plausible number; and the two halves of the wiring — ui.js's sheet, main.js's purse — are
+// joined by nothing an import would catch, exactly like onBuy's own gate (run BP.ag §6).
+function testRefund() {
+  const LINES = Object.keys(shopLines('book1')).concat(
+    ...BOOK_ORDER.map((b) => Object.keys(BOOK_SHOP[b] ?? {})))
+  assert.ok(LINES.length >= 9, `run RF walks ${LINES.length} shop lines — the list has gone stale`)
+
+  // (a) A REFUND IS A LOSS, AND IT IS THE SAME LADDER THE PLAYER PAID. Summed from shopCost here
+  // rather than from a second copy of the curve: the claim under test is that refundValue reads
+  // the shop's own prices, so a re-derived formula would agree with a wrong implementation.
+  assert.ok(REFUND_RATE > 0 && REFUND_RATE < 1,
+    `REFUND_RATE ${REFUND_RATE} must lose the player something and pay something — a refund at 1 is a free undo, at 0 it is a delete`)
+  let checked = 0
+  for (const id of LINES) {
+    const max = lineMax(id)
+    let paid = 0
+    for (let level = 0; level <= max; level++) {
+      assert.strictEqual(refundValue(id, level), Math.floor(paid * REFUND_RATE),
+        `${id} at ${level} level(s) must pay back floor(${paid} x ${REFUND_RATE}) — the coins that line actually cost, halved`)
+      if (level < max) { paid += shopCost(id, level); checked++ }
+    }
+    // The round trip, stated as the thing a player would notice: buying a line out and selling it
+    // back leaves you POORER, never level. floor() only ever rounds the payout down, so this holds
+    // for every line however the rate is retuned.
+    assert.ok(refundValue(id, max) < paid,
+      `${id} refunds ${refundValue(id, max)} of the ${paid} it cost — a refund must never return everything`)
+  }
+
+  // (b) CLAMPED TO lineMax ON USE, NEVER PAID FOR LEVELS THIS BUILD DID NOT SELL (R3). Book 2's
+  // three bar lines already went 10 -> 5, so a live save can hold more levels than its line sells;
+  // paying for them would mint coins out of a cap that FELL.
+  for (const id of LINES) {
+    assert.strictEqual(refundValue(id, lineMax(id) + 5), refundValue(id, lineMax(id)),
+      `${id} pays for levels beyond lineMax — a legacy save prints coins`)
+  }
+  for (const junk of [0, -3, null, undefined, NaN, 'seven', {}]) {
+    assert.strictEqual(refundValue('damage', junk), 0,
+      `a junk level ${JSON.stringify(junk)} must pay 0, not NaN or a negative — this reaches bm.coins`)
+  }
+  // An UNKNOWN id is not tested here on purpose: refundValue prices through shopCost, which reads
+  // the line's own `base` and throws on an id no book sells — the same as every other caller. The
+  // guard against one arriving is main.js's `!lines[id]`, asserted in (d).
+
+  // (c) MONOTONE. More levels can never pay back less — a sort or a reduce written the wrong way
+  // round still passes (a) on a single level and fails here.
+  for (const id of LINES) {
+    for (let level = 1; level <= lineMax(id); level++) {
+      assert.ok(refundValue(id, level) >= refundValue(id, level - 1),
+        `${id} pays less for ${level} levels than for ${level - 1}`)
+    }
+  }
+
+  // (d) THE WIRING, as source text — main.js is not importable here. Each of these is a silent
+  // failure on its own: a refund that never zeroes the line is infinite coins, one that never
+  // credits the purse is a delete button, and one that skips the id guard lets a crafted event
+  // zero a Book 2 line out of Book 1's shop (verbatim the hole onBuy's own guard exists for).
+  const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+  const hook = mainSrc.slice(mainSrc.indexOf('onRefund(ids'), mainSrc.indexOf('onChoose(i'))
+  assert.ok(hook.length > 100, 'main.js has no onRefund hook — the refund sheet calls a hook that is not there')
+  for (const [needle, why] of [
+    ['refundValue(', 'onRefund does not price the refund with refundValue — it is paying some other number'],
+    ['bm.shop[id] = 0', 'onRefund does not zero the refunded line — the player keeps the levels AND the coins'],
+    ['bm.coins += back', 'onRefund never credits the purse — the refund is a delete button'],
+    ['saveMeta(meta)', 'onRefund does not persist — the refund is undone by the next load'],
+    ['shopLines(bookId)', 'onRefund does not resolve ids against the BROWSED book — a crafted id spends the wrong purse'],
+    // The lookup EXISTING is not the guard. A mutation deleting only the rejection left this
+    // assert green, which is why the test names the branch and not just the table.
+    ['!lines[id]', 'onRefund looks the book up and never rejects an id missing from it — a crafted event zeroes another book line out of this purse'],
+  ]) assert.ok(hook.includes(needle), `${why} (looked for ${JSON.stringify(needle)} in main.js's onRefund)`)
+
+  // (e) ui.js hands over the book it is browsing, same contract as onBuy/onSacrifice. Without it
+  // the sheet refunds Book 1's lines while showing Undertow's.
+  const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+  assert.match(uiSrc, /onRefund\([^)]*,\s*(shopBookId\(\)|bookId)\)/,
+    'ui.js must pass its browsed book to onRefund')
+
+  // (f) THE PLAYER IS TOLD THE RATE, IN WORDS, FROM THE CONSTANT. A hardcoded "50%" in the sheet
+  // is one fact in two places — retune REFUND_RATE and the shop lies about what it pays — and a
+  // number baked into the English makes the sentence a different translation key every time.
+  const RATE_LINE = 'You get back {pct}% of what you paid.'
+  assert.ok(uiSrc.includes(`tt('${RATE_LINE}'`), `the refund sheet must state its rate through tt('${RATE_LINE}') — a sentence with the number already in it can never be translated`)
+  assert.ok(/pct:\s*Math\.round\(REFUND_RATE/.test(uiSrc),
+    'the stated percentage must be derived from REFUND_RATE, not typed in beside it')
+  // Every string the sheet adds, in French, with its placeholders intact. These live in a ui.js
+  // FUNCTION, which run XX's config-table walk cannot see by construction.
+  for (const key of [RATE_LINE, 'Refund', 'Refund all : 🪙 {n}', 'Refund everything?',
+    'Every level in this book goes back to zero.', 'Nothing to refund.']) {
+    assert.ok(uiSrc.includes(key), `ui.js no longer shows ${JSON.stringify(key)} — this list is stale`)
+    assert.ok(FR[key], `the refund sheet's ${JSON.stringify(key)} has no French`)
+    for (const ph of key.match(/\{\w+\}/g) ?? []) {
+      assert.ok(FR[key].includes(ph), `the French for ${JSON.stringify(key)} drops ${ph} — the player sees the placeholder, not the number`)
+    }
+  }
+
+  console.log(`PASS run RF (refunds): ${LINES.length} shop lines pay back floor(cost x ${REFUND_RATE}) over ${checked} priced levels, clamped to lineMax, monotone, never whole; main.js zeroes the line and credits the purse behind the book guard; 6 new strings translated`)
 }

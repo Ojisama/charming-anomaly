@@ -2017,6 +2017,13 @@ body {
   opacity: 0.8;
 }
 .reset-link:active { opacity: 1; }
+/* The refund control is a LABELLED pill, not a square: there is a glyph everyone reads as "throw
+   away" and none that reads as "sell it back". Ink rather than --danger — this is the shop's own
+   economy running backwards, not an erase — and declared after .reset-link so its width wins. */
+.refund-link { width: auto; gap: 6px; padding: 0 14px; color: var(--ink); font-size: 0.82rem; font-weight: 800; }
+/* The refund sheet reuses .card.shop-row for its rows (see refundSheetHtml). They sit in a flex
+   column sheet rather than the shop grid, so they need their own left-aligned text. */
+.confirm-sheet .shop-row { text-align: left; }
 .confirm-sheet {
   width: min(88vw, 340px);
   /* The slot picker (v6.4.6) is tall enough to clip in short landscape (568×320) — scroll
