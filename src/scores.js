@@ -20,7 +20,11 @@ const SCORES_URL = 'https://charming-anomaly-sync.ojisama-san.workers.dev/scores
 const TIMEOUT_MS = 8000
 
 export const NICK_MIN = 3
-export const NICK_MAX = 10
+// Widening is backward-compatible by construction: every name already on the board is shorter than
+// this, and the Worker only refuses what falls OUTSIDE the range. Narrowing would not be — it would
+// orphan rows whose nick the client can no longer reproduce, so the rank chip and the own-row
+// highlight would stop matching for exactly the players who got there first.
+export const NICK_MAX = 15
 
 // The one place that decides what a nickname IS. Returns the normalized name, or null if what is
 // left after normalizing is not a legal one — so callers never have to trim before asking.

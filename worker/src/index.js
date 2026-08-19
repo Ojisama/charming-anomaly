@@ -87,7 +87,7 @@ async function readEnvelope(req) {
 // ---------------------------------------------------------------------------------------------
 
 const NICK_MIN = 3
-const NICK_MAX = 10
+const NICK_MAX = 15 // must equal scores.js's — run LB asserts it, because a mismatch loses scores
 
 // Mirrors validNick in src/scores.js, which is the one-fact-two-places trap this repo warns about
 // most. It is survivable here only because the two sides are not equals: the CLIENT normalizes
