@@ -4587,6 +4587,21 @@ export const shopCost = (id, level) => {
   )
 }
 
+// SELLING A LINE BACK PAYS HALF OF WHAT IT COST. Walks the same ladder shopCost charges rather
+// than storing what was paid: the price of a level is a function of the level, so the sum is
+// recoverable and a save carries no per-line spend field (meta is additive-only, R2).
+// balance_decision : refunds return half the coins spent [2026-08-19]
+//  - it is a LOSS by design; buying back what you refunded costs the other half again
+export const REFUND_RATE = 0.5
+// Clamped to lineMax the way shopLevel is (R3, clamp on use): a legacy save holding more levels
+// than the line sells today is paid for the levels this build actually priced, and no more.
+export const refundValue = (id, level) => {
+  const owned = Math.min(lineMax(id), Math.max(0, Number(level) || 0))
+  let paid = 0
+  for (let i = 0; i < owned; i++) paid += shopCost(id, i)
+  return Math.floor(paid * REFUND_RATE)
+}
+
 // Sacrifice already-purchased SHOP levels (no coin refund) to permanently unlock the 3rd/4th
 // level-up card slot (see meta.choiceSlots in state.js and hooks.onSacrifice in main.js).
 export const SACRIFICE_COSTS = [20, 40]  // shop levels to give up for the 3rd, then 4th card slot

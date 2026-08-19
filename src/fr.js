@@ -136,6 +136,15 @@ const UI = {
   'Coins, upgrades, slots and best scores will be permanently erased.':
     'Pièces, améliorations, emplacements et records seront définitivement effacés.',
   'Erase everything': 'Tout effacer',
+  // Selling upgrade levels back (the refund sheet, ui.js). 'Rembourser' rather than 'Revendre':
+  // the shop is not a market, and the sentence below has to say plainly that half the coins
+  // stay behind — which is the only reason this control needs words at all.
+  'Refund': 'Rembourser',
+  'You get back {pct}% of what you paid.': 'Vous récupérez {pct}% de ce que vous avez payé.',
+  'Refund all : 🪙 {n}': 'Tout rembourser : 🪙 {n}',
+  'Refund everything?': 'Tout rembourser ?',
+  'Every level in this book goes back to zero.': 'Tous les niveaux de ce livre repassent à zéro.',
+  'Nothing to refund.': 'Rien à rembourser.',
   'Settings': 'Réglages',
   'Save slots': 'Emplacements de sauvegarde',
   // screen-reader only (aria-label), lowercase to match how they read aloud in context
