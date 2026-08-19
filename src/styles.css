@@ -2588,7 +2588,15 @@ body {
   left: 0;
   right: 0;
   top: 68.3%;
-  transform: translateY(-50%);
+  /* -50% CENTRES THE LINE BOX, WHICH IS NOT WHERE THE DIGIT IS. A line box reserves descender
+     space below the baseline, and a digit has no descender — so centring the box leaves the ink
+     riding high by half of that unused space. Measured on the shipped medal (disc 15.1px across,
+     font 10.88px): the ink sat 1.9px ABOVE the disc's centre, 13% of the diameter, on all three
+     ranks and both leaves. In em, so it tracks the font-size rather than becoming a lie the next
+     time this is resized. Verified back to 0.00-0.25px by marking each disc's true centre from
+     getBoundingClientRect and measuring the ink against it in the PNG — reading the stylesheet
+     cannot show this, since the BOX is centred to within 0.01px and only the glyph inside is not. */
+  transform: translateY(calc(-50% + 0.17em));
   line-height: 1;
   text-align: center;
   font-size: 0.68rem;
