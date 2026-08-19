@@ -169,7 +169,13 @@ is "another difficulty is a separate board" '{"kills":[],"level":[]}' "$(sbody G
 
 echo "-- leaderboard rejections (shape only — this endpoint is deliberately credulous) --"
 is "a short nick is 400"                    400   "$(post "{\"nick\":\"Bo\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":5,\"level\":2}" | head -1)"
-is "a long nick is 400"                     400   "$(post "{\"nick\":\"12345678901\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":5,\"level\":2}" | head -1)"
+# The ceiling is READ OUT OF THE WORKER, not written here: a literal one character over the old
+# bound becomes a VALID name the moment the bound rises, and this line would then be posting a real
+# row while still reading like a rejection test. ("no rejection wrote a row" below would catch it,
+# but as a mystery red two screens away from the thing that actually moved.)
+NMAX=$(grep -oE 'const NICK_MAX = [0-9]+' src/index.js | grep -oE '[0-9]+')
+TOOLONG=$(printf 'a%.0s' $(seq 1 $((NMAX + 1))))
+is "a long nick is 400"                     400   "$(post "{\"nick\":\"$TOOLONG\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":5,\"level\":2}" | head -1)"
 is "a malformed chapter is 400"             400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"DROP TABLE\",\"difficulty\":3,\"kills\":5,\"level\":2}" | head -1)"
 is "a difficulty out of range is 400"       400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":99,\"kills\":5,\"level\":2}" | head -1)"
 is "a non-integer score is 400"             400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":1.5,\"level\":2}" | head -1)"

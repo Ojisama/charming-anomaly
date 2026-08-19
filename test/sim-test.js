@@ -14717,28 +14717,41 @@ function testLeaderboard() {
   assert.strictEqual(validNick('Big   Bob'), 'Big Bob', 'runs of whitespace collapse — two names that look identical on the podium must BE identical')
   assert.strictEqual(validNick(null), null, 'a non-string is not a name')
   assert.strictEqual(validNick(undefined), null, 'an absent nickname is not a name')
+  // EVERY FIXTURE BELOW IS DERIVED FROM NICK_MAX, NEVER WRITTEN AS A LITERAL, and that is the whole
+  // lesson of this block. Both of these traps depend on WHERE the cut lands, so a hand-written name
+  // stops exercising them the moment the bound moves — silently, still green, still reading like a
+  // guard. The emoji case had already done it once at NICK_MAX 10; raising it to 15 would have done
+  // it to the space case too, and flipped the emoji case back.
+
   // THE CLAMP CAN CUT ON A SPACE, and the result is a name the Worker silently rewrites: it trims
-  // before storing (it cannot trust a client), so the board would hold 'Alexandre' while meta.nick
-  // held 'Alexandre ' — and every use of the pair is a string comparison. Nothing throws; the
-  // player just never sees their rank chip and never sees their own row highlighted.
-  assert.strictEqual(validNick('Alexandre Dupont'), 'Alexandre', 'the clamp must not leave the space it cut on')
-  assert.strictEqual(validNick('Jean-Marc Bo'), 'Jean-Marc', 'same, for a name whose 11th character is the space')
-  assert.strictEqual(validNick(validNick('Alexandre Dupont')), 'Alexandre', 'and the result is stable under a second pass')
+  // before storing (it cannot trust a client), so the board would hold the trimmed name while
+  // meta.nick held the padded one — and every use of the pair is a string comparison. Nothing
+  // throws; the player just never sees their rank chip and never sees their own row highlighted.
+  const cutOnSpace = 'a'.repeat(NICK_MAX - 1) + ' zzz'
+  assert.strictEqual(cutOnSpace.slice(0, NICK_MAX).at(-1), ' ',
+    'run LB: the cut-on-a-space fixture no longer ends on a space — it would pass with the final trim deleted')
+  assert.strictEqual(validNick(cutOnSpace), 'a'.repeat(NICK_MAX - 1), 'the clamp must not leave the space it cut on')
+  assert.strictEqual(validNick(validNick(cutOnSpace)), 'a'.repeat(NICK_MAX - 1), 'and the result is stable under a second pass')
+
   // The trap that only shows up on the podium: slice() cuts UTF-16 units, so clamping can bisect an
   // astral character and leave a lone surrogate, which renders as a replacement box and passes every
-  // other check here. 10 emoji is 20 units; the clamp must not leave half of the 6th behind.
-  // THE FIXTURE HAS TO CUT INSIDE A PAIR, and an all-emoji name does not: 10 emoji is 20 units and
-  // slice(0, 10) lands exactly between the 5th and the 6th. Written that way this assertion passes
-  // with the trim deleted — it was, until the mutation harness said so. One odd-width character in
-  // front moves the cut into the middle of an emoji, which is the case that reaches the podium as a
-  // replacement box.
-  const clamped = validNick('a' + '🐛'.repeat(10))
+  // other check here. An emoji is two units, so the cut falls INSIDE a pair only when the units
+  // before it are odd — pad by one when NICK_MAX is even, by none when it is odd.
+  const oddPad = 'a'.repeat(NICK_MAX % 2 === 0 ? 1 : 0)
+  const bisecting = oddPad + '🐛'.repeat(NICK_MAX)
+  assert.ok(/\p{Cs}$/u.test(bisecting.slice(0, NICK_MAX)),
+    `run LB: the emoji fixture no longer cuts inside a pair at NICK_MAX=${NICK_MAX} — it would pass with the surrogate repair deleted`)
+  const clamped = validNick(bisecting)
   // \p{Cs} under the u flag matches only UNPAIRED surrogates — a whole emoji is one code point of
   // category So and does not match, which is the whole reason this is the right assertion. Testing
   // for any trailing surrogate instead fails on every legal emoji name.
   assert.ok(!/\p{Cs}/u.test(clamped), `clamping must not leave a lone surrogate: got ${JSON.stringify(clamped)}`)
-  assert.strictEqual(clamped, 'a' + '🐛'.repeat(4), 'the bisected emoji is dropped whole, not left as half of one')
-  assert.strictEqual(validNick('🐛'.repeat(10)), '🐛'.repeat(5), 'and an even split keeps all five')
+  assert.strictEqual(clamped, oddPad + '🐛'.repeat((NICK_MAX - oddPad.length - 1) / 2),
+    'the bisected emoji is dropped whole, not left as half of one')
+  // And the other parity: a cut that lands cleanly between two pairs keeps every whole emoji.
+  const evenPad = 'a'.repeat(NICK_MAX % 2)
+  assert.strictEqual(validNick(evenPad + '🐛'.repeat(NICK_MAX)),
+    evenPad + '🐛'.repeat((NICK_MAX - evenPad.length) / 2), 'an even split keeps every whole emoji')
   // A control character in a name would corrupt the row it is drawn in, and unlike the length rule
   // there is no visible sign the player pasted one. Built from a char code rather than typed inline,
   // so the byte survives whatever edits this file next.
