@@ -101,25 +101,38 @@ const validNick = (v) =>
 const validChapter = (v) => typeof v === 'string' && /^[a-z][a-z0-9]{0,15}$/.test(v)
 const int = (v, lo, hi) => (Number.isInteger(v) && v >= lo && v <= hi ? v : null)
 
-const boardRow = (r) => ({ nick: r.nick, kills: r.kills, level: r.level, at: r.at })
+const boardRow = (r) => ({ nick: r.nick, kills: r.kills, level: r.level, at: r.at, timeMs: r.time_ms })
 
-// `at ASC` on both boards so a tie goes to whoever got there FIRST. Without it SQLite is free to
+// `at ASC` on every board so a tie goes to whoever got there FIRST. Without it SQLite is free to
 // return either row and the podium reorders itself between two reads of an unchanged board.
+//
+// THREE BOARDS, ALWAYS, and the client picks which two to draw. The `time` board is the boss
+// chapters' second board (kill time, SHORTEST wins) in place of `level` — but WHICH chapters those
+// are is a game fact, and this Worker is deliberately ignorant of chapter ids so a new chapter
+// never needs a deploy (see validChapter). Asking the client which board it wants would put that
+// fact in the query string, where a stale build would then be asking for the wrong one; a third
+// 3-row index scan inside the SAME batch is one round trip and no new parameter.
+//
+// `time_ms IS NOT NULL` is not a tidiness filter. Every ordinary chapter's rows and every LOSS on
+// a boss chapter store NULL, an ASC index sorts NULLs first, and this board's whole ordering is
+// "smallest wins" — so without the filter the podium would be three players who never killed it.
 async function readBoards(env, chapter, difficulty) {
-  const [byKills, byLevel] = await env.DB.batch([
-    env.DB.prepare(
-      'SELECT nick, kills, level, at FROM scores WHERE chapter = ? AND difficulty = ? ORDER BY kills DESC, at ASC LIMIT 3',
-    ).bind(chapter, difficulty),
-    env.DB.prepare(
-      'SELECT nick, kills, level, at FROM scores WHERE chapter = ? AND difficulty = ? ORDER BY level DESC, kills DESC, at ASC LIMIT 3',
-    ).bind(chapter, difficulty),
+  const cols = 'SELECT nick, kills, level, at, time_ms FROM scores WHERE chapter = ? AND difficulty = ?'
+  const [byKills, byLevel, byTime] = await env.DB.batch([
+    env.DB.prepare(`${cols} ORDER BY kills DESC, at ASC LIMIT 3`).bind(chapter, difficulty),
+    env.DB.prepare(`${cols} ORDER BY level DESC, kills DESC, at ASC LIMIT 3`).bind(chapter, difficulty),
+    env.DB.prepare(`${cols} AND time_ms IS NOT NULL ORDER BY time_ms ASC, at ASC LIMIT 3`).bind(chapter, difficulty),
   ])
-  return { kills: byKills.results.map(boardRow), level: byLevel.results.map(boardRow) }
+  return {
+    kills: byKills.results.map(boardRow),
+    level: byLevel.results.map(boardRow),
+    time: byTime.results.map(boardRow),
+  }
 }
 
 async function scores(req, env) {
   // EVERY METHOD, not just the writes. This is the only endpoint on this Worker a stranger can
-  // find — anonymous, unauthenticated, Access-Control-Allow-Origin: * — and a board read is two D1
+  // find — anonymous, unauthenticated, Access-Control-Allow-Origin: * — and a board read is three D1
   // statements against the same 100k/day account budget §10 exists to narrow. The save path limits
   // every method for the same reason; an earlier cut of this had the check inside the POST branch,
   // which left the discoverable half of the feature uncapped.
@@ -158,12 +171,19 @@ async function scores(req, env) {
     const difficulty = int(body.difficulty, 1, 9)
     const kills = int(body.kills, 0, 99999)
     const level = int(body.level, 1, 999)
+    // OPTIONAL, and absent is a legal value rather than a bad one: only a boss chapter that was
+    // actually WON carries a kill time, so almost every submit omits it. An older build that has
+    // never heard of the field must keep submitting successfully — hence `== null` first, and a
+    // 400 only for a field that is PRESENT and malformed. The ceiling is an hour of milliseconds;
+    // the floor is 1 so a zero cannot claim an unbeatable board.
+    const timeMs = body.timeMs == null ? null : int(body.timeMs, 1, 3600000)
     if (!validNick(nick)) return json(400, { error: `nick must be ${NICK_MIN}-${NICK_MAX} characters` })
     if (!validChapter(chapter)) return json(400, { error: 'bad chapter' })
     if (difficulty === null || kills === null || level === null) return json(400, { error: 'bad score' })
+    if (body.timeMs != null && timeMs === null) return json(400, { error: 'bad time' })
 
-    await env.DB.prepare('INSERT INTO scores (chapter, difficulty, nick, kills, level, at) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(chapter, difficulty, nick, kills, level, Date.now())
+    await env.DB.prepare('INSERT INTO scores (chapter, difficulty, nick, kills, level, at, time_ms) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(chapter, difficulty, nick, kills, level, Date.now(), timeMs)
       .run()
     // The boards come back in the same round trip, so a submit that landed is visibly a submit
     // that landed rather than a 200 the client takes on faith — and the summary screen can say

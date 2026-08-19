@@ -152,7 +152,7 @@ sbody()   { scall "$@" | tail -n +2; }
 post()    { scall POST -H 'content-type: application/json' -d "$1" "$SBASE"; }
 
 is "an unknown board is 200, not 404"       200   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=3")"
-is "and it is empty rather than absent"     '{"kills":[],"level":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=3")"
+is "and it is empty rather than absent"     '{"kills":[],"level":[],"time":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=3")"
 is "a board read carries no Authorization"  200   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=1")"
 
 is "a score is accepted"                    200   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":900,\"level\":20}" | head -1)"
@@ -164,8 +164,25 @@ BOARDS=$(sbody GET "$SBASE?chapter=$CH&difficulty=3")
 lead() { printf '%s' "$BOARDS" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s)[process.argv[1]][0].nick)}catch{console.log("PARSE_ERROR:"+s.trim())}})' "$1"; }
 is "the kills board is led by the killer"   Ann   "$(lead kills)"
 is "the level board is led by the leveller" Bob   "$(lead level)"
+# THE BOSS BOARD. Neither submit above carried a kill time, and neither should join it: an
+# ordinary chapter stores NULL there, and an ASC index sorts NULLs FIRST — so a missing
+# `time_ms IS NOT NULL` puts two players who never fought a boss on top of the boss board.
+# String(), like field() above and for the same reason: console.log of a NUMBER routes through
+# util.inspect, which emits ANSI colour escapes that silently break every comparison here.
+count() { printf '%s' "$1" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(String(JSON.parse(s)[process.argv[1]].length))}catch{console.log("PARSE_ERROR:"+s.trim())}})' "$2"; }
+is "a timeless submit joins no time board" 0     "$(count "$BOARDS" time)"
+
+is "a kill time is accepted"                200   "$(post "{\"nick\":\"Cid\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":40,\"level\":5,\"timeMs\":242000}" | head -1)"
+is "a faster kill is accepted"              200   "$(post "{\"nick\":\"Dot\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":30,\"level\":4,\"timeMs\":181000}" | head -1)"
+# THE ONE ASSERTION THIS BOARD EXISTS FOR, and the one a copy-pasted third query gets wrong: it is
+# the only board in the game that sorts ASC. Dot has FEWER kills and a LOWER level than Cid, so any
+# ordering borrowed from the other two puts Cid on top; shortest-wins puts Dot there.
+TBOARDS=$(sbody GET "$SBASE?chapter=$CH&difficulty=3")
+tlead() { printf '%s' "$TBOARDS" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const b=JSON.parse(s).time;console.log(b.map(r=>r.nick+":"+r.timeMs).join(","))}catch{console.log("PARSE_ERROR:"+s.trim())}})'; }
+is "the time board is led by the fastest"   'Dot:181000,Cid:242000' "$(tlead)"
+
 # Difficulty is part of the board's identity, not a filter applied afterwards.
-is "another difficulty is a separate board" '{"kills":[],"level":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
+is "another difficulty is a separate board" '{"kills":[],"level":[],"time":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
 
 echo "-- leaderboard rejections (shape only — this endpoint is deliberately credulous) --"
 is "a short nick is 400"                    400   "$(post "{\"nick\":\"Bo\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":5,\"level\":2}" | head -1)"
@@ -179,12 +196,18 @@ is "a long nick is 400"                     400   "$(post "{\"nick\":\"$TOOLONG\
 is "a malformed chapter is 400"             400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"DROP TABLE\",\"difficulty\":3,\"kills\":5,\"level\":2}" | head -1)"
 is "a difficulty out of range is 400"       400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":99,\"kills\":5,\"level\":2}" | head -1)"
 is "a non-integer score is 400"             400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":1.5,\"level\":2}" | head -1)"
+# A time that is PRESENT and malformed is refused; an ABSENT one is not. The pair matters: almost
+# every submit omits the field (only a won boss run has a kill time), and an older build omits it
+# always — refusing those would drop every ordinary score on the floor.
+is "a zero kill time is 400"                400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":4,\"kills\":5,\"level\":2,\"timeMs\":0}" | head -1)"
+is "a non-integer kill time is 400"         400   "$(post "{\"nick\":\"Ann\",\"chapter\":\"$CH\",\"difficulty\":4,\"kills\":5,\"level\":2,\"timeMs\":1.5}" | head -1)"
+is "an explicit null kill time is accepted" 200   "$(post "{\"nick\":\"Eve\",\"chapter\":\"$CH\",\"difficulty\":5,\"kills\":5,\"level\":2,\"timeMs\":null}" | head -1)"
 is "an unparseable envelope is 400"         400   "$(scall POST -H 'content-type: application/json' -d 'not json' "$SBASE" | head -1)"
 is "PUT to /scores is 405"                  405   "$(sstatus PUT "$SBASE")"
 is "a bad board read is 400"                400   "$(sstatus GET "$SBASE?chapter=$CH&difficulty=abc")"
 # Nothing above may have written a row: a rejected submit that still inserted would be invisible
 # until someone opened the podium and found a stranger on it.
-is "no rejection wrote a row"               '{"kills":[],"level":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
+is "no rejection wrote a row"               '{"kills":[],"level":[],"time":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"
 
 echo "-- a missing table answers 500 WITH CORS, not the runtime's own error page --"
 # THE DAY-ONE MISTAKE: deploying the Worker without running `npm run db:remote`. An exception

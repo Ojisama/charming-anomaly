@@ -630,7 +630,11 @@ export function initUI(hooks) {
   // not find it; his own words were "a podium icon on the preview of the level, that should turn
   // the page of the preview", and the brief has no pages while this thing is literally a book.
   //
-  // ONE BOARD PER PAGE (owner's pick): kills on the verso, level reached on the recto. That is what
+  // ONE BOARD PER PAGE (owner's pick): kills on the verso, and on the recto the level you reached —
+  // except on a BOSS chapter, where the recto is your kill time and the shortest one wins (owner,
+  // 2026-08-19). A scripted chapter has no survival clock and no reason to grind levels: it ends
+  // when the boss dies, so how long that took is the only score its second board can be about.
+  // That is what
   // keeps the panel's height EXACTLY as it is — measured, and the reason it matters: .spread is
   // 324x168 with the bookcase above it holding 0px of scroll headroom, so any growth here squeezes
   // the shelf, which is the failure the .spread comment already records (33px of overflow once ate
@@ -642,7 +646,7 @@ export function initUI(hooks) {
   // it through main.js would add a hook, a callback and a re-render trigger to move data that has
   // exactly one consumer, the screen it is drawn on.
   let podiumOpen = false
-  let podiumState = null   // null = loading, 'error', or { kills: [...], level: [...] }
+  let podiumState = null   // null = loading, 'error', or { kills: [...], level: [...], time: [...] }
   let podiumReq = 0        // monotonic; only the newest request may paint (see loadPodium)
   // ONE-SHOT: true only for the render a page-turn causes. It cannot live on the spread
   // unconditionally, because updateTitleBelow runs for a dozen unrelated reasons — every difficulty
@@ -661,6 +665,13 @@ export function initUI(hooks) {
   const podiumCache = new Map()   // 'chapter:difficulty' -> boards
   const podiumPending = new Set() // keys with a fetch in flight, so a render cannot start a second
   const boardKey = (chapterId, difficulty) => `${chapterId}:${difficulty}`
+
+  // The recto's board, and the ONE place that decides it. Keyed off CHAPTERS[].scripted — the same
+  // flag the HUD reads to drop the survival countdown — so a future boss chapter gets the time
+  // board by being a boss chapter, with nothing here to remember to update. The Worker returns all
+  // three boards regardless (it knows no chapter ids); choosing between them is a game fact and
+  // lives on this side.
+  const secondBoard = (chapterId) => (CHAPTERS[chapterId]?.scripted ? 'time' : 'level')
 
   // Dropped when a run PLACES. Not after every run: a score that missed the top 3 moved no board,
   // and re-reading then is a request that can only return what is already held.
@@ -758,16 +769,19 @@ export function initUI(hooks) {
           t('Could not reach the podium. Tap to try again.')}</button>
       </div>`
     }
-    // Nobody has played this board at all — which on launch day is every board in the game. The two
-    // boards are populated by the same runs, so an untouched chapter can only ever be empty on both.
-    if (podiumState && !podiumState.kills.length && !podiumState.level.length) {
+    // Nobody has played this board at all — which on launch day is every board in the game. Against
+    // THIS chapter's own two boards, not all three: on a boss chapter the level board fills up like
+    // anywhere else and is simply not shown, so testing it here would keep a genuinely empty spread
+    // out of this branch and draw two blank leaves instead.
+    const second = secondBoard(browseChapterId)
+    if (podiumState && !podiumState.kills.length && !podiumState[second].length) {
       return `<div class="page page--board page--solo">
         <p class="diff-hint podium-empty">${t('No scores yet — be the first.')}</p>
       </div>`
     }
     return `
       <div class="page page--verso page--board">${podiumPageHtml('kills')}</div>
-      <div class="page page--recto page--board">${podiumPageHtml('level')}</div>`
+      <div class="page page--recto page--board">${podiumPageHtml(second)}</div>`
   }
 
   // Who holds this board's kills record, under the Podium button on the CLOSED page — so the panel
@@ -805,14 +819,19 @@ export function initUI(hooks) {
     // the two boards across the gutter, and grew the panel the whole layout was chosen to preserve.
     // The form now answers the question the chip did: two side-by-side ranked lists of exactly
     // three, reached from a control that says Podium.
-    const label = which === 'kills' ? 'Kills' : 'Level reached'
+    // 'Best time' and not 'Fastest kill' for the reason above: the eyebrow gets 142px, and the
+    // French for the longer one wraps to two lines, which drops the recto's rows out of line with
+    // the verso's across the gutter and grows the panel. 'Meilleur temps' is exactly as long as
+    // 'Niveau atteint', the label already measured to fit.
+    const label = { kills: 'Kills', level: 'Level reached', time: 'Best time' }[which]
     const eyebrow = `<div class="brief-eyebrow podium-eyebrow">${t(label)}</div>`
     if (podiumState === null) return `${eyebrow}${podiumSkeleton()}`
     // Each board is scored by its OWN metric. Passing rows through with a `score` field rather than
-    // teaching podiumRowHtml which board it is drawing keeps one row renderer for both.
-    const rows = which === 'kills'
-      ? podiumState.kills.map((r) => ({ ...r, score: r.kills }))
-      : podiumState.level.map((r) => ({ ...r, score: r.level }))
+    // teaching podiumRowHtml which board it is drawing keeps one row renderer for all three — and
+    // the time board is the reason that indirection now earns its keep, since its score is the only
+    // one that is not the raw number (mm:ss, off milliseconds).
+    const score = { kills: (r) => r.kills, level: (r) => r.level, time: (r) => fmtTime(r.timeMs / 1000) }[which]
+    const rows = podiumState[which].map((r) => ({ ...r, score: score(r) }))
     return `${eyebrow}${podiumBoardHtml(rows)}`
   }
 
@@ -2735,9 +2754,14 @@ export function initUI(hooks) {
         <p class="summary-chapter">${chapter.icon} ${t(chapter.name)}</p>
         ${killedByLine}
         <div class="stats">
-          <div class="stat-row"><span>${t('Time')}</span><b>${fmtTime(d.time)}</b></div>
+          <div class="stat-row"><span>${t('Time')}</span><b>${fmtTime(d.time)}${rankChip(d.podium?.time, 'time')}</b></div>
           <div class="stat-row"><span>${t('Kills')}</span><b>${d.kills}${rankChip(d.podium?.kills, 'kills')}</b></div>
-          <div class="stat-row"><span>${t('Level reached')}</span><b>${d.level}${rankChip(d.podium?.level, 'level')}</b></div>
+          <!-- The level chip is suppressed on a boss chapter even though the level board still
+               takes its score: that board is not drawn anywhere for a scripted chapter, so a rank
+               on it points at a page the player cannot open. The time chip needs no such guard —
+               podium.time only exists for a WON boss run in the first place. -->
+          <div class="stat-row"><span>${t('Level reached')}</span><b>${d.level}${
+            CHAPTERS[chapterId]?.scripted ? '' : rankChip(d.podium?.level, 'level')}</b></div>
         </div>
         ${damageBlock(d)}
         ${mutatorBlock}

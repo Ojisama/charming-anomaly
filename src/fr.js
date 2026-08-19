@@ -196,6 +196,11 @@ const UI = {
   'Time': 'Temps',
   'Kills': 'Victimes',
   'Level reached': 'Niveau atteint',
+  // The boss chapters' podium leaf, in place of the level board. Deliberately the same LENGTH as
+  // 'Niveau atteint' it replaces: the eyebrow it sits in has 142px and a two-line label there
+  // pushes the recto's rows out of line with the verso's. 'Meilleur temps' rather than 'Temps de
+  // mise a mort', which is the accurate phrase and twice too long.
+  'Best time': 'Meilleur temps',
   // v7.x leaderboard. 'Podium' is the same word in both languages and still needs its key here, or
   // the coverage assert reads it as an untranslated string. 'Pseudo' rather than 'surnom': it is
   // what French players actually call the name they use online, and it fits the 26px rank row.

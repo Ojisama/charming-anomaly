@@ -23,7 +23,12 @@ CREATE TABLE IF NOT EXISTS scores (
   nick       TEXT    NOT NULL,  -- 3-10 chars, whatever the player typed
   kills      INTEGER NOT NULL,
   level      INTEGER NOT NULL,
-  at         INTEGER NOT NULL   -- server clock, epoch ms
+  at         INTEGER NOT NULL,  -- server clock, epoch ms
+  time_ms    INTEGER            -- ms to kill the boss. NULL for every ordinary chapter and every
+                                -- loss: a shortest-wins board that accepted deaths would be led
+                                -- forever by whoever quit fastest. On a database that predates
+                                -- this column, migrate-scores-time.sql adds it -- ALTER appends,
+                                -- so the column order matches this literal either way.
 );
 -- One index per board, and EACH MUST COVER THE WHOLE ORDER BY, `at` included. Without the trailing
 -- `at` SQLite can seek the partition but not the order, so it materialises every row for that
@@ -40,5 +45,10 @@ CREATE TABLE IF NOT EXISTS scores (
 -- version of this file would keep the sorting plan forever and this comment would be a lie.
 DROP INDEX IF EXISTS scores_kills;
 DROP INDEX IF EXISTS scores_level;
+DROP INDEX IF EXISTS scores_time;
 CREATE INDEX IF NOT EXISTS scores_kills ON scores (chapter, difficulty, kills DESC, at ASC);
 CREATE INDEX IF NOT EXISTS scores_level ON scores (chapter, difficulty, level DESC, kills DESC, at ASC);
+-- The boss board, and the only one that sorts ASC: the shortest kill wins. NULLs sort first in an
+-- ASC index, so readBoards filters them in the WHERE rather than leaning on the order -- the rows
+-- with no time are every ordinary chapter's, which is almost all of them.
+CREATE INDEX IF NOT EXISTS scores_time  ON scores (chapter, difficulty, time_ms ASC, at ASC);

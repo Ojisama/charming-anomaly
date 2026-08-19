@@ -1,0 +1,14 @@
+-- ONE-SHOT. Run this ONCE against a database whose `scores` table was created before the boss
+-- time board (v7.x), THEN run schema.sql — which creates the index this column needs and would
+-- otherwise fail on a table that has no such column:
+--
+--     npm run db:migrate:remote && npm run db:remote     (and :local for the dev D1)
+--
+-- Not folded into schema.sql because SQLite has no `ADD COLUMN IF NOT EXISTS`, and schema.sql's
+-- whole contract is that it can be re-applied at any time (that is what the `DROP INDEX IF EXISTS`
+-- block in it is for). An ALTER in there would make the second run of it an error.
+--
+-- A FRESH database does not need this file at all: schema.sql's CREATE TABLE already carries the
+-- column, and running this against one fails with "duplicate column name: time_ms" — which is the
+-- correct, loud answer, not something to guard against.
+ALTER TABLE scores ADD COLUMN time_ms INTEGER;

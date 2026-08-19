@@ -621,17 +621,28 @@ function endRun(victory) {
   // in the meantime.
   const nick = validNick(meta.nick)
   if (nick && !meta.dev && !run._devUsed) {
-    const kills = run.kills
-    const level = run.player.level
     const chapter = run.chapter
-    const difficulty = run.difficulty ?? 1
-    submitScore({ nick, chapter, difficulty, kills, level })
+    // ONE object, submitted and then looked up. The rank is matched on the score itself (scores.js
+    // has no row ids), so a second copy of these numbers is a way for the lookup to ask about a
+    // score that was never sent.
+    //
+    // TWO TERMS ON THE TIME, AND BOTH ARE LOAD-BEARING. A boss chapter's second board is kill time
+    // and it sorts SHORTEST FIRST (owner, 2026-08-19), which makes every way of ending a run early
+    // a way of winning it: a death at 12 seconds outranks a real kill at four minutes, and an
+    // ordinary chapter — where every victory is the same 300s survival clock — would put whoever
+    // died first on top of a board about nothing. Null is the honest value for both, and the
+    // Worker stores it as one: the time board's query skips NULL rows outright.
+    const entry = {
+      nick, chapter, difficulty: run.difficulty ?? 1, kills: run.kills, level: run.player.level,
+      timeMs: victory && CHAPTERS[chapter]?.scripted ? Math.round(run.time * 1000) : null,
+    }
+    submitScore(entry)
       .then((boards) => {
-        const rank = podiumRank(boards, nick, kills, level)
+        const rank = podiumRank(boards, entry)
         // A run that PLACED moved the board, so the title's leader line — drawn from a session
         // cache — is now stale. Told from here because main.js is the only thing that knows which
         // board this run belonged to; the title may already be browsing another chapter.
-        if (rank) ui.forgetBoard(chapter, difficulty)
+        if (rank) ui.forgetBoard(chapter, entry.difficulty)
         ui.setPodiumResult(summaryData, rank)
       })
       // submitScore itself never rejects — scores.js catches everything — but renderSummary runs

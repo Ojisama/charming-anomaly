@@ -15274,16 +15274,29 @@ function testLeaderboard() {
   assert.strictEqual(validNick('B' + bell + 'b'), null, 'and stripping one can take a name below the minimum')
 
   // (b) podiumRank — where a just-submitted run landed, read off the boards the POST answered with.
-  const boards = {
-    kills: [{ nick: 'Ann', kills: 900, level: 20 }, { nick: 'Bob', kills: 500, level: 12 }],
-    level: [{ nick: 'Bob', kills: 500, level: 12 }, { nick: 'Ann', kills: 900, level: 20 }],
-  }
-  assert.deepStrictEqual(podiumRank(boards, 'Bob', 500, 12), { kills: 2, level: 1 },
+  const ANN = { nick: 'Ann', kills: 900, level: 20, timeMs: 240000 }
+  const BOB = { nick: 'Bob', kills: 500, level: 12, timeMs: 180000 }
+  const boards = { kills: [ANN, BOB], level: [BOB, ANN], time: [BOB, ANN] }
+  assert.deepStrictEqual(podiumRank(boards, { nick: 'Bob', kills: 500, level: 12 }), { kills: 2, level: 1, time: null },
     'a run on both boards reports both ranks, and they are allowed to differ')
-  assert.strictEqual(podiumRank(boards, 'Cid', 10, 2), null, 'a run on neither board reports nothing at all')
-  assert.strictEqual(podiumRank(null, 'Bob', 500, 12), null, 'an unreachable board is not a rank of null-th')
-  assert.deepStrictEqual(podiumRank({ kills: [{ nick: 'Ann', kills: 900, level: 20 }], level: [] }, 'Ann', 900, 20),
-    { kills: 1, level: null }, 'one board without the other is still a result')
+  assert.strictEqual(podiumRank(boards, { nick: 'Cid', kills: 10, level: 2 }), null, 'a run on neither board reports nothing at all')
+  assert.strictEqual(podiumRank(null, { nick: 'Bob', kills: 500, level: 12 }), null, 'an unreachable board is not a rank of null-th')
+  assert.deepStrictEqual(podiumRank({ kills: [ANN], level: [], time: [] }, { nick: 'Ann', kills: 900, level: 20 }),
+    { kills: 1, level: null, time: null }, 'one board without the other is still a result')
+
+  // THE BOSS BOARD. A run that carries a kill time is ranked on it; one that does not must not be,
+  // and `timeMs` defaulting to undefined is the whole reason that needs an assertion — findIndex on
+  // a row whose own timeMs is null would MATCH a null lookup and hand an ordinary chapter's run a
+  // place on a board it never entered.
+  assert.deepStrictEqual(podiumRank(boards, { nick: 'Bob', kills: 500, level: 12, timeMs: 180000 }),
+    { kills: 2, level: 1, time: 1 }, 'a boss run reports its place on the time board too')
+  assert.strictEqual(podiumRank({ kills: [], level: [], time: [{ nick: 'Ann', kills: 1, level: 1, timeMs: null }] },
+    { nick: 'Ann', kills: 1, level: 1 }), null,
+    'a run with no kill time holds no place on the time board, even against a row whose own time is null')
+  // The Worker deploys separately from the game, so between shipping the client and deploying it
+  // every response lacks the key. The podium must degrade to "no boss scores", not to a crash.
+  assert.deepStrictEqual(podiumRank({ kills: [ANN], level: [] }, { nick: 'Ann', kills: 900, level: 20, timeMs: 240000 }),
+    { kills: 1, level: null, time: null }, 'a board response with no time key at all is still readable')
 
   // (c) THE INTEGRITY RULE, ACROSS TWO FILES. The owner's only anti-cheat ruling is "dev runs don't
   // count", and it is implemented as one write in sim.js and one read in main.js. Nothing imports
@@ -15319,6 +15332,24 @@ function testLeaderboard() {
   assert.ok(/validNick\(meta\.nick\)/.test(endRunBody),
     'endRun must resolve the nickname through validNick, not send meta.nick raw: that is the only path that could put an illegal name on a public board')
 
+  // THE TIME BOARD'S OWN INTEGRITY RULE, and it is the one that fails LOUDLY WRONG rather than
+  // silently absent: the boss board sorts SHORTEST FIRST, so a submitted time that did not come
+  // from a kill takes first place off everyone who actually killed the thing. Both terms are one
+  // `&&` away from gone and neither leaves a mark anywhere else — a lost run submits a real number,
+  // and an ordinary chapter submits its 300s survival clock, so the board just fills with nonsense.
+  const timeExpr = /timeMs:\s*([^\n]*)/.exec(endRunBody)?.[1]
+  assert.ok(timeExpr, 'run LB could not find the timeMs term in endRun — the leaderboard no longer submits a kill time')
+  assert.ok(/\bvictory\b/.test(timeExpr),
+    'the kill time must be gated on victory: on a shortest-wins board a death at 12s outranks every real kill')
+  assert.ok(/scripted/.test(timeExpr),
+    'the kill time must be gated on CHAPTERS[].scripted: an ordinary chapter ends on the same 300s clock for everyone, so its time board would rank whoever died first')
+
+  // ...and the other side of that flag, in ui.js: the recto has to CHOOSE the time board for a
+  // scripted chapter. Source text, because the alternative is a boss podium that still shows a
+  // level board — correct-looking, fully populated, and not the board the scores are being kept on.
+  assert.ok(/scripted \? 'time' : 'level'/.test(uiSrc2),
+    "ui.js must pick the time board for a scripted chapter — without it the kill times are submitted, stored and never drawn")
+
   // (d) THE FRENCH. Every leaderboard string lives in ui.js, in a function — which run XX's coverage
   // walk cannot see BY CONSTRUCTION, since it enumerates config TABLES. CLAUDE.md records that
   // exemption shipping untranslated copy four separate times; this list is the guard for this
@@ -15332,6 +15363,7 @@ function testLeaderboard() {
     'all players · difficulty {n}',
     'No scores yet — be the first.',
     'Could not reach the podium. Tap to try again.',
+    'Best time',
   ]
   for (const key of leaderboardCopy) {
     assert.ok(FR[key], `leaderboard string has no French: ${JSON.stringify(key)}`)
@@ -15363,6 +15395,27 @@ function testLeaderboard() {
   // is book 1 only and would skip the nine chapters most likely to be new.
   // The Worker's own literal, lifted out of its source and re-run here — not a copy of it, which
   // would be the two-places-one-fact trap this whole scenario exists to close.
+  // THE TIME BOARD ACROSS THE NETWORK, all four places it has to agree. Every one of these fails
+  // as an empty or a wrong board rather than an error: a DESC ordering silently ranks the SLOWEST
+  // kill first, a missing IS NOT NULL puts every ordinary chapter's null-timed row above every real
+  // one, and a column the schema never declares takes the whole endpoint to a 500 the client
+  // reports as "could not reach the podium".
+  assert.ok(/time_ms IS NOT NULL ORDER BY time_ms ASC, at ASC/.test(workerSrc),
+    'the Worker must read the time board ASC and skip null times — DESC ranks the slowest kill first, and without the filter the podium is three players who never killed it')
+  assert.ok(/INSERT INTO scores \([^)]*time_ms[^)]*\)/.test(workerSrc),
+    'the Worker must store time_ms, or every submitted kill time is dropped and the board stays empty forever')
+  const schemaSrc = readFileSync(new URL('../worker/schema.sql', import.meta.url), 'utf8')
+  assert.ok(/time_ms\s+INTEGER(?!\s+NOT NULL)/.test(schemaSrc),
+    'schema.sql must declare time_ms NULLABLE: an ordinary chapter and a lost boss run both store null there')
+  assert.ok(/CREATE INDEX[^\n]*scores_time[^\n]*time_ms ASC, at ASC/.test(schemaSrc),
+    "schema.sql must index the time board's whole ORDER BY — without the trailing `at` SQLite materialises every row for that chapter and sorts")
+  // The migration is what carries the LIVE database across, and the live database is the only one
+  // that matters here: schema.sql's CREATE TABLE is a no-op against a table that already exists, so
+  // without this file the deployed board would 500 on every read with nothing local to show it.
+  const migrateSrc = readFileSync(new URL('../worker/migrate-scores-time.sql', import.meta.url), 'utf8')
+  assert.ok(/ALTER TABLE scores ADD COLUMN time_ms INTEGER/.test(migrateSrc),
+    'the one-shot migration must add time_ms to an existing scores table')
+
   const chapterLiteral = /const validChapter[^\n]*?(\/\^[^\n/]+\$\/)/.exec(workerSrc)?.[1]
   assert.ok(chapterLiteral, "run LB could not lift validChapter's pattern out of the Worker — the regex has gone stale")
   const chapterRe = new RegExp(chapterLiteral.slice(1, -1))
@@ -15385,7 +15438,8 @@ function testLeaderboard() {
     "the fresh-meta literal must carry nick: '' — loadMeta's repairs are in-memory only and never written back")
 
   console.log(`PASS run LB (leaderboard): validNick holds ${NICK_MIN}-${NICK_MAX} through whitespace, a cut-on-a-space clamp and a bisected emoji, ` +
-    `podiumRank reads both boards independently, both halves of the dev-run gate are wired across sim.js + ui.js + main.js, ` +
+    `podiumRank reads all three boards independently, the kill time is gated on victory AND a scripted chapter on both sides, ` +
+    `both halves of the dev-run gate are wired across sim.js + ui.js + main.js, ` +
     `${leaderboardCopy.length} strings have French with placeholders intact, and the Worker's range, route order ` +
     `and chapter pattern agree with the client across all ${allChapterIds.length} chapters`)
 }

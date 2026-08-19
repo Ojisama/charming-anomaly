@@ -60,44 +60,60 @@ async function call(url, init) {
     const res = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) })
     if (!res.ok) return null
     const body = await res.json()
-    return Array.isArray(body?.kills) && Array.isArray(body?.level) ? body : null
+    if (!Array.isArray(body?.kills) || !Array.isArray(body?.level)) return null
+    // `time` (the boss board) is TOLERATED MISSING, unlike the other two, and that asymmetry is
+    // deliberate: the Worker deploys separately from the game, so between shipping this build and
+    // deploying that one every response lacks the key. Requiring it would turn the whole podium —
+    // every chapter, both other boards — into 'could not reach the podium' for the length of that
+    // gap. Defaulted to empty instead, which is what an unplayed board looks like anyway.
+    return { ...body, time: Array.isArray(body.time) ? body.time : [] }
   } catch {
     return null
   }
 }
 
-// -> { kills: [{nick, kills, level, at}], level: [...] } (each 0-3 long), or null.
+// -> { kills: [{nick, kills, level, at, timeMs}], level: [...], time: [...] } (each 0-3 long), or
+// null. `time` is the BOSS board — kill time in ms, shortest first — and is empty on every
+// chapter that is not one (see CHAPTERS[].scripted; ui.js is what decides which pair to draw).
 export function fetchBoards(chapter, difficulty) {
   return call(`${SCORES_URL}?chapter=${encodeURIComponent(chapter)}&difficulty=${difficulty}`)
 }
 
-// Where a just-submitted run landed, read off the boards the POST answered with. -> { kills, level }
-// with 1|2|3|null in each, or null if it made neither podium.
+// Where a just-submitted run landed, read off the boards the POST answered with.
+// -> { kills, level, time } with 1|2|3|null in each, or null if it made no podium at all.
+// Takes the SAME object submitScore was given, so the score being looked up cannot drift from the
+// score that was sent — with five positional arguments it silently could.
 //
 // Matching on nick + the score itself rather than on a row id, because rows have no id — the table
 // is append-only and the Worker returns three anonymous rows. The one imprecision that buys: a
 // player who submits the SAME kill count twice matches their earlier row and is told the rank that
 // row holds. It is still a rank they hold, so it is not a lie, and the alternative is an id column
 // and a rank query to remove an ambiguity nobody can perceive.
-export function podiumRank(boards, nick, kills, level) {
+export function podiumRank(boards, { nick, kills, level, timeMs = null }) {
   if (!boards) return null
   const at = (rows, key, want) => {
+    if (want == null) return null // a run with no kill time cannot hold a place on the time board
     const i = rows.findIndex((r) => r.nick === nick && r[key] === want)
     return i < 0 ? null : i + 1
   }
   const k = at(boards.kills, 'kills', kills)
   const l = at(boards.level, 'level', level)
-  return k || l ? { kills: k, level: l } : null
+  const t = at(boards.time ?? [], 'timeMs', timeMs)
+  return k || l || t ? { kills: k, level: l, time: t } : null
 }
 
 // Returns the boards AFTER the insert, so the caller can see where the run landed without a second
 // request. null on any failure, including a nickname this build would not have offered.
-export function submitScore({ nick, chapter, difficulty, kills, level }) {
+//
+// `timeMs` is null for every ordinary chapter and for every LOST boss run — main.js is what
+// decides, and it has to: the board sorts SHORTEST FIRST, so a death at 12 seconds would take
+// first place off everyone who actually killed the thing.
+export function submitScore({ nick, chapter, difficulty, kills, level, timeMs = null }) {
   const name = validNick(nick)
   if (!name) return Promise.resolve(null)
   return call(SCORES_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ nick: name, chapter, difficulty, kills, level }),
+    body: JSON.stringify({ nick: name, chapter, difficulty, kills, level, timeMs }),
   })
 }
