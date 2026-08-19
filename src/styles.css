@@ -2460,6 +2460,19 @@ body {
   cursor: pointer;
 }
 .spread-podium .rr-ico { width: 16px; height: 16px; flex: none; }
+/* The kills leader, under the button. Sized to the 34px of slack measured beneath it, and it draws
+   nothing at all when there is no leader — so this line can never be what makes the panel grow. */
+.spread-leader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  margin-top: 3px;
+}
+.spread-leader .podium-rank { width: 17px; height: 17px; border-width: 2px; font-size: 0.62rem; }
+.spread-leader .podium-nick { flex: 0 1 auto; font-size: 0.74rem; font-weight: 800; }
 .spread-podium i { font-style: normal; color: var(--ink-soft); }
 .spread-podium:active { transform: translateY(1px); }
 
