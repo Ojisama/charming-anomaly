@@ -381,7 +381,12 @@ export function loadMeta() {
       m.nick ??= ''
       return m
     }
-  } catch { /* corrupted save -> fresh */ }
+  } catch (e) {
+    // Corrupted save -> fresh, but never SILENTLY: a hand-built probe meta missing `shop` throws
+    // here (the repair above writes into it), and the old bare catch turned that into a title
+    // screen at difficulty 1 in English with no clue why. Prod behaviour is unchanged.
+    console.warn('[loadMeta] save unreadable, starting fresh:', e?.message)
+  }
   const fresh = {
     coins: 0,
     shop: Object.fromEntries(Object.keys(shopLines(BOOK_ORDER[0])).map((id) => [id, 0])), // book 1's own field — see the loadMeta repair above
@@ -1840,6 +1845,10 @@ function generateWells(sig) {
  *   panic rings), {type:'blink', x, y, tx, ty} (a realityShard bullet skipped from (x,y) to (tx,ty)).
  */
 export function createRun(meta, opts = {}) {
+  // createRun(meta, 'undergrowth', 3) used to be silent: opts is a string, opts.chapter is
+  // undefined, and you measure `body` at difficulty 1 while believing otherwise.
+  if (typeof opts !== 'object' || opts === null)
+    throw new TypeError(`createRun(meta, opts): opts must be an options object, got ${typeof opts}`)
   // Hoisted above every shopBonus call: the book decides which purse those bonuses come from,
   // and shopBonus at the old first-statement position ran 31 lines before `chapter` existed
   // (see R1's note below, unchanged in meaning — only moved).

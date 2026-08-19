@@ -1,6 +1,6 @@
 ---
 name: designing-an-enemy
-description: Use when adding or reworking anything in Charming Anomaly that fights the player — a roster enemy, an elite affix, a scripted wave creature, or a hazard/trap. Triggers on "new enemy", "add a creature", "design a monster", "make it harder", "this enemy feels wrong", "add a trap/hazard".
+description: Use when adding or reworking anything in Charming Anomaly that fights the player — a roster enemy, an elite affix, a scripted wave creature, a boss, or a hazard/trap. Triggers on "new enemy", "add a creature", "design a monster", "make it harder", "this enemy feels wrong", "add a trap/hazard", and on how the owner actually phrases it mid-playtest — "diminish tank amount", "make the telegraph more subtle", "it one-shots me", "no <mechanic> in this chapter", "let's move this idea to an enemy", "reduce <creature> size by X% and increase enemy size by Y%", or any change to what a creature does, telegraphs, or looks like.
 ---
 
 # Designing an enemy
@@ -92,6 +92,33 @@ spawns unless you set it. `minT` gates earliest spawn.
 | `node scripts/bake-cast.mjs` after adding to `render.cast` | the thumbnail is skipped, the cast row just looks short |
 | French for `roster.name` | run XX goes red — **but only for Book 1**: its walk is `CHAPTER_ORDER.concat(['blank'])`, so a Shelf or Surf creature escapes it entirely |
 | new stat read in sim.js | a field in config that nothing reads — assert the spawned ENTITY, never the table |
+
+## The adversarial pass — before shipping, without being asked
+
+He asks for this by hand constantly (*"spawn an adversarial fable agent to challenge your
+findings"*). Make it automatic. Dispatch **one** `general-purpose` subagent to REFUTE the work, and
+give it this constraint verbatim, because a reviewer with no rules reaches for `git stash` and
+reverts the change it was asked to review:
+
+> You are reviewing UNCOMMITTED work. **Do not mutate the tree.** Allowed: `git diff`, `git show`,
+> `git log`, file reads, running probes and the test suite. Forbidden: `git stash` in any form,
+> `git reset`, `git checkout`, `git restore`, `git clean`, `git add`, `git commit`, and any edit.
+> Default to "this is broken" when uncertain.
+
+Aim it at the four things that actually go wrong with a creature:
+
+1. **Can the rig see the claim?** A kiting probe cannot see a shove lock on slow enemies; a
+   stationary one reports the same contact-hit count for every build. Which question was the rig
+   built for?
+2. **Was anything baked at spawn compared across runs?** `hp` and `dmg` are frozen through
+   `hpScale`/`dmgScale` at spawn time — two runs that spawned at different clocks produce numbers
+   that cannot be subtracted.
+3. **Did the probe window reach the archetype, and is the spread shown?** `WAVE_TABLE` gates `tank`
+   to t=140s, and two seeds lie — six seeds of one Shelf level came back `[7, 11, 6, 11, 12, 11]`.
+4. **Walk the silent-failure table above against the diff**, and check the denominator: a sweep over
+   `CHAPTER_ORDER` silently skips The Blank and all of Book 2.
+
+Fix what it finds, or say in the report what you are knowingly shipping past.
 
 ## Ship
 
