@@ -72,7 +72,8 @@ async function call(url, init) {
   }
 }
 
-// -> { kills: [{nick, kills, level, at, timeMs}], level: [...], time: [...] } (each 0-3 long), or
+// -> { kills: [{nick, kills, level, at, timeMs, starter}], level: [...], time: [...] } (each 0-3
+// long), or
 // null. `time` is the BOSS board — kill time in ms, shortest first — and is empty on every
 // chapter that is not one (see CHAPTERS[].scripted; ui.js is what decides which pair to draw).
 export function fetchBoards(chapter, difficulty) {
@@ -108,12 +109,16 @@ export function podiumRank(boards, { nick, kills, level, timeMs = null }) {
 // `timeMs` is null for every ordinary chapter and for every LOST boss run — main.js is what
 // decides, and it has to: the board sorts SHORTEST FIRST, so a death at 12 seconds would take
 // first place off everyone who actually killed the thing.
-export function submitScore({ nick, chapter, difficulty, kills, level, timeMs = null }) {
+//
+// `starter` is null unless the chapter ROLLS its starter. It ranks nothing — it is carried so a
+// podium row can say which weapon the record was set with, which is only a fact worth recording
+// where two rows can differ.
+export function submitScore({ nick, chapter, difficulty, kills, level, timeMs = null, starter = null }) {
   const name = validNick(nick)
   if (!name) return Promise.resolve(null)
   return call(SCORES_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ nick: name, chapter, difficulty, kills, level, timeMs }),
+    body: JSON.stringify({ nick: name, chapter, difficulty, kills, level, timeMs, starter }),
   })
 }

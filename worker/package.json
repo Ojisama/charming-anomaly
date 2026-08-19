@@ -7,8 +7,8 @@
     "dev": "wrangler dev --local --port 8787",
     "db:local": "wrangler d1 execute charming-anomaly-sync --local --file=./schema.sql",
     "db:remote": "wrangler d1 execute charming-anomaly-sync --remote --file=./schema.sql",
-    "db:migrate:local": "wrangler d1 execute charming-anomaly-sync --local --file=./migrate-scores-time.sql",
-    "db:migrate:remote": "wrangler d1 execute charming-anomaly-sync --remote --file=./migrate-scores-time.sql",
+    "db:migrate:local": "wrangler d1 execute charming-anomaly-sync --local --file",
+    "db:migrate:remote": "wrangler d1 execute charming-anomaly-sync --remote --file",
     "test": "./test.sh",
     "deploy": "wrangler deploy"
   },

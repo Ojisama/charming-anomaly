@@ -99,9 +99,13 @@ const validNick = (v) =>
 // Chapter ids stay opaque to this Worker for the same reason the save blob does — the game must be
 // able to add a chapter without a Worker deploy. A shape check is all it is entitled to.
 const validChapter = (v) => typeof v === 'string' && /^[a-z][a-z0-9]{0,15}$/.test(v)
+// A WEAPONS id. camelCase, so the same shape as a chapter id with capitals allowed and a little
+// more room ('chitterShriek' is 13, 'realityShard' 12) — see run LB, which re-runs this literal
+// against every weapon in the game rather than trusting the bound.
+const validId = (v) => typeof v === 'string' && /^[a-zA-Z][a-zA-Z0-9]{0,23}$/.test(v)
 const int = (v, lo, hi) => (Number.isInteger(v) && v >= lo && v <= hi ? v : null)
 
-const boardRow = (r) => ({ nick: r.nick, kills: r.kills, level: r.level, at: r.at, timeMs: r.time_ms })
+const boardRow = (r) => ({ nick: r.nick, kills: r.kills, level: r.level, at: r.at, timeMs: r.time_ms, starter: r.starter })
 
 // `at ASC` on every board so a tie goes to whoever got there FIRST. Without it SQLite is free to
 // return either row and the podium reorders itself between two reads of an unchanged board.
@@ -117,7 +121,7 @@ const boardRow = (r) => ({ nick: r.nick, kills: r.kills, level: r.level, at: r.a
 // a boss chapter store NULL, an ASC index sorts NULLs first, and this board's whole ordering is
 // "smallest wins" — so without the filter the podium would be three players who never killed it.
 async function readBoards(env, chapter, difficulty) {
-  const cols = 'SELECT nick, kills, level, at, time_ms FROM scores WHERE chapter = ? AND difficulty = ?'
+  const cols = 'SELECT nick, kills, level, at, time_ms, starter FROM scores WHERE chapter = ? AND difficulty = ?'
   const [byKills, byLevel, byTime] = await env.DB.batch([
     env.DB.prepare(`${cols} ORDER BY kills DESC, at ASC LIMIT 3`).bind(chapter, difficulty),
     env.DB.prepare(`${cols} ORDER BY level DESC, kills DESC, at ASC LIMIT 3`).bind(chapter, difficulty),
@@ -177,13 +181,29 @@ async function scores(req, env) {
     // 400 only for a field that is PRESENT and malformed. The ceiling is an hour of milliseconds;
     // the floor is 1 so a zero cannot claim an unbeatable board.
     const timeMs = body.timeMs == null ? null : int(body.timeMs, 1, 3600000)
+    // The weapon the run rolled, on a chapter that rolls one — absent everywhere else, so the same
+    // `== null` tolerance the time gets. Shape-checked like a chapter id, and for the same reason:
+    // WEAPONS ids are a game fact this Worker must never need a deploy to learn.
+    //
+    // A MALFORMED ONE DROPS THE FIELD, NOT THE SCORE, and that is the one place this differs from
+    // every other check here. The others guard something the podium RANKS; this is a glyph beside
+    // the figure. 400ing the whole submit would spend a real player's run on a cosmetic — and a
+    // future weapon id in a shape this pattern did not anticipate (a digit first, an underscore)
+    // would take every score on that chapter with it, silently, for as long as it took anyone to
+    // notice an empty board. run LB re-runs this exact literal against every weapon in the game so
+    // that cannot happen quietly; this is what keeps it from costing anything if it ever does.
+    //
+    // Storing junk would be a different matter, and is what the check is FOR — but note the game
+    // never renders this string: ui.js uses it only as a KEY into WEAPONS, drawing that weapon's
+    // own icon and its translated name, and nothing at all for an id it does not know.
+    const starter = validId(body.starter) ? body.starter : null
     if (!validNick(nick)) return json(400, { error: `nick must be ${NICK_MIN}-${NICK_MAX} characters` })
     if (!validChapter(chapter)) return json(400, { error: 'bad chapter' })
     if (difficulty === null || kills === null || level === null) return json(400, { error: 'bad score' })
     if (body.timeMs != null && timeMs === null) return json(400, { error: 'bad time' })
 
-    await env.DB.prepare('INSERT INTO scores (chapter, difficulty, nick, kills, level, at, time_ms) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(chapter, difficulty, nick, kills, level, Date.now(), timeMs)
+    await env.DB.prepare('INSERT INTO scores (chapter, difficulty, nick, kills, level, at, time_ms, starter) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(chapter, difficulty, nick, kills, level, Date.now(), timeMs, starter)
       .run()
     // The boards come back in the same round trip, so a submit that landed is visibly a submit
     // that landed rather than a 200 the client takes on faith — and the summary screen can say
