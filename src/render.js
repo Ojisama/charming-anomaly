@@ -19,7 +19,8 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
   LURE_GLOW, MAW_VIS,
-  CHEEK_JIGGLE,       // the cheeks skin's spring — see syncPlayer's jiggle block // The Deep: the anglerfish maw and its esca punched through the dark scrim
+  CHEEK_JIGGLE,       // the cheeks skin's spring — see syncPlayer's jiggle block
+  BUTT_FEET,          // ...and its feet — see syncPlayer's feet block // The Deep: the anglerfish maw and its esca punched through the dark scrim
   FOXFIRE_GLOW,       // The Twilight: a foxfire punched through the same scrim — a fire is a light
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
@@ -678,6 +679,17 @@ export function createRenderer(app) {
   // toward that chapter's hue.
   function drawBlobButt(g, white, part = 'all') {
     drawButt(g, 3, PLAYER.radius * 1.04, PLAYER.radius, Math.PI / 2, 0, 0, BUTT_PEACH, white, part)
+  }
+  // One little foot for the skin to run on (BUTT_FEET), drawn about its own centre so the sprite
+  // that carries it can be scaled per step without sliding.
+  function drawButtFoot(g, white) {
+    const fx = PLAYER.radius * BUTT_FEET.rx, fy = PLAYER.radius * BUTT_FEET.ry
+    if (white) {
+      g.ellipse(0, 0, fx, fy).fill(0xffffff).stroke({ width: 2.2, color: 0xffffff })
+      return
+    }
+    g.ellipse(0, 0, fx, fy).fill(BUTT_PEACH.fill).stroke({ width: 2.2, color: BUTT_PEACH.line })
+    g.ellipse(0, -fy * 0.3, fx * 0.5, fy * 0.34).fill({ color: BUTT_PEACH.lit, alpha: 0.45 })
   }
   // Where each form's butt is CENTRED in its own drawing space. The jiggle scales about this point,
   // so a wrong entry here squashes the cheeks toward the body's origin instead of about themselves
@@ -4365,6 +4377,12 @@ export function createRenderer(app) {
     T.playerButtFlash = (() => { const g = new Graphics(); drawBlobButt(g, true); return bake(g) })()
     // the whole thing in one texture, for the mini-me - a decoy is static and does not earn a rig
     T.playerButtSolid = (() => { const g = new Graphics(); drawBlobButt(g, false, 'all'); return bake(g) })()
+    // ONE foot (BUTT_FEET), worn by both sprites. Seen from BEHIND like the butt above it - a sole
+    // and a heel highlight, no toes - because it is the same creature from the same angle, and a
+    // toe-forward foot would be the one part of this player drawn from a different camera.
+    // Baked in white too, for the same reason pFlash exists: see the rig.
+    T.buttFoot = (() => { const g = new Graphics(); drawButtFoot(g, false); return bake(g) })()
+    T.buttFootFlash = (() => { const g = new Graphics(); drawButtFoot(g, true); return bake(g) })()
     {
       const g = new Graphics()
       g.circle(0, 0, pr * 0.115).fill(0x2f3140)
@@ -10719,6 +10737,21 @@ export function createRenderer(app) {
   const pMask = spriteOf(T.playerButtFlash)
   bodyC.addChild(pMask)
   cheekC.mask = pMask
+  // THE CHEEKS SKIN's feet (BUTT_FEET). Added BEFORE pBody and never re-ordered: the whole stride
+  // reads off one foot tucked BEHIND the butt while the other is out in front of it, and a pair
+  // drawn on top would be two ovals sliding over a body instead of legs under one.
+  //   Inside bodyC, so they inherit the facing flip and the hop squash the body already carries.
+  //   Each foot has a WHITE TWIN over it, driven off pFlash. The feet are the only part of this
+  // player that sticks out past the body silhouette, and pFlash/pHot both wear that silhouette -
+  // so without the twins a hit pops the whole player white with two peach feet still showing.
+  const pFeet = new Container()
+  const footL = spriteOf(T.buttFoot)
+  const footR = spriteOf(T.buttFoot)
+  const footLF = spriteOf(T.buttFootFlash)
+  const footRF = spriteOf(T.buttFootFlash)
+  pFeet.addChild(footL, footR, footLF, footRF)
+  pFeet.visible = false
+  bodyC.addChild(pFeet)
   bodyC.addChild(pBody, cheekC, pHot, pupilL, pupilR, pFlash)
   // flagellum tail (pond/undergrowth skins): two stacked streak glyphs behind the blob, trailing
   // the player's facingAngle with a wiggle. Textures are fx sprites so they're assigned once the fx
@@ -17333,6 +17366,29 @@ export function createRenderer(app) {
       }
     } else {
       pFlash.alpha = 0
+    }
+
+    // ---- BUTT FEET (BUTT_FEET) ----------------------------------------------------------------
+    // Book 1's blob only (playerForm null) - see BUTT_FEET's own note for why the fish and the
+    // kaiju do not get them. The two feet run half a cycle apart on the body's own `hop`, which
+    // only advances while moving, so standing still parks them both at rest instead of freezing
+    // one mid-stride. Sits after the hurt flash because the white twins read pFlash.
+    if (playerSkin && !playerForm) {
+      pFeet.visible = true
+      const r = PLAYER.radius
+      for (let i = 0; i < 2; i++) {
+        const w = p.moving ? Math.sin(hop + i * Math.PI) : 0
+        const fx = (i ? BUTT_FEET.offX : -BUTT_FEET.offX) * r
+        const fy = (BUTT_FEET.rest + BUTT_FEET.stride * w) * r
+        const k = 1 + BUTT_FEET.lift * w
+        const f = i ? footR : footL, ff = i ? footRF : footLF
+        f.position.set(fx, fy); f.scale.set(k)
+        ff.position.set(fx, fy); ff.scale.set(k)
+        ff.tint = pFlash.tint
+        ff.alpha = pFlash.alpha
+      }
+    } else if (pFeet.visible) {
+      pFeet.visible = false
     }
 
     // invuln blink

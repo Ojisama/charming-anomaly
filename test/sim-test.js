@@ -141,7 +141,7 @@ import {
   EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
   STAT_KEYS,
   // the cosmetic shop line and its mastery gate (Run BP.ag)
-  MASTERY_UNLOCK, chaptersMastered, shopLineUnlocked, CHEEK_JIGGLE,
+  MASTERY_UNLOCK, chaptersMastered, shopLineUnlocked, CHEEK_JIGGLE, BUTT_FEET,
   // The Wreck's prey rework (Run WK)
   PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_SHOAL_SIZE, CHUM_PANIC_R,
   GNASH_MAW_MUL, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
@@ -5877,7 +5877,38 @@ function runBookProgression() {
     assert.ok(rSrc.includes('T.fishCheekAt.push(') && rSrc.includes('cheekAt = T.fishCheekAt[wIdx]'),
       'the fish jiggle no longer reads its pivot per swim phase — a fixed centre drifts off the cheeks as the body undulates')
 
-    console.log(`PASS run BP.ag (mastery gate): ${GATE_ID} locked at 0 and 1 mastered chapters, open at ${MASTERY_UNLOCK}, reads .won not .maxDifficulty, counts per BOOK (book1 wins leave undertow locked), leaves the other ${seen.size - 1} lines ungated, and both renderShop and onBuy consult it; the jiggle is a settling spring, clamped to a FRACTION of the butt, with all three layers baked apart and the pivot read per swim phase`)
+    // 8. THE FEET (BUTT_FEET). Same problem as the jiggle — render.js is not importable and every
+    // failure here is a still frame that looks fine — plus one of its own: the feet are the only
+    // part of this player DRAWN OUTSIDE the body silhouette, so three separate things have to hold
+    // or they are simply not on screen and nothing says so.
+    assert.ok(BUTT_FEET.stride > 0 && BUTT_FEET.rx > 0 && BUTT_FEET.ry > 0,
+      'a zero stride or a zero-size foot leaves the feet as a static pair of dots, which is what "no running animation" looks like')
+    // drawBlobButt draws the butt at W = PLAYER.radius * 1.04 and style 3's thigh lobes bottom out
+    // at exactly 1.00 W — so a foot resting ABOVE that is hidden behind the very body it is drawn
+    // behind, in every frame, in both poses.
+    assert.ok(rSrc.includes('PLAYER.radius * 1.04, PLAYER.radius, Math.PI / 2'),
+      "the blob butt's own size changed — BUTT_FEET.rest is measured against it, so re-derive where the thighs bottom out before trusting the next assert")
+    assert.ok(BUTT_FEET.rest > 1.04,
+      'BUTT_FEET.rest sits at or above the butt\'s lowest point — the feet are drawn BEHIND the body, so they never clear it and never appear at all')
+    assert.ok(BUTT_FEET.stride < BUTT_FEET.rest - 1.04 + BUTT_FEET.ry,
+      'the stride swings the trailing foot entirely behind the body — a foot that vanishes reads as a blink, not as a step')
+    for (const [name, needle] of [
+      ['the feet ride the body\'s own hop, so the stride cannot drift against the bounce', 'Math.sin(hop + i * Math.PI)'],
+      ['and only Book 1\'s blob wears them (the fish and the kaiju swap only their HEAD for the butt)', 'if (playerSkin && !playerForm) {'],
+      ['each foot has a white twin, because pFlash wears the BODY silhouette and cannot reach them', 'ff.alpha = pFlash.alpha'],
+    ]) {
+      assert.ok(rSrc.includes(needle),
+        `render.js no longer contains ${JSON.stringify(needle)} — ${name}.`)
+    }
+    // ORDER, not just presence: the stride reads off one foot tucked behind the butt while the
+    // other is in front of it. Added after pBody instead, both feet ride OVER the body and the
+    // tuck — the whole effect — is gone, with nothing thrown and every frame still drawing.
+    const iFeet = rSrc.indexOf('bodyC.addChild(pFeet)')
+    const iBody = rSrc.indexOf('bodyC.addChild(pBody, cheekC')
+    assert.ok(iFeet > 0 && iBody > 0 && iFeet < iBody,
+      'the feet are no longer added to bodyC BEFORE the body — they now draw over the butt instead of tucking under it')
+
+    console.log(`PASS run BP.ag (mastery gate): ${GATE_ID} locked at 0 and 1 mastered chapters, open at ${MASTERY_UNLOCK}, reads .won not .maxDifficulty, counts per BOOK (book1 wins leave undertow locked), leaves the other ${seen.size - 1} lines ungated, and both renderShop and onBuy consult it; the jiggle is a settling spring, clamped to a FRACTION of the butt, with all three layers baked apart and the pivot read per swim phase; the feet stride on the body's own hop, clear the butt's own 1.04-radius reach without swinging behind it, wear a white twin for the hit flash, are added to bodyC BEFORE the body, and are gated to Book 1's blob`)
   }
 
   console.log(`PASS run BP (book progression): ${BOOK_ORDER.length} books, ${seen.size} distinct shop lines, shopCost total over all of them, the unlock gate is the finale not a null check, the grant is monotone, retroactive unlock respects the WIP gate, meta.lightThief copies forward once and never re-fires, endRun's book-finale wiring is present as source text, a rev-2 save round-trips through this build's own loadMeta with both books intact, main.js's purchase hooks + ui.js's call sites route through an explicit book id, formatShopBonus is sign-aware, .shop-rows scales to any book's line count, onBuy validates its id before spending, every BOOK_SHOP/BOOK_UNLOCKS line plus every book name has French, the three Undertow resource lines (deepLungs/slowBurn/bigGulp) move run.chargeMax and both drain/kill-refill clamp sites, the drain rate and the refill rate, darkness/lightRadius/resourceDamageMul/paintCharge all saturate against run.chargeMax instead of the old config max, The Surf's opening balance (EARLY_CALM.surf + archetypeMul.tank) matches the 2026-08-17 owner rulings, ${bkAllChapters.length} chapters all resolve to a book, and no source file reads SHOP directly`)
