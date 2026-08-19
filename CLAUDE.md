@@ -121,14 +121,23 @@ Corollary worth stating, because it is easy to run `npm test` as a ritual: **`sc
 
 ## The hidden dev menu (v7.12) — how to test one specific card
 
-**Seven quick taps on the HUD coin badge**, mid-run, pauses the game and opens a list of *every*
-card the game can produce (190 of them: weapons, passives, weapon mods, elements, anomalies).
+**Seven quick taps on the TITLE WORDMARK** turn DEV on (the pill appears); then **one tap on the
+HUD coin badge**, mid-run, pauses the game and opens a list of *every* card the game can produce
+(190 of them: weapons, passives, weapon mods, elements, anomalies).
 Tapping one adds it to the run; the list rebuilds, so a weapon you just took now reads `Lv 2`.
 Resume closes it. It ships in the production bundle deliberately — the point is to test a card on
 a phone against the live URL, not only on localhost.
 
-- The taps must be within `DEV_TAP_WINDOW_MS` (1s) of each other, so the counter cannot creep up
-  across a run from stray taps.
+- **THE BADGE HAS NO GESTURE OF ITS OWN, AND THAT IS THE POINT.** It used to take its own
+  seven-tap burst, independent of the title's DEV toggle — so the game had TWO dev switches and
+  therefore two different answers to "is this a dev run". The leaderboard was wired to only one of
+  them: `run._devUsed`, set when a dev CARD is taken. A run played with DEV on to reach a WIP
+  chapter submitted to the public board like any other, and did (v7.161.0). One switch now:
+  `meta.dev` gates the card list, and `endRun` (main.js) refuses to submit anything played under
+  it. If you ever give the badge its own gesture back, you have re-created the bug — run LB
+  asserts the gate, so the suite will tell you.
+- The title's seven taps must be within `DEV_TAP_WINDOW_MS` (1s) of each other, so the counter
+  cannot creep up from stray taps.
 - The filter matches title, description **and kind** — type `anomaly` to get the whole slate,
   `mod` for all 134 weapon mods.
 - `devCards(run)` (sim.js) ignores every eligibility rule on purpose: chapter pool, minLevel, an
