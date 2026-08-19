@@ -172,14 +172,27 @@ is "the level board is led by the leveller" Bob   "$(lead level)"
 count() { printf '%s' "$1" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(String(JSON.parse(s)[process.argv[1]].length))}catch{console.log("PARSE_ERROR:"+s.trim())}})' "$2"; }
 is "a timeless submit joins no time board" 0     "$(count "$BOARDS" time)"
 
-is "a kill time is accepted"                200   "$(post "{\"nick\":\"Cid\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":40,\"level\":5,\"timeMs\":242000}" | head -1)"
-is "a faster kill is accepted"              200   "$(post "{\"nick\":\"Dot\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":30,\"level\":4,\"timeMs\":181000}" | head -1)"
+is "a kill time is accepted"                200   "$(post "{\"nick\":\"Cid\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":40,\"level\":5,\"timeMs\":242000,\"starter\":\"realityShard\"}" | head -1)"
+is "a faster kill is accepted"              200   "$(post "{\"nick\":\"Dot\",\"chapter\":\"$CH\",\"difficulty\":3,\"kills\":30,\"level\":4,\"timeMs\":181000,\"starter\":\"chitterShriek\"}" | head -1)"
 # THE ONE ASSERTION THIS BOARD EXISTS FOR, and the one a copy-pasted third query gets wrong: it is
 # the only board in the game that sorts ASC. Dot has FEWER kills and a LOWER level than Cid, so any
 # ordering borrowed from the other two puts Cid on top; shortest-wins puts Dot there.
 TBOARDS=$(sbody GET "$SBASE?chapter=$CH&difficulty=3")
 tlead() { printf '%s' "$TBOARDS" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const b=JSON.parse(s).time;console.log(b.map(r=>r.nick+":"+r.timeMs).join(","))}catch{console.log("PARSE_ERROR:"+s.trim())}})'; }
 is "the time board is led by the fastest"   'Dot:181000,Cid:242000' "$(tlead)"
+
+# THE STARTER COLUMN. Carried, never ranked — so the assertion is that it survives the round trip
+# on the row it was sent with, and that a row sent WITHOUT one comes back null rather than
+# inheriting its neighbour's.
+field3() { printf '%s' "$1" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const b=JSON.parse(s)[process.argv[1]];console.log(b.map(r=>String(r[process.argv[2]])).join(","))}catch{console.log("PARSE_ERROR:"+s.trim())}})' "$2" "$3"; }
+is "the starter rides the row it was sent with" 'chitterShriek,realityShard' "$(field3 "$TBOARDS" time starter)"
+is "and a row sent without one is null"        'null,null'                  "$(field3 "$BOARDS" kills starter)"
+
+# A MALFORMED STARTER DROPS THE FIELD, NOT THE SCORE, and that asymmetry is the point: it is a
+# glyph beside the figure, and 400ing here would spend a real player's run on a cosmetic. The row
+# must still land, still rank, and simply carry no weapon.
+is "a junk starter is still a 200"             200   "$(post "{\"nick\":\"Fay\",\"chapter\":\"$CH\",\"difficulty\":7,\"kills\":7,\"level\":3,\"starter\":\"<script>x\"}" | head -1)"
+is "and the row landed with no weapon on it"   'null' "$(field3 "$(sbody GET "$SBASE?chapter=$CH&difficulty=7")" kills starter)"
 
 # Difficulty is part of the board's identity, not a filter applied afterwards.
 is "another difficulty is a separate board" '{"kills":[],"level":[],"time":[]}' "$(sbody GET "$SBASE?chapter=$CH&difficulty=4")"

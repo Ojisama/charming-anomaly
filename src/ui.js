@@ -735,12 +735,33 @@ export function initUI(hooks) {
   // role="listitem" rather than a real <li>: the rows are a grid and an <ul> would bring list
   // styling and a second box to undo, but a screen reader on a flat run of names and numbers has
   // nothing to tell it where one entry ends and the next begins.
+  //
+  // THE WEAPON RIDES ON THE FIGURE'S LINE, not on one of its own, and that is the layout talking:
+  // the .spread is 324x168 with 0px of scroll headroom above it, so a fourth line per row grows the
+  // panel and eats the bookcase's brass plate (the failure .spread's own comment records). Beside
+  // the score it costs the row nothing — the icon sits on a line that is already there.
+  //
+  // Drawn ONLY when the row carries one, which main.js sends only for a chapter that ROLLS its
+  // starter. So the check here is `r.starter`, not a chapter test: a board where every run began on
+  // the same weapon would otherwise print the same glyph three times and say nothing.
+  // The HUD's own icon for that weapon, deliberately — the chip a player watches for a whole run is
+  // the one thing that can name a weapon here without a word, and this leaf has no room for a word.
+  // The NAME still reaches a screen reader through aria-label, which is the only reader a `title`
+  // tooltip would never serve on the phone this ships to.
+  const podiumWeaponHtml = (id) => {
+    const w = WEAPONS[id]
+    if (!w) return '' // a build that has never heard of this weapon draws nothing, not a '❔'
+    return `<span class="podium-weapon" role="img" aria-label="${esc(t(w.name))}">${w.icon}</span>`
+  }
   const podiumRowHtml = (r, i) => `
     <div class="podium-row${r.nick === meta.nick ? ' podium-row--me' : ''}" role="listitem">
       ${medalHtml(i + 1)}
       <span class="podium-entry">
         <span class="podium-nick">${esc(r.nick)}</span>
-        <b class="podium-score">${r.score}</b>
+        <span class="podium-figure">
+          <b class="podium-score">${r.score}</b>
+          ${r.starter ? podiumWeaponHtml(r.starter) : ''}
+        </span>
       </span>
     </div>`
 

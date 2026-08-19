@@ -2558,6 +2558,11 @@ body {
    three widths, and the figure sits directly under the name it belongs to. */
 .podium-nick { overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-size: 0.78rem; }
 .podium-score { text-align: left; font-size: 0.86rem; font-weight: 900; font-variant-numeric: tabular-nums; }
+/* The figure and, where the chapter rolls one, the weapon that run started on — on ONE line, so a
+   row stays the two lines every measurement of this panel was taken against. baseline, not center:
+   the glyph is smaller than the figure and centring it floats it above the digits' feet. */
+.podium-figure { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.podium-weapon { font-size: 0.78rem; line-height: 1; flex: none; }
 
 /* The one saturated thing on the page, and the only place gold/silver/bronze appear at all — which
    is why every other line here is plain ink on paper. */
