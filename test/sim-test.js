@@ -8284,6 +8284,22 @@ function testChapterRuns() {
     assert.strictEqual(run.weapons[0].level, 2, 'expected charged core to bump the chapter starter to level 2')
   }
 
+  // (b2) The Blank's starter is an ARRAY (config.js), so every run rolls one out of its own pool
+  // instead of always handing over the shard. 60 runs x 23 candidates: seeing 4 or fewer distinct
+  // ids has probability < 1e-20, so the floor only trips on a starter that stopped rolling.
+  {
+    const ids = new Set()
+    for (let i = 0; i < 60; i++) {
+      const run = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+      assert.strictEqual(run.weapons.length, 1, 'expected exactly one starting weapon in The Blank')
+      assert.ok(CHAPTERS.blank.weapons.includes(run.weapons[0].id),
+        `The Blank rolled '${run.weapons[0].id}', which is not in its own weapon pool`)
+      ids.add(run.weapons[0].id)
+    }
+    assert.ok(ids.size >= 5, `expected The Blank's starter to vary across 60 runs, saw ${ids.size} distinct: [${[...ids]}]`)
+    console.log(`PASS run U.b2 (the blank rolls its starter): 60 runs -> ${ids.size} distinct starters, all inside its ${CHAPTERS.blank.weapons.length}-weapon pool`)
+  }
+
   // (c) A pond run's level-up pool never offers other-chapter/vaulted weapons (star=body,
   // boomerang=garden, hole/rainbow still vaulted) as 'weapon' cards — only CHAPTERS.pond.weapons
   // can appear. Sampled generously (500 pools x up to 4 cards) to catch any leak.
