@@ -91,13 +91,22 @@ sstat() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 # A chapter id no build has ever shipped, so an empty answer proves the table can be QUERIED rather
 # than proving some real board happens to be empty.
 is "a board reads 200, so the table exists"  200  "$(sstat "$SB?chapter=zzsmoke&difficulty=3")"
-is "an unknown board is empty, not an error" '{"kills":[],"level":[]}' "$(curl -s "$SB?chapter=zzsmoke&difficulty=3")"
+is "an unknown board is empty, not an error" '{"kills":[],"level":[],"time":[]}' "$(curl -s "$SB?chapter=zzsmoke&difficulty=3")"
 is "and needs no pairing code"                200  "$(sstat "$SB?chapter=zzsmoke&difficulty=1")"
 is "a malformed board is 400"                 400  "$(sstat "$SB?chapter=zzsmoke&difficulty=abc")"
 # A rejected write, to prove validation is live without leaving anything behind.
 is "a short nick is refused"                  400  "$(sstat -X POST -H 'content-type: application/json' \
   -d '{"nick":"Bo","chapter":"zzsmoke","difficulty":3,"kills":1,"level":1}' "$SB")"
-is "and it wrote nothing"                     '{"kills":[],"level":[]}' "$(curl -s "$SB?chapter=zzsmoke&difficulty=3")"
+is "and it wrote nothing"                     '{"kills":[],"level":[],"time":[]}' "$(curl -s "$SB?chapter=zzsmoke&difficulty=3")"
+# The BOSS board, which is the one that needs the deployed database to have been MIGRATED and not
+# merely created: `scores` predates the time_ms column, so a deploy without `npm run db:migrate:remote`
+# leaves every SELECT naming an absent column — and the Worker's own catch turns that into a 500
+# the game reports as "could not reach the podium". The read above already proves it (a 200 with a
+# `time` key cannot come from a table without the column); this rejects a malformed time as well,
+# so the validation added with the column is confirmed live without writing a row.
+is "a zero kill time is refused"               400  "$(sstat -X POST -H 'content-type: application/json' \
+  -d '{"nick":"Smoke","chapter":"zzsmoke","difficulty":3,"kills":1,"level":1,"timeMs":0}' "$SB")"
+is "and it wrote nothing either"               '{"kills":[],"level":[],"time":[]}' "$(curl -s "$SB?chapter=zzsmoke&difficulty=3")"
 # The save contract, after all of that: the two features share one Worker and one database, and this
 # is the assertion that says so out loud.
 is "save-sync is untouched by the above"      404  "$(status GET -H "$BAUTH")"
