@@ -2423,58 +2423,115 @@ body {
 
 
 /* ---- leaderboard (v7.x) -----------------------------------------------------------------------
-   The podium is the BACK PAGE of the pre-run brief, and the two faces SWAP rather than co-exist:
-   one panel is in the DOM at a time, so neither has to know the other's height (the front grows
-   with the anomaly list, the back with how many people have played). The page-turn is therefore
-   carried entirely by an animation on whichever face is ARRIVING, hinged at the left like a spine.
-   It fires exactly once per turn because both faces carry data-pop keys, and setHtml's .no-pop
-   suppresses the replay on an ordinary re-render (a reroll, a late board arriving). */
-.brief-page--turn {
-  transform-origin: left center;
-  animation: page-turn 0.34s cubic-bezier(0.22, 0.75, 0.25, 1) backwards;
+   The podium is a PAGE OF THE LEVEL PREVIEW — the open-book spread under the bookcase, turned to.
+   Both leaves swap together, one board each, so the spread keeps the height it already had: it is
+   324x168 and the bookcase above holds 0px of scroll headroom, so growth here squeezes the shelf
+   (the .spread comment records 33px of overflow once eating the second shelf's brass plate).
+   The turn is one animation on the spread, hinged at its own gutter rather than at an edge —
+   the fold is at the centre, so that is where a real page pivots. */
+.spread--turn {
+  transform-origin: center center;
+  animation: page-turn 0.4s cubic-bezier(0.22, 0.75, 0.25, 1) backwards;
 }
-.brief-page--front { --turn-from: -74deg; }
-.brief-page--back { --turn-from: 74deg; }
 @keyframes page-turn {
-  from { transform: perspective(1100px) rotateY(var(--turn-from)); opacity: 0; }
-  to { transform: perspective(1100px) rotateY(0); opacity: 1; }
+  from { transform: perspective(1200px) rotateY(-62deg); opacity: 0; }
+  to { transform: perspective(1200px) rotateY(0); opacity: 1; }
 }
 
-/* Rides .settings-slots (icon + label + a muted right-hand note), which is already the shape of
-   every secondary row in this game. Only the width is new: on the brief it spans the panel, so it
-   reads as a page edge to turn rather than as one more button in a row of them. */
-.brief-podium { width: 100%; }
-.brief-podium .rr-ico { flex: none; }
-.podium-whose { margin: -2px 0 0; text-align: center; }
+/* The CTA, in the recto's measured slack under the pips. Sized against that slack (56px) rather
+   than against .btn's 48px floor: it is a page turn inside a panel, not a primary action, and the
+   Play button 40px below is what the eye should still land on first. */
+.spread-podium {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  margin-top: 2px;
+  padding: 5px 8px;
+  border: 2px solid var(--cream-edge);
+  border-radius: 999px;
+  background: var(--cream-soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.spread-podium .rr-ico { width: 16px; height: 16px; flex: none; }
+.spread-podium i { font-style: normal; color: var(--ink-soft); }
+.spread-podium:active { transform: translateY(1px); }
 
-/* One row renderer for both boards. The grid is rank / name / number, so a long nickname takes the
-   slack and the number never moves — two podiums stacked read as one column of figures. */
-.podium-rows { display: flex; flex-direction: column; }
+/* The way back, and the only thing on a turned spread that says WHICH board you are reading — the
+   pips are on a leaf currently showing scores. It takes the foot line the ladder hint normally
+   has, so it costs no height of its own. */
+.podium-foot {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 2px 0 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  text-align: center;
+  cursor: pointer;
+}
+.podium-foot b { color: var(--ink); }
+.podium-foot:active { opacity: 0.6; }
+
+/* A board leaf. justify-content:flex-start undoes .page--recto's centring, so both boards start at
+   the top of their page and the two eyebrows line up across the gutter. */
+/* min-height is what stops the panel JUMPING when the page turns. A board leaf's natural height is
+   its content's, so "no scores yet" collapsed the spread to ~110px against the closed panel's 168 —
+   the whole thing snapped shorter on the turn and back on the way out. 146 + this page's 22px of
+   padding lands on ~168, which is what the closed spread measures (its height is set by the verso:
+   icon, name, tagline, cast, record). Populated, loading, empty and offline all hold that now. */
+.page--board { justify-content: flex-start; gap: 4px; padding-top: 9px; min-height: 146px; }
+/* Nothing to rank: one page across both leaves rather than a message on the left and a blank right,
+   which reads as half the panel having failed to load. */
+.page--solo { flex: 1 1 100%; align-items: center; justify-content: center; }
+/* nowrap and a tighter track than .brief-eyebrow's 0.1em: the widest label this has to hold is the
+   French "NIVEAU ATTEINT", 14 characters in 142px, and at the shared tracking it wraps — which
+   pushes one board's rows below the other's and makes the spread taller than the closed panel. */
+.podium-eyebrow { width: 100%; margin: 0; letter-spacing: 0.04em; white-space: nowrap; }
+
+/* One row renderer for both boards: a rank disc, then the name STACKED OVER the score.
+   The stack is what makes one board fit half a spread. A leaf is 162px wide and 142px of that is
+   content; a disc, a nickname and a figure on ONE line leaves about 80px for the name, which cuts
+   every nickname past ~11 characters — and the cap is 15. Stacked, the name gets the full 142px
+   and 15 characters fit with room over, while the row still costs only ~34px of a 168px page. */
+.podium-rows { display: flex; flex-direction: column; width: 100%; }
 .podium-row {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 10px;
-  padding: 7px 2px;
+  gap: 6px;
+  padding: 4px 1px;
   border-bottom: 2px dashed #e0d6c4; /* the summary's .stat-row separator — same kind of list */
   font-weight: 700;
 }
 .podium-row:last-child { border-bottom: none; }
-/* Both of these undo the centring .modal sets on the whole panel. Left for the names so three of
-   them read as a scannable column rather than three things floating at three widths, right for the
-   figures so 1200 sits under 90 by its last digit — which is what tabular-nums is FOR and what
-   centring quietly cancels. */
-.podium-nick { overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.podium-score { text-align: right; font-weight: 900; font-variant-numeric: tabular-nums; }
+.podium-entry { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+/* Left, both of them: three names read as a scannable column rather than three things floating at
+   three widths, and the figure sits directly under the name it belongs to. */
+.podium-nick { overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-size: 0.78rem; }
+.podium-score { text-align: left; font-size: 0.86rem; font-weight: 900; font-variant-numeric: tabular-nums; }
 
 /* The one saturated thing on the page. Rank 1 is a filled gold disc and 2/3 are empty cream ones —
    the whole hierarchy of a podium in the single element that has to carry it, which is why every
    other row here is a plain line of text. */
+/* 22px, not 26: the disc and the gap are the only things competing with the nickname for a leaf's
+   width, and at 320px — the narrowest this game is judged at — 26px was the ~5px that pushed a
+   full 15-character name into an ellipsis. It still clears the 3-row column it has to anchor. */
 .podium-rank {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   border: 3px solid var(--cream-edge);
   border-radius: 999px;
   background: var(--cream-soft);
@@ -2561,7 +2618,7 @@ body {
 .rank-chip .rr-ico { width: 13px; height: 13px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .brief-page--turn, .podium-bone, .rank-chip { animation: none; }
+  .spread--turn, .podium-bone, .rank-chip { animation: none; }
 }
 
 /* ---- no-pop: the entrance-animation kill switch (v7.10) ----

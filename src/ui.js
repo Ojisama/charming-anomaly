@@ -605,6 +605,128 @@ export function initUI(hooks) {
     return { coins: bm.coins, pct: bookProgress(bm, bookId).pct }
   }
 
+  // ---- the podium: the level preview's other page ---------------------------------------------
+  // The leaderboard lives on the TITLE's open-book spread, turned to like a page. That panel is the
+  // level preview — it names the chapter, its cast, your record, and it is where the difficulty is
+  // chosen — so it is the one place where "what is a good score here?" is already the question
+  // being asked. It shipped on the pre-run brief first, one screen further in, and the owner could
+  // not find it; his own words were "a podium icon on the preview of the level, that should turn
+  // the page of the preview", and the brief has no pages while this thing is literally a book.
+  //
+  // ONE BOARD PER PAGE (owner's pick): kills on the verso, level reached on the recto. That is what
+  // keeps the panel's height EXACTLY as it is — measured, and the reason it matters: .spread is
+  // 324x168 with the bookcase above it holding 0px of scroll headroom, so any growth here squeezes
+  // the shelf, which is the failure the .spread comment already records (33px of overflow once ate
+  // the second shelf's brass plate).
+  //
+  // ui.js fetches this itself instead of going through a main.js hook, which is the seam every
+  // other cross-module fact uses. The line: hooks exist for things main.js OWNS — the run, meta
+  // writes, spending coins. A read-only board belongs to nobody, needs no game state, and routing
+  // it through main.js would add a hook, a callback and a re-render trigger to move data that has
+  // exactly one consumer, the screen it is drawn on.
+  let podiumOpen = false
+  let podiumState = null   // null = loading, 'error', or { kills: [...], level: [...] }
+  let podiumReq = 0        // monotonic; only the newest request may paint (see loadPodium)
+  // ONE-SHOT: true only for the render a page-turn causes. It cannot live on the spread
+  // unconditionally, because updateTitleBelow runs for a dozen unrelated reasons — every difficulty
+  // pip, every board arriving — and each would spin the whole panel. Set by the two turn actions,
+  // consumed by the next render.
+  let podiumTurn = false
+
+  // No cache. Turning to the podium always re-reads, because a board that has not moved costs one
+  // small request and a board that HAS moved is the entire point of turning to it.
+  function loadPodium(chapterId, difficulty) {
+    const mine = ++podiumReq
+    podiumState = null
+    fetchBoards(chapterId, difficulty).then((boards) => {
+      // Late answers must not paint over what the player is looking at — two turns in a row is
+      // enough to race this. A monotonic token rather than the board's key, because the key cannot
+      // separate two in-flight requests for the SAME board: turn, turn back, turn again to the same
+      // chapter and difficulty while the first is still out, and both pass a key comparison — so if
+      // the first settles last and failed, an already-painted board flips to the error state.
+      if (podiumReq !== mine) return
+      podiumState = boards ?? 'error'
+      if (active === 'title' && podiumOpen) updateTitleBelow()
+    })
+  }
+
+  // STACKED, name over score, and that is the whole reason one board fits a half-page. A spread
+  // page is 162px wide and 142px of it is content: a rank disc, a nickname and a score on ONE line
+  // leaves about 80px for the name, which truncates every nickname past ~11 characters — and the
+  // cap is 15. Stacked, the name gets the full width and 15 characters fit with room over.
+  // role="listitem" rather than a real <li>: the rows are a grid and an <ul> would bring list
+  // styling and a second box to undo, but a screen reader on a flat run of names and numbers has
+  // nothing to tell it where one entry ends and the next begins.
+  const podiumRowHtml = (r, i) => `
+    <div class="podium-row${r.nick === meta.nick ? ' podium-row--me' : ''}" role="listitem">
+      <span class="podium-rank podium-rank--${i + 1}">${i + 1}</span>
+      <span class="podium-entry">
+        <span class="podium-nick">${esc(r.nick)}</span>
+        <b class="podium-score">${r.score}</b>
+      </span>
+    </div>`
+
+  // Three dashed placeholders rather than a spinner: the row count is known before the data is, so
+  // the page holds its own shape and only the numbers arrive.
+  // aria-hidden: the placeholder carries no information, and a screen reader announcing an
+  // unlabelled three-item list while the real one is still loading is worse than silence.
+  const podiumSkeleton = () =>
+    '<div class="podium-rows" aria-hidden="true">' + [0, 1, 2].map((i) => `
+      <div class="podium-row podium-row--wait">
+        <span class="podium-rank podium-rank--${i + 1}">${i + 1}</span>
+        <span class="podium-bone"></span>
+      </div>`).join('') + '</div>'
+
+  // The empty branch sits OUTSIDE role="list": a <p> inside one is an ARIA violation.
+  const podiumBoardHtml = (rows) => (rows.length
+    ? `<div class="podium-rows" role="list">${rows.map(podiumRowHtml).join('')}</div>`
+    : `<p class="diff-hint podium-empty">${t('No scores yet — be the first.')}</p>`)
+
+  // The whole inside of a turned spread. A state with nothing to rank — no scores yet, or no
+  // network — gets ONE page across both leaves rather than a message on the verso and a blank
+  // recto, which read as half the panel having failed to load.
+  function podiumSpreadHtml() {
+    if (podiumState === 'error') {
+      // A BUTTON, not a caption. The failure is almost always transient (a phone between cells), the
+      // fetch has an 8s timeout and there is no cache, so "turn back, turn again, wait again" was
+      // the whole recovery path for a tap that just needed repeating.
+      return `<div class="page page--board page--solo">
+        <button class="btn btn--soft btn--small podium-retry" data-act="podium-open">${
+          t('Could not reach the podium. Tap to try again.')}</button>
+      </div>`
+    }
+    // Nobody has played this board at all — which on launch day is every board in the game. The two
+    // boards are populated by the same runs, so an untouched chapter can only ever be empty on both.
+    if (podiumState && !podiumState.kills.length && !podiumState.level.length) {
+      return `<div class="page page--board page--solo">
+        <p class="diff-hint podium-empty">${t('No scores yet — be the first.')}</p>
+      </div>`
+    }
+    return `
+      <div class="page page--verso page--board">${podiumPageHtml('kills')}</div>
+      <div class="page page--recto page--board">${podiumPageHtml('level')}</div>`
+  }
+
+  // ONE leaf of the turned spread: the metric's name, then its three rows.
+  function podiumPageHtml(which) {
+    // NO "top 3" CHIP HERE, and it is the layout that decided that rather than taste. The chip was
+    // added when the boards were stacked full-screen, where three rows could read as a whole list.
+    // On a spread leaf the label has 142px: "NIVEAU ATTEINT" plus the chip is 147px, so French
+    // wrapped the eyebrow to two lines — which pushed the recto's rows down, broke the alignment of
+    // the two boards across the gutter, and grew the panel the whole layout was chosen to preserve.
+    // The form now answers the question the chip did: two side-by-side ranked lists of exactly
+    // three, reached from a control that says Podium.
+    const label = which === 'kills' ? 'Kills' : 'Level reached'
+    const eyebrow = `<div class="brief-eyebrow podium-eyebrow">${t(label)}</div>`
+    if (podiumState === null) return `${eyebrow}${podiumSkeleton()}`
+    // Each board is scored by its OWN metric. Passing rows through with a `score` field rather than
+    // teaching podiumRowHtml which board it is drawing keeps one row renderer for both.
+    const rows = which === 'kills'
+      ? podiumState.kills.map((r) => ({ ...r, score: r.kills }))
+      : podiumState.level.map((r) => ({ ...r, score: r.level }))
+    return `${eyebrow}${podiumBoardHtml(rows)}`
+  }
+
   function titleBelowHtml() {
     const heroUnlocked = chapterAvailable(meta, browseChapterId)
     const chMeta = meta.chapters?.[browseChapterId] ?? { maxDifficulty: 1, difficulty: 1 }
@@ -630,6 +752,17 @@ export function initUI(hooks) {
         }).join('')}
       </div>
       ${mutatorLine}
+      <!-- IN THE RECTO'S OWN SLACK, which is why it costs the panel nothing. Measured on the live
+           build: the spread is 324x168, and this page's content (label + pips) uses 112 of its 168,
+           so 56px sit empty under the pips while the VERSO — icon, name, tagline, cast, record —
+           sets the height. A row on the foot line instead would push the panel, and the bookcase
+           above has 0px of scroll headroom (the .spread comment records 33px of overflow once
+           eating the second shelf's brass plate).
+           It also belongs beside the pips on meaning, not just on space: a board is scoped to ONE
+           difficulty, and this is where difficulty is chosen. -->
+      <button class="spread-podium" data-act="podium-open">
+        ${ICO_PODIUM}<span>${t('Podium')}</span><i>→</i>
+      </button>
       ` : ''
     // Across the FOOT of the spread, not on the recto: at half width this sentence wraps to two
     // lines in both languages, and those two lines were most of why the panel still pushed the
@@ -647,8 +780,40 @@ export function initUI(hooks) {
     // spends, and the meter fills for this book alone. That is also why the header no longer shows
     // a coin badge — one balance, on the door it belongs to, instead of the same number twice.
     const { coins, pct } = shopDoor(shopBookId())
+    // TURNED: the same two leaves, carrying one board each. The spread keeps its height because the
+    // pages keep their count — that is the whole reason this layout was chosen over stacking both
+    // boards on one wide page (owner's pick), and it is what leaves the bookcase above untouched.
+    // The foot line, which normally carries the ladder hint, becomes the way back and the only
+    // thing that says WHICH board you are reading: the pips are on the leaf now showing scores.
+    const turn = podiumTurn ? ' spread--turn' : ''
+    podiumTurn = false
+    if (podiumOpen) {
+      return `
+        <div class="spread${turn}">${podiumSpreadHtml()}</div>
+        <!-- WHOSE and WHICH DIFFICULTY, because those are the two facts a turned leaf cannot imply.
+             The chapter is not repeated: the bookcase directly above has this volume ringed,
+             ribboned and open, so it is the one piece of context the page gets for free — and the
+             full sentence this replaces ("The best runs by everyone playing.") does not fit a foot
+             line that also has to be the way back. Without it, three unfamiliar names arriving
+             where the verso's own "record 05:00" used to be read as a personal-best list that has
+             gone wrong.
+             NO BACKTICKS IN HERE. This comment is inside a template literal, so one would close it
+             and the next word becomes code — which is exactly how it shipped a blank page for a
+             minute, with node --check clean because the check ran before the comment was added. -->
+        <button class="diff-hint podium-foot" data-act="podium-close">
+          ←&nbsp; ${tt('all players · difficulty {n}', { n: chMeta.difficulty })}
+        </button>
+        <div class="volume-acts">
+          <button class="btn btn--big btn--play" data-act="play" ${heroUnlocked ? '' : 'disabled'}>▶&nbsp; ${t('Play')}</button>
+          <button class="btn btn--shop" data-act="shop" style="--shop-pct:${pct}%" aria-label="${t('Shop')}">
+            <span class="shop-btn-label">🛒&nbsp; ${t('Shop')}</span>
+            <small class="shop-btn-purse">🪙 ${coins}</small>
+            <span class="shop-btn-meter"><i></i><b>${pct}%</b></span>
+          </button>
+        </div>`
+    }
     return `
-      <div class="spread">
+      <div class="spread${turn}">
         <div class="page page--verso">${detailHeadHtml()}</div>
         <div class="page page--recto">${playBlock}</div>
       </div>
@@ -2007,132 +2172,6 @@ export function initUI(hooks) {
       </div>`
   }
 
-  // ---- the brief's back page: the podium ------------------------------------------------------
-  // The leaderboard lives on the back of the pre-run brief rather than on a screen of its own,
-  // because the question it answers ("what is a good score here?") is only ever asked while
-  // looking at a chapter and a difficulty — which is exactly what the brief already holds. It is
-  // one board pair per (chapter, difficulty): the front page's difficulty is the back page's
-  // subject, so changing the level changes what you are reading.
-  //
-  // ui.js fetches this itself instead of going through a main.js hook, which is the seam every
-  // other cross-module fact uses. The line: hooks exist for things main.js OWNS — the run, meta
-  // writes, spending coins. A read-only board belongs to nobody, needs no game state, and routing
-  // it through main.js would add a hook, a callback and a re-render trigger to move data that has
-  // exactly one consumer, the screen it is drawn on.
-  let podiumOpen = false
-  let podiumState = null   // null = loading, 'error', or { kills: [...], level: [...] }
-  let podiumReq = 0        // monotonic; only the newest request may paint (see loadPodium)
-  // ONE-SHOT: true only for the render that a flip causes. The page-turn cannot be left on the
-  // faces unconditionally, because renderBrief runs for a dozen unrelated reasons — a booster tap,
-  // the booster sheet, an anomaly reroll, the board arriving — and every one of them would spin the
-  // whole panel. Relying on setHtml's .no-pop to suppress those is not enough either: it would also
-  // replace the brief's ordinary pop-in entrance with a page-turn on the way IN from Play, which is
-  // a look change to a screen this feature was not asked to touch. Set by the two flip actions,
-  // consumed by the next render.
-  let briefTurn = false
-
-  // No cache. Opening the podium always re-reads, because a board that has not moved costs one
-  // small request and a board that HAS moved is the entire point of opening it.
-  function loadPodium(chapterId, difficulty) {
-    const mine = ++podiumReq
-    podiumState = null
-    fetchBoards(chapterId, difficulty).then((boards) => {
-      // Late answers must not paint over what the player is looking at — two flips in a row is
-      // enough to race this. A monotonic token rather than the board's key, because the key cannot
-      // separate two in-flight requests for the SAME board: open, close, reopen the same chapter
-      // and difficulty while the first is still out, and both pass a key comparison — so if the
-      // first settles last and failed, an already-painted board flips to the error state.
-      if (podiumReq !== mine) return
-      podiumState = boards ?? 'error'
-      if (active === 'brief' && podiumOpen) renderBrief(lastBriefData ?? {})
-    })
-  }
-
-  // Rank numeral in a disc. The craft rule against decorative 01/02/03 numbering does not apply
-  // here: on a podium the number IS the information, and it is the only thing the eye needs.
-  // role="listitem" rather than a real <li>: the rows are a grid and an <ul> would bring list
-  // styling and a second box to undo, but a screen reader on a flat run of names and numbers has
-  // nothing to tell it where one entry ends and the next begins.
-  const podiumRowHtml = (r, i) => `
-    <div class="podium-row${r.nick === meta.nick ? ' podium-row--me' : ''}" role="listitem">
-      <span class="podium-rank podium-rank--${i + 1}">${i + 1}</span>
-      <span class="podium-nick">${esc(r.nick)}</span>
-      <b class="podium-score">${r.score}</b>
-    </div>`
-
-  // Three dashed placeholders rather than a spinner: the row count is known before the data is, so
-  // the page can hold its own shape and only the numbers arrive.
-  // aria-hidden: the placeholder carries no information, and a screen reader announcing an
-  // unlabelled three-item list while the real one is still loading is worse than silence.
-  const podiumSkeleton = () =>
-    '<div class="podium-rows" aria-hidden="true">' + [0, 1, 2].map((i) => `
-      <div class="podium-row podium-row--wait">
-        <span class="podium-rank podium-rank--${i + 1}">${i + 1}</span>
-        <span class="podium-bone"></span>
-      </div>`).join('') + '</div>'
-
-  // The empty branch sits OUTSIDE role="list": a <p> inside one is an ARIA violation, and while it
-  // is unreachable today (both boards are fed by the same rows, so podiumBodyHtml's both-empty gate
-  // always catches it first) an unreachable wrong thing is still the wrong thing to leave for
-  // whoever makes it reachable.
-  const podiumBoardHtml = (rows) => (rows.length
-    ? `<div class="podium-rows" role="list">${rows.map(podiumRowHtml).join('')}</div>`
-    : `<p class="brief-note podium-empty">${t('No scores yet — be the first.')}</p>`)
-
-  function podiumBodyHtml() {
-    // A BUTTON, not a caption. The failure is almost always transient (a phone between cells), the
-    // fetch has an 8s timeout, and there is no cache — so "go back, turn the page again, wait
-    // again" was the entire recovery path for a tap that just needed repeating. It reuses
-    // podium-open, which is already exactly "load this board".
-    if (podiumState === 'error') {
-      return `<button class="btn btn--soft btn--small podium-retry" data-act="podium-open">${
-        t('Could not reach the podium. Tap to try again.')}</button>`
-    }
-    // The <i> slot the anomaly section already uses for its reroll price. It answers the question a
-    // three-row list always raises — is that everyone, or the top of a longer list? — in the place
-    // the eye is already reading, and costs no line of its own.
-    const eyebrow = (txt) => `<div class="brief-eyebrow">${t(txt)}<i>${t('top 3')}</i></div>`
-    if (podiumState === null) {
-      return `${eyebrow('Kills')}${podiumSkeleton()}${eyebrow('Level reached')}${podiumSkeleton()}`
-    }
-    // Nobody has played this board at all. Said ONCE, with no section headings above it: the two
-    // boards are populated by the same runs, so an untouched chapter can only ever be empty on
-    // both — and printing the same sentence twice under two headings reads as the page having
-    // failed twice rather than as there being nothing here yet.
-    if (!podiumState.kills.length && !podiumState.level.length) {
-      return `<p class="brief-note podium-empty">${t('No scores yet — be the first.')}</p>`
-    }
-    // Each board is scored by its OWN metric. Passing the rows through with a `score` field rather
-    // than teaching podiumRowHtml which board it is drawing keeps one row renderer for both.
-    const byKills = podiumState.kills.map((r) => ({ ...r, score: r.kills }))
-    const byLevel = podiumState.level.map((r) => ({ ...r, score: r.level }))
-    return `${eyebrow('Kills')}${podiumBoardHtml(byKills)}${eyebrow('Level reached')}${podiumBoardHtml(byLevel)}`
-  }
-
-  function renderPodiumPage(d, chapter) {
-    // SAME HEADING AS THE FRONT PAGE, and the pill says which side you are on. Titling this page
-    // "Podium" put the one word that is identical on all 73 boards at 1.4rem, and demoted the only
-    // thing that identifies WHICH board into a 0.68rem pill — which then had to carry three times
-    // the text it was built for, and wraps in French ("LES SOUS-BOIS · DIFFICULTÉ 3"). Swapping
-    // them fixes the hierarchy and the overflow at once, and makes the two faces read as one card
-    // rather than as two screens.
-    return `
-      <div class="modal brief-panel brief brief-page--back${briefTurn ? ' brief-page--turn' : ''}" data-pop="podium">
-        <div class="brief-head">
-          <button class="pill-btn" data-act="podium-close" aria-label="${t('Back')}">←</button>
-          <div class="brief-headtext">
-            <h2 class="brief-title">${chapter.icon} ${t(chapter.name)}</h2>
-            <div class="brief-diff">${t('Podium')} · ${t('difficulty')} <b>${d.difficulty ?? 1}</b></div>
-          </div>
-        </div>
-        <!-- Whose scores these are. Without it the page is indistinguishable from a personal-best
-             screen, which this game already has (meta.chapters[id].best), and a player seeing two
-             names they do not recognise would read it as a bug rather than as the point. -->
-        <p class="brief-note podium-whose">${t('The best runs by everyone playing.')}</p>
-        ${podiumBodyHtml()}
-      </div>`
-  }
-
   function renderBrief(d) {
     lastBriefData = d
     const chapter = CHAPTERS[d.chapterId] ?? CHAPTERS.body
@@ -2145,15 +2184,8 @@ export function initUI(hooks) {
     const ids = d.mutators ?? []
     const reroll = d.reroll && ids.length ? { afford: briefBm.coins >= ANOMALY_REROLL_COST } : null
     const eyebrow = (txt, note) => `<div class="brief-eyebrow">${t(txt)}${note ? `<i>${note}</i>` : ''}</div>`
-    // The back page replaces the front rather than sitting behind it. Two faces in one 3D card
-    // would have to agree on a height, and these two never do — the front grows with the anomaly
-    // list, the back with how many people have played. The page-turn is carried by an animation on
-    // whichever face is arriving (styles.css), keyed off data-pop, so no measurement is involved.
-    if (podiumOpen) { setHtml(screens.brief, renderPodiumPage(d, chapter)); briefTurn = false; return }
-    const turn = briefTurn ? ' brief-page--turn' : ''
-    briefTurn = false
     setHtml(screens.brief, `
-      <div class="modal brief-panel brief brief-page--front${turn}" data-pop="brief">
+      <div class="modal brief-panel brief" data-pop="brief">
         <div class="brief-head">
           <!-- Backing out of the brief used to be a tap on the bottom nav's Battle tab. With the
                nav gone this button is the ONLY way back, and nothing is spent yet either way. -->
@@ -2164,15 +2196,6 @@ export function initUI(hooks) {
           </div>
           <div class="coins-badge">🪙 <b>${briefBm.coins}</b></div>
         </div>
-        <!-- A LABELLED ROW, NOT A FOURTH HEADER BUTTON. It was an icon in the head, and a control
-             photographed next to the shipped one showed why that could not stay: a fourth child
-             squeezed .brief-headtext until "The Pond" wrapped onto two lines, on the shortest
-             chapter name in the game. The row costs 48px of a screen that has room and buys the
-             thing an icon in a corner never had — a player can tell what it opens without
-             pressing it. -->
-        <button class="btn btn--soft btn--small settings-slots brief-podium" data-act="podium-open">
-          ${ICO_PODIUM} ${t('Podium')} <i>→</i>
-        </button>
         ${ids.length ? `
           ${eyebrow('Anomalies', reroll ? tt('reroll {n}', { n: ANOMALY_REROLL_COST }) : '')}
           <div class="brief-anoms">${ids.map((id, i) => briefAnomHtml(id, i, reroll)).join('')}</div>
@@ -2634,11 +2657,11 @@ export function initUI(hooks) {
     // rather than on `active` is what draws that line: a toggle re-render goes straight to
     // renderSummary and never reaches showScreen.
     if (name !== 'summary') dmgOpen = false
-    // The brief always opens on its FRONT page. Here rather than in switchTab because the brief is
-    // left three ways — Back, Start, and a run ending onto the summary — and only this one is on
-    // every path. Landing on the podium when you pressed Play would be a screen nobody asked for,
-    // and the Start button is not on that face.
-    if (name !== 'brief') podiumOpen = false
+    // The level preview always opens on its FRONT page. Here rather than in switchTab because the
+    // title is left several ways — Play, Shop, the Codex — and only this is on every path. Coming
+    // back from a run to a panel showing scores instead of the chapter you were about to replay is
+    // a screen nobody asked for, and the difficulty pips are not on that leaf.
+    if (name !== 'title') podiumOpen = false
     if (name === 'title') renderTitle()
     else if (name === 'shop') renderShop()
     else if (name === 'brief') renderBrief(data ?? {})
@@ -2791,6 +2814,9 @@ export function initUI(hooks) {
       const id = el.dataset.vol
       if (id === browseChapterId) return
       browseChapterId = id
+      // Back to the preview's front face: a different volume asks "what is this chapter?", and a
+      // podium left open answers with another chapter's scores.
+      podiumOpen = false
       // Unlocked + a real change persists via onChapter (which plays 'click' itself); a locked
       // volume only browses, so click here instead. Then re-render the whole title: the shelf has
       // to redraw to move the selection ring and the ribbon.
@@ -2976,21 +3002,24 @@ export function initUI(hooks) {
         renderTitle()
         break
       }
-      // ---- the brief's podium page ----
+      // ---- the level preview's podium page ----
+      // updateTitleBelow, not renderTitle: only the panel under the bookcase changes, and rebuilding
+      // the shelf would throw away its scroll offset — the same reason the difficulty pips use the
+      // surgical path.
       // Also the RETRY: the error state re-uses this action, so a failed board is one tap from
-      // another attempt instead of two taps and a flip.
+      // another attempt rather than two taps and two turns.
       case 'podium-open':
-        briefTurn = !podiumOpen // a retry redraws the page it is already on; it must not re-turn it
+        podiumTurn = !podiumOpen // a retry redraws the page it is already on; it must not re-turn it
         podiumOpen = true
-        loadPodium(lastBriefData?.chapterId ?? meta.chapter, lastBriefData?.difficulty ?? 1)
+        loadPodium(browseChapterId, meta.chapters?.[browseChapterId]?.difficulty ?? 1)
         playSfx('click')
-        renderBrief(lastBriefData ?? {})
+        updateTitleBelow()
         break
       case 'podium-close':
-        briefTurn = true
+        podiumTurn = true
         podiumOpen = false
         playSfx('click')
-        renderBrief(lastBriefData ?? {})
+        updateTitleBelow()
         break
       case 'brief-start': {
         // The booster picks are made on THIS screen (v6.7), so Start is what hands them over —
