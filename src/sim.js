@@ -3177,24 +3177,29 @@ function stepCurrents(run, dt) {
 // number rather than two that can drift apart. {fx:0, fy:0} for any chapter that is not the tide,
 // so a caller needs no chapter branch of its own.
 export function tideForce(run) {
-  const sig = CHAPTERS[run.chapter].signature
-  if (!sig || sig.type !== 'tide') return { fx: 0, fy: 0 }
-  const s = Math.sin((run._realTime / sig.period) * Math.PI * 2)
+  const tide = CHAPTERS[run.chapter].tide
+  if (!tide) return { fx: 0, fy: 0 }
+  const s = Math.sin((run._realTime / tide.period) * Math.PI * 2)
   // Spring Tide turns the whole field up (tideSurgeMul), the same way Riptide does the pond's.
   // Applied HERE and nowhere else: stepTide and render.js both read this function, so one multiply
   // keeps "the water moved me" and "the water is moving" the same number under the mutator too.
-  const surge = sig.surge * run.mods.tideSurgeMul
-  return { fx: Math.cos(sig.axis) * surge * s, fy: Math.sin(sig.axis) * surge * s }
+  const surge = tide.surge * run.mods.tideSurgeMul
+  return { fx: Math.cos(tide.axis) * surge * s, fy: Math.sin(tide.axis) * surge * s }
 }
 
 export function stepTide(run, dt) {
-  const sig = CHAPTERS[run.chapter].signature
-  if (!sig || sig.type !== 'tide') return
+  if (!CHAPTERS[run.chapter].tide) return
   const { fx: sx, fy: sy } = tideForce(run)
   const fx = sx * dt
   const fy = sy * dt
+  // The PLAYER's share only (BOOK_SHOP.undertow.currentResist, "Current Resistance"). The crowd
+  // below keeps the full push on purpose: water that shoves only the player is a control tax, and
+  // the crowd drifting with you is the tell that the water did it. A player who has bought the line
+  // holds their line through a surge the swarm is still riding — which is the fantasy, and it is
+  // also why this multiply is here and not inside tideForce, where render.js would read it and the
+  // streaks would slow down to match a purchase nobody made to the water.
   const p = run.player
-  p.x += fx; p.y += fy
+  p.x += fx * run.currentResistMul; p.y += fy * run.currentResistMul
   for (const e of run.enemies) {
     if (e._dead) continue
     e.x += fx; e.y += fy

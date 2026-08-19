@@ -332,6 +332,8 @@ const UI = {
   'infusion card chance': 'chance de carte d\'infusion',
   'pickup magnet': 'aimant à butin',
   'current push': 'poussée du courant',
+  'Current Resistance': 'Résistance au courant',
+  '-8% current push': '-8 % de poussée du courant',
   'pheromone life': 'durée des phéromones',
   'trap count': 'nombre de pièges',
   'time between cars': 'délai entre voitures',

@@ -10,7 +10,7 @@ import { validNick, podiumRank, NICK_MIN, NICK_MAX } from '../src/scores.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 import {
-  SHOP, shopCost, MAX_SHOP_LEVEL, lineMax, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
+  SHOP, shopCost, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
   PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
   REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
@@ -6792,6 +6792,16 @@ function runPrey() {
   const mk = (seed = 20260817) => {
     Math.random = mulberry32(seed)
     const run = createRun(wkMeta(), { chapter: 'wreck', difficulty: 1 })
+    // THE WATER OFF, for the whole scenario. Since v7.x the tide runs in every Undertow chapter but
+    // The Reef rather than in The Surf alone (run TD owns that contract), so The Wreck drifts the
+    // player AND the crowd up to ~100px on its own — and every block below reasons about where
+    // things ARE:
+    // PY.g asks whether a weapon moved them, PY.l whether a pool landed at their feet. Left on, it
+    // reported all 38 weapons breaking the golden rule and 82 of 85 pools landing away from the
+    // feet, i.e. it accused the arsenal of what the ambient mover did. tideSurgeMul 0 is the shipped
+    // knob for the whole field, which is what the crowd needs too — stepTide pushes the ENEMIES by
+    // the full vector whatever the player bought, so a player-only knob still drifts a pinned body.
+    run.mods.tideSurgeMul = 0
     run.weapons = []
     run.player.maxHP = run.player.hp = 1e9
     run.enemies.length = 0
@@ -6932,6 +6942,9 @@ function runPrey() {
   // three are all things done TO you — the Blank's yank, the tide, an abduction beam. None is a
   // weapon. The one sanctioned exception is the BUTTON, which is PY.k's subject and is why this
   // block equips weapons only and sends no press.
+  //
+  // The chapter's own tide is switched off in mk() — see the note there; without it this block
+  // accuses all 38 weapons of what the water did.
   {
     const ids = Object.keys(WEAPONS)
     const moved = []
@@ -15787,6 +15800,7 @@ try {
   run(testDescPlaceholder)
   run(testSubmission)
   run(testSurfTide)
+  run(testUndertowTide)
   run(testSurfSandbars)
   run(testSurfFloor)
   run(testSurfHumidity)
@@ -17908,13 +17922,20 @@ function testSurfTide() {
 
   const sig = CHAPTERS.surf.signature
   assert.strictEqual(sig.type, 'tide', 'The Surf must declare the tide signature')
+  // v7.x: surge/period/axis moved OUT of the signature into the chapter's own `tide` block, so the
+  // other six Undertow chapters can run the same water while spending their signature on something
+  // else. `bars`/`pools` stayed behind — those are the beach, not the water. Run TD owns the
+  // book-wide contract; this scenario stays The Surf's.
+  const tide = CHAPTERS.surf.tide
+  assert.ok(tide && sig.surge === undefined && sig.period === undefined && sig.axis === undefined,
+    'The Surf must read its surge from CHAPTERS.surf.tide, with nothing left behind in the signature')
 
   // (a) the push REVERSES. Sample the surge across one full period and require both signs — a
   // one-way drift is a current, which the pond already has; the whole point is surge and backwash.
   const at = (t) => { run._realTime = t; const x0 = run.player.x; stepTide(run, 1 / 60); return run.player.x - x0 }
   let maxPush = -Infinity, minPush = Infinity
-  for (let i = 0; i <= 60; i++) maxPush = Math.max(maxPush, at((i / 60) * sig.period))
-  for (let i = 0; i <= 60; i++) minPush = Math.min(minPush, at((i / 60) * sig.period))
+  for (let i = 0; i <= 60; i++) maxPush = Math.max(maxPush, at((i / 60) * tide.period))
+  for (let i = 0; i <= 60; i++) minPush = Math.min(minPush, at((i / 60) * tide.period))
   assert.ok(maxPush > 0 && minPush < 0,
     `tide must push both ways over its period, saw max ${maxPush.toFixed(3)} min ${minPush.toFixed(3)}`)
 
@@ -17943,7 +17964,7 @@ function testSurfTide() {
   assert.ok(springRun.mods.tideSurgeMul === MUL,
     `Spring Tide's ${MUL}x never reached run.mods — MUTATOR_MOD_KEYS is missing 'tideSurgeMul', so mergeMutatorMods dropped it`)
   const pushAt = (r, t) => { r._realTime = t; const x0 = r.player.x; stepTide(r, 1 / 60); return r.player.x - x0 }
-  const tPeak = sig.period * 0.25   // the crest of the sine, where the surge is at its peak
+  const tPeak = tide.period * 0.25   // the crest of the sine, where the surge is at its peak
   const plainPush = pushAt(run, tPeak)
   const springPush = pushAt(springRun, tPeak)
   assert.ok(Math.abs(springPush - plainPush * MUL) < 1e-9,
@@ -17953,11 +17974,137 @@ function testSurfTide() {
   const springPeak = Math.abs(springPush) * 60
   assert.ok(springPeak < 220,
     `Spring Tide's peak ${springPeak.toFixed(1)} px/s reaches baseSpeed — the surge stops being a push and becomes a wall`)
-  // The mutator is scoped to The Surf, or it is a modifier naming a system its chapter does not run.
-  assert.deepStrictEqual(MUTATORS.springtide.chapters, ['surf'],
-    'Spring Tide must be scoped to The Surf — the tide exists nowhere else')
+  // The mutator is scoped to the chapters that RUN a tide, or it is a modifier naming a system its
+  // chapter does not have. Since v7.x that is all of Undertow rather than The Surf alone — asserted
+  // against the chapters' own `tide` blocks and not against a hardcoded list, which is the only
+  // form of this check that cannot go stale when a chapter is added to the book.
+  assert.deepStrictEqual([...MUTATORS.springtide.chapters].sort(),
+    Object.keys(CHAPTERS).filter((id) => CHAPTERS[id].tide).sort(),
+    'Spring Tide must be scoped to exactly the chapters that declare a tide')
 
-  console.log(`PASS run US.a (the tide): surge reverses across a ${sig.period}s period, peaks at ${peak.toFixed(0)} px/s — over the joystick floor, under half baseSpeed — Spring Tide scales it to ${springPeak.toFixed(0)} px/s and still under it, and the whole thing is a no-op outside The Surf`)
+  console.log(`PASS run US.a (the tide): surge reverses across a ${tide.period}s period, peaks at ${peak.toFixed(0)} px/s — over the joystick floor, under half baseSpeed — Spring Tide scales it to ${springPeak.toFixed(0)} px/s and still under it, and the whole thing is a no-op outside Undertow`)
+}
+
+
+// ---- run TD (v7.x): the tide runs in ALL of Undertow, and one shop line resists it -------------
+// Owner, 2026-08-19: "I want every chapter of book 2 to have currents like chapter 2-1, and the
+// anomaly big currents should be applicable to all chapters. also, a shop upgrade to be less
+// influenced by currents." Three contracts, and each fails SILENTLY on its own: a chapter that
+// quietly has no tide is just a chapter, an anomaly scoped to one chapter never throws, and a shop
+// line whose multiplier is never read sells a number that does nothing. Run US.a keeps The Surf's
+// own tide contract (the reversal, the outswimmable bound, Spring Tide's exact multiple); this one
+// owns the book.
+function testUndertowTide() {
+  Math.random = mulberry32(20260819)
+  const meta = makeMeta()
+  meta.chapters = {}
+  ensureChapterMeta(meta)
+  for (const id of BOOKS.undertow.chapters) meta.chapters[id] = { unlocked: true, maxDifficulty: 5, won: 1 }
+  ensureChapterMeta(meta)
+
+  // (a) THE DENOMINATOR. Walked over Object.keys(CHAPTERS) and not CHAPTER_ORDER, which is Book 1
+  // only and would report "every chapter has a tide" having looked at none of the seven that do.
+  const withTide = Object.keys(CHAPTERS).filter((id) => CHAPTERS[id].tide)
+  // Undertow MINUS The Reef. The exception is the owner's and it is load-bearing, not an oversight:
+  // The Reef's lane is already a current, and a tide costs it either its 45 px/s scroll (which
+  // swings 2-88 along the lane) or its Air decision (205px of sway across it walks a do-nothing
+  // player into the pockets, ending RF.a's centre-line run on 93 of 100 instead of 0). Spelled as
+  // the set and not as a count, so a chapter silently losing its tide cannot pass this.
+  assert.deepStrictEqual([...withTide].sort(), BOOKS.undertow.chapters.filter((id) => id !== 'reef').sort(),
+    'exactly the Undertow chapters except The Reef declare a tide')
+  assert.ok(!CHAPTERS.reef.tide && CHAPTERS.reef.lane === true,
+    'The Reef opts out BECAUSE it is a lane chapter — if the lane ever goes, revisit the tide with it')
+  assert.ok(!CHAPTERS.pond.tide && !CHAPTERS.blank.tide,
+    'Book 1 must not have picked up a tide — The Pond has its own currents field and The Blank has neither')
+
+  // (b) EACH ONE IS FELT, and felt on its OWN bearing. Measured as the distance stepTide actually
+  // moves the player over one frame at the crest of the sine — never read back off the config
+  // table, which passes with the whole mechanic unwired. Same two bounds run US.a derives for The
+  // Surf, applied per chapter so a future per-chapter surge tune cannot quietly cross either.
+  const bearings = {}
+  for (const id of withTide) {
+    const r = createRun(meta, { chapter: id, difficulty: 1 })
+    assert.strictEqual(r.chapter, id, 'probe did not land on ' + id)
+    r._realTime = CHAPTERS[id].tide.period * 0.25
+    const x0 = r.player.x, y0 = r.player.y
+    stepTide(r, 1 / 60)
+    const dx = r.player.x - x0, dy = r.player.y - y0
+    const peak = Math.hypot(dx, dy) * 60
+    assert.ok(peak > 33, id + "'s tide peaks at " + peak.toFixed(1) + ' px/s, under the joystick 33 px/s floor — it cannot be felt')
+    assert.ok(peak < PLAYER.baseSpeed * 0.5, id + "'s tide peaks at " + peak.toFixed(1) + ' px/s, over half baseSpeed — the player cannot fight it')
+    // Bearing as measured, mod 180: the push is a sine that reverses every half period, so a
+    // heading and its opposite are the SAME field and comparing raw angles would call two identical
+    // chapters different.
+    bearings[id] = ((Math.atan2(dy, dx) * 180 / Math.PI) % 180 + 180) % 180
+  }
+
+  // (c) THE TIDE DID NOT EAT THE SIGNATURE. The whole reason it moved out of signature is that six of
+  // these chapters already spend theirs; if a merge ever puts it back, this is what says so.
+  for (const [id, type] of [['shelf', 'shafts'], ['wreck', 'leak'],
+                            ['trawl', 'trawl'], ['twilight', 'shafts'], ['deep', 'dark']]) {
+    assert.strictEqual(CHAPTERS[id].signature?.type, type,
+      id + ' must keep its own signature — the tide is a separate chapter-declared block')
+  }
+
+  // (d) SEVEN DIFFERENT BEARINGS (owner ruling: same strength, axis varies). Asserted as the
+  // measured separation between chapters ADJACENT IN THE BOOK, which is what the ruling is about —
+  // a set of distinct angles that happen to put 0 degrees next to 5 would satisfy "all different"
+  // and still play as one chapter repeated.
+  const order = BOOKS.undertow.chapters.filter((id) => withTide.includes(id))
+  for (let i = 1; i < order.length; i++) {
+    const raw = Math.abs(bearings[order[i]] - bearings[order[i - 1]])
+    const sep = Math.min(raw, 180 - raw)
+    assert.ok(sep >= 44.9, order[i - 1] + ' and ' + order[i] + ' shove within ' + sep.toFixed(1) + ' degrees of each other')
+  }
+
+  // (e) SPRING TIDE reaches every one of them, and none of Book 1. Over-asking randomMutators
+  // returns the whole shuffled pool, which is the order-independent membership probe run GG uses.
+  const pool = (ch) => randomMutators(99, ch)
+  for (const id of withTide) {
+    assert.ok(pool(id).includes('springtide'), 'Spring Tide must roll in ' + id)
+  }
+  for (const id of ['pond', 'garden', 'city', 'beyond', 'reef']) {
+    assert.ok(!pool(id).includes('springtide'), 'Spring Tide must not roll in ' + id + ' — no tide runs there')
+  }
+
+  // (f) CURRENT RESISTANCE, asserted as the distance actually moved and with the crowd in the same
+  // step. Reading run.currentResistMul back would pass with the multiply in stepTide deleted, and
+  // checking the player alone would pass with the line applied to everything — which is the version
+  // that erases the mechanic instead of resisting it.
+  const LEVELS = lineMax('currentResist')
+  const bought = { ...meta, books: { undertow: { shop: { currentResist: LEVELS } } } }
+  const pushOf = (m) => {
+    const r = createRun(m, { chapter: 'wreck', difficulty: 1 })
+    r.enemies.push({ x: 0, y: 0, _dead: false })
+    r._realTime = CHAPTERS.wreck.tide.period * 0.25
+    const x0 = r.player.x, y0 = r.player.y
+    stepTide(r, 1 / 60)
+    return { mul: r.currentResistMul, player: Math.hypot(r.player.x - x0, r.player.y - y0) * 60,
+             enemy: Math.hypot(r.enemies[0].x, r.enemies[0].y) * 60 }
+  }
+  const plain = pushOf(meta), resisted = pushOf(bought)
+  const expected = 1 - BOOK_SHOP.undertow.currentResist.perLevel * LEVELS
+  assert.ok(Math.abs(resisted.player / plain.player - expected) < 1e-9,
+    'a maxed Current Resistance must cut the player push to ' + expected.toFixed(2) + 'x, got ' +
+    (resisted.player / plain.player).toFixed(4) + 'x (' + plain.player.toFixed(1) + ' -> ' + resisted.player.toFixed(1) + ' px/s)')
+  assert.ok(Math.abs(resisted.enemy - plain.enemy) < 1e-9,
+    'the crowd must take the FULL push whatever the player bought — the crowd drifting with you is what makes the surge read as weather')
+  assert.strictEqual(plain.mul, 1, 'currentResistMul defaults neutral with nothing bought')
+
+  // (g) THE FLOOR, and the book boundary. The floor is future-proofing for a maxLevel raise (it
+  // does not bind at 5 x 8%); the boundary is the live fact — Book 1 never sells this line, so a
+  // book-1 run must not silently carry a book-2 purchase's multiplier.
+  assert.ok(resisted.mul >= CURRENT_RESIST_FLOOR, 'currentResistMul must never fall below its floor')
+  assert.strictEqual(createRun(bought, { chapter: 'pond', difficulty: 1 }).currentResistMul, 1,
+    'a Book 1 run must not inherit an Undertow shop line')
+  assert.ok(!shopLines('book1').currentResist && !!shopLines('undertow').currentResist,
+    'Current Resistance is an Undertow book line')
+
+  console.log('PASS run TD (Undertow tide): ' + withTide.length + ' of ' + Object.keys(CHAPTERS).length +
+    ' chapters run the tide (Undertow except The Reef, none of Book 1), bearings ' +
+    order.map((id) => bearings[id].toFixed(0)).join('/') + ' deg with every adjacent pair >= 45 apart, ' +
+    'Spring Tide rolls in all ' + withTide.length + ' and in neither The Reef nor Book 1, and a maxed Current Resistance cuts the player push ' +
+    plain.player.toFixed(1) + ' -> ' + resisted.player.toFixed(1) + ' px/s while the crowd still takes ' + plain.enemy.toFixed(1))
 }
 
 // ---- run US.b (v7.55): The Surf's sandbars — streamed dry patches that slow the player ---------
@@ -19006,6 +19153,11 @@ function twilightRun(weaponId, level = 1) {
   // The shafts stream in around the player and would refill the bar mid-fixture, which is the one
   // thing every assertion below is trying to hold still. Dropping them makes run.charge a knob.
   run.shafts.length = 0
+  // Same idea, for the other ambient mover: since v7.x the tide runs in every Undertow chapter but
+  // The Reef (run TD) and drifts the player up to ~100px. Every ring below is placed at an absolute
+  // offset from where the player STARTED, so a drifting player reads as a mis-sized band — the
+  // foxfire block scored 2 of 8 bodies burned outside its lit radius on exactly that.
+  run.mods.tideSurgeMul = 0
   return run
 }
 
@@ -19519,6 +19671,9 @@ function testWreckBloodlust() {
     assert.strictEqual(run.chapter, 'wreck', 'run WK did not start in the wreck — the WIP gate or the meta is wrong, and every number below would be another chapter')
     run.player.hp = run.player.maxHP = 100000
     run.mods.spawnMul = 0
+    // The tide runs here since v7.x (run TD) and drifts the player on its own, which is the one
+    // thing the dash window measures — the no-press control travelled without any input at all.
+    run.mods.tideSurgeMul = 0
     return run
   }
   // A body pinned in front of the player, by IDENTITY rather than by index — a splice anywhere in

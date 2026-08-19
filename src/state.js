@@ -7,7 +7,7 @@ import {
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS,
-  BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, unlockLevel, unlockMax,
+  BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, CURRENT_RESIST_FLOOR, unlockLevel, unlockMax,
   lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
@@ -1190,6 +1190,10 @@ function generateWells(sig) {
  *   formatShopBonus, ui.js, prints it — it does not touch the sign of the math); floored at
  *   SLOW_BURN_FLOOR (config.js) so a future higher MAX_SHOP_LEVEL cannot invert drain into refill.
  *   1 (no-op) unbought, and 1 in every chapter with no resource.
+ * currentResistMul: number — the share of The Tide's push (config.js TIDE) that reaches the player,
+ *   applied in stepTide (sim.js). BOOK_SHOP.undertow.currentResist ("Current Resistance", -8%/level,
+ *   5 levels) lowers it; floored at CURRENT_RESIST_FLOOR. Enemies are NEVER multiplied by it — they
+ *   take the full push, which is what makes the surge read as weather. 1 outside Undertow.
  * chargeRefillMul: number — the refill-rate multiplier (BOOK_SHOP.undertow.bigGulp, "Resource Refill",
  *   +10%/level), applied in stepCharge to CHAPTERS[chapter].resource.refill at the same site the
  *   in-shaft/pool/pocket refill already runs. 1 (no-op) unbought. Does NOT reach run.killRefill —
@@ -2080,6 +2084,11 @@ export function createRun(meta, opts = {}) {
     // unbought. Does NOT touch the Light Thief kill-refill (run.killRefill) — that is a separate
     // mechanic gated on its own unlock, not "a refill pickup".
     chargeRefillMul: 1 + shopBonus(bm, bookId, 'bigGulp'),
+    // BOOK_SHOP.undertow.currentResist ("Current Resistance"): how much of the tide's push actually
+    // reaches the player, applied in stepTide (sim.js). Subtracted like slowBurn's — the line stores
+    // a POSITIVE perLevel and reads as a decrease (see `reduction` in BOOK_SHOP) — and floored so a
+    // future maxLevel raise cannot invert the push into a pull. 1 in every book but Undertow.
+    currentResistMul: Math.max(CURRENT_RESIST_FLOOR, 1 - shopBonus(bm, bookId, 'currentResist')),
     // Light per kill, SNAPSHOTTED from the permanent Light Thief unlock (bm.unlocks.lightThief,
     // bought over LIGHT_THIEF_COSTS shop levels — see BOOK_UNLOCKS.undertow in config.js). This
     // exists as a run field rather than sim.js reading meta because sim.js must never see meta at

@@ -4499,6 +4499,10 @@ export const SHOP_COST_CAP_DEFAULT = 4999
 // from inverting the drain into a refill. At today's 5 levels x 6%/level this never binds (floor
 // is 0.5, the tuned ceiling is 0.7) — it exists for the level cap that hasn't shipped yet.
 export const SLOW_BURN_FLOOR = 0.5
+// currentResist's floor on currentResistMul (state.js createRun), the same guard SLOW_BURN_FLOOR is:
+// a future maxLevel raise must not invert the tide's push into a pull. Never binds at today's 5
+// levels x 8%, which bottom out at 0.6.
+export const CURRENT_RESIST_FLOOR = 0.4
 // balance_decision : book-2 bar lines halve to 5 deeper levels 2026-08-17
 //  - shopBonus (state.js) clamps to lineMax, so a save holding 10 of these reads as 5
 export const BOOK_SHOP = {
@@ -4509,6 +4513,10 @@ export const BOOK_SHOP = {
     deepLungs: { name: 'Resource Capacity', desc: '+12% resource capacity', perLevel: 0.12, base: 20, icon: '🫁', maxLevel: 5, family: 'res' },
     slowBurn:  { name: 'Resource Drain',    desc: '-6% resource drain',     perLevel: 0.06, base: 30, icon: '🕯️', reduction: true, maxLevel: 5, family: 'res' },
     bigGulp:   { name: 'Resource Refill',   desc: '+15% refill per pickup', perLevel: 0.15, base: 25, icon: '💧', maxLevel: 5, family: 'res' },
+    // balance_decision : tide resistance, 5 levels x -8% player push 2026-08-19
+    //  - PLAYER only. stepTide still moves the crowd the full amount on purpose, or the surge stops
+    //    reading as weather; "current" is the owner's word for what the code calls the tide.
+    currentResist: { name: 'Current Resistance', desc: '-8% current push', perLevel: 0.08, base: 25, icon: '⚓', reduction: true, maxLevel: 5, family: 'res' },
   },
 }
 // The line table for one book. EVERY consumer goes through this — never SHOP directly, or a
@@ -5244,6 +5252,28 @@ CHAPTERS.blank = {
             ink: 0x4a4458 },   // RENDER uses for damage numbers / telegraphs that default to white
 }
 
+// THE TIDE, BOOK-WIDE (owner, 2026-08-19: every Undertow chapter gets the currents The Surf has).
+// Lifted OUT of CHAPTERS.surf.signature, because a chapter gets exactly one `signature` and the
+// others already spend theirs (shafts, air, leak, trawl, dark). Now a chapter-declared block in the
+// same idiom as `gulls`/`shorebreak`/`crush`: read by tideForce/stepTide (sim.js) and by render's
+// flow streaks, and absent = no tide, so Book 1 keeps The Pond's own `currents` field untouched.
+// surge/period are The Surf's shipped numbers — see its signature block for why 46.
+//
+// Same strength, a different bearing each (owner ruling): the push is a sine that reverses, so a
+// bearing and its opposite are one field and the range is 0-180 degrees. In book order: 0, 70,
+// (Reef: none), 120, 45, 95, 150 — no two adjacent chapters within 45 degrees.
+//
+// THE REEF HAS NO TIDE, deliberately (owner ruling, on these measurements). A zero-mean sine
+// displaces 102px at its extreme, and its lane cannot pay that in either direction:
+//  - across it (90 deg), the water walks a player who is not steering 205px sideways, into the air
+//    pockets (r 130) — RF.a's centre-line run ended on 93 of 100 Air instead of 0, i.e. the water
+//    made the chapter's one decision for them.
+//  - along it (20 deg), the advance swings 2-88 px/s against a steady 45.
+// For any future lane chapter: a tide costs you the scroll or the cross-lane decision, so measure
+// both — the sway came in at 205px where the sine alone predicts 102, the lane's terms adding to it.
+export const TIDE = { surge: 46, period: 14 }
+export const tideAt = (deg) => ({ ...TIDE, axis: deg * Math.PI / 180 })
+
 // v7.x Book 2 ("Undertow") chapter 5 — THE TWILIGHT. This block was The Shelf until 2026-08-17,
 // when the light mechanic moved down the book: light-starvation had been sitting two chapters from
 // the surface, in the chapter whose own render comment called it "the BRIGHTEST it ever gets".
@@ -5343,6 +5373,8 @@ CHAPTERS.twilight = {
     { id: 'gulper',  archetype: 'tank',   name: 'Gulper Eel', hpMul: 1.9, speedMul: 0.62, flags: ['latch'] },
   ],
 
+  // 95° — see the TIDE block for how the six bearings are spread.
+  tide: tideAt(95),
   signature: { type: 'shafts', cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
 
   // The bar. Owner ruling: it is the Pulse's AMMO and nothing else — it does not scale damage, fire
@@ -5551,6 +5583,8 @@ CHAPTERS.shelf = {
   //   back regenerates it — now true of three fields, not one. That reads as the water moving (which
   //   it does, driftAmp 60), and the upgrade path if it ever matters is a per-cell spent-set on
   //   `run`, not a field on the circle.
+  // 70° — see the TIDE block for how the six bearings are spread.
+  tide: tideAt(70),
   signature: { type: 'shafts', refillLook: 'upwelling', blob: true, cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
 
   // The bar. Same numbers as the light rig it reuses — drain 2.2 / refill 18 / killRefill 1.5 were
@@ -5742,8 +5776,11 @@ CHAPTERS.surf = {
   // is the only one of the four that REPLACES the Pulse's shove rather than adding to it; see the
   // SHOREBREAK_* block in this file for why, and stepRepulse for where the skip happens.
   shorebreak: true,
+  // 0°, shore-normal. PINNED — the sandbar and pool fields and the whole Humidity tune below were
+  // measured against this bearing. See the TIDE block for how the six are spread.
+  tide: tideAt(0),
   signature: {
-    type: 'tide', surge: 46, period: 14, axis: 0,
+    type: 'tide',
     // Sandbars: dry ground you can walk onto. `slowMul` composes with every other slow by MIN (see
     // the slow-composition note in sim.js), so it is the FLOOR the chapter can impose, never a stack.
     // drainMul multiplies the resource drain while you stand on one. See `resource` below for the
@@ -6269,6 +6306,8 @@ CHAPTERS.wreck = {
   //
   // See SLICK_* above for the numbers and for why this rides refillCircleAt but lives in run.slicks
   // rather than run.shafts.
+  // 120° — see the TIDE block for how the six bearings are spread.
+  tide: tideAt(120),
   signature: {
     type: 'leak',
     // chance/cell together set how much of the floor is poisoned. 0.34 of a 900px cell at r 190
@@ -6527,6 +6566,8 @@ CHAPTERS.trawl = {
   // one chapter has one. They live in the TRAWL_* block with the rest of the wall's constants. Note
   // that block sits BELOW this one in the file, so pulling one in here would be a TDZ throw at
   // import — see HUMIDITY_DMG_FLOOR above CHAPTERS for the one value that genuinely needed hoisting.
+  // 45° — see the TIDE block for how the six bearings are spread.
+  tide: tideAt(45),
   signature: { type: 'trawl' },
 
   // FEED, and the second job is SPEED (§5.2's table: five bars, five different axes — output, sight,
@@ -6739,6 +6780,8 @@ CHAPTERS.deep = {
   // drawdown would fade every mouth in the chapter out a second before it could close. Run DP.c went
   // red the day it was tried. The maw already takes itself away: it shuts for MAW_SHUT_T on a
   // swallow, which is this chapter's own version of a circle you can only use once.
+  // 150° — see the TIDE block for how the six bearings are spread.
+  tide: tideAt(150),
   signature: { type: 'dark', maws: { cell: 900, chance: 0.42, r: 200, minDist: 460 } },
 
   // THE BAR: Light. The maws above are the ONLY source — no shafts, no kill refill, nothing else on
@@ -10820,7 +10863,7 @@ export const MUTATORS = {
   // escape-margin math protects that field. 46 -> 83 keeps the peak under PLAYER baseSpeed 220,
   // which is the hard bound CHAPTERS.surf.signature's own block sets: past that the surge stops
   // being a push and becomes a wall.
-  springtide:   { name: 'Spring Tide',    icon: '🌊', desc: 'The tide shoves far harder. Richer coins.',                  chapters: ['surf'],        effects: { tideSurgeMul: 1.8, coinMul: 1.25 } },
+  springtide:   { name: 'Spring Tide',    icon: '🌊', desc: 'The tide shoves far harder. Richer coins.',                  chapters: Object.keys(CHAPTERS).filter((id) => CHAPTERS[id].tide), effects: { tideSurgeMul: 1.8, coinMul: 1.25 } },
   overscent:    { name: 'Overscent',      icon: '🌼', desc: 'Pheromone trails linger twice as long. Bonus XP.',           chapters: ['garden'],      effects: { pheromoneLifeMul: 2, xpMul: 1.15 } },
   // v6.5 panel: chance x1.5 is already a net player buff (free enemy-side trap clears scale with
   // it too) — coinMul was 1.3 pre-panel, trimmed to 1.15 so an attentive player kiting around the
