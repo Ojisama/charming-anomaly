@@ -2024,7 +2024,7 @@ export const WEAPONS = {
   // weapons decide what you can reach; they meet in the player's hands, not in a stat.
   bubblePuff: {
     name: 'Bubble Puff',
-    desc: 'Blows a cone of bubbles that shoves everything out of it.',
+    desc: 'Blows a cone of bubbles that scours what it touches.',
     icon: '🫧', rarity: 'normal',
     // THE STARTER, named in §6.2 of the Undertow spec. A run.novas entry LIMITED TO A SECTOR — the
     // same machinery as The Surf's Breaker, which is where `arc` is documented at length — tagged
@@ -2034,13 +2034,18 @@ export const WEAPONS = {
     //              ⚠ FLAT ACROSS THE LADDER, and that is the design rather than an oversight.
     //              Owner, 2026-08-18: "i think the bubble puff shouldn't be 360 by default. maybe
     //              90°, with mods to increase width." So WIDTH IS THE AXIS THE MODS OWN: levels buy
-    //              damage, reach and shove, and Flare is the only thing that buys coverage. The
+    //              damage and reach, and Flare is the only thing that buys coverage. The
     //              Breaker grows its arc with level instead — do not copy that here, or Flare is
     //              competing with the level-up for the same number.
     //   r          the cone's outer radius. Short on purpose: this is the card that says "you are a
-    //              small fish", and its answer to a crowd is to make room, not to delete it.
-    //   knockback  the point of the card. A starter that only chips is a starter you replace; one
-    //              that buys you a metre of water is one you keep taking levels in.
+    //              small fish", and its answer to a crowd is to out-cut it, not to out-reach it.
+    // NO `knockback`, AND ITS ABSENCE IS THE DESIGN (owner, 2026-08-19: "let's remove the knockback
+    // entirely on bubble puff"). It shoved until then, and the shove was what made STANDING STILL
+    // the best way to play the chapter: with Flare x5 and Long Puff x5 the ring held a 408px bubble
+    // nothing crossed, and a motionless player beat a walking one by 43s and won 29% of runs against
+    // a walker's 0% (mortal, 300s, 7 seeds). Deleting it takes that to 0%. The weapon is now a fast
+    // short cone that CUTS — every other card on it (Froth, Flare, Long Puff, Scour, Backblow) still
+    // buys exactly what it says, and none of them ever sold the shove.
     // It aims through aimAngle — nearest body first, facing only as the fallback. A cone that
     // pointed where you MOVE would point at empty water, because a survivors player kites away
     // from the pack; that is fireFlagella's hard-won rule and this weapon inherits it.
@@ -2048,11 +2053,11 @@ export const WEAPONS = {
       // rate is /1.15 at every rung, 2026-08-18: the cone costs the card three quarters of its
       // coverage, so the compensation is cadence rather than width — widening it back would undo
       // the change the owner asked for. SMALLER IS FASTER here; `rate` is an interval.
-      { dmg: 14, rate: 0.800, r: 155, arc: 1.571, knockback: 210 },
-      { dmg: 17, rate: 0.748, r: 168, arc: 1.571, knockback: 230 },
-      { dmg: 20, rate: 0.696, r: 181, arc: 1.571, knockback: 250 },
-      { dmg: 25, rate: 0.652, r: 195, arc: 1.571, knockback: 270 },
-      { dmg: 29, rate: 0.609, r: 210, arc: 1.571, knockback: 300 },
+      { dmg: 14, rate: 0.800, r: 155, arc: 1.571 },
+      { dmg: 17, rate: 0.748, r: 168, arc: 1.571 },
+      { dmg: 20, rate: 0.696, r: 181, arc: 1.571 },
+      { dmg: 25, rate: 0.652, r: 195, arc: 1.571 },
+      { dmg: 29, rate: 0.609, r: 210, arc: 1.571 },
     ],
   },
   siltVeil: {
@@ -2934,15 +2939,17 @@ export const WEAPON_MODS = {
   // as the top of that ladder rather than as a separate card.
   //
   // ⚠ THIS WEAPON MAY NOT SELL CADENCE OR SHOVE, and that is a measurement rather than a taste.
-  // The CC_DR_FLOOR block's model -- a floored shove moves a body kb x ccResist x CC_DR_FLOOR /
-  // KB_DECAY_RATE px, and the lock holds once the cast interval drops under the time that body needs
-  // to walk it back -- puts the SHIPPED weapon within x1.39 of locking the Sand Hopper once Twitchy
-  // is maxed and Soy Milk is taken. A rate mod at 5 picks locks it outright in that build; a
-  // knockback mod plus a rate mod locks it with no passives at all. TANK_KB_REFRACTORY protects the
-  // Moon Jelly and nothing else, so the archetype at risk is the chapter's ordinary drone.
+  // It no longer HAS a shove (see the ladder in WEAPONS.bubblePuff), so a knockback mod would be
+  // re-introducing the stat the owner deleted; and cadence stays out because the same set of mods
+  // that made standing still optimal is still on the card. That earlier fence was written against
+  // the CC_DR_FLOOR block's per-body model -- a floored shove moves a body kb x ccResist x
+  // CC_DR_FLOOR / KB_DECAY_RATE px, and the lock holds once the cast interval drops under the time
+  // that body needs to walk it back -- and the model was RIGHT about one body and blind to the
+  // crowd: it waived `r` and `arc` as safe, and those two together are what the report was about.
   // balance_decision : the puff sells radius and damage, never rate or shove 2026-08-19
-  //  - `r` is safe where the other two are not because the lock is a PER-BODY race: a wider ring
-  //    catches a body sooner but still shoves it once per cast, so it buys space without compounding.
+  //  - `r` and `arc` are only cheap now because the shove is gone. Measured (mortal, 300s, 7 seeds,
+  //    The Shelf): Flare x5 alone and Long Puff x5 alone each leave WALKING ahead of standing still;
+  //    together, with a shove, standing still won 29% of runs and walking won 0%.
   bubblePuff: {
     froth:      { name: 'Froth',       desc: 'puff damage',        icon: '💥', base: 0.30, kind: 'pct' },
     flare:      { name: 'Flare',       desc: 'puff width',         icon: '🪭', base: 0.30, kind: 'pct' },
@@ -2996,8 +3003,8 @@ export const WEAPON_MODS = {
   // The Shelf's other two, which shipped with NO mods at all -- the chapter could offer exactly two
   // distinct mod cards in a whole run, and its mod bucket measured 20.4% against a declared 27.9%
   // (pool-probe, shelf, 3 slots, 25 runs), the worst drift of any bucket in either Book 2 chapter.
-  // Neither weapon carries a knockback stat, so neither can reach the shove lock the Bubble Puff
-  // block above is fenced against, and both may sell cadence and counts freely.
+  // Neither weapon carries a knockback stat -- nor, since 2026-08-19, does the Bubble Puff -- so
+  // nothing in this chapter's arsenal can shove at all, and all three may sell counts freely.
   siltVeil: {
     // 'silt damage per tick' for the reason barnacles says 'crust damage per tick': the number is
     // small because it is per tick, and a player reading it as a per-hit number concludes the weapon

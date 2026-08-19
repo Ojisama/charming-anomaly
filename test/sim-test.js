@@ -10449,14 +10449,16 @@ function testV54Weapons() {
         `tank feared ${tank.fearT.toFixed(2)}s vs drone ${plain.fearT.toFixed(2)}s, shove x${(kb(tank) / kb(plain)).toFixed(2)}, anchored 0`)
     }
 
-    // TANK KNOCKBACK REFRACTORY (Le Large). CC_DR prices each shove but nothing priced the CADENCE,
-    // so a ring firing faster than the time a slow tank needs to walk one FLOORED shove back pushed
-    // it out without bound: Bubble Puff at +300% fire rate measured 3.3 jelly contact hits over 300s
-    // against 152 for no ring at all — invincible, standing still.
+    // TANK KNOCKBACK REFRACTORY. CC_DR prices each shove but nothing prices the CADENCE, so a ring
+    // firing faster than the time a slow tank needs to walk one FLOORED shove back pushes it out
+    // without bound. The pair that sets the constant is The Deep's gulper against a maxed Chitter
+    // Shriek (0.342s); the case that first found it was The Shelf's Bubble Puff, which no longer
+    // shoves at all (see WEAPONS.bubblePuff) and is asserted ABSENT from the walk below.
     // Asserted by EFFECT, not by the timer: a mutant that ticks _kbCd but never gates on it passes
     // any state check. The drone arm is the one that pins the SCOPE — tanks only.
     {
       const twoShoves = (type) => {
+        // A shelf run is just a quiet world here — the ring is pushed by hand, not cast.
         const r = weaponRun('shelf', 'bubblePuff')
         r.weapons = []
         const e = makeStatusEnemy(r, { x: 10, y: 0, hp: 1e9, speed: 0, type })  // inside the ring on frame 1: n.r starts at 0
@@ -10507,10 +10509,20 @@ function testV54Weapons() {
         'shoveFromPlayer no longer gates on claimKb — every melee shove weapon can re-lock a tank at high fire rate')
 
       assert.ok(pairs.length > 100, `only ${pairs.length} tank x shove-weapon pairs enumerated — the walk found nothing`)
-      const jelly = pairs.find((x) => x.what.startsWith('shelf/jelly vs bubblePuff L5'))
-      assert.ok(jelly, 'shelf/jelly vs bubblePuff L5 is not in the walk — the pair this fix was written for')
-      assert.ok(TANK_KB_REFRACTORY > jelly.thr * 1.2,
-        `TANK_KB_REFRACTORY ${TANK_KB_REFRACTORY}s has no margin over Le Large's own threshold ${jelly.thr.toFixed(3)}s`)
+      // Pinned to the WORST pair in the game rather than to one named chapter/weapon: a weapon that
+      // loses its shove drops out of this walk silently, and a `find` on its name then fails as a
+      // missing fixture rather than saying what actually changed (which is how the Bubble Puff's
+      // deletion first showed up here).
+      const worst = pairs.reduce((a, b) => (b.thr > a.thr ? b : a))
+      assert.ok(TANK_KB_REFRACTORY > worst.thr * 1.2,
+        `TANK_KB_REFRACTORY ${TANK_KB_REFRACTORY}s has no margin over the worst pair in the game ` +
+        `(${worst.what}, ${worst.thr.toFixed(3)}s)`)
+      // THE BUBBLE PUFF MUST STAY OUT OF IT. Its `knockback` was deleted (owner, 2026-08-19) because
+      // the shove is what made standing perfectly still the best way to play The Shelf — 29% of runs
+      // won without moving against a walker's 0%. Re-adding the stat puts the shove back with
+      // nothing thrown and no other test red, so its ABSENCE is what gets asserted.
+      assert.ok(!pairs.some((x) => x.what.includes('bubblePuff')),
+        'bubblePuff is back in the tank x shove walk — it has a `knockback` stat on its ladder again')
       // EVERY reachable pair must be covered — the list is empty and must stay empty. It was three
       // entries at the first cut's 0.25s (The Deep's gulper vs Chitter Shriek L3-L5, which needs
       // 0.342s); 1s closes them with margin. Widen the constant, never extend this list.
@@ -10519,7 +10531,7 @@ function testV54Weapons() {
         `${uncovered.length} tank x weapon pair(s) can still out-cadence the ${TANK_KB_REFRACTORY}s window: ${uncovered.join(', ')}`)
       console.log(`PASS run CC.kb (tank shove refractory): first shove ${tank.first.toFixed(0)}, second 0 inside ${TANK_KB_REFRACTORY}s; ` +
         `drone still shoved twice; ${pairs.length - uncovered.length}/${pairs.length} reachable tank x shove pairs covered ` +
-        `(Le Large's jelly needs ${jelly.thr.toFixed(3)}s), ${uncovered.length} known-uncovered`)
+        `(worst pair ${worst.what} needs ${worst.thr.toFixed(3)}s), ${uncovered.length} known-uncovered, bubblePuff absent`)
     }
 
     // panicRout: the same hit lands harder on a fleeing foe.
@@ -19035,16 +19047,24 @@ function testLeLargeWeapons() {
     run.player.maxHP = run.player.hp = 1e9
     run.enemies.length = 0
     // The upwellings stream in around the player and would refill the bar mid-fixture. None of
-    // these three reads the bar, but a moving bar moves the Pulse, and the Pulse shoves too —
-    // which is exactly the effect assertion (a) is trying to attribute to Bubble Puff.
+    // these three reads the bar, but a moving bar moves the Pulse, and the Pulse shoves — which is
+    // the one other thing that could move (a)'s body now that the puff itself cannot.
     run.shafts.length = 0
     return run
   }
   const only = (run, e) => { run.enemies = run.enemies.filter((x) => x.id === e.id) }
 
-  // (a) BUBBLE PUFF SHOVES. The card's whole job is making room, and a ring that damages without
-  // moving anything measures fine and plays like nothing. DISTANCE, not e.kb: knockback is written
-  // to a field and integrated later, so reading the field would pass with the integration deleted.
+  // (a) BUBBLE PUFF CUTS, AND DOES NOT SHOVE. It shoved until 2026-08-19, and the shove is what made
+  // STANDING PERFECTLY STILL the best way to play the chapter: with Flare x5 and Long Puff x5 the
+  // ring held a bubble the crowd never crossed, and a motionless player won 29% of runs against a
+  // walking one's 0% (mortal, 300s, 7 seeds). The owner deleted the stat rather than tune it.
+  // BOTH HALVES ARE ASSERTED, because each fails on its own: a weapon that stopped damaging is a
+  // dead card, and a knockback re-added to its ladder is the cheese back with nothing thrown.
+  // DISTANCE, not e.kb: knockback is written to a field and integrated later, so reading the field
+  // would pass with the integration deleted — and it would also miss a shove arriving from anywhere
+  // else. The body is motionless (speed 0) and largeRun parks the Pulse, so the puff is the only
+  // thing that can move it; the tide pushes body and player alike, so it cancels out of a distance
+  // measured from the player.
   {
     Math.random = mulberry32(80181)
     const run = largeRun('bubblePuff', 5)
@@ -19055,7 +19075,11 @@ function testLeLargeWeapons() {
     for (let i = 0; i < 240; i++) { stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0; only(run, e) }
     const d1 = Math.hypot(e.x - p.x, e.y - p.y)
     assert.ok(e.hp < 1e6, 'Bubble Puff never damaged anything')
-    assert.ok(d1 > d0 + 30, `Bubble Puff did not shove: ${d0.toFixed(0)}px -> ${d1.toFixed(0)}px`)
+    // 5px against the >30px a real shove moved this body: wide enough for tide/float drift, nowhere
+    // near wide enough to let a restored `knockback` through.
+    assert.ok(d1 < d0 + 5,
+      `Bubble Puff MOVED a motionless body ${d0.toFixed(0)}px -> ${d1.toFixed(0)}px — it has a shove again, ` +
+      'and the shove is what made standing still the best way to play The Shelf')
   }
 
   // (b) SILT VEIL FEARS AND POISONS. Both halves. The fear is published into e.fearT, a contract
