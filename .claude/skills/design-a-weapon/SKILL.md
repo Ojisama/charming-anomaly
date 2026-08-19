@@ -1,6 +1,6 @@
 ---
 name: design-a-weapon
-description: Use when adding a weapon to Charming Anomaly or redesigning an existing one — runs the idea, the look and the numbers as three phases, each ending at an owner ruling, then wires it in through the checklist whose every entry fails silently.
+description: Use when adding, redesigning, rebalancing or fixing a WEAPON or a weapon mod in Charming Anomaly. Triggers on how the owner actually phrases it — "this weapon feels weak/wrong", "it doesn't look like a <thing>", "it's a mess, redesign it or propose alternatives", "propose 3 other designs", "make it work like an auto turret / a shield / a boomerang", "the <X> doesn't work", a new card for a chapter's arsenal, or any change to what a weapon hits, reaches, throws or looks like. Runs the idea, the look and the numbers as three phases, each ending at an owner ruling, then an adversarial pass, then wires it in through the checklist whose every entry fails silently.
 ---
 
 # Design a Weapon
@@ -208,10 +208,12 @@ always "the feature seems to do nothing".
       Checking a string for fr.js collisions and `tt()` correctness proves it is unique and
       translatable, not that it is legible; both failures in v7.163 passed those checks and were
       caught by the owner reading the card.
-- [ ] **A new stat is registered twice**: the whitelist array in `buildReadout` (sim.js:4960) *and*
-      `STAT_LABEL` (ui.js:1821). Miss either and the stat is simply absent from the pause build
-      sheet. The whitelist is ordered and the sheet caps at `STAT_MAX_ROWS` (5), so where you insert
-      decides what gets dropped.
+- [ ] **A new stat is registered in ONE place**: `STAT_KEYS` (config.js). This used to be two lists
+      in two files; ui.js now derives `STAT_LABEL` from `STAT_KEYS` and needs **no edit at all** for
+      a new weapon or a new stat. The table is ORDERED and ui.js appends the cadence row then slices
+      to `STAT_MAX_ROWS` (5), so where you insert decides which stats fall off the bottom. Add the
+      French for the label — run XX walks `STAT_KEYS` and catches a missing one, but only the label,
+      never the row order.
 - [ ] French for the label and the copy in `src/fr.js`. Edit it via node/python — the NBSP (U+00A0)
       before `: ; ! ?` makes exact-string anchors fail invisibly.
 - [ ] **Copy containing a number is a `tt()` template**, not a built string. `t()` is keyed by the
@@ -236,6 +238,82 @@ always "the feature seems to do nothing".
 - [ ] `npm test` green, and `git status --short` clean of scratch artifacts (`.gitignore` only
       covers `/*.png` at the repo ROOT).
 
+## Three that are not checklist ticks — they are how weapons break
+
+- **A PER-CAST COUNT IS USUALLY WRITTEN TWICE — as the loop bound AND as the divisor that spaces
+  what the loop spawns.** `for (i < stats.orbs)` with `angle = (i / stats.orbs) * 2pi`,
+  `(i - (count - 1) / 2) * STAR_FAN`, `(2 * BOOMERANG_FAN) / (count - 1)`, `i / count` in the quill
+  and shriek rings: eight sites across the weapons. Multiply ONE of them and the extra output stacks
+  on top of the original instead of spreading — and it **renders identically to no change at all**,
+  because three projectiles sharing a point look like one projectile. v7.6.0 shipped Ipecac tripling
+  orbit's loop bound to 15 while the divisor still read `stats.orbs` (5): fifteen phages in five
+  positions, three deep, which is the "same hit, bigger" shape that whole card was rewritten to
+  escape. It was caught by eye, from a screenshot that looked unchanged. Introduce ONE local for the
+  count and use it in both places, and assert **distinct positions** rather than a count — a count
+  passes happily when things spawn on top of each other (run PB7's every-weapon block does this).
+
+- **A SHARED ENTITY ARRAY HAS MORE RENDER CONSUMERS THAN THE ONE YOU EDITED.** `run.lobs` has
+  THREE — `syncLobs` (the thrown-object rig), `redrawHazards` (the amber landing ring), and now
+  `drawColumns` — and nothing about the array says so. The Twilight's Sunspear reused `run.lobs`, was
+  filtered out of `syncLobs`, and still came back wearing a Debris Toss landing ring: two telegraphs
+  on one strike, which read as "the effect looks like soap bubbles" rather than as a missed site.
+  **Reading the render code named the wrong culprit twice; one ablation pass (hide the layer, shoot
+  the same frame) found it immediately.** Before reusing an array, `grep -n "run.<array>" src/render.js`
+  and check every hit, then ablate to confirm what is actually drawing what you see.
+
+- **A WEAPON'S BEHAVIOUR IS CHAPTER-CONDITIONAL — read the branch its own chapter takes.** Several
+  systems fork on `CHAPTERS[id].lane`. **There are TWO lane chapters, not one: `beyond` (forward is
+  -y) and `reef` (`laneAxis: 'x'`, forward is +x).** This sentence read "`beyond` is the only lane
+  chapter" until v7.120, when the stale count caused a real bug: the death outro's iris is centred on
+  the player, a lane camera holds the player `LANE_CAMERA_FRAC` along the forward axis rather than at
+  the centre (20% across, in The Reef), and a sprite sized only against the screen therefore left a
+  hard dark band down the right of every Reef frame. **Anything screen-space anchored to the player
+  has an off-centre origin in a lane chapter** — see `irisCoverMul` in config.js. Grep `lane:` in
+  config.js rather than trusting a count written here, this one included. So `firePulsar`'s
+  `lane ? PULSAR_FAN_ARC : 0` means the full-circle rotating rake — the behaviour its comments
+  describe at length, and the one you will describe to the owner if you read the function
+  top-to-bottom — **never happens in The Beyond**, the only chapter that offers the weapon: there it
+  is a ~112° forward fan wipering left-right-left. (It does run in `blank`, whose pool is all 22
+  weapons, which is exactly why "what does this weapon do" has more than one answer.) Before
+  describing a mechanic, list the chapters whose pool contains it and check the branch each takes.
+  v7.10 got this wrong out loud and was corrected from play.
+
+## Phase 4.5 — the adversarial pass (do not skip, do not ask permission)
+
+Aurélien asks for this by hand, over and over — *"spawn an adversarial fable agent to challenge your
+findings"*, *"have 1 adversarial agent challenging your output"*, *"implement the 4 remaining cards,
+each against a adversary reviewer"*. It works, and it should not depend on him remembering to ask.
+Run it after wiring and **before** shipping.
+
+Dispatch **one** subagent (`general-purpose`, sonnet is enough) whose job is to REFUTE, not to
+admire. Give it the census table, the diff, and this instruction set verbatim:
+
+> You are reviewing UNCOMMITTED work. **Do not mutate the tree.** Allowed: `git diff`, `git show`,
+> `git log`, file reads, running `node scripts/*.mjs` and `node test/sim-test.js`. Forbidden:
+> `git stash` in any form, `git reset`, `git checkout`, `git restore`, `git clean`, `git add`,
+> `git commit`, and any edit to any file. Default to "this is broken" when uncertain.
+
+Point it at the five things that actually go wrong here, because a vague "review this" comes back
+with prose:
+
+1. **Does the census reading survive?** Numbers compared ACROSS invocations are noise — every weapon
+   in one `--weapons` list shares an RNG stream, so changing A re-phases B. Did the comparison stay
+   inside one invocation, and does the ORDER hold?
+2. **Is the rig capable of seeing the claim?** A stationary rig cannot measure reach, slows or
+   knockback; a kiting rig cannot see a shove lock on slow enemies. Ask which question the rig was
+   built for and whether that is the question being answered.
+3. **Which chapters actually offer this weapon, and what branch does each take?** Behaviour forks on
+   `CHAPTERS[id].lane`. A function read top-to-bottom describes behaviour that may never happen in
+   the one chapter that offers the card.
+4. **Is every mod wired, and is the copy legible?** `node test/sim-test.js modbudget` answers the
+   first. For the second: does each card name the bar it reads in the words on the HUD, and has it
+   coined a noun the player has never seen?
+5. **Walk phase 4's checklist against the diff.** Every entry fails silently; the reviewer's job is
+   to find the one that was ticked without being done.
+
+Bring its findings back and either fix them or say, in the report, which you are knowingly shipping
+past. Do not take a subagent's verdict at face value — it is a challenge, not a verdict.
+
 ## Phase 5 — ship it gated, then he plays
 
 Ship to the live URL behind the WIP/dev gate so he can reach it on his phone.
@@ -248,10 +326,16 @@ scripts/deploy-watch.sh "vX.Y.Z · <sha>"     # ship prints the exact line
 Never choose a version number. Write reasoning on the commits *below* the release — `ship` amends
 HEAD with `-m` and destroys any body on that commit.
 
-Then hand him **the exact card name and how to summon it**: seven taps on the HUD coin badge
-mid-run (within 1s of each other) opens the dev menu, which lists every card the game can produce
-and ignores every eligibility rule — chapter pool, minLevel, dedup. That is how he tests one
+Then hand him **the exact card name and how to summon it**: seven taps on the **TITLE wordmark**
+(within 1s of each other) turn DEV on and the pill appears; then **one tap on the HUD coin badge**
+mid-run opens the card list, which contains every card the game can produce and ignores every
+eligibility rule — chapter pool, minLevel, an anomaly's `when` gate, dedup. That is how he tests one
 specific card on a phone against the live URL.
+
+The badge has **no gesture of its own**, deliberately: `meta.dev` is the single dev switch, and
+`endRun` (main.js) refuses to submit any run played under it to the leaderboard. If you ever give
+the badge its own tap burst back, you have re-created the bug where a dev run reached the public
+board — run LB asserts the gate.
 
 Report: what it does, what the census said, what you did **not** verify, and the card name.
 

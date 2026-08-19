@@ -15830,6 +15830,7 @@ run(testLeLargeWeapons)
   run(testSpawnQueueInvariant)
   run(testPoolClearing)
   run(testVocabularies)
+  run(testScreenPositioning)
   console.log('ALL TESTS PASSED')
   runSummary()
 } catch (err) {
@@ -23618,4 +23619,53 @@ function testVocabularies() {
 
   console.log(`PASS run VO (vocabularies): ${declaredFlags.size} behaviour flags all read, ${Object.keys(ELITE_AFFIXES).length} affixes all read, ` +
     `${wantedSfx.length} sfx names all defined, ${STRUCTURE_KINDS.length} structure kinds all skinned and sized, ${declaredUnlocks.size} BOOK_UNLOCKS id(s) all read off bm.unlocks, ${shopBonusIds.length} shopBonus id(s) all resolve to a real shop line`)
+}
+
+// run SP (screen positioning) — the CSS twin of the source-text contract lints above.
+//
+// `.screen` is `position: absolute; inset: 0`, and every menu screen is laid out by that ONE rule.
+// ui.js composes a screen's class list as `screen screen--<name>` plus `room-oak` for title/shop,
+// so those three are the SCREEN-LEVEL classes. A later same-specificity rule on any of them saying
+// `position: relative` overrides the base absolute, the element collapses from inset:0 to auto
+// height, and its background stops wherever its content does — the Shop's oak panelling ended 565px
+// down an 844px screen with the old canvas showing beneath it, and nothing else looked wrong.
+//
+// Reading the stylesheet does not tell you which rule won, which is why this is a lint and not a
+// comment. Exempt by construction: a pseudo-element (`.room-oak::before` NEEDS position:absolute to
+// fill its already-positioned parent) and any selector whose subject is a descendant or child
+// (`.room-oak > *`) — neither is the screen element itself. `.screen` itself is the one legal
+// declaration, and it is asserted to still be there rather than merely tolerated.
+function testScreenPositioning() {
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+
+  // Crude but sufficient rule splitter: styles.css has no @media-nested braces around these rules
+  // and no CSS-in-comment braces. Each match is (selectorList, declarations).
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    sel: m[1].replace(/\/\*[\s\S]*?\*\//g, '').trim(),
+    body: m[2],
+  }))
+  assert.ok(rules.length > 100, `run SP parsed only ${rules.length} CSS rules from styles.css — the splitter has gone stale`)
+
+  // The base rule must still exist and still be absolute; everything below depends on it.
+  const base = rules.find((r) => r.sel === '.screen')
+  assert.ok(base, 'run SP: no bare `.screen` rule in styles.css — every menu screen is positioned by it')
+  assert.ok(/position:\s*absolute/.test(base.body) && /inset:\s*0/.test(base.body),
+    '`.screen` must stay `position: absolute; inset: 0` — it is the containing block every screen and its ::before overlay resolve against')
+
+  const SCREEN_LEVEL = /^\.(screen--[\w-]+|room-oak)$/
+  const offenders = []
+  for (const r of rules) {
+    if (!/position\s*:/.test(r.body)) continue
+    for (const one of r.sel.split(',')) {
+      const subject = one.trim().split(/\s|>|\+|~/).filter(Boolean).pop() || ''
+      if (SCREEN_LEVEL.test(subject)) offenders.push(`${one.trim()} { ${r.body.match(/position\s*:[^;]*/)[0].trim()} }`)
+    }
+  }
+  assert.deepStrictEqual(offenders, [],
+    `screen-level class(es) re-declaring \`position\`: [${offenders.join(' | ')}] — ` +
+    '`.screen` is already absolute with inset:0, so this collapses the screen to auto height and its background ' +
+    'stops where its content does. Put the declaration on a child, or on a ::before, never on the screen itself.')
+
+  const screenLevelRules = rules.filter((r) => r.sel.split(',').some((o) => SCREEN_LEVEL.test((o.trim().split(/\s|>|\+|~/).filter(Boolean).pop() || ''))))
+  console.log(`PASS run SP (screen positioning): ${rules.length} CSS rules, ${screenLevelRules.length} screen-level, none re-declares position`)
 }
