@@ -4517,6 +4517,24 @@ export const CHEEK_JIGGLE = {
   max: 0.26,     // clamp, as a fraction of the butt's half-width
   squash: 0.8,   // how much of the offset also shows as squash along the travel direction
 }
+
+// THE CHEEKS SKIN'S FEET. Two little ovals that stride under the butt while you move, in step with
+// the hop the body already bounces on (render.js syncPlayer's `hop`) rather than on a cadence of
+// their own — a second clock would drift against the bounce and read as two animations playing.
+//   BOOK 1'S BLOB ONLY. There the butt IS the whole creature, so it has nothing to run on; the fish
+// and the kaiju swap only their HEAD for it and already have fins and legs, so feet under a
+// butt-head would be a second pair.
+//   Fractions of PLAYER.radius, never px, same rule as CHEEK_JIGGLE.max: the blob's butt reaches
+// 1.04 radii down, so `rest` has to sit BELOW that or the feet never clear the silhouette they are
+// drawn behind, and `stride` is what tucks the trailing one back under it.
+export const BUTT_FEET = {
+  offX: 0.40,    // either side of the cleft, under the thigh lobes (which sit at 0.40 too)
+  rest: 1.22,    // where a foot stands when you are not moving
+  stride: 0.16,  // how far it swings from there — at 0 the feet are a static pair of dots
+  lift: 0.14,    // the forward foot also grows, so a step reads as a step and not as a slide
+  rx: 0.24,      // the foot itself
+  ry: 0.20,
+}
 export const SHOP_COST_CAP = { damage: 9999, maxHP: 9999, critChance: 9999, coinGain: 9999 }
 export const SHOP_COST_CAP_DEFAULT = 4999
 
