@@ -605,13 +605,18 @@ function endRun(victory) {
   // wait on the network. The rank comes back late and lands on the summary through
   // ui.setPodiumResult, which no-ops if the player has already moved on.
   //
-  // Two gates, both deliberate. `run._devUsed` is the owner's only integrity rule — a run holding
-  // a card from the hidden dev menu is not a score (sim.js sets it in devTake). validNick is what
+  // Three gates, all deliberate. The owner's only integrity rule is "dev runs don't count", and it
+  // takes TWO terms because the dev menu is not the only way in: `meta.dev` is the title's DEV
+  // toggle, which unlocks WIP chapters, and a run played under it is a dev run even if it never
+  // opened the card list — that hole put a real score on the public board on 2026-08-19.
+  // `run._devUsed` (sim.js sets it in devTake) is now belt-and-braces rather than the whole rule:
+  // the card list only opens while meta.dev is on, so it cannot be true on its own. Kept anyway —
+  // it rides on the RUN, so it survives any future way of reaching those cards. validNick is what
   // makes the nickname mandatory in practice rather than only in the UI: a save predating this
   // build has meta.nick '' until the title screen's prompt is answered, and nothing is submitted
   // in the meantime.
   const nick = validNick(meta.nick)
-  if (nick && !run._devUsed) {
+  if (nick && !meta.dev && !run._devUsed) {
     const kills = run.kills
     const level = run.player.level
     const chapter = run.chapter

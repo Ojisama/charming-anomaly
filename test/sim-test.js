@@ -14791,6 +14791,22 @@ function testLeaderboard() {
   assert.ok(/submitScore\(/.test(endRunBody), 'endRun is where a run is submitted; nothing else ends a run')
   assert.ok(/!run\._devUsed/.test(endRunBody),
     'endRun must refuse to submit a run that used the dev menu — without this the flag sim.js sets is dead code and the ruling is unimplemented')
+  // The OTHER half, and the one that was missing until 2026-08-19: meta.dev — the title's DEV
+  // toggle — unlocks WIP chapters, and a run played under it submitted to the public board like any
+  // other. Two dev switches, two answers to "is this a dev run". Asserted here rather than trusted
+  // because it is one `&&` term whose deletion changes nothing a player or a test can see.
+  assert.ok(/!meta\.dev/.test(endRunBody),
+    'endRun must refuse to submit a run played with the title DEV toggle on — that toggle is what unlocks WIP chapters, and it put a real dev score on the live board once')
+
+  // ...and the reason the two are not redundant is that the dev CARD LIST is now reachable only
+  // while meta.dev is on. If the HUD badge ever grows its own gesture back, the card list becomes a
+  // second dev switch again and the run flag above is load-bearing on its own. This asserts the
+  // gate, not the absence of a gesture: a burst counter that still ends in a meta.dev test is fine.
+  const uiSrc2 = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+  const devTapCase = /case 'dev-tap':[\s\S]*?\n      case /.exec(uiSrc2)?.[0]
+  assert.ok(devTapCase, "run LB could not find the 'dev-tap' case in ui.js — the regex has gone stale")
+  assert.ok(/meta\.dev/.test(devTapCase),
+    "the HUD coin badge must open the dev card list only while meta.dev is on — an independent gesture here is a second dev switch, which is the bug this rule exists for")
   assert.ok(/validNick\(meta\.nick\)/.test(endRunBody),
     'endRun must resolve the nickname through validNick, not send meta.nick raw: that is the only path that could put an illegal name on a public board')
 
@@ -14860,7 +14876,7 @@ function testLeaderboard() {
     "the fresh-meta literal must carry nick: '' — loadMeta's repairs are in-memory only and never written back")
 
   console.log(`PASS run LB (leaderboard): validNick holds ${NICK_MIN}-${NICK_MAX} through whitespace, a cut-on-a-space clamp and a bisected emoji, ` +
-    `podiumRank reads both boards independently, the dev-run gate is wired across sim.js + main.js, ` +
+    `podiumRank reads both boards independently, both halves of the dev-run gate are wired across sim.js + ui.js + main.js, ` +
     `${leaderboardCopy.length} strings have French with placeholders intact, and the Worker's range, route order ` +
     `and chapter pattern agree with the client across all ${allChapterIds.length} chapters`)
 }

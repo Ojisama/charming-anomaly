@@ -1504,9 +1504,10 @@ export function initUI(hooks) {
       </div>
       <div class="hud-timer">${fmtTime(RUN_DURATION)}</div>
       <div class="hud-right">
-        <!-- data-act="dev-tap": seven quick taps open the hidden dev menu (see the 'dev-tap' click
-             case). The badge is otherwise inert, and styles.css has to give it pointer-events:auto
-             — the whole HUD is pointer-events:none so it cannot eat gameplay touches. -->
+        <!-- data-act="dev-tap": opens the hidden dev menu, and does nothing whatsoever unless the
+             title's DEV toggle is on (see the 'dev-tap' click case). The badge is otherwise inert,
+             and styles.css has to give it pointer-events:auto — the whole HUD is pointer-events:none
+             so it cannot eat gameplay touches. -->
         <span class="hud-coins" data-act="dev-tap">🪙 0</span>
         <button class="btn-pause" data-act="pause" aria-label="Pause">⏸</button>
       </div>
@@ -2479,12 +2480,10 @@ export function initUI(hooks) {
   let devList = []          // the flat card list main.js handed us, in devCards() order
   let devFilter = ''
   let devListEl = null      // repainted alone on every keystroke, so the filter field keeps focus
-  let devTaps = 0
-  let devTapAt = 0
-  // The TITLE badge's seven-tap counter, deliberately NOT the pair above. Sharing one counter would
-  // let taps on two different badges add up, so a burst split across the title and the HUD could
-  // half-arm either gesture — and these two do very different things (this one toggles a persisted
-  // flag, that one opens a throwaway screen). Two counters, no interaction.
+  // The title wordmark's seven-tap counter, and the ONLY dev gesture left in the game. The HUD
+  // coin badge had its own identical burst until 2026-08-19; what killed it was not duplication but
+  // that two dev switches make two different answers to "is this a dev run", and the leaderboard
+  // needs one.
   let wipTaps = 0
   let wipTapAt = 0
 
@@ -3105,17 +3104,16 @@ export function initUI(hooks) {
         if (active === 'levelup' && (lvRevealing || lvChoosing >= 0)) break
         playSfx('click'); hooks.onPauseToggle(); break
       case 'resume': playSfx('click'); hooks.onPauseToggle(); break
-      // Hidden dev menu: seven taps on the HUD coin badge. Seven because the badge sits next to the
-      // pause button on a phone, and anything shorter would open on a fat-fingered miss. The count
-      // resets after a second of quiet, so it takes a deliberate burst rather than seven taps
-      // spread across a run.
-      case 'dev-tap': {
-        const now = performance.now()
-        devTaps = now - devTapAt < DEV_TAP_WINDOW_MS ? devTaps + 1 : 1
-        devTapAt = now
-        if (devTaps >= DEV_TAPS_TO_OPEN) { devTaps = 0; playSfx('buy'); hooks.onDevOpen?.() }
-        break
-      }
+      // The hidden dev menu, opened from the HUD coin badge — and ONLY while the title's DEV toggle
+      // is on. There used to be a second seven-tap burst here, independent of that toggle, and TWO
+      // dev switches meant a run could be a dev run by one of them and a scoring run by the other:
+      // DEV on to reach a WIP chapter still submitted to the public board (owner, 2026-08-19: "i've
+      // done a run in dev, and it still recorded my high score?"). One switch now, and main.js
+      // refuses to submit anything played under it. The badge is inert with DEV off, so the gesture
+      // it used to need is gone with it.
+      case 'dev-tap':
+        if (!meta.dev) break
+        playSfx('buy'); hooks.onDevOpen?.(); break
       case 'dev-close': playSfx('click'); hooks.onDevClose?.(); break
       // Opt-in element Codex (see renderCodex): opened from the title's ⚙ sheet or the pause build
       // sheet, data-from says which so Close can return to it — main.js resolves the destination
