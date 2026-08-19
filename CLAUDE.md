@@ -85,7 +85,7 @@ node scripts/weapon-census.mjs       # what a weapon actually DOES over real run
 
 There is no single-test runner and no test framework: `test/sim-test.js` is one plain-node file of `assert`-based scenarios that seeds `Math.random` (mulberry32) for determinism and prints `PASS …` / `ALL TESTS PASSED`. To run a subset, comment out scenarios or temporarily guard them — do not reach for jest/vitest. To add a check, append a scenario in the same style. **Anything free of Pixi and DOM is testable this way** — the suite already imports `sim.js`, `config.js`, `state.js`, `sync.js` and `fr.js`. (`sync.js` deliberately keeps browser globals out of its module scope precisely so it can be imported here.) `render.js` and `main.js` are not importable, but the suite still asserts against them as **source text** — see run UG.k, which greps `render.js` to prove a declared hook is actually forwarded and read. Reach for that trick when a render-side contract has no other guard.
 
-**Five scenarios lint CROSS-FILE CONTRACTS as source text, and they are the cheapest guards here.**
+**Six scenarios lint CROSS-FILE CONTRACTS as source text, and they are the cheapest guards here.**
 An architecture audit over 273 releases found the single largest root-cause class — 28% of every
 defect that reached the live URL — is *one fact authored in two places that drifted apart*, and
 none of those places is an import, so nothing throws. `run EV` (every `{type:'x'}` sim emits has a
@@ -93,7 +93,14 @@ render case, an `SFX_FOR_EVENT` entry, or a written line in `SILENT_BY_DESIGN`),
 (`run.enemies.push` confined to `spawnEnemy` + `flushSpawns`; nothing indexes the array to recover
 what it just made), `run CP` (every array handed to `syncPool` is named in `clearWorld`'s flat
 list, and no pool sits in both lists), `run VO` (roster behaviour flags, elite affixes, sfx names
-and structure kinds all resolve on the other side), and run XX's config-table walk. Add to these
+and structure kinds all resolve on the other side), run XX's config-table walk, and `run MB.a`
+(every weapon mod in the game — 201 across 38 weapons — resolves to a `WEAPON_STAT_MODS` fold, a
+`WEAPON_RATE_MODS` division, or a read at its own fire site; anything else is an INERT CARD, offered
+and picked and banked and doing nothing, with nothing thrown and no test red). **MB.a strips
+comments from sim.js before searching, and that line is load-bearing:** every mod id is discussed in
+prose right beside its wiring, so a raw substring search is satisfied by the comment alone — delete
+a fold and leave the sentence explaining it and the card goes inert while the check stays green.
+That exact edit is a mutation in its proof table and it passed until the strip existed. Add to these
 rather than inventing a new mechanism: they cost ~200ms and they caught four consumerless events,
 a pool that leaked its sprites into the next run, and five untranslated build-sheet rows on the day
 they were written. **The corollary for new copy: put player-visible strings in a config TABLE.**
@@ -459,6 +466,28 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 - `.gitignore` covers `node_modules/`, `dist/`, `.claude/worktrees/`, `.wrangler/` and `/*.png` — **and no other scratch artifact**. The last one is the trap: only a `.png` at the repo ROOT is ignored. A PNG in a subdirectory is not; neither is a `.json` dump, nor a screenshot in any other format. A 464 KB `_p4.jpg` sat tracked at the repo root for eleven versions for exactly that reason. Delete every scratch file explicitly before committing, and check `git status --short` rather than trusting the ignore rule.
 - **`public/` is tracked PWA assets, not scratch** (`sw.js` is registered by `main.js`). Do not "clean up" anything in it. If you need the dev server to serve a probe artifact, put it somewhere you will delete and verify with `git status --short`.
 - Deploy is automatic: pushing to `main` triggers `.github/workflows/deploy.yml` (build → GitHub Pages).
+- **A CARD THAT READS A GAME SYSTEM MUST NAME THAT SYSTEM IN THE WORDS THE PLAYER SEES — and must
+  never coin a noun for something the game shows nowhere else.** Two failures of the same kind, both
+  shipped in v7.163 and both found by the owner READING THE CARD, not by any assert:
+  - The Shelf's two Pollution mods said *"up to 50% in the filthiest water"*. That states the
+    fiction and never points at the rail on the HUD, so the card describes a mood rather than a
+    mechanic. Owner: *"as a player, i don't understand how this mechanic works by reading this. I am
+    the one that gets polluted, is it related to my pollution bar?"* It is. **The shipped precedent
+    was already in the file:** the Sunlance says *"It reaches as far as your Light does."* — it names
+    the bar, possessively, and lets the HUD do the rest. Copy that idiom instead of inventing one.
+  - Foul Spring said *"spends the upwelling"*, and `upwelling` appears **nowhere the player can
+    reach it** — not the HUD, not the brief, not fr.js outside that one line. A card is the wrong
+    place to introduce a proper noun for a mechanic that has never been named; it now says "clean
+    water" and "the patch", which is what is actually on screen. A careful French translation had
+    already been written (`remontée`) for a word no player has ever seen.
+
+  The process gap both came from: the new strings were checked for fr.js key collisions and for
+  `tt()` template correctness, and never for **legibility**. Those checks prove a string is unique
+  and translatable, not that it means anything. So before writing a card that reads a bar, a zone or
+  a resource, **grep for how an existing card phrases the same kind of dependency** (`grep -n "your
+  " src/config.js` finds the Sunlance's line), and **grep every noun you are about to use against
+  the player-facing surfaces** — `src/fr.js`, `src/ui.js`, the chapter's `name`/`tagline` — not just
+  against the config for a collision. A noun that only exists in comments is a noun you invented.
 - **PLAYER-VISIBLE COPY THAT CONTAINS A NUMBER MUST BE A `tt()` TEMPLATE, and the French coverage
   assert only sees config TABLES.** Two separate traps that landed together in v7.55, where the
   whole elements redesign shipped to the live URL untranslatable and the suite was green:
@@ -716,7 +745,17 @@ src path as argv). That also keeps the mutation rule intact — the working tree
   try/catch, so a save without it throws and falls back to a FRESH meta with no warning — the
   symptom is a title screen at difficulty 1 in English while localStorage holds your seed. Same
   trap for any field the loader writes into rather than reads: read `loadMeta` before hand-building
-  its input. A working seed is `{schema:1, coins, runs, lang, chapter, shop:{}, best:{}, chapters:{…}}`.
+  its input. A working seed is
+  `{schema:1, coins, runs, lang, chapter, shop:{}, best:{}, chapters:{…}, nick:'…'}`.
+  **`nick` IS LOAD-BEARING SINCE v7.157 and its absence looks nothing like its cause.** `nick: ''`
+  means "never chosen" and fires the leaderboard nickname prompt — a MODAL over the title screen —
+  so a perfectly good seeded save never reaches a run. In `fx-probe` that surfaces as
+  `scene never became ready` with no page error and no `__fxError`, i.e. indistinguishable from a
+  scene that draws nothing; it cost a bisect against a known-good scene to find, and it had broken
+  EVERY scene for every user of the probe. The general rule is worth more than the field:
+  **any new modal on the title screen breaks every headless probe that seeds a save**, and the
+  symptom never names the modal. When a probe that used to work stops reaching a run, shoot the
+  bare URL with `scripts/shot.mjs` and look at the page before debugging the scene.
   Per-book progression (v7.x) has NOT changed this — `shop` is still book 1's own top-level field,
   still required, still repaired the same way. A seed MAY also carry `books: {}` / `grants: {}`
   (Book 2's per-book purses and the monotone unlock-grant flags, both additive — see `bookMeta`/

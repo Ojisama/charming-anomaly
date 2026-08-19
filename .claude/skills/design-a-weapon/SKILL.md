@@ -83,6 +83,21 @@ Settle these before leaving the phase, because each one is his and each one inva
   usually written twice (loop bound *and* spacing divisor) and multiplying one of them renders
   identically to no change at all.
 
+  **THIS SENTENCE ALONE DID NOT WORK, WHICH IS WHY IT IS NOW ENFORCED.** The Shelf shipped its three
+  natives at 2/0/0 — Silt Veil and Ballast with no mods at all — while this line and the phase-4
+  checkbox both already said not to, so the chapter could offer exactly two distinct mod cards in a
+  300s run and its mod bucket measured 20.4% against a declared 27.9%. `run MB.a2` now fails any
+  weapon in The Surf or The Shelf carrying fewer than four, and `run MB.a` fails any mod anywhere
+  that resolves to no fold, no rate division and no fire site. **Design the mods in this phase and
+  let the suite prove it in phase 4** — an unenforced instruction is a note, not a guard.
+
+  **A count mod that CHOOSES TARGETS must choose distinct ones.** The divisor trap above is the
+  version where the spacing is wrong; the other version is a chooser that picks *with replacement*,
+  so two of the three things land on one body. That is the same "same hit, bigger" outcome the card
+  exists to escape and it also renders identically to no change at all — `pickBloomSpot` picks with
+  replacement and is right for a single cloud, `pickBloomSpots` is what a count mod needs. Assert
+  **distinct positions**, never a count.
+
 **Name it in this phase, in both languages.** A display name chosen late means renaming the id, the
 constants, the events and the comments, and that sweep has two silent failure modes: field names
 also exist as quoted strings an identifier sweep cannot see, and a display-name sweep over-matches
@@ -182,7 +197,17 @@ always "the feature seems to do nothing".
       nowhere else** — a magic number in sim.js belongs here as a named export.
 - [ ] Added to each chapter's `weapons` pool (and `starter` if it is one).
 - [ ] `WEAPON_MODS[id]` — 4–6 mods. An on/off mod that must be EPIC cannot be `kind: 'switch'`;
-      use `values: { epic: 1 }` + `maxPicks: 1` (the Beam Prism idiom).
+      use `values: { epic: 1 }` + `maxPicks: 1` (the Beam Prism idiom). **Do not self-report this
+      one — run it.** `node test/sim-test.js modbudget` fails on a weapon below four mods in either
+      Book 2 chapter (MB.a2) and on any mod in the game wired to nothing (MB.a). A mod present in
+      `WEAPON_MODS` but absent from `WEAPON_STAT_MODS`, `WEAPON_RATE_MODS` and every fire site is an
+      INERT CARD: offered, picked, banked, doing nothing, with nothing thrown.
+- [ ] **Its player-facing copy names what it reads.** A card that keys off a bar, a zone or a
+      resource must say so in the words on the HUD — the Sunlance's *"It reaches as far as your
+      Light does."* is the shipped idiom — and must not coin a noun the game shows nowhere else.
+      Checking a string for fr.js collisions and `tt()` correctness proves it is unique and
+      translatable, not that it is legible; both failures in v7.163 passed those checks and were
+      caught by the owner reading the card.
 - [ ] **A new stat is registered twice**: the whitelist array in `buildReadout` (sim.js:4960) *and*
       `STAT_LABEL` (ui.js:1821). Miss either and the stat is simply absent from the pause build
       sheet. The whitelist is ordered and the sheet caps at `STAT_MAX_ROWS` (5), so where you insert
