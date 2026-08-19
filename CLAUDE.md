@@ -25,65 +25,25 @@ node scripts/test-isolation.mjs   # does every scenario still pass ALONE? (a cou
                    # seeded, its measured drift ranges 18-159px across phases, and its threshold
                    # sat at 20 — so it passed only because the full-suite ORDER lands on a passing
                    # phase, and had a ~12% chance of a mystery red on any unrelated edit.
-node scripts/obstacle-contrast.mjs   # WCAG contrast audit of obstacle footprints per biome
-node scripts/bake-cast.mjs           # re-bake src/cast/*.png (title cards' creature thumbnails)
-node scripts/shot.mjs <url> <out.png> [waitMs] [w] [h] [seed.js]   # phone-viewport screenshot without the MCP tab
-node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js --out /tmp/pr --frames 14
-                                     # reproducible in-game frames of ONE effect, for A/B-ing a look
-node scripts/prop-scale.mjs          # PROP_SCALE ladder audit + render.js bare-`scale:` regression grep
-node scripts/charge-probe.mjs        # what a chapter RESOURCE bar (The Twilight's Light) actually does
-                                     # over real 300s runs, across THREE axes: spend policy, MOVEMENT
-                                     # policy, and whether Light Thief is bought. One spend policy
-                                     # cannot tell "the bar cannot fill" from "this player spent it
-                                     # all" — a greedy player pins the bar at zero under every tune
-                                     # there is, which is what the first cut of this probe reported.
-                                     # Rig is immortal + KITING and accepts level-ups: two earlier
-                                     # cuts printed full-looking tables for a 36s and a 100s run
-                                     # (exited at the first level-up; then died).
-                                     # THE MOVEMENT AXIS EXISTS BECAUSE THE KITING RIG LIES ABOUT ANY
-                                     # MECHANIC THAT SLOWS YOU. The walk turns at a fixed rate, so
-                                     # its circle has radius speed/0.35/2pi — 628px at full speed,
-                                     # 377px once the dark slows you to x0.6. Shaft cells are 760px
-                                     # apart, so slowing the player SHRINKS THE SAMPLED AREA below
-                                     # the spacing of the thing being sampled, and %inLight fell
-                                     # 11.8 -> 3.0. That reads exactly like the chapter trapping the
-                                     # player in the dark, and it is a property of walking in a
-                                     # circle. `seek` (walk toward the nearest shaft when low) is
-                                     # the honest model; report the pair, never `kite` alone.
-                                     # Generalise it: before believing a probe's damning number, ask
-                                     # whether the RIG's own geometry moved when the knob did.
-node scripts/weapon-census.mjs       # what a weapon actually DOES over real runs, headless
-                                     #   --chapter city --level 5 --weapons sewerGeyser --mods launch=1
-                                     # raw vs EFFECTIVE dps, overkill waste, kills/min, hits/s, and a
-                                     # per-zone breakdown for run.geysers weapons. Run it before
-                                     # answering "is this weapon weak?" — this repo has guessed at
-                                     # that twice and been wrong both times.
-                                     # COMPARE WITHIN ONE INVOCATION, NEVER ACROSS RUNS: every
-                                     # weapon in --weapons is measured off ONE seeded RNG stream, so
-                                     # changing weapon A re-phases B's draws. v7.25 read Tail Lash
-                                     # at 246 then 263 with no lash change at all — the re-phasing
-                                     # trap the sim-test section documents, in the harness. A number
-                                     # that moved without a matching code change is noise; re-run
-                                     # the whole table and read the ORDER, not the absolute value.
-
-# Terrain, two dev views. Neither ships in the bundle.
-#  1. /terrain-preview.html?seed=1&span=14000&cx=0&cy=0  (npm run dev) — the GENERATOR alone: biome
-#     tint + roads straight from terrain.js, fast, good for checking coastlines/cities/parcels.
-#  2. MAP MODE — the REAL renderer, wide-area. Load the game with ?debug (exposes window.__app,
-#     __run, __renderer, __stepSim), then in the console:
-#       __renderer.setMapMode(true, 1); document.getElementById('ui').style.display = 'none'
-#     and stitch tiles by setting run.player.x/y, calling __stepSim (to stream that tile's
-#     buildings — streamObstacles only materialises within 1400px of the player, so tiles must stay
-#     under ~2800px), then __renderer.sync(run,0,[]) + app.renderer.render(app.stage) and
-#     drawImage(app.canvas) into an offscreen canvas. setMapMode hides the player, entities, weather
-#     and light but KEEPS buildings (obstacleLayer lives inside entitiesLayer — hiding that layer
-#     wholesale gives you a map of bare roads).
-#     A gameplay screenshot shows about one city block; every layout property worth judging —
-#     whether a coastline is straight, whether blocks agree with their streets, whether a road
-#     network goes anywhere — only exists at several thousand px. Judge layout in map mode.
 ```
 
-There is no single-test runner and no test framework: `test/sim-test.js` is one plain-node file of `assert`-based scenarios that seeds `Math.random` (mulberry32) for determinism and prints `PASS …` / `ALL TESTS PASSED`. To run a subset, comment out scenarios or temporarily guard them — do not reach for jest/vitest. To add a check, append a scenario in the same style. **Anything free of Pixi and DOM is testable this way** — the suite already imports `sim.js`, `config.js`, `state.js`, `sync.js` and `fr.js`. (`sync.js` deliberately keeps browser globals out of its module scope precisely so it can be imported here.) `render.js` and `main.js` are not importable, but the suite still asserts against them as **source text** — see run UG.k, which greps `render.js` to prove a declared hook is actually forwarded and read. Reach for that trick when a render-side contract has no other guard.
+**The probes and dev views — one line each. Every one has a trap that has produced a WRONG answer
+in this repo (the kiting rig's own geometry, census numbers compared across invocations, map mode's
+hidden layers). `probing-the-game` holds all of them; load it before you measure, not after.**
+
+| Command | Answers |
+|---|---|
+| `node scripts/shot.mjs <url> <out.png> [waitMs] [w] [h] [seed.js]` | phone-viewport screenshot, no MCP tab |
+| `node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js --out /tmp/pr --frames 14` | reproducible in-game frames of ONE effect, for A/B-ing a look |
+| `node scripts/weapon-census.mjs --chapter city --level 5 --weapons sewerGeyser --mods launch=1` | what a weapon actually DOES over real runs: raw vs effective dps, overkill, kills/min |
+| `node scripts/charge-probe.mjs` | what a chapter RESOURCE bar (The Twilight's Light) does over real 300s runs |
+| `node scripts/obstacle-contrast.mjs` | WCAG contrast audit of obstacle footprints per biome |
+| `node scripts/prop-scale.mjs` | PROP_SCALE ladder audit + render.js bare-`scale:` regression grep |
+| `node scripts/bake-cast.mjs` | re-bake `src/cast/*.png` (title cards' creature thumbnails) |
+| `/terrain-preview.html?seed=1&span=14000&cx=0&cy=0` (npm run dev) | the GENERATOR alone: biome tint + roads, fast |
+| MAP MODE (`?debug`, then `__renderer.setMapMode(true,1)`) | the REAL renderer, wide-area — **judge any layout question here**, a gameplay shot shows one city block |
+
+There is no single-test runner and no test framework: `test/sim-test.js` is one plain-node file of `assert`-based scenarios that seeds `Math.random` (mulberry32) for determinism and prints `PASS …` / `ALL TESTS PASSED`. To run a subset, pass a name (above) — do not reach for jest/vitest. To add a check, append a scenario in the same style. **Anything free of Pixi and DOM is testable this way** — the suite already imports `sim.js`, `config.js`, `state.js`, `sync.js` and `fr.js`. (`sync.js` deliberately keeps browser globals out of its module scope precisely so it can be imported here.) `render.js` and `main.js` are not importable, but the suite still asserts against them as **source text** — see run UG.k, which greps `render.js` to prove a declared hook is actually forwarded and read. Reach for that trick when a render-side contract has no other guard.
 
 **Six scenarios lint CROSS-FILE CONTRACTS as source text, and they are the cheapest guards here.**
 An architecture audit over 273 releases found the single largest root-cause class — 28% of every
@@ -222,83 +182,26 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
 
 ## Conventions
 
-- **Never choose a version number. `npm run ship` assigns it.** A release is still a commit subject
-  `vX.Y.Z: <what changed and why, in one plain sentence>` (e.g. `v5.6.16: roar and tail swipe are
-  visible — their events were silently dropped`), but you write only the sentence:
-  `npm run ship "<that sentence>"` fetches `main`, takes the next free number, amends HEAD to carry
-  it, and pushes to `main`. With no argument it reuses HEAD's own subject. Flags need the bare form
-  (`node scripts/ship.mjs "…" --patch`): `--patch`/`--major` override the default minor bump,
-  `--dry-run` prints the version and subject and touches nothing. Chores use `chore: …` and stay on
-  your branch. Ship prints the exact `scripts/deploy-watch.sh "vX.Y.Z · <sha>"` to verify with.
-  **Ship amends HEAD with `git commit --amend -m`, which replaces the WHOLE message — any BODY on
-  that commit is destroyed.** So write the reasoning where it survives: on the commits below the
-  release, or push the branch first (the pre-amend commit stays reachable there) and ship after.
-  **After ship, the branch you already pushed has DIVERGED** — ship amended HEAD, so your local
-  branch is no longer a descendant of its remote copy and a second `git push` is rejected as
-  non-fast-forward. Push the next commit to a NEW branch name (`git push origin HEAD:<name>-2`)
-  rather than force-pushing; the point of that push is only to keep the commit BODY reachable, so
-  a fresh name costs nothing and `--force` is never the answer.
-  **A REJECTED PUSH TO YOUR OWN BRANCH IS NOT ALWAYS YOUR OWN DIVERGENCE, AND GIT'S SUGGESTED FIX
-  IS THE DANGEROUS ONE.** Branch names get reused across sessions here, so `origin/<your-branch>`
-  can hold a feature commit you have never seen. git's hint on the rejection says *"use 'git pull'
-  before pushing again"* — do that on a shared name and you have merged someone else's UNSHIPPED,
-  untested work into the tree you are one command away from publishing under your release number.
-  On 2026-08-16 `origin/surf-weapons` carried `e49e607` ("The Surf gets three native weapons"),
-  absent from both `main` and the local branch of the same name; a pull-then-ship would have put it
-  on the live URL inside a release whose subject was about a summary badge. **Diff before you
-  reconcile:** `git log --oneline HEAD..origin/<branch>` names exactly what the remote has that you
-  do not. If it is not yours, do not pull it — move your commits to a NEW branch (`git switch -c
-  <topic>`) and ship from there, leaving the other session's branch untouched. The general rule:
-  `git log --oneline origin/main..HEAD` before shipping tells you what you are about to publish,
-  and it is the list you must actually READ, not just confirm is short.
-  Also expect the retry path to fire for real: it merged `main` and renumbered twice in one
-  afternoon while another session was shipping, which is working as designed — check
-  `git log --oneline origin/main..HEAD` comes back empty afterwards rather than assuming.
-  Why it exists: an agent that picks a number when it STARTS work picks it hours before `main` is
-  next read, and on 2026-08-09 `v6.7.6` and `v6.7.7` each shipped twice — a published duplicate is
-  unfixable without rewriting history. ship closes that window to the seconds between fetch and
-  push, and if it loses even that race it unlabels the number it never published, merges what
-  landed, takes the number free at that moment, and retries — so neither a duplicate nor a gap can
-  reach the log. (`scripts/ship.mjs --selftest` asserts the numbering; the race path was proven
-  end-to-end against a throwaway remote.)
-- **`main` MOVES WHILE YOU WORK, AND IT CAN DELETE THE FUNCTION YOU ARE REWRITING.** Several sessions
-  ship to this repo concurrently. Checking `origin/main` once, at the start, is not enough for
-  anything that takes hours: on 2026-08-16 a per-book-progression branch spent a whole task
-  rewriting `titleChapterList` to walk every book, while another session **deleted that function
-  outright** and replaced it with `titleBookshelf`, which grouped by book natively and fixed the
-  same bug better. That task's production code and its four assertions were thrown away at merge
-  time, and `main` had advanced **13 versions** (v7.92→v7.98, a new chapter and a title-screen
-  rework) since the branch started. `git fetch && git log --oneline HEAD..origin/main` costs one
-  second. Run it: before you start rewriting any shared function, again before you write the plan
-  that assumes its shape, and again before shipping. When the answer is "someone already did this,
-  differently", **take theirs** — resurrecting your version against a deleted function is how two
-  designs end up half-merged. See also the memory `concurrent-sessions-ship-to-main`.
-- **The stamp no longer needs the release commit at HEAD.** `buildStamp()` (`vite.config.js`) reads
-  HEAD's subject, and when that isn't a release it falls back to the most recent `vX.Y.Z` in HEAD's
-  ancestry, marked `v7.7.0+ · <sha>` — the `+` meaning "there are commits after that release". A
-  `chore:`, a docs-only push or a merge commit at HEAD therefore stamps honestly instead of `dev`,
-  which is what killed the old land-the-chores-first choreography. It stamped `dev` twice for real:
-  v6.10.1 shipped to fix the chore form, and a CLAUDE.md-only push took the live page from
-  `v6.10.0 · 969a0e8` to `dev · 4f17cad` one command after that rule was written down. The sha is
-  still the part that cannot be duplicated or guessed.
-- **`meta` FIELDS ARE ADDITIVE-ONLY. Never rename, never repurpose, never delete a top-level field —
-  R2** (`docs/superpowers/specs/2026-08-04-cross-device-save-sync-tech-strategy.md:124`): *"`meta`
-  changes are additive. Never rename, never repurpose. A rename is a delete plus an add, and the old
-  build carries the corpse forward."* The worked example is this project's OWN per-book-progression
-  design: rev 1 (`docs/superpowers/specs/2026-08-16-per-book-progression-design.md`, "Revision
-  history") moved `meta.coins`/`meta.shop`/`meta.choiceSlots`/`meta.lightThief` into
-  `meta.books[bookId]` and deleted the top-level fields behind a `SCHEMA` bump. Adversarial review
-  ran a rev-1-migrated save through the ALREADY-SHIPPED (pre-migration) `loadMeta` and got a total
-  wipe — `runs 137, chapter beyond, lang fr, chapters.beyond {unlocked, maxD 5, won 5}` in, `runs 0,
-  chapter body, lang en, beyond {unlocked:false, maxDifficulty:1}` out — because that `loadMeta` does
-  `for (const id of Object.keys(SHOP)) m.shop[id] = …` unconditionally (now `shopLines(BOOK_ORDER[0])`,
-  same hazard either way) and its own `catch { /* corrupted save -> fresh */ }` swallows the
-  resulting TypeError with no warning: a revert, a stale tab, an un-updated device or
-  `public/sw.js`'s offline shell can all still be running a build that expects the OLD shape and
-  push its blob straight over a slot the new build already migrated. Rev 2 shipped instead: additive
-  by construction, so an older build's read of a field it still recognizes round-trips untouched,
-  and a field it does not recognize is simply extra bytes it never looks at. There is no migration
-  step because there is nothing to migrate.
+- **Never choose a version number. `npm run ship "<one plain sentence>"` assigns it**, amends HEAD
+  and pushes to `main`. Chores use `chore: …` and stay on your branch. **Load
+  `shipping-a-release` before you ship, push, or reconcile a branch** — it carries why the number is
+  never yours to pick, that ship's amend DESTROYS the commit body, that a rejected push is often
+  another session's branch and `git pull` is the dangerous fix, and that `main` can delete the
+  function you are mid-way through rewriting (it did, costing a whole task's work).
+- **`git log --oneline origin/main..HEAD` before shipping tells you what you are about to publish,
+  and it is the list you must actually READ**, not just confirm is short. `git fetch && git log
+  --oneline HEAD..origin/main` costs one second — run it before rewriting any shared function.
+- **`meta` FIELDS ARE ADDITIVE-ONLY. Never rename, never repurpose, never delete a top-level field**
+  (R2, `docs/superpowers/specs/2026-08-04-cross-device-save-sync-tech-strategy.md:124`): *"A rename
+  is a delete plus an add, and the old build carries the corpse forward."* An old build is always
+  still out there — a revert, a stale tab, an un-updated device, `public/sw.js`'s offline shell —
+  and it will push its blob over a slot the new build already migrated. Proven on this project's own
+  per-book-progression design: rev 1 moved `meta.coins`/`shop`/`choiceSlots`/`lightThief` under
+  `meta.books[bookId]` behind a SCHEMA bump; running that save back through the ALREADY-SHIPPED
+  `loadMeta` wiped it completely (137 runs, fr, beyond unlocked → 0 runs, en, locked), because
+  `loadMeta`'s own `catch { /* corrupted save -> fresh */ }` swallows the TypeError with no warning.
+  Rev 2 is additive by construction and needs no migration step at all — see that spec's "Revision
+  history" before you touch the save shape.
 - **A SUBAGENT DISPATCHED TO REVIEW UNCOMMITTED WORK MUST BE TOLD, IN ITS PROMPT, NOT TO MUTATE THE
   TREE.** Spell out the allowed set (`git diff`, `git show`, `git log`, file reads) and the forbidden
   set (`git stash` in any form, `git reset`, `git checkout`, `git restore`, `git clean`, `git add`,
@@ -336,7 +239,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   arithmetic in them was already restating what the diff shows. Do not reinstate a deleted one.
   Note the interaction with `npm run ship`: it amends HEAD with `-m` and destroys the body, so push
   the branch (or write the reasoning on the commit BELOW the release) before shipping.
-- **THREE RULE SETS LIVE IN SKILLS, NOT HERE — load the skill BEFORE the work, not after.** They
+- **SIX RULE SETS LIVE IN SKILLS, NOT HERE — load the skill BEFORE the work, not after.** They
   were moved out because they only apply to one kind of task and this file is read on every call;
   moving them does not make them optional. If you are about to do the thing in the left column and
   you have not loaded the skill, stop.
@@ -348,6 +251,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   | rename an existing id/field/display name, or name a new mechanic | `renaming-safely` |
   | add or redesign a weapon or weapon mod | `design-a-weapon` |
   | add or rework an enemy, elite affix, boss or hazard | `designing-an-enemy` |
+  | ship, push to `main`, or reconcile a branch whose push was rejected | `shipping-a-release` |
 
   Weapon-wiring specifics (`STAT_KEYS`, the epic-switch idiom, per-cast counts, shared entity
   arrays, chapter-conditional behaviour) live in `design-a-weapon`'s phase 4 checklist — one copy,

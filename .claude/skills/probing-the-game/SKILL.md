@@ -242,3 +242,48 @@ extension connected. Both can be unavailable at once. Fallbacks, in order:
   Diff enemy `hp` across the step instead — `scripts/weapon-census.mjs` does, and documents the
   other trap in the same breath (`run.events` must be drained every step, as main.js does, or the
   backlog is recounted every frame and dps reads ~2800× high).
+
+## Two probes with a rig that lies, and the wide-area view (moved out of CLAUDE.md)
+
+- **`scripts/charge-probe.mjs` — what a chapter RESOURCE bar (The Twilight's Light) actually does** over
+  real 300s runs, across THREE axes: spend policy, MOVEMENT policy, and whether Light Thief is
+  bought. One spend policy cannot tell "the bar cannot fill" from "this player spent it all" — a
+  greedy player pins the bar at zero under every tune there is, which is what the first cut of this
+  probe reported. The rig is immortal + KITING and accepts level-ups: two earlier cuts printed
+  full-looking tables for a 36s and a 100s run (exited at the first level-up; then died).
+  - **THE MOVEMENT AXIS EXISTS BECAUSE THE KITING RIG LIES ABOUT ANY MECHANIC THAT SLOWS YOU.** The
+    walk turns at a fixed rate, so its circle has radius speed/0.35/2pi — 628px at full speed, 377px
+    once the dark slows you to x0.6. Shaft cells are 760px apart, so slowing the player SHRINKS THE
+    SAMPLED AREA below the spacing of the thing being sampled, and %inLight fell 11.8 -> 3.0. That
+    reads exactly like the chapter trapping the player in the dark, and it is a property of walking
+    in a circle. `seek` (walk toward the nearest shaft when low) is the honest model; report the
+    pair, never `kite` alone.
+  - Generalise it: **before believing a probe's damning number, ask whether the RIG's own geometry
+    moved when the knob did.**
+
+- **`scripts/weapon-census.mjs` — COMPARE WITHIN ONE INVOCATION, NEVER ACROSS RUNS.** Every weapon in
+  `--weapons` is measured off ONE seeded RNG stream, so changing weapon A re-phases B's draws. v7.25
+  read Tail Lash at 246 then 263 with no lash change at all — the same re-phasing trap the sim-test
+  section of CLAUDE.md documents, but inside the harness. A number that moved without a matching
+  code change is noise; re-run the whole table and read the ORDER, not the absolute value. Run it
+  before answering "is this weapon weak?" — this repo has guessed at that twice and been wrong both
+  times.
+
+- **MAP MODE is where layout gets judged, not a gameplay screenshot.** A gameplay shot shows about
+  one city block; every layout property worth judging — whether a coastline is straight, whether
+  blocks agree with their streets, whether a road network goes anywhere — only exists at several
+  thousand px. Load the game with `?debug` (exposes `window.__app`, `__run`, `__renderer`,
+  `__stepSim`), then in the console:
+
+  ```js
+  __renderer.setMapMode(true, 1); document.getElementById('ui').style.display = 'none'
+  ```
+
+  Stitch tiles by setting `run.player.x/y`, calling `__stepSim` (to stream that tile's buildings —
+  `streamObstacles` only materialises within 1400px of the player, so tiles must stay under ~2800px),
+  then `__renderer.sync(run,0,[])` + `app.renderer.render(app.stage)` and `drawImage(app.canvas)` into
+  an offscreen canvas. `setMapMode` hides the player, entities, weather and light but KEEPS buildings
+  (`obstacleLayer` lives inside `entitiesLayer` — hiding that layer wholesale gives you a map of bare
+  roads). The other view, `/terrain-preview.html?seed=1&span=14000&cx=0&cy=0`, is the GENERATOR alone:
+  biome tint + roads straight from terrain.js, fast, good for coastlines/cities/parcels. Neither
+  ships in the bundle.
