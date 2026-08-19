@@ -9000,10 +9000,13 @@ function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
       // run.shafts at all.
       const fouled = foulSpring > 0 && foulUpwelling(run, x, y)
       const mul = fouled ? 1 + foulSpring : 1
+      // ONE multiplier across all three of the cloud's numbers, which is exactly what the card
+      // promises. Splitting it -- size and duration but not damage, as this first shipped -- makes
+      // the card and the code two different cards.
       run.blooms.push({
         x, y,
         r: 0, maxR: stats.maxR * mul, t: 0, dur: stats.dur * mul,
-        dmgPerTick: stats.dmgPerTick, look: 'silt', slow: 0, fear: stats.fear,
+        dmgPerTick: stats.dmgPerTick * mul, look: 'silt', slow: 0, fear: stats.fear,
       })
     }
   })

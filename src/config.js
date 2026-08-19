@@ -2942,9 +2942,16 @@ export const WEAPON_MODS = {
     longPuff:   { name: 'Long Puff',   desc: 'puff radius',        icon: '📏', base: 0.25, kind: 'pct' },
     // The chapter's bar, sold as a card. Read at the cast site off pollutionFrac, so it is worth
     // nothing in clean water and everything in the filth -- which makes it the one card that pays
-    // you for NOT running to an upwelling, against a bar whose every other consumer pays you for
+    // you for NOT running to a clean patch, against a bar whose every other consumer pays you for
     // going. No knockback and no cadence, so it is outside the fence above.
-    scour:      { name: 'Scour',       desc: 'puff damage, up to {n} in the filthiest water', icon: '🪣', base: 0.50, kind: 'pct' },
+    //
+    // ⚠ THE COPY MUST NAME THE BAR. It first shipped as "up to {n} in the filthiest water", which
+    // states the fiction and never connects it to the rail -- owner, from reading the card: "as a
+    // player, i don't understand how this mechanic works by reading this. I am the one that gets
+    // polluted, is it related to my pollution bar?" It is, and the card now says so. The register is
+    // the Sunlance's ('It reaches as far as your Light does.'), which is the shipped precedent for a
+    // card that reads a bar: name it, possessively, and let the rail do the rest.
+    scour:      { name: 'Scour',       desc: 'puff damage, rising with your Pollution (up to {n})', icon: '🪣', base: 0.50, kind: 'pct' },
     // The Breaker's Backwash idiom, and safe here for the reason the block above gives: a body in
     // the rear cone is still shoved once per cast, so coverage doubles and the per-body race does
     // not move. Read at the cast site (stepBubblePuffWeapon).
@@ -2995,11 +3002,19 @@ export const WEAPON_MODS = {
     // the extras on top of each other and renders identically to no change at all.
     roil:       { name: 'Roil',        desc: 'extra cloud(s) per cast', icon: '🔷', kind: 'tier' },
     // THE CARD THAT COSTS YOU SOMETHING (owner's pick, 2026-08-19). A cloud dropped inside a live
-    // upwelling is bigger and hangs longer, and SPENDS that upwelling -- the chapter's own drawdown,
-    // set by writing the `drawdown` field stepCharge already counts and render.js already fades the
-    // circle off, so the tell is the one the player has been reading since the chapter shipped.
-    // It is the only card in the book that asks you to burn your own refill.
-    foulSpring: { name: 'Foul Spring', desc: 'a cloud dropped on clean water is {n} bigger and lasts that much longer, and spends the upwelling', icon: '🌀', base: 0.50, kind: 'pct' },
+    // clean-water patch is bigger, hangs longer and bites harder, and SPENDS that patch -- the
+    // chapter's own drawdown, set by writing the `drawdown` field stepCharge already counts and
+    // render.js already fades the circle off, so the tell is the one the player has been reading
+    // since the chapter shipped. It is the only card in the book that asks you to burn your refill.
+    //
+    // ⚠ THE COPY MUST NOT SAY 'upwelling'. The first cut did, and that word appears NOWHERE else the
+    // player can see it -- not the HUD, not the brief, not fr.js outside this line. A card is the
+    // wrong place to introduce a proper noun for a mechanic that has never been named. It says
+    // 'clean water' and 'the patch', which is what the player is actually looking at.
+    // ONE multiplier for all three numbers, and the card says all three (owner's wording,
+    // 2026-08-19). It scaled only size and duration when it first shipped, which made the card and
+    // the code two different promises.
+    foulSpring: { name: 'Foul Spring', desc: 'a cloud in clean water has {n} more duration, damage and size, but fouls the patch', icon: '🌀', base: 0.50, kind: 'pct' },
   },
   ballast: {
     deadweight: { name: 'Deadweight',  desc: 'impact damage',       icon: '💥', base: 0.30, kind: 'pct' },
@@ -3011,7 +3026,9 @@ export const WEAPON_MODS = {
     // damaging is the stain"). BOTH numbers, which is why the name says the stain rather than one of
     // its stats -- the Big Beam idiom. The stain's radius stops being tied to the crater's here: the
     // filth spreads further than the splash, which is the whole picture of the card.
-    foulWater:  { name: 'Foul Water',  desc: 'stain size and damage, up to {n} in the filthiest water', icon: '🛢️', base: 0.50, kind: 'pct' },
+    // Same wording rule as Scour above, for the same reason and from the same reading: the card
+    // names the bar it reads.
+    foulWater:  { name: 'Foul Water',  desc: 'stain size and damage, rising with your Pollution (up to {n})', icon: '🛢️', base: 0.50, kind: 'pct' },
   },
   // Four apiece for the Trawl's natives, and four is the CEILING, not a starting point (spec §7:
   // the pool's real mod budget is ~28, and the rule is to cut a weapon rather than invent mods).

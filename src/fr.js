@@ -1237,7 +1237,7 @@ const CONFIG = {
   'Long Puff': 'Jet Long',
   'puff radius': 'rayon du jet',
   'Scour': 'Décapage',
-  'puff damage, up to {n} in the filthiest water': 'dégâts du jet, jusqu\'à {n} dans l\'eau la plus sale',
+  'puff damage, rising with your Pollution (up to {n})': 'dégâts du jet, augmentent avec ta Pollution (jusqu\'à {n})',
   'Backblow': 'Contre-Souffle',
   'a second cone blows out behind you': 'un second cône souffle derrière toi',
   'Silt Veil': 'Voile de Vase',
@@ -1245,15 +1245,16 @@ const CONFIG = {
   // Voile de Vase's four (2026-08-19). 'vase' throughout, never 'limon', because the weapon's own
   // name already fixed the word -- the rule the Coquille Ricochet entry states: one word for one
   // thing across the card, the sheet and the mods. 'Volute' is a curl of something spreading
-  // through water, 'Remous' the swirl that lifts more of it, and 'Source Souillée' keeps the
-  // upwelling a SOURCE, which is what the card destroys. 'remontée' is the oceanographic word for
-  // an upwelling and is what the last clause spends.
+  // through water, and 'Source Souillée' keeps the clean patch a SOURCE, which is what the card
+  // destroys. The DESC deliberately says 'l'eau claire' / 'la zone' and never 'la remontée': the
+  // game has no player-facing word for those circles in either language, and a card is the wrong
+  // place to coin one.
   'Grit': 'Abrasif',
   'silt damage per tick': 'dégâts de la vase par tick',
   'Billow': 'Volute',
   'Roil': 'Remous',
   'Foul Spring': 'Source Souillée',
-  'a cloud dropped on clean water is {n} bigger and lasts that much longer, and spends the upwelling': 'un nuage lâché dans l\'eau claire est {n} plus large et dure d\'autant plus longtemps, et épuise la remontée',
+  'a cloud in clean water has {n} more duration, damage and size, but fouls the patch': 'un nuage dans l\'eau claire gagne {n} de durée, de dégâts et de taille, mais souille la zone',
   'Ballast': 'Lest',
   'Drops dumped weight on the crowd. What it lands in stays fouled.': 'Lance un débris. Crée une flaque d\'eau souillée à l\'impact.',
   // Lest's four. 'Délestage' is literally jettisoning ballast, so the count mod is named for the
@@ -1266,7 +1267,7 @@ const CONFIG = {
   'Jetsam': 'Délestage',
   'extra weight(s) per drop': 'poids supplémentaire(s) par largage',
   'Foul Water': 'Eau Souillée',
-  'stain size and damage, up to {n} in the filthiest water': 'taille et dégâts de la flaque, jusqu\'à {n} dans l\'eau la plus sale',
+  'stain size and damage, rising with your Pollution (up to {n})': 'taille et dégâts de la flaque, augmentent avec ta Pollution (jusqu\'à {n})',
   'in troubled water': 'en eaux troubles',
   // The Twilight (Book 2 chapter 5). Owner's pick, 2026-08-18: 'La Pénombre' is the half-light
   // itself — the state the whole chapter is about — and the spine takes the same word with the

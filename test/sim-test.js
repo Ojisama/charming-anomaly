@@ -6688,7 +6688,7 @@ function runModBudget() {
       const hold = (r) => { sh.x = sh.bx = r.player.x; sh.y = sh.by = r.player.y; sh.drawdown = drawdown; r.shafts = [sh] }
       assert(castUntil(run, (r) => r.blooms.some((b) => b.look === 'silt'), hold), 'precondition: the veil must cast within 12s')
       const cloud = run.blooms.filter((b) => b.look === 'silt')[0]
-      return { maxR: cloud.maxR, dur: cloud.dur, spent: (sh.drawdown ?? 0) >= life }
+      return { maxR: cloud.maxR, dur: cloud.dur, dps: cloud.dmgPerTick, spent: (sh.drawdown ?? 0) >= life }
     }
     const plain = boot('shelf', 'siltVeil', 5, null)
     assert(castUntil(plain, (r) => r.blooms.some((b) => b.look === 'silt'), (r) => { r.shafts = [] }),
@@ -6699,10 +6699,14 @@ function runModBudget() {
     const already = withShaft(life)
     assert(live.maxR > bare.maxR * 1.4, `a cloud dropped in a live upwelling must be bigger: ${live.maxR.toFixed(1)} against ${bare.maxR.toFixed(1)}`)
     assert(live.dur > bare.dur * 1.4, `...and must hang longer: ${live.dur.toFixed(2)}s against ${bare.dur.toFixed(2)}s`)
+    // ALL THREE, because the card names all three. It scaled only size and duration when it first
+    // shipped, and the card that shipped beside it promised damage as well.
+    assert(live.dps > bare.dmgPerTick * 1.4,
+      `...and must bite harder, which the card promises alongside size and duration: ${live.dps.toFixed(2)} against ${bare.dmgPerTick.toFixed(2)}`)
     assert(live.spent, 'Foul Spring must SPEND the upwelling it fouls — that cost is the whole card')
     assert(Math.abs(already.maxR - bare.maxR) < 1e-9,
       `an upwelling already drawn down must pay NOTHING: ${already.maxR.toFixed(1)} against a bare ${bare.maxR.toFixed(1)}`)
-    console.log(`PASS run MB.g (Foul Spring): cloud r ${bare.maxR.toFixed(0)} bare -> ${live.maxR.toFixed(0)} in clean water (upwelling spent), ${already.maxR.toFixed(0)} on water already spent`)
+    console.log(`PASS run MB.g (Foul Spring): cloud r ${bare.maxR.toFixed(0)}->${live.maxR.toFixed(0)}, dur ${bare.dur.toFixed(1)}->${live.dur.toFixed(1)}s, dps ${bare.dmgPerTick.toFixed(1)}->${live.dps.toFixed(1)} in clean water (patch fouled), and ${already.maxR.toFixed(0)} on water already spent`)
   }
 
   console.log('PASS run MB (Book 2 chapters 1-2 mod budget): no inert cards across every weapon, four-plus apiece in both chapters, rate mods speed up, count mods spread, and the three Pollution/upwelling cards pay the right way round')
