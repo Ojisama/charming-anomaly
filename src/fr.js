@@ -1231,7 +1231,7 @@ const CONFIG = {
   // leads on the poison where the English leads on the scatter; the card does both, and the
   // English was widened to match rather than the French narrowed.
   'Bubble Puff': 'Jet de Bulles',
-  'Blows a cone of bubbles that shoves everything out of it.': 'Un cône de bulles qui repousse les assaillants.',
+  'Blows a cone of bubbles that scours what it touches.': 'Un cône de bulles qui décape tout sur son passage.',
   // Its two mods. The descs follow the Breaker's pattern exactly ('wave damage' -> 'dégâts de la
   // vague'), keyed off the weapon's own French name, so the two width cards in Book 2 read alike.
   'Froth': 'Écume',
