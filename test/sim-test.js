@@ -129,6 +129,8 @@ import {
   refillSpec,
   // Book 2 The Surf: Humidity drives damage (Run US.d)
   HUMIDITY_DMG_FLOOR, resourceDamageMul, resourceRateMul,
+  // Book 2 The Shelf: Pollution as a weapon mod (Run MB)
+  pollutionFrac, BALLAST_FLIGHT,
   LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_DMG, LUNGE_KILL_REFILL, LUNGE_BITE_MUL, STARVE_TICK,
   // Book 2 The Surf: the Shore Crab's guard (Run US.i)
   CRAB_GUARD_ARC,
@@ -6439,6 +6441,274 @@ function runShorebreak() {
   console.log(`PASS run SK (The Shorebreak): opens a corridor a walking crowd cannot close, sustained rather than impulsive, ${SHOREBREAK_DUR_MIN}s floor on an empty bar rising to ${SHOREBREAK_DUR_AT_FULL}s, replaces the Pulse in surf only, spares allies`)
 }
 run(runShorebreak)
+// ---- run MB: the mod budget in Book 2's first two chapters (2026-08-19) ------------------------
+// The Surf shipped four mods per weapon; The Shelf shipped 2/0/0, its two zone weapons carrying NO
+// mods at all — so the chapter could offer exactly two distinct mod cards in a whole run and its
+// mod bucket measured 20.4% against a declared 27.9%. This guards the cards that closed that gap.
+//
+// EVERY BLOCK HERE FAILS SILENTLY WITHOUT IT, which is the only reason each one exists:
+//   .a a card wired into no table and read at no fire site is INERT — it is offered, picked, banked
+//      and does nothing, and nothing throws.
+//   .b a rate mod folded into an interval through WEAPON_STAT_MODS SLOWS the weapon. The card says
+//      "+25% drop rate" and the weapon fires less often; only a direction assertion sees it.
+//   .c a per-cast count written twice (loop bound AND spacing divisor) that moves only the bound
+//      spawns its extras ON TOP of each other, which renders identically to no change at all. So
+//      this asserts DISTINCT POSITIONS, never a count — a count passes happily when things stack.
+//   .d/.f a pollution mod reads run.charge, which counts CLARITY and is only display-inverted. Get
+//      the sense backwards and the card pays out in clean water instead of filthy — a sign error
+//      that still produces a working, plausible-looking weapon.
+//   .e Backblow's second nova carries its own once-per-body hit set, so letting it fire when the
+//      cone is already past a half-turn turns a coverage card into a silent damage doubler.
+function runModBudget() {
+  const dt = 1 / 60
+  const mkMeta = () => { const m = makeMeta(); m.dev = true; ensureChapterMeta(m); return m }
+  // No enemies and no spawning: every block below measures what a CAST produces, and a crowd would
+  // only re-phase the RNG between the two sides of each comparison.
+  const boot = (chapter, id, level, mods, charge) => {
+    Math.random = mulberry32(20260819)
+    const run = createRun(mkMeta(), { chapter, difficulty: 1 })
+    run.weapons = [{ id, level }]
+    run.player.maxHP = run.player.hp = 1e9
+    run.mods.spawnMul = 0
+    run.enemies.length = 0
+    if (mods) Object.assign(run.weaponMods[id], mods)
+    if (charge != null) run.charge = charge
+    return run
+  }
+  // STEP UNTIL THE WEAPON ACTUALLY CASTS, never for a fixed slice: fireOnTimer fires after a full
+  // interval, and these six weapons' intervals span 0.6s to 4.4s. A fixed 0.05s advance measured an
+  // empty world and read as "the mod does nothing" — which is precisely the failure every block
+  // below is trying to catch, arriving from the fixture instead of from the code.
+  //
+  // `onStep` re-pins whatever the sim would otherwise drift: run.charge drains 2.2/s here, so a
+  // clean-water measurement taken after one cast is not clean water any more, and streamShafts
+  // rewrites run.shafts every frame around the player.
+  const advance = (run, secs, onStep) => {
+    for (let i = 0; i < Math.round(secs / dt); i++) { if (onStep) onStep(run); stepSim(run, { x: 0, y: 0 }, dt) }
+  }
+  const castUntil = (run, pred, onStep, maxSecs = 12) => {
+    for (let i = 0; i < Math.round(maxSecs / dt); i++) {
+      if (onStep) onStep(run)
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (pred(run)) return true
+    }
+    return false
+  }
+  const SHELF_MAX = CHAPTERS.shelf.resource.max
+  const pin = (charge) => (run) => { run.chargeMax = SHELF_MAX; run.charge = charge }
+
+  // (a) NO INERT CARDS, across every weapon in the game rather than only the six that changed.
+  // The check is a source-text one (the run UG.k trick) because WEAPON_STAT_MODS is private to
+  // sim.js: a mod is live if it folds a stat, divides an interval, or is named at a fire site.
+  // Denominator printed, per CLAUDE.md — a sweep whose count nobody checks is how run RA passed
+  // over a chapter it could not see.
+  {
+    // COMMENTS STRIPPED FIRST, and that is not tidiness. Every mod id in this file is also discussed
+    // in prose right beside its wiring, so a plain substring search over the RAW source is satisfied
+    // by the comment alone: delete a WEAPON_STAT_MODS entry, leave the sentence that explains it,
+    // and the card goes inert while this block stays green. That exact edit is mutation 7 in the
+    // proof run, and it passed until this line existed.
+    const simSrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
+    const dead = []
+    let checked = 0
+    for (const [wid, mods] of Object.entries(WEAPON_MODS)) {
+      for (const mid of Object.keys(mods)) {
+        checked++
+        // Named anywhere in sim.js — as a WEAPON_STAT_MODS key, or read off run.weaponMods at its
+        // own site — or registered as this weapon's rate mod in config's own table.
+        if (simSrc.includes(mid) || WEAPON_RATE_MODS[wid] === mid) continue
+        dead.push(`${wid}.${mid}`)
+      }
+    }
+    assert.deepStrictEqual(dead, [], `weapon mods that no sim.js site reads (they ship as inert cards): ${dead.join(', ')}`)
+    console.log(`PASS run MB.a (no inert cards): all ${checked} weapon mods across ${Object.keys(WEAPON_MODS).length} weapons resolve to a fold, a rate division or a fire site`)
+  }
+
+  // (a2) The budget itself: the two chapters this pass was about carry at least four apiece, and
+  // The Shelf's two zone weapons are no longer empty. A literal floor, not a moving one — the
+  // pathology being guarded is a weapon shipping with none, which is what happened.
+  {
+    const rows = []
+    for (const ch of ['surf', 'shelf']) {
+      for (const wid of CHAPTERS[ch].weapons) {
+        const n = Object.keys(WEAPON_MODS[wid] ?? {}).length
+        rows.push(`${wid} ${n}`)
+        assert(n >= 4, `${ch}.${wid} carries ${n} mods; Book 2's budget is ~4 apiece and a weapon with fewer starves its chapter's mod bucket`)
+      }
+    }
+    console.log(`PASS run MB.a2 (budget): ${rows.join(', ')}`)
+  }
+
+  // (b) BOTH RATE MODS SPEED THE WEAPON UP. Direction only — the magnitude is config's business.
+  {
+    for (const [chapter, id, mod, level] of [['surf', 'breaker', 'quickBreak', 5], ['shelf', 'ballast', 'quickWinch', 5]]) {
+      const count = (mods) => {
+        const run = boot(chapter, id, level, mods)
+        let fires = 0
+        for (let i = 0; i < Math.round(12 / dt); i++) {
+          stepSim(run, { x: 0, y: 0 }, dt)
+          fires += run.events.filter((e) => e.type === 'shoot' || e.type === 'ballast').length
+          run.events.length = 0
+        }
+        return fires
+      }
+      const base = count(null)
+      const fast = count({ [mod]: 1 })
+      assert(base > 0, `precondition: ${id} must fire at all over 12s, got ${base}`)
+      assert(fast > base, `${mod} must make ${id} fire MORE often, not less — folding a rate pick into an interval slows the weapon (base ${base}, modded ${fast})`)
+      console.log(`PASS run MB.b (${mod} speeds up): ${base} -> ${fast} casts over 12s`)
+    }
+  }
+
+  // (c) COUNT MODS SPAWN AT DISTINCT POSITIONS. The assertion is the spread, never the count.
+  {
+    // Silt Veil: clouds ringed around the player.
+    const veil = boot('shelf', 'siltVeil', 5, { roil: 2 })
+    assert(castUntil(veil, (r) => r.blooms.some((b) => b.look === 'silt')), 'precondition: the veil must cast within 12s')
+    const clouds = veil.blooms.filter((b) => b.look === 'silt')
+    assert(clouds.length >= 3, `expected Roil to add clouds (count 1 + 2), got ${clouds.length}`)
+    const veilPts = new Set(clouds.map((b) => `${b.x.toFixed(1)},${b.y.toFixed(1)}`))
+    assert.strictEqual(veilPts.size, clouds.length,
+      `Roil's clouds must sit at DISTINCT points — ${clouds.length} clouds on ${veilPts.size} positions means the extras stacked on one bearing, which renders identically to no change at all`)
+
+    // Ballast: weights spread around the aim point. It needs something to aim at, or every drop
+    // lands on the same blind-throw point by design and the spread is untestable.
+    const bal = boot('shelf', 'ballast', 5, { jetsam: 2 })
+    bal.enemies.push(makeStatusEnemy(bal, { x: bal.player.x + 200, y: bal.player.y, hp: 1e6, speed: 0 }))
+    assert(castUntil(bal, (r) => r.lobs.length > 0), 'precondition: the ballast must throw within 12s')
+    assert(bal.lobs.length >= 3, `expected Jetsam to add weights (count 1 + 2), got ${bal.lobs.length}`)
+    const balPts = new Set(bal.lobs.map((l) => `${l.tx.toFixed(1)},${l.ty.toFixed(1)}`))
+    assert.strictEqual(balPts.size, bal.lobs.length,
+      `Jetsam's weights must land on DISTINCT points — ${bal.lobs.length} drops on ${balPts.size} targets means the spread divisor never moved`)
+    console.log(`PASS run MB.c (distinct positions): ${clouds.length} silt clouds on ${veilPts.size} points, ${bal.lobs.length} ballast drops on ${balPts.size} points`)
+  }
+
+  // (d) SCOUR PAYS IN FILTH, NOT IN CLEAN WATER. run.charge counts CLARITY — the bar is inverted for
+  // display only — so charge 0 is the filthiest water and charge max is the cleanest. A sign error
+  // here still ships a working weapon that simply rewards the opposite behaviour.
+  {
+    const dmgAt = (charge, mods) => {
+      const run = boot('shelf', 'bubblePuff', 5, mods, charge)
+      assert(castUntil(run, (r) => r.novas.length > 0, pin(charge)), 'precondition: the puff must cast within 12s')
+      return run.novas[0].dmg
+    }
+    const cleanOff = dmgAt(SHELF_MAX, null)
+    const cleanOn = dmgAt(SHELF_MAX, { scour: 1 })
+    const filthyOn = dmgAt(0, { scour: 1 })
+    assert.strictEqual(pollutionFrac(SHELF_MAX, SHELF_MAX), 0, 'precondition: a full clarity bar is zero pollution')
+    assert.strictEqual(pollutionFrac(0, SHELF_MAX), 1, 'precondition: an empty clarity bar is full pollution')
+    // NOT an exact equality: `pin` re-sets the bar before each step and stepCharge drains one frame
+    // of it before the weapon fires, so the water at the moment of the cast is one frame dirty. The
+    // bound is that frame, derived from the chapter's own drain rather than written down as a
+    // magic tolerance — a literal here would stop meaning anything the first time drain is retuned.
+    const frameDirt = (CHAPTERS.shelf.resource.drain * dt) / SHELF_MAX
+    assert(cleanOn <= cleanOff * (1 + frameDirt) + 1e-9,
+      `Scour must be worth NOTHING in clean water (unmodded ${cleanOff}, modded ${cleanOn}, one frame of drain allows ${(cleanOff * frameDirt).toFixed(4)}) — that bargain is the whole card`)
+    assert(filthyOn > cleanOn * 1.5,
+      `Scour must pay in the filthiest water: ${filthyOn} against ${cleanOn} clean`)
+    console.log(`PASS run MB.d (Scour): puff dmg ${cleanOff} clean unmodded, ${cleanOn} clean modded, ${filthyOn.toFixed(1)} at full pollution`)
+  }
+
+  // (e) BACKBLOW ADDS ONE OPPOSED CONE, AND STOPS PAST A HALF-TURN. The second nova carries its own
+  // hit set, so at arc > pi the two sectors overlap and a body in both is paid for twice — the card
+  // would stop being coverage and become a silent damage doubler.
+  {
+    const narrow = boot('shelf', 'bubblePuff', 5, { backblow: 1 })
+    assert(castUntil(narrow, (r) => r.novas.length > 0), 'precondition: the modded puff must cast')
+    const base = boot('shelf', 'bubblePuff', 5, null)
+    assert(castUntil(base, (r) => r.novas.length > 0), 'precondition: the bare puff must cast')
+    assert.strictEqual(narrow.novas.length, base.novas.length * 2,
+      `Backblow must add exactly one opposed cone per nova (base ${base.novas.length}, modded ${narrow.novas.length})`)
+    const angles = narrow.novas.map((n) => n.angle)
+    // Bearing difference normalised into [0, 2pi); an opposed pair reads exactly pi.
+    const gap = (((angles[1] - angles[0]) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)
+    assert(Math.abs(gap - Math.PI) < 1e-6,
+      `Backblow's cone must sit opposite the first: the two bearings are ${gap.toFixed(4)} rad apart, want ${Math.PI.toFixed(4)}`)
+
+    // Flare compounds onto `arc`; at a wide enough cone the rear nova must not be spawned at all.
+    // flare 1.2 puts the cone at 1.571 x 2.2 = 3.46 rad: PAST a half-turn but well short of the full
+    // ring, which is the case the guard actually has to catch. A cone widened all the way to 2pi is
+    // caught by spawnNova's `arc: null` path instead and would prove the weaker half.
+    const wide = boot('shelf', 'bubblePuff', 5, { backblow: 1, flare: 1.2 })
+    assert(castUntil(wide, (r) => r.novas.length > 0), 'precondition: the wide modded puff must cast')
+    const wideBase = boot('shelf', 'bubblePuff', 5, { flare: 1.2 })
+    assert(castUntil(wideBase, (r) => r.novas.length > 0), 'precondition: the wide bare puff must cast')
+    assert(wideBase.novas[0].arc > Math.PI && wideBase.novas[0].arc < Math.PI * 2,
+      `precondition: this block needs a cone between pi and 2pi, got ${wideBase.novas[0].arc}`)
+    assert.strictEqual(wide.novas.length, wideBase.novas.length,
+      `past a half-turn Backblow must add NO second nova (base ${wideBase.novas.length}, modded ${wide.novas.length}) — overlapping sectors each carry their own hit set and would double-pay every body`)
+    console.log(`PASS run MB.e (Backblow): ${base.novas.length} -> ${narrow.novas.length} novas a half-turn apart at a 90deg cone; ${wideBase.novas.length} -> ${wide.novas.length} once Flare widens it past pi`)
+  }
+
+  // (f) FOUL WATER scales the STAIN and leaves the CRATER alone, and it reads pollution the same way
+  // round as Scour. The impact has already been dealt off lo.r by the time the cloud is pushed, so a
+  // mod that scaled `r` itself would quietly buy impact damage the card never promised.
+  {
+    const stainAt = (charge, mods) => {
+      const run = boot('shelf', 'ballast', 5, mods, charge)
+      run.enemies.push(makeStatusEnemy(run, { x: run.player.x + 200, y: run.player.y, hp: 1e6, speed: 0 }))
+      assert(castUntil(run, (r) => r.lobs.length > 0, pin(charge)), 'precondition: the ballast must throw within 12s')
+      const impactR = run.lobs[0].r
+      advance(run, BALLAST_FLIGHT + 0.05, pin(charge))
+      const stain = run.blooms.filter((b) => b.look === 'silt')
+      assert(stain.length > 0, 'precondition: the drop must have left a stain')
+      return { impactR, maxR: stain[0].maxR, dps: stain[0].dmgPerTick }
+    }
+    const clean = stainAt(SHELF_MAX, { foulWater: 1 })
+    const filthy = stainAt(0, { foulWater: 1 })
+    assert(filthy.maxR > clean.maxR * 1.5, `Foul Water must widen the stain in filthy water: ${filthy.maxR.toFixed(1)} against ${clean.maxR.toFixed(1)} clean`)
+    assert(filthy.dps > clean.dps * 1.5, `Foul Water must also raise the stain's damage: ${filthy.dps.toFixed(2)} against ${clean.dps.toFixed(2)} clean`)
+    assert(Math.abs(filthy.impactR - clean.impactR) < 1e-9,
+      `Foul Water must NOT touch the crater: impact r ${filthy.impactR} in filth against ${clean.impactR} clean — the card names the stain and only the stain`)
+    console.log(`PASS run MB.f (Foul Water): stain r ${clean.maxR.toFixed(0)}->${filthy.maxR.toFixed(0)}, dps ${clean.dps.toFixed(2)}->${filthy.dps.toFixed(2)}, crater r ${clean.impactR} unchanged`)
+  }
+
+  // (g) FOUL SPRING enlarges a cloud dropped in a LIVE upwelling and SPENDS that upwelling — and
+  // does neither on water already spent. The spend is written into `drawdown`, the field stepCharge
+  // already counts occupancy into and render.js already fades the circle off, so this asserts the
+  // shipped tell rather than a parallel one.
+  {
+    const life = refillSpec(CHAPTERS.shelf.signature)?.drawdownSecs ?? 0
+    assert(life > 0, 'precondition: The Shelf\'s upwellings must draw down, or Foul Spring has nothing to spend')
+
+    // ONE upwelling, re-pinned every frame and centred on the player. streamShafts rewrites
+    // run.shafts around the player every step, so a hand-placed circle left alone is gone within a
+    // frame or two and the block would silently be testing open water. The SAME object is put back
+    // each time rather than a fresh one, so the `drawdown` this is trying to observe survives.
+    const withShaft = (drawdown) => {
+      const run = boot('shelf', 'siltVeil', 5, { foulSpring: 1 })
+      const sh = { x: run.player.x, y: run.player.y, bx: run.player.x, by: run.player.y, r: 205, phase: 0, _cell: 'test', drawdown }
+      // `drawdown` is re-pinned every frame too, and that is the whole reason this fixture works.
+      // The circle is centred on the player and Silt Veil's interval is 3.2s, so stepCharge spends
+      // the upwelling at 2.09s of occupancy -- BEFORE the weapon has ever cast. Left alone, the live
+      // case measured a spent circle and read as "Foul Spring does nothing", which is the bug this
+      // block exists to catch, arriving from the fixture. Holding the state is what makes this a
+      // test of the CLOUD's interaction rather than of the player's standing still.
+      const hold = (r) => { sh.x = sh.bx = r.player.x; sh.y = sh.by = r.player.y; sh.drawdown = drawdown; r.shafts = [sh] }
+      assert(castUntil(run, (r) => r.blooms.some((b) => b.look === 'silt'), hold), 'precondition: the veil must cast within 12s')
+      const cloud = run.blooms.filter((b) => b.look === 'silt')[0]
+      return { maxR: cloud.maxR, dur: cloud.dur, spent: (sh.drawdown ?? 0) >= life }
+    }
+    const plain = boot('shelf', 'siltVeil', 5, null)
+    assert(castUntil(plain, (r) => r.blooms.some((b) => b.look === 'silt'), (r) => { r.shafts = [] }),
+      'precondition: the bare veil must cast within 12s')
+    const bare = plain.blooms.filter((b) => b.look === 'silt')[0]
+
+    const live = withShaft(0)
+    const already = withShaft(life)
+    assert(live.maxR > bare.maxR * 1.4, `a cloud dropped in a live upwelling must be bigger: ${live.maxR.toFixed(1)} against ${bare.maxR.toFixed(1)}`)
+    assert(live.dur > bare.dur * 1.4, `...and must hang longer: ${live.dur.toFixed(2)}s against ${bare.dur.toFixed(2)}s`)
+    assert(live.spent, 'Foul Spring must SPEND the upwelling it fouls — that cost is the whole card')
+    assert(Math.abs(already.maxR - bare.maxR) < 1e-9,
+      `an upwelling already drawn down must pay NOTHING: ${already.maxR.toFixed(1)} against a bare ${bare.maxR.toFixed(1)}`)
+    console.log(`PASS run MB.g (Foul Spring): cloud r ${bare.maxR.toFixed(0)} bare -> ${live.maxR.toFixed(0)} in clean water (upwelling spent), ${already.maxR.toFixed(0)} on water already spent`)
+  }
+
+  console.log('PASS run MB (Book 2 chapters 1-2 mod budget): no inert cards across every weapon, four-plus apiece in both chapters, rate mods speed up, count mods spread, and the three Pollution/upwelling cards pay the right way round')
+}
+run(runModBudget)
+
 
 // ---- Run PY: THE WRECK, after the premise turned round (v7.x, owner directive) ----------------
 // "about you, a shark, chasing after schools of fishes that run in fear. Turning around the premise

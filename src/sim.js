@@ -151,7 +151,7 @@ import {
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth, laneAxes,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, pollutionFrac, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BALLAST_FLIGHT, BALLAST_BLIND_THROW,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
@@ -5808,9 +5808,18 @@ const WEAPON_STAT_MODS = {
   breaker:       { swell: ['dmg', 'pct'], longshore: ['radius', 'pct'], broadCrest: ['arc', 'pct'] },
   // The Shelf's starter. `flare` folds onto `arc` exactly as broadCrest does, which also means the
   // pause build sheet reports the WIDENED cone rather than the base one.
-  bubblePuff:    { froth: ['dmg', 'pct'], flare: ['arc', 'pct'] },
-  skippingShell: { skimmer: ['dmg', 'pct'], flatStone: ['skips', 'flat'], wideSplash: ['r', 'pct'] },
-  barnacles:     { grinder: ['dmg', 'pct'], encrust: ['crustDur', 'pct'], spawnfall: ['count', 'flat'], seedbed: ['jumps', 'flat'] },
+  // `longPuff` folds onto `r`; `scour` and `backblow` are read at the cast site (one scales damage
+  // by the pollution bar, the other spawns a second nova) and `quickBreak`/`quickWinch` are rate
+  // mods in WEAPON_RATE_MODS, since folding one into an interval would SLOW the weapon.
+  bubblePuff:    { froth: ['dmg', 'pct'], flare: ['arc', 'pct'], longPuff: ['r', 'pct'] },
+  skippingShell: { skimmer: ['dmg', 'pct'], flatStone: ['skips', 'flat'], wideSplash: ['r', 'pct'], sidearm: ['speed', 'pct'] },
+  barnacles:     { grinder: ['dmg', 'pct'], encrust: ['crustDur', 'pct'], spawnfall: ['count', 'flat'], seedbed: ['jumps', 'flat'], broadcast: ['castRange', 'pct'] },
+  // The Shelf's other two. Both count mods fold as 'flat' onto a real `count` key in levels[], so
+  // effectiveWeaponStats reports the modified number without a second registration in
+  // WEAPON_COUNT_MODS -- that map is only for counts read at a fire site with no levels[] key.
+  // `foulSpring` and `foulWater` are behavioural and read at their own sites.
+  siltVeil:      { grit: ['dmgPerTick', 'pct'], billow: ['maxR', 'pct'], roil: ['clouds', 'flat'] },
+  ballast:       { deadweight: ['dmg', 'pct'], jetsam: ['weights', 'flat'] },
   // The Trawl's two natives. `twinSet` and `doubleHaul` are absent for the reason the block above
   // gives: they are per-cast COUNTS with no key in levels[], so they are read at the fire site like
   // hole's `singularity`. Everything else folds, which is also what puts the modified number (not
@@ -8858,9 +8867,13 @@ function stepLobs(run, dt) {
         const dx = e.x - lo.tx, dy = e.y - lo.ty
         if (dx * dx + dy * dy <= bSq) applyDamage(run, e, lo.dmg)
       }
+      // `stainMul` is Foul Water's pollution scaling, banked at the throw. It multiplies the stain
+      // and NOT the crater: the impact already fired above off lo.r, so a fouled drop spreads
+      // further than it splashes, which is the card's whole picture. 1 without the mod.
+      const stainMul = lo.stainMul ?? 1
       run.blooms.push({
-        x: lo.tx, y: lo.ty, r: 0, maxR: lo.r, t: 0, dur: lo.stainDur,
-        dmgPerTick: lo.stainDps * BLOOM_TICK, look: 'silt', slow: 0,
+        x: lo.tx, y: lo.ty, r: 0, maxR: lo.r * stainMul, t: 0, dur: lo.stainDur,
+        dmgPerTick: lo.stainDps * BLOOM_TICK * stainMul, look: 'silt', slow: 0,
       })
       run.events.push({ type: 'ballast', x: lo.tx, y: lo.ty, radius: lo.r })
       continue
@@ -8916,13 +8929,32 @@ function stepLobs(run, dt) {
 // everything. Do not "simplify" it away on the grounds that the sector maths copes: it does, and
 // that is not what this is for.
 function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
+  const scour = run.weaponMods.bubblePuff?.scour ?? 0
+  const backblow = (run.weaponMods.bubblePuff?.backblow ?? 0) > 0
+  // NO RATE MOD AND NO KNOCKBACK MOD, and that is enforced by there being none to read -- see the
+  // fenced balance_decision on WEAPON_MODS.bubblePuff for the arithmetic. Do not add one here.
   fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => {
     const p = run.player
     const full = stats.arc == null || stats.arc >= Math.PI * 2
     const arc = full ? null : stats.arc
     const angle = aimAngle(run)
+    // SCOUR. The chapter's bar as damage: nothing in clean water, `scour` at the top of the filth.
+    // pollutionFrac derives it from run.charge rather than reading a stored twin, which is what
+    // CHAPTERS.shelf.resource's own note asks for.
+    const dmg = stats.dmg * (1 + scour * pollutionFrac(run.charge, run.chargeMax))
     for (const r of ipecacRadii(run, stats.r)) {
-      spawnNova(run, p.x, p.y, r, stats.dmg, stats.knockback, 0, { look: 'bubble', arc, angle })
+      spawnNova(run, p.x, p.y, r, dmg, stats.knockback, 0, { look: 'bubble', arc, angle })
+      // BACKBLOW. A second cone on the opposite bearing, the Breaker's Backwash idiom.
+      //
+      // ⚠ ONLY WHILE THE CONE IS UNDER A HALF-TURN, and that guard is load-bearing twice over. Each
+      // nova carries its OWN once-per-body hit set, so two novas that overlap pay for the same body
+      // twice -- at arc > pi the front and rear sectors intersect and this would quietly become a
+      // damage doubler rather than a coverage card. It is also what keeps the shove lock closed: one
+      // body must take at most one shove per cast, which is the whole premise of the fence above.
+      // Past a half-turn the front cone already reaches behind you, so there is nothing left to buy.
+      if (backblow && !full && stats.arc < Math.PI) {
+        spawnNova(run, p.x, p.y, r, dmg, stats.knockback, 0, { look: 'bubble', arc, angle: angle + Math.PI })
+      }
     }
   })
 }
@@ -8930,16 +8962,47 @@ function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
 // SILT VEIL. A cloud at the player's feet. `slow: 0` opts out of BLOOM_SLOW_T the way Foxfire does
 // — the murk chapter does not slow the player and must not quietly slow the crowd either — and
 // `fear` is the card, applied in stepBlooms against the shared fear cooldown so it cannot pin.
+// FOUL SPRING (the siltVeil mod). Is (x,y) inside an upwelling that has not been spent yet, and if
+// so, spend it and say so. `drawdown` is the field stepCharge counts occupancy into and render.js
+// fades the circle off, so setting it here retires the circle through the tell the player has been
+// reading all along instead of inventing a second, silent one.
+//
+// The drawdown clock is per-FIELD (refillSpec().drawdownSecs) and 0 on every field but The Shelf's.
+// Where it is 0 a circle can never be spent at all, so the mod finds one, is paid, and leaves it
+// standing -- which is the honest behaviour for a chapter whose upwellings do not draw down.
+function foulUpwelling(run, x, y) {
+  const life = refillSpec(CHAPTERS[run.chapter]?.signature)?.drawdownSecs ?? 0
+  for (const sh of run.shafts) {
+    // inMaw, not a bare distance test: it follows the drawn lobes and skips a shut maw, so "clean
+    // water" means the water the player can SEE, the same test stepCharge feeds the bar from.
+    if (!inMaw(sh, x, y)) continue
+    if (life > 0 && (sh.drawdown ?? 0) >= life) continue
+    if (life > 0) sh.drawdown = life
+    return true
+  }
+  return false
+}
+
 function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
+  const foulSpring = run.weaponMods.siltVeil?.foulSpring ?? 0
   fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => {
     const p = run.player
-    const clouds = ipecacN(run, 1)
+    // ONE local, used as the loop bound AND as the divisor that rings the clouds. Two separate
+    // expressions here is the eight-site trap CLAUDE.md documents: the extra clouds stack on one
+    // bearing and it renders identically to no change at all.
+    const clouds = ipecacN(run, Math.max(1, Math.round(stats.clouds)))
     const ring = clouds > 1 ? stats.maxR * 0.85 : 0
     for (let i = 0; i < clouds; i++) {
       const a = (i / clouds) * Math.PI * 2
+      const x = p.x + Math.cos(a) * ring, y = p.y + Math.sin(a) * ring
+      // PER CLOUD, not per cast: a ringed volley can foul several upwellings at once, and each one
+      // it lands in is spent. Short-circuits on foulSpring 0 so an unmodded veil never walks
+      // run.shafts at all.
+      const fouled = foulSpring > 0 && foulUpwelling(run, x, y)
+      const mul = fouled ? 1 + foulSpring : 1
       run.blooms.push({
-        x: p.x + Math.cos(a) * ring, y: p.y + Math.sin(a) * ring,
-        r: 0, maxR: stats.maxR, t: 0, dur: stats.dur,
+        x, y,
+        r: 0, maxR: stats.maxR * mul, t: 0, dur: stats.dur * mul,
         dmgPerTick: stats.dmgPerTick, look: 'silt', slow: 0, fear: stats.fear,
       })
     }
@@ -8949,13 +9012,21 @@ function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
 // BALLAST. A lob at the nearest body, landing for `dmg` in `r` and leaving a stain. `column` is NOT
 // set: that flag is the Sunspear's hanging telegraph, and this one actually travels.
 function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
-  fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => {
+  const quickWinch = run.weaponMods.ballast?.quickWinch ?? 0
+  const foulWater = run.weaponMods.ballast?.foulWater ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickWinch)), dt, () => {
     const p = run.player
     const target = nearestEnemy(run)
     const tx = target ? target.x : p.x + (p.facing >= 0 ? BALLAST_BLIND_THROW : -BALLAST_BLIND_THROW)
     const ty = target ? target.y : p.y
-    const drops = ipecacN(run, 1)
+    // ONE local, bound and divisor both -- see stepSiltVeilWeapon above for what splitting it costs.
+    const drops = ipecacN(run, Math.max(1, Math.round(stats.weights)))
     const spread = drops > 1 ? stats.r * 1.15 : 0
+    // FOUL WATER, sampled at the THROW and carried on the lob rather than read again on landing.
+    // The flight is BALLAST_FLIGHT (0.42s), so the two readings could barely differ -- and deciding
+    // it when the player presses is what makes the card legible: the water you threw into is the
+    // water that pays. Scales the stain's SIZE and its DAMAGE, which is why one card names both.
+    const stainMul = 1 + foulWater * pollutionFrac(run.charge, run.chargeMax)
     for (let i = 0; i < drops; i++) {
       const a = (i / drops) * Math.PI * 2
       run.lobs.push({
@@ -8963,7 +9034,7 @@ function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
         tx: tx + Math.cos(a) * spread, ty: ty + Math.sin(a) * spread,
         t: 0, flight: BALLAST_FLIGHT,
         dmg: stats.dmg, r: stats.r, look: 'ballast',
-        stainDur: stats.stainDur, stainDps: stats.stainDps,
+        stainDur: stats.stainDur, stainDps: stats.stainDps, stainMul,
       })
     }
   })
@@ -9121,7 +9192,10 @@ function firePulsar(run, stats) {
 function stepBreakerWeapon(run, w, stats, fireRateMul, dt) {
   const p = run.player
   const backwash = (run.weaponMods.breaker?.backwash ?? 0) > 0
-  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => {
+  // Divided here rather than folded into `interval` through WEAPON_STAT_MODS: folding a rate pick
+  // into an interval multiplies the WAIT, i.e. it would slow the weapon down.
+  const quickBreak = run.weaponMods.breaker?.quickBreak ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quickBreak)), dt, () => {
     const aim = aimAngle(run)
     for (const a of ipecacAngles(run, aim)) {
       spawnNova(run, p.x, p.y, stats.radius, stats.dmg, stats.knockback, 0,

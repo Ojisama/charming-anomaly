@@ -1529,6 +1529,14 @@ function generateWells(sig) {
  *   {type:'explode'}. The branch sits ABOVE the debrisToss shrapnel block in stepLobs on purpose —
  *   `shrapnel` is read off run.weaponMods for EVERY lob, so a build holding both weapons would
  *   otherwise spray Debris Toss splinters out of the player's fishing nets.
+ *   OPTIONAL `look: 'ballast'` + `stainDur`/`stainDps` make it a BALLAST drop (The Shelf) instead:
+ *   the landing deals dmg in r as usual and then pushes a run.blooms cloud tagged look:'silt', so
+ *   the lingering half of that weapon is Silt Veil's machinery rather than a fourth kind of zone.
+ *   `stainMul` (optional, default 1) is Foul Water's pollution scaling, banked at the THROW and
+ *   applied to the stain's radius and damage only -- never to the impact, which has already been
+ *   dealt off `r` by the time the cloud is pushed.
+ *   ⚠ run.lobs has THREE render consumers (syncLobs, redrawHazards' amber landing ring, and
+ *   drawColumns) and nothing about the array says so -- `look` is what each one filters on.
  * longlines[i]: { x, y, nx, ny, half, len, dmg, tick, acc, life, duration, snagged } — Longline's
  *   set lines (trawl weapon). A SEGMENT, not a disc: (x,y) is the centre, (nx,ny) the unit NORMAL,
  *   `len` the full length and `half` the hit thickness either side. A body is on the line when its

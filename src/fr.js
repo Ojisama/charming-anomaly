@@ -963,6 +963,21 @@ const CONFIG = {
   'Wide Splash': 'Grande Gerbe',
   'splash radius': 'rayon de la gerbe',
   'Fast Skim': 'Lancer Rapide',
+  // The three 5th mods (2026-08-19). 'Deferlement' is what a wave actually does when it breaks, so
+  // Quick Break keeps the verb rather than borrowing 'Rapide' onto a noun that does not break.
+  // 'Lancer Fouette' is the French for a whipped, low sidearm throw -- the motion the English name
+  // is, rather than a description of it. 'Essaimage' is the shellfish-farming word for larvae
+  // dispersing into the water column, which is precisely what broadcast spawning is and what this
+  // mod extends; it sits beside 'Naissain' for Seedbed, from the same vocabulary.
+  // The two new build-sheet labels (STAT_KEYS), beside the mods that move them.
+  'Clouds': 'Nuages',
+  'Weights': 'Lests',
+  'Quick Break': 'Déferlement Rapide',
+  'wave rate': 'cadence de la vague',
+  'Sidearm': 'Lancer Fouetté',
+  'shell travel speed': 'vitesse de la coquille',
+  'Broadcast': 'Essaimage',
+  'how far larvae are cast': 'portée de dispersion des larves',
   'High Noon': 'Plein Midi',
   'column damage': 'dégâts de la colonne',
   'Broad Beam': 'Faisceau Large',
@@ -1214,10 +1229,44 @@ const CONFIG = {
   'puff damage': 'dégâts du jet',
   'Flare': 'Éventail',
   'puff width': 'largeur du jet',
+  // Its three new mods (2026-08-19), on the same 'jet' the two above are keyed to. 'Décapage' is
+  // abrasive stripping -- what filthy water does to what it is blown against -- and it carries the
+  // card's bargain, which is that the dirtier the water the more the puff is worth. The Pollution
+  // bar is 'Pollution' in both languages, so 'l'eau la plus sale' names the bar's own top end in
+  // words rather than repeating the noun.
+  'Long Puff': 'Jet Long',
+  'puff radius': 'rayon du jet',
+  'Scour': 'Décapage',
+  'puff damage, up to {n} in the filthiest water': 'dégâts du jet, jusqu\'à {n} dans l\'eau la plus sale',
+  'Backblow': 'Contre-Souffle',
+  'a second cone blows out behind you': 'un second cône souffle derrière toi',
   'Silt Veil': 'Voile de Vase',
   'Stirs the bottom into a cloud that poisons and scatters what swims in.': 'Soulève la vase pour empoisonner tes poursuivants.',
+  // Voile de Vase's four (2026-08-19). 'vase' throughout, never 'limon', because the weapon's own
+  // name already fixed the word -- the rule the Coquille Ricochet entry states: one word for one
+  // thing across the card, the sheet and the mods. 'Volute' is a curl of something spreading
+  // through water, 'Remous' the swirl that lifts more of it, and 'Source Souillée' keeps the
+  // upwelling a SOURCE, which is what the card destroys. 'remontée' is the oceanographic word for
+  // an upwelling and is what the last clause spends.
+  'Grit': 'Abrasif',
+  'silt damage per tick': 'dégâts de la vase par tick',
+  'Billow': 'Volute',
+  'Roil': 'Remous',
+  'Foul Spring': 'Source Souillée',
+  'a cloud dropped on clean water is {n} bigger and lasts that much longer, and spends the upwelling': 'un nuage lâché dans l\'eau claire est {n} plus large et dure d\'autant plus longtemps, et épuise la remontée',
   'Ballast': 'Lest',
   'Drops dumped weight on the crowd. What it lands in stays fouled.': 'Lance un débris. Crée une flaque d\'eau souillée à l\'impact.',
+  // Lest's four. 'Délestage' is literally jettisoning ballast, so the count mod is named for the
+  // act the weapon performs rather than for the noun 'jetsam', which has no single French word.
+  // 'flaque' matches the weapon's own description above, where the stain is already 'une flaque
+  // d'eau souillée' -- so the card and the mod name the same puddle.
+  'Deadweight': 'Poids Mort',
+  'Quick Winch': 'Treuil Rapide',
+  'drop rate': 'cadence de largage',
+  'Jetsam': 'Délestage',
+  'extra weight(s) per drop': 'poids supplémentaire(s) par largage',
+  'Foul Water': 'Eau Souillée',
+  'stain size and damage, up to {n} in the filthiest water': 'taille et dégâts de la flaque, jusqu\'à {n} dans l\'eau la plus sale',
   'in troubled water': 'en eaux troubles',
   // The Twilight (Book 2 chapter 5). Owner's pick, 2026-08-18: 'La Pénombre' is the half-light
   // itself — the state the whole chapter is about — and the spine takes the same word with the

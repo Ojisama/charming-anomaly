@@ -2072,11 +2072,19 @@ export const WEAPONS = {
     //   `slow: 0` is set at cast: this chapter does not slow you and must not quietly slow them
     //   either — a card whose text never mentions a slow must not add one.
     levels: [
-      { dmgPerTick: 6,  rate: 4.4, maxR: 116, dur: 3.4, fear: 0.9 },
-      { dmgPerTick: 8,  rate: 4.1, maxR: 126, dur: 3.7, fear: 1.0 },
-      { dmgPerTick: 11, rate: 3.8, maxR: 136, dur: 4.0, fear: 1.1 },
-      { dmgPerTick: 13, rate: 3.5, maxR: 148, dur: 4.4, fear: 1.2 },
-      { dmgPerTick: 15, rate: 3.2, maxR: 162, dur: 4.8, fear: 1.4 },
+      // `clouds` is FLAT ACROSS THE LADDER: levels buy damage, reach and duration, and Roil is the
+      // only thing that buys a second cloud -- the same split Flare owns on the Bubble Puff's width,
+      // and for the same reason (a level-up that also grew it would compete with the card).
+      //
+      // NOT named `count`: STAT_KEYS labels that key 'Projectiles', which is a lie about a cloud of
+      // silt on the pause build sheet. `skips`, `crustDur`, `setDur` and `hooks` all exist for
+      // exactly this reason -- a per-weapon key earns a per-weapon label, and being unique to this
+      // weapon's levels[] means no other build sheet gains a row.
+      { dmgPerTick: 6,  rate: 4.4, maxR: 116, dur: 3.4, fear: 0.9, clouds: 1 },
+      { dmgPerTick: 8,  rate: 4.1, maxR: 126, dur: 3.7, fear: 1.0, clouds: 1 },
+      { dmgPerTick: 11, rate: 3.8, maxR: 136, dur: 4.0, fear: 1.1, clouds: 1 },
+      { dmgPerTick: 13, rate: 3.5, maxR: 148, dur: 4.4, fear: 1.2, clouds: 1 },
+      { dmgPerTick: 15, rate: 3.2, maxR: 162, dur: 4.8, fear: 1.4, clouds: 1 },
     ],
   },
   ballast: {
@@ -2096,11 +2104,13 @@ export const WEAPONS = {
     // also what makes the two cards combine: a ballast dropped into your own veil is one patch of
     // water doing both jobs.
     levels: [
-      { dmg: 26, rate: 2.60, r: 96,  stainDur: 3.0, stainDps: 5 },
-      { dmg: 31, rate: 2.45, r: 104, stainDur: 3.3, stainDps: 6 },
-      { dmg: 37, rate: 2.30, r: 112, stainDur: 3.6, stainDps: 7 },
-      { dmg: 44, rate: 2.15, r: 122, stainDur: 4.0, stainDps: 9 },
-      { dmg: 52, rate: 2.00, r: 134, stainDur: 4.4, stainDps: 11 },
+      // `weights` flat across the ladder, and named for the same reason Silt Veil's `clouds` is:
+      // 'Projectiles' is the wrong noun for a dumped weight. Jetsam owns the second one.
+      { dmg: 26, rate: 2.60, r: 96,  stainDur: 3.0, stainDps: 5,  weights: 1 },
+      { dmg: 31, rate: 2.45, r: 104, stainDur: 3.3, stainDps: 6,  weights: 1 },
+      { dmg: 37, rate: 2.30, r: 112, stainDur: 3.6, stainDps: 7,  weights: 1 },
+      { dmg: 44, rate: 2.15, r: 122, stainDur: 4.0, stainDps: 9,  weights: 1 },
+      { dmg: 52, rate: 2.00, r: 134, stainDur: 4.4, stainDps: 11, weights: 1 },
     ],
   },
   // -- The Deep's native (spec §6.5) -------------------------------------------------------------
@@ -2900,21 +2910,58 @@ export const WEAPON_MODS = {
     // A switch that sends the wave the other way as well is the same want — more of the crowd
     // moved — expressed as something you can see happen. Read at the cast site (stepBreakerWeapon).
     backwash:   { name: 'Backwash',    desc: 'a second wave rolls out behind you', icon: '🌊', kind: 'switch' },
+    // The 5th, above the ~4 this block argues for (owner, 2026-08-19: "add a 5th to each"). Cadence
+    // rather than shove or carry: `carry` is an acceleration and a percentage of one is unreadable
+    // (see the 37px nudge the Fever Shove block describes), and a KNOCKBACK mod here would walk this
+    // weapon toward the shove lock the CC_DR_FLOOR block measures.
+    // balance_decision : the breaker buys cadence, never shove 2026-08-19
+    //  - checked against that block's own model first: at kb 190 on a 1.17s interval the breaker
+    //    clears the lock by x1.88 even at 5 picks with Twitchy 10 AND Soy Milk, where the Bubble
+    //    Puff (kb 300, 0.609s) is LOCKED in that same build. The interval is the whole margin.
+    quickBreak: { name: 'Quick Break', desc: 'wave rate',          icon: '⏩', base: 0.25, kind: 'pct' },
   },
   // The Shelf's starter. WIDTH IS THE POINT OF THIS SET: the weapon gives up the full circle it
   // used to have and Flare is how a player buys it back, so the two cards below are the whole
   // reason the cone is 90 degrees rather than 360. Flare compounds and stepBubblePuffWeapon caps
   // the result at a full turn, so a build that stacks it does end up back at a ring — deliberately,
   // as the top of that ladder rather than as a separate card.
+  //
+  // ⚠ THIS WEAPON MAY NOT SELL CADENCE OR SHOVE, and that is a measurement rather than a taste.
+  // The CC_DR_FLOOR block's model -- a floored shove moves a body kb x ccResist x CC_DR_FLOOR /
+  // KB_DECAY_RATE px, and the lock holds once the cast interval drops under the time that body needs
+  // to walk it back -- puts the SHIPPED weapon within x1.39 of locking the Sand Hopper once Twitchy
+  // is maxed and Soy Milk is taken. A rate mod at 5 picks locks it outright in that build; a
+  // knockback mod plus a rate mod locks it with no passives at all. TANK_KB_REFRACTORY protects the
+  // Moon Jelly and nothing else, so the archetype at risk is the chapter's ordinary drone.
+  // balance_decision : the puff sells radius and damage, never rate or shove 2026-08-19
+  //  - `r` is safe where the other two are not because the lock is a PER-BODY race: a wider ring
+  //    catches a body sooner but still shoves it once per cast, so it buys space without compounding.
   bubblePuff: {
     froth:      { name: 'Froth',       desc: 'puff damage',        icon: '💥', base: 0.30, kind: 'pct' },
     flare:      { name: 'Flare',       desc: 'puff width',         icon: '🪭', base: 0.30, kind: 'pct' },
+    longPuff:   { name: 'Long Puff',   desc: 'puff radius',        icon: '📏', base: 0.25, kind: 'pct' },
+    // The chapter's bar, sold as a card. Read at the cast site off pollutionFrac, so it is worth
+    // nothing in clean water and everything in the filth -- which makes it the one card that pays
+    // you for NOT running to an upwelling, against a bar whose every other consumer pays you for
+    // going. No knockback and no cadence, so it is outside the fence above.
+    scour:      { name: 'Scour',       desc: 'puff damage, up to {n} in the filthiest water', icon: '🪣', base: 0.50, kind: 'pct' },
+    // The Breaker's Backwash idiom, and safe here for the reason the block above gives: a body in
+    // the rear cone is still shoved once per cast, so coverage doubles and the per-body race does
+    // not move. Read at the cast site (stepBubblePuffWeapon).
+    backblow:   { name: 'Backblow',    desc: 'a second cone blows out behind you', icon: '🌬️', kind: 'switch' },
   },
   skippingShell: {
     skimmer:    { name: 'Skimmer',     desc: 'shell damage',       icon: '💥', base: 0.30, kind: 'pct' },
     flatStone:  { name: 'Flat Stone',  desc: 'extra skip(s) per throw', icon: '🥏', kind: 'tier' },
     wideSplash: { name: 'Wide Splash', desc: 'splash radius',      icon: '💦', base: 0.28, kind: 'pct' },
     fastSkim:   { name: 'Fast Skim',   desc: 'throw rate',         icon: '⏩', base: 0.25, kind: 'pct' },
+    // The 5th (owner, 2026-08-19). `speed` is the shell's last free stat and it has no STAT_KEYS
+    // row, so it shows in the picked-mods list rather than as a sheet row -- the `streams`
+    // treatment, and deliberate: `speed` is a key on a dozen weapons' levels[], and giving it a row
+    // would push a row off the bottom of five other build sheets. A faster shell reaches its target
+    // sooner and strides further between touch-downs; stepShellSkip fires on ARRIVAL as well as on
+    // the timer, so the longer stride does not cost it the chase.
+    sidearm:    { name: 'Sidearm',     desc: 'shell travel speed', icon: '💨', base: 0.22, kind: 'pct' },
   },
   barnacles: {
     // 'crust damage' and not 'barnacle damage': the number is per TICK, and naming the thing rather
@@ -2927,6 +2974,44 @@ export const WEAPON_MODS = {
     // "the pack ate itself", so it is a tier pick (a flat count, rarity-scaled) rather than a
     // percentage of a number that is 1. Read at the jump site (stepBarnacles).
     seedbed:    { name: 'Seedbed',     desc: 'extra jump(s) when a crusted body dies', icon: '🦪', kind: 'tier' },
+    // The 5th (owner, 2026-08-19). `castRange` is the larva's whole life -- stepBarnacleWeapon flies
+    // it for castRange/speed seconds -- so this is reach, and it is the stat that decides whether
+    // the fan finds a body at all. Broadcast spawning is what a barnacle actually does.
+    broadcast:  { name: 'Broadcast',   desc: 'how far larvae are cast', icon: '📏', base: 0.25, kind: 'pct' },
+  },
+  // The Shelf's other two, which shipped with NO mods at all -- the chapter could offer exactly two
+  // distinct mod cards in a whole run, and its mod bucket measured 20.4% against a declared 27.9%
+  // (pool-probe, shelf, 3 slots, 25 runs), the worst drift of any bucket in either Book 2 chapter.
+  // Neither weapon carries a knockback stat, so neither can reach the shove lock the Bubble Puff
+  // block above is fenced against, and both may sell cadence and counts freely.
+  siltVeil: {
+    // 'silt damage per tick' for the reason barnacles says 'crust damage per tick': the number is
+    // small because it is per tick, and a player reading it as a per-hit number concludes the weapon
+    // is broken. Name the thing, not the event.
+    grit:       { name: 'Grit',        desc: 'silt damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
+    billow:     { name: 'Billow',      desc: 'cloud radius',        icon: '💨', base: 0.28, kind: 'pct' },
+    // A flat count, and the cast site's ONE local is both its loop bound and the divisor that rings
+    // the clouds -- the eight-site trap CLAUDE.md documents, where multiplying only the bound spawns
+    // the extras on top of each other and renders identically to no change at all.
+    roil:       { name: 'Roil',        desc: 'extra cloud(s) per cast', icon: '🔷', kind: 'tier' },
+    // THE CARD THAT COSTS YOU SOMETHING (owner's pick, 2026-08-19). A cloud dropped inside a live
+    // upwelling is bigger and hangs longer, and SPENDS that upwelling -- the chapter's own drawdown,
+    // set by writing the `drawdown` field stepCharge already counts and render.js already fades the
+    // circle off, so the tell is the one the player has been reading since the chapter shipped.
+    // It is the only card in the book that asks you to burn your own refill.
+    foulSpring: { name: 'Foul Spring', desc: 'a cloud dropped on clean water is {n} bigger and lasts that much longer, and spends the upwelling', icon: '🌀', base: 0.50, kind: 'pct' },
+  },
+  ballast: {
+    deadweight: { name: 'Deadweight',  desc: 'impact damage',       icon: '💥', base: 0.30, kind: 'pct' },
+    // Registered in WEAPON_RATE_MODS and divided at the fire site: folding a rate pick into `rate`
+    // would SLOW the weapon, which is the trap that table exists to route around.
+    quickWinch: { name: 'Quick Winch', desc: 'drop rate',           icon: '⏩', base: 0.25, kind: 'pct' },
+    jetsam:     { name: 'Jetsam',      desc: 'extra weight(s) per drop', icon: '🔷', kind: 'tier' },
+    // The pollution card (owner, 2026-08-19: "the more pollution you have the bigger / the more
+    // damaging is the stain"). BOTH numbers, which is why the name says the stain rather than one of
+    // its stats -- the Big Beam idiom. The stain's radius stops being tied to the crater's here: the
+    // filth spreads further than the splash, which is the whole picture of the card.
+    foulWater:  { name: 'Foul Water',  desc: 'stain size and damage, up to {n} in the filthiest water', icon: '🛢️', base: 0.50, kind: 'pct' },
   },
   // Four apiece for the Trawl's natives, and four is the CEILING, not a starting point (spec §7:
   // the pool's real mod budget is ~28, and the rule is to cut a weapon rather than invent mods).
@@ -3017,6 +3102,7 @@ export const WEAPON_RATE_MODS = {
   burstHydrant: 'rapidHydrant', roar: 'rapidRoar', tailLash: 'quickTail',
   debrisToss: 'rapidToss', realityShard: 'rapidShard', pulsarSweep: 'rapidSweep',
   atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash', foxfire: 'quickKindle',
+  breaker: 'quickBreak', ballast: 'quickWinch',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.
@@ -3070,6 +3156,13 @@ export const STAT_KEYS = [
   { key: 'r', label: 'Radius' },
   // The Skipping Shell then emits dmg, r, skips + every = 4. Unique to that weapon's levels[].
   { key: 'skips', label: 'Skips' },
+  // The Shelf's two zone weapons, same reasoning one line up and the same reasoning as crustDur
+  // below: both are per-cast COUNTS, and the shared `count` key is labelled 'Projectiles', which is
+  // the wrong noun for a cloud of silt and for a dumped weight. Each is unique to its own weapon's
+  // levels[], so no other build sheet gains a row and nothing is pushed off the bottom.
+  // Silt Veil then emits clouds + radius + every = 3; Ballast dmg + r + weights + every = 4.
+  { key: 'clouds', label: 'Clouds' },
+  { key: 'weights', label: 'Weights' },
   { key: 'jetDur', label: 'Runs for' },
   // Deliberately NOT the shared `duration` key: that one reads 'Burns for' for the beam weapons,
   // and a shell crust does not burn. Barnacles emit dmg, count, jumps, crustDur + every = 5,
@@ -8504,6 +8597,17 @@ export const resourceDamageMul = (charge, res, max = res?.max) => rampOn(res?.da
 // than a second field on `damage` because a chapter may want one without the other, and separate
 // blocks are what make that expressible without a sentinel.
 export const resourceRateMul = (charge, res, max = res?.max) => rampOn(res?.rate, charge, max)
+
+// ---- POLLUTION (The Shelf) --------------------------------------------------------------------
+// `run.charge` counts how CLEAR the water is in every chapter, this one included; `invert: true` on
+// CHAPTERS.shelf.resource flips the RAIL'S READOUT and nothing else, which is what that block says
+// and all it says. Two weapon mods now want the pollution NUMBER, which is the case its own
+// `ponytail:` note was written for -- and its stated upgrade path, "give run.charge a real inverted
+// twin rather than flipping it a second time", is taken here as a DERIVATION rather than as a run
+// field. A stored twin is a second place the same fact lives, and it would have to be kept in step
+// at every site that writes run.charge; one pure function cannot drift from its own input.
+// 0 in clean water, 1 in the filthiest. A chapter whose bar is not inverted has no business asking.
+export const pollutionFrac = (charge, max) => 1 - Math.min(1, Math.max(0, charge) / (max || 1))
 
 // ---- STARVING (v7.x, The Wreck — resources declaring a `starve` block) -------------------------
 // The Reef's `drown` shape, one chapter later, and the duplication is deliberate rather than
