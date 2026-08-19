@@ -633,12 +633,43 @@ export function initUI(hooks) {
   // consumed by the next render.
   let podiumTurn = false
 
-  // No cache. Turning to the podium always re-reads, because a board that has not moved costs one
-  // small request and a board that HAS moved is the entire point of turning to it.
+  // A SESSION CACHE, and it exists for the LEADER LINE on the closed page, not for the podium.
+  // Turning the page still always re-reads — a board that has not moved costs one small request and
+  // a board that HAS moved is the entire point of turning to it — but the leader is drawn on every
+  // title render and every difficulty pip tap, and fetching there would mean a request on every
+  // boot plus five more on a walk up the ladder. The limiter is 10/60s per IP and a household
+  // shares one, so that is a real way to 429 your own friends into a blank line.
+  // ONE cache for both paths, deliberately: separate freshness would let the front page name
+  // someone the back page does not have at the top.
+  const podiumCache = new Map()   // 'chapter:difficulty' -> boards
+  const podiumPending = new Set() // keys with a fetch in flight, so a render cannot start a second
+  const boardKey = (chapterId, difficulty) => `${chapterId}:${difficulty}`
+
+  // Dropped when a run PLACES. Not after every run: a score that missed the top 3 moved no board,
+  // and re-reading then is a request that can only return what is already held.
+  function forgetBoard(chapterId, difficulty) {
+    podiumCache.delete(boardKey(chapterId, difficulty))
+  }
+
+  // Fills the cache for the closed page's leader line. Never touches podiumState — that belongs to
+  // the turned page, and a background read must not drop it into its loading skeleton.
+  function ensureBoards(chapterId, difficulty) {
+    const key = boardKey(chapterId, difficulty)
+    if (podiumCache.has(key) || podiumPending.has(key)) return
+    podiumPending.add(key)
+    fetchBoards(chapterId, difficulty).then((boards) => {
+      podiumPending.delete(key)
+      if (!boards) return // an unreachable board shows NOTHING on the title, never a message
+      podiumCache.set(key, boards)
+      if (active === 'title' && !podiumOpen) updateTitleBelow()
+    })
+  }
+
   function loadPodium(chapterId, difficulty) {
     const mine = ++podiumReq
     podiumState = null
     fetchBoards(chapterId, difficulty).then((boards) => {
+      if (boards) podiumCache.set(boardKey(chapterId, difficulty), boards)
       // Late answers must not paint over what the player is looking at — two turns in a row is
       // enough to race this. A monotonic token rather than the board's key, because the key cannot
       // separate two in-flight requests for the SAME board: turn, turn back, turn again to the same
@@ -707,6 +738,32 @@ export function initUI(hooks) {
       <div class="page page--recto page--board">${podiumPageHtml('level')}</div>`
   }
 
+  // Who holds this board's kills record, under the Podium button on the CLOSED page — so the panel
+  // answers "is anyone ahead of me here?" without being asked, and the button below it stops being
+  // a door to an unknown room.
+  //
+  // RENDERS NOTHING when there is no answer (owner's call): no scores yet, offline, rate-limited,
+  // still loading. Every one of those is a state the player can do nothing about, and a placeholder
+  // or an error on a title screen is worse than a panel that simply looks like it did before. It
+  // also means this can never make the panel taller than the 34px of slack measured under the
+  // button, because the only thing it ever draws is one line.
+  //
+  // Kills, not level: the two boards disagree often (they did in every screenshot of this feature),
+  // and one line has to pick. Kills is the number the chapter is about.
+  //
+  // The gold disc rather than a medal emoji — it is the SAME element the podium's first row uses,
+  // so the closed page and the turned page name first place with one mark. A cross-platform emoji
+  // could not do that (see the drawn shop icons, same ruling).
+  function leaderLine(chapterId, difficulty) {
+    ensureBoards(chapterId, difficulty)
+    const top = podiumCache.get(boardKey(chapterId, difficulty))?.kills?.[0]
+    if (!top) return ''
+    return `<div class="spread-leader">
+      <span class="podium-rank podium-rank--1">1</span>
+      <span class="podium-nick">${esc(top.nick)}</span>
+    </div>`
+  }
+
   // ONE leaf of the turned spread: the metric's name, then its three rows.
   function podiumPageHtml(which) {
     // NO "top 3" CHIP HERE, and it is the layout that decided that rather than taste. The chip was
@@ -763,6 +820,7 @@ export function initUI(hooks) {
       <button class="spread-podium" data-act="podium-open">
         ${ICO_PODIUM}<span>${t('Podium')}</span><i>→</i>
       </button>
+      ${leaderLine(browseChapterId, chMeta.difficulty)}
       ` : ''
     // Across the FOOT of the spread, not on the recto: at half width this sentence wraps to two
     // lines in both languages, and those two lines were most of why the panel still pushed the
@@ -3201,5 +3259,9 @@ export function initUI(hooks) {
   })
 
   showScreen('title')
-  return { showScreen, updateHUD, activeScreen: () => active, setPodiumResult }
+  // forgetBoard is public because main.js owns the run and is therefore the only thing that knows a
+  // board just changed. It is called when a submitted run PLACED — the title's leader line is drawn
+  // from a session cache, so without it you beat the record, back out to the title, and it still
+  // names whoever you just overtook for the rest of the session.
+  return { showScreen, updateHUD, activeScreen: () => active, setPodiumResult, forgetBoard }
 }

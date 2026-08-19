@@ -614,8 +614,17 @@ function endRun(victory) {
   if (nick && !run._devUsed) {
     const kills = run.kills
     const level = run.player.level
-    submitScore({ nick, chapter: run.chapter, difficulty: run.difficulty ?? 1, kills, level })
-      .then((boards) => ui.setPodiumResult(summaryData, podiumRank(boards, nick, kills, level)))
+    const chapter = run.chapter
+    const difficulty = run.difficulty ?? 1
+    submitScore({ nick, chapter, difficulty, kills, level })
+      .then((boards) => {
+        const rank = podiumRank(boards, nick, kills, level)
+        // A run that PLACED moved the board, so the title's leader line — drawn from a session
+        // cache — is now stale. Told from here because main.js is the only thing that knows which
+        // board this run belonged to; the title may already be browsing another chapter.
+        if (rank) ui.forgetBoard(chapter, difficulty)
+        ui.setPodiumResult(summaryData, rank)
+      })
       // submitScore itself never rejects — scores.js catches everything — but renderSummary runs
       // inside this .then, and an unhandled rejection here would land on a Pixi ticker frame, which
       // does not catch listener exceptions (see saveMeta's own note above). A leaderboard is
