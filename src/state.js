@@ -1936,8 +1936,9 @@ export function createRun(meta, opts = {}) {
     difficulty,
     // COSMETIC ONLY - nothing in sim.js reads it. render.js latches it in reset() beside playerForm
     // and swaps the player's baked body for the cheeks one; the skin is bought per BOOK, like every
-    // other shop line, so it dresses whichever body this book uses.
-    skin: shopLevel(bm, 'cheeks') > 0 ? 'cheeks' : null,
+    // other shop line, so it dresses whichever body this book uses. DEV wears it outright, same
+    // permission-is-the-flag idea as the WIP chapters — the point of dev mode is to see it.
+    skin: shopLevel(bm, 'cheeks') > 0 || meta?.dev === true ? 'cheeks' : null,
     mutators: opts.mutators ?? [],
     mods,
     consumables,
