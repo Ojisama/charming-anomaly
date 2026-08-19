@@ -392,7 +392,10 @@ export function loadMeta() {
     chapters: {},
     lang: 'en', // v6.1 i18n (see the loadMeta migration above)
     skillSide: 'left', // right-handed default (see the loadMeta migration above)
-    dev: false, // WIP gate, off for every real player (see the loadMeta migration above)
+    // WIP gate, off for every real player (see the loadMeta migration above). It is ALSO the
+    // leaderboard's integrity rule: endRun (main.js) submits no score from a run played with this
+    // on, because unlocking unfinished chapters and opening the dev card list are the same switch.
+    dev: false,
     lightThief: false, // Book 2's permanent kills-give-light unlock (see the loadMeta migration above)
     schema: SCHEMA, // R4: a brand-new save really IS this build's format (loadMeta's repair says 1)
     // loadMeta's repairs are IN-MEMORY ONLY and never written back, so a save that has not been
@@ -1759,7 +1762,9 @@ function generateWells(sig) {
  * _devUsed: true once devTake (sim.js) has put a hidden-dev-menu card into this run. Absent on a
  *   normal run — it is never initialised in createRun, because the honest default is "this field
  *   was never set" and every reader is a truthiness test. endRun (main.js) submits no leaderboard
- *   score when it is true; nothing else reads it and it affects no simulation.
+ *   score when it is true; nothing else reads it and it affects no simulation. It is no longer the
+ *   whole of the "dev runs don't count" rule — meta.dev is the other half, and the bigger one: the
+ *   card list only opens while that toggle is on, so this flag cannot be true without it.
  * _rerolls: count of level-up rerolls used so far this run (sim.js's rerollLevelUpChoices steps it
  *   and prices the next reroll off it via rerollCost(run._rerolls) — see config.js; main.js only
  *   reads it back to label the button).
