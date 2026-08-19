@@ -1221,6 +1221,8 @@ export function initUI(hooks) {
   let shopTab = 'upgrades' // 'upgrades' | 'sacrifices'
   // Reset-all-progress confirmation: a backdrop + a small confirm/cancel sheet. Still a modal (a
   // destructive yes/no genuinely wants to block), unlike the sacrifice list which is a view now.
+  // Opened from the DEV screen (renderDev), not the shop — nothing else can reach it, so nothing
+  // has to clear the flag: the backdrop covers Resume, and both its buttons close it.
   let resetOpen = false
   // The refund sheet (v7.x): same ui-local, not-persisted shape as resetOpen above.
   // refundAllAsk is the second tap on "refund everything" — the one control here that can empty a
@@ -1294,19 +1296,19 @@ export function initUI(hooks) {
   // grid — a paragraph of standing text for something a save does twice, which is most of why the
   // shop scrolled on a small phone. It is now one two-line pill (label + progress toward the
   // cost); the paragraph moved inside the modal the pill opens, so nothing is lost, and the
-  // reset link shares the same row as a 🗑 square. Both live in .shop-foot, a fixed-height flex
-  // row, which is what lets .shop-rows own every remaining pixel (see styles.css).
-  // The foot is the reset square plus the refund pill. The sacrifice pill that used to share this
-  // row is gone: it was one control standing in for a whole list (see shopTab above), and the list
-  // is on the screen proper.
-  //   The refund control is LABELLED where reset is a bare 🗑, because there is no glyph for
-  // "sell it back" the way there is for "throw it away" — and the coin is the one emoji this file
-  // is allowed (the glyph IS the thing). It only opens the sheet; nothing is spent from here.
+  // refund pill lives in .shop-foot, a fixed-height flex row, which is what lets .shop-rows own
+  // every remaining pixel (see styles.css).
+  // The foot is the refund pill alone. The sacrifice pill that used to share this row is gone: it
+  // was one control standing in for a whole list (see shopTab above), and the list is on the screen
+  // proper. The 🗑 erase-everything square is on the DEV screen (renderDev): a wipe is a developer
+  // action, and it sat one mis-tap away from the upgrade grid every player uses.
+  //   The refund control is LABELLED, because there is no glyph that reads as "sell it back" — and
+  // the coin is the one emoji this file is allowed (the glyph IS the thing). It only opens the
+  // sheet; nothing is spent from here.
   function shopFootHtml() {
     return `
       <div class="shop-foot">
         <button class="reset-link refund-link" data-act="refund-start">🪙 ${t('Refund')}</button>
-        <button class="reset-link" data-act="reset-start" aria-label="${t('Reset all progress')}" title="${t('Reset all progress')}">🗑</button>
       </div>`
   }
 
@@ -1624,7 +1626,6 @@ export function initUI(hooks) {
       ${purseSwitchHtml(bookId)}
       <div class="shop-rows${onSac ? ' shop-rows--targets' : ''}">${onSac ? sacTargetRowsHtml(bookId) : cards}</div>
       ${shopFootHtml()}
-      ${resetModalHtml()}
       ${refundSheetHtml(bookId)}
     `)
   }
@@ -2644,8 +2645,10 @@ export function initUI(hooks) {
     if (count) count.textContent = `${rows.length} / ${devList.length} cards · tap to add`
   }
 
+  // `d.cards` is absent when the erase-confirm re-renders this screen from its own handler — keep
+  // the list main.js last handed us rather than blanking it.
   function renderDev(d) {
-    devList = d.cards ?? []
+    devList = d.cards ?? devList
     // main.js re-shows this screen after every take (the list is rebuilt against the changed run).
     // Without carrying the scroll across, testing the third anomaly means scrolling back down to it
     // every single time.
@@ -2656,8 +2659,12 @@ export function initUI(hooks) {
         <input class="dev-filter" id="dev-filter" type="text" placeholder="name, or anomaly / mod / passive…" autocomplete="off" value="${devFilter.replace(/"/g, '&quot;')}">
         <p class="dev-count"></p>
         <div class="dev-list"></div>
-        <button class="btn btn--big" data-act="dev-close">▶&nbsp; Resume</button>
+        <div class="shop-foot">
+          <button class="btn btn--big" data-act="dev-close">▶&nbsp; Resume</button>
+          <button class="reset-link" data-act="reset-start" aria-label="Reset all progress" title="Reset all progress">🗑</button>
+        </div>
       </div>
+      ${resetModalHtml()}
     `)
     devListEl = screens.dev.querySelector('.dev-list')
     paintDevList()
@@ -2890,7 +2897,7 @@ export function initUI(hooks) {
   }
 
   // Menu screen switch. `target` is 'title' or 'shop'; switching to the screen already showing is
-  // inert. Leaving the shop resets its transient modal state (sacrifice / reset) — the cleanup the
+  // inert. Leaving the shop resets its transient modal state (sacrifice / refund) — the cleanup the
   // old '← Back' case used to own, and the reason both doors route through here rather than
   // calling showScreen directly.
   function resetShopModals() {
@@ -2898,7 +2905,6 @@ export function initUI(hooks) {
     sacrificePicks = {}
     sacrificeBounceId = null
     sacrificeTarget = null
-    resetOpen = false
     refundOpen = false
     refundAllAsk = false
     // Back to coins on re-entry: buying an upgrade is the everyday visit and a sacrifice is
@@ -3416,13 +3422,13 @@ export function initUI(hooks) {
       case 'reset-start':
         resetOpen = true
         playSfx('click')
-        renderShop()
+        renderDev({})
         break
       case 'reset-cancel':
         if (el.classList.contains('modal-backdrop') && el !== e.target) break
         resetOpen = false
         playSfx('click')
-        renderShop()
+        renderDev({})
         break
       case 'reset-confirm':
         playSfx('click')

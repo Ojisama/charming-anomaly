@@ -1772,9 +1772,10 @@ body {
 
 /* sacrifice section (shop screen, v4.8/v4.9): sacrifice owned SHOP levels for a permanent 3rd/4th
    level-up card slot. Danger accent (matches .fx-chip--bad) since it's a one-way, no-refund cost. */
-/* The footer is the reset square alone now. It held a sacrifice pill until v7.x — one control
-   standing in for a whole list of unlocks, naming only the cheapest — and that list is a half of
-   the shop proper (see .purse-switch). */
+/* The shop's footer is the refund pill alone now. It held a sacrifice pill until v7.x — one
+   control standing in for a whole list of unlocks, naming only the cheapest — and that list is a
+   half of the shop proper (see .purse-switch). The dev modal reuses this row for its Resume +
+   🗑 pair, which is the whole reason it is not named .shop-*-only in its rules. */
 .shop-foot {
   width: 100%;
   max-width: 540px;
@@ -1999,7 +2000,8 @@ body {
    a small confirm sheet reusing the same .modal-backdrop idiom as the sacrifice modal above. */
 /* v6.6: a labelled underline link no longer fits the footer row — it is a 🗑 square now, with the
    label carried by aria-label/title. Safe to shorten precisely because it is not the destructive
-   step: it only opens the "Erase everything?" confirm sheet. */
+   step: it only opens the "Erase everything?" confirm sheet. Lives on the DEV modal; .refund-link
+   below is the shop's own use of the same base. */
 .reset-link {
   flex-shrink: 0;
   width: 48px;
