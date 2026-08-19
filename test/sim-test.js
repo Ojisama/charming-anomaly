@@ -6563,14 +6563,34 @@ function runModBudget() {
 
   // (c) COUNT MODS SPAWN AT DISTINCT POSITIONS. The assertion is the spread, never the count.
   {
-    // Silt Veil: clouds ringed around the player.
+    // SILT VEIL PLANTS ON BODIES, NOT ON THE PLAYER (owner, 2026-08-19). Three enemies parked at
+    // known spots inside castRange, so "did the cloud land on a body" is answerable exactly rather
+    // than by a radius band. This replaces a distinct-positions assertion that guarded the ring
+    // divisor the weapon no longer has -- there is no divisor left to get wrong, and asserting the
+    // old spread would have gone on passing while testing nothing.
     const veil = boot('shelf', 'siltVeil', 5, { roil: 2 })
+    const spots = [[180, 0], [0, 190], [-170, 60]]
+    for (const [dx, dy] of spots) {
+      veil.enemies.push(makeStatusEnemy(veil, { x: veil.player.x + dx, y: veil.player.y + dy, hp: 1e6, speed: 0 }))
+    }
     assert(castUntil(veil, (r) => r.blooms.some((b) => b.look === 'silt')), 'precondition: the veil must cast within 12s')
     const clouds = veil.blooms.filter((b) => b.look === 'silt')
     assert(clouds.length >= 3, `expected Roil to add clouds (count 1 + 2), got ${clouds.length}`)
+    // EVERY cloud sits on a body. The old behaviour put them all on the player, so this is the
+    // assertion that tells the two designs apart -- a distance-from-player band would not, since a
+    // ring of radius maxR*0.85 and a body 180px away are the same distance to within noise.
+    const onBody = clouds.filter((b) => veil.enemies.some((e) => Math.hypot(e.x - b.x, e.y - b.y) < 1e-6))
+    assert.strictEqual(onBody.length, clouds.length,
+      `every silt cloud must be planted on a body: ${onBody.length} of ${clouds.length} were`)
+    const atPlayer = clouds.filter((b) => Math.hypot(b.x - veil.player.x, b.y - veil.player.y) < 1e-6)
+    assert.strictEqual(atPlayer.length, 0, `no cloud may drop at the player's own feet, got ${atPlayer.length}`)
+    // DISTINCT bodies, with three parked in range and three clouds cast. This is the assertion the
+    // count mod needs: pickBloomSpot alone picks with replacement, and two clouds on one body is
+    // the "same hit, bigger" outcome Roil exists to avoid -- it also renders identically to no
+    // change at all, so nothing but this catches it.
     const veilPts = new Set(clouds.map((b) => `${b.x.toFixed(1)},${b.y.toFixed(1)}`))
     assert.strictEqual(veilPts.size, clouds.length,
-      `Roil's clouds must sit at DISTINCT points — ${clouds.length} clouds on ${veilPts.size} positions means the extras stacked on one bearing, which renders identically to no change at all`)
+      `with ${spots.length} bodies in range, Roil's ${clouds.length} clouds must land on ${clouds.length} DIFFERENT ones, got ${veilPts.size}`)
 
     // Ballast: weights spread around the aim point. It needs something to aim at, or every drop
     // lands on the same blind-throw point by design and the spread is untestable.
@@ -6581,7 +6601,7 @@ function runModBudget() {
     const balPts = new Set(bal.lobs.map((l) => `${l.tx.toFixed(1)},${l.ty.toFixed(1)}`))
     assert.strictEqual(balPts.size, bal.lobs.length,
       `Jetsam's weights must land on DISTINCT points — ${bal.lobs.length} drops on ${balPts.size} targets means the spread divisor never moved`)
-    console.log(`PASS run MB.c (distinct positions): ${clouds.length} silt clouds on ${veilPts.size} points, ${bal.lobs.length} ballast drops on ${balPts.size} points`)
+    console.log(`PASS run MB.c (placement): ${clouds.length} silt clouds all planted on bodies (${veilPts.size} distinct points, 0 at the player), ${bal.lobs.length} ballast drops on ${balPts.size} distinct points`)
   }
 
   // (d) SCOUR PAYS IN FILTH, NOT IN CLEAN WATER. run.charge counts CLARITY — the bar is inverted for
@@ -6709,7 +6729,42 @@ function runModBudget() {
     console.log(`PASS run MB.g (Foul Spring): cloud r ${bare.maxR.toFixed(0)}->${live.maxR.toFixed(0)}, dur ${bare.dur.toFixed(1)}->${live.dur.toFixed(1)}s, dps ${bare.dmgPerTick.toFixed(1)}->${live.dps.toFixed(1)} in clean water (patch fouled), and ${already.maxR.toFixed(0)} on water already spent`)
   }
 
-  console.log('PASS run MB (Book 2 chapters 1-2 mod budget): no inert cards across every weapon, four-plus apiece in both chapters, rate mods speed up, count mods spread, and the three Pollution/upwelling cards pay the right way round')
+
+  // (h) A FOULED PATCH STOPS RECHARGING YOU — asserted as an EFFECT, not as state. MB.g above
+  // checks `drawdown` reached its cap, which is the flag; this stands the player in the water and
+  // reads the BAR. Owner, on picking the look: "from the rim in and it disables your resource
+  // recharge" — that is the promise the animation has to be telling the truth about, and a test
+  // that only checks the flag passes with the flag wired to nothing (`assert-effects-not-state`).
+  //
+  // The control is not ceremony: without it "the bar did not rise" is unreadable, because the bar
+  // also does not rise when the player is simply outside every circle, which is what a fixture that
+  // mis-places its shaft produces.
+  {
+    const life = refillSpec(CHAPTERS.shelf.signature)?.drawdownSecs ?? 0
+    // Charge parked mid-bar so a rise and a fall are both visible, and the shaft re-pinned under
+    // the player every frame — streamShafts rewrites run.shafts around them otherwise.
+    const stand = (fouled) => {
+      const run = boot('shelf', 'siltVeil', 5, null, SHELF_MAX * 0.5)
+      run.chargeMax = SHELF_MAX
+      const sh = { x: run.player.x, y: run.player.y, bx: run.player.x, by: run.player.y, r: 205, phase: 0, _cell: 'test', drawdown: fouled ? life : 0 }
+      const start = run.charge
+      for (let i = 0; i < Math.round(0.5 / dt); i++) {
+        sh.x = sh.bx = run.player.x; sh.y = sh.by = run.player.y
+        run.shafts = [sh]
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return { start, end: run.charge }
+    }
+    const clean = stand(false)
+    const fouled = stand(true)
+    assert(clean.end > clean.start + 1,
+      `precondition: standing in a LIVE upwelling must refill the bar (${clean.start.toFixed(1)} -> ${clean.end.toFixed(1)}), or this block proves nothing`)
+    assert(fouled.end < fouled.start,
+      `a fouled patch must stop recharging you — the bar must DRAIN while standing in it, got ${fouled.start.toFixed(1)} -> ${fouled.end.toFixed(1)}`)
+    console.log(`PASS run MB.h (a fouled patch feeds nobody): live upwelling ${clean.start.toFixed(0)} -> ${clean.end.toFixed(0)} charge, fouled ${fouled.start.toFixed(0)} -> ${fouled.end.toFixed(0)} over the same 0.5s`)
+  }
+
+  console.log('PASS run MB (Book 2 chapters 1-2 mod budget): no inert cards across every weapon, four-plus apiece in both chapters, rate mods speed up, count mods land on bodies, and the three Pollution/clean-water cards pay the right way round — including that a fouled patch stops recharging you')
 }
 run(runModBudget)
 

@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R, BALLAST_RING,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R, BALLAST_RING,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -259,6 +259,17 @@ export function createRenderer(app) {
   let refillLook = null
   let chapterHasMaws = false   // The Deep: the refill field is an animal (see updateShafts' maw branch)
   let refillDrawdown = 0       // The Shelf: seconds of occupancy that use an upwelling up (0 elsewhere)
+  // FOUL SPRING's fouling progress for ONE circle: -1 when it is not being fouled, else 0 -> 1
+  // across the animation. `fouled` is seconds REMAINING and sim's stepShafts owns that clock.
+  //
+  // ⚠ SHARED BY BOTH RENDER CONSUMERS OF run.shafts, deliberately. The array has three (this
+  // sprite, the murk punch in updateDark, and stepCharge on the sim side) and the comment on that
+  // punch already records what it costs when two of them agree a circle is spent and the third
+  // does not: "a patch of clear water that does nothing and never goes away". One function so the
+  // two drawings cannot disagree about how far along the same circle is.
+  const foulProgress = (sh) => ((sh.fouled ?? 0) > 0
+    ? 1 - Math.min(1, sh.fouled / FOUL_SPRING_FOUL_T)
+    : -1)
   // v7.x Book 2: the active chapter's swell block (CHAPTERS[].render.swell) or null. A CONFIG
   // OBJECT rather than a boolean, unlike its neighbours here, because updateSwell reads six numbers
   // off it every frame and re-deriving them from run.chapter per crest per frame is the kind of
@@ -11060,9 +11071,18 @@ export function createRenderer(app) {
         sv.glow.scale.set(fxScale(sv.glow.texture, sh.r * 2.1))
         sv.glow.alpha = 0.62 + 0.10 * Math.sin(animT * 1.1 + i * 1.7)
       }
+      // FOUL SPRING's clock, read once for the cache key, the branch and the alpha handover below.
+      const fp = foulProgress(sh)
+      const fouling = fp >= 0
+      // QUANTISED INTO THE CACHE KEY. The block below is a geometry cache that only re-runs when its
+      // key moves, so an animation drawn inside it without this is stamped once at fp≈0 and holds —
+      // which on screen is indistinguishable from the patch simply stopping. 14 steps across
+      // FOUL_SPRING_FOUL_T is ~12 redraws of a handful of circles, which is nothing.
+      const foulStep = fouling ? Math.ceil(sh.fouled * 14) : -1
       // Geometry redrawn only when the radius (or the chapter's look) changes, the same cache the
       // eddy ring uses. Neither field's radius moves today, so in practice this runs once per circle.
-      if (sv._r !== sh.r || sv._look !== refillLook || sv._shape !== sh.shape || sv._rot !== sh.rot) {
+      if (sv._r !== sh.r || sv._look !== refillLook || sv._shape !== sh.shape || sv._rot !== sh.rot || sv._foul !== foulStep) {
+        sv._foul = foulStep
         sv._r = sh.r
         sv._look = refillLook
         // The outline is part of the cache key now: two pools at the same radius are no longer the
@@ -11084,6 +11104,29 @@ export function createRenderer(app) {
           sv.body.circle(0, 0, ar).fill({ color: P.air, alpha: P.airA })
           sv.body.circle(-ar * 0.16, -ar * 0.13, ar * 0.5).fill({ color: P.lobe, alpha: P.lobeA })
           sv.ring.circle(0, 0, sh.r).stroke({ width: P.rimW, color: P.rim, alpha: P.rimA })
+        } else if (upwelling && fouling) {
+          // FOUL SPRING (Silt Veil's mod). The clean water being taken by the player's own silt.
+          //
+          // ⚠ ABOVE THE PLAIN `upwelling` BRANCH, and both are above `pool` — run TP source-slices
+          // the pool branch by reading from its opening line to the next else, so a look inserted
+          // below it lands inside that slice and fails an assertion about another chapter entirely.
+          //
+          // EATEN FROM THE RIM IN (owner's pick, 2026-08-19, off a four-panel sheet against the
+          // shipped instant spend and two other candidates). Silt fills the whole outline at once
+          // and the CLEAN water retreats inward behind it, closing to a small pale blob and then
+          // going out. It won on silhouette: the other two held the outline still and changed only
+          // colour, and a colour change at phone size reads as the patch fading rather than as the
+          // patch being taken. The thing this has to say is that the water stops recharging you,
+          // and a shape that visibly shrinks says it where a dimming one does not.
+          const U = UPWELLING_VIS, F = FOUL_SPRING_VIS
+          sv.glow.tint = F.sheen
+          const clean = 1 - fp
+          sv.body.poly(lobePoly(sh.r, sh.shape, sh.rot)).fill({ color: F.deep, alpha: F.deepA * fp })
+          if (clean > 0.03) {
+            sv.body.poly(lobePoly(sh.r * clean, sh.shape, sh.rot)).fill({ color: U.core, alpha: U.coreA })
+            sv.ring.poly(lobePoly(sh.r * clean, sh.shape, sh.rot)).stroke({ width: U.rimW, color: U.rim, alpha: U.rimA })
+          }
+          sv.ring.poly(lobePoly(sh.r, sh.shape, sh.rot)).stroke({ width: U.rimW, color: F.rim, alpha: F.rimA * fp })
         } else if (upwelling) {
           // CLEAN WATER (The Shelf). The sun-shaft branch at the bottom of this chain, inverted in
           // temperature — see UPWELLING_VIS for why these two have to be told apart by eye rather
@@ -11135,7 +11178,12 @@ export function createRenderer(app) {
       // five seconds have to be legible from the water and not from the bar.
       if (refillDrawdown > 0) {
         const t = Math.min(1, (sh.drawdown ?? 0) / refillDrawdown)
-        const f = 1 - t
+        // WHILE FOULING, THE FOULING OWNS THE ALPHA. Foul Spring slams `drawdown` to full in the
+        // same frame it marks the circle, so this linear fade would take the patch to alpha 0
+        // instantly — which IS the "the clean water just disappears" the animation exists to
+        // replace. It hands back cleanly: when `fouled` reaches 0, t is already 1 and the circle
+        // goes out on the very next frame.
+        const f = fouling ? 1 : 1 - t
         sv.body.alpha = f
         sv.ring.alpha = f
         sv.glow.alpha *= f
@@ -11910,9 +11958,16 @@ export function createRenderer(app) {
         // does nothing and never goes away.
         //
         // Faded on the SAME linear curve as the sprite and the sim clock, off the same field.
-        const fade = refillDrawdown > 0
-          ? 1 - Math.min(1, (sh.drawdown ?? 0) / refillDrawdown)
-          : 1
+        // A FOULED CIRCLE CLOSES ITS HOLE ON THE FOULING CLOCK, not on the occupancy one. Foul
+        // Spring sets `drawdown` to full at once, so without this the light hole would snap shut a
+        // full FOUL_SPRING_FOUL_T before the water above it finishes turning — the same two-of-three
+        // disagreement this comment block was written about, arriving from the other direction.
+        const fpDark = foulProgress(sh)
+        const fade = fpDark >= 0
+          ? 1 - fpDark
+          : refillDrawdown > 0
+            ? 1 - Math.min(1, (sh.drawdown ?? 0) / refillDrawdown)
+            : 1
         if (fade <= 0.004) continue
         darkCtx.globalAlpha = fade
         // FOLLOW THE LOBES where the field has them. A circle punched around a lobed upwelling

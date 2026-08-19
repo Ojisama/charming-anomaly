@@ -116,9 +116,14 @@ const bootstrap = `(() => {
   // marked \`wip\` to CHAPTER_ORDER[0] for any save without this flag, so without it --chapter shelf
   // silently shoots THE BODY: a full, correct-looking frame sequence of the wrong chapter, with no
   // error anywhere. Harmless for the shipped chapters, which do not consult it.
+  // nick: NON-EMPTY IS LOAD-BEARING (v7.157+). '' is "never chosen" and fires the first-load
+  // nickname prompt, which is a modal over the title screen -- the seeded save never reaches a run,
+  // and the symptom is fx-probe's "scene never became ready" with no page error and no __fxError,
+  // i.e. indistinguishable from a scene that draws nothing. It cost a bisect against a known-good
+  // scene to find. Any 3-15 char string does; this one is obviously a probe if it ever leaks.
   localStorage.setItem('charming-anomaly-save-v1', JSON.stringify({
     schema: 1, coins: 0, runs: 5, lang: 'en', chapter: ${JSON.stringify(chapter)}, dev: true,
-    shop: {}, best: { time: 0, kills: 0 }, choiceSlots: 2, chapters,
+    shop: {}, best: { time: 0, kills: 0 }, choiceSlots: 2, chapters, nick: 'fxprobe',
   }))
 
   // A note is DIAGNOSTIC — painted into the page so the screenshot carries it, and nothing more.

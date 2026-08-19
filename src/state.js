@@ -1088,7 +1088,7 @@ function generateWells(sig) {
  *   currentForce (sim.js) — see that function's own doc for the pull/swirl math — not by any
  *   dedicated stepEddies (there's nothing to step: the force IS the effect, applied where the
  *   force is already applied, to the player and every enemy, and to a tideCarried bloom cloud).
- * shafts[i]: { x, y, bx, by, r, phase, _cell, gape?, _shutT? } — v7.x Book 2: streamed REFILL
+ * shafts[i]: { x, y, bx, by, r, phase, _cell, gape?, _shutT?, drawdown?, fouled? } — v7.x Book 2: streamed REFILL
  *   CIRCLES the player stands in to refill `charge`. ONE list fed from any of FOUR places, decided
  *   by refillSpec() (config.js): The Twilight's sun shafts (its signature IS the refill spec:
  *   cell/chance/r/minDist/driftAmp/driftHz sit directly on it), The Surf's tide pools
@@ -1104,6 +1104,14 @@ function generateWells(sig) {
  *   maw branch, which IS the tell — the teeth reaching in and the rim going from cold to hot are
  *   drawn straight off `gape`. Undefined on every other chapter's circles, where inMaw's `_shutT`
  *   guard reads 0 and the test collapses to the plain inLobe it always was.
+ *     `drawdown` (s of occupancy, The Shelf) is how long the player has stood in this circle; at
+ *   signature.drawdownSecs it stops being food. Written by stepCharge and read by render.js, which
+ *   fades the circle off this exact number so the seconds watched are the seconds counted.
+ *     `fouled` (s REMAINING) is Foul Spring's animation clock, set to FOUL_SPRING_FOUL_T when a Silt
+ *   Veil cloud lands in a live circle and counted down by stepShafts. It is the PICTURE only —
+ *   `drawdown` is slammed to full in the same breath, so the circle stops feeding the player at
+ *   once and this just buys the silt a moment to take it over. Undefined everywhere else, which
+ *   reads as 0 and leaves every other field's drawing untouched.
  *   Same _obstacleSeed cell-hash idiom as eddies above and own _shaftCellI/_shaftCellJ cursor
  *   — shared by every chapter's refill circles, since only one of them is ever streaming at a time.
  *   The SALT BLOCK is the spec's, not the streamer's (spec.salt, default 20): 20-23 for the shafts

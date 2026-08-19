@@ -151,7 +151,7 @@ import {
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth, laneAxes,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, pollutionFrac, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, pollutionFrac, FOUL_SPRING_FOUL_T, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BALLAST_FLIGHT, BALLAST_BLIND_THROW,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
@@ -263,7 +263,7 @@ export function stepSim(run, input, dt) {
   streamEddies(run)       // v6.4 pond identity: materialize/drop eddy cells (no-op outside pond)
   streamShafts(run)       // v7.x Book 2: materialize/drop refill cells (no-op in a chapter with no refill field)
   streamSlicks(run)       // v7.x The Wreck: materialize/drop pollution-spill cells (no-op elsewhere)
-  stepShafts(run)         // ...and DRIFT them; the streamer above only decides existence (see its doc)
+  stepShafts(run, dt)     // ...and DRIFT them; the streamer above only decides existence (see its doc)
   streamSandbars(run)     // Book 2 surf: materialize/drop dry patches (no-op elsewhere)
   stepCharge(run, dt)     // v7.x Book 2: the resource bar (no-op unless the chapter declares one)
   // v7.x The Deep. AFTER stepCharge and BEFORE the weapons, because the mark it refreshes is read
@@ -3682,9 +3682,14 @@ function stepSlick(run, dt) {
 // speed of driftAmp x driftHz rather than easing to a halt at each end of a line. A shaft that
 // stops dead twice a cycle reads as a stutter, and the number checked against the ceiling would
 // then be a peak rather than the speed it actually holds.
-function stepShafts(run) {
+function stepShafts(run, dt) {
   const sig = CHAPTERS[run.chapter].signature
   if (!sig || sig.type !== 'shafts' || !run.shafts.length) return
+  // FOUL SPRING's fouling clock, and it runs AHEAD of the drift early-out below on purpose: a
+  // refill field may declare no drift at all (The Surf's pools and The Reef's pockets do not), and
+  // the animation still has to run down wherever the mod can reach. Seconds REMAINING, so render
+  // gets `fouled / FOUL_SPRING_FOUL_T` as a 1 -> 0 progress with no second clock to disagree with.
+  for (const sh of run.shafts) if (sh.fouled > 0) sh.fouled = Math.max(0, sh.fouled - dt)
   const amp = sig.driftAmp ?? 0
   if (!amp) return
   const a = run._realTime * (sig.driftHz ?? 0)
@@ -7316,6 +7321,30 @@ function stepBloomWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 
+// N spots, preferring DISTINCT bodies (v7.x, Silt Veil's Roil). pickBloomSpot picks WITH
+// replacement, which is right for one cloud and wrong for a count mod: two clouds on one body is
+// the "same hit, bigger" shape a coverage card exists to escape, and CLAUDE.md's per-cast-count
+// rule names it exactly -- it renders identically to no change at all, which is why the guard is an
+// assertion on DISTINCT POSITIONS rather than on a count.
+//
+// Falls back to pickBloomSpot once the bodies in range are used up, so a lone enemy still eats
+// every cloud in the volley rather than the cast quietly shrinking to the number of targets.
+function pickBloomSpots(run, castRange, n) {
+  const p = run.player
+  const rangeSq = castRange * castRange
+  const pool = run.enemies.filter((e) => {
+    if (e._dead || isAlly(e)) return false   // SUBMISSION: never mark your own ally
+    const dx = e.x - p.x, dy = e.y - p.y
+    return dx * dx + dy * dy <= rangeSq
+  })
+  const out = []
+  for (let i = 0; i < n; i++) {
+    if (pool.length === 0) { out.push(pickBloomSpot(run, castRange)); continue }
+    out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0])
+  }
+  return out
+}
+
 // A random live enemy within castRange, else a random offset within castRange of the player.
 function pickBloomSpot(run, castRange) {
   const p = run.player
@@ -8978,6 +9007,9 @@ function foulUpwelling(run, x, y) {
     if (!inMaw(sh, x, y)) continue
     if (life > 0 && (sh.drawdown ?? 0) >= life) continue
     if (life > 0) sh.drawdown = life
+    // The picture, not the mechanic -- the line above is what actually spends it. render.js reads
+    // this to draw the silt taking the patch instead of the circle blinking out in one frame.
+    sh.fouled = FOUL_SPRING_FOUL_T
     return true
   }
   return false
@@ -8986,15 +9018,16 @@ function foulUpwelling(run, x, y) {
 function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
   const foulSpring = run.weaponMods.siltVeil?.foulSpring ?? 0
   fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => {
-    const p = run.player
-    // ONE local, used as the loop bound AND as the divisor that rings the clouds. Two separate
-    // expressions here is the eight-site trap CLAUDE.md documents: the extra clouds stack on one
-    // bearing and it renders identically to no change at all.
+    // PLANTED ON A BODY, not at the player's feet (owner, 2026-08-19). pickBloomSpot is Toxin
+    // Bloom's own chooser -- a random live enemy within castRange, falling back to a random offset
+    // near the player when nothing is in reach -- so the two zone weapons in this game answer
+    // "where does the cloud go" with one function rather than two that can drift apart. The ring
+    // that used to space clouds around the player is gone with it: bodies are already in different
+    // places, so there is no divisor left to get wrong.
     const clouds = ipecacN(run, Math.max(1, Math.round(stats.clouds)))
-    const ring = clouds > 1 ? stats.maxR * 0.85 : 0
+    const spots = pickBloomSpots(run, stats.castRange, clouds)
     for (let i = 0; i < clouds; i++) {
-      const a = (i / clouds) * Math.PI * 2
-      const x = p.x + Math.cos(a) * ring, y = p.y + Math.sin(a) * ring
+      const x = spots[i].x, y = spots[i].y
       // PER CLOUD, not per cast: a ringed volley can foul several upwellings at once, and each one
       // it lands in is spent. Short-circuits on foulSpring 0 so an unmodded veil never walks
       // run.shafts at all.
