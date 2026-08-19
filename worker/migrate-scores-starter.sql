@@ -1,0 +1,13 @@
+-- ONE-SHOT, and the SECOND of these. Same contract as migrate-scores-time.sql: run it ONCE against
+-- a database whose `scores` table predates the column, THEN schema.sql (which creates the indexes
+-- and is safe to re-apply at any time).
+--
+--     npm run db:migrate:remote -- ./migrate-scores-starter.sql
+--     npm run db:remote
+--
+-- The migrate scripts take the FILE as an argument precisely because there is now more than one and
+-- there will be more later: each is applied once, to whatever database has not had it yet, and a
+-- database that already has the column answers "duplicate column name: starter" — the correct loud
+-- answer, not something to guard against. A FRESH database needs no migration file at all, since
+-- schema.sql's CREATE TABLE already carries every column.
+ALTER TABLE scores ADD COLUMN starter TEXT;

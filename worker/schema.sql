@@ -24,11 +24,15 @@ CREATE TABLE IF NOT EXISTS scores (
   kills      INTEGER NOT NULL,
   level      INTEGER NOT NULL,
   at         INTEGER NOT NULL,  -- server clock, epoch ms
-  time_ms    INTEGER            -- ms to kill the boss. NULL for every ordinary chapter and every
+  time_ms    INTEGER,           -- ms to kill the boss. NULL for every ordinary chapter and every
                                 -- loss: a shortest-wins board that accepted deaths would be led
                                 -- forever by whoever quit fastest. On a database that predates
                                 -- this column, migrate-scores-time.sql adds it -- ALTER appends,
                                 -- so the column order matches this literal either way.
+  starter    TEXT               -- the WEAPONS id this run began on, or NULL on a chapter whose
+                                -- starter is fixed (only a rolled one is worth recording). Carried
+                                -- for display beside the row and never sorted or filtered on, so
+                                -- unlike time_ms it needs no index of its own.
 );
 -- One index per board, and EACH MUST COVER THE WHOLE ORDER BY, `at` included. Without the trailing
 -- `at` SQLite can seek the partition but not the order, so it materialises every row for that

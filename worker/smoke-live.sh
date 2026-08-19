@@ -98,12 +98,13 @@ is "a malformed board is 400"                 400  "$(sstat "$SB?chapter=zzsmoke
 is "a short nick is refused"                  400  "$(sstat -X POST -H 'content-type: application/json' \
   -d '{"nick":"Bo","chapter":"zzsmoke","difficulty":3,"kills":1,"level":1}' "$SB")"
 is "and it wrote nothing"                     '{"kills":[],"level":[],"time":[]}' "$(curl -s "$SB?chapter=zzsmoke&difficulty=3")"
-# The BOSS board, which is the one that needs the deployed database to have been MIGRATED and not
-# merely created: `scores` predates the time_ms column, so a deploy without `npm run db:migrate:remote`
-# leaves every SELECT naming an absent column — and the Worker's own catch turns that into a 500
-# the game reports as "could not reach the podium". The read above already proves it (a 200 with a
-# `time` key cannot come from a table without the column); this rejects a malformed time as well,
-# so the validation added with the column is confirmed live without writing a row.
+# THE MIGRATED COLUMNS, and the read above is what proves them. Every board read SELECTs time_ms and
+# starter by name, so against a database that was created but never MIGRATED the statement throws,
+# the Worker's own catch turns it into a 500, and the game reports "could not reach the podium" for
+# what is really a schema one migration behind. A 200 up there is therefore the assertion that every
+# column this build reads exists on the deployed database — which is exactly the day-one mistake
+# this block was written for, one deploy further along. What is left is the validation that came
+# with those columns, confirmed live without writing a row.
 is "a zero kill time is refused"               400  "$(sstat -X POST -H 'content-type: application/json' \
   -d '{"nick":"Smoke","chapter":"zzsmoke","difficulty":3,"kills":1,"level":1,"timeMs":0}' "$SB")"
 is "and it wrote nothing either"               '{"kills":[],"level":[],"time":[]}' "$(curl -s "$SB?chapter=zzsmoke&difficulty=3")"

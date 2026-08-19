@@ -2,7 +2,8 @@
 -- time board (v7.x), THEN run schema.sql — which creates the index this column needs and would
 -- otherwise fail on a table that has no such column:
 --
---     npm run db:migrate:remote && npm run db:remote     (and :local for the dev D1)
+--     npm run db:migrate:remote -- ./migrate-scores-time.sql
+--     npm run db:remote                                        (and :local for the dev D1)
 --
 -- Not folded into schema.sql because SQLite has no `ADD COLUMN IF NOT EXISTS`, and schema.sql's
 -- whole contract is that it can be re-applied at any time (that is what the `DROP INDEX IF EXISTS`

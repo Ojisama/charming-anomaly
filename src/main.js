@@ -635,6 +635,12 @@ function endRun(victory) {
     const entry = {
       nick, chapter, difficulty: run.difficulty ?? 1, kills: run.kills, level: run.player.level,
       timeMs: victory && CHAPTERS[chapter]?.scripted ? Math.round(run.time * 1000) : null,
+      // ONLY WHERE IT IS ROLLED (owner, 2026-08-19). A chapter whose `starter` is a plain string
+      // gives every player the same weapon, so recording it on every row of those boards is a
+      // column of one repeated answer. `Array.isArray` is the same test createRun rolls on, so the
+      // two cannot disagree about which chapters those are. Win or lose: this is what the run was
+      // played with, not something it earned.
+      starter: Array.isArray(CHAPTERS[chapter]?.starter) ? run.starterId : null,
     }
     submitScore(entry)
       .then((boards) => {

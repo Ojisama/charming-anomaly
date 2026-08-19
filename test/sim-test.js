@@ -4468,7 +4468,7 @@ function testChapters() {
   // take the SHIPPED code path — test the gated thing and you have tested the thing that ships.
   // The moment sim branches on the flag, the two diverge and the gate stops being a gate.
   {
-    const simSrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  const simSrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
     assert.ok(!/\bmeta\.dev\b/.test(simSrc), 'sim.js reads meta.dev — the WIP gate must not change simulation, or what you playtest is not what ships (plan R1)')
     assert.ok(!/\brun\.dev\b/.test(simSrc), 'sim.js reads run.dev — the WIP gate must not reach the run object (plan R1)')
   }
@@ -15344,11 +15344,56 @@ function testLeaderboard() {
   assert.ok(/scripted/.test(timeExpr),
     'the kill time must be gated on CHAPTERS[].scripted: an ordinary chapter ends on the same 300s clock for everyone, so its time board would rank whoever died first')
 
+  // THE STARTER, WHICH IS RECORDED BUT NEVER RANKED (owner, 2026-08-19: display the weapon the
+  // player got for the run). Two halves that fail in opposite directions and neither throws: sent
+  // for a chapter whose starter is FIXED it is a column of one repeated answer, and read off
+  // weapons[0] instead of the published field it is an ordering accident one weapon-dropping
+  // mechanic away from crediting a public record to the wrong weapon.
+  const starterExpr = /starter:\s*([^\n]*)/.exec(endRunBody)?.[1]
+  assert.ok(starterExpr, 'run LB could not find the starter term in endRun — the podium no longer records which weapon a run began on')
+  assert.ok(/Array\.isArray/.test(starterExpr),
+    'the starter must be sent only where the chapter ROLLS it — Array.isArray is the same test createRun rolls on, and anything else is a second answer to which chapters those are')
+  assert.ok(/run\.starterId/.test(starterExpr),
+    'the starter must come from run.starterId, not run.weapons[0]: index 0 is an ordering accident, and the first mechanic that drops or re-sorts a weapon would credit the record to the wrong one')
+  // The publish itself, asserted by CALLING createRun rather than by reading it — source text
+  // cannot tell `starterId,` (the property) from `id: starterId,` (the weapons literal), and a
+  // check that cannot tell those apart passes with the property deleted. Proven: that exact
+  // mutation survived the text version of this line.
+  //
+  // 40 runs, not one: the point of the field on a rolled chapter is that it tracks THE ROLL, and a
+  // single run agrees with a hardcoded first-element read by luck 1 time in 23.
+  const rolledSeen = new Set()
+  for (let i = 0; i < 40; i++) {
+    const r = createRun(makeMeta(), { chapter: 'blank', difficulty: 1 })
+    assert.ok(typeof r.starterId === 'string' && r.starterId.length > 0,
+      'createRun must publish run.starterId — without it endRun submits undefined and every row records no weapon at all')
+    assert.ok(CHAPTERS.blank.starter.includes(r.starterId), `run.starterId is not from the chapter's own pool: ${r.starterId}`)
+    assert.strictEqual(r.weapons[0].id, r.starterId, 'the published id must be the weapon the run actually holds, not a second roll')
+    rolledSeen.add(r.starterId)
+  }
+  assert.ok(rolledSeen.size > 1,
+    `run.starterId never varied over 40 runs of a chapter with ${CHAPTERS.blank.starter.length} starters — it is not tracking the roll`)
+  // ...and a chapter whose starter is a plain string publishes that, so the field is never undefined.
+  const fixed = createRun(makeMeta(), { chapter: 'city', difficulty: 1 })
+  assert.strictEqual(fixed.starterId, CHAPTERS.city.starter,
+    'a fixed-starter chapter must publish its own starter, not undefined — main.js is what decides the field is not SENT there')
+
   // ...and the other side of that flag, in ui.js: the recto has to CHOOSE the time board for a
   // scripted chapter. Source text, because the alternative is a boss podium that still shows a
   // level board — correct-looking, fully populated, and not the board the scores are being kept on.
   assert.ok(/scripted \? 'time' : 'level'/.test(uiSrc2),
     "ui.js must pick the time board for a scripted chapter — without it the kill times are submitted, stored and never drawn")
+  // Drawn off the ROW, not off the chapter: a board where every run began on the same weapon would
+  // otherwise print one glyph three times, which is the whole reason main.js sends null there.
+  assert.ok(/r\.starter \?/.test(uiSrc2),
+    'the podium row must draw the weapon only when the row carries one — a chapter test here would print the same glyph on every row of a fixed-starter board')
+  // The RULE, not the substring: a selector renamed to .podium-figure-unused still CONTAINS
+  // '.podium-figure', and renaming the rule out from under the markup is exactly what breaking
+  // this looks like. That mutation survived the substring version of this line.
+  assert.ok(/class="podium-figure"/.test(uiSrc2),
+    'the podium row must wrap its figure and its weapon in .podium-figure')
+  assert.ok(/\.podium-figure\s*\{/.test(readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')),
+    'styles.css must carry the .podium-figure rule — without it the two stack and every row grows a third line, which is what pushes the bookcase past its scroll box')
 
   // (d) THE FRENCH. Every leaderboard string lives in ui.js, in a function — which run XX's coverage
   // walk cannot see BY CONSTRUCTION, since it enumerates config TABLES. CLAUDE.md records that
@@ -15416,6 +15461,36 @@ function testLeaderboard() {
   assert.ok(/ALTER TABLE scores ADD COLUMN time_ms INTEGER/.test(migrateSrc),
     'the one-shot migration must add time_ms to an existing scores table')
 
+  assert.ok(/INSERT INTO scores \([^)]*starter[^)]*\)/.test(workerSrc),
+    'the Worker must store the starter, or every row records no weapon and the column is decorative')
+  assert.ok(/SELECT[^']*starter/.test(workerSrc),
+    'the Worker must read the starter back — stored and never selected is the same to a player as never stored')
+  assert.ok(/starter\s+TEXT(?!\s+NOT NULL)/.test(schemaSrc),
+    'schema.sql must declare starter NULLABLE: every fixed-starter chapter and every older row stores null there')
+  const migrateStarter = readFileSync(new URL('../worker/migrate-scores-starter.sql', import.meta.url), 'utf8')
+  assert.ok(/ALTER TABLE scores ADD COLUMN starter TEXT/.test(migrateStarter),
+    'the one-shot migration must add starter to an existing scores table')
+
+  // EVERY WEAPON ID must satisfy the Worker's shape check, for exactly the reason every chapter id
+  // must satisfy validChapter: the Worker is deliberately ignorant of game ids, so nothing on that
+  // side can catch one it happens to refuse. A future id with a digit first or an underscore would
+  // be dropped from every row on that chapter, and the podium would simply never show a weapon
+  // there — no error, no red, and the score itself still landing so nobody has a reason to look.
+  // The Worker's own literal, lifted and re-run, not a copy of it.
+  const idLiteral = /const validId[^\n]*?(\/\^[^\n/]+\$\/)/.exec(workerSrc)?.[1]
+  assert.ok(idLiteral, "run LB could not lift validId's pattern out of the Worker — the regex has gone stale")
+  const idRe = new RegExp(idLiteral.slice(1, -1))
+  const weaponIds = Object.keys(WEAPONS)
+  const refusedIds = weaponIds.filter((id) => !idRe.test(id))
+  assert.ok(weaponIds.length >= 30, `expected the whole weapon table, got ${weaponIds.length}`)
+  assert.deepStrictEqual(refusedIds, [],
+    `weapon id(s) the Worker's validId would drop: [${refusedIds.join(', ')}] — a run starting on one ` +
+    `records no weapon on the podium, with the score itself landing normally so nothing looks wrong`)
+  // And the rolled pool specifically, since that is the only set that can currently reach the column.
+  const rolled = Object.values(CHAPTERS).flatMap((c) => (Array.isArray(c.starter) ? c.starter : []))
+  assert.ok(rolled.length > 0, 'no chapter rolls its starter any more — this whole column has no source')
+  for (const id of rolled) assert.ok(WEAPONS[id], `a rolled starter resolves to no weapon: ${id}`)
+
   const chapterLiteral = /const validChapter[^\n]*?(\/\^[^\n/]+\$\/)/.exec(workerSrc)?.[1]
   assert.ok(chapterLiteral, "run LB could not lift validChapter's pattern out of the Worker — the regex has gone stale")
   const chapterRe = new RegExp(chapterLiteral.slice(1, -1))
@@ -15439,6 +15514,7 @@ function testLeaderboard() {
 
   console.log(`PASS run LB (leaderboard): validNick holds ${NICK_MIN}-${NICK_MAX} through whitespace, a cut-on-a-space clamp and a bisected emoji, ` +
     `podiumRank reads all three boards independently, the kill time is gated on victory AND a scripted chapter on both sides, ` +
+    `the rolled starter is published, submitted only where it is rolled and drawn off the row (${rolled.length} rollable, all ${weaponIds.length} weapon ids survive the Worker's shape check), ` +
     `both halves of the dev-run gate are wired across sim.js + ui.js + main.js, ` +
     `${leaderboardCopy.length} strings have French with placeholders intact, and the Worker's range, route order ` +
     `and chapter pattern agree with the client across all ${allChapterIds.length} chapters`)

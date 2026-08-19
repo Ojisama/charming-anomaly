@@ -682,6 +682,10 @@ function generateWells(sig) {
  *   natives never appear as offers, though nothing stops a weapon id from being pushed onto
  *   run.weapons directly (e.g. tests) and stepping normally; only the OFFER pool is scoped.
  *   Weapon mods (WEAPON_MODS) and elements stay global systems, unscoped by chapter.
+ * starterId (v7.x): the weapon id this run began on — the ROLLED one on a chapter whose
+ *   `starter` is an array (The Blank), and simply that chapter's fixed starter otherwise.
+ *   Constant for the run. Read by main.js when it submits a score, so a podium row on a
+ *   rolled-starter chapter can say which weapon the record was set with.
  * phase: 'playing' | 'levelup' | 'paused' | 'dead' | 'victory'
  * skin (v7.x): 'cheeks' | null — a COSMETIC, snapshotted from this book's shop at createRun.
  *   sim.js never reads it. render.js latches it in reset() beside playerForm and picks the
@@ -1973,6 +1977,11 @@ export function createRun(meta, opts = {}) {
       vx: 0, vy: 0,       // v5.4: this frame's own input velocity, px/s (see the doc block above)
     },
     weapons: [{ id: starterId, level: startWeaponLevel }],
+    // Which weapon this run STARTED on, published rather than inferred. It is weapons[0] today —
+    // nothing removes or reorders that array — but that is an ordering accident, not a contract,
+    // and the one consumer is a LEADERBOARD row: read positionally, the first mechanic that drops
+    // or re-sorts a weapon would credit a public record to the wrong one, with nothing thrown.
+    starterId,
     weaponTimers: {},      // id -> s until next fire
     // accumulated applied bonuses (base * rarity mult per pick) and pick counts
     passives: Object.fromEntries(Object.keys(PASSIVES).map((id) => [id, 0])),
