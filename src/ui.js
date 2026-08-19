@@ -681,6 +681,21 @@ export function initUI(hooks) {
     })
   }
 
+  // A DRAWN medal, and the ribbon is the whole point: a coloured disc alone reads as a list index
+  // (which is what it was), while two straps above it read as a placing before you have read the
+  // number at all. Emoji medals were not an option — same ruling as the shop icons, the glyph is a
+  // different drawing on every platform and gold/silver/bronze are the one thing that must not be.
+  // THE DIGIT STAYS, and that was shot rather than argued: a bare disc and an embossed star were
+  // built alongside this and both read better zoomed in than at the size they ship at. The disc is
+  // 13px on a phone, where a star is four grey pixels and a number is still a number — so the medal
+  // says the rank twice, once in metal and once in ink, and a screen reader gets it before the name.
+  const medalHtml = (n) => `<span class="podium-rank podium-rank--${n}">
+      <svg class="medal" viewBox="0 0 22 30" aria-hidden="true">
+        <path class="medal-rib" d="M2.5 0h5.5l6 13.5-5 2z"/>
+        <path class="medal-rib" d="M19.5 0h-5.5l-6 13.5 5 2z"/>
+        <circle class="medal-disc" cx="11" cy="20.5" r="8.4"/>
+      </svg><b class="medal-n">${n}</b></span>`
+
   // STACKED, name over score, and that is the whole reason one board fits a half-page. A spread
   // page is 162px wide and 142px of it is content: a rank disc, a nickname and a score on ONE line
   // leaves about 80px for the name, which truncates every nickname past ~11 characters — and the
@@ -690,7 +705,7 @@ export function initUI(hooks) {
   // nothing to tell it where one entry ends and the next begins.
   const podiumRowHtml = (r, i) => `
     <div class="podium-row${r.nick === meta.nick ? ' podium-row--me' : ''}" role="listitem">
-      <span class="podium-rank podium-rank--${i + 1}">${i + 1}</span>
+      ${medalHtml(i + 1)}
       <span class="podium-entry">
         <span class="podium-nick">${esc(r.nick)}</span>
         <b class="podium-score">${r.score}</b>
@@ -704,7 +719,7 @@ export function initUI(hooks) {
   const podiumSkeleton = () =>
     '<div class="podium-rows" aria-hidden="true">' + [0, 1, 2].map((i) => `
       <div class="podium-row podium-row--wait">
-        <span class="podium-rank podium-rank--${i + 1}">${i + 1}</span>
+        ${medalHtml(i + 1)}
         <span class="podium-bone"></span>
       </div>`).join('') + '</div>'
 
@@ -759,7 +774,7 @@ export function initUI(hooks) {
     const top = podiumCache.get(boardKey(chapterId, difficulty))?.kills?.[0]
     if (!top) return ''
     return `<div class="spread-leader">
-      <span class="podium-rank podium-rank--1">1</span>
+      ${medalHtml(1)}
       <span class="podium-nick">${esc(top.nick)}</span>
     </div>`
   }
