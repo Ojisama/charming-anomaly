@@ -2072,6 +2072,13 @@ export const WEAPONS = {
     //   `slow: 0` is set at cast: this chapter does not slow you and must not quietly slow them
     //   either — a card whose text never mentions a slow must not add one.
     levels: [
+      // `castRange` (2026-08-19): the cloud is planted ON A BODY, not at the player's feet -- owner,
+      // "the clouds of vase should appear under enemies not under the player". This is how far it can
+      // reach to find one, and the ladder is set beside Toxin Bloom's (260 -> 320), the shipped
+      // weapon whose targeting this now shares. Slightly shorter at the bottom: this chapter is
+      // about not being able to see, and a first-level cast that reaches further than the murk does
+      // would be the weapon arguing with its own chapter.
+      //
       // `clouds` is FLAT ACROSS THE LADDER: levels buy damage, reach and duration, and Roil is the
       // only thing that buys a second cloud -- the same split Flare owns on the Bubble Puff's width,
       // and for the same reason (a level-up that also grew it would compete with the card).
@@ -2080,11 +2087,11 @@ export const WEAPONS = {
       // silt on the pause build sheet. `skips`, `crustDur`, `setDur` and `hooks` all exist for
       // exactly this reason -- a per-weapon key earns a per-weapon label, and being unique to this
       // weapon's levels[] means no other build sheet gains a row.
-      { dmgPerTick: 6,  rate: 4.4, maxR: 116, dur: 3.4, fear: 0.9, clouds: 1 },
-      { dmgPerTick: 8,  rate: 4.1, maxR: 126, dur: 3.7, fear: 1.0, clouds: 1 },
-      { dmgPerTick: 11, rate: 3.8, maxR: 136, dur: 4.0, fear: 1.1, clouds: 1 },
-      { dmgPerTick: 13, rate: 3.5, maxR: 148, dur: 4.4, fear: 1.2, clouds: 1 },
-      { dmgPerTick: 15, rate: 3.2, maxR: 162, dur: 4.8, fear: 1.4, clouds: 1 },
+      { dmgPerTick: 6,  rate: 4.4, maxR: 116, dur: 3.4, fear: 0.9, clouds: 1, castRange: 240 },
+      { dmgPerTick: 8,  rate: 4.1, maxR: 126, dur: 3.7, fear: 1.0, clouds: 1, castRange: 260 },
+      { dmgPerTick: 11, rate: 3.8, maxR: 136, dur: 4.0, fear: 1.1, clouds: 1, castRange: 280 },
+      { dmgPerTick: 13, rate: 3.5, maxR: 148, dur: 4.4, fear: 1.2, clouds: 1, castRange: 300 },
+      { dmgPerTick: 15, rate: 3.2, maxR: 162, dur: 4.8, fear: 1.4, clouds: 1, castRange: 320 },
     ],
   },
   ballast: {
@@ -4675,6 +4682,16 @@ export const HUMIDITY_DMG_FLOOR = 0.7
 // balance_decision : a refill circle is spent after a third of the bar 2026-08-18
 //  - The Deep is the one Book 2 field with none: a third of its bar arrives at 2.4s and its maw
 //    needs MAW_GAPE_T (3.2s) to swallow, so a drawdown would delete the trap the chapter is built on.
+// FOUL SPRING's fouling animation (The Shelf's Silt Veil mod). The patch stops feeding you the
+// INSTANT it is fouled -- that is the card's cost and it is not on a timer -- but the picture of it
+// needs a beat, and without one the clean water simply blinks out of existence. Owner, 2026-08-19:
+// "foul spring should have a specific animation, currently the clean water just disappears."
+//
+// This is the length of that picture, not of the mechanic: `drawdown` is set to full in the same
+// breath, so nothing about the refill waits for this. render.js reads `fouled` (seconds REMAINING,
+// counted down by stepShafts) and draws the silt taking the patch over that window instead of the
+// linear alpha fade a normal occupancy spend gets.
+export const FOUL_SPRING_FOUL_T = 0.85
 export const REFILL_ZONE_SPEND = 0.33
 export const spendSecs = (res, spend = REFILL_ZONE_SPEND) => +((res.max * spend) / (res.refill - res.drain)).toFixed(2)
 export const CHAPTERS = {
@@ -7164,6 +7181,16 @@ export const SANDBAR_VIS = {
 // The rim still sits ON r, exactly as the tide pool's and the air pocket's do: the drawn extent is
 // the tested extent, so the edge you can see is the edge that refills you.
 // RAW final colours — shaftLayer lives in entitiesLayer and is never multiplied by render.floorTint.
+// FOUL SPRING's fouling (The Shelf). The silt taking a clean patch, drawn over FOUL_SPRING_FOUL_T.
+// The colours are the SILT CLOUD's own (syncBlooms' 0x9a9670 / 0x6e6a4c) rather than a new pair:
+// the thing doing the fouling is on screen at the same moment, and a patch that turned some other
+// brown would read as a third substance rather than as the player's own cloud arriving.
+export const FOUL_SPRING_VIS = {
+  silt: 0x9a9670, siltA: 0.55,   // the pale olive of a silt cloud's outer wisps
+  deep: 0x6e6a4c, deepA: 0.62,   // its darker core, the body of the fouling
+  rim: 0x8a8560, rimA: 0.5,      // the boundary going muddy as it is taken
+  sheen: 0x9a9670,               // the glow sprite's tint, following it from cold blue to olive
+}
 export const UPWELLING_VIS = {
   // BLUE, and the blue is the point (owner, 2026-08-17). The first cut was a pale green-white and
   // read as "a light spot" — the same thing The Twilight's gold shafts and The Reef's silver air
