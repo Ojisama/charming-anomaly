@@ -206,8 +206,10 @@ const UI = {
   'Your nickname': 'Ton pseudo',
   'Other players see this name on the podium.': 'Les autres joueurs voient ce nom sur le podium.',
   '{min}-{max} characters': 'de {min} à {max} caractères',
-  'The best runs by everyone playing.': 'Les meilleures parties de tous les joueurs.',
-  'top 3': 'top 3',
+  // Replaces the sentence 'The best runs by everyone playing.' — the podium moved onto the level
+  // preview's book spread, whose foot line has to be the way back as well, so the fact is carried
+  // in the space a full sentence no longer fits.
+  'all players · difficulty {n}': 'tous les joueurs · difficulté {n}',
   // 'sois le premier' would need the ·e this file uses everywhere else (Écrabouillé·e, Desséché·e);
   // 'à toi de commencer' carries the same invitation with no gender to agree at all.
   'No scores yet — be the first.': 'Aucun score pour l\'instant — à toi de commencer.',

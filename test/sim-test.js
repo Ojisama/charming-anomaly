@@ -4414,7 +4414,12 @@ function testChapters() {
   {
     const src = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
     const tap = src.slice(src.indexOf('if (el.dataset.vol !== undefined)'), src.indexOf('if (el.dataset.buy !== undefined)'))
-    assert.ok(tap.length > 0 && tap.length < 1400, 'could not isolate the volume-tap handler in ui.js — the tripwire below is measuring nothing')
+    // The ceiling is a STALENESS proxy, not a budget: what it catches is an anchor that has moved,
+    // which grabs tens of thousands of characters, so its exact value is arm's-length from anything
+    // real. Raised 1400 -> 1800 in v7.x when the handler legitimately grew a line; shaving working
+    // code to satisfy a proxy would be the tail wagging the dog. Shrink it again if the handler
+    // ever shrinks — the point is that it stays far below "half the file".
+    assert.ok(tap.length > 0 && tap.length < 1800, 'could not isolate the volume-tap handler in ui.js — the tripwire below is measuring nothing')
     assert.ok(/chapterAvailable\(meta, id\) && id !== meta\.chapter/.test(tap),
       'a volume tap no longer checks chapterAvailable before persisting — tapping a padlocked volume would save a chapter that cannot be played')
     assert.strictEqual((src.match(/meta\.chapter = /g) ?? []).length, 0, 'ui.js must not write meta.chapter directly — it goes through hooks.onChapter (main.js) so the save stays the single writer')
@@ -14799,8 +14804,7 @@ function testLeaderboard() {
     'Podium', 'Nickname', 'Pick a nickname', 'Your nickname',
     'Other players see this name on the podium.',
     '{min}-{max} characters',
-    'The best runs by everyone playing.',
-    'top 3',
+    'all players · difficulty {n}',
     'No scores yet — be the first.',
     'Could not reach the podium. Tap to try again.',
   ]
