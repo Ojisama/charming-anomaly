@@ -8966,7 +8966,8 @@ function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
   const scour = run.weaponMods.bubblePuff?.scour ?? 0
   const backblow = (run.weaponMods.bubblePuff?.backblow ?? 0) > 0
   // NO RATE MOD AND NO KNOCKBACK MOD, and that is enforced by there being none to read -- see the
-  // fenced balance_decision on WEAPON_MODS.bubblePuff for the arithmetic. Do not add one here.
+  // fenced balance_decision on WEAPON_MODS.bubblePuff. The weapon has no `knockback` stat at all
+  // now, so a knockback mod would be folding onto a key that does not exist. Do not add one here.
   fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => {
     const p = run.player
     const full = stats.arc == null || stats.arc >= Math.PI * 2
@@ -8977,17 +8978,20 @@ function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
     // CHAPTERS.shelf.resource's own note asks for.
     const dmg = stats.dmg * (1 + scour * pollutionFrac(run.charge, run.chargeMax))
     for (const r of ipecacRadii(run, stats.r)) {
-      spawnNova(run, p.x, p.y, r, dmg, stats.knockback, 0, { look: 'bubble', arc, angle })
+      // knockback 0, WRITTEN AS A LITERAL. The stat is gone from levels[] (see the ladder in
+      // config.js for why), and `stats.knockback` would be `undefined` here — which spawnNova banks
+      // verbatim and stepNovas multiplies into e.kb, so every shoved body's position becomes NaN and
+      // simply stops rendering. A zero says the same thing and cannot rot into that.
+      spawnNova(run, p.x, p.y, r, dmg, 0, 0, { look: 'bubble', arc, angle })
       // BACKBLOW. A second cone on the opposite bearing, the Breaker's Backwash idiom.
       //
-      // ⚠ ONLY WHILE THE CONE IS UNDER A HALF-TURN, and that guard is load-bearing twice over. Each
-      // nova carries its OWN once-per-body hit set, so two novas that overlap pay for the same body
-      // twice -- at arc > pi the front and rear sectors intersect and this would quietly become a
-      // damage doubler rather than a coverage card. It is also what keeps the shove lock closed: one
-      // body must take at most one shove per cast, which is the whole premise of the fence above.
-      // Past a half-turn the front cone already reaches behind you, so there is nothing left to buy.
+      // ⚠ ONLY WHILE THE CONE IS UNDER A HALF-TURN. Each nova carries its OWN once-per-body hit set,
+      // so two novas that overlap pay for the same body twice -- at arc > pi the front and rear
+      // sectors intersect and this would quietly become a damage doubler rather than a coverage
+      // card. Past a half-turn the front cone already reaches behind you, so there is nothing left
+      // to buy anyway.
       if (backblow && !full && stats.arc < Math.PI) {
-        spawnNova(run, p.x, p.y, r, dmg, stats.knockback, 0, { look: 'bubble', arc, angle: angle + Math.PI })
+        spawnNova(run, p.x, p.y, r, dmg, 0, 0, { look: 'bubble', arc, angle: angle + Math.PI })
       }
     }
   })
