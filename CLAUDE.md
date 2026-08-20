@@ -239,7 +239,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   arithmetic in them was already restating what the diff shows. Do not reinstate a deleted one.
   Note the interaction with `npm run ship`: it amends HEAD with `-m` and destroys the body, so push
   the branch (or write the reasoning on the commit BELOW the release) before shipping.
-- **SIX RULE SETS LIVE IN SKILLS, NOT HERE — load the skill BEFORE the work, not after.** They
+- **SEVEN RULE SETS LIVE IN SKILLS, NOT HERE — load the skill BEFORE the work, not after.** They
   were moved out because they only apply to one kind of task and this file is read on every call;
   moving them does not make them optional. If you are about to do the thing in the left column and
   you have not loaded the skill, stop.
@@ -252,6 +252,7 @@ Chapters unlock progressively (win at difficulty 3+ unlocks the next); each has 
   | add or redesign a weapon or weapon mod | `design-a-weapon` |
   | add or rework an enemy, elite affix, boss or hazard | `designing-an-enemy` |
   | ship, push to `main`, or reconcile a branch whose push was rejected | `shipping-a-release` |
+  | say how far along a chapter is, or move one past a dev stage | `verifying-chapter-stage` |
 
   Weapon-wiring specifics (`STAT_KEYS`, the epic-switch idiom, per-cast counts, shared entity
   arrays, chapter-conditional behaviour) live in `design-a-weapon`'s phase 4 checklist — one copy,
