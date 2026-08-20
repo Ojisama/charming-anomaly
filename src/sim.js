@@ -151,7 +151,7 @@ import {
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth, laneAxes,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, pollutionFrac, FOUL_SPRING_FOUL_T, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BALLAST_FLIGHT, BALLAST_BLIND_THROW,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
@@ -573,6 +573,14 @@ function anomalyDamageMul(run) {
   if (a.chaosPact) mul *= 1 + chaosWavesSurvived(run.time) * CHAOS_PACT_DMG_PER_WAVE
   // BLOOD PACT: the snowball, accumulated in stepSim's kill accounting.
   if (a.bloodPact) mul *= 1 + (run._bloodPact ?? 0)
+  // RUNOFF: The Shelf's bar as a ramp. pollutionFrac, not darkness() — the card says "your
+  // Pollution", and that is the rail end to end, which is also what the Scour and Foul Water mods
+  // read. run.chargeMax, never res.max, for the Deep Lungs reason barRamp's own block gives.
+  //   THE chargeMax > 0 GUARD IS LOAD-BEARING. A chapter declaring no resource leaves both fields
+  // at 0 (createRun), and pollutionFrac(0, 0) is 1, not 0 — so without it the card reads as FULLY
+  // polluted and pays a flat cap anywhere. Unreachable from the real pool, which is chapter-scoped,
+  // but devCards ignores every eligibility rule on purpose and ships in the production bundle.
+  if (a.runoff && run.chargeMax > 0) mul *= 1 + (RUNOFF_MAX_DMG_MUL - 1) * pollutionFrac(run.charge, run.chargeMax)
   return mul
 }
 
@@ -635,7 +643,10 @@ function stepPlayerMovement(run, input, dt) {
   const _dres = CHAPTERS[run.chapter].resource
   // run.chargeMax (v7.x Book 2 Task 9 fix round), not _dres.max — Deep Lungs raises the run's OWN
   // ceiling, and darkness() defaults to the config max only when it isn't told a better one.
-  const darkMul = _dres?.dark ? 1 - (1 - _dres.dark.speedFloor) * darkness(run.charge, _dres, run.chargeMax) : 1
+  // RUNOFF DEEPENS THIS FLOOR rather than joining the MIN below as a sixth term: a second slow
+  // would stack with latch and web and could stop the player outright, where a deeper floor cannot.
+  const darkFloor = run.anomalies?.runoff ? RUNOFF_SPEED_FLOOR : _dres?.dark?.speedFloor
+  const darkMul = _dres?.dark ? 1 - (1 - darkFloor) * darkness(run.charge, _dres, run.chargeMax) : 1
   // THE SANDBARS (Book 2 / The Surf): dry ground is a floor on speed, same MIN composition as the
   // dark above and for the same reason — multiplying would silently stack with latch/web/the dark.
   const _sig = CHAPTERS[run.chapter].signature
