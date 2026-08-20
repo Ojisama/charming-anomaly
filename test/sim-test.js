@@ -48,6 +48,7 @@ import {
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
+  RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
@@ -586,9 +587,12 @@ function testAnomalySlate() {
   // origin. `take` goes through applyChoice so the on-take branch (BRITTLE/OVERLOAD/SOY MILK)
   // runs exactly as it does in the game — setting run.anomalies directly would skip it and let a
   // broken applyAnomalyOnTake pass.
-  const withCard = (id, mutate = () => {}) => {
+  // `opts` reaches createRun, defaulting to what every arm below already got. RUNOFF is the one
+  // card on the slate whose ramp is a CHAPTER resource, so its arm has to boot in that chapter:
+  // in body, chargeMax is 0 and the card is a deliberate no-op.
+  const withCard = (id, mutate = () => {}, opts = {}) => {
     Math.random = mulberry32(20260808)
-    const r = createRun(meta)
+    const r = createRun(meta, opts)
     r.weapons = []
     r.player.x = 0; r.player.y = 0
     mutate(r)
@@ -973,6 +977,72 @@ function testAnomalySlate() {
     // BLOOD PACT: the snowball, forced to a readable size.
     const blood = dealt('bloodPact', (r) => { r._bloodPact = 1 })
     assert.ok(blood > base * 1.5, `BLOOD PACT dealt ${blood} at +100% against a baseline ${base} — the accumulator is never read`)
+  }
+
+  // RUNOFF (The Shelf) — the FIFTH variable multiplier, and the only one whose ramp is a chapter
+  // bar, so it gets its own block rather than a fifth line above: the bar has to be RE-PINNED every
+  // frame. stepCharge drains it, and an upwelling under the parked player refills at 18/s, which
+  // would drift the fixture off the pollution level it is meant to be measuring.
+  //   Both halves are asserted as EFFECTS. The damage arm reads HP off the enemy because the
+  // multiplier arrives through the one term in applyDamage; the speed arm reads DISTANCE because
+  // the floor is composed through a MIN with four other slows, and a state assertion on the field
+  // would not notice the term being dropped from that composition.
+  {
+    const SHELF_MAX = CHAPTERS.shelf.resource.max
+    const dealtAt = (id, charge) => {
+      const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 }, { chapter: 'shelf' })
+      r.weapons = [{ id: 'star', level: 5 }]
+      const e = makeStatusEnemy(r, { x: 120, y: 0, hp: 1e9, speed: 0 })
+      r.enemies.push(e)
+      const before = e.hp
+      for (let f = 0; f < 180; f++) { r.charge = charge; stepSim(r, { x: 0, y: 0 }, dt) }
+      return before - e.hp
+    }
+    const filthyOff = dealtAt(null, 0)
+    const filthyOn = dealtAt('runoff', 0)
+    const cleanOn = dealtAt('runoff', SHELF_MAX)
+    assert.ok(filthyOff > 0, 'the RUNOFF harness dealt nothing without the card — it is not reaching its subject')
+    assert.ok(filthyOn > filthyOff * (1 + (RUNOFF_MAX_DMG_MUL - 1) * 0.8),
+      `RUNOFF dealt ${Math.round(filthyOn)} at full Pollution against ${Math.round(filthyOff)} without it ` +
+      `(x${(filthyOn / filthyOff).toFixed(2)}, want ~x${RUNOFF_MAX_DMG_MUL}) — the ramp never reaches applyDamage`)
+    // WORTH NOTHING IN CLEAN WATER, and that half is the bargain rather than a detail: a sign error
+    // ships a working card that pays you for the opposite behaviour. Same failure MB.d guards for
+    // Scour, one table up.
+    assert.ok(cleanOn < filthyOff * 1.15,
+      `RUNOFF dealt ${Math.round(cleanOn)} in clean water against an unmodded ${Math.round(filthyOff)} — ` +
+      'the card must pay nothing at zero Pollution, which is the whole trade')
+
+    // THE COST. Deleting the deeper floor leaves the chapter's own 0.7 and the ratio goes to 1.
+    const travelled = (id) => {
+      const r = withCard(id, () => {}, { chapter: 'shelf' })
+      r.weapons = []
+      const x0 = r.player.x, y0 = r.player.y
+      for (let f = 0; f < 120; f++) { r.charge = 0; stepSim(r, { x: 1, y: 0 }, dt) }
+      return Math.hypot(r.player.x - x0, r.player.y - y0)
+    }
+    // THE CARD'S OWN SENTENCE, ASSERTED. 'takes twice as much of your speed' compares this card's
+    // floor against the chapter's, and those two numbers are authored 4700 lines apart with no
+    // import between them — so the word is guarded here rather than trusted. Retune either floor
+    // and this goes red, instead of the card quietly describing something it no longer does.
+    const chapterFloor = CHAPTERS.shelf.resource.dark.speedFloor
+    // Banded, not strictEqual: 1 - 0.7 is 0.30000000000000004, so the true ratio computes as
+    // 1.9999999999999998. The tolerance is float noise only — 0.5 would give 1.67 and still fail.
+    assert.ok(Math.abs((1 - RUNOFF_SPEED_FLOOR) / (1 - chapterFloor) - 2) < 1e-9,
+      `RUNOFF's desc says Pollution "takes twice as much of your speed": the chapter's floor ${chapterFloor} ` +
+      `takes ${((1 - chapterFloor) * 100).toFixed(0)}% and the card's ${RUNOFF_SPEED_FLOOR} takes ${((1 - RUNOFF_SPEED_FLOOR) * 100).toFixed(0)}%, ` +
+      'which is not twice — the copy is now false')
+    const free = travelled(null), slowed = travelled('runoff')
+    const want = RUNOFF_SPEED_FLOOR / chapterFloor
+    assert.ok(free > 0, 'the RUNOFF movement harness never moved the player at all')
+    // Banded around the derived ratio rather than a literal, so re-tuning either floor cannot
+    // silently invalidate it. Wide enough to absorb the obstacle field the two arms diverge across
+    // — they share a seed, so the WORLD is identical, but the slower arm reaches different places.
+    assert.ok(slowed < free * 0.85,
+      `RUNOFF moved the player ${slowed.toFixed(0)}px against ${free.toFixed(0)}px at full Pollution — the deeper floor is not being read`)
+    assert.ok(Math.abs(slowed / free - want) < 0.10,
+      `RUNOFF's slow measured x${(slowed / free).toFixed(3)} against the derived x${want.toFixed(3)} ` +
+      `(${RUNOFF_SPEED_FLOOR} over the chapter's ${CHAPTERS.shelf.resource.dark.speedFloor})`)
+    console.log(`PASS run PB7 (RUNOFF): dmg ${Math.round(filthyOff)} unmodded / ${Math.round(filthyOn)} at full Pollution / ${Math.round(cleanOn)} clean; travel ${free.toFixed(0)}px -> ${slowed.toFixed(0)}px (x${(slowed / free).toFixed(3)})`)
   }
 
   // WILDFIRE — the jump, and the BUDGET that stops it being an unkillable cascade.
@@ -2010,8 +2080,12 @@ function testAnomalyTier() {
     assert.ok(!hasWeaponAt(owner, 'nope'), 'hasWeaponAt claims an unowned weapon')
 
     for (const [id, a] of Object.entries(ANOMALIES)) {
-      assert.ok(a.chapter == null || CHAPTER_ORDER.includes(a.chapter),
-        `anomaly '${id}' is scoped to chapter '${a.chapter}', which is not in CHAPTER_ORDER — it can never be offered`)
+      // Object.keys(CHAPTERS), NOT CHAPTER_ORDER: that list is BOOKS.book1.chapters, so it drops
+      // every Book 2 chapter and The Blank. It read correctly only while DEADFALL was the sole
+      // chapter-scoped card and undergrowth happened to be in Book 1 — the first Book 2 card to
+      // arrive was rejected as unofferable in a chapter it is offered in perfectly well.
+      assert.ok(a.chapter == null || Object.hasOwn(CHAPTERS, a.chapter),
+        `anomaly '${id}' is scoped to chapter '${a.chapter}', which is not a CHAPTERS entry — it can never be offered`)
       assert.ok(Number.isFinite(a.weight) && a.weight > 0, `anomaly '${id}' has no positive weight`)
       assert.ok((a.minLevel ?? ANOMALY_MIN_LEVEL) >= 1, `anomaly '${id}' has a nonsense minLevel`)
       for (const [shape, build] of Object.entries(shapes)) {

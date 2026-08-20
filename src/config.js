@@ -648,6 +648,23 @@ export const ALIGNMENT_POTENCY_MUL = 2
 // DEADFALL. The trap field is undergrowth's identity, so this is a chapter inversion: the hazard
 // stops being something you route around and becomes furniture you kite ACROSS.
 export const DEADFALL_REARM_MUL = 0.2
+// RUNOFF. The Shelf's own bar sold as an anomaly: it pays you for the state every other consumer of
+// run.charge pays you to escape. Read off pollutionFrac, the same derivation the Scour and Foul
+// Water mods use, so the card cannot drift from its two chapter siblings.
+//   THE FLOOR DEEPENS resource.dark.speedFloor RATHER THAN ADDING A SECOND SLOW, so it stays inside
+// the MIN composition every slow in the game joins (slowMul, sim.js) and cannot stack with a latch
+// or a web into a stop.
+//   0.4 IS DERIVED FROM THE COPY, NOT EYEBALLED (owner, 2026-08-20: "make this true, at 100%
+// pollution it should be 40% speed"). The card says the murk takes TWICE as much of your speed, and
+// the chapter's own floor of 0.7 takes 30% -- so twice is 60%, which is a floor of 0.4. A round 0.5
+// would take 50%, i.e. 1.67x, and the sentence would be the same arithmetic-in-copy lie DEADFALL's
+// "80% faster" was. Run PB7 asserts the ratio against both floors so retuning either one goes red
+// rather than quietly making the card's own description false.
+// balance_decision : damage cap unmeasured, cost is sight plus 60% of speed 2026-08-20
+//  - re-measure on charge-probe.mjs after Phase 3 replaces two of the three creatures: the kill
+//    rate is what killRefill is read against, and dwell time on the bar is this card's whole subject.
+export const RUNOFF_MAX_DMG_MUL = 2.5
+export const RUNOFF_SPEED_FLOOR = 0.4
 // SOY MILK. Shipped as "paper-neutral and measured neutral (+4.6% kills)", with a note that the
 // probe could not see its real upside because element procs are counted PER HIT. That note was
 // right, and v7.4 quantified it: against a take-and-skip control (body d3, 120 runs) the card is
@@ -1105,6 +1122,27 @@ export const ANOMALIES = {
     // read keeps working).
     subjects: specialistSubjects,
     weight: 2, chapter: null, kind: 'trade',
+  },
+  runoff: {
+    name: 'Runoff', icon: '🚱',
+    from: 'whatever they dumped in here, it agrees with you',
+    // NAMES THE BAR, TWICE, and coins no noun. The Shelf has already shipped both halves of that
+    // lesson: 'up to {n} in the filthiest water' stated the fiction and never reached the rail, and
+    // Foul Spring's 'upwelling' was a proper noun for something the player can read nowhere. Both
+    // are on the record in CHAPTERS.shelf's mods.
+    //   'TWICE AS MUCH' IS THE ONE HAND-WRITTEN NUMBER HERE, because the comparison it makes is
+    // against CHAPTERS.shelf.resource.dark.speedFloor and that is authored 4700 lines below this
+    // literal. It is exactly the one-fact-in-two-places shape that is this repo's largest defect
+    // class, so run PB7 asserts the ratio instead of trusting the word.
+    desc: `Your damage rises with your Pollution, up to +${Math.round((RUNOFF_MAX_DMG_MUL - 1) * 100)}%. Pollution takes twice as much of your speed.`,
+    // THE CHAPTER IS THE GATE. There is no build state that makes "the water is filthy" a lesson
+    // the run has not already taught — the bar has been on the HUD since the first second.
+    when: () => true,
+    // Both numbers match DEADFALL, the only other chapter-scoped card, for its reasons: a chapter
+    // inversion is rare by construction, and the level floor makes the player meet the murk as a
+    // cost before it is ever offered as a currency.
+    weight: 2, chapter: 'shelf', kind: 'trade',
+    minLevel: 10,
   },
 }
 
