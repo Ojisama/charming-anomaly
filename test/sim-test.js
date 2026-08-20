@@ -83,6 +83,7 @@ import {
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
+  CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COSTS, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RING_N, RING_R_MUL, RING_POOL_MUL,
@@ -6685,6 +6686,193 @@ function runShorebreak() {
   console.log(`PASS run SK (The Shorebreak): opens a corridor a walking crowd cannot close, sustained rather than impulsive, ${SHOREBREAK_DUR_MIN}s floor on an empty bar rising to ${SHOREBREAK_DUR_AT_FULL}s, replaces the Pulse in surf only, spares allies`)
 }
 run(runShorebreak)
+// ---- run CL: The Shelf's Clear (2026-08-20) ---------------------------------------------------
+// The chapter's second verb, and the last one in Book 2 to get one. Three things happen on the
+// press and each is asserted against a CONTROL CHAPTER running the identical rig — The Twilight,
+// which has the same bar, the same `shafts` signature and the same dark block, and no `clear`.
+// Without that control every block below would pass on the plain Pulse.
+//
+// THE ONE THIS SCENARIO EXISTS FOR IS (c). Design spec §6.2 warned that "blows wide and everything
+// it reaches is stunned" is so close to what REPULSE_STUN already does that a `clear` branch which
+// never fired would be nearly indistinguishable in play from one that worked — so the reach and the
+// stagger alone are not enough of a test, and are not enough of a button. Sight is the payload.
+function runClear() {
+  const dt = 1 / 60
+  const devMeta = () => { const m = makeMeta(); m.dev = true; ensureChapterMeta(m); return m }
+  const RES = CHAPTERS.shelf.resource
+
+  // A ring of INERT bodies — speed 0 — so the only thing that can move them is the shove. SK's
+  // fixture deliberately walks its crowd, because a sustained crest has to beat their approach to
+  // prove anything; this button is an impulse, so a walking crowd would just add its own closing
+  // speed to both sides of every comparison and blunt the one number being measured.
+  const ringRun = (chapter, charge, dist) => {
+    Math.random = mulberry32(20260820)
+    const run = createRun(devMeta(), { chapter, difficulty: 1 })
+    run.weapons = []
+    run.player.maxHP = run.player.hp = 1e9
+    run.enemies.length = 0
+    const ids = []
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2
+      const e = makeStatusEnemy(run, {
+        x: run.player.x + Math.cos(a) * dist,
+        y: run.player.y + Math.sin(a) * dist,
+        hp: 1e6, speed: 0,
+      })
+      run.enemies.push(e)
+      ids.push(e.id)
+    }
+    run.charge = charge
+    run.repulseCd = 0
+    return { run, ids }
+  }
+  const meanDist = (o) => {
+    const p = o.run.player
+    const ds = o.ids.map((id) => o.run.enemies.find((e) => e.id === id)).filter(Boolean)
+      .map((e) => Math.hypot(e.x - p.x, e.y - p.y))
+    return ds.reduce((a, b) => a + b, 0) / Math.max(1, ds.length)
+  }
+  const advance = (o, secs, press) => {
+    let first = true
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      stepSim(o.run, { x: 0, y: 0, skill: press && first }, dt)
+      first = false
+    }
+  }
+
+  // (a) IT REACHES PAST THE PULSE. The ring sits at 700px: inside CLEAR_RADIUS_AT_FULL (820) and
+  // OUTSIDE PULSE_RADIUS_AT_FULL (620), so on a full bar The Shelf touches it and the control
+  // chapter cannot. Stated as "did the bodies move at all", never as a px band — the band would
+  // have to be retuned the moment either constant does, which is when a test stops meaning
+  // anything and starts being a number that makes itself green.
+  {
+    assert(CLEAR_RADIUS_AT_FULL > 700 && PULSE_RADIUS_AT_FULL < 700,
+      `this fixture's 700px ring only separates the two buttons while ${PULSE_RADIUS_AT_FULL} < 700 < ${CLEAR_RADIUS_AT_FULL}`)
+    const shelf = ringRun('shelf', RES.max, 700)
+    const before = meanDist(shelf)
+    advance(shelf, 0.5, true)
+    const shelfAfter = meanDist(shelf)
+
+    const ctl = ringRun('twilight', CHAPTERS.twilight.resource.max, 700)
+    advance(ctl, 0.5, true)
+    const ctlAfter = meanDist(ctl)
+
+    assert(Math.abs(ctlAfter - before) < 1,
+      `the control must NOT reach 700px with a ${PULSE_RADIUS_AT_FULL}px Pulse (moved to ${ctlAfter.toFixed(1)}px) or this block proves nothing`)
+    assert(shelfAfter > before + 20,
+      `the Clear must reach the 700px ring: ${before.toFixed(0)} -> ${shelfAfter.toFixed(0)}px`)
+    console.log(`PASS run CL.a (reaches past the Pulse): ring at 700px -> shelf ${shelfAfter.toFixed(0)}px, twilight control ${ctlAfter.toFixed(0)}px`)
+  }
+
+  // (b) IT STAGGERS FOR LONGER. Read off e.stunT, which is the SHIPPED contract field the enemy
+  // step and render.js both already gate on — so a longer number here is a longer pose on screen
+  // and a longer hole in the crowd, not a private counter.
+  {
+    const shelf = ringRun('shelf', RES.max, 200)
+    advance(shelf, dt, true)
+    const ctl = ringRun('twilight', CHAPTERS.twilight.resource.max, 200)
+    advance(ctl, dt, true)
+    const sStun = shelf.run.enemies.find((e) => shelf.ids.includes(e.id)).stunT
+    const cStun = ctl.run.enemies.find((e) => ctl.ids.includes(e.id)).stunT
+    // Both are read one frame AFTER the press, so both have already had one dt ticked off them —
+    // compare against that, not against the raw constant, or the band is a frame-rate literal.
+    assert(cStun > REPULSE_STUN - 2 * dt && cStun <= REPULSE_STUN, `the control must carry the shipped ${REPULSE_STUN}s stagger, got ${cStun}`)
+    assert(sStun > cStun * 1.5, `the Clear must stagger materially longer: ${sStun}s vs the Pulse's ${cStun}s`)
+    console.log(`PASS run CL.b (staggers longer): shelf ${sStun}s vs twilight ${cStun}s`)
+  }
+
+  // (c) THE MURK OPENS — the block this scenario exists for, and the only one that can tell a live
+  // Clear from a dead one in play. Measured through lightRadius() itself, the function render.js
+  // feeds run.sightCharge to, on a phone's longest side: asserting the FIELD would pass on a value
+  // no renderer ever reads, which is the frozen-enemies scar exactly.
+  //
+  // On an EMPTY bar, specifically. That is when the murk is at its worst (radiusEmpty 0.1) and when
+  // a chapter whose bar is sight most needs a way out — and it is the no-spiral floor doing real
+  // work rather than a formality: the button hands a blinded player the sight to go find water.
+  {
+    const maxDim = 844
+    const seeing = (run) => lightRadius(run.sightCharge ?? run.charge, CHAPTERS[run.chapter].resource, maxDim, run.chargeMax)
+    const barAlone = (run) => lightRadius(run.charge, CHAPTERS[run.chapter].resource, maxDim, run.chargeMax)
+
+    const shelf = ringRun('shelf', 0, 200)
+    const blind = barAlone(shelf.run)
+    advance(shelf, dt, true)
+    assert(shelf.run._clearT > 0, 'an empty bar must still part the murk — the no-spiral floor')
+    assert(seeing(shelf.run) > blind * 3,
+      `the Clear must open the water: ${blind.toFixed(0)}px blind -> ${seeing(shelf.run).toFixed(0)}px`)
+
+    const ctl = ringRun('twilight', 0, 200)
+    advance(ctl, dt, true)
+    assert(Math.abs(seeing(ctl.run) - barAlone(ctl.run)) < 1e-9,
+      'only a `clear` chapter may lend sight — the control chapter sees exactly its bar')
+    console.log(`PASS run CL.c (the murk opens): empty bar ${blind.toFixed(0)}px -> ${seeing(shelf.run).toFixed(0)}px on a ${maxDim}px screen; twilight unchanged at ${seeing(ctl.run).toFixed(0)}px`)
+  }
+
+  // (d) AND IT CLOSES AGAIN, easing rather than snapping. The cost of this button is paid here and
+  // nowhere else: the spend came off the bar while the window was hiding it, so when the water
+  // closes it closes to a WORSE reading than the press started from. A window that never ended
+  // would be a chapter that had quietly lost its antagonist.
+  {
+    const o = ringRun('shelf', RES.max, 200)
+    advance(o, dt, true)
+    const opened = o.run.sightCharge
+    advance(o, CLEAR_DUR_AT_FULL - CLEAR_SIGHT_FADE, false)
+    assert(o.run.sightCharge > o.run.charge, 'the window must still be lending sight before the fade begins')
+    const mid = o.run.sightCharge
+    advance(o, CLEAR_SIGHT_FADE + 0.1, false)
+    assert.strictEqual(o.run._clearT, 0, 'the window must close')
+    assert.strictEqual(o.run.sightCharge, o.run.charge, 'once closed, what you see IS the bar')
+    assert(o.run.charge < opened, `the spend must leave the water murkier than the press found it: ${o.run.charge.toFixed(1)} vs ${opened.toFixed(1)}`)
+    console.log(`PASS run CL.d (closes again): ${opened.toFixed(0)} -> ${mid.toFixed(0)} -> ${o.run.sightCharge.toFixed(0)}, bar ${o.run.charge.toFixed(0)}`)
+  }
+
+  // (e) ONE PRESS, ONE EVENT, AND IT TELLS THE TRUTH ABOUT ITS REACH. The Clear pushes no event of
+  // its own on purpose — a second one would draw a second ring on the same frame and play the
+  // shove's sample twice, which is the complaint run SK.e pins for The Surf. What makes that
+  // choice safe is this: the `repulse` it does emit must carry the WIDENED radius, because
+  // render.js draws the ring at e.r and "a burst that lies about its reach makes the cooldown feel
+  // arbitrary" is the shipped comment on that line.
+  {
+    const o = ringRun('shelf', RES.max, 200)
+    advance(o, dt, true)
+    const rs = o.run.events.filter((e) => e.type === 'repulse')
+    assert.strictEqual(rs.length, 1, `one press must emit exactly one repulse, got ${rs.length}`)
+    assert(Math.abs(rs[0].r - CLEAR_RADIUS_AT_FULL) < 1e-6,
+      `the ring must be drawn at the Clear's real reach ${CLEAR_RADIUS_AT_FULL}, got ${rs[0].r}`)
+    assert(!o.run.events.some((e) => e.type === 'clear'),
+      'the Clear emits no event of its own — if you add one, give it a render case and an SFX entry and delete this line')
+
+    // The floor is the DURATION, never the reach: an empty bar throws the shipped 340px shove here
+    // exactly as it does in every other chapter, so the widening is bought and not granted.
+    const empty = ringRun('shelf', 0, 200)
+    advance(empty, dt, true)
+    const er = empty.run.events.find((e) => e.type === 'repulse')
+    assert(Math.abs(er.r - REPULSE_RADIUS) < 1e-6, `an empty bar must throw the shipped ${REPULSE_RADIUS}px shove, got ${er.r}`)
+    assert(empty.run._clearT > CLEAR_DUR_MIN - 2 * dt && empty.run._clearT <= CLEAR_DUR_MIN,
+      `an empty bar's window must be the ${CLEAR_DUR_MIN}s floor, got ${empty.run._clearT}`)
+    console.log(`PASS run CL.e (one honest ring): full bar r=${rs[0].r} clearT=${o.run._clearT.toFixed(2)}s, empty bar r=${er.r} clearT=${empty.run._clearT.toFixed(2)}s, no second event`)
+  }
+
+  // (f) EVERY OTHER CHAPTER IS BYTE-IDENTICAL. sightCharge is the one field here that is written
+  // outside The Shelf — stepCharge sets it in every chapter with a resource — so this is the block
+  // that catches it drifting away from the bar somewhere it was never meant to.
+  {
+    const others = ['surf', 'reef', 'trawl', 'twilight', 'deep']
+    for (const id of others) {
+      Math.random = mulberry32(4242)
+      const run = createRun(devMeta(), { chapter: id, difficulty: 1 })
+      run.repulseCd = 0
+      run.charge = CHAPTERS[id].resource.max
+      for (let i = 0; i < 30; i++) stepSim(run, { x: 0, y: 0, skill: i === 0 }, dt)
+      assert.strictEqual(run.sightCharge, run.charge, id + ' must see exactly its bar — only a `clear` chapter lends sight')
+      assert.strictEqual(run._clearT, 0, id + ' must never arm a Clear window')
+    }
+    console.log(`PASS run CL.f (${others.length} other Undertow chapters unchanged): sightCharge === charge, no window armed`)
+  }
+
+  console.log(`PASS run CL (The Clear): reaches ${CLEAR_RADIUS_AT_FULL}px against the Pulse's ${PULSE_RADIUS_AT_FULL}, staggers ${CLEAR_STUN}s against ${REPULSE_STUN}, opens the murk for ${CLEAR_DUR_MIN}-${CLEAR_DUR_AT_FULL}s and eases shut over ${CLEAR_SIGHT_FADE}s, one honest ring, 5 other chapters untouched`)
+}
+run(runClear)
 // ---- run MB: the mod budget in Book 2's first two chapters (2026-08-19) ------------------------
 // The Surf shipped four mods per weapon; The Shelf shipped 2/0/0, its two zone weapons carrying NO
 // mods at all — so the chapter could offer exactly two distinct mod cards in a whole run and its
@@ -8129,8 +8317,13 @@ function runDark() {
     // run.chargeMax (v7.x Book 2 Task 9 fix round): the 4th arg is the run's OWN ceiling, not the
     // config max — omitting it pins the light at radiusFull for the whole band a Deep-Lungs run
     // spends above the old res.max, which is exactly the bug this fix round exists to close.
-    assert.ok(/const R = lightRadius\(run\.charge, res, Math\.max\(w, h\), run\.chargeMax\)/.test(src),
-      "render.js must size the light from lightRadius(charge, res, longest side, run.chargeMax) — the screen's longest side is the unit the chapter states its light in, and chargeMax is the ceiling that light saturates against")
+    // run.sightCharge (v7.x, The Shelf's Clear): the FIRST argument is what the player can see, not
+    // the raw bar — sim.js's stepCharge publishes it, and it IS run.charge on every frame of every
+    // chapter but the ones where a Clear window is open. Reading run.charge here instead would leave
+    // the button's whole payload invisible while the sim happily counted it down, which is the
+    // frozen-enemies scar's exact shape and the reason this line is asserted as source text at all.
+    assert.ok(/const R = lightRadius\(run\.sightCharge \?\? run\.charge, res, Math\.max\(w, h\), run\.chargeMax\)/.test(src),
+      "render.js must size the light from lightRadius(run.sightCharge ?? run.charge, res, longest side, run.chargeMax) — sightCharge is the field the Clear lends sight through, the screen's longest side is the unit the chapter states its light in, and chargeMax is the ceiling that light saturates against")
     // NO ALPHA ANYWHERE IN THE PATH, and this is the assertion the chapter's existence rests on.
     // The lightmap used to be a white canvas with the lights punched out by `destination-out`, drawn
     // as a translucent tinted sprite — the whole effect lived in a canvas ALPHA channel that then had

@@ -152,7 +152,7 @@ import {
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth, laneAxes,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BALLAST_FLIGHT, BALLAST_BLIND_THROW,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
@@ -1301,7 +1301,12 @@ function stepRepulse(run, input, dt) {
     run.events.push({ type: 'shorebreak', x: p.x, y: p.y, r: SHOREBREAK_RADIUS, charged: t, dur: run._shorebreakT })
     return
   }
-  const radius = REPULSE_RADIUS + (PULSE_RADIUS_AT_FULL - REPULSE_RADIUS) * t
+  // THE CLEAR reaches further and staggers longer, off the SAME floor and the same `t` — an empty
+  // bar throws exactly the shipped 340px shove in every chapter, this one included, so the widening
+  // is something the bar buys rather than something the chapter is given. See CLEAR_* in config.js.
+  const reachAtFull = ch.clear ? CLEAR_RADIUS_AT_FULL : PULSE_RADIUS_AT_FULL
+  const stun = ch.clear ? CLEAR_STUN : REPULSE_STUN
+  const radius = REPULSE_RADIUS + (reachAtFull - REPULSE_RADIUS) * t
   const force = REPULSE_FORCE + (PULSE_FORCE_AT_FULL - REPULSE_FORCE) * t
   // The SCALED radius, not the constant. render.js draws both rings at e.r under a comment saying
   // the radius is pushed rather than fixed because "a burst that lies about its reach makes the
@@ -1316,6 +1321,17 @@ function stepRepulse(run, input, dt) {
   // is what the bar buys. At t = 0 this is still BURST_DUR_MIN, never 0: spec §8.2's no-spiral floor
   // says an empty bar may leave the player slower, never structurally trapped, and in a lane where
   // the coral is solid "trapped" is a thing that can actually happen.
+  // THE CLEAR (v7.x, The Shelf — CHAPTERS[].clear). Same press, same cooldown, same `t` again, and
+  // the shove above still fires. All this line arms is the SIGHT window; the wider reach and the
+  // longer stagger were already folded in above, because they are the shove rather than a second
+  // cast. Published as a plain timer for the same reason _burstT and _shorebreakT are: stepCharge
+  // reads it to compute run.sightCharge, and render.js reads only that.
+  //
+  // NO EVENT IS PUSHED, deliberately. The press already emits `repulse` carrying the widened radius,
+  // so the ring render.js draws is the Clear's real reach — a second event would draw a second ring
+  // on the same frame and play the shove's sample twice, which is the exact complaint run SK.e pins
+  // for The Surf. The murk visibly opening is the tell, and it is a bigger one than any ring.
+  if (ch.clear) run._clearT = CLEAR_DUR_MIN + (CLEAR_DUR_AT_FULL - CLEAR_DUR_MIN) * t
   if (ch.burst) run._burstT = BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t
   // THE LUNGE (v7.x, The Wreck — CHAPTERS[].lunge). Same press, same cooldown, same `t`, and the
   // shove above still fires — this is additive like the burst, not a replacement like the shorebreak.
@@ -1416,7 +1432,7 @@ function stepRepulse(run, input, dt) {
     const falloff = 1 - d / radius
     e.kb.x += ux * force * falloff
     e.kb.y += uy * force * falloff
-    e.stunT = Math.max(e.stunT || 0, REPULSE_STUN)
+    e.stunT = Math.max(e.stunT || 0, stun)
   }
 }
 
@@ -4172,6 +4188,17 @@ export function stepCharge(run, dt) {
   // its cap on a kill and snap back down on the very next tick through whichever site still reads
   // the config max. The Trawl's wake refill feeds `c` too, so it is clamped by this line as well.
   run.charge = Math.max(0, Math.min(run.chargeMax, c))
+  // WHAT THE PLAYER CAN SEE, which is the bar in every chapter but this one and during this
+  // chapter's own button. render.js's updateDark reads run.sightCharge and nothing else, so the
+  // Clear's window lives entirely on the sim side and the renderer learns one field instead of a
+  // mechanic — CLAUDE.md's rule after the frozen-enemies scar, where sim knew and render was never
+  // told. Every chapter without `clear` writes run.charge here, unchanged, forever.
+  //
+  // Math.max, not an assignment: a bar that REFILLS past the window's level during the window must
+  // keep the better number, or standing in an upwelling mid-Clear would make the water darker.
+  run._clearT = Math.max(0, (run._clearT ?? 0) - dt)
+  const open = run._clearT > 0 ? Math.min(1, run._clearT / CLEAR_SIGHT_FADE) : 0
+  run.sightCharge = Math.max(run.charge, run.chargeMax * open)
 }
 
 // -- Drowning (v7.x, The Reef) --------------------------------------------------------

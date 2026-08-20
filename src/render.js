@@ -12170,7 +12170,10 @@ export function createRenderer(app) {
     // bar. Screen-relative because a px count means a different mechanic on every device.
     // run.chargeMax (v7.x Book 2 Task 9 fix round): Deep Lungs' own ceiling, not the config max —
     // omitting this pins the light at radiusFull for the whole band above the OLD max, motionless.
-    const R = lightRadius(run.charge, res, Math.max(w, h), run.chargeMax)
+    // run.sightCharge, not run.charge: The Shelf's Clear lends you sight for a few seconds without
+    // touching the bar (sim.js stepCharge publishes it). It IS run.charge in every other chapter and
+    // on every frame the button is not live, so this is the shipped read everywhere else.
+    const R = lightRadius(run.sightCharge ?? run.charge, res, Math.max(w, h), run.chargeMax)
     // Nothing to draw once the FULLY-LIT core alone reaches the farthest corner. The falloff runs
     // from LIGHT_CORE_FRAC x R out to R, so that core is the only part guaranteed to be untouched.
     const corner = Math.max(Math.hypot(px, py), Math.hypot(w - px, py),

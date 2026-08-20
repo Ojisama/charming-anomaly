@@ -5799,6 +5799,14 @@ CHAPTERS.shelf = {
   tide: tideAt(70),
   signature: { type: 'shafts', refillLook: 'upwelling', blob: true, cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
 
+  // THE BUTTON: Clear. The chapter's second verb, and the last chapter in Book 2 to get one — see
+  // the CLEAR_* block in this file for the whole argument. Short version: the press throws the
+  // Pulse's shove wider and staggers for twice as long, and for a few seconds it shoves the MURK
+  // back too, which is the only thing a button in this chapter can offer that a button anywhere
+  // else cannot. Additive, like the Reef's Burst and the Deep's Scent; the Surf's Shorebreak is the
+  // only one that replaces the shove.
+  clear: true,
+
   // The bar. Same numbers as the light rig it reuses — drain 2.2 / refill 18 / killRefill 1.5 were
   // measured over 5 seeded 300s runs under three spend policies (see CHAPTERS.twilight.resource for
   // the full provenance and for why refill is THE knob), and the roster below is two-thirds
@@ -8370,6 +8378,55 @@ export const SHOREBREAK_FORCE = 1300
 // behavior flag, and render.js holds the pose off it), so the tell costs nothing new — and a body
 // that cannot act is a body that cannot dash back into the corridor you just made.
 export const SHOREBREAK_STAGGER = 0.22         // s, refreshed per frame while inside
+
+// ---- CLEAR (v7.x, The Shelf — chapters declaring `clear: true`) ---------------------------------
+// The Shelf's half of the same one button. Same press, same cooldown, same PULSE_CHARGE_COST spend,
+// and the Pulse's shove still fires — this is additive like the Burst and the Scent, not a
+// replacement like the Shorebreak. What a `clear` chapter buys on top is TWO things, and they are
+// the same thing said to the crowd and to the camera: the shove reaches FURTHER and staggers for
+// LONGER, and for a few seconds the murk is pushed back far enough that you can actually see.
+//
+// WHY SIGHT IS THE BUTTON'S REAL PAYLOAD. Design spec §6.2 asked for "blows wide for a few seconds
+// and everything it reaches is stunned", and warned in the same breath that this is very close to
+// what the base repulse already does via REPULSE_STUN — so a `clear` branch that never fired would
+// be nearly indistinguishable in play from one that worked. The sight window is what makes it
+// distinguishable, and it is not a garnish: this chapter's antagonist is NOT BEING ABLE TO SEE
+// (resource `Pollution`, dark.radiusEmpty 0.1), so the one thing no other chapter's button can
+// offer is the antagonist briefly called off. You press Clear and the water opens.
+//
+// THE COST IS PAID IN RECOVERY TIME, NOT IN SIGHT, which is the spec's own preference and the
+// reason no CLEAR_RADIUS_FLOOR is named beside BURST_DUR_MIN / BREACH_R_MIN / SCENT_DUR_MIN. Those
+// three floor a button's OUTPUT because an empty bar must never trap you (spec §8.2). Here the
+// spend lowers the bar, the bar is sight, and sight is the thing the window has just raised — so
+// the window ends and the water closes back to a murkier reading than before the press. There is
+// nothing to floor, because the button never takes sight away; it lends it.
+//
+// THE FLOOR IS THE DURATION, on the same no-spiral rule: an empty bar still parts the murk, for
+// CLEAR_DUR_MIN instead of CLEAR_DUR_AT_FULL, and still throws the shove's own floor (REPULSE_RADIUS,
+// exactly as in every other chapter).
+//
+// ⚠ FIRST CUT, NOT MEASURED. These five numbers were written against the shipped Pulse and
+// Shorebreak rather than against a census, and the roster they will be judged on is still two-thirds
+// stand-ins (see CHAPTERS.shelf.roster). Before this chapter reaches BALANCING, run
+// charge-probe.mjs on BOTH axes for the spend policy and weapon-census.mjs for what the longer
+// stagger does to the natives' dps — the kiting rig hides shove locks, so run a movement axis.
+export const CLEAR_DUR_MIN = 1.0         // s of open water on an EMPTY bar — the no-spiral floor
+export const CLEAR_DUR_AT_FULL = 3.2     // s at a full PULSE_CHARGE_COST spend
+// The last CLEAR_SIGHT_FADE seconds of that window ease the sight back down to whatever the bar
+// actually holds, instead of snapping. A snap is the shape of a render glitch, and this chapter has
+// already shipped one complaint about clear water that "does nothing and never goes away" — the
+// murk closing visibly is the readout that says the button is over.
+export const CLEAR_SIGHT_FADE = 0.7      // s
+// 820 against the Pulse's 620, off the same REPULSE_RADIUS 340 floor: "blows wide" is a third more
+// reach than the shove this chapter would otherwise get, and it is the only number in the game the
+// player can compare directly against a button they have already used for five chapters.
+export const CLEAR_RADIUS_AT_FULL = 820  // px at a full spend (floor REPULSE_RADIUS 340)
+// 1.1s against REPULSE_STUN's 0.55 — twice the shipped stagger, and the "everything it reaches is
+// stunned" half of §6.2's sentence. ⚠ The Moon Jelly is `unshakeable` (UNSHAKEABLE_CC_MUL 0.5), so
+// the chapter's tank takes HALF of this and the headline verb lands at 0.55s on the one body most
+// likely to be in your face. That is a deliberate hole in the button, not an oversight: revisit the
+// jelly's flags rather than this number if the press under-delivers on first contact.
+export const CLEAR_STUN = 1.1            // s of stagger inside the wide shove
 
 // ---- BURST (v7.x, The Reef — chapters declaring `burst: true`) ---------------------------------
 // The Reef's half of the same button. One press, one cooldown, one spend: the Pulse's shove above

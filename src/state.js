@@ -1234,6 +1234,23 @@ function generateWells(sig) {
  *   player — so the window rides with you rather than staying where the button went down.
  *   render.js reads it directly to draw the crest for as long as it lasts (drawShorebreak).
  *   0 on every run of every other chapter.
+ * _clearT: number — seconds of Shelf Clear left (CHAPTERS[chapter].clear). Set by stepRepulse on
+ *   the same press, cooldown and charge spend as everything else on that button, to
+ *   CLEAR_DUR_MIN + (CLEAR_DUR_AT_FULL - CLEAR_DUR_MIN) * t — an EMPTY bar still parts the murk,
+ *   the same no-spiral floor _burstT and _shorebreakT have. ADDITIVE like _burstT: the Pulse's
+ *   shove still fires, and the press emits its usual `repulse` event and NO event of its own,
+ *   because the widened radius is already carried on that one (see stepRepulse's comment).
+ *   Ticked down in stepCharge, which is also the only thing that reads it — it turns it into
+ *   `sightCharge` below, and render.js never sees this field at all.
+ *   0 on every run of every other chapter.
+ * sightCharge: number — WHAT THE PLAYER CAN SEE, in the same units as `charge`, published every
+ *   frame by stepCharge and read by exactly one thing: render.js's updateDark, which feeds it to
+ *   lightRadius() in place of the raw bar. Equal to `charge` on every frame of every chapter
+ *   except the ones where The Shelf's Clear is live, where it is held at chargeMax and then eased
+ *   back over the window's last CLEAR_SIGHT_FADE seconds. It exists so the Clear can lend sight
+ *   without moving the bar — the alternative, teaching render.js the button, is the shape of the
+ *   frozen-enemies scar (sim knew, render was never told). Never lower than `charge`: an upwelling
+ *   that refills you mid-window must not make the water darker.
  * _drownAcc: number — the part-tick accumulator for the DoT above, reset to 0 the moment `charge`
  *   comes off zero so a partial tick banked before you reached a pocket is never spent minutes
  *   later. 0 and untouched everywhere else.
@@ -2150,6 +2167,13 @@ export function createRun(meta, opts = {}) {
     // v7.x The Surf: seconds of Shorebreak left. Same pattern — every run carries it, and only a
     // chapter declaring `shorebreak` ever moves it off 0.
     _shorebreakT: 0,
+    // v7.x The Shelf: seconds of Clear left, and the sight the bar is worth right now. Same pattern
+    // for the timer; `sightCharge` is the one field here that is NOT inert elsewhere — stepCharge
+    // writes it in every chapter with a resource, where it is simply `charge`. It starts at the
+    // same full bar `charge` does so the very first frame of a run is lit before stepCharge has
+    // ever run (render.js falls back to run.charge if it is missing, but a run must not open dark).
+    _clearT: 0,
+    sightCharge: chargeMax,
     // v7.x The Trawl: the net wall, and the countdown to the next pass. `net` is a single OBJECT and
     // not an array, because there is only ever one wall and it is an infinite LINE rather than an
     // entity with a position — { nx, ny, pos, end, holes, _acc }, where (nx, ny) is the unit normal
