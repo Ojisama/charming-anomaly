@@ -23097,8 +23097,8 @@ function testUndertowLadder() {
   {
     const jelly = CHAPTERS.shelf.roster.find((r) => r.id === 'jelly')
     assert.ok(jelly, 'the Moon Jelly is gone from The Shelf roster')
-    assert.ok(Math.abs(jelly.hpMul - 2.5 * 0.75) < 1e-9,
-      `expected jelly hpMul = 2.5 x 0.75 = 1.875 ("jelly -25% hp"), got ${jelly.hpMul}`)
+    assert.ok(Math.abs(jelly.hpMul - 2.5 * 0.75 * 0.8) < 1e-9,
+      `expected jelly hpMul = 2.5 x 0.75 x 0.8 = 1.5 ("-25% hp", then "-20%" again), got ${jelly.hpMul}`)
     assert.ok(Math.abs((jelly.xpMul ?? 1) - 1.25) < 1e-9,
       `expected jelly xpMul 1.25 ("jelly +25% xp"), got ${jelly.xpMul}`)
 
@@ -23117,7 +23117,36 @@ function testUndertowLadder() {
     assert.ok(Math.abs(seen.xp - expected) < 1e-9,
       `a spawned Moon Jelly carries xp ${seen.xp}, not ${expected} — the roster's xpMul is not reaching ` +
       `the enemy, so the +25% is a number in a table that nothing reads`)
-    console.log(`PASS run US.h (moon jelly): hpMul ${jelly.hpMul} (2.5 x 0.75), xpMul ${jelly.xpMul}, and a spawned jelly really carries ${seen.xp} xp`)
+
+    // THE VULNERABILITY WINDOW, doubled (owner, 2026-08-20: "jellyfishes should be vulnerable for
+    // longer periods. Double the length of vulnerability periods"). Asserted as GHOST UPTIME over
+    // a real stretch of stepSim rather than as the constant, because the failure mode here is not a
+    // wrong number — it is `phase: { solidMul: 2 }` sitting in the roster with nothing reading it,
+    // exactly the way xpMul could have above. Uptime is the effect a player feels: the share of the
+    // time the jelly refuses damage.
+    //   The BAND is wide (the window is randomised at spawn and the sample is finite) but it cannot
+    // contain the un-overridden 38.5%, which is the only thing it has to separate.
+    let ghost = 0, frames = 0
+    for (let i = 0; i < 60 * 60; i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+      const j = run.enemies.find((e) => e.id === seen.id)
+      if (!j || j._dead) break
+      frames++
+      if (j._phaseSolid === false) ghost++
+    }
+    assert.ok(frames > 600, `the jelly died after ${frames} frames — too short to measure its window`)
+    const uptime = ghost / frames
+    // 1.0 ghost / (3.2 solid + 1.0) = 0.238. Un-overridden it would be 1.0/2.6 = 0.385.
+    assert.ok(uptime > 0.15 && uptime < 0.31,
+      `Moon Jelly is damage-immune ${(100 * uptime).toFixed(1)}% of the time over ${frames} frames; ` +
+      `want ~23.8% (solid doubled). 38.5% means phase.solidMul never reached stepPhaseWindow`)
+    // The pond's Tardigrade shares the flag and MUST NOT have moved with it.
+    const tardi = CHAPTERS.pond.roster.find((r) => r.id === 'tardigrade')
+    assert.ok(tardi && tardi.phase == null,
+      'the Tardigrade grew a phase override — the jelly tune was supposed to be the jelly\'s alone')
+    console.log(`PASS run US.h (moon jelly): hpMul ${jelly.hpMul} (2.5 x 0.75 x 0.8), xpMul ${jelly.xpMul}, a spawned jelly really carries ${seen.xp} xp, and it is damage-immune only ${(100 * uptime).toFixed(1)}% of the time (was 38.5%) while the pond's Tardigrade keeps the shared window`)
   }
 
   // (e) THE SHELF/TWILIGHT SPLIT (2026-08-17). The light mechanic moved from slot 2 to slot 5 under

@@ -1783,6 +1783,9 @@ function spawnEnemy(run, opts = {}) {
     // grow a column per knob, and so stepDashBurst's reader can see at a glance that the whole
     // override is optional. null on every enemy in the game except The Surf's Sea Roach.
     dash: roster?.dash ?? null,
+    // roster.phase (v7.x): the same shape as `dash` above, for the `phase` flag's windows.
+    // null on every enemy but The Shelf's Moon Jelly.
+    phase: roster?.phase ?? null,
     // xpMul is the roster's third stat lever, alongside hpMul/speedMul above: what a kill of
     // this creature is WORTH, independent of how much health it has. They are separate on
     // purpose — a chapter can make something cheaper to kill and still pay well for it.
@@ -2635,11 +2638,16 @@ function stepStandoff(e, tx, ty, dt, slowMul, spdMul) {
 // phase (v5.4 beyond's flickers): alternates solid <-> ghosted forever on _phaseSolid/_phaseT,
 // starting solid with _phaseT randomised across PHASE_SOLID_T so a wave doesn't blink in unison.
 function stepPhaseWindow(e, dt) {
-  if (e._phaseSolid === undefined) { e._phaseSolid = true; e._phaseT = Math.random() * PHASE_SOLID_T }
+  // roster.phase.solidMul (config.js): per-creature override of the SOLID half only, because the
+  // constants are shared with the pond's Tardigrade. Used at BOTH sites — the spawn scatter as
+  // well as the flip — since scattering across the old window would bunch a long-solid wave into
+  // the first third of its own cycle.
+  const solidT = PHASE_SOLID_T * (e.phase?.solidMul ?? 1)
+  if (e._phaseSolid === undefined) { e._phaseSolid = true; e._phaseT = Math.random() * solidT }
   e._phaseT -= dt
   if (e._phaseT <= 0) {
     e._phaseSolid = !e._phaseSolid
-    e._phaseT += e._phaseSolid ? PHASE_SOLID_T : PHASE_GHOST_T
+    e._phaseT += e._phaseSolid ? solidT : PHASE_GHOST_T
   }
 }
 

@@ -313,6 +313,12 @@ function measure() {
   // at least once. User report (2026-08-08): "frustrating to aim for some mod (like laser prism
   // sub-beams) and not seeing any in the run" — this is the measurement of that complaint.
   const modRuns = new Map()
+  // ...against the only denominator that means anything: runs in which the mod's WEAPON was owned.
+  // A mod on a weapon you never picked up cannot be offered, so the raw share above conflates "the
+  // pool starved this mod" with "the chapter never handed you the card it hangs off" — two numbers
+  // with two different fixes. The starter is owned in 100% of runs by construction, which is
+  // exactly why it looked like the pool favoured it.
+  const weaponRuns = new Map()
   const coinsEarned = [], killCounts = [], fireCounts = [], eliteKillCounts = []
   const hurtCounts = [], hpLostCounts = []
   const defTotals = { armor: 0, regen: 0, maxHP: 0 }
@@ -467,6 +473,8 @@ function measure() {
     if (SURVIVAL) deaths.push({ won: run.phase === 'victory', t: run.time, hp: run.player.hp })
 
     for (const k of seenMods) modRuns.set(k, (modRuns.get(k) ?? 0) + 1)
+    // run.weapons at the END of the run: a weapon is never dropped, so this is "was it ever owned".
+    for (const w of run.weapons ?? []) weaponRuns.set(w.id, (weaponRuns.get(w.id) ?? 0) + 1)
     coinsEarned.push(run.coinsEarned ?? 0)
     killCounts.push(run.kills ?? 0)
     eliteKillCounts.push(eliteKills)
@@ -507,6 +515,7 @@ function measure() {
     emptyPool: stats.emptyAnomalyPool / RUNS,
     absent: Object.fromEntries(Object.entries(stats.absent).map(([k, v]) => [k, (100 * v) / (stats.slots || 1)])),
     modRuns,
+    weaponRuns,
     coins: avg(coinsEarned),
     kills: avg(killCounts),
     eliteKills: avg(eliteKillCounts),
@@ -546,11 +555,21 @@ function deliverability(r) {
     for (const m of Object.keys(C.WEAPON_MODS[w] ?? {})) ids.push(`${w}.${m}`)
   }
   const pct = (k) => (100 * (r.modRuns.get(k) ?? 0)) / RUNS
-  const rows = ids.map((k) => ({ k, v: pct(k) })).sort((x, y) => x.v - y.v)
+  // Conditional share. Guarded rather than divided blind: a weapon owned in ZERO runs would
+  // otherwise print NaN% beside real numbers, which is the shape of output this file's own header
+  // warns about — an answer to a question nobody asked.
+  const owned = (k) => r.weaponRuns.get(k.split('.')[0]) ?? 0
+  const cond = (k) => (owned(k) > 0 ? (100 * (r.modRuns.get(k) ?? 0)) / owned(k) : null)
+  const rows = ids.map((k) => ({ k, v: pct(k), c: cond(k), n: owned(k) })).sort((x, y) => x.v - y.v)
   console.log(`\n== mod deliverability (${CHAPTER}) — % of runs offering this mod at least once`)
-  for (const x of rows) console.log(`  ${x.k.padEnd(24)} ${f1(x.v).padStart(5)}%`)
+  console.log(`  ${'mod'.padEnd(24)} ${'all'.padStart(5)}  ${'owned'.padStart(6)}  (runs owning the weapon)`)
+  for (const x of rows) {
+    console.log(`  ${x.k.padEnd(24)} ${f1(x.v).padStart(5)}%  ${(x.c == null ? '  --' : f1(x.c)).padStart(6)}%  (${x.n}/${RUNS})`)
+  }
   const mean = rows.reduce((t, x) => t + x.v, 0) / rows.length
-  console.log(`  ${'MEAN'.padEnd(24)} ${f1(mean).padStart(5)}%   worst ${f1(rows[0].v)}% (${rows[0].k})`)
+  const condRows = rows.filter((x) => x.c != null)
+  const condMean = condRows.length ? condRows.reduce((t, x) => t + x.c, 0) / condRows.length : 0
+  console.log(`  ${'MEAN'.padEnd(24)} ${f1(mean).padStart(5)}%  ${f1(condMean).padStart(6)}%   worst ${f1(rows[0].v)}% (${rows[0].k})`)
 }
 
 // Declared vs achieved, per bucket, as a share of ORDINARY cards.
