@@ -5625,6 +5625,9 @@ function runBookProgression() {
   assert.strictEqual(CHAPTERS.surf.archetypeMul?.tank, 0.41, '20% fewer Shore Crabs again (owner ruling 2026-08-17), measured not derived')
   // The Wreck's moray, pinned to the ruling that set it rather than to whatever the file says today.
   assert.strictEqual(CHAPTERS.wreck.archetypeMul?.tank, 0.3, '70% fewer Morays (owner ruling 2026-08-18)')
+  // The Shelf's moon jelly, same style. 0.56 and NOT 0.65: relative weights, so the derived value
+  // comes from integrating spawnRate(t)*tankShare(t) over a 300s run (487 -> 316 tank spawns).
+  assert.strictEqual(CHAPTERS.shelf.archetypeMul?.tank, 0.56, '35% fewer Moon Jellies (owner ruling 2026-08-20)')
   // The archetypeMul key must be a real ARCHETYPE, not a WAVE_TABLE spawn type — indexing the
   // wrong way silently did nothing until v5.5 (see TYPE_ARCHETYPE in config.js). run SP.f asserts
   // this same vocabulary but only over CHAPTER_ORDER (book 1) — surf is Book 2 and outside that
@@ -17542,7 +17545,9 @@ function testSpiderShare() {
   // body in that chapter you cannot eat on demand, so its share IS the chapter's texture. Weights
   // being relative, the 0.7 it gives up goes to the two prey entries, which makes the field denser
   // in food rather than emptier.
-  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city', 'skies', 'surf', 'wreck']
+  // v7.x added shelf (owner: "35% less jellyfishes in level 2-2", 2026-08-20) — the moon jelly is
+  // that chapter's only tank, so it is the seventh chapter to hit the one-item-pool wall.
+  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city', 'skies', 'surf', 'wreck', 'shelf']
   const spAllChapters = Object.keys(CHAPTERS)
   for (const id of spAllChapters) {
     if (ARCHETYPE_MUL_CHAPTERS.includes(id)) continue
