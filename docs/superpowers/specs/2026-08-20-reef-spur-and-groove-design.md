@@ -1,21 +1,36 @@
 # The Reef — spur and groove (level design)
 
-Status: **owner rulings taken 2026-08-20**, spec at **rev 2** after adversarial review the same day.
-Extends `2026-08-13-book-2-undertow-design.md` §6.3; it does not replace it. Nothing about the Air
-bar's tune, the roster, the palette or the lane axis changes here — this spec is about the **shape
-of the corridor** and nothing else.
+Status: **owner rulings taken 2026-08-20**, spec at **rev 3** after two adversarial review rounds
+the same day. Extends `2026-08-13-book-2-undertow-design.md` §6.3; it does not replace it. The Air
+bar's tune, the roster, the palette and the lane axis are unchanged — this spec is the **shape of
+the corridor** and nothing else.
 
 Scope: the level. The chapter's two native weapons (Squid Ink, Oxygen Tank), its anomaly and its
-mutator are separate tasks and are deliberately not designed here.
+mutator are separate tasks, deliberately not designed here.
 
-**Revision history.** Rev 1 set spur spacing at 340px and claimed a braid the player had to commit
-to. Review showed the two blockers that killed it: at 340px the player can cross the whole lane
-between spurs with 4s to spare, so nothing ever cost anything; and an air pocket (`r` 130, diameter
-260) does not fit in the 250px of clear water 340px spacing leaves. Those two pull in opposite
-directions and rev 1 had no answer. Rev 2 derives the spacing from the crossing bound (§7) and takes
-the pocket out of the constraint entirely by making a pocket a **break in the reef** (§5). Rev 1
-also assumed the Reef has marching ranks; it does not (§3), which is what licenses the biggest
-change here — **spurs are solid to enemies as well as to the player**.
+### Revision history
+
+**Rev 1** set spur spacing at 340px and claimed a braid you had to commit to. Two blockers killed
+it: at 340px you cross the whole lane between spurs with 4s to spare, and an air pocket (260px
+across) does not fit in the 250px of clear water that spacing leaves.
+
+**Rev 2** derived the spacing from a crossing bound and made a pocket a break in the reef. Both
+answers were wrong.
+
+- **The crossing bound cannot exist.** Rev 2 derived against a fresh save's 275 px/s strafe. The
+  shop's `moveSpeed` line is +4%/level to 10 levels, so a maxed build is 308 base = **385 px/s**,
+  and Zoomies adds +8% a pick with **no cap**. No fixed geometry makes a crossing cost for a player
+  who has bought speed. Rev 2 also derived against the wrong crossing — wall-to-wall, when there are
+  no grooves at the walls; the widest a groove pair can ever be is `2·hw − w`, and every value in
+  the band was already free at 210px spacing.
+- **A pocket-shaped hole in the reef is a hole in the design.** A 260px pocket on a 210px pitch
+  deletes one spur 33% of the time and two 67%, and pockets arrive about every 640px of lane. That
+  is **73% of the lane's length with no reef in it.**
+
+**Rev 3 stops trying to forbid the crossing.** §2.1 states the tension that actually holds, and it
+holds at any strafe speed. Spacing becomes a pacing knob and says so. A pocket is a **local
+widening of a groove**, not a hole. Enemy solidity gets a specified algorithm instead of a claim.
+The loose bommies are cut. Four names that collided were renamed.
 
 ---
 
@@ -35,27 +50,22 @@ air pockets on a cell grid, and a Burst that smashes whatever it happens to touc
 | there are traps | none of this chapter's own | ✗ |
 | dash breaks a weak point in a wall | dash breaks any obstacle; no wall, no weak point | ⚠ half |
 
-The chapter plays. It just plays as *The Beyond, sideways, retinted*. Every decision the cross axis
-offers today is optional — you can hold the centre line forever and only ever lose air. This spec
-makes the cross axis the chapter.
+The chapter plays. It plays as *The Beyond, sideways, retinted*. Every decision the cross axis
+offers today is optional — hold the centre line forever and you only ever lose air.
 
-*(The Beyond's drifting rocks do reach this chapter, and §6 cuts them. They are a hazard, not one
-of this chapter's traps; the scorecard above is about the Reef having threats of its own.)*
+*(The Beyond's drifting rocks do reach this chapter; §6 cuts them. They are a hazard, not one of
+this chapter's traps.)*
 
 ---
 
 ## 2. Spur and groove
 
-The names are the real geomorphology of a reef front: **spurs** are the coral ridges that run out
-from the reef, **grooves** are the sand channels between them. Seen from directly overhead — which
-is this game's only camera — that formation *is* this level design. Both words are free as
-identifiers in `src/` (checked 2026-08-20; the only hits are prose in unrelated comments, and
-`bommie`, already this chapter's word for a coral head, stays what it is).
+**Spurs** are the coral ridges that run out from a reef front; **grooves** are the sand channels
+between them. From directly overhead — this game's only camera — that formation *is* this level
+design. Both are free as identifiers in `src/` (one prose hit, `render.js:565`).
 
-**A spur** is a ridge of coral spanning the lane, with two **grooves** cut through it.
-
-**The grooves braid.** Each is a slowly-drifting cross position along the lane. They wander apart,
-converge and merge, then split again. Following one is your route.
+A **spur** is a ridge spanning the lane with two **grooves** cut through it. The grooves braid: each
+is a slowly-drifting cross position along the lane; they wander apart, converge, merge, split again.
 
 ```
                  scroll ←──────────────────
@@ -70,23 +80,35 @@ converge and merge, then split again. Following one is your route.
     A    B    C    D    E
 
   A,B  two grooves, far apart
-  C    converging — they are now adjacent
+  C    converging — now adjacent
   D    MERGED. One groove, and the
        narrowest point in the level (§10)
   E    split again
 ```
 
-The lane walls are unbroken — `stepPlayerMovement` clamps to `±laneHalfWidth` every frame with no
-exceptions, so a hole in a lane wall is not a thing that can exist.
+The lane walls are unbroken: `stepPlayerMovement` clamps to `±laneHalfWidth` every frame.
 
-**A crossing costs, and §7 derives how much rather than asserting it.** At rev 2's numbers you can
-make an adjacent groove comfortably and you cannot swing wall-to-wall without going through coral.
-Local corrections are free; changing your mind about the whole lane is not. That is the texture the
-design wants and it is a bound, not a feeling — see §7's first table.
+### 2.1 The tension — and why it does not depend on how fast you are
 
-There is still no pathfinding problem here. `lane` retired that before this design existed
-(2026-08-13 spec: *"A lane has no pathfinding problem, because nothing is trying to path
-anywhere"*), and §3's enemy collision is a push-out, not a route.
+Rev 2 tried to make crossing the lane geometrically expensive. It cannot be done: `moveSpeed` is a
+shop line and Zoomies is an uncapped passive, so any bound is one purchase from false.
+
+**The property that actually holds, at any strafe speed, is this:**
+
+> Every 4.67 seconds, the scroll carries you through a spur. At that moment you are either **in a
+> groove** — where §3.1 has funnelled the entire crowd — or **in coral**, taking damage and unable
+> to manoeuvre. There is no third place, and no amount of speed creates one.
+
+So the chapter is a repeating forced choice between **the crowd and the coral**, arriving on a
+metronome. A fast player does not escape it; they simply get to pick which groove. That is what the
+cross axis is for, and it is what the bubbles (§5.3), the traps (§4) and the air (§5) are all
+arguing about.
+
+Spacing is therefore a **pacing** knob — how often the choice arrives — and §7 sizes it as one. It
+is not load-bearing for difficulty, and rev 2's derivation claiming otherwise is deleted.
+
+There is no pathfinding problem. `lane` retired that before this design existed, and §3.1's enemy
+handling is a push-out, not a route.
 
 ---
 
@@ -94,195 +116,236 @@ anywhere"*), and §3's enemy collision is a push-out, not a route.
 
 **You scrape through it.** Coral does not block, it grates.
 
-- **Chip damage on a tick, not per frame.** `SPUR_TICK = 0.5`, `dot: true`. This is not a detail:
-  `hurtPlayer` floors a hit at 1 HP and rounds it, so a per-frame `4 × dt` becomes **1 HP sixty
-  times a second** and kills a 100 HP player 1.7s into a 2.0s spur. `DROWN_TICK`'s own block says
-  so in as many words, and `ROCK_TICK`, `STARVE_TICK` and `SLICK_TICK` are all the same fix. The
-  `dot` flag is the other half: the non-dot branch sets `p.invuln = PLAYER.invulnTime`, which would
-  make scraping a **defensive** move — continuous invulnerability to contact damage for as long as
-  you stay in the coral.
-- **Your strafe is slowed. The scroll is not.** This is the whole punish and it is the right one:
-  inside a spur you cannot manoeuvre. It is also the only slow that is legal here — sim.js's lane
-  block forbids anything from touching the forward velocity, and `stepLaneSolid`'s comment says why.
-  **The slow joins the `Math.min` at `sim.js:668`, it does not multiply.** Five comments in that
-  block give the reason, and it is live here: the moray carries `latch` (`LATCH_SLOW_MUL` 0.55), so
-  a multiplied scrape would be 0.2475 and every latch in this chapter would be strictly nastier than
-  the identical one anywhere else. It needs its own field — `p.slowT` is a boolean gate on a fixed
-  multiplier and cannot carry 0.45.
-- **It is bounded.** Forward motion never stops, so a scrape always ends: thickness ÷ scroll, 2.0s
-  at §7's numbers. Review tried to construct a deadlock and could not — you exit on the forward
-  axis regardless of cross position, and the gap that follows always has the strafe budget to reach
-  a groove.
+- **Chip damage on a tick, not per frame.** `SPUR_TICK = 0.5`, `dot: true`. `hurtPlayer` floors a
+  hit at 1 HP and rounds it, so a per-frame `4 × dt` becomes **1 HP sixty times a second** and kills
+  a 100 HP player 1.7s into a 2.0s spur. `DROWN_TICK`, `STARVE_TICK` and `SLICK_TICK` are the three
+  precedents. The `dot` flag is the other half: the non-dot branch sets `p.invuln =
+  PLAYER.invulnTime`, which would make scraping a **defensive** move — continuous invulnerability
+  to contact damage for as long as you stay in coral.
+- **It ticks on ENTRY, then every `SPUR_TICK`.** Every shipped DoT accumulator zeroes on exit and
+  fires its first tick a full period *after* entry, which makes clipping a groove edge for under
+  0.5s **free** — a dodge that costs nothing, which is §10's "spurs become optional" risk arriving
+  through a side door. Ticking on entry closes it and makes the arithmetic exact: a 2.0s traversal
+  is 4 ticks (t = 0, 0.5, 1.0, 1.5), a clip is 1.
+- **Your strafe is slowed. The scroll is not.** Inside a spur you cannot manoeuvre. It is also the
+  only legal slow — the lane block forbids anything touching the forward velocity. **It joins the
+  `Math.min` at `sim.js:668`, it does not multiply.** The moray carries `latch` (`LATCH_SLOW_MUL`
+  0.55), so a multiplied scrape would be 0.2475 and every latch in this chapter would be strictly
+  nastier than the identical one elsewhere. It needs its own field: `p.slowT` is a boolean gate on a
+  fixed multiplier and cannot carry 0.45.
+- **It is bounded.** Forward motion never stops, so a scrape always ends: thickness ÷ scroll = 2.0s.
+  Two review rounds tried to construct a deadlock and could not.
 
-**Or you press the button.** Burst punches a hole straight through and you take nothing.
+**Or you press the button.** Burst clears a spur — `stepCrush` destroys coral within
+`BURST_CRUSH_MUL 2.5 × PLAYER.radius` = 55px for the whole dash, so the dash *removes* the ridge
+ahead of it rather than having to outlast it.
 
-⚠ **Spur thickness has a hard ceiling and it is not in the same config block.** An empty bar still
-bursts, for `BURST_DUR_MIN` 0.30s at `laneScroll × BURST_SPEED_MUL` = 405 px/s = **121.5px of
-forward travel**. A spur thicker than that cannot be punched through at zero Air, which is exactly
-the structural trap `BURST_DUR_MIN` exists to prevent. §7 sets 90px; the bound is
-`SPUR_THICK < BURST_DUR_MIN × BURST_SPEED_MUL × laneScroll` and §9 asserts it.
+⚠ **Rev 2 claimed spur thickness had a structural ceiling. It does not.** `BURST_DUR_MIN`'s block
+says the no-spiral floor exists because *"in a lane where the coral is SOLID 'trapped' is a thing
+that can actually happen"* — and spurs are not solid. A thicker spur costs one more tick; it never
+traps. The 121.5px figure measures the wrong thing. Thickness is a **damage budget**, nothing more.
 
-### 3.1 Enemies are stopped by spurs too — and rev 1 was wrong about why they wouldn't be
+### 3.1 Enemies are funnelled by spurs — the algorithm, not the claim
 
-Rev 1 said enemies pass through, borrowing `laneSolid`'s reason: a rank shoved apart by terrain
-stops reading as a rank.
+Rev 1 let enemies pass through, borrowing `laneSolid`'s reason: a rank shoved apart by terrain stops
+reading as a rank.
 
-**The Reef has no ranks.** `stepFormations` forces `rosterId: 'invader'`, and its own comment says a
-lane chapter with no `invader` entry — *"The Reef, until it has a marcher of its own"* — falls
-through to `spawnEnemy`'s ordinary roster pick. `march` exists only on The Beyond's invader and
-hulk. What arrives here is a block of six **seekers** that turn and chase. Two things follow:
+**The Reef has no marchers.** `stepFormations` forces `rosterId: 'invader'`, and its own comment
+names this chapter — *"The Reef, until it has a marcher of its own"* — falling through to the
+ordinary roster pick. `march` is Beyond-only. So the rank-cohesion argument does not apply here.
 
-- **The rank-cohesion argument does not apply to this chapter at all**, so the reason for letting
-  enemies through evaporates.
-- If they did pass through, a player in a groove behind a spur would be attacked *through the coral*
-  by the whole crowd while unable to retreat. Spurs could never be used as cover — the one tactical
-  use a wall has.
+⚠ **But `stepFormations` still fires**, gated only on `lane`: six damselfish every
+`FORMATION_INTERVAL` 4.4s, spread across the full lane, up to three rows, 700px ahead. With 43% of
+the lane's length in coral, **whole rows are born inside a spur.** That case is part of the spec
+below, not an edge to discover later.
 
-**So spurs are solid to enemies as well**, under the same cross-axis-only push-out the player gets.
-The crowd funnels into the grooves. The groove becomes both your road and theirs, which is what
-makes the borrowed forward-cone starter read as the right weapon for the chapter.
+**The rule:** a spur applies a **cross-axis-only correction to enemies**, capped per frame, and
+never touches their forward speed.
 
-Risk, and it is real: enemies pinned against coral that never reach you would trivialise the
-chapter. §9 asserts a floor on contact, and §10 carries the fallback.
+1. **Cross-only, capped.** An uncapped solve snaps an enemy up to ~200px sideways in one frame —
+   a lateral teleport, and exactly the class of move `stepLaneSolid` forbids for the player. Cap the
+   correction at a stated px/frame so the crowd *slides* into a groove over several frames.
+2. **Forward untouched.** Enemies close along the lane, so this never stops one; it steers them.
+   That is the intent: the crowd ends up **in the grooves**, which is what makes §2.1's choice a
+   choice.
+3. **Born inside** — an enemy spawned inside a spur is stepped out over the same capped frames, in
+   whichever cross direction is nearer, rather than resolved instantly.
+4. **Mid-leap is exempt.** A `pounce` lionfish crosses a 90px spur regardless; a fish leaping a
+   ridge is the correct reading, not a bug. `latch`, once attached, rides the player wherever the
+   player goes, coral included.
+5. **Knockback** (weapons, and Burst's shove) may push an enemy into a spur. The cap applies on the
+   way out; it must not fight the knockback into a jitter, so the correction yields while a
+   knockback impulse is live.
 
-⚠ Also unmodelled until someone models it: `soapTrail`, this chapter's elite flag, drops damaging
-pools. An elite in a groove leaves them **in** the groove, so a player takes pool DoT and scrape DoT
-together. That is arguably good and definitely untested.
+⚠ **This inverts the tactical reading, deliberately.** A spur does not give the player cover — it
+aims the crowd at the two cross positions the player must occupy. That is §2.1's whole point: the
+groove is the road *and* the fight. If playtesting says it is miserable, the fix is fewer enemies,
+not permeable coral.
+
+⚠ **`soapTrail`, this chapter's elite flag, is unmodelled.** `SOAP_R` is 26px, dodgeable inside a
+110–200px groove — the stacking rev 2 worried about does not happen. The real case is an elite
+travelling down a **merged** groove, laying a dotted line along the level's only route. That is the
+dynamic form of §4's static clam ban, and §4's ban cannot bind it.
 
 ### 3.2 The hole Burst leaves
 
-It records into a crushed-cell registry so the streamer never re-rolls it. **It must not be
-`run._crushed` as-is.** That key is `i + ',' + j` built from each field's own cell size, with no
-salt and no grid identity: Reef obstacles are on `cell: 620`, pockets on 640, spurs would be on 210.
-Bursting spur cell `(5,2)` writes `"5,2"` and silently deletes the coral head 620px away on the
-obstacle grid — and vice versa. **Namespace it** (`'spur:' + i + ',' + j`) or give spurs their own
-Set.
+The streamer must not re-roll a crushed ridge while it is still inside `OBSTACLE_STREAM_RADIUS`.
+(Permanence is not the reason — the lane advances monotonically, so a crushed cell is behind you
+within ~42s and never seen again.)
 
-⚠ **This is a fourth removal path, not the reuse rev 1 claimed.** `stepCrush` iterates
-`run.obstacles`, tests circle overlap, splices from that array and pays a `CRUSH_XP` gem per
-removal. A spur is a different shape in a different array. If a spur is subdivided into N crushable
-cells, one Burst pays N gems — decide that deliberately.
+**The spur field is one object per lane index `i`, not a 2-D grid.** Rev 2 said "spurs on cell 210",
+which cannot express the geometry: a 210px grid across an 836.8px lane is 3.98 cells, and you cannot
+cut a 110px groove out of a 210px cell. The ridge is indexed along the lane only; its grooves come
+from the braid function. That also fixes §8's streaming cost — a 1-D cursor along the lane, not a
+225-cell rescan every time a 275 px/s strafe crosses a cross-axis boundary.
 
-The reason spurs must be cell-addressable is **re-streaming, not permanence**. The lane advances
-monotonically, so a crushed cell is behind you within ~42s and never seen again; what matters is
-that it is not re-rolled while still inside `OBSTACLE_STREAM_RADIUS`.
+A Burst therefore records `(i, band)` where `band` is a quantised cross slot of stated width, in a
+**spur-owned registry**, not `run._crushed`. That Set's key is a bare `i + ',' + j` with no salt and
+no grid identity, so sharing it across fields on different cell sizes deletes things silently.
 
-### 3.3 Groove positions are fractions, never pixels
+⚠ **This is a fourth removal path, not a reuse.** `stepCrush` iterates `run.obstacles`, tests circle
+overlap, splices from that array and pays a `CRUSH_XP` gem per removal. A spur is a different shape
+in a different array; decide the gem count deliberately rather than inheriting one per band.
 
-`laneHalfWidth` is `Math.min(LANE_HALF_W, viewRadius × LANE_VIEW_FRAC)` — **418.4 on a phone, 430.0
-on a desktop**, recomputed from `app.screen` every frame and changing on rotate. A groove authored
-at an absolute cross coordinate near the wall is inside the lane on desktop and **outside the clamp
-on the phone**, i.e. unreachable — the structural trap §9.1 forbids, passing on one viewport and
-failing on the other.
+### 3.3 Groove positions are fractions, and the cap is not `hw`
 
-Groove offsets are a **fraction of `hw`**, resolved at read time. `streamShafts` hit this and solved
-it by dropping circles wholly outside the lane; a groove cannot be dropped, it must be repositioned.
+`laneHalfWidth` is `min(LANE_HALF_W 430, viewRadius × 0.9)` — **418.4 on a phone, 430.0 on a
+desktop** — recomputed every frame and changing on rotate. An absolute cross coordinate is inside
+the lane on one viewport and outside the clamp on the other.
+
+But a fraction of `hw` is **not enough**, and this is the trap `LANE_HALF_W`'s own ponytail comment
+names: `viewRadius` is the half **diagonal**, orientation-blind. On a 1280×800 desktop the cap binds
+at 430 while the cross half-extent is only 400 — so a groove at `0.95·hw` = 408px is legal,
+reachable, and **8px off the bottom of the screen**.
+
+**Braid amplitude is bounded by `min(hw, cross half-extent)`**, and §9 asserts both grooves are
+**on screen**, not merely inside the walls, at both viewports.
 
 ---
 
 ## 4. The traps — owner ruling: "both and more"
 
-Four, each doing a different job. Two more were designed and cut; §11 records them.
+Four, each doing a different job. Table name **`SPUR_FEATURES`** — `REEF_TRAPS` collides with the
+undergrowth's shipped `run.traps` / `streamTraps` / `SNAP_TRAP_*` / `DMG_SRC_NAME.trap`.
 
 | Trap | What it does | Its job |
 |---|---|---|
 | **Clam** | A groove held by a giant clam that shuts on a slow rhythm | Makes a route **conditional** |
 | **Fire coral** | A stinging patch inside the wide, obvious groove | Makes a route **cost something** |
 | **Urchins** | A spiny stretch of spur; scraping *there* costs ×3 | Makes **where** you miss matter |
-| **Vent jet** | A floor jet that shoves you hard across the lane | **Takes the wheel** for a second |
+| **Blowhole** | A floor jet that shoves you hard across the lane | **Takes the wheel** for a second |
 
-**The clam is not a timing puzzle, and that is deliberate.** You cannot slow down in a lane, so you
-cannot wait one out. You read it at distance and take the other groove, or you Burst through before
-it closes.
+**Renamed from "vent jet".** `jet` is taken four ways — `JET_BAKE_R`, `run.zones` `jet`/`jetDur`
+(Burst Hydrant), the Skies' Fighter Jet, and two French values already keyed on *Jet de …*.
+`blowhole` has zero hits in `src/`.
 
-Three constraints, each of which makes something unplayable or unreadable if skipped:
+**The clam is not a timing puzzle, deliberately.** You cannot slow down in a lane, so you cannot
+wait one out. You read it at distance and take the other groove, or Burst through before it closes.
 
-1. **A clam may never sit on a merged groove.** At a merge there is one groove; a clam there is a
-   spur with zero passable grooves, which is the unplayability §9.1 exists to prevent — reachable
-   through a mechanic this section introduces. §9.1 must be asserted *with clams live*.
-2. **A clam's period must be shorter than the phone's lookahead** (6.93s), or "you read it at
-   distance" is false on the device the game ships to.
-3. **A clam closing is a spur, not a new damage source.** Swim into a shut clam and you scrape. No
-   new event, no new label, no new art. That is the whole implementation.
+**4.1 — A clam may never sit on a merged groove.** At a merge there is one groove; a clam there
+makes every route through that spur a damaging one.
 
-**Damage sources are two, not four**, and each needs more than a config row: `scrape` (urchins are a
-×3 multiplier on the same source) and `fireCoral`. The vent jet shoves and does not damage. See §8
-for the four sites each one has to reach.
+**4.2 — A clam's period must be shorter than the phone's lookahead** (6.93s), or "read it at
+distance" is false on the device the game ships to.
 
-⚠ **The vent jet needs its own lane re-clamp.** The wall clamp runs early in the step;
+**4.3 — A shut clam is a spur, not a new damage source.** Swim into one and you scrape. No new
+event, no new label, no new art.
+
+**4.4 — Damage sources are two, not four:** `scrape` (urchins are a ×3 multiplier on the same
+source) and `fireCoral`. The blowhole shoves and does not damage. §8 lists the four sites each one
+must reach.
+
+⚠ **The blowhole needs its own lane re-clamp.** The wall clamp runs early in the step;
 `stepLaneSolid` re-clamps at its own exit precisely because it moves the player later — *"the lane
 wall outranks the coral, always"*. A shove applied after that puts the player outside the walls for
 a frame.
 
 ---
 
-## 5. Air, and the bubbles
+## 5. Air, and the plume
 
-### 5.1 A pocket is a break in the reef
+### 5.1 A pocket is a groove that widens, not a hole in the reef
 
-Rev 1 said a pocket sits in a groove and that broke immediately: pocket diameter is 260px and rev
-1's spacing left 250px of clear water. Nothing fit anywhere.
+Rev 1 placed a pocket between spurs; it did not fit. Rev 2 deleted the spurs where a pocket sat,
+which removes 73% of the reef.
 
-**So the pocket is not placed between spurs — the spur is absent where the pocket is.** A blue hole:
-the reef opens out into a sand bowl, you breathe, the ridges resume. This dissolves the constraint
-instead of tuning against it, keeps `r` at 130 and leaves the Air tune untouched.
+**Rev 3: the groove balloons.** Where a pocket sits, that groove locally widens to hold it — a sand
+bowl in the ridge. The spur is still there, the ridge is unbroken above and below, and the pocket
+keeps `r` 130 with the Air tune untouched. The break spans the pocket's own cross extent and nothing
+more.
 
-### 5.2 A pocket sits where its groove is FAR from the centre line
+### 5.2 The pocket moves onto its groove, and stays clear of the centre
 
-This is the one the shipped code already had an opinion about, and rev 1 walked into it.
+**This is a placement change, not a filter, and rev 2 called it both.** A pocket's cross position
+today comes from a pure cell hash (`cell: 640`, `|cross| ∈ [150, 490]`) that knows nothing of any
+other field — and 490 exceeds the phone's wall at 418.4. Under rev 3 the pocket's cross position
+**is** its groove's cross position at that lane index.
 
-`config.js` carries an owner ruling, on measurements, that **the Reef has no tide**:
+⚠ **Consequence to budget for:** every measured number in `CHAPTERS.reef.resource` and both RF.a and
+RF.b counts move with it. §9 lists the re-measure.
+
+**The clearance rule, and the boundary matters.** The shipped ruling that **the Reef has no tide**
+is on measurements:
 
 > *"across it (90 deg), the water walks a player who is not steering **205px sideways, into the air
-> pockets (r 130) — RF.a's centre-line run ended on 93 of 100 Air instead of 0**, i.e. the water made
-> the chapter's one decision for them."*
+> pockets (r 130) — RF.a's centre-line run ended on 93 of 100 Air instead of 0**."*
 
-205px of *unintended* cross displacement was enough to take a centre-holder from 0 Air to 93. A
-braid moves grooves across the lane **by design**, further than that. So "pockets sit on grooves"
-would hand the centre-holder free air every time a groove wandered past them, and the 76%-at-zero
-vs 0%-at-zero gap — the measurement that proves this bar is a map and not a clock — would collapse.
+205px of *unintended* drift took a centre-holder from 0 Air to 93. A braid moves grooves further
+than that by design, so a pocket riding a groove past the centre line hands the centre-holder free
+air and collapses the 76%-at-zero vs 0%-at-zero gap that proves this bar is a map and not a clock.
 
-**Placement rule: a pocket only spawns where its groove is at least `r` clear of the centre line.**
-That preserves the shipped geometry assertion and the gap it protects. It is a placement filter, not
-a new system.
+**Rule: a pocket spawns only where its groove's centre is at least `r + 20` from the centre line**
+— that is 150px, centre-to-centre, which is exactly the shipped geometry (`refillCircleAt`'s slack
+is `cs/2 − r − 20`). **Not "at least `r`":** RF.a and RF.b both test `<= sh.r`, so `|cross| == r`
+*fails* both. The 20px is the margin the shipped chapter already keeps and rev 2 quietly spent.
 
-### 5.3 The bubbles, and what they are actually for
+### 5.3 The plume, and what it is actually for
 
-A pocket streams bubbles and the current carries them back down its own groove to you. The bubble
-trail draws the groove: **you do not navigate the reef, you follow the bubbles.**
+A pocket emits a **plume** — bubbles the current carries back down its own groove to you. The plume
+draws the groove: **you do not navigate the reef, you follow the plume.**
 
-**They exist for the phone, and the spec should say so rather than pretend otherwise.** The player
-sits at `LANE_CAMERA_FRAC` (0.8) along the viewport, so lookahead is 0.8 × screen width:
+Named `PLUME_*`; `bubble` collides with the Bubble Puff weapon and `breath` with the Skies' Atomic
+Breath.
+
+**It exists for the phone, and the spec says so rather than pretending otherwise.** The player sits
+at `LANE_CAMERA_FRAC` 0.8 along the viewport, so lookahead is 0.8 × screen width:
 
 | | phone 390×844 | desktop 1280×800 |
 |---|---|---|
 | Lookahead | 312 px = **6.93 s** | 1024 px = **22.76 s** |
 | Spur periods visible | 1.49 | 4.88 |
 | Lane half-width | 418.4 | 430.0 |
+| Cross half-extent | 422 | **400 — smaller than `hw`** (§3.3) |
 
-On a desktop you see nearly five spurs and the pocket itself; the bubbles are redundant there and
-harmless. On a phone they are the only thing between the player and a coin flip. This asymmetry is
-**pre-existing and shared with The Beyond** — `laneScrollFor`'s own ponytail comment names it and
-names the upgrade path (derive the scroll from a shared `LANE_WARNING_SECONDS` and the live
-viewport), which moves The Beyond and so needs run LN re-captured with a stated reason. Not this
-spec's job. Naming it is.
+On a desktop you see nearly five spurs and the pocket itself; the plume is redundant there and
+harmless. On a phone it is the only thing between the player and a coin flip.
 
-### 5.4 The Air tune does not change, and cannot be measured by the shipped rig
+This asymmetry is **pre-existing and shared with The Beyond**. Two ponytail comments name it —
+`laneScrollFor`'s (the scroll should derive from a shared warning time and the live viewport) and
+`LANE_HALF_W`'s (the lane should measure the axis it is actually across). Both move The Beyond and
+need run LN re-captured with a stated reason. Not this spec's job; naming them is.
 
-`drain 1.4, refill 9, killRefill 0.2, max 100, drown.dps 4` stands.
+⚠ **The blowhole must not read as a plume.** Both are bubbles and one is a lie about the other.
+Plume: fine, steady, drifting down-lane toward you, anchored to a pocket. Blowhole: violent column,
+static, pinned to the floor. If they are not separable at distance the signpost lies, which is worse
+than no signpost.
 
-**But `charge-probe`'s two lane policies are now invalid**, and this is the "pick the rig for the
-question" failure CLAUDE.md documents — the one that returns confident numbers instead of an error:
+### 5.4 The Air tune stands — and the shipped rig can no longer measure it
 
-- `pocket` steers by a pure cross-reachability test with **no notion of terrain**. It drives through
+`drain 1.4, refill 9, killRefill 0.2, max 100, drown.dps 4` is unchanged.
+
+**But `charge-probe`'s two lane policies are invalid**, which is the "pick the rig for the question"
+failure CLAUDE.md documents — the one that returns confident numbers instead of an error:
+
+- `pocket` steers on a pure cross-reachability test with **no notion of terrain**. It drives through
   every spur, paying scrape damage it does not model, and never routes along a groove.
 - `centre` holds the centre line, which under a braid is sometimes groove and sometimes coral. The
   row stops meaning "a player who has not learned the chapter" and starts meaning "a player who
-  scrapes 100% of the time".
+  scrapes constantly".
 
-**A third policy is required — `groove`: follow the bubble trail, cross only at merges.** Report
-`centre`, `pocket` and `groove` together. The two shipped rows are **not comparable to their
-pre-spur values** and must not be quoted as though they were.
+**A third policy is required — `groove`: follow the plume, cross only at merges.** Report `centre`,
+`pocket` and `groove` together, and state plainly that the two shipped rows are **not comparable to
+their pre-spur values**.
 
 ---
 
@@ -290,66 +353,69 @@ pre-spur values** and must not be quoted as though they were.
 
 **The drifting rocks, in this chapter only.** `ROCK_INTERVAL 3.4`, `ROCK_MAX_LIVE 5`, `ROCK_SPEED
 155` down-lane against your 45 up-lane — a 200 px/s closing hazard for `ROCK_DMG 20` every few
-seconds. With spurs, four traps and a drowning clock the corridor is full, and the vent jet already
-does "something knocks you off your line" with a telegraph and on the chapter's own terms.
+seconds. With spurs, four traps and a drowning clock the corridor is full, and the blowhole does
+"something knocks you off your line" with a telegraph, on the chapter's own terms.
 
-The Beyond keeps its rocks untouched.
+The Beyond keeps its rocks.
 
-⚠ **This red-lines a shipped assertion, and it is not the one rev 1 named.** Run LN's golden master
-runs only on `beyond` and cannot see the Reef; re-running it proves nothing here. The test that
-breaks is **run LX.d**, which asserts `rocksChecked > 0` over 30s — a hard fail the moment
-`rocks: false` lands — and whose rock-geometry asserts become dead code. It must be restated
-(move the rock half to `beyond`), not deleted.
+⚠ **This red-lines run LX.d**, which asserts `rocksChecked > 0` over 30s — a hard fail the moment
+`rocks: false` lands, and whose rock-geometry asserts become dead code. Restate it (move the rock
+half to `beyond`), do not delete it. **Run LN is beyond-only and cannot see this chapter**; rev 1
+named the wrong test.
 
-⚠ **And it re-phases every seeded Reef scenario.** `stepRocks` draws 3–4 `Math.random()` per rock;
-removing them re-rolls every sampled statistic in RF.a–f. Expect red bands that have nothing to do
-with whether the change is correct, and apply CLAUDE.md's protocol — ask whether the assertion's
-subject is even reachable from the change, then re-run on a different seed — rather than retuning
-the design to satisfy them.
+⚠ **And it re-phases every seeded Reef scenario.** `stepRocks` draws **five** `Math.random()` per
+rock, so removing them re-rolls every sampled statistic in RF.a–f. Expect red bands unrelated to
+correctness, and apply CLAUDE.md's protocol — ask whether the assertion's subject is reachable from
+the change, then re-run on a different seed — rather than retuning the design to satisfy them.
 
-**Kept, deliberately:** the loose bommies that already ship (`obstacles: count 8, cell 620`). Free,
-already solid and Burst-able, and they give the button something to smash between spurs.
+**The loose bommies too** (`obstacles: count 8, cell 620`). Rev 2 kept them because they were free.
+They are not: after §3.1 the chapter would have coral heads the crowd swims through and coral ridges
+it cannot, drawn from the same `BIOME_REEF` palette, with nothing telling the player which is which.
+Cutting them makes the collision rule one rule, and removes the `run._crushed` key collision §3.2
+would otherwise have to defend against. Reef texture comes from spurs and non-colliding props.
+
+*(This leaves `RF.f` — which pins that enemy obstacle collision stays OFF in the lane — with no
+obstacles in this chapter to observe. Restate it against The Beyond, or against the spur rule.)*
 
 ---
 
-## 7. The numbers, and where they come from
+## 7. The numbers
 
-Phone 390×844 unless stated. Scroll is `laneScroll` 45 px/s. Strafe is `PLAYER.baseSpeed 220 ×
-LANE_STRAFE_MUL 1.25` = **275 px/s**.
+Phone 390×844 unless stated. Scroll `laneScroll` 45 px/s.
 
-**The spacing is derived, not chosen.** For a wall-to-wall crossing to cost anything:
-
-```
-full-lane crossing   836.8 / 275            = 3.04 s   (phone)
-                     860.0 / 275            = 3.13 s   (desktop)
-clear water needed   < 3.04 s               = < 137 px
-so                   spacing - thickness    < 137 px
-at thickness 90                             spacing < 227 px
-```
+⚠ **Strafe is not one number.** `PLAYER.baseSpeed 220 × LANE_STRAFE_MUL 1.25` = 275 px/s on a fresh
+save; a maxed `moveSpeed` shop line (+4% × 10) makes it **385**; Zoomies (+8%/pick, uncapped) goes
+higher. Every knob below is stated as pacing or as a damage budget for exactly this reason — see
+§2.1. Nothing here is a difficulty bound, because no geometry can be one.
 
 | Knob | Start | Why that |
 |---|---|---|
-| `SPUR_SPACING` | **210 px** | 4.67s period. Clear water 120px = 2.67s < the 3.04s crossing, so wall-to-wall costs on **both** viewports |
-| `SPUR_THICK` | **90 px** | 2.0s inside. Ceiling is 121.5px (§3's burst bound) — 90 keeps 31.5px of margin |
+| `SPUR_SPACING` | **210 px** | **Pacing.** A forced choice every 4.67s, with 1.49 periods visible on a phone so the next spur is always on screen |
+| `SPUR_THICK` | **90 px** | 2.0s inside = a 4-tick damage budget. Not a structural bound (§3) |
 | Groove width | 110–200 px | ~37% of the lane open (phone), 36% (desktop) |
+| Braid amplitude | ≤ `min(hw, cross half-extent)` | §3.3 — a groove must be **on screen**, not merely inside the walls |
 | Braid period | ~5 spurs | a merge about every 23s |
-| `SPUR_TICK` | **0.5 s**, `dot: true` | 4 dps × 0.5 = **2 HP exactly** per tick, 4 ticks per spur = 8 HP of a 100 HP bar |
+| `SPUR_TICK` | **0.5 s**, `dot: true`, ticks on entry | 4 dps × 0.5 = **2 HP exactly**; 4 ticks per spur = 8 HP of a 100 HP bar; a clip costs 1 tick, never 0 (§3) |
 | Urchin stretch | ×3 | 12 × 0.5 = **6 HP exactly** per tick = 24 HP for a full bad scrape |
 | Scrape strafe | ×0.45 | joins the `Math.min` at `sim.js:668`, never multiplies |
+| Pocket clearance | `r + 20` = 150px | centre-to-centre; RF.a/RF.b both test `<= r` (§5.2) |
 
-Both tick products are exact integers, which is the point — a config number that `hurtPlayer` rounds
-is not the damage the player takes.
+Both tick products are exact integers — a config number `hurtPlayer` rounds is not the damage the
+player takes.
 
-**43% of the lane's length is coral.** That is dense and it is intentional: a reef is mostly reef,
-and the grooves are the map. It is also the knob most likely to be wrong — see §10.
+**43% of the lane's length is coral.** Dense, and intentional: a reef is mostly reef, the grooves
+are the map. Also the number most likely to be wrong (§10).
 
-**None of this has been through a probe.** It is sized against shipped reference points —
-`ROCK_DMG` 20, lane contact at `LANE_CONTACT_MUL` 0.4, `PLAYER.baseHP` 100 — and against lane
-geometry, which is arithmetic rather than taste. It is not a balance claim. The gate is §9.
+⚠ **Anchor the scrape against the other DoTs, not against contact damage.** `dot: true` skips armor
+**and** `contactDmgTakenMul`, so 8 HP is 8 HP at every difficulty and against every armor purchase,
+while `ROCK_DMG` and lane contact both shrink with armor and grow with difficulty. The comparable
+numbers are `DROWN` 4 dps and `SLICK` 6 dps, which live under the same rules. *(`LANE_LEAK_DMG` is
+inert here — the leak line gates on `march`, which no Reef enemy carries.)*
 
-*(`LANE_LEAK_DMG` is deliberately **not** in that list. The leak line gates on `march`, which this
-chapter has no enemy carrying, so it is inert here — `DMG_SRC_NAME.leak`'s own comment says so. Rev
-1 cited it as a calibration anchor; it anchors nothing.)*
+⚠ **MARTYR detonates on DoT ticks**, by deliberate design in `hurtPlayer`. A chapter that ticks the
+player four times per spur, every 4.67s, hands that anomaly a near-permanent aura. Measure it.
+
+**None of this has been through a probe.** The gate is §9.
 
 Every knob is a named export in `config.js`. None is typed into `sim.js`.
 
@@ -359,65 +425,74 @@ Every knob is a named export in `config.js`. None is typed into `sim.js`.
 
 | Where | What |
 |---|---|
-| `config.js` | `CHAPTERS.reef.spurs` descriptor (spacing, thickness, groove width band, braid period, salt block **44+** — the registry says 44 is next free). `REEF_TRAPS` table. `SPUR_*` constants. `rocks: false`. |
-| `sim.js` | `streamSpurs` beside `streamShafts` — same cell hash, same stream/drop radii. `stepSpurs` (tick damage + strafe slow into the MIN). Enemy push-out (§3.1). One gate in `stepRocks`. A **new** Burst removal path (§3.2). |
-| `render.js` | Spur bake (top-down coral ridge), groove floor, four traps, bubble emitters. Publish status into fields render.js **already reads** — do not teach it a new one. |
-| `state.js` | New `run.*` fields and any new event into the doc block. |
+| `config.js` | `CHAPTERS.reef.spurs` descriptor (spacing, thickness, groove band, braid period + amplitude cap, salt block **44+**). `SPUR_FEATURES` table. `SPUR_*`, `BLOWHOLE_*`, `PLUME_*` constants. `rocks: false`, `obstacles` removed. |
+| `sim.js` | `streamSpurs` (1-D cursor along the lane, §3.2). `stepSpurs` — entry-tick damage + strafe slow into the MIN. Enemy correction (§3.1, five cases). Gate in `stepRocks`. New Burst removal path + spur-owned crushed registry. |
+| `render.js` | Spur bake, groove floor, four features, plume and blowhole emitters. Publish status into fields render.js **already reads**. |
+| `state.js` | New `run.*` fields and the spur registry into the doc block. |
 | `fr.js` | Every new string, same commit. |
 
-**Four more sites, each with a shipped guard that goes red, and rev 1 listed none of them:**
+**Four more sites, each with a shipped guard that goes red:**
 
-- **`DMG_SRC_NAME` + `hazardThumbs` + `scripts/bake-cast.mjs`.** Each new damage source (`scrape`,
+- **`DMG_SRC_NAME` + `hazardThumbs` + `scripts/bake-cast.mjs`.** Each damage source (`scrape`,
   `fireCoral`) needs a labelled `hurtPlayer(…, 'x')` (run DA.d), a `DMG_SRC_NAME` row **plus
   French**, and a `src/cast/<src>.png` baked from `hazardThumbs` — or a written reason in
-  `DMG_SRC_NO_ART`. Run DA.g asserts that partition is exact. `bake-cast.mjs` is hand-run and
-  nothing warns you when it goes stale.
-- **`clearWorld`'s pool registry.** New spur / trap / bubble pools go in the flat list **or** the rig
-  block, and getting the split wrong sets a dead property with no throw — the previous run's
-  entities just stay on screen. Run CP enforces the membership, not the choice.
-- **Pocket placement must consult the spur field.** §5.1 and §5.2 both require it. Pockets are placed
-  today by a pure cell hash at `cell: 640` with no knowledge of any other field, and the two grids'
-  relative phase walks. Somebody has to wire it; budget for it.
-- **run XX's walk is a hardcoded list of named tables.** A new `REEF_TRAPS` is exactly as invisible
-  as a bare const **until a line is added for it**. Add the line, watch it go red, then write the
-  French.
+  `DMG_SRC_NO_ART`. Run DA.g asserts that partition is exact. `bake-cast.mjs` is hand-run.
+- **`clearWorld`'s pool registry.** New spur / feature / plume pools go in the flat list **or** the
+  rig block; the wrong choice sets a dead property with no throw and last run's entities stay on
+  screen. Run CP enforces membership, not the choice.
+- **Pocket placement must consult the braid** (§5.2). It is a new placement path, and the shipped
+  RF.a/RF.b counts move with it.
+- **run XX's walk is a hardcoded list of named tables.** `SPUR_FEATURES` is as invisible as a bare
+  const **until a line is added**. Add it, watch it go red, then write the French.
 
-**Events: no new ones.** The Burst-through reuses `{type:'crush'}`, which already has a render case
-and an SFX entry. The scrape publishes through `hurtPlayer` and needs no event at all. Run EV only
-requires that every emitted type has a consumer — adding none is the cheapest way to satisfy it.
+### 8.1 The tell — a deliberate decision, not an omission
 
-**`stepObstacles`'s early return stays.** This chapter already turns collision on through
-`laneSolid` under three restrictions; spurs are a fourth field under the same rules, not a lifting
-of the return.
+Rev 2 said "no new events, cheapest way to satisfy run EV". That is the freeze scar's reasoning with
+the sign flipped. `hurtPlayer` pushes `{type:'hurt', dot:true}` and `main.js` does `if (e.dot)
+continue // DoT ticks are silent`, so a scrape would have **no sound**, and its only visual would be
+the red vignette the Air bar already produces. **In the one chapter running two DoTs at once, the
+player could not tell coral from drowning.**
+
+- **Visual:** a distinct field render.js already reads, so scraping shows coral grit at the player,
+  separate from the drown vignette.
+- **Sound:** one on **entering** coral, not per tick. A tick fires ~0.85×/s while scraping; an entry
+  fires at most once per 4.67s, which is rare enough to bear a sound.
+- **Burst-through** reuses `{type:'crush'}` — it already has a render case and an SFX entry.
+
+**`stepObstacles`'s early return stays.** Spurs are a new field under `laneSolid`'s restrictions,
+not a lifting of the return.
 
 ---
 
 ## 9. What the suite has to pin
 
-New label **`run RS`** (Reef Spurs) — `run RF` is already taken twice in the suite (the Reef's
-resource and refunds), so `RF.h` would be ambiguous. Each assertion mutation-proved on a scratch
-tree, never on the working one.
+New label **`run RS`** (Reef Spurs) — `run RF` is taken twice already, so `RF.h` would be ambiguous.
+Every assertion mutation-proved on a **scratch tree**, never the working one.
 
-1. **No structural trap** — every spur has at least one groove wide enough to pass, asserted **with
-   clams live** (§4.1) and **at both viewports** (§3.3).
-2. **A free crossing exists within N spurs.** Otherwise the braid is two prisons.
-3. **The scrape never touches the forward scroll.** The lane's one guarantee, asserted as an effect.
-4. **Crossing wall-to-wall between two spurs is impossible without a scrape.** §7's derivation, as a
-   test, so a spacing tune cannot silently undo the design.
-5. **`SPUR_THICK < BURST_DUR_MIN × BURST_SPEED_MUL × laneScroll`** — an empty bar can always punch
-   through. Two constants 500 lines apart; nothing else will catch this.
-6. **A Burst hole is not re-rolled** while inside `OBSTACLE_STREAM_RADIUS`, **and** crushing a spur
-   leaves the bommie grid untouched (§3.2's key collision, both directions).
-7. **A pocket is never inside a spur, and never within `r` of the centre line.** Run RF.b — *not*
-   RF.a — is the shipped geometry assert; restate it, do not delete it. (RF.a asserts the effect.
-   `config.js`'s own comment miscredits this; do not inherit the error.)
-8. **Enemies still reach the player.** A floor on contact events over a full run, because §3.1's
-   solid spurs could otherwise strand the crowd and trivialise the chapter.
-9. **The Beyond is bit-identical** — run LN's golden master, re-run, **not re-baselined**.
-10. **Run LX.d restated**, not deleted (§6).
+1. **Every spur has at least one groove passable WITHOUT DAMAGE**, asserted with clams live (§4.1)
+   and at both viewports. *(Not "passable" — §3 makes every spur passable by definition, so that
+   phrasing has no failing mutation.)*
+2. **A merge occurs within N spurs** — the braid actually braids.
+3. **The scrape never touches the forward scroll.** Asserted as an effect.
+4. **A player holding a fixed cross position scrapes.** This is §2.1's forced choice, as a test: if
+   a groove ever sits still long enough to be camped, the braid is not doing its job.
+5. **An empty-bar Burst clears a spur** — by crushing, not by outlasting (§3).
+6. **A crushed band is not re-rolled** while inside `OBSTACLE_STREAM_RADIUS`, and the spur registry
+   is separate from `run._crushed`.
+7. **A pocket sits on its groove, and its centre is ≥ `r + 20` from the centre line.** Restate
+   **both** RF.a (the effect) and RF.b (the geometry) — both pin this, and rev 2 wrongly accused
+   `config.js`'s comment of miscrediting RF.a.
+8. **The funnel funnels, and nothing beaches.** Enemy cross positions cluster at grooves, and the
+   crowd still reaches the player — both as a **ratio against a spurs-disabled control on the same
+   seed**, never as a bare literal. Report **median nearest-enemy distance over the back half**, the
+   metric CLAUDE.md prescribes for a wall; a contact count cannot tell "nothing reached me" from "I
+   killed it first".
+9. **Both grooves are on screen** at 390×844 **and** 1280×800 (§3.3).
+10. **The Beyond is bit-identical** — run LN's golden master, re-run, **not re-baselined**.
+11. **Run LX.d restated**, not deleted. **Run RF.f restated** — it observes obstacles this chapter
+    no longer has (§6).
 
-**Ratios, not pixels**, for anything compared against the screen, and shot at 390×844 **and**
-1280×800. Denominator printed in every sweep's log line.
+**Ratios, not pixels.** Denominator printed in every sweep's log line.
 
 ---
 
@@ -425,45 +500,60 @@ tree, never on the working one.
 
 | Risk | Why it might bite | Answer |
 |---|---|---|
-| **43% coral is too dense** | narrow grooves + a crowd funnelled into them | The most likely wrong number in §7. Widen the groove band before touching spacing — spacing is derived (§7), width is free. |
-| **Solid spurs strand the crowd** | §3.1 is a real behaviour change | Assertion 8. Fallback: make spurs solid to enemies **only within a groove's width of one**, so the funnel works and nothing beaches. |
-| **A merge is the most dangerous point, not a free door** | one groove ⇒ ~18% open vs 37% elsewhere | Say so rather than hide it — §2's figure labels D as the narrowest point. It is where the clam ban (§4.1) matters. |
-| **Scrape-through makes spurs optional** | if the cost is too low you ignore grooves | §5.4's `groove` policy measures exactly this: %time in a groove under `centre`. |
-| **Bubbles read as decoration** | the game is full of ambient particles | Shoot it. A tell nobody reads is the same as no tell; this repo has shipped that twice. |
+| **43% coral is too dense** | narrow grooves with the whole crowd funnelled into them | The most likely wrong number in §7. Widen the groove band first — it is free, and spacing is only pacing. |
+| **§3.1 makes the chapter miserable** | a spur aims the crowd at you, it does not shelter you | Stated as intent in §3.1. If play disagrees, cut enemy count — do **not** make coral permeable, which returns the chapter to rev 1. |
+| **The funnel jitters** | capped correction vs knockback vs spawn-inside | §3.1 cases 1, 3, 5 exist for this. Assertion 8 measures it. |
+| **A merge is the most dangerous point, not a free door** | one groove ⇒ ~18% open vs 37% | Say so — §2's figure labels D as the narrowest point, and §4.1 bans a clam there. |
+| **Pocket re-placement moves the Air numbers** | §5.2 is a new placement path | Expected and budgeted. Three probe policies, reported together. |
+| **The plume reads as decoration** | the game is full of ambient particles | Shoot it. A tell nobody reads is the same as no tell. |
 | **The braid reads as random** | two drifting lines can look like noise | Judge it in **map mode**, wide-area. A gameplay screenshot shows one spur. |
-| **Air re-measure moves the tune** | pockets move; both shipped policies are invalid (§5.4) | Expected. Three policies, reported together. |
+
+*(Rev 2 offered a fallback — "solid only within a groove's width of a groove" — which is
+geometrically inverted: it makes the walls permeable and a merge the *most* permeable point. Deleted
+rather than corrected; §3.1's cases are the real answer.)*
 
 ---
 
 ## 11. Considered and cut
 
-- **Moray ambush hole** — a hole in the spur a moray lunges from. Cut: the moray is already the
-  chapter's tank, and terrain that spawns enemies muddles "what is scenery" exactly when the bubbles
-  are teaching the player to read scenery.
-- **Camouflaged stonefish** — a bommie that is an enemy. Cut for the same reason, harder: the whole
-  signposting design depends on the player trusting what terrain looks like.
-- **Currents.** ⚠ **Already ruled and already recorded** — `config.js` carries eight lines of it
-  under *"THE REEF HAS NO TIDE, deliberately (owner ruling, on these measurements)"*, with the
-  numbers. Rev 1 proposed adding a config note and a different, poetic reason; both were wrong.
-  Nothing to do, and the measurement in that block is load-bearing for §5.2.
-- **Truly solid spurs** that stop you and rake you along to a groove. Cut by owner ruling: solid
-  requires stopping forward motion, and the lane promises it never stops.
-- **Short commits** (~7s channels sized to the screen). Cut in favour of bubbles: it removes the
-  coin-flip by removing the commitment, which removes the design.
-- **Spacing at 340px** (rev 1). Cut by §7's derivation — it made every crossing free.
+- **Moray ambush hole** — terrain that spawns enemies muddles "what is scenery" exactly when the
+  plume is teaching the player to read scenery.
+- **Camouflaged stonefish** — same reason, harder: the signposting depends on trusting terrain.
+- **Currents.** ⚠ **Already ruled and already recorded** — `config.js` carries eight lines under
+  *"THE REEF HAS NO TIDE, deliberately (owner ruling, on these measurements)"*. Rev 1 proposed a
+  config note and a different, poetic reason; both were wrong. Nothing to do, and that block's
+  205px measurement is load-bearing for §5.2.
+- **Truly solid spurs.** Solid requires stopping forward motion; the lane promises it never stops.
+- **Short commits** (~7s channels sized to the screen). Removes the coin-flip by removing the
+  commitment, which removes the design.
+- **A VERTICAL lane.** Owner reopened this 2026-08-20 — *"being an horizontal run is not a fixed
+  decision. If vertical scrolled makes this easier and gameplay better, that's fine."* Closed on
+  measurement: **horizontal stays.** `laneHalfWidth` is orientation-blind (418.3px on a phone either
+  way), but the visible cross half-extent is not — 422px horizontal (the 844 axis) against 195px
+  vertical (the 390 axis). A vertical Reef puts a lane **2.15× the screen width** on a portrait
+  phone, so the far groove the player is choosing between is simply off screen. That is The Beyond's
+  shipped bug, named in `LANE_HALF_W`'s own ponytail comment, and inheriting it would need that
+  upgrade done first — which moves The Beyond and needs run LN re-baselined with a stated reason.
+  Vertical does buy 675px of lookahead against horizontal's 312 (`0.8 × the forward screen axis`),
+  and that is the one real argument for it — but the plume (§5.3) buys the same thing for the cost
+  of a particle emitter, and a vertical Reef is The Beyond again, which loses the owner's own
+  *"I know it's very different gameplay but I like varying."*
+- **A geometric crossing bound** (rev 2). Impossible — see the revision history and §2.1.
+- **A pocket-shaped hole in the reef** (rev 2). 73% of the lane; §5.1 replaced it.
+- **Loose bommies** (rev 2 kept them). Two coral types with opposite collision rules and one palette.
 
 ---
 
 ## 12. Build order
 
-1. Spurs and grooves, streamed and drawn, player-solid only. Shoot it in **map mode**; judge the braid.
-2. The scrape (§3) and the Burst path (§3.2). Assertions 1–7.
-3. Enemy solidity (§3.1). Assertion 8. Measure before and after — this is the change most likely to
-   need reverting.
-4. Pockets onto breaks, off the centre line (§5.1, §5.2) + the bubble trail. Add `charge-probe`'s
-   `groove` policy; report three rows.
-5. The four traps, one table, with French and the run XX line.
-6. Cut the rocks (§6). Restate run LX.d. Expect re-phased Reef bands.
+1. Spurs and grooves, streamed and drawn, player-only. Shoot in **map mode**; judge the braid.
+2. The scrape (§3) and the Burst path (§3.2). Assertions 1–7, 9.
+3. Enemy funnelling (§3.1, all five cases). Assertion 8, against a control. **The change most
+   likely to need reverting** — measure before and after.
+4. Pockets onto grooves, off the centre line (§5.1, §5.2) + the plume. Add `charge-probe`'s `groove`
+   policy; report three rows.
+5. The four features, one table, French, and the run XX line.
+6. Cut the rocks and the bommies (§6). Restate LX.d and RF.f. Expect re-phased Reef bands.
 7. Balance pass on §7, with a probe, at both viewports.
 
 Steps 1–3 are the chapter. Everything after is dressing that can ship separately.
