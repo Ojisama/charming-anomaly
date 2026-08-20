@@ -407,6 +407,10 @@ const CONFIG = {
   'Every 30s a 10s chaos wave brings +50% enemies. Survive one and keep +10% damage — for the rest of the run, every time.':
     "Toutes les 30s, une vague de chaos de 10s amène +50% d'ennemis. Survis-en une et tu gardes +10% de dégâts — pour le reste de la partie, à chaque fois.",
   'you agreed to a rhythm you did not set': "tu as accepté un rythme que tu n'as pas choisi",
+  // The Shelf's own card. See ANOMALIES.runoff for why the French is a joke the English is not.
+  'Runoff': 'Actionnaire Total',
+  'Your damage rises with your Pollution, up to +150%. Pollution takes twice as much of your speed.': 'Les dégâts augmentent avec ta Pollution, jusqu\'à +150%. La Pollution te ralentit 2x plus.',
+  'whatever they dumped in here, it agrees with you': 'quoi qu\'ils aient déversé ici, tu touches les dividendes',
   'Deadfall': 'Chausse-Trappe',
   'Snap traps ignore you, and re-arm 5 times faster.': "Les pièges à mâchoires t'ignorent et se réarment 5 fois plus vite.",
   'the traps stopped caring about you': 'les pièges se sont désintéressés de toi',
