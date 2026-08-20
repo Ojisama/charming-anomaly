@@ -1,6 +1,7 @@
 // Builds a shareable save LINK — the '#save=' URL main.js imports at boot. Prints one line.
 //
 //   node scripts/make-save.mjs                     # book 1 fully starred, shop at 75%, 4 slots
+//   node scripts/make-save.mjs --boss              # ... plus The Blank open (a Beyond win at 5)
 //   node scripts/make-save.mjs http://localhost:5173/
 //
 // Why a link and not a console paste: a save lives in localStorage, and a phone has no console.
@@ -8,7 +9,7 @@
 // loadMeta, which recovers to a FRESH SAVE (silently) for any shape it does not expect. A hand
 // written meta that trips that path is a link that wipes the friend it was made for.
 
-import { shopLines, lineMax, BOOK_ORDER, CHAPTER_ORDER, CHAPTER_UNLOCK_DIFFICULTY } from '../src/config.js'
+import { shopLines, lineMax, BOOK_ORDER, CHAPTER_ORDER, CHAPTER_UNLOCK_DIFFICULTY, MAX_DIFFICULTY } from '../src/config.js'
 
 // state.js touches localStorage only inside function bodies, so a stub set up here (after the
 // import, before any call) is enough to run loadMeta/importSlot in plain node.
@@ -20,7 +21,8 @@ globalThis.localStorage = {
 }
 const { loadMeta, importSlot, SCHEMA } = await import('../src/state.js')
 
-const BASE = process.argv[2] ?? 'https://ojisama.github.io/charming-anomaly/'
+const BOSS = process.argv.includes('--boss')
+const BASE = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'https://ojisama.github.io/charming-anomaly/'
 const SHOP_PCT = 0.75
 const STARS = 3 // difficulty won in every book-1 chapter
 
@@ -41,13 +43,21 @@ const chapters = Object.fromEntries(CHAPTER_ORDER.map((id) => [id, {
   best: { time: 0, kills: 0 },
 }]))
 
+// --boss: the one fact The Blank unlocks from — The Beyond won at MAX_DIFFICULTY — plus the
+// hidden entry ensureChapterMeta would otherwise create locked. The earlier chapters stay at
+// STARS, which is what a save that beelined the ladder actually looks like.
+if (BOSS) {
+  Object.assign(chapters.beyond, { maxDifficulty: MAX_DIFFICULTY, difficulty: MAX_DIFFICULTY, won: MAX_DIFFICULTY })
+  chapters.blank = { unlocked: true, maxDifficulty: 1, difficulty: 1, won: 0, best: { time: 0, kills: 0 } }
+}
+
 const meta = {
   coins: 0,
   shop,
   best: { time: 0, kills: 0 },
   runs: 0,
   choiceSlots: 4,
-  chapter: 'body',
+  chapter: BOSS ? 'blank' : 'body',
   chapters,
   lang: 'en',
   skillSide: 'left',
@@ -69,10 +79,10 @@ assert(back.choiceSlots === 4, 'choiceSlots')
 assert(back.shop.damage === Math.round(SHOP_PCT * lineMax('damage')), 'shop levels')
 assert(back.shop.cheeks === 0, 'the cheeks line staying unbought')
 for (const id of CHAPTER_ORDER) {
-  assert(back.chapters[id]?.won === STARS, `${id}'s stars`)
+  assert(back.chapters[id]?.won === (BOSS && id === 'beyond' ? MAX_DIFFICULTY : STARS), `${id}'s stars`)
   assert(back.chapters[id]?.unlocked === true, `${id} being unlocked`)
 }
-assert(back.chapters.blank?.unlocked !== true, 'the boss chapter staying locked')
+assert((back.chapters.blank?.unlocked === true) === BOSS, BOSS ? 'the boss chapter being unlocked' : 'the boss chapter staying locked')
 assert(CHAPTER_UNLOCK_DIFFICULTY === STARS, 'the unlock threshold still being 3')
 
 console.log(`${BASE}#save=${Buffer.from(json, 'utf8').toString('base64url')}`)
