@@ -9142,10 +9142,13 @@ function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
     const full = stats.arc == null || stats.arc >= Math.PI * 2
     const arc = full ? null : stats.arc
     const angle = aimAngle(run)
-    // SCOUR. The chapter's bar as damage: nothing in clean water, `scour` at the top of the filth.
-    // pollutionFrac derives it from run.charge rather than reading a stored twin, which is what
-    // CHAPTERS.shelf.resource's own note asks for.
-    const dmg = stats.dmg * (1 + scour * pollutionFrac(run.charge, run.chargeMax))
+    // SCOUR. The chapter's bar as damage, and it pays for CLEAN water: `scour` at a spotless bar,
+    // nothing at full Pollution. Owner ruling 2026-08-20, inverting what shipped in v7.163.
+    // `1 - pollutionFrac(...)` rather than a second helper reading run.charge directly: one
+    // derivation, so the card and the rail can never come apart. It also makes the degenerate case
+    // safe — a chapter with no bar has chargeMax 0, pollutionFrac returns 1, and this resolves to
+    // no bonus instead of the maximum one the old direction handed out there.
+    const dmg = stats.dmg * (1 + scour * (1 - pollutionFrac(run.charge, run.chargeMax)))
     for (const r of ipecacRadii(run, stats.r)) {
       // knockback 0, WRITTEN AS A LITERAL. The stat is gone from levels[] (see the ladder in
       // config.js for why), and `stats.knockback` would be `undefined` here — which spawnNova banks

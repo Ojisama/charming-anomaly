@@ -3049,9 +3049,18 @@ export const WEAPON_MODS = {
     flare:      { name: 'Flare',       desc: 'puff width',         icon: '🪭', base: 0.30, kind: 'pct' },
     longPuff:   { name: 'Long Puff',   desc: 'puff radius',        icon: '📏', base: 0.25, kind: 'pct' },
     // The chapter's bar, sold as a card. Read at the cast site off pollutionFrac, so it is worth
-    // nothing in clean water and everything in the filth -- which makes it the one card that pays
-    // you for NOT running to a clean patch, against a bar whose every other consumer pays you for
-    // going. No knockback and no cadence, so it is outside the fence above.
+    // everything in clean water and nothing in the filth. No knockback and no cadence, so it is
+    // outside the fence above.
+    //
+    // IT POINTS THIS WAY ON PURPOSE, AND IT USED TO POINT THE OTHER WAY (owner, 2026-08-20).
+    // v7.163 shipped it rising with Pollution, on the argument that it was the one card paying you
+    // NOT to run to a clean patch. That argument was written before the Runoff anomaly existed.
+    // Runoff now pays for filth too (RUNOFF_MAX_DMG_MUL, +150%), and Foul Water is a third — so the
+    // old direction had three cards all asking for the same behaviour and the chapter's own
+    // upwellings arguing alone on the other side. Inverted, the starter and the anomaly pull
+    // against each other: take Runoff and the puff you started with is worth less, which is a
+    // decision rather than a stack. The name survives the flip and reads better for it — scouring
+    // is what clean water does.
     //
     // ⚠ THE COPY MUST NAME THE BAR. It first shipped as "up to {n} in the filthiest water", which
     // states the fiction and never connects it to the rail -- owner, from reading the card: "as a
@@ -3059,7 +3068,13 @@ export const WEAPON_MODS = {
     // polluted, is it related to my pollution bar?" It is, and the card now says so. The register is
     // the Sunlance's ('It reaches as far as your Light does.'), which is the shipped precedent for a
     // card that reads a bar: name it, possessively, and let the rail do the rest.
-    scour:      { name: 'Scour',       desc: 'puff damage, rising with your Pollution (up to {n})', icon: '🪣', base: 0.50, kind: 'pct' },
+    // NO `{n}` TEMPLATE, DELIBERATELY, and that is what puts the number first. ui.js:2469 renders a
+    // pct mod as `+${n} ${t(desc)}` UNLESS the desc carries its own {n}, in which case the template
+    // wins and the number lands wherever the sentence put it. The owner asked for "+50% de dégâts
+    // du jet, diminue avec la pollution" (2026-08-20) — number first, then the falloff — which is
+    // the auto-prefix form, and it also puts this card in the same shape as Froth and Flare beside
+    // it instead of being the one mod that spells its own bonus out mid-sentence.
+    scour:      { name: 'Scour',       desc: 'puff damage, falling with your Pollution', icon: '🪣', base: 0.50, kind: 'pct' },
     // The Breaker's Backwash idiom, and safe here for the reason the block above gives: a body in
     // the rear cone is still shoved once per cast, so coverage doubles and the per-body race does
     // not move. Read at the cast site (stepBubblePuffWeapon).

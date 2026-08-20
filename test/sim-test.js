@@ -7065,9 +7065,12 @@ function runModBudget() {
     console.log(`PASS run MB.c (placement): ${clouds.length} silt clouds all planted on bodies (${veilPts.size} distinct points, 0 at the player), ${bal.lobs.length} ballast drops on ${balPts.size} distinct points`)
   }
 
-  // (d) SCOUR PAYS IN FILTH, NOT IN CLEAN WATER. run.charge counts CLARITY — the bar is inverted for
+  // (d) SCOUR PAYS IN CLEAN WATER, NOT IN FILTH. run.charge counts CLARITY — the bar is inverted for
   // display only — so charge 0 is the filthiest water and charge max is the cleanest. A sign error
-  // here still ships a working weapon that simply rewards the opposite behaviour.
+  // here still ships a working weapon that simply rewards the opposite behaviour, which is exactly
+  // what this card did until the owner inverted it on 2026-08-20: THE DIRECTION IS THE CARD, and it
+  // has now pointed both ways, so the assertion has to name which way rather than merely check that
+  // the bar is read at all.
   {
     const dmgAt = (charge, mods) => {
       const run = boot('shelf', 'bubblePuff', 5, mods, charge)
@@ -7076,19 +7079,30 @@ function runModBudget() {
     }
     const cleanOff = dmgAt(SHELF_MAX, null)
     const cleanOn = dmgAt(SHELF_MAX, { scour: 1 })
+    const filthyOff = dmgAt(0, null)
     const filthyOn = dmgAt(0, { scour: 1 })
     assert.strictEqual(pollutionFrac(SHELF_MAX, SHELF_MAX), 0, 'precondition: a full clarity bar is zero pollution')
     assert.strictEqual(pollutionFrac(0, SHELF_MAX), 1, 'precondition: an empty clarity bar is full pollution')
-    // NOT an exact equality: `pin` re-sets the bar before each step and stepCharge drains one frame
-    // of it before the weapon fires, so the water at the moment of the cast is one frame dirty. The
-    // bound is that frame, derived from the chapter's own drain rather than written down as a
-    // magic tolerance — a literal here would stop meaning anything the first time drain is retuned.
+    // The UNMODDED puff must not care about the water at all, or the two modded numbers below are
+    // being compared across a moving baseline and the whole block measures nothing.
+    assert.strictEqual(cleanOff, filthyOff,
+      `precondition: without Scour the puff must hit the same in clean and filthy water (${cleanOff} vs ${filthyOff})`)
+    // Worth NOTHING at full Pollution, and this end is EXACT — the bar is already at 0 and cannot
+    // drain further, so there is no part-frame to allow for.
+    assert(filthyOn <= filthyOff + 1e-9,
+      `Scour must be worth NOTHING at full Pollution (unmodded ${filthyOff}, modded ${filthyOn}) — that bargain is the whole card`)
+    // The clean end is NOT exact: `pin` re-sets the bar before each step and stepCharge drains one
+    // frame of it before the weapon fires, so the water at the moment of the cast is one frame
+    // dirty and the bonus lands a hair under its nominal value. The bound is that frame, derived
+    // from the chapter's own drain and the card's own base rather than written down as a magic
+    // tolerance — a literal here would stop meaning anything the first time either is retuned.
     const frameDirt = (CHAPTERS.shelf.resource.drain * dt) / SHELF_MAX
-    assert(cleanOn <= cleanOff * (1 + frameDirt) + 1e-9,
-      `Scour must be worth NOTHING in clean water (unmodded ${cleanOff}, modded ${cleanOn}, one frame of drain allows ${(cleanOff * frameDirt).toFixed(4)}) — that bargain is the whole card`)
-    assert(filthyOn > cleanOn * 1.5,
-      `Scour must pay in the filthiest water: ${filthyOn} against ${cleanOn} clean`)
-    console.log(`PASS run MB.d (Scour): puff dmg ${cleanOff} clean unmodded, ${cleanOn} clean modded, ${filthyOn.toFixed(1)} at full pollution`)
+    const nominal = WEAPON_MODS.bubblePuff.scour.base
+    assert(cleanOn >= cleanOff * (1 + nominal * (1 - frameDirt)) - 1e-9,
+      `Scour must pay its full +${Math.round(nominal * 100)}% in clean water: ${cleanOn} against ${cleanOff} unmodded, one frame of drain allows losing ${(cleanOff * nominal * frameDirt).toFixed(4)}`)
+    assert(cleanOn > filthyOn * 1.4,
+      `Scour must pay in CLEAN water, not in filth: ${cleanOn} clean against ${filthyOn} at full pollution`)
+    console.log(`PASS run MB.d (Scour pays for clean water): puff dmg ${cleanOff} unmodded either way, ${cleanOn} clean modded (+${Math.round(nominal * 100)}%), ${filthyOn.toFixed(1)} at full pollution`)
   }
 
   // (e) BACKBLOW ADDS ONE OPPOSED CONE, AND STOPS PAST A HALF-TURN. The second nova carries its own
