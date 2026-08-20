@@ -5,7 +5,7 @@
 // the chapter looks. See .claude/skills/verifying-chapter-stage/SKILL.md for what each rung
 // MEANS, and for the judgment calls this script deliberately cannot make.
 import { readFileSync } from 'node:fs'
-import { CHAPTERS, BOOKS, WEAPONS, WEAPON_MODS, ANOMALIES } from '../src/config.js'
+import { CHAPTERS, BOOKS, BOOK_ORDER, WEAPONS, WEAPON_MODS, ANOMALIES } from '../src/config.js'
 import { FR } from '../src/fr.js'
 import { createRun } from '../src/state.js'
 import { stepSim } from '../src/sim.js'
@@ -53,6 +53,15 @@ function bookOf (id) {
     if ((b.hidden || []).includes(id)) return { bid, b, idx: -1, hidden: true }
   }
   return null
+}
+
+// Mario-format position: book number from BOOK_ORDER (never key order — config.js keeps that list
+// explicit for exactly this reason), chapter number from its own book's ladder. A hidden chapter
+// sits on no ladder, so it gets a star rather than a number: The Blank is earned, not the 8th rung.
+const mario = (id) => {
+  const bk = bookOf(id)
+  if (!bk) return '?-?'
+  return `${BOOK_ORDER.indexOf(bk.bid) + 1}-${bk.hidden ? '\u2605' : bk.idx + 1}`
 }
 
 // Weapons only this chapter offers — the ones whose copy is this chapter's to translate.
@@ -220,10 +229,13 @@ const ids = process.argv[2] ? [process.argv[2]] : Object.keys(CHAPTERS)
 if (ids.length > 1) {
   console.log(`Auditing all ${ids.length} chapters (Object.keys(CHAPTERS) — the honest denominator).\n`)
   const allDebt = []
-  for (const id of ids) {
+  // Printed in campaign order, not key order — the mario numbers make key order read as a bug.
+  // The SET is still Object.keys(CHAPTERS); only the display order changes.
+  const rank = (id) => { const b = bookOf(id); return b ? BOOK_ORDER.indexOf(b.bid) * 100 + (b.hidden ? 99 : b.idx) : 9999 }
+  for (const id of [...ids].sort((a, b) => rank(a) - rank(b))) {
     const { stage, rows, debt } = audit(id)
     const firstFail = rows.find(r => !r.ok)
-    console.log(`${(CHAPTERS[id].name || id).padEnd(16)} ${stage.padEnd(12)} ${firstFail ? '<- ' + firstFail.msg : ''}`)
+    console.log(`${mario(id).padEnd(4)} ${(CHAPTERS[id].name || id).padEnd(16)} ${stage.padEnd(12)} ${firstFail ? '<- ' + firstFail.msg : ''}`)
     if (debt.length) allDebt.push([id, debt])
   }
   if (allDebt.length) {
@@ -236,7 +248,7 @@ if (ids.length > 1) {
   const id = ids[0]
   const { rows, stage } = audit(id)
   const bk = bookOf(id)
-  console.log(`\n${CHAPTERS[id] ? CHAPTERS[id].name : id}  (${bk ? bk.bid : 'no book'})\n`)
+  console.log(`\n${mario(id)}  ${CHAPTERS[id] ? CHAPTERS[id].name : id}  (${bk ? bk.bid : 'no book'})\n`)
   // A pending OWNER gate is not a defect — the audit ran out of evidence, it did not find a
   // fault. So the printout carries on past one to show whether the mechanical work above it is
   // done; only a real FAIL stops the display, because past that point nothing above is meaningful.
