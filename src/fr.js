@@ -154,6 +154,10 @@ const UI = {
   'Left': 'Gauche',
   'Right': 'Droite',
   'Slot': 'Emplacement',
+  // The one thing a shared save link (main.js) can say out loud. It never overwrites a slot,
+  // so the only failure is a full save file or a mangled link, and both read the same way here.
+  'That save link is unreadable, or every save slot is taken.':
+    'Ce lien de sauvegarde est illisible, ou tous les emplacements sont occupés.',
   'Empty — new game': 'Vide — nouvelle partie',
   'Current': 'Actuel',
   // v6.6.12 save names. Two keys, not one: 'Name this save' is a heading AND the ✏️ button's
