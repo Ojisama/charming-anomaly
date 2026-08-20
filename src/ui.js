@@ -573,14 +573,6 @@ export function initUI(hooks) {
       </div>`
   }
 
-  // What The Blank's difficulty level turns on, by name. Its ladder deals no random anomalies —
-  // each level names its cumulative CHAPTERS.blank.modsByDifficulty entries (MUTATORS[id].name)
-  // instead — which is why it is the one chapter whose ladder still writes a line under the pips
-  // (see titleBelowHtml). Level 1 is empty, same as everyone else's.
-  function blankMutatorNames(level) {
-    return (CHAPTERS.blank.modsByDifficulty[level] ?? []).map((mid) => t(MUTATORS[mid]?.name ?? mid)).join(' + ')
-  }
-
   // The detail panel's head — the chapter's identity, which the hero card used to carry and a 47px
   // spine cannot. This is the only place the cast thumbnails (CAST_ART, baked by
   // scripts/bake-cast.mjs from render.js's own creature textures) still appear, so deleting it
@@ -870,11 +862,6 @@ export function initUI(hooks) {
     // say is the payout, so that is the one thing kept.
     const coinPct = Math.round(((chMeta.difficulty - 1) * DIFFICULTY_COIN_PER_LEVEL) * 100)
     const rewardChip = chMeta.difficulty > 1 ? `<b class="diff-reward-chip">+${coinPct}% 🪙</b>` : ''
-    // ...with ONE exception, and it is not a style choice: The Blank's levels are NAMED mutators,
-    // not a count of random anomalies, so nothing else on this screen says what level 3 of The
-    // Blank actually turns on. Every other chapter's line was derivable, and is gone.
-    const mutatorLine = browseChapterId === 'blank' && chMeta.difficulty > 1
-      ? `<p class="diff-hint">${blankMutatorNames(chMeta.difficulty)}</p>` : ''
     const playBlock = heroUnlocked ? `
       <div class="diff-row">
         <span class="diff-label">${t('Difficulty')}${rewardChip}</span>
@@ -884,7 +871,6 @@ export function initUI(hooks) {
           return `<button class="diff-pip${d <= chMeta.difficulty ? ' diff-pip--on' : ''}" data-act="diff" data-diff="${d}">${d}</button>`
         }).join('')}
       </div>
-      ${mutatorLine}
       <!-- IN THE RECTO'S OWN SLACK, which is why it costs the panel nothing. Measured on the live
            build: the spread is 324x168, and this page's content (label + pips) uses 112 of its 168,
            so 56px sit empty under the pips while the VERSO — icon, name, tagline, cast, record —
