@@ -21,7 +21,7 @@ node scripts/chapter-stage.mjs reef      # one chapter, the full ladder
 | Stage | It has… | Proven by |
 |---|---|---|
 | **IDEATING** | an idea, maybe a spec in `docs/superpowers/` | no `CHAPTERS[id]` entry yet |
-| **BUILDING** | an idea that meets the bar, wired, and running | **≥3 weapons in the pool, ≥4 mods on every one of them, ≥1 anomaly of its own**; then roster + starter resolve, every flag read by sim.js, signature not inert, a 60s headless run kills things without throwing |
+| **BUILDING** | an idea that meets the bar, wired, and running | **≥4 weapons in the pool, ≥4 mods on every one of them, ≥1 anomaly of its own, ≥1 mutator of its own**; then roster + starter resolve, every flag read by sim.js, signature not inert, a 60s headless run kills things without throwing |
 | **POLISHING** | its own look and its own French, **both signed off by the owner** | `run RA` (roster art + cast thumbs); every chapter-native string in `fr.js`; a `bgColor` not borrowed; **then his review of every fr translation, and his verification of every asset and animation** |
 | **BALANCING** | numbers that are its own and were measured | a `balance` block that is not a clone; ≥5 sim-test references to the id |
 | **PLAYTESTING** | the owner's hands on a phone | **nothing in the repo. Ask him.** |
@@ -29,8 +29,10 @@ node scripts/chapter-stage.mjs reef      # one chapter, the full ladder
 
 **A failed rung makes every rung above it "not reached", however finished the chapter looks.**
 The Reef has finished art, finished French and a tuned balance block, and still reports IDEATING —
-because it has no anomaly of its own. Do not report the highest rung that passes; report the
-lowest that fails.
+its pool is three weapons and it owns neither an anomaly nor a mutator. Do not report the highest
+rung that passes; report the lowest that fails. The sweep's one-liner names only the FIRST bar a
+chapter trips, so a chapter owing three of the four still reads as one line — run it with an id to
+see the whole bill.
 
 ## Three gates are the owner's, not yours
 
@@ -55,11 +57,16 @@ check"*. Never infer a sign-off from a chapter looking finished.
 
 ## The ideation bar gates WIP only
 
-The ≥3 weapons / ≥4 mods / ≥1 unique anomaly bar (owner, 2026-08-20) postdates most of the game.
-Applied retroactively it demotes 14 of 15 chapters to IDEATING and the stage column stops meaning
-anything, so **a live chapter records the same shortfall as DEBT** — printed under the sweep,
-never gating. Eight shipped chapters currently owe a unique anomaly. That list is the backlog, not
-a set of bugs.
+The ≥4 weapons / ≥4 mods / ≥1 unique anomaly / ≥1 unique mutator bar (owner, 2026-08-20) postdates
+most of the game. Applied retroactively it demotes all 15 chapters to IDEATING and the stage column
+stops meaning anything, so **a live chapter records the same shortfall as DEBT** — printed under
+the sweep, never gating. Nine shipped chapters sit below it today. That list is the backlog, not a
+set of bugs.
+
+**Unique means unique for the mutator, and only for it.** A mutator naming six chapters —
+`springtide` across Undertow — is the BOOK's, and none of the six may count it as its own. The
+anomaly gate is the looser one: it accepts any anomaly scoped to the chapter, shared or not,
+because only one chapter-scoped anomaly exists in the whole game to be shared.
 
 ## Polish before balance, always
 

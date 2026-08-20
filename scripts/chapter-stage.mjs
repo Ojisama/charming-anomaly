@@ -5,7 +5,7 @@
 // the chapter looks. See .claude/skills/verifying-chapter-stage/SKILL.md for what each rung
 // MEANS, and for the judgment calls this script deliberately cannot make.
 import { readFileSync } from 'node:fs'
-import { CHAPTERS, BOOKS, BOOK_ORDER, WEAPONS, WEAPON_MODS, ANOMALIES } from '../src/config.js'
+import { CHAPTERS, BOOKS, BOOK_ORDER, WEAPONS, WEAPON_MODS, ANOMALIES, MUTATORS } from '../src/config.js'
 import { FR } from '../src/fr.js'
 import { createRun } from '../src/state.js'
 import { stepSim } from '../src/sim.js'
@@ -102,10 +102,11 @@ function audit (id) {
   const roster = c.roster || []
   const weapons = c.weapons || []
   // Owner's hard blockers on leaving ideation (2026-08-20): a chapter is not BUILDING until the
-  // ideation carries three weapons, four mods on each, and an anomaly of its own. These gate the
-  // SHAPE OF THE IDEA, so they run before anything about whether the code works.
+  // ideation carries four weapons, four mods on each, an anomaly of its own and a mutator of its
+  // own. These gate the SHAPE OF THE IDEA, so they run before anything about whether the code
+  // works.
   //   THEY GATE WORK IN PROGRESS ONLY. The bar postdates most of the game — applied to shipped
-  // chapters it demotes 14 of 15 to IDEATING and the stage column stops meaning anything. For a
+  // chapters it demotes all 15 to IDEATING and the stage column stops meaning anything. For a
   // live chapter the same shortfall is recorded as DEBT (printed under the sweep) instead.
   const alreadyLive = (() => { const b = bookOf(id); return !!b && (b.hidden || b.b.wipFrom === undefined || b.idx < b.b.wipFrom) })()
   const debt = []
@@ -113,7 +114,7 @@ function audit (id) {
     if (ok) return add('BUILDING', true, msg)
     if (alreadyLive) { debt.push(short); add('BUILDING', true, `${msg} — DEBT, not gated (shipped before the bar existed)`) } else add('BUILDING', false, msg)
   }
-  bar(weapons.length >= 3, `${weapons.length} weapon(s) in the pool${weapons.length >= 3 ? '' : ' — the ideation owes 3'}`, `only ${weapons.length} weapons`)
+  bar(weapons.length >= 4, `${weapons.length} weapon(s) in the pool${weapons.length >= 4 ? '' : ' — the ideation owes 4'}`, `only ${weapons.length}/4 weapons`)
   const thin = weapons.map(w => [w, Object.keys(WEAPON_MODS[w] || {}).length]).filter(([, n]) => n < 4)
   bar(thin.length === 0,
     thin.length ? `weapon(s) under 4 mods: ${thin.map(([w, n]) => `${w} has ${n}`).join(', ')}` : `all ${weapons.length} pool weapons carry 4+ mods`,
@@ -125,6 +126,16 @@ function audit (id) {
   bar(own.length >= 1,
     own.length ? `${own.length} anomaly of its own: ${own.map(m => m[0]).join(', ')}` : 'NO anomaly scoped to this chapter — the ideation owes 1',
     'owes 1 unique anomaly')
+  // Unique = scoped to this chapter and no other. `springtide` lists six Undertow chapters, so it
+  // is the book's mutator and none of the six may count it as its own.
+  const ownMut = Object.entries(MUTATORS).filter(([, m]) => {
+    const ch = m.chapter ?? m.chapters
+    const list = Array.isArray(ch) ? ch : (ch === undefined ? [] : [ch])
+    return list.length === 1 && list[0] === id
+  })
+  bar(ownMut.length >= 1,
+    ownMut.length ? `${ownMut.length} mutator of its own: ${ownMut.map(m => m[0]).join(', ')}` : 'NO mutator scoped to this chapter ALONE — the ideation owes 1',
+    'owes 1 unique mutator')
   add('BUILDING', roster.length > 0 && weapons.length > 0, `roster ${roster.length}, weapon pool ${weapons.length}`)
   // `starter` is a string on every normal chapter and an ARRAY on The Blank, which hands you the
   // whole arsenal at once. Both are legal; treating it as a string reports The Blank as unbuilt.
