@@ -1,14 +1,22 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
-import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName } from './state.js'
+import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, SAVE_SLOTS } from './state.js'
 import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
 import { initInput, getInput, pressSkill } from './input.js'
 import { initAudio, playSfx } from './audio.js'
-import { setLang } from './i18n.js'
+import { setLang, t } from './i18n.js'
 import { submitScore, podiumRank, validNick } from './scores.js'
+
+// base64url -> the original UTF-8 JSON. Not atob alone: a save carries a player-authored name.
+function decodeSharedSave(b64) {
+  try {
+    const bin = atob(b64.replace(/-/g, '+').replace(/_/g, '/'))
+    return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)))
+  } catch { return null }
+}
 
 // No top-level await: suspending module evaluation deadlocks Pixi's dynamically
 // imported environment code in the production bundle (TDZ/hang on a blank page).
@@ -17,6 +25,26 @@ boot()
 async function boot() {
 const meta = loadMeta()
 setLang(meta.lang) // i18n before any screen renders — ui.js translates at render time
+
+// A save handed over as a LINK: '#save=' + base64url of a slot blob, built by scripts/make-save.mjs.
+// It exists because there is no other way in on a phone - localStorage is the only store and a
+// console paste is a desktop move. It lands in the first EMPTY slot and never overwrites one, which
+// is what makes a link safe to tap; importSlot still validates the shape (state.js).
+// freezeSaves before the reload for the reason adopt() does it (sync.js): reload QUEUES a
+// navigation, it does not stop script execution.
+const shared = /^#save=(.+)$/.exec(location.hash)
+if (shared) {
+  history.replaceState(null, '', location.pathname + location.search) // a reload must not import twice
+  const free = Array.from({ length: SAVE_SLOTS }, (_, i) => i + 1).find((n) => exportSlot(n) == null)
+  const json = free ? decodeSharedSave(shared[1]) : null
+  if (json != null && importSlot(free, json)) {
+    freezeSaves()
+    setActiveSlot(free)
+    location.reload()
+    return
+  }
+  alert(t('That save link is unreadable, or every save slot is taken.'))
+}
 let run = null
 // v6.0.2: a classic run staged behind the pre-run summary screen — set by onPlay, consumed by
 // onBriefStart. Overwritten by the next Play if the player backs out via the nav (nothing was
