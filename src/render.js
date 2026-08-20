@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R, BALLAST_RING,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R, BALLAST_RING,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -18640,15 +18640,30 @@ export function createRenderer(app) {
     hv.root.scale.set(breathe)
     // children sized to the real radius (root stays ~1 so the twirl cap holds)
     hv.disc.scale.set(h.radius / T.holeDiscRef)
+    // The disc and the core are baked black-purple, so the wash tints them rather than re-baking a
+    // second texture: this is one weapon's palette, not a second silhouette.
+    hv.disc.tint = h.look === 'downwash' ? 0x8fc8dc : 0xffffff
+    hv.core.tint = h.look === 'downwash' ? 0xeaf8ff : 0xffffff
     const twirlPx = Math.min(h.radius * 1.2, HOLE_TWIRL_MAX)
     hv.vortexA.scale.set(fxScale(T.fx.twirl_01, twirlPx))
     hv.vortexB.scale.set(fxScale(T.fx.twirl_02, twirlPx * 0.85))
     hv.core.scale.set((h.radius * HOLE_CORE_FRAC) / (T.holeRefR * 0.16))
-    if (hv._r !== h.radius) { // crisp rim ring, redrawn only when the radius changes
+    // ONE POOL, TWO WEAPONS, AND THE TAG IS THE ONLY THING TELLING THEM APART. run.holes carries
+    // The Beyond's Mini Black Hole and The Shelf's Downwash, and inferring which is which from the
+    // radius is a guess that starts being wrong the first time either is retuned — the same lesson
+    // run.lobs learned when the Sunspear shipped wearing Debris Toss's landing ring.
+    // A purple singularity in a brown-green murk chapter is the borrowed-art trap with no borrowed
+    // art involved, so the whole palette swaps: pale water instead of void, and the twirl stays
+    // because water going down a column genuinely spirals.
+    const wash = h.look === 'downwash'
+    hv.vortexA.tint = wash ? 0x7fbfd8 : 0x2f1a66
+    hv.vortexB.tint = wash ? 0xdff2fa : 0x5a2fb0
+    if (hv._r !== h.radius || hv._wash !== wash) { // crisp rim ring, redrawn only when it changes
       hv._r = h.radius
+      hv._wash = wash
       hv.ring.clear()
-      hv.ring.circle(0, 0, h.radius).stroke({ width: 5, color: 0x5a2fb0, alpha: 0.4 })
-      hv.ring.circle(0, 0, h.radius * 0.985).stroke({ width: 2, color: 0xc9b3f5, alpha: 0.35 })
+      hv.ring.circle(0, 0, h.radius).stroke({ width: 5, color: wash ? 0x9fd8ea : 0x5a2fb0, alpha: 0.4 })
+      hv.ring.circle(0, 0, h.radius * 0.985).stroke({ width: 2, color: wash ? 0xffffff : 0xc9b3f5, alpha: 0.35 })
     }
     hv.vortexA.rotation = animT * 1.8 + i * 0.6
     hv.vortexB.rotation = -animT * 1.8 * 1.4 + i * 0.9 // counter-rotating, 1.4x speed
@@ -18668,7 +18683,7 @@ export function createRenderer(app) {
         const ang = Math.random() * Math.PI * 2
         const spin = (Math.random() < 0.5 ? 1 : -1) * (6 + Math.random() * 3)
         const tex = Math.random() < 0.5 ? T.fx.star_08 : T.fx.circle_05
-        spawnSpiralParticle(tex, h.x, h.y, ang, h.radius * 0.95, spin, 0.7, 0.09, 0x9a6fd0, -0.1)
+        spawnSpiralParticle(tex, h.x, h.y, ang, h.radius * 0.95, spin, 0.7, 0.09, wash ? 0xbfe6f2 : 0x9a6fd0, -0.1)
       }
     }
   }
@@ -18819,7 +18834,10 @@ export function createRenderer(app) {
     chapterHasMaws = refillLook === 'maw'
     // Latched beside refillLook and read from the same refillSpec answer, so the fade below and
     // stepCharge's occupancy clock cannot end up reading two different numbers.
-    refillDrawdown = (cfg?.signature && refillSpec(cfg.signature)?.drawdownSecs) || 0
+    // drawdownSecsFor, not a bare refillSpec read: Dead Water multiplies this clock, and the
+    // fade below has to run on the same number stepCharge counts occupancy into or the player
+    // watches a circle empty on a schedule the bar disagrees with.
+    refillDrawdown = run ? drawdownSecsFor(run) : 0
     swellCfg = cfg?.render?.swell ?? null
     chapterHasStorm = !!chapterRender.storm
     // v6.3: `storm` implies both — skies stays bit-identical (storm was always rain+ruins there);

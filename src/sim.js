@@ -119,6 +119,7 @@ import {
   MOWER_DECK_LEN, MOWER_DECK_W, MOWER_ENEMY_HP_FRAC, mowerDmgAt, MOWER_KB,
   DEBRIS_R,
   TORNADO_SWEEP_R, TORNADO_RESPACE,
+  DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM, drawdownSecsFor,
   HYDRANT_LAUNCH_KB, HYDRANT_STUN,
   HYDRANT_SPRAY_FRAC, HYDRANT_IDLE_FRAC, HYDRANT_JET_PUSH, ZONE_MAX_LIVE, HYDRANT_STAGGER, HYDRANT_STREAMS_FALLBACK, HYDRANT_STREAMS_MAX,
   // v5.4 skies
@@ -3573,8 +3574,16 @@ export function refillCircleAt(i, j, seed, spec) {
 
 export function streamShafts(run) {
   const sig = CHAPTERS[run.chapter].signature
-  const spec = refillSpec(sig)
-  if (!spec) return
+  const spec0 = refillSpec(sig)
+  if (!spec0) return
+  // DEAD WATER (the shelf's mutator) thins the field, and it has to do it HERE rather than at
+  // refillCircleAt's own roll: the occupancy hash is a pure function of (cell, seed) and taking a
+  // run-state multiplier into it would make the field's geometry depend on which mutators were
+  // picked, which is exactly the impurity the five streaming fields are all written to avoid.
+  // A shallow copy, so cell/r/drawdownSecs stay the spec's own; identity is preserved at x1 so
+  // every chapter without the mutator is byte-for-byte unchanged.
+  const chanceMul = run.mods?.refillChanceMul ?? 1
+  const spec = chanceMul === 1 ? spec0 : { ...spec0, chance: spec0.chance * chanceMul }
   if (run._obstacleSeed == null) return
   const p = run.player
   const cs = spec.cell
@@ -4119,7 +4128,10 @@ export function stepCharge(run, dt) {
   const p = run.player
   // Opt-in per FIELD, read through refillSpec() so this asks the streamer's own question rather
   // than a second one that could disagree. 0/undefined everywhere but The Shelf.
-  const drawdownSecs = refillSpec(CHAPTERS[run.chapter]?.signature)?.drawdownSecs ?? 0
+  // drawdownSecsFor, not a bare refillSpec read: Dead Water multiplies this clock and all three
+  // of its readers (here, foulUpwelling, render.js) must move together or the circle the player
+  // watches fade is running a different clock from the one feeding them.
+  const drawdownSecs = drawdownSecsFor(run)
   for (const sh of run.shafts) {
     // Inside the circle's own outline: standing IN the light, not brushing its edge. inMaw is that
     // same centre-to-centre test for a round field (every one but The Surf's pools), following the
@@ -5785,6 +5797,10 @@ const WEAPON_STAT_MODS = {
   mines:     { minefield: ['maxAlive', 'flat'], bigBoom: ['radius', 'pct'], heavyCharge: ['dmg', 'pct'] },
   homing:    { extraWisp: ['count', 'flat'], longLife: ['life', 'pct'], agile: ['turnRate', 'pct'] },
   hole:      { biggerHole: ['radius', 'pct'], lasting: ['duration', 'pct'], denser: ['pull', 'pct'] },
+  // The Shelf's Downwash. `secondFall` (the count) and `plunge` (the trigger) are read at their own
+  // sites, like every other count and every other behavioural mod — a count folded here would grow
+  // the stat and leave the loop bound alone, which renders identically to no mod at all.
+  downwash:  { suction: ['pull', 'pct'], widePour: ['radius', 'pct'], lingering: ['duration', 'pct'] },
   // v6.7.6: wideBeam moves BOTH width and length — Long Beam merged into it (see WEAPON_MODS).
   rainbow:   { wideBeam: [['width', 'length'], 'pct'], sustain: ['duration', 'pct'] },
   // v5.0 pond natives: frenzy/quickCast (attack-speed mods) are NOT here — folding them into the
@@ -6014,6 +6030,7 @@ function stepWeapons(run, dt) {
     else if (w.id === 'bubblePuff') stepBubblePuffWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'siltVeil') stepSiltVeilWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'ballast') stepBallastWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'downwash') stepDownwashWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'foxfire') stepFoxfireWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'sunlance') stepSunlanceWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'finHit') stepFinHitWeapon(run, w, stats, fireRateMul, dt)
@@ -6974,6 +6991,92 @@ function holePullT(d, h) {
   return d <= h.coreRadius ? 1 : Math.max(0, 1 - (d - h.coreRadius) / span)
 }
 
+// -- Downwash (The Shelf's clean-water native) ---------------------------------------------------
+// A run.holes entry with three fields the Black Hole never sets: `look` (the drawing, and the tag
+// that keeps the two weapons' mods apart in stepHoles), `burst` (the payoff, paid on expiry) and
+// `trigger` (the Plunge mod's early detonation). The pull, the spiral, the coin sweep and the
+// per-tick damage are the rig that already existed.
+//
+// NO NEW SOUND AND NO NEW RENDER CASE FOR THE CAST. `downwash` maps to the 'hole' vortex whoosh in
+// SFX_FOR_EVENT, which is the borrow chum, bilge, shorebreak and snare already make; the column is
+// drawn every frame by syncHoles, so a cast flash would be a second telling of what is already on
+// screen. The burst reuses `explode`, which every consumer already handles.
+function stepDownwashWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => fireDownwash(run, stats))
+}
+
+// WHERE THE COLUMN LANDS, and the one thing this weapon does not share with the Black Hole: the
+// body with the most company inside a column's radius. A gather card that casts at a random
+// straggler wastes that cast, and the waste is INVISIBLE — a column pulling one enemy looks exactly
+// like a column that is working.
+// ponytail: O(n²) over the bodies in view — tens of them, once every ~4s. If this ever runs against
+//   hundreds, bucket them on a grid; not before.
+function pickDownwashSpot(run, radius, excludeIds) {
+  const p = run.player
+  const viewSq = run.viewRadius * run.viewRadius
+  const inView = run.enemies.filter((e) => {
+    // An ally is never a mark, for the reason pickHoleSpot states: this is aim dilution.
+    if (e._dead || isAlly(e) || excludeIds.has(e.id)) return false
+    const dx = e.x - p.x, dy = e.y - p.y
+    return dx * dx + dy * dy <= viewSq
+  })
+  if (inView.length === 0) {
+    const a = Math.random() * Math.PI * 2
+    const d = 250 + Math.random() * 150
+    return { x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d, id: null }
+  }
+  const rSq = radius * radius
+  let best = inView[0], bestN = -1
+  for (const e of inView) {
+    let n = 0
+    for (const o of inView) {
+      const dx = o.x - e.x, dy = o.y - e.y
+      if (dx * dx + dy * dy <= rSq) n++
+    }
+    if (n > bestN) { bestN = n; best = e }
+  }
+  return { x: best.x, y: best.y, id: best.id }
+}
+
+function fireDownwash(run, stats) {
+  const usedIds = new Set()
+  const extra = ipecacN(run, 1 + (run.weaponMods.downwash?.secondFall ?? 0)) - 1
+  for (let i = 0; i <= extra; i++) {
+    // FULL SIZE, unlike Singularity's HOLE_SINGULARITY_FRAC shrink. This card's payoff is the burst,
+    // so a shrunken second column would gather less AND burst for the same number in a smaller
+    // circle — twice the casts for less than twice the card. Second Fall buys a second PLACE.
+    const spot = pickDownwashSpot(run, stats.radius, usedIds)
+    if (spot.id != null) usedIds.add(spot.id)
+    run.holes.push({
+      x: spot.x, y: spot.y, radius: stats.radius, coreRadius: stats.radius * HOLE_CORE_FRAC,
+      life: stats.duration, duration: stats.duration,
+      dmg: stats.dmg, tick: stats.tick, pull: stats.pull, acc: 0,
+      look: 'downwash', burst: stats.burst,
+      trigger: run.weaponMods.downwash?.plunge ? DOWNWASH_PLUNGE_N : 0,
+    })
+    run.events.push({ type: 'downwash', x: spot.x, y: spot.y })
+  }
+}
+
+// The burst — one hit to everything inside the column, plus the `explode` picture. Deliberately NOT
+// holeCrunch: that is the Black Hole's Big Crunch mod and reads its damage through CRUNCH_DMG_MUL,
+// so sharing it would move this weapon's whole payoff whenever that unrelated card is retuned.
+//
+// IT DOES NOT GUARD AGAINST FIRING TWICE, and that is on purpose: the ONE thing that retires a
+// column is `h.life = 0` plus the filter at the bottom of stepHoles. A second guard here would be
+// unreachable code that also disarms the only mutation able to prove the first one works.
+function downwashBurst(run, h) {
+  if (!(h.burst > 0)) return
+  const dmg = h.burst
+  const radSq = h.radius * h.radius
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const dx = e.x - h.x, dy = e.y - h.y
+    if (dx * dx + dy * dy <= radSq) applyDamage(run, e, dmg)
+  }
+  run.events.push({ type: 'explode', x: h.x, y: h.y, radius: h.radius })
+}
+
 // Runs after stepEnemyMovement, so the vortex always wins the tug-of-war near the core
 // instead of enemies "escaping" on the same frame they were pulled in.
 function stepHoles(run, dt) {
@@ -6984,19 +7087,29 @@ function stepHoles(run, dt) {
   for (const h of run.holes) {
     h.life -= dt
     if (h.life <= 0) {
-      if (crunchBonus > 0) holeCrunch(run, h, crunchBonus)
+      // A Downwash pays its own burst and never Big Crunch's: `hungryBonus`/`crunchBonus` are read
+      // off run.weaponMods.hole, so without the `look` test every column in the array would inherit
+      // the Black Hole's mods the moment a player held both cards.
+      if (h.look === 'downwash') downwashBurst(run, h)
+      else if (crunchBonus > 0) holeCrunch(run, h, crunchBonus)
       continue
     }
 
     // Hungry Hole: radius (and coreRadius, kept proportional) grows while alive. Render is
     // visual-safe here — it already re-reads h.radius/coreRadius every frame.
-    if (hungryBonus > 0 && h.spawnRadius) {
+    if (hungryBonus > 0 && h.spawnRadius && h.look !== 'downwash') {
       h.radius += hungryBonus * h.spawnRadius * dt
       h.coreRadius = h.radius * HOLE_CORE_FRAC
     }
 
+    let inside = 0 // bodies dragged into the MIDDLE of the column this frame — Plunge's trigger.
+                   // Counted before the anchored skip, because an anchored elite standing in the
+                   // middle IS the crowd arriving; it just got there without being pulled.
+    const plungeSq = (h.radius * DOWNWASH_PLUNGE_FRAC) ** 2
     for (const e of run.enemies) {
       if (e._dead) continue
+      const dx0 = h.x - e.x, dy0 = h.y - e.y
+      if (dx0 * dx0 + dy0 * dy0 <= plungeSq) inside++
       if (e.affixes && e.affixes.includes('anchored')) continue // anchored: never pulled (still takes tick damage below)
       const dx = h.x - e.x, dy = h.y - e.y
       const d = Math.hypot(dx, dy)
@@ -7017,6 +7130,18 @@ function stepHoles(run, dt) {
         e.holePull = Math.max(e.holePull ?? 0, t)
         pulled.add(e.id)
       }
+    }
+
+    // PLUNGE (the downwash mod): the column stops waiting out its pour and goes off once the crowd
+    // has been dragged into its middle — a trigger instead of a timer, which is a different card to
+    // play rather than a bigger number. `h.life = 0` is what retires it (the filter at the bottom of
+    // this function does the removal); drop that line and the trigger stays true, so the column
+    // detonates on EVERY frame for the rest of its pour. Run MB.i counts the bursts for that reason.
+    const armed = h.duration - h.life >= h.duration * DOWNWASH_PLUNGE_ARM
+    if (h.trigger > 0 && armed && inside >= h.trigger) {
+      downwashBurst(run, h)
+      h.life = 0
+      continue
     }
 
     // Coins get sucked in too (same rim-to-core ramp, no elite-style resist); gems are left
@@ -7044,7 +7169,13 @@ function stepHoles(run, dt) {
         const dx = e.x - h.x, dy = e.y - h.y
         const distSq = dx * dx + dy * dy
         if (distSq <= h.radius * h.radius) {
-          const inCore = distSq <= h.coreRadius * h.coreRadius
+          // A COLUMN OF WATER HAS NO SINGULARITY. HOLE_CORE_DMG_MUL is x3 on the Black Hole's
+          // crushed centre, and applying it here made the POUR out-damage the burst 147 to 92 on a
+          // body standing dead centre — i.e. the card quietly became the vortex it is meant not to
+          // be, for exactly the player who lets the column finish. The core radius still shapes the
+          // PULL (holePullT), because water genuinely runs fastest down the middle; it just does not
+          // crush. Caught by run MB.i, which is the only thing that could have caught it.
+          const inCore = h.look !== 'downwash' && distSq <= h.coreRadius * h.coreRadius
           applyDamage(run, e, h.dmg * (inCore ? HOLE_CORE_DMG_MUL : 1))
         }
       }
@@ -9020,7 +9151,7 @@ function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
 // Where it is 0 a circle can never be spent at all, so the mod finds one, is paid, and leaves it
 // standing -- which is the honest behaviour for a chapter whose upwellings do not draw down.
 function foulUpwelling(run, x, y) {
-  const life = refillSpec(CHAPTERS[run.chapter]?.signature)?.drawdownSecs ?? 0
+  const life = drawdownSecsFor(run)
   for (const sh of run.shafts) {
     // inMaw, not a bare distance test: it follows the drawn lobes and skips a shut maw, so "clean
     // water" means the water the player can SEE, the same test stepCharge feeds the bar from.

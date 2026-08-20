@@ -36,7 +36,7 @@ import {
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_GLOW, SUNLANCE_REACH_MIN,
-  WEAPONS, HOLE_SINGULARITY_FRAC,
+  WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
@@ -6740,6 +6740,35 @@ function runModBudget() {
   }
   const SHELF_MAX = CHAPTERS.shelf.resource.max
   const pin = (charge) => (run) => { run.chargeMax = SHELF_MAX; run.charge = charge }
+  // ONE DOWNWASH COLUMN, MEASURED BY ITS BURST rather than by run.holes. Watching the array is a
+  // fixture bug waiting to happen: a column that plunges the frame it lands is created and retired
+  // inside one stepSim, so `run.holes.length > 0` is never true from outside and a working mod
+  // reads as a weapon that never fired. The `downwash` and `explode` events are the honest clock.
+  // Returns the gap between the cast and the FIRST burst, and how many bursts one column produced.
+  const burstOf = (mods, bodies) => {
+    const r = boot('shelf', 'downwash', 5, mods)
+    for (let i = 0; i < bodies; i++) {
+      r.enemies.push(makeStatusEnemy(r, { x: r.player.x + 260 + i * 10, y: r.player.y + i * 8, hp: 1e6, speed: 0 }))
+    }
+    r.events.length = 0
+    let castT = null, firstT = null, n = 0, t = 0
+    while (t < 20) {
+      stepSim(r, { x: 0, y: 0 }, dt)
+      if (castT === null && r.events.some((e) => e.type === 'downwash')) castT = t
+      if (castT !== null) {
+        const booms = r.events.filter((e) => e.type === 'explode').length
+        if (booms > 0 && firstT === null) firstT = t
+        n += booms
+      }
+      r.events.length = 0
+      t += dt
+      // One column's whole life plus a margin, counted from the cast — so a second cast's burst
+      // can never be mistaken for the first column detonating twice.
+      if (castT !== null && t > castT + WEAPONS.downwash.levels[4].duration + 0.4) break
+    }
+    assert(castT !== null, 'precondition: the downwash must cast within 20s')
+    return { delay: firstT === null ? Infinity : firstT - castT, bursts: n, dur: WEAPONS.downwash.levels[4].duration }
+  }
 
   // (a) NO INERT CARDS, across every weapon in the game rather than only the six that changed.
   // The check is a source-text one (the run UG.k trick) because WEAPON_STAT_MODS is private to
@@ -7006,6 +7035,112 @@ function runModBudget() {
     assert(fouled.end < fouled.start,
       `a fouled patch must stop recharging you — the bar must DRAIN while standing in it, got ${fouled.start.toFixed(1)} -> ${fouled.end.toFixed(1)}`)
     console.log(`PASS run MB.h (a fouled patch feeds nobody): live upwelling ${clean.start.toFixed(0)} -> ${clean.end.toFixed(0)} charge, fouled ${fouled.start.toFixed(0)} -> ${fouled.end.toFixed(0)} over the same 0.5s`)
+  }
+
+  // (i) THE DOWNWASH GATHERS, AND THE BURST IS THE PAYOFF. Four assertions, and every one of them
+  // separates this card from the Mini Black Hole it shares run.holes with -- a distinction that is
+  // invisible on screen and silent in every other test, because both are "a circle that pulls".
+  {
+    // WHERE IT LANDS. Five bodies in a knot to the east, one straggler to the west, and the column
+    // must choose the knot. pickHoleSpot (the Black Hole's) picks UNIFORMLY AT RANDOM among bodies
+    // in view, so a Downwash wired to it would land on the straggler one time in six and look
+    // exactly the same doing it. This is the assertion that fails if pickDownwashSpot is deleted.
+    const dw = boot('shelf', 'downwash', 5, null)
+    const knotX = dw.player.x + 260
+    for (let i = 0; i < 5; i++) {
+      dw.enemies.push(makeStatusEnemy(dw, { x: knotX + i * 12, y: dw.player.y + i * 9, hp: 1e6, speed: 0 }))
+    }
+    const straggler = { x: dw.player.x - 300, y: dw.player.y }
+    dw.enemies.push(makeStatusEnemy(dw, { ...straggler, hp: 1e6, speed: 0 }))
+    assert(castUntil(dw, (r) => r.holes.length > 0), 'precondition: the downwash must cast within 12s')
+    const col = dw.holes[0]
+    assert.strictEqual(col.look, 'downwash', 'the column must carry look:downwash — the tag is what keeps the two weapons apart in stepHoles and in render.js')
+    assert(Math.hypot(col.x - straggler.x, col.y - straggler.y) > 100,
+      `the column landed on the lone straggler (${col.x.toFixed(0)},${col.y.toFixed(0)}) — pickDownwashSpot is not choosing the densest clump`)
+    assert(Math.abs(col.x - knotX) < 80,
+      `the column must land in the knot of 5 (x~${knotX.toFixed(0)}), landed at x=${col.x.toFixed(0)}`)
+
+    // THE BURST IS THE DAMAGE. A body parked dead centre must lose more to the single expiry hit
+    // than to the whole pour that preceded it. If `burst` is ever dropped from the push or the
+    // expiry branch stops paying it, the weapon still pulls, still ticks and still looks right --
+    // and this is the only thing that notices it became a weak vortex.
+    const hit = boot('shelf', 'downwash', 5, null)
+    hit.enemies.push(makeStatusEnemy(hit, { x: hit.player.x + 260, y: hit.player.y, hp: 1e6, speed: 0 }))
+    assert(castUntil(hit, (r) => r.holes.length > 0), 'precondition: the downwash must cast within 12s')
+    const victim = hit.enemies[0]
+    const h = hit.holes[0]
+    victim.x = h.x; victim.y = h.y
+    const hpBeforePour = victim.hp
+    // Step to just before expiry, pinning the body in the column so the pull cannot carry it out.
+    const pinBody = (r) => { const c = r.holes[0]; if (c) { victim.x = c.x; victim.y = c.y } }
+    advance(hit, h.life - 0.1, pinBody)
+    const pourDmg = hpBeforePour - victim.hp
+    const hpBeforeBurst = victim.hp
+    advance(hit, 0.3, pinBody)
+    const burstDmg = hpBeforeBurst - victim.hp
+    assert.strictEqual(hit.holes.length, 0, 'the column must retire at the end of its pour')
+    assert(burstDmg > pourDmg,
+      `the burst must out-damage the whole pour: pour ${pourDmg.toFixed(1)}, burst ${burstDmg.toFixed(1)} — this card is a wind-up, not a vortex`)
+
+    // IT NEVER INHERITS THE BLACK HOLE'S MODS. `hungryBonus`/`crunchBonus` are read once per frame
+    // off run.weaponMods.hole and applied to every entry in run.holes, so a player holding both
+    // cards would silently hand their Downwash a x10 CRUNCH_DMG_MUL detonation and a growing
+    // radius. The guard is `h.look !== 'downwash'`; delete it and this block goes red.
+    const both = boot('shelf', 'downwash', 5, null)
+    Object.assign(both.weaponMods.hole, { crunch: 5, hungry: 3 })
+    both.enemies.push(makeStatusEnemy(both, { x: both.player.x + 260, y: both.player.y, hp: 1e6, speed: 0 }))
+    assert(castUntil(both, (r) => r.holes.length > 0), 'precondition: the downwash must cast within 12s')
+    const v2 = both.enemies[0]
+    const c2 = both.holes[0]
+    // The radius is sampled at the LAST frame of the pour, not at the cast. Hungry Hole grows a
+    // hole over its life, so reading it on the frame it lands measures the config value and passes
+    // with the guard deleted — a gate with no bulb, and the mutation harness is what said so.
+    let lastR = c2.radius
+    const pin2 = (r) => { const c = r.holes[0]; if (c) { v2.x = c.x; v2.y = c.y; lastR = c.radius } }
+    const hp2 = v2.hp
+    advance(both, c2.life + 0.3, pin2)
+    const withHoleMods = hp2 - v2.hp
+    assert(Math.abs(lastR - WEAPONS.downwash.levels[4].radius) < 1e-9,
+      `Hungry Hole grew the column: ${WEAPONS.downwash.levels[4].radius} -> ${lastR.toFixed(1)} by the end of the pour`)
+    // Same fixture, same seed, no hole mods -> the same total. An inherited Big Crunch would be
+    // h.dmg x CRUNCH_DMG_MUL x 6, i.e. hundreds of damage on a 7-damage tick, so the tolerance is
+    // wide on purpose and still cannot be reached by the pathology.
+    const alone = boot('shelf', 'downwash', 5, null)
+    alone.enemies.push(makeStatusEnemy(alone, { x: alone.player.x + 260, y: alone.player.y, hp: 1e6, speed: 0 }))
+    assert(castUntil(alone, (r) => r.holes.length > 0), 'precondition: the downwash must cast within 12s')
+    const v3 = alone.enemies[0]
+    const c3 = alone.holes[0]
+    const pin3 = (r) => { const c = r.holes[0]; if (c) { v3.x = c.x; v3.y = c.y } }
+    const hp3 = v3.hp
+    advance(alone, c3.life + 0.3, pin3)
+    const withoutHoleMods = hp3 - v3.hp
+    assert(Math.abs(withHoleMods - withoutHoleMods) < 1e-6,
+      `the Black Hole's mods leaked into the Downwash: ${withoutHoleMods.toFixed(1)} alone vs ${withHoleMods.toFixed(1)} while holding Big Crunch + Hungry Hole`)
+
+    // PLUNGE TURNS THE TIMER INTO A TRIGGER, and the trigger is the crowd reaching the MIDDLE.
+    // Two controls, because one is not enough here: the same mod with too few bodies must NOT fire
+    // early (or the card is just "shorter fuse"), and no mod at all must burn the whole pour.
+    // A mod read that never fires is indistinguishable from one that works, since the column bursts
+    // on expiry either way -- so nothing but the DELAY tells them apart.
+    const noMod = burstOf(null, DOWNWASH_PLUNGE_N + 1)
+    const plunged = burstOf({ plunge: 1 }, DOWNWASH_PLUNGE_N + 1)
+    const tooFew = burstOf({ plunge: 1 }, DOWNWASH_PLUNGE_N - 1)
+    assert(noMod.delay > noMod.dur * 0.9,
+      `control: without Plunge the column must burst at the end of its pour (${noMod.delay.toFixed(2)}s of ${noMod.dur}s)`)
+    assert(plunged.delay < noMod.delay - 0.2,
+      `Plunge must burst the column early: ${noMod.delay.toFixed(2)}s unmodded vs ${plunged.delay.toFixed(2)}s modded`)
+    // NOT ZERO. The column lands on the clump it chose, so counting the whole radius would fire on
+    // the cast frame and delete the gather entirely -- the card would be an instant blast where the
+    // crowd already was. DOWNWASH_PLUNGE_FRAC is the distance the pull has to actually cover.
+    assert(plunged.delay > 0,
+      'Plunge fired on the cast frame — the trigger radius is back to the full column and the gather is gone')
+    assert(tooFew.delay > noMod.dur * 0.9,
+      `control: ${DOWNWASH_PLUNGE_N - 1} bodies must not trip a ${DOWNWASH_PLUNGE_N}-body trigger (burst at ${tooFew.delay.toFixed(2)}s)`)
+    // AND IT MUST NOT PAY TWICE. downwashBurst zeroes `burst`; without that, life=0 sends the column
+    // straight into the expiry branch on the next frame for a second full detonation, which is a
+    // strictly better mod that nothing else would notice.
+    assert.strictEqual(plunged.bursts, 1, `Plunge must detonate exactly once, got ${plunged.bursts}`)
+    console.log(`PASS run MB.i (Downwash): lands in the knot of 5 not on the straggler, burst ${burstDmg.toFixed(0)} out-damages the whole pour ${pourDmg.toFixed(0)} (no core crush), Big Crunch + Hungry Hole leak nothing (${withoutHoleMods.toFixed(1)} both ways), Plunge fires at ${plunged.delay.toFixed(2)}s against a ${noMod.dur}s pour, once, and ${DOWNWASH_PLUNGE_N - 1} bodies do not trip it`)
   }
 
   console.log('PASS run MB (Book 2 chapters 1-2 mod budget): no inert cards across every weapon, four-plus apiece in both chapters, rate mods speed up, count mods land on bodies, and the three Pollution/clean-water cards pay the right way round — including that a fouled patch stops recharging you')
@@ -12412,6 +12547,81 @@ function testChapterAnomalies() {
     const moreCount = more.traps.length
 
     assert(moreCount > baseCount, `expected trap season's higher occupancy chance to stream more traps (${baseCount} -> ${moreCount})`)
+    // DEAD WATER (The Shelf's own, 2026-08-20). Two knobs that have to move in OPPOSITE directions
+    // or the mutator is a pure nerf wearing a trade's name, and neither is observable from config:
+    // `refillChanceMul` thins a streamed field and `refillSpendMul` stretches a clock read in three
+    // separate files. Both are asserted as EFFECTS — circles that actually materialise, and charge
+    // that actually arrives — because reading run.mods back passes with either consumer deleted.
+    {
+      // (1) A THIRD AS MANY CIRCLES. Swept over a wide box rather than one cell: at chance 0.62 vs
+      // 0.20 a handful of cells can agree by luck while the fields at large differ threefold.
+      const fieldSize = (mutators) => {
+        Math.random = mulberry32(20260820)
+        const r = createRun(makeMeta(), { chapter: 'shelf', difficulty: 1, mutators })
+        r.mods.spawnMul = 0
+        r._obstacleSeed = 0xC0FFEE
+        const cells = new Set()
+        for (let y = -4000; y <= 4000; y += 380) {
+          for (let x = -4000; x <= 4000; x += 380) {
+            r.player.x = x; r.player.y = y
+            streamShafts(r)
+            for (const sh of r.shafts) cells.add(sh._cell)
+          }
+        }
+        return cells.size
+      }
+      const wide = fieldSize([])
+      const thin = fieldSize(['deadWater'])
+      assert(wide > 60, `need a populated field to thin — got ${wide} upwellings`)
+      // The ruling is x0.33. The occupancy roll is a hash per cell, so the realised share is
+      // binomial around it; the band is wide enough to survive that and far too tight for a
+      // multiplier that was dropped on the floor (which lands at 1.0).
+      const share = thin / wide
+      assert(share > 0.20 && share < 0.50,
+        `Dead Water must leave about a third of the upwellings standing: ${thin}/${wide} = ${share.toFixed(2)}`)
+
+      // (2) …AND EACH ONE IS WORTH THREE TIMES AS MUCH. Measured as charge ARRIVING, which is the
+      // only thing the player experiences. The drawdown clock is read in stepCharge, in Foul
+      // Spring's foulUpwelling and in render.js's fade; a mutator that reached one of the three
+      // would show a circle emptying on a schedule the bar disagrees with.
+      const oneCircle = (mutators) => {
+        Math.random = mulberry32(20260820)
+        const r = createRun(makeMeta(), { chapter: 'shelf', difficulty: 1, mutators })
+        r.mods.spawnMul = 0
+        r.enemies.length = 0
+        r.player.maxHP = r.player.hp = 1e9
+        r._obstacleSeed = 0xC0FFEE
+        r.charge = 0
+        streamShafts(r)
+        assert(r.shafts.length > 0, 'precondition: need an upwelling to stand in')
+        let peak = 0
+        for (let i = 0; i < Math.round(12 / dt); i++) {
+          // Re-pin every frame: the field DRIFTS (driftAmp 60), so a player parked on a circle's
+          // launch position walks out of it without moving. Well inside one cell (760), so this
+          // never re-streams the field underneath the measurement.
+          const sh = r.shafts[0]
+          r.player.x = sh.x; r.player.y = sh.y
+          stepSim(r, { x: 0, y: 0 }, dt)
+          peak = Math.max(peak, r.charge)
+        }
+        return peak
+      }
+      const plain = oneCircle([])
+      const dead = oneCircle(['deadWater'])
+      assert(plain > 20 && plain < 45,
+        `control: one ordinary upwelling is a third of the bar — got ${plain.toFixed(1)} of ${CHAPTERS.shelf.resource.max}`)
+      assert(dead > plain * 2.4,
+        `Dead Water's circles must be worth about three times as much: ${plain.toFixed(1)} -> ${dead.toFixed(1)}`)
+      // The owner's number: three thirds of the bar is the WHOLE bar, and res.max is 100.
+      assert(dead > CHAPTERS.shelf.resource.max * 0.9,
+        `one Dead Water upwelling must fill essentially the whole bar: ${dead.toFixed(1)} of ${CHAPTERS.shelf.resource.max}`)
+      // The mutator is the CHAPTER's, not the book's — Spring Tide names every id with a tide and
+      // may never be counted as The Shelf's own (see the ideation bar in verifying-chapter-stage).
+      assert.deepStrictEqual(MUTATORS.deadWater.chapters, ['shelf'], 'Dead Water is scoped to The Shelf alone')
+      assert(MUTATORS.springtide.chapters.length > 1, "Spring Tide is the book's, so it cannot be any one chapter's own")
+      console.log(`PASS run GG.b (Dead Water): ${wide} -> ${thin} upwellings (${share.toFixed(2)}x), one circle worth ${plain.toFixed(0)} -> ${dead.toFixed(0)} of a ${CHAPTERS.shelf.resource.max} bar`)
+    }
+
     console.log(`PASS run GG (chapter anomalies): scoped pools, wellForceMul 1.8, traps ${baseCount}->${moreCount}`)
   }
 }

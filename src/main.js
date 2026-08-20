@@ -482,6 +482,10 @@ const SFX_FOR_EVENT = {
   // splitting are the same wet, low, one-off event, and it is the closest voice in the bank. Two
   // cards sharing a sample is the pairing 'snare' above already makes with Debris Toss.
   chum: 'hole',
+  // The Shelf's Downwash borrows the same vortex whoosh, for the same reason: a column of water
+  // falling and dragging the crowd in IS a suction, and the sound table gains nothing from a
+  // fourth near-identical entry. Its BURST is a plain explode event, which already sounds.
+  downwash: 'hole',
   bilge: 'hole',
   // 'gnash' gets NO entry, and it is the same ruling as 'tail'/'crust'/'longline' below rather than
   // an oversight — run EV is satisfied by its render case (the closing jaws, render.js). The Wreck's

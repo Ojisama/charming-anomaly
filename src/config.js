@@ -2163,6 +2163,47 @@ export const WEAPONS = {
       { dmg: 52, rate: 2.00, r: 134, stainDur: 4.4, stainDps: 11, weights: 1 },
     ],
   },
+  downwash: {
+    name: 'Downwash',
+    desc: 'A column of clean water falls on the crowd, drags it into one spot, then bursts.',
+    icon: '🌀', rarity: 'rare',
+    // THE POOL'S FOURTH CARD, AND THE SECOND CLEAN-WATER ONE (owner, 2026-08-20: "i want basic
+    // weapon and the new weapon to play on the clean water part"). The Shelf's arsenal now splits
+    // two and two — Bubble Puff and this one are clean water, Silt Veil and Ballast are the filth.
+    //
+    // A run.holes ENTRY, tagged look: 'downwash'. That array is already a pull rig with an
+    // expiry hook, so the gather half of this card is machinery that exists; what is new is that
+    // the burst is the WEAPON rather than a mod on it. The tag is the fourth of its kind in this
+    // file (siltVeil's look: 'silt', ballast's look: 'ballast', the Sunspear's) and it is
+    // load-bearing twice over: render.js must not draw a purple singularity in a murk chapter, and
+    // stepHoles must not hand this column the Black Hole's own Hungry/Big Crunch mods, which are
+    // read off run.weaponMods.hole and would otherwise apply to every hole in the array.
+    //
+    // WHAT THE PLAYER DOES WITH IT is gather, and that is the whole reason it is not a re-skinned
+    // Mini Black Hole: the tick damage is nearly nothing and the payoff is the burst, so the card
+    // is a wind-up you place ahead of the crowd rather than a zone you park on. It is also the only
+    // answer in this pool to Silt Veil's fear, which SCATTERS — the two cards pull in opposite
+    // directions on purpose, and the Bubble Puff's 90° cone wants exactly the clump this makes.
+    //
+    // It lands on the DENSEST clump in view (pickDownwashSpot), not on a random body the way the
+    // Black Hole does. A gather card that casts at random wastes the half of its casts that land on
+    // a straggler, and the miss is invisible — a column that pulls one enemy looks identical to one
+    // that is working.
+    levels: [
+      // `pull` is ABOVE the Black Hole's at every rung and the radius is below it: this reaches
+      // less far and yanks harder, which is the difference between "a vortex you fight inside" and
+      // "a column that collects them for you". Radius stays well under half a phone's screen width
+      // (~215) — the constraint WEAPONS.hole's own block was rewritten twice to respect.
+      //
+      // `burst` is the card. At L5 it is 13x one tick, so a column that expires with the crowd
+      // still outside it has done almost nothing — placement is the skill this weapon sells.
+      { dmg: 3, tick: 0.25, interval: 4.6, radius: 130, duration: 1.6, pull: 200, burst: 40 },
+      { dmg: 4, tick: 0.25, interval: 4.3, radius: 143, duration: 1.7, pull: 218, burst: 52 },
+      { dmg: 5, tick: 0.25, interval: 4.0, radius: 156, duration: 1.8, pull: 236, burst: 65 },
+      { dmg: 6, tick: 0.25, interval: 3.8, radius: 168, duration: 1.9, pull: 254, burst: 78 },
+      { dmg: 7, tick: 0.25, interval: 3.6, radius: 180, duration: 2.0, pull: 270, burst: 92 },
+    ],
+  },
   // -- The Deep's native (spec §6.5) -------------------------------------------------------------
   finHit: {
     name: 'Fin Hit',
@@ -2336,6 +2377,21 @@ export const HOLE_CORE_FRAC = 0.22     // core radius as a fraction of hole radi
 export const HOLE_RIM_PULL_MUL = 0.35  // pull strength at the outer rim, as a fraction of full `pull`
 export const HOLE_RESIST_CAP = 0.6     // elites/tanks: pull strength capped at this fraction of full `pull`
 export const HOLE_SPIRAL_MUL = 0.6     // tangential component vs radial pull — makes enemies spiral, not beeline
+// Plunge (the downwash mod): how many bodies inside the column trip its early burst. 4 rather than
+// a share of the crowd, because the card is about PLACEMENT and a fraction would make the same
+// throw fire at different times depending on how many enemies are alive off screen.
+export const DOWNWASH_PLUNGE_N = 4
+// ...and how far in they must be dragged for it to count: the middle of the column, not its rim.
+// Counting the whole radius made Plunge fire on the SAME FRAME as the cast, because the column
+// lands on the clump it chose and the clump is therefore already inside it -- which deleted the
+// gather the card is built on and turned it into an instant blast where the crowd already was.
+// Half the radius is a distance the pull has to actually cover.
+export const DOWNWASH_PLUNGE_FRAC = 0.5
+// ...and the earliest it may fire, as a share of the pour. Without it the mod is strictly better
+// than not taking it: a survivors crowd is already packed, so the column would trip on the frame
+// it lands however tight the trigger radius is, and the wind-up the whole card is built on would
+// exist only against stragglers. Plunge SHORTENS the pour, at most by half; it never deletes it.
+export const DOWNWASH_PLUNGE_ARM = 0.5
 export const HOLE_CORE_DMG_MUL = 3     // tick damage multiplier for enemies inside the core
 export const HOLE_PULL_DECAY = 3       // /s, decay rate of e.holePull once an enemy is no longer inside a hole
 
@@ -3081,6 +3137,27 @@ export const WEAPON_MODS = {
     // Same wording rule as Scour above, for the same reason and from the same reading: the card
     // names the bar it reads.
     foulWater:  { name: 'Foul Water',  desc: 'stain size and damage, rising with your Pollution (up to {n})', icon: '🛢️', base: 0.50, kind: 'pct' },
+  },
+  downwash: {
+    // Five, and the split is deliberate: three fold into levels[] through WEAPON_STAT_MODS, one is
+    // the count tier, and `plunge` is the behavioural one. A card whose every mod is a percentage
+    // is a card with one build.
+    // NOT named Undertow, which is what it wants to be called: 'Undertow' already translates to
+    // 'Lame de Fond' in fr.js -- the name of the BOOK this chapter is in -- so the card would
+    // have read as the book's title on the French level-up screen. A display name is checked
+    // against fr.js's existing keys, not only against the other cards.
+    suction:   { name: 'Suction',    desc: 'how hard the column drags',  icon: '🌊', base: 0.25, kind: 'pct' },
+    widePour:  { name: 'Wide Pour',  desc: 'column radius',              icon: '⭕', base: 0.20, kind: 'pct' },
+    // Longer means MORE GATHERING, not more damage — the tick is nearly nothing on this weapon by
+    // design, so this card buys the crowd more time to arrive before the burst counts them.
+    lingering: { name: 'Long Fall',  desc: 'how long the column pours',  icon: '⌛', base: 0.25, kind: 'pct' },
+    secondFall:{ name: 'Second Fall',desc: 'extra column(s) per cast',   icon: '🔷', kind: 'tier' },
+    // THE BEHAVIOURAL ONE. The column stops being on a timer and becomes a trigger: it bursts the
+    // instant DOWNWASH_PLUNGE_N bodies are inside it, which is a different card to play rather than
+    // a bigger number — you place it into the crowd's path and it goes off when the crowd arrives,
+    // instead of waiting out its full pour with everything already dead. Read at its own site in
+    // stepHoles, so it needs no fold and no rate division.
+    plunge:    { name: 'Plunge',     desc: 'bursts the moment the crowd is inside', icon: '⬇️', kind: 'switch' },
   },
   // Four apiece for the Trawl's natives, and four is the CEILING, not a starting point (spec §7:
   // the pool's real mod budget is ~28, and the rule is to cut a weapon rather than invent mods).
@@ -5676,19 +5753,16 @@ CHAPTERS.shelf = {
   tagline: 'in troubled water',
   icon: '🫧',
 
-  // ⚠ ALL THREE ARE BORROWED STAND-INS, NOT A DESIGN. §6.2 rules the natives are Bubble Puff (the
-  // starter it names) plus two more, and rules `flagella` out of the pool entirely rather than
-  // re-skinned — shipped code had already done the second half. Picked per CLAUDE.md's borrowed-art
-  // rule, which is about the SPRITE and not only the shape: every one of these has an ABSTRACT cast
-  // that drags no biome in with it, and none is the pond's, because "the starter is too close to
-  // the pond's" is the complaint §6.2 opens with.
-  //   stinger  the starter. A tight cone of needles — reliable, readable, and already proven as a
-  //            Book 2 starter in The Reef.
-  //   mines    Toxin Cysts. The one borrow that is thematically RIGHT rather than merely neutral:
-  //            a chapter about what has been dumped in the water, fighting with toxic cysts.
-  //   hole     an abstract vortex, the third answer to a crowd (move it). Same reasoning, and the
-  //            same weapon, The Trawl borrows for the same slot.
-  weapons: ['bubblePuff', 'siltVeil', 'ballast'], starter: 'bubblePuff',
+  // FOUR NATIVES, SPLIT TWO AND TWO ALONG THE CHAPTER'S OWN AXIS (owner, 2026-08-20: "i want basic
+  // weapon and the new weapon to play on the clean water part"). §6.2 names Bubble Puff as the
+  // starter and rules `flagella` out of the pool entirely rather than re-skinned.
+  //   CLEAN WATER   bubblePuff  a short fast cone of bubbles that cuts. The starter.
+  //                 downwash    a column of clean water that gathers the crowd, then bursts.
+  //   THE FILTH     siltVeil    a cloud planted on a body: poison, and fear that SCATTERS.
+  //                 ballast     the only card that reaches. Impact, then a stain that lingers.
+  // The two halves pull against each other on purpose: Silt Veil scatters what Downwash collects,
+  // and the Bubble Puff's 90° cone wants exactly the clump Downwash makes.
+  weapons: ['bubblePuff', 'siltVeil', 'ballast', 'downwash'], starter: 'bubblePuff',
 
   // Clean-water upwellings. The GEOMETRY is the shipped sun-shaft field, unchanged and already
   // tuned — driftAmp x driftHz = 60 px/s has to stay above 33 (DEADZONE x baseSpeed, the joystick's
@@ -8773,6 +8847,14 @@ export const lightRadius = (charge, res, maxDim, max = res?.max) => {
 // thing The Deep changes is what happens if you STAY (stepMaws). A chapter that had grown its own
 // streamer for this would have grown its own bugs for it too.
 export const refillSpec = (sig) => (sig?.type === 'shafts' ? sig : (sig?.pools ?? sig?.pockets ?? sig?.maws ?? null))
+// THE DRAWDOWN CLOCK, IN ONE PLACE, because it has THREE readers that must never disagree:
+// stepCharge counts occupancy into it, foulUpwelling (Foul Spring) slams a circle to it, and
+// render.js fades the drawing off it. Dead Water multiplies it, and a mutator that reached two of
+// the three would show the player a circle fading on a different clock from the one feeding them —
+// this repo's largest defect class, one fact authored twice, wearing a mutator.
+// 0 for every field but The Shelf's, where a circle simply cannot be spent.
+export const drawdownSecsFor = (run) =>
+  (refillSpec(CHAPTERS[run?.chapter]?.signature)?.drawdownSecs ?? 0) * (run?.mods?.refillSpendMul ?? 1)
 
 // DOES THIS CHAPTER NEED run._obstacleSeed? Five streamers hash off that one seed — obstacles,
 // eddies, traps, refill circles and sandbars — but createRun used to draw it for the FIRST of them
@@ -11011,6 +11093,18 @@ export const MUTATORS = {
   barrage:      { name: 'Carpet Barrage', icon: '🎯', desc: 'The bombardment barely pauses. Bonus XP.',                   chapters: ['skies'],       effects: { bombardIntervalMul: 0.6, xpMul: 1.2 } },
   supermassive: { name: 'Supermassive',   icon: '🕳️', desc: 'The wells pull far harder — nothing flies straight. Richer coins.', chapters: ['beyond'], effects: { wellForceMul: 1.8, coinMul: 1.25 } },
   toxicShock:   { name: 'Toxic Shock',    icon: '🧪', desc: 'Elite acid pools burn far hotter. Richer coins.', chapters: ['body'], effects: { acidPotencyMul: 1.6, coinMul: 1.25 } },
+  // THE ONE ENTRY WHOSE REWARD IS THE MECHANIC, not a coin or an XP multiplier bolted on beside it.
+  // A third as many clean-water upwellings, each worth three times as much: x0.33 against x3 is
+  // net-neutral on the clean water in a given patch of map (owner, 2026-08-20 — "actually to
+  // balance out make upwelling chance x0.33"), so what the mutator sells is not scarcity, it is
+  // VARIANCE. You cross far more filthy water between spots, and the spot you reach fills the whole
+  // bar rather than a third of it. That is the chapter's own axis turned up, which is the rule every
+  // chapter anomaly above follows, and it needs no coin bonus to be worth taking.
+  //   refillSpendMul multiplies the DRAWDOWN CLOCK, not the refill rate: at REFILL_ZONE_SPEND 0.33
+  // one circle is a third of the bar, so x3 is exactly one full bar and the number in the copy is
+  // 100 because res.max is 100. Scoped to shelf ALONE — it is the chapter's own, and Spring Tide is
+  // the book's (chapters: every id with a tide), so that one can never count as this one.
+  deadWater:    { name: 'Dead Water',     icon: '🫗', desc: 'A third as many clean-water spots, each worth three times as much.', chapters: ['shelf'], effects: { refillChanceMul: 0.33, refillSpendMul: 3 } },
 }
 // Every key mergeMutatorMods can produce, all defaulted to 1 (neutral) before mutator effects
 // multiply in. sim.js applies each of these at one specific point — see sim.js's module doc.
@@ -11027,6 +11121,8 @@ const MUTATOR_MOD_KEYS = [
   'trafficIntervalMul', // stepLanes cadence (city; <1 = more often, like eliteEveryMul)
   'bombardIntervalMul', // stepBombardment cadence (skies; <1 = more often)
   'wellForceMul',       // wellForce (beyond gravity bend on every projectile)
+  'refillChanceMul',    // streamShafts (shelf; how often a refill circle materialises in a cell)
+  'refillSpendMul',     // drawdownSecsFor (shelf; how long one circle feeds you before it is spent)
 ]
 // Pure helper: given a list of mutator ids (run.mutators), returns the full run.mods object —
 // every key above defaulted to 1, with each selected mutator's effects multiplied in. Unknown

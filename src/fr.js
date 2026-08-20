@@ -1295,6 +1295,30 @@ const CONFIG = {
   'extra weight(s) per drop': 'poids supplémentaire(s) par largage',
   'Foul Water': 'Eau Souillée',
   'stain size and damage, rising with your Pollution (up to {n})': 'taille et dégâts de la flaque, augmentent avec ta Pollution (jusqu\'à {n})',
+  // Le Large's FOURTH native (2026-08-20), and the second of its two clean-water cards. Owner's
+  // own line for the desc, as with the three above -- shorter than the English and leading on
+  // what the card does rather than on how it arrives. 'Chasse d'eau' is his pick over 'Plongeon'
+  // and 'Courant descendant': the chapter is about what got dumped in the water, and a flush is
+  // exactly the joke that fiction is already making.
+  //   'colonne' runs through four of the five mods -- the Voile de Vase rule, one word for one
+  // thing across the card, the sheet and the mods -- and 'rayon de la colonne' /
+  // 'colonne(s) supplementaire(s) par lancer' were already in this file for The Twilight's
+  // Sunspear, so the two weapons name the same shape with the same words for free.
+  'Downwash': 'Chasse d\'eau',
+  'A column of clean water falls on the crowd, drags it into one spot, then bursts.': 'Une colonne d\'eau claire rassemble la meute, puis éclate.',
+  'Suction': 'Aspiration',
+  'how hard the column drags': 'force d\'aspiration de la colonne',
+  'Wide Pour': 'Colonne Large',
+  'Long Fall': 'Colonne Longue',
+  'how long the column pours': 'durée de la colonne',
+  'Second Fall': 'Seconde Colonne',
+  'Plunge': 'Plongeon',
+  'bursts the moment the crowd is inside': 'éclate dès que la meute est dedans',
+  // Le Large's own mutator. 'Eau Croupie' over 'Eau Morte' (owner, 2026-08-20). The desc says
+  // 'zones d'eau claire' and never coins a noun for the circles, the same rule Source Souillee's
+  // line states: the game has no player-facing word for them in either language.
+  'Dead Water': 'Eau Croupie',
+  'A third as many clean-water spots, each worth three times as much.': 'Trois fois moins de zones d\'eau claire, chacune trois fois plus généreuse.',
   'in troubled water': 'en eaux troubles',
   // The Twilight (Book 2 chapter 5). Owner's pick, 2026-08-18: 'La Pénombre' is the half-light
   // itself — the state the whole chapter is about — and the spine takes the same word with the
