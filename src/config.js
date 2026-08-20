@@ -5871,6 +5871,12 @@ CHAPTERS.shelf = {
     { id: 'jelly',      archetype: 'tank',   name: 'Moon Jelly',  hpMul: 1.875, speedMul: 0.6, xpMul: 1.25, flags: ['phase', 'unshakeable'] },
   ],
 
+  // balance_decision : 35% fewer moon jellies, the chapter's only tank 2026-08-20
+  //  - RELATIVE weight, so 0.56 and NOT 0.65: the cut share re-normalises onto the other
+  //    archetypes and a flat 0.65 removes only 27%. Derived by integrating spawnRate(t)·tankShare(t)
+  //    over a 300s run (487 -> 316 tank spawns); see the garden spider block.
+  archetypeMul: { tank: 0.56 },
+
   // Book 2's second chapter, and these are the slot's own numbers — they did not move when the light
   // did. They firm up from The Surf by exactly the step Book 1 takes for the same chapter1->chapter2
   // move (body -> pond leaves spawnMul/enemyDmgMul/xpMul flat and moves only enemyHpMul +0.10 and
