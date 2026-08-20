@@ -13341,9 +13341,15 @@ export function createRenderer(app) {
     vortexB.tint = 0x5a2fb0
     vortexB.alpha = 0.9
     const core = spriteOf(T.holeCore)
-    root.addChild(disc, ring, vortexA, vortexB, core)
+    // The Downwash's own parts. It shares this pool with the Mini Black Hole and shares NONE of its
+    // drawing, so both sets live on every slot and placeHole shows one or the other — a second pool
+    // would need its own acquire, its own reset line and its own place, for one weapon.
+    const rings = new Graphics()
+    const foam = new Sprite(T.fx.flare_01)
+    foam.anchor.set(0.5)
+    root.addChild(disc, ring, vortexA, vortexB, core, rings, foam)
     holeLayer.addChild(root)
-    return { root, disc, ring, vortexA, vortexB, core, _r: 0 }
+    return { root, disc, ring, vortexA, vortexB, core, rings, foam, _r: 0 }
   }
 
   function syncHoles(list) {
@@ -18640,24 +18646,46 @@ export function createRenderer(app) {
     hv.root.scale.set(breathe)
     // children sized to the real radius (root stays ~1 so the twirl cap holds)
     hv.disc.scale.set(h.radius / T.holeDiscRef)
-    // The disc and the core are baked black-purple, so the wash tints them rather than re-baking a
-    // second texture: this is one weapon's palette, not a second silhouette.
-    hv.disc.tint = h.look === 'downwash' ? 0x8fc8dc : 0xffffff
-    hv.core.tint = h.look === 'downwash' ? 0xeaf8ff : 0xffffff
+    // ONE POOL, TWO WEAPONS, AND THE TAG IS THE ONLY THING TELLING THEM APART. run.holes carries The
+    // Beyond's Mini Black Hole and The Shelf's Downwash; inferring which from the radius is a guess
+    // that starts being wrong the first time either is retuned, which is the lesson run.lobs learned
+    // when the Sunspear shipped wearing Debris Toss's landing ring.
+    //
+    // THE PALETTE SWAP THAT CAME BEFORE THIS DID NOT WORK, and only a frame said so: T.holeDisc and
+    // T.holeCore are baked near-black, a tint can only ever darken, and the result read as a dark
+    // hole in murky water — the exact opposite of clean water. So the Downwash hides them and draws
+    // its own thing instead of wearing the singularity's.
+    const wash = h.look === 'downwash'
+    hv.disc.visible = !wash
+    hv.core.visible = !wash
+    hv.vortexA.visible = !wash
+    hv.vortexB.visible = !wash
+    hv.rings.visible = wash
+    hv.foam.visible = wash
     const twirlPx = Math.min(h.radius * 1.2, HOLE_TWIRL_MAX)
     hv.vortexA.scale.set(fxScale(T.fx.twirl_01, twirlPx))
     hv.vortexB.scale.set(fxScale(T.fx.twirl_02, twirlPx * 0.85))
     hv.core.scale.set((h.radius * HOLE_CORE_FRAC) / (T.holeRefR * 0.16))
-    // ONE POOL, TWO WEAPONS, AND THE TAG IS THE ONLY THING TELLING THEM APART. run.holes carries
-    // The Beyond's Mini Black Hole and The Shelf's Downwash, and inferring which is which from the
-    // radius is a guess that starts being wrong the first time either is retuned — the same lesson
-    // run.lobs learned when the Sunspear shipped wearing Debris Toss's landing ring.
-    // A purple singularity in a brown-green murk chapter is the borrowed-art trap with no borrowed
-    // art involved, so the whole palette swaps: pale water instead of void, and the twirl stays
-    // because water going down a column genuinely spirals.
-    const wash = h.look === 'downwash'
-    hv.vortexA.tint = wash ? 0x7fbfd8 : 0x2f1a66
-    hv.vortexB.tint = wash ? 0xdff2fa : 0x5a2fb0
+    // THE INRUSH (owner's pick, 2026-08-20, judged on scripts/scenes/shelf-downwash.js against three
+    // others). NO SWIRL AT ALL, deliberately: a spiral is what the Black Hole in this same pool
+    // already is, and the thing this card has to say is not "something is turning" but "the water is
+    // arriving from every side and taking you with it". Three rings CONTRACTING toward the middle on
+    // a loop say that in the one property a still frame cannot fake — the direction of the motion.
+    if (wash) {
+      const t = (animT * 0.9) % 1
+      hv.rings.clear()
+      for (let k = 0; k < 3; k++) {
+        // Each ring starts at the rim and shrinks to the core, thickening and fading as it goes, so
+        // the eye is carried inward rather than around. Three of them, a third of a cycle apart, is
+        // enough for the direction to read from any single frame.
+        const f = 1 - ((t + k / 3) % 1)
+        hv.rings.circle(0, 0, h.radius * (0.15 + 0.85 * f))
+          .stroke({ width: 3 + 6 * (1 - f), color: 0xdff2fa, alpha: 0.55 * f })
+      }
+      hv.foam.tint = 0xeaf8ff
+      hv.foam.alpha = 0.85
+      hv.foam.scale.set(fxScale(T.fx.flare_01, h.radius * 0.5))
+    }
     if (hv._r !== h.radius || hv._wash !== wash) { // crisp rim ring, redrawn only when it changes
       hv._r = h.radius
       hv._wash = wash
