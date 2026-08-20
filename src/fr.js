@@ -1261,14 +1261,20 @@ const CONFIG = {
   'Flare': 'Éventail',
   'puff width': 'largeur du jet',
   // Its three new mods (2026-08-19), on the same 'jet' the two above are keyed to. 'Décapage' is
-  // abrasive stripping -- what filthy water does to what it is blown against -- and it carries the
-  // card's bargain, which is that the dirtier the water the more the puff is worth. The Pollution
-  // bar is 'Pollution' in both languages, so 'l'eau la plus sale' names the bar's own top end in
-  // words rather than repeating the noun.
+  // abrasive stripping, and it survived the card being INVERTED on 2026-08-20 -- scouring is what
+  // CLEAN water does, so the French name fits the new direction better than it fit the old one and
+  // did not need re-coining.
+  //
+  // The value is the owner's own sentence ("+50% de dégâts du jet, diminue avec la pollution"),
+  // less the '+50%' -- which ui.js prefixes for every pct mod, so writing it here would print it
+  // twice -- and less the 'de', because the prefix reads '+30% dégâts du jet' on Froth two lines up
+  // and one card carrying a 'de' the others do not would read as a typo. 'ta Pollution' rather than
+  // 'la': the bar is 'Pollution' in both languages and every card that reads a bar names it
+  // possessively, which is the rule the owner set himself after the v7.163 card failed to.
   'Long Puff': 'Jet Long',
   'puff radius': 'rayon du jet',
   'Scour': 'Décapage',
-  'puff damage, rising with your Pollution (up to {n})': 'dégâts du jet, augmentent avec ta Pollution (jusqu\'à {n})',
+  'puff damage, falling with your Pollution': 'dégâts du jet, diminue avec ta Pollution',
   'Backblow': 'Contre-Souffle',
   'a second cone blows out behind you': 'un second cône souffle derrière toi',
   'Silt Veil': 'Voile de Vase',
