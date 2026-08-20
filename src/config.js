@@ -2130,11 +2130,13 @@ export const WEAPONS = {
       // silt on the pause build sheet. `skips`, `crustDur`, `setDur` and `hooks` all exist for
       // exactly this reason -- a per-weapon key earns a per-weapon label, and being unique to this
       // weapon's levels[] means no other build sheet gains a row.
-      { dmgPerTick: 6,  rate: 4.4, maxR: 116, dur: 3.4, fear: 0.9, clouds: 1, castRange: 240 },
-      { dmgPerTick: 8,  rate: 4.1, maxR: 126, dur: 3.7, fear: 1.0, clouds: 1, castRange: 260 },
-      { dmgPerTick: 11, rate: 3.8, maxR: 136, dur: 4.0, fear: 1.1, clouds: 1, castRange: 280 },
-      { dmgPerTick: 13, rate: 3.5, maxR: 148, dur: 4.4, fear: 1.2, clouds: 1, castRange: 300 },
-      { dmgPerTick: 15, rate: 3.2, maxR: 162, dur: 4.8, fear: 1.4, clouds: 1, castRange: 320 },
+      // balance_decision : silt veil fires and hits 30% harder, a non-starter 2026-08-20
+      //  - was the chapter's weakest card, 25% under its own starter at L1
+      { dmgPerTick: 8,  rate: 3.38, maxR: 116, dur: 3.4, fear: 0.9, clouds: 1, castRange: 240 },
+      { dmgPerTick: 10, rate: 3.15, maxR: 126, dur: 3.7, fear: 1.0, clouds: 1, castRange: 260 },
+      { dmgPerTick: 14, rate: 2.92, maxR: 136, dur: 4.0, fear: 1.1, clouds: 1, castRange: 280 },
+      { dmgPerTick: 17, rate: 2.69, maxR: 148, dur: 4.4, fear: 1.2, clouds: 1, castRange: 300 },
+      { dmgPerTick: 20, rate: 2.46, maxR: 162, dur: 4.8, fear: 1.4, clouds: 1, castRange: 320 },
     ],
   },
   ballast: {
@@ -2198,11 +2200,12 @@ export const WEAPONS = {
       //
       // `burst` is the card. At L5 it is 13x one tick, so a column that expires with the crowd
       // still outside it has done almost nothing — placement is the skill this weapon sells.
-      { dmg: 3, tick: 0.25, interval: 4.6, radius: 130, duration: 1.6, pull: 200, burst: 40 },
-      { dmg: 4, tick: 0.25, interval: 4.3, radius: 143, duration: 1.7, pull: 218, burst: 52 },
-      { dmg: 5, tick: 0.25, interval: 4.0, radius: 156, duration: 1.8, pull: 236, burst: 65 },
-      { dmg: 6, tick: 0.25, interval: 3.8, radius: 168, duration: 1.9, pull: 254, burst: 78 },
-      { dmg: 7, tick: 0.25, interval: 3.6, radius: 180, duration: 2.0, pull: 270, burst: 92 },
+      // balance_decision : downwash fires and hits 30% harder, a non-starter 2026-08-20
+      { dmg: 4, tick: 0.25, interval: 3.54, radius: 130, duration: 1.6, pull: 200, burst: 52 },
+      { dmg: 5, tick: 0.25, interval: 3.31, radius: 143, duration: 1.7, pull: 218, burst: 68 },
+      { dmg: 6, tick: 0.25, interval: 3.08, radius: 156, duration: 1.8, pull: 236, burst: 84 },
+      { dmg: 8, tick: 0.25, interval: 2.92, radius: 168, duration: 1.9, pull: 254, burst: 101 },
+      { dmg: 9, tick: 0.25, interval: 2.77, radius: 180, duration: 2.0, pull: 270, burst: 120 },
     ],
   },
   // -- The Deep's native (spec §6.5) -------------------------------------------------------------
@@ -5869,7 +5872,10 @@ CHAPTERS.shelf = {
   roster: [
     { id: 'sandhopper', archetype: 'normal', name: 'Sand Hopper', hpMul: 0.9,   speedMul: 1,   flags: [] },
     { id: 'searoach',   archetype: 'fast',   name: 'Sea Roach',   hpMul: 0.68,  speedMul: 1.15, flags: ['dashBurst'] },
-    { id: 'jelly',      archetype: 'tank',   name: 'Moon Jelly',  hpMul: 1.875, speedMul: 0.6, xpMul: 1.25, flags: ['phase', 'unshakeable'] },
+    // balance_decision : jelly loses 20% hp and stays solid twice as long 2026-08-20
+    //  - `phase.solidMul` is the jelly's alone: PHASE_SOLID_T is shared with the pond's Tardigrade.
+    { id: 'jelly',      archetype: 'tank',   name: 'Moon Jelly',  hpMul: 1.5, speedMul: 0.6, xpMul: 1.25, flags: ['phase', 'unshakeable'],
+      phase: { solidMul: 2 } },
   ],
 
   // balance_decision : 35% fewer moon jellies, the chapter's only tank 2026-08-20
@@ -10790,6 +10796,11 @@ export const SKIES_LIGHT = {
 // uptime ⇒ roughly ×1.6-1.65 tank TTK once a ring can no longer land every hit. Change these
 // constants with that multiplier in view — it moves with the solid:ghost RATIO, not with either
 // number alone.
+//   PER-CREATURE OVERRIDE: a roster entry may carry `phase: { solidMul }`, in the same shape and
+// for the same reason as the Sea Roach's `dash` — these constants are shared, so moving the number
+// itself to lengthen The Shelf's Moon Jelly would silently retune the pond's Tardigrade as well.
+// The override is a MULTIPLIER of the global rather than an absolute, so the ratio above keeps
+// tracking this line if it is ever retuned.
 export const PHASE_SOLID_T = 1.6
 export const PHASE_GHOST_T = 1.0
 export const PHASE_GHOST_SPEED_MUL = 1.4  // it hurries while it can't be punished
