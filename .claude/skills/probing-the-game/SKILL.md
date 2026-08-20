@@ -80,6 +80,15 @@ error. Three rigs, three different questions:
 - **immortal + stationary** (the offer probe): what the pool OFFERS, what a weapon DOES, dps,
   proc rates. `pool-probe.mjs` says in its own header that it is not valid for survival — that
   warning is broader than it looks.
+  **AND IT SATURATES.** On a late chapter the rig runs out of enemies: every Shelf card sits at
+  130-160 kills/min at L5, so a +69% nominal buff moved Downwash's eff dps 165 -> 170. That is
+  not "the buff does nothing", it is "this weapon already kills everything that arrives" — and
+  the two are indistinguishable in the dps column. **The tell is kills/min agreeing across cards
+  that obviously differ**, and it is easy to scroll past; `hits/s` can even FALL as damage rises,
+  because there are fewer tick-hits per corpse. Rank a late arsenal on the **L1** row, which still
+  has headroom, and prove a RATE change by counting the weapon's own landing events per second
+  over a fixed window instead — that number is immune to saturation (Ballast read 0.496/s ->
+  0.645/s, exactly the +30% asked for, on the same day eff dps moved 2%).
 - **immortal + KITING** (walk away from the crowd; a floor on player skill, not a model of one):
   can anything REACH you. Anything about slows, knockback, fear, walls or "I'm invincible" needs
   this. A stationary player is surrounded whatever the crowd's speed, so it reports the same
