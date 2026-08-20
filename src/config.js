@@ -2156,11 +2156,12 @@ export const WEAPONS = {
     levels: [
       // `weights` flat across the ladder, and named for the same reason Silt Veil's `clouds` is:
       // 'Projectiles' is the wrong noun for a dumped weight. Jetsam owns the second one.
-      { dmg: 26, rate: 2.60, r: 96,  stainDur: 3.0, stainDps: 5,  weights: 1 },
-      { dmg: 31, rate: 2.45, r: 104, stainDur: 3.3, stainDps: 6,  weights: 1 },
-      { dmg: 37, rate: 2.30, r: 112, stainDur: 3.6, stainDps: 7,  weights: 1 },
-      { dmg: 44, rate: 2.15, r: 122, stainDur: 4.0, stainDps: 9,  weights: 1 },
-      { dmg: 52, rate: 2.00, r: 134, stainDur: 4.4, stainDps: 11, weights: 1 },
+      // balance_decision : ballast fires 30% faster at every rung 2026-08-20
+      { dmg: 26, rate: 2.00, r: 96,  stainDur: 3.0, stainDps: 5,  weights: 1 },
+      { dmg: 31, rate: 1.88, r: 104, stainDur: 3.3, stainDps: 6,  weights: 1 },
+      { dmg: 37, rate: 1.77, r: 112, stainDur: 3.6, stainDps: 7,  weights: 1 },
+      { dmg: 44, rate: 1.65, r: 122, stainDur: 4.0, stainDps: 9,  weights: 1 },
+      { dmg: 52, rate: 1.54, r: 134, stainDur: 4.4, stainDps: 11, weights: 1 },
     ],
   },
   downwash: {

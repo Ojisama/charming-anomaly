@@ -19814,6 +19814,28 @@ function testLeLargeWeapons() {
     assert.ok(sawStain, 'Ballast left no stain — the lingering half of the card is missing')
   }
 
+  // (c2) TWO WEIGHTS STILL HIT THE BODY THEY WERE THROWN AT. Jetsam rings the extra drops around
+  // the aim point, and every drop used to go out to 1.15r — so a two-weight cast landed one blast
+  // on each side of a lone enemy and touched it with neither. The card read as firing normally and
+  // dealt nothing, which is the exact shape of failure this file exists to catch. Same fixture as
+  // (c), one mod deep: if the first weight ever stops landing ON the target, hp comes back at 1e6.
+  {
+    Math.random = mulberry32(80183)
+    const run = largeRun('ballast', 5)
+    run.weaponMods.ballast = { jetsam: 1 }
+    const p = run.player
+    const e = makeStatusEnemy(run, { x: p.x + 140, y: p.y, hp: 1e6, speed: 0 })
+    run.enemies.push(e)
+    let drops = 0
+    for (let i = 0; i < 400; i++) {
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0; only(run, e)
+      drops = Math.max(drops, run.lobs.length)
+      e.x = p.x + 140; e.y = p.y
+    }
+    assert.ok(drops >= 2, 'precondition: jetsam must throw 2 weights per cast, saw ' + drops)
+    assert.ok(e.hp < 1e6, 'a two-weight Ballast cast landed on both sides of its target and missed it')
+  }
+
   // (d) LEST THROWS JUNK, AND THE JUNK IS RENDER-SIDE ONLY — so nothing here can be asserted by
   // running the sim. render.js is not importable, so this is a source-text lint in the house style
   // (runs EV/SQ/CP/VO/XX), guarding the three ways the set fails SILENTLY. Owner from play,

@@ -9238,7 +9238,10 @@ function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
     const ty = target ? target.y : p.y
     // ONE local, bound and divisor both -- see stepSiltVeilWeapon above for what splitting it costs.
     const drops = ipecacN(run, Math.max(1, Math.round(stats.weights)))
-    const spread = drops > 1 ? stats.r * 1.15 : 0
+    // THE FIRST WEIGHT LANDS ON THE BODY, the extras ring around it. Spreading EVERY drop put the
+    // target in the hole between them: at 1.15r from a blast of radius r, a two-weight cast threw
+    // one to each side of an enemy and hit nothing at all (owner from play, 2026-08-20).
+    const spread = stats.r * 1.15
     // FOUL WATER, sampled at the THROW and carried on the lob rather than read again on landing.
     // The flight is BALLAST_FLIGHT (0.42s), so the two readings could barely differ -- and deciding
     // it when the player presses is what makes the card legible: the water you threw into is the
@@ -9246,9 +9249,10 @@ function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
     const stainMul = 1 + foulWater * pollutionFrac(run.charge, run.chargeMax)
     for (let i = 0; i < drops; i++) {
       const a = (i / drops) * Math.PI * 2
+      const off = i === 0 ? 0 : spread
       run.lobs.push({
         fromX: p.x, fromY: p.y,
-        tx: tx + Math.cos(a) * spread, ty: ty + Math.sin(a) * spread,
+        tx: tx + Math.cos(a) * off, ty: ty + Math.sin(a) * off,
         t: 0, flight: BALLAST_FLIGHT,
         dmg: stats.dmg, r: stats.r, look: 'ballast',
         stainDur: stats.stainDur, stainDps: stats.stainDps, stainMul,
