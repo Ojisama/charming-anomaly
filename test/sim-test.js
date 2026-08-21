@@ -132,7 +132,7 @@ import {
   // Book 2 The Surf: Humidity drives damage (Run US.d)
   HUMIDITY_DMG_FLOOR, resourceDamageMul, resourceRateMul,
   // Book 2 The Shelf: Pollution as a weapon mod (Run MB)
-  pollutionFrac, BALLAST_FLIGHT,
+  pollutionFrac, BALLAST_FLIGHT, BALLAST_TANK_MUL,
   LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_DMG, LUNGE_KILL_REFILL, LUNGE_BITE_MUL, STARVE_TICK,
   // Book 2 The Surf: the Shore Crab's guard (Run US.i)
   CRAB_GUARD_ARC,
@@ -6942,13 +6942,14 @@ function runModBudget() {
       r.enemies.push(makeStatusEnemy(r, { x: r.player.x + 260 + i * 10, y: r.player.y + i * 8, hp: 1e6, speed: 0 }))
     }
     r.events.length = 0
-    let castT = null, firstT = null, n = 0, t = 0
+    let castT = null, firstT = null, lastT = null, n = 0, t = 0
     while (t < 20) {
       stepSim(r, { x: 0, y: 0 }, dt)
       if (castT === null && r.events.some((e) => e.type === 'downwash')) castT = t
       if (castT !== null) {
         const booms = r.events.filter((e) => e.type === 'explode').length
         if (booms > 0 && firstT === null) firstT = t
+        if (booms > 0) lastT = t
         n += booms
       }
       r.events.length = 0
@@ -6958,7 +6959,7 @@ function runModBudget() {
       if (castT !== null && t > castT + WEAPONS.downwash.levels[4].duration + 0.4) break
     }
     assert(castT !== null, 'precondition: the downwash must cast within 20s')
-    return { delay: firstT === null ? Infinity : firstT - castT, bursts: n, dur: WEAPONS.downwash.levels[4].duration }
+    return { delay: firstT === null ? Infinity : firstT - castT, lastDelay: lastT === null ? Infinity : lastT - castT, bursts: n, dur: WEAPONS.downwash.levels[4].duration }
   }
 
   // (a) NO INERT CARDS, across every weapon in the game rather than only the six that changed.
@@ -7139,27 +7140,47 @@ function runModBudget() {
     console.log(`PASS run MB.e (Backblow): ${base.novas.length} -> ${narrow.novas.length} novas a half-turn apart at a 90deg cone; ${wideBase.novas.length} -> ${wide.novas.length} once Flare widens it past pi`)
   }
 
-  // (f) FOUL WATER scales the STAIN and leaves the CRATER alone, and it reads pollution the same way
-  // round as Scour. The impact has already been dealt off lo.r by the time the cloud is pushed, so a
-  // mod that scaled `r` itself would quietly buy impact damage the card never promised.
+  // (f) FOUL WATER widens the DRAG and leaves the CRATER alone, and it reads pollution the same way
+  // round as Scour. The impact is dealt off lo.r, so a mod that scaled `r` itself would quietly buy
+  // impact damage the card never promised.
+  //   ASSERTED AS AN EFFECT: a body parked between the crater and the drag ring must be SLOWED in
+  // filthy water and untouched in clean. Reading lo.dragMul instead would pass with the whole
+  // dragSq test deleted from the landing.
   {
-    const stainAt = (charge, mods) => {
+    const dragAt = (charge, mods) => {
       const run = boot('shelf', 'ballast', 5, mods, charge)
-      run.enemies.push(makeStatusEnemy(run, { x: run.player.x + 200, y: run.player.y, hp: 1e6, speed: 0 }))
+      // Just OUTSIDE the crater (r is 134 at L5), so only the widened ring can reach it. hp 1e6 and
+      // speed 0: the question is dragT, and a corpse cannot answer it.
+      const e = makeStatusEnemy(run, { x: run.player.x, y: run.player.y, hp: 1e6, speed: 0 })
+      run.enemies.push(e)
       assert(castUntil(run, (r) => r.lobs.length > 0, pin(charge)), 'precondition: the ballast must throw within 12s')
-      const impactR = run.lobs[0].r
-      advance(run, BALLAST_FLIGHT + 0.05, pin(charge))
-      const stain = run.blooms.filter((b) => b.look === 'silt')
-      assert(stain.length > 0, 'precondition: the drop must have left a stain')
-      return { impactR, maxR: stain[0].maxR, dps: stain[0].dmgPerTick }
+      const lo = run.lobs[0]
+      const impactR = lo.r
+      // Park it on the ring, between the crater and the widened drag, and hold it there through the
+      // landing — pin() puts it back on the player every frame otherwise.
+      const hold = (r) => { e.x = lo.tx + impactR * 1.25; e.y = lo.ty }
+      hold(run)
+      advance(run, BALLAST_FLIGHT + 0.05, hold)
+      return { impactR, dragT: e.dragT ?? 0, hp: e.hp }
     }
-    const clean = stainAt(SHELF_MAX, { foulWater: 1 })
-    const filthy = stainAt(0, { foulWater: 1 })
-    assert(filthy.maxR > clean.maxR * 1.5, `Foul Water must widen the stain in filthy water: ${filthy.maxR.toFixed(1)} against ${clean.maxR.toFixed(1)} clean`)
-    assert(filthy.dps > clean.dps * 1.5, `Foul Water must also raise the stain's damage: ${filthy.dps.toFixed(2)} against ${clean.dps.toFixed(2)} clean`)
+    const clean = dragAt(SHELF_MAX, { foulWater: 1 })
+    const filthy = dragAt(0, { foulWater: 1 })
+    assert(filthy.dragT > 0, 'Foul Water in filthy water must drag a body sitting outside the crater')
+    assert.strictEqual(clean.dragT, 0,
+      `Foul Water must buy NOTHING in clean water: a body at 1.25x the crater was dragged for ${clean.dragT}s`)
+    assert.strictEqual(filthy.hp, 1e6,
+      'the body outside the crater took impact damage — the drag ring is being used for the crush as well')
     assert(Math.abs(filthy.impactR - clean.impactR) < 1e-9,
-      `Foul Water must NOT touch the crater: impact r ${filthy.impactR} in filth against ${clean.impactR} clean — the card names the stain and only the stain`)
-    console.log(`PASS run MB.f (Foul Water): stain r ${clean.maxR.toFixed(0)}->${filthy.maxR.toFixed(0)}, dps ${clean.dps.toFixed(2)}->${filthy.dps.toFixed(2)}, crater r ${clean.impactR} unchanged`)
+      `Foul Water must NOT touch the crater: impact r ${filthy.impactR} in filth against ${clean.impactR} clean`)
+    // AND THE STAIN IS GONE. The owner cut it because it was Silt Veil's own picture given away on
+    // a rare; a landing that quietly pushes a look:'silt' bloom again would look entirely correct.
+    const plain = boot('shelf', 'ballast', 5, null, 0)
+    plain.enemies.push(makeStatusEnemy(plain, { x: plain.player.x + 200, y: plain.player.y, hp: 1e6, speed: 0 }))
+    assert(castUntil(plain, (r) => r.lobs.length > 0, pin(0)), 'precondition: the ballast must throw within 12s')
+    advance(plain, BALLAST_FLIGHT + 0.2, pin(0))
+    assert.strictEqual(plain.blooms.filter((b) => b.look === 'silt').length, 0,
+      'a ballast landing pushed a silt cloud — the stain is supposed to be gone (it made Silt Veil pointless)')
+    console.log(`PASS run MB.f (Foul Water): a body at 1.25x the crater is dragged ${filthy.dragT.toFixed(1)}s in filth and ${clean.dragT}s clean, takes no impact damage either way, crater r ${clean.impactR} unchanged, and no landing leaves a silt cloud`)
   }
 
   // (g) FOUL SPRING enlarges a cloud dropped in a LIVE upwelling and SPENDS that upwelling — and
@@ -7322,16 +7343,23 @@ function runModBudget() {
     assert(Math.abs(withHoleMods - withoutHoleMods) < 1e-6,
       `the Black Hole's mods leaked into the Downwash: ${withoutHoleMods.toFixed(1)} alone vs ${withHoleMods.toFixed(1)} while holding Big Crunch + Hungry Hole`)
 
-    // PLUNGE TURNS THE TIMER INTO A TRIGGER, and the trigger is the crowd reaching the MIDDLE.
-    // Two controls, because one is not enough here: the same mod with too few bodies must NOT fire
-    // early (or the card is just "shorter fuse"), and no mod at all must burn the whole pour.
-    // A mod read that never fires is indistinguishable from one that works, since the column bursts
-    // on expiry either way -- so nothing but the DELAY tells them apart.
+    // PLUNGE ADDS A BURST AND KEEPS THE POUR. It used to set h.life = 0, which retired the column
+    // on its early burst: measured over 324 columns (scripts/plunge-probe.mjs, shelf L5, 300s x 3
+    // seeds) that fired on 69% of them and served a median 1.00s of a 2.00s pour for exactly ONE
+    // burst -- the same burst the timer would have produced. The card traded half the gather for
+    // nothing and looked identical either way, which is what the owner reported as "doesn't work".
+    //
+    // THREE THINGS, and each needs its own control because any one alone is satisfiable by a stub:
+    //   - it fires EARLY (delay), or the mod is a no-op;
+    //   - it fires TWICE (bursts), or it is the old strictly-worse column;
+    //   - the column still serves its FULL pour, or the early burst is still being paid for.
+    // Plus the too-few control, or the trigger is just a shorter fuse.
     const noMod = burstOf(null, DOWNWASH_PLUNGE_N + 1)
     const plunged = burstOf({ plunge: 1 }, DOWNWASH_PLUNGE_N + 1)
     const tooFew = burstOf({ plunge: 1 }, DOWNWASH_PLUNGE_N - 1)
     assert(noMod.delay > noMod.dur * 0.9,
       `control: without Plunge the column must burst at the end of its pour (${noMod.delay.toFixed(2)}s of ${noMod.dur}s)`)
+    assert.strictEqual(noMod.bursts, 1, `control: an unmodded column must detonate once, got ${noMod.bursts}`)
     assert(plunged.delay < noMod.delay - 0.2,
       `Plunge must burst the column early: ${noMod.delay.toFixed(2)}s unmodded vs ${plunged.delay.toFixed(2)}s modded`)
     // NOT ZERO. The column lands on the clump it chose, so counting the whole radius would fire on
@@ -7341,16 +7369,98 @@ function runModBudget() {
       'Plunge fired on the cast frame — the trigger radius is back to the full column and the gather is gone')
     assert(tooFew.delay > noMod.dur * 0.9,
       `control: ${DOWNWASH_PLUNGE_N - 1} bodies must not trip a ${DOWNWASH_PLUNGE_N}-body trigger (burst at ${tooFew.delay.toFixed(2)}s)`)
-    // AND IT MUST NOT PAY TWICE. downwashBurst zeroes `burst`; without that, life=0 sends the column
-    // straight into the expiry branch on the next frame for a second full detonation, which is a
-    // strictly better mod that nothing else would notice.
-    assert.strictEqual(plunged.bursts, 1, `Plunge must detonate exactly once, got ${plunged.bursts}`)
-    console.log(`PASS run MB.i (Downwash): lands in the knot of 5 not on the straggler, burst ${burstDmg.toFixed(0)} out-damages the whole pour ${pourDmg.toFixed(0)} (no core crush), Big Crunch + Hungry Hole leak nothing (${withoutHoleMods.toFixed(1)} both ways), Plunge fires at ${plunged.delay.toFixed(2)}s against a ${noMod.dur}s pour, once, and ${DOWNWASH_PLUNGE_N - 1} bodies do not trip it`)
+    // TWICE, AND EXACTLY TWICE. The condition stays true for the rest of the pour, so `h.trigger = 0`
+    // is the only thing stopping a detonation on every single frame -- delete it and this reads in
+    // the dozens, restore h.life = 0 and it reads 1.
+    assert.strictEqual(plunged.bursts, 2,
+      `Plunge must add a burst and let the column finish on its own: want 2, got ${plunged.bursts}`)
+    // ...and the pour is not shortened to pay for it. The second burst is the EXPIRY one, so it
+    // lands at the end of a full-length pour.
+    assert(plunged.lastDelay > noMod.dur * 0.9,
+      `Plunge shortened the pour: last burst at ${plunged.lastDelay.toFixed(2)}s of a ${noMod.dur}s pour`)
+    console.log(`PASS run MB.i (Downwash): lands in the knot of 5 not on the straggler, burst ${burstDmg.toFixed(0)} out-damages the whole pour ${pourDmg.toFixed(0)} (no core crush), Big Crunch + Hungry Hole leak nothing (${withoutHoleMods.toFixed(1)} both ways), Plunge fires at ${plunged.delay.toFixed(2)}s and again at ${plunged.lastDelay.toFixed(2)}s of a ${noMod.dur}s pour (2 bursts against the control's ${noMod.bursts}), and ${DOWNWASH_PLUNGE_N - 1} bodies do not trip it`)
   }
 
   console.log('PASS run MB (Book 2 chapters 1-2 mod budget): no inert cards across every weapon, four-plus apiece in both chapters, rate mods speed up, count mods land on bodies, and the three Pollution/clean-water cards pay the right way round — including that a fouled patch stops recharging you')
 }
 run(runModBudget)
+
+
+// ---- Run ST: THE SHELF'S SPAWN TILT ----------------------------------------------------------
+// Owner from play, 2026-08-21: "reduce top curve spawn numbers by 25% and increase bottom curve
+// spawn by 25% (more mobs early, less late)". CHAPTERS.shelf.balance.spawnTilt is the first knob in
+// this game that changes the SHAPE of a chapter's spawn curve rather than scaling all of it, so it
+// has no existing guard to ride on.
+//
+// ASSERTED AS AN EFFECT AGAINST A TILT-0 CONTROL, and it has to be: reading run.mods.spawnTilt back
+// passes with the multiply deleted from stepSpawning, which is the whole of the mechanic. And the
+// control is the SAME chapter with the field cleared, not a different chapter — every other spawn
+// input (spawnMul, maxAlive, the roster, the obstacle field) then cancels, so the only thing left
+// that can move the counts is the tilt.
+//
+// Kill counting, not run.enemies.length: maxAliveFor caps the live array, so the cap absorbs the
+// early surge and the ARRAY reads nearly flat while the SPAWN RATE is 25% up. That version of this
+// test measured 61 against 60 and would have passed with the tilt at any value. Immortal player,
+// one big weapon, so the crowd is consumed as fast as it arrives and total spawns show up as kills.
+function runSpawnTilt() {
+  const dt = 1 / 60
+  const window = (tilt, from, to) => {
+    Math.random = mulberry32(90210)
+    const meta = makeMeta()
+    ensureChapterMeta(meta, 'shelf')
+    meta.chapters.shelf.unlocked = true
+    const run = createRun(meta, { chapter: 'shelf', difficulty: 3 })
+    assert.strictEqual(run.chapter, 'shelf', 'the tilt harness booted the wrong chapter')
+    run.mods.spawnTilt = tilt
+    run.player.maxHP = run.player.hp = 1e9
+    run.weapons = [{ id: 'bubblePuff', level: 5 }]
+    let kills = 0, prev = run.kills ?? 0
+    while (run.time < to && run.phase !== 'dead') {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      const now = run.kills ?? 0
+      if (run.time >= from) kills += now - prev
+      prev = now
+    }
+    return kills
+  }
+  const TILT = CHAPTERS.shelf.balance.spawnTilt
+  assert.ok(TILT > 0, 'CHAPTERS.shelf.balance.spawnTilt is gone — this scenario has nothing to measure')
+
+  // The FIRST 60s against the same 60s with the tilt off. spawnTiltMul is 1 + tilt at t=0 falling
+  // to 1 at half a run, so the early window should sit around +19% (the mean of the ramp) — banded
+  // wide because the two arms diverge into different worlds after the first extra spawn.
+  const earlyOn = window(TILT, 0, 60), earlyOff = window(0, 0, 60)
+  assert.ok(earlyOn > earlyOff * 1.06,
+    `The Shelf's tilt must front-load the crowd: ${earlyOn} kills in the first 60s against a flat curve's ${earlyOff}`)
+
+  // ...and the LAST 60s must go the other way, or the knob is a plain spawnMul with extra steps.
+  const lateOn = window(TILT, 240, 300), lateOff = window(0, 240, 300)
+  assert.ok(lateOn < lateOff * 0.94,
+    `The Shelf's tilt must thin the late crowd: ${lateOn} kills over 240-300s against a flat curve's ${lateOff}`)
+
+  // AND IT IS A TILT, NOT A CUT — the assertion the other two cannot make on their own. The RATIO
+  // of early to late is what a reshape moves and what a flat spawnMul cannot touch at all: halving
+  // every spawn in the run passes "fewer late" and would pass "more early" against a weaker control,
+  // and leaves this number exactly where it started.
+  //   NOT a total-conservation check. The first cut of this scenario asserted one and went red at
+  // 527 against 603, correctly: spawnRate is back-loaded (a t^2 term past SPAWN_LATE_START), so a
+  // symmetric +-25% takes more bodies out of the late half than it puts into the early one. The
+  // tilt really does cut ~13% of the run's spawns, and that is recorded in spawnTiltMul's own block
+  // rather than papered over here.
+  const ratioOn = earlyOn / lateOn, ratioOff = earlyOff / lateOff
+  assert.ok(ratioOn > ratioOff * 1.15,
+    `the tilt changed the count but not the shape: early:late ${ratioOn.toFixed(3)} tilted against ${ratioOff.toFixed(3)} flat`)
+
+  // The other six Undertow chapters must not have quietly acquired one.
+  const tilted = Object.keys(CHAPTERS).filter((id) => (CHAPTERS[id].balance?.spawnTilt ?? 0) !== 0)
+  assert.deepStrictEqual(tilted, ['shelf'],
+    `spawnTilt is meant to be The Shelf's alone, found it on ${tilted.join(', ')}`)
+
+  console.log(`PASS run ST (shelf spawn tilt): first 60s ${earlyOff} -> ${earlyOn} kills, last 60s ${lateOff} -> ${lateOn}, early:late ${ratioOff.toFixed(2)} -> ${ratioOn.toFixed(2)} — a pivot, not a flat cut, and 1 of ${Object.keys(CHAPTERS).length} chapters carries it`)
+}
+run(runSpawnTilt)
 
 
 // ---- Run PY: THE WRECK, after the premise turned round (v7.x, owner directive) ----------------
@@ -19756,62 +19866,93 @@ function testLeLargeWeapons() {
       'and the shove is what made standing still the best way to play The Shelf')
   }
 
-  // (b) SILT VEIL FEARS AND POISONS. Both halves. The fear is published into e.fearT, a contract
-  // field a missing `fear:` on the cast would leave untouched with no other symptom; and a cloud
-  // that fears without ticking is a card whose own French says 'empoisonner'.
+  // (b) SILT VEIL DAZES AND POISONS. Both halves. The daze is published into e.stunT, a contract
+  // field a missing `daze:` on the cast would leave untouched with no other symptom; and a cloud
+  // that dazes without ticking is a card whose own French says 'empoisonner'.
+  //   It FEARED until 2026-08-21 (owner from play: "they should daze / stun not fear"), and the
+  // swap is asserted from both ends — nothing may write e.fearT any more, or the scatter that made
+  // the card fight its own chapter is quietly still there.
   {
     Math.random = mulberry32(80182)
     const run = largeRun('siltVeil', 5)
     const p = run.player
     const e = makeStatusEnemy(run, { x: p.x + 20, y: p.y, hp: 1e6, speed: 0 })
     run.enemies.push(e)
-    let sawFear = false, fearFrames = 0
-    // 15s, not 5: FEAR_REFRACTORY is 2s ON TOP of the fear's own duration, so applications are at
+    let sawDaze = false, dazeFrames = 0, sawFear = false
+    // 15s, not 5: SILT_DAZE_REFRACTORY is 2s ON TOP of the daze's own hold, so applications are at
     // least ~3.4s apart and a 5s window sees exactly one — nothing to compare a decay against.
     const FRAMES = 900
     for (let i = 0; i < FRAMES; i++) {
       stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0; only(run, e)
-      const ft = e.fearT ?? 0
-      if (ft > 0) { sawFear = true; fearFrames += 1 }
-      e.x = p.x + 20; e.y = p.y   // hold it in the cloud — fear would otherwise carry it out
+      if ((e.stunT ?? 0) > 0) { sawDaze = true; dazeFrames += 1 }
+      if ((e.fearT ?? 0) > 0) sawFear = true
+      e.x = p.x + 20; e.y = p.y   // hold it in the cloud
     }
     assert.ok(run.blooms.some((b) => b.look === 'silt'), 'Silt Veil never dropped a silt-tagged cloud')
-    assert.ok(sawFear, 'Silt Veil never feared anything — the cloud is a plain toxin bloom')
-    assert.ok(e.hp < 1e6, 'Silt Veil feared without poisoning')
+    assert.ok(sawDaze, 'Silt Veil never dazed anything — the cloud is a plain toxin bloom')
+    assert.ok(!sawFear, 'Silt Veil still fears — the daze was added beside the scatter instead of replacing it')
+    assert.ok(e.hp < 1e6, 'Silt Veil dazed without poisoning')
     // …AND IT MUST NOT BE A PERMANENT LOCK. A PERSISTENT zone re-applies for as long as a body
-    // stands in it, which is the shape that turns a scare into a stunlock. FEAR_REFRACTORY (2s on
-    // top of the fear's own duration) is what actually prevents it, so this bound is guarding that
-    // the cloud goes through the ordinary fear path rather than writing e.fearT directly.
-    const uptime = fearFrames / FRAMES
+    // stands in it, which is exactly the shape that turns a daze into a stunlock — and a stun locks
+    // harder than a fear did, because a stunned body does not even walk away. e.dazeCd (armed at
+    // APPLICATION to hold + SILT_DAZE_REFRACTORY) is what prevents it, so this bound is guarding
+    // that the cloud goes through that window rather than writing e.stunT directly.
+    const uptime = dazeFrames / FRAMES
     assert.ok(uptime < 0.75,
-      `Silt Veil held a body feared ${(uptime * 100).toFixed(0)}% of the time it stood in the cloud — ` +
-      'that is a lock, not a scare. It is bypassing FEAR_REFRACTORY.')
+      `Silt Veil held a body dazed ${(uptime * 100).toFixed(0)}% of the time it stood in the cloud — ` +
+      'that is a lock, not a daze. It is bypassing dazeCd.')
     // ⚠ MUTATION-SURVIVOR, RECORDED RATHER THAN PAPERED OVER: deleting `spendCC(run, e)` from the
-    // bloom's fear path passes everything here, and that is CORRECT rather than a hole. spendCC is
+    // bloom's daze path passes everything here, and that is CORRECT rather than a hole. spendCC is
     // the diminishing-returns ledger, and _ccDR recovers to full over CC_DR_RECOVER (2.5s) while
-    // this cloud cannot re-fear the same body inside fear + FEAR_REFRACTORY (>= 3.4s). DR has always
-    // recovered by the next application, so no assertion can see it without asserting something the
-    // design does not claim. The call stays because it is the shared convention and because that
-    // margin is one config edit wide — but it is not testable here, and pretending otherwise would
-    // have meant writing a check that passes for the wrong reason.
+    // this cloud cannot re-daze the same body inside hold + SILT_DAZE_REFRACTORY (>= 2.9s). DR has
+    // always recovered by the next application, so no assertion can see it without asserting
+    // something the design does not claim. The call stays because it is the shared convention and
+    // because that margin is one config edit wide — but it is not testable here, and pretending
+    // otherwise would have meant writing a check that passes for the wrong reason.
   }
 
-  // (c) BALLAST LANDS, HURTS AND STAINS. The stain is the half that fails silently: the impact is
-  // loud and obvious, and a landing that pushed no bloom would look entirely correct.
+  // (c) BALLAST LANDS, HURTS, DRAGS — AND CRUSHES TANKS DOUBLE. All three fail silently: the
+  // impact is loud and obvious, and a landing that set no dragT or forgot the archetype multiplier
+  // would look entirely correct.
   {
     Math.random = mulberry32(80183)
     const run = largeRun('ballast', 5)
     const p = run.player
     const e = makeStatusEnemy(run, { x: p.x + 140, y: p.y, hp: 1e6, speed: 0 })
     run.enemies.push(e)
-    let sawStain = false
+    let sawDrag = false, sawStain = false
     for (let i = 0; i < 400; i++) {
       stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0; only(run, e)
+      if ((e.dragT ?? 0) > 0) sawDrag = true
       if (run.blooms.some((b) => b.look === 'silt')) sawStain = true
       e.x = p.x + 140; e.y = p.y
     }
     assert.ok(e.hp < 1e6, 'Ballast never damaged anything')
-    assert.ok(sawStain, 'Ballast left no stain — the lingering half of the card is missing')
+    assert.ok(sawDrag, 'Ballast pinned nothing — the lingering half of the card is missing')
+    assert.ok(!sawStain, 'Ballast left a silt stain — that is Silt Veil\'s card and it was cut from this one')
+  }
+
+  // (c1) …AND THE TANK MULTIPLIER IS AN ARCHETYPE READ, not a size or hp read. Two bodies in the
+  // SAME run so the throw, the flight and the landing are one event: only `type` differs, so the
+  // damage gap can be nothing else. Both sit on the aim point, so both are inside the crater.
+  {
+    Math.random = mulberry32(80184)
+    const run = largeRun('ballast', 5)
+    const p = run.player
+    const drone = makeStatusEnemy(run, { x: p.x + 140, y: p.y, hp: 1e6, speed: 0 })
+    const tank = makeStatusEnemy(run, { x: p.x + 140, y: p.y, hp: 1e6, speed: 0 })
+    drone.type = 'drone'; tank.type = 'tank'
+    run.enemies.push(drone, tank)
+    for (let i = 0; i < 400; i++) {
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0
+      run.enemies = run.enemies.filter((x) => x.id === drone.id || x.id === tank.id)
+      drone.x = tank.x = p.x + 140; drone.y = tank.y = p.y
+      if (drone.hp < 1e6) break
+    }
+    const droneTook = 1e6 - drone.hp, tankTook = 1e6 - tank.hp
+    assert.ok(droneTook > 0, 'precondition: the ballast must have landed on both bodies')
+    assert.ok(Math.abs(tankTook / droneTook - BALLAST_TANK_MUL) < 0.01,
+      `a tank took ${tankTook.toFixed(0)} against a drone's ${droneTook.toFixed(0)} — want exactly x${BALLAST_TANK_MUL}`)
   }
 
   // (c2) TWO WEIGHTS STILL HIT THE BODY THEY WERE THROWN AT. Jetsam rings the extra drops around

@@ -58,7 +58,7 @@ import {
   BLIND_FAITH_NO_REROLL, BLIND_FAITH_FLOOR,
   IPECAC_COUNT_MUL, IPECAC_FIRE_MUL,
   ENEMIES, ELITE, WAVE_TABLE,
-  spawnRate, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, lateEliteFor, SPAWN_RING, speedCreepMul,
+  spawnRate, spawnTiltMul, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, lateEliteFor, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
   OBSTACLE_CELL, OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS, OBSTACLE_FIELD_RADIUS,
   xpForLevel, GEM_VALUE,
@@ -106,7 +106,7 @@ import {
   CLAW_BASE_CRIT, CLAW_DOUBLE_EVERY, CLAW_DOUBLE_DELAY, CLAW_DOUBLE_DMG_FRAC,
   WEAVE_AMP, WEAVE_FREQ,
   QUILL_R, QUILL_RETALIATE_CD, QUILL_REBOUND_DMG_MUL, QUILL_REBOUND_SPEED_MUL,
-  FEAR_SPEED_MUL, FEAR_REFRACTORY, UNSHAKEABLE_CC_MUL, CC_DR_STEP, CC_DR_RECOVER, CC_DR_FLOOR,
+  FEAR_SPEED_MUL, FEAR_REFRACTORY, SILT_DAZE_REFRACTORY, UNSHAKEABLE_CC_MUL, CC_DR_STEP, CC_DR_RECOVER, CC_DR_FLOOR,
   SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
   SHRIEK_SPINE_DMG_FRAC, SHRIEK_SPINE_SPEED, SHRIEK_SPINE_RANGE_MUL,
   // v5.4 city
@@ -119,7 +119,7 @@ import {
   MOWER_DECK_LEN, MOWER_DECK_W, MOWER_ENEMY_HP_FRAC, mowerDmgAt, MOWER_KB,
   DEBRIS_R,
   TORNADO_SWEEP_R, TORNADO_RESPACE,
-  DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM, drawdownSecsFor,
+  DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM, DOWNWASH_CAST_FRAC, drawdownSecsFor,
   HYDRANT_LAUNCH_KB, HYDRANT_STUN,
   HYDRANT_SPRAY_FRAC, HYDRANT_IDLE_FRAC, HYDRANT_JET_PUSH, ZONE_MAX_LIVE, HYDRANT_STAGGER, HYDRANT_STREAMS_FALLBACK, HYDRANT_STREAMS_MAX,
   // v5.4 skies
@@ -154,6 +154,7 @@ import {
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BALLAST_FLIGHT, BALLAST_BLIND_THROW,
+  BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
   GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC, RUSH_DUR, RUSH_MAX_STACKS,
@@ -836,7 +837,7 @@ function stepSpawning(run, dt) {
   // oscillation into it would corrupt it permanently (the same reason RAMPAGE's multipliers are
   // read-time). The payoff half is the damage multiplier in anomalyDamageMul.
   const chaosMul = run.anomalies?.chaosPact && chaosSurgeActive(run.time) ? CHAOS_PACT_SPAWN_MUL : 1
-  run._spawnAcc += spawnRate(run.time) * run.mods.spawnMul * laneMul * chaosMul * dt
+  run._spawnAcc += spawnRate(run.time) * run.mods.spawnMul * spawnTiltMul(run.mods.spawnTilt ?? 0, run.time) * laneMul * chaosMul * dt
   // SUBMISSION: your allies must not eat the swarm's spawn budget. They live in run.enemies,
   // so without this the cap counts them and the game quietly spawns FEWER hostiles while an ally is
   // out — a second, invisible buff on top of the card, and one that corrupts any kills-per-run
@@ -1561,7 +1562,7 @@ function freshEnemyFields() {
     bleed: 0, bleedDps: 0,
     // Status effects (v5.4, see the enemies[] contract in state.js): fear inverts the seek, stun
     // freezes it, enrage speeds it up and hardens its contact damage. Ticked in stepEnemyMovement.
-    fearT: 0, fearCd: 0, _ccDR: 1, stunT: 0, enrageT: 0,
+    fearT: 0, fearCd: 0, dazeCd: 0, dragT: 0, _ccDR: 1, stunT: 0, enrageT: 0,
     bloomSlowT: 0, // v6.4: a plain speed debuff (folds into slowMul), refreshed by stepBlooms
     // v7.x The Deep, both PUBLISHED for render.js (see the status block there):
     //   scentT  seconds left on the Scent mark. Amplifies every source of damage (dealDamage) and
@@ -1979,7 +1980,11 @@ function stepEnemyMovement(run, dt) {
     // speed while bloomSlowT is up — the same ceiling chill/freeze already have here; not worth a
     // second guard in every one of those machines for a debuff this soft.
     const bloomMul = (e.bloomSlowT || 0) > 0 ? (1 - BLOOM_SLOW) : 1
-    const slowMul = (1 - elSlow(run, e)) * bloomMul  // 1.0 slow IS the freeze; no separate branch
+    // Ballast's drag. Its OWN field rather than a magnitude on bloomSlowT: that window is refreshed
+    // every frame a body stands in a cloud, so a shared field would let any bloom hold the heavier
+    // ballast number alive for the cloud's whole duration.
+    const dragMul = (e.dragT || 0) > 0 ? (1 - BALLAST_DRAG) : 1
+    const slowMul = (1 - elSlow(run, e)) * bloomMul * dragMul  // 1.0 slow IS the freeze; no separate branch
 
     // Frenzied: speeds up once badly hurt. Cheerleader (pacer): speeds up anyone else nearby.
     let affixSpeedMul = 1
@@ -2106,6 +2111,9 @@ function stepEnemyMovement(run, dt) {
     } else if ((e.fearCd ?? 0) > 0) {
       e.fearCd = Math.max(0, e.fearCd - dt)
     }
+    // Silt Veil's daze window. Armed at APPLICATION (see SILT_DAZE_REFRACTORY) rather than at
+    // expiry, because e.stunT is shared with three other sources and none of them is this one.
+    if ((e.dazeCd ?? 0) > 0) e.dazeCd = Math.max(0, e.dazeCd - dt)
     // CC diminishing returns climb back to full over CC_DR_RECOVER seconds of not being controlled.
     if ((e._ccDR ?? 1) < 1) e._ccDR = Math.min(1, (e._ccDR ?? 1) + dt / CC_DR_RECOVER)
     // A tank's knockback window (see claimKb). Armed on APPLICATION, unlike fear's — the thing being
@@ -2115,6 +2123,7 @@ function stepEnemyMovement(run, dt) {
     if (e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt)
     if (e.enrageT > 0) e.enrageT = Math.max(0, e.enrageT - dt)
     if (e.bloomSlowT > 0) e.bloomSlowT = Math.max(0, e.bloomSlowT - dt) // v6.4: refreshed by stepBlooms while inside a cloud
+    if (e.dragT > 0) e.dragT = Math.max(0, e.dragT - dt) // Ballast's impact drag; set once at the landing, never refreshed
     // v7.x The Deep: refreshed by stepScent while inside the smell, exactly as bloomSlowT is by
     // stepBlooms. The decay HAS to live here and not in stepScent — stepScent only walks the bodies
     // currently in range, so a body that swims OUT of the radius would otherwise keep the mark, and
@@ -5835,7 +5844,7 @@ const WEAPON_STAT_MODS = {
   // The Shelf's Downwash. `secondFall` (the count) and `plunge` (the trigger) are read at their own
   // sites, like every other count and every other behavioural mod — a count folded here would grow
   // the stat and leave the loop bound alone, which renders identically to no mod at all.
-  downwash:  { suction: ['pull', 'pct'], widePour: ['radius', 'pct'], lingering: ['duration', 'pct'] },
+  downwash:  { suction: ['pull', 'pct'], widePour: ['radius', 'pct'], lingering: ['duration', 'pct'], deluge: [['dmg', 'burst'], 'pct'] },
   // v6.7.6: wideBeam moves BOTH width and length — Long Beam merged into it (see WEAPON_MODS).
   rainbow:   { wideBeam: [['width', 'length'], 'pct'], sustain: ['duration', 'pct'] },
   // v5.0 pond natives: frenzy/quickCast (attack-speed mods) are NOT here — folding them into the
@@ -7037,7 +7046,8 @@ function holePullT(d, h) {
 // drawn every frame by syncHoles, so a cast flash would be a second telling of what is already on
 // screen. The burst reuses `explode`, which every consumer already handles.
 function stepDownwashWeapon(run, w, stats, fireRateMul, dt) {
-  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => fireDownwash(run, stats))
+  const quickPour = run.weaponMods.downwash?.quickPour ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quickPour)), dt, () => fireDownwash(run, stats))
 }
 
 // WHERE THE COLUMN LANDS, and the one thing this weapon does not share with the Black Hole: the
@@ -7048,7 +7058,9 @@ function stepDownwashWeapon(run, w, stats, fireRateMul, dt) {
 //   hundreds, bucket them on a grid; not before.
 function pickDownwashSpot(run, radius, excludeIds) {
   const p = run.player
-  const viewSq = run.viewRadius * run.viewRadius
+  // DOWNWASH_CAST_FRAC of the viewport, not the whole of it: a column placed on the densest clump
+  // anywhere in view lands two thirds of a screen away often enough to be the owner's complaint.
+  const viewSq = (run.viewRadius * DOWNWASH_CAST_FRAC) ** 2
   const inView = run.enemies.filter((e) => {
     // An ally is never a mark, for the reason pickHoleSpot states: this is aim dilution.
     if (e._dead || isAlly(e) || excludeIds.has(e.id)) return false
@@ -7167,16 +7179,18 @@ function stepHoles(run, dt) {
       }
     }
 
-    // PLUNGE (the downwash mod): the column stops waiting out its pour and goes off once the crowd
-    // has been dragged into its middle — a trigger instead of a timer, which is a different card to
-    // play rather than a bigger number. `h.life = 0` is what retires it (the filter at the bottom of
-    // this function does the removal); drop that line and the trigger stays true, so the column
-    // detonates on EVERY frame for the rest of its pour. Run MB.i counts the bursts for that reason.
+    // PLUNGE (the downwash mod): the column goes off once the crowd has been dragged into its
+    // middle, AND KEEPS POURING — so the card adds a burst instead of trading the gather away for
+    // an earlier one. `h.trigger = 0` is the whole guard: the condition below stays true for the
+    // rest of the pour, so without disarming it the column detonates on EVERY frame. Run MB.i
+    // counts the bursts for that reason, and it is now counting for two.
+    //   It used to set `h.life = 0` here instead. Measured before the change
+    //   (scripts/plunge-probe.mjs): 69% of columns fired, each serving a median 1.00s of a 2.00s
+    //   pour for exactly one burst — the mod was a strictly worse column with no tell.
     const armed = h.duration - h.life >= h.duration * DOWNWASH_PLUNGE_ARM
     if (h.trigger > 0 && armed && inside >= h.trigger) {
       downwashBurst(run, h)
-      h.life = 0
-      continue
+      h.trigger = 0
     }
 
     // Coins get sucked in too (same rim-to-core ramp, no elite-style resist); gems are left
@@ -7617,12 +7631,14 @@ function stepBlooms(run, dt) {
         const dx = e.x - bl.x, dy = e.y - bl.y
         if (dx * dx + dy * dy > rSq) continue
         applyDotDamage(run, e, tickDmg)
-        // SILT VEIL's fear. Gated on the same three conditions the nova path uses, and for the
-        // same reason: gating on the cooldown alone lets a persistent cloud re-apply every tick,
-        // a Math.max refresh then holds fearT at full for as long as the body stands in it, and
-        // that reads as a working refractory while measuring 100% uptime.
-        if ((bl.fear ?? 0) > 0 && (e.fearT ?? 0) <= 0 && (e.fearCd ?? 0) <= 0 && !resistsCC(e)) {
-          e.fearT = bl.fear * ccScale(run, e)
+        // SILT VEIL's daze, published into the e.stunT contract field render.js already reads.
+        // The window is the whole guard: gating on "is it stunned" alone lets a persistent cloud
+        // re-stun on the frame the last hold lapses, which measures as 100% uptime while reading
+        // like a working refractory. dazeCd covers the hold AND the gap after it.
+        if ((bl.daze ?? 0) > 0 && (e.dazeCd ?? 0) <= 0 && !resistsCC(e)) {
+          const hold = bl.daze * ccScale(run, e)
+          e.stunT = Math.max(e.stunT || 0, hold)
+          e.dazeCd = hold + SILT_DAZE_REFRACTORY
           spendCC(run, e)
         }
         if (sporeOn && !bl.look && !bl._mini && e._dead) {
@@ -9067,25 +9083,31 @@ function stepLobs(run, dt) {
       continue
     }
 
-    // A BALLAST landing: impact damage, then the stain it leaves in the water. The stain is a
-    // run.blooms entry, so the lingering half of this card is the same cloud Silt Veil drops and
-    // needs no machinery of its own — and a ballast dropped into your own veil is one patch of
-    // water doing both jobs, which is the combo the pair was designed around.
+    // A BALLAST landing: impact damage in lo.r, then a DRAG in a wider ring around it.
+    //
+    // NO STAIN. It used to push a run.blooms entry tagged look: 'silt' — Silt Veil's own cloud,
+    // drawn Silt Veil's way — and the owner cut it from play (2026-08-21) because a rare card
+    // producing the normal card's whole picture for free is a normal card nobody takes. See
+    // WEAPONS.ballast for the argument; e.dragT is what replaced it.
+    //
+    // TANKS TAKE BALLAST_TANK_MUL. Against a Moon Jelly, whose `phase` flag makes it immune half
+    // the time, this is the pool's only card that answers the chapter's one damage sponge. The
+    // multiplier rides the impact only, never the drag — a slow does not care how heavy you are.
     if (lo.look === 'ballast') {
       const bSq = lo.r * lo.r
+      // `dragMul` is Foul Water's pollution scaling, banked at the THROW (see stepBallastWeapon).
+      // It widens the DRAG and NOT the crater, which is the card's whole picture: a fouled drop
+      // pins further than it splashes. 1 without the mod.
+      const dragSq = (lo.r * (lo.dragMul ?? 1)) ** 2
       for (const e of run.enemies) {
         if (e._dead || isAlly(e)) continue
         const dx = e.x - lo.tx, dy = e.y - lo.ty
-        if (dx * dx + dy * dy <= bSq) applyDamage(run, e, lo.dmg)
+        const dSq = dx * dx + dy * dy
+        if (dSq <= bSq) applyDamage(run, e, lo.dmg * (e.type === 'tank' ? BALLAST_TANK_MUL : 1))
+        // Refreshed, not stacked, and NOT through the CC-DR budget: this is a plain speed debuff
+        // like bloomSlowT, not a control that stops a body — resistsCC guards holds, not drags.
+        if (!e._dead && dSq <= dragSq) e.dragT = Math.max(e.dragT || 0, BALLAST_DRAG_T)
       }
-      // `stainMul` is Foul Water's pollution scaling, banked at the throw. It multiplies the stain
-      // and NOT the crater: the impact already fired above off lo.r, so a fouled drop spreads
-      // further than it splashes, which is the card's whole picture. 1 without the mod.
-      const stainMul = lo.stainMul ?? 1
-      run.blooms.push({
-        x: lo.tx, y: lo.ty, r: 0, maxR: lo.r * stainMul, t: 0, dur: lo.stainDur,
-        dmgPerTick: lo.stainDps * BLOOM_TICK * stainMul, look: 'silt', slow: 0,
-      })
       run.events.push({ type: 'ballast', x: lo.tx, y: lo.ty, radius: lo.r })
       continue
     }
@@ -9177,9 +9199,9 @@ function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 
-// SILT VEIL. A cloud at the player's feet. `slow: 0` opts out of BLOOM_SLOW_T the way Foxfire does
+// SILT VEIL. A cloud planted on a body. `slow: 0` opts out of BLOOM_SLOW_T the way Foxfire does
 // — the murk chapter does not slow the player and must not quietly slow the crowd either — and
-// `fear` is the card, applied in stepBlooms against the shared fear cooldown so it cannot pin.
+// `daze` is the card, applied in stepBlooms against its own dazeCd window so it cannot pin.
 // FOUL SPRING (the siltVeil mod). Is (x,y) inside an upwelling that has not been spent yet, and if
 // so, spend it and say so. `drawdown` is the field stepCharge counts occupancy into and render.js
 // fades the circle off, so setting it here retires the circle through the tell the player has been
@@ -9206,7 +9228,8 @@ function foulUpwelling(run, x, y) {
 
 function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
   const foulSpring = run.weaponMods.siltVeil?.foulSpring ?? 0
-  fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => {
+  const quickStir = run.weaponMods.siltVeil?.quickStir ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickStir)), dt, () => {
     // PLANTED ON A BODY, not at the player's feet (owner, 2026-08-19). pickBloomSpot is Toxin
     // Bloom's own chooser -- a random live enemy within castRange, falling back to a random offset
     // near the player when nothing is in reach -- so the two zone weapons in this game answer
@@ -9228,7 +9251,7 @@ function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
       run.blooms.push({
         x, y,
         r: 0, maxR: stats.maxR * mul, t: 0, dur: stats.dur * mul,
-        dmgPerTick: stats.dmgPerTick * mul, look: 'silt', slow: 0, fear: stats.fear,
+        dmgPerTick: stats.dmgPerTick * mul, look: 'silt', slow: 0, daze: stats.daze,
       })
     }
   })
@@ -9253,8 +9276,8 @@ function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
     // FOUL WATER, sampled at the THROW and carried on the lob rather than read again on landing.
     // The flight is BALLAST_FLIGHT (0.42s), so the two readings could barely differ -- and deciding
     // it when the player presses is what makes the card legible: the water you threw into is the
-    // water that pays. Scales the stain's SIZE and its DAMAGE, which is why one card names both.
-    const stainMul = 1 + foulWater * pollutionFrac(run.charge, run.chargeMax)
+    // water that pays. Scales the DRAG's radius only; the crush stays lo.r.
+    const dragMul = 1 + foulWater * pollutionFrac(run.charge, run.chargeMax)
     for (let i = 0; i < drops; i++) {
       const a = (i / drops) * Math.PI * 2
       const off = i === 0 ? 0 : spread
@@ -9262,8 +9285,7 @@ function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
         fromX: p.x, fromY: p.y,
         tx: tx + Math.cos(a) * off, ty: ty + Math.sin(a) * off,
         t: 0, flight: BALLAST_FLIGHT,
-        dmg: stats.dmg, r: stats.r, look: 'ballast',
-        stainDur: stats.stainDur, stainDps: stats.stainDps, stainMul,
+        dmg: stats.dmg, r: stats.r, look: 'ballast', dragMul,
       })
     }
   })
