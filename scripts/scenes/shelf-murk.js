@@ -15,9 +15,9 @@
 //      dim and high-contrast. If frame 6 looks like The Twilight in sepia, darkTint is wrong.
 //   2. Are the upwellings clearly not sun shafts? They share the geometry exactly (same cell, chance,
 //      radius and drift), so the drawing is the ONLY thing keeping them apart — see UPWELLING_VIS.
-//   3. Does the player still slow down? It must NOT. The murk costs sight only (resource.dark
-//      speedFloor 1), which is the one number in this chapter that is a decision rather than an
-//      inheritance. A frame cannot show this; it is here so the reader does not go looking.
+//   3. Does the player slow down? It must — resource.dark speedFloor 0.7, owner from play
+//      2026-08-18 ("it should also slow you down"), overturning the speedFloor 1 this scene was
+//      written against. A frame cannot show it; it is here so the reader does not go looking.
 
 // A crowd at two radii — the murk's cost is that you cannot see these arriving, so an empty frame
 // would show the dimming and hide the point of it. The Shelf runs maxAliveMul 0.65, so 10 is safely

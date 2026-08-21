@@ -1261,18 +1261,24 @@ const CONFIG = {
   'Flare': 'Éventail',
   'puff width': 'largeur du jet',
   // Its three new mods (2026-08-19), on the same 'jet' the two above are keyed to. 'Décapage' is
-  // abrasive stripping -- what filthy water does to what it is blown against -- and it carries the
-  // card's bargain, which is that the dirtier the water the more the puff is worth. The Pollution
-  // bar is 'Pollution' in both languages, so 'l'eau la plus sale' names the bar's own top end in
-  // words rather than repeating the noun.
+  // abrasive stripping, and it survived the card being INVERTED on 2026-08-20 -- scouring is what
+  // CLEAN water does, so the French name fits the new direction better than it fit the old one and
+  // did not need re-coining.
+  //
+  // The value is the owner's own sentence ("+50% de dégâts du jet, diminue avec la pollution"),
+  // less the '+50%' -- which ui.js prefixes for every pct mod, so writing it here would print it
+  // twice -- and less the 'de', because the prefix reads '+30% dégâts du jet' on Froth two lines up
+  // and one card carrying a 'de' the others do not would read as a typo. 'ta Pollution' rather than
+  // 'la': the bar is 'Pollution' in both languages and every card that reads a bar names it
+  // possessively, which is the rule the owner set himself after the v7.163 card failed to.
   'Long Puff': 'Jet Long',
   'puff radius': 'rayon du jet',
   'Scour': 'Décapage',
-  'puff damage, rising with your Pollution (up to {n})': 'dégâts du jet, augmentent avec ta Pollution (jusqu\'à {n})',
+  'puff damage, falling with your Pollution': 'dégâts du jet, diminue avec ta Pollution',
   'Backblow': 'Contre-Souffle',
   'a second cone blows out behind you': 'un second cône souffle derrière toi',
   'Silt Veil': 'Voile de Vase',
-  'Stirs the bottom into a cloud that poisons and scatters what swims in.': 'Soulève la vase pour empoisonner tes poursuivants.',
+  'Stirs the bottom into a cloud that poisons and dazes what swims in.': 'Soulève la vase pour empoisonner et étourdir tes poursuivants.',
   // Voile de Vase's four (2026-08-19). 'vase' throughout, never 'limon', because the weapon's own
   // name already fixed the word -- the rule the Coquille Ricochet entry states: one word for one
   // thing across the card, the sheet and the mods. 'Volute' is a curl of something spreading
@@ -1284,10 +1290,15 @@ const CONFIG = {
   'silt damage per tick': 'dégâts de la vase par tick',
   'Billow': 'Volute',
   'Roil': 'Remous',
+  // The cadence (2026-08-21). 'Brassage' is stirring water specifically, which keeps the mod on
+  // the verb the weapon's own name and desc already use ('Soulève la vase') rather than on a
+  // second image; 'Treuil Rapide' is the pattern for the pair.
+  'Quick Stir': 'Brassage Rapide',
+  'stir rate': 'cadence de brassage',
   'Foul Spring': 'Source Souillée',
   'a cloud in clean water has {n} more duration, damage and size, but fouls the patch': 'un nuage dans l\'eau claire gagne {n} de durée, de dégâts et de taille, mais souille la zone',
   'Ballast': 'Lest',
-  'Drops dumped weight on the crowd. What it lands in stays fouled.': 'Lance un débris. Crée une flaque d\'eau souillée à l\'impact.',
+  'Drops dumped weight on the crowd. Whatever it does not crush, it pins down.': 'Lance un débris. Ce qu\'il n\'écrase pas, il le cloue sur place.',
   // Lest's four. 'Délestage' is literally jettisoning ballast, so the count mod is named for the
   // act the weapon performs rather than for the noun 'jetsam', which has no single French word.
   // 'flaque' matches the weapon's own description above, where the stain is already 'une flaque
@@ -1298,7 +1309,7 @@ const CONFIG = {
   'Jetsam': 'Délestage',
   'extra weight(s) per drop': 'poids supplémentaire(s) par largage',
   'Foul Water': 'Eau Souillée',
-  'stain size and damage, rising with your Pollution (up to {n})': 'taille et dégâts de la flaque, augmentent avec ta Pollution (jusqu\'à {n})',
+  'the drag catches {n} wider than the crush, rising with your Pollution': 'le ralentissement porte {n} plus loin que l\'impact, augmente avec ta Pollution',
   // Le Large's FOURTH native (2026-08-20), and the second of its two clean-water cards. Owner's
   // own line for the desc, as with the three above -- shorter than the English and leading on
   // what the card does rather than on how it arrives. 'Chasse d'eau' is his pick over 'Plongeon'
@@ -1317,7 +1328,15 @@ const CONFIG = {
   'how long the column pours': 'durée de la colonne',
   'Second Fall': 'Seconde Colonne',
   'Plunge': 'Plongeon',
-  'bursts the moment the crowd is inside': 'éclate dès que la meute est dedans',
+  'bursts as soon as the crowd is in, and keeps pouring': 'éclate dès que la meute est dedans, et la colonne continue',
+  // The two axes the card was missing (2026-08-21). 'Déluge' needs no gloss; the damage desc
+  // names BOTH numbers because the mod moves both, and 'colonne' is the word the other four mods
+  // already use. 'Chasse Rapide' takes the weapon's own noun rather than 'Colonne Rapide', which
+  // would read as a short column instead of a frequent one.
+  'Deluge': 'Déluge',
+  'column and burst damage': 'dégâts de la colonne et de l\'explosion',
+  'Quick Pour': 'Chasse Rapide',
+  'pour rate': 'cadence des colonnes',
   // Le Large's own mutator. 'Eau Croupie' over 'Eau Morte' (owner, 2026-08-20). The desc says
   // 'zones d'eau claire' and never coins a noun for the circles, the same rule Source Souillee's
   // line states: the game has no player-facing word for them in either language.

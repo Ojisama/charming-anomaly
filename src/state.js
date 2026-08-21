@@ -907,6 +907,17 @@ function generateWells(sig) {
  *               enrageT (s of enrage remaining): while > 0 the enemy's seek speed is ×
  *                 FLASHLIGHT_SPEED_MUL and its contact damage × FLASHLIGHT_DMG_MUL. Applied by the
  *                 undergrowth's flashlightCone elites (see stepFlashlightCones in sim.js).
+ *               dazeCd (s): Silt Veil's daze window. While > 0 no silt cloud may daze this body
+ *                 again. Armed at APPLICATION to (the hold + SILT_DAZE_REFRACTORY), unlike fearCd's
+ *                 expiry-armed window -- the daze publishes into the SHARED e.stunT, so no frame
+ *                 here can be identified as "the daze ended" rather than "the net/roar/hydrant
+ *                 stun ended". Without it a persistent cloud re-stuns on the frame the hold lapses.
+ *               dragT (s of Ballast drag remaining): while > 0, stepEnemyMovement's slowMul is
+ *                 multiplied by (1 - BALLAST_DRAG). Set once by a ballast landing (Math.max, so a
+ *                 second weight refreshes rather than stacks) and never refreshed after -- which is
+ *                 why it is not bloomSlowT with a magnitude: that field IS refreshed every frame a
+ *                 body stands in a cloud, and sharing it would let any bloom hold the heavier
+ *                 ballast number alive for the cloud's whole duration.
  *               bloomSlowT (v6.4, s of bloom-slow remaining): while > 0, stepEnemyMovement's
  *                 slowMul is multiplied by (1 - BLOOM_SLOW) — a plain speed debuff, stacking with
  *                 chill/freeze rather than replacing the seek like fearT/stunT do. Refreshed to
@@ -981,6 +992,11 @@ function generateWells(sig) {
  *               enemies within r; removed once t reaches dur. _mini (optional): true for
  *               sporeburst mini-clouds (SPOREBURST_FRAC of the parent's maxR), spawned when a
  *               non-mini cloud's own tick kills an enemy — minis never spawn further minis.
+ *               OPTIONAL `look` tags a cloud as another weapon's (see the Foxfire and Silt Veil
+ *               notes below); OPTIONAL `slow: 0` opts it out of BLOOM_SLOW_T entirely; OPTIONAL
+ *               `daze` (seconds) is Silt Veil's, published into e.stunT against the enemy's own
+ *               dazeCd window (see SILT_DAZE_REFRACTORY). It replaced a `fear` field in v7.x --
+ *               fear scattered the crowd out of the cloud that was damaging it.
  *               twinBloom (see WEAPON_MODS.bloom) plants extra clouds per cast. Render re-reads
  *               r/maxR/t every frame (alpha/size ramp), no per-frame event.
  *               tideCarried (v6.4, see WEAPON_MODS.bloom): with picks currently held, stepBlooms
@@ -1245,6 +1261,23 @@ function generateWells(sig) {
  *   player — so the window rides with you rather than staying where the button went down.
  *   render.js reads it directly to draw the crest for as long as it lasts (drawShorebreak).
  *   0 on every run of every other chapter.
+ * _clearT: number — seconds of Shelf Clear left (CHAPTERS[chapter].clear). Set by stepRepulse on
+ *   the same press, cooldown and charge spend as everything else on that button, to
+ *   CLEAR_DUR_MIN + (CLEAR_DUR_AT_FULL - CLEAR_DUR_MIN) * t — an EMPTY bar still parts the murk,
+ *   the same no-spiral floor _burstT and _shorebreakT have. ADDITIVE like _burstT: the Pulse's
+ *   shove still fires, and the press emits its usual `repulse` event and NO event of its own,
+ *   because the widened radius is already carried on that one (see stepRepulse's comment).
+ *   Ticked down in stepCharge, which is also the only thing that reads it — it turns it into
+ *   `sightCharge` below, and render.js never sees this field at all.
+ *   0 on every run of every other chapter.
+ * sightCharge: number — WHAT THE PLAYER CAN SEE, in the same units as `charge`, published every
+ *   frame by stepCharge and read by exactly one thing: render.js's updateDark, which feeds it to
+ *   lightRadius() in place of the raw bar. Equal to `charge` on every frame of every chapter
+ *   except the ones where The Shelf's Clear is live, where it is held at chargeMax and then eased
+ *   back over the window's last CLEAR_SIGHT_FADE seconds. It exists so the Clear can lend sight
+ *   without moving the bar — the alternative, teaching render.js the button, is the shape of the
+ *   frozen-enemies scar (sim knew, render was never told). Never lower than `charge`: an upwelling
+ *   that refills you mid-window must not make the water darker.
  * _drownAcc: number — the part-tick accumulator for the DoT above, reset to 0 the moment `charge`
  *   comes off zero so a partial tick banked before you reached a pocket is never spent minutes
  *   later. 0 and untouched everywhere else.
@@ -1572,12 +1605,12 @@ function generateWells(sig) {
  *   {type:'explode'}. The branch sits ABOVE the debrisToss shrapnel block in stepLobs on purpose —
  *   `shrapnel` is read off run.weaponMods for EVERY lob, so a build holding both weapons would
  *   otherwise spray Debris Toss splinters out of the player's fishing nets.
- *   OPTIONAL `look: 'ballast'` + `stainDur`/`stainDps` make it a BALLAST drop (The Shelf) instead:
- *   the landing deals dmg in r as usual and then pushes a run.blooms cloud tagged look:'silt', so
- *   the lingering half of that weapon is Silt Veil's machinery rather than a fourth kind of zone.
- *   `stainMul` (optional, default 1) is Foul Water's pollution scaling, banked at the THROW and
- *   applied to the stain's radius and damage only -- never to the impact, which has already been
- *   dealt off `r` by the time the cloud is pushed.
+ *   OPTIONAL `look: 'ballast'` makes it a BALLAST drop (The Shelf) instead: the landing deals dmg
+ *   in r (x BALLAST_TANK_MUL against e.type === 'tank') and sets e.dragT = BALLAST_DRAG_T on
+ *   everything in a wider ring. `dragMul` (optional, default 1) is Foul Water's pollution scaling,
+ *   banked at the THROW, and widens THAT ring only -- never the crater, which has already been
+ *   dealt off `r`. It pushed a run.blooms stain until v7.x; the owner cut it because that stain was
+ *   Silt Veil's whole card, drawn Silt Veil's way, given away free on a rare.
  *   ⚠ run.lobs has THREE render consumers (syncLobs, redrawHazards' amber landing ring, and
  *   drawColumns) and nothing about the array says so -- `look` is what each one filters on.
  * longlines[i]: { x, y, nx, ny, half, len, dmg, tick, acc, life, duration, snagged } — Longline's
@@ -1921,6 +1954,9 @@ export function createRun(meta, opts = {}) {
     mods.enemyHpMul *= bal.enemyHpMul ?? 1
     mods.xpMul *= bal.xpMul ?? 1
     mods.maxAliveMul *= bal.maxAliveMul ?? 1
+    // NOT a multiply: this one is a tilt around 0, read by spawnTiltMul in stepSpawning. Absent
+    // everywhere but The Shelf, and 0 there means the shipped flat curve.
+    mods.spawnTilt = bal.spawnTilt ?? 0
   }
   // Pre-run consumables (see CONSUMABLES in config.js and the doc block above).
   const consumables = opts.consumables ?? []
@@ -2168,6 +2204,13 @@ export function createRun(meta, opts = {}) {
     // v7.x The Surf: seconds of Shorebreak left. Same pattern — every run carries it, and only a
     // chapter declaring `shorebreak` ever moves it off 0.
     _shorebreakT: 0,
+    // v7.x The Shelf: seconds of Clear left, and the sight the bar is worth right now. Same pattern
+    // for the timer; `sightCharge` is the one field here that is NOT inert elsewhere — stepCharge
+    // writes it in every chapter with a resource, where it is simply `charge`. It starts at the
+    // same full bar `charge` does so the very first frame of a run is lit before stepCharge has
+    // ever run (render.js falls back to run.charge if it is missing, but a run must not open dark).
+    _clearT: 0,
+    sightCharge: chargeMax,
     // v7.x The Trawl: the net wall, and the countdown to the next pass. `net` is a single OBJECT and
     // not an array, because there is only ever one wall and it is an infinite LINE rather than an
     // entity with a position — { nx, ny, pos, end, holes, _acc }, where (nx, ny) is the unit normal

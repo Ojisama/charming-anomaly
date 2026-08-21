@@ -654,17 +654,17 @@ export const DEADFALL_REARM_MUL = 0.2
 //   THE FLOOR DEEPENS resource.dark.speedFloor RATHER THAN ADDING A SECOND SLOW, so it stays inside
 // the MIN composition every slow in the game joins (slowMul, sim.js) and cannot stack with a latch
 // or a web into a stop.
-//   0.4 IS DERIVED FROM THE COPY, NOT EYEBALLED (owner, 2026-08-20: "make this true, at 100%
-// pollution it should be 40% speed"). The card says the murk takes TWICE as much of your speed, and
-// the chapter's own floor of 0.7 takes 30% -- so twice is 60%, which is a floor of 0.4. A round 0.5
-// would take 50%, i.e. 1.67x, and the sentence would be the same arithmetic-in-copy lie DEADFALL's
-// "80% faster" was. Run PB7 asserts the ratio against both floors so retuning either one goes red
-// rather than quietly making the card's own description false.
-// balance_decision : damage cap unmeasured, cost is sight plus 60% of speed 2026-08-20
-//  - re-measure on charge-probe.mjs after Phase 3 replaces two of the three creatures: the kill
-//    rate is what killRefill is read against, and dwell time on the bar is this card's whole subject.
+//   THIS NUMBER IS DERIVED FROM THE COPY, NOT EYEBALLED. The card says the murk takes TWICE as
+// much of your speed, so it is whatever doubles resource.dark.speedFloor's bite: the chapter takes
+// 15%, twice is 30%, and the floor is 0.7. It MOVES WHENEVER THAT ONE DOES -- it was 0.4 against a
+// chapter floor of 0.7, and the 2026-08-21 cut to 0.85 dragged it up with it. Run PB7 asserts the
+// ratio against both floors, so retuning either alone goes red rather than quietly making the
+// card's own description false, and that is exactly how this edit was caught.
+// balance_decision : follows the chapter's slow, cost is sight plus 30% of speed 2026-08-21
+//  - a much milder card than the 60% version, because its parent number halved. If it now reads
+//    as too cheap, the honest fix is the CHAPTER's floor, not a second literal here.
 export const RUNOFF_MAX_DMG_MUL = 2.5
-export const RUNOFF_SPEED_FLOOR = 0.4
+export const RUNOFF_SPEED_FLOOR = 0.7
 // SOY MILK. Shipped as "paper-neutral and measured neutral (+4.6% kills)", with a note that the
 // probe could not see its real upside because element procs are counted PER HIT. That note was
 // right, and v7.4 quantified it: against a take-and-skip control (body d3, 120 runs) the card is
@@ -2100,27 +2100,35 @@ export const WEAPONS = {
   },
   siltVeil: {
     name: 'Silt Veil',
-    desc: 'Stirs the bottom into a cloud that poisons and scatters what swims in.',
+    desc: 'Stirs the bottom into a cloud that poisons and dazes what swims in.',
     icon: '🌫️', rarity: 'normal',
     // A run.blooms entry tagged look: 'silt', dropped at the player's feet on a timer — the same
     // array the pond's Toxin Bloom and The Twilight's Foxfire use, and the third card to carry a
     // look tag so the three cannot be told apart by radius (which is a guess that starts being
     // wrong the first time any of them is retuned).
     //
-    // `fear` IS THE CARD, and it is published into e.fearT — the contract field the roster, the
+    // `daze` IS THE CARD, and it is published into e.stunT — the contract field the roster, the
     // renderer and SFX_FOR_EVENT already read. A brand-new "blinded" flag would have needed its own
     // tint, its own particle and its own sound before it was distinguishable from doing nothing,
-    // which is the failure CLAUDE.md's elements rework shipped. Fish scatter out of a silt cloud;
-    // that IS fear, and it already has a full tell.
+    // which is the failure CLAUDE.md's elements rework shipped.
+    //
+    // IT USED TO FEAR (e.fearT), and the swap is the owner's, from play 2026-08-21: "they should
+    // daze / stun not fear". Fear SCATTERS, which walked the crowd out of the cloud that was
+    // damaging it and away from every other card in this arsenal — the pool's whole shape is short
+    // range (a 90 degree cone, a dumped weight, a gather column), so the one card that pushed bodies
+    // out of reach was fighting its own chapter. A daze leaves them standing in the silt.
+    //   Metered by `dazeCd` (sim.js), NOT by e.stunT alone: gating a persistent cloud on "is it
+    //   stunned right now" re-applies the moment the last one lapses and reads as a permanent lock.
+    //   That is FEAR_REFRACTORY's shape kept, with the fear taken out of it.
     //   `slow: 0` is set at cast: this chapter does not slow you and must not quietly slow them
     //   either — a card whose text never mentions a slow must not add one.
     levels: [
       // `castRange` (2026-08-19): the cloud is planted ON A BODY, not at the player's feet -- owner,
       // "the clouds of vase should appear under enemies not under the player". This is how far it can
-      // reach to find one, and the ladder is set beside Toxin Bloom's (260 -> 320), the shipped
-      // weapon whose targeting this now shares. Slightly shorter at the bottom: this chapter is
-      // about not being able to see, and a first-level cast that reaches further than the murk does
-      // would be the weapon arguing with its own chapter.
+      // reach to find one. It sits well UNDER Toxin Bloom's (260 -> 320) even though the two share
+      // pickBloomSpot: owner from play 2026-08-21, the clouds must land nearer the player, and this
+      // chapter is about not being able to see -- a cast reaching further than the murk does is the
+      // weapon arguing with its own chapter.
       //
       // `clouds` is FLAT ACROSS THE LADDER: levels buy damage, reach and duration, and Roil is the
       // only thing that buys a second cloud -- the same split Flare owns on the Bubble Puff's width,
@@ -2130,16 +2138,18 @@ export const WEAPONS = {
       // silt on the pause build sheet. `skips`, `crustDur`, `setDur` and `hooks` all exist for
       // exactly this reason -- a per-weapon key earns a per-weapon label, and being unique to this
       // weapon's levels[] means no other build sheet gains a row.
-      { dmgPerTick: 6,  rate: 4.4, maxR: 116, dur: 3.4, fear: 0.9, clouds: 1, castRange: 240 },
-      { dmgPerTick: 8,  rate: 4.1, maxR: 126, dur: 3.7, fear: 1.0, clouds: 1, castRange: 260 },
-      { dmgPerTick: 11, rate: 3.8, maxR: 136, dur: 4.0, fear: 1.1, clouds: 1, castRange: 280 },
-      { dmgPerTick: 13, rate: 3.5, maxR: 148, dur: 4.4, fear: 1.2, clouds: 1, castRange: 300 },
-      { dmgPerTick: 15, rate: 3.2, maxR: 162, dur: 4.8, fear: 1.4, clouds: 1, castRange: 320 },
+      // balance_decision : silt veil hits twice as hard and plants 40% nearer 2026-08-21
+      //  - castRange is now UNDER Toxin Bloom's, not beside it; the two no longer share a ladder.
+      { dmgPerTick: 16, rate: 3.38, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1, castRange: 145 },
+      { dmgPerTick: 20, rate: 3.15, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1, castRange: 155 },
+      { dmgPerTick: 28, rate: 2.92, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1, castRange: 170 },
+      { dmgPerTick: 34, rate: 2.69, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1, castRange: 180 },
+      { dmgPerTick: 40, rate: 2.46, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1, castRange: 195 },
     ],
   },
   ballast: {
     name: 'Ballast',
-    desc: 'Drops dumped weight on the crowd. What it lands in stays fouled.',
+    desc: 'Drops dumped weight on the crowd. Whatever it does not crush, it pins down.',
     icon: '⚓', rarity: 'rare',
     // THE POOL'S ONLY ANSWER TO DISTANCE. Bubble Puff is a ring on the player and Silt Veil is a
     // cloud at their feet, so without this the chapter has no card that reaches and the whole
@@ -2149,18 +2159,32 @@ export const WEAPONS = {
     // drawColumns) and nothing about the array says so — the Sunspear shipped wearing Debris Toss's
     // landing ring for exactly this reason. look: 'ballast' is filtered OUT of the other two.
     //
-    // The stain is a second run.blooms entry pushed at the landing, so the lingering half of the
-    // card is the same cloud machinery Silt Veil uses rather than a fourth kind of zone. That is
-    // also what makes the two cards combine: a ballast dropped into your own veil is one patch of
-    // water doing both jobs.
+    // IT NO LONGER STAINS THE WATER, and the deletion is the owner's, from play 2026-08-21:
+    // "debris should not trigger vase clouds otherwise vase becomes useless". The landing used to
+    // push a run.blooms entry tagged look: 'silt' -- the same cloud Silt Veil plants, drawn the same
+    // way -- so a build holding both had a rare card that produced the normal card's whole picture
+    // for free, on a shorter cadence, on top of an impact. Two weapons, one thing on screen.
+    //
+    // WHAT REPLACED IT IS A DRAG (e.dragT): the impact pins what it does not kill, BALLAST_DRAG for
+    // BALLAST_DRAG_T. A weight lands on something and it stops moving properly; that is the same
+    // sentence the sprite already draws, and it does not occupy the chapter's zone slot.
+    //
+    // AND IT CRUSHES TANKS: BALLAST_TANK_MUL on the impact against e.type === 'tank'. The Shelf's
+    // tank is the Moon Jelly, whose `phase` flag makes it damage-immune half the time -- so the
+    // pool's one heavy card is also the pool's answer to the one creature that shrugs off chip
+    // damage. Nothing else in this arsenal reads an archetype.
     levels: [
       // `weights` flat across the ladder, and named for the same reason Silt Veil's `clouds` is:
       // 'Projectiles' is the wrong noun for a dumped weight. Jetsam owns the second one.
-      { dmg: 26, rate: 2.60, r: 96,  stainDur: 3.0, stainDps: 5,  weights: 1 },
-      { dmg: 31, rate: 2.45, r: 104, stainDur: 3.3, stainDps: 6,  weights: 1 },
-      { dmg: 37, rate: 2.30, r: 112, stainDur: 3.6, stainDps: 7,  weights: 1 },
-      { dmg: 44, rate: 2.15, r: 122, stainDur: 4.0, stainDps: 9,  weights: 1 },
-      { dmg: 52, rate: 2.00, r: 134, stainDur: 4.4, stainDps: 11, weights: 1 },
+      // balance_decision : the stain is gone; +20% impact and +15% fire rate pay for it 2026-08-21
+      //  - measured -30% relative at L1 with the stain removed and nothing given back; the owner
+      //    split the compensation across both knobs rather than damage alone, and the census says
+      //    that is the right shape (damage alone saturates: waste climbs 29% -> 59% by +60%).
+      { dmg: 31, rate: 1.74, r: 96,  weights: 1 },
+      { dmg: 37, rate: 1.63, r: 104, weights: 1 },
+      { dmg: 44, rate: 1.54, r: 112, weights: 1 },
+      { dmg: 53, rate: 1.43, r: 122, weights: 1 },
+      { dmg: 62, rate: 1.34, r: 134, weights: 1 },
     ],
   },
   downwash: {
@@ -2197,11 +2221,12 @@ export const WEAPONS = {
       //
       // `burst` is the card. At L5 it is 13x one tick, so a column that expires with the crowd
       // still outside it has done almost nothing — placement is the skill this weapon sells.
-      { dmg: 3, tick: 0.25, interval: 4.6, radius: 130, duration: 1.6, pull: 200, burst: 40 },
-      { dmg: 4, tick: 0.25, interval: 4.3, radius: 143, duration: 1.7, pull: 218, burst: 52 },
-      { dmg: 5, tick: 0.25, interval: 4.0, radius: 156, duration: 1.8, pull: 236, burst: 65 },
-      { dmg: 6, tick: 0.25, interval: 3.8, radius: 168, duration: 1.9, pull: 254, burst: 78 },
-      { dmg: 7, tick: 0.25, interval: 3.6, radius: 180, duration: 2.0, pull: 270, burst: 92 },
+      // balance_decision : downwash fires and hits 30% harder, a non-starter 2026-08-20
+      { dmg: 4, tick: 0.25, interval: 3.54, radius: 130, duration: 1.6, pull: 200, burst: 52 },
+      { dmg: 5, tick: 0.25, interval: 3.31, radius: 143, duration: 1.7, pull: 218, burst: 68 },
+      { dmg: 6, tick: 0.25, interval: 3.08, radius: 156, duration: 1.8, pull: 236, burst: 84 },
+      { dmg: 8, tick: 0.25, interval: 2.92, radius: 168, duration: 1.9, pull: 254, burst: 101 },
+      { dmg: 9, tick: 0.25, interval: 2.77, radius: 180, duration: 2.0, pull: 270, burst: 120 },
     ],
   },
   // -- The Deep's native (spec §6.5) -------------------------------------------------------------
@@ -2387,11 +2412,26 @@ export const DOWNWASH_PLUNGE_N = 4
 // gather the card is built on and turned it into an instant blast where the crowd already was.
 // Half the radius is a distance the pull has to actually cover.
 export const DOWNWASH_PLUNGE_FRAC = 0.5
-// ...and the earliest it may fire, as a share of the pour. Without it the mod is strictly better
-// than not taking it: a survivors crowd is already packed, so the column would trip on the frame
-// it lands however tight the trigger radius is, and the wind-up the whole card is built on would
-// exist only against stragglers. Plunge SHORTENS the pour, at most by half; it never deletes it.
-export const DOWNWASH_PLUNGE_ARM = 0.5
+// ...and the earliest it may fire, as a share of the pour. Without it the column would trip on the
+// frame it lands however tight the trigger radius is -- a survivors crowd is already packed, and
+// the column deliberately picks the packed spot -- so the wind-up the card is built on would exist
+// only against stragglers.
+//
+// ⚠ PLUNGE NO LONGER RETIRES THE COLUMN, and that is the whole of the 2026-08-21 fix. Owner from
+// play: the dive mod "doesn't work". Measured (scripts/plunge-probe.mjs, shelf L5, 300s x 3 seeds,
+// 324 columns): it fired on 69% of them -- so it was not broken -- and every one of those served a
+// median 1.00s of a 2.00s pour and produced exactly ONE burst, the same one it would have produced
+// on the timer. The card traded away half the gather for nothing, and nothing on screen said so:
+// an early burst and a late burst are the same picture. It now bursts AND pours on, disarming
+// itself (h.trigger = 0) so the column still ends on its own burst -- two bursts, full pour.
+// 0.25 rather than 0.5 because the burst is no longer a cost: it may as well land while they are in.
+export const DOWNWASH_PLUNGE_ARM = 0.25
+// How far from the player a column may be placed, as a fraction of run.viewRadius. Owner from play,
+// 2026-08-21: "water columns trigger too far away from the player". pickDownwashSpot searched the
+// WHOLE viewport, which put the tail of the distribution at 503px on a 600px-radius phone -- a
+// column two thirds of a screen away, gathering a crowd that was never coming near you. A fraction
+// of the viewport rather than px, so it means the same thing on a phone and on a desktop.
+export const DOWNWASH_CAST_FRAC = 0.55
 export const HOLE_CORE_DMG_MUL = 3     // tick damage multiplier for enemies inside the core
 export const HOLE_PULL_DECAY = 3       // /s, decay rate of e.holePull once an enemy is no longer inside a hole
 
@@ -3049,9 +3089,18 @@ export const WEAPON_MODS = {
     flare:      { name: 'Flare',       desc: 'puff width',         icon: '🪭', base: 0.30, kind: 'pct' },
     longPuff:   { name: 'Long Puff',   desc: 'puff radius',        icon: '📏', base: 0.25, kind: 'pct' },
     // The chapter's bar, sold as a card. Read at the cast site off pollutionFrac, so it is worth
-    // nothing in clean water and everything in the filth -- which makes it the one card that pays
-    // you for NOT running to a clean patch, against a bar whose every other consumer pays you for
-    // going. No knockback and no cadence, so it is outside the fence above.
+    // everything in clean water and nothing in the filth. No knockback and no cadence, so it is
+    // outside the fence above.
+    //
+    // IT POINTS THIS WAY ON PURPOSE, AND IT USED TO POINT THE OTHER WAY (owner, 2026-08-20).
+    // v7.163 shipped it rising with Pollution, on the argument that it was the one card paying you
+    // NOT to run to a clean patch. That argument was written before the Runoff anomaly existed.
+    // Runoff now pays for filth too (RUNOFF_MAX_DMG_MUL, +150%), and Foul Water is a third — so the
+    // old direction had three cards all asking for the same behaviour and the chapter's own
+    // upwellings arguing alone on the other side. Inverted, the starter and the anomaly pull
+    // against each other: take Runoff and the puff you started with is worth less, which is a
+    // decision rather than a stack. The name survives the flip and reads better for it — scouring
+    // is what clean water does.
     //
     // ⚠ THE COPY MUST NAME THE BAR. It first shipped as "up to {n} in the filthiest water", which
     // states the fiction and never connects it to the rail -- owner, from reading the card: "as a
@@ -3059,7 +3108,13 @@ export const WEAPON_MODS = {
     // polluted, is it related to my pollution bar?" It is, and the card now says so. The register is
     // the Sunlance's ('It reaches as far as your Light does.'), which is the shipped precedent for a
     // card that reads a bar: name it, possessively, and let the rail do the rest.
-    scour:      { name: 'Scour',       desc: 'puff damage, rising with your Pollution (up to {n})', icon: '🪣', base: 0.50, kind: 'pct' },
+    // NO `{n}` TEMPLATE, DELIBERATELY, and that is what puts the number first. ui.js:2469 renders a
+    // pct mod as `+${n} ${t(desc)}` UNLESS the desc carries its own {n}, in which case the template
+    // wins and the number lands wherever the sentence put it. The owner asked for "+50% de dégâts
+    // du jet, diminue avec la pollution" (2026-08-20) — number first, then the falloff — which is
+    // the auto-prefix form, and it also puts this card in the same shape as Froth and Flare beside
+    // it instead of being the one mod that spells its own bonus out mid-sentence.
+    scour:      { name: 'Scour',       desc: 'puff damage, falling with your Pollution', icon: '🪣', base: 0.50, kind: 'pct' },
     // The Breaker's Backwash idiom, and safe here for the reason the block above gives: a body in
     // the rear cone is still shoved once per cast, so coverage doubles and the per-body race does
     // not move. Read at the cast site (stepBubblePuffWeapon).
@@ -3109,6 +3164,10 @@ export const WEAPON_MODS = {
     // the clouds -- the eight-site trap CLAUDE.md documents, where multiplying only the bound spawns
     // the extras on top of each other and renders identically to no change at all.
     roil:       { name: 'Roil',        desc: 'extra cloud(s) per cast', icon: '🔷', kind: 'tier' },
+    // The cadence, and the fourth of the four axes the owner asked this card to sell (size, number,
+    // rate, damage). Divides the interval at the fire site like every other rate mod -- folding it
+    // into `rate` would SLOW the weapon, since that key is an interval.
+    quickStir:  { name: 'Quick Stir',  desc: 'stir rate',               icon: '⏩', base: 0.25, kind: 'pct' },
     // THE CARD THAT COSTS YOU SOMETHING (owner's pick, 2026-08-19). A cloud dropped inside a live
     // clean-water patch is bigger, hangs longer and bites harder, and SPENDS that patch -- the
     // chapter's own drawdown, set by writing the `drawdown` field stepCharge already counts and
@@ -3136,7 +3195,7 @@ export const WEAPON_MODS = {
     // filth spreads further than the splash, which is the whole picture of the card.
     // Same wording rule as Scour above, for the same reason and from the same reading: the card
     // names the bar it reads.
-    foulWater:  { name: 'Foul Water',  desc: 'stain size and damage, rising with your Pollution (up to {n})', icon: '🛢️', base: 0.50, kind: 'pct' },
+    foulWater:  { name: 'Foul Water',  desc: 'the drag catches {n} wider than the crush, rising with your Pollution', icon: '🛢️', base: 0.50, kind: 'pct' },
   },
   downwash: {
     // Five, and the split is deliberate: three fold into levels[] through WEAPON_STAT_MODS, one is
@@ -3157,7 +3216,15 @@ export const WEAPON_MODS = {
     // a bigger number — you place it into the crowd's path and it goes off when the crowd arrives,
     // instead of waiting out its full pour with everything already dead. Read at its own site in
     // stepHoles, so it needs no fold and no rate division.
-    plunge:    { name: 'Plunge',     desc: 'bursts the moment the crowd is inside', icon: '⬇️', kind: 'switch' },
+    plunge:    { name: 'Plunge',     desc: 'bursts as soon as the crowd is in, and keeps pouring', icon: '⬇️', kind: 'switch' },
+    // The two axes the card was missing (owner, 2026-08-21: there should be column duration,
+    // damage, cadence and number mods -- Long Fall and Second Fall already owned the other two).
+    // `deluge` moves BOTH damage numbers: the tick is nearly nothing and the burst is the card, so
+    // a mod raising only one of them would be a lie in whichever direction it picked.
+    // `quickPour` divides the interval at the fire site like every other rate mod -- folding it
+    // into `interval` would SLOW the weapon.
+    deluge:    { name: 'Deluge',     desc: 'column and burst damage', icon: '💥', base: 0.30, kind: 'pct' },
+    quickPour: { name: 'Quick Pour', desc: 'pour rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
   // Four apiece for the Trawl's natives, and four is the CEILING, not a starting point (spec §7:
   // the pool's real mod budget is ~28, and the rule is to cut a weapon rather than invent mods).
@@ -3248,7 +3315,7 @@ export const WEAPON_RATE_MODS = {
   burstHydrant: 'rapidHydrant', roar: 'rapidRoar', tailLash: 'quickTail',
   debrisToss: 'rapidToss', realityShard: 'rapidShard', pulsarSweep: 'rapidSweep',
   atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash', foxfire: 'quickKindle',
-  breaker: 'quickBreak', ballast: 'quickWinch',
+  breaker: 'quickBreak', ballast: 'quickWinch', siltVeil: 'quickStir', downwash: 'quickPour',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.
@@ -3549,6 +3616,13 @@ export const FEAR_SPEED_MUL = 1.25    // fleeing enemies scatter a bit faster th
 // Feared enemies now also STILL DEAL CONTACT DAMAGE (contactHarmless no longer checks fearT) — they
 // run from you, but a fleeing thing pinned against the crowd behind it is still a threat.
 export const FEAR_REFRACTORY = 2      // s an enemy is fear-proof after its own fear runs out
+// SILT VEIL'S DAZE (e.stunT), metered by e.dazeCd. FEAR_REFRACTORY's job for the second status,
+// and it exists for the same measured reason: a persistent cloud gated only on "is it stunned"
+// re-stuns on the frame the last one lapses, which is a permanent lock wearing a refractory's
+// clothes. Armed at APPLICATION and set to hold + this, unlike fear's expiry-armed window --
+// stunT is shared with the net, the hydrant and the roar, so there is no frame this code can
+// point at and call "the daze ended" rather than "some other stun ended".
+export const SILT_DAZE_REFRACTORY = 2 // s a body is daze-proof after a silt cloud dazes it
 
 // ONLY THE `anchored` ELITE AFFIX IGNORES CROWD CONTROL OUTRIGHT. Owner ruling, 2026-08-17: "Tanks
 // should not be immune to Fear, knockback and other CC, except if they have the elite modifiers
@@ -3967,8 +4041,41 @@ export const SUNLANCE_REACH_MIN = 0.45
 // BALLAST (The Shelf). Flight time, and the fallback throw distance when nothing is in range —
 // without the second one a cast with no target lands on the player's own head, which is not a
 // misfire the card should be able to make.
+// THE BUBBLE PUFF'S CEILING, in radians of TOTAL coverage — front cone plus rear cone, not per
+// cone. Owner from play, 2026-08-21: "in combination with the mod that shoots opposite bubble puff,
+// you can reach 360deg bubble puff and that's what I wanted to prevent."
+//
+// TWO PATHS REACHED A FULL CIRCLE and one number shuts both, which is why it is expressed as
+// coverage rather than as an arc cap:
+//   - Flare rolling high. `base: 0.3` x 5 picks x a mythic multiplier passes 2pi on its own, and
+//     stepBubblePuffWeapon turned that into `arc: null` — a literal full ring.
+//   - Flare at just under pi with Backblow held. Two opposite 179-degree cones close the circle,
+//     and the old gate (`stats.arc < Math.PI`) permitted exactly that: it existed to stop the two
+//     sectors OVERLAPPING and double-dipping the same body, not to stop them meeting.
+// 3/4 of a turn: still the widest thing in the chapter's arsenal by a distance, and still leaves a
+// quarter-turn of open water that a player has to actually turn to cover.
+//
+// ⚠ IT TAKES TWO CEILINGS, NOT ONE, and the second one is why. A single total-coverage cap makes
+// Flare and Backblow compete for the same number, so at maxed Flare the second cone adds exactly
+// nothing — it splits 270 contiguous degrees into 135 front and 135 back, leaving two 45-degree
+// gaps at your sides for the same total. That is a mod that gets WORSE the more you level its own
+// weapon, which is the inert-card failure with extra steps. BUBBLE_ARC_MAX caps one cone lower than
+// the pair's total, so Backblow always buys at least 30 degrees and always buys your back.
+export const BUBBLE_ARC_MAX = Math.PI * 4 / 3   // 240 deg: the widest a SINGLE cone may ever be
+//
+// ⚠ THIS IS THE ANTI-TURTLE RULE IN ITS SECOND FORM. v7.16x deleted the puff's knockback because a
+// 408px ring nothing crossed made STANDING STILL the best way to play the chapter (motionless beat
+// walking by 43s and won 29% of runs against 0%). A 360-degree cone is the same offer rebuilt out
+// of coverage instead of shove. Do not raise this to 2pi.
+export const BUBBLE_COVER_MAX = Math.PI * 1.5
 export const BALLAST_FLIGHT = 0.42       // seconds from the throw to the landing
 export const BALLAST_BLIND_THROW = 260   // px ahead, when there is nothing to aim at
+// balance_decision : a weight crushes tanks double and pins for 2s 2026-08-21
+//  - BALLAST_DRAG is DEEPER than BLOOM_SLOW (0.35) on purpose: this one lands once and expires,
+//    where a cloud's is refreshed every frame a body stands in it.
+export const BALLAST_TANK_MUL = 2        // impact multiplier against e.type === 'tank'
+export const BALLAST_DRAG = 0.5          // speed fraction removed by the landing
+export const BALLAST_DRAG_T = 2          // s the drag holds; set once, never refreshed
 // The size of the THROWN JUNK on screen, which is deliberately not `r`. `r` is where it will
 // LAND — 96 to 134px — and the lob rig scaled its payload by exactly that, off a 12px bake, so a
 // ballast flew as the kaiju's masonry chunk magnified 8-11x: the same sprite as Debris Toss and
@@ -4416,6 +4523,17 @@ export const SPAWN_LATE_QUAD = 0.0004   // extra t^2 coefficient beyond SPAWN_LA
 export const SPAWN_EARLY_BOOST = 0.35   // +35% at t=0, +17.5% at t=30, +0% from t=60
 export const SPAWN_EARLY_UNTIL = 60     // s the boost tapers away over
 export const spawnEarlyMul = (t) => (t >= SPAWN_EARLY_UNTIL ? 1 : 1 + SPAWN_EARLY_BOOST * (1 - t / SPAWN_EARLY_UNTIL))
+// PER-CHAPTER TILT of the curve above, and the only knob in this file that changes the SHAPE of a
+// chapter's spawn curve rather than scaling all of it (that is balance.spawnMul). +tilt at t=0,
+// falling linearly through 1 at half a run to -tilt at RUN_DURATION. 0 -- every chapter but The
+// Shelf -- is exactly 1 at every t, so this multiplies into stepSpawning for free everywhere else.
+//   ⚠ IT IS NOT TOTAL-NEUTRAL, and do not describe it as one. spawnRate is back-loaded (a t^2 term
+// past SPAWN_LATE_START), so the same +-25% removes far more bodies from the late half than it adds
+// to the early one: measured at tilt 0.25 on The Shelf, the first 60s gains ~9% and the last 60s
+// loses ~18%, for ~13% fewer spawns across the two windows. That is a real difficulty cut riding
+// along with the reshape. Run ST asserts the SHAPE (the early:late ratio) rather than the total,
+// which is the only thing a flat cut cannot fake.
+export const spawnTiltMul = (tilt, t) => 1 + tilt * (1 - 2 * Math.min(1, t / RUN_DURATION))
 export const spawnRate = (t) => {
   const base = SPAWN_RATE_BASE + t * SPAWN_RATE_LINEAR
   if (t <= SPAWN_LATE_START) return base * spawnEarlyMul(t)
@@ -5692,7 +5810,7 @@ CHAPTERS.twilight = {
   // for either neighbour until this change added them, so the ladder was an unmeasured claim in
   // prose at both ends. Re-run it rather than trusting these three numbers.
   //
-  // `form: 'fish'` + formScale 1.62. This chapter had NO `form` at all until now — the player was
+  // `form: 'fish'`. This chapter had NO `form` at all until now — the player was
   // still the Pond's blob, the only Book 2 chapter like it, a leftover from the spread above.
   // ⚠ THE LADDER FLATTENS HERE AND IT IS NOT IDEAL: the shipped rungs step +15%, +13%, +19%
   // (1.0 -> 1.15 -> 1.3 -> 1.55 -> Deep 1.7), and inserting between 1.55 and 1.7 makes the last two
@@ -5702,7 +5820,7 @@ CHAPTERS.twilight = {
   // that ladder knows why this rung is cramped.
   render: {
     cast: ['copepod', 'krill', 'gulper'],
-    form: 'fish', formScale: 1.62,
+    form: 'fish',
     bgColor: 0x04192e,     // mid-water: no surface above, no floor below
     floorTint: 0x80a0b8,   // one stop under The Trawl's 0x93b6cc, one above The Deep's 0x6f8ea6
     playerTint: 0xffffff,  // MUST stay white with a `form` — the level-up minimes read it directly
@@ -5799,6 +5917,14 @@ CHAPTERS.shelf = {
   tide: tideAt(70),
   signature: { type: 'shafts', refillLook: 'upwelling', blob: true, cell: 760, chance: 0.62, r: 205, minDist: 420, driftAmp: 60, driftHz: 1.0 },
 
+  // THE BUTTON: Clear. The chapter's second verb, and the last chapter in Book 2 to get one — see
+  // the CLEAR_* block in this file for the whole argument. Short version: the press throws the
+  // Pulse's shove wider and staggers for twice as long, and for a few seconds it shoves the MURK
+  // back too, which is the only thing a button in this chapter can offer that a button anywhere
+  // else cannot. Additive, like the Reef's Burst and the Deep's Scent; the Surf's Shorebreak is the
+  // only one that replaces the shove.
+  clear: true,
+
   // The bar. Same numbers as the light rig it reuses — drain 2.2 / refill 18 / killRefill 1.5 were
   // measured over 5 seeded 300s runs under three spend policies (see CHAPTERS.twilight.resource for
   // the full provenance and for why refill is THE knob), and the roster below is two-thirds
@@ -5806,14 +5932,13 @@ CHAPTERS.shelf = {
   // ⚠ Phase 3 changes two of three creatures, which changes the kill rate, which is what killRefill
   // is read against — re-run charge-probe's FULL refill sweep then, not just the Clear spend policy.
   //
-  // speedFloor 0.7 — THE MURK SLOWS YOU. Owner from play, 2026-08-18: "it should also slow you
+  // speedFloor — THE MURK SLOWS YOU. Owner from play, 2026-08-18: "it should also slow you
   // down". This overturns the speedFloor 1 that shipped in v7.133, whose argument was that 2.4
   // (Feed) and 2.5 (the dark) already both slow you and a third would collapse the axis. That
   // argument lost to the chapter actually being played: water you cannot see through is water you
   // move carefully in, and a chapter whose only cost was sight turned out not to bite.
-  //
-  // 0.7 rather than The Twilight's 0.6, because this is slot 2 and that is slot 6 — the book should
-  // still tighten as it descends rather than arriving at its full weight in the second chapter.
+  // balance_decision : full pollution slows you 15%, was 30% 2026-08-21
+  //  - still the shallowest floor in the book: The Twilight (slot 6) is 0.6 and The Trawl 0.62.
   resource: {
     // The one bar in Book 2 that FILLS as it goes wrong: it is pollution, not a supply. The sim
     // still counts how clear the water is, exactly as the other five chapters count their resource
@@ -5821,7 +5946,7 @@ CHAPTERS.shelf = {
     // ponytail: display-only. If anything ever needs the pollution NUMBER (a card, an event, a
     //   summary row), give run.charge a real inverted twin rather than flipping it a second time.
     name: 'Pollution', invert: true, drain: 2.2, refill: 18, killRefill: 1.5, max: 100,
-    dark: { from: 0.5, speedFloor: 0.7, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
+    dark: { from: 0.5, speedFloor: 0.85, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
   },
 
   // ⚠ TWO OF THREE ARE BORROWED STAND-INS. The moon jelly is the one that is a design: Aurelia
@@ -5845,15 +5970,26 @@ CHAPTERS.shelf = {
   roster: [
     { id: 'sandhopper', archetype: 'normal', name: 'Sand Hopper', hpMul: 0.9,   speedMul: 1,   flags: [] },
     { id: 'searoach',   archetype: 'fast',   name: 'Sea Roach',   hpMul: 0.68,  speedMul: 1.15, flags: ['dashBurst'] },
-    { id: 'jelly',      archetype: 'tank',   name: 'Moon Jelly',  hpMul: 1.875, speedMul: 0.6, xpMul: 1.25, flags: ['phase', 'unshakeable'] },
+    // balance_decision : jelly loses 20% hp and stays solid twice as long 2026-08-20
+    //  - `phase.solidMul` is the jelly's alone: PHASE_SOLID_T is shared with the pond's Tardigrade.
+    { id: 'jelly',      archetype: 'tank',   name: 'Moon Jelly',  hpMul: 1.5, speedMul: 0.6, xpMul: 1.25, flags: ['phase', 'unshakeable'],
+      phase: { solidMul: 2 } },
   ],
+
+  // balance_decision : 35% fewer moon jellies, the chapter's only tank 2026-08-20
+  //  - RELATIVE weight, so 0.56 and NOT 0.65: the cut share re-normalises onto the other
+  //    archetypes and a flat 0.65 removes only 27%. Derived by integrating spawnRate(t)·tankShare(t)
+  //    over a 300s run (487 -> 316 tank spawns); see the garden spider block.
+  archetypeMul: { tank: 0.56 },
 
   // Book 2's second chapter, and these are the slot's own numbers — they did not move when the light
   // did. They firm up from The Surf by exactly the step Book 1 takes for the same chapter1->chapter2
   // move (body -> pond leaves spawnMul/enemyDmgMul/xpMul flat and moves only enemyHpMul +0.10 and
   // maxAliveMul +0.15). The coin purse is shared, so this still has to read for a 0-card newcomer as
   // much as an 8-card veteran — one step, not a wall.
-  balance: { spawnMul: 0.75, enemyDmgMul: 0.75, enemyHpMul: 0.9, xpMul: 1.25, maxAliveMul: 0.65 },
+  // balance_decision : the shelf front-loads its crowd, 25% either way 2026-08-21
+  //  - spawnTilt is this chapter's alone; see spawnTiltMul for the shape.
+  balance: { spawnMul: 0.75, spawnTilt: 0.25, enemyDmgMul: 0.75, enemyHpMul: 0.9, xpMul: 1.25, maxAliveMul: 0.65 },
 
   // ---- render-only ----
   // ⚠ FIRST CUT, NOT A JUDGED LOOK. These three numbers decide whether the chapter reads as filthy
@@ -5872,7 +6008,7 @@ CHAPTERS.shelf = {
   // suspended sediment, not of algae — and it is also deliberately not The Surf's sand tan.
   render: {
     cast: ['sandhopper', 'searoach', 'jelly'],
-    form: 'fish', formScale: 1.15,   // the rung the ladder was always written for; see CHAPTERS.trawl
+    form: 'fish',
     bgColor: 0x2e4f52,     // silty water, daylight through it
     floorTint: 0xb6c9bd,   // milky wash — sediment in suspension, not a green bottom
     playerTint: 0xffffff,  // MUST stay white with a `form` — the level-up minimes read it directly
@@ -6142,8 +6278,13 @@ CHAPTERS.surf = {
   // form: 'fish' (v5.11 kaiju redesign, generalised for undertow): the player is a small fish here,
   // not the generic cross-chapter blob — see render.js's drawFish (in this chapter's own roster
   // section) and the playerForm branches in syncPlayer. Same idiom CHAPTERS.skies.render's
-  // `form: 'kaiju'` uses. ONE body serves all of Book 2; `formScale` is the book's "you grow in each
-  // chapter" arc and The Surf, being the smallest you ever are, leaves it at its default 1.
+  // `form: 'kaiju'` uses. ONE body serves all of Book 2, AT ONE SIZE.
+  //   ⚠ THERE IS NO GROWTH LADDER ANY MORE, and do not put one back. Every chapter carried its own
+  // `formScale` (1 -> 1.7 across the seven) as a literal "you grow in each chapter" arc, and the
+  // owner cut all of them on 2026-08-21: "the growth of the player is shown by the change of scale
+  // of its surroundings. I don't want a literal bigger player." The Surf's size is the one every
+  // chapter uses; a bigger fish is a bigger COLLIDER-sized sprite on the same 22px collider, which
+  // is a legibility cost paid for an arc the world was already telling.
   // tail: false overrides pond's inherited `tail: true` — the fish's own body already ends in a
   // caudal fin, so pond's separate trailing flagellum sprite would double up on one.
   render: {
@@ -6407,7 +6548,7 @@ CHAPTERS.reef = {
   //   every warm prop tint loses a third of its red before it reaches the screen, so BIOME_REEF's raw
   //   tints are authored several steps hotter than the colour they are meant to end up as. Cool the
   //   tint further and the corals cannot read as coral at all; warm it and the water stops being blue.
-  // form: 'fish' + formScale — ONE body serves all of Book 2 and grows a step per chapter (The Surf
+  // form: 'fish' — ONE body serves all of Book 2 at one size (no formScale anywhere; The Surf
   // leaves it at the default 1, The Shelf is 1.15 and The Twilight 1.62). playerTint MUST stay white with a `form`:
   // syncPlayer forces white for the body itself, but the level-up MINIME copies read this value
   // directly and a tinted one turns them into coloured ghosts of the fish (see CHAPTERS.surf.render).
@@ -6417,7 +6558,6 @@ CHAPTERS.reef = {
     // go stale, so re-run it whenever one of the three draw fns changes.
     cast: ['damselfish', 'lionfish', 'moray'],
     form: 'fish',
-    formScale: 1.3,
     bgColor: 0x0a3358,
     floorTint: 0xa9cfe0,
     playerTint: 0xffffff,
@@ -6671,16 +6811,14 @@ CHAPTERS.wreck = {
   balance: { spawnMul: 2.2, enemyHpMul: 0.45, maxAliveMul: 1.55, xpMul: 0.5 },
 
   // ---- render-only (ZERO sim effect) ----
-  // formScale 1.42 is the book's growth arc and is NOT a shark: owner ruling 2026-08-17, asked
-  // directly whether The Wreck should take the shark identity from The Deep (which owns it — 1.7,
-  // `finHit`, "the shark's own body"). He kept the arc: "predator, not literally a shark". So this
-  // chapter is where you START hunting rather than reacting, one step bigger than the reef fish
-  // (1.3) and one step under the big fish (1.55). The premise inversion is in the roster and the
-  // bar, not in the body.
+  // THE PLAYER IS NOT A SHARK HERE: owner ruling 2026-08-17, asked directly whether The Wreck
+  // should take the shark identity from The Deep (which owns it — `finHit`, "the shark's own
+  // body"). "Predator, not literally a shark." This chapter is where you START hunting rather than
+  // reacting, and the premise inversion is in the roster and the bar, not in the body. It used to
+  // say so with a bigger formScale as well; that ladder is gone book-wide (see CHAPTERS.surf).
   render: {
     cast: ['mackerel', 'damselfish', 'moray'],
     form: 'fish',
-    formScale: 1.42,
     // THE SUNKEN SHIP. Owner, 2026-08-17: "there is no sunken ship asset or design in the level",
     // and "I'd like a big sunken ship behind with parallax effect".
     //
@@ -6922,14 +7060,13 @@ CHAPTERS.trawl = {
   // for thinning a chapter's floor and it is gated on `chapterHasDistricts`; generalising it is the
   // upgrade path if this floor ever reads as too busy.
   //
-  // form: 'fish' + formScale 1.55 — ONE body serves all of Book 2 and grows a step per chapter
+  // form: 'fish' — ONE body serves all of Book 2, at one size across every chapter
   // (Surf 1.0, Shelf 1.15, Reef 1.3, here 1.55). playerTint MUST stay white with a `form`: syncPlayer
   // forces white for the body itself, but the level-up MINIME copies read this value directly and a
   // tinted one turns them into coloured ghosts of the fish (see CHAPTERS.surf.render).
   render: {
     cast: ['mackerel', 'tuna', 'sealion'],
     form: 'fish',
-    formScale: 1.55,
     bgColor: 0x05203f,
     floorTint: 0x93b6cc,
     playerTint: 0xffffff,
@@ -7118,7 +7255,7 @@ CHAPTERS.deep = {
     // from ROSTER_LOOKS), and the anglerfish is no longer a roster entry. Its art lives in
     // T.maw instead — a whole animal ringing a 200px circle, which is not a 34px portrait.
     cast: ['hagfish', 'viperfish', 'gulper'],
-    form: 'fish', formScale: 1.7,   // the shark: the biggest body the player has had
+    form: 'fish',   // the shark, and the same size as every other chapter's fish
     bgColor: 0x03101d,
     floorTint: 0x6f8ea6,
     playerTint: 0xcfe6f2,
@@ -8439,6 +8576,55 @@ export const SHOREBREAK_FORCE = 1300
 // behavior flag, and render.js holds the pose off it), so the tell costs nothing new — and a body
 // that cannot act is a body that cannot dash back into the corridor you just made.
 export const SHOREBREAK_STAGGER = 0.22         // s, refreshed per frame while inside
+
+// ---- CLEAR (v7.x, The Shelf — chapters declaring `clear: true`) ---------------------------------
+// The Shelf's half of the same one button. Same press, same cooldown, same PULSE_CHARGE_COST spend,
+// and the Pulse's shove still fires — this is additive like the Burst and the Scent, not a
+// replacement like the Shorebreak. What a `clear` chapter buys on top is TWO things, and they are
+// the same thing said to the crowd and to the camera: the shove reaches FURTHER and staggers for
+// LONGER, and for a few seconds the murk is pushed back far enough that you can actually see.
+//
+// WHY SIGHT IS THE BUTTON'S REAL PAYLOAD. Design spec §6.2 asked for "blows wide for a few seconds
+// and everything it reaches is stunned", and warned in the same breath that this is very close to
+// what the base repulse already does via REPULSE_STUN — so a `clear` branch that never fired would
+// be nearly indistinguishable in play from one that worked. The sight window is what makes it
+// distinguishable, and it is not a garnish: this chapter's antagonist is NOT BEING ABLE TO SEE
+// (resource `Pollution`, dark.radiusEmpty 0.1), so the one thing no other chapter's button can
+// offer is the antagonist briefly called off. You press Clear and the water opens.
+//
+// THE COST IS PAID IN RECOVERY TIME, NOT IN SIGHT, which is the spec's own preference and the
+// reason no CLEAR_RADIUS_FLOOR is named beside BURST_DUR_MIN / BREACH_R_MIN / SCENT_DUR_MIN. Those
+// three floor a button's OUTPUT because an empty bar must never trap you (spec §8.2). Here the
+// spend lowers the bar, the bar is sight, and sight is the thing the window has just raised — so
+// the window ends and the water closes back to a murkier reading than before the press. There is
+// nothing to floor, because the button never takes sight away; it lends it.
+//
+// THE FLOOR IS THE DURATION, on the same no-spiral rule: an empty bar still parts the murk, for
+// CLEAR_DUR_MIN instead of CLEAR_DUR_AT_FULL, and still throws the shove's own floor (REPULSE_RADIUS,
+// exactly as in every other chapter).
+//
+// ⚠ FIRST CUT, NOT MEASURED. These five numbers were written against the shipped Pulse and
+// Shorebreak rather than against a census, and the roster they will be judged on is still two-thirds
+// stand-ins (see CHAPTERS.shelf.roster). Before this chapter reaches BALANCING, run
+// charge-probe.mjs on BOTH axes for the spend policy and weapon-census.mjs for what the longer
+// stagger does to the natives' dps — the kiting rig hides shove locks, so run a movement axis.
+export const CLEAR_DUR_MIN = 1.0         // s of open water on an EMPTY bar — the no-spiral floor
+export const CLEAR_DUR_AT_FULL = 3.2     // s at a full PULSE_CHARGE_COST spend
+// The last CLEAR_SIGHT_FADE seconds of that window ease the sight back down to whatever the bar
+// actually holds, instead of snapping. A snap is the shape of a render glitch, and this chapter has
+// already shipped one complaint about clear water that "does nothing and never goes away" — the
+// murk closing visibly is the readout that says the button is over.
+export const CLEAR_SIGHT_FADE = 0.7      // s
+// 820 against the Pulse's 620, off the same REPULSE_RADIUS 340 floor: "blows wide" is a third more
+// reach than the shove this chapter would otherwise get, and it is the only number in the game the
+// player can compare directly against a button they have already used for five chapters.
+export const CLEAR_RADIUS_AT_FULL = 820  // px at a full spend (floor REPULSE_RADIUS 340)
+// 1.1s against REPULSE_STUN's 0.55 — twice the shipped stagger, and the "everything it reaches is
+// stunned" half of §6.2's sentence. ⚠ The Moon Jelly is `unshakeable` (UNSHAKEABLE_CC_MUL 0.5), so
+// the chapter's tank takes HALF of this and the headline verb lands at 0.55s on the one body most
+// likely to be in your face. That is a deliberate hole in the button, not an oversight: revisit the
+// jelly's flags rather than this number if the press under-delivers on first contact.
+export const CLEAR_STUN = 1.1            // s of stagger inside the wide shove
 
 // ---- BURST (v7.x, The Reef — chapters declaring `burst: true`) ---------------------------------
 // The Reef's half of the same button. One press, one cooldown, one spend: the Pulse's shove above
@@ -10780,6 +10966,11 @@ export const SKIES_LIGHT = {
 // uptime ⇒ roughly ×1.6-1.65 tank TTK once a ring can no longer land every hit. Change these
 // constants with that multiplier in view — it moves with the solid:ghost RATIO, not with either
 // number alone.
+//   PER-CREATURE OVERRIDE: a roster entry may carry `phase: { solidMul }`, in the same shape and
+// for the same reason as the Sea Roach's `dash` — these constants are shared, so moving the number
+// itself to lengthen The Shelf's Moon Jelly would silently retune the pond's Tardigrade as well.
+// The override is a MULTIPLIER of the global rather than an absolute, so the ratio above keeps
+// tracking this line if it is ever retuned.
 export const PHASE_SOLID_T = 1.6
 export const PHASE_GHOST_T = 1.0
 export const PHASE_GHOST_SPEED_MUL = 1.4  // it hurries while it can't be punished

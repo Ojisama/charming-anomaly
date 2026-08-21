@@ -83,6 +83,7 @@ import {
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
+  CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COSTS, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RING_N, RING_R_MUL, RING_POOL_MUL,
@@ -131,7 +132,7 @@ import {
   // Book 2 The Surf: Humidity drives damage (Run US.d)
   HUMIDITY_DMG_FLOOR, resourceDamageMul, resourceRateMul,
   // Book 2 The Shelf: Pollution as a weapon mod (Run MB)
-  pollutionFrac, BALLAST_FLIGHT,
+  pollutionFrac, BALLAST_FLIGHT, BALLAST_TANK_MUL, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX,
   LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_DMG, LUNGE_KILL_REFILL, LUNGE_BITE_MUL, STARVE_TICK,
   // Book 2 The Surf: the Shore Crab's guard (Run US.i)
   CRAB_GUARD_ARC,
@@ -5624,6 +5625,9 @@ function runBookProgression() {
   assert.strictEqual(CHAPTERS.surf.archetypeMul?.tank, 0.41, '20% fewer Shore Crabs again (owner ruling 2026-08-17), measured not derived')
   // The Wreck's moray, pinned to the ruling that set it rather than to whatever the file says today.
   assert.strictEqual(CHAPTERS.wreck.archetypeMul?.tank, 0.3, '70% fewer Morays (owner ruling 2026-08-18)')
+  // The Shelf's moon jelly, same style. 0.56 and NOT 0.65: relative weights, so the derived value
+  // comes from integrating spawnRate(t)*tankShare(t) over a 300s run (487 -> 316 tank spawns).
+  assert.strictEqual(CHAPTERS.shelf.archetypeMul?.tank, 0.56, '35% fewer Moon Jellies (owner ruling 2026-08-20)')
   // The archetypeMul key must be a real ARCHETYPE, not a WAVE_TABLE spawn type — indexing the
   // wrong way silently did nothing until v5.5 (see TYPE_ARCHETYPE in config.js). run SP.f asserts
   // this same vocabulary but only over CHAPTER_ORDER (book 1) — surf is Book 2 and outside that
@@ -6685,6 +6689,193 @@ function runShorebreak() {
   console.log(`PASS run SK (The Shorebreak): opens a corridor a walking crowd cannot close, sustained rather than impulsive, ${SHOREBREAK_DUR_MIN}s floor on an empty bar rising to ${SHOREBREAK_DUR_AT_FULL}s, replaces the Pulse in surf only, spares allies`)
 }
 run(runShorebreak)
+// ---- run CL: The Shelf's Clear (2026-08-20) ---------------------------------------------------
+// The chapter's second verb, and the last one in Book 2 to get one. Three things happen on the
+// press and each is asserted against a CONTROL CHAPTER running the identical rig — The Twilight,
+// which has the same bar, the same `shafts` signature and the same dark block, and no `clear`.
+// Without that control every block below would pass on the plain Pulse.
+//
+// THE ONE THIS SCENARIO EXISTS FOR IS (c). Design spec §6.2 warned that "blows wide and everything
+// it reaches is stunned" is so close to what REPULSE_STUN already does that a `clear` branch which
+// never fired would be nearly indistinguishable in play from one that worked — so the reach and the
+// stagger alone are not enough of a test, and are not enough of a button. Sight is the payload.
+function runClear() {
+  const dt = 1 / 60
+  const devMeta = () => { const m = makeMeta(); m.dev = true; ensureChapterMeta(m); return m }
+  const RES = CHAPTERS.shelf.resource
+
+  // A ring of INERT bodies — speed 0 — so the only thing that can move them is the shove. SK's
+  // fixture deliberately walks its crowd, because a sustained crest has to beat their approach to
+  // prove anything; this button is an impulse, so a walking crowd would just add its own closing
+  // speed to both sides of every comparison and blunt the one number being measured.
+  const ringRun = (chapter, charge, dist) => {
+    Math.random = mulberry32(20260820)
+    const run = createRun(devMeta(), { chapter, difficulty: 1 })
+    run.weapons = []
+    run.player.maxHP = run.player.hp = 1e9
+    run.enemies.length = 0
+    const ids = []
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2
+      const e = makeStatusEnemy(run, {
+        x: run.player.x + Math.cos(a) * dist,
+        y: run.player.y + Math.sin(a) * dist,
+        hp: 1e6, speed: 0,
+      })
+      run.enemies.push(e)
+      ids.push(e.id)
+    }
+    run.charge = charge
+    run.repulseCd = 0
+    return { run, ids }
+  }
+  const meanDist = (o) => {
+    const p = o.run.player
+    const ds = o.ids.map((id) => o.run.enemies.find((e) => e.id === id)).filter(Boolean)
+      .map((e) => Math.hypot(e.x - p.x, e.y - p.y))
+    return ds.reduce((a, b) => a + b, 0) / Math.max(1, ds.length)
+  }
+  const advance = (o, secs, press) => {
+    let first = true
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      stepSim(o.run, { x: 0, y: 0, skill: press && first }, dt)
+      first = false
+    }
+  }
+
+  // (a) IT REACHES PAST THE PULSE. The ring sits at 700px: inside CLEAR_RADIUS_AT_FULL (820) and
+  // OUTSIDE PULSE_RADIUS_AT_FULL (620), so on a full bar The Shelf touches it and the control
+  // chapter cannot. Stated as "did the bodies move at all", never as a px band — the band would
+  // have to be retuned the moment either constant does, which is when a test stops meaning
+  // anything and starts being a number that makes itself green.
+  {
+    assert(CLEAR_RADIUS_AT_FULL > 700 && PULSE_RADIUS_AT_FULL < 700,
+      `this fixture's 700px ring only separates the two buttons while ${PULSE_RADIUS_AT_FULL} < 700 < ${CLEAR_RADIUS_AT_FULL}`)
+    const shelf = ringRun('shelf', RES.max, 700)
+    const before = meanDist(shelf)
+    advance(shelf, 0.5, true)
+    const shelfAfter = meanDist(shelf)
+
+    const ctl = ringRun('twilight', CHAPTERS.twilight.resource.max, 700)
+    advance(ctl, 0.5, true)
+    const ctlAfter = meanDist(ctl)
+
+    assert(Math.abs(ctlAfter - before) < 1,
+      `the control must NOT reach 700px with a ${PULSE_RADIUS_AT_FULL}px Pulse (moved to ${ctlAfter.toFixed(1)}px) or this block proves nothing`)
+    assert(shelfAfter > before + 20,
+      `the Clear must reach the 700px ring: ${before.toFixed(0)} -> ${shelfAfter.toFixed(0)}px`)
+    console.log(`PASS run CL.a (reaches past the Pulse): ring at 700px -> shelf ${shelfAfter.toFixed(0)}px, twilight control ${ctlAfter.toFixed(0)}px`)
+  }
+
+  // (b) IT STAGGERS FOR LONGER. Read off e.stunT, which is the SHIPPED contract field the enemy
+  // step and render.js both already gate on — so a longer number here is a longer pose on screen
+  // and a longer hole in the crowd, not a private counter.
+  {
+    const shelf = ringRun('shelf', RES.max, 200)
+    advance(shelf, dt, true)
+    const ctl = ringRun('twilight', CHAPTERS.twilight.resource.max, 200)
+    advance(ctl, dt, true)
+    const sStun = shelf.run.enemies.find((e) => shelf.ids.includes(e.id)).stunT
+    const cStun = ctl.run.enemies.find((e) => ctl.ids.includes(e.id)).stunT
+    // Both are read one frame AFTER the press, so both have already had one dt ticked off them —
+    // compare against that, not against the raw constant, or the band is a frame-rate literal.
+    assert(cStun > REPULSE_STUN - 2 * dt && cStun <= REPULSE_STUN, `the control must carry the shipped ${REPULSE_STUN}s stagger, got ${cStun}`)
+    assert(sStun > cStun * 1.5, `the Clear must stagger materially longer: ${sStun}s vs the Pulse's ${cStun}s`)
+    console.log(`PASS run CL.b (staggers longer): shelf ${sStun}s vs twilight ${cStun}s`)
+  }
+
+  // (c) THE MURK OPENS — the block this scenario exists for, and the only one that can tell a live
+  // Clear from a dead one in play. Measured through lightRadius() itself, the function render.js
+  // feeds run.sightCharge to, on a phone's longest side: asserting the FIELD would pass on a value
+  // no renderer ever reads, which is the frozen-enemies scar exactly.
+  //
+  // On an EMPTY bar, specifically. That is when the murk is at its worst (radiusEmpty 0.1) and when
+  // a chapter whose bar is sight most needs a way out — and it is the no-spiral floor doing real
+  // work rather than a formality: the button hands a blinded player the sight to go find water.
+  {
+    const maxDim = 844
+    const seeing = (run) => lightRadius(run.sightCharge ?? run.charge, CHAPTERS[run.chapter].resource, maxDim, run.chargeMax)
+    const barAlone = (run) => lightRadius(run.charge, CHAPTERS[run.chapter].resource, maxDim, run.chargeMax)
+
+    const shelf = ringRun('shelf', 0, 200)
+    const blind = barAlone(shelf.run)
+    advance(shelf, dt, true)
+    assert(shelf.run._clearT > 0, 'an empty bar must still part the murk — the no-spiral floor')
+    assert(seeing(shelf.run) > blind * 3,
+      `the Clear must open the water: ${blind.toFixed(0)}px blind -> ${seeing(shelf.run).toFixed(0)}px`)
+
+    const ctl = ringRun('twilight', 0, 200)
+    advance(ctl, dt, true)
+    assert(Math.abs(seeing(ctl.run) - barAlone(ctl.run)) < 1e-9,
+      'only a `clear` chapter may lend sight — the control chapter sees exactly its bar')
+    console.log(`PASS run CL.c (the murk opens): empty bar ${blind.toFixed(0)}px -> ${seeing(shelf.run).toFixed(0)}px on a ${maxDim}px screen; twilight unchanged at ${seeing(ctl.run).toFixed(0)}px`)
+  }
+
+  // (d) AND IT CLOSES AGAIN, easing rather than snapping. The cost of this button is paid here and
+  // nowhere else: the spend came off the bar while the window was hiding it, so when the water
+  // closes it closes to a WORSE reading than the press started from. A window that never ended
+  // would be a chapter that had quietly lost its antagonist.
+  {
+    const o = ringRun('shelf', RES.max, 200)
+    advance(o, dt, true)
+    const opened = o.run.sightCharge
+    advance(o, CLEAR_DUR_AT_FULL - CLEAR_SIGHT_FADE, false)
+    assert(o.run.sightCharge > o.run.charge, 'the window must still be lending sight before the fade begins')
+    const mid = o.run.sightCharge
+    advance(o, CLEAR_SIGHT_FADE + 0.1, false)
+    assert.strictEqual(o.run._clearT, 0, 'the window must close')
+    assert.strictEqual(o.run.sightCharge, o.run.charge, 'once closed, what you see IS the bar')
+    assert(o.run.charge < opened, `the spend must leave the water murkier than the press found it: ${o.run.charge.toFixed(1)} vs ${opened.toFixed(1)}`)
+    console.log(`PASS run CL.d (closes again): ${opened.toFixed(0)} -> ${mid.toFixed(0)} -> ${o.run.sightCharge.toFixed(0)}, bar ${o.run.charge.toFixed(0)}`)
+  }
+
+  // (e) ONE PRESS, ONE EVENT, AND IT TELLS THE TRUTH ABOUT ITS REACH. The Clear pushes no event of
+  // its own on purpose — a second one would draw a second ring on the same frame and play the
+  // shove's sample twice, which is the complaint run SK.e pins for The Surf. What makes that
+  // choice safe is this: the `repulse` it does emit must carry the WIDENED radius, because
+  // render.js draws the ring at e.r and "a burst that lies about its reach makes the cooldown feel
+  // arbitrary" is the shipped comment on that line.
+  {
+    const o = ringRun('shelf', RES.max, 200)
+    advance(o, dt, true)
+    const rs = o.run.events.filter((e) => e.type === 'repulse')
+    assert.strictEqual(rs.length, 1, `one press must emit exactly one repulse, got ${rs.length}`)
+    assert(Math.abs(rs[0].r - CLEAR_RADIUS_AT_FULL) < 1e-6,
+      `the ring must be drawn at the Clear's real reach ${CLEAR_RADIUS_AT_FULL}, got ${rs[0].r}`)
+    assert(!o.run.events.some((e) => e.type === 'clear'),
+      'the Clear emits no event of its own — if you add one, give it a render case and an SFX entry and delete this line')
+
+    // The floor is the DURATION, never the reach: an empty bar throws the shipped 340px shove here
+    // exactly as it does in every other chapter, so the widening is bought and not granted.
+    const empty = ringRun('shelf', 0, 200)
+    advance(empty, dt, true)
+    const er = empty.run.events.find((e) => e.type === 'repulse')
+    assert(Math.abs(er.r - REPULSE_RADIUS) < 1e-6, `an empty bar must throw the shipped ${REPULSE_RADIUS}px shove, got ${er.r}`)
+    assert(empty.run._clearT > CLEAR_DUR_MIN - 2 * dt && empty.run._clearT <= CLEAR_DUR_MIN,
+      `an empty bar's window must be the ${CLEAR_DUR_MIN}s floor, got ${empty.run._clearT}`)
+    console.log(`PASS run CL.e (one honest ring): full bar r=${rs[0].r} clearT=${o.run._clearT.toFixed(2)}s, empty bar r=${er.r} clearT=${empty.run._clearT.toFixed(2)}s, no second event`)
+  }
+
+  // (f) EVERY OTHER CHAPTER IS BYTE-IDENTICAL. sightCharge is the one field here that is written
+  // outside The Shelf — stepCharge sets it in every chapter with a resource — so this is the block
+  // that catches it drifting away from the bar somewhere it was never meant to.
+  {
+    const others = ['surf', 'reef', 'trawl', 'twilight', 'deep']
+    for (const id of others) {
+      Math.random = mulberry32(4242)
+      const run = createRun(devMeta(), { chapter: id, difficulty: 1 })
+      run.repulseCd = 0
+      run.charge = CHAPTERS[id].resource.max
+      for (let i = 0; i < 30; i++) stepSim(run, { x: 0, y: 0, skill: i === 0 }, dt)
+      assert.strictEqual(run.sightCharge, run.charge, id + ' must see exactly its bar — only a `clear` chapter lends sight')
+      assert.strictEqual(run._clearT, 0, id + ' must never arm a Clear window')
+    }
+    console.log(`PASS run CL.f (${others.length} other Undertow chapters unchanged): sightCharge === charge, no window armed`)
+  }
+
+  console.log(`PASS run CL (The Clear): reaches ${CLEAR_RADIUS_AT_FULL}px against the Pulse's ${PULSE_RADIUS_AT_FULL}, staggers ${CLEAR_STUN}s against ${REPULSE_STUN}, opens the murk for ${CLEAR_DUR_MIN}-${CLEAR_DUR_AT_FULL}s and eases shut over ${CLEAR_SIGHT_FADE}s, one honest ring, 5 other chapters untouched`)
+}
+run(runClear)
 // ---- run MB: the mod budget in Book 2's first two chapters (2026-08-19) ------------------------
 // The Surf shipped four mods per weapon; The Shelf shipped 2/0/0, its two zone weapons carrying NO
 // mods at all — so the chapter could offer exactly two distinct mod cards in a whole run and its
@@ -6751,13 +6942,14 @@ function runModBudget() {
       r.enemies.push(makeStatusEnemy(r, { x: r.player.x + 260 + i * 10, y: r.player.y + i * 8, hp: 1e6, speed: 0 }))
     }
     r.events.length = 0
-    let castT = null, firstT = null, n = 0, t = 0
+    let castT = null, firstT = null, lastT = null, n = 0, t = 0
     while (t < 20) {
       stepSim(r, { x: 0, y: 0 }, dt)
       if (castT === null && r.events.some((e) => e.type === 'downwash')) castT = t
       if (castT !== null) {
         const booms = r.events.filter((e) => e.type === 'explode').length
         if (booms > 0 && firstT === null) firstT = t
+        if (booms > 0) lastT = t
         n += booms
       }
       r.events.length = 0
@@ -6767,7 +6959,7 @@ function runModBudget() {
       if (castT !== null && t > castT + WEAPONS.downwash.levels[4].duration + 0.4) break
     }
     assert(castT !== null, 'precondition: the downwash must cast within 20s')
-    return { delay: firstT === null ? Infinity : firstT - castT, bursts: n, dur: WEAPONS.downwash.levels[4].duration }
+    return { delay: firstT === null ? Infinity : firstT - castT, lastDelay: lastT === null ? Infinity : lastT - castT, bursts: n, dur: WEAPONS.downwash.levels[4].duration }
   }
 
   // (a) NO INERT CARDS, across every weapon in the game rather than only the six that changed.
@@ -6877,9 +7069,12 @@ function runModBudget() {
     console.log(`PASS run MB.c (placement): ${clouds.length} silt clouds all planted on bodies (${veilPts.size} distinct points, 0 at the player), ${bal.lobs.length} ballast drops on ${balPts.size} distinct points`)
   }
 
-  // (d) SCOUR PAYS IN FILTH, NOT IN CLEAN WATER. run.charge counts CLARITY — the bar is inverted for
+  // (d) SCOUR PAYS IN CLEAN WATER, NOT IN FILTH. run.charge counts CLARITY — the bar is inverted for
   // display only — so charge 0 is the filthiest water and charge max is the cleanest. A sign error
-  // here still ships a working weapon that simply rewards the opposite behaviour.
+  // here still ships a working weapon that simply rewards the opposite behaviour, which is exactly
+  // what this card did until the owner inverted it on 2026-08-20: THE DIRECTION IS THE CARD, and it
+  // has now pointed both ways, so the assertion has to name which way rather than merely check that
+  // the bar is read at all.
   {
     const dmgAt = (charge, mods) => {
       const run = boot('shelf', 'bubblePuff', 5, mods, charge)
@@ -6888,19 +7083,30 @@ function runModBudget() {
     }
     const cleanOff = dmgAt(SHELF_MAX, null)
     const cleanOn = dmgAt(SHELF_MAX, { scour: 1 })
+    const filthyOff = dmgAt(0, null)
     const filthyOn = dmgAt(0, { scour: 1 })
     assert.strictEqual(pollutionFrac(SHELF_MAX, SHELF_MAX), 0, 'precondition: a full clarity bar is zero pollution')
     assert.strictEqual(pollutionFrac(0, SHELF_MAX), 1, 'precondition: an empty clarity bar is full pollution')
-    // NOT an exact equality: `pin` re-sets the bar before each step and stepCharge drains one frame
-    // of it before the weapon fires, so the water at the moment of the cast is one frame dirty. The
-    // bound is that frame, derived from the chapter's own drain rather than written down as a
-    // magic tolerance — a literal here would stop meaning anything the first time drain is retuned.
+    // The UNMODDED puff must not care about the water at all, or the two modded numbers below are
+    // being compared across a moving baseline and the whole block measures nothing.
+    assert.strictEqual(cleanOff, filthyOff,
+      `precondition: without Scour the puff must hit the same in clean and filthy water (${cleanOff} vs ${filthyOff})`)
+    // Worth NOTHING at full Pollution, and this end is EXACT — the bar is already at 0 and cannot
+    // drain further, so there is no part-frame to allow for.
+    assert(filthyOn <= filthyOff + 1e-9,
+      `Scour must be worth NOTHING at full Pollution (unmodded ${filthyOff}, modded ${filthyOn}) — that bargain is the whole card`)
+    // The clean end is NOT exact: `pin` re-sets the bar before each step and stepCharge drains one
+    // frame of it before the weapon fires, so the water at the moment of the cast is one frame
+    // dirty and the bonus lands a hair under its nominal value. The bound is that frame, derived
+    // from the chapter's own drain and the card's own base rather than written down as a magic
+    // tolerance — a literal here would stop meaning anything the first time either is retuned.
     const frameDirt = (CHAPTERS.shelf.resource.drain * dt) / SHELF_MAX
-    assert(cleanOn <= cleanOff * (1 + frameDirt) + 1e-9,
-      `Scour must be worth NOTHING in clean water (unmodded ${cleanOff}, modded ${cleanOn}, one frame of drain allows ${(cleanOff * frameDirt).toFixed(4)}) — that bargain is the whole card`)
-    assert(filthyOn > cleanOn * 1.5,
-      `Scour must pay in the filthiest water: ${filthyOn} against ${cleanOn} clean`)
-    console.log(`PASS run MB.d (Scour): puff dmg ${cleanOff} clean unmodded, ${cleanOn} clean modded, ${filthyOn.toFixed(1)} at full pollution`)
+    const nominal = WEAPON_MODS.bubblePuff.scour.base
+    assert(cleanOn >= cleanOff * (1 + nominal * (1 - frameDirt)) - 1e-9,
+      `Scour must pay its full +${Math.round(nominal * 100)}% in clean water: ${cleanOn} against ${cleanOff} unmodded, one frame of drain allows losing ${(cleanOff * nominal * frameDirt).toFixed(4)}`)
+    assert(cleanOn > filthyOn * 1.4,
+      `Scour must pay in CLEAN water, not in filth: ${cleanOn} clean against ${filthyOn} at full pollution`)
+    console.log(`PASS run MB.d (Scour pays for clean water): puff dmg ${cleanOff} unmodded either way, ${cleanOn} clean modded (+${Math.round(nominal * 100)}%), ${filthyOn.toFixed(1)} at full pollution`)
   }
 
   // (e) BACKBLOW ADDS ONE OPPOSED CONE, AND STOPS PAST A HALF-TURN. The second nova carries its own
@@ -6919,42 +7125,86 @@ function runModBudget() {
     assert(Math.abs(gap - Math.PI) < 1e-6,
       `Backblow's cone must sit opposite the first: the two bearings are ${gap.toFixed(4)} rad apart, want ${Math.PI.toFixed(4)}`)
 
-    // Flare compounds onto `arc`; at a wide enough cone the rear nova must not be spawned at all.
-    // flare 1.2 puts the cone at 1.571 x 2.2 = 3.46 rad: PAST a half-turn but well short of the full
-    // ring, which is the case the guard actually has to catch. A cone widened all the way to 2pi is
-    // caught by spawnNova's `arc: null` path instead and would prove the weaker half.
-    const wide = boot('shelf', 'bubblePuff', 5, { backblow: 1, flare: 1.2 })
-    assert(castUntil(wide, (r) => r.novas.length > 0), 'precondition: the wide modded puff must cast')
-    const wideBase = boot('shelf', 'bubblePuff', 5, { flare: 1.2 })
-    assert(castUntil(wideBase, (r) => r.novas.length > 0), 'precondition: the wide bare puff must cast')
-    assert(wideBase.novas[0].arc > Math.PI && wideBase.novas[0].arc < Math.PI * 2,
-      `precondition: this block needs a cone between pi and 2pi, got ${wideBase.novas[0].arc}`)
-    assert.strictEqual(wide.novas.length, wideBase.novas.length,
-      `past a half-turn Backblow must add NO second nova (base ${wideBase.novas.length}, modded ${wide.novas.length}) — overlapping sectors each carry their own hit set and would double-pay every body`)
-    console.log(`PASS run MB.e (Backblow): ${base.novas.length} -> ${narrow.novas.length} novas a half-turn apart at a 90deg cone; ${wideBase.novas.length} -> ${wide.novas.length} once Flare widens it past pi`)
+    // THE PUFF NEVER CLOSES THE CIRCLE — owner from play, 2026-08-21: Flare plus Backblow "can
+    // reach 360deg bubble puff and that's what I wanted to prevent". BUBBLE_COVER_MAX is a ceiling
+    // on TOTAL coverage, so this asserts the sum of the sectors and not one cone's width.
+    //
+    // flare 6 is far past anything a real ladder rolls, deliberately: the point is that no amount
+    // of the width card can buy the last degree. It is also past 2pi, which used to become
+    // spawnNova's `arc: null` full ring — asserted below, because a null arc is coverage 2pi
+    // wearing a different type.
+    const cover = (mods) => {
+      const r = boot('shelf', 'bubblePuff', 5, mods)
+      assert(castUntil(r, (x) => x.novas.length > 0), 'precondition: the puff must cast')
+      const sectors = r.novas.filter((n) => n.look === 'bubble')
+      assert(sectors.length > 0, 'precondition: no bubble novas to measure')
+      for (const n of sectors) {
+        assert(n.arc != null, 'a bubble nova was spawned with arc: null — that is a full ring, i.e. 360 degrees')
+      }
+      return { total: sectors.reduce((a, n) => a + n.arc, 0), n: sectors.length }
+    }
+    const CAP = BUBBLE_COVER_MAX
+    for (const [label, mods] of [
+      ['bare', null],
+      ['flare x6', { flare: 6 }],
+      ['backblow', { backblow: 1 }],
+      ['flare x6 + backblow', { backblow: 1, flare: 6 }],
+    ]) {
+      const c = cover(mods)
+      assert(c.total <= CAP + 1e-9,
+        `${label} covers ${c.total.toFixed(3)} rad across ${c.n} cone(s) — over the ${CAP.toFixed(3)} ceiling, ` +
+        'which is how the puff became a full circle you could stand still inside')
+    }
+    // ...and Backblow is still WORTH taking at the ceiling: it must add coverage, not just move it.
+    const wideBase = cover({ flare: 6 })
+    const wide = cover({ backblow: 1, flare: 6 })
+    assert.strictEqual(wide.n, 2, `Backblow must always spawn its second cone, got ${wide.n}`)
+    assert(wide.total > wideBase.total,
+      `Backblow bought nothing at the ceiling: ${wideBase.total.toFixed(3)} rad against ${wide.total.toFixed(3)}`)
+    console.log(`PASS run MB.e (Backblow): ${base.novas.length} -> ${narrow.novas.length} novas a half-turn apart at a 90deg cone; total coverage capped at ${CAP.toFixed(2)} rad (${(CAP * 180 / Math.PI).toFixed(0)}deg) on every mod combination, and Flare x6 + Backblow still beats Flare x6 alone (${wideBase.total.toFixed(2)} -> ${wide.total.toFixed(2)} rad)`)
   }
 
-  // (f) FOUL WATER scales the STAIN and leaves the CRATER alone, and it reads pollution the same way
-  // round as Scour. The impact has already been dealt off lo.r by the time the cloud is pushed, so a
-  // mod that scaled `r` itself would quietly buy impact damage the card never promised.
+  // (f) FOUL WATER widens the DRAG and leaves the CRATER alone, and it reads pollution the same way
+  // round as Scour. The impact is dealt off lo.r, so a mod that scaled `r` itself would quietly buy
+  // impact damage the card never promised.
+  //   ASSERTED AS AN EFFECT: a body parked between the crater and the drag ring must be SLOWED in
+  // filthy water and untouched in clean. Reading lo.dragMul instead would pass with the whole
+  // dragSq test deleted from the landing.
   {
-    const stainAt = (charge, mods) => {
+    const dragAt = (charge, mods) => {
       const run = boot('shelf', 'ballast', 5, mods, charge)
-      run.enemies.push(makeStatusEnemy(run, { x: run.player.x + 200, y: run.player.y, hp: 1e6, speed: 0 }))
+      // Just OUTSIDE the crater (r is 134 at L5), so only the widened ring can reach it. hp 1e6 and
+      // speed 0: the question is dragT, and a corpse cannot answer it.
+      const e = makeStatusEnemy(run, { x: run.player.x, y: run.player.y, hp: 1e6, speed: 0 })
+      run.enemies.push(e)
       assert(castUntil(run, (r) => r.lobs.length > 0, pin(charge)), 'precondition: the ballast must throw within 12s')
-      const impactR = run.lobs[0].r
-      advance(run, BALLAST_FLIGHT + 0.05, pin(charge))
-      const stain = run.blooms.filter((b) => b.look === 'silt')
-      assert(stain.length > 0, 'precondition: the drop must have left a stain')
-      return { impactR, maxR: stain[0].maxR, dps: stain[0].dmgPerTick }
+      const lo = run.lobs[0]
+      const impactR = lo.r
+      // Park it on the ring, between the crater and the widened drag, and hold it there through the
+      // landing — pin() puts it back on the player every frame otherwise.
+      const hold = (r) => { e.x = lo.tx + impactR * 1.25; e.y = lo.ty }
+      hold(run)
+      advance(run, BALLAST_FLIGHT + 0.05, hold)
+      return { impactR, dragT: e.dragT ?? 0, hp: e.hp }
     }
-    const clean = stainAt(SHELF_MAX, { foulWater: 1 })
-    const filthy = stainAt(0, { foulWater: 1 })
-    assert(filthy.maxR > clean.maxR * 1.5, `Foul Water must widen the stain in filthy water: ${filthy.maxR.toFixed(1)} against ${clean.maxR.toFixed(1)} clean`)
-    assert(filthy.dps > clean.dps * 1.5, `Foul Water must also raise the stain's damage: ${filthy.dps.toFixed(2)} against ${clean.dps.toFixed(2)} clean`)
+    const clean = dragAt(SHELF_MAX, { foulWater: 1 })
+    const filthy = dragAt(0, { foulWater: 1 })
+    assert(filthy.dragT > 0, 'Foul Water in filthy water must drag a body sitting outside the crater')
+    assert.strictEqual(clean.dragT, 0,
+      `Foul Water must buy NOTHING in clean water: a body at 1.25x the crater was dragged for ${clean.dragT}s`)
+    assert.strictEqual(filthy.hp, 1e6,
+      'the body outside the crater took impact damage — the drag ring is being used for the crush as well')
     assert(Math.abs(filthy.impactR - clean.impactR) < 1e-9,
-      `Foul Water must NOT touch the crater: impact r ${filthy.impactR} in filth against ${clean.impactR} clean — the card names the stain and only the stain`)
-    console.log(`PASS run MB.f (Foul Water): stain r ${clean.maxR.toFixed(0)}->${filthy.maxR.toFixed(0)}, dps ${clean.dps.toFixed(2)}->${filthy.dps.toFixed(2)}, crater r ${clean.impactR} unchanged`)
+      `Foul Water must NOT touch the crater: impact r ${filthy.impactR} in filth against ${clean.impactR} clean`)
+    // AND THE STAIN IS GONE. The owner cut it because it was Silt Veil's own picture given away on
+    // a rare; a landing that quietly pushes a look:'silt' bloom again would look entirely correct.
+    const plain = boot('shelf', 'ballast', 5, null, 0)
+    plain.enemies.push(makeStatusEnemy(plain, { x: plain.player.x + 200, y: plain.player.y, hp: 1e6, speed: 0 }))
+    assert(castUntil(plain, (r) => r.lobs.length > 0, pin(0)), 'precondition: the ballast must throw within 12s')
+    advance(plain, BALLAST_FLIGHT + 0.2, pin(0))
+    assert.strictEqual(plain.blooms.filter((b) => b.look === 'silt').length, 0,
+      'a ballast landing pushed a silt cloud — the stain is supposed to be gone (it made Silt Veil pointless)')
+    console.log(`PASS run MB.f (Foul Water): a body at 1.25x the crater is dragged ${filthy.dragT.toFixed(1)}s in filth and ${clean.dragT}s clean, takes no impact damage either way, crater r ${clean.impactR} unchanged, and no landing leaves a silt cloud`)
   }
 
   // (g) FOUL SPRING enlarges a cloud dropped in a LIVE upwelling and SPENDS that upwelling — and
@@ -7117,16 +7367,23 @@ function runModBudget() {
     assert(Math.abs(withHoleMods - withoutHoleMods) < 1e-6,
       `the Black Hole's mods leaked into the Downwash: ${withoutHoleMods.toFixed(1)} alone vs ${withHoleMods.toFixed(1)} while holding Big Crunch + Hungry Hole`)
 
-    // PLUNGE TURNS THE TIMER INTO A TRIGGER, and the trigger is the crowd reaching the MIDDLE.
-    // Two controls, because one is not enough here: the same mod with too few bodies must NOT fire
-    // early (or the card is just "shorter fuse"), and no mod at all must burn the whole pour.
-    // A mod read that never fires is indistinguishable from one that works, since the column bursts
-    // on expiry either way -- so nothing but the DELAY tells them apart.
+    // PLUNGE ADDS A BURST AND KEEPS THE POUR. It used to set h.life = 0, which retired the column
+    // on its early burst: measured over 324 columns (scripts/plunge-probe.mjs, shelf L5, 300s x 3
+    // seeds) that fired on 69% of them and served a median 1.00s of a 2.00s pour for exactly ONE
+    // burst -- the same burst the timer would have produced. The card traded half the gather for
+    // nothing and looked identical either way, which is what the owner reported as "doesn't work".
+    //
+    // THREE THINGS, and each needs its own control because any one alone is satisfiable by a stub:
+    //   - it fires EARLY (delay), or the mod is a no-op;
+    //   - it fires TWICE (bursts), or it is the old strictly-worse column;
+    //   - the column still serves its FULL pour, or the early burst is still being paid for.
+    // Plus the too-few control, or the trigger is just a shorter fuse.
     const noMod = burstOf(null, DOWNWASH_PLUNGE_N + 1)
     const plunged = burstOf({ plunge: 1 }, DOWNWASH_PLUNGE_N + 1)
     const tooFew = burstOf({ plunge: 1 }, DOWNWASH_PLUNGE_N - 1)
     assert(noMod.delay > noMod.dur * 0.9,
       `control: without Plunge the column must burst at the end of its pour (${noMod.delay.toFixed(2)}s of ${noMod.dur}s)`)
+    assert.strictEqual(noMod.bursts, 1, `control: an unmodded column must detonate once, got ${noMod.bursts}`)
     assert(plunged.delay < noMod.delay - 0.2,
       `Plunge must burst the column early: ${noMod.delay.toFixed(2)}s unmodded vs ${plunged.delay.toFixed(2)}s modded`)
     // NOT ZERO. The column lands on the clump it chose, so counting the whole radius would fire on
@@ -7136,16 +7393,98 @@ function runModBudget() {
       'Plunge fired on the cast frame — the trigger radius is back to the full column and the gather is gone')
     assert(tooFew.delay > noMod.dur * 0.9,
       `control: ${DOWNWASH_PLUNGE_N - 1} bodies must not trip a ${DOWNWASH_PLUNGE_N}-body trigger (burst at ${tooFew.delay.toFixed(2)}s)`)
-    // AND IT MUST NOT PAY TWICE. downwashBurst zeroes `burst`; without that, life=0 sends the column
-    // straight into the expiry branch on the next frame for a second full detonation, which is a
-    // strictly better mod that nothing else would notice.
-    assert.strictEqual(plunged.bursts, 1, `Plunge must detonate exactly once, got ${plunged.bursts}`)
-    console.log(`PASS run MB.i (Downwash): lands in the knot of 5 not on the straggler, burst ${burstDmg.toFixed(0)} out-damages the whole pour ${pourDmg.toFixed(0)} (no core crush), Big Crunch + Hungry Hole leak nothing (${withoutHoleMods.toFixed(1)} both ways), Plunge fires at ${plunged.delay.toFixed(2)}s against a ${noMod.dur}s pour, once, and ${DOWNWASH_PLUNGE_N - 1} bodies do not trip it`)
+    // TWICE, AND EXACTLY TWICE. The condition stays true for the rest of the pour, so `h.trigger = 0`
+    // is the only thing stopping a detonation on every single frame -- delete it and this reads in
+    // the dozens, restore h.life = 0 and it reads 1.
+    assert.strictEqual(plunged.bursts, 2,
+      `Plunge must add a burst and let the column finish on its own: want 2, got ${plunged.bursts}`)
+    // ...and the pour is not shortened to pay for it. The second burst is the EXPIRY one, so it
+    // lands at the end of a full-length pour.
+    assert(plunged.lastDelay > noMod.dur * 0.9,
+      `Plunge shortened the pour: last burst at ${plunged.lastDelay.toFixed(2)}s of a ${noMod.dur}s pour`)
+    console.log(`PASS run MB.i (Downwash): lands in the knot of 5 not on the straggler, burst ${burstDmg.toFixed(0)} out-damages the whole pour ${pourDmg.toFixed(0)} (no core crush), Big Crunch + Hungry Hole leak nothing (${withoutHoleMods.toFixed(1)} both ways), Plunge fires at ${plunged.delay.toFixed(2)}s and again at ${plunged.lastDelay.toFixed(2)}s of a ${noMod.dur}s pour (2 bursts against the control's ${noMod.bursts}), and ${DOWNWASH_PLUNGE_N - 1} bodies do not trip it`)
   }
 
   console.log('PASS run MB (Book 2 chapters 1-2 mod budget): no inert cards across every weapon, four-plus apiece in both chapters, rate mods speed up, count mods land on bodies, and the three Pollution/clean-water cards pay the right way round — including that a fouled patch stops recharging you')
 }
 run(runModBudget)
+
+
+// ---- Run ST: THE SHELF'S SPAWN TILT ----------------------------------------------------------
+// Owner from play, 2026-08-21: "reduce top curve spawn numbers by 25% and increase bottom curve
+// spawn by 25% (more mobs early, less late)". CHAPTERS.shelf.balance.spawnTilt is the first knob in
+// this game that changes the SHAPE of a chapter's spawn curve rather than scaling all of it, so it
+// has no existing guard to ride on.
+//
+// ASSERTED AS AN EFFECT AGAINST A TILT-0 CONTROL, and it has to be: reading run.mods.spawnTilt back
+// passes with the multiply deleted from stepSpawning, which is the whole of the mechanic. And the
+// control is the SAME chapter with the field cleared, not a different chapter — every other spawn
+// input (spawnMul, maxAlive, the roster, the obstacle field) then cancels, so the only thing left
+// that can move the counts is the tilt.
+//
+// Kill counting, not run.enemies.length: maxAliveFor caps the live array, so the cap absorbs the
+// early surge and the ARRAY reads nearly flat while the SPAWN RATE is 25% up. That version of this
+// test measured 61 against 60 and would have passed with the tilt at any value. Immortal player,
+// one big weapon, so the crowd is consumed as fast as it arrives and total spawns show up as kills.
+function runSpawnTilt() {
+  const dt = 1 / 60
+  const window = (tilt, from, to) => {
+    Math.random = mulberry32(90210)
+    const meta = makeMeta()
+    ensureChapterMeta(meta, 'shelf')
+    meta.chapters.shelf.unlocked = true
+    const run = createRun(meta, { chapter: 'shelf', difficulty: 3 })
+    assert.strictEqual(run.chapter, 'shelf', 'the tilt harness booted the wrong chapter')
+    run.mods.spawnTilt = tilt
+    run.player.maxHP = run.player.hp = 1e9
+    run.weapons = [{ id: 'bubblePuff', level: 5 }]
+    let kills = 0, prev = run.kills ?? 0
+    while (run.time < to && run.phase !== 'dead') {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      const now = run.kills ?? 0
+      if (run.time >= from) kills += now - prev
+      prev = now
+    }
+    return kills
+  }
+  const TILT = CHAPTERS.shelf.balance.spawnTilt
+  assert.ok(TILT > 0, 'CHAPTERS.shelf.balance.spawnTilt is gone — this scenario has nothing to measure')
+
+  // The FIRST 60s against the same 60s with the tilt off. spawnTiltMul is 1 + tilt at t=0 falling
+  // to 1 at half a run, so the early window should sit around +19% (the mean of the ramp) — banded
+  // wide because the two arms diverge into different worlds after the first extra spawn.
+  const earlyOn = window(TILT, 0, 60), earlyOff = window(0, 0, 60)
+  assert.ok(earlyOn > earlyOff * 1.06,
+    `The Shelf's tilt must front-load the crowd: ${earlyOn} kills in the first 60s against a flat curve's ${earlyOff}`)
+
+  // ...and the LAST 60s must go the other way, or the knob is a plain spawnMul with extra steps.
+  const lateOn = window(TILT, 240, 300), lateOff = window(0, 240, 300)
+  assert.ok(lateOn < lateOff * 0.94,
+    `The Shelf's tilt must thin the late crowd: ${lateOn} kills over 240-300s against a flat curve's ${lateOff}`)
+
+  // AND IT IS A TILT, NOT A CUT — the assertion the other two cannot make on their own. The RATIO
+  // of early to late is what a reshape moves and what a flat spawnMul cannot touch at all: halving
+  // every spawn in the run passes "fewer late" and would pass "more early" against a weaker control,
+  // and leaves this number exactly where it started.
+  //   NOT a total-conservation check. The first cut of this scenario asserted one and went red at
+  // 527 against 603, correctly: spawnRate is back-loaded (a t^2 term past SPAWN_LATE_START), so a
+  // symmetric +-25% takes more bodies out of the late half than it puts into the early one. The
+  // tilt really does cut ~13% of the run's spawns, and that is recorded in spawnTiltMul's own block
+  // rather than papered over here.
+  const ratioOn = earlyOn / lateOn, ratioOff = earlyOff / lateOff
+  assert.ok(ratioOn > ratioOff * 1.15,
+    `the tilt changed the count but not the shape: early:late ${ratioOn.toFixed(3)} tilted against ${ratioOff.toFixed(3)} flat`)
+
+  // The other six Undertow chapters must not have quietly acquired one.
+  const tilted = Object.keys(CHAPTERS).filter((id) => (CHAPTERS[id].balance?.spawnTilt ?? 0) !== 0)
+  assert.deepStrictEqual(tilted, ['shelf'],
+    `spawnTilt is meant to be The Shelf's alone, found it on ${tilted.join(', ')}`)
+
+  console.log(`PASS run ST (shelf spawn tilt): first 60s ${earlyOff} -> ${earlyOn} kills, last 60s ${lateOff} -> ${lateOn}, early:late ${ratioOff.toFixed(2)} -> ${ratioOn.toFixed(2)} — a pivot, not a flat cut, and 1 of ${Object.keys(CHAPTERS).length} chapters carries it`)
+}
+run(runSpawnTilt)
 
 
 // ---- Run PY: THE WRECK, after the premise turned round (v7.x, owner directive) ----------------
@@ -8129,8 +8468,13 @@ function runDark() {
     // run.chargeMax (v7.x Book 2 Task 9 fix round): the 4th arg is the run's OWN ceiling, not the
     // config max — omitting it pins the light at radiusFull for the whole band a Deep-Lungs run
     // spends above the old res.max, which is exactly the bug this fix round exists to close.
-    assert.ok(/const R = lightRadius\(run\.charge, res, Math\.max\(w, h\), run\.chargeMax\)/.test(src),
-      "render.js must size the light from lightRadius(charge, res, longest side, run.chargeMax) — the screen's longest side is the unit the chapter states its light in, and chargeMax is the ceiling that light saturates against")
+    // run.sightCharge (v7.x, The Shelf's Clear): the FIRST argument is what the player can see, not
+    // the raw bar — sim.js's stepCharge publishes it, and it IS run.charge on every frame of every
+    // chapter but the ones where a Clear window is open. Reading run.charge here instead would leave
+    // the button's whole payload invisible while the sim happily counted it down, which is the
+    // frozen-enemies scar's exact shape and the reason this line is asserted as source text at all.
+    assert.ok(/const R = lightRadius\(run\.sightCharge \?\? run\.charge, res, Math\.max\(w, h\), run\.chargeMax\)/.test(src),
+      "render.js must size the light from lightRadius(run.sightCharge ?? run.charge, res, longest side, run.chargeMax) — sightCharge is the field the Clear lends sight through, the screen's longest side is the unit the chapter states its light in, and chargeMax is the ceiling that light saturates against")
     // NO ALPHA ANYWHERE IN THE PATH, and this is the assertion the chapter's existence rests on.
     // The lightmap used to be a white canvas with the lights punched out by `destination-out`, drawn
     // as a translucent tinted sprite — the whole effect lived in a canvas ALPHA channel that then had
@@ -17335,7 +17679,9 @@ function testSpiderShare() {
   // body in that chapter you cannot eat on demand, so its share IS the chapter's texture. Weights
   // being relative, the 0.7 it gives up goes to the two prey entries, which makes the field denser
   // in food rather than emptier.
-  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city', 'skies', 'surf', 'wreck']
+  // v7.x added shelf (owner: "35% less jellyfishes in level 2-2", 2026-08-20) — the moon jelly is
+  // that chapter's only tank, so it is the seventh chapter to hit the one-item-pool wall.
+  const ARCHETYPE_MUL_CHAPTERS = ['garden', 'undergrowth', 'city', 'skies', 'surf', 'wreck', 'shelf']
   const spAllChapters = Object.keys(CHAPTERS)
   for (const id of spAllChapters) {
     if (ARCHETYPE_MUL_CHAPTERS.includes(id)) continue
@@ -19544,62 +19890,115 @@ function testLeLargeWeapons() {
       'and the shove is what made standing still the best way to play The Shelf')
   }
 
-  // (b) SILT VEIL FEARS AND POISONS. Both halves. The fear is published into e.fearT, a contract
-  // field a missing `fear:` on the cast would leave untouched with no other symptom; and a cloud
-  // that fears without ticking is a card whose own French says 'empoisonner'.
+  // (b) SILT VEIL DAZES AND POISONS. Both halves. The daze is published into e.stunT, a contract
+  // field a missing `daze:` on the cast would leave untouched with no other symptom; and a cloud
+  // that dazes without ticking is a card whose own French says 'empoisonner'.
+  //   It FEARED until 2026-08-21 (owner from play: "they should daze / stun not fear"), and the
+  // swap is asserted from both ends — nothing may write e.fearT any more, or the scatter that made
+  // the card fight its own chapter is quietly still there.
   {
     Math.random = mulberry32(80182)
     const run = largeRun('siltVeil', 5)
     const p = run.player
     const e = makeStatusEnemy(run, { x: p.x + 20, y: p.y, hp: 1e6, speed: 0 })
     run.enemies.push(e)
-    let sawFear = false, fearFrames = 0
-    // 15s, not 5: FEAR_REFRACTORY is 2s ON TOP of the fear's own duration, so applications are at
+    let sawDaze = false, dazeFrames = 0, sawFear = false
+    // 15s, not 5: SILT_DAZE_REFRACTORY is 2s ON TOP of the daze's own hold, so applications are at
     // least ~3.4s apart and a 5s window sees exactly one — nothing to compare a decay against.
     const FRAMES = 900
     for (let i = 0; i < FRAMES; i++) {
       stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0; only(run, e)
-      const ft = e.fearT ?? 0
-      if (ft > 0) { sawFear = true; fearFrames += 1 }
-      e.x = p.x + 20; e.y = p.y   // hold it in the cloud — fear would otherwise carry it out
+      if ((e.stunT ?? 0) > 0) { sawDaze = true; dazeFrames += 1 }
+      if ((e.fearT ?? 0) > 0) sawFear = true
+      e.x = p.x + 20; e.y = p.y   // hold it in the cloud
     }
     assert.ok(run.blooms.some((b) => b.look === 'silt'), 'Silt Veil never dropped a silt-tagged cloud')
-    assert.ok(sawFear, 'Silt Veil never feared anything — the cloud is a plain toxin bloom')
-    assert.ok(e.hp < 1e6, 'Silt Veil feared without poisoning')
+    assert.ok(sawDaze, 'Silt Veil never dazed anything — the cloud is a plain toxin bloom')
+    assert.ok(!sawFear, 'Silt Veil still fears — the daze was added beside the scatter instead of replacing it')
+    assert.ok(e.hp < 1e6, 'Silt Veil dazed without poisoning')
     // …AND IT MUST NOT BE A PERMANENT LOCK. A PERSISTENT zone re-applies for as long as a body
-    // stands in it, which is the shape that turns a scare into a stunlock. FEAR_REFRACTORY (2s on
-    // top of the fear's own duration) is what actually prevents it, so this bound is guarding that
-    // the cloud goes through the ordinary fear path rather than writing e.fearT directly.
-    const uptime = fearFrames / FRAMES
+    // stands in it, which is exactly the shape that turns a daze into a stunlock — and a stun locks
+    // harder than a fear did, because a stunned body does not even walk away. e.dazeCd (armed at
+    // APPLICATION to hold + SILT_DAZE_REFRACTORY) is what prevents it, so this bound is guarding
+    // that the cloud goes through that window rather than writing e.stunT directly.
+    const uptime = dazeFrames / FRAMES
     assert.ok(uptime < 0.75,
-      `Silt Veil held a body feared ${(uptime * 100).toFixed(0)}% of the time it stood in the cloud — ` +
-      'that is a lock, not a scare. It is bypassing FEAR_REFRACTORY.')
+      `Silt Veil held a body dazed ${(uptime * 100).toFixed(0)}% of the time it stood in the cloud — ` +
+      'that is a lock, not a daze. It is bypassing dazeCd.')
     // ⚠ MUTATION-SURVIVOR, RECORDED RATHER THAN PAPERED OVER: deleting `spendCC(run, e)` from the
-    // bloom's fear path passes everything here, and that is CORRECT rather than a hole. spendCC is
+    // bloom's daze path passes everything here, and that is CORRECT rather than a hole. spendCC is
     // the diminishing-returns ledger, and _ccDR recovers to full over CC_DR_RECOVER (2.5s) while
-    // this cloud cannot re-fear the same body inside fear + FEAR_REFRACTORY (>= 3.4s). DR has always
-    // recovered by the next application, so no assertion can see it without asserting something the
-    // design does not claim. The call stays because it is the shared convention and because that
-    // margin is one config edit wide — but it is not testable here, and pretending otherwise would
-    // have meant writing a check that passes for the wrong reason.
+    // this cloud cannot re-daze the same body inside hold + SILT_DAZE_REFRACTORY (>= 2.9s). DR has
+    // always recovered by the next application, so no assertion can see it without asserting
+    // something the design does not claim. The call stays because it is the shared convention and
+    // because that margin is one config edit wide — but it is not testable here, and pretending
+    // otherwise would have meant writing a check that passes for the wrong reason.
   }
 
-  // (c) BALLAST LANDS, HURTS AND STAINS. The stain is the half that fails silently: the impact is
-  // loud and obvious, and a landing that pushed no bloom would look entirely correct.
+  // (c) BALLAST LANDS, HURTS, DRAGS — AND CRUSHES TANKS DOUBLE. All three fail silently: the
+  // impact is loud and obvious, and a landing that set no dragT or forgot the archetype multiplier
+  // would look entirely correct.
   {
     Math.random = mulberry32(80183)
     const run = largeRun('ballast', 5)
     const p = run.player
     const e = makeStatusEnemy(run, { x: p.x + 140, y: p.y, hp: 1e6, speed: 0 })
     run.enemies.push(e)
-    let sawStain = false
+    let sawDrag = false, sawStain = false
     for (let i = 0; i < 400; i++) {
       stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0; only(run, e)
+      if ((e.dragT ?? 0) > 0) sawDrag = true
       if (run.blooms.some((b) => b.look === 'silt')) sawStain = true
       e.x = p.x + 140; e.y = p.y
     }
     assert.ok(e.hp < 1e6, 'Ballast never damaged anything')
-    assert.ok(sawStain, 'Ballast left no stain — the lingering half of the card is missing')
+    assert.ok(sawDrag, 'Ballast pinned nothing — the lingering half of the card is missing')
+    assert.ok(!sawStain, 'Ballast left a silt stain — that is Silt Veil\'s card and it was cut from this one')
+  }
+
+  // (c1) …AND THE TANK MULTIPLIER IS AN ARCHETYPE READ, not a size or hp read. Two bodies in the
+  // SAME run so the throw, the flight and the landing are one event: only `type` differs, so the
+  // damage gap can be nothing else. Both sit on the aim point, so both are inside the crater.
+  {
+    Math.random = mulberry32(80184)
+    const run = largeRun('ballast', 5)
+    const p = run.player
+    const drone = makeStatusEnemy(run, { x: p.x + 140, y: p.y, hp: 1e6, speed: 0 })
+    const tank = makeStatusEnemy(run, { x: p.x + 140, y: p.y, hp: 1e6, speed: 0 })
+    drone.type = 'drone'; tank.type = 'tank'
+    run.enemies.push(drone, tank)
+    for (let i = 0; i < 400; i++) {
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0
+      run.enemies = run.enemies.filter((x) => x.id === drone.id || x.id === tank.id)
+      drone.x = tank.x = p.x + 140; drone.y = tank.y = p.y
+      if (drone.hp < 1e6) break
+    }
+    const droneTook = 1e6 - drone.hp, tankTook = 1e6 - tank.hp
+    assert.ok(droneTook > 0, 'precondition: the ballast must have landed on both bodies')
+    assert.ok(Math.abs(tankTook / droneTook - BALLAST_TANK_MUL) < 0.01,
+      `a tank took ${tankTook.toFixed(0)} against a drone's ${droneTook.toFixed(0)} — want exactly x${BALLAST_TANK_MUL}`)
+  }
+
+  // (c2) TWO WEIGHTS STILL HIT THE BODY THEY WERE THROWN AT. Jetsam rings the extra drops around
+  // the aim point, and every drop used to go out to 1.15r — so a two-weight cast landed one blast
+  // on each side of a lone enemy and touched it with neither. The card read as firing normally and
+  // dealt nothing, which is the exact shape of failure this file exists to catch. Same fixture as
+  // (c), one mod deep: if the first weight ever stops landing ON the target, hp comes back at 1e6.
+  {
+    Math.random = mulberry32(80183)
+    const run = largeRun('ballast', 5)
+    run.weaponMods.ballast = { jetsam: 1 }
+    const p = run.player
+    const e = makeStatusEnemy(run, { x: p.x + 140, y: p.y, hp: 1e6, speed: 0 })
+    run.enemies.push(e)
+    let drops = 0
+    for (let i = 0; i < 400; i++) {
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0; only(run, e)
+      drops = Math.max(drops, run.lobs.length)
+      e.x = p.x + 140; e.y = p.y
+    }
+    assert.ok(drops >= 2, 'precondition: jetsam must throw 2 weights per cast, saw ' + drops)
+    assert.ok(e.hp < 1e6, 'a two-weight Ballast cast landed on both sides of its target and missed it')
   }
 
   // (d) LEST THROWS JUNK, AND THE JUNK IS RENDER-SIDE ONLY — so nothing here can be asserted by
@@ -19700,14 +20099,17 @@ function testLeLargeWeapons() {
     assert.strictEqual(offAxis(3), true, 'Flare did not widen the cone — the mod folds onto a number nothing reads')
   }
 
-  // (g) THE CAP HANDS THE RING BACK — as a LOOK, which is the only thing it changes.
+  // (g) THE PUFF IS ALWAYS A CONE, NEVER A RING. This block used to assert the exact OPPOSITE:
+  // that a fully-stacked Flare handed back `arc: null`, spawnNova's full-ring look, as the clean
+  // top of the ladder. The owner cut that on 2026-08-21 — a ring is 360 degrees, which is the thing
+  // he asked to be made unreachable — so the same fixture now guards that no amount of the width
+  // card can produce one. See BUBBLE_COVER_MAX / BUBBLE_ARC_MAX in config.js.
   //
-  // The first cut of this block asserted that a fully-stacked Flare still hits a body behind the
-  // player, on the theory that an over-wide arc would wrap past pi and start excluding again. That
-  // is false and the mutation run proved it: stepNovas normalises the bearing, so a 20-radian arc
-  // already admits everything and the assertion passed with the cap deleted. What the cap decides
-  // is which RENDERER draws the puff — `arc: null` is the full-ring sprite, anything else is the
-  // wedge — so that is what gets asserted.
+  // Worth keeping from the old block, because it still constrains what may be asserted here: an
+  // earlier cut tried to prove the cap by hitting a body BEHIND the player, and the mutation run
+  // showed that is unprovable — stepNovas normalises the bearing, so a 20-radian arc already admits
+  // everything and the assertion passed with the cap deleted. The arc VALUE is the only honest
+  // subject.
   {
     const capArc = (flare) => {
       Math.random = mulberry32(20260818)
@@ -19728,9 +20130,15 @@ function testLeLargeWeapons() {
     }
     const bare = capArc(0)
     assert.ok(typeof bare === 'number' && bare > 0, `an unmodded puff spawned a nova with arc ${bare} — it is not a cone at all`)
-    assert.strictEqual(capArc(40), null,
-      'a fully stacked Flare still spawns a SECTOR nova — the 2pi cap is gone, so the widest puff draws a wedge ' +
-      'wrapping the circle several times instead of the clean ring that is meant to be the top of the ladder')
+    // flare 40 is absurd on purpose: no ladder rolls it, and the point is that nothing can.
+    const stacked = capArc(40)
+    assert.ok(typeof stacked === 'number',
+      `a fully stacked Flare spawned a nova with arc ${stacked} — a null arc is spawnNova's full RING, i.e. the ` +
+      '360-degree puff the owner asked to be made unreachable')
+    assert.ok(stacked <= BUBBLE_ARC_MAX + 1e-9,
+      `a fully stacked Flare reached ${stacked} rad on one cone, over the ${BUBBLE_ARC_MAX} ceiling`)
+    assert.ok(stacked < Math.PI * 2,
+      `one cone covers ${stacked} rad — at or past a full turn, which is a ring drawn as a wedge`)
   }
   // (h) EVERY NOVA CARRYING A SECTOR NAMES ITS DRAWER. run.novas is shared, and drawBreakers used to
   // claim EVERY nova with an `arc` — so The Deep's Fin Hit was drawing a Surf whitewater crest on
@@ -22863,8 +23271,8 @@ function testUndertowLadder() {
   {
     const jelly = CHAPTERS.shelf.roster.find((r) => r.id === 'jelly')
     assert.ok(jelly, 'the Moon Jelly is gone from The Shelf roster')
-    assert.ok(Math.abs(jelly.hpMul - 2.5 * 0.75) < 1e-9,
-      `expected jelly hpMul = 2.5 x 0.75 = 1.875 ("jelly -25% hp"), got ${jelly.hpMul}`)
+    assert.ok(Math.abs(jelly.hpMul - 2.5 * 0.75 * 0.8) < 1e-9,
+      `expected jelly hpMul = 2.5 x 0.75 x 0.8 = 1.5 ("-25% hp", then "-20%" again), got ${jelly.hpMul}`)
     assert.ok(Math.abs((jelly.xpMul ?? 1) - 1.25) < 1e-9,
       `expected jelly xpMul 1.25 ("jelly +25% xp"), got ${jelly.xpMul}`)
 
@@ -22883,7 +23291,36 @@ function testUndertowLadder() {
     assert.ok(Math.abs(seen.xp - expected) < 1e-9,
       `a spawned Moon Jelly carries xp ${seen.xp}, not ${expected} — the roster's xpMul is not reaching ` +
       `the enemy, so the +25% is a number in a table that nothing reads`)
-    console.log(`PASS run US.h (moon jelly): hpMul ${jelly.hpMul} (2.5 x 0.75), xpMul ${jelly.xpMul}, and a spawned jelly really carries ${seen.xp} xp`)
+
+    // THE VULNERABILITY WINDOW, doubled (owner, 2026-08-20: "jellyfishes should be vulnerable for
+    // longer periods. Double the length of vulnerability periods"). Asserted as GHOST UPTIME over
+    // a real stretch of stepSim rather than as the constant, because the failure mode here is not a
+    // wrong number — it is `phase: { solidMul: 2 }` sitting in the roster with nothing reading it,
+    // exactly the way xpMul could have above. Uptime is the effect a player feels: the share of the
+    // time the jelly refuses damage.
+    //   The BAND is wide (the window is randomised at spawn and the sample is finite) but it cannot
+    // contain the un-overridden 38.5%, which is the only thing it has to separate.
+    let ghost = 0, frames = 0
+    for (let i = 0; i < 60 * 60; i++) {
+      if (run.phase === 'levelup') { run.phase = 'playing'; continue }
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      run.events.length = 0
+      const j = run.enemies.find((e) => e.id === seen.id)
+      if (!j || j._dead) break
+      frames++
+      if (j._phaseSolid === false) ghost++
+    }
+    assert.ok(frames > 600, `the jelly died after ${frames} frames — too short to measure its window`)
+    const uptime = ghost / frames
+    // 1.0 ghost / (3.2 solid + 1.0) = 0.238. Un-overridden it would be 1.0/2.6 = 0.385.
+    assert.ok(uptime > 0.15 && uptime < 0.31,
+      `Moon Jelly is damage-immune ${(100 * uptime).toFixed(1)}% of the time over ${frames} frames; ` +
+      `want ~23.8% (solid doubled). 38.5% means phase.solidMul never reached stepPhaseWindow`)
+    // The pond's Tardigrade shares the flag and MUST NOT have moved with it.
+    const tardi = CHAPTERS.pond.roster.find((r) => r.id === 'tardigrade')
+    assert.ok(tardi && tardi.phase == null,
+      'the Tardigrade grew a phase override — the jelly tune was supposed to be the jelly\'s alone')
+    console.log(`PASS run US.h (moon jelly): hpMul ${jelly.hpMul} (2.5 x 0.75 x 0.8), xpMul ${jelly.xpMul}, a spawned jelly really carries ${seen.xp} xp, and it is damage-immune only ${(100 * uptime).toFixed(1)}% of the time (was 38.5%) while the pond's Tardigrade keeps the shared window`)
   }
 
   // (e) THE SHELF/TWILIGHT SPLIT (2026-08-17). The light mechanic moved from slot 2 to slot 5 under
@@ -22957,18 +23394,19 @@ function testUndertowLadder() {
     assert.ok(tsrc.includes('CHAPTERS.twilight.resource.dark'),
       'nothing in the suite reads CHAPTERS.twilight.resource.dark — the light chapter moved and its coverage did not follow')
 
-    // (e3) formScale is a LADDER and the player grows down the book. The Shelf had no `form` at all
-    // before this change (it was still the Pond's blob, the only Book 2 chapter like it), so this
-    // also guards that gap staying closed.
-    const scales = undertowIds.map((id) => [id, CHAPTERS[id].render.formScale ?? 1])
-    for (const [id, s] of scales) {
+    // (e3) THE FISH IS ONE SIZE ACROSS THE BOOK, and this assertion is the inverse of the one it
+    // replaces. formScale used to be a strictly-increasing ladder (1 -> 1.7) sold as "you grow in
+    // each chapter"; the owner cut all seven on 2026-08-21 — "the growth of the player is shown by
+    // the change of scale of its surroundings. I don't want a literal bigger player" — so the ONLY
+    // honest guard left is that nobody quietly reintroduces a rung. The Shelf had no `form` at all
+    // before the v7.x split (it was still the Pond's blob), so this also keeps that gap closed.
+    for (const id of undertowIds) {
       assert.ok(CHAPTERS[id].render.form === 'fish', `${id} has no render.form — the player is not the fish there`)
-      assert.ok(s > 0, `${id} has formScale ${s}`)
+      assert.strictEqual(CHAPTERS[id].render.formScale, undefined,
+        `${id} carries formScale ${CHAPTERS[id].render.formScale} — Book 2's growth ladder was deleted on purpose, ` +
+        'and one rung is enough to make the player shrink or swell between chapters again')
     }
-    for (let i = 1; i < scales.length; i++) {
-      assert.ok(scales[i][1] > scales[i - 1][1],
-        `formScale is not increasing at ${scales[i][0]} (${scales[i - 1][1]} -> ${scales[i][1]}) — the fish must grow down the book`)
-    }
+    const scales = undertowIds.map((id) => [id, CHAPTERS[id].render.formScale ?? 1])
 
     // (e3b) THE BOOK DESCENDS, asserted as floor LUMINANCE and not as contrast. `bgColor` is the
     // water between the blotches and is the honest proxy here; the full model (mean blotch x
@@ -23177,7 +23615,7 @@ function testUndertowLadder() {
     }
 
     console.log(`PASS run US.j (shelf/twilight split): ${Object.keys(BARS).length} chapter bars map as designed (the murk slows you less than the dark does; ${inverted.length} reads inverted, and ui.js flips both its height and its number), ` +
-      `the sun arsenal followed the light and no sun card is left in the murk, formScale climbs ${scales.map(([, s]) => s).join(' -> ')} across ${scales.length} rungs, ` +
+      `the sun arsenal followed the light and no sun card is left in the murk, the fish is one size across all ${scales.length} chapters (no formScale rung anywhere), ` +
       `refillLook '${[...declared].join("','")}' resolves both ways, ${Object.keys(CHAPTERS).length} chapters cast only their own roster, ` +
       `and ${byId.size} roster ids agree on their names`)
   }

@@ -12243,7 +12243,10 @@ export function createRenderer(app) {
     // bar. Screen-relative because a px count means a different mechanic on every device.
     // run.chargeMax (v7.x Book 2 Task 9 fix round): Deep Lungs' own ceiling, not the config max —
     // omitting this pins the light at radiusFull for the whole band above the OLD max, motionless.
-    const R = lightRadius(run.charge, res, Math.max(w, h), run.chargeMax)
+    // run.sightCharge, not run.charge: The Shelf's Clear lends you sight for a few seconds without
+    // touching the bar (sim.js stepCharge publishes it). It IS run.charge in every other chapter and
+    // on every frame the button is not live, so this is the shipped read everywhere else.
+    const R = lightRadius(run.sightCharge ?? run.charge, res, Math.max(w, h), run.chargeMax)
     // Nothing to draw once the FULLY-LIT core alone reaches the farthest corner. The falloff runs
     // from LIGHT_CORE_FRAC x R out to R, so that core is the only part guaranteed to be untouched.
     const corner = Math.max(Math.hypot(px, py), Math.hypot(w - px, py),
@@ -13957,12 +13960,36 @@ export function createRenderer(app) {
           if (dx * dx + dy * dy < ed.r * ed.r) { inEddy = true; break }
         }
       }
+      // `silt` is The Shelf's Silt Veil. Hoisted out of the puff loop below because the SHAPE of
+      // the cloud now depends on it too, not only its tint.
+      const silt = bl.look === 'silt'
+      // EVERY CLOUD OF ONE CAST USED TO BE THE SAME DRAWING. Three puffs at a fixed 0.4r offset, on
+      // a fixed angle ladder, churning the same way — so Roil's two or three clouds read as one
+      // stamp repeated rather than as several stirred patches. Owner from play, 2026-08-21: "vase
+      // clouds look too similar to each other."
+      //
+      // The variation is hashed out of the cloud's OWN POSITION rather than a field on the bloom,
+      // and that is deliberate on both counts: no new run.blooms key to document and keep in step,
+      // and — the load-bearing half — NO Math.random() CALL. Every seeded scenario in the suite
+      // shares one RNG stream, so one extra draw per cloud would re-phase every sampled statistic
+      // in the file for a change that is purely cosmetic.
+      //   ⚠ IT IS STABLE ONLY BECAUSE A SILT CLOUD NEVER MOVES. stepBlooms drifts a cloud on the
+      // tide, but that branch is gated on `!bl.look` (the pond's Toxin Bloom alone), so silt sits
+      // where it was planted for its whole life. Give silt a drift and this hash changes under it
+      // every frame and the puffs crawl; bake a real seed field at the cast then.
+      //   Every expression it feeds collapses to the constant it replaced at hash 0, so the pond's
+      // toxin, The Twilight's foxfire and The Wreck's bilge draw exactly as they did.
+      const hash = silt ? ((bl.x * 0.017 + bl.y * 0.029) % 1 + 1) % 1 : 0
+      const churn = hash < 0.5 ? 1 : -1
+      const frac = (v) => ((v % 1) + 1) % 1
       for (let k = 0; k < 3; k++) {
         const s = bv.puffs[k]
-        const off = k === 0 ? 0 : bl.r * 0.4
-        const ang = animT * 0.6 + k * 2.1
+        const spread = silt ? 0.30 + 0.20 * frac(hash * 7.3 + k * 0.37) : 0.4
+        const off = k === 0 ? 0 : bl.r * spread
+        const ang = animT * 0.6 * churn + k * 2.1 + hash * Math.PI * 2
+        const lump = silt ? 0.82 + 0.36 * frac(hash * 11.7 + k * 0.61) : 1
         s.position.set(Math.cos(ang) * off, Math.sin(ang) * off)
-        s.scale.set(sc * (k === 0 ? 1 : 0.72) * (1 + 0.05 * Math.sin(animT * 3 + k)))
+        s.scale.set(sc * (k === 0 ? 1 : 0.72) * lump * (1 + 0.05 * Math.sin(animT * 3 + k)))
         // The Twilight's Foxfire shares this pool. Near-WHITE with a mint fringe, not the blue it
         // started as: this chapter's water is 0x18567f and its floor wash 0x9fd6f0, so a pale blue
         // fire on it is a blue smudge on blue — the first probe of this weapon came back with the
@@ -13972,12 +13999,11 @@ export function createRenderer(app) {
         // It must also never be the Spore Bloom's green: the two are the same ENTITY, and a Shelf
         // player reading their own fire as a pond toxin cloud is the failure to avoid.
         const fox = bl.look === 'foxfire'
-        // `silt` is The Shelf's Silt Veil AND the stain a Ballast leaves — one look for both,
-        // because they are the same cloud and telling them apart on screen would be a promise
-        // the mechanic does not keep. Olive-brown: this is the BOTTOM, lifted. It must not be
-        // the Spore Bloom's green (same entity, wrong chapter, and the player would read their
-        // own silt as a pond toxin) and it must not be Foxfire's mint either.
-        const silt = bl.look === 'silt'
+        // The silt tint (the flag itself is hoisted above the loop). Olive-brown: this is the
+        // BOTTOM, lifted. It must not be the Spore Bloom's green — same entity, wrong chapter, and
+        // a Shelf player would read their own silt as a pond toxin — and not Foxfire's mint either.
+        // Ballast used to share this look for its stain; that stain was cut in v7.x precisely
+        // because two cards drawing one cloud made the cheaper of them pointless.
         // `bilge` is The Wreck's oil — the FOURTH card on this array, and the one that must least
         // look like the other three. It is not a cloud in the water at all: it is a film ON the
         // bottom, so it is DARK where silt is pale, and it carries the only iridescence in the set,
