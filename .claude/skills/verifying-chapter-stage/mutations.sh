@@ -103,4 +103,17 @@ fresh
 rm -f "$T/src/cast/jelly.png"
 echo "M12 shelf's jelly title-card thumb gone  shelf art=$(pick "$(axes shelf)" art)   (want: FAIL)"
 
+# M13 mutates the SCRIPT, not the game: it is the comment stripper that is under test. A path glob
+# inside a string literal — `import.meta.glob('./props/*.png')`, which render.js really has — opens
+# a block comment that the next JSDoc `*/` closes, silently eating every line between. Here that is
+# the whole of stepShafts. Both readings are the proof: masked, the signature is wired; unmasked,
+# the same tree reports it INERT. This is the shape of the bug that shipped in v7.187 and read as
+# three chapters with no test coverage.
+fresh
+LINE=$(grep -n "sig.type !== 'shafts'" "$T/src/sim.js" | head -1 | cut -d: -f1)
+sed -i "${LINE}i const SHELF_GLOB = './props/*.png'" "$T/src/sim.js"
+echo "M13 a path glob above the shafts read    shelf wiring=$(pick "$(axes shelf)" wiring)   (want: ok — the string mask absorbs it)"
+sed -i "s|^const NUL = '\\\\u0000'|const NUL = ''|" "$T/scripts/chapter-stage.mjs"
+echo "    the same tree, mask disabled         shelf wiring=$(pick "$(axes shelf)" wiring) (want: FAIL, or the mask proves nothing)"
+
 rm -rf "$T"
