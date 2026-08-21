@@ -73,7 +73,7 @@ echo "M8 pond's balance cloned from body       pond=$(stage pond)  (want: POLISH
 
 fresh
 sed -i "s/      bgColor: 0x2e6258,/      bgColor: 0xf4efe6,/" "$T/src/config.js"
-echo "M9 pond's bgColor cloned from body       pond=$(stage pond)   (want: BUILDING)"
+echo "M9 pond's bgColor cloned from body       pond=$(stage pond)   (want: PLAYTESTING)"
 
 fresh
 sed -i "s/weapons: \['star', 'orbit', 'wave', 'homing'\], starter: 'star',/weapons: ['orbit', 'wave', 'homing'], starter: 'star',/" "$T/src/config.js"

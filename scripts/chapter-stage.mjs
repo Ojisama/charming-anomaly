@@ -89,7 +89,7 @@ function smoke (id) {
   }
 }
 
-const LADDER = ['IDEATING', 'BUILDING', 'POLISHING', 'BALANCING', 'PLAYTESTING', 'PUBLISHED']
+const LADDER = ['IDEATING', 'BUILDING', 'PLAYTESTING', 'POLISHING', 'BALANCING', 'PUBLISHED']
 
 function audit (id) {
   const c = CHAPTERS[id]
@@ -167,6 +167,18 @@ function audit (id) {
         : `signature '${sigType}' is INERT — sim.js reads neither its type nor any of {${payload.join(', ')}}`)
   add('BUILDING', ...smoke(id))
 
+  // ---- PLAYTESTING: the repo cannot see hands on a phone ----
+  // Publication IS the proof it was played: nothing reaches a player without passing through him.
+  // It sits right above BUILDING (owner, 2026-08-21): the chapter is played before it is dressed,
+  // so art and tuning are never spent on something that is not fun yet. Un-published it is PENDING,
+  // and the printout carries on past it so the mechanical work above still shows.
+  // `hidden` means OUTSIDE the ladder, not unreleased: The Blank is Book 1's boss chapter and is
+  // very much shipped. Only wipFrom hides a chapter from players.
+  const bkPre = bookOf(id)
+  const live = !!bkPre && (bkPre.hidden || bkPre.b.wipFrom === undefined || bkPre.idx < bkPre.b.wipFrom)
+  add('PLAYTESTING', live,
+    live ? 'implied — it is live, so it went past you' : 'awaiting YOUR hands on a phone', true)
+
   // ---- POLISHING: art + copy ----
   // Art (ROSTER_LOOKS entries + cast thumbnails on disk) is already guarded for EVERY chapter by
   // run RA in the suite, so this script defers rather than growing a second implementation.
@@ -186,9 +198,8 @@ function audit (id) {
   // Owner sign-offs (2026-08-20). fr.js having a key proves a translation EXISTS, never that it is
   // right — French copy is his call, not a subagent's — and no script can tell a finished animation
   // from a placeholder that happens to render. Publication is the only proof either happened.
-  const liveNow = (() => { const b = bookOf(id); return !!b && (b.hidden || b.b.wipFrom === undefined || b.idx < b.b.wipFrom) })()
-  add('POLISHING', liveNow, liveNow ? 'fr translations: reviewed (it is live)' : 'awaiting YOUR review of every fr translation — a key existing is not a key being right', true)
-  add('POLISHING', liveNow, liveNow ? 'assets + animations: verified (it is live)' : 'awaiting YOUR verification of every asset and animation', true)
+  add('POLISHING', live, live ? 'fr translations: reviewed (it is live)' : 'awaiting YOUR review of every fr translation — a key existing is not a key being right', true)
+  add('POLISHING', live, live ? 'assets + animations: verified (it is live)' : 'awaiting YOUR verification of every asset and animation', true)
 
   // ---- BALANCING: are the numbers this chapter's own, and were they measured ----
   // The gate is NOT "has a balance block" — The Beyond ships with none on purpose (raw defaults
@@ -208,16 +219,6 @@ function audit (id) {
   // convention's age, not the chapter's state.
   const decisions = (configSlab(id).match(/balance_decision\s*:/g) || []).length
   add('BALANCING', true, `${decisions} balance_decision comment(s) in its config slab${decisions ? '' : ' (advisory only — plenty of shipped chapters have none)'}`)
-
-  // ---- PLAYTESTING: the repo cannot see hands on a phone ----
-  // Publication IS the proof it was played: nothing reaches a player without passing through him.
-  // Un-published, this rung is the terminal unknown and the audit stops here on purpose.
-  // `hidden` means OUTSIDE the ladder, not unreleased: The Blank is Book 1's boss chapter and is
-  // very much shipped. Only wipFrom hides a chapter from players.
-  const bkPre = bookOf(id)
-  const live = !!bkPre && (bkPre.hidden || bkPre.b.wipFrom === undefined || bkPre.idx < bkPre.b.wipFrom)
-  add('PLAYTESTING', live,
-    live ? 'implied — it is live, so it went past you' : 'awaiting YOUR hands on a phone', true)
 
   // ---- PUBLISHED: is it actually reachable by a player ----
   const bk = bookOf(id)

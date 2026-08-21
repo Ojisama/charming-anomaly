@@ -1,6 +1,6 @@
 ---
 name: verifying-chapter-stage
-description: Use when asked how far along a Charming Anomaly chapter is, whether it is ready to move on, ready to drop its wipFrom gate, or done — and whenever the owner says "is <chapter> finished", "what's left on <chapter>", "can I publish <chapter>", "is this ready", "how far is the reef", "what stage is it at", or names a stage (IDEATING, BUILDING, POLISHING, BALANCING, PLAYTESTING, PUBLISHED). Also use before advancing a chapter past any of those stages, and before claiming a chapter is done.
+description: Use when asked how far along a Charming Anomaly chapter is, whether it is ready to move on, ready to drop its wipFrom gate, or done — and whenever the owner says "is <chapter> finished", "what's left on <chapter>", "can I publish <chapter>", "is this ready", "how far is the reef", "what stage is it at", or names a stage (IDEATING, BUILDING, PLAYTESTING, POLISHING, BALANCING, PUBLISHED). Also use before advancing a chapter past any of those stages, and before claiming a chapter is done.
 ---
 
 # Verifying a chapter's dev stage
@@ -22,9 +22,9 @@ node scripts/chapter-stage.mjs reef      # one chapter, the full ladder
 |---|---|---|
 | **IDEATING** | an idea, maybe a spec in `docs/superpowers/` | no `CHAPTERS[id]` entry yet |
 | **BUILDING** | an idea that meets the bar, wired, and running | **≥4 weapons in the pool, ≥4 mods on every one of them, ≥1 anomaly of its own, ≥1 mutator of its own**; then roster + starter resolve, every flag read by sim.js, signature not inert, a 60s headless run kills things without throwing |
+| **PLAYTESTING** | the owner's hands on a phone | **nothing in the repo. Ask him.** |
 | **POLISHING** | its own look and its own French, **both signed off by the owner** | `run RA` (roster art + cast thumbs); every chapter-native string in `fr.js`; a `bgColor` not borrowed; **then his review of every fr translation, and his verification of every asset and animation** |
 | **BALANCING** | numbers that are its own and were measured | a `balance` block that is not a clone; ≥5 sim-test references to the id |
-| **PLAYTESTING** | the owner's hands on a phone | **nothing in the repo. Ask him.** |
 | **PUBLISHED** | real players | reachable: in a book, past `wipFrom` |
 
 **A failed rung makes every rung above it "not reached", however finished the chapter looks.**
@@ -38,18 +38,19 @@ see the whole bill.
 
 The script cannot prove any of these, and it says so rather than guessing:
 
-1. **Every fr translation reviewed** (POLISHING). A key existing in `fr.js` proves a translation
+1. **Playtested** (PLAYTESTING). Hands on a phone. This is now the *first* gate a WIP chapter
+   trips, so every un-published chapter caps at BUILDING however finished it looks.
+2. **Every fr translation reviewed** (POLISHING). A key existing in `fr.js` proves a translation
    exists, never that it is *right*. French copy is his call — never a subagent's, never yours.
-2. **Every asset and animation verified** (POLISHING). No script tells a finished animation from
+3. **Every asset and animation verified** (POLISHING). No script tells a finished animation from
    a placeholder that happens to render.
-3. **Playtested** (PLAYTESTING). Hands on a phone.
 
 For a **live** chapter all three are taken as passed — publication is the proof, since nothing
 reaches a player without going through him. For anything still behind `wipFrom` they are PENDING,
 printed as `YOU`, and they cap the reported stage. The printout deliberately carries on past a
 pending owner gate so you can still see whether the mechanical work above it is done: a chapter
-can read `BUILDING` with green POLISHING and BALANCING rows underneath, meaning *everything
-mechanical is finished and it is sitting on your desk*.
+reads `BUILDING` with a pending playtest and green POLISHING and BALANCING rows underneath,
+meaning *everything mechanical is finished and it is sitting on your desk*.
 
 **Say that, not "ready to publish."** When the only thing missing is one of these three, the
 correct report is *"mechanically done through BALANCING — waiting on your fr review and assets
@@ -68,9 +69,19 @@ set of bugs.
 anomaly gate is the looser one: it accepts any anomaly scoped to the chapter, shared or not,
 because only one chapter-scoped anomaly exists in the whole game to be shared.
 
-## Polish before balance, always
+## Play before polish, polish before balance
 
-Art moves hitboxes, reach and readability. Balancing first means balancing twice. This matches
+**Play it before you dress it** (owner, 2026-08-21). PLAYTESTING sits directly above BUILDING, so a
+chapter that runs at all gets hands on a phone before one asset or one balance number is paid for.
+If it is not fun as a wired grey box, art and tuning are spent on the wrong chapter — and this
+project ranks designs on fun, never on build cost.
+
+The known limit of that rung: an unpolished chapter can feel wrong for reasons that are not the
+design's, because a missing visual tell reads exactly like a broken mechanic. So judge the SHAPE
+there — does the signature give you something to do, does the roster pressure you — and play it
+again once it is dressed. That second play is the one PUBLISHED implies.
+
+**Then polish before balance.** Art moves hitboxes, reach and readability. Balancing first means balancing twice. This matches
 `design-a-weapon`'s own phase order (idea → look → numbers) and the standing rule that geometry is
 settled before any balance number is trusted.
 
