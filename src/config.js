@@ -6278,6 +6278,35 @@ CHAPTERS.reef = {
     pockets: { cell: 640, chance: 0.5, r: 130, minDist: 420, salt: 40 },
   },
 
+  // SPUR AND GROOVE (level design spec 2026-08-20, rev 4). The reef front as this game's only
+  // camera sees it: ridges spanning the lane with channels cut through them, and the channels braid.
+  // Every `spacing` px of lane you meet a ridge and pick a channel; the ridge is not a wall, it
+  // grates (SPUR_DPS), so there is never a place the lane is shut.
+  //
+  // A 1-D FIELD, not a grid. The ridge is indexed along the lane ONLY (spurAt in sim.js is a pure
+  // function of that one index) — a 210px grid across an 836.8px lane is 3.98 cells and you cannot
+  // cut a 140px channel out of a 210px cell.
+  //
+  // THE BRAID IS A CONSTANT AND NEVER A VIEWPORT READ. refillCircleAt's block states the rule the
+  // hard way: the lane clamp and the streaming radius are about the OBSERVER, not the field. Sizing
+  // the braid off the live viewport would make the ridges move on resize.
+  //   floor    the SMALLEST non-zero separation must exceed grooveMax, or the cross position at half
+  //            that separation sits inside a channel at every ridge and the player has a lane they
+  //            never have to leave. Measured over the sampled ridges: 339 > 200.
+  //   ceiling  braidSep/2 + grooveMax/2 ≤ min cross half-extent: 240 + 100 = 340 ≤ 400 (desktop
+  //            1280×800; the phone is 422). The cap is on the channel's FAR EDGE, not its centre.
+  //
+  // braidSpurs 8 and NOT the spec's 5, for two reasons that are one reason. A symmetric braid merges
+  // where the sine crosses zero, and with an odd period the second crossing falls BETWEEN two ridges
+  // — so the only MERGED ridge would be one per whole period. And a short even period quantises the
+  // channels onto two positions, which is a lane that pinches and opens rather than a braid: at 6 the
+  // channels sit at 0 or ±208 and nowhere else. At 8 they walk 0 → ±170 → ±240 → ±170 → 0, swapping
+  // sides across every merge, and the merge lands on an integer ridge — one every 4, i.e. every 18.7s.
+  //
+  // salt 44/45 from the streamers' registry (sim.js, above obstacleCellHash); 46 is left for the
+  // features table.
+  spurs: { spacing: 210, thick: 90, grooveMin: 140, grooveMax: 200, braidSep: 480, braidSpurs: 8, salt: 44 },
+
   // AIR. Ambient drain, always — you are a fish carrying a lungful through a reef, and the clock
   // is the chapter. Refill ONLY at the pockets above; there is no second source and no passive
   // trickle, which is what makes the pockets worth crossing the lane for.
@@ -7481,6 +7510,46 @@ export const AIR_POCKET_VIS = {
   sheen: 0xbfe9ff, sheenA: 0.18, sheenFrac: 1.15, // additive spill onto the water around it
   breathe: 0.05,                     // ± fraction the sheen's size wanders — trapped air, not a beacon
 }
+
+// THE SPUR FIELD, RENDER-ONLY (v7.x, The Reef). Zero sim effect — the edge that HURTS is the
+// groove edge spurAt returns, and every number here is inside it or behind it, never past it.
+// Warm, like the rest of this chapter's decor, and darker than the roster: the floor is cold and
+// dark (L 0.150) so coral has to be warm to read as coral, and the crowd has to stay lighter than
+// the terrain or a lane full of fish reads as more reef.
+//   wall   px the ridge runs PAST the lane wall. It has to overshoot: the wall is a clamp on the
+//          player, not a thing that is drawn, so a ridge stopping exactly on it would look like
+//          the reef ends in mid-water.
+//
+// ⚠ THE RIDGE MAY ONLY BE RAGGED ALONG THE LANE, NEVER ACROSS IT. Everything that roughens the
+// silhouette bulges on the FORWARD axis, into the 120px of clear water between one ridge and the
+// next; nothing is allowed past the groove edge on the cross axis, because that edge is the one
+// stepSpurs tests and a lump poking into a channel promises passage that is not there. The first
+// cut had it the other way round — flush rounded rectangles with pale dots on them — and it read
+// as a row of pink bricks rather than as reef.
+//   bump   x half the ridge thickness: radius of the biggest lobe, and how far out of the ridge the
+//          lobes sit. `lobes` scales successive ones so the spine is not a row of identical beads.
+//
+// ⚠ FLAT, AND NO PRINTED HIGHLIGHT ON THE LOBES. Two cuts tried to model the coral heads inside the
+// ridge — a darker mottle, then a lighter cap — and both came back as discs stencilled onto a slab,
+// because a Graphics fill has a hard edge and a hard-edged circle on a flat mass reads as a printed
+// dot, never as a rounded thing. The lobes earn their keep in the SILHOUETTE instead. Flat is also
+// what every other piece of ground in this game is (sandbars, spills, tide pools), so it belongs.
+//
+// ⚠ NO RIM STROKE EITHER, and the reason is a Graphics fact rather than a taste. The ridge is ONE compound
+// path (a band plus its lobes) and a stroke outlines every sub-shape in it, including the lobes that
+// are wholly INSIDE the band — so the ridge came back looking like a plate with bolt-holes drilled
+// down it. The foot does the job instead: it is the same union grown by foot_px and drawn first, so
+// what shows past the body is a dark halo around the outside only, which is the outline that was
+// wanted.
+export const SPUR_VIS = Object.freeze({
+  foot: 0x160816, footA: 0.5, foot_px: 4,
+  body: 0x67213d,
+  wall: 96, bump: 0.86, bumpOut: 0.52, bumpGap: 0.7,
+  // Radii of successive lobes, cycled along the ridge. A CYCLE and not a hash: the field is already
+  // deterministic, and five uneven sizes read as coral heads of different ages growing on one spine
+  // where a per-lobe random reads as noise.
+  lobes: Object.freeze([1, 0.72, 0.94, 0.62, 0.86]),
+})
 
 // A coral head shattering under a Burst (v7.x, The Reef — render.js coralShatter, driven by the
 // SHIPPED {type:'crush'} event that stepCrush already emits). The skies' own crush FX cannot serve

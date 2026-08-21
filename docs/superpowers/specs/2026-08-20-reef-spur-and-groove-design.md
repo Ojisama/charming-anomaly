@@ -1,7 +1,8 @@
 # The Reef — spur and groove (level design)
 
-Status: **owner rulings taken 2026-08-20**, spec at **rev 4** after three adversarial review rounds
-the same day (18, 23 and 22 findings; 12 blockers). Extends
+Status: **owner rulings taken 2026-08-20**, spec at **rev 5**. Rev 4 closed three adversarial review
+rounds (18, 23 and 22 findings; 12 blockers); **rev 5 is the first revision written by BUILDING it**
+— §12 step 1 is in the tree and the two numbers it moved are marked below. Extends
 `2026-08-13-book-2-undertow-design.md` §6.3; it does not replace it. The roster, the palette and the
 lane axis are unchanged — this spec is the **shape of the corridor**.
 
@@ -30,6 +31,30 @@ capped push), and the silent voiding of `stepFormations`' world-anchored brick g
 the braid-separation **floor** that stops a camping lane, makes the braid a **constant** rather than
 a live viewport read, fixes the clam's period inequality (it was backwards), and derives the numbers
 that rev 3 asserted.
+
+**Rev 5 — step 1 built.** Spurs and grooves are streamed and drawn (`spurAt`/`streamSpurs` in
+sim.js, `syncSpurs` in render.js, `CHAPTERS.reef.spurs` + `SPUR_VIS` in config.js), and the braid was
+judged in map mode. Two numbers moved, both because the design was sampled at integer ridges for the
+first time:
+
+- **Braid period 8 ridges, not 5, and a merge every 18.7s, not 11.7s.** §7's 11.7s is arithmetically
+  unreachable: a symmetric braid merges where its sine crosses zero, and on an odd period the second
+  crossing lands BETWEEN two ridges, so nothing merges there. A short even period is worse — at 6 the
+  channels quantise onto exactly two cross positions (0 and ±208) and the lane pinches and opens
+  instead of braiding. At 8 the channels walk 0 → ±170 → ±240 → ±170 → 0 and swap sides across each
+  merge, and the merge lands on a ridge. Measured over 60 ridges: merges every 4, channel widths
+  140.7–199.9, max far edge 339.2 (ceiling 400), smallest non-zero separation 339.4 (floor 200).
+- **The camping-lane sweep passes with room.** Over 419 cross positions × 400 ridges the longest run
+  of consecutive channelled ridges is **3**. §9.2's assertion has a real pathology to catch and a
+  denominator to print.
+
+A third thing the build settled, which no amount of prose would have: **the ridge may only be ragged
+ALONG the lane, never across it.** Everything roughening the silhouette bulges into the 120px of
+clear water between ridges; the cross-axis edge stays flush, because that edge is the collider. Two
+looks were shot and rejected first (a rim stroke, which outlines every sub-shape of a compound path
+and drilled bolt-holes down the middle of every ridge; then a lighter cap on each lobe, which reads
+as discs stencilled on a slab). **The ridge art is a placeholder** — flat warm mass, scalloped edge,
+dark foot. §8's "spur bake" is still owed, and the owner picks it from shot variants.
 
 ---
 
@@ -382,8 +407,8 @@ is a difficulty bound — see §2.1.
 | `SPUR_SPACING` | **210 px** | **Pacing.** A choice every 4.67s, 1.49 periods visible on a phone so the next ridge is always on screen |
 | `SPUR_THICK` | **90 px** | 2.0s inside. Ceiling is the empty-bar Burst's swept reach, 121.5 + 55 = **176.5px** (§3) |
 | Groove width | **140–200 px** | Floor derived: `2·SOAP_R + 2·PLAYER.radius` = 96px is bare contact, so 140 leaves 44px of real slack (§3.1). ~40% of the lane open |
-| `SPUR_BRAID_SEP` | **480 px** | Peak groove separation. **Constant, not a viewport read** (§3.3). Floor `> 200` kills the camping lane; ceiling `240 + 100 = 340 ≤ 400` keeps the far edge on screen at both viewports |
-| Braid period | ~5 spurs | 23.3s, and a symmetric braid merges at **both** zero crossings — a merge every **11.7s**, not 23 |
+| `SPUR_BRAID_SEP` | **480 px** | Peak groove separation. **Constant, not a viewport read** (§3.3). Measured floor: smallest non-zero separation **339 > 200** kills the camping lane; ceiling `240 + 100 = 340 ≤ 400` keeps the far edge on screen at both viewports |
+| Braid period | **8 spurs** | 37.3s, merging at both zero crossings — a merged ridge every **4 spurs = 18.7s**. Rev 5: 5 puts the second crossing between two ridges and 6 quantises the grooves onto two positions (see the revision history) |
 | `SPUR_DPS` | **4**, × `dmgScale(run.time)` | Anchored against the other DoTs, which share its rules: `DROWN` 4, `SLICK` 6. Scales so it does not fade (§3) |
 | `SPUR_TICK` | **0.5 s**, `dot: true`, entry tick off a carried accumulator | 4 × 0.5 = **2 HP exactly**; 4 ticks per spur = 8 HP; a clip costs 1 tick, an oscillation costs no more than committing (§3) |
 | Urchin stretch | ×3 | 12 × 0.5 = **6 HP exactly** per tick = 24 HP for a full bad scrape |
@@ -529,7 +554,7 @@ the stream on both sides.
 
 ## 12. Build order
 
-1. Spurs and grooves, streamed and drawn. Shoot in **map mode**; judge the braid.
+1. ~~Spurs and grooves, streamed and drawn. Shoot in **map mode**; judge the braid.~~ **Done (rev 5)** — geometry, streamer, first draw, both viewports shot. Ridge art is a placeholder.
 2. The scrape (§3) and the swept Burst path (§3.2). Assertions 1–8, 10.
 3. Pockets onto grooves, off the centre line (§5.1, §5.2) + the plume. Assertion 9.
 4. **Re-derive the Air tune** (§5.4) with `charge-probe`'s new `groove` policy; report three rows

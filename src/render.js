@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R, BALLAST_RING,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R, BALLAST_RING,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -9001,10 +9001,16 @@ export function createRenderer(app) {
   // One cleared-and-redrawn Graphics rather than a pool: OBSTACLE_STREAM_RADIUS and a 900px cell put
   // at most a handful on screen, and the outline is per-slick anyway (see lobePoly).
   const slickG = new Graphics()
+  // v7.x The Reef: THE SPUR FIELD (run.spurs). One cleared-and-redrawn Graphics rather than a
+  // pool, and redrawn only when run._spurRev changes — the field is fifteen ridges of pure
+  // geometry that move exactly once per lane crossing, so a per-frame rebuild would be paying
+  // for motion that never happens. Same _obstacleRev idiom syncObstacles uses.
+  const spurG = new Graphics()
+  let spurRev = -1
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, spurG, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
@@ -11188,6 +11194,73 @@ export function createRenderer(app) {
     for (let k = n; k < hullSprites.length; k++) hullSprites[k].visible = false
   }
 
+  // ---- The Reef: spur and groove (v7.x) ---------------------------------------------------------
+  // run.spurs, drawn from the SAME grooves stepSpurs tests against — one definition, two consumers,
+  // which is the only reason the gap you can see is the gap you can swim through. The rounded rect
+  // IS the groove edge; the lumps that make it read as coral are drawn INSET and never cross it.
+  //
+  // Two passes for the WHOLE field, not two per ridge: every segment of every ridge is pathed into
+  // one foot fill and one body fill. A rebuild happens once per lane crossing (~4.7s), so this is
+  // not hot — it is just the shape the batch wants.
+  function syncSpurs(run) {
+    const cfg = CHAPTERS[run.chapter]
+    const spec = cfg.spurs
+    if (!spec) { if (spurRev !== -1) { spurG.clear(); spurRev = -1 } return }
+    if (run._spurRev === spurRev) return
+    spurRev = run._spurRev
+    spurG.clear()
+    const V = SPUR_VIS
+    const ax = laneAxes(cfg)
+    const xAxis = ax.fwd === 'x'
+    // The ridge runs PAST the wall — see SPUR_VIS.wall. LANE_HALF_W and not laneHalfWidth(): a
+    // viewport read here would make the reef change length on resize, and the field is a constant
+    // (the rule refillCircleAt states, and the reason the braid is a constant too).
+    const end = LANE_HALF_W + V.wall
+    const half = spec.thick / 2
+    const bumpR = half * V.bump
+    // Every coral segment in the window, as [fwd centre, cross from, cross to].
+    const segs = []
+    for (const sp of run.spurs) {
+      const cuts = sp.grooves.map((g) => [g.c - g.hw, g.c + g.hw]).sort((a, b) => a[0] - b[0])
+      let at = -end
+      for (const [a, b] of cuts) { if (a > at) segs.push([sp.f, at, a]); at = Math.max(at, b) }
+      if (at < end) segs.push([sp.f, at, end])
+    }
+    // f is along the lane, c across it. Both helpers take lane coordinates and swap at the last
+    // moment, so nothing above this line has to know which axis the chapter scrolls on.
+    const band = (f, c0, c1, grow, r) => (xAxis
+      ? spurG.roundRect(f - half - grow, c0 - grow, half * 2 + grow * 2, c1 - c0 + grow * 2, r)
+      : spurG.roundRect(c0 - grow, f - half - grow, c1 - c0 + grow * 2, half * 2 + grow * 2, r))
+    const dot = (f, c, r) => (xAxis ? spurG.circle(f, c, r) : spurG.circle(c, f, r))
+    // The lobes, as lane coordinates, walked once and reused by all three passes below. They sit
+    // ON the ridge and bulge OUT of it along the lane; their cross position is inset by their own
+    // radius, which is what keeps the groove edge honest (see SPUR_VIS).
+    const lobes = []
+    for (const [f, c0, c1] of segs) {
+      const from = c0 + bumpR, to = c1 - bumpR
+      if (to <= from) continue
+      const n = Math.max(1, Math.round((to - from) / (half * V.bumpGap * 2)))
+      for (let k = 0; k <= n; k++) {
+        // Alternating sides rather than hashed: the field is already deterministic, and a zigzag
+        // of lobes reads as a coral spine from directly overhead where a jitter reads as noise.
+        // The cross position is inset by the FULL bumpR, never by this lobe's own smaller radius,
+        // so a small lobe at the end of a segment still cannot creep toward the groove edge.
+        const r = bumpR * V.lobes[k % V.lobes.length]
+        lobes.push([f + (k % 2 ? 1 : -1) * half * V.bumpOut, from + ((to - from) * k) / n, r])
+      }
+    }
+    // 1. The foot. A wider, near-black shadow under the whole ridge so it sits ON the sand rather
+    //    than floating over it, and the only pass allowed to overshoot the groove edge — a shadow
+    //    falling a few px into a channel is what a raised thing does, and it is not the collider.
+    for (const [f, c0, c1] of segs) band(f, c0, c1, V.foot_px, 12)
+    for (const [f, c, r] of lobes) dot(f, c, r + V.foot_px)
+    spurG.fill({ color: V.foot, alpha: V.footA })
+    // 2. The body: the flush band that IS the groove edge, plus the lobes, as one path. No stroke —
+    //    see SPUR_VIS for why a rim on a compound path drills bolt-holes down the middle of it.
+    for (const [f, c0, c1] of segs) band(f, c0, c1, 0, 9)
+    for (const [f, c, r] of lobes) dot(f, c, r)
+    spurG.fill({ color: V.body })
+  }
   // ---- The Wreck's pollution spills (v7.x) -----------------------------------------------------
   // run.slicks, drawn from the SAME lobePoly the sim tests standing-in against (inLobe, config.js) —
   // one definition, two consumers, which is the only reason the edge you can see is the edge that
@@ -16896,6 +16969,8 @@ export function createRenderer(app) {
     mownG.clear()
     mownDirty = false
     laneG.clear()
+    spurG.clear()
+    spurRev = -1
     hazardG.clear()
     teleG.clear()
     wellG.clear()
@@ -18328,6 +18403,7 @@ export function createRenderer(app) {
     syncBinds(run)
     syncPools(run.pools || [])
     syncSlicks(run)   // v7.x The Wreck: pollution spills (no-op in every other chapter)
+    syncSpurs(run)    // v7.x The Reef: the coral ridges (no-op in every other chapter)
     syncTrails(run.trails || [])
     syncWebs(run.webs || [], CHAPTERS[run.chapter]?.render?.webLook === 'slime')
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
@@ -18810,6 +18886,11 @@ export function createRenderer(app) {
     // redrawn Graphics, invisible to a sweep that sets `.visible` on sprites.
     for (const s of hullSprites) s.visible = false
     slickG.clear()
+    // The Reef's ridges, for the same reason: a redrawn Graphics is invisible to a sweep that
+    // sets `.visible` on sprites, and spurRev has to go with it or the next run draws nothing
+    // until its first lane crossing.
+    spurG.clear()
+    spurRev = -1
     // Latch the per-chapter palette BEFORE clearing/repainting so the floor repopulates and the
     // player rig tints under the new chapter. Title (run == null) falls back to the body look.
     const cfg = run ? CHAPTERS[run.chapter] : null
@@ -18947,7 +19028,10 @@ export function createRenderer(app) {
     // bare roads on flat ground). Hide every child of it EXCEPT the structures, plus the weather and
     // cloud shadows are big soft shapes that wash over exactly the boundaries this view is meant
     // to make legible. (v5.16: the additive light layer they were listed beside is gone.)
-    for (const child of entitiesLayer.children) child.visible = on ? child === obstacleLayer : true
+    // v7.x The Reef: spurG rides with the structures. The coral ridges ARE this chapter's layout —
+    // the braid is the only thing a wide-area view of it exists to judge, and a gameplay shot shows
+    // one ridge and a half.
+    for (const child of entitiesLayer.children) child.visible = on ? (child === obstacleLayer || child === spurG) : true
     entitiesLayer.visible = true
     cloudShadowLayer.visible = !on
     stormRainLayer.visible = !on

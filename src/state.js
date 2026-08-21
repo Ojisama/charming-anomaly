@@ -1105,6 +1105,17 @@ function generateWells(sig) {
  *   currentForce (sim.js) — see that function's own doc for the pull/swirl math — not by any
  *   dedicated stepEddies (there's nothing to step: the force IS the effect, applied where the
  *   force is already applied, to the player and every enemy, and to a tideCarried bloom cloud).
+ * spurs[i]: { i, f, thick, grooves: [{ c, hw }], merged } — v7.x The Reef: the CORAL RIDGES, the
+ *   chapter's level design (spec 2026-08-20). `i` is the lane index, `f` its centre on the lane's
+ *   FORWARD axis (x here, since the Reef is an x-lane) and `thick` its extent along it; a groove is
+ *   a gap in it at cross position `c` with half-width `hw`. Two grooves normally, ONE when `merged`
+ *   — the braid has closed them onto each other and the ridge has a single way through, which is the
+ *   narrowest point in the level. Everything here is a pure function of `i` and run._obstacleSeed
+ *   (spurAt, sim.js), so nothing is rolled at step time and a second consumer can ask where a groove
+ *   is without materialising the field. streamSpurs rebuilds the whole window whenever the player
+ *   crosses a ridge, on the _spurIdx cursor, and bumps _spurRev for render.
+ *   A ridge is NOT solid: it grates (SPUR_DPS) and slows the strafe, never the scroll, and enemies
+ *   pass straight through — which is what makes coral strictly worse than a groove on every axis.
  * shafts[i]: { x, y, bx, by, r, phase, _cell, gape?, _shutT?, drawdown?, fouled? } — v7.x Book 2: streamed REFILL
  *   CIRCLES the player stands in to refill `charge`. ONE list fed from any of FOUR places, decided
  *   by refillSpec() (config.js): The Twilight's sun shafts (its signature IS the refill spec:
@@ -2089,6 +2100,13 @@ export function createRun(meta, opts = {}) {
     slicks: [],
     _slickCellI: null,     // streaming cursor, independent of every other streamer's
     _slickCellJ: null,
+    // v7.x The Reef: THE SPUR FIELD (sim.js spurAt/streamSpurs). The coral ridges the lane runs
+    // through, and the only streamed field in the game indexed along ONE axis — see spurAt for why
+    // a grid cannot hold a 140px channel at this spacing. Unconditional like every field above it,
+    // so runs keep one shape (R2); only CHAPTERS[].spurs fills it.
+    spurs: [],
+    _spurIdx: null,        // 1-D streaming cursor: the lane index nearest the player at the last scan
+    _spurRev: 0,           // bumped on any change; render rebuilds only on this, exactly as _obstacleRev
     _slickAcc: 0,          // part-tick accumulator, the exact twin of _drownAcc/_starveAcc
     _foulT: 0,             // s of oil still on you — lingers SLICK_SLOW_T past the rim (see sim.js)
     _rushT: 0,             // s left on BLOODRUSH's window (gnash's bloodrush mod)

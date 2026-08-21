@@ -264,6 +264,7 @@ export function stepSim(run, input, dt) {
   streamEddies(run)       // v6.4 pond identity: materialize/drop eddy cells (no-op outside pond)
   streamShafts(run)       // v7.x Book 2: materialize/drop refill cells (no-op in a chapter with no refill field)
   streamSlicks(run)       // v7.x The Wreck: materialize/drop pollution-spill cells (no-op elsewhere)
+  streamSpurs(run)        // v7.x The Reef: materialize the spur field along the lane (no-op elsewhere)
   stepShafts(run, dt)     // ...and DRIFT them; the streamer above only decides existence (see its doc)
   streamSandbars(run)     // Book 2 surf: materialize/drop dry patches (no-op elsewhere)
   stepCharge(run, dt)     // v7.x Book 2: the resource bar (no-op unless the chapter declares one)
@@ -3258,7 +3259,9 @@ export function stepTide(run, dt) {
 //   20-23 refill circles: The Twilight's shafts, The Surf's tide pools (streamShafts' default)
 //   30-32 streamSandbars
 //   40-43 refill circles: The Reef's air pockets (CHAPTERS.reef.signature.pockets.salt)
-// Next free block: 44+ (5-10, 18-19, 24-29 and 33-39 are free too, between claimed ranges).
+//   44-46 The Reef's spur field (CHAPTERS.reef.spurs.salt): 44/45 the two channel widths, 46 free
+//         for the features table. Only two of the three are drawn today.
+// Next free block: 47+ (5-10, 18-19, 24-29 and 33-39 are free too, between claimed ranges).
 function obstacleCellHash(i, j, seed, salt) {
   let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263) + seed + Math.imul(salt, 974634923)) | 0
   h = Math.imul(h ^ (h >>> 13), 1274126177)
@@ -3625,6 +3628,63 @@ export function streamShafts(run) {
   }
 }
 
+// -- Spur and groove (v7.x, The Reef) ------------------------------------------------------------
+// THE REEF FRONT, AS THE LEVEL. Spurs are the coral ridges; grooves the sand channels cut through
+// them. Both are the real words for the formation, and from directly overhead — this game's only
+// camera — that formation IS this chapter's level design (spec 2026-08-20 §2).
+//
+// A RIDGE IS NOT A WALL. It grates: stepSpurs charges SPUR_DPS while you are inside one and slows
+// your strafe, but never touches the forward scroll, so the lane keeps its one promise. Enemies
+// pass straight through — that is what makes coral strictly worse than a channel on every axis at
+// once (damage, no steering, and the crowd is still on you), which is the whole tension. Rev 3 of
+// the spec funnelled the crowd out of the coral instead and INVERTED it: the scrape is under 2 dps
+// against a soap trail's 6, so steering the crowd away made coral the cheapest place in the chapter.
+//
+// ⚠ INDEXED ALONG THE LANE ONLY, and that is not a simplification. A 2-D grid at this spacing is
+// 3.98 cells across the lane, and you cannot cut a 140px channel out of a 210px cell. One index
+// gives the field a 1-D cursor as well, instead of a full rescan every time a 275+ px/s strafe
+// crosses a cross-axis boundary.
+//
+// PURE, so a second consumer (the air pockets, which ride their groove — spec §5.2) can ask where a
+// channel is without materialising anything. Same rule refillCircleAt states for the refill fields.
+export function spurAt(i, spec, seed) {
+  const f = i * spec.spacing
+  // The braid. One sine over the lane index, the two channels symmetric about the centre line, so
+  // they cross (and swap sides) wherever it passes through zero. See CHAPTERS.reef.spurs for why
+  // the period is 6 ridges and why the amplitude is a constant rather than a viewport read.
+  const c = (spec.braidSep / 2) * Math.sin((2 * Math.PI * i) / spec.braidSpurs)
+  const span = spec.grooveMax - spec.grooveMin
+  const w1 = spec.grooveMin + obstacleCellHash(i, 0, seed, spec.salt) * span
+  const w2 = spec.grooveMin + obstacleCellHash(i, 0, seed, spec.salt + 1) * span
+  // MERGED: the two channels have closed onto each other and the ridge has ONE way through, the
+  // narrowest point in the level. Not their union — a merge that got WIDER would be the easiest
+  // ridge in the chapter rather than the hardest, and spec §4.1 bans every feature here precisely
+  // because it is already the dangerous one.
+  const merged = 2 * Math.abs(c) < (w1 + w2) / 2
+  const grooves = merged
+    ? [{ c: 0, hw: Math.max(w1, w2) / 2 }]
+    : [{ c, hw: w1 / 2 }, { c: -c, hw: w2 / 2 }]
+  return { i, f, thick: spec.thick, grooves, merged }
+}
+
+// The 1-D cursor. Rebuilds the whole window on a ridge crossing rather than doing the live/drop
+// bookkeeping the four cell streamers do: OBSTACLE_STREAM_RADIUS over a 210px spacing is fifteen
+// entries, spurAt is pure, and a rebuild that cheap cannot go stale.
+// ponytail: full rebuild on every crossing. Needs the live/drop dance only once a crushed ridge
+// has to survive one (spec §3.2 — the spur-owned registry, still to come).
+export function streamSpurs(run) {
+  const spec = CHAPTERS[run.chapter].spurs
+  if (!spec) return
+  if (run._obstacleSeed == null) return
+  const ax = laneAxes(CHAPTERS[run.chapter])
+  const i0 = Math.round(run.player[ax.fwd] / spec.spacing)
+  if (i0 === run._spurIdx) return       // same ridge as the last scan — the field is unchanged
+  run._spurIdx = i0
+  const span = Math.ceil(OBSTACLE_STREAM_RADIUS / spec.spacing)
+  run.spurs.length = 0
+  for (let i = i0 - span; i <= i0 + span; i++) run.spurs.push(spurAt(i, spec, run._obstacleSeed))
+  run._spurRev = (run._spurRev || 0) + 1  // render rebuilds only on this, exactly as _obstacleRev
+}
 // -- The leak (v7.x, The Wreck's signature) ------------------------------------------------------
 // THE FIFTH FIELD THROUGH refillCircleAt AND THE FIRST THAT HURTS. Same pure cell->circle geometry
 // as The Shelf's shafts, The Surf's pools and The Reef's pockets, on its own salt block (50) so a
