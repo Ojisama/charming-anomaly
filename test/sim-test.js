@@ -132,7 +132,7 @@ import {
   // Book 2 The Surf: Humidity drives damage (Run US.d)
   HUMIDITY_DMG_FLOOR, resourceDamageMul, resourceRateMul,
   // Book 2 The Shelf: Pollution as a weapon mod (Run MB)
-  pollutionFrac, BALLAST_FLIGHT, BALLAST_TANK_MUL,
+  pollutionFrac, BALLAST_FLIGHT, BALLAST_TANK_MUL, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX,
   LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_DMG, LUNGE_KILL_REFILL, LUNGE_BITE_MUL, STARVE_TICK,
   // Book 2 The Surf: the Shore Crab's guard (Run US.i)
   CRAB_GUARD_ARC,
@@ -7125,19 +7125,43 @@ function runModBudget() {
     assert(Math.abs(gap - Math.PI) < 1e-6,
       `Backblow's cone must sit opposite the first: the two bearings are ${gap.toFixed(4)} rad apart, want ${Math.PI.toFixed(4)}`)
 
-    // Flare compounds onto `arc`; at a wide enough cone the rear nova must not be spawned at all.
-    // flare 1.2 puts the cone at 1.571 x 2.2 = 3.46 rad: PAST a half-turn but well short of the full
-    // ring, which is the case the guard actually has to catch. A cone widened all the way to 2pi is
-    // caught by spawnNova's `arc: null` path instead and would prove the weaker half.
-    const wide = boot('shelf', 'bubblePuff', 5, { backblow: 1, flare: 1.2 })
-    assert(castUntil(wide, (r) => r.novas.length > 0), 'precondition: the wide modded puff must cast')
-    const wideBase = boot('shelf', 'bubblePuff', 5, { flare: 1.2 })
-    assert(castUntil(wideBase, (r) => r.novas.length > 0), 'precondition: the wide bare puff must cast')
-    assert(wideBase.novas[0].arc > Math.PI && wideBase.novas[0].arc < Math.PI * 2,
-      `precondition: this block needs a cone between pi and 2pi, got ${wideBase.novas[0].arc}`)
-    assert.strictEqual(wide.novas.length, wideBase.novas.length,
-      `past a half-turn Backblow must add NO second nova (base ${wideBase.novas.length}, modded ${wide.novas.length}) — overlapping sectors each carry their own hit set and would double-pay every body`)
-    console.log(`PASS run MB.e (Backblow): ${base.novas.length} -> ${narrow.novas.length} novas a half-turn apart at a 90deg cone; ${wideBase.novas.length} -> ${wide.novas.length} once Flare widens it past pi`)
+    // THE PUFF NEVER CLOSES THE CIRCLE — owner from play, 2026-08-21: Flare plus Backblow "can
+    // reach 360deg bubble puff and that's what I wanted to prevent". BUBBLE_COVER_MAX is a ceiling
+    // on TOTAL coverage, so this asserts the sum of the sectors and not one cone's width.
+    //
+    // flare 6 is far past anything a real ladder rolls, deliberately: the point is that no amount
+    // of the width card can buy the last degree. It is also past 2pi, which used to become
+    // spawnNova's `arc: null` full ring — asserted below, because a null arc is coverage 2pi
+    // wearing a different type.
+    const cover = (mods) => {
+      const r = boot('shelf', 'bubblePuff', 5, mods)
+      assert(castUntil(r, (x) => x.novas.length > 0), 'precondition: the puff must cast')
+      const sectors = r.novas.filter((n) => n.look === 'bubble')
+      assert(sectors.length > 0, 'precondition: no bubble novas to measure')
+      for (const n of sectors) {
+        assert(n.arc != null, 'a bubble nova was spawned with arc: null — that is a full ring, i.e. 360 degrees')
+      }
+      return { total: sectors.reduce((a, n) => a + n.arc, 0), n: sectors.length }
+    }
+    const CAP = BUBBLE_COVER_MAX
+    for (const [label, mods] of [
+      ['bare', null],
+      ['flare x6', { flare: 6 }],
+      ['backblow', { backblow: 1 }],
+      ['flare x6 + backblow', { backblow: 1, flare: 6 }],
+    ]) {
+      const c = cover(mods)
+      assert(c.total <= CAP + 1e-9,
+        `${label} covers ${c.total.toFixed(3)} rad across ${c.n} cone(s) — over the ${CAP.toFixed(3)} ceiling, ` +
+        'which is how the puff became a full circle you could stand still inside')
+    }
+    // ...and Backblow is still WORTH taking at the ceiling: it must add coverage, not just move it.
+    const wideBase = cover({ flare: 6 })
+    const wide = cover({ backblow: 1, flare: 6 })
+    assert.strictEqual(wide.n, 2, `Backblow must always spawn its second cone, got ${wide.n}`)
+    assert(wide.total > wideBase.total,
+      `Backblow bought nothing at the ceiling: ${wideBase.total.toFixed(3)} rad against ${wide.total.toFixed(3)}`)
+    console.log(`PASS run MB.e (Backblow): ${base.novas.length} -> ${narrow.novas.length} novas a half-turn apart at a 90deg cone; total coverage capped at ${CAP.toFixed(2)} rad (${(CAP * 180 / Math.PI).toFixed(0)}deg) on every mod combination, and Flare x6 + Backblow still beats Flare x6 alone (${wideBase.total.toFixed(2)} -> ${wide.total.toFixed(2)} rad)`)
   }
 
   // (f) FOUL WATER widens the DRAG and leaves the CRATER alone, and it reads pollution the same way
@@ -20075,14 +20099,17 @@ function testLeLargeWeapons() {
     assert.strictEqual(offAxis(3), true, 'Flare did not widen the cone — the mod folds onto a number nothing reads')
   }
 
-  // (g) THE CAP HANDS THE RING BACK — as a LOOK, which is the only thing it changes.
+  // (g) THE PUFF IS ALWAYS A CONE, NEVER A RING. This block used to assert the exact OPPOSITE:
+  // that a fully-stacked Flare handed back `arc: null`, spawnNova's full-ring look, as the clean
+  // top of the ladder. The owner cut that on 2026-08-21 — a ring is 360 degrees, which is the thing
+  // he asked to be made unreachable — so the same fixture now guards that no amount of the width
+  // card can produce one. See BUBBLE_COVER_MAX / BUBBLE_ARC_MAX in config.js.
   //
-  // The first cut of this block asserted that a fully-stacked Flare still hits a body behind the
-  // player, on the theory that an over-wide arc would wrap past pi and start excluding again. That
-  // is false and the mutation run proved it: stepNovas normalises the bearing, so a 20-radian arc
-  // already admits everything and the assertion passed with the cap deleted. What the cap decides
-  // is which RENDERER draws the puff — `arc: null` is the full-ring sprite, anything else is the
-  // wedge — so that is what gets asserted.
+  // Worth keeping from the old block, because it still constrains what may be asserted here: an
+  // earlier cut tried to prove the cap by hitting a body BEHIND the player, and the mutation run
+  // showed that is unprovable — stepNovas normalises the bearing, so a 20-radian arc already admits
+  // everything and the assertion passed with the cap deleted. The arc VALUE is the only honest
+  // subject.
   {
     const capArc = (flare) => {
       Math.random = mulberry32(20260818)
@@ -20103,9 +20130,15 @@ function testLeLargeWeapons() {
     }
     const bare = capArc(0)
     assert.ok(typeof bare === 'number' && bare > 0, `an unmodded puff spawned a nova with arc ${bare} — it is not a cone at all`)
-    assert.strictEqual(capArc(40), null,
-      'a fully stacked Flare still spawns a SECTOR nova — the 2pi cap is gone, so the widest puff draws a wedge ' +
-      'wrapping the circle several times instead of the clean ring that is meant to be the top of the ladder')
+    // flare 40 is absurd on purpose: no ladder rolls it, and the point is that nothing can.
+    const stacked = capArc(40)
+    assert.ok(typeof stacked === 'number',
+      `a fully stacked Flare spawned a nova with arc ${stacked} — a null arc is spawnNova's full RING, i.e. the ` +
+      '360-degree puff the owner asked to be made unreachable')
+    assert.ok(stacked <= BUBBLE_ARC_MAX + 1e-9,
+      `a fully stacked Flare reached ${stacked} rad on one cone, over the ${BUBBLE_ARC_MAX} ceiling`)
+    assert.ok(stacked < Math.PI * 2,
+      `one cone covers ${stacked} rad — at or past a full turn, which is a ring drawn as a wedge`)
   }
   // (h) EVERY NOVA CARRYING A SECTOR NAMES ITS DRAWER. run.novas is shared, and drawBreakers used to
   // claim EVERY nova with an `arc` — so The Deep's Fin Hit was drawing a Surf whitewater crest on
@@ -23361,18 +23394,19 @@ function testUndertowLadder() {
     assert.ok(tsrc.includes('CHAPTERS.twilight.resource.dark'),
       'nothing in the suite reads CHAPTERS.twilight.resource.dark — the light chapter moved and its coverage did not follow')
 
-    // (e3) formScale is a LADDER and the player grows down the book. The Shelf had no `form` at all
-    // before this change (it was still the Pond's blob, the only Book 2 chapter like it), so this
-    // also guards that gap staying closed.
-    const scales = undertowIds.map((id) => [id, CHAPTERS[id].render.formScale ?? 1])
-    for (const [id, s] of scales) {
+    // (e3) THE FISH IS ONE SIZE ACROSS THE BOOK, and this assertion is the inverse of the one it
+    // replaces. formScale used to be a strictly-increasing ladder (1 -> 1.7) sold as "you grow in
+    // each chapter"; the owner cut all seven on 2026-08-21 — "the growth of the player is shown by
+    // the change of scale of its surroundings. I don't want a literal bigger player" — so the ONLY
+    // honest guard left is that nobody quietly reintroduces a rung. The Shelf had no `form` at all
+    // before the v7.x split (it was still the Pond's blob), so this also keeps that gap closed.
+    for (const id of undertowIds) {
       assert.ok(CHAPTERS[id].render.form === 'fish', `${id} has no render.form — the player is not the fish there`)
-      assert.ok(s > 0, `${id} has formScale ${s}`)
+      assert.strictEqual(CHAPTERS[id].render.formScale, undefined,
+        `${id} carries formScale ${CHAPTERS[id].render.formScale} — Book 2's growth ladder was deleted on purpose, ` +
+        'and one rung is enough to make the player shrink or swell between chapters again')
     }
-    for (let i = 1; i < scales.length; i++) {
-      assert.ok(scales[i][1] > scales[i - 1][1],
-        `formScale is not increasing at ${scales[i][0]} (${scales[i - 1][1]} -> ${scales[i][1]}) — the fish must grow down the book`)
-    }
+    const scales = undertowIds.map((id) => [id, CHAPTERS[id].render.formScale ?? 1])
 
     // (e3b) THE BOOK DESCENDS, asserted as floor LUMINANCE and not as contrast. `bgColor` is the
     // water between the blotches and is the honest proxy here; the full model (mean blotch x
@@ -23581,7 +23615,7 @@ function testUndertowLadder() {
     }
 
     console.log(`PASS run US.j (shelf/twilight split): ${Object.keys(BARS).length} chapter bars map as designed (the murk slows you less than the dark does; ${inverted.length} reads inverted, and ui.js flips both its height and its number), ` +
-      `the sun arsenal followed the light and no sun card is left in the murk, formScale climbs ${scales.map(([, s]) => s).join(' -> ')} across ${scales.length} rungs, ` +
+      `the sun arsenal followed the light and no sun card is left in the murk, the fish is one size across all ${scales.length} chapters (no formScale rung anywhere), ` +
       `refillLook '${[...declared].join("','")}' resolves both ways, ${Object.keys(CHAPTERS).length} chapters cast only their own roster, ` +
       `and ${byId.size} roster ids agree on their names`)
   }
