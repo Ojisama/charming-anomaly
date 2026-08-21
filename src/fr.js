@@ -1278,7 +1278,7 @@ const CONFIG = {
   'Backblow': 'Contre-Souffle',
   'a second cone blows out behind you': 'un second cône souffle derrière toi',
   'Silt Veil': 'Voile de Vase',
-  'Stirs the bottom into a cloud that poisons and dazes what swims in.': 'Soulève la vase pour empoisonner et étourdir tes poursuivants.',
+  'Stirs the bottom into a cone of silt that poisons and dazes what swims in.': 'Soulève un cône de vase qui empoisonne et étourdit tes poursuivants.',
   // Voile de Vase's four (2026-08-19). 'vase' throughout, never 'limon', because the weapon's own
   // name already fixed the word -- the rule the Coquille Ricochet entry states: one word for one
   // thing across the card, the sheet and the mods. 'Volute' is a curl of something spreading

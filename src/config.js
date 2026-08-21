@@ -2100,12 +2100,16 @@ export const WEAPONS = {
   },
   siltVeil: {
     name: 'Silt Veil',
-    desc: 'Stirs the bottom into a cloud that poisons and dazes what swims in.',
+    desc: 'Stirs the bottom into a cone of silt that poisons and dazes what swims in.',
     icon: '🌫️', rarity: 'normal',
-    // A run.blooms entry tagged look: 'silt', dropped at the player's feet on a timer — the same
-    // array the pond's Toxin Bloom and The Twilight's Foxfire use, and the third card to carry a
-    // look tag so the three cannot be told apart by radius (which is a guess that starts being
-    // wrong the first time any of them is retuned).
+    // A run.blooms entry tagged look: 'silt' — the same array the pond's Toxin Bloom and The
+    // Twilight's Foxfire use, and the third card to carry a look tag so the three cannot be told
+    // apart by radius (which is a guess that starts being wrong the first time any is retuned).
+    //
+    // IT IS THE ONLY CONE-SHAPED ENTRY ON THAT ARRAY: `arc` + `angle` on the bloom turn the disc
+    // into a wedge whose apex is the player at the cast, and stepBlooms gates its tick through
+    // inSector — the SAME sector test the whip, the claw and the roar already use, so the game has
+    // one answer to "is this body in the wedge" rather than two that can drift. See SILT_VEIL_ARC.
     //
     // `daze` IS THE CARD, and it is published into e.stunT — the contract field the roster, the
     // renderer and SFX_FOR_EVENT already read. A brand-new "blinded" flag would have needed its own
@@ -2123,12 +2127,9 @@ export const WEAPONS = {
     //   `slow: 0` is set at cast: this chapter does not slow you and must not quietly slow them
     //   either — a card whose text never mentions a slow must not add one.
     levels: [
-      // `castRange` (2026-08-19): the cloud is planted ON A BODY, not at the player's feet -- owner,
-      // "the clouds of vase should appear under enemies not under the player". This is how far it can
-      // reach to find one. It sits well UNDER Toxin Bloom's (260 -> 320) even though the two share
-      // pickBloomSpot: owner from play 2026-08-21, the clouds must land nearer the player, and this
-      // chapter is about not being able to see -- a cast reaching further than the murk does is the
-      // weapon arguing with its own chapter.
+      // `maxR` IS THE CONE'S REACH, measured from the player. There is no `castRange` on this ladder
+      // any more: the wedge starts where you stand, so there is nothing to reach out and find. Toxin
+      // Bloom keeps pickBloomSpot and its own castRange; the two cards no longer share a geometry.
       //
       // `clouds` is FLAT ACROSS THE LADDER: levels buy damage, reach and duration, and Roil is the
       // only thing that buys a second cloud -- the same split Flare owns on the Bubble Puff's width,
@@ -2138,13 +2139,13 @@ export const WEAPONS = {
       // silt on the pause build sheet. `skips`, `crustDur`, `setDur` and `hooks` all exist for
       // exactly this reason -- a per-weapon key earns a per-weapon label, and being unique to this
       // weapon's levels[] means no other build sheet gains a row.
-      // balance_decision : silt veil hits twice as hard and plants 40% nearer 2026-08-21
-      //  - castRange is now UNDER Toxin Bloom's, not beside it; the two no longer share a ladder.
-      { dmgPerTick: 16, rate: 3.38, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1, castRange: 145 },
-      { dmgPerTick: 20, rate: 3.15, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1, castRange: 155 },
-      { dmgPerTick: 28, rate: 2.92, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1, castRange: 170 },
-      { dmgPerTick: 34, rate: 2.69, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1, castRange: 180 },
-      { dmgPerTick: 40, rate: 2.46, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1, castRange: 195 },
+      // balance_decision : silt veil is a 75 deg cone off the player, not a cloud 2026-08-21
+      //  - the ladder is UNCHANGED by the reshape; maxR changed meaning, not value.
+      { dmgPerTick: 16, rate: 3.38, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1 },
+      { dmgPerTick: 20, rate: 3.15, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1 },
+      { dmgPerTick: 28, rate: 2.92, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1 },
+      { dmgPerTick: 34, rate: 2.69, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1 },
+      { dmgPerTick: 40, rate: 2.46, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1 },
     ],
   },
   ballast: {
@@ -3623,6 +3624,22 @@ export const FEAR_REFRACTORY = 2      // s an enemy is fear-proof after its own 
 // stunT is shared with the net, the hydrant and the roar, so there is no frame this code can
 // point at and call "the daze ended" rather than "some other stun ended".
 export const SILT_DAZE_REFRACTORY = 2 // s a body is daze-proof after a silt cloud dazes it
+
+// THE VEIL IS A CONE OFF THE PLAYER, NOT A CLOUD ON A BODY (owner from play, 2026-08-21: "vase
+// should not be a cloud but a cone starting from you because it is just hitting nothing rn"). The
+// census says the cloud was the chapter's strongest native by effective dps at L1 (123 eff dps vs
+// the Bubble Puff's 84, 5% dud casts) -- so this is a LEGIBILITY change, not a buff: a cloud
+// planted on a random body up to 195px away, inside a murk chapter you cannot see through, is a
+// weapon the player never sees fire. The cone's apex is the player's own position at the cast and
+// it is aimed with aimAngle (the nearest body, which while kiting is whatever is chasing you), so
+// the picture and the hit are finally the same thing.
+//
+// PLANTED, NOT ATTACHED (owner's ruling the same day, over a cone that follows you): the wedge
+// stays in the world where it was cast while you swim on, so the veil is a trail of murk your
+// pursuers swim through rather than a permanent aura. That also keeps render.js's silt puff hash
+// valid -- it is stable ONLY because a silt cloud never moves, and that note says so.
+export const SILT_VEIL_ARC = Math.PI * 5 / 12   // 75 deg. Narrower than the Bubble Puff's 90 base
+                                                // so the chapter does not read as one cone twice.
 
 // ONLY THE `anchored` ELITE AFFIX IGNORES CROWD CONTROL OUTRIGHT. Owner ruling, 2026-08-17: "Tanks
 // should not be immune to Fear, knockback and other CC, except if they have the elite modifiers

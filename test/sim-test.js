@@ -52,7 +52,7 @@ import {
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
-  MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC, SHARD_RIFT_W, SHARD_RIFT_FUSE,
+  MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC, SILT_VEIL_ARC, SHARD_RIFT_W, SHARD_RIFT_FUSE,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
   STINGER_HIVE_EVERY,
   POUNCE_RANGE, POUNCE_AIM_T, POUNCE_AIM_TRACK_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
@@ -7028,34 +7028,49 @@ function runModBudget() {
 
   // (c) COUNT MODS SPAWN AT DISTINCT POSITIONS. The assertion is the spread, never the count.
   {
-    // SILT VEIL PLANTS ON BODIES, NOT ON THE PLAYER (owner, 2026-08-19). Three enemies parked at
-    // known spots inside castRange, so "did the cloud land on a body" is answerable exactly rather
-    // than by a radius band. This replaces a distinct-positions assertion that guarded the ring
-    // divisor the weapon no longer has -- there is no divisor left to get wrong, and asserting the
-    // old spread would have gone on passing while testing nothing.
+    // SILT VEIL IS A CONE OFF THE PLAYER (owner from play, 2026-08-21: "vase should not be a cloud
+    // but a cone starting from you because it is just hitting nothing rn"). Two halves, because the
+    // count mod and the shape fail differently: the fan's SPACING is state, but the wedge is only
+    // provable as an EFFECT -- a bloom carrying an `arc` field that stepBlooms never reads is a
+    // cone in the debugger and a disc in the game, and only a body outside the wedge can tell them
+    // apart. This replaces an on-a-body assertion for a placement rule the weapon no longer has.
     const veil = boot('shelf', 'siltVeil', 5, { roil: 2 })
-    const spots = [[180, 0], [0, 190], [-170, 60]]
-    for (const [dx, dy] of spots) {
-      veil.enemies.push(makeStatusEnemy(veil, { x: veil.player.x + dx, y: veil.player.y + dy, hp: 1e6, speed: 0 }))
-    }
+    veil.enemies.push(makeStatusEnemy(veil, { x: veil.player.x + 180, y: veil.player.y, hp: 1e6, speed: 0 }))
     assert(castUntil(veil, (r) => r.blooms.some((b) => b.look === 'silt')), 'precondition: the veil must cast within 12s')
     const clouds = veil.blooms.filter((b) => b.look === 'silt')
-    assert(clouds.length >= 3, `expected Roil to add clouds (count 1 + 2), got ${clouds.length}`)
-    // EVERY cloud sits on a body. The old behaviour put them all on the player, so this is the
-    // assertion that tells the two designs apart -- a distance-from-player band would not, since a
-    // ring of radius maxR*0.85 and a body 180px away are the same distance to within noise.
-    const onBody = clouds.filter((b) => veil.enemies.some((e) => Math.hypot(e.x - b.x, e.y - b.y) < 1e-6))
-    assert.strictEqual(onBody.length, clouds.length,
-      `every silt cloud must be planted on a body: ${onBody.length} of ${clouds.length} were`)
-    const atPlayer = clouds.filter((b) => Math.hypot(b.x - veil.player.x, b.y - veil.player.y) < 1e-6)
-    assert.strictEqual(atPlayer.length, 0, `no cloud may drop at the player's own feet, got ${atPlayer.length}`)
-    // DISTINCT bodies, with three parked in range and three clouds cast. This is the assertion the
-    // count mod needs: pickBloomSpot alone picks with replacement, and two clouds on one body is
-    // the "same hit, bigger" outcome Roil exists to avoid -- it also renders identically to no
-    // change at all, so nothing but this catches it.
-    const veilPts = new Set(clouds.map((b) => `${b.x.toFixed(1)},${b.y.toFixed(1)}`))
-    assert.strictEqual(veilPts.size, clouds.length,
-      `with ${spots.length} bodies in range, Roil's ${clouds.length} clouds must land on ${clouds.length} DIFFERENT ones, got ${veilPts.size}`)
+    assert(clouds.length >= 3, `expected Roil to add cones (count 1 + 2), got ${clouds.length}`)
+    // THE APEX IS THE PLAYER. This is the whole reshape in one line, and it is the assertion that
+    // tells the two designs apart: the old cloud landed on a body up to 195px away.
+    const offApex = clouds.filter((b) => Math.hypot(b.x - veil.player.x, b.y - veil.player.y) > 1e-6)
+    assert.strictEqual(offApex.length, 0,
+      `every silt cone must start at the player: ${offApex.length} of ${clouds.length} did not`)
+    assert.ok(clouds.every((b) => Math.abs(b.arc - SILT_VEIL_ARC) < 1e-9), 'every cone must carry SILT_VEIL_ARC')
+    // THE FAN'S DIVISOR. Roil's cones share one apex, so "distinct positions" -- the assertion the
+    // old cloud used -- is now trivially FALSE for correct code and cannot be the guard. The angles
+    // are what must differ, and they must be spaced by a FULL arc: overlapping cones render and
+    // damage identically to no change at all, which is the inert-card failure MB.a exists for.
+    const angles = clouds.map((b) => b.angle).sort((a, b) => a - b)
+    const gaps = angles.slice(1).map((a, i) => a - angles[i])
+    assert.ok(gaps.length > 0 && gaps.every((g) => Math.abs(g - SILT_VEIL_ARC) < 1e-9),
+      `Roil's cones must tile by one full arc (${SILT_VEIL_ARC.toFixed(3)} rad), got gaps ${gaps.map((g) => g.toFixed(3)).join(', ')}`)
+
+    // THE WEDGE ACTUALLY GATES DAMAGE. One cone (no Roil), one body in front and one behind at the
+    // same reach. The front body is NEARER so aimAngle points the cone at it; the back body sits at
+    // 180 degrees, well outside a 75-degree wedge, and must take nothing at all. Without this a
+    // stepBlooms that ignores `arc` passes every assertion above.
+    const gate = boot('shelf', 'siltVeil', 5, null)
+    const front = makeStatusEnemy(gate, { x: gate.player.x + 90, y: gate.player.y, hp: 1e6, speed: 0 })
+    const back = makeStatusEnemy(gate, { x: gate.player.x - 110, y: gate.player.y, hp: 1e6, speed: 0 })
+    gate.enemies.push(front, back)
+    const hp0 = { front: front.hp, back: back.hp }
+    assert(castUntil(gate, (r) => r.blooms.some((b) => b.look === 'silt')), 'precondition: the veil must cast within 12s')
+    advance(gate, 2.5)
+    assert(front.hp < hp0.front,
+      `precondition: the body INSIDE the cone must be bitten, it took ${(hp0.front - front.hp).toFixed(0)}`)
+    assert.strictEqual(back.hp, hp0.back,
+      `a body BEHIND the cone must take nothing — it lost ${(hp0.back - back.hp).toFixed(0)} hp, so the wedge is not gating damage`)
+    assert.strictEqual(back.stunT || 0, 0,
+      `a body BEHIND the cone must not be dazed either — the daze rides the same tick loop as the damage`)
 
     // Ballast: weights spread around the aim point. It needs something to aim at, or every drop
     // lands on the same blind-throw point by design and the spread is untestable.
@@ -7066,7 +7081,7 @@ function runModBudget() {
     const balPts = new Set(bal.lobs.map((l) => `${l.tx.toFixed(1)},${l.ty.toFixed(1)}`))
     assert.strictEqual(balPts.size, bal.lobs.length,
       `Jetsam's weights must land on DISTINCT points — ${bal.lobs.length} drops on ${balPts.size} targets means the spread divisor never moved`)
-    console.log(`PASS run MB.c (placement): ${clouds.length} silt clouds all planted on bodies (${veilPts.size} distinct points, 0 at the player), ${bal.lobs.length} ballast drops on ${balPts.size} distinct points`)
+    console.log(`PASS run MB.c (placement): ${clouds.length} silt cones all apexed on the player, tiled ${SILT_VEIL_ARC.toFixed(3)} rad apart; a body in front took ${(hp0.front - front.hp).toFixed(0)} and one behind took 0; ${bal.lobs.length} ballast drops on ${balPts.size} distinct points`)
   }
 
   // (d) SCOUR PAYS IN CLEAN WATER, NOT IN FILTH. run.charge counts CLARITY — the bar is inverted for
