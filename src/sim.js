@@ -153,7 +153,7 @@ import {
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BALLAST_FLIGHT, BALLAST_BLIND_THROW,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
@@ -9152,15 +9152,20 @@ function stepLobs(run, dt) {
 // BUBBLE PUFF. A cone, not a ring — owner, 2026-08-18. The sector gate and the once-per-body hit
 // set are spawnNova's and stepNovas', the same ones The Surf's Breaker rides on.
 //
-// ⚠ THE CAP IS ABOUT THE LOOK, NOT THE HIT TEST, and the first draft of this comment had it
-// backwards — a mutation run is what corrected it. stepNovas compares a NORMALISED bearing, which
-// can never exceed pi, so an arc of 20 radians already admits every body and needs no protecting.
-// What the cap buys is the RENDER: `arc: null` is spawnNova's "no sector", which is what puts a
-// fully-widened puff back on placeNova's full ring sprite instead of leaving drawBubblePuffs
-// sweeping a 20-radian wedge that wraps the circle several times over. So the top of the Flare
-// ladder is the clean ring the weapon started life as, rather than a wedge that happens to cover
-// everything. Do not "simplify" it away on the grounds that the sector maths copes: it does, and
-// that is not what this is for.
+// ⚠ THE PUFF NEVER CLOSES THE CIRCLE. BUBBLE_COVER_MAX is a ceiling on TOTAL coverage — front cone
+// plus rear cone — and its block in config.js carries the owner's reason and the two separate paths
+// that used to reach 360 degrees. Both are shut by the same two lines below.
+//
+// It replaces a `full` branch that handed a fully-widened puff `arc: null` (spawnNova's "no
+// sector", i.e. a complete ring) and a Backblow gate of `stats.arc < Math.PI`. That gate was about
+// OVERLAP, not coverage: each nova carries its own once-per-body hit set, so two sectors that
+// intersect pay for the same body twice. Clamping to half the ceiling when Backblow is held keeps
+// that property for free — two 135-degree cones on opposite bearings cannot intersect — so the old
+// gate is not lost, it is subsumed.
+//
+// The clamp is deliberately NOT a reason to delete Flare's ladder above it: the card still buys
+// width all the way to the ceiling, and it buys it twice as fast once Backblow is held, since the
+// second cone is coverage the first one never had.
 function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
   const scour = run.weaponMods.bubblePuff?.scour ?? 0
   const backblow = (run.weaponMods.bubblePuff?.backblow ?? 0) > 0
@@ -9169,8 +9174,10 @@ function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
   // now, so a knockback mod would be folding onto a key that does not exist. Do not add one here.
   fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => {
     const p = run.player
-    const full = stats.arc == null || stats.arc >= Math.PI * 2
-    const arc = full ? null : stats.arc
+    // Backblow doubles what one cast covers, so it halves what one cone may be. Half the total
+    // ceiling is BELOW the single-cone ceiling, which is what keeps the mod worth taking at maxed
+    // Flare: 240 contiguous degrees becomes 135 front + 135 back.
+    const arc = Math.min(stats.arc, backblow ? BUBBLE_COVER_MAX / 2 : BUBBLE_ARC_MAX)
     const angle = aimAngle(run)
     // SCOUR. The chapter's bar as damage, and it pays for CLEAN water: `scour` at a spotless bar,
     // nothing at full Pollution. Owner ruling 2026-08-20, inverting what shipped in v7.163.
@@ -9185,14 +9192,11 @@ function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
       // verbatim and stepNovas multiplies into e.kb, so every shoved body's position becomes NaN and
       // simply stops rendering. A zero says the same thing and cannot rot into that.
       spawnNova(run, p.x, p.y, r, dmg, 0, 0, { look: 'bubble', arc, angle })
-      // BACKBLOW. A second cone on the opposite bearing, the Breaker's Backwash idiom.
-      //
-      // ⚠ ONLY WHILE THE CONE IS UNDER A HALF-TURN. Each nova carries its OWN once-per-body hit set,
-      // so two novas that overlap pay for the same body twice -- at arc > pi the front and rear
-      // sectors intersect and this would quietly become a damage doubler rather than a coverage
-      // card. Past a half-turn the front cone already reaches behind you, so there is nothing left
-      // to buy anyway.
-      if (backblow && !full && stats.arc < Math.PI) {
+      // BACKBLOW. A second cone on the opposite bearing, the Breaker's Backwash idiom. It ALWAYS
+      // fires now — the clamp above is what keeps the two sectors from ever intersecting, so there
+      // is no width at which this has to switch itself off. A mod that silently stops working as
+      // you level its own weapon's other card is the inert-card failure run MB.a exists to catch.
+      if (backblow) {
         spawnNova(run, p.x, p.y, r, dmg, 0, 0, { look: 'bubble', arc, angle: angle + Math.PI })
       }
     }

@@ -2176,13 +2176,15 @@ export const WEAPONS = {
     levels: [
       // `weights` flat across the ladder, and named for the same reason Silt Veil's `clouds` is:
       // 'Projectiles' is the wrong noun for a dumped weight. Jetsam owns the second one.
-      // balance_decision : the stain is gone; the drag and the tank crush replace it 2026-08-21
-      //  - `dmg` is UNCHANGED: the stain's dps was a small fraction of this card's output.
-      { dmg: 26, rate: 2.00, r: 96,  weights: 1 },
-      { dmg: 31, rate: 1.88, r: 104, weights: 1 },
-      { dmg: 37, rate: 1.77, r: 112, weights: 1 },
-      { dmg: 44, rate: 1.65, r: 122, weights: 1 },
-      { dmg: 52, rate: 1.54, r: 134, weights: 1 },
+      // balance_decision : the stain is gone; +20% impact and +15% fire rate pay for it 2026-08-21
+      //  - measured -30% relative at L1 with the stain removed and nothing given back; the owner
+      //    split the compensation across both knobs rather than damage alone, and the census says
+      //    that is the right shape (damage alone saturates: waste climbs 29% -> 59% by +60%).
+      { dmg: 31, rate: 1.74, r: 96,  weights: 1 },
+      { dmg: 37, rate: 1.63, r: 104, weights: 1 },
+      { dmg: 44, rate: 1.54, r: 112, weights: 1 },
+      { dmg: 53, rate: 1.43, r: 122, weights: 1 },
+      { dmg: 62, rate: 1.34, r: 134, weights: 1 },
     ],
   },
   downwash: {
@@ -4039,6 +4041,33 @@ export const SUNLANCE_REACH_MIN = 0.45
 // BALLAST (The Shelf). Flight time, and the fallback throw distance when nothing is in range —
 // without the second one a cast with no target lands on the player's own head, which is not a
 // misfire the card should be able to make.
+// THE BUBBLE PUFF'S CEILING, in radians of TOTAL coverage — front cone plus rear cone, not per
+// cone. Owner from play, 2026-08-21: "in combination with the mod that shoots opposite bubble puff,
+// you can reach 360deg bubble puff and that's what I wanted to prevent."
+//
+// TWO PATHS REACHED A FULL CIRCLE and one number shuts both, which is why it is expressed as
+// coverage rather than as an arc cap:
+//   - Flare rolling high. `base: 0.3` x 5 picks x a mythic multiplier passes 2pi on its own, and
+//     stepBubblePuffWeapon turned that into `arc: null` — a literal full ring.
+//   - Flare at just under pi with Backblow held. Two opposite 179-degree cones close the circle,
+//     and the old gate (`stats.arc < Math.PI`) permitted exactly that: it existed to stop the two
+//     sectors OVERLAPPING and double-dipping the same body, not to stop them meeting.
+// 3/4 of a turn: still the widest thing in the chapter's arsenal by a distance, and still leaves a
+// quarter-turn of open water that a player has to actually turn to cover.
+//
+// ⚠ IT TAKES TWO CEILINGS, NOT ONE, and the second one is why. A single total-coverage cap makes
+// Flare and Backblow compete for the same number, so at maxed Flare the second cone adds exactly
+// nothing — it splits 270 contiguous degrees into 135 front and 135 back, leaving two 45-degree
+// gaps at your sides for the same total. That is a mod that gets WORSE the more you level its own
+// weapon, which is the inert-card failure with extra steps. BUBBLE_ARC_MAX caps one cone lower than
+// the pair's total, so Backblow always buys at least 30 degrees and always buys your back.
+export const BUBBLE_ARC_MAX = Math.PI * 4 / 3   // 240 deg: the widest a SINGLE cone may ever be
+//
+// ⚠ THIS IS THE ANTI-TURTLE RULE IN ITS SECOND FORM. v7.16x deleted the puff's knockback because a
+// 408px ring nothing crossed made STANDING STILL the best way to play the chapter (motionless beat
+// walking by 43s and won 29% of runs against 0%). A 360-degree cone is the same offer rebuilt out
+// of coverage instead of shove. Do not raise this to 2pi.
+export const BUBBLE_COVER_MAX = Math.PI * 1.5
 export const BALLAST_FLIGHT = 0.42       // seconds from the throw to the landing
 export const BALLAST_BLIND_THROW = 260   // px ahead, when there is nothing to aim at
 // balance_decision : a weight crushes tanks double and pins for 2s 2026-08-21
@@ -5781,7 +5810,7 @@ CHAPTERS.twilight = {
   // for either neighbour until this change added them, so the ladder was an unmeasured claim in
   // prose at both ends. Re-run it rather than trusting these three numbers.
   //
-  // `form: 'fish'` + formScale 0.97. This chapter had NO `form` at all until now — the player was
+  // `form: 'fish'`. This chapter had NO `form` at all until now — the player was
   // still the Pond's blob, the only Book 2 chapter like it, a leftover from the spread above.
   // ⚠ THE LADDER FLATTENS HERE AND IT IS NOT IDEAL: the shipped rungs step +15%, +13%, +19%
   // (1.0 -> 1.15 -> 1.3 -> 1.55 -> Deep 1.7), and inserting between 1.55 and 1.7 makes the last two
@@ -5791,7 +5820,7 @@ CHAPTERS.twilight = {
   // that ladder knows why this rung is cramped.
   render: {
     cast: ['copepod', 'krill', 'gulper'],
-    form: 'fish', formScale: 0.97,
+    form: 'fish',
     bgColor: 0x04192e,     // mid-water: no surface above, no floor below
     floorTint: 0x80a0b8,   // one stop under The Trawl's 0x93b6cc, one above The Deep's 0x6f8ea6
     playerTint: 0xffffff,  // MUST stay white with a `form` — the level-up minimes read it directly
@@ -5979,9 +6008,7 @@ CHAPTERS.shelf = {
   // suspended sediment, not of algae — and it is also deliberately not The Surf's sand tan.
   render: {
     cast: ['sandhopper', 'searoach', 'jelly'],
-    // balance_decision : the whole Book 2 fish ladder is cut 40% 2026-08-21
-    //  - this is the rung the owner judged; every other rung moved x0.6 with it, arc unchanged.
-    form: 'fish', formScale: 0.69,
+    form: 'fish',
     bgColor: 0x2e4f52,     // silty water, daylight through it
     floorTint: 0xb6c9bd,   // milky wash — sediment in suspension, not a green bottom
     playerTint: 0xffffff,  // MUST stay white with a `form` — the level-up minimes read it directly
@@ -6251,18 +6278,20 @@ CHAPTERS.surf = {
   // form: 'fish' (v5.11 kaiju redesign, generalised for undertow): the player is a small fish here,
   // not the generic cross-chapter blob — see render.js's drawFish (in this chapter's own roster
   // section) and the playerForm branches in syncPlayer. Same idiom CHAPTERS.skies.render's
-  // `form: 'kaiju'` uses. ONE body serves all of Book 2; `formScale` is the book's "you grow in each
-  // chapter" arc and The Surf, being the smallest you ever are, holds its bottom rung. It carried no
-  // formScale at all (the default 1) until the whole ladder was cut 40% in 2026-08-21 -- an implicit
-  // rung cannot be scaled with the rest, and leaving it out would have made The Surf the BIGGEST
-  // fish in the book.
+  // `form: 'kaiju'` uses. ONE body serves all of Book 2, AT ONE SIZE.
+  //   ⚠ THERE IS NO GROWTH LADDER ANY MORE, and do not put one back. Every chapter carried its own
+  // `formScale` (1 -> 1.7 across the seven) as a literal "you grow in each chapter" arc, and the
+  // owner cut all of them on 2026-08-21: "the growth of the player is shown by the change of scale
+  // of its surroundings. I don't want a literal bigger player." The Surf's size is the one every
+  // chapter uses; a bigger fish is a bigger COLLIDER-sized sprite on the same 22px collider, which
+  // is a legibility cost paid for an arc the world was already telling.
   // tail: false overrides pond's inherited `tail: true` — the fish's own body already ends in a
   // caudal fin, so pond's separate trailing flagellum sprite would double up on one.
   render: {
     // The cast is the chapter's three ENEMIES, so the gull comes out with it: it is a hazard now,
     // and a title card promising a bird you never fight is a lie about what the chapter is.
     cast: ['sandhopper', 'shorecrab', 'searoach'],
-    form: 'fish', formScale: 0.60,
+    form: 'fish',
     // SUSPENDED, NOT BLOWN. render.js's ambient dust sprite is a white radial dot shared by every
     // chapter; over this floor it reads as smudges on a lens, so it takes a grain darker than the
     // sand. What changed with the water is the MOTION: the same 14 sprites were drifting up-right at
@@ -6490,7 +6519,7 @@ CHAPTERS.reef = {
   //   every warm prop tint loses a third of its red before it reaches the screen, so BIOME_REEF's raw
   //   tints are authored several steps hotter than the colour they are meant to end up as. Cool the
   //   tint further and the corals cannot read as coral at all; warm it and the water stops being blue.
-  // form: 'fish' + formScale — ONE body serves all of Book 2 and grows a step per chapter (The Surf
+  // form: 'fish' — ONE body serves all of Book 2 at one size (no formScale anywhere; The Surf
   // leaves it at the default 1, The Shelf is 1.15 and The Twilight 1.62). playerTint MUST stay white with a `form`:
   // syncPlayer forces white for the body itself, but the level-up MINIME copies read this value
   // directly and a tinted one turns them into coloured ghosts of the fish (see CHAPTERS.surf.render).
@@ -6500,7 +6529,6 @@ CHAPTERS.reef = {
     // go stale, so re-run it whenever one of the three draw fns changes.
     cast: ['damselfish', 'lionfish', 'moray'],
     form: 'fish',
-    formScale: 0.78,
     bgColor: 0x0a3358,
     floorTint: 0xa9cfe0,
     playerTint: 0xffffff,
@@ -6754,16 +6782,14 @@ CHAPTERS.wreck = {
   balance: { spawnMul: 2.2, enemyHpMul: 0.45, maxAliveMul: 1.55, xpMul: 0.5 },
 
   // ---- render-only (ZERO sim effect) ----
-  // formScale 1.42 is the book's growth arc and is NOT a shark: owner ruling 2026-08-17, asked
-  // directly whether The Wreck should take the shark identity from The Deep (which owns it — 1.7,
-  // `finHit`, "the shark's own body"). He kept the arc: "predator, not literally a shark". So this
-  // chapter is where you START hunting rather than reacting, one step bigger than the reef fish
-  // (1.3) and one step under the big fish (1.55). The premise inversion is in the roster and the
-  // bar, not in the body.
+  // THE PLAYER IS NOT A SHARK HERE: owner ruling 2026-08-17, asked directly whether The Wreck
+  // should take the shark identity from The Deep (which owns it — `finHit`, "the shark's own
+  // body"). "Predator, not literally a shark." This chapter is where you START hunting rather than
+  // reacting, and the premise inversion is in the roster and the bar, not in the body. It used to
+  // say so with a bigger formScale as well; that ladder is gone book-wide (see CHAPTERS.surf).
   render: {
     cast: ['mackerel', 'damselfish', 'moray'],
     form: 'fish',
-    formScale: 0.85,
     // THE SUNKEN SHIP. Owner, 2026-08-17: "there is no sunken ship asset or design in the level",
     // and "I'd like a big sunken ship behind with parallax effect".
     //
@@ -7005,14 +7031,13 @@ CHAPTERS.trawl = {
   // for thinning a chapter's floor and it is gated on `chapterHasDistricts`; generalising it is the
   // upgrade path if this floor ever reads as too busy.
   //
-  // form: 'fish' + formScale 0.93 — ONE body serves all of Book 2 and grows a step per chapter
+  // form: 'fish' — ONE body serves all of Book 2, at one size across every chapter
   // (Surf 1.0, Shelf 1.15, Reef 1.3, here 1.55). playerTint MUST stay white with a `form`: syncPlayer
   // forces white for the body itself, but the level-up MINIME copies read this value directly and a
   // tinted one turns them into coloured ghosts of the fish (see CHAPTERS.surf.render).
   render: {
     cast: ['mackerel', 'tuna', 'sealion'],
     form: 'fish',
-    formScale: 0.93,
     bgColor: 0x05203f,
     floorTint: 0x93b6cc,
     playerTint: 0xffffff,
@@ -7201,7 +7226,7 @@ CHAPTERS.deep = {
     // from ROSTER_LOOKS), and the anglerfish is no longer a roster entry. Its art lives in
     // T.maw instead — a whole animal ringing a 200px circle, which is not a 34px portrait.
     cast: ['hagfish', 'viperfish', 'gulper'],
-    form: 'fish', formScale: 1.02,   // the shark: the biggest body the player has had
+    form: 'fish',   // the shark, and the same size as every other chapter's fish
     bgColor: 0x03101d,
     floorTint: 0x6f8ea6,
     playerTint: 0xcfe6f2,
