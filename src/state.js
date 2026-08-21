@@ -997,6 +997,13 @@ function generateWells(sig) {
  *               `daze` (seconds) is Silt Veil's, published into e.stunT against the enemy's own
  *               dazeCd window (see SILT_DAZE_REFRACTORY). It replaced a `fear` field in v7.x --
  *               fear scattered the crowd out of the cloud that was damaging it.
+ *               OPTIONAL `arc` (full cone angle, rad) + `angle` (its bearing) make the bloom a
+ *               WEDGE instead of a disc, apex at (x, y): Silt Veil's, and the only one today.
+ *               Both passes in stepBlooms route through inSector when `arc` is present, so a
+ *               cone hits exactly what the whip and the claw would hit; render.js rotates the
+ *               puff rig to `angle` and marches its puffs down the axis. A cone NEVER moves
+ *               (owner's ruling: planted where cast, not stuck to the player), which is what
+ *               keeps render.js's position-derived puff hash stable -- see the note there.
  *               twinBloom (see WEAPON_MODS.bloom) plants extra clouds per cast. Render re-reads
  *               r/maxR/t every frame (alpha/size ramp), no per-frame event.
  *               tideCarried (v6.4, see WEAPON_MODS.bloom): with picks currently held, stepBlooms

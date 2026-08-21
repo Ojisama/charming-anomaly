@@ -106,7 +106,7 @@ import {
   CLAW_BASE_CRIT, CLAW_DOUBLE_EVERY, CLAW_DOUBLE_DELAY, CLAW_DOUBLE_DMG_FRAC,
   WEAVE_AMP, WEAVE_FREQ,
   QUILL_R, QUILL_RETALIATE_CD, QUILL_REBOUND_DMG_MUL, QUILL_REBOUND_SPEED_MUL,
-  FEAR_SPEED_MUL, FEAR_REFRACTORY, SILT_DAZE_REFRACTORY, UNSHAKEABLE_CC_MUL, CC_DR_STEP, CC_DR_RECOVER, CC_DR_FLOOR,
+  FEAR_SPEED_MUL, FEAR_REFRACTORY, SILT_DAZE_REFRACTORY, SILT_VEIL_ARC, UNSHAKEABLE_CC_MUL, CC_DR_STEP, CC_DR_RECOVER, CC_DR_FLOOR,
   SHRIEK_ECHO_DELAY, SHRIEK_ECHO_DMG_FRAC,
   SHRIEK_SPINE_DMG_FRAC, SHRIEK_SPINE_SPEED, SHRIEK_SPINE_RANGE_MUL,
   // v5.4 city
@@ -7577,29 +7577,6 @@ function stepBloomWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 
-// N spots, preferring DISTINCT bodies (v7.x, Silt Veil's Roil). pickBloomSpot picks WITH
-// replacement, which is right for one cloud and wrong for a count mod: two clouds on one body is
-// the "same hit, bigger" shape a coverage card exists to escape, and CLAUDE.md's per-cast-count
-// rule names it exactly -- it renders identically to no change at all, which is why the guard is an
-// assertion on DISTINCT POSITIONS rather than on a count.
-//
-// Falls back to pickBloomSpot once the bodies in range are used up, so a lone enemy still eats
-// every cloud in the volley rather than the cast quietly shrinking to the number of targets.
-function pickBloomSpots(run, castRange, n) {
-  const p = run.player
-  const rangeSq = castRange * castRange
-  const pool = run.enemies.filter((e) => {
-    if (e._dead || isAlly(e)) return false   // SUBMISSION: never mark your own ally
-    const dx = e.x - p.x, dy = e.y - p.y
-    return dx * dx + dy * dy <= rangeSq
-  })
-  const out = []
-  for (let i = 0; i < n; i++) {
-    if (pool.length === 0) { out.push(pickBloomSpot(run, castRange)); continue }
-    out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0])
-  }
-  return out
-}
 
 // A random live enemy within castRange, else a random offset within castRange of the player.
 function pickBloomSpot(run, castRange) {
@@ -7676,8 +7653,16 @@ function stepBlooms(run, dt) {
       const slowRSq = bl.r * bl.r
       for (const e of run.enemies) {
         if (e._dead || damageImmune(e)) continue
-        const sdx = e.x - bl.x, sdy = e.y - bl.y
-        if (sdx * sdx + sdy * sdy <= slowRSq) e.bloomSlowT = BLOOM_SLOW_T
+        // The wedge gate, on BOTH passes. Silt sets slow: 0 so this branch cannot reach a cone
+        // today -- it is here so that the day a cone-shaped bloom does slow, the slow and the
+        // damage cover the same ground. Two loops testing one entity with two different shapes is
+        // the one-fact-in-two-places class CLAUDE.md names as the largest defect source here.
+        if (bl.arc != null) { if (!inSector(bl.x, bl.y, bl.angle, bl.r, bl.arc, e, false)) continue }
+        else {
+          const sdx = e.x - bl.x, sdy = e.y - bl.y
+          if (sdx * sdx + sdy * sdy > slowRSq) continue
+        }
+        e.bloomSlowT = BLOOM_SLOW_T
       }
     }
 
@@ -7688,8 +7673,15 @@ function stepBlooms(run, dt) {
       const rSq = bl.r * bl.r
       for (const e of run.enemies) {
         if (e._dead) continue
-        const dx = e.x - bl.x, dy = e.y - bl.y
-        if (dx * dx + dy * dy > rSq) continue
+        // `arc` MAKES THE BLOOM A WEDGE (Silt Veil, the only one today). inSector tests the enemy's
+        // BODY against the sector and treats a body sitting on the apex as inside it, so a cone
+        // cast with the crowd already on top of you still bites -- which is exactly the moment the
+        // card is for. A disc keeps the cheaper squared-distance test.
+        if (bl.arc != null) { if (!inSector(bl.x, bl.y, bl.angle, bl.r, bl.arc, e, false)) continue }
+        else {
+          const dx = e.x - bl.x, dy = e.y - bl.y
+          if (dx * dx + dy * dy > rSq) continue
+        }
         applyDotDamage(run, e, tickDmg)
         // SILT VEIL's daze, published into the e.stunT contract field render.js already reads.
         // The window is the whole guard: gating on "is it stunned" alone lets a persistent cloud
@@ -9263,7 +9255,7 @@ function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 
-// SILT VEIL. A cloud planted on a body. `slow: 0` opts out of BLOOM_SLOW_T the way Foxfire does
+// SILT VEIL. A cone off the player. `slow: 0` opts out of BLOOM_SLOW_T the way Foxfire does
 // — the murk chapter does not slow the player and must not quietly slow the crowd either — and
 // `daze` is the card, applied in stepBlooms against its own dazeCd window so it cannot pin.
 // FOUL SPRING (the siltVeil mod). Is (x,y) inside an upwelling that has not been spent yet, and if
@@ -9294,28 +9286,36 @@ function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
   const foulSpring = run.weaponMods.siltVeil?.foulSpring ?? 0
   const quickStir = run.weaponMods.siltVeil?.quickStir ?? 0
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickStir)), dt, () => {
-    // PLANTED ON A BODY, not at the player's feet (owner, 2026-08-19). pickBloomSpot is Toxin
-    // Bloom's own chooser -- a random live enemy within castRange, falling back to a random offset
-    // near the player when nothing is in reach -- so the two zone weapons in this game answer
-    // "where does the cloud go" with one function rather than two that can drift apart. The ring
-    // that used to space clouds around the player is gone with it: bodies are already in different
-    // places, so there is no divisor left to get wrong.
+    const p = run.player
+    // A CONE OFF THE PLAYER, aimed at the nearest body (owner from play, 2026-08-21). aimAngle is
+    // the Bubble Puff's own chooser, so both of this chapter's front-facing cards point the same
+    // way in the same situation; while kiting the nearest body is whatever is chasing you, which
+    // is the case the card exists for. It falls back to facing when the screen is empty rather
+    // than refusing to fire -- a silt cone into open water is the honest picture of a whiff.
     const clouds = ipecacN(run, Math.max(1, Math.round(stats.clouds)))
-    const spots = pickBloomSpots(run, stats.castRange, clouds)
+    // ONE local for the fan: `clouds` is the loop bound AND the divisor that centres the spread,
+    // the eight-site trap CLAUDE.md documents. Roil's extra cones tile OUTWARD by a full arc each
+    // -- overlapping them would render identically to no change at all, which is the inert-card
+    // failure run MB.a exists to catch.
+    const aim = aimAngle(run)
     for (let i = 0; i < clouds; i++) {
-      const x = spots[i].x, y = spots[i].y
-      // PER CLOUD, not per cast: a ringed volley can foul several upwellings at once, and each one
-      // it lands in is spent. Short-circuits on foulSpring 0 so an unmodded veil never walks
-      // run.shafts at all.
-      const fouled = foulSpring > 0 && foulUpwelling(run, x, y)
+      const angle = aim + (i - (clouds - 1) / 2) * SILT_VEIL_ARC
+      // FOUL SPRING, sampled at the cone's MID-DEPTH rather than at the player's feet: the wedge is
+      // what fouls the water, and its apex is a point the player is standing on, so testing there
+      // would make the mod fire only while parked in a patch. Per cone, not per cast -- a fanned
+      // volley can foul several patches at once. Short-circuits on foulSpring 0 so an unmodded
+      // veil never walks run.shafts at all.
+      const fouled = foulSpring > 0 && foulUpwelling(run,
+        p.x + Math.cos(angle) * stats.maxR * 0.5, p.y + Math.sin(angle) * stats.maxR * 0.5)
       const mul = fouled ? 1 + foulSpring : 1
-      // ONE multiplier across all three of the cloud's numbers, which is exactly what the card
+      // ONE multiplier across all three of the cone's numbers, which is exactly what the card
       // promises. Splitting it -- size and duration but not damage, as this first shipped -- makes
       // the card and the code two different cards.
       run.blooms.push({
-        x, y,
+        x: p.x, y: p.y,
         r: 0, maxR: stats.maxR * mul, t: 0, dur: stats.dur * mul,
         dmgPerTick: stats.dmgPerTick * mul, look: 'silt', slow: 0, daze: stats.daze,
+        arc: SILT_VEIL_ARC, angle,
       })
     }
   })

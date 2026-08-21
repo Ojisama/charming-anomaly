@@ -13923,14 +13923,21 @@ export function createRenderer(app) {
     return Math.max(0, Math.min(Math.min(1, bl.t / (dur * 0.2)), Math.min(1, (dur - bl.t) / (dur * 0.25))))
   }
   const bloomPool = []
+  // A DISC USES 3 PUFFS AND A CONE USES ALL 6. The extra three exist for Silt Veil, which is a
+  // wedge rather than a circle. THE COUNT IS THE DIFFERENCE BETWEEN A PLUME AND A BEAD CHAIN: at
+  // five, the gaps between puff centres are wide enough that the eye reads five discs of growing
+  // size rather than one body of silt, which the first frame of the reshape showed plainly. Every
+  // slot hides the puffs it does not use, so a rig recycled from a cone to a disc does not leave
+  // stray blobs on screen -- the same silent-leftover failure as leaving a rig in reset()'s list.
+  const BLOOM_PUFFS = 6
   function acquireBloom() {
     const root = new Container()
-    const a = new Sprite(T.fx.circle_05); a.anchor.set(0.5)
-    const b = new Sprite(T.fx.circle_05); b.anchor.set(0.5)
-    const c = new Sprite(T.fx.circle_05); c.anchor.set(0.5)
-    root.addChild(a, b, c)
+    const puffs = []
+    for (let i = 0; i < BLOOM_PUFFS; i++) {
+      const s = new Sprite(T.fx.circle_05); s.anchor.set(0.5); root.addChild(s); puffs.push(s)
+    }
     bloomLayer.addChild(root)
-    return { root, puffs: [a, b, c] }
+    return { root, puffs }
   }
   function syncBlooms(run) {
     // ⚠ `bilge` IS EXCLUDED HERE because syncSlicks draws it instead — with a lobed outline and a
@@ -13979,17 +13986,48 @@ export function createRenderer(app) {
       // every frame and the puffs crawl; bake a real seed field at the cast then.
       //   Every expression it feeds collapses to the constant it replaced at hash 0, so the pond's
       // toxin, The Twilight's foxfire and The Wreck's bilge draw exactly as they did.
-      const hash = silt ? ((bl.x * 0.017 + bl.y * 0.029) % 1 + 1) % 1 : 0
+      // `bl.angle` IS IN THE HASH, not just the position. Roil fans several cones out of the SAME
+      // apex, so a hash of (x, y) alone gives every cone of one cast an identical churn -- which is
+      // the exact complaint the hash was added for (owner: "vase clouds look too similar to each
+      // other"), reappearing by a different route. It stays free of Math.random for the reason the
+      // note below gives.
+      const hash = silt ? ((bl.x * 0.017 + bl.y * 0.029 + (bl.angle ?? 0) * 0.41) % 1 + 1) % 1 : 0
       const churn = hash < 0.5 ? 1 : -1
       const frac = (v) => ((v % 1) + 1) % 1
-      for (let k = 0; k < 3; k++) {
+      // THE CONE. Puffs march along the wedge's axis, each sized off the wedge's own half-angle so
+      // the drawing widens at the rate the hitbox does: at the deepest puff the implied half-angle
+      // is within a degree of arc/2. The root carries the rotation, so the layout is plain local +x.
+      //   WHAT THE ART DOES NOT STATE IS THE TIP. The puffs are fattened past the inscribed circle
+      // (PUFF_FAT) so they merge into one body of silt instead of a row of discs, and the price is
+      // that the last one's far edge runs ~27% past bl.r. That is the deliberate trade: the SIDES,
+      // which is where the player reads the wedge, agree with the sector test; the far end is a
+      // soft rounded nose rather than a flat cap, which is both what silt in water looks like and
+      // the only thing a soft circle sprite can honestly draw.
+      const cone = bl.arc != null
+      const PUFF_FAT = 1.25   // overlap factor: 1.0 is tangent to the wedge and leaves visible gaps
+      const half = cone ? Math.sin(bl.arc / 2) : 0
+      bv.root.rotation = cone ? bl.angle : 0
+      const used = cone ? BLOOM_PUFFS : 3
+      for (let k = 0; k < BLOOM_PUFFS; k++) {
         const s = bv.puffs[k]
-        const spread = silt ? 0.30 + 0.20 * frac(hash * 7.3 + k * 0.37) : 0.4
-        const off = k === 0 ? 0 : bl.r * spread
-        const ang = animT * 0.6 * churn + k * 2.1 + hash * Math.PI * 2
-        const lump = silt ? 0.82 + 0.36 * frac(hash * 11.7 + k * 0.61) : 1
-        s.position.set(Math.cos(ang) * off, Math.sin(ang) * off)
-        s.scale.set(sc * (k === 0 ? 1 : 0.72) * lump * (1 + 0.05 * Math.sin(animT * 3 + k)))
+        s.visible = k < used
+        if (k >= used) continue
+        if (cone) {
+          const depth = bl.r * (0.14 + 0.58 * k / (BLOOM_PUFFS - 1))
+          const rad = Math.max(1, depth * half * PUFF_FAT)
+          const lump = 0.86 + 0.28 * frac(hash * 11.7 + k * 0.61)
+          // A slow perpendicular wobble so the plume boils instead of sitting there. Scaled by the
+          // puff's own radius, so it never breaks a narrow cone out of its own wedge.
+          s.position.set(depth, Math.sin(animT * 0.9 * churn + k * 1.7 + hash * 6.28) * rad * 0.16)
+          s.scale.set(fxScale(T.fx.circle_05, rad * 2) * lump * (1 + 0.05 * Math.sin(animT * 3 + k)))
+        } else {
+          const spread = silt ? 0.30 + 0.20 * frac(hash * 7.3 + k * 0.37) : 0.4
+          const off = k === 0 ? 0 : bl.r * spread
+          const ang = animT * 0.6 * churn + k * 2.1 + hash * Math.PI * 2
+          const lump = silt ? 0.82 + 0.36 * frac(hash * 11.7 + k * 0.61) : 1
+          s.position.set(Math.cos(ang) * off, Math.sin(ang) * off)
+          s.scale.set(sc * (k === 0 ? 1 : 0.72) * lump * (1 + 0.05 * Math.sin(animT * 3 + k)))
+        }
         // The Twilight's Foxfire shares this pool. Near-WHITE with a mint fringe, not the blue it
         // started as: this chapter's water is 0x18567f and its floor wash 0x9fd6f0, so a pale blue
         // fire on it is a blue smudge on blue — the first probe of this weapon came back with the
@@ -14017,7 +14055,11 @@ export function createRenderer(app) {
           : oil ? (k % 2 ? 0x4b3a63 : 0x1b2128)
           : inEddy ? (k % 2 ? 0x6fe0c0 : 0x3faea0) : (k % 2 ? 0x6fe04a : 0x3fae2f)
         // Denser than a toxin cloud on purpose: this one's job is that you cannot see through it.
-        s.alpha = alpha * (k === 0 ? 0.5 : 0.4) * (fox ? 1.45 : silt ? 1.6 : oil ? 1.7 : 1)
+        // A cone THINS with depth (0.46 at the apex down to 0.29 at the tip): the silt you just
+        // stirred is thickest at your feet, and a flat wedge reads as a painted triangle. The per
+        // puff figure is LOWER than a disc's because six of them overlap where three did not.
+        s.alpha = alpha * (cone ? 0.46 - 0.034 * k : k === 0 ? 0.5 : 0.4) *
+          (fox ? 1.45 : silt ? 1.6 : oil ? 1.7 : 1)
       }
     }
     for (let i = n; i < prevCount.bloom; i++) bloomPool[i].root.visible = false
