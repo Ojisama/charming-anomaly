@@ -140,9 +140,20 @@ Shelf at".
 Every one of these produced a WRONG answer on a real chapter while the script was being built.
 
 - **A gate can pass on the comment beside the code.** The sim-test reference count ran over the raw
-  suite for its whole life: `'reef'` appears 19 times and 3 of those are prose. Decommenting it
-  dropped The Skies below the bar — a shipped chapter whose gate had been green on comments. Every
-  search here decomments first; keep it that way. This is run MB.a's lesson.
+  suite for its whole life: `'reef'` appears 20 times and 3 of those are prose. Every search here
+  decomments first; keep it that way. This is run MB.a's lesson.
+- **A COMMENT STRIPPER IS A SECOND PARSER, AND GETTING IT WRONG DELETES CODE SILENTLY.** Stripping
+  block comments before line comments means `src/cast/*.png` written inside a `//` comment opens a
+  block that runs to the next `*/` thousands of lines away. That ate 64% of `test/sim-test.js` —
+  two openers, 7685 and 3134 lines — and reported The Skies, The Trawl and The Deep as shipped
+  chapters with no test coverage, which is a plausible-sounding lie that shipped as v7.187 and was
+  caught by grepping for `'skies'` by hand. Line comments first, then blocks. And a `/*` inside a
+  STRING (`import.meta.glob('./props/*.png')`) survives any ordering, so quoted strings are masked
+  before either pass — M13 proves it, by hiding The Shelf's whole signature behind one glob.
+  **The same trap is live in five places in `test/sim-test.js`** (lines 5136, 6977, 21618, 21818,
+  24712), all block-first. `codeOnly` over `render.js` keeps 22% of the file and cannot see
+  `ROSTER_LOOKS` or `drawJelly` at all. Those lints are in the ship gate and are asserting over a
+  hole; fixing them is its own job.
 - **A gate can be blind to its own subject.** The `art` axis used to be
   `TESTS.includes('run RA (roster art)')` — a string existing in a file, byte-identical for all 15
   chapters, which never looked at the chapter being audited and never ran the assertion it was

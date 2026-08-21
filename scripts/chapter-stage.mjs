@@ -15,8 +15,36 @@ const src = (f) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8')
 // is discussed in prose right beside its wiring, so a raw substring hit is satisfied by the
 // comment alone — delete the code, keep the sentence explaining it, and the check stays green
 // while the feature is inert.
-const decomment = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
-const SIM = decomment(src('sim.js'))
+// LINE comments first, BLOCK comments second, and that order is the whole of it. `src/cast/*.png`
+// written inside a `//` comment opens a block comment that runs to the next `*/` thousands of lines
+// away. Stripping blocks first ate 64% of test/sim-test.js — two openers, 7685 and 3134 lines — and
+// counted four references to 'skies' where the code has thirty-seven, which read as a shipped
+// chapter with no test coverage. config.js loses a further 4% the same way.
+// The guard is the other half. An unterminated `/*` left over means an opener inside a STRING
+// (render.js's `import.meta.glob('./props/*.png')` is one), which no ordering can fix, and which
+// silently truncates every search that follows. A probe that cannot measure must not print numbers.
+const NUL = '\u0000'
+// Quoted strings are masked first so a path glob inside one cannot open a comment. render.js's
+// `import.meta.glob('./props/*.png')` is the live example, and the ordering fix above does not
+// touch it — a string opener gets TERMINATED by the next JSDoc `*/`, which eats every line between
+// and leaves nothing behind to notice. Single and double quotes only: a backtick in a comment
+// (this file's own prose is full of them) would pair with one in code and mask a live region.
+// Only the comment markers are masked, so the string's CONTENT still answers `SIM.includes("'latch'")`.
+const maskStrings = (s) => s.replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"/g,
+  m => m.replace(/\/\*/g, `/${NUL}*`).replace(/\*\//g, `*${NUL}/`))
+const decomment = (s, what = 'source') => {
+  const stripped = maskStrings(s).replace(/(^|[^:])\/\/.*$/gm, '$1').replace(/\/\*[\s\S]*?\*\//g, '')
+  // Counted BEFORE unmasking, or every masked glob reads as a leftover and the guard fires on a
+  // file it just handled correctly. What survives here is a genuinely unterminated block comment.
+  const left = (stripped.match(/\/\*/g) || []).length
+  if (left) {
+    console.error(`chapter-stage: ${what} keeps ${left} unterminated '/*' after comment stripping — an opener inside a string literal.`)
+    console.error('Every source search below would run over a truncated file. Fix the stripper; do not trust these numbers.')
+    process.exit(1)
+  }
+  return stripped.split(NUL).join('')
+}
+const SIM = decomment(src('sim.js'), 'src/sim.js')
 const CONFIG_RAW = src('config.js')
 // Signature wiring is searched across sim.js AND config.js: config.js holds pure helper fns that
 // sim.js imports, and `refillSpec` — the one function that answers "where does this chapter's food
@@ -29,13 +57,13 @@ const CONFIG_RAW = src('config.js')
 // Only a LITERAL chapter id is dropped. `CHAPTERS[run.chapter].signature?.maws` is a generic
 // consumer and must survive, so a bracket access holding an expression is left alone.
 const CHAPTER_IDS = Object.keys(CHAPTERS)
-const WIRING = (SIM + '\n' + decomment(CONFIG_RAW))
+const WIRING = (SIM + '\n' + decomment(CONFIG_RAW, 'src/config.js'))
   .replace(new RegExp(`CHAPTERS\\s*(?:\\.(?:${CHAPTER_IDS.join('|')})|\\[\\s*['"](?:${CHAPTER_IDS.join('|')})['"]\\s*\\])\\s*\\.\\s*signature`, 'g'), 'SELFREF')
 const TESTS = readFileSync(new URL('../test/sim-test.js', import.meta.url), 'utf8')
 // Comments count as evidence NOWHERE, including here. The sim-test reference count used to run
-// over the raw file, so a chapter could clear the bar on prose alone: 'reef' appears 19 times in
-// the suite and 3 of those are comment lines. Same MB.a lesson as the wiring searches above.
-const TESTS_CODE = decomment(TESTS)
+// over the raw file, so a chapter could clear the bar on prose alone: 'reef' appears 20 times in
+// the suite and 17 of those are code. Same MB.a lesson as the wiring searches above.
+const TESTS_CODE = decomment(TESTS, 'test/sim-test.js')
 // The roster-art table, parsed exactly as run RA parses it (entries sit one indent level inside
 // the object literal). This replaces a check that read `TESTS.includes('run RA (roster art)')` —
 // a string existing in a file, byte-identical for all 15 chapters, which never looked at the
