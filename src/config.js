@@ -11302,8 +11302,12 @@ export const CHAPTER_UNLOCK_LINES = {
   city:        'The City — a report has been filed',
   skies:       'The Skies — this time they\'re not hiding it',
   beyond:      'The Beyond — you were never the only anomaly',
-  // The watcher thread, carried into a chapter whose antagonist is not being able to SEE.
-  shelf:       'The Shelf — out here they don\'t need to see you',
+  // The watcher thread through the chapter's OWN subject, which is pollution. 'fouled' is the
+  // chapter's word already (Foul Spring, Foul Water), and 'on purpose' is what makes filthy water
+  // a thing that was DONE rather than weather — the same institutional passive voice as The City's
+  // 'a report has been filed'. Runoff's own line, 'whatever they dumped in here', is the precedent:
+  // on The Shelf the watcher and the pollution are one thread, not two.
+  shelf:       'The Shelf — the water ahead of you was fouled on purpose',
 }
 
 // Book-unlock badge copy (v7.x), keyed by the book that just OPENED. Flat id -> string like

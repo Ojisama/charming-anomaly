@@ -548,7 +548,9 @@ const CONFIG = {
   'The City — a report has been filed': 'La Ville — un signalement a été déposé',
   'The Skies — this time they\'re not hiding it': 'Les Cieux — cette fois ils ne s\'en cachent plus',
   'The Beyond — you were never the only anomaly': 'L\'Au-delà — tu n\'as jamais été la seule anomalie',
-  'The Shelf — out here they don\'t need to see you': 'Le Large — ici, ils n\'ont pas besoin de te voir',
+  // 'souillée' is the chapter's shipped word — Source Souillée, Eau Souillée — so the badge and
+  // the cards foul the same water.
+  'The Shelf — the water ahead of you was fouled on purpose': 'Le Large — l\'eau devant toi a été souillée exprès',
   // v7.x book-unlock badge (BOOK_UNLOCK_LINES). {n} is the welcome purse — keep the placeholder.
   'UNDERTOW — a second book opens, for a new adventure… 🪙 {n} to begin': 'LAME DE FOND — un deuxième livre s\'ouvre pour une nouvelle aventure… 🪙 {n} pour commencer',
   'Toxic Shock': 'Choc Toxique',
