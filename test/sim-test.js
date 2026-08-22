@@ -20973,10 +20973,14 @@ function testLaneGolden() {
   // above describes. What did NOT move is `py`: all three seeds still end at exactly -12600, which
   // is 180s x LANE_SCROLL_SPEED. That is the guarantee this scenario exists for, and it is the
   // reason this re-capture is honest rather than a red being papered over.
+  // RE-CAPTURED AGAIN when ANCHORED_CHANCE landed: rollAffixes now draws one extra random per
+  // elite spawn, so every stream-dependent number below re-phased — the trap the header describes,
+  // and the same honesty test as the v7.79 re-capture. `py` is still exactly -12600 on all three
+  // seeds, so the scroll rate the chapter guarantees did not move.
   const BEYOND_GOLDEN = [
-    { seed: 11, px: 6.696, py: -12600, enemies: 136, rocks: 1, kills: 267 },
-    { seed: 22, px: -67.248, py: -12600, enemies: 107, rocks: 1, kills: 311 },
-    { seed: 33, px: -95.454, py: -12600, enemies: 111, rocks: 1, kills: 293 },
+    { seed: 11, px: -392.214, py: -12600, enemies: 144, rocks: 1, kills: 269 },
+    { seed: 22, px: -151.081, py: -12600, enemies: 124, rocks: 1, kills: 281 },
+    { seed: 33, px: -189.782, py: -12600, enemies: 133, rocks: 1, kills: 279 },
   ]
   const meta = makeMeta()
   for (const id of ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond']) {

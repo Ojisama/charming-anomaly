@@ -786,7 +786,8 @@ function generateWells(sig) {
  *               non-elites always carry affixes: [] (harmless to check unconditionally, but
  *               sim.js still guards elite-only affix logic behind `e.elite &&` first for cost).
  *               Elites roll 1 random affix at spawn, 2 distinct ones once run.time >=
- *               AFFIX_SECOND_AT. Render/shield contract: draw a shield bubble while `affixes`
+ *               AFFIX_SECOND_AT. `anchored` is never in that roll: it is layered on top at
+ *               ANCHORED_CHANCE, so ~half of elites carry it as well as their rolled affix(es). Render/shield contract: draw a shield bubble while `affixes`
  *               includes 'shielded' AND `hp > maxHP * SHIELD_HP_FRAC` (the shield "breaks" once
  *               hp drops under that fraction, matching the reduced-damage window in sim.js).
  *
