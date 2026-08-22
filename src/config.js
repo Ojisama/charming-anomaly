@@ -2229,11 +2229,13 @@ export const WEAPONS = {
       // `burst` is the card. At L5 it is 13x one tick, so a column that expires with the crowd
       // still outside it has done almost nothing — placement is the skill this weapon sells.
       // balance_decision : downwash fires and hits 30% harder, a non-starter 2026-08-20
-      { dmg: 4, tick: 0.25, interval: 3.54, radius: 130, duration: 1.6, pull: 200, burst: 52 },
-      { dmg: 5, tick: 0.25, interval: 3.31, radius: 143, duration: 1.7, pull: 218, burst: 68 },
-      { dmg: 6, tick: 0.25, interval: 3.08, radius: 156, duration: 1.8, pull: 236, burst: 84 },
-      { dmg: 8, tick: 0.25, interval: 2.92, radius: 168, duration: 1.9, pull: 254, burst: 101 },
-      { dmg: 9, tick: 0.25, interval: 2.77, radius: 180, duration: 2.0, pull: 270, burst: 120 },
+      // balance_decision : column radius -30%, cast rate +20% 2026-08-22
+      //  - the key is an INTERVAL, so +20% cadence DIVIDES by 1.2 -- the number goes down.
+      { dmg: 4, tick: 0.25, interval: 2.95, radius: 91,  duration: 1.6, pull: 200, burst: 52 },
+      { dmg: 5, tick: 0.25, interval: 2.76, radius: 100, duration: 1.7, pull: 218, burst: 68 },
+      { dmg: 6, tick: 0.25, interval: 2.57, radius: 109, duration: 1.8, pull: 236, burst: 84 },
+      { dmg: 8, tick: 0.25, interval: 2.43, radius: 118, duration: 1.9, pull: 254, burst: 101 },
+      { dmg: 9, tick: 0.25, interval: 2.31, radius: 126, duration: 2.0, pull: 270, burst: 120 },
     ],
   },
   // -- The Deep's native (spec §6.5) -------------------------------------------------------------
@@ -2552,6 +2554,11 @@ export const MAX_PASSIVE_LEVEL = 5
 // MAX_WEAPON_MOD_PICKS via `maxPicks` (read by eligibleWeaponModCandidates in sim.js). This is the
 // v6.6.15 switch fix one step softer: a switch offered twice does literally nothing, while these
 // do something worth ~1% — legal, but a trap on a card that costs you the whole level-up.
+// v7.x: a mod may also declare `needs: '<weaponId>'` — a DUO BOON, offered only while that other
+// weapon is held too (same filter, same function). Two exist, both on The Shelf: ballast.siltPlume
+// and downwash.siltFlush, each spawning Silt Veil's cloud out of another weapon's payoff. The gate
+// is on the OFFER only: devCards ignores it like every other eligibility rule, and the fire sites
+// fall back to the veil's level-1 numbers so a dev-taken card still does something visible.
 //
 // Every pierce mod in the game shares one ceiling, which is why they share one constant. A
 // projectile's hits per cast are bounded by GEOMETRY, not by its pierce budget: it can only meet
@@ -3188,7 +3195,12 @@ export const WEAPON_MODS = {
     // ONE multiplier for all three numbers, and the card says all three (owner's wording,
     // 2026-08-19). It scaled only size and duration when it first shipped, which made the card and
     // the code two different promises.
-    foulSpring: { name: 'Foul Spring', desc: 'a cloud in clean water has {n} more duration, damage and size, but fouls the patch', icon: '🌀', base: 0.50, kind: 'pct' },
+    // 2026-08-22: the patch no longer just blinks out. Fouling it turns the WHOLE circle into a
+    // silt cloud of its own radius (foulUpwelling's caller in sim.js) -- the cost is unchanged,
+    // the patch is still spent, but what the player gets for it is now on screen and biting.
+    // The copy says 'turns to silt' rather than 'fouls', which is both halves in three words:
+    // clean water gone, silt in its place.
+    foulSpring: { name: 'Foul Spring', desc: 'a cloud in clean water has {n} more duration, damage and size, and turns the patch to silt', icon: '🌀', base: 0.50, kind: 'pct' },
   },
   ballast: {
     deadweight: { name: 'Deadweight',  desc: 'impact damage',       icon: '💥', base: 0.30, kind: 'pct' },
@@ -3203,6 +3215,15 @@ export const WEAPON_MODS = {
     // Same wording rule as Scour above, for the same reason and from the same reading: the card
     // names the bar it reads.
     foulWater:  { name: 'Foul Water',  desc: 'the drag catches {n} wider than the crush, rising with your Pollution', icon: '🛢️', base: 0.50, kind: 'pct' },
+    // A DUO BOON (owner, 2026-08-22), and the first cross-weapon card in the game. `needs` is
+    // read by eligibleWeaponModCandidates, so it is offered ONLY while Silt Veil is also held;
+    // the clouds it throws up are the VEIL's own, at its live level and mods (spawnSiltCloud in
+    // sim.js), so the card pays out on what the player actually invested rather than on a second
+    // ladder nobody can see. Epic-only through `values` -- the Beam Prism / Street Sweeper idiom,
+    // because makeWeaponModCard refuses a kind:'switch' above normal rarity and this is meant to
+    // BE an epic. maxPicks 1: the count is the card, and a second pick has nothing to add.
+    siltPlume:  { name: 'Silt Plume',  desc: 'the impact throws up {n} clouds of silt', icon: '🌫️',
+      kind: 'flat', maxPicks: 1, values: { epic: 3 }, needs: 'siltVeil' },
   },
   downwash: {
     // Five, and the split is deliberate: three fold into levels[] through WEAPON_STAT_MODS, one is
@@ -3232,6 +3253,17 @@ export const WEAPON_MODS = {
     // into `interval` would SLOW the weapon.
     deluge:    { name: 'Deluge',     desc: 'column and burst damage', icon: '💥', base: 0.30, kind: 'pct' },
     quickPour: { name: 'Quick Pour', desc: 'pour rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    // The second duo boon, same gate and same idiom as Ballast's Silt Plume -- read that one for
+    // why `values`/`needs` rather than a switch. ONE cloud, sized at SILT_FLUSH_MUL the COLUMN's
+    // own radius rather than the veil's: the number is derived from the circle the player just
+    // watched land, so the card cannot come apart from its picture when the column ladder moves
+    // (it just did). `descFor` writes the whole line so the amount does not arrive as a '+1 '
+    // head -- one cloud is not a number the player needs.
+    siltFlush: {
+      name: 'Silt Flush', icon: '🌫️', kind: 'flat', maxPicks: 1, values: { epic: 1 }, needs: 'siltVeil',
+      desc: 'the burst leaves a huge cloud of silt',
+      descFor: () => 'the burst leaves a huge cloud of silt',
+    },
   },
   // Four apiece for the Trawl's natives, and four is the CEILING, not a starting point (spec §7:
   // the pool's real mod budget is ~28, and the rule is to cut a weapon rather than invent mods).
@@ -3646,6 +3678,15 @@ export const SILT_DAZE_REFRACTORY = 2 // s a body is daze-proof after a silt clo
 // valid -- it is stable ONLY because a silt cloud never moves, and that note says so.
 export const SILT_VEIL_ARC = Math.PI * 5 / 12   // 75 deg. Narrower than the Bubble Puff's 90 base
                                                 // so the chapter does not read as one cone twice.
+
+// THE TWO DUO BOONS (owner, 2026-08-22). Each is a mod on one weapon that spawns the OTHER
+// weapon's cloud, and each is offered only while both are held (`needs` on the mod — see the
+// WEAPON_MODS header). The clouds themselves carry no ladder of their own: they are Silt Veil's,
+// at whatever level and mods it is holding, so neither card needs retuning when the veil does.
+// balance_decision : two epic cards make silt out of the shelf's other two weapons 2026-08-22
+//  - SILT_PLUME_SPREAD must NOT be 0: three clouds on one point render identically to one cloud.
+export const SILT_PLUME_SPREAD = 0.7  // Silt Plume rings its clouds at this fraction of the crater
+export const SILT_FLUSH_MUL = 2       // Silt Flush's cloud, as a multiple of the COLUMN's radius
 
 // ONLY THE `anchored` ELITE AFFIX IGNORES CROWD CONTROL OUTRIGHT. Owner ruling, 2026-08-17: "Tanks
 // should not be immune to Fear, knockback and other CC, except if they have the elite modifiers

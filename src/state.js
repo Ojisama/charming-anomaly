@@ -1010,6 +1010,12 @@ function generateWells(sig) {
  *               fear scattered the crowd out of the cloud that was damaging it.
  *               OPTIONAL `arc` (full cone angle, rad) + `angle` (its bearing) make the bloom a
  *               WEDGE instead of a disc, apex at (x, y): Silt Veil's, and the only one today.
+ *               ⚠ A look:'silt' bloom is NOT always the Silt Veil's own cast. Three other sites
+ *               push one (spawnSiltCloud in sim.js): Foul Spring turns a whole clean-water
+ *               patch into a disc of its radius, and the two DUO BOONS -- ballast.siltPlume
+ *               (three around a landing) and downwash.siltFlush (one huge one on the burst).
+ *               All three are DISCS with no `arc`, all three carry the veil's live
+ *               dmgPerTick/dur/daze, and that is how they are told apart from a cast cone.
  *               Both passes in stepBlooms route through inSector when `arc` is present, so a
  *               cone hits exactly what the whip and the claw would hit; render.js rotates the
  *               puff rig to `angle` and marches its puffs down the axis. A cone NEVER moves

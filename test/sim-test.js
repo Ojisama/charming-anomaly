@@ -133,6 +133,7 @@ import {
   HUMIDITY_DMG_FLOOR, resourceDamageMul, resourceRateMul,
   // Book 2 The Shelf: Pollution as a weapon mod (Run MB)
   pollutionFrac, BALLAST_FLIGHT, BALLAST_TANK_MUL, BALLAST_BLIND_THROW, BALLAST_REACH_PAD, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX,
+  SILT_PLUME_SPREAD, SILT_FLUSH_MUL,
   LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_DMG, LUNGE_KILL_REFILL, LUNGE_BITE_MUL, STARVE_TICK,
   // Book 2 The Surf: the Shore Crab's guard (Run US.i)
   CRAB_GUARD_ARC,
@@ -7245,8 +7246,13 @@ function runModBudget() {
       // test of the CLOUD's interaction rather than of the player's standing still.
       const hold = (r) => { sh.x = sh.bx = r.player.x; sh.y = sh.by = r.player.y; sh.drawdown = drawdown; r.shafts = [sh] }
       assert(castUntil(run, (r) => r.blooms.some((b) => b.look === 'silt'), hold), 'precondition: the veil must cast within 12s')
-      const cloud = run.blooms.filter((b) => b.look === 'silt')[0]
-      return { maxR: cloud.maxR, dur: cloud.dur, dps: cloud.dmgPerTick, spent: (sh.drawdown ?? 0) >= life }
+      const silt = run.blooms.filter((b) => b.look === 'silt')
+      const cloud = silt[0]
+      // The CONE is silt[0] and the fouled patch, if there is one, is the disc behind it — `arc`
+      // is what stepBlooms itself tests to choose a wedge over a circle, so it is the honest
+      // separator rather than an index.
+      return { maxR: cloud.maxR, dur: cloud.dur, dps: cloud.dmgPerTick, spent: (sh.drawdown ?? 0) >= life,
+        patch: silt.filter((b) => b.arc == null) }
     }
     const plain = boot('shelf', 'siltVeil', 5, null)
     assert(castUntil(plain, (r) => r.blooms.some((b) => b.look === 'silt'), (r) => { r.shafts = [] }),
@@ -7262,11 +7268,110 @@ function runModBudget() {
     assert(live.dps > bare.dmgPerTick * 1.4,
       `...and must bite harder, which the card promises alongside size and duration: ${live.dps.toFixed(2)} against ${bare.dmgPerTick.toFixed(2)}`)
     assert(live.spent, 'Foul Spring must SPEND the upwelling it fouls — that cost is the whole card')
+    // AND THE PATCH BECOMES A CLOUD (owner, 2026-08-22). The spend above is the cost and is
+    // unchanged; this is what the player now gets for it. Asserted as a bloom the size of the
+    // whole circle, because the previous tell — `fouled`, the fade — is render-only and passes
+    // with the mechanic deleted.
+    assert.strictEqual(live.patch.length, 1,
+      `fouling a patch must leave one disc-shaped cloud covering it, got ${live.patch.length}`)
+    assert(Math.abs(live.patch[0].maxR - 205) < 1e-9,
+      `...at the PATCH's radius, not the veil's: ${live.patch[0].maxR.toFixed(1)} against 205`)
+    assert.strictEqual(already.patch.length, 0,
+      'water already drawn down must leave no cloud — nothing was fouled, so there is nothing to turn to silt')
+    assert.strictEqual(bare.arc != null, true,
+      'precondition: the veil\'s own cast is a WEDGE, or the disc test above separates nothing')
     assert(Math.abs(already.maxR - bare.maxR) < 1e-9,
       `an upwelling already drawn down must pay NOTHING: ${already.maxR.toFixed(1)} against a bare ${bare.maxR.toFixed(1)}`)
-    console.log(`PASS run MB.g (Foul Spring): cloud r ${bare.maxR.toFixed(0)}->${live.maxR.toFixed(0)}, dur ${bare.dur.toFixed(1)}->${live.dur.toFixed(1)}s, dps ${bare.dmgPerTick.toFixed(1)}->${live.dps.toFixed(1)} in clean water (patch fouled), and ${already.maxR.toFixed(0)} on water already spent`)
+    console.log(`PASS run MB.g (Foul Spring): cloud r ${bare.maxR.toFixed(0)}->${live.maxR.toFixed(0)}, dur ${bare.dur.toFixed(1)}->${live.dur.toFixed(1)}s, dps ${bare.dmgPerTick.toFixed(1)}->${live.dps.toFixed(1)} in clean water, the whole 205px patch turns to silt behind it, and ${already.maxR.toFixed(0)} with no cloud on water already spent`)
   }
 
+
+  // (j) THE TWO DUO BOONS (owner, 2026-08-22): ballast.siltPlume and downwash.siltFlush, each a
+  // mod on one weapon that spawns the OTHER weapon's cloud, and each offered only while both are
+  // held. Three things fail silently here and all three are asserted: the GATE (a card offered
+  // without its partner is an epic that does nothing), the SPAWN (a boon wired to nothing is the
+  // inert card MB.a exists for), and the SPREAD (three clouds sharing one centre render
+  // identically to one cloud — the count-mod failure this repo has shipped once already).
+  //
+  // Every count here filters `arc == null`. Both fixtures hold Silt Veil, which is the whole
+  // point, and it is casting its own WEDGES the entire time — so the discs are the boons' and
+  // the wedges are the veil's, separated by the same field stepBlooms tests.
+  {
+    const duo = (id, mods) => {
+      const r = boot('shelf', id, 5, mods)
+      r.weapons.push({ id: 'siltVeil', level: 5 })
+      return r
+    }
+    const discs = (r) => r.blooms.filter((b) => b.look === 'silt' && b.arc == null)
+    const veil = WEAPONS.siltVeil.levels[4]
+
+    // SILT PLUME: the weight lands and throws three clouds up around the crater.
+    const plume = duo('ballast', { siltPlume: 3 })
+    plume.enemies.push(makeStatusEnemy(plume, { x: plume.player.x + 200, y: plume.player.y, hp: 1e6, speed: 0 }))
+    assert(castUntil(plume, (r) => r.lobs.length > 0, pin(0)), 'precondition: the ballast must throw within 12s')
+    advance(plume, BALLAST_FLIGHT + 0.2, pin(0))
+    const thrown = discs(plume)
+    assert.strictEqual(thrown.length, 3, `Silt Plume must leave 3 clouds on the landing, got ${thrown.length}`)
+    const spots = new Set(thrown.map((b) => `${Math.round(b.x)},${Math.round(b.y)}`))
+    assert.strictEqual(spots.size, 3,
+      `three clouds on ${spots.size} point(s) render identically to one cloud — SILT_PLUME_SPREAD is what rings them`)
+    // THE VEIL'S OWN NUMBERS, not a second ladder. This is what makes the card scale with the
+    // weapon it is made of instead of needing its own retune every time that weapon moves.
+    assert(Math.abs(thrown[0].dmgPerTick - veil.dmgPerTick) < 1e-9 && Math.abs(thrown[0].dur - veil.dur) < 1e-9,
+      `a plume must BE a silt cloud: ${thrown[0].dmgPerTick}/tick for ${thrown[0].dur}s against the veil's ${veil.dmgPerTick}/${veil.dur}`)
+    const crater = WEAPONS.ballast.levels[4].r
+    // AND THE RING IS THE CONSTANT'S, not an accident of three arbitrary points. Three clouds on
+    // a symmetric ring have their own centroid as the centre, so this reads the spread back out
+    // of the result without needing the crater's position.
+    const cx = thrown.reduce((a, b) => a + b.x, 0) / 3, cy = thrown.reduce((a, b) => a + b.y, 0) / 3
+    const ring = Math.hypot(thrown[0].x - cx, thrown[0].y - cy)
+    assert(Math.abs(ring - crater * SILT_PLUME_SPREAD) < 0.5,
+      `plumes must ring at SILT_PLUME_SPREAD of the ${crater}px crater (${(crater * SILT_PLUME_SPREAD).toFixed(1)}px), got ${ring.toFixed(1)}px`)
+
+    // SILT FLUSH: the column bursts and blows one huge cloud out of its own footprint.
+    const flush = duo('downwash', { siltFlush: 1 })
+    flush.enemies.push(makeStatusEnemy(flush, { x: flush.player.x + 200, y: flush.player.y, hp: 1e6, speed: 0 }))
+    assert(castUntil(flush, (r) => discs(r).length > 0, pin(0), 14), 'precondition: a column must burst within 14s')
+    const blown = discs(flush)
+    assert.strictEqual(blown.length, 1, `Silt Flush must leave exactly one cloud per burst, got ${blown.length}`)
+    const col = WEAPONS.downwash.levels[4].radius
+    assert(Math.abs(blown[0].maxR - col * SILT_FLUSH_MUL) < 1e-9,
+      `...sized off the COLUMN (${col} x ${SILT_FLUSH_MUL}), not the veil: got ${blown[0].maxR.toFixed(1)}`)
+    // The control, and it is not ceremony: run.holes is shared with the Black Hole and run.blooms
+    // with the pond's and The Twilight's clouds, so 'a disc appeared' has more than one possible
+    // author. An unmodded column must leave none over the same window.
+    const bareCol = duo('downwash', null)
+    bareCol.enemies.push(makeStatusEnemy(bareCol, { x: bareCol.player.x + 200, y: bareCol.player.y, hp: 1e6, speed: 0 }))
+    advance(bareCol, 14, pin(0))
+    assert.strictEqual(discs(bareCol).length, 0,
+      'an unmodded column left a silt cloud — the boon is leaking to a weapon that did not buy it')
+
+    // THE GATE, rolled through buildLevelUpChoices (the shipped path) rather than against the
+    // eligibility function, so a gate written in the wrong place still fails. `boot` re-seeds the
+    // stream on every call, which is why these runs are built by hand.
+    const offers = (ids) => {
+      Math.random = mulberry32(20260822)
+      let duoCards = 0, modCards = 0
+      for (let i = 0; i < 1500; i++) {
+        const r = createRun(mkMeta(), { chapter: 'shelf', difficulty: 1 })
+        r.weapons = ids.map((id) => ({ id, level: 5 }))
+        r.level = 12
+        for (const c of buildLevelUpChoices(r)) {
+          if (c.kind !== 'mod') continue
+          modCards++
+          if (c.id === 'siltPlume' || c.id === 'siltFlush') duoCards++
+        }
+      }
+      return { duoCards, modCards }
+    }
+    const alone = offers(['ballast', 'downwash'])
+    const paired = offers(['ballast', 'downwash', 'siltVeil'])
+    assert.strictEqual(alone.duoCards, 0,
+      `a duo boon was offered without Silt Veil across ${alone.modCards} mod cards — the card would do nothing`)
+    assert(paired.duoCards > 0,
+      `...and must be reachable once the veil is held: 0 of ${paired.modCards} mod cards over 1500 pools`)
+    console.log(`PASS run MB.j (duo boons): a landing throws ${thrown.length} plumes ringed ${ring.toFixed(0)}px out around a ${crater}px crater, a burst blows one ${blown[0].maxR.toFixed(0)}px cloud (${col} x ${SILT_FLUSH_MUL}) and an unmodded column none, both carrying the veil's ${veil.dmgPerTick}/tick; offered ${paired.duoCards} times with the veil and ${alone.duoCards} without, over ~${paired.modCards} mod cards each`)
+  }
 
   // (h) A FOULED PATCH STOPS RECHARGING YOU — asserted as an EFFECT, not as state. MB.g above
   // checks `drawdown` reached its cap, which is the flag; this stands the player in the water and

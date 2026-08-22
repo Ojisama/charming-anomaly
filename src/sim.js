@@ -152,7 +152,7 @@ import {
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth, laneAxes,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
@@ -7245,6 +7245,12 @@ function downwashBurst(run, h) {
     if (dx * dx + dy * dy <= radSq) applyDamage(run, e, dmg)
   }
   run.events.push({ type: 'explode', x: h.x, y: h.y, radius: h.radius })
+  // SILT FLUSH (the duo boon): the burst blows a huge cloud of silt out of the column's own
+  // footprint. Sized off h.radius rather than off the veil, so Wide Pour widens the flush for
+  // free and the cloud always covers the circle the player just watched land. No `look` guard is
+  // needed here that stepHoles has not already applied -- this function is only ever called for
+  // a column, never for a Black Hole.
+  if (run.weaponMods.downwash?.siltFlush) spawnSiltCloud(run, h.x, h.y, h.radius * SILT_FLUSH_MUL)
 }
 
 // Runs after stepEnemyMovement, so the vortex always wins the tug-of-war near the core
@@ -9152,6 +9158,9 @@ function stepDebrisWeapon(run, w, stats, fireRateMul, dt) {
 function stepLobs(run, dt) {
   if (!run.lobs || run.lobs.length === 0) return
   const shrapnel = run.weaponMods.debrisToss?.shrapnel ?? 0
+  // The duo boon, read once for the list like `shrapnel` above and used ONLY inside the ballast
+  // branch -- which is what keeps it off the Sunspear's and Net Toss's lobs sharing this array.
+  const siltPlume = run.weaponMods.ballast?.siltPlume ?? 0
 
   for (const lo of run.lobs) {
     lo.t += dt
@@ -9228,6 +9237,15 @@ function stepLobs(run, dt) {
         if (!e._dead && dSq <= dragSq) e.dragT = Math.max(e.dragT || 0, BALLAST_DRAG_T)
       }
       run.events.push({ type: 'ballast', x: lo.tx, y: lo.ty, radius: lo.r })
+      // SILT PLUME: the weight slams the bottom and throws the silt up around the crater. RINGED
+      // at SILT_PLUME_SPREAD, never stacked on the impact point -- three clouds sharing one
+      // centre render identically to one cloud, which is the count-mod failure this repo has
+      // already shipped once. The clouds are Silt Veil's own; this decides only where they land.
+      for (let i = 0; i < siltPlume; i++) {
+        const a = (i / siltPlume) * Math.PI * 2
+        spawnSiltCloud(run, lo.tx + Math.cos(a) * lo.r * SILT_PLUME_SPREAD,
+          lo.ty + Math.sin(a) * lo.r * SILT_PLUME_SPREAD)
+      }
       continue
     }
 
@@ -9333,6 +9351,32 @@ function stepBubblePuffWeapon(run, w, stats, fireRateMul, dt) {
 // The drawdown clock is per-FIELD (refillSpec().drawdownSecs) and 0 on every field but The Shelf's.
 // Where it is 0 a circle can never be spent at all, so the mod finds one, is paid, and leaves it
 // standing -- which is the honest behaviour for a chapter whose upwellings do not draw down.
+// THE SILT VEIL'S CLOUD, SPAWNED BY SOMETHING THAT IS NOT THE SILT VEIL. Three callers: Foul
+// Spring's fouled patch below, and the two duo boons (WEAPON_MODS.ballast.siltPlume,
+// WEAPON_MODS.downwash.siltFlush). Damage, duration and daze are read off the veil's CURRENT
+// stats, so a cloud another weapon makes is exactly the cloud the player is already casting and
+// neither boon needs retuning when the veil does. Only the RADIUS is the caller's, because each
+// of the three has a different picture to fill (a patch, a crater, a column); omit it for the
+// veil's own reach.
+//
+// A FULL DISC: no `arc`, which is what stepBlooms tests to choose the sector path over the radius
+// one. The wedge belongs to the veil's own cast and to nothing else.
+//
+// The veil's ABSENCE is not an error. `needs` gates the OFFER, and devCards ignores every
+// eligibility rule on purpose — so a card taken off the dev list can arrive without it. Level-1
+// numbers then, rather than no cloud at all, which on screen is indistinguishable from a card
+// that does not work.
+function spawnSiltCloud(run, x, y, maxR) {
+  const w = run.weapons.find((wp) => wp.id === 'siltVeil')
+  const s = w ? effectiveWeaponStats(run, w) : WEAPONS.siltVeil.levels[0]
+  run.blooms.push({
+    x, y, r: 0, maxR: maxR ?? s.maxR, t: 0, dur: s.dur,
+    dmgPerTick: s.dmgPerTick, look: 'silt', slow: 0, daze: s.daze,
+  })
+}
+
+// Returns the SHAFT it fouled (or null), not a boolean: the caller turns that circle into a silt
+// cloud of its own radius, and needs its centre to do it.
 function foulUpwelling(run, x, y) {
   const life = drawdownSecsFor(run)
   for (const sh of run.shafts) {
@@ -9344,9 +9388,9 @@ function foulUpwelling(run, x, y) {
     // The picture, not the mechanic -- the line above is what actually spends it. render.js reads
     // this to draw the silt taking the patch instead of the circle blinking out in one frame.
     sh.fouled = FOUL_SPRING_FOUL_T
-    return true
+    return sh
   }
-  return false
+  return null
 }
 
 function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
@@ -9372,9 +9416,9 @@ function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
       // would make the mod fire only while parked in a patch. Per cone, not per cast -- a fanned
       // volley can foul several patches at once. Short-circuits on foulSpring 0 so an unmodded
       // veil never walks run.shafts at all.
-      const fouled = foulSpring > 0 && foulUpwelling(run,
-        p.x + Math.cos(angle) * stats.maxR * 0.5, p.y + Math.sin(angle) * stats.maxR * 0.5)
-      const mul = fouled ? 1 + foulSpring : 1
+      const patch = foulSpring > 0 ? foulUpwelling(run,
+        p.x + Math.cos(angle) * stats.maxR * 0.5, p.y + Math.sin(angle) * stats.maxR * 0.5) : null
+      const mul = patch ? 1 + foulSpring : 1
       // ONE multiplier across all three of the cone's numbers, which is exactly what the card
       // promises. Splitting it -- size and duration but not damage, as this first shipped -- makes
       // the card and the code two different cards.
@@ -9384,6 +9428,13 @@ function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
         dmgPerTick: stats.dmgPerTick * mul, look: 'silt', slow: 0, daze: stats.daze,
         arc: SILT_VEIL_ARC, angle,
       })
+      // THE PATCH ITSELF TURNS TO SILT (owner, 2026-08-22: "foul spring should be turning the
+      // whole clean water patch to silt cloud instead of consuming it"). The spend above is
+      // unchanged -- the circle is still drawn down and still stops feeding you, which is the
+      // card's cost -- but what it leaves behind is now a cloud the size of the whole patch
+      // instead of nothing. AFTER the cone, deliberately: the cone is what the cast made and
+      // stays blooms[0] for anything reading the volley in order.
+      if (patch) spawnSiltCloud(run, patch.x, patch.y, patch.r)
     }
   })
 }
@@ -10313,7 +10364,12 @@ function eligibleWeaponModCandidates(run) {
       // SPECIALIST (v7.5) is expressed ENTIRELY inside modPickCap: the focused weapon's mods stay
       // eligible SPECIALIST_EXTRA_PICKS past the global ceiling. One function, so the pause sheet
       // and the pool can never disagree about what a weapon's cap is.
-      && (picks?.[modId] ?? 0) < modPickCap(w.id, modId, focus))
+      && (picks?.[modId] ?? 0) < modPickCap(w.id, modId, focus)
+      // A DUO BOON declares the OTHER weapon it is made of (`needs`, see the WEAPON_MODS header
+      // in config.js) and is simply not a candidate until that weapon is held too. The gate is
+      // here and nowhere else on purpose: devCards ignores eligibility by design, so the dev
+      // list still offers it, and the fire sites fall back to the veil's level-1 numbers.
+      && (!modCfgs[modId].needs || run.weapons.some((o) => o.id === modCfgs[modId].needs)))
     shuffleInPlace(owned)
     // SPECIALIST's price: every weapon that is NOT the focus puts one fewer mod in the pool. Only
     // charged when a focus actually exists, and floored at 1 so a weapon is never silenced.

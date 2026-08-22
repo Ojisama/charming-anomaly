@@ -1294,7 +1294,12 @@ const CONFIG = {
   'Quick Stir': 'Brassage Rapide',
   'stir rate': 'cadence de brassage',
   'Foul Spring': 'Source Souillée',
-  'a cloud in clean water has {n} more duration, damage and size, but fouls the patch': 'un nuage dans l\'eau claire gagne {n} de durée, de dégâts et de taille, mais souille la zone',
+  // 2026-08-22: the patch now BECOMES a cloud rather than blinking out, and the line says so in
+  // both halves -- 'change la zone en vase' is the clean water gone AND the silt arriving, which
+  // is what 'souille' only half said. It is also the LONGEST card line in the game in both
+  // languages, which is why it is this short: every word here is one the card cannot lose.
+  // Still no noun for the circles: 'la zone', as before.
+  'a cloud in clean water has {n} more duration, damage and size, and turns the patch to silt': 'un nuage dans l\'eau claire gagne {n} de durée, de dégâts et de taille, et change la zone en vase',
   'Ballast': 'Lest',
   'Drops dumped weight on the crowd. Whatever it does not crush, it pins down.': 'Lance un débris. Ce qu\'il n\'écrase pas, il le cloue sur place.',
   // Lest's four. 'Délestage' is literally jettisoning ballast, so the count mod is named for the
@@ -1308,6 +1313,14 @@ const CONFIG = {
   'extra weight(s) per drop': 'poids supplémentaire(s) par largage',
   'Foul Water': 'Eau Souillée',
   'the drag catches {n} wider than the crush, rising with your Pollution': 'le ralentissement porte {n} plus loin que l\'impact, augmente avec ta Pollution',
+  // The two DUO BOONS (2026-08-22), one on each of the chapter's other weapons, both of which
+  // make Voile de Vase's cloud. Both keep 'vase' -- the Voile de Vase rule, one word for one
+  // thing across the card, the sheet and the mods -- and both name the weapon they sit on the
+  // way the French cards for that weapon already do: 'Panache' is the plume a weight throws up
+  // off the bottom, and 'Chasse de Vase' takes Chasse d'eau's own noun, so the pair reads as
+  // 'the flush, but silt' exactly as the English does.
+  'Silt Plume': 'Panache de Vase',
+  'the impact throws up {n} clouds of silt': 'l\'impact soulève {n} nuages de vase',
   // Le Large's FOURTH native (2026-08-20), and the second of its two clean-water cards. Owner's
   // own line for the desc, as with the three above -- shorter than the English and leading on
   // what the card does rather than on how it arrives. 'Chasse d'eau' is his pick over 'Plongeon'
@@ -1335,6 +1348,8 @@ const CONFIG = {
   'column and burst damage': 'dégâts de la colonne et de l\'explosion',
   'Quick Pour': 'Chasse Rapide',
   'pour rate': 'cadence des colonnes',
+  'Silt Flush': 'Chasse de Vase',
+  'the burst leaves a huge cloud of silt': 'l\'explosion laisse un immense nuage de vase',
   // Le Large's own mutator. 'Eau Croupie' over 'Eau Morte' (owner, 2026-08-20). The desc says
   // 'zones d'eau claire' and never coins a noun for the circles, the same rule Source Souillee's
   // line states: the game has no player-facing word for them in either language.
