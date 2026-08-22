@@ -110,6 +110,8 @@ The existing behaviour is a documented shortcut (sim.js:8001):
 
 > **⚠ It fights separation by construction.** Cohesion pulls in; `stepEnemySeparation` pushes out at 20.8px. Their equilibrium sets the achievable `_shoalN`, so **`BALL_FULL_N` cannot be fitted until this term exists and that equilibrium is measured.**
 
+> **⚠ Build it as O(n), NOT as a neighbour query.** One pass accumulating `(sum_x, sum_y, count)` per shoal id into a reused `Map`, then an O(1) lookup per prey — ~620 iterations plus ~577 lookups per frame, with no pair checks at all. Written as "each fish looks at its neighbours" it becomes the same ~358k-test-per-frame trap Part 3 documents, against a budget sim.js:4470 already rejects in writing. The shoal id makes the cheap version available; use it.
+
 **Gate:** build Part 0 alone and prove `nearN@kill` rises under circling *before pricing anything*. If circling does not raise it, stop — the rest of the design rests on it.
 
 ### Part 1 — What density pays, and why it must not be the refill
@@ -230,7 +232,15 @@ At any instant half the enclosed population is in the second case, and the orbit
 
 **Every measurement runs on both shop axes — `--shop=0` and `--shop=10`.** §1's table is why: the design would otherwise be validated at Lv0 and shipped to the player who reported the bug.
 
-1. **Does circling raise `nearN@kill` at all, once Part 0 exists?** This gates everything. Today circling *lowers* it (3.6 against hunt's 8.4).
+1. **The go/no-go gate — and it must be stated as a WINDOW, not a direction.**
+
+   The naive form ("does circling raise `nearN@kill` once Part 0 exists?") **cannot fail**, because cohesion strength is a knob and you can always crank it until circling wins. A gate that a parameter can buy its way past is not a gate. Sweep `PREY_COHESION_BLEND` and require **one value to satisfy all three at once**:
+
+   - **(i) It works.** Circling raises `nearN@kill` materially over mowing. Today circling *lowers* it (3.6 against hunt's 8.4), so the bar is a real reversal, not a nudge.
+   - **(ii) It doesn't come for free to the mower.** The mow:hunt separation must **widen**. If cohesion densifies the field for everyone, it has recreated F1's regressiveness in a different variable.
+   - **(iii) The school still looks like a school.** An *unthreatened* shoal must not visibly collapse toward its centroid. This is the constraint the knob cannot buy — judged by shooting a frame, per this project's standing rule, not by a number.
+
+   **If the window is empty — no cohesion value satisfies all three — the design fails here and stops.** That is the outcome this gate exists to be able to produce.
 2. **A `herd` vs `mow` policy axis in `charge-probe.mjs`.** `WRECK_MOVES` today is `hunt`/`ignore`; neither herds. ⚠ A scripted herd policy approximates a human — if it is crude, the experiment measures the *policy*, not the design. State the approximation in the output.
 3. **The `_shoalN` histogram**, on both axes, before `BALL_FULL_N` is chosen.
 4. **The drain-slow (A) and Lunge-gated (B) currencies against the same control**, checking the mow:hunt separation **widens** rather than narrows. That is the criterion rev 2 got backwards.
