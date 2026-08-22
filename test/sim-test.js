@@ -122,6 +122,8 @@ import {
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, DROWN_TICK,
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
+  SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
+  SNAP_BACKBLAST_FRAC, FIRE_CORAL_LEAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, BREACH_R_MIN, BREACH_R_AT_FULL, tiredness,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
@@ -149,7 +151,7 @@ import {
   GNASH_MAW_MUL, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   BALLAST_RING,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
 // ---- Scenario runner: a filter, and a --fast mode ---------------------------------------------
 // The suite is 71s, and 397 of its 430 assertion blocks finish in 4.4s TOTAL — the whole cost sits
@@ -1488,7 +1490,10 @@ function testAnomalySlate() {
       // see — CLAUDE.md documents this exact array as the place `run.geysers` was missed. A weapon
       // whose output lands in a field absent from here reports "fixture spawned nothing —
       // untestable", which is this list being out of date and not the weapon being broken.
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines']
+      // 'polyps' is The Reef's Fire Coral (v7.x) — the first weapon in Book 2 to need an array of
+      // its own, and the day it landed this fixture reported 'spawned nothing' for a weapon that
+      // was firing correctly, exactly as the comment above says it would.
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'polyps']
       // Same class of quoted-string list as LISTS above, and it bit for real: `gnash` (The Wreck's
       // native, v7.x) spawns no entity at all — its whole output is this event — so the day it
       // landed this fixture reported "spawned nothing — untestable here" for a weapon that was
@@ -1504,8 +1509,15 @@ function testAnomalySlate() {
       // explicit rather than a heuristic: any future movement-coupled card has to be added here or
       // it will fail this assertion with a message about the wrong thing.
       const NEEDS_MOTION = new Set(['finHit'])
+      // ⚠ AND SOME WEAPONS CANNOT BE MEASURED IN THE DEFAULT CHAPTER AT ALL. Fire Coral arms the
+      // coral RIDGES, so in a chapter with no spur field it correctly does nothing and this
+      // fixture reads 'spawned nothing — untestable' about a weapon that works. Same shape as the
+      // stick above: an explicit per-weapon override, not a heuristic, so the next terrain-coupled
+      // card has to be named here rather than failing with a message about the wrong thing.
+      const CHAPTER_FOR = { fireCoral: 'reef' }
       const spread = (id, weaponId) => {
-        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
+        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 }, CHAPTER_FOR[weaponId] ? { chapter: CHAPTER_FOR[weaponId] } : {})
+        assert.strictEqual(r.chapter, CHAPTER_FOR[weaponId] ?? r.chapter, `the ${weaponId} arm did not boot in ${CHAPTER_FOR[weaponId]} — a WIP gate sent it elsewhere and it would report 'spawned nothing'`)
         r.weapons = [{ id: weaponId, level: 3 }]
         r.time = 5
         const stick = NEEDS_MOTION.has(weaponId) ? { x: 1, y: 0 } : { x: 0, y: 0 }
@@ -1536,7 +1548,11 @@ function testAnomalySlate() {
               // into two.
               const arms = Math.max(1, o.arms ?? 1)
               for (let k = 0; k < arms; k++) {
-                seen.add(`${key}:${Math.round(o.x)},${Math.round(o.y)},${(o.angle ?? 0).toFixed(2)},${Math.round(o.radius ?? o.r ?? 0)},arm${k}`)
+                // `i` is Fire Coral's ridge INDEX, and it is the shape here for the same reason
+                // `angle` is a beam's: a lit ridge has no x/y at all (it is a band across the
+                // lane, addressed by index), so position alone reads three DIFFERENT ridges as
+                // one thing and waves the card through — the exact failure this key exists for.
+                seen.add(`${key}:${Math.round(o.x)},${Math.round(o.y)},${(o.angle ?? 0).toFixed(2)},${Math.round(o.radius ?? o.r ?? 0)},i${o.i ?? ''},arm${k}`)
               }
             }
           }
@@ -6990,12 +7006,13 @@ function runModBudget() {
     console.log(`PASS run MB.a (no inert cards): all ${checked} weapon mods across ${Object.keys(WEAPON_MODS).length} weapons resolve to a fold, a rate division or a fire site`)
   }
 
-  // (a2) The budget itself: the two chapters this pass was about carry at least four apiece, and
-  // The Shelf's two zone weapons are no longer empty. A literal floor, not a moving one — the
-  // pathology being guarded is a weapon shipping with none, which is what happened.
+  // (a2) The budget itself: every Book 2 chapter that has authored its own arsenal carries at
+  // least four mods per weapon, and The Shelf's two zone weapons are no longer empty. A literal
+  // floor, not a moving one — the pathology being guarded is a weapon shipping with none, which is
+  // what happened. The Reef joined the day its natives landed, not the day someone noticed.
   {
     const rows = []
-    for (const ch of ['surf', 'shelf']) {
+    for (const ch of ['surf', 'shelf', 'reef']) {
       for (const wid of CHAPTERS[ch].weapons) {
         const n = Object.keys(WEAPON_MODS[wid] ?? {}).length
         rows.push(`${wid} ${n}`)
@@ -16846,6 +16863,8 @@ run(testLeLargeWeapons)
   run(testLaneGolden)
   run(testLaneAxis)
   run(testReefAirBurst)
+  run(testReefSpurScrape)
+  run(testReefNatives)
   run(testWreckBloodlust)
   run(testTrawlNet)
   run(testTrawlNatives)
@@ -20786,6 +20805,13 @@ function testLaneAxis() {
   // a cross axis wired to the wrong input would still drift the player around convincingly.
   {
     const run = reefRun()
+    // IN OPEN WATER, DELIBERATELY. The coral grates now (SPUR_SLOW_MUL, run RS), so a strafe
+    // measured inside a ridge is x0.6 of this one — which is run RS.d's claim, not this one.
+    // The claim HERE is about the AXIS, so the fixture starts mid-gap between two ridges, far
+    // enough back that a second of scroll cannot carry it into the next one (105px of clearance
+    // against 45px of scroll and a half-thickness of 45).
+    const sp = CHAPTERS.reef.spurs
+    run.player.x = Math.round(run.player.x / sp.spacing) * sp.spacing + sp.spacing / 2
     const y0 = run.player.y
     const steps = Math.round(1 / dt)
     for (let i = 0; i < steps; i++) { stepSim(run, { x: 0, y: 1 }, dt); run.events.length = 0 }
@@ -20891,6 +20917,373 @@ function testLaneAxis() {
 //     floor — a byte-identical claim is worth nothing unasserted;
 //   - the Lunge sets its timer and nothing reads it, so the button is the Pulse with extra steps
 //     (the same failure run RF.d exists to catch one chapter earlier).
+// ---- run RS: The Reef's coral grate (spec 2026-08-20 §3) ---------------------------------------
+// EVERY CASE HERE IS AN EFFECT — HP actually lost, px actually travelled — because the failure this
+// was written after is invisible from every field: run.spurs streamed, drew, braided and had NO sim
+// consumer at all, while three comments in three files said stepSpurs charged SPUR_DPS. The
+// chapter's flagship mechanic was decoration; nothing threw, nothing drew wrong, nothing went red.
+//
+// The three silent failures it guards now:
+//   - the ridges cost nothing, so weaving between the channels is a choice with no stakes;
+//   - the scrape leaks into the forward scroll, which is the one thing a lane promises never moves;
+//   - SPUR_SLOW_MUL sits in config and no MIN reads it, so coral takes HP but never your steering.
+function testReefSpurScrape() {
+  const dt = 1 / 60
+  const LAX = laneAxes(CHAPTERS.reef)
+  const spec = CHAPTERS.reef.spurs
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+
+  // (a) ONE CHAPTER DECLARES CORAL, and the sweep's denominator is every chapter that exists —
+  // CHAPTER_ORDER is Book 1 only and ALL_CHAPTER_IDS still drops the hidden ones.
+  const all = Object.keys(CHAPTERS)
+  const withSpurs = all.filter((id) => CHAPTERS[id].spurs)
+  assert.deepStrictEqual(withSpurs, ['reef'],
+    `run RS.a: expected exactly one chapter of ${all.length} to declare a spur field, found [${withSpurs.join(', ')}]`)
+
+  const reefRun = (seed = 20260822) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'reef', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'reef', 'run RS did not start in the reef — the WIP gate or the meta is wrong, and every number below would be another chapter')
+    run.player.hp = run.player.maxHP = 100000
+    run.mods.spawnMul = 0
+    return run
+  }
+  // THE WALL IS ALWAYS CORAL, and that is what makes the fixture below a fixture rather than a
+  // coin flip: the braid's FAR EDGE is braidSep/2 + grooveMax/2, and the lane wall is beyond it, so
+  // a player pressed against the wall meets solid ridge at every single spur. Derived from the
+  // config rather than typed, so widening the braid past the wall fails here instead of silently
+  // turning the coral case into a groove case.
+  const hw = laneHalfWidth(reefRun().viewRadius)
+  const farEdge = spec.braidSep / 2 + spec.grooveMax / 2
+  assert.ok(farEdge < hw,
+    `run RS: the braid's far edge (${farEdge}) has reached the lane wall (${hw}) — riding the wall is no longer guaranteed coral and every case below would measure the wrong thing`)
+
+  // A run driven for `secs`, with the world emptied every frame: a crowd contributes contact damage
+  // and knockback to exactly the quantities being read, and the Air bar is held full so that the
+  // chapter's OTHER DoT cannot be mistaken for this one.
+  //   'coral'  ride the wall — solid ridge at every spur, played with the stick, no teleporting
+  //   'groove' pinned to the nearest ridge's own channel each frame
+  //   'osc'    alternating between the two every frame: the edge-clipping exploit, as a fixture
+  const drive = (mode, secs) => {
+    const run = reefRun()
+    const f0 = run.player[LAX.fwd]
+    let scraped = 0
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      if (mode !== 'coral') {
+        let best = null, bd = Infinity
+        for (const sp of run.spurs) {
+          const d = Math.abs(sp.f - run.player[LAX.fwd])
+          if (d < bd) { bd = d; best = sp }
+        }
+        if (best) run.player[LAX.cross] = mode === 'osc' && i % 2 === 0 ? hw : best.grooves[0].c
+      }
+      const stick = mode === 'coral' ? 1 : 0
+      stepSim(run, LAX.cross === 'y' ? { x: 0, y: stick } : { x: stick, y: 0 }, dt)
+      run.enemies.length = 0
+      run.rocks.length = 0
+      run.events.length = 0
+      run.charge = run.chargeMax   // the reef runs two DoTs at once; this fixture measures one
+      if (run._scraping) scraped++
+    }
+    return { hp: run.player.maxHP - run.player.hp, fwd: run.player[LAX.fwd] - f0, by: { ...(run.dmgBySrc ?? {}) }, scraped }
+  }
+
+  // (b) CORAL GRATES, A CHANNEL DOES NOT, AND NEITHER TOUCHES THE SCROLL.
+  const secs = 12
+  const coral = drive('coral', secs)
+  const groove = drive('groove', secs)
+  assert.ok(coral.scraped > 60,
+    `run RS.b: the wall-riding fixture spent only ${coral.scraped} frames in coral over ${secs}s — it is measuring open water, and every assertion below would pass vacuously`)
+  assert.ok(coral.hp > 0,
+    `run RS.b: a player who spent ${(coral.scraped * dt).toFixed(1)}s inside the coral lost NO hp — the ridges are decoration and the chapter's level design costs nothing`)
+  assert.deepStrictEqual(Object.keys(coral.by), ['scrape'],
+    `run RS.b: the coral fixture took damage from [${Object.keys(coral.by).join(', ')}] — anything but 'scrape' alone means the world is not empty and the number is not the scrape's`)
+  assert.strictEqual(groove.hp, 0,
+    `run RS.b: a player who held a channel the whole way still lost ${groove.hp} hp — the grooves are not a way through, so there is no choice to make`)
+  assert.strictEqual(coral.fwd, groove.fwd,
+    `run RS.b: coral advanced ${coral.fwd.toFixed(3)}px and the channel ${groove.fwd.toFixed(3)}px — the scrape has reached the forward scroll, which is the one thing the lane promises`)
+  assert.ok(Math.abs(coral.fwd - laneScrollFor(CHAPTERS.reef) * secs) < 1e-6,
+    `run RS.b: the lane carried the player ${coral.fwd.toFixed(3)}px in ${secs}s against its own laneScroll ${laneScrollFor(CHAPTERS.reef)} — both runs agree with each other and neither with the chapter`)
+
+  // (c) THE RATE IS THE STATED ONE AT WORST, however you enter and leave. The carried accumulator
+  // exists for this: zeroed on exit, clipping a groove edge is free; ticked from zero on entry, a
+  // player oscillating on an edge pays a full tick per crossing — 5/s against a stated 4 dps. Both
+  // mutations are visible here, in opposite directions, which is why the band has two sides.
+  const osc = drive('osc', secs)
+  const ceiling = SPUR_DPS * dmgScale(secs) * secs + SPUR_DPS * SPUR_TICK
+  assert.ok(osc.hp > 0,
+    'run RS.c: a player clipping the coral every other frame paid NOTHING — the accumulator is being zeroed on exit, so hugging a channel edge is free')
+  assert.ok(osc.hp <= ceiling,
+    `run RS.c: oscillating on the edge cost ${osc.hp} hp in ${secs}s, past the ${ceiling.toFixed(1)} that ${SPUR_DPS} dps can charge in that time — the tick is firing per crossing instead of per SPUR_TICK`)
+  assert.ok(coral.hp <= ceiling,
+    `run RS.c: committing to the coral cost ${coral.hp} hp in ${secs}s, past the ${ceiling.toFixed(1)} ceiling — same defect, seen from the other fixture`)
+
+  // (d) IT TAKES YOUR STEERING AND NOT YOUR SCROLL. Measured in The Beyond, which has no coral at
+  // all: the slow MIN is chapter-agnostic, so this isolates SPUR_SLOW_MUL as the only difference
+  // between two otherwise identical lane runs. In the reef the geometry moves both sides at once.
+  {
+    const BAX = laneAxes(CHAPTERS.beyond)
+    const laneRun = (scraping) => {
+      Math.random = mulberry32(20260822)
+      const run = createRun(meta, { chapter: 'beyond', difficulty: 1 })
+      run.player.hp = run.player.maxHP = 100000
+      run.mods.spawnMul = 0
+      const c0 = run.player[BAX.cross], f0 = run.player[BAX.fwd]
+      for (let i = 0; i < Math.round(0.4 / dt); i++) {
+        run._scraping = scraping
+        stepSim(run, BAX.cross === 'y' ? { x: 0, y: 1 } : { x: 1, y: 0 }, dt)
+        run.enemies.length = 0
+        run.rocks.length = 0
+        run.events.length = 0
+      }
+      return { cross: Math.abs(run.player[BAX.cross] - c0), fwd: Math.abs(run.player[BAX.fwd] - f0), scrape: (run.dmgBySrc ?? {}).scrape }
+    }
+    const free = laneRun(false)
+    const held = laneRun(true)
+    assert.ok(free.cross > 50, `run RS.d: the control run strafed only ${free.cross.toFixed(1)}px — the fixture is not moving and the ratio below would be noise`)
+    assert.ok(Math.abs(held.cross / free.cross - SPUR_SLOW_MUL) < 0.02,
+      `run RS.d: scraping strafed x${(held.cross / free.cross).toFixed(3)} of a free strafe, not x${SPUR_SLOW_MUL} — SPUR_SLOW_MUL never reaches the slow MIN, so coral takes hp and never your steering`)
+    assert.strictEqual(held.fwd, free.fwd,
+      `run RS.d: scraping advanced ${held.fwd.toFixed(3)}px against ${free.fwd.toFixed(3)}px free — the strafe slow has leaked into the scroll`)
+    // ...and the no-op, as an effect: a chapter with no spur field takes no scrape damage at all.
+    assert.strictEqual(held.scrape, undefined,
+      'run RS.d: a chapter that declares no spur field still tallied scrape damage — stepSpurs is not gated on the descriptor')
+  }
+
+  console.log(`PASS run RS (the coral grate): 1 of ${all.length} chapters declares spurs; riding the wall for ${secs}s cost ${coral.hp} hp of pure 'scrape' over ${(coral.scraped * dt).toFixed(1)}s in the coral, holding a channel cost 0, clipping the edge every frame cost ${osc.hp} against a ${SPUR_DPS} dps ceiling, all three advanced exactly ${coral.fwd}px, and the scrape strafes at x${SPUR_SLOW_MUL} while the scroll never moves`)
+}
+
+// ---- run RN: The Reef's first two natives (v7.x) -----------------------------------------------
+// EVERY CASE IS AN EFFECT — hp actually lost by a named body — because both of these cards fail in
+// the one way a state assertion cannot see. The Pistol Shrimp's whole design is a NEGATIVE (it has
+// no targeting), and an entry in run.beams looks identical whether its angle came from the lane or
+// from the nearest straggler; Fire Coral's band is derived from a field that is wiped and rebuilt
+// every 4.7s, so a snapshot that quietly went stale still has a length, a thickness and grooves.
+//
+// The five silent failures it guards:
+//   - the snap starts aiming (at nearestEnemy, or at facing) and the chapter's thesis card becomes
+//     'an aimed cone', which is exactly what the borrowed stinger it replaced already was;
+//   - the crack ticks twice per cast, doubling the starter's dps with nothing on screen changing;
+//   - Backblast is unwired, or wired at full strength, and the switch is either inert or a double;
+//   - a lit ridge burns the CHANNEL as well as the coral, which deletes the choice the whole
+//     chapter is built on (and Overgrowth, the card sold for exactly that, becomes a no-op);
+//   - a multi-ridge cast lights ONE ridge three times, the pickBloomSpot pathology, which renders
+//     identically to no change at all.
+function testReefNatives() {
+  const dt = 1 / 60
+  const AX = laneAxes(CHAPTERS.reef)
+  const spec = CHAPTERS.reef.spurs
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+
+  // (a) THE POOL IS THE ONE THE CHAPTER DECLARES, and the two natives are natives — a card that
+  // leaked into another chapter's pool would take every branch below into a chapter with no lane
+  // and no ridges, where both weapons are something else entirely.
+  assert.deepStrictEqual(CHAPTERS.reef.weapons, ['pistolShrimp', 'fireCoral', 'quillBurst', 'pulsarSweep'],
+    `run RN.a: The Reef's pool is [${CHAPTERS.reef.weapons.join(', ')}]`)
+  assert.strictEqual(CHAPTERS.reef.starter, 'pistolShrimp',
+    `run RN.a: the starter is '${CHAPTERS.reef.starter}', not the chapter's own thesis card`)
+  const elsewhere = Object.entries(CHAPTERS)
+    .filter(([id, ch]) => id !== 'reef' && id !== 'blank' && (ch.weapons ?? []).some((w) => w === 'pistolShrimp' || w === 'fireCoral'))
+    .map(([id]) => id)
+  assert.deepStrictEqual(elsewhere, [],
+    `run RN.a: a Reef native is in [${elsewhere.join(', ')}]'s pool — neither has a lane or a ridge to anchor to there`)
+
+  // A run with the world switched off: no spawner, an immortal player, and the enemy list rebuilt
+  // from `mine` every frame so the ONLY bodies in it are the ones each case planted. `_off` pins a
+  // body to the PLAYER (the lane carries them both), `_at` pins it to a world point (a ridge does
+  // not move). Air is held full so drowning cannot be mistaken for anything below.
+  const reefRun = (wid, level, mods, seed = 20260822) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'reef', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'reef', 'run RN did not start in the reef — the WIP gate or the meta is wrong, and every number below is another chapter')
+    run.weapons = [{ id: wid, level }]
+    run.player.hp = run.player.maxHP = 1e9
+    run.mods.spawnMul = 0
+    // NO CRITS. dealDamage rounds every hit, so (b)/(d) compare small integers; one 2x roll on six
+    // hits moves the Backblast ratio further than the whole band it is measured against.
+    run.player.critChance = 0
+    if (mods) Object.assign(run.weaponMods[wid], mods)
+    return run
+  }
+  const plant = (run, opts) => {
+    const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e7, speed: 0 })
+    Object.assign(e, opts)
+    return e
+  }
+  // Cases (b) and (d) hold the CROSS stick down for their whole window, so the player is really
+  // swimming the lane while the crack is asked to hold its bearing — and the bodies are pinned
+  // RELATIVE to the player, so the geometry under test does not move with them.
+  //   ⚠ It cannot separate the lane heading from p.facingAngle, and nothing can: stepPlayerMovement
+  //   PINS facingAngle to laneAxes().angle in every lane chapter (see the `if (ax)` line there), so
+  //   the two are equal by construction here and a mutation swapping one for the other is an
+  //   equivalent, not a defect. fireSnap reads the axis descriptor anyway, deliberately — that
+  //   pinning is another module's decision and this weapon must not silently depend on it.
+  const CROSS = AX.cross === 'y' ? { x: 0, y: 1 } : { x: 1, y: 0 }
+  const drive = (run, mine, secs, tally, stick = { x: 0, y: 0 }) => {
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      run.enemies.length = 0
+      for (const e of mine) {
+        if (e._off) { e.x = run.player.x + e._off[0]; e.y = run.player.y + e._off[1] }
+        else { e.x = e._at[0]; e.y = e._at[1] }
+        run.enemies.push(e)
+      }
+      stepSim(run, stick, dt)
+      if (tally) tally(run)
+      run.events.length = 0
+    }
+  }
+  const lost = (e) => e.maxHP - e.hp
+
+  // (b) IT AIMS NOWHERE. The far body sits dead on the lane heading at 300px; the near one is 5x
+  // CLOSER but 220px off the line, i.e. it is what nearestEnemy returns and what aimAngle would
+  // point at. Only the far one may be struck. This is the whole card: swap laneAxes().angle for
+  // aimAngle and the two numbers below trade places.
+  {
+    const run = reefRun('pistolShrimp', 5)
+    const cross0 = run.player[AX.cross]
+    const far = plant(run, { _off: [300, 0] })
+    const near = plant(run, { _off: [60, -220] })
+    let snaps = 0, hits = 0
+    drive(run, [far, near], 4, (r) => {
+      for (const ev of r.events) { if (ev.type === 'snap') snaps++; else if (ev.type === 'hit') hits++ }
+    }, CROSS)
+    assert.ok(Math.abs(run.player[AX.cross] - cross0) > 100,
+      `run RN.b: the fixture strafed ${Math.abs(run.player[AX.cross] - cross0).toFixed(0)}px — it is standing still, so the crack was never asked to hold its bearing while the player moved`)
+    assert.ok(snaps >= 4, `run RN.b: only ${snaps} snaps in 4s at L5 (interval ${WEAPONS.pistolShrimp.levels[4].interval}) — the weapon is barely firing and every count below is noise`)
+    assert.ok(lost(far) > 0,
+      'run RN.b: the body dead ahead on the lane heading took NOTHING — the snap is not anchored to laneAxes().angle, and position has stopped being aim')
+    assert.strictEqual(lost(near), 0,
+      `run RN.b: the NEARER body 220px off the line took ${lost(near)} — the weapon has started aiming (nearestEnemy/aimAngle), which is the one thing this card must never do`)
+
+    // (c) ONE TICK PER SNAP. snapT/tick is deliberately under 2, so a body held on the line is
+    // struck exactly once however long it stands there. `snaps - 1` is allowed for the single beam
+    // that may still be in flight when the window closes — a second tick would read ~2x, not 1.
+    assert.ok(hits === snaps || hits === snaps - 1,
+      `run RN.c: ${snaps} snaps landed ${hits} hits on one body — the crack is ticking more than once per cast (snapT/tick has crossed 2), which doubles the starter's damage with nothing on screen changing`)
+    assert.ok(Math.abs(lost(far) / hits - WEAPONS.pistolShrimp.levels[4].dmg) < 0.51,
+      `run RN.c: ${hits} hits for ${lost(far)} hp is ${(lost(far) / hits).toFixed(1)} a hit against a stated ${WEAPONS.pistolShrimp.levels[4].dmg}`)
+  }
+
+  // (d) BACKBLAST, AND AT THE STATED FRACTION. Two identical fixtures on one seed, one switch apart.
+  {
+    const measure = (mods) => {
+      const run = reefRun('pistolShrimp', 5, mods)
+      const ahead = plant(run, { _off: [300, 0] })
+      const behind = plant(run, { _off: [-300, 0] })
+      drive(run, [ahead, behind], 4, null, CROSS)
+      return { ahead: lost(ahead), behind: lost(behind) }
+    }
+    const off = measure(null)
+    const on = measure({ backblast: 1 })
+    assert.strictEqual(off.behind, 0,
+      `run RN.d: a body 300px BEHIND took ${off.behind} without Backblast — the snap is not a single forward line`)
+    assert.ok(on.behind > 0,
+      'run RN.d: Backblast is held and nothing behind the player was struck — the switch is an inert card')
+    assert.strictEqual(on.ahead, off.ahead,
+      `run RN.d: taking Backblast changed the FORWARD damage (${off.ahead} -> ${on.ahead}) — the rear crack is stealing from the front one`)
+    assert.ok(Math.abs(on.behind / on.ahead - SNAP_BACKBLAST_FRAC) < 0.02,
+      `run RN.d: the rear crack lands at x${(on.behind / on.ahead).toFixed(3)} of the forward one, not x${SNAP_BACKBLAST_FRAC} — a full-strength rear line is a straight doubling of the starter for one switch pick`)
+  }
+
+  // (e) FIRE CORAL LIGHTS RIDGES AHEAD, DISTINCT, AND THE BAND IS THE REAL ONE. More Reef x2 takes
+  // the cast to three ridges; they must be three DIFFERENT ridges (the count-mod pathology is a
+  // chooser that lands three things on one spot, which renders identically to no change at all)
+  // and every one of them must still agree with spurAt — the snapshot is the only thing standing
+  // between this weapon and a band that has drifted off the coral it is drawn on.
+  {
+    const run = reefRun('fireCoral', 5, { moreRidges: 2 })
+    drive(run, [], 5)
+    const lit = run.polyps
+    assert.strictEqual(lit.length, 3,
+      `run RN.e: a cast with More Reef x2 lit ${lit.length} ridges, not 3 — the count is read in one place and the loop bound in another`)
+    const idx = lit.map((pl) => pl.i)
+    assert.strictEqual(new Set(idx).size, 3,
+      `run RN.e: the cast lit ridges [${idx.join(', ')}] — the extras landed on a ridge already lit, which is three bands stacked on one spot and looks exactly like no mod at all`)
+    for (const pl of lit) {
+      const truth = spurAt(pl.i, spec, run._obstacleSeed)
+      assert.deepStrictEqual({ f: pl.f, thick: pl.thick, grooves: pl.grooves }, { f: truth.f, thick: truth.thick, grooves: truth.grooves },
+        `run RN.e: lit ridge ${pl.i} no longer matches spurAt — the burning band and the drawn ridge have drifted apart`)
+      assert.ok((pl.f - run.player[AX.fwd]) * AX.dir > 0,
+        `run RN.e: ridge ${pl.i} is at ${pl.f} with the player at ${run.player[AX.fwd].toFixed(0)} — it lit BEHIND them, which is a band everything it was meant to catch has already crossed (FIRE_CORAL_LEAD is ${FIRE_CORAL_LEAD})`)
+    }
+  }
+
+  // (f) THE CORAL BURNS AND THE GAPS DO NOT — which is the whole card, and the only reason the
+  // chapter's own choice of channel survives it. Two immortal bodies pinned on the SAME lit ridge,
+  // one against the lane wall (always coral — run RS proves the braid never reaches it) and one in
+  // the middle of a channel the ridge actually cuts.
+  {
+    const burn = (mods) => {
+      const run = reefRun('fireCoral', 5, mods)
+      drive(run, [], 4)
+      assert.strictEqual(run.polyps.length, 1, `run RN.f: expected exactly one lit ridge after 4s, found ${run.polyps.length}`)
+      const pl = run.polyps[0]
+      const wall = laneHalfWidth(run.viewRadius) - 10
+      const at = (c) => (AX.fwd === 'x' ? [pl.f, c] : [c, pl.f])
+      const coral = plant(run, { _at: at(wall) })
+      const gap = plant(run, { _at: at(pl.grooves[0].c) })
+      drive(run, [coral, gap], 2)
+      return { coral: lost(coral), gap: lost(gap), hw: pl.grooves[0].hw }
+    }
+    const plain = burn(null)
+    assert.ok(plain.coral > 0,
+      'run RN.f: a body standing in the coral of a LIT ridge lost no hp — Fire Coral is decoration, exactly as the ridges themselves were before run RS')
+    assert.strictEqual(plain.gap, 0,
+      `run RN.f: a body in the middle of a ${(plain.hw * 2).toFixed(0)}px channel lost ${plain.gap} hp — the burn ignores the grooves, so the choice this whole chapter is built on has been deleted`)
+    const spilled = burn({ overgrowth: 1 })
+    assert.ok(spilled.gap > 0,
+      'run RN.f: Overgrowth is held and the channel is still cold — the switch is an inert card')
+    assert.ok(spilled.coral > 0, 'run RN.f: Overgrowth put the coral out')
+  }
+
+  // (g) IT NEVER TOUCHES THE PLAYER, and it is measured as attribution rather than as hp: the reef
+  // runs two DoTs of its own, so a raw health read cannot tell 'the card is safe' from 'the card is
+  // safe and the coral grated me'. Nothing but the chapter's own hazards may appear.
+  {
+    const run = reefRun('fireCoral', 5, { moreRidges: 2, overgrowth: 1 })
+    run.player.hp = run.player.maxHP = 100000
+    drive(run, [], 10)
+    const srcs = Object.keys(run.dmgBySrc ?? {}).sort()
+    assert.deepStrictEqual(srcs.filter((k) => k !== 'scrape' && k !== 'drown'), [],
+      `run RN.g: the player was damaged by [${srcs.join(', ')}] in a run holding nothing but Fire Coral — a weapon has reached its owner`)
+  }
+
+  // (h) OFF THE REEF, BOTH DEGRADE THE WAY THEIR OWN COMMENTS SAY. devCards ignores every
+  // eligibility rule and The Blank's pool is a union, so 'this card can only be held here' is not a
+  // thing the code may assume. Fire Coral finds no ridges and quietly does nothing; the snap keeps
+  // firing, aimlessly, off the direction the player last MOVED.
+  {
+    Math.random = mulberry32(20260822)
+    const run = createRun(meta, { chapter: 'shelf', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'shelf', 'run RN.h: the control chapter is not The Shelf')
+    assert.ok(!CHAPTERS.shelf.spurs && CHAPTERS.shelf.lane !== true, 'run RN.h: the control chapter must have neither ridges nor a lane')
+    run.weapons = [{ id: 'fireCoral', level: 5 }, { id: 'pistolShrimp', level: 5 }]
+    run.player.hp = run.player.maxHP = 1e9
+    run.mods.spawnMul = 0
+    // Drive EAST for a second so p.facingAngle is 0, then plant a body due east and hold still.
+    for (let i = 0; i < Math.round(1 / dt); i++) { run.enemies.length = 0; stepSim(run, { x: 1, y: 0 }, dt); run.events.length = 0 }
+    const east = plant(run, { _off: [300, 0] })
+    drive(run, [east], 4)
+    assert.strictEqual(run.polyps.length, 0,
+      `run RN.h: ${run.polyps.length} ridge(s) lit in a chapter with no spur field — stepFireCoralWeapon is not gated on the descriptor`)
+    assert.ok(lost(east) > 0,
+      'run RN.h: the Pistol Shrimp fired nothing outside a lane chapter — the fallback heading is missing and the card is dead everywhere but one chapter')
+  }
+
+  console.log(`PASS run RN (The Reef's first two natives): the snap strikes the body 300px dead ahead and never the NEARER one 220px off the line, exactly once per cast, and Backblast adds a rear crack at x${SNAP_BACKBLAST_FRAC} without touching the forward one; Fire Coral lights 3 DISTINCT ridges ${FIRE_CORAL_LEAD} past the nearest, every one still agreeing with spurAt, burning the coral and never the channel until Overgrowth is taken, reaching the player never, and lighting nothing at all in a chapter with no ridges`)
+}
 function testWreckBloodlust() {
   const dt = 1 / 60
   const res = CHAPTERS.wreck.resource
@@ -21330,15 +21723,24 @@ function testReefAirBurst() {
   // draws the vignette off it and main.js silences the sound off it.
   {
     const run = reefRun()
+    // MEASURED OFF THE ATTRIBUTION, NOT THE HEALTH BAR. The Reef runs TWO DoTs at once — the bar
+    // and the coral (run RS) — and a player holding station on the stick is still carried through
+    // a ridge every SPUR_SPACING px, so the bar is not the only thing hitting them. dmgBySrc is
+    // the split the sim already keeps, and `other` fails the case if anything but the chapter's
+    // own two hazards lands, which is what the raw HP read used to be standing in for.
+    const drowned = () => (run.dmgBySrc ?? {}).drown ?? 0
     const burn = (secs) => {
-      const hp0 = run.player.hp
-      let events = 0, dots = 0, srcs = 0
+      const d0 = drowned()
+      let events = 0, dots = 0
+      const other = new Set()
       for (let i = 0; i < Math.round(secs / dt); i++) {
         stepSim(run, { x: 0, y: 0 }, dt)
-        for (const e of run.events) if (e.type === 'hurt') { events++; if (e.dot) dots++; if (e.src === 'drown') srcs++ }
+        for (const e of run.events) if (e.type === 'hurt') {
+          if (e.src === 'drown') { events++; if (e.dot) dots++ } else other.add(e.src ?? 'unlabelled')
+        }
         quiet(run)
       }
-      return { lost: hp0 - run.player.hp, events, dots, srcs }
+      return { lost: drowned() - d0, events, dots, other: [...other].sort() }
     }
     run.charge = 0
     const w1 = burn(4)
@@ -21349,7 +21751,10 @@ function testReefAirBurst() {
       `drowning stopped after the first window (${w2.lost} HP over the second 4s) — it is a one-shot, not damage over time`)
     assert.strictEqual(w1.events, w1.dots,
       `${w1.events - w1.dots} drowning hits arrived without dot:true — render.js's hurt case and main.js's audio gate both read that flag, so they would fire as if you had been struck`)
-    assert.strictEqual(w1.events, w1.srcs, 'every drowning hit must name itself in e.src')
+    assert.ok(w1.events > 0,
+      'not one hurt event over 4s of an empty bar named itself as drown in e.src — the summary screen would credit the wrong hazard, and every count in this case would be vacuous')
+    assert.deepStrictEqual(w1.other.filter((src) => src !== 'scrape'), [],
+      `something other than the two hazards this chapter owns hit the player: [${w1.other.join(', ')}] — the world is not empty and these numbers are not the bar's`)
     // Breathe. Parked in a pocket, the bar climbs off zero and the damage must stop with it — the
     // half that makes this a state you can leave rather than a timer that has expired.
     run._shaftCellI = null; run._shaftCellJ = null
@@ -21359,9 +21764,9 @@ function testReefAirBurst() {
     run.player.x = sh.x; run.player.y = sh.y
     for (let i = 0; i < Math.round(1 / dt); i++) { stepSim(run, { x: 0, y: 0 }, dt); run.player.x = sh.x; run.player.y = sh.y; quiet(run) }
     assert.ok(run.charge > 0, `standing in a pocket for a second left the bar on ${run.charge.toFixed(1)} — nothing refilled`)
-    const hp0 = run.player.hp
+    const d0 = drowned()
     for (let i = 0; i < Math.round(3 / dt); i++) { stepSim(run, { x: 0, y: 0 }, dt); run.player.x = sh.x; run.player.y = sh.y; quiet(run) }
-    assert.strictEqual(run.player.hp, hp0,
+    assert.strictEqual(drowned(), d0,
       `still drowning with ${run.charge.toFixed(1)} Air in the bar — the damage is on a clock rather than on the bar`)
     // And nowhere else. The Shelf's bar goes to zero routinely and must never cost HP for it.
     Math.random = mulberry32(20260814)

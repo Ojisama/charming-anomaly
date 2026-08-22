@@ -156,6 +156,8 @@ import {
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
+  SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
+  FIRE_CORAL_LEAD, SNAP_BACKBLAST_FRAC,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
   GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC, RUSH_DUR, RUSH_MAX_STACKS,
   CHUM_PULL_MUL, CHUM_PANIC_R,
@@ -295,6 +297,7 @@ export function stepSim(run, input, dt) {
   if (stepContactDamage(run)) return // phase is now 'dead'
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
   if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
+  if (stepSpurs(run, dt)) return // phase is now 'dead' (The Reef: scraping through coral, v7.x)
   if (stepDrown(run, dt)) return // phase is now 'dead' (The Reef: an empty Air bar, v7.x)
   if (stepStarve(run, dt)) return // phase is now 'dead' (The Wreck: an empty Bloodlust bar, v7.x)
   if (stepSlick(run, dt)) return // phase is now 'dead' (The Wreck: standing in the leak, v7.x)
@@ -668,7 +671,14 @@ function stepPlayerMovement(run, input, dt) {
   // reason they give: multiplying would make every latch and web in this chapter strictly nastier
   // than the identical one anywhere else.
   const foulMul = (run._foulT ?? 0) > 0 ? SLICK_SLOW_MUL : 1
-  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul)
+  // SCRAPING (v7.x, The Reef): coral takes your STEERING and never the scroll. In the lane branch
+  // below `speed` reaches the cross axis only — the forward component is laneScrollFor — so slowing
+  // it here is the whole of that promise. Published by stepSpurs, which runs later in the step, so
+  // it is one frame old in exactly the way run._bindSlow is. Same MIN composition as its five
+  // neighbours and for the same reason; it sits ABOVE LATCH_SLOW_MUL on purpose, so a latched moray
+  // in coral is still the worst case in the chapter rather than the coral swallowing the moray.
+  const scrapeMul = run._scraping ? SPUR_SLOW_MUL : 1
+  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul, scrapeMul)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
   // SCENT (v7.x, The Deep): "or move faster towards your prey" — the owner's own framing for the
   // button. MULTIPLIED, not MIN-composed with the three slows above, and the asymmetry is right:
@@ -1351,7 +1361,13 @@ function stepRepulse(run, input, dt) {
   // on the same frame and play the shove's sample twice, which is the exact complaint run SK.e pins
   // for The Surf. The murk visibly opening is the tell, and it is a bigger one than any ring.
   if (ch.clear) run._clearT = CLEAR_DUR_MIN + (CLEAR_DUR_AT_FULL - CLEAR_DUR_MIN) * t
-  if (ch.burst) run._burstT = BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t
+  // UNLIKE CLEAR, THE BURST NEEDS ITS OWN EVENT: Clear's tell is the murk visibly opening, but a
+  // dash through open water has no other visible sign the shove's own ring didn't already cover —
+  // `_burstT` had zero render.js consumer before this line (grep `_burstT` src/render.js was empty).
+  if (ch.burst) {
+    run._burstT = BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t
+    run.events.push({ type: 'burst', x: p.x, y: p.y })
+  }
   // THE LUNGE (v7.x, The Wreck — CHAPTERS[].lunge). Same press, same cooldown, same `t`, and the
   // shove above still fires — this is additive like the burst, not a replacement like the shorebreak.
   //
@@ -3779,6 +3795,63 @@ export function streamSpurs(run) {
   for (let i = i0 - span; i <= i0 + span; i++) run.spurs.push(spurAt(i, spec, run._obstacleSeed))
   run._spurRev = (run._spurRev || 0) + 1  // render rebuilds only on this, exactly as _obstacleRev
 }
+
+// ONE definition of 'this cross position is coral and not a channel', read by the grate (the
+// player) and by Fire Coral (the crowd, stepPolyps). It takes the spurAt entry the caller already
+// has and only the CROSS coordinate — the forward band test stays with each caller, because they
+// bound it differently (the player against the streamed window, a lit ridge against its own
+// stored f). Splitting the groove test out is what stops the burn band and the scrape band from
+// drifting apart, which is the one-fact-in-two-places class CLAUDE.md names as the largest
+// defect source in this repo.
+const onCoral = (sp, c) => !sp.grooves.some((g) => Math.abs(c - g.c) <= g.hw)
+
+// THE GRATE. What makes a ridge a decision instead of scenery: you are either in a groove, or in
+// coral where it costs HP and your steering while the crowd is still on you. Never a wall — the
+// scroll is untouched, so the lane keeps its one promise and there is nowhere the reef is shut.
+//
+// TESTED AGAINST THE GROOVES spurAt ALREADY RETURNED, which is the same object render.js draws the
+// channel from — one definition, two consumers, and the only reason the gap you can see is the gap
+// you can swim through.
+//
+// A POINT TEST, like every other DoT in this file (the pools, the slicks, inLobe). The spec prices
+// a 90px ridge at the 2.0s a 45px/s scroll takes to carry a point through it; adding the body
+// radius would make it 3.0s and every number in §7's table wrong by half.
+//
+// ⚠ THE ACCUMULATOR IS CARRIED, and that is an exploit fix rather than a detail. Zeroing it on exit
+// (stepDrown/stepSlick do, correctly, for a bar you are simply in or out of) makes clipping a groove
+// edge for under half a second free. Ticking on ENTRY from zero is worse the other way: it charges
+// a full tick per crossing with no cooldown, so a player oscillating on an edge — or shoved across
+// one — pays 5 ticks/s against a stated 4 dps. Carried, and capped at one tick while you are OUT,
+// the entry tick is exact arithmetic with neither hole: an oscillator can never pay more per second
+// than a player who committed.
+//
+// @returns true if the player died.
+function stepSpurs(run, dt) {
+  const spec = CHAPTERS[run.chapter].spurs
+  if (!spec) return false
+  const ax = laneAxes(CHAPTERS[run.chapter])
+  const p = run.player
+  const f = p[ax.fwd], c = p[ax.cross]
+  let inside = false
+  for (const sp of run.spurs) {
+    if (Math.abs(f - sp.f) > sp.thick / 2) continue
+    // Ridges are spaced further apart than they are thick, so at most one band can hold the player.
+    inside = onCoral(sp, c)
+    break
+  }
+  run._scraping = inside   // the strafe slow, read by stepPlayerMovement (see SPUR_SLOW_MUL)
+  run._spurAcc = (run._spurAcc ?? SPUR_TICK) + dt
+  if (!inside) { run._spurAcc = Math.min(run._spurAcc, SPUR_TICK); return false }
+  let died = false
+  while (run._spurAcc >= SPUR_TICK) {
+    run._spurAcc -= SPUR_TICK
+    // `dot: true` and a named src, as drowning and the slick are: the renderer's hurt reaction is
+    // keyed off both, and main.js's `if (e.dot) continue` already silences the audio.
+    if (!died && hurtPlayer(run, SPUR_DPS * dmgScale(run.time) * SPUR_TICK, true, 'scrape')) died = true
+  }
+  return died
+}
+
 // -- The leak (v7.x, The Wreck's signature) ------------------------------------------------------
 // THE FIFTH FIELD THROUGH refillCircleAt AND THE FIRST THAT HURTS. Same pure cell->circle geometry
 // as The Shelf's shafts, The Surf's pools and The Reef's pockets, on its own salt block (50) so a
@@ -6039,6 +6112,13 @@ const WEAPON_STAT_MODS = {
   sunspear:      { highNoon: ['dmg', 'pct'], broadBeam: ['r', 'pct'], zenith: ['castRange', 'pct'], secondSun: ['count', 'flat'] },
   foxfire:       { emberfeed: ['dmg', 'pct'], gloaming: ['maxR', 'pct'], longBurn: ['glowDur', 'pct'] },
   sunlance:      { whetted: ['dmg', 'pct'], farReach: ['length', 'pct'], broadEdge: ['width', 'pct'], heldLance: ['duration', 'pct'] },
+  // The Reef's two natives. `quickSnap`/`quickWake` are rate mods registered in
+  // WEAPON_RATE_MODS (folding one into an interval would SLOW the weapon), and `backblast` and
+  // `overgrowth` are switches read at their own fire sites. `moreRidges` folds as 'flat' onto a
+  // real levels[] key rather than going through WEAPON_COUNT_MODS, for the reason the Surf block
+  // above gives — which also means the fire site reads the MODIFIED count off one local.
+  pistolShrimp:  { overpressure: ['dmg', 'pct'], longCrack: ['length', 'pct'], wideCrack: ['width', 'pct'] },
+  fireCoral:     { hotPolyps: ['dmg', 'pct'], emberBed: ['duration', 'pct'], moreRidges: ['ridges', 'flat'] },
   // The Deep's native. `thrash` is absent for the reason the pond block above gives: it is an
   // attack-RATE mod, and folding one into `interval` would slow the weapon down. It divides the
   // interval at the fire site instead and is registered in WEAPON_RATE_MODS.
@@ -6204,6 +6284,8 @@ function stepWeapons(run, dt) {
     else if (w.id === 'gnash') stepGnashWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'chum') stepChumWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'bilge') stepBilgeWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'pistolShrimp') stepSnapWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'fireCoral') stepFireCoralWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -6214,6 +6296,7 @@ function stepWeapons(run, dt) {
   stepHoles(run, dt)
   stepBeams(run, dt)
   stepBlooms(run, dt)
+  stepPolyps(run, dt)
   stepLures(run, dt)
   stepClawSlashes(run, dt)
   stepZones(run, dt)
@@ -10042,6 +10125,128 @@ function stepSunlanceWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 
+// -- The Reef's natives (v7.x) ------------------------------------------------------------------
+// The chapter denies you the forward axis, so neither of these reads nearestEnemy at ALL — the
+// one is welded to the lane's heading and the other to the lane's terrain. aimAngle is the
+// function to keep out of this block.
+
+// PISTOL SHRIMP. A run.beams entry with rotSpeed 0, the Sunlance's idiom (a stab held on one
+// bearing, never a sweep), tagged look: 'snap'. The angle is the chapter's forward heading off
+// laneAxes(), exactly as firePulsar anchors its fan — so the cross stick is the whole of the aim
+// and sliding one groove to line three bodies onto one crack is the chapter's own lesson.
+//
+// ⚠ THE NON-LANE BRANCH IS A FALLBACK, NOT A SECOND DESIGN. The card is scoped to The Reef's pool,
+// but devCards ignores every eligibility rule and BLANK_WEAPONS is a union of pools, so it can be
+// held where nothing scrolls. There 'straight ahead' has no meaning, so it takes p.facingAngle —
+// the direction you last MOVED — which keeps the weapon aimless, which is the point of it. It is
+// deliberately not aimAngle: nearestEnemy is the one thing this card must never read anywhere, or
+// the two chapters ship two different weapons under one name (the trap the Pulsar Sweep's own
+// comments walked into, documented at length in design-a-weapon).
+function stepSnapWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.pistolShrimp?.quickSnap ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireSnap(run, stats))
+}
+
+function fireSnap(run, stats) {
+  const ch = CHAPTERS[run.chapter]
+  const p = run.player
+  // Both arms of this ternary happen to agree inside a lane today, because stepPlayerMovement
+  // PINS p.facingAngle to laneAxes().angle there. Read the descriptor anyway: that pinning is
+  // another function's decision about the player's SPRITE, and a weapon whose whole identity is
+  // 'it points down the lane' must not inherit its heading from it by luck.
+  const heading = ch.lane === true
+    ? laneAxes(ch).angle
+    : (p.facingAngle ?? (p.facing >= 0 ? 0 : Math.PI))
+  const back = (run.weaponMods.pistolShrimp?.backblast ?? 0) > 0
+  const push = (angle, dmg) => run.beams.push({
+    // `snapT` and not `duration`: the levels[] key is deliberately outside STAT_KEYS (see
+    // WEAPONS.pistolShrimp) and is mapped onto the beam's own field here, once, at the cast.
+    angle, life: stats.snapT, duration: stats.snapT, dmg,
+    tick: stats.tick, width: stats.width, length: stats.length,
+    rotSpeed: 0, acc: 0, focusBonus: 0, prism: null,
+    look: 'snap',
+  })
+  for (const a of ipecacAngles(run, heading)) {
+    push(a, stats.dmg)
+    // Backblast goes through ipecacAngles with the first crack rather than being added after it,
+    // so an Ipecac build multiplies BOTH — the alternative (forward only) would make the switch
+    // quietly worthless to a run that took the anomaly, which is fireBreaker's own ruling.
+    if (back) push(a + Math.PI, stats.dmg * SNAP_BACKBLAST_FRAC)
+  }
+  // The event carries the geometry the renderer needs for the cavitation puff, rather than making
+  // it re-derive a heading — main.js gives it the throttled 'shoot' voice.
+  run.events.push({ type: 'snap', x: p.x, y: p.y, angle: heading, reach: stats.length, back })
+}
+
+// FIRE CORAL. Lights the coral of the next `ridges` ridges ahead of the player, and everything
+// that crosses a lit one burns.
+//
+// ⚠ IT OWNS ITS ENTITIES AND MAY NOT BORROW A SPUR'S. run.spurs is emptied and rebuilt in full
+// (length = 0, then refilled) every time the player crosses a ridge index — see streamSpurs — so
+// state hung off an entry there survives at most 4.7s of lane and vanishes without a trace. A
+// polyp is instead a SNAPSHOT of the pure spurAt() geometry plus a timer, which costs one object
+// per lit ridge and makes the band that burns identical, to the pixel, to the band that grates.
+// (The persistent per-ridge registry the spec defers would let this hang off the field itself;
+// until it exists, this is the honest shape.)
+function stepFireCoralWeapon(run, w, stats, fireRateMul, dt) {
+  const spec = CHAPTERS[run.chapter].spurs
+  if (!spec || run._obstacleSeed == null) return   // no ridges to light — see WEAPONS.fireCoral
+  const quick = run.weaponMods.fireCoral?.quickWake ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireCoral(run, spec, stats))
+}
+
+function fireCoral(run, spec, stats) {
+  const ax = laneAxes(CHAPTERS[run.chapter])
+  const spill = (run.weaponMods.fireCoral?.overgrowth ?? 0) > 0
+  // ONE local for the count, used as the loop BOUND and as the index STEP — the eight-site trap
+  // CLAUDE.md documents. Because the targets are consecutive ridge INDICES they are distinct by
+  // construction; there is no chooser here to pick the same spot twice (run RN.e asserts it).
+  const n = ipecacN(run, Math.max(1, Math.round(stats.ridges)))
+  // FROM THE NEAREST RIDGE, NOT FROM THE ONE JUST PASSED — the same cursor streamSpurs uses, and
+  // it is a rounding choice with a real consequence. Counting from floor() makes the lead depend
+  // on where in the 210px gap the cast happened to land: a cast fired just before a ridge lights
+  // the one 2px in front of the player, i.e. a band the crowd is already standing in. Rounding
+  // first pins the lead to 126-294px (2.8-6.5s of scroll) however the interval phases.
+  const first = Math.round(run.player[ax.fwd] / spec.spacing) + ax.dir * FIRE_CORAL_LEAD
+  for (let k = 0; k < n; k++) {
+    const i = first + ax.dir * k
+    // A ridge already burning is REFRESHED, never doubled: two entries on one index would tick
+    // the same band twice a beat, which is a silent damage doubling at a fire rate the player
+    // can buy. `spill` is stamped per entry so a mid-life pick cannot widen a band already lit.
+    const live = run.polyps.find((pl) => pl.i === i)
+    // Refreshed on EVERY field the render ramp reads, `dur` included: leaving a stale `dur`
+    // shorter than the new `t` drives the ignition ramp negative and the band draws nothing while
+    // it is still burning — a weapon doing full damage and looking switched off.
+    if (live) { live.t = live.dur = stats.duration; live.dmg = stats.dmg; live.spill = live.spill || spill; continue }
+    run.polyps.push({
+      ...spurAt(i, spec, run._obstacleSeed),
+      t: stats.duration, dur: stats.duration, dmg: stats.dmg, tick: stats.tick, acc: 0, spill,
+    })
+  }
+}
+
+// The lit ridges, ticking. Structurally stepBlooms — a world-anchored, enemies-only, dot-flagged
+// zone on its own accumulator — and it shares onCoral with the grate, so the coral that burns the
+// crowd is exactly the coral that grates the player. `spill` (Overgrowth) drops the groove test
+// and leaves the forward band, which is the whole ridge wall to wall.
+function stepPolyps(run, dt) {
+  if (run.polyps.length === 0) return
+  const ax = laneAxes(CHAPTERS[run.chapter])
+  for (const pl of run.polyps) {
+    pl.t -= dt
+    pl.acc += dt
+    while (pl.acc >= pl.tick) {
+      pl.acc -= pl.tick
+      for (const e of run.enemies) {
+        if (e._dead) continue
+        if (Math.abs(e[ax.fwd] - pl.f) > pl.thick / 2) continue
+        if (!pl.spill && !onCoral(pl, e[ax.cross])) continue
+        applyDotDamage(run, e, pl.dmg)
+      }
+    }
+  }
+  run.polyps = run.polyps.filter((pl) => pl.t > 0)
+}
 // -- Fin Hit (v7.x, The Deep's native) ---------------------------------------------------------
 // The only movement-coupled weapon in the game. Both halves read the player's own motion and
 // neither reads where the enemies are, which is what makes it feel like the animal's body rather

@@ -2236,6 +2236,100 @@ export const WEAPONS = {
       { dmg: 9, tick: 0.25, interval: 2.77, radius: 180, duration: 2.0, pull: 270, burst: 120 },
     ],
   },
+  // -- The Reef's natives (v7.x) ----------------------------------------------------------------
+  // The chapter is a LEFT-TO-RIGHT scroller whose joystick gives only the cross axis, so its own
+  // arsenal answers the one question the borrowed stand-ins could not: what does a weapon look like
+  // when the player cannot turn? Both of these are anchored to the lane rather than to a body —
+  // the first to the heading, the second to the terrain — and neither reads nearestEnemy at all.
+  pistolShrimp: {
+    name: 'Pistol Shrimp',
+    desc: 'Snaps a bolt of boiling water straight ahead. It never turns to aim — line the shot up yourself.',
+    icon: '🦐', rarity: 'normal',
+    // THE STARTER, and the chapter's thesis card: the cross stick IS the aim, because the shot is
+    // welded to the lane's forward heading (laneAxes().angle) and has no targeting of any kind.
+    // Sliding one groove up to line three bodies onto one crack is the whole lesson, and any
+    // targeting at all deletes it — see fireSnap for the non-lane fallback and why it is a fallback
+    // rather than a second design.
+    //
+    // A run.beams entry with rotSpeed 0, the Sunlance's idiom (a stab held on one bearing, never a
+    // sweep), tagged look: 'snap' so render.js gives it its own bake instead of the crimson saber.
+    //   snapT/tick     how long the crack is on screen, and ONE tick inside it. The arithmetic is
+    //                  load-bearing: stepBeams accumulates dt and fires while acc >= tick, so tick
+    //                  must clear snapT/2 or a body on the line is struck twice. 0.10 into 0.14
+    //                  leaves exactly one. That is what makes this read as a CRACK rather than as
+    //                  a beam held out, and it is why this weapon sells no duration mod.
+    //                  ⚠ NOT NAMED `duration`, which is the key STAT_KEYS labels 'Burns for'. A
+    //                  crack does not burn, the number never moves, and it would spend one of the
+    //                  build sheet's five rows saying 0.14 forever. fireSnap maps it onto the
+    //                  beam's own `duration` field at the cast, where stepBeams needs it.
+    //   length         L1 already clears the ~312 world px of lane a 390x844 phone shows ahead of
+    //                  the player (see CHAPTERS.reef.laneScroll), so the crack reaches everything
+    //                  you can see coming from the first pick.
+    //   width          thin on purpose: 30px across an 836px lane is a 3.6% slice, which is what
+    //                  makes lining it up an act rather than a formality.
+    // MEASURED, and quoted at L1 rather than L5 for the reason weapon-census' own reading demands:
+    // at L5 all four cards in this pool land inside 173-196 kills/min, i.e. the rig is measuring
+    // the spawner and not the weapon. At L1 the spread is real (148-171) and the order is the
+    // rarity order — eff dps 215 here, against Fire Coral's 236, Quill Burst's 209 and the epic
+    // Pulsar Sweep's 244, all in ONE invocation on one RNG stream. A normal-rarity starter at the
+    // bottom of its own chapter's band is where a starter belongs. 7% waste, 2% duds.
+    // ⚠ THE RIG CANNOT SEE THIS CARD'S POINT. weapon-census walks the player at a fixed stick, so
+    // it measures a line that happens to cross bodies; the skill this weapon sells is choosing the
+    // groove that puts three of them on it. Treat the number as a floor, not as the reading.
+    levels: [
+      { dmg: 12, interval: 0.90, length: 340, width: 30, snapT: 0.14, tick: 0.10 },
+      { dmg: 15, interval: 0.84, length: 385, width: 33, snapT: 0.14, tick: 0.10 },
+      { dmg: 18, interval: 0.78, length: 430, width: 36, snapT: 0.14, tick: 0.10 },
+      { dmg: 22, interval: 0.72, length: 480, width: 40, snapT: 0.14, tick: 0.10 },
+      { dmg: 27, interval: 0.66, length: 540, width: 44, snapT: 0.14, tick: 0.10 },
+    ],
+  },
+  fireCoral: {
+    name: 'Fire Coral',
+    desc: 'Wakes the stinging polyps on the coral ahead of you. Anything crossing a lit ridge burns; the gaps through it stay cold.',
+    icon: '🔥', rarity: 'rare',
+    // THE CARD THAT COULD ONLY EXIST HERE. The ridge that has been grating you all chapter (SPUR_DPS)
+    // is the weapon: a cast lights the coral of the next ridge or two ahead, and the oncoming stream
+    // burns on the way through. It is a run.polyps entry — its own array, because run.spurs is
+    // WIPED AND REBUILT on every ridge crossing (streamSpurs) and nothing may be hung off an entry
+    // in it. Each polyp entry is a SNAPSHOT of the pure spurAt() geometry plus a timer, so the band
+    // that burns is, to the pixel, the band that grates.
+    //
+    // ⚠ IT IS A BAND, NOT A FUNNEL, and the difference matters because the first design of this card
+    // claimed the second. laneSolid is PLAYER-ONLY: enemies swim straight through coral and are
+    // never channelled by it, so an armed ridge herds nothing. What it is instead is a ~520px-wide
+    // burn band spanning most of an 836px lane, at right angles to the only direction anything can
+    // arrive from — which is a real shape, and the one shape a chapter with a fixed scroll can
+    // guarantee the crowd walks into. Read it as area denial placed AHEAD, never as a shove.
+    //   The corollary is its honest weakness: it does nothing to what is already beside you. That
+    //   is why the pool keeps the quill ring, whose whole answer is 'everything, right here'.
+    //
+    // WHAT THE PLAYER DOES WITH IT is choose a groove — the same choice the grate already asks, now
+    // with the other side of it paid. The gaps stay cold, so the channel you were going to swim is
+    // still the channel you swim; Overgrowth is the pick that gives that up for coverage.
+    //   dmg       per TICK, like every other dot-flagged zone in the game (silt, barnacle crust).
+    //   duration  how long a lit ridge burns. Read against the scroll, not against a fight: at
+    //             laneScroll 45 over spacing 210 the player crosses a ridge every 4.7s, so a cast
+    //             at L1 keeps roughly one ridge lit at all times and no more.
+    //   ridges    how many CONSECUTIVE ridges a cast lights, counting forward from the first one
+    //             ahead. A real key in levels[], so More Reef folds through WEAPON_STAT_MODS and
+    //             the fire site's one local is both the loop bound and the index step.
+    // MEASURED in the same L1 invocation as the Pistol Shrimp above (never across invocations —
+    // every weapon in one --weapons list shares an RNG stream): 236 eff dps at 6% waste and 0%
+    // duds, second of the four and above both normals, under the epic. A rare sitting there is the
+    // band. Read the dud rate as the card's real claim: a band the whole oncoming stream has to
+    // cross is the one shape in this chapter that cannot miss.
+    // ⚠ AND THE RIG FLATTERS IT ON ONE AXIS. The census player holds a lane it did not choose, so
+    // it crosses lit coral as often as chance says; a player who is actually using the grooves
+    // meets the band on their own terms. The kills/min are honest, the waste number is optimistic.
+    levels: [
+      { dmg: 7,  tick: 0.5, interval: 4.40, duration: 5.0, ridges: 1 },
+      { dmg: 9,  tick: 0.5, interval: 4.15, duration: 5.4, ridges: 1 },
+      { dmg: 11, tick: 0.5, interval: 3.90, duration: 5.8, ridges: 1 },
+      { dmg: 14, tick: 0.5, interval: 3.65, duration: 6.2, ridges: 1 },
+      { dmg: 17, tick: 0.5, interval: 3.40, duration: 6.6, ridges: 1 },
+    ],
+  },
   // -- The Deep's native (spec §6.5) -------------------------------------------------------------
   finHit: {
     name: 'Fin Hit',
@@ -3190,6 +3284,43 @@ export const WEAPON_MODS = {
     // the code two different promises.
     foulSpring: { name: 'Foul Spring', desc: 'a cloud in clean water has {n} more duration, damage and size, but fouls the patch', icon: '🌀', base: 0.50, kind: 'pct' },
   },
+  // The Reef's two natives (v7.x). Five apiece: three that fold, one rate division and one
+  // behavioural switch — the shape run MB.a2 asks of a Book 2 native, and the shape the book spec
+  // holds at ~4 rather than padding to six.
+  pistolShrimp: {
+    overpressure: { name: 'Overpressure', desc: 'snap damage',     icon: '💥', base: 0.30, kind: 'pct' },
+    longCrack:    { name: 'Long Crack',   desc: 'crack length',    icon: '📏', base: 0.25, kind: 'pct' },
+    wideCrack:    { name: 'Wide Crack',   desc: 'crack width',     icon: '🪭', base: 0.28, kind: 'pct' },
+    // Registered in WEAPON_RATE_MODS and divided at the fire site: folding a rate pick into
+    // `interval` would multiply the WAIT, i.e. slow the weapon down.
+    quickSnap:    { name: 'Quick Snap',   desc: 'snap rate',       icon: '⏩', base: 0.25, kind: 'pct' },
+    // The Breaker's Backwash idiom, and the only card on this weapon that changes what it covers.
+    // It does NOT break the thesis: the second crack is welded to the same lane heading, pointing
+    // the other way along it, so the weapon still has no targeting and the stick is still the aim.
+    // Read at the fire site (fireSnap).
+    backblast:    { name: 'Backblast',    desc: 'a second crack snaps out behind you', icon: '💨', kind: 'switch' },
+  },
+  fireCoral: {
+    // 'polyp damage per tick' for the reason barnacles says 'crust damage per tick': the number is
+    // small because it is per tick, and a player reading it as a per-hit number concludes the card
+    // is broken. Name the thing, not the event.
+    hotPolyps:  { name: 'Hot Polyps',  desc: 'polyp damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
+    emberBed:   { name: 'Ember Bed',   desc: 'how long a ridge burns', icon: '⌛', base: 0.25, kind: 'pct' },
+    // A flat count onto a real levels[] key, so effectiveWeaponStats folds it and the fire site's
+    // ONE local is both the loop bound and the index step — the eight-site trap CLAUDE.md
+    // documents, where multiplying only the bound stacks the extras on one spot. Here the targets
+    // are RIDGE INDICES counted forward from the first one ahead, so they are distinct by
+    // construction rather than by a chooser (run RN.c asserts the distinct indices).
+    moreRidges: { name: 'More Reef',   desc: 'extra ridge(s) lit per cast', icon: '🔷', kind: 'tier' },
+    quickWake:  { name: 'Quick Wake',  desc: 'wake rate',             icon: '⏩', base: 0.25, kind: 'pct' },
+    // THE CARD THAT COSTS YOU SOMETHING. The polyps grow over the channels too, so the ridge burns
+    // wall to wall — every body that crosses it is caught instead of the ~60% the gaps leave open.
+    // What it gives up is the card's own promise that the channel you were going to swim stays
+    // cold: it never hurts you, but it takes away the read that the lit coral tells you where the
+    // gap is. Read at the fire site (fireCoral), stamped per entry so a mid-life pick cannot
+    // retroactively widen a band already burning.
+    overgrowth: { name: 'Overgrowth',  desc: 'the polyps grow over the gaps as well', icon: '🪸', kind: 'switch' },
+  },
   ballast: {
     deadweight: { name: 'Deadweight',  desc: 'impact damage',       icon: '💥', base: 0.30, kind: 'pct' },
     // Registered in WEAPON_RATE_MODS and divided at the fire site: folding a rate pick into `rate`
@@ -3323,6 +3454,7 @@ export const WEAPON_RATE_MODS = {
   debrisToss: 'rapidToss', realityShard: 'rapidShard', pulsarSweep: 'rapidSweep',
   atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash', foxfire: 'quickKindle',
   breaker: 'quickBreak', ballast: 'quickWinch', siltVeil: 'quickStir', downwash: 'quickPour',
+  pistolShrimp: 'quickSnap', fireCoral: 'quickWake',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.
@@ -6414,9 +6546,8 @@ CHAPTERS.surf = {
 // rock, the leak line, the camera's trailing-edge anchor. `lane` stays the BOOLEAN true — sim.js
 // compares it with strict equality in two places, so the direction had to be its own field.
 //
-// ⚠ EVERYTHING BELOW MARKED "borrowed" IS A STAND-IN, not a design. The chapter's own art, its two
-// native weapons (Squid Ink, Oxygen Tank) and its signature mechanic are all later tasks; this
-// exists so the x-lane is playable and testable today.
+// ⚠ EVERYTHING BELOW MARKED "borrowed" IS A STAND-IN, not a design. Two of the chapter's four
+// natives (Squid Ink, Oxygen Tank) are still to come; the other two ship here.
 CHAPTERS.reef = {
   name: 'The Reef', tagline: 'the current only runs one way', icon: '🪸',
   lane: true,
@@ -6426,13 +6557,20 @@ CHAPTERS.reef = {
   // chapter would give HALF The Beyond's reaction time on the device the game ships to.
   laneScroll: 45,
 
-  // BORROWED ARSENAL — placeholder until Squid Ink and Oxygen Tank land. Picked for the LANE rather
-  // than for the theme, because a scroller only works if the starter can answer things arriving from
-  // ahead: the stinger is a forward cone at the nearest enemy, the quill ring does not care which way
-  // you face at all, and the Pulsar Sweep is the one weapon in the game that already knows what a
-  // lane is (firePulsar anchors its fan to the chapter's forward heading instead of to nearestEnemy —
-  // which is now this chapter's +x rather than The Beyond's -y, off the same laneAxes descriptor).
-  weapons: ['stinger', 'quillBurst', 'pulsarSweep'], starter: 'stinger',
+  // TWO NATIVES AND TWO BORROWED, with Squid Ink and Oxygen Tank still to come. Every card here is
+  // picked for the LANE rather than for the theme, because a scroller only works if what you hold
+  // can answer things arriving from ahead:
+  //   pistolShrimp  the starter and the thesis — a line welded to the forward heading, no targeting
+  //                 at all, so the cross stick is the aim.
+  //   fireCoral     the terrain, armed. A burn band across the lane, placed ahead of the stream.
+  //   quillBurst    the deliberate opposite of both: a ring that does not care which way you face,
+  //                 and this pool's only answer to what is already beside you.
+  //   pulsarSweep   the one borrowed card that already knows what a lane is (firePulsar anchors its
+  //                 fan to the chapter's forward heading, +x here against The Beyond's -y).
+  // The stinger left with the starter slot: it is a forward cone at the NEAREST enemy, which is the
+  // one thing the Pistol Shrimp exists to refuse, and two forward cards that disagree about whether
+  // this chapter aims for you is a worse pool than one that does not.
+  weapons: ['pistolShrimp', 'fireCoral', 'quillBurst', 'pulsarSweep'], starter: 'pistolShrimp',
 
   // The cast. All three flags already exist in sim.js and are chapter-agnostic, so this roster is
   // real behaviour rather than a placeholder: the damselfish is the deliberately FLAGLESS baseline
@@ -6626,6 +6764,10 @@ CHAPTERS.reef = {
     // elite melt into the coral behind it; aqua and mint cannot. A first cut ran coral/rose/aqua and
     // turned the elite damselfish — the chapter's only achromatic body — pink.
     eliteIridescent: [0xc4f0ff, 0xd9fff0, 0xffd9e8],
+    // Coral sand hanging in the water, not blowing through it — same speedMul/sway fix as every
+    // other Book 2 floor. Reuses DETAIL_REEF's scatter_b tint so the motes read as the same grit
+    // as the floor litter, not a new material, and stays clear of AIR_POCKET_VIS' icy blues.
+    dust: { tint: 0xe0c0ba, alpha: 0.35, speedMul: 0.15, sway: 5 },
   },
 }
 // Book 2 chapter 4 — THE ONE BAR YOU PUSH UP. Written as a WHOLE literal for the same reason every
@@ -6835,7 +6977,8 @@ CHAPTERS.wreck = {
     // 4, not 5, and the reason is arithmetic rather than balance: hurtPlayer ROUNDS a dot hit, so
     // 5 x STARVE_TICK 0.5 = 2.5 -> 3, i.e. a config saying 5 and a game doing 6. STARVE_TICK's own
     // block states that the cadence exists so the config number survives the multiply, and then the
-    // first number written against it did not. 4 x 0.5 = 2 exactly, as DROWN_TICK's own dps 4 does.
+    // first number written against it did not. 4 x 0.5 = 2 exactly — the same exact-multiply rule
+    // DROWN_TICK's own block follows (drown's dps 4 x DROWN_TICK 1.0 = 4 exactly).
     starve: { dps: 4 },
   },
 
@@ -7747,6 +7890,29 @@ export const SPUR_VIS = Object.freeze({
   lobes: Object.freeze([1, 0.72, 0.94, 0.62, 0.86]),
 })
 
+// FIRE CORAL'S LIT RIDGE, RENDER-ONLY (v7.x, The Reef — WEAPONS.fireCoral). Zero sim effect: the
+// band that burns is the one stepPolyps tests, drawn from the SAME snapshot, so there is nothing
+// here that can move the edge. Drawn over spurG in entitiesLayer, which render.floorTint never
+// multiplies — these are raw final colours, exactly as AIR_POCKET_VIS' block states.
+//
+// ⚠ HOT AND LIGHT, over a chapter whose decor is already warm. The ridge's own body is a dark
+// plum (SPUR_VIS.body 0x67213d) on a deep cold floor (bgColor 0x0a3358), so a burn painted in the
+// coral's own family would be a slightly redder ridge — invisible at a glance and worthless as a
+// tell. It is the VALUE that separates them: gold and white against plum, which nothing else in
+// this chapter's palette is, plus the pulse. The same lesson CORAL_CRUSH learned the hard way
+// with its chunks — pick the value from what the material is doing, then check it on the floor.
+//   igniteT/fadeT  the band ramps IN over igniteT so the cast reads as an event, and out over
+//                  fadeT so 'the gap is cold again' is readable before it is true.
+//   glow_px        px the outer skirt is grown past the hitbox. The ONLY pass allowed past the
+//                  groove edge, and for the reason SPUR_VIS gives its foot: a light spilling a
+//                  few px into a channel is what a burning thing does, and it is not the
+//                  collider. Both inner passes are inside it or on it.
+export const FIRE_CORAL_VIS = Object.freeze({
+  glow: 0xff6a1e, glowA: 0.42, glow_px: 9,
+  body: 0xffab3c, bodyA: 0.80,
+  core: 0xfff2c8, coreA: 0.85, core_px: 8,
+  igniteT: 0.35, fadeT: 0.9, pulseRate: 7.5,
+})
 // A coral head shattering under a Burst (v7.x, The Reef — render.js coralShatter, driven by the
 // SHIPPED {type:'crush'} event that stepCrush already emits). The skies' own crush FX cannot serve
 // this: it is a dust skirt, brick shards and a warm interior spill, and it leaves a permanent RUIN
@@ -8939,7 +9105,7 @@ export const PREY_FLEE_BLEND = 0.7
 // standing in would be exactly the kind of one-word semantic collision this file keeps warning
 // about. Salt 50 — obstacles hold 0-4, eddies 11-14, traps 15-17, refill circles 20-23 and 30-34,
 // The Reef's pockets 40-45.
-export const SLICK_TICK = 0.5          // s between damage ticks, DROWN_TICK/STARVE_TICK's cadence
+export const SLICK_TICK = 0.5          // s between damage ticks, STARVE_TICK's cadence (DROWN_TICK is now 1.0)
 // ⚠ 6 dps IS AN UNMEASURED FIRST CUT and must not be quoted. It is deliberately ABOVE starve's 4:
 // starving is a self-inflicted tempo failure with the fix in front of you, while a slick is a place
 // you chose to swim into, and the chapter has nothing else that can kill you. x SLICK_TICK 0.5 = 3
@@ -9237,9 +9403,11 @@ export const pollutionFrac = (charge, max) => 1 - Math.min(1, Math.max(0, charge
 // pocket, and the fix is on the map. Bloodlust is a tempo problem — you are at zero because you
 // stopped killing, and the fix is the thing in front of you. Same red pulse, different sentence.
 //
-// Same half-second cadence as DROWN_TICK and for the same two reasons (hurtPlayer rounds a DoT hit,
-// so the config number must survive the multiply; and two bigger beats read as a state where four
-// small ones read as static). Same shipped tell — {type:'hurt', dot:true} — and no new event.
+// A half-second cadence, own constant — DROWN_TICK moved to 1.0 (2026-08-22, owner ruling on
+// drowning only) and this one did not, so the two are no longer the same number, only the same
+// shape: hurtPlayer rounds a DoT hit, so the config number must survive the multiply, and two
+// bigger beats read as a state where four small ones read as static. Same shipped tell —
+// {type:'hurt', dot:true} — and no new event.
 export const STARVE_TICK = 0.5
 
 // ---- DROWNING (v7.x, The Reef — resources declaring a `drown` block) ---------------------------
@@ -9250,17 +9418,47 @@ export const STARVE_TICK = 0.5
 // A multiplier is imperceptible in its top half and a cliff in its bottom; a DoT is legible at
 // every level because it is the same red pulse every time and it only exists at zero.
 //
-// A HALF-SECOND CADENCE, not STATUS_TICK's 0.25. Two reasons, and both are about being read:
-//   - hurtPlayer floors a DoT hit at 1 HP and ROUNDS it, so a tick has to be big enough that the
-//     config number is the damage actually delivered. drown.dps 6 x 0.5 = 3 exactly; at 0.25 it
-//     would be 1.5 -> 2, i.e. a config saying 6 and a game doing 8.
-//   - render.js's `hurt` case scales its shake/vignette/flash by the hit's fraction of maxHP, so
-//     two bigger beats a second read as drowning where four small ones read as static.
 // The tell itself is entirely the shipped one: {type:'hurt', dmg, dot:true} already draws a red
 // vignette + shake + flash, and main.js already silences `e.dot` for audio. NO new event type, on
 // purpose — an event with no consumer in render.js or SFX_FOR_EVENT is the freeze scar, and a
-// chime twice a second for as long as you are empty is the nagging SUBMISSION's expiry was denied.
-export const DROWN_TICK = 0.5            // s between drowning ticks while the bar is empty
+// chime once a second for as long as you are empty is the nagging SUBMISSION's expiry was denied.
+// balance_decision : drown tick 1Hz not 2Hz, dps unchanged [2026-08-22]
+//  - owner rejected damping the hurt reaction (shake/vignette/flash) and named the rate instead
+export const DROWN_TICK = 1.0            // s between drowning ticks while the bar is empty; dps x DROWN_TICK is the hit, so this alone must not change total damage
+
+// ---- THE SCRAPE (v7.x, The Reef — chapters declaring a `spurs` field) ---------------------------
+// A RIDGE IS NOT A WALL, IT GRATES. stepSpurs charges this while the player is inside the coral of
+// a spur — the band spurAt returns, minus the grooves render.js draws from those same entries — and
+// takes the STRAFE while it does. It never touches the forward scroll, which is the one thing the
+// lane promises (spec 2026-08-20 §3).
+//
+// DROWN_TICK's shape above, deliberately: a half-second beat so hurtPlayer's round leaves the config
+// number intact, `dot: true`, and the shipped {type:'hurt'} tell with no new event and no sound — a
+// scrape fires several times a minute, which is the cadence SUBMISSION's expiry was denied for.
+// balance_decision : coral scrapes 4 dps, half-second tick, x0.6 strafe [2026-08-22]
+//  - `dot: true` skips armor and contactDmgTakenMul, so SPUR_DPS is anchored against the DoTs that
+//    share those rules (drown 4, SLICK/SOAP 6) and must stay UNDER them: a soaped groove being worse
+//    than the coral beside it is what makes a groove a choice, and the inversion killed spec rev 3.
+//    SPUR_SLOW_MUL must likewise stay ABOVE LATCH_SLOW_MUL 0.55 — the slow MIN takes the strongest
+//    term, so a lower number here would make this chapter's own tank inert everywhere coral is.
+export const SPUR_DPS = 4                // HP/s inside coral, x dmgScale(run.time) like every cost that must not fade
+export const SPUR_TICK = 0.5             // s between scrape ticks; 4 x 0.5 = 2 HP exactly, hurtPlayer's own rounding rule
+export const SPUR_SLOW_MUL = 0.6         // strafe multiplier while scraping — joins the MIN in stepPlayerMovement
+
+// Fire Coral's placement (WEAPONS.fireCoral): which ridge a cast lights first, counted forward
+// from the ridge NEAREST the player. The rest of a multi-ridge cast counts on from there.
+// balance_decision : fire coral lights from one ridge past the nearest [2026-08-22]
+//  - 1 is the smallest number that is always AHEAD. At 0 a cast lights the ridge the player is
+//    level with, i.e. a band already half-crossed by everything it was meant to catch.
+export const FIRE_CORAL_LEAD = 1
+
+// Pistol Shrimp's Backblast (WEAPON_MODS.pistolShrimp). The rear crack's damage as a fraction of
+// the forward one, the Breaker's BREAKER_BACKWASH_DMG_FRAC idiom.
+// balance_decision : the backward crack lands at 0.6 of the forward one [2026-08-22]
+//  - NOT the Bubble Puff's full-strength Backblow. That cone shoves nothing and races nothing,
+//    so doubling its coverage is free; a piercing line in a chapter that spawns behind you as
+//    well as ahead would be close to +100% dps for one switch pick.
+export const SNAP_BACKBLAST_FRAC = 0.6
 
 // ---- The death outro (v7.x Book 2) ------------------------------------------------------------
 // A BEAT BETWEEN THE KILLING BLOW AND THE SUMMARY. Owner report: "the player sees the death modal
@@ -9422,6 +9620,11 @@ export const DMG_SRC_NAME = {
   // is not a hurtPlayer call at all. Guessing from "Book 2 is underwater" is how the wrong comment
   // got written in the first place — read the gate.
   drown: 'Drowning',
+  // THE REEF ONLY as well, on the same read-the-gate rule: stepSpurs returns early unless the
+  // chapter declares a `spurs` field, and the reef is the only one that does. Its own row rather
+  // than sharing Drowning: they are the two DoTs this chapter runs at once, and a summary that
+  // blamed the air for the coral would send the player to fix the wrong thing.
+  scrape: 'The Coral',
   // THE WRECK ONLY, on the same gate-reading rule the comment above insists on: stepStarve returns
   // early unless the chapter's resource declares `starve`, and Bloodlust is the only one that does.
   // Its own row rather than sharing 'Drowning' — they are the same DoT mechanism, and the whole
@@ -9513,6 +9716,10 @@ export const DMG_SRC_NO_ART = {
   // DoT can carry a drawing, so "it is a state, not a world object" is NOT the argument here and must
   // not be borrowed from the two anomalies below. DELETE THIS LINE when hazardThumbs.starve lands.
   starve: 'OWED — The Wreck phase 2 has not authored its art yet, not a permanent exemption',
+  // ⚠ OWED, NOT EXEMPT, exactly as the line above. The Reef is still behind its wipFrom gate and
+  // has no hazardThumbs entry for a ridge yet; a coral ridge is a world object and can carry a
+  // drawing, so this is a debt. DELETE THIS LINE when hazardThumbs.scrape lands.
+  scrape: 'OWED — The Reef has not authored a coral ridge thumbnail yet, not a permanent exemption',
   // Costs you chose to pay. Neither has a world object; their honest picture is the anomaly card.
   overload: 'a card you took, not a thing in the world',
   bloodMoney: 'a card you took, not a thing in the world',

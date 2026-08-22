@@ -1276,6 +1276,39 @@ const CONFIG = {
   'Backblow': 'Contre-Souffle',
   'a second cone blows out behind you': 'un second cône souffle derrière toi',
   'Silt Veil': 'Voile de Vase',
+  // The Reef's two natives (v7.x). BOTH DISPLAY NAMES ARE DRAFTS pending the owner's pick — each
+  // went to him as a pair (Crevette-pistolet / Claquement, Corail de Feu / Corail Brûlant) and
+  // these are the recommended halves. Both are the real French names of the real animals, which
+  // is the whole argument: a French player already has a word for the thing in the picture.
+  // 'Détonation Arrière' and not 'Contre-Souffle' for Backblast: the Bubble Puff's Backblow four
+  // lines up already owns that, and two cards in Book 2 wearing one French name is the kind of
+  // collision the dictionary cannot see (different keys, identical on screen).
+  'Pistol Shrimp': 'Crevette-pistolet',
+  'Snaps a bolt of boiling water straight ahead. It never turns to aim — line the shot up yourself.':
+    'Claque un jet d’eau bouillante droit devant. Elle ne vise jamais — c’est à toi de t’aligner.',
+  'Fire Coral': 'Corail de Feu',
+  'Wakes the stinging polyps on the coral ahead of you. Anything crossing a lit ridge burns; the gaps through it stay cold.':
+    'Réveille les polypes urticants du corail devant toi. Tout ce qui traverse une crête allumée brûle ; les passages, eux, restent froids.',
+  'Overpressure': 'Surpression',
+  'snap damage': 'dégâts du claquement',
+  'Long Crack': 'Longue Fissure',
+  'crack length': 'longueur de la fissure',
+  'Wide Crack': 'Large Fissure',
+  'crack width': 'largeur de la fissure',
+  'Quick Snap': 'Claquement Rapide',
+  'snap rate': 'cadence de claquement',
+  'Backblast': 'Détonation Arrière',
+  'a second crack snaps out behind you': 'une seconde fissure claque derrière toi',
+  'Hot Polyps': 'Polypes Ardents',
+  'polyp damage per tick': 'dégâts des polypes par tic',
+  'Ember Bed': 'Lit de Braises',
+  'how long a ridge burns': 'durée de combustion d’une crête',
+  'More Reef': 'Plus de Récif',
+  'extra ridge(s) lit per cast': 'crête(s) allumée(s) en plus par lancer',
+  'Quick Wake': 'Réveil Rapide',
+  'wake rate': 'cadence de réveil',
+  'Overgrowth': 'Prolifération',
+  'the polyps grow over the gaps as well': 'les polypes envahissent aussi les passages',
   'Stirs the bottom into a cone of silt that poisons and dazes what swims in.': 'Soulève un cône de vase qui empoisonne et étourdit tes poursuivants.',
   // Voile de Vase's four (2026-08-19). 'vase' throughout, never 'limon', because the weapon's own
   // name already fixed the word -- the rule the Coquille Ricochet entry states: one word for one
@@ -1483,6 +1516,7 @@ const CONFIG = {
   'Drowning': 'Noyade',
   'Starvation': 'Famine',
   'The Leak': 'La Fuite',
+  'The Coral': 'Le Corail',
   'The Net': 'Le Filet',
   'Swallowed': 'Avalé',
   'Caustic Pools': 'Flaques caustiques',

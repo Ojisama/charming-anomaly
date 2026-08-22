@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R, BALLAST_RING,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R, BALLAST_RING,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -4818,6 +4818,12 @@ export function createRenderer(app) {
       // block already warns about — gold multiplied onto a red bake is brown. Baked warm instead:
       // a white-hot core in a gold sheath, which is the one thing in the chapter that is not blue.
       T.beamSun = blade(0x8a6a12, 0xd6a423, 0xffd85c, 0xfffdf0)
+      // The Reef's Pistol Shrimp is the FOURTH weapon through run.beams, and it needed the fourth
+      // blade for the reason stated twice above: it is not `swept`, so it fell into the saber's
+      // arm and a cavitation crack came out crimson — over a deep cold blue floor, the one
+      // colour boiling water cannot be. Baked cold instead: a pure white core in a pale cyan
+      // sheath, which is what a collapsing vapour cavity actually looks like from above.
+      T.beamSnap = blade(0x1d5c86, 0x6fc4e6, 0xdff5ff, 0xffffff)
       T.beamRefLen = len
       T.beamRefWidth = w
     }
@@ -9265,10 +9271,15 @@ export function createRenderer(app) {
   // for motion that never happens. Same _obstacleRev idiom syncObstacles uses.
   const spurG = new Graphics()
   let spurRev = -1
+  // v7.x The Reef: FIRE CORAL's lit ridges (run.polyps). Its own Graphics rather than a second
+  // pass on spurG, and the reason is the caching: spurG redraws only when run._spurRev changes
+  // (once per lane crossing), while a burning ridge pulses every frame. Cleared and redrawn each
+  // sync, the slickG idiom. It sits immediately over spurG so the fire is ON the coral.
+  const polypG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, spurG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, spurG, polypG, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
@@ -11453,6 +11464,17 @@ export function createRenderer(app) {
   }
 
   // ---- The Reef: spur and groove (v7.x) ---------------------------------------------------------
+  // ONE ridge's CORAL segments — the band minus its channels — appended to `out` as
+  // [fwd centre, cross from, cross to]. Shared by the field (syncSpurs) and by the fire burning
+  // on it (syncPolyps), which is this side's version of the rule sim.js's onCoral follows: the
+  // channel you can see and the channel that is not burning are one definition or they drift.
+  const coralSegs = (sp, end, out) => {
+    const cuts = sp.grooves.map((g) => [g.c - g.hw, g.c + g.hw]).sort((a, b) => a[0] - b[0])
+    let at = -end
+    for (const [a, b] of cuts) { if (a > at) out.push([sp.f, at, a]); at = Math.max(at, b) }
+    if (at < end) out.push([sp.f, at, end])
+  }
+
   // run.spurs, drawn from the SAME grooves stepSpurs tests against — one definition, two consumers,
   // which is the only reason the gap you can see is the gap you can swim through. The rounded rect
   // IS the groove edge; the lumps that make it read as coral are drawn INSET and never cross it.
@@ -11478,12 +11500,7 @@ export function createRenderer(app) {
     const bumpR = half * V.bump
     // Every coral segment in the window, as [fwd centre, cross from, cross to].
     const segs = []
-    for (const sp of run.spurs) {
-      const cuts = sp.grooves.map((g) => [g.c - g.hw, g.c + g.hw]).sort((a, b) => a[0] - b[0])
-      let at = -end
-      for (const [a, b] of cuts) { if (a > at) segs.push([sp.f, at, a]); at = Math.max(at, b) }
-      if (at < end) segs.push([sp.f, at, end])
-    }
+    for (const sp of run.spurs) coralSegs(sp, end, segs)
     // f is along the lane, c across it. Both helpers take lane coordinates and swap at the last
     // moment, so nothing above this line has to know which axis the chapter scrolls on.
     const band = (f, c0, c1, grow, r) => (xAxis
@@ -11518,6 +11535,47 @@ export function createRenderer(app) {
     for (const [f, c0, c1] of segs) band(f, c0, c1, 0, 9)
     for (const [f, c, r] of lobes) dot(f, c, r)
     spurG.fill({ color: V.body })
+  }
+  // ---- The Reef: Fire Coral's lit ridges (v7.x) -------------------------------------------------
+  // run.polyps, drawn from the SAME snapshot stepPolyps damages against, through the SAME
+  // coralSegs the ridge itself is drawn from — so the lit band is the burning band is the ridge.
+  // Cleared and redrawn every sync (unlike spurG, which caches on _spurRev): a burning ridge
+  // pulses, and there is nothing to cache.
+  function syncPolyps(run) {
+    polypG.clear()
+    if (!run.polyps || run.polyps.length === 0) return
+    const cfg = CHAPTERS[run.chapter]
+    const spec = cfg.spurs
+    if (!spec) return
+    const V = FIRE_CORAL_VIS
+    const ax = laneAxes(cfg)
+    const xAxis = ax.fwd === 'x'
+    const end = LANE_HALF_W + SPUR_VIS.wall
+    const half = spec.thick / 2
+    const band = (f, c0, c1, grow, r) => (xAxis
+      ? polypG.roundRect(f - half - grow, c0 - grow, half * 2 + grow * 2, c1 - c0 + grow * 2, r)
+      : polypG.roundRect(c0 - grow, f - half - grow, c1 - c0 + grow * 2, half * 2 + grow * 2, r))
+    for (const pl of run.polyps) {
+      const a = Math.min(1, (pl.dur - pl.t) / V.igniteT) * Math.min(1, pl.t / V.fadeT)
+      if (a <= 0) continue
+      // Phase-offset by the ridge index so two lit ridges on screen do not throb in lockstep,
+      // which reads as one flashing object rather than as two burning ones.
+      const pulse = 0.75 + 0.25 * Math.sin(animT * V.pulseRate + pl.i)
+      const segs = []
+      // Overgrowth burns the channels too, so the band is the whole ridge wall to wall — the one
+      // case where the fire is allowed past the groove edge, because the sim's test is too.
+      if (pl.spill) segs.push([pl.f, -end, end])
+      else coralSegs(pl, end, segs)
+      for (const [f, c0, c1] of segs) band(f, c0, c1, V.glow_px, 14)
+      polypG.fill({ color: V.glow, alpha: V.glowA * a * pulse })
+      for (const [f, c0, c1] of segs) band(f, c0, c1, 0, 9)
+      polypG.fill({ color: V.body, alpha: V.bodyA * a })
+      // The core is INSET, so a segment narrower than the inset has none rather than a rectangle
+      // turned inside out — a negative width in Graphics draws backwards, silently.
+      let core = 0
+      for (const [f, c0, c1] of segs) { if (c1 - c0 > V.core_px * 2) { band(f, c0, c1, -V.core_px, 6); core++ } }
+      if (core > 0) polypG.fill({ color: V.core, alpha: V.coreA * a * pulse })
+    }
   }
   // ---- The Wreck's pollution spills (v7.x) -----------------------------------------------------
   // run.slicks, drawn from the SAME lobePoly the sim tests standing-in against (inLobe, config.js) —
@@ -16896,6 +16954,46 @@ export function createRenderer(app) {
           ledgerAdd(e.x, e.y, e.kind, cr)
           break
         }
+        // The Reef's Pistol Shrimp (WEAPONS.pistolShrimp, fireSnap). The CRACK is the run.beams
+        // entry and draws itself; this is the other half of the picture — a snapping shrimp's bolt
+        // is a collapsing vapour cavity, so the muzzle boils. Bubbles thrown FORWARD along the
+        // shot rather than in a ring: the whole card is a direction, and a radial puff would be
+        // the one shape that says the weapon does not have one. `back` doubles it the other way,
+        // which is the only place Backblast is visible at the origin.
+        case 'snap': {
+          const C = CORAL_CRUSH
+          for (const dir of e.back ? [e.angle, e.angle + Math.PI] : [e.angle]) {
+            for (let i = 0; i < C.bubbles; i++) {
+              const spread = (Math.random() - 0.5) * 0.7
+              const a2 = dir + spread
+              const d = 14 + Math.random() * 46
+              spawnParticle(T.fx.circle_05, e.x + Math.cos(a2) * d, e.y + Math.sin(a2) * d,
+                Math.cos(a2) * (90 + Math.random() * 120), Math.sin(a2) * (90 + Math.random() * 120),
+                0.32, 0.05 + Math.random() * 0.06, C.bubbleTint, 0.02, 0.6)
+            }
+          }
+          break
+        }
+        // The Reef's Burst press (CHAPTERS.reef.burst, stepRepulse). The dash itself is a speed
+        // multiplier on the player's own velocity — no entity, nowhere else to draw it — so this
+        // IS the cast: the same silt+bubbles coralShatter throws off a broken coral head, at the
+        // push-off point instead of at a hit, and no chunks or ring since nothing broke.
+        case 'burst': {
+          const C = CORAL_CRUSH
+          for (let i = 0; i < C.silt; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = C.siltSpeed * (0.5 + Math.random())
+            spawnSmoke(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              C.siltT, 0.28 + Math.random() * 0.16, C.siltTint, 0.16, 1.1, 0, 0, 0.45)
+          }
+          for (let i = 0; i < C.bubbles; i++) {
+            const a = Math.random() * Math.PI * 2
+            spawnParticle(T.fx.circle_05, e.x + Math.cos(a) * 18, e.y + Math.sin(a) * 18,
+              Math.cos(a) * 26, -C.bubbleRise * (0.6 + Math.random() * 0.8),
+              C.bubbleT, 0.05 + Math.random() * 0.05, C.bubbleTint, 0.02, 0.7)
+          }
+          break
+        }
         // v6.3 dispatch beat (sim.js: CHAPTERS[].dispatch chapters, elite spawn only): "you've been
         // reported" finally lands in-run. Brief red strobe at the elite's spawn point — two rings,
         // staggered, well under 0.5s total — plus main.js's siren and ui.js's HUD line.
@@ -17297,6 +17395,7 @@ export function createRenderer(app) {
     laneG.clear()
     spurG.clear()
     spurRev = -1
+    polypG.clear()
     hazardG.clear()
     teleG.clear()
     wellG.clear()
@@ -18730,6 +18829,7 @@ export function createRenderer(app) {
     syncPools(run.pools || [])
     syncSlicks(run)   // v7.x The Wreck: pollution spills (no-op in every other chapter)
     syncSpurs(run)    // v7.x The Reef: the coral ridges (no-op in every other chapter)
+    syncPolyps(run)   // ...and Fire Coral burning on them (no-op unless the card is held)
     syncTrails(run.trails || [])
     syncWebs(run.webs || [], CHAPTERS[run.chapter]?.render?.webLook === 'slime')
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
@@ -19130,9 +19230,12 @@ export function createRenderer(app) {
     // the Neon Beam's arm and came out red — the one colour a shaft of sunlight cannot be. It keeps
     // the unswept BAKE (it is a straight beam) and takes its own tints.
     const lance = b.look === 'sunlance'
-    bv.bar.texture = (lance ? T.beamSun : swept ? T.beamSweep : T.beam).tex   // bake() returns {tex, ax, ay}
-    bv.tip.tint = bv.muzzle.tint = lance ? 0xfff0b8 : swept ? 0xa08cff : 0xff5a52
-    bv.streakA.tint = bv.streakB.tint = lance ? 0xffffff : swept ? 0xdcd6ff : 0xffd9d4
+    // ...and the Pistol Shrimp is the fourth, on the same rule: `swept` cannot choose a palette
+    // any more, so each unswept look names its own bake and its own tints or it comes out red.
+    const snap = b.look === 'snap'
+    bv.bar.texture = (snap ? T.beamSnap : lance ? T.beamSun : swept ? T.beamSweep : T.beam).tex   // bake() returns {tex, ax, ay}
+    bv.tip.tint = bv.muzzle.tint = snap ? 0xffffff : lance ? 0xfff0b8 : swept ? 0xa08cff : 0xff5a52
+    bv.streakA.tint = bv.streakB.tint = snap ? 0xdff5ff : lance ? 0xffffff : swept ? 0xdcd6ff : 0xffd9d4
 
     const spawnElapsed = b.duration - b.life
     const spawnIn = spawnElapsed < 0.12 ? Math.max(0, spawnElapsed / 0.12) : 1 // width squashes in
@@ -19217,6 +19320,7 @@ export function createRenderer(app) {
     // until its first lane crossing.
     spurG.clear()
     spurRev = -1
+    polypG.clear()
     // Latch the per-chapter palette BEFORE clearing/repainting so the floor repopulates and the
     // player rig tints under the new chapter. Title (run == null) falls back to the body look.
     const cfg = run ? CHAPTERS[run.chapter] : null

@@ -539,6 +539,12 @@ const SFX_FOR_EVENT = {
   // 'ballast' lands every 2.0-2.6s, which is the 'longline' case verbatim — it has a render
   // case instead, and the weight of it is carried by the screen shake.
   sunspear: 'shoot', sunlance: 'beam',
+  // The Reef. A snapping shrimp is a percussive crack about 1.3 times a second before any
+  // fire-rate source, which is precisely the cadence audio.js already throttles 'shoot' for —
+  // the ruling the 'skip' entry above makes verbatim. Fire Coral has NO entry and emits no event
+  // at all: a ridge of the level lighting up is a bigger tell than a chime, and one cast every
+  // 3.4-4.4s for a whole run is the metronome 'longline' and 'ballast' are both denied for.
+  snap: 'shoot',
 }
 
 function endRun(victory) {
