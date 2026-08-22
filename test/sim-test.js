@@ -7129,8 +7129,8 @@ function runModBudget() {
       assert(castUntil(r, (x) => x.blooms.some((b) => b.look === 'silt')), `precondition: the veil must cast at Lv${level}`)
       // WATCH ONE CLOUD'S LIFE ONLY, and disarm the weapon to get it. `rate` is 2.41s at Lv1
       // against a 3.4s cloud, so the veil casts again mid-measurement and the second cone bites the
-      // same body: the gaps came out 1.000, 1.417 instead of 1.000, 1.000. That is an artefact of
-      // the fixture and it reads exactly like a tick that does not hold its interval.
+      // same body: the gaps came out 1.000, 1.417 instead of an even interval. That is an artefact
+      // of the fixture and it reads exactly like a tick that does not hold its interval.
       //   Emptying run.weapons is safe here because stepBlooms reads only the bloom entry — the
       // cloud already exists and lives out its own dur with no weapon behind it.
       const cloud = r.blooms.find((b) => b.look === 'silt')
@@ -7151,7 +7151,7 @@ function runModBudget() {
       }
       return hits.slice(1).map((h, i) => h - hits[i])
     }
-    for (const [level, want] of [[1, 1.00], [5, 0.40]]) {
+    for (const [level, want] of [[1, 0.75], [5, 0.40]]) {
       const gaps = biteGaps(level)
       assert(gaps.length >= 2, `Lv${level}: expected at least 3 bites in one cloud's life, got ${gaps.length + 1}`)
       // One frame of tolerance: _tickAcc is advanced in dt steps, so a bite lands on the first

@@ -2155,12 +2155,13 @@ export const WEAPONS = {
       // tick: it is deliberately ABSENT from STAT_KEYS, so the build sheet gains no row. Adding it
       // there would put a row on those two weapons as well, and Barnacles already sits exactly at
       // the 5-row cap.
-      // balance_decision : the silt cloud ticks per level, 1.0s at Lv1 to 0.4s at Lv5 2026-08-22
-      //  - dmgPerTick is UNCHANGED, so this IS the weapon's dps curve: -50% at Lv1, +25% at Lv5
-      { dmgPerTick: 16, rate: 2.41, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1, tick: 1.00 },
-      { dmgPerTick: 20, rate: 2.25, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1, tick: 0.85 },
-      { dmgPerTick: 28, rate: 2.09, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1, tick: 0.70 },
-      { dmgPerTick: 34, rate: 1.92, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1, tick: 0.55 },
+      // balance_decision : the silt cloud ticks per level, 0.75s at Lv1 to 0.4s at Lv5 2026-08-22
+      //  - dmgPerTick is UNCHANGED, so the ladder IS the weapon's dps curve; measure it, never
+      //    divide it -- overlap absorbs most of a tick change (see the census in the commit body)
+      { dmgPerTick: 16, rate: 2.41, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1, tick: 0.75 },
+      { dmgPerTick: 20, rate: 2.25, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1, tick: 0.66 },
+      { dmgPerTick: 28, rate: 2.09, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1, tick: 0.58 },
+      { dmgPerTick: 34, rate: 1.92, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1, tick: 0.49 },
       { dmgPerTick: 40, rate: 1.76, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1, tick: 0.40 },
     ],
   },
