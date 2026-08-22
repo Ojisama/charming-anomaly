@@ -8287,6 +8287,20 @@ export const nextChapter = (id) => {
   return i < 0 ? null : (order[i + 1] ?? null)
 }
 
+// The player-facing chapter number — '2-2' for The Shelf: its book's place in BOOK_ORDER and its
+// own rung in that book's ladder, both 1-based. This is the owner's own notation ("2.2 is ready")
+// and the summary badge is the first surface it reaches.
+//   DERIVED, never written down. A literal '2-2' inside a copy string is this repo's largest defect
+// class exactly: reorder a ladder and the string keeps saying what used to be true, with nothing
+// thrown and no test red.
+//   null for an id no book carries on a LADDER — a `hidden` chapter has no rung to number, and The
+// Blank is announced by its own badge rather than this one.
+export const chapterNumber = (id) => {
+  const b = bookOf(id)
+  const i = BOOKS[b]?.chapters.indexOf(id) ?? -1
+  return i < 0 ? null : `${BOOK_ORDER.indexOf(b) + 1}-${i + 1}`
+}
+
 // Is this chapter the LAST rung of its book's ladder? The book-unlock gate tests this rather than
 // `nextChapter(id) === null`, which is ALSO true of a hidden chapter and of an id no book claims.
 // The Blank is the live counter-example: nextChapter('blank') is null and its ladder caps at 3,
@@ -11302,13 +11316,15 @@ export const CHAPTER_UNLOCK_LINES = {
   city:        'The City — a report has been filed',
   skies:       'The Skies — this time they\'re not hiding it',
   beyond:      'The Beyond — you were never the only anomaly',
-  // The watcher thread through the chapter's OWN subject, which is pollution. 'fouled' is the
-  // chapter's word already (Foul Spring, Foul Water), and 'on purpose' is what makes filthy water
-  // a thing that was DONE rather than weather — the same institutional passive voice as The City's
-  // 'a report has been filed'. Runoff's own line, 'whatever they dumped in here', is the precedent:
-  // on The Shelf the watcher and the pollution are one thread, not two.
-  shelf:       'The Shelf — the water ahead of you was fouled on purpose',
 }
+// A chapter with no row above gets the PLAIN numbered badge instead (ui.js's renderSummary):
+// "New level unlocked: 2-2 Le Large". Owner, 2026-08-22, on the flavour line written for The
+// Shelf: "I don't like the phrase. Just display New level Unlocked : 2-2 le large."
+//   So the table is now OPTIONAL rather than a per-chapter obligation, and the fallback is the
+// default rather than a stopgap. Book 1's six rows stay: the watcher thread is that book's story
+// and it is shipped. Undertow has no such thread and takes the plain badge.
+//   Nothing enumerates this table to demand a row — run JJ.d asserts the FALLBACK resolves for
+// every shipped chapter instead, which is the thing a player actually sees now.
 
 // Book-unlock badge copy (v7.x), keyed by the book that just OPENED. Flat id -> string like
 // CHAPTER_UNLOCK_LINES above, and in a table for the same reason: run XX's config-table walk is

@@ -235,7 +235,9 @@ const UI = {
   // as "Key to retry", and toucher is not the verb French UI uses for a tap.
   'Could not reach the podium. Tap to try again.': 'Podium injoignable. Appuie pour réessayer.',
   'Difficulty {d} unlocked!': 'Difficulté {d} débloquée !',
-  'Chapter unlocked: {name}!': 'Chapitre débloqué : {name} !',
+  // The default unlock badge: no flavour, just the rung and its name (owner, 2026-08-22).
+  // {n} is chapterNumber(), so the number is never baked into the key.
+  'New level unlocked: {n} {name}': 'Nouveau niveau débloqué : {n} {name}',
   // v6.7 carousel counter. Stands alone in front of a numeral ("Chapitre 3"), so it takes no
   // article and no agreement — the single word is the whole string on purpose.
   'THE BLANK — the antibody that let you go wants you back': 'LE BLANC — l\'anticorps qui t\'a laissé filer veut que tu reviennes',
@@ -548,9 +550,6 @@ const CONFIG = {
   'The City — a report has been filed': 'La Ville — un signalement a été déposé',
   'The Skies — this time they\'re not hiding it': 'Les Cieux — cette fois ils ne s\'en cachent plus',
   'The Beyond — you were never the only anomaly': 'L\'Au-delà — tu n\'as jamais été la seule anomalie',
-  // 'souillée' is the chapter's shipped word — Source Souillée, Eau Souillée — so the badge and
-  // the cards foul the same water.
-  'The Shelf — the water ahead of you was fouled on purpose': 'Le Large — l\'eau devant toi a été souillée exprès',
   // v7.x book-unlock badge (BOOK_UNLOCK_LINES). {n} is the welcome purse — keep the placeholder.
   'UNDERTOW — a second book opens, for a new adventure… 🪙 {n} to begin': 'LAME DE FOND — un deuxième livre s\'ouvre pour une nouvelle aventure… 🪙 {n} pour commencer',
   'Toxic Shock': 'Choc Toxique',

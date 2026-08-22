@@ -44,7 +44,7 @@ import {
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
   MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL, spendSecs,
-  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
+  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
@@ -13454,17 +13454,40 @@ function testRemaster() {
       assert(CHAPTER_ENDINGS[id]?.victory && CHAPTER_ENDINGS[id]?.death,
         `CHAPTER_ENDINGS missing ${id} — a player who wins or dies there gets the generic 'You escaped! 🎉' fallback`)
     }
-    // Unlock lines belong to every chapter you ARRIVE at, i.e. every shipped one that is not the
-    // first of its own book. The Blank is unlocked by winning rather than by the ladder, so it is
-    // exempt — as is each book's opener, which nothing unlocks.
+    // THE FLAVOUR LINE IS OPTIONAL NOW; THE BADGE IS NOT. Owner, 2026-08-22: "I don't like the
+    // phrase. Just display New level Unlocked : 2-2 le large." So a chapter with no
+    // CHAPTER_UNLOCK_LINES row falls back to the plain numbered badge, and what has to hold for
+    // every arrival-chapter is that the FALLBACK resolves — a null number renders the literal
+    // word "null" onto the summary screen, which throws nothing and reads as a bug to a player.
+    //
+    // Asserting the fallback rather than the table is the whole point of the change: the old
+    // assertion demanded a row per chapter, so it could only ever have gone red for The Shelf
+    // — the chapter whose row the owner then asked to delete.
+    //
     // Every book's first rung, with no wip filter of its own: `shipped` has already dropped any
     // book whose opener is still gated, so filtering here too would only be a second chance to
-    // disagree with it. The Surf is Undertow's opener, so nothing unlocks it and it owes no line.
+    // disagree with it. The Surf is Undertow's opener, so nothing unlocks it and it owes no badge.
     const openers = new Set(Object.values(BOOKS).map((b) => b.chapters[0]))
-    for (const id of shipped.filter((i) => i !== 'blank' && !openers.has(i))) {
-      assert(CHAPTER_UNLOCK_LINES[id], `CHAPTER_UNLOCK_LINES missing ${id}`)
+    const arrivals = shipped.filter((i) => i !== 'blank' && !openers.has(i))
+    for (const id of arrivals) {
+      const n = chapterNumber(id)
+      assert(n && /^\d+-\d+$/.test(n), `chapterNumber('${id}') is ${JSON.stringify(n)} — the unlock badge would print it verbatim`)
     }
-    console.log(`PASS run JJ.d (reword tables): endings + unlock lines complete across ${shipped.length} shipped chapters [${shipped.join(' ')}]`)
+    // The number is DERIVED, so prove it tracks the ladder rather than agreeing with it by luck:
+    // The Shelf is Undertow's second rung and Undertow is the second book, which is the owner's
+    // own '2-2'. A hardcoded string passes the shape check above and fails this one.
+    assert.strictEqual(chapterNumber('shelf'), '2-2', "The Shelf is book 2's second rung — the badge must say 2-2")
+    assert.strictEqual(chapterNumber('body'), '1-1', 'The Body is book 1 rung 1')
+    assert.strictEqual(chapterNumber('blank'), null, 'a hidden chapter has no rung to number, and gets its own badge')
+    assert.strictEqual(chapterNumber('nope'), null, 'an id no book claims must not resolve to a number')
+    // The badge's own template, which lives as a tt() literal in ui.js and is therefore INVISIBLE
+    // to run XX's config-table walk by construction — the exemption CLAUDE.md says has shipped
+    // untranslated copy four times. Asserted here by hand because nothing else can see it.
+    assert(FR['New level unlocked: {n} {name}'], 'the plain unlock badge has no French — every non-Book-1 chapter would announce itself in English')
+    for (const key of Object.keys(CHAPTER_UNLOCK_LINES)) {
+      assert(Object.hasOwn(CHAPTERS, key), `CHAPTER_UNLOCK_LINES has a row for '${key}', which is not a chapter — dead copy run XX will still demand French for`)
+    }
+    console.log(`PASS run JJ.d (reword tables): endings complete across ${shipped.length} shipped chapters [${shipped.join(' ')}], ${arrivals.length} arrival chapters all number for the badge, ${Object.keys(CHAPTER_UNLOCK_LINES).length} optional flavour lines all name a real chapter`)
   }
   console.log('PASS run JJ (Remaster): melee parity, toxic shock, new events, reword tables')
 }
