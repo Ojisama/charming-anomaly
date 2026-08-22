@@ -52,7 +52,7 @@ import {
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, DASH_SPEED_MUL, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
-  MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC, SILT_VEIL_ARC, SHARD_RIFT_W, SHARD_RIFT_FUSE,
+  MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC, SILT_VEIL_ARC, BLOOM_TICK, SHARD_RIFT_W, SHARD_RIFT_FUSE,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
   STINGER_HIVE_EVERY,
   POUNCE_RANGE, POUNCE_AIM_T, POUNCE_AIM_TRACK_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
@@ -7112,6 +7112,85 @@ function runModBudget() {
       `a body BEHIND the cone must take nothing — it lost ${(hp0.back - back.hp).toFixed(0)} hp, so the wedge is not gating damage`)
     assert.strictEqual(back.stunT || 0, 0,
       `a body BEHIND the cone must not be dazed either — the daze rides the same tick loop as the damage`)
+
+    // (c2) THE CLOUD'S TICK IS PER LEVEL, AND IT IS MEASURED, NOT READ OFF THE FIELD. Owner,
+    // 2026-08-22: "It should tick like [...] every 1s at Lv1 and every 0.4 at level 5." A bloom
+    // carrying a `tick` field stepBlooms never reads is the exact inert-card shape MB.a exists for
+    // — the ladder would look right in config.js and the cloud would still bite every 0.5s — so the
+    // subject here is the OBSERVED gap between bites, taken from the victim's hp.
+    //
+    // Damage is player-scaled and dmgPerTick differs per level, so neither the hp lost nor the tick
+    // COUNT is a stable number to assert. The GAP between successive drops is, and it is exactly
+    // the quantity the owner named.
+    const biteGaps = (level) => {
+      const r = boot('shelf', 'siltVeil', level, null)
+      const foe = makeStatusEnemy(r, { x: r.player.x + 60, y: r.player.y, hp: 1e9, speed: 0 })
+      r.enemies.push(foe)
+      assert(castUntil(r, (x) => x.blooms.some((b) => b.look === 'silt')), `precondition: the veil must cast at Lv${level}`)
+      // WATCH ONE CLOUD'S LIFE ONLY, and disarm the weapon to get it. `rate` is 2.41s at Lv1
+      // against a 3.4s cloud, so the veil casts again mid-measurement and the second cone bites the
+      // same body: the gaps came out 1.000, 1.417 instead of 1.000, 1.000. That is an artefact of
+      // the fixture and it reads exactly like a tick that does not hold its interval.
+      //   Emptying run.weapons is safe here because stepBlooms reads only the bloom entry — the
+      // cloud already exists and lives out its own dur with no weapon behind it.
+      const cloud = r.blooms.find((b) => b.look === 'silt')
+      r.weapons.length = 0
+      // RE-PIN THE VICTIM EVERY FRAME. The Shelf's signature drifts everything at driftAmp 60,
+      // and a body starting 60px from the apex reaches 125px by the cloud's end — outside a 116px
+      // reach. The third tick then fires into empty water and the gap list comes back one short,
+      // which reads exactly like a tick that stopped. This is the same class of fixture drift the
+      // `onStep` re-pin above exists for (run.charge, run.shafts).
+      const px = foe.x, py = foe.y
+      const hits = []
+      let hp = foe.hp, t = 0
+      while (r.blooms.includes(cloud)) {
+        foe.x = px; foe.y = py
+        stepSim(r, { x: 0, y: 0 }, dt)
+        t += dt
+        if (foe.hp < hp) { hits.push(t); hp = foe.hp }
+      }
+      return hits.slice(1).map((h, i) => h - hits[i])
+    }
+    for (const [level, want] of [[1, 1.00], [5, 0.40]]) {
+      const gaps = biteGaps(level)
+      assert(gaps.length >= 2, `Lv${level}: expected at least 3 bites in one cloud's life, got ${gaps.length + 1}`)
+      // One frame of tolerance: _tickAcc is advanced in dt steps, so a bite lands on the first
+      // frame at or after the interval and never exactly on it.
+      const worst = Math.max(...gaps.map((g) => Math.abs(g - want)))
+      assert(worst <= dt + 1e-9,
+        `Lv${level}: the silt cloud must bite every ${want}s, measured ${gaps.map((g) => g.toFixed(3)).join(', ')}`)
+    }
+    // ...AND THE TWO LEVELS MUST DIFFER. Both assertions above pass a build where every level got
+    // the same tick if that tick happened to satisfy neither -- this is what makes the LADDER the
+    // subject rather than two independent numbers.
+    assert(WEAPONS.siltVeil.levels.every((l, i, a) => i === 0 || l.tick < a[i - 1].tick),
+      'the silt tick must fall monotonically up the ladder — a flat or rising rung makes levelling the weapon slow its cloud down')
+
+    // THE SHARED DEFAULT IS UNTOUCHED. Silt Veil got its own cadence by overriding BLOOM_TICK, and
+    // the failure mode of doing that badly is moving the constant itself — which silently retunes
+    // the pond's Toxin Bloom and The Twilight's Foxfire, two chapters away, with nothing red.
+    assert.strictEqual(BLOOM_TICK, 0.5, 'BLOOM_TICK moved — Toxin Bloom and Foxfire ride it and neither was meant to change')
+    {
+      const r = boot('pond', 'bloom', 5, null)
+      const foe = makeStatusEnemy(r, { x: r.player.x + 30, y: r.player.y, hp: 1e9, speed: 0 })
+      r.enemies.push(foe)
+      assert(castUntil(r, (x) => x.blooms.length > 0), 'precondition: Toxin Bloom must cast within 12s')
+      const cloud = r.blooms[0]
+      r.weapons.length = 0   // same reason as the veil above: one cloud, no second cast over it
+      assert.strictEqual(cloud.tick, undefined, 'a Toxin Bloom cloud must carry NO tick of its own, or it has stopped riding the shared default')
+      const px = foe.x, py = foe.y   // re-pinned for the same reason as the veil's loop above
+      const hits = []
+      let hp = foe.hp, t = 0
+      while (r.blooms.includes(cloud)) {
+        foe.x = px; foe.y = py
+        stepSim(r, { x: 0, y: 0 }, dt)
+        t += dt
+        if (foe.hp < hp) { hits.push(t); hp = foe.hp }
+      }
+      const gaps = hits.slice(1).map((h, i) => h - hits[i])
+      assert(gaps.length >= 1 && gaps.every((g) => Math.abs(g - BLOOM_TICK) <= dt + 1e-9),
+        `Toxin Bloom must still bite every ${BLOOM_TICK}s, measured ${gaps.map((g) => g.toFixed(3)).join(', ')}`)
+    }
 
     // Ballast: weights spread around the aim point. It needs something to aim at, or every drop
     // lands on the same blind-throw point by design and the spread is untestable.

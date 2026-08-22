@@ -7787,9 +7787,13 @@ function stepBlooms(run, dt) {
     }
 
     const tickDmg = pondTide ? bl.dmgPerTick * (1 + TIDE_DMG_BONUS * tide) : bl.dmgPerTick
+    // PER-CLOUD CADENCE, defaulting to the shared one. Silt Veil sets it from its level (the same
+    // shape `hole` uses for its own tick); Toxin Bloom, Foxfire and sporeburst minis carry none and
+    // keep BLOOM_TICK. `> 0` rather than `!= null`: a zero would spin this while-loop forever.
+    const tickEvery = bl.tick > 0 ? bl.tick : BLOOM_TICK
     bl._tickAcc = (bl._tickAcc ?? 0) + dt
-    while (bl._tickAcc >= BLOOM_TICK) {
-      bl._tickAcc -= BLOOM_TICK
+    while (bl._tickAcc >= tickEvery) {
+      bl._tickAcc -= tickEvery
       const rSq = bl.r * bl.r
       for (const e of run.enemies) {
         if (e._dead) continue
@@ -9530,7 +9534,7 @@ function spawnSiltCloud(run, x, y, maxR) {
   const s = w ? effectiveWeaponStats(run, w) : WEAPONS.siltVeil.levels[0]
   run.blooms.push({
     x, y, r: 0, maxR: maxR ?? s.maxR, t: 0, dur: s.dur,
-    dmgPerTick: s.dmgPerTick, look: 'silt', slow: 0, daze: s.daze,
+    dmgPerTick: s.dmgPerTick, look: 'silt', slow: 0, daze: s.daze, tick: s.tick,
   })
 }
 
@@ -9584,7 +9588,9 @@ function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
       run.blooms.push({
         x: p.x, y: p.y,
         r: 0, maxR: stats.maxR * mul, t: 0, dur: stats.dur * mul,
-        dmgPerTick: stats.dmgPerTick * mul, look: 'silt', slow: 0, daze: stats.daze,
+        // `mul` (Foul Spring) is NOT applied to the tick: the card promises more power and more
+        // size, and a cadence buff hidden inside it would be a fourth thing it never says.
+        dmgPerTick: stats.dmgPerTick * mul, look: 'silt', slow: 0, daze: stats.daze, tick: stats.tick,
         arc: SILT_VEIL_ARC, angle,
       })
       // THE PATCH ITSELF TURNS TO SILT (owner, 2026-08-22: "foul spring should be turning the

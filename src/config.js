@@ -2147,11 +2147,21 @@ export const WEAPONS = {
       // balance_decision : the vase casts 40% more often 2026-08-22
       //  - `rate` is an INTERVAL, so +40% cadence DIVIDES by 1.4 -- the number goes down. Raising
       //    it would have slowed the weapon by 40% while reading like a buff.
-      { dmgPerTick: 16, rate: 2.41, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1 },
-      { dmgPerTick: 20, rate: 2.25, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1 },
-      { dmgPerTick: 28, rate: 2.09, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1 },
-      { dmgPerTick: 34, rate: 1.92, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1 },
-      { dmgPerTick: 40, rate: 1.76, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1 },
+      // `tick` IS THE CLOUD'S OWN CADENCE, and it is the second time-per-level number on this
+      // ladder: `rate` is how often you CAST, `tick` is how often what you cast bites. Before this
+      // the cloud rode the shared BLOOM_TICK (0.5s flat, config.js) alongside the pond's Toxin
+      // Bloom and The Twilight's Foxfire, so the veil had no cadence of its own at any level.
+      //   Same key name and same treatment as `hole` and `orbit`, which already ship a per-level
+      // tick: it is deliberately ABSENT from STAT_KEYS, so the build sheet gains no row. Adding it
+      // there would put a row on those two weapons as well, and Barnacles already sits exactly at
+      // the 5-row cap.
+      // balance_decision : the silt cloud ticks per level, 1.0s at Lv1 to 0.4s at Lv5 2026-08-22
+      //  - dmgPerTick is UNCHANGED, so this IS the weapon's dps curve: -50% at Lv1, +25% at Lv5
+      { dmgPerTick: 16, rate: 2.41, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1, tick: 1.00 },
+      { dmgPerTick: 20, rate: 2.25, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1, tick: 0.85 },
+      { dmgPerTick: 28, rate: 2.09, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1, tick: 0.70 },
+      { dmgPerTick: 34, rate: 1.92, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1, tick: 0.55 },
+      { dmgPerTick: 40, rate: 1.76, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1, tick: 0.40 },
     ],
   },
   ballast: {
@@ -3549,6 +3559,9 @@ export const BARBED_DURATION = 3
 // a planted cloud (run.blooms, see state.js) grows 0 -> maxR over dur × BLOOM_GROW_FRAC, then holds
 // maxR, ticking dot-flagged damage every BLOOM_TICK to enemies inside until t reaches dur.
 export const BLOOM_GROW_FRAC = 0.35
+// THE DEFAULT ONLY. A bloom may carry its own `tick` and the Silt Veil does, per level — see
+// WEAPONS.siltVeil.levels. Anything planted without one (Toxin Bloom, Foxfire, a sporeburst mini)
+// still rides this.
 export const BLOOM_TICK = 0.5
 // sporeburst (behavioral): a foe killed by a (non-mini) cloud's own tick emits a mini-cloud at
 // SPOREBURST_FRAC of the parent's maxR (same dur/dmgPerTick), flagged `_mini` so it never chains.
