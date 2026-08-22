@@ -3198,9 +3198,16 @@ export const WEAPON_MODS = {
     // 2026-08-22: the patch no longer just blinks out. Fouling it turns the WHOLE circle into a
     // silt cloud of its own radius (foulUpwelling's caller in sim.js) -- the cost is unchanged,
     // the patch is still spent, but what the player gets for it is now on screen and biting.
-    // The copy says 'turns to silt' rather than 'fouls', which is both halves in three words:
-    // clean water gone, silt in its place.
-    foulSpring: { name: 'Foul Spring', desc: 'a cloud in clean water has {n} more duration, damage and size, and turns the patch to silt', icon: '🌀', base: 0.50, kind: 'pct' },
+    //
+    // THE LINE IS THE OWNER'S, WRITTEN IN FRENCH FIRST and fitted to in English: "Les nuages de
+    // vase consomment l'eau claire pour gagner 50% de puissance et de taille". Two deliberate
+    // losses in it, neither an oversight:
+    //   'power' FOLDS duration and damage. The mod moves three numbers and the card names two,
+    //   which is the Big Beam idiom -- a card that lists every stat it touches stops being read.
+    //   IT DOES NOT MENTION THE SILT the patch turns into. The cost is what the player needs the
+    //   words for; the payoff is a cloud the size of the whole circle appearing on screen, which
+    //   needs no sentence. This line was the LONGEST in the game at 91 chars and is now 63.
+    foulSpring: { name: 'Foul Spring', desc: 'silt clouds consume clean water to gain {n} more power and size', icon: '🌀', base: 0.50, kind: 'pct' },
   },
   ballast: {
     deadweight: { name: 'Deadweight',  desc: 'impact damage',       icon: '💥', base: 0.30, kind: 'pct' },
