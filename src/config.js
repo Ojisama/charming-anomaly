@@ -2144,11 +2144,14 @@ export const WEAPONS = {
       // weapon's levels[] means no other build sheet gains a row.
       // balance_decision : silt veil is a 75 deg cone off the player, not a cloud 2026-08-21
       //  - the ladder is UNCHANGED by the reshape; maxR changed meaning, not value.
-      { dmgPerTick: 16, rate: 3.38, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1 },
-      { dmgPerTick: 20, rate: 3.15, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1 },
-      { dmgPerTick: 28, rate: 2.92, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1 },
-      { dmgPerTick: 34, rate: 2.69, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1 },
-      { dmgPerTick: 40, rate: 2.46, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1 },
+      // balance_decision : the vase casts 40% more often 2026-08-22
+      //  - `rate` is an INTERVAL, so +40% cadence DIVIDES by 1.4 -- the number goes down. Raising
+      //    it would have slowed the weapon by 40% while reading like a buff.
+      { dmgPerTick: 16, rate: 2.41, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1 },
+      { dmgPerTick: 20, rate: 2.25, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1 },
+      { dmgPerTick: 28, rate: 2.09, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1 },
+      { dmgPerTick: 34, rate: 1.92, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1 },
+      { dmgPerTick: 40, rate: 1.76, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1 },
     ],
   },
   ballast: {
@@ -4090,6 +4093,20 @@ export const BUBBLE_ARC_MAX = Math.PI * 4 / 3   // 240 deg: the widest a SINGLE 
 export const BUBBLE_COVER_MAX = Math.PI * 1.5
 export const BALLAST_FLIGHT = 0.42       // seconds from the throw to the landing
 export const BALLAST_BLIND_THROW = 260   // px ahead, when there is nothing to aim at
+// HOW FAR THE WEIGHT IS THROWN, as nearestEnemy's `pad`. Every other weapon in the game aims with
+// the +100 default -- viewRadius + 100, i.e. everything on screen and a little past the edge -- and
+// this is the one card that aims SHORT of it. Owner, 2026-08-22, asked for the reach cut and named
+// the number: "throw at view radius - 100px". At the default viewRadius of 600 that is 500px rather
+// than 700.
+//   ⚠ THE OUT-OF-REACH CASE ALREADY HAS AN ANSWER and it is not "hold the cast": nearestEnemy
+// returns null past the pad, which is the same branch as an empty screen, so the weapon falls
+// through to the BALLAST_BLIND_THROW lob 260px ahead of your facing. A distant body is therefore
+// not a dead cast -- it is a blind one, which is the shipped behaviour for "nothing to aim at" and
+// stays deliberately. 260 sits well inside 500, so a blind throw always lands inside the new reach.
+// balance_decision : the lest aims short of the screen edge, not past it 2026-08-22
+//  - it is a PAD, not a radius: negative is correct here and flipping the sign is a silent 40%
+//    buff. Run LL.c3 asserts a body past the reach is not aimed at.
+export const BALLAST_REACH_PAD = -100
 // balance_decision : a weight crushes tanks double and pins for 2s 2026-08-21
 //  - BALLAST_DRAG is DEEPER than BLOOM_SLOW (0.35) on purpose: this one lands once and expires,
 //    where a cloud's is refreshed every frame a body stands in it.
