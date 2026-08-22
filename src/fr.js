@@ -1294,12 +1294,12 @@ const CONFIG = {
   'Quick Stir': 'Brassage Rapide',
   'stir rate': 'cadence de brassage',
   'Foul Spring': 'Source Souillée',
-  // 2026-08-22: the patch now BECOMES a cloud rather than blinking out, and the line says so in
-  // both halves -- 'change la zone en vase' is the clean water gone AND the silt arriving, which
-  // is what 'souille' only half said. It is also the LONGEST card line in the game in both
-  // languages, which is why it is this short: every word here is one the card cannot lose.
-  // Still no noun for the circles: 'la zone', as before.
-  'a cloud in clean water has {n} more duration, damage and size, and turns the patch to silt': 'un nuage dans l\'eau claire gagne {n} de durée, de dégâts et de taille, et change la zone en vase',
+  // 2026-08-22, and this one is the OWNER'S OWN LINE -- the French is the original and the English
+  // was fitted to it, so read the French as the authority if the two ever drift. 'vase' singular
+  // (the material, the word this weapon's whole vocabulary is built on), and 'puissance' folds the
+  // duration and the damage the way the English 'power' does. Still no noun for the circles:
+  // 'l'eau claire' is what the player is looking at.
+  'silt clouds consume clean water to gain {n} more power and size': 'les nuages de vase consomment l\'eau claire pour gagner {n} de puissance et de taille',
   'Ballast': 'Lest',
   'Drops dumped weight on the crowd. Whatever it does not crush, it pins down.': 'Lance un débris. Ce qu\'il n\'écrase pas, il le cloue sur place.',
   // Lest's four. 'Délestage' is literally jettisoning ballast, so the count mod is named for the
