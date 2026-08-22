@@ -11716,6 +11716,10 @@ export const ELITE_AFFIXES = {
   gilded:    { name: 'Gilded',      icon: '👑' },
 }
 export const AFFIX_SECOND_AT = 150   // s; elites spawned after this roll 2 distinct affixes instead of 1
+// balance_decision : half of all elites shrug off crowd control outright 2026-08-22
+//  - `anchored` is no longer in the rolled pool (rollAffixes filters it out), so this number is the
+//    rate as written — and it gates freeze too, via elNeverFreezes.
+export const ANCHORED_CHANCE = 0.5   // chance an elite gets `anchored` ON TOP of its rolled affixes
 export const SHIELD_HP_FRAC = 0.5    // shielded: shield active while hp > maxHP * this fraction
 export const SHIELD_DMG_MUL = 0.6    // shielded: incoming damage multiplier while the shield is up
 export const SPLITTER_COUNT = 4      // splitter: wisps spawned around the corpse on death

@@ -78,7 +78,7 @@ import {
   EL_WINDOW, EL_BUCKETS, EL_FIRE_SHARE, EL_COLD_MUL, EL_FREEZE_T, EL_FREEZE_RESIST,
   EL_FREEZE_RESIST_T, EL_VENOM_MUL, EL_LIGHT_SHARE, EL_LIGHT_RANGE, EL_LIGHT_FORWARD,
   EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, elScale, elementCardDesc, elText,
-  ELITE_AFFIXES, AFFIX_SECOND_AT, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
+  ELITE_AFFIXES, AFFIX_SECOND_AT, ANCHORED_CHANCE, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
   VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, CORE_BLAST_ENEMY_MUL, PACER_RADIUS, PACER_SPEED_MUL,
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
   newWeaponChance, NEW_WEAPON_MIN_RATE,
@@ -1553,16 +1553,20 @@ function stepLeaks(run) {
   return false
 }
 
-// Rolls ELITE_AFFIXES.length equal-weight distinct affix ids: 1 normally, 2 once
-// run.time >= AFFIX_SECOND_AT. Called only for elites.
+// Rolls equal-weight distinct affix ids from every ELITE_AFFIXES entry EXCEPT `anchored`: 1
+// normally, 2 once run.time >= AFFIX_SECOND_AT. Called only for elites.
 function rollAffixes(run) {
   const count = run.time >= AFFIX_SECOND_AT ? 2 : 1
-  const pool = Object.keys(ELITE_AFFIXES)
+  const pool = Object.keys(ELITE_AFFIXES).filter((id) => id !== 'anchored')
   const picked = []
   for (let i = 0; i < count && pool.length > 0; i++) {
     const idx = Math.floor(Math.random() * pool.length)
     picked.push(pool.splice(idx, 1)[0])
   }
+  // `anchored` is an OVERLAY, not one of the rolled affixes — it is filtered out of the pool above
+  // so ANCHORED_CHANCE is the rate as written, and every elite still carries its own teeth
+  // underneath it. Same idiom as unstableCores below: the rule is added, nothing is taken away.
+  if (Math.random() < ANCHORED_CHANCE) picked.push('anchored')
   // ANOMALIES.unstableCores (config.js): every elite dies volatile. Pushed onto the affix ARRAY
   // rather than set as enemy.volatile — 'volatile' is only ever read as
   // enemy.affixes.includes('volatile') (dealDamage's death path), so a boolean would be a dead
