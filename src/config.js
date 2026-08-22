@@ -6870,10 +6870,7 @@ CHAPTERS.wreck = {
     // off a chase for one. Sized against the bar rather than against the kill: at 30 of a 100 bar
     // it is three ordinary fish and change, which is enough to be a decision and short of the full
     // bar Gorge pays for an elite — the elite must stay the bigger prize.
-    // feedSlow: THE CHAPTER'S PAYOFF FOR HERDING. Being inside the shoal slows the drain (FEED_*).
-    // It is a rate rather than a refill because the bar is CLAMPED and a refill multiplier measured
-    // regressive — see the FEED block in this file and stepCharge for the numbers.
-    name: 'Bloodlust', drainPerSpawn: 2.4, refill: 0, killBase: 5, killRefill: 2, tankRefill: 30, max: 100, feedSlow: true,
+    name: 'Bloodlust', drainPerSpawn: 2.4, refill: 0, killBase: 5, killRefill: 2, tankRefill: 30, max: 100,
     damage: { floor: 1, peak: 1.8 },
     rate: { floor: 1, peak: 1.5 },
     // 4, not 5, and the reason is arithmetic rather than balance: hurtPlayer ROUNDS a dot hit, so
@@ -8962,93 +8959,6 @@ export const PREY_SHOAL_SIZE = 16
 // going". At 1.0 a shoal explodes radially like a firework, which is the one silhouette a bait
 // ball never makes; the blend is what keeps it a body of fish peeling off in a direction.
 export const PREY_FLEE_BLEND = 0.7
-
-// ---- THE SELFISH HERD (v7.x, The Wreck) --------------------------------------------------------
-// THE ONE ATTRACTING FORCE IN THE CHAPTER, and the chapter did not work without it. Every other
-// term in stepPrey is a translation or a repulsion — the drift heading is a pure function of shoal
-// id and clock and is IDENTICAL for every member, so the 1 - PREY_FLEE_BLEND residue translates a
-// school and can never contract one — while stepEnemySeparation pushes bodies apart every frame.
-// So there was no input a player could make that raised local density, and a chapter whose whole
-// premise is herding had no herding in it. Measured before this term existed: orbiting a shoal
-// produced the EMPTIEST neighbourhood of any policy (3.3 prey within 200px against a straight
-// line's 6.0) and 187 kills against 510 — circling was the worst thing you could do.
-//
-// The fix is the real reason bait balls exist: a threatened fish swims toward the middle of its own
-// school, not merely away from the predator. One repulsor can only ever make a ring; it is the
-// school's own inward pull that closes the ring into a ball.
-//
-// THREAT-WEIGHTED, and that is what keeps the shipped look. An unaware school still mills loosely
-// exactly as it always did; only a school that can see a predator tightens. Without the weighting
-// every shoal in the chapter would collapse to a point at all times, which is a different game.
-//
-// This takes the upgrade path sim.js's own `ponytail: id buckets, not boids` marker names — "if
-// schools ever need to MERGE, SPLIT or avoid each other, that is when this becomes a real flocking
-// pass". It is O(n): one accumulate pass keyed on the shoal id stepPrey already computes, then an
-// O(1) lookup per fish. Written as a neighbour query it would be ~358k distance tests/frame at this
-// chapter's cap, the magnitude sim.js's separation comment rejects in writing.
-// balance_decision : cohesion strength, fitted by eye against the shoal look 2026-08-22
-//  - raising this past ~0.5 collapses an UNTHREATENED school into a dot; judge it on a frame
-export const PREY_COHESION_BLEND = 0.35
-// Below this a "school" is a couple of strays and there is no middle to swim toward; steering them
-// together reads as two fish magnetising, not as a shoal.
-export const PREY_COHESION_MIN_N = 3
-
-// ---- DENSITY, AND WHAT IT PAYS (v7.x, The Wreck) -----------------------------------------------
-// BALL_R IS THE RADIUS `_shoalN` COUNTS WITHIN, and it MUST NOT EXCEED ENEMY_SEP_CELL. The count
-// rides stepEnemySeparation's existing pair walk, which visits each enemy's own cell plus the four
-// forward neighbours (SEP_NEIGHBOR_OFFSETS) — so every pair within ONE cell is visited exactly once
-// and anything beyond that is covered anisotropically, i.e. a ball would score differently
-// depending on where it sat against an invisible grid.
-//
-// ⚠ THE COUNT IS TAKEN BEFORE resolveSeparationPair's OVERLAP EARLY-OUT, NOT AFTER. After it, the
-// count means "bodies touching me", which the 2D kissing number caps at SIX — and any threshold
-// above that becomes unreachable with nothing thrown. It also measures the thing the separation
-// pass exists to destroy.
-export const BALL_R = 64
-
-// FEED — the drain-slow, and it is the chapter's payoff for herding.
-//
-// ⚠ IT IS DELIBERATELY NOT A MULTIPLIER ON THE REFILL, and that is the whole finding. Bloodlust is
-// CLAMPED at run.chargeMax, so a refill multiplier is worth most to whoever is furthest from the
-// clamp — the player doing worst. Measured, a killBase multiplier paid a straight-line player +167%
-// against a hunter's +31%, collapsing the mow:hunt separation from 2.69x to 1.33x: it HALVED the
-// reward for engaging, which is the exact inverse of this chapter's thesis. A rate is not clampable,
-// so slowing the drain pays the same whether the bar is full or empty.
-//
-// It also rewards the right verb. A refill pays you for KILLING; this pays you for BEING IN the
-// mass, which is what "trap, circle, hunt" actually looks like — and a player crossing the map in a
-// straight line is never inside anything (measured prey within 200px: 6.0 mowing, 11.7 hunting).
-// On the HUD it reads as the bar falling slower, so the tell is free.
-// ⚠ FEED COUNTS TIGHT BODIES, NOT ALL BODIES, and the first cut counted all of them and failed.
-// At spawnMul 2.2 the field holds 620 concurrent fish, so ambient crowding is free: a straight line
-// across the map measured 5.3-5.5 prey within 200px against a hunter's 5.9-6.2, a 1.1x spread. Any
-// reward keyed on that pays both alike — the bar separation NARROWED from 1.96x to 1.48x, which is
-// the same regressive shape the refill multiplier had, reached by a different road. `_shoalN`
-// separates them 2.1x (2.57 mowing against 5.45 circling) because CROWDING is ambient and
-// TIGHTNESS is earned. This is the threshold above which a body counts as part of a real ball.
-// balance_decision : tightness a body needs before it feeds you 2026-08-22
-//  - sits between the measured mowing (2.6) and circling (5.4) neighbour counts, deliberately
-export const BALL_TIGHT_N = 4
-export const FEED_R = 200          // px around the PLAYER, not around a victim — this is a position reward
-// balance_decision : prey-in-radius at which the drain-slow saturates 2026-08-22
-//  - 12 is just above a hunting player's measured mean of 11.7, so it is reachable but not free
-export const FEED_FULL_N = 12
-// The floor: fully surrounded, the drain runs at this fraction. NOT zero — a bar that stops falling
-// entirely turns the chapter's clock off and "stop and you starve" stops being true.
-export const FEED_DRAIN_MIN = 0.45
-
-// ---- PREY FLEES PREDATORS (v7.x, The Wreck) ----------------------------------------------------
-// A moray is a predator and prey did not care. It made the roster's one non-fleeing body a 0-damage
-// sponge that only stole the bite's aim; now it scatters what you are trying to gather, so it is
-// ground you clear before you can hunt a patch.
-//
-// ⚠ SMALL AND LOCAL ON PURPOSE. This is the MORAY's radius. Anything that has to reach across a
-// larger shape needs its own constant — one number cannot both be a body's personal space and span
-// a hazard's whole footprint, and set large this evacuates a disc the player can never fill.
-// ⚠ ALLIES ARE EXCLUDED at the read site: a SUBMISSION-converted moray is non-skittish and on the
-// player's side, and would otherwise scatter the balls the player is building.
-export const PREY_PREDATOR_FEAR_R = 170
-export const PREY_PREDATOR_BLEND = 0.55
 
 // ---- THE LEAK (v7.x, The Wreck's signature) ----------------------------------------------------
 // THE BOAT IS THE POLLUTION. Owner ruling 2026-08-17, taken when the chapter turned into a hunt:

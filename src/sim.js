@@ -162,8 +162,6 @@ import {
   BILGE_AVOID_PAD, BILGE_AVOID_BLEND, BILGE_TRAIL_RATE_MUL, BILGE_TRAIL_R_MUL,
   RING_N, RING_R_MUL, RING_POOL_MUL,
   PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_TURN_RATE, PREY_SHOAL_SIZE, PREY_FLEE_BLEND,
-  PREY_COHESION_BLEND, PREY_COHESION_MIN_N, PREY_PREDATOR_FEAR_R, PREY_PREDATOR_BLEND,
-  BALL_R, BALL_TIGHT_N, FEED_R, FEED_FULL_N, FEED_DRAIN_MIN,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
@@ -258,10 +256,6 @@ export function stepSim(run, input, dt) {
   stepTrail(run, dt)      // must precede stepBossScript: a scripted chapter returns out of stepSim below
   if (stepBossScript(run, dt)) return // v5.24 blank: the scripted chapter's ONLY spawner (phase may be 'dead' — P2 yank)
   stepFormations(run, dt) // v5.18 beyond lane: ranks of marchers, alongside the seeking swarm above
-  // v7.x The Wreck: shoal centroids, prey-around-the-player and the predator list, in one O(n) walk.
-  // MUST precede stepEnemyMovement — stepPrey runs inside it and reads all three. No-op in any
-  // chapter with no skittish roster (the loop finds nothing to bucket).
-  stepShoals(run)
   stepEnemyMovement(run, dt)
   stepSubmission(run, dt) // SUBMISSION: the loan's clock, and the ally's contact attack
   stepFlashlightCones(run, dt) // v5.4 undergrowth: elite cones that enrage the swarm (damages nothing)
@@ -4284,20 +4278,7 @@ export function stepCharge(run, dt) {
   // v7.x Book 2 Task 9: Slow Burn (chargeDrainMul) and Big Gulp (chargeRefillMul) scale the drain
   // and the in-circle refill respectively — both default to 1 (no-op) unbought, and both are 1 in
   // every chapter with no resource, so this is inert wherever it always was.
-  // FEED — the drain-slow (v7.x, The Wreck's `resource.feedSlow`). Being INSIDE the food slows the
-  // bar's fall; a straight line across the map is never inside anything.
-  //
-  // ⚠ IT IS A RATE, NOT A REFILL, AND THAT IS THE WHOLE POINT. Bloodlust is clamped at chargeMax,
-  // so a multiplier on refill is worth most to whoever is furthest from the clamp — i.e. the player
-  // doing worst. Measured, a killBase multiplier paid a straight-line player +167% against a
-  // hunter's +31% and collapsed the separation between them from 2.69x to 1.33x: it HALVED the
-  // reward for engaging. A rate cannot be clamped, so this pays the same whether the bar is full or
-  // empty, and it pays for a POSITION rather than for a kill rate that a straight line already
-  // maximises. Opt-in per chapter, so nothing else in the game can see it.
-  const feedMul = res.feedSlow
-    ? 1 - (1 - FEED_DRAIN_MIN) * Math.min(1, (run._feedN || 0) / FEED_FULL_N)
-    : 1
-  let c = run.charge - drainRate * dryMul * run.chargeDrainMul * feedMul * dt
+  let c = run.charge - drainRate * dryMul * run.chargeDrainMul * dt
   const p = run.player
   // Opt-in per FIELD, read through refillSpec() so this asks the streamer's own question rather
   // than a second one that could disagree. 0/undefined everywhere but The Shelf.
@@ -4521,12 +4502,6 @@ function stepEnemySeparation(run) {
   // Pass 1: bucket every eligible enemy by its cell.
   for (let i = 0; i < run.enemies.length; i++) {
     const e = run.enemies[i]
-    // v7.x The Wreck: local-density accumulators, zeroed for EVERY body before the exclusions below
-    // so an excluded one cannot carry a stale count forward. Pass 2 refills them; stepPrey reads
-    // them on the NEXT frame, which is why they are not zeroed anywhere earlier in the step.
-    e._shoalN = 0
-    e._nbrX = 0
-    e._nbrY = 0
     if (e._dead) continue
     if (e._phaseSolid === false) continue // v5.4: a ghosted phase flicker passes through everything
     if (e.rosterId === 'bindnode') continue // v5.24: stationary by design, nothing to separate
@@ -4573,28 +4548,6 @@ function resolveSeparationPair(run, i, j) {
   const dx = b.x - a.x, dy = b.y - a.y
   const minSep = ENEMY_SEP_FRAC * (a.radius + b.radius)
   const distSq = dx * dx + dy * dy
-  // LOCAL DENSITY (v7.x, The Wreck), and it is counted HERE — before the overlap early-out below —
-  // on purpose. After it, `_shoalN` would mean "bodies touching me", which the 2D kissing number
-  // caps at SIX, so any threshold above six is unreachable with nothing thrown; it would also be
-  // measuring the very overlap this pass exists to destroy. BALL_R is bounded by ENEMY_SEP_CELL so
-  // the half-neighbourhood walk above is guaranteed to have visited every pair inside it.
-  //   Free of a new loop: this pair has already been found and its squared distance already taken.
-  //   `|| 0` rather than a bare ++: flushSpawns can add a body AFTER stepShoals has zeroed the
-  // field but BEFORE this pass runs, and ++ on undefined is NaN — which would then poison every
-  // multiplier reading it, silently and for that body's whole life.
-  //   The neighbour SUMS ride along, and they are what cohesion steers toward. A per-shoal centroid
-  // was the first cut and it did not work: shoals are id buckets (floor(id/PREY_SHOAL_SIZE)) whose
-  // membership is fixed at spawn and never re-clustered, so at early spawn rates one bucket spans
-  // tens of seconds of arrivals scattered across the map — measured mean pairwise distance inside a
-  // "shoal" was ~700px, wider than a phone viewport. The centroid of that is not a place, and
-  // steering toward it scattered fish (prey within 200px FELL for every policy). A shared drift
-  // HEADING only has to be shared; a centroid has to be spatially real. Neighbours are.
-  if (distSq < BALL_R * BALL_R) {
-    a._shoalN = (a._shoalN || 0) + 1
-    b._shoalN = (b._shoalN || 0) + 1
-    a._nbrX = (a._nbrX || 0) + b.x; a._nbrY = (a._nbrY || 0) + b.y
-    b._nbrX = (b._nbrX || 0) + a.x; b._nbrY = (b._nbrY || 0) + a.y
-  }
   if (distSq >= minSep * minSep) return // squared-distance early-out, like every other pair loop in the file
   const d = Math.sqrt(distSq)
   let nx, ny, push
@@ -8051,46 +8004,6 @@ function inSector(ox, oy, angle, range, arc, e, fullCircle) {
 // run._realTime, NOT run.time, for exactly the reason stepShafts uses it: the Time Debt anomaly
 // advances run.time at TIME_DEBT_MUL and would otherwise make every school in the chapter turn 50%
 // faster for the rest of that run.
-// -- The shoal pass (v7.x, The Wreck) ------------------------------------------------------------
-// ONE O(n) WALK FEEDING THREE READERS, because all three want the same scan and none wants a pair
-// loop: the per-shoal CENTROID the cohesion term steers toward, the count of prey around the PLAYER
-// the drain-slow reads, and the hoisted list of PREDATORS prey flees.
-//
-// HOISTING THE PREDATORS IS NOT TIDINESS. stepPrey is called per skittish body from inside
-// stepEnemyMovement's own walk of run.enemies, so finding them inline would be a nested scan —
-// ~577 prey x 620 bodies at this chapter's own cap, which is the magnitude stepEnemySeparation's
-// comment rejects in writing ("700^2/2 ~ 244k pair checks/frame is not a phone-friendly budget").
-// The separation grid cannot help here: it is built AFTER movement, so it is stale and too late.
-//
-// Module-scope and reused, cleared per call — no per-frame Map or array allocation, the same idiom
-// _sepBuckets uses for the same reason.
-const _predators = []          // what prey runs from: alive, not skittish, not an ally
-function stepShoals(run) {
-  _predators.length = 0
-  run._feedN = 0
-  const p = run.player
-  for (const e of run.enemies) {
-    if (e._dead) continue
-    if (e.flags && e.flags.includes('skittish')) {
-      // FEED COUNTS TIGHTNESS, NOT QUANTITY, and the first cut of this counted quantity and failed.
-      // At spawnMul 2.2 (620 concurrent bodies) a straight line across the map sits inside FEED_R
-      // about as often as a deliberate hunter does — measured 5.3-5.5 prey within 200px mowing
-      // against 5.9-6.2 hunting, a 1.1x spread. A reward keyed on that pays both alike, so the bar
-      // separation NARROWED (1.96x -> 1.48x): the same failure the killBase multiplier had, by a
-      // different route. `_shoalN` at the kill site DOES separate them — 2.57 mowing against 5.45
-      // circling, 2.1x — because ambient crowding is free and TIGHTNESS is not.
-      if (e._shoalN >= BALL_TIGHT_N) {
-        const fx = e.x - p.x, fy = e.y - p.y
-        if (fx * fx + fy * fy < FEED_R * FEED_R) run._feedN++
-      }
-    } else if (!isAlly(e)) {
-      // Not prey, not on your side -> something prey runs from. A SUBMISSION-converted moray is
-      // non-skittish and yours, and would otherwise scatter the very balls you are building.
-      _predators.push(e)
-    }
-  }
-}
-
 function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
   if (slowMul <= 0) return
   const shoal = Math.floor(e.id / PREY_SHOAL_SIZE)
@@ -8135,47 +8048,6 @@ function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
       ux = -pdx / pd
       uy = -pdy / pd
       mul = PREY_FLEE_MUL
-    }
-  }
-
-  // PREDATORS (v7.x). A moray is a predator and prey did not care, which is what made the roster's
-  // one non-fleeing body a sponge that did nothing but steal the bite's aim. Same "blend, don't
-  // pivot" form the bilge loop below uses, over the list stepShoals hoisted — never a nested scan.
-  //   Threat is measured against the PLAYER directly rather than off `d`, because `d` is the seek
-  // vector and a baited fish's seek target is the chum: reading it here would make a fish inside a
-  // bait ball register as unthreatened and refuse to tighten.
-  const thx = run.player.x - e.x, thy = run.player.y - e.y
-  let threatened = thx * thx + thy * thy < PREY_SIGHT_R * PREY_SIGHT_R
-  for (const q of _predators) {
-    const qx = e.x - q.x, qy = e.y - q.y
-    const qd = Math.hypot(qx, qy)
-    if (qd >= PREY_PREDATOR_FEAR_R || qd < 1e-6) continue
-    threatened = true
-    const w = PREY_PREDATOR_BLEND * (1 - qd / PREY_PREDATOR_FEAR_R)
-    ux = ux * (1 - w) + (qx / qd) * w
-    uy = uy * (1 - w) + (qy / qd) * w
-    const m = Math.hypot(ux, uy) || 1
-    ux /= m; uy /= m
-  }
-
-  // THE SELFISH HERD (v7.x). The one attracting force in the chapter — see PREY_COHESION_BLEND for
-  // why the chapter did not work without it. A frightened fish swims toward the middle of its own
-  // school as well as away from the threat; one repulsor alone can only ever make a ring, and it is
-  // this inward pull that closes the ring into a ball.
-  //   THREAT-GATED, which is what preserves the shipped look: an unaware school mills exactly as
-  // loosely as it always did, and only a school that can see something tightens.
-  //   NEIGHBOURS, NOT THE ID BUCKET. The centroid is of the bodies actually within BALL_R of this
-  // fish, accumulated by the previous frame's separation pass — one frame stale, which is invisible
-  // in a steering term and costs no pass of its own.
-  const n = e._shoalN || 0
-  if (threatened && n >= PREY_COHESION_MIN_N) {
-    const cx = e._nbrX / n - e.x, cy = e._nbrY / n - e.y
-    const cd = Math.hypot(cx, cy)
-    if (cd > 1e-6) {
-      ux = ux * (1 - PREY_COHESION_BLEND) + (cx / cd) * PREY_COHESION_BLEND
-      uy = uy * (1 - PREY_COHESION_BLEND) + (cy / cd) * PREY_COHESION_BLEND
-      const m = Math.hypot(ux, uy) || 1
-      ux /= m; uy /= m
     }
   }
 
