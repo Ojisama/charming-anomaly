@@ -995,7 +995,7 @@ function generateWells(sig) {
  *               already visual-safe here since it re-reads h.radius/coreRadius every frame. Big
  *               Crunch (v4.3): on expiry a hole collapses in one last detonation at its FINAL
  *               radius — an {type:'explode'} event, no new field.
- * blooms[i]:    { x, y, r, maxR, t, dur, dmgPerTick, _mini? }  Toxin Bloom clouds (v5.0 pond
+ * blooms[i]:    { x, y, r, maxR, t, dur, dmgPerTick, tick?, _mini? }  Toxin Bloom clouds (v5.0 pond
  *               native, sim-owned/render-drawn). Planted by stepBloomWeapon at a random enemy
  *               within castRange (fallback: a random offset near the player); r grows 0 -> maxR
  *               over dur × BLOOM_GROW_FRAC (see config.js) then holds maxR; every BLOOM_TICK it
@@ -1008,6 +1008,11 @@ function generateWells(sig) {
  *               `daze` (seconds) is Silt Veil's, published into e.stunT against the enemy's own
  *               dazeCd window (see SILT_DAZE_REFRACTORY). It replaced a `fear` field in v7.x --
  *               fear scattered the crowd out of the cloud that was damaging it.
+ *               OPTIONAL `tick` (seconds) overrides BLOOM_TICK for this cloud alone. Silt Veil
+ *               sets it from its LEVEL (1.0s at Lv1 down to 0.4s at Lv5), which is why the veil's
+ *               dps curve is far steeper than its dmgPerTick ladder alone suggests; Toxin Bloom,
+ *               Foxfire and sporeburst minis carry none and keep the shared 0.5s. Note the daze
+ *               rides this same tick, so a low-level cloud also re-dazes more slowly.
  *               OPTIONAL `arc` (full cone angle, rad) + `angle` (its bearing) make the bloom a
  *               WEDGE instead of a disc, apex at (x, y): Silt Veil's, and the only one today.
  *               ⚠ A look:'silt' bloom is NOT always the Silt Veil's own cast. Three other sites
