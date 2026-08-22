@@ -153,7 +153,7 @@ import {
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
@@ -1379,7 +1379,8 @@ function stepRepulse(run, input, dt) {
     // p.y, making the acquisition radius |viewRadius + player.x|. That is a dead band centred on
     // x = -viewRadius, two target-distances wide, in which the button silently stopped aiming at
     // all — and an unbounded range at large +x, where it would launch at an off-screen body.
-    // Every one of the other eight call sites passes (run) alone.
+    // Every other call site but the Lest's passes (run) alone; that one passes a deliberate
+    // NEGATIVE pad (BALLAST_REACH_PAD) to aim short of the screen edge.
     // AIMED AT PREY, NOT AT WHATEVER IS NEAREST. Owner ruling 2026-08-18: "the action button should
     // be a dash to a nearby non-tank enemy."
     //   The moray is the one body in this chapter you cannot eat on demand — it is `guard`-windowed,
@@ -2059,7 +2060,29 @@ function stepEnemyMovement(run, dt) {
     // seek for everyone else; the plain seek runs for the rest. slowMul (chill/freeze) applies
     // throughout. Machines take the seek target, so lured foes run their routine at the decoy.
     if ((e.stunT || 0) > 0) {
-      // stunned (hydrant launch / roar stagger): no seek at all — knockback still carries it below.
+      // stunned (hydrant launch / roar stagger / the Vase's daze): no seek at all — knockback still
+      // carries it below.
+      //
+      // A COMMITTED DASH IS CANCELLED HERE, NOT PAUSED, and that distinction is the whole bug this
+      // branch used to have. Suppressing the movement is not enough: stepDashBurst simply stops
+      // being CALLED while the stun holds, so _dashPhase stays 'dash' and _dashT freezes wherever
+      // it was. Measured on The Shelf's flounder against a Silt Veil daze -- 1.4s stunned with
+      // dashT pinned at 0.350, then the body resumed the FULL 0.35s lunge at 299px/s on the heading
+      // it had locked before the daze, closing 280px. The daze delayed the hit and never denied it,
+      // which is the owner's report from play (2026-08-22): "the stilt cloud doesn't stun dashers
+      // during their dash. It should stop their dash."
+      //   Rewound to a FULL idle rather than to 0, so the cost is the whole wind-up: the daze buys
+      // the player the dodge AND the re-approach, which is what a control card is sold as.
+      // `restMul` is read the same way stepDashBurst reads it -- taking DASH_IDLE_T bare here would
+      // be the silent half-override its own comment warns about.
+      //   ⚠ ONLY dashBurst. The five other commit machines (diveBomb, pounce, lineCharge, strafe,
+      // aerialStrike) have the identical pause-and-resume behaviour and are LEFT ALONE on purpose:
+      // cancelling those is a stun buff in five other chapters that nobody has measured. If that is
+      // wanted, it is one line each here and a census run per chapter, not a drive-by.
+      if (e._dashPhase === 'dash') {
+        e._dashPhase = 'idle'
+        e._dashT = DASH_IDLE_T * (e.dash?.restMul ?? 1)
+      }
     } else if ((e.fearT || 0) > 0) {
       // feared (chitter shriek): flee — the seek direction, inverted, at FEAR_SPEED_MUL.
       if (d > 1e-6 && slowMul > 0) {
@@ -9358,7 +9381,11 @@ function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
   const foulWater = run.weaponMods.ballast?.foulWater ?? 0
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickWinch)), dt, () => {
     const p = run.player
-    const target = nearestEnemy(run)
+    // THE ONE AIM SITE IN THE GAME THAT PASSES A PAD, and it passes a NEGATIVE one: this weapon
+    // reaches viewRadius - 100 where everything else reaches viewRadius + 100 (see
+    // BALLAST_REACH_PAD). A body further out is not a held cast -- nearestEnemy returns null, which
+    // is the empty-screen branch, and the blind throw below takes it.
+    const target = nearestEnemy(run, BALLAST_REACH_PAD)
     const tx = target ? target.x : p.x + (p.facing >= 0 ? BALLAST_BLIND_THROW : -BALLAST_BLIND_THROW)
     const ty = target ? target.y : p.y
     // ONE local, bound and divisor both -- see stepSiltVeilWeapon above for what splitting it costs.

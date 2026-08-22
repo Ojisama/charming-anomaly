@@ -51,7 +51,7 @@ import {
   RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
-  DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
+  DASH_IDLE_T, DASH_T, DASH_SPEED_MUL, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
   MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC, SILT_VEIL_ARC, SHARD_RIFT_W, SHARD_RIFT_FUSE,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
   STINGER_HIVE_EVERY,
@@ -132,7 +132,7 @@ import {
   // Book 2 The Surf: Humidity drives damage (Run US.d)
   HUMIDITY_DMG_FLOOR, resourceDamageMul, resourceRateMul,
   // Book 2 The Shelf: Pollution as a weapon mod (Run MB)
-  pollutionFrac, BALLAST_FLIGHT, BALLAST_TANK_MUL, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX,
+  pollutionFrac, BALLAST_FLIGHT, BALLAST_TANK_MUL, BALLAST_BLIND_THROW, BALLAST_REACH_PAD, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX,
   LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_DMG, LUNGE_KILL_REFILL, LUNGE_BITE_MUL, STARVE_TICK,
   // Book 2 The Surf: the Shore Crab's guard (Run US.i)
   CRAB_GUARD_ARC,
@@ -19981,6 +19981,68 @@ function testLeLargeWeapons() {
     // otherwise would have meant writing a check that passes for the wrong reason.
   }
 
+  // (b2) …AND A DAZE CANCELS A DASHER'S DASH RATHER THAN PAUSING IT. Owner from play, 2026-08-22:
+  // "the stilt cloud doesn't stun dashers during their dash. It should stop their dash." It landed
+  // the daze perfectly well -- what it did not do was END the lunge. stepDashBurst simply stops
+  // being CALLED while stunT holds, so _dashPhase stayed 'dash' with _dashT frozen, and the body
+  // resumed the whole remaining lunge at full speed on its pre-daze heading the instant the hold
+  // lapsed (measured: 1.4s stunned, then 280px closed at 299px/s). The daze delayed the hit and
+  // never denied it.
+  //   THE STUN IS INJECTED BY HAND, and the veil's own clouds are cleared every frame, for the
+  // reason (b) has a refractory: the cloud dazes on ITS schedule, so a fixture that waits for one
+  // is measuring BLOOM_TICK alignment rather than the branch. The subject here is the contract --
+  // stunT is stunT whoever wrote it -- and the injection puts it exactly where the bug lived, at
+  // the top of a committed dash.
+  //   A CONTROL RUNS THE SAME FIXTURE WITH NO STUN, because "it never reached dash speed" is also
+  // what a fixture that never dashes at all reports.
+  {
+    const HOLD = 1.4
+    // The window must be shorter than HOLD + a full idle (2.5s) or a LEGITIMATE next dash lands
+    // inside it and the assertion below fires on correct behaviour.
+    const WINDOW = Math.round((HOLD + 0.4) * 60)
+    const probe = (withStun) => {
+      Math.random = mulberry32(80186)
+      const run = largeRun('siltVeil', 5)
+      const p = run.player
+      const e = makeStatusEnemy(run, { x: p.x + 420, y: p.y, hp: 1e6, speed: 120 })
+      e.type = 'normal'
+      e.flags = ['dashBurst']
+      run.enemies.push(e)
+      let armed = false, frames = 0, peak = 0, phaseAfter = null
+      for (let i = 0; i < 60 * 10 && frames < WINDOW; i++) {
+        run.blooms.length = 0
+        if (!armed && e._dashPhase === 'dash' && (e._dashT ?? 0) > DASH_T * 0.6) {
+          armed = true
+          if (withStun) e.stunT = HOLD
+        }
+        const bx = e.x, by = e.y
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+        run.events.length = 0
+        only(run, e)
+        e.hp = 1e6
+        if (armed) {
+          if (phaseAfter === null) phaseAfter = e._dashPhase
+          peak = Math.max(peak, Math.hypot(e.x - bx, e.y - by) * 60)
+          frames++
+        }
+      }
+      return { peak, phaseAfter, armed, frames }
+    }
+    const dashSpeed = 120 * DASH_SPEED_MUL
+    const free = probe(false)
+    assert.ok(free.armed && free.frames === WINDOW, 'precondition: the control fixture must commit to a dash')
+    assert.ok(free.peak > dashSpeed * 0.8,
+      `control: an uninterrupted dasher peaked at ${free.peak.toFixed(0)}px/s against a dash speed of ${dashSpeed.toFixed(0)} — ` +
+      'the fixture cannot see a dash at all, so the stunned case below would pass for the wrong reason')
+    const held = probe(true)
+    assert.strictEqual(held.phaseAfter, 'idle',
+      `a dasher dazed mid-lunge is still in phase '${held.phaseAfter}' — the dash was paused, not cancelled, and it will ` +
+      'resume at full speed the moment the daze lapses')
+    assert.ok(held.peak < 120,
+      `a dazed dasher peaked at ${held.peak.toFixed(0)}px/s over the ${(WINDOW / 60).toFixed(1)}s after the daze landed — ` +
+      `it resumed its committed lunge (dash speed ${dashSpeed.toFixed(0)}px/s) instead of losing it`)
+  }
+
   // (c) BALLAST LANDS, HURTS, DRAGS — AND CRUSHES TANKS DOUBLE. All three fail silently: the
   // impact is loud and obvious, and a landing that set no dragT or forgot the archetype multiplier
   // would look entirely correct.
@@ -20045,6 +20107,44 @@ function testLeLargeWeapons() {
     }
     assert.ok(drops >= 2, 'precondition: jetsam must throw 2 weights per cast, saw ' + drops)
     assert.ok(e.hp < 1e6, 'a two-weight Ballast cast landed on both sides of its target and missed it')
+  }
+
+  // (c3) AND IT AIMS SHORT OF THE SCREEN EDGE. Owner, 2026-08-22: "throw at view radius - 100px",
+  // where every other aim site in the game takes nearestEnemy's +100 default. Asserted on the LOB'S
+  // OWN TARGET rather than on damage: a body out of reach is not a held cast -- nearestEnemy returns
+  // null, the empty-screen branch, and the weapon blind-throws BALLAST_BLIND_THROW ahead -- so a
+  // damage check would read "it missed" for both the working and the broken version. tx is the only
+  // thing that separates "aimed at that body" from "aimed at nothing in particular".
+  //   A PAD IS NOT A RADIUS: the whole change is one minus sign, and flipping it back is a silent
+  // 40% buff with nothing thrown, which is what this block is for.
+  {
+    const aimAt = (dx) => {
+      Math.random = mulberry32(80185)
+      const run = largeRun('ballast', 5)
+      const p = run.player
+      const e = makeStatusEnemy(run, { x: p.x + dx, y: p.y, hp: 1e6, speed: 0 })
+      run.enemies.push(e)
+      for (let i = 0; i < 400; i++) {
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0; only(run, e)
+        e.x = p.x + dx; e.y = p.y
+        if (run.lobs.length > 0) return { tx: run.lobs[0].tx, px: p.x, ex: e.x }
+      }
+      return null
+    }
+    // Stated, not assumed: the reach is derived from viewRadius, so a changed default would leave
+    // both fixtures on the same side of the line and the block would pass having tested nothing.
+    const reach = createRun(makeMeta(), { chapter: 'shelf', difficulty: 1 }).viewRadius + BALLAST_REACH_PAD
+    assert.ok(reach > 300 && reach < 560, `the fixture assumes a reach around 500px, viewRadius says ${reach}`)
+    const near = aimAt(Math.round(reach) - 100)
+    const far = aimAt(Math.round(reach) + 60)
+    assert.ok(near && far, 'precondition: both fixtures must throw a weight')
+    assert.ok(Math.abs(near.tx - near.ex) < 1,
+      `a body ${Math.round(reach) - 100}px out, inside the ${reach}px reach, was not aimed at (threw at ${near.tx.toFixed(0)}, body at ${near.ex.toFixed(0)})`)
+    assert.ok(Math.abs(far.tx - far.ex) > 100,
+      `a body ${Math.round(reach) + 60}px out, PAST the ${reach}px reach, was still aimed at — ` +
+      'BALLAST_REACH_PAD is not being read, or its sign was flipped back to the +100 default')
+    assert.ok(Math.abs(Math.abs(far.tx - far.px) - BALLAST_BLIND_THROW) < 1,
+      `the out-of-reach cast threw ${(far.tx - far.px).toFixed(0)}px ahead, not the blind ${BALLAST_BLIND_THROW}px`)
   }
 
   // (d) LEST THROWS JUNK, AND THE JUNK IS RENDER-SIDE ONLY — so nothing here can be asserted by
@@ -20219,7 +20319,7 @@ function testLeLargeWeapons() {
       'the bubble cone has no drawer of its own, so a 90 degree puff renders as nothing at all')
   }
 
-  console.log('PASS run LL (Le Large natives): Bubble Puff cuts without shoving and its reach is level-only, Silt Veil dazes AND poisons what stands in it, Ballast lands and leaves a stain, the puff is a 90 degree cone that Flare widens up to a capped wedge and never a ring, and every sector nova names its drawer')
+  console.log('PASS run LL (Le Large natives): Bubble Puff cuts without shoving and its reach is level-only, Silt Veil dazes AND poisons what stands in it and its daze CANCELS a dasher\'s lunge instead of pausing it, Ballast lands and drags without staining and aims short of the screen edge, the puff is a 90 degree cone that Flare widens up to a capped wedge and never a ring, and every sector nova names its drawer')
 }
 
 function twilightRun(weaponId, level = 1) {
