@@ -1009,7 +1009,7 @@ function generateWells(sig) {
  *               dazeCd window (see SILT_DAZE_REFRACTORY). It replaced a `fear` field in v7.x --
  *               fear scattered the crowd out of the cloud that was damaging it.
  *               OPTIONAL `tick` (seconds) overrides BLOOM_TICK for this cloud alone. Silt Veil
- *               sets it from its LEVEL (1.0s at Lv1 down to 0.4s at Lv5), which is why the veil's
+ *               sets it from its LEVEL (0.75s at Lv1 down to 0.4s at Lv5), which is why the veil's
  *               dps curve is far steeper than its dmgPerTick ladder alone suggests; Toxin Bloom,
  *               Foxfire and sporeburst minis carry none and keep the shared 0.5s. Note the daze
  *               rides this same tick, so a low-level cloud also re-dazes more slowly.
