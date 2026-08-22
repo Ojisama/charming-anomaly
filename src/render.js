@@ -1387,16 +1387,42 @@ export function createRenderer(app) {
     const half = (t) => Math.max(r * 0.05, disc(t) * waist(t) * wrist(t))
     const fin = r * 0.17          // how far the marginal fin stands proud of the body
     groundShadow(r * 1.05, r * 0.16)
-    // Caudal: a small rounded FAN, hinged at t=0.88 so its root sits inside the disc and the two
-    // never show a seam. Curves, not a polygon — the first cut was a 4-point rhombus and read as a
-    // block stuck on the back of the fish. Undersized on purpose: a flatfish's tail is not its
-    // engine, it swims by undulating the whole margin, which is what the fringe below says.
+    // THE CAUDAL, built as a real FAN — rays radiating from the peduncle out to a rounded trailing
+    // edge, which is what a caudal fin structurally IS. The two cuts before this were closed lobes
+    // (a 4-point rhombus, then a two-curve lens) and both read as a blob stuck on the back of the
+    // fish, because a fin with no rays has nothing in it that says fin. Same reasoning that put rays
+    // on the marginal skirt below; doing it here too is what ties the tail to the rest of the animal
+    // instead of leaving it a separate shape that happens to be adjacent.
+    //
+    // Swept from ONE angle function rather than from hand-placed control points, so the trailing
+    // edge and the rays cannot disagree — they are the same function sampled at two densities. Hand
+    // placing them is how the earlier cuts ended up with a tail whose outline and interior implied
+    // different shapes.
     const [tx] = spine(0.9)
-    g.moveTo(tx + r * 0.04, -r * 0.2)
-      .quadraticCurveTo(tx - r * 0.3, -r * 0.34, tx - r * 0.42, 0)
-      .quadraticCurveTo(tx - r * 0.3, r * 0.34, tx + r * 0.04, r * 0.2)
-      .closePath()
-      .fill({ color: finC, alpha: 0.95 }).stroke({ width: lw * 0.45, color: line })
+    const pivX = tx + r * 0.1                    // the hinge, tucked INSIDE the disc so no seam shows
+    const FAN_SPAN = 0.94                        // half-angle of the sweep, radians (~54 deg)
+    const FAN_LEN = r * 0.74
+    // Longest down the middle, shortest at the edges. That is what makes the trailing edge a soft
+    // round rather than a circle segment struck from the peduncle, which is the tell of a fan drawn
+    // by rotating one length.
+    const fanTip = (u) => {
+      const a = u * FAN_SPAN
+      const l = FAN_LEN * (0.8 + 0.2 * Math.cos(u * 1.3))
+      return [pivX - Math.cos(a) * l, -Math.sin(a) * l]
+    }
+    const fan = [pivX, 0]
+    for (let i = 0; i <= 18; i++) fan.push(...fanTip(-1 + (i / 18) * 2))
+    g.poly(fan).fill({ color: finC, alpha: 0.95 }).stroke({ width: lw * 0.45, color: line })
+    if (!white) {
+      // Ray creases, stopping short of the trailing edge so the margin stays a clean silhouette.
+      // Skipped on the white pass like every other interior line: a silhouette with veins in it is
+      // not a silhouette, and the hit-flash twin is baked from exactly this geometry.
+      for (let i = 1; i < 8; i++) {
+        const [ex, ey] = fanTip(-1 + (i / 8) * 2)
+        g.moveTo(pivX, 0).lineTo(pivX + (ex - pivX) * 0.86, ey * 0.86)
+      }
+      g.stroke({ width: Math.max(0.8, r * 0.035), color: f(0x2a3722), alpha: 0.5 })
+    }
     // THE MARGINAL FIN (dorsal + anal, fused into one skirt) drawn as a membrane standing outside
     // the body all the way round. This is a flatfish's most recognisable feature after the eyes.
     g.poly(spineOutline(spine, (t) => half(t) + fin, 46, 0.035, 0.92))
