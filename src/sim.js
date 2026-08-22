@@ -8421,10 +8421,16 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
     list.push({ x: p.x + Math.cos(a) * stats.radius, y: p.y + Math.sin(a) * stats.radius, r: DEBRIS_R, tgt: null })
   }
 
-  const huntSq = stats.hunt * stats.hunt
+  // The leash reaches to a foe's BODY, not its centre — `hunt + e.radius`, the same compensation
+  // inSector uses, and for the same reason: what the eye judges is funnel-touches-hide. On normal
+  // bodies (r ~10-20) it is noise; on a big one it is the whole weapon. The Blank's antibody has
+  // radius 80 and holds a 240px standoff band (BLANK_STANDOFF_MIN), so its CENTRE sits outside
+  // every hunt tier there is (190-270) while its hide sits 160px from you — measured 0.0 dps at
+  // L1 and 7.7 at L5, i.e. the pack circled the player while the boss stood in plain sight.
   const leashed = (e) => {
     const dx = e.x - p.x, dy = e.y - p.y
-    return dx * dx + dy * dy <= huntSq
+    const reach = stats.hunt + e.radius
+    return dx * dx + dy * dy <= reach * reach
   }
   // Targets are STICKY while alive and still inside the leash: re-picking from scratch every frame
   // makes a funnel dither between two enemies that are near-equidistant and never reach either.
@@ -8433,25 +8439,36 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
   // prey by any other route would otherwise sit on the corpse's last coordinates forever, and that
   // failure mode is invisible until someone adds a despawn. One Set beats an includes() per funnel.
   const live = new Set(run.enemies)
-  const claimed = new Set()
+  const claimed = new Map() // foe -> how many funnels are already committed to it
   for (const t of list) {
     if (t.tgt && (t.tgt._dead || !live.has(t.tgt) || !leashed(t.tgt))) t.tgt = null
-    if (t.tgt) claimed.add(t.tgt)
+    if (t.tgt) claimed.set(t.tgt, (claimed.get(t.tgt) ?? 0) + 1)
   }
   // Whoever is free takes the nearest UNCLAIMED enemy — nearest to itself, not to the player, so a
   // ring of funnels fans out across a crowd. Without the claim they all pile onto the single
   // closest enemy, which looks like one blob and wastes most of the damage: the tick cooldown is
   // per ENEMY, so the second funnel on a target contributes nothing until the first one's expires.
+  // ...but the claim is a PREFERENCE, not a veto. With fewer foes in reach than funnels there is
+  // nothing left to fan out over, and refusing to double up sent the rest of the pack home to
+  // circle you while one lone funnel worked a boss — "only one attacks at a time". A funnel takes
+  // the nearest unclaimed foe, and failing that the nearest foe that will SURVIVE what is already
+  // committed to it. That hp test is what keeps the fallback from being a crowd nerf: without it
+  // the pack converges on the last drone in the leash and spends six ticks on a body one kills
+  // (measured over a city run: waste 11% -> 18%, kills/min 228 -> 203).
   for (const t of list) {
     if (t.tgt) continue
     let best = null, bestD = Infinity
+    let spare = null, spareD = Infinity
     for (const e of run.enemies) {
-      if (e._dead || claimed.has(e) || !leashed(e)) continue
+      if (e._dead || !leashed(e)) continue
       const dx = e.x - t.x, dy = e.y - t.y
       const d = dx * dx + dy * dy
-      if (d < bestD) { bestD = d; best = e }
+      const on = claimed.get(e) ?? 0
+      if (on === 0) { if (d < bestD) { bestD = d; best = e } }
+      else if (e.hp > stats.dmg * on && d < spareD) { spareD = d; spare = e }
     }
-    if (best) { t.tgt = best; claimed.add(best) }
+    const pick = best ?? spare
+    if (pick) { t.tgt = pick; claimed.set(pick, (claimed.get(pick) ?? 0) + 1) }
   }
 
   const step = stats.travelSpeed * dt
@@ -8487,15 +8504,29 @@ function stepTornadoWeapon(run, stats, fireRateMul, dt) {
       t.x = p.x + Math.cos(a) * rad
       t.y = p.y + Math.sin(a) * rad
     }
+  }
 
-    for (const e of run.enemies) {
-      if (e._dead || (e._debrisCd || 0) > 0) continue
+  // Damage. Still ONE tick per enemy per `tick` (the per-enemy cooldown orbs use, e._debrisCd) —
+  // but that tick is now worth every funnel standing on the body, not whichever one the loop
+  // reached first. Enemy-outer/funnel-inner rather than the reverse, same O(n x m), so the count
+  // is known before the tick is spent.
+  //
+  // The old order made the 2nd..6th funnel on a target free of charge: P3 of The Blank measured
+  // 4.16 funnels inside the boss delivering 68 dps of the 309 they visibly stood for, which is
+  // what "only one attacks at a time" looks like once they DO all arrive. Spread over a crowd
+  // this changes nothing — each foe has one funnel on it and the count is 1 — so the scaling is
+  // paid out exactly where the pack converges, which is the case `moreTrash` never covered.
+  for (const e of run.enemies) {
+    if (e._dead || (e._debrisCd || 0) > 0) continue
+    let n = 0
+    for (const t of list) {
       const dx = e.x - t.x, dy = e.y - t.y
       const rad = t.r + e.radius
-      if (dx * dx + dy * dy > rad * rad) continue
-      applyDamage(run, e, stats.dmg)
-      e._debrisCd = stats.tick / fireRateMul
+      if (dx * dx + dy * dy <= rad * rad) n++
     }
+    if (!n) continue
+    applyDamage(run, e, stats.dmg * n)
+    e._debrisCd = stats.tick / fireRateMul
   }
 
   // Street Sweeper (v6.9, replaces the enemy-pulling `suction`): every gem and coin within

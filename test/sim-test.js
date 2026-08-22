@@ -11172,10 +11172,12 @@ function testV54Weapons() {
   }
 
   // (d) trashTornado (v6.8): the funnels HUNT. Idle they orbit at `radius` (the pre-v6.8 look, now
-  // only the idle state); prey inside `hunt` px of the PLAYER pulls one off the ring; a kill sends
-  // it home. One funnel per foe — the claim in stepTornadoWeapon is load-bearing, not cosmetic: the
-  // damage cooldown is per ENEMY, so a pack piled on one target throws away all but one funnel's
-  // damage. sweepLoot reels gems/coins in.
+  // only the idle state); prey inside `hunt` px of the PLAYER pulls funnels off the ring; a kill
+  // sends them home. One funnel per foe is a PREFERENCE, not a veto — with more prey than funnels
+  // every funnel takes a different target (the fan-out), and with fewer the pack doubles up rather
+  // than idling. Both halves are guarded below, along with the two rules that make doubling up
+  // worth anything: the leash reaches a foe's BODY (`hunt + e.radius`), and a tick is worth every
+  // funnel standing on it. sweepLoot reels gems/coins in.
   {
     const lvl = WEAPONS.trashTornado.levels[MAX_WEAPON_LEVEL - 1]
     const onRing = (r, d) => Math.abs(Math.hypot(d.x - r.player.x, d.y - r.player.y) - lvl.radius) < 1e-6
@@ -11192,15 +11194,19 @@ function testV54Weapons() {
     victim.flags = []
     run.enemies.push(victim)
     stepQuiet(run, 2.0)
-    const caught = run.debris.filter((d) => Math.hypot(d.x - victim.x, d.y - victim.y) < DEBRIS_R)
-    assert.strictEqual(caught.length, 1, `expected exactly ONE funnel to claim a lone foe, got ${caught.length}`)
-    assert(victim.hp < 1e6, `expected the funnel that caught it to grind it, hp=${victim.hp}`)
+    // The WHOLE pack commits: with one foe in reach there is nothing to fan out over, and a pack
+    // that leaves all but one funnel circling the player is the "only one attacks at a time" bug.
+    const caught = run.debris.filter((d) => Math.hypot(d.x - victim.x, d.y - victim.y) < DEBRIS_R + victim.radius)
+    assert.strictEqual(caught.length, lvl.chunks, `expected all ${lvl.chunks} funnels on a lone foe, got ${caught.length}`)
+    assert(victim.hp < 1e6, `expected the funnels that caught it to grind it, hp=${victim.hp}`)
     const stayedHome = run.debris.filter((d) => onRing(run, d)).length
-    assert.strictEqual(stayedHome, lvl.chunks - 1, `expected ${lvl.chunks - 1} funnels still orbiting, got ${stayedHome}`)
+    assert.strictEqual(stayedHome, 0, `expected no funnel still orbiting with prey in reach, got ${stayedHome}`)
 
-    // ...and when it dies the hunter spirals back home on its own
+    // ...and when it dies the hunters spiral back home on their own. 5s, not 3: the whole pack
+    // now commits to a lone foe, so it comes home fully bunched and TORNADO_RESPACE measures 3.05s
+    // to bring the worst gap inside the band below (it was ~instant when 5 of 6 never left).
     victim.hp = 1
-    stepQuiet(run, 3.0)
+    stepQuiet(run, 5.0)
     assert.strictEqual(run.enemies.length, 0, 'expected the victim dead')
     for (const d of run.debris) assert(onRing(run, d), 'expected every funnel back on the ring after the kill')
     // ...and the ring re-spaces itself (TORNADO_RESPACE), so two hunts running don't leave the pack
@@ -11219,6 +11225,42 @@ function testV54Weapons() {
     stepQuiet(far, 2.0)
     assert.strictEqual(ghost.hp, 1e6, 'expected a foe outside the hunt radius to be ignored')
     for (const d of far.debris) assert(onRing(far, d), 'expected the pack home while the only foe is out of leash')
+
+    // ...but the leash reaches a foe's BODY, not its centre. A big foe whose CENTRE is beyond
+    // `hunt` while its hide is well inside must still be hunted: The Blank's antibody is radius 80
+    // holding a 240px standoff, so a centre-only leash left the whole pack circling the player with
+    // the boss in plain sight (measured 0.0 dps at L1, 7.7 at L5 — the bug this guards).
+    const big = weaponRun('city', 'trashTornado')
+    const whale = makeStatusEnemy(big, { x: lvl.hunt + 40, y: 0, hp: 1e6, speed: 0 })
+    whale.flags = []
+    whale.radius = 80
+    big.enemies.push(whale)
+    stepQuiet(big, 2.5)
+    assert(whale.hp < 1e6, `expected a radius-80 foe at hunt+40 to be hunted by its BODY, hp=${whale.hp}`)
+
+    // ...and a tick is worth EVERY funnel standing on the target, not just the first one the loop
+    // reached. Without this the 2nd..Nth funnel is free of charge to the enemy — the pack converges,
+    // the health bar moves at one funnel's rate, and `moreTrash` buys nothing single-target.
+    // Driven through the real `moreTrash` fold rather than by trimming run.debris by hand — the
+    // step RESIZES the list back to `chunks` every frame, so a hand-trimmed pack silently grows
+    // back and the fixture compares chunks against chunks (it read 1716 vs 1404 and proved
+    // nothing). This is also the honest statement of the card: +tornadoes now buys single-target
+    // damage, which is exactly what it never did.
+    function loneFoeDmg(moreTrash) {
+      const r = weaponRun('city', 'trashTornado')
+      if (moreTrash) r.weaponMods.trashTornado.moreTrash = moreTrash
+      const e = makeStatusEnemy(r, { x: lvl.hunt - 20, y: 0, hp: 1e6, speed: 0 })
+      e.flags = []
+      r.enemies.push(e)
+      stepQuiet(r, 2.0)                       // let the pack arrive and settle onto it
+      const before = e.hp
+      stepQuiet(r, 4.0)
+      return { dmg: before - e.hp, funnels: r.debris.length }
+    }
+    const one = loneFoeDmg(0), all = loneFoeDmg(lvl.chunks)
+    assert.strictEqual(all.funnels, lvl.chunks * 2, `expected moreTrash to double the pack, got ${all.funnels}`)
+    assert(all.dmg > one.dmg * 1.7,
+      `expected 2x the funnels on ONE foe to deal ~2x the damage, got ${all.dmg} from ${all.funnels} vs ${one.dmg} from ${one.funnels}`)
 
     // more prey than funnels: every funnel ends up on a DIFFERENT enemy
     const many = weaponRun('city', 'trashTornado')
@@ -11257,7 +11299,7 @@ function testV54Weapons() {
     assert(!unswept.vac, 'expected no _vac marking without the mod')
     assert(swept.closed > unswept.closed + 20,
       `expected the swept gem to reel in past magnet range (closed ${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px)`)
-    console.log(`PASS run AA.d (trashTornado): ${lvl.chunks} funnels idle on the ring, 1 claims a lone foe and comes home, ${claimedFoes.size} take ${claimedFoes.size} distinct targets, ${lvl.hunt}px leash holds + sweeps loot (${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px)`)
+    console.log(`PASS run AA.d (trashTornado): ${lvl.chunks} funnels idle on the ring, all ${lvl.chunks} pile on a lone foe (${all.funnels} funnels deal ${all.dmg} vs ${one.dmg} from ${one.funnels}) and come home, ${claimedFoes.size} take ${claimedFoes.size} distinct targets, ${lvl.hunt}px leash holds (and reaches a r80 body at hunt+40) + sweeps loot (${swept.closed.toFixed(0)}px vs ${unswept.closed.toFixed(0)}px)`)
   }
 
   // (e) burstHydrant: telegraph (harmless) -> eruption -> the hydrant runs as a TURRET -> gone.

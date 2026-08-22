@@ -1571,9 +1571,12 @@ function generateWells(sig) {
  * debris[i]: { x, y, r, tgt } — Trash Tornado funnels (city weapon). v6.8: NOT the run.orbs
  *   contract any more — these PERSIST between frames, because a funnel hunts and so carries its
  *   own position. stepTornadoWeapon resizes the array to `chunks` and moves each entry: toward
- *   `tgt` (the enemy object it has claimed, sticky while that enemy is alive and inside `hunt` px
- *   of the PLAYER) at travelSpeed, or spiralling back into a ring of `radius` around the player at
- *   rotSpeed when tgt is null. r = DEBRIS_R. `tgt` is sim-internal — render draws x/y/r only.
+ *   `tgt` (the enemy object it has claimed, sticky while that enemy is alive and its BODY is
+ *   inside `hunt` px of the PLAYER — the leash is `hunt + e.radius`, so a big foe is reachable by
+ *   its hide rather than its centre) at travelSpeed, or spiralling back into a ring of `radius`
+ *   around the player at rotSpeed when tgt is null. Funnels prefer one target each, but double up
+ *   on a foe that survives what is already on it rather than idling, and a damage tick is worth
+ *   every funnel standing on the body. r = DEBRIS_R. `tgt` is sim-internal — render draws x/y/r.
  * zones[i]: { x, y, r, fuse, dur, dmg, delay?, jetDur?, tick?, nStreams?, jet?, streams?, _cd?,
  *   _chained?, a?, d? }
  *   — telegraphed zones (Burst Hydrant, city weapon; also reused by the Reality Shard's tornSeam
