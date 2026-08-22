@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -2285,37 +2285,14 @@ export function initUI(hooks) {
   }
 
   // ---- anomaly effect chips (shared by the pre-run brief and the pause/summary recaps) ----
-  // Human labels for MUTATORS effect keys + whether a value above 1 helps the player
-  // (drives the green/red chip color; a nerf direction shows red).
-  const EFFECT_LABELS = {
-    spawnMul: ['enemy spawns', false],
-    enemyHpMul: ['enemy HP', false],
-    enemySpeedMul: ['enemy speed', false],
-    enemyDmgMul: ['enemy damage', false],
-    enemyRadiusMul: ['enemy size', false],
-    contactDmgTakenMul: ['damage you take', false],
-    playerDmgMul: ['your damage', true],
-    playerSpeedMul: ['your move speed', true],
-    coinMul: ['coins', true],
-    xpMul: ['XP', true],
-    eliteEveryMul: ['time between elites', true],
-    elementWeightMul: ['infusion card chance', true],
-    magnetMul: ['pickup magnet', true],
-    // v5.25 chapter-anomaly knobs (missing until v6.1 — the chips showed the raw key)
-    currentForceMul: ['current push', false],
-    pheromoneLifeMul: ['pheromone life', false],
-    trapCountMul: ['trap count', false],
-    trafficIntervalMul: ['time between cars', true],
-    bombardIntervalMul: ['time between shells', true],
-    wellForceMul: ['gravity well force', false],
-    acidPotencyMul: ['acid pool burn', false],
-  }
+  // The labels moved to config.js (MUTATOR_EFFECT_LABELS) so run XX's config-table walk demands
+  // French for them — as a bare const here they were exempt from it, and two shipped in English.
 
   // One chip per effect key, tagged with whether it helps the player — the brief screen needs the
   // split (costs on one side of the trade, gains on the other), everything else just joins it.
   function effectChipList(effects) {
     return Object.entries(effects).map(([key, v]) => {
-      const [label, goodUp] = EFFECT_LABELS[key] ?? [key, true]
+      const [label, goodUp] = MUTATOR_EFFECT_LABELS[key] ?? [key, true]
       const pct = Math.round((v - 1) * 100)
       const good = (pct > 0) === goodUp
       return { good, html: `<span class="fx-chip ${good ? 'fx-chip--good' : 'fx-chip--bad'}">${pct > 0 ? '+' : ''}${pct}% ${t(label)}</span>` }

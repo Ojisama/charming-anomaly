@@ -339,7 +339,7 @@ const UI = {
   // reaction and keeps the reactor wink next to 'cœur'.
   'you killed an elite and something went critical': "tu as tué un élite et quelque chose s'est emballé",
 
-  // effect chip labels (EFFECT_LABELS in ui.js)
+  // effect chip labels (MUTATOR_EFFECT_LABELS in config.js)
   'enemy spawns': 'apparitions ennemies',
   'enemy speed': 'vitesse ennemie',
   'enemy damage': 'dégâts ennemis',
@@ -352,6 +352,10 @@ const UI = {
   'infusion card chance': 'chance de carte d\'infusion',
   'pickup magnet': 'aimant à butin',
   'current push': 'poussée du courant',
+  // Same noun as its sibling above, because on screen they ARE siblings — Riptide's chip and
+  // Spring Tide's chip sit in the same slot of the same trade, one per chapter.
+  'tide push': 'poussée de la marée',
+  'enemies at once': 'ennemis simultanés',
   'Current Resistance': 'Résistance au courant',
   '-8% current push': '-8 % de poussée du courant',
   'pheromone life': 'durée des phéromones',
@@ -360,6 +364,10 @@ const UI = {
   'time between shells': 'délai entre obus',
   'gravity well force': 'force des puits de gravité',
   'acid pool burn': 'brûlure des flaques d\'acide',
+  // 'zones d'eau claire' verbatim from Dead Water's own French desc and the shelf's HUD — the chip
+  // and the card describe one thing, so they must use one word for it.
+  'clean-water spots': 'zones d\'eau claire',
+  'clean water per spot': 'eau claire par zone',
 }
 
 // config.js content strings — filled by the translation pass (see fr-config section below).
