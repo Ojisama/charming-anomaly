@@ -11675,7 +11675,7 @@ export const MUTATORS = {
 }
 // Every key mergeMutatorMods can produce, all defaulted to 1 (neutral) before mutator effects
 // multiply in. sim.js applies each of these at one specific point — see sim.js's module doc.
-const MUTATOR_MOD_KEYS = [
+export const MUTATOR_MOD_KEYS = [
   'spawnMul', 'enemyHpMul', 'enemySpeedMul', 'enemyDmgMul', 'enemyRadiusMul',
   'contactDmgTakenMul', 'playerDmgMul', 'playerSpeedMul', 'coinMul', 'xpMul',
   'eliteEveryMul', 'elementWeightMul', 'magnetMul', 'acidPotencyMul',
@@ -11691,6 +11691,43 @@ const MUTATOR_MOD_KEYS = [
   'refillChanceMul',    // streamShafts (shelf; how often a refill circle materialises in a cell)
   'refillSpendMul',     // drawdownSecsFor (shelf; how long one circle feeds you before it is spent)
 ]
+// Human label + "does a value above 1 help the player" for every MUTATOR_MOD_KEYS entry — the
+// brief/pause/summary effect chips read this (ui.js effectChipList) to word the trade and colour
+// it green or red. It lives HERE, beside the key list it must cover, for two reasons: an unlabelled
+// key renders the raw JS identifier to the player (`+80% tideSurgeMul`), and copy in a ui.js bare
+// const is exempt from run XX's config-table walk BY CONSTRUCTION, so it ships untranslated with
+// the suite green. Both happened — springtide and deadWater shipped that way. Run XX now walks
+// this table for French and asserts it covers MUTATOR_MOD_KEYS exactly, so neither can recur.
+export const MUTATOR_EFFECT_LABELS = {
+  spawnMul: ['enemy spawns', false],
+  enemyHpMul: ['enemy HP', false],
+  enemySpeedMul: ['enemy speed', false],
+  enemyDmgMul: ['enemy damage', false],
+  enemyRadiusMul: ['enemy size', false],
+  contactDmgTakenMul: ['damage you take', false],
+  playerDmgMul: ['your damage', true],
+  playerSpeedMul: ['your move speed', true],
+  coinMul: ['coins', true],
+  xpMul: ['XP', true],
+  eliteEveryMul: ['time between elites', true],
+  elementWeightMul: ['infusion card chance', true],
+  magnetMul: ['pickup magnet', true],
+  maxAliveMul: ['enemies at once', false],
+  // v5.25 chapter-anomaly knobs (missing until v6.1 — the chips showed the raw key)
+  currentForceMul: ['current push', false],
+  tideSurgeMul: ['tide push', false],
+  pheromoneLifeMul: ['pheromone life', false],
+  trapCountMul: ['trap count', false],
+  trafficIntervalMul: ['time between cars', true],
+  bombardIntervalMul: ['time between shells', true],
+  wellForceMul: ['gravity well force', false],
+  acidPotencyMul: ['acid pool burn', false],
+  // Both shelf keys are worded from the PLAYER's side, in the words already on the shelf's screens
+  // ('eau claire' / clean water), not from the sim's: refillSpendMul multiplies the drawdown clock,
+  // i.e. how much of the bar one circle is worth, so "clean water per spot" is what it buys you.
+  refillChanceMul: ['clean-water spots', true],
+  refillSpendMul: ['clean water per spot', true],
+}
 // Pure helper: given a list of mutator ids (run.mutators), returns the full run.mods object —
 // every key above defaulted to 1, with each selected mutator's effects multiplied in. Unknown
 // ids are ignored so a stale/typo'd id in a save never throws.

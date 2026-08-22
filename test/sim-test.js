@@ -141,7 +141,7 @@ import {
   TIDE_POOL_VIS, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, SANDBAR_VIS,
   LOBE_SHAPES, LOBE_DEPTH, lobeFactor, inLobe, GULL_RADIUS, GULL_FUSE, GULL_DMG,
   // elements redesign (Run EL)
-  EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
+  EL_WINDOW, EL_BUCKETS, EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, BARBED_DURATION, ELITE_AFFIXES, MUTATOR_EFFECT_LABELS, MUTATOR_MOD_KEYS, elementCardDesc, elementCodex, ELEMENT_CODEX_INTRO,
   STAT_KEYS,
   // the cosmetic shop line and its mastery gate (Run BP.ag)
   MASTERY_UNLOCK, chaptersMastered, shopLineUnlocked, CHEEK_JIGGLE, BUTT_FEET,
@@ -15992,6 +15992,25 @@ function testFrenchDictionary() {
   // ELITE_AFFIXES is shown on the elite itself and no walk above reached it, so all seven names
   // had always shipped in English — found while translating the Codex line that names one of them.
   for (const v of Object.values(ELITE_AFFIXES ?? {})) need(v?.name)
+  // The anomaly EFFECT CHIP labels — the words on the brief screen's trade, e.g. '+25% coins'.
+  // They lived in a bare const inside ui.js until v7.x, which is the exemption this walk documents
+  // three times above: it enumerates config TABLES, so a const in a function is invisible to it and
+  // ships in English with the suite green. Tuple-shaped ([label, goodUp]), so it needs its own line
+  // rather than the generic name/desc walk — same as CHAPTER_SPINE and DMG_SRC_NAME below.
+  for (const [label] of Object.values(MUTATOR_EFFECT_LABELS ?? {})) need(label)
+  // ...and the labels must COVER the key list exactly. effectChipList falls back to `[key, true]`,
+  // so an unlabelled key does not throw and does not fall out of the walk above — it renders the
+  // raw JS identifier to the player ('+80% tideSurgeMul') and calls it a GAIN whichever way it
+  // points. Two shipped that way (springtide, deadWater) precisely because nothing tied the two
+  // lists together. The reverse direction matters as much: a label for a key mergeMutatorMods can
+  // never produce is copy that reaches no screen, and run XX's `dead` check cannot see it because
+  // the string is live in this table.
+  assert.deepStrictEqual(
+    MUTATOR_MOD_KEYS.filter((k) => !MUTATOR_EFFECT_LABELS[k]), [],
+    'MUTATOR_MOD_KEYS entries with no MUTATOR_EFFECT_LABELS row — the chip renders the raw key to the player')
+  assert.deepStrictEqual(
+    Object.keys(MUTATOR_EFFECT_LABELS).filter((k) => !MUTATOR_MOD_KEYS.includes(k)), [],
+    'MUTATOR_EFFECT_LABELS rows for a key no mutator effect can produce — dead copy')
   for (const v of Object.values(CHAPTER_ENDINGS ?? {})) { need(v?.victory); need(v?.death) }
   for (const v of Object.values(CHAPTER_UNLOCK_LINES ?? {})) need(v)
   // Same flat id -> string shape, one book down. Joined here the day the table landed rather than
