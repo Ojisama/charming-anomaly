@@ -1,7 +1,7 @@
 # The Wreck — the hunt rework
 
 **Date:** 2026-08-22
-**Status:** rev 3 — **three owner rulings outstanding**, build blocked until they are taken (§9)
+**Status:** rev 4 — **BUILT AND MEASURED NEGATIVE. The density premise is a dead end.** See §0.
 **Owner report that opened it:** *"I like the idea of the level (you chase instead of being chased) but I don't like the execution. Weapons are useless, enemies / preys are useless, you just go straight forward and you win."*
 
 **Revision history**
@@ -12,6 +12,48 @@
   - **The shop defeats the premise.** At shop Lv10, mowing and hunting are *the same run* (1861 vs 1924 kills). Part 2's ladder was a base-save-only argument, and the whole measurement plan would have validated at Lv0 and shipped to Lv10.
   - **The orca's orbit is an evacuator, not a compressor**, and Part 3 could not see the orca at all.
   - Also: rev 1 and rev 2 both quoted a note that `config.js` itself flags as stale; the damage half is *provably* inert, not merely close to inert; `CHUM_PANIC_R` (150) exceeds gnash L1's reach (118).
+
+---
+
+## 0. THE RESULT: density cannot be this chapter's currency
+
+**Everything below §1 was built and measured. It does not work, and the reason is structural rather than a tuning miss.** Three separate payoff designs were tried and all three failed the same way:
+
+1. A multiplier on **kill refill** — paid the straight-line player +167% against a hunter's +31%.
+2. A **drain-slow keyed on prey count** near the player — separation narrowed 1.96× → 1.48×.
+3. A **drain-slow keyed on prey tightness** (`_shoalN >= BALL_TIGHT_N`) — separation narrowed 1.96× → 1.44×.
+
+**The A/B on attempt 3** (same probe, same 3 seeds, 300s, immortal, Lunge off, chapter printed):
+
+| | OLD | NEW |
+|---|---|---|
+| mow mean Bloodlust | 40.79 | **58.45** (+43%) |
+| hunt mean Bloodlust | 79.82 | 84.06 (+5%) |
+| separation (hunt/mow) | **1.957×** | **1.438×** |
+| mow %time-at-zero | 20.1% | **9.5%** |
+| hunt %time-at-zero | 7.1% | 7.1% |
+| circle prey-within-200px | 12.52 | **8.53** |
+
+The change **halved the mowing player's time starving and did nothing at all for the hunter.** It made the playstyle the chapter exists to discourage materially safer.
+
+### The two findings behind it
+
+**(a) Density is ambient at this spawn rate, so it cannot be a signal.** `nearN@kill` measured **7.35 mowing against 10.16 circling** — 1.38× apart, and *both* far above the threshold meant to gate the reward. The distributions overlap almost completely: no threshold separates them, because at `spawnMul` 2.2 / `maxAliveMul` 1.55 (620 concurrent bodies) *everything* is crowded all the time. Crowding is not earned here, so paying for crowding pays everyone.
+
+**(b) Cohesion is ANTI-correlated with the player's access to food.** Circling's prey-within-200px **fell 32%** (12.52 → 8.53). A selfish herd converges on itself; the player is a repulsor; therefore the convergence point is *away from the player*. The design's whole premise was that gathering the shoal means feeding on it. **It does the opposite.** This is not fixable by tuning the blend — it is what the term does.
+
+> Note on the clamp: part of the narrowing is an artifact — the hunter sits at 84 of a 100 cap and has only 16 points of headroom, so *any* benefit compresses the ratio. But the unclamped metric agrees: the mower's time-at-zero halved while the hunter's did not move. The design helped the wrong player on both a clamped and an unclamped measure.
+
+### What this means for the chapter
+
+**The problem is the density itself, and that is an owner decision.** "Very numerous" (`spawnMul` 2.2) is the owner's own word and the picture the chapter was built for — but a field where food is everywhere cannot also be a field where *finding and gathering* food is the skill. The two requirements are in direct conflict.
+
+Two ways out, both structural:
+
+- **Make shoals discrete and the water between them empty.** Drop `spawnMul` hard and spawn prey in genuine clusters rather than uniformly. Then density means something, "find the bait ball" becomes a real verb, and every payoff above starts working — they were all measuring a signal the spawner had already flattened.
+- **Abandon density as the currency entirely** and pay for something a straight line structurally cannot do. The one measured candidate: `_shoalN` at the kill site still ordered correctly (mow 2.57 → circle 5.45 on the first build) even though it did not *separate* enough to gate a reward — so a payoff keyed on a much rarer, sharper event than "is it crowded" might survive.
+
+**Recommendation: the first.** It is one number plus a clustered spawner, and it is the only version in which the chapter's premise and its picture agree.
 
 ---
 
