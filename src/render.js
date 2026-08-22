@@ -11124,8 +11124,9 @@ export function createRenderer(app) {
     // wrong on a floor that is under water — sand does not blow through water, it hangs in it — and
     // wrong twice over in a lane, where the water is still and the CAMERA is the thing moving. All
     // of that is dustVel (config.js), which owns the composition so the suite can integrate it; this
-    // side owns nothing but the wrap. Both knobs default to no-ops, so every chapter that asks for
-    // neither keeps the drift it was tuned with.
+    // side owns nothing but the wrap. Off a lane both knobs default to no-ops, so every free-roam
+    // chapter that asks for neither keeps the drift it was tuned with; in a lane the default speed
+    // is signed instead, because there +1 points the field into the camera (see dustVel).
     const ax = chapterHasLane ? chapterLaneAxis : null
     for (let i = 0; i < dustMotes.length; i++) {
       const m = dustMotes[i]

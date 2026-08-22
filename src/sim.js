@@ -7899,12 +7899,9 @@ function stepBlooms(run, dt) {
         }
         // A CLOUD THAT DEALS NO DAMAGE EMITS NO HIT. Two blooms on this array carry dmgPerTick 0
         // and exist for something other than damage — the Oxygen Tank's boil (it pauses Air) and
-        // the bilge — and without this guard each of them called dealDamage on every body inside
-        // it every BLOOM_TICK, which pushes a {type:'hit', dmg: 0} that render.js turns into a
-        // floating "0" over the body. render.js's own guardblock case states the rule: "a floating
-        // 0 is worse than a spark". Measured on the census, oxygenTank L1: 44.3 hits/s against
-        // 185 raw dps, i.e. ~40 zeroes a second, and they evict real numbers from the shared
-        // dmgTexts pool. Everything below still runs — the daze and sporeburst are not damage.
+        // the bilge — and a {type:'hit', dmg: 0} draws a floating "0" over the body and evicts a
+        // real number from the shared dmgTexts pool. Everything below still runs — the daze and
+        // sporeburst are not damage.
         if (tickDmg > 0) applyDotDamage(run, e, tickDmg)
         // SILT VEIL's daze, published into the e.stunT contract field render.js already reads.
         // The window is the whole guard: gating on "is it stunned" alone lets a persistent cloud

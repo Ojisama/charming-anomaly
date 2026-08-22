@@ -20,8 +20,10 @@
 // SHOOT IT WIDE. laneAxis 'x' with LANE_CAMERA_FRAC 20% leaves only ~78px of lane visible behind
 // the player on a 390px-wide phone, and astern is exactly where the subject ends up.
 //
-//   FIXED  the shoal noses down-lane, AWAY from the player, still swimming the way it was going.
-//   BROKEN the shoal noses back up-lane, AT the player, crabbing sideways with its eyes on you.
+// The bodies are ranked AHEAD of the player and nosing back at him when the blind lands, so the
+// held heading is UP-lane; the scroll then carries him past them and they end up astern of him.
+//   FIXED  the shoal keeps nosing up-lane, AWAY from the player who is now to its right.
+//   BROKEN the shoal noses back down-lane, AT the player, crabbing along with its eyes on you.
 H.weapon('squidInk', 5)
 
 H.breed(14)
@@ -59,12 +61,18 @@ H.note(JSON.stringify({
 }))
 
 // THE A/B, OUT OF ONE BOOT AND ONE WORLD. Frames 0-1 are the shipped build. Frames 2-3 ablate the
-// fix WITHOUT touching a line of code: zeroing blindT drops these bodies off render's
-// facesOwnHeading branch, which is bit-for-bit the pre-fix drawing (before, sim published no
-// _tgtX/_tgtY here at all, so the branch was unreachable for a blinded body either way).
-// H.render(), never H.tickFx(), so the sim does not advance between the panels — nothing moves,
-// only the sprite's chosen bearing differs, which is the only variable this scene has.
+// fix WITHOUT touching a line of code, by clearing the CONTRACT PAIR: render's branch is
+// `facesOwnHeading && e._tgtX !== undefined`, so an undefined pair drops these bodies back onto the
+// run.player bearing — bit-for-bit the pre-fix drawing, since sim published no _tgtX/_tgtY here at
+// all before the fix.
+//
+// ⚠ NOT BY ZEROING blindT, WHICH IS NOT AN ISOLATE. blindT also drives the ink tint (0x8b79bd) and
+// the shed-ink particles, so zeroing it moves three variables at once and the shoal goes
+// purple-to-white — a difference the eye reads long before it reads a bearing, and the panel then
+// proves nothing about facing. The pair is the one input to the branch under test.
+// H.render(), never H.tickFx(), so the sim does not advance between the panels: nothing moves and
+// nothing is re-published, and the sprite's chosen bearing is the only variable.
 return (age) => {
-  if (age > 0.5) for (const e of crowd) e.blindT = 0
+  if (age > 0.5) for (const e of crowd) { e._tgtX = undefined; e._tgtY = undefined }
   H.render()
 }

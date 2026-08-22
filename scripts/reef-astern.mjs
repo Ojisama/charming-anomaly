@@ -1,7 +1,10 @@
-// scratch — delete before reporting. The one number in WEAPONS.squidInk's block that no shipped
-// rig measures: what SHARE of each reef native's damage lands ASTERN of the player. Re-derived
-// because the Oxygen Tank's radius ladder moved (a bigger blast reaches further back past its own
-// throw point), and that block quotes the tank by name.
+// THE SHARE OF EACH REEF NATIVE'S DAMAGE THAT LANDS ASTERN OF THE PLAYER — the one number in
+// WEAPONS.squidInk's block that no shipped rig measures, and that block cites this file by name.
+//
+// ⚠ THE STICK IS THE CONSTANT {x:0.4, y:0.2} BELOW, AND IN A LANE THAT IS ONE GEOMETRY, NOT THE
+// GENERAL CASE. Only the cross axis is read, so a fixed stick pins the player against one cross
+// wall for the whole run and every body arrives from the same side of them. The ORDERING these
+// numbers give is the reading; the absolute shares belong to that one lane position.
 //
 // Same shape as weapon-census's inner loop, minus everything it measures: one weapon, offers
 // refused, player immortal, events drained every step. A 'hit' event carries the struck body's

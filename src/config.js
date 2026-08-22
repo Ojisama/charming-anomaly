@@ -2282,26 +2282,17 @@ export const WEAPONS = {
     name: 'Pistol Shrimp',
     desc: 'Snaps a bolt of boiling water straight ahead. It never turns to aim — line the shot up yourself.',
     icon: '🦐', rarity: 'normal',
-    // THE STARTER, and the chapter's thesis card: the cross stick IS the aim, because the shot is
-    // welded to the lane's forward heading (laneAxes().angle) and has no targeting of any kind.
-    // Sliding one groove up to line three bodies onto one crack is the whole lesson, and any
-    // targeting at all deletes it — see fireSnap for the non-lane fallback and why it is a fallback
-    // rather than a second design.
-    //
-    // A run.beams entry with rotSpeed 0, the Sunlance's idiom (a stab held on one bearing, never a
-    // sweep), tagged look: 'snap' so render.js gives it its own bake instead of the crimson saber.
-    //   snapT/tick     how long the crack is on screen, and ONE tick inside it. The arithmetic is
-    //                  load-bearing: stepBeams accumulates dt and fires while acc >= tick, so tick
-    //                  must clear snapT/2 or a body on the line is struck twice. 0.10 into 0.14
-    //                  leaves exactly one. That is what makes this read as a CRACK rather than as
-    //                  a beam held out, and it is why this weapon sells no duration mod.
-    //                  ⚠ NOT NAMED `duration`, which is the key STAT_KEYS labels 'Burns for'. A
-    //                  crack does not burn, the number never moves, and it would spend one of the
-    //                  build sheet's five rows saying 0.14 forever. fireSnap maps it onto the
-    //                  beam's own `duration` field at the cast, where stepBeams needs it.
-    //   length         FLAT across the ladder. L1 already clears the ~312 world px of lane a
-    //                  390x844 phone shows ahead of the player (see CHAPTERS.reef.laneScroll), so
-    //                  every px past that is reach nobody can see coming.
+    // THE STARTER AND THE CHAPTER'S THESIS CARD: the cross stick IS the aim. The shot is welded to
+    // the lane's forward heading (laneAxes().angle) and has no targeting of any kind, so sliding one
+    // groove to line three bodies onto one crack is the whole lesson (fireSnap has the non-lane
+    // fallback). A run.beams entry with rotSpeed 0, the Sunlance's idiom, look: 'snap' for its bake.
+    //   snapT/tick     how long the crack is on screen, and ONE tick inside it: stepBeams fires
+    //                  while acc >= tick, so tick must clear snapT/2 or a body on the line is
+    //                  struck twice. That is also why this weapon sells no duration mod.
+    //                  ⚠ NOT NAMED `duration`: that key is labelled 'Burns for' and would spend a
+    //                  build-sheet row saying 0.14 forever. fireSnap maps it across at the cast.
+    //   length         FLAT. L1's 340 already clears the ~312 world px of lane a 390x844 phone
+    //                  shows ahead of the player, so every px past that is reach nobody sees.
     //   width          THE LADDER: 30px across an 836px lane (3.6%) at L1, 130px (15.6%) at L5. A
     //                  level buys how many bodies one groove change can line up, which is the only
     //                  thing this card asks the player to do.
@@ -2311,20 +2302,20 @@ export const WEAPONS = {
     //                  T.beamRefWidth/RefLen also size and scroll the shimmer streaks on the other
     //                  three beam weapons, so it is a look change to cards nobody asked about.
     // balance_decision : levels buy width, not length or damage [2026-08-22]
-    //  - per-hit damage is the only lever that really moves the column, and it is the one this
-    //    ladder may not spend; length and rate both saturate. Sweep grid in the commit body.
+    //  - per-hit damage is the only lever that really moves the column and it is the one this
+    //    ladder may not spend. Sweep grid in the commit body.
     // MEASURED, reef, 240s x 5 seeds, d3 — all four of the chapter's natives in ONE census
     // invocation, never across two. L1 -> L5: eff dps 151 -> 219, kills/min 119.5 -> 162.3, waste
     // 7% -> 6%.
     // THE POOL, ON eff dps, WHICH IS THE RARITY ORDERING AT BOTH ENDS:
     //   L1  Oxygen Tank 145, Pistol Shrimp 151 (normal)  <  Squid Ink 187, Fire Coral 206 (rare)
     //   L5  Pistol Shrimp 219, Oxygen Tank 246 (normal)  <  Fire Coral 274, Squid Ink 297 (rare)
-    // Both normals under both rares at both ends, and the normal-rarity STARTER at the bottom of
-    // its own chapter's band at L1, which is where a starter belongs. kills/min is the weaker read
-    // here: at L5 all four sit inside 162-181, i.e. the rig is measuring the spawner.
-    // ⚠ THE RIG CANNOT SEE THIS CARD'S POINT. weapon-census walks the player at a fixed stick, so
-    // it measures a line that happens to cross bodies; the skill this weapon sells is choosing the
-    // groove that puts three of them on it. Treat the number as a floor, not as the reading.
+    // Both normals under both rares at both ends, and the starter at the bottom of its own band at
+    // L1, which is where a starter belongs.
+    // ⚠ TWO THINGS THE CENSUS CANNOT TELL YOU. kills/min is the weaker read — at L5 all four sit
+    // inside 162-181, i.e. the rig is measuring the spawner. And the rig walks a fixed stick, so it
+    // measures a line that happens to cross bodies; the skill this card sells is choosing the
+    // groove that puts three of them on it. Treat both numbers as floors.
     levels: [
       { dmg: 12, interval: 0.90, length: 340, width: 30, snapT: 0.14, tick: 0.10 },
       { dmg: 12, interval: 0.82, length: 340, width: 52, snapT: 0.14, tick: 0.10 },
@@ -2337,40 +2328,35 @@ export const WEAPONS = {
     name: 'Fire Coral',
     desc: 'Wakes the stinging polyps on the coral ahead of you. Anything crossing a lit ridge burns; the gaps through it stay cold.',
     icon: '🔥', rarity: 'rare',
-    // THE CARD THAT COULD ONLY EXIST HERE. The ridge that has been grating you all chapter (SPUR_DPS)
-    // is the weapon: a cast lights the coral of the next ridge or two ahead, and the oncoming stream
-    // burns on the way through. It is a run.polyps entry — its own array, because run.spurs is
-    // WIPED AND REBUILT on every ridge crossing (streamSpurs) and nothing may be hung off an entry
-    // in it. Each polyp entry is a SNAPSHOT of the pure spurAt() geometry plus a timer, so the band
-    // that burns is, to the pixel, the band that grates.
+    // THE CARD THAT COULD ONLY EXIST HERE. The ridge that has been grating you all chapter
+    // (SPUR_DPS) is the weapon: a cast lights the coral of the next ridge or two ahead and the
+    // oncoming stream burns on the way through. It is a run.polyps entry — its own array, because
+    // run.spurs is WIPED AND REBUILT on every ridge crossing (streamSpurs) and nothing may be hung
+    // off an entry in it. Each polyp is a SNAPSHOT of the pure spurAt() geometry plus a timer, so
+    // the band that burns is, to the pixel, the band that grates.
     //
-    // ⚠ IT IS A BAND, NOT A FUNNEL, and the difference matters because the first design of this card
-    // claimed the second. NOTHING in this chapter is solid: enemies swim straight through coral and
-    // are never channelled by it, so an armed ridge herds nothing. What it is instead is a ~520px-wide
-    // burn band spanning most of an 836px lane, at right angles to the only direction anything can
-    // arrive from — which is a real shape, and the one shape a chapter with a fixed scroll can
-    // guarantee the crowd walks into. Read it as area denial placed AHEAD, never as a shove.
-    //   The corollary is its honest weakness: it does nothing to what is already beside you. That
-    //   is why the pool keeps the quill ring, whose whole answer is 'everything, right here'.
+    // ⚠ IT IS A BAND, NOT A FUNNEL. NOTHING in this chapter is solid — enemies swim straight
+    // through coral — so an armed ridge herds nothing. It is a ~520px burn band across an 836px
+    // lane, at right angles to the only direction anything arrives from: area denial placed AHEAD,
+    // never a shove, and it does nothing to what is already beside you.
     //
-    // WHAT THE PLAYER DOES WITH IT is choose a groove — the same choice the grate already asks, now
-    // with the other side of it paid. The gaps stay cold, so the channel you were going to swim is
-    // still the channel you swim; Overgrowth is the pick that gives that up for coverage.
+    // WHAT THE PLAYER DOES WITH IT is choose a groove — the choice the grate already asks, now with
+    // the other side of it paid. The gaps stay cold; Overgrowth trades that away for coverage.
     //   dmg       per TICK, like every other dot-flagged zone in the game (silt, barnacle crust).
-    //   duration  how long a lit ridge burns. Read against the scroll, not against a fight: at
-    //             laneScroll 45 over spacing 210 the player crosses a ridge every 4.7s, so a cast
-    //             at L1 keeps roughly one ridge lit at all times and no more.
+    //   duration  how long a lit ridge burns, read against the SCROLL and not against a fight: the
+    //             player crosses a ridge every 4.7s, so an L1 cast keeps roughly one lit and no
+    //             more.
     //   ridges    how many CONSECUTIVE ridges a cast lights, counting forward from the first one
     //             ahead. A real key in levels[], so More Reef folds through WEAPON_STAT_MODS and
     //             the fire site's one local is both the loop bound and the index step.
     // MEASURED in the same L1 invocation as the Pistol Shrimp above (never across invocations —
     // every weapon in one --weapons list shares an RNG stream): 236 eff dps at 6% waste and 0%
-    // duds, second of the four and above both normals, under the epic. A rare sitting there is the
-    // band. Read the dud rate as the card's real claim: a band the whole oncoming stream has to
-    // cross is the one shape in this chapter that cannot miss.
+    // duds, second of the four and above both normals, under the epic. Read the dud rate as the
+    // card's real claim: a band the whole oncoming stream has to cross is the one shape in this
+    // chapter that cannot miss.
     // ⚠ AND THE RIG FLATTERS IT ON ONE AXIS. The census player holds a lane it did not choose, so
-    // it crosses lit coral as often as chance says; a player who is actually using the grooves
-    // meets the band on their own terms. The kills/min are honest, the waste number is optimistic.
+    // it crosses lit coral as often as chance says; a player actually using the grooves meets the
+    // band on their own terms. The kills/min are honest, the waste number is optimistic.
     levels: [
       { dmg: 7,  tick: 0.5, interval: 4.40, duration: 5.0, ridges: 1 },
       { dmg: 9,  tick: 0.5, interval: 4.15, duration: 5.4, ridges: 1 },
@@ -2383,20 +2369,16 @@ export const WEAPONS = {
     name: 'Squid Ink',
     desc: 'Jets a cloud of ink around you. Anything that swims into it loses you and keeps going the way it was already headed.',
     icon: '🦑', rarity: 'rare',
-    // THE BOOK'S ONE NEW PERCEPTION BRANCH, and it is built HERE because a lane is the only place
-    // it is legible. Every seek path in this file targets run.player or a trail sample; ink makes a
-    // body target the last heading it had instead. In an open map that reads as an enemy wandering
-    // off; in a scroller the world visibly carries it past you and off the back of the screen
-    // inside a second, so the player can SEE the mechanic work. That is the whole argument — the
-    // spec's other one (that The Deep's Scent reuses this branch) is not true of shipped code.
+    // THE BOOK'S ONE NEW PERCEPTION BRANCH, built HERE because a lane is the only place it is
+    // legible: every other seek path targets run.player or a trail sample, ink makes a body target
+    // the last heading it had, and only a scroller visibly carries that body off the back of the
+    // screen where the player can SEE it work.
     //
     // A run.blooms entry carrying `blind`, the fourth tag on that array after look/slow/daze. No
     // new run.* array, so nothing joins render.js's reset() hazard. Its damage is real but small:
-    // this is a control card, and a cloud that killed what it blinded would never show you the
-    // blind at all.
+    // a cloud that killed what it blinded would never show you the blind at all.
     //   maxR    the cloud, planted ON the player — the pool's only card that covers what is
-    //           already beside you now that the quill ring has left, and the only one that answers
-    //           the lionfish that has already pounced past you.
+    //           already beside you, and the only one that answers a lionfish that has pounced past.
     //   blind   how long a body stays lost after it leaves the ink. THE LEVEL AXIS, with the
     //           radius: a level buys how far and how long they are carried away, never how hard
     //           the cloud hits.
@@ -2408,21 +2390,24 @@ export const WEAPONS = {
     // MEASURED, all four of the chapter's natives in ONE census invocation on one RNG stream
     // (--chapter reef, 240s x 5 seeds, d3) — never across invocations. eff dps 187 at L1 and 297 at
     // L5, top of the pool at L5 and above both normals at both ends; see WEAPONS.pistolShrimp for
-    // the whole table and for why the ordering is read there. Waste 1-2%, the lowest in the pool: a
-    // cloud on the player in a corridor everything has to swim down cannot miss.
+    // the whole table. Waste 1-2%, the lowest in the pool: a cloud on the player in a corridor
+    // everything has to swim down cannot miss.
     // ⚠ THE RIG CANNOT SEE THIS CARD AT ALL, and that is not a hedge. weapon-census counts damage;
     // this weapon's product is bodies that stop arriving, which the rig scores as damage it did NOT
     // deal. Read the eff dps as a floor and the blind as unmeasured by it.
-    // WHAT DOES MEASURE, and the reason this card ends round 1's standing objection about the
-    // pool's rear: the share of each card's damage landing ASTERN of the player, scripts/
-    // reef-astern.mjs, 180s x 3 seeds at d3, all five in one invocation.
+    // WHAT DOES MEASURE, and the reason this card answers round 1's objection about the pool's
+    // rear: the share of each card's damage landing ASTERN of the player (scripts/reef-astern.mjs,
+    // 180s x 3 seeds at d3, all in one invocation, one fixed lane position).
     //   L1  Pistol Shrimp 0.0% | Oxygen Tank 4.1% | Fire Coral 50.5% | Squid Ink 91.2%
     //   L5  Pistol Shrimp 0.0% | Fire Coral 48.1% | Oxygen Tank 53.7% | Squid Ink 82.0%
     // The cloud is planted ON the player and the world scrolls, so it spends its whole life behind
-    // you, and it is the only card in the pool over 80% at either end. The QUILL BURST this pool
-    // dropped — the card that objection named as the answer — measures 61.8% at L1 and 39.6% at L5
-    // in the same invocation: an omnidirectional ring still fires where the crowd is, and by L5, in
-    // a lane, the crowd is ahead.
+    // you: the ONLY card in the pool over 80% at either end. It is not the pool's only rear answer
+    // and never was — Fire Coral is already at 50.5% on turn one and the tank reaches 53.7% once its
+    // radius ladder has run — it is the only one that does not have to share the rear with the front.
+    //   THE QUILL BURST this pool dropped, the card round 1's objection named, is in the same
+    // invocation as a control: 61.8% at L1, SECOND in the pool and ahead of both natives, then 39.6%
+    // at L5. An omnidirectional ring fires where the crowd is, and by L5 in a lane the crowd is
+    // ahead — which is the dependency this card does not have.
     levels: [
       { dmgPerTick: 2, rate: 4.6, maxR: 150, dur: 4.0, blind: 1.6, clouds: 1 },
       { dmgPerTick: 3, rate: 4.4, maxR: 166, dur: 4.3, blind: 1.8, clouds: 1 },
@@ -2435,54 +2420,41 @@ export const WEAPONS = {
     name: 'Oxygen Tank',
     desc: 'Tumbles a lost tank up the lane. It ruptures where you are about to be, and your Air stops draining inside the bubbles.',
     icon: '🤿', rarity: 'normal',
-    // THROWN AT AN APPOINTMENT, which is the one thing only a scroller can sell. Every other lob in
-    // the game is thrown AWAY from the player — Debris Toss and Ballast pick a body within
-    // castRange, Sunspear drops on what is nearest — so the thrower is never where the thing lands.
-    // Here the throw is welded to the lane heading (fireTank, laneAxes().angle, the Pistol Shrimp's
-    // rule) and the scroll closes the gap for you: you and the oncoming stream both arrive at the
-    // blast point together. `range` is therefore a TIMING knob, not a reach knob.
-    //
-    // THE BUBBLES DO NOT REFILL YOU, and that is a hard constraint rather than a tuning choice.
-    // CHAPTERS.reef.resource's measured economy (centre-hoard 76% of a run at zero air against
-    // pocket-seeker 0%, and a killRefill of 1.2 that abolished the bar outright) depends on the
-    // pockets being the ONLY source. A drain PAUSE reads on the same rail, by the same word, and
-    // adds no source — see stepCharge, where the boil multiplies the drain by zero and is
-    // structurally unable to add to the bar.
+    // THROWN AT AN APPOINTMENT, which only a scroller can sell. Every other lob in the game is
+    // thrown AWAY from the player; here it is welded to the lane heading (fireTank) and the scroll
+    // closes the gap, so you and the oncoming stream arrive at the blast point together.
     //   dmg    the rupture, once, in r. FLAT across the ladder, the Pistol Shrimp's rule.
     //   r      THE LEVEL AXIS: 120px at L1 to 190px at L5, 14% to 23% of an 836px lane. A level
     //          buys how much of the corridor the appointment covers, which is the only thing this
     //          card asks the player to plan.
     //   boil   how long the bubbles hold your Air still. FLAT at the owner's ~2s; the row exists
     //          for Long Boil to move, exactly as Fire Coral's `ridges` exists for More Reef.
-    //   range  A TIMING KNOB, NOT A REACH KNOB, and FLAT across the ladder because the arithmetic
-    //          that sets it does not move with level. The player closes on their own throw at
-    //          laneScroll 45 px/s and covers 38px during the 0.85s flight, so at the rupture they
-    //          are (range - 38) px short of the centre and are already INSIDE it once r passes
-    //          132 — L1 walks in 0.3s after the burst, L4 and L5 open around the player outright.
-    //          Either way the player stands in the bubbles for essentially the whole boil.
-    //          ⚠ IT IS NOT A FREE KNOB, and the bound is the BOIL's life, not r. Raising it puts
-    //          the arrival at (range - 38 - r) / 45 s after the burst, and past `boil` the card
-    //          silently stops doing half of what it says — at 300 with L1's r the player reaches
-    //          the bubbles at 3.2s and the last of them went out at 2.0s.
+    //   range  A TIMING KNOB, NOT A REACH KNOB, and FLAT across the ladder. The player closes 38px
+    //          on their own throw during the flight, so the rupture opens 132px ahead of them: L1's
+    //          r of 120 walks in 0.3s later and every rung above it opens around the player
+    //          outright. Either way they stand in the bubbles for essentially the whole boil.
+    //          ⚠ IT IS NOT A FREE KNOB, and the bound is the BOIL's life, not r: past `boil` the
+    //          card silently stops doing half of what it says. At range 300 with L1's r the player
+    //          reaches the bubbles at 3.2s and the last of them went out at 2.0s.
     // balance_decision : the boil pauses the Air drain and never refills it [2026-08-22]
-    //  - never turn this into a refill. The pocket economy above is measured against pockets being
-    //    the only source, and killRefill 1.2 already proved what a second one does to the chapter.
+    //  - never turn this into a refill. CHAPTERS.reef.resource's economy is measured against the
+    //    pockets being the only source (centre-hoard 76% of a run at zero air against pocket-seeker
+    //    0%), and a killRefill of 1.2 already proved what a second source does to the chapter. A
+    //    drain PAUSE reads on the same rail and adds none: stepCharge multiplies the drain by zero.
     // balance_decision : the ladder buys blast radius, not rupture damage [2026-08-22]
     //  - a damage ladder here is a WASTE ladder: a blast aimed at a PLACE already overkills, so
     //    every point of dmg lands on bodies that were dying anyway. Sweep grid in the commit body.
     // MEASURED in the same one-invocation census as Squid Ink above (--chapter reef, 240s x 5
     // seeds, d3). L1 -> L5: eff dps 145 -> 246, kills/min 115.6 -> 173.7, waste 22% -> 20%. Under
     // both rares at both ends and under the normal-rarity starter at L1, which is the shape this
-    // project has settled on: the late-arriving normal is not a starter's peer on turn one.
-    //   Waste FLAT is the point of the ladder rather than a side effect. It is the pool's highest
-    // either way — a blast aimed at a place overkills where an aimed one would not — but it no
-    // longer CLIMBS, and a card whose levels buy more waste is a card whose levels buy less.
-    //   THE BAR. A boil that outlasts the gap between throws is a permanent pause: at 2.0 -> 2.8
-    // against a cadence falling to 2.60 the chapter's Air sat at 92 of 100 for the whole run, which
-    // is the killRefill 1.2 failure in a different costume — the purchase deleting the chapter's
-    // mechanic rather than changing how it is played. Flat, the bar rests at 61 (L1) and 74 (L5)
-    // against the 39 every other card in this pool leaves it at: a real and deliberate softening of
-    // the Air clock, bought with a weapon slot, not an abolition of it.
+    // project has settled on: the late-arriving normal is not a starter's peer on turn one. Waste
+    // is the pool's highest either way — a blast aimed at a place overkills where an aimed one
+    // would not — but it no longer CLIMBS, and a card whose levels buy more waste buys less.
+    // ⚠ THE BAR IS THE REAL CEILING ON `boil`. A boil that outlasts the gap between throws is a
+    // permanent pause: at 2.0 -> 2.8 against a cadence falling to 2.60 the chapter's Air sat at 92
+    // of 100 for a whole run, which is the killRefill failure in a different costume. Flat, the bar
+    // rests at 61 (L1) and 74 (L5) against the 39 every other card in this pool leaves it at — a
+    // real softening of the Air clock, bought with a weapon slot, not an abolition of it.
     levels: [
       { dmg: 44, rate: 4.20, flight: 0.85, r: 120, range: 170, boil: 2.0 },
       { dmg: 44, rate: 4.00, flight: 0.85, r: 138, range: 170, boil: 2.0 },
@@ -6707,7 +6679,8 @@ CHAPTERS.surf = {
     // a wind's pace across a floor that is now underwater, and sand does not blow through water — it
     // hangs in it and takes a long time to fall. speedMul cuts them to a fifth, and `sway` adds a
     // slow lateral wander so they are moved BY something rather than travelling on their own.
-    // Both default to no-ops (1 and 0), so every other chapter's dust is untouched.
+    // Both default to no-ops (1 and 0) off a lane, so every other free-roam chapter's dust is
+    // untouched; a LANE chapter's speed default is signed instead (dustVel).
     dust: { tint: 0x8a6f45, alpha: 0.45, speedMul: 0.2, sway: 5 },
     bgColor: 0xbca27a,     // damp warm sand between the floor blotches
     floorTint: 0xe0c79c,   // sun-bleached wash over the wrack and marram (see BIOME_SURF)
@@ -7525,7 +7498,8 @@ CHAPTERS.trawl = {
     // MARINE SNOW: the same ambient dust sprite every chapter shares, taken cold and near-white and
     // slowed almost to a stop. In open water the drift is the tell that you are suspended in
     // something rather than standing on it — The Surf's own dust block made the same move for the
-    // same reason, and both default to no-ops (speedMul 1, sway 0) everywhere else.
+    // same reason, and both default to no-ops (speedMul 1, sway 0) on every other free-roam floor
+    // (a lane's speed default is signed instead — dustVel).
     dust: { tint: 0xcfe0ec, alpha: 0.4, speedMul: 0.15, sway: 6 },
     // Cool, like The Reef's and for the inverse reason: this floor is cold and dark, so a warm
     // iridescence would be the one thing on screen the water cannot swallow. Kept in the family.
@@ -9143,8 +9117,13 @@ export const CLEAR_STUN = 1.1            // s of stagger inside the wide shove
 // re-verified per chapter rather than assumed — so an empty bar still dashes, just BURST_DUR_MIN
 // instead of BURST_DUR_AT_FULL. Run RF.d pins that.
 // At laneScroll 45 x BURST_SPEED_MUL 9 = 405 px/s:
-//   empty bar  0.30s -> 122px travelled, 108px of it bought (13.5px was the scroll anyway)
+//   empty bar  0.30s -> 121.5px travelled (108 of that BOUGHT; 13.5 was the scroll anyway)
 //   full bar   0.75s -> 304px travelled, 270px bought — a ridge and its clear water either side
+// THE FLOOR IS SET AGAINST THE FATTEST RIDGE, and it is TRAVELLED that clears coral, never BOUGHT —
+// the 108 above is under the widest band the field can make and quoting it as the clearance reads
+// reassuring while being on the wrong side of the number. spurs.thick 90 x (1 + thickVar 0.22) is
+// 109.8px against 121.5px travelled: 11.7px of margin, which is thin, and five knobs in three
+// blocks nobody edits together can eat it. Run RS.h asserts the inequality and prints the margin.
 // The speed is FIXED across that range on purpose: a dash whose speed changed with the bar would be
 // a different move at every charge level, where a dash whose LENGTH changes is the same move, more
 // of it.
@@ -9909,8 +9888,14 @@ export const DUST = Object.freeze({
 // velocity is -fwd at its own parallax rate, and the sway is the CROSS axis alone — the one axis on
 // which it cannot fight the scroll. speedMul stays signed (negative = with the scroll) so the sign
 // still means something a chapter can get wrong.
+//
+// ⚠ THE DEFAULT IS SIGNED BY REGIME, AND +1 IS THE WRONG DEFAULT IN A LANE. A lane chapter that
+// declares no dust block is not "untuned", it is pointed the wrong way: +1 sends the field up the
+// lane INTO the camera, at the one pace no water ever moves. The Beyond has no dust block and got
+// exactly that. -1 in a lane is the slowest field that still runs with the scroll; a chapter that
+// wants a real parallax rate says so with its own speedMul, as The Reef does.
 export function dustVel(m, i, t, look, ax) {
-  const mul = look?.speedMul ?? 1
+  const mul = look?.speedMul ?? (ax ? -1 : 1)
   const s = Math.sin(t * DUST.swayRate + i * DUST.swayPhase) * (look?.sway ?? 0)
   if (!ax) return [(m.vx + s) * mul, -m.vy * mul]
   const v = m.vx * mul, c = s * mul
@@ -9932,7 +9917,11 @@ export function dustVel(m, i, t, look, ax) {
 // cold, coherent and directed against the grit's warm, granular scatter. The near-white blues are
 // spoken for — AIR_POCKET_VIS.sheen/.air and CORAL_CRUSH.bubbleTint mean AIR IS HERE, and laying
 // them down the lane behind you in the chapter whose whole map-reading is finding air would be a lie
-// about the map. A saturated teal is neither. Run RF.e asserts the distance from both families.
+// about the map. A saturated teal is neither. Run RF.e checks that twice over and the two are not
+// the same claim: RF.e-1 is the PAINT POT (one channel 60 off both families on the raw tint), RF.e-2
+// is the PIXEL (the streak composited at its real alpha over the reef floor, against a grit mote
+// composited over the same floor). The first alone is not evidence about what the player sees —
+// anything laid at alpha 0.18 arrives nearly the colour of the floor whatever it started as.
 //   half/streakW/streaks  read at an EMPTY press .. at a full one, i.e. across k below
 //   fill                  fraction of the visible strip the longest tail may fill; short of 1 so
 //                         the tail visibly ENDS rather than running under the screen edge again
