@@ -1271,8 +1271,6 @@ const CONFIG = {
   // and one card carrying a 'de' the others do not would read as a typo. 'ta Pollution' rather than
   // 'la': the bar is 'Pollution' in both languages and every card that reads a bar names it
   // possessively, which is the rule the owner set himself after the v7.163 card failed to.
-  'Long Puff': 'Jet Long',
-  'puff radius': 'rayon du jet',
   'Scour': 'Décapage',
   'puff damage, falling with your Pollution': 'dégâts du jet, diminue avec ta Pollution',
   'Backblow': 'Contre-Souffle',
@@ -1409,6 +1407,11 @@ const CONFIG = {
   'Tuna': 'Thon',
   'Sea Lion': 'Otarie',
   'Moon Jelly': 'Méduse Lune',
+  // The Shelf's own two (v7.x), replacing the Sand Hopper and Sea Roach loans above. Roster
+  // `name`s are NOT in run XX's coverage walk, so nothing goes red if these are missing — see
+  // the note on The Trawl's three above. Sixth occurrence of that same exemption.
+  'Flounder': 'Flet',
+  'Sea Catfish': 'Poisson-Chat de Mer',
   'The Garden': 'Le Jardin',
   'your scent gives you away': 'ton odeur te trahit',
   'Ant': 'Fourmi',

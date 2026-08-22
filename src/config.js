@@ -2077,12 +2077,15 @@ export const WEAPONS = {
     //              competing with the level-up for the same number.
     //   r          the cone's outer radius. Short on purpose: this is the card that says "you are a
     //              small fish", and its answer to a crowd is to out-cut it, not to out-reach it.
+    //              ⚠ IT GROWS HERE AND NOWHERE ELSE, the mirror of `arc` above. Long Puff, the
+    //              radius mod, was deleted 2026-08-22 (owner: "the only way the increase range
+    //              should be via leveling up the weapon") — do not re-add one.
     // NO `knockback`, AND ITS ABSENCE IS THE DESIGN (owner, 2026-08-19: "let's remove the knockback
     // entirely on bubble puff"). It shoved until then, and the shove was what made STANDING STILL
-    // the best way to play the chapter: with Flare x5 and Long Puff x5 the ring held a 408px bubble
-    // nothing crossed, and a motionless player beat a walking one by 43s and won 29% of runs against
-    // a walker's 0% (mortal, 300s, 7 seeds). Deleting it takes that to 0%. The weapon is now a fast
-    // short cone that CUTS — every other card on it (Froth, Flare, Long Puff, Scour, Backblow) still
+    // the best way to play the chapter: with Flare x5 and the since-deleted Long Puff x5 the ring
+    // held a 408px bubble nothing crossed, and a motionless player beat a walking one by 43s and won
+    // 29% of runs against a walker's 0% (mortal, 300s, 7 seeds). Deleting it takes that to 0%. The weapon is now a fast
+    // short cone that CUTS — every other card on it (Froth, Flare, Scour, Backblow) still
     // buys exactly what it says, and none of them ever sold the shove.
     // It aims through aimAngle — nearest body first, facing only as the fallback. A cone that
     // pointed where you MOVE would point at empty water, because a survivors player kites away
@@ -2141,11 +2144,14 @@ export const WEAPONS = {
       // weapon's levels[] means no other build sheet gains a row.
       // balance_decision : silt veil is a 75 deg cone off the player, not a cloud 2026-08-21
       //  - the ladder is UNCHANGED by the reshape; maxR changed meaning, not value.
-      { dmgPerTick: 16, rate: 3.38, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1 },
-      { dmgPerTick: 20, rate: 3.15, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1 },
-      { dmgPerTick: 28, rate: 2.92, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1 },
-      { dmgPerTick: 34, rate: 2.69, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1 },
-      { dmgPerTick: 40, rate: 2.46, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1 },
+      // balance_decision : the vase casts 40% more often 2026-08-22
+      //  - `rate` is an INTERVAL, so +40% cadence DIVIDES by 1.4 -- the number goes down. Raising
+      //    it would have slowed the weapon by 40% while reading like a buff.
+      { dmgPerTick: 16, rate: 2.41, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1 },
+      { dmgPerTick: 20, rate: 2.25, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1 },
+      { dmgPerTick: 28, rate: 2.09, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1 },
+      { dmgPerTick: 34, rate: 1.92, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1 },
+      { dmgPerTick: 40, rate: 1.76, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1 },
     ],
   },
   ballast: {
@@ -3068,27 +3074,27 @@ export const WEAPON_MODS = {
     quickBreak: { name: 'Quick Break', desc: 'wave rate',          icon: '⏩', base: 0.25, kind: 'pct' },
   },
   // The Shelf's starter. WIDTH IS THE POINT OF THIS SET: the weapon gives up the full circle it
-  // used to have and Flare is how a player buys it back, so the two cards below are the whole
-  // reason the cone is 90 degrees rather than 360. Flare compounds and stepBubblePuffWeapon caps
-  // the result at a full turn, so a build that stacks it does end up back at a ring — deliberately,
-  // as the top of that ladder rather than as a separate card.
+  // used to have and Flare is how a player buys it back, so Flare alone is the whole reason the
+  // cone is 90 degrees rather than 360. It compounds and stepBubblePuffWeapon caps the result at a
+  // full turn, so a build that stacks it does end up back at a ring — deliberately, as the top of
+  // that ladder rather than as a separate card.
   //
-  // ⚠ THIS WEAPON MAY NOT SELL CADENCE OR SHOVE, and that is a measurement rather than a taste.
-  // It no longer HAS a shove (see the ladder in WEAPONS.bubblePuff), so a knockback mod would be
-  // re-introducing the stat the owner deleted; and cadence stays out because the same set of mods
+  // ⚠ THIS WEAPON MAY NOT SELL REACH, CADENCE OR SHOVE. Reach is the newest of the three: Long
+  // Puff (`r`, +25%) was deleted 2026-08-22 — owner, "the only way the increase range should be via
+  // leveling up the weapon, and the design of the weapon is supposed to be close-ish range". So
+  // `r` grows on the ladder in WEAPONS.bubblePuff and nowhere else, the mirror of the split Flare
+  // already owns on `arc`. It no longer HAS a shove either (same ladder), so a knockback mod would
+  // be re-introducing a stat the owner deleted; and cadence stays out because the same set of mods
   // that made standing still optimal is still on the card. That earlier fence was written against
   // the CC_DR_FLOOR block's per-body model -- a floored shove moves a body kb x ccResist x
   // CC_DR_FLOOR / KB_DECAY_RATE px, and the lock holds once the cast interval drops under the time
   // that body needs to walk it back -- and the model was RIGHT about one body and blind to the
   // crowd: it waived `r` and `arc` as safe, and those two together are what the report was about.
-  // balance_decision : the puff sells radius and damage, never rate or shove 2026-08-19
-  //  - `r` and `arc` are only cheap now because the shove is gone. Measured (mortal, 300s, 7 seeds,
-  //    The Shelf): Flare x5 alone and Long Puff x5 alone each leave WALKING ahead of standing still;
-  //    together, with a shove, standing still won 29% of runs and walking won 0%.
+  // balance_decision : the puff sells width and damage, nothing else 2026-08-22
+  //  - run LL.a2 asserts no mod may grow `r` -- do not register one.
   bubblePuff: {
     froth:      { name: 'Froth',       desc: 'puff damage',        icon: '💥', base: 0.30, kind: 'pct' },
     flare:      { name: 'Flare',       desc: 'puff width',         icon: '🪭', base: 0.30, kind: 'pct' },
-    longPuff:   { name: 'Long Puff',   desc: 'puff radius',        icon: '📏', base: 0.25, kind: 'pct' },
     // The chapter's bar, sold as a card. Read at the cast site off pollutionFrac, so it is worth
     // everything in clean water and nothing in the filth. No knockback and no cadence, so it is
     // outside the fence above.
@@ -4087,6 +4093,20 @@ export const BUBBLE_ARC_MAX = Math.PI * 4 / 3   // 240 deg: the widest a SINGLE 
 export const BUBBLE_COVER_MAX = Math.PI * 1.5
 export const BALLAST_FLIGHT = 0.42       // seconds from the throw to the landing
 export const BALLAST_BLIND_THROW = 260   // px ahead, when there is nothing to aim at
+// HOW FAR THE WEIGHT IS THROWN, as nearestEnemy's `pad`. Every other weapon in the game aims with
+// the +100 default -- viewRadius + 100, i.e. everything on screen and a little past the edge -- and
+// this is the one card that aims SHORT of it. Owner, 2026-08-22, asked for the reach cut and named
+// the number: "throw at view radius - 100px". At the default viewRadius of 600 that is 500px rather
+// than 700.
+//   ⚠ THE OUT-OF-REACH CASE ALREADY HAS AN ANSWER and it is not "hold the cast": nearestEnemy
+// returns null past the pad, which is the same branch as an empty screen, so the weapon falls
+// through to the BALLAST_BLIND_THROW lob 260px ahead of your facing. A distant body is therefore
+// not a dead cast -- it is a blind one, which is the shipped behaviour for "nothing to aim at" and
+// stays deliberately. 260 sits well inside 500, so a blind throw always lands inside the new reach.
+// balance_decision : the lest aims short of the screen edge, not past it 2026-08-22
+//  - it is a PAD, not a radius: negative is correct here and flipping the sign is a silent 40%
+//    buff. Run LL.c3 asserts a body past the reach is not aimed at.
+export const BALLAST_REACH_PAD = -100
 // balance_decision : a weight crushes tanks double and pins for 2s 2026-08-21
 //  - BALLAST_DRAG is DEEPER than BLOOM_SLOW (0.35) on purpose: this one lands once and expires,
 //    where a cloud's is refreshed every frame a body stands in it.
@@ -5966,27 +5986,49 @@ CHAPTERS.shelf = {
     dark: { from: 0.5, speedFloor: 0.85, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
   },
 
-  // ⚠ TWO OF THREE ARE BORROWED STAND-INS. The moon jelly is the one that is a design: Aurelia
-  // aurita is a coastal shallow-water jelly, and moon-jelly blooms are the textbook signal of
-  // eutrophic, oxygen-poor, polluted coastal water — close to the ideal creature for this chapter,
-  // which is why it stayed when the copepod and the krill went down to the mesopelagic with the
-  // light (see CHAPTERS.twilight.roster).
+  // THE CHAPTER'S OWN THREE. The Sand Hopper and the Sea Roach stood in here on loan from The Surf
+  // until v7.x, which meant 2.1 and 2.2 fielded the same two animals back to back; both are gone and
+  // The Surf keeps them.
   //
-  // The sand hopper and the sea roach are on loan from The Surf, one chapter up, and they are the
-  // honest borrow rather than a neutral one: an amphipod detritus-feeder and a marine isopod are
-  // both scavengers of enriched, degraded water. They are still stand-ins.
+  // ⚠ THE SLOTS WERE ASSIGNED FROM THE FLAG VOCABULARY FIRST, THEN THE ANIMAL — the order the
+  // design spec insists on, because rev 1 did the reverse and picked Mnemiopsis for `fast` (it swims
+  // at centimetres per second) and Capitella for `normal` (a 1cm burrowing deposit-feeder, not a
+  // chaser). Realism that reaches the name and not the movement is worse than none.
   //
-  // ⚠ PHASE 3, READ THIS FIRST: pick for the FLAG VOCABULARY and then find the realistic animal,
-  // not the other way round. The first pass at this chose Mnemiopsis for `fast` (it swims at
-  // centimetres per second) and Capitella for `normal` (a 1cm burrowing deposit-feeder, not a
-  // chaser) — realism that reaches the name and not the movement is worse than none. This chapter's
-  // antagonist is NOT BEING ABLE TO SEE, so its creatures should exploit that: something that hides
-  // in the murk and is legible only close up. Also note `unshakeable` is UNSHAKEABLE_CC_MUL 0.5, so
-  // Clear's headline verb ("everything it reaches is stunned") lands at HALF duration on the jelly
-  // — revisit its flags when Clear ships or the button under-delivers on first contact.
+  // This chapter's antagonist is NOT BEING ABLE TO SEE, and these two use that from opposite sides:
+  //   FLOUNDER  you cannot see IT — and that is the murk's job, not a machine's. It carried
+  //             `dashBurst` until 2026-08-22 (owner from play: "flatfishes should walk normally");
+  //             in water this thick the wind-up was never on screen long enough to read, so a lunge
+  //             out of a body you could not see was indistinguishable from a teleport — the exact
+  //             complaint that took dashBurst off the undergrowth's rat in v6.6.28. It is the plain
+  //             chaser now, and the chapter has no burst at all.
+  //   CATFISH   it cannot see YOU either, so it tastes its way along your wake — `pastSeek`. Keep
+  //             moving and it arrives where you no longer are; stand still and it closes. That is
+  //             the one creature here whose pressure is aimed squarely at the chapter's own loop,
+  //             since the bar's whole ask is that you PARK in a clean-water upwelling to refill.
+  // Realism holds on both: Platichthys flesus is the estuarine flatfish famous for tolerating
+  // polluted, deoxygenated water, and a sea catfish's barbels are taste buds — the adaptation
+  // exists precisely because the water it lives in is too turbid to hunt by sight.
+  //
+  // ⚠ `pounce` WAS THE OBVIOUS PICK FOR THE AMBUSHER AND IS DELIBERATELY NOT USED. The Reef's
+  // Lionfish is already `fast` + `pounce` and The Reef is the very next chapter; a third pouncer in
+  // one book, in the adjacent slot and the same archetype, is convergence rather than design.
+  //
+  // ⚠ NUMBERS HERE ARE THE STAND-INS' OWN, CARRIED OVER VERBATIM AND NOT YET TUNED (owner: balance
+  // is settled by playtest, not by probe).
+  //
+  // Also note `unshakeable` is UNSHAKEABLE_CC_MUL 0.5, so Clear's headline verb ("everything it
+  // reaches is stunned") lands at HALF duration on the jelly — revisit its flags when Clear ships
+  // or the button under-delivers on first contact.
   roster: [
-    { id: 'sandhopper', archetype: 'normal', name: 'Sand Hopper', hpMul: 0.9,   speedMul: 1,   flags: [] },
-    { id: 'searoach',   archetype: 'fast',   name: 'Sea Roach',   hpMul: 0.68,  speedMul: 1.15, flags: ['dashBurst'] },
+    // balance_decision : the flounder walks, no burst at all 2026-08-22
+    //  - `flags: []` and NOT a missing key: spawnEnemy spreads `roster.flags` unguarded.
+    { id: 'flounder', archetype: 'normal', name: 'Flounder',   hpMul: 0.9,   speedMul: 1,   flags: [] },
+    // trailLag 4 = 4 x BLANK_TRAIL_DT = 1.4s behind you, against the Probe's 1 (0.35s). The Probe
+    // SHADOWS; this one is meant to be shakeable by turning, so it needs the longer memory. The
+    // buffer holds BLANK_TRAIL_MAX 26 samples (~9s), so there is a lot of room above this if play
+    // says it is too easy to lose. UNMEASURED — a first cut for the phone, like the two muls beside it.
+    { id: 'catfish',  archetype: 'fast',   name: 'Sea Catfish', hpMul: 0.68,  speedMul: 1.15, flags: ['pastSeek'], trailLag: 4 },
     // balance_decision : jelly loses 20% hp and stays solid twice as long 2026-08-20
     //  - `phase.solidMul` is the jelly's alone: PHASE_SOLID_T is shared with the pond's Tardigrade.
     { id: 'jelly',      archetype: 'tank',   name: 'Moon Jelly',  hpMul: 1.5, speedMul: 0.6, xpMul: 1.25, flags: ['phase', 'unshakeable'],
@@ -6024,7 +6066,7 @@ CHAPTERS.shelf = {
   // murk chapter as it did to a sunlit one. This is a desaturated silty blue-green — the colour of
   // suspended sediment, not of algae — and it is also deliberately not The Surf's sand tan.
   render: {
-    cast: ['sandhopper', 'searoach', 'jelly'],
+    cast: ['flounder', 'catfish', 'jelly'],
     form: 'fish',
     bgColor: 0x2e4f52,     // silty water, daylight through it
     floorTint: 0xb6c9bd,   // milky wash — sediment in suspension, not a green bottom

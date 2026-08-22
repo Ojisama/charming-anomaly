@@ -1334,6 +1334,256 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 1.02, r)
   }
 
+  // --- Shelf chapter (Book 2 ch 2, milky silt) — the two natives that replaced the Surf's loans ---
+  // This floor is the BRIGHTEST below The Surf (floorTint 0xb6c9bd over bgColor 0x2e4f52) AND the
+  // lowest-contrast, because murk scatters light rather than removing it. That is the same problem
+  // The Body's pale pink poses and it takes the same answer: separate by VALUE, with a hard dark
+  // edge carrying the silhouette. A silty-toned animal on silt is invisible — which is a fine
+  // outcome for the real fish and a bug for a game where you must decide whether to shoot it.
+  //
+  // These two also have to separate from EACH OTHER at a glance, and they do it on outline before
+  // colour, because at full murk colour is the first thing the scrim takes:
+  //   flounder = a WIDE FLAT DISC with a continuous fin fringe. Nothing else in the game is round.
+  //   catfish  = a SPINDLE WEARING A FAN OF BARBELS. Nothing else in the game has whiskers.
+  // BACKUP READ once both are a dot at range: the flounder's two eyes crowded onto one side of the
+  // midline, and the catfish's barbels breaking its head outline into spikes.
+
+  // flounder (Platichthys flesus): plan view, and the one creature in the game whose real body plan
+  // IS the overhead camera — a flatfish lies on the bottom, so what it presents to a top-down view is
+  // its whole self, not a foreshortening. A broad leaf-shaped disc, a continuous fringe of fin rays
+  // all the way round the margin (dorsal and anal fins fused, which is what makes the outline read as
+  // one unbroken oval), and a small tail at -x.
+  // THE TELL IS THE EYES, AND IT IS ANATOMICALLY THE POINT: both sit on the upper surface, crowded
+  // together and offset to ONE side of the midline, because a flatfish's skull migrates one eye
+  // across during metamorphosis. That asymmetry is left/right, never up/down — the body still has a
+  // definite nose and swims along it — so this earns lean 90 like everything else here, and the
+  // off-centre pair simply rides round as it turns. (lean 30 would be the call for a distinct UP,
+  // which a fish lying flat does not have.)
+  // Mottled dark olive: a full step DOWN in value from the floor tint, so it reads as a shadow lying
+  // on the bottom rather than as more bottom. It separates on hue too (warm olive against this
+  // water's cold teal), but value is the one carrying it — hue is the first thing the murk scrim
+  // takes, and at full pollution this animal still has to be a decision rather than a smudge.
+  function drawFlounder(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x1b2717)
+    const bodyC = f(0x4c5a39)
+    const finC = f(0x616f49)
+    const lw = Math.max(2, r * 0.1)
+    const noseX = r * 1.0
+    const len = r * 2.0
+    const spine = (t) => [noseX - t * len, 0]
+    // THE DISC. A rounded rhombus widest just past the middle — sin^0.6 rather than the fusiform
+    // profiles every other fish here uses, because a flatfish is round and they are not. The second
+    // term is a shallow WAIST behind the gill: without it the outline is one continuous leaf, which
+    // is exactly how the first cut of this read on the chapter floor. The waist is what separates
+    // "head" from "body" at 46px, and it is the whole difference between a fish and a leaf.
+    const disc = (t) => r * 0.82 * bulge(t, 0.6)
+    const waist = (t) => 1 - 0.14 * Math.exp(-Math.pow((t - 0.235) / 0.075, 2))
+    // ...and a genuine WRIST before the tail. Without it the disc still measures 0.30r where the
+    // outline ends, the caudal has nothing to hinge on, and the fan reads as a balloon tied to the
+    // back of the fish — which is exactly how the second cut of this came out.
+    const wrist = (t) => (t < 0.8 ? 1 : 1 - 0.62 * Math.pow((t - 0.8) / 0.2, 1.4))
+    const half = (t) => Math.max(r * 0.05, disc(t) * waist(t) * wrist(t))
+    const fin = r * 0.17          // how far the marginal fin stands proud of the body
+    groundShadow(r * 1.05, r * 0.16)
+    // THE CAUDAL, built as a real FAN — rays radiating from the peduncle out to a rounded trailing
+    // edge, which is what a caudal fin structurally IS. The two cuts before this were closed lobes
+    // (a 4-point rhombus, then a two-curve lens) and both read as a blob stuck on the back of the
+    // fish, because a fin with no rays has nothing in it that says fin. Same reasoning that put rays
+    // on the marginal skirt below; doing it here too is what ties the tail to the rest of the animal
+    // instead of leaving it a separate shape that happens to be adjacent.
+    //
+    // Swept from ONE angle function rather than from hand-placed control points, so the trailing
+    // edge and the rays cannot disagree — they are the same function sampled at two densities. Hand
+    // placing them is how the earlier cuts ended up with a tail whose outline and interior implied
+    // different shapes.
+    const [tx] = spine(0.9)
+    const pivX = tx + r * 0.1                    // the hinge, tucked INSIDE the disc so no seam shows
+    const FAN_SPAN = 0.94                        // half-angle of the sweep, radians (~54 deg)
+    const FAN_LEN = r * 0.74
+    // Longest down the middle, shortest at the edges. That is what makes the trailing edge a soft
+    // round rather than a circle segment struck from the peduncle, which is the tell of a fan drawn
+    // by rotating one length.
+    const fanTip = (u) => {
+      const a = u * FAN_SPAN
+      const l = FAN_LEN * (0.8 + 0.2 * Math.cos(u * 1.3))
+      return [pivX - Math.cos(a) * l, -Math.sin(a) * l]
+    }
+    const fan = [pivX, 0]
+    for (let i = 0; i <= 18; i++) fan.push(...fanTip(-1 + (i / 18) * 2))
+    g.poly(fan).fill({ color: finC, alpha: 0.95 }).stroke({ width: lw * 0.45, color: line })
+    if (!white) {
+      // Ray creases, stopping short of the trailing edge so the margin stays a clean silhouette.
+      // Skipped on the white pass like every other interior line: a silhouette with veins in it is
+      // not a silhouette, and the hit-flash twin is baked from exactly this geometry.
+      for (let i = 1; i < 8; i++) {
+        const [ex, ey] = fanTip(-1 + (i / 8) * 2)
+        g.moveTo(pivX, 0).lineTo(pivX + (ex - pivX) * 0.86, ey * 0.86)
+      }
+      g.stroke({ width: Math.max(0.8, r * 0.035), color: f(0x2a3722), alpha: 0.5 })
+    }
+    // THE MARGINAL FIN (dorsal + anal, fused into one skirt) drawn as a membrane standing outside
+    // the body all the way round. This is a flatfish's most recognisable feature after the eyes.
+    g.poly(spineOutline(spine, (t) => half(t) + fin, 46, 0.035, 0.92))
+      .fill({ color: finC, alpha: 0.9 }).stroke({ width: lw * 0.45, color: line })
+    if (!white) {
+      // ...and its RAYS. The spine is a straight line along y=0, so the outward normal is exactly
+      // ±y and a ray is a near-vertical tick — no normal maths needed. Raked backward and varied in
+      // length so the skirt reads as a fin that undulates rather than as a rubber trim, which is
+      // what the first cut's plain rim looked like.
+      for (let i = 0; i < 22; i++) {
+        const t = 0.06 + i * 0.039
+        const [rx] = spine(t)
+        const w = half(t)
+        const outer = w + fin * (0.82 + 0.18 * Math.sin(i * 2.3))
+        for (const s of [-1, 1]) {
+          g.moveTo(rx, s * w * 0.96).lineTo(rx - r * 0.05, s * outer)
+        }
+      }
+      g.stroke({ width: Math.max(0.8, r * 0.035), color: f(0x2a3722), alpha: 0.55 })
+    }
+    g.poly(spineOutline(spine, half, 46, 0.02, 0.94)).fill(bodyC).stroke({ width: lw, color: line })
+    if (!white) {
+      // CAMOUFLAGE, not polka dots. The first cut used seven identical ellipses and read as spots on
+      // a leaf. A real flatfish wears a reticulated scatter at several sizes and two values at once:
+      // pale silt flecks AND darker blotches, none of them round. Fixed offsets rather than random —
+      // a bake runs ONCE, so a random pattern would differ between the cast thumbnail and the
+      // creature on screen, which is the sort of drift nothing warns you about.
+      const blot = [
+        [0.30, 0.30, 0.15, 0.10], [0.44, -0.44, 0.19, 0.12], [0.60, 0.26, 0.16, 0.11],
+        [0.36, -0.06, 0.12, 0.09], [0.70, -0.24, 0.13, 0.09], [0.52, 0.02, 0.10, 0.08],
+        [0.26, -0.34, 0.11, 0.08], [0.66, 0.06, 0.09, 0.07], [0.46, 0.46, 0.10, 0.07],
+      ]
+      for (const [t, off, bw, bh] of blot) {
+        const [bx] = spine(t)
+        g.ellipse(bx, off * r * 0.86, r * bw, r * bh).fill({ color: f(0x33402a), alpha: 0.62 })
+      }
+      const fleck = [[0.34, 0.46], [0.56, -0.34], [0.72, 0.32], [0.42, 0.14], [0.64, -0.08], [0.28, 0.10]]
+      for (const [t, off] of fleck) {
+        const [bx] = spine(t)
+        g.ellipse(bx, off * r * 0.86, r * 0.06, r * 0.05).fill({ color: f(0x93a074), alpha: 0.5 })
+      }
+      // The lateral line: one faint arc down the flank, the detail that makes a flat fill read as a
+      // body with a front and a back.
+      const [l0] = spine(0.2)
+      const [l1] = spine(0.55)
+      const [l2] = spine(0.88)
+      g.moveTo(l0, -r * 0.06).quadraticCurveTo(l1, r * 0.1, l2, r * 0.02)
+        .stroke({ width: Math.max(0.8, r * 0.035), color: f(0x2a3722), alpha: 0.5 })
+      // The mouth: small, oblique and downturned, tucked under the snout. A flounder's jaw is on the
+      // blind side of the head and set at an angle, which is why this is a short slanted stroke and
+      // not a smile.
+      const [mx] = spine(0.07)
+      g.moveTo(mx + r * 0.12, r * 0.1).lineTo(mx - r * 0.06, r * 0.2)
+        .stroke({ width: Math.max(1, r * 0.055), color: f(0x1b2717), alpha: 0.85 })
+      // THE EYES, and they are the whole animal. Both on the upper surface, crowded together and
+      // clear of the midline, because a flatfish's skull migrates one eye across the head during
+      // metamorphosis. Drawn on raised TURRETS — a pale ring under each lens, because a flounder's
+      // eyes genuinely stand proud of the disc and that is what stops them reading as two drilled
+      // holes. Staggered fore-and-aft, never side by side: the migrated eye never quite catches up.
+      for (const [ex, ey, rad] of [[0.15, -0.14, 0.115], [0.29, -0.33, 0.1]]) {
+        const [x] = spine(ex)
+        g.ellipse(x, ey * r, r * (rad + 0.05), r * (rad + 0.045)).fill({ color: f(0x707d55), alpha: 0.95 })
+        darkEye(g, x, ey * r, r * rad, r * (rad - 0.008), 0x0f1709, true)
+      }
+    }
+    if (elite) eliteCrown(-r * 0.88, r)
+  }
+  // sea catfish (Ariidae): plan view, a blunt-headed spindle with a forked tail — and EIGHT BARBELS
+  // fanned forward off the head, which is the entire reason this animal holds this slot. A catfish's
+  // barbels are covered in taste buds; the adaptation exists because the water it lives in is too
+  // turbid to hunt by sight. So the drawing states the mechanic: `pastSeek` means it is tasting its
+  // way along your wake, and the thing doing the tasting is on screen.
+  // The barbels are drawn LONG and DARK — as long as the head is wide, and in the body's own line
+  // colour rather than a paler fin tone. Pale whiskers on this floor would be the one detail that
+  // dissolves first, and it is the detail that has to survive.
+  function drawCatfish(g, elite, white) {
+    // r 13, not 16. ROSTER_BASE_R maps `fast` to ENEMIES.wisp.radius (12), and syncEnemies draws at
+    // k = e.radius / baseR — so a look authored at 16 renders a third larger than every other wisp
+    // in the game. The Krill and the Gull are 12 and the Sea Roach this replaces was 13; the Tuna's
+    // 16 is the one deliberate outlier, and a catfish is not a tuna.
+    const r = 13
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x141c25)
+    const back = f(0x39485a)
+    // THE FLANK IS DARK, and that is anatomy rather than taste: a catfish's pale belly is on the
+    // side the overhead camera cannot see. The first cut used a near-white flank against a dark
+    // spine band and the two together came out as a light CHEVRON — a dart painted on the fish.
+    // Mid-slate against a slightly darker back is the whole shading, and it keeps this body a clear
+    // step below the floor's value, which is the rule this pale chapter imposes on every creature.
+    const flank = f(0x62738a)
+    const finC = f(0x51617a)
+    const lw = Math.max(2, r * 0.1)
+    const noseX = r * 1.05
+    const len = r * 2.2
+    const spine = (t) => [noseX - t * len, 0]
+    // THE HEAD IS THE SILHOUETTE. An ariid catfish's head is a broad flattened shovel, wider than
+    // the body behind it, and from directly overhead that width IS the animal's signature. So the
+    // profile peaks early (t=0.17) and then necks IN behind the skull before the long even taper —
+    // the opposite of the mackerel's mid-body bulge, and what stops these two reading as one fish.
+    const head = (t) => r * 0.46 * Math.pow(Math.min(1, t / 0.17), 0.4)
+    const tail = (t) => r * 0.46 * Math.pow(Math.max(0, 1 - (t - 0.17) / 0.86), 1.15)
+    const half = (t) => Math.max(r * 0.05, (t < 0.17 ? head(t) : tail(t)) * (1 - 0.1 * Math.exp(-Math.pow((t - 0.26) / 0.06, 2))))
+    groundShadow(r * 0.95, r * 0.3)
+    // THE BARBELS — the entire reason this animal holds this slot, and the drawing's job is to put
+    // the mechanic on screen: `pastSeek` means it is tasting its way along your wake, and these are
+    // what taste. THREE pairs, which is the honest ariid count (one maxillary, two mandibular); the
+    // first cut drew four pairs of straight spokes and read as scratch marks rather than as flesh.
+    // Each is CURVED — a real barbel trails and bends, and a three-point polyline through taperStroke
+    // is what separates "whisker" from "spike". Drawn before the body so the roots tuck under the jaw.
+    const hw = half(0.12)
+    const barb = [[1.25, 0.30], [0.95, 0.72], [0.55, 1.02]]
+    for (const s of [-1, 1]) {
+      for (const [reach, spread] of barb) {
+        taperStroke(g, [
+          [noseX - r * 0.16, s * hw * 0.52],
+          [noseX + r * reach * 0.42, s * (hw * 0.5 + spread * r * 0.26)],
+          [noseX + r * reach * 0.78, s * (hw * 0.5 + spread * r * 0.62)],
+          [noseX + r * reach * 0.9, s * (hw * 0.5 + spread * r * 0.95)],
+        ], Math.max(1.2, r * 0.085), 0.28, line, 3)
+      }
+    }
+    // Pectorals: rounded and swept, NOT the angular delta wings of the first cut, which made this
+    // read as a paper aeroplane. Each carries the stout serrated spine on its leading edge that is
+    // the reason a sea catfish is genuinely unpleasant to handle.
+    const pt = 0.3
+    const [ptx] = spine(pt)
+    const pw = half(pt)
+    for (const s of [-1, 1]) {
+      g.moveTo(ptx + r * 0.1, s * pw * 0.8)
+        .quadraticCurveTo(ptx - r * 0.16, s * (pw + r * 0.5), ptx - r * 0.52, s * (pw + r * 0.34))
+        .quadraticCurveTo(ptx - r * 0.44, s * (pw + r * 0.06), ptx - r * 0.16, s * pw * 0.86)
+        .fill({ color: finC, alpha: 0.92 }).stroke({ width: lw * 0.45, color: line })
+      taperStroke(g, [[ptx + r * 0.08, s * pw * 0.82], [ptx - r * 0.3, s * (pw + r * 0.4)]],
+        Math.max(1, r * 0.07), 0.4, line, 2)
+    }
+    // Caudal: deeply forked with pointed lobes.
+    const [tx] = spine(0.95)
+    g.poly([tx + r * 0.08, 0, tx - r * 0.7, r * 0.5, tx - r * 0.34, 0, tx - r * 0.7, -r * 0.5])
+      .fill({ color: finC, alpha: 0.94 }).stroke({ width: lw * 0.45, color: line })
+    g.poly(spineOutline(spine, half, 36)).fill(flank).stroke({ width: lw, color: line })
+    if (!white) {
+      // ONE back band over the flank, and that is the whole shading. The first cut nested THREE
+      // (belly, back, spine) and at this size concentric outlines stop reading as a lit tube and
+      // start reading as contour lines on a map — the innermost one came out as a diamond that
+      // looked cut OUT of the fish. Two tones plus the outline is all a 46px body can carry.
+      g.poly(spineOutline(spine, (t) => half(t) * 0.6, 30, 0.05, 0.9)).fill({ color: back, alpha: 0.9 })
+      // THE DORSAL AND ADIPOSE FINS, FORESHORTENED. Both stand UP off the back, so from the only
+      // camera this game has they are blades along the midline — not sails out to the side. Drawing
+      // them side-on is the projection error that cost v6.8 a whole version on the Trash Tornado.
+      // NO DORSAL AND NO ADIPOSE FIN, after three attempts at drawing them. Both stand straight up
+      // off the back, so the overhead camera sees them exactly end-on — and a fin with no width has
+      // nothing left to draw. Painted lighter than the back it came out as a diamond inlaid in the
+      // fish; painted darker and tapered it came out as two dashes laid on top of it. The mackerel
+      // draws no dorsal either, for the same reason. What identifies this animal from above is the
+      // shovel head, the barbels and the fork, and none of them needed the help.
+      // Small eyes set WIDE on the flat skull — a catfish barely uses them, which is the point.
+      const [ex] = spine(0.13)
+      for (const s of [-1, 1]) darkEye(g, ex, s * half(0.13) * 0.62, r * 0.075, r * 0.07, 0x080d14, true)
+    }
+    if (elite) eliteCrown(-r * 0.92, r)
+  }
   // --- Surf chapter (Book 2 ch 1, pale sand) ---
   // Beach sand is pale and warm, so this cast is the opposite problem from the Shelf's plankton
   // above: nothing here can be a pale warm body without vanishing into the floor. Two go one hue
@@ -4045,6 +4295,14 @@ export function createRenderer(app) {
     // side elevation: apex +x, mouth and tentacles -x, mirrored about that axis — so it rotates
     // freely and always swims bell-first at you, tentacles streaming behind. See drawJelly.
     jelly: { archetype: 'tank', draw: drawJelly, lean: 90 },
+    // v7.x The Shelf's own `normal` and `fast`, replacing the two Surf loans this chapter stood in
+    // with. Both PLAN VIEW and both lean 90: each is bilaterally symmetric about its own +x nose and
+    // has nothing that could be called UP, so the whole animal turns to face you. The flounder's
+    // eyes ARE off the midline, but that asymmetry is left/right (a flatfish's migrated eye), not a
+    // distinct up — a fish lying flat on the bottom has no up to draw. A missing key here is SILENT:
+    // syncEnemies falls through to a generic archetype blob.
+    flounder: { archetype: 'normal', draw: drawFlounder, lean: 90 }, // top-down: leaf disc, fused fin fringe all round, both eyes crowded to one side
+    catfish: { archetype: 'fast', draw: drawCatfish, lean: 90 },     // top-down: blunt head, 4 barbel pairs fanned ±y, forked tail -x
     // v7.x The Reef (Book 2 chapter 3). All three PLAN VIEW, all three lean 90 — and that is the
     // geometry, not a habit: each is bilaterally symmetric about its own +x nose, with paired eyes
     // and paired appendages in ±y and nothing in the drawing that could be called UP. (The moon

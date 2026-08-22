@@ -51,7 +51,7 @@ import {
   RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR,
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
-  DASH_IDLE_T, DASH_T, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
+  DASH_IDLE_T, DASH_T, DASH_SPEED_MUL, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
   MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC, SILT_VEIL_ARC, SHARD_RIFT_W, SHARD_RIFT_FUSE,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
   STINGER_HIVE_EVERY,
@@ -98,7 +98,7 @@ import {
   // v6.3.1 difficulty pass (Run LL)
   BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
   BLANK_SHOT_T, BLANK_SHOT_TURN, BLANK_ACCEL_MUL, BLANK_DESPERATE_MUL,
-  BLANK_TRAIL_DT, BLANK_TRAIL_MAX, BLANK_READ1_K, BLANK_READ1_K_MATURE,
+  BLANK_TRAIL_DT, BLANK_TRAIL_MAX, BLANK_PASTSEEK_LAG, BLANK_READ1_K, BLANK_READ1_K_MATURE,
   BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_FAN_N_MATURE,
   // v6.3.4 anti-turtle pass (Run MM)
@@ -132,7 +132,7 @@ import {
   // Book 2 The Surf: Humidity drives damage (Run US.d)
   HUMIDITY_DMG_FLOOR, resourceDamageMul, resourceRateMul,
   // Book 2 The Shelf: Pollution as a weapon mod (Run MB)
-  pollutionFrac, BALLAST_FLIGHT, BALLAST_TANK_MUL, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX,
+  pollutionFrac, BALLAST_FLIGHT, BALLAST_TANK_MUL, BALLAST_BLIND_THROW, BALLAST_REACH_PAD, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX,
   LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_DMG, LUNGE_KILL_REFILL, LUNGE_BITE_MUL, STARVE_TICK,
   // Book 2 The Surf: the Shore Crab's guard (Run US.i)
   CRAB_GUARD_ARC,
@@ -7417,7 +7417,65 @@ function runModBudget() {
     // lands at the end of a full-length pour.
     assert(plunged.lastDelay > noMod.dur * 0.9,
       `Plunge shortened the pour: last burst at ${plunged.lastDelay.toFixed(2)}s of a ${noMod.dur}s pour`)
-    console.log(`PASS run MB.i (Downwash): lands in the knot of 5 not on the straggler, burst ${burstDmg.toFixed(0)} out-damages the whole pour ${pourDmg.toFixed(0)} (no core crush), Big Crunch + Hungry Hole leak nothing (${withoutHoleMods.toFixed(1)} both ways), Plunge fires at ${plunged.delay.toFixed(2)}s and again at ${plunged.lastDelay.toFixed(2)}s of a ${noMod.dur}s pour (2 bursts against the control's ${noMod.bursts}), and ${DOWNWASH_PLUNGE_N - 1} bodies do not trip it`)
+    // IT CANNOT SCRAPE THE PLAYER IT GATHERS FOR. Owner from play, 2026-08-22: "enemies ragdolled
+    // by the water column should not damage you". The column lands on the densest clump within
+    // DOWNWASH_CAST_FRAC of the viewport and drags it inward, so the crowd this card gathers
+    // arrives on top of the player who cast it -- the weapon was charging its own user for using it
+    // correctly, and nothing on screen said the touch was the column's doing rather than the crowd's.
+    //   FOUR ARMS, because every cheaper version of this check passes for the wrong reason.
+    // "The player lost no HP" is also what a fixture with no damage in it reports (SB.a's lesson),
+    // hence the ambient control; a body OUTSIDE the column is what proves the fixture can hurt at
+    // all; and the BLACK HOLE arm is the one that fails if the guard is widened to `holePull > 0`
+    // alone -- both weapons share run.holes, and disarming everything inside a vortex would turn a
+    // Book 1 weapon into a safe bubble. That widening is invisible in every other assertion here.
+    const W = 1.5   // shorter than either weapon's shortest L5 pour (downwash 2.0s, hole 2.6s)
+    const scrape = (mode) => {
+      const r = boot('shelf', mode === 'blackhole' ? 'hole' : 'downwash', 5, null)
+      r.player.maxHP = r.player.hp = 5000
+      if (mode === 'ambient') {
+        advance(r, 3 * dt)          // the same prelude the other arms take, so the windows match
+        const hp0 = r.player.hp
+        advance(r, W)
+        return hp0 - r.player.hp
+      }
+      // Cast with the body well clear of the player so the column lands THERE, not on top of us;
+      // the body only moves onto the player afterwards, so the `out` arm starts genuinely outside.
+      const body = makeStatusEnemy(r, { x: r.player.x + 260, y: r.player.y, hp: 1e6, speed: 0 })
+      r.enemies.push(body)
+      assert(castUntil(r, (x) => x.holes.length > 0), `precondition (${mode}): the weapon must cast within 12s`)
+      assert(r.holes[0].life > W, `precondition (${mode}): the pour must outlive the ${W}s window, got ${r.holes[0].life.toFixed(2)}s`)
+      const pin = (x) => {
+        body.x = x.player.x; body.y = x.player.y
+        const c = x.holes[0]
+        if (c) { c.x = mode === 'out' ? x.player.x + 5000 : x.player.x; c.y = x.player.y }
+      }
+      // ONE SETTLING FRAME BEFORE THE CLOCK STARTS, and it is not a fudge. stepContactDamage runs
+      // at stepSim's line 295 and stepHoles at 311 (inside stepWeapons), so contact always reads
+      // the PREVIOUS frame's holePull -- a 16ms lag nobody can see in play, where a body walks into
+      // a standing column. This fixture TELEPORTS the column onto the body instead, which
+      // manufactures exactly that frame: without the prelude the `in` arm measures 8 HP of step
+      // ordering and reads as the guard not working. Same prelude on every arm so they stay
+      // comparable (it costs the `out` arm its first hit, which is why W is long enough for more).
+      advance(r, 3 * dt, pin)
+      const hp0 = r.player.hp
+      advance(r, W, pin)
+      return hp0 - r.player.hp
+    }
+    const ambient = scrape('ambient')
+    const outside = scrape('out')
+    const inColumn = scrape('in')
+    const inVortex = scrape('blackhole')
+    assert(outside > ambient,
+      `control: a body parked on the player with the column moved away must still hurt (${outside} lost vs ${ambient} ambient) — ` +
+      'if this reads 0 the fixture proves nothing about the arm below')
+    assert.strictEqual(inColumn, ambient,
+      `a body the water column has hold of took ${inColumn - ambient} HP off the player over ${W}s — ` +
+      'contactHarmless is not seeing it (check e._holeLook is still written beside e.holePull in stepHoles)')
+    assert(inVortex > ambient,
+      `the Black Hole was disarmed too (${inVortex} lost vs ${ambient} ambient): the guard must be scoped by ` +
+      '_holeLook === downwash, not by holePull alone — this is The Shelf\'s card, not a buff to Book 1\'s vortex')
+
+    console.log(`PASS run MB.i (Downwash): lands in the knot of 5 not on the straggler, burst ${burstDmg.toFixed(0)} out-damages the whole pour ${pourDmg.toFixed(0)} (no core crush), Big Crunch + Hungry Hole leak nothing (${withoutHoleMods.toFixed(1)} both ways), Plunge fires at ${plunged.delay.toFixed(2)}s and again at ${plunged.lastDelay.toFixed(2)}s of a ${noMod.dur}s pour (2 bursts against the control's ${noMod.bursts}), and ${DOWNWASH_PLUNGE_N - 1} bodies do not trip it; a body the column has hold of costs the player ${inColumn} HP against the ${outside} it costs outside one, while the Black Hole's own bodies still cost ${inVortex}`)
   }
 
   console.log('PASS run MB (Book 2 chapters 1-2 mod budget): no inert cards across every weapon, four-plus apiece in both chapters, rate mods speed up, count mods land on bodies, and the three Pollution/clean-water cards pay the right way round — including that a fouled patch stops recharging you')
@@ -16823,6 +16881,7 @@ try {
   run(testEliteSurge)
 run(testLeLargeWeapons)
   run(testCrabGuard)
+  run(testShelfNatives)
   run(testSurfGulls)
   run(testPlayerForms)
   run(testMultitouchControls)
@@ -19920,9 +19979,9 @@ function testLeLargeWeapons() {
   const only = (run, e) => { run.enemies = run.enemies.filter((x) => x.id === e.id) }
 
   // (a) BUBBLE PUFF CUTS, AND DOES NOT SHOVE. It shoved until 2026-08-19, and the shove is what made
-  // STANDING PERFECTLY STILL the best way to play the chapter: with Flare x5 and Long Puff x5 the
-  // ring held a bubble the crowd never crossed, and a motionless player won 29% of runs against a
-  // walking one's 0% (mortal, 300s, 7 seeds). The owner deleted the stat rather than tune it.
+  // STANDING PERFECTLY STILL the best way to play the chapter: with Flare x5 and the since-deleted
+  // Long Puff x5 the ring held a bubble the crowd never crossed, and a motionless player won 29% of
+  // runs against a walking one's 0% (mortal, 300s, 7 seeds). The owner deleted the stat rather than tune it.
   // BOTH HALVES ARE ASSERTED, because each fails on its own: a weapon that stopped damaging is a
   // dead card, and a knockback re-added to its ladder is the cheese back with nothing thrown.
   // DISTANCE, not e.kb: knockback is written to a field and integrated later, so reading the field
@@ -19945,6 +20004,36 @@ function testLeLargeWeapons() {
     assert.ok(d1 < d0 + 5,
       `Bubble Puff MOVED a motionless body ${d0.toFixed(0)}px -> ${d1.toFixed(0)}px — it has a shove again, ` +
       'and the shove is what made standing still the best way to play The Shelf')
+  }
+
+  // (a2) AND ITS REACH IS LEVEL-ONLY. Long Puff (`r`, +25% a pick) was deleted 2026-08-22 -- owner:
+  // "the only way the increase range should be via leveling up the weapon, and the design of the
+  // weapon is supposed to be close-ish range". Every mod stacked absurdly, read against the nova's
+  // own `maxR`: that is (g)'s precedent and it is here for the same reason -- a body test is
+  // unprovable once Flare has widened the cone enough to admit everything, so the SPAWNED NUMBER is
+  // the only honest subject for reach. Walking WEAPON_MODS rather than naming mods means a
+  // re-registered radius card is caught whatever it ends up called.
+  {
+    Math.random = mulberry32(80183)
+    const run = largeRun('bubblePuff', 5)
+    const lvl = WEAPONS.bubblePuff.levels[4]
+    // 40 is absurd on purpose, as in (g): no ladder rolls it, and the point is that nothing can.
+    run.weaponMods.bubblePuff = Object.fromEntries(Object.keys(WEAPON_MODS.bubblePuff).map((m) => [m, 40]))
+    const p = run.player
+    const body = makeStatusEnemy(run, { x: p.x + 60, y: p.y, hp: 1e6, speed: 0 })
+    run.enemies.push(body)
+    let nova
+    for (let i = 0; i < Math.round((lvl.rate + 0.2) * 60) && !nova; i++) {
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      only(run, body)
+      body.x = p.x + 60; body.y = p.y; body.kb.x = body.kb.y = 0
+      if (run.novas.length > 0) nova = run.novas[0]
+    }
+    assert.ok(nova, 'the puff never cast a nova with every mod stacked')
+    assert.strictEqual(nova.maxR, lvl.r,
+      `every Bubble Puff mod stacked put the cone at maxR=${nova.maxR} against the ladder's ${lvl.r} -- ` +
+      'something sells reach again, and reach on this weapon is bought by levelling it and nothing else')
   }
 
   // (b) SILT VEIL DAZES AND POISONS. Both halves. The daze is published into e.stunT, a contract
@@ -19990,6 +20079,68 @@ function testLeLargeWeapons() {
     // something the design does not claim. The call stays because it is the shared convention and
     // because that margin is one config edit wide — but it is not testable here, and pretending
     // otherwise would have meant writing a check that passes for the wrong reason.
+  }
+
+  // (b2) …AND A DAZE CANCELS A DASHER'S DASH RATHER THAN PAUSING IT. Owner from play, 2026-08-22:
+  // "the stilt cloud doesn't stun dashers during their dash. It should stop their dash." It landed
+  // the daze perfectly well -- what it did not do was END the lunge. stepDashBurst simply stops
+  // being CALLED while stunT holds, so _dashPhase stayed 'dash' with _dashT frozen, and the body
+  // resumed the whole remaining lunge at full speed on its pre-daze heading the instant the hold
+  // lapsed (measured: 1.4s stunned, then 280px closed at 299px/s). The daze delayed the hit and
+  // never denied it.
+  //   THE STUN IS INJECTED BY HAND, and the veil's own clouds are cleared every frame, for the
+  // reason (b) has a refractory: the cloud dazes on ITS schedule, so a fixture that waits for one
+  // is measuring BLOOM_TICK alignment rather than the branch. The subject here is the contract --
+  // stunT is stunT whoever wrote it -- and the injection puts it exactly where the bug lived, at
+  // the top of a committed dash.
+  //   A CONTROL RUNS THE SAME FIXTURE WITH NO STUN, because "it never reached dash speed" is also
+  // what a fixture that never dashes at all reports.
+  {
+    const HOLD = 1.4
+    // The window must be shorter than HOLD + a full idle (2.5s) or a LEGITIMATE next dash lands
+    // inside it and the assertion below fires on correct behaviour.
+    const WINDOW = Math.round((HOLD + 0.4) * 60)
+    const probe = (withStun) => {
+      Math.random = mulberry32(80186)
+      const run = largeRun('siltVeil', 5)
+      const p = run.player
+      const e = makeStatusEnemy(run, { x: p.x + 420, y: p.y, hp: 1e6, speed: 120 })
+      e.type = 'normal'
+      e.flags = ['dashBurst']
+      run.enemies.push(e)
+      let armed = false, frames = 0, peak = 0, phaseAfter = null
+      for (let i = 0; i < 60 * 10 && frames < WINDOW; i++) {
+        run.blooms.length = 0
+        if (!armed && e._dashPhase === 'dash' && (e._dashT ?? 0) > DASH_T * 0.6) {
+          armed = true
+          if (withStun) e.stunT = HOLD
+        }
+        const bx = e.x, by = e.y
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+        run.events.length = 0
+        only(run, e)
+        e.hp = 1e6
+        if (armed) {
+          if (phaseAfter === null) phaseAfter = e._dashPhase
+          peak = Math.max(peak, Math.hypot(e.x - bx, e.y - by) * 60)
+          frames++
+        }
+      }
+      return { peak, phaseAfter, armed, frames }
+    }
+    const dashSpeed = 120 * DASH_SPEED_MUL
+    const free = probe(false)
+    assert.ok(free.armed && free.frames === WINDOW, 'precondition: the control fixture must commit to a dash')
+    assert.ok(free.peak > dashSpeed * 0.8,
+      `control: an uninterrupted dasher peaked at ${free.peak.toFixed(0)}px/s against a dash speed of ${dashSpeed.toFixed(0)} — ` +
+      'the fixture cannot see a dash at all, so the stunned case below would pass for the wrong reason')
+    const held = probe(true)
+    assert.strictEqual(held.phaseAfter, 'idle',
+      `a dasher dazed mid-lunge is still in phase '${held.phaseAfter}' — the dash was paused, not cancelled, and it will ` +
+      'resume at full speed the moment the daze lapses')
+    assert.ok(held.peak < 120,
+      `a dazed dasher peaked at ${held.peak.toFixed(0)}px/s over the ${(WINDOW / 60).toFixed(1)}s after the daze landed — ` +
+      `it resumed its committed lunge (dash speed ${dashSpeed.toFixed(0)}px/s) instead of losing it`)
   }
 
   // (c) BALLAST LANDS, HURTS, DRAGS — AND CRUSHES TANKS DOUBLE. All three fail silently: the
@@ -20056,6 +20207,44 @@ function testLeLargeWeapons() {
     }
     assert.ok(drops >= 2, 'precondition: jetsam must throw 2 weights per cast, saw ' + drops)
     assert.ok(e.hp < 1e6, 'a two-weight Ballast cast landed on both sides of its target and missed it')
+  }
+
+  // (c3) AND IT AIMS SHORT OF THE SCREEN EDGE. Owner, 2026-08-22: "throw at view radius - 100px",
+  // where every other aim site in the game takes nearestEnemy's +100 default. Asserted on the LOB'S
+  // OWN TARGET rather than on damage: a body out of reach is not a held cast -- nearestEnemy returns
+  // null, the empty-screen branch, and the weapon blind-throws BALLAST_BLIND_THROW ahead -- so a
+  // damage check would read "it missed" for both the working and the broken version. tx is the only
+  // thing that separates "aimed at that body" from "aimed at nothing in particular".
+  //   A PAD IS NOT A RADIUS: the whole change is one minus sign, and flipping it back is a silent
+  // 40% buff with nothing thrown, which is what this block is for.
+  {
+    const aimAt = (dx) => {
+      Math.random = mulberry32(80185)
+      const run = largeRun('ballast', 5)
+      const p = run.player
+      const e = makeStatusEnemy(run, { x: p.x + dx, y: p.y, hp: 1e6, speed: 0 })
+      run.enemies.push(e)
+      for (let i = 0; i < 400; i++) {
+        stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0; only(run, e)
+        e.x = p.x + dx; e.y = p.y
+        if (run.lobs.length > 0) return { tx: run.lobs[0].tx, px: p.x, ex: e.x }
+      }
+      return null
+    }
+    // Stated, not assumed: the reach is derived from viewRadius, so a changed default would leave
+    // both fixtures on the same side of the line and the block would pass having tested nothing.
+    const reach = createRun(makeMeta(), { chapter: 'shelf', difficulty: 1 }).viewRadius + BALLAST_REACH_PAD
+    assert.ok(reach > 300 && reach < 560, `the fixture assumes a reach around 500px, viewRadius says ${reach}`)
+    const near = aimAt(Math.round(reach) - 100)
+    const far = aimAt(Math.round(reach) + 60)
+    assert.ok(near && far, 'precondition: both fixtures must throw a weight')
+    assert.ok(Math.abs(near.tx - near.ex) < 1,
+      `a body ${Math.round(reach) - 100}px out, inside the ${reach}px reach, was not aimed at (threw at ${near.tx.toFixed(0)}, body at ${near.ex.toFixed(0)})`)
+    assert.ok(Math.abs(far.tx - far.ex) > 100,
+      `a body ${Math.round(reach) + 60}px out, PAST the ${reach}px reach, was still aimed at — ` +
+      'BALLAST_REACH_PAD is not being read, or its sign was flipped back to the +100 default')
+    assert.ok(Math.abs(Math.abs(far.tx - far.px) - BALLAST_BLIND_THROW) < 1,
+      `the out-of-reach cast threw ${(far.tx - far.px).toFixed(0)}px ahead, not the blind ${BALLAST_BLIND_THROW}px`)
   }
 
   // (d) LEST THROWS JUNK, AND THE JUNK IS RENDER-SIDE ONLY — so nothing here can be asserted by
@@ -20230,7 +20419,7 @@ function testLeLargeWeapons() {
       'the bubble cone has no drawer of its own, so a 90 degree puff renders as nothing at all')
   }
 
-  console.log('PASS run LL (Le Large natives): Bubble Puff shoves and damages, Silt Veil fears AND poisons what stands in it, Ballast lands and leaves a stain, the puff is a 90 degree cone that Flare widens and the cap hands back as a ring, and every sector nova names its drawer')
+  console.log('PASS run LL (Le Large natives): Bubble Puff cuts without shoving and its reach is level-only, Silt Veil dazes AND poisons what stands in it and its daze CANCELS a dasher\'s lunge instead of pausing it, Ballast lands and drags without staining and aims short of the screen edge, the puff is a 90 degree cone that Flare widens up to a capped wedge and never a ring, and every sector nova names its drawer')
 }
 
 function twilightRun(weaponId, level = 1) {
@@ -23676,6 +23865,123 @@ function testUndertowLadder() {
       `refillLook '${[...declared].join("','")}' resolves both ways, ${Object.keys(CHAPTERS).length} chapters cast only their own roster, ` +
       `and ${byId.size} roster ids agree on their names`)
   }
+}
+
+// ---- run US.l: The Shelf's own two natives -----------------------------------------------------
+// The chapter stopped borrowing The Surf's Sand Hopper and Sea Roach and grew a Flounder (`normal`,
+// no flags) and a Sea Catfish (`fast`, pastSeek). Everything asserted here fails SILENTLY, and two
+// of the three were live defects rather than hypotheticals:
+//
+//  (a) run.trail was sampled INSIDE stepBossScript, which returns early for every unscripted
+//      chapter. So `pastSeek` was inert everywhere but The Blank — and inert in the quietest way
+//      available, because the read is guarded and an empty buffer falls through to seeking the LIVE
+//      player. A catfish would simply have been a plain chaser. Nothing throws, nothing goes red,
+//      and on screen "hunts your wake" and "walks at you" are only distinguishable if you are
+//      looking for it. Mutation: delete the stepTrail call in stepSim.
+//  (b) e.trailLag is the per-creature override (the `dash`/`phase` idiom). Drop the `??` and every
+//      pastSeek creature silently collapses onto The Blank's Probe tuning — 0.35s, which is a
+//      SHADOW rather than a wake and reads as "the flag does nothing". Mutation: hardcode the
+//      global in the pastSeek branch.
+//  (c) the roster wiring itself, so a silent revert to the Surf loans is caught.
+//
+// The two behaviour assertions are stated as the DESIGN CLAIM in player terms — "keep moving and it
+// arrives where you no longer are; stand still and it closes" — rather than as arithmetic about the
+// ring buffer, which would only be re-testing the test's own copy of the maths.
+function testShelfNatives() {
+  // (c) wiring first: cheap, and it tells you which half broke if the rest goes red.
+  {
+    const ids = CHAPTERS.shelf.roster.map((r) => r.id)
+    assert.deepStrictEqual(ids, ['flounder', 'catfish', 'jelly'], `shelf roster is ${ids.join(',')}`)
+    const byId = Object.fromEntries(CHAPTERS.shelf.roster.map((r) => [r.id, r]))
+    // The flounder WALKS (owner from play, 2026-08-22) — it carried dashBurst until then and a
+    // lunge out of a body the murk hides read as a teleport. Asserted as the whole array, not as
+    // !includes('dashBurst'): the decision is "no behaviour machine at all", so any flag added here
+    // is the thing to stop and think about, and an empty literal says that in one line.
+    assert.deepStrictEqual(byId.flounder.flags, [], 'the flounder walks — no behaviour machine')
+    assert(byId.catfish.flags.includes('pastSeek'), 'the catfish hunts the wake')
+    assert(byId.catfish.trailLag > BLANK_PASTSEEK_LAG,
+      `the catfish must trail FURTHER back than The Blank's shadow probe (${byId.catfish.trailLag} vs ${BLANK_PASTSEEK_LAG})`)
+    // The Surf keeps its own two — this is a move, not a shared roster.
+    const surfIds = CHAPTERS.surf.roster.map((r) => r.id)
+    assert(surfIds.includes('sandhopper') && surfIds.includes('searoach'), 'the Surf keeps the loans it lent')
+    assert(!ids.includes('sandhopper') && !ids.includes('searoach'), 'the Shelf no longer borrows them')
+  }
+
+  // ...and the same fact ON A SPAWNED BODY, through the shipped spawnEnemy path. The block above
+  // only proves the TABLE says trailLag 4, which is precisely the silent failure designing-an-enemy
+  // names last in its table: "a field in config that nothing reads — assert the spawned ENTITY,
+  // never the table". Without this, deleting `trailLag: roster?.trailLag ?? null` from spawnEnemy
+  // leaves every assertion in this scenario green, because the behaviour rig below sets the field
+  // by hand. WAVE_TABLE gates `wisp` to t>=40s, so this has to run past that to see one at all.
+  {
+    Math.random = mulberry32(77003)
+    const run = createRun(makeMeta(), { chapter: 'shelf', difficulty: 1 })
+    run.player.maxHP = run.player.hp = 1e9
+    let seen = null
+    for (let i = 0; i < 60 * 60 && !seen; i++) {
+      if (run.phase === 'levelup') run.phase = 'playing'
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      seen = run.enemies.find((e) => e.rosterId === 'catfish') || null
+    }
+    assert(seen, 'no catfish spawned in 60s — WAVE_TABLE releases `fast` at t=40s, so this should see one')
+    assert.strictEqual(seen.trailLag, 4,
+      `a SPAWNED catfish must carry the roster's trailLag, got ${seen.trailLag}. ` +
+      'null here means spawnEnemy is not copying the field and the config entry is decoration.')
+    assert(seen.flags.includes('pastSeek'), 'a spawned catfish must carry its flag')
+  }
+
+  // A rig that walks the player in ONE direction, lays a full trail, then drops a single pastSeek
+  // creature on top of the player and lets it chase. The subject is pinned BY IDENTITY every frame
+  // (probing-the-game's rule): a splice anywhere in the step would otherwise move it off index 0 and
+  // the probe would be measuring some other enemy, or none, with nothing saying so.
+  const chase = (lag, stick) => {
+    Math.random = mulberry32(77002)
+    const run = createRun(makeMeta(), { chapter: 'shelf', difficulty: 1 })
+    run.player.maxHP = run.player.hp = 1e9
+    let subject = null
+    const step = () => {
+      if (subject) {
+        if (run.enemies.length !== 1 || run.enemies[0] !== subject) run.enemies = [subject]
+        subject.kb.x = subject.kb.y = 0     // knockback would drift the subject and blur the reading
+      }
+      if (run.phase === 'levelup') run.phase = 'playing'
+      stepSim(run, { x: stick, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+    }
+    for (let i = 0; i < 300; i++) step()    // 5s: fills the ring buffer well past the deepest lag
+    assert(run.trail.length > 8,
+      `(a) run.trail must fill in an UNSCRIPTED chapter — got ${run.trail.length} samples after 5s. ` +
+      'An empty buffer is exactly the bug that made pastSeek inert outside The Blank.')
+    subject = makeStatusEnemy(run, { x: run.player.x, y: run.player.y, hp: 1e9, speed: 220 })
+    subject.flags = ['pastSeek']
+    subject.rosterId = 'catfish'
+    subject.trailLag = lag
+    run.enemies = [subject]
+    for (let i = 0; i < 300; i++) step()
+    return Math.hypot(run.player.x - subject.x, run.player.y - subject.y)
+  }
+
+  // KEEP MOVING: a deeper lag must leave the creature genuinely further behind. Compared as an
+  // ORDER with a wide margin rather than against an eyeballed literal — the absolute gap rides on
+  // the chapter's own murk slow, which both arms share.
+  const nearGap = chase(1, 1)
+  const farGap = chase(8, 1)
+  assert(farGap > nearGap * 1.5,
+    `(b) lag 8 must trail further than lag 1 while running: ${farGap.toFixed(0)}px vs ${nearGap.toFixed(0)}px. ` +
+    'Equal gaps mean e.trailLag is not being read and every pastSeek creature collapsed onto the global.')
+
+  // STAND STILL and the trail collapses to one point, so the lag stops mattering and it closes to
+  // contact. This is the half that makes the flag interlock with the chapter: the bar's whole ask is
+  // that you PARK in a clean-water upwelling to refill.
+  const stillGap = chase(8, 0)
+  assert(stillGap < farGap * 0.5,
+    `(b) a stationary player must be caught even at lag 8: ${stillGap.toFixed(0)}px standing vs ${farGap.toFixed(0)}px running`)
+
+  console.log(`PASS run US.l (shelf natives): the trail fills in an unscripted chapter (pastSeek was inert there), ` +
+    `the flounder walks and the catfish trails at lag ${CHAPTERS.shelf.roster[1].trailLag} vs the probe's ${BLANK_PASTSEEK_LAG}, ` +
+    `running leaves it ${farGap.toFixed(0)}px back against ${nearGap.toFixed(0)}px at the probe's lag, ` +
+    `standing still closes it to ${stillGap.toFixed(0)}px, and the Surf keeps both loans`)
 }
 
 // ---- run US.i: the Shore Crab's guard ---------------------------------------------------------

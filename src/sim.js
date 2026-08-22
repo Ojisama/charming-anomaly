@@ -153,7 +153,7 @@ import {
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
@@ -253,6 +253,7 @@ export function stepSim(run, input, dt) {
   stepRepulse(run, input, dt) // v5.21 lane: the active shove (ticks its cooldown even when unused)
   stepSpawning(run, dt)
   stepStragglers(run)     // v6.0.1 anti-kite: chasers shed behind a runner recycle onto the ring ahead
+  stepTrail(run, dt)      // must precede stepBossScript: a scripted chapter returns out of stepSim below
   if (stepBossScript(run, dt)) return // v5.24 blank: the scripted chapter's ONLY spawner (phase may be 'dead' — P2 yank)
   stepFormations(run, dt) // v5.18 beyond lane: ranks of marchers, alongside the seeking swarm above
   stepEnemyMovement(run, dt)
@@ -951,6 +952,31 @@ function stepFormations(run, dt) {
 // against the boss's own (untagged) bands/wakes — the eraser's wake residue is tagged the same way.
 // @returns true if the run ENDED this frame — the P2 yank can kill (phase 'dead'), and the final
 // boss's death wins (phase 'victory'); either way the rest of stepSim must not run.
+// The trail: the ring buffer of recent player positions. TWO consumers, in two different chapters —
+// The Blank's P1 detonates it (detonateTrail) and every `pastSeek` creature aims at a sample behind
+// its newest end.
+//
+// ⚠ IT USED TO BE SAMPLED INSIDE stepBossScript, WHICH RETURNS EARLY FOR EVERY UNSCRIPTED CHAPTER.
+// That made `pastSeek` INERT everywhere but The Blank, and inert in the quietest possible way: the
+// read is guarded (`if (pt)`), so with an empty buffer the flag silently falls through to seeking
+// the live player. A creature carrying it behaved as a plain chaser, nothing threw, and no test
+// went red — the flag would simply have been decoration. Sampling here, before that early return,
+// is what makes it a real behaviour outside the scripted chapter.
+//
+// The BLANK_ prefix on the two constants is now a misnomer: they govern any chapter with a pastSeek
+// creature. Left alone deliberately — a rename reaches config.js, state.js's doc block and two
+// sim-test scenarios for no behaviour change. // ponytail: rename through `renaming-safely` if a
+// third consumer ever lands.
+function stepTrail(run, dt) {
+  const p = run.player
+  run._trailT = (run._trailT ?? BLANK_TRAIL_DT) - dt
+  if (run._trailT <= 0) {
+    run._trailT += BLANK_TRAIL_DT
+    run.trail.push({ x: p.x, y: p.y })
+    if (run.trail.length > BLANK_TRAIL_MAX) run.trail.shift()
+  }
+}
+
 function stepBossScript(run, dt) {
   if (!CHAPTERS[run.chapter].scripted) return false
   const p = run.player
@@ -958,15 +984,6 @@ function stepBossScript(run, dt) {
   const accel = run.mutators.includes('accelResponse') ? BLANK_ACCEL_MUL : 1
   const xreact = run.mutators.includes('crossReactive')
   const mature = run.mutators.includes('affinityMature')
-
-  // The trail: the ring buffer of recent player positions that P1 detonates and pastSeek probes
-  // hunt. Sampled unconditionally so a boss read always has history to work with.
-  run._trailT = (run._trailT ?? BLANK_TRAIL_DT) - dt
-  if (run._trailT <= 0) {
-    run._trailT += BLANK_TRAIL_DT
-    run.trail.push({ x: p.x, y: p.y })
-    if (run.trail.length > BLANK_TRAIL_MAX) run.trail.shift()
-  }
 
   // Binding-node bookkeeping runs at EVERY stage, not just P2: nodes a dead boss leaves behind
   // keep binding until killed. Ages each node and publishes the MIN-stacked player slow.
@@ -1362,7 +1379,8 @@ function stepRepulse(run, input, dt) {
     // p.y, making the acquisition radius |viewRadius + player.x|. That is a dead band centred on
     // x = -viewRadius, two target-distances wide, in which the button silently stopped aiming at
     // all — and an unbounded range at large +x, where it would launch at an off-screen body.
-    // Every one of the other eight call sites passes (run) alone.
+    // Every other call site but the Lest's passes (run) alone; that one passes a deliberate
+    // NEGATIVE pad (BALLAST_REACH_PAD) to aim short of the screen edge.
     // AIMED AT PREY, NOT AT WHATEVER IS NEAREST. Owner ruling 2026-08-18: "the action button should
     // be a dash to a nearby non-tank enemy."
     //   The moray is the one body in this chapter you cannot eat on demand — it is `guard`-windowed,
@@ -1788,6 +1806,12 @@ function spawnEnemy(run, opts = {}) {
     // roster.phase (v7.x): the same shape as `dash` above, for the `phase` flag's windows.
     // null on every enemy but The Shelf's Moon Jelly.
     phase: roster?.phase ?? null,
+    // roster.trailLag (v7.x): how many trail samples behind the player a `pastSeek` creature aims,
+    // or null to take the shared BLANK_PASTSEEK_LAG. Third instance of the same idiom as `dash` and
+    // `phase`, and it exists for the same reason: The Blank's Probe is tuned as a SHADOW (lag 1,
+    // ~0.35s, paired with speedMul 1.3 so it hangs just off your shoulder), and a chapter that wants
+    // a creature to arrive somewhere you have actually left must not drag the boss's number with it.
+    trailLag: roster?.trailLag ?? null,
     // xpMul is the roster's third stat lever, alongside hpMul/speedMul above: what a kill of
     // this creature is WORTH, independent of how much health it has. They are separate on
     // purpose — a chapter can make something cheaper to kill and still pay well for it.
@@ -1967,11 +1991,16 @@ function stepEnemyMovement(run, dt) {
         if (lsq <= lu.aggro * lu.aggro && lsq < bestSq) { bestSq = lsq; tx = lu.x; ty = lu.y; baited = !!lu.bait }
       }
     }
-    // pastSeek flag (v5.24 blank's probes): hunt where the player WAS — a trail sample
-    // BLANK_PASTSEEK_LAG behind the newest (~1.4s ago), falling back to the live player while the
-    // trail is still short. Keep moving and a probe forever arrives where you no longer are.
+    // pastSeek flag (v5.24 blank's probes, v7.x The Shelf's dogfish): hunt where the player WAS — a
+    // trail sample `lag` behind the newest, falling back to the live player while the trail is still
+    // short. Keep moving and it forever arrives where you no longer are; stop and it closes.
+    // The lag is per-creature (e.trailLag, see spawnEnemy) because the two users want opposite
+    // things from it: the Probe shadows at 1 sample (~0.35s), the dogfish trails much further back.
+    // The buffer itself is filled by stepTrail, which is NOT inside stepBossScript — see the note
+    // there for how this flag spent its whole life inert outside the scripted chapter.
     if (e.flags && e.flags.includes('pastSeek')) {
-      const pt = run.trail && run.trail[run.trail.length - 1 - BLANK_PASTSEEK_LAG]
+      const lag = e.trailLag ?? BLANK_PASTSEEK_LAG
+      const pt = run.trail && run.trail[run.trail.length - 1 - lag]
       if (pt) { tx = pt.x; ty = pt.y }
     }
     const dx = tx - e.x, dy = ty - e.y
@@ -2031,7 +2060,30 @@ function stepEnemyMovement(run, dt) {
     // seek for everyone else; the plain seek runs for the rest. slowMul (chill/freeze) applies
     // throughout. Machines take the seek target, so lured foes run their routine at the decoy.
     if ((e.stunT || 0) > 0) {
-      // stunned (hydrant launch / roar stagger): no seek at all — knockback still carries it below.
+      // stunned (hydrant launch / roar stagger / the Vase's daze): no seek at all — knockback still
+      // carries it below.
+      //
+      // A COMMITTED DASH IS CANCELLED HERE, NOT PAUSED, and that distinction is the whole bug this
+      // branch used to have. Suppressing the movement is not enough: stepDashBurst simply stops
+      // being CALLED while the stun holds, so _dashPhase stays 'dash' and _dashT freezes wherever
+      // it was. Measured against a Silt Veil daze on The Shelf's flounder, back when it carried
+      // dashBurst (it walks as of 2026-08-22, so re-measure on any other carrier) -- 1.4s stunned with
+      // dashT pinned at 0.350, then the body resumed the FULL 0.35s lunge at 299px/s on the heading
+      // it had locked before the daze, closing 280px. The daze delayed the hit and never denied it,
+      // which is the owner's report from play (2026-08-22): "the stilt cloud doesn't stun dashers
+      // during their dash. It should stop their dash."
+      //   Rewound to a FULL idle rather than to 0, so the cost is the whole wind-up: the daze buys
+      // the player the dodge AND the re-approach, which is what a control card is sold as.
+      // `restMul` is read the same way stepDashBurst reads it -- taking DASH_IDLE_T bare here would
+      // be the silent half-override its own comment warns about.
+      //   ⚠ ONLY dashBurst. The five other commit machines (diveBomb, pounce, lineCharge, strafe,
+      // aerialStrike) have the identical pause-and-resume behaviour and are LEFT ALONE on purpose:
+      // cancelling those is a stun buff in five other chapters that nobody has measured. If that is
+      // wanted, it is one line each here and a census run per chapter, not a drive-by.
+      if (e._dashPhase === 'dash') {
+        e._dashPhase = 'idle'
+        e._dashT = DASH_IDLE_T * (e.dash?.restMul ?? 1)
+      }
     } else if ((e.fearT || 0) > 0) {
       // feared (chitter shriek): flee — the seek direction, inverted, at FEAR_SPEED_MUL.
       if (d > 1e-6 && slowMul > 0) {
@@ -3076,6 +3128,15 @@ function contactHarmless(e) {
   // against the crowd behind it is still a threat — half of the machine-gun lock was that a
   // permanent field-wide fear made every enemy on screen literally unable to touch you.
   if ((e.stunT || 0) > 0) return true
+  // Anything the WATER COLUMN has hold of. Owner from play, 2026-08-22. The Downwash lands on the
+  // densest clump within DOWNWASH_CAST_FRAC of the viewport and drags it inward, so the card's own
+  // gather was scraping the player who cast it — a weapon that hurts you for using it correctly.
+  // Scoped by _holeLook and NOT by holePull alone: the Black Hole shares run.holes, and disarming
+  // everything inside one would turn a Book 1 weapon into a safe bubble nobody asked for.
+  // THE TELL IS THE COLUMN, not the body: the drawn zone is what says nothing in here can reach
+  // you, which is why this reaches the rim (any pull at all) instead of waiting for the sprite's
+  // ragdoll spin to be visibly fast.
+  if ((e.holePull || 0) > 0 && e._holeLook === 'downwash') return true
   if (e._pounceState === 'land' || e._chargeState === 'stall') return true
   return false
 }
@@ -5949,10 +6010,12 @@ const WEAPON_STAT_MODS = {
   breaker:       { swell: ['dmg', 'pct'], longshore: ['radius', 'pct'], broadCrest: ['arc', 'pct'] },
   // The Shelf's starter. `flare` folds onto `arc` exactly as broadCrest does, which also means the
   // pause build sheet reports the WIDENED cone rather than the base one.
-  // `longPuff` folds onto `r`; `scour` and `backblow` are read at the cast site (one scales damage
-  // by the pollution bar, the other spawns a second nova) and `quickBreak`/`quickWinch` are rate
-  // mods in WEAPON_RATE_MODS, since folding one into an interval would SLOW the weapon.
-  bubblePuff:    { froth: ['dmg', 'pct'], flare: ['arc', 'pct'], longPuff: ['r', 'pct'] },
+  // NOTHING FOLDS ONTO `r` HERE, deliberately -- reach is level-only on this weapon (see the fence
+  // over WEAPON_MODS.bubblePuff, and run LL.a2). `scour` and `backblow` are read at the cast site
+  // (one scales damage by the pollution bar, the other spawns a second nova) and
+  // `quickBreak`/`quickWinch` are rate mods in WEAPON_RATE_MODS, since folding one into an interval
+  // would SLOW the weapon.
+  bubblePuff:    { froth: ['dmg', 'pct'], flare: ['arc', 'pct'] },
   skippingShell: { skimmer: ['dmg', 'pct'], flatStone: ['skips', 'flat'], wideSplash: ['r', 'pct'], sidearm: ['speed', 'pct'] },
   barnacles:     { grinder: ['dmg', 'pct'], encrust: ['crustDur', 'pct'], spawnfall: ['count', 'flat'], seedbed: ['jumps', 'flat'], broadcast: ['castRange', 'pct'] },
   // The Shelf's other two. Both count mods fold as 'flat' onto a real `count` key in levels[], so
@@ -7235,6 +7298,10 @@ function stepHoles(run, dt) {
         e.y += uy * radial + ux * tangentSpeed * dt
 
         e.holePull = Math.max(e.holePull ?? 0, t)
+        // WHICH hole has hold of it, for contactHarmless: a body a water column is ragdolling
+        // cannot touch you, a body in a Black Hole still can. Last writer wins if the two overlap,
+        // which is the same fuzziness holePull's Math.max already carries across holes.
+        e._holeLook = h.look ?? null
         pulled.add(e.id)
       }
     }
@@ -9359,7 +9426,11 @@ function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
   const foulWater = run.weaponMods.ballast?.foulWater ?? 0
   fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickWinch)), dt, () => {
     const p = run.player
-    const target = nearestEnemy(run)
+    // THE ONE AIM SITE IN THE GAME THAT PASSES A PAD, and it passes a NEGATIVE one: this weapon
+    // reaches viewRadius - 100 where everything else reaches viewRadius + 100 (see
+    // BALLAST_REACH_PAD). A body further out is not a held cast -- nearestEnemy returns null, which
+    // is the empty-screen branch, and the blind throw below takes it.
+    const target = nearestEnemy(run, BALLAST_REACH_PAD)
     const tx = target ? target.x : p.x + (p.facing >= 0 ? BALLAST_BLIND_THROW : -BALLAST_BLIND_THROW)
     const ty = target ? target.y : p.y
     // ONE local, bound and divisor both -- see stepSiltVeilWeapon above for what splitting it costs.
