@@ -157,13 +157,16 @@ import {
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
-  GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC, RUSH_DUR, RUSH_MAX_STACKS,
+  GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC, GNASH_CARRY_FRAC, RUSH_DUR, RUSH_MAX_STACKS,
   CHUM_PULL_MUL, CHUM_PANIC_R,
   BILGE_AVOID_PAD, BILGE_AVOID_BLEND, BILGE_TRAIL_RATE_MUL, BILGE_TRAIL_R_MUL,
   RING_N, RING_R_MUL, RING_POOL_MUL,
   PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_TURN_RATE, PREY_SHOAL_SIZE, PREY_FLEE_BLEND,
   PREY_COHESION_BLEND, PREY_COHESION_MIN_N, PREY_PREDATOR_FEAR_R, PREY_PREDATOR_BLEND,
   BALL_R, BALL_TIGHT_N, FEED_R, FEED_FULL_N, FEED_DRAIN_MIN,
+  ORCA_FIRST_PASS, ORCA_INTERVAL, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_LEAVE_DUR,
+  ORCA_RING_R, ORCA_RING_MIN_R, ORCA_RING_BAND, ORCA_PUSH, ORCA_ORBIT_RATE,
+  ORCA_COMMIT_SPEED, ORCA_OVERSHOOT, ORCA_HIT_R, ORCA_DMG_FRAC,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
@@ -305,6 +308,7 @@ export function stepSim(run, input, dt) {
   if (stepStarve(run, dt)) return // phase is now 'dead' (The Wreck: an empty Bloodlust bar, v7.x)
   if (stepSlick(run, dt)) return // phase is now 'dead' (The Wreck: standing in the leak, v7.x)
   if (stepTrawl(run, dt)) return // phase is now 'dead' (The Trawl: the net wall, v7.x)
+  if (stepOrca(run, dt)) return // phase is now 'dead' (The Wreck: the orca's strike, v7.x)
   if (stepMaws(run, dt)) return // phase is now 'dead' (The Deep: an anglerfish swallowed you, v7.x)
   if (stepStrips(run, dt)) return // phase is now 'dead' (The Blank's erasure-strip DoT — v5.3)
   if (stepTraps(run, dt)) return // phase is now 'dead' (undergrowth snap trap — v5.4)
@@ -4056,6 +4060,95 @@ export function inWake(run, x, y) {
 
 // Returns true if the player died, matching stepRocks/stepPools' contract — it is called from
 // stepSim's `if (stepX(...)) return` group for that reason.
+// -- The Orca (v7.x, The Wreck — chapters declaring `orca: true`) --------------------------------
+// Four telegraphed visits from t=100s. Rises as a shadow on the deep parallax layer, surfaces,
+// closes a ring around you, commits along one locked line, overshoots and leaves. UNKILLABLE by
+// design (owner ruling): there is no health pool and no vulnerability window, and the reward for
+// surviving is the crowd its ring leaves compressed on your position.
+//
+// run.orca is a SINGLE NULLABLE OBJECT with a run._orcaAcc countdown, and stepOrca returns true if
+// the player died — the shipped run.net idiom, not a pool. See the ORCA_* block in config.js for
+// the closing-ring geometry and for why an orbiting POINT measurably evacuates the shoal.
+function stepOrca(run, dt) {
+  if (!CHAPTERS[run.chapter].orca) return false
+  const p = run.player
+  const o = run.orca
+  if (!o) {
+    // `??` seeds the FIRST wait at ORCA_FIRST_PASS and every later one at ORCA_INTERVAL, matching
+    // what createRun writes — the same shape stepTrawl's _netAcc uses.
+    run._orcaAcc = (run._orcaAcc ?? ORCA_FIRST_PASS) - dt
+    if (run._orcaAcc > 0) return false
+    run._orcaAcc = ORCA_INTERVAL
+    const bearing = Math.random() * Math.PI * 2
+    run.orca = {
+      state: 'rising', t: ORCA_RISE_DUR,
+      cx: p.x, cy: p.y, r: ORCA_RING_R, ang: bearing,
+      x: p.x + Math.cos(bearing) * ORCA_RING_R,
+      y: p.y + Math.sin(bearing) * ORCA_RING_R,
+      dirX: 0, dirY: 0, hit: false, alpha: 0,
+    }
+    run.events.push({ type: 'orcaRise', x: p.x, y: p.y })
+    return false
+  }
+  o.t -= dt
+  if (o.state === 'rising') {
+    // The shadow closes on the player, so it passes UNDER them. That IS the telegraph — owner:
+    // "very telegraph with a big shadow underneath you". No collision in this state.
+    o.cx += (p.x - o.cx) * Math.min(1, dt * 2.5)
+    o.cy += (p.y - o.cy) * Math.min(1, dt * 2.5)
+    o.ang += ORCA_ORBIT_RATE * 0.5 * dt
+    o.x = o.cx + Math.cos(o.ang) * o.r
+    o.y = o.cy + Math.sin(o.ang) * o.r
+    o.alpha = 1 - Math.max(0, o.t) / ORCA_RISE_DUR
+    if (o.t <= 0) { o.state = 'circling'; o.t = ORCA_CIRCLE_DUR; o.alpha = 1 }
+    return false
+  }
+  if (o.state === 'circling') {
+    // The ring tracks the player, but LOOSELY: outrunning it entirely has to be possible or the
+    // commit is not a dodge, it is a scheduled hit.
+    o.cx += (p.x - o.cx) * Math.min(1, dt * 1.2)
+    o.cy += (p.y - o.cy) * Math.min(1, dt * 1.2)
+    o.ang += ORCA_ORBIT_RATE * dt
+    const k = 1 - Math.max(0, o.t) / ORCA_CIRCLE_DUR
+    o.r = ORCA_RING_R + (ORCA_RING_MIN_R - ORCA_RING_R) * k
+    o.x = o.cx + Math.cos(o.ang) * o.r
+    o.y = o.cy + Math.sin(o.ang) * o.r
+    if (o.t <= 0) {
+      // The line is locked HERE, at the moment it breaks orbit, and never re-aimed. That is what
+      // makes it dodgeable — a strike that tracked would be unavoidable and therefore not a move.
+      const dx = p.x - o.x, dy = p.y - o.y
+      const d = Math.hypot(dx, dy) || 1
+      o.dirX = dx / d; o.dirY = dy / d
+      o.state = 'committing'
+      o.t = (d + ORCA_OVERSHOOT) / ORCA_COMMIT_SPEED
+      o.hit = false
+      run.events.push({ type: 'orcaStrike', x: o.x, y: o.y, angle: Math.atan2(dy, dx) })
+    }
+    return false
+  }
+  if (o.state === 'committing') {
+    o.x += o.dirX * ORCA_COMMIT_SPEED * dt
+    o.y += o.dirY * ORCA_COMMIT_SPEED * dt
+    // ONCE PER PASS, not a DoT — `hit` latches so a slow frame cannot bill the same strike twice.
+    if (!o.hit) {
+      const hx = p.x - o.x, hy = p.y - o.y
+      const rr = ORCA_HIT_R + PLAYER.radius
+      if (hx * hx + hy * hy < rr * rr) {
+        o.hit = true
+        run.events.push({ type: 'orcaHit', x: p.x, y: p.y })
+        if (hurtPlayer(run, p.maxHP * ORCA_DMG_FRAC, false, 'orca')) return true
+      }
+    }
+    if (o.t <= 0) { o.state = 'leaving'; o.t = ORCA_LEAVE_DUR }
+    return false
+  }
+  o.x += o.dirX * ORCA_COMMIT_SPEED * 0.4 * dt
+  o.y += o.dirY * ORCA_COMMIT_SPEED * 0.4 * dt
+  o.alpha = Math.max(0, o.t) / ORCA_LEAVE_DUR
+  if (o.t <= 0) run.orca = null
+  return false
+}
+
 function stepTrawl(run, dt) {
   if (CHAPTERS[run.chapter].signature?.type !== 'trawl') return false
   const p = run.player
@@ -8158,6 +8251,27 @@ function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
     ux /= m; uy /= m
   }
 
+  // THE ORCA'S RING (v7.x). The fear is the RING, not the animal, and it pushes INWARD — a fish at
+  // or beyond the wall turns toward the ring's centre rather than away from the orca's body.
+  //   That inversion is the whole mechanism. Two point-repulsors (you and it) cancel for a fish
+  // between them and ADD for a fish on your far side, so an orbiting point drives the shoal out
+  // through your own position; a closing wall drives it in. This is also why it composes with the
+  // player's repulsion instead of fighting it: both push the same way once the fish is inside.
+  //   run.orca is NOT in run.enemies, so the predator loop above cannot see it — it needs this
+  // explicit term. Circling only: during the rise the ring is a shadow, not yet a wall.
+  const orca = run.orca
+  if (orca && orca.state === 'circling') {
+    const rx = e.x - orca.cx, ry = e.y - orca.cy
+    const rd = Math.hypot(rx, ry)
+    if (rd > orca.r - ORCA_RING_BAND && rd > 1e-6) {
+      threatened = true
+      ux = ux * (1 - ORCA_PUSH) + (-rx / rd) * ORCA_PUSH
+      uy = uy * (1 - ORCA_PUSH) + (-ry / rd) * ORCA_PUSH
+      const m = Math.hypot(ux, uy) || 1
+      ux /= m; uy /= m
+    }
+  }
+
   // THE SELFISH HERD (v7.x). The one attracting force in the chapter — see PREY_COHESION_BLEND for
   // why the chapter did not work without it. A frightened fish swims toward the middle of its own
   // school as well as away from the threat; one repulsor alone can only ever make a ring, and it is
@@ -8344,6 +8458,9 @@ function biteGnash(run, stats) {
   // let one body eat three bites from one cast).
   const struck = new Set()
   for (const swing of ipecacAngles(run, angle)) {
+    // Overkill carry, reset PER SWING: an ipecac cast is three separate mouths, and pooling the
+    // spillover across all three would quietly turn that mod into a damage multiplier.
+    let carry = 0
     for (const e of run.enemies) {
       if (e._dead || struck.has(e)) continue
       if (!inSector(p.x, p.y, swing, stats.range, stats.arc, e, false)) continue
@@ -8354,10 +8471,19 @@ function biteGnash(run, stats) {
       const d = Math.hypot(e.x - p.x, e.y - p.y)
       const near = 1 - Math.min(1, d / stats.range)
       let mul = 1 + near * (GNASH_MAW_MUL - 1)
+      const hpBefore = e.hp
       // bloodInTheWater: the finisher. Read off CURRENT hp before the bite lands, so the card is
       // "bite what is already hurt" and never "the last hit of every kill is bigger".
       if (finish > 0 && e.maxHP > 0 && e.hp / e.maxHP < GNASH_FINISH_FRAC) mul *= 1 + finish
-      applyDamage(run, e, stats.dmg * mul, GNASH_BASE_CRIT)
+      const nominal = stats.dmg * mul + carry
+      applyDamage(run, e, nominal, GNASH_BASE_CRIT)
+      // OVERKILL CARRY (v7.x). Excess from a body that DIED rolls on to the next one this sweep
+      // reaches. Measured off nominal-minus-remaining-HP, so a crit never inflates the carry and a
+      // body that survived carries nothing — it can never manufacture damage against a lone target.
+      // See GNASH_CARRY_FRAC for why this exists rather than a density damage multiplier: every
+      // prey here dies to one bite with an order of magnitude spare, so there is nothing to hit
+      // harder and the only honest expression of "deeper into the mass" is what spills over.
+      carry = e.hp <= 0 ? Math.max(0, nominal - hpBefore) * GNASH_CARRY_FRAC : 0
       // deathRoll: hold what you bit. Same one-line stun idiom as the mine, the hydrant and the
       // longline — through ccScale/spendCC so it takes diminishing returns, and published to the
       // `stunT` contract field render.js already reads.

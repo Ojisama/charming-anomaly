@@ -6,7 +6,7 @@ import {
   EARLY_CALM, MAX_CHOICE_SLOTS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
-  pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS,
+  pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, ORCA_FIRST_PASS,
   BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, CURRENT_RESIST_FLOOR, unlockLevel, unlockMax,
   lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost } from './config.js'
 
@@ -2251,6 +2251,10 @@ export function createRun(meta, opts = {}) {
     // null between passes, and null forever in every chapter whose signature is not `trawl`.
     net: null,
     _netAcc: TRAWL_FIRST_PASS,   // NOT the interval — see its block for why the first pass is early
+    // v7.x The Wreck. Same single-nullable-object idiom as `net` above: the orca is one body with a
+    // countdown, never a pool. `{state,t,cx,cy,r,ang,x,y,dirX,dirY,hit,alpha}` — see stepOrca.
+    orca: null,
+    _orcaAcc: ORCA_FIRST_PASS,   // first visit is LATE on purpose: the chapter's first 100s are quiet
     // v7.x The Deep. _scentT: seconds left on the Scent window the skill button bought; while it
     // is up, stepScent keeps every body inside SCENT_R marked and the player moves at
     // SCENT_SPEED_MUL. _finPrevA / _finSide are Fin Hit's memory of which way you were last

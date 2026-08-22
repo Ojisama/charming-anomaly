@@ -1498,6 +1498,9 @@ const CONFIG = {
   'Drowning': 'Noyade',
   'Starvation': 'Famine',
   'The Leak': 'La Fuite',
+  // Owner's pick, 2026-08-22, over 'L'Orque' and 'L'Épaulard': the chapter's own premise turned
+  // back on the player — you spent the run being the predator, and this is the one that outranks you.
+  'The Orca': 'Le Prédateur',
   'The Net': 'Le Filet',
   'Swallowed': 'Avalé',
   'Caustic Pools': 'Flaques caustiques',

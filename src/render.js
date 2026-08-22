@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R, BALLAST_RING,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -5408,6 +5408,101 @@ export function createRenderer(app) {
       T.hullPlate = bake(g)
     }
     {
+      // ---- THE ORCA (v7.x) ---------------------------------------------------------------------
+      // PLAN VIEW, nose toward +x, mass-centred like every other creature here. The read has to
+      // survive at two very different alphas: a hazed silhouette on the deep parallax layer while
+      // it rises, and the full animal once it surfaces.
+      //
+      // HORIZONTAL FLUKES ARE THE WHOLE SILHOUETTE CUE. A fish's tail is vertical, so from directly
+      // above it is a thin edge; a cetacean's is horizontal and reads as a wide paddle. That one
+      // shape is what stops this being "a big fish" — it is doing the same job the rivet line does
+      // for the hull plate, i.e. naming what kind of thing this is at a glance.
+      const g = new Graphics()
+      const skin = 0x0e1218        // near-black: a real orca's back is the darkest thing in the water
+      const skinEdge = 0x070a0e    // flank shadow, for volume
+      const skinLit = 0x39485a     // cold rim along the spine — light from above, water-scattered
+      const skinLit2 = 0x222c38
+      const saddle = 0x8fa0ae
+      const belly = 0xeef4f8
+      const scar = 0x5b6a78
+      // BODY: real orca proportions — fusiform, max width ~22% of length at about a third back,
+      // a rounded head (a whale's is blunt, a fish's is pointed) and a long narrow peduncle. Many
+      // more points than the first cut, because the flat 14-gon read as a lozenge rather than as
+      // a body with mass in it.
+      g.poly([
+        108, 0, 106, -8, 100, -15, 88, -22, 70, -28, 48, -32, 24, -33, 0, -32,
+        -24, -29, -48, -24, -68, -18, -84, -12, -94, -7, -98, -3,
+        -98, 3, -94, 7, -84, 12, -68, 18, -48, 24, -24, 29, 0, 32,
+        24, 33, 48, 32, 70, 28, 88, 22, 100, 15, 106, 8,
+      ]).fill(skin)
+      // FLANK SHADOW: the body is a cylinder, so its edges turn away from the light. Without this
+      // the whole animal reads as a flat cut-out, which was the real problem with the first cut —
+      // not the markings.
+      g.poly([
+        24, -33, 48, -32, 70, -28, 88, -22, 100, -15, 106, -8, 108, 0, 106, 8, 100, 15,
+        88, 22, 70, 28, 48, 32, 24, 33, 24, 26, 60, 22, 86, 14, 98, 5, 98, -5, 86, -14, 60, -22, 24, -26,
+      ]).fill({ color: skinEdge, alpha: 0.55 })
+      // SPINE HIGHLIGHT: a cold rim down the midline. This is what gives the black body a top.
+      g.poly([84, -5, 30, -8, -30, -7, -76, -4, -76, 1, -30, 2, 30, 3, 84, 1]).fill({ color: skinLit2, alpha: 0.5 })
+      // FLUKES: wide, swept, HORIZONTAL, and with the MEDIAN NOTCH a real fluke has. The notch is
+      // the detail that stops it reading as a generic arrowhead tail.
+      g.poly([
+        -92, 0, -104, -14, -122, -30, -142, -40, -136, -22, -122, -9, -112, -2,
+        -118, 0,
+        -112, 2, -122, 9, -136, 22, -142, 40, -122, 30, -104, 14,
+      ]).fill(skin)
+      // PECTORALS: large ROUNDED paddles — an orca's are oars, not blades. Enough points to actually
+      // curve: the first cut used four corners and read as a rectangular slab bolted to the flank.
+      g.poly([48, -24, 48, -34, 44, -44, 36, -53, 25, -60, 14, -62, 6, -58, 6, -50, 12, -42, 22, -34, 34, -27])
+        .fill(skin)
+      g.poly([48, 24, 48, 34, 44, 44, 36, 53, 25, 60, 14, 62, 6, 58, 6, 50, 12, 42, 22, 34, 34, 27])
+        .fill(skin)
+      g.poly([36, -53, 25, -60, 14, -62, 6, -58, 14, -56, 26, -52]).fill({ color: skinLit2, alpha: 0.4 })
+      g.poly([36, 53, 25, 60, 14, 62, 6, 58, 14, 56, 26, 52]).fill({ color: skinLit2, alpha: 0.4 })
+      // SADDLE PATCH behind the dorsal. Kept FAINT and hugging the fin's base: drawn bold and
+      // straight-edged it read as two painted racing stripes down the back, which is a livery, not
+      // an animal. A real saddle is a soft smudge you half-see, so alpha does the work, not shape.
+      g.ellipse(-26, -13, 22, 7).fill({ color: saddle, alpha: 0.22 })
+      g.ellipse(-26, 13, 22, 7).fill({ color: saddle, alpha: 0.22 })
+
+      // DORSAL FIN: the signature, and the tallest thing on the animal. From directly overhead it
+      // is a NARROW BACKSWEPT BLADE on the midline — wide where it leaves the back, tapering to a
+      // point. The first cut drew it as a kite and it read as a diamond marking painted on, because
+      // a shape that is as wide at the back as the front cannot be a fin seen end-on.
+      g.poly([22, -9, 6, -7, -12, -4, -30, -1.5, -44, 0, -30, 1.5, -12, 4, 6, 7, 22, 9, 26, 0])
+        .fill({ color: skin })
+      // Lit leading edge only — one side catching light is what makes it stand UP out of the back.
+      g.poly([22, -9, 6, -7, -12, -4, -30, -1.5, -44, 0, -30, -0.5, -12, -2, 6, -4, 22, -6])
+        .fill({ color: skinLit, alpha: 0.8 })
+      g.poly([22, -9, 6, -7, -12, -4, -30, -1.5, -44, 0, -30, 1.5, -12, 4, 6, 7, 22, 9, 26, 0])
+        .stroke({ width: 1.3, color: 0x05070a, alpha: 0.95 })
+
+      // THE MOUTH — the menace. A real orca's jawline runs a long way back from the snout, and the
+      // teeth are the only thing on the animal that reads as a weapon from above.
+      g.poly([108, 0, 96, -11, 74, -17, 70, -13, 92, -6, 102, 0, 92, 6, 70, 13, 74, 17, 96, 11])
+        .fill({ color: 0x04060a, alpha: 0.9 })
+      for (let i = 0; i < 5; i++) {
+        const t = i / 4
+        const x = 74 + t * 28, y = 15 - t * 8
+        g.poly([x, -y, x + 4, -y + 4, x - 2, -y + 5]).fill({ color: belly, alpha: 0.85 })
+        g.poly([x, y, x + 4, y - 4, x - 2, y - 5]).fill({ color: belly, alpha: 0.85 })
+      }
+
+      // EYE PATCHES: angled slashes set back from the snout, small. Drawn round they read as googly
+      // eyes — that was the first cut's worst tell and it is what "cartoon" looked like here.
+      g.poly([64, -19, 44, -26, 36, -21, 56, -15]).fill({ color: belly, alpha: 0.9 })
+      g.poly([64, 19, 44, 26, 36, 21, 56, 15]).fill({ color: belly, alpha: 0.9 })
+
+      // RAKE SCARS: pale parallel scratches from other orcas' teeth. Every big adult carries them,
+      // and they do more for "this thing is dangerous and has been in fights" than any silhouette
+      // change — the detail that separates an animal from a logo.
+      for (const [sx, sy, sl, sa] of [[-6, -22, 15, -0.5], [2, -19, 12, -0.55], [-40, 15, 13, 0.45], [-32, 19, 10, 0.5], [40, -14, 9, -0.4]]) {
+        g.moveTo(sx, sy).lineTo(sx + Math.cos(sa) * sl, sy + Math.sin(sa) * sl)
+      }
+      g.stroke({ width: 1.3, color: scar, alpha: 0.4 })
+      T.orca = bake(g)
+    }
+    {
       // hull rib: a frame member out of the open side of the boat, curved the way a hull is curved.
       // taperStroke for the same reason the root arch uses it — a constant-width arc reads as tubing.
       const g = new Graphics()
@@ -9244,6 +9339,22 @@ export function createRenderer(app) {
   // Neither is a pool: clearing them IS the reset, the same idiom breathG uses (see clearWorld).
   const netWakeG = new Graphics()
   const netG = new Graphics()
+  // ---- THE ORCA (v7.x, The Wreck) --------------------------------------------------------------
+  // Three objects, because the animal is in two different places over one visit. `orcaShadowSp` is
+  // the telegraph: a dark shape on the FLOOR, under everything, growing as it rises — owner's
+  // "a big shadow underneath you". `orcaSp` is the animal once it has surfaced, above the crowd
+  // because it is 7.7x the player and must never be hidden behind a fish. `orcaG` is the closing
+  // ring, drawn low so the shoal reads as being on top of it.
+  //   The shadow lives in WORLD space rather than on hullLayer deliberately: that layer is offset
+  // into parallax space, so anything parked there to track the player has to undo a transform, and
+  // a shadow that lags the player by a parallax factor reads as a bug rather than as depth.
+  const orcaShadowSp = new Sprite()
+  const orcaG = new Graphics()
+  const orcaSp = new Sprite()
+  orcaShadowSp.visible = false
+  orcaSp.visible = false
+  orcaShadowSp.anchor.set(0.5)
+  orcaSp.anchor.set(0.5)
   // The player's own gear, and it sits beside netG ABOVE the crowd for exactly the reason netG
   // does: a net drawn under the bodies it has caught reads as something lying on the bottom, which
   // is the opposite of "you are held by this". Same idiom again — not pools; clearing them IS the
@@ -9272,7 +9383,8 @@ export function createRenderer(app) {
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
-    enemyShadowLayer, enemyLayer, enemyCrownLayer, netG, longlineG, snareG,
+    orcaShadowSp, orcaG,
+    enemyShadowLayer, enemyLayer, enemyCrownLayer, orcaSp, netG, longlineG, snareG,
     bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, breakerG, puffG, splashG, columnG, shorebreakG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
@@ -11830,6 +11942,60 @@ export function createRenderer(app) {
     torn: 0xf2e6b4,                                        // the bright frayed ends at a cut
     cell: 34,                                              // px between twines — the mesh's own scale
   }
+  // ---- THE ORCA (v7.x, The Wreck) --------------------------------------------------------------
+  // No-op (everything hidden, the Graphics cleared) unless run.orca exists — the updateNet idiom.
+  function updateOrca(run) {
+    const o = run.orca
+    orcaG.clear()
+    if (!o) { orcaShadowSp.visible = false; orcaSp.visible = false; return }
+    if (!orcaSp.texture || orcaSp.texture !== T.orca.tex) {
+      orcaSp.texture = T.orca.tex
+      orcaShadowSp.texture = T.orca.tex
+    }
+    // The bake is 226px nose to fluke; ORCA_LEN states the real one, so config owns the dimension.
+    const s = ORCA_LEN / 250   // the bake runs -142..108 nose to fluke; config owns the real dimension
+    const rising = o.state === 'rising'
+
+    // THE TELEGRAPH. A dark shape on the floor that grows and sharpens as it comes up from below.
+    // Scale runs UNDER 1 and climbs: something rising toward the camera gets bigger, and starting
+    // small is what sells "deep" without needing a blur it cannot afford.
+    orcaShadowSp.visible = rising || o.state === 'circling'
+    if (orcaShadowSp.visible) {
+      const k = rising ? o.alpha : 1
+      orcaShadowSp.position.set(o.x, o.y)
+      orcaShadowSp.rotation = o.ang + Math.PI / 2
+      orcaShadowSp.scale.set(s * (0.72 + 0.28 * k))
+      orcaShadowSp.tint = 0x02060a
+      orcaShadowSp.alpha = 0.16 + 0.30 * k
+    }
+
+    // THE ANIMAL, once it has surfaced. Hidden during the rise: the whole point of the telegraph is
+    // that you see a shadow and not yet a body.
+    orcaSp.visible = !rising
+    if (orcaSp.visible) {
+      orcaSp.position.set(o.x, o.y)
+      // Facing: along the ring while circling, along the locked line once committed.
+      orcaSp.rotation = o.state === 'committing' || o.state === 'leaving'
+        ? Math.atan2(o.dirY, o.dirX)
+        : o.ang + Math.PI / 2
+      orcaSp.scale.set(s)
+      orcaSp.tint = 0xffffff
+      orcaSp.alpha = o.state === 'leaving' ? Math.max(0, o.alpha) : 1
+    }
+
+    // THE CLOSING RING — the wall the shoal will not cross, and the player's read on how long is
+    // left. Drawn as the BAND prey actually respects (ORCA_RING_BAND), not a hairline, because the
+    // thing being communicated is a thickness of water, not a circle.
+    if (o.state === 'circling') {
+      const k = 1 - Math.max(0, o.t) / ORCA_CIRCLE_DUR
+      const a = ORCA_FEAR_TELL * (0.35 + 0.65 * k)
+      orcaG.circle(o.cx, o.cy, o.r)
+        .stroke({ width: ORCA_RING_BAND * 0.5, color: 0x0a1016, alpha: a * 0.5 })
+      orcaG.circle(o.cx, o.cy, o.r)
+        .stroke({ width: 3, color: 0xbfe6ff, alpha: a })
+    }
+  }
+
   function updateNet(run) {
     const net = run.net
     netG.clear()
@@ -17306,6 +17472,12 @@ export function createRenderer(app) {
     // hanging over the summary screen and the next chapter.
     netG.clear()
     netWakeG.clear()
+    // v7.x The Wreck: the orca is TWO SPRITES AND A GRAPHICS, so clearing the Graphics alone is not
+    // the reset — a run that ends mid-visit would leave a whale parked over the summary screen.
+    // Sprites, not a pool, so they are hidden here rather than in reset()'s flat-pool list.
+    orcaG.clear()
+    orcaShadowSp.visible = false
+    orcaSp.visible = false
     // The player's gear, same idiom. `snares` is render-local state with no run.* entity behind it,
     // so unlike run.longlines it does NOT empty itself when the run object is replaced — clearing
     // the Graphics alone would leave every live slot to redraw its mesh on the next frame of the
@@ -18808,6 +18980,7 @@ export function createRenderer(app) {
     updateEddies(run, dt)
     updateShafts(run)
     updateNet(run)            // v7.x The Trawl: no-op (both Graphics cleared) unless run.net exists
+    updateOrca(run)           // v7.x The Wreck: no-op (sprites hidden, Graphics cleared) unless run.orca exists
     updateGear(run, dt)       // v7.97 the Trawl's own gear: set lines + landed Net Toss meshes
     updateSwell(run, dt, cx, cy)
     drawBreakers(run)
@@ -19454,6 +19627,15 @@ export function createRenderer(app) {
         const s = new Sprite()
         placeRock(s, { x: 0, y: 0, r: 15, rot: 0.5 })   // via placeRock for its warm-stone tint,
         return [s, null]                                // which is the whole reason it reads as a hazard
+      },
+      // The Wreck's orca. Straight off its own bake, untinted and at full alpha — unlike the leak
+      // below it is a BODY, not a wash, so there is nothing to compensate for. A private Sprite
+      // rather than borrowing orcaSp, which is a live world object and may be mid-fade when a
+      // thumbnail is taken.
+      orca: () => {
+        const s = new Sprite(T.orca.tex)
+        s.anchor.set(T.orca.ax, T.orca.ay)
+        return [s, null]
       },
       // The Wreck's leak. Painted by the shipped draw function off a one-entity stub, like `pool`
       // below — and like it, the ALPHA is the one thing not inherited from the world: syncSlicks

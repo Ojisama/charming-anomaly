@@ -6898,6 +6898,11 @@ CHAPTERS.wreck = {
   // The button. See LUNGE_* above for the cast.
   lunge: true,
 
+  // THE ORCA. Four telegraphed visits from t=100s, unkillable, and the only thing in the chapter
+  // that aims at the player. See the ORCA_* block for the closing-ring geometry and for why an
+  // orbiting POINT measurably evacuates the shoal instead of compressing it.
+  orca: true,
+
   // ⚠ UNMEASURED FIRST CUT. This is by a wide margin the densest and softest table in the game
   // (reef 0.76/0.95/0.75, trawl 0.8/1/0.85, and the previous cut of THIS chapter 0.95/0.9/0.95),
   // and every one of those four numbers is a consequence of the roster being food rather than a
@@ -8863,6 +8868,16 @@ export const GNASH_MAW_MUL = 1.9
 // dealing 1.40x its tuned damage (mean x1.5 against the intended x1.075). It shipped that way and
 // was found from play: "bite has 100% crit chance i dont know why". Run PY.m asserts the RATE.
 export const GNASH_BASE_CRIT = 0.10
+// OVERKILL CARRY — what makes biting into a MASS feel different from biting one fish, and it is the
+// only version of that this roster can express. A mackerel is 4.95 HP and a damselfish 1.8 against a
+// 15-damage bite (28.5 at the jaw), so every prey in the chapter dies to one hit with an order of
+// magnitude to spare: a damage multiplier on density is provably inert here, because there is
+// nothing left to kill harder. Excess has to go somewhere instead, and the card's own line already
+// promises it — "the closer it lands, the deeper it goes".
+//   Carried within ONE swing only, and only from a body that actually died, so it can never
+// manufacture damage against a single target — a lone fish carries nothing.
+// balance_decision : share of overkill that chews on to the next body 2026-08-22
+export const GNASH_CARRY_FRAC = 0.6
 // ---- BLOODRUSH (v7.x, gnash) -------------------------------------------------------------------
 // Owner: "biting an enemy increases speed by 5% for 2s". The 5% is the card's own base; these two
 // are the shape around it. MULTIPLIED into the player's speed rather than MIN-composed with the
@@ -8914,7 +8929,16 @@ export const CHUM_PULL_MUL = 0.85
 // Chum does not override PANIC. Inside this radius of the player a baited fish bolts anyway, which
 // is what stops the card from being an off-switch for the chapter: you cannot stand in your own
 // bait ball and have dinner hold still, you have to come in from outside it.
-export const CHUM_PANIC_R = 150
+// ⚠ 80, DOWN FROM 150, AND AT 150 THIS CARD COULD NOT BE USED AT ALL. gnash reaches 118 at L1, so a
+// panic radius of 150 meant every fish close enough to BITE was already bolting: the chapter's only
+// gathering tool switched off outside the chapter's only mouth. The card was not weak, it was
+// unusable, and no amount of tuning its gather would have shown up.
+//   The radius still does its original job — you cannot park in the middle of your own bait ball
+// and have dinner hold still, which is what it exists to prevent. It just leaves a band you can
+// actually eat in: 80-118px at L1, widening to 80-152 at L5. Come in from outside, bite the edge.
+// balance_decision : panic radius pulled inside gnash's own reach 2026-08-22
+//  - if gnash's L1 range is ever cut below ~100 this becomes unusable again; they are one decision
+export const CHUM_PANIC_R = 80
 
 // ---- BILGE (v7.x, The Wreck) -------------------------------------------------------------------
 // The oil's drag is BLOOM_SLOW's, not its own number. bloomSlowT is a boolean-ish window — it
@@ -9056,6 +9080,47 @@ export const FEED_DRAIN_MIN = 0.45
 // player's side, and would otherwise scatter the balls the player is building.
 export const PREY_PREDATOR_FEAR_R = 170
 export const PREY_PREDATOR_BLEND = 0.55
+
+// ---- THE ORCA (v7.x, The Wreck — chapters declaring `orca: true`) ------------------------------
+// THE ONLY THING IN THIS CHAPTER THAT AIMS AT YOU. Owner ruling 2026-08-22: "maybe an orca
+// sometimes... it comes like 4 times after 100s, very telegraph with a big shadow underneath you,
+// a silhouette or something", "it circles you, then commits", and it CANNOT BE KILLED.
+//
+// It is deliberately the opposite grammar to the leak, which "does not chase, does not aim, does
+// not spawn on a timer and does not know the player exists". A chapter where every threat obeys
+// that rule is a chapter you cannot lose, which is what the roster demotion to food left behind.
+//
+// ⚠ A CLOSING RING, NOT AN ORBITING POINT, and that is a measured correction rather than a taste
+// call. With the player and the orca BOTH acting as repulsors, a fish between them gets antiparallel
+// vectors and stalls, while a fish on the far side of the player gets both vectors ADDING and
+// leaves at full speed — half the enclosed population at any instant, and the orbit sweeps every
+// bearing. That evacuates the area instead of compressing it. So the fear is the RING itself and it
+// pushes INWARD, toward the ring's centre: a wall the shoal will not cross, closing. That stacks
+// with the player's own repulsion instead of fighting it, which is the only version that delivers
+// the compression the design is built on.
+export const ORCA_FIRST_PASS = 100     // s before the first visit — the chapter's quiet half
+export const ORCA_INTERVAL = 50        // s between visits -> t = 100/150/200/250 in a 300s run
+export const ORCA_RISE_DUR = 3.2       // s of shadow-on-the-deep-layer telegraph before it surfaces
+export const ORCA_CIRCLE_DUR = 5.0     // s of the ring closing around you
+export const ORCA_LEAVE_DUR = 1.6
+export const ORCA_RING_R = 300         // ring radius when it surfaces
+export const ORCA_RING_MIN_R = 165     // ...and once fully closed, just before it commits
+export const ORCA_RING_BAND = 110      // px of the ring that prey will not cross
+export const ORCA_PUSH = 0.85          // blend weight of the inward shove on prey at the wall
+export const ORCA_ORBIT_RATE = 1.05    // rad/s the body travels around its own ring
+export const ORCA_COMMIT_SPEED = 940   // px/s of the strike — well over the player's 220
+export const ORCA_OVERSHOOT = 560      // px past you it carries before breaking off
+export const ORCA_HIT_R = 52           // px contact radius, DURING THE COMMIT ONLY
+// ⚠ A FRACTION OF MAX HP, NEVER A FLAT LITERAL. p.maxHP grows within a run (level-up choices) and
+// across saves (the shop's maxHP line), so a literal that is a real hit on a base save is a scratch
+// on an upgraded one — the scar already recorded against LUNGE_DMG.
+// ⚠ AND THE ENGINE FLOOR IS TWO CONNECTIONS, NOT THREE: hurtPlayer caps a non-dot hit at
+// maxHP x HURT_CAP_FRAC (0.5), against MAX hp and applied last, so nothing above 0.5 does anything.
+// balance_decision : three orca hits kill from full at any HP total 2026-08-22
+//  - raise commits-per-visit to make it harder, never this — the cap silently eats it
+export const ORCA_DMG_FRAC = 0.34
+export const ORCA_LEN = 360            // body length px — ~7.7x the player, it must read as bigger
+export const ORCA_FEAR_TELL = 0.55     // render: alpha of the ring tell at full close
 
 // ---- THE LEAK (v7.x, The Wreck's signature) ----------------------------------------------------
 // THE BOAT IS THE POLLUTION. Owner ruling 2026-08-17, taken when the chapter turned into a hunt:
@@ -9569,6 +9634,9 @@ export const DMG_SRC_NAME = {
   // whole roster is food and cannot damage the player at all (contactHarmless). A run that ends
   // here ends on this row or on Starvation, and nothing else.
   slick: 'The Leak',
+  // THE WRECK's third, and the first that AIMS. The comment above this block used to say the leak
+  // and starvation were the chapter's only two ways to die; the orca is now the third.
+  orca: 'The Orca',
   trawl: 'The Net',            // The Trawl: the mesh wall
   devour: 'Swallowed',         // The Deep: an anglerfish maw closed on you (a run.shafts entry)
   // Book 1's hazards — with the caveat that `pool` is the single most widespread hazard in the game

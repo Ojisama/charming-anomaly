@@ -7966,7 +7966,11 @@ function runPrey() {
     // it the same way, so the fixture cannot tell the two apart — the mutation that deletes the
     // panic override survived exactly that. Here they point in opposite directions: panicking sends
     // the fish +x, and the broken behaviour sends it -x, back through the predator.
-    const e = put(run, { x: p.x + 60, y: p.y, hp: 1e6, speed: 90, flags: ['skittish'] })
+    // DERIVED FROM CHUM_PANIC_R, NOT A LITERAL. The fixture only works while the fish starts well
+    // inside the panic radius with room to bolt before it exits — a hardcoded 60px silently became
+    // a 20px runway when the radius came down from 150 to 80, and the assertion failed for the
+    // geometry rather than for the behaviour it is guarding.
+    const e = put(run, { x: p.x + CHUM_PANIC_R * 0.25, y: p.y, hp: 1e6, speed: 90, flags: ['skittish'] })
     const bx = p.x - 400, by = p.y
     const x0 = e.x
     const d0 = Math.hypot(e.x - p.x, e.y - p.y)
@@ -7977,7 +7981,7 @@ function runPrey() {
       stepSim(run, { x: 0, y: 0 }, dt)
     }
     const gained = e.x - x0
-    assert.ok(gained > 30, `a baited fish INSIDE ${CHUM_PANIC_R}px must still bolt AWAY from the player (+x), not back toward the bait behind it (-x); it moved ${gained.toFixed(0)}px`)
+    assert.ok(gained > CHUM_PANIC_R * 0.35, `a baited fish INSIDE ${CHUM_PANIC_R}px must still bolt AWAY from the player (+x), not back toward the bait behind it (-x); it moved ${gained.toFixed(0)}px`)
     console.log(`PASS run PY.i (chum is not an off-switch): a baited fish ${Math.round(d0)}px from the player still bolts, +${gained.toFixed(0)}px in 1.5s`)
   }
 
