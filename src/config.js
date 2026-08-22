@@ -2147,11 +2147,22 @@ export const WEAPONS = {
       // balance_decision : the vase casts 40% more often 2026-08-22
       //  - `rate` is an INTERVAL, so +40% cadence DIVIDES by 1.4 -- the number goes down. Raising
       //    it would have slowed the weapon by 40% while reading like a buff.
-      { dmgPerTick: 16, rate: 2.41, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1 },
-      { dmgPerTick: 20, rate: 2.25, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1 },
-      { dmgPerTick: 28, rate: 2.09, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1 },
-      { dmgPerTick: 34, rate: 1.92, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1 },
-      { dmgPerTick: 40, rate: 1.76, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1 },
+      // `tick` IS THE CLOUD'S OWN CADENCE, and it is the second time-per-level number on this
+      // ladder: `rate` is how often you CAST, `tick` is how often what you cast bites. Before this
+      // the cloud rode the shared BLOOM_TICK (0.5s flat, config.js) alongside the pond's Toxin
+      // Bloom and The Twilight's Foxfire, so the veil had no cadence of its own at any level.
+      //   Same key name and same treatment as `hole` and `orbit`, which already ship a per-level
+      // tick: it is deliberately ABSENT from STAT_KEYS, so the build sheet gains no row. Adding it
+      // there would put a row on those two weapons as well, and Barnacles already sits exactly at
+      // the 5-row cap.
+      // balance_decision : the silt cloud ticks per level, 0.75s at Lv1 to 0.4s at Lv5 2026-08-22
+      //  - dmgPerTick is UNCHANGED, so the ladder IS the weapon's dps curve; measure it, never
+      //    divide it -- overlap absorbs most of a tick change (see the census in the commit body)
+      { dmgPerTick: 16, rate: 2.41, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1, tick: 0.75 },
+      { dmgPerTick: 20, rate: 2.25, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1, tick: 0.66 },
+      { dmgPerTick: 28, rate: 2.09, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1, tick: 0.58 },
+      { dmgPerTick: 34, rate: 1.92, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1, tick: 0.49 },
+      { dmgPerTick: 40, rate: 1.76, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1, tick: 0.40 },
     ],
   },
   ballast: {
@@ -3549,6 +3560,9 @@ export const BARBED_DURATION = 3
 // a planted cloud (run.blooms, see state.js) grows 0 -> maxR over dur × BLOOM_GROW_FRAC, then holds
 // maxR, ticking dot-flagged damage every BLOOM_TICK to enemies inside until t reaches dur.
 export const BLOOM_GROW_FRAC = 0.35
+// THE DEFAULT ONLY. A bloom may carry its own `tick` and the Silt Veil does, per level — see
+// WEAPONS.siltVeil.levels. Anything planted without one (Toxin Bloom, Foxfire, a sporeburst mini)
+// still rides this.
 export const BLOOM_TICK = 0.5
 // sporeburst (behavioral): a foe killed by a (non-mini) cloud's own tick emits a mini-cloud at
 // SPOREBURST_FRAC of the parent's maxR (same dur/dmgPerTick), flagged `_mini` so it never chains.
@@ -4660,18 +4674,20 @@ export const HP_SCALE_LATE_RATE = 0.005
 // middle of the curve as a mistake.
 // ⚠ BOOK 2 IS STILL MOSTLY ABSENT, AND THAT IS A BUG RATHER THAN A DECISION (found 2026-08-17 in
 // adversarial review of the murk-chapter change). `lateRateFor` falls back to HP_SCALE_LATE_RATE
-// for anything absent, so the six chapters below The Surf — including The Deep, the book's finale —
-// still run The Body's gentlest late curve. They keep the fallback deliberately: none of them is
-// reachable by a player yet (BOOKS.undertow.wipFrom), and re-difficultying six unshipped chapters
-// is a balance move that belongs with the release that reveals them. Book 2 wants its own ladder
-// here, one rung per chapter, written as each one ships.
+// for anything absent, so the chapters below the shipped ones — including The Deep, the book's
+// finale — still run The Body's gentlest late curve. They keep the fallback deliberately: none of
+// them is reachable by a player yet (BOOKS.undertow.wipFrom), and re-difficultying five unshipped
+// chapters is a balance move that belongs with the release that reveals them. Book 2 wants its own
+// ladder here, one rung per chapter, written as each one ships.
 //
 // balance_decision : The Surf takes the Pond's rung as Book 2's first 2026-08-18
-//  - only the chapter being REVEALED is filled in; the other six still fall back on purpose
+// balance_decision : The Shelf takes the Garden's rung as Book 2's second 2026-08-22
+//  - the book is offset one rung UP from Book 1 (surf = pond, not body); keep the offset when
+//    writing the next one, or The Reef inherits a curve gentler than the chapter above it
 export const CHAPTER_LATE_RATE = {
   body: 0.005, pond: 0.010, garden: 0.015, undergrowth: 0.020,
   city: 0.028, skies: 0.036, beyond: 0.0605,
-  surf: 0.010,
+  surf: 0.010, shelf: 0.015,
 }
 // Unknown/absent chapter (the Blank, a test run with no chapter) keeps the shipped curve.
 export const lateRateFor = (chapterId) => CHAPTER_LATE_RATE[chapterId] ?? HP_SCALE_LATE_RATE
@@ -5019,7 +5035,7 @@ export const COIN_CAP_PER_RUN = 999
 // chapter at a time. Every chapter at that index or later is hidden from players entirely and
 // reachable only behind meta.dev — see isWipChapter, playableChapterId and titleBookshelf below.
 // Omit the key for a fully-shipped book; `wipFrom: 0` is the old `wip: true`, the whole book gated.
-// Undertow sits at 1: The Surf is live, the six below it are not.
+// Undertow sits at 2: The Surf and The Shelf are live, the five below them are not.
 //
 // Revealing the next chapter is therefore BUMPING ONE NUMBER — and the suite's own denominator
 // (shippedChapterIds, test/sim-test.js) is derived from this, so the bump immediately demands that
@@ -5046,7 +5062,7 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'twilight', 'deep'], hidden: [], wipFrom: 1, startCoins: 100 },
+  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'twilight', 'deep'], hidden: [], wipFrom: 2, startCoins: 100 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -8264,9 +8280,9 @@ export const bookOf = (id) => Object.keys(BOOKS).find((b) => BOOKS[b].chapters.i
 // Is this chapter behind the WIP gate — i.e. does it still need meta.dev to be reachable?
 //
 // PER CHAPTER, not per book (see `wipFrom` on BOOKS). The position in its OWN book's ladder is
-// what decides, so a book may be half-shipped: Undertow's wipFrom is 1, which makes The Surf live
-// and everything below it gated. `?? Infinity` is what keeps a book with no `wipFrom` fully
-// shipped, and index 0 is what makes `wipFrom: 0` mean the whole book.
+// what decides, so a book may be half-shipped: Undertow's wipFrom is 2, which makes The Surf and
+// The Shelf live and everything below them gated. `?? Infinity` is what keeps a book with no
+// `wipFrom` fully shipped, and index 0 is what makes `wipFrom: 0` mean the whole book.
 //
 // A `hidden` chapter is NOT on the ladder, so indexOf returns -1 and it can never be wip by
 // position — The Blank is earned rather than unfinished, and the two must not be conflated (the
@@ -8288,6 +8304,20 @@ export const nextChapter = (id) => {
   const order = BOOKS[bookOf(id)]?.chapters ?? []
   const i = order.indexOf(id)
   return i < 0 ? null : (order[i + 1] ?? null)
+}
+
+// The player-facing chapter number — '2-2' for The Shelf: its book's place in BOOK_ORDER and its
+// own rung in that book's ladder, both 1-based. This is the owner's own notation ("2.2 is ready")
+// and the summary badge is the first surface it reaches.
+//   DERIVED, never written down. A literal '2-2' inside a copy string is this repo's largest defect
+// class exactly: reorder a ladder and the string keeps saying what used to be true, with nothing
+// thrown and no test red.
+//   null for an id no book carries on a LADDER — a `hidden` chapter has no rung to number, and The
+// Blank is announced by its own badge rather than this one.
+export const chapterNumber = (id) => {
+  const b = bookOf(id)
+  const i = BOOKS[b]?.chapters.indexOf(id) ?? -1
+  return i < 0 ? null : `${BOOK_ORDER.indexOf(b) + 1}-${i + 1}`
 }
 
 // Is this chapter the LAST rung of its book's ladder? The book-unlock gate tests this rather than
@@ -11356,6 +11386,10 @@ export const CHAPTER_ENDINGS = {
   // the bar is the chapter's own clock and the thing a beach kills you with, exactly as the pond
   // kills you by filtering you out however you actually died.
   surf:        { victory: 'You rode it out! 🎉',                    death: 'Dried out… ☀️' },
+  // Same idiom one rung down: the death line names the BAR, not the last hit. The Shelf's rail
+  // fills instead of draining (resource.invert), so what kills you is silt arriving rather than
+  // water running out — and 'silt' is a word the player has already read on two cards.
+  shelf:       { victory: 'You found clear water! 🎉',              death: 'Silted up… 🌫️' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',
@@ -11365,6 +11399,14 @@ export const CHAPTER_UNLOCK_LINES = {
   skies:       'The Skies — this time they\'re not hiding it',
   beyond:      'The Beyond — you were never the only anomaly',
 }
+// A chapter with no row above gets the PLAIN numbered badge instead (ui.js's renderSummary):
+// "New level unlocked: 2-2 Le Large". Owner, 2026-08-22, on the flavour line written for The
+// Shelf: "I don't like the phrase. Just display New level Unlocked : 2-2 le large."
+//   So the table is now OPTIONAL rather than a per-chapter obligation, and the fallback is the
+// default rather than a stopgap. Book 1's six rows stay: the watcher thread is that book's story
+// and it is shipped. Undertow has no such thread and takes the plain badge.
+//   Nothing enumerates this table to demand a row — run JJ.d asserts the FALLBACK resolves for
+// every shipped chapter instead, which is the thing a player actually sees now.
 
 // Book-unlock badge copy (v7.x), keyed by the book that just OPENED. Flat id -> string like
 // CHAPTER_UNLOCK_LINES above, and in a table for the same reason: run XX's config-table walk is

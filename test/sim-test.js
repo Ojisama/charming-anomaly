@@ -44,7 +44,7 @@ import {
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
   MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL, spendSecs,
-  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf,
+  BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
   CHAPTERS, CHAPTER_ORDER, nextChapter, CHAPTER_UNLOCK_DIFFICULTY, SUBMISSION_DURATION, SUBMISSION_STRIP_FLAGS,
@@ -52,7 +52,7 @@ import {
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, DASH_SPEED_MUL, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
-  MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC, SILT_VEIL_ARC, SHARD_RIFT_W, SHARD_RIFT_FUSE,
+  MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC, SILT_VEIL_ARC, BLOOM_TICK, SHARD_RIFT_W, SHARD_RIFT_FUSE,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
   STINGER_HIVE_EVERY,
   POUNCE_RANGE, POUNCE_AIM_T, POUNCE_AIM_TRACK_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_LAND_T,
@@ -201,9 +201,11 @@ function runSummary() {
 // line") does not help when the denominator is right but the SET it is drawn from has moved.
 //
 // PER CHAPTER, because the gate is (BOOKS[].wipFrom, config.js): Undertow ships one rung at a time,
-// so the denominator has to widen one rung at a time too. Today it is CHAPTER_ORDER + blank + surf.
-// Bumping wipFrom to 2 makes every sweep here start demanding The Shelf's French name, its endings,
-// its unlock line and an unshakeable tank — before that chapter reaches a player, not after.
+// so the denominator has to widen one rung at a time too. Today it is CHAPTER_ORDER + blank + surf
+// + shelf. Bumping wipFrom again makes every sweep here start demanding The Reef's French name, its
+// endings, its unlock line and an unshakeable tank — before that chapter reaches a player, not after.
+// The Shelf's bump to 2 is what that promise looks like when it is kept: it drew four reds, and the
+// endings pair and unlock line it demanded did not exist in any language.
 //
 // Deriving it from the shipped isWipChapter rather than re-reading wipFrom is deliberate: the two
 // would be one fact in two places, and the test copy is the one that would silently stop matching.
@@ -4587,12 +4589,13 @@ function runBooks() {
   for (const id of CHAPTER_ORDER) {
     assert.ok(!wip.includes(nextChapter(id)), `nextChapter('${id}') surfaced a WIP chapter — the unlock chain must never cross books`)
   }
-  // THE GATE IS PER CHAPTER, SO A BOOK MAY BE HALF-SHIPPED (BOOKS[].wipFrom). The Surf is live and
-  // The Shelf, one rung below it in the SAME book, is not — which the old book-wide boolean could
+  // THE GATE IS PER CHAPTER, SO A BOOK MAY BE HALF-SHIPPED (BOOKS[].wipFrom). The Shelf is live and
+  // The Reef, one rung below it in the SAME book, is not — which the old book-wide boolean could
   // not express at all. Asserting both sides of that boundary is the whole point of this pair: a
-  // regression to a book-level flag makes one of them fail whichever way it goes.
-  assert.strictEqual(isWipChapter('surf'), false, "isWipChapter('surf') === false — Undertow's opener ships")
-  assert.strictEqual(isWipChapter('shelf'), true, "isWipChapter('shelf') — the rung below The Surf is still gated")
+  // regression to a book-level flag makes one of them fail whichever way it goes. The pair walks
+  // down the ladder with every reveal; what is asserted is the BOUNDARY, never these two ids.
+  assert.strictEqual(isWipChapter('shelf'), false, "isWipChapter('shelf') === false — Undertow's second rung ships")
+  assert.strictEqual(isWipChapter('reef'), true, "isWipChapter('reef') — the rung below The Shelf is still gated")
   // isWipChapter is what main.js's onChapter bypasses the unlock check with, so a false positive
   // here would make a SHIPPED locked chapter selectable — the gate leaking in the other direction.
   assert.strictEqual(isWipChapter('pond'), false, "isWipChapter('pond') === false — a shipped chapter is never a WIP bypass")
@@ -4603,8 +4606,8 @@ function runBooks() {
 
   // (c) Gate OFF: a save pointing at a WIP chapter plays a SHIPPED one. resolveChapterId still
   // returns it verbatim — it is a real chapter and that helper is only a "does this exist" test.
-  const metaOff = { chapter: 'shelf', dev: false, chapters: {} }
-  assert.strictEqual(resolveChapterId('shelf'), 'shelf', 'resolveChapterId stays pure — it must NOT learn about the gate (see playableChapterId)')
+  const metaOff = { chapter: 'reef', dev: false, chapters: {} }
+  assert.strictEqual(resolveChapterId('reef'), 'reef', 'resolveChapterId stays pure — it must NOT learn about the gate (see playableChapterId)')
   assert.strictEqual(playableChapterId(metaOff), CHAPTER_ORDER[0], 'gate off: a WIP meta.chapter falls back to the first shipped chapter')
   assert.strictEqual(playableChapterId({ chapter: 'pond', dev: false }), 'pond', 'gate off: a shipped chapter is untouched')
   for (const junk of [undefined, null, {}, { chapter: 'nope' }]) {
@@ -4615,12 +4618,12 @@ function runBooks() {
   // This is the assertion that would have caught the silent downgrade an earlier draft of the plan
   // shipped: making resolveChapterId dev-aware looked right, but createRun re-resolves with no meta
   // to consult, so every gated run became a Body run credited to body's ledger — no throw, no
-  // warning. Note it must name 'shelf' EXPLICITLY: every existing test of this shape iterates
-  // CHAPTER_ORDER, which by design never contains it, so they would all still have passed.
-  const metaOn = { coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true, chapters: {} }
-  assert.strictEqual(playableChapterId(metaOn), 'shelf', 'gate on: the WIP chapter is what Play reads')
-  const wipRun = createRun(metaOn, { chapter: 'shelf', difficulty: 1 })
-  assert.strictEqual(wipRun.chapter, 'shelf', "createRun kept 'shelf' — if this reads 'body', the gate leaked into resolveChapterId and endRun would credit the wrong chapter")
+  // warning. Note it must name a gated id EXPLICITLY: every existing test of this shape iterates
+  // CHAPTER_ORDER, which by design never contains one, so they would all still have passed.
+  const metaOn = { coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'reef', dev: true, chapters: {} }
+  assert.strictEqual(playableChapterId(metaOn), 'reef', 'gate on: the WIP chapter is what Play reads')
+  const wipRun = createRun(metaOn, { chapter: 'reef', difficulty: 1 })
+  assert.strictEqual(wipRun.chapter, 'reef', "createRun kept 'reef' — if this reads 'body', the gate leaked into resolveChapterId and endRun would credit the wrong chapter")
   assert.strictEqual(wipRun.weapons.length > 0, true, 'the WIP run got a real starter weapon, so it is genuinely playable and not a husk')
 
   // (e) Gate ON: the carousel LISTS it and the selection guard ACCEPTS it. Without both, phase 2
@@ -4629,9 +4632,9 @@ function runBooks() {
   // Same three assertions the carousel had, against the bookcase that replaced it: what matters is
   // still which chapter ids a player can reach, not the shape they are drawn in.
   const shelved = (m) => titleBookshelf(m).flatMap((sh) => sh.volumes.map((v) => v.id))
-  assert.ok(shelved(listed).includes('shelf'), 'gate on: the bookcase must shelve the WIP chapter, or it cannot be selected')
+  assert.ok(shelved(listed).includes('reef'), 'gate on: the bookcase must shelve the WIP chapter, or it cannot be selected')
   listed.dev = false
-  assert.ok(!shelved(listed).includes('shelf'), 'gate off: the bookcase must NOT shelve the WIP chapter')
+  assert.ok(!shelved(listed).includes('reef'), 'gate off: the bookcase must NOT shelve the WIP chapter')
   // THE SHELF IS EVERY LIVE RUNG, AND A HALF-SHIPPED BOOK CONTRIBUTES ONLY ITS LIVE ONES. Derived
   // rather than written down, for the same reason shippedChapterIds is: this used to read
   // `CHAPTER_ORDER` and assert the shelf was exactly book 1, which is a sentence about the release
@@ -4639,8 +4642,8 @@ function runBooks() {
   // expectation on its own instead of drawing a red that means "the reveal worked".
   assert.deepStrictEqual(shelved(listed).filter((id) => id !== 'blank'), shippedChapterIds().filter((id) => id !== 'blank'),
     'gate off: the shelf is exactly the live rungs of every book (plus The Blank when earned)')
-  assert.ok(shelved(listed).includes('surf'),
-    'gate off: The Surf must be shelved — it is the rung this release reveals, and a player who cannot see it cannot play it')
+  assert.ok(shelved(listed).includes('shelf'),
+    'gate off: The Shelf must be shelved — it is the rung this release reveals, and a player who cannot see it cannot play it')
   // A Book with NO live rung must be ABSENT, not drawn as a sheeted étage: an étage announces that a
   // Book exists. Asserting only on chapter ids (above) cannot see this — the étage could be there
   // with every volume covered and every id still absent from the flat list. Undertow now earns one
@@ -4648,7 +4651,7 @@ function runBooks() {
   const liveBooks = Object.entries(BOOKS).filter(([, b]) => b.chapters.some((id) => !isWipChapter(id))).map(([k]) => k)
   assert.deepStrictEqual(titleBookshelf(listed).map((sh) => sh.book), liveBooks,
     'gate off: a Book with nothing live has no étage at all — a covered shelf still says a Book is there')
-  assert.ok(liveBooks.includes('undertow'), 'Undertow has a live rung now, so it must stand on the bookcase')
+  assert.ok(liveBooks.includes('undertow'), 'Undertow has live rungs now, so it must stand on the bookcase')
 
   // (e2) The bookcase model itself. Each of these guards a state that renders as a DIFFERENT object
   // on the shelf, and every one of them fails silently — a wrong `started` draws a dust sheet over a
@@ -4675,18 +4678,18 @@ function runBooks() {
   }
   // (f) chapterAvailable is the single permission the card, the Play button, the scroll-persist,
   // the brief and onChapter all read. Listing the chapter is NOT enough: the first cut of phase 1
-  // fixed only onChapter, and The Shelf duly appeared in the carousel as a locked "???" card with a
-  // dead Play button — listed and unreachable, the same dead end one step further along. Caught by
-  // a screenshot, not by a test, which is why it is asserted here now.
-  const shelfLocked = { dev: false, chapters: { shelf: { unlocked: false }, pond: { unlocked: true }, beyond: { unlocked: false } } }
-  assert.strictEqual(chapterAvailable(shelfLocked, 'shelf'), false, 'gate off: a WIP chapter is not available')
-  assert.strictEqual(chapterAvailable(shelfLocked, 'pond'), true, 'an unlocked shipped chapter is available, gate or no gate')
-  assert.strictEqual(chapterAvailable(shelfLocked, 'beyond'), false, 'a locked shipped chapter stays locked')
-  const shelfDev = { ...shelfLocked, dev: true }
-  assert.strictEqual(chapterAvailable(shelfDev, 'shelf'), true, 'gate on: the WIP chapter becomes available WITHOUT writing `unlocked` to the save')
-  assert.strictEqual(chapterAvailable(shelfDev, 'beyond'), false,
+  // fixed only onChapter, and the gated chapter duly appeared in the carousel as a locked "???" card
+  // with a dead Play button — listed and unreachable, the same dead end one step further along.
+  // Caught by a screenshot, not by a test, which is why it is asserted here now.
+  const wipLocked = { dev: false, chapters: { reef: { unlocked: false }, pond: { unlocked: true }, beyond: { unlocked: false } } }
+  assert.strictEqual(chapterAvailable(wipLocked, 'reef'), false, 'gate off: a WIP chapter is not available')
+  assert.strictEqual(chapterAvailable(wipLocked, 'pond'), true, 'an unlocked shipped chapter is available, gate or no gate')
+  assert.strictEqual(chapterAvailable(wipLocked, 'beyond'), false, 'a locked shipped chapter stays locked')
+  const wipDev = { ...wipLocked, dev: true }
+  assert.strictEqual(chapterAvailable(wipDev, 'reef'), true, 'gate on: the WIP chapter becomes available WITHOUT writing `unlocked` to the save')
+  assert.strictEqual(chapterAvailable(wipDev, 'beyond'), false,
     'gate on must NOT unlock a shipped chapter — the bypass is for chapters with no unlock path, not a cheat for the ones that have one')
-  assert.strictEqual(shelfDev.chapters.shelf.unlocked, false,
+  assert.strictEqual(wipDev.chapters.reef.unlocked, false,
     'chapterAvailable must stay a pure read — persisting the permission would outlive the gate and leave a WIP chapter unlocked after dev is turned off')
 
   // main.js and ui.js cannot be imported here (Pixi / import.meta.glob), so the WIRING is a source
@@ -4905,7 +4908,11 @@ function runBookProgression() {
   // dev flag at all gets the grant and the unlock the moment it loads. That is the path every real
   // player is on — without it a player who finished Book 1 months ago would open the game on ship
   // day and find nothing new, because endRun can only fire on a LIVE victory.
-  // The gate has not gone away, it has moved down a rung: The Shelf stays shut for the same save.
+  // The gate has moved down a rung again (wipFrom 2). The Shelf is LIVE now, so what keeps it shut
+  // for this save is no longer the gate at all — it is simply unearned: the veteran has never played
+  // The Surf, and the retroactive chain in loadMeta only opens a rung whose predecessor was BEATEN.
+  // Asserting it still reads false is therefore worth more than before, not less: it is now proving
+  // the ladder, where it used to prove the gate.
   const vetBlob = () => ({
     schema: 1, coins: 4200, shop: {}, choiceSlots: 4, runs: 137, chapter: 'beyond', lang: 'fr',
     best: { time: 300, kills: 4000 },
@@ -4919,8 +4926,41 @@ function runBookProgression() {
   assert.strictEqual(bookMeta(notDev, 'undertow').coins, 100, 'the veteran is paid the welcome purse exactly once')
   assert.strictEqual(notDev.chapters.surf?.unlocked, true, 'The Surf unlocks retroactively — a player who beat Book 1 must not open ship day to nothing')
   // …and the gate is still there, one rung lower. This is the half that keeps the release scoped.
-  assert.ok(!notDev.chapters.shelf?.unlocked, 'The Shelf must stay shut — revealing The Surf reveals exactly one chapter')
+  assert.ok(!notDev.chapters.shelf?.unlocked, 'The Shelf must stay shut — opening a Book opens its first rung, never its second')
   assert.strictEqual(chapterAvailable(notDev, 'shelf'), false, 'and it is not reachable by any route a non-dev save has')
+
+  // (o.1a2) THE SHELF'S OWN SHIP DAY, and the gate the owner named for it: "finishing 2.1 at
+  // difficulty 3". The Surf has been live for several releases, so a real save can already hold a
+  // qualifying win — and endRun could not have acted on it, because the chapter it unlocks did not
+  // exist when that run ended. The retroactive chain in loadMeta is the only thing that opens it,
+  // and it reads maxDifficulty (a d3 win raises it to 4) rather than `won`. Without this assertion
+  // the reveal passes every other check in this file and still greets its actual audience — the
+  // people who played 2.1 — with a locked volume they can only open by replaying a chapter they
+  // have already beaten.
+  const surfVet = loadMetaFrom({
+    ...vetBlob(),
+    chapters: {
+      beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 },
+      surf: { unlocked: true, maxDifficulty: 4, difficulty: 3, won: 3 },
+    },
+  })
+  assert.strictEqual(surfVet.chapters.shelf?.unlocked, true,
+    'a d3 Surf win already in the save must open The Shelf on load — endRun could not, the chapter did not exist yet')
+  assert.strictEqual(chapterAvailable(surfVet, 'shelf'), true, 'and it must be reachable, with no dev flag')
+  // The rung below it does NOT come along: one qualifying win opens exactly one chapter, and The
+  // Reef is still gated besides. Without this the assertion above would also pass if the chain
+  // simply unlocked the whole ladder.
+  assert.ok(!surfVet.chapters.reef?.unlocked, 'The Reef must not ride in on The Shelf\'s unlock')
+  // A d2 Surf win is NOT enough — this is the threshold itself, and it is the half that a chain
+  // unlocking on "has an entry" rather than on maxDifficulty would silently pass.
+  const surfShort = loadMetaFrom({
+    ...vetBlob(),
+    chapters: {
+      beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 },
+      surf: { unlocked: true, maxDifficulty: 3, difficulty: 2, won: 2 },
+    },
+  })
+  assert.ok(!surfShort.chapters.shelf?.unlocked, 'a d2 Surf win is below CHAPTER_UNLOCK_DIFFICULTY and must open nothing')
 
   // (o.1b) A save that never finished Book 1 gets nothing, gate or no gate — the unlock is EARNED,
   // and without this the assertion above would also pass if unlockBook simply granted unconditionally.
@@ -7072,6 +7112,85 @@ function runModBudget() {
       `a body BEHIND the cone must take nothing — it lost ${(hp0.back - back.hp).toFixed(0)} hp, so the wedge is not gating damage`)
     assert.strictEqual(back.stunT || 0, 0,
       `a body BEHIND the cone must not be dazed either — the daze rides the same tick loop as the damage`)
+
+    // (c2) THE CLOUD'S TICK IS PER LEVEL, AND IT IS MEASURED, NOT READ OFF THE FIELD. Owner,
+    // 2026-08-22: "It should tick like [...] every 1s at Lv1 and every 0.4 at level 5." A bloom
+    // carrying a `tick` field stepBlooms never reads is the exact inert-card shape MB.a exists for
+    // — the ladder would look right in config.js and the cloud would still bite every 0.5s — so the
+    // subject here is the OBSERVED gap between bites, taken from the victim's hp.
+    //
+    // Damage is player-scaled and dmgPerTick differs per level, so neither the hp lost nor the tick
+    // COUNT is a stable number to assert. The GAP between successive drops is, and it is exactly
+    // the quantity the owner named.
+    const biteGaps = (level) => {
+      const r = boot('shelf', 'siltVeil', level, null)
+      const foe = makeStatusEnemy(r, { x: r.player.x + 60, y: r.player.y, hp: 1e9, speed: 0 })
+      r.enemies.push(foe)
+      assert(castUntil(r, (x) => x.blooms.some((b) => b.look === 'silt')), `precondition: the veil must cast at Lv${level}`)
+      // WATCH ONE CLOUD'S LIFE ONLY, and disarm the weapon to get it. `rate` is 2.41s at Lv1
+      // against a 3.4s cloud, so the veil casts again mid-measurement and the second cone bites the
+      // same body: the gaps came out 1.000, 1.417 instead of an even interval. That is an artefact
+      // of the fixture and it reads exactly like a tick that does not hold its interval.
+      //   Emptying run.weapons is safe here because stepBlooms reads only the bloom entry — the
+      // cloud already exists and lives out its own dur with no weapon behind it.
+      const cloud = r.blooms.find((b) => b.look === 'silt')
+      r.weapons.length = 0
+      // RE-PIN THE VICTIM EVERY FRAME. The Shelf's signature drifts everything at driftAmp 60,
+      // and a body starting 60px from the apex reaches 125px by the cloud's end — outside a 116px
+      // reach. The third tick then fires into empty water and the gap list comes back one short,
+      // which reads exactly like a tick that stopped. This is the same class of fixture drift the
+      // `onStep` re-pin above exists for (run.charge, run.shafts).
+      const px = foe.x, py = foe.y
+      const hits = []
+      let hp = foe.hp, t = 0
+      while (r.blooms.includes(cloud)) {
+        foe.x = px; foe.y = py
+        stepSim(r, { x: 0, y: 0 }, dt)
+        t += dt
+        if (foe.hp < hp) { hits.push(t); hp = foe.hp }
+      }
+      return hits.slice(1).map((h, i) => h - hits[i])
+    }
+    for (const [level, want] of [[1, 0.75], [5, 0.40]]) {
+      const gaps = biteGaps(level)
+      assert(gaps.length >= 2, `Lv${level}: expected at least 3 bites in one cloud's life, got ${gaps.length + 1}`)
+      // One frame of tolerance: _tickAcc is advanced in dt steps, so a bite lands on the first
+      // frame at or after the interval and never exactly on it.
+      const worst = Math.max(...gaps.map((g) => Math.abs(g - want)))
+      assert(worst <= dt + 1e-9,
+        `Lv${level}: the silt cloud must bite every ${want}s, measured ${gaps.map((g) => g.toFixed(3)).join(', ')}`)
+    }
+    // ...AND THE TWO LEVELS MUST DIFFER. Both assertions above pass a build where every level got
+    // the same tick if that tick happened to satisfy neither -- this is what makes the LADDER the
+    // subject rather than two independent numbers.
+    assert(WEAPONS.siltVeil.levels.every((l, i, a) => i === 0 || l.tick < a[i - 1].tick),
+      'the silt tick must fall monotonically up the ladder — a flat or rising rung makes levelling the weapon slow its cloud down')
+
+    // THE SHARED DEFAULT IS UNTOUCHED. Silt Veil got its own cadence by overriding BLOOM_TICK, and
+    // the failure mode of doing that badly is moving the constant itself — which silently retunes
+    // the pond's Toxin Bloom and The Twilight's Foxfire, two chapters away, with nothing red.
+    assert.strictEqual(BLOOM_TICK, 0.5, 'BLOOM_TICK moved — Toxin Bloom and Foxfire ride it and neither was meant to change')
+    {
+      const r = boot('pond', 'bloom', 5, null)
+      const foe = makeStatusEnemy(r, { x: r.player.x + 30, y: r.player.y, hp: 1e9, speed: 0 })
+      r.enemies.push(foe)
+      assert(castUntil(r, (x) => x.blooms.length > 0), 'precondition: Toxin Bloom must cast within 12s')
+      const cloud = r.blooms[0]
+      r.weapons.length = 0   // same reason as the veil above: one cloud, no second cast over it
+      assert.strictEqual(cloud.tick, undefined, 'a Toxin Bloom cloud must carry NO tick of its own, or it has stopped riding the shared default')
+      const px = foe.x, py = foe.y   // re-pinned for the same reason as the veil's loop above
+      const hits = []
+      let hp = foe.hp, t = 0
+      while (r.blooms.includes(cloud)) {
+        foe.x = px; foe.y = py
+        stepSim(r, { x: 0, y: 0 }, dt)
+        t += dt
+        if (foe.hp < hp) { hits.push(t); hp = foe.hp }
+      }
+      const gaps = hits.slice(1).map((h, i) => h - hits[i])
+      assert(gaps.length >= 1 && gaps.every((g) => Math.abs(g - BLOOM_TICK) <= dt + 1e-9),
+        `Toxin Bloom must still bite every ${BLOOM_TICK}s, measured ${gaps.map((g) => g.toFixed(3)).join(', ')}`)
+    }
 
     // Ballast: weights spread around the aim point. It needs something to aim at, or every drop
     // lands on the same blind-throw point by design and the spread is untestable.
@@ -13418,17 +13537,40 @@ function testRemaster() {
       assert(CHAPTER_ENDINGS[id]?.victory && CHAPTER_ENDINGS[id]?.death,
         `CHAPTER_ENDINGS missing ${id} — a player who wins or dies there gets the generic 'You escaped! 🎉' fallback`)
     }
-    // Unlock lines belong to every chapter you ARRIVE at, i.e. every shipped one that is not the
-    // first of its own book. The Blank is unlocked by winning rather than by the ladder, so it is
-    // exempt — as is each book's opener, which nothing unlocks.
+    // THE FLAVOUR LINE IS OPTIONAL NOW; THE BADGE IS NOT. Owner, 2026-08-22: "I don't like the
+    // phrase. Just display New level Unlocked : 2-2 le large." So a chapter with no
+    // CHAPTER_UNLOCK_LINES row falls back to the plain numbered badge, and what has to hold for
+    // every arrival-chapter is that the FALLBACK resolves — a null number renders the literal
+    // word "null" onto the summary screen, which throws nothing and reads as a bug to a player.
+    //
+    // Asserting the fallback rather than the table is the whole point of the change: the old
+    // assertion demanded a row per chapter, so it could only ever have gone red for The Shelf
+    // — the chapter whose row the owner then asked to delete.
+    //
     // Every book's first rung, with no wip filter of its own: `shipped` has already dropped any
     // book whose opener is still gated, so filtering here too would only be a second chance to
-    // disagree with it. The Surf is Undertow's opener, so nothing unlocks it and it owes no line.
+    // disagree with it. The Surf is Undertow's opener, so nothing unlocks it and it owes no badge.
     const openers = new Set(Object.values(BOOKS).map((b) => b.chapters[0]))
-    for (const id of shipped.filter((i) => i !== 'blank' && !openers.has(i))) {
-      assert(CHAPTER_UNLOCK_LINES[id], `CHAPTER_UNLOCK_LINES missing ${id}`)
+    const arrivals = shipped.filter((i) => i !== 'blank' && !openers.has(i))
+    for (const id of arrivals) {
+      const n = chapterNumber(id)
+      assert(n && /^\d+-\d+$/.test(n), `chapterNumber('${id}') is ${JSON.stringify(n)} — the unlock badge would print it verbatim`)
     }
-    console.log(`PASS run JJ.d (reword tables): endings + unlock lines complete across ${shipped.length} shipped chapters [${shipped.join(' ')}]`)
+    // The number is DERIVED, so prove it tracks the ladder rather than agreeing with it by luck:
+    // The Shelf is Undertow's second rung and Undertow is the second book, which is the owner's
+    // own '2-2'. A hardcoded string passes the shape check above and fails this one.
+    assert.strictEqual(chapterNumber('shelf'), '2-2', "The Shelf is book 2's second rung — the badge must say 2-2")
+    assert.strictEqual(chapterNumber('body'), '1-1', 'The Body is book 1 rung 1')
+    assert.strictEqual(chapterNumber('blank'), null, 'a hidden chapter has no rung to number, and gets its own badge')
+    assert.strictEqual(chapterNumber('nope'), null, 'an id no book claims must not resolve to a number')
+    // The badge's own template, which lives as a tt() literal in ui.js and is therefore INVISIBLE
+    // to run XX's config-table walk by construction — the exemption CLAUDE.md says has shipped
+    // untranslated copy four times. Asserted here by hand because nothing else can see it.
+    assert(FR['New level unlocked: {n} {name}'], 'the plain unlock badge has no French — every non-Book-1 chapter would announce itself in English')
+    for (const key of Object.keys(CHAPTER_UNLOCK_LINES)) {
+      assert(Object.hasOwn(CHAPTERS, key), `CHAPTER_UNLOCK_LINES has a row for '${key}', which is not a chapter — dead copy run XX will still demand French for`)
+    }
+    console.log(`PASS run JJ.d (reword tables): endings complete across ${shipped.length} shipped chapters [${shipped.join(' ')}], ${arrivals.length} arrival chapters all number for the badge, ${Object.keys(CHAPTER_UNLOCK_LINES).length} optional flavour lines all name a real chapter`)
   }
   console.log('PASS run JJ (Remaster): melee parity, toxic shock, new events, reword tables')
 }

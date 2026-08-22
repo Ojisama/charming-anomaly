@@ -592,11 +592,14 @@ function endRun(victory) {
   if (victory && (run.difficulty ?? 1) >= CHAPTER_UNLOCK_DIFFICULTY) {
     const next = nextChapter(run.chapter)
     // `!isWipChapter(next)`: the ladder must never hand out a chapter that is not written yet.
-    // Undertow ships one chapter at a time (BOOKS[].wipFrom), so a d3 Surf win reaches for The
-    // Shelf and must come back with nothing — the badge stays silent and the save stays clean,
-    // rather than writing an `unlocked` flag to disk that outlives the gate.
+    // Undertow ships one chapter at a time (BOOKS[].wipFrom), so the win on its LAST live rung
+    // reaches for the first gated one and must come back with nothing — the badge stays silent and
+    // the save stays clean, rather than writing an `unlocked` flag to disk that outlives the gate.
+    // Today that is a d3 Shelf win reaching for The Reef; a d3 Surf win now genuinely opens The
+    // Shelf, which is the whole of that chapter's release.
     // NOT folded into nextChapter itself: isBookFinale below reads the ladder's true shape, and a
-    // wip-aware nextChapter would make The Surf look like Undertow's last rung and open Book 3.
+    // wip-aware nextChapter would make the last live rung look like Undertow's finale and open
+    // Book 3.
     if (next && !isWipChapter(next)) {
       const nextMeta = ensureChapterMeta(meta, next)
       if (!nextMeta.unlocked) {

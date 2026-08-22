@@ -235,7 +235,9 @@ const UI = {
   // as "Key to retry", and toucher is not the verb French UI uses for a tap.
   'Could not reach the podium. Tap to try again.': 'Podium injoignable. Appuie pour réessayer.',
   'Difficulty {d} unlocked!': 'Difficulté {d} débloquée !',
-  'Chapter unlocked: {name}!': 'Chapitre débloqué : {name} !',
+  // The default unlock badge: no flavour, just the rung and its name (owner, 2026-08-22).
+  // {n} is chapterNumber(), so the number is never baked into the key.
+  'New level unlocked: {n} {name}': 'Nouveau niveau débloqué : {n} {name}',
   // v6.7 carousel counter. Stands alone in front of a numeral ("Chapitre 3"), so it takes no
   // article and no agreement — the single word is the whole string on purpose.
   'THE BLANK — the antibody that let you go wants you back': 'LE BLANC — l\'anticorps qui t\'a laissé filer veut que tu reviennes',
@@ -537,6 +539,10 @@ const CONFIG = {
   // Humidity reaching zero rather than whatever landed the last hit — same as 'Filtré·e' for the pond.
   'You rode it out! 🎉': 'Tu as laissé passer la marée ! 🎉',
   'Dried out… ☀️': 'Desséché·e… ☀️',
+  // Le Large. 'Envasé·e' keeps the participle, and it is the Pollution rail filling up rather than
+  // whatever landed the last hit — the rail is inverted here, so the death is silt ARRIVING.
+  'You found clear water! 🎉': 'Tu as trouvé de l\'eau claire ! 🎉',
+  'Silted up… 🌫️': 'Envasé·e… 🌫️',
   // v6.2 Remaster — watcher unlock lines
   'The Pond — word of you travels downstream': 'La Mare — la rumeur descend le courant',
   'The Garden — something marked your trail': 'Le Jardin — quelque chose a marqué ta piste',
