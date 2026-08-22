@@ -5996,10 +5996,12 @@ CHAPTERS.shelf = {
   // chaser). Realism that reaches the name and not the movement is worse than none.
   //
   // This chapter's antagonist is NOT BEING ABLE TO SEE, and these two use that from opposite sides:
-  //   FLOUNDER  you cannot see IT. It lies on the bottom and closes the last stretch in one burst,
-  //             and in murk the wind-up is not on screen long enough to read. `dashBurst` was
-  //             already running in this chapter (it was the Sea Roach's) — it moves down to `normal`
-  //             rather than being spent a second time on `fast`.
+  //   FLOUNDER  you cannot see IT — and that is the murk's job, not a machine's. It carried
+  //             `dashBurst` until 2026-08-22 (owner from play: "flatfishes should walk normally");
+  //             in water this thick the wind-up was never on screen long enough to read, so a lunge
+  //             out of a body you could not see was indistinguishable from a teleport — the exact
+  //             complaint that took dashBurst off the undergrowth's rat in v6.6.28. It is the plain
+  //             chaser now, and the chapter has no burst at all.
   //   CATFISH   it cannot see YOU either, so it tastes its way along your wake — `pastSeek`. Keep
   //             moving and it arrives where you no longer are; stand still and it closes. That is
   //             the one creature here whose pressure is aimed squarely at the chapter's own loop,
@@ -6013,15 +6015,15 @@ CHAPTERS.shelf = {
   // one book, in the adjacent slot and the same archetype, is convergence rather than design.
   //
   // ⚠ NUMBERS HERE ARE THE STAND-INS' OWN, CARRIED OVER VERBATIM AND NOT YET TUNED (owner: balance
-  // is settled by playtest, not by probe). The one thing that is NOT neutral is the flag move: the
-  // `normal` slot did not burst before and now does, so the chapter's commonest creature is more
-  // dangerous than the Sand Hopper was. That is the thing to feel for on the first play.
+  // is settled by playtest, not by probe).
   //
   // Also note `unshakeable` is UNSHAKEABLE_CC_MUL 0.5, so Clear's headline verb ("everything it
   // reaches is stunned") lands at HALF duration on the jelly — revisit its flags when Clear ships
   // or the button under-delivers on first contact.
   roster: [
-    { id: 'flounder', archetype: 'normal', name: 'Flounder',   hpMul: 0.9,   speedMul: 1,   flags: ['dashBurst'] },
+    // balance_decision : the flounder walks, no burst at all 2026-08-22
+    //  - `flags: []` and NOT a missing key: spawnEnemy spreads `roster.flags` unguarded.
+    { id: 'flounder', archetype: 'normal', name: 'Flounder',   hpMul: 0.9,   speedMul: 1,   flags: [] },
     // trailLag 4 = 4 x BLANK_TRAIL_DT = 1.4s behind you, against the Probe's 1 (0.35s). The Probe
     // SHADOWS; this one is meant to be shakeable by turning, so it needs the longer memory. The
     // buffer holds BLANK_TRAIL_MAX 26 samples (~9s), so there is a lot of room above this if play

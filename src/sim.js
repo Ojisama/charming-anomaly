@@ -2066,7 +2066,8 @@ function stepEnemyMovement(run, dt) {
       // A COMMITTED DASH IS CANCELLED HERE, NOT PAUSED, and that distinction is the whole bug this
       // branch used to have. Suppressing the movement is not enough: stepDashBurst simply stops
       // being CALLED while the stun holds, so _dashPhase stays 'dash' and _dashT freezes wherever
-      // it was. Measured on The Shelf's flounder against a Silt Veil daze -- 1.4s stunned with
+      // it was. Measured against a Silt Veil daze on The Shelf's flounder, back when it carried
+      // dashBurst (it walks as of 2026-08-22, so re-measure on any other carrier) -- 1.4s stunned with
       // dashT pinned at 0.350, then the body resumed the FULL 0.35s lunge at 299px/s on the heading
       // it had locked before the daze, closing 280px. The daze delayed the hit and never denied it,
       // which is the owner's report from play (2026-08-22): "the stilt cloud doesn't stun dashers

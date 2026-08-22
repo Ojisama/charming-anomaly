@@ -23769,7 +23769,7 @@ function testUndertowLadder() {
 
 // ---- run US.l: The Shelf's own two natives -----------------------------------------------------
 // The chapter stopped borrowing The Surf's Sand Hopper and Sea Roach and grew a Flounder (`normal`,
-// dashBurst) and a Sea Catfish (`fast`, pastSeek). Everything asserted here fails SILENTLY, and two
+// no flags) and a Sea Catfish (`fast`, pastSeek). Everything asserted here fails SILENTLY, and two
 // of the three were live defects rather than hypotheticals:
 //
 //  (a) run.trail was sampled INSIDE stepBossScript, which returns early for every unscripted
@@ -23793,7 +23793,11 @@ function testShelfNatives() {
     const ids = CHAPTERS.shelf.roster.map((r) => r.id)
     assert.deepStrictEqual(ids, ['flounder', 'catfish', 'jelly'], `shelf roster is ${ids.join(',')}`)
     const byId = Object.fromEntries(CHAPTERS.shelf.roster.map((r) => [r.id, r]))
-    assert(byId.flounder.flags.includes('dashBurst'), 'the flounder is the chapter burst striker')
+    // The flounder WALKS (owner from play, 2026-08-22) — it carried dashBurst until then and a
+    // lunge out of a body the murk hides read as a teleport. Asserted as the whole array, not as
+    // !includes('dashBurst'): the decision is "no behaviour machine at all", so any flag added here
+    // is the thing to stop and think about, and an empty literal says that in one line.
+    assert.deepStrictEqual(byId.flounder.flags, [], 'the flounder walks — no behaviour machine')
     assert(byId.catfish.flags.includes('pastSeek'), 'the catfish hunts the wake')
     assert(byId.catfish.trailLag > BLANK_PASTSEEK_LAG,
       `the catfish must trail FURTHER back than The Blank's shadow probe (${byId.catfish.trailLag} vs ${BLANK_PASTSEEK_LAG})`)
@@ -23875,7 +23879,7 @@ function testShelfNatives() {
     `(b) a stationary player must be caught even at lag 8: ${stillGap.toFixed(0)}px standing vs ${farGap.toFixed(0)}px running`)
 
   console.log(`PASS run US.l (shelf natives): the trail fills in an unscripted chapter (pastSeek was inert there), ` +
-    `the flounder bursts and the catfish trails at lag ${CHAPTERS.shelf.roster[1].trailLag} vs the probe's ${BLANK_PASTSEEK_LAG}, ` +
+    `the flounder walks and the catfish trails at lag ${CHAPTERS.shelf.roster[1].trailLag} vs the probe's ${BLANK_PASTSEEK_LAG}, ` +
     `running leaves it ${farGap.toFixed(0)}px back against ${nearGap.toFixed(0)}px at the probe's lag, ` +
     `standing still closes it to ${stillGap.toFixed(0)}px, and the Surf keeps both loans`)
 }
