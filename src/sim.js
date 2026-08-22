@@ -5977,10 +5977,12 @@ const WEAPON_STAT_MODS = {
   breaker:       { swell: ['dmg', 'pct'], longshore: ['radius', 'pct'], broadCrest: ['arc', 'pct'] },
   // The Shelf's starter. `flare` folds onto `arc` exactly as broadCrest does, which also means the
   // pause build sheet reports the WIDENED cone rather than the base one.
-  // `longPuff` folds onto `r`; `scour` and `backblow` are read at the cast site (one scales damage
-  // by the pollution bar, the other spawns a second nova) and `quickBreak`/`quickWinch` are rate
-  // mods in WEAPON_RATE_MODS, since folding one into an interval would SLOW the weapon.
-  bubblePuff:    { froth: ['dmg', 'pct'], flare: ['arc', 'pct'], longPuff: ['r', 'pct'] },
+  // NOTHING FOLDS ONTO `r` HERE, deliberately -- reach is level-only on this weapon (see the fence
+  // over WEAPON_MODS.bubblePuff, and run LL.a2). `scour` and `backblow` are read at the cast site
+  // (one scales damage by the pollution bar, the other spawns a second nova) and
+  // `quickBreak`/`quickWinch` are rate mods in WEAPON_RATE_MODS, since folding one into an interval
+  // would SLOW the weapon.
+  bubblePuff:    { froth: ['dmg', 'pct'], flare: ['arc', 'pct'] },
   skippingShell: { skimmer: ['dmg', 'pct'], flatStone: ['skips', 'flat'], wideSplash: ['r', 'pct'], sidearm: ['speed', 'pct'] },
   barnacles:     { grinder: ['dmg', 'pct'], encrust: ['crustDur', 'pct'], spawnfall: ['count', 'flat'], seedbed: ['jumps', 'flat'], broadcast: ['castRange', 'pct'] },
   // The Shelf's other two. Both count mods fold as 'flat' onto a real `count` key in levels[], so

@@ -19879,9 +19879,9 @@ function testLeLargeWeapons() {
   const only = (run, e) => { run.enemies = run.enemies.filter((x) => x.id === e.id) }
 
   // (a) BUBBLE PUFF CUTS, AND DOES NOT SHOVE. It shoved until 2026-08-19, and the shove is what made
-  // STANDING PERFECTLY STILL the best way to play the chapter: with Flare x5 and Long Puff x5 the
-  // ring held a bubble the crowd never crossed, and a motionless player won 29% of runs against a
-  // walking one's 0% (mortal, 300s, 7 seeds). The owner deleted the stat rather than tune it.
+  // STANDING PERFECTLY STILL the best way to play the chapter: with Flare x5 and the since-deleted
+  // Long Puff x5 the ring held a bubble the crowd never crossed, and a motionless player won 29% of
+  // runs against a walking one's 0% (mortal, 300s, 7 seeds). The owner deleted the stat rather than tune it.
   // BOTH HALVES ARE ASSERTED, because each fails on its own: a weapon that stopped damaging is a
   // dead card, and a knockback re-added to its ladder is the cheese back with nothing thrown.
   // DISTANCE, not e.kb: knockback is written to a field and integrated later, so reading the field
@@ -19904,6 +19904,36 @@ function testLeLargeWeapons() {
     assert.ok(d1 < d0 + 5,
       `Bubble Puff MOVED a motionless body ${d0.toFixed(0)}px -> ${d1.toFixed(0)}px — it has a shove again, ` +
       'and the shove is what made standing still the best way to play The Shelf')
+  }
+
+  // (a2) AND ITS REACH IS LEVEL-ONLY. Long Puff (`r`, +25% a pick) was deleted 2026-08-22 -- owner:
+  // "the only way the increase range should be via leveling up the weapon, and the design of the
+  // weapon is supposed to be close-ish range". Every mod stacked absurdly, read against the nova's
+  // own `maxR`: that is (g)'s precedent and it is here for the same reason -- a body test is
+  // unprovable once Flare has widened the cone enough to admit everything, so the SPAWNED NUMBER is
+  // the only honest subject for reach. Walking WEAPON_MODS rather than naming mods means a
+  // re-registered radius card is caught whatever it ends up called.
+  {
+    Math.random = mulberry32(80183)
+    const run = largeRun('bubblePuff', 5)
+    const lvl = WEAPONS.bubblePuff.levels[4]
+    // 40 is absurd on purpose, as in (g): no ladder rolls it, and the point is that nothing can.
+    run.weaponMods.bubblePuff = Object.fromEntries(Object.keys(WEAPON_MODS.bubblePuff).map((m) => [m, 40]))
+    const p = run.player
+    const body = makeStatusEnemy(run, { x: p.x + 60, y: p.y, hp: 1e6, speed: 0 })
+    run.enemies.push(body)
+    let nova
+    for (let i = 0; i < Math.round((lvl.rate + 0.2) * 60) && !nova; i++) {
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      only(run, body)
+      body.x = p.x + 60; body.y = p.y; body.kb.x = body.kb.y = 0
+      if (run.novas.length > 0) nova = run.novas[0]
+    }
+    assert.ok(nova, 'the puff never cast a nova with every mod stacked')
+    assert.strictEqual(nova.maxR, lvl.r,
+      `every Bubble Puff mod stacked put the cone at maxR=${nova.maxR} against the ladder's ${lvl.r} -- ` +
+      'something sells reach again, and reach on this weapon is bought by levelling it and nothing else')
   }
 
   // (b) SILT VEIL DAZES AND POISONS. Both halves. The daze is published into e.stunT, a contract
@@ -20189,7 +20219,7 @@ function testLeLargeWeapons() {
       'the bubble cone has no drawer of its own, so a 90 degree puff renders as nothing at all')
   }
 
-  console.log('PASS run LL (Le Large natives): Bubble Puff shoves and damages, Silt Veil fears AND poisons what stands in it, Ballast lands and leaves a stain, the puff is a 90 degree cone that Flare widens and the cap hands back as a ring, and every sector nova names its drawer')
+  console.log('PASS run LL (Le Large natives): Bubble Puff cuts without shoving and its reach is level-only, Silt Veil dazes AND poisons what stands in it, Ballast lands and leaves a stain, the puff is a 90 degree cone that Flare widens up to a capped wedge and never a ring, and every sector nova names its drawer')
 }
 
 function twilightRun(weaponId, level = 1) {

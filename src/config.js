@@ -2077,12 +2077,15 @@ export const WEAPONS = {
     //              competing with the level-up for the same number.
     //   r          the cone's outer radius. Short on purpose: this is the card that says "you are a
     //              small fish", and its answer to a crowd is to out-cut it, not to out-reach it.
+    //              ⚠ IT GROWS HERE AND NOWHERE ELSE, the mirror of `arc` above. Long Puff, the
+    //              radius mod, was deleted 2026-08-22 (owner: "the only way the increase range
+    //              should be via leveling up the weapon") — do not re-add one.
     // NO `knockback`, AND ITS ABSENCE IS THE DESIGN (owner, 2026-08-19: "let's remove the knockback
     // entirely on bubble puff"). It shoved until then, and the shove was what made STANDING STILL
-    // the best way to play the chapter: with Flare x5 and Long Puff x5 the ring held a 408px bubble
-    // nothing crossed, and a motionless player beat a walking one by 43s and won 29% of runs against
-    // a walker's 0% (mortal, 300s, 7 seeds). Deleting it takes that to 0%. The weapon is now a fast
-    // short cone that CUTS — every other card on it (Froth, Flare, Long Puff, Scour, Backblow) still
+    // the best way to play the chapter: with Flare x5 and the since-deleted Long Puff x5 the ring
+    // held a 408px bubble nothing crossed, and a motionless player beat a walking one by 43s and won
+    // 29% of runs against a walker's 0% (mortal, 300s, 7 seeds). Deleting it takes that to 0%. The weapon is now a fast
+    // short cone that CUTS — every other card on it (Froth, Flare, Scour, Backblow) still
     // buys exactly what it says, and none of them ever sold the shove.
     // It aims through aimAngle — nearest body first, facing only as the fallback. A cone that
     // pointed where you MOVE would point at empty water, because a survivors player kites away
@@ -3068,27 +3071,27 @@ export const WEAPON_MODS = {
     quickBreak: { name: 'Quick Break', desc: 'wave rate',          icon: '⏩', base: 0.25, kind: 'pct' },
   },
   // The Shelf's starter. WIDTH IS THE POINT OF THIS SET: the weapon gives up the full circle it
-  // used to have and Flare is how a player buys it back, so the two cards below are the whole
-  // reason the cone is 90 degrees rather than 360. Flare compounds and stepBubblePuffWeapon caps
-  // the result at a full turn, so a build that stacks it does end up back at a ring — deliberately,
-  // as the top of that ladder rather than as a separate card.
+  // used to have and Flare is how a player buys it back, so Flare alone is the whole reason the
+  // cone is 90 degrees rather than 360. It compounds and stepBubblePuffWeapon caps the result at a
+  // full turn, so a build that stacks it does end up back at a ring — deliberately, as the top of
+  // that ladder rather than as a separate card.
   //
-  // ⚠ THIS WEAPON MAY NOT SELL CADENCE OR SHOVE, and that is a measurement rather than a taste.
-  // It no longer HAS a shove (see the ladder in WEAPONS.bubblePuff), so a knockback mod would be
-  // re-introducing the stat the owner deleted; and cadence stays out because the same set of mods
+  // ⚠ THIS WEAPON MAY NOT SELL REACH, CADENCE OR SHOVE. Reach is the newest of the three: Long
+  // Puff (`r`, +25%) was deleted 2026-08-22 — owner, "the only way the increase range should be via
+  // leveling up the weapon, and the design of the weapon is supposed to be close-ish range". So
+  // `r` grows on the ladder in WEAPONS.bubblePuff and nowhere else, the mirror of the split Flare
+  // already owns on `arc`. It no longer HAS a shove either (same ladder), so a knockback mod would
+  // be re-introducing a stat the owner deleted; and cadence stays out because the same set of mods
   // that made standing still optimal is still on the card. That earlier fence was written against
   // the CC_DR_FLOOR block's per-body model -- a floored shove moves a body kb x ccResist x
   // CC_DR_FLOOR / KB_DECAY_RATE px, and the lock holds once the cast interval drops under the time
   // that body needs to walk it back -- and the model was RIGHT about one body and blind to the
   // crowd: it waived `r` and `arc` as safe, and those two together are what the report was about.
-  // balance_decision : the puff sells radius and damage, never rate or shove 2026-08-19
-  //  - `r` and `arc` are only cheap now because the shove is gone. Measured (mortal, 300s, 7 seeds,
-  //    The Shelf): Flare x5 alone and Long Puff x5 alone each leave WALKING ahead of standing still;
-  //    together, with a shove, standing still won 29% of runs and walking won 0%.
+  // balance_decision : the puff sells width and damage, nothing else 2026-08-22
+  //  - run LL.a2 asserts no mod may grow `r` -- do not register one.
   bubblePuff: {
     froth:      { name: 'Froth',       desc: 'puff damage',        icon: '💥', base: 0.30, kind: 'pct' },
     flare:      { name: 'Flare',       desc: 'puff width',         icon: '🪭', base: 0.30, kind: 'pct' },
-    longPuff:   { name: 'Long Puff',   desc: 'puff radius',        icon: '📏', base: 0.25, kind: 'pct' },
     // The chapter's bar, sold as a card. Read at the cast site off pollutionFrac, so it is worth
     // everything in clean water and nothing in the filth. No knockback and no cadence, so it is
     // outside the fence above.

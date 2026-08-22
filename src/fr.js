@@ -1271,8 +1271,6 @@ const CONFIG = {
   // and one card carrying a 'de' the others do not would read as a typo. 'ta Pollution' rather than
   // 'la': the bar is 'Pollution' in both languages and every card that reads a bar names it
   // possessively, which is the rule the owner set himself after the v7.163 card failed to.
-  'Long Puff': 'Jet Long',
-  'puff radius': 'rayon du jet',
   'Scour': 'Décapage',
   'puff damage, falling with your Pollution': 'dégâts du jet, diminue avec ta Pollution',
   'Backblow': 'Contre-Souffle',
