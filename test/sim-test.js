@@ -7417,7 +7417,65 @@ function runModBudget() {
     // lands at the end of a full-length pour.
     assert(plunged.lastDelay > noMod.dur * 0.9,
       `Plunge shortened the pour: last burst at ${plunged.lastDelay.toFixed(2)}s of a ${noMod.dur}s pour`)
-    console.log(`PASS run MB.i (Downwash): lands in the knot of 5 not on the straggler, burst ${burstDmg.toFixed(0)} out-damages the whole pour ${pourDmg.toFixed(0)} (no core crush), Big Crunch + Hungry Hole leak nothing (${withoutHoleMods.toFixed(1)} both ways), Plunge fires at ${plunged.delay.toFixed(2)}s and again at ${plunged.lastDelay.toFixed(2)}s of a ${noMod.dur}s pour (2 bursts against the control's ${noMod.bursts}), and ${DOWNWASH_PLUNGE_N - 1} bodies do not trip it`)
+    // IT CANNOT SCRAPE THE PLAYER IT GATHERS FOR. Owner from play, 2026-08-22: "enemies ragdolled
+    // by the water column should not damage you". The column lands on the densest clump within
+    // DOWNWASH_CAST_FRAC of the viewport and drags it inward, so the crowd this card gathers
+    // arrives on top of the player who cast it -- the weapon was charging its own user for using it
+    // correctly, and nothing on screen said the touch was the column's doing rather than the crowd's.
+    //   FOUR ARMS, because every cheaper version of this check passes for the wrong reason.
+    // "The player lost no HP" is also what a fixture with no damage in it reports (SB.a's lesson),
+    // hence the ambient control; a body OUTSIDE the column is what proves the fixture can hurt at
+    // all; and the BLACK HOLE arm is the one that fails if the guard is widened to `holePull > 0`
+    // alone -- both weapons share run.holes, and disarming everything inside a vortex would turn a
+    // Book 1 weapon into a safe bubble. That widening is invisible in every other assertion here.
+    const W = 1.5   // shorter than either weapon's shortest L5 pour (downwash 2.0s, hole 2.6s)
+    const scrape = (mode) => {
+      const r = boot('shelf', mode === 'blackhole' ? 'hole' : 'downwash', 5, null)
+      r.player.maxHP = r.player.hp = 5000
+      if (mode === 'ambient') {
+        advance(r, 3 * dt)          // the same prelude the other arms take, so the windows match
+        const hp0 = r.player.hp
+        advance(r, W)
+        return hp0 - r.player.hp
+      }
+      // Cast with the body well clear of the player so the column lands THERE, not on top of us;
+      // the body only moves onto the player afterwards, so the `out` arm starts genuinely outside.
+      const body = makeStatusEnemy(r, { x: r.player.x + 260, y: r.player.y, hp: 1e6, speed: 0 })
+      r.enemies.push(body)
+      assert(castUntil(r, (x) => x.holes.length > 0), `precondition (${mode}): the weapon must cast within 12s`)
+      assert(r.holes[0].life > W, `precondition (${mode}): the pour must outlive the ${W}s window, got ${r.holes[0].life.toFixed(2)}s`)
+      const pin = (x) => {
+        body.x = x.player.x; body.y = x.player.y
+        const c = x.holes[0]
+        if (c) { c.x = mode === 'out' ? x.player.x + 5000 : x.player.x; c.y = x.player.y }
+      }
+      // ONE SETTLING FRAME BEFORE THE CLOCK STARTS, and it is not a fudge. stepContactDamage runs
+      // at stepSim's line 295 and stepHoles at 311 (inside stepWeapons), so contact always reads
+      // the PREVIOUS frame's holePull -- a 16ms lag nobody can see in play, where a body walks into
+      // a standing column. This fixture TELEPORTS the column onto the body instead, which
+      // manufactures exactly that frame: without the prelude the `in` arm measures 8 HP of step
+      // ordering and reads as the guard not working. Same prelude on every arm so they stay
+      // comparable (it costs the `out` arm its first hit, which is why W is long enough for more).
+      advance(r, 3 * dt, pin)
+      const hp0 = r.player.hp
+      advance(r, W, pin)
+      return hp0 - r.player.hp
+    }
+    const ambient = scrape('ambient')
+    const outside = scrape('out')
+    const inColumn = scrape('in')
+    const inVortex = scrape('blackhole')
+    assert(outside > ambient,
+      `control: a body parked on the player with the column moved away must still hurt (${outside} lost vs ${ambient} ambient) — ` +
+      'if this reads 0 the fixture proves nothing about the arm below')
+    assert.strictEqual(inColumn, ambient,
+      `a body the water column has hold of took ${inColumn - ambient} HP off the player over ${W}s — ` +
+      'contactHarmless is not seeing it (check e._holeLook is still written beside e.holePull in stepHoles)')
+    assert(inVortex > ambient,
+      `the Black Hole was disarmed too (${inVortex} lost vs ${ambient} ambient): the guard must be scoped by ` +
+      '_holeLook === downwash, not by holePull alone — this is The Shelf\'s card, not a buff to Book 1\'s vortex')
+
+    console.log(`PASS run MB.i (Downwash): lands in the knot of 5 not on the straggler, burst ${burstDmg.toFixed(0)} out-damages the whole pour ${pourDmg.toFixed(0)} (no core crush), Big Crunch + Hungry Hole leak nothing (${withoutHoleMods.toFixed(1)} both ways), Plunge fires at ${plunged.delay.toFixed(2)}s and again at ${plunged.lastDelay.toFixed(2)}s of a ${noMod.dur}s pour (2 bursts against the control's ${noMod.bursts}), and ${DOWNWASH_PLUNGE_N - 1} bodies do not trip it; a body the column has hold of costs the player ${inColumn} HP against the ${outside} it costs outside one, while the Black Hole's own bodies still cost ${inVortex}`)
   }
 
   console.log('PASS run MB (Book 2 chapters 1-2 mod budget): no inert cards across every weapon, four-plus apiece in both chapters, rate mods speed up, count mods land on bodies, and the three Pollution/clean-water cards pay the right way round — including that a fouled patch stops recharging you')
