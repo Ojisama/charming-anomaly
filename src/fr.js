@@ -1409,6 +1409,11 @@ const CONFIG = {
   'Tuna': 'Thon',
   'Sea Lion': 'Otarie',
   'Moon Jelly': 'Méduse Lune',
+  // The Shelf's own two (v7.x), replacing the Sand Hopper and Sea Roach loans above. Roster
+  // `name`s are NOT in run XX's coverage walk, so nothing goes red if these are missing — see
+  // the note on The Trawl's three above. Sixth occurrence of that same exemption.
+  'Flounder': 'Flet',
+  'Sea Catfish': 'Poisson-Chat de Mer',
   'The Garden': 'Le Jardin',
   'your scent gives you away': 'ton odeur te trahit',
   'Ant': 'Fourmi',

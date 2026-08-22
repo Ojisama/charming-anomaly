@@ -5966,27 +5966,47 @@ CHAPTERS.shelf = {
     dark: { from: 0.5, speedFloor: 0.85, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
   },
 
-  // ⚠ TWO OF THREE ARE BORROWED STAND-INS. The moon jelly is the one that is a design: Aurelia
-  // aurita is a coastal shallow-water jelly, and moon-jelly blooms are the textbook signal of
-  // eutrophic, oxygen-poor, polluted coastal water — close to the ideal creature for this chapter,
-  // which is why it stayed when the copepod and the krill went down to the mesopelagic with the
-  // light (see CHAPTERS.twilight.roster).
+  // THE CHAPTER'S OWN THREE. The Sand Hopper and the Sea Roach stood in here on loan from The Surf
+  // until v7.x, which meant 2.1 and 2.2 fielded the same two animals back to back; both are gone and
+  // The Surf keeps them.
   //
-  // The sand hopper and the sea roach are on loan from The Surf, one chapter up, and they are the
-  // honest borrow rather than a neutral one: an amphipod detritus-feeder and a marine isopod are
-  // both scavengers of enriched, degraded water. They are still stand-ins.
+  // ⚠ THE SLOTS WERE ASSIGNED FROM THE FLAG VOCABULARY FIRST, THEN THE ANIMAL — the order the
+  // design spec insists on, because rev 1 did the reverse and picked Mnemiopsis for `fast` (it swims
+  // at centimetres per second) and Capitella for `normal` (a 1cm burrowing deposit-feeder, not a
+  // chaser). Realism that reaches the name and not the movement is worse than none.
   //
-  // ⚠ PHASE 3, READ THIS FIRST: pick for the FLAG VOCABULARY and then find the realistic animal,
-  // not the other way round. The first pass at this chose Mnemiopsis for `fast` (it swims at
-  // centimetres per second) and Capitella for `normal` (a 1cm burrowing deposit-feeder, not a
-  // chaser) — realism that reaches the name and not the movement is worse than none. This chapter's
-  // antagonist is NOT BEING ABLE TO SEE, so its creatures should exploit that: something that hides
-  // in the murk and is legible only close up. Also note `unshakeable` is UNSHAKEABLE_CC_MUL 0.5, so
-  // Clear's headline verb ("everything it reaches is stunned") lands at HALF duration on the jelly
-  // — revisit its flags when Clear ships or the button under-delivers on first contact.
+  // This chapter's antagonist is NOT BEING ABLE TO SEE, and these two use that from opposite sides:
+  //   FLOUNDER  you cannot see IT. It lies on the bottom and closes the last stretch in one burst,
+  //             and in murk the wind-up is not on screen long enough to read. `dashBurst` was
+  //             already running in this chapter (it was the Sea Roach's) — it moves down to `normal`
+  //             rather than being spent a second time on `fast`.
+  //   CATFISH   it cannot see YOU either, so it tastes its way along your wake — `pastSeek`. Keep
+  //             moving and it arrives where you no longer are; stand still and it closes. That is
+  //             the one creature here whose pressure is aimed squarely at the chapter's own loop,
+  //             since the bar's whole ask is that you PARK in a clean-water upwelling to refill.
+  // Realism holds on both: Platichthys flesus is the estuarine flatfish famous for tolerating
+  // polluted, deoxygenated water, and a sea catfish's barbels are taste buds — the adaptation
+  // exists precisely because the water it lives in is too turbid to hunt by sight.
+  //
+  // ⚠ `pounce` WAS THE OBVIOUS PICK FOR THE AMBUSHER AND IS DELIBERATELY NOT USED. The Reef's
+  // Lionfish is already `fast` + `pounce` and The Reef is the very next chapter; a third pouncer in
+  // one book, in the adjacent slot and the same archetype, is convergence rather than design.
+  //
+  // ⚠ NUMBERS HERE ARE THE STAND-INS' OWN, CARRIED OVER VERBATIM AND NOT YET TUNED (owner: balance
+  // is settled by playtest, not by probe). The one thing that is NOT neutral is the flag move: the
+  // `normal` slot did not burst before and now does, so the chapter's commonest creature is more
+  // dangerous than the Sand Hopper was. That is the thing to feel for on the first play.
+  //
+  // Also note `unshakeable` is UNSHAKEABLE_CC_MUL 0.5, so Clear's headline verb ("everything it
+  // reaches is stunned") lands at HALF duration on the jelly — revisit its flags when Clear ships
+  // or the button under-delivers on first contact.
   roster: [
-    { id: 'sandhopper', archetype: 'normal', name: 'Sand Hopper', hpMul: 0.9,   speedMul: 1,   flags: [] },
-    { id: 'searoach',   archetype: 'fast',   name: 'Sea Roach',   hpMul: 0.68,  speedMul: 1.15, flags: ['dashBurst'] },
+    { id: 'flounder', archetype: 'normal', name: 'Flounder',   hpMul: 0.9,   speedMul: 1,   flags: ['dashBurst'] },
+    // trailLag 4 = 4 x BLANK_TRAIL_DT = 1.4s behind you, against the Probe's 1 (0.35s). The Probe
+    // SHADOWS; this one is meant to be shakeable by turning, so it needs the longer memory. The
+    // buffer holds BLANK_TRAIL_MAX 26 samples (~9s), so there is a lot of room above this if play
+    // says it is too easy to lose. UNMEASURED — a first cut for the phone, like the two muls beside it.
+    { id: 'catfish',  archetype: 'fast',   name: 'Sea Catfish', hpMul: 0.68,  speedMul: 1.15, flags: ['pastSeek'], trailLag: 4 },
     // balance_decision : jelly loses 20% hp and stays solid twice as long 2026-08-20
     //  - `phase.solidMul` is the jelly's alone: PHASE_SOLID_T is shared with the pond's Tardigrade.
     { id: 'jelly',      archetype: 'tank',   name: 'Moon Jelly',  hpMul: 1.5, speedMul: 0.6, xpMul: 1.25, flags: ['phase', 'unshakeable'],
@@ -6024,7 +6044,7 @@ CHAPTERS.shelf = {
   // murk chapter as it did to a sunlit one. This is a desaturated silty blue-green — the colour of
   // suspended sediment, not of algae — and it is also deliberately not The Surf's sand tan.
   render: {
-    cast: ['sandhopper', 'searoach', 'jelly'],
+    cast: ['flounder', 'catfish', 'jelly'],
     form: 'fish',
     bgColor: 0x2e4f52,     // silty water, daylight through it
     floorTint: 0xb6c9bd,   // milky wash — sediment in suspension, not a green bottom

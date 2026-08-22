@@ -253,6 +253,7 @@ export function stepSim(run, input, dt) {
   stepRepulse(run, input, dt) // v5.21 lane: the active shove (ticks its cooldown even when unused)
   stepSpawning(run, dt)
   stepStragglers(run)     // v6.0.1 anti-kite: chasers shed behind a runner recycle onto the ring ahead
+  stepTrail(run, dt)      // must precede stepBossScript: a scripted chapter returns out of stepSim below
   if (stepBossScript(run, dt)) return // v5.24 blank: the scripted chapter's ONLY spawner (phase may be 'dead' — P2 yank)
   stepFormations(run, dt) // v5.18 beyond lane: ranks of marchers, alongside the seeking swarm above
   stepEnemyMovement(run, dt)
@@ -951,6 +952,31 @@ function stepFormations(run, dt) {
 // against the boss's own (untagged) bands/wakes — the eraser's wake residue is tagged the same way.
 // @returns true if the run ENDED this frame — the P2 yank can kill (phase 'dead'), and the final
 // boss's death wins (phase 'victory'); either way the rest of stepSim must not run.
+// The trail: the ring buffer of recent player positions. TWO consumers, in two different chapters —
+// The Blank's P1 detonates it (detonateTrail) and every `pastSeek` creature aims at a sample behind
+// its newest end.
+//
+// ⚠ IT USED TO BE SAMPLED INSIDE stepBossScript, WHICH RETURNS EARLY FOR EVERY UNSCRIPTED CHAPTER.
+// That made `pastSeek` INERT everywhere but The Blank, and inert in the quietest possible way: the
+// read is guarded (`if (pt)`), so with an empty buffer the flag silently falls through to seeking
+// the live player. A creature carrying it behaved as a plain chaser, nothing threw, and no test
+// went red — the flag would simply have been decoration. Sampling here, before that early return,
+// is what makes it a real behaviour outside the scripted chapter.
+//
+// The BLANK_ prefix on the two constants is now a misnomer: they govern any chapter with a pastSeek
+// creature. Left alone deliberately — a rename reaches config.js, state.js's doc block and two
+// sim-test scenarios for no behaviour change. // ponytail: rename through `renaming-safely` if a
+// third consumer ever lands.
+function stepTrail(run, dt) {
+  const p = run.player
+  run._trailT = (run._trailT ?? BLANK_TRAIL_DT) - dt
+  if (run._trailT <= 0) {
+    run._trailT += BLANK_TRAIL_DT
+    run.trail.push({ x: p.x, y: p.y })
+    if (run.trail.length > BLANK_TRAIL_MAX) run.trail.shift()
+  }
+}
+
 function stepBossScript(run, dt) {
   if (!CHAPTERS[run.chapter].scripted) return false
   const p = run.player
@@ -958,15 +984,6 @@ function stepBossScript(run, dt) {
   const accel = run.mutators.includes('accelResponse') ? BLANK_ACCEL_MUL : 1
   const xreact = run.mutators.includes('crossReactive')
   const mature = run.mutators.includes('affinityMature')
-
-  // The trail: the ring buffer of recent player positions that P1 detonates and pastSeek probes
-  // hunt. Sampled unconditionally so a boss read always has history to work with.
-  run._trailT = (run._trailT ?? BLANK_TRAIL_DT) - dt
-  if (run._trailT <= 0) {
-    run._trailT += BLANK_TRAIL_DT
-    run.trail.push({ x: p.x, y: p.y })
-    if (run.trail.length > BLANK_TRAIL_MAX) run.trail.shift()
-  }
 
   // Binding-node bookkeeping runs at EVERY stage, not just P2: nodes a dead boss leaves behind
   // keep binding until killed. Ages each node and publishes the MIN-stacked player slow.
@@ -1788,6 +1805,12 @@ function spawnEnemy(run, opts = {}) {
     // roster.phase (v7.x): the same shape as `dash` above, for the `phase` flag's windows.
     // null on every enemy but The Shelf's Moon Jelly.
     phase: roster?.phase ?? null,
+    // roster.trailLag (v7.x): how many trail samples behind the player a `pastSeek` creature aims,
+    // or null to take the shared BLANK_PASTSEEK_LAG. Third instance of the same idiom as `dash` and
+    // `phase`, and it exists for the same reason: The Blank's Probe is tuned as a SHADOW (lag 1,
+    // ~0.35s, paired with speedMul 1.3 so it hangs just off your shoulder), and a chapter that wants
+    // a creature to arrive somewhere you have actually left must not drag the boss's number with it.
+    trailLag: roster?.trailLag ?? null,
     // xpMul is the roster's third stat lever, alongside hpMul/speedMul above: what a kill of
     // this creature is WORTH, independent of how much health it has. They are separate on
     // purpose — a chapter can make something cheaper to kill and still pay well for it.
@@ -1967,11 +1990,16 @@ function stepEnemyMovement(run, dt) {
         if (lsq <= lu.aggro * lu.aggro && lsq < bestSq) { bestSq = lsq; tx = lu.x; ty = lu.y; baited = !!lu.bait }
       }
     }
-    // pastSeek flag (v5.24 blank's probes): hunt where the player WAS — a trail sample
-    // BLANK_PASTSEEK_LAG behind the newest (~1.4s ago), falling back to the live player while the
-    // trail is still short. Keep moving and a probe forever arrives where you no longer are.
+    // pastSeek flag (v5.24 blank's probes, v7.x The Shelf's dogfish): hunt where the player WAS — a
+    // trail sample `lag` behind the newest, falling back to the live player while the trail is still
+    // short. Keep moving and it forever arrives where you no longer are; stop and it closes.
+    // The lag is per-creature (e.trailLag, see spawnEnemy) because the two users want opposite
+    // things from it: the Probe shadows at 1 sample (~0.35s), the dogfish trails much further back.
+    // The buffer itself is filled by stepTrail, which is NOT inside stepBossScript — see the note
+    // there for how this flag spent its whole life inert outside the scripted chapter.
     if (e.flags && e.flags.includes('pastSeek')) {
-      const pt = run.trail && run.trail[run.trail.length - 1 - BLANK_PASTSEEK_LAG]
+      const lag = e.trailLag ?? BLANK_PASTSEEK_LAG
+      const pt = run.trail && run.trail[run.trail.length - 1 - lag]
       if (pt) { tx = pt.x; ty = pt.y }
     }
     const dx = tx - e.x, dy = ty - e.y

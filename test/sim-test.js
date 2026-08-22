@@ -98,7 +98,7 @@ import {
   // v6.3.1 difficulty pass (Run LL)
   BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
   BLANK_SHOT_T, BLANK_SHOT_TURN, BLANK_ACCEL_MUL, BLANK_DESPERATE_MUL,
-  BLANK_TRAIL_DT, BLANK_TRAIL_MAX, BLANK_READ1_K, BLANK_READ1_K_MATURE,
+  BLANK_TRAIL_DT, BLANK_TRAIL_MAX, BLANK_PASTSEEK_LAG, BLANK_READ1_K, BLANK_READ1_K_MATURE,
   BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_FAN_N_MATURE,
   // v6.3.4 anti-turtle pass (Run MM)
@@ -16781,6 +16781,7 @@ try {
   run(testEliteSurge)
 run(testLeLargeWeapons)
   run(testCrabGuard)
+  run(testShelfNatives)
   run(testSurfGulls)
   run(testPlayerForms)
   run(testMultitouchControls)
@@ -23634,6 +23635,119 @@ function testUndertowLadder() {
       `refillLook '${[...declared].join("','")}' resolves both ways, ${Object.keys(CHAPTERS).length} chapters cast only their own roster, ` +
       `and ${byId.size} roster ids agree on their names`)
   }
+}
+
+// ---- run US.l: The Shelf's own two natives -----------------------------------------------------
+// The chapter stopped borrowing The Surf's Sand Hopper and Sea Roach and grew a Flounder (`normal`,
+// dashBurst) and a Sea Catfish (`fast`, pastSeek). Everything asserted here fails SILENTLY, and two
+// of the three were live defects rather than hypotheticals:
+//
+//  (a) run.trail was sampled INSIDE stepBossScript, which returns early for every unscripted
+//      chapter. So `pastSeek` was inert everywhere but The Blank — and inert in the quietest way
+//      available, because the read is guarded and an empty buffer falls through to seeking the LIVE
+//      player. A catfish would simply have been a plain chaser. Nothing throws, nothing goes red,
+//      and on screen "hunts your wake" and "walks at you" are only distinguishable if you are
+//      looking for it. Mutation: delete the stepTrail call in stepSim.
+//  (b) e.trailLag is the per-creature override (the `dash`/`phase` idiom). Drop the `??` and every
+//      pastSeek creature silently collapses onto The Blank's Probe tuning — 0.35s, which is a
+//      SHADOW rather than a wake and reads as "the flag does nothing". Mutation: hardcode the
+//      global in the pastSeek branch.
+//  (c) the roster wiring itself, so a silent revert to the Surf loans is caught.
+//
+// The two behaviour assertions are stated as the DESIGN CLAIM in player terms — "keep moving and it
+// arrives where you no longer are; stand still and it closes" — rather than as arithmetic about the
+// ring buffer, which would only be re-testing the test's own copy of the maths.
+function testShelfNatives() {
+  // (c) wiring first: cheap, and it tells you which half broke if the rest goes red.
+  {
+    const ids = CHAPTERS.shelf.roster.map((r) => r.id)
+    assert.deepStrictEqual(ids, ['flounder', 'catfish', 'jelly'], `shelf roster is ${ids.join(',')}`)
+    const byId = Object.fromEntries(CHAPTERS.shelf.roster.map((r) => [r.id, r]))
+    assert(byId.flounder.flags.includes('dashBurst'), 'the flounder is the chapter burst striker')
+    assert(byId.catfish.flags.includes('pastSeek'), 'the catfish hunts the wake')
+    assert(byId.catfish.trailLag > BLANK_PASTSEEK_LAG,
+      `the catfish must trail FURTHER back than The Blank's shadow probe (${byId.catfish.trailLag} vs ${BLANK_PASTSEEK_LAG})`)
+    // The Surf keeps its own two — this is a move, not a shared roster.
+    const surfIds = CHAPTERS.surf.roster.map((r) => r.id)
+    assert(surfIds.includes('sandhopper') && surfIds.includes('searoach'), 'the Surf keeps the loans it lent')
+    assert(!ids.includes('sandhopper') && !ids.includes('searoach'), 'the Shelf no longer borrows them')
+  }
+
+  // ...and the same fact ON A SPAWNED BODY, through the shipped spawnEnemy path. The block above
+  // only proves the TABLE says trailLag 4, which is precisely the silent failure designing-an-enemy
+  // names last in its table: "a field in config that nothing reads — assert the spawned ENTITY,
+  // never the table". Without this, deleting `trailLag: roster?.trailLag ?? null` from spawnEnemy
+  // leaves every assertion in this scenario green, because the behaviour rig below sets the field
+  // by hand. WAVE_TABLE gates `wisp` to t>=40s, so this has to run past that to see one at all.
+  {
+    Math.random = mulberry32(77003)
+    const run = createRun(makeMeta(), { chapter: 'shelf', difficulty: 1 })
+    run.player.maxHP = run.player.hp = 1e9
+    let seen = null
+    for (let i = 0; i < 60 * 60 && !seen; i++) {
+      if (run.phase === 'levelup') run.phase = 'playing'
+      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+      seen = run.enemies.find((e) => e.rosterId === 'catfish') || null
+    }
+    assert(seen, 'no catfish spawned in 60s — WAVE_TABLE releases `fast` at t=40s, so this should see one')
+    assert.strictEqual(seen.trailLag, 4,
+      `a SPAWNED catfish must carry the roster's trailLag, got ${seen.trailLag}. ` +
+      'null here means spawnEnemy is not copying the field and the config entry is decoration.')
+    assert(seen.flags.includes('pastSeek'), 'a spawned catfish must carry its flag')
+  }
+
+  // A rig that walks the player in ONE direction, lays a full trail, then drops a single pastSeek
+  // creature on top of the player and lets it chase. The subject is pinned BY IDENTITY every frame
+  // (probing-the-game's rule): a splice anywhere in the step would otherwise move it off index 0 and
+  // the probe would be measuring some other enemy, or none, with nothing saying so.
+  const chase = (lag, stick) => {
+    Math.random = mulberry32(77002)
+    const run = createRun(makeMeta(), { chapter: 'shelf', difficulty: 1 })
+    run.player.maxHP = run.player.hp = 1e9
+    let subject = null
+    const step = () => {
+      if (subject) {
+        if (run.enemies.length !== 1 || run.enemies[0] !== subject) run.enemies = [subject]
+        subject.kb.x = subject.kb.y = 0     // knockback would drift the subject and blur the reading
+      }
+      if (run.phase === 'levelup') run.phase = 'playing'
+      stepSim(run, { x: stick, y: 0, skill: false }, 1 / 60)
+      run.events.length = 0
+    }
+    for (let i = 0; i < 300; i++) step()    // 5s: fills the ring buffer well past the deepest lag
+    assert(run.trail.length > 8,
+      `(a) run.trail must fill in an UNSCRIPTED chapter — got ${run.trail.length} samples after 5s. ` +
+      'An empty buffer is exactly the bug that made pastSeek inert outside The Blank.')
+    subject = makeStatusEnemy(run, { x: run.player.x, y: run.player.y, hp: 1e9, speed: 220 })
+    subject.flags = ['pastSeek']
+    subject.rosterId = 'catfish'
+    subject.trailLag = lag
+    run.enemies = [subject]
+    for (let i = 0; i < 300; i++) step()
+    return Math.hypot(run.player.x - subject.x, run.player.y - subject.y)
+  }
+
+  // KEEP MOVING: a deeper lag must leave the creature genuinely further behind. Compared as an
+  // ORDER with a wide margin rather than against an eyeballed literal — the absolute gap rides on
+  // the chapter's own murk slow, which both arms share.
+  const nearGap = chase(1, 1)
+  const farGap = chase(8, 1)
+  assert(farGap > nearGap * 1.5,
+    `(b) lag 8 must trail further than lag 1 while running: ${farGap.toFixed(0)}px vs ${nearGap.toFixed(0)}px. ` +
+    'Equal gaps mean e.trailLag is not being read and every pastSeek creature collapsed onto the global.')
+
+  // STAND STILL and the trail collapses to one point, so the lag stops mattering and it closes to
+  // contact. This is the half that makes the flag interlock with the chapter: the bar's whole ask is
+  // that you PARK in a clean-water upwelling to refill.
+  const stillGap = chase(8, 0)
+  assert(stillGap < farGap * 0.5,
+    `(b) a stationary player must be caught even at lag 8: ${stillGap.toFixed(0)}px standing vs ${farGap.toFixed(0)}px running`)
+
+  console.log(`PASS run US.l (shelf natives): the trail fills in an unscripted chapter (pastSeek was inert there), ` +
+    `the flounder bursts and the catfish trails at lag ${CHAPTERS.shelf.roster[1].trailLag} vs the probe's ${BLANK_PASTSEEK_LAG}, ` +
+    `running leaves it ${farGap.toFixed(0)}px back against ${nearGap.toFixed(0)}px at the probe's lag, ` +
+    `standing still closes it to ${stillGap.toFixed(0)}px, and the Surf keeps both loans`)
 }
 
 // ---- run US.i: the Shore Crab's guard ---------------------------------------------------------

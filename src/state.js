@@ -833,6 +833,12 @@ function generateWells(sig) {
  *               The Surf's Sea Roach and The Twilight's Krill — the point of the field is that a
  *               chapter can soften ONE of its creatures without moving DASH_* for the other
  *               chapters that share them. run RO.b pins the exact set that carries an override.
+ * trailLag (v7.x): the picked roster entry's optional `trailLag`, or null to take the shared
+ *               BLANK_PASTSEEK_LAG. How many `run.trail` samples behind the player a `pastSeek`
+ *               creature aims — same per-creature-override idiom as `dash` and `phase`, and here
+ *               because the two users want opposite things: The Blank's Probe SHADOWS you (lag 1,
+ *               ~0.35s, at speedMul 1.3), while The Shelf's dogfish is meant to arrive somewhere
+ *               you have genuinely left. Read only by the pastSeek branch of stepEnemyMovement.
  * rosterId (v5.0): the picked roster entry's id (config.js), or null if the chapter's roster had
  *               no entry for this enemy's archetype — reserved for render/HUD skins later, no
  *               sim.js behavior keys off it directly (flags/hpMul/speedMul already applied).
@@ -1879,9 +1885,13 @@ function generateWells(sig) {
  *   run.enemies id (or null), used to detect its death by absence next frame — same pattern the
  *   design already uses for every kill (kill events carry no id). A non-final phase kill also
  *   force-kills any binding nodes still alive so their slow can't bleed into the next block.
- * trail: [] for every chapter; a scripted one's stepBossScript samples {x,y} onto it every
- *   BLANK_TRAIL_DT, capped at BLANK_TRAIL_MAX entries (shift on overflow) — the ring buffer P1's
- *   (and, at d2+, P2/P3's borrowed) reads detonate and pastSeek probes chase.
+ * trail: the ring buffer of recent player positions, {x,y} sampled every BLANK_TRAIL_DT and capped
+ *   at BLANK_TRAIL_MAX entries (shift on overflow). SAMPLED IN EVERY CHAPTER, by stepTrail — it
+ *   lived inside stepBossScript until v7.x, which returns early for anything unscripted and so left
+ *   the buffer permanently empty outside The Blank. Two consumers: P1's (and, at d2+, P2/P3's
+ *   borrowed) reads detonate it, and every `pastSeek` creature aims at a sample behind its newest
+ *   end. The pastSeek read is guarded, so an empty buffer degrades that flag to a plain seek in
+ *   silence — which is exactly what it did everywhere but The Blank for the whole life of the flag.
  * bossBar: null whenever no scripted boss is alive; while one is, { hp, max, stage } mirrors the
  *   current phase entity so ui.js can render a boss HP bar without reaching into run.enemies
  *   (rampage pattern: the field always exists, stays inert for every non-scripted chapter).
