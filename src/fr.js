@@ -22,6 +22,7 @@ const UI = {
   'Range': 'Portée',
   'Length': 'Longueur',
   'Width': 'Largeur',
+  'Ridges lit': 'Crêtes allumées',
   'Pierce': 'Perforation',
   // 'Délai', not 'Toutes les' (a dangling preposition before a value column, and wrong number
   // agreement under 2s) and NOT 'Cadence' — this dictionary already spends cadence on the INVERSE
@@ -1309,6 +1310,60 @@ const CONFIG = {
   'wake rate': 'cadence de réveil',
   'Overgrowth': 'Prolifération',
   'the polyps grow over the gaps as well': 'les polypes envahissent aussi les passages',
+  // The Reef's other two natives, its anomaly and its mutator (v7.x). EVERY DISPLAY NAME HERE IS A
+  // DRAFT pending the owner's pick -- there is no translation subagent for this repo, and each went
+  // to him as a pair: Encre de Seiche / Nuage d'Encre, Bouteille d'Oxygene / Bloc de Plongee,
+  // Dernier Souffle (verified free in this dictionary), Grand Courant / Courant de Maree. These are
+  // the recommended halves.
+  //   'Encre de Seiche' over 'Nuage d'Encre' for the reason the Crevette-pistolet entry above gives:
+  // it is the real French name of the real animal, and a French player already has a word for the
+  // thing in the picture. 'Nuage' also collides in MEANING with the Spore Bloom's clouds.
+  //   'Bouteille de Plongee' is what a diver actually says, but the card is about the OXYGEN and the
+  // HUD rail beside it says 'Air' -- so the name keeps the gas in it.
+  'Squid Ink': 'Encre de Seiche',
+  'Jets a cloud of ink around you. Anything that swims into it loses you and keeps going the way it was already headed.':
+    'Projette un nuage d’encre autour de toi. Tout ce qui y nage te perd de vue et continue tout droit.',
+  'Blackout': 'Voile Noir',
+  'cloud size': 'taille du nuage',
+  'Deep Dark': 'Noir Profond',
+  'how long they stay lost': 'durée pendant laquelle ils te perdent',
+  'Lingering Ink': 'Encre Persistante',
+  'how long the cloud hangs': 'durée du nuage',
+  'Quick Ink': 'Encre Rapide',
+  'jet rate': 'cadence des jets',
+  'Second Jet': 'Second Jet',
+  'extra ink cloud(s) per jet': 'nuage(s) d’encre en plus par jet',
+  'Oxygen Tank': 'Bouteille d’Oxygène',
+  'Tumbles a lost tank up the lane. It ruptures where you are about to be, and your Air stops draining inside the bubbles.':
+    'Envoie une bouteille perdue devant toi. Elle éclate là où tu vas arriver, et ton Air cesse de baisser dans les bulles.',
+  'Overfilled': 'Surgonflée',
+  'rupture damage': 'dégâts de l’éclatement',
+  'Wide Rupture': 'Large Éclatement',
+  'blast radius': 'rayon du souffle',
+  'Long Boil': 'Long Bouillonnement',
+  'how long the bubbles hold your Air': 'durée pendant laquelle les bulles retiennent ton Air',
+  // 'throw rate' is DELIBERATELY NOT REPEATED HERE: the Debris Toss and Skipping Shell mods
+  // already share that exact English key, and it is translated above. A second entry would be a
+  // duplicate key -- the later section silently wins and the earlier translation goes dead.
+  'Quick Tank': 'Bouteille Rapide',
+  'Pressure Wave': 'Onde de Choc',
+  'the rupture shoves everything clear': 'l’éclatement repousse tout autour',
+  // The stat rows (STAT_KEYS). 'Aveuglé pendant' and not 'Cécité': the sheet's other rows are all
+  // verbs or states with a duration after them ('Brûle pendant', 'Tient pendant'), and a bare noun
+  // in a column of those reads as a different kind of number.
+  'Blinded for': 'Aveuglé pendant',
+  'Bubbles last': 'Bulles pendant',
+  // The chapter anomaly. 'Dernier Souffle' is the ordinary French idiom for exactly this, and it was
+  // re-checked against every key in this file before being used.
+  'Last Breath': 'Dernier Souffle',
+  'the thinner it got, the harder you swung': 'plus l’air manquait, plus tu frappais fort',
+  'Your damage rises as your Air empties, up to +100%. While you are drowning, everything hurts you twice as much.':
+    'Tes dégâts montent à mesure que ton Air se vide, jusqu’à +100 %. Quand tu te noies, tout te fait deux fois plus mal.',
+  // The chapter mutator. 'Grand Courant' over 'Courant de Marée': 'Marée' is already Spring Tide's
+  // ('Grande Marée'), and two chapter mutators in one book wearing the same noun is the collision
+  // the dictionary cannot see -- different keys, one word on screen.
+  'Tidal Race': 'Grand Courant',
+  'The current runs far faster. Richer coins.': 'Le courant file bien plus vite. Pièces plus riches.',
   'Stirs the bottom into a cone of silt that poisons and dazes what swims in.': 'Soulève un cône de vase qui empoisonne et étourdit tes poursuivants.',
   // Voile de Vase's four (2026-08-19). 'vase' throughout, never 'limon', because the weapon's own
   // name already fixed the word -- the rule the Coquille Ricochet entry states: one word for one

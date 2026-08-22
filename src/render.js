@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BALLAST_THROW_R, BALLAST_RING,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_SPEED_MUL, BURST_DUR_AT_FULL, laneScrollFor, BALLAST_THROW_R, BALLAST_RING,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -314,12 +314,6 @@ export function createRenderer(app) {
   // `undergrowth`). Same latch pattern as chapterHasStorm; read by updateLeaves.
   let chapterHasLeaves = false
   let chapterHasLane = false   // v5.18 beyond: trailing-edge camera (CHAPTERS[].lane)
-  // v7.x The Reef: does the active chapter's skill button BURST (CHAPTERS[].burst)? Read in exactly
-  // one place — handleEvents' 'crush' case, which stepCrush now emits for two entirely different
-  // reasons (a kaiju flattening a building, a fish going through coral) and which therefore has to
-  // ask whose crush this is. Latched here rather than read per event for the usual reason: an event
-  // handler that dereferences CHAPTERS[run.chapter] pays for it on every event in the frame.
-  let chapterHasBurst = false
   // v7.x: WHICH edge — laneAxes(cfg) (config.js). 'y' (The Beyond) anchors the player near the
   // bottom; 'x' (The Reef) near the left. Latched with chapterHasLane and read only by the camera.
   let chapterLaneAxis = LANE_AXIS_Y
@@ -7046,6 +7040,34 @@ export function createRenderer(app) {
       }
       T.tossNet = bake(g)
     }
+    {
+      // The Reef's Oxygen Tank in flight (run.lobs with `tank`). A FOURTH payload on that rig, for
+      // the reason there is a third: the flight, the parabola and the shadow are identical and only
+      // the thing in the air differs.
+      //
+      // PLAN VIEW, like everything here that is not a building — a cylinder seen from directly
+      // overhead is a rounded rectangle, and the two things that stop it reading as a pill are the
+      // VALVE at one end and the band around the waist. The same object stands at the air pockets
+      // (updateShafts' pocket branch), which is what stops this card coining a noun the player has
+      // never seen: the tanks are on the floor of the chapter before one is ever thrown.
+      //
+      // WARM STEEL AND A RUSTED BAND, not the chapter's cold palette, for the reason GEAR_VIS gives
+      // the net: the player's own gear must not share the colour of the water it is thrown through
+      // or it disappears into it. The Reef's floor is 0x2e4f52.
+      const g = new Graphics()
+      const L = 15, W = 7
+      g.roundRect(-L, -W, L * 2, W * 2, W).fill(0xd8a33c).stroke({ width: 1.8, color: 0x3a2a10 })
+      // The lit flank, one step brighter, along the up-left edge — this file's one sun direction.
+      g.roundRect(-L + 2, -W + 1.4, L * 2 - 4, W * 0.7, W * 0.35).fill({ color: 0xf3d089, alpha: 0.6 })
+      // The waist band and a dent beside it: the two marks that say USED, and the reason the card
+      // says 'a lost tank' rather than 'a tank'.
+      g.rect(-2.5, -W, 5, W * 2).fill({ color: 0x8c6a22, alpha: 0.85 })
+      g.ellipse(L * 0.45, W * 0.3, 3.4, 2.2).fill({ color: 0x6b4a18, alpha: 0.7 })
+      // The valve: a stub and a handwheel off the right-hand end. The whole read at 30px.
+      g.rect(L - 1, -2, 5, 4).fill(0x9aa0a6).stroke({ width: 1.2, color: 0x2b2f33 })
+      g.circle(L + 6, 0, 3.4).fill(0x6d7278).stroke({ width: 1.4, color: 0x2b2f33 })
+      T.oxyTank = bake(g)
+    }
     // ---- voxel boulder (hills district, skies — v5.9.1 art experiment) ------------------------
     // "the 'rocks'?? asset is just ugly" (playtest report). T.rockChunk right above is kept EXACTLY
     // as-is — it still does its other job (run.lobs, the kaiju's thrown masonry) untouched — this
@@ -9249,6 +9271,12 @@ export function createRenderer(app) {
   // reads as something lying on the bottom, which is the opposite of the thing you must not cross.
   // Neither is a pool: clearing them IS the reset, the same idiom breathG uses (see clearWorld).
   const netWakeG = new Graphics()
+  // v7.x The Reef: the Burst's cavitation wake (run._burstT). Churned water, so the crowd swims
+  // over it — netWakeG's own argument — but it is added ABOVE spurG rather than beside netWakeG,
+  // because the dash cuts PAST the coral and the fish throwing the wake is drawn over the ridge
+  // too. Under it, the tail simply stops at every ridge it crosses. Not a pool: clearing IS the
+  // reset.
+  const burstWakeG = new Graphics()
   const netG = new Graphics()
   // The player's own gear, and it sits beside netG ABOVE the crowd for exactly the reason netG
   // does: a net drawn under the bodies it has caught reads as something lying on the bottom, which
@@ -9279,7 +9307,7 @@ export function createRenderer(app) {
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, spurG, polypG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, spurG, polypG, burstWakeG, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
@@ -11058,8 +11086,9 @@ export function createRenderer(app) {
     }
   }
 
-  // dust motes: fixed small set of soft dots drifting slowly up-right in SCREEN
-  // space (own container directly on stage, unaffected by camera/world position).
+  // dust motes: fixed small set of soft dots drifting slowly in SCREEN space — up-right by default,
+  // down-left where the chapter asks for a negative speedMul (own container directly on stage,
+  // unaffected by camera/world position, and so unaffected by floorTint: see CHAPTERS.reef.dust).
   // Active during both gameplay and idle so the scene always feels alive.
   const DUST_COUNT = 14
   const dustMotes = []
@@ -11092,6 +11121,8 @@ export function createRenderer(app) {
     // speedMul/sway (v7.x): the same 14 motes read as WIND at their built-in pace, which is wrong on
     // a floor that is under water — sand does not blow through water, it hangs in it. Both default
     // to no-ops so every chapter but the ones that ask keeps the drift it was tuned with.
+    // speedMul may be NEGATIVE: it scales vx and vy together, so a negative one reverses the drift
+    // to down-left, which is the only correct direction in a lane chapter (see CHAPTERS.reef).
     const mul = dustLook?.speedMul ?? 1
     const sway = dustLook?.sway ?? 0
     for (let i = 0; i < dustMotes.length; i++) {
@@ -11102,8 +11133,14 @@ export function createRenderer(app) {
       const s = sway ? Math.sin(dustT * 0.5 + i * 1.9) * sway : 0
       m.x += ((m.vx * mul + s) * dt) / w
       m.y -= (m.vy * mul * dt) / h // up = decreasing y
+      // BOTH EDGES on both axes. speedMul carries a SIGN now (The Reef's motes must drift down-lane
+      // with the scroll, not against it), and a one-sided wrap on a negative velocity walks all 14
+      // motes off the left and the bottom inside a few seconds and never brings one back — a
+      // chapter that silently loses its entire dust field, with nothing thrown.
       if (m.x > 1.08) m.x -= 1.16
+      else if (m.x < -0.08) m.x += 1.16
       if (m.y < -0.08) m.y += 1.16
+      else if (m.y > 1.08) m.y -= 1.16
       m.s.position.set(m.x * w, m.y * h)
       m.s.alpha = (0.2 + 0.1 * Math.sin(dustT * 2 + i)) * (dustLook?.alpha ?? 1)
     }
@@ -11477,7 +11514,9 @@ export function createRenderer(app) {
 
   // run.spurs, drawn from the SAME grooves stepSpurs tests against — one definition, two consumers,
   // which is the only reason the gap you can see is the gap you can swim through. The rounded rect
-  // IS the groove edge; the lumps that make it read as coral are drawn INSET and never cross it.
+  // IS the collider on BOTH axes: c0..c1 is the groove edge and f ± half is the band stepSpurs
+  // charges over. Every lobe is inset inside it (SPUR_VIS: bumpOut + bump <= 1, cross inset a full
+  // bumpR), so there is no coral you can swim through for free and none you take damage beside.
   //
   // Two passes for the WHOLE field, not two per ridge: every segment of every ridge is pathed into
   // one foot fill and one body fill. A rebuild happens once per lane crossing (~4.7s), so this is
@@ -11507,9 +11546,9 @@ export function createRenderer(app) {
       ? spurG.roundRect(f - half - grow, c0 - grow, half * 2 + grow * 2, c1 - c0 + grow * 2, r)
       : spurG.roundRect(c0 - grow, f - half - grow, c1 - c0 + grow * 2, half * 2 + grow * 2, r))
     const dot = (f, c, r) => (xAxis ? spurG.circle(f, c, r) : spurG.circle(c, f, r))
-    // The lobes, as lane coordinates, walked once and reused by all three passes below. They sit
-    // ON the ridge and bulge OUT of it along the lane; their cross position is inset by their own
-    // radius, which is what keeps the groove edge honest (see SPUR_VIS).
+    // The lobes, as lane coordinates, walked once and reused by both passes below. They sit ON the
+    // ridge and are inset inside it on both axes — bumpOut + bump <= 1 along the lane, a full bumpR
+    // across it — which is what keeps the drawn ridge and the charged band the same shape.
     const lobes = []
     for (const [f, c0, c1] of segs) {
       const from = c0 + bumpR, to = c1 - bumpR
@@ -11517,7 +11556,8 @@ export function createRenderer(app) {
       const n = Math.max(1, Math.round((to - from) / (half * V.bumpGap * 2)))
       for (let k = 0; k <= n; k++) {
         // Alternating sides rather than hashed: the field is already deterministic, and a zigzag
-        // of lobes reads as a coral spine from directly overhead where a jitter reads as noise.
+        // of lobes reads as a coral spine from directly overhead where a jitter reads as noise. The
+        // zigzag is what SPUR_VIS.bumpOut buys now that it may not reach past the band.
         // The cross position is inset by the FULL bumpR, never by this lobe's own smaller radius,
         // so a small lobe at the end of a segment still cannot creep toward the groove edge.
         const r = bumpR * V.lobes[k % V.lobes.length]
@@ -11556,7 +11596,11 @@ export function createRenderer(app) {
       ? polypG.roundRect(f - half - grow, c0 - grow, half * 2 + grow * 2, c1 - c0 + grow * 2, r)
       : polypG.roundRect(c0 - grow, f - half - grow, c1 - c0 + grow * 2, half * 2 + grow * 2, r))
     for (const pl of run.polyps) {
-      const a = Math.min(1, (pl.dur - pl.t) / V.igniteT) * Math.min(1, pl.t / V.fadeT)
+      // pl.lit is the AGE of the fire and pl.t what is left of it, so the ramp in and the fade out
+      // are read off two different clocks on purpose. Keying the ramp to elapsed-of-duration
+      // instead (dur - t) blanks the band for igniteT every time Fire Coral re-lights a ridge it
+      // is already burning, which is most casts at any fire rate — see fireCoral in sim.js.
+      const a = Math.min(1, pl.lit / V.igniteT) * Math.min(1, pl.t / V.fadeT)
       if (a <= 0) continue
       // Phase-offset by the ridge index so two lit ridges on screen do not throb in lockstep,
       // which reads as one flashing object rather than as two burning ones.
@@ -11746,8 +11790,13 @@ export function createRenderer(app) {
       const foulStep = fouling ? Math.ceil(sh.fouled * 14) : -1
       // Geometry redrawn only when the radius (or the chapter's look) changes, the same cache the
       // eddy ring uses. Neither field's radius moves today, so in practice this runs once per circle.
-      if (sv._r !== sh.r || sv._look !== refillLook || sv._shape !== sh.shape || sv._rot !== sh.rot || sv._foul !== foulStep) {
+      // `phase` joined the cache key with The Reef's lost tank (the pocket branch below): a pocket
+      // has no `shape` and no `rot` and every one of them has the same radius, so without it this
+      // cache is "draw once" and the first tank's bearing would be stamped on every pocket in the
+      // chapter -- verbatim the failure `shape` is in this key to prevent.
+      if (sv._r !== sh.r || sv._look !== refillLook || sv._shape !== sh.shape || sv._rot !== sh.rot || sv._phase !== sh.phase || sv._foul !== foulStep) {
         sv._foul = foulStep
+        sv._phase = sh.phase
         sv._r = sh.r
         sv._look = refillLook
         // The outline is part of the cache key now: two pools at the same radius are no longer the
@@ -11769,6 +11818,36 @@ export function createRenderer(app) {
           sv.body.circle(0, 0, ar).fill({ color: P.air, alpha: P.airA })
           sv.body.circle(-ar * 0.16, -ar * 0.13, ar * 0.5).fill({ color: P.lobe, alpha: P.lobeA })
           sv.ring.circle(0, 0, sh.r).stroke({ width: P.rimW, color: P.rim, alpha: P.rimA })
+          // THE LOST TANK. CHAPTERS.reef.signature's fiction is "air under coral overhangs and lost
+          // scuba tanks", and until WEAPONS.oxygenTank landed the second half of that sentence was
+          // nowhere on screen -- so a card named for a tank was coining a noun the player had never
+          // seen. This is the same object the weapon throws (T.oxyTank, drawn at the same
+          // proportions), lying on the floor under the overhang, half in the silt.
+          //   Drawn into sv.body, which is inside the geometry cache, so it costs nothing per frame.
+          // Its bearing is sh.phase -- the hash-derived angle refillCircleAt already stores on every
+          // circle -- so a field of pockets does not have every tank lying the same way, and it is
+          // deterministic with no Math.random draw (which would re-phase every seeded scenario).
+          //   BUILT FROM A RECTANGLE AND TWO END CAPS rather than a roundRect, because the whole
+          // shape has to lie at an arbitrary bearing and a Graphics rounded rect cannot be rotated
+          // on its own inside a shared Graphics. First cut skipped the caps and shot as a brick.
+          const ta = sh.phase ?? 0
+          const tc = Math.cos(ta), ts = Math.sin(ta)
+          const tx0 = -ar * 0.30, ty0 = ar * 0.44
+          const TL = sh.r * 0.20, TW = sh.r * 0.085
+          const pt = (u, v) => [tx0 + u * tc - v * ts, ty0 + u * ts + v * tc]
+          const STEEL = 0x9a742b, EDGE = 0x3a2a10
+          sv.body.circle(...pt(-TL, 0), TW).fill({ color: STEEL, alpha: 0.92 })
+          sv.body.circle(...pt(TL, 0), TW).fill({ color: STEEL, alpha: 0.92 })
+          sv.body.poly([...pt(-TL, -TW), ...pt(TL, -TW), ...pt(TL, TW), ...pt(-TL, TW)])
+            .fill({ color: STEEL, alpha: 0.92 })
+          // The waist band and the dent: the two marks that make it a LOST tank rather than a tank.
+          sv.body.poly([...pt(-TW * 0.5, -TW), ...pt(TW * 0.5, -TW), ...pt(TW * 0.5, TW), ...pt(-TW * 0.5, TW)])
+            .fill({ color: EDGE, alpha: 0.55 })
+          sv.body.circle(...pt(TL * 0.45, TW * 0.25), TW * 0.32).fill({ color: EDGE, alpha: 0.4 })
+          // The valve: a stub and a handwheel off one end. The detail that says cylinder-with-a-top.
+          sv.body.poly([...pt(TL, -TW * 0.34), ...pt(TL + TW * 0.9, -TW * 0.34), ...pt(TL + TW * 0.9, TW * 0.34), ...pt(TL, TW * 0.34)])
+            .fill({ color: 0x9aa0a6, alpha: 0.92 })
+          sv.body.circle(...pt(TL + TW * 1.25, 0), TW * 0.52).fill({ color: 0x6d7278, alpha: 0.92 })
         } else if (upwelling && fouling) {
           // FOUL SPRING (Silt Veil's mod). The clean water being taken by the player's own silt.
           //
@@ -12345,6 +12424,99 @@ export function createRenderer(app) {
     for (let i = 0; i < 5; i++) {
       const k = (t * 1.05 + i / 5) % 1
       ring(R * (0.18 + 0.82 * k), 2 + 3 * (1 - k), 0xeaf8ff, 0.30 * (1 - k) * fade)
+    }
+  }
+
+  // The Reef's Burst (CHAPTERS.reef.burst, stepRepulse) — live for as long as run._burstT says, on
+  // exactly the contract drawShorebreak above keeps for its own chapter's button.
+  //
+  // THE LENGTH IS THE WHOLE READ, because the length is the whole of what 45 Air buys. The dash's
+  // speed is fixed across the charge range on purpose (see BURST_SPEED_MUL), so the only difference
+  // between an empty-bar press and a full one is that the full one lasts 0.75s against 0.30s — and
+  // with the 'burst' press puff as the only cast, those two were the SAME picture. The wake is drawn
+  // at the time remaining times the dash's own px/s, i.e. at the lane the player has still to cross,
+  // so a full press opens with a tail two and a half times the empty one's and shortens as it spends.
+  //
+  // PLAN VIEW, and BEHIND: the camera looks straight down and the dash is welded to the lane, so
+  // this is the disturbed water the fish has already come through, laid along -fwd. Nothing is
+  // drawn ahead of the player — water in front is water it has not moved yet.
+  //
+  // No Math.random anywhere: the streaks ride on animT and hash(i), the same rule drawBubblePuffs
+  // records, so a frame frozen behind a modal holds still instead of reseeding into static.
+  function drawBurstWake(run, t) {
+    burstWakeG.clear()
+    const left = run?._burstT ?? 0
+    if (left <= 0) return
+    const p = run.player
+    const ax = chapterLaneAxis
+    // Against the LONGEST dash the chapter can buy, so the tail's brightness and width say the
+    // same thing its length does. A press can never exceed BURST_DUR_AT_FULL, so this is 0..1.
+    const k = Math.min(1, left / BURST_DUR_AT_FULL)
+    const L = left * laneScrollFor(CHAPTERS[run.chapter], run.mods) * BURST_SPEED_MUL
+    if (L <= 1) return
+    const bx = -ax.fx, by = -ax.fy            // back along the lane
+    const nx = -by, ny = bx                   // across it
+    const G = burstWakeG
+    const half = PLAYER.radius * (0.55 + 0.8 * k)
+    const r0 = PLAYER.radius * 0.5
+    // The cavitation cone: a wedge opening backward from the body. Filled, not stroked — a stroked
+    // wedge reads as the outline of a shape rather than as water, which is drawBubblePuffs' own
+    // argument for this chapter's whole silt-and-suspension language.
+    G.beginPath()
+    G.moveTo(p.x + nx * r0, p.y + ny * r0)
+    G.lineTo(p.x + bx * L + nx * half, p.y + by * L + ny * half)
+    G.lineTo(p.x + bx * L - nx * half, p.y + by * L - ny * half)
+    G.lineTo(p.x - nx * r0, p.y - ny * r0)
+    G.closePath()
+    G.fill({ color: CORAL_CRUSH.siltTint, alpha: 0.26 * k })
+    // The streaks, riding backward down the cone. THIS is what says the water is moving rather than
+    // that a shape is stuck to the fish — the ripple train's argument in drawShorebreak, one axis
+    // instead of radial. Each fades as it runs out, so the tail dissolves instead of ending on a cut.
+    for (let i = 0; i < 9; i++) {
+      const ph = (t * 2.4 + i / 9) % 1
+      const d0 = L * ph
+      const d1 = Math.min(L, d0 + L * 0.2)
+      if (d1 - d0 < 1) continue
+      const off = (hash(i * 3.7 + 0.9) - 0.5) * 1.8 * half
+      G.beginPath()
+      G.moveTo(p.x + bx * d0 + nx * off, p.y + by * d0 + ny * off)
+      G.lineTo(p.x + bx * d1 + nx * off, p.y + by * d1 + ny * off)
+      G.stroke({ width: 3.4, color: CORAL_CRUSH.bubbleTint, alpha: 0.72 * k * (1 - ph) })
+    }
+  }
+
+  // THE CORAL'S OWN TELL (v7.x The Reef) — run._scraping, published every frame by stepSpurs and
+  // read here and in stepPlayerMovement, nowhere else.
+  //
+  // WHY IT HAS TO EXIST AT ALL: the chapter runs two DoTs at once, drowning and the grate, and both
+  // arrive through the shipped {type:'hurt'} tell — the same red vignette, the same numbers. With
+  // nothing else on screen the player cannot tell which one is killing them, and the two have
+  // opposite answers (breathe / get off the wall).
+  //
+  // GRIT, AND NO SOUND (owner, 2026-08-22). It is silent for the reason SUBMISSION's expiry is: a
+  // scrape runs for seconds at a time, and a sound on that cadence is a drone. No event either —
+  // this reads the contract field directly rather than adding a type nothing would carry.
+  //
+  // RATE-CAPPED, which is the difference between a tell and a wash: CORAL_CRUSH's counts are tuned
+  // for ONE burst, and scraping is a state that can hold for ten seconds. gritEvery is the beat.
+  let gritAcc = 0
+  function updateCoralGrit(run, dt) {
+    if (dt <= 0 || !run._scraping) { gritAcc = 0; return }
+    gritAcc += dt
+    if (gritAcc < CORAL_CRUSH.gritEvery) return
+    gritAcc = 0
+    const C = CORAL_CRUSH
+    const p = run.player
+    const ax = chapterLaneAxis
+    for (let i = 0; i < C.grit; i++) {
+      const a = Math.random() * Math.PI * 2
+      const d = PLAYER.radius * (0.6 + Math.random() * 0.6)
+      // Streamed BACKWARD down the lane on top of its own scatter: the fish is moving through the
+      // coral, so the dust it takes off has to fall behind it rather than sit where it was made.
+      const sp = C.siltSpeed * (0.4 + Math.random() * 0.5)
+      spawnSmoke(T.fx.circle_05, p.x + Math.cos(a) * d, p.y + Math.sin(a) * d,
+        Math.cos(a) * sp - ax.fx * C.gritDrift, Math.sin(a) * sp - ax.fy * C.gritDrift,
+        C.siltT * 0.6, 0.16 + Math.random() * 0.12, C.siltTint, 0.16, 1.1, 0, 0, 0.4)
     }
   }
 
@@ -13508,43 +13680,6 @@ export function createRenderer(app) {
     addShake(1.2, 0.07) // light — crush can fire several times a second mid-rampage
   }
 
-  // A coral head going under a Burst (v7.x, The Reef). Same {type:'crush'} event, same sim path,
-  // completely different physics — see CORAL_CRUSH's block in config.js for why skiesCrush above
-  // cannot be reused: it is dust, brick and window light, and it banks a permanent ruin in the
-  // render-local ledger. Underwater there is no dust and nothing is left standing.
-  //   chunks sink (positive gravity, high drag) — rock in water, thrown and then dropped;
-  //   silt hangs and spreads (no gravity, long life, low alpha) — the cloud you cannot see through;
-  //   bubbles RISE, and they are the only thing in the burst that moves against the fall, which is
-  //     what sells the whole picture as being underwater rather than merely blue.
-  // `r` is the coral's own radius, so the extent ring says exactly what was destroyed.
-  function coralShatter(x, y, r) {
-    const C = CORAL_CRUSH
-    const k = Math.max(0.5, r / 110)   // sized against the bommie, not against the screen
-    for (let i = 0; i < C.chunks; i++) {
-      const a = Math.random() * Math.PI * 2
-      const sp = C.chunkSpeed + Math.random() * C.chunkSpread
-      const tex = T.shard[Math.floor(Math.random() * T.shard.length)]
-      spawnSmoke(tex.tex, x, y, Math.cos(a) * sp * k, Math.sin(a) * sp * k,
-        C.chunkT, (0.5 + Math.random() * 0.45) * k,
-        Math.random() < 0.45 ? C.chunkTintDark : C.chunkTint,
-        0, 0.9, C.chunkGrav, (Math.random() - 0.5) * 8)
-    }
-    for (let i = 0; i < C.silt; i++) {
-      const a = Math.random() * Math.PI * 2
-      const sp = C.siltSpeed * (0.5 + Math.random())
-      spawnSmoke(T.fx.circle_05, x, y, Math.cos(a) * sp * k, Math.sin(a) * sp * k,
-        C.siltT, (0.28 + Math.random() * 0.16) * k, C.siltTint, 0.16, 1.1, 0, 0, 0.45)
-    }
-    for (let i = 0; i < C.bubbles; i++) {
-      const a = Math.random() * Math.PI * 2
-      spawnParticle(T.fx.circle_05, x + Math.cos(a) * r * 0.5, y + Math.sin(a) * r * 0.5,
-        Math.cos(a) * 26, -C.bubbleRise * (0.6 + Math.random() * 0.8),
-        C.bubbleT, (0.05 + Math.random() * 0.05) * k, C.bubbleTint, 0.02, 0.7)
-    }
-    spawnRing(x, y, r, C.ringT, T.novaRing, C.ringTint)
-    addShake(2.4 * k, 0.12)
-  }
-
   // ---- 5. RAMPAGE (spec §3, rampage row) -------------------------------------------------------
   // A REGIME CHANGE, not an object added to the scene: the only sustained rhythmic effect, the only
   // one sourced AT THE PLAYER, the only cyan, and the only one that changes the LIGHTING STATE of
@@ -14365,17 +14500,33 @@ export function createRenderer(app) {
         // (syncSlicks), deliberately — the card is the player doing the leak back, and a player who
         // cannot see that their own weapon is the thing that hurts them has been told nothing.
         const oil = bl.look === 'bilge'
+        // The Reef's two, the fifth and sixth cards on this array. They are the extremes of the
+        // set on VALUE and that is what tells them apart from each other and from the four above:
+        // ink is the darkest thing this pool can draw and the boil the brightest, on a chapter
+        // floor (0x2e4f52) that sits between them. A blot that could be mistaken for the bubbles
+        // that pause your Air would be the worst possible pair of readings in this chapter.
+        //   `ink` is not the bilge's purple-black: that one is a FILM on the bottom with an
+        // iridescent sheen, and this is a body of ink hanging in the water column. Flatter, colder,
+        // no sheen — and the same near-black the inked bodies shed (the status particles above),
+        // so the cloud and what it did to them are one drawing.
+        const ink = bl.look === 'ink'
+        const boil = bl.look === 'boil'
         s.tint = fox
           ? (k % 2 ? 0xeafcff : 0xd9ffe8)
           : silt ? (k % 2 ? 0x9a9670 : 0x6e6a4c)
           : oil ? (k % 2 ? 0x4b3a63 : 0x1b2128)
+          : ink ? (k % 2 ? 0x3a2a56 : 0x1a1030)
+          : boil ? (k % 2 ? 0xe4f4ff : 0xbfe9ff)
           : inEddy ? (k % 2 ? 0x6fe0c0 : 0x3faea0) : (k % 2 ? 0x6fe04a : 0x3fae2f)
         // Denser than a toxin cloud on purpose: this one's job is that you cannot see through it.
         // A cone THINS with depth (0.46 at the apex down to 0.29 at the tip): the silt you just
         // stirred is thickest at your feet, and a flat wedge reads as a painted triangle. The per
         // puff figure is LOWER than a disc's because six of them overlap where three did not.
+        // Ink is the densest thing on this array — its whole job is that nothing can see through
+        // it — and the boil the faintest, because it is a patch of water you have to be able to
+        // see the reef and the crowd THROUGH while you swim it.
         s.alpha = alpha * (cone ? 0.46 - 0.034 * k : k === 0 ? 0.5 : 0.4) *
-          (fox ? 1.45 : silt ? 1.6 : oil ? 1.7 : 1)
+          (fox ? 1.45 : silt ? 1.6 : oil ? 1.7 : ink ? 2.2 : boil ? 0.75 : 1)
       }
     }
     for (let i = n; i < prevCount.bloom; i++) bloomPool[i].root.visible = false
@@ -15217,7 +15368,14 @@ export function createRenderer(app) {
       const k = Math.max(0, Math.min(1, lb.t / Math.max(0.001, lb.flight)))
       // ...but not in the SAME COLOUR. Amber is Debris Toss's, and a shared telegraph was a second
       // reason the two weapons read as one; a ballast gets silt ochre-green instead.
-      const rc = lb.look === 'ballast' ? BALLAST_RING : { line: 0xffb37a, fill: 0xffb37a }
+      //   An OXYGEN TANK keeps the ring (it draws no telegraph of its own, so it is the ballast case
+      // and not the column case) and takes a third colour, for the same reason the ballast took a
+      // second: this ring is the one frame that says gas is about to come out of the floor here, and
+      // it is drawn in the chapter's own colour for air (CORAL_CRUSH.bubbleTint, the pockets' and
+      // the burst's) rather than in the colour of falling masonry.
+      const rc = lb.look === 'ballast' ? BALLAST_RING
+        : lb.tank ? { line: CORAL_CRUSH.bubbleTint, fill: CORAL_CRUSH.bubbleTint }
+        : { line: 0xffb37a, fill: 0xffb37a }
       hazardG.circle(lb.tx, lb.ty, lb.r).stroke({ width: 2, color: rc.line, alpha: 0.25 + k * 0.45 })
       hazardG.circle(lb.tx, lb.ty, lb.r * k).fill({ color: rc.fill, alpha: 0.12 })
     }
@@ -15711,9 +15869,12 @@ export function createRenderer(app) {
     // anchor has to move with it: bake() trims to content, so the five have different bounds and
     // different (ax, ay) — reusing the previous piece's anchor slides the junk off its own shadow.
     const ballast = spriteOf(T.ballastJunk[0])
-    root.addChild(shadow, chunk, net, ballast)
+    // A FOURTH, on the same argument as the third: The Reef's Oxygen Tank. One sprite and a
+    // visibility swap, never a fourth pool.
+    const tank = spriteOf(T.oxyTank)
+    root.addChild(shadow, chunk, net, ballast, tank)
     lobLayer.addChild(root)
-    return { root, shadow, chunk, net, ballast }
+    return { root, shadow, chunk, net, ballast, tank }
   }
   let lobCount = 0
   function syncLobs(run) {
@@ -15739,13 +15900,16 @@ export function createRenderer(app) {
       // The shadow tracks the THROWN OBJECT, not the landing radius — for a net those are different
       // numbers (a 13px bundle that opens to 142px), and using r here painted a shadow the size of
       // the whole detonation under a ball in mid-air.
-      const shadowR = lb.snare > 0 ? 14 : lb.look === 'ballast' ? BALLAST_THROW_R : lb.r
+      // A tank is a 30px object that ruptures at 120-152px, the net's problem exactly: lb.r is where
+      // it BURSTS, not how big the thing in the air is.
+      const shadowR = lb.snare > 0 ? 14 : lb.tank ? 16 : lb.look === 'ballast' ? BALLAST_THROW_R : lb.r
       lv.shadow.scale.set((shadowR / PLAYER.radius) * 0.5 * (1 - 0.3 * (hop / 160)))
       // Which payload. A net TUMBLES more slowly than a rock and is scaled off its own bundle size
       // rather than off `r` — r is where it will OPEN, not how big the thrown ball is, and scaling
       // a 13px bundle to a 142px radius fills the screen with one sprite.
       const isNet = lb.snare > 0
       const isBallast = lb.look === 'ballast'
+      const isTank = !!lb.tank
       // WHICH piece of junk, hashed off the THROW's own target. Deliberately not the pool index
       // `i` (which shifts the moment another lob lands, so the sprite would swap mid-flight) and
       // deliberately not a Math.random in sim: this is cosmetic, and a new random draw per throw
@@ -15754,17 +15918,24 @@ export function createRenderer(app) {
         const look = T.ballastJunk[Math.floor(hash(lb.tx * 0.017 + lb.ty * 0.031) * T.ballastJunk.length) % T.ballastJunk.length]
         if (lv.ballast.texture !== look.tex) { lv.ballast.texture = look.tex; lv.ballast.anchor.set(look.ax, look.ay) }
       }
-      const body = isNet ? lv.net : isBallast ? lv.ballast : lv.chunk
-      lv.chunk.visible = !isNet && !isBallast
+      const body = isNet ? lv.net : isBallast ? lv.ballast : isTank ? lv.tank : lv.chunk
+      lv.chunk.visible = !isNet && !isBallast && !isTank
       lv.ballast.visible = isBallast
       lv.net.visible = isNet
+      lv.tank.visible = isTank
       body.position.set(0, -hop)
       // A ballast TUMBLES SLOWLY. A dumped block is heavy and a rock chunk spinning at k*9 reads as
       // light debris, which is most of why the two looked like the same weapon.
-      body.rotation = isNet ? k * 3.4 + i : isBallast ? k * 2.2 + i : k * 9 + i
+      // A TANK TUMBLES END OVER END, and slower than a rock chunk: it is a heavy steel cylinder,
+      // and the tumble is what the card's own word 'tumbles' promises.
+      body.rotation = isNet ? k * 3.4 + i : isBallast ? k * 2.2 + i : isTank ? k * 4.2 + i : k * 9 + i
       // Scaled off its OWN size and never off `r`: r is the LANDING radius (96-134px here), and
       // using it magnified a 12px bake up to 11x. Baked at 34 and scaled DOWN, per CLAUDE.md.
-      body.scale.set(isNet ? 1 : isBallast ? BALLAST_THROW_R / 34 : (lb.r || 20) / 12)
+      //   A TANK IS 1, and that is the third weapon to need this line said again. The bake is 42px
+      // long and ruptures at 120-152, so the default branch scaled it 10-12x and the shot came back
+      // with one cylinder filling a 390px phone screen — the net's failure and the ballast's,
+      // verbatim, on the third payload to join this rig.
+      body.scale.set(isNet || isTank ? 1 : isBallast ? BALLAST_THROW_R / 34 : (lb.r || 20) / 12)
     }
     for (let i = list.length; i < lobCount; i++) lobPool[i].root.visible = false
     lobCount = list.length
@@ -16942,11 +17113,6 @@ export function createRenderer(app) {
         }
         case 'crush': {
           const cr = radiusAtCrush(e.x, e.y)
-          // v7.x: stepCrush now has two callers — the kaiju walking through a town, and The Reef's
-          // Burst going through a coral head — and they are the same EVENT with different physics.
-          // Branching here (on the chapter latch, not on e.kind) rather than emitting a second
-          // event type keeps the sim's third entry point to the crush path free of a render concern.
-          if (chapterHasBurst) { coralShatter(e.x, e.y, cr); break }
           // v5.10: e.kind IS read now — it is the point. Brick does not fall like grain and neither
           // falls like a pier into water (SKIES_FX.crush.byKind), and the site keeps a kind-specific
           // baked RUIN afterwards: the only thing in the chapter that records what you did.
@@ -16974,10 +17140,44 @@ export function createRenderer(app) {
           }
           break
         }
+        // The Reef's Squid Ink (WEAPONS.squidInk, fireInk). The CLOUD is a run.blooms entry and
+        // draws itself; this is the JET — the ink leaving the body, which is the only frame in
+        // which the weapon is an action rather than a place. Thrown outward from the player in a
+        // ring because that is what the cloud does, and dark enough to read against this chapter's
+        // own dark floor (the bloom's own tint, so the burst and the cloud are one substance).
+        case 'ink': {
+          const n = 14
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2 + Math.random() * 0.4
+            const sp = e.r * (1.1 + Math.random() * 0.7)
+            spawnSmoke(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.5, 0.18 + Math.random() * 0.12, 0x1a1226, 0.14, 1.3, 0, 0, 0.6)
+          }
+          break
+        }
+        // The Reef's Oxygen Tank rupturing (WEAPONS.oxygenTank, the `tank` branch in stepLobs). A
+        // pressurised cylinder splitting under water is a burst of gas going UP, so this is bubbles
+        // rather than the debris ring 'explode' and 'ballast' throw — CORAL_CRUSH's bubble
+        // vocabulary, the chapter's own. The boil it leaves behind is the bloom entry and draws
+        // itself; this is the bang. `shove` (Pressure Wave) doubles the count and the shake, which
+        // is the only place at the landing that switch is visible.
+        case 'rupture': {
+          const C = CORAL_CRUSH
+          const n = e.shove ? 30 : 18
+          for (let i = 0; i < n; i++) {
+            const a = Math.random() * Math.PI * 2
+            const d = Math.random() * e.radius
+            spawnParticle(T.fx.circle_05, e.x + Math.cos(a) * d, e.y + Math.sin(a) * d,
+              Math.cos(a) * (40 + Math.random() * 90), Math.sin(a) * (40 + Math.random() * 90) - C.bubbleRise,
+              0.55, 0.06 + Math.random() * 0.08, C.bubbleTint, 0.02, 0.8)
+          }
+          addShake(e.shove ? 3.0 : 1.8, 0.11)
+          break
+        }
         // The Reef's Burst press (CHAPTERS.reef.burst, stepRepulse). The dash itself is a speed
         // multiplier on the player's own velocity — no entity, nowhere else to draw it — so this
-        // IS the cast: the same silt+bubbles coralShatter throws off a broken coral head, at the
-        // push-off point instead of at a hit, and no chunks or ring since nothing broke.
+        // IS the cast: CORAL_CRUSH's silt and bubbles thrown off the push-off point, which is the
+        // chapter's one vocabulary for water moved hard.
         case 'burst': {
           const C = CORAL_CRUSH
           for (let i = 0; i < C.silt; i++) {
@@ -17419,6 +17619,7 @@ export function createRenderer(app) {
     // undefined — so without this the last frame's foam would sit on the summary screen with
     // nothing left to clear it.
     shorebreakG.clear()
+    burstWakeG.clear()   // same reason as the crest above: run._burstT is undefined on the next run
     deepG.clear()
     for (const s of snares) s.live = false
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
@@ -18408,6 +18609,7 @@ export function createRenderer(app) {
         s._venomT = 0
         s._stunT = 0
         s._enrageT = 0
+        s._blindT = 0
         // v6.4 phase (tardigrade cryptobiosis flicker): last-seen solid/ghost state, so the flip
         // particle below fires on a real transition and not on a recycled slot's first frame.
         s._lastPhaseSolid = undefined
@@ -18540,6 +18742,11 @@ export function createRenderer(app) {
       const fear = e.fearT || 0
       const stun = e.stunT || 0
       const enrage = e.enrageT || 0
+      // v7.x The Reef's Squid Ink. A contract field like the rest, guarded the same way — and the
+      // one on this list that MOST needs a tell, because a blinded body swimming past you on its
+      // old heading is, with no tell at all, exactly what broken AI looks like. That is the
+      // _elFrozen scar's shape, so the field sim writes and the field render reads are the same one.
+      const blind = e.blindT || 0
 
       // frozen and stun both halt walk/idle animation (here: the wisp's rotation wobble)
       const wobble = (e.type === 'wisp' && frozen <= 0 && stun <= 0) ? Math.sin(animT * 9 + e.id * 1.7) * 0.13 : 0
@@ -18592,6 +18799,17 @@ export function createRenderer(app) {
       else if (enrage > 0) s.tint = 0xff8a5c
       else if (stun > 0) s.tint = 0xb9b0a2
       else if (fear > 0) s.tint = 0xcfc2ff
+      // Inked: a flat mid VIOLET, and deliberately NOT the near-black of the cloud itself. The
+      // first cut was 0x574a70 and it was shot: against this chapter s dark floor an inked body
+      // simply disappeared, which is a worse failure than no tell at all — the crowd has to stay
+      // lighter than the terrain, the same argument SPUR_VIS makes about the coral. And most of an
+      // inked body s life is spent OUTSIDE the cloud, on the open floor, being carried astern,
+      // which is exactly where the player has to be able to pick it out.
+      // Separated from fear s 0xcfc2ff by VALUE rather than by hue: both are violet, and they are
+      // two reads that never need telling apart in a hurry (nothing in this chapter fears), where
+      // frozen/chill/stun all sit far away in hue anyway.
+      // Ranked LAST of the behavioural three: a body that has lost you is the least urgent of them.
+      else if (blind > 0) s.tint = 0x8b79bd
       // v6.4 phase (tardigrade cryptobiosis flicker, _phaseSolid === false = ghosted): ranked BELOW
       // stun/fear — a ghost is untouchable, not an emergency — but ABOVE the elite shimmer, so a
       // ghosted elite still reads ghosted first. The alpha drop alone (0.35, below) reads as a
@@ -18649,6 +18867,19 @@ export function createRenderer(app) {
               Math.cos(a) * 20, -6, 0.35, 0.07, 0xffe94d, -0.02, 0)
           }
         } else s._stunT = 0
+
+        // inked: ink shedding off the body as it swims on. Trailing rather than rising like the
+        // frost and venom motes above — this status is about a body still MOVING, and a plume
+        // coming off it says so where a halo over its head would say it is standing there dazed.
+        if (blind > 0) {
+          s._blindT += frameDt
+          if (s._blindT >= 0.22) {
+            s._blindT -= 0.22
+            spawnParticle(T.fx.circle_05, e.x + (Math.random() * 10 - 5), e.y + (Math.random() * 10 - 5),
+              (Math.random() * 20 - 10), (Math.random() * 20 - 10),
+              0.5, 0.09, 0x241a33, 0.05, 1.4)
+          }
+        } else s._blindT = 0
 
         // enrage: embers boiling off it. Faster cadence than any other status — this one is a
         // WARNING, and the flashlight cone can light up a whole crowd at once.
@@ -18742,6 +18973,7 @@ export function createRenderer(app) {
         s._venomT = 0
         s._stunT = 0
         s._enrageT = 0
+        s._blindT = 0
         s._lastPhaseSolid = undefined
         hideAffixBadges(s)
         hideEnemyDecor(s)
@@ -18914,6 +19146,8 @@ export function createRenderer(app) {
     drawBubblePuffs(run)
     drawColumns(run)
     drawShorebreak(run, animT)
+    drawBurstWake(run, animT)   // The Reef: no-op unless run._burstT is live
+    updateCoralGrit(run, dt)    // The Reef: no-op unless run._scraping is set this frame
     drawCrusts(run)
     drawDeepTells(run)   // v7.x The Deep: the Scent outline (the maw's gape is drawn by updateShafts)
     updateDark(run, cx, cy)   // AFTER updateShafts: it cuts its holes from the same run.shafts list
@@ -19237,9 +19471,14 @@ export function createRenderer(app) {
     bv.tip.tint = bv.muzzle.tint = snap ? 0xffffff : lance ? 0xfff0b8 : swept ? 0xa08cff : 0xff5a52
     bv.streakA.tint = bv.streakB.tint = snap ? 0xdff5ff : lance ? 0xffffff : swept ? 0xdcd6ff : 0xffd9d4
 
+    // LOOK-AWARE, and it has to be: the ramp/fade pair below is a fraction of a beam that lives
+    // seconds, and a 0.14s crack under the default one never reaches full width and full alpha in
+    // the same frame. See BEAM_ENVELOPE for the arithmetic and for which looks take which entry.
+    const env = BEAM_ENVELOPE[b.look] ?? BEAM_ENVELOPE.default
+    const fadeT = env.fade || b.duration
     const spawnElapsed = b.duration - b.life
-    const spawnIn = spawnElapsed < 0.12 ? Math.max(0, spawnElapsed / 0.12) : 1 // width squashes in
-    const despawnOut = b.life < 0.3 ? Math.max(0, b.life / 0.3) : 1 // width shrinks with the fade
+    const spawnIn = spawnElapsed < env.ramp ? Math.max(0, spawnElapsed / env.ramp) : 1 // width squashes in
+    const despawnOut = b.life < fadeT ? Math.max(0, b.life / fadeT) : 1 // width shrinks with the fade
     const pulse = 0.8 + 0.15 * Math.sin(animT * 20)
 
     bv.beamBody.scale.set(b.length / T.beamRefLen, (b.width / T.beamRefWidth) * spawnIn * pulse)
@@ -19392,7 +19631,6 @@ export function createRenderer(app) {
     // onQuit), and dereferencing it here threw before ui.showScreen('title') could run, softlocking
     // the player on the Paused screen. Every other line in this block already guards for that.
     chapterHasLane = cfg?.lane === true
-    chapterHasBurst = cfg?.burst === true
     chapterLaneAxis = laneAxes(cfg)   // null-safe on the quit-to-title path, like the line above
     chapterIsVoid = !!chapterRender.voidFloor
     chapterHasDistricts = !!chapterRender.districts

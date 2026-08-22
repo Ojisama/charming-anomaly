@@ -122,8 +122,8 @@ import {
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, DROWN_TICK,
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
-  SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
-  SNAP_BACKBLAST_FRAC, FIRE_CORAL_LEAD,
+  SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
+  SNAP_BACKBLAST_FRAC, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, BREACH_R_MIN, BREACH_R_AT_FULL, tiredness,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
@@ -16865,6 +16865,7 @@ run(testLeLargeWeapons)
   run(testReefAirBurst)
   run(testReefSpurScrape)
   run(testReefNatives)
+  run(testReefPool)
   run(testWreckBloodlust)
   run(testTrawlNet)
   run(testTrawlNatives)
@@ -19386,8 +19387,58 @@ function testSurfFloor() {
   // now under water rather than on a beach.
   assert.ok(WAKE_VIS.every > 0 && WAKE_VIS.alpha < SPLASH_VIS.alpha,
     'the wake must be emitted per distance and be fainter than a body hitting the surface')
-  assert.ok(CHAPTERS.surf.render.dust.speedMul < 0.5,
-    'The Surf\'s dust must be suspended, not blown — sand does not drift at wind speed through water')
+  // EVERY UNDERWATER CHAPTER THAT DECLARES ONE, not just this chapter's. This assert shipped as a
+  // single hardcoded CHAPTERS.surf line and so could not see the other four floors under water,
+  // which is the CHAPTER_ORDER denominator trap in miniature: the fix a chapter needs is asserted
+  // for the one chapter that happened to be open. The denominator is printed below for the same
+  // reason — a sweep whose count you never read is a sweep that can quietly stop sweeping.
+  //
+  // Two separate properties, and the second is the one round 2 got half-right:
+  //   MAGNITUDE — sand does not blow through water, it hangs in it, so the drift has to be well
+  //     under the wind pace the 14 motes were tuned at.
+  //   SIGN — in a LANE chapter the world streams one way past a player who never moves on screen,
+  //     so a positive speedMul is the chapter's own particulate drifting against its own current.
+  //     Slowing the motes does not fix that; only the sign does. Asserted on abs() for the
+  //     magnitude and on the sign for the lane, so neither can be satisfied by the other.
+  const dusty = BOOKS.undertow.chapters.filter((id) => CHAPTERS[id].render?.dust)
+  assert.ok(dusty.length >= 5,
+    `only ${dusty.length} of ${BOOKS.undertow.chapters.length} Undertow chapters declare a dust block — a floor under water with no dust block drifts 14 motes at wind pace`)
+  assert.ok(dusty.includes('reef') && dusty.includes('surf'),
+    `the underwater dust sweep is missing a chapter it exists for: ${dusty.join(',')}`)
+  let dustLanes = 0
+  for (const id of dusty) {
+    const d = CHAPTERS[id].render.dust
+    assert.ok(Math.abs(d.speedMul) < 0.5,
+      `${id}'s dust drifts at x${d.speedMul} — it must be suspended grit, not blown sand: sand does not drift at wind speed through water`)
+    if (!CHAPTERS[id].lane) continue
+    dustLanes++
+    assert.ok(d.speedMul < 0,
+      `${id} is a lane chapter and its motes drift x${d.speedMul}, i.e. AGAINST the scroll — the world streams past a stationary player one way, so the chapter's own particulate has to go with it`)
+  }
+  // ...and the wrap has to work in BOTH directions, or a negative speedMul walks all 14 motes off
+  // the left and the bottom inside a few seconds and the chapter silently has no dust at all.
+  assert.ok(/else if \(m\.x < -0\.08\)/.test(rsrc) && /else if \(m\.y > 1\.08\)/.test(rsrc),
+    'updateDustMotes wraps on one edge per axis only — a negative speedMul empties the screen of motes and never refills it')
+  // AND THE TINT IS JUDGED AT THE SCREEN, NOT AT THE SOURCE. dustLayer is added straight to the
+  // STAGE, outside the world container and so outside floorTint, while every floor prop is
+  // multiplied by it (propTint) — so a mote copied from a litter tint arrives a different colour
+  // from the litter it was copied from. Guarded here because the fix is a re-picked constant in
+  // config.js, and moving the layer under the world would silently invalidate it.
+  {
+    const stageAdd = rsrc.slice(rsrc.indexOf('app.stage.addChild('), rsrc.indexOf('app.stage.addChild(') + 400)
+    assert.ok(/dustLayer/.test(stageAdd),
+      'the dust layer is no longer a direct child of the stage — if it sits under the world now it is multiplied by floorTint, and every chapter dust tint has to be re-picked at the source value')
+    // In this chapter the mote must also stay clear of the three near-white blues that mean AIR,
+    // which is the scarcest signal on the screen and the whole of the map-reading.
+    const t = CHAPTERS.reef.render.dust.tint
+    const chan = (c, sh) => (c >> sh) & 255
+    for (const air of [AIR_POCKET_VIS.sheen, AIR_POCKET_VIS.air, CORAL_CRUSH.bubbleTint]) {
+      const near = [16, 8, 0].every((sh) => Math.abs(chan(t, sh) - chan(air, sh)) < 40)
+      assert.ok(!near,
+        `The Reef's dust 0x${t.toString(16)} sits on top of 0x${air.toString(16)} — the motes read as air in the one chapter where finding air is the whole map`)
+    }
+  }
+  console.log(`PASS run US.k-1 (underwater dust): ${dusty.length} of ${BOOKS.undertow.chapters.length} Undertow chapters declare a dust block, all suspended (|speedMul| < 0.5), the ${dustLanes} lane one drifting WITH the scroll, wrapped on both edges of both axes, and The Reef's 0x${CHAPTERS.reef.render.dust.tint.toString(16)} clear of all three air blues`)
   assert.ok(SANDBAR_VIS.dry != null && /aboveWater\.addChild\(s\)/.test(rsrc),
     'the dry-sand light must be declared and parented above the water, or the sandbar stays submerged')
 
@@ -20897,15 +20948,13 @@ function testLaneAxis() {
 // The gimmick (`lane`) is run LX's. This is the other two, and EVERY case below is written as an
 // EFFECT — a difference in HP lost, in distance travelled, in where the player ends up — because
 // each of these mechanics has a state field that moves whether or not the mechanic does anything.
-// `run.charge` falls on its own; `run._burstT` counts down whether or not it is ever read; an
-// obstacle list changes length for half a dozen reasons. A test asserting any of those passes with
-// the feature deleted.
+// `run.charge` falls on its own and `run._burstT` counts down whether or not it is ever read. A
+// test asserting either passes with the feature deleted.
 //
 // The three silent failures this guards, all of which render fine and throw nothing:
 //   - the pockets exist but sit where the lane cannot reach them, so the bar only ever falls;
 //   - the Burst sets its timer and nothing reads it, so the button is the Pulse with extra steps;
-//   - the coral goes solid the shipped way, and the radial push-out shoves the player back DOWN a
-//     lane whose whole promise is that it does not.
+//   - drowning fires once instead of ticking, or fires in a chapter that has no Air at all.
 // ---- run WK: The Wreck's Bloodlust + Lunge (v7.x Book 2 chapter 4) ---------------------------
 // EVERY ASSERTION HERE IS AN EFFECT, NOT A FIELD. The four silent failures it guards all render
 // fine, throw nothing, and would leave a chapter that looks complete:
@@ -20945,6 +20994,22 @@ function testReefSpurScrape() {
   const withSpurs = all.filter((id) => CHAPTERS[id].spurs)
   assert.deepStrictEqual(withSpurs, ['reef'],
     `run RS.a: expected exactly one chapter of ${all.length} to declare a spur field, found [${withSpurs.join(', ')}]`)
+  // ...and the ART MAY NOT OUTGROW IT. render.js draws each lobe at SPUR_VIS.bump x half the ridge
+  // thickness, offset SPUR_VIS.bumpOut x the same half along the lane, so the drawn reach is
+  // (bump + bumpOut) x half against a charged band of exactly half. At the shipped 0.86/0.52 that
+  // was 62.1px of coral over 45px of grate — 17px, 0.38s of EVERY ridge, that looks solid and is
+  // free, with the spec's whole cost table priced on the smaller number.
+  assert.ok(SPUR_VIS.bump + SPUR_VIS.bumpOut <= 1,
+    `run RS.a: the coral lobes reach x${(SPUR_VIS.bump + SPUR_VIS.bumpOut).toFixed(2)} of the ridge half-thickness the grate charges over — the drawn ridge is bigger than the ridge that hurts, so the player swims through solid-looking coral for nothing`)
+  // ...and the RATE keeps the band its own block claims. SPUR_DPS is priced against the flat DoTs
+  // that share its `dot: true` rules — the chapter's own drowning at the bottom, SLICK/SOAP 6 at
+  // the top — and it has to stay between them: over, and a soaped groove stops being worse than the
+  // coral beside it, which is the inversion that killed spec rev 3; well under, and the ridge is
+  // scenery again with every EFFECT case below still passing, since they all measure the config
+  // number against itself.
+  const drownDps = CHAPTERS.reef.resource.drown.dps
+  assert.ok(SPUR_DPS <= drownDps && SPUR_DPS >= drownDps / 2,
+    `run RS.a: the coral scrapes at ${SPUR_DPS} dps against this chapter's own drowning at ${drownDps} — outside [${drownDps / 2}, ${drownDps}] the ridge is either worse than the hazards it is meant to sit under or too cheap to be a decision`)
 
   const reefRun = (seed = 20260822) => {
     Math.random = mulberry32(seed)
@@ -20970,8 +21035,9 @@ function testReefSpurScrape() {
   //   'coral'  ride the wall — solid ridge at every spur, played with the stick, no teleporting
   //   'groove' pinned to the nearest ridge's own channel each frame
   //   'osc'    alternating between the two every frame: the edge-clipping exploit, as a fixture
-  const drive = (mode, secs) => {
+  const drive = (mode, secs, t0 = 0) => {
     const run = reefRun()
+    run.time = t0
     const f0 = run.player[LAX.fwd]
     let scraped = 0
     for (let i = 0; i < Math.round(secs / dt); i++) {
@@ -21002,6 +21068,20 @@ function testReefSpurScrape() {
     `run RS.b: the wall-riding fixture spent only ${coral.scraped} frames in coral over ${secs}s — it is measuring open water, and every assertion below would pass vacuously`)
   assert.ok(coral.hp > 0,
     `run RS.b: a player who spent ${(coral.scraped * dt).toFixed(1)}s inside the coral lost NO hp — the ridges are decoration and the chapter's level design costs nothing`)
+  // AND IT COSTS THE STATED RATE, not merely something. `> 0` survives the grate charging a
+  // quarter of SPUR_DPS — which is exactly what the whole suite did when a critic tried it — so the
+  // hp is tied to the time the same fixture MEASURED itself inside coral. 0.8 absorbs hurtPlayer's
+  // per-tick rounding and the part-ticks at each edge; it is not slack for a wrong rate.
+  const inCoral = coral.scraped * dt
+  assert.ok(coral.hp >= SPUR_DPS * inCoral * 0.8,
+    `run RS.b: ${inCoral.toFixed(1)}s inside the coral cost only ${coral.hp} hp, under the ${(SPUR_DPS * inCoral * 0.8).toFixed(1)} floor that ${SPUR_DPS} dps must charge over it — the grate is running at a fraction of its stated rate and nothing else in this file would notice`)
+  // ...and the BAND is the one the config declares. Riding the wall meets solid ridge at every
+  // spur, so the share of the run spent scraping is thick/spacing exactly. Without this, narrowing
+  // the forward band test makes the player spend less time in coral AND take proportionally less
+  // damage, so the floor above scales down with the defect and passes.
+  const share = inCoral / secs
+  assert.ok(Math.abs(share - spec.thick / spec.spacing) < 0.1,
+    `run RS.b: riding the wall spent ${(100 * share).toFixed(1)}% of the run inside coral against the ${(100 * spec.thick / spec.spacing).toFixed(1)}% the ridge geometry declares — stepSpurs is testing a different band from the one config draws and prices`)
   assert.deepStrictEqual(Object.keys(coral.by), ['scrape'],
     `run RS.b: the coral fixture took damage from [${Object.keys(coral.by).join(', ')}] — anything but 'scrape' alone means the world is not empty and the number is not the scrape's`)
   assert.strictEqual(groove.hp, 0,
@@ -21016,13 +21096,20 @@ function testReefSpurScrape() {
   // player oscillating on an edge pays a full tick per crossing — 5/s against a stated 4 dps. Both
   // mutations are visible here, in opposite directions, which is why the band has two sides.
   const osc = drive('osc', secs)
-  const ceiling = SPUR_DPS * dmgScale(secs) * secs + SPUR_DPS * SPUR_TICK
+  const ceiling = SPUR_DPS * secs + SPUR_DPS * SPUR_TICK
   assert.ok(osc.hp > 0,
     'run RS.c: a player clipping the coral every other frame paid NOTHING — the accumulator is being zeroed on exit, so hugging a channel edge is free')
   assert.ok(osc.hp <= ceiling,
     `run RS.c: oscillating on the edge cost ${osc.hp} hp in ${secs}s, past the ${ceiling.toFixed(1)} that ${SPUR_DPS} dps can charge in that time — the tick is firing per crossing instead of per SPUR_TICK`)
   assert.ok(coral.hp <= ceiling,
     `run RS.c: committing to the coral cost ${coral.hp} hp in ${secs}s, past the ${ceiling.toFixed(1)} ceiling — same defect, seen from the other fixture`)
+  // ...AND THE RATE NEVER RAMPS, which no reading of config.js can tell you: `SPUR_DPS = 4` looks
+  // flat whether or not the fire site multiplies it by dmgScale(run.time). The same fixture, same
+  // seed, same path, four minutes later: dmgScale(240) is 1.8, which is where a scaled scrape
+  // passes the SOAP trail's flat 6 and a soaped groove stops being worse than the coral beside it.
+  const late = drive('coral', secs, 240)
+  assert.strictEqual(late.by.scrape, coral.by.scrape,
+    `run RS.c: the same ${secs}s of coral cost ${late.by.scrape} hp at t=240 against ${coral.by.scrape} at t=0 — the scrape is scaling with run time, so it does not stay under the flat DoTs it is priced against`)
 
   // (d) IT TAKES YOUR STEERING AND NOT YOUR SCROLL. Measured in The Beyond, which has no coral at
   // all: the slow MIN is chapter-agnostic, so this isolates SPUR_SLOW_MUL as the only difference
@@ -21056,7 +21143,7 @@ function testReefSpurScrape() {
       'run RS.d: a chapter that declares no spur field still tallied scrape damage — stepSpurs is not gated on the descriptor')
   }
 
-  console.log(`PASS run RS (the coral grate): 1 of ${all.length} chapters declares spurs; riding the wall for ${secs}s cost ${coral.hp} hp of pure 'scrape' over ${(coral.scraped * dt).toFixed(1)}s in the coral, holding a channel cost 0, clipping the edge every frame cost ${osc.hp} against a ${SPUR_DPS} dps ceiling, all three advanced exactly ${coral.fwd}px, and the scrape strafes at x${SPUR_SLOW_MUL} while the scroll never moves`)
+  console.log(`PASS run RS (the coral grate): 1 of ${all.length} chapters declares spurs, drawn to x${(SPUR_VIS.bump + SPUR_VIS.bumpOut).toFixed(2)} of the band it charges over; riding the wall for ${secs}s cost ${coral.hp} hp of pure 'scrape' over ${inCoral.toFixed(1)}s in the coral (${(100 * share).toFixed(1)}% of the run), holding a channel cost 0, clipping the edge every frame cost ${osc.hp} against a ${SPUR_DPS} dps ceiling that four minutes in still charges the same ${late.by.scrape}, all three advanced exactly ${coral.fwd}px, and the scrape strafes at x${SPUR_SLOW_MUL} while the scroll never moves`)
 }
 
 // ---- run RN: The Reef's first two natives (v7.x) -----------------------------------------------
@@ -21066,7 +21153,7 @@ function testReefSpurScrape() {
 // from the nearest straggler; Fire Coral's band is derived from a field that is wiped and rebuilt
 // every 4.7s, so a snapshot that quietly went stale still has a length, a thickness and grooves.
 //
-// The five silent failures it guards:
+// The six silent failures it guards:
 //   - the snap starts aiming (at nearestEnemy, or at facing) and the chapter's thesis card becomes
 //     'an aimed cone', which is exactly what the borrowed stinger it replaced already was;
 //   - the crack ticks twice per cast, doubling the starter's dps with nothing on screen changing;
@@ -21074,7 +21161,10 @@ function testReefSpurScrape() {
 //   - a lit ridge burns the CHANNEL as well as the coral, which deletes the choice the whole
 //     chapter is built on (and Overgrowth, the card sold for exactly that, becomes a no-op);
 //   - a multi-ridge cast lights ONE ridge three times, the pickBloomSpot pathology, which renders
-//     identically to no change at all.
+//     identically to no change at all;
+//   - a re-cast onto a ridge already burning STACKS a second entry instead of topping the first up,
+//     which is a damage doubling on that band at a fire rate the player can buy, with nothing on
+//     screen changing and no other case in this run able to see it.
 function testReefNatives() {
   const dt = 1 / 60
   const AX = laneAxes(CHAPTERS.reef)
@@ -21090,15 +21180,24 @@ function testReefNatives() {
   // (a) THE POOL IS THE ONE THE CHAPTER DECLARES, and the two natives are natives — a card that
   // leaked into another chapter's pool would take every branch below into a chapter with no lane
   // and no ridges, where both weapons are something else entirely.
-  assert.deepStrictEqual(CHAPTERS.reef.weapons, ['pistolShrimp', 'fireCoral', 'quillBurst', 'pulsarSweep'],
+  const REEF_NATIVES = ['pistolShrimp', 'squidInk', 'oxygenTank', 'fireCoral']
+  assert.deepStrictEqual(CHAPTERS.reef.weapons, REEF_NATIVES,
     `run RN.a: The Reef's pool is [${CHAPTERS.reef.weapons.join(', ')}]`)
   assert.strictEqual(CHAPTERS.reef.starter, 'pistolShrimp',
     `run RN.a: the starter is '${CHAPTERS.reef.starter}', not the chapter's own thesis card`)
   const elsewhere = Object.entries(CHAPTERS)
-    .filter(([id, ch]) => id !== 'reef' && id !== 'blank' && (ch.weapons ?? []).some((w) => w === 'pistolShrimp' || w === 'fireCoral'))
+    .filter(([id, ch]) => id !== 'reef' && id !== 'blank' && (ch.weapons ?? []).some((w) => REEF_NATIVES.includes(w)))
     .map(([id]) => id)
   assert.deepStrictEqual(elsewhere, [],
-    `run RN.a: a Reef native is in [${elsewhere.join(', ')}]'s pool — neither has a lane or a ridge to anchor to there`)
+    `run RN.a: a Reef native is in [${elsewhere.join(', ')}]'s pool — none of them has a lane or a ridge to anchor to there`)
+  // THE TWO STAND-INS LEFT THE POOL AND NOT THE GAME. Deleting either from WEAPONS would take it
+  // out of the four other chapters that offer it, which is a change to four chapters nobody asked
+  // about — and a pool edit that quietly did that would pass every other assertion in this file.
+  for (const id of ['quillBurst', 'pulsarSweep']) {
+    assert.ok(WEAPONS[id], `run RN.a: ${id} was DELETED rather than dropped from The Reef's pool`)
+    const owners = Object.entries(CHAPTERS).filter(([, ch]) => (ch.weapons ?? []).includes(id)).map(([cid]) => cid)
+    assert.ok(owners.length > 0, `run RN.a: ${id} is in no chapter's pool at all — it left The Reef and landed nowhere`)
+  }
 
   // A run with the world switched off: no spawner, an immortal player, and the enemy list rebuilt
   // from `mine` every frame so the ONLY bodies in it are the ones each case planted. `_off` pins a
@@ -21220,6 +21319,126 @@ function testReefNatives() {
     }
   }
 
+  // (e2) A REFRESH MAY NOT RESTART THE FIRE. render.js ramps a lit band in over FIRE_CORAL_VIS.igniteT
+  // and it has to key that off the AGE of the fire, because fireCoral re-lights ridges it is already
+  // burning — every cast at any fire rate, since the target is the nearest ridge and the player only
+  // crosses one every 4.7s. An age derived from the countdown (dur - t) resets to zero on every one
+  // of those, so the band vanishes and fades back in while doing full damage: a weapon that looks
+  // switched off. Measured as the field the ramp reads, over a fixture that PROVES a refresh
+  // happened rather than assuming one did — Quick Wake x1 is the common case, and the assertion is
+  // worthless if the polyp was simply never re-lit.
+  {
+    const run = reefRun('fireCoral', 5, { quickWake: 1 })
+    // KEYED ON THE RIDGE INDEX, never on run.polyps[0]. Several ridges are alight at once at this
+    // fire rate and the array is in cast order, so slot 0 is whichever one is oldest — which on this
+    // seed is a ridge the player outran without ever re-lighting it. Watching the slot instead of
+    // the ridge saw 0 refreshes in a window that contains several.
+    const seenT = new Map(), seenLit = new Map()
+    let refreshes = 0, frames = 0, minLit = Infinity
+    drive(run, [], 10, (r) => {
+      for (const pl of r.polyps) {
+        frames++
+        const wasT = seenT.get(pl.i)
+        if (wasT !== undefined && pl.t > wasT + 1e-9) {
+          refreshes++
+          // The whole assertion, taken on the frame the refresh lands: the burn clock went back UP
+          // and the fire's age did not go back DOWN with it.
+          assert.ok(pl.lit > seenLit.get(pl.i),
+            `run RN.e2: a refresh took ridge ${pl.i}'s burn clock from ${wasT.toFixed(2)}s to ${pl.t.toFixed(2)}s and its age from ${seenLit.get(pl.i).toFixed(2)}s to ${pl.lit.toFixed(2)}s — the render ramp reads that age, so the band blanks and fades back in over ${FIRE_CORAL_VIS.igniteT}s while it is still doing full damage`)
+          minLit = Math.min(minLit, pl.lit)
+        }
+        seenT.set(pl.i, pl.t); seenLit.set(pl.i, pl.lit)
+      }
+    })
+    assert.ok(refreshes >= 2,
+      `run RN.e2: only ${refreshes} refreshes in 10s with Quick Wake — the fixture never re-lit a burning ridge, so it cannot see the bug it exists for`)
+    assert.ok(minLit >= FIRE_CORAL_VIS.igniteT,
+      `run RN.e2: the lowest age at a refresh was ${minLit.toFixed(2)}s, under the ${FIRE_CORAL_VIS.igniteT}s ignition ramp — a band still being drawn part-lit after seconds of burning`)
+    assert.ok(frames > 300, `run RN.e2: only ${frames} polyp-frames — the fixture is barely burning anything`)
+  }
+
+  // (e3) A REFRESH REFRESHES, IT DOES NOT STACK. fireCoral re-lights the ridge it is already
+  // burning several times per crossing, and the ONE line stopping that from becoming two entries on
+  // one index is fireCoral's `run.polyps.find`. Replace that lookup with null and every case above
+  // still passes — e2 watches the clock, (f) watches which side of a groove burns, (e) counts a
+  // single cast — while a body on the coral quietly takes more from every extra entry: the "silent
+  // damage doubling at a fire rate the player can buy" the guard's own comment names, measured at
+  // 21% on a scratch tree. So this asserts the two things a stacked entry changes — how many
+  // entries carry one index, and HOW MUCH the band takes off a body standing on it.
+  //
+  // A BODY ON EVERY RIDGE IN THE WINDOW, not on one chosen in advance. The lead ridge advances
+  // every spacing/laneScroll = 4.67s while an L5 cast lands every 3.40s (2.72s with Quick Wake
+  // held, which is what makes an overlap certain rather than a phase accident), so WHICH index
+  // collects two casts is a phase accident: pinning the first ridge lit measured one the player
+  // outran before its second cast and asserted nothing. Five consecutive ridges are occupied and
+  // each body is checked against its OWN band's lit time, so whichever ridge takes the refresh
+  // carries the assertion. The re-light is asserted, never assumed.
+  //
+  // ⚠ MEASURED OFF THE dot HIT EVENTS, NOT off the body's hp. The reef drops rocks (stepRocks) and
+  // they land on enemies too — 3 non-dot hits on one of these bodies in a 14s window — so an hp
+  // read is 'what the band did plus whatever else the chapter did', and the band it is compared
+  // against is tight enough to fail on that alone.
+  {
+    const run = reefRun('fireCoral', 5, { quickWake: 1 })
+    const L = WEAPONS.fireCoral.levels[4]
+    // fireOnTimer waits a whole interval before the first cast, so drive until one lands rather
+    // than guessing a warm-up.
+    for (let i = 0; i < 60 && run.polyps.length === 0; i++) drive(run, [], 0.1)
+    assert.strictEqual(run.polyps.length, 1,
+      `run RN.e3: ${run.polyps.length} ridges lit in the first 6s — the fixture has nothing to stand on`)
+    // Against the lane wall, which run RS proves the braid never reaches, so every body is on CORAL
+    // and not in a channel — and pinned to a world point, because a ridge does not move.
+    const wall = laneHalfWidth(run.viewRadius) - 10
+    const watched = []
+    for (let k = 0; k < 5; k++) {
+      const i = run.polyps[0].i + AX.dir * k
+      const f = spurAt(i, spec, run._obstacleSeed).f
+      const at = AX.fwd === 'x' ? [f, wall] : [wall, f]
+      watched.push({ i, at, litT: 0, refreshes: 0, prevT: null, burn: 0, body: plant(run, { _at: at }) })
+    }
+    let worstDup = 0, worstIdx = ''
+    drive(run, watched.map((w) => w.body), 14, (r) => {
+      const idx = r.polyps.map((pl) => pl.i)
+      if (new Set(idx).size !== idx.length && worstIdx === '') worstIdx = idx.join(', ')
+      for (const w of watched) {
+        for (const ev of r.events) {
+          if (ev.type === 'hit' && ev.dot === true && ev.x === w.at[0] && ev.y === w.at[1]) w.burn += ev.dmg
+        }
+        const mine = r.polyps.filter((pl) => pl.i === w.i)
+        worstDup = Math.max(worstDup, mine.length)
+        if (mine.length === 0) { w.prevT = null; continue }
+        w.litT += dt
+        // The LONGEST clock on the index, so a re-light is detected identically in a tree where the
+        // guard has been removed (there the second entry is the fresh one) and in a healthy one.
+        const t = Math.max(...mine.map((pl) => pl.t))
+        if (w.prevT !== null && t > w.prevT + 1e-9) w.refreshes++
+        w.prevT = t
+      }
+    })
+    const refreshed = watched.filter((w) => w.refreshes > 0)
+    assert.ok(refreshed.length > 0,
+      `run RN.e3: none of ridges [${watched.map((w) => w.i).join(', ')}] was re-lit in 14s with Quick Wake — the fixture never reached the branch it exists to test`)
+    // THE EFFECT, and the half a stacked entry cannot survive: one band ticks L.dmg every L.tick for
+    // as long as it is lit and no faster, refreshed or not — the accumulator is carried across a
+    // refresh — so the burn is the lit time over the tick, with one tick of slack at each end for
+    // where the window's edges fall. A second entry on the index roughly doubles it.
+    for (const w of watched) {
+      const ticks = Math.floor(w.litT / L.tick)
+      assert.ok(w.burn >= (ticks - 1) * L.dmg && w.burn <= (ticks + 1) * L.dmg,
+        `run RN.e3: the band on ridge ${w.i} burned ${w.burn} into the body standing on it over ${w.litT.toFixed(2)}s lit (${w.refreshes} re-lights), against ${ticks} ticks x ${L.dmg} = ${ticks * L.dmg} for the ONE entry a re-cast is meant to leave`)
+    }
+    // And the same fact read off the array rather than off a body, which is the shape the guard is
+    // written in — worth both, because a stacked entry that happened to burn nothing is still a
+    // ridge ticking twice for the next body to walk into it.
+    assert.strictEqual(worstDup, 1,
+      `run RN.e3: a watched ridge carried ${worstDup} entries at once — run.polyps held [${worstIdx}]`)
+    assert.strictEqual(worstIdx, '',
+      `run RN.e3: run.polyps held [${worstIdx}] — one ridge index carries two entries, so that band ticks twice a beat`)
+    // The band is only worth anything on a ridge that was re-lit AND actually burned somebody.
+    assert.ok(refreshed.some((w) => w.burn >= 2 * L.dmg),
+      `run RN.e3: every re-lit ridge burned under two ticks into its body (${refreshed.map((w) => w.i + ':' + w.burn).join(', ')}) — the damage band above is measuring nothing`)
+  }
+
   // (f) THE CORAL BURNS AND THE GAPS DO NOT — which is the whole card, and the only reason the
   // chapter's own choice of channel survives it. Two immortal bodies pinned on the SAME lit ridge,
   // one against the lane wall (always coral — run RS proves the braid never reaches it) and one in
@@ -21282,8 +21501,399 @@ function testReefNatives() {
       'run RN.h: the Pistol Shrimp fired nothing outside a lane chapter — the fallback heading is missing and the card is dead everywhere but one chapter')
   }
 
-  console.log(`PASS run RN (The Reef's first two natives): the snap strikes the body 300px dead ahead and never the NEARER one 220px off the line, exactly once per cast, and Backblast adds a rear crack at x${SNAP_BACKBLAST_FRAC} without touching the forward one; Fire Coral lights 3 DISTINCT ridges ${FIRE_CORAL_LEAD} past the nearest, every one still agreeing with spurAt, burning the coral and never the channel until Overgrowth is taken, reaching the player never, and lighting nothing at all in a chapter with no ridges`)
+  // (i) EVERY BEAM GETS ONE BRIGHT FRAME, and this is arithmetic rather than taste. placeBeam
+  // scales the bar's WIDTH by the ramp-in and its ALPHA by the fade-out, so a beam whose whole life
+  // is shorter than the pair never shows both at once: the shipped 0.12/0.30 against the Pistol
+  // Shrimp's 0.14s crack peaked at 56% width and 24% alpha — a 4px sliver at its brightest and a
+  // full-width bar at 2% when it vanished, i.e. the chapter's STARTER with no visible frame in it.
+  // Nothing else could see that. run EV only asks that the {type:'snap'} event has a consumer, the
+  // cases above measure damage, and a look tuned for one weapon silently mis-serves another because
+  // the envelope was a pair of literals inside placeBeam rather than a table beside the beam it
+  // belongs to. Checked for every beam-pushing weapon at every level, both halves:
+  //   the SOURCE, so the numbers cannot drift back inline where nothing can reach them;
+  //   the ARITHMETIC, replaying placeBeam's own two lines off BEAM_ENVELOPE.
+  {
+    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    const at = rsrc.indexOf('function placeBeam')
+    assert.ok(at > 0, 'run RN.i: placeBeam is gone from render.js — the beam envelope has moved and this case is measuring nothing')
+    const place = rsrc.slice(at, at + 2600)
+    assert.ok(/BEAM_ENVELOPE\[b\.look\]/.test(place),
+      'run RN.i: placeBeam no longer reads BEAM_ENVELOPE[b.look] — its envelope is hardcoded again, so a short-lived beam is back to being tuned by a number written for a long one')
+    assert.ok(!/spawnElapsed \/ 0\.|b\.life \/ 0\./.test(place),
+      'run RN.i: placeBeam divides the envelope by a literal — balance and look numbers live in config.js and nowhere else')
+    // THE DENOMINATOR. If a fifth weapon starts pushing run.beams this list is short and the case
+    // quietly stops covering the game; sim.js's own count is the honest check that it does not.
+    const pushers = [['pistolShrimp', 'snapT', 'snap'], ['sunlance', 'duration', 'sunlance'], ['rainbow', 'duration', undefined], ['pulsarSweep', 'duration', undefined]]
+    const simSrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+    const sites = simSrc.split('run.beams.push').length - 1
+    assert.strictEqual(sites, pushers.length,
+      `run RN.i: sim.js has ${sites} run.beams.push sites against the ${pushers.length} weapons listed here — a beam weapon is unchecked`)
+    // placeBeam's own two lines, replayed. `fade: 0` means the beam's own duration.
+    const brightest = (look, duration) => {
+      const env = BEAM_ENVELOPE[look] ?? BEAM_ENVELOPE.default
+      const fade = env.fade || duration
+      let best = -1, bw = 0, ba = 0
+      for (let life = duration - dt; life > 1e-9; life -= dt) {
+        const elapsed = duration - life
+        const w = elapsed < env.ramp ? Math.max(0, elapsed / env.ramp) : 1
+        const a = life < fade ? Math.max(0, life / fade) : 1
+        if (w * a > best) { best = w * a; bw = w; ba = a }
+      }
+      return { bw, ba }
+    }
+    let checked = 0
+    for (const [id, key, look] of pushers) {
+      for (let lv = 0; lv < WEAPONS[id].levels.length; lv++) {
+        const dur = WEAPONS[id].levels[lv][key]
+        assert.ok(dur > 0, `run RN.i: ${id} L${lv + 1} has no '${key}' — the beam's life is read from a key that is not in its levels[]`)
+        const { bw, ba } = brightest(look, dur)
+        checked++
+        assert.ok(bw >= 0.9 && ba >= 0.6,
+          `run RN.i: ${id} L${lv + 1} (${dur}s, look '${look ?? 'default'}') is never brighter than ${(ba * 100).toFixed(0)}% alpha at ${(bw * 100).toFixed(0)}% width — the cast has no frame the player can actually see`)
+      }
+    }
+    assert.strictEqual(checked, 20, `run RN.i: checked ${checked} weapon-levels, expected 20`)
+  }
+
+  console.log(`PASS run RN (The Reef's first two natives): the snap strikes the body 300px dead ahead and never the NEARER one 220px off the line, exactly once per cast, and Backblast adds a rear crack at x${SNAP_BACKBLAST_FRAC} without touching the forward one; Fire Coral lights 3 DISTINCT ridges ${FIRE_CORAL_LEAD} past the nearest, every one still agreeing with spurAt, burning the coral and never the channel until Overgrowth is taken, reaching the player never, surviving a re-light without its ignition ramp restarting or stacking a second entry on the index (one band's worth of burn, measured on 5 occupied ridges), and lighting nothing at all in a chapter with no ridges; and all 20 beam weapon-levels in the game reach >=90% width at >=60% alpha in one frame`)
 }
+// ---- run RP: The Reef's other two natives, its anomaly and its mutator ------------------------
+// WHAT THIS CATCHES THAT NOTHING ELSE CAN. All four of these are behaviour with no health bar
+// attached, which is the shape a damage assertion is blind to:
+//   - Squid Ink's whole mechanic is a PERCEPTION change. A blinded body and an un-blinded one look
+//     identical in run.enemies — same speed, same hp, same position fields — and the difference is
+//     one line at a seam three thousand lines away from the weapon. Delete it and the card is a
+//     small damage cloud that also does nothing, with nothing thrown.
+//   - the held heading is captured ONCE. Recompute it per frame off the seek target and the blind
+//     silently becomes a no-op that still tints the body, still sheds ink, and still passes any
+//     test that checks the status is applied.
+//   - the boil MUST NOT REFILL. A one-word edit turns a pause into a source and deletes the
+//     chapter's measured economy (CHAPTERS.reef.resource: 76% of a run at zero against 0%), and a
+//     test that only checks 'the bar behaved differently inside the bubbles' cannot tell them apart.
+//   - Last Breath's ramp and its drown tax are two different sites (anomalyDamageMul and
+//     hurtPlayer) and either can be missing while the card still reads as working.
+//   - Tidal Race has to be scoped to reef ALONE. Spring Tide is the counter-example that already
+//     ships: it computes its chapter list from a field, so it belongs to the BOOK and can never
+//     satisfy this chapter's audit however many chapters carry it.
+function testReefPool() {
+  const dt = 1 / 60
+  const AX = laneAxes(CHAPTERS.reef)
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  const reefRun = (wid, level, mods, seed = 20260822) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'reef', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'reef', 'run RP did not start in the reef — the WIP gate or the meta is wrong, and every number below is another chapter')
+    run.weapons = wid ? [{ id: wid, level }] : []
+    run.player.hp = run.player.maxHP = 1e9
+    run.mods.spawnMul = 0
+    run.player.critChance = 0
+    if (wid && mods) Object.assign(run.weaponMods[wid], mods)
+    return run
+  }
+  // ⚠ THE BODIES ARE FREE HERE, unlike run RN's pinned fixtures — the whole subject is where a body
+  // GOES, so pinning it would delete the measurement. What IS pinned is the population: the lane
+  // runs stepFormations beside the ordinary ring spawner and `spawnMul` does not reach it, so seven
+  // marchers arrived inside the first two seconds of the first draft of this scenario and shoved the
+  // subject through the separation pass. Every frame here therefore rebuilds run.enemies from the
+  // fixture's own list, which is the pinned-population half of run RN's `drive` without its pinned
+  // POSITIONS.
+  const mk = (run, ox, oy, speed = 60) =>
+    makeStatusEnemy(run, { x: run.player.x + ox, y: run.player.y + oy, hp: 1e7, speed })
+  const drive = (run, mine, secs, stick = { x: 0, y: 0 }, each = null) => {
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      run.enemies = mine.filter((e) => !e._dead)
+      stepSim(run, stick, dt)
+      if (each) each(run)
+      run.events.length = 0
+    }
+  }
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
+  // The shortest angle between two bearings, folded to [0, pi].
+  const between = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)))
+  const CROSS = AX.cross === 'y' ? { x: 0, y: 1 } : { x: 1, y: 0 }
+
+  // (a) THE BLIND IS A PERCEPTION CHANGE, MEASURED AS A HEADING THAT STOPS TURNING. Two runs off the
+  // same seed and the same fixture, one holding the ink and one holding nothing at all; in both the
+  // player then runs across the lane for 1.2s, which is an instruction to any seeking body to turn.
+  //   The subject is the body's own DIRECTION OF TRAVEL at the start of that window against its
+  // direction at the end. That is deliberately not a distance and not a bearing-to-player: a
+  // distance is explained equally well by a slow (which (b) exists to rule out), and a bearing read
+  // near contact is numerically meaningless — the first draft of this case measured 88° of "drift"
+  // off two bodies 3px apart.
+  let blindTurn = 0, seeTurn = 0, blindGap = 0, seeGap = 0, blindTravel = 0, seeTravel = 0
+  const WINDOW = 1.2
+  {
+    const sample = (withInk, forSecs) => {
+      const run = reefRun(withInk ? 'squidInk' : null, 5)
+      // The cadence is 3.8s at L5 and the body would be standing on the player by then. Arming the
+      // timer is a fixture convenience and changes nothing the case measures — the cloud that lands
+      // is the one fireInk builds, at the level's own numbers.
+      if (withInk) run.weaponTimers.squidInk = 0.02
+      const e = mk(run, AX.cross === 'x' ? 150 : 0, AX.cross === 'y' ? 150 : 0)
+      const mine = [e]
+      let t = 0
+      while (t < 4 && (withInk ? (e.blindT ?? 0) <= 0 : t < forSecs)) { drive(run, mine, dt); t += dt }
+      if (withInk) assert.ok((e.blindT ?? 0) > 0, 'run RP.a: 4s of Squid Ink and nothing was ever blinded — the cloud carries no `blind` tag, or stepBlooms never reads it')
+      // Direction of travel over the first six frames of the window, and over the last six.
+      const leg = (frames) => {
+        const from = { x: e.x, y: e.y }
+        drive(run, mine, frames * dt, CROSS)
+        return { b: Math.atan2(e.y - from.y, e.x - from.x), d: dist(from, e) }
+      }
+      const first = leg(6)
+      const mid = leg(Math.round(WINDOW / dt) - 12)
+      const last = leg(6)
+      return {
+        t, turn: between(first.b, last.b), gap: dist(e, run.player),
+        travel: first.d + mid.d + last.d, speed: e.speed, alive: !e._dead,
+      }
+    }
+    const blind = sample(true)
+    const see = sample(false, 0)   // filled in below with the ink run's own time-to-blind
+    const seeMatched = sample(false, blind.t)
+    assert.ok(blind.alive && seeMatched.alive, 'run RP.a: a fixture body died mid-window — every number here is about a corpse')
+    blindTurn = blind.turn; seeTurn = seeMatched.turn
+    blindGap = blind.gap; seeGap = seeMatched.gap
+    blindTravel = blind.travel; seeTravel = seeMatched.travel
+    void see
+    assert.ok(seeMatched.turn > 0.4,
+      `run RP.a: the CONTROL body — no ink anywhere in the run — turned only ${(seeMatched.turn * 180 / Math.PI).toFixed(0)}° while the player crossed the lane in front of it. The fixture is not asking anything to re-aim, so the ink reading below proves nothing.`)
+    assert.ok(blind.turn < 0.02,
+      `run RP.a: the blinded body turned ${(blind.turn * 180 / Math.PI).toFixed(1)}° over ${WINDOW}s — it is still steering, so either the seam branch is gone or the held heading is being recomputed off the seek target every frame (which looks exactly like a working blind and does nothing)`)
+    assert.ok(blind.gap > seeMatched.gap + 40,
+      `run RP.a: the blinded body ended ${blind.gap.toFixed(0)}px from the player against the seeing body's ${seeMatched.gap.toFixed(0)}px — the lane is not carrying it away from you, which is the entire reason this card was built in a scroller rather than on an open map`)
+  }
+
+  // (b) IT IS NOT A HOLD AND NOT A SLOW. A blinded body that had quietly been stunned or slowed
+  // would satisfy every assertion in (a) while being a completely different card — and `slow: 0` on
+  // the cloud is one deleted key away from being false. Measured against the body's OWN speed, not
+  // against the control, because the control is turning and a turning body covers less ground.
+  {
+    const want = 60 * WINDOW
+    assert.ok(Math.abs(blindTravel - want) < want * 0.02,
+      `run RP.b: a blinded body covered ${blindTravel.toFixed(1)}px in ${WINDOW}s at speed 60, against ${want.toFixed(0)}px at full speed — the ink is holding or slowing it, and (a) is then measuring a stun`)
+    assert.ok(blindTravel >= seeTravel,
+      `run RP.b: the blinded body (${blindTravel.toFixed(1)}px) covered less ground than the seeing one (${seeTravel.toFixed(1)}px)`)
+  }
+
+  // (c) IT WEARS OFF AND THE BODY RE-ACQUIRES. The weapon and the clouds are dropped the moment the
+  // blind lands, so nothing re-inks; then the clock runs past `blind`. Guards BOTH halves of the
+  // decay — the timer, and the CLEARED HEADING. Leave _blindHx set and a body inked a second time
+  // resumes a bearing it has not held since the first cloud, which no damage assertion can see.
+  {
+    const run = reefRun('squidInk', 5)
+    run.weaponTimers.squidInk = 0.02
+    // FASTER THAN THE FIXTURES ABOVE, and it has to be: the lane carries the player forward at
+    // laneScroll 45 px/s, so a 60 px/s body re-acquiring perfectly still only closes 15 px/s and
+    // "it never re-acquired" and "it re-acquired and the scroll outran it" read the same. At 150 the
+    // net closing rate is 105 px/s and the two are no longer the same measurement.
+    const e = mk(run, AX.cross === 'x' ? 150 : 0, AX.cross === 'y' ? 150 : 0, 150)
+    const mine = [e]
+    let t = 0
+    while (t < 4 && (e.blindT ?? 0) <= 0) { drive(run, mine, dt); t += dt }
+    assert.ok((e.blindT ?? 0) > 0, 'run RP.c: never blinded')
+    const held = e.blindT
+    run.weapons.length = 0
+    run.blooms.length = 0
+    drive(run, mine, held + 0.5)
+    assert.strictEqual(e.blindT, 0,
+      `run RP.c: blindT is still ${e.blindT} a full ${(held + 0.5).toFixed(1)}s after the last cloud went out — the decay is missing and one jet blinds a body for the rest of the run`)
+    assert.strictEqual(e._blindHx, undefined,
+      'run RP.c: the held heading survived the blind — the next cloud would resume a bearing this body has not had since the last one')
+    const before = dist(e, run.player)
+    drive(run, mine, 1.0)
+    assert.ok(dist(e, run.player) < before - 60,
+      `run RP.c: the body closed only ${(before - dist(e, run.player)).toFixed(0)}px in the second after its blind expired, against ~105 for a body swimming straight at a player the lane is carrying away — it never re-acquired`)
+  }
+
+  // (d) SECOND JET SPREADS TO DISTINCT POSITIONS, ACROSS THE LANE. Asserted as POSITIONS and never
+  // as a count: three clouds stacked on one point is one cloud, renders identically to no mod at
+  // all, and passes any count assertion happily — CLAUDE.md's eight-site trap.
+  {
+    const run = reefRun('squidInk', 5, { secondJet: 2 })
+    run.weaponTimers.squidInk = 0.02
+    let t = 0
+    while (t < 4 && run.blooms.length === 0) { drive(run, [], dt); t += dt }
+    const jets = run.blooms.filter((b) => b.look === 'ink')
+    assert.strictEqual(jets.length, 3, `run RP.d: Second Jet x2 produced ${jets.length} clouds, not 3 — the count is not folding onto levels[].clouds`)
+    const cross = jets.map((b) => b[AX.cross]).sort((a, b) => a - b)
+    const uniq = new Set(cross.map((c) => c.toFixed(2)))
+    assert.strictEqual(uniq.size, 3,
+      `run RP.d: 3 jets landed on ${uniq.size} distinct cross positions — the extra clouds stack on the first, which draws and damages identically to no mod at all`)
+    for (const sp of [cross[1] - cross[0], cross[2] - cross[1]]) {
+      assert.ok(sp > jets[0].maxR * 0.9,
+        `run RP.d: two jets sit ${sp.toFixed(0)}px apart against a ${jets[0].maxR}px radius — that is one blot with a wide middle, not a curtain across the lane`)
+    }
+    const fwd = new Set(jets.map((b) => b[AX.fwd].toFixed(2)))
+    assert.strictEqual(fwd.size, 1,
+      `run RP.d: the jets spread ALONG the lane (${fwd.size} forward positions) instead of across it — a line drawn down the corridor you are already swimming covers nothing new`)
+  }
+
+  // (e) THE BOIL PAUSES THE DRAIN AND NEVER, EVER REFILLS. Three readings off one run: the bar is
+  // FLAT while the player is standing in the bubbles, it is FALLING when they are not, and it never
+  // ends a single frame higher than it started. The third is the one that matters — "the bar
+  // behaved differently in there" is satisfied by a refill just as well as by a pause, and a refill
+  // is the one edit CHAPTERS.reef.resource's measured economy cannot survive.
+  let boiled = 0, boilDrop = 0, freeDrop = 0
+  {
+    const run = reefRun('oxygenTank', 5)
+    run.charge = 60
+    let rose = 0
+    const inBoil = (r) => (r.blooms ?? []).some((bl) => bl.airHold && bl.r > 0 &&
+      Math.hypot(r.player.x - bl.x, r.player.y - bl.y) <= bl.r)
+    let prev = run.charge, wasIn = false
+    drive(run, [], 12, { x: 0, y: 0 }, (r) => {
+      // The other two ways this bar can move, switched off, so what is left is the drain and the
+      // boil alone: no pocket may refill it (run.shafts) and no kill can (the list is empty).
+      r.shafts.length = 0
+      const now = r.charge
+      if (now > prev + 1e-9) rose++
+      if (wasIn) { boiled++; boilDrop += prev - now } else { freeDrop += prev - now }
+      prev = now
+      wasIn = inBoil(r)
+    })
+    assert.ok(boiled > 60,
+      `run RP.e: the player spent only ${(boiled * dt).toFixed(2)}s inside a boil over 12s — the throw and the scroll are not keeping the appointment WEAPONS.oxygenTank.range is arithmetically set for, so half of what the card says never happens`)
+    assert.strictEqual(rose, 0,
+      `run RP.e: the Air bar ROSE on ${rose} frames in a run with no pockets and no kills — the boil has become a refill source, which is the one thing this weapon may never be`)
+    assert.ok(boilDrop < 1e-6,
+      `run RP.e: the bar still fell ${boilDrop.toFixed(2)} over ${boiled} frames inside the bubbles — the drain is not being paused`)
+    assert.ok(freeDrop > 1,
+      `run RP.e: the bar fell only ${freeDrop.toFixed(2)} outside the bubbles — the fixture is not draining at all, so "flat inside" means nothing`)
+  }
+
+  // (f) THROWN DOWN THE LANE, NOT AT A BODY. A fat target is parked 300px OFF the axis — which is
+  // exactly what pickBloomSpot (Debris Toss, Ballast, Silt Veil) would throw at — and the rupture
+  // must land on the forward axis regardless. Swap laneAxes for pickBloomSpot here and this card is
+  // Debris Toss with a reef noun, which is the objection it was rebuilt against.
+  {
+    const run = reefRun('oxygenTank', 5)
+    const bait = mk(run, AX.cross === 'x' ? 300 : 0, AX.cross === 'y' ? 300 : 0, 0)
+    let hit = null
+    drive(run, [bait], 6, { x: 0, y: 0 }, (r) => {
+      for (const ev of r.events) if (ev.type === 'rupture' && !hit) hit = { ...ev, px: r.player.x, py: r.player.y }
+    })
+    assert.ok(hit, 'run RP.f: no rupture in 6s — the tank never landed')
+    const off = Math.abs(hit[AX.cross] - (AX.cross === 'x' ? hit.px : hit.py))
+    assert.ok(off < 1,
+      `run RP.f: the tank landed ${off.toFixed(0)}px off the lane axis, with a fat body sitting exactly that way — it is aiming at enemies rather than throwing up the lane`)
+    assert.strictEqual(bait.hp, bait.maxHP,
+      'run RP.f: the off-axis bait took damage — the throw found it, so this card has targeting it must not have')
+  }
+
+  // (g) PRESSURE WAVE SHOVES, AND ONLY WITH THE SWITCH HELD. An inert switch is the failure run MB.a
+  // exists for, and it is invisible from every other angle: the card is offered, picked, banked and
+  // does nothing, with nothing thrown.
+  {
+    const R = WEAPONS.oxygenTank.levels[4].range
+    const shoved = (mods) => {
+      const run = reefRun('oxygenTank', 5, mods)
+      // ARMED, so the throw leaves on the first frame. The target is computed from the players
+      // position AT THE THROW, and the lane carries them 45px/s: at the shipped 3.40s cadence the
+      // landing point is 153px further up the lane than this parked body, which is outside the
+      // 152px blast. Arming makes where the tank lands and where the body is parked the same place,
+      // which is what this case is about (the shove), not the geometry (that is RP.f).
+      run.weaponTimers.oxygenTank = 0.02
+      const at = mk(run, AX.fwd === 'x' ? R : 0, AX.fwd === 'y' ? -R : 0, 0)
+      let kb = 0
+      // 5s, not 3: the cadence at L5 is 2.60s and the flight another 0.85, so the first tank lands
+      // at 3.45 and a 3s window measured a weapon that had not gone off yet.
+      drive(run, [at], 5, { x: 0, y: 0 }, () => { kb = Math.max(kb, Math.hypot(at.kb.x, at.kb.y)) })
+      assert.ok(at.hp < at.maxHP,
+        'run RP.g: the body parked on the landing point took no damage — it was never in the blast, so the shove reading below is meaningless')
+      return kb
+    }
+    const off = shoved(null)
+    const on = shoved({ pressureWave: 1 })
+    assert.strictEqual(off, 0, `run RP.g: a rupture shoved ${off.toFixed(0)} with Pressure Wave NOT held — the switch is free`)
+    assert.ok(on > 100, `run RP.g: Pressure Wave is held and the rupture shoved ${on.toFixed(0)} — the switch is an inert card`)
+  }
+
+  // (h) LAST BREATH IS TWO SITES AND BOTH HAVE TO BE THERE. The ramp lives in anomalyDamageMul, the
+  // tax in hurtPlayer, and either one missing leaves a card that still reads as working.
+  let ramp = 0, tax = 0
+  {
+    const outgoing = (charge, anom) => {
+      const run = reefRun('pistolShrimp', 5)
+      if (anom) run.anomalies.lastBreath = true
+      const target = mk(run, AX.fwd === 'x' ? 120 : 0, AX.fwd === 'y' ? -120 : 0, 0)
+      drive(run, [target], 3, { x: 0, y: 0 }, (r) => {
+        r.charge = charge
+        // Held on the crack's line as the lane carries the player forward.
+        target.x = r.player.x + (AX.fwd === 'x' ? 120 : 0)
+        target.y = r.player.y + (AX.fwd === 'y' ? -120 : 0)
+      })
+      return target.maxHP - target.hp
+    }
+    const full = outgoing(100, true)
+    const empty = outgoing(0, true)
+    const control = outgoing(0, false)
+    assert.ok(full > 0 && control > 0, 'run RP.h: the fixture dealt no damage at all — nothing below is measuring the card')
+    ramp = empty / full
+    assert.ok(empty > full * 1.5,
+      `run RP.h: Last Breath dealt ${empty} at an empty bar against ${full} at a full one — the ramp in anomalyDamageMul is missing, so half the card does nothing`)
+    assert.strictEqual(control, full,
+      `run RP.h: WITHOUT the anomaly, an empty bar dealt ${control} against a full bar's ${full} — the ramp is leaking onto every Reef run, not only the ones that took the card`)
+    // The tax, measured as the DROWN attribution alone. It must include the drown: that is the whole
+    // trade, and exempting it would make the card a free damage ramp for the exact play it prices.
+    const drowned = (anom) => {
+      const run = reefRun(null, 1)
+      if (anom) run.anomalies.lastBreath = true
+      run.player.hp = run.player.maxHP = 100000
+      drive(run, [], 6, { x: 0, y: 0 }, (r) => { r.charge = 0 })
+      return (run.dmgBySrc ?? {}).drown ?? 0
+    }
+    const plain = drowned(false)
+    const taxed = drowned(true)
+    assert.ok(plain > 0, 'run RP.h: the control run never drowned — the fixture is not sitting at an empty bar')
+    tax = taxed / plain
+    assert.ok(taxed >= plain * 1.9,
+      `run RP.h: drowning cost ${taxed} with Last Breath against ${plain} without — the hurtPlayer half is missing`)
+  }
+
+  // (i) TIDAL RACE IS THIS CHAPTER'S, ALONE, AND IT REALLY MOVES THE SCROLL. Both halves: the
+  // scoping the chapter audit asks about, and the effect, which is one un-threaded argument away
+  // from being a decorative chip on the HUD.
+  {
+    const M = MUTATORS.tidalRace
+    assert.deepStrictEqual(M.chapters, ['reef'],
+      `run RP.i: Tidal Race is scoped to [${(M.chapters ?? []).join(', ')}] — a mutator shared with another chapter belongs to the BOOK, not to this one, and can never satisfy this chapter's audit (Spring Tide is the shipped example)`)
+    // The DENOMINATOR, per CLAUDE.md, over every chapter there is — never CHAPTER_ORDER.
+    const alone = Object.keys(CHAPTERS).filter((cid) =>
+      Object.values(MUTATORS).some((m) => Array.isArray(m.chapters) && m.chapters.length === 1 && m.chapters[0] === cid))
+    assert.ok(alone.includes('reef'),
+      `run RP.i: reef is not among the ${alone.length} of ${Object.keys(CHAPTERS).length} chapters carrying a mutator of their own`)
+    assert.ok(M.effects.coinMul > 1,
+      'run RP.i: Tidal Race has no reward beside its cost — every chapter mutator in the table pairs one with the other')
+    const advance = (mul) => {
+      const run = reefRun(null, 1)
+      run.mods.laneScrollMul = mul
+      const from = run.player[AX.fwd]
+      drive(run, [], 2)
+      return Math.abs(run.player[AX.fwd] - from)
+    }
+    const base = advance(1)
+    const ratio = advance(M.effects.laneScrollMul) / base
+    assert.ok(base > 50, `run RP.i: the control advanced ${base.toFixed(0)}px in 2s against an expected ~90 — the fixture is not scrolling`)
+    assert.ok(Math.abs(ratio - M.effects.laneScrollMul) < 0.02,
+      `run RP.i: laneScrollMul ${M.effects.laneScrollMul} moved the player x${ratio.toFixed(2)} — the mutator is declared and nothing reads it`)
+    // The RENDER half reads the SAME helper with run.mods threaded through, or the burst wake is
+    // drawn for a scroll the player is not travelling at. Source text, the run UG.k trick.
+    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(/laneScrollFor\(CHAPTERS\[run\.chapter\], run\.mods\)/.test(rsrc),
+      'run RP.i: render.js calls laneScrollFor without run.mods — under Tidal Race the burst wake is sized off the un-raced scroll')
+  }
+
+  console.log(`PASS run RP (The Reef's other two natives, its anomaly and its mutator): an inked body's heading stops turning entirely (${(blindTurn * 180 / Math.PI).toFixed(1)}° over ${WINDOW}s against a seeing body's ${(seeTurn * 180 / Math.PI).toFixed(0)}°), keeps every pixel of its speed doing it (${blindTravel.toFixed(0)}px of a possible ${(60 * WINDOW).toFixed(0)}), ends ${blindGap.toFixed(0)}px away against ${seeGap.toFixed(0)}px, and re-acquires the moment the blind lapses; Second Jet lays 3 clouds on 3 distinct cross positions ${(WEAPONS.squidInk.levels[4].maxR * INK_JET_SPREAD).toFixed(0)}px apart; the tank throws down the lane past a fat off-axis bait and its boil holds the bar EXACTLY flat for ${(boiled * dt).toFixed(1)}s with 0 refill frames against ${freeDrop.toFixed(1)} lost outside it, and Pressure Wave shoves only when held; Last Breath pays x${ramp.toFixed(2)} at an empty bar and charges x${tax.toFixed(2)} for it in the drown; Tidal Race is scoped to reef alone out of ${Object.keys(CHAPTERS).length} chapters and really moves the scroll`)
+}
+
+
 function testWreckBloodlust() {
   const dt = 1 / 60
   const res = CHAPTERS.wreck.resource
@@ -21725,7 +22335,7 @@ function testReefAirBurst() {
     const run = reefRun()
     // MEASURED OFF THE ATTRIBUTION, NOT THE HEALTH BAR. The Reef runs TWO DoTs at once — the bar
     // and the coral (run RS) — and a player holding station on the stick is still carried through
-    // a ridge every SPUR_SPACING px, so the bar is not the only thing hitting them. dmgBySrc is
+    // a ridge every CHAPTERS.reef.spurs.spacing px, so the bar is not the only thing hitting them. dmgBySrc is
     // the split the sim already keeps, and `other` fails the case if anything but the chapter's
     // own two hazards lands, which is what the raw HP read used to be standing in for.
     const drowned = () => (run.dmgBySrc ?? {}).drown ?? 0
@@ -21837,145 +22447,75 @@ function testReefAirBurst() {
     console.log(`PASS run RF.d (the dash): 1.2s advance ${none.toFixed(0)}px unpressed, ${empty.toFixed(0)}px on an EMPTY bar (+${(empty - none).toFixed(0)}), ${full.toFixed(0)}px on a full one (+${(full - none).toFixed(0)}); The Beyond's own press moves it not one pixel`)
   }
 
-  // (e) THE BURST SHATTERS CORAL, AND ONLY THE BURST DOES. Same coral, same seed, same 1.2s: with
-  // the button it is gone and with it a {type:'crush'} event, a gem and a permanent _crushed entry;
-  // without the button it is still standing. Both halves matter — a reef where merely touching
-  // coral destroys it is the "structure with HP is a shelter pocket" failure in reverse, and it
-  // would pass any test that only looked at the pressed run.
-  {
-    const plant = (run) => {
-      const p = run.player
-      const o = { r: 80, _cell: 'rf-test', kind: STRUCTURE_KINDS[0] }
-      o[LAX.fwd] = p[LAX.fwd] + LAX.dir * 150
-      o[LAX.cross] = p[LAX.cross]
-      run.obstacles.length = 0
-      run.obstacles.push(o)
-      run._obstacleSeed = null   // freeze the field so streamObstacles cannot add or drop anything
-      return o
-    }
-    const idle = reefRun()
-    plant(idle)
-    let idleCrush = 0
-    for (let i = 0; i < Math.round(1.2 / dt); i++) {
-      stepSim(idle, { x: 0, y: 0 }, dt)
-      for (const e of idle.events) if (e.type === 'crush') idleCrush++
-      quiet(idle)
-    }
-    assert.strictEqual(idle.obstacles.length, 1, 'the coral vanished without anyone pressing the button')
-    assert.strictEqual(idleCrush, 0, 'a crush fired with the button untouched')
-
-    const burst = reefRun()
-    const o = plant(burst)
-    burst.charge = res.max
-    // The XP, not run.gems: a lane sets magnet = Infinity (stepPickups), so the gem the crush path
-    // drops is collected within the frame and asserting on the array finds nothing. The pickup is
-    // the effect anyway — the gem is only how it gets there.
-    const xp0 = burst.player.xp
-    let crushes = 0, crushAt = null
-    for (let i = 0; i < Math.round(1.2 / dt); i++) {
-      stepSim(burst, { x: 0, y: 0, skill: i === 0 }, dt)
-      for (const e of burst.events) if (e.type === 'crush') { crushes++; crushAt = e }
-      quiet(burst)
-    }
-    assert.strictEqual(burst.obstacles.length, 0, 'the Burst went through the coral and left it standing')
-    assert.strictEqual(crushes, 1, `expected exactly one crush event, got ${crushes}`)
-    assert.ok(crushAt && crushAt.x === o.x && crushAt.y === o.y,
-      'the crush event does not carry the coral position — render.js draws the shatter there and would put it on the player instead')
-    assert.ok(burst._crushed.has('rf-test'),
-      'the shattered cell was not recorded in run._crushed — streamObstacles re-rolls the identical coral back in at the next cell crossing (the v5.9.1 bug)')
-    assert.ok(burst.player.xp - xp0 >= CRUSH_XP,
-      `shattering the coral paid ${burst.player.xp - xp0} XP, not the CRUSH_XP ${CRUSH_XP} the shipped path drops — the Burst is removing obstacles by some other route`)
-    console.log('PASS run RF.e (the Burst shatters): one press removes the coral permanently (crush event at the right place, CRUSH_XP paid, _crushed entry banked); the same 1.2s with the button untouched leaves it standing')
-  }
-
-  // (f) THE CORAL IS SOLID ACROSS THE LANE AND NOWHERE ELSE. This is the case that guards the reason
-  // stepObstacles has refused to collide in a lane since v5.18: its radial push-out shoves the
-  // player back DOWN the lane, reversing the one constant the mode guarantees. Measured as the
-  // forward advance against a coral-free control, and it has to be EXACT — a push that only
-  // sometimes costs a few pixels is precisely the shipped bug, and any tolerance hides it.
-  {
-    const strafeInto = (place) => {
-      const run = reefRun()
-      run.obstacles.length = 0
-      run._obstacleSeed = null
-      if (place) run.obstacles.push(place(run))
-      const p0 = run.player[LAX.fwd]
-      for (let i = 0; i < Math.round(3 / dt); i++) { stepSim(run, LAX.cross === 'x' ? { x: 1, y: 0 } : { x: 0, y: 1 }, dt); quiet(run) }
-      return { fwd: (run.player[LAX.fwd] - p0) * LAX.dir, cross: run.player[LAX.cross] }
-    }
-    const control = strafeInto(null)
-    // A coral wholly inside the lane, sitting on the path a strafing player takes.
-    const inside = strafeInto((run) => {
-      const o = { r: 90, _cell: 'rf-in', kind: STRUCTURE_KINDS[0] }
-      o[LAX.fwd] = run.player[LAX.fwd] + LAX.dir * 100
-      o[LAX.cross] = 150
-      return o
-    })
-    // ...and one whose circle reaches past the wall. Scenery, deliberately: making it solid seals
-    // the corridor, because the player cannot go round something that ends outside the lane.
-    const straddling = strafeInto((run) => {
-      const hw = laneHalfWidth(run.viewRadius)
-      const o = { r: 120, _cell: 'rf-out', kind: STRUCTURE_KINDS[0] }
-      o[LAX.fwd] = run.player[LAX.fwd] + LAX.dir * 100
-      o[LAX.cross] = hw - 20
-      return o
-    })
-    assert.strictEqual(inside.fwd, control.fwd,
-      `a solid coral changed the forward advance (${inside.fwd.toFixed(4)} vs ${control.fwd.toFixed(4)}) — the push-out is moving the player along the lane, which is the v5.18 bug this chapter turned collision back on around`)
-    assert.ok(Math.abs(inside.cross - control.cross) > 20,
-      `the strafing player ended at the same place across the lane with and without a coral in the way (${inside.cross.toFixed(1)} vs ${control.cross.toFixed(1)}) — the coral is not solid at all`)
-    assert.strictEqual(straddling.cross, control.cross,
-      `a coral reaching past the lane wall pushed the player (${straddling.cross.toFixed(1)} vs ${control.cross.toFixed(1)}) — it is a stretch of corridor with no way through`)
-    // And the crowd still passes straight through, which is what keeps a rank a rank.
-    const run = reefRun()
-    run.obstacles.length = 0
-    run._obstacleSeed = null
-    const o = { r: 90, _cell: 'rf-e', kind: STRUCTURE_KINDS[0] }
-    o[LAX.fwd] = run.player[LAX.fwd] + LAX.dir * 400
-    o[LAX.cross] = 0
-    run.obstacles.push(o)
-    // The shipped hand-placed-enemy helper, then stunned solid: stepEnemyMovement checks stunT
-    // above every behaviour, so ANY movement this enemy shows can only have come from the obstacle
-    // push-out. Hand-rolling the object instead is how this case first read as a crash.
-    //
-    // OVERLAPPING BUT OFF-CENTRE, and that is the difference between this case working and this
-    // case asserting nothing. The first cut parked the enemy on the obstacle's exact centre, where
-    // the separation is 0 and every push-out in this file has to special-case the missing direction
-    // — a mutation that re-enabled the enemy loop SURVIVED, because its own `d < 1e-6` guard
-    // skipped the single body the test had placed. Offset by 0.4r/0.2r it is unambiguously inside
-    // the circle and unambiguously to one side of its centre.
-    const e = makeStatusEnemy(run, { x: o.x + o.r * 0.4, y: o.y + o.r * 0.2, speed: 0 })
-    e.flags = []
-    e.stunT = 99
-    run.enemies.push(e)
-    const ex = e.x, ey = e.y
-    stepSim(run, { x: 0, y: 0 }, dt)
-    run.rocks.length = 0; run.events.length = 0
-    assert.ok(e.x === ex && e.y === ey,
-      `a stunned enemy standing inside a coral was pushed to (${e.x.toFixed(1)}, ${e.y.toFixed(1)}) — the enemy half of stepObstacles is running in the lane, and a rank crossing a bommie will be shoved apart`)
-    console.log(`PASS run RF.f (solid, across the lane only): forward advance identical to ${control.fwd.toFixed(4)}px with and without coral, cross moved ${Math.abs(inside.cross - control.cross).toFixed(0)}px by an in-lane coral and 0px by one reaching past the wall, and the crowd still passes through`)
-  }
-
-  // (g) THE RENDER SIDE. render.js is not importable (Pixi + DOM), so this is run UG.k's source-text
-  // trick, and the shape it looks for is the three-link chain where any broken link is a SILENT
-  // no-op: the look is DECLARED for this signature, the config block is READ, and the crush event
-  // BRANCHES before it reaches the skies' own dust-and-ruins path. Miss the last one and a coral
-  // head shatters into brick shards and leaves a permanent baked ruin on the sea floor.
+  // (e) THE RENDER SIDE. render.js is not importable (Pixi + DOM), so this is run UG.k's source-text
+  // trick, and the shape it looks for is the two-link chain where a broken link is a SILENT no-op:
+  // the look is DECLARED for this signature, and the config block is READ. Miss either and the
+  // chapter streams pockets the renderer draws with somebody else's palette, or not at all.
   {
     const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
     assert.ok(/sigType === 'air' \? 'pocket'/.test(src),
       "render.js never resolves refillLook to 'pocket' for the air signature — The Reef streams pockets the renderer then refuses to draw, exactly as The Surf's tide pools shipped invisible")
     assert.ok(/pocket \? AIR_POCKET_VIS/.test(src) && /const pocket = refillLook === 'pocket'/.test(src),
       'updateShafts never reads AIR_POCKET_VIS — the pocket would draw with the tide pool palette, i.e. a dark hole where the air is')
-    assert.ok(/chapterHasBurst = cfg\?\.burst === true/.test(src),
-      'render.js never latches chapterHasBurst from the chapter config, so the crush branch below can never be taken')
-    assert.ok(/if \(chapterHasBurst\) \{ coralShatter\(/.test(src),
-      "the 'crush' event does not branch on chapterHasBurst — a shattered coral head would throw brick dust and leave a baked ruin")
-    assert.ok(/function coralShatter\(/.test(src), 'coralShatter is called but never defined')
-    console.log('PASS run RF.g (the reef draws its own): refillLook resolves pocket, updateShafts reads AIR_POCKET_VIS, and the crush event branches to coralShatter before the skies dust path')
+
+    // THE BUTTON HAS A CAST, AND IT IS THE DURATION THAT IS DRAWN. This is the _elFrozen shape
+    // exactly: run._burstT had six references in sim.js and ZERO in render.js, so 45 Air — the
+    // single biggest spend in the chapter's economy — bought a dash that looked identical whether
+    // it lasted 0.30s or 0.75s, which is the whole of what the bar buys (BURST_SPEED_MUL is fixed
+    // across the charge range on purpose). A press-time particle case is NOT this: it fires once
+    // on the {type:'burst'} event and cannot say anything about how long the dash runs. So the
+    // three links are asserted separately, because each one is a silent no-op on its own —
+    //   1. the field is read at all;
+    //   2. it is read against BURST_DUR_AT_FULL, i.e. the picture SCALES with the spend rather
+    //      than being an on/off flag that an empty press and a full one both satisfy;
+    //   3. the reader is called from sync(), the per-frame path. A field read inside a function
+    //      nothing calls is the same defect with more steps.
+    // COMMENTS STRIPPED FIRST, and that line is load-bearing exactly as run MB.a's is: every field
+    // below is discussed in prose right beside its wiring, so a raw substring search over render.js
+    // is satisfied by the sentence alone. Both of the mutations that deleted a READ and left the
+    // paragraph explaining it passed until this existed.
+    const bare = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    assert.ok(/_burstT/.test(bare),
+      "render.js never reads run._burstT — the Burst has no cast for its DURATION, so an empty-bar 0.30s dash and a full-bar 0.75s one are the same picture and the bar buys nothing you can see")
+    const wake = bare.slice(bare.indexOf('function drawBurstWake('), bare.indexOf('function updateCoralGrit('))
+    assert.ok(wake.length > 200, 'the drawBurstWake slice markers moved — this whole block is asserting nothing')
+    assert.ok(/_burstT/.test(wake) && /left \/ BURST_DUR_AT_FULL/.test(wake),
+      'drawBurstWake does not scale off run._burstT / BURST_DUR_AT_FULL — a cast that does not grow with the spend is a flag, not a duration, and an empty press draws what a full one does')
+    const syncBody = bare.slice(bare.indexOf('function sync(run, dt, events) {'))
+    assert.ok(/\n\s*drawBurstWake\(run, animT\)/.test(syncBody),
+      'drawBurstWake is never called from sync() — the reader exists and never runs, which looks exactly like no reader at all')
+
+    // THE CORAL'S TELL. Two DoTs run at once in this chapter and both arrive through the shipped
+    // hurt vignette, so without a second channel the player cannot tell drowning from the grate —
+    // and the two have opposite answers. run._scraping is the contract field sim already publishes
+    // (stepSpurs) and stepPlayerMovement already reads; this is the render side of it. GRIT ONLY,
+    // no sound (owner, 2026-08-22), so there is deliberately no SFX_FOR_EVENT entry to assert and
+    // no new event type at all — which is also why the read has to be guarded here: nothing else
+    // in the tree would notice it going away.
+    assert.ok(/_scraping/.test(bare),
+      'render.js never reads run._scraping — the coral grate has no tell of its own and is indistinguishable from drowning, which is the opposite instruction')
+    const grit = bare.slice(bare.indexOf('function updateCoralGrit('), bare.indexOf('function updateCoralGrit(') + 900)
+    assert.ok(/CORAL_CRUSH/.test(grit) || /C\.silt/.test(grit),
+      'the scrape tell does not reuse CORAL_CRUSH — a second silt table for the same material is two places to tune one look')
+    assert.ok(/gritEvery/.test(grit) && CORAL_CRUSH.gritEvery > 0,
+      'the scrape tell has no rate cap — scraping is a STATE that holds for seconds, so an uncapped per-frame emitter is a wash rather than a tell')
+    const msrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    const sfxMap = msrc.slice(msrc.indexOf('const SFX_FOR_EVENT = {'), msrc.indexOf('const SFX_FOR_EVENT = {') + 3000)
+    assert.ok(!/scrap|grit/i.test(sfxMap),
+      "the coral scrape got a sound — the owner declined it, and for the reason SUBMISSION's expiry has none: a DoT that runs for seconds at a time is a drone, and this one holds for as long as you ride the wall")
+
+    // AND FIRE CORAL'S BAND MAY NOT BLINK. The ignition ramp reads the fire's monotone AGE, never
+    // its remaining time: a refresh tops the clock back up (fireCoral), so a ramp keyed to
+    // elapsed-of-duration restarts at zero and blanks a still-burning ridge for the whole of
+    // igniteT. Asserted on both sides because either half alone is silent — sim can stop
+    // advancing the age, or render can go back to reading the countdown.
+    assert.ok(/pl\.lit \/ V\.igniteT/.test(bare),
+      'syncPolyps keys the ignition ramp off something other than the polyp age — a re-lit ridge blanks for FIRE_CORAL_VIS.igniteT while it is still doing full damage')
+    assert.ok(FIRE_CORAL_VIS.igniteT > 0, 'a zero ignition ramp makes the blink assertion above unfalsifiable')
+    console.log(`PASS run RF.e (the reef draws its own): refillLook resolves pocket and updateShafts reads AIR_POCKET_VIS; drawBurstWake reads run._burstT against BURST_DUR_AT_FULL ${BURST_DUR_AT_FULL}s and is called from sync(); updateCoralGrit reads run._scraping and reuses CORAL_CRUSH every ${CORAL_CRUSH.gritEvery}s with no sound; syncPolyps ramps on the polyp age`)
   }
 
-  console.log(`PASS run RF (The Reef's Air and Burst): the bar is decided by which side of the lane you commit to (0 vs ${res.max} over 150s), an empty bar drowns you at ${res.drown.dps}/s and stops the moment you breathe, the button dashes ${BURST_DUR_MIN}s empty and ${BURST_DUR_AT_FULL}s full, and the coral is solid across the lane only`)
+  console.log(`PASS run RF (The Reef's Air and Burst): the bar is decided by which side of the lane you commit to (0 vs ${res.max} over 150s), an empty bar drowns you at ${res.drown.dps}/s and stops the moment you breathe, and the button dashes ${BURST_DUR_MIN}s empty and ${BURST_DUR_AT_FULL}s full`)
 }
 
 // ---- run TR: The Trawl's net (the gimmick), Feed (the bar) and Breach (the button) --------------

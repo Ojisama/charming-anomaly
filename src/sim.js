@@ -155,9 +155,10 @@ import {
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
-  BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
+  BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, DROWN_TICK,
   SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
-  FIRE_CORAL_LEAD, SNAP_BACKBLAST_FRAC,
+  FIRE_CORAL_LEAD, SNAP_BACKBLAST_FRAC, INK_BLIND_REACH, INK_JET_SPREAD, TANK_SHOVE_KB,
+  LAST_BREATH_MAX_DMG_MUL, LAST_BREATH_DROWN_TAKEN_MUL,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
   GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC, RUSH_DUR, RUSH_MAX_STACKS,
   CHUM_PULL_MUL, CHUM_PANIC_R,
@@ -588,6 +589,18 @@ function anomalyDamageMul(run) {
   // polluted and pays a flat cap anywhere. Unreachable from the real pool, which is chapter-scoped,
   // but devCards ignores every eligibility rule on purpose and ships in the production bundle.
   if (a.runoff && run.chargeMax > 0) mul *= 1 + (RUNOFF_MAX_DMG_MUL - 1) * pollutionFrac(run.charge, run.chargeMax)
+  // LAST BREATH: The Reef's bar as a ramp, running the OTHER way from Runoff's — this one pays for
+  // an EMPTY bar, which is the state CHAPTERS.reef.resource measures a centre-line player spending
+  // 76% of a run in. `1 - charge/max` and not pollutionFrac: that helper is The Shelf's murk
+  // derivation and belongs to that chapter's copy, and a shared name would tie two cards' meanings
+  // together for no gain.
+  //   THE chargeMax > 0 GUARD IS LOAD-BEARING, verbatim Runoff's reason: a chapter with no resource
+  // leaves charge and chargeMax at 0, so without it an empty bar would read as fully empty and pay
+  // the cap anywhere. Unreachable from the real pool, which is chapter-scoped, but devCards ignores
+  // every eligibility rule on purpose and ships in the production bundle.
+  if (a.lastBreath && run.chargeMax > 0) {
+    mul *= 1 + (LAST_BREATH_MAX_DMG_MUL - 1) * (1 - Math.min(1, Math.max(0, run.charge) / run.chargeMax))
+  }
   return mul
 }
 
@@ -718,7 +731,7 @@ function stepPlayerMovement(run, input, dt) {
     // does not declare `burst`, so this multiplier is 1 everywhere else including The Beyond.
     const burstMul = (run._burstT ?? 0) > 0 ? BURST_SPEED_MUL : 1
     p[ax.vCross] = (ax.cross === 'x' ? ix : iy) * speed * LANE_STRAFE_MUL
-    p[ax.vFwd] = ax.dir * laneScrollFor(CHAPTERS[run.chapter]) * burstMul
+    p[ax.vFwd] = ax.dir * laneScrollFor(CHAPTERS[run.chapter], run.mods) * burstMul
     if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
   } else if ((run._lungeT ?? 0) > 0) {
     // THE LUNGE (v7.x, The Wreck). The free-roaming twin of the burst above, and it has to live in
@@ -1599,6 +1612,10 @@ function freshEnemyFields() {
     // freezes it, enrage speeds it up and hardens its contact damage. Ticked in stepEnemyMovement.
     fearT: 0, fearCd: 0, dazeCd: 0, dragT: 0, _ccDR: 1, stunT: 0, enrageT: 0,
     bloomSlowT: 0, // v6.4: a plain speed debuff (folds into slowMul), refreshed by stepBlooms
+    // v7.x The Reef, PUBLISHED for render.js (see the status block there): seconds of blindness
+    // left. While > 0 the retarget seam hands this body a point down its own held heading instead
+    // of the player's position. Refreshed by stepBlooms, decayed in stepEnemyMovement.
+    blindT: 0,
     // v7.x The Deep, both PUBLISHED for render.js (see the status block there):
     //   scentT  seconds left on the Scent mark. Amplifies every source of damage (dealDamage) and
     //           is what render outlines the body with. Refreshed by stepScent, decayed above.
@@ -2019,6 +2036,26 @@ function stepEnemyMovement(run, dt) {
       const pt = run.trail && run.trail[run.trail.length - 1 - lag]
       if (pt) { tx = pt.x; ty = pt.y }
     }
+    // SQUID INK'S BLIND (v7.x, The Reef). LAST at this seam, so it overrides a lure and a trail
+    // sample alike: a body that cannot see the player cannot see a decoy of them either.
+    //
+    // It hands the machines a point INK_BLIND_REACH down the heading the body already had, which is
+    // what "loses you and keeps going" means in a file where every machine reads a point. The
+    // heading is captured ONCE, on the first frame of the blind, and held for its whole length —
+    // recomputing it per frame off (tx - e.x) would re-derive the player's bearing every frame and
+    // the blind would do nothing at all, silently.
+    //   The capture is deliberately taken from the seek target as it stands HERE, after the lure
+    // and pastSeek branches, so a body blinded while chasing a decoy carries on toward the decoy's
+    // last position rather than snapping onto the player's.
+    if ((e.blindT ?? 0) > 0) {
+      if (e._blindHx === undefined) {
+        const bl = Math.hypot(tx - e.x, ty - e.y) || 1
+        e._blindHx = (tx - e.x) / bl
+        e._blindHy = (ty - e.y) / bl
+      }
+      tx = e.x + e._blindHx * INK_BLIND_REACH
+      ty = e.y + e._blindHy * INK_BLIND_REACH
+    }
     const dx = tx - e.x, dy = ty - e.y
     const d = Math.hypot(dx, dy)
     // chill/freeze/bloom slow the seek movement only. // ponytail: movement state machines that
@@ -2192,6 +2229,16 @@ function stepEnemyMovement(run, dt) {
     if (e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt)
     if (e.enrageT > 0) e.enrageT = Math.max(0, e.enrageT - dt)
     if (e.bloomSlowT > 0) e.bloomSlowT = Math.max(0, e.bloomSlowT - dt) // v6.4: refreshed by stepBlooms while inside a cloud
+    // Squid Ink's blind. Refreshed by stepBlooms while inside the ink, decayed here for the reason
+    // scentT's note below gives: stepBlooms only walks the bodies currently in a cloud, so a body
+    // that swims out would otherwise keep the mark for the rest of the run.
+    //   THE HELD HEADING IS CLEARED ON THE FRAME THE BLIND EXPIRES, and that line is the whole
+    // re-blind story: without it a second cloud would resume the FIRST cloud's heading, and a body
+    // blinded twice would swim a direction it has not had for ten seconds.
+    if (e.blindT > 0) {
+      e.blindT = Math.max(0, e.blindT - dt)
+      if (e.blindT === 0) { e._blindHx = undefined; e._blindHy = undefined }
+    }
     if (e.dragT > 0) e.dragT = Math.max(0, e.dragT - dt) // Ballast's impact drag; set once at the landing, never refreshed
     // v7.x The Deep: refreshed by stepScent while inside the smell, exactly as bloomSlowT is by
     // stepBlooms. The decay HAS to live here and not in stepScent — stepScent only walks the bodies
@@ -2839,6 +2886,14 @@ function hurtPlayer(run, rawDmg, dot = false, src = null) {
   // normal invuln window. Derived from run.rampageT, never assigned onto the player: see
   // RAMPAGE_CRUSH_MUL's doc block in config.js for why that distinction is load-bearing.
   if (run.rampageT > 0) return false
+  // LAST BREATH's other half (v7.x, The Reef). Every player-damage path in this file funnels here,
+  // which is the whole reason the card is two lines instead of a multiplier at sixteen call sites —
+  // and it is also why the DROWN tick is doubled along with everything else. That is deliberate,
+  // not an oversight: the card sells damage for an empty bar, and exempting the drowning would make
+  // it a free ramp for the exact play it exists to make dangerous.
+  //   Applied to rawDmg, BEFORE armor, contactDmgTakenMul and HURT_CAP_FRAC, so it composes the way
+  // every other incoming multiplier does and stays under the one-shot cap on the non-dot side.
+  if (run.anomalies?.lastBreath && run.chargeMax > 0 && run.charge <= 0) rawDmg *= LAST_BREATH_DROWN_TAKEN_MUL
   const dmg = dot
     ? Math.max(1, Math.round(rawDmg))
     // v6.3.4 anti-turtle: HURT_CAP_FRAC caps a single non-dot hit so multiplicative sources
@@ -3819,11 +3874,16 @@ const onCoral = (sp, c) => !sp.grooves.some((g) => Math.abs(c - g.c) <= g.hw)
 //
 // ⚠ THE ACCUMULATOR IS CARRIED, and that is an exploit fix rather than a detail. Zeroing it on exit
 // (stepDrown/stepSlick do, correctly, for a bar you are simply in or out of) makes clipping a groove
-// edge for under half a second free. Ticking on ENTRY from zero is worse the other way: it charges
-// a full tick per crossing with no cooldown, so a player oscillating on an edge — or shoved across
-// one — pays 5 ticks/s against a stated 4 dps. Carried, and capped at one tick while you are OUT,
-// the entry tick is exact arithmetic with neither hole: an oscillator can never pay more per second
-// than a player who committed.
+// edge for under half a second free. Ticking on ENTRY from a zeroed accumulator is worse the other
+// way: it charges a full tick per crossing with no cooldown, so a player oscillating on an edge — or
+// shoved across one — pays 5 ticks/s against a stated 4 dps. Carried, and merely CAPPED at one tick
+// while you are out, the entry tick is exact arithmetic with neither hole: an oscillator can never
+// pay more per second than a player who committed. createRun seeds it AT the cap (state.js), so the
+// first ridge of a run bites on entry exactly like every ridge after it.
+//
+// THE CHARGE IS FLAT, NEVER x dmgScale. Every DoT SPUR_DPS is priced against is flat — drowning 4,
+// SLICK/SOAP 6 — so a ramping scrape would cross the soap trail at t=150s and invert the one thing
+// that makes a groove a choice. See SPUR_DPS' block for the whole of that argument.
 //
 // @returns true if the player died.
 function stepSpurs(run, dt) {
@@ -3840,14 +3900,14 @@ function stepSpurs(run, dt) {
     break
   }
   run._scraping = inside   // the strafe slow, read by stepPlayerMovement (see SPUR_SLOW_MUL)
-  run._spurAcc = (run._spurAcc ?? SPUR_TICK) + dt
+  run._spurAcc += dt
   if (!inside) { run._spurAcc = Math.min(run._spurAcc, SPUR_TICK); return false }
   let died = false
   while (run._spurAcc >= SPUR_TICK) {
     run._spurAcc -= SPUR_TICK
     // `dot: true` and a named src, as drowning and the slick are: the renderer's hurt reaction is
     // keyed off both, and main.js's `if (e.dot) continue` already silences the audio.
-    if (!died && hurtPlayer(run, SPUR_DPS * dmgScale(run.time) * SPUR_TICK, true, 'scrape')) died = true
+    if (!died && hurtPlayer(run, SPUR_DPS * SPUR_TICK, true, 'scrape')) died = true
   }
   return died
 }
@@ -4351,8 +4411,19 @@ export function stepCharge(run, dt) {
   // v7.x Book 2 Task 9: Slow Burn (chargeDrainMul) and Big Gulp (chargeRefillMul) scale the drain
   // and the in-circle refill respectively — both default to 1 (no-op) unbought, and both are 1 in
   // every chapter with no resource, so this is inert wherever it always was.
-  let c = run.charge - drainRate * dryMul * run.chargeDrainMul * dt
   const p = run.player
+  // OXYGEN TANK'S BOIL (v7.x, The Reef). It PAUSES the drain and can never add to the bar: the
+  // whole effect is this multiplier, and there is no branch anywhere that writes `c` for a boil.
+  // Written as a factor on the drain term rather than as `if (boiling) { ... }` deliberately —
+  // WEAPONS.oxygenTank's block says why a second refill source is forbidden (the chapter's measured
+  // pocket economy is denominated in pockets being the only one), and a factor of zero is the shape
+  // a future editor cannot accidentally turn into a refill by adding a line.
+  const airHold = (run.blooms ?? []).some((bl) => {
+    if (!bl.airHold || bl.r <= 0) return false
+    const dx = p.x - bl.x, dy = p.y - bl.y
+    return dx * dx + dy * dy <= bl.r * bl.r
+  }) ? 0 : 1
+  let c = run.charge - drainRate * dryMul * run.chargeDrainMul * airHold * dt
   // Opt-in per FIELD, read through refillSpec() so this asks the streamer's own question rather
   // than a second one that could disagree. 0/undefined everywhere but The Shelf.
   // drawdownSecsFor, not a bare refillSpec read: Dead Water multiplies this clock and all three
@@ -4648,48 +4719,6 @@ function resolveSeparationPair(run, i, j) {
 // distance checks/frame. Comparing squared distances skips the sqrt on every non-overlapping pair
 // (the overwhelming majority) and only pays for it on the rare branch that actually needs the unit
 // normal to push something out. Ships to phones; not optional (design doc §1).
-// -- Solid terrain IN A LANE (v7.x, The Reef — CHAPTERS[].laneSolid) -------------------
-// Coral heads you have to go round, in a mode whose whole premise is that you cannot stop and
-// cannot back up. Three restrictions, each answering one half of the shipped `if (lane) return`
-// above (see its comment, and CHAPTERS.reef.laneSolid's):
-//
-//   1. THE PLAYER ONLY. The enemy loop stays off in every lane chapter, so a marching rank still
-//      crosses a bommie in formation. That is not an omission — a rank shoved apart by terrain
-//      stops reading as a rank, which is the second thing the original early return protected.
-//   2. RESOLVED ACROSS THE LANE. The forward coordinate is never written here, so a wall cannot
-//      move you along the lane in EITHER direction: not backward (the ~10% of frames the shipped
-//      comment describes, which locally reverses the one constant the mode guarantees) and not
-//      forward, which would be a free Burst. Solving for the cross offset that puts the player on
-//      the circle AT THEIR CURRENT FORWARD POSITION is the exact fixed point of iterating the old
-//      radial push with the forward component clamped, so it is that clamp, converged, in one step.
-//   3. ONLY WHERE YOU COULD HAVE GONE ROUND. A coral whose circle reaches outside the lane walls is
-//      scenery. Making it solid would put a stretch of corridor behind a wall with no gap — the
-//      structural trap the no-spiral floor forbids — and it would fight stepPlayerMovement's wall
-//      clamp for the player's position every single frame, since the clamp runs earlier in the step
-//      and would not get another turn.
-// The final clamp is belt and braces for the boundary case where a coral sits exactly at the edge
-// of the reachable band: the lane wall outranks the coral, always.
-function stepLaneSolid(run) {
-  const ch = CHAPTERS[run.chapter]
-  if (!ch.laneSolid) return
-  const ax = laneAxes(ch)
-  const p = run.player
-  const hw = laneHalfWidth(run.viewRadius)
-  for (const o of run.obstacles) {
-    if (Math.abs(o[ax.cross]) + o.r > hw) continue      // pokes out of the lane -> scenery (3)
-    const minSep = o.r + PLAYER.radius
-    const dF = p[ax.fwd] - o[ax.fwd]
-    if (Math.abs(dF) >= minSep) continue
-    const dC = p[ax.cross] - o[ax.cross]
-    const need = Math.sqrt(minSep * minSep - dF * dF)
-    if (Math.abs(dC) >= need) continue
-    // Dead centre picks the +cross side rather than a random one, for the same reason the repulse's
-    // dead-centre shove picks the lane's own heading: a coincidence should not be a coin flip.
-    const side = dC < 0 ? -1 : 1
-    p[ax.cross] = Math.max(-hw, Math.min(hw, o[ax.cross] + side * need))
-  }
-}
-
 function stepObstacles(run) {
   if (!run.obstacles || run.obstacles.length === 0) return
   // v5.18: in the lane (beyond) the obstacles are PLANETS — distant bodies you scroll past, not
@@ -4698,11 +4727,10 @@ function stepObstacles(run) {
   // the lane on ~10% of frames when they held a strafe into a planet's belly, locally reversing the
   // one thing this chapter guarantees is constant (LANE_SCROLL_SPEED). It also kept marchers from
   // holding rank, since a rank crossing a planet was shoved apart sideways.
-  // v7.x: BOTH of those are still true, so a lane chapter that wants terrain (The Reef's coral,
-  // CHAPTERS[].laneSolid) gets stepLaneSolid instead of this function's radial push — the player
-  // only, resolved across the lane only, and only for coral you could have gone round. It is gated
-  // on its own chapter field and never on `lane`, so The Beyond takes the bare return it always did.
-  if (CHAPTERS[run.chapter].lane) { stepLaneSolid(run); return }
+  // v7.x: BOTH are still true of The Reef, whose coral is the spur field (stepSpurs) rather than a
+  // collider — a ridge grates and slows the strafe and never pushes, so nothing in a lane is solid
+  // to anything and this return stays bare.
+  if (CHAPTERS[run.chapter].lane) return
   const p = run.player
   // v5.8 kaiju redesign: crushable structures (CHAPTERS[chapter].crush) don't push the PLAYER —
   // they pop on contact instead (stepCrush, below), so treating them as terrain for the player
@@ -4762,15 +4790,6 @@ function stepObstacles(run) {
 // and this function's own splice below removes the cell from `live`, so the very next cell-boundary
 // scan (~1.2s later at PLAYER.baseSpeed/OBSTACLE_CELL, nowhere near a 1900px walk) re-rolled the
 // identical building right back in. The claim was simply wrong, confirmed by playtest.
-// v7.x: THE REEF'S BURST IS THE THIRD ENTRY POINT TO THIS PATH, and reuses it whole rather than
-// copying it — the splice, the permanent run._crushed record, the {type:'crush'} event, the
-// CRUSH_XP gem and the _obstacleRev bump are all things a coral head shattering needs and all
-// things this function already gets right (the v5.9.1 re-roll bug above is the reason a second
-// copy would be a liability). Gated on the chapter declaring `burst` AND a live dash, so outside
-// the dash's third of a second a reef obstacle is ordinary solid terrain (stepLaneSolid) and
-// nothing is destructible at all. The two rampage lines stay behind `crush`: run.rampage is the
-// kaiju's meter, ui.js hides its bar for any chapter without `crush`, and a hidden bar filling in
-// the background is exactly the kind of state that surfaces two versions later as a mystery.
 // -- The bite (v7.x, The Wreck) --------------------------------------------------------
 // The half of the Lunge that is not movement. Runs after the player has moved (stepSim's order), so
 // it tests where the dash actually is this frame rather than where it started.
@@ -4824,11 +4843,10 @@ function stepBite(run) {
 
 function stepCrush(run) {
   const ch = CHAPTERS[run.chapter]
-  const bursting = ch.burst === true && (run._burstT ?? 0) > 0
-  if (!ch.crush && !bursting) return
+  if (!ch.crush) return
   if (!run.obstacles || run.obstacles.length === 0) return
   const p = run.player
-  const crushR = PLAYER.radius * (bursting ? BURST_CRUSH_MUL : run.rampageT > 0 ? RAMPAGE_CRUSH_MUL : 1)
+  const crushR = PLAYER.radius * (run.rampageT > 0 ? RAMPAGE_CRUSH_MUL : 1)
   let changed = false
   for (let i = run.obstacles.length - 1; i >= 0; i--) {
     const o = run.obstacles[i]
@@ -4840,10 +4858,8 @@ function stepCrush(run) {
     changed = true
     run.events.push({ type: 'crush', x: o.x, y: o.y, kind: o.kind })
     run.gems.push({ x: o.x, y: o.y, xp: CRUSH_XP }) // same drop path dealDamage uses for a kill
-    if (ch.crush) {
-      run.rampage = Math.min(1, run.rampage + RAMPAGE_GAIN)
-      run._rampageGraceT = RAMPAGE_GRACE_T // v5.9.1 bugfix: see stepRampage's own comment below
-    }
+    run.rampage = Math.min(1, run.rampage + RAMPAGE_GAIN)
+    run._rampageGraceT = RAMPAGE_GRACE_T // v5.9.1 bugfix: see stepRampage's own comment below
   }
   // Without this bump render keeps drawing the (now-spliced) obstacle until the next natural cell
   // crossing re-triggers streamObstacles — syncObstacles only rebuilds when _obstacleRev changes
@@ -6119,6 +6135,12 @@ const WEAPON_STAT_MODS = {
   // above gives — which also means the fire site reads the MODIFIED count off one local.
   pistolShrimp:  { overpressure: ['dmg', 'pct'], longCrack: ['length', 'pct'], wideCrack: ['width', 'pct'] },
   fireCoral:     { hotPolyps: ['dmg', 'pct'], emberBed: ['duration', 'pct'], moreRidges: ['ridges', 'flat'] },
+  // The Reef's other two. Same split: three folds apiece, one rate mod in WEAPON_RATE_MODS, and one
+  // switch read at its own site (`pressureWave`, at the landing in stepLobs). `secondJet` folds as
+  // 'flat' onto a real levels[] key so fireInk's ONE local is both the loop bound and the spacing
+  // divisor — and so the pause sheet reports the modified count with no second registration.
+  squidInk:      { blackout: ['maxR', 'pct'], deepDark: ['blind', 'pct'], lingering: ['dur', 'pct'], secondJet: ['clouds', 'flat'] },
+  oxygenTank:    { overfilled: ['dmg', 'pct'], wideRupture: ['r', 'pct'], longBoil: ['boil', 'pct'] },
   // The Deep's native. `thrash` is absent for the reason the pond block above gives: it is an
   // attack-RATE mod, and folding one into `interval` would slow the weapon down. It divides the
   // interval at the fire site instead and is registered in WEAPON_RATE_MODS.
@@ -6286,6 +6308,8 @@ function stepWeapons(run, dt) {
     else if (w.id === 'bilge') stepBilgeWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'pistolShrimp') stepSnapWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'fireCoral') stepFireCoralWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'squidInk') stepSquidInkWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'oxygenTank') stepTankWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -7797,6 +7821,24 @@ function stepBlooms(run, dt) {
       bl.y += f.fy * dt * tide
     }
 
+    // SQUID INK'S BLIND (The Reef). Refreshed EVERY FRAME a body is inside the cloud, exactly as
+    // bloomSlowT is one branch down and for the same reason: the decay lives in stepEnemyMovement,
+    // so a body that swims out keeps the mark for `blind` seconds and no longer. It is its own
+    // pass rather than a line inside the tick loop because the tick is metered on BLOOM_TICK and a
+    // status the player watches has to arrive on the frame the body enters the ink.
+    //   NOT through resistsCC, on Ballast's dragT rule: that budget guards HOLDS, and this stops
+    // nobody — a blinded body keeps its full speed and simply keeps going. damageImmune-guarded
+    // like the slow, so a ghosted phase flicker ignores it like it ignores everything else.
+    if ((bl.blind ?? 0) > 0) {
+      const bSq = bl.r * bl.r
+      for (const e of run.enemies) {
+        if (e._dead || damageImmune(e) || isAlly(e)) continue
+        const bdx = e.x - bl.x, bdy = e.y - bl.y
+        if (bdx * bdx + bdy * bdy > bSq) continue
+        e.blindT = bl.blind
+      }
+    }
+
     // `slow: 0` opts a cloud out entirely (Foxfire does). The Twilight already slows the player in the
     // dark; a card whose text never mentions a slow must not quietly add a second one.
     if (bl.slow !== 0) {
@@ -9285,6 +9327,39 @@ function stepLobs(run, dt) {
       continue
     }
 
+    // AN OXYGEN TANK RUPTURING. Above the shrapnel block for exactly the reason the net and the
+    // column are: `shrapnel` is read ONCE off run.weaponMods for every lob in the list whatever
+    // weapon made it, so a build holding Debris Toss alongside this would spray splinters out of a
+    // scuba tank — a cross-weapon leak nothing throws on.
+    //
+    // THE BOIL PAUSES THE DRAIN AND NEVER REFILLS. It is a run.blooms entry with dmgPerTick 0 and
+    // slow 0 — a marked patch of water and nothing else — and the ONLY thing that reads `airHold`
+    // is stepCharge, where it multiplies the drain by zero. See WEAPONS.oxygenTank for why a second
+    // refill source is forbidden here rather than merely unwanted.
+    if (lo.tank) {
+      const rSq = lo.r * lo.r
+      for (const e of run.enemies) {
+        if (e._dead || isAlly(e)) continue
+        const dx = e.x - lo.tx, dy = e.y - lo.ty
+        if (dx * dx + dy * dy > rSq) continue
+        applyDamage(run, e, lo.dmg)
+        // Pressure Wave. A flat shove out of the blast (see TANK_SHOVE_KB) and NOT a hold, so it
+        // runs outside the CC-DR budget like Ballast's drag: resistsCC guards holds, and this
+        // stops nobody — it moves them. `anchored` elites are kb-immune everywhere, so they are
+        // exempt here the way the revive shove exempts them.
+        if (!lo.shove || (e.affixes && e.affixes.includes('anchored'))) continue
+        const d = Math.hypot(dx, dy)
+        e.kb.x += (d > 1e-6 ? dx / d : 1) * TANK_SHOVE_KB
+        e.kb.y += (d > 1e-6 ? dy / d : 0) * TANK_SHOVE_KB
+      }
+      run.blooms.push({
+        x: lo.tx, y: lo.ty, t: 0, r: 0, maxR: lo.r, dur: lo.boil,
+        dmgPerTick: 0, look: 'boil', slow: 0, airHold: true,
+      })
+      run.events.push({ type: 'rupture', x: lo.tx, y: lo.ty, radius: lo.r, shove: !!lo.shove })
+      continue
+    }
+
     // A BALLAST landing: impact damage in lo.r, then a DRAG in a wider ring around it.
     //
     // NO STAIN. It used to push a run.blooms entry tagged look: 'silt' — Silt Veil's own cloud,
@@ -10206,21 +10281,27 @@ function fireCoral(run, spec, stats) {
   // it is a rounding choice with a real consequence. Counting from floor() makes the lead depend
   // on where in the 210px gap the cast happened to land: a cast fired just before a ridge lights
   // the one 2px in front of the player, i.e. a band the crowd is already standing in. Rounding
-  // first pins the lead to 126-294px (2.8-6.5s of scroll) however the interval phases.
+  // first floors the lead at half a gap: the residual is in [-105, 105), so the lit ridge is
+  // 105-315px ahead (2.3-7.0s of scroll at laneScroll 45) however the interval phases.
   const first = Math.round(run.player[ax.fwd] / spec.spacing) + ax.dir * FIRE_CORAL_LEAD
   for (let k = 0; k < n; k++) {
     const i = first + ax.dir * k
     // A ridge already burning is REFRESHED, never doubled: two entries on one index would tick
     // the same band twice a beat, which is a silent damage doubling at a fire rate the player
-    // can buy. `spill` is stamped per entry so a mid-life pick cannot widen a band already lit.
+    // can buy (run RN.f asserts one entry per index and single-cast damage across a refresh).
+    // `spill` LATCHES: a refresh ORs the current build's Overgrowth onto the entry, so a ridge lit
+    // before the pick widens to wall-to-wall on its next re-cast and never narrows again.
     const live = run.polyps.find((pl) => pl.i === i)
-    // Refreshed on EVERY field the render ramp reads, `dur` included: leaving a stale `dur`
-    // shorter than the new `t` drives the ignition ramp negative and the band draws nothing while
-    // it is still burning — a weapon doing full damage and looking switched off.
-    if (live) { live.t = live.dur = stats.duration; live.dmg = stats.dmg; live.spill = live.spill || spill; continue }
+    // A REFRESH TOPS THE CLOCK UP AND NEVER TOUCHES `lit`. That field is the AGE of the fire: it only
+    // ever counts up (stepPolyps), and syncPolyps runs the ignition ramp off it, so a ridge that has
+    // been alight for two seconds stays alight through a re-cast. An ignition ramp derived from the
+    // REMAINING time instead resets to zero right here, which blanked a burning band for the whole
+    // FIRE_CORAL_VIS.igniteT on every refresh — common with Quick Wake, near-certain with More Reef,
+    // and on screen it is a weapon doing full damage while looking switched off.
+    if (live) { live.t = stats.duration; live.dmg = stats.dmg; live.spill = live.spill || spill; continue }
     run.polyps.push({
       ...spurAt(i, spec, run._obstacleSeed),
-      t: stats.duration, dur: stats.duration, dmg: stats.dmg, tick: stats.tick, acc: 0, spill,
+      t: stats.duration, lit: 0, dmg: stats.dmg, tick: stats.tick, acc: 0, spill,
     })
   }
 }
@@ -10234,6 +10315,7 @@ function stepPolyps(run, dt) {
   const ax = laneAxes(CHAPTERS[run.chapter])
   for (const pl of run.polyps) {
     pl.t -= dt
+    pl.lit += dt   // monotone age, never reset by a refresh — syncPolyps' ignition ramp reads it
     pl.acc += dt
     while (pl.acc >= pl.tick) {
       pl.acc -= pl.tick
@@ -10247,6 +10329,84 @@ function stepPolyps(run, dt) {
   }
   run.polyps = run.polyps.filter((pl) => pl.t > 0)
 }
+
+// SQUID INK. A run.blooms entry carrying `blind`, planted ON the player. The cloud does not move —
+// it is world-anchored like every other bloom — so in a lane the scroll carries it astern while
+// the crowd swims into it, which is the picture and also the mechanic: what is blinded is behind
+// you within a second or two.
+//
+// ⚠ THE PERCEPTION HALF IS NOT HERE. It is at the retarget seam in stepEnemyMovement, where lure,
+// pastSeek and ally already live, and the whole reason it is one edit is that every movement
+// machine below that seam reads a POINT and never run.player.
+function stepSquidInkWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.squidInk?.quickInk ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quick)), dt, () => fireInk(run, stats))
+}
+
+function fireInk(run, stats) {
+  const p = run.player
+  const ax = laneAxes(CHAPTERS[run.chapter])
+  // ONE local for the count, used as the loop BOUND and as the spacing divisor — the eight-site
+  // trap CLAUDE.md documents, where multiplying only the bound stacks the extra jets on one point
+  // and renders identically to no change at all. Run SQ.d asserts DISTINCT cross positions.
+  const n = ipecacN(run, Math.max(1, Math.round(stats.clouds)))
+  const step = stats.maxR * INK_JET_SPREAD
+  for (let k = 0; k < n; k++) {
+    // Spread ACROSS the lane, so a picked-up count draws a curtain over the corridor rather than a
+    // deeper blot on one spot. In a non-lane chapter laneAxes reads 'y'/'x' as it always did and the
+    // jets spread along that cross axis, which is still a line and still distinct.
+    const off = (k - (n - 1) / 2) * step
+    run.blooms.push({
+      x: p.x + (ax.cross === 'x' ? off : 0),
+      y: p.y + (ax.cross === 'y' ? off : 0),
+      t: 0, r: 0, maxR: stats.maxR, dur: stats.dur,
+      dmgPerTick: stats.dmgPerTick, look: 'ink',
+      // `slow: 0` opts OUT of stepBlooms' bloom-slow branch, Foxfire's idiom. A cloud that also
+      // slowed would keep the blinded bodies inside itself, which is the exact opposite of the
+      // card: the whole payoff is watching the lane carry them past you.
+      slow: 0,
+      // The tag stepBlooms reads. Seconds of blindness, refreshed every frame a body is inside.
+      blind: stats.blind,
+    })
+  }
+  run.events.push({ type: 'ink', x: p.x, y: p.y, r: stats.maxR })
+}
+
+// OXYGEN TANK. A run.lobs entry tagged `tank`, thrown at a point on the lane AHEAD of the player
+// rather than at a body — the one throw in the game whose target is a place the thrower is going.
+// The scroll closes the gap, so the throw and the oncoming stream keep the same appointment.
+//
+// ⚠ THE NON-LANE BRANCH IS A FALLBACK, NOT A SECOND DESIGN, for the reason fireSnap's block gives:
+// the card is scoped to The Reef's pool, but devCards ignores every eligibility rule and ships in
+// the production bundle. There 'up the lane' has no meaning, so it takes p.facingAngle — the
+// direction you last MOVED — which keeps the throw untargeted. Deliberately not aimAngle.
+function stepTankWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.oxygenTank?.quickTank ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quick)), dt, () => fireTank(run, stats))
+}
+
+function fireTank(run, stats) {
+  const ch = CHAPTERS[run.chapter]
+  const p = run.player
+  const heading = ch.lane === true
+    ? laneAxes(ch).angle
+    : (p.facingAngle ?? (p.facing >= 0 ? 0 : Math.PI))
+  const shove = (run.weaponMods.oxygenTank?.pressureWave ?? 0) > 0
+  // ipecacAngles is what every other angle-carrying cast in this file uses for the anomaly, so a
+  // Reef run that took Ipecac throws a fan of tanks rather than three stacked on one point.
+  for (const a of ipecacAngles(run, heading)) {
+    run.lobs.push({
+      x: p.x, y: p.y, fromX: p.x, fromY: p.y,
+      tx: p.x + Math.cos(a) * stats.range, ty: p.y + Math.sin(a) * stats.range,
+      t: 0, flight: stats.flight, r: stats.r, dmg: stats.dmg,
+      // The two fields the `tank` branch in stepLobs reads. `boil` is banked AT THE THROW, so a
+      // Long Boil picked while a tank is in the air does not lengthen the one already thrown.
+      tank: true, boil: stats.boil, shove,
+    })
+  }
+  run.events.push({ type: 'toss', x: p.x, y: p.y })
+}
+
 // -- Fin Hit (v7.x, The Deep's native) ---------------------------------------------------------
 // The only movement-coupled weapon in the game. Both halves read the player's own motion and
 // neither reads where the enemies are, which is what makes it feel like the animal's body rather

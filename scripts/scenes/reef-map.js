@@ -42,7 +42,6 @@ H.note(JSON.stringify({
   rev: run._spurRev,
   widths: run.spurs.flatMap((s) => s.grooves.map((g) => Math.round(g.hw * 2))),
   seps,
-  bommies: run.obstacles.length,
 }))
 
 return () => { H.render() }

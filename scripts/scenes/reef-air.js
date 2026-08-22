@@ -74,7 +74,6 @@ H.note([
   'span=' + fwdSpan().toFixed(0),
   'pockets=' + run.shafts.length,
   'rel=' + run.shafts.map((s) => '(' + (s.x - run.player.x).toFixed(0) + ',' + (s.y - run.player.y).toFixed(0) + ')r' + s.r).join(''),
-  'coral=' + run.obstacles.length,
   'charge=' + run.charge.toFixed(0),
   'screen=' + app.screen.width + 'x' + app.screen.height,
 ].join(' '))

@@ -8,7 +8,7 @@ import {
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS,
   BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, CURRENT_RESIST_FLOOR, unlockLevel, unlockMax,
-  lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost } from './config.js'
+  lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost, SPUR_TICK } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -929,6 +929,16 @@ function generateWells(sig) {
  *                 why it is not bloomSlowT with a magnitude: that field IS refreshed every frame a
  *                 body stands in a cloud, and sharing it would let any bloom hold the heavier
  *                 ballast number alive for the cloud's whole duration.
+ *               blindT (v7.x The Reef, s of blindness remaining): while > 0 the retarget seam in
+ *                 stepEnemyMovement hands this body a point INK_BLIND_REACH down the heading it
+ *                 held when the blind landed, instead of run.player -- so it "loses you and keeps
+ *                 going", and a lane's scroll carries it past you. Refreshed every frame a body is
+ *                 inside a run.blooms entry carrying `blind` (Squid Ink), decayed in
+ *                 stepEnemyMovement. render.js tints an inked body dark and sheds ink off it.
+ *                 The held heading itself is _blindHx/_blindHy, sim-internal, cleared on expiry --
+ *                 without that clear a second cloud would resume the FIRST cloud's bearing.
+ *                 NOT routed through the CC-DR budget: resistsCC guards holds, and a blinded body
+ *                 keeps its full speed.
  *               bloomSlowT (v6.4, s of bloom-slow remaining): while > 0, stepEnemyMovement's
  *                 slowMul is multiplied by (1 - BLOOM_SLOW) — a plain speed debuff, stacking with
  *                 chill/freeze rather than replacing the seek like fearT/stunT do. Refreshed to
@@ -1005,6 +1015,11 @@ function generateWells(sig) {
  *               non-mini cloud's own tick kills an enemy — minis never spawn further minis.
  *               OPTIONAL `look` tags a cloud as another weapon's (see the Foxfire and Silt Veil
  *               notes below); OPTIONAL `slow: 0` opts it out of BLOOM_SLOW_T entirely; OPTIONAL
+ *               `blind` (seconds, v7.x Squid Ink) refreshes e.blindT on every body inside, every
+ *               frame; OPTIONAL `airHold: true` (v7.x Oxygen Tank's boil) is read by stepCharge
+ *               ALONE, where it multiplies the chapter bar's drain by zero while the PLAYER stands
+ *               in it -- it can never add to the bar, and CHAPTERS.reef.resource records why that
+ *               is a constraint rather than a tuning choice; OPTIONAL
  *               `daze` (seconds) is Silt Veil's, published into e.stunT against the enemy's own
  *               dazeCd window (see SILT_DAZE_REFRACTORY). It replaced a `fear` field in v7.x --
  *               fear scattered the crowd out of the cloud that was damaging it.
@@ -1154,18 +1169,23 @@ function generateWells(sig) {
  *   difference that is the whole design: it is CARRIED across a groove rather than zeroed on exit,
  *   and merely capped at SPUR_TICK while outside, so the tick fires on ENTRY and an oscillating
  *   player still pays no more per second than one who committed. See stepSpurs for both exploits.
+ *   It starts AT SPUR_TICK, not at 0, because that cap is what the entry tick is: seeded at zero the
+ *   first ridge of a run alone would take half a second to bite.
  * _scraping: boolean — the player is inside coral THIS frame. Published by stepSpurs and read one
  *   frame later by stepPlayerMovement, where it joins the MIN of the speed floors as SPUR_SLOW_MUL
  *   (the strafe only — in the lane the forward component is the scroll and never `speed`).
- * polyps[i]: { i, f, thick, grooves, merged, t, dur, dmg, tick, acc, spill } — v7.x The Reef:
+ * polyps[i]: { i, f, thick, grooves, merged, t, lit, dmg, tick, acc, spill } — v7.x The Reef:
  *   LIT RIDGES (WEAPONS.fireCoral). Everything before `t` is a verbatim SNAPSHOT of spurAt(i, ...),
  *   copied at cast time rather than referenced: run.spurs is emptied and rebuilt in full on every
  *   ridge crossing (streamSpurs), so an entry there is not a place state can live. Because spurAt
  *   is pure the snapshot can never disagree with the field it was taken from, and stepPolyps tests
  *   it with the same onCoral() the grate tests the player with — the coral that burns the crowd is
  *   the coral that grates you. `t` counts the burn down, `acc` is the part-tick accumulator, and
- *   `spill` (Overgrowth) drops the groove test so the ridge burns wall to wall. Enemies only:
- *   nothing in here can touch the player. render.js draws the band straight off this list.
+ *   `spill` (Overgrowth) drops the groove test so the ridge burns wall to wall. `lit` is the AGE of
+ *   the fire and is RENDER-ONLY: it only ever counts up, is never reset by the refresh that tops
+ *   `t` back up, and exists so syncPolyps' ignition ramp cannot blank a ridge that is still
+ *   burning. Enemies only: nothing in here can touch the player. render.js draws the band
+ *   straight off this list.
  * shafts[i]: { x, y, bx, by, r, phase, _cell, gape?, _shutT?, drawdown?, fouled? } — v7.x Book 2: streamed REFILL
  *   CIRCLES the player stands in to refill `charge`. ONE list fed from any of FOUR places, decided
  *   by refillSpec() (config.js): The Twilight's sun shafts (its signature IS the refill spec:
@@ -1645,6 +1665,12 @@ function generateWells(sig) {
  *   banked at the THROW, and widens THAT ring only -- never the crater, which has already been
  *   dealt off `r`. It pushed a run.blooms stain until v7.x; the owner cut it because that stain was
  *   Silt Veil's whole card, drawn Silt Veil's way, given away free on a rare.
+ *   OPTIONAL `tank: true` makes it an OXYGEN TANK (The Reef) instead: the throw is aimed down the
+ *   LANE rather than at a body (fireTank), so the scroll carries the player to their own landing
+ *   point; the rupture deals dmg in r, optionally shoves everything in r by TANK_SHOVE_KB
+ *   (`shove`, Pressure Wave), plants a run.blooms entry with `airHold` for `boil` seconds, and
+ *   emits {type:'rupture'}. Both `boil` and `shove` are banked AT THE THROW. Its branch sits above
+ *   the shrapnel block for the same reason the net's and the column's do.
  *   ⚠ run.lobs has THREE render consumers (syncLobs, redrawHazards' amber landing ring, and
  *   drawColumns) and nothing about the array says so -- `look` is what each one filters on.
  * longlines[i]: { x, y, nx, ny, half, len, dmg, tick, acc, life, duration, snagged } — Longline's
@@ -2199,7 +2225,7 @@ export function createRun(meta, opts = {}) {
     spurs: [],
     _spurIdx: null,        // 1-D streaming cursor: the lane index nearest the player at the last scan
     _spurRev: 0,           // bumped on any change; render rebuilds only on this, exactly as _obstacleRev
-    _spurAcc: 0,           // the scrape's part-tick accumulator — CARRIED across a groove, see stepSpurs
+    _spurAcc: SPUR_TICK,   // the scrape's part-tick accumulator — CARRIED across a groove, see stepSpurs
     _scraping: false,      // inside coral this frame; stepPlayerMovement reads it as SPUR_SLOW_MUL
     polyps: [],            // Fire Coral's lit ridges — snapshots of spurAt, never references into run.spurs
     _slickAcc: 0,          // part-tick accumulator, the exact twin of _drownAcc/_starveAcc

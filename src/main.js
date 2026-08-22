@@ -545,6 +545,18 @@ const SFX_FOR_EVENT = {
   // at all: a ridge of the level lighting up is a bigger tell than a chime, and one cast every
   // 3.4-4.4s for a whole run is the metronome 'longline' and 'ballast' are both denied for.
   snap: 'shoot',
+  // The Reef's other two natives (v7.x). Both get a voice, on the cadence rule 'chum' and 'bilge'
+  // state above: a jet of ink casts every 3.8-4.6s and a tank ruptures every 2.6-3.2s, both the far
+  // side of the "rare enough to bear one" line, and BOTH plant something that then sits there — so
+  // the sound is the only marker of the MOMENT, which the entity cannot give you.
+  //   'ink' borrows the vortex whoosh, the fifth card to do so, for exactly the reason chum and
+  // bilge do: a body of something dark being pushed into water is one wet low event and the bank
+  // gains nothing from a sixth near-identical sample.
+  ink: 'hole',
+  // 'rupture' is the plain explode, and it is the LANDING rather than the throw — the same split
+  // Debris Toss and Net Toss already make, where 'toss' has no entry at all. A steel cylinder
+  // splitting is the one thing in this chapter that genuinely is a bang.
+  rupture: 'explode',
 }
 
 function endRun(victory) {
