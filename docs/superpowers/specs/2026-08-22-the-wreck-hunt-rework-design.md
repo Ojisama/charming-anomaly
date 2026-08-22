@@ -40,7 +40,19 @@ The change **halved the mowing player's time starving and did nothing at all for
 
 **(a) Density is ambient at this spawn rate, so it cannot be a signal.** `nearN@kill` measured **7.35 mowing against 10.16 circling** — 1.38× apart, and *both* far above the threshold meant to gate the reward. The distributions overlap almost completely: no threshold separates them, because at `spawnMul` 2.2 / `maxAliveMul` 1.55 (620 concurrent bodies) *everything* is crowded all the time. Crowding is not earned here, so paying for crowding pays everyone.
 
-**(b) Cohesion is ANTI-correlated with the player's access to food.** Circling's prey-within-200px **fell 32%** (12.52 → 8.53). A selfish herd converges on itself; the player is a repulsor; therefore the convergence point is *away from the player*. The design's whole premise was that gathering the shoal means feeding on it. **It does the opposite.** This is not fixable by tuning the blend — it is what the term does.
+**(b) Cohesion works — and it helps the MOWING player most.** This is the cleanest measurement in the whole investigation, because it is tree-independent: the probe counts skittish neighbours within 64px of a randomly sampled live prey, computing it itself rather than reading a field that only exists on one tree.
+
+| policy | neighbours<64px of a random prey, OLD → NEW |
+|---|---|
+| mow | 5.110 → **6.250 (+22.3%)** |
+| hunt | 5.122 → 5.448 (+6.4%) |
+| circle | 6.348 → 7.379 (+16.2%) |
+
+Balls genuinely form. They just form **ambiently**, largely independent of what the player does — and for the two active policies they form *away* from the player: prey-within-200px **fell 17% hunting and 32% circling** while *rising* 7% mowing. A selfish herd converges on itself, the player is a repulsor, so the convergence point is away from the player.
+
+The design's premise was that gathering the shoal means feeding on it. **It does the opposite, and it does it hardest for the playstyle the chapter is trying to discourage.** This is not fixable by tuning the blend — it is what the term does.
+
+> **⚠ Do not quote the shoal pairwise-distance figures from this investigation.** That metric groups prey by the id-bucket `floor(id / PREY_SHOAL_SIZE)`, which the neighbour-based rewrite **abandoned** — so it measures cohesion inside a group the code no longer treats as a group, and it returns opposite signs for different policies, which is what noise on a decoupled metric looks like. A valid version needs a connected-component "shoal" defined at `BALL_R`. Findings (a) and (b) above rest on gates (i) and (ii), not on this.
 
 > Note on the clamp: part of the narrowing is an artifact — the hunter sits at 84 of a 100 cap and has only 16 points of headroom, so *any* benefit compresses the ratio. But the unclamped metric agrees: the mower's time-at-zero halved while the hunter's did not move. The design helped the wrong player on both a clamped and an unclamped measure.
 
