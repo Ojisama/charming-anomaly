@@ -201,9 +201,11 @@ function runSummary() {
 // line") does not help when the denominator is right but the SET it is drawn from has moved.
 //
 // PER CHAPTER, because the gate is (BOOKS[].wipFrom, config.js): Undertow ships one rung at a time,
-// so the denominator has to widen one rung at a time too. Today it is CHAPTER_ORDER + blank + surf.
-// Bumping wipFrom to 2 makes every sweep here start demanding The Shelf's French name, its endings,
-// its unlock line and an unshakeable tank — before that chapter reaches a player, not after.
+// so the denominator has to widen one rung at a time too. Today it is CHAPTER_ORDER + blank + surf
+// + shelf. Bumping wipFrom again makes every sweep here start demanding The Reef's French name, its
+// endings, its unlock line and an unshakeable tank — before that chapter reaches a player, not after.
+// The Shelf's bump to 2 is what that promise looks like when it is kept: it drew four reds, and the
+// endings pair and unlock line it demanded did not exist in any language.
 //
 // Deriving it from the shipped isWipChapter rather than re-reading wipFrom is deliberate: the two
 // would be one fact in two places, and the test copy is the one that would silently stop matching.
@@ -4587,12 +4589,13 @@ function runBooks() {
   for (const id of CHAPTER_ORDER) {
     assert.ok(!wip.includes(nextChapter(id)), `nextChapter('${id}') surfaced a WIP chapter — the unlock chain must never cross books`)
   }
-  // THE GATE IS PER CHAPTER, SO A BOOK MAY BE HALF-SHIPPED (BOOKS[].wipFrom). The Surf is live and
-  // The Shelf, one rung below it in the SAME book, is not — which the old book-wide boolean could
+  // THE GATE IS PER CHAPTER, SO A BOOK MAY BE HALF-SHIPPED (BOOKS[].wipFrom). The Shelf is live and
+  // The Reef, one rung below it in the SAME book, is not — which the old book-wide boolean could
   // not express at all. Asserting both sides of that boundary is the whole point of this pair: a
-  // regression to a book-level flag makes one of them fail whichever way it goes.
-  assert.strictEqual(isWipChapter('surf'), false, "isWipChapter('surf') === false — Undertow's opener ships")
-  assert.strictEqual(isWipChapter('shelf'), true, "isWipChapter('shelf') — the rung below The Surf is still gated")
+  // regression to a book-level flag makes one of them fail whichever way it goes. The pair walks
+  // down the ladder with every reveal; what is asserted is the BOUNDARY, never these two ids.
+  assert.strictEqual(isWipChapter('shelf'), false, "isWipChapter('shelf') === false — Undertow's second rung ships")
+  assert.strictEqual(isWipChapter('reef'), true, "isWipChapter('reef') — the rung below The Shelf is still gated")
   // isWipChapter is what main.js's onChapter bypasses the unlock check with, so a false positive
   // here would make a SHIPPED locked chapter selectable — the gate leaking in the other direction.
   assert.strictEqual(isWipChapter('pond'), false, "isWipChapter('pond') === false — a shipped chapter is never a WIP bypass")
@@ -4603,8 +4606,8 @@ function runBooks() {
 
   // (c) Gate OFF: a save pointing at a WIP chapter plays a SHIPPED one. resolveChapterId still
   // returns it verbatim — it is a real chapter and that helper is only a "does this exist" test.
-  const metaOff = { chapter: 'shelf', dev: false, chapters: {} }
-  assert.strictEqual(resolveChapterId('shelf'), 'shelf', 'resolveChapterId stays pure — it must NOT learn about the gate (see playableChapterId)')
+  const metaOff = { chapter: 'reef', dev: false, chapters: {} }
+  assert.strictEqual(resolveChapterId('reef'), 'reef', 'resolveChapterId stays pure — it must NOT learn about the gate (see playableChapterId)')
   assert.strictEqual(playableChapterId(metaOff), CHAPTER_ORDER[0], 'gate off: a WIP meta.chapter falls back to the first shipped chapter')
   assert.strictEqual(playableChapterId({ chapter: 'pond', dev: false }), 'pond', 'gate off: a shipped chapter is untouched')
   for (const junk of [undefined, null, {}, { chapter: 'nope' }]) {
@@ -4615,12 +4618,12 @@ function runBooks() {
   // This is the assertion that would have caught the silent downgrade an earlier draft of the plan
   // shipped: making resolveChapterId dev-aware looked right, but createRun re-resolves with no meta
   // to consult, so every gated run became a Body run credited to body's ledger — no throw, no
-  // warning. Note it must name 'shelf' EXPLICITLY: every existing test of this shape iterates
-  // CHAPTER_ORDER, which by design never contains it, so they would all still have passed.
-  const metaOn = { coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true, chapters: {} }
-  assert.strictEqual(playableChapterId(metaOn), 'shelf', 'gate on: the WIP chapter is what Play reads')
-  const wipRun = createRun(metaOn, { chapter: 'shelf', difficulty: 1 })
-  assert.strictEqual(wipRun.chapter, 'shelf', "createRun kept 'shelf' — if this reads 'body', the gate leaked into resolveChapterId and endRun would credit the wrong chapter")
+  // warning. Note it must name a gated id EXPLICITLY: every existing test of this shape iterates
+  // CHAPTER_ORDER, which by design never contains one, so they would all still have passed.
+  const metaOn = { coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'reef', dev: true, chapters: {} }
+  assert.strictEqual(playableChapterId(metaOn), 'reef', 'gate on: the WIP chapter is what Play reads')
+  const wipRun = createRun(metaOn, { chapter: 'reef', difficulty: 1 })
+  assert.strictEqual(wipRun.chapter, 'reef', "createRun kept 'reef' — if this reads 'body', the gate leaked into resolveChapterId and endRun would credit the wrong chapter")
   assert.strictEqual(wipRun.weapons.length > 0, true, 'the WIP run got a real starter weapon, so it is genuinely playable and not a husk')
 
   // (e) Gate ON: the carousel LISTS it and the selection guard ACCEPTS it. Without both, phase 2
@@ -4629,9 +4632,9 @@ function runBooks() {
   // Same three assertions the carousel had, against the bookcase that replaced it: what matters is
   // still which chapter ids a player can reach, not the shape they are drawn in.
   const shelved = (m) => titleBookshelf(m).flatMap((sh) => sh.volumes.map((v) => v.id))
-  assert.ok(shelved(listed).includes('shelf'), 'gate on: the bookcase must shelve the WIP chapter, or it cannot be selected')
+  assert.ok(shelved(listed).includes('reef'), 'gate on: the bookcase must shelve the WIP chapter, or it cannot be selected')
   listed.dev = false
-  assert.ok(!shelved(listed).includes('shelf'), 'gate off: the bookcase must NOT shelve the WIP chapter')
+  assert.ok(!shelved(listed).includes('reef'), 'gate off: the bookcase must NOT shelve the WIP chapter')
   // THE SHELF IS EVERY LIVE RUNG, AND A HALF-SHIPPED BOOK CONTRIBUTES ONLY ITS LIVE ONES. Derived
   // rather than written down, for the same reason shippedChapterIds is: this used to read
   // `CHAPTER_ORDER` and assert the shelf was exactly book 1, which is a sentence about the release
@@ -4639,8 +4642,8 @@ function runBooks() {
   // expectation on its own instead of drawing a red that means "the reveal worked".
   assert.deepStrictEqual(shelved(listed).filter((id) => id !== 'blank'), shippedChapterIds().filter((id) => id !== 'blank'),
     'gate off: the shelf is exactly the live rungs of every book (plus The Blank when earned)')
-  assert.ok(shelved(listed).includes('surf'),
-    'gate off: The Surf must be shelved — it is the rung this release reveals, and a player who cannot see it cannot play it')
+  assert.ok(shelved(listed).includes('shelf'),
+    'gate off: The Shelf must be shelved — it is the rung this release reveals, and a player who cannot see it cannot play it')
   // A Book with NO live rung must be ABSENT, not drawn as a sheeted étage: an étage announces that a
   // Book exists. Asserting only on chapter ids (above) cannot see this — the étage could be there
   // with every volume covered and every id still absent from the flat list. Undertow now earns one
@@ -4648,7 +4651,7 @@ function runBooks() {
   const liveBooks = Object.entries(BOOKS).filter(([, b]) => b.chapters.some((id) => !isWipChapter(id))).map(([k]) => k)
   assert.deepStrictEqual(titleBookshelf(listed).map((sh) => sh.book), liveBooks,
     'gate off: a Book with nothing live has no étage at all — a covered shelf still says a Book is there')
-  assert.ok(liveBooks.includes('undertow'), 'Undertow has a live rung now, so it must stand on the bookcase')
+  assert.ok(liveBooks.includes('undertow'), 'Undertow has live rungs now, so it must stand on the bookcase')
 
   // (e2) The bookcase model itself. Each of these guards a state that renders as a DIFFERENT object
   // on the shelf, and every one of them fails silently — a wrong `started` draws a dust sheet over a
@@ -4675,18 +4678,18 @@ function runBooks() {
   }
   // (f) chapterAvailable is the single permission the card, the Play button, the scroll-persist,
   // the brief and onChapter all read. Listing the chapter is NOT enough: the first cut of phase 1
-  // fixed only onChapter, and The Shelf duly appeared in the carousel as a locked "???" card with a
-  // dead Play button — listed and unreachable, the same dead end one step further along. Caught by
-  // a screenshot, not by a test, which is why it is asserted here now.
-  const shelfLocked = { dev: false, chapters: { shelf: { unlocked: false }, pond: { unlocked: true }, beyond: { unlocked: false } } }
-  assert.strictEqual(chapterAvailable(shelfLocked, 'shelf'), false, 'gate off: a WIP chapter is not available')
-  assert.strictEqual(chapterAvailable(shelfLocked, 'pond'), true, 'an unlocked shipped chapter is available, gate or no gate')
-  assert.strictEqual(chapterAvailable(shelfLocked, 'beyond'), false, 'a locked shipped chapter stays locked')
-  const shelfDev = { ...shelfLocked, dev: true }
-  assert.strictEqual(chapterAvailable(shelfDev, 'shelf'), true, 'gate on: the WIP chapter becomes available WITHOUT writing `unlocked` to the save')
-  assert.strictEqual(chapterAvailable(shelfDev, 'beyond'), false,
+  // fixed only onChapter, and the gated chapter duly appeared in the carousel as a locked "???" card
+  // with a dead Play button — listed and unreachable, the same dead end one step further along.
+  // Caught by a screenshot, not by a test, which is why it is asserted here now.
+  const wipLocked = { dev: false, chapters: { reef: { unlocked: false }, pond: { unlocked: true }, beyond: { unlocked: false } } }
+  assert.strictEqual(chapterAvailable(wipLocked, 'reef'), false, 'gate off: a WIP chapter is not available')
+  assert.strictEqual(chapterAvailable(wipLocked, 'pond'), true, 'an unlocked shipped chapter is available, gate or no gate')
+  assert.strictEqual(chapterAvailable(wipLocked, 'beyond'), false, 'a locked shipped chapter stays locked')
+  const wipDev = { ...wipLocked, dev: true }
+  assert.strictEqual(chapterAvailable(wipDev, 'reef'), true, 'gate on: the WIP chapter becomes available WITHOUT writing `unlocked` to the save')
+  assert.strictEqual(chapterAvailable(wipDev, 'beyond'), false,
     'gate on must NOT unlock a shipped chapter — the bypass is for chapters with no unlock path, not a cheat for the ones that have one')
-  assert.strictEqual(shelfDev.chapters.shelf.unlocked, false,
+  assert.strictEqual(wipDev.chapters.reef.unlocked, false,
     'chapterAvailable must stay a pure read — persisting the permission would outlive the gate and leave a WIP chapter unlocked after dev is turned off')
 
   // main.js and ui.js cannot be imported here (Pixi / import.meta.glob), so the WIRING is a source
@@ -4905,7 +4908,11 @@ function runBookProgression() {
   // dev flag at all gets the grant and the unlock the moment it loads. That is the path every real
   // player is on — without it a player who finished Book 1 months ago would open the game on ship
   // day and find nothing new, because endRun can only fire on a LIVE victory.
-  // The gate has not gone away, it has moved down a rung: The Shelf stays shut for the same save.
+  // The gate has moved down a rung again (wipFrom 2). The Shelf is LIVE now, so what keeps it shut
+  // for this save is no longer the gate at all — it is simply unearned: the veteran has never played
+  // The Surf, and the retroactive chain in loadMeta only opens a rung whose predecessor was BEATEN.
+  // Asserting it still reads false is therefore worth more than before, not less: it is now proving
+  // the ladder, where it used to prove the gate.
   const vetBlob = () => ({
     schema: 1, coins: 4200, shop: {}, choiceSlots: 4, runs: 137, chapter: 'beyond', lang: 'fr',
     best: { time: 300, kills: 4000 },
@@ -4919,8 +4926,41 @@ function runBookProgression() {
   assert.strictEqual(bookMeta(notDev, 'undertow').coins, 100, 'the veteran is paid the welcome purse exactly once')
   assert.strictEqual(notDev.chapters.surf?.unlocked, true, 'The Surf unlocks retroactively — a player who beat Book 1 must not open ship day to nothing')
   // …and the gate is still there, one rung lower. This is the half that keeps the release scoped.
-  assert.ok(!notDev.chapters.shelf?.unlocked, 'The Shelf must stay shut — revealing The Surf reveals exactly one chapter')
+  assert.ok(!notDev.chapters.shelf?.unlocked, 'The Shelf must stay shut — opening a Book opens its first rung, never its second')
   assert.strictEqual(chapterAvailable(notDev, 'shelf'), false, 'and it is not reachable by any route a non-dev save has')
+
+  // (o.1a2) THE SHELF'S OWN SHIP DAY, and the gate the owner named for it: "finishing 2.1 at
+  // difficulty 3". The Surf has been live for several releases, so a real save can already hold a
+  // qualifying win — and endRun could not have acted on it, because the chapter it unlocks did not
+  // exist when that run ended. The retroactive chain in loadMeta is the only thing that opens it,
+  // and it reads maxDifficulty (a d3 win raises it to 4) rather than `won`. Without this assertion
+  // the reveal passes every other check in this file and still greets its actual audience — the
+  // people who played 2.1 — with a locked volume they can only open by replaying a chapter they
+  // have already beaten.
+  const surfVet = loadMetaFrom({
+    ...vetBlob(),
+    chapters: {
+      beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 },
+      surf: { unlocked: true, maxDifficulty: 4, difficulty: 3, won: 3 },
+    },
+  })
+  assert.strictEqual(surfVet.chapters.shelf?.unlocked, true,
+    'a d3 Surf win already in the save must open The Shelf on load — endRun could not, the chapter did not exist yet')
+  assert.strictEqual(chapterAvailable(surfVet, 'shelf'), true, 'and it must be reachable, with no dev flag')
+  // The rung below it does NOT come along: one qualifying win opens exactly one chapter, and The
+  // Reef is still gated besides. Without this the assertion above would also pass if the chain
+  // simply unlocked the whole ladder.
+  assert.ok(!surfVet.chapters.reef?.unlocked, 'The Reef must not ride in on The Shelf\'s unlock')
+  // A d2 Surf win is NOT enough — this is the threshold itself, and it is the half that a chain
+  // unlocking on "has an entry" rather than on maxDifficulty would silently pass.
+  const surfShort = loadMetaFrom({
+    ...vetBlob(),
+    chapters: {
+      beyond: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5 },
+      surf: { unlocked: true, maxDifficulty: 3, difficulty: 2, won: 2 },
+    },
+  })
+  assert.ok(!surfShort.chapters.shelf?.unlocked, 'a d2 Surf win is below CHAPTER_UNLOCK_DIFFICULTY and must open nothing')
 
   // (o.1b) A save that never finished Book 1 gets nothing, gate or no gate — the unlock is EARNED,
   // and without this the assertion above would also pass if unlockBook simply granted unconditionally.

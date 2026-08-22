@@ -537,6 +537,10 @@ const CONFIG = {
   // Humidity reaching zero rather than whatever landed the last hit — same as 'Filtré·e' for the pond.
   'You rode it out! 🎉': 'Tu as laissé passer la marée ! 🎉',
   'Dried out… ☀️': 'Desséché·e… ☀️',
+  // Le Large. 'Envasé·e' keeps the participle, and it is the Pollution rail filling up rather than
+  // whatever landed the last hit — the rail is inverted here, so the death is silt ARRIVING.
+  'You found clear water! 🎉': 'Tu as trouvé de l\'eau claire ! 🎉',
+  'Silted up… 🌫️': 'Envasé·e… 🌫️',
   // v6.2 Remaster — watcher unlock lines
   'The Pond — word of you travels downstream': 'La Mare — la rumeur descend le courant',
   'The Garden — something marked your trail': 'Le Jardin — quelque chose a marqué ta piste',
@@ -544,6 +548,7 @@ const CONFIG = {
   'The City — a report has been filed': 'La Ville — un signalement a été déposé',
   'The Skies — this time they\'re not hiding it': 'Les Cieux — cette fois ils ne s\'en cachent plus',
   'The Beyond — you were never the only anomaly': 'L\'Au-delà — tu n\'as jamais été la seule anomalie',
+  'The Shelf — out here they don\'t need to see you': 'Le Large — ici, ils n\'ont pas besoin de te voir',
   // v7.x book-unlock badge (BOOK_UNLOCK_LINES). {n} is the welcome purse — keep the placeholder.
   'UNDERTOW — a second book opens, for a new adventure… 🪙 {n} to begin': 'LAME DE FOND — un deuxième livre s\'ouvre pour une nouvelle aventure… 🪙 {n} pour commencer',
   'Toxic Shock': 'Choc Toxique',
