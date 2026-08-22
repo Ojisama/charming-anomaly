@@ -1488,10 +1488,17 @@ function stepRepulse(run, input, dt) {
 // Asteroids (v5.21, lane chapters). Neutral drifting hazard: hurts the player on contact AND grinds
 // any enemy overlapping it. Not destructible — see ROCK_INTERVAL's block in config.js.
 // Returns true if the player died, matching stepLeaks/stepContactDamage's contract.
+//
+// `lane` AND an OPT-OUT, because `lane` alone made this The Beyond's hazard in every scroller ever
+// written: The Reef inherited cratered space rocks it never asked for, ~88 a run, and a death screen
+// that read "Killed by Asteroids". A chapter turns them off with `rocks: false` (CHAPTERS.reef).
+// Opt-out and not opt-in on purpose — The Beyond is shipped and golden-mastered (run LN), so the
+// default has to be the behaviour it already has.
 function stepRocks(run, dt) {
-  if (!CHAPTERS[run.chapter].lane) return false
+  const ch = CHAPTERS[run.chapter]
+  if (!ch.lane || ch.rocks === false) return false
   const p = run.player
-  const ax = laneAxes(CHAPTERS[run.chapter])
+  const ax = laneAxes(ch)
   // Signed "how far up the lane", whichever axis this chapter runs on: bigger = further ahead.
   // Multiplying by ±1 is exact, so on The Beyond's -y lane every comparison below is the same
   // comparison it has always been, with both sides negated.
@@ -2055,6 +2062,11 @@ function stepEnemyMovement(run, dt) {
       }
       tx = e.x + e._blindHx * INK_BLIND_REACH
       ty = e.y + e._blindHy * INK_BLIND_REACH
+      // ...and into `_tgtX/_tgtY`, the shipped "face this instead of the player" pair, for exactly
+      // the reason SUBMISSION's allies and The Wreck's skittish prey write it: render derives every
+      // bearing from run.player each frame, so without this a blinded body swims away with its eyes
+      // still on you and the card's whole product — bodies LOSING you — is undrawn.
+      e._tgtX = tx; e._tgtY = ty
     }
     const dx = tx - e.x, dy = ty - e.y
     const d = Math.hypot(dx, dy)
@@ -3424,8 +3436,8 @@ export function stepTide(run, dt) {
 //   20-23 refill circles: The Twilight's shafts, The Surf's tide pools (streamShafts' default)
 //   30-32 streamSandbars
 //   40-43 refill circles: The Reef's air pockets (CHAPTERS.reef.signature.pockets.salt)
-//   44-46 The Reef's spur field (CHAPTERS.reef.spurs.salt): 44/45 the two channel widths, 46 free
-//         for the features table. Only two of the three are drawn today.
+//   44-46 The Reef's spur field (CHAPTERS.reef.spurs.salt): 44/45 the two channel widths, 46 the
+//         ridge's own thickness (spurs.thickVar).
 // Next free block: 47+ (5-10, 18-19, 24-29 and 33-39 are free too, between claimed ranges).
 function obstacleCellHash(i, j, seed, salt) {
   let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263) + seed + Math.imul(salt, 974634923)) | 0
@@ -3814,6 +3826,12 @@ export function streamShafts(run) {
 // channel is without materialising anything. Same rule refillCircleAt states for the refill fields.
 export function spurAt(i, spec, seed) {
   const f = i * spec.spacing
+  // EVERY RIDGE ITS OWN THICKNESS, off the field's third salt. The band this returns is the band the
+  // grate charges over (stepSpurs), the band Fire Coral burns (stepPolyps) and the band render.js
+  // draws — one number, three consumers — so the reef front can be ragged without the art and the
+  // collider ever parting company. Uniform about 1, so the MEAN is exactly spec.thick and §7's cost
+  // table still reads; see CHAPTERS.reef.spurs for the ceiling this may not cross.
+  const thick = spec.thick * (1 + (obstacleCellHash(i, 0, seed, spec.salt + 2) - 0.5) * 2 * (spec.thickVar ?? 0))
   // The braid. One sine over the lane index, the two channels symmetric about the centre line, so
   // they cross (and swap sides) wherever it passes through zero. See CHAPTERS.reef.spurs for why
   // the period is 6 ridges and why the amplitude is a constant rather than a viewport read.
@@ -3829,7 +3847,7 @@ export function spurAt(i, spec, seed) {
   const grooves = merged
     ? [{ c: 0, hw: Math.max(w1, w2) / 2 }]
     : [{ c, hw: w1 / 2 }, { c: -c, hw: w2 / 2 }]
-  return { i, f, thick: spec.thick, grooves, merged }
+  return { i, f, thick, grooves, merged }
 }
 
 // The 1-D cursor. Rebuilds the whole window on a ridge crossing rather than doing the live/drop
@@ -3869,8 +3887,10 @@ const onCoral = (sp, c) => !sp.grooves.some((g) => Math.abs(c - g.c) <= g.hw)
 // you can swim through.
 //
 // A POINT TEST, like every other DoT in this file (the pools, the slicks, inLobe). The spec prices
-// a 90px ridge at the 2.0s a 45px/s scroll takes to carry a point through it; adding the body
-// radius would make it 3.0s and every number in §7's table wrong by half.
+// the MEAN ridge (spurs.thick 90px) at the 2.0s a 45px/s scroll takes to carry a point through it;
+// adding the body radius would make it 3.0s and every number in §7's table wrong by half. Ridges
+// vary about that mean now (spurs.thickVar), so a single crossing costs 1.56-2.44s and the table
+// reads as the expectation it always was.
 //
 // ⚠ THE ACCUMULATOR IS CARRIED, and that is an exploit fix rather than a detail. Zeroing it on exit
 // (stepDrown/stepSlick do, correctly, for a bar you are simply in or out of) makes clipping a groove
@@ -3899,6 +3919,9 @@ function stepSpurs(run, dt) {
     inside = onCoral(sp, c)
     break
   }
+  // balance_decision : the burst crosses coral free, strafe slow lifts too [2026-08-22]
+  //  - clears _scraping ITSELF, so the grit tell and SPUR_SLOW_MUL go with the damage
+  if ((run._burstT ?? 0) > 0) inside = false
   run._scraping = inside   // the strafe slow, read by stepPlayerMovement (see SPUR_SLOW_MUL)
   run._spurAcc += dt
   if (!inside) { run._spurAcc = Math.min(run._spurAcc, SPUR_TICK); return false }
@@ -7874,7 +7897,15 @@ function stepBlooms(run, dt) {
           const dx = e.x - bl.x, dy = e.y - bl.y
           if (dx * dx + dy * dy > rSq) continue
         }
-        applyDotDamage(run, e, tickDmg)
+        // A CLOUD THAT DEALS NO DAMAGE EMITS NO HIT. Two blooms on this array carry dmgPerTick 0
+        // and exist for something other than damage — the Oxygen Tank's boil (it pauses Air) and
+        // the bilge — and without this guard each of them called dealDamage on every body inside
+        // it every BLOOM_TICK, which pushes a {type:'hit', dmg: 0} that render.js turns into a
+        // floating "0" over the body. render.js's own guardblock case states the rule: "a floating
+        // 0 is worse than a spark". Measured on the census, oxygenTank L1: 44.3 hits/s against
+        // 185 raw dps, i.e. ~40 zeroes a second, and they evict real numbers from the shared
+        // dmgTexts pool. Everything below still runs — the daze and sporeburst are not damage.
+        if (tickDmg > 0) applyDotDamage(run, e, tickDmg)
         // SILT VEIL's daze, published into the e.stunT contract field render.js already reads.
         // The window is the whole guard: gating on "is it stunned" alone lets a persistent cloud
         // re-stun on the frame the last hold lapses, which measures as 100% uptime while reading

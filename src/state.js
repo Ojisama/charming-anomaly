@@ -1156,7 +1156,9 @@ function generateWells(sig) {
  *   force is already applied, to the player and every enemy, and to a tideCarried bloom cloud).
  * spurs[i]: { i, f, thick, grooves: [{ c, hw }], merged } — v7.x The Reef: the CORAL RIDGES, the
  *   chapter's level design (spec 2026-08-20). `i` is the lane index, `f` its centre on the lane's
- *   FORWARD axis (x here, since the Reef is an x-lane) and `thick` its extent along it; a groove is
+ *   FORWARD axis (x here, since the Reef is an x-lane) and `thick` its OWN extent along it — every
+ *   ridge takes a different one off the field's third salt (spurs.thickVar), which is what makes the
+ *   reef front ragged, and it is the number BOTH the grate and the renderer measure; a groove is
  *   a gap in it at cross position `c` with half-width `hw`. Two grooves normally, ONE when `merged`
  *   — the braid has closed them onto each other and the ridge has a single way through, which is the
  *   narrowest point in the level. Everything here is a pure function of `i` and run._obstacleSeed
@@ -1173,7 +1175,11 @@ function generateWells(sig) {
  *   first ridge of a run alone would take half a second to bite.
  * _scraping: boolean — the player is inside coral THIS frame. Published by stepSpurs and read one
  *   frame later by stepPlayerMovement, where it joins the MIN of the speed floors as SPUR_SLOW_MUL
- *   (the strafe only — in the lane the forward component is the scroll and never `speed`).
+ *   (the strafe only — in the lane the forward component is the scroll and never `speed`), and
+ *   every frame by render.js's updateCoralGrit, which is the grate's only tell.
+ *   FORCED FALSE WHILE _burstT IS LIVE (owner, 2026-08-22): a dash crosses a ridge free, and this
+ *   one field carries all three halves of that — no damage, no slow, and no grit — so a bought
+ *   crossing is visibly not a paid one without render.js learning a second field.
  * polyps[i]: { i, f, thick, grooves, merged, t, lit, dmg, tick, acc, spill } — v7.x The Reef:
  *   LIT RIDGES (WEAPONS.fireCoral). Everything before `t` is a verbatim SNAPSHOT of spurAt(i, ...),
  *   copied at cast time rather than referenced: run.spurs is emptied and rebuilt in full on every
@@ -1299,10 +1305,11 @@ function generateWells(sig) {
  * _burstT: number — seconds of Reef Burst dash remaining (CHAPTERS[chapter].burst). Set by
  *   stepRepulse on the same press, cooldown and charge spend as the Pulse, to BURST_DUR_MIN +
  *   (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t, so an EMPTY bar still dashes — the no-spiral floor.
- *   Read in two places and nowhere else: stepPlayerMovement's lane branch multiplies the forward
- *   scroll by BURST_SPEED_MUL while it is positive (the ONLY thing in the file allowed to change
- *   the lane's scroll rate, because it is the player's own button and not a force acting on them),
- *   and stepCrush treats it as a third entry point to the permanent obstacle-removal path.
+ *   Read in three places. stepPlayerMovement's lane branch multiplies the forward scroll by
+ *   BURST_SPEED_MUL while it is positive (the ONLY thing in the file allowed to change the lane's
+ *   scroll rate, because it is the player's own button and not a force acting on them); stepSpurs
+ *   forces _scraping false while it is live, which is R13's free crossing; and render.js's
+ *   drawBurstWake draws the tail at what is LEFT of it, which is the only cast the duration has.
  *   0 on every run of every other chapter.
  * _shorebreakT: number — seconds of Surf Shorebreak left (CHAPTERS[chapter].shorebreak). Set by
  *   stepRepulse on the same press, cooldown and charge spend as everything else on that button, to
@@ -2183,9 +2190,10 @@ export function createRun(meta, opts = {}) {
     gems: [],
     coins: [],
     bombs: [],
-    // v5.21 lane chapters (beyond): drifting asteroids that damage the player AND grind enemies,
-    // and the cooldown on the active Repulsion shove. Both are no-ops outside a `lane` chapter —
-    // sim.js stepRocks/stepRepulse gate on CHAPTERS[chapter].lane. rocks entries are
+    // v5.21 The Beyond: drifting asteroids that damage the player AND grind enemies, and the
+    // cooldown on the active Repulsion shove. Repulsion is a no-op outside a `lane` chapter; the
+    // rocks want BOTH `lane` and no `rocks: false` opt-out, which is how The Reef has none (owner,
+    // 2026-08-22) while The Beyond is untouched. rocks entries are
     // { x, y, r, vCross, rot, spin, _acc }; rot/spin are render-only tumble. vCross (v7.x, was `vx`)
     // is the wander ACROSS the lane, which is the y axis in a `laneAxis: 'x'` chapter — the drift
     // along the lane is not stored at all, it is ROCK_SPEED against the chapter's own direction.

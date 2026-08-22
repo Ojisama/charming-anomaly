@@ -15,10 +15,12 @@
 // The last frames land at _burstT = 0, which is the other half of the contract — the wake must be
 // GONE, not merely faint, or a dash that ended still reads as one that is running.
 //
-// run._scraping is held true throughout, so the grit builds at its real rate (CORAL_CRUSH.gritEvery)
-// rather than being one puff caught at the instant of a hit. The two effects share the frame on
-// purpose: they are both sourced at the player and both are silt, and the question a still cannot
-// answer is whether the sustained tell drowns the one-off cast.
+// THE GRIT IS THE OTHER HALF OF THE SHEET, AND IT NO LONGER SHARES A FRAME. A burst crosses coral
+// free (owner R13, 2026-08-22): stepSpurs forces run._scraping false while run._burstT is live, so
+// "both at once" is now an impossible state and photographing it would be photographing a bug. The
+// scrape is therefore held true exactly when the dash is NOT running — the last frames of the ramp —
+// which makes the sheet the A/B that matters: a bought crossing at the top, a paid one at the
+// bottom, same water, same coral. They must not read as one substance.
 const world = app.stage.children[0]
 
 // Warm up until the spur field exists — the wake has to be judged against the coral it is cutting
@@ -67,8 +69,8 @@ return (age) => {
   const events = run.events.splice(0)
   run.player.hp = run.player.maxHP
   run._burstT = left
-  run._scraping = true
-  live.textContent = '_burstT = ' + left.toFixed(3) + '\nfull press = 0.75\nempty press = 0.30\n_scraping = true'
+  run._scraping = left <= 0
+  live.textContent = '_burstT = ' + left.toFixed(3) + '\nfull press = 0.75\nempty press = 0.30\n_scraping = ' + (left <= 0)
   window.__renderer.sync(run, 1 / 30, events)
   app.renderer.render(app.stage)
 }

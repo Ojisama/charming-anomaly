@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_SPEED_MUL, BURST_DUR_AT_FULL, laneScrollFor, BALLAST_THROW_R, BALLAST_RING,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -11090,10 +11090,9 @@ export function createRenderer(app) {
   // down-left where the chapter asks for a negative speedMul (own container directly on stage,
   // unaffected by camera/world position, and so unaffected by floorTint: see CHAPTERS.reef.dust).
   // Active during both gameplay and idle so the scene always feels alive.
-  const DUST_COUNT = 14
   const dustMotes = []
   let dustT = 0
-  for (let i = 0; i < DUST_COUNT; i++) {
+  for (let i = 0; i < DUST.count; i++) {
     const s = new Sprite(T.dustMote)
     s.anchor.set(0.5)
     s.scale.set(lerp(0.8, 1.6, hash(i * 5.31 + 1.7)))
@@ -11102,8 +11101,11 @@ export function createRenderer(app) {
       s,
       x: hash(i * 3.11 + 0.4),
       y: hash(i * 7.77 + 2.2),
-      vx: 8 + hash(i * 2.13 + 3.3) * 10,
-      vy: 6 + hash(i * 4.87 + 5.5) * 8,
+      // The per-mote speeds are the SPREAD in config's DUST, hashed here. Config owns the range for
+      // the reason its block states: the suite cannot import this file, so a mote field that reads
+      // right in source and drifts the wrong way on screen has no other guard.
+      vx: lerp(DUST.vx[0], DUST.vx[1], hash(i * 2.13 + 3.3)),
+      vy: lerp(DUST.vy[0], DUST.vy[1], hash(i * 4.87 + 5.5)),
     })
   }
 
@@ -11118,21 +11120,18 @@ export function createRenderer(app) {
     dustT += dt
     const w = app.screen.width
     const h = app.screen.height
-    // speedMul/sway (v7.x): the same 14 motes read as WIND at their built-in pace, which is wrong on
-    // a floor that is under water — sand does not blow through water, it hangs in it. Both default
-    // to no-ops so every chapter but the ones that ask keeps the drift it was tuned with.
-    // speedMul may be NEGATIVE: it scales vx and vy together, so a negative one reverses the drift
-    // to down-left, which is the only correct direction in a lane chapter (see CHAPTERS.reef).
-    const mul = dustLook?.speedMul ?? 1
-    const sway = dustLook?.sway ?? 0
+    // speedMul/sway/the lane (v7.x): the same 14 motes read as WIND at their built-in pace, which is
+    // wrong on a floor that is under water — sand does not blow through water, it hangs in it — and
+    // wrong twice over in a lane, where the water is still and the CAMERA is the thing moving. All
+    // of that is dustVel (config.js), which owns the composition so the suite can integrate it; this
+    // side owns nothing but the wrap. Both knobs default to no-ops, so every chapter that asks for
+    // neither keeps the drift it was tuned with.
+    const ax = chapterHasLane ? chapterLaneAxis : null
     for (let i = 0; i < dustMotes.length; i++) {
       const m = dustMotes[i]
-      // The sway is a slow lateral wander, out of phase per mote: suspended grit is moved BY
-      // something, and a straight line at any speed reads as a particle travelling under its own
-      // power. Phase from i so the field never drifts in unison.
-      const s = sway ? Math.sin(dustT * 0.5 + i * 1.9) * sway : 0
-      m.x += ((m.vx * mul + s) * dt) / w
-      m.y -= (m.vy * mul * dt) / h // up = decreasing y
+      const [vx, vy] = dustVel(m, i, dustT, dustLook, ax)
+      m.x += (vx * dt) / w
+      m.y += (vy * dt) / h
       // BOTH EDGES on both axes. speedMul carries a SIGN now (The Reef's motes must drift down-lane
       // with the scroll, not against it), and a one-sided wrap on a negative velocity walks all 14
       // motes off the left and the bottom inside a few seconds and never brings one back — a
@@ -11502,14 +11501,21 @@ export function createRenderer(app) {
 
   // ---- The Reef: spur and groove (v7.x) ---------------------------------------------------------
   // ONE ridge's CORAL segments — the band minus its channels — appended to `out` as
-  // [fwd centre, cross from, cross to]. Shared by the field (syncSpurs) and by the fire burning
-  // on it (syncPolyps), which is this side's version of the rule sim.js's onCoral follows: the
-  // channel you can see and the channel that is not burning are one definition or they drift.
+  // [fwd centre, cross from, cross to, HALF-THICKNESS OF THIS RIDGE]. Shared by the field
+  // (syncSpurs) and by the fire burning on it (syncPolyps), which is this side's version of the rule
+  // sim.js's onCoral follows: the channel you can see and the channel that is not burning are one
+  // definition or they drift.
+  //
+  // ⚠ THE HALF COMES OFF THE ENTRY, NEVER OFF spec.thick. Every ridge has its own thickness
+  // (spurAt, sim.js — CHAPTERS.reef.spurs.thickVar), so the spec's number is a MEAN and drawing from
+  // it makes the art overgrow every thin ridge and undergrow every fat one, by up to thickVar. That
+  // is the drawn-vs-tested defect this whole block exists to prevent, in a form no screenshot shows.
   const coralSegs = (sp, end, out) => {
     const cuts = sp.grooves.map((g) => [g.c - g.hw, g.c + g.hw]).sort((a, b) => a[0] - b[0])
+    const half = sp.thick / 2
     let at = -end
-    for (const [a, b] of cuts) { if (a > at) out.push([sp.f, at, a]); at = Math.max(at, b) }
-    if (at < end) out.push([sp.f, at, end])
+    for (const [a, b] of cuts) { if (a > at) out.push([sp.f, at, a, half]); at = Math.max(at, b) }
+    if (at < end) out.push([sp.f, at, end, half])
   }
 
   // run.spurs, drawn from the SAME grooves stepSpurs tests against — one definition, two consumers,
@@ -11535,14 +11541,12 @@ export function createRenderer(app) {
     // viewport read here would make the reef change length on resize, and the field is a constant
     // (the rule refillCircleAt states, and the reason the braid is a constant too).
     const end = LANE_HALF_W + V.wall
-    const half = spec.thick / 2
-    const bumpR = half * V.bump
-    // Every coral segment in the window, as [fwd centre, cross from, cross to].
+    // Every coral segment in the window, as [fwd centre, cross from, cross to, half-thickness].
     const segs = []
     for (const sp of run.spurs) coralSegs(sp, end, segs)
     // f is along the lane, c across it. Both helpers take lane coordinates and swap at the last
     // moment, so nothing above this line has to know which axis the chapter scrolls on.
-    const band = (f, c0, c1, grow, r) => (xAxis
+    const band = (f, half, c0, c1, grow, r) => (xAxis
       ? spurG.roundRect(f - half - grow, c0 - grow, half * 2 + grow * 2, c1 - c0 + grow * 2, r)
       : spurG.roundRect(c0 - grow, f - half - grow, c1 - c0 + grow * 2, half * 2 + grow * 2, r))
     const dot = (f, c, r) => (xAxis ? spurG.circle(f, c, r) : spurG.circle(c, f, r))
@@ -11550,7 +11554,8 @@ export function createRenderer(app) {
     // ridge and are inset inside it on both axes — bumpOut + bump <= 1 along the lane, a full bumpR
     // across it — which is what keeps the drawn ridge and the charged band the same shape.
     const lobes = []
-    for (const [f, c0, c1] of segs) {
+    for (const [f, c0, c1, half] of segs) {
+      const bumpR = half * V.bump
       const from = c0 + bumpR, to = c1 - bumpR
       if (to <= from) continue
       const n = Math.max(1, Math.round((to - from) / (half * V.bumpGap * 2)))
@@ -11567,12 +11572,12 @@ export function createRenderer(app) {
     // 1. The foot. A wider, near-black shadow under the whole ridge so it sits ON the sand rather
     //    than floating over it, and the only pass allowed to overshoot the groove edge — a shadow
     //    falling a few px into a channel is what a raised thing does, and it is not the collider.
-    for (const [f, c0, c1] of segs) band(f, c0, c1, V.foot_px, 12)
+    for (const [f, c0, c1, half] of segs) band(f, half, c0, c1, V.foot_px, 12)
     for (const [f, c, r] of lobes) dot(f, c, r + V.foot_px)
     spurG.fill({ color: V.foot, alpha: V.footA })
     // 2. The body: the flush band that IS the groove edge, plus the lobes, as one path. No stroke —
     //    see SPUR_VIS for why a rim on a compound path drills bolt-holes down the middle of it.
-    for (const [f, c0, c1] of segs) band(f, c0, c1, 0, 9)
+    for (const [f, c0, c1, half] of segs) band(f, half, c0, c1, 0, 9)
     for (const [f, c, r] of lobes) dot(f, c, r)
     spurG.fill({ color: V.body })
   }
@@ -11591,8 +11596,7 @@ export function createRenderer(app) {
     const ax = laneAxes(cfg)
     const xAxis = ax.fwd === 'x'
     const end = LANE_HALF_W + SPUR_VIS.wall
-    const half = spec.thick / 2
-    const band = (f, c0, c1, grow, r) => (xAxis
+    const band = (f, half, c0, c1, grow, r) => (xAxis
       ? polypG.roundRect(f - half - grow, c0 - grow, half * 2 + grow * 2, c1 - c0 + grow * 2, r)
       : polypG.roundRect(c0 - grow, f - half - grow, c1 - c0 + grow * 2, half * 2 + grow * 2, r))
     for (const pl of run.polyps) {
@@ -11608,16 +11612,16 @@ export function createRenderer(app) {
       const segs = []
       // Overgrowth burns the channels too, so the band is the whole ridge wall to wall — the one
       // case where the fire is allowed past the groove edge, because the sim's test is too.
-      if (pl.spill) segs.push([pl.f, -end, end])
+      if (pl.spill) segs.push([pl.f, -end, end, pl.thick / 2])
       else coralSegs(pl, end, segs)
-      for (const [f, c0, c1] of segs) band(f, c0, c1, V.glow_px, 14)
+      for (const [f, c0, c1, half] of segs) band(f, half, c0, c1, V.glow_px, 14)
       polypG.fill({ color: V.glow, alpha: V.glowA * a * pulse })
-      for (const [f, c0, c1] of segs) band(f, c0, c1, 0, 9)
+      for (const [f, c0, c1, half] of segs) band(f, half, c0, c1, 0, 9)
       polypG.fill({ color: V.body, alpha: V.bodyA * a })
       // The core is INSET, so a segment narrower than the inset has none rather than a rectangle
       // turned inside out — a negative width in Graphics draws backwards, silently.
       let core = 0
-      for (const [f, c0, c1] of segs) { if (c1 - c0 > V.core_px * 2) { band(f, c0, c1, -V.core_px, 6); core++ } }
+      for (const [f, c0, c1, half] of segs) { if (c1 - c0 > V.core_px * 2) { band(f, half, c0, c1, -V.core_px, 6); core++ } }
       if (core > 0) polypG.fill({ color: V.core, alpha: V.coreA * a * pulse })
     }
   }
@@ -12430,16 +12434,22 @@ export function createRenderer(app) {
   // The Reef's Burst (CHAPTERS.reef.burst, stepRepulse) — live for as long as run._burstT says, on
   // exactly the contract drawShorebreak above keeps for its own chapter's button.
   //
-  // THE LENGTH IS THE WHOLE READ, because the length is the whole of what 45 Air buys. The dash's
-  // speed is fixed across the charge range on purpose (see BURST_SPEED_MUL), so the only difference
-  // between an empty-bar press and a full one is that the full one lasts 0.75s against 0.30s — and
-  // with the 'burst' press puff as the only cast, those two were the SAME picture. The wake is drawn
-  // at the time remaining times the dash's own px/s, i.e. at the lane the player has still to cross,
-  // so a full press opens with a tail two and a half times the empty one's and shortens as it spends.
+  // WHAT 45 AIR BUYS IS A DURATION, and every channel here says the same number. The dash's speed is
+  // fixed across the charge range on purpose (see BURST_SPEED_MUL), so an empty-bar press and a full
+  // one differ only in lasting 0.30s against 0.75s — and with the 'burst' press puff as the only
+  // cast, those two were literally the same picture.
+  //
+  // ⚠ AND THE LENGTH ALONE CANNOT CARRY IT, which is what the first cut got wrong. The tail is the
+  // lane still to cross (304px at a full press) and the lane BEHIND the player is 78px on a phone,
+  // so both presses drew the same clipped strip and 74% of the spend went off the left edge.
+  // burstWakeAt (config.js) clamps the length to what is actually behind the camera and spends the
+  // rest on width, streak count and brightness — the three channels a 78px strip still has room for.
   //
   // PLAN VIEW, and BEHIND: the camera looks straight down and the dash is welded to the lane, so
   // this is the disturbed water the fish has already come through, laid along -fwd. Nothing is
-  // drawn ahead of the player — water in front is water it has not moved yet.
+  // drawn ahead of the player — water in front is water it has not moved yet. The blade NARROWS
+  // backward: a cavity collapses behind the body, and a wedge that flares instead would end the one
+  // frame the tail is now fully on screen for on a hard blunt edge, i.e. as a shape rather than water.
   //
   // No Math.random anywhere: the streaks ride on animT and hash(i), the same rule drawBubblePuffs
   // records, so a frame frozen behind a modal holds still instead of reseeding into static.
@@ -12449,39 +12459,51 @@ export function createRenderer(app) {
     if (left <= 0) return
     const p = run.player
     const ax = chapterLaneAxis
-    // Against the LONGEST dash the chapter can buy, so the tail's brightness and width say the
-    // same thing its length does. A press can never exceed BURST_DUR_AT_FULL, so this is 0..1.
-    const k = Math.min(1, left / BURST_DUR_AT_FULL)
-    const L = left * laneScrollFor(CHAPTERS[run.chapter], run.mods) * BURST_SPEED_MUL
+    // The world px between the player and the edge of the screen behind them. The lane camera pins
+    // the body at LANE_CAMERA_FRAC along its own axis, so this is the same fifth of the view on
+    // either lane, and it is a VIEW read rather than a constant: it is 78px on a phone and 256 on a
+    // desktop, and a tail tuned against one of those is off screen or lost on the other.
+    const behind = (1 - LANE_CAMERA_FRAC) * (ax.fwd === 'x' ? viewW() : viewH())
+    const W = burstWakeAt(left, laneScrollFor(CHAPTERS[run.chapter], run.mods), behind)
+    const L = W.len
     if (L <= 1) return
+    const V = BURST_WAKE
     const bx = -ax.fx, by = -ax.fy            // back along the lane
     const nx = -by, ny = bx                   // across it
     const G = burstWakeG
-    const half = PLAYER.radius * (0.55 + 0.8 * k)
-    const r0 = PLAYER.radius * 0.5
-    // The cavitation cone: a wedge opening backward from the body. Filled, not stroked — a stroked
-    // wedge reads as the outline of a shape rather than as water, which is drawBubblePuffs' own
-    // argument for this chapter's whole silt-and-suspension language.
+    // The cavity's half-width at fraction u of the tail: narrow where it leaves the body, widest at
+    // the belly, collapsing to a tip. ONE profile, used by the fill and by the streaks, so a streak
+    // can never ride outside the water it is supposed to be moving in.
+    const hw = (u) => (u <= V.belly
+      ? W.half * (V.noseFrac + (1 - V.noseFrac) * (u / V.belly))
+      : W.half * (1 + (V.tipFrac - 1) * ((u - V.belly) / (1 - V.belly))))
+    const at = (u, off) => [p.x + bx * L * u + nx * off, p.y + by * L * u + ny * off]
+    // The cavitation cavity: filled, not stroked — a stroked wedge reads as the outline of a shape
+    // rather than as water, which is drawBubblePuffs' own argument for this chapter's whole
+    // silt-and-suspension language. Teal and not silt: see BURST_WAKE for why the cost and the
+    // triumph may not be the same substance, and why the near-white blues are not available.
     G.beginPath()
-    G.moveTo(p.x + nx * r0, p.y + ny * r0)
-    G.lineTo(p.x + bx * L + nx * half, p.y + by * L + ny * half)
-    G.lineTo(p.x + bx * L - nx * half, p.y + by * L - ny * half)
-    G.lineTo(p.x - nx * r0, p.y - ny * r0)
+    for (const [u, sgn] of [[0, 1], [V.belly, 1], [1, 1], [1, -1], [V.belly, -1], [0, -1]]) {
+      const [qx, qy] = at(u, hw(u) * sgn)
+      if (u === 0 && sgn === 1) G.moveTo(qx, qy)
+      else G.lineTo(qx, qy)
+    }
     G.closePath()
-    G.fill({ color: CORAL_CRUSH.siltTint, alpha: 0.26 * k })
-    // The streaks, riding backward down the cone. THIS is what says the water is moving rather than
+    G.fill({ color: V.cone, alpha: W.coneA })
+    // The streaks, riding backward down the blade. THIS is what says the water is moving rather than
     // that a shape is stuck to the fish — the ripple train's argument in drawShorebreak, one axis
-    // instead of radial. Each fades as it runs out, so the tail dissolves instead of ending on a cut.
-    for (let i = 0; i < 9; i++) {
-      const ph = (t * 2.4 + i / 9) % 1
+    // instead of radial. Each fades as it runs out, so the tail dissolves instead of ending on a cut,
+    // and each is offset within the blade's width AT ITS OWN DISTANCE so none of them rides outside it.
+    for (let i = 0; i < W.streaks; i++) {
+      const ph = (t * 2.4 + i / W.streaks) % 1
       const d0 = L * ph
-      const d1 = Math.min(L, d0 + L * 0.2)
+      const d1 = Math.min(L, d0 + L * V.streakLen)
       if (d1 - d0 < 1) continue
-      const off = (hash(i * 3.7 + 0.9) - 0.5) * 1.8 * half
+      const off = (hash(i * 3.7 + 0.9) - 0.5) * 1.7 * Math.min(hw(d0 / L), hw(d1 / L))
       G.beginPath()
-      G.moveTo(p.x + bx * d0 + nx * off, p.y + by * d0 + ny * off)
-      G.lineTo(p.x + bx * d1 + nx * off, p.y + by * d1 + ny * off)
-      G.stroke({ width: 3.4, color: CORAL_CRUSH.bubbleTint, alpha: 0.72 * k * (1 - ph) })
+      G.moveTo(...at(d0 / L, off))
+      G.lineTo(...at(d1 / L, off))
+      G.stroke({ width: W.streakW, color: V.streak, alpha: W.streakA * (1 - ph) })
     }
   }
 
@@ -15900,7 +15922,7 @@ export function createRenderer(app) {
       // The shadow tracks the THROWN OBJECT, not the landing radius — for a net those are different
       // numbers (a 13px bundle that opens to 142px), and using r here painted a shadow the size of
       // the whole detonation under a ball in mid-air.
-      // A tank is a 30px object that ruptures at 120-152px, the net's problem exactly: lb.r is where
+      // A tank is a 30px object that ruptures at 120-190px, the net's problem exactly: lb.r is where
       // it BURSTS, not how big the thing in the air is.
       const shadowR = lb.snare > 0 ? 14 : lb.tank ? 16 : lb.look === 'ballast' ? BALLAST_THROW_R : lb.r
       lv.shadow.scale.set((shadowR / PLAYER.radius) * 0.5 * (1 - 0.3 * (hop / 160)))
@@ -15932,7 +15954,7 @@ export function createRenderer(app) {
       // Scaled off its OWN size and never off `r`: r is the LANDING radius (96-134px here), and
       // using it magnified a 12px bake up to 11x. Baked at 34 and scaled DOWN, per CLAUDE.md.
       //   A TANK IS 1, and that is the third weapon to need this line said again. The bake is 42px
-      // long and ruptures at 120-152, so the default branch scaled it 10-12x and the shot came back
+      // long and ruptures at 120-190, so the default branch scaled it 10-15x and the shot came back
       // with one cylinder filling a 390px phone screen — the net's failure and the ballast's,
       // verbatim, on the third payload to join this rig.
       body.scale.set(isNet || isTank ? 1 : isBallast ? BALLAST_THROW_R / 34 : (lb.r || 20) / 12)
@@ -17176,15 +17198,19 @@ export function createRenderer(app) {
         }
         // The Reef's Burst press (CHAPTERS.reef.burst, stepRepulse). The dash itself is a speed
         // multiplier on the player's own velocity — no entity, nowhere else to draw it — so this
-        // IS the cast: CORAL_CRUSH's silt and bubbles thrown off the push-off point, which is the
-        // chapter's one vocabulary for water moved hard.
+        // IS the cast: water moved hard off the push-off point, in the tail's own colour rather
+        // than the grate's. It was CORAL_CRUSH.siltTint, which is what updateCoralGrit sheds when
+        // the coral is COSTING you 4dps — the press and the punishment were one substance in one
+        // place. The bubbles stay near-white on purpose and are the one place this chapter's air
+        // silver is spent away from a pocket: they leave the BODY at the instant 45 Air does, which
+        // is a statement about the bar and not about the map.
         case 'burst': {
           const C = CORAL_CRUSH
           for (let i = 0; i < C.silt; i++) {
             const a = Math.random() * Math.PI * 2
             const sp = C.siltSpeed * (0.5 + Math.random())
             spawnSmoke(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
-              C.siltT, 0.28 + Math.random() * 0.16, C.siltTint, 0.16, 1.1, 0, 0, 0.45)
+              C.siltT, 0.28 + Math.random() * 0.16, BURST_WAKE.cone, 0.16, 1.1, 0, 0, 0.45)
           }
           for (let i = 0; i < C.bubbles; i++) {
             const a = Math.random() * Math.PI * 2
@@ -18690,7 +18716,12 @@ export function createRenderer(app) {
       // tail first, eyes on the predator — in every roster look, and a whole shoal of them read as
       // an escort rather than an escape. stepPrey publishes its heading into the same _tgtX/_tgtY
       // that SUBMISSION's allies already use; nothing here had to learn a new field.
-      const facesOwnHeading = (e.allyT || 0) > 0 || (e.flags && e.flags.includes('skittish'))
+      // v7.x THE REEF: a body blinded by Squid Ink is the third case and it is the same case — it
+      // holds a heading it took before it lost you and the lane scroll carries it past. sim's blind
+      // branch publishes that held point into the same pair. Without this term the ink's bodies
+      // crab sideways with their eyes locked on you, which is the card's product drawn inside out.
+      const facesOwnHeading = (e.allyT || 0) > 0 || (e.blindT || 0) > 0 ||
+        (e.flags && e.flags.includes('skittish'))
       if (facesOwnHeading && (e._tgtX !== undefined)) {
         tdx = e._tgtX - e.x
         tdy = e._tgtY - e.y
