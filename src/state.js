@@ -776,6 +776,11 @@ function generateWells(sig) {
  *               holePull: 0..1 vortex suction strength this frame (0 = unaffected, 1 = at a black
  *               hole's core); set by stepHoles each frame an enemy is inside a hole's radius, decays
  *               back to 0 over time otherwise. Render can use it to squash/shrink sprites being sucked in.
+ *               _holeLook: which KIND of hole last had hold of it — the `look` of that run.holes
+ *               entry ('downwash' for The Shelf's water column, null for the Black Hole). Written
+ *               beside holePull and read only by contactHarmless, which disarms a body a water
+ *               column is ragdolling. Sim-internal (underscore): the tell is holePull, which render
+ *               already reads.
  *
  *               affixes: array of ELITE_AFFIXES ids (see config.js) — present ONLY on elites;
  *               non-elites always carry affixes: [] (harmless to check unconditionally, but

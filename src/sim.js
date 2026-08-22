@@ -3128,6 +3128,15 @@ function contactHarmless(e) {
   // against the crowd behind it is still a threat — half of the machine-gun lock was that a
   // permanent field-wide fear made every enemy on screen literally unable to touch you.
   if ((e.stunT || 0) > 0) return true
+  // Anything the WATER COLUMN has hold of. Owner from play, 2026-08-22. The Downwash lands on the
+  // densest clump within DOWNWASH_CAST_FRAC of the viewport and drags it inward, so the card's own
+  // gather was scraping the player who cast it — a weapon that hurts you for using it correctly.
+  // Scoped by _holeLook and NOT by holePull alone: the Black Hole shares run.holes, and disarming
+  // everything inside one would turn a Book 1 weapon into a safe bubble nobody asked for.
+  // THE TELL IS THE COLUMN, not the body: the drawn zone is what says nothing in here can reach
+  // you, which is why this reaches the rim (any pull at all) instead of waiting for the sprite's
+  // ragdoll spin to be visibly fast.
+  if ((e.holePull || 0) > 0 && e._holeLook === 'downwash') return true
   if (e._pounceState === 'land' || e._chargeState === 'stall') return true
   return false
 }
@@ -7289,6 +7298,10 @@ function stepHoles(run, dt) {
         e.y += uy * radial + ux * tangentSpeed * dt
 
         e.holePull = Math.max(e.holePull ?? 0, t)
+        // WHICH hole has hold of it, for contactHarmless: a body a water column is ragdolling
+        // cannot touch you, a body in a Black Hole still can. Last writer wins if the two overlap,
+        // which is the same fuzziness holePull's Math.max already carries across holes.
+        e._holeLook = h.look ?? null
         pulled.add(e.id)
       }
     }
