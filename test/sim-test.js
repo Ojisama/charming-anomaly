@@ -22402,10 +22402,23 @@ function testReefSpurScrape() {
     'run RS.a: SPUR_VIS.colonyEvery / reachMax are back. Both were replaced (by the hashed walk and by the reachLo..reachHi fraction) and nothing reads them')
   {
     const gsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    assert.ok(!/ang = \(t \/ g\.trunks\) \* Math\.PI \* 2/.test(gsrc),
+    // The stem angles moved into bakeCoral() when the colonies stopped being pathed per rebuild
+    // and started being baked once — the shape is decided there now, so that is where this lints.
+    assert.ok(!/ang = \(t \/ gen\.trunks\) \* Math\.PI \* 2/.test(gsrc),
       'run RS.a: stem angles are back to an even division of the circle — that is the plus sign, whatever the stem count')
-    assert.ok(/ang \+= \(\(Math\.PI \* 2\) \/ g\.trunks\) \* \(0\.5 \+ hash\(/.test(gsrc),
+    assert.ok(/ang \+= \(\(Math\.PI \* 2\) \/ gen\.trunks\) \* \(0\.5 \+ hash\(/.test(gsrc),
       'run RS.a: stem angles are no longer accumulated from jittered gaps — colonies will differ only by rotation again')
+
+    // ⚠ THE COLONIES MUST STAY BAKED. This is the rule render.js states in its own file header —
+    // "All entity looks are baked into textures once; per-frame work is sprite pools only" — and
+    // breaking it is not a style question here, it is a browser freeze: pathing the colonies live
+    // measured a 550ms median main-thread block per field rebuild, every 2.33s, and hung the tab.
+    // Baked, the same rebuild is 1.4ms. Nothing else in the suite can see a frame time, so this
+    // lints the two halves of the architecture instead: the bake exists, and syncSpurs STAMPS.
+    assert.ok(/function bakeCoral\s*\(/.test(gsrc),
+      'run RS.a: bakeCoral() is gone — if the colonies are being drawn any other way, check a real frame time before believing it is cheap')
+    assert.ok(/syncPool\(coralPool, coralLayer, stamps,/.test(gsrc),
+      'run RS.a: syncSpurs no longer stamps its colonies from a sprite pool — pathing them live is what froze the browser at 550ms a rebuild')
 
     // THE SAME LINT ONE LEVEL UP, which is where "straight wall" actually lived. The stem-angle
     // pair above was written for an even division of the circle; the COLONY WALK along the spine

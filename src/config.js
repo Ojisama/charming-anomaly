@@ -8333,17 +8333,17 @@ export const SPUR_VIS = Object.freeze({
   // twig is ~86% dark rim and reads as dirt rather than as coral. It was the single largest
   // contributor to a rebuild that froze the browser (see the counts in syncSpurs). 4 is the last
   // level with a core thick enough to show its own colour once the outline is proportional.
-  // ⚠ THESE NUMBERS ARE A FREEZE FIX, NOT AN ART CHOICE, AND THEY ARE THE CEILING OF THE WRONG
-  // ARCHITECTURE. syncSpurs PATHS its coral as vector strokes every rebuild, and render.js's own
-  // file header states the rule it is breaking: "All entity looks are baked into textures once;
-  // per-frame work is sprite pools only." Measured in a real browser at depth 3-5, one rebuild
-  // (which fires every 210px / 90px/s = 2.33s) blocked the main thread for a median of 550ms and
-  // a worst of 822ms -- 88k branch segments and 45k tip circles of synchronous Graphics work. It
-  // hung the tab. Every fork level DOUBLES the count, which is why the depth the owner asked for
-  // twice is the thing that has to give until the colonies are BAKED and stamped as sprites.
-  //
-  // The real fix is the bake. When it lands, these ranges go back up and this block comes out.
-  trunksLo: 2, trunksHi: 4, depthLo: 2, depthHi: 3,
+  // THE DEPTH IS BACK, BECAUSE THE COLONIES ARE BAKED NOW. Pathing them as live vector strokes
+  // cost a median 550ms per rebuild and hung the tab; every fork level doubles the segment count,
+  // so depth had to fall to 2-3 as an emergency. A baked colony is drawn ONCE into a texture at
+  // boot and stamped as a tinted sprite thereafter, so a fork level costs nothing at run time and
+  // this is free to be what was actually asked for.
+  trunksLo: 2, trunksHi: 5, depthLo: 3, depthHi: 5,
+  // HOW MANY DISTINCT COLONIES GET BAKED. Not "one per colony on screen" -- the variety comes from
+  // stamping these under a hashed rotation, scale and tone, which multiplies 28 shapes into far
+  // more apparent ones for the price of 28. Raise it and boot gets slower and the atlas bigger;
+  // lower it and the eye starts finding the repeat.
+  bakes: 28, bakeReach: 76,
   lenFallLo: 0.55, lenFallHi: 0.76, widthFall: 0.66,
   spreadLo: 0.42, spreadHi: 0.95, triFrac: 0.16, whipFrac: 0.14,
   trunkLenLo: 0.45, trunkLenHi: 1.0, segLenLo: 0.5, segLenHi: 1.0,
@@ -8377,7 +8377,7 @@ export const SPUR_VIS = Object.freeze({
   // neighbour rather than its first. Swept independently: dropping reachHi from 1.0 to 0.30 never
   // took the widest hole past 22px, so the GAP dominates and the reach does not.
   branchW: 5.6,
-  colonyEveryLo: 20, colonyEveryHi: 32, gapLo: 0.45, gapHi: 1.6,
+  colonyEveryLo: 12, colonyEveryHi: 20, gapLo: 0.45, gapHi: 1.6,
   reachLo: 0.45, reachHi: 1.0, spineJitter: 0.16,
   //   tipMix  how far each bud is lightened from its OWN colony's tone toward `tip`. Not 1: at
   //           depth 3 there are 32 buds per colony, so a single cream for all of them stops being
