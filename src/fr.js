@@ -22,6 +22,7 @@ const UI = {
   'Range': 'Portée',
   'Length': 'Longueur',
   'Width': 'Largeur',
+  'Ridges lit': 'Crêtes allumées',
   'Pierce': 'Perforation',
   // 'Délai', not 'Toutes les' (a dangling preposition before a value column, and wrong number
   // agreement under 2s) and NOT 'Cadence' — this dictionary already spends cadence on the INVERSE
@@ -108,15 +109,10 @@ const UI = {
     'Payés avec des niveaux d\'amélioration déjà achetés. Ils sont dépensés, sans remboursement.',
   // The effect alone, with no price clause — see BOOK_UNLOCKS in config.js for why it is split.
   'One more choice at every level-up.': 'Un choix de plus à chaque montée de niveau.',
-  'Kills give back resource.': 'Tuer rend de la ressource.',
   'Sacrifice {n} upgrade levels (no coin refund).':
     'Sacrifie {n} niveaux d\'amélioration (aucun remboursement).',
   '3rd': '3e',
   '4th': '4e',
-  // Book 2 (dev-gated). 'Voleur de Lumiere' keeps the owner's own framing - he described the
-  // mechanic as STEALING light - rather than a neutral 'Recuperateur'. Its effect line lives with
-  // the other unlock effects above, since both targets are rows on the same list.
-  'Scavenger': 'Charognard',
   // 'achat' (noun) not 'acheter' (verb): the chip sits at the end of a row whose label needs every
   // remaining px, and the verb is 4 characters longer for no added clarity on a buy button.
   'buy : 🪙 {n}': 'achat : 🪙 {n}',
@@ -339,7 +335,7 @@ const UI = {
   // reaction and keeps the reactor wink next to 'cœur'.
   'you killed an elite and something went critical': "tu as tué un élite et quelque chose s'est emballé",
 
-  // effect chip labels (EFFECT_LABELS in ui.js)
+  // effect chip labels (MUTATOR_EFFECT_LABELS in config.js)
   'enemy spawns': 'apparitions ennemies',
   'enemy speed': 'vitesse ennemie',
   'enemy damage': 'dégâts ennemis',
@@ -352,6 +348,11 @@ const UI = {
   'infusion card chance': 'chance de carte d\'infusion',
   'pickup magnet': 'aimant à butin',
   'current push': 'poussée du courant',
+  'current speed': 'vitesse du courant',
+  // Same noun as its sibling above, because on screen they ARE siblings — Riptide's chip and
+  // Spring Tide's chip sit in the same slot of the same trade, one per chapter.
+  'tide push': 'poussée de la marée',
+  'enemies at once': 'ennemis simultanés',
   'Current Resistance': 'Résistance au courant',
   '-8% current push': '-8 % de poussée du courant',
   'pheromone life': 'durée des phéromones',
@@ -360,6 +361,10 @@ const UI = {
   'time between shells': 'délai entre obus',
   'gravity well force': 'force des puits de gravité',
   'acid pool burn': 'brûlure des flaques d\'acide',
+  // 'zones d'eau claire' verbatim from Dead Water's own French desc and the shelf's HUD — the chip
+  // and the card describe one thing, so they must use one word for it.
+  'clean-water spots': 'zones d\'eau claire',
+  'clean water per spot': 'eau claire par zone',
 }
 
 // config.js content strings — filled by the translation pass (see fr-config section below).
@@ -1284,6 +1289,93 @@ const CONFIG = {
   'Backblow': 'Contre-Souffle',
   'a second cone blows out behind you': 'un second cône souffle derrière toi',
   'Silt Veil': 'Voile de Vase',
+  // The Reef's two natives (v7.x). BOTH DISPLAY NAMES ARE DRAFTS pending the owner's pick — each
+  // went to him as a pair (Crevette-pistolet / Claquement, Corail de Feu / Corail Brûlant) and
+  // these are the recommended halves. Both are the real French names of the real animals, which
+  // is the whole argument: a French player already has a word for the thing in the picture.
+  // 'Détonation Arrière' and not 'Contre-Souffle' for Backblast: the Bubble Puff's Backblow four
+  // lines up already owns that, and two cards in Book 2 wearing one French name is the kind of
+  // collision the dictionary cannot see (different keys, identical on screen).
+  'Pistol Shrimp': 'Crevette-pistolet',
+  'Snaps a bolt of boiling water straight ahead. It never turns to aim — line the shot up yourself.':
+    'Claque un jet d’eau bouillante droit devant. Elle ne vise jamais — c’est à toi de t’aligner.',
+  'Fire Coral': 'Corail de Feu',
+  'Wakes the stinging polyps on the coral ahead of you. Anything crossing a lit ridge burns; the gaps through it stay cold.':
+    'Réveille les polypes urticants du corail devant toi. Tout ce qui traverse une crête allumée brûle ; les passages, eux, restent froids.',
+  'Overpressure': 'Surpression',
+  'snap damage': 'dégâts du claquement',
+  'Long Crack': 'Longue Fissure',
+  'crack length': 'longueur de la fissure',
+  'Wide Crack': 'Large Fissure',
+  'crack width': 'largeur de la fissure',
+  'Quick Snap': 'Claquement Rapide',
+  'snap rate': 'cadence de claquement',
+  'Backblast': 'Détonation Arrière',
+  'a second crack snaps out behind you': 'une seconde fissure claque derrière toi',
+  'Hot Polyps': 'Polypes Ardents',
+  'polyp damage per tick': 'dégâts des polypes par tic',
+  'Ember Bed': 'Lit de Braises',
+  'how long a ridge burns': 'durée de combustion d’une crête',
+  'More Reef': 'Plus de Récif',
+  'extra ridge(s) lit per cast': 'crête(s) allumée(s) en plus par lancer',
+  'Quick Wake': 'Réveil Rapide',
+  'wake rate': 'cadence de réveil',
+  'Overgrowth': 'Prolifération',
+  'the polyps grow over the gaps as well': 'les polypes envahissent aussi les passages',
+  // The Reef's other two natives, its anomaly and its mutator (v7.x). EVERY DISPLAY NAME HERE IS A
+  // DRAFT pending the owner's pick -- there is no translation subagent for this repo, and each went
+  // to him as a pair: Encre de Seiche / Nuage d'Encre, Bouteille d'Oxygene / Bloc de Plongee,
+  // Dernier Souffle (verified free in this dictionary), Grand Courant / Courant de Maree. These are
+  // the recommended halves.
+  //   'Encre de Seiche' over 'Nuage d'Encre' for the reason the Crevette-pistolet entry above gives:
+  // it is the real French name of the real animal, and a French player already has a word for the
+  // thing in the picture. 'Nuage' also collides in MEANING with the Spore Bloom's clouds.
+  //   'Bouteille de Plongee' is what a diver actually says, but the card is about the OXYGEN and the
+  // HUD rail beside it says 'Air' -- so the name keeps the gas in it.
+  'Squid Ink': 'Encre de Seiche',
+  'Jets a cloud of ink around you. Anything that swims into it loses you and keeps going the way it was already headed.':
+    'Projette un nuage d’encre autour de toi. Tout ce qui y nage te perd de vue et continue tout droit.',
+  'Blackout': 'Voile Noir',
+  'cloud size': 'taille du nuage',
+  'Deep Dark': 'Noir Profond',
+  'how long they stay lost': 'durée pendant laquelle ils te perdent',
+  'Lingering Ink': 'Encre Persistante',
+  'how long the cloud hangs': 'durée du nuage',
+  'Quick Ink': 'Encre Rapide',
+  'jet rate': 'cadence des jets',
+  'Second Jet': 'Second Jet',
+  'extra ink cloud(s) per jet': 'nuage(s) d’encre en plus par jet',
+  'Oxygen Tank': 'Bouteille d’Oxygène',
+  'Tumbles a lost tank up the lane. It ruptures where you are about to be, and your Air stops draining inside the bubbles.':
+    'Envoie une bouteille perdue devant toi. Elle éclate là où tu vas arriver, et ton Air cesse de baisser dans les bulles.',
+  'Overfilled': 'Surgonflée',
+  'rupture damage': 'dégâts de l’éclatement',
+  'Wide Rupture': 'Large Éclatement',
+  'blast radius': 'rayon du souffle',
+  'Long Boil': 'Long Bouillonnement',
+  'how long the bubbles hold your Air': 'durée pendant laquelle les bulles retiennent ton Air',
+  // 'throw rate' is DELIBERATELY NOT REPEATED HERE: the Debris Toss and Skipping Shell mods
+  // already share that exact English key, and it is translated above. A second entry would be a
+  // duplicate key -- the later section silently wins and the earlier translation goes dead.
+  'Quick Tank': 'Bouteille Rapide',
+  'Pressure Wave': 'Onde de Choc',
+  'the rupture shoves everything clear': 'l’éclatement repousse tout autour',
+  // The stat rows (STAT_KEYS). 'Aveuglé pendant' and not 'Cécité': the sheet's other rows are all
+  // verbs or states with a duration after them ('Brûle pendant', 'Tient pendant'), and a bare noun
+  // in a column of those reads as a different kind of number.
+  'Blinded for': 'Aveuglé pendant',
+  'Bubbles last': 'Bulles pendant',
+  // The chapter anomaly. 'Dernier Souffle' is the ordinary French idiom for exactly this, and it was
+  // re-checked against every key in this file before being used.
+  'Last Breath': 'Dernier Souffle',
+  'the thinner it got, the harder you swung': 'plus l’air manquait, plus tu frappais fort',
+  'Your damage rises as your Air empties, up to +100%. While you are drowning, everything hurts you twice as much.':
+    'Tes dégâts montent à mesure que ton Air se vide, jusqu’à +100 %. Quand tu te noies, tout te fait deux fois plus mal.',
+  // The chapter mutator. 'Grand Courant' over 'Courant de Marée': 'Marée' is already Spring Tide's
+  // ('Grande Marée'), and two chapter mutators in one book wearing the same noun is the collision
+  // the dictionary cannot see -- different keys, one word on screen.
+  'Tidal Race': 'Grand Courant',
+  'The current runs far faster. Richer coins.': 'Le courant file bien plus vite. Pièces plus riches.',
   'Stirs the bottom into a cone of silt that poisons and dazes what swims in.': 'Soulève un cône de vase qui empoisonne et étourdit tes poursuivants.',
   // Voile de Vase's four (2026-08-19). 'vase' throughout, never 'limon', because the weapon's own
   // name already fixed the word -- the rule the Coquille Ricochet entry states: one word for one
@@ -1509,6 +1601,7 @@ const CONFIG = {
   'Drowning': 'Noyade',
   'Starvation': 'Famine',
   'The Leak': 'La Fuite',
+  'The Coral': 'Le Corail',
   // Owner's pick, 2026-08-22, over 'L'Orque' and 'L'Épaulard': the chapter's own premise turned
   // back on the player — you spent the run being the predator, and this is the one that outranks you.
   'The Orca': 'Le Prédateur',

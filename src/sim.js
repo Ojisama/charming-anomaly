@@ -30,7 +30,7 @@
 import {
   RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
-  MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
+  MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, DUO_PITY_SCREENS, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
   ELEMENTS, MAX_ELEMENT_PICKS,
   // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
   // it must NEVER be used to WALK the ladder. A failed roll deflecting onto the next tier is what
@@ -78,7 +78,7 @@ import {
   EL_WINDOW, EL_BUCKETS, EL_FIRE_SHARE, EL_COLD_MUL, EL_FREEZE_T, EL_FREEZE_RESIST,
   EL_FREEZE_RESIST_T, EL_VENOM_MUL, EL_LIGHT_SHARE, EL_LIGHT_RANGE, EL_LIGHT_FORWARD,
   EL_VALUES, EL_BURN_TICK, EL_BURN_MIN, elScale, elementCardDesc, elText,
-  ELITE_AFFIXES, AFFIX_SECOND_AT, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
+  ELITE_AFFIXES, AFFIX_SECOND_AT, ANCHORED_CHANCE, SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT,
   VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG, CORE_BLAST_ENEMY_MUL, PACER_RADIUS, PACER_SPEED_MUL,
   FRENZY_HP_FRAC, FRENZY_SPEED_MUL, GILDED_HP_MUL, GILDED_COIN_MUL,
   newWeaponChance, NEW_WEAPON_MIN_RATE,
@@ -155,7 +155,10 @@ import {
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
-  BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_CRUSH_MUL, DROWN_TICK,
+  BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, DROWN_TICK,
+  SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
+  FIRE_CORAL_LEAD, SNAP_BACKBLAST_FRAC, INK_BLIND_REACH, INK_JET_SPREAD, TANK_SHOVE_KB,
+  LAST_BREATH_MAX_DMG_MUL, LAST_BREATH_DROWN_TAKEN_MUL,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
   GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC, GNASH_CARRY_FRAC, RUSH_DUR, RUSH_MAX_STACKS,
   CHUM_PULL_MUL, CHUM_PANIC_R, CHUM_FEED_R, CHUM_FEED_HOLD,
@@ -311,6 +314,7 @@ export function stepSim(run, input, dt) {
   if (stepContactDamage(run)) return // phase is now 'dead'
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
   if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
+  if (stepSpurs(run, dt)) return // phase is now 'dead' (The Reef: scraping through coral, v7.x)
   if (stepDrown(run, dt)) return // phase is now 'dead' (The Reef: an empty Air bar, v7.x)
   if (stepStarve(run, dt)) return // phase is now 'dead' (The Wreck: an empty Bloodlust bar, v7.x)
   if (stepSlick(run, dt)) return // phase is now 'dead' (The Wreck: standing in the leak, v7.x)
@@ -602,6 +606,18 @@ function anomalyDamageMul(run) {
   // polluted and pays a flat cap anywhere. Unreachable from the real pool, which is chapter-scoped,
   // but devCards ignores every eligibility rule on purpose and ships in the production bundle.
   if (a.runoff && run.chargeMax > 0) mul *= 1 + (RUNOFF_MAX_DMG_MUL - 1) * pollutionFrac(run.charge, run.chargeMax)
+  // LAST BREATH: The Reef's bar as a ramp, running the OTHER way from Runoff's — this one pays for
+  // an EMPTY bar, which is the state CHAPTERS.reef.resource measures a centre-line player spending
+  // 76% of a run in. `1 - charge/max` and not pollutionFrac: that helper is The Shelf's murk
+  // derivation and belongs to that chapter's copy, and a shared name would tie two cards' meanings
+  // together for no gain.
+  //   THE chargeMax > 0 GUARD IS LOAD-BEARING, verbatim Runoff's reason: a chapter with no resource
+  // leaves charge and chargeMax at 0, so without it an empty bar would read as fully empty and pay
+  // the cap anywhere. Unreachable from the real pool, which is chapter-scoped, but devCards ignores
+  // every eligibility rule on purpose and ships in the production bundle.
+  if (a.lastBreath && run.chargeMax > 0) {
+    mul *= 1 + (LAST_BREATH_MAX_DMG_MUL - 1) * (1 - Math.min(1, Math.max(0, run.charge) / run.chargeMax))
+  }
   return mul
 }
 
@@ -687,18 +703,25 @@ function stepPlayerMovement(run, input, dt) {
   const foulMul = (run._foulT ?? 0) > 0 ? SLICK_SLOW_MUL : 1
   // INKED (v7.x / The Wreck's squid): the one slow in the game that a CREATURE put there, and the
   // only one you walk into by choosing to chase. Scanned off run.blooms rather than a new array —
-  // the ink is a bloom tagged look:'ink' (see the INK_* block) — and shaped exactly like the web
+  // the ink is a bloom tagged look:'inkjet' (see the INK_* block) — and shaped exactly like the web
   // scan above, which is the same question about a different patch on the floor.
   //   Same MIN composition as its five neighbours and for the reason they all give: multiplying
   // would make every latch, web and spill in this chapter strictly nastier than the identical one
   // anywhere else. It is also why ink and oil together cost the oil's 0.62 and never the product.
   let inkMul = 1
   for (const bl of run.blooms) {
-    if (bl.look !== 'ink' || bl.r <= 0) continue
+    if (bl.look !== 'inkjet' || bl.r <= 0) continue
     const idx = p.x - bl.x, idy = p.y - bl.y
     if (idx * idx + idy * idy <= bl.r * bl.r) { inkMul = INK_SLOW_MUL; break }
   }
-  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul, inkMul)
+  // SCRAPING (v7.x, The Reef): coral takes your STEERING and never the scroll. In the lane branch
+  // below `speed` reaches the cross axis only — the forward component is laneScrollFor — so slowing
+  // it here is the whole of that promise. Published by stepSpurs, which runs later in the step, so
+  // it is one frame old in exactly the way run._bindSlow is. Same MIN composition as its six
+  // neighbours and for the same reason; it sits ABOVE LATCH_SLOW_MUL on purpose, so a latched moray
+  // in coral is still the worst case in the chapter rather than the coral swallowing the moray.
+  const scrapeMul = run._scraping ? SPUR_SLOW_MUL : 1
+  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul, inkMul, scrapeMul)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
   // SCENT (v7.x, The Deep): "or move faster towards your prey" — the owner's own framing for the
   // button. MULTIPLIED, not MIN-composed with the three slows above, and the asymmetry is right:
@@ -738,7 +761,7 @@ function stepPlayerMovement(run, input, dt) {
     // does not declare `burst`, so this multiplier is 1 everywhere else including The Beyond.
     const burstMul = (run._burstT ?? 0) > 0 ? BURST_SPEED_MUL : 1
     p[ax.vCross] = (ax.cross === 'x' ? ix : iy) * speed * LANE_STRAFE_MUL
-    p[ax.vFwd] = ax.dir * laneScrollFor(CHAPTERS[run.chapter]) * burstMul
+    p[ax.vFwd] = ax.dir * laneScrollFor(CHAPTERS[run.chapter], run.mods) * burstMul
     if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
   } else if ((run._lungeT ?? 0) > 0) {
     // THE LUNGE (v7.x, The Wreck). The free-roaming twin of the burst above, and it has to live in
@@ -1381,7 +1404,13 @@ function stepRepulse(run, input, dt) {
   // on the same frame and play the shove's sample twice, which is the exact complaint run SK.e pins
   // for The Surf. The murk visibly opening is the tell, and it is a bigger one than any ring.
   if (ch.clear) run._clearT = CLEAR_DUR_MIN + (CLEAR_DUR_AT_FULL - CLEAR_DUR_MIN) * t
-  if (ch.burst) run._burstT = BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t
+  // UNLIKE CLEAR, THE BURST NEEDS ITS OWN EVENT: Clear's tell is the murk visibly opening, but a
+  // dash through open water has no other visible sign the shove's own ring didn't already cover —
+  // `_burstT` had zero render.js consumer before this line (grep `_burstT` src/render.js was empty).
+  if (ch.burst) {
+    run._burstT = BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t
+    run.events.push({ type: 'burst', x: p.x, y: p.y })
+  }
   // THE LUNGE (v7.x, The Wreck — CHAPTERS[].lunge). Same press, same cooldown, same `t`, and the
   // shove above still fires — this is additive like the burst, not a replacement like the shorebreak.
   //
@@ -1489,10 +1518,17 @@ function stepRepulse(run, input, dt) {
 // Asteroids (v5.21, lane chapters). Neutral drifting hazard: hurts the player on contact AND grinds
 // any enemy overlapping it. Not destructible — see ROCK_INTERVAL's block in config.js.
 // Returns true if the player died, matching stepLeaks/stepContactDamage's contract.
+//
+// `lane` AND an OPT-OUT, because `lane` alone made this The Beyond's hazard in every scroller ever
+// written: The Reef inherited cratered space rocks it never asked for, ~88 a run, and a death screen
+// that read "Killed by Asteroids". A chapter turns them off with `rocks: false` (CHAPTERS.reef).
+// Opt-out and not opt-in on purpose — The Beyond is shipped and golden-mastered (run LN), so the
+// default has to be the behaviour it already has.
 function stepRocks(run, dt) {
-  if (!CHAPTERS[run.chapter].lane) return false
+  const ch = CHAPTERS[run.chapter]
+  if (!ch.lane || ch.rocks === false) return false
   const p = run.player
-  const ax = laneAxes(CHAPTERS[run.chapter])
+  const ax = laneAxes(ch)
   // Signed "how far up the lane", whichever axis this chapter runs on: bigger = further ahead.
   // Multiplying by ±1 is exact, so on The Beyond's -y lane every comparison below is the same
   // comparison it has always been, with both sides negated.
@@ -1573,16 +1609,20 @@ function stepLeaks(run) {
   return false
 }
 
-// Rolls ELITE_AFFIXES.length equal-weight distinct affix ids: 1 normally, 2 once
-// run.time >= AFFIX_SECOND_AT. Called only for elites.
+// Rolls equal-weight distinct affix ids from every ELITE_AFFIXES entry EXCEPT `anchored`: 1
+// normally, 2 once run.time >= AFFIX_SECOND_AT. Called only for elites.
 function rollAffixes(run) {
   const count = run.time >= AFFIX_SECOND_AT ? 2 : 1
-  const pool = Object.keys(ELITE_AFFIXES)
+  const pool = Object.keys(ELITE_AFFIXES).filter((id) => id !== 'anchored')
   const picked = []
   for (let i = 0; i < count && pool.length > 0; i++) {
     const idx = Math.floor(Math.random() * pool.length)
     picked.push(pool.splice(idx, 1)[0])
   }
+  // `anchored` is an OVERLAY, not one of the rolled affixes — it is filtered out of the pool above
+  // so ANCHORED_CHANCE is the rate as written, and every elite still carries its own teeth
+  // underneath it. Same idiom as unstableCores below: the rule is added, nothing is taken away.
+  if (Math.random() < ANCHORED_CHANCE) picked.push('anchored')
   // ANOMALIES.unstableCores (config.js): every elite dies volatile. Pushed onto the affix ARRAY
   // rather than set as enemy.volatile — 'volatile' is only ever read as
   // enemy.affixes.includes('volatile') (dealDamage's death path), so a boolean would be a dead
@@ -1613,6 +1653,10 @@ function freshEnemyFields() {
     // freezes it, enrage speeds it up and hardens its contact damage. Ticked in stepEnemyMovement.
     fearT: 0, fearCd: 0, dazeCd: 0, dragT: 0, _ccDR: 1, stunT: 0, enrageT: 0,
     bloomSlowT: 0, // v6.4: a plain speed debuff (folds into slowMul), refreshed by stepBlooms
+    // v7.x The Reef, PUBLISHED for render.js (see the status block there): seconds of blindness
+    // left. While > 0 the retarget seam hands this body a point down its own held heading instead
+    // of the player's position. Refreshed by stepBlooms, decayed in stepEnemyMovement.
+    blindT: 0,
     // v7.x The Deep, both PUBLISHED for render.js (see the status block there):
     //   scentT  seconds left on the Scent mark. Amplifies every source of damage (dealDamage) and
     //           is what render outlines the body with. Refreshed by stepScent, decayed above.
@@ -2033,6 +2077,31 @@ function stepEnemyMovement(run, dt) {
       const pt = run.trail && run.trail[run.trail.length - 1 - lag]
       if (pt) { tx = pt.x; ty = pt.y }
     }
+    // SQUID INK'S BLIND (v7.x, The Reef). LAST at this seam, so it overrides a lure and a trail
+    // sample alike: a body that cannot see the player cannot see a decoy of them either.
+    //
+    // It hands the machines a point INK_BLIND_REACH down the heading the body already had, which is
+    // what "loses you and keeps going" means in a file where every machine reads a point. The
+    // heading is captured ONCE, on the first frame of the blind, and held for its whole length —
+    // recomputing it per frame off (tx - e.x) would re-derive the player's bearing every frame and
+    // the blind would do nothing at all, silently.
+    //   The capture is deliberately taken from the seek target as it stands HERE, after the lure
+    // and pastSeek branches, so a body blinded while chasing a decoy carries on toward the decoy's
+    // last position rather than snapping onto the player's.
+    if ((e.blindT ?? 0) > 0) {
+      if (e._blindHx === undefined) {
+        const bl = Math.hypot(tx - e.x, ty - e.y) || 1
+        e._blindHx = (tx - e.x) / bl
+        e._blindHy = (ty - e.y) / bl
+      }
+      tx = e.x + e._blindHx * INK_BLIND_REACH
+      ty = e.y + e._blindHy * INK_BLIND_REACH
+      // ...and into `_tgtX/_tgtY`, the shipped "face this instead of the player" pair, for exactly
+      // the reason SUBMISSION's allies and The Wreck's skittish prey write it: render derives every
+      // bearing from run.player each frame, so without this a blinded body swims away with its eyes
+      // still on you and the card's whole product — bodies LOSING you — is undrawn.
+      e._tgtX = tx; e._tgtY = ty
+    }
     const dx = tx - e.x, dy = ty - e.y
     const d = Math.hypot(dx, dy)
     // chill/freeze/bloom slow the seek movement only. // ponytail: movement state machines that
@@ -2217,6 +2286,16 @@ function stepEnemyMovement(run, dt) {
     if (e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt)
     if (e.enrageT > 0) e.enrageT = Math.max(0, e.enrageT - dt)
     if (e.bloomSlowT > 0) e.bloomSlowT = Math.max(0, e.bloomSlowT - dt) // v6.4: refreshed by stepBlooms while inside a cloud
+    // Squid Ink's blind. Refreshed by stepBlooms while inside the ink, decayed here for the reason
+    // scentT's note below gives: stepBlooms only walks the bodies currently in a cloud, so a body
+    // that swims out would otherwise keep the mark for the rest of the run.
+    //   THE HELD HEADING IS CLEARED ON THE FRAME THE BLIND EXPIRES, and that line is the whole
+    // re-blind story: without it a second cloud would resume the FIRST cloud's heading, and a body
+    // blinded twice would swim a direction it has not had for ten seconds.
+    if (e.blindT > 0) {
+      e.blindT = Math.max(0, e.blindT - dt)
+      if (e.blindT === 0) { e._blindHx = undefined; e._blindHy = undefined }
+    }
     if (e.dragT > 0) e.dragT = Math.max(0, e.dragT - dt) // Ballast's impact drag; set once at the landing, never refreshed
     // The Wreck's Chum. Set ONCE when a serving is taken (stepLures) and never refreshed by
     // standing in the cloud — a hold that re-armed every frame would pin the shoal on the bait
@@ -2819,11 +2898,11 @@ function stepInkjet(run, e, dt) {
   e._inkCd = INK_COOLDOWN
   run.blooms.push({
     x: e.x, y: e.y, t: 0, r: 0, maxR: INK_R, dur: INK_DUR,
-    dmgPerTick: 0, tick: 0, look: 'ink', slow: 0,
+    dmgPerTick: 0, tick: 0, look: 'inkjet', slow: 0,
   })
   // The cloud fades UP over BLOOM_GROW_FRAC of its life, which is far too slow to read as a squirt.
   // The event is the squirt; the bloom is what is left of it.
-  run.events.push({ type: 'ink', x: e.x, y: e.y, r: INK_R })
+  run.events.push({ type: 'inkjet', x: e.x, y: e.y, r: INK_R })
 }
 
 // puffup (v7.x The Wreck's pufferfish): inflate when the player closes, refuse ONE bite, then drift
@@ -2933,6 +3012,14 @@ function hurtPlayer(run, rawDmg, dot = false, src = null) {
   // normal invuln window. Derived from run.rampageT, never assigned onto the player: see
   // RAMPAGE_CRUSH_MUL's doc block in config.js for why that distinction is load-bearing.
   if (run.rampageT > 0) return false
+  // LAST BREATH's other half (v7.x, The Reef). Every player-damage path in this file funnels here,
+  // which is the whole reason the card is two lines instead of a multiplier at sixteen call sites —
+  // and it is also why the DROWN tick is doubled along with everything else. That is deliberate,
+  // not an oversight: the card sells damage for an empty bar, and exempting the drowning would make
+  // it a free ramp for the exact play it exists to make dangerous.
+  //   Applied to rawDmg, BEFORE armor, contactDmgTakenMul and HURT_CAP_FRAC, so it composes the way
+  // every other incoming multiplier does and stays under the one-shot cap on the non-dot side.
+  if (run.anomalies?.lastBreath && run.chargeMax > 0 && run.charge <= 0) rawDmg *= LAST_BREATH_DROWN_TAKEN_MUL
   const dmg = dot
     ? Math.max(1, Math.round(rawDmg))
     // v6.3.4 anti-turtle: HURT_CAP_FRAC caps a single non-dot hit so multiplicative sources
@@ -3463,8 +3550,8 @@ export function stepTide(run, dt) {
 //   20-23 refill circles: The Twilight's shafts, The Surf's tide pools (streamShafts' default)
 //   30-32 streamSandbars
 //   40-43 refill circles: The Reef's air pockets (CHAPTERS.reef.signature.pockets.salt)
-//   44-46 The Reef's spur field (CHAPTERS.reef.spurs.salt): 44/45 the two channel widths, 46 free
-//         for the features table. Only two of the three are drawn today.
+//   44-46 The Reef's spur field (CHAPTERS.reef.spurs.salt): 44/45 the two channel widths, 46 the
+//         ridge's own thickness (spurs.thickVar).
 // Next free block: 47+ (5-10, 18-19, 24-29 and 33-39 are free too, between claimed ranges).
 function obstacleCellHash(i, j, seed, salt) {
   let h = (Math.imul(i, 374761393) + Math.imul(j, 668265263) + seed + Math.imul(salt, 974634923)) | 0
@@ -3853,6 +3940,12 @@ export function streamShafts(run) {
 // channel is without materialising anything. Same rule refillCircleAt states for the refill fields.
 export function spurAt(i, spec, seed) {
   const f = i * spec.spacing
+  // EVERY RIDGE ITS OWN THICKNESS, off the field's third salt. The band this returns is the band the
+  // grate charges over (stepSpurs), the band Fire Coral burns (stepPolyps) and the band render.js
+  // draws — one number, three consumers — so the reef front can be ragged without the art and the
+  // collider ever parting company. Uniform about 1, so the MEAN is exactly spec.thick and §7's cost
+  // table still reads; see CHAPTERS.reef.spurs for the ceiling this may not cross.
+  const thick = spec.thick * (1 + (obstacleCellHash(i, 0, seed, spec.salt + 2) - 0.5) * 2 * (spec.thickVar ?? 0))
   // The braid. One sine over the lane index, the two channels symmetric about the centre line, so
   // they cross (and swap sides) wherever it passes through zero. See CHAPTERS.reef.spurs for why
   // the period is 6 ridges and why the amplitude is a constant rather than a viewport read.
@@ -3868,7 +3961,7 @@ export function spurAt(i, spec, seed) {
   const grooves = merged
     ? [{ c: 0, hw: Math.max(w1, w2) / 2 }]
     : [{ c, hw: w1 / 2 }, { c: -c, hw: w2 / 2 }]
-  return { i, f, thick: spec.thick, grooves, merged }
+  return { i, f, thick, grooves, merged }
 }
 
 // The 1-D cursor. Rebuilds the whole window on a ridge crossing rather than doing the live/drop
@@ -3889,6 +3982,73 @@ export function streamSpurs(run) {
   for (let i = i0 - span; i <= i0 + span; i++) run.spurs.push(spurAt(i, spec, run._obstacleSeed))
   run._spurRev = (run._spurRev || 0) + 1  // render rebuilds only on this, exactly as _obstacleRev
 }
+
+// ONE definition of 'this cross position is coral and not a channel', read by the grate (the
+// player) and by Fire Coral (the crowd, stepPolyps). It takes the spurAt entry the caller already
+// has and only the CROSS coordinate — the forward band test stays with each caller, because they
+// bound it differently (the player against the streamed window, a lit ridge against its own
+// stored f). Splitting the groove test out is what stops the burn band and the scrape band from
+// drifting apart, which is the one-fact-in-two-places class CLAUDE.md names as the largest
+// defect source in this repo.
+const onCoral = (sp, c) => !sp.grooves.some((g) => Math.abs(c - g.c) <= g.hw)
+
+// THE GRATE. What makes a ridge a decision instead of scenery: you are either in a groove, or in
+// coral where it costs HP and your steering while the crowd is still on you. Never a wall — the
+// scroll is untouched, so the lane keeps its one promise and there is nowhere the reef is shut.
+//
+// TESTED AGAINST THE GROOVES spurAt ALREADY RETURNED, which is the same object render.js draws the
+// channel from — one definition, two consumers, and the only reason the gap you can see is the gap
+// you can swim through.
+//
+// A POINT TEST, like every other DoT in this file (the pools, the slicks, inLobe). The spec prices
+// the MEAN ridge (spurs.thick 90px) at the 2.0s a 45px/s scroll takes to carry a point through it;
+// adding the body radius would make it 3.0s and every number in §7's table wrong by half. Ridges
+// vary about that mean now (spurs.thickVar), so a single crossing costs 1.56-2.44s and the table
+// reads as the expectation it always was.
+//
+// ⚠ THE ACCUMULATOR IS CARRIED, and that is an exploit fix rather than a detail. Zeroing it on exit
+// (stepDrown/stepSlick do, correctly, for a bar you are simply in or out of) makes clipping a groove
+// edge for under half a second free. Ticking on ENTRY from a zeroed accumulator is worse the other
+// way: it charges a full tick per crossing with no cooldown, so a player oscillating on an edge — or
+// shoved across one — pays 5 ticks/s against a stated 4 dps. Carried, and merely CAPPED at one tick
+// while you are out, the entry tick is exact arithmetic with neither hole: an oscillator can never
+// pay more per second than a player who committed. createRun seeds it AT the cap (state.js), so the
+// first ridge of a run bites on entry exactly like every ridge after it.
+//
+// THE CHARGE IS FLAT, NEVER x dmgScale. Every DoT SPUR_DPS is priced against is flat — drowning 4,
+// SLICK/SOAP 6 — so a ramping scrape would cross the soap trail at t=150s and invert the one thing
+// that makes a groove a choice. See SPUR_DPS' block for the whole of that argument.
+//
+// @returns true if the player died.
+function stepSpurs(run, dt) {
+  const spec = CHAPTERS[run.chapter].spurs
+  if (!spec) return false
+  const ax = laneAxes(CHAPTERS[run.chapter])
+  const p = run.player
+  const f = p[ax.fwd], c = p[ax.cross]
+  let inside = false
+  for (const sp of run.spurs) {
+    if (Math.abs(f - sp.f) > sp.thick / 2) continue
+    // Ridges are spaced further apart than they are thick, so at most one band can hold the player.
+    inside = onCoral(sp, c)
+    break
+  }
+  // balance_decision : the burst crosses coral free, strafe slow lifts too [2026-08-22]
+  //  - clears _scraping ITSELF, so the grit tell and SPUR_SLOW_MUL go with the damage
+  if ((run._burstT ?? 0) > 0) inside = false
+  run._scraping = inside   // the strafe slow, read by stepPlayerMovement (see SPUR_SLOW_MUL)
+  run._spurAcc += dt
+  if (!inside) { run._spurAcc = Math.min(run._spurAcc, SPUR_TICK); return false }
+  let died = false
+  while (run._spurAcc >= SPUR_TICK) {
+    run._spurAcc -= SPUR_TICK
+    // `dot: true` and a named src, as drowning and the slick are: the renderer's hurt reaction is
+    // keyed off both, and main.js's `if (e.dot) continue` already silences the audio.
+    if (!died && hurtPlayer(run, SPUR_DPS * SPUR_TICK, true, 'scrape')) died = true
+  }
+  return died
+}
+
 // -- The leak (v7.x, The Wreck's signature) ------------------------------------------------------
 // THE FIFTH FIELD THROUGH refillCircleAt AND THE FIRST THAT HURTS. Same pure cell->circle geometry
 // as The Shelf's shafts, The Surf's pools and The Reef's pockets, on its own salt block (50) so a
@@ -4624,8 +4784,19 @@ export function stepCharge(run, dt) {
   const feedMul = res.feedSlow
     ? 1 - (1 - FEED_DRAIN_MIN) * Math.min(1, (run._feedN || 0) / FEED_FULL_N)
     : 1
-  let c = run.charge - drainRate * dryMul * run.chargeDrainMul * feedMul * dt
   const p = run.player
+  // OXYGEN TANK'S BOIL (v7.x, The Reef). It PAUSES the drain and can never add to the bar: the
+  // whole effect is this multiplier, and there is no branch anywhere that writes `c` for a boil.
+  // Written as a factor on the drain term rather than as `if (boiling) { ... }` deliberately —
+  // WEAPONS.oxygenTank's block says why a second refill source is forbidden (the chapter's measured
+  // pocket economy is denominated in pockets being the only one), and a factor of zero is the shape
+  // a future editor cannot accidentally turn into a refill by adding a line.
+  const airHold = (run.blooms ?? []).some((bl) => {
+    if (!bl.airHold || bl.r <= 0) return false
+    const dx = p.x - bl.x, dy = p.y - bl.y
+    return dx * dx + dy * dy <= bl.r * bl.r
+  }) ? 0 : 1
+  let c = run.charge - drainRate * dryMul * run.chargeDrainMul * feedMul * airHold * dt
   // Opt-in per FIELD, read through refillSpec() so this asks the streamer's own question rather
   // than a second one that could disagree. 0/undefined everywhere but The Shelf.
   // drawdownSecsFor, not a bare refillSpec read: Dead Water multiplies this clock and all three
@@ -4667,7 +4838,7 @@ export function stepCharge(run, dt) {
   // nowhere on the map to stand. run.shafts is empty here, so this is the only branch that can fire.
   if (inWake(run, p.x, p.y)) c += res.refill * dt
   // v7.x Book 2 Task 9: run.chargeMax, not res.max — Deep Lungs raises the RUN's own ceiling, and
-  // this is one of TWO sites that must clamp against it (the other is the Light Thief kill-refill,
+  // this is one of TWO sites that must clamp against it (the other is the per-kill `killBase`,
   // below in dealDamage's kill branch). Missing either one is a flicker: the bar would refill past
   // its cap on a kill and snap back down on the very next tick through whichever site still reads
   // the config max. The Trawl's wake refill feeds `c` too, so it is clamped by this line as well.
@@ -4949,48 +5120,6 @@ function resolveSeparationPair(run, i, j) {
 // distance checks/frame. Comparing squared distances skips the sqrt on every non-overlapping pair
 // (the overwhelming majority) and only pays for it on the rare branch that actually needs the unit
 // normal to push something out. Ships to phones; not optional (design doc §1).
-// -- Solid terrain IN A LANE (v7.x, The Reef — CHAPTERS[].laneSolid) -------------------
-// Coral heads you have to go round, in a mode whose whole premise is that you cannot stop and
-// cannot back up. Three restrictions, each answering one half of the shipped `if (lane) return`
-// above (see its comment, and CHAPTERS.reef.laneSolid's):
-//
-//   1. THE PLAYER ONLY. The enemy loop stays off in every lane chapter, so a marching rank still
-//      crosses a bommie in formation. That is not an omission — a rank shoved apart by terrain
-//      stops reading as a rank, which is the second thing the original early return protected.
-//   2. RESOLVED ACROSS THE LANE. The forward coordinate is never written here, so a wall cannot
-//      move you along the lane in EITHER direction: not backward (the ~10% of frames the shipped
-//      comment describes, which locally reverses the one constant the mode guarantees) and not
-//      forward, which would be a free Burst. Solving for the cross offset that puts the player on
-//      the circle AT THEIR CURRENT FORWARD POSITION is the exact fixed point of iterating the old
-//      radial push with the forward component clamped, so it is that clamp, converged, in one step.
-//   3. ONLY WHERE YOU COULD HAVE GONE ROUND. A coral whose circle reaches outside the lane walls is
-//      scenery. Making it solid would put a stretch of corridor behind a wall with no gap — the
-//      structural trap the no-spiral floor forbids — and it would fight stepPlayerMovement's wall
-//      clamp for the player's position every single frame, since the clamp runs earlier in the step
-//      and would not get another turn.
-// The final clamp is belt and braces for the boundary case where a coral sits exactly at the edge
-// of the reachable band: the lane wall outranks the coral, always.
-function stepLaneSolid(run) {
-  const ch = CHAPTERS[run.chapter]
-  if (!ch.laneSolid) return
-  const ax = laneAxes(ch)
-  const p = run.player
-  const hw = laneHalfWidth(run.viewRadius)
-  for (const o of run.obstacles) {
-    if (Math.abs(o[ax.cross]) + o.r > hw) continue      // pokes out of the lane -> scenery (3)
-    const minSep = o.r + PLAYER.radius
-    const dF = p[ax.fwd] - o[ax.fwd]
-    if (Math.abs(dF) >= minSep) continue
-    const dC = p[ax.cross] - o[ax.cross]
-    const need = Math.sqrt(minSep * minSep - dF * dF)
-    if (Math.abs(dC) >= need) continue
-    // Dead centre picks the +cross side rather than a random one, for the same reason the repulse's
-    // dead-centre shove picks the lane's own heading: a coincidence should not be a coin flip.
-    const side = dC < 0 ? -1 : 1
-    p[ax.cross] = Math.max(-hw, Math.min(hw, o[ax.cross] + side * need))
-  }
-}
-
 function stepObstacles(run) {
   if (!run.obstacles || run.obstacles.length === 0) return
   // v5.18: in the lane (beyond) the obstacles are PLANETS — distant bodies you scroll past, not
@@ -4999,11 +5128,10 @@ function stepObstacles(run) {
   // the lane on ~10% of frames when they held a strafe into a planet's belly, locally reversing the
   // one thing this chapter guarantees is constant (LANE_SCROLL_SPEED). It also kept marchers from
   // holding rank, since a rank crossing a planet was shoved apart sideways.
-  // v7.x: BOTH of those are still true, so a lane chapter that wants terrain (The Reef's coral,
-  // CHAPTERS[].laneSolid) gets stepLaneSolid instead of this function's radial push — the player
-  // only, resolved across the lane only, and only for coral you could have gone round. It is gated
-  // on its own chapter field and never on `lane`, so The Beyond takes the bare return it always did.
-  if (CHAPTERS[run.chapter].lane) { stepLaneSolid(run); return }
+  // v7.x: BOTH are still true of The Reef, whose coral is the spur field (stepSpurs) rather than a
+  // collider — a ridge grates and slows the strafe and never pushes, so nothing in a lane is solid
+  // to anything and this return stays bare.
+  if (CHAPTERS[run.chapter].lane) return
   const p = run.player
   // v5.8 kaiju redesign: crushable structures (CHAPTERS[chapter].crush) don't push the PLAYER —
   // they pop on contact instead (stepCrush, below), so treating them as terrain for the player
@@ -5063,15 +5191,6 @@ function stepObstacles(run) {
 // and this function's own splice below removes the cell from `live`, so the very next cell-boundary
 // scan (~1.2s later at PLAYER.baseSpeed/OBSTACLE_CELL, nowhere near a 1900px walk) re-rolled the
 // identical building right back in. The claim was simply wrong, confirmed by playtest.
-// v7.x: THE REEF'S BURST IS THE THIRD ENTRY POINT TO THIS PATH, and reuses it whole rather than
-// copying it — the splice, the permanent run._crushed record, the {type:'crush'} event, the
-// CRUSH_XP gem and the _obstacleRev bump are all things a coral head shattering needs and all
-// things this function already gets right (the v5.9.1 re-roll bug above is the reason a second
-// copy would be a liability). Gated on the chapter declaring `burst` AND a live dash, so outside
-// the dash's third of a second a reef obstacle is ordinary solid terrain (stepLaneSolid) and
-// nothing is destructible at all. The two rampage lines stay behind `crush`: run.rampage is the
-// kaiju's meter, ui.js hides its bar for any chapter without `crush`, and a hidden bar filling in
-// the background is exactly the kind of state that surfaces two versions later as a mystery.
 // -- The bite (v7.x, The Wreck) --------------------------------------------------------
 // The half of the Lunge that is not movement. Runs after the player has moved (stepSim's order), so
 // it tests where the dash actually is this frame rather than where it started.
@@ -5125,11 +5244,10 @@ function stepBite(run) {
 
 function stepCrush(run) {
   const ch = CHAPTERS[run.chapter]
-  const bursting = ch.burst === true && (run._burstT ?? 0) > 0
-  if (!ch.crush && !bursting) return
+  if (!ch.crush) return
   if (!run.obstacles || run.obstacles.length === 0) return
   const p = run.player
-  const crushR = PLAYER.radius * (bursting ? BURST_CRUSH_MUL : run.rampageT > 0 ? RAMPAGE_CRUSH_MUL : 1)
+  const crushR = PLAYER.radius * (run.rampageT > 0 ? RAMPAGE_CRUSH_MUL : 1)
   let changed = false
   for (let i = run.obstacles.length - 1; i >= 0; i--) {
     const o = run.obstacles[i]
@@ -5141,10 +5259,8 @@ function stepCrush(run) {
     changed = true
     run.events.push({ type: 'crush', x: o.x, y: o.y, kind: o.kind })
     run.gems.push({ x: o.x, y: o.y, xp: CRUSH_XP }) // same drop path dealDamage uses for a kill
-    if (ch.crush) {
-      run.rampage = Math.min(1, run.rampage + RAMPAGE_GAIN)
-      run._rampageGraceT = RAMPAGE_GRACE_T // v5.9.1 bugfix: see stepRampage's own comment below
-    }
+    run.rampage = Math.min(1, run.rampage + RAMPAGE_GAIN)
+    run._rampageGraceT = RAMPAGE_GRACE_T // v5.9.1 bugfix: see stepRampage's own comment below
   }
   // Without this bump render keeps drawing the (now-spliced) obstacle until the next natural cell
   // crossing re-triggers streamObstacles — syncObstacles only rebuilds when _obstacleRev changes
@@ -5947,23 +6063,19 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   if (enemy.hp <= 0 && !enemy._dead) {
     enemy._dead = true
     run.kills++
-    // v7.x Book 2: kills feed the bar - but only for a player who BOUGHT that. Owner ruling: "none
-    // by default, only via the shop" (Light Thief, LIGHT_THIEF_COST in config.js). run.killRefill is
-    // the snapshot createRun already took, and is 0 on an unbought save - so sim.js never reads meta
-    // and the chapter's baseline tune is the unbought one. Clamped against run.chargeMax (Task 9),
-    // NOT CHAPTERS[chapter].resource.max — this is the SECOND of the two clamp sites Deep Lungs
-    // needs (see stepCharge's own note above); missing this one lets the bar refill past its cap on
-    // a kill, only to be clamped back down by stepCharge's own (correct) clamp on the next tick.
+    // v7.x: `killBase` (The Wreck) is the ONLY thing a kill adds to a bar. Every chapter whose bar
+    // is refilled by a PLACE gets nothing here — a free kill refill would be a second source
+    // competing with the chapter's own geometry, which is what abolished The Reef's bar when the
+    // Scavenger unlock still existed. The Wreck has no place: it declares `refill: 0` and no
+    // signature field, so with no per-kill baseline its bar would have no refill at all. Undefined
+    // in every other chapter -> `?? 0` -> those chapters come out unchanged.
     //
-    // `killBase` (v7.x, The Wreck) is the OTHER half, and it is not shop-gated. The owner ruling
-    // above holds for every chapter whose bar is refilled by a PLACE — there, a free kill refill
-    // would be a second source competing with the chapter's own geometry, which is what abolished
-    // The Reef's bar at killRefill 1.2. The Wreck has no place: it declares `refill: 0` and no
-    // signature field, so a shop-only refill would mean a bar with no refill at all on an unbought
-    // save. Undefined in all five other chapters -> `?? 0` -> those chapters come out unchanged.
-    // Scavenger still stacks on top through run.killRefill.
+    // Clamped against run.chargeMax (Task 9), NOT CHAPTERS[chapter].resource.max — this is the
+    // SECOND of the two clamp sites Deep Lungs needs (see stepCharge's own note above); missing this
+    // one lets the bar refill past its cap on a kill, only to be clamped back down by stepCharge's
+    // own (correct) clamp on the next tick.
     const _res = CHAPTERS[run.chapter].resource
-    const _gain = (_res?.killBase ?? 0) + run.killRefill
+    const _gain = _res?.killBase ?? 0
     if (_res && _gain > 0) run.charge = Math.min(run.chargeMax, run.charge + _gain)
     // GORGE (v7.x, gnash): "eating elites replenish full hunger bar". Placed here rather than at a
     // bite site on purpose — the card says EATING an elite, so it must pay however the elite died,
@@ -6413,6 +6525,19 @@ const WEAPON_STAT_MODS = {
   sunspear:      { highNoon: ['dmg', 'pct'], broadBeam: ['r', 'pct'], zenith: ['castRange', 'pct'], secondSun: ['count', 'flat'] },
   foxfire:       { emberfeed: ['dmg', 'pct'], gloaming: ['maxR', 'pct'], longBurn: ['glowDur', 'pct'] },
   sunlance:      { whetted: ['dmg', 'pct'], farReach: ['length', 'pct'], broadEdge: ['width', 'pct'], heldLance: ['duration', 'pct'] },
+  // The Reef's two natives. `quickSnap`/`quickWake` are rate mods registered in
+  // WEAPON_RATE_MODS (folding one into an interval would SLOW the weapon), and `backblast` and
+  // `overgrowth` are switches read at their own fire sites. `moreRidges` folds as 'flat' onto a
+  // real levels[] key rather than going through WEAPON_COUNT_MODS, for the reason the Surf block
+  // above gives — which also means the fire site reads the MODIFIED count off one local.
+  pistolShrimp:  { overpressure: ['dmg', 'pct'], longCrack: ['length', 'pct'], wideCrack: ['width', 'pct'] },
+  fireCoral:     { hotPolyps: ['dmg', 'pct'], emberBed: ['duration', 'pct'], moreRidges: ['ridges', 'flat'] },
+  // The Reef's other two. Same split: three folds apiece, one rate mod in WEAPON_RATE_MODS, and one
+  // switch read at its own site (`pressureWave`, at the landing in stepLobs). `secondJet` folds as
+  // 'flat' onto a real levels[] key so fireInk's ONE local is both the loop bound and the spacing
+  // divisor — and so the pause sheet reports the modified count with no second registration.
+  squidInk:      { blackout: ['maxR', 'pct'], deepDark: ['blind', 'pct'], lingering: ['dur', 'pct'], secondJet: ['clouds', 'flat'] },
+  oxygenTank:    { overfilled: ['dmg', 'pct'], wideRupture: ['r', 'pct'], longBoil: ['boil', 'pct'] },
   // The Deep's native. `thrash` is absent for the reason the pond block above gives: it is an
   // attack-RATE mod, and folding one into `interval` would slow the weapon down. It divides the
   // interval at the fire site instead and is registered in WEAPON_RATE_MODS.
@@ -6584,6 +6709,10 @@ function stepWeapons(run, dt) {
     else if (w.id === 'gnash') stepGnashWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'chum') stepChumWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'bilge') stepBilgeWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'pistolShrimp') stepSnapWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'fireCoral') stepFireCoralWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'squidInk') stepSquidInkWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'oxygenTank') stepTankWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -6594,6 +6723,7 @@ function stepWeapons(run, dt) {
   stepHoles(run, dt)
   stepBeams(run, dt)
   stepBlooms(run, dt)
+  stepPolyps(run, dt)
   stepLures(run, dt)
   stepClawSlashes(run, dt)
   stepZones(run, dt)
@@ -8103,6 +8233,24 @@ function stepBlooms(run, dt) {
       bl.y += f.fy * dt * tide
     }
 
+    // SQUID INK'S BLIND (The Reef). Refreshed EVERY FRAME a body is inside the cloud, exactly as
+    // bloomSlowT is one branch down and for the same reason: the decay lives in stepEnemyMovement,
+    // so a body that swims out keeps the mark for `blind` seconds and no longer. It is its own
+    // pass rather than a line inside the tick loop because the tick is metered on BLOOM_TICK and a
+    // status the player watches has to arrive on the frame the body enters the ink.
+    //   NOT through resistsCC, on Ballast's dragT rule: that budget guards HOLDS, and this stops
+    // nobody — a blinded body keeps its full speed and simply keeps going. damageImmune-guarded
+    // like the slow, so a ghosted phase flicker ignores it like it ignores everything else.
+    if ((bl.blind ?? 0) > 0) {
+      const bSq = bl.r * bl.r
+      for (const e of run.enemies) {
+        if (e._dead || damageImmune(e) || isAlly(e)) continue
+        const bdx = e.x - bl.x, bdy = e.y - bl.y
+        if (bdx * bdx + bdy * bdy > bSq) continue
+        e.blindT = bl.blind
+      }
+    }
+
     // `slow: 0` opts a cloud out entirely (Foxfire does). The Twilight already slows the player in the
     // dark; a card whose text never mentions a slow must not quietly add a second one.
     if (bl.slow !== 0) {
@@ -8146,7 +8294,12 @@ function stepBlooms(run, dt) {
           const dx = e.x - bl.x, dy = e.y - bl.y
           if (dx * dx + dy * dy > rSq) continue
         }
-        applyDotDamage(run, e, tickDmg)
+        // A CLOUD THAT DEALS NO DAMAGE EMITS NO HIT. Two blooms on this array carry dmgPerTick 0
+        // and exist for something other than damage — the Oxygen Tank's boil (it pauses Air) and
+        // the bilge — and a {type:'hit', dmg: 0} draws a floating "0" over the body and evicts a
+        // real number from the shared dmgTexts pool. Everything below still runs — the daze and
+        // sporeburst are not damage.
+        if (tickDmg > 0) applyDotDamage(run, e, tickDmg)
         // SILT VEIL's daze, published into the e.stunT contract field render.js already reads.
         // The window is the whole guard: gating on "is it stunned" alone lets a persistent cloud
         // re-stun on the frame the last hold lapses, which measures as 100% uptime while reading
@@ -9843,6 +9996,39 @@ function stepLobs(run, dt) {
       continue
     }
 
+    // AN OXYGEN TANK RUPTURING. Above the shrapnel block for exactly the reason the net and the
+    // column are: `shrapnel` is read ONCE off run.weaponMods for every lob in the list whatever
+    // weapon made it, so a build holding Debris Toss alongside this would spray splinters out of a
+    // scuba tank — a cross-weapon leak nothing throws on.
+    //
+    // THE BOIL PAUSES THE DRAIN AND NEVER REFILLS. It is a run.blooms entry with dmgPerTick 0 and
+    // slow 0 — a marked patch of water and nothing else — and the ONLY thing that reads `airHold`
+    // is stepCharge, where it multiplies the drain by zero. See WEAPONS.oxygenTank for why a second
+    // refill source is forbidden here rather than merely unwanted.
+    if (lo.tank) {
+      const rSq = lo.r * lo.r
+      for (const e of run.enemies) {
+        if (e._dead || isAlly(e)) continue
+        const dx = e.x - lo.tx, dy = e.y - lo.ty
+        if (dx * dx + dy * dy > rSq) continue
+        applyDamage(run, e, lo.dmg)
+        // Pressure Wave. A flat shove out of the blast (see TANK_SHOVE_KB) and NOT a hold, so it
+        // runs outside the CC-DR budget like Ballast's drag: resistsCC guards holds, and this
+        // stops nobody — it moves them. `anchored` elites are kb-immune everywhere, so they are
+        // exempt here the way the revive shove exempts them.
+        if (!lo.shove || (e.affixes && e.affixes.includes('anchored'))) continue
+        const d = Math.hypot(dx, dy)
+        e.kb.x += (d > 1e-6 ? dx / d : 1) * TANK_SHOVE_KB
+        e.kb.y += (d > 1e-6 ? dy / d : 0) * TANK_SHOVE_KB
+      }
+      run.blooms.push({
+        x: lo.tx, y: lo.ty, t: 0, r: 0, maxR: lo.r, dur: lo.boil,
+        dmgPerTick: 0, look: 'boil', slow: 0, airHold: true,
+      })
+      run.events.push({ type: 'rupture', x: lo.tx, y: lo.ty, radius: lo.r, shove: !!lo.shove })
+      continue
+    }
+
     // A BALLAST landing: impact damage in lo.r, then a DRAG in a wider ring around it.
     //
     // NO STAIN. It used to push a run.blooms entry tagged look: 'silt' — Silt Veil's own cloud,
@@ -10727,6 +10913,213 @@ function stepSunlanceWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 
+// -- The Reef's natives (v7.x) ------------------------------------------------------------------
+// The chapter denies you the forward axis, so neither of these reads nearestEnemy at ALL — the
+// one is welded to the lane's heading and the other to the lane's terrain. aimAngle is the
+// function to keep out of this block.
+
+// PISTOL SHRIMP. A run.beams entry with rotSpeed 0, the Sunlance's idiom (a stab held on one
+// bearing, never a sweep), tagged look: 'snap'. The angle is the chapter's forward heading off
+// laneAxes(), exactly as firePulsar anchors its fan — so the cross stick is the whole of the aim
+// and sliding one groove to line three bodies onto one crack is the chapter's own lesson.
+//
+// ⚠ THE NON-LANE BRANCH IS A FALLBACK, NOT A SECOND DESIGN. The card is scoped to The Reef's pool,
+// but devCards ignores every eligibility rule and BLANK_WEAPONS is a union of pools, so it can be
+// held where nothing scrolls. There 'straight ahead' has no meaning, so it takes p.facingAngle —
+// the direction you last MOVED — which keeps the weapon aimless, which is the point of it. It is
+// deliberately not aimAngle: nearestEnemy is the one thing this card must never read anywhere, or
+// the two chapters ship two different weapons under one name (the trap the Pulsar Sweep's own
+// comments walked into, documented at length in design-a-weapon).
+function stepSnapWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.pistolShrimp?.quickSnap ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireSnap(run, stats))
+}
+
+function fireSnap(run, stats) {
+  const ch = CHAPTERS[run.chapter]
+  const p = run.player
+  // Both arms of this ternary happen to agree inside a lane today, because stepPlayerMovement
+  // PINS p.facingAngle to laneAxes().angle there. Read the descriptor anyway: that pinning is
+  // another function's decision about the player's SPRITE, and a weapon whose whole identity is
+  // 'it points down the lane' must not inherit its heading from it by luck.
+  const heading = ch.lane === true
+    ? laneAxes(ch).angle
+    : (p.facingAngle ?? (p.facing >= 0 ? 0 : Math.PI))
+  const back = (run.weaponMods.pistolShrimp?.backblast ?? 0) > 0
+  const push = (angle, dmg) => run.beams.push({
+    // `snapT` and not `duration`: the levels[] key is deliberately outside STAT_KEYS (see
+    // WEAPONS.pistolShrimp) and is mapped onto the beam's own field here, once, at the cast.
+    angle, life: stats.snapT, duration: stats.snapT, dmg,
+    tick: stats.tick, width: stats.width, length: stats.length,
+    rotSpeed: 0, acc: 0, focusBonus: 0, prism: null,
+    look: 'snap',
+  })
+  for (const a of ipecacAngles(run, heading)) {
+    push(a, stats.dmg)
+    // Backblast goes through ipecacAngles with the first crack rather than being added after it,
+    // so an Ipecac build multiplies BOTH — the alternative (forward only) would make the switch
+    // quietly worthless to a run that took the anomaly, which is fireBreaker's own ruling.
+    if (back) push(a + Math.PI, stats.dmg * SNAP_BACKBLAST_FRAC)
+  }
+  // The event carries the geometry the renderer needs for the cavitation puff, rather than making
+  // it re-derive a heading — main.js gives it the throttled 'shoot' voice.
+  run.events.push({ type: 'snap', x: p.x, y: p.y, angle: heading, reach: stats.length, back })
+}
+
+// FIRE CORAL. Lights the coral of the next `ridges` ridges ahead of the player, and everything
+// that crosses a lit one burns.
+//
+// ⚠ IT OWNS ITS ENTITIES AND MAY NOT BORROW A SPUR'S. run.spurs is emptied and rebuilt in full
+// (length = 0, then refilled) every time the player crosses a ridge index — see streamSpurs — so
+// state hung off an entry there survives at most 4.7s of lane and vanishes without a trace. A
+// polyp is instead a SNAPSHOT of the pure spurAt() geometry plus a timer, which costs one object
+// per lit ridge and makes the band that burns identical, to the pixel, to the band that grates.
+// (The persistent per-ridge registry the spec defers would let this hang off the field itself;
+// until it exists, this is the honest shape.)
+function stepFireCoralWeapon(run, w, stats, fireRateMul, dt) {
+  const spec = CHAPTERS[run.chapter].spurs
+  if (!spec || run._obstacleSeed == null) return   // no ridges to light — see WEAPONS.fireCoral
+  const quick = run.weaponMods.fireCoral?.quickWake ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireCoral(run, spec, stats))
+}
+
+function fireCoral(run, spec, stats) {
+  const ax = laneAxes(CHAPTERS[run.chapter])
+  const spill = (run.weaponMods.fireCoral?.overgrowth ?? 0) > 0
+  // ONE local for the count, used as the loop BOUND and as the index STEP — the eight-site trap
+  // CLAUDE.md documents. Because the targets are consecutive ridge INDICES they are distinct by
+  // construction; there is no chooser here to pick the same spot twice (run RN.e asserts it).
+  const n = ipecacN(run, Math.max(1, Math.round(stats.ridges)))
+  // FROM THE NEAREST RIDGE, NOT FROM THE ONE JUST PASSED — the same cursor streamSpurs uses, and
+  // it is a rounding choice with a real consequence. Counting from floor() makes the lead depend
+  // on where in the 210px gap the cast happened to land: a cast fired just before a ridge lights
+  // the one 2px in front of the player, i.e. a band the crowd is already standing in. Rounding
+  // first floors the lead at half a gap: the residual is in [-105, 105), so the lit ridge is
+  // 105-315px ahead (2.3-7.0s of scroll at laneScroll 45) however the interval phases.
+  const first = Math.round(run.player[ax.fwd] / spec.spacing) + ax.dir * FIRE_CORAL_LEAD
+  for (let k = 0; k < n; k++) {
+    const i = first + ax.dir * k
+    // A ridge already burning is REFRESHED, never doubled: two entries on one index would tick
+    // the same band twice a beat, which is a silent damage doubling at a fire rate the player
+    // can buy (run RN.f asserts one entry per index and single-cast damage across a refresh).
+    // `spill` LATCHES: a refresh ORs the current build's Overgrowth onto the entry, so a ridge lit
+    // before the pick widens to wall-to-wall on its next re-cast and never narrows again.
+    const live = run.polyps.find((pl) => pl.i === i)
+    // A REFRESH TOPS THE CLOCK UP AND NEVER TOUCHES `lit`. That field is the AGE of the fire: it only
+    // ever counts up (stepPolyps), and syncPolyps runs the ignition ramp off it, so a ridge that has
+    // been alight for two seconds stays alight through a re-cast. An ignition ramp derived from the
+    // REMAINING time instead resets to zero right here, which blanked a burning band for the whole
+    // FIRE_CORAL_VIS.igniteT on every refresh — common with Quick Wake, near-certain with More Reef,
+    // and on screen it is a weapon doing full damage while looking switched off.
+    if (live) { live.t = stats.duration; live.dmg = stats.dmg; live.spill = live.spill || spill; continue }
+    run.polyps.push({
+      ...spurAt(i, spec, run._obstacleSeed),
+      t: stats.duration, lit: 0, dmg: stats.dmg, tick: stats.tick, acc: 0, spill,
+    })
+  }
+}
+
+// The lit ridges, ticking. Structurally stepBlooms — a world-anchored, enemies-only, dot-flagged
+// zone on its own accumulator — and it shares onCoral with the grate, so the coral that burns the
+// crowd is exactly the coral that grates the player. `spill` (Overgrowth) drops the groove test
+// and leaves the forward band, which is the whole ridge wall to wall.
+function stepPolyps(run, dt) {
+  if (run.polyps.length === 0) return
+  const ax = laneAxes(CHAPTERS[run.chapter])
+  for (const pl of run.polyps) {
+    pl.t -= dt
+    pl.lit += dt   // monotone age, never reset by a refresh — syncPolyps' ignition ramp reads it
+    pl.acc += dt
+    while (pl.acc >= pl.tick) {
+      pl.acc -= pl.tick
+      for (const e of run.enemies) {
+        if (e._dead) continue
+        if (Math.abs(e[ax.fwd] - pl.f) > pl.thick / 2) continue
+        if (!pl.spill && !onCoral(pl, e[ax.cross])) continue
+        applyDotDamage(run, e, pl.dmg)
+      }
+    }
+  }
+  run.polyps = run.polyps.filter((pl) => pl.t > 0)
+}
+
+// SQUID INK. A run.blooms entry carrying `blind`, planted ON the player. The cloud does not move —
+// it is world-anchored like every other bloom — so in a lane the scroll carries it astern while
+// the crowd swims into it, which is the picture and also the mechanic: what is blinded is behind
+// you within a second or two.
+//
+// ⚠ THE PERCEPTION HALF IS NOT HERE. It is at the retarget seam in stepEnemyMovement, where lure,
+// pastSeek and ally already live, and the whole reason it is one edit is that every movement
+// machine below that seam reads a POINT and never run.player.
+function stepSquidInkWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.squidInk?.quickInk ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quick)), dt, () => fireInk(run, stats))
+}
+
+function fireInk(run, stats) {
+  const p = run.player
+  const ax = laneAxes(CHAPTERS[run.chapter])
+  // ONE local for the count, used as the loop BOUND and as the spacing divisor — the eight-site
+  // trap CLAUDE.md documents, where multiplying only the bound stacks the extra jets on one point
+  // and renders identically to no change at all. Run SQ.d asserts DISTINCT cross positions.
+  const n = ipecacN(run, Math.max(1, Math.round(stats.clouds)))
+  const step = stats.maxR * INK_JET_SPREAD
+  for (let k = 0; k < n; k++) {
+    // Spread ACROSS the lane, so a picked-up count draws a curtain over the corridor rather than a
+    // deeper blot on one spot. In a non-lane chapter laneAxes reads 'y'/'x' as it always did and the
+    // jets spread along that cross axis, which is still a line and still distinct.
+    const off = (k - (n - 1) / 2) * step
+    run.blooms.push({
+      x: p.x + (ax.cross === 'x' ? off : 0),
+      y: p.y + (ax.cross === 'y' ? off : 0),
+      t: 0, r: 0, maxR: stats.maxR, dur: stats.dur,
+      dmgPerTick: stats.dmgPerTick, look: 'ink',
+      // `slow: 0` opts OUT of stepBlooms' bloom-slow branch, Foxfire's idiom. A cloud that also
+      // slowed would keep the blinded bodies inside itself, which is the exact opposite of the
+      // card: the whole payoff is watching the lane carry them past you.
+      slow: 0,
+      // The tag stepBlooms reads. Seconds of blindness, refreshed every frame a body is inside.
+      blind: stats.blind,
+    })
+  }
+  run.events.push({ type: 'ink', x: p.x, y: p.y, r: stats.maxR })
+}
+
+// OXYGEN TANK. A run.lobs entry tagged `tank`, thrown at a point on the lane AHEAD of the player
+// rather than at a body — the one throw in the game whose target is a place the thrower is going.
+// The scroll closes the gap, so the throw and the oncoming stream keep the same appointment.
+//
+// ⚠ THE NON-LANE BRANCH IS A FALLBACK, NOT A SECOND DESIGN, for the reason fireSnap's block gives:
+// the card is scoped to The Reef's pool, but devCards ignores every eligibility rule and ships in
+// the production bundle. There 'up the lane' has no meaning, so it takes p.facingAngle — the
+// direction you last MOVED — which keeps the throw untargeted. Deliberately not aimAngle.
+function stepTankWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.oxygenTank?.quickTank ?? 0
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quick)), dt, () => fireTank(run, stats))
+}
+
+function fireTank(run, stats) {
+  const ch = CHAPTERS[run.chapter]
+  const p = run.player
+  const heading = ch.lane === true
+    ? laneAxes(ch).angle
+    : (p.facingAngle ?? (p.facing >= 0 ? 0 : Math.PI))
+  const shove = (run.weaponMods.oxygenTank?.pressureWave ?? 0) > 0
+  // ipecacAngles is what every other angle-carrying cast in this file uses for the anomaly, so a
+  // Reef run that took Ipecac throws a fan of tanks rather than three stacked on one point.
+  for (const a of ipecacAngles(run, heading)) {
+    run.lobs.push({
+      x: p.x, y: p.y, fromX: p.x, fromY: p.y,
+      tx: p.x + Math.cos(a) * stats.range, ty: p.y + Math.sin(a) * stats.range,
+      t: 0, flight: stats.flight, r: stats.r, dmg: stats.dmg,
+      // The two fields the `tank` branch in stepLobs reads. `boil` is banked AT THE THROW, so a
+      // Long Boil picked while a tank is in the air does not lengthen the one already thrown.
+      tank: true, boil: stats.boil, shove,
+    })
+  }
+  run.events.push({ type: 'toss', x: p.x, y: p.y })
+}
+
 // -- Fin Hit (v7.x, The Deep's native) ---------------------------------------------------------
 // The only movement-coupled weapon in the game. Both halves read the player's own motion and
 // neither reads where the enemies are, which is what makes it feel like the animal's body rather
@@ -10972,8 +11365,42 @@ function shuffleInPlace(arr) {
 // any candidate at all, so the sample decides WHICH mods are offered, never HOW OFTEN. It can no
 // longer crowd out weapon/passive/
 // element cards.
-function eligibleWeaponModCandidates(run) {
+// THE DUO BOONS LIVE RIGHT NOW, AND THE ONLY PLACE THAT GATE IS AUTHORED. Two readers depend on
+// agreeing screen for screen: eligibleWeaponModCandidates RESERVES a pool slot for each of these,
+// and stepLevelUp banks a dry screen against each one it did not offer. A second copy of the gate
+// would let them disagree — pity accruing on screens the pool could never spend it on, which is
+// this repo's largest defect class (one fact in two places, no import between them).
+// `needs` is the whole scarcity of the card: it is a mod on weapon A that pays out through weapon
+// B, so it cannot exist until the run holds both. Everything else here is the ordinary pick cap.
+function liveDuoMods(run) {
+  const focus = specialistFocus(run)
+  const live = []
+  for (const w of run.weapons) {
+    const modCfgs = WEAPON_MODS[w.id]
+    if (!modCfgs) continue
+    for (const modId of Object.keys(modCfgs)) {
+      const needs = modCfgs[modId].needs
+      if (!needs || !run.weapons.some((o) => o.id === needs)) continue
+      if ((run.weaponModPicks[w.id]?.[modId] ?? 0) >= modPickCap(w.id, modId, focus)) continue
+      live.push({ weapon: w.id, mod: modId })
+    }
+  }
+  return live
+}
+
+// Exported for run DB in test/sim-test.js only: the reserved slot is a property of the POOL, and
+// asserting it through buildLevelUpChoices would only ever be a rate with a band around it.
+export function eligibleWeaponModCandidates(run) {
   const candidates = []
+  // A DUO BOON IS RESERVED, NOT DRAWN (2026-08-23). It holds one of its weapon's
+  // MOD_CANDIDATES_PER_WEAPON slots outright from the moment the pair is complete, instead of
+  // taking its chances in the shuffle below with every ordinary mod — Silt Flush was competing for
+  // 2 of Downwash's 8 slots, so it was absent from three pools in four before the rarity roll had
+  // even looked at it. Reserved WITHIN the weapon's budget rather than on top of it, so the pool's
+  // size is untouched and this cannot become a stealth widening of the mod bucket.
+  const reserved = liveDuoMods(run)
+  const reservedFor = new Map()
+  for (const d of reserved) reservedFor.set(d.weapon, [...(reservedFor.get(d.weapon) ?? []), d.mod])
   // SPECIALIST (v7.5) widens its named weapon HERE as well as at the per-screen cap, and the pool
   // ceiling with it. Lifting only the cap is inert: MOD_CANDIDATES_PER_WEAPON = 2 means a weapon
   // never HAS a third distinct mod on the screen to place, and `pickedIds` forbids repeating one.
@@ -11000,22 +11427,29 @@ function eligibleWeaponModCandidates(run) {
       // and the pool can never disagree about what a weapon's cap is.
       && (picks?.[modId] ?? 0) < modPickCap(w.id, modId, focus)
       // A DUO BOON declares the OTHER weapon it is made of (`needs`, see the WEAPON_MODS header
-      // in config.js) and is simply not a candidate until that weapon is held too. The gate is
-      // here and nowhere else on purpose: devCards ignores eligibility by design, so the dev
-      // list still offers it, and the fire sites fall back to the veil's level-1 numbers.
-      && (!modCfgs[modId].needs || run.weapons.some((o) => o.id === modCfgs[modId].needs)))
+      // in config.js) and is not drawn here AT ALL — liveDuoMods above owns its gate, and the
+      // reserved slot below places it. Excluding the whole class rather than filtering it in is
+      // what keeps that gate authored once: devCards still ignores eligibility by design, and the
+      // fire sites still fall back to the veil's level-1 numbers.
+      && !modCfgs[modId].needs)
     shuffleInPlace(owned)
     // SPECIALIST's price: every weapon that is NOT the focus puts one fewer mod in the pool. Only
     // charged when a focus actually exists, and floored at 1 so a weapon is never silenced.
     const per = focus && w.id !== focus
       ? Math.max(1, MOD_CANDIDATES_PER_WEAPON - SPECIALIST_OTHER_PENALTY)
       : MOD_CANDIDATES_PER_WEAPON
-    for (const modId of owned.slice(0, per)) candidates.push({ weapon: w.id, mod: modId })
+    const duo = reservedFor.get(w.id) ?? []
+    for (const modId of duo) candidates.push({ weapon: w.id, mod: modId })
+    for (const modId of owned.slice(0, Math.max(0, per - duo.length))) candidates.push({ weapon: w.id, mod: modId })
   }
   if (candidates.length <= MOD_POOL_MAX) return candidates
 
-  const pool = candidates.slice()
-  const sampled = []
+  // The trim samples the ORDINARY candidates only. A reserved boon that survived the per-weapon
+  // budget and was then dropped here would leave pity armed with nothing in the pool to spend it
+  // on — the counter would keep climbing and the guarantee would silently slip a screen at a time.
+  const keep = candidates.filter((c) => WEAPON_MODS[c.weapon][c.mod].needs)
+  const pool = candidates.filter((c) => !WEAPON_MODS[c.weapon][c.mod].needs)
+  const sampled = keep
   while (sampled.length < MOD_POOL_MAX && pool.length > 0) {
     const idx = Math.floor(Math.random() * pool.length)
     sampled.push(pool.splice(idx, 1)[0])
@@ -11471,6 +11905,32 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   }
 
   if (bucket === 'mod') {
+    // PITY FIRST, before any rarity is consulted. A duo boon that has been live for
+    // DUO_PITY_SCREENS screens without being offered simply takes this card. It has to jump the
+    // rarity roll rather than be weighted into it, because the rarity roll IS the thing that was
+    // hiding it: `values: { epic: N }` makes the boon a candidate on 7% of mod rolls, and no
+    // weight inside the other 93% can reach a card that is not in `ok` at all.
+    // It draws NO Math.random on the ordinary path (the filter alone decides), so every seeded
+    // fixture in the suite is untouched on a screen with nothing armed.
+    const armed = modOpts.filter((mc) => (run._duoDry?.[mc.mod] ?? 0) >= DUO_PITY_SCREENS)
+    if (armed.length > 0) {
+      const mc = armed.length === 1 ? armed[0] : armed[Math.floor(Math.random() * armed.length)]
+      const cfg = WEAPON_MODS[mc.weapon][mc.mod]
+      // Built at a tier the card ACCEPTS, renormalised over its own `values` keys — the
+      // makePassiveCard idiom, and for its reason: a fixed ladder walk would hand every future
+      // two-tier boon the same tier forever. A boon with no `values` takes the screen's own roll.
+      let tier = rarity
+      if (cfg.values) {
+        const w = {}
+        for (const r of Object.keys(cfg.values)) if (rarityWeights[r]) w[r] = rarityWeights[r]
+        if (Object.keys(w).length > 0) tier = pickWeighted(w)
+      }
+      const built = makeWeaponModCard(run, mc.weapon, mc.mod, tier)
+      // No fallback if it declines even its own table (BLIND FAITH's floor could strip every key):
+      // the credit stays banked and the boon takes the next mod card instead. Forcing a card here
+      // would mean inventing a tier the mod never declared.
+      if (built) return built
+    }
     // A switch mod declines every rarity above normal (makeWeaponModCard returns null), so it is
     // only a CANDIDATE on a normal roll — restricting the pick preserves that. Picking first and
     // coercing the rarity down instead let a switch win its pick at any tier: measured 1.72x the
@@ -11514,7 +11974,17 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     // A switch has no magnitude for a reroll to enlarge, so it is built at the only tier it accepts
     // — which is also the tier its candidacy roll came up at. Everything else takes the decayed one.
     const isSwitch = WEAPON_MODS[mc.weapon][mc.mod].kind === 'switch'
-    return makeWeaponModCard(run, mc.weapon, mc.mod, isSwitch ? 'normal' : rarity)
+    const built = makeWeaponModCard(run, mc.weapon, mc.mod, isSwitch ? 'normal' : rarity)
+    // CANDIDACY AND SIZE ARE TWO DIFFERENT ROLLS ONCE A REROLL HAS BEEN PAID FOR (candRarity above
+    // is rolled on the undecayed table, `rarity` on the decayed one), and a `values` mod accepts
+    // only the tiers it lists. So a boon can win its slot at epic and then decline the tier it is
+    // BUILT at — makeWeaponModCard returns null, rollCard returns null, and buildLevelUpChoices
+    // breaks out of the slot loop: the reroll the player just bought hands back a SHORTER screen.
+    // Fall back to the tier it actually won on, which is the only tier it is known to accept.
+    // Latent since v6.7.11 and rare (0.35% of rerolled shelf screens) while a `values` mod had to
+    // survive the candidate draw first; reserving the duo boons puts one in EVERY shelf pool and
+    // took it to 1.36%. Same defect the element branch carries its own guard for.
+    return built ?? makeWeaponModCard(run, mc.weapon, mc.mod, candRarity)
   }
 
   const eid = elementOpts[Math.floor(Math.random() * elementOpts.length)]
@@ -11627,6 +12097,17 @@ function buildLevelUpChoices(run) {
     cards[slot] = { kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity, icon: cfg.icon }
   }
 
+  // DUO PITY IS SPENT WHEN THE BOON IS OFFERED, not when it is kept — the anomaly tier's contract,
+  // and for the same reason: resetting on the PICK would put the card back on screen every level
+  // until the player accepted it, which turns declining it into a nag rather than a decision.
+  // Read off the FINAL cards, below both the anomaly swap and the new-weapon floor, because either
+  // can overwrite the slot the boon landed in — a boon that was rolled and then deleted was never
+  // offered, and must not be charged for it. Zeroing here rather than in rollCard is what makes
+  // that reading possible at all.
+  for (const c of cards) {
+    if (c.kind === 'mod' && WEAPON_MODS[c.weapon]?.[c.id]?.needs && run._duoDry) run._duoDry[c.id] = 0
+  }
+
   return cards
 }
 
@@ -11664,6 +12145,13 @@ function stepLevelUp(run) {
   // so a run used to reach eligibility with about half a run of credit already banked, and the
   // rate ANOMALY_BASE_WEIGHT documents was never the rate any screen rolled at.
   if (eligibleAnomalyIds(run).length > 0) run._screensSinceAnomaly = (run._screensSinceAnomaly ?? 0) + 1
+  // Duo-boon pity, on the same terms and HERE for the same reason: a reroll re-deals the screen by
+  // calling the builder again, so a counter kept there would step on every paid re-deal and let
+  // coins buy the guarantee early. Credit accrues ONLY on screens the boon was live on — a run
+  // that completes the pair at level 20 starts its count at level 20, rather than arriving with
+  // twenty screens already banked and the boon on the very next card.
+  run._duoDry ??= {}
+  for (const d of liveDuoMods(run)) run._duoDry[d.mod] = (run._duoDry[d.mod] ?? 0) + 1
   run.levelUpChoices = buildLevelUpChoices(run)
   run.phase = 'levelup'
   run.events.push({ type: 'levelup' })

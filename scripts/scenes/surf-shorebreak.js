@@ -17,7 +17,7 @@
 // travel into a single integration and is not the physics the game runs.
 //
 // THE BUTTON IS AN INPUT, and H.tick/H.tickFx do not take one — they step with {x:0,y:0} — so the
-// press is hand-rolled, exactly as reef-burst.js does it.
+// press is hand-rolled, exactly as reef-burst-wake.js does it.
 const world = app.stage.children[0]
 
 H.until(() => run.time > 12, 4000)

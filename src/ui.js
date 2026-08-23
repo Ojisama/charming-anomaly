@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -104,10 +104,6 @@ const SHOP_ICONS = {
     + '<rect class="l" x="3.4" y="5.6" width="5" height="12.8" rx="1.4"/>'
     + '<rect class="f" x="13.6" y="3.4" width="9" height="17.2" rx="2.6"/>'
     + '<path class="l" d="M17.1 7.6h2v3.4h3.4v2h-3.4v3.4h-2V13h-3.4v-2h3.4z"/>',
-  // a bone: one shaft, two lobes at each end
-  lightThief: '<path class="f" d="m7.6 16.4 8.8-8.8 2.4 2.4-8.8 8.8z"/>'
-    + '<circle class="f" cx="5.8" cy="14.6" r="3.4"/><circle class="f" cx="9.4" cy="18.2" r="3.4"/>'
-    + '<circle class="f" cx="14.6" cy="5.8" r="3.4"/><circle class="f" cx="18.2" cy="9.4" r="3.4"/>',
 }
 // COLOUR BY FAMILY, NOT BY LINE. Eleven hues is a swatch book; four is a grouping the player can
 // learn, and it says something true — what a line is FOR. The family is DECLARED on the line in
@@ -298,7 +294,7 @@ function formatShopBonus(bookId, id, levels) {
  *     - onSacrifice(picks, target, bookId): fired by the sacrifice view's "Confirm sacrifice"
  *       button. picks is { [statId]: count }, the shop levels offered per stat. `target` (v7.x)
  *       names WHAT the offer buys — 'slot' for the 3rd/4th level-up card slot (sum === sacrificeCost(
- *       bm.choiceSlots)) or a BOOK_UNLOCKS[bookId] key, e.g. 'lightThief' for Book 2's Light Thief
+ *       bm.choiceSlots)) or a BOOK_UNLOCKS[bookId] key (that table is empty today — see config.js)
  *       (sum === that entry's cost). A book-specific target only ever appears once that book is
  *       REACHABLE — an Undertow target needs an Undertow chapter browsable, which needs the book
  *       unlocked, which needs meta.dev while it is wip (see sacTargets, and unlockBook in state.js)
@@ -1221,10 +1217,10 @@ export function initUI(hooks) {
   let sacrificeTarget = null // which unlock the offer is FOR — see sacTargets/activeTarget below
   // WHICH ECONOMY THE SHOP IS SHOWING. The shop spends two currencies — coins buy upgrade levels,
   // and upgrade LEVELS buy the permanent unlocks — and until v7.x the second one was a single pill
-  // in the footer naming only the CHEAPEST target. That hid every other target completely: with
-  // Light Thief at 5 levels on the shelf, Undertow's 3rd card slot at 20 was not on the screen at
-  // all, and neither was the one line saying what Light Thief does (it existed, in the modal). Two
-  // labelled halves instead, each naming its own currency, each listing everything it sells.
+  // in the footer naming only the CHEAPEST target. That hid every other target completely: when
+  // Undertow still sold a 5-level unlock, its 3rd card slot at 20 was not on the screen at all, and
+  // neither was the one line saying what the cheap one did (it existed, in the modal). Two labelled
+  // halves instead, each naming its own currency, each listing everything it sells.
   let shopTab = 'upgrades' // 'upgrades' | 'sacrifices'
   // Reset-all-progress confirmation: a backdrop + a small confirm/cancel sheet. Still a modal (a
   // destructive yes/no genuinely wants to block), unlike the sacrifice list which is a view now.
@@ -1241,22 +1237,17 @@ export function initUI(hooks) {
     return Object.values(sacrificePicks).reduce((sum, n) => sum + n, 0)
   }
 
-  // What a sacrifice can BUY (v7.x): the book's OWN BOOK_UNLOCKS entries (Light Thief today, more
-  // later) plus the universal next level-up card slot. The emitted `id` is the BOOK_UNLOCKS key
-  // itself (e.g. 'lightThief'), not a UI-invented label — a hand-rolled id here ('thief') is
-  // exactly the bug that made Light Thief unpurchasable: onSacrifice resolves a non-'slot' target
-  // via BOOK_UNLOCKS[bookId]?.[target]?.cost, so a mismatched id resolves to a null cost and the
-  // purchase can never succeed. The already-bought gate reads bm.unlocks?.[id], not a Book
-  // 1-shaped meta.lightThief, for the same reason.
+  // What a sacrifice can BUY (v7.x): the book's OWN BOOK_UNLOCKS entries plus the universal next
+  // level-up card slot. BOOK_UNLOCKS IS EMPTY TODAY (Scavenger, its only entry, was removed), so
+  // this loop contributes nothing and every book's screen sells the card-slot ladder alone — keep
+  // it anyway, it is the seam the next unlock arrives through.
   //
-  // No meta.dev gate here — that job now belongs to reachability. An Undertow target only ever
-  // appears when bookId is 'undertow', which only happens when the title carousel is browsing an
-  // Undertow chapter, which requires the book unlocked, which requires meta.dev while the book is
-  // wip (see unlockBook, state.js). With the book locked, sacTargets(bookId) simply has no
-  // BOOK_UNLOCKS[bookId] to iterate, so book 1 is byte-identical to before.
+  // The emitted `id` is the BOOK_UNLOCKS key ITSELF, never a UI-invented label — a hand-rolled id
+  // here is exactly the bug that made the old unlock unpurchasable: onSacrifice resolves a
+  // non-'slot' target via BOOK_UNLOCKS[bookId], so a mismatched id resolves to a null cost and the
+  // purchase can never succeed. The already-bought gate reads bm.unlocks?.[id] for the same reason.
   //
-  // Cheapest first, which is also the order the toggles appear in the view: Light Thief's first
-  // rung is 5 against the 3rd slot's 20 (see LIGHT_THIEF_COSTS in config.js), so it reads first.
+  // Cheapest first, which is also the order the toggles appear in the view.
   function sacTargets(bookId) {
     const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
     const out = []
@@ -1266,11 +1257,11 @@ export function initUI(hooks) {
       const cost = unlockCost(bookId, id, unlockLevel(bm, bookId, id))
       if (cost == null) continue
       // The unlock list shows the rung on its own line now (sacTargetRowsHtml), so `label` is the
-      // bare name — a name reading "Light Thief 2/3" was the only way to say which rung you were
+      // bare name — a name reading "Something 2/3" was the only way to say which rung you were
       // buying back when the target lived in a 202px pill.
-      // `family` rides along or the icon silently paints in shopIcon's fallback hue — Scavenger is
-      // declared `res` and drew ATK red on the offer header, which is the taxonomy contradicting
-      // itself on the one screen that shows the unlock alone.
+      // `family` rides along or the icon silently paints in shopIcon's fallback hue — the old
+      // unlock was declared `res` and drew ATK red on the offer header, which is the taxonomy
+      // contradicting itself on the one screen that shows an unlock alone. Declare it on the row.
       out.push({ id, cost, icon: u.icon, family: u.family, label: t(u.name), does: t(u.desc) })
     }
     const slots = bm.choiceSlots ?? 2
@@ -1326,10 +1317,11 @@ export function initUI(hooks) {
     const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)
     const levels = Object.values(bm.shop).reduce((sum, l) => sum + l, 0)
     const buyable = Object.keys(shopLines(bookId)).reduce((sum, id) => sum + lineMax(id), 0)
-    // RUNGS, not rows: Light Thief is ONE row on the list — sacTargets only ever offers a ladder's
-    // next step — but three separate purchases. So `done` must be summed from what has been PAID,
-    // never derived as rungs minus rows: that reads 3 of 5 on a save that has bought nothing,
-    // because two of Light Thief's three unbought rungs are not rows yet either.
+    // RUNGS, not rows: a laddered unlock is ONE row on the list — sacTargets only ever offers its
+    // next step — but as many purchases as it has rungs. So `done` must be summed from what has
+    // been PAID, never derived as rungs minus rows: with a 3-rung unlock that reads 3 of 5 on a
+    // save that has bought nothing, because its two other unbought rungs are not rows yet either.
+    // Inert while BOOK_UNLOCKS is empty (unlockIds is []), and correct again the day it is not.
     const unlockIds = Object.keys(BOOK_UNLOCKS[bookId] ?? {})
     const rungs = SACRIFICE_COSTS.length + unlockIds.reduce((n, id) => n + unlockMax(bookId, id), 0)
     const done = Math.max(0, (bm.choiceSlots ?? 2) - 2)
@@ -1535,7 +1527,7 @@ export function initUI(hooks) {
     const slots = bm.choiceSlots ?? 2
     const cost = sacrificeCost(slots)
     // v7.x: gated on a TARGET existing rather than on the slot cost alone — with all 4 slots
-    // unlocked, sacrificeCost is null while Light Thief may still be buyable.
+    // unlocked, sacrificeCost is null while a BOOK_UNLOCKS ladder could still be buyable.
     const target = activeTarget(bookId)
     // The sacrifice list takes over the shop screen rather than floating above it (see
     // sacrificeViewHtml). --sac drops the bottom-nav padding reservation, since the nav is not
@@ -2285,37 +2277,14 @@ export function initUI(hooks) {
   }
 
   // ---- anomaly effect chips (shared by the pre-run brief and the pause/summary recaps) ----
-  // Human labels for MUTATORS effect keys + whether a value above 1 helps the player
-  // (drives the green/red chip color; a nerf direction shows red).
-  const EFFECT_LABELS = {
-    spawnMul: ['enemy spawns', false],
-    enemyHpMul: ['enemy HP', false],
-    enemySpeedMul: ['enemy speed', false],
-    enemyDmgMul: ['enemy damage', false],
-    enemyRadiusMul: ['enemy size', false],
-    contactDmgTakenMul: ['damage you take', false],
-    playerDmgMul: ['your damage', true],
-    playerSpeedMul: ['your move speed', true],
-    coinMul: ['coins', true],
-    xpMul: ['XP', true],
-    eliteEveryMul: ['time between elites', true],
-    elementWeightMul: ['infusion card chance', true],
-    magnetMul: ['pickup magnet', true],
-    // v5.25 chapter-anomaly knobs (missing until v6.1 — the chips showed the raw key)
-    currentForceMul: ['current push', false],
-    pheromoneLifeMul: ['pheromone life', false],
-    trapCountMul: ['trap count', false],
-    trafficIntervalMul: ['time between cars', true],
-    bombardIntervalMul: ['time between shells', true],
-    wellForceMul: ['gravity well force', false],
-    acidPotencyMul: ['acid pool burn', false],
-  }
+  // The labels moved to config.js (MUTATOR_EFFECT_LABELS) so run XX's config-table walk demands
+  // French for them — as a bare const here they were exempt from it, and two shipped in English.
 
   // One chip per effect key, tagged with whether it helps the player — the brief screen needs the
   // split (costs on one side of the trade, gains on the other), everything else just joins it.
   function effectChipList(effects) {
     return Object.entries(effects).map(([key, v]) => {
-      const [label, goodUp] = EFFECT_LABELS[key] ?? [key, true]
+      const [label, goodUp] = MUTATOR_EFFECT_LABELS[key] ?? [key, true]
       const pct = Math.round((v - 1) * 100)
       const good = (pct > 0) === goodUp
       return { good, html: `<span class="fx-chip ${good ? 'fx-chip--good' : 'fx-chip--bad'}">${pct > 0 ? '+' : ''}${pct}% ${t(label)}</span>` }
@@ -3352,8 +3321,9 @@ export function initUI(hooks) {
         // stat's owned level and the sacrifice's total cost
         const id = el.dataset.id
         const bookId = shopBookId()
-        // The ACTIVE target's cost, not the slot's — Light Thief costs 15 where the 3rd slot costs
-        // 20, and reading the slot's number here would cap the altar at the wrong total.
+        // The ACTIVE target's cost, not the slot's — a BOOK_UNLOCKS rung and the next card slot
+        // are priced apart, and reading the slot's number here would cap the altar at the wrong
+        // total. Only 'slot' is reachable today; this stays right the day an unlock is added back.
         const cost = activeTarget(bookId)?.cost ?? null
         const have = sacrificePicks[id] ?? 0
         const bm = bookMeta(meta, bookId) ?? ensureBookMeta(meta, bookId)

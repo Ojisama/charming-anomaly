@@ -351,16 +351,16 @@ const ui = initUI({
   // belt and braces, and now it has to, because `target` arrives from a data- attribute.
   //
   // v7.x: `target` names WHICH unlock. 'slot' is the universal 3rd/4th level-up card slot
-  // (bm.choiceSlots, sacrificeCost); anything else is a BOOK_UNLOCKS[bookId] key (e.g. Undertow's
-  // Light Thief). `bookId` is ui.js's shopBookId(), same reasoning as onBuy above. Defaulted to
+  // (bm.choiceSlots, sacrificeCost); anything else is a BOOK_UNLOCKS[bookId] key. That table is
+  // EMPTY today — Scavenger, its only entry, was removed — so 'slot' is the only target the shipped
+  // UI can send; the branch below stays because it is generic and the table is the seam.
+  // `bookId` is ui.js's shopBookId(), same reasoning as onBuy above. Defaulted to
   // 'slot'/BOOK_ORDER[0] so an older caller -- or a replayed event from a stale DOM -- keeps
   // meaning exactly what it used to.
   //
-  // Writes the unlock ONLY to bookMeta(meta, bookId).unlocks[target] -- never mirrored back to the
-  // legacy top-level meta.lightThief. R2 keeps that field in place (never deleted), but nothing
-  // writes it past this point: loadMeta's forward-copy is read-forward-only and its `=== undefined`
-  // guard makes a stale legacy value harmless, and Light Thief is dev-gated behind a `wip` chapter,
-  // so no real player can reach the one case a mirror would matter for.
+  // Writes an unlock ONLY to bookMeta(meta, bookId).unlocks[target] -- never mirrored back to a
+  // legacy top-level meta field. R2 keeps meta.lightThief in place (never deleted), but nothing
+  // reads or writes it past this point.
   onSacrifice(picks, target = 'slot', bookId = BOOK_ORDER[0]) {
     const bm = ensureBookMeta(meta, bookId)
     const slots = bm.choiceSlots ?? 2
@@ -551,6 +551,24 @@ const SFX_FOR_EVENT = {
   // 'ballast' lands every 2.0-2.6s, which is the 'longline' case verbatim — it has a render
   // case instead, and the weight of it is carried by the screen shake.
   sunspear: 'shoot', sunlance: 'beam',
+  // The Reef. A snapping shrimp is a percussive crack about 1.3 times a second before any
+  // fire-rate source, which is precisely the cadence audio.js already throttles 'shoot' for —
+  // the ruling the 'skip' entry above makes verbatim. Fire Coral has NO entry and emits no event
+  // at all: a ridge of the level lighting up is a bigger tell than a chime, and one cast every
+  // 3.4-4.4s for a whole run is the metronome 'longline' and 'ballast' are both denied for.
+  snap: 'shoot',
+  // The Reef's other two natives (v7.x). Both get a voice, on the cadence rule 'chum' and 'bilge'
+  // state above: a jet of ink casts every 3.8-4.6s and a tank ruptures every 2.6-3.2s, both the far
+  // side of the "rare enough to bear one" line, and BOTH plant something that then sits there — so
+  // the sound is the only marker of the MOMENT, which the entity cannot give you.
+  //   'ink' borrows the vortex whoosh, the fifth card to do so, for exactly the reason chum and
+  // bilge do: a body of something dark being pushed into water is one wet low event and the bank
+  // gains nothing from a sixth near-identical sample.
+  ink: 'hole',
+  // 'rupture' is the plain explode, and it is the LANDING rather than the throw — the same split
+  // Debris Toss and Net Toss already make, where 'toss' has no entry at all. A steel cylinder
+  // splitting is the one thing in this chapter that genuinely is a bang.
+  rupture: 'explode',
 }
 
 function endRun(victory) {

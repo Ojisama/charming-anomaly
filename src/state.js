@@ -8,7 +8,7 @@ import {
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, ORCA_SHADOW_FIRST, ORCA_SHADOW_PASSES,
   BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, CURRENT_RESIST_FLOOR, unlockLevel, unlockMax,
-  lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost } from './config.js'
+  lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost, SPUR_TICK } from './config.js'
 
 const SAVE_KEY = 'charming-anomaly-save-v1'
 
@@ -335,9 +335,10 @@ export function loadMeta() {
       // carrying 'yes' or 1 would be truthy everywhere EXCEPT those tests and the flag would
       // disagree with itself. This never reaches sim.js — see the plan's R1.
       m.dev = m.dev === true
-      // Light Thief (Book 2): the permanent "kills give light back" unlock, bought with shop levels
-      // on the sacrifice screen. Coerced for the same reason as m.dev above — createRun tests
-      // `=== true`, so a truthy-but-not-true value would grant it everywhere else and deny it there.
+      // Scavenger (Book 2): the "kills give back resource" unlock, REMOVED FROM THE GAME in v7.x.
+      // The field stays and stays coerced — R2 is additive-only, an older build still writes it, and
+      // a save that round-trips through this build must come back out the shape it went in. Nothing
+      // reads it for gameplay any more; see BOOK_UNLOCKS (config.js), which is now empty.
       m.lightThief = m.lightThief === true
       // Retroactive BOOK unlock, exactly the same argument as the chapter chain above: a book
       // that shipped AFTER the player already beat the previous book's finale at
@@ -352,15 +353,13 @@ export function loadMeta() {
         const beat = Math.max(Number(prev?.won) || 0, (Number(prev?.maxDifficulty) || 1) - 1)
         if (beat >= CHAPTER_UNLOCK_DIFFICULTY) unlockBook(m, BOOK_ORDER[i])
       }
-      // meta.lightThief (Book 1-shaped legacy — see BOOK_UNLOCKS.undertow in config.js and the
-      // design doc §1) copies forward ONCE into its new home, bookMeta(m,'undertow').unlocks.
-      // lightThief — the only place createRun (above in this file) reads it now. Never deletes the
-      // old field (R2 — an older build's onSacrifice still writes it) and never writes back the
-      // other way: copy only when the new location is UNSET, so a value already written at the new
-      // location (a future purchase flow writing there directly) is never clobbered. Without this,
-      // every existing dev save that already spent LIGHT_THIEF_COST levels loses killRefill on the
-      // very next load — silently, because a missing bm.unlocks.lightThief just reads as "unbought"
-      // rather than throwing.
+      // meta.lightThief (Book 1-shaped legacy) copies forward ONCE into bookMeta(m,'undertow')
+      // .unlocks.lightThief. BOTH ARE DEAD DATA since Scavenger was removed — no reader is left —
+      // and the copy stays anyway, because R2 makes this migration part of the save's shape: an
+      // older build still writes the old field, and dropping the forward-copy now would mean a save
+      // that survived a downgrade-then-upgrade comes back a different shape than one that did not.
+      // Never deletes the old field, and never writes back the other way: copy only when the new
+      // location is UNSET, so a value already written there is never clobbered.
       if (m.lightThief === true) {
         const ut = ensureBookMeta(m, 'undertow')
         if (ut.unlocks.lightThief === undefined) ut.unlocks.lightThief = true
@@ -401,7 +400,7 @@ export function loadMeta() {
     // leaderboard's integrity rule: endRun (main.js) submits no score from a run played with this
     // on, because unlocking unfinished chapters and opening the dev card list are the same switch.
     dev: false,
-    lightThief: false, // Book 2's permanent kills-give-light unlock (see the loadMeta migration above)
+    lightThief: false, // dead since v7.x (Scavenger removed); kept per R2 — see the migration above
     schema: SCHEMA, // R4: a brand-new save really IS this build's format (loadMeta's repair says 1)
     // loadMeta's repairs are IN-MEMORY ONLY and never written back, so a save that has not been
     // re-saved since the upgrade has no `name`/`savedAt` key ON DISK — and §3.2 pushes exportSlot,
@@ -786,7 +785,8 @@ function generateWells(sig) {
  *               non-elites always carry affixes: [] (harmless to check unconditionally, but
  *               sim.js still guards elite-only affix logic behind `e.elite &&` first for cost).
  *               Elites roll 1 random affix at spawn, 2 distinct ones once run.time >=
- *               AFFIX_SECOND_AT. Render/shield contract: draw a shield bubble while `affixes`
+ *               AFFIX_SECOND_AT. `anchored` is never in that roll: it is layered on top at
+ *               ANCHORED_CHANCE, so ~half of elites carry it as well as their rolled affix(es). Render/shield contract: draw a shield bubble while `affixes`
  *               includes 'shielded' AND `hp > maxHP * SHIELD_HP_FRAC` (the shield "breaks" once
  *               hp drops under that fraction, matching the reduced-damage window in sim.js).
  *
@@ -929,6 +929,16 @@ function generateWells(sig) {
  *                 why it is not bloomSlowT with a magnitude: that field IS refreshed every frame a
  *                 body stands in a cloud, and sharing it would let any bloom hold the heavier
  *                 ballast number alive for the cloud's whole duration.
+ *               blindT (v7.x The Reef, s of blindness remaining): while > 0 the retarget seam in
+ *                 stepEnemyMovement hands this body a point INK_BLIND_REACH down the heading it
+ *                 held when the blind landed, instead of run.player -- so it "loses you and keeps
+ *                 going", and a lane's scroll carries it past you. Refreshed every frame a body is
+ *                 inside a run.blooms entry carrying `blind` (Squid Ink), decayed in
+ *                 stepEnemyMovement. render.js tints an inked body dark and sheds ink off it.
+ *                 The held heading itself is _blindHx/_blindHy, sim-internal, cleared on expiry --
+ *                 without that clear a second cloud would resume the FIRST cloud's bearing.
+ *                 NOT routed through the CC-DR budget: resistsCC guards holds, and a blinded body
+ *                 keeps its full speed.
  *               bloomSlowT (v6.4, s of bloom-slow remaining): while > 0, stepEnemyMovement's
  *                 slowMul is multiplied by (1 - BLOOM_SLOW) — a plain speed debuff, stacking with
  *                 chill/freeze rather than replacing the seek like fearT/stunT do. Refreshed to
@@ -951,7 +961,7 @@ function generateWells(sig) {
  *                 it back; stepEnemyMovement's slowMul is multiplied by (1 - oiled). BOTH oils
  *                 stain — the player's look:'bilge' blooms (stepBlooms) and the chapter's own
  *                 ambient run.slicks (stepSlick) — because it is the same substance. The squid's
- *                 look:'ink' cloud does NOT: it carries slow: 0 and never enters that branch.
+ *                 look:'inkjet' cloud does NOT: it carries slow: 0 and never enters that branch.
  *                 render.js reads it as a contract field and tints the body toward oil-black,
  *                 ramped by oiled / OIL_STAIN_MAX. The cap is the safety: uncapped, a shoal herded
  *                 over the same slick repeatedly would stop dead.
@@ -1024,11 +1034,17 @@ function generateWells(sig) {
  *               sporeburst mini-clouds (SPOREBURST_FRAC of the parent's maxR), spawned when a
  *               non-mini cloud's own tick kills an enemy — minis never spawn further minis.
  *               OPTIONAL `look` tags a cloud as another weapon's (see the Foxfire and Silt Veil
- *               notes below) — or as a CREATURE's: look:'ink' is The Wreck's squid, the one entry
+ *               notes below) — or as a CREATURE's: look:'inkjet' is The Wreck's squid, the one entry
  *               on this array no weapon casts, and the only one that slows the PLAYER (read in
  *               stepPlayerMovement's MIN, not here — see INK_SLOW_MUL). It carries `slow: 0`, so
- *               the enemy slow below never touches it;
+ *               the enemy slow below never touches it. NOT to be confused with The Reef's Squid
+ *               Ink WEAPON, which is a `blind` bloom and a different mechanic entirely;
  *               OPTIONAL `slow: 0` opts it out of BLOOM_SLOW_T entirely; OPTIONAL
+ *               `blind` (seconds, v7.x Squid Ink) refreshes e.blindT on every body inside, every
+ *               frame; OPTIONAL `airHold: true` (v7.x Oxygen Tank's boil) is read by stepCharge
+ *               ALONE, where it multiplies the chapter bar's drain by zero while the PLAYER stands
+ *               in it -- it can never add to the bar, and CHAPTERS.reef.resource records why that
+ *               is a constraint rather than a tuning choice; OPTIONAL
  *               `daze` (seconds) is Silt Veil's, published into e.stunT against the enemy's own
  *               dazeCd window (see SILT_DAZE_REFRACTORY). It replaced a `fear` field in v7.x --
  *               fear scattered the crowd out of the cloud that was damaging it.
@@ -1181,7 +1197,9 @@ function generateWells(sig) {
  *   force is already applied, to the player and every enemy, and to a tideCarried bloom cloud).
  * spurs[i]: { i, f, thick, grooves: [{ c, hw }], merged } — v7.x The Reef: the CORAL RIDGES, the
  *   chapter's level design (spec 2026-08-20). `i` is the lane index, `f` its centre on the lane's
- *   FORWARD axis (x here, since the Reef is an x-lane) and `thick` its extent along it; a groove is
+ *   FORWARD axis (x here, since the Reef is an x-lane) and `thick` its OWN extent along it — every
+ *   ridge takes a different one off the field's third salt (spurs.thickVar), which is what makes the
+ *   reef front ragged, and it is the number BOTH the grate and the renderer measure; a groove is
  *   a gap in it at cross position `c` with half-width `hw`. Two grooves normally, ONE when `merged`
  *   — the braid has closed them onto each other and the ridge has a single way through, which is the
  *   narrowest point in the level. Everything here is a pure function of `i` and run._obstacleSeed
@@ -1190,6 +1208,31 @@ function generateWells(sig) {
  *   crosses a ridge, on the _spurIdx cursor, and bumps _spurRev for render.
  *   A ridge is NOT solid: it grates (SPUR_DPS) and slows the strafe, never the scroll, and enemies
  *   pass straight through — which is what makes coral strictly worse than a groove on every axis.
+ * _spurAcc: number — the scrape's part-tick accumulator (stepSpurs). _drownAcc's twin with ONE
+ *   difference that is the whole design: it is CARRIED across a groove rather than zeroed on exit,
+ *   and merely capped at SPUR_TICK while outside, so the tick fires on ENTRY and an oscillating
+ *   player still pays no more per second than one who committed. See stepSpurs for both exploits.
+ *   It starts AT SPUR_TICK, not at 0, because that cap is what the entry tick is: seeded at zero the
+ *   first ridge of a run alone would take half a second to bite.
+ * _scraping: boolean — the player is inside coral THIS frame. Published by stepSpurs and read one
+ *   frame later by stepPlayerMovement, where it joins the MIN of the speed floors as SPUR_SLOW_MUL
+ *   (the strafe only — in the lane the forward component is the scroll and never `speed`), and
+ *   every frame by render.js's updateCoralGrit, which is the grate's only tell.
+ *   FORCED FALSE WHILE _burstT IS LIVE (owner, 2026-08-22): a dash crosses a ridge free, and this
+ *   one field carries all three halves of that — no damage, no slow, and no grit — so a bought
+ *   crossing is visibly not a paid one without render.js learning a second field.
+ * polyps[i]: { i, f, thick, grooves, merged, t, lit, dmg, tick, acc, spill } — v7.x The Reef:
+ *   LIT RIDGES (WEAPONS.fireCoral). Everything before `t` is a verbatim SNAPSHOT of spurAt(i, ...),
+ *   copied at cast time rather than referenced: run.spurs is emptied and rebuilt in full on every
+ *   ridge crossing (streamSpurs), so an entry there is not a place state can live. Because spurAt
+ *   is pure the snapshot can never disagree with the field it was taken from, and stepPolyps tests
+ *   it with the same onCoral() the grate tests the player with — the coral that burns the crowd is
+ *   the coral that grates you. `t` counts the burn down, `acc` is the part-tick accumulator, and
+ *   `spill` (Overgrowth) drops the groove test so the ridge burns wall to wall. `lit` is the AGE of
+ *   the fire and is RENDER-ONLY: it only ever counts up, is never reset by the refresh that tops
+ *   `t` back up, and exists so syncPolyps' ignition ramp cannot blank a ridge that is still
+ *   burning. Enemies only: nothing in here can touch the player. render.js draws the band
+ *   straight off this list.
  * shafts[i]: { x, y, bx, by, r, phase, _cell, gape?, _shutT?, drawdown?, fouled? } — v7.x Book 2: streamed REFILL
  *   CIRCLES the player stands in to refill `charge`. ONE list fed from any of FOUR places, decided
  *   by refillSpec() (config.js): The Twilight's sun shafts (its signature IS the refill spec:
@@ -1236,7 +1279,7 @@ function generateWells(sig) {
  * charge: number — the chapter resource bar (CHAPTERS[chapter].resource — The Twilight's 'Light', The
  *   Surf's 'Humidity' and The Reef's 'Air'). Drains passively, refills inside a refill circle
  *   (run.shafts: a shaft here, a tide pool there, an air pocket in the third, an anglerfish's open
- *   mouth in the fourth) and (with Light Thief bought) per kill, clamped to [0, resource.max].
+ *   mouth in the fourth), and on The Wreck alone per kill (`killBase`), clamped to [0, run.chargeMax].
  *   The Deep also SPENDS it involuntarily: being devoured by a maw zeroes the bar outright, which
  *   is the only place in the game a hazard is priced in the chapter's own resource.
  *   0 and untouched in every chapter without a resource.
@@ -1262,9 +1305,9 @@ function generateWells(sig) {
  *        `damage.floor` at an empty bar to 1.0 at a full one, and both player-damage sites in sim.js
  *        multiply by it; it returns 1 for every chapter with no `damage` block, so this is inert
  *        elsewhere. THIS OVERRIDES THE RULE THE FIELD SHIPPED UNDER. The first cut of this doc said
- *        the bar "scales no damage and no fire rate — deliberately, because those cut the kill rate,
- *        and the kill rate is what Light Thief pays out on", and that reasoning is still correct for
- *        Light. The Surf is an explicit owner ruling, recorded in the design at §5.3 of
+ *        the bar "scales no damage and no fire rate — deliberately, because those cut the kill rate",
+ *        and that reasoning is still correct for Light. The Surf is an explicit owner ruling,
+ *        recorded in the design at §5.3 of
  *        docs/superpowers/specs/2026-08-13-book-2-undertow-design.md, which also names what the
  *        original rule was protecting and the mitigations the exception is conditional on: a TUNED
  *        floor constant (HUMIDITY_DMG_FLOOR), and a drain tied to the SANDBARS rather than to the
@@ -1280,7 +1323,7 @@ function generateWells(sig) {
  *        vignette/shake/flash is the tell and main.js's `if (e.dot) continue` keeps it silent.
  * chargeMax: number — the bar's ceiling, as a RUN field (v7.x Book 2 Task 9). Used to be read
  *   straight from CHAPTERS[chapter].resource.max at both of sim.js's clamp sites (the drain in
- *   stepCharge and the Light Thief kill-refill at the kill site); now both sites read run.chargeMax
+ *   stepCharge and the per-kill `killBase` at the kill site); now both sites read run.chargeMax
  *   instead, which is what lets BOOK_SHOP.undertow.deepLungs ("Resource Capacity") raise it. Set
  *   once at createRun from the SAME hoisted local `charge` starts at, so the two can never drift
  *   apart into "the bar refills past its cap on a kill, then snaps back on the next drain tick" (a
@@ -1298,15 +1341,16 @@ function generateWells(sig) {
  *   take the full push, which is what makes the surge read as weather. 1 outside Undertow.
  * chargeRefillMul: number — the refill-rate multiplier (BOOK_SHOP.undertow.bigGulp, "Resource Refill",
  *   +10%/level), applied in stepCharge to CHAPTERS[chapter].resource.refill at the same site the
- *   in-shaft/pool/pocket refill already runs. 1 (no-op) unbought. Does NOT reach run.killRefill —
- *   the Light Thief kill bonus is a separate mechanic behind its own unlock, not "a refill pickup".
+ *   in-shaft/pool/pocket refill already runs. 1 (no-op) unbought. Does NOT reach The Wreck's
+ *   `killBase` — a kill is not "a refill pickup".
  * _burstT: number — seconds of Reef Burst dash remaining (CHAPTERS[chapter].burst). Set by
  *   stepRepulse on the same press, cooldown and charge spend as the Pulse, to BURST_DUR_MIN +
  *   (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t, so an EMPTY bar still dashes — the no-spiral floor.
- *   Read in two places and nowhere else: stepPlayerMovement's lane branch multiplies the forward
- *   scroll by BURST_SPEED_MUL while it is positive (the ONLY thing in the file allowed to change
- *   the lane's scroll rate, because it is the player's own button and not a force acting on them),
- *   and stepCrush treats it as a third entry point to the permanent obstacle-removal path.
+ *   Read in three places. stepPlayerMovement's lane branch multiplies the forward scroll by
+ *   BURST_SPEED_MUL while it is positive (the ONLY thing in the file allowed to change the lane's
+ *   scroll rate, because it is the player's own button and not a force acting on them); stepSpurs
+ *   forces _scraping false while it is live, which is R13's free crossing; and render.js's
+ *   drawBurstWake draws the tail at what is LEFT of it, which is the only cast the duration has.
  *   0 on every run of every other chapter.
  * _shorebreakT: number — seconds of Surf Shorebreak left (CHAPTERS[chapter].shorebreak). Set by
  *   stepRepulse on the same press, cooldown and charge spend as everything else on that button, to
@@ -1411,8 +1455,9 @@ function generateWells(sig) {
  *   MULTIPLIER (bought, so multiplied — unlike the chapter slows, which MIN-compose). Both drop to
  *   0 together when the window lapses rather than decaying one stack at a time: losing the shoal is
  *   meant to cost the whole run-up, which is what gives the card a failure state.
- * killRefill: number — light per kill, snapshotted at createRun from bm.unlocks.lightThief (the
- *   permanent Light Thief unlock, LIGHT_THIEF_COST shop levels on the sacrifice screen; bm is
+ * (removed v7.x) killRefill — was light per kill from the Scavenger unlock. Nothing refills a bar
+ *   on a kill now except CHAPTERS.wreck.resource.killBase, which sim.js reads straight from config
+ *   and no run field mirrors. The save key bm.unlocks.lightThief survives, unread, per R2.
  *   Undertow's own bookMeta entry — see BOOK_UNLOCKS.undertow in config.js). 0 unbought, and 0
  *   in every chapter with no resource. It exists as a RUN field, rather than sim.js consulting
  *   meta, because sim.js must never see meta — see the plan's R1.
@@ -1572,7 +1617,7 @@ function generateWells(sig) {
  * 'guard' (The Surf's Shore Crab: alternates guarded <-> open, refusing DIRECT damage inside a
  * 120-degree arc while guarded — see stepCrabGuard/guardBlocks in sim.js and the CRAB_GUARD_*
  * block in config.js),
- * 'inkjet' (The Wreck's Squid: lays a run.blooms cloud tagged look:'ink' at its own position when
+ * 'inkjet' (The Wreck's Squid: lays a run.blooms cloud tagged look:'inkjet' at its own position when
  * the player closes inside INK_TRIGGER_R, on a per-fish INK_COOLDOWN. The cloud slows the PLAYER
  * only — see stepInkjet and the INK_* block),
  * 'puffup' (The Wreck's Pufferfish: inflates when the player closes inside PUFFER_TRIGGER_R and
@@ -1601,7 +1646,7 @@ function generateWells(sig) {
  *   that is deliberate: it fires on every refused hit, which for a fast weapon is several a second.
  *   The Wreck's Pufferfish pushes this same event when it pops (guardBlocks) — one refusal, one
  *   tell, and the ball deflating on the very next frame is the rest of it.
- * {type:'ink', x, y, r} (v7.x, The Wreck's Squid): a cloud squirted. The bloom it leaves fades UP
+ * {type:'inkjet', x, y, r} (v7.x, The Wreck's Squid): a cloud squirted. The bloom it leaves fades UP
  *   over BLOOM_GROW_FRAC of its life, which is far too slow to read as a squirt, so this event is
  *   the burst and the bloom is what is left of it. No SFX entry, for the guardblock reason above:
  *   at this chapter's density several squid within INK_TRIGGER_R at once is ordinary.
@@ -1730,6 +1775,12 @@ function generateWells(sig) {
  *   banked at the THROW, and widens THAT ring only -- never the crater, which has already been
  *   dealt off `r`. It pushed a run.blooms stain until v7.x; the owner cut it because that stain was
  *   Silt Veil's whole card, drawn Silt Veil's way, given away free on a rare.
+ *   OPTIONAL `tank: true` makes it an OXYGEN TANK (The Reef) instead: the throw is aimed down the
+ *   LANE rather than at a body (fireTank), so the scroll carries the player to their own landing
+ *   point; the rupture deals dmg in r, optionally shoves everything in r by TANK_SHOVE_KB
+ *   (`shove`, Pressure Wave), plants a run.blooms entry with `airHold` for `boil` seconds, and
+ *   emits {type:'rupture'}. Both `boil` and `shove` are banked AT THE THROW. Its branch sits above
+ *   the shrapnel block for the same reason the net's and the column's do.
  *   ⚠ run.lobs has THREE render consumers (syncLobs, redrawHazards' amber landing ring, and
  *   drawColumns) and nothing about the array says so -- `look` is what each one filters on.
  * longlines[i]: { x, y, nx, ny, half, len, dmg, tick, acc, life, duration, snagged } — Longline's
@@ -1822,6 +1873,24 @@ function generateWells(sig) {
  *   {type:'sunlance', angle, reach} a lance cast. Carries no x,y: the beam is anchored on the
  *                                   player and drawn from run.beams.
  *
+ * THE REEF's two natives (v7.x). One adds no array and one adds the only array Book 2 has needed:
+ *   - Pistol Shrimp: a run.beams entry carrying `look: 'snap'` with `rotSpeed: 0`, the Sunlance's
+ *     shape. What is new is the ANGLE: it is laneAxes(chapter).angle, the lane's own forward
+ *     heading, and never aimAngle — the weapon has no targeting at all and the cross stick is the
+ *     aim. Outside a lane chapter it falls back to p.facingAngle (still aimless, still steerable).
+ *     `tick` clears `duration`/2, so a body on the line is struck exactly ONCE per snap.
+ *   - Fire Coral: run.polyps (see the field above) — the one weapon in the book that could not
+ *     reuse an entity, because its band IS a piece of terrain and run.spurs is rebuilt from
+ *     scratch on every ridge crossing.
+ *   {type:'snap', x, y, angle, reach, back}  one Pistol Shrimp cast. x,y is the PLAYER (the beam
+ *                                   is anchored there and drawn from run.beams); `angle` is the
+ *                                   lane heading and `back` whether Backblast doubled it, both so
+ *                                   the cavitation puff does not re-derive a heading that has
+ *                                   already moved. Takes the throttled 'shoot' voice.
+ *   Fire Coral emits NO event, deliberately: a whole ridge of the level lighting up is a larger
+ *   tell than any burst could add, and at one cast every 3.4-4.4s for a whole run a bespoke voice
+ *   is the metronome the 'longline'/'ballast' entries in SFX_FOR_EVENT are both denied for.
+ *
  * v5.4 weapons (see WEAPONS/WEAPON_MODS in config.js for the per-weapon mod semantics). Entity
  * reuse rather than new arrays: Quill Burst's quills, Reality Shard's shards, the tornado's flung
  * chunks and Debris Toss' splinters are all ordinary run.bullets entries tagged weapon:'quill' /
@@ -1909,6 +1978,21 @@ function generateWells(sig) {
  *   credit is earned only where it can be spent, or the first Rupture of every run clusters on the
  *   screens right after ANOMALY_MIN_LEVEL. Zeroed by rollAnomalyCard when the roll fires — when
  *   the tier is OFFERED, not when the card is kept — and capped in weight by ANOMALY_PITY_CAP.
+ *   Never serialized.
+ * _duoDry (2026-08-23): duo-boon pity, as { [modId]: screens }. A DUO BOON is a weapon mod carrying
+ *   `needs: '<weaponId>'` (config.js's WEAPON_MODS header) — a mod on weapon A that pays out
+ *   through weapon B, so it cannot exist until the run holds both. That gate is already the card's
+ *   whole scarcity, so the pool stops charging it the ordinary lottery on top: it holds a RESERVED
+ *   candidate slot (eligibleWeaponModCandidates), and once it has been live for DUO_PITY_SCREENS
+ *   screens without being offered it takes the next mod card outright (rollCard's mod branch,
+ *   before any rarity is consulted — the rarity roll is what was hiding it, `values: { epic: N }`
+ *   admitting it on 7% of mod rolls).
+ *   Which boons are live is liveDuoMods (sim.js) and nowhere else, because this counter and the
+ *   pool must agree screen for screen about which screens are dry. Advanced by stepLevelUp, once
+ *   per screen, so a paid re-deal cannot pump it; zeroed by buildLevelUpChoices for every duo boon
+ *   on the FINAL card list — after the anomaly swap and the new-weapon floor, since either can
+ *   overwrite the slot, and a boon that was deleted was never offered. Spent on the OFFER, not the
+ *   pick, so declining costs the credit and the boon returns DUO_PITY_SCREENS later.
  *   Never serialized.
  *   (v7.20 REMOVED _screenAnomaly, the per-screen memo that used to sit here. It froze the tier's
  *   answer for a whole screen so a reroll could neither draw a Rupture nor lose one — which stopped
@@ -2099,7 +2183,7 @@ export function createRun(meta, opts = {}) {
   // is authored ONCE and shared by both `chargeMax` and the starting `charge` below — a value this
   // repo's own CLAUDE.md documents as its single largest silently-drifting defect class when
   // written twice. Used to be read straight from config at both of sim.js's clamp sites (the drain
-  // in stepCharge and the Scavenger kill-refill); now it is a RUN field so deepLungs can raise
+  // in stepCharge and the per-kill `killBase`); now it is a RUN field so deepLungs can raise
   // it, and sim.js reads run.chargeMax at both sites instead of CHAPTERS[chapter].resource.max.
   const chargeMax = (CHAPTERS[chapter].resource?.max ?? 0) * (1 + shopBonus(bm, bookId, 'deepLungs'))
   return {
@@ -2203,6 +2287,11 @@ export function createRun(meta, opts = {}) {
     // buildLevelUpChoices, or a reroll would pump it) and zeroed by the roll itself. See
     // ANOMALY_PITY_PER_SCREEN in config.js.
     _screensSinceAnomaly: 0,
+    // Duo-boon pity (2026-08-23): modId -> level-up SCREENS THAT BOON WAS LIVE ON since it was last
+    // offered. Advanced by stepLevelUp (never by buildLevelUpChoices, or a reroll would pump it)
+    // and zeroed by the builder for every duo boon on the FINAL card list. See DUO_PITY_SCREENS in
+    // config.js.
+    _duoDry: {},
     // v6.7.10: rerolls PAID FOR on the screen currently open — they decay the `normal` rarity
     // weight (REROLL_RARITY_DECAY in config.js). Zeroed by stepLevelUp when a screen opens and
     // stepped by sim.js's rerollLevelUpChoices, beside the _rerolls bump that prices the next one.
@@ -2224,9 +2313,10 @@ export function createRun(meta, opts = {}) {
     gems: [],
     coins: [],
     bombs: [],
-    // v5.21 lane chapters (beyond): drifting asteroids that damage the player AND grind enemies,
-    // and the cooldown on the active Repulsion shove. Both are no-ops outside a `lane` chapter —
-    // sim.js stepRocks/stepRepulse gate on CHAPTERS[chapter].lane. rocks entries are
+    // v5.21 The Beyond: drifting asteroids that damage the player AND grind enemies, and the
+    // cooldown on the active Repulsion shove. Repulsion is a no-op outside a `lane` chapter; the
+    // rocks want BOTH `lane` and no `rocks: false` opt-out, which is how The Reef has none (owner,
+    // 2026-08-22) while The Beyond is untouched. rocks entries are
     // { x, y, r, vCross, rot, spin, _acc }; rot/spin are render-only tumble. vCross (v7.x, was `vx`)
     // is the wander ACROSS the lane, which is the y axis in a `laneAxis: 'x'` chapter — the drift
     // along the lane is not stored at all, it is ROCK_SPEED against the chapter's own direction.
@@ -2266,6 +2356,9 @@ export function createRun(meta, opts = {}) {
     spurs: [],
     _spurIdx: null,        // 1-D streaming cursor: the lane index nearest the player at the last scan
     _spurRev: 0,           // bumped on any change; render rebuilds only on this, exactly as _obstacleRev
+    _spurAcc: SPUR_TICK,   // the scrape's part-tick accumulator — CARRIED across a groove, see stepSpurs
+    _scraping: false,      // inside coral this frame; stepPlayerMovement reads it as SPUR_SLOW_MUL
+    polyps: [],            // Fire Coral's lit ridges — snapshots of spurAt, never references into run.spurs
     _slickAcc: 0,          // part-tick accumulator, the exact twin of _drownAcc/_starveAcc
     _foulT: 0,             // s of oil still on you — lingers SLICK_SLOW_T past the rim (see sim.js)
     _rushT: 0,             // s left on BLOODRUSH's window (gnash's bloodrush mod)
@@ -2293,24 +2386,13 @@ export function createRun(meta, opts = {}) {
     chargeDrainMul: Math.max(SLOW_BURN_FLOOR, 1 - shopBonus(bm, bookId, 'slowBurn')),
     // v7.x Book 2 Task 9: bigGulp's refill-rate multiplier, applied in stepCharge (sim.js) to
     // CHAPTERS[chapter].resource.refill while the player stands in a shaft/pool/pocket. 1 (no-op)
-    // unbought. Does NOT touch the Light Thief kill-refill (run.killRefill) — that is a separate
-    // mechanic gated on its own unlock, not "a refill pickup".
+    // unbought. Does NOT touch The Wreck's per-kill `killBase` — that is not "a refill pickup".
     chargeRefillMul: 1 + shopBonus(bm, bookId, 'bigGulp'),
     // BOOK_SHOP.undertow.currentResist ("Current Resistance"): how much of the tide's push actually
     // reaches the player, applied in stepTide (sim.js). Subtracted like slowBurn's — the line stores
     // a POSITIVE perLevel and reads as a decrease (see `reduction` in BOOK_SHOP) — and floored so a
     // future maxLevel raise cannot invert the push into a pull. 1 in every book but Undertow.
     currentResistMul: Math.max(CURRENT_RESIST_FLOOR, 1 - shopBonus(bm, bookId, 'currentResist')),
-    // Light per kill, SNAPSHOTTED from the permanent Light Thief unlock (bm.unlocks.lightThief,
-    // bought over LIGHT_THIEF_COSTS shop levels — see BOOK_UNLOCKS.undertow in config.js). This
-    // exists as a run field rather than sim.js reading meta because sim.js must never see meta at
-    // all — it plays what it is handed, which is what makes a dev-gated chapter playtest as the
-    // thing that eventually ships. 0 unbought, and 0 for every chapter that declares no resource.
-    // Scales with the Light Thief LEVEL: the chapter's own killRefill is the value at FULL level,
-    // so a maxed ladder is exactly what the old single purchase always gave and the balance ceiling
-    // has not moved. unlockLevel also reads a pre-ladder `true` as full.
-    killRefill: (CHAPTERS[chapter].resource?.killRefill ?? 0)
-      * (unlockLevel(bm, bookId, 'lightThief') / Math.max(1, unlockMax(bookId, 'lightThief'))),
     // v7.x The Reef (see the doc block above): seconds of Burst dash left, and the drowning DoT's
     // part-tick accumulator. The rampage pattern again — every run carries both, and only a chapter
     // declaring `burst` / a `resource.drown` block ever moves them off 0.
