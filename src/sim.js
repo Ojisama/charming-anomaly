@@ -150,6 +150,7 @@ import {
   CRAB_OPEN_T,
   CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
+  LANE_CRUSH_DPS, LANE_CRUSH_TICK,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
@@ -303,6 +304,9 @@ export function stepSim(run, input, dt) {
   stepWebs(run, dt)       // v5.3 garden: expire spider web slow-zones (no-op unless any exist)
 
   if (stepRocks(run, dt)) return // v5.21 lane: drifting asteroids (phase may be 'dead')
+  // BEFORE stepLeaks, which measures "behind" against the player this may still be moving, and
+  // before the sweep reads the same viewport expression.
+  if (stepLaneFront(run, dt)) return // v7.x reef: pinned against the back edge (phase may be 'dead')
   if (stepLeaks(run)) return // v5.18 beyond lane: invaders that got past you (phase may be 'dead')
   if (stepContactDamage(run)) return // phase is now 'dead'
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
@@ -771,6 +775,7 @@ function stepPlayerMovement(run, input, dt) {
   if (ax) {
     const hw = laneHalfWidth(run.viewRadius)
     p[ax.cross] = Math.max(-hw, Math.min(hw, p[ax.cross]))
+    blockOnCoral(run, ax, p)
   }
   // p.vx/p.vy above ARE the snapshot the skies' artillery flag leads its shells with
   // (ARTILLERY_LEAD). Deliberately input-only: drift/pull forces aren't something a tank can read —
@@ -1590,8 +1595,51 @@ function stepRocks(run, dt) {
 // twice the size of what the player can see, which is the pile-up in a smaller form. The axis
 // changes what the number MEANS, exactly as LANE_SCROLL_SPEED's own block says it does for scroll.
 function seekerBack(run, ax) {
-  const half = ax.fwd === 'x' ? run.viewW : run.viewH
-  return (1 - LANE_CAMERA_FRAC) * 2 * half + SPAWN_RING
+  return laneBehindPx(run, ax) + SPAWN_RING
+}
+
+// THE LANE FRONT AND THE BACK EDGE (v7.x, The Reef).
+//
+// Until now "the camera already tracks the player, so advancing the player IS the auto-scroll" was
+// the whole of the lane, and it is why being blocked could not cost anything: stop the player and
+// you stop the world with them. Solid coral needs the two to come apart, so the lane now has a
+// FRONT that advances on its own clock and a camera anchored to it (render.js reads _laneFront and
+// writes nothing). Keep up and you sit where you always did; get stopped and the lane leaves.
+//
+// The front is also PULLED by the player -- max(front + scroll dt, player) -- so a burst that
+// carries you past it is progress rather than a camera you have outrun.
+//
+// And it is CLAMPED to the player's own position plus the visible strip, which is what keeps you on
+// screen while stuck. That is why the world appears to stall when you are pinned: it has, because
+// the alternative is watching your own fish leave the frame. The reef grinds while it waits, and
+// the moment you strafe into a groove the front is free to run again.
+function stepLaneFront(run, dt) {
+  const ch = CHAPTERS[run.chapter]
+  if (!ch.lane) return false
+  const ax = laneAxes(ch)
+  const p = run.player
+  const along = (v) => v * ax.dir
+  const solid = ch.spurs && ch.spurs.solid
+  let front = Math.max(along(run._laneFront ?? 0) + laneScrollFor(ch, run.mods) * dt, along(p[ax.fwd]))
+  // A chapter with nothing that can stop the player never separates from them, so it keeps exactly
+  // the old behaviour by construction rather than by a flag: The Beyond's front IS its player.
+  if (!solid) { run._laneFront = front * ax.dir; run._crushing = false; return false }
+  const maxLag = Math.max(0, laneBehindPx(run, ax) - PLAYER.radius)
+  const lag = front - along(p[ax.fwd])
+  const crushing = lag >= maxLag - 1e-6
+  if (lag > maxLag) front = along(p[ax.fwd]) + maxLag
+  run._laneFront = front * ax.dir
+  run._crushing = crushing            // the tell, read by render.js
+  run._crushAcc = (run._crushAcc ?? 0) + dt
+  if (!crushing) { run._crushAcc = Math.min(run._crushAcc, LANE_CRUSH_TICK); return false }
+  let died = false
+  while (run._crushAcc >= LANE_CRUSH_TICK) {
+    run._crushAcc -= LANE_CRUSH_TICK
+    // `dot: true` and a named src, exactly as the scrape and the drown are: main.js silences the
+    // per-tick audio on e.dot and render.js keys its hurt reaction off the source name.
+    if (!died && hurtPlayer(run, LANE_CRUSH_DPS * LANE_CRUSH_TICK, true, 'crush')) died = true
+  }
+  return died
 }
 
 function stepLeaks(run) {
@@ -3936,6 +3984,41 @@ export function streamSpurs(run) {
 // defect source in this repo.
 const onCoral = (sp, c) => !sp.grooves.some((g) => Math.abs(c - g.c) <= g.hw)
 
+// HOW FAR BEHIND THE LANE FRONT THE PLAYER CAN GET BEFORE THEY ARE OFF THE BACK OF THE SCREEN.
+// render.js anchors the lane camera so the front sits at LANE_CAMERA_FRAC along the view, which
+// leaves (1 - LANE_CAMERA_FRAC) of it astern -- 78px on the 390px phone this ships to. Shared by
+// the crush (which begins at that edge) and by seekerBack (which drops bodies just past it), so
+// the distance the player may fall back and the distance a body survives are one expression.
+const laneBehindPx = (run, ax) => (1 - LANE_CAMERA_FRAC) * 2 * (ax.fwd === 'x' ? run.viewW : run.viewH)
+
+// SOLID CORAL (v7.x, spurs.solid). Owner, 2026-08-23, having played it: the ridges "should block
+// you". Pushed back out ALONG the lane and never across it -- shoving the player sideways would
+// pick which groove they take, and picking the groove is the entire decision this field exists to
+// pose. So you stop dead at the face and must strafe to a channel yourself.
+//
+// The BURST passes through, which is the same ruling that already waives the scrape (see stepSpurs)
+// carried into a world where the ridge is a wall: the dash is now the button that gets you through
+// one, which is a far better reason to spend the bar than shaving a little damage. It also removes
+// the only tunnelling case -- at BURST_SPEED_MUL the player covers more than a ridge's thickness
+// in a frame, and a solve that assumed otherwise would put them out the FAR side for free.
+function blockOnCoral(run, ax, p) {
+  const spec = CHAPTERS[run.chapter].spurs
+  if (!spec || !spec.solid) return
+  if ((run._burstT ?? 0) > 0) return
+  const f = p[ax.fwd], c = p[ax.cross]
+  for (const sp of run.spurs) {
+    const half = sp.thick / 2 + PLAYER.radius
+    if (Math.abs(f - sp.f) > half) continue
+    if (!onCoral(sp, c)) continue          // a groove: this is the gap, swim through it
+    // The near face. The player advances at most laneScroll x dt in a frame (4.5px at 90px/s and
+    // a clamped 0.05s), and every ridge is far thicker than that, so the face they are nearest to
+    // is always the face they entered by. Ridges are spaced further apart than they are thick, so
+    // at most one band can hold the player -- the same fact stepSpurs' single break relies on.
+    p[ax.fwd] = sp.f + (f < sp.f ? -half : half)
+    return
+  }
+}
+
 // THE GRATE. What makes a ridge a decision instead of scenery: you are either in a groove, or in
 // coral where it costs HP and your steering while the crowd is still on you. Never a wall — the
 // scroll is untouched, so the lane keeps its one promise and there is nowhere the reef is shut.
@@ -3970,9 +4053,20 @@ function stepSpurs(run, dt) {
   const ax = laneAxes(CHAPTERS[run.chapter])
   const p = run.player
   const f = p[ax.fwd], c = p[ax.cross]
+  // ON THE CORAL MEANS TOUCHING IT ONCE THE CORAL IS SOLID, and without this line the entire scrape
+  // system is dead code. blockOnCoral holds the player's CENTRE at thick/2 + PLAYER.radius from the
+  // ridge centre -- flush against the face, which is where they visually belong -- and that is
+  // strictly outside the band this used to test, so `inside` was false on every frame of contact.
+  // SPUR_DPS, SPUR_SLOW_MUL, the grit tell and the whole 'scrape' damage source became unreachable
+  // the moment the ridges became walls, with nothing thrown and (until run RS.b) nothing red.
+  //
+  // So the two hazards layer instead of replacing each other: grinding along a face costs you the
+  // scrape and your steering, and only being left behind by the lane costs you the crush.
+  const solid = (CHAPTERS[run.chapter].spurs || {}).solid
+  const reach = solid ? PLAYER.radius : 0
   let inside = false
   for (const sp of run.spurs) {
-    if (Math.abs(f - sp.f) > sp.thick / 2) continue
+    if (Math.abs(f - sp.f) > sp.thick / 2 + reach) continue
     // Ridges are spaced further apart than they are thick, so at most one band can hold the player.
     inside = onCoral(sp, c)
     break

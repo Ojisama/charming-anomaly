@@ -12689,15 +12689,42 @@ export function createRenderer(app) {
   // RATE-CAPPED, which is the difference between a tell and a wash: CORAL_CRUSH's counts are tuned
   // for ONE burst, and scraping is a state that can hold for ten seconds. gritEvery is the beat.
   let gritAcc = 0
+  //
+  // TWO INTENSITIES OFF ONE HOOK (v7.x). run._scraping is brushing a ridge at SPUR_DPS 4; the new
+  // run._crushing is being held against the lane's trailing edge at LANE_CRUSH_DPS 36 while the
+  // chapter runs off without you, which is how this chapter now ends a run. Nine times the damage
+  // cannot be the same picture, so the crush sheds on a much shorter beat, three times the motes,
+  // and adds the air going out of you — the one thing the scrape never does.
+  //
+  // Escalating an EXISTING tell rather than teaching render.js a new field is the rule this repo
+  // keeps relearning: a mechanic that never reaches a contract field is invisible, and invisible is
+  // indistinguishable from broken. _crushing is published by stepLaneFront and read here only.
+  //
+  // ⚠ NO SOUND, deliberately, and it is worth a second look later. The owner's grit-only ruling
+  // (2026-08-22) was about the SCRAPE, and a run-ending state is exactly the kind of rare event
+  // SFX_FOR_EVENT's own rule says may carry one. It would need a real event to hang off — the
+  // damage here is a silenced dot — so it is left out rather than invented.
   function updateCoralGrit(run, dt) {
-    if (dt <= 0 || !run._scraping) { gritAcc = 0; return }
+    const crushing = !!run._crushing
+    if (dt <= 0 || (!run._scraping && !crushing)) { gritAcc = 0; return }
     gritAcc += dt
-    if (gritAcc < CORAL_CRUSH.gritEvery) return
+    if (gritAcc < CORAL_CRUSH.gritEvery * (crushing ? 0.4 : 1)) return
     gritAcc = 0
     const C = CORAL_CRUSH
     const p = run.player
     const ax = chapterLaneAxis
-    for (let i = 0; i < C.grit; i++) {
+    if (crushing) {
+      // Air leaving the body, in the chapter's own silver — the same substance the pockets and the
+      // Burst are drawn in, so "this is costing you" needs no new vocabulary.
+      for (let i = 0; i < C.bubbles; i++) {
+        const a = Math.random() * Math.PI * 2
+        const d = PLAYER.radius * (0.5 + Math.random() * 0.7)
+        spawnSmoke(T.fx.circle_05, p.x + Math.cos(a) * d, p.y + Math.sin(a) * d,
+          Math.cos(a) * 12 - ax.fx * C.bubbleRise * 0.5, Math.sin(a) * 12 - ax.fy * C.bubbleRise,
+          C.bubbleT, 0.10 + Math.random() * 0.10, C.bubbleTint, 0.5, 0.9, 0, 0, 0.3)
+      }
+    }
+    for (let i = 0; i < C.grit * (crushing ? 3 : 1); i++) {
       const a = Math.random() * Math.PI * 2
       const d = PLAYER.radius * (0.6 + Math.random() * 0.6)
       // Streamed BACKWARD down the lane on top of its own scatter: the fish is moving through the
@@ -19223,8 +19250,18 @@ export function createRenderer(app) {
     const laneAheadX = chapterHasLane && chapterLaneAxis.fwd === 'x'
     const laneAheadY = chapterHasLane && chapterLaneAxis.fwd === 'y'
     const laneFrac = (v, dir) => (dir < 0 ? v * LANE_CAMERA_FRAC : v * (1 - LANE_CAMERA_FRAC))
-    const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - run.player.x + shake.ox
-    const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - run.player.y + shake.oy
+    // v7.x THE CAMERA ANCHORS TO THE LANE FRONT, NOT THE PLAYER, on the forward axis only. With
+    // solid coral the two come apart: stopped by a ridge, the player slides back toward the
+    // trailing edge while the lane runs on, and anchoring to the player would instead stop the
+    // world with them and make being blocked cost nothing. sim.js owns _laneFront and clamps it so
+    // the player can never leave the frame; this side only reads it. The `??` is not defensive
+    // padding -- the title screen and every probe holding a run before its first step have no
+    // front yet, and the player's own position is what the front is initialised to anyway.
+    const camFwd = run._laneFront ?? (chapterHasLane ? run.player[chapterLaneAxis.fwd] : 0)
+    const camX = laneAheadX ? camFwd : run.player.x
+    const camY = laneAheadY ? camFwd : run.player.y
+    const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - camX + shake.ox
+    const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - camY + shake.oy
     world.scale.set(mapZoom)
     world.position.set(cx * mapZoom, cy * mapZoom)
     updateGroundField(cx, cy)

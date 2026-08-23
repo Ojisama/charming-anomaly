@@ -6810,7 +6810,7 @@ CHAPTERS.reef = {
   // 45 rather than the shared 70 — see laneScrollFor's block. Measured, not felt: on a 390x844 phone
   // an x-lane has only 312 world px ahead of the player against the y-lane's 675, so at 70 this
   // chapter would give HALF The Beyond's reaction time on the device the game ships to.
-  laneScroll: 45,
+  laneScroll: 90,
   // THE LANE DROPS WHAT FALLS BEHIND (v7.x). Opt-in per chapter -- see stepLeaks for why the
   // default must stay off. The Reef needs it and The Beyond does not: this roster's moray moves
   // 39px/s against a 45px/s advance, so it falls astern BY CONSTRUCTION and can never return,
@@ -6926,7 +6926,10 @@ CHAPTERS.reef = {
   //            non-zero one is still 339 > grooveMax 200 and there is still no lane you never leave.
   // salt 44/45/46 from the streamers' registry (sim.js, above obstacleCellHash): the two channel
   // widths, and now the thickness.
-  spurs: { spacing: 210, thick: 90, thickVar: 0.22, grooveMin: 140, grooveMax: 200, braidSep: 480, braidSpurs: 8, salt: 44 },
+  // `solid` (v7.x): the ridge STOPS you. Opt-in on the spec rather than assumed from the field's
+  // existence, because a spur field that only scrapes is still a legitimate thing for another
+  // chapter to want, and because grep-ing one word is how the next reader finds the collision.
+  spurs: { spacing: 210, thick: 90, thickVar: 0.22, grooveMin: 140, grooveMax: 200, braidSep: 480, braidSpurs: 8, salt: 44, solid: true },
 
   // AIR. Ambient drain, always — you are a fish carrying a lungful through a reef, and the clock
   // is the chapter. Refill ONLY at the pockets above; there is no second source and no passive
@@ -8883,8 +8886,14 @@ export const LANE_SCROLL_SPEED = 70      // px/s the player advances up the lane
 // proof that this is a property of the DEVICE and the axis, not of the chapter's tuning. Half the
 // reaction time on the platform this game actually ships to is not a difficulty choice.
 //
-// So The Reef scrolls slower, chosen against the warning it buys rather than against how it feels:
-// 312/45 = 6.9s, most of The Beyond's, without going glacial on a wide screen.
+// The Reef ran at 45 for exactly that reason (312/45 = 6.9s, most of The Beyond's). It is 90 now,
+// which is 3.5s -- owner's ruling, 2026-08-23, having played it: "the level should scroll faster".
+//
+// The reasoning above is not wrong, it is answering a question the chapter no longer asks. Warning
+// time is what a lane owes you when the threat is a RANK you must shoot or dodge, and 6.9s of that
+// read as glacial. The Reef's threat is now a WALL you must find the gap in: its coral is solid
+// (spurs.solid) and being stopped by it is what kills you, so the same 3.5s buys a groove read
+// rather than a firing solution, and the chapter is a different genre problem at the same number.
 //
 // ponytail: the principled fix is to stop storing px/s at all and derive the scroll from a shared
 // LANE_WARNING_SECONDS and the live viewport, which would make every device and both axes agree by
@@ -9928,6 +9937,16 @@ export const DROWN_TICK = 1.0            // s between drowning ticks while the b
 //    the run: scaled by dmgScale it passed the soap trail at t=150s and a soaped groove stopped being
 //    worse than the coral beside it, which is the inversion that killed spec rev 3. SPUR_SLOW_MUL
 //    must likewise stay ABOVE LATCH_SLOW_MUL 0.55 — the slow MIN takes the strongest term.
+// THE BACK EDGE (v7.x, The Reef). Solid coral means you can be STOPPED, and the lane front does
+// not stop with you -- fall far enough behind it and you are pinned against the trailing edge of
+// the screen with the reef grinding on you.
+//
+// A RATE, NOT A KILL. Owner's ruling, 2026-08-23, over both an instant death on touching the edge
+// and a pure grace timer: "survivable with HP to spare, death only if you stay stuck". So one bad
+// groove read costs a tick or two and a full bar can eat a mistake, while standing there cannot be
+// waited out. 36 on a 0.5s beat is 18 a tick, ~2.8s of being stuck to kill a starting 100 max HP.
+export const LANE_CRUSH_DPS = 36
+export const LANE_CRUSH_TICK = 0.5
 export const SPUR_DPS = 4                // HP/s inside coral — flat for the whole run, exactly like drowning and the slick
 export const SPUR_TICK = 0.5             // s between scrape ticks; 4 x 0.5 = 2 HP exactly, hurtPlayer's own rounding rule
 export const SPUR_SLOW_MUL = 0.6         // strafe multiplier while scraping — joins the MIN in stepPlayerMovement
@@ -10242,6 +10261,12 @@ export const DMG_SRC_NAME = {
   // than sharing Drowning: they are the two DoTs this chapter runs at once, and a summary that
   // blamed the air for the coral would send the player to fix the wrong thing.
   scrape: 'The Coral',
+  // THE REEF ONLY, same read-the-gate rule as its two neighbours: the crush needs CHAPTERS[].lane
+  // AND spurs.solid, and the reef is the only chapter with either. Its own row and not shared with
+  // `scrape` above for the reason that row states about Drowning -- these are two different
+  // mistakes (you brushed a ridge / you were stopped by one and the lane left without you) and a
+  // summary blaming one for the other sends the player to fix the wrong thing.
+  crush: 'Crushed',
   // THE WRECK ONLY, on the same gate-reading rule the comment above insists on: stepStarve returns
   // early unless the chapter's resource declares `starve`, and Bloodlust is the only one that does.
   // Its own row rather than sharing 'Drowning' — they are the same DoT mechanism, and the whole
@@ -10341,6 +10366,11 @@ export const DMG_SRC_NO_ART = {
   // has no hazardThumbs entry for a ridge yet; a coral ridge is a world object and can carry a
   // drawing, so this is a debt. DELETE THIS LINE when hazardThumbs.scrape lands.
   scrape: 'OWED — The Reef has not authored a coral ridge thumbnail yet, not a permanent exemption',
+  // ⚠ OWED, NOT EXEMPT, and it shares its debt with the line above: both want a picture of a
+  // coral ridge, one being brushed and one being pressed against. A ridge is a world object and
+  // can carry a drawing, so "it is a state, not a world object" is NOT the argument here. The Reef
+  // is still behind its wipFrom gate. DELETE THIS LINE when hazardThumbs.crush lands.
+  crush: 'OWED — The Reef has not authored a coral ridge thumbnail yet, not a permanent exemption',
   // Costs you chose to pay. Neither has a world object; their honest picture is the anomaly card.
   overload: 'a card you took, not a thing in the world',
   bloodMoney: 'a card you took, not a thing in the world',
