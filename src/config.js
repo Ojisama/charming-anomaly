@@ -10001,26 +10001,85 @@ export const TIGHT_COHESION_BLEND = 0.62
 // the compression the design is built on.
 export const ORCA_FIRST_PASS = 100     // s before the first visit — the chapter's quiet half
 export const ORCA_INTERVAL = 50        // s between visits -> t = 100/150/200/250 in a 300s run
-export const ORCA_RISE_DUR = 3.2       // s of shadow-on-the-deep-layer telegraph before it surfaces
-export const ORCA_CIRCLE_DUR = 5.0     // s of the ring closing around you
+// balance_decision : telegraph halved, the spiral is the read now 2026-08-23
+//  - the rise is the harmless half; cutting it shortens the WAIT, not the dodge window
+export const ORCA_RISE_DUR = 1.5       // s of the silhouette fading up out of the deep
+export const ORCA_CIRCLE_DUR = 4.0     // s of the SHADOW spiralling in underneath you
 export const ORCA_LEAVE_DUR = 1.6
-export const ORCA_RING_R = 300         // ring radius when it surfaces
-export const ORCA_RING_MIN_R = 165     // ...and once fully closed, just before it commits
-export const ORCA_RING_BAND = 110      // px of the ring that prey will not cross
+// ⚠ THE RING HAS TO BE BIGGER THAN THE ANIMAL, and at ORCA_LEN 560 the shipped 300 was not: the
+// body was almost twice the diameter of the circle it was supposedly swimming round, so it read as
+// a shape wobbling on the spot rather than as something orbiting you.
+// ⚠ AND SMALL ENOUGH THAT THE BUILD IS ON SCREEN — a PHONE screen, which is the tighter of the two
+// and the one this game is played on. This was 520 for one round and shot at 390x844 the middle of
+// the stalk was an EMPTY FRAME: half-height is 422 and the silhouette sits at ring radius minus its
+// own half-width (~72), so at 520 it was outside the viewport on every bearing, and the coil with
+// it. A tension beat you cannot see is not a tension beat. 440 keeps the shadow on screen whenever
+// it is above or below the player and lets it swing out of frame to the sides, which is the read
+// that was wanted anyway. Do NOT make this screen-relative to "fix" the sides: it is the fear
+// wall's radius and the commit's own geometry, and a desktop player would get a bigger arena.
+// ⚠ AND ORCA_RING_MIN_R IS THE PLAYER'S ROOM TO STAND. Every commit line leaves the ring, so the
+// closest a strike can pass to the ring's centre is bounded by this radius — set it near
+// ORCA_HIT_R + PLAYER.radius (100) and standing still at the centre becomes an unavoidable hit
+// whatever the line was aimed at, which is precisely the "scheduled hit" the commit is written not
+// to be. 230 leaves 130px of clearance; that margin is the invariant, not the number.
+export const ORCA_RING_R = 440         // ring radius when the stalk opens
+export const ORCA_RING_MIN_R = 230     // ...and once fully closed, just before it commits
+export const ORCA_RING_BAND = 150      // px of the ring that prey will not cross
 export const ORCA_PUSH = 0.85          // blend weight of the inward shove on prey at the wall
-export const ORCA_ORBIT_RATE = 1.05    // rad/s the body travels around its own ring
+// ⚠ A SPIRAL IS A LOOK, NOT AN EQUATION, AND THIS IS THE SCAR. A constant angular rate with a
+// linearly closing radius IS an Archimedean spiral, and it shipped reading as a circle anyway —
+// owner, 2026-08-23: "the spiraling looks just like it's circling". Three things were wrong and
+// only the third is arithmetic:
+//   1. THE TELL WAS A CIRCLE. render drew a ring at the CURRENT radius each frame, and a circle
+//      drawn on the floor says "circle" however the thing inside it moves. It draws the SWEPT PATH
+//      now (run.orca.trail) — a coil you can see is a coil, with no motion needed to read it.
+//   2. THE ANIMAL WAS SURFACED FOR IT. A bright body doing laps reads as swimming; a black
+//      silhouette under the water reads as stalking. It stays a shadow for the whole build now and
+//      SURFACES ON THE STRIKE — owner: "the SHADOW IS SPIRALING IN FROM UNDERNEATH, just before
+//      the impact/attack".
+//   3. 1.2 LAPS IS NOT A SPIRAL, it is a corner. Two full laps is the floor for reading one.
+// Rate RAMPS rather than holding: ORCA_ORBIT_RATE is the rate at the START and it reaches
+// x(1 + ORCA_SPIRAL_ACCEL) on the last lap, which is where the tension actually lives — the coil
+// tightening AND quickening is the Jaws beat, and a constant rate cannot express it.
+//   Revolutions = ORBIT_RATE x CIRCLE_DUR x (1 + ACCEL/2) = 1.75 x 4 x 1.8 = 12.6 rad, 2.0 laps.
+export const ORCA_ORBIT_RATE = 1.75    // rad/s at the START of the spiral
+export const ORCA_SPIRAL_ACCEL = 1.6   // ...rising to x(1 + this) by the moment it commits
+// ⚠ THE CURVE IS `1 - k^EASE`, AND IT IS NOT `(1-k)^EASE` — those are opposite shapes and the
+// wrong one shipped for a round. `(1-k)^1.7` closes FASTEST FIRST and then hovers: lap one ran
+// 440->283 and lap two, the tense one, was 283->230, i.e. very nearly a constant-radius circle at
+// exactly the moment the coil is supposed to be collapsing. That is the reported bug wearing an
+// exponent. `1 - k^1.8` is the shape the beat wants — still 380 of 440 at the midpoint, 300 by
+// 80%, 249 by 95% — so lap one prowls at range and lap two is the plunge.
+//   Caught by mutation, not by reading: the LINEAR close it was meant to beat passed the halfway
+// assertion outright, because the eased radius was on the wrong side of it.
+export const ORCA_SPIRAL_EASE = 1.8
+// Points of swept path sim publishes for render to stroke — a MEMORY BOUND, not a look knob, and
+// that distinction cost a round. The first cut capped at 80 to leave a short comet tail, which at
+// 60fps is ~1.3s of path; on a phone the coil's on-screen stretch is only ever an arc of the loop,
+// so a tail that short is off screen for most of the stalk and the player sees nothing at all. 220
+// holds roughly the whole two-lap build, and the per-segment alpha fade (render.js) is what keeps a
+// full coil legible rather than a scribble. At the ticker's 0.05 clamp a whole stalk is 80 points
+// and this never binds; it binds at 60fps, where it drops the oldest fifth of the first lap.
+export const ORCA_TRAIL_MAX = 220
 export const ORCA_COMMIT_SPEED = 940   // px/s of the strike — well over the player's 220
-export const ORCA_OVERSHOOT = 560      // px past you it carries before breaking off
-export const ORCA_HIT_R = 52           // px contact radius, DURING THE COMMIT ONLY
+export const ORCA_OVERSHOOT = 760      // px past you it carries before breaking off - the wake plows the whole way
+export const ORCA_HIT_R = 78           // px contact radius, DURING THE COMMIT ONLY (tracks ORCA_LEN)
 // ⚠ A FRACTION OF MAX HP, NEVER A FLAT LITERAL. p.maxHP grows within a run (level-up choices) and
 // across saves (the shop's maxHP line), so a literal that is a real hit on a base save is a scratch
 // on an upgraded one — the scar already recorded against LUNGE_DMG.
 // ⚠ AND THE ENGINE FLOOR IS TWO CONNECTIONS, NOT THREE: hurtPlayer caps a non-dot hit at
 // maxHP x HURT_CAP_FRAC (0.5), against MAX hp and applied last, so nothing above 0.5 does anything.
 // balance_decision : three orca hits kill from full at any HP total 2026-08-22
-//  - raise commits-per-visit to make it harder, never this — the cap silently eats it
+//  - raise ORCA_COMMITS to make it harder, never this — the cap silently eats it
 export const ORCA_DMG_FRAC = 0.34
-export const ORCA_LEN = 360            // body length px — ~7.7x the player, it must read as bigger
+// STRIKE LINES PER VISIT. The lever the line above points at, now actually pulled: one line through
+// the shoal is one sidestep and then the visit is over, which is the other half of "easy to avoid".
+// It wheels around and re-rises between them, so the second line gets the same telegraph as the
+// first and is re-aimed at wherever the shoal has RE-FORMED - usually where the first pass drove it.
+// balance_decision : two strike lines per visit, not one 2026-08-23
+//  - x ORCA_DMG_FRAC that is 0.68 of max HP per visit if you eat both; both are dodgeable
+export const ORCA_COMMITS = 2
+export const ORCA_LEN = 560            // body length px — ~12x the player, it must read as bigger
 export const ORCA_FEAR_TELL = 0.55     // render: alpha of the ring tell at full close
 
 // THE SHADOW PASSES. Owner ruling 2026-08-23: "orca was supposed to start with a shadow passing
@@ -10082,7 +10141,35 @@ export const ORCA_COMMIT_SEEK_R = 520  // px around the ring centre it looks for
 // balance_decision : bite swath is about twice the body's own width 2026-08-23
 //  - elites and non-prey are excluded at the read site: an orca deleting an elite the player has
 //    been whittling down steals a reward they earned
-export const ORCA_BITE_R = 85
+export const ORCA_BITE_R = 130
+
+// THE BOW WAVE - the thing that makes a visit REORGANISE the battlefield instead of subtracting a
+// few fish from it. Owner ruling 2026-08-23: "it should have a massive impact on the battlefield,
+// like pushing everything to each side". A body this size moving at ORCA_COMMIT_SPEED displaces the
+// water it goes through, so everything inside the swath is thrown PERPENDICULAR to the strike line,
+// to whichever side it already sits on. What is left is a cleared corridor with the crowd banked up
+// along both edges - a shape the player can farm, or be caught out by.
+//
+// ⚠ EVERYTHING, not just prey. The bite is prey-only because an uncredited elite death is theft;
+// being shoved costs nothing, so morays, elites and the rest of the roster all ride the wake. Only
+// 'anchored' (resistsCC) is exempt, which is the shipped rule for every other shove in the game.
+export const ORCA_WAKE_R = 230         // px either side of the body that the water moves
+// An ACCELERATION into e.kb, exactly SHOREBREAK_FORCE's contract - e.kb is a velocity decaying at
+// KB_DECAY_RATE (6/s). ⚠ NOTHING HERE REACHES TERMINAL (1500 px/s), so reading this as a speed is
+// the wrong instinct: the orca clears a given body in well under half a second, and what the number
+// actually buys is the IMPULSE. Measured (run OR.e): ~215px of flight 70px off the line, ~305px for
+// a body caught dead on it, tapering to nothing at ORCA_WAKE_R. 5200 was the first cut and threw
+// 124px, which is a nudge rather than the corridor the ruling asks for.
+export const ORCA_WAKE_FORCE = 9000
+// The player is shoved as a VELOCITY (px/s, the stepCurrents idiom) and not an acceleration: there
+// is no decay term on the player, so an acceleration here would launch them across the map.
+// balance_decision : the wake shoves the player sideways, never inward 2026-08-23
+//  - perpendicular and AWAY from the line by construction, so it can only help the dodge; applied
+//    AFTER the contact check so it cannot rescue you from a hit you were already inside
+// 480 px/s is deliberately ABOVE the player's own 220: for the half-second the wake is on them it
+// has to out-argue the stick, or "everything gets pushed aside" quietly means "everything except
+// you". It still cannot push them into anything - see the bullet above.
+export const ORCA_WAKE_PLAYER = 480    // px/s of lateral drift at the line itself
 
 // ---- THE LEAK (v7.x, The Wreck's signature) ----------------------------------------------------
 // THE BOAT IS THE POLLUTION. Owner ruling 2026-08-17, taken when the chapter turned into a hunt:
