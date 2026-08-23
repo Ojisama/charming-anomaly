@@ -150,6 +150,7 @@ import {
   CRAB_OPEN_T,
   CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
+  pinchAt, channelAt,
   LANE_CRUSH_DPS, LANE_CRUSH_TICK,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
@@ -795,7 +796,7 @@ function stepPlayerMovement(run, input, dt) {
   if (ax) {
     const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
     p[ax.cross] = Math.max(-hw, Math.min(hw, p[ax.cross]))
-    blockOnCoral(run, ax, p)
+    blockOnCoral(run, ax, p, hw)
   }
   // p.vx/p.vy above ARE the snapshot the skies' artillery flag leads its shells with
   // (ARTILLERY_LEAD). Deliberately input-only: drift/pull forces aren't something a tank can read —
@@ -4082,6 +4083,8 @@ export function streamSpurs(run) {
 // stored f). Splitting the groove test out is what stops the burn band and the scrape band from
 // drifting apart, which is the one-fact-in-two-places class CLAUDE.md names as the largest
 // defect source in this repo.
+// The tightest form, kept for the callers that ask about a ridge's own cross-section (Fire Coral
+// burns the ridge line itself, and the fixtures aim at grooves). Same predicate at w = 1.
 const onCoral = (sp, c) => !sp.grooves.some((g) => Math.abs(c - g.c) <= g.hw)
 
 // HOW FAR BEHIND THE LANE FRONT THE PLAYER CAN GET BEFORE THEY ARE OFF THE BACK OF THE SCREEN.
@@ -4101,20 +4104,41 @@ const laneBehindPx = (run, ax) => (1 - LANE_CAMERA_FRAC) * 2 * (ax.fwd === 'x' ?
 // one, which is a far better reason to spend the bar than shaving a little damage. It also removes
 // the only tunnelling case -- at BURST_SPEED_MUL the player covers more than a ridge's thickness
 // in a frame, and a solve that assumed otherwise would put them out the FAR side for free.
-function blockOnCoral(run, ax, p) {
+function blockOnCoral(run, ax, p, hw) {
   const spec = CHAPTERS[run.chapter].spurs
   if (!spec || !spec.solid) return
   if ((run._burstT ?? 0) > 0) return
   const f = p[ax.fwd], c = p[ax.cross]
+  const R = PLAYER.radius
   for (const sp of run.spurs) {
-    const half = sp.thick / 2 + PLAYER.radius
-    if (Math.abs(f - sp.f) > half) continue
-    if (!onCoral(sp, c)) continue          // a groove: this is the gap, swim through it
-    // The near face. The player advances at most laneScroll x dt in a frame (4.5px at 90px/s and
-    // a clamped 0.05s), and every ridge is far thicker than that, so the face they are nearest to
-    // is always the face they entered by. Ridges are spaced further apart than they are thick, so
-    // at most one band can hold the player -- the same fact stepSpurs' single break relies on.
-    p[ax.fwd] = sp.f + (f < sp.f ? -half : half)
+    const span = sp.thick / 2 + (spec.pinchSpan ?? 0) + R
+    if (Math.abs(f - sp.f) > span) continue
+    if (channelAt(sp, f, c, spec, hw)) continue     // inside the opening: swim on
+    // HOW FAR BACK THE WALL IS, SOLVED RATHER THAN STEPPED. The cave closes linearly toward the
+    // ridge (pinchAt), so "how open must it be for me to fit at this cross position" inverts in
+    // closed form: for each groove, the widest w that still admits c, then take the LOOSEST one
+    // because any single opening is enough to be through.
+    //
+    //   |c - g.c*w| <= g.hw*w + hw*(1-w)
+    // splits into two linear inequalities in w; whichever binds gives the limit.
+    let wOk = 0
+    for (const g of sp.grooves) {
+      // upper branch:  c - g.c*w <=  g.hw*w + hw - hw*w   ->  w * (g.hw - hw + g.c) >= c - hw
+      // lower branch: -c + g.c*w <=  g.hw*w + hw - hw*w   ->  w * (g.hw - hw - g.c) >= -c - hw
+      let lo = 0, hi = 1
+      for (let it = 0; it < 24; it++) {          // 24 bisections: exact to ~1e-7 of a unit weight
+        const m = (lo + hi) / 2
+        if (Math.abs(c - g.c * m) <= g.hw * m + hw * (1 - m)) lo = m
+        else hi = m
+      }
+      if (lo > wOk) wOk = lo
+    }
+    // Convert the weight back into a distance along the lane, and push to the TRAILING side: the
+    // player only ever arrives from astern, so that is the face they entered by and the one that
+    // sends them back the way they came rather than through the pinch for free.
+    const spanNoR = sp.thick / 2 + (spec.pinchSpan ?? 0)
+    const d = spanNoR * (1 - wOk) + R
+    p[ax.fwd] = sp.f - ax.dir * d
     return
   }
 }
@@ -4162,13 +4186,21 @@ function stepSpurs(run, dt) {
   //
   // So the two hazards layer instead of replacing each other: grinding along a face costs you the
   // scrape and your steering, and only being left behind by the lane costs you the crush.
-  const solid = (CHAPTERS[run.chapter].spurs || {}).solid
+  const spec0 = CHAPTERS[run.chapter].spurs || {}
+  const solid = spec0.solid
   const reach = solid ? PLAYER.radius : 0
+  const hwS = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
   let inside = false
   for (const sp of run.spurs) {
-    if (Math.abs(f - sp.f) > sp.thick / 2 + reach) continue
-    // Ridges are spaced further apart than they are thick, so at most one band can hold the player.
-    inside = onCoral(sp, c)
+    // The CAVE's reach, not the ridge's: the walls are already closing pinchSpan before the ridge
+    // line, so a player grinding along a narrowing ceiling is on coral well before sp.f.
+    if (Math.abs(f - sp.f) > sp.thick / 2 + (spec0.pinchSpan ?? 0) + reach) continue
+    // THE LEADING EDGE, NOT THE CENTRE, and without this the scrape is unreachable code again.
+    // blockOnCoral holds the player PLAYER.radius clear of the point where they exactly fit, so a
+    // test at their centre always answers "fits" and _scraping never fires -- the same failure the
+    // scrape had when the ridges first became solid, arriving through a different door. Testing a
+    // radius further up the lane asks the question that matters: is my nose in the coral.
+    inside = !channelAt(sp, f + ax.dir * reach, c, spec0, hwS)
     break
   }
   // balance_decision : the burst crosses coral free, strafe slow lifts too [2026-08-22]

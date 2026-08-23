@@ -6824,6 +6824,12 @@ CHAPTERS.reef = {
   // before this existed (scripts/reef-pileup.mjs): 34% of live bodies sat off-screen astern,
   // 52 per second-sample, the oldest still alive at 290s of a 300s run.
   sweepAstern: true,
+  // THE CORRIDOR IS NARROWER THAN THE SHARED LANE, and the ~88px it gives back on each side is
+  // where the cave wall is drawn. Owner's ruling, 2026-08-23: narrow to about 75%. On the phone the
+  // player now stops at 330 with the screen reaching 422, so the ceiling and the floor are visible
+  // instead of sitting 4px off the edge. Strafe still crosses 642px between ridges against a 660px
+  // corridor, so every pinch stays reachable -- run RS checks it rather than trusting this sentence.
+  laneHalfW: 330,
 
   // FOUR NATIVES AND NOTHING BORROWED (owner, 2026-08-22). Every card is picked for the LANE rather
   // than for the theme, because a scroller only works if what you hold can answer things arriving
@@ -6893,7 +6899,22 @@ CHAPTERS.reef = {
   // false.
   signature: {
     type: 'air',
-    pockets: { cell: 640, chance: 0.5, r: 130, minDist: 420, salt: 40 },
+    // chance 0.5 -> 0.66 WHEN THE CORRIDOR NARROWED TO 330. streamShafts drops any pocket whose
+    // cross position falls outside the lane, so narrowing the corridor by ~23% for the cave walls
+    // culled the same share of the air supply -- the fixture caught it as "only 11 pockets streamed
+    // across 4 positions". This restores the COUNT the air economy was tuned against; it is a
+    // compensation for a geometry change, not a buff, and it moves with laneHalfW if that moves.
+    // r 130 -> 155 WITH THE CAVE, AND THE SWEEP SAYS WHY IT IS THE RADIUS AND NOT THE COUNT.
+    // Narrowing the corridor for the cave walls (and scaling the braid with it) cut how far a
+    // player may deviate from a gate line to collect air: pocket-frames fell 1090-1280 -> 738 and
+    // the fixture drowned on 0.0. Swept chance x r over three seeds: chance 0.66/0.8/0.9 at r 130
+    // all still drown, while r 155 at any chance clears it. The constraint is ACCESS, not
+    // availability -- a pocket the player cannot reach is not a pocket -- so the radius is the
+    // honest knob, and 165 is what SCALING it with the corridor gives (130 x 430/330 = 169) --
+    // the pocket keeps the same share of a narrower lane. Measured over five seeds, end-of-run air
+    // lands at 27..52 against the pre-cave 20.9..67.4, i.e. the same mean. A compensation, not a
+    // buff: at the old 130 the fixture's own seed drowns on 0.
+    pockets: { cell: 640, chance: 0.66, r: 165, minDist: 420, salt: 40 },
   },
 
   // SPUR AND GROOVE (level design spec 2026-08-20, rev 4). The reef front as this game's only
@@ -6935,7 +6956,24 @@ CHAPTERS.reef = {
   // `solid` (v7.x): the ridge STOPS you. Opt-in on the spec rather than assumed from the field's
   // existence, because a spur field that only scrapes is still a legitimate thing for another
   // chapter to want, and because grep-ing one word is how the next reader finds the collision.
-  spurs: { spacing: 210, thick: 90, thickVar: 0.22, grooveMin: 140, grooveMax: 200, braidSep: 480, braidSpurs: 8, salt: 44, solid: true },
+  // `pinchSpan` (v7.x): HOW FAR EITHER SIDE OF A RIDGE THE WALLS ARE STILL CLOSING IN. This is
+  // what turns the field from a row of bars into a cave. A ridge no longer spans the corridor as a
+  // slab you cross; instead the ceiling and the floor CLOSE toward each other as you approach it,
+  // meet their tightest exactly at sp.f -- where the opening is precisely that ridge's grooves --
+  // and open back out to the full corridor by pinchSpan beyond. The braid, the groove widths and
+  // the merge rule are all untouched: the same data, read as a profile instead of as a wall.
+  //
+  // Owner, 2026-08-23: "I don't want perpendicular walls like that... more like an underwater
+  // platformer, a bit like ecco the dolphin", and the book is underwater, so the view reads
+  // side-on: the cross axis IS ceiling and floor.
+  //
+  // THE BRAID SCALED WITH THE CORRIDOR (x 330/430 = 0.767): braidSep 480 -> 368, grooveMin/Max
+  // 140/200 -> 108/154. Narrowing the lane for the cave walls without moving these put the braid's
+  // far edge (braidSep/2 + grooveMax/2 = 340) OUTSIDE the wall at 330 -- a groove running past the
+  // corridor, so riding the wall stopped being guaranteed coral and run RS said so. Scaling keeps
+  // the level's PROPORTIONS rather than clipping it: the far edge is 261 with 69px to spare, and
+  // the widest groove is still nearly four player-diameters across.
+  spurs: { spacing: 210, thick: 90, thickVar: 0.22, grooveMin: 108, grooveMax: 154, braidSep: 368, braidSpurs: 8, salt: 44, solid: true, pinchSpan: 74 },
 
   // AIR. Ambient drain, always — you are a fish carrying a lungful through a reef, and the clock
   // is the chapter. Refill ONLY at the pockets above; there is no second source and no passive
@@ -9129,6 +9167,35 @@ export const LANE_VIEW_FRAC = 0.9        // lane never exceeds this fraction of 
 // 422px and the clamp sits at 418 — four pixels apart. The Reef's banks (owner, 2026-08-23: the
 // top and bottom of the screen "should be coral too, like you're in an underground cave") only
 // exist in the strip a narrower lane gives back.
+// -- The Reef's cave profile (v7.x) -------------------------------------------------------------
+// IN config.js AND NOT IN sim.js, because BOTH sides need it: sim.js decides where the player is
+// stopped and render.js decides where the wall is drawn, and if those two ever disagree the gap
+// you can see is not the gap you can swim through. render.js may not import from sim.js at all
+// (see the module table in CLAUDE.md), so config is the only place one definition can live.
+// HOW CLOSED THE CAVE IS AT A GIVEN POINT ALONG THE LANE. 1 exactly at a ridge, falling linearly
+// to 0 by pinchSpan beyond its face. LINEAR on purpose and not a smoothstep: blockOnCoral has to
+// INVERT this to work out how far back to push a blocked player, and a straight line inverts in one
+// expression where a curve needs a search.
+export const pinchAt = (sp, f, spec) => {
+  const span = sp.thick / 2 + (spec.pinchSpan ?? 0)
+  return Math.max(0, 1 - Math.abs(f - sp.f) / span)
+}
+
+// THE OPEN CHANNEL AT A POINT, as [centre, halfWidth] per groove.
+//
+// At w = 1 (the ridge itself) this is exactly the grooves spurAt returned — so the tightest point
+// of the cave is the same opening the braid has always described, and every reachability property
+// measured against the old bars still holds. At w = 0 it is the whole corridor. In between the
+// ceiling and floor are still closing, which is the shape that replaced the bars.
+export const channelAt = (sp, f, c, spec, hw) => {
+  const w = pinchAt(sp, f, spec)
+  for (const g of sp.grooves) {
+    if (Math.abs(c - g.c * w) <= g.hw * w + hw * (1 - w)) return true
+  }
+  return false
+}
+
+
 export const laneHalfWidth = (viewRadius, ch) => Math.min(ch?.laneHalfW ?? LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)
 
 // THE LANE HAS AN AXIS (v7.x). The Beyond scrolls bottom-to-top; The Reef (Book 2 ch 3) scrolls

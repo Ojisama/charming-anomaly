@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, channelAt, laneHalfWidth,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -12064,36 +12064,74 @@ const spurG = new Graphics()
       const x = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453
       return x - Math.floor(x)
     }
-    // THE COLONIES ARE STAMPS, NOT PATHS. Everything about their SHAPE was decided once in
-    // bakeCoral(); all that happens per rebuild is picking a texture, a rotation, a scale and a
-    // tone, which is a few hundred sprite writes instead of ~88,000 path segments and 42 strokes.
+    // THE CAVE, DRAWN AS A CEILING AND A FLOOR.
     //
-    // The walk that places them is unchanged and is the thing that makes a ridge read as ragged
-    // rather than machined: a cumulative walk of hashed gaps, with each ridge drawing its own mean
-    // spacing, so density clumps and thins along the length instead of marching.
+    // This used to walk ACROSS the lane, stamping a bar of coral at each ridge with gaps cut in it.
+    // Owner: "I don't want perpendicular walls like that... more like an underwater platformer, a
+    // bit like ecco the dolphin" -- and the book is underwater, so the cross axis is not an
+    // arbitrary sideways, it is CEILING AND FLOOR. So the walk runs ALONG the lane instead, and at
+    // every step it asks the sim's own channelAt() where the opening is and packs coral from there
+    // out to the corridor wall on each side. The ridges still exist and still set the tightest
+    // point, but they are read as a profile: the ceiling and the floor close toward each other,
+    // meet at the ridge line, and open out again.
+    //
+    // ONE DEFINITION, TWO CONSUMERS: the edge drawn here is found by bisecting the SAME
+    // channelAt() the collision uses, so the gap you can see is the gap you can swim through. A
+    // second opinion about where the wall is would be the drawn-vs-tested defect this file keeps
+    // paying for.
     const stamps = []
     const drawF = run.player[ax.fwd]
-    for (const [f, c0, c1, half] of segs) {
-      if (Math.abs(f - drawF) > V.drawWithin) continue
-      const room = half + PLAYER.radius
-      const mean = V.colonyEveryLo + hash(f * 0.37, 11.1) * (V.colonyEveryHi - V.colonyEveryLo)
-      let cc = c0 + hash(f * 1.9, c0 * 0.7) * mean
-      for (let k = 0; cc < c1 + 4 && k < 512; k++, cc += mean * (V.gapLo + hash(cc * 2.7, f * 1.3) * (V.gapHi - V.gapLo))) {
-        const h1 = hash(f + k * 5.3, cc * 2.1)
-        const h2 = hash(cc * 7.9, f - k * 4.3)
-        const h3 = hash(f * 1.7 - k * 3.7, cc * 2.9 + k * 6.1)
-        // Reach pays for its own spine offset: a base nudged off centre and then given the full
-        // room would reach that much PAST the wall, hanging coral over the channel.
-        const off = (h1 - 0.5) * 2 * half * V.spineJitter
-        const reach = (room - Math.abs(off)) * (V.reachLo + (V.reachHi - V.reachLo) * h2)
-        const ff = f + off
-        stamps.push({
-          f: ff, c: cc,
-          v: Math.floor(h3 * T.coral.length) % T.coral.length,
-          rot: h1 * Math.PI * 2,
-          scale: reach / V.bakeReach,
-          tone: V.tones[Math.floor(h2 * V.tones.length) % V.tones.length],
-        })
+    const hw = laneHalfWidth(run.viewRadius, cfg)
+    const step = V.colonyEveryLo + (V.colonyEveryHi - V.colonyEveryLo) * 0.5
+    const f0 = drawF - V.drawWithin, f1 = drawF + V.drawWithin
+    // The nearest ridge to a point on the lane, which is what its pinch is measured against.
+    const ridgeNear = (f) => {
+      let best = null, bd = Infinity
+      for (const sp of run.spurs) { const d = Math.abs(sp.f - f); if (d < bd) { bd = d; best = sp } }
+      return best
+    }
+    // Where the coral starts on one side, found by bisection on the shared predicate. Returns the
+    // cross coordinate of the wall's inner edge, or null if that side is fully open to the corridor.
+    const edge = (sp, f, sign) => {
+      if (channelAt(sp, f, sign * hw, spec, hw)) return null      // open right out to the wall
+      let open = 0, shut = sign * hw
+      if (!channelAt(sp, f, 0, spec, hw)) open = null
+      if (open === null) return sign * 0                          // shut across the middle too
+      for (let i = 0; i < 18; i++) {
+        const m = (open + shut) / 2
+        if (channelAt(sp, f, m, spec, hw)) open = m; else shut = m
+      }
+      return open
+    }
+    let fw = f0 + hash(f0 * 0.11, 3.3) * step
+    for (let n = 0; fw < f1 && n < 4096; n++, fw += step * (V.gapLo + hash(fw * 2.7, 7.1) * (V.gapHi - V.gapLo))) {
+      const sp = ridgeNear(fw)
+      if (!sp) continue
+      for (const sign of [-1, 1]) {
+        const e = edge(sp, fw, sign)
+        if (e === null) continue
+        // Pack colonies from the corridor wall inward to the opening's edge, so the growth reads as
+        // rooted in the rock and reaching into the water rather than floating in it.
+        const depth = Math.abs(sign * hw - e)
+        if (depth < 6) continue
+        let d = 0
+        for (let k = 0; d < depth && k < 64; k++) {
+          const h1 = hash(fw + k * 5.3, d * 2.1)
+          const h2 = hash(d * 7.9, fw - k * 4.3)
+          const h3 = hash(fw * 1.7 - k * 3.7, d * 2.9 + k * 6.1)
+          const reach = Math.min(depth - d, V.bakeReach) * (V.reachLo + (V.reachHi - V.reachLo) * h2)
+          stamps.push({
+            f: fw + (h1 - 0.5) * step * 0.8,
+            c: sign * hw - sign * d,
+            v: Math.floor(h3 * T.coral.length) % T.coral.length,
+            // Rotated to grow INTO the channel: a colony on the ceiling hangs down, one on the
+            // floor reaches up. This is the whole difference between a cave and a row of bushes.
+            rot: (sign < 0 ? Math.PI / 2 : -Math.PI / 2) + (h1 - 0.5) * 1.1,
+            scale: Math.max(0.25, reach / V.bakeReach),
+            tone: V.tones[Math.floor(h2 * V.tones.length) % V.tones.length],
+          })
+          d += Math.max(8, reach * 0.85)
+        }
       }
     }
     syncPool(coralPool, coralLayer, stamps, 'coral', T.coral[0].tex, (s, st) => {

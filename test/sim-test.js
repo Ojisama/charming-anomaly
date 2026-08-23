@@ -22427,13 +22427,25 @@ function testReefSpurScrape() {
     // each plant on it is, and machined is what the eye calls a straight wall.
     assert.ok(!/const cc = c0 \+ \(\(c1 - c0\) \* k\) \/ n/.test(gsrc),
       'run RS.a: colony placement is back to an even division of the ridge — that is a machined wall, whatever each colony looks like')
+    // ⚠ THE DRAWN WALL AND THE WALL THAT STOPS YOU ARE ONE PREDICATE. render.js finds the cave's
+    // inner edge by BISECTING channelAt() — the same function sim.js blocks the player with, which
+    // is why it lives in config.js (render.js may not import from sim.js at all). Anything that
+    // re-derives the edge from spurAt's grooves directly would look identical on screen and drift
+    // the moment pinchSpan or the interpolation changes, and the player would be stopped by a wall
+    // that is not where the coral is. This is the defect that costs this repo the most.
+    assert.ok(/channelAt\(sp, f, m, spec, hw\)/.test(gsrc),
+      'run RS.a: the drawn cave edge is no longer bisected out of channelAt — the wall you can see has stopped being the wall that stops you')
     // ⚠ `hash\(cc \*`, NOT `hash\(`. The gap has to be hashed off the RUNNING POSITION. Hashing it
     // off the ridge instead — `hash(f * 2.7, f * 1.3)`, a one-character edit — gives every step on
     // that ridge the SAME gap: a uniform stride again, wearing an accumulation. Measured, the ink
     // is statistically indistinguishable, and with the looser regex every guard here stayed green.
     // The regression this whole block exists to prevent, escaping through one character.
-    assert.ok(/cc \+= mean \* \(V\.gapLo \+ hash\(cc \*/.test(gsrc),
-      'run RS.a: the colony walk no longer accumulates gaps hashed off the RUNNING POSITION — hashing off the ridge gives every step the same gap, which is a uniform stride again')
+    // The walk runs ALONG the lane now rather than across a ridge (the cave has a ceiling and a
+    // floor, not bars), so the running variable is fw. The property is unchanged and is the whole
+    // reason the wall does not read as machined: gaps HASHED OFF THE RUNNING POSITION, so they
+    // clump and thin. Hashing off anything constant along the walk gives every step the same gap.
+    assert.ok(/fw \+= step \* \(V\.gapLo \+ hash\(fw \*/.test(gsrc),
+      'run RS.a: the wall walk no longer accumulates gaps hashed off the RUNNING POSITION — every step gets the same gap, which is a uniform stride again')
   }
   assert.strictEqual(SPUR_VIS.bump, undefined,
     'run RS.a: SPUR_VIS.bump is back. The lobe pass it fed is deleted; a knob nothing reads is one the next reader will tune and watch do nothing')
@@ -22459,10 +22471,11 @@ function testReefSpurScrape() {
   // deleted and the colonies free to grow across the channel the player must swim through.
   {
     const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    assert.ok(/const reach = \(room - Math\.abs\(off\)\) \*/.test(rsrc),
-      'run RS.a: a colony\'s reach no longer pays for its own spine offset — a base jittered off centre then given the full room hangs coral over the channel the player swims through')
-    assert.ok(/const room = half \+ PLAYER\.radius/.test(rsrc),
-      'run RS.a: syncSpurs no longer sizes colonies against half + PLAYER.radius — the drawn coral and the wall the player is held off by have come apart')
+    // The colonies are packed from the corridor WALL inward to the opening's edge now, so the
+    // bound that matters is the depth between those two, and it is measured from channelAt rather
+    // than from a spine offset. The lint above covers it; these two described the cross-walk.
+    assert.ok(/const depth = Math\.abs\(sign \* hw - e\)/.test(rsrc),
+      'run RS.a: the wall no longer packs from the corridor edge to the opening — coral placed any other way can reach across the channel')
   }  // ...and the RATE keeps the band its own block claims. SPUR_DPS is priced against the flat DoTs
   // that share its `dot: true` rules — the chapter's own drowning at the bottom, SLICK/SOAP 6 at
   // the top — and it has to stay between them: over, and a soaped groove stops being worse than the
@@ -23006,8 +23019,30 @@ function testReefNatives() {
   //   equivalent, not a defect. fireSnap reads the axis descriptor anyway, deliberately — that
   //   pinning is another module's decision and this weapon must not silently depend on it.
   const CROSS = AX.cross === 'y' ? { x: 0, y: 1 } : { x: 1, y: 0 }
-  const drive = (run, mine, secs, tally, stick = { x: 0, y: 0 }) => {
+  // RUN RN MEASURES WEAPONS IN OPEN WATER, DELIBERATELY.
+  //
+  // These fixtures plant their targets RELATIVE to the player and read what a weapon does to them.
+  // That was stable for as long as the reef's coral was something the player passed through; since
+  // the ridges became solid and then became a CAVE, the walls close on a stationary fixture, push
+  // it back a little every frame, and drag its offset-pinned targets out from under a beam that
+  // was aimed when it was cast. It surfaced as five different weapon "bugs" in a row -- 1 hit from
+  // 6 snaps, a cast that lit behind the player, a ridge that never re-lit -- none of which were
+  // weapons at all.
+  //
+  // Emptying run.spurs each frame gives back the lane these were written against. It is honest
+  // rather than a dodge: the level's geometry is run RS's subject and is tested there against the
+  // real field, and a weapon that only works in a groove is not what any of these lines claim to
+  // measure. Fire Coral is untouched by this -- it snapshots spurAt directly rather than reading
+  // run.spurs, which is exactly why RN.e can still assert against the real field.
+  // `pin` HOLDS THE PLAYER STILL ALONG THE LANE. Off by default: most of these fixtures want the
+  // ordinary scroll. RN.e2 needs it because a refresh means re-lighting a ridge the player is
+  // still near, and at 90px/s they cover more than four ridge spacings in its ten-second window --
+  // it was passing only because the solid bars used to stop them dead, i.e. it was reading a stall
+  // as a stationary camera and would have gone quiet the moment the chapter became playable.
+  const drive = (run, mine, secs, tally, stick = { x: 0, y: 0 }, pin = false) => {
     for (let i = 0; i < Math.round(secs / dt); i++) {
+      const held = run.player[AX.fwd]
+      run.spurs.length = 0
       run.enemies.length = 0
       for (const e of mine) {
         if (e._off) { e.x = run.player.x + e._off[0]; e.y = run.player.y + e._off[1] }
@@ -23015,6 +23050,7 @@ function testReefNatives() {
         run.enemies.push(e)
       }
       stepSim(run, stick, dt)
+      if (pin) run.player[AX.fwd] = held
       if (tally) tally(run)
       run.events.length = 0
     }
@@ -23092,7 +23128,16 @@ function testReefNatives() {
   // between this weapon and a band that has drifted off the coral it is drawn on.
   {
     const run = reefRun('fireCoral', 5, { moreRidges: 2 })
-    drive(run, [], 5)
+    // DRIVEN TO THE CAST, NOT FOR A FIXED FIVE SECONDS, and the difference is the whole assertion
+    // below. FIRE_CORAL_LEAD is about where a ridge is WHEN IT LIGHTS; five seconds of scroll is
+    // 450px, more than two ridges, so a player who is actually moving overtakes what they lit and
+    // "it lit behind me" becomes true of a perfectly correct cast. It used to pass only because
+    // the bars stopped the player almost immediately -- an assertion held up by a stall.
+    let castF = run.player[AX.fwd]
+    for (let i = 0; i < Math.round(6 / dt) && run.polyps.length < 3; i++) {
+      drive(run, [], dt)
+      castF = run.player[AX.fwd]
+    }
     const lit = run.polyps
     assert.strictEqual(lit.length, 3,
       `run RN.e: a cast with More Reef x2 lit ${lit.length} ridges, not 3 — the count is read in one place and the loop bound in another`)
@@ -23103,8 +23148,8 @@ function testReefNatives() {
       const truth = spurAt(pl.i, spec, run._obstacleSeed)
       assert.deepStrictEqual({ f: pl.f, thick: pl.thick, grooves: pl.grooves }, { f: truth.f, thick: truth.thick, grooves: truth.grooves },
         `run RN.e: lit ridge ${pl.i} no longer matches spurAt — the burning band and the drawn ridge have drifted apart`)
-      assert.ok((pl.f - run.player[AX.fwd]) * AX.dir > 0,
-        `run RN.e: ridge ${pl.i} is at ${pl.f} with the player at ${run.player[AX.fwd].toFixed(0)} — it lit BEHIND them, which is a band everything it was meant to catch has already crossed (FIRE_CORAL_LEAD is ${FIRE_CORAL_LEAD})`)
+      assert.ok((pl.f - castF) * AX.dir > 0,
+        `run RN.e: ridge ${pl.i} is at ${pl.f} and the player was at ${castF.toFixed(0)} WHEN IT LIT — it lit BEHIND them, which is a band everything it was meant to catch has already crossed (FIRE_CORAL_LEAD is ${FIRE_CORAL_LEAD})`)
     }
   }
 
@@ -23138,7 +23183,7 @@ function testReefNatives() {
         }
         seenT.set(pl.i, pl.t); seenLit.set(pl.i, pl.lit)
       }
-    })
+    }, { x: 0, y: 0 }, true)
     assert.ok(refreshes >= 2,
       `run RN.e2: only ${refreshes} refreshes in 10s with Quick Wake — the fixture never re-lit a burning ridge, so it cannot see the bug it exists for`)
     assert.ok(minLit >= FIRE_CORAL_VIS.igniteT,
@@ -23171,7 +23216,7 @@ function testReefNatives() {
     const L = WEAPONS.fireCoral.levels[4]
     // fireOnTimer waits a whole interval before the first cast, so drive until one lands rather
     // than guessing a warm-up.
-    for (let i = 0; i < 60 && run.polyps.length === 0; i++) drive(run, [], 0.1)
+    for (let i = 0; i < 60 && run.polyps.length === 0; i++) drive(run, [], 0.1, null, { x: 0, y: 0 }, true)
     assert.strictEqual(run.polyps.length, 1,
       `run RN.e3: ${run.polyps.length} ridges lit in the first 6s — the fixture has nothing to stand on`)
     // Against the lane wall, which run RS proves the braid never reaches, so every body is on CORAL
@@ -23185,7 +23230,10 @@ function testReefNatives() {
       watched.push({ i, at, litT: 0, refreshes: 0, prevT: null, burn: 0, body: plant(run, { _at: at }) })
     }
     let worstDup = 0, worstIdx = ''
-    drive(run, watched.map((w) => w.body), 14, (r) => {
+    // PINNED: the bodies stand ON specific ridges and the whole case is what a re-light does to
+      // them, so the player has to stay in range of those ridges instead of scrolling past at
+      // 90px/s. This passed before only because the solid bars stopped the player dead.
+      drive(run, watched.map((w) => w.body), 14, (r) => {
       const idx = r.polyps.map((pl) => pl.i)
       if (new Set(idx).size !== idx.length && worstIdx === '') worstIdx = idx.join(', ')
       for (const w of watched) {
@@ -23202,7 +23250,7 @@ function testReefNatives() {
         if (w.prevT !== null && t > w.prevT + 1e-9) w.refreshes++
         w.prevT = t
       }
-    })
+    }, { x: 0, y: 0 }, true)
     const refreshed = watched.filter((w) => w.refreshes > 0)
     assert.ok(refreshed.length > 0,
       `run RN.e3: none of ridges [${watched.map((w) => w.i).join(', ')}] was re-lit in 14s with Quick Wake — the fixture never reached the branch it exists to test`)
@@ -23418,6 +23466,12 @@ function testReefPool() {
     makeStatusEnemy(run, { x: run.player.x + ox, y: run.player.y + oy, hp: 1e7, speed })
   const drive = (run, mine, secs, stick = { x: 0, y: 0 }, each = null) => {
     for (let i = 0; i < Math.round(secs / dt); i++) {
+      // OPEN WATER, same reason run RN's drive empties it: this scenario measures what the LANE
+      // does to a blinded body relative to the player, and since the reef became a cave the walls
+      // stop the player at a gate while the bodies keep drifting -- which changes every distance
+      // here for a reason that has nothing to do with Squid Ink. The level's own geometry is run
+      // RS's subject and is tested there against the real field.
+      run.spurs.length = 0
       run.enemies = mine.filter((e) => !e._dead)
       stepSim(run, stick, dt)
       if (each) each(run)
@@ -24182,7 +24236,12 @@ function testReefAirBurst() {
         if (a < -q.r || a > hd) continue
         hd = a; sh = q
       }
-      if (sh) target = Math.max(g.c - g.hw * 0.7, Math.min(g.c + g.hw * 0.7, sh[LAX.cross]))
+      // 0.7 -> 0.4 OF THE GROOVE WHEN THE FIELD BECAME A CAVE. The walls now start closing
+      // pinchSpan BEFORE the ridge line, so a policy that wanders to the outer edge of a gate is
+      // already in rock by the time it arrives -- and the grooves themselves narrowed with the
+      // corridor (grooveMax 200 -> 154). Holding nearer the centre of the gate is what a player
+      // does when they can see the ceiling coming down; at 0.7 this fixture drowned on 0.0.
+      if (sh) target = Math.max(g.c - g.hw * 0.4, Math.min(g.c + g.hw * 0.4, sh[LAX.cross]))
     }
     const v = Math.abs(target - c) < 5 ? 0 : target > c ? 1 : -1
     return LAX.cross === 'x' ? { x: v, y: 0 } : { x: 0, y: v }
