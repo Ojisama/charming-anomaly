@@ -179,6 +179,7 @@ import {
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
   ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_COMMIT_SEEK_R, ORCA_BITE_R,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
+  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
@@ -4661,15 +4662,23 @@ function stepOrca(run, dt) {
     return false
   }
   if (o.state === 'rising') {
-    // The shadow closes on the player, so it passes UNDER them. That IS the telegraph — owner:
-    // "very telegraph with a big shadow underneath you". No collision in this state.
+    // IT SURFACES UNDERNEATH YOU AND SLIDES OUT TO THE RING, rather than fading up already parked
+    // on it. Owner: "very telegraph with a big shadow underneath you", and again 2026-08-23, "the
+    // SHADOW IS SPIRALING IN FROM UNDERNEATH". No collision in this state.
+    //   ⚠ THIS IS A PHONE FIX AS MUCH AS A STAGING ONE, and it was shot before it was written. The
+    // ring is 440px and a 390x844 screen is 195px half-wide, so a silhouette parked out on the ring
+    // is OFF SCREEN for the sideways part of every lap — and in the first second there is no coil
+    // drawn yet either, so the opening of the build was a completely empty frame on the device the
+    // game is played on. Starting it at the ring's centre puts the biggest thing in the chapter
+    // directly under the player for the one beat that had nothing in it at all.
     o.cx += (p.x - o.cx) * Math.min(1, dt * 2.5)
     o.cy += (p.y - o.cy) * Math.min(1, dt * 2.5)
     o.ang += ORCA_ORBIT_RATE * 0.5 * dt
-    o.x = o.cx + Math.cos(o.ang) * o.r
-    o.y = o.cy + Math.sin(o.ang) * o.r
-    o.alpha = 1 - Math.max(0, o.t) / ORCA_RISE_DUR
-    if (o.t <= 0) { o.state = 'circling'; o.t = ORCA_CIRCLE_DUR; o.alpha = 1 }
+    const out = 1 - Math.max(0, o.t) / ORCA_RISE_DUR
+    o.x = o.cx + Math.cos(o.ang) * o.r * out
+    o.y = o.cy + Math.sin(o.ang) * o.r * out
+    o.alpha = out
+    if (o.t <= 0) { o.state = 'circling'; o.t = ORCA_CIRCLE_DUR; o.alpha = 1; o.trail = [] }
     return false
   }
   if (o.state === 'circling') {
@@ -4677,11 +4686,24 @@ function stepOrca(run, dt) {
     // commit is not a dodge, it is a scheduled hit.
     o.cx += (p.x - o.cx) * Math.min(1, dt * 1.2)
     o.cy += (p.y - o.cy) * Math.min(1, dt * 1.2)
-    o.ang += ORCA_ORBIT_RATE * dt
     const k = 1 - Math.max(0, o.t) / ORCA_CIRCLE_DUR
-    o.r = ORCA_RING_R + (ORCA_RING_MIN_R - ORCA_RING_R) * k
+    // THE COIL TIGHTENS AND QUICKENS AT ONCE, which is the whole difference between a spiral and a
+    // corner — see the ORCA_ORBIT_RATE block for the three reasons the first cut read as circling.
+    // The rate RAMPS to x(1 + ORCA_SPIRAL_ACCEL) and the radius holds wide before plunging, so the
+    // last second is a whip rather than the same lap done smaller.
+    o.ang += ORCA_ORBIT_RATE * (1 + ORCA_SPIRAL_ACCEL * k) * dt
+    o.r = ORCA_RING_MIN_R + (ORCA_RING_R - ORCA_RING_MIN_R) * (1 - Math.pow(k, ORCA_SPIRAL_EASE))
     o.x = o.cx + Math.cos(o.ang) * o.r
     o.y = o.cy + Math.sin(o.ang) * o.r
+    // THE SWEPT PATH, published for render to stroke. A coil you can SEE is a coil; the ring tell
+    // this replaces drew a circle at the current radius, which reads as a circle whatever moves
+    // inside it. Sim owns positions and render only reads them, the same split every other tell
+    // here uses — render cannot re-derive this without a second copy of the two curves above.
+    // `??=` because a hand-built fixture (run OR.c, the fx-probe scenes) poses a 'circling' orca
+    // without one, and `undefined.push` would take the whole chapter down.
+    const tr = (o.trail ??= [])
+    tr.push(o.x, o.y)
+    if (tr.length > ORCA_TRAIL_MAX * 2) tr.splice(0, tr.length - ORCA_TRAIL_MAX * 2)
     if (o.t <= 0) {
       // The line is locked HERE, at the moment it breaks orbit, and never re-aimed. That is what
       // makes it dodgeable — a strike that tracked would be unavoidable and therefore not a move.
@@ -4739,7 +4761,7 @@ function stepOrca(run, dt) {
   o.cx = p.x; o.cy = p.y; o.r = ORCA_RING_R; o.ang = bearing
   o.x = p.x + Math.cos(bearing) * ORCA_RING_R
   o.y = p.y + Math.sin(bearing) * ORCA_RING_R
-  o.dirX = 0; o.dirY = 0; o.hit = false
+  o.dirX = 0; o.dirY = 0; o.hit = false; o.trail = null
   run.events.push({ type: 'orcaRise', x: p.x, y: p.y })
   return false
 }

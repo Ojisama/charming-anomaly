@@ -1,58 +1,48 @@
-// Scene: The Wreck's orca, mid-visit. Shoots the two states that actually have to be judged —
-// the RISING shadow (the telegraph) and the CIRCLING animal inside its closing ring.
+// Scene: The Wreck's orca stalking — the SHADOW spiralling in from underneath, which is the whole
+// tension beat (owner ruling 2026-08-23: "a moment of tension build-up, like in jaws or whatever,
+// where the SHADOW IS SPIRALING IN FROM UNDERNEATH, just before the impact/attack").
 //
 //   node scripts/fx-probe.mjs --scene scripts/scenes/orca.js --chapter wreck \
-//     --url http://127.0.0.1:PORT/ --out /tmp/orca --frames 8
+//     --url http://127.0.0.1:PORT/ --out /tmp/orca --frames 10 --w 1400 --h 900
 //
 // The visit is forced rather than waited for: stepOrca does not spawn one until ORCA_FIRST_PASS
-// (100s), and driving 100s of sim to see a sprite is a probe that measures the spawner instead of
-// the drawing. Building run.orca by hand is the same shape stepOrca writes.
+// (100s), and driving 100s of sim to see a telegraph is a probe that measures the spawner instead
+// of the drawing. Building run.orca by hand is the same shape stepOrca writes.
+//
+// ⚠ THE SCRUB STEPS REAL SIM TIME, and since v7.x that is load-bearing rather than tidy. The coil
+// render strokes is `run.orca.trail`, which stepOrca appends to once per frame — pose r/ang by hand
+// (as this scene used to) and the trail stays EMPTY, so the one thing the scene exists to judge is
+// invisible and the frame looks exactly like the bug it was written to prove fixed.
 
 // A shoal to judge the ring against — an empty ocean cannot show whether the wall reads as a wall.
 H.breed(26)
 H.keep(26)
 H.place((i, p) => ({
-  x: p.x + Math.cos(i * 2.399963) * (60 + (i % 5) * 34),
-  y: p.y + Math.sin(i * 2.399963) * (60 + (i % 5) * 34),
+  x: p.x + Math.cos(i * 2.399963) * (70 + (i % 5) * 40),
+  y: p.y + Math.sin(i * 2.399963) * (70 + (i % 5) * 40),
 }))
 
 const p = run.player
 
-// CIRCLING: the animal has surfaced and the ring is most of the way closed. t is set so the tell
-// is near its brightest without being at the instant it commits, which is the frame a player
-// actually has to read and act on.
+// Starts at the top of the ladder — the silhouette fading up out of the deep — so the captured
+// sequence walks the whole build: rise, two tightening laps, then the body surfacing on the strike.
 run.orca = {
-  state: 'circling',
-  t: 1.2,
+  state: 'rising',
+  t: 1.5,                      // ORCA_RISE_DUR; config owns the real one, this only seeds the pose
   cx: p.x, cy: p.y,
-  r: 320,
-  ang: -0.6,
-  x: p.x + Math.cos(-0.6) * 320,
-  y: p.y + Math.sin(-0.6) * 320,
-  dirX: 0, dirY: 0, hit: false, alpha: 1,
+  r: 440, ang: -0.6,
+  x: p.x + Math.cos(-0.6) * 440,
+  y: p.y + Math.sin(-0.6) * 440,
+  dirX: 0, dirY: 0, hit: false, alpha: 0, passes: 1,
 }
 
-H.note(JSON.stringify({
-  state: run.orca.state,
-  ringR: run.orca.r,
-  prey: run.enemies.length,
-  chapter: run.chapter,
-}))
+H.note(JSON.stringify({ state: run.orca.state, prey: run.enemies.length, chapter: run.chapter }))
 
-// Sweep the ring closed across the captured frames: r tightens and the tell brightens, which is
-// the whole read. Returning a scrub gives the sequence without re-booting per frame.
-//
-// ⚠ THE SCRUB MUST RENDER ITSELF. fx-probe's capture loop calls __fxScrub(k) and then screenshots —
-// it never renders in between (H.scrub's own returned closure ends on H.render() for this reason).
-// Without the call this scene handed back N BYTE-IDENTICAL frames of the single H.render() done at
-// scene setup: the ring never closed, and the sequence it advertises had never once worked.
+// Real frames from where the last call stopped — the probe calls the scrub with a rising k, so this
+// is a play-through of the telegraph rather than a seek. 5.5s covers rise + spiral + the commit.
+let seen = 0
 return (k) => {
-  const o = run.orca
-  if (!o) return
-  o.t = 1.6 - k * 1.4
-  o.r = 520 + (230 - 520) * k
-  o.ang = -0.6 + k * 1.9
-  o.x = o.cx + Math.cos(o.ang) * o.r
-  o.y = o.cy + Math.sin(o.ang) * o.r
+  const want = Math.round(k * 330)
+  while (seen < want) { H.tickFx(1 / 60); seen++ }
   H.render()
 }

@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, ORCA_WAKE_R, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, ORCA_WAKE_R, ORCA_RISE_DUR, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -12555,30 +12555,43 @@ const spurG = new Graphics()
     // the whole read is "something big just went under me", not "something is coming up at me".
     const passing = o.state === 'shadow'
 
-    // THE TELEGRAPH. A dark shape on the floor that grows and sharpens as it comes up from below.
-    // Scale runs UNDER 1 and climbs: something rising toward the camera gets bigger, and starting
-    // small is what sells "deep" without needing a blur it cannot afford.
+    // THE TELEGRAPH, AND IT IS THE WHOLE VISIT NOW. Owner ruling 2026-08-23: "what I want is a
+    // moment of tension build-up, like in jaws or whatever, where the SHADOW IS SPIRALING IN FROM
+    // UNDERNEATH, just before the impact/attack", and "you know something big is coming". So the
+    // silhouette holds the screen for the rise AND the entire spiral, and the body does not appear
+    // until it commits — the surfacing IS the attack, not a preamble to it.
+    //
+    // ⚠ ONE `k` ACROSS BOTH STATES. Each state computing its own progress restarts the ramp at the
+    // hand-off, and the shadow snaps back to small and faint on the frame the spiral begins —
+    // exactly where the build is supposed to be tightening. The rise owns 0 -> 0.3, the spiral
+    // 0.3 -> 1, and everything below reads that one number.
+    //
+    // ⚠ SCALE PASSES 1 AND THAT IS DELIBERATE. It still starts under (something rising toward the
+    // camera gets bigger, which is what sold "deep" in the first cut) but it ends at 1.15x — so in
+    // the last second before the strike the shadow is LARGER than the animal that surfaces out of
+    // it. "You know something big is coming" is a size read, and a silhouette that only ever grows
+    // up to the body's own size never makes it.
     orcaShadowSp.visible = rising || passing || o.state === 'circling'
     if (orcaShadowSp.visible) {
-      const k = rising ? o.alpha : 1
+      const k = rising
+        ? 0.30 * (1 - Math.max(0, o.t) / ORCA_RISE_DUR)
+        : 0.30 + 0.70 * (1 - Math.max(0, o.t) / ORCA_CIRCLE_DUR)
       orcaShadowSp.position.set(o.x, o.y)
       // The pass travels a straight locked line, so it faces the way the commit does, not the way
       // the ring does. Reading o.ang here would leave it broadside to its own direction of travel.
       orcaShadowSp.rotation = passing ? Math.atan2(o.dirY, o.dirX) : o.ang + Math.PI / 2
-      orcaShadowSp.scale.set(passing ? s * 0.82 : s * (0.72 + 0.28 * k))
+      orcaShadowSp.scale.set(passing ? s * 0.82 : s * (0.70 + 0.45 * k))
       orcaShadowSp.tint = 0x02060a
-      orcaShadowSp.alpha = passing ? 0.34 * Math.max(0, o.alpha) : 0.16 + 0.30 * k
+      orcaShadowSp.alpha = passing ? 0.34 * Math.max(0, o.alpha) : 0.28 + 0.32 * k
     }
 
-    // THE ANIMAL, once it has surfaced. Hidden during the rise AND during an opening pass: the
-    // whole point of both is that you see a shadow and not yet a body.
-    orcaSp.visible = !rising && !passing
+    // THE ANIMAL, and it exists for exactly two states. It used to be drawn through the whole
+    // circle as well, which is what made a stalk read as a swim: a lit body doing laps is an
+    // animal going somewhere, a black shape under the water is one deciding.
+    orcaSp.visible = o.state === 'committing' || o.state === 'leaving'
     if (orcaSp.visible) {
       orcaSp.position.set(o.x, o.y)
-      // Facing: along the ring while circling, along the locked line once committed.
-      orcaSp.rotation = o.state === 'committing' || o.state === 'leaving'
-        ? Math.atan2(o.dirY, o.dirX)
-        : o.ang + Math.PI / 2
+      orcaSp.rotation = Math.atan2(o.dirY, o.dirX)
       orcaSp.scale.set(s)
       orcaSp.tint = 0xffffff
       orcaSp.alpha = o.state === 'leaving' ? Math.max(0, o.alpha) : 1
@@ -12590,10 +12603,40 @@ const spurG = new Graphics()
     if (o.state === 'circling') {
       const k = 1 - Math.max(0, o.t) / ORCA_CIRCLE_DUR
       const a = ORCA_FEAR_TELL * (0.35 + 0.65 * k)
+      // The dark band stays: it is the WALL prey will not cross, and a thickness of water is the
+      // honest way to draw a thickness of water.
       orcaG.circle(o.cx, o.cy, o.r)
         .stroke({ width: ORCA_RING_BAND * 0.5, color: 0x0a1016, alpha: a * 0.5 })
-      orcaG.circle(o.cx, o.cy, o.r)
-        .stroke({ width: 3, color: 0xbfe6ff, alpha: a })
+      // THE COIL, IN PLACE OF THE BRIGHT HAIRLINE CIRCLE THAT USED TO SIT HERE. That circle is the
+      // single biggest reason the spiral read as circling: a ring drawn on the floor says "ring",
+      // and it said so on every frame regardless of the path actually travelled. This strokes the
+      // path itself (run.orca.trail, published by stepOrca), so the tightening is visible in a
+      // STILL — the player is not asked to integrate a moving dot to work out what shape it is on.
+      //   THREE SEGMENTS, not one stroke. A uniform-alpha polyline reads as a drawn glyph lying on
+      // the seabed; a tail that fades reads as somewhere the thing has BEEN. Pixi cannot gradient
+      // along a stroke, so the cheap honest version is to chunk it.
+      //   ⚠ ITS ALPHA IS ITS OWN, NOT `a`. Scaling the coil by the fear tell made it 0.05-0.14 for
+      // the first half of the stalk, and on a 390px phone the body is off screen for the sideways
+      // half of every lap — so the frame at the exact moment the tension should be building was
+      // EMPTY: no silhouette, and a coil too faint to see. The wall may fade up (it is a warning
+      // that grows); the coil is the only thing carrying the beat while the animal is out of frame,
+      // so it starts legible and merely sharpens. This is the whole reason the tell was rewritten.
+      const tr = o.trail
+      if (tr && tr.length >= 6) {
+        const pts = tr.length / 2
+        for (let seg = 0; seg < 3; seg++) {
+          const i0 = Math.floor((seg / 3) * (pts - 1)) * 2
+          const i1 = Math.floor(((seg + 1) / 3) * (pts - 1)) * 2
+          if (i1 <= i0) continue
+          orcaG.moveTo(tr[i0], tr[i0 + 1])
+          for (let i = i0 + 2; i <= i1; i += 2) orcaG.lineTo(tr[i], tr[i + 1])
+          orcaG.stroke({
+            width: 3 + seg * 2,
+            color: 0xbfe6ff,
+            alpha: (0.30 + 0.11 * seg) * (0.60 + 0.40 * k),
+          })
+        }
+      }
     }
 
     // THE BOW WAVE. Two sheets of water peeling off the shoulders and trailing back down the line.

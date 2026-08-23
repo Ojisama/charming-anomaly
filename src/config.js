@@ -9901,27 +9901,64 @@ export const ORCA_FIRST_PASS = 100     // s before the first visit — the chapt
 export const ORCA_INTERVAL = 50        // s between visits -> t = 100/150/200/250 in a 300s run
 // balance_decision : telegraph halved, the spiral is the read now 2026-08-23
 //  - the rise is the harmless half; cutting it shortens the WAIT, not the dodge window
-export const ORCA_RISE_DUR = 1.5       // s of shadow-on-the-deep-layer telegraph before it surfaces
-export const ORCA_CIRCLE_DUR = 3.0     // s of the spiral closing around you
+export const ORCA_RISE_DUR = 1.5       // s of the silhouette fading up out of the deep
+export const ORCA_CIRCLE_DUR = 4.0     // s of the SHADOW spiralling in underneath you
 export const ORCA_LEAVE_DUR = 1.6
 // ⚠ THE RING HAS TO BE BIGGER THAN THE ANIMAL, and at ORCA_LEN 560 the shipped 300 was not: the
 // body was almost twice the diameter of the circle it was supposedly swimming round, so it read as
 // a shape wobbling on the spot rather than as something orbiting you.
+// ⚠ AND SMALL ENOUGH THAT THE BUILD IS ON SCREEN — a PHONE screen, which is the tighter of the two
+// and the one this game is played on. This was 520 for one round and shot at 390x844 the middle of
+// the stalk was an EMPTY FRAME: half-height is 422 and the silhouette sits at ring radius minus its
+// own half-width (~72), so at 520 it was outside the viewport on every bearing, and the coil with
+// it. A tension beat you cannot see is not a tension beat. 440 keeps the shadow on screen whenever
+// it is above or below the player and lets it swing out of frame to the sides, which is the read
+// that was wanted anyway. Do NOT make this screen-relative to "fix" the sides: it is the fear
+// wall's radius and the commit's own geometry, and a desktop player would get a bigger arena.
 // ⚠ AND ORCA_RING_MIN_R IS THE PLAYER'S ROOM TO STAND. Every commit line leaves the ring, so the
 // closest a strike can pass to the ring's centre is bounded by this radius — set it near
 // ORCA_HIT_R + PLAYER.radius (100) and standing still at the centre becomes an unavoidable hit
 // whatever the line was aimed at, which is precisely the "scheduled hit" the commit is written not
 // to be. 230 leaves 130px of clearance; that margin is the invariant, not the number.
-export const ORCA_RING_R = 520         // ring radius when it surfaces
+export const ORCA_RING_R = 440         // ring radius when the stalk opens
 export const ORCA_RING_MIN_R = 230     // ...and once fully closed, just before it commits
 export const ORCA_RING_BAND = 150      // px of the ring that prey will not cross
 export const ORCA_PUSH = 0.85          // blend weight of the inward shove on prey at the wall
-// ⚠ THIS IS WHAT MAKES IT A SPIRAL RATHER THAN AN ARC, and it only means anything read
-// against ORCA_CIRCLE_DUR. At 1.05 x 5.0s the body covered 5.2 rad -- under one lap -- while the
-// radius crept 300->165: an arc that drifts inward, which is exactly what the owner reported as
-// "it just circles a bit around you, then goes away". 2.5 x 3.0s is 7.5 rad (1.2 laps) over
-// 520->230, a visibly tightening coil in HALF the time.
-export const ORCA_ORBIT_RATE = 2.5     // rad/s the body travels around its own ring
+// ⚠ A SPIRAL IS A LOOK, NOT AN EQUATION, AND THIS IS THE SCAR. A constant angular rate with a
+// linearly closing radius IS an Archimedean spiral, and it shipped reading as a circle anyway —
+// owner, 2026-08-23: "the spiraling looks just like it's circling". Three things were wrong and
+// only the third is arithmetic:
+//   1. THE TELL WAS A CIRCLE. render drew a ring at the CURRENT radius each frame, and a circle
+//      drawn on the floor says "circle" however the thing inside it moves. It draws the SWEPT PATH
+//      now (run.orca.trail) — a coil you can see is a coil, with no motion needed to read it.
+//   2. THE ANIMAL WAS SURFACED FOR IT. A bright body doing laps reads as swimming; a black
+//      silhouette under the water reads as stalking. It stays a shadow for the whole build now and
+//      SURFACES ON THE STRIKE — owner: "the SHADOW IS SPIRALING IN FROM UNDERNEATH, just before
+//      the impact/attack".
+//   3. 1.2 LAPS IS NOT A SPIRAL, it is a corner. Two full laps is the floor for reading one.
+// Rate RAMPS rather than holding: ORCA_ORBIT_RATE is the rate at the START and it reaches
+// x(1 + ORCA_SPIRAL_ACCEL) on the last lap, which is where the tension actually lives — the coil
+// tightening AND quickening is the Jaws beat, and a constant rate cannot express it.
+//   Revolutions = ORBIT_RATE x CIRCLE_DUR x (1 + ACCEL/2) = 1.75 x 4 x 1.8 = 12.6 rad, 2.0 laps.
+export const ORCA_ORBIT_RATE = 1.75    // rad/s at the START of the spiral
+export const ORCA_SPIRAL_ACCEL = 1.6   // ...rising to x(1 + this) by the moment it commits
+// ⚠ THE CURVE IS `1 - k^EASE`, AND IT IS NOT `(1-k)^EASE` — those are opposite shapes and the
+// wrong one shipped for a round. `(1-k)^1.7` closes FASTEST FIRST and then hovers: lap one ran
+// 440->283 and lap two, the tense one, was 283->230, i.e. very nearly a constant-radius circle at
+// exactly the moment the coil is supposed to be collapsing. That is the reported bug wearing an
+// exponent. `1 - k^1.8` is the shape the beat wants — still 380 of 440 at the midpoint, 300 by
+// 80%, 249 by 95% — so lap one prowls at range and lap two is the plunge.
+//   Caught by mutation, not by reading: the LINEAR close it was meant to beat passed the halfway
+// assertion outright, because the eased radius was on the wrong side of it.
+export const ORCA_SPIRAL_EASE = 1.8
+// Points of swept path sim publishes for render to stroke — a MEMORY BOUND, not a look knob, and
+// that distinction cost a round. The first cut capped at 80 to leave a short comet tail, which at
+// 60fps is ~1.3s of path; on a phone the coil's on-screen stretch is only ever an arc of the loop,
+// so a tail that short is off screen for most of the stalk and the player sees nothing at all. 220
+// holds roughly the whole two-lap build, and the per-segment alpha fade (render.js) is what keeps a
+// full coil legible rather than a scribble. At the ticker's 0.05 clamp a whole stalk is 80 points
+// and this never binds; it binds at 60fps, where it drops the oldest fifth of the first lap.
+export const ORCA_TRAIL_MAX = 220
 export const ORCA_COMMIT_SPEED = 940   // px/s of the strike — well over the player's 220
 export const ORCA_OVERSHOOT = 760      // px past you it carries before breaking off - the wake plows the whole way
 export const ORCA_HIT_R = 78           // px contact radius, DURING THE COMMIT ONLY (tracks ORCA_LEN)
