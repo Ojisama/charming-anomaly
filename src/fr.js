@@ -825,6 +825,8 @@ const CONFIG = {
   'how long chum lasts': 'dur\u00e9e de l\'app\u00e2t',
   'Deep Chum': 'App\u00e2t Profond',
   'baited fish hold their nerve closer to you': 'les poissons app\u00e2t\u00e9s tiennent bon plus pr\u00e8s de toi',
+  'Full Bucket': 'Rab',
+  'mouthful(s) of food in each bait': 'bouch\u00e9e(s) de nourriture par app\u00e2t',
   'Split Seam': 'Couture Fendue',
   'oil spread': '\u00e9tendue du mazout',
   'Thick Oil': 'Mazout \u00c9pais',
@@ -1500,6 +1502,9 @@ const CONFIG = {
   // game's 46 roster entries; run XX now walks CHAPTERS[].roster[].name so the next one goes red.
   'Damselfish': 'Demoiselle',
   'Moray': 'Murène',
+  'Squid': 'Pieuvre',
+  'Pufferfish': 'Poisson-globe',
+  'Sardine': 'Sardine',
   'Lionfish': 'Poisson-Lion',
   'Drowning': 'Noyade',
   'Starvation': 'Famine',
