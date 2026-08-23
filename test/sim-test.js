@@ -9763,6 +9763,73 @@ function runOrca() {
 }
 run(runOrca)
 
+// ---- Run WK: THE SUNKEN SHIP'S FIELD — four numbers in two files that are ONE decision ----------
+// The wreck grid's spacing is authored in config.js (`cell`, `len`) and its jitter and size spread
+// in render.js (HULL_JITTER, HULL_SCALE_MAX). Nothing imports anything, so nothing throws when they
+// drift — and the failure does not look like a spacing bug. Two sprites at alpha a stack to
+// 1-(1-a)², so an overlap is a visibly BRIGHTER quadrilateral bounded by straight edges belonging to
+// neither wreck, which reads as a rendering artefact rather than as a graveyard. The shipped pair
+// (cell 2450, jitter ±0.25) allowed 1225px between two 1820px hulls, and it was in half the probe
+// frames while the config comment two lines above it claimed two are never on screen together.
+//
+// This is the cheapest guard shape in this repo (see the six cross-file source-text lints in
+// CLAUDE.md): it costs a file read and it is the only thing standing between a one-number tune and
+// a field of interpenetrating ships.
+function runWreckHull() {
+  const rSrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const hull = CHAPTERS.wreck.render.hull
+
+  // -- WK.a: the spacing invariant, cell * (1 - 2*jitter) >= len * maxScale --------------------
+  const constOf = (name) => {
+    const m = rSrc.match(new RegExp(`const ${name} = ([0-9.]+)`))
+    assert.ok(m, `${name} must exist in render.js as a named const — run WK reads it as source text`)
+    return Number(m[1])
+  }
+  const jitter = constOf('HULL_JITTER')
+  const scaleMax = constOf('HULL_SCALE_MAX')
+  const minGap = hull.cell * (1 - 2 * jitter)
+  const maxLen = hull.len * scaleMax
+  assert.ok(minGap >= maxLen,
+    `two neighbouring wrecks can be ${minGap.toFixed(0)}px apart while each is ${maxLen.toFixed(0)}px long — ` +
+    'they interpenetrate, and at hull.alpha that is a bright quadrilateral, not a graveyard. ' +
+    'Raise cell, or lower HULL_JITTER / HULL_SCALE_MAX (render.js)')
+  console.log(`PASS run WK.a (spacing): cell ${hull.cell} x (1 - 2x${jitter}) = ${minGap.toFixed(0)}px clear ` +
+    `>= len ${hull.len} x ${scaleMax} = ${maxLen.toFixed(0)}px, so no two hulls can overlap`)
+
+  // -- WK.b: both halves of the invariant are actually WIRED -----------------------------------
+  // A named constant nothing reads is a comment. Both position axes must consume HULL_JITTER, and
+  // HULL_SCALE_MAX must equal the arithmetic of the scale line rather than merely sitting near it —
+  // widening `hash(...) * 0.18` and leaving HULL_SCALE_MAX at 1.08 makes WK.a a guard over air.
+  const jitterUses = (rSrc.match(/cs \* HULL_JITTER \* 2/g) || []).length
+  assert.equal(jitterUses, 2,
+    `HULL_JITTER must be read on BOTH position axes in updateWreckHull, found ${jitterUses} — ` +
+    'a re-inlined literal is how the invariant above stops describing the code')
+  const sc = rSrc.match(/const sc = \(cfg\.len \/ \(HULL_REF \* 2\)\) \* \(([0-9.]+) \+ hash\([^)]*\) \* ([0-9.]+)\)/)
+  assert.ok(sc, 'updateWreckHull must set `sc` from cfg.len with a hashed spread — run WK reads its two numbers')
+  const drawnMax = Number(sc[1]) + Number(sc[2])
+  assert.ok(Math.abs(drawnMax - scaleMax) < 1e-9,
+    `HULL_SCALE_MAX is ${scaleMax} but the scale line tops out at ${drawnMax.toFixed(3)} — ` +
+    'WK.a is then checking a number the renderer does not use')
+  console.log(`PASS run WK.b (wired): HULL_JITTER read on ${jitterUses} axes, and HULL_SCALE_MAX ${scaleMax} ` +
+    `is exactly the scale line's ${sc[1]} + ${sc[2]}`)
+
+  // -- WK.c: the field's grain and the chapter's tide are ONE fact ------------------------------
+  // The hulls settle into the current, so hull.grain IS the tide bearing. Both come from
+  // WRECK_TIDE_DEG; this asserts the wiring rather than the literal, so moving the tide moves the
+  // graveyard with it.
+  assert.equal(hull.grain, CHAPTERS.wreck.tide.axis,
+    'hull.grain must BE the chapter tide axis — wrecks scour into the flow, and a second literal ' +
+    'here is one fact authored twice with nothing importing anything')
+  assert.ok(/sp\.rotation = cfg\.grain \+/.test(rSrc),
+    'updateWreckHull must build its heading off cfg.grain — a bare full-circle hash ignores the grain entirely')
+  console.log(`PASS run WK.c (grain): hull.grain = tide.axis = ${hull.grain.toFixed(3)} rad, and render.js reads it`)
+
+  console.log('PASS run WK (The Wreck: the sunken ship field): the grid can never stack two hulls into one bright ' +
+    'quadrilateral, both constants the invariant names are actually the ones the renderer uses, and the graveyard ' +
+    'lies along the same bearing as the water that put it there')
+}
+run(runWreckHull)
+
 // ---- Run DK: THE DARK (v7.x Book 2, owner directive) --------------------------------------
 // "if we're stealing light, then our surroundings should be dark, and darker the less light we
 // have", plus a drawback while you are down there — move speed, chosen over damage and accuracy
