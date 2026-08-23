@@ -8237,12 +8237,27 @@ export const SPUR_VIS = Object.freeze({
   //   reachMax    the furthest a colony's tip may sit from its own base. run RS.e checks THIS
   //               against the ridge half-thickness, so it is the number that keeps the art inside
   //               the wall — trunkLen x (1 + lenFall + lenFall^2), rounded up.
-  //   trunks      stems leaving one colony's base, spread evenly around it
-  //   depth       forks per stem. 3 gives 8 fingers a stem, which is where it starts reading as
-  //               fractal rather than as a Y — the owner's word, and the reason it is not 2
-  //   lenFall/widthFall  each fork shorter and thinner than its parent: this IS the antler read
-  //   spread      radians between siblings at a fork, jittered per fork so no two colonies match
-  //   colonyEvery px between colony bases ALONG the spine
+  // EVERY COLONY GETS ITS OWN GENOME, and the ranges below are what it is drawn from. The previous
+  // revision fixed trunks at 4 and spaced them at (t / trunks) x 2pi — an exactly even cross, so
+  // every colony in the chapter was the same PLUS SIGN under a rotation, and the field read as one
+  // stamp repeated. Owner: "coral is too similar, should be procedural, not always the + base".
+  //
+  // What makes two coral colonies look like different SPECIES is not their colour, it is their
+  // habit: how many stems leave the base, how far they open at each fork, how fast they taper, how
+  // deep they go, and whether a fork splits in two at all. So all of those are per-colony draws
+  // from a hash of the colony's own position, and none of them is a constant any more.
+  //   trunksLo/Hi  stems leaving one base. Spaced by JITTERED gaps, never an even division —
+  //                an even division is the plus sign, whatever the count
+  //   depthLo/Hi   forks per stem. A range, so a field mixes sparse whips with dense heads
+  //   spreadLo/Hi  radians between siblings at a fork: tight ones read as fingers, open ones as fans
+  //   lenFallLo/Hi how fast a stem shortens. Low is a squat head, high is a long reaching antler
+  //   triFrac      share of forks that split THREE ways instead of two
+  //   whipFrac     share that do not split at all and simply bend — real coral is not a binary tree,
+  //                and a perfect one is the other way this reads as generated
+  //   widthFall    stays GLOBAL, deliberately: the draw batches segments by fork level and a
+  //                per-colony taper would make every colony its own stroke width, which is the
+  //                Pixi re-stroking trap this file already paid for once
+  //   colonyEvery  px between colony bases ALONG the spine
   //   reachLo/Hi  a colony's total reach as a fraction of the space it has (half-thickness plus
   //               PLAYER.radius). SCALED TO THE RIDGE rather than a fixed px reach, which is what
   //               keeps tips inside the wall on a thin ridge without a clamp flattening them all
@@ -8251,8 +8266,10 @@ export const SPUR_VIS = Object.freeze({
   //   spineJitter how far off the centre line a base may sit, as a fraction of the half-thickness.
   //               Small on purpose: every base near the spine is what makes the middle dense and
   //               the edges thin, i.e. a sprout rather than a rectangle packed with coral.
-  trunks: 4, depth: 3, lenFall: 0.66, widthFall: 0.66,
-  branchW: 5.6, spread: 0.66, colonyEvery: 21,
+  trunksLo: 2, trunksHi: 5, depthLo: 3, depthHi: 5,
+  lenFallLo: 0.55, lenFallHi: 0.76, widthFall: 0.66,
+  spreadLo: 0.42, spreadHi: 0.95, triFrac: 0.16, whipFrac: 0.14,
+  branchW: 5.6, colonyEvery: 21,
   reachLo: 0.45, reachHi: 1.0, spineJitter: 0.16,
   //   tipMix  how far each bud is lightened from its OWN colony's tone toward `tip`. Not 1: at
   //           depth 3 there are 32 buds per colony, so a single cream for all of them stops being

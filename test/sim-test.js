@@ -21467,10 +21467,43 @@ function testReefSpurScrape() {
   // — and all three failed for one reason: they drew a SOLID SHAPE. What identifies coral is the
   // fork. depth 0 or trunks 1 silently turns every colony back into a stick, which is the same
   // failure arriving through the config rather than through the draw.
-  assert.ok(SPUR_VIS.depth >= 2 && SPUR_VIS.trunks >= 3,
-    `run RS.a: colonies grow ${SPUR_VIS.trunks} stem(s) forking ${SPUR_VIS.depth} time(s) — under 3 stems and 2 forks a colony is a stick, and the ridges stop reading as coral for the fourth time`)
-  assert.ok(SPUR_VIS.lenFall < 1 && SPUR_VIS.widthFall < 1,
-    `run RS.a: branches do not taper (lenFall ${SPUR_VIS.lenFall}, widthFall ${SPUR_VIS.widthFall}) — every fork the same size as its parent is a net, not an antler`)
+  assert.ok(SPUR_VIS.depthLo >= 3 && SPUR_VIS.trunksHi >= 3,
+    `run RS.a: colonies grow up to ${SPUR_VIS.trunksHi} stem(s) forking at least ${SPUR_VIS.depthLo} time(s) — below that a colony is a stick, and the ridges stop reading as coral for the fourth time`)
+  assert.ok(SPUR_VIS.lenFallHi < 1 && SPUR_VIS.widthFall < 1,
+    `run RS.a: branches do not taper (lenFall up to ${SPUR_VIS.lenFallHi}, widthFall ${SPUR_VIS.widthFall}) — every fork the same size as its parent is a net, not an antler`)
+
+  // EVERY HABIT MUST BE A RANGE, NOT A CONSTANT. This is the guard for "coral is too similar,
+  // should be procedural, not always the + base" (owner, 2026-08-23). The previous revision fixed
+  // trunks at 4 and spaced them at an even (t / trunks) x 2pi, so every colony in the chapter was
+  // the same PLUS SIGN under a rotation — structurally identical, and no assertion could tell,
+  // because each individual colony was branching perfectly well.
+  //
+  // Collapsing any one of these ranges to a point silently restores that: one stem count, or one
+  // fork angle, or one taper is one species stamped over the whole reef. Checked as a SPREAD on
+  // each axis rather than as a mention of the field, since lo === hi is exactly the regression and
+  // it leaves every name in place.
+  for (const [lo, hi, what] of [
+    [SPUR_VIS.trunksLo, SPUR_VIS.trunksHi, 'stems per colony'],
+    [SPUR_VIS.depthLo, SPUR_VIS.depthHi, 'fork depth'],
+    [SPUR_VIS.spreadLo, SPUR_VIS.spreadHi, 'fork angle'],
+    [SPUR_VIS.lenFallLo, SPUR_VIS.lenFallHi, 'taper'],
+  ]) {
+    assert.ok(hi > lo,
+      `run RS.a: ${what} is fixed at ${lo} — every colony then shares that habit and the whole reef is one stamp repeated, which is the "+ base" defect by another name`)
+  }
+  // ...and a fork is not always two. A perfectly binary tree is the other tell of a generated
+  // plant, and these two shares are the only thing preventing it.
+  assert.ok(SPUR_VIS.triFrac > 0 && SPUR_VIS.whipFrac > 0,
+    `run RS.a: every fork splits in exactly two (triFrac ${SPUR_VIS.triFrac}, whipFrac ${SPUR_VIS.whipFrac}) — a perfect binary tree reads as generated however varied its angles are`)
+  // The stems are spaced by JITTERED gaps. An even division is a regular star at every count and a
+  // plus sign at four, so this lints the expression rather than the fact that stems exist.
+  {
+    const gsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(!/ang = \(t \/ g\.trunks\) \* Math\.PI \* 2/.test(gsrc),
+      'run RS.a: stem angles are back to an even division of the circle — that is the plus sign, whatever the stem count')
+    assert.ok(/ang \+= \(\(Math\.PI \* 2\) \/ g\.trunks\) \* \(0\.5 \+ hash\(/.test(gsrc),
+      'run RS.a: stem angles are no longer accumulated from jittered gaps — colonies will differ only by rotation again')
+  }
   assert.strictEqual(SPUR_VIS.bump, undefined,
     'run RS.a: SPUR_VIS.bump is back. The lobe pass it fed is deleted; a knob nothing reads is one the next reader will tune and watch do nothing')
 

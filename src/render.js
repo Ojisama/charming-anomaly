@@ -11712,39 +11712,58 @@ const spurG = new Graphics()
     const tips = V.tones.map(() => [])
     // LEVEL, not a float width. Pixi strokes the whole path built so far, so segments have to be
     // BATCHED by width — and a level index buckets exactly where a repeatedly-multiplied float
-    // does not. There are only depth+1 widths in the whole field.
+    // does not. widthFall stays global for exactly this reason (see SPUR_VIS): a per-colony taper
+    // would give every colony its own stroke width and put the batching back to one call each.
     const W = []
-    for (let i = 0; i <= V.depth; i++) W.push(V.branchW * Math.pow(V.widthFall, i))
-    // Total reach of a stem, as a multiple of its first segment: the geometric series the forks
-    // walk. Used to size trunkLen so a colony's TIPS land where its reach says, which is what lets
-    // the reach be expressed as a fraction of the ridge rather than as a px constant.
-    let lenSum = 0
-    for (let i = 0; i <= V.depth; i++) lenSum += Math.pow(V.lenFall, i)
-    const grow = (out, tipOut, f0, c0, ang, len, lvl) => {
+    for (let i = 0; i <= V.depthHi; i++) W.push(V.branchW * Math.pow(V.widthFall, i))
+    // A FORK IS NOT ALWAYS TWO. A perfectly binary tree is the other way this reads as generated —
+    // real coral throws the occasional trichotomy and the occasional stem that just keeps going
+    // and bends. triFrac/whipFrac are those two shares; everything else splits in two.
+    //
+    // Child lengths are asymmetric (0.7..1.0 of the nominal) and never above it, which is what
+    // keeps a colony inside the reach it was sized for while making no two siblings equal.
+    const grow = (out, tipOut, g, f0, c0, ang, len, lvl) => {
       const f1 = f0 + Math.cos(ang) * len
       const c1 = c0 + Math.sin(ang) * len
-      out.push([f0, c0, f1, c1, lvl])
-      if (lvl >= V.depth) { tipOut.push([f1, c1, Math.max(V.tipR, W[lvl] * 0.52)]); return }
-      const j = hash(f1 * 3.1, c1 * 1.7)
-      const sp = V.spread * (0.62 + j * 0.8)
-      grow(out, tipOut, f1, c1, ang - sp, len * V.lenFall, lvl + 1)
-      grow(out, tipOut, f1, c1, ang + sp, len * V.lenFall, lvl + 1)
+      out.push([f0, c0, f1, c1, Math.min(lvl, V.depthHi)])
+      if (lvl >= g.depth) { tipOut.push([f1, c1, Math.max(V.tipR, W[Math.min(lvl, V.depthHi)] * 0.52)]); return }
+      const a = hash(f1 * 3.1, c1 * 1.7)
+      const b = hash(c1 * 5.9, f1 * 2.3)
+      const kid = (dir, scale) => grow(out, tipOut, g, f1, c1, ang + dir, len * g.lenFall * (0.7 + scale * 0.3), lvl + 1)
+      if (a < V.whipFrac) {
+        kid((b - 0.5) * g.spread, b)                       // no fork: the stem bends and carries on
+      } else if (a > 1 - V.triFrac) {
+        kid(-g.spread * (0.8 + b * 0.5), b)                // three ways
+        kid((b - 0.5) * g.spread * 0.5, a)
+        kid(g.spread * (0.8 + a * 0.5), a)
+      } else {
+        kid(-g.spread * (0.6 + b * 0.8), b)                // the usual two, unevenly
+        kid(g.spread * (0.6 + a * 0.8), a)
+      }
     }
     // GROWN FROM A SPINE, NOT PACKED INTO A BOX. Bases sit on the ridge's centre line (± a small
     // spineJitter) and every stem radiates outward from there, so the trunks all overlap down the
     // middle and only the outermost tips reach the edges: dense at the core, thinning and ragged
-    // at the rim. Spreading bases evenly across the thickness — which is what the previous
-    // revision did — fills the band uniformly right up to its corners, and the eye reads that as
-    // "a rectangle with coral in it" however organic each individual colony is. The silhouette is
-    // the subject, and the silhouette is made by WHERE things are, not by what they look like.
+    // at the rim. Spreading bases evenly across the thickness fills the band uniformly right up to
+    // its corners, and the eye reads that as "a rectangle with coral in it" however organic each
+    // individual colony is. The silhouette is made by WHERE things are, not by what they look like.
     for (const [f, c0, c1, half] of segs) {
       const room = half + PLAYER.radius
       const n = Math.max(1, Math.round((c1 - c0) / V.colonyEvery))
       for (let k = 0; k <= n; k++) {
         const h1 = hash(f + k * 5.3, c0 + k * 2.1)
         const h2 = hash(c0 + k * 7.9, f - k * 4.3)
+        const h3 = hash(f * 1.7 - k * 3.7, c0 * 2.9 + k * 6.1)
         const cc = c0 + ((c1 - c0) * k) / n + (h1 - 0.5) * V.colonyEvery * 0.8
         if (cc < c0 - 4 || cc > c1 + 4) continue
+        // THE GENOME. Every term is a draw, so no two colonies share a habit — the previous
+        // revision fixed all of these and drew the same plus sign everywhere under a rotation.
+        const g = {
+          trunks: V.trunksLo + Math.floor(h3 * (V.trunksHi - V.trunksLo + 1)),
+          depth: V.depthLo + Math.floor(h1 * (V.depthHi - V.depthLo + 1)),
+          spread: V.spreadLo + (V.spreadHi - V.spreadLo) * h2,
+          lenFall: V.lenFallLo + (V.lenFallHi - V.lenFallLo) * h3,
+        }
         // Reach as a fraction of the space this ridge actually has, MINUS however far off the spine
         // this base sits. Subtracting the offset is not tidiness: a base jittered half*spineJitter
         // off centre and then given the full room reaches that much PAST the wall — about 7px of
@@ -11756,10 +11775,17 @@ const spurG = new Graphics()
         const off = (h1 - 0.5) * 2 * half * V.spineJitter
         const reach = (room - Math.abs(off)) * (V.reachLo + (V.reachHi - V.reachLo) * h2)
         const ff = f + off
+        // lenSum is per COLONY now, because depth and lenFall are: it is the geometric series this
+        // genome's forks walk, and it is what converts a reach in px into a first-segment length.
+        let lenSum = 0
+        for (let i = 0; i <= g.depth; i++) lenSum += Math.pow(g.lenFall, i)
         const ti = Math.floor(h2 * V.tones.length) % V.tones.length
-        for (let t = 0; t < V.trunks; t++) {
-          const ang = (t / V.trunks) * Math.PI * 2 + h1 * Math.PI * 2
-          grow(byTone[ti], tips[ti], ff, cc, ang, (reach / lenSum) * (0.85 + h2 * 0.3), 0)
+        // JITTERED GAPS, NEVER AN EVEN DIVISION. (t / trunks) x 2pi is a plus sign at 4 stems and a
+        // regular star at every other count — the exact thing that made the whole field one stamp.
+        let ang = h1 * Math.PI * 2
+        for (let t = 0; t < g.trunks; t++) {
+          ang += ((Math.PI * 2) / g.trunks) * (0.5 + hash(cc + t * 9.1, ff - t * 4.7) * 1.0)
+          grow(byTone[ti], tips[ti], g, ff, cc, ang, (reach / lenSum) * (0.85 + h2 * 0.3), 0)
         }
       }
     }
@@ -11773,13 +11799,13 @@ const spurG = new Graphics()
     // the ridge, which read as the coral being glued to a plank and cost a round to see. Buckets
     // are (level) for the outline and (tone x level) for the fill, so the whole field is a couple
     // of dozen strokes however many branches it holds.
-    for (let l = 0; l <= V.depth; l++) {
+    for (let l = 0; l <= V.depthHi; l++) {
       let any = false
       for (const group of byTone) for (const sg of group) if (sg[4] === l) { line(sg[0], sg[1], sg[2], sg[3]); any = true }
       if (any) spurG.stroke({ color: V.crevice, width: W[l] + V.outlinePx * 2, cap: 'round', join: 'round' })
     }
     for (let t = 0; t < byTone.length; t++) {
-      for (let l = 0; l <= V.depth; l++) {
+      for (let l = 0; l <= V.depthHi; l++) {
         let any = false
         for (const sg of byTone[t]) if (sg[4] === l) { line(sg[0], sg[1], sg[2], sg[3]); any = true }
         if (any) spurG.stroke({ color: V.tones[t], width: W[l], cap: 'round', join: 'round' })
