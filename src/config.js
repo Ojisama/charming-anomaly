@@ -2295,7 +2295,7 @@ export const WEAPONS = {
   // the first to the heading, the second to the terrain — and neither reads nearestEnemy at all.
   pistolShrimp: {
     name: 'Pistol Shrimp',
-    desc: 'Snaps a bolt of boiling water straight ahead. It never turns to aim — line the shot up yourself.',
+    desc: 'Snaps a bolt of boiling water straight ahead, and a weaker one straight behind. It never turns to aim — line the shot up yourself.',
     icon: '🦐', rarity: 'normal',
     // THE STARTER AND THE CHAPTER'S THESIS CARD: the cross stick IS the aim. The shot is welded to
     // the lane's forward heading (laneAxes().angle) and has no targeting of any kind, so sliding one
@@ -2319,24 +2319,30 @@ export const WEAPONS = {
     // balance_decision : levels buy width, not length or damage [2026-08-22]
     //  - per-hit damage is the only lever that really moves the column and it is the one this
     //    ladder may not spend. Sweep grid in the commit body.
+    // balance_decision : per-hit damage 12 -> 8 pays for the rear crack [2026-08-23]
+    //  - the rear crack's OWN knobs cannot pay for it: swept, its damage fraction and its reach are
+    //    both nearly dead (0.25-0.60 moves kills/min 130-156; reach 80-340 moves it 127-156). What
+    //    it buys is coverage, so the forward column is the only place to pay from.
     // MEASURED, reef, 240s x 5 seeds, d3 — all four of the chapter's natives in ONE census
-    // invocation, never across two. L1 -> L5: eff dps 151 -> 219, kills/min 119.5 -> 162.3, waste
-    // 7% -> 6%.
-    // THE POOL, ON eff dps, WHICH IS THE RARITY ORDERING AT BOTH ENDS:
-    //   L1  Oxygen Tank 145, Pistol Shrimp 151 (normal)  <  Squid Ink 187, Fire Coral 206 (rare)
-    //   L5  Pistol Shrimp 219, Oxygen Tank 246 (normal)  <  Fire Coral 274, Squid Ink 297 (rare)
-    // Both normals under both rares at both ends, and the starter at the bottom of its own band at
-    // L1, which is where a starter belongs.
-    // ⚠ TWO THINGS THE CENSUS CANNOT TELL YOU. kills/min is the weaker read — at L5 all four sit
-    // inside 162-181, i.e. the rig is measuring the spawner. And the rig walks a fixed stick, so it
-    // measures a line that happens to cross bodies; the skill this card sells is choosing the
-    // groove that puts three of them on it. Treat both numbers as floors.
+    // invocation, never across two.
+    // ⚠ READ raw dps HERE, NOT eff dps, AND THE REASON IS THIS CHAPTER. The coral grate (SPUR_DPS)
+    // takes enemies down all run, and weapon-census diffs enemy hp, so every card in the reef is
+    // credited with damage it did not deal: all four now read 397-520 eff dps at NEGATIVE waste,
+    // which cannot order anything. The eff-dps table this block used to carry (151 -> 219) predates
+    // the grate and is not comparable to anything measurable today.
+    // THE POOL, ON raw dps — the weapon's own swings — WITH THE STARTER AT THE BOTTOM AT L1:
+    //   L1  Pistol Shrimp 174  <  Fire Coral 178, Squid Ink 180 (rare)  <  Oxygen Tank 190
+    //   L5  Squid Ink 237, Fire Coral 254, Pistol Shrimp 257  <  Oxygen Tank 316
+    // ⚠ TWO THINGS THE CENSUS CANNOT TELL YOU. kills/min is the weaker read — at L5 three of the
+    // four sit inside 169-176, i.e. the rig is measuring the spawner. And the rig walks a fixed
+    // stick, so it measures a line that happens to cross bodies; the skill this card sells is
+    // choosing the groove that puts three of them on it. Treat both numbers as floors.
     levels: [
-      { dmg: 12, interval: 0.90, length: 340, width: 30, snapT: 0.14, tick: 0.10 },
-      { dmg: 12, interval: 0.82, length: 340, width: 52, snapT: 0.14, tick: 0.10 },
-      { dmg: 12, interval: 0.74, length: 340, width: 76, snapT: 0.14, tick: 0.10 },
-      { dmg: 12, interval: 0.66, length: 340, width: 102, snapT: 0.14, tick: 0.10 },
-      { dmg: 12, interval: 0.58, length: 340, width: 130, snapT: 0.14, tick: 0.10 },
+      { dmg: 8, interval: 0.90, length: 340, width: 30, snapT: 0.14, tick: 0.10 },
+      { dmg: 8, interval: 0.82, length: 340, width: 52, snapT: 0.14, tick: 0.10 },
+      { dmg: 8, interval: 0.74, length: 340, width: 76, snapT: 0.14, tick: 0.10 },
+      { dmg: 8, interval: 0.66, length: 340, width: 102, snapT: 0.14, tick: 0.10 },
+      { dmg: 8, interval: 0.58, length: 340, width: 130, snapT: 0.14, tick: 0.10 },
     ],
   },
   fireCoral: {
@@ -2415,6 +2421,10 @@ export const WEAPONS = {
     // 180s x 3 seeds at d3, all in one invocation, one fixed lane position).
     //   L1  Pistol Shrimp 0.0% | Oxygen Tank 4.1% | Fire Coral 50.5% | Squid Ink 91.2%
     //   L5  Pistol Shrimp 0.0% | Fire Coral 48.1% | Oxygen Tank 53.7% | Squid Ink 82.0%
+    // ⚠ THE SHRIMP'S TWO ZEROES ARE HISTORICAL — its rear crack became baseline in v7.x (fireSnap),
+    // so it no longer sits at 0. It is still the pool's SHORTEST rear answer by a wide margin:
+    // SNAP_BACKBLAST_LEN is 140px against a cloud planted on the player and a burn band across the
+    // whole lane. Re-run scripts/reef-astern.mjs before quoting this table again.
     // The cloud is planted ON the player and the world scrolls, so it spends its whole life behind
     // you: the ONLY card in the pool over 80% at either end. It is not the pool's only rear answer
     // and never was — Fire Coral is already at 50.5% on turn one and the tank reaches 53.7% once its
@@ -3473,7 +3483,7 @@ export const WEAPON_MODS = {
     // It does NOT break the thesis: the second crack is welded to the same lane heading, pointing
     // the other way along it, so the weapon still has no targeting and the stick is still the aim.
     // Read at the fire site (fireSnap).
-    backblast:    { name: 'Backblast',    desc: 'a second crack snaps out behind you', icon: '💨', kind: 'switch' },
+    backblast:    { name: 'Backblast',    desc: 'the crack behind you hits as hard as the one ahead', icon: '💨', kind: 'switch' },
   },
   fireCoral: {
     // 'polyp damage per tick' for the reason barnacles says 'crust damage per tick': the number is
@@ -6869,8 +6879,11 @@ CHAPTERS.reef = {
   // than for the theme, because a scroller only works if what you hold can answer things arriving
   // from ahead — and each of the four answers a DIFFERENT question about a corridor you cannot stop
   // in, which is what stops the pool being one idea at four intensities:
-  //   pistolShrimp  the starter and the thesis — a line welded to the forward heading, no targeting
-  //                 at all, so the cross stick is the aim.
+  //   pistolShrimp  the starter and the thesis — a line welded to the lane heading, no targeting at
+  //                 all, so the cross stick is the aim. It cracks BOTH ways along that heading, the
+  //                 rear one shorter and softer: this chapter's crowd sits astern of the player
+  //                 (53% of live bodies, scripts/reef-pileup.mjs) and a starter that could not
+  //                 touch any of it left the whole opening rear-blind.
   //   squidInk      the only card that does not damage its way out of a problem. It takes the
   //                 crowd's ability to FOLLOW you and lets the scroll carry them off, and it is the
   //                 only one planted ON the player, so it is also this pool's answer to what is
@@ -10669,13 +10682,18 @@ export const SPUR_SLOW_MUL = 0.6         // strafe multiplier while scraping —
 //    level with, i.e. a band already half-crossed by everything it was meant to catch.
 export const FIRE_CORAL_LEAD = 1
 
-// Pistol Shrimp's Backblast (WEAPON_MODS.pistolShrimp). The rear crack's damage as a fraction of
-// the forward one, the Breaker's BREAKER_BACKWASH_DMG_FRAC idiom.
-// balance_decision : the backward crack lands at 0.6 of the forward one [2026-08-22]
-//  - NOT the Bubble Puff's full-strength Backblow. That cone shoves nothing and races nothing,
-//    so doubling its coverage is free; a piercing line in a chapter that spawns behind you as
-//    well as ahead would be close to +100% dps for one switch pick.
+// Pistol Shrimp's rear crack (fireSnap), as a fraction of the forward one — the Breaker's
+// BREAKER_BACKWASH_DMG_FRAC idiom. BASELINE is 0.6; WEAPON_MODS.pistolShrimp's Backblast raises it
+// to FULL, so that card buys the rear crack's strength rather than its existence.
+// balance_decision : the rear crack is baseline at 0.6, Backblast takes it to 1 [2026-08-23]
+//  - 0.6 and not full: a piercing line pointing both ways down a corridor is close to +100% dps,
+//    which is a starter rewritten rather than a starter given an answer. The mod is what pays for
+//    the other 40%.
 export const SNAP_BACKBLAST_FRAC = 0.6
+export const SNAP_BACKBLAST_FULL_FRAC = 1
+// The rear crack's REACH, flat like the forward one and deliberately far shorter — see fireSnap
+// for why the two are not the same number.
+export const SNAP_BACKBLAST_LEN = 140
 
 // ---- Squid Ink (WEAPONS.squidInk) -------------------------------------------------------------
 // THE BLIND, at the retarget seam in stepEnemyMovement. A blinded body is handed a POINT this far

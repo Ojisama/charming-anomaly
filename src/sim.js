@@ -159,7 +159,7 @@ import {
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, DROWN_TICK,
   SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
-  FIRE_CORAL_LEAD, SNAP_BACKBLAST_FRAC, INK_BLIND_REACH, INK_JET_SPREAD, TANK_SHOVE_KB,
+  FIRE_CORAL_LEAD, SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, INK_BLIND_REACH, INK_JET_SPREAD, TANK_SHOVE_KB,
   LAST_BREATH_MAX_DMG_MUL, LAST_BREATH_DROWN_TAKEN_MUL,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
   GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC, GNASH_CARRY_FRAC, RUSH_DUR, RUSH_MAX_STACKS,
@@ -11247,25 +11247,46 @@ function fireSnap(run, stats) {
   const heading = ch.lane === true
     ? laneAxes(ch).angle
     : (p.facingAngle ?? (p.facing >= 0 ? 0 : Math.PI))
-  const back = (run.weaponMods.pistolShrimp?.backblast ?? 0) > 0
-  const push = (angle, dmg) => run.beams.push({
+  // THE REAR CRACK IS BASELINE (v7.x). A snapping shrimp's claw collapses a cavity, and a cavity
+  // collapses both ways; the mod below now buys its STRENGTH rather than its existence.
+  //   It is what the chapter's own geometry asks for. Measured over 6 seeded 300s runs at d3 on a
+  // phone (scripts/reef-pileup.mjs): 53% of live bodies sit ASTERN of the player, because
+  // laneScroll 90 ties the drone's own 90px/s and a damselfish can neither catch you nor fall
+  // behind. Every other card in this pool answers that — Squid Ink lands 91% of its damage astern,
+  // the Oxygen Tank 54%, Fire Coral 50% — and the starter landed 0.0%, in the slot the player
+  // holds for the whole opening.
+  //   THE THESIS IS UNTOUCHED, which is why this is the rear crack and not a turn: both cracks are
+  // welded to the lane heading, so the weapon still has no targeting of any kind and the cross
+  // stick is still the whole of the aim.
+  const backFrac = (run.weaponMods.pistolShrimp?.backblast ?? 0) > 0 ? SNAP_BACKBLAST_FULL_FRAC : SNAP_BACKBLAST_FRAC
+  const push = (angle, dmg, length = stats.length) => run.beams.push({
     // `snapT` and not `duration`: the levels[] key is deliberately outside STAT_KEYS (see
     // WEAPONS.pistolShrimp) and is mapped onto the beam's own field here, once, at the cast.
     angle, life: stats.snapT, duration: stats.snapT, dmg,
-    tick: stats.tick, width: stats.width, length: stats.length,
+    tick: stats.tick, width: stats.width, length,
     rotSpeed: 0, acc: 0, focusBonus: 0, prism: null,
     look: 'snap',
   })
   for (const a of ipecacAngles(run, heading)) {
     push(a, stats.dmg)
-    // Backblast goes through ipecacAngles with the first crack rather than being added after it,
-    // so an Ipecac build multiplies BOTH — the alternative (forward only) would make the switch
-    // quietly worthless to a run that took the anomaly, which is fireBreaker's own ruling.
-    if (back) push(a + Math.PI, stats.dmg * SNAP_BACKBLAST_FRAC)
+    // The rear crack goes through ipecacAngles with the first one rather than being added after
+    // it, so an Ipecac build multiplies BOTH — the alternative (forward only) would make the
+    // anomaly quietly halve this weapon's coverage, which is fireBreaker's own ruling.
+    //   ⚠ IT IS SHORTER THAN THE FORWARD CRACK, AND THAT IS THE CARD'S PRICE, NOT A ROUNDING. The
+    // forward 340 is sized to clear the ~312 world px of lane a phone shows AHEAD; astern the
+    // player sees only 78px, and the lane deletes a seeker at seekerBack (~138px on that phone)
+    // whatever this weapon does. A rear line running the full 340 therefore spends most of its
+    // reach killing bodies that are off-screen and already leaving — free XP for a card whose
+    // whole subject is choosing a line, and measured as such: at 340 the census read 155.9
+    // kills/min at L1 against a pool topping out at 126.5, i.e. the starter as the chapter's best
+    // killer. Cut to what the player can actually SEE behind them, it lands back inside its band.
+    push(a + Math.PI, stats.dmg * backFrac, SNAP_BACKBLAST_LEN)
   }
   // The event carries the geometry the renderer needs for the cavitation puff, rather than making
-  // it re-derive a heading — main.js gives it the throttled 'shoot' voice.
-  run.events.push({ type: 'snap', x: p.x, y: p.y, angle: heading, reach: stats.length, back })
+  // it re-derive a heading — main.js gives it the throttled 'shoot' voice. `backFrac` and not a
+  // boolean: the muzzle boils both ways on every cast now, so the only thing left for Backblast to
+  // SHOW at the origin is how hard the rear one boils.
+  run.events.push({ type: 'snap', x: p.x, y: p.y, angle: heading, reach: stats.length, backFrac })
 }
 
 // FIRE CORAL. Lights the coral of the next `ridges` ridges ahead of the player, and everything
