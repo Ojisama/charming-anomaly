@@ -8204,11 +8204,13 @@ export const AIR_POCKET_VIS = {
 // what shows past the body is a dark halo around the outside only, which is the outline that was
 // wanted.
 export const SPUR_VIS = Object.freeze({
-  // footA WAS 0.5, WHICH THE BRANCHING REVISION MADE WRONG. A near-black band at half opacity was
-  // a reasonable ground shadow under a solid slab; under an open thicket it is a dark TRAY sitting
-  // behind the coral, and the ridge reads as plants glued to a plank. The thicket shows the player
-  // where the wall is on its own now, so this only has to hint at it.
-  foot: 0x14202b, footA: 0.22, foot_px: 4,
+  // NO FOOT AT ALL SINCE THE CORAL BRANCHED, and the two attempts to keep one are why. It began
+  // as a near-black band at alpha 0.5 -- a fair ground shadow under a solid slab, a dark TRAY under
+  // an open thicket, with the coral reading as plants glued to a plank. Softening it to 0.22 only
+  // made a fainter plank. The shape of the shadow was the problem: a RECTANGLE under a thing that
+  // is not rectangular announces the collider and contradicts the art in the same stroke. Owner,
+  // 2026-08-23: "remove the dark rectangle under". The thicket shows where the wall is by itself.
+  footA: 0, foot_px: 0,
   body: 0x67213d,
   // CORAL BRANCHES. Owner's reference, 2026-08-23, after rejecting two revisions: flat vector
   // staghorn — a thick stem forking into fingers, one saturated fill, a dark outline, pale tips.
@@ -8235,9 +8237,27 @@ export const SPUR_VIS = Object.freeze({
   //   reachMax    the furthest a colony's tip may sit from its own base. run RS.e checks THIS
   //               against the ridge half-thickness, so it is the number that keeps the art inside
   //               the wall — trunkLen x (1 + lenFall + lenFall^2), rounded up.
-  trunks: 3, depth: 2, trunkLen: 15, lenFall: 0.68, widthFall: 0.62,
-  branchW: 5.4, spread: 0.62, colonyEvery: 24, reachMax: 32,
-  tipR: 2.2, outlinePx: 2.4,
+  //   trunks      stems leaving one colony's base, spread evenly around it
+  //   depth       forks per stem. 3 gives 8 fingers a stem, which is where it starts reading as
+  //               fractal rather than as a Y — the owner's word, and the reason it is not 2
+  //   lenFall/widthFall  each fork shorter and thinner than its parent: this IS the antler read
+  //   spread      radians between siblings at a fork, jittered per fork so no two colonies match
+  //   colonyEvery px between colony bases ALONG the spine
+  //   reachLo/Hi  a colony's total reach as a fraction of the space it has (half-thickness plus
+  //               PLAYER.radius). SCALED TO THE RIDGE rather than a fixed px reach, which is what
+  //               keeps tips inside the wall on a thin ridge without a clamp flattening them all
+  //               onto one line — and the SPREAD between lo and hi is what makes the outline
+  //               ragged instead of a machined edge.
+  //   spineJitter how far off the centre line a base may sit, as a fraction of the half-thickness.
+  //               Small on purpose: every base near the spine is what makes the middle dense and
+  //               the edges thin, i.e. a sprout rather than a rectangle packed with coral.
+  trunks: 4, depth: 3, lenFall: 0.66, widthFall: 0.66,
+  branchW: 5.6, spread: 0.66, colonyEvery: 21,
+  reachLo: 0.45, reachHi: 1.0, spineJitter: 0.16,
+  //   tipMix  how far each bud is lightened from its OWN colony's tone toward `tip`. Not 1: at
+  //           depth 3 there are 32 buds per colony, so a single cream for all of them stops being
+  //           an accent and becomes the ridge's dominant colour.
+  tipR: 2.0, outlinePx: 2.2, tipMix: 0.55,
   wall: 96,
   // `bump`, `bumpOut`, `bumpGap` and `lobes` USED TO LIVE HERE and are gone with the pass that read
   // them. They described a single spine of same-coloured circles inset inside the band, which drew

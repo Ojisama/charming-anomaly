@@ -11669,11 +11669,10 @@ const spurG = new Graphics()
       ? spurG.roundRect(f - half - grow, c0 - grow, half * 2 + grow * 2, c1 - c0 + grow * 2, r)
       : spurG.roundRect(c0 - grow, f - half - grow, c1 - c0 + grow * 2, half * 2 + grow * 2, r))
     const dot = (f, c, r) => (xAxis ? spurG.circle(f, c, r) : spurG.circle(c, f, r))
-    // 1. The foot. A wider, near-black shadow under the whole ridge so it sits ON the sand rather
-    //    than floating over it, and the only pass allowed to overshoot the groove edge — a shadow
-    //    falling a few px into a channel is what a raised thing does, and it is not the collider.
-    for (const [f, c0, c1, half] of segs) band(f, half, c0, c1, V.foot_px, 12)
-    spurG.fill({ color: V.foot, alpha: V.footA })
+    // 1. NO FOOT. A ground shadow under the ridge used to sit here, and it was a RECTANGLE — which
+    //    is fine under a slab and wrong under a sprout: it announced the collider's exact shape
+    //    behind art that is deliberately not that shape. See SPUR_VIS's own note. The coral is the
+    //    only thing drawn now.
     // 2. The body: the flush band that IS the groove edge, drawn at exactly the collider's size,
     //    which is the whole reason the gap you can see is the gap you can swim through. At spurArt 0
     //    this is the entire ridge (the shipped flat slab, kept only for the A/B).
@@ -11710,39 +11709,57 @@ const spurG = new Graphics()
       else { spurG.moveTo(c0, f0); spurG.lineTo(c1, f1) }
     }
     const byTone = V.tones.map(() => [])
-    const tips = []
+    const tips = V.tones.map(() => [])
     // LEVEL, not a float width. Pixi strokes the whole path built so far, so segments have to be
     // BATCHED by width — and a level index buckets exactly where a repeatedly-multiplied float
     // does not. There are only depth+1 widths in the whole field.
     const W = []
     for (let i = 0; i <= V.depth; i++) W.push(V.branchW * Math.pow(V.widthFall, i))
-    const grow = (out, f0, c0, ang, len, lvl) => {
+    // Total reach of a stem, as a multiple of its first segment: the geometric series the forks
+    // walk. Used to size trunkLen so a colony's TIPS land where its reach says, which is what lets
+    // the reach be expressed as a fraction of the ridge rather than as a px constant.
+    let lenSum = 0
+    for (let i = 0; i <= V.depth; i++) lenSum += Math.pow(V.lenFall, i)
+    const grow = (out, tipOut, f0, c0, ang, len, lvl) => {
       const f1 = f0 + Math.cos(ang) * len
       const c1 = c0 + Math.sin(ang) * len
       out.push([f0, c0, f1, c1, lvl])
-      if (lvl >= V.depth) { tips.push([f1, c1, Math.max(V.tipR, W[lvl] * 0.52)]); return }
+      if (lvl >= V.depth) { tipOut.push([f1, c1, Math.max(V.tipR, W[lvl] * 0.52)]); return }
       const j = hash(f1 * 3.1, c1 * 1.7)
-      const sp = V.spread * (0.65 + j * 0.7)
-      grow(out, f1, c1, ang - sp, len * V.lenFall, lvl + 1)
-      grow(out, f1, c1, ang + sp, len * V.lenFall, lvl + 1)
+      const sp = V.spread * (0.62 + j * 0.8)
+      grow(out, tipOut, f1, c1, ang - sp, len * V.lenFall, lvl + 1)
+      grow(out, tipOut, f1, c1, ang + sp, len * V.lenFall, lvl + 1)
     }
+    // GROWN FROM A SPINE, NOT PACKED INTO A BOX. Bases sit on the ridge's centre line (± a small
+    // spineJitter) and every stem radiates outward from there, so the trunks all overlap down the
+    // middle and only the outermost tips reach the edges: dense at the core, thinning and ragged
+    // at the rim. Spreading bases evenly across the thickness — which is what the previous
+    // revision did — fills the band uniformly right up to its corners, and the eye reads that as
+    // "a rectangle with coral in it" however organic each individual colony is. The silhouette is
+    // the subject, and the silhouette is made by WHERE things are, not by what they look like.
     for (const [f, c0, c1, half] of segs) {
+      const room = half + PLAYER.radius
       const n = Math.max(1, Math.round((c1 - c0) / V.colonyEvery))
       for (let k = 0; k <= n; k++) {
         const h1 = hash(f + k * 5.3, c0 + k * 2.1)
         const h2 = hash(c0 + k * 7.9, f - k * 4.3)
-        const cc = c0 + ((c1 - c0) * k) / n + (h1 - 0.5) * V.colonyEvery * 0.7
+        const cc = c0 + ((c1 - c0) * k) / n + (h1 - 0.5) * V.colonyEvery * 0.8
         if (cc < c0 - 4 || cc > c1 + 4) continue
-        // Bases sit inside the band by their own reach, so no tip can leave the wall. The band is
-        // widened by PLAYER.radius first because blockOnCoral holds the player exactly that far
-        // clear of it — coral drawn out to there is coral they genuinely cannot enter, which is
-        // the one liberty this art is allowed to take with the collider.
-        const room = Math.max(0, half + PLAYER.radius - V.reachMax)
-        const ff = f + (h2 - 0.5) * 2 * room
-        const tone = byTone[Math.floor(h2 * V.tones.length) % V.tones.length]
+        // Reach as a fraction of the space this ridge actually has, MINUS however far off the spine
+        // this base sits. Subtracting the offset is not tidiness: a base jittered half*spineJitter
+        // off centre and then given the full room reaches that much PAST the wall — about 7px of
+        // coral hanging over a channel the player is meant to swim through, which is precisely the
+        // drawn-vs-collider gap the rest of this block exists to prevent.
+        //
+        // The lo..hi SPREAD is the ragged outline: a run of colonies all at 1.0 traces the band's
+        // own rectangle again, which is the thing this whole revision is trying to stop looking like.
+        const off = (h1 - 0.5) * 2 * half * V.spineJitter
+        const reach = (room - Math.abs(off)) * (V.reachLo + (V.reachHi - V.reachLo) * h2)
+        const ff = f + off
+        const ti = Math.floor(h2 * V.tones.length) % V.tones.length
         for (let t = 0; t < V.trunks; t++) {
           const ang = (t / V.trunks) * Math.PI * 2 + h1 * Math.PI * 2
-          grow(tone, ff, cc, ang, V.trunkLen * (0.8 + h1 * 0.45), 0)
+          grow(byTone[ti], tips[ti], ff, cc, ang, (reach / lenSum) * (0.85 + h2 * 0.3), 0)
         }
       }
     }
@@ -11768,9 +11785,21 @@ const spurG = new Graphics()
         if (any) spurG.stroke({ color: V.tones[t], width: W[l], cap: 'round', join: 'round' })
       }
     }
-    // The buds. Last, so a tip is never overdrawn by the branch of a colony grown after it.
-    for (const [f, c, r] of tips) dot(f, c, r)
-    spurG.fill({ color: V.tip })
+    // The buds, IN EACH COLONY'S OWN TONE lightened toward V.tip rather than all in one cream.
+    // depth 3 puts 8 tips on every stem and 32 on every colony, so a single pale bud colour is not
+    // an accent, it is the dominant mass — the first cut of this washed the whole ridge to cream
+    // and buried the orange, red and teal underneath their own tips. Lightening each colony's tone
+    // keeps the bud reading as a bud while leaving the colony its identity.
+    const lighten = (hex, t) => {
+      const r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255
+      const tr = (V.tip >> 16) & 255, tg = (V.tip >> 8) & 255, tb = V.tip & 255
+      return ((r + (tr - r) * t) << 16 | (g + (tg - g) * t) << 8 | (b + (tb - b) * t)) & 0xffffff
+    }
+    for (let t = 0; t < tips.length; t++) {
+      if (!tips[t].length) continue
+      for (const [f, c, r] of tips[t]) dot(f, c, r)
+      spurG.fill({ color: lighten(V.tones[t], V.tipMix) })
+    }
   }
   // ---- The Reef: Fire Coral's lit ridges (v7.x) -------------------------------------------------
   // run.polyps, drawn from the SAME snapshot stepPolyps damages against, through the SAME

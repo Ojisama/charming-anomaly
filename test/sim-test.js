@@ -21495,8 +21495,10 @@ function testReefSpurScrape() {
   // deleted and the colonies free to grow across the channel the player must swim through.
   {
     const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    assert.ok(/const room = Math\.max\(0, half \+ PLAYER\.radius - V\.reachMax\)/.test(rsrc),
-      'run RS.a: syncSpurs no longer keeps colony bases a full reachMax inside half + PLAYER.radius — the drawn coral and the wall the player is held off by have come apart')
+    assert.ok(/const reach = \(room - Math\.abs\(off\)\) \*/.test(rsrc),
+      'run RS.a: a colony\'s reach no longer pays for its own spine offset — a base jittered off centre then given the full room hangs coral over the channel the player swims through')
+    assert.ok(/const room = half \+ PLAYER\.radius/.test(rsrc),
+      'run RS.a: syncSpurs no longer sizes colonies against half + PLAYER.radius — the drawn coral and the wall the player is held off by have come apart')
   }  // ...and the RATE keeps the band its own block claims. SPUR_DPS is priced against the flat DoTs
   // that share its `dot: true` rules — the chapter's own drowning at the bottom, SLICK/SOAP 6 at
   // the top — and it has to stay between them: over, and a soaped groove stops being worse than the
@@ -21766,8 +21768,11 @@ function testReefSpurScrape() {
       // and every colony on a thin ridge then grows from the same place. Checked per ridge against
       // the thinnest the field can make, not against the spec's mean, for the same reason the rest
       // of this block is per-ridge.
-      assert.ok(SPUR_VIS.reachMax <= sp.thick / 2 + PLAYER.radius,
-        `run RS.e: ridge ${i} is ${sp.thick.toFixed(1)}px thick (half ${(sp.thick / 2).toFixed(1)} + ${PLAYER.radius} of reach) but a colony reaches ${SPUR_VIS.reachMax}px — it outgrows its own ridge and thickVar stops being visible`)
+      // Reach is a FRACTION of each ridge's own room now, not a px constant, so the bound is
+      // structural and holds on every ridge the field can make rather than on the mean. reachHi
+      // above 1 puts coral outside the wall on ALL of them at once.
+      assert.ok(SPUR_VIS.reachHi <= 1 && SPUR_VIS.reachLo > 0 && SPUR_VIS.reachLo < SPUR_VIS.reachHi,
+        `run RS.e: colony reach spans ${SPUR_VIS.reachLo}..${SPUR_VIS.reachHi} of each ridge's room — above 1 the coral leaves the wall, and lo === hi makes every colony the same size and traces the band's rectangle back`)
     }
     const mean = ts.reduce((a, b) => a + b, 0) / ts.length
     const lo = Math.min(...ts), hi = Math.max(...ts)
