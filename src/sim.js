@@ -179,6 +179,8 @@ import {
   ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_LAST_GAP,
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
   ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_COMMIT_SEEK_R, ORCA_BITE_R,
+  ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
+  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
@@ -4558,6 +4560,47 @@ function orcaBite(run, o) {
   }
 }
 
+// THE BOW WAVE. Everything within ORCA_WAKE_R of the body during a commit is thrown PERPENDICULAR
+// to the locked line, to whichever side it already sits on - owner ruling 2026-08-23, "it should
+// have a massive impact on the battlefield, like pushing everything to each side". What the strike
+// leaves behind is therefore a cleared corridor with the crowd banked along both edges, which is a
+// battlefield the player has to read, rather than a few fish quietly missing.
+//   PERPENDICULAR, NOT RADIAL, and that is the same correction the ring itself already carries: a
+// radial shove off a body moving at ORCA_COMMIT_SPEED spends most of its budget pushing bodies
+// BACKWARD along a line the orca has already left. Only the normal component opens a corridor.
+// ⚠ EVERYTHING, not just prey - the bite is prey-only because an uncredited elite death is theft,
+// but being shoved costs nothing. Only `anchored` (resistsCC) is exempt, the shipped rule for every
+// other shove in the game.
+// ⚠ NOT CC-BUDGETED. claimKb/spendCC exist so a weapon cannot chain-lock a crowd; this is water
+// moving, it happens twice a visit, and running it through the budget would let an orca pass
+// silently eat the player's next nova knockback.
+function orcaWake(run, o, dt) {
+  const nx = -o.dirY, ny = o.dirX   // unit normal to the locked line
+  const r2 = ORCA_WAKE_R * ORCA_WAKE_R
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e) || resistsCC(e)) continue
+    const dx = e.x - o.x, dy = e.y - o.y
+    const d2 = dx * dx + dy * dy
+    if (d2 > r2) continue
+    // A body dead on the line has no side to be thrown to. Sign the zero rather than leaving it
+    // sitting in the path - `>= 0` picks one deterministically, which the suite's seeding needs.
+    const sg = dx * nx + dy * ny >= 0 ? 1 : -1
+    const falloff = 1 - Math.sqrt(d2) / ORCA_WAKE_R
+    e.kb.x += nx * sg * ORCA_WAKE_FORCE * falloff * dt
+    e.kb.y += ny * sg * ORCA_WAKE_FORCE * falloff * dt
+  }
+  // The player rides it too, as a plain velocity: nothing decays p.x, so an acceleration here
+  // would launch them. Away from the line by construction, so it can only ever help the dodge.
+  const p = run.player
+  const dx = p.x - o.x, dy = p.y - o.y
+  const d2 = dx * dx + dy * dy
+  if (d2 > r2) return
+  const sg = dx * nx + dy * ny >= 0 ? 1 : -1
+  const falloff = 1 - Math.sqrt(d2) / ORCA_WAKE_R
+  p.x += nx * sg * ORCA_WAKE_PLAYER * falloff * dt
+  p.y += ny * sg * ORCA_WAKE_PLAYER * falloff * dt
+}
+
 // Returns true if the player died, matching stepRocks/stepPools' contract — it is called from
 // stepSim's `if (stepX(...)) return` group for that reason.
 // -- The Orca (v7.x, The Wreck — chapters declaring `orca: true`) --------------------------------
@@ -4615,7 +4658,7 @@ function stepOrca(run, dt) {
       cx: p.x, cy: p.y, r: ORCA_RING_R, ang: bearing,
       x: p.x + Math.cos(bearing) * ORCA_RING_R,
       y: p.y + Math.sin(bearing) * ORCA_RING_R,
-      dirX: 0, dirY: 0, hit: false, alpha: 0,
+      dirX: 0, dirY: 0, hit: false, alpha: 0, passes: ORCA_COMMITS,
     }
     run.events.push({ type: 'orcaRise', x: p.x, y: p.y })
     return false
@@ -4651,15 +4694,23 @@ function stepOrca(run, dt) {
     return false
   }
   if (o.state === 'rising') {
-    // The shadow closes on the player, so it passes UNDER them. That IS the telegraph — owner:
-    // "very telegraph with a big shadow underneath you". No collision in this state.
+    // IT SURFACES UNDERNEATH YOU AND SLIDES OUT TO THE RING, rather than fading up already parked
+    // on it. Owner: "very telegraph with a big shadow underneath you", and again 2026-08-23, "the
+    // SHADOW IS SPIRALING IN FROM UNDERNEATH". No collision in this state.
+    //   ⚠ THIS IS A PHONE FIX AS MUCH AS A STAGING ONE, and it was shot before it was written. The
+    // ring is 440px and a 390x844 screen is 195px half-wide, so a silhouette parked out on the ring
+    // is OFF SCREEN for the sideways part of every lap — and in the first second there is no coil
+    // drawn yet either, so the opening of the build was a completely empty frame on the device the
+    // game is played on. Starting it at the ring's centre puts the biggest thing in the chapter
+    // directly under the player for the one beat that had nothing in it at all.
     o.cx += (p.x - o.cx) * Math.min(1, dt * 2.5)
     o.cy += (p.y - o.cy) * Math.min(1, dt * 2.5)
     o.ang += ORCA_ORBIT_RATE * 0.5 * dt
-    o.x = o.cx + Math.cos(o.ang) * o.r
-    o.y = o.cy + Math.sin(o.ang) * o.r
-    o.alpha = 1 - Math.max(0, o.t) / ORCA_RISE_DUR
-    if (o.t <= 0) { o.state = 'circling'; o.t = ORCA_CIRCLE_DUR; o.alpha = 1 }
+    const out = 1 - Math.max(0, o.t) / ORCA_RISE_DUR
+    o.x = o.cx + Math.cos(o.ang) * o.r * out
+    o.y = o.cy + Math.sin(o.ang) * o.r * out
+    o.alpha = out
+    if (o.t <= 0) { o.state = 'circling'; o.t = ORCA_CIRCLE_DUR; o.alpha = 1; o.trail = [] }
     return false
   }
   if (o.state === 'circling') {
@@ -4667,11 +4718,24 @@ function stepOrca(run, dt) {
     // commit is not a dodge, it is a scheduled hit.
     o.cx += (p.x - o.cx) * Math.min(1, dt * 1.2)
     o.cy += (p.y - o.cy) * Math.min(1, dt * 1.2)
-    o.ang += ORCA_ORBIT_RATE * dt
     const k = 1 - Math.max(0, o.t) / ORCA_CIRCLE_DUR
-    o.r = ORCA_RING_R + (ORCA_RING_MIN_R - ORCA_RING_R) * k
+    // THE COIL TIGHTENS AND QUICKENS AT ONCE, which is the whole difference between a spiral and a
+    // corner — see the ORCA_ORBIT_RATE block for the three reasons the first cut read as circling.
+    // The rate RAMPS to x(1 + ORCA_SPIRAL_ACCEL) and the radius holds wide before plunging, so the
+    // last second is a whip rather than the same lap done smaller.
+    o.ang += ORCA_ORBIT_RATE * (1 + ORCA_SPIRAL_ACCEL * k) * dt
+    o.r = ORCA_RING_MIN_R + (ORCA_RING_R - ORCA_RING_MIN_R) * (1 - Math.pow(k, ORCA_SPIRAL_EASE))
     o.x = o.cx + Math.cos(o.ang) * o.r
     o.y = o.cy + Math.sin(o.ang) * o.r
+    // THE SWEPT PATH, published for render to stroke. A coil you can SEE is a coil; the ring tell
+    // this replaces drew a circle at the current radius, which reads as a circle whatever moves
+    // inside it. Sim owns positions and render only reads them, the same split every other tell
+    // here uses — render cannot re-derive this without a second copy of the two curves above.
+    // `??=` because a hand-built fixture (run OR.c, the fx-probe scenes) poses a 'circling' orca
+    // without one, and `undefined.push` would take the whole chapter down.
+    const tr = (o.trail ??= [])
+    tr.push(o.x, o.y)
+    if (tr.length > ORCA_TRAIL_MAX * 2) tr.splice(0, tr.length - ORCA_TRAIL_MAX * 2)
     if (o.t <= 0) {
       // The line is locked HERE, at the moment it breaks orbit, and never re-aimed. That is what
       // makes it dodgeable — a strike that tracked would be unavoidable and therefore not a move.
@@ -4703,13 +4767,34 @@ function stepOrca(run, dt) {
         if (hurtPlayer(run, p.maxHP * ORCA_DMG_FRAC, false, 'orca')) return true
       }
     }
+    // AFTER the contact check on purpose: the shove must not be able to carry the player out of a
+    // hit they were already standing in, only out of the one coming next frame.
+    orcaWake(run, o, dt)
     if (o.t <= 0) { o.state = 'leaving'; o.t = ORCA_LEAVE_DUR }
     return false
   }
   o.x += o.dirX * ORCA_COMMIT_SPEED * 0.4 * dt
   o.y += o.dirY * ORCA_COMMIT_SPEED * 0.4 * dt
   o.alpha = Math.max(0, o.t) / ORCA_LEAVE_DUR
-  if (o.t <= 0) run.orca = null
+  if (o.t > 0) return false
+  // ORCA_COMMITS LINES PER VISIT. One line is one sidestep and then the visit is over, which is
+  // half of why it read as easy to avoid. It does not end at the first overshoot: it fades out,
+  // comes back up on a fresh bearing and re-aims at wherever the shoal has RE-FORMED - which after
+  // a pass is usually the bank its own wake just made.
+  //   REBUILT THROUGH THE SAME FIELDS THE SPAWN WRITES, and re-entering `rising` rather than
+  // `circling` is load-bearing: leaving has already faded alpha to 0 and rising ramps it back from
+  // 0, so the body never teleports across the ring on a visible frame. The second telegraph is
+  // therefore identical to the first, which is what keeps it a dodge and not a scheduled hit.
+  const left = (o.passes ?? ORCA_COMMITS) - 1
+  if (left <= 0) { run.orca = null; return false }
+  const bearing = Math.random() * Math.PI * 2
+  o.passes = left
+  o.state = 'rising'; o.t = ORCA_RISE_DUR; o.alpha = 0
+  o.cx = p.x; o.cy = p.y; o.r = ORCA_RING_R; o.ang = bearing
+  o.x = p.x + Math.cos(bearing) * ORCA_RING_R
+  o.y = p.y + Math.sin(bearing) * ORCA_RING_R
+  o.dirX = 0; o.dirY = 0; o.hit = false; o.trail = null
+  run.events.push({ type: 'orcaRise', x: p.x, y: p.y })
   return false
 }
 
