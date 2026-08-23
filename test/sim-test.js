@@ -22682,6 +22682,24 @@ function testReefSpurScrape() {
     const gsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
     assert.ok(/const cav = caveAt\(fw, cspec, run\._obstacleSeed\)/.test(gsrc),
       'run RS.a: the drawn cave wall no longer comes from caveAt — the coral you can see has stopped being the wall that stops you')
+    // ⚠ THE LAYOUT MAY NOT DEPEND ON WHERE THE PLAYER IS. The field rebuilds once per ridge
+    // crossing (2.33s at this scroll), and the placement used to start its walk at the player's own
+    // position -- so every rebuild moved every colony and the whole reef re-randomised itself every
+    // couple of seconds while the player watched. Nothing in this suite could see it: the geometry
+    // was correct on any single frame, and only the CHANGE between two of them was wrong.
+    //
+    // A world cell index is the fix and this is its guard: the key must come from a floor of an
+    // absolute position, and nothing in the placement may be hashed off drawF.
+    assert.ok(/const k0 = Math\.floor\(\(drawF - V\.drawWithin\) \/ step\)/.test(gsrc),
+      'run RS.a: coral placement is no longer keyed on a world cell — if it is anchored to the player again, the whole reef re-randomises on every rebuild')
+    // ⚠ COMMENTS STRIPPED FIRST, AND THAT LINE IS LOAD-BEARING. This is a NEGATIVE lint, so the
+    // prose explaining the defect it prevents matches it: the comment above syncSpurs' cell walk
+    // names `hash(drawF ...)` as the thing that used to be wrong, and the check fired on its own
+    // explanation the first time it ran. Run MB.a in this file learned the same lesson from the
+    // other direction -- a positive grep satisfied by a comment while the code was gone.
+    const gcode = gsrc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
+    assert.ok(!/hash\(drawF/.test(gcode),
+      'run RS.a: something in the coral placement is hashed off the PLAYER position (drawF) — that is exactly what made the layout change every 2.3 seconds')
     assert.ok(/const edge = cav\.c \+ sign \* cav\.hw/.test(gsrc),
       'run RS.a: the wall no longer starts at the passage edge — coral placed any other way can reach across the channel the player is meant to swim down')
   }

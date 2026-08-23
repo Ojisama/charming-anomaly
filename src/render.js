@@ -12562,9 +12562,24 @@ const spurG = new Graphics()
       const step = V.colonyEveryLo + (V.colonyEveryHi - V.colonyEveryLo) * 0.5
       // Only what the screen can show, plus a colony's reach so nothing pops in at the edge.
       const halfCross = (xAxis ? viewH() : viewW()) / 2 + V.bakeReach
-      let fw = drawF - V.drawWithin + hash(drawF * 0.11, 3.3) * step
-      const fEnd = drawF + V.drawWithin
-      for (let n = 0; fw < fEnd && n < 4096; n++, fw += step * (V.gapLo + hash(fw * 2.7, 7.1) * (V.gapHi - V.gapLo))) {
+      // ⚠ KEYED ON A WORLD CELL, NEVER ON THE PLAYER. This was a cumulative walk that began at
+      // `drawF - drawWithin + hash(drawF ...)` -- the player's own position at rebuild time. The
+      // field rebuilds once per ridge crossing (210px / 90px/s = 2.33s), and every rebuild handed
+      // the walk a different starting point, so the start phase moved AND the whole accumulated
+      // sequence of positions moved with it. The entire reef re-randomised itself every 2.3
+      // seconds while the player watched. Owner: "why does the coral layout change every 3s?"
+      //
+      // A cell index is absolute, so a given stretch of reef draws the same colonies whoever is
+      // looking at it and whenever the rebuild happens. The raggedness that the walk existed for
+      // survives: cellEmpty leaves gaps and cellDouble puts two in one cell, which is the same
+      // clump-and-thin the accumulated gaps gave, minus the anchoring bug.
+      const k0 = Math.floor((drawF - V.drawWithin) / step)
+      const k1 = Math.ceil((drawF + V.drawWithin) / step)
+      for (let k = k0; k <= k1; k++) {
+        const hN = hash(k * 1.7, 91.3)
+        const cnt = hN < V.cellEmpty ? 0 : hN > 1 - V.cellDouble ? 2 : 1
+        for (let m = 0; m < cnt; m++) {
+        const fw = (k + (m + hash(k * 3.1 + m * 5.9, 7.7)) / Math.max(1, cnt)) * step
         const cav = caveAt(fw, cspec, run._obstacleSeed)
         for (const sign of [-1, 1]) {
           // From the passage edge outward. Packed until the coral leaves the screen, not until it
@@ -12592,6 +12607,7 @@ const spurG = new Graphics()
             })
             d += Math.max(10, reach * 0.8)
           }
+        }
         }
       }
     }

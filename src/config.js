@@ -8509,7 +8509,12 @@ export const SPUR_VIS = Object.freeze({
   // neighbour rather than its first. Swept independently: dropping reachHi from 1.0 to 0.30 never
   // took the widest hole past 22px, so the GAP dominates and the reach does not.
   branchW: 5.6,
-  colonyEveryLo: 12, colonyEveryHi: 20, gapLo: 0.45, gapHi: 1.6,
+  //   colonyEveryLo/Hi  the world CELL a colony is placed in, and the range each ridge draws from
+  //   cellEmpty/cellDouble  share of cells that hold no colony / two of them. This is what makes
+  //                     the density ragged -- knots where two land together, thin shoulders where
+  //                     none does -- and it replaces a cumulative walk of hashed gaps that produced
+  //                     the same look but could not be anchored (see syncSpurs).
+  colonyEveryLo: 12, colonyEveryHi: 20, cellEmpty: 0.22, cellDouble: 0.26,
   reachLo: 0.45, reachHi: 1.0, spineJitter: 0.16,
   //   tipMix  how far each bud is lightened from its OWN colony's tone toward `tip`. Not 1: at
   //           depth 3 there are 32 buds per colony, so a single cream for all of them stops being
