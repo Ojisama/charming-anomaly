@@ -30,7 +30,7 @@
 import {
   RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
-  MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
+  MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, DUO_PITY_SCREENS, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
   ELEMENTS, MAX_ELEMENT_PICKS,
   // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
   // it must NEVER be used to WALK the ladder. A failed roll deflecting onto the next tier is what
@@ -11026,8 +11026,42 @@ function shuffleInPlace(arr) {
 // any candidate at all, so the sample decides WHICH mods are offered, never HOW OFTEN. It can no
 // longer crowd out weapon/passive/
 // element cards.
-function eligibleWeaponModCandidates(run) {
+// THE DUO BOONS LIVE RIGHT NOW, AND THE ONLY PLACE THAT GATE IS AUTHORED. Two readers depend on
+// agreeing screen for screen: eligibleWeaponModCandidates RESERVES a pool slot for each of these,
+// and stepLevelUp banks a dry screen against each one it did not offer. A second copy of the gate
+// would let them disagree — pity accruing on screens the pool could never spend it on, which is
+// this repo's largest defect class (one fact in two places, no import between them).
+// `needs` is the whole scarcity of the card: it is a mod on weapon A that pays out through weapon
+// B, so it cannot exist until the run holds both. Everything else here is the ordinary pick cap.
+function liveDuoMods(run) {
+  const focus = specialistFocus(run)
+  const live = []
+  for (const w of run.weapons) {
+    const modCfgs = WEAPON_MODS[w.id]
+    if (!modCfgs) continue
+    for (const modId of Object.keys(modCfgs)) {
+      const needs = modCfgs[modId].needs
+      if (!needs || !run.weapons.some((o) => o.id === needs)) continue
+      if ((run.weaponModPicks[w.id]?.[modId] ?? 0) >= modPickCap(w.id, modId, focus)) continue
+      live.push({ weapon: w.id, mod: modId })
+    }
+  }
+  return live
+}
+
+// Exported for run DB in test/sim-test.js only: the reserved slot is a property of the POOL, and
+// asserting it through buildLevelUpChoices would only ever be a rate with a band around it.
+export function eligibleWeaponModCandidates(run) {
   const candidates = []
+  // A DUO BOON IS RESERVED, NOT DRAWN (2026-08-23). It holds one of its weapon's
+  // MOD_CANDIDATES_PER_WEAPON slots outright from the moment the pair is complete, instead of
+  // taking its chances in the shuffle below with every ordinary mod — Silt Flush was competing for
+  // 2 of Downwash's 8 slots, so it was absent from three pools in four before the rarity roll had
+  // even looked at it. Reserved WITHIN the weapon's budget rather than on top of it, so the pool's
+  // size is untouched and this cannot become a stealth widening of the mod bucket.
+  const reserved = liveDuoMods(run)
+  const reservedFor = new Map()
+  for (const d of reserved) reservedFor.set(d.weapon, [...(reservedFor.get(d.weapon) ?? []), d.mod])
   // SPECIALIST (v7.5) widens its named weapon HERE as well as at the per-screen cap, and the pool
   // ceiling with it. Lifting only the cap is inert: MOD_CANDIDATES_PER_WEAPON = 2 means a weapon
   // never HAS a third distinct mod on the screen to place, and `pickedIds` forbids repeating one.
@@ -11054,22 +11088,29 @@ function eligibleWeaponModCandidates(run) {
       // and the pool can never disagree about what a weapon's cap is.
       && (picks?.[modId] ?? 0) < modPickCap(w.id, modId, focus)
       // A DUO BOON declares the OTHER weapon it is made of (`needs`, see the WEAPON_MODS header
-      // in config.js) and is simply not a candidate until that weapon is held too. The gate is
-      // here and nowhere else on purpose: devCards ignores eligibility by design, so the dev
-      // list still offers it, and the fire sites fall back to the veil's level-1 numbers.
-      && (!modCfgs[modId].needs || run.weapons.some((o) => o.id === modCfgs[modId].needs)))
+      // in config.js) and is not drawn here AT ALL — liveDuoMods above owns its gate, and the
+      // reserved slot below places it. Excluding the whole class rather than filtering it in is
+      // what keeps that gate authored once: devCards still ignores eligibility by design, and the
+      // fire sites still fall back to the veil's level-1 numbers.
+      && !modCfgs[modId].needs)
     shuffleInPlace(owned)
     // SPECIALIST's price: every weapon that is NOT the focus puts one fewer mod in the pool. Only
     // charged when a focus actually exists, and floored at 1 so a weapon is never silenced.
     const per = focus && w.id !== focus
       ? Math.max(1, MOD_CANDIDATES_PER_WEAPON - SPECIALIST_OTHER_PENALTY)
       : MOD_CANDIDATES_PER_WEAPON
-    for (const modId of owned.slice(0, per)) candidates.push({ weapon: w.id, mod: modId })
+    const duo = reservedFor.get(w.id) ?? []
+    for (const modId of duo) candidates.push({ weapon: w.id, mod: modId })
+    for (const modId of owned.slice(0, Math.max(0, per - duo.length))) candidates.push({ weapon: w.id, mod: modId })
   }
   if (candidates.length <= MOD_POOL_MAX) return candidates
 
-  const pool = candidates.slice()
-  const sampled = []
+  // The trim samples the ORDINARY candidates only. A reserved boon that survived the per-weapon
+  // budget and was then dropped here would leave pity armed with nothing in the pool to spend it
+  // on — the counter would keep climbing and the guarantee would silently slip a screen at a time.
+  const keep = candidates.filter((c) => WEAPON_MODS[c.weapon][c.mod].needs)
+  const pool = candidates.filter((c) => !WEAPON_MODS[c.weapon][c.mod].needs)
+  const sampled = keep
   while (sampled.length < MOD_POOL_MAX && pool.length > 0) {
     const idx = Math.floor(Math.random() * pool.length)
     sampled.push(pool.splice(idx, 1)[0])
@@ -11525,6 +11566,32 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   }
 
   if (bucket === 'mod') {
+    // PITY FIRST, before any rarity is consulted. A duo boon that has been live for
+    // DUO_PITY_SCREENS screens without being offered simply takes this card. It has to jump the
+    // rarity roll rather than be weighted into it, because the rarity roll IS the thing that was
+    // hiding it: `values: { epic: N }` makes the boon a candidate on 7% of mod rolls, and no
+    // weight inside the other 93% can reach a card that is not in `ok` at all.
+    // It draws NO Math.random on the ordinary path (the filter alone decides), so every seeded
+    // fixture in the suite is untouched on a screen with nothing armed.
+    const armed = modOpts.filter((mc) => (run._duoDry?.[mc.mod] ?? 0) >= DUO_PITY_SCREENS)
+    if (armed.length > 0) {
+      const mc = armed.length === 1 ? armed[0] : armed[Math.floor(Math.random() * armed.length)]
+      const cfg = WEAPON_MODS[mc.weapon][mc.mod]
+      // Built at a tier the card ACCEPTS, renormalised over its own `values` keys — the
+      // makePassiveCard idiom, and for its reason: a fixed ladder walk would hand every future
+      // two-tier boon the same tier forever. A boon with no `values` takes the screen's own roll.
+      let tier = rarity
+      if (cfg.values) {
+        const w = {}
+        for (const r of Object.keys(cfg.values)) if (rarityWeights[r]) w[r] = rarityWeights[r]
+        if (Object.keys(w).length > 0) tier = pickWeighted(w)
+      }
+      const built = makeWeaponModCard(run, mc.weapon, mc.mod, tier)
+      // No fallback if it declines even its own table (BLIND FAITH's floor could strip every key):
+      // the credit stays banked and the boon takes the next mod card instead. Forcing a card here
+      // would mean inventing a tier the mod never declared.
+      if (built) return built
+    }
     // A switch mod declines every rarity above normal (makeWeaponModCard returns null), so it is
     // only a CANDIDATE on a normal roll — restricting the pick preserves that. Picking first and
     // coercing the rarity down instead let a switch win its pick at any tier: measured 1.72x the
@@ -11568,7 +11635,17 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     // A switch has no magnitude for a reroll to enlarge, so it is built at the only tier it accepts
     // — which is also the tier its candidacy roll came up at. Everything else takes the decayed one.
     const isSwitch = WEAPON_MODS[mc.weapon][mc.mod].kind === 'switch'
-    return makeWeaponModCard(run, mc.weapon, mc.mod, isSwitch ? 'normal' : rarity)
+    const built = makeWeaponModCard(run, mc.weapon, mc.mod, isSwitch ? 'normal' : rarity)
+    // CANDIDACY AND SIZE ARE TWO DIFFERENT ROLLS ONCE A REROLL HAS BEEN PAID FOR (candRarity above
+    // is rolled on the undecayed table, `rarity` on the decayed one), and a `values` mod accepts
+    // only the tiers it lists. So a boon can win its slot at epic and then decline the tier it is
+    // BUILT at — makeWeaponModCard returns null, rollCard returns null, and buildLevelUpChoices
+    // breaks out of the slot loop: the reroll the player just bought hands back a SHORTER screen.
+    // Fall back to the tier it actually won on, which is the only tier it is known to accept.
+    // Latent since v6.7.11 and rare (0.35% of rerolled shelf screens) while a `values` mod had to
+    // survive the candidate draw first; reserving the duo boons puts one in EVERY shelf pool and
+    // took it to 1.36%. Same defect the element branch carries its own guard for.
+    return built ?? makeWeaponModCard(run, mc.weapon, mc.mod, candRarity)
   }
 
   const eid = elementOpts[Math.floor(Math.random() * elementOpts.length)]
@@ -11681,6 +11758,17 @@ function buildLevelUpChoices(run) {
     cards[slot] = { kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity, icon: cfg.icon }
   }
 
+  // DUO PITY IS SPENT WHEN THE BOON IS OFFERED, not when it is kept — the anomaly tier's contract,
+  // and for the same reason: resetting on the PICK would put the card back on screen every level
+  // until the player accepted it, which turns declining it into a nag rather than a decision.
+  // Read off the FINAL cards, below both the anomaly swap and the new-weapon floor, because either
+  // can overwrite the slot the boon landed in — a boon that was rolled and then deleted was never
+  // offered, and must not be charged for it. Zeroing here rather than in rollCard is what makes
+  // that reading possible at all.
+  for (const c of cards) {
+    if (c.kind === 'mod' && WEAPON_MODS[c.weapon]?.[c.id]?.needs && run._duoDry) run._duoDry[c.id] = 0
+  }
+
   return cards
 }
 
@@ -11718,6 +11806,13 @@ function stepLevelUp(run) {
   // so a run used to reach eligibility with about half a run of credit already banked, and the
   // rate ANOMALY_BASE_WEIGHT documents was never the rate any screen rolled at.
   if (eligibleAnomalyIds(run).length > 0) run._screensSinceAnomaly = (run._screensSinceAnomaly ?? 0) + 1
+  // Duo-boon pity, on the same terms and HERE for the same reason: a reroll re-deals the screen by
+  // calling the builder again, so a counter kept there would step on every paid re-deal and let
+  // coins buy the guarantee early. Credit accrues ONLY on screens the boon was live on — a run
+  // that completes the pair at level 20 starts its count at level 20, rather than arriving with
+  // twenty screens already banked and the boon on the very next card.
+  run._duoDry ??= {}
+  for (const d of liveDuoMods(run)) run._duoDry[d.mod] = (run._duoDry[d.mod] ?? 0) + 1
   run.levelUpChoices = buildLevelUpChoices(run)
   run.phase = 'levelup'
   run.events.push({ type: 'levelup' })

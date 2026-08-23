@@ -39,6 +39,7 @@ import {
   WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
+  MOD_CANDIDATES_PER_WEAPON, MOD_POOL_MAX, DUO_PITY_SCREENS,
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
@@ -152,7 +153,7 @@ import {
   GNASH_MAW_MUL, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   BALLAST_RING,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow, spurAt } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
 // ---- Scenario runner: a filter, and a --fast mode ---------------------------------------------
 // The suite is 71s, and 397 of its 430 assertion blocks finish in 4.4s TOTAL — the whole cost sits
@@ -7722,6 +7723,178 @@ function runModBudget() {
   console.log('PASS run MB (Book 2 chapters 1-2 mod budget): no inert cards across every weapon, four-plus apiece in both chapters, rate mods speed up, count mods land on bodies, and the three Pollution/clean-water cards pay the right way round — including that a fouled patch stops recharging you')
 }
 run(runModBudget)
+
+// ─── run DB: the duo boons actually reach the player ─────────────────────────────────────────
+// A DUO BOON is a weapon mod carrying `needs: '<weaponId>'` — a mod on weapon A that pays out
+// through weapon B (The Shelf's Silt Plume and Silt Flush, both throwing up Silt Veil's own
+// cloud). Holding the PAIR is already the card's whole scarcity, so the pool must not charge it
+// the ordinary lottery on top of it.
+// It shipped in v7.193.0 charging both, and was measured UNREACHABLE: offered on 0.6% of screens
+// and ~16% of runs, and scripts/pool-probe.mjs reported 0.0% deliverability over 5 shelf runs
+// that held the owning weapon in every single one. Nothing threw, no test went red, and the
+// author only found out by asking why he had never seen his own card.
+// Two mechanisms carry it now and EACH FAILS SILENTLY ON ITS OWN — a reserved candidate slot
+// nobody can see from the cards, and a pity counter that simply stops advancing. Hence the four
+// blocks below: the wiring, the pool, the guarantee, and the two ways the counter can be wrong.
+function runDuoBoons() {
+  // (a) WIRING. `needs` names a real weapon, and one the same chapter offers — a boon whose two
+  // halves live in different pools can never be completed by playing, only by the dev menu.
+  const duos = []
+  for (const [wid, mods] of Object.entries(WEAPON_MODS)) {
+    for (const [mid, cfg] of Object.entries(mods)) if (cfg.needs) duos.push([wid, mid, cfg.needs])
+  }
+  assert.ok(duos.length > 0, 'no mod in WEAPON_MODS declares `needs` — run DB is asserting on nothing')
+  for (const [wid, mid, needs] of duos) {
+    assert.ok(WEAPONS[needs], `${wid}.${mid} needs '${needs}', which is not a weapon id`)
+    const chapters = Object.entries(CHAPTERS).filter(([, ch]) => ch.weapons?.includes(wid) && ch.weapons.includes(needs))
+    assert.ok(chapters.length > 0,
+      `${wid}.${mid} needs '${needs}' but no chapter's pool offers both — the pair cannot be completed by play`)
+  }
+  console.log(`PASS run DB.a (wiring): ${duos.length} duo boon(s), each naming a real weapon its own chapter also offers`)
+
+  const shelfRun = (weapons, slots = 3) => {
+    const r = createRun(makeMeta(), { chapter: 'shelf' })
+    r.weapons = weapons.map((id) => ({ id, level: 3 }))
+    r.choiceSlots = slots
+    r.player.level = 12
+    r.player.maxHP = 1e9
+    r.player.hp = 1e9
+    return r
+  }
+
+  // (b) THE RESERVED SLOT, asserted on the POOL rather than on the cards. Through
+  // buildLevelUpChoices this could only ever be a rate with a band around it; here it is exact.
+  // Silt Flush held 2 of Downwash's EIGHT candidate slots before this, so it was absent from three
+  // pools in four before the rarity roll had even looked at it — and with four weapons owned the
+  // MOD_POOL_MAX trim could then drop it again.
+  Math.random = mulberry32(20260823)
+  const POOLS = 300
+  const full = shelfRun(['bubblePuff', 'siltVeil', 'ballast', 'downwash'])
+  let bothInPool = 0
+  for (let i = 0; i < POOLS; i++) {
+    const cands = eligibleWeaponModCandidates(full)
+    if (cands.some((c) => c.mod === 'siltPlume') && cands.some((c) => c.mod === 'siltFlush')) bothInPool++
+  }
+  assert.strictEqual(bothInPool, POOLS,
+    `both duo boons must be RESERVED in every pool, saw both in ${bothInPool}/${POOLS} — either the per-weapon draw is not reserving them or the MOD_POOL_MAX trim is sampling them away`)
+  // THE BUDGET, MEASURED WHERE THE TRIM CANNOT HIDE IT. Two weapons put 4 candidates in the pool,
+  // under MOD_POOL_MAX, so nothing is sampled away and ballast's contribution is exactly what the
+  // per-weapon draw gave it. Measured on the FOUR-weapon run above this reads 1.66 whether the
+  // boon is reserved inside the budget or handed a slot on top of it — the trim washes the
+  // difference out, and the mutation that widens the budget passed against it.
+  Math.random = mulberry32(20260823)
+  const untrimmed = shelfRun(['siltVeil', 'ballast'])
+  let ballastEntries = 0
+  for (let i = 0; i < POOLS; i++) {
+    ballastEntries += eligibleWeaponModCandidates(untrimmed).filter((c) => c.weapon === 'ballast').length
+  }
+  const perPool = ballastEntries / POOLS
+  assert.ok(perPool <= MOD_CANDIDATES_PER_WEAPON + 1e-9,
+    `the reserved slot must come OUT OF the weapon's ${MOD_CANDIDATES_PER_WEAPON}-candidate budget, not on top of it — ballast contributed ${perPool.toFixed(2)} candidates per untrimmed pool, which is a stealth widening of the mod bucket`)
+  // And the gate still holds in the other direction: no partner weapon, no candidate.
+  Math.random = mulberry32(20260823)
+  const half = shelfRun(['bubblePuff', 'ballast', 'downwash'])
+  let leaked = 0
+  for (let i = 0; i < POOLS; i++) {
+    if (eligibleWeaponModCandidates(half).some((c) => c.mod === 'siltPlume' || c.mod === 'siltFlush')) leaked++
+  }
+  assert.strictEqual(leaked, 0, `a duo boon was a candidate in ${leaked}/${POOLS} pools of a run that does not hold Silt Veil — the reserved slot must not outrank the gate`)
+  console.log(`PASS run DB.b (reserved): both boons in ${bothInPool}/${POOLS} trimmed pools, ${perPool.toFixed(2)} ballast candidates/untrimmed pool (cap ${MOD_CANDIDATES_PER_WEAPON}), 0/${POOLS} without the partner weapon`)
+
+  // Drive real screens through the SHIPPED path — stepSim -> stepLevelUp -> buildLevelUpChoices —
+  // because the pity counter is advanced in stepLevelUp and a fixture calling the builder directly
+  // would never see it move. Returns the screen numbers a duo boon was offered on.
+  const drive = (run, screens, modId) => {
+    const at = []
+    for (let i = 1; i <= screens; i++) {
+      run.phase = 'playing'
+      run.player.xp = run.player.xpNext
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      if (run.phase !== 'levelup') continue
+      if (run.levelUpChoices.some((c) => c.kind === 'mod' && c.id === modId)) {
+        at.push(i)
+        // SPENT ON THE OFFER, not on the pick: nothing was taken here, and the credit is gone.
+        assert.strictEqual(run._duoDry[modId], 0,
+          `the boon was on screen ${i} and pity still reads ${run._duoDry[modId]} — the reset must run on the FINAL card list, below the anomaly swap and the new-weapon floor`)
+      }
+    }
+    return at
+  }
+
+  // (c) THE GUARANTEE. Pity arms at DUO_PITY_SCREENS live screens and the boon then takes the next
+  // mod card, so the arrival is bounded by "armed, plus however long the mod bucket takes to come
+  // up". DRIVE is deliberately well past that: the property under test is that it ALWAYS lands
+  // inside a real run's worth of screens, not the exact screen it lands on.
+  const SEEDS = 12
+  const DRIVE = 16
+  let delivered = 0
+  const firsts = []
+  for (let s = 0; s < SEEDS; s++) {
+    Math.random = mulberry32(20260823 + s)
+    const r = shelfRun(['bubblePuff', 'siltVeil', 'ballast', 'downwash'])
+    const at = drive(r, DRIVE, 'siltPlume')
+    if (at.length > 0) { delivered++; firsts.push(at[0]) }
+  }
+  const meanFirst = firsts.reduce((a, b) => a + b, 0) / (firsts.length || 1)
+  assert.strictEqual(delivered, SEEDS,
+    `Silt Plume reached only ${delivered}/${SEEDS} runs holding the complete pair inside ${DRIVE} screens (pity is ${DUO_PITY_SCREENS}) — before the reserved slot and pity it was 0.6% of screens, which is what this asserts can never come back`)
+  assert.ok(meanFirst <= DUO_PITY_SCREENS + 4,
+    `the first Silt Plume averaged screen ${meanFirst.toFixed(1)} against a pity of ${DUO_PITY_SCREENS} — pity is arming but something downstream is swallowing the card`)
+  console.log(`PASS run DB.c (guaranteed): Silt Plume in ${delivered}/${SEEDS} paired runs, first offer on screen ${meanFirst.toFixed(1)} of ${DRIVE} (pity ${DUO_PITY_SCREENS})`)
+
+  // (d) THE TWO WAYS THE COUNTER GOES WRONG, and both are silent.
+  // EARNED ONLY WHERE IT CAN BE SPENT: a run that completes the pair at level 20 must start
+  // counting at level 20. Banking through the screens before that hands the boon over on the very
+  // next card, which is the anomaly tier's own v6.7.9 lesson (credit earned on a schedule).
+  Math.random = mulberry32(20260823)
+  const unpaired = shelfRun(['bubblePuff', 'ballast', 'downwash'])
+  const seenUnpaired = drive(unpaired, DRIVE * 2, 'siltPlume')
+  assert.strictEqual(seenUnpaired.length, 0, `Silt Plume was offered ${seenUnpaired.length} time(s) to a run that never held Silt Veil`)
+  assert.strictEqual(unpaired._duoDry?.siltPlume ?? 0, 0,
+    `pity banked ${unpaired._duoDry?.siltPlume} dry screens for a boon whose partner weapon is not held — credit must be earned only on screens the pool could have spent it on`)
+
+  // AND A PAID REROLL MUST NOT PUMP IT. The counter lives in stepLevelUp for exactly this reason:
+  // rerollLevelUpChoices re-deals the screen by calling the builder again, so a counter kept in
+  // the builder would step on every re-deal and let coins buy the guarantee early (the F5 defect,
+  // in the same shape the anomaly tier had it).
+  Math.random = mulberry32(20260823)
+  const rr = shelfRun(['bubblePuff', 'siltVeil', 'ballast', 'downwash'])
+  rr.coinsEarned = 100000
+  rr.phase = 'playing'
+  rr.player.xp = rr.player.xpNext
+  stepSim(rr, { x: 0, y: 0 }, 1 / 60)
+  assert.strictEqual(rr.phase, 'levelup', 'the reroll fixture never opened a screen')
+  const beforeRerolls = rr._duoDry.siltPlume
+  for (let i = 0; i < 5; i++) rerollLevelUpChoices(rr)
+  // <=, not ===: a re-deal that OFFERS the boon legitimately spends the credit. Only an INCREASE
+  // is the defect, and a counter moved into the builder would read beforeRerolls + 5 here.
+  assert.ok(rr._duoDry.siltPlume <= beforeRerolls,
+    `five paid rerolls took duo pity from ${beforeRerolls} to ${rr._duoDry.siltPlume} — the counter must be advanced by stepLevelUp, once per screen, or coins buy the guarantee`)
+  console.log(`PASS run DB.d (pity is earned): 0 offers and 0 banked screens without the partner weapon, and 5 paid rerolls moved pity ${beforeRerolls} -> ${rr._duoDry.siltPlume}`)
+
+  // (e) A REROLLED SCREEN IS NEVER SHORTER. The mod branch rolls CANDIDACY on the undecayed table
+  // and SIZE on the decayed one, so once a reroll is paid for they are two different tiers — and a
+  // `values` mod (both duo boons declare { epic: n }) accepts only the tiers it lists. Winning the
+  // slot at epic and then being built at rare returns null, rollCard returns null, and
+  // buildLevelUpChoices BREAKS out of the slot loop: the player pays for a re-deal and gets back
+  // FEWER cards than they started with. Latent since v6.7.11 at 0.35% of rerolled shelf screens
+  // while a values mod still had to win the candidate draw; reserving the duo boons puts one in
+  // every shelf pool and took it to 1.36%, which is what makes this run DB's business.
+  // Asserted at the REROLL CAP, where the two tables disagree most.
+  const SCREENS = 4000
+  Math.random = mulberry32(20260823)
+  const shortRun = shelfRun(['bubblePuff', 'siltVeil', 'ballast', 'downwash'])
+  shortRun._screenRerolls = REROLL_RARITY_CAP
+  let short = 0
+  for (let i = 0; i < SCREENS; i++) {
+    const cards = buildLevelUpChoices(shortRun)
+    if (cards.length < shortRun.choiceSlots && cards[0].kind !== 'heal') short++
+  }
+  assert.strictEqual(short, 0,
+    `${short}/${SCREENS} rerolled screens came back with fewer than ${shortRun.choiceSlots} cards — a paid re-deal must never shorten the screen. The mod branch has to fall back to the tier the card won CANDIDACY at when the decayed tier declines it.`)
+  console.log(`PASS run DB.e (no short screens): ${SCREENS}/${SCREENS} full screens at ${REROLL_RARITY_CAP} rerolls with both duo boons reserved in the pool`)
+}
+run(runDuoBoons)
 
 
 // ---- Run ST: THE SHELF'S SPAWN TILT ----------------------------------------------------------
