@@ -21839,17 +21839,30 @@ function testReefNatives() {
 
   // (d) BACKBLAST, AND AT THE STATED FRACTION. Two identical fixtures on one seed, one switch apart.
   {
+    // THE REAR BODY SITS AT 100px, NOT 300, AND THE LANE IS WHY. CHAPTERS.reef.sweepAstern deletes
+    // a seeker once it is seekerBack() behind -- (1-LANE_CAMERA_FRAC) x the viewport along the lane
+    // plus SPAWN_RING, which is 138px on the 390px phone this game ships to. A fixture at 300px
+    // behind therefore measured a body the chapter had already swept, and read as "Backblast is an
+    // inert card" when the switch was working perfectly.
+    //
+    // ⚠ THAT IS A REAL CAP ON THE MOD, NOT A FIXTURE DETAIL. Backblast's beam runs the weapon's
+    // full 340px astern and the lane will not keep a body past 138px, so roughly the outer 200px
+    // of its rear reach can never have a target in this chapter. It is not a defect: only 78px
+    // astern is ON SCREEN at all, so anything the sweep takes was invisible before it was deleted.
+    // If a rear-reaching card is ever meant to out-reach the sweep, seekerBack is the number to
+    // argue with -- deliberately one function, so there is one place to argue.
+    const REAR_PX = 100
     const measure = (mods) => {
       const run = reefRun('pistolShrimp', 5, mods)
       const ahead = plant(run, { _off: [300, 0] })
-      const behind = plant(run, { _off: [-300, 0] })
+      const behind = plant(run, { _off: [-REAR_PX, 0] })
       drive(run, [ahead, behind], 4, null, CROSS)
       return { ahead: lost(ahead), behind: lost(behind) }
     }
     const off = measure(null)
     const on = measure({ backblast: 1 })
     assert.strictEqual(off.behind, 0,
-      `run RN.d: a body 300px BEHIND took ${off.behind} without Backblast — the snap is not a single forward line`)
+      `run RN.d: a body ${REAR_PX}px BEHIND took ${off.behind} without Backblast — the snap is not a single forward line`)
     assert.ok(on.behind > 0,
       'run RN.d: Backblast is held and nothing behind the player was struck — the switch is an inert card')
     assert.strictEqual(on.ahead, off.ahead,

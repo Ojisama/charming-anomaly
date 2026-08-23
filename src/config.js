@@ -6811,6 +6811,13 @@ CHAPTERS.reef = {
   // an x-lane has only 312 world px ahead of the player against the y-lane's 675, so at 70 this
   // chapter would give HALF The Beyond's reaction time on the device the game ships to.
   laneScroll: 45,
+  // THE LANE DROPS WHAT FALLS BEHIND (v7.x). Opt-in per chapter -- see stepLeaks for why the
+  // default must stay off. The Reef needs it and The Beyond does not: this roster's moray moves
+  // 39px/s against a 45px/s advance, so it falls astern BY CONSTRUCTION and can never return,
+  // while The Beyond's crowd is marchers, which already leak on their own rule. Measured here
+  // before this existed (scripts/reef-pileup.mjs): 34% of live bodies sat off-screen astern,
+  // 52 per second-sample, the oldest still alive at 290s of a 300s run.
+  sweepAstern: true,
 
   // FOUR NATIVES AND NOTHING BORROWED (owner, 2026-08-22). Every card is picked for the LANE rather
   // than for the theme, because a scroller only works if what you hold can answer things arriving

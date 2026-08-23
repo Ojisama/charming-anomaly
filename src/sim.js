@@ -149,7 +149,7 @@ import {
   CRAB_GUARD_T,
   CRAB_OPEN_T,
   CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
-  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, laneHalfWidth, laneAxes,
+  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
@@ -1314,8 +1314,19 @@ function spawnBlankEnemy(run, rosterId, essential = false, opts = {}) {
 // it costs LANE_LEAK_DMG and leaves. Without this the lane has no stakes at all — you would simply
 // out-scroll every rank, since the player advances faster than a marcher descends, and the whole
 // formation would be scenery you drive past.
-// Only `march` enemies leak. The seeking swarm chases you and is therefore never "behind" in any
-// meaningful sense; killing it is its own reward and letting it live is its own punishment.
+// TWO EXITS, because a seeker CAN be behind and the first cut of this said it could not.
+// Rev.1: "the seeking swarm chases you and is therefore never behind in any meaningful sense."
+// That is false wherever the roster is slower than the scroll, which is not an edge case -- The
+// Reef's moray moves 39px/s against a 45px/s advance, so it falls behind BY CONSTRUCTION and can
+// never return. Measured on the reef before this existed (scripts/reef-pileup.mjs): 34% of every
+// live body sat off-screen astern, 52 per second-sample, 454 still alive at t=300s with a median
+// age of 69s. They were still stepped, still counted against the alive cap, and so still thinning
+// the crowd AHEAD -- the chapter's own difficulty leaking out of the back of the screen.
+//
+//   march  -> LANE_LEAK_BEHIND_PX, costs LANE_LEAK_DMG, emits 'leak'. "They must not pass" is a
+//             FAILURE, and unchanged here: The Beyond is shipped and run LN is its golden master.
+//   seeker -> seekerBack(), silent. No kill, no xp, no coin, no event -- the player never saw it,
+//             and paying for it would make running away the best way to farm the chapter.
 // @returns true if the player died this frame (phase set to 'dead').
 // Repulsion (v5.21, lane chapters). An active, cooldown-gated shove — the lane's answer to its own
 // strafe-only constraint, where a rank converging on your column is otherwise a situation with no
@@ -1565,16 +1576,49 @@ function stepRocks(run, dt) {
   return died
 }
 
+// HOW FAR ASTERN IS OUT OF THE GAME, for a seeker. It must be past the last pixel the player can
+// see, or bodies pop out of existence on screen; it must not be much further, or the dead zone the
+// cull exists to drain simply moves. render.js's lane camera states the visible half exactly --
+// (1 - LANE_CAMERA_FRAC) of the viewport ALONG THE FORWARD AXIS -- so this is that, plus the same
+// SPAWN_RING margin the front of the lane uses, and it MOVES WITH THE VIEWPORT rather than being
+// correct on one phone (78px astern on a 390px phone, 256px on a 1280px desktop: a constant tuned
+// on either one vanishes bodies mid-screen on the other).
+//
+// NOT floored at LANE_LEAK_BEHIND_PX, and that constant is the trap this avoids. 260 was tuned on
+// The Beyond, a y-lane, where a portrait phone shows 169px astern -- so it sits 91px past the edge.
+// Rotate the lane onto x and the same 260 sits 182px past a 78px strip: a dead zone more than
+// twice the size of what the player can see, which is the pile-up in a smaller form. The axis
+// changes what the number MEANS, exactly as LANE_SCROLL_SPEED's own block says it does for scroll.
+function seekerBack(run, ax) {
+  const half = ax.fwd === 'x' ? run.viewW : run.viewH
+  return (1 - LANE_CAMERA_FRAC) * 2 * half + SPAWN_RING
+}
+
 function stepLeaks(run) {
-  if (!CHAPTERS[run.chapter].lane) return false
+  const ch = CHAPTERS[run.chapter]
+  if (!ch.lane) return false
   const p = run.player
-  const ax = laneAxes(CHAPTERS[run.chapter])
+  const ax = laneAxes(ch)
+  // OPT-IN, and the direction is the point. The seeker sweep is NEW behaviour, and The Beyond is
+  // shipped with a golden master over its exact positions -- turning it on by default moved that
+  // chapter's strafe from x=-392.214 to x=-81.723, because thinning the crowd astern frees
+  // alive-cap for a denser crowd AHEAD and the player is then latched a different amount of the
+  // time. Same argument the chapter-level rocks opt-out settled the other way round: whichever
+  // side is already shipped keeps the default. The Beyond can adopt this by re-capturing its
+  // golden master with a stated reason.
+  const sweep = ch.sweepAstern === true
   // See stepRocks: signed distance up the lane, so "behind the player" is one comparison whichever
   // axis the chapter runs on.
   const along = (o) => o[ax.fwd] * ax.dir
   for (const e of run.enemies) {
     if (e._dead) continue
-    if (!e.flags || !e.flags.includes('march')) continue
+    const marcher = e.flags && e.flags.includes('march')
+    if (!marcher) {
+      // isAlly: a summoned ally trails the player and is not the crowd. Culling one would delete
+      // a card the player paid for, silently, whenever they outran it.
+      if (sweep && !isAlly(e) && along(e) < along(p) - seekerBack(run, ax)) e._dead = true
+      continue
+    }
     if (along(e) > along(p) - LANE_LEAK_BEHIND_PX) continue
     e._dead = true
     run.events.push({ type: 'leak', x: e.x, y: e.y })
