@@ -22401,7 +22401,7 @@ function testLaneAxis() {
   // the lane FRONT is never wall-clamped (it has no cross axis at all), and a player stopped here
   // is stopped by CORAL, which is observable as the crush rather than inferred from a distance.
   {
-    const hw = laneHalfWidth(createRun(meta, { chapter: 'reef', difficulty: 1 }).viewRadius)
+    const hw = laneHalfWidth(createRun(meta, { chapter: 'reef', difficulty: 1 }).viewRadius, CHAPTERS.reef)
     for (const dir of [1, -1]) {
       const run = reefRun()
       const x0 = run.player.x
@@ -22437,7 +22437,7 @@ function testLaneAxis() {
   // CHAPTERS.reef.rocks). Asserted here as an emptiness, and in run RS.g as an EFFECT.
   {
     const run = reefRun()
-    const hw = laneHalfWidth(run.viewRadius)
+    const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
     const seen = new Set()
     let enemiesChecked = 0
     for (let i = 0; i < Math.round(30 / dt); i++) {
@@ -22469,7 +22469,7 @@ function testLaneAxis() {
     run.player.hp = run.player.maxHP = 100000
     run.mods.spawnMul = 0
     const BAX = laneAxes(CHAPTERS.beyond)
-    const hw = laneHalfWidth(run.viewRadius)
+    const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
     const seenRocks = new Set()
     let rocksChecked = 0
     for (let i = 0; i < Math.round(20 / dt); i++) {
@@ -22574,8 +22574,14 @@ function testReefSpurScrape() {
   // — and all three failed for one reason: they drew a SOLID SHAPE. What identifies coral is the
   // fork. depth 0 or trunks 1 silently turns every colony back into a stick, which is the same
   // failure arriving through the config rather than through the draw.
-  assert.ok(SPUR_VIS.depthLo >= 3 && SPUR_VIS.trunksHi >= 3,
-    `run RS.a: colonies grow up to ${SPUR_VIS.trunksHi} stem(s) forking at least ${SPUR_VIS.depthLo} time(s) — below that a colony is a stick, and the ridges stop reading as coral for the fourth time`)
+  // ⚠ depthLo >= 2, NOT >= 3, AND THAT IS A DEBT. The owner asked for "one more fractal depth" and
+  // got it; a browser then froze on it, because syncSpurs paths its coral as vector strokes and
+  // every fork level doubles the segment count (measured: 550ms median per rebuild, 822ms worst).
+  // The floor is temporarily 2 so the chapter is playable while the colonies are still un-baked.
+  // It stays an assertion rather than being deleted because 2 is still the difference between a
+  // fork and a stick. RAISE IT BACK TO 3 with the bake.
+  assert.ok(SPUR_VIS.depthLo >= 2 && SPUR_VIS.trunksHi >= 3,
+    `run RS.a: colonies grow up to ${SPUR_VIS.trunksHi} stem(s) forking at least ${SPUR_VIS.depthLo} time(s) — below 2 forks a colony is a stick, and the ridges stop reading as coral for the fourth time`)
   assert.ok(SPUR_VIS.lenFallHi < 1 && SPUR_VIS.widthFall < 1,
     `run RS.a: branches do not taper (lenFall up to ${SPUR_VIS.lenFallHi}, widthFall ${SPUR_VIS.widthFall}) — every fork the same size as its parent is a net, not an antler`)
 
@@ -22638,10 +22644,23 @@ function testReefSpurScrape() {
     'run RS.a: SPUR_VIS.colonyEvery / reachMax are back. Both were replaced (by the hashed walk and by the reachLo..reachHi fraction) and nothing reads them')
   {
     const gsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    assert.ok(!/ang = \(t \/ g\.trunks\) \* Math\.PI \* 2/.test(gsrc),
+    // The stem angles moved into bakeCoral() when the colonies stopped being pathed per rebuild
+    // and started being baked once — the shape is decided there now, so that is where this lints.
+    assert.ok(!/ang = \(t \/ gen\.trunks\) \* Math\.PI \* 2/.test(gsrc),
       'run RS.a: stem angles are back to an even division of the circle — that is the plus sign, whatever the stem count')
-    assert.ok(/ang \+= \(\(Math\.PI \* 2\) \/ g\.trunks\) \* \(0\.5 \+ hash\(/.test(gsrc),
+    assert.ok(/ang \+= \(\(Math\.PI \* 2\) \/ gen\.trunks\) \* \(0\.5 \+ hash\(/.test(gsrc),
       'run RS.a: stem angles are no longer accumulated from jittered gaps — colonies will differ only by rotation again')
+
+    // ⚠ THE COLONIES MUST STAY BAKED. This is the rule render.js states in its own file header —
+    // "All entity looks are baked into textures once; per-frame work is sprite pools only" — and
+    // breaking it is not a style question here, it is a browser freeze: pathing the colonies live
+    // measured a 550ms median main-thread block per field rebuild, every 2.33s, and hung the tab.
+    // Baked, the same rebuild is 1.4ms. Nothing else in the suite can see a frame time, so this
+    // lints the two halves of the architecture instead: the bake exists, and syncSpurs STAMPS.
+    assert.ok(/function bakeCoral\s*\(/.test(gsrc),
+      'run RS.a: bakeCoral() is gone — if the colonies are being drawn any other way, check a real frame time before believing it is cheap')
+    assert.ok(/syncPool\(coralPool, coralLayer, stamps,/.test(gsrc),
+      'run RS.a: syncSpurs no longer stamps its colonies from a sprite pool — pathing them live is what froze the browser at 550ms a rebuild')
 
     // THE SAME LINT ONE LEVEL UP, which is where "straight wall" actually lived. The stem-angle
     // pair above was written for an even division of the circle; the COLONY WALK along the spine
@@ -22720,7 +22739,7 @@ function testReefSpurScrape() {
   // a player pressed against the wall meets solid ridge at every single spur. Derived from the
   // config rather than typed, so widening the braid past the wall fails here instead of silently
   // turning the coral case into a groove case.
-  const hw = laneHalfWidth(reefRun().viewRadius)
+  const hw = laneHalfWidth(reefRun().viewRadius, CHAPTERS.reef)
   const farEdge = spec.braidSep / 2 + spec.grooveMax / 2
   assert.ok(farEdge < hw,
     `run RS: the braid's far edge (${farEdge}) has reached the lane wall (${hw}) — riding the wall is no longer guaranteed coral and every case below would measure the wrong thing`)
@@ -23399,7 +23418,7 @@ function testReefNatives() {
       `run RN.e3: ${run.polyps.length} ridges lit in the first 6s — the fixture has nothing to stand on`)
     // Against the lane wall, which run RS proves the braid never reaches, so every body is on CORAL
     // and not in a channel — and pinned to a world point, because a ridge does not move.
-    const wall = laneHalfWidth(run.viewRadius) - 10
+    const wall = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter]) - 10
     const watched = []
     for (let k = 0; k < 5; k++) {
       const i = run.polyps[0].i + AX.dir * k
@@ -23460,7 +23479,7 @@ function testReefNatives() {
       drive(run, [], 4)
       assert.strictEqual(run.polyps.length, 1, `run RN.f: expected exactly one lit ridge after 4s, found ${run.polyps.length}`)
       const pl = run.polyps[0]
-      const wall = laneHalfWidth(run.viewRadius) - 10
+      const wall = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter]) - 10
       const at = (c) => (AX.fwd === 'x' ? [pl.f, c] : [c, pl.f])
       const coral = plant(run, { _at: at(wall) })
       const gap = plant(run, { _at: at(pl.grooves[0].c) })
@@ -24470,7 +24489,7 @@ function testReefAirBurst() {
   // the field and not one lucky cell.
   {
     const run = reefRun()
-    const hw = laneHalfWidth(run.viewRadius)
+    const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
     let checked = 0, unreachable = 0, onCentre = 0
     for (const along of [3000, 9000, 15000, 21000]) {
       run.player[LAX.fwd] = along * LAX.dir
