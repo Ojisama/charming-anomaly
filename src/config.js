@@ -3517,13 +3517,13 @@ export const WEAPON_MODS = {
     // would SLOW the weapon, which is the trap that table exists to route around.
     quickWinch: { name: 'Quick Winch', desc: 'drop rate',           icon: '⏩', base: 0.25, kind: 'pct' },
     jetsam:     { name: 'Jetsam',      desc: 'extra weight(s) per drop', icon: '🔷', kind: 'tier' },
-    // The pollution card (owner, 2026-08-19: "the more pollution you have the bigger / the more
-    // damaging is the stain"). BOTH numbers, which is why the name says the stain rather than one of
-    // its stats -- the Big Beam idiom. The stain's radius stops being tied to the crater's here: the
-    // filth spreads further than the splash, which is the whole picture of the card.
+    // balance_decision : Foul Water buys drop rate, +50% at full pollution 2026-08-23
+    //  - read at the FIRE SITE, not in WEAPON_RATE_MODS: that table applies one flat division and
+    //    this one ramps with run.charge every frame.
+    // 'drop rate' is quickWinch's own word two lines up: one weapon, one noun for its cadence.
     // Same wording rule as Scour above, for the same reason and from the same reading: the card
     // names the bar it reads.
-    foulWater:  { name: 'Foul Water',  desc: 'the drag catches {n} wider than the crush, rising with your Pollution', icon: '🛢️', base: 0.50, kind: 'pct' },
+    foulWater:  { name: 'Foul Water',  desc: 'drop rate, rising with your Pollution', icon: '🛢️', base: 0.50, kind: 'pct' },
     // A DUO BOON (owner, 2026-08-22), and the first cross-weapon card in the game. `needs` is
     // read by eligibleWeaponModCandidates, so it is offered ONLY while Silt Veil is also held;
     // the clouds it throws up are the VEIL's own, at its live level and mods (spawnSiltCloud in

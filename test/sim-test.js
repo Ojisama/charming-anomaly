@@ -7334,38 +7334,39 @@ function runModBudget() {
     console.log(`PASS run MB.e (Backblow): ${base.novas.length} -> ${narrow.novas.length} novas a half-turn apart at a 90deg cone; total coverage capped at ${CAP.toFixed(2)} rad (${(CAP * 180 / Math.PI).toFixed(0)}deg) on every mod combination, and Flare x6 + Backblow still beats Flare x6 alone (${wideBase.total.toFixed(2)} -> ${wide.total.toFixed(2)} rad)`)
   }
 
-  // (f) FOUL WATER widens the DRAG and leaves the CRATER alone, and it reads pollution the same way
-  // round as Scour. The impact is dealt off lo.r, so a mod that scaled `r` itself would quietly buy
-  // impact damage the card never promised.
-  //   ASSERTED AS AN EFFECT: a body parked between the crater and the drag ring must be SLOWED in
-  // filthy water and untouched in clean. Reading lo.dragMul instead would pass with the whole
-  // dragSq test deleted from the landing.
+  // (f) FOUL WATER is a CADENCE mod that ramps with the pollution bar (2026-08-23, replacing the
+  // drag-widening version): +50% drop rate at 100% pollution, nothing at all in clean water.
+  //   ASSERTED AS AN EFFECT — how many weights actually LAND in a fixed window, off the
+  // {type:'ballast'} event, never off the interval or off run.lobs. A weapon that fires the frame a
+  // window opens and again the frame it closes reads as a rate change from either of those.
+  //   AND THE BAR ALONE MUST BUY NOTHING: the same two waters with the mod UNPICKED have to give
+  // the same count, or the ramp is coming from somewhere other than the card.
   {
-    const dragAt = (charge, mods) => {
+    const dropsIn = (charge, mods, secs = 20) => {
       const run = boot('shelf', 'ballast', 5, mods, charge)
-      // Just OUTSIDE the crater (r is 134 at L5), so only the widened ring can reach it. hp 1e6 and
-      // speed 0: the question is dragT, and a corpse cannot answer it.
-      const e = makeStatusEnemy(run, { x: run.player.x, y: run.player.y, hp: 1e6, speed: 0 })
-      run.enemies.push(e)
-      assert(castUntil(run, (r) => r.lobs.length > 0, pin(charge)), 'precondition: the ballast must throw within 12s')
-      const lo = run.lobs[0]
-      const impactR = lo.r
-      // Park it on the ring, between the crater and the widened drag, and hold it there through the
-      // landing — pin() puts it back on the player every frame otherwise.
-      const hold = (r) => { e.x = lo.tx + impactR * 1.25; e.y = lo.ty }
-      hold(run)
-      advance(run, BALLAST_FLIGHT + 0.05, hold)
-      return { impactR, dragT: e.dragT ?? 0, hp: e.hp }
+      // One immortal body parked on the player: the weapon needs a target to aim at, and a corpse
+      // would end the casting. speed 0 so it stays put and cannot re-phase anything.
+      run.enemies.push(makeStatusEnemy(run, { x: run.player.x + 60, y: run.player.y, hp: 1e9, speed: 0 }))
+      let n = 0
+      const onStep = (r) => { pin(charge)(r); n += r.events.filter((e) => e.type === 'ballast').length; r.events.length = 0 }
+      advance(run, secs, onStep)
+      return n
     }
-    const clean = dragAt(SHELF_MAX, { foulWater: 1 })
-    const filthy = dragAt(0, { foulWater: 1 })
-    assert(filthy.dragT > 0, 'Foul Water in filthy water must drag a body sitting outside the crater')
-    assert.strictEqual(clean.dragT, 0,
-      `Foul Water must buy NOTHING in clean water: a body at 1.25x the crater was dragged for ${clean.dragT}s`)
-    assert.strictEqual(filthy.hp, 1e6,
-      'the body outside the crater took impact damage — the drag ring is being used for the crush as well')
-    assert(Math.abs(filthy.impactR - clean.impactR) < 1e-9,
-      `Foul Water must NOT touch the crater: impact r ${filthy.impactR} in filth against ${clean.impactR} clean`)
+    // THE SHIPPED VALUE, not a round 1: run.weaponMods banks the accumulated BONUS for a pct mod
+    // (applyChoice), so feeding 1 here would measure a card that pays double what it sells.
+    const nominal = WEAPON_MODS.ballast.foulWater.base
+    const clean = dropsIn(SHELF_MAX, { foulWater: nominal })
+    const filthy = dropsIn(0, { foulWater: nominal })
+    const cleanBare = dropsIn(SHELF_MAX, null)
+    const filthyBare = dropsIn(0, null)
+    assert.strictEqual(clean, cleanBare,
+      `Foul Water must buy NOTHING in clean water: ${clean} drops against ${cleanBare} without the card`)
+    assert.strictEqual(cleanBare, filthyBare,
+      `the pollution bar moved the cadence on its own (${cleanBare} clean, ${filthyBare} filthy) — that is the CARD's job`)
+    // +50% rate over the window, allowing the one drop the window's edges can swallow either way.
+    const want = cleanBare * (1 + nominal)
+    assert(Math.abs(filthy - want) <= 1,
+      `Foul Water in the filthiest water must drop ~${want} times against ${cleanBare} clean, got ${filthy}`)
     // AND THE STAIN IS GONE. The owner cut it because it was Silt Veil's own picture given away on
     // a rare; a landing that quietly pushes a look:'silt' bloom again would look entirely correct.
     const plain = boot('shelf', 'ballast', 5, null, 0)
@@ -7374,7 +7375,7 @@ function runModBudget() {
     advance(plain, BALLAST_FLIGHT + 0.2, pin(0))
     assert.strictEqual(plain.blooms.filter((b) => b.look === 'silt').length, 0,
       'a ballast landing pushed a silt cloud — the stain is supposed to be gone (it made Silt Veil pointless)')
-    console.log(`PASS run MB.f (Foul Water): a body at 1.25x the crater is dragged ${filthy.dragT.toFixed(1)}s in filth and ${clean.dragT}s clean, takes no impact damage either way, crater r ${clean.impactR} unchanged, and no landing leaves a silt cloud`)
+    console.log(`PASS run MB.f (Foul Water): ${filthy} drops in 20s at full pollution against ${clean} in clean water (+${Math.round((filthy / clean - 1) * 100)}%), the bar alone moves nothing (${cleanBare} either way), and no landing leaves a silt cloud`)
   }
 
   // (g) FOUL SPRING enlarges a cloud dropped in a LIVE upwelling and SPENDS that upwelling — and

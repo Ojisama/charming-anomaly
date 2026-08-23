@@ -6273,7 +6273,8 @@ const WEAPON_STAT_MODS = {
   // The Shelf's other two. Both count mods fold as 'flat' onto a real `count` key in levels[], so
   // effectiveWeaponStats reports the modified number without a second registration in
   // WEAPON_COUNT_MODS -- that map is only for counts read at a fire site with no levels[] key.
-  // `foulSpring` and `foulWater` are behavioural and read at their own sites.
+  // `foulSpring` is behavioural and `foulWater` is a RATE mod that ramps with the pollution bar;
+  // both are read at their own fire sites, which is why neither is here nor in WEAPON_RATE_MODS.
   siltVeil:      { grit: ['dmgPerTick', 'pct'], billow: ['maxR', 'pct'], roil: ['clouds', 'flat'] },
   ballast:       { deadweight: ['dmg', 'pct'], jetsam: ['weights', 'flat'] },
   // The Trawl's two natives. `twinSet` and `doubleHaul` are absent for the reason the block above
@@ -9697,11 +9698,9 @@ function stepLobs(run, dt) {
     // the time, this is the pool's only card that answers the chapter's one damage sponge. The
     // multiplier rides the impact only, never the drag — a slow does not care how heavy you are.
     if (lo.look === 'ballast') {
+      // ONE ring: the drag catches exactly what the crush catches. It carried a `dragMul` until
+      // v7.x, when Foul Water stopped widening the ring and became a cadence card instead.
       const bSq = lo.r * lo.r
-      // `dragMul` is Foul Water's pollution scaling, banked at the THROW (see stepBallastWeapon).
-      // It widens the DRAG and NOT the crater, which is the card's whole picture: a fouled drop
-      // pins further than it splashes. 1 without the mod.
-      const dragSq = (lo.r * (lo.dragMul ?? 1)) ** 2
       for (const e of run.enemies) {
         if (e._dead || isAlly(e)) continue
         const dx = e.x - lo.tx, dy = e.y - lo.ty
@@ -9709,7 +9708,7 @@ function stepLobs(run, dt) {
         if (dSq <= bSq) applyDamage(run, e, lo.dmg * (e.type === 'tank' ? BALLAST_TANK_MUL : 1))
         // Refreshed, not stacked, and NOT through the CC-DR budget: this is a plain speed debuff
         // like bloomSlowT, not a control that stops a body — resistsCC guards holds, not drags.
-        if (!e._dead && dSq <= dragSq) e.dragT = Math.max(e.dragT || 0, BALLAST_DRAG_T)
+        if (!e._dead && dSq <= bSq) e.dragT = Math.max(e.dragT || 0, BALLAST_DRAG_T)
       }
       run.events.push({ type: 'ballast', x: lo.tx, y: lo.ty, radius: lo.r })
       // SILT PLUME: the weight slams the bottom and throws the silt up around the crater. RINGED
@@ -9921,7 +9920,12 @@ function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
 function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
   const quickWinch = run.weaponMods.ballast?.quickWinch ?? 0
   const foulWater = run.weaponMods.ballast?.foulWater ?? 0
-  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickWinch)), dt, () => {
+  // FOUL WATER: the filthier the water, the faster the winch turns. Read here and re-read every
+  // frame -- it is the live bar and not a banked value, so the cadence rises as the run fouls.
+  // `quickWinch` and this multiply rather than add: one is a flat pick and the other is a ramp,
+  // and a player holding both should not have the ramp diluted by the pick.
+  const foulRate = 1 + foulWater * pollutionFrac(run.charge, run.chargeMax)
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickWinch) * foulRate), dt, () => {
     const p = run.player
     // THE ONE AIM SITE IN THE GAME THAT PASSES A PAD, and it passes a NEGATIVE one: this weapon
     // reaches viewRadius - 100 where everything else reaches viewRadius + 100 (see
@@ -9936,11 +9940,6 @@ function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
     // target in the hole between them: at 1.15r from a blast of radius r, a two-weight cast threw
     // one to each side of an enemy and hit nothing at all (owner from play, 2026-08-20).
     const spread = stats.r * 1.15
-    // FOUL WATER, sampled at the THROW and carried on the lob rather than read again on landing.
-    // The flight is BALLAST_FLIGHT (0.42s), so the two readings could barely differ -- and deciding
-    // it when the player presses is what makes the card legible: the water you threw into is the
-    // water that pays. Scales the DRAG's radius only; the crush stays lo.r.
-    const dragMul = 1 + foulWater * pollutionFrac(run.charge, run.chargeMax)
     for (let i = 0; i < drops; i++) {
       const a = (i / drops) * Math.PI * 2
       const off = i === 0 ? 0 : spread
@@ -9948,7 +9947,7 @@ function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
         fromX: p.x, fromY: p.y,
         tx: tx + Math.cos(a) * off, ty: ty + Math.sin(a) * off,
         t: 0, flight: BALLAST_FLIGHT,
-        dmg: stats.dmg, r: stats.r, look: 'ballast', dragMul,
+        dmg: stats.dmg, r: stats.r, look: 'ballast',
       })
     }
   })

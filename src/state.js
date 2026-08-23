@@ -1683,9 +1683,9 @@ function generateWells(sig) {
  *   otherwise spray Debris Toss splinters out of the player's fishing nets.
  *   OPTIONAL `look: 'ballast'` makes it a BALLAST drop (The Shelf) instead: the landing deals dmg
  *   in r (x BALLAST_TANK_MUL against e.type === 'tank') and sets e.dragT = BALLAST_DRAG_T on
- *   everything in a wider ring. `dragMul` (optional, default 1) is Foul Water's pollution scaling,
- *   banked at the THROW, and widens THAT ring only -- never the crater, which has already been
- *   dealt off `r`. It pushed a run.blooms stain until v7.x; the owner cut it because that stain was
+ *   everything in that same r. It carried a `dragMul` until v7.x, when Foul Water stopped widening
+ *   that ring and became a cadence card read at the fire site instead.
+ *   It pushed a run.blooms stain until v7.x; the owner cut it because that stain was
  *   Silt Veil's whole card, drawn Silt Veil's way, given away free on a rare.
  *   OPTIONAL `tank: true` makes it an OXYGEN TANK (The Reef) instead: the throw is aimed down the
  *   LANE rather than at a body (fireTank), so the scroll carries the player to their own landing

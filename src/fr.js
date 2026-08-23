@@ -1410,7 +1410,10 @@ const CONFIG = {
   'Jetsam': 'Délestage',
   'extra weight(s) per drop': 'poids supplémentaire(s) par largage',
   'Foul Water': 'Eau Souillée',
-  'the drag catches {n} wider than the crush, rising with your Pollution': 'le ralentissement porte {n} plus loin que l\'impact, augmente avec ta Pollution',
+  // Cadence since 2026-08-23. A NOUN of rate, because ui.js prefixes the '+50%' head; the words
+  // are deliberately the ones 'Treuil Rapide' (quickWinch) already uses, since it is the same stat
+  // on the same weapon.
+  'drop rate, rising with your Pollution': 'cadence de largage, augmente avec ta Pollution',
   // The two DUO BOONS (2026-08-22), one on each of the chapter's other weapons, both of which
   // make Voile de Vase's cloud. Both keep 'vase' -- the Voile de Vase rule, one word for one
   // thing across the card, the sheet and the mods -- and both name the weapon they sit on the
