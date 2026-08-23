@@ -7,8 +7,8 @@
 //
 // ⚠ `--chapter wreck` IS NOT OPTIONAL AND ITS ABSENCE IS SILENT (see wreck-place.js).
 //
-// WHY IT SOLVES FOR THE PLAYER POSITION INSTEAD OF WALKING: the hulls sit on a 3200px grid in
-// PARALLAX space at 0.45, so they repeat every 3200/0.45 = 7111 WORLD px and not every cell holds
+// WHY IT SOLVES FOR THE PLAYER POSITION INSTEAD OF WALKING: the hulls sit on a 3800px grid in
+// PARALLAX space at 0.45, so they repeat every 3800/0.45 = 8444 WORLD px and not every cell holds
 // one. A walking scene therefore returns mostly empty water, and an empty frame reads as
 // "there is no ship" rather than as "you did not walk far enough" — the failure wreck-place.js's
 // own header warns about. This reproduces updateWreckHull's cell hash, picks cells that DO hold a
@@ -39,7 +39,7 @@ const CELLS = [[0, 0], [-1, -1], [-2, -2], [-1, 1], [0, 1], [-2, 0]]
 // commit that moved HULL_JITTER 0.25 -> 0.13 and it kept the old factor, so "one hull centred per
 // frame" was false by up to 326px — 84% of a phone width — while the header claimed otherwise. A
 // rig that lies about its own framing turns every art judgement into an argument about the rig.
-const CS = 3200, PX = 0.45, CS_JITTER = 0.26
+const CS = 3800, PX = 0.45, CS_JITTER = 0.26
 
 H.note('frames: one hull centred per frame, six different cells (rotation is hashed per cell)')
 

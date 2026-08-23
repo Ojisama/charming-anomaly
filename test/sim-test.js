@@ -9787,20 +9787,22 @@ function runWreckGrid() {
   }
   const jitter = constOf('HULL_JITTER')
   const scaleMax = constOf('HULL_SCALE_MAX')
-  // ⚠ HULL_EXTENT IS THE HALF OF THIS THAT WAS MISSING, AND ITS ABSENCE MADE THE GUARD PASS OVER A
-  // REAL OVERLAP. `bake()` frames the drawing's true bounds and the drawing reaches outboard of the
-  // plating, so the sprite that gets stamped is ~1.15x cfg.len — the invariant was being asserted
-  // over a number that is not the object's size. It is load-bearing in render.js (the cull margins
-  // read it), so it cannot rot into a decorative constant.
-  const extent = constOf('HULL_EXTENT')
+  // ⚠ THIS INVARIANT HAS BEEN STATED OVER THE WRONG LENGTH THREE TIMES AND WENT GREEN OVER A REAL
+  // OVERLAP EACH TIME — the first ignored the jitter, the second used cfg.len when the TEXTURE is
+  // longer than cfg.len, and the third still assumed the sprite was CENTRED on its cell when
+  // HULL_LEAD had stopped centring it. The binding quantity is the max reach from the PLACEMENT
+  // POINT, and the requirement is twice it, because two neighbours can lean their long ends
+  // together. HULL_REACH is load-bearing in render.js (the cull margins read it), so it cannot rot
+  // into a number that only this assert believes.
+  const reach = constOf('HULL_REACH')
   const minGap = hull.cell * (1 - 2 * jitter)
-  const maxLen = hull.len * scaleMax * extent
+  const maxLen = 2 * hull.len * reach * scaleMax
   assert.ok(minGap >= maxLen,
-    `two neighbouring wrecks can be ${minGap.toFixed(0)}px apart while each is ${maxLen.toFixed(0)}px long — ` +
-    'they interpenetrate, and at hull.alpha that is a bright quadrilateral, not a graveyard. ' +
-    'Raise cell, or lower HULL_JITTER / HULL_SCALE_MAX (render.js)')
+    `two neighbouring wrecks can be ${minGap.toFixed(0)}px apart while together they reach ${maxLen.toFixed(0)}px — ` +
+    'they interpenetrate, and at hull.alpha that is a bright quadrilateral, not a wreck. ' +
+    'Raise cell, or lower HULL_JITTER / HULL_SCALE_MAX / HULL_LEAD (render.js)')
   console.log(`PASS run WG.a (spacing): cell ${hull.cell} x (1 - 2x${jitter}) = ${minGap.toFixed(0)}px clear ` +
-    `>= len ${hull.len} x ${scaleMax} x ${extent} = ${maxLen.toFixed(0)}px, so no two hulls can overlap`)
+    `>= 2 x len ${hull.len} x reach ${reach} x ${scaleMax} = ${maxLen.toFixed(0)}px, so no two hulls can overlap`)
 
   // -- WK.b: both halves of the invariant are actually WIRED -----------------------------------
   // A named constant nothing reads is a comment. Both position axes must consume HULL_JITTER, and
@@ -9831,23 +9833,23 @@ function runWreckGrid() {
   console.log(`PASS run WG.c (grain): hull.grain = tide.axis = ${hull.grain.toFixed(3)} rad, and render.js reads it`)
 
   // -- WG.d: HULL_EXTENT and HULL_LEAD are both CONSUMED --------------------------------------
-  // WG.a leans on HULL_EXTENT, so it has to be the renderer's own number rather than a figure
+  // WG.a leans on HULL_REACH, so it has to be the renderer's own number rather than a figure
   // parked next to the guard. It is read by the cull margins (a value too small pops hulls in at
   // the screen edge, which is visible), and HULL_LEAD is what stops the grid centring the FRACTURE
   // — the bake's origin is the tear, so at lead 0 the modal crop is the empty gap and the report is
   // "the ship is invisible".
-  const extentUses = (rSrc.match(/cfg\.len \* HULL_EXTENT/g) || []).length
-  assert.equal(extentUses, 2,
-    `HULL_EXTENT must be read by BOTH cull margins in updateWreckHull, found ${extentUses} — ` +
+  const reachUses = (rSrc.match(/cfg\.len \* HULL_REACH \* HULL_SCALE_MAX/g) || []).length
+  assert.equal(reachUses, 2,
+    `HULL_REACH must be read by BOTH cull margins in updateWreckHull, found ${reachUses} — ` +
     'unread, it is a number WG.a trusts and nothing keeps true')
   assert.ok(/HULL_LEAD \* HULL_REF \* sc/.test(rSrc),
     'updateWreckHull must offset the sprite by HULL_LEAD along its heading — without it the cell ' +
     'centre lands on the fracture, i.e. on the one part of the drawing that is deliberately empty')
-  console.log(`PASS run WG.d (consumed): HULL_EXTENT read on ${extentUses} cull margins, HULL_LEAD applied along the heading`)
+  console.log(`PASS run WG.d (consumed): HULL_REACH read on ${reachUses} cull margins, HULL_LEAD applied along the heading`)
 
   console.log('PASS run WG (The Wreck: the sunken ship field): the grid can never stack two hulls into one bright ' +
-    'quadrilateral, both constants the invariant names are actually the ones the renderer uses, and the graveyard ' +
-    'lies along the same bearing as the water that put it there')
+    'quadrilateral, every constant the invariant names is one the renderer actually reads, and the field lies ' +
+    'along the same bearing as the water that put it there')
 }
 run(runWreckGrid)
 

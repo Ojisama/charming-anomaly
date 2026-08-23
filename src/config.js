@@ -7417,19 +7417,27 @@ CHAPTERS.wreck = {
     // hashed per cell (there was one texture and one uniform scale). A stale comment here is worse
     // than none, because the next tuner trusts it instead of measuring. Both are now true.
     hull: {
-      // ⚠ cell, len, HULL_JITTER, HULL_SCALE_MAX and HULL_EXTENT (render.js) ARE ONE DECISION.
-      //     cell * (1 - 2 * HULL_JITTER) >= len * HULL_SCALE_MAX * HULL_EXTENT
+      // ⚠ cell, len, HULL_JITTER, HULL_SCALE_MAX and HULL_REACH (render.js) ARE ONE DECISION.
+      //     cell * (1 - 2 * HULL_JITTER) >= 2 * len * HULL_REACH * HULL_SCALE_MAX
       // run WG asserts it, because getting it wrong does not look like a spacing bug — two sprites
       // at alpha a stack to 1-(1-a)², so an overlap is a visibly brighter quadrilateral with
       // straight edges belonging to neither wreck, which reads as a rendering artefact. The first
       // pair (cell 2450, jitter ±0.25) allowed 1225px between two 1820px hulls and did exactly that.
-      // ⚠ THE SECOND PAIR STILL DID, AND THE GUARD PASSED, because it was stated over `len` — and
-      // the TEXTURE is not `len` long. bake() frames the drawing's real bounds and the drawing
-      // reaches outboard of the plating (the scour pit, the silt banks), so the stamped sprite is
-      // ~1.15x the stated length and two hulls could still touch by ~300px. HULL_EXTENT is that
-      // factor. 3200 x 0.74 = 2368 against 1820 x 1.12 x 1.15 = 2344.
-      cell: 3200,
-      chance: 0.90,      // under 1 so the field reads as a graveyard rather than as a lattice
+      // ⚠ AND SO DID THE NEXT TWO, WITH THE GUARD GREEN EACH TIME. Stated over the stated length it
+      // missed that the TEXTURE is longer; restated over the texture it missed that HULL_LEAD had
+      // stopped the sprite being centred on its cell at all, so the binding quantity is the reach
+      // FROM THE PLACEMENT POINT and the requirement is twice it. 3800 x 0.74 = 2812 against
+      // 2 x 1820 x 0.68 x 1.12 = 2772.
+      cell: 3800,
+      // ⚠ NOT A GRAVEYARD, AND THE COMMENT USED TO SAY IT WAS. At this spacing two cell centres can
+      // never both be inside a viewport — 2812px of guaranteed separation against a 1280px desktop
+      // and 390px phone — so the player never sees two hulls to count. It is a LANDMARK YOU CROSS,
+      // about every 8400 world px. That is a legitimate thing to be and the number below is tuned
+      // for it; the tension is real, though, because run WG's non-overlap requirement at this hull
+      // size is what forces a spacing two-in-frame cannot survive. If the graveyard read is ever
+      // wanted, the answer is the ponytail note in updateWreckHull (two half-sprites per cell), not
+      // another tune here.
+      chance: 0.90,      // under 1 so meeting one stays an event rather than a metronome
       parallax: 0.45,    // fraction of camera motion the layer takes. 1 = welded to the world, 0 =
                          // pinned to the screen. Under 1 = deeper. Far under and it reads as a
                          // painted backdrop that slides, which is the failure mode to shoot for.
