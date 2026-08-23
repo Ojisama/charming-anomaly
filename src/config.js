@@ -8328,7 +8328,22 @@ export const SPUR_VIS = Object.freeze({
   //   spineJitter how far off the centre line a base may sit, as a fraction of the half-thickness.
   //               Small on purpose: every base near the spine is what makes the middle dense and
   //               the edges thin, i.e. a sprout rather than a rectangle packed with coral.
-  trunksLo: 2, trunksHi: 5, depthLo: 3, depthHi: 5,
+  // ⚠ depthHi 5 -> 4 BECAUSE LEVEL 5 WAS A SMUDGE AND HALF THE COST. Every fork level DOUBLES the
+  // segment count, and the width halves: at 5 the core is 0.70px inside a 5.10px outline, i.e. the
+  // twig is ~86% dark rim and reads as dirt rather than as coral. It was the single largest
+  // contributor to a rebuild that froze the browser (see the counts in syncSpurs). 4 is the last
+  // level with a core thick enough to show its own colour once the outline is proportional.
+  // ⚠ THESE NUMBERS ARE A FREEZE FIX, NOT AN ART CHOICE, AND THEY ARE THE CEILING OF THE WRONG
+  // ARCHITECTURE. syncSpurs PATHS its coral as vector strokes every rebuild, and render.js's own
+  // file header states the rule it is breaking: "All entity looks are baked into textures once;
+  // per-frame work is sprite pools only." Measured in a real browser at depth 3-5, one rebuild
+  // (which fires every 210px / 90px/s = 2.33s) blocked the main thread for a median of 550ms and
+  // a worst of 822ms -- 88k branch segments and 45k tip circles of synchronous Graphics work. It
+  // hung the tab. Every fork level DOUBLES the count, which is why the depth the owner asked for
+  // twice is the thing that has to give until the colonies are BAKED and stamped as sprites.
+  //
+  // The real fix is the bake. When it lands, these ranges go back up and this block comes out.
+  trunksLo: 2, trunksHi: 4, depthLo: 2, depthHi: 3,
   lenFallLo: 0.55, lenFallHi: 0.76, widthFall: 0.66,
   spreadLo: 0.42, spreadHi: 0.95, triFrac: 0.16, whipFrac: 0.14,
   trunkLenLo: 0.45, trunkLenHi: 1.0, segLenLo: 0.5, segLenHi: 1.0,
@@ -8362,12 +8377,21 @@ export const SPUR_VIS = Object.freeze({
   // neighbour rather than its first. Swept independently: dropping reachHi from 1.0 to 0.30 never
   // took the widest hole past 22px, so the GAP dominates and the reach does not.
   branchW: 5.6,
-  colonyEveryLo: 12, colonyEveryHi: 20, gapLo: 0.45, gapHi: 1.6,
+  colonyEveryLo: 20, colonyEveryHi: 32, gapLo: 0.45, gapHi: 1.6,
   reachLo: 0.45, reachHi: 1.0, spineJitter: 0.16,
   //   tipMix  how far each bud is lightened from its OWN colony's tone toward `tip`. Not 1: at
   //           depth 3 there are 32 buds per colony, so a single cream for all of them stops being
   //           an accent and becomes the ridge's dominant colour.
-  tipR: 2.0, outlinePx: 2.2, tipMix: 0.55,
+  // outlinePx IS A FRACTION OF THE BRANCH NOW, NOT A CONSTANT. A flat 2.2px added 4.4px of dark to
+  // every stroke, which is fine on a 5.6px trunk and swallows a 1px twig whole -- the deep forks
+  // were rendering as dark smudges for that reason alone, independent of the count.
+  tipR: 2.0, outlineFrac: 0.42, tipMix: 0.55,
+  // HOW FAR EITHER SIDE OF THE PLAYER COLONIES ARE BUILT AT ALL. The spur COLLIDER streams over
+  // OBSTACLE_STREAM_RADIUS (1400px) and must, but the art has no reason to: on the phone the view
+  // reaches ~312px ahead and ~78px astern, and a rebuild only has to stay valid until the next one
+  // (one ridge, 210px). Building the full 1400 drew 15 ridges to show about three, and cost
+  // 87,987 branch segments and 45,531 tip circles in one synchronous spike every 2.33s.
+  drawWithin: 620,
   wall: 96,
   // `bump`, `bumpOut`, `bumpGap` and `lobes` USED TO LIVE HERE and are gone with the pass that read
   // them. They described a single spine of same-coloured circles inset inside the band, which drew
@@ -9094,7 +9118,18 @@ export const LANE_STRAFE_MUL = 1.25      // strafe is a touch quicker than base 
 // golden master re-captured with a stated reason).
 export const LANE_HALF_W = 430           // px, half the lane's width at full size
 export const LANE_VIEW_FRAC = 0.9        // lane never exceeds this fraction of the viewport radius
-export const laneHalfWidth = (viewRadius) => Math.min(LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)
+// `ch` is OPTIONAL and is the chapter object, not an id, exactly as laneAxes takes one — a chapter
+// may narrow its own corridor with `laneHalfW`. One function rather than a second wrapper, so there
+// is no way for the width the player is CLAMPED to and the width something else believes in to
+// drift apart; omitting it keeps LANE_HALF_W, which is how The Beyond stays bit-identical.
+//
+// WHY A CHAPTER WOULD WANT TO: the camera centres the cross axis on the player, so a lane as wide
+// as the view fills the screen edge to edge and leaves nowhere to DRAW the wall the player is
+// already being stopped by. Measured on the 390x844 phone this ships to: half the screen across is
+// 422px and the clamp sits at 418 — four pixels apart. The Reef's banks (owner, 2026-08-23: the
+// top and bottom of the screen "should be coral too, like you're in an underground cave") only
+// exist in the strip a narrower lane gives back.
+export const laneHalfWidth = (viewRadius, ch) => Math.min(ch?.laneHalfW ?? LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)
 
 // THE LANE HAS AN AXIS (v7.x). The Beyond scrolls bottom-to-top; The Reef (Book 2 ch 3) scrolls
 // left-to-right. `lane: true` still means "this chapter is a scroller" and is compared with STRICT

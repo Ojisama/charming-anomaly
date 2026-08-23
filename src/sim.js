@@ -793,7 +793,7 @@ function stepPlayerMovement(run, input, dt) {
   // spanning the lane is always fully on screen — see laneHalfWidth's doc in config.js for why that
   // is load-bearing (and for what it still only approximates).
   if (ax) {
-    const hw = laneHalfWidth(run.viewRadius)
+    const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
     p[ax.cross] = Math.max(-hw, Math.min(hw, p[ax.cross]))
     blockOnCoral(run, ax, p)
   }
@@ -936,7 +936,7 @@ function stepFormations(run, dt) {
   // choosing which gap to be in rather than watching a wall re-centre on you (which is what rev.1
   // did). Rows stack back up the lane, AHEAD of the player — `ahead` is that first row's distance.
   const ax = laneAxes(CHAPTERS[run.chapter])
-  const hw = laneHalfWidth(run.viewRadius)
+  const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
   const pitch = (hw * 2) / FORMATION_COLS
   const ahead = Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL)
   for (let row = 0; row < rows; row++) {
@@ -1553,7 +1553,7 @@ function stepRocks(run, dt) {
   if (run._rockAcc <= 0) {
     run._rockAcc += ROCK_INTERVAL
     if (run.rocks.length < ROCK_MAX_LIVE) {
-      const hw = laneHalfWidth(run.viewRadius) * ROCK_SPREAD_MUL
+      const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter]) * ROCK_SPREAD_MUL
       const cross = -hw + Math.random() * hw * 2
       const fwd = p[ax.fwd] + ax.dir * Math.max(FORMATION_AHEAD_MIN, run.viewRadius * FORMATION_AHEAD_MUL)
       run.rocks.push({
@@ -1902,7 +1902,7 @@ function spawnEnemy(run, opts = {}) {
     // countdown. Anything that does get past you is now genuinely past you.
     if (CHAPTERS[run.chapter].lane) {
       const ax = laneAxes(CHAPTERS[run.chapter])
-      const hw = laneHalfWidth(run.viewRadius)
+      const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
       const cross = -hw + Math.random() * hw * 2
       const fwd = p[ax.fwd] + ax.dir * (run.viewRadius + SPAWN_RING)
       x = ax.fwd === 'x' ? fwd : cross
@@ -3996,7 +3996,7 @@ export function streamShafts(run) {
   // Inert for every non-lane chapter, and no lane chapter but this one declares a refill spec.
   const laneCh = CHAPTERS[run.chapter].lane === true
   const lax = laneCh ? laneAxes(CHAPTERS[run.chapter]) : null
-  const laneHW = laneCh ? laneHalfWidth(run.viewRadius) : 0
+  const laneHW = laneCh ? laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter]) : 0
   for (let i = ci - span; i <= ci + span; i++) {
     for (let j = cj - span; j <= cj + span; j++) {
       const key = i + ',' + j

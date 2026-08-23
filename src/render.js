@@ -12041,7 +12041,12 @@ const spurG = new Graphics()
     // at the rim. Spreading bases evenly across the thickness fills the band uniformly right up to
     // its corners, and the eye reads that as "a rectangle with coral in it" however organic each
     // individual colony is. The silhouette is made by WHERE things are, not by what they look like.
+    // THE ART IS BUILT ONLY WHERE IT CAN BE SEEN. run.spurs spans the COLLIDER's stream radius
+    // (1400px) because the sim needs it; drawing all of it meant 15 ridges rendered to show about
+    // three. The cull only has to hold until the next rebuild, which is one ridge away.
+    const drawF = run.player[ax.fwd]
     for (const [f, c0, c1, half] of segs) {
+      if (Math.abs(f - drawF) > V.drawWithin) continue
       const room = half + PLAYER.radius
       // THIS RIDGE'S OWN GRAIN. Drawn per ridge (off f, which is constant along it) so one ridge is
       // a tight thicket and its neighbour is open — variation BETWEEN ridges, where an even stride
@@ -12105,33 +12110,29 @@ const spurG = new Graphics()
     // the ridge, which read as the coral being glued to a plank and cost a round to see. Buckets
     // are (level) for the outline and (tone x level) for the fill, so the whole field is a couple
     // of dozen strokes however many branches it holds.
-    for (let l = 0; l <= V.depthHi; l++) {
+    // BUCKETED ONCE. This used to filter by level inside the stroke loops, which rescans every
+    // segment for every (tone, level) pair -- 6 levels + 6 tones x 6 levels = 42 full passes over
+    // ~88k segments, about a million iterations per rebuild on top of the pathing itself.
+    const bins = byTone.map(() => W.map(() => []))
+    for (let t = 0; t < byTone.length; t++) for (const sg of byTone[t]) bins[t][sg[4]].push(sg)
+    for (let l = 0; l < W.length; l++) {
       let any = false
-      for (const group of byTone) for (const sg of group) if (sg[4] === l) { line(sg[0], sg[1], sg[2], sg[3]); any = true }
-      if (any) spurG.stroke({ color: V.crevice, width: W[l] + V.outlinePx * 2, cap: 'round', join: 'round' })
+      for (let t = 0; t < bins.length; t++) for (const sg of bins[t][l]) { line(sg[0], sg[1], sg[2], sg[3]); any = true }
+      if (any) spurG.stroke({ color: V.crevice, width: W[l] * (1 + V.outlineFrac * 2), cap: 'round', join: 'round' })
     }
-    for (let t = 0; t < byTone.length; t++) {
-      for (let l = 0; l <= V.depthHi; l++) {
-        let any = false
-        for (const sg of byTone[t]) if (sg[4] === l) { line(sg[0], sg[1], sg[2], sg[3]); any = true }
-        if (any) spurG.stroke({ color: V.tones[t], width: W[l], cap: 'round', join: 'round' })
+    for (let t = 0; t < bins.length; t++) {
+      for (let l = 0; l < W.length; l++) {
+        if (!bins[t][l].length) continue
+        for (const sg of bins[t][l]) line(sg[0], sg[1], sg[2], sg[3])
+        spurG.stroke({ color: V.tones[t], width: W[l], cap: 'round', join: 'round' })
       }
     }
-    // The buds, IN EACH COLONY'S OWN TONE lightened toward V.tip rather than all in one cream.
-    // depth 3 puts 8 tips on every stem and 32 on every colony, so a single pale bud colour is not
-    // an accent, it is the dominant mass — the first cut of this washed the whole ridge to cream
-    // and buried the orange, red and teal underneath their own tips. Lightening each colony's tone
-    // keeps the bud reading as a bud while leaving the colony its identity.
-    const lighten = (hex, t) => {
-      const r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255
-      const tr = (V.tip >> 16) & 255, tg = (V.tip >> 8) & 255, tb = V.tip & 255
-      return ((r + (tr - r) * t) << 16 | (g + (tg - g) * t) << 8 | (b + (tb - b) * t)) & 0xffffff
-    }
-    for (let t = 0; t < tips.length; t++) {
-      if (!tips[t].length) continue
-      for (const [f, c, r] of tips[t]) dot(f, c, r)
-      spurG.fill({ color: lighten(V.tones[t], V.tipMix) })
-    }
+    // THE BUDS ARE THE STROKE'S OWN ROUND CAP NOW. They used to be a separate circle per branch
+    // end -- 45,531 of them per rebuild at the old depth, each a polygon Pixi had to triangulate,
+    // and the second largest cost in a rebuild that hung the tab. Every branch is already stroked
+    // with cap:'round', so its end is a filled half-disc of the branch's own colour; the only
+    // thing lost is the paler bud tint, which is worth a freeze exactly never. tipMix/tipR are
+    // kept in SPUR_VIS for the baked version, where a bud costs nothing again.
   }
   // ---- The Reef: Fire Coral's lit ridges (v7.x) -------------------------------------------------
   // run.polyps, drawn from the SAME snapshot stepPolyps damages against, through the SAME
