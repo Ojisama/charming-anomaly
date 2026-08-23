@@ -178,7 +178,7 @@ import {
   ORCA_COMMIT_SPEED, ORCA_OVERSHOOT, ORCA_HIT_R, ORCA_DMG_FRAC,
   ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_LAST_GAP,
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
-  ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_COMMIT_SEEK_R, ORCA_BITE_R,
+  ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
   ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
@@ -4519,28 +4519,6 @@ function orcaRush(run) {
   return Math.min(ORCA_RUSH_MAX, 1 + ORCA_DENSITY_RUSH * dens)
 }
 
-// The centre of the tightest knot of prey within ORCA_COMMIT_SEEK_R of (cx, cy), or the player if
-// there is none. ONE O(n) walk, run ONCE per commit — not per frame — and it costs no new geometry:
-// stepEnemySeparation already leaves every body its neighbour count and the SUM of its neighbours'
-// positions (`_shoalN` / `_nbrX` / `_nbrY`, built the frame before this runs), so the centroid of a
-// fish's own neighbourhood is a division.
-function denseSpot(run, cx, cy) {
-  const p = run.player
-  let bx = p.x, by = p.y, best = 0
-  const seek2 = ORCA_COMMIT_SEEK_R * ORCA_COMMIT_SEEK_R
-  for (const e of run.enemies) {
-    if (e._dead || isAlly(e)) continue
-    const n = e._shoalN || 0
-    if (n <= best) continue
-    const dx = e.x - cx, dy = e.y - cy
-    if (dx * dx + dy * dy > seek2) continue
-    best = n
-    bx = ((e._nbrX || 0) + e.x) / (n + 1)
-    by = ((e._nbrY || 0) + e.y) / (n + 1)
-  }
-  return { x: bx, y: by }
-}
-
 // THE UNCREDITED DEATH. Prey caught by the sweep just stops existing: `_dead` plus an event and
 // nothing else, which is stepLeaks' shipped idiom for a body the player did not kill. It therefore
 // pays NO run.kills, no gem, no Bloodlust refill and no on-kill proc — all of which live inside
@@ -4737,18 +4715,21 @@ function stepOrca(run, dt) {
     tr.push(o.x, o.y)
     if (tr.length > ORCA_TRAIL_MAX * 2) tr.splice(0, tr.length - ORCA_TRAIL_MAX * 2)
     if (o.t <= 0) {
-      // The line is locked HERE, at the moment it breaks orbit, and never re-aimed. That is what
-      // makes it dodgeable — a strike that tracked would be unavoidable and therefore not a move.
-      // AIMED AT THE SHOAL, not at the player (owner ruling: "The shoal — you're collateral"). The
-      // player is only hit if they are standing on the line the food put there, which is what makes
-      // a fat ball a risk instead of a hoard.
-      const t = denseSpot(run, o.cx, o.cy)
-      const dx = t.x - o.x, dy = t.y - o.y
+      // THROUGH THE CENTRE OF THE COIL IT JUST DREW. Owner ruling 2026-08-23: "the orca attack
+      // should always be on the center of the spiral" — and the spiral is a thing the player can
+      // SEE now (o.trail, stroked by render), so its centre is a place they can read and stand off.
+      // The line is locked HERE, at the moment it breaks orbit, and never re-aimed: the centre lags
+      // the player through the loose track above, and that lag is the room the player bought by
+      // swimming. It still eats the shoal, for a better reason than aiming at it did — the coil has
+      // spent ORCA_CIRCLE_DUR herding the ball into exactly this point.
+      o.tx = o.cx; o.ty = o.cy
+      const dx = o.tx - o.x, dy = o.ty - o.y
       const d = Math.hypot(dx, dy) || 1
       o.dirX = dx / d; o.dirY = dy / d
       o.state = 'committing'
       o.t = (d + ORCA_OVERSHOOT) / ORCA_COMMIT_SPEED
       o.hit = false
+      o.splashed = false
       run.events.push({ type: 'orcaStrike', x: o.x, y: o.y, angle: Math.atan2(dy, dx) })
     }
     return false
@@ -4757,6 +4738,13 @@ function stepOrca(run, dt) {
     o.x += o.dirX * ORCA_COMMIT_SPEED * dt
     o.y += o.dirY * ORCA_COMMIT_SPEED * dt
     orcaBite(run, o)
+    // THE BIG SPLASH, where it was AIMED and not where the frame happened to land — latched like
+    // the hit below, and tested as "has the body passed the target's plane" so a slow frame cannot
+    // step clean over the point at ORCA_COMMIT_SPEED.
+    if (!o.splashed && (o.x - o.tx) * o.dirX + (o.y - o.ty) * o.dirY >= 0) {
+      o.splashed = true
+      run.events.push({ type: 'orcaSplash', x: o.tx, y: o.ty })
+    }
     // ONCE PER PASS, not a DoT — `hit` latches so a slow frame cannot bill the same strike twice.
     if (!o.hit) {
       const hx = p.x - o.x, hy = p.y - o.y
@@ -4793,7 +4781,7 @@ function stepOrca(run, dt) {
   o.cx = p.x; o.cy = p.y; o.r = ORCA_RING_R; o.ang = bearing
   o.x = p.x + Math.cos(bearing) * ORCA_RING_R
   o.y = p.y + Math.sin(bearing) * ORCA_RING_R
-  o.dirX = 0; o.dirY = 0; o.hit = false; o.trail = null
+  o.dirX = 0; o.dirY = 0; o.hit = false; o.splashed = false; o.trail = null
   run.events.push({ type: 'orcaRise', x: p.x, y: p.y })
   return false
 }

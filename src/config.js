@@ -10081,6 +10081,11 @@ export const ORCA_DMG_FRAC = 0.34
 export const ORCA_COMMITS = 2
 export const ORCA_LEN = 560            // body length px — ~12x the player, it must read as bigger
 export const ORCA_FEAR_TELL = 0.55     // render: alpha of the ring tell at full close
+// The water thrown up where the strike passes through the centre of the coil, fed to render's
+// spawnSplash as an impact radius: the rings reach SPLASH_VIS.rMax x this, so 150 puts the
+// outermost front at ~350px — half again the closed ring, i.e. it covers the ball the coil herded
+// in and reads at the scale of a 560px animal rather than at a gull's.
+export const ORCA_SPLASH_R = 150
 
 // THE SHADOW PASSES. Owner ruling 2026-08-23: "orca was supposed to start with a shadow passing
 // underneath you several times". Three harmless silhouettes slide under the player before the first
@@ -10132,12 +10137,14 @@ export const ORCA_BAIT_PULL = 0.5      // a FULL chum bait counts as this much o
 export const ORCA_BAIT_FULL_FOOD = 8   // servings that count as a full bait (WEAPONS.chum `food`)
 export const ORCA_RUSH_MAX = 2.2       // hard ceiling on the countdown's speed multiplier
 
-// IT COMMITS THROUGH THE SHOAL, NOT THROUGH YOU. Owner ruling 2026-08-23, asked what it eats when it
-// commits: "The shoal — you're collateral." The line is aimed at the densest cluster of prey near
-// the ring, and every prey body inside ORCA_BITE_R of the sweep dies UNCREDITED — no kill, no gem,
-// no Bloodlust, no on-kill proc (the stepLeaks idiom: _dead plus an event, and nothing else).
-// Building a big ball is therefore ringing the dinner bell: eat fast or lose the food.
-export const ORCA_COMMIT_SEEK_R = 520  // px around the ring centre it looks for a cluster to aim at
+// IT COMMITS THROUGH THE CENTRE OF ITS OWN COIL. Owner ruling 2026-08-23: "the orca attack should
+// always be on the center of the spiral." What it EATS is still the shoal — "you're collateral",
+// the same day's earlier ruling — and it eats it for a better reason than aiming at it did: the
+// coil has spent ORCA_CIRCLE_DUR herding the ball into that point, and unlike a cluster centroid
+// the centre is a place the player can SEE (it is the middle of the trail render strokes) and
+// therefore stand off. Every prey body inside ORCA_BITE_R of the sweep dies UNCREDITED: no kill,
+// no gem, no Bloodlust, no on-kill proc (the stepLeaks idiom — _dead plus an event, and nothing
+// else). Building a big ball is therefore ringing the dinner bell: eat fast or lose the food.
 // balance_decision : bite swath is about twice the body's own width 2026-08-23
 //  - elites and non-prey are excluded at the read site: an orca deleting an elite the player has
 //    been whittling down steals a reward they earned

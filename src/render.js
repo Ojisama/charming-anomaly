@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, channelAt, laneHalfWidth, ORCA_WAKE_R, ORCA_RISE_DUR,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, channelAt, laneHalfWidth, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -9743,6 +9743,10 @@ export function createRenderer(app) {
   const orcaShadowSp = new Sprite()
   const orcaG = new Graphics()
   const orcaSp = new Sprite()
+  // Last frame's body position and the heading drawn from it. Render-local, never on run.orca: the
+  // renderer does not write to the sim's shapes. Nulled whenever run.orca is, so a new visit seeds
+  // its own heading rather than inheriting the last one's.
+  let orcaPX = null, orcaPY = 0, orcaRot = 0
   orcaShadowSp.visible = false
   orcaSp.visible = false
   orcaShadowSp.anchor.set(0.5)
@@ -12551,10 +12555,10 @@ const spurG = new Graphics()
   }
   // ---- THE ORCA (v7.x, The Wreck) --------------------------------------------------------------
   // No-op (everything hidden, the Graphics cleared) unless run.orca exists — the updateNet idiom.
-  function updateOrca(run) {
+  function updateOrca(run, dt) {
     const o = run.orca
     orcaG.clear()
-    if (!o) { orcaShadowSp.visible = false; orcaSp.visible = false; return }
+    if (!o) { orcaShadowSp.visible = false; orcaSp.visible = false; orcaPX = null; return }
     if (!orcaSp.texture || orcaSp.texture !== T.orca.tex) {
       orcaSp.texture = T.orca.tex
       orcaShadowSp.texture = T.orca.tex
@@ -12566,6 +12570,28 @@ const spurG = new Graphics()
     // deeper than the pre-strike rise, so it is drawn smaller and fainter, and it never sharpens:
     // the whole read is "something big just went under me", not "something is coming up at me".
     const passing = o.state === 'shadow'
+
+    // FACING FOLLOWS THE BODY'S ACTUAL VELOCITY, and not the ring's tangent. Two things carry the
+    // silhouette sideways to that tangent, and the rise has both: the body slides OUT from the
+    // centre to the ring (a purely RADIAL 440px in ORCA_RISE_DUR, i.e. square to the tangent), and
+    // the centre itself chases a moving player at up to the player's own 220px/s. Drawn on the
+    // tangent it sat 36 deg off its direction of travel at the median and 90 deg at the worst with
+    // the player swimming, against 2 deg standing still — which is a car drifting, and is exactly
+    // the state the owner reported it in ("the start is weird, the orca drifts, maybe because the
+    // player is moving"). One finite difference covers all five states, and in 'committing' /
+    // 'leaving' it reduces to the locked heading anyway. TURNED toward rather than snapped to: the
+    // centre's lerp jitters frame to frame, and a raw atan2 of it twitches.
+    if (orcaPX === null) {
+      orcaPX = o.x; orcaPY = o.y
+      orcaRot = passing ? Math.atan2(o.dirY, o.dirX) : o.ang + Math.PI / 2
+    }
+    const vx = o.x - orcaPX, vy = o.y - orcaPY
+    orcaPX = o.x; orcaPY = o.y
+    if (vx * vx + vy * vy > 1e-4) {
+      // atan2 of the sine/cosine is the wrap-safe short way round, however far orcaRot has wound.
+      const d = Math.atan2(vy, vx) - orcaRot
+      orcaRot += Math.atan2(Math.sin(d), Math.cos(d)) * Math.min(1, dt * 9)
+    }
 
     // THE TELEGRAPH, AND IT IS THE WHOLE VISIT NOW. Owner ruling 2026-08-23: "what I want is a
     // moment of tension build-up, like in jaws or whatever, where the SHADOW IS SPIRALING IN FROM
@@ -12589,9 +12615,7 @@ const spurG = new Graphics()
         ? 0.30 * (1 - Math.max(0, o.t) / ORCA_RISE_DUR)
         : 0.30 + 0.70 * (1 - Math.max(0, o.t) / ORCA_CIRCLE_DUR)
       orcaShadowSp.position.set(o.x, o.y)
-      // The pass travels a straight locked line, so it faces the way the commit does, not the way
-      // the ring does. Reading o.ang here would leave it broadside to its own direction of travel.
-      orcaShadowSp.rotation = passing ? Math.atan2(o.dirY, o.dirX) : o.ang + Math.PI / 2
+      orcaShadowSp.rotation = orcaRot
       orcaShadowSp.scale.set(passing ? s * 0.82 : s * (0.70 + 0.45 * k))
       orcaShadowSp.tint = 0x02060a
       orcaShadowSp.alpha = passing ? 0.34 * Math.max(0, o.alpha) : 0.28 + 0.32 * k
@@ -12603,7 +12627,7 @@ const spurG = new Graphics()
     orcaSp.visible = o.state === 'committing' || o.state === 'leaving'
     if (orcaSp.visible) {
       orcaSp.position.set(o.x, o.y)
-      orcaSp.rotation = Math.atan2(o.dirY, o.dirX)
+      orcaSp.rotation = orcaRot
       orcaSp.scale.set(s)
       orcaSp.tint = 0xffffff
       orcaSp.alpha = o.state === 'leaving' ? Math.max(0, o.alpha) : 1
@@ -18194,6 +18218,29 @@ const spurG = new Graphics()
         // A chum bait gone — stripped by the shoal or aged out. Dim and small on purpose: the
         // information is that the food is finished, and the bait's disappearance already carries it.
         case 'chumOut': spawnRing(e.x, e.y, 26, 0.32, T.nova, 0x7c2f26); break
+        // The strike passing through the centre of the coil it drew (owner, 2026-08-23: "make a big
+        // splash"). The chapter's own splash language taken as big as it goes — four wave fronts
+        // instead of three, a long life, the crown on — plus a bright T.nova core and the GULL'S
+        // water droplets. The core and the droplets are not decoration: SPLASH_VIS is tuned for The
+        // Surf's pale, shallow, sunlit beach, and shot at 1280x800 on The Wreck's deep dark floor
+        // the rings alone read as a sonar ping rather than as water being thrown. Droplets are soft
+        // blobs decelerating hard, because water is heavy, at twice a bird's count and size — which
+        // is the honest relationship between a gull hitting the surface and a 560px animal.
+        case 'orcaSplash': {
+          spawnSplash(e.x, e.y, ORCA_SPLASH_R, { rings: 4, life: 0.9, alpha: 0.8 })
+          spawnRing(e.x, e.y, ORCA_SPLASH_R * 1.5, 0.45, T.nova, 0xdff4ff)
+          if (T.fx && T.fx.circle_05) {
+            for (let i = 0; i < 22; i++) {
+              const a = (i / 22) * Math.PI * 2 + Math.random() * 0.4
+              const v = 260 + Math.random() * 340
+              spawnSmoke(T.fx.circle_05, e.x, e.y, Math.cos(a) * v, Math.sin(a) * v,
+                0.38 + Math.random() * 0.26, fxScale(T.fx.circle_05, 9 + Math.random() * 13),
+                SPLASH_VIS.color, -0.03, 3.4, 0, 0, 1.25)
+            }
+          }
+          addShake(6, 0.28)
+          break
+        }
         case 'hydrant': spawnRing(e.x, e.y, 44, 0.40, T.nova, 0x5c8a4e); break // v6.2: cast was invisible
         case 'whip':
           // flagella lash: arc sweep flash + a soft shake (melee weight)
@@ -18517,6 +18564,7 @@ const spurG = new Graphics()
     orcaG.clear()
     orcaShadowSp.visible = false
     orcaSp.visible = false
+    orcaPX = null
     // The player's gear, same idiom. `snares` is render-local state with no run.* entity behind it,
     // so unlike run.longlines it does NOT empty itself when the run object is replaced — clearing
     // the Graphics alone would leave every live slot to redraw its mesh on the next frame of the
@@ -20094,7 +20142,7 @@ const spurG = new Graphics()
     updateEddies(run, dt)
     updateShafts(run)
     updateNet(run)            // v7.x The Trawl: no-op (both Graphics cleared) unless run.net exists
-    updateOrca(run)           // v7.x The Wreck: no-op (sprites hidden, Graphics cleared) unless run.orca exists
+    updateOrca(run, dt)           // v7.x The Wreck: no-op (sprites hidden, Graphics cleared) unless run.orca exists
     updateGear(run, dt)       // v7.97 the Trawl's own gear: set lines + landed Net Toss meshes
     updateSwell(run, dt, cx, cy)
     drawBreakers(run)

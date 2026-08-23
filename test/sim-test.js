@@ -156,7 +156,7 @@ import {
   BALLAST_RING,
   // The Wreck's orca (Run OR)
   ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
-  ORCA_RING_MIN_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, FEED_FULL_N,
+  ORCA_RING_MIN_R, ORCA_BITE_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, FEED_FULL_N,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_RING_R, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_SPIRAL_ACCEL, ORCA_TRAIL_MAX,
   CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX,
 } from '../src/config.js'
@@ -9318,8 +9318,8 @@ function runOrca() {
     return e
   }
   // A tight knot of prey pinned around a point. Tight enough that stepEnemySeparation gives every
-  // member a `_shoalN` over BALL_TIGHT_N, which is what makes them count for _feedN AND what
-  // denseSpot steers the commit at — the same field, read by both halves of the design.
+  // member a `_shoalN` over BALL_TIGHT_N, which is what makes them count for _feedN — the density
+  // term orcaRush reads to decide how soon the animal comes.
   const ball = (run, n, cx, cy, spread = 40) => {
     const es = []
     for (let i = 0; i < n; i++) {
@@ -9425,66 +9425,112 @@ function runOrca() {
       `${gorged.toFixed(1)}s gorged-and-baited — capped at ${capped.toFixed(1)}s, where uncapped it would be ${uncapped.toFixed(1)}s`)
   }
 
-  // -- OR.c: it commits at the SHOAL, eats it, and the player is paid NOTHING. -------------------
-  // Two arms off a hand-built `circling` orca (stepOrca writes this exact shape). With a knot of
-  // prey off to one side the line must bend to it and the player must be missed; with the water
-  // empty the shipped fallback must still put the line through the player — without that control
-  // arm, "the player took no damage" is satisfied by an orca that misses everything.
+  // -- OR.c: it commits through the CENTRE OF ITS COIL, eats what is there, pays NOTHING. --------
+  // Owner ruling 2026-08-23: "the orca attack should always be on the center of the spiral." Two
+  // arms off a hand-built `circling` orca (stepOrca writes this exact shape), and they are each
+  // other's control: park the coil's centre on a knot 400px off the player and the KNOT dies while
+  // the player is untouched; park it on the player and the player is hit. Neither arm alone can
+  // separate "aimed at the centre" from "aimed at the shoal" or from "aimed at the player" — the
+  // pair can, because those three answers are 400px apart in the first arm and identical in the
+  // second.
   {
-    const commit = (withBall) => {
+    const commit = (off, withBall) => {
       const run = mk()
       const p = run.player
-      // A knot 400px off the player's beam. The line from the orca's ring position to this knot
-      // clears the player by ~145px, well outside ORCA_HIT_R + the player's radius (100).
+      // The centre LAGS the player by `off`, which is what the loose track in the circling state
+      // leaves behind once the player has been swimming, and the knot sits ON it — where
+      // ORCA_CIRCLE_DUR of tightening coil has been herding it. The line runs from the orca's ring
+      // position through that centre, so it clears the player by `off`, well outside
+      // ORCA_HIT_R + the player's radius (100).
       // ⚠ ONE LINE, NOT ORCA_COMMITS OF THEM. `passes: 1` is what makes this block measurable: a
-      // full visit commits twice, and the SECOND line finds the knot already eaten and falls back
-      // onto the player — so `shoal.dmg === 0` below would be reading the fallback, not the aim.
-      const es = withBall ? ball(run, 14, p.x, p.y - 400, 45) : []
+      // full visit commits twice, and the second line re-rises, re-spirals and re-aims at wherever
+      // the centre has drifted to by then — so `away.dmg === 0` below would be reading that second
+      // aim, not this one.
+      const cx = p.x, cy = p.y - off
+      const es = withBall ? ball(run, 14, cx, cy, 45) : []
       run.orca = {
-        state: 'circling', t: 0.2,
-        cx: p.x, cy: p.y, r: ORCA_RING_MIN_R, ang: 0,
-        x: p.x + ORCA_RING_MIN_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1,
+        // Two frames of circling, not 0.2s: the centre lerps toward the player while it runs, and
+        // over 0.2s it would drag the aim point ~10% of `off` off the knot the arm is about to
+        // measure. Short enough that the fixture's geometry is the one that commits.
+        state: 'circling', t: dt * 1.5,
+        cx, cy, r: ORCA_RING_MIN_R, ang: 0,
+        x: cx + ORCA_RING_MIN_R, y: cy, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1,
       }
       // Bloodlust parked at HALF, deliberately. At full, killBase (5/kill x 14 fish) would clamp
       // against chargeMax and a credited meal would be invisible; at zero the starve DoT would bill
       // the player HP this block attributes to the strike. Half is the only value that sees both.
       run.charge = run.chargeMax / 2
       const hp0 = p.hp, kills0 = run.kills, gems0 = run.gems.length, charge0 = run.charge
-      let feeds = 0, killEvents = 0
+      let feeds = 0, killEvents = 0, splashes = []
+      let brokeAt = null                                    // where the body was when it broke orbit
+      // The centre AS IT STOOD AT THE LOCK — read after the step that flipped the state, not from
+      // the fixture's literal: the centre lerps toward the player every circling frame, so the
+      // fixture's own (cx, cy) is tens of px stale by the time the line is locked, and comparing
+      // the splash against a stale point measures the lerp instead of the aim.
+      let locked = null
       for (let i = 0; i < Math.round(12 / dt) && run.orca; i++) {
         hold(run, es)
+        if (run.orca.state === 'circling') brokeAt = { x: run.orca.x, y: run.orca.y }
         stepSim(run, { x: 0, y: 0 }, dt)
+        if (!locked && run.orca && run.orca.state === 'committing') locked = { x: run.orca.cx, y: run.orca.cy }
         feeds += run.events.filter((ev) => ev.type === 'orcaFeed').length
         killEvents += run.events.filter((ev) => ev.type === 'kill').length
+        splashes = splashes.concat(run.events.filter((ev) => ev.type === 'orcaSplash'))
         run.events.length = 0
       }
       return {
-        feeds, killEvents, eaten: es.filter((e) => e._dead).length, of: es.length,
+        feeds, killEvents, splashes, brokeAt, locked, cx, cy,
+        eaten: es.filter((e) => e._dead).length, of: es.length,
         dmg: hp0 - run.player.hp,
         kills: run.kills - kills0, gems: run.gems.length - gems0, charge: run.charge - charge0,
       }
     }
-    const shoal = commit(true)
-    const alone = commit(false)
-    assert.ok(shoal.eaten >= 4,
-      `the commit must go THROUGH the knot and eat it: ${shoal.eaten} of ${shoal.of} died. Aimed at the player instead, the line clears the ball by ~150px and eats nobody`)
-    assert.strictEqual(shoal.feeds, shoal.eaten,
-      `every eaten fish must emit exactly one orcaFeed (render's only tell for it): ${shoal.feeds} events for ${shoal.eaten} deaths`)
+    const away = commit(400, true)
+    const onYou = commit(0, false)
+    assert.ok(away.eaten >= 4,
+      `the commit must go THROUGH the coil's centre and eat what the coil herded there: ${away.eaten} of ${away.of} died. ` +
+      `Aimed at the player instead, the line clears the knot by 400px and eats nobody`)
+    assert.strictEqual(away.feeds, away.eaten,
+      `every eaten fish must emit exactly one orcaFeed (render's only tell for it): ${away.feeds} events for ${away.eaten} deaths`)
     // The credit half. These are three separate ledgers and dealDamage pays all three — routing the
     // bite through it would leave every other assertion here green.
-    assert.strictEqual(shoal.kills, 0, `the orca's meal must not count as player kills; run.kills moved by ${shoal.kills}`)
-    assert.strictEqual(shoal.gems, 0, `the orca's meal must drop no XP; ${shoal.gems} gems appeared`)
-    assert.strictEqual(shoal.killEvents, 0, `the orca's meal must emit no 'kill' events — that is the beat the player hears and sees for their OWN kill; ${shoal.killEvents} fired`)
-    assert.ok(shoal.charge < 0,
-      `the bar must still be FALLING through the orca's meal; it moved by ${shoal.charge >= 0 ? '+' : ''}${shoal.charge.toFixed(1)}. ` +
-      `killBase is ${CHAPTERS.wreck.resource.killBase}/kill, so a credited sweep of ${shoal.eaten} fish would push it up instead`)
-    assert.strictEqual(shoal.dmg, 0,
-      `the player was not on the line and must take nothing: they lost ${shoal.dmg}`)
-    assert.ok(alone.dmg > 0,
-      `with no shoal to aim at, the fallback must still commit through the PLAYER — it dealt ${alone.dmg}, so this block cannot tell a redirected strike from a broken one`)
-    console.log(`PASS run OR.c (it eats the shoal): the commit bent onto a knot 400px off the beam and took ${shoal.eaten}/${shoal.of} fish ` +
-      `for ${shoal.feeds} orcaFeed events, paying 0 kills / 0 gems / 0 Bloodlust and costing the player 0 HP — where an empty field still puts the line ` +
-      `through them for ${(alone.dmg / 1e9).toFixed(2)}x max HP`)
+    assert.strictEqual(away.kills, 0, `the orca's meal must not count as player kills; run.kills moved by ${away.kills}`)
+    assert.strictEqual(away.gems, 0, `the orca's meal must drop no XP; ${away.gems} gems appeared`)
+    assert.strictEqual(away.killEvents, 0, `the orca's meal must emit no 'kill' events — that is the beat the player hears and sees for their OWN kill; ${away.killEvents} fired`)
+    assert.ok(away.charge < 0,
+      `the bar must still be FALLING through the orca's meal; it moved by ${away.charge >= 0 ? '+' : ''}${away.charge.toFixed(1)}. ` +
+      `killBase is ${CHAPTERS.wreck.resource.killBase}/kill, so a credited sweep of ${away.eaten} fish would push it up instead`)
+    assert.strictEqual(away.dmg, 0,
+      `the player had outrun the coil by 400px and must take nothing: they lost ${away.dmg}`)
+    assert.ok(onYou.dmg > 0,
+      `with the centre ON the player the same line must hit them — it dealt ${onYou.dmg}, so this block cannot tell ` +
+      `"aimed at the centre" from "always misses"`)
+    // THE SPLASH, and it is the owner's sentence stated as geometry. Once per commit, and AT the
+    // centre of the coil — which in the first arm is 400px from the player and ORCA_RING_MIN_R from
+    // the body that threw it, so neither an aim at the player nor an emit at o.x/o.y satisfies it.
+    for (const [nm, r] of [['knot 400px off', away], ['centre on the player', onYou]]) {
+      assert.strictEqual(r.splashes.length, 1,
+        `exactly one orcaSplash per commit line (${nm}); ${r.splashes.length} fired`)
+      const s = r.splashes[0]
+      // The centre must not have wandered off the fixture in the frames it circled, or "on the
+      // centre" would be satisfied by a centre that has drifted onto the player anyway.
+      const drift = Math.hypot(r.locked.x - r.cx, r.locked.y - r.cy)
+      assert.ok(drift < ORCA_BITE_R,
+        `the coil's centre drifted ${drift.toFixed(0)}px off the knot before it locked (${nm}), so this arm no longer separates ` +
+        `"aimed at the centre" from "aimed at the player" — shorten the circling frames in the fixture`)
+      const offBy = Math.hypot(s.x - r.locked.x, s.y - r.locked.y)
+      assert.ok(offBy < 5,
+        `the splash must land on the CENTRE OF THE SPIRAL (${nm}); it landed ${offBy.toFixed(0)}px off it`)
+      const fromBody = Math.hypot(s.x - r.brokeAt.x, s.y - r.brokeAt.y)
+      assert.ok(fromBody > ORCA_RING_MIN_R * 0.8,
+        `the splash must be the point it was AIMED at, not where the body broke orbit (${nm}); ` +
+        `those were only ${fromBody.toFixed(0)}px apart, against a ring radius of ${ORCA_RING_MIN_R}`)
+    }
+    console.log(`PASS run OR.c (it strikes the centre of its coil): a centre parked 400px off the player took ${away.eaten}/${away.of} fish ` +
+      `for ${away.feeds} orcaFeed events, paying 0 kills / 0 gems / 0 Bloodlust and costing the player 0 HP, and threw ONE splash ` +
+      `${Math.hypot(away.splashes[0].x - away.locked.x, away.splashes[0].y - away.locked.y).toFixed(1)}px from that centre and ` +
+      `${Math.hypot(away.splashes[0].x - away.brokeAt.x, away.splashes[0].y - away.brokeAt.y).toFixed(0)}px from the body — ` +
+      `where a centre on the player hits them for ${(onYou.dmg / 1e9).toFixed(2)}x max HP (bite swath ${ORCA_BITE_R}px)`)
   }
 
   // -- OR.d: the pass SCATTERS what it goes under, and still costs nothing. ----------------------
@@ -9759,7 +9805,7 @@ function runOrca() {
       `publishing a ${peakTrail}-point coil render strokes — and the silhouette surfaces UNDER the player before any of it, staying under until it commits`)
   }
 
-  console.log('PASS run OR (The Wreck: the orca): three harmless shadow passes open the chapter and scatter what they go under, a packed or baited field brings the next visit in sooner up to a hard cap, the commit bends onto the shoal and eats it for free, its bow wave throws the rest of the battlefield to both sides of a line it draws twice a visit, and the whole build is a shadow coiling in from underneath that only surfaces to strike')
+  console.log('PASS run OR (The Wreck: the orca): three harmless shadow passes open the chapter and scatter what they go under, a packed or baited field brings the next visit in sooner up to a hard cap, the commit runs through the centre of the coil, splashing there and eating what it herded in for free, its bow wave throws the rest of the battlefield to both sides of a line it draws twice a visit, and the whole build is a shadow coiling in from underneath that only surfaces to strike')
 }
 run(runOrca)
 

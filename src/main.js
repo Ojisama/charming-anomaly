@@ -477,6 +477,9 @@ const SFX_FOR_EVENT = {
   // fired at closest approach. Its FEED has no entry at all — a commit eats a dozen fish in under a
   // second, which is the freeze/submission-expiry rule, and the strike above already sounds.
   orcaShadow: 'hole',
+  // orcaSplash has NO entry and that is deliberate: it fires within ~0.25s of orcaStrike, inside
+  // the 0.4s whoosh that sample is still playing, so a second one would land as a double-hit on the
+  // one moment the chapter most needs to read cleanly. The splash is a visual.
   // v7.x The Surf: the Shorebreak REPLACES the shove in that chapter, so it does not inherit the
   // shove's sound by sitting on the same press — surf never emits `repulse` at all any more. It
   // takes the same whoosh, which is both the right voice for a wall of water and the reason the

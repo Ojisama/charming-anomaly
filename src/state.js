@@ -1431,15 +1431,17 @@ function generateWells(sig) {
  *   spill and ticked down after leaving, exactly as bloomSlowT/fearT decay. Read in stepPlayer,
  *   where it joins the MIN of the speed floors rather than multiplying into them (see the block
  *   there). The LINGER is the design: a slow that ends at the rim is just a wider slick.
- * orca: null | { state, t, cx, cy, r, ang, x, y, dirX, dirY, hit, alpha, passes } — The Wreck's apex
+ * orca: null | { state, t, cx, cy, r, ang, x, y, tx, ty, dirX, dirY, hit, splashed, alpha, passes } — The Wreck's apex
  *   predator, in chapters declaring `orca: true`. A SINGLE NULLABLE OBJECT with a countdown, the
  *   same idiom as `net` above and never a pool: there is only ever one, and it is UNKILLABLE (no
  *   hp field, no vulnerability window). `state` walks 'shadow' | 'rising' | 'circling' |
  *   'committing' | 'leaving'; `t` is the seconds left in the current state; (cx, cy)/r are the
  *   closing ring's centre and radius (stepPrey reads them — the wall the shoal will not cross);
- *   (x, y) is the body; ang is its bearing around the ring; (dirX, dirY) is the locked commit
- *   heading; `hit` latches the once-per-pass player hit (and, in 'shadow', the once-per-pass
- *   whoosh); alpha is the fade render draws with. null between visits and in every other chapter.
+ *   (x, y) is the body; ang is its bearing around the ring; (tx, ty) is the point the commit was
+ *   aimed at — the coil's own centre, snapshotted at break-orbit and never re-aimed; (dirX, dirY)
+ *   is the locked commit heading; `hit` latches the once-per-pass player hit (and, in 'shadow', the
+ *   once-per-pass whoosh); `splashed` latches the orcaSplash at (tx, ty); alpha is the fade render
+ *   draws with. null between visits and in every other chapter.
  *   'shadow' IS THE OPENING AND IT IS HARMLESS: a silhouette that slides under the player, scatters
  *   the shoal by publishing e.fearT, and clears itself without escalating. No ring, no contact,
  *   no death — foreshadowing, so the shape is learned before it can hurt.
@@ -1457,6 +1459,11 @@ function generateWells(sig) {
  * {type:'orcaShadow', x, y}: an opening pass at its closest approach to the player — fired ONCE per
  *   pass, latched on o.hit, at the midpoint rather than at spawn so the whoosh lands when the shape
  *   is actually underneath you. SFX only (`hole`): the shadow itself is the visual.
+ * {type:'orcaSplash', x, y}: the commit passing through (tx, ty), the centre of the coil it just
+ *   broke out of — fired ONCE per commit (so ORCA_COMMITS times a visit), latched on o.splashed,
+ *   and carrying the AIMED point rather than the body's, so the water goes up where the spiral
+ *   closed. Render-only (a big spawnSplash, a T.nova core and droplets); no SFX entry, because
+ *   orcaStrike's whoosh is still sounding a quarter-second in front of it.
  * {type:'orcaFeed', x, y}: one prey body eaten by the commit sweep. THE DEATH IS UNCREDITED —
  *   `_dead` and this event, and nothing else (stepLeaks' idiom), so it pays no run.kills, no gem,
  *   no XP, no Bloodlust and no on-kill proc. All of those live inside dealDamage, which this path
