@@ -157,6 +157,7 @@ import {
   // The Wreck's orca (Run OR)
   ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
   ORCA_RING_MIN_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, FEED_FULL_N,
+  ORCA_COMMITS, ORCA_WAKE_R, ORCA_RING_R, ORCA_RISE_DUR,
   CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow, spurAt } from '../src/sim.js'
@@ -8408,6 +8409,12 @@ function runPrey() {
       const run = mk(20260821)
       run.weapons = [{ id: 'bilge', level: 1 }]
       run.weaponMods.bilge = mods
+      // ⚠ AND THE ORCA HAS TO BE PARKED (v7.x). Its commit wake shoves the PLAYER sideways, which is
+      // real distance travelled and therefore real slickTrail pools — so `still` below stops being
+      // still the moment the first visit lands inside this 120s window. Parked rather than loosened
+      // in the assertion: the subject here is bilge's targeting, and an apex predator eating the
+      // fixture's crowd mid-run is noise in all three branches, not only the control.
+      run._orcaAcc = 1e9
       const p = run.player
       // Inside run.viewW/viewH (480/360 headless), at four clearly separated distances so "which
       // one was chosen" is readable from the pool's position alone. Pinned to the LIVE player each
@@ -9428,12 +9435,15 @@ function runOrca() {
       const run = mk()
       const p = run.player
       // A knot 400px off the player's beam. The line from the orca's ring position to this knot
-      // clears the player by ~150px, well outside ORCA_HIT_R + the player's radius.
+      // clears the player by ~145px, well outside ORCA_HIT_R + the player's radius (100).
+      // ⚠ ONE LINE, NOT ORCA_COMMITS OF THEM. `passes: 1` is what makes this block measurable: a
+      // full visit commits twice, and the SECOND line finds the knot already eaten and falls back
+      // onto the player — so `shoal.dmg === 0` below would be reading the fallback, not the aim.
       const es = withBall ? ball(run, 14, p.x, p.y - 400, 45) : []
       run.orca = {
         state: 'circling', t: 0.2,
         cx: p.x, cy: p.y, r: ORCA_RING_MIN_R, ang: 0,
-        x: p.x + ORCA_RING_MIN_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1,
+        x: p.x + ORCA_RING_MIN_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1,
       }
       // Bloodlust parked at HALF, deliberately. At full, killBase (5/kill x 14 fish) would clamp
       // against chargeMax and a credited meal would be invisible; at zero the starve DoT would bill
@@ -9517,7 +9527,115 @@ function runOrca() {
       `against ${control.moved.toFixed(0)}px unshadowed, for 0 HP and 0 deaths`)
   }
 
-  console.log('PASS run OR (The Wreck: the orca): three harmless shadow passes open the chapter and scatter what they go under, a packed or baited field brings the next visit in sooner up to a hard cap, and the commit bends onto the shoal and eats it for free')
+  // -- OR.e: the commit is a BOW WAVE, and a visit is ORCA_COMMITS lines. ------------------------
+  // Owner ruling 2026-08-23: "it should have a massive impact on the battlefield, like pushing
+  // everything to each side", and "currently it just circles a bit around you, then goes away, easy
+  // to avoid". Two separate mechanisms answer that and this block guards both, because either one
+  // failing silently leaves the other looking like the whole fix.
+  //   THE SUBJECTS ARE NON-PREY ON PURPOSE. orcaBite deletes `skittish` bodies inside ORCA_BITE_R,
+  // so a prey fixture cannot tell "thrown aside" from "eaten and gone"; a flagless body is immune to
+  // the bite outright, which makes every px of displacement attributable to the wake alone.
+  {
+    const wake = (withOrca) => {
+      const run = mk()
+      const p = run.player
+      // Strung along the line the orca will travel (+x through the player) at five perpendicular
+      // offsets: two well inside ORCA_WAKE_R on OPPOSITE sides, one near its edge, one outside it,
+      // and one sitting ON the line. Separated in x so stepEnemySeparation never has two of them in
+      // reach of each other — otherwise the control arm drifts and the measurement is separation.
+      //   ⚠ THE ONE ON THE LINE IS THE ONLY ARM THAT CAN SEE A RADIAL SHOVE, and that is a measured
+      // correction, not a hunch. For a body offset PERPENDICULAR to a straight pass the two are
+      // near-identical (176px vs 179px measured) — the orca's approach and its recession contribute
+      // equal and opposite along-line pushes that cancel, leaving the same lateral throw. A body at
+      // y=+10 separates them outright: a perpendicular wake gives it the full force for the whole
+      // chord, a radial one has almost no lateral component to give until the orca is on top of it.
+      const at = [[100, 70], [340, -70], [580, 180], [820, -430], [1060, 10]]
+      const es = at.map(([dx, dy]) => put(run, { x: p.x + dx, y: p.y + dy, hp: 1e12, speed: 0, flags: [] }))
+      // ⚠ WORLD y, NOT PLAYER-RELATIVE. The wake shoves the player as well, so an origin on the
+      // player subtracts that drift from the body on one side and adds it to the body on the other
+      // — which read as +48/-200 for a shove that is really symmetric, i.e. a false asymmetry
+      // reported as a broken sign. Nothing else moves the world here (the tide is off in mk()).
+      const y0 = es.map((e) => e.y)
+      const py0 = p.y
+      if (withOrca) {
+        // Dropped straight into 'committing' rather than walked to it: the subject is the sweep, and
+        // `hit: true` latches the player contact OFF so this block reads displacement and not HP.
+        run.orca = {
+          state: 'committing', t: 1.7,
+          cx: p.x, cy: p.y, r: ORCA_RING_MIN_R, ang: 0,
+          x: p.x - 400, y: p.y, dirX: 1, dirY: 0, hit: true, alpha: 1, passes: 1,
+        }
+      }
+      // Long enough for the sweep to clear the last body AND for e.kb to decay out, so what is
+      // measured is where the wake actually LEFT them and not a velocity still in flight.
+      for (let i = 0; i < Math.round(3.5 / dt); i++) {
+        for (const e of es) e.speed = 0
+        hold(run, es)
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return { dy: es.map((e, k) => e.y - y0[k]), player: run.player.y - py0 }
+    }
+    const hit = wake(true)
+    const still = wake(false)
+    assert.ok(still.dy.every((v) => Math.abs(v) < 5),
+      `the control must not move: without an orca the four bodies drifted [${still.dy.map((v) => v.toFixed(0)).join(', ')}]px`)
+    // SIGN FIRST. A radial shove — the obvious wrong implementation — would push the two inner
+    // bodies apart too, so magnitude alone cannot tell a bow wave from a bubble. What only a
+    // PERPENDICULAR shove gives is each body leaving on the side it was already on.
+    assert.ok(hit.dy[0] > 120 && hit.dy[1] < -120,
+      `bodies either side of the line must be thrown AWAY from it, each on its own side; ` +
+      `+70px went ${hit.dy[0].toFixed(0)}px and -70px went ${hit.dy[1].toFixed(0)}px`)
+    // ⚠ A RATIO, NOT `dy[2] < dy[0]`. The far body is inside the swath for a SHORTER CHORD
+    // (2√(R²-d²): 143px at 180 out against 438px at 70), so it takes less impulse even with the
+    // falloff term deleted — measured 150/300 = 0.50 flat against 46/176 = 0.26 shipped. The bare
+    // inequality is satisfied by the geometry alone and cannot see the term at all.
+    assert.ok(hit.dy[2] > 20 && hit.dy[2] < hit.dy[0] * 0.4,
+      `the wake must fall off with distance: at 180px out a body moved ${hit.dy[2].toFixed(0)}px against ` +
+      `${hit.dy[0].toFixed(0)}px at 70px out, a ratio of ${(hit.dy[2] / hit.dy[0]).toFixed(2)} — wanted under 0.40 ` +
+      `(a flat force reads 0.50 here on chord length alone)`)
+    assert.ok(hit.dy[4] > 200,
+      `a body sitting ON the strike line takes the wake at full force and must be hurled clear; it moved ` +
+      `${hit.dy[4].toFixed(0)}px. A RADIAL shove reads 125px here (measured) — it has almost no lateral component ` +
+      `to give a body it is heading straight at, which is the whole reason this arm exists`)
+    assert.ok(Math.abs(hit.dy[3]) < 5,
+      `nothing beyond ORCA_WAKE_R (${ORCA_WAKE_R}px) may be touched; a body 430px off the line moved ${hit.dy[3].toFixed(0)}px`)
+    assert.ok(Math.abs(hit.player) > 15,
+      `the player rides the wake too — standing on the line they must be shoved clear; they moved ${hit.player.toFixed(0)}px`)
+
+    // THE SECOND LINE. Counts orcaStrike over one whole visit, walked from 'rising' so every state
+    // transition is the shipped one. A visit that ends at the first overshoot reads 1 here.
+    const run = mk()
+    const p = run.player
+    const bearing = 0
+    run.orca = {
+      state: 'rising', t: ORCA_RISE_DUR,
+      cx: p.x, cy: p.y, r: ORCA_RING_R, ang: bearing,
+      x: p.x + ORCA_RING_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 0, passes: ORCA_COMMITS,
+    }
+    let strikes = 0, rises = 0
+    for (let i = 0; i < Math.round(40 / dt) && run.orca; i++) {
+      hold(run, [])
+      run.charge = run.chargeMax      // OR.a's rule: 40s of empty water would otherwise starve-bill the player
+      stepSim(run, { x: 0, y: 0 }, dt)
+      strikes += run.events.filter((ev) => ev.type === 'orcaStrike').length
+      rises += run.events.filter((ev) => ev.type === 'orcaRise').length
+      run.events.length = 0
+    }
+    assert.strictEqual(strikes, ORCA_COMMITS,
+      `one visit must commit ORCA_COMMITS (${ORCA_COMMITS}) times; it struck ${strikes} time(s)`)
+    // The re-arm has to be a REAL telegraph, not a second line fired out of the leave. orcaRise is
+    // the event the shadow and the sfx both hang off, so counting it proves the second pass was
+    // announced — a `leaving` that jumped straight back to `committing` would read 0 here.
+    assert.strictEqual(rises, ORCA_COMMITS - 1,
+      `every line after the first must re-rise with its own telegraph; saw ${rises} orcaRise for ${strikes} strikes`)
+    assert.strictEqual(run.orca, null, 'the visit must still END — after its last line the object clears, or the orca lives here forever')
+    console.log(`PASS run OR.e (the bow wave): the sweep threw bodies ${hit.dy[0].toFixed(0)}px and ${hit.dy[1].toFixed(0)}px to OPPOSITE sides of its line, ` +
+      `${hit.dy[4].toFixed(0)}px for one stood on it and ${hit.dy[2].toFixed(0)}px at the swath edge (ratio ${(hit.dy[2] / hit.dy[0]).toFixed(2)}), ` +
+      `moved the player ${hit.player.toFixed(0)}px clear and left a body 430px out untouched, ` +
+      `where a visit commits ${strikes} lines with ${rises} re-rise and then clears`)
+  }
+
+  console.log('PASS run OR (The Wreck: the orca): three harmless shadow passes open the chapter and scatter what they go under, a packed or baited field brings the next visit in sooner up to a hard cap, the commit bends onto the shoal and eats it for free, and its bow wave throws the rest of the battlefield to both sides of a line it draws twice a visit')
 }
 run(runOrca)
 

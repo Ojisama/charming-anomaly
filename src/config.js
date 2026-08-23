@@ -9772,26 +9772,48 @@ export const TIGHT_COHESION_BLEND = 0.62
 // the compression the design is built on.
 export const ORCA_FIRST_PASS = 100     // s before the first visit — the chapter's quiet half
 export const ORCA_INTERVAL = 50        // s between visits -> t = 100/150/200/250 in a 300s run
-export const ORCA_RISE_DUR = 3.2       // s of shadow-on-the-deep-layer telegraph before it surfaces
-export const ORCA_CIRCLE_DUR = 5.0     // s of the ring closing around you
+// balance_decision : telegraph halved, the spiral is the read now 2026-08-23
+//  - the rise is the harmless half; cutting it shortens the WAIT, not the dodge window
+export const ORCA_RISE_DUR = 1.5       // s of shadow-on-the-deep-layer telegraph before it surfaces
+export const ORCA_CIRCLE_DUR = 3.0     // s of the spiral closing around you
 export const ORCA_LEAVE_DUR = 1.6
-export const ORCA_RING_R = 300         // ring radius when it surfaces
-export const ORCA_RING_MIN_R = 165     // ...and once fully closed, just before it commits
-export const ORCA_RING_BAND = 110      // px of the ring that prey will not cross
+// ⚠ THE RING HAS TO BE BIGGER THAN THE ANIMAL, and at ORCA_LEN 560 the shipped 300 was not: the
+// body was almost twice the diameter of the circle it was supposedly swimming round, so it read as
+// a shape wobbling on the spot rather than as something orbiting you.
+// ⚠ AND ORCA_RING_MIN_R IS THE PLAYER'S ROOM TO STAND. Every commit line leaves the ring, so the
+// closest a strike can pass to the ring's centre is bounded by this radius — set it near
+// ORCA_HIT_R + PLAYER.radius (100) and standing still at the centre becomes an unavoidable hit
+// whatever the line was aimed at, which is precisely the "scheduled hit" the commit is written not
+// to be. 230 leaves 130px of clearance; that margin is the invariant, not the number.
+export const ORCA_RING_R = 520         // ring radius when it surfaces
+export const ORCA_RING_MIN_R = 230     // ...and once fully closed, just before it commits
+export const ORCA_RING_BAND = 150      // px of the ring that prey will not cross
 export const ORCA_PUSH = 0.85          // blend weight of the inward shove on prey at the wall
-export const ORCA_ORBIT_RATE = 1.05    // rad/s the body travels around its own ring
+// ⚠ THIS IS WHAT MAKES IT A SPIRAL RATHER THAN AN ARC, and it only means anything read
+// against ORCA_CIRCLE_DUR. At 1.05 x 5.0s the body covered 5.2 rad -- under one lap -- while the
+// radius crept 300->165: an arc that drifts inward, which is exactly what the owner reported as
+// "it just circles a bit around you, then goes away". 2.5 x 3.0s is 7.5 rad (1.2 laps) over
+// 520->230, a visibly tightening coil in HALF the time.
+export const ORCA_ORBIT_RATE = 2.5     // rad/s the body travels around its own ring
 export const ORCA_COMMIT_SPEED = 940   // px/s of the strike — well over the player's 220
-export const ORCA_OVERSHOOT = 560      // px past you it carries before breaking off
-export const ORCA_HIT_R = 52           // px contact radius, DURING THE COMMIT ONLY
+export const ORCA_OVERSHOOT = 760      // px past you it carries before breaking off - the wake plows the whole way
+export const ORCA_HIT_R = 78           // px contact radius, DURING THE COMMIT ONLY (tracks ORCA_LEN)
 // ⚠ A FRACTION OF MAX HP, NEVER A FLAT LITERAL. p.maxHP grows within a run (level-up choices) and
 // across saves (the shop's maxHP line), so a literal that is a real hit on a base save is a scratch
 // on an upgraded one — the scar already recorded against LUNGE_DMG.
 // ⚠ AND THE ENGINE FLOOR IS TWO CONNECTIONS, NOT THREE: hurtPlayer caps a non-dot hit at
 // maxHP x HURT_CAP_FRAC (0.5), against MAX hp and applied last, so nothing above 0.5 does anything.
 // balance_decision : three orca hits kill from full at any HP total 2026-08-22
-//  - raise commits-per-visit to make it harder, never this — the cap silently eats it
+//  - raise ORCA_COMMITS to make it harder, never this — the cap silently eats it
 export const ORCA_DMG_FRAC = 0.34
-export const ORCA_LEN = 360            // body length px — ~7.7x the player, it must read as bigger
+// STRIKE LINES PER VISIT. The lever the line above points at, now actually pulled: one line through
+// the shoal is one sidestep and then the visit is over, which is the other half of "easy to avoid".
+// It wheels around and re-rises between them, so the second line gets the same telegraph as the
+// first and is re-aimed at wherever the shoal has RE-FORMED - usually where the first pass drove it.
+// balance_decision : two strike lines per visit, not one 2026-08-23
+//  - x ORCA_DMG_FRAC that is 0.68 of max HP per visit if you eat both; both are dodgeable
+export const ORCA_COMMITS = 2
+export const ORCA_LEN = 560            // body length px — ~12x the player, it must read as bigger
 export const ORCA_FEAR_TELL = 0.55     // render: alpha of the ring tell at full close
 
 // THE SHADOW PASSES. Owner ruling 2026-08-23: "orca was supposed to start with a shadow passing
@@ -9853,7 +9875,35 @@ export const ORCA_COMMIT_SEEK_R = 520  // px around the ring centre it looks for
 // balance_decision : bite swath is about twice the body's own width 2026-08-23
 //  - elites and non-prey are excluded at the read site: an orca deleting an elite the player has
 //    been whittling down steals a reward they earned
-export const ORCA_BITE_R = 85
+export const ORCA_BITE_R = 130
+
+// THE BOW WAVE - the thing that makes a visit REORGANISE the battlefield instead of subtracting a
+// few fish from it. Owner ruling 2026-08-23: "it should have a massive impact on the battlefield,
+// like pushing everything to each side". A body this size moving at ORCA_COMMIT_SPEED displaces the
+// water it goes through, so everything inside the swath is thrown PERPENDICULAR to the strike line,
+// to whichever side it already sits on. What is left is a cleared corridor with the crowd banked up
+// along both edges - a shape the player can farm, or be caught out by.
+//
+// ⚠ EVERYTHING, not just prey. The bite is prey-only because an uncredited elite death is theft;
+// being shoved costs nothing, so morays, elites and the rest of the roster all ride the wake. Only
+// 'anchored' (resistsCC) is exempt, which is the shipped rule for every other shove in the game.
+export const ORCA_WAKE_R = 230         // px either side of the body that the water moves
+// An ACCELERATION into e.kb, exactly SHOREBREAK_FORCE's contract - e.kb is a velocity decaying at
+// KB_DECAY_RATE (6/s). ⚠ NOTHING HERE REACHES TERMINAL (1500 px/s), so reading this as a speed is
+// the wrong instinct: the orca clears a given body in well under half a second, and what the number
+// actually buys is the IMPULSE. Measured (run OR.e): ~215px of flight 70px off the line, ~305px for
+// a body caught dead on it, tapering to nothing at ORCA_WAKE_R. 5200 was the first cut and threw
+// 124px, which is a nudge rather than the corridor the ruling asks for.
+export const ORCA_WAKE_FORCE = 9000
+// The player is shoved as a VELOCITY (px/s, the stepCurrents idiom) and not an acceleration: there
+// is no decay term on the player, so an acceleration here would launch them across the map.
+// balance_decision : the wake shoves the player sideways, never inward 2026-08-23
+//  - perpendicular and AWAY from the line by construction, so it can only help the dodge; applied
+//    AFTER the contact check so it cannot rescue you from a hit you were already inside
+// 480 px/s is deliberately ABOVE the player's own 220: for the half-second the wake is on them it
+// has to out-argue the stick, or "everything gets pushed aside" quietly means "everything except
+// you". It still cannot push them into anything - see the bullet above.
+export const ORCA_WAKE_PLAYER = 480    // px/s of lateral drift at the line itself
 
 // ---- THE LEAK (v7.x, The Wreck's signature) ----------------------------------------------------
 // THE BOAT IS THE POLLUTION. Owner ruling 2026-08-17, taken when the chapter turned into a hunt:

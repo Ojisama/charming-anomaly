@@ -177,6 +177,7 @@ import {
   ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_LAST_GAP,
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
   ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_COMMIT_SEEK_R, ORCA_BITE_R,
+  ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
@@ -4388,6 +4389,47 @@ function orcaBite(run, o) {
   }
 }
 
+// THE BOW WAVE. Everything within ORCA_WAKE_R of the body during a commit is thrown PERPENDICULAR
+// to the locked line, to whichever side it already sits on - owner ruling 2026-08-23, "it should
+// have a massive impact on the battlefield, like pushing everything to each side". What the strike
+// leaves behind is therefore a cleared corridor with the crowd banked along both edges, which is a
+// battlefield the player has to read, rather than a few fish quietly missing.
+//   PERPENDICULAR, NOT RADIAL, and that is the same correction the ring itself already carries: a
+// radial shove off a body moving at ORCA_COMMIT_SPEED spends most of its budget pushing bodies
+// BACKWARD along a line the orca has already left. Only the normal component opens a corridor.
+// ⚠ EVERYTHING, not just prey - the bite is prey-only because an uncredited elite death is theft,
+// but being shoved costs nothing. Only `anchored` (resistsCC) is exempt, the shipped rule for every
+// other shove in the game.
+// ⚠ NOT CC-BUDGETED. claimKb/spendCC exist so a weapon cannot chain-lock a crowd; this is water
+// moving, it happens twice a visit, and running it through the budget would let an orca pass
+// silently eat the player's next nova knockback.
+function orcaWake(run, o, dt) {
+  const nx = -o.dirY, ny = o.dirX   // unit normal to the locked line
+  const r2 = ORCA_WAKE_R * ORCA_WAKE_R
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e) || resistsCC(e)) continue
+    const dx = e.x - o.x, dy = e.y - o.y
+    const d2 = dx * dx + dy * dy
+    if (d2 > r2) continue
+    // A body dead on the line has no side to be thrown to. Sign the zero rather than leaving it
+    // sitting in the path - `>= 0` picks one deterministically, which the suite's seeding needs.
+    const sg = dx * nx + dy * ny >= 0 ? 1 : -1
+    const falloff = 1 - Math.sqrt(d2) / ORCA_WAKE_R
+    e.kb.x += nx * sg * ORCA_WAKE_FORCE * falloff * dt
+    e.kb.y += ny * sg * ORCA_WAKE_FORCE * falloff * dt
+  }
+  // The player rides it too, as a plain velocity: nothing decays p.x, so an acceleration here
+  // would launch them. Away from the line by construction, so it can only ever help the dodge.
+  const p = run.player
+  const dx = p.x - o.x, dy = p.y - o.y
+  const d2 = dx * dx + dy * dy
+  if (d2 > r2) return
+  const sg = dx * nx + dy * ny >= 0 ? 1 : -1
+  const falloff = 1 - Math.sqrt(d2) / ORCA_WAKE_R
+  p.x += nx * sg * ORCA_WAKE_PLAYER * falloff * dt
+  p.y += ny * sg * ORCA_WAKE_PLAYER * falloff * dt
+}
+
 // Returns true if the player died, matching stepRocks/stepPools' contract — it is called from
 // stepSim's `if (stepX(...)) return` group for that reason.
 // -- The Orca (v7.x, The Wreck — chapters declaring `orca: true`) --------------------------------
@@ -4445,7 +4487,7 @@ function stepOrca(run, dt) {
       cx: p.x, cy: p.y, r: ORCA_RING_R, ang: bearing,
       x: p.x + Math.cos(bearing) * ORCA_RING_R,
       y: p.y + Math.sin(bearing) * ORCA_RING_R,
-      dirX: 0, dirY: 0, hit: false, alpha: 0,
+      dirX: 0, dirY: 0, hit: false, alpha: 0, passes: ORCA_COMMITS,
     }
     run.events.push({ type: 'orcaRise', x: p.x, y: p.y })
     return false
@@ -4533,13 +4575,34 @@ function stepOrca(run, dt) {
         if (hurtPlayer(run, p.maxHP * ORCA_DMG_FRAC, false, 'orca')) return true
       }
     }
+    // AFTER the contact check on purpose: the shove must not be able to carry the player out of a
+    // hit they were already standing in, only out of the one coming next frame.
+    orcaWake(run, o, dt)
     if (o.t <= 0) { o.state = 'leaving'; o.t = ORCA_LEAVE_DUR }
     return false
   }
   o.x += o.dirX * ORCA_COMMIT_SPEED * 0.4 * dt
   o.y += o.dirY * ORCA_COMMIT_SPEED * 0.4 * dt
   o.alpha = Math.max(0, o.t) / ORCA_LEAVE_DUR
-  if (o.t <= 0) run.orca = null
+  if (o.t > 0) return false
+  // ORCA_COMMITS LINES PER VISIT. One line is one sidestep and then the visit is over, which is
+  // half of why it read as easy to avoid. It does not end at the first overshoot: it fades out,
+  // comes back up on a fresh bearing and re-aims at wherever the shoal has RE-FORMED - which after
+  // a pass is usually the bank its own wake just made.
+  //   REBUILT THROUGH THE SAME FIELDS THE SPAWN WRITES, and re-entering `rising` rather than
+  // `circling` is load-bearing: leaving has already faded alpha to 0 and rising ramps it back from
+  // 0, so the body never teleports across the ring on a visible frame. The second telegraph is
+  // therefore identical to the first, which is what keeps it a dodge and not a scheduled hit.
+  const left = (o.passes ?? ORCA_COMMITS) - 1
+  if (left <= 0) { run.orca = null; return false }
+  const bearing = Math.random() * Math.PI * 2
+  o.passes = left
+  o.state = 'rising'; o.t = ORCA_RISE_DUR; o.alpha = 0
+  o.cx = p.x; o.cy = p.y; o.r = ORCA_RING_R; o.ang = bearing
+  o.x = p.x + Math.cos(bearing) * ORCA_RING_R
+  o.y = p.y + Math.sin(bearing) * ORCA_RING_R
+  o.dirX = 0; o.dirY = 0; o.hit = false
+  run.events.push({ type: 'orcaRise', x: p.x, y: p.y })
   return false
 }
 

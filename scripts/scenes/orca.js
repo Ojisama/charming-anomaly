@@ -25,10 +25,10 @@ run.orca = {
   state: 'circling',
   t: 1.2,
   cx: p.x, cy: p.y,
-  r: 210,
+  r: 320,
   ang: -0.6,
-  x: p.x + Math.cos(-0.6) * 210,
-  y: p.y + Math.sin(-0.6) * 210,
+  x: p.x + Math.cos(-0.6) * 320,
+  y: p.y + Math.sin(-0.6) * 320,
   dirX: 0, dirY: 0, hit: false, alpha: 1,
 }
 
@@ -50,7 +50,7 @@ return (k) => {
   const o = run.orca
   if (!o) return
   o.t = 1.6 - k * 1.4
-  o.r = 300 + (165 - 300) * k
+  o.r = 520 + (230 - 520) * k
   o.ang = -0.6 + k * 1.9
   o.x = o.cx + Math.cos(o.ang) * o.r
   o.y = o.cy + Math.sin(o.ang) * o.r

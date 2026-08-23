@@ -1421,7 +1421,7 @@ function generateWells(sig) {
  *   spill and ticked down after leaving, exactly as bloomSlowT/fearT decay. Read in stepPlayer,
  *   where it joins the MIN of the speed floors rather than multiplying into them (see the block
  *   there). The LINGER is the design: a slow that ends at the rim is just a wider slick.
- * orca: null | { state, t, cx, cy, r, ang, x, y, dirX, dirY, hit, alpha } — v7.x The Wreck's apex
+ * orca: null | { state, t, cx, cy, r, ang, x, y, dirX, dirY, hit, alpha, passes } — The Wreck's apex
  *   predator, in chapters declaring `orca: true`. A SINGLE NULLABLE OBJECT with a countdown, the
  *   same idiom as `net` above and never a pool: there is only ever one, and it is UNKILLABLE (no
  *   hp field, no vulnerability window). `state` walks 'shadow' | 'rising' | 'circling' |
@@ -1433,6 +1433,9 @@ function generateWells(sig) {
  *   'shadow' IS THE OPENING AND IT IS HARMLESS: a silhouette that slides under the player, scatters
  *   the shoal by publishing e.fearT, and clears itself without escalating. No ring, no contact,
  *   no death — foreshadowing, so the shape is learned before it can hurt.
+ *   `passes` is the strike lines still owed this visit, ORCA_COMMITS down to 0 — a 'leaving' that
+ *   still has one left re-enters 'rising' on a fresh bearing instead of clearing the object, so one
+ *   visit is two telegraphed lines. Absent on a 'shadow' object, which never commits at all.
  * _orcaAcc: number — seconds until the next orca event. Seeded at ORCA_SHADOW_FIRST (the first
  *   SHADOW, not the first real visit), then ORCA_SHADOW_GAP / ORCA_SHADOW_LAST_GAP / ORCA_INTERVAL.
  *   ⚠ IT DOES NOT TICK IN REAL TIME. stepOrca's orcaRush multiplies dt by how packed the water
