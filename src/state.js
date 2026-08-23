@@ -6,7 +6,7 @@ import {
   EARLY_CALM, MAX_CHOICE_SLOTS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
-  pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, ORCA_FIRST_PASS,
+  pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, ORCA_SHADOW_FIRST, ORCA_SHADOW_PASSES,
   BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, CURRENT_RESIST_FLOOR, unlockLevel, unlockMax,
   lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost, SPUR_TICK } from './config.js'
 
@@ -335,9 +335,10 @@ export function loadMeta() {
       // carrying 'yes' or 1 would be truthy everywhere EXCEPT those tests and the flag would
       // disagree with itself. This never reaches sim.js — see the plan's R1.
       m.dev = m.dev === true
-      // Light Thief (Book 2): the permanent "kills give light back" unlock, bought with shop levels
-      // on the sacrifice screen. Coerced for the same reason as m.dev above — createRun tests
-      // `=== true`, so a truthy-but-not-true value would grant it everywhere else and deny it there.
+      // Scavenger (Book 2): the "kills give back resource" unlock, REMOVED FROM THE GAME in v7.x.
+      // The field stays and stays coerced — R2 is additive-only, an older build still writes it, and
+      // a save that round-trips through this build must come back out the shape it went in. Nothing
+      // reads it for gameplay any more; see BOOK_UNLOCKS (config.js), which is now empty.
       m.lightThief = m.lightThief === true
       // Retroactive BOOK unlock, exactly the same argument as the chapter chain above: a book
       // that shipped AFTER the player already beat the previous book's finale at
@@ -352,15 +353,13 @@ export function loadMeta() {
         const beat = Math.max(Number(prev?.won) || 0, (Number(prev?.maxDifficulty) || 1) - 1)
         if (beat >= CHAPTER_UNLOCK_DIFFICULTY) unlockBook(m, BOOK_ORDER[i])
       }
-      // meta.lightThief (Book 1-shaped legacy — see BOOK_UNLOCKS.undertow in config.js and the
-      // design doc §1) copies forward ONCE into its new home, bookMeta(m,'undertow').unlocks.
-      // lightThief — the only place createRun (above in this file) reads it now. Never deletes the
-      // old field (R2 — an older build's onSacrifice still writes it) and never writes back the
-      // other way: copy only when the new location is UNSET, so a value already written at the new
-      // location (a future purchase flow writing there directly) is never clobbered. Without this,
-      // every existing dev save that already spent LIGHT_THIEF_COST levels loses killRefill on the
-      // very next load — silently, because a missing bm.unlocks.lightThief just reads as "unbought"
-      // rather than throwing.
+      // meta.lightThief (Book 1-shaped legacy) copies forward ONCE into bookMeta(m,'undertow')
+      // .unlocks.lightThief. BOTH ARE DEAD DATA since Scavenger was removed — no reader is left —
+      // and the copy stays anyway, because R2 makes this migration part of the save's shape: an
+      // older build still writes the old field, and dropping the forward-copy now would mean a save
+      // that survived a downgrade-then-upgrade comes back a different shape than one that did not.
+      // Never deletes the old field, and never writes back the other way: copy only when the new
+      // location is UNSET, so a value already written there is never clobbered.
       if (m.lightThief === true) {
         const ut = ensureBookMeta(m, 'undertow')
         if (ut.unlocks.lightThief === undefined) ut.unlocks.lightThief = true
@@ -401,7 +400,7 @@ export function loadMeta() {
     // leaderboard's integrity rule: endRun (main.js) submits no score from a run played with this
     // on, because unlocking unfinished chapters and opening the dev card list are the same switch.
     dev: false,
-    lightThief: false, // Book 2's permanent kills-give-light unlock (see the loadMeta migration above)
+    lightThief: false, // dead since v7.x (Scavenger removed); kept per R2 — see the migration above
     schema: SCHEMA, // R4: a brand-new save really IS this build's format (loadMeta's repair says 1)
     // loadMeta's repairs are IN-MEMORY ONLY and never written back, so a save that has not been
     // re-saved since the upgrade has no `name`/`savedAt` key ON DISK — and §3.2 pushes exportSlot,
@@ -946,6 +945,26 @@ function generateWells(sig) {
  *                 BLOOM_SLOW_T every frame stepBlooms finds the enemy inside a cloud's radius
  *                 (guarded by damageImmune — a ghosted phase flicker ignores the cloud like it
  *                 ignores everything else); decays like the other three once outside.
+ *               feedT (v7.x The Wreck, s of a mouthful remaining): the fish reached a Chum bait,
+ *                 took one serving and STOPPED for it. While > 0 stepPrey returns before it steers,
+ *                 so the body sits still in open water — that hold, not the gather, is what the
+ *                 card is bought for. Set ONCE, in stepLures, on the frame the serving is taken
+ *                 (never refreshed by standing in the cloud: a re-arming hold would pin the shoal
+ *                 for the bait's whole duration), `skittish` only, and not at all on a fish that is
+ *                 mid-puff. TWO things break it early: the player closing inside
+ *                 CHUM_PANIC_R x nerve, and inflating. render.js reads it as a CONTRACT FIELD and
+ *                 squashes the body along its own forward axis by CHUM_VIS.feedSquash — the camera
+ *                 looks straight down, so nose-first into the food is foreshortening, and no
+ *                 roster bake needs a head-down frame.
+ *               oiled (v7.x The Wreck, 0..OIL_STAIN_MAX): PERMANENT, and the only field in this
+ *                 list that is. A body in oil accumulates OIL_STAIN_RATE per second and never gets
+ *                 it back; stepEnemyMovement's slowMul is multiplied by (1 - oiled). BOTH oils
+ *                 stain — the player's look:'bilge' blooms (stepBlooms) and the chapter's own
+ *                 ambient run.slicks (stepSlick) — because it is the same substance. The squid's
+ *                 look:'inkjet' cloud does NOT: it carries slow: 0 and never enters that branch.
+ *                 render.js reads it as a contract field and tints the body toward oil-black,
+ *                 ramped by oiled / OIL_STAIN_MAX. The cap is the safety: uncapped, a shoal herded
+ *                 over the same slick repeatedly would stop dead.
  *               Sim-internal only (not a render contract, do not rely on these): _elCold/_elVenom
  *               (the rolling damage windows the three derived fields above are computed from),
  *               _elFrozen/_elResist (the freeze and its aftermath),
@@ -1015,7 +1034,12 @@ function generateWells(sig) {
  *               sporeburst mini-clouds (SPOREBURST_FRAC of the parent's maxR), spawned when a
  *               non-mini cloud's own tick kills an enemy — minis never spawn further minis.
  *               OPTIONAL `look` tags a cloud as another weapon's (see the Foxfire and Silt Veil
- *               notes below); OPTIONAL `slow: 0` opts it out of BLOOM_SLOW_T entirely; OPTIONAL
+ *               notes below) — or as a CREATURE's: look:'inkjet' is The Wreck's squid, the one entry
+ *               on this array no weapon casts, and the only one that slows the PLAYER (read in
+ *               stepPlayerMovement's MIN, not here — see INK_SLOW_MUL). It carries `slow: 0`, so
+ *               the enemy slow below never touches it. NOT to be confused with The Reef's Squid
+ *               Ink WEAPON, which is a `blind` bloom and a different mechanic entirely;
+ *               OPTIONAL `slow: 0` opts it out of BLOOM_SLOW_T entirely; OPTIONAL
  *               `blind` (seconds, v7.x Squid Ink) refreshes e.blindT on every body inside, every
  *               frame; OPTIONAL `airHold: true` (v7.x Oxygen Tank's boil) is read by stepCharge
  *               ALONE, where it multiplies the chapter bar's drain by zero while the PLAYER stands
@@ -1024,6 +1048,11 @@ function generateWells(sig) {
  *               `daze` (seconds) is Silt Veil's, published into e.stunT against the enemy's own
  *               dazeCd window (see SILT_DAZE_REFRACTORY). It replaced a `fear` field in v7.x --
  *               fear scattered the crowd out of the cloud that was damaging it.
+ *               OPTIONAL `grow` (seconds) overrides dur x BLOOM_GROW_FRAC as the 0 -> maxR ramp for
+ *               this cloud alone; OPTIONAL `trail: true` marks a Bilge pool laid by slickTrail, so
+ *               render can draw the chain of them as one continuous film rather than as a row of
+ *               separately rimmed circles (see BILGE_TRAIL_* in config.js — both fields exist for
+ *               that mod and nothing else).
  *               OPTIONAL `tick` (seconds) overrides BLOOM_TICK for this cloud alone. Silt Veil
  *               sets it from its LEVEL (0.75s at Lv1 down to 0.4s at Lv5), which is why the veil's
  *               dps curve is far steeper than its dmgPerTick ladder alone suggests; Toxin Bloom,
@@ -1260,7 +1289,7 @@ function generateWells(sig) {
  * charge: number — the chapter resource bar (CHAPTERS[chapter].resource — The Twilight's 'Light', The
  *   Surf's 'Humidity' and The Reef's 'Air'). Drains passively, refills inside a refill circle
  *   (run.shafts: a shaft here, a tide pool there, an air pocket in the third, an anglerfish's open
- *   mouth in the fourth) and (with Light Thief bought) per kill, clamped to [0, resource.max].
+ *   mouth in the fourth), and on The Wreck alone per kill (`killBase`), clamped to [0, run.chargeMax].
  *   The Deep also SPENDS it involuntarily: being devoured by a maw zeroes the bar outright, which
  *   is the only place in the game a hazard is priced in the chapter's own resource.
  *   0 and untouched in every chapter without a resource.
@@ -1286,9 +1315,9 @@ function generateWells(sig) {
  *        `damage.floor` at an empty bar to 1.0 at a full one, and both player-damage sites in sim.js
  *        multiply by it; it returns 1 for every chapter with no `damage` block, so this is inert
  *        elsewhere. THIS OVERRIDES THE RULE THE FIELD SHIPPED UNDER. The first cut of this doc said
- *        the bar "scales no damage and no fire rate — deliberately, because those cut the kill rate,
- *        and the kill rate is what Light Thief pays out on", and that reasoning is still correct for
- *        Light. The Surf is an explicit owner ruling, recorded in the design at §5.3 of
+ *        the bar "scales no damage and no fire rate — deliberately, because those cut the kill rate",
+ *        and that reasoning is still correct for Light. The Surf is an explicit owner ruling,
+ *        recorded in the design at §5.3 of
  *        docs/superpowers/specs/2026-08-13-book-2-undertow-design.md, which also names what the
  *        original rule was protecting and the mitigations the exception is conditional on: a TUNED
  *        floor constant (HUMIDITY_DMG_FLOOR), and a drain tied to the SANDBARS rather than to the
@@ -1304,7 +1333,7 @@ function generateWells(sig) {
  *        vignette/shake/flash is the tell and main.js's `if (e.dot) continue` keeps it silent.
  * chargeMax: number — the bar's ceiling, as a RUN field (v7.x Book 2 Task 9). Used to be read
  *   straight from CHAPTERS[chapter].resource.max at both of sim.js's clamp sites (the drain in
- *   stepCharge and the Light Thief kill-refill at the kill site); now both sites read run.chargeMax
+ *   stepCharge and the per-kill `killBase` at the kill site); now both sites read run.chargeMax
  *   instead, which is what lets BOOK_SHOP.undertow.deepLungs ("Resource Capacity") raise it. Set
  *   once at createRun from the SAME hoisted local `charge` starts at, so the two can never drift
  *   apart into "the bar refills past its cap on a kill, then snaps back on the next drain tick" (a
@@ -1322,8 +1351,8 @@ function generateWells(sig) {
  *   take the full push, which is what makes the surge read as weather. 1 outside Undertow.
  * chargeRefillMul: number — the refill-rate multiplier (BOOK_SHOP.undertow.bigGulp, "Resource Refill",
  *   +10%/level), applied in stepCharge to CHAPTERS[chapter].resource.refill at the same site the
- *   in-shaft/pool/pocket refill already runs. 1 (no-op) unbought. Does NOT reach run.killRefill —
- *   the Light Thief kill bonus is a separate mechanic behind its own unlock, not "a refill pickup".
+ *   in-shaft/pool/pocket refill already runs. 1 (no-op) unbought. Does NOT reach The Wreck's
+ *   `killBase` — a kill is not "a refill pickup".
  * _burstT: number — seconds of Reef Burst dash remaining (CHAPTERS[chapter].burst). Set by
  *   stepRepulse on the same press, cooldown and charge spend as the Pulse, to BURST_DUR_MIN +
  *   (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t, so an EMPTY bar still dashes — the no-spiral floor.
@@ -1402,14 +1431,43 @@ function generateWells(sig) {
  *   spill and ticked down after leaving, exactly as bloomSlowT/fearT decay. Read in stepPlayer,
  *   where it joins the MIN of the speed floors rather than multiplying into them (see the block
  *   there). The LINGER is the design: a slow that ends at the rim is just a wider slick.
+ * orca: null | { state, t, cx, cy, r, ang, x, y, dirX, dirY, hit, alpha } — v7.x The Wreck's apex
+ *   predator, in chapters declaring `orca: true`. A SINGLE NULLABLE OBJECT with a countdown, the
+ *   same idiom as `net` above and never a pool: there is only ever one, and it is UNKILLABLE (no
+ *   hp field, no vulnerability window). `state` walks 'shadow' | 'rising' | 'circling' |
+ *   'committing' | 'leaving'; `t` is the seconds left in the current state; (cx, cy)/r are the
+ *   closing ring's centre and radius (stepPrey reads them — the wall the shoal will not cross);
+ *   (x, y) is the body; ang is its bearing around the ring; (dirX, dirY) is the locked commit
+ *   heading; `hit` latches the once-per-pass player hit (and, in 'shadow', the once-per-pass
+ *   whoosh); alpha is the fade render draws with. null between visits and in every other chapter.
+ *   'shadow' IS THE OPENING AND IT IS HARMLESS: a silhouette that slides under the player, scatters
+ *   the shoal by publishing e.fearT, and clears itself without escalating. No ring, no contact,
+ *   no death — foreshadowing, so the shape is learned before it can hurt.
+ * _orcaAcc: number — seconds until the next orca event. Seeded at ORCA_SHADOW_FIRST (the first
+ *   SHADOW, not the first real visit), then ORCA_SHADOW_GAP / ORCA_SHADOW_LAST_GAP / ORCA_INTERVAL.
+ *   ⚠ IT DOES NOT TICK IN REAL TIME. stepOrca's orcaRush multiplies dt by how packed the water
+ *   around the player is (run._feedN plus live chum baits WEIGHTED BY THE FOOD LEFT IN THEM, capped
+ *   at ORCA_RUSH_MAX), so hoarding a bait ball is what buys the visit — owner: "the more there is
+ *   the more it attacks". A bait the shoal has stripped no longer rings the bell.
+ * _orcaShadows: number — opening shadow passes still owed, ORCA_SHADOW_PASSES down to 0. While
+ *   above zero the countdown produces a harmless pass; at zero the real ladder starts.
+ * {type:'orcaShadow', x, y}: an opening pass at its closest approach to the player — fired ONCE per
+ *   pass, latched on o.hit, at the midpoint rather than at spawn so the whoosh lands when the shape
+ *   is actually underneath you. SFX only (`hole`): the shadow itself is the visual.
+ * {type:'orcaFeed', x, y}: one prey body eaten by the commit sweep. THE DEATH IS UNCREDITED —
+ *   `_dead` and this event, and nothing else (stepLeaks' idiom), so it pays no run.kills, no gem,
+ *   no XP, no Bloodlust and no on-kill proc. All of those live inside dealDamage, which this path
+ *   never enters. Render-only, no SFX entry: a commit eats a dozen fish in under a second, so a
+ *   sound per fish would machine-gun — the strike already has one (`orcaStrike` -> `hole`).
  * _rushT, _rushN: number — BLOODRUSH (gnash's `bloodrush` mod, The Wreck). _rushT is the window in
  *   seconds, refreshed to RUSH_DUR by every bite that actually LANDS; _rushN is how many bites have
  *   stacked, capped at RUSH_MAX_STACKS. Read in stepPlayerMovement, where the pair become a speed
  *   MULTIPLIER (bought, so multiplied — unlike the chapter slows, which MIN-compose). Both drop to
  *   0 together when the window lapses rather than decaying one stack at a time: losing the shoal is
  *   meant to cost the whole run-up, which is what gives the card a failure state.
- * killRefill: number — light per kill, snapshotted at createRun from bm.unlocks.lightThief (the
- *   permanent Light Thief unlock, LIGHT_THIEF_COST shop levels on the sacrifice screen; bm is
+ * (removed v7.x) killRefill — was light per kill from the Scavenger unlock. Nothing refills a bar
+ *   on a kill now except CHAPTERS.wreck.resource.killBase, which sim.js reads straight from config
+ *   and no run field mirrors. The save key bm.unlocks.lightThief survives, unread, per R2.
  *   Undertow's own bookMeta entry — see BOOK_UNLOCKS.undertow in config.js). 0 unbought, and 0
  *   in every chapter with no resource. It exists as a RUN field, rather than sim.js consulting
  *   meta, because sim.js must never see meta — see the plan's R1.
@@ -1545,6 +1603,17 @@ function generateWells(sig) {
  *   t ages to dur, then the lure BURSTS: player-scaled AoE damage (applyDamage) to enemies within
  *   burstR + an {type:'explode', x, y, radius} event, and (sticky, from the stickyScent mod) a
  *   LURE_STICKY_R/DUR slow zone into run.webs (stepLures). Removed on burst. See WEAPONS.lure.
+ *   OPTIONAL `bait: true` (The Wreck's Chum) makes it the same object pointed at fleeing animals:
+ *   stepPrey inverts its response to the seek target, so a baited fish swims TO it. A bait also
+ *   carries `food` (servings left) and `food0` (what it was cast with). Every enemy that reaches
+ *   within CHUM_FEED_R takes one serving, once per bait — the fish remembers which bait it ate at
+ *   in `_fedBait` (the lure object itself), so a second bait feeds it again. At food 0 the bait is
+ *   removed on the spot with a {type:'chumOut'} event, whatever `dur` had left; a bait that ages
+ *   out emits the same event rather than the burst path, since burstR/burstDmg are 0 for chum.
+ *   render sizes the cloud off `aggro` and counts out one chunk per remaining serving, and
+ *   orcaRush weights the orca's arrival by `food` (ORCA_BAIT_FULL_FOOD).
+ * {type:'chumOut', x, y}: a chum bait gone — stripped by the shoal or aged out. Render-only, no
+ *   SFX entry: it is the quiet end of a zone, and the chapter already sounds the cast.
  *
  * ---- v5.4 chapters (undergrowth/city/skies/beyond) ----------------------------------------
  * Behavior flags added to the enemies[].flags vocabulary above (all documented phase by phase on
@@ -1557,7 +1626,15 @@ function generateWells(sig) {
  * else; see stepObstacles), 'phase' (phase flicker), 'pullBeam' (UFO elites),
  * 'guard' (The Surf's Shore Crab: alternates guarded <-> open, refusing DIRECT damage inside a
  * 120-degree arc while guarded — see stepCrabGuard/guardBlocks in sim.js and the CRAB_GUARD_*
- * block in config.js).
+ * block in config.js),
+ * 'inkjet' (The Wreck's Squid: lays a run.blooms cloud tagged look:'inkjet' at its own position when
+ * the player closes inside INK_TRIGGER_R, on a per-fish INK_COOLDOWN. The cloud slows the PLAYER
+ * only — see stepInkjet and the INK_* block),
+ * 'puffup' (The Wreck's Pufferfish: inflates when the player closes inside PUFFER_TRIGGER_R and
+ * refuses EXACTLY ONE direct hit, which pops it; it then drifts at PUFFER_DRIFT_MUL, bitable, for
+ * PUFFER_COOL_T before it may inflate again — see stepPuffUp/guardBlocks and the PUFFER_* block),
+ * 'tight' (The Wreck's Sardine: read inside stepPrey, it swaps PREY_COHESION_BLEND for
+ * TIGHT_COHESION_BLEND and buys nothing else — the ball that will not break).
  * RETIRED v6.9: 'blink' (a crawl punctuated by a burst — it read as teleporting through two
  * rewrites; see the retirement note in config.js before reaching for that shape again).
  * Their phase state lives on sim-internal `_`-prefixed fields following the diveBomb idiom; the
@@ -1567,11 +1644,22 @@ function generateWells(sig) {
  * carry no underscore precisely because they are a render contract, not internals: ROSTER_LOOKS
  * .shorecrab reads `guarding` through poseOf to pick the bake and `guardAngle` through faceDir to
  * turn the body. A guard kept private would step, refuse damage, and never appear on screen.
+ * `e.puffT` (s, The Wreck's Pufferfish) is published for the same reason and read the same way:
+ * ROSTER_LOOKS.pufferfish takes poseOf off it to swap to the inflated ball. guardBlocks also writes
+ * `guardAngle` when a puffer pops, so the guardblock spark below is thrown at the player rather
+ * than due east. Its cooldown `e._puffCd` and the squid's `e._inkCd` stay private — neither is
+ * drawn.
  * {type:'guardblock', x, y, angle}: a direct hit refused by a Shore Crab's raised claw. Pushed
  *   INSTEAD OF {type:'hit'}, never alongside it — a blocked shot removed no HP, and floating its
  *   damage number would be a lie about the one thing the player needs to read. angle = the guard's
  *   held bearing, so the spark can be thrown back along the side that is covered. No SFX entry, and
  *   that is deliberate: it fires on every refused hit, which for a fast weapon is several a second.
+ *   The Wreck's Pufferfish pushes this same event when it pops (guardBlocks) — one refusal, one
+ *   tell, and the ball deflating on the very next frame is the rest of it.
+ * {type:'inkjet', x, y, r} (v7.x, The Wreck's Squid): a cloud squirted. The bloom it leaves fades UP
+ *   over BLOOM_GROW_FRAC of its life, which is far too slow to read as a squirt, so this event is
+ *   the burst and the bloom is what is left of it. No SFX entry, for the guardblock reason above:
+ *   at this chapter's density several squid within INK_TRIGGER_R at once is ordinary.
  * {type:'strafeLock', x, y, angle, len} (v5.9.1 bugfix, see sim.js's stepStrafe): fired ONCE, the
  *   instant a 'strafe' jet's bank ends and its heading locks — the start of STRAFE_TELEGRAPH_T s of
  *   holding position before the fast run. x,y = the jet's (stationary, for the telegraph's
@@ -1693,9 +1781,9 @@ function generateWells(sig) {
  *   otherwise spray Debris Toss splinters out of the player's fishing nets.
  *   OPTIONAL `look: 'ballast'` makes it a BALLAST drop (The Shelf) instead: the landing deals dmg
  *   in r (x BALLAST_TANK_MUL against e.type === 'tank') and sets e.dragT = BALLAST_DRAG_T on
- *   everything in a wider ring. `dragMul` (optional, default 1) is Foul Water's pollution scaling,
- *   banked at the THROW, and widens THAT ring only -- never the crater, which has already been
- *   dealt off `r`. It pushed a run.blooms stain until v7.x; the owner cut it because that stain was
+ *   everything in that same r. It carried a `dragMul` until v7.x, when Foul Water stopped widening
+ *   that ring and became a cadence card read at the fire site instead.
+ *   It pushed a run.blooms stain until v7.x; the owner cut it because that stain was
  *   Silt Veil's whole card, drawn Silt Veil's way, given away free on a rare.
  *   OPTIONAL `tank: true` makes it an OXYGEN TANK (The Reef) instead: the throw is aimed down the
  *   LANE rather than at a body (fireTank), so the scroll carries the player to their own landing
@@ -1901,6 +1989,21 @@ function generateWells(sig) {
  *   screens right after ANOMALY_MIN_LEVEL. Zeroed by rollAnomalyCard when the roll fires — when
  *   the tier is OFFERED, not when the card is kept — and capped in weight by ANOMALY_PITY_CAP.
  *   Never serialized.
+ * _duoDry (2026-08-23): duo-boon pity, as { [modId]: screens }. A DUO BOON is a weapon mod carrying
+ *   `needs: '<weaponId>'` (config.js's WEAPON_MODS header) — a mod on weapon A that pays out
+ *   through weapon B, so it cannot exist until the run holds both. That gate is already the card's
+ *   whole scarcity, so the pool stops charging it the ordinary lottery on top: it holds a RESERVED
+ *   candidate slot (eligibleWeaponModCandidates), and once it has been live for DUO_PITY_SCREENS
+ *   screens without being offered it takes the next mod card outright (rollCard's mod branch,
+ *   before any rarity is consulted — the rarity roll is what was hiding it, `values: { epic: N }`
+ *   admitting it on 7% of mod rolls).
+ *   Which boons are live is liveDuoMods (sim.js) and nowhere else, because this counter and the
+ *   pool must agree screen for screen about which screens are dry. Advanced by stepLevelUp, once
+ *   per screen, so a paid re-deal cannot pump it; zeroed by buildLevelUpChoices for every duo boon
+ *   on the FINAL card list — after the anomaly swap and the new-weapon floor, since either can
+ *   overwrite the slot, and a boon that was deleted was never offered. Spent on the OFFER, not the
+ *   pick, so declining costs the credit and the boon returns DUO_PITY_SCREENS later.
+ *   Never serialized.
  *   (v7.20 REMOVED _screenAnomaly, the per-screen memo that used to sit here. It froze the tier's
  *   answer for a whole screen so a reroll could neither draw a Rupture nor lose one — which stopped
  *   coins farming the tier but left an unwanted Rupture occupying a slot through every paid
@@ -2090,7 +2193,7 @@ export function createRun(meta, opts = {}) {
   // is authored ONCE and shared by both `chargeMax` and the starting `charge` below — a value this
   // repo's own CLAUDE.md documents as its single largest silently-drifting defect class when
   // written twice. Used to be read straight from config at both of sim.js's clamp sites (the drain
-  // in stepCharge and the Scavenger kill-refill); now it is a RUN field so deepLungs can raise
+  // in stepCharge and the per-kill `killBase`); now it is a RUN field so deepLungs can raise
   // it, and sim.js reads run.chargeMax at both sites instead of CHAPTERS[chapter].resource.max.
   const chargeMax = (CHAPTERS[chapter].resource?.max ?? 0) * (1 + shopBonus(bm, bookId, 'deepLungs'))
   return {
@@ -2194,6 +2297,11 @@ export function createRun(meta, opts = {}) {
     // buildLevelUpChoices, or a reroll would pump it) and zeroed by the roll itself. See
     // ANOMALY_PITY_PER_SCREEN in config.js.
     _screensSinceAnomaly: 0,
+    // Duo-boon pity (2026-08-23): modId -> level-up SCREENS THAT BOON WAS LIVE ON since it was last
+    // offered. Advanced by stepLevelUp (never by buildLevelUpChoices, or a reroll would pump it)
+    // and zeroed by the builder for every duo boon on the FINAL card list. See DUO_PITY_SCREENS in
+    // config.js.
+    _duoDry: {},
     // v6.7.10: rerolls PAID FOR on the screen currently open — they decay the `normal` rarity
     // weight (REROLL_RARITY_DECAY in config.js). Zeroed by stepLevelUp when a screen opens and
     // stepped by sim.js's rerollLevelUpChoices, beside the _rerolls bump that prices the next one.
@@ -2295,24 +2403,13 @@ export function createRun(meta, opts = {}) {
     chargeDrainMul: Math.max(SLOW_BURN_FLOOR, 1 - shopBonus(bm, bookId, 'slowBurn')),
     // v7.x Book 2 Task 9: bigGulp's refill-rate multiplier, applied in stepCharge (sim.js) to
     // CHAPTERS[chapter].resource.refill while the player stands in a shaft/pool/pocket. 1 (no-op)
-    // unbought. Does NOT touch the Light Thief kill-refill (run.killRefill) — that is a separate
-    // mechanic gated on its own unlock, not "a refill pickup".
+    // unbought. Does NOT touch The Wreck's per-kill `killBase` — that is not "a refill pickup".
     chargeRefillMul: 1 + shopBonus(bm, bookId, 'bigGulp'),
     // BOOK_SHOP.undertow.currentResist ("Current Resistance"): how much of the tide's push actually
     // reaches the player, applied in stepTide (sim.js). Subtracted like slowBurn's — the line stores
     // a POSITIVE perLevel and reads as a decrease (see `reduction` in BOOK_SHOP) — and floored so a
     // future maxLevel raise cannot invert the push into a pull. 1 in every book but Undertow.
     currentResistMul: Math.max(CURRENT_RESIST_FLOOR, 1 - shopBonus(bm, bookId, 'currentResist')),
-    // Light per kill, SNAPSHOTTED from the permanent Light Thief unlock (bm.unlocks.lightThief,
-    // bought over LIGHT_THIEF_COSTS shop levels — see BOOK_UNLOCKS.undertow in config.js). This
-    // exists as a run field rather than sim.js reading meta because sim.js must never see meta at
-    // all — it plays what it is handed, which is what makes a dev-gated chapter playtest as the
-    // thing that eventually ships. 0 unbought, and 0 for every chapter that declares no resource.
-    // Scales with the Light Thief LEVEL: the chapter's own killRefill is the value at FULL level,
-    // so a maxed ladder is exactly what the old single purchase always gave and the balance ceiling
-    // has not moved. unlockLevel also reads a pre-ladder `true` as full.
-    killRefill: (CHAPTERS[chapter].resource?.killRefill ?? 0)
-      * (unlockLevel(bm, bookId, 'lightThief') / Math.max(1, unlockMax(bookId, 'lightThief'))),
     // v7.x The Reef (see the doc block above): seconds of Burst dash left, and the drowning DoT's
     // part-tick accumulator. The rampage pattern again — every run carries both, and only a chapter
     // declaring `burst` / a `resource.drown` block ever moves them off 0.
@@ -2348,7 +2445,15 @@ export function createRun(meta, opts = {}) {
     // v7.x The Wreck. Same single-nullable-object idiom as `net` above: the orca is one body with a
     // countdown, never a pool. `{state,t,cx,cy,r,ang,x,y,dirX,dirY,hit,alpha}` — see stepOrca.
     orca: null,
-    _orcaAcc: ORCA_FIRST_PASS,   // first visit is LATE on purpose: the chapter's first 100s are quiet
+    // The countdown seeds at the first SHADOW pass, not at the first real visit: the ladder is
+    // three harmless silhouettes and then the danger, and _orcaShadows is what says which is due.
+    // Its speed is not real time — stepOrca's orcaRush accelerates it with the crowd around you.
+    _orcaAcc: ORCA_SHADOW_FIRST,
+    // Where slickTrail last laid a pool. null until the first one; the mod lays by DISTANCE from
+    // this point rather than on a timer (stepBilgeWeapon, BILGE_TRAIL_STEP_FRAC).
+    _bilgeTrailX: null,
+    _bilgeTrailY: null,
+    _orcaShadows: ORCA_SHADOW_PASSES,
     // v7.x The Deep. _scentT: seconds left on the Scent window the skill button bought; while it
     // is up, stepScent keeps every body inside SCENT_R marked and the player moves at
     // SCENT_SPEED_MUL. _finPrevA / _finSide are Fin Hit's memory of which way you were last

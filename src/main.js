@@ -351,16 +351,16 @@ const ui = initUI({
   // belt and braces, and now it has to, because `target` arrives from a data- attribute.
   //
   // v7.x: `target` names WHICH unlock. 'slot' is the universal 3rd/4th level-up card slot
-  // (bm.choiceSlots, sacrificeCost); anything else is a BOOK_UNLOCKS[bookId] key (e.g. Undertow's
-  // Light Thief). `bookId` is ui.js's shopBookId(), same reasoning as onBuy above. Defaulted to
+  // (bm.choiceSlots, sacrificeCost); anything else is a BOOK_UNLOCKS[bookId] key. That table is
+  // EMPTY today — Scavenger, its only entry, was removed — so 'slot' is the only target the shipped
+  // UI can send; the branch below stays because it is generic and the table is the seam.
+  // `bookId` is ui.js's shopBookId(), same reasoning as onBuy above. Defaulted to
   // 'slot'/BOOK_ORDER[0] so an older caller -- or a replayed event from a stale DOM -- keeps
   // meaning exactly what it used to.
   //
-  // Writes the unlock ONLY to bookMeta(meta, bookId).unlocks[target] -- never mirrored back to the
-  // legacy top-level meta.lightThief. R2 keeps that field in place (never deleted), but nothing
-  // writes it past this point: loadMeta's forward-copy is read-forward-only and its `=== undefined`
-  // guard makes a stale legacy value harmless, and Light Thief is dev-gated behind a `wip` chapter,
-  // so no real player can reach the one case a mirror would matter for.
+  // Writes an unlock ONLY to bookMeta(meta, bookId).unlocks[target] -- never mirrored back to a
+  // legacy top-level meta field. R2 keeps meta.lightThief in place (never deleted), but nothing
+  // reads or writes it past this point.
   onSacrifice(picks, target = 'slot', bookId = BOOK_ORDER[0]) {
     const bm = ensureBookMeta(meta, bookId)
     const slots = bm.choiceSlots ?? 2
@@ -471,6 +471,12 @@ const SFX_FOR_EVENT = {
   // large is coming" voice and this is exactly that; the commit takes the hole whoosh a big body
   // moving fast has everywhere else; the connect takes crush, the heaviest impact in the bank.
   orcaRise: 'bossRise', orcaStrike: 'hole', orcaHit: 'crush',
+  // The OPENING shadow passes take the whoosh and NOT bossRise, and the split is the design: three
+  // harmless silhouettes before t=100s teach the shape, and giving them the game's "something large
+  // is coming" voice would spend that arrival three times before it ever happens. One per pass,
+  // fired at closest approach. Its FEED has no entry at all — a commit eats a dozen fish in under a
+  // second, which is the freeze/submission-expiry rule, and the strike above already sounds.
+  orcaShadow: 'hole',
   // v7.x The Surf: the Shorebreak REPLACES the shove in that chapter, so it does not inherit the
   // shove's sound by sitting on the same press — surf never emits `repulse` at all any more. It
   // takes the same whoosh, which is both the right voice for a wall of water and the reason the

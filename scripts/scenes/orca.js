@@ -41,6 +41,11 @@ H.note(JSON.stringify({
 
 // Sweep the ring closed across the captured frames: r tightens and the tell brightens, which is
 // the whole read. Returning a scrub gives the sequence without re-booting per frame.
+//
+// ⚠ THE SCRUB MUST RENDER ITSELF. fx-probe's capture loop calls __fxScrub(k) and then screenshots —
+// it never renders in between (H.scrub's own returned closure ends on H.render() for this reason).
+// Without the call this scene handed back N BYTE-IDENTICAL frames of the single H.render() done at
+// scene setup: the ring never closed, and the sequence it advertises had never once worked.
 return (k) => {
   const o = run.orca
   if (!o) return
@@ -49,4 +54,5 @@ return (k) => {
   o.ang = -0.6 + k * 1.9
   o.x = o.cx + Math.cos(o.ang) * o.r
   o.y = o.cy + Math.sin(o.ang) * o.r
+  H.render()
 }
