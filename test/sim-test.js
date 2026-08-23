@@ -21462,8 +21462,15 @@ function testReefSpurScrape() {
   // PLAYER.radius clear of the band. Coral drawn out to that line is coral you genuinely cannot
   // enter; coral drawn past it is a wall in the wrong place. syncSpurs clamps to it, and this is
   // the number it clamps to.
-  assert.ok(SPUR_VIS.headMax > 0 && SPUR_VIS.headStep > 0,
-    'run RS.a: the colony packing has no size — SPUR_VIS.headMax/headStep drive every head drawn, so a zero here means the ridges render as bare crevice')
+  // THE BRANCHING IS THE SUBJECT, so it is what gets asserted. Three revisions of this art were
+  // rejected — a plain slab, a scalloped slab, and a band packed with spheres ("just ugly balls")
+  // — and all three failed for one reason: they drew a SOLID SHAPE. What identifies coral is the
+  // fork. depth 0 or trunks 1 silently turns every colony back into a stick, which is the same
+  // failure arriving through the config rather than through the draw.
+  assert.ok(SPUR_VIS.depth >= 2 && SPUR_VIS.trunks >= 3,
+    `run RS.a: colonies grow ${SPUR_VIS.trunks} stem(s) forking ${SPUR_VIS.depth} time(s) — under 3 stems and 2 forks a colony is a stick, and the ridges stop reading as coral for the fourth time`)
+  assert.ok(SPUR_VIS.lenFall < 1 && SPUR_VIS.widthFall < 1,
+    `run RS.a: branches do not taper (lenFall ${SPUR_VIS.lenFall}, widthFall ${SPUR_VIS.widthFall}) — every fork the same size as its parent is a net, not an antler`)
   assert.strictEqual(SPUR_VIS.bump, undefined,
     'run RS.a: SPUR_VIS.bump is back. The lobe pass it fed is deleted; a knob nothing reads is one the next reader will tune and watch do nothing')
 
@@ -21488,8 +21495,8 @@ function testReefSpurScrape() {
   // deleted and the colonies free to grow across the channel the player must swim through.
   {
     const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    assert.ok(/const outMax = half \+ PLAYER\.radius/.test(rsrc),
-      'run RS.a: syncSpurs no longer clamps its colonies to half + PLAYER.radius — the drawn coral and the wall the player is held off by have come apart')
+    assert.ok(/const room = Math\.max\(0, half \+ PLAYER\.radius - V\.reachMax\)/.test(rsrc),
+      'run RS.a: syncSpurs no longer keeps colony bases a full reachMax inside half + PLAYER.radius — the drawn coral and the wall the player is held off by have come apart')
   }  // ...and the RATE keeps the band its own block claims. SPUR_DPS is priced against the flat DoTs
   // that share its `dot: true` rules — the chapter's own drowning at the bottom, SLICK/SOAP 6 at
   // the top — and it has to stay between them: over, and a soaped groove stops being worse than the
@@ -21753,8 +21760,14 @@ function testReefSpurScrape() {
       // at headMax > half the packing degenerates to one blob per ridge and the per-ridge thickness
       // spurAt works to produce stops being visible at all. Checked per ridge, not against the
       // spec's mean, for the same reason everything else in this block is.
-      assert.ok(SPUR_VIS.headMax <= sp.thick / 2 + PLAYER.radius,
-        `run RS.e: ridge ${i} is ${sp.thick.toFixed(1)}px thick (half ${(sp.thick / 2).toFixed(1)} + ${PLAYER.radius} of reach) but a colony can be drawn at radius ${SPUR_VIS.headMax} — one head swamps the whole ridge and thickVar stops being visible`)
+      // A COLONY MAY NOT OUTGROW THE RIDGE IT SITS ON. syncSpurs keeps every base a full reachMax
+      // inside half + PLAYER.radius (linted as source in RS.a), so no tip can leave the wall — but
+      // that clamp collapses to a single line of bases the moment reachMax exceeds the half-width,
+      // and every colony on a thin ridge then grows from the same place. Checked per ridge against
+      // the thinnest the field can make, not against the spec's mean, for the same reason the rest
+      // of this block is per-ridge.
+      assert.ok(SPUR_VIS.reachMax <= sp.thick / 2 + PLAYER.radius,
+        `run RS.e: ridge ${i} is ${sp.thick.toFixed(1)}px thick (half ${(sp.thick / 2).toFixed(1)} + ${PLAYER.radius} of reach) but a colony reaches ${SPUR_VIS.reachMax}px — it outgrows its own ridge and thickVar stops being visible`)
     }
     const mean = ts.reduce((a, b) => a + b, 0) / ts.length
     const lo = Math.min(...ts), hi = Math.max(...ts)

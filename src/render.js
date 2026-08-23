@@ -11681,96 +11681,96 @@ const spurG = new Graphics()
       for (const [f, c0, c1, half] of segs) band(f, half, c0, c1, 0, 9)
       spurG.fill({ color: V.body })
     }
-    // 3. THE COLONIES. This is the pass that makes it a reef instead of a slab.
+    // 3. THE COLONIES — BRANCHING, which is the only thing that makes coral read as coral.
     //
-    //    Two earlier revisions of this drew the ridge as ONE SHAPE and tried to dress it: rev.1 a
-    //    flat rounded rect, rev.2 the same rect with a scalloped edge and a rim light. Neither
-    //    looked like coral because neither WAS coral — a bar with bumps on it is a bar. Worse,
-    //    rev.1's lobe maths drew nothing at all: bumpOut + bump came to exactly 1.0 of the
-    //    half-thickness in the body's own colour, so every "head" was a same-coloured circle
-    //    touching the band edge from the inside and the union was the rectangle to the pixel.
+    //    Three revisions failed before this one and they failed the same way: each drew a SOLID
+    //    SHAPE and tried to dress it. A rounded rect ("blocks of corals are fucking ugly"), then
+    //    that rect with a scalloped, lit edge ("this looks nothing like coral"), then the band
+    //    packed with tinted spheres ("just ugly balls"). A bar with bumps is a bar and a heap of
+    //    blobs is a heap; what the eye identifies as coral is the FORK — a thick stem splitting
+    //    into thinner fingers, over and over, with pale buds at the ends.
     //
-    //    A reef crest from directly overhead is dozens of separate colonies of different sizes and
-    //    species packed together over dark crevice. So: pack the band with heads on a jittered
-    //    grid, colour each from SPUR_VIS.tones by a hash of its own position, and let the outermost
-    //    ones break the silhouette by up to PLAYER.radius — which is HONEST, not decorative, since
-    //    blockOnCoral holds the player exactly that far clear of the band. The drawn edge and the
-    //    wall are still the same edge.
+    //    So a colony is grown rather than stamped: `trunks` stems from one base, each forking
+    //    `depth` times, every child shorter and thinner than its parent. Flat saturated fill,
+    //    dark outline, pale tip — the reference's vector idiom, and the same language the reef
+    //    floor's own magenta fans already speak.
     //
     //    HASHED FROM POSITION, NEVER Math.random. spurG rebuilds whenever _spurRev bumps (about
-    //    once per lane crossing), and a per-rebuild random would reshuffle every colony on screen
-    //    each time — the field would boil. Same argument the lobe cycle already made.
+    //    once per lane crossing) and a per-rebuild random would regrow every colony on screen each
+    //    time, so the whole field would writhe. Every jitter below is a hash of the branch's own
+    //    coordinates, which makes the thicket both varied and completely stable.
     const hash = (a, b) => {
       const x = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453
       return x - Math.floor(x)
     }
+    // In LANE coordinates throughout: f runs along the lane, c across it. `line` swaps at the last
+    // moment exactly as `band` and `dot` do, so nothing above here knows which axis scrolls.
+    const line = (f0, c0, f1, c1) => {
+      if (xAxis) { spurG.moveTo(f0, c0); spurG.lineTo(f1, c1) }
+      else { spurG.moveTo(c0, f0); spurG.lineTo(c1, f1) }
+    }
     const byTone = V.tones.map(() => [])
-    const caps = []
-    const branches = []
+    const tips = []
+    // LEVEL, not a float width. Pixi strokes the whole path built so far, so segments have to be
+    // BATCHED by width — and a level index buckets exactly where a repeatedly-multiplied float
+    // does not. There are only depth+1 widths in the whole field.
+    const W = []
+    for (let i = 0; i <= V.depth; i++) W.push(V.branchW * Math.pow(V.widthFall, i))
+    const grow = (out, f0, c0, ang, len, lvl) => {
+      const f1 = f0 + Math.cos(ang) * len
+      const c1 = c0 + Math.sin(ang) * len
+      out.push([f0, c0, f1, c1, lvl])
+      if (lvl >= V.depth) { tips.push([f1, c1, Math.max(V.tipR, W[lvl] * 0.52)]); return }
+      const j = hash(f1 * 3.1, c1 * 1.7)
+      const sp = V.spread * (0.65 + j * 0.7)
+      grow(out, f1, c1, ang - sp, len * V.lenFall, lvl + 1)
+      grow(out, f1, c1, ang + sp, len * V.lenFall, lvl + 1)
+    }
     for (const [f, c0, c1, half] of segs) {
-      const rows = Math.max(2, Math.round((half * 2) / V.headStep))
-      const cols = Math.max(1, Math.round((c1 - c0) / V.headStep))
-      for (let iy = 0; iy < rows; iy++) {
-        for (let ix = 0; ix < cols; ix++) {
-          const h1 = hash(f + iy * 7.1, c0 + ix * 3.3)
-          const h2 = hash(c0 + ix * 5.7, f + iy * 2.9)
-          // Position on the grid, jittered by most of a cell so the packing never reads as rows.
-          const cc = c0 + ((ix + 0.5) / cols) * (c1 - c0) + (h1 - 0.5) * V.headStep * 0.9
-          if (cc < c0 - 2 || cc > c1 + 2) continue
-          const across = ((iy + 0.5) / rows - 0.5) * 2          // -1..1 across the thickness
-          const ff = f + across * half + (h2 - 0.5) * V.headStep * 0.5
-          const edge = Math.abs(across)
-          // Heads shrink toward the edges, which is what stops the mass having a machined outline.
-          const r = V.headMin + (V.headMax - V.headMin) * h1 * (1 - edge * 0.45)
-          // Only the outermost row is allowed past the band, and only by the radius the player is
-          // already held off by.
-          const outMax = half + PLAYER.radius
-          const clamped = Math.max(f - outMax + r * 0.3, Math.min(f + outMax - r * 0.3, ff))
-          byTone[Math.floor(h2 * V.tones.length) % V.tones.length].push([clamped, cc, r])
-          if (h1 > 1 - V.capFrac) caps.push([clamped - across * r * 0.25, cc - r * 0.22, r * 0.5])
-          if (spurArt >= 3 && edge > 0.6 && (ix % V.branchEvery === 0)) branches.push([clamped, cc, r, Math.sign(across) || 1])
+      const n = Math.max(1, Math.round((c1 - c0) / V.colonyEvery))
+      for (let k = 0; k <= n; k++) {
+        const h1 = hash(f + k * 5.3, c0 + k * 2.1)
+        const h2 = hash(c0 + k * 7.9, f - k * 4.3)
+        const cc = c0 + ((c1 - c0) * k) / n + (h1 - 0.5) * V.colonyEvery * 0.7
+        if (cc < c0 - 4 || cc > c1 + 4) continue
+        // Bases sit inside the band by their own reach, so no tip can leave the wall. The band is
+        // widened by PLAYER.radius first because blockOnCoral holds the player exactly that far
+        // clear of it — coral drawn out to there is coral they genuinely cannot enter, which is
+        // the one liberty this art is allowed to take with the collider.
+        const room = Math.max(0, half + PLAYER.radius - V.reachMax)
+        const ff = f + (h2 - 0.5) * 2 * room
+        const tone = byTone[Math.floor(h2 * V.tones.length) % V.tones.length]
+        for (let t = 0; t < V.trunks; t++) {
+          const ang = (t / V.trunks) * Math.PI * 2 + h1 * Math.PI * 2
+          grow(tone, ff, cc, ang, V.trunkLen * (0.8 + h1 * 0.45), 0)
         }
       }
     }
-    // The crevice coat first, so any gap the packing leaves reads as shadow between colonies
-    // rather than as a hole through to the sand.
-    for (const [f, c0, c1, half] of segs) band(f, half, c0, c1, 0, 9)
-    spurG.fill({ color: V.crevice })
-    // One fill per tone rather than per head: a handful of batches for the whole field.
-    for (let t = 0; t < byTone.length; t++) {
-      if (!byTone[t].length) continue
-      for (const [f, c, r] of byTone[t]) dot(f, c, r)
-      spurG.fill({ color: V.tones[t] })
-    }
-    // The rims, in the crevice colour, as ONE stroked pass over every head: the difference between
-    // a lumpy mass and a crowd of separate animals, since any two neighbours sharing a tone merge
-    // into one blob otherwise. Stroked after all the fills so a rim is never buried by the colony
-    // drawn next.
+    // OUTLINES FIRST, ALL OF THEM, then the fills: one wide dark stroke under a narrower coloured
+    // one is how a flat-vector outline comes out of a stroke, and it is what makes the thicket read
+    // as separate plants rather than one coloured tangle.
     //
-    // ⚠ ALPHA IS THE WHOLE DIFFICULTY HERE. Overlapping stroked circles read as CHAIN MAIL, and at
-    // 0.75 that is exactly what the phone shot showed -- a scribble of dark rings with the colonies
-    // lost behind it. Low enough to separate neighbours, not high enough to become its own pattern.
-    for (const group of byTone) for (const [f, c, r] of group) dot(f, c, r)
-    spurG.stroke({ color: V.crevice, width: V.edgePx, alpha: 0.26 })
-    if (spurArt >= 3) {
-      // Staghorn tips on the outer colonies only. Short, thick strokes reaching out of the mass —
-      // at this zoom a branching colony is a few pixels of fringe, and fringe is what separates a
-      // reef edge from a kerb.
-      for (const [f, c, r, dir] of branches) {
-        const a = hash(f, c) * Math.PI * 0.5 - Math.PI * 0.25
-        const len = r * (0.7 + hash(c, f) * 0.6)
-        const tf = f + dir * len * Math.cos(a), tc = c + len * Math.sin(a)
-        dot(tf, tc, Math.max(1.6, r * 0.28))
-        dot((f + tf) / 2, (c + tc) / 2, Math.max(1.8, r * 0.34))
+    // ⚠ PATH FIRST, THEN stroke() — ONCE PER BUCKET. Pixi strokes everything currently in the path,
+    // so calling stroke() inside the per-segment loop re-strokes the whole accumulated path on
+    // every iteration. Rev.1 of this did exactly that and painted a solid dark slab the shape of
+    // the ridge, which read as the coral being glued to a plank and cost a round to see. Buckets
+    // are (level) for the outline and (tone x level) for the fill, so the whole field is a couple
+    // of dozen strokes however many branches it holds.
+    for (let l = 0; l <= V.depth; l++) {
+      let any = false
+      for (const group of byTone) for (const sg of group) if (sg[4] === l) { line(sg[0], sg[1], sg[2], sg[3]); any = true }
+      if (any) spurG.stroke({ color: V.crevice, width: W[l] + V.outlinePx * 2, cap: 'round', join: 'round' })
+    }
+    for (let t = 0; t < byTone.length; t++) {
+      for (let l = 0; l <= V.depth; l++) {
+        let any = false
+        for (const sg of byTone[t]) if (sg[4] === l) { line(sg[0], sg[1], sg[2], sg[3]); any = true }
+        if (any) spurG.stroke({ color: V.tones[t], width: W[l], cap: 'round', join: 'round' })
       }
-      spurG.fill({ color: V.branch })
     }
-    if (spurArt >= 2) {
-      // Sun on the crown of some heads. The ONLY light value in the ridge, and sparse on purpose:
-      // a highlight on every head is a texture, a highlight on two in five is topography.
-      for (const [f, c, r] of caps) dot(f, c, r)
-      spurG.fill({ color: V.cap, alpha: 0.4 })
-    }
+    // The buds. Last, so a tip is never overdrawn by the branch of a colony grown after it.
+    for (const [f, c, r] of tips) dot(f, c, r)
+    spurG.fill({ color: V.tip })
   }
   // ---- The Reef: Fire Coral's lit ridges (v7.x) -------------------------------------------------
   // run.polyps, drawn from the SAME snapshot stepPolyps damages against, through the SAME

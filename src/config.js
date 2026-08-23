@@ -8204,40 +8204,40 @@ export const AIR_POCKET_VIS = {
 // what shows past the body is a dark halo around the outside only, which is the outline that was
 // wanted.
 export const SPUR_VIS = Object.freeze({
-  foot: 0x160816, footA: 0.5, foot_px: 4,
+  // footA WAS 0.5, WHICH THE BRANCHING REVISION MADE WRONG. A near-black band at half opacity was
+  // a reasonable ground shadow under a solid slab; under an open thicket it is a dark TRAY sitting
+  // behind the coral, and the ridge reads as plants glued to a plank. The thicket shows the player
+  // where the wall is on its own now, so this only has to hint at it.
+  foot: 0x14202b, footA: 0.22, foot_px: 4,
   body: 0x67213d,
-  // A REEF IS A CROWD OF SEPARATE HEADS, NOT A TINTED BAR — which is the whole reason two earlier
-  // passes at this failed. Rev.1 drew one rounded rect in one plum (a domino). Rev.2 scalloped its
-  // edge and lit it, and the owner's verdict was "this looks nothing like coral": a bar with bumps
-  // is still a bar. What a reef crest actually looks like from directly overhead is dozens of
-  // individual colonies of different sizes and different species packed shoulder to shoulder, with
-  // dark crevice between them — so the ridge is now DRAWN as that, and the band is only the volume
-  // the heads are packed into.
+  // CORAL BRANCHES. Owner's reference, 2026-08-23, after rejecting two revisions: flat vector
+  // staghorn — a thick stem forking into fingers, one saturated fill, a dark outline, pale tips.
   //
-  // The palette is the second half of "realistic", and it is deliberately DESATURATED: living reef
-  // photographs as tan, ochre, olive and dull rust, not as candy. Saturated pink was reading as
-  // meat against a blue floor. Five tones rather than one because the variety IS the texture at
-  // this zoom — one tone with a highlight is still one object.
-  crevice: 0x241a1c,      // the shadow between colonies; the ridge's base coat
-  // Spread across VALUE as well as hue, darkest first: a reef photographed from above is mostly
-  // mid-and-dark colonies with a few bleached-pale ones, and a palette that is all mid-tone reads
-  // as gravel however many hues are in it.
-  tones: Object.freeze([0x4a3b2c, 0x5d4a30, 0x7d5c3e, 0x6f4136, 0x63563a, 0x8e6a38, 0x9a835a]),
-  cap: 0xbda57c,          // sun on the top of a head — the only light value, used sparingly
-  branch: 0x8a7048,       // staghorn tips that break the silhouette at the edges
-  // capFrac IS THE KNOB THAT NEARLY RUINED THIS. At 0.42 with alpha 0.5 the sun-caps covered two
-  // heads in five and washed the whole ridge to one beige -- the five tones were all still being
-  // drawn and none of them could be seen. A highlight on every head is a texture; on one in six it
-  // is topography. Same lesson the rim light taught one revision earlier, at a different strength.
-  // SIZED FOR THE GAMEPLAY ZOOM, NOT THE MAP. At headMax 24 the map shot looked like a reef and the
-  // 390px phone -- the view the game is actually played in -- looked like a pile of potatoes: three
-  // or four fat pale lumps per ridge, no sense of many organisms. Smaller and denser reads as
-  // colonies at BOTH, which is the two-viewport rule applied to a texture rather than to a radius.
-  headMin: 6, headMax: 17, headStep: 11, capFrac: 0.16, branchEvery: 3,
-  // The dark rim around each head is what makes them separate ANIMALS rather than one lumpy mass.
-  // Without it the fills merge wherever two colonies share a tone, which at this density is most
-  // of the ridge.
-  edgePx: 1.0,
+  // THE TWO REJECTED REVISIONS ARE WORTH KEEPING IN VIEW because each was a plausible wrong turn.
+  // Rev.1 drew one rounded rect in one plum: "blocks of corals are fucking ugly". Rev.2 scalloped
+  // that rect's edge and lit it: "this looks nothing like coral" — a bar with bumps is still a bar.
+  // Rev.3 packed the band with spheres and got "just ugly balls": a crowd of blobs is not a reef
+  // either, because what makes coral READ as coral is the BRANCHING, not the massing. The
+  // silhouette is the whole subject; every revision that dressed a solid shape failed for the same
+  // reason, and this one draws the structure instead.
+  //
+  // Colour is saturated and flat, NOT the muted photographic palette rev.3 used. The reference is
+  // vector illustration in this game's own idiom — the reef floor already draws its decor as flat
+  // magenta fans — so the ridges join that language rather than importing a photograph's.
+  crevice: 0x14202b,      // the outline every branch is stroked in, and the gap behind the field
+  tones: Object.freeze([0xef6c35, 0xd93b2b, 0x33bfc6, 0xf2a83c, 0xe8718f, 0xead9bd]),
+  tip: 0xf7e6c8,          // pale bud at every branch end, straight off the reference's orange coral
+  //   trunks      stems leaving one colony's base, evenly spread so a colony reads as a bush
+  //   depth       forks per stem. 2 gives 4 fingers a stem: enough to read, cheap enough to batch
+  //   lenFall/widthFall  each fork is shorter and thinner than its parent, which IS the antler read
+  //   spread      radians between siblings at a fork, jittered per fork so no two colonies match
+  //   colonyEvery px along the ridge between colony centres; they overlap into a thicket
+  //   reachMax    the furthest a colony's tip may sit from its own base. run RS.e checks THIS
+  //               against the ridge half-thickness, so it is the number that keeps the art inside
+  //               the wall — trunkLen x (1 + lenFall + lenFall^2), rounded up.
+  trunks: 3, depth: 2, trunkLen: 15, lenFall: 0.68, widthFall: 0.62,
+  branchW: 5.4, spread: 0.62, colonyEvery: 24, reachMax: 32,
+  tipR: 2.2, outlinePx: 2.4,
   wall: 96,
   // `bump`, `bumpOut`, `bumpGap` and `lobes` USED TO LIVE HERE and are gone with the pass that read
   // them. They described a single spine of same-coloured circles inset inside the band, which drew
