@@ -21487,6 +21487,8 @@ function testReefSpurScrape() {
     [SPUR_VIS.depthLo, SPUR_VIS.depthHi, 'fork depth'],
     [SPUR_VIS.spreadLo, SPUR_VIS.spreadHi, 'fork angle'],
     [SPUR_VIS.lenFallLo, SPUR_VIS.lenFallHi, 'taper'],
+    [SPUR_VIS.trunkLenLo, SPUR_VIS.trunkLenHi, 'stem length'],
+    [SPUR_VIS.segLenLo, SPUR_VIS.segLenHi, 'branch length'],
   ]) {
     assert.ok(hi > lo,
       `run RS.a: ${what} is fixed at ${lo} — every colony then shares that habit and the whole reef is one stamp repeated, which is the "+ base" defect by another name`)
@@ -21495,7 +21497,14 @@ function testReefSpurScrape() {
   // plant, and these two shares are the only thing preventing it.
   assert.ok(SPUR_VIS.triFrac > 0 && SPUR_VIS.whipFrac > 0,
     `run RS.a: every fork splits in exactly two (triFrac ${SPUR_VIS.triFrac}, whipFrac ${SPUR_VIS.whipFrac}) — a perfect binary tree reads as generated however varied its angles are`)
-  // The stems are spaced by JITTERED gaps. An even division is a regular star at every count and a
+
+  // ...AND NEITHER LENGTH RANGE MAY EXCEED 1.0. Both multiply the reach a colony was sized against
+  // (room - |spine offset|), so a factor above 1 puts its tips outside the wall — coral drawn over
+  // a channel the player is meant to swim through, which is the one thing this art may never do.
+  // The stem factor WAS 0.85 + h * 0.3, i.e. up to 1.15, and that 15% shipped unnoticed through
+  // two revisions because nothing compared it against the bound it was multiplying.
+  assert.ok(SPUR_VIS.trunkLenHi <= 1 && SPUR_VIS.segLenHi <= 1,
+    `run RS.a: branch lengths scale up to ${Math.max(SPUR_VIS.trunkLenHi, SPUR_VIS.segLenHi)} of a colony's nominal reach — above 1.0 the coral grows past the wall the player is held off by`)  // The stems are spaced by JITTERED gaps. An even division is a regular star at every count and a
   // plus sign at four, so this lints the expression rather than the fact that stems exist.
   {
     const gsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')

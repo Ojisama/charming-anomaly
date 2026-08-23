@@ -8251,6 +8251,16 @@ export const SPUR_VIS = Object.freeze({
   //   depthLo/Hi   forks per stem. A range, so a field mixes sparse whips with dense heads
   //   spreadLo/Hi  radians between siblings at a fork: tight ones read as fingers, open ones as fans
   //   lenFallLo/Hi how fast a stem shortens. Low is a squat head, high is a long reaching antler
+  //   trunkLenLo/Hi  each STEM of a colony gets its own length in this fraction of the colony's
+  //                  nominal reach. Without it every arm leaves the base at the same length and a
+  //                  colony is radially uniform however varied its forks are — the plus sign's
+  //                  quieter cousin. Long and short arms off one base is what real coral does.
+  //   segLenLo/Hi    each FORK's children get their own length in this fraction of the nominal
+  //                  taper, so no two siblings match.
+  //   ⚠ BOTH RANGES TOP OUT AT 1.0 AND MUST. They multiply the reach a colony was sized against
+  //   (room - |spine offset|), so a factor above 1 puts tips outside the wall — the trunk factor
+  //   used to be 0.85 + h * 0.3, i.e. up to 1.15, and that was 15% of coral hanging over the
+  //   channel the player swims through. run RS.e asserts the cap.
   //   triFrac      share of forks that split THREE ways instead of two
   //   whipFrac     share that do not split at all and simply bend — real coral is not a binary tree,
   //                and a perfect one is the other way this reads as generated
@@ -8269,7 +8279,13 @@ export const SPUR_VIS = Object.freeze({
   trunksLo: 2, trunksHi: 5, depthLo: 3, depthHi: 5,
   lenFallLo: 0.55, lenFallHi: 0.76, widthFall: 0.66,
   spreadLo: 0.42, spreadHi: 0.95, triFrac: 0.16, whipFrac: 0.14,
-  branchW: 5.6, colonyEvery: 21,
+  trunkLenLo: 0.45, trunkLenHi: 1.0, segLenLo: 0.5, segLenHi: 1.0,
+  // colonyEvery 21 -> 16 WHEN BRANCH LENGTHS BECAME VARIABLE, and this is a gameplay number as
+  // much as an art one. trunkLenLo 0.45 drops the mean arm to ~0.73 of what a fixed-length stem
+  // was, so the same spacing left visible GAPS in the ridge -- and a wall you can see through is a
+  // wall the player reads as passable when it is not. More, smaller colonies keep the barrier
+  // solid at the same total mass.
+  branchW: 5.6, colonyEvery: 16,
   reachLo: 0.45, reachHi: 1.0, spineJitter: 0.16,
   //   tipMix  how far each bud is lightened from its OWN colony's tone toward `tip`. Not 1: at
   //           depth 3 there are 32 buds per colony, so a single cream for all of them stops being

@@ -11720,8 +11720,9 @@ const spurG = new Graphics()
     // real coral throws the occasional trichotomy and the occasional stem that just keeps going
     // and bends. triFrac/whipFrac are those two shares; everything else splits in two.
     //
-    // Child lengths are asymmetric (0.7..1.0 of the nominal) and never above it, which is what
-    // keeps a colony inside the reach it was sized for while making no two siblings equal.
+    // Child lengths are drawn per fork from segLenLo..segLenHi and never exceed 1.0 of the nominal
+    // taper, which is what keeps a colony inside the reach it was sized for while making no two
+    // siblings equal.
     const grow = (out, tipOut, g, f0, c0, ang, len, lvl) => {
       const f1 = f0 + Math.cos(ang) * len
       const c1 = c0 + Math.sin(ang) * len
@@ -11729,7 +11730,8 @@ const spurG = new Graphics()
       if (lvl >= g.depth) { tipOut.push([f1, c1, Math.max(V.tipR, W[Math.min(lvl, V.depthHi)] * 0.52)]); return }
       const a = hash(f1 * 3.1, c1 * 1.7)
       const b = hash(c1 * 5.9, f1 * 2.3)
-      const kid = (dir, scale) => grow(out, tipOut, g, f1, c1, ang + dir, len * g.lenFall * (0.7 + scale * 0.3), lvl + 1)
+      const kid = (dir, scale) => grow(out, tipOut, g, f1, c1, ang + dir,
+        len * g.lenFall * (V.segLenLo + scale * (V.segLenHi - V.segLenLo)), lvl + 1)
       if (a < V.whipFrac) {
         kid((b - 0.5) * g.spread, b)                       // no fork: the stem bends and carries on
       } else if (a > 1 - V.triFrac) {
@@ -11785,7 +11787,12 @@ const spurG = new Graphics()
         let ang = h1 * Math.PI * 2
         for (let t = 0; t < g.trunks; t++) {
           ang += ((Math.PI * 2) / g.trunks) * (0.5 + hash(cc + t * 9.1, ff - t * 4.7) * 1.0)
-          grow(byTone[ti], tips[ti], g, ff, cc, ang, (reach / lenSum) * (0.85 + h2 * 0.3), 0)
+          // PER STEM, not per colony. Every arm off one base used to leave it at the same length,
+          // so a colony was radially uniform however varied its forks were — the quiet cousin of
+          // the plus sign. Its own hash, so a colony has long arms and stubby ones.
+          const sh = hash(ff + t * 2.9, cc - t * 6.3)
+          const stem = (reach / lenSum) * (V.trunkLenLo + sh * (V.trunkLenHi - V.trunkLenLo))
+          grow(byTone[ti], tips[ti], g, ff, cc, ang, stem, 0)
         }
       }
     }
