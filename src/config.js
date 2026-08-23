@@ -3555,10 +3555,15 @@ export const WEAPON_MODS = {
     // have read as the book's title on the French level-up screen. A display name is checked
     // against fr.js's existing keys, not only against the other cards.
     suction:   { name: 'Suction',    desc: 'how hard the column drags',  icon: '🌊', base: 0.25, kind: 'pct' },
-    widePour:  { name: 'Wide Pour',  desc: 'column radius',              icon: '⭕', base: 0.20, kind: 'pct' },
+    // balance_decision : Wide Pour and Long Fall are 25% weaker, the column was too strong 2026-08-23
+    //  - the two that compound: radius is the gather AND the burst's count, duration is how long it
+    //    keeps gathering, so the pair multiplies where every other mod on this weapon adds.
+    //  - Long Fall's exact -25% is 0.1875; held to the table's two decimals, which the player cannot
+    //    tell apart (+19% either way, and +38% at epic).
+    widePour:  { name: 'Wide Pour',  desc: 'column radius',              icon: '⭕', base: 0.15, kind: 'pct' },
     // Longer means MORE GATHERING, not more damage — the tick is nearly nothing on this weapon by
     // design, so this card buys the crowd more time to arrive before the burst counts them.
-    lingering: { name: 'Long Fall',  desc: 'how long the column pours',  icon: '⌛', base: 0.25, kind: 'pct' },
+    lingering: { name: 'Long Fall',  desc: 'how long the column pours',  icon: '⌛', base: 0.19, kind: 'pct' },
     secondFall:{ name: 'Second Fall',desc: 'extra column(s) per cast',   icon: '🔷', kind: 'tier' },
     // THE BEHAVIOURAL ONE. The column stops being on a timer and becomes a trigger: it bursts the
     // instant DOWNWASH_PLUNGE_N bodies are inside it, which is a different card to play rather than
