@@ -6830,6 +6830,40 @@ CHAPTERS.reef = {
   // instead of sitting 4px off the edge. Strafe still crosses 642px between ridges against a 660px
   // corridor, so every pinch stays reachable -- run RS checks it rather than trusting this sentence.
   laneHalfW: 330,
+  // THE CAVE IS A SINGLE PASSAGE THAT WANDERS, and this replaces the braid entirely.
+  //
+  // Owner, 2026-08-23, playing v7.213.0: "coral is blocking everything... what I want: coral forms
+  // the caves and the paths, and you have to navigate the scrolled level without touching it.
+  // Touching it bounces you a little bit back on track, and damages you. You should not see water
+  // outside the coral cave, and paths should be HORIZONTAL."
+  //
+  // The previous shape got that exactly backwards. It closed the walls to a ridge's GROOVES at
+  // every ridge line, which draws a full-height column of coral with holes punched in it -- a
+  // perpendicular bar by another name, crossing the lane the player is trying to swim along. What
+  // a cave passage actually is: ONE opening, running the way you travel, whose centre and width
+  // wander. Coral is everything else, out past the edge of the screen so no open water is ever
+  // visible behind it.
+  //
+  //   centre  wanders on summed octaves (three wavelengths, hashed phases) so it is neither a sine
+  //           nor a jitter -- long swings with smaller kinks riding on them
+  //   half    the passage's half-width, on its own octave sum: chambers and squeezes
+  //   ⚠ wander + halfMax must stay inside laneHalfW or the passage leaves the corridor the lane
+  //     clamps the player to, and the player is pinned against a wall that is not drawn. 120 + 185
+  //     = 305 against 330. run RS asserts it rather than trusting this line.
+  cave: {
+    // halfMin 100 -> 150 SO THE PASSAGE CAN HOLD AN OFF-CENTRE POCKET. An air pocket has to clear
+    // the centre line (or breathing is free) and stay inside the wall (or it is unreachable), and
+    // at hw 100 with r 48 those two demands have no overlap. wander drops to 100 to pay for it:
+    // wander + halfMax must stay inside laneHalfW 330, and 100 + 210 = 310 does.
+    wander: 100, halfMin: 170, halfMax: 220,
+    waves: [[900, 1], [380, 0.42], [170, 0.18]],   // [wavelength px, weight]
+    widthWave: [[640, 1], [250, 0.45]],
+    salt: 47,                                      // next free salt block; 44-46 were the spurs'
+    // How far past the passage edge coral is drawn. Must exceed the largest half-view the game can
+    // present on the cross axis, or a wide screen shows open water beyond the cave wall -- which is
+    // the one thing the owner named twice. 760 covers a 1520px cross extent.
+    fill: 760,
+  },
 
   // FOUR NATIVES AND NOTHING BORROWED (owner, 2026-08-22). Every card is picked for the LANE rather
   // than for the theme, because a scroller only works if what you hold can answer things arriving
@@ -6914,7 +6948,14 @@ CHAPTERS.reef = {
     // the pocket keeps the same share of a narrower lane. Measured over five seeds, end-of-run air
     // lands at 27..52 against the pre-cave 20.9..67.4, i.e. the same mean. A compensation, not a
     // buff: at the old 130 the fixture's own seed drowns on 0.
-    pockets: { cell: 640, chance: 0.66, r: 165, minDist: 420, salt: 40 },
+    // r 165 -> 48 FOR THE CAVE, AND THE POCKET IS NOW SMALLER THAN THE PASSAGE ON PURPOSE.
+    // 165 was sized against a 660px-wide open lane. The cave's passage is 200-370px wide, so a
+    // 165px pocket is wider than the corridor it sits in: it spans the whole opening, which makes
+    // air free (you collect it by flying the passage) and deletes the one decision this resource
+    // exists to pose. At 48 a pocket fits BESIDE the centre line -- offset + r stays inside the
+    // wall and offset - r stays clear of the middle even at the narrowest squeeze (hw 100) -- so
+    // breathing still costs you a commitment to one side of the cave.
+    pockets: { cell: 640, chance: 0.66, r: 48, minDist: 420, salt: 40 },
   },
 
   // SPUR AND GROOVE (level design spec 2026-08-20, rev 4). The reef front as this game's only
@@ -9167,34 +9208,39 @@ export const LANE_VIEW_FRAC = 0.9        // lane never exceeds this fraction of 
 // 422px and the clamp sits at 418 — four pixels apart. The Reef's banks (owner, 2026-08-23: the
 // top and bottom of the screen "should be coral too, like you're in an underground cave") only
 // exist in the strip a narrower lane gives back.
-// -- The Reef's cave profile (v7.x) -------------------------------------------------------------
+// -- The Reef's cave passage (v7.x) --------------------------------------------------------------
+// ONE OPENING, RUNNING THE WAY THE PLAYER TRAVELS. Pure function of the position along the lane, so
+// nothing streams and both sides can ask about any point at any time.
+//
 // IN config.js AND NOT IN sim.js, because BOTH sides need it: sim.js decides where the player is
-// stopped and render.js decides where the wall is drawn, and if those two ever disagree the gap
+// stopped and render.js decides where the coral is drawn, and if those two ever disagree the gap
 // you can see is not the gap you can swim through. render.js may not import from sim.js at all
 // (see the module table in CLAUDE.md), so config is the only place one definition can live.
-// HOW CLOSED THE CAVE IS AT A GIVEN POINT ALONG THE LANE. 1 exactly at a ridge, falling linearly
-// to 0 by pinchSpan beyond its face. LINEAR on purpose and not a smoothstep: blockOnCoral has to
-// INVERT this to work out how far back to push a blocked player, and a straight line inverts in one
-// expression where a curve needs a search.
-export const pinchAt = (sp, f, spec) => {
-  const span = sp.thick / 2 + (spec.pinchSpan ?? 0)
-  return Math.max(0, 1 - Math.abs(f - sp.f) / span)
-}
-
-// THE OPEN CHANNEL AT A POINT, as [centre, halfWidth] per groove.
 //
-// At w = 1 (the ridge itself) this is exactly the grooves spurAt returned — so the tightest point
-// of the cave is the same opening the braid has always described, and every reachability property
-// measured against the old bars still holds. At w = 0 it is the whole corridor. In between the
-// ceiling and floor are still closing, which is the shape that replaced the bars.
-export const channelAt = (sp, f, c, spec, hw) => {
-  const w = pinchAt(sp, f, spec)
-  for (const g of sp.grooves) {
-    if (Math.abs(c - g.c * w) <= g.hw * w + hw * (1 - w)) return true
-  }
-  return false
+// SUMMED OCTAVES, NOT A SINE. A single wavelength reads as a corrugation and the owner has rejected
+// regular pattern on this chapter's art twice already; three wavelengths with hashed phases give
+// long swings with smaller kinks riding on them, which is what a cave passage looks like.
+const caveHash = (n, salt) => {
+  const x = Math.sin(n * 127.1 + salt * 311.7) * 43758.5453
+  return x - Math.floor(x)
 }
-
+export const caveAt = (f, spec, seed) => {
+  const s0 = (spec.salt ?? 47) + (seed ?? 0) * 0.001
+  let c = 0, norm = 0
+  for (let i = 0; i < spec.waves.length; i++) {
+    const [len, w] = spec.waves[i]
+    c += w * Math.sin((2 * Math.PI * f) / len + caveHash(i + 1, s0) * Math.PI * 2)
+    norm += w
+  }
+  let h = 0, hnorm = 0
+  for (let i = 0; i < spec.widthWave.length; i++) {
+    const [len, w] = spec.widthWave[i]
+    h += w * Math.sin((2 * Math.PI * f) / len + caveHash(i + 11, s0) * Math.PI * 2)
+    hnorm += w
+  }
+  const t = (h / hnorm + 1) / 2               // 0..1
+  return { c: (c / norm) * spec.wander, hw: spec.halfMin + (spec.halfMax - spec.halfMin) * t }
+}
 
 export const laneHalfWidth = (viewRadius, ch) => Math.min(ch?.laneHalfW ?? LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)
 
@@ -10541,6 +10587,17 @@ export const DROWN_TICK = 1.0            // s between drowning ticks while the b
 // and a pure grace timer: "survivable with HP to spare, death only if you stay stuck". So one bad
 // groove read costs a tick or two and a full bar can eat a mistake, while standing there cannot be
 // waited out. 36 on a 0.5s beat is 18 a tick, ~2.8s of being stuck to kill a starting 100 max HP.
+// TOUCHING THE CAVE. Owner: "touching it bounces you a little bit back on track, and damages you."
+//
+// A BOUNCE, NOT A TELEPORT, and the distinction is the bug it replaces. The previous wall solved
+// for the exact point where the player would fit and ASSIGNED it -- an absolute position, which
+// from a graze near a pinch is a jump of a hundred pixels or more. On a phone that reads as the
+// level glitching and throwing you somewhere, and it could drop you behind the trailing edge and
+// kill you outright, which is what the owner saw. So: put them back to the wall face they touched
+// (never further), nudge them a little back down the lane, and charge for it.
+export const CAVE_BOUNCE_PX = 26      // how far back along the lane a touch pushes you
+export const CAVE_HIT_DPS = 22        // charged while you are in contact, on the tick below
+export const CAVE_HIT_TICK = 0.45
 export const LANE_CRUSH_DPS = 36
 export const LANE_CRUSH_TICK = 0.5
 export const SPUR_DPS = 4                // HP/s inside coral — flat for the whole run, exactly like drowning and the slick

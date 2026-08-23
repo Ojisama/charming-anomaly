@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, channelAt, laneHalfWidth, ORCA_WAKE_R, ORCA_RISE_DUR,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, ORCA_WAKE_R, ORCA_RISE_DUR,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -12064,73 +12064,59 @@ const spurG = new Graphics()
       const x = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453
       return x - Math.floor(x)
     }
-    // THE CAVE, DRAWN AS A CEILING AND A FLOOR.
+    // THE CAVE: ONE PASSAGE, AND CORAL EVERYWHERE ELSE.
     //
-    // This used to walk ACROSS the lane, stamping a bar of coral at each ridge with gaps cut in it.
-    // Owner: "I don't want perpendicular walls like that... more like an underwater platformer, a
-    // bit like ecco the dolphin" -- and the book is underwater, so the cross axis is not an
-    // arbitrary sideways, it is CEILING AND FLOOR. So the walk runs ALONG the lane instead, and at
-    // every step it asks the sim's own channelAt() where the opening is and packs coral from there
-    // out to the corridor wall on each side. The ridges still exist and still set the tightest
-    // point, but they are read as a profile: the ceiling and the floor close toward each other,
-    // meet at the ridge line, and open out again.
+    // The previous version closed the walls to a ridge's GROOVES at each ridge line, which draws a
+    // full-height column of coral with holes punched in it -- a perpendicular bar by another name,
+    // across the lane the player is trying to swim ALONG. Owner, on a screenshot of it: "coral is
+    // blocking everything... paths should be horizontal."
     //
-    // ONE DEFINITION, TWO CONSUMERS: the edge drawn here is found by bisecting the SAME
-    // channelAt() the collision uses, so the gap you can see is the gap you can swim through. A
-    // second opinion about where the wall is would be the drawn-vs-tested defect this file keeps
-    // paying for.
+    // So the wall is not built from ridges at all now. caveAt() gives ONE opening whose centre and
+    // width wander along the lane, and this fills everything outside it, out to spec.fill -- past
+    // the edge of any screen the game can present, because "you should not see water outside the
+    // coral cave" is the other half of the brief. Nothing here streams: caveAt is a pure function
+    // of the position along the lane, so any point can be asked about at any time.
+    //
+    // ONE DEFINITION, TWO CONSUMERS: stepCaveWall stops the player against the same caveAt this
+    // draws from. A second opinion about where the wall is would be the drawn-vs-tested defect
+    // this file keeps paying for.
     const stamps = []
-    const drawF = run.player[ax.fwd]
-    const hw = laneHalfWidth(run.viewRadius, cfg)
-    const step = V.colonyEveryLo + (V.colonyEveryHi - V.colonyEveryLo) * 0.5
-    const f0 = drawF - V.drawWithin, f1 = drawF + V.drawWithin
-    // The nearest ridge to a point on the lane, which is what its pinch is measured against.
-    const ridgeNear = (f) => {
-      let best = null, bd = Infinity
-      for (const sp of run.spurs) { const d = Math.abs(sp.f - f); if (d < bd) { bd = d; best = sp } }
-      return best
-    }
-    // Where the coral starts on one side, found by bisection on the shared predicate. Returns the
-    // cross coordinate of the wall's inner edge, or null if that side is fully open to the corridor.
-    const edge = (sp, f, sign) => {
-      if (channelAt(sp, f, sign * hw, spec, hw)) return null      // open right out to the wall
-      let open = 0, shut = sign * hw
-      if (!channelAt(sp, f, 0, spec, hw)) open = null
-      if (open === null) return sign * 0                          // shut across the middle too
-      for (let i = 0; i < 18; i++) {
-        const m = (open + shut) / 2
-        if (channelAt(sp, f, m, spec, hw)) open = m; else shut = m
-      }
-      return open
-    }
-    let fw = f0 + hash(f0 * 0.11, 3.3) * step
-    for (let n = 0; fw < f1 && n < 4096; n++, fw += step * (V.gapLo + hash(fw * 2.7, 7.1) * (V.gapHi - V.gapLo))) {
-      const sp = ridgeNear(fw)
-      if (!sp) continue
-      for (const sign of [-1, 1]) {
-        const e = edge(sp, fw, sign)
-        if (e === null) continue
-        // Pack colonies from the corridor wall inward to the opening's edge, so the growth reads as
-        // rooted in the rock and reaching into the water rather than floating in it.
-        const depth = Math.abs(sign * hw - e)
-        if (depth < 6) continue
-        let d = 0
-        for (let k = 0; d < depth && k < 64; k++) {
-          const h1 = hash(fw + k * 5.3, d * 2.1)
-          const h2 = hash(d * 7.9, fw - k * 4.3)
-          const h3 = hash(fw * 1.7 - k * 3.7, d * 2.9 + k * 6.1)
-          const reach = Math.min(depth - d, V.bakeReach) * (V.reachLo + (V.reachHi - V.reachLo) * h2)
-          stamps.push({
-            f: fw + (h1 - 0.5) * step * 0.8,
-            c: sign * hw - sign * d,
-            v: Math.floor(h3 * T.coral.length) % T.coral.length,
-            // Rotated to grow INTO the channel: a colony on the ceiling hangs down, one on the
-            // floor reaches up. This is the whole difference between a cave and a row of bushes.
-            rot: (sign < 0 ? Math.PI / 2 : -Math.PI / 2) + (h1 - 0.5) * 1.1,
-            scale: Math.max(0.25, reach / V.bakeReach),
-            tone: V.tones[Math.floor(h2 * V.tones.length) % V.tones.length],
-          })
-          d += Math.max(8, reach * 0.85)
+    const cspec = cfg.cave
+    if (cspec) {
+      const drawF = run.player[ax.fwd]
+      const step = V.colonyEveryLo + (V.colonyEveryHi - V.colonyEveryLo) * 0.5
+      // Only what the screen can show, plus a colony's reach so nothing pops in at the edge.
+      const halfCross = (xAxis ? viewH() : viewW()) / 2 + V.bakeReach
+      let fw = drawF - V.drawWithin + hash(drawF * 0.11, 3.3) * step
+      const fEnd = drawF + V.drawWithin
+      for (let n = 0; fw < fEnd && n < 4096; n++, fw += step * (V.gapLo + hash(fw * 2.7, 7.1) * (V.gapHi - V.gapLo))) {
+        const cav = caveAt(fw, cspec, run._obstacleSeed)
+        for (const sign of [-1, 1]) {
+          // From the passage edge outward. Packed until the coral leaves the screen, not until it
+          // reaches spec.fill -- the fill distance is what makes the wall opaque on a wide screen,
+          // and drawing all of it on a phone would be thousands of invisible sprites.
+          const edge = cav.c + sign * cav.hw
+          const stop = sign < 0 ? -halfCross : halfCross
+          if ((stop - edge) * sign <= 0) continue
+          let d = 0
+          const depth = Math.abs(stop - edge)
+          for (let k = 0; d < depth && k < 96; k++) {
+            const h1 = hash(fw + k * 5.3, d * 2.1)
+            const h2 = hash(d * 7.9, fw - k * 4.3)
+            const h3 = hash(fw * 1.7 - k * 3.7, d * 2.9 + k * 6.1)
+            const reach = V.bakeReach * (V.reachLo + (V.reachHi - V.reachLo) * h2)
+            stamps.push({
+              f: fw + (h1 - 0.5) * step * 0.8,
+              c: edge + sign * d,
+              v: Math.floor(h3 * T.coral.length) % T.coral.length,
+              // Grown INTO the passage: a colony on the upper wall reaches down, one on the lower
+              // wall reaches up. Rotation is what makes it a cave rather than a hedge.
+              rot: (sign < 0 ? Math.PI / 2 : -Math.PI / 2) + (h1 - 0.5) * 1.2,
+              scale: Math.max(0.3, reach / V.bakeReach),
+              tone: V.tones[Math.floor(h2 * V.tones.length) % V.tones.length],
+            })
+            d += Math.max(10, reach * 0.8)
+          }
         }
       }
     }
