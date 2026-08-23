@@ -6816,7 +6816,14 @@ CHAPTERS.reef = {
   // 45 rather than the shared 70 — see laneScrollFor's block. Measured, not felt: on a 390x844 phone
   // an x-lane has only 312 world px ahead of the player against the y-lane's 675, so at 70 this
   // chapter would give HALF The Beyond's reaction time on the device the game ships to.
-  laneScroll: 45,
+  laneScroll: 90,
+  // THE LANE DROPS WHAT FALLS BEHIND (v7.x). Opt-in per chapter -- see stepLeaks for why the
+  // default must stay off. The Reef needs it and The Beyond does not: this roster's moray moves
+  // 39px/s against a 45px/s advance, so it falls astern BY CONSTRUCTION and can never return,
+  // while The Beyond's crowd is marchers, which already leak on their own rule. Measured here
+  // before this existed (scripts/reef-pileup.mjs): 34% of live bodies sat off-screen astern,
+  // 52 per second-sample, the oldest still alive at 290s of a 300s run.
+  sweepAstern: true,
 
   // FOUR NATIVES AND NOTHING BORROWED (owner, 2026-08-22). Every card is picked for the LANE rather
   // than for the theme, because a scroller only works if what you hold can answer things arriving
@@ -6925,7 +6932,10 @@ CHAPTERS.reef = {
   //            non-zero one is still 339 > grooveMax 200 and there is still no lane you never leave.
   // salt 44/45/46 from the streamers' registry (sim.js, above obstacleCellHash): the two channel
   // widths, and now the thickness.
-  spurs: { spacing: 210, thick: 90, thickVar: 0.22, grooveMin: 140, grooveMax: 200, braidSep: 480, braidSpurs: 8, salt: 44 },
+  // `solid` (v7.x): the ridge STOPS you. Opt-in on the spec rather than assumed from the field's
+  // existence, because a spur field that only scrapes is still a legitimate thing for another
+  // chapter to want, and because grep-ing one word is how the next reader finds the collision.
+  spurs: { spacing: 210, thick: 90, thickVar: 0.22, grooveMin: 140, grooveMax: 200, braidSep: 480, braidSpurs: 8, salt: 44, solid: true },
 
   // AIR. Ambient drain, always — you are a fish carrying a lungful through a reef, and the clock
   // is the chapter. Refill ONLY at the pockets above; there is no second source and no passive
@@ -8246,13 +8256,124 @@ export const AIR_POCKET_VIS = {
 // what shows past the body is a dark halo around the outside only, which is the outline that was
 // wanted.
 export const SPUR_VIS = Object.freeze({
-  foot: 0x160816, footA: 0.5, foot_px: 4,
+  // NO FOOT AT ALL SINCE THE CORAL BRANCHED, and the two attempts to keep one are why. It began
+  // as a near-black band at alpha 0.5 -- a fair ground shadow under a solid slab, a dark TRAY under
+  // an open thicket, with the coral reading as plants glued to a plank. Softening it to 0.22 only
+  // made a fainter plank. The shape of the shadow was the problem: a RECTANGLE under a thing that
+  // is not rectangular announces the collider and contradicts the art in the same stroke. Owner,
+  // 2026-08-23: "remove the dark rectangle under". The thicket shows where the wall is by itself.
+  footA: 0, foot_px: 0,
   body: 0x67213d,
-  wall: 96, bump: 0.86, bumpOut: 0.14, bumpGap: 0.7,
-  // Radii of successive lobes, cycled along the ridge. A CYCLE and not a hash: the field is already
-  // deterministic, and five uneven sizes read as coral heads of different ages growing on one spine
-  // where a per-lobe random reads as noise.
-  lobes: Object.freeze([1, 0.72, 0.94, 0.62, 0.86]),
+  // CORAL BRANCHES. Owner's reference, 2026-08-23, after rejecting two revisions: flat vector
+  // staghorn — a thick stem forking into fingers, one saturated fill, a dark outline, pale tips.
+  //
+  // THE TWO REJECTED REVISIONS ARE WORTH KEEPING IN VIEW because each was a plausible wrong turn.
+  // Rev.1 drew one rounded rect in one plum: "blocks of corals are fucking ugly". Rev.2 scalloped
+  // that rect's edge and lit it: "this looks nothing like coral" — a bar with bumps is still a bar.
+  // Rev.3 packed the band with spheres and got "just ugly balls": a crowd of blobs is not a reef
+  // either, because what makes coral READ as coral is the BRANCHING, not the massing. The
+  // silhouette is the whole subject; every revision that dressed a solid shape failed for the same
+  // reason, and this one draws the structure instead.
+  //
+  // Colour is saturated and flat, NOT the muted photographic palette rev.3 used. The reference is
+  // vector illustration in this game's own idiom — the reef floor already draws its decor as flat
+  // magenta fans — so the ridges join that language rather than importing a photograph's.
+  crevice: 0x14202b,      // the outline every branch is stroked in, and the gap behind the field
+  tones: Object.freeze([0xef6c35, 0xd93b2b, 0x33bfc6, 0xf2a83c, 0xe8718f, 0xead9bd]),
+  tip: 0xf7e6c8,          // pale bud at every branch end, straight off the reference's orange coral
+  //   trunks      stems leaving one colony's base, evenly spread so a colony reads as a bush
+  //   depth       forks per stem. 2 gives 4 fingers a stem: enough to read, cheap enough to batch
+  //   lenFall/widthFall  each fork is shorter and thinner than its parent, which IS the antler read
+  //   spread      radians between siblings at a fork, jittered per fork so no two colonies match
+  //   reachMax    the furthest a colony's tip may sit from its own base. run RS.e checks THIS
+  //               against the ridge half-thickness, so it is the number that keeps the art inside
+  //               the wall — trunkLen x (1 + lenFall + lenFall^2), rounded up.
+  // EVERY COLONY GETS ITS OWN GENOME, and the ranges below are what it is drawn from. The previous
+  // revision fixed trunks at 4 and spaced them at (t / trunks) x 2pi — an exactly even cross, so
+  // every colony in the chapter was the same PLUS SIGN under a rotation, and the field read as one
+  // stamp repeated. Owner: "coral is too similar, should be procedural, not always the + base".
+  //
+  // What makes two coral colonies look like different SPECIES is not their colour, it is their
+  // habit: how many stems leave the base, how far they open at each fork, how fast they taper, how
+  // deep they go, and whether a fork splits in two at all. So all of those are per-colony draws
+  // from a hash of the colony's own position, and none of them is a constant any more.
+  //   trunksLo/Hi  stems leaving one base. Spaced by JITTERED gaps, never an even division —
+  //                an even division is the plus sign, whatever the count
+  //   depthLo/Hi   forks per stem. A range, so a field mixes sparse whips with dense heads
+  //   spreadLo/Hi  radians between siblings at a fork: tight ones read as fingers, open ones as fans
+  //   lenFallLo/Hi how fast a stem shortens. Low is a squat head, high is a long reaching antler
+  //   trunkLenLo/Hi  each STEM of a colony gets its own length in this fraction of the colony's
+  //                  nominal reach. Without it every arm leaves the base at the same length and a
+  //                  colony is radially uniform however varied its forks are — the plus sign's
+  //                  quieter cousin. Long and short arms off one base is what real coral does.
+  //   segLenLo/Hi    each FORK's children get their own length in this fraction of the nominal
+  //                  taper, so no two siblings match.
+  //   ⚠ BOTH RANGES TOP OUT AT 1.0 AND MUST. They multiply the reach a colony was sized against
+  //   (room - |spine offset|), so a factor above 1 puts tips outside the wall — the trunk factor
+  //   used to be 0.85 + h * 0.3, i.e. up to 1.15, and that was 15% of coral hanging over the
+  //   channel the player swims through. run RS.e asserts the cap.
+  //   triFrac      share of forks that split THREE ways instead of two
+  //   whipFrac     share that do not split at all and simply bend — real coral is not a binary tree,
+  //                and a perfect one is the other way this reads as generated
+  //   widthFall    stays GLOBAL, deliberately: the draw batches segments by fork level and a
+  //                per-colony taper would make every colony its own stroke width, which is the
+  //                Pixi re-stroking trap this file already paid for once
+  //   colonyEveryLo/Hi  each RIDGE draws its own mean gap here, so ridges differ in grain
+  //   gapLo/gapHi  each STEP of the walk multiplies that mean, which is what clumps and thins it
+  //   reachLo/Hi  a colony's total reach as a fraction of the space it has (half-thickness plus
+  //               PLAYER.radius). SCALED TO THE RIDGE rather than a fixed px reach, which is what
+  //               keeps tips inside the wall on a thin ridge without a clamp flattening them all
+  //               onto one line — and the SPREAD between lo and hi is what makes the outline
+  //               ragged instead of a machined edge.
+  //   spineJitter how far off the centre line a base may sit, as a fraction of the half-thickness.
+  //               Small on purpose: every base near the spine is what makes the middle dense and
+  //               the edges thin, i.e. a sprout rather than a rectangle packed with coral.
+  trunksLo: 2, trunksHi: 5, depthLo: 3, depthHi: 5,
+  lenFallLo: 0.55, lenFallHi: 0.76, widthFall: 0.66,
+  spreadLo: 0.42, spreadHi: 0.95, triFrac: 0.16, whipFrac: 0.14,
+  trunkLenLo: 0.45, trunkLenHi: 1.0, segLenLo: 0.5, segLenHi: 1.0,
+  // WHAT "STRAIGHT WALL" ACTUALLY IS: EVEN DENSITY ALONG THE SPINE.
+  //
+  // Colonies used to be placed at c0 + (c1-c0)*k/n -- a uniform stride with a +/-6.4px wobble that
+  // cannot produce a clump or a thin patch. That is the SAME defect the stem angles had, one level
+  // up: render.js's own comment there says "(t / trunks) x 2pi is a plus sign at 4 stems and a
+  // regular star at every other count -- the exact thing that made the whole field one stamp", and
+  // the fix was to accumulate jittered gaps instead of dividing. The colony walk was still
+  // dividing. A ridge with perfectly even density along its length reads as MACHINED however
+  // organic each plant on it is, and machined is what the eye calls a straight wall.
+  //
+  // So the walk accumulates hashed gaps: dense knots, thin shoulders, ragged ends. Two levels of
+  // variation, because one is not enough -- gapLo/gapHi vary each STEP, and each RIDGE draws its
+  // own mean spacing from colonyEveryLo/Hi, so no two ridges have the same grain either.
+  //
+  // HOW MUCH THE MEAN MAY RISE, MEASURED RATHER THAN FEARED. This carried a warning that the mean
+  // was "not free to rise", inherited from a note about an older knob and re-asserted without being
+  // re-measured. Rasterising the actual stroked ink over 6 seeds x 22 ridges (73,526 coral columns)
+  // says otherwise: the widest see-through run today is 15px against a 44px player, and the mean
+  // has to reach about 44 -- roughly 2.75x -- before any hole reads as passable. An over-tight
+  // warning is not free: it teaches the next editor to distrust the warnings that ARE tight. The
+  // real bound is asserted in run RS.a against 4 x PLAYER.radius, where it ties the art knob to
+  // the collider instead of to a paragraph.
+  //
+  // AND THE WALL DOES NOT HOLD BECAUSE NEIGHBOURS TOUCH -- which matters, because that is the
+  // arithmetic a future editor would reason from. Individual gaps run to 32px while the smallest
+  // stem is under 4px, and a measurable share of neighbouring colonies do not touch at all. It
+  // holds because colonies STACK about three deep, so a colony is bridged by its second and third
+  // neighbour rather than its first. Swept independently: dropping reachHi from 1.0 to 0.30 never
+  // took the widest hole past 22px, so the GAP dominates and the reach does not.
+  branchW: 5.6,
+  colonyEveryLo: 12, colonyEveryHi: 20, gapLo: 0.45, gapHi: 1.6,
+  reachLo: 0.45, reachHi: 1.0, spineJitter: 0.16,
+  //   tipMix  how far each bud is lightened from its OWN colony's tone toward `tip`. Not 1: at
+  //           depth 3 there are 32 buds per colony, so a single cream for all of them stops being
+  //           an accent and becomes the ridge's dominant colour.
+  tipR: 2.0, outlinePx: 2.2, tipMix: 0.55,
+  wall: 96,
+  // `bump`, `bumpOut`, `bumpGap` and `lobes` USED TO LIVE HERE and are gone with the pass that read
+  // them. They described a single spine of same-coloured circles inset inside the band, which drew
+  // nothing visible (bumpOut + bump came to exactly 1.0, so the union was the rectangle) and which
+  // the colony packing above replaces outright. Deleted rather than left at 0: an unread knob in a
+  // config table is a knob the next reader will tune and watch do nothing.
 })
 
 // FIRE CORAL'S LIT RIDGE, RENDER-ONLY (v7.x, The Reef — WEAPONS.fireCoral). Zero sim effect: the
@@ -8928,8 +9049,14 @@ export const LANE_SCROLL_SPEED = 70      // px/s the player advances up the lane
 // proof that this is a property of the DEVICE and the axis, not of the chapter's tuning. Half the
 // reaction time on the platform this game actually ships to is not a difficulty choice.
 //
-// So The Reef scrolls slower, chosen against the warning it buys rather than against how it feels:
-// 312/45 = 6.9s, most of The Beyond's, without going glacial on a wide screen.
+// The Reef ran at 45 for exactly that reason (312/45 = 6.9s, most of The Beyond's). It is 90 now,
+// which is 3.5s -- owner's ruling, 2026-08-23, having played it: "the level should scroll faster".
+//
+// The reasoning above is not wrong, it is answering a question the chapter no longer asks. Warning
+// time is what a lane owes you when the threat is a RANK you must shoot or dodge, and 6.9s of that
+// read as glacial. The Reef's threat is now a WALL you must find the gap in: its coral is solid
+// (spurs.solid) and being stopped by it is what kills you, so the same 3.5s buys a groove read
+// rather than a firing solution, and the chapter is a different genre problem at the same number.
 //
 // ponytail: the principled fix is to stop storing px/s at all and derive the scroll from a shared
 // LANE_WARNING_SECONDS and the live viewport, which would make every device and both axes agree by
@@ -10267,6 +10394,16 @@ export const DROWN_TICK = 1.0            // s between drowning ticks while the b
 //    the run: scaled by dmgScale it passed the soap trail at t=150s and a soaped groove stopped being
 //    worse than the coral beside it, which is the inversion that killed spec rev 3. SPUR_SLOW_MUL
 //    must likewise stay ABOVE LATCH_SLOW_MUL 0.55 — the slow MIN takes the strongest term.
+// THE BACK EDGE (v7.x, The Reef). Solid coral means you can be STOPPED, and the lane front does
+// not stop with you -- fall far enough behind it and you are pinned against the trailing edge of
+// the screen with the reef grinding on you.
+//
+// A RATE, NOT A KILL. Owner's ruling, 2026-08-23, over both an instant death on touching the edge
+// and a pure grace timer: "survivable with HP to spare, death only if you stay stuck". So one bad
+// groove read costs a tick or two and a full bar can eat a mistake, while standing there cannot be
+// waited out. 36 on a 0.5s beat is 18 a tick, ~2.8s of being stuck to kill a starting 100 max HP.
+export const LANE_CRUSH_DPS = 36
+export const LANE_CRUSH_TICK = 0.5
 export const SPUR_DPS = 4                // HP/s inside coral — flat for the whole run, exactly like drowning and the slick
 export const SPUR_TICK = 0.5             // s between scrape ticks; 4 x 0.5 = 2 HP exactly, hurtPlayer's own rounding rule
 export const SPUR_SLOW_MUL = 0.6         // strafe multiplier while scraping — joins the MIN in stepPlayerMovement
@@ -10581,6 +10718,12 @@ export const DMG_SRC_NAME = {
   // than sharing Drowning: they are the two DoTs this chapter runs at once, and a summary that
   // blamed the air for the coral would send the player to fix the wrong thing.
   scrape: 'The Coral',
+  // THE REEF ONLY, same read-the-gate rule as its two neighbours: the crush needs CHAPTERS[].lane
+  // AND spurs.solid, and the reef is the only chapter with either. Its own row and not shared with
+  // `scrape` above for the reason that row states about Drowning -- these are two different
+  // mistakes (you brushed a ridge / you were stopped by one and the lane left without you) and a
+  // summary blaming one for the other sends the player to fix the wrong thing.
+  crush: 'Crushed',
   // THE WRECK ONLY, on the same gate-reading rule the comment above insists on: stepStarve returns
   // early unless the chapter's resource declares `starve`, and Bloodlust is the only one that does.
   // Its own row rather than sharing 'Drowning' — they are the same DoT mechanism, and the whole
@@ -10680,6 +10823,11 @@ export const DMG_SRC_NO_ART = {
   // has no hazardThumbs entry for a ridge yet; a coral ridge is a world object and can carry a
   // drawing, so this is a debt. DELETE THIS LINE when hazardThumbs.scrape lands.
   scrape: 'OWED — The Reef has not authored a coral ridge thumbnail yet, not a permanent exemption',
+  // ⚠ OWED, NOT EXEMPT, and it shares its debt with the line above: both want a picture of a
+  // coral ridge, one being brushed and one being pressed against. A ridge is a world object and
+  // can carry a drawing, so "it is a state, not a world object" is NOT the argument here. The Reef
+  // is still behind its wipFrom gate. DELETE THIS LINE when hazardThumbs.crush lands.
+  crush: 'OWED — The Reef has not authored a coral ridge thumbnail yet, not a permanent exemption',
   // Costs you chose to pay. Neither has a world object; their honest picture is the anomaly card.
   overload: 'a card you took, not a thing in the world',
   bloodMoney: 'a card you took, not a thing in the world',

@@ -9700,7 +9700,13 @@ export function createRenderer(app) {
   // pool, and redrawn only when run._spurRev changes — the field is fifteen ridges of pure
   // geometry that move exactly once per lane crossing, so a per-frame rebuild would be paying
   // for motion that never happens. Same _obstacleRev idiom syncObstacles uses.
-  const spurG = new Graphics()
+  // A/B SWITCH FOR THE CORAL LOOK, throwaway. 0 = the shipped flat slab, 1 = lobed crown,
+// 2 = + lit leading edge, 3 = + polyps. Read once at module scope (the probe recipe's rule: bakes
+// happen at boot, so a per-frame read would be a different switch). DELETE with the pick.
+const spurArt = (() => {
+  try { return Number(new URLSearchParams(location.search).get('cv') ?? 3) } catch { return 3 }
+})()
+const spurG = new Graphics()
   let spurRev = -1
   // v7.x The Reef: FIRE CORAL's lit ridges (run.polyps). Its own Graphics rather than a second
   // pass on spurG, and the reason is the caching: spurG redraws only when run._spurRev changes
@@ -11955,36 +11961,177 @@ export function createRenderer(app) {
       ? spurG.roundRect(f - half - grow, c0 - grow, half * 2 + grow * 2, c1 - c0 + grow * 2, r)
       : spurG.roundRect(c0 - grow, f - half - grow, c1 - c0 + grow * 2, half * 2 + grow * 2, r))
     const dot = (f, c, r) => (xAxis ? spurG.circle(f, c, r) : spurG.circle(c, f, r))
-    // The lobes, as lane coordinates, walked once and reused by both passes below. They sit ON the
-    // ridge and are inset inside it on both axes — bumpOut + bump <= 1 along the lane, a full bumpR
-    // across it — which is what keeps the drawn ridge and the charged band the same shape.
-    const lobes = []
-    for (const [f, c0, c1, half] of segs) {
-      const bumpR = half * V.bump
-      const from = c0 + bumpR, to = c1 - bumpR
-      if (to <= from) continue
-      const n = Math.max(1, Math.round((to - from) / (half * V.bumpGap * 2)))
-      for (let k = 0; k <= n; k++) {
-        // Alternating sides rather than hashed: the field is already deterministic, and a zigzag
-        // of lobes reads as a coral spine from directly overhead where a jitter reads as noise. The
-        // zigzag is what SPUR_VIS.bumpOut buys now that it may not reach past the band.
-        // The cross position is inset by the FULL bumpR, never by this lobe's own smaller radius,
-        // so a small lobe at the end of a segment still cannot creep toward the groove edge.
-        const r = bumpR * V.lobes[k % V.lobes.length]
-        lobes.push([f + (k % 2 ? 1 : -1) * half * V.bumpOut, from + ((to - from) * k) / n, r])
+    // 1. NO FOOT. A ground shadow under the ridge used to sit here, and it was a RECTANGLE — which
+    //    is fine under a slab and wrong under a sprout: it announced the collider's exact shape
+    //    behind art that is deliberately not that shape. See SPUR_VIS's own note. The coral is the
+    //    only thing drawn now.
+    // 2. The body: the flush band that IS the groove edge, drawn at exactly the collider's size,
+    //    which is the whole reason the gap you can see is the gap you can swim through. At spurArt 0
+    //    this is the entire ridge (the shipped flat slab, kept only for the A/B).
+    if (spurArt === 0) {
+      for (const [f, c0, c1, half] of segs) band(f, half, c0, c1, 0, 9)
+      spurG.fill({ color: V.body })
+    }
+    // 3. THE COLONIES — BRANCHING, which is the only thing that makes coral read as coral.
+    //
+    //    Three revisions failed before this one and they failed the same way: each drew a SOLID
+    //    SHAPE and tried to dress it. A rounded rect ("blocks of corals are fucking ugly"), then
+    //    that rect with a scalloped, lit edge ("this looks nothing like coral"), then the band
+    //    packed with tinted spheres ("just ugly balls"). A bar with bumps is a bar and a heap of
+    //    blobs is a heap; what the eye identifies as coral is the FORK — a thick stem splitting
+    //    into thinner fingers, over and over, with pale buds at the ends.
+    //
+    //    So a colony is grown rather than stamped: `trunks` stems from one base, each forking
+    //    `depth` times, every child shorter and thinner than its parent. Flat saturated fill,
+    //    dark outline, pale tip — the reference's vector idiom, and the same language the reef
+    //    floor's own magenta fans already speak.
+    //
+    //    HASHED FROM POSITION, NEVER Math.random. spurG rebuilds whenever _spurRev bumps (about
+    //    once per lane crossing) and a per-rebuild random would regrow every colony on screen each
+    //    time, so the whole field would writhe. Every jitter below is a hash of the branch's own
+    //    coordinates, which makes the thicket both varied and completely stable.
+    const hash = (a, b) => {
+      const x = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453
+      return x - Math.floor(x)
+    }
+    // In LANE coordinates throughout: f runs along the lane, c across it. `line` swaps at the last
+    // moment exactly as `band` and `dot` do, so nothing above here knows which axis scrolls.
+    const line = (f0, c0, f1, c1) => {
+      if (xAxis) { spurG.moveTo(f0, c0); spurG.lineTo(f1, c1) }
+      else { spurG.moveTo(c0, f0); spurG.lineTo(c1, f1) }
+    }
+    const byTone = V.tones.map(() => [])
+    const tips = V.tones.map(() => [])
+    // LEVEL, not a float width. Pixi strokes the whole path built so far, so segments have to be
+    // BATCHED by width — and a level index buckets exactly where a repeatedly-multiplied float
+    // does not. widthFall stays global for exactly this reason (see SPUR_VIS): a per-colony taper
+    // would give every colony its own stroke width and put the batching back to one call each.
+    const W = []
+    for (let i = 0; i <= V.depthHi; i++) W.push(V.branchW * Math.pow(V.widthFall, i))
+    // A FORK IS NOT ALWAYS TWO. A perfectly binary tree is the other way this reads as generated —
+    // real coral throws the occasional trichotomy and the occasional stem that just keeps going
+    // and bends. triFrac/whipFrac are those two shares; everything else splits in two.
+    //
+    // Child lengths are drawn per fork from segLenLo..segLenHi and never exceed 1.0 of the nominal
+    // taper, which is what keeps a colony inside the reach it was sized for while making no two
+    // siblings equal.
+    const grow = (out, tipOut, g, f0, c0, ang, len, lvl) => {
+      const f1 = f0 + Math.cos(ang) * len
+      const c1 = c0 + Math.sin(ang) * len
+      out.push([f0, c0, f1, c1, Math.min(lvl, V.depthHi)])
+      if (lvl >= g.depth) { tipOut.push([f1, c1, Math.max(V.tipR, W[Math.min(lvl, V.depthHi)] * 0.52)]); return }
+      const a = hash(f1 * 3.1, c1 * 1.7)
+      const b = hash(c1 * 5.9, f1 * 2.3)
+      const kid = (dir, scale) => grow(out, tipOut, g, f1, c1, ang + dir,
+        len * g.lenFall * (V.segLenLo + scale * (V.segLenHi - V.segLenLo)), lvl + 1)
+      if (a < V.whipFrac) {
+        kid((b - 0.5) * g.spread, b)                       // no fork: the stem bends and carries on
+      } else if (a > 1 - V.triFrac) {
+        kid(-g.spread * (0.8 + b * 0.5), b)                // three ways
+        kid((b - 0.5) * g.spread * 0.5, a)
+        kid(g.spread * (0.8 + a * 0.5), a)
+      } else {
+        kid(-g.spread * (0.6 + b * 0.8), b)                // the usual two, unevenly
+        kid(g.spread * (0.6 + a * 0.8), a)
       }
     }
-    // 1. The foot. A wider, near-black shadow under the whole ridge so it sits ON the sand rather
-    //    than floating over it, and the only pass allowed to overshoot the groove edge — a shadow
-    //    falling a few px into a channel is what a raised thing does, and it is not the collider.
-    for (const [f, c0, c1, half] of segs) band(f, half, c0, c1, V.foot_px, 12)
-    for (const [f, c, r] of lobes) dot(f, c, r + V.foot_px)
-    spurG.fill({ color: V.foot, alpha: V.footA })
-    // 2. The body: the flush band that IS the groove edge, plus the lobes, as one path. No stroke —
-    //    see SPUR_VIS for why a rim on a compound path drills bolt-holes down the middle of it.
-    for (const [f, c0, c1, half] of segs) band(f, half, c0, c1, 0, 9)
-    for (const [f, c, r] of lobes) dot(f, c, r)
-    spurG.fill({ color: V.body })
+    // GROWN FROM A SPINE, NOT PACKED INTO A BOX. Bases sit on the ridge's centre line (± a small
+    // spineJitter) and every stem radiates outward from there, so the trunks all overlap down the
+    // middle and only the outermost tips reach the edges: dense at the core, thinning and ragged
+    // at the rim. Spreading bases evenly across the thickness fills the band uniformly right up to
+    // its corners, and the eye reads that as "a rectangle with coral in it" however organic each
+    // individual colony is. The silhouette is made by WHERE things are, not by what they look like.
+    for (const [f, c0, c1, half] of segs) {
+      const room = half + PLAYER.radius
+      // THIS RIDGE'S OWN GRAIN. Drawn per ridge (off f, which is constant along it) so one ridge is
+      // a tight thicket and its neighbour is open — variation BETWEEN ridges, where an even stride
+      // gave every ridge the same one.
+      const mean = V.colonyEveryLo + hash(f * 0.37, 11.1) * (V.colonyEveryHi - V.colonyEveryLo)
+      // A CUMULATIVE WALK OF HASHED GAPS, not a division. This is the line that stops the ridge
+      // reading as a machined wall: consecutive gaps of 0.45x and 1.6x the mean put two colonies
+      // shoulder to shoulder and then leave a thin shoulder, which is what a real reef front does
+      // along its length. Starting phase is hashed too, so the walk does not begin at the same
+      // offset on every ridge.
+      let cc = c0 + hash(f * 1.9, c0 * 0.7) * mean
+      for (let k = 0; cc < c1 + 4 && k < 512; k++, cc += mean * (V.gapLo + hash(cc * 2.7, f * 1.3) * (V.gapHi - V.gapLo))) {
+        const h1 = hash(f + k * 5.3, cc * 2.1)
+        const h2 = hash(cc * 7.9, f - k * 4.3)
+        const h3 = hash(f * 1.7 - k * 3.7, cc * 2.9 + k * 6.1)
+        // THE GENOME. Every term is a draw, so no two colonies share a habit — the previous
+        // revision fixed all of these and drew the same plus sign everywhere under a rotation.
+        const g = {
+          trunks: V.trunksLo + Math.floor(h3 * (V.trunksHi - V.trunksLo + 1)),
+          depth: V.depthLo + Math.floor(h1 * (V.depthHi - V.depthLo + 1)),
+          spread: V.spreadLo + (V.spreadHi - V.spreadLo) * h2,
+          lenFall: V.lenFallLo + (V.lenFallHi - V.lenFallLo) * h3,
+        }
+        // Reach as a fraction of the space this ridge actually has, MINUS however far off the spine
+        // this base sits. Subtracting the offset is not tidiness: a base jittered half*spineJitter
+        // off centre and then given the full room reaches that much PAST the wall — about 7px of
+        // coral hanging over a channel the player is meant to swim through, which is precisely the
+        // drawn-vs-collider gap the rest of this block exists to prevent.
+        //
+        // The lo..hi SPREAD is the ragged outline: a run of colonies all at 1.0 traces the band's
+        // own rectangle again, which is the thing this whole revision is trying to stop looking like.
+        const off = (h1 - 0.5) * 2 * half * V.spineJitter
+        const reach = (room - Math.abs(off)) * (V.reachLo + (V.reachHi - V.reachLo) * h2)
+        const ff = f + off
+        // lenSum is per COLONY now, because depth and lenFall are: it is the geometric series this
+        // genome's forks walk, and it is what converts a reach in px into a first-segment length.
+        let lenSum = 0
+        for (let i = 0; i <= g.depth; i++) lenSum += Math.pow(g.lenFall, i)
+        const ti = Math.floor(h2 * V.tones.length) % V.tones.length
+        // JITTERED GAPS, NEVER AN EVEN DIVISION. (t / trunks) x 2pi is a plus sign at 4 stems and a
+        // regular star at every other count — the exact thing that made the whole field one stamp.
+        let ang = h1 * Math.PI * 2
+        for (let t = 0; t < g.trunks; t++) {
+          ang += ((Math.PI * 2) / g.trunks) * (0.5 + hash(cc + t * 9.1, ff - t * 4.7) * 1.0)
+          // PER STEM, not per colony. Every arm off one base used to leave it at the same length,
+          // so a colony was radially uniform however varied its forks were — the quiet cousin of
+          // the plus sign. Its own hash, so a colony has long arms and stubby ones.
+          const sh = hash(ff + t * 2.9, cc - t * 6.3)
+          const stem = (reach / lenSum) * (V.trunkLenLo + sh * (V.trunkLenHi - V.trunkLenLo))
+          grow(byTone[ti], tips[ti], g, ff, cc, ang, stem, 0)
+        }
+      }
+    }
+    // OUTLINES FIRST, ALL OF THEM, then the fills: one wide dark stroke under a narrower coloured
+    // one is how a flat-vector outline comes out of a stroke, and it is what makes the thicket read
+    // as separate plants rather than one coloured tangle.
+    //
+    // ⚠ PATH FIRST, THEN stroke() — ONCE PER BUCKET. Pixi strokes everything currently in the path,
+    // so calling stroke() inside the per-segment loop re-strokes the whole accumulated path on
+    // every iteration. Rev.1 of this did exactly that and painted a solid dark slab the shape of
+    // the ridge, which read as the coral being glued to a plank and cost a round to see. Buckets
+    // are (level) for the outline and (tone x level) for the fill, so the whole field is a couple
+    // of dozen strokes however many branches it holds.
+    for (let l = 0; l <= V.depthHi; l++) {
+      let any = false
+      for (const group of byTone) for (const sg of group) if (sg[4] === l) { line(sg[0], sg[1], sg[2], sg[3]); any = true }
+      if (any) spurG.stroke({ color: V.crevice, width: W[l] + V.outlinePx * 2, cap: 'round', join: 'round' })
+    }
+    for (let t = 0; t < byTone.length; t++) {
+      for (let l = 0; l <= V.depthHi; l++) {
+        let any = false
+        for (const sg of byTone[t]) if (sg[4] === l) { line(sg[0], sg[1], sg[2], sg[3]); any = true }
+        if (any) spurG.stroke({ color: V.tones[t], width: W[l], cap: 'round', join: 'round' })
+      }
+    }
+    // The buds, IN EACH COLONY'S OWN TONE lightened toward V.tip rather than all in one cream.
+    // depth 3 puts 8 tips on every stem and 32 on every colony, so a single pale bud colour is not
+    // an accent, it is the dominant mass — the first cut of this washed the whole ridge to cream
+    // and buried the orange, red and teal underneath their own tips. Lightening each colony's tone
+    // keeps the bud reading as a bud while leaving the colony its identity.
+    const lighten = (hex, t) => {
+      const r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255
+      const tr = (V.tip >> 16) & 255, tg = (V.tip >> 8) & 255, tb = V.tip & 255
+      return ((r + (tr - r) * t) << 16 | (g + (tg - g) * t) << 8 | (b + (tb - b) * t)) & 0xffffff
+    }
+    for (let t = 0; t < tips.length; t++) {
+      if (!tips[t].length) continue
+      for (const [f, c, r] of tips[t]) dot(f, c, r)
+      spurG.fill({ color: lighten(V.tones[t], V.tipMix) })
+    }
   }
   // ---- The Reef: Fire Coral's lit ridges (v7.x) -------------------------------------------------
   // run.polyps, drawn from the SAME snapshot stepPolyps damages against, through the SAME
@@ -13025,15 +13172,42 @@ export function createRenderer(app) {
   // RATE-CAPPED, which is the difference between a tell and a wash: CORAL_CRUSH's counts are tuned
   // for ONE burst, and scraping is a state that can hold for ten seconds. gritEvery is the beat.
   let gritAcc = 0
+  //
+  // TWO INTENSITIES OFF ONE HOOK (v7.x). run._scraping is brushing a ridge at SPUR_DPS 4; the new
+  // run._crushing is being held against the lane's trailing edge at LANE_CRUSH_DPS 36 while the
+  // chapter runs off without you, which is how this chapter now ends a run. Nine times the damage
+  // cannot be the same picture, so the crush sheds on a much shorter beat, three times the motes,
+  // and adds the air going out of you — the one thing the scrape never does.
+  //
+  // Escalating an EXISTING tell rather than teaching render.js a new field is the rule this repo
+  // keeps relearning: a mechanic that never reaches a contract field is invisible, and invisible is
+  // indistinguishable from broken. _crushing is published by stepLaneFront and read here only.
+  //
+  // ⚠ NO SOUND, deliberately, and it is worth a second look later. The owner's grit-only ruling
+  // (2026-08-22) was about the SCRAPE, and a run-ending state is exactly the kind of rare event
+  // SFX_FOR_EVENT's own rule says may carry one. It would need a real event to hang off — the
+  // damage here is a silenced dot — so it is left out rather than invented.
   function updateCoralGrit(run, dt) {
-    if (dt <= 0 || !run._scraping) { gritAcc = 0; return }
+    const crushing = !!run._crushing
+    if (dt <= 0 || (!run._scraping && !crushing)) { gritAcc = 0; return }
     gritAcc += dt
-    if (gritAcc < CORAL_CRUSH.gritEvery) return
+    if (gritAcc < CORAL_CRUSH.gritEvery * (crushing ? 0.4 : 1)) return
     gritAcc = 0
     const C = CORAL_CRUSH
     const p = run.player
     const ax = chapterLaneAxis
-    for (let i = 0; i < C.grit; i++) {
+    if (crushing) {
+      // Air leaving the body, in the chapter's own silver — the same substance the pockets and the
+      // Burst are drawn in, so "this is costing you" needs no new vocabulary.
+      for (let i = 0; i < C.bubbles; i++) {
+        const a = Math.random() * Math.PI * 2
+        const d = PLAYER.radius * (0.5 + Math.random() * 0.7)
+        spawnSmoke(T.fx.circle_05, p.x + Math.cos(a) * d, p.y + Math.sin(a) * d,
+          Math.cos(a) * 12 - ax.fx * C.bubbleRise * 0.5, Math.sin(a) * 12 - ax.fy * C.bubbleRise,
+          C.bubbleT, 0.10 + Math.random() * 0.10, C.bubbleTint, 0.5, 0.9, 0, 0, 0.3)
+      }
+    }
+    for (let i = 0; i < C.grit * (crushing ? 3 : 1); i++) {
       const a = Math.random() * Math.PI * 2
       const d = PLAYER.radius * (0.6 + Math.random() * 0.6)
       // Streamed BACKWARD down the lane on top of its own scatter: the fish is moving through the
@@ -19727,8 +19901,18 @@ export function createRenderer(app) {
     const laneAheadX = chapterHasLane && chapterLaneAxis.fwd === 'x'
     const laneAheadY = chapterHasLane && chapterLaneAxis.fwd === 'y'
     const laneFrac = (v, dir) => (dir < 0 ? v * LANE_CAMERA_FRAC : v * (1 - LANE_CAMERA_FRAC))
-    const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - run.player.x + shake.ox
-    const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - run.player.y + shake.oy
+    // v7.x THE CAMERA ANCHORS TO THE LANE FRONT, NOT THE PLAYER, on the forward axis only. With
+    // solid coral the two come apart: stopped by a ridge, the player slides back toward the
+    // trailing edge while the lane runs on, and anchoring to the player would instead stop the
+    // world with them and make being blocked cost nothing. sim.js owns _laneFront and clamps it so
+    // the player can never leave the frame; this side only reads it. The `??` is not defensive
+    // padding -- the title screen and every probe holding a run before its first step have no
+    // front yet, and the player's own position is what the front is initialised to anyway.
+    const camFwd = run._laneFront ?? (chapterHasLane ? run.player[chapterLaneAxis.fwd] : 0)
+    const camX = laneAheadX ? camFwd : run.player.x
+    const camY = laneAheadY ? camFwd : run.player.y
+    const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - camX + shake.ox
+    const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - camY + shake.oy
     world.scale.set(mapZoom)
     world.position.set(cx * mapZoom, cy * mapZoom)
     updateGroundField(cx, cy)

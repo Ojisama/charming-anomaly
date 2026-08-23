@@ -1214,6 +1214,16 @@ function generateWells(sig) {
  *   player still pays no more per second than one who committed. See stepSpurs for both exploits.
  *   It starts AT SPUR_TICK, not at 0, because that cap is what the entry tick is: seeded at zero the
  *   first ridge of a run alone would take half a second to bite.
+ * _laneFront: number — how far up the lane the CHAPTER has got, on its own forward axis, which is
+ *   not the same as how far the player has got. Advances at laneScrollFor() every frame whatever
+ *   the player is doing, is PULLED forward by a player who gets ahead of it (a burst), and is
+ *   CLAMPED so the player can never fall further behind it than the visible strip astern. Owned by
+ *   stepLaneFront; render.js anchors the lane camera to it and writes nothing.
+ *   Only separates from the player where a chapter can STOP one — CHAPTERS[].spurs.solid. Without
+ *   that it tracks the player exactly, which is how The Beyond keeps its pre-front behaviour.
+ * _crushing: boolean — the player is pinned against the lane's trailing edge THIS frame, i.e. the
+ *   lane has left without them. Published by stepLaneFront; the tell render.js draws off.
+ * _crushAcc: number — the crush's part-tick accumulator (LANE_CRUSH_TICK). _spurAcc's twin.
  * _scraping: boolean — the player is inside coral THIS frame. Published by stepSpurs and read one
  *   frame later by stepPlayerMovement, where it joins the MIN of the speed floors as SPUR_SLOW_MUL
  *   (the strafe only — in the lane the forward component is the scroll and never `speed`), and
@@ -2361,6 +2371,13 @@ export function createRun(meta, opts = {}) {
     _spurRev: 0,           // bumped on any change; render rebuilds only on this, exactly as _obstacleRev
     _spurAcc: SPUR_TICK,   // the scrape's part-tick accumulator — CARRIED across a groove, see stepSpurs
     _scraping: false,      // inside coral this frame; stepPlayerMovement reads it as SPUR_SLOW_MUL
+    // SEEDED AT 0, NOT LEFT UNDEFINED, and the frame it saves is a real one: stepLaneFront runs
+    // AFTER stepPlayerMovement, so a front lazily initialised from the player would seed itself
+    // from an already-advanced position and then advance again — 181.5px over the first 2s of a
+    // 90px/s lane instead of 180.0. Every lane chapter starts the player at 0 on its forward axis.
+    _laneFront: 0,         // the lane's own advance; render.js anchors the camera here, never mutates
+    _crushing: false,      // pinned against the trailing edge this frame — render.js reads it as the tell
+    _crushAcc: 0,          // the crush's part-tick accumulator, LANE_CRUSH_TICK's twin of _spurAcc
     polyps: [],            // Fire Coral's lit ridges — snapshots of spurAt, never references into run.spurs
     _slickAcc: 0,          // part-tick accumulator, the exact twin of _drownAcc/_starveAcc
     _foulT: 0,             // s of oil still on you — lingers SLICK_SLOW_T past the rim (see sim.js)
