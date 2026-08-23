@@ -1891,6 +1891,21 @@ function generateWells(sig) {
  *   screens right after ANOMALY_MIN_LEVEL. Zeroed by rollAnomalyCard when the roll fires — when
  *   the tier is OFFERED, not when the card is kept — and capped in weight by ANOMALY_PITY_CAP.
  *   Never serialized.
+ * _duoDry (2026-08-23): duo-boon pity, as { [modId]: screens }. A DUO BOON is a weapon mod carrying
+ *   `needs: '<weaponId>'` (config.js's WEAPON_MODS header) — a mod on weapon A that pays out
+ *   through weapon B, so it cannot exist until the run holds both. That gate is already the card's
+ *   whole scarcity, so the pool stops charging it the ordinary lottery on top: it holds a RESERVED
+ *   candidate slot (eligibleWeaponModCandidates), and once it has been live for DUO_PITY_SCREENS
+ *   screens without being offered it takes the next mod card outright (rollCard's mod branch,
+ *   before any rarity is consulted — the rarity roll is what was hiding it, `values: { epic: N }`
+ *   admitting it on 7% of mod rolls).
+ *   Which boons are live is liveDuoMods (sim.js) and nowhere else, because this counter and the
+ *   pool must agree screen for screen about which screens are dry. Advanced by stepLevelUp, once
+ *   per screen, so a paid re-deal cannot pump it; zeroed by buildLevelUpChoices for every duo boon
+ *   on the FINAL card list — after the anomaly swap and the new-weapon floor, since either can
+ *   overwrite the slot, and a boon that was deleted was never offered. Spent on the OFFER, not the
+ *   pick, so declining costs the credit and the boon returns DUO_PITY_SCREENS later.
+ *   Never serialized.
  *   (v7.20 REMOVED _screenAnomaly, the per-screen memo that used to sit here. It froze the tier's
  *   answer for a whole screen so a reroll could neither draw a Rupture nor lose one — which stopped
  *   coins farming the tier but left an unwanted Rupture occupying a slot through every paid
@@ -2184,6 +2199,11 @@ export function createRun(meta, opts = {}) {
     // buildLevelUpChoices, or a reroll would pump it) and zeroed by the roll itself. See
     // ANOMALY_PITY_PER_SCREEN in config.js.
     _screensSinceAnomaly: 0,
+    // Duo-boon pity (2026-08-23): modId -> level-up SCREENS THAT BOON WAS LIVE ON since it was last
+    // offered. Advanced by stepLevelUp (never by buildLevelUpChoices, or a reroll would pump it)
+    // and zeroed by the builder for every duo boon on the FINAL card list. See DUO_PITY_SCREENS in
+    // config.js.
+    _duoDry: {},
     // v6.7.10: rerolls PAID FOR on the screen currently open — they decay the `normal` rarity
     // weight (REROLL_RARITY_DECAY in config.js). Zeroed by stepLevelUp when a screen opens and
     // stepped by sim.js's rerollLevelUpChoices, beside the _rerolls bump that prices the next one.

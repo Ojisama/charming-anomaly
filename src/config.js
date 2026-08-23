@@ -3782,6 +3782,19 @@ export const MOD_CANDIDATES_PER_WEAPON = 2
 // the reverse: the mod bucket measured absent from 15.5% of rolls in beyond at 4 slots, which is
 // a bucket that cannot pay its declared 30%.
 export const maxModsPerWeaponPerPool = (slots) => (slots >= 4 ? 2 : 1)
+// DUO BOON PITY (2026-08-23). A `needs` mod is gated on holding a SECOND named weapon, which is
+// already the scarcity — so the pool must not charge it the ordinary lottery on top. It gets a
+// reserved candidate slot (eligibleWeaponModCandidates) and, after this many level-up screens it
+// was live on without being offered, it simply takes the next mod card (rollCard). Measured before
+// this existed: 0.6% of screens, ~16% of runs, and the shipped pool-probe reported 0.0%
+// deliverability over 5 shelf runs that held the weapon every time.
+// Counted like anomaly pity — advanced by stepLevelUp so a paid reroll cannot pump it, spent when
+// the card is OFFERED rather than kept, so declining it costs the credit and it returns in another
+// DUO_PITY_SCREENS.
+// balance_decision : a duo boon is guaranteed within 8 live screens 2026-08-23
+//  - a run is ~28 screens, so this is a promise the run can keep TWICE; raising it past ~14 makes
+//    the boon unreachable for anyone who completes the pair late.
+export const DUO_PITY_SCREENS = 8
 
 // Twin Ring (orbit): inner ring radius, as a fraction of the main ring's radius.
 export const ORBIT_TWIN_RING_RADIUS_FRAC = 0.6
