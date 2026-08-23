@@ -18525,12 +18525,14 @@ const spurG = new Graphics()
         // entry and draws itself; this is the other half of the picture — a snapping shrimp's bolt
         // is a collapsing vapour cavity, so the muzzle boils. Bubbles thrown FORWARD along the
         // shot rather than in a ring: the whole card is a direction, and a radial puff would be
-        // the one shape that says the weapon does not have one. `back` doubles it the other way,
-        // which is the only place Backblast is visible at the origin.
+        // the one shape that says the weapon does not have one. It boils BOTH WAYS on every cast,
+        // because the rear crack is baseline (fireSnap) — and the rear puff is SCALED by
+        // `backFrac`, so Backblast taking that 0.6 to 1 is visible at the origin, which is the only
+        // place that card can show itself now that the crack behind you is always there.
         case 'snap': {
           const C = CORAL_CRUSH
-          for (const dir of e.back ? [e.angle, e.angle + Math.PI] : [e.angle]) {
-            for (let i = 0; i < C.bubbles; i++) {
+          for (const [dir, frac] of [[e.angle, 1], [e.angle + Math.PI, e.backFrac ?? 0]]) {
+            for (let i = 0; i < Math.round(C.bubbles * frac); i++) {
               const spread = (Math.random() - 0.5) * 0.7
               const a2 = dir + spread
               const d = 14 + Math.random() * 46

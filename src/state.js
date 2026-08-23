@@ -1895,11 +1895,15 @@ function generateWells(sig) {
  *   - Fire Coral: run.polyps (see the field above) — the one weapon in the book that could not
  *     reuse an entity, because its band IS a piece of terrain and run.spurs is rebuilt from
  *     scratch on every ridge crossing.
- *   {type:'snap', x, y, angle, reach, back}  one Pistol Shrimp cast. x,y is the PLAYER (the beam
- *                                   is anchored there and drawn from run.beams); `angle` is the
- *                                   lane heading and `back` whether Backblast doubled it, both so
- *                                   the cavitation puff does not re-derive a heading that has
- *                                   already moved. Takes the throttled 'shoot' voice.
+ *   {type:'snap', x, y, angle, reach, backFrac}  one Pistol Shrimp cast. x,y is the PLAYER (the
+ *                                   beam is anchored there and drawn from run.beams); `angle` is
+ *                                   the lane heading, so the cavitation puff does not re-derive a
+ *                                   heading that has already moved. `backFrac` is the REAR crack's
+ *                                   damage as a fraction of the forward one — baseline
+ *                                   SNAP_BACKBLAST_FRAC, full with Backblast — and render scales
+ *                                   the rear puff by it, which is the only place that card shows
+ *                                   itself now the rear crack always exists. Takes the throttled
+ *                                   'shoot' voice.
  *   Fire Coral emits NO event, deliberately: a whole ridge of the level lighting up is a larger
  *   tell than any burst could add, and at one cast every 3.4-4.4s for a whole run a bespoke voice
  *   is the metronome the 'longline'/'ballast' entries in SFX_FOR_EVENT are both denied for.

@@ -124,7 +124,7 @@ import {
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
   SPUR_DPS, SPUR_TICK, caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
-  SNAP_BACKBLAST_FRAC, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
+  SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, BREACH_R_MIN, BREACH_R_AT_FULL, tiredness,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
@@ -22916,7 +22916,11 @@ function testReefNatives() {
       `run RN.c: ${hits} hits for ${lost(far)} hp is ${(lost(far) / hits).toFixed(1)} a hit against a stated ${WEAPONS.pistolShrimp.levels[4].dmg}`)
   }
 
-  // (d) BACKBLAST, AND AT THE STATED FRACTION. Two identical fixtures on one seed, one switch apart.
+  // (d) THE REAR CRACK IS BASELINE, AND BACKBLAST BUYS ITS STRENGTH. Two identical fixtures on one
+  // seed, one switch apart. Both halves need asserting and each fails silently on its own: without
+  // the first the starter is rear-blind again in a chapter whose crowd is 53% astern
+  // (scripts/reef-pileup.mjs), and without the last the switch is an INERT CARD — the failure mode
+  // the mod inherited the day the crack it used to grant became free.
   {
     // THE REAR BODY SITS AT 100px, NOT 300, AND THE LANE IS WHY. CHAPTERS.reef.sweepAstern deletes
     // a seeker once it is seekerBack() behind -- (1-LANE_CAMERA_FRAC) x the viewport along the lane
@@ -22924,30 +22928,54 @@ function testReefNatives() {
     // behind therefore measured a body the chapter had already swept, and read as "Backblast is an
     // inert card" when the switch was working perfectly.
     //
-    // ⚠ THAT IS A REAL CAP ON THE MOD, NOT A FIXTURE DETAIL. Backblast's beam runs the weapon's
-    // full 340px astern and the lane will not keep a body past 138px, so roughly the outer 200px
+    // ⚠ THAT IS A REAL CAP ON THE REAR CRACK, NOT A FIXTURE DETAIL. It runs the weapon's full
+    // 340px astern and the lane will not keep a body past 138px, so roughly the outer 200px
     // of its rear reach can never have a target in this chapter. It is not a defect: only 78px
     // astern is ON SCREEN at all, so anything the sweep takes was invisible before it was deleted.
     // If a rear-reaching card is ever meant to out-reach the sweep, seekerBack is the number to
     // argue with -- deliberately one function, so there is one place to argue.
+    // AND A THIRD BODY, PAST THE REAR CRACK BUT NOT PAST THE SWEEP. SNAP_BACKBLAST_LEN is 140 and
+    // this fixture's viewport puts seekerBack at ~252px, so a body at 200 astern is alive all
+    // window and outside the rear crack's reach — the one position that can tell "the rear line is
+    // short" from "the lane deleted it". Without this the reach is unguarded, and a rear crack
+    // silently back at the forward 340 spends most of itself killing bodies the player cannot see
+    // and the lane was about to drop: free XP on the card whose whole subject is choosing a line.
     const REAR_PX = 100
+    const FAR_REAR_PX = 200
     const measure = (mods) => {
       const run = reefRun('pistolShrimp', 5, mods)
       const ahead = plant(run, { _off: [300, 0] })
       const behind = plant(run, { _off: [-REAR_PX, 0] })
-      drive(run, [ahead, behind], 4, null, CROSS)
-      return { ahead: lost(ahead), behind: lost(behind) }
+      const farBehind = plant(run, { _off: [-FAR_REAR_PX, 0] })
+      drive(run, [ahead, behind, farBehind], 4, null, CROSS)
+      return { ahead: lost(ahead), behind: lost(behind), farBehind: lost(farBehind), farAlive: !farBehind._dead }
     }
     const off = measure(null)
     const on = measure({ backblast: 1 })
-    assert.strictEqual(off.behind, 0,
-      `run RN.d: a body ${REAR_PX}px BEHIND took ${off.behind} without Backblast — the snap is not a single forward line`)
-    assert.ok(on.behind > 0,
-      'run RN.d: Backblast is held and nothing behind the player was struck — the switch is an inert card')
+    assert.ok(off.behind > 0,
+      `run RN.d: a body ${REAR_PX}px BEHIND took nothing from a BARE snap — the rear crack is gated behind Backblast again, and the starter is rear-blind in the chapter whose crowd sits astern of the player`)
+    // AGAINST THE ROUNDED PER-HIT NUMBER, NOT THE RAW FRACTION. dealDamage rounds at every
+    // assignment (hp is an integer, see spawnEnemy), so at the ladder's dmg 8 the rear crack lands
+    // round(8 x 0.6) = 5 and the honest ratio is 5/8. Comparing against 0.6 with a 0.02 band makes
+    // this case a hostage to the damage number — it went red the day the ladder moved, with the
+    // mechanic working perfectly.
+    const D5 = WEAPONS.pistolShrimp.levels[4].dmg
+    const wantBare = Math.round(D5 * SNAP_BACKBLAST_FRAC) / D5
+    assert.ok(Math.abs(off.behind / off.ahead - wantBare) < 0.02,
+      `run RN.d: the bare rear crack lands at x${(off.behind / off.ahead).toFixed(3)} of the forward one, not the x${wantBare.toFixed(3)} that round(${D5} x ${SNAP_BACKBLAST_FRAC})/${D5} states`)
     assert.strictEqual(on.ahead, off.ahead,
       `run RN.d: taking Backblast changed the FORWARD damage (${off.ahead} -> ${on.ahead}) — the rear crack is stealing from the front one`)
-    assert.ok(Math.abs(on.behind / on.ahead - SNAP_BACKBLAST_FRAC) < 0.02,
-      `run RN.d: the rear crack lands at x${(on.behind / on.ahead).toFixed(3)} of the forward one, not x${SNAP_BACKBLAST_FRAC} — a full-strength rear line is a straight doubling of the starter for one switch pick`)
+    assert.ok(on.behind > off.behind,
+      `run RN.d: Backblast is held and the rear crack still lands ${on.behind} against a bare ${off.behind} — the switch is an INERT CARD, which is exactly what it becomes if the fire site keeps reading the mod as a boolean now that the crack is free`)
+    const wantFull = Math.round(D5 * SNAP_BACKBLAST_FULL_FRAC) / D5
+    assert.ok(Math.abs(on.behind / on.ahead - wantFull) < 0.02,
+      `run RN.d: with Backblast the rear crack lands at x${(on.behind / on.ahead).toFixed(3)} of the forward one, not the stated x${wantFull.toFixed(3)}`)
+    // THE REACH. Assert the body is ALIVE in the same breath as asserting it took nothing — a
+    // swept corpse also reports 0 damage, and the two are indistinguishable in that number alone.
+    assert.ok(on.farAlive,
+      `run RN.d: the ${FAR_REAR_PX}px control body was swept before the window closed, so its 0 damage proves nothing about the rear crack's reach — move it inside seekerBack`)
+    assert.strictEqual(on.farBehind, 0,
+      `run RN.d: a body ${FAR_REAR_PX}px astern took ${on.farBehind} with Backblast held, and SNAP_BACKBLAST_LEN is ${SNAP_BACKBLAST_LEN} — the rear crack has inherited the forward reach, which spends it on bodies the player cannot see and the lane is about to drop`)
   }
 
   // (e) FIRE CORAL LIGHTS RIDGES AHEAD, DISTINCT, AND THE BAND IS THE REAL ONE. More Reef x2 takes
@@ -23243,7 +23271,7 @@ function testReefNatives() {
     assert.strictEqual(checked, 20, `run RN.i: checked ${checked} weapon-levels, expected 20`)
   }
 
-  console.log(`PASS run RN (The Reef's first two natives): the snap strikes the body 300px dead ahead and never the NEARER one 220px off the line, exactly once per cast, and Backblast adds a rear crack at x${SNAP_BACKBLAST_FRAC} without touching the forward one; Fire Coral lights 3 DISTINCT ridges ${FIRE_CORAL_LEAD} past the nearest, every one still agreeing with spurAt, burning the coral and never the channel until Overgrowth is taken, reaching the player never, surviving a re-light without its ignition ramp restarting or stacking a second entry on the index (one band's worth of burn, measured on 5 occupied ridges), and lighting nothing at all in a chapter with no ridges; and all 20 beam weapon-levels in the game reach >=90% width at >=60% alpha in one frame`)
+  console.log(`PASS run RN (The Reef's first two natives): the snap strikes the body 300px dead ahead and never the NEARER one 220px off the line, exactly once per cast, a BARE snap already cracks astern at x${SNAP_BACKBLAST_FRAC} and Backblast takes that to x${SNAP_BACKBLAST_FULL_FRAC} without touching the forward one; Fire Coral lights 3 DISTINCT ridges ${FIRE_CORAL_LEAD} past the nearest, every one still agreeing with spurAt, burning the coral and never the channel until Overgrowth is taken, reaching the player never, surviving a re-light without its ignition ramp restarting or stacking a second entry on the index (one band's worth of burn, measured on 5 occupied ridges), and lighting nothing at all in a chapter with no ridges; and all 20 beam weapon-levels in the game reach >=90% width at >=60% alpha in one frame`)
 }
 // ---- run RP: The Reef's other two natives, its anomaly and its mutator ------------------------
 // WHAT THIS CATCHES THAT NOTHING ELSE CAN. All four of these are behaviour with no health bar
