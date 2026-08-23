@@ -465,6 +465,12 @@ const SFX_FOR_EVENT = {
   // v5.21 lane (beyond): the active shove reuses the hole whoosh, and a rock clipping the player
   // is an ordinary hurt — it is damage, not a special occasion.
   repulse: 'hole', rockhit: 'hurt',
+  // v7.x The Wreck: the orca. All three get a sound BECAUSE they are rare — four visits a run, one
+  // strike each — which is the opposite of the freeze/submission-expiry reasoning that withholds
+  // one from anything firing dozens of times a minute. bossRise is already the game's "something
+  // large is coming" voice and this is exactly that; the commit takes the hole whoosh a big body
+  // moving fast has everywhere else; the connect takes crush, the heaviest impact in the bank.
+  orcaRise: 'bossRise', orcaStrike: 'hole', orcaHit: 'crush',
   // v7.x The Surf: the Shorebreak REPLACES the shove in that chapter, so it does not inherit the
   // shove's sound by sitting on the same press — surf never emits `repulse` at all any more. It
   // takes the same whoosh, which is both the right voice for a wall of water and the reason the
@@ -604,11 +610,14 @@ function endRun(victory) {
   if (victory && (run.difficulty ?? 1) >= CHAPTER_UNLOCK_DIFFICULTY) {
     const next = nextChapter(run.chapter)
     // `!isWipChapter(next)`: the ladder must never hand out a chapter that is not written yet.
-    // Undertow ships one chapter at a time (BOOKS[].wipFrom), so a d3 Surf win reaches for The
-    // Shelf and must come back with nothing — the badge stays silent and the save stays clean,
-    // rather than writing an `unlocked` flag to disk that outlives the gate.
+    // Undertow ships one chapter at a time (BOOKS[].wipFrom), so the win on its LAST live rung
+    // reaches for the first gated one and must come back with nothing — the badge stays silent and
+    // the save stays clean, rather than writing an `unlocked` flag to disk that outlives the gate.
+    // Today that is a d3 Shelf win reaching for The Reef; a d3 Surf win now genuinely opens The
+    // Shelf, which is the whole of that chapter's release.
     // NOT folded into nextChapter itself: isBookFinale below reads the ladder's true shape, and a
-    // wip-aware nextChapter would make The Surf look like Undertow's last rung and open Book 3.
+    // wip-aware nextChapter would make the last live rung look like Undertow's finale and open
+    // Book 3.
     if (next && !isWipChapter(next)) {
       const nextMeta = ensureChapterMeta(meta, next)
       if (!nextMeta.unlocked) {

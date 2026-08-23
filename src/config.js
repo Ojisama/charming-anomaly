@@ -2184,11 +2184,22 @@ export const WEAPONS = {
       // balance_decision : the vase casts 40% more often 2026-08-22
       //  - `rate` is an INTERVAL, so +40% cadence DIVIDES by 1.4 -- the number goes down. Raising
       //    it would have slowed the weapon by 40% while reading like a buff.
-      { dmgPerTick: 16, rate: 2.41, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1 },
-      { dmgPerTick: 20, rate: 2.25, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1 },
-      { dmgPerTick: 28, rate: 2.09, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1 },
-      { dmgPerTick: 34, rate: 1.92, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1 },
-      { dmgPerTick: 40, rate: 1.76, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1 },
+      // `tick` IS THE CLOUD'S OWN CADENCE, and it is the second time-per-level number on this
+      // ladder: `rate` is how often you CAST, `tick` is how often what you cast bites. Before this
+      // the cloud rode the shared BLOOM_TICK (0.5s flat, config.js) alongside the pond's Toxin
+      // Bloom and The Twilight's Foxfire, so the veil had no cadence of its own at any level.
+      //   Same key name and same treatment as `hole` and `orbit`, which already ship a per-level
+      // tick: it is deliberately ABSENT from STAT_KEYS, so the build sheet gains no row. Adding it
+      // there would put a row on those two weapons as well, and Barnacles already sits exactly at
+      // the 5-row cap.
+      // balance_decision : the silt cloud ticks per level, 0.75s at Lv1 to 0.4s at Lv5 2026-08-22
+      //  - dmgPerTick is UNCHANGED, so the ladder IS the weapon's dps curve; measure it, never
+      //    divide it -- overlap absorbs most of a tick change (see the census in the commit body)
+      { dmgPerTick: 16, rate: 2.41, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1, tick: 0.75 },
+      { dmgPerTick: 20, rate: 2.25, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1, tick: 0.66 },
+      { dmgPerTick: 28, rate: 2.09, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1, tick: 0.58 },
+      { dmgPerTick: 34, rate: 1.92, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1, tick: 0.49 },
+      { dmgPerTick: 40, rate: 1.76, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1, tick: 0.40 },
     ],
   },
   ballast: {
@@ -2266,11 +2277,13 @@ export const WEAPONS = {
       // `burst` is the card. At L5 it is 13x one tick, so a column that expires with the crowd
       // still outside it has done almost nothing — placement is the skill this weapon sells.
       // balance_decision : downwash fires and hits 30% harder, a non-starter 2026-08-20
-      { dmg: 4, tick: 0.25, interval: 3.54, radius: 130, duration: 1.6, pull: 200, burst: 52 },
-      { dmg: 5, tick: 0.25, interval: 3.31, radius: 143, duration: 1.7, pull: 218, burst: 68 },
-      { dmg: 6, tick: 0.25, interval: 3.08, radius: 156, duration: 1.8, pull: 236, burst: 84 },
-      { dmg: 8, tick: 0.25, interval: 2.92, radius: 168, duration: 1.9, pull: 254, burst: 101 },
-      { dmg: 9, tick: 0.25, interval: 2.77, radius: 180, duration: 2.0, pull: 270, burst: 120 },
+      // balance_decision : column radius -30%, cast rate +20% 2026-08-22
+      //  - the key is an INTERVAL, so +20% cadence DIVIDES by 1.2 -- the number goes down.
+      { dmg: 4, tick: 0.25, interval: 2.95, radius: 91,  duration: 1.6, pull: 200, burst: 52 },
+      { dmg: 5, tick: 0.25, interval: 2.76, radius: 100, duration: 1.7, pull: 218, burst: 68 },
+      { dmg: 6, tick: 0.25, interval: 2.57, radius: 109, duration: 1.8, pull: 236, burst: 84 },
+      { dmg: 8, tick: 0.25, interval: 2.43, radius: 118, duration: 1.9, pull: 254, burst: 101 },
+      { dmg: 9, tick: 0.25, interval: 2.31, radius: 126, duration: 2.0, pull: 270, burst: 120 },
     ],
   },
   // -- The Reef's natives (v7.x) ----------------------------------------------------------------
@@ -2779,6 +2792,11 @@ export const MAX_PASSIVE_LEVEL = 5
 // MAX_WEAPON_MOD_PICKS via `maxPicks` (read by eligibleWeaponModCandidates in sim.js). This is the
 // v6.6.15 switch fix one step softer: a switch offered twice does literally nothing, while these
 // do something worth ~1% — legal, but a trap on a card that costs you the whole level-up.
+// v7.x: a mod may also declare `needs: '<weaponId>'` — a DUO BOON, offered only while that other
+// weapon is held too (same filter, same function). Two exist, both on The Shelf: ballast.siltPlume
+// and downwash.siltFlush, each spawning Silt Veil's cloud out of another weapon's payoff. The gate
+// is on the OFFER only: devCards ignores it like every other eligibility rule, and the fire sites
+// fall back to the veil's level-1 numbers so a dev-taken card still does something visible.
 //
 // Every pierce mod in the game shares one ceiling, which is why they share one constant. A
 // projectile's hits per cast are bounded by GEOMETRY, not by its pierce budget: it can only meet
@@ -3415,7 +3433,19 @@ export const WEAPON_MODS = {
     // ONE multiplier for all three numbers, and the card says all three (owner's wording,
     // 2026-08-19). It scaled only size and duration when it first shipped, which made the card and
     // the code two different promises.
-    foulSpring: { name: 'Foul Spring', desc: 'a cloud in clean water has {n} more duration, damage and size, but fouls the patch', icon: '🌀', base: 0.50, kind: 'pct' },
+    // 2026-08-22: the patch no longer just blinks out. Fouling it turns the WHOLE circle into a
+    // silt cloud of its own radius (foulUpwelling's caller in sim.js) -- the cost is unchanged,
+    // the patch is still spent, but what the player gets for it is now on screen and biting.
+    //
+    // THE LINE IS THE OWNER'S, WRITTEN IN FRENCH FIRST and fitted to in English: "Les nuages de
+    // vase consomment l'eau claire pour gagner 50% de puissance et de taille". Two deliberate
+    // losses in it, neither an oversight:
+    //   'power' FOLDS duration and damage. The mod moves three numbers and the card names two,
+    //   which is the Big Beam idiom -- a card that lists every stat it touches stops being read.
+    //   IT DOES NOT MENTION THE SILT the patch turns into. The cost is what the player needs the
+    //   words for; the payoff is a cloud the size of the whole circle appearing on screen, which
+    //   needs no sentence. This line was the LONGEST in the game at 91 chars and is now 63.
+    foulSpring: { name: 'Foul Spring', desc: 'silt clouds consume clean water to gain {n} more power and size', icon: '🌀', base: 0.50, kind: 'pct' },
   },
   // The Reef's two natives (v7.x). Five apiece: three that fold, one rate division and one
   // behavioural switch — the shape run MB.a2 asks of a Book 2 native, and the shape the book spec
@@ -3494,6 +3524,15 @@ export const WEAPON_MODS = {
     // Same wording rule as Scour above, for the same reason and from the same reading: the card
     // names the bar it reads.
     foulWater:  { name: 'Foul Water',  desc: 'the drag catches {n} wider than the crush, rising with your Pollution', icon: '🛢️', base: 0.50, kind: 'pct' },
+    // A DUO BOON (owner, 2026-08-22), and the first cross-weapon card in the game. `needs` is
+    // read by eligibleWeaponModCandidates, so it is offered ONLY while Silt Veil is also held;
+    // the clouds it throws up are the VEIL's own, at its live level and mods (spawnSiltCloud in
+    // sim.js), so the card pays out on what the player actually invested rather than on a second
+    // ladder nobody can see. Epic-only through `values` -- the Beam Prism / Street Sweeper idiom,
+    // because makeWeaponModCard refuses a kind:'switch' above normal rarity and this is meant to
+    // BE an epic. maxPicks 1: the count is the card, and a second pick has nothing to add.
+    siltPlume:  { name: 'Silt Plume',  desc: 'the impact throws up {n} clouds of silt', icon: '🌫️',
+      kind: 'flat', maxPicks: 1, values: { epic: 3 }, needs: 'siltVeil' },
   },
   downwash: {
     // Five, and the split is deliberate: three fold into levels[] through WEAPON_STAT_MODS, one is
@@ -3523,6 +3562,17 @@ export const WEAPON_MODS = {
     // into `interval` would SLOW the weapon.
     deluge:    { name: 'Deluge',     desc: 'column and burst damage', icon: '💥', base: 0.30, kind: 'pct' },
     quickPour: { name: 'Quick Pour', desc: 'pour rate', icon: '⏩', base: 0.25, kind: 'pct' },
+    // The second duo boon, same gate and same idiom as Ballast's Silt Plume -- read that one for
+    // why `values`/`needs` rather than a switch. ONE cloud, sized at SILT_FLUSH_MUL the COLUMN's
+    // own radius rather than the veil's: the number is derived from the circle the player just
+    // watched land, so the card cannot come apart from its picture when the column ladder moves
+    // (it just did). `descFor` writes the whole line so the amount does not arrive as a '+1 '
+    // head -- one cloud is not a number the player needs.
+    siltFlush: {
+      name: 'Silt Flush', icon: '🌫️', kind: 'flat', maxPicks: 1, values: { epic: 1 }, needs: 'siltVeil',
+      desc: 'the burst leaves a huge cloud of silt',
+      descFor: () => 'the burst leaves a huge cloud of silt',
+    },
   },
   // Four apiece for the Trawl's natives, and four is the CEILING, not a starting point (spec §7:
   // the pool's real mod budget is ~28, and the rule is to cut a weapon rather than invent mods).
@@ -3818,6 +3868,9 @@ export const BARBED_DURATION = 3
 // a planted cloud (run.blooms, see state.js) grows 0 -> maxR over dur × BLOOM_GROW_FRAC, then holds
 // maxR, ticking dot-flagged damage every BLOOM_TICK to enemies inside until t reaches dur.
 export const BLOOM_GROW_FRAC = 0.35
+// THE DEFAULT ONLY. A bloom may carry its own `tick` and the Silt Veil does, per level — see
+// WEAPONS.siltVeil.levels. Anything planted without one (Toxin Bloom, Foxfire, a sporeburst mini)
+// still rides this.
 export const BLOOM_TICK = 0.5
 // sporeburst (behavioral): a foe killed by a (non-mini) cloud's own tick emits a mini-cloud at
 // SPOREBURST_FRAC of the parent's maxR (same dur/dmgPerTick), flagged `_mini` so it never chains.
@@ -3954,6 +4007,15 @@ export const SILT_DAZE_REFRACTORY = 2 // s a body is daze-proof after a silt clo
 // valid -- it is stable ONLY because a silt cloud never moves, and that note says so.
 export const SILT_VEIL_ARC = Math.PI * 5 / 12   // 75 deg. Narrower than the Bubble Puff's 90 base
                                                 // so the chapter does not read as one cone twice.
+
+// THE TWO DUO BOONS (owner, 2026-08-22). Each is a mod on one weapon that spawns the OTHER
+// weapon's cloud, and each is offered only while both are held (`needs` on the mod — see the
+// WEAPON_MODS header). The clouds themselves carry no ladder of their own: they are Silt Veil's,
+// at whatever level and mods it is holding, so neither card needs retuning when the veil does.
+// balance_decision : two epic cards make silt out of the shelf's other two weapons 2026-08-22
+//  - SILT_PLUME_SPREAD must NOT be 0: three clouds on one point render identically to one cloud.
+export const SILT_PLUME_SPREAD = 0.7  // Silt Plume rings its clouds at this fraction of the crater
+export const SILT_FLUSH_MUL = 2       // Silt Flush's cloud, as a multiple of the COLUMN's radius
 
 // ONLY THE `anchored` ELITE AFFIX IGNORES CROWD CONTROL OUTRIGHT. Owner ruling, 2026-08-17: "Tanks
 // should not be immune to Fear, knockback and other CC, except if they have the elite modifiers
@@ -4934,18 +4996,20 @@ export const HP_SCALE_LATE_RATE = 0.005
 // middle of the curve as a mistake.
 // ⚠ BOOK 2 IS STILL MOSTLY ABSENT, AND THAT IS A BUG RATHER THAN A DECISION (found 2026-08-17 in
 // adversarial review of the murk-chapter change). `lateRateFor` falls back to HP_SCALE_LATE_RATE
-// for anything absent, so the six chapters below The Surf — including The Deep, the book's finale —
-// still run The Body's gentlest late curve. They keep the fallback deliberately: none of them is
-// reachable by a player yet (BOOKS.undertow.wipFrom), and re-difficultying six unshipped chapters
-// is a balance move that belongs with the release that reveals them. Book 2 wants its own ladder
-// here, one rung per chapter, written as each one ships.
+// for anything absent, so the chapters below the shipped ones — including The Deep, the book's
+// finale — still run The Body's gentlest late curve. They keep the fallback deliberately: none of
+// them is reachable by a player yet (BOOKS.undertow.wipFrom), and re-difficultying five unshipped
+// chapters is a balance move that belongs with the release that reveals them. Book 2 wants its own
+// ladder here, one rung per chapter, written as each one ships.
 //
 // balance_decision : The Surf takes the Pond's rung as Book 2's first 2026-08-18
-//  - only the chapter being REVEALED is filled in; the other six still fall back on purpose
+// balance_decision : The Shelf takes the Garden's rung as Book 2's second 2026-08-22
+//  - the book is offset one rung UP from Book 1 (surf = pond, not body); keep the offset when
+//    writing the next one, or The Reef inherits a curve gentler than the chapter above it
 export const CHAPTER_LATE_RATE = {
   body: 0.005, pond: 0.010, garden: 0.015, undergrowth: 0.020,
   city: 0.028, skies: 0.036, beyond: 0.0605,
-  surf: 0.010,
+  surf: 0.010, shelf: 0.015,
 }
 // Unknown/absent chapter (the Blank, a test run with no chapter) keeps the shipped curve.
 export const lateRateFor = (chapterId) => CHAPTER_LATE_RATE[chapterId] ?? HP_SCALE_LATE_RATE
@@ -5293,7 +5357,7 @@ export const COIN_CAP_PER_RUN = 999
 // chapter at a time. Every chapter at that index or later is hidden from players entirely and
 // reachable only behind meta.dev — see isWipChapter, playableChapterId and titleBookshelf below.
 // Omit the key for a fully-shipped book; `wipFrom: 0` is the old `wip: true`, the whole book gated.
-// Undertow sits at 1: The Surf is live, the six below it are not.
+// Undertow sits at 2: The Surf and The Shelf are live, the five below them are not.
 //
 // Revealing the next chapter is therefore BUMPING ONE NUMBER — and the suite's own denominator
 // (shippedChapterIds, test/sim-test.js) is derived from this, so the bump immediately demands that
@@ -5320,7 +5384,7 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'twilight', 'deep'], hidden: [], wipFrom: 1, startCoins: 100 },
+  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'twilight', 'deep'], hidden: [], wipFrom: 2, startCoins: 100 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -7193,7 +7257,10 @@ CHAPTERS.wreck = {
     // off a chase for one. Sized against the bar rather than against the kill: at 30 of a 100 bar
     // it is three ordinary fish and change, which is enough to be a decision and short of the full
     // bar Gorge pays for an elite — the elite must stay the bigger prize.
-    name: 'Bloodlust', drainPerSpawn: 2.4, refill: 0, killBase: 5, killRefill: 2, tankRefill: 30, max: 100,
+    // feedSlow: THE CHAPTER'S PAYOFF FOR HERDING. Being inside the shoal slows the drain (FEED_*).
+    // It is a rate rather than a refill because the bar is CLAMPED and a refill multiplier measured
+    // regressive — see the FEED block in this file and stepCharge for the numbers.
+    name: 'Bloodlust', drainPerSpawn: 2.4, refill: 0, killBase: 5, killRefill: 2, tankRefill: 30, max: 100, feedSlow: true,
     damage: { floor: 1, peak: 1.8 },
     rate: { floor: 1, peak: 1.5 },
     // 4, not 5, and the reason is arithmetic rather than balance: hurtPlayer ROUNDS a dot hit, so
@@ -7211,6 +7278,11 @@ CHAPTERS.wreck = {
 
   // The button. See LUNGE_* above for the cast.
   lunge: true,
+
+  // THE ORCA. Four telegraphed visits from t=100s, unkillable, and the only thing in the chapter
+  // that aims at the player. See the ORCA_* block for the closing-ring geometry and for why an
+  // orbiting POINT measurably evacuates the shoal instead of compressing it.
+  orca: true,
 
   // ⚠ UNMEASURED FIRST CUT. This is by a wide margin the densest and softest table in the game
   // (reef 0.76/0.95/0.75, trawl 0.8/1/0.85, and the previous cut of THIS chapter 0.95/0.9/0.95),
@@ -8613,9 +8685,9 @@ export const bookOf = (id) => Object.keys(BOOKS).find((b) => BOOKS[b].chapters.i
 // Is this chapter behind the WIP gate — i.e. does it still need meta.dev to be reachable?
 //
 // PER CHAPTER, not per book (see `wipFrom` on BOOKS). The position in its OWN book's ladder is
-// what decides, so a book may be half-shipped: Undertow's wipFrom is 1, which makes The Surf live
-// and everything below it gated. `?? Infinity` is what keeps a book with no `wipFrom` fully
-// shipped, and index 0 is what makes `wipFrom: 0` mean the whole book.
+// what decides, so a book may be half-shipped: Undertow's wipFrom is 2, which makes The Surf and
+// The Shelf live and everything below them gated. `?? Infinity` is what keeps a book with no
+// `wipFrom` fully shipped, and index 0 is what makes `wipFrom: 0` mean the whole book.
 //
 // A `hidden` chapter is NOT on the ladder, so indexOf returns -1 and it can never be wip by
 // position — The Blank is earned rather than unfinished, and the two must not be conflated (the
@@ -8637,6 +8709,20 @@ export const nextChapter = (id) => {
   const order = BOOKS[bookOf(id)]?.chapters ?? []
   const i = order.indexOf(id)
   return i < 0 ? null : (order[i + 1] ?? null)
+}
+
+// The player-facing chapter number — '2-2' for The Shelf: its book's place in BOOK_ORDER and its
+// own rung in that book's ladder, both 1-based. This is the owner's own notation ("2.2 is ready")
+// and the summary badge is the first surface it reaches.
+//   DERIVED, never written down. A literal '2-2' inside a copy string is this repo's largest defect
+// class exactly: reorder a ladder and the string keeps saying what used to be true, with nothing
+// thrown and no test red.
+//   null for an id no book carries on a LADDER — a `hidden` chapter has no rung to number, and The
+// Blank is announced by its own badge rather than this one.
+export const chapterNumber = (id) => {
+  const b = bookOf(id)
+  const i = BOOKS[b]?.chapters.indexOf(id) ?? -1
+  return i < 0 ? null : `${BOOK_ORDER.indexOf(b) + 1}-${i + 1}`
 }
 
 // Is this chapter the LAST rung of its book's ladder? The book-unlock gate tests this rather than
@@ -9219,6 +9305,16 @@ export const GNASH_MAW_MUL = 1.9
 // dealing 1.40x its tuned damage (mean x1.5 against the intended x1.075). It shipped that way and
 // was found from play: "bite has 100% crit chance i dont know why". Run PY.m asserts the RATE.
 export const GNASH_BASE_CRIT = 0.10
+// OVERKILL CARRY — what makes biting into a MASS feel different from biting one fish, and it is the
+// only version of that this roster can express. A mackerel is 4.95 HP and a damselfish 1.8 against a
+// 15-damage bite (28.5 at the jaw), so every prey in the chapter dies to one hit with an order of
+// magnitude to spare: a damage multiplier on density is provably inert here, because there is
+// nothing left to kill harder. Excess has to go somewhere instead, and the card's own line already
+// promises it — "the closer it lands, the deeper it goes".
+//   Carried within ONE swing only, and only from a body that actually died, so it can never
+// manufacture damage against a single target — a lone fish carries nothing.
+// balance_decision : share of overkill that chews on to the next body 2026-08-22
+export const GNASH_CARRY_FRAC = 0.6
 // ---- BLOODRUSH (v7.x, gnash) -------------------------------------------------------------------
 // Owner: "biting an enemy increases speed by 5% for 2s". The 5% is the card's own base; these two
 // are the shape around it. MULTIPLIED into the player's speed rather than MIN-composed with the
@@ -9270,7 +9366,16 @@ export const CHUM_PULL_MUL = 0.85
 // Chum does not override PANIC. Inside this radius of the player a baited fish bolts anyway, which
 // is what stops the card from being an off-switch for the chapter: you cannot stand in your own
 // bait ball and have dinner hold still, you have to come in from outside it.
-export const CHUM_PANIC_R = 150
+// ⚠ 80, DOWN FROM 150, AND AT 150 THIS CARD COULD NOT BE USED AT ALL. gnash reaches 118 at L1, so a
+// panic radius of 150 meant every fish close enough to BITE was already bolting: the chapter's only
+// gathering tool switched off outside the chapter's only mouth. The card was not weak, it was
+// unusable, and no amount of tuning its gather would have shown up.
+//   The radius still does its original job — you cannot park in the middle of your own bait ball
+// and have dinner hold still, which is what it exists to prevent. It just leaves a band you can
+// actually eat in: 80-118px at L1, widening to 80-152 at L5. Come in from outside, bite the edge.
+// balance_decision : panic radius pulled inside gnash's own reach 2026-08-22
+//  - if gnash's L1 range is ever cut below ~100 this becomes unusable again; they are one decision
+export const CHUM_PANIC_R = 80
 
 // ---- BILGE (v7.x, The Wreck) -------------------------------------------------------------------
 // The oil's drag is BLOOM_SLOW's, not its own number. bloomSlowT is a boolean-ish window — it
@@ -9325,6 +9430,134 @@ export const PREY_SHOAL_SIZE = 16
 // going". At 1.0 a shoal explodes radially like a firework, which is the one silhouette a bait
 // ball never makes; the blend is what keeps it a body of fish peeling off in a direction.
 export const PREY_FLEE_BLEND = 0.7
+
+// ---- THE SELFISH HERD (v7.x, The Wreck) --------------------------------------------------------
+// THE ONE ATTRACTING FORCE IN THE CHAPTER, and the chapter did not work without it. Every other
+// term in stepPrey is a translation or a repulsion — the drift heading is a pure function of shoal
+// id and clock and is IDENTICAL for every member, so the 1 - PREY_FLEE_BLEND residue translates a
+// school and can never contract one — while stepEnemySeparation pushes bodies apart every frame.
+// So there was no input a player could make that raised local density, and a chapter whose whole
+// premise is herding had no herding in it. Measured before this term existed: orbiting a shoal
+// produced the EMPTIEST neighbourhood of any policy (3.3 prey within 200px against a straight
+// line's 6.0) and 187 kills against 510 — circling was the worst thing you could do.
+//
+// The fix is the real reason bait balls exist: a threatened fish swims toward the middle of its own
+// school, not merely away from the predator. One repulsor can only ever make a ring; it is the
+// school's own inward pull that closes the ring into a ball.
+//
+// THREAT-WEIGHTED, and that is what keeps the shipped look. An unaware school still mills loosely
+// exactly as it always did; only a school that can see a predator tightens. Without the weighting
+// every shoal in the chapter would collapse to a point at all times, which is a different game.
+//
+// This takes the upgrade path sim.js's own `ponytail: id buckets, not boids` marker names — "if
+// schools ever need to MERGE, SPLIT or avoid each other, that is when this becomes a real flocking
+// pass". It is O(n): one accumulate pass keyed on the shoal id stepPrey already computes, then an
+// O(1) lookup per fish. Written as a neighbour query it would be ~358k distance tests/frame at this
+// chapter's cap, the magnitude sim.js's separation comment rejects in writing.
+// balance_decision : cohesion strength, fitted by eye against the shoal look 2026-08-22
+//  - raising this past ~0.5 collapses an UNTHREATENED school into a dot; judge it on a frame
+export const PREY_COHESION_BLEND = 0.35
+// Below this a "school" is a couple of strays and there is no middle to swim toward; steering them
+// together reads as two fish magnetising, not as a shoal.
+export const PREY_COHESION_MIN_N = 3
+
+// ---- DENSITY, AND WHAT IT PAYS (v7.x, The Wreck) -----------------------------------------------
+// BALL_R IS THE RADIUS `_shoalN` COUNTS WITHIN, and it MUST NOT EXCEED ENEMY_SEP_CELL. The count
+// rides stepEnemySeparation's existing pair walk, which visits each enemy's own cell plus the four
+// forward neighbours (SEP_NEIGHBOR_OFFSETS) — so every pair within ONE cell is visited exactly once
+// and anything beyond that is covered anisotropically, i.e. a ball would score differently
+// depending on where it sat against an invisible grid.
+//
+// ⚠ THE COUNT IS TAKEN BEFORE resolveSeparationPair's OVERLAP EARLY-OUT, NOT AFTER. After it, the
+// count means "bodies touching me", which the 2D kissing number caps at SIX — and any threshold
+// above that becomes unreachable with nothing thrown. It also measures the thing the separation
+// pass exists to destroy.
+export const BALL_R = 64
+
+// FEED — the drain-slow, and it is the chapter's payoff for herding.
+//
+// ⚠ IT IS DELIBERATELY NOT A MULTIPLIER ON THE REFILL, and that is the whole finding. Bloodlust is
+// CLAMPED at run.chargeMax, so a refill multiplier is worth most to whoever is furthest from the
+// clamp — the player doing worst. Measured, a killBase multiplier paid a straight-line player +167%
+// against a hunter's +31%, collapsing the mow:hunt separation from 2.69x to 1.33x: it HALVED the
+// reward for engaging, which is the exact inverse of this chapter's thesis. A rate is not clampable,
+// so slowing the drain pays the same whether the bar is full or empty.
+//
+// It also rewards the right verb. A refill pays you for KILLING; this pays you for BEING IN the
+// mass, which is what "trap, circle, hunt" actually looks like — and a player crossing the map in a
+// straight line is never inside anything (measured prey within 200px: 6.0 mowing, 11.7 hunting).
+// On the HUD it reads as the bar falling slower, so the tell is free.
+// ⚠ FEED COUNTS TIGHT BODIES, NOT ALL BODIES, and the first cut counted all of them and failed.
+// At spawnMul 2.2 the field holds 620 concurrent fish, so ambient crowding is free: a straight line
+// across the map measured 5.3-5.5 prey within 200px against a hunter's 5.9-6.2, a 1.1x spread. Any
+// reward keyed on that pays both alike — the bar separation NARROWED from 1.96x to 1.48x, which is
+// the same regressive shape the refill multiplier had, reached by a different road. `_shoalN`
+// separates them 2.1x (2.57 mowing against 5.45 circling) because CROWDING is ambient and
+// TIGHTNESS is earned. This is the threshold above which a body counts as part of a real ball.
+// balance_decision : tightness a body needs before it feeds you 2026-08-22
+//  - sits between the measured mowing (2.6) and circling (5.4) neighbour counts, deliberately
+export const BALL_TIGHT_N = 4
+export const FEED_R = 200          // px around the PLAYER, not around a victim — this is a position reward
+// balance_decision : prey-in-radius at which the drain-slow saturates 2026-08-22
+//  - 12 is just above a hunting player's measured mean of 11.7, so it is reachable but not free
+export const FEED_FULL_N = 12
+// The floor: fully surrounded, the drain runs at this fraction. NOT zero — a bar that stops falling
+// entirely turns the chapter's clock off and "stop and you starve" stops being true.
+export const FEED_DRAIN_MIN = 0.45
+
+// ---- PREY FLEES PREDATORS (v7.x, The Wreck) ----------------------------------------------------
+// A moray is a predator and prey did not care. It made the roster's one non-fleeing body a 0-damage
+// sponge that only stole the bite's aim; now it scatters what you are trying to gather, so it is
+// ground you clear before you can hunt a patch.
+//
+// ⚠ SMALL AND LOCAL ON PURPOSE. This is the MORAY's radius. Anything that has to reach across a
+// larger shape needs its own constant — one number cannot both be a body's personal space and span
+// a hazard's whole footprint, and set large this evacuates a disc the player can never fill.
+// ⚠ ALLIES ARE EXCLUDED at the read site: a SUBMISSION-converted moray is non-skittish and on the
+// player's side, and would otherwise scatter the balls the player is building.
+export const PREY_PREDATOR_FEAR_R = 170
+export const PREY_PREDATOR_BLEND = 0.55
+
+// ---- THE ORCA (v7.x, The Wreck — chapters declaring `orca: true`) ------------------------------
+// THE ONLY THING IN THIS CHAPTER THAT AIMS AT YOU. Owner ruling 2026-08-22: "maybe an orca
+// sometimes... it comes like 4 times after 100s, very telegraph with a big shadow underneath you,
+// a silhouette or something", "it circles you, then commits", and it CANNOT BE KILLED.
+//
+// It is deliberately the opposite grammar to the leak, which "does not chase, does not aim, does
+// not spawn on a timer and does not know the player exists". A chapter where every threat obeys
+// that rule is a chapter you cannot lose, which is what the roster demotion to food left behind.
+//
+// ⚠ A CLOSING RING, NOT AN ORBITING POINT, and that is a measured correction rather than a taste
+// call. With the player and the orca BOTH acting as repulsors, a fish between them gets antiparallel
+// vectors and stalls, while a fish on the far side of the player gets both vectors ADDING and
+// leaves at full speed — half the enclosed population at any instant, and the orbit sweeps every
+// bearing. That evacuates the area instead of compressing it. So the fear is the RING itself and it
+// pushes INWARD, toward the ring's centre: a wall the shoal will not cross, closing. That stacks
+// with the player's own repulsion instead of fighting it, which is the only version that delivers
+// the compression the design is built on.
+export const ORCA_FIRST_PASS = 100     // s before the first visit — the chapter's quiet half
+export const ORCA_INTERVAL = 50        // s between visits -> t = 100/150/200/250 in a 300s run
+export const ORCA_RISE_DUR = 3.2       // s of shadow-on-the-deep-layer telegraph before it surfaces
+export const ORCA_CIRCLE_DUR = 5.0     // s of the ring closing around you
+export const ORCA_LEAVE_DUR = 1.6
+export const ORCA_RING_R = 300         // ring radius when it surfaces
+export const ORCA_RING_MIN_R = 165     // ...and once fully closed, just before it commits
+export const ORCA_RING_BAND = 110      // px of the ring that prey will not cross
+export const ORCA_PUSH = 0.85          // blend weight of the inward shove on prey at the wall
+export const ORCA_ORBIT_RATE = 1.05    // rad/s the body travels around its own ring
+export const ORCA_COMMIT_SPEED = 940   // px/s of the strike — well over the player's 220
+export const ORCA_OVERSHOOT = 560      // px past you it carries before breaking off
+export const ORCA_HIT_R = 52           // px contact radius, DURING THE COMMIT ONLY
+// ⚠ A FRACTION OF MAX HP, NEVER A FLAT LITERAL. p.maxHP grows within a run (level-up choices) and
+// across saves (the shop's maxHP line), so a literal that is a real hit on a base save is a scratch
+// on an upgraded one — the scar already recorded against LUNGE_DMG.
+// ⚠ AND THE ENGINE FLOOR IS TWO CONNECTIONS, NOT THREE: hurtPlayer caps a non-dot hit at
+// maxHP x HURT_CAP_FRAC (0.5), against MAX hp and applied last, so nothing above 0.5 does anything.
+// balance_decision : three orca hits kill from full at any HP total 2026-08-22
+//  - raise commits-per-visit to make it harder, never this — the cap silently eats it
+export const ORCA_DMG_FRAC = 0.34
+export const ORCA_LEN = 360            // body length px — ~7.7x the player, it must read as bigger
+export const ORCA_FEAR_TELL = 0.55     // render: alpha of the ring tell at full close
 
 // ---- THE LEAK (v7.x, The Wreck's signature) ----------------------------------------------------
 // THE BOAT IS THE POLLUTION. Owner ruling 2026-08-17, taken when the chapter turned into a hunt:
@@ -10011,6 +10244,9 @@ export const DMG_SRC_NAME = {
   // whole roster is food and cannot damage the player at all (contactHarmless). A run that ends
   // here ends on this row or on Starvation, and nothing else.
   slick: 'The Leak',
+  // THE WRECK's third, and the first that AIMS. The comment above this block used to say the leak
+  // and starvation were the chapter's only two ways to die; the orca is now the third.
+  orca: 'The Orca',
   trawl: 'The Net',            // The Trawl: the mesh wall
   devour: 'Swallowed',         // The Deep: an anglerfish maw closed on you (a run.shafts entry)
   // Book 1's hazards — with the caveat that `pool` is the single most widespread hazard in the game
@@ -11740,6 +11976,10 @@ export const CHAPTER_ENDINGS = {
   // the bar is the chapter's own clock and the thing a beach kills you with, exactly as the pond
   // kills you by filtering you out however you actually died.
   surf:        { victory: 'You rode it out! 🎉',                    death: 'Dried out… ☀️' },
+  // Same idiom one rung down: the death line names the BAR, not the last hit. The Shelf's rail
+  // fills instead of draining (resource.invert), so what kills you is silt arriving rather than
+  // water running out — and 'silt' is a word the player has already read on two cards.
+  shelf:       { victory: 'You found clear water! 🎉',              death: 'Silted up… 🌫️' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',
@@ -11749,6 +11989,14 @@ export const CHAPTER_UNLOCK_LINES = {
   skies:       'The Skies — this time they\'re not hiding it',
   beyond:      'The Beyond — you were never the only anomaly',
 }
+// A chapter with no row above gets the PLAIN numbered badge instead (ui.js's renderSummary):
+// "New level unlocked: 2-2 Le Large". Owner, 2026-08-22, on the flavour line written for The
+// Shelf: "I don't like the phrase. Just display New level Unlocked : 2-2 le large."
+//   So the table is now OPTIONAL rather than a per-chapter obligation, and the fallback is the
+// default rather than a stopgap. Book 1's six rows stay: the watcher thread is that book's story
+// and it is shipped. Undertow has no such thread and takes the plain badge.
+//   Nothing enumerates this table to demand a row — run JJ.d asserts the FALLBACK resolves for
+// every shipped chapter instead, which is the thing a player actually sees now.
 
 // Book-unlock badge copy (v7.x), keyed by the book that just OPENED. Flat id -> string like
 // CHAPTER_UNLOCK_LINES above, and in a table for the same reason: run XX's config-table walk is
@@ -12032,7 +12280,7 @@ export const MUTATORS = {
 }
 // Every key mergeMutatorMods can produce, all defaulted to 1 (neutral) before mutator effects
 // multiply in. sim.js applies each of these at one specific point — see sim.js's module doc.
-const MUTATOR_MOD_KEYS = [
+export const MUTATOR_MOD_KEYS = [
   'spawnMul', 'enemyHpMul', 'enemySpeedMul', 'enemyDmgMul', 'enemyRadiusMul',
   'contactDmgTakenMul', 'playerDmgMul', 'playerSpeedMul', 'coinMul', 'xpMul',
   'eliteEveryMul', 'elementWeightMul', 'magnetMul', 'acidPotencyMul',
@@ -12049,6 +12297,46 @@ const MUTATOR_MOD_KEYS = [
   'refillSpendMul',     // drawdownSecsFor (shelf; how long one circle feeds you before it is spent)
   'laneScrollMul',      // laneScrollFor (reef; how fast the corridor runs past you)
 ]
+// Human label + "does a value above 1 help the player" for every MUTATOR_MOD_KEYS entry — the
+// brief/pause/summary effect chips read this (ui.js effectChipList) to word the trade and colour
+// it green or red. It lives HERE, beside the key list it must cover, for two reasons: an unlabelled
+// key renders the raw JS identifier to the player (`+80% tideSurgeMul`), and copy in a ui.js bare
+// const is exempt from run XX's config-table walk BY CONSTRUCTION, so it ships untranslated with
+// the suite green. Both happened — springtide and deadWater shipped that way. Run XX now walks
+// this table for French and asserts it covers MUTATOR_MOD_KEYS exactly, so neither can recur.
+export const MUTATOR_EFFECT_LABELS = {
+  spawnMul: ['enemy spawns', false],
+  enemyHpMul: ['enemy HP', false],
+  enemySpeedMul: ['enemy speed', false],
+  enemyDmgMul: ['enemy damage', false],
+  enemyRadiusMul: ['enemy size', false],
+  contactDmgTakenMul: ['damage you take', false],
+  playerDmgMul: ['your damage', true],
+  playerSpeedMul: ['your move speed', true],
+  coinMul: ['coins', true],
+  xpMul: ['XP', true],
+  eliteEveryMul: ['time between elites', true],
+  elementWeightMul: ['infusion card chance', true],
+  magnetMul: ['pickup magnet', true],
+  maxAliveMul: ['enemies at once', false],
+  // v5.25 chapter-anomaly knobs (missing until v6.1 — the chips showed the raw key)
+  currentForceMul: ['current push', false],
+  tideSurgeMul: ['tide push', false],
+  pheromoneLifeMul: ['pheromone life', false],
+  trapCountMul: ['trap count', false],
+  trafficIntervalMul: ['time between cars', true],
+  bombardIntervalMul: ['time between shells', true],
+  wellForceMul: ['gravity well force', false],
+  acidPotencyMul: ['acid pool burn', false],
+  // Both shelf keys are worded from the PLAYER's side, in the words already on the shelf's screens
+  // ('eau claire' / clean water), not from the sim's: refillSpendMul multiplies the drawdown clock,
+  // i.e. how much of the bar one circle is worth, so "clean water per spot" is what it buys you.
+  refillChanceMul: ['clean-water spots', true],
+  refillSpendMul: ['clean water per spot', true],
+  // Worded off Tidal Race's own card ('The current runs far faster'), not off laneScrollFor:
+  // sibling to currentForceMul's chip, which is the same fiction under a different verb.
+  laneScrollMul: ['current speed', false],
+}
 // Pure helper: given a list of mutator ids (run.mutators), returns the full run.mods object —
 // every key above defaulted to 1, with each selected mutator's effects multiplied in. Unknown
 // ids are ignored so a stale/typo'd id in a save never throws.
@@ -12074,6 +12362,10 @@ export const ELITE_AFFIXES = {
   gilded:    { name: 'Gilded',      icon: '👑' },
 }
 export const AFFIX_SECOND_AT = 150   // s; elites spawned after this roll 2 distinct affixes instead of 1
+// balance_decision : half of all elites shrug off crowd control outright 2026-08-22
+//  - `anchored` is no longer in the rolled pool (rollAffixes filters it out), so this number is the
+//    rate as written — and it gates freeze too, via elNeverFreezes.
+export const ANCHORED_CHANCE = 0.5   // chance an elite gets `anchored` ON TOP of its rolled affixes
 export const SHIELD_HP_FRAC = 0.5    // shielded: shield active while hp > maxHP * this fraction
 export const SHIELD_DMG_MUL = 0.6    // shielded: incoming damage multiplier while the shield is up
 export const SPLITTER_COUNT = 4      // splitter: wisps spawned around the corpse on death

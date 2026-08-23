@@ -236,7 +236,9 @@ const UI = {
   // as "Key to retry", and toucher is not the verb French UI uses for a tap.
   'Could not reach the podium. Tap to try again.': 'Podium injoignable. Appuie pour réessayer.',
   'Difficulty {d} unlocked!': 'Difficulté {d} débloquée !',
-  'Chapter unlocked: {name}!': 'Chapitre débloqué : {name} !',
+  // The default unlock badge: no flavour, just the rung and its name (owner, 2026-08-22).
+  // {n} is chapterNumber(), so the number is never baked into the key.
+  'New level unlocked: {n} {name}': 'Nouveau niveau débloqué : {n} {name}',
   // v6.7 carousel counter. Stands alone in front of a numeral ("Chapitre 3"), so it takes no
   // article and no agreement — the single word is the whole string on purpose.
   'THE BLANK — the antibody that let you go wants you back': 'LE BLANC — l\'anticorps qui t\'a laissé filer veut que tu reviennes',
@@ -338,7 +340,7 @@ const UI = {
   // reaction and keeps the reactor wink next to 'cœur'.
   'you killed an elite and something went critical': "tu as tué un élite et quelque chose s'est emballé",
 
-  // effect chip labels (EFFECT_LABELS in ui.js)
+  // effect chip labels (MUTATOR_EFFECT_LABELS in config.js)
   'enemy spawns': 'apparitions ennemies',
   'enemy speed': 'vitesse ennemie',
   'enemy damage': 'dégâts ennemis',
@@ -351,6 +353,11 @@ const UI = {
   'infusion card chance': 'chance de carte d\'infusion',
   'pickup magnet': 'aimant à butin',
   'current push': 'poussée du courant',
+  'current speed': 'vitesse du courant',
+  // Same noun as its sibling above, because on screen they ARE siblings — Riptide's chip and
+  // Spring Tide's chip sit in the same slot of the same trade, one per chapter.
+  'tide push': 'poussée de la marée',
+  'enemies at once': 'ennemis simultanés',
   'Current Resistance': 'Résistance au courant',
   '-8% current push': '-8 % de poussée du courant',
   'pheromone life': 'durée des phéromones',
@@ -359,6 +366,10 @@ const UI = {
   'time between shells': 'délai entre obus',
   'gravity well force': 'force des puits de gravité',
   'acid pool burn': 'brûlure des flaques d\'acide',
+  // 'zones d'eau claire' verbatim from Dead Water's own French desc and the shelf's HUD — the chip
+  // and the card describe one thing, so they must use one word for it.
+  'clean-water spots': 'zones d\'eau claire',
+  'clean water per spot': 'eau claire par zone',
 }
 
 // config.js content strings — filled by the translation pass (see fr-config section below).
@@ -538,6 +549,10 @@ const CONFIG = {
   // Humidity reaching zero rather than whatever landed the last hit — same as 'Filtré·e' for the pond.
   'You rode it out! 🎉': 'Tu as laissé passer la marée ! 🎉',
   'Dried out… ☀️': 'Desséché·e… ☀️',
+  // Le Large. 'Envasé·e' keeps the participle, and it is the Pollution rail filling up rather than
+  // whatever landed the last hit — the rail is inverted here, so the death is silt ARRIVING.
+  'You found clear water! 🎉': 'Tu as trouvé de l\'eau claire ! 🎉',
+  'Silted up… 🌫️': 'Envasé·e… 🌫️',
   // v6.2 Remaster — watcher unlock lines
   'The Pond — word of you travels downstream': 'La Mare — la rumeur descend le courant',
   'The Garden — something marked your trail': 'Le Jardin — quelque chose a marqué ta piste',
@@ -1382,7 +1397,12 @@ const CONFIG = {
   'Quick Stir': 'Brassage Rapide',
   'stir rate': 'cadence de brassage',
   'Foul Spring': 'Source Souillée',
-  'a cloud in clean water has {n} more duration, damage and size, but fouls the patch': 'un nuage dans l\'eau claire gagne {n} de durée, de dégâts et de taille, mais souille la zone',
+  // 2026-08-22, and this one is the OWNER'S OWN LINE -- the French is the original and the English
+  // was fitted to it, so read the French as the authority if the two ever drift. 'vase' singular
+  // (the material, the word this weapon's whole vocabulary is built on), and 'puissance' folds the
+  // duration and the damage the way the English 'power' does. Still no noun for the circles:
+  // 'l'eau claire' is what the player is looking at.
+  'silt clouds consume clean water to gain {n} more power and size': 'les nuages de vase consomment l\'eau claire pour gagner {n} de puissance et de taille',
   'Ballast': 'Lest',
   'Drops dumped weight on the crowd. Whatever it does not crush, it pins down.': 'Lance un débris. Ce qu\'il n\'écrase pas, il le cloue sur place.',
   // Lest's four. 'Délestage' is literally jettisoning ballast, so the count mod is named for the
@@ -1396,6 +1416,14 @@ const CONFIG = {
   'extra weight(s) per drop': 'poids supplémentaire(s) par largage',
   'Foul Water': 'Eau Souillée',
   'the drag catches {n} wider than the crush, rising with your Pollution': 'le ralentissement porte {n} plus loin que l\'impact, augmente avec ta Pollution',
+  // The two DUO BOONS (2026-08-22), one on each of the chapter's other weapons, both of which
+  // make Voile de Vase's cloud. Both keep 'vase' -- the Voile de Vase rule, one word for one
+  // thing across the card, the sheet and the mods -- and both name the weapon they sit on the
+  // way the French cards for that weapon already do: 'Panache' is the plume a weight throws up
+  // off the bottom, and 'Chasse de Vase' takes Chasse d'eau's own noun, so the pair reads as
+  // 'the flush, but silt' exactly as the English does.
+  'Silt Plume': 'Panache de Vase',
+  'the impact throws up {n} clouds of silt': 'l\'impact soulève {n} nuages de vase',
   // Le Large's FOURTH native (2026-08-20), and the second of its two clean-water cards. Owner's
   // own line for the desc, as with the three above -- shorter than the English and leading on
   // what the card does rather than on how it arrives. 'Chasse d'eau' is his pick over 'Plongeon'
@@ -1423,6 +1451,8 @@ const CONFIG = {
   'column and burst damage': 'dégâts de la colonne et de l\'explosion',
   'Quick Pour': 'Chasse Rapide',
   'pour rate': 'cadence des colonnes',
+  'Silt Flush': 'Chasse de Vase',
+  'the burst leaves a huge cloud of silt': 'l\'explosion laisse un immense nuage de vase',
   // Le Large's own mutator. 'Eau Croupie' over 'Eau Morte' (owner, 2026-08-20). The desc says
   // 'zones d'eau claire' and never coins a noun for the circles, the same rule Source Souillee's
   // line states: the game has no player-facing word for them in either language.
@@ -1572,6 +1602,9 @@ const CONFIG = {
   'Starvation': 'Famine',
   'The Leak': 'La Fuite',
   'The Coral': 'Le Corail',
+  // Owner's pick, 2026-08-22, over 'L'Orque' and 'L'Épaulard': the chapter's own premise turned
+  // back on the player — you spent the run being the predator, and this is the one that outranks you.
+  'The Orca': 'Le Prédateur',
   'The Net': 'Le Filet',
   'Swallowed': 'Avalé',
   'Caustic Pools': 'Flaques caustiques',
