@@ -21489,6 +21489,10 @@ function testReefSpurScrape() {
     [SPUR_VIS.lenFallLo, SPUR_VIS.lenFallHi, 'taper'],
     [SPUR_VIS.trunkLenLo, SPUR_VIS.trunkLenHi, 'stem length'],
     [SPUR_VIS.segLenLo, SPUR_VIS.segLenHi, 'branch length'],
+    // The two that make the ridge's DENSITY ragged rather than machined. gapLo === gapHi restores
+    // a uniform stride with the accumulation still in place, which no source regex can see.
+    [SPUR_VIS.colonyEveryLo, SPUR_VIS.colonyEveryHi, 'ridge grain'],
+    [SPUR_VIS.gapLo, SPUR_VIS.gapHi, 'colony gap'],
   ]) {
     assert.ok(hi > lo,
       `run RS.a: ${what} is fixed at ${lo} — every colony then shares that habit and the whole reef is one stamp repeated, which is the "+ base" defect by another name`)
@@ -21504,14 +21508,48 @@ function testReefSpurScrape() {
   // The stem factor WAS 0.85 + h * 0.3, i.e. up to 1.15, and that 15% shipped unnoticed through
   // two revisions because nothing compared it against the bound it was multiplying.
   assert.ok(SPUR_VIS.trunkLenHi <= 1 && SPUR_VIS.segLenHi <= 1,
-    `run RS.a: branch lengths scale up to ${Math.max(SPUR_VIS.trunkLenHi, SPUR_VIS.segLenHi)} of a colony's nominal reach — above 1.0 the coral grows past the wall the player is held off by`)  // The stems are spaced by JITTERED gaps. An even division is a regular star at every count and a
-  // plus sign at four, so this lints the expression rather than the fact that stems exist.
+    `run RS.a: branch lengths scale up to ${Math.max(SPUR_VIS.trunkLenHi, SPUR_VIS.segLenHi)} of a colony's nominal reach — above 1.0 the coral grows past the wall the player is held off by`)
+
+  // THE HOLE A FUTURE TUNE COULD OPEN, as an inequality rather than as a warning. The widest gap
+  // the walk can leave between two colony bases is colonyEveryHi x gapHi; if that ever exceeds the
+  // player's own diameter, the ridge grows a hole the player reads as a way through — and since
+  // spurs.solid it is not one, so the misread costs a crush at LANE_CRUSH_DPS.
+  //
+  // 4x THE RADIUS, NOT 2x, AND THE CALIBRATION IS THE POINT. Rasterising the shipped geometry says
+  // a hole first reads as passable at a knob mean around 44 (colonyEveryHi ~55); today's widest
+  // see-through run is 15px against a 44px player. A bound at 2 x PLAYER.radius caps colonyEveryHi
+  // at 27.5 and goes red on colonyEveryHi 30 — a plausible "open it up a bit" tune that measures a
+  // 21px hole, half a player, and is fine. That is the same over-tight warning this diff deleted
+  // from config.js, recommitted as a hard red: an assertion that fires on healthy tunes teaches
+  // the next editor to widen it, and then it is not there for the tune that matters. 4x still
+  // catches the pathology (a 55px stride) and leaves the healthy ones alone.
+  assert.ok(SPUR_VIS.colonyEveryHi * SPUR_VIS.gapHi < 4 * PLAYER.radius,
+    `run RS.a: the colony walk can leave ${(SPUR_VIS.colonyEveryHi * SPUR_VIS.gapHi).toFixed(1)}px between bases against a ${2 * PLAYER.radius}px player — past ${4 * PLAYER.radius}px that is a hole reading as a way through a wall that is solid`)
+  // A deleted knob may not come back, same rule as SPUR_VIS.bump above: an unread entry in a config
+  // table is one the next reader will tune and watch do nothing.
+  assert.ok(SPUR_VIS.colonyEvery === undefined && SPUR_VIS.reachMax === undefined,
+    'run RS.a: SPUR_VIS.colonyEvery / reachMax are back. Both were replaced (by the hashed walk and by the reachLo..reachHi fraction) and nothing reads them')
   {
     const gsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
     assert.ok(!/ang = \(t \/ g\.trunks\) \* Math\.PI \* 2/.test(gsrc),
       'run RS.a: stem angles are back to an even division of the circle — that is the plus sign, whatever the stem count')
     assert.ok(/ang \+= \(\(Math\.PI \* 2\) \/ g\.trunks\) \* \(0\.5 \+ hash\(/.test(gsrc),
       'run RS.a: stem angles are no longer accumulated from jittered gaps — colonies will differ only by rotation again')
+
+    // THE SAME LINT ONE LEVEL UP, which is where "straight wall" actually lived. The stem-angle
+    // pair above was written for an even division of the circle; the COLONY WALK along the spine
+    // was still doing exactly that -- c0 + (c1-c0)*k/n with a small wobble, which cannot produce a
+    // clump or a thin patch. Even density along a ridge's length reads as machined however organic
+    // each plant on it is, and machined is what the eye calls a straight wall.
+    assert.ok(!/const cc = c0 \+ \(\(c1 - c0\) \* k\) \/ n/.test(gsrc),
+      'run RS.a: colony placement is back to an even division of the ridge — that is a machined wall, whatever each colony looks like')
+    // ⚠ `hash\(cc \*`, NOT `hash\(`. The gap has to be hashed off the RUNNING POSITION. Hashing it
+    // off the ridge instead — `hash(f * 2.7, f * 1.3)`, a one-character edit — gives every step on
+    // that ridge the SAME gap: a uniform stride again, wearing an accumulation. Measured, the ink
+    // is statistically indistinguishable, and with the looser regex every guard here stayed green.
+    // The regression this whole block exists to prevent, escaping through one character.
+    assert.ok(/cc \+= mean \* \(V\.gapLo \+ hash\(cc \*/.test(gsrc),
+      'run RS.a: the colony walk no longer accumulates gaps hashed off the RUNNING POSITION — hashing off the ridge gives every step the same gap, which is a uniform stride again')
   }
   assert.strictEqual(SPUR_VIS.bump, undefined,
     'run RS.a: SPUR_VIS.bump is back. The lobe pass it fed is deleted; a knob nothing reads is one the next reader will tune and watch do nothing')
@@ -21907,11 +21945,38 @@ function testReefSpurScrape() {
   // beside the chapter — so any one of them can eat the margin with nothing on screen changing and
   // the config prose still reading as reassurance. The margin is PRINTED because it is thin.
   {
+    // ⚠ BOTH SIDES OF THIS INEQUALITY WERE WRONG, IN OPPOSITE DIRECTIONS, WHICH IS WHY IT STAYED
+    // GREEN. Two adversarial rounds were needed to land it, and the middle version was the worst of
+    // the three -- worth recording, because the mistake is a tempting one.
+    //
+    // THE BAR (right-hand side). It read `spec.thick * (1 + spec.thickVar)`: the whole drawn band,
+    // 109.8px. I "corrected" that to `+ 2 * PLAYER.radius` = 153.8 on the argument that a dash must
+    // carry the player from one blockOnCoral hold position to the other. That argument is FALSE and
+    // it misreads the line it cites. sim.js: `p[ax.fwd] = sp.f + (f < sp.f ? -half : half)` -- the
+    // moment the player's centre is one pixel PAST sp.f, the very next frame ejects them out the
+    // FAR face for free. The far hold position is where blockOnCoral PUTS you, not anywhere the
+    // dash has to reach. The dash only has to cross the CENTRE LINE, so the bar is half the band
+    // plus the radius it is held off by. Measured against the real sim (one synthetic fattest
+    // ridge, no grooves, player on the near face, binary search on _burstT): the shortest dash that
+    // clears it travels 81.0px — six quantised frames — and 76.9 is the EXACT continuous threshold
+    // it brackets, not a conservative one. There is no slack here to tighten: a five-frame dash
+    // travels 54px, coasts 13.5 more on the frame _burstT hits zero, lands 9.4px short of the
+    // centre line, and blockOnCoral snaps it all the way back for a net zero. The old line
+    // overstated the bar by 63%; my first correction overstated it by 128%.
+    //
+    // THE REACH (left-hand side) STAYS THE FORMULA, and the frame count that looked like a better
+    // number is a trap. stepPlayerMovement applies the velocity and decrements _burstT afterwards,
+    // so at dt = 1/60 a nineteenth frame runs (repeated subtraction of 1/60 from 0.3 leaves 4.86e-17
+    // rather than zero — note `0.3 - 18/60` evaluates to exactly 0, so the residue is the LOOP's,
+    // not the expression's) and the dash really does travel 256.5px. But `frames * dt >= dur` for
+    // every dt, so counting frames measures the BEST case on this device, and the worst case over
+    // all of them is the product — 36 frames at 1/120 gives exactly 243.0. Substituting the count
+    // swapped the floor for a ceiling on a guard whose whole point is that the margin is thin.
     const reach = BURST_DUR_MIN * laneScrollFor(CHAPTERS.reef) * BURST_SPEED_MUL
-    const widest = spec.thick * (1 + spec.thickVar)
+    const widest = spec.thick * (1 + spec.thickVar) / 2 + PLAYER.radius
     noSpiral = { reach, widest, margin: reach - widest }
     assert.ok(reach > widest,
-      `run RS.h: the empty-bar Burst travels ${reach.toFixed(1)}px (BURST_DUR_MIN ${BURST_DUR_MIN} x laneScroll ${laneScrollFor(CHAPTERS.reef)} x BURST_SPEED_MUL ${BURST_SPEED_MUL}) against a widest ridge of ${widest.toFixed(1)}px (spurs.thick ${spec.thick} x 1+thickVar ${spec.thickVar}) — a player at an empty bar cannot press their way across the fattest band the field generates, which is spec 8.2's no-spiral rule broken by ${(widest - reach).toFixed(1)}px`)
+      `run RS.h: the empty-bar Burst travels ${reach.toFixed(1)}px (BURST_DUR_MIN ${BURST_DUR_MIN} x laneScroll ${laneScrollFor(CHAPTERS.reef)} x BURST_SPEED_MUL ${BURST_SPEED_MUL}; a 60Hz device gets 256.5 from the extra frame, this is the floor across refresh rates) against a required crossing of ${widest.toFixed(1)}px (half of spurs.thick ${spec.thick} x 1+thickVar ${spec.thickVar}, plus PLAYER.radius ${PLAYER.radius}: the dash must carry the player past the ridge's CENTRE LINE, from which blockOnCoral ejects them out the far face) — a player at an empty bar cannot press their way across the fattest band the field generates, which is spec 8.2's no-spiral rule broken by ${(widest - reach).toFixed(1)}px`)
   }
 
     // (k) THE CRUSH: THE LANE LEAVES WITHOUT YOU, AND THAT IS WHAT ENDS THE RUN.
@@ -21970,7 +22035,7 @@ function testReefSpurScrape() {
       `run RS.k: a player holding a channel was crushed on ${crushed} frames — the grooves are not a way through and the chapter is a dead end`)
   }
 
-  console.log(`PASS run RS (the coral grate, now a WALL): 1 of ${all.length} chapters declares spurs, drawn to x${(SPUR_VIS.bump + SPUR_VIS.bumpOut).toFixed(2)} of the band it charges over; riding the wall for ${secs}s was STOPPED by it (${coral.fwd.toFixed(0)}px against a channel's ${groove.fwd.toFixed(0)}px of clean scroll) and cost ${byScrape} hp of 'scrape' over ${inCoral.toFixed(1)}s of contact, resting exactly half-a-thickness + PLAYER.radius off the ridge centre; holding a channel cost 0, clipping the edge every frame cost ${oscScrape} of scrape against a ${SPUR_DPS} dps ceiling that four minutes in still charges the same ${late.by.scrape}; the scrape strafes at x${SPUR_SLOW_MUL}, a held Burst crossed ${burstFree.dash.inBand} frames of the same coral for 0 scrape against the control's ${burstFree.paid.by.scrape}, 120s of the empty chapter took damage from [${soloSrcs}] and nothing else, and the empty-bar dash clears the fattest ridge the field can make by ${noSpiral.margin.toFixed(1)}px (${noSpiral.reach.toFixed(1)} travelled against ${noSpiral.widest.toFixed(1)})`)
+  console.log(`PASS run RS (the coral grate, now a WALL): 1 of ${all.length} chapters declares spurs, grown as ${SPUR_VIS.trunksLo}-${SPUR_VIS.trunksHi} stems forking ${SPUR_VIS.depthLo}-${SPUR_VIS.depthHi} deep on a hashed walk whose per-ridge mean gap is ${SPUR_VIS.colonyEveryLo}-${SPUR_VIS.colonyEveryHi}px (individual gaps ${(SPUR_VIS.colonyEveryLo * SPUR_VIS.gapLo).toFixed(1)}-${(SPUR_VIS.colonyEveryHi * SPUR_VIS.gapHi).toFixed(1)}px); riding the wall for ${secs}s was STOPPED by it (${coral.fwd.toFixed(0)}px against a channel's ${groove.fwd.toFixed(0)}px of clean scroll) and cost ${byScrape} hp of 'scrape' over ${inCoral.toFixed(1)}s of contact, resting exactly half-a-thickness + PLAYER.radius off the ridge centre; holding a channel cost 0, clipping the edge every frame cost ${oscScrape} of scrape against a ${SPUR_DPS} dps ceiling that four minutes in still charges the same ${late.by.scrape}; the scrape strafes at x${SPUR_SLOW_MUL}, a held Burst crossed ${burstFree.dash.inBand} frames of the same coral for 0 scrape against the control's ${burstFree.paid.by.scrape}, 120s of the empty chapter took damage from [${soloSrcs}] and nothing else, and the empty-bar dash clears the fattest ridge the field can make by ${noSpiral.margin.toFixed(1)}px (${noSpiral.reach.toFixed(1)} travelled against ${noSpiral.widest.toFixed(1)})`)
 }
 
 // ---- run RN: The Reef's first two natives (v7.x) -----------------------------------------------

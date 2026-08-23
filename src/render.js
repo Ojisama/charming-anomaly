@@ -11751,13 +11751,20 @@ const spurG = new Graphics()
     // individual colony is. The silhouette is made by WHERE things are, not by what they look like.
     for (const [f, c0, c1, half] of segs) {
       const room = half + PLAYER.radius
-      const n = Math.max(1, Math.round((c1 - c0) / V.colonyEvery))
-      for (let k = 0; k <= n; k++) {
-        const h1 = hash(f + k * 5.3, c0 + k * 2.1)
-        const h2 = hash(c0 + k * 7.9, f - k * 4.3)
-        const h3 = hash(f * 1.7 - k * 3.7, c0 * 2.9 + k * 6.1)
-        const cc = c0 + ((c1 - c0) * k) / n + (h1 - 0.5) * V.colonyEvery * 0.8
-        if (cc < c0 - 4 || cc > c1 + 4) continue
+      // THIS RIDGE'S OWN GRAIN. Drawn per ridge (off f, which is constant along it) so one ridge is
+      // a tight thicket and its neighbour is open — variation BETWEEN ridges, where an even stride
+      // gave every ridge the same one.
+      const mean = V.colonyEveryLo + hash(f * 0.37, 11.1) * (V.colonyEveryHi - V.colonyEveryLo)
+      // A CUMULATIVE WALK OF HASHED GAPS, not a division. This is the line that stops the ridge
+      // reading as a machined wall: consecutive gaps of 0.45x and 1.6x the mean put two colonies
+      // shoulder to shoulder and then leave a thin shoulder, which is what a real reef front does
+      // along its length. Starting phase is hashed too, so the walk does not begin at the same
+      // offset on every ridge.
+      let cc = c0 + hash(f * 1.9, c0 * 0.7) * mean
+      for (let k = 0; cc < c1 + 4 && k < 512; k++, cc += mean * (V.gapLo + hash(cc * 2.7, f * 1.3) * (V.gapHi - V.gapLo))) {
+        const h1 = hash(f + k * 5.3, cc * 2.1)
+        const h2 = hash(cc * 7.9, f - k * 4.3)
+        const h3 = hash(f * 1.7 - k * 3.7, cc * 2.9 + k * 6.1)
         // THE GENOME. Every term is a draw, so no two colonies share a habit — the previous
         // revision fixed all of these and drew the same plus sign everywhere under a rotation.
         const g = {

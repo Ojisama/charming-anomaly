@@ -8233,7 +8233,6 @@ export const SPUR_VIS = Object.freeze({
   //   depth       forks per stem. 2 gives 4 fingers a stem: enough to read, cheap enough to batch
   //   lenFall/widthFall  each fork is shorter and thinner than its parent, which IS the antler read
   //   spread      radians between siblings at a fork, jittered per fork so no two colonies match
-  //   colonyEvery px along the ridge between colony centres; they overlap into a thicket
   //   reachMax    the furthest a colony's tip may sit from its own base. run RS.e checks THIS
   //               against the ridge half-thickness, so it is the number that keeps the art inside
   //               the wall — trunkLen x (1 + lenFall + lenFall^2), rounded up.
@@ -8267,7 +8266,8 @@ export const SPUR_VIS = Object.freeze({
   //   widthFall    stays GLOBAL, deliberately: the draw batches segments by fork level and a
   //                per-colony taper would make every colony its own stroke width, which is the
   //                Pixi re-stroking trap this file already paid for once
-  //   colonyEvery  px between colony bases ALONG the spine
+  //   colonyEveryLo/Hi  each RIDGE draws its own mean gap here, so ridges differ in grain
+  //   gapLo/gapHi  each STEP of the walk multiplies that mean, which is what clumps and thins it
   //   reachLo/Hi  a colony's total reach as a fraction of the space it has (half-thickness plus
   //               PLAYER.radius). SCALED TO THE RIDGE rather than a fixed px reach, which is what
   //               keeps tips inside the wall on a thin ridge without a clamp flattening them all
@@ -8280,12 +8280,37 @@ export const SPUR_VIS = Object.freeze({
   lenFallLo: 0.55, lenFallHi: 0.76, widthFall: 0.66,
   spreadLo: 0.42, spreadHi: 0.95, triFrac: 0.16, whipFrac: 0.14,
   trunkLenLo: 0.45, trunkLenHi: 1.0, segLenLo: 0.5, segLenHi: 1.0,
-  // colonyEvery 21 -> 16 WHEN BRANCH LENGTHS BECAME VARIABLE, and this is a gameplay number as
-  // much as an art one. trunkLenLo 0.45 drops the mean arm to ~0.73 of what a fixed-length stem
-  // was, so the same spacing left visible GAPS in the ridge -- and a wall you can see through is a
-  // wall the player reads as passable when it is not. More, smaller colonies keep the barrier
-  // solid at the same total mass.
-  branchW: 5.6, colonyEvery: 16,
+  // WHAT "STRAIGHT WALL" ACTUALLY IS: EVEN DENSITY ALONG THE SPINE.
+  //
+  // Colonies used to be placed at c0 + (c1-c0)*k/n -- a uniform stride with a +/-6.4px wobble that
+  // cannot produce a clump or a thin patch. That is the SAME defect the stem angles had, one level
+  // up: render.js's own comment there says "(t / trunks) x 2pi is a plus sign at 4 stems and a
+  // regular star at every other count -- the exact thing that made the whole field one stamp", and
+  // the fix was to accumulate jittered gaps instead of dividing. The colony walk was still
+  // dividing. A ridge with perfectly even density along its length reads as MACHINED however
+  // organic each plant on it is, and machined is what the eye calls a straight wall.
+  //
+  // So the walk accumulates hashed gaps: dense knots, thin shoulders, ragged ends. Two levels of
+  // variation, because one is not enough -- gapLo/gapHi vary each STEP, and each RIDGE draws its
+  // own mean spacing from colonyEveryLo/Hi, so no two ridges have the same grain either.
+  //
+  // HOW MUCH THE MEAN MAY RISE, MEASURED RATHER THAN FEARED. This carried a warning that the mean
+  // was "not free to rise", inherited from a note about an older knob and re-asserted without being
+  // re-measured. Rasterising the actual stroked ink over 6 seeds x 22 ridges (73,526 coral columns)
+  // says otherwise: the widest see-through run today is 15px against a 44px player, and the mean
+  // has to reach about 44 -- roughly 2.75x -- before any hole reads as passable. An over-tight
+  // warning is not free: it teaches the next editor to distrust the warnings that ARE tight. The
+  // real bound is asserted in run RS.a against 4 x PLAYER.radius, where it ties the art knob to
+  // the collider instead of to a paragraph.
+  //
+  // AND THE WALL DOES NOT HOLD BECAUSE NEIGHBOURS TOUCH -- which matters, because that is the
+  // arithmetic a future editor would reason from. Individual gaps run to 32px while the smallest
+  // stem is under 4px, and a measurable share of neighbouring colonies do not touch at all. It
+  // holds because colonies STACK about three deep, so a colony is bridged by its second and third
+  // neighbour rather than its first. Swept independently: dropping reachHi from 1.0 to 0.30 never
+  // took the widest hole past 22px, so the GAP dominates and the reach does not.
+  branchW: 5.6,
+  colonyEveryLo: 12, colonyEveryHi: 20, gapLo: 0.45, gapHi: 1.6,
   reachLo: 0.45, reachHi: 1.0, spineJitter: 0.16,
   //   tipMix  how far each bud is lightened from its OWN colony's tone toward `tip`. Not 1: at
   //           depth 3 there are 32 buds per colony, so a single cream for all of them stops being
