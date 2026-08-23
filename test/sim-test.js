@@ -20915,7 +20915,7 @@ function testSurfFloor() {
     // which is the scarcest signal on the screen and the whole of the map-reading.
     const t = CHAPTERS.reef.render.dust.tint
     const chan = (c, sh) => (c >> sh) & 255
-    for (const air of [AIR_POCKET_VIS.sheen, AIR_POCKET_VIS.air, CORAL_CRUSH.bubbleTint]) {
+    for (const air of [AIR_POCKET_VIS.sheen, AIR_POCKET_VIS.bubble, CORAL_CRUSH.bubbleTint]) {
       const near = [16, 8, 0].every((sh) => Math.abs(chan(t, sh) - chan(air, sh)) < 40)
       assert.ok(!near,
         `The Reef's dust 0x${t.toString(16)} sits on top of 0x${air.toString(16)} — the motes read as air in the one chapter where finding air is the whole map`)
@@ -24253,7 +24253,7 @@ function testReefAirBurst() {
       for (const mine of [BURST_WAKE.cone, BURST_WAKE.streak]) {
         assert.ok(far(mine, CORAL_CRUSH.siltTint),
           `the burst wake draws in 0x${mine.toString(16)} against the grate's silt 0x${CORAL_CRUSH.siltTint.toString(16)} — the spend and the punishment are the same substance in the same place, so the player cannot tell which one just happened`)
-        for (const air of [AIR_POCKET_VIS.sheen, AIR_POCKET_VIS.air, CORAL_CRUSH.bubbleTint])
+        for (const air of [AIR_POCKET_VIS.sheen, AIR_POCKET_VIS.bubble, CORAL_CRUSH.bubbleTint])
           assert.ok(far(mine, air),
             `the burst wake draws in 0x${mine.toString(16)}, inside the band that means AIR IS HERE (0x${air.toString(16)}) — laying that down the lane behind you is a lie about the map in the chapter whose map is finding air`)
       }

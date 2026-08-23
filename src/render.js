@@ -4825,6 +4825,20 @@ export function createRenderer(app) {
   //
   // T.coral is an ARRAY of SPUR_VIS.bakes shapes. Variety at run time is a hashed pick plus a
   // hashed rotation and scale, so 28 textures cover a field that never repeats visibly.
+  // A BUBBLE IS A RIM AND A HIGHLIGHT, NOT A BLOB. The stream first used T.fx.circle_05, which is
+  // a Kenney glow: soft, filled, and at bubble size it reads as fog rather than as air. What makes
+  // a bubble legible is that it is mostly EMPTY with a bright edge and one specular dot -- so it is
+  // baked here, once, and stamped like everything else. Greyscale, so the tint at the spawn site
+  // still decides its colour.
+  function bakeBubble() {
+    const g = new Graphics()
+    const R = 32
+    g.circle(0, 0, R).fill({ color: 0xffffff, alpha: 0.16 })            // the body: barely there
+    g.circle(0, 0, R).stroke({ width: 5, color: 0xffffff, alpha: 0.95 }) // the rim: the whole read
+    g.circle(-R * 0.34, -R * 0.34, R * 0.2).fill({ color: 0xffffff })   // the specular
+    T.bubble = bake(g, 3)
+  }
+
   function bakeCoral() {
     const V = SPUR_VIS
     const hash = (a, b) => { const x = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return x - Math.floor(x) }
@@ -7633,6 +7647,7 @@ export function createRenderer(app) {
   }
   buildTextures()
   bakeCoral()
+  bakeBubble()
 
   // ==============================================================================================
   // SKIES ART DIRECTION (v5.10) — bakes
@@ -12376,46 +12391,27 @@ const spurG = new Graphics()
         sv.body.clear()
         sv.ring.clear()
         if (pocket) {
-          // Trapped air seen from directly overhead: a HARD silver mirror, not a glow. Same three
-          // strokes as the tide pool one branch down and the same drawn-extent-is-tested-extent
-          // rim, but inverted in value — the pool is a dark hole in pale sand, this is a bright
-          // disc on a dark reef floor, which is what keeps the two from reading as one another.
-          const ar = sh.r * P.airFrac
-          sv.glow.tint = P.sheen
-          sv.body.circle(0, 0, sh.r).fill({ color: P.shade, alpha: P.shadeA })
-          sv.body.circle(0, 0, ar).fill({ color: P.air, alpha: P.airA })
-          sv.body.circle(-ar * 0.16, -ar * 0.13, ar * 0.5).fill({ color: P.lobe, alpha: P.lobeA })
-          sv.ring.circle(0, 0, sh.r).stroke({ width: P.rimW, color: P.rim, alpha: P.rimA })
-          // THE LOST TANK. CHAPTERS.reef.signature's fiction is "air under coral overhangs and lost
-          // scuba tanks", and until WEAPONS.oxygenTank landed the second half of that sentence was
-          // nowhere on screen -- so a card named for a tank was coining a noun the player had never
-          // seen. This is the same object the weapon throws (T.oxyTank, drawn at the same
-          // proportions), lying on the floor under the overhang, half in the silt.
-          //   Drawn into sv.body, which is inside the geometry cache, so it costs nothing per frame.
-          // Its bearing is sh.phase -- the hash-derived angle refillCircleAt already stores on every
-          // circle -- so a field of pockets does not have every tank lying the same way, and it is
-          // deterministic with no Math.random draw (which would re-phase every seeded scenario).
-          //   BUILT FROM A RECTANGLE AND TWO END CAPS rather than a roundRect, because the whole
-          // shape has to lie at an arbitrary bearing and a Graphics rounded rect cannot be rotated
-          // on its own inside a shared Graphics. First cut skipped the caps and shot as a brick.
+          // A VENT, NOT A POOL. The disc that used to be here read as a big bubble of stored air --
+          // owner: "i dont like big air pockets like that, rather lots of little bubble floating
+          // up." What is drawn now is the MOUTH the air escapes from, a dark slot in the coral, and
+          // the stream itself is particles emitted below (updateAirVents).
+          //
+          // ⚠ THE ZONE THAT REFILLS YOU IS UNCHANGED. inMaw() still tests sh.r, still off-centre in
+          // the passage, so none of the Air economy moves with this -- only the drawing does. The
+          // mouth is sized off the same sh.r so the thing you aim at is the thing that feeds you.
+          const P2 = AIR_POCKET_VIS
+          sv.glow.tint = P2.sheen
+          sv.ring.visible = false
+          sv.body.ellipse(0, 0, sh.r * P2.ventW * 0.5, sh.r * P2.ventH * 0.5)
+            .fill({ color: P2.vent, alpha: P2.ventA })
+          // A rim of small stuck bubbles around the mouth, so it reads as gassy even in a still.
           const ta = sh.phase ?? 0
-          const tc = Math.cos(ta), ts = Math.sin(ta)
-          const tx0 = -ar * 0.30, ty0 = ar * 0.44
-          const TL = sh.r * 0.20, TW = sh.r * 0.085
-          const pt = (u, v) => [tx0 + u * tc - v * ts, ty0 + u * ts + v * tc]
-          const STEEL = 0x9a742b, EDGE = 0x3a2a10
-          sv.body.circle(...pt(-TL, 0), TW).fill({ color: STEEL, alpha: 0.92 })
-          sv.body.circle(...pt(TL, 0), TW).fill({ color: STEEL, alpha: 0.92 })
-          sv.body.poly([...pt(-TL, -TW), ...pt(TL, -TW), ...pt(TL, TW), ...pt(-TL, TW)])
-            .fill({ color: STEEL, alpha: 0.92 })
-          // The waist band and the dent: the two marks that make it a LOST tank rather than a tank.
-          sv.body.poly([...pt(-TW * 0.5, -TW), ...pt(TW * 0.5, -TW), ...pt(TW * 0.5, TW), ...pt(-TW * 0.5, TW)])
-            .fill({ color: EDGE, alpha: 0.55 })
-          sv.body.circle(...pt(TL * 0.45, TW * 0.25), TW * 0.32).fill({ color: EDGE, alpha: 0.4 })
-          // The valve: a stub and a handwheel off one end. The detail that says cylinder-with-a-top.
-          sv.body.poly([...pt(TL, -TW * 0.34), ...pt(TL + TW * 0.9, -TW * 0.34), ...pt(TL + TW * 0.9, TW * 0.34), ...pt(TL, TW * 0.34)])
-            .fill({ color: 0x9aa0a6, alpha: 0.92 })
-          sv.body.circle(...pt(TL + TW * 1.25, 0), TW * 0.52).fill({ color: 0x6d7278, alpha: 0.92 })
+          for (let b = 0; b < 7; b++) {
+            const a = ta + (b / 7) * Math.PI * 2
+            const rr = sh.r * (P2.rMin + (P2.rMax - P2.rMin) * ((b * 0.37) % 1))
+            sv.body.circle(Math.cos(a) * sh.r * 0.34, Math.sin(a) * sh.r * 0.16, rr)
+              .fill({ color: P2.bubble, alpha: 0.5 })
+          }
         } else if (upwelling && fouling) {
           // FOUL SPRING (Silt Veil's mod). The clean water being taken by the player's own silt.
           //
@@ -13228,6 +13224,54 @@ const spurG = new Graphics()
   // (2026-08-22) was about the SCRAPE, and a run-ending state is exactly the kind of rare event
   // SFX_FOR_EVENT's own rule says may carry one. It would need a real event to hang off — the
   // damage here is a silenced dot — so it is left out rather than invented.
+  // THE AIR VENTS' STREAM (The Reef). Emitted rather than drawn, because a rising column is motion
+  // and a Graphics cache is a still. One accumulator for the whole field: the rate is per VENT, so
+  // a screen with five of them lets go of five times as much air, which is what the picture wants.
+  //
+  // RISES ON THE CROSS AXIS, away from the floor the vent sits on. In this chapter's side-on read
+  // the cross axis IS up-and-down, so the direction comes off laneAxes rather than being hardcoded
+  // to -y -- a chapter whose lane runs the other way would otherwise pour its bubbles into the
+  // seabed. Emission is skipped entirely while the game is paused (dt = 0), like every other
+  // particle source here.
+  let ventAcc = 0
+  function updateAirVents(run, dt) {
+    if (dt <= 0 || !run.shafts || !run.shafts.length) return
+    if (refillLook !== 'pocket') return
+    const P2 = AIR_POCKET_VIS
+    const ax = chapterLaneAxis
+    // ONLY THE VENTS THAT ARE ON SCREEN. run.shafts streams a 1400px disc and the phone shows a
+    // fraction of it, so emitting from the whole list spends almost every bubble outside the view:
+    // 24 vents streamed, a handful visible, and the stream read as a trickle. The rate is per
+    // VISIBLE vent now, which is what makes the density on screen independent of how far the
+    // streamer happens to reach.
+    const p = run.player
+    const mx = viewW() / 2 + 80, my = viewH() / 2 + 80
+    const near = run.shafts.filter((sh) => Math.abs(sh.x - p.x) < mx && Math.abs(sh.y - p.y) < my)
+    if (!near.length) return
+    ventAcc += dt * P2.rate * near.length
+    let n = Math.floor(ventAcc)
+    if (n <= 0) return
+    ventAcc -= n
+    n = Math.min(n, 60)                     // a hard ceiling, so a stall cannot dump a frame's worth
+    for (let i = 0; i < n; i++) {
+      const sh = near[(Math.random() * near.length) | 0]
+      const rise = P2.rise * (1 + (Math.random() - 0.5) * 2 * P2.riseVar)
+      const jitter = (Math.random() - 0.5) * 2
+      // Along the lane the bubble is left behind by the scroll, which is what makes the stream lean.
+      const vx = ax.fwd === 'x' ? jitter * P2.drift : -ax.fx * 0 + jitter * P2.drift
+      const ux = ax.cross === 'x' ? -rise : vx
+      const uy = ax.cross === 'x' ? vx : -rise
+      spawnSmoke(T.bubble.tex,
+        sh.x + (Math.random() - 0.5) * sh.r * P2.ventW,
+        sh.y + (Math.random() - 0.5) * sh.r * P2.ventH,
+        ux, uy,
+        P2.life * (1 + (Math.random() - 0.5) * 2 * P2.lifeVar),
+        // The bake is 32px across, so the scale converts a fraction-of-the-zone into sprite units.
+        (sh.r * (P2.rMin + Math.random() * (P2.rMax - P2.rMin))) / 32,
+        P2.bubble, P2.alpha, 0.95, 0, 0, 0.35)
+    }
+  }
+
   function updateCoralGrit(run, dt) {
     const crushing = !!run._crushing
     if (dt <= 0 || (!run._scraping && !crushing)) { gritAcc = 0; return }
@@ -20088,7 +20132,8 @@ const spurG = new Graphics()
     drawColumns(run)
     drawShorebreak(run, animT)
     drawBurstWake(run, animT)   // The Reef: no-op unless run._burstT is live
-    updateCoralGrit(run, dt)    // The Reef: no-op unless run._scraping is set this frame
+    updateCoralGrit(run, dt)
+    updateAirVents(run, dt)    // The Reef: no-op unless run._scraping is set this frame
     drawCrusts(run)
     drawDeepTells(run)   // v7.x The Deep: the Scent outline (the maw's gape is drawn by updateShafts)
     updateDark(run, cx, cy)   // AFTER updateShafts: it cuts its holes from the same run.shafts list

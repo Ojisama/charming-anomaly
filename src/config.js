@@ -8276,14 +8276,30 @@ export const UPWELLING_VIS = {
 // is deep cold blue (bgColor 0x0a3358) and every prop on it is warm coral, so a bright achromatic
 // disc cannot be confused with either. RAW final colours — shaftLayer lives in entitiesLayer and is
 // never multiplied by render.floorTint, exactly like the eddy and tide-pool decals.
+// AIR IS A STREAM OF BUBBLES NOW, NOT A POOL OF IT. Owner, 2026-08-23: "i dont like big air
+// pockets like that, rather lots of little bubble floating up."
+//
+// The disc is gone. What marks the refill is a VENT on the cave floor that lets go of small bubbles
+// continuously, and they rise. That reads as a place air comes FROM rather than a place air is
+// stored, which is what a reef actually offers a fish, and it is legible at a glance from further
+// away than the disc was -- a rising column crosses the whole passage.
+//
+// ⚠ THE BUBBLES ARE DECORATION AND THE SIM DOES NOT SEE THEM. The zone that refills you is still
+// the circle inMaw() tests, unchanged and still off-centre in the passage, so nothing about the Air
+// economy moves with this. What changed is that the circle is no longer DRAWN as a disc -- only its
+// mouth is, as the vent the stream leaves from. If those two ever need to disagree, they must not:
+// the stream is emitted from the circle's own r.
 export const AIR_POCKET_VIS = {
-  shade: 0x0d2b44, shadeA: 0.55,     // the overhang's shadow: the collar the air is trapped under
-  air: 0xe4f4ff, airA: 0.82,         // the air itself — a silver mirror, hard-edged, not a glow
-  lobe: 0xffffff, lobeA: 0.55,       // the brighter blob inside it, offset so it is not a bullseye
-  rim: 0xffffff, rimA: 0.9, rimW: 3, // the meniscus, ON r — the edge the mechanic is tested against
-  airFrac: 0.86,                     // air edge as a fraction of r; the shade collar spans this..1
-  sheen: 0xbfe9ff, sheenA: 0.18, sheenFrac: 1.15, // additive spill onto the water around it
-  breathe: 0.05,                     // ± fraction the sheen's size wanders — trapped air, not a beacon
+  vent: 0x0d2b44, ventA: 0.6,        // the dark mouth in the coral the air escapes through
+  ventW: 0.9, ventH: 0.28,           // the mouth as a fraction of r: a slot, not a hole
+  bubble: 0xdff2ff,                  // the air itself, the chapter's silver
+  rate: 30,                          // bubbles a second per VISIBLE vent
+  rise: 78,                          // px/s upward, before the per-bubble spread below
+  riseVar: 0.5, drift: 26,           // ± fraction of rise, and sideways wander
+  life: 1.5, lifeVar: 0.35,
+  rMin: 0.09, rMax: 0.2,             // bubble size as a fraction of the zone radius
+  alpha: 0.85,
+  sheen: 0xbfe9ff, sheenA: 0.1, sheenFrac: 0.9,  // the faintest halo, so the mouth reads when idle
 }
 
 // THE SPUR FIELD, RENDER-ONLY (v7.x, The Reef). Zero sim effect — the edge that HURTS is the
