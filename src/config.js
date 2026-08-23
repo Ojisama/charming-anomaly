@@ -7166,6 +7166,13 @@ CHAPTERS.reef = {
 // ⚠ PHASE 1 — IT PLAYS, IT DOES NOT YET LOOK LIKE A WRECK. The arsenal, the three creature bakes and
 // the floor are BORROWED FROM THE REEF wholesale, exactly as The Reef and The Trawl each shipped
 // borrowed. What is real here is the bar, the button, the starving and the roster's behaviour.
+// The bearing the water here runs along. TWO consumers — the tide itself and the grain the sunken
+// hulls settled into (render.hull.grain) — and they are the same physical fact, so they are one
+// const. Written out because a second literal 120 in the render block is precisely the shape of
+// defect this repo loses most releases to: one fact authored twice, no import between them, nothing
+// thrown when they drift.
+const WRECK_TIDE_DEG = 120
+
 CHAPTERS.wreck = {
   name: 'The Wreck', tagline: 'stop and you starve', icon: '⚓',
 
@@ -7294,8 +7301,9 @@ CHAPTERS.wreck = {
   //
   // See SLICK_* above for the numbers and for why this rides refillCircleAt but lives in run.slicks
   // rather than run.shafts.
-  // 120° — see the TIDE block for how the six bearings are spread.
-  tide: tideAt(120),
+  // 120° — see the TIDE block for how the six bearings are spread. WRECK_TIDE_DEG, not a literal:
+  // render.hull.grain is the same bearing and they must not drift.
+  tide: tideAt(WRECK_TIDE_DEG),
   signature: {
     type: 'leak',
     // chance/cell together set how much of the floor is poisoned. 0.34 of a 900px cell at r 190
@@ -7478,42 +7486,71 @@ CHAPTERS.wreck = {
     //
     // A GRID, NOT ONE SHIP, and that is the only honest answer on an infinite map. A single hull at
     // the run origin is a landmark you swim away from in twenty seconds, after which the chapter is
-    // called The Wreck and has no wreck in it. `cell` is deliberately huge so two are never on
-    // screen together and the repeat cannot read as tiling; variant and rotation are hashed per
-    // cell off the run's own obstacle seed, like every other streamed field here.
+    // called The Wreck and has no wreck in it. Position, heading, size, heel and mirror are all
+    // hashed per CELL off the run's own obstacle seed, like every other streamed field here.
     // ⚠ EVERY NUMBER BELOW WAS CORRECTED FROM A SCREENSHOT, and the first cut was wrong in the two
     // ways this repo keeps being wrong about art: it was invisible, and it was the wrong size.
+    // ⚠ THIS BLOCK ALSO CARRIED TWO CLAIMS THAT WERE SIMPLY FALSE AGAINST THE CODE, both caught by
+    // reading the frames rather than the file: it said two hulls are never on screen together (they
+    // overlapped in half the probe frames — see HULL_JITTER in render.js) and that a VARIANT was
+    // hashed per cell (there was one texture and one uniform scale). A stale comment here is worse
+    // than none, because the next tuner trusts it instead of measuring. Both are now true.
     hull: {
-      // 1250, DOWN FROM 2200, AND THE REASON IS A SHAPE MISMATCH RATHER THAN A TASTE CALL. The grid
-      // is square and a hull is not: at 950 x 205 in a 2200 cell it covered 43% of the span across
-      // its length and 9% across its beam, so the chance of one intersecting the viewport at all
-      // was about one frame in twenty-five. On screen that is a chapter with no wreck in it, which
-      // is precisely the report this whole change answers. Measured off the frames, not reasoned.
-      // Owner, 2026-08-18: "boats should be wayyyy bigger." cell tracks len at ~1.35x so a bigger
-      // hull does not simply overlap its neighbour — the grid spacing and the object's own length
-      // are one decision, and moving either alone is how a graveyard turns into a pile-up.
-      cell: 2450,
-      chance: 0.8,       // under 1 so the field reads as a graveyard rather than as a lattice
+      // ⚠ cell, len, HULL_JITTER, HULL_SCALE_MAX and HULL_REACH (render.js) ARE ONE DECISION.
+      //     cell * (1 - 2 * HULL_JITTER) >= 2 * len * HULL_REACH * HULL_SCALE_MAX
+      // run WG asserts it, because getting it wrong does not look like a spacing bug — two sprites
+      // at alpha a stack to 1-(1-a)², so an overlap is a visibly brighter quadrilateral with
+      // straight edges belonging to neither wreck, which reads as a rendering artefact. The first
+      // pair (cell 2450, jitter ±0.25) allowed 1225px between two 1820px hulls and did exactly that.
+      // ⚠ AND SO DID THE NEXT TWO, WITH THE GUARD GREEN EACH TIME. Stated over the stated length it
+      // missed that the TEXTURE is longer; restated over the texture it missed that HULL_LEAD had
+      // stopped the sprite being centred on its cell at all, so the binding quantity is the reach
+      // FROM THE PLACEMENT POINT and the requirement is twice it. 3800 x 0.74 = 2812 against
+      // 2 x 1820 x 0.68 x 1.12 = 2772.
+      cell: 3800,
+      // ⚠ NOT A GRAVEYARD, AND THE COMMENT USED TO SAY IT WAS. At this spacing two cell centres can
+      // never both be inside a viewport — 2812px of guaranteed separation against a 1280px desktop
+      // and 390px phone — so the player never sees two hulls to count. It is a LANDMARK YOU CROSS,
+      // about every 8400 world px. That is a legitimate thing to be and the number below is tuned
+      // for it; the tension is real, though, because run WG's non-overlap requirement at this hull
+      // size is what forces a spacing two-in-frame cannot survive. If the graveyard read is ever
+      // wanted, the answer is the ponytail note in updateWreckHull (two half-sprites per cell), not
+      // another tune here.
+      chance: 0.90,      // under 1 so meeting one stays an event rather than a metronome
       parallax: 0.45,    // fraction of camera motion the layer takes. 1 = welded to the world, 0 =
                          // pinned to the screen. Under 1 = deeper. Far under and it reads as a
                          // painted backdrop that slides, which is the failure mode to shoot for.
+      // THE FIELD HAS A GRAIN, and it is the chapter's own tide bearing. A uniform full-circle
+      // heading is the safe answer to "a field all pointing the same way is a fleet" and it is also
+      // less physical than it looks: hulls settling in a directional flow scour into it. render.js
+      // spreads ±34° around this, which is scatter by any eye. WRECK_TIDE_DEG feeds this AND the
+      // chapter's own tide, so the two cannot drift apart.
+      grain: WRECK_TIDE_DEG * Math.PI / 180,
       // 1820. THE EARLIER CUT TO 620 FIXED THE WRONG HALF OF THE PROBLEM. At 1560 the hull read as a
       // pale slab, and the diagnosis — "a landmark has to FIT" — was wrong: what actually failed was
       // that all its detail sat at the bow and the stern, so the crop a player really sees was empty
-      // fill. That was fixed separately by making the structure CONTINUOUS (spine, deck rails,
-      // evenly spaced transverse frames), and once a crop reads as built, size stops being the
-      // constraint and starts being the point. Owner: "boats should be wayyyy bigger."
-      // 1820 is ~45x the player's own body and about two phone-screens down its length.
+      // fill. Owner, 2026-08-18: "boats should be wayyyy bigger."
+      // 1820 is ~45x the player's own body and about two phone-screens down its length. It is also
+      // why the BEAM ratio moved instead of the length when the beam turned out to be 391px against
+      // a 390px phone — see the L:B note in the bake (render.js).
       len: 1820,
       // Lighter than the floor, not darker: underwater, distance makes a thing PALER and BLUER,
       // because the water column between you and it scatters light in. The first cut used 0x14242c
       // on the reasoning that dead steel is dark and it vanished completely.
       // ⚠ THEN IT OVERSHOT. 0x54737d at alpha 0.6 was the BRIGHTEST thing in the chapter, and a
       // backdrop that wins the frame is not a backdrop — it read as a pale wall rather than as
-      // something deep. This pair is the third reading, and the rule it follows is that the hull
-      // must be clearly separable from the floor and clearly quieter than the roster.
+      // something deep. The rule those two readings settled on still holds: the hull must be clearly
+      // separable from the floor and clearly quieter than the roster.
       tint: 0x486a74,
-      alpha: 0.34,
+      // 0.50, UP FROM 0.34, AND IT IS NOT A BRIGHTNESS CHANGE — IT IS PAYING FOR CONTRAST. One
+      // multiply tint and one alpha divide every value the bake authors: at 0.34 the whole ship
+      // composited into a luminance band 0.018 wide, its interior lines sat at 1.18:1 against their
+      // own plate and its outline came out darker than the bare floor. The bake now spends the range
+      // instead of crowding the middle — near-black voids inside a pale deck — so its MEAN value is
+      // lower than the old near-white fill was, and 0.50 lands the sprite at about the old presence
+      // with a real range inside it. Raise the two together or not at all: alpha alone on the old
+      // flat fill is what produced the pale-wall reading above.
+      alpha: 0.50,
     },
     // The bar's tell. Opt-in per chapter so pHot keeps meaning "berserk" everywhere else — see
     // LUST_TINT_MAX. Render-only, like everything in this block.

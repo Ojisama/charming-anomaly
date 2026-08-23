@@ -9763,6 +9763,96 @@ function runOrca() {
 }
 run(runOrca)
 
+// ---- Run WG: THE SUNKEN SHIP'S FIELD (WK is already Bloodlust — do not reuse it) — four numbers in two files that are ONE decision ----------
+// The wreck grid's spacing is authored in config.js (`cell`, `len`) and its jitter and size spread
+// in render.js (HULL_JITTER, HULL_SCALE_MAX). Nothing imports anything, so nothing throws when they
+// drift — and the failure does not look like a spacing bug. Two sprites at alpha a stack to
+// 1-(1-a)², so an overlap is a visibly BRIGHTER quadrilateral bounded by straight edges belonging to
+// neither wreck, which reads as a rendering artefact rather than as a graveyard. The shipped pair
+// (cell 2450, jitter ±0.25) allowed 1225px between two 1820px hulls, and it was in half the probe
+// frames while the config comment two lines above it claimed two are never on screen together.
+//
+// This is the cheapest guard shape in this repo (see the six cross-file source-text lints in
+// CLAUDE.md): it costs a file read and it is the only thing standing between a one-number tune and
+// a field of interpenetrating ships.
+function runWreckGrid() {
+  const rSrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const hull = CHAPTERS.wreck.render.hull
+
+  // -- WK.a: the spacing invariant, cell * (1 - 2*jitter) >= len * maxScale --------------------
+  const constOf = (name) => {
+    const m = rSrc.match(new RegExp(`const ${name} = ([0-9.]+)`))
+    assert.ok(m, `${name} must exist in render.js as a named const — run WG reads it as source text`)
+    return Number(m[1])
+  }
+  const jitter = constOf('HULL_JITTER')
+  const scaleMax = constOf('HULL_SCALE_MAX')
+  // ⚠ THIS INVARIANT HAS BEEN STATED OVER THE WRONG LENGTH THREE TIMES AND WENT GREEN OVER A REAL
+  // OVERLAP EACH TIME — the first ignored the jitter, the second used cfg.len when the TEXTURE is
+  // longer than cfg.len, and the third still assumed the sprite was CENTRED on its cell when
+  // HULL_LEAD had stopped centring it. The binding quantity is the max reach from the PLACEMENT
+  // POINT, and the requirement is twice it, because two neighbours can lean their long ends
+  // together. HULL_REACH is load-bearing in render.js (the cull margins read it), so it cannot rot
+  // into a number that only this assert believes.
+  const reach = constOf('HULL_REACH')
+  const minGap = hull.cell * (1 - 2 * jitter)
+  const maxLen = 2 * hull.len * reach * scaleMax
+  assert.ok(minGap >= maxLen,
+    `two neighbouring wrecks can be ${minGap.toFixed(0)}px apart while together they reach ${maxLen.toFixed(0)}px — ` +
+    'they interpenetrate, and at hull.alpha that is a bright quadrilateral, not a wreck. ' +
+    'Raise cell, or lower HULL_JITTER / HULL_SCALE_MAX / HULL_LEAD (render.js)')
+  console.log(`PASS run WG.a (spacing): cell ${hull.cell} x (1 - 2x${jitter}) = ${minGap.toFixed(0)}px clear ` +
+    `>= 2 x len ${hull.len} x reach ${reach} x ${scaleMax} = ${maxLen.toFixed(0)}px, so no two hulls can overlap`)
+
+  // -- WK.b: both halves of the invariant are actually WIRED -----------------------------------
+  // A named constant nothing reads is a comment. Both position axes must consume HULL_JITTER, and
+  // HULL_SCALE_MAX must equal the arithmetic of the scale line rather than merely sitting near it —
+  // widening `hash(...) * 0.18` and leaving HULL_SCALE_MAX at 1.08 makes WK.a a guard over air.
+  const jitterUses = (rSrc.match(/cs \* HULL_JITTER \* 2/g) || []).length
+  assert.equal(jitterUses, 2,
+    `HULL_JITTER must be read on BOTH position axes in updateWreckHull, found ${jitterUses} — ` +
+    'a re-inlined literal is how the invariant above stops describing the code')
+  const sc = rSrc.match(/const sc = \(cfg\.len \/ \(HULL_REF \* 2\)\) \* \(([0-9.]+) \+ hash\([^)]*\) \* ([0-9.]+)\)/)
+  assert.ok(sc, 'updateWreckHull must set `sc` from cfg.len with a hashed spread — run WG reads its two numbers')
+  const drawnMax = Number(sc[1]) + Number(sc[2])
+  assert.ok(Math.abs(drawnMax - scaleMax) < 1e-9,
+    `HULL_SCALE_MAX is ${scaleMax} but the scale line tops out at ${drawnMax.toFixed(3)} — ` +
+    'WK.a is then checking a number the renderer does not use')
+  console.log(`PASS run WG.b (wired): HULL_JITTER read on ${jitterUses} axes, and HULL_SCALE_MAX ${scaleMax} ` +
+    `is exactly the scale line's ${sc[1]} + ${sc[2]}`)
+
+  // -- WK.c: the field's grain and the chapter's tide are ONE fact ------------------------------
+  // The hulls settle into the current, so hull.grain IS the tide bearing. Both come from
+  // WRECK_TIDE_DEG; this asserts the wiring rather than the literal, so moving the tide moves the
+  // graveyard with it.
+  assert.equal(hull.grain, CHAPTERS.wreck.tide.axis,
+    'hull.grain must BE the chapter tide axis — wrecks scour into the flow, and a second literal ' +
+    'here is one fact authored twice with nothing importing anything')
+  assert.ok(/sp\.rotation = cfg\.grain \+/.test(rSrc),
+    'updateWreckHull must build its heading off cfg.grain — a bare full-circle hash ignores the grain entirely')
+  console.log(`PASS run WG.c (grain): hull.grain = tide.axis = ${hull.grain.toFixed(3)} rad, and render.js reads it`)
+
+  // -- WG.d: HULL_EXTENT and HULL_LEAD are both CONSUMED --------------------------------------
+  // WG.a leans on HULL_REACH, so it has to be the renderer's own number rather than a figure
+  // parked next to the guard. It is read by the cull margins (a value too small pops hulls in at
+  // the screen edge, which is visible), and HULL_LEAD is what stops the grid centring the FRACTURE
+  // — the bake's origin is the tear, so at lead 0 the modal crop is the empty gap and the report is
+  // "the ship is invisible".
+  const reachUses = (rSrc.match(/cfg\.len \* HULL_REACH \* HULL_SCALE_MAX/g) || []).length
+  assert.equal(reachUses, 2,
+    `HULL_REACH must be read by BOTH cull margins in updateWreckHull, found ${reachUses} — ` +
+    'unread, it is a number WG.a trusts and nothing keeps true')
+  assert.ok(/HULL_LEAD \* HULL_REF \* sc/.test(rSrc),
+    'updateWreckHull must offset the sprite by HULL_LEAD along its heading — without it the cell ' +
+    'centre lands on the fracture, i.e. on the one part of the drawing that is deliberately empty')
+  console.log(`PASS run WG.d (consumed): HULL_REACH read on ${reachUses} cull margins, HULL_LEAD applied along the heading`)
+
+  console.log('PASS run WG (The Wreck: the sunken ship field): the grid can never stack two hulls into one bright ' +
+    'quadrilateral, every constant the invariant names is one the renderer actually reads, and the field lies ' +
+    'along the same bearing as the water that put it there')
+}
+run(runWreckGrid)
+
 // ---- Run DK: THE DARK (v7.x Book 2, owner directive) --------------------------------------
 // "if we're stealing light, then our surroundings should be dark, and darker the less light we
 // have", plus a drawback while you are down there — move speed, chosen over damage and accuracy
