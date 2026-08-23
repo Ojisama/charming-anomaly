@@ -4604,7 +4604,7 @@ export function stepCharge(run, dt) {
   // nowhere on the map to stand. run.shafts is empty here, so this is the only branch that can fire.
   if (inWake(run, p.x, p.y)) c += res.refill * dt
   // v7.x Book 2 Task 9: run.chargeMax, not res.max — Deep Lungs raises the RUN's own ceiling, and
-  // this is one of TWO sites that must clamp against it (the other is the Light Thief kill-refill,
+  // this is one of TWO sites that must clamp against it (the other is the per-kill `killBase`,
   // below in dealDamage's kill branch). Missing either one is a flicker: the bar would refill past
   // its cap on a kill and snap back down on the very next tick through whichever site still reads
   // the config max. The Trawl's wake refill feeds `c` too, so it is clamped by this line as well.
@@ -5829,23 +5829,19 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   if (enemy.hp <= 0 && !enemy._dead) {
     enemy._dead = true
     run.kills++
-    // v7.x Book 2: kills feed the bar - but only for a player who BOUGHT that. Owner ruling: "none
-    // by default, only via the shop" (Light Thief, LIGHT_THIEF_COST in config.js). run.killRefill is
-    // the snapshot createRun already took, and is 0 on an unbought save - so sim.js never reads meta
-    // and the chapter's baseline tune is the unbought one. Clamped against run.chargeMax (Task 9),
-    // NOT CHAPTERS[chapter].resource.max — this is the SECOND of the two clamp sites Deep Lungs
-    // needs (see stepCharge's own note above); missing this one lets the bar refill past its cap on
-    // a kill, only to be clamped back down by stepCharge's own (correct) clamp on the next tick.
+    // v7.x: `killBase` (The Wreck) is the ONLY thing a kill adds to a bar. Every chapter whose bar
+    // is refilled by a PLACE gets nothing here — a free kill refill would be a second source
+    // competing with the chapter's own geometry, which is what abolished The Reef's bar when the
+    // Scavenger unlock still existed. The Wreck has no place: it declares `refill: 0` and no
+    // signature field, so with no per-kill baseline its bar would have no refill at all. Undefined
+    // in every other chapter -> `?? 0` -> those chapters come out unchanged.
     //
-    // `killBase` (v7.x, The Wreck) is the OTHER half, and it is not shop-gated. The owner ruling
-    // above holds for every chapter whose bar is refilled by a PLACE — there, a free kill refill
-    // would be a second source competing with the chapter's own geometry, which is what abolished
-    // The Reef's bar at killRefill 1.2. The Wreck has no place: it declares `refill: 0` and no
-    // signature field, so a shop-only refill would mean a bar with no refill at all on an unbought
-    // save. Undefined in all five other chapters -> `?? 0` -> those chapters come out unchanged.
-    // Scavenger still stacks on top through run.killRefill.
+    // Clamped against run.chargeMax (Task 9), NOT CHAPTERS[chapter].resource.max — this is the
+    // SECOND of the two clamp sites Deep Lungs needs (see stepCharge's own note above); missing this
+    // one lets the bar refill past its cap on a kill, only to be clamped back down by stepCharge's
+    // own (correct) clamp on the next tick.
     const _res = CHAPTERS[run.chapter].resource
-    const _gain = (_res?.killBase ?? 0) + run.killRefill
+    const _gain = _res?.killBase ?? 0
     if (_res && _gain > 0) run.charge = Math.min(run.chargeMax, run.charge + _gain)
     // GORGE (v7.x, gnash): "eating elites replenish full hunger bar". Placed here rather than at a
     // bite site on purpose — the card says EATING an elite, so it must pay however the elite died,

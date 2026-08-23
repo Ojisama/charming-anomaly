@@ -109,15 +109,10 @@ const UI = {
     'Payés avec des niveaux d\'amélioration déjà achetés. Ils sont dépensés, sans remboursement.',
   // The effect alone, with no price clause — see BOOK_UNLOCKS in config.js for why it is split.
   'One more choice at every level-up.': 'Un choix de plus à chaque montée de niveau.',
-  'Kills give back resource.': 'Tuer rend de la ressource.',
   'Sacrifice {n} upgrade levels (no coin refund).':
     'Sacrifie {n} niveaux d\'amélioration (aucun remboursement).',
   '3rd': '3e',
   '4th': '4e',
-  // Book 2 (dev-gated). 'Voleur de Lumiere' keeps the owner's own framing - he described the
-  // mechanic as STEALING light - rather than a neutral 'Recuperateur'. Its effect line lives with
-  // the other unlock effects above, since both targets are rows on the same list.
-  'Scavenger': 'Charognard',
   // 'achat' (noun) not 'acheter' (verb): the chip sits at the end of a row whose label needs every
   // remaining px, and the verb is 4 characters longer for no added clarity on a buy button.
   'buy : 🪙 {n}': 'achat : 🪙 {n}',

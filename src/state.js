@@ -335,9 +335,10 @@ export function loadMeta() {
       // carrying 'yes' or 1 would be truthy everywhere EXCEPT those tests and the flag would
       // disagree with itself. This never reaches sim.js — see the plan's R1.
       m.dev = m.dev === true
-      // Light Thief (Book 2): the permanent "kills give light back" unlock, bought with shop levels
-      // on the sacrifice screen. Coerced for the same reason as m.dev above — createRun tests
-      // `=== true`, so a truthy-but-not-true value would grant it everywhere else and deny it there.
+      // Scavenger (Book 2): the "kills give back resource" unlock, REMOVED FROM THE GAME in v7.x.
+      // The field stays and stays coerced — R2 is additive-only, an older build still writes it, and
+      // a save that round-trips through this build must come back out the shape it went in. Nothing
+      // reads it for gameplay any more; see BOOK_UNLOCKS (config.js), which is now empty.
       m.lightThief = m.lightThief === true
       // Retroactive BOOK unlock, exactly the same argument as the chapter chain above: a book
       // that shipped AFTER the player already beat the previous book's finale at
@@ -352,15 +353,13 @@ export function loadMeta() {
         const beat = Math.max(Number(prev?.won) || 0, (Number(prev?.maxDifficulty) || 1) - 1)
         if (beat >= CHAPTER_UNLOCK_DIFFICULTY) unlockBook(m, BOOK_ORDER[i])
       }
-      // meta.lightThief (Book 1-shaped legacy — see BOOK_UNLOCKS.undertow in config.js and the
-      // design doc §1) copies forward ONCE into its new home, bookMeta(m,'undertow').unlocks.
-      // lightThief — the only place createRun (above in this file) reads it now. Never deletes the
-      // old field (R2 — an older build's onSacrifice still writes it) and never writes back the
-      // other way: copy only when the new location is UNSET, so a value already written at the new
-      // location (a future purchase flow writing there directly) is never clobbered. Without this,
-      // every existing dev save that already spent LIGHT_THIEF_COST levels loses killRefill on the
-      // very next load — silently, because a missing bm.unlocks.lightThief just reads as "unbought"
-      // rather than throwing.
+      // meta.lightThief (Book 1-shaped legacy) copies forward ONCE into bookMeta(m,'undertow')
+      // .unlocks.lightThief. BOTH ARE DEAD DATA since Scavenger was removed — no reader is left —
+      // and the copy stays anyway, because R2 makes this migration part of the save's shape: an
+      // older build still writes the old field, and dropping the forward-copy now would mean a save
+      // that survived a downgrade-then-upgrade comes back a different shape than one that did not.
+      // Never deletes the old field, and never writes back the other way: copy only when the new
+      // location is UNSET, so a value already written there is never clobbered.
       if (m.lightThief === true) {
         const ut = ensureBookMeta(m, 'undertow')
         if (ut.unlocks.lightThief === undefined) ut.unlocks.lightThief = true
@@ -401,7 +400,7 @@ export function loadMeta() {
     // leaderboard's integrity rule: endRun (main.js) submits no score from a run played with this
     // on, because unlocking unfinished chapters and opening the dev card list are the same switch.
     dev: false,
-    lightThief: false, // Book 2's permanent kills-give-light unlock (see the loadMeta migration above)
+    lightThief: false, // dead since v7.x (Scavenger removed); kept per R2 — see the migration above
     schema: SCHEMA, // R4: a brand-new save really IS this build's format (loadMeta's repair says 1)
     // loadMeta's repairs are IN-MEMORY ONLY and never written back, so a save that has not been
     // re-saved since the upgrade has no `name`/`savedAt` key ON DISK — and §3.2 pushes exportSlot,
@@ -1250,7 +1249,7 @@ function generateWells(sig) {
  * charge: number — the chapter resource bar (CHAPTERS[chapter].resource — The Twilight's 'Light', The
  *   Surf's 'Humidity' and The Reef's 'Air'). Drains passively, refills inside a refill circle
  *   (run.shafts: a shaft here, a tide pool there, an air pocket in the third, an anglerfish's open
- *   mouth in the fourth) and (with Light Thief bought) per kill, clamped to [0, resource.max].
+ *   mouth in the fourth), and on The Wreck alone per kill (`killBase`), clamped to [0, run.chargeMax].
  *   The Deep also SPENDS it involuntarily: being devoured by a maw zeroes the bar outright, which
  *   is the only place in the game a hazard is priced in the chapter's own resource.
  *   0 and untouched in every chapter without a resource.
@@ -1276,9 +1275,9 @@ function generateWells(sig) {
  *        `damage.floor` at an empty bar to 1.0 at a full one, and both player-damage sites in sim.js
  *        multiply by it; it returns 1 for every chapter with no `damage` block, so this is inert
  *        elsewhere. THIS OVERRIDES THE RULE THE FIELD SHIPPED UNDER. The first cut of this doc said
- *        the bar "scales no damage and no fire rate — deliberately, because those cut the kill rate,
- *        and the kill rate is what Light Thief pays out on", and that reasoning is still correct for
- *        Light. The Surf is an explicit owner ruling, recorded in the design at §5.3 of
+ *        the bar "scales no damage and no fire rate — deliberately, because those cut the kill rate",
+ *        and that reasoning is still correct for Light. The Surf is an explicit owner ruling,
+ *        recorded in the design at §5.3 of
  *        docs/superpowers/specs/2026-08-13-book-2-undertow-design.md, which also names what the
  *        original rule was protecting and the mitigations the exception is conditional on: a TUNED
  *        floor constant (HUMIDITY_DMG_FLOOR), and a drain tied to the SANDBARS rather than to the
@@ -1294,7 +1293,7 @@ function generateWells(sig) {
  *        vignette/shake/flash is the tell and main.js's `if (e.dot) continue` keeps it silent.
  * chargeMax: number — the bar's ceiling, as a RUN field (v7.x Book 2 Task 9). Used to be read
  *   straight from CHAPTERS[chapter].resource.max at both of sim.js's clamp sites (the drain in
- *   stepCharge and the Light Thief kill-refill at the kill site); now both sites read run.chargeMax
+ *   stepCharge and the per-kill `killBase` at the kill site); now both sites read run.chargeMax
  *   instead, which is what lets BOOK_SHOP.undertow.deepLungs ("Resource Capacity") raise it. Set
  *   once at createRun from the SAME hoisted local `charge` starts at, so the two can never drift
  *   apart into "the bar refills past its cap on a kill, then snaps back on the next drain tick" (a
@@ -1312,8 +1311,8 @@ function generateWells(sig) {
  *   take the full push, which is what makes the surge read as weather. 1 outside Undertow.
  * chargeRefillMul: number — the refill-rate multiplier (BOOK_SHOP.undertow.bigGulp, "Resource Refill",
  *   +10%/level), applied in stepCharge to CHAPTERS[chapter].resource.refill at the same site the
- *   in-shaft/pool/pocket refill already runs. 1 (no-op) unbought. Does NOT reach run.killRefill —
- *   the Light Thief kill bonus is a separate mechanic behind its own unlock, not "a refill pickup".
+ *   in-shaft/pool/pocket refill already runs. 1 (no-op) unbought. Does NOT reach The Wreck's
+ *   `killBase` — a kill is not "a refill pickup".
  * _burstT: number — seconds of Reef Burst dash remaining (CHAPTERS[chapter].burst). Set by
  *   stepRepulse on the same press, cooldown and charge spend as the Pulse, to BURST_DUR_MIN +
  *   (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t, so an EMPTY bar still dashes — the no-spiral floor.
@@ -1398,8 +1397,9 @@ function generateWells(sig) {
  *   MULTIPLIER (bought, so multiplied — unlike the chapter slows, which MIN-compose). Both drop to
  *   0 together when the window lapses rather than decaying one stack at a time: losing the shoal is
  *   meant to cost the whole run-up, which is what gives the card a failure state.
- * killRefill: number — light per kill, snapshotted at createRun from bm.unlocks.lightThief (the
- *   permanent Light Thief unlock, LIGHT_THIEF_COST shop levels on the sacrifice screen; bm is
+ * (removed v7.x) killRefill — was light per kill from the Scavenger unlock. Nothing refills a bar
+ *   on a kill now except CHAPTERS.wreck.resource.killBase, which sim.js reads straight from config
+ *   and no run field mirrors. The save key bm.unlocks.lightThief survives, unread, per R2.
  *   Undertow's own bookMeta entry — see BOOK_UNLOCKS.undertow in config.js). 0 unbought, and 0
  *   in every chapter with no resource. It exists as a RUN field, rather than sim.js consulting
  *   meta, because sim.js must never see meta — see the plan's R1.
@@ -2095,7 +2095,7 @@ export function createRun(meta, opts = {}) {
   // is authored ONCE and shared by both `chargeMax` and the starting `charge` below — a value this
   // repo's own CLAUDE.md documents as its single largest silently-drifting defect class when
   // written twice. Used to be read straight from config at both of sim.js's clamp sites (the drain
-  // in stepCharge and the Scavenger kill-refill); now it is a RUN field so deepLungs can raise
+  // in stepCharge and the per-kill `killBase`); now it is a RUN field so deepLungs can raise
   // it, and sim.js reads run.chargeMax at both sites instead of CHAPTERS[chapter].resource.max.
   const chargeMax = (CHAPTERS[chapter].resource?.max ?? 0) * (1 + shopBonus(bm, bookId, 'deepLungs'))
   return {
@@ -2298,24 +2298,13 @@ export function createRun(meta, opts = {}) {
     chargeDrainMul: Math.max(SLOW_BURN_FLOOR, 1 - shopBonus(bm, bookId, 'slowBurn')),
     // v7.x Book 2 Task 9: bigGulp's refill-rate multiplier, applied in stepCharge (sim.js) to
     // CHAPTERS[chapter].resource.refill while the player stands in a shaft/pool/pocket. 1 (no-op)
-    // unbought. Does NOT touch the Light Thief kill-refill (run.killRefill) — that is a separate
-    // mechanic gated on its own unlock, not "a refill pickup".
+    // unbought. Does NOT touch The Wreck's per-kill `killBase` — that is not "a refill pickup".
     chargeRefillMul: 1 + shopBonus(bm, bookId, 'bigGulp'),
     // BOOK_SHOP.undertow.currentResist ("Current Resistance"): how much of the tide's push actually
     // reaches the player, applied in stepTide (sim.js). Subtracted like slowBurn's — the line stores
     // a POSITIVE perLevel and reads as a decrease (see `reduction` in BOOK_SHOP) — and floored so a
     // future maxLevel raise cannot invert the push into a pull. 1 in every book but Undertow.
     currentResistMul: Math.max(CURRENT_RESIST_FLOOR, 1 - shopBonus(bm, bookId, 'currentResist')),
-    // Light per kill, SNAPSHOTTED from the permanent Light Thief unlock (bm.unlocks.lightThief,
-    // bought over LIGHT_THIEF_COSTS shop levels — see BOOK_UNLOCKS.undertow in config.js). This
-    // exists as a run field rather than sim.js reading meta because sim.js must never see meta at
-    // all — it plays what it is handed, which is what makes a dev-gated chapter playtest as the
-    // thing that eventually ships. 0 unbought, and 0 for every chapter that declares no resource.
-    // Scales with the Light Thief LEVEL: the chapter's own killRefill is the value at FULL level,
-    // so a maxed ladder is exactly what the old single purchase always gave and the balance ceiling
-    // has not moved. unlockLevel also reads a pre-ladder `true` as full.
-    killRefill: (CHAPTERS[chapter].resource?.killRefill ?? 0)
-      * (unlockLevel(bm, bookId, 'lightThief') / Math.max(1, unlockMax(bookId, 'lightThief'))),
     // v7.x The Reef (see the doc block above): seconds of Burst dash left, and the drowning DoT's
     // part-tick accumulator. The rampage pattern again — every run carries both, and only a chapter
     // declaring `burst` / a `resource.drown` block ever moves them off 0.
