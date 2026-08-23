@@ -21449,14 +21449,48 @@ function testReefSpurScrape() {
   const withSpurs = all.filter((id) => CHAPTERS[id].spurs)
   assert.deepStrictEqual(withSpurs, ['reef'],
     `run RS.a: expected exactly one chapter of ${all.length} to declare a spur field, found [${withSpurs.join(', ')}]`)
-  // ...and the ART MAY NOT OUTGROW IT. render.js draws each lobe at SPUR_VIS.bump x half the ridge
-  // thickness, offset SPUR_VIS.bumpOut x the same half along the lane, so the drawn reach is
-  // (bump + bumpOut) x half against a charged band of exactly half. At the shipped 0.86/0.52 that
-  // was 62.1px of coral over 45px of grate — 17px, 0.38s of EVERY ridge, that looks solid and is
-  // free, with the spec's whole cost table priced on the smaller number.
-  assert.ok(SPUR_VIS.bump + SPUR_VIS.bumpOut <= 1,
-    `run RS.a: the coral lobes reach x${(SPUR_VIS.bump + SPUR_VIS.bumpOut).toFixed(2)} of the ridge half-thickness the grate charges over — the drawn ridge is bigger than the ridge that hurts, so the player swims through solid-looking coral for nothing`)
-  // ...and the RATE keeps the band its own block claims. SPUR_DPS is priced against the flat DoTs
+  // ...and the ART MAY NOT OUTGROW WHAT THE PLAYER IS HELD OFF BY.
+  //
+  // This used to read `SPUR_VIS.bump + SPUR_VIS.bumpOut <= 1` — the lobes had to stay inside the
+  // charged band, or you would swim through solid-looking coral for nothing. Those four knobs are
+  // gone with the pass that read them (they drew a spine of same-coloured circles whose union was
+  // exactly the rectangle, i.e. nothing at all), so an assertion on them now guards a relationship
+  // that governs no pixels — green forever, whatever the art does.
+  //
+  // The real invariant, since the coral became SOLID: a colony may reach half the ridge thickness
+  // plus PLAYER.radius and not one pixel further, because blockOnCoral holds the player exactly
+  // PLAYER.radius clear of the band. Coral drawn out to that line is coral you genuinely cannot
+  // enter; coral drawn past it is a wall in the wrong place. syncSpurs clamps to it, and this is
+  // the number it clamps to.
+  assert.ok(SPUR_VIS.headMax > 0 && SPUR_VIS.headStep > 0,
+    'run RS.a: the colony packing has no size — SPUR_VIS.headMax/headStep drive every head drawn, so a zero here means the ridges render as bare crevice')
+  assert.strictEqual(SPUR_VIS.bump, undefined,
+    'run RS.a: SPUR_VIS.bump is back. The lobe pass it fed is deleted; a knob nothing reads is one the next reader will tune and watch do nothing')
+
+  // THE PALETTE IS THE MECHANISM, NOT DECORATION, so it gets a real guard rather than a comment.
+  // "Realistic" here means a crowd of DIFFERENT colonies; collapse SPUR_VIS.tones to one colour and
+  // the ridge is a flat slab again with the packing still running, which is the exact failure this
+  // whole revision exists to undo — and a mutation doing precisely that passed every other
+  // assertion in this file. Two properties, because either alone is satisfiable by a cheat: enough
+  // distinct tones, AND a real spread of VALUE across them (five near-identical browns are one
+  // colour with extra steps, and read as gravel).
+  {
+    const lum = (h) => 0.2126 * ((h >> 16) & 255) + 0.7152 * ((h >> 8) & 255) + 0.0722 * (h & 255)
+    const ls = SPUR_VIS.tones.map(lum)
+    assert.ok(SPUR_VIS.tones.length >= 4,
+      `run RS.a: the coral is drawn from ${SPUR_VIS.tones.length} tone(s) — a reef is a crowd of different colonies, and under 4 the packing renders as one flat slab again`)
+    assert.ok(Math.max(...ls) - Math.min(...ls) > 40,
+      `run RS.a: the coral's tones span only ${(Math.max(...ls) - Math.min(...ls)).toFixed(0)} of luminance — that is one colour with extra steps, and it reads as gravel rather than as separate colonies`)
+  }
+  // THE CLAMP ITSELF, AS SOURCE. render.js is not importable here, so this is the only reach the
+  // suite has on the drawing. Linted as the EXPRESSION rather than as a mention of PLAYER.radius:
+  // that constant is named a dozen times in the file, so a token grep stays green with the clamp
+  // deleted and the colonies free to grow across the channel the player must swim through.
+  {
+    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(/const outMax = half \+ PLAYER\.radius/.test(rsrc),
+      'run RS.a: syncSpurs no longer clamps its colonies to half + PLAYER.radius — the drawn coral and the wall the player is held off by have come apart')
+  }  // ...and the RATE keeps the band its own block claims. SPUR_DPS is priced against the flat DoTs
   // that share its `dot: true` rules — the chapter's own drowning at the bottom, SLICK/SOAP 6 at
   // the top — and it has to stay between them: over, and a soaped groove stops being worse than the
   // coral beside it, which is the inversion that killed spec rev 3; well under, and the ridge is
@@ -21708,14 +21742,19 @@ function testReefSpurScrape() {
       const sp = spurAt(i, spec, seed)
       ts.push(sp.thick)
       if (!sp.merged) seps.add(+(2 * Math.abs(sp.grooves[0].c)).toFixed(3))
-      // THE INVARIANT, THE NEW WAY: a lobe is drawn at bumpOut x THIS ridge's half-thickness with a
-      // radius of bump x the same, so its reach has to stay inside THIS ridge's own band. Written
-      // per ridge rather than as the bare `bump + bumpOut <= 1` above, because the failure that is
-      // now possible is not a bad ratio — it is the renderer measuring the ratio against the wrong
-      // ridge, which the source-text check below is the other half of.
-      const reach = (V.bump + V.bumpOut) * (sp.thick / 2)
-      assert.ok(reach <= sp.thick / 2 + 1e-9,
-        `run RS.e: ridge ${i} is ${sp.thick.toFixed(1)}px thick and its lobes reach ${(reach * 2).toFixed(1)}px — drawn coral outside the band that charges is coral you swim through for free`)
+      // THE INVARIANT, PER RIDGE: every colony on this ridge is drawn inside half ITS OWN
+      // thickness plus PLAYER.radius. Per-ridge rather than against the spec's mean, because
+      // spurAt gives each ridge its own thickness (thickVar) and a check written against the mean
+      // silently allows the art to overgrow every thin ridge — the exact drawn-vs-tested defect
+      // this block exists to prevent, in a form no screenshot shows.
+      // A COLONY MAY NOT SWAMP THE RIDGE IT SITS ON. syncSpurs clamps every head into
+      // half + PLAYER.radius of the ridge centre (linted as source in RS.a, since render.js is not
+      // importable) -- but the clamp alone cannot save a THIN ridge from a head bigger than it is:
+      // at headMax > half the packing degenerates to one blob per ridge and the per-ridge thickness
+      // spurAt works to produce stops being visible at all. Checked per ridge, not against the
+      // spec's mean, for the same reason everything else in this block is.
+      assert.ok(SPUR_VIS.headMax <= sp.thick / 2 + PLAYER.radius,
+        `run RS.e: ridge ${i} is ${sp.thick.toFixed(1)}px thick (half ${(sp.thick / 2).toFixed(1)} + ${PLAYER.radius} of reach) but a colony can be drawn at radius ${SPUR_VIS.headMax} — one head swamps the whole ridge and thickVar stops being visible`)
     }
     const mean = ts.reduce((a, b) => a + b, 0) / ts.length
     const lo = Math.min(...ts), hi = Math.max(...ts)

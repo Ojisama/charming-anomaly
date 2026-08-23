@@ -8206,11 +8206,44 @@ export const AIR_POCKET_VIS = {
 export const SPUR_VIS = Object.freeze({
   foot: 0x160816, footA: 0.5, foot_px: 4,
   body: 0x67213d,
-  wall: 96, bump: 0.86, bumpOut: 0.14, bumpGap: 0.7,
-  // Radii of successive lobes, cycled along the ridge. A CYCLE and not a hash: the field is already
-  // deterministic, and five uneven sizes read as coral heads of different ages growing on one spine
-  // where a per-lobe random reads as noise.
-  lobes: Object.freeze([1, 0.72, 0.94, 0.62, 0.86]),
+  // A REEF IS A CROWD OF SEPARATE HEADS, NOT A TINTED BAR — which is the whole reason two earlier
+  // passes at this failed. Rev.1 drew one rounded rect in one plum (a domino). Rev.2 scalloped its
+  // edge and lit it, and the owner's verdict was "this looks nothing like coral": a bar with bumps
+  // is still a bar. What a reef crest actually looks like from directly overhead is dozens of
+  // individual colonies of different sizes and different species packed shoulder to shoulder, with
+  // dark crevice between them — so the ridge is now DRAWN as that, and the band is only the volume
+  // the heads are packed into.
+  //
+  // The palette is the second half of "realistic", and it is deliberately DESATURATED: living reef
+  // photographs as tan, ochre, olive and dull rust, not as candy. Saturated pink was reading as
+  // meat against a blue floor. Five tones rather than one because the variety IS the texture at
+  // this zoom — one tone with a highlight is still one object.
+  crevice: 0x241a1c,      // the shadow between colonies; the ridge's base coat
+  // Spread across VALUE as well as hue, darkest first: a reef photographed from above is mostly
+  // mid-and-dark colonies with a few bleached-pale ones, and a palette that is all mid-tone reads
+  // as gravel however many hues are in it.
+  tones: Object.freeze([0x4a3b2c, 0x5d4a30, 0x7d5c3e, 0x6f4136, 0x63563a, 0x8e6a38, 0x9a835a]),
+  cap: 0xbda57c,          // sun on the top of a head — the only light value, used sparingly
+  branch: 0x8a7048,       // staghorn tips that break the silhouette at the edges
+  // capFrac IS THE KNOB THAT NEARLY RUINED THIS. At 0.42 with alpha 0.5 the sun-caps covered two
+  // heads in five and washed the whole ridge to one beige -- the five tones were all still being
+  // drawn and none of them could be seen. A highlight on every head is a texture; on one in six it
+  // is topography. Same lesson the rim light taught one revision earlier, at a different strength.
+  // SIZED FOR THE GAMEPLAY ZOOM, NOT THE MAP. At headMax 24 the map shot looked like a reef and the
+  // 390px phone -- the view the game is actually played in -- looked like a pile of potatoes: three
+  // or four fat pale lumps per ridge, no sense of many organisms. Smaller and denser reads as
+  // colonies at BOTH, which is the two-viewport rule applied to a texture rather than to a radius.
+  headMin: 6, headMax: 17, headStep: 11, capFrac: 0.16, branchEvery: 3,
+  // The dark rim around each head is what makes them separate ANIMALS rather than one lumpy mass.
+  // Without it the fills merge wherever two colonies share a tone, which at this density is most
+  // of the ridge.
+  edgePx: 1.0,
+  wall: 96,
+  // `bump`, `bumpOut`, `bumpGap` and `lobes` USED TO LIVE HERE and are gone with the pass that read
+  // them. They described a single spine of same-coloured circles inset inside the band, which drew
+  // nothing visible (bumpOut + bump came to exactly 1.0, so the union was the rectangle) and which
+  // the colony packing above replaces outright. Deleted rather than left at 0: an unread knob in a
+  // config table is a knob the next reader will tune and watch do nothing.
 })
 
 // FIRE CORAL'S LIT RIDGE, RENDER-ONLY (v7.x, The Reef — WEAPONS.fireCoral). Zero sim effect: the

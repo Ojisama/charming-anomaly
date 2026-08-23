@@ -9408,7 +9408,13 @@ export function createRenderer(app) {
   // pool, and redrawn only when run._spurRev changes — the field is fifteen ridges of pure
   // geometry that move exactly once per lane crossing, so a per-frame rebuild would be paying
   // for motion that never happens. Same _obstacleRev idiom syncObstacles uses.
-  const spurG = new Graphics()
+  // A/B SWITCH FOR THE CORAL LOOK, throwaway. 0 = the shipped flat slab, 1 = lobed crown,
+// 2 = + lit leading edge, 3 = + polyps. Read once at module scope (the probe recipe's rule: bakes
+// happen at boot, so a per-frame read would be a different switch). DELETE with the pick.
+const spurArt = (() => {
+  try { return Number(new URLSearchParams(location.search).get('cv') ?? 3) } catch { return 3 }
+})()
+const spurG = new Graphics()
   let spurRev = -1
   // v7.x The Reef: FIRE CORAL's lit ridges (run.polyps). Its own Graphics rather than a second
   // pass on spurG, and the reason is the caching: spurG redraws only when run._spurRev changes
@@ -11663,36 +11669,108 @@ export function createRenderer(app) {
       ? spurG.roundRect(f - half - grow, c0 - grow, half * 2 + grow * 2, c1 - c0 + grow * 2, r)
       : spurG.roundRect(c0 - grow, f - half - grow, c1 - c0 + grow * 2, half * 2 + grow * 2, r))
     const dot = (f, c, r) => (xAxis ? spurG.circle(f, c, r) : spurG.circle(c, f, r))
-    // The lobes, as lane coordinates, walked once and reused by both passes below. They sit ON the
-    // ridge and are inset inside it on both axes — bumpOut + bump <= 1 along the lane, a full bumpR
-    // across it — which is what keeps the drawn ridge and the charged band the same shape.
-    const lobes = []
-    for (const [f, c0, c1, half] of segs) {
-      const bumpR = half * V.bump
-      const from = c0 + bumpR, to = c1 - bumpR
-      if (to <= from) continue
-      const n = Math.max(1, Math.round((to - from) / (half * V.bumpGap * 2)))
-      for (let k = 0; k <= n; k++) {
-        // Alternating sides rather than hashed: the field is already deterministic, and a zigzag
-        // of lobes reads as a coral spine from directly overhead where a jitter reads as noise. The
-        // zigzag is what SPUR_VIS.bumpOut buys now that it may not reach past the band.
-        // The cross position is inset by the FULL bumpR, never by this lobe's own smaller radius,
-        // so a small lobe at the end of a segment still cannot creep toward the groove edge.
-        const r = bumpR * V.lobes[k % V.lobes.length]
-        lobes.push([f + (k % 2 ? 1 : -1) * half * V.bumpOut, from + ((to - from) * k) / n, r])
-      }
-    }
     // 1. The foot. A wider, near-black shadow under the whole ridge so it sits ON the sand rather
     //    than floating over it, and the only pass allowed to overshoot the groove edge — a shadow
     //    falling a few px into a channel is what a raised thing does, and it is not the collider.
     for (const [f, c0, c1, half] of segs) band(f, half, c0, c1, V.foot_px, 12)
-    for (const [f, c, r] of lobes) dot(f, c, r + V.foot_px)
     spurG.fill({ color: V.foot, alpha: V.footA })
-    // 2. The body: the flush band that IS the groove edge, plus the lobes, as one path. No stroke —
-    //    see SPUR_VIS for why a rim on a compound path drills bolt-holes down the middle of it.
+    // 2. The body: the flush band that IS the groove edge, drawn at exactly the collider's size,
+    //    which is the whole reason the gap you can see is the gap you can swim through. At spurArt 0
+    //    this is the entire ridge (the shipped flat slab, kept only for the A/B).
+    if (spurArt === 0) {
+      for (const [f, c0, c1, half] of segs) band(f, half, c0, c1, 0, 9)
+      spurG.fill({ color: V.body })
+    }
+    // 3. THE COLONIES. This is the pass that makes it a reef instead of a slab.
+    //
+    //    Two earlier revisions of this drew the ridge as ONE SHAPE and tried to dress it: rev.1 a
+    //    flat rounded rect, rev.2 the same rect with a scalloped edge and a rim light. Neither
+    //    looked like coral because neither WAS coral — a bar with bumps on it is a bar. Worse,
+    //    rev.1's lobe maths drew nothing at all: bumpOut + bump came to exactly 1.0 of the
+    //    half-thickness in the body's own colour, so every "head" was a same-coloured circle
+    //    touching the band edge from the inside and the union was the rectangle to the pixel.
+    //
+    //    A reef crest from directly overhead is dozens of separate colonies of different sizes and
+    //    species packed together over dark crevice. So: pack the band with heads on a jittered
+    //    grid, colour each from SPUR_VIS.tones by a hash of its own position, and let the outermost
+    //    ones break the silhouette by up to PLAYER.radius — which is HONEST, not decorative, since
+    //    blockOnCoral holds the player exactly that far clear of the band. The drawn edge and the
+    //    wall are still the same edge.
+    //
+    //    HASHED FROM POSITION, NEVER Math.random. spurG rebuilds whenever _spurRev bumps (about
+    //    once per lane crossing), and a per-rebuild random would reshuffle every colony on screen
+    //    each time — the field would boil. Same argument the lobe cycle already made.
+    const hash = (a, b) => {
+      const x = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453
+      return x - Math.floor(x)
+    }
+    const byTone = V.tones.map(() => [])
+    const caps = []
+    const branches = []
+    for (const [f, c0, c1, half] of segs) {
+      const rows = Math.max(2, Math.round((half * 2) / V.headStep))
+      const cols = Math.max(1, Math.round((c1 - c0) / V.headStep))
+      for (let iy = 0; iy < rows; iy++) {
+        for (let ix = 0; ix < cols; ix++) {
+          const h1 = hash(f + iy * 7.1, c0 + ix * 3.3)
+          const h2 = hash(c0 + ix * 5.7, f + iy * 2.9)
+          // Position on the grid, jittered by most of a cell so the packing never reads as rows.
+          const cc = c0 + ((ix + 0.5) / cols) * (c1 - c0) + (h1 - 0.5) * V.headStep * 0.9
+          if (cc < c0 - 2 || cc > c1 + 2) continue
+          const across = ((iy + 0.5) / rows - 0.5) * 2          // -1..1 across the thickness
+          const ff = f + across * half + (h2 - 0.5) * V.headStep * 0.5
+          const edge = Math.abs(across)
+          // Heads shrink toward the edges, which is what stops the mass having a machined outline.
+          const r = V.headMin + (V.headMax - V.headMin) * h1 * (1 - edge * 0.45)
+          // Only the outermost row is allowed past the band, and only by the radius the player is
+          // already held off by.
+          const outMax = half + PLAYER.radius
+          const clamped = Math.max(f - outMax + r * 0.3, Math.min(f + outMax - r * 0.3, ff))
+          byTone[Math.floor(h2 * V.tones.length) % V.tones.length].push([clamped, cc, r])
+          if (h1 > 1 - V.capFrac) caps.push([clamped - across * r * 0.25, cc - r * 0.22, r * 0.5])
+          if (spurArt >= 3 && edge > 0.6 && (ix % V.branchEvery === 0)) branches.push([clamped, cc, r, Math.sign(across) || 1])
+        }
+      }
+    }
+    // The crevice coat first, so any gap the packing leaves reads as shadow between colonies
+    // rather than as a hole through to the sand.
     for (const [f, c0, c1, half] of segs) band(f, half, c0, c1, 0, 9)
-    for (const [f, c, r] of lobes) dot(f, c, r)
-    spurG.fill({ color: V.body })
+    spurG.fill({ color: V.crevice })
+    // One fill per tone rather than per head: a handful of batches for the whole field.
+    for (let t = 0; t < byTone.length; t++) {
+      if (!byTone[t].length) continue
+      for (const [f, c, r] of byTone[t]) dot(f, c, r)
+      spurG.fill({ color: V.tones[t] })
+    }
+    // The rims, in the crevice colour, as ONE stroked pass over every head: the difference between
+    // a lumpy mass and a crowd of separate animals, since any two neighbours sharing a tone merge
+    // into one blob otherwise. Stroked after all the fills so a rim is never buried by the colony
+    // drawn next.
+    //
+    // ⚠ ALPHA IS THE WHOLE DIFFICULTY HERE. Overlapping stroked circles read as CHAIN MAIL, and at
+    // 0.75 that is exactly what the phone shot showed -- a scribble of dark rings with the colonies
+    // lost behind it. Low enough to separate neighbours, not high enough to become its own pattern.
+    for (const group of byTone) for (const [f, c, r] of group) dot(f, c, r)
+    spurG.stroke({ color: V.crevice, width: V.edgePx, alpha: 0.26 })
+    if (spurArt >= 3) {
+      // Staghorn tips on the outer colonies only. Short, thick strokes reaching out of the mass —
+      // at this zoom a branching colony is a few pixels of fringe, and fringe is what separates a
+      // reef edge from a kerb.
+      for (const [f, c, r, dir] of branches) {
+        const a = hash(f, c) * Math.PI * 0.5 - Math.PI * 0.25
+        const len = r * (0.7 + hash(c, f) * 0.6)
+        const tf = f + dir * len * Math.cos(a), tc = c + len * Math.sin(a)
+        dot(tf, tc, Math.max(1.6, r * 0.28))
+        dot((f + tf) / 2, (c + tc) / 2, Math.max(1.8, r * 0.34))
+      }
+      spurG.fill({ color: V.branch })
+    }
+    if (spurArt >= 2) {
+      // Sun on the crown of some heads. The ONLY light value in the ridge, and sparse on purpose:
+      // a highlight on every head is a texture, a highlight on two in five is topography.
+      for (const [f, c, r] of caps) dot(f, c, r)
+      spurG.fill({ color: V.cap, alpha: 0.4 })
+    }
   }
   // ---- The Reef: Fire Coral's lit ridges (v7.x) -------------------------------------------------
   // run.polyps, drawn from the SAME snapshot stepPolyps damages against, through the SAME
