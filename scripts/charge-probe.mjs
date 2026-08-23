@@ -25,9 +25,11 @@
 //   - REFILL is the binding knob, and the interesting one: at 18/s a shaft is a place you must
 //     STAND (6.3s for a full bar), which costs mobility exactly when the crowd is closing. Below
 //     that it degenerates — at 10/s and 6/s the player is parked in a shaft 95-99% of the run.
-//   - killRefill (Light Thief) at 4/kill did not blunt the dark, it ABOLISHED it (61% -> 17%). At
-//     ~0.8 kills/s a killRefill of K is worth ~0.8K/s against the drain; 1.5 halves the dark and
-//     converts "time parked in a shaft" into "time playing", which is what a purchase should buy.
+//   - a PER-KILL refill was swept here too, back when the Scavenger unlock existed, and it is why
+//     that unlock is gone: at 4/kill it did not blunt the dark, it ABOLISHED it (61% -> 17%). At
+//     ~0.8 kills/s a per-kill K is worth ~0.8K/s against a 2.2/s drain, so anything large enough to
+//     feel deleted the bar. Only The Wreck refills on a kill now (`killBase`), and only because it
+//     has no refill circle at all.
 //
 // THE RIG IS IMMORTAL + KITING/SEEKING, and every half is load-bearing (CLAUDE.md's rig taxonomy):
 //   - KITING, because a stationary player never travels and so would only ever meet the shaft it
@@ -74,7 +76,7 @@ const LINE_LV = argLine ? Math.min(MAX_SHOP_LEVEL, Number(argLine.slice(7).split
 const DIFFICULTY = 1
 const DURATION = 300
 const DT = 1 / 60
-const RUNS = 3  // 2 thief x 2 movement x 3 spend = 12 rows; 3 seeds keeps the matrix under a minute
+const RUNS = 3  // 2 movement x 3 spend = 6 rows; 3 seeds keeps the matrix well under a minute
 
 const mulberry32 = (a) => () => {
   a |= 0; a = (a + 0x6d2b79f5) | 0
@@ -83,9 +85,9 @@ const mulberry32 = (a) => () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296
 }
 
-// Probe metas are hand-built and never pass through loadMeta, so they must construct the book
-// shape the same way the game does — a bare spread of `lightThief` has been a silent no-op since
-// the unlock moved into books[b].unlocks (see state.js's killRefill snapshot at createRun).
+// Probe metas are hand-built and never pass through loadMeta, so they must construct the book shape
+// the same way the game does — a bare top-level spread of a per-book field is a silent no-op, since
+// createRun reads books[b] and nothing else.
 const bookOfChapter = bookOf(CHAPTER)
 // A typo'd --line id would otherwise leave every line at 0 with no error — the exact "vocabulary
 // silently does nothing" trap CLAUDE.md documents elsewhere in this repo.
@@ -93,12 +95,11 @@ if (LINE_ID && !shopLines(bookOfChapter)[LINE_ID]) {
   console.error(`ABORT: --line=${LINE_ID} is not a line in shopLines('${bookOfChapter}') — check the spelling`)
   process.exit(1)
 }
-function probeMeta({ thief = false, shopLevel = SHOP_LV } = {}) {
+function probeMeta({ shopLevel = SHOP_LV } = {}) {
   const meta = { coins: 0, shop: {}, choiceSlots: 2, best: {}, runs: 0, chapters: {}, dev: true }
   ensureChapterMeta(meta, CHAPTER)
   meta.chapters[CHAPTER].unlocked = true
   const bm = ensureBookMeta(meta, bookOfChapter)
-  if (thief) bm.unlocks.lightThief = true
   // --line wins when given: every line 0 except LINE_ID, which gets LINE_LV. Otherwise the old
   // --shop=N sweep, every line to shopLevel.
   for (const id of Object.keys(shopLines(bookOfChapter))) {
@@ -360,14 +361,12 @@ const DEEP_MOVES = {
   },
 }
 
-// The SECOND axis (v7.x): Light Thief, the permanent unlock that makes kills give light back.
-// Owner ruling — it is bought, never default — so `false` IS the baseline this chapter must be
-// tuned to survive on, and `true` is what the purchase is supposed to feel like buying. Running
-// both in one invocation is the only way to price it: the delta between the two rows is the whole
-// value of the card, and quoting it from two separate runs would re-phase the RNG (CLAUDE.md's
+// ONE AXIS PAIR, movement x spend. There used to be a third — the Scavenger unlock, run as
+// base/thief rows — and it is gone with the unlock. If you ever add a second permanent axis, sweep
+// it INSIDE this one invocation the way that one did: the delta between two rows is only readable
+// off a shared RNG phase, and quoting it from two separate runs re-phases the stream (CLAUDE.md's
 // re-phasing trap — every seeded probe in this repo has fallen for it at least once).
 const results = {}
-for (const thief of [false, true]) {
 // killFedCh BEFORE the generic fallback: a chapter whose only refill is a kill needs a rig that
 // goes and gets one. See WRECK_MOVES for what the generic family measured instead.
 for (const [mname, moveAt] of Object.entries(laneCh ? LANE_MOVES : trawlCh ? TRAWL_MOVES : deepCh ? DEEP_MOVES : killFedCh ? WRECK_MOVES : MOVES)) {
@@ -376,7 +375,7 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
   for (let r = 0; r < RUNS; r++) {
     const orig = Math.random
     Math.random = mulberry32(1234 + r * 7919)
-    const run = createRun(probeMeta({ thief }), { chapter: CHAPTER, difficulty: DIFFICULTY })
+    const run = createRun(probeMeta({}), { chapter: CHAPTER, difficulty: DIFFICULTY })
     if (run.chapter !== CHAPTER) { console.error(`ABORT: asked for ${CHAPTER}, got ${run.chapter}`); process.exit(1) }
 
     let inShaft = 0, steps = 0, pulses = 0, charged = 0, atZero = 0, atMax = 0, armed = 0, bites = 0
@@ -439,8 +438,7 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
                 atMax: atMax / steps, armed: armed / steps, dark: dark / steps, meanDark: darkSum / steps,
                 onBar: onBar / steps, pulses, charged, bites, kills: run.kills, secs: steps * DT, samples })
   }
-  results[`${thief ? 'thief' : 'base '} ${mname.padEnd(4)} ${pname}`] = rows
-}
+  results[`${mname.padEnd(4)} ${pname}`] = rows
 }
 }
 
@@ -454,10 +452,11 @@ const avg = (rows, k) => rows.reduce((a, x) => a + x[k], 0) / rows.length
 const modeLabel = LINE_ID ? `line=${LINE_ID}@Lv${LINE_LV}/10 (every other line 0)` : `shop=Lv${SHOP_LV}/10 (every line)`
 const previewRun = createRun(probeMeta({}), { chapter: CHAPTER, difficulty: DIFFICULTY })
 console.log(`chapter=${CHAPTER} book=${bookOfChapter} difficulty=${DIFFICULTY} ${modeLabel} ${DURATION}s x ${RUNS} seeded runs, immortal + kiting`)
-// `killBase` is the NOT-shop-gated half (The Wreck), so the two are printed separately — a header
-// that folded them would report an unbought save as refilling on kills when only one chapter does.
+// `killBase` prints only where it exists (The Wreck): it is the one per-kill refill left in the
+// game, and a header that showed it everywhere would read as "kills refill this bar" on the five
+// chapters where nothing of the sort happens.
 console.log(`resource: drain ${res.drain != null ? `${res.drain}/s` : `${res.drainPerSpawn}/spawn-unit (rides spawnRate)`}  refill ${res.refill}/s in-refill-circle` +
-  ((res.killBase ?? 0) > 0 ? `  kill +${res.killBase} (always) +${res.killRefill} (Scavenger)` : `  kill +${res.killRefill} (Scavenger only)`) +
+  ((res.killBase ?? 0) > 0 ? `  kill +${res.killBase}` : '') +
   `  config max ${res.max}  resolved chargeMax ${previewRun.chargeMax}`)
 if (res.dark) {
   // The FRACTION threshold (res.dark.from) is fixed; the ABSOLUTE charge it fires at is not — Deep

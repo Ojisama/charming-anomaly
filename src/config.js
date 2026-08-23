@@ -5300,40 +5300,20 @@ export const sacrificeCost = (slots) => SACRIFICE_COSTS[slots - 2] ?? null  // s
 // 2026-08-04-cross-device-save-sync-tech-strategy.md §2.4: clamp on use, never on load).
 export const MAX_CHOICE_SLOTS = 2 + SACRIFICE_COSTS.length
 
-// Light Thief's costs, hoisted ahead of BOOK_UNLOCKS below (same reason as HUMIDITY_DMG_FLOOR
-// above CHAPTERS: a const referenced inside an object literal must already be initialized).
-// See "Light Thief (v7.x Book 2)" further down in this file for the full rationale.
-//
-// THREE levels, not one purchase (owner ruling): 5, then 10, then 15 sacrificed shop levels. The
-// first rung is cheap enough to try and the last is a real commitment, where a single 15 made it
-// all-or-nothing in a shop where every other line has a ladder.
-export const LIGHT_THIEF_COSTS = [5, 10, 15]
-
 // Sacrifice targets that belong to ONE book, alongside the universal card-slot ladder. This is
 // the seam for "more later": a new permanent unlock is a row here plus a read in state.js, not a
 // new meta field and a new onSacrifice branch. Keyed by book, then by the flag it sets in
 // bookMeta(meta, book).unlocks.
 // `costs` is a LADDER: one entry per level, in the order they are bought. A single-purchase unlock
 // is simply a one-entry array, so there is one shape here and no branch anywhere downstream.
-export const BOOK_UNLOCKS = {
-  undertow: {
-    // `desc` is the EFFECT ALONE, with no price clause: it is rendered on the shop's unlock list
-    // beside a chip already showing the cost, and the offer view composes the "sacrifice N levels"
-    // sentence itself. It used to carry a {cost} template and so could only be shown somewhere the
-    // cost was in scope — which is most of why the one line saying what this unlock DOES never
-    // appeared until you were two taps into a modal.
-    // THE KEY IS A SAVE FIELD (bm.unlocks.lightThief, plus the legacy top-level meta.lightThief the
-    // loadMeta migration reads) and is frozen by R2 — additive only, never rename. The DISPLAY name
-    // moved to Scavenger in v7.x and the key cannot follow it, which is why the two disagree.
-    // Why it moved: the unlock is BOOK-WIDE and was named after one chapter's bar. It gives kills
-    // back Humidity in The Surf, Air in The Reef and Feed in The Trawl — "Light Thief" is true in
-    // exactly one of the four chapters where it does anything (The Deep's killRefill is 0).
-    lightThief: {
-      costs: LIGHT_THIEF_COSTS, icon: '🦴', name: 'Scavenger',
-      desc: 'Kills give back resource.', family: 'res',
-    },
-  },
-}
+// `desc` is the EFFECT ALONE, with no price clause: the unlock list renders it beside a chip that
+// already shows the cost, and the offer view composes the "sacrifice N levels" sentence itself.
+//
+// EMPTY TODAY (v7.x): Scavenger, the one entry this table ever had, is removed from the game. The
+// table and its three helpers stay because they are the SEAM — every consumer already iterates it
+// and none of them names a key, so the next unlock is a row here and no other edit. An empty table
+// makes the sacrifice screen sell the card-slot ladder alone, which is what Book 1 has always done.
+export const BOOK_UNLOCKS = {}
 // How many levels an unlock has, the cost of the NEXT one (null when there is none left), and the
 // level a save actually owns.
 export const unlockMax = (bookId, id) => BOOK_UNLOCKS[bookId]?.[id]?.costs.length ?? 0
@@ -6149,8 +6129,7 @@ CHAPTERS.twilight = {
   // The bar. Owner ruling: it is the Pulse's AMMO and nothing else — it does not scale damage, fire
   // rate or speed, so an empty bar costs you the amplified shove and never turns the run into an
   // unwinnable slide. `drain` is the ambient pressure ("you are running out of light"), `refill` is
-  // per second standing in a shaft, and `killRefill` is per kill — the one refill geometry that asks
-  // for no verb the player lacks.
+  // per second standing in a shaft.
   //
   // MEASURED, not guessed: scripts/charge-probe.mjs, 5 seeded 300s runs, immortal + kiting, under
   // three spend policies, because one policy cannot tell "the bar cannot fill" apart from "this
@@ -6163,16 +6142,14 @@ CHAPTERS.twilight = {
   // mashes the button gets the floor shove two times in three. Avoiding the light entirely nets
   // about -1.6/s, so it empties in roughly a minute — the drain bites without being a countdown.
   //
-  // v7.x REVISION (owner, 2026-08-12), on two counts:
-  //   - `killRefill` is now SHOP-ONLY. It is the value you get at FULL Light Thief level, and
-  //     zero until then — createRun gates it into run.killRefill so sim.js never reads meta. The
-  //     first cut had it on by default at 0.5/kill, which was both unbought and invisible: 0.5 of a
-  //     100 bar is a rounding error next to a 2.2/s drain. Bought, it is worth roughly a third of
-  //     the drain at a normal kill rate, so it BLUNTS the dark rather than abolishing it.
-  //   - the bar now drives `dark` (see darkness() above): the world dims and the player slows on
-  //     one curve. `from: 0.5` puts the threshold at half a bar, which the probe measures as the
-  //     level a shaft-working player crosses a few times a run and a player ignoring the light
-  //     falls under permanently.
+  // v7.x REVISION (owner, 2026-08-12): the bar drives `dark` (see darkness() above) — the world
+  // dims and the player slows on one curve. `from: 0.5` puts the threshold at half a bar, which the
+  // probe measures as the level a shaft-working player crosses a few times a run and a player
+  // ignoring the light falls under permanently.
+  //
+  // NO KILL REFILL, in this chapter or any other. Kills moved the bar only through Scavenger, and
+  // that unlock is removed — so the numbers below are the ONLY tune, and they are the unbought one
+  // every row of the probe above was measured against. The bar is a place you stand in, full stop.
   //
   // REFILL IS THE KNOB, and finding that took a wrong sweep first. A drain x shaft-density grid came
   // back FLAT — a seeking player went 21% -> 33% dark across a doubled drain AND halved coverage —
@@ -6187,7 +6164,7 @@ CHAPTERS.twilight = {
   //   - 10 and 6: 95-99% lit. The chapter degenerates into standing in a circle, and at 6 the
   //         damage doubles because you never leave. A slower refill is not a harder chapter.
   resource: {
-    name: 'Light', drain: 2.2, refill: 18, killRefill: 1.5, max: 100,
+    name: 'Light', drain: 2.2, refill: 18, max: 100,
     // radiusFull 1 / radiusEmpty 0.1 are MULTIPLES OF THE SCREEN'S LONGEST SIDE, straight from the
     // owner's spec: "base light radius at 100% bar filled is the biggest dimension of the screen,
     // then it reduces down linearly to 10% that radius". On a 390x844 phone that is 844px -> 84px.
@@ -6361,12 +6338,10 @@ CHAPTERS.shelf = {
   // only one that replaces the shove.
   clear: true,
 
-  // The bar. Same numbers as the light rig it reuses — drain 2.2 / refill 18 / killRefill 1.5 were
-  // measured over 5 seeded 300s runs under three spend policies (see CHAPTERS.twilight.resource for
-  // the full provenance and for why refill is THE knob), and the roster below is two-thirds
-  // stand-ins, so re-tuning them now would be tuning against a chapter that does not exist yet.
-  // ⚠ Phase 3 changes two of three creatures, which changes the kill rate, which is what killRefill
-  // is read against — re-run charge-probe's FULL refill sweep then, not just the Clear spend policy.
+  // The bar. Same numbers as the light rig it reuses — drain 2.2 / refill 18 were measured over 5
+  // seeded 300s runs under three spend policies (see CHAPTERS.twilight.resource for the full
+  // provenance and for why refill is THE knob), and the roster below is two-thirds stand-ins, so
+  // re-tuning them now would be tuning against a chapter that does not exist yet.
   //
   // speedFloor — THE MURK SLOWS YOU. Owner from play, 2026-08-18: "it should also slow you
   // down". This overturns the speedFloor 1 that shipped in v7.133, whose argument was that 2.4
@@ -6381,7 +6356,7 @@ CHAPTERS.shelf = {
     // — only the rail's readout is flipped, which is what `invert` means and all it means.
     // ponytail: display-only. If anything ever needs the pollution NUMBER (a card, an event, a
     //   summary row), give run.charge a real inverted twin rather than flipping it a second time.
-    name: 'Pollution', invert: true, drain: 2.2, refill: 18, killRefill: 1.5, max: 100,
+    name: 'Pollution', invert: true, drain: 2.2, refill: 18, max: 100,
     dark: { from: 0.5, speedFloor: 0.85, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
   },
 
@@ -6662,7 +6637,7 @@ CHAPTERS.surf = {
   // `damage` is the §5.3 owner-ruling override: only Humidity carries this key, which is what makes
   // resourceDamageMul() (config.js) a no-op everywhere else. floor reuses HUMIDITY_DMG_FLOOR rather
   // than a second literal, so the two never drift apart.
-  resource: { name: 'Humidity', drain: 0.3, refill: 20, killRefill: 1.2, max: 100, damage: { floor: HUMIDITY_DMG_FLOOR } },
+  resource: { name: 'Humidity', drain: 0.3, refill: 20, max: 100, damage: { floor: HUMIDITY_DMG_FLOOR } },
 
   // A NEW object, never a mutation of the spread one: `...CHAPTERS.pond` above shares pond's
   // `balance` table BY REFERENCE (see CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles in
@@ -6953,8 +6928,6 @@ CHAPTERS.reef = {
   //   base centre hoard    12.2    76       0        0.0   ignore it and you drown
   //   base pocket hoard    88.1     0       9       21.2   work it and the bar cycles, 24..100
   //   base pocket full     18.3    28       0       26.3   ...and spend it on the button as well
-  //   thief centre hoard   20.7    17       0        0.0   Light Thief roughly halves the drowning
-  //   thief pocket hoard   96.0     0      15       17.6
   //
   // The two hoard rows are the headline: 76% of the run at zero against 0%, off the same tune, on
   // the same seeds, decided entirely by whether the player commits to a side of the lane. That is
@@ -6968,23 +6941,19 @@ CHAPTERS.reef = {
   // bar into a 0..45 sawtooth and spends 28% of the run drowning. That is NOT this tune failing —
   // it is the same unresolved design question CHAPTERS.surf.resource records, and it is arguably
   // healthier here: on The Surf the cost is a damage multiplier nobody can feel, where here it is a
-  // trade the player can name ("I spent my air on a dash, now I am drowning"). Light Thief is the
-  // shipped mitigation and prices itself accordingly (28% -> 11%).
+  // trade the player can name ("I spent my air on a dash, now I am drowning").
   //
-  // killRefill 0.2 AND NOT THE SHELF'S 1.5, because the chapter kills six times as fast: the lane
-  // runs two spawners and the probe measures ~4.8 kills/s here against ~0.8 on The Twilight. At 1.2 it
-  // paid 5.8/s against a 1.4/s drain and simply ABOLISHED the bar — `thief centre hoard` pinned at
-  // 100 with the player never touching a pocket, i.e. the purchase deleting the chapter's mechanic
-  // rather than changing how it is played. Read a killRefill against its chapter's KILL RATE, never
-  // against another chapter's number.
+  // NO KILL REFILL, and this chapter is why the whole idea is gone. The lane runs two spawners and
+  // the probe measures ~4.8 kills/s here against ~0.8 on The Twilight, so a per-kill refill sized
+  // for any other chapter ABOLISHED the bar outright: at 1.2 it paid 5.8/s against a 1.4/s drain
+  // and a centre-hoarding player pinned at 100 without ever touching a pocket. The pockets are the
+  // only source, which is what every number below is measured against.
   //
   // `drown` is this bar's second job (§5.2): at empty you take drown.dps as damage over time until
   // you breathe. See DROWN_TICK's block for why it is a DoT and not a damage multiplier, and for
   // why it deliberately introduces no new event.
   //
-  // killRefill is shop-gated exactly as The Shelf's and The Surf's are (meta.lightThief ->
-  // run.killRefill at createRun), so the numbers above have to work with it at ZERO.
-  resource: { name: 'Air', drain: 1.4, refill: 9, killRefill: 0.2, max: 100, drown: { dps: 4 } },
+  resource: { name: 'Air', drain: 1.4, refill: 9, max: 100, drown: { dps: 4 } },
 
   // NO FURNITURE (owner, 2026-08-22). The spur field above is this chapter's only coral and its only
   // collision story: everything solid GRATES and nothing shoves, so there is exactly one answer to
@@ -7206,10 +7175,10 @@ CHAPTERS.wreck = {
   // no field for refillSpec() to find, so stepCharge's shaft loop never fires and The Trawl is the
   // precedent for a `resource` chapter with nothing to stand in.
   //
-  // `killBase` IS THE CHAPTER. It is the per-kill refill that is NOT shop-gated — every other
-  // chapter's kill refill is Scavenger's and reads 0 on an unbought save (owner ruling: "none by
-  // default, only via the shop"). That rule cannot hold here, because a bar with no field and no
-  // baseline kill refill has no refill at all. Scavenger still stacks on top via `killRefill`.
+  // `killBase` IS THE CHAPTER, and it is now the ONLY kill-driven refill left in the game — no
+  // other chapter's bar moves when something dies. That is forced here rather than chosen: this bar
+  // has no field for refillSpec() to find, so with no baseline kill refill it would have no refill
+  // at all. Everywhere else the kill refill was Scavenger's, and Scavenger is removed.
   //
   // THE DAMAGE LINE IS ENTIRELY ABOVE 1.0, which is the opposite of Humidity's and is what makes
   // this the one bar that pays rather than taxes. §5.3's licence was spent on a multiplier whose
@@ -7273,7 +7242,7 @@ CHAPTERS.wreck = {
     // feedSlow: THE CHAPTER'S PAYOFF FOR HERDING. Being inside the shoal slows the drain (FEED_*).
     // It is a rate rather than a refill because the bar is CLAMPED and a refill multiplier measured
     // regressive — see the FEED block in this file and stepCharge for the numbers.
-    name: 'Bloodlust', drainPerSpawn: 2.4, refill: 0, killBase: 5, killRefill: 2, tankRefill: 30, max: 100, feedSlow: true,
+    name: 'Bloodlust', drainPerSpawn: 2.4, refill: 0, killBase: 5, tankRefill: 30, max: 100, feedSlow: true,
     damage: { floor: 1, peak: 1.8 },
     rate: { floor: 1, peak: 1.5 },
     // 4, not 5, and the reason is arithmetic rather than balance: hurtPlayer ROUNDS a dot hit, so
@@ -7486,9 +7455,6 @@ CHAPTERS.trawl = {
   //   base ignore hoard    17.3    41       0       13.6   the wake washes over you and it is not enough
   //   base flee   hoard     6.4    87       0        0.0   outrun the net and you eat nothing at all
   //   base ride   hoard    71.8     0      22       43.9   work it and the bar cycles, 23..100
-  //   thief ignore hoard   37.1    16       1       10.8   Light Thief roughly halves the starving
-  //   thief flee  hoard     9.0    45       0        0.0
-  //   thief ride  hoard    80.5     0      34       44.3
   //
   // THE SHAPE IS THE EVIDENCE, not the mean — `ride hoard` samples every 10s of run 1 read
   //   74 100 100 89 63 37 52 100 93 67 41 42 100 97 71 45 31 95 100 75 49 23 85 100 80 54 28 74 100
@@ -7511,13 +7477,10 @@ CHAPTERS.trawl = {
   // against a pocket field you can steer into whenever you like — which is the second reason the
   // drain is high: with a bar that only empties slowly, a burst economy would never bite.
   //
-  // killRefill 0.4, and it is NOT the number that "sits between" the other chapters — read a
-  // killRefill against its OWN chapter's kill rate, exactly as The Reef's block insists. This
-  // chapter runs ~4 kills/s, so at The Shelf's 1.5 it would pay 6/s against a 2.6/s drain and simply
-  // ABOLISH the bar. At 0.4 the thief rows above still order correctly (ride 80.3 > ignore 40.1 >
-  // flee 8.8) and no policy pins at max, which is the test: the purchase must change how the chapter
-  // is played, never delete it.
-  resource: { name: 'Feed', drain: 2.6, refill: 9, killRefill: 0.4, max: 100, tire: { from: 0.45, speedFloor: 0.62 } },
+  // NO KILL REFILL: the wake is the only source. This chapter runs ~4 kills/s, so any per-kill
+  // refill worth naming paid multiples of the 2.6/s drain and flattened the three rows above into
+  // one — the same failure The Reef's block records at length.
+  resource: { name: 'Feed', drain: 2.6, refill: 9, max: 100, tire: { from: 0.45, speedFloor: 0.62 } },
 
   // The button. See BREACH_* for the cast. The flag sits here beside `signature` because the two are
   // one design: the net is the chapter's problem and this is the only answer to it that is not
@@ -7676,9 +7639,10 @@ CHAPTERS.deep = {
   // the floor. That is what makes this chapter's refill "a place you can fight from, never a place
   // you go to stop": the refill point is a mouth that is closing.
   //
-  // killRefill 0 is load-bearing and is the difference between this chapter and every other one in
-  // the book. At any positive value the player tops the bar up by doing what they were going to do
-  // anyway, and walking into a mouth stops being the only decision in the chapter.
+  // NO KILL REFILL, which this chapter needed before the rest of the book did: at any positive
+  // value the player tops the bar up by doing what they were going to do anyway, and walking into a
+  // mouth stops being the only decision in the chapter. Nothing in the game refills on a kill now
+  // except The Wreck's `killBase`, so this is the shared rule rather than this chapter's exception.
   //
   // MEASURED: scripts/charge-probe.mjs --chapter deep, 300s x 3 seeded runs, immortal, under three
   // MOVEMENT policies — because one policy cannot tell "the bar cannot fill" from "this player never
@@ -7702,7 +7666,7 @@ CHAPTERS.deep = {
   //   The `ignore` row is the CONTROL and answers "does this chapter have the dark from the chapter
   // before it": 99% of the run dark, a bar at 10 of 100, half of it pinned at empty. It does.
   resource: {
-    name: 'Light', drain: 2.0, refill: 16, killRefill: 0, max: 100,
+    name: 'Light', drain: 2.0, refill: 16, max: 100,
     dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.50, radiusEmpty: 0.06 },
   },
   scent: true,        // stepRepulse's third per-chapter branch, beside `burst` and `breach`
@@ -9730,7 +9694,7 @@ export const BREACH_MAX_HOLES = 6        // per pass; a wall cut to lace is not 
 //
 // WHICH drawback is an owner ruling, taken 2026-08-12 against three alternatives. Move speed, not
 // damage and not accuracy, because weapons auto-fire: a slow player still kills at the same rate,
-// so kills still pay (with LIGHT_THIEF bought) and the state is escapable. Damage-down and
+// so kills still pay in XP and the state is escapable. Damage-down and
 // shots-go-wide both cut the kill rate, which is the same spiral the Pulse's floor exists to
 // prevent, one level up.
 //
@@ -10357,19 +10321,6 @@ export const DMG_SRC_NO_ART = {
   wisp: 'unreachable — every chapter roster covers `fast`',
   tank: 'unreachable — every chapter roster covers `tank`',
 }
-
-// ---- Light Thief (v7.x Book 2) ----------------------------------------------------------------
-// Kills give light back — but ONLY once bought. Owner ruling, and a reversal of the first cut which
-// had it on by default: "none by default, only via the shop". So the baseline chapter is tuned to
-// be survivable on shafts alone (scripts/charge-probe.mjs measures exactly that), and this is a
-// permanent unlock that changes how the chapter is PLAYED rather than a percentage on a stat.
-//
-// Priced in the sacrifice ladder's currency — purchased SHOP levels, burned with no coin refund —
-// because that is the game's existing vocabulary for "permanent, and it costs you something you
-// already own". 15 sits deliberately BELOW the 3rd card slot's 20: it is the cheapest thing on that
-// screen, so it is a plausible first sacrifice rather than a late-game luxury.
-// LIGHT_THIEF_COSTS itself lives up near SACRIFICE_COSTS (BOOK_UNLOCKS.undertow.lightThief
-// references it directly, and that table is built before this point in the file).
 
 // ---- Asteroids (v5.21 — gated on CHAPTERS[chapter].lane, opt out per chapter with `rocks: false`) -
 // Drifting rock that hurts EVERYONE. It is the lane's only neutral party: it damages the player on

@@ -85,7 +85,7 @@ import {
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
-  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COSTS, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
+  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RING_N, RING_R_MUL, RING_POOL_MUL,
   RAMPAGE_SPEED_MUL,
@@ -5004,9 +5004,12 @@ function runBookProgression() {
   assert.ok(!r.chapters.surf?.unlocked, 'and no Undertow unlock')
 
   // (p) RULING B — meta.lightThief (Book 1-shaped legacy, design doc §1) copies forward ONCE into
-  // its new home, bookMeta(m,'undertow').unlocks.lightThief, which is the only place createRun
-  // reads it now. The old field must survive untouched (R2: never delete a meta field), and a run
-  // in an Undertow chapter must actually see the effect — not just the copied flag.
+  // its new home, bookMeta(m,'undertow').unlocks.lightThief. BOTH ARE DEAD DATA since v7.x removed
+  // Scavenger, and the migration is guarded anyway: R2 makes it part of the save's SHAPE, so a save
+  // that survived a downgrade-then-upgrade must come back the same shape as one that did not. The
+  // old field must survive untouched (R2: never delete a meta field), and the run must be unchanged
+  // by the flag — a copied-forward unlock that still granted something would be a removed mechanic
+  // reachable by exactly the oldest saves, which are the ones nobody plays on.
   const thiefBlob = {
     schema: 1, coins: 10, shop: {}, runs: 5, dev: true, lightThief: true,
     chapters: { body: { unlocked: true, maxDifficulty: 1, difficulty: 1, best: { time: 0, kills: 0 } } },
@@ -5016,7 +5019,8 @@ function runBookProgression() {
     "a top-level lightThief:true copies forward into bookMeta(m,'undertow').unlocks.lightThief on load")
   assert.strictEqual(withThief.lightThief, true, 'the OLD field must survive untouched (R2 — never delete a meta field)')
   const thiefRun = createRun(withThief, { chapter: 'surf' })
-  assert.ok(thiefRun.killRefill > 0, 'an Undertow run for a save carrying the copied-forward unlock gets a non-zero killRefill')
+  assert.ok(!('killRefill' in thiefRun),
+    'run.killRefill went with Scavenger (v7.x) — a run must carry no dead field, and the copied-forward flag must grant nothing')
 
   // FINDING 2 (review, 2026-08-16): the `=== undefined` guard has no coverage of its own reason
   // to exist — a mutation deleting it would still pass everything above, because nothing here
@@ -5261,23 +5265,33 @@ function runBookProgression() {
       `SACRIFICING MUST NOT LOSE PROGRESS: ${price} levels bought reads ${before}%, and spending them on the 3rd card slot reads ${after}%. The levels are gone from bm.shop, so the thing they bought has to be credited back — otherwise the meter runs backwards on a purchase.`)
 
     // The same for a BOOK_UNLOCKS rung, which is the book-specific ladder and a different branch.
-    const [uid] = Object.keys(BOOK_UNLOCKS.undertow)
-    const rung = unlockCost('undertow', uid, 0)
-    const uSaved = {}
-    let uLeft = rung
-    for (const id of Object.keys(shopLines('undertow'))) { const take = Math.min(lineMax(id), uLeft); if (take > 0) uSaved[id] = take; uLeft -= take }
-    const uBefore = bookProgress({ shop: uSaved, choiceSlots: 2, unlocks: {} }, 'undertow').pct
-    const uAfter = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: 1 } }, 'undertow').pct
-    assert.strictEqual(uAfter, uBefore,
-      `buying ${uid}'s first rung (${rung} levels) must not lose progress either: ${uBefore}% -> ${uAfter}%`)
-    // A legacy `true` unlock (a save from before the ladder) owns the TOP rung, not one.
-    const legacy = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: true } }, 'undertow')
-    const allRungs = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: unlockMax('undertow', uid) } }, 'undertow')
-    assert.strictEqual(legacy.owned, allRungs.owned,
-      `a pre-ladder \`${uid}: true\` save must be credited the whole ladder (${allRungs.owned} levels), not one rung — it got ${legacy.owned}`)
+    //
+    // UNEXERCISED WHILE THE TABLE IS EMPTY (v7.x removed Scavenger, its only ever row). bookProgress
+    // credits unlocks by iterating BOOK_UNLOCKS[bookId], so with no rows there is no rung to buy and
+    // nothing to credit back. Guarded and REPORTED in the PASS line rather than deleted, for both of
+    // this repo's own reasons: the branch is live code the next unlock walks straight into, and a
+    // check that silently skips reads exactly like a check that passed.
+    const [uid] = Object.keys(BOOK_UNLOCKS.undertow ?? {})
+    let unlockNote = 'BOOK_UNLOCKS empty, unlock-ladder branch UNEXERCISED'
+    if (uid) {
+      const rung = unlockCost('undertow', uid, 0)
+      const uSaved = {}
+      let uLeft = rung
+      for (const id of Object.keys(shopLines('undertow'))) { const take = Math.min(lineMax(id), uLeft); if (take > 0) uSaved[id] = take; uLeft -= take }
+      const uBefore = bookProgress({ shop: uSaved, choiceSlots: 2, unlocks: {} }, 'undertow').pct
+      const uAfter = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: 1 } }, 'undertow').pct
+      assert.strictEqual(uAfter, uBefore,
+        `buying ${uid}'s first rung (${rung} levels) must not lose progress either: ${uBefore}% -> ${uAfter}%`)
+      // A legacy `true` unlock (a save from before the ladder) owns the TOP rung, not one.
+      const legacy = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: true } }, 'undertow')
+      const allRungs = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: unlockMax('undertow', uid) } }, 'undertow')
+      assert.strictEqual(legacy.owned, allRungs.owned,
+        `a pre-ladder \`${uid}: true\` save must be credited the whole ladder (${allRungs.owned} levels), not one rung — it got ${legacy.owned}`)
+      unlockNote = `${rung} levels -> ${uid} holds at ${uBefore}%`
+    }
 
     const totals = BOOK_ORDER.map((b) => `${b} ${bookProgress({ shop: {}, choiceSlots: 2, unlocks: {} }, b).total}`).join(', ')
-    console.log(`PASS run BP.q5 (shop completion meter): denominators in LEVELS [${totals}], fresh 0% and spent-out exactly 100% for ${BOOK_ORDER.length} books, an over-count of slots reads no higher, and a sacrifice is monotone on both ladders (${price} levels -> 3rd slot holds at ${before}%, ${rung} levels -> ${uid} holds at ${uBefore}%)`)
+    console.log(`PASS run BP.q5 (shop completion meter): denominators in LEVELS [${totals}], fresh 0% and spent-out exactly 100% for ${BOOK_ORDER.length} books, an over-count of slots reads no higher, and a sacrifice is monotone (${price} levels -> 3rd slot holds at ${before}%; ${unlockNote})`)
   }
 
   // (q4) EVERY DOOR HAS A HANDLER, AND EVERY SCREEN HAS A DOOR. Deleting the bottom nav (v7.x)
@@ -5546,29 +5560,32 @@ function runBookProgression() {
       `the drain clamp must bind at run.chargeMax (${run.chargeMax}), not the config max (${configMax}) — got ${run.charge} after one drain tick from the raised ceiling`)
   }
 
-  // The KILL-REFILL clamp (the Light Thief bonus, sim.js) must ALSO bind at run.chargeMax — a
-  // SEPARATE line from the drain clamp above, and the brief's own trap: a refill still clamped to
-  // the config max would let the bar refill past its OLD cap on kills and snap back down on the
-  // very next drain tick, a flicker no "does the ceiling move" assertion can see. Proven with a
-  // REAL kill (park a 1-hp enemy on the player, same idiom as run LT), not a hand-set run.charge.
-  // run.charge is reset to just under the OLD config max before every step — safely below BOTH
-  // candidate ceilings — so the drain clamp (proven separately above) can never be what pushes the
-  // peak up; only the kill-refill clamp can.
+  // The KILL-REFILL clamp (sim.js's kill branch) must ALSO bind at run.chargeMax — a SEPARATE line
+  // from the drain clamp above, and the brief's own trap: a refill still clamped to the config max
+  // would let the bar refill past its OLD cap on kills and snap back down on the very next drain
+  // tick, a flicker no "does the ceiling move" assertion can see.
+  //
+  // ON THE WRECK, and it has to be: `killBase` is the only per-kill refill left in the game since
+  // v7.x removed Scavenger, so this is the ONLY chapter where that clamp site can fire at all. It
+  // used to run on The Shelf with a hand-set run.killRefill of 50 — a field that no longer exists,
+  // and a rig that could not have caught this today. Proven with a REAL kill (park 1-hp enemies on
+  // the player and let the starter weapon finish them), not a hand-set run.charge: run.charge is
+  // reset to just under the OLD config max before every step — safely below BOTH candidate ceilings
+  // — so the drain clamp (proven separately above) can never be what pushes the peak up.
   {
     const m = makeMeta(); m.chapters = {}
-    const bm2 = ensureBookMeta(m, 'undertow')
-    bm2.shop.deepLungs = lineMax('deepLungs')
-    bm2.unlocks.lightThief = true
+    ensureBookMeta(m, 'undertow').shop.deepLungs = lineMax('deepLungs')
     Math.random = mulberry32(1)
-    const run = createRun(m, { chapter: 'shelf', difficulty: 1 })
-    const configMax = CHAPTERS.shelf.resource.max
+    const run = createRun(m, { chapter: 'wreck', difficulty: 1 })
+    const res = CHAPTERS.wreck.resource
+    const configMax = res.max
     assert.ok(run.chargeMax > configMax, 'precondition: deepLungs must raise the ceiling above the config max for this probe to mean anything')
+    assert.ok((res.killBase ?? 0) > 0, 'precondition: The Wreck must still declare killBase — it is the only per-kill refill this clamp site has left to fire on')
     run.player.hp = run.player.maxHP = 1e9
-    run.killRefill = 50   // large enough that one kill overshoots the OLD config max on its own
     let peak = 0
     for (let i = 0; i < 300; i++) {
       for (const e of run.enemies) { if (!e._dead) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 } }
-      run.charge = configMax - 5
+      run.charge = configMax - 1   // one killBase (5) overshoots the OLD cap on its own
       stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
       run.events.length = 0
       peak = Math.max(peak, run.charge)
@@ -9127,160 +9144,62 @@ function runRosterArt() {
 }
 run(runRosterArt)
 
-// ---- Run LT: Light Thief (v7.x Book 2) ------------------------------------------------------
-// Owner ruling, and a REVERSAL of the first cut: "none by default, only via the shop". So the
-// guard that matters is the gate — an unbought save must get exactly zero light from kills, and
-// sim.js must never learn about meta to find that out.
-function runLightThief() {
-  const res = CHAPTERS.twilight.resource
-  // 'twilight' is bookOf() 'undertow' (Task 2: per-book progression), so the unlock now lives at
-  // bm.unlocks.lightThief — meta.books.undertow.unlocks.lightThief here, not a top-level field.
-  const meta = (thief) => ({
-    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'twilight', dev: true,
-    books: { undertow: { coins: 0, shop: {}, choiceSlots: 2, unlocks: { lightThief: thief } } },
-    chapters: Object.fromEntries(['body', 'pond', 'twilight'].map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
-  })
-
-  // (a) the snapshot. createRun resolves the unlock ONCE, into a number.
+// ---- Run SC: the sacrifice seam (v7.x) ---------------------------------------------------------
+// SCAVENGER WAS REMOVED, AND ITS MACHINERY STAYED. It was the only BOOK_UNLOCKS entry the game ever
+// had; the table, its three helpers, sacTargets' loop and onSacrifice's non-'slot' branch are all
+// book-agnostic and none of them names a key, so they were kept as the seam the next unlock arrives
+// through. That leaves two ways to be wrong, and this scenario covers both:
+//   - the removal is only PARTLY done — a chapter still declaring a per-kill refill nothing reads,
+//     or sim.js still reaching for the deleted run.killRefill;
+//   - the seam rots while it is empty, and the next unlock added to the table is unpurchasable in
+//     exactly the way the first one was (see (c)).
+// This replaced run LT, which measured what the unlock paid per kill.
+function runSacrificeSeam() {
+  // (a) THE REMOVAL IS COMPLETE, CONFIG SIDE. A chapter left declaring `killRefill` is inert config
+  // that reads as live balance — this repo's single largest defect class — and no import binds the
+  // two, so nothing throws. Object.keys(CHAPTERS) is the honest denominator (CLAUDE.md):
+  // CHAPTER_ORDER is Book 1 only and would silently skip every chapter this removal touched.
+  const chapterIds = Object.keys(CHAPTERS)
+  const withResource = chapterIds.filter((id) => CHAPTERS[id].resource)
   {
-    assert.strictEqual(createRun(meta(false), { chapter: 'twilight', difficulty: 1 }).killRefill, 0,
-      'an unbought save must take 0 light per kill')
-    assert.strictEqual(createRun(meta(true), { chapter: 'twilight', difficulty: 1 }).killRefill, res.killRefill,
-      'a bought save must take the chapter resource killRefill')
-    // THE LADDER (owner ruling, 3 rungs): each level is a third of the chapter's own killRefill,
-    // so a maxed ladder is exactly what the old single purchase gave and the ceiling has not moved.
-    // `true` is a pre-ladder save that paid the full 15 — it reads as the TOP level, never less.
-    const MAXLT = unlockMax('undertow', 'lightThief')
-    for (const lv of [1, 2, 3]) {
-      assert.ok(Math.abs(createRun(meta(lv), { chapter: 'twilight', difficulty: 1 }).killRefill
-        - res.killRefill * lv / MAXLT) < 1e-9, `level ${lv} must take ${lv}/${MAXLT} of the chapter refill`)
-    }
-    // A numeric level is MEANINGFUL now, so the old "must be === true" rule is gone. What has to
-    // hold instead: nothing un-numeric grants anything, and a value past the top of the ladder
-    // clamps rather than scaling the refill past the chapter's own figure.
-    for (const bad of ['yes', {}, [], 'true', NaN, -3, false]) {
-      assert.strictEqual(createRun(meta(bad), { chapter: 'twilight', difficulty: 1 }).killRefill, 0,
-        `lightThief: ${JSON.stringify(bad)} is not a level and must grant nothing`)
-    }
-    assert.strictEqual(createRun(meta(99), { chapter: 'twilight', difficulty: 1 }).killRefill, res.killRefill,
-      'a level past the top of the ladder clamps to the top rather than scaling past the chapter refill')
-    assert.strictEqual(createRun(meta(true), { chapter: 'pond', difficulty: 1 }).killRefill, 0,
-      'a chapter with no resource takes 0 per kill even when the unlock is owned')
+    const stillDeclared = withResource.filter((id) => 'killRefill' in CHAPTERS[id].resource)
+    assert.deepStrictEqual(stillDeclared, [],
+      `chapter resource(s) still declaring killRefill: [${stillDeclared.join(', ')}] — Scavenger was the only reader and it is gone, so this is a number that looks like balance and is not`)
+    // `killBase` is what survived, and only where a chapter has no refill circle at all. If a second
+    // chapter grows one, that is a real design decision and this line is where it gets stated.
+    const withKillBase = withResource.filter((id) => (CHAPTERS[id].resource.killBase ?? 0) > 0)
+    assert.deepStrictEqual(withKillBase, ['wreck'],
+      `killBase is meant to be The Wreck's alone (it is the one bar with no place to stand in); found [${withKillBase.join(', ')}]`)
   }
 
-  // (b) THE EFFECT, not the field: kill things and watch the bar. Asserting run.killRefill alone
-  // passes with the refill site in sim.js deleted.
-  //
-  // The bar is RE-PINNED to the same value before every step, and that is what makes the two runs
-  // comparable at all. Charge drives the dark, the dark drives move speed, and move speed re-phases
-  // the entire RNG stream — so a bought run and an unbought run left to diverge would end up with
-  // different crowds and the kill counts could not be subtracted. Pinned, both runs are in
-  // lockstep and each step's delta is exactly what that step's refills and drain did.
-  const PIN = 50
-  const killRun = (thief) => {
-    Math.random = mulberry32(90210)
-    const run = createRun(meta(thief), { chapter: 'twilight', difficulty: 1 })
-    run.shafts.length = 0                       // no in-shaft refill: kills are the only credit
-    run.player.hp = run.player.maxHP = 1e9      // immortal, so the run cannot end mid-measurement
-    let gained = 0
-    for (let i = 0; i < 900; i++) {
-      // Park every live enemy on the player at 1 HP: the starter weapon then kills whatever the
-      // wave table has produced, which is what makes this a real kill count rather than a fixture.
-      for (const e of run.enemies) { if (!e._dead) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 } }
-      run.charge = PIN
-      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
-      run.events.length = 0
-      gained += run.charge - PIN
-      run.player.hp = run.player.maxHP
-    }
-    return { gained, kills: run.kills }
-  }
-  {
-    const off = killRun(false)
-    const on = killRun(true)
-    assert.ok(off.kills > 20, `the rig must actually kill things, got ${off.kills}`)
-    assert.strictEqual(off.kills, on.kills,
-      `pinning the bar must keep both runs in RNG lockstep — got ${off.kills} vs ${on.kills} kills, so the delta below would be meaningless`)
-    const delta = on.gained - off.gained
-    const want = off.kills * res.killRefill
-    assert.ok(Math.abs(delta - want) < 1e-6,
-      `buying Light Thief must be worth exactly ${res.killRefill} per kill: ${off.kills} kills -> ${want}, measured ${delta.toFixed(4)}`)
-    // And the unbought run must gain NOTHING from kills — its whole delta is the passive drain.
-    const drainOnly = -res.drain * (900 / 60)
-    assert.ok(Math.abs(off.gained - drainOnly) < 1e-6,
-      `an unbought run's bar must move by drain alone (${drainOnly.toFixed(2)}), measured ${off.gained.toFixed(2)} over ${off.kills} kills`)
-  }
-
-  // ...and it clamps. A bar over max is a rail drawn past the end of its own track.
-  {
-    Math.random = mulberry32(90210)
-    const run = createRun(meta(true), { chapter: 'twilight', difficulty: 1 })
-    run.player.hp = run.player.maxHP = 1e9
-    let peak = 0
-    for (let i = 0; i < 600; i++) {
-      for (const e of run.enemies) { if (!e._dead) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 } }
-      run.charge = res.max                      // already full when the kills land
-      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
-      run.events.length = 0
-      peak = Math.max(peak, run.charge)
-      run.player.hp = run.player.maxHP
-    }
-    assert.ok(run.kills > 10, `the clamp rig must land kills, got ${run.kills}`)
-    assert.ok(peak <= res.max + 1e-9, `kill refill must clamp at ${res.max}, peaked at ${peak}`)
-  }
-
-  // (c) sim.js NEVER reads the unlock. Same rule as meta.dev (the plan's R1): sim plays what it is
-  // handed, which is what makes a dev-gated chapter playtest as the thing that eventually ships.
+  // (b) THE REMOVAL IS COMPLETE, SIM SIDE — and this one fails SILENTLY rather than loudly. There is
+  // no run.killRefill any more, so a surviving `run.charge + run.killRefill` is `x + undefined` =
+  // NaN: the bar does not error, it disappears, and every downstream read (the dark, the Pulse's
+  // ammo, drowning) quietly goes with it.
   {
     const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
-    assert.ok(!/\bmeta\.lightThief\b/.test(src), 'sim.js must never read meta.lightThief — it reads run.killRefill')
-    assert.ok(/run\.killRefill/.test(src), 'sim.js must read the run-level snapshot')
+    assert.ok(!/\brun\.killRefill\b/.test(src),
+      'sim.js still reads run.killRefill — the field went with Scavenger, so this adds undefined to the bar and NaNs it silently')
+    assert.ok(/_res\?\.killBase \?\? 0/.test(src),
+      "sim.js must still read the chapter's own killBase at the kill site — that is the only per-kill refill left")
+    // The rule sim.js has always had, and the reason the snapshot existed in the first place: sim
+    // plays what it is handed. Worth keeping now that the field it guarded is gone.
+    assert.ok(!/\bmeta\.\w+/.test(src.replace(/^\s*\/\/.*$/gm, '')),
+      'sim.js must never read meta — it plays what createRun handed it (the plan\'s R1)')
   }
 
-  // (d) the shop rung. One claim made in prose in config.js and otherwise unguarded: it is the
-  // CHEAPEST thing on the sacrifice screen. (Task 6 REMOVED the old meta.dev gate here — see the
-  // block below for why reachability now does that job instead, and what replaced it.)
-  {
-    assert.ok(LIGHT_THIEF_COSTS[0] < SACRIFICE_COSTS[0],
-      `Light Thief's first rung (${LIGHT_THIEF_COSTS[0]}) must undercut the 3rd card slot (${SACRIFICE_COSTS[0]}) — it is meant to be a plausible FIRST sacrifice`)
-    assert.deepStrictEqual([...LIGHT_THIEF_COSTS].sort((a, b) => a - b), LIGHT_THIEF_COSTS,
-      'a ladder must get more expensive, not less — a cheaper later rung makes the earlier one a trap')
-    // unlockCost IS the already-bought gate: null once the ladder is finished. A separate
-    // `=== true` test alongside it would go stale the moment an unlock gains a second rung.
-    assert.strictEqual(unlockCost('undertow', 'lightThief', LIGHT_THIEF_COSTS.length), null,
-      'a finished ladder must price its next rung as null, which is what removes it from sacTargets')
-    assert.strictEqual(unlockLevel({ unlocks: { lightThief: true } }, 'undertow', 'lightThief'), LIGHT_THIEF_COSTS.length,
-      'a pre-ladder `true` must read as the TOP level — that save paid the full single price and must not lose it')
-    const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
-    // Task 5: onSacrifice gained a trailing bookId, defaulted to BOOK_ORDER[0] alongside target's
-    // own 'slot' default — same "an older caller keeps meaning what it used to" reasoning.
-    assert.ok(/onSacrifice\(picks, target = 'slot', bookId = BOOK_ORDER\[0\]\)/.test(main),
-      "onSacrifice must default target to 'slot' and bookId to BOOK_ORDER[0], so an older caller keeps meaning what it used to")
-    // Task 5: the cost resolution is book-general now (BOOK_UNLOCKS[bookId], not a Light-Thief-
-    // shaped literal), and the already-owned check reads the NEW per-book location
-    // (bm.unlocks[target], since createRun's killRefill has read bm.unlocks.lightThief since
-    // Task 2) rather than the legacy top-level meta.lightThief.
-    assert.ok(/cost = unlockCost\(bookId, target, unlockLevel\(bm, bookId, target\)\)/.test(main),
-      'onSacrifice must price the NEXT rung from the ladder (reading bm.unlocks via unlockLevel, not the legacy meta.lightThief) — a finished ladder prices null and is refused here rather than by the button being absent')
-    assert.ok(/\(bm\.unlocks \?\?= \{\}\)\[target\] = unlockLevel\(bm, bookId, target\) \+ 1/.test(main),
-      'onSacrifice must store the new LEVEL, not `true` — writing true would jump a part-bought ladder straight to the top')
-  }
-
-  // (e) RULING 1 (Task 6, 2026-08-16 amendment) — ui.js's sacTargets used to hand-roll its own
-  // Light Thief branch: a hardcoded id: 'thief' behind a bare meta.dev check, reading the LEGACY
-  // meta.lightThief for "already bought". That was TWO bugs at once, both silent: onSacrifice
-  // resolves a non-'slot' target's cost as BOOK_UNLOCKS[bookId]?.[target]?.cost (Task 5), and
-  // BOOK_UNLOCKS.undertow's real key is 'lightThief' — so the mismatched id made Light Thief
-  // permanently unpurchasable (cost always resolved to null, the button never lit even when
-  // affordable), and the meta.lightThief read meant the button would never disappear after a
-  // purchase either, since Task 5's onSacrifice no longer writes that legacy field at all (it
-  // writes bm.unlocks[target] — see (d) above and Task 5's ruling G).
+  // (c) THE SEAM IS STILL CORRECTLY SHAPED. All source-text, because ui.js cannot be imported here
+  // (initUI calls document.getElementById on its first line and there is no jsdom) — same trick run
+  // UG.k uses for render.js's hooks.
   //
-  // ui.js cannot be imported and driven directly here: initUI() calls document.getElementById at
-  // its very first line and this suite runs in plain node (no jsdom in package.json — verified),
-  // so sacTargets is unreachable as a live function. Same situation run UG.k documents for
-  // render.js's Pixi hooks — read the function as TEXT and assert the wiring, rather than skip
-  // the guard entirely.
+  // RULING 1 (Task 6, 2026-08-16) is what these guard, and it is worth restating because the empty
+  // table cannot: sacTargets once hand-rolled its own branch with a hardcoded id: 'thief' behind a
+  // bare meta.dev check, reading a legacy top-level field for "already bought". Two silent bugs at
+  // once — onSacrifice resolves a non-'slot' target through BOOK_UNLOCKS[bookId], and the real key
+  // was 'lightThief', so the unlock was permanently unpurchasable (cost resolved null, the button
+  // never lit) AND would never have disappeared after a purchase. An empty table makes all of that
+  // unreachable, which is exactly why it needs a structural guard rather than a behavioural one:
+  // the next person to add a row inherits either the shape or the bug.
   {
     const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
     const start = ui.indexOf('function sacTargets(bookId) {')
@@ -9289,46 +9208,56 @@ function runLightThief() {
     assert.ok(end > start, 'could not find the end of sacTargets')
     const body = ui.slice(start, end)
 
-    // No hand-rolled meta.dev gate left in the function that emits targets — reachability (an
-    // Undertow target only ever exists to be asked for once the book itself is browsable) is what
-    // gates this now, per the ruling. A meta.dev check reappearing here is the exact shape of the
-    // regression: it is what let a hardcoded, driftable id sit right next to it.
     assert.doesNotMatch(body, /meta\.dev/,
-      'sacTargets must not gate on meta.dev directly — reachability already gates an Undertow target (see the ruling comment above sacTargets in ui.js)')
+      'sacTargets must not gate on meta.dev directly — reachability already gates a book-specific target (see the ruling comment above sacTargets in ui.js)')
     assert.doesNotMatch(body, /meta\.lightThief/,
-      "sacTargets must not read the legacy meta.lightThief — Task 5's onSacrifice writes the unlock to bm.unlocks[target], and reading the old field is exactly why the button never disappeared after a purchase")
-
-    // The already-owned gate must read THIS BOOK's own purse, keyed by the loop's own id. Unlocks
-    // are LADDERS now, so the gate is "the next rung prices null" rather than a boolean — one
-    // expression that both prices the offer and retires it, where a separate `=== true` test
-    // alongside it would go stale the moment an unlock gained a second rung. unlockLevel takes
-    // `bm`, so it is still this book's purse and never a Book-1-shaped legacy field.
+      'sacTargets must not read the legacy top-level meta.lightThief — onSacrifice writes bm.unlocks[target], and reading the old field is exactly why the button never disappeared after a purchase')
     assert.ok(/const cost = unlockCost\(bookId, id, unlockLevel\(bm, bookId, id\)\)/.test(body),
       "sacTargets must price the next rung from THIS book's purse via unlockLevel(bm, …), not a Book-1-shaped legacy field")
     assert.ok(/if \(cost == null\) continue/.test(body),
       'sacTargets must drop an unlock whose ladder is finished — that null IS the already-bought gate')
-
-    // The structural proof for "every id sacTargets can emit is either 'slot' or a real key of
-    // BOOK_UNLOCKS[bookId]": the ONLY branch that can push a non-'slot' id must destructure that
-    // id straight out of Object.entries(BOOK_UNLOCKS[bookId] ?? {}) and push that SAME binding —
-    // never a separately-typed literal, which is exactly how 'thief' drifted from the table's real
-    // key 'lightThief' with nothing to catch it.
     assert.ok(/for \(const \[id, u\] of Object\.entries\(BOOK_UNLOCKS\[bookId\] \?\? \{\}\)\)/.test(body),
-      'sacTargets must iterate Object.entries(BOOK_UNLOCKS[bookId] ?? {}) by its own keys')
-    // `cost` is the local holding the NEXT rung's price now, not u.cost — but the point of this
-    // assertion is the `id` binding, which must still be the loop's own.
+      'sacTargets must iterate Object.entries(BOOK_UNLOCKS[bookId] ?? {}) by its own keys — the ?? {} is what makes an EMPTY table a no-op instead of a throw')
     assert.ok(/out\.push\(\{ id, cost,/.test(body),
       "the BOOK_UNLOCKS branch must push the LOOP's own `id` binding — a separately-typed id here (however named) can silently stop matching the table's real key")
-    // Every OTHER id: assignment in the function body must be the literal 'slot' — if it is
-    // anything else, some branch is hardcoding an id instead of reading it off BOOK_UNLOCKS.
     const idLiterals = [...body.matchAll(/\bid:\s*'([^']+)'/g)].map((m) => m[1])
     assert.deepStrictEqual(idLiterals, ['slot'],
       `sacTargets may only hardcode 'slot' as a literal id; every other emitted id must come from the BOOK_UNLOCKS loop above — found literal id(s): ${JSON.stringify(idLiterals)}`)
   }
 
-  console.log(`PASS run LT (Light Thief): ${LIGHT_THIEF_COSTS.length} rungs at ${LIGHT_THIEF_COSTS.join('/')} sacrificed levels, +${res.killRefill}/kill at full and thirds below, 0 for 7 junk saves, over-max clamps, pre-ladder true reads as top, bar clamps, sim.js never reads meta, first rung under the ${SACRIFICE_COSTS[0]} card slot, and sacTargets emits only 'slot' or a real BOOK_UNLOCKS[bookId] key`)
+  // (d) onSacrifice's half of the same seam. 'slot' is the only target the shipped UI can send while
+  // the table is empty, so every one of these is guarding the future row rather than today's screen.
+  {
+    const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    assert.ok(/onSacrifice\(picks, target = 'slot', bookId = BOOK_ORDER\[0\]\)/.test(main),
+      "onSacrifice must default target to 'slot' and bookId to BOOK_ORDER[0], so an older caller keeps meaning what it used to")
+    assert.ok(/cost = unlockCost\(bookId, target, unlockLevel\(bm, bookId, target\)\)/.test(main),
+      'onSacrifice must price the NEXT rung from the ladder — a finished ladder prices null and is refused here rather than by the button being absent')
+    assert.ok(/\(bm\.unlocks \?\?= \{\}\)\[target\] = unlockLevel\(bm, bookId, target\) \+ 1/.test(main),
+      'onSacrifice must store the new LEVEL, not `true` — writing true would jump a part-bought ladder straight to the top')
+    assert.doesNotMatch(main, /meta\.lightThief\s*=\s*true/,
+      'onSacrifice must never write the legacy top-level meta.lightThief — an unlock goes to bookMeta(meta,bookId).unlocks[target] only')
+  }
+
+  // (e) THE HELPERS SURVIVE AN EMPTY TABLE. Every one of them is called on today's shop screen with
+  // a book that has no unlocks at all, so "returns a sane zero" is live behaviour, not a hypothetical
+  // — purseSwitchHtml sums unlockMax/unlockLevel over the (empty) id list on every render.
+  {
+    assert.strictEqual(Object.keys(BOOK_UNLOCKS).length, 0,
+      'BOOK_UNLOCKS is expected to be empty since Scavenger was removed — if a row was added back, give it a real behavioural test and update this scenario')
+    assert.strictEqual(unlockMax('undertow', 'lightThief'), 0, 'unlockMax must read a removed unlock as 0 rungs, never throw')
+    assert.strictEqual(unlockCost('undertow', 'lightThief', 0), null, 'unlockCost must price a removed unlock as null, which is what keeps it out of sacTargets')
+    assert.strictEqual(unlockLevel({ unlocks: { lightThief: true } }, 'undertow', 'lightThief'), 0,
+      'a save still carrying the old flag must resolve to level 0 — the unlock is gone, and `true` must not read as "owned" against a table that no longer describes it')
+    // The card-slot ladder is what the screen sells now, and it must be untouched by all of this.
+    assert.ok(SACRIFICE_COSTS.length > 0, 'the card-slot ladder is the only sacrifice target left — an empty one would leave the screen selling nothing')
+    assert.deepStrictEqual([...SACRIFICE_COSTS].sort((x, y) => x - y), SACRIFICE_COSTS,
+      'a ladder must get more expensive, not less — a cheaper later rung makes the earlier one a trap')
+  }
+
+  console.log(`PASS run SC (sacrifice seam): 0 BOOK_UNLOCKS entries, ${withResource.length} of ${chapterIds.length} chapters carry a resource and none declares killRefill, killBase is The Wreck's alone, sim.js reads neither run.killRefill nor meta, sacTargets emits only 'slot' or a real BOOK_UNLOCKS key, onSacrifice prices and stores a LEVEL, and the helpers read a removed unlock as 0/null`)
 }
-run(runLightThief)
+run(runSacrificeSeam)
 
 // ---- Run U: per-chapter runs, weapon pools, chapter unlock (v5.0 task 2) -----------------
 // Chapter unlock itself (endRun in main.js) is untestable glue here (no DOM/main.js import) —
@@ -22791,10 +22720,11 @@ function testWreckBloodlust() {
       `the drain at t=200 (${late.toFixed(1)} over 2s) is not meaningfully faster than at t=0 (${early.toFixed(1)}) — drainPerSpawn is in config and stepCharge is reading a constant, which is the tune this chapter exists to avoid`)
     const dropped = late
 
-    // A kill pays. `killBase` is the field under test and it is NOT shop-gated, so this must hold on
-    // a meta that bought nothing — which is the whole difference from every other Book 2 chapter.
+    // A kill pays. `killBase` is the field under test, and since v7.x removed Scavenger it is the
+    // ONLY per-kill refill in the game — which is the whole difference from every other Book 2
+    // chapter, where a kill moves the bar by nothing at all.
     const r3 = wreckRun()
-    assert.strictEqual(r3.killRefill, 0, 'run WK bought Scavenger by accident — killBase must be proven on an UNBOUGHT save, since that is the case every other chapter reads as zero')
+    assert.ok(!('killRefill' in r3), 'run.killRefill went with Scavenger (v7.x) — nothing may stack on killBase any more')
     r3.charge = 20
     const victim = pin(r3, 60, 1)
     const before = r3.charge
@@ -24695,9 +24625,9 @@ function testTheDeep() {
       `run DP.a: a maw on its post-swallow cooldown still fed the player (${spent.charge.toFixed(1)}) — _shutT is declared but stepCharge does not read it`)
     // And the chapter's own rule: kills give NOTHING. This is what makes the maw the only decision
     // in the chapter rather than one option among two.
-    assert.strictEqual(res.killRefill, 0,
-      `run DP.a: The Deep's killRefill is ${res.killRefill} — at any positive value the player tops the bar up by doing what they were going to do anyway, and the maw stops being the only source`)
-    console.log(`PASS run DP.a (the only food bites): 20 -> ${near.charge.toFixed(1)} inside a maw, ${far.charge.toFixed(1)} outside one, ${none.charge.toFixed(1)} with none, ${spent.charge.toFixed(1)} in a spent one, killRefill ${res.killRefill}`)
+    assert.ok(!res.killRefill && !res.killBase,
+      `run DP.a: The Deep's resource declares a per-kill refill (killRefill ${res.killRefill}, killBase ${res.killBase}) — at any positive value the player tops the bar up by doing what they were going to do anyway, and the maw stops being the only source`)
+    console.log(`PASS run DP.a (the only food bites): 20 -> ${near.charge.toFixed(1)} inside a maw, ${far.charge.toFixed(1)} outside one, ${none.charge.toFixed(1)} with none, ${spent.charge.toFixed(1)} in a spent one, no per-kill refill`)
   }
 
   // (b) THE MOUTH IS THE CLOCK, AND IT RUNS BACKWARDS WHEN YOU LEAVE. The gape is the chapter's
@@ -26842,10 +26772,12 @@ function testVocabularies() {
   const radiusless = STRUCTURE_KINDS.filter((k) => STRUCTURE_RADIUS[k] == null)
   assert.deepStrictEqual(radiusless, [], `structure kind(s) with no STRUCTURE_RADIUS: [${radiusless.join(', ')}] — sim would collide against undefined`)
 
-  // (e) BOOK_UNLOCKS. Same shape as (a)/(b): config declares the id (BOOK_UNLOCKS[bookId][id]),
-  // state.js is the one file that may special-case what it DOES (Light Thief's killRefill
-  // snapshot, see bm.unlocks?.lightThief in createRun) — nothing imports the two together, so a
-  // rename on either side is a typo that fails silently. The generic half of the design (main.js's
+  // (e) BOOK_UNLOCKS. Same shape as (a)/(b): config declares the id (BOOK_UNLOCKS[bookId][id]) and
+  // state.js is the one file that may special-case what it DOES (a read off bm.unlocks in
+  // createRun) — nothing imports the two together, so a rename on either side is a typo that fails
+  // silently. VACUOUS TODAY: the table is empty since Scavenger was removed, so this walks zero
+  // ids. It is the guard that has to exist the day a row is added back, which is the only moment
+  // the seam can go wrong — see run SC for the seam's own structural checks. The generic half of the design (main.js's
   // cost lookup, ui.js's already-bought gate) reads `bm.unlocks?.[id]` off the LOOP's own binding
   // and can never go stale this way; this check only has to cover the special-cased half, which is
   // exactly the seam the BOOK_UNLOCKS comment in config.js describes ("a row here plus a read in

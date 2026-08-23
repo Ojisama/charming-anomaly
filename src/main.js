@@ -351,16 +351,16 @@ const ui = initUI({
   // belt and braces, and now it has to, because `target` arrives from a data- attribute.
   //
   // v7.x: `target` names WHICH unlock. 'slot' is the universal 3rd/4th level-up card slot
-  // (bm.choiceSlots, sacrificeCost); anything else is a BOOK_UNLOCKS[bookId] key (e.g. Undertow's
-  // Light Thief). `bookId` is ui.js's shopBookId(), same reasoning as onBuy above. Defaulted to
+  // (bm.choiceSlots, sacrificeCost); anything else is a BOOK_UNLOCKS[bookId] key. That table is
+  // EMPTY today — Scavenger, its only entry, was removed — so 'slot' is the only target the shipped
+  // UI can send; the branch below stays because it is generic and the table is the seam.
+  // `bookId` is ui.js's shopBookId(), same reasoning as onBuy above. Defaulted to
   // 'slot'/BOOK_ORDER[0] so an older caller -- or a replayed event from a stale DOM -- keeps
   // meaning exactly what it used to.
   //
-  // Writes the unlock ONLY to bookMeta(meta, bookId).unlocks[target] -- never mirrored back to the
-  // legacy top-level meta.lightThief. R2 keeps that field in place (never deleted), but nothing
-  // writes it past this point: loadMeta's forward-copy is read-forward-only and its `=== undefined`
-  // guard makes a stale legacy value harmless, and Light Thief is dev-gated behind a `wip` chapter,
-  // so no real player can reach the one case a mirror would matter for.
+  // Writes an unlock ONLY to bookMeta(meta, bookId).unlocks[target] -- never mirrored back to a
+  // legacy top-level meta field. R2 keeps meta.lightThief in place (never deleted), but nothing
+  // reads or writes it past this point.
   onSacrifice(picks, target = 'slot', bookId = BOOK_ORDER[0]) {
     const bm = ensureBookMeta(meta, bookId)
     const slots = bm.choiceSlots ?? 2
