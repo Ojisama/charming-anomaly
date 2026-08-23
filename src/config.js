@@ -656,15 +656,14 @@ export const DEADFALL_REARM_MUL = 0.2
 // or a web into a stop.
 //   THIS NUMBER IS DERIVED FROM THE COPY, NOT EYEBALLED. The card says the murk takes TWICE as
 // much of your speed, so it is whatever doubles resource.dark.speedFloor's bite: the chapter takes
-// 15%, twice is 30%, and the floor is 0.7. It MOVES WHENEVER THAT ONE DOES -- it was 0.4 against a
-// chapter floor of 0.7, and the 2026-08-21 cut to 0.85 dragged it up with it. Run PB7 asserts the
-// ratio against both floors, so retuning either alone goes red rather than quietly making the
-// card's own description false, and that is exactly how this edit was caught.
-// balance_decision : follows the chapter's slow, cost is sight plus 30% of speed 2026-08-21
-//  - a much milder card than the 60% version, because its parent number halved. If it now reads
-//    as too cheap, the honest fix is the CHAPTER's floor, not a second literal here.
+// 20%, twice is 40%, and the floor is 0.6. It MOVES WHENEVER THAT ONE DOES -- it has been 0.4, 0.7
+// and now 0.6, each time dragged by a re-tune of the chapter's own floor and never chosen here.
+// Run PB7 asserts the ratio against both floors, so retuning either alone goes red rather than
+// quietly making the card's own description false, and that is exactly how this edit was caught.
+// balance_decision : follows the chapter's slow, cost is sight plus 40% of speed 2026-08-23
+//  - do not tune this literal on its own. If the card reads wrong, move the CHAPTER's floor.
 export const RUNOFF_MAX_DMG_MUL = 2.5
-export const RUNOFF_SPEED_FLOOR = 0.7
+export const RUNOFF_SPEED_FLOOR = 0.6
 // ---- Last Breath (ANOMALIES.lastBreath) -------------------------------------------------------
 // The chapter's own degenerate line, sold back as a build. CHAPTERS.reef.resource measures a
 // centre-line hoarder spending 76% of the run at zero Air; this card pays for exactly that and
@@ -2181,6 +2180,9 @@ export const WEAPONS = {
       // weapon's levels[] means no other build sheet gains a row.
       // balance_decision : silt veil is a 75 deg cone off the player, not a cloud 2026-08-21
       //  - the ladder is UNCHANGED by the reshape; maxR changed meaning, not value.
+      // balance_decision : the daze is 30% shorter across the whole ladder 2026-08-23
+      //  - SILT_DAZE_REFRACTORY (2s) is UNCHANGED and armed at APPLICATION, so a shorter hold also
+      //    shortens the total lockout: the cloud may re-daze sooner, it just holds less each time.
       // balance_decision : the vase casts 40% more often 2026-08-22
       //  - `rate` is an INTERVAL, so +40% cadence DIVIDES by 1.4 -- the number goes down. Raising
       //    it would have slowed the weapon by 40% while reading like a buff.
@@ -2195,11 +2197,11 @@ export const WEAPONS = {
       // balance_decision : the silt cloud ticks per level, 0.75s at Lv1 to 0.4s at Lv5 2026-08-22
       //  - dmgPerTick is UNCHANGED, so the ladder IS the weapon's dps curve; measure it, never
       //    divide it -- overlap absorbs most of a tick change (see the census in the commit body)
-      { dmgPerTick: 16, rate: 2.41, maxR: 116, dur: 3.4, daze: 0.9, clouds: 1, tick: 0.75 },
-      { dmgPerTick: 20, rate: 2.25, maxR: 126, dur: 3.7, daze: 1.0, clouds: 1, tick: 0.66 },
-      { dmgPerTick: 28, rate: 2.09, maxR: 136, dur: 4.0, daze: 1.1, clouds: 1, tick: 0.58 },
-      { dmgPerTick: 34, rate: 1.92, maxR: 148, dur: 4.4, daze: 1.2, clouds: 1, tick: 0.49 },
-      { dmgPerTick: 40, rate: 1.76, maxR: 162, dur: 4.8, daze: 1.4, clouds: 1, tick: 0.40 },
+      { dmgPerTick: 16, rate: 2.41, maxR: 116, dur: 3.4, daze: 0.63, clouds: 1, tick: 0.75 },
+      { dmgPerTick: 20, rate: 2.25, maxR: 126, dur: 3.7, daze: 0.70, clouds: 1, tick: 0.66 },
+      { dmgPerTick: 28, rate: 2.09, maxR: 136, dur: 4.0, daze: 0.77, clouds: 1, tick: 0.58 },
+      { dmgPerTick: 34, rate: 1.92, maxR: 148, dur: 4.4, daze: 0.84, clouds: 1, tick: 0.49 },
+      { dmgPerTick: 40, rate: 1.76, maxR: 162, dur: 4.8, daze: 0.98, clouds: 1, tick: 0.40 },
     ],
   },
   ballast: {
@@ -6358,8 +6360,9 @@ CHAPTERS.shelf = {
   // (Feed) and 2.5 (the dark) already both slow you and a third would collapse the axis. That
   // argument lost to the chapter actually being played: water you cannot see through is water you
   // move carefully in, and a chapter whose only cost was sight turned out not to bite.
-  // balance_decision : full pollution slows you 15%, was 30% 2026-08-21
-  //  - still the shallowest floor in the book: The Twilight (slot 6) is 0.6 and The Trawl 0.62.
+  // balance_decision : full pollution slows you 20%, was 15% 2026-08-23
+  //  - RUNOFF_SPEED_FLOOR is DERIVED from this one ("twice as much of your speed") and moves with
+  //    it; run PB7 asserts the ratio, so retuning this alone goes red.
   resource: {
     // The one bar in Book 2 that FILLS as it goes wrong: it is pollution, not a supply. The sim
     // still counts how clear the water is, exactly as the other five chapters count their resource
@@ -6367,7 +6370,7 @@ CHAPTERS.shelf = {
     // ponytail: display-only. If anything ever needs the pollution NUMBER (a card, an event, a
     //   summary row), give run.charge a real inverted twin rather than flipping it a second time.
     name: 'Pollution', invert: true, drain: 2.2, refill: 18, max: 100,
-    dark: { from: 0.5, speedFloor: 0.85, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
+    dark: { from: 0.5, speedFloor: 0.8, dim: 1.0, radiusFull: 1, radiusEmpty: 0.1 },
   },
 
   // THE CHAPTER'S OWN THREE. The Sand Hopper and the Sea Roach stood in here on loan from The Surf
@@ -7651,8 +7654,8 @@ CHAPTERS.deep = {
   // shipped and tuned — same `dark` block, same lightmap in render.js, same linear radius across the
   // whole bar. What changes is the numbers, and one of them is a mechanic:
   //
-  //   speedFloor 1, i.e. NO SPEED PENALTY, unlike The Twilight. (The Shelf is also 1, for its own
-  //   reason — its murk costs sight only. The chapter this contrasts with is the DARK one.) Deliberate, and it is the chapter's
+  //   speedFloor 1, i.e. NO SPEED PENALTY, unlike The Twilight -- and unlike The Shelf, whose murk
+  //   takes 20% as well as sight. Deliberate, and it is the chapter's
   //   inversion: you are the apex predator here, so the dark does not slow the shark down — it
   //   only decides how much of the water you can SEE. Light does not stop being punishing; it stops
   //   being punishing in the same way twice. Spending it on Scent then BUYS speed (SCENT_SPEED_MUL),
