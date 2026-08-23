@@ -30,7 +30,7 @@
 import {
   RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
   PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
-  MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
+  MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, DUO_PITY_SCREENS, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
   ELEMENTS, MAX_ELEMENT_PICKS,
   // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
   // it must NEVER be used to WALK the ladder. A failed roll deflecting onto the next tier is what
@@ -162,15 +162,22 @@ import {
   LAST_BREATH_MAX_DMG_MUL, LAST_BREATH_DROWN_TAKEN_MUL,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
   GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC, GNASH_CARRY_FRAC, RUSH_DUR, RUSH_MAX_STACKS,
-  CHUM_PULL_MUL, CHUM_PANIC_R,
-  BILGE_AVOID_PAD, BILGE_AVOID_BLEND, BILGE_TRAIL_RATE_MUL, BILGE_TRAIL_R_MUL,
+  CHUM_PULL_MUL, CHUM_PANIC_R, CHUM_FEED_R, CHUM_FEED_HOLD,
+  BILGE_AVOID_PAD, BILGE_AVOID_BLEND, BILGE_TRAIL_STEP_FRAC, BILGE_TRAIL_R_MUL, BILGE_TRAIL_GROW,
+  PREY_PANIC_BLIND_R, OIL_STAIN_RATE, OIL_STAIN_MAX,
   RING_N, RING_R_MUL, RING_POOL_MUL,
   PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_TURN_RATE, PREY_SHOAL_SIZE, PREY_FLEE_BLEND,
   PREY_COHESION_BLEND, PREY_COHESION_MIN_N, PREY_PREDATOR_FEAR_R, PREY_PREDATOR_BLEND,
   BALL_R, BALL_TIGHT_N, FEED_R, FEED_FULL_N, FEED_DRAIN_MIN,
-  ORCA_FIRST_PASS, ORCA_INTERVAL, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_LEAVE_DUR,
+  INK_TRIGGER_R, INK_COOLDOWN, INK_R, INK_DUR, INK_SLOW_MUL,
+  PUFFER_TRIGGER_R, PUFFER_PUFF_T, PUFFER_COOL_T, PUFFER_DRIFT_MUL,
+  TIGHT_COHESION_BLEND,
+  ORCA_INTERVAL, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_LEAVE_DUR,
   ORCA_RING_R, ORCA_RING_MIN_R, ORCA_RING_BAND, ORCA_PUSH, ORCA_ORBIT_RATE,
   ORCA_COMMIT_SPEED, ORCA_OVERSHOOT, ORCA_HIT_R, ORCA_DMG_FRAC,
+  ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_LAST_GAP,
+  ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
+  ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_COMMIT_SEEK_R, ORCA_BITE_R,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
@@ -698,14 +705,27 @@ function stepPlayerMovement(run, input, dt) {
   // reason they give: multiplying would make every latch and web in this chapter strictly nastier
   // than the identical one anywhere else.
   const foulMul = (run._foulT ?? 0) > 0 ? SLICK_SLOW_MUL : 1
+  // INKED (v7.x / The Wreck's squid): the one slow in the game that a CREATURE put there, and the
+  // only one you walk into by choosing to chase. Scanned off run.blooms rather than a new array —
+  // the ink is a bloom tagged look:'inkjet' (see the INK_* block) — and shaped exactly like the web
+  // scan above, which is the same question about a different patch on the floor.
+  //   Same MIN composition as its five neighbours and for the reason they all give: multiplying
+  // would make every latch, web and spill in this chapter strictly nastier than the identical one
+  // anywhere else. It is also why ink and oil together cost the oil's 0.62 and never the product.
+  let inkMul = 1
+  for (const bl of run.blooms) {
+    if (bl.look !== 'inkjet' || bl.r <= 0) continue
+    const idx = p.x - bl.x, idy = p.y - bl.y
+    if (idx * idx + idy * idy <= bl.r * bl.r) { inkMul = INK_SLOW_MUL; break }
+  }
   // SCRAPING (v7.x, The Reef): coral takes your STEERING and never the scroll. In the lane branch
   // below `speed` reaches the cross axis only — the forward component is laneScrollFor — so slowing
   // it here is the whole of that promise. Published by stepSpurs, which runs later in the step, so
-  // it is one frame old in exactly the way run._bindSlow is. Same MIN composition as its five
+  // it is one frame old in exactly the way run._bindSlow is. Same MIN composition as its six
   // neighbours and for the same reason; it sits ABOVE LATCH_SLOW_MUL on purpose, so a latched moray
   // in coral is still the worst case in the chapter rather than the coral swallowing the moray.
   const scrapeMul = run._scraping ? SPUR_SLOW_MUL : 1
-  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul, scrapeMul)
+  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul, inkMul, scrapeMul)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
   // SCENT (v7.x, The Deep): "or move faster towards your prey" — the owner's own framing for the
   // button. MULTIPLIED, not MIN-composed with the three slows above, and the asymmetry is right:
@@ -2185,7 +2205,12 @@ function stepEnemyMovement(run, dt) {
     // every frame a body stands in a cloud, so a shared field would let any bloom hold the heavier
     // ballast number alive for the cloud's whole duration.
     const dragMul = (e.dragT || 0) > 0 ? (1 - BALLAST_DRAG) : 1
-    const slowMul = (1 - elSlow(run, e)) * bloomMul * dragMul  // 1.0 slow IS the freeze; no separate branch
+    // THE OIL STAIN (v7.x, The Wreck). Unlike every other term here it is not a WINDOW — `oiled`
+    // is a fraction the body keeps for the rest of its life, capped at OIL_STAIN_MAX. Applied at
+    // this one site rather than in stepPrey so it reaches every movement machine at once; a
+    // stained moray is as slow as a stained mackerel, which is what "the oil got on it" means.
+    const oilMul = 1 - Math.min(OIL_STAIN_MAX, e.oiled || 0)
+    const slowMul = (1 - elSlow(run, e)) * bloomMul * dragMul * oilMul  // 1.0 slow IS the freeze; no separate branch
 
     // Frenzied: speeds up once badly hurt. Cheerleader (pacer): speeds up anyone else nearby.
     let affixSpeedMul = 1
@@ -2221,6 +2246,12 @@ function stepEnemyMovement(run, dt) {
     // changes — unlike a ghost, a guarding crab keeps walking at you — so this site only advances
     // the clock. The damage refusal lives in dealDamage, keyed off e.guarding.
     if (e.flags && e.flags.includes('guard')) stepCrabGuard(run, e, dt)
+    // inkjet / puffup (v7.x The Wreck's squid and pufferfish). Both sit here beside `guard` for the
+    // same reason it does: they advance a CLOCK and nothing about the movement resolution below
+    // changes shape. The squid's cloud is laid from here; the puffer's refusal lives in guardBlocks
+    // and its drift is one multiplier inside stepPrey, both keyed off the published `puffT`.
+    if (e.flags && e.flags.includes('inkjet')) stepInkjet(run, e, dt)
+    if (e.flags && e.flags.includes('puffup')) stepPuffUp(run, e, dt)
     // Status effects (v5.4, see state.js): enrage is a plain speed multiplier; fear and stun
     // REPLACE the movement outright below. All guarded — other chapters never set these.
     const enrageMul = (e.enrageT || 0) > 0 ? FLASHLIGHT_SPEED_MUL : 1
@@ -2358,6 +2389,10 @@ function stepEnemyMovement(run, dt) {
       if (e.blindT === 0) { e._blindHx = undefined; e._blindHy = undefined }
     }
     if (e.dragT > 0) e.dragT = Math.max(0, e.dragT - dt) // Ballast's impact drag; set once at the landing, never refreshed
+    // The Wreck's Chum. Set ONCE when a serving is taken (stepLures) and never refreshed by
+    // standing in the cloud — a hold that re-armed every frame would pin the shoal on the bait
+    // for the bait's whole duration, which is a stasis field, not a mouthful.
+    if (e.feedT > 0) e.feedT = Math.max(0, e.feedT - dt)
     // v7.x The Deep: refreshed by stepScent while inside the smell, exactly as bloomSlowT is by
     // stepBlooms. The decay HAS to live here and not in stepScent — stepScent only walks the bodies
     // currently in range, so a body that swims OUT of the radius would otherwise keep the mark, and
@@ -2936,6 +2971,56 @@ function stepCrabGuard(run, e, dt) {
   // is several a second, and SFX_FOR_EVENT is for events rare enough to bear one.
 }
 
+// inkjet (v7.x The Wreck's squid): a cloud laid at the squid's own position when the player closes
+// inside INK_TRIGGER_R, on a per-fish cooldown. See the INK_* block in config.js for why it slows
+// the PLAYER and nothing else, and why the cooldown rather than the radius is what stops a field of
+// squid becoming a wall.
+//
+// ⚠ IT IS A run.blooms ENTRY, NOT A NEW ARRAY. Everything the cloud needs — the grow curve, the
+// expiry filter, a per-look tint and a pool reset() already clears — is on that array, which is
+// also why nothing has to be added to clearWorld or to syncPool for this (run CP).
+//   `slow: 0` opts OUT of stepBlooms' enemy slow, deliberately: an ink that also held the shoal
+// still would be a gift to the player, and the whole point is that it costs them the fish they were
+// already going to reach.
+function stepInkjet(run, e, dt) {
+  e._inkCd = (e._inkCd ?? 0) - dt
+  if (e._inkCd > 0) return
+  const dx = run.player.x - e.x, dy = run.player.y - e.y
+  if (dx * dx + dy * dy > INK_TRIGGER_R * INK_TRIGGER_R) return
+  e._inkCd = INK_COOLDOWN
+  run.blooms.push({
+    x: e.x, y: e.y, t: 0, r: 0, maxR: INK_R, dur: INK_DUR,
+    dmgPerTick: 0, tick: 0, look: 'inkjet', slow: 0,
+  })
+  // The cloud fades UP over BLOOM_GROW_FRAC of its life, which is far too slow to read as a squirt.
+  // The event is the squirt; the bloom is what is left of it.
+  run.events.push({ type: 'inkjet', x: e.x, y: e.y, r: INK_R })
+}
+
+// puffup (v7.x The Wreck's pufferfish): inflate when the player closes, refuse ONE bite, then drift
+// deflating for PUFFER_COOL_T. See the PUFFER_* block in config.js for the two ways the moray's
+// `guard` failed in this chapter and how each is answered here.
+//
+// `puffT` IS A PUBLISHED CONTRACT FIELD — no underscore, exactly as `guarding` carries none — and
+// ROSTER_LOOKS.pufferfish.poseOf (render.js) reads it by name to swap to the inflated ball. A
+// private `_puffT` would refuse a bite with nothing whatsoever on screen, which is the `_elFrozen`
+// failure CLAUDE.md records shipping to the live URL.
+//   THE INFLATION IS A CAP, NOT A DURATION. The first refused hit ends it early (guardBlocks), so
+// this timer only covers the puffer nobody bit — without it a fish that inflated once would be a
+// ball forever while the player stood near it.
+function stepPuffUp(run, e, dt) {
+  if ((e.puffT ?? 0) > 0) {
+    e.puffT = Math.max(0, e.puffT - dt)
+    if (e.puffT === 0) e._puffCd = PUFFER_COOL_T
+    return
+  }
+  e._puffCd = (e._puffCd ?? 0) - dt
+  if (e._puffCd > 0) return
+  const dx = run.player.x - e.x, dy = run.player.y - e.y
+  if (dx * dx + dy * dy > PUFFER_TRIGGER_R * PUFFER_TRIGGER_R) return
+  e.puffT = PUFFER_PUFF_T
+}
+
 // Is this enemy refusing direct damage right now?
 //
 // THE SOURCE OF A HIT IS THE PLAYER'S OWN POSITION, not the projectile's. dealDamage has no source
@@ -2945,8 +3030,23 @@ function stepCrabGuard(run, e, dt) {
 // side" has to be answerable by moving, and a shot fired from where you used to be standing is an
 // edge case nobody can see. Where a weapon's projectile physically is does not enter into it.
 function guardBlocks(run, e, dot) {
-  if (!e.guarding) return false
+  // Hoisted above the crab test so the pufferfish can share it. Behaviour-neutral for the crab:
+  // both orders answer false for a DoT tick on an open crab, which is the only case that moves.
   if (dot) return false          // burns, bleeds and poisons go straight through — the counter
+  // THE PUFFERFISH, AND IT REFUSES EXACTLY ONE HIT (v7.x The Wreck). Ending the inflation HERE
+  // rather than on stepPuffUp's timer is what keeps this a beat instead of a shield, and it is the
+  // direct answer to the moray `guard` post-mortem in CHAPTERS.wreck.roster: a body that can only
+  // ever eat one bite before it is food again cannot soak a third of the jaw's aim.
+  //   `guardAngle` is published as the bearing the refusal happened on, which is the field the
+  // `guardblock` event already carries and render.js already throws its sparks along. A second
+  // angle field would be one fact in two places for a three-particle burst.
+  if ((e.puffT ?? 0) > 0) {
+    e.puffT = 0
+    e._puffCd = PUFFER_COOL_T
+    e.guardAngle = Math.atan2(run.player.y - e.y, run.player.x - e.x)
+    return true
+  }
+  if (!e.guarding) return false
   if (e.guardAngle == null) return false
   const d = Math.atan2(run.player.y - e.y, run.player.x - e.x) - e.guardAngle
   return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) <= CRAB_GUARD_ARC
@@ -4140,6 +4240,18 @@ export function streamSlicks(run) {
 function stepSlick(run, dt) {
   if (run._foulT > 0) run._foulT = Math.max(0, run._foulT - dt)
   if (!run.slicks.length) return false
+  // THE LEAK STAINS THE SHOAL, NOT ONLY YOU (v7.x). Until this loop existed the chapter's own
+  // hazard was invisible to every body but the player's — enemies swam through a spill and came
+  // out unchanged, so the map's most obvious terrain feature was terrain for one participant.
+  // Same `oiled` field and same cap as the player's own bilge: it is the same oil.
+  for (const e of run.enemies) {
+    if (e._dead || damageImmune(e) || (e.oiled || 0) >= OIL_STAIN_MAX) continue
+    for (const sl of run.slicks) {
+      if (!inLobe(sl, e.x, e.y)) continue
+      e.oiled = Math.min(OIL_STAIN_MAX, (e.oiled || 0) + OIL_STAIN_RATE * dt)
+      break
+    }
+  }
   const p = run.player
   let inside = false
   for (const sl of run.slicks) if (inLobe(sl, p.x, p.y)) { inside = true; break }
@@ -4356,6 +4468,64 @@ export function inWake(run, x, y) {
   return d < -TRAWL_HALF && d >= -(TRAWL_HALF + TRAWL_WAKE_DEPTH)
 }
 
+// How much faster than real time the orca's countdown runs, given how packed the water around the
+// player is. `run._feedN` is stepShoals' own count (prey inside FEED_R that are part of a real ball
+// — see BALL_TIGHT_N), so this is the SAME density the Bloodlust drain-slow rewards, read a second
+// time rather than counted a second time. Live chum baits add to it because chum in the water is
+// what an orca actually comes for.
+// ⚠ CAPPED. Uncapped, a chapter that stays dense is a chapter the orca never leaves.
+// A bait counts for HOW MUCH FOOD IS LEFT IN IT, not for existing: `food` over ORCA_BAIT_FULL_FOOD,
+// clamped, so a fresh L5 bucket rings the bell and one the shoal has already stripped does not.
+// That is the owner's ruling ("the more there is the more it attacks") in the one term that can
+// express it — the bait's own servings, which is the same number the drawing counts out in chunks.
+function orcaRush(run) {
+  let baits = 0
+  if (run.lures) for (const lu of run.lures) if (lu.bait) baits += Math.min(1, (lu.food || 0) / ORCA_BAIT_FULL_FOOD)
+  const dens = Math.min(1, (run._feedN || 0) / FEED_FULL_N) + baits * ORCA_BAIT_PULL
+  return Math.min(ORCA_RUSH_MAX, 1 + ORCA_DENSITY_RUSH * dens)
+}
+
+// The centre of the tightest knot of prey within ORCA_COMMIT_SEEK_R of (cx, cy), or the player if
+// there is none. ONE O(n) walk, run ONCE per commit — not per frame — and it costs no new geometry:
+// stepEnemySeparation already leaves every body its neighbour count and the SUM of its neighbours'
+// positions (`_shoalN` / `_nbrX` / `_nbrY`, built the frame before this runs), so the centroid of a
+// fish's own neighbourhood is a division.
+function denseSpot(run, cx, cy) {
+  const p = run.player
+  let bx = p.x, by = p.y, best = 0
+  const seek2 = ORCA_COMMIT_SEEK_R * ORCA_COMMIT_SEEK_R
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e)) continue
+    const n = e._shoalN || 0
+    if (n <= best) continue
+    const dx = e.x - cx, dy = e.y - cy
+    if (dx * dx + dy * dy > seek2) continue
+    best = n
+    bx = ((e._nbrX || 0) + e.x) / (n + 1)
+    by = ((e._nbrY || 0) + e.y) / (n + 1)
+  }
+  return { x: bx, y: by }
+}
+
+// THE UNCREDITED DEATH. Prey caught by the sweep just stops existing: `_dead` plus an event and
+// nothing else, which is stepLeaks' shipped idiom for a body the player did not kill. It therefore
+// pays NO run.kills, no gem, no Bloodlust refill and no on-kill proc — all of which live inside
+// dealDamage, and none of which is reachable from here. That is the whole point of ruling 3: the
+// orca eats your food and you get nothing for it.
+// ⚠ PREY ONLY, AND NEVER AN ELITE. A moray is a threat you cleared and an elite is a reward you
+// were part-way through earning; deleting either for free is a theft, not a tax.
+function orcaBite(run, o) {
+  const b2 = ORCA_BITE_R * ORCA_BITE_R
+  for (const e of run.enemies) {
+    if (e._dead || e.elite || isAlly(e)) continue
+    if (!e.flags || !e.flags.includes('skittish')) continue
+    const dx = e.x - o.x, dy = e.y - o.y
+    if (dx * dx + dy * dy > b2) continue
+    e._dead = true
+    run.events.push({ type: 'orcaFeed', x: e.x, y: e.y })
+  }
+}
+
 // Returns true if the player died, matching stepRocks/stepPools' contract — it is called from
 // stepSim's `if (stepX(...)) return` group for that reason.
 // -- The Orca (v7.x, The Wreck — chapters declaring `orca: true`) --------------------------------
@@ -4367,15 +4537,45 @@ export function inWake(run, x, y) {
 // run.orca is a SINGLE NULLABLE OBJECT with a run._orcaAcc countdown, and stepOrca returns true if
 // the player died — the shipped run.net idiom, not a pool. See the ORCA_* block in config.js for
 // the closing-ring geometry and for why an orbiting POINT measurably evacuates the shoal.
+//
+// FIVE STATES, AND THE FIRST THREE VISITS ARE HARMLESS. `shadow` is the opening foreshadowing —
+// a silhouette that slides under the player, scatters the shoal and clears itself without ever
+// escalating. run._orcaShadows counts them down; once it hits zero the real ladder starts.
+//
+// HOW SOON IT COMES IS THE PLAYER'S DOING. orcaRush accelerates the countdown with the density of
+// the water around the player, so the visit is bought by hoarding rather than handed out by a clock.
 function stepOrca(run, dt) {
   if (!CHAPTERS[run.chapter].orca) return false
   const p = run.player
   const o = run.orca
   if (!o) {
-    // `??` seeds the FIRST wait at ORCA_FIRST_PASS and every later one at ORCA_INTERVAL, matching
-    // what createRun writes — the same shape stepTrawl's _netAcc uses.
-    run._orcaAcc = (run._orcaAcc ?? ORCA_FIRST_PASS) - dt
+    // `??` seeds the FIRST wait at ORCA_SHADOW_FIRST and every later one at ORCA_SHADOW_GAP /
+    // ORCA_INTERVAL, matching what createRun writes — the same shape stepTrawl's _netAcc uses.
+    run._orcaAcc = (run._orcaAcc ?? ORCA_SHADOW_FIRST) - dt * orcaRush(run)
     if (run._orcaAcc > 0) return false
+    // THE OPENING SHADOW PASSES, before anything can hurt you. Same `??` seeding as _orcaAcc, so a
+    // run object assembled by hand (a probe, a test fixture) gets the shipped ladder rather than
+    // `undefined > 0` quietly skipping the whole opening.
+    const left = run._orcaShadows ?? ORCA_SHADOW_PASSES
+    if (left > 0) {
+      run._orcaShadows = left - 1
+      run._orcaAcc = left > 1 ? ORCA_SHADOW_GAP : ORCA_SHADOW_LAST_GAP
+      const heading = Math.random() * Math.PI * 2
+      const dirX = Math.cos(heading), dirY = Math.sin(heading)
+      // Starts a full off-screen range BEHIND the player along the heading and travels through
+      // them, so it enters off one side of the screen and leaves by the other. The range is the
+      // VIEW's, not a world literal — see ORCA_SHADOW_MARGIN for the viewport it would otherwise
+      // pop into existence on.
+      const range = run.viewRadius + ORCA_SHADOW_MARGIN
+      run.orca = {
+        state: 'shadow', t: ORCA_SHADOW_DUR,
+        cx: p.x, cy: p.y, r: ORCA_RING_R, ang: heading,
+        x: p.x - dirX * range,
+        y: p.y - dirY * range,
+        dirX, dirY, hit: false, alpha: 0,
+      }
+      return false
+    }
     run._orcaAcc = ORCA_INTERVAL
     const bearing = Math.random() * Math.PI * 2
     run.orca = {
@@ -4389,6 +4589,35 @@ function stepOrca(run, dt) {
     return false
   }
   o.t -= dt
+  if (o.state === 'shadow') {
+    // A straight line under the player at a constant speed — no ring, no collision, no death. The
+    // ONLY consequence is that the shoal breaks: published into e.fearT, the contract field
+    // render.js already tints and poses off, so the tell costs nothing (CLAUDE.md, "a new mechanic
+    // is invisible until it reaches a contract field"). Math.max rather than a bare assign, and
+    // never refreshed after the pass ends, so the fear expires and FEAR_REFRACTORY can arm — the
+    // trap chitterShriek's own site documents.
+    // Re-derived every frame rather than banked on the object at spawn: one fewer field on a
+    // documented shape, and a resize mid-pass is worth tens of px over 2.6s.
+    const sp = ((run.viewRadius + ORCA_SHADOW_MARGIN) * 2) / ORCA_SHADOW_DUR
+    o.x += o.dirX * sp * dt
+    o.y += o.dirY * sp * dt
+    o.cx = o.x; o.cy = o.y
+    o.alpha = Math.min(1, Math.max(0, o.t) / ORCA_SHADOW_FADE, (ORCA_SHADOW_DUR - o.t) / ORCA_SHADOW_FADE)
+    const fr2 = ORCA_SHADOW_FEAR_R * ORCA_SHADOW_FEAR_R
+    for (const e of run.enemies) {
+      if (e._dead || isAlly(e) || resistsCC(e)) continue
+      const ex = e.x - o.x, ey = e.y - o.y
+      if (ex * ex + ey * ey < fr2) e.fearT = Math.max(e.fearT || 0, ORCA_SHADOW_FEAR_T)
+    }
+    // The whoosh fires at CLOSEST APPROACH, not at spawn: the pass takes ORCA_SHADOW_DUR and the
+    // shape is only under you halfway through. `hit` latches it, exactly as it latches the strike.
+    if (!o.hit && o.t <= ORCA_SHADOW_DUR / 2) {
+      o.hit = true
+      run.events.push({ type: 'orcaShadow', x: o.x, y: o.y })
+    }
+    if (o.t <= 0) run.orca = null
+    return false
+  }
   if (o.state === 'rising') {
     // The shadow closes on the player, so it passes UNDER them. That IS the telegraph — owner:
     // "very telegraph with a big shadow underneath you". No collision in this state.
@@ -4414,7 +4643,11 @@ function stepOrca(run, dt) {
     if (o.t <= 0) {
       // The line is locked HERE, at the moment it breaks orbit, and never re-aimed. That is what
       // makes it dodgeable — a strike that tracked would be unavoidable and therefore not a move.
-      const dx = p.x - o.x, dy = p.y - o.y
+      // AIMED AT THE SHOAL, not at the player (owner ruling: "The shoal — you're collateral"). The
+      // player is only hit if they are standing on the line the food put there, which is what makes
+      // a fat ball a risk instead of a hoard.
+      const t = denseSpot(run, o.cx, o.cy)
+      const dx = t.x - o.x, dy = t.y - o.y
       const d = Math.hypot(dx, dy) || 1
       o.dirX = dx / d; o.dirY = dy / d
       o.state = 'committing'
@@ -4427,6 +4660,7 @@ function stepOrca(run, dt) {
   if (o.state === 'committing') {
     o.x += o.dirX * ORCA_COMMIT_SPEED * dt
     o.y += o.dirY * ORCA_COMMIT_SPEED * dt
+    orcaBite(run, o)
     // ONCE PER PASS, not a DoT — `hit` latches so a slow frame cannot bill the same strike twice.
     if (!o.hit) {
       const hx = p.x - o.x, hy = p.y - o.y
@@ -4742,7 +4976,7 @@ export function stepCharge(run, dt) {
   // nowhere on the map to stand. run.shafts is empty here, so this is the only branch that can fire.
   if (inWake(run, p.x, p.y)) c += res.refill * dt
   // v7.x Book 2 Task 9: run.chargeMax, not res.max — Deep Lungs raises the RUN's own ceiling, and
-  // this is one of TWO sites that must clamp against it (the other is the Light Thief kill-refill,
+  // this is one of TWO sites that must clamp against it (the other is the per-kill `killBase`,
   // below in dealDamage's kill branch). Missing either one is a flicker: the bar would refill past
   // its cap on a kill and snap back down on the very next tick through whichever site still reads
   // the config max. The Trawl's wake refill feeds `c` too, so it is clamped by this line as well.
@@ -5967,23 +6201,19 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   if (enemy.hp <= 0 && !enemy._dead) {
     enemy._dead = true
     run.kills++
-    // v7.x Book 2: kills feed the bar - but only for a player who BOUGHT that. Owner ruling: "none
-    // by default, only via the shop" (Light Thief, LIGHT_THIEF_COST in config.js). run.killRefill is
-    // the snapshot createRun already took, and is 0 on an unbought save - so sim.js never reads meta
-    // and the chapter's baseline tune is the unbought one. Clamped against run.chargeMax (Task 9),
-    // NOT CHAPTERS[chapter].resource.max — this is the SECOND of the two clamp sites Deep Lungs
-    // needs (see stepCharge's own note above); missing this one lets the bar refill past its cap on
-    // a kill, only to be clamped back down by stepCharge's own (correct) clamp on the next tick.
+    // v7.x: `killBase` (The Wreck) is the ONLY thing a kill adds to a bar. Every chapter whose bar
+    // is refilled by a PLACE gets nothing here — a free kill refill would be a second source
+    // competing with the chapter's own geometry, which is what abolished The Reef's bar when the
+    // Scavenger unlock still existed. The Wreck has no place: it declares `refill: 0` and no
+    // signature field, so with no per-kill baseline its bar would have no refill at all. Undefined
+    // in every other chapter -> `?? 0` -> those chapters come out unchanged.
     //
-    // `killBase` (v7.x, The Wreck) is the OTHER half, and it is not shop-gated. The owner ruling
-    // above holds for every chapter whose bar is refilled by a PLACE — there, a free kill refill
-    // would be a second source competing with the chapter's own geometry, which is what abolished
-    // The Reef's bar at killRefill 1.2. The Wreck has no place: it declares `refill: 0` and no
-    // signature field, so a shop-only refill would mean a bar with no refill at all on an unbought
-    // save. Undefined in all five other chapters -> `?? 0` -> those chapters come out unchanged.
-    // Scavenger still stacks on top through run.killRefill.
+    // Clamped against run.chargeMax (Task 9), NOT CHAPTERS[chapter].resource.max — this is the
+    // SECOND of the two clamp sites Deep Lungs needs (see stepCharge's own note above); missing this
+    // one lets the bar refill past its cap on a kill, only to be clamped back down by stepCharge's
+    // own (correct) clamp on the next tick.
     const _res = CHAPTERS[run.chapter].resource
-    const _gain = (_res?.killBase ?? 0) + run.killRefill
+    const _gain = _res?.killBase ?? 0
     if (_res && _gain > 0) run.charge = Math.min(run.chargeMax, run.charge + _gain)
     // GORGE (v7.x, gnash): "eating elites replenish full hunger bar". Placed here rather than at a
     // bite site on purpose — the card says EATING an elite, so it must pay however the elite died,
@@ -6415,7 +6645,8 @@ const WEAPON_STAT_MODS = {
   // The Shelf's other two. Both count mods fold as 'flat' onto a real `count` key in levels[], so
   // effectiveWeaponStats reports the modified number without a second registration in
   // WEAPON_COUNT_MODS -- that map is only for counts read at a fire site with no levels[] key.
-  // `foulSpring` and `foulWater` are behavioural and read at their own sites.
+  // `foulSpring` is behavioural and `foulWater` is a RATE mod that ramps with the pollution bar;
+  // both are read at their own fire sites, which is why neither is here nor in WEAPON_RATE_MODS.
   siltVeil:      { grit: ['dmgPerTick', 'pct'], billow: ['maxR', 'pct'], roil: ['clouds', 'flat'] },
   ballast:       { deadweight: ['dmg', 'pct'], jetsam: ['weights', 'flat'] },
   // The Trawl's two natives. `twinSet` and `doubleHaul` are absent for the reason the block above
@@ -6529,7 +6760,13 @@ export function buildReadout(run) {
       stats.push({ key, value: eff[key], base: base[key] })
     }
     const interval = base.rate ?? base.interval
-    if (interval != null && rateDiv > 0) stats.push({ key: 'every', value: interval / rateDiv, base: interval })
+    // A WEAPON WITH NO CADENCE MUST NOT REPORT ONE. Bilge under Trailing Slick fires by DISTANCE
+    // TRAVELLED, not on its timer (stepBilgeWeapon), so `base.rate` is a number the game no longer
+    // reads — and this sheet exists precisely so the pause screen never prints a weapon's paper
+    // numbers. Without the guard a player who picks the mod still sees "Every 4.2s" for a card
+    // that has no interval at all, which is the one-fact-two-places drift with nothing to throw.
+    const noCadence = w.id === 'bilge' && (mods.slickTrail ?? 0) > 0
+    if (interval != null && rateDiv > 0 && !noCadence) stats.push({ key: 'every', value: interval / rateDiv, base: interval })
     // Every mod the player has actually picked, with the bonus it accumulated. The table above
     // covers the ones that fold into a stat; these carry the rest (behavioural mods and switches).
     const picks = run.weaponModPicks[w.id] ?? {}
@@ -8117,7 +8354,10 @@ function stepBlooms(run, dt) {
   const minis = []
   for (const bl of run.blooms) {
     bl.t += dt
-    const growT = bl.dur * BLOOM_GROW_FRAC
+    // PER-CLOUD GROW TIME, defaulting to the shared fraction — the same shape `tick` already has
+    // above it. slickTrail's pools are the only user: on the shared ramp a chain laid at speed is
+    // half-grown for its whole visible length, which draws as dots however tightly it is spaced.
+    const growT = bl.grow > 0 ? bl.grow : bl.dur * BLOOM_GROW_FRAC
     bl.r = bl.t >= growT ? bl.maxR : bl.maxR * (bl.t / Math.max(1e-6, growT))
 
     // run.blooms is shared with The Twilight's Foxfire, which tags itself `look`. `sporeOn` and `tide`
@@ -8166,6 +8406,10 @@ function stepBlooms(run, dt) {
           if (sdx * sdx + sdy * sdy > slowRSq) continue
         }
         e.bloomSlowT = BLOOM_SLOW_T
+        // AND OIL STAINS PERMANENTLY. Gated on look:'bilge' and nothing else — this loop also
+        // walks Toxin Bloom, Silt Veil and Ballast's stain, and only one of them is oil. (The
+        // squid's ink cannot reach here at all: it carries slow: 0.)
+        if (bl.look === 'bilge') e.oiled = Math.min(OIL_STAIN_MAX, (e.oiled || 0) + OIL_STAIN_RATE * dt)
       }
     }
 
@@ -8313,8 +8557,40 @@ function stepLures(run, dt) {
     // this is a no-op for the weapon. Fleeing is what makes the card about SPACE — the decoy drags
     // its share of the swarm away from where you are standing, rather than parking it next to you.
     if (lu.vx || lu.vy) { lu.x += lu.vx * dt; lu.y += lu.vy * dt }
+    // CHUM (v7.x, The Wreck): A BAIT IS EATEN, NOT ONLY AGED OUT. Everything that reaches it takes
+    // one serving and is then done with THIS bait (`_fedBait` holds the bait object, so the same
+    // fish may eat again at a different one). Without that memory a single fish sitting in the
+    // cloud would drain the whole bucket in one frame.
+    //   The bait dies the instant the food does, whatever `dur` had left — that is the ruling: a
+    // shoal strips it in seconds, a bait nobody found lasts its full duration.
+    if (lu.bait) {
+      const fr2 = CHUM_FEED_R * CHUM_FEED_R
+      for (const e of run.enemies) {
+        if (lu.food <= 0) break
+        if (e._dead || isAlly(e) || e._fedBait === lu) continue
+        const fdx = e.x - lu.x, fdy = e.y - lu.y
+        if (fdx * fdx + fdy * fdy > fr2) continue
+        e._fedBait = lu
+        lu.food -= 1
+        // AND IT STOPS TO EAT IT. `feedT` is the contract field stepPrey pins the body on and
+        // render.js draws nose-down off — one write here, because "took a serving" and "is eating"
+        // are the same instant and splitting them is how they drift.
+        //   `skittish` only: the hold is honoured in stepPrey, which nothing else reaches, so
+        // setting it on a moray would be a field with a tell and no behaviour.
+        //   THE PUFF RULE IS NOT REPEATED HERE, deliberately. stepPrey clears feedT on any body it
+        // finds mid-inflation, so a second guard on this line would enforce the same fact in two
+        // places and be unreachable — and an unreachable guard is one no mutation can prove and no
+        // reader can trust. Reaching the bait takes a serving; whether the body then stops for it
+        // is the movement machine's business.
+        if (e.flags && e.flags.includes('skittish')) e.feedT = CHUM_FEED_HOLD
+      }
+      if (lu.food <= 0) { lu._burst = true; run.events.push({ type: 'chumOut', x: lu.x, y: lu.y }); continue }
+    }
     if (lu.t < lu.dur) continue
     lu._burst = true
+    // A bait disperses, it does not detonate. burstR/burstDmg are 0 for chum, so the shipped
+    // expiry path below was a radius-0 {type:'explode'} — an explosion sound over nothing.
+    if (lu.bait) { run.events.push({ type: 'chumOut', x: lu.x, y: lu.y }); continue }
     const radSq = lu.burstR * lu.burstR
     for (const e of run.enemies) {
       if (e._dead) continue
@@ -8510,10 +8786,26 @@ function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
   // CHUM_PANIC_R of the PLAYER a baited fish bolts regardless, so you cannot park in your own bait
   // ball and have dinner hold still — you have to come in from outside it. deepChum buys that
   // radius down, never to zero.
+  // The vector to the PLAYER, hoisted: the chum branch, the feeding hold and the panic-blind
+  // clause on the bilge loop all need it, and it was being derived three times.
+  const pdx = run.player.x - e.x, pdy = run.player.y - e.y
+  const pd = Math.hypot(pdx, pdy)
+  const nerve = 1 - Math.min(0.85, run.weaponMods.chum?.deepChum ?? 0)
+
+  // HEAD DOWN, EATING (v7.x). A fish that reached a bait took a serving and stopped for it
+  // (stepLures sets feedT); for that long it is a body sitting still in open water, which is the
+  // whole reason to cast the card. Returning here is the hold: nothing below runs, so it does not
+  // steer, does not flee, does not tighten — and `_tgtX/_tgtY` keep the heading it arrived on, so
+  // it stays nose-on to the food rather than snapping to face you.
+  //   TWO THINGS BREAK IT, and both have to, or this is a stasis field. Coming inside CHUM_PANIC_R
+  // (the same radius the gather already respects) and inflating: a puffing fish is reacting to the
+  // predator, and a pufferfish frozen in a bite would eat its own punish window.
+  if ((e.feedT ?? 0) > 0) {
+    if (pd > CHUM_PANIC_R * nerve && (e.puffT ?? 0) <= 0) return
+    e.feedT = 0
+  }
+
   if (baited) {
-    const pdx = run.player.x - e.x, pdy = run.player.y - e.y
-    const pd = Math.hypot(pdx, pdy)
-    const nerve = 1 - Math.min(0.85, run.weaponMods.chum?.deepChum ?? 0)
     if (pd > CHUM_PANIC_R * nerve && d > 1e-6) {
       ux = dx / d
       uy = dy / d
@@ -8536,8 +8828,7 @@ function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
   //   Threat is measured against the PLAYER directly rather than off `d`, because `d` is the seek
   // vector and a baited fish's seek target is the chum: reading it here would make a fish inside a
   // bait ball register as unthreatened and refuse to tighten.
-  const thx = run.player.x - e.x, thy = run.player.y - e.y
-  let threatened = thx * thx + thy * thy < PREY_SIGHT_R * PREY_SIGHT_R
+  let threatened = pd < PREY_SIGHT_R
   for (const q of _predators) {
     const qx = e.x - q.x, qy = e.y - q.y
     const qd = Math.hypot(qx, qy)
@@ -8580,13 +8871,17 @@ function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
   //   NEIGHBOURS, NOT THE ID BUCKET. The centroid is of the bodies actually within BALL_R of this
   // fish, accumulated by the previous frame's separation pass — one frame stale, which is invisible
   // in a steering term and costs no pass of its own.
+  //   `tight` (v7.x, the sardine) IS THIS ONE NUMBER AND NOTHING ELSE — same radius, same minimum,
+  // same accumulate pass, a stronger blend. That is the whole flag: a ball that holds together
+  // under a repulsor a mackerel school would have burst, so the payout is a dozen at once or none.
   const n = e._shoalN || 0
+  const cohesion = e.flags && e.flags.includes('tight') ? TIGHT_COHESION_BLEND : PREY_COHESION_BLEND
   if (threatened && n >= PREY_COHESION_MIN_N) {
     const cx = e._nbrX / n - e.x, cy = e._nbrY / n - e.y
     const cd = Math.hypot(cx, cy)
     if (cd > 1e-6) {
-      ux = ux * (1 - PREY_COHESION_BLEND) + (cx / cd) * PREY_COHESION_BLEND
-      uy = uy * (1 - PREY_COHESION_BLEND) + (cy / cd) * PREY_COHESION_BLEND
+      ux = ux * (1 - cohesion) + (cx / cd) * cohesion
+      uy = uy * (1 - cohesion) + (cy / cd) * cohesion
       const m = Math.hypot(ux, uy) || 1
       ux /= m; uy /= m
     }
@@ -8598,6 +8893,14 @@ function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
   // card a fence you herd against rather than a force field.
   //   Only `skittish` reads this. Everything else swims in and slows, which is the other half of
   // the card and the reason it is not purely a barrier.
+  //
+  // ⚠ PANIC BEATS AVOIDANCE (owner ruling, 2026-08-23), and it is what makes the card OFFENSIVE.
+  // Without it the two halves genuinely fight: prey refuse to enter oil, so the only bodies the
+  // slow ever caught were the ones that are not prey, and a player could not drive a shoal into
+  // their own wall however hard they chased it. `watching` ramps the whole avoidance to zero inside
+  // PREY_PANIC_BLIND_R of the PLAYER — a fish being run down at close range is not looking where it
+  // is going. The wall is untouched everywhere the player is not, which is where a fence is for.
+  const watching = Math.min(1, Math.max(0, (pd / PREY_PANIC_BLIND_R - 0.5) * 2))
   for (const bl of run.blooms) {
     if (bl.look !== 'bilge' || bl.r <= 0) continue
     const bx = e.x - bl.x, by = e.y - bl.y
@@ -8606,14 +8909,19 @@ function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
     if (bd >= edge || bd < 1e-6) continue
     // Push out along the radius, weighted by how far in it already is — a fish at the rim barely
     // deflects, one that got inside turns hard to get out.
-    const w = BILGE_AVOID_BLEND * (1 - bd / edge)
+    const w = BILGE_AVOID_BLEND * (1 - bd / edge) * watching
     ux = ux * (1 - w) + (bx / bd) * w
     uy = uy * (1 - w) + (by / bd) * w
     const m = Math.hypot(ux, uy) || 1
     ux /= m; uy /= m
   }
 
-  const step = e.speed * mul * slowMul * dt
+  // A BALL DOES NOT SWIM (v7.x, the pufferfish). Applied for the inflation AND for the deflating
+  // window after it, which is what makes the punish window generous enough to be a rhythm: the fish
+  // that just bounced your jaw is still there when you swing again. It keeps steering — a puffer
+  // that froze would read as stunned, and would be the aim sponge the moray's `guard` was.
+  const puffMul = ((e.puffT ?? 0) > 0 || (e._puffCd ?? 0) > 0) ? PUFFER_DRIFT_MUL : 1
+  const step = e.speed * mul * slowMul * puffMul * dt
   e.x += ux * step
   e.y += uy * step
   // FACE WHERE YOU ARE SWIMMING, NOT AT THE THING CHASING YOU. Owner, 2026-08-18: "the fish you can
@@ -8646,6 +8954,9 @@ function stepChumWeapon(run, w, stats, fireRateMul, dt) {
   // the fire site never being patched. Three baits, three separate spots — NOT one bait three times
   // in the same place, which is the divisor half of that same assertion.
   const baits = ipecacN(run, 1)
+  // fullBucket: whole extra servings on every bait (kind 'tier', read here — the count is an
+  // integer the drawing lays out as chunks, so it cannot fold into levels[] as a fraction).
+  const food = stats.food + (run.weaponMods.chum?.fullBucket ?? 0)
   fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, () => {
     const p = run.player
     for (let k = 0; k < baits; k++) {
@@ -8655,6 +8966,13 @@ function stepChumWeapon(run, w, stats, fireRateMul, dt) {
       x: p.x + Math.cos(a) * r,
       y: p.y + Math.sin(a) * r,
       t: 0, dur: stats.dur, aggro: stats.aggro,
+      // HOW MUCH FOOD IS IN IT, and `food0` beside it so render can draw the bait THINNING rather
+      // than only shrinking — a full L1 bucket and a stripped L5 one hold the same 5 otherwise.
+      food, food0: food,
+      // The cloud's outline, stored at cast exactly as a bilge pool's and a spill's are, so two
+      // baits are never the same drawing turned a different way and neither one ever flickers.
+      shape: Math.floor(Math.random() * LOBE_SHAPES.length) % LOBE_SHAPES.length,
+      rot: Math.random() * Math.PI * 2,
       // No burst at all: this card is the gather. burstR/burstDmg 0 keeps it in the same array as
       // the Pheromone Lure without inheriting its detonation, which would scatter the very ball it
       // just spent four seconds forming.
@@ -8668,20 +8986,19 @@ function stepChumWeapon(run, w, stats, fireRateMul, dt) {
 
 // -- Bilge (v7.x, The Wreck) ---------------------------------------------------------------------
 // A run.blooms entry tagged look: 'bilge' — the fourth card on that array. `dmgPerTick: 0` and
-// `slow` ON: this is a wall and a drag, not a damage zone. slickTrail drops it at the player's feet
-// every cast instead of ahead, which is what turns a series of circles into a drawn fence.
+// `slow` ON: this is a wall and a drag, not a damage zone. slickTrail lays it at the player's feet
+// as they swim instead of ahead, which is what turns a series of circles into a drawn fence.
 function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
   const pools = ipecacN(run, 1)
-  // slickTrail: cast far more often and much smaller, so the oil lays as a LINE behind a swimming
-  // player instead of a single circle. Both halves or neither — see BILGE_TRAIL_*.
+  // slickTrail: smaller pools, laid by DISTANCE TRAVELLED rather than on the cast timer — see the
+  // BILGE_TRAIL_* block for why a timer cannot draw a line in a chapter you cross at 220px/s.
   const trail = (run.weaponMods.bilge?.slickTrail ?? 0) > 0
   // oilRing: lay the cast as a circle of pools around the target instead of one pool on it. Stands
   // down under slickTrail — a fence drawn behind you and a ring thrown around a fish are two
   // different answers to "where did the oil go", and silently doing both would be neither.
   const ring = !trail && (run.weaponMods.bilge?.oilRing ?? 0) > 0
-  const rate = stats.rate * (trail ? BILGE_TRAIL_RATE_MUL : 1)
   const maxR = stats.maxR * (trail ? BILGE_TRAIL_R_MUL : 1)
-  fireOnTimer(run, w.id, rate / fireRateMul, dt, () => {
+  const cast = () => {
     const p = run.player
     // WHERE THE OIL LANDS (owner, 2026-08-18: "it should spawn under an enemy" — then "this targets
     // the closest enemy, which will be bitten in the next .5s. it should target a random visible
@@ -8718,6 +9035,11 @@ function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
         // `slow: 1` opts INTO stepBlooms' slow branch, which Foxfire opts out of with 0. The magnitude
         // is BILGE_SLOW, applied where bloomSlowT is read — this field is only the switch.
         slow: 1,
+        // A TRAIL POOL SAYS SO, and both halves matter. `grow` overrides the shared BLOOM_GROW_FRAC
+        // ramp so a pool is full-size before the player has swum past it — on the shared ramp the
+        // newest half-dozen are still points and the ribbon is dotted exactly where it is watched.
+        // `trail` is what render reads to draw the chain as one film instead of rimmed circles.
+        ...(trail ? { grow: BILGE_TRAIL_GROW, trail: true } : null),
       })
       run.events.push({ type: 'bilge', x: bx, y: by, r })
     }
@@ -8743,7 +9065,25 @@ function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
         lay(bx, by, maxR)
       }
     }
-  })
+  }
+  // THE TRAIL IS TRIGGERED BY DISTANCE, THE THROW BY THE TIMER. Two different questions: a thrown
+  // pool is a cast you spend, a poured one is a thing that happens because you moved. Laying one
+  // every BILGE_TRAIL_STEP_FRAC x radius of travel is the only trigger that cannot come apart at
+  // speed — and a player who stops moving stops pouring, which removes the carpet-the-map risk
+  // the timed version had to be tuned around.
+  //   `stats.rate` and the global fire rate are deliberately NOT read here: neither of them is a
+  // distance, and folding one in would make a fast build's fence thicker rather than longer.
+  if (trail) {
+    const p = run.player
+    const step = maxR * BILGE_TRAIL_STEP_FRAC
+    const lx = run._bilgeTrailX, ly = run._bilgeTrailY
+    if (lx != null && (p.x - lx) * (p.x - lx) + (p.y - ly) * (p.y - ly) < step * step) return
+    run._bilgeTrailX = p.x
+    run._bilgeTrailY = p.y
+    cast()
+    return
+  }
+  fireOnTimer(run, w.id, stats.rate / fireRateMul, dt, cast)
 }
 
 function biteGnash(run, stats) {
@@ -9839,11 +10179,9 @@ function stepLobs(run, dt) {
     // the time, this is the pool's only card that answers the chapter's one damage sponge. The
     // multiplier rides the impact only, never the drag — a slow does not care how heavy you are.
     if (lo.look === 'ballast') {
+      // ONE ring: the drag catches exactly what the crush catches. It carried a `dragMul` until
+      // v7.x, when Foul Water stopped widening the ring and became a cadence card instead.
       const bSq = lo.r * lo.r
-      // `dragMul` is Foul Water's pollution scaling, banked at the THROW (see stepBallastWeapon).
-      // It widens the DRAG and NOT the crater, which is the card's whole picture: a fouled drop
-      // pins further than it splashes. 1 without the mod.
-      const dragSq = (lo.r * (lo.dragMul ?? 1)) ** 2
       for (const e of run.enemies) {
         if (e._dead || isAlly(e)) continue
         const dx = e.x - lo.tx, dy = e.y - lo.ty
@@ -9851,7 +10189,7 @@ function stepLobs(run, dt) {
         if (dSq <= bSq) applyDamage(run, e, lo.dmg * (e.type === 'tank' ? BALLAST_TANK_MUL : 1))
         // Refreshed, not stacked, and NOT through the CC-DR budget: this is a plain speed debuff
         // like bloomSlowT, not a control that stops a body — resistsCC guards holds, not drags.
-        if (!e._dead && dSq <= dragSq) e.dragT = Math.max(e.dragT || 0, BALLAST_DRAG_T)
+        if (!e._dead && dSq <= bSq) e.dragT = Math.max(e.dragT || 0, BALLAST_DRAG_T)
       }
       run.events.push({ type: 'ballast', x: lo.tx, y: lo.ty, radius: lo.r })
       // SILT PLUME: the weight slams the bottom and throws the silt up around the crater. RINGED
@@ -10063,7 +10401,12 @@ function stepSiltVeilWeapon(run, w, stats, fireRateMul, dt) {
 function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
   const quickWinch = run.weaponMods.ballast?.quickWinch ?? 0
   const foulWater = run.weaponMods.ballast?.foulWater ?? 0
-  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickWinch)), dt, () => {
+  // FOUL WATER: the filthier the water, the faster the winch turns. Read here and re-read every
+  // frame -- it is the live bar and not a banked value, so the cadence rises as the run fouls.
+  // `quickWinch` and this multiply rather than add: one is a flat pick and the other is a ramp,
+  // and a player holding both should not have the ramp diluted by the pick.
+  const foulRate = 1 + foulWater * pollutionFrac(run.charge, run.chargeMax)
+  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quickWinch) * foulRate), dt, () => {
     const p = run.player
     // THE ONE AIM SITE IN THE GAME THAT PASSES A PAD, and it passes a NEGATIVE one: this weapon
     // reaches viewRadius - 100 where everything else reaches viewRadius + 100 (see
@@ -10078,11 +10421,6 @@ function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
     // target in the hole between them: at 1.15r from a blast of radius r, a two-weight cast threw
     // one to each side of an enemy and hit nothing at all (owner from play, 2026-08-20).
     const spread = stats.r * 1.15
-    // FOUL WATER, sampled at the THROW and carried on the lob rather than read again on landing.
-    // The flight is BALLAST_FLIGHT (0.42s), so the two readings could barely differ -- and deciding
-    // it when the player presses is what makes the card legible: the water you threw into is the
-    // water that pays. Scales the DRAG's radius only; the crush stays lo.r.
-    const dragMul = 1 + foulWater * pollutionFrac(run.charge, run.chargeMax)
     for (let i = 0; i < drops; i++) {
       const a = (i / drops) * Math.PI * 2
       const off = i === 0 ? 0 : spread
@@ -10090,7 +10428,7 @@ function stepBallastWeapon(run, w, stats, fireRateMul, dt) {
         fromX: p.x, fromY: p.y,
         tx: tx + Math.cos(a) * off, ty: ty + Math.sin(a) * off,
         t: 0, flight: BALLAST_FLIGHT,
-        dmg: stats.dmg, r: stats.r, look: 'ballast', dragMul,
+        dmg: stats.dmg, r: stats.r, look: 'ballast',
       })
     }
   })
@@ -11164,8 +11502,42 @@ function shuffleInPlace(arr) {
 // any candidate at all, so the sample decides WHICH mods are offered, never HOW OFTEN. It can no
 // longer crowd out weapon/passive/
 // element cards.
-function eligibleWeaponModCandidates(run) {
+// THE DUO BOONS LIVE RIGHT NOW, AND THE ONLY PLACE THAT GATE IS AUTHORED. Two readers depend on
+// agreeing screen for screen: eligibleWeaponModCandidates RESERVES a pool slot for each of these,
+// and stepLevelUp banks a dry screen against each one it did not offer. A second copy of the gate
+// would let them disagree — pity accruing on screens the pool could never spend it on, which is
+// this repo's largest defect class (one fact in two places, no import between them).
+// `needs` is the whole scarcity of the card: it is a mod on weapon A that pays out through weapon
+// B, so it cannot exist until the run holds both. Everything else here is the ordinary pick cap.
+function liveDuoMods(run) {
+  const focus = specialistFocus(run)
+  const live = []
+  for (const w of run.weapons) {
+    const modCfgs = WEAPON_MODS[w.id]
+    if (!modCfgs) continue
+    for (const modId of Object.keys(modCfgs)) {
+      const needs = modCfgs[modId].needs
+      if (!needs || !run.weapons.some((o) => o.id === needs)) continue
+      if ((run.weaponModPicks[w.id]?.[modId] ?? 0) >= modPickCap(w.id, modId, focus)) continue
+      live.push({ weapon: w.id, mod: modId })
+    }
+  }
+  return live
+}
+
+// Exported for run DB in test/sim-test.js only: the reserved slot is a property of the POOL, and
+// asserting it through buildLevelUpChoices would only ever be a rate with a band around it.
+export function eligibleWeaponModCandidates(run) {
   const candidates = []
+  // A DUO BOON IS RESERVED, NOT DRAWN (2026-08-23). It holds one of its weapon's
+  // MOD_CANDIDATES_PER_WEAPON slots outright from the moment the pair is complete, instead of
+  // taking its chances in the shuffle below with every ordinary mod — Silt Flush was competing for
+  // 2 of Downwash's 8 slots, so it was absent from three pools in four before the rarity roll had
+  // even looked at it. Reserved WITHIN the weapon's budget rather than on top of it, so the pool's
+  // size is untouched and this cannot become a stealth widening of the mod bucket.
+  const reserved = liveDuoMods(run)
+  const reservedFor = new Map()
+  for (const d of reserved) reservedFor.set(d.weapon, [...(reservedFor.get(d.weapon) ?? []), d.mod])
   // SPECIALIST (v7.5) widens its named weapon HERE as well as at the per-screen cap, and the pool
   // ceiling with it. Lifting only the cap is inert: MOD_CANDIDATES_PER_WEAPON = 2 means a weapon
   // never HAS a third distinct mod on the screen to place, and `pickedIds` forbids repeating one.
@@ -11192,22 +11564,29 @@ function eligibleWeaponModCandidates(run) {
       // and the pool can never disagree about what a weapon's cap is.
       && (picks?.[modId] ?? 0) < modPickCap(w.id, modId, focus)
       // A DUO BOON declares the OTHER weapon it is made of (`needs`, see the WEAPON_MODS header
-      // in config.js) and is simply not a candidate until that weapon is held too. The gate is
-      // here and nowhere else on purpose: devCards ignores eligibility by design, so the dev
-      // list still offers it, and the fire sites fall back to the veil's level-1 numbers.
-      && (!modCfgs[modId].needs || run.weapons.some((o) => o.id === modCfgs[modId].needs)))
+      // in config.js) and is not drawn here AT ALL — liveDuoMods above owns its gate, and the
+      // reserved slot below places it. Excluding the whole class rather than filtering it in is
+      // what keeps that gate authored once: devCards still ignores eligibility by design, and the
+      // fire sites still fall back to the veil's level-1 numbers.
+      && !modCfgs[modId].needs)
     shuffleInPlace(owned)
     // SPECIALIST's price: every weapon that is NOT the focus puts one fewer mod in the pool. Only
     // charged when a focus actually exists, and floored at 1 so a weapon is never silenced.
     const per = focus && w.id !== focus
       ? Math.max(1, MOD_CANDIDATES_PER_WEAPON - SPECIALIST_OTHER_PENALTY)
       : MOD_CANDIDATES_PER_WEAPON
-    for (const modId of owned.slice(0, per)) candidates.push({ weapon: w.id, mod: modId })
+    const duo = reservedFor.get(w.id) ?? []
+    for (const modId of duo) candidates.push({ weapon: w.id, mod: modId })
+    for (const modId of owned.slice(0, Math.max(0, per - duo.length))) candidates.push({ weapon: w.id, mod: modId })
   }
   if (candidates.length <= MOD_POOL_MAX) return candidates
 
-  const pool = candidates.slice()
-  const sampled = []
+  // The trim samples the ORDINARY candidates only. A reserved boon that survived the per-weapon
+  // budget and was then dropped here would leave pity armed with nothing in the pool to spend it
+  // on — the counter would keep climbing and the guarantee would silently slip a screen at a time.
+  const keep = candidates.filter((c) => WEAPON_MODS[c.weapon][c.mod].needs)
+  const pool = candidates.filter((c) => !WEAPON_MODS[c.weapon][c.mod].needs)
+  const sampled = keep
   while (sampled.length < MOD_POOL_MAX && pool.length > 0) {
     const idx = Math.floor(Math.random() * pool.length)
     sampled.push(pool.splice(idx, 1)[0])
@@ -11663,6 +12042,32 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
   }
 
   if (bucket === 'mod') {
+    // PITY FIRST, before any rarity is consulted. A duo boon that has been live for
+    // DUO_PITY_SCREENS screens without being offered simply takes this card. It has to jump the
+    // rarity roll rather than be weighted into it, because the rarity roll IS the thing that was
+    // hiding it: `values: { epic: N }` makes the boon a candidate on 7% of mod rolls, and no
+    // weight inside the other 93% can reach a card that is not in `ok` at all.
+    // It draws NO Math.random on the ordinary path (the filter alone decides), so every seeded
+    // fixture in the suite is untouched on a screen with nothing armed.
+    const armed = modOpts.filter((mc) => (run._duoDry?.[mc.mod] ?? 0) >= DUO_PITY_SCREENS)
+    if (armed.length > 0) {
+      const mc = armed.length === 1 ? armed[0] : armed[Math.floor(Math.random() * armed.length)]
+      const cfg = WEAPON_MODS[mc.weapon][mc.mod]
+      // Built at a tier the card ACCEPTS, renormalised over its own `values` keys — the
+      // makePassiveCard idiom, and for its reason: a fixed ladder walk would hand every future
+      // two-tier boon the same tier forever. A boon with no `values` takes the screen's own roll.
+      let tier = rarity
+      if (cfg.values) {
+        const w = {}
+        for (const r of Object.keys(cfg.values)) if (rarityWeights[r]) w[r] = rarityWeights[r]
+        if (Object.keys(w).length > 0) tier = pickWeighted(w)
+      }
+      const built = makeWeaponModCard(run, mc.weapon, mc.mod, tier)
+      // No fallback if it declines even its own table (BLIND FAITH's floor could strip every key):
+      // the credit stays banked and the boon takes the next mod card instead. Forcing a card here
+      // would mean inventing a tier the mod never declared.
+      if (built) return built
+    }
     // A switch mod declines every rarity above normal (makeWeaponModCard returns null), so it is
     // only a CANDIDATE on a normal roll — restricting the pick preserves that. Picking first and
     // coercing the rarity down instead let a switch win its pick at any tier: measured 1.72x the
@@ -11706,7 +12111,17 @@ function rollCard(run, weaponPool, passiveIds, modCandidates, elementIds, picked
     // A switch has no magnitude for a reroll to enlarge, so it is built at the only tier it accepts
     // — which is also the tier its candidacy roll came up at. Everything else takes the decayed one.
     const isSwitch = WEAPON_MODS[mc.weapon][mc.mod].kind === 'switch'
-    return makeWeaponModCard(run, mc.weapon, mc.mod, isSwitch ? 'normal' : rarity)
+    const built = makeWeaponModCard(run, mc.weapon, mc.mod, isSwitch ? 'normal' : rarity)
+    // CANDIDACY AND SIZE ARE TWO DIFFERENT ROLLS ONCE A REROLL HAS BEEN PAID FOR (candRarity above
+    // is rolled on the undecayed table, `rarity` on the decayed one), and a `values` mod accepts
+    // only the tiers it lists. So a boon can win its slot at epic and then decline the tier it is
+    // BUILT at — makeWeaponModCard returns null, rollCard returns null, and buildLevelUpChoices
+    // breaks out of the slot loop: the reroll the player just bought hands back a SHORTER screen.
+    // Fall back to the tier it actually won on, which is the only tier it is known to accept.
+    // Latent since v6.7.11 and rare (0.35% of rerolled shelf screens) while a `values` mod had to
+    // survive the candidate draw first; reserving the duo boons puts one in EVERY shelf pool and
+    // took it to 1.36%. Same defect the element branch carries its own guard for.
+    return built ?? makeWeaponModCard(run, mc.weapon, mc.mod, candRarity)
   }
 
   const eid = elementOpts[Math.floor(Math.random() * elementOpts.length)]
@@ -11819,6 +12234,17 @@ function buildLevelUpChoices(run) {
     cards[slot] = { kind: 'weapon', id, title: cfg.name, desc: cfg.desc, tag: 'New!', rarity, icon: cfg.icon }
   }
 
+  // DUO PITY IS SPENT WHEN THE BOON IS OFFERED, not when it is kept — the anomaly tier's contract,
+  // and for the same reason: resetting on the PICK would put the card back on screen every level
+  // until the player accepted it, which turns declining it into a nag rather than a decision.
+  // Read off the FINAL cards, below both the anomaly swap and the new-weapon floor, because either
+  // can overwrite the slot the boon landed in — a boon that was rolled and then deleted was never
+  // offered, and must not be charged for it. Zeroing here rather than in rollCard is what makes
+  // that reading possible at all.
+  for (const c of cards) {
+    if (c.kind === 'mod' && WEAPON_MODS[c.weapon]?.[c.id]?.needs && run._duoDry) run._duoDry[c.id] = 0
+  }
+
   return cards
 }
 
@@ -11856,6 +12282,13 @@ function stepLevelUp(run) {
   // so a run used to reach eligibility with about half a run of credit already banked, and the
   // rate ANOMALY_BASE_WEIGHT documents was never the rate any screen rolled at.
   if (eligibleAnomalyIds(run).length > 0) run._screensSinceAnomaly = (run._screensSinceAnomaly ?? 0) + 1
+  // Duo-boon pity, on the same terms and HERE for the same reason: a reroll re-deals the screen by
+  // calling the builder again, so a counter kept there would step on every paid re-deal and let
+  // coins buy the guarantee early. Credit accrues ONLY on screens the boon was live on — a run
+  // that completes the pair at level 20 starts its count at level 20, rather than arriving with
+  // twenty screens already banked and the boon on the very next card.
+  run._duoDry ??= {}
+  for (const d of liveDuoMods(run)) run._duoDry[d.mod] = (run._duoDry[d.mod] ?? 0) + 1
   run.levelUpChoices = buildLevelUpChoices(run)
   run.phase = 'levelup'
   run.events.push({ type: 'levelup' })

@@ -319,6 +319,8 @@ function measure() {
   // with two different fixes. The starter is owned in 100% of runs by construction, which is
   // exactly why it looked like the pool favoured it.
   const weaponRuns = new Map()
+  // Duo boons only: runs that held the mod's weapon AND the weapon its `needs` names.
+  const pairRuns = new Map()
   const coinsEarned = [], killCounts = [], fireCounts = [], eliteKillCounts = []
   const hurtCounts = [], hpLostCounts = []
   const defTotals = { armor: 0, regen: 0, maxHP: 0 }
@@ -475,6 +477,18 @@ function measure() {
     for (const k of seenMods) modRuns.set(k, (modRuns.get(k) ?? 0) + 1)
     // run.weapons at the END of the run: a weapon is never dropped, so this is "was it ever owned".
     for (const w of run.weapons ?? []) weaponRuns.set(w.id, (weaponRuns.get(w.id) ?? 0) + 1)
+    // A DUO BOON's honest denominator is runs that held BOTH halves, not runs that held the mod's
+    // own weapon: `needs` means the card cannot be offered until the partner weapon is owned too,
+    // so charging it the wider denominator prints a low number for a card working exactly as
+    // designed. That is the misread this harness is now most likely to cause — it reported 0.0%
+    // for both shelf boons while they really were unreachable, and would go on reporting a low
+    // number after the fix for the ordinary reason that a random-policy run rarely completes a pair.
+    const held = new Set((run.weapons ?? []).map((w) => w.id))
+    for (const wid of held) {
+      for (const [mid, cfg] of Object.entries(C.WEAPON_MODS[wid] ?? {})) {
+        if (cfg.needs && held.has(cfg.needs)) pairRuns.set(wid + '.' + mid, (pairRuns.get(wid + '.' + mid) ?? 0) + 1)
+      }
+    }
     coinsEarned.push(run.coinsEarned ?? 0)
     killCounts.push(run.kills ?? 0)
     eliteKillCounts.push(eliteKills)
@@ -516,6 +530,7 @@ function measure() {
     absent: Object.fromEntries(Object.entries(stats.absent).map(([k, v]) => [k, (100 * v) / (stats.slots || 1)])),
     modRuns,
     weaponRuns,
+    pairRuns,
     coins: avg(coinsEarned),
     kills: avg(killCounts),
     eliteKills: avg(eliteKillCounts),
@@ -558,13 +573,15 @@ function deliverability(r) {
   // Conditional share. Guarded rather than divided blind: a weapon owned in ZERO runs would
   // otherwise print NaN% beside real numbers, which is the shape of output this file's own header
   // warns about — an answer to a question nobody asked.
-  const owned = (k) => r.weaponRuns.get(k.split('.')[0]) ?? 0
+  // A duo boon is conditioned on the PAIR (see pairRuns above); every other mod on its own weapon.
+  const isDuo = (k) => !!C.WEAPON_MODS[k.split('.')[0]]?.[k.split('.')[1]]?.needs
+  const owned = (k) => (isDuo(k) ? (r.pairRuns.get(k) ?? 0) : (r.weaponRuns.get(k.split('.')[0]) ?? 0))
   const cond = (k) => (owned(k) > 0 ? (100 * (r.modRuns.get(k) ?? 0)) / owned(k) : null)
   const rows = ids.map((k) => ({ k, v: pct(k), c: cond(k), n: owned(k) })).sort((x, y) => x.v - y.v)
   console.log(`\n== mod deliverability (${CHAPTER}) — % of runs offering this mod at least once`)
-  console.log(`  ${'mod'.padEnd(24)} ${'all'.padStart(5)}  ${'owned'.padStart(6)}  (runs owning the weapon)`)
+  console.log(`  ${'mod'.padEnd(24)} ${'all'.padStart(5)}  ${'owned'.padStart(6)}  (runs owning the weapon; a duo boon: runs owning the PAIR)`)
   for (const x of rows) {
-    console.log(`  ${x.k.padEnd(24)} ${f1(x.v).padStart(5)}%  ${(x.c == null ? '  --' : f1(x.c)).padStart(6)}%  (${x.n}/${RUNS})`)
+    console.log(`  ${x.k.padEnd(24)} ${f1(x.v).padStart(5)}%  ${(x.c == null ? '  --' : f1(x.c)).padStart(6)}%  (${x.n}/${RUNS})${isDuo(x.k) ? ' duo' : ''}`)
   }
   const mean = rows.reduce((t, x) => t + x.v, 0) / rows.length
   const condRows = rows.filter((x) => x.c != null)

@@ -109,15 +109,10 @@ const UI = {
     'Payés avec des niveaux d\'amélioration déjà achetés. Ils sont dépensés, sans remboursement.',
   // The effect alone, with no price clause — see BOOK_UNLOCKS in config.js for why it is split.
   'One more choice at every level-up.': 'Un choix de plus à chaque montée de niveau.',
-  'Kills give back resource.': 'Tuer rend de la ressource.',
   'Sacrifice {n} upgrade levels (no coin refund).':
     'Sacrifie {n} niveaux d\'amélioration (aucun remboursement).',
   '3rd': '3e',
   '4th': '4e',
-  // Book 2 (dev-gated). 'Voleur de Lumiere' keeps the owner's own framing - he described the
-  // mechanic as STEALING light - rather than a neutral 'Recuperateur'. Its effect line lives with
-  // the other unlock effects above, since both targets are rows on the same list.
-  'Scavenger': 'Charognard',
   // 'achat' (noun) not 'acheter' (verb): the chip sits at the end of a row whose label needs every
   // remaining px, and the verb is 4 characters longer for no added clarity on a buy button.
   'buy : 🪙 {n}': 'achat : 🪙 {n}',
@@ -835,6 +830,8 @@ const CONFIG = {
   'how long chum lasts': 'dur\u00e9e de l\'app\u00e2t',
   'Deep Chum': 'App\u00e2t Profond',
   'baited fish hold their nerve closer to you': 'les poissons app\u00e2t\u00e9s tiennent bon plus pr\u00e8s de toi',
+  'Full Bucket': 'Rab',
+  'mouthful(s) of food in each bait': 'bouch\u00e9e(s) de nourriture par app\u00e2t',
   'Split Seam': 'Couture Fendue',
   'oil spread': '\u00e9tendue du mazout',
   'Thick Oil': 'Mazout \u00c9pais',
@@ -1415,7 +1412,10 @@ const CONFIG = {
   'Jetsam': 'Délestage',
   'extra weight(s) per drop': 'poids supplémentaire(s) par largage',
   'Foul Water': 'Eau Souillée',
-  'the drag catches {n} wider than the crush, rising with your Pollution': 'le ralentissement porte {n} plus loin que l\'impact, augmente avec ta Pollution',
+  // Cadence since 2026-08-23. A NOUN of rate, because ui.js prefixes the '+50%' head; the words
+  // are deliberately the ones 'Treuil Rapide' (quickWinch) already uses, since it is the same stat
+  // on the same weapon.
+  'drop rate, rising with your Pollution': 'cadence de largage, augmente avec ta Pollution',
   // The two DUO BOONS (2026-08-22), one on each of the chapter's other weapons, both of which
   // make Voile de Vase's cloud. Both keep 'vase' -- the Voile de Vase rule, one word for one
   // thing across the card, the sheet and the mods -- and both name the weapon they sit on the
@@ -1597,6 +1597,9 @@ const CONFIG = {
   // game's 46 roster entries; run XX now walks CHAPTERS[].roster[].name so the next one goes red.
   'Damselfish': 'Demoiselle',
   'Moray': 'Murène',
+  'Squid': 'Pieuvre',
+  'Pufferfish': 'Poisson-globe',
+  'Sardine': 'Sardine',
   'Lionfish': 'Poisson-Lion',
   'Drowning': 'Noyade',
   'Starvation': 'Famine',

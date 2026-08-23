@@ -39,6 +39,7 @@ import {
   WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
+  MOD_CANDIDATES_PER_WEAPON, MOD_POOL_MAX, DUO_PITY_SCREENS,
   WEAPON_RATE_MODS, WEAPON_COUNT_MODS,
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
@@ -84,7 +85,7 @@ import {
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
-  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, LIGHT_THIEF_COSTS, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
+  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RING_N, RING_R_MUL, RING_POOL_MUL,
   RAMPAGE_SPEED_MUL,
@@ -149,10 +150,16 @@ import {
   MASTERY_UNLOCK, chaptersMastered, shopLineUnlocked, CHEEK_JIGGLE, BUTT_FEET,
   // The Wreck's prey rework (Run WK)
   PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_SHOAL_SIZE, CHUM_PANIC_R,
+  INK_TRIGGER_R, INK_COOLDOWN, INK_SLOW_MUL, INK_DUR,
+  PUFFER_TRIGGER_R, PUFFER_COOL_T, PUFFER_DRIFT_MUL, BALL_R,
   GNASH_MAW_MUL, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   BALLAST_RING,
+  // The Wreck's orca (Run OR)
+  ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
+  ORCA_RING_MIN_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, FEED_FULL_N,
+  CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow, spurAt } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
 // ---- Scenario runner: a filter, and a --fast mode ---------------------------------------------
 // The suite is 71s, and 397 of its 430 assertion blocks finish in 4.4s TOTAL — the whole cost sits
@@ -5003,9 +5010,12 @@ function runBookProgression() {
   assert.ok(!r.chapters.surf?.unlocked, 'and no Undertow unlock')
 
   // (p) RULING B — meta.lightThief (Book 1-shaped legacy, design doc §1) copies forward ONCE into
-  // its new home, bookMeta(m,'undertow').unlocks.lightThief, which is the only place createRun
-  // reads it now. The old field must survive untouched (R2: never delete a meta field), and a run
-  // in an Undertow chapter must actually see the effect — not just the copied flag.
+  // its new home, bookMeta(m,'undertow').unlocks.lightThief. BOTH ARE DEAD DATA since v7.x removed
+  // Scavenger, and the migration is guarded anyway: R2 makes it part of the save's SHAPE, so a save
+  // that survived a downgrade-then-upgrade must come back the same shape as one that did not. The
+  // old field must survive untouched (R2: never delete a meta field), and the run must be unchanged
+  // by the flag — a copied-forward unlock that still granted something would be a removed mechanic
+  // reachable by exactly the oldest saves, which are the ones nobody plays on.
   const thiefBlob = {
     schema: 1, coins: 10, shop: {}, runs: 5, dev: true, lightThief: true,
     chapters: { body: { unlocked: true, maxDifficulty: 1, difficulty: 1, best: { time: 0, kills: 0 } } },
@@ -5015,7 +5025,8 @@ function runBookProgression() {
     "a top-level lightThief:true copies forward into bookMeta(m,'undertow').unlocks.lightThief on load")
   assert.strictEqual(withThief.lightThief, true, 'the OLD field must survive untouched (R2 — never delete a meta field)')
   const thiefRun = createRun(withThief, { chapter: 'surf' })
-  assert.ok(thiefRun.killRefill > 0, 'an Undertow run for a save carrying the copied-forward unlock gets a non-zero killRefill')
+  assert.ok(!('killRefill' in thiefRun),
+    'run.killRefill went with Scavenger (v7.x) — a run must carry no dead field, and the copied-forward flag must grant nothing')
 
   // FINDING 2 (review, 2026-08-16): the `=== undefined` guard has no coverage of its own reason
   // to exist — a mutation deleting it would still pass everything above, because nothing here
@@ -5260,23 +5271,33 @@ function runBookProgression() {
       `SACRIFICING MUST NOT LOSE PROGRESS: ${price} levels bought reads ${before}%, and spending them on the 3rd card slot reads ${after}%. The levels are gone from bm.shop, so the thing they bought has to be credited back — otherwise the meter runs backwards on a purchase.`)
 
     // The same for a BOOK_UNLOCKS rung, which is the book-specific ladder and a different branch.
-    const [uid] = Object.keys(BOOK_UNLOCKS.undertow)
-    const rung = unlockCost('undertow', uid, 0)
-    const uSaved = {}
-    let uLeft = rung
-    for (const id of Object.keys(shopLines('undertow'))) { const take = Math.min(lineMax(id), uLeft); if (take > 0) uSaved[id] = take; uLeft -= take }
-    const uBefore = bookProgress({ shop: uSaved, choiceSlots: 2, unlocks: {} }, 'undertow').pct
-    const uAfter = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: 1 } }, 'undertow').pct
-    assert.strictEqual(uAfter, uBefore,
-      `buying ${uid}'s first rung (${rung} levels) must not lose progress either: ${uBefore}% -> ${uAfter}%`)
-    // A legacy `true` unlock (a save from before the ladder) owns the TOP rung, not one.
-    const legacy = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: true } }, 'undertow')
-    const allRungs = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: unlockMax('undertow', uid) } }, 'undertow')
-    assert.strictEqual(legacy.owned, allRungs.owned,
-      `a pre-ladder \`${uid}: true\` save must be credited the whole ladder (${allRungs.owned} levels), not one rung — it got ${legacy.owned}`)
+    //
+    // UNEXERCISED WHILE THE TABLE IS EMPTY (v7.x removed Scavenger, its only ever row). bookProgress
+    // credits unlocks by iterating BOOK_UNLOCKS[bookId], so with no rows there is no rung to buy and
+    // nothing to credit back. Guarded and REPORTED in the PASS line rather than deleted, for both of
+    // this repo's own reasons: the branch is live code the next unlock walks straight into, and a
+    // check that silently skips reads exactly like a check that passed.
+    const [uid] = Object.keys(BOOK_UNLOCKS.undertow ?? {})
+    let unlockNote = 'BOOK_UNLOCKS empty, unlock-ladder branch UNEXERCISED'
+    if (uid) {
+      const rung = unlockCost('undertow', uid, 0)
+      const uSaved = {}
+      let uLeft = rung
+      for (const id of Object.keys(shopLines('undertow'))) { const take = Math.min(lineMax(id), uLeft); if (take > 0) uSaved[id] = take; uLeft -= take }
+      const uBefore = bookProgress({ shop: uSaved, choiceSlots: 2, unlocks: {} }, 'undertow').pct
+      const uAfter = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: 1 } }, 'undertow').pct
+      assert.strictEqual(uAfter, uBefore,
+        `buying ${uid}'s first rung (${rung} levels) must not lose progress either: ${uBefore}% -> ${uAfter}%`)
+      // A legacy `true` unlock (a save from before the ladder) owns the TOP rung, not one.
+      const legacy = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: true } }, 'undertow')
+      const allRungs = bookProgress({ shop: {}, choiceSlots: 2, unlocks: { [uid]: unlockMax('undertow', uid) } }, 'undertow')
+      assert.strictEqual(legacy.owned, allRungs.owned,
+        `a pre-ladder \`${uid}: true\` save must be credited the whole ladder (${allRungs.owned} levels), not one rung — it got ${legacy.owned}`)
+      unlockNote = `${rung} levels -> ${uid} holds at ${uBefore}%`
+    }
 
     const totals = BOOK_ORDER.map((b) => `${b} ${bookProgress({ shop: {}, choiceSlots: 2, unlocks: {} }, b).total}`).join(', ')
-    console.log(`PASS run BP.q5 (shop completion meter): denominators in LEVELS [${totals}], fresh 0% and spent-out exactly 100% for ${BOOK_ORDER.length} books, an over-count of slots reads no higher, and a sacrifice is monotone on both ladders (${price} levels -> 3rd slot holds at ${before}%, ${rung} levels -> ${uid} holds at ${uBefore}%)`)
+    console.log(`PASS run BP.q5 (shop completion meter): denominators in LEVELS [${totals}], fresh 0% and spent-out exactly 100% for ${BOOK_ORDER.length} books, an over-count of slots reads no higher, and a sacrifice is monotone (${price} levels -> 3rd slot holds at ${before}%; ${unlockNote})`)
   }
 
   // (q4) EVERY DOOR HAS A HANDLER, AND EVERY SCREEN HAS A DOOR. Deleting the bottom nav (v7.x)
@@ -5545,29 +5566,32 @@ function runBookProgression() {
       `the drain clamp must bind at run.chargeMax (${run.chargeMax}), not the config max (${configMax}) — got ${run.charge} after one drain tick from the raised ceiling`)
   }
 
-  // The KILL-REFILL clamp (the Light Thief bonus, sim.js) must ALSO bind at run.chargeMax — a
-  // SEPARATE line from the drain clamp above, and the brief's own trap: a refill still clamped to
-  // the config max would let the bar refill past its OLD cap on kills and snap back down on the
-  // very next drain tick, a flicker no "does the ceiling move" assertion can see. Proven with a
-  // REAL kill (park a 1-hp enemy on the player, same idiom as run LT), not a hand-set run.charge.
-  // run.charge is reset to just under the OLD config max before every step — safely below BOTH
-  // candidate ceilings — so the drain clamp (proven separately above) can never be what pushes the
-  // peak up; only the kill-refill clamp can.
+  // The KILL-REFILL clamp (sim.js's kill branch) must ALSO bind at run.chargeMax — a SEPARATE line
+  // from the drain clamp above, and the brief's own trap: a refill still clamped to the config max
+  // would let the bar refill past its OLD cap on kills and snap back down on the very next drain
+  // tick, a flicker no "does the ceiling move" assertion can see.
+  //
+  // ON THE WRECK, and it has to be: `killBase` is the only per-kill refill left in the game since
+  // v7.x removed Scavenger, so this is the ONLY chapter where that clamp site can fire at all. It
+  // used to run on The Shelf with a hand-set run.killRefill of 50 — a field that no longer exists,
+  // and a rig that could not have caught this today. Proven with a REAL kill (park 1-hp enemies on
+  // the player and let the starter weapon finish them), not a hand-set run.charge: run.charge is
+  // reset to just under the OLD config max before every step — safely below BOTH candidate ceilings
+  // — so the drain clamp (proven separately above) can never be what pushes the peak up.
   {
     const m = makeMeta(); m.chapters = {}
-    const bm2 = ensureBookMeta(m, 'undertow')
-    bm2.shop.deepLungs = lineMax('deepLungs')
-    bm2.unlocks.lightThief = true
+    ensureBookMeta(m, 'undertow').shop.deepLungs = lineMax('deepLungs')
     Math.random = mulberry32(1)
-    const run = createRun(m, { chapter: 'shelf', difficulty: 1 })
-    const configMax = CHAPTERS.shelf.resource.max
+    const run = createRun(m, { chapter: 'wreck', difficulty: 1 })
+    const res = CHAPTERS.wreck.resource
+    const configMax = res.max
     assert.ok(run.chargeMax > configMax, 'precondition: deepLungs must raise the ceiling above the config max for this probe to mean anything')
+    assert.ok((res.killBase ?? 0) > 0, 'precondition: The Wreck must still declare killBase — it is the only per-kill refill this clamp site has left to fire on')
     run.player.hp = run.player.maxHP = 1e9
-    run.killRefill = 50   // large enough that one kill overshoots the OLD config max on its own
     let peak = 0
     for (let i = 0; i < 300; i++) {
       for (const e of run.enemies) { if (!e._dead) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 } }
-      run.charge = configMax - 5
+      run.charge = configMax - 1   // one killBase (5) overshoots the OLD cap on its own
       stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
       run.events.length = 0
       peak = Math.max(peak, run.charge)
@@ -7316,38 +7340,39 @@ function runModBudget() {
     console.log(`PASS run MB.e (Backblow): ${base.novas.length} -> ${narrow.novas.length} novas a half-turn apart at a 90deg cone; total coverage capped at ${CAP.toFixed(2)} rad (${(CAP * 180 / Math.PI).toFixed(0)}deg) on every mod combination, and Flare x6 + Backblow still beats Flare x6 alone (${wideBase.total.toFixed(2)} -> ${wide.total.toFixed(2)} rad)`)
   }
 
-  // (f) FOUL WATER widens the DRAG and leaves the CRATER alone, and it reads pollution the same way
-  // round as Scour. The impact is dealt off lo.r, so a mod that scaled `r` itself would quietly buy
-  // impact damage the card never promised.
-  //   ASSERTED AS AN EFFECT: a body parked between the crater and the drag ring must be SLOWED in
-  // filthy water and untouched in clean. Reading lo.dragMul instead would pass with the whole
-  // dragSq test deleted from the landing.
+  // (f) FOUL WATER is a CADENCE mod that ramps with the pollution bar (2026-08-23, replacing the
+  // drag-widening version): +50% drop rate at 100% pollution, nothing at all in clean water.
+  //   ASSERTED AS AN EFFECT — how many weights actually LAND in a fixed window, off the
+  // {type:'ballast'} event, never off the interval or off run.lobs. A weapon that fires the frame a
+  // window opens and again the frame it closes reads as a rate change from either of those.
+  //   AND THE BAR ALONE MUST BUY NOTHING: the same two waters with the mod UNPICKED have to give
+  // the same count, or the ramp is coming from somewhere other than the card.
   {
-    const dragAt = (charge, mods) => {
+    const dropsIn = (charge, mods, secs = 20) => {
       const run = boot('shelf', 'ballast', 5, mods, charge)
-      // Just OUTSIDE the crater (r is 134 at L5), so only the widened ring can reach it. hp 1e6 and
-      // speed 0: the question is dragT, and a corpse cannot answer it.
-      const e = makeStatusEnemy(run, { x: run.player.x, y: run.player.y, hp: 1e6, speed: 0 })
-      run.enemies.push(e)
-      assert(castUntil(run, (r) => r.lobs.length > 0, pin(charge)), 'precondition: the ballast must throw within 12s')
-      const lo = run.lobs[0]
-      const impactR = lo.r
-      // Park it on the ring, between the crater and the widened drag, and hold it there through the
-      // landing — pin() puts it back on the player every frame otherwise.
-      const hold = (r) => { e.x = lo.tx + impactR * 1.25; e.y = lo.ty }
-      hold(run)
-      advance(run, BALLAST_FLIGHT + 0.05, hold)
-      return { impactR, dragT: e.dragT ?? 0, hp: e.hp }
+      // One immortal body parked on the player: the weapon needs a target to aim at, and a corpse
+      // would end the casting. speed 0 so it stays put and cannot re-phase anything.
+      run.enemies.push(makeStatusEnemy(run, { x: run.player.x + 60, y: run.player.y, hp: 1e9, speed: 0 }))
+      let n = 0
+      const onStep = (r) => { pin(charge)(r); n += r.events.filter((e) => e.type === 'ballast').length; r.events.length = 0 }
+      advance(run, secs, onStep)
+      return n
     }
-    const clean = dragAt(SHELF_MAX, { foulWater: 1 })
-    const filthy = dragAt(0, { foulWater: 1 })
-    assert(filthy.dragT > 0, 'Foul Water in filthy water must drag a body sitting outside the crater')
-    assert.strictEqual(clean.dragT, 0,
-      `Foul Water must buy NOTHING in clean water: a body at 1.25x the crater was dragged for ${clean.dragT}s`)
-    assert.strictEqual(filthy.hp, 1e6,
-      'the body outside the crater took impact damage — the drag ring is being used for the crush as well')
-    assert(Math.abs(filthy.impactR - clean.impactR) < 1e-9,
-      `Foul Water must NOT touch the crater: impact r ${filthy.impactR} in filth against ${clean.impactR} clean`)
+    // THE SHIPPED VALUE, not a round 1: run.weaponMods banks the accumulated BONUS for a pct mod
+    // (applyChoice), so feeding 1 here would measure a card that pays double what it sells.
+    const nominal = WEAPON_MODS.ballast.foulWater.base
+    const clean = dropsIn(SHELF_MAX, { foulWater: nominal })
+    const filthy = dropsIn(0, { foulWater: nominal })
+    const cleanBare = dropsIn(SHELF_MAX, null)
+    const filthyBare = dropsIn(0, null)
+    assert.strictEqual(clean, cleanBare,
+      `Foul Water must buy NOTHING in clean water: ${clean} drops against ${cleanBare} without the card`)
+    assert.strictEqual(cleanBare, filthyBare,
+      `the pollution bar moved the cadence on its own (${cleanBare} clean, ${filthyBare} filthy) — that is the CARD's job`)
+    // +50% rate over the window, allowing the one drop the window's edges can swallow either way.
+    const want = cleanBare * (1 + nominal)
+    assert(Math.abs(filthy - want) <= 1,
+      `Foul Water in the filthiest water must drop ~${want} times against ${cleanBare} clean, got ${filthy}`)
     // AND THE STAIN IS GONE. The owner cut it because it was Silt Veil's own picture given away on
     // a rare; a landing that quietly pushes a look:'silt' bloom again would look entirely correct.
     const plain = boot('shelf', 'ballast', 5, null, 0)
@@ -7356,7 +7381,7 @@ function runModBudget() {
     advance(plain, BALLAST_FLIGHT + 0.2, pin(0))
     assert.strictEqual(plain.blooms.filter((b) => b.look === 'silt').length, 0,
       'a ballast landing pushed a silt cloud — the stain is supposed to be gone (it made Silt Veil pointless)')
-    console.log(`PASS run MB.f (Foul Water): a body at 1.25x the crater is dragged ${filthy.dragT.toFixed(1)}s in filth and ${clean.dragT}s clean, takes no impact damage either way, crater r ${clean.impactR} unchanged, and no landing leaves a silt cloud`)
+    console.log(`PASS run MB.f (Foul Water): ${filthy} drops in 20s at full pollution against ${clean} in clean water (+${Math.round((filthy / clean - 1) * 100)}%), the bar alone moves nothing (${cleanBare} either way), and no landing leaves a silt cloud`)
   }
 
   // (g) FOUL SPRING enlarges a cloud dropped in a LIVE upwelling and SPENDS that upwelling — and
@@ -7722,6 +7747,178 @@ function runModBudget() {
   console.log('PASS run MB (Book 2 chapters 1-2 mod budget): no inert cards across every weapon, four-plus apiece in both chapters, rate mods speed up, count mods land on bodies, and the three Pollution/clean-water cards pay the right way round — including that a fouled patch stops recharging you')
 }
 run(runModBudget)
+
+// ─── run DB: the duo boons actually reach the player ─────────────────────────────────────────
+// A DUO BOON is a weapon mod carrying `needs: '<weaponId>'` — a mod on weapon A that pays out
+// through weapon B (The Shelf's Silt Plume and Silt Flush, both throwing up Silt Veil's own
+// cloud). Holding the PAIR is already the card's whole scarcity, so the pool must not charge it
+// the ordinary lottery on top of it.
+// It shipped in v7.193.0 charging both, and was measured UNREACHABLE: offered on 0.6% of screens
+// and ~16% of runs, and scripts/pool-probe.mjs reported 0.0% deliverability over 5 shelf runs
+// that held the owning weapon in every single one. Nothing threw, no test went red, and the
+// author only found out by asking why he had never seen his own card.
+// Two mechanisms carry it now and EACH FAILS SILENTLY ON ITS OWN — a reserved candidate slot
+// nobody can see from the cards, and a pity counter that simply stops advancing. Hence the four
+// blocks below: the wiring, the pool, the guarantee, and the two ways the counter can be wrong.
+function runDuoBoons() {
+  // (a) WIRING. `needs` names a real weapon, and one the same chapter offers — a boon whose two
+  // halves live in different pools can never be completed by playing, only by the dev menu.
+  const duos = []
+  for (const [wid, mods] of Object.entries(WEAPON_MODS)) {
+    for (const [mid, cfg] of Object.entries(mods)) if (cfg.needs) duos.push([wid, mid, cfg.needs])
+  }
+  assert.ok(duos.length > 0, 'no mod in WEAPON_MODS declares `needs` — run DB is asserting on nothing')
+  for (const [wid, mid, needs] of duos) {
+    assert.ok(WEAPONS[needs], `${wid}.${mid} needs '${needs}', which is not a weapon id`)
+    const chapters = Object.entries(CHAPTERS).filter(([, ch]) => ch.weapons?.includes(wid) && ch.weapons.includes(needs))
+    assert.ok(chapters.length > 0,
+      `${wid}.${mid} needs '${needs}' but no chapter's pool offers both — the pair cannot be completed by play`)
+  }
+  console.log(`PASS run DB.a (wiring): ${duos.length} duo boon(s), each naming a real weapon its own chapter also offers`)
+
+  const shelfRun = (weapons, slots = 3) => {
+    const r = createRun(makeMeta(), { chapter: 'shelf' })
+    r.weapons = weapons.map((id) => ({ id, level: 3 }))
+    r.choiceSlots = slots
+    r.player.level = 12
+    r.player.maxHP = 1e9
+    r.player.hp = 1e9
+    return r
+  }
+
+  // (b) THE RESERVED SLOT, asserted on the POOL rather than on the cards. Through
+  // buildLevelUpChoices this could only ever be a rate with a band around it; here it is exact.
+  // Silt Flush held 2 of Downwash's EIGHT candidate slots before this, so it was absent from three
+  // pools in four before the rarity roll had even looked at it — and with four weapons owned the
+  // MOD_POOL_MAX trim could then drop it again.
+  Math.random = mulberry32(20260823)
+  const POOLS = 300
+  const full = shelfRun(['bubblePuff', 'siltVeil', 'ballast', 'downwash'])
+  let bothInPool = 0
+  for (let i = 0; i < POOLS; i++) {
+    const cands = eligibleWeaponModCandidates(full)
+    if (cands.some((c) => c.mod === 'siltPlume') && cands.some((c) => c.mod === 'siltFlush')) bothInPool++
+  }
+  assert.strictEqual(bothInPool, POOLS,
+    `both duo boons must be RESERVED in every pool, saw both in ${bothInPool}/${POOLS} — either the per-weapon draw is not reserving them or the MOD_POOL_MAX trim is sampling them away`)
+  // THE BUDGET, MEASURED WHERE THE TRIM CANNOT HIDE IT. Two weapons put 4 candidates in the pool,
+  // under MOD_POOL_MAX, so nothing is sampled away and ballast's contribution is exactly what the
+  // per-weapon draw gave it. Measured on the FOUR-weapon run above this reads 1.66 whether the
+  // boon is reserved inside the budget or handed a slot on top of it — the trim washes the
+  // difference out, and the mutation that widens the budget passed against it.
+  Math.random = mulberry32(20260823)
+  const untrimmed = shelfRun(['siltVeil', 'ballast'])
+  let ballastEntries = 0
+  for (let i = 0; i < POOLS; i++) {
+    ballastEntries += eligibleWeaponModCandidates(untrimmed).filter((c) => c.weapon === 'ballast').length
+  }
+  const perPool = ballastEntries / POOLS
+  assert.ok(perPool <= MOD_CANDIDATES_PER_WEAPON + 1e-9,
+    `the reserved slot must come OUT OF the weapon's ${MOD_CANDIDATES_PER_WEAPON}-candidate budget, not on top of it — ballast contributed ${perPool.toFixed(2)} candidates per untrimmed pool, which is a stealth widening of the mod bucket`)
+  // And the gate still holds in the other direction: no partner weapon, no candidate.
+  Math.random = mulberry32(20260823)
+  const half = shelfRun(['bubblePuff', 'ballast', 'downwash'])
+  let leaked = 0
+  for (let i = 0; i < POOLS; i++) {
+    if (eligibleWeaponModCandidates(half).some((c) => c.mod === 'siltPlume' || c.mod === 'siltFlush')) leaked++
+  }
+  assert.strictEqual(leaked, 0, `a duo boon was a candidate in ${leaked}/${POOLS} pools of a run that does not hold Silt Veil — the reserved slot must not outrank the gate`)
+  console.log(`PASS run DB.b (reserved): both boons in ${bothInPool}/${POOLS} trimmed pools, ${perPool.toFixed(2)} ballast candidates/untrimmed pool (cap ${MOD_CANDIDATES_PER_WEAPON}), 0/${POOLS} without the partner weapon`)
+
+  // Drive real screens through the SHIPPED path — stepSim -> stepLevelUp -> buildLevelUpChoices —
+  // because the pity counter is advanced in stepLevelUp and a fixture calling the builder directly
+  // would never see it move. Returns the screen numbers a duo boon was offered on.
+  const drive = (run, screens, modId) => {
+    const at = []
+    for (let i = 1; i <= screens; i++) {
+      run.phase = 'playing'
+      run.player.xp = run.player.xpNext
+      stepSim(run, { x: 0, y: 0 }, 1 / 60)
+      if (run.phase !== 'levelup') continue
+      if (run.levelUpChoices.some((c) => c.kind === 'mod' && c.id === modId)) {
+        at.push(i)
+        // SPENT ON THE OFFER, not on the pick: nothing was taken here, and the credit is gone.
+        assert.strictEqual(run._duoDry[modId], 0,
+          `the boon was on screen ${i} and pity still reads ${run._duoDry[modId]} — the reset must run on the FINAL card list, below the anomaly swap and the new-weapon floor`)
+      }
+    }
+    return at
+  }
+
+  // (c) THE GUARANTEE. Pity arms at DUO_PITY_SCREENS live screens and the boon then takes the next
+  // mod card, so the arrival is bounded by "armed, plus however long the mod bucket takes to come
+  // up". DRIVE is deliberately well past that: the property under test is that it ALWAYS lands
+  // inside a real run's worth of screens, not the exact screen it lands on.
+  const SEEDS = 12
+  const DRIVE = 16
+  let delivered = 0
+  const firsts = []
+  for (let s = 0; s < SEEDS; s++) {
+    Math.random = mulberry32(20260823 + s)
+    const r = shelfRun(['bubblePuff', 'siltVeil', 'ballast', 'downwash'])
+    const at = drive(r, DRIVE, 'siltPlume')
+    if (at.length > 0) { delivered++; firsts.push(at[0]) }
+  }
+  const meanFirst = firsts.reduce((a, b) => a + b, 0) / (firsts.length || 1)
+  assert.strictEqual(delivered, SEEDS,
+    `Silt Plume reached only ${delivered}/${SEEDS} runs holding the complete pair inside ${DRIVE} screens (pity is ${DUO_PITY_SCREENS}) — before the reserved slot and pity it was 0.6% of screens, which is what this asserts can never come back`)
+  assert.ok(meanFirst <= DUO_PITY_SCREENS + 4,
+    `the first Silt Plume averaged screen ${meanFirst.toFixed(1)} against a pity of ${DUO_PITY_SCREENS} — pity is arming but something downstream is swallowing the card`)
+  console.log(`PASS run DB.c (guaranteed): Silt Plume in ${delivered}/${SEEDS} paired runs, first offer on screen ${meanFirst.toFixed(1)} of ${DRIVE} (pity ${DUO_PITY_SCREENS})`)
+
+  // (d) THE TWO WAYS THE COUNTER GOES WRONG, and both are silent.
+  // EARNED ONLY WHERE IT CAN BE SPENT: a run that completes the pair at level 20 must start
+  // counting at level 20. Banking through the screens before that hands the boon over on the very
+  // next card, which is the anomaly tier's own v6.7.9 lesson (credit earned on a schedule).
+  Math.random = mulberry32(20260823)
+  const unpaired = shelfRun(['bubblePuff', 'ballast', 'downwash'])
+  const seenUnpaired = drive(unpaired, DRIVE * 2, 'siltPlume')
+  assert.strictEqual(seenUnpaired.length, 0, `Silt Plume was offered ${seenUnpaired.length} time(s) to a run that never held Silt Veil`)
+  assert.strictEqual(unpaired._duoDry?.siltPlume ?? 0, 0,
+    `pity banked ${unpaired._duoDry?.siltPlume} dry screens for a boon whose partner weapon is not held — credit must be earned only on screens the pool could have spent it on`)
+
+  // AND A PAID REROLL MUST NOT PUMP IT. The counter lives in stepLevelUp for exactly this reason:
+  // rerollLevelUpChoices re-deals the screen by calling the builder again, so a counter kept in
+  // the builder would step on every re-deal and let coins buy the guarantee early (the F5 defect,
+  // in the same shape the anomaly tier had it).
+  Math.random = mulberry32(20260823)
+  const rr = shelfRun(['bubblePuff', 'siltVeil', 'ballast', 'downwash'])
+  rr.coinsEarned = 100000
+  rr.phase = 'playing'
+  rr.player.xp = rr.player.xpNext
+  stepSim(rr, { x: 0, y: 0 }, 1 / 60)
+  assert.strictEqual(rr.phase, 'levelup', 'the reroll fixture never opened a screen')
+  const beforeRerolls = rr._duoDry.siltPlume
+  for (let i = 0; i < 5; i++) rerollLevelUpChoices(rr)
+  // <=, not ===: a re-deal that OFFERS the boon legitimately spends the credit. Only an INCREASE
+  // is the defect, and a counter moved into the builder would read beforeRerolls + 5 here.
+  assert.ok(rr._duoDry.siltPlume <= beforeRerolls,
+    `five paid rerolls took duo pity from ${beforeRerolls} to ${rr._duoDry.siltPlume} — the counter must be advanced by stepLevelUp, once per screen, or coins buy the guarantee`)
+  console.log(`PASS run DB.d (pity is earned): 0 offers and 0 banked screens without the partner weapon, and 5 paid rerolls moved pity ${beforeRerolls} -> ${rr._duoDry.siltPlume}`)
+
+  // (e) A REROLLED SCREEN IS NEVER SHORTER. The mod branch rolls CANDIDACY on the undecayed table
+  // and SIZE on the decayed one, so once a reroll is paid for they are two different tiers — and a
+  // `values` mod (both duo boons declare { epic: n }) accepts only the tiers it lists. Winning the
+  // slot at epic and then being built at rare returns null, rollCard returns null, and
+  // buildLevelUpChoices BREAKS out of the slot loop: the player pays for a re-deal and gets back
+  // FEWER cards than they started with. Latent since v6.7.11 at 0.35% of rerolled shelf screens
+  // while a values mod still had to win the candidate draw; reserving the duo boons puts one in
+  // every shelf pool and took it to 1.36%, which is what makes this run DB's business.
+  // Asserted at the REROLL CAP, where the two tables disagree most.
+  const SCREENS = 4000
+  Math.random = mulberry32(20260823)
+  const shortRun = shelfRun(['bubblePuff', 'siltVeil', 'ballast', 'downwash'])
+  shortRun._screenRerolls = REROLL_RARITY_CAP
+  let short = 0
+  for (let i = 0; i < SCREENS; i++) {
+    const cards = buildLevelUpChoices(shortRun)
+    if (cards.length < shortRun.choiceSlots && cards[0].kind !== 'heal') short++
+  }
+  assert.strictEqual(short, 0,
+    `${short}/${SCREENS} rerolled screens came back with fewer than ${shortRun.choiceSlots} cards — a paid re-deal must never shorten the screen. The mod branch has to fall back to the tier the card won CANDIDACY at when the decayed tier declines it.`)
+  console.log(`PASS run DB.e (no short screens): ${SCREENS}/${SCREENS} full screens at ${REROLL_RARITY_CAP} rerolls with both duo boons reserved in the pool`)
+}
+run(runDuoBoons)
 
 
 // ---- Run ST: THE SHELF'S SPAWN TILT ----------------------------------------------------------
@@ -8139,7 +8336,12 @@ function runPrey() {
       for (let i = 0; i < Math.round(3 / dt); i++) {
         only(run, [e])
         run.blooms.length = 0
-        run.blooms.push({ x: bx, y: by, t: 0, r: 150, maxR: 150, dur: 99, dmgPerTick: 0, tick: 0, look: 'bilge', slow: 1 })
+        // ⚠ `t` PAST THE GROW RAMP, AND IT IS LOAD-BEARING. stepBlooms rewrites bl.r from bl.t
+        // every frame: this used to be pushed at t: 0 with dur 99, so growT was 34.65s and the
+        // "150px slick" was a wall of radius 0.07px. Both arms passed with the mechanic entirely
+        // absent — prey wandered past a point, a chaser walked through it. dur 200 / t 100 puts
+        // every frame past the ramp, so the radius drawn here is the radius that acts.
+        run.blooms.push({ x: bx, y: by, t: 100, r: 150, maxR: 150, dur: 200, dmgPerTick: 0, tick: 0, look: 'bilge', slow: 1 })
         stepSim(run, { x: 0, y: 0 }, dt)
         deepest = Math.min(deepest, Math.hypot(e.x - bx, e.y - by))
       }
@@ -8198,46 +8400,366 @@ function runPrey() {
   //   SPREAD over the crowd— vs "always the nearest", which passes every single-enemy fixture
   //   on screen only       — vs a body parked outside run.viewW, which must never be chosen
   {
-    const gather = (mods) => {
+    // ⚠ THE FENCE BRANCH HAS TO SWIM (v7.x). slickTrail is triggered by DISTANCE TRAVELLED, so a
+    // fixture driving a zero input lays exactly one pool and `fence.every(...)` then passes over an
+    // empty list — a check that reads green while checking nothing. `input` is the axis that keeps
+    // it honest, and `still` below is the control that proves the trigger really is distance.
+    const gather = (mods, input = { x: 0, y: 0 }) => {
       const run = mk(20260821)
       run.weapons = [{ id: 'bilge', level: 1 }]
       run.weaponMods.bilge = mods
       const p = run.player
-      const x0 = p.x, y0 = p.y
       // Inside run.viewW/viewH (480/360 headless), at four clearly separated distances so "which
-      // one was chosen" is readable from the pool's position alone.
+      // one was chosen" is readable from the pool's position alone. Pinned to the LIVE player each
+      // frame rather than to the spawn point: the fence branch travels 26,000px, and a crowd left
+      // behind at the origin would put every branch off-screen within a second.
       const at = [[120, 0], [240, 0], [360, 0], [0, 300]]
-      const crowd = at.map(([dx, dy]) => put(run, { x: x0 + dx, y: y0 + dy, hp: 1e12, speed: 0, flags: ['skittish'] }))
+      const crowd = at.map(([dx, dy]) => put(run, { x: p.x + dx, y: p.y + dy, hp: 1e12, speed: 0, flags: ['skittish'] }))
       // Well outside the viewport. An effect that arrives from off-screen is worse than one that
       // arrives too close, so this must never be picked.
-      const offScreen = put(run, { x: x0 + 2000, y: y0, hp: 1e12, speed: 0, flags: ['skittish'] })
+      const offScreen = put(run, { x: p.x + 2000, y: p.y, hp: 1e12, speed: 0, flags: ['skittish'] })
       const all = [...crowd, offScreen]
       const seen = new Set()
       const hits = []            // index into `all` for every pool planted, -1 for the feet
       for (let i = 0; i < Math.round(120 / dt); i++) {
         only(run, all)
-        all.forEach((e, k) => { e.x = x0 + (k < 4 ? at[k][0] : 2000); e.y = y0 + (k < 4 ? at[k][1] : 0) })
-        stepSim(run, { x: 0, y: 0 }, dt)
+        all.forEach((e, k) => { e.x = p.x + (k < 4 ? at[k][0] : 2000); e.y = p.y + (k < 4 ? at[k][1] : 0) })
+        stepSim(run, input, dt)
         for (const bl of run.blooms) {
           if (bl.look !== 'bilge' || seen.has(bl)) continue
           seen.add(bl)
           const k = all.findIndex((e) => Math.hypot(bl.x - e.x, bl.y - e.y) < 1)
-          hits.push(k >= 0 ? k : (Math.hypot(bl.x - x0, bl.y - y0) < 1 ? -1 : -2))
+          hits.push(k >= 0 ? k : (Math.hypot(bl.x - p.x, bl.y - p.y) < 2 ? -1 : -2))
         }
       }
       return hits
     }
 
     const aimed = gather({})
-    const fence = gather({ slickTrail: 1 })
+    const fence = gather({ slickTrail: 1 }, { x: 1, y: 0 })
+    const still = gather({ slickTrail: 1 })
     assert.ok(aimed.length >= 8, `bilge planted only ${aimed.length} pools in 120s — too few to say anything about their spread`)
     assert.ok(!aimed.includes(-2), 'every pool must open ON a body, not at some third place')
     assert.ok(!aimed.includes(-1), 'with the crowd on screen no pool may open at the player\'s feet')
     assert.ok(!aimed.includes(4), 'a body outside run.viewW must never be chosen — that is a zone arriving from off-screen')
     const distinct = new Set(aimed).size
     assert.ok(distinct >= 3, `the oil must SPREAD over the visible crowd; it used ${distinct} of 4 bodies across ${aimed.length} casts (targeting the nearest would read 1)`)
+    assert.ok(fence.length >= 100, `slickTrail laid only ${fence.length} pools over 120s of swimming — a fence that does not get drawn is not a fence`)
     assert.ok(fence.every((k) => k === -1), `slickTrail draws a fence BEHIND you, so every trail pool must lay at the feet; got ${fence.filter((k) => k !== -1).length} of ${fence.length} elsewhere`)
-    console.log(`PASS run PY.l (the oil lands on a random visible body): ${aimed.length} casts spread over ${distinct} of 4 on-screen bodies, never the off-screen one and never underfoot, where slickTrail's ${fence.length} pools all stay at the feet`)
+    // THE TRIGGER IS DISTANCE, AND THIS IS THE ONLY ASSERTION THAT SAYS SO. On the shipped timer a
+    // motionless player carpeted their own square in oil; one pool is the first-cast seed.
+    assert.ok(still.length <= 1, `a player who never moves must not pour a fence; standing for 120s laid ${still.length} pools`)
+    console.log(`PASS run PY.l (the oil lands on a random visible body): ${aimed.length} casts spread over ${distinct} of 4 on-screen bodies, never the off-screen one and never underfoot, where slickTrail lays ${fence.length} pools at the feet while swimming and ${still.length} while standing still`)
+  }
+
+  // -- PY.l2: the trail is a TRAIL, not a row of puddles. ----------------------------------------
+  // Owner, 2026-08-23: "mazout is only puddles, when it trails behind you it should be a trail not
+  // puddles." A chain of pools is a trail only if consecutive links OVERLAP ON SCREEN, and PY.l
+  // above cannot see that at all — it only asks where each pool landed.
+  //   TWO WAYS TO BREAK IT, and each needs its own half of the assertion:
+  //   - SPACING. On the shipped cast timer the gap was the cast interval times the player's speed,
+  //     two numbers with nothing holding them together: 333px between 139px-wide pools at this
+  //     chapter's 220px/s. Distance triggering is what ties them.
+  //   - GROWTH. A pool that is still growing is a point. On the shared BLOOM_GROW_FRAC ramp (1.6s
+  //     here) every pool laid in the last 350px of travel is under a fifth of its radius, so the
+  //     stretch directly behind the player — the only stretch they are looking at — is dotted
+  //     however tightly it is spaced. BILGE_TRAIL_GROW is what closes it.
+  // So the measurement is taken on the LIVE radii of the live chain, which is what the player sees.
+  {
+    const run = mk(20260823)
+    run.weapons = [{ id: 'bilge', level: 1 }]
+    run.weaponMods.bilge = { slickTrail: 1 }
+    // Swim in a straight line for long enough that the oldest pools have started expiring, so the
+    // chain under test is a steady-state one rather than the opening burst.
+    for (let i = 0; i < Math.round(6 / dt); i++) {
+      only(run, [])
+      stepSim(run, { x: 1, y: 0 }, dt)
+    }
+    const chain = run.blooms.filter((b) => b.look === 'bilge')
+    // A PRECONDITION, NOT THE ASSERTION — deliberately low. "Is a fence drawn at all" is PY.l's
+    // question (it wants 100+ pools over the same kind of swim); this block only needs enough live
+    // links to measure the joins between them, and a spacing pathology thins the chain as a side
+    // effect. A floor set near the healthy count would abort here on exactly the cases the
+    // continuity measurement below exists to catch.
+    assert.ok(chain.length >= 5, `only ${chain.length} trail pools were alive after 6s of swimming — too short a chain to measure any join at all`)
+    let worst = 0, worstAt = -1
+    for (let k = 1; k < chain.length; k++) {
+      const a = chain[k - 1], b = chain[k]
+      // Ratio, not px: the pools scale with the weapon's level and Split Seam, and a px threshold
+      // would pass or fail for reasons that have nothing to do with continuity.
+      const ratio = Math.hypot(a.x - b.x, a.y - b.y) / Math.max(1e-6, a.r + b.r)
+      if (ratio > worst) { worst = ratio; worstAt = k }
+    }
+    assert.ok(worst < 0.85, `the trail comes apart: link ${worstAt} of ${chain.length} sits ${(worst * 100).toFixed(0)}% of the two pools' radii apart, so there is clear water between them and the oil reads as puddles`)
+    const grown = chain.filter((b) => b.r >= b.maxR * 0.9).length
+    assert.ok(grown >= chain.length - 1, `${chain.length - grown} of ${chain.length} live trail pools are still growing; a chain laid faster than it blooms is a dotted line whatever the spacing is`)
+    console.log(`PASS run PY.l2 (the trail is continuous): ${chain.length} live pools, worst link ${(worst * 100).toFixed(0)}% of the pair's radii apart, ${grown} of them at full size`)
+  }
+
+  // -- PY.l3: the build sheet does not print a cadence the weapon no longer has. -----------------
+  // buildReadout exists so the pause screen never reports a weapon's PAPER numbers, and Trailing
+  // Slick makes bilge the first weapon in the game with no interval at all — it lays by distance
+  // travelled. `levels[].rate` is still in the table (the thrown cast needs it), so the row is
+  // emitted from data that the modded fire site never reads: a real number, quietly fictional.
+  //   Both arms, because "no `every` row" is also what an empty readout looks like.
+  {
+    const sheet = (mods) => {
+      const run = mk(20260826)
+      run.weapons = [{ id: 'bilge', level: 3 }]
+      run.weaponMods.bilge = mods
+      run.weaponModPicks.bilge = mods
+      const w = buildReadout(run).weapons.find((x) => x.id === 'bilge')
+      assert.ok(w, 'precondition: bilge must appear in its own build sheet')
+      return w.stats.map((st) => st.key)
+    }
+    const thrown = sheet({})
+    const poured = sheet({ slickTrail: 1 })
+    assert.ok(thrown.includes('every'), `a thrown Bilge fires on a timer and must still report it; got [${thrown.join(', ')}]`)
+    assert.ok(!poured.includes('every'), `under Trailing Slick the oil lays by distance, so the sheet must not quote an interval; got [${poured.join(', ')}]`)
+    assert.ok(poured.length > 0, 'the guard must drop ONE row, not the whole sheet')
+    console.log(`PASS run PY.l3 (no fictional cadence): a thrown Bilge reports [${thrown.join(', ')}], a poured one [${poured.join(', ')}]`)
+  }
+
+  // -- PY.v: a bait is a FIXED AMOUNT OF FOOD. ---------------------------------------------------
+  // Owner ruling, 2026-08-23: chum should be "an amount of food that disappears if too many fishes
+  // have come and eat it". Three effects, and each fails on its own with a different piece deleted:
+  //   nobody comes  -> the bait lives its whole `dur`         (control: the food is not decaying)
+  //   3 fish on a 5 -> 3 servings gone, the bait still there  (control: ONE serving per fish)
+  //   5 fish on a 5 -> stripped, and gone long before `dur`   (control: zero food ends it)
+  // The middle one is the one a naive radius test passes anyway: with no per-fish memory a single
+  // body sitting in the cloud drains the whole bucket in five frames.
+  {
+    const feed = (nFish) => {
+      const run = mk(20260824)
+      run.weapons = [{ id: 'chum', level: 1 }]
+      const fish = []
+      for (let k = 0; k < nFish; k++) {
+        fish.push(put(run, { x: run.player.x + 4000, y: run.player.y + k * 7, hp: 1e12, speed: 0, flags: ['skittish'] }))
+      }
+      let bait = null, born = 0, food0 = 0, left = 0, died = Infinity
+      for (let i = 0; i < Math.round(9 / dt); i++) {
+        only(run, fish)
+        // Park every fish INSIDE the bait once one exists. They cannot swim (speed 0), so where
+        // they are is the whole experiment and nothing else moves them.
+        if (bait && died === Infinity) {
+          fish.forEach((e, k) => { e.x = bait.x + Math.cos(k * 1.3) * 9; e.y = bait.y + Math.sin(k * 1.3) * 9 })
+        }
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (!bait) {
+          bait = run.lures.find((lu) => lu.bait) ?? null
+          if (bait) { born = i; food0 = bait.food; left = bait.food }
+        } else if (died === Infinity) {
+          // Read the object, not the array: a stripped bait is spliced out on the same step its
+          // last serving goes, so an array-gated read reports the count from the frame BEFORE and
+          // the whole arm measures zero servings taken.
+          left = bait.food
+          if (!run.lures.includes(bait)) died = (i - born) * dt
+        }
+      }
+      return { food0, taken: food0 - left, died }
+    }
+    const alone = feed(0)
+    const some = feed(3)
+    const swarm = feed(5)
+    assert.strictEqual(alone.food0, WEAPONS.chum.levels[0].food, `the fixture must read the shipped L1 serving count, got ${alone.food0}`)
+    assert.strictEqual(alone.taken, 0, 'a bait nobody reaches must not lose food on its own')
+    assert.ok(alone.died > WEAPONS.chum.levels[0].dur * 0.9, `a bait nobody found must last its duration; it went at ${alone.died.toFixed(2)}s of ${WEAPONS.chum.levels[0].dur}s`)
+    assert.strictEqual(some.taken, 3, `three fish must take three servings, not ${some.taken} — one per fish per bait`)
+    assert.ok(some.died > WEAPONS.chum.levels[0].dur * 0.9, `three fish cannot strip a ${some.food0}-serving bait; it died at ${some.died.toFixed(2)}s`)
+    assert.strictEqual(swarm.taken, swarm.food0, `five fish must strip a ${swarm.food0}-serving bait, got ${swarm.taken}`)
+    assert.ok(swarm.died < WEAPONS.chum.levels[0].dur * 0.5, `a stripped bait must go the moment the food does, not wait out its ${WEAPONS.chum.levels[0].dur}s; it lasted ${swarm.died.toFixed(2)}s`)
+    console.log(`PASS run PY.v (a bait is a fixed amount of food): ${alone.food0} servings — untouched it lasts ${alone.died.toFixed(1)}s, 3 fish take 3 and it survives, 5 fish strip it in ${swarm.died.toFixed(2)}s`)
+  }
+
+  // -- PY.x: reaching the bait PARKS the fish. ---------------------------------------------------
+  // Owner ruling, 2026-08-23: a fish that reaches the bait pins head-down for roughly 1.5s while it
+  // takes a bite. That hold is the whole trap — chum on its own only gathers, and a gathered shoal
+  // is still a shoal moving at 103-223 px/s.
+  //   Measured as PATH LENGTH over three windows on the SAME fish, because a pinned body and a
+  // body swimming in a circle have the same net displacement and only one of them is held.
+  {
+    const swim = ({ gap = 900, puff = false, chase = false }) => {
+      const run = mk(20260827)
+      run.weapons = []
+      const p = run.player
+      // Bait far from the player, so the panic override is not what is being measured. aggro is
+      // wide enough that the fish is baited from where it starts.
+      const bait = { x: p.x + gap, y: p.y, t: 0, dur: 9999, aggro: 500, burstR: 0, burstDmg: 0, bait: true, food: 40, food0: 40, shape: 0, rot: 0 }
+      run.lures = [bait]
+      const e = put(run, { x: bait.x - 150, y: bait.y, hp: 1e12, speed: 120, flags: ['skittish'] })
+      // The window opens when the fish ARRIVES at the bait, not when feedT is set — an arm in which
+      // the hold never starts (the puffed one) must still be measured over the same window, or
+      // "never pinned" and "never got there" are the same zero.
+      let atBait = -1, before = 0, during = 0, after = 0
+      let lx = e.x, ly = e.y
+      for (let i = 0; i < Math.round(9 / dt); i++) {
+        only(run, [e])
+        if (puff) e.puffT = 9        // held inflated for the whole run: puffing must outrank eating
+        if (chase) { p.x = e.x - 40; p.y = e.y }   // the shark right on top of it
+        stepSim(run, { x: 0, y: 0 }, dt)
+        const moved = Math.hypot(e.x - lx, e.y - ly)
+        lx = e.x; ly = e.y
+        if (atBait < 0) {
+          before += moved
+          if (Math.hypot(e.x - bait.x, e.y - bait.y) <= CHUM_FEED_R) atBait = i
+        } else if ((i - atBait) * dt < 1.0) during += moved
+        else if ((i - atBait) * dt < 1.0 + CHUM_FEED_HOLD) { /* the tail of the hold, unmeasured */ }
+        else if ((i - atBait) * dt < 1.6 + CHUM_FEED_HOLD) after += moved
+      }
+      return { atBait, before, during, after }
+    }
+    const held = swim({})
+    assert.ok(held.atBait >= 0 && held.before > 60,
+      `precondition: the fish must swim to the bait; it covered ${held.before.toFixed(0)}px and arrived at frame ${held.atBait}`)
+    assert.ok(held.during < 2, `a feeding fish must be PINNED; it swam ${held.during.toFixed(1)}px in the second after its bite`)
+    assert.ok(held.after > 8, `the hold must LAPSE; the fish still had not moved (${held.after.toFixed(1)}px) well past CHUM_FEED_HOLD`)
+    // The two things that break it early. Both are rulings, and each fails on its own.
+    const bolted = swim({ chase: true })
+    assert.ok(bolted.during > 20, `CHUM_PANIC_R must break the hold: with the shark on top of it the fish only moved ${bolted.during.toFixed(1)}px`)
+    const puffed = swim({ puff: true })
+    assert.ok(puffed.during > 5, `a fish mid-puff must not stop to eat — puffing outranks a mouthful; it moved ${puffed.during.toFixed(1)}px`)
+    console.log(`PASS run PY.x (a bite parks the fish): ${held.during.toFixed(1)}px swum in the second after the bite against ${held.after.toFixed(1)}px once it lapses, ` +
+      `${bolted.during.toFixed(0)}px with the shark on top of it and ${puffed.during.toFixed(0)}px mid-puff`)
+  }
+
+  // -- PY.y: oil STAINS, permanently, from both oils, and the stain is capped. -------------------
+  // Owner ruling, 2026-08-23: "a fish going through mazout should be 'stained' visually, and be
+  // slowed forever a bit, even when they get out of the mazout."
+  //   PATH LENGTH again, measured AFTER the body is clear of the oil — "slowed while standing in a
+  // cloud" is bloomSlowT and already shipped, so a measurement taken inside the zone cannot tell
+  // the new mechanic from the old one. Four arms, and the ink one is the control that the stain is
+  // OIL and not "any cloud": the squid's cloud carries slow: 0 and must leave the shoal untouched.
+  {
+    const soak = (kind, secs) => {
+      const run = mk(20260828)
+      run.weapons = []
+      const p = run.player
+      const ox = p.x + 4000, oy = p.y   // far from the player: this is about the oil, not about fear
+      // ⚠ `t` PAST THE GROW RAMP, and `dur` short enough that it IS past. stepBlooms rewrites bl.r
+      // from bl.t every frame against dur x BLOOM_GROW_FRAC, so a hand-built cloud with a huge dur
+      // spends the whole fixture at a fraction of its maxR — which reads as "the stain does not
+      // work", or worse passes anyway because the subject happens to sit on the exact centre.
+      // dur 200 / t 100 clears the ramp (70s) on frame one and still outlives the 63s soak.
+      if (kind === 'bilge' || kind === 'inkjet') {
+        run.blooms.push({ x: ox, y: oy, r: 200, maxR: 200, t: 100, dur: 200, dmgPerTick: 0, tick: 0,
+          look: kind, slow: kind === 'inkjet' ? 0 : 1, shape: 0, rot: 0 })
+      }
+      // ⚠ AND streamSlicks CULLS run.slicks BY DISTANCE FROM THE PLAYER every step, so a fixture
+      // spill 4000px away is gone on frame one. Re-seeded each frame, and the array is cleared in
+      // every arm so an ambient spill materialising near the player can never reach the arm.
+      const slick = { x: ox, y: oy, r: 200, shape: 0, rot: 0, _cell: 'fixture' }
+      const e = put(run, { x: ox, y: oy, hp: 1e12, speed: 120, flags: ['skittish'] })
+      // Soak: pinned in the middle of the zone so the dose is the same in every arm.
+      for (let i = 0; i < Math.round(secs / dt); i++) {
+        only(run, [e])
+        run.slicks.length = 0
+        if (kind === 'slick') run.slicks.push(slick)
+        e.x = ox; e.y = oy
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      const oiled = e.oiled || 0
+      // Now CLEAR of every zone, and measure how far it can swim in 3s.
+      run.blooms.length = 0
+      run.slicks.length = 0
+      e.bloomSlowT = 0
+      let path = 0, lx = e.x, ly = e.y
+      for (let i = 0; i < Math.round(3 / dt); i++) {
+        only(run, [e])
+        run.slicks.length = 0
+        stepSim(run, { x: 0, y: 0 }, dt)
+        path += Math.hypot(e.x - lx, e.y - ly)
+        lx = e.x; ly = e.y
+      }
+      return { oiled, path }
+    }
+    const clean = soak('none', 1)
+    const oiled = soak('bilge', 1)
+    const leak = soak('slick', 1)
+    const inked = soak('inkjet', 1)
+    const drenched = soak('bilge', 60)
+    assert.ok(clean.oiled === 0 && clean.path > 20, `precondition: an unoiled fish must be clean and swimming, got oiled ${clean.oiled} over ${clean.path.toFixed(1)}px`)
+    assert.ok(oiled.oiled > 0.1, `a second in the player's own oil must stain; got ${oiled.oiled.toFixed(3)}`)
+    assert.ok(oiled.path < clean.path * 0.95, `the stain must SURVIVE the fish leaving the oil: ${oiled.path.toFixed(1)}px against a clean fish's ${clean.path.toFixed(1)}px over the same 3s clear of every zone`)
+    assert.ok(leak.oiled > 0.1, `the chapter's OWN spill must stain too, not only the player's bilge; got ${leak.oiled.toFixed(3)}`)
+    assert.strictEqual(inked.oiled, 0, `the squid's ink is not oil and must never stain; got ${inked.oiled}`)
+    assert.ok(Math.abs(inked.path - clean.path) < 1, `an inked fish must swim exactly as far as a clean one; ${inked.path.toFixed(1)}px against ${clean.path.toFixed(1)}px`)
+    // THE CAP IS THE SAFETY. A minute parked in oil — far past any real crossing — must land on the
+    // ceiling exactly, and the speed loss must be that ceiling and no more.
+    assert.strictEqual(drenched.oiled, OIL_STAIN_MAX, `a minute in oil must saturate at OIL_STAIN_MAX, not climb past it; got ${drenched.oiled}`)
+    const ratio = drenched.path / clean.path
+    assert.ok(Math.abs(ratio - (1 - OIL_STAIN_MAX)) < 0.03,
+      `a saturated fish must move at exactly (1 - OIL_STAIN_MAX) of a clean one; measured x${ratio.toFixed(3)} against ${(1 - OIL_STAIN_MAX).toFixed(3)}`)
+    console.log(`PASS run PY.y (oil stains forever, capped): 1s of bilge -> ${oiled.oiled.toFixed(3)} and ${oiled.path.toFixed(0)}px against a clean ${clean.path.toFixed(0)}px, ` +
+      `the leak's own spill stains ${leak.oiled.toFixed(3)}, ink stains 0, and 60s saturates at ${drenched.oiled} for x${ratio.toFixed(3)} speed`)
+  }
+
+  // -- PY.z: panic beats avoidance. --------------------------------------------------------------
+  // Owner ruling, 2026-08-23, taken having been shown the conflict. Prey refuse to enter oil — that
+  // avoidance IS bilge's wall and PY.j guards it — but a fish being run down at close range does not
+  // look where it is going, so driving the shoal through your own slick is the play.
+  //   ONE fish, because cohesion is the confound: a shoal spreads as it flees, its outer bodies stay
+  // far enough from the shark to keep watching, and the herd term then drags the blind ones back out
+  // around the rim. That is correct behaviour and it makes a 12-body fixture measure the herd rather
+  // than the clause. A single body needs no PREY_COHESION_MIN_N neighbours and steers on its own.
+  //   The two arms are the SAME chase with the shark's distance the only thing changed: identical
+  // fish, identical oil, identical 200px between them. HOW DEEP IT GETS, not whether it entered —
+  // a threshold on "entered" turns a smooth ramp into a coin flip at the edge, and the depth is
+  // what the clause actually moves. The fixture is deterministic (the drift heading is a function of
+  // shoal id and run time, not of the RNG), so this is one run per arm and not a sample.
+  {
+    const R = 120
+    const drive = (behind) => {
+      const run = mk(20260829)
+      run.weapons = []
+      const p = run.player
+      const fx = p.x + behind
+      const oil = { x: fx + 200, y: p.y, r: R, maxR: R, t: 100, dur: 200, dmgPerTick: 0, tick: 0, look: 'bilge', slow: 1, shape: 0, rot: 0 }
+      const e = put(run, { x: fx, y: p.y, hp: 1e12, speed: 150, flags: ['skittish'] })
+      let best = Infinity
+      for (let i = 0; i < Math.round(3.5 / dt); i++) {
+        only(run, [e])
+        run.blooms.length = 0
+        run.blooms.push(oil)
+        stepSim(run, { x: 0, y: 0 }, dt)
+        best = Math.min(best, Math.hypot(e.x - oil.x, e.y - oil.y))
+      }
+      return best   // closest it ever got to the oil's CENTRE
+    }
+    const blind = drive(50)     // the shark on top of it: well inside PREY_PANIC_BLIND_R
+    const watching = drive(300) // still fleeing (under PREY_SIGHT_R) but with room to look
+    assert.ok(blind < R * 0.6, `driven at close range the fish must go WELL into the oil; it only reached ${blind.toFixed(0)}px from the centre of a ${R}px slick`)
+    assert.ok(watching > R * 0.8, `at range the wall must still turn it — that avoidance is what the card IS; it got ${watching.toFixed(0)}px in`)
+    assert.ok(watching - blind > R * 0.3, `the two arms must be a real difference, not noise: ${blind.toFixed(0)}px vs ${watching.toFixed(0)}px into a ${R}px slick`)
+    console.log(`PASS run PY.z (panic beats avoidance): chased from 50px the fish drives ${(R - blind).toFixed(0)}px into a ${R}px slick, chased from 300px only ${(R - watching).toFixed(0)}px`)
+  }
+
+  // -- PY.w: the orca comes for FOOD, not for a bait being there. --------------------------------
+  // Owner ruling, 2026-08-23: "the orca should be attracted to big appats or groups of fishes, the
+  // more there is the more it attacks." orcaRush multiplies the visit countdown, so the effect to
+  // measure is how much of that countdown a fixed window actually spends — a full bait must burn
+  // it faster than a stripped one, and a stripped one must still beat no bait at all.
+  //   Reading the multiplier back would pass with the whole weighting reverted to a flat count,
+  // which is exactly the shape of the code this replaced.
+  {
+    const drain = (food) => {
+      const run = mk(20260825)
+      run.weapons = []
+      const bait = { x: run.player.x + 600, y: run.player.y, t: 0, dur: 999, aggro: 150, burstR: 0, burstDmg: 0, bait: true, food, food0: 8, shape: 0, rot: 0 }
+      run.lures = food > 0 ? [bait] : []
+      const a0 = run._orcaAcc
+      for (let i = 0; i < Math.round(2 / dt); i++) {
+        only(run, [])            // an empty field, so run._feedN contributes nothing
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return a0 - run._orcaAcc
+    }
+    const full = drain(ORCA_BAIT_FULL_FOOD)
+    const stripped = drain(1)
+    const none = drain(0)
+    assert.ok(none > 1.9 && none < 2.1, `precondition: with nothing in the water the countdown must tick in real time, got ${none.toFixed(3)}s over 2s`)
+    assert.ok(full > stripped * 1.35, `a full bait must pull the orca in HARDER than a stripped one; ${full.toFixed(3)}s vs ${stripped.toFixed(3)}s of countdown over the same 2s`)
+    assert.ok(stripped > none * 1.02, `a bait with food still in it must pull at all; ${stripped.toFixed(3)}s against ${none.toFixed(3)}s with no bait`)
+    console.log(`PASS run PY.w (the orca comes for food): 2s of real time spends ${full.toFixed(2)}s of the countdown on a full bait, ${stripped.toFixed(2)}s on a stripped one and ${none.toFixed(2)}s on none`)
   }
 
   // -- PY.m: the bite CRITS SOMETIMES, not always. -----------------------------------------------
@@ -8564,9 +9086,440 @@ function runPrey() {
     console.log(`PASS run PY.r (the moray is a harmless prize): 5s sat on one costs 0 HP where an armed body costs ${armed}, and eating it banks ${moray.toFixed(0)} Bloodlust against a fish's ${fish.toFixed(0)}`)
   }
 
-  console.log('PASS run PY (The Wreck: prey): the roster runs from you in schools and cannot touch you, the bite prefers food in reach and crits only sometimes, the oil lands on the crowd and can be thrown as a pen, the moray is a harmless prize, and the leak is the only thing in the chapter that can kill you')
+  // -- PY.s: THE SQUID'S INK. Two halves, because either one alone passes with the card dead. -----
+  // (a) the squid LAYS one, only when the player is close, and only once per INK_COOLDOWN;
+  // (b) standing in one COSTS YOU SPEED.
+  // Split deliberately: a cloud that never appears and a cloud that does nothing are different
+  // bugs with the same symptom on screen, and each half has its own control.
+  {
+    // (a) THE TRIGGER. Same fish twice, once with the flag and once without — so this cannot pass
+    // on some other thing in the chapter pushing a bloom.
+    const lay = (flags, gap, secs) => {
+      const run = mk(20260901)
+      const p = run.player
+      const e = put(run, { x: p.x + gap, y: p.y, hp: 1e6, speed: 0, flags })
+      let clouds = 0
+      for (let i = 0; i < Math.round(secs / dt); i++) {
+        only(run, [e])
+        e.x = p.x + gap; e.y = p.y      // pinned at the range under test, not left to flee out of it
+        run.blooms.length = 0           // count EVENTS, not survivors: a cloud lives INK_DUR and
+        stepSim(run, { x: 0, y: 0 }, dt) // would otherwise be recounted every frame
+        clouds += run.blooms.filter((b) => b.look === 'inkjet').length
+      }
+      return clouds
+    }
+    const near = lay(['skittish', 'inkjet'], INK_TRIGGER_R * 0.5, 12)
+    const far = lay(['skittish', 'inkjet'], INK_TRIGGER_R * 1.6, 12)
+    const control = lay(['skittish'], INK_TRIGGER_R * 0.5, 12)
+    assert.ok(near > 0, 'a squid with the player inside INK_TRIGGER_R must lay a cloud; it laid none')
+    assert.strictEqual(control, 0, `the same fish without the flag must lay nothing; it laid ${control}`)
+    assert.strictEqual(far, 0, `a squid ${(INK_TRIGGER_R * 1.6).toFixed(0)}px away must not ink — the trigger is a range, not an aura; it laid ${far}`)
+    // ONE PER COOLDOWN, NOT ONE PER FRAME. Without the cooldown a single squid parked next to the
+    // player lays 720 clouds in 12s, which is a wall rather than a defence, and nothing throws.
+    const cap = Math.ceil(12 / INK_COOLDOWN) + 1
+    assert.ok(near <= cap, `a squid must ink at most once per ${INK_COOLDOWN}s: ${near} clouds in 12s, cap ${cap}`)
+
+    // (b) THE SLOW, measured exactly as PY.e measures the leak's: distance covered under full
+    // input, against the identical run with no cloud in it. r is large so the player is still
+    // inside at the end of the window — a 110px cloud is crossed in half a second at 220px/s and
+    // the measurement would be mostly clean water.
+    const soak = (withInk) => {
+      const run = mk(20260902)
+      stepSim(run, { x: 0, y: 0 }, dt)
+      // `dur` SHORT and `t` past the growth window. stepBlooms recomputes r from
+      // t / (dur * BLOOM_GROW_FRAC) every frame, so a long dur pins a hand-pushed cloud at a few px
+      // forever and the measurement comes back as clean water — the first cut of this read x0.98.
+      if (withInk) run.blooms.push({ x: run.player.x, y: run.player.y, t: 3, r: 900, maxR: 900, dur: 6, dmgPerTick: 0, tick: 0, look: 'inkjet', slow: 0 })
+      const hp0 = run.player.hp
+      const x0 = run.player.x
+      for (let i = 0; i < Math.round(1.5 / dt); i++) {
+        run.enemies.length = 0
+        stepSim(run, { x: 1, y: 0 }, dt)
+      }
+      return { moved: run.player.x - x0, lost: hp0 - run.player.hp }
+    }
+    const inked = soak(true)
+    const clean = soak(false)
+    const ratio = inked.moved / clean.moved
+    assert.ok(ratio < INK_SLOW_MUL + 0.06 && ratio > INK_SLOW_MUL - 0.06,
+      `ink must slow the player to about x${INK_SLOW_MUL}; measured x${ratio.toFixed(2)}`)
+    // IT IS NOT A DAMAGE ZONE. The card's whole shape is "a tax on your movement" — an ink that
+    // also chipped you would be a second leak, in the chapter whose premise is one leak.
+    assert.strictEqual(inked.lost, 0, `ink must deal no damage at all; it took ${inked.lost} HP`)
+    console.log(`PASS run PY.s (the squid inks): ${near} cloud(s) in 12s at ${(INK_TRIGGER_R * 0.5).toFixed(0)}px against 0 at ${(INK_TRIGGER_R * 1.6).toFixed(0)}px and 0 without the flag, and standing in one costs x${ratio.toFixed(2)} speed and 0 HP`)
+  }
+
+  // -- PY.t: THE PUFFERFISH refuses ONE bite, not a window of them. ------------------------------
+  // The moray's `guard` failed in this chapter for two reasons (see CHAPTERS.wreck.roster), and
+  // both are asserted here rather than remembered: it refused so little it read as a miss, and a
+  // body that neither fled nor hurried soaked a third of the jaw's aim. So: the first swing must
+  // bounce, the fish must still DIE, and the number of refusals must be bounded by the CYCLE and
+  // not by how fast the player swings — that last one is what separates a beat from a shield.
+  {
+    const chew = (flags, secs) => {
+      const run = mk(20260903)
+      run.weapons = [{ id: 'gnash', level: 5 }]
+      const p = run.player
+      const e = put(run, { x: p.x + 40, y: p.y, hp: 1e6, speed: 90, flags })
+      e.maxHP = 1e6
+      let blocks = 0, hits = 0, firstWasBlocked = null
+      let moved = 0
+      for (let i = 0; i < Math.round(secs / dt); i++) {
+        only(run, [e])
+        const before = { x: e.x, y: e.y }
+        e.x = p.x + 40; e.y = p.y      // held in the jaw, so the swing always has a target
+        const hp0 = e.hp
+        stepSim(run, { x: 0, y: 0 }, dt)
+        // DRAINED EVERY STEP, as main.js does. stepSim does not clear run.events — the frame loop
+        // does — so a fixture that only reads it recounts the whole backlog every frame. The first
+        // cut of this block reported 1292 refusals in 8s for a mechanic that fired 7 times.
+        for (const ev of run.events.splice(0)) {
+          if (ev.type === 'guardblock') { blocks++; if (firstWasBlocked === null) firstWasBlocked = true }
+        }
+        if (e.hp < hp0) { hits++; if (firstWasBlocked === null) firstWasBlocked = false }
+        moved += Math.hypot(e.x - before.x, e.y - before.y)
+        void moved
+      }
+      return { blocks, hits, firstWasBlocked }
+    }
+    const puffer = chew(['skittish', 'puffup'], 8)
+    const plain = chew(['skittish'], 8)
+    assert.strictEqual(plain.blocks, 0, `the same fish without the flag must refuse nothing; it refused ${plain.blocks}`)
+    assert.strictEqual(puffer.firstWasBlocked, true,
+      'the first swing that reaches an inflated puffer must be REFUSED — that is the whole card')
+    assert.ok(puffer.hits > 0, `a puffer must still be eaten; it took ${puffer.hits} landed hits in 8s`)
+    // ONE REFUSAL PER CYCLE. gnash at Lv5 swings several times a second, so a refusal window that
+    // ran on a TIMER instead of ending on the first hit would block a multiple of this. The bound
+    // is the number of times it can possibly re-inflate in the window, plus one for the first.
+    const cycles = Math.ceil(8 / PUFFER_COOL_T) + 1
+    assert.ok(puffer.blocks <= cycles,
+      `a puffer must refuse at most one bite per ${PUFFER_COOL_T}s cycle, not one per swing: ${puffer.blocks} refusals in 8s against a cap of ${cycles} (it took ${puffer.hits} landed hits over the same window)`)
+
+    // AND IT DRIFTS. The refusal is only half the beat; the other half is that the ball cannot run,
+    // which is what makes the window a punish rather than an escape. Measured against the same fish
+    // with the flag off, from the same distance, with nothing pinning it.
+    const drift = (flags) => {
+      const run = mk(20260904)
+      run.weapons = []
+      const p = run.player
+      const e = put(run, { x: p.x + PUFFER_TRIGGER_R * 0.6, y: p.y, hp: 1e6, speed: 90, flags })
+      const d0 = Math.hypot(e.x - p.x, e.y - p.y)
+      for (let i = 0; i < Math.round(1.2 / dt); i++) {
+        only(run, [e])
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return Math.hypot(e.x - run.player.x, e.y - run.player.y) - d0
+    }
+    const puffed = drift(['skittish', 'puffup'])
+    const loose = drift(['skittish'])
+    assert.ok(loose > 40, `the control must actually escape, or this proves nothing: it gained ${loose.toFixed(0)}px`)
+    assert.ok(puffed < loose * (PUFFER_DRIFT_MUL + 0.25),
+      `an inflated puffer must barely swim: it gained ${puffed.toFixed(0)}px where the same fish unflagged gained ${loose.toFixed(0)}px`)
+    console.log(`PASS run PY.t (the puffer refuses one bite): first swing bounced, ${puffer.blocks} refusals in 8s under a ${cycles}-cycle cap against ${puffer.hits} landed hits, 0 without the flag, and it drifts ${puffed.toFixed(0)}px where a loose fish gains ${loose.toFixed(0)}px`)
+  }
+
+  // -- PY.u: THE SARDINE BALL. `tight` is a BRAKE, and that is what is asserted. -----------------
+  // Measured, the blend barely changes the rms spread — stepEnemySeparation floors how tightly 16
+  // bodies can pack whatever they steer — so an assertion on tightness would be testing the
+  // separation pass. What the flag actually buys is that the ball SPENDS its speed on staying
+  // together: at TIGHT_COHESION_BLEND a sardine converts 40% of its 183px/s into escape where an
+  // untight one converts 69%. Same bodies, same speed, same ids, same start block; only the flag
+  // moves, so the difference cannot be anything else.
+  //   APPROACHED FROM OUTSIDE, not sat on. A predator standing IN a shoal correctly explodes it,
+  // and every arm of a rig built that way measures the explosion rather than the flag.
+  {
+    const ball = (flags) => {
+      const run = mk(20260905)
+      run.weapons = []
+      const p = run.player
+      const es = []
+      // ⚠ 160px AND 0.8s, AND BOTH NUMBERS ARE THE FIXTURE. Cohesion is THREAT-GATED, so a shoal
+      // that leaves PREY_SIGHT_R (340) stops steering — and an UNTIGHT school is fast enough to do
+      // that inside the window. The first cut ran 220px for 1.5s and the loose arm crossed the
+      // radius at t=1.0, capping its travel at 95px against the tight arm's 90: a 2.4x separation
+      // collapsed to 5%, and the block read as "the flag does nothing" when the flag was fine.
+      for (let k = 0; k < 16; k++) {
+        const e = put(run, { x: p.x + 160 + (k % 4) * 26, y: p.y - 39 + Math.floor(k / 4) * 26, hp: 1e6, speed: 165 * 0.82, flags })
+        // Ids PINNED into ONE bucket, for the reason PY.c gives: two consecutive ids straddle a
+        // bucket boundary once every PREY_SHOAL_SIZE, which is a mystery red on an unrelated edit.
+        e.id = 4 * PREY_SHOAL_SIZE + k
+        es.push(e)
+      }
+      const cen = () => [es.reduce((s, e) => s + e.x, 0) / 16, es.reduce((s, e) => s + e.y, 0) / 16]
+      const [cx0, cy0] = cen()
+      for (let i = 0; i < Math.round(0.8 / dt); i++) {
+        only(run, es)
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      const [cx, cy] = cen()
+      const rms = Math.sqrt(es.reduce((s, e) => s + (e.x - cx) ** 2 + (e.y - cy) ** 2, 0) / 16)
+      return { travel: Math.hypot(cx - cx0, cy - cy0), rms, together: es.filter((e) => Math.hypot(e.x - cx, e.y - cy) < BALL_R * 1.6).length }
+    }
+    const tight = ball(['skittish', 'tight'])
+    const loose = ball(['skittish'])
+    assert.ok(loose.travel > 60, `the control must actually run, or this block is vacuous: it covered ${loose.travel.toFixed(0)}px in 0.8s`)
+    assert.ok(tight.travel < loose.travel * 0.9,
+      `a tight ball must spend its speed on cohesion rather than on escape: it covered ${tight.travel.toFixed(0)}px against a loose school's ${loose.travel.toFixed(0)}px over the same 0.8s at the same speed`)
+    assert.strictEqual(tight.together, 16,
+      `"they never split" is the design: only ${tight.together} of 16 sardine ended within ${(BALL_R * 1.6).toFixed(0)}px of their own centroid`)
+    console.log(`PASS run PY.u (the sardine ball): 16 bodies covered ${tight.travel.toFixed(0)}px in 0.8s against an untight school's ${loose.travel.toFixed(0)}px, all 16 still in one body at rms ${tight.rms.toFixed(0)}px`)
+  }
+
+  console.log('PASS run PY (The Wreck: prey): the roster runs from you in schools and cannot touch you, the bite prefers food in reach and crits only sometimes, the oil lands on the crowd and can be thrown as a pen, the moray is a harmless prize, the squid inks and the puffer bounces one bite and the sardine balls, and the leak is the only thing in the chapter that can kill you')
 }
 run(runPrey)
+
+// ---- Run OR: THE ORCA (v7.x, The Wreck) -------------------------------------------------------
+// Three owner rulings, all of which fail SILENTLY if their wiring rots, and none of which a
+// grep-for-an-identifier could see:
+//   1. "orca was supposed to start with a shadow passing underneath you several times" — the
+//      opening must be HARMLESS and must not escalate. A `shadow` state that fell through to
+//      `rising` would still contain the word `shadow` everywhere.
+//   2. "the orca should be attracted to big appats or groups of fishes, the more there is the more
+//      it attacks" — the countdown must run FASTER in a packed field, and must stop accelerating
+//      at the cap. Delete the Math.min and nothing throws; the chapter just never gets its quiet
+//      back.
+//   3. "The shoal — you're collateral." The commit aims at the densest knot of prey and eats it,
+//      UNCREDITED. Route those deaths through dealDamage by accident and every assertion about
+//      where the orca went still passes while the player is quietly paid for its meal.
+// Every block below therefore measures an EFFECT with a control arm, never the presence of a name.
+function runOrca() {
+  const dt = 0.05   // the ticker's own clamp; _orcaAcc is dt-exact, so the long walks use it
+  const wkMeta = () => { const m = makeMeta(); m.dev = true; ensureChapterMeta(m); return m }
+  // Immortal, weaponless, and with the chapter's two ambient killers held off: the tide moves every
+  // body in the fixture (the reason run PY turns it off too) and a streamed slick underfoot would
+  // bill the player for HP this scenario attributes to the orca.
+  const mk = (seed = 20260823) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(wkMeta(), { chapter: 'wreck', difficulty: 1 })
+    run.mods.tideSurgeMul = 0
+    run.weapons = []
+    run.player.maxHP = run.player.hp = 1e9
+    run.enemies.length = 0
+    return run
+  }
+  // Held every frame: the spawner runs at spawnMul 2.2 here, so anything not pinned by identity is
+  // measuring the crowd instead of the fixture (run PY's `only`, plus the slick clear).
+  const hold = (run, es) => {
+    run.enemies.length = 0
+    run.enemies.push(...es)
+    run.slicks.length = 0
+  }
+  const put = (run, o) => {
+    const e = makeStatusEnemy(run, o)
+    e.flags = o.flags ?? []
+    return e
+  }
+  // A tight knot of prey pinned around a point. Tight enough that stepEnemySeparation gives every
+  // member a `_shoalN` over BALL_TIGHT_N, which is what makes them count for _feedN AND what
+  // denseSpot steers the commit at — the same field, read by both halves of the design.
+  const ball = (run, n, cx, cy, spread = 40) => {
+    const es = []
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2
+      es.push(put(run, {
+        x: cx + Math.cos(a) * spread, y: cy + Math.sin(a) * spread,
+        hp: 1e6, speed: 0, flags: ['skittish'],
+      }))
+    }
+    return es
+  }
+
+  // -- OR.a: the opening is THREE HARMLESS PASSES, and then the danger. -------------------------
+  // Walks a real run to just past the first real visit and records the state machine's whole
+  // itinerary. The control is built in: the same walk must ALSO see the `rising` it escalates to,
+  // or a broken orca that simply never spawns would satisfy "no damage before 100s" perfectly.
+  {
+    const run = mk()
+    const seen = []          // one entry per visit: { state, t, dmg }
+    let cur = null
+    let hp0 = run.player.hp
+    for (let i = 0; i * dt <= ORCA_FIRST_PASS + 6; i++) {
+      hold(run, [])
+      // Bloodlust held full for this block ALONE. 100s of empty water starves the bar, and the
+      // starve DoT then bills the player HP that this block would otherwise read as the shadow
+      // hurting them — it did, at 10 and 12 HP on passes 2 and 3, before this line existed.
+      run.charge = run.chargeMax
+      const before = run.orca ? run.orca.state : null
+      stepSim(run, { x: 0, y: 0 }, dt)
+      const now = run.orca ? run.orca.state : null
+      if (now && !before) { cur = { state: now, t: i * dt, dmg: 0 }; hp0 = run.player.hp; seen.push(cur) }
+      if (cur && now) cur.state = now                       // an escalation is a state CHANGE, and this catches it
+      if (cur && !now) { cur.dmg = hp0 - run.player.hp; cur = null }
+    }
+    const shadows = seen.filter((v) => v.state === 'shadow')
+    assert.strictEqual(shadows.length, ORCA_SHADOW_PASSES,
+      `the opening must be exactly ORCA_SHADOW_PASSES (${ORCA_SHADOW_PASSES}) shadow passes; the walk saw ` +
+      `${shadows.length} of them in ${seen.length} visits: [${seen.map((v) => v.state + '@' + v.t.toFixed(0) + 's').join(', ')}]`)
+    // A shadow pass that ESCALATED would be recorded under its final state, not under 'shadow' —
+    // which is exactly the failure a `state === 'shadow'` grep cannot see.
+    assert.ok(seen.slice(0, ORCA_SHADOW_PASSES).every((v) => v.state === 'shadow'),
+      `the first ${ORCA_SHADOW_PASSES} visits must each END as a shadow pass, not escalate into one: ` +
+      `[${seen.map((v) => v.state).join(', ')}]`)
+    assert.ok(shadows.every((v) => v.dmg === 0),
+      `an opening pass is foreshadowing and must cost EXACTLY zero HP; they cost [${shadows.map((v) => v.dmg).join(', ')}]`)
+    assert.ok(seen.length > ORCA_SHADOW_PASSES,
+      'the walk never reached the first REAL visit, so "harmless before 100s" is passing on an orca that simply never arrives')
+    const first = shadows[0].t, second = shadows[1].t
+    assert.ok(Math.abs(first - ORCA_SHADOW_FIRST) < 1,
+      `the first shadow must land at ORCA_SHADOW_FIRST (${ORCA_SHADOW_FIRST}s); it landed at ${first.toFixed(1)}s`)
+    assert.ok(Math.abs((second - first) - (ORCA_SHADOW_GAP + ORCA_SHADOW_DUR)) < 1,
+      `shadows must be ORCA_SHADOW_GAP apart (measured pass-clear to pass-clear); the gap was ${(second - first).toFixed(1)}s`)
+    // The whole ladder must still put the DANGER where the chapter's design says it is. This is the
+    // guard on ORCA_SHADOW_LAST_GAP being derived rather than typed: retune any shadow knob and a
+    // literal would silently drag the first real visit off ORCA_FIRST_PASS.
+    const real = seen[ORCA_SHADOW_PASSES].t
+    assert.ok(Math.abs(real - ORCA_FIRST_PASS) < 1.5,
+      `the first REAL visit must still arrive at ORCA_FIRST_PASS (${ORCA_FIRST_PASS}s); it arrived at ${real.toFixed(1)}s`)
+    console.log(`PASS run OR.a (the opening): ${shadows.length} shadow passes at [${shadows.map((v) => v.t.toFixed(0) + 's').join(', ')}] costing ` +
+      `${shadows.reduce((a, v) => a + v.dmg, 0)} HP between them, and the first real visit still at ${real.toFixed(0)}s`)
+  }
+
+  // -- OR.b: A CROWD BRINGS IT IN, and the cap stops it living here. ----------------------------
+  // Three arms of the SAME fixture measuring when the first pass spawns. Empty water is the control
+  // and pins real time; a half-full field must arrive proportionally sooner; a field that is full
+  // AND baited must NOT arrive sooner than the cap allows — which is the assertion that dies when
+  // the Math.min goes.
+  {
+    const arrival = (n, baits) => {
+      const run = mk()
+      const p = run.player
+      const es = n ? ball(run, n, p.x + 60, p.y, 30) : []
+      // ⚠ `food` IS LOAD-BEARING HERE, and 800px away from the crowd is too. Since v7.x a bait
+      // pulls by how much food is left in it, so a bait built without the field counts as EMPTY and
+      // the cap arm below quietly measures a full field alone — an assertion that reads green while
+      // the Math.min it exists for is unreachable. Parked away from the ball because the ball would
+      // otherwise eat it (CHUM_FEED_R) inside two frames and the arm would drift back to zero.
+      for (let k = 0; k < baits; k++) run.lures.push({ x: p.x - 800, y: p.y + k * 60, t: 0, dur: 999, aggro: 200, burstR: 0, burstDmg: 0, bait: true, food: ORCA_BAIT_FULL_FOOD, food0: ORCA_BAIT_FULL_FOOD })
+      for (let i = 1; i * dt <= ORCA_SHADOW_FIRST + 4; i++) {
+        hold(run, es)
+        for (const e of es) { e.fearT = 0 }   // the pass itself fears them; keep the density it measured
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (run.orca) return i * dt
+      }
+      return Infinity
+    }
+    const empty = arrival(0, 0)
+    const half = arrival(Math.ceil(FEED_FULL_N / 2), 0)
+    const gorged = arrival(FEED_FULL_N + 4, 2)
+    assert.ok(Math.abs(empty - ORCA_SHADOW_FIRST) < 1,
+      `empty water must tick in REAL time: the first pass came at ${empty.toFixed(1)}s against ORCA_SHADOW_FIRST ${ORCA_SHADOW_FIRST}s`)
+    assert.ok(half < empty - 5,
+      `a half-full field must bring it in EARLIER: ${half.toFixed(1)}s against ${empty.toFixed(1)}s in empty water — the density term is not being read`)
+    // The cap, stated as arithmetic rather than as a literal so a retune of either knob carries.
+    const capped = ORCA_SHADOW_FIRST / ORCA_RUSH_MAX
+    const uncapped = ORCA_SHADOW_FIRST / (1 + ORCA_DENSITY_RUSH * (1 + 2 * ORCA_BAIT_PULL))
+    assert.ok(Math.abs(gorged - capped) < 1.2,
+      `a full field plus two baits must saturate at ORCA_RUSH_MAX: wanted ~${capped.toFixed(1)}s, got ${gorged.toFixed(1)}s ` +
+      `(uncapped this rush would land at ${uncapped.toFixed(1)}s, which is what a deleted Math.min looks like)`)
+    assert.ok(capped - uncapped > 1.5,
+      'the cap arm proves nothing unless the uncapped rush would be measurably faster — raise the bait/density in this fixture')
+    console.log(`PASS run OR.b (density brings it in): first pass at ${empty.toFixed(1)}s in empty water, ${half.toFixed(1)}s over a half-full field, ` +
+      `${gorged.toFixed(1)}s gorged-and-baited — capped at ${capped.toFixed(1)}s, where uncapped it would be ${uncapped.toFixed(1)}s`)
+  }
+
+  // -- OR.c: it commits at the SHOAL, eats it, and the player is paid NOTHING. -------------------
+  // Two arms off a hand-built `circling` orca (stepOrca writes this exact shape). With a knot of
+  // prey off to one side the line must bend to it and the player must be missed; with the water
+  // empty the shipped fallback must still put the line through the player — without that control
+  // arm, "the player took no damage" is satisfied by an orca that misses everything.
+  {
+    const commit = (withBall) => {
+      const run = mk()
+      const p = run.player
+      // A knot 400px off the player's beam. The line from the orca's ring position to this knot
+      // clears the player by ~150px, well outside ORCA_HIT_R + the player's radius.
+      const es = withBall ? ball(run, 14, p.x, p.y - 400, 45) : []
+      run.orca = {
+        state: 'circling', t: 0.2,
+        cx: p.x, cy: p.y, r: ORCA_RING_MIN_R, ang: 0,
+        x: p.x + ORCA_RING_MIN_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1,
+      }
+      // Bloodlust parked at HALF, deliberately. At full, killBase (5/kill x 14 fish) would clamp
+      // against chargeMax and a credited meal would be invisible; at zero the starve DoT would bill
+      // the player HP this block attributes to the strike. Half is the only value that sees both.
+      run.charge = run.chargeMax / 2
+      const hp0 = p.hp, kills0 = run.kills, gems0 = run.gems.length, charge0 = run.charge
+      let feeds = 0, killEvents = 0
+      for (let i = 0; i < Math.round(12 / dt) && run.orca; i++) {
+        hold(run, es)
+        stepSim(run, { x: 0, y: 0 }, dt)
+        feeds += run.events.filter((ev) => ev.type === 'orcaFeed').length
+        killEvents += run.events.filter((ev) => ev.type === 'kill').length
+        run.events.length = 0
+      }
+      return {
+        feeds, killEvents, eaten: es.filter((e) => e._dead).length, of: es.length,
+        dmg: hp0 - run.player.hp,
+        kills: run.kills - kills0, gems: run.gems.length - gems0, charge: run.charge - charge0,
+      }
+    }
+    const shoal = commit(true)
+    const alone = commit(false)
+    assert.ok(shoal.eaten >= 4,
+      `the commit must go THROUGH the knot and eat it: ${shoal.eaten} of ${shoal.of} died. Aimed at the player instead, the line clears the ball by ~150px and eats nobody`)
+    assert.strictEqual(shoal.feeds, shoal.eaten,
+      `every eaten fish must emit exactly one orcaFeed (render's only tell for it): ${shoal.feeds} events for ${shoal.eaten} deaths`)
+    // The credit half. These are three separate ledgers and dealDamage pays all three — routing the
+    // bite through it would leave every other assertion here green.
+    assert.strictEqual(shoal.kills, 0, `the orca's meal must not count as player kills; run.kills moved by ${shoal.kills}`)
+    assert.strictEqual(shoal.gems, 0, `the orca's meal must drop no XP; ${shoal.gems} gems appeared`)
+    assert.strictEqual(shoal.killEvents, 0, `the orca's meal must emit no 'kill' events — that is the beat the player hears and sees for their OWN kill; ${shoal.killEvents} fired`)
+    assert.ok(shoal.charge < 0,
+      `the bar must still be FALLING through the orca's meal; it moved by ${shoal.charge >= 0 ? '+' : ''}${shoal.charge.toFixed(1)}. ` +
+      `killBase is ${CHAPTERS.wreck.resource.killBase}/kill, so a credited sweep of ${shoal.eaten} fish would push it up instead`)
+    assert.strictEqual(shoal.dmg, 0,
+      `the player was not on the line and must take nothing: they lost ${shoal.dmg}`)
+    assert.ok(alone.dmg > 0,
+      `with no shoal to aim at, the fallback must still commit through the PLAYER — it dealt ${alone.dmg}, so this block cannot tell a redirected strike from a broken one`)
+    console.log(`PASS run OR.c (it eats the shoal): the commit bent onto a knot 400px off the beam and took ${shoal.eaten}/${shoal.of} fish ` +
+      `for ${shoal.feeds} orcaFeed events, paying 0 kills / 0 gems / 0 Bloodlust and costing the player 0 HP — where an empty field still puts the line ` +
+      `through them for ${(alone.dmg / 1e9).toFixed(2)}x max HP`)
+  }
+
+  // -- OR.d: the pass SCATTERS what it goes under, and still costs nothing. ----------------------
+  // The subject is a NON-skittish body on purpose. Prey already flee the player, so a fleeing fish
+  // proves nothing about the shadow; a body that normally CLOSES is the only one whose reversal is
+  // attributable. fearT is the shipped contract field render.js already tints and poses off.
+  {
+    const measure = (withPass) => {
+      const run = mk()
+      const p = run.player
+      const e = put(run, { x: p.x + 150, y: p.y, hp: 1e6, speed: 90, flags: [] })
+      if (withPass) {
+        run.orca = {
+          state: 'shadow', t: ORCA_SHADOW_DUR,
+          cx: p.x, cy: p.y, r: ORCA_RING_MIN_R, ang: 0,
+          x: p.x - (run.viewRadius + ORCA_SHADOW_MARGIN), y: p.y, dirX: 1, dirY: 0, hit: false, alpha: 0,
+        }
+      }
+      const d0 = Math.hypot(e.x - p.x, e.y - p.y)
+      const hp0 = p.hp
+      let peakFear = 0
+      for (let i = 0; i < Math.round(ORCA_SHADOW_DUR / dt); i++) {
+        hold(run, [e])
+        stepSim(run, { x: 0, y: 0 }, dt)
+        peakFear = Math.max(peakFear, e.fearT || 0)
+      }
+      return { moved: Math.hypot(e.x - run.player.x, e.y - run.player.y) - d0, peakFear, dmg: hp0 - run.player.hp, alive: !e._dead }
+    }
+    const passed = measure(true)
+    const control = measure(false)
+    assert.ok(passed.peakFear > 0, 'the pass must publish into e.fearT — the field render.js already reads; nothing else gives it a tell')
+    assert.ok(passed.moved > 30,
+      `a body the shadow went under must break AWAY: it moved ${passed.moved.toFixed(0)}px, wanted > 30`)
+    assert.ok(control.moved < -30,
+      `the control must still CLOSE, or this block passes with the chase deleted globally (it moved ${control.moved.toFixed(0)}px)`)
+    assert.strictEqual(control.peakFear, 0, 'the control must not be feared by anything else in the chapter, or the fear is not attributable to the pass')
+    assert.strictEqual(passed.dmg, 0, `a pass must cost the player nothing; it cost ${passed.dmg}`)
+    assert.ok(passed.alive, 'a pass must not eat anything — only the commit sweep bites')
+    console.log(`PASS run OR.d (the pass scatters): a chasing body went +${passed.moved.toFixed(0)}px away under the shadow at fearT ${passed.peakFear.toFixed(2)}, ` +
+      `against ${control.moved.toFixed(0)}px unshadowed, for 0 HP and 0 deaths`)
+  }
+
+  console.log('PASS run OR (The Wreck: the orca): three harmless shadow passes open the chapter and scatter what they go under, a packed or baited field brings the next visit in sooner up to a hard cap, and the commit bends onto the shoal and eats it for free')
+}
+run(runOrca)
 
 // ---- Run DK: THE DARK (v7.x Book 2, owner directive) --------------------------------------
 // "if we're stealing light, then our surroundings should be dark, and darker the less light we
@@ -8954,160 +9907,62 @@ function runRosterArt() {
 }
 run(runRosterArt)
 
-// ---- Run LT: Light Thief (v7.x Book 2) ------------------------------------------------------
-// Owner ruling, and a REVERSAL of the first cut: "none by default, only via the shop". So the
-// guard that matters is the gate — an unbought save must get exactly zero light from kills, and
-// sim.js must never learn about meta to find that out.
-function runLightThief() {
-  const res = CHAPTERS.twilight.resource
-  // 'twilight' is bookOf() 'undertow' (Task 2: per-book progression), so the unlock now lives at
-  // bm.unlocks.lightThief — meta.books.undertow.unlocks.lightThief here, not a top-level field.
-  const meta = (thief) => ({
-    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'twilight', dev: true,
-    books: { undertow: { coins: 0, shop: {}, choiceSlots: 2, unlocks: { lightThief: thief } } },
-    chapters: Object.fromEntries(['body', 'pond', 'twilight'].map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
-  })
-
-  // (a) the snapshot. createRun resolves the unlock ONCE, into a number.
+// ---- Run SC: the sacrifice seam (v7.x) ---------------------------------------------------------
+// SCAVENGER WAS REMOVED, AND ITS MACHINERY STAYED. It was the only BOOK_UNLOCKS entry the game ever
+// had; the table, its three helpers, sacTargets' loop and onSacrifice's non-'slot' branch are all
+// book-agnostic and none of them names a key, so they were kept as the seam the next unlock arrives
+// through. That leaves two ways to be wrong, and this scenario covers both:
+//   - the removal is only PARTLY done — a chapter still declaring a per-kill refill nothing reads,
+//     or sim.js still reaching for the deleted run.killRefill;
+//   - the seam rots while it is empty, and the next unlock added to the table is unpurchasable in
+//     exactly the way the first one was (see (c)).
+// This replaced run LT, which measured what the unlock paid per kill.
+function runSacrificeSeam() {
+  // (a) THE REMOVAL IS COMPLETE, CONFIG SIDE. A chapter left declaring `killRefill` is inert config
+  // that reads as live balance — this repo's single largest defect class — and no import binds the
+  // two, so nothing throws. Object.keys(CHAPTERS) is the honest denominator (CLAUDE.md):
+  // CHAPTER_ORDER is Book 1 only and would silently skip every chapter this removal touched.
+  const chapterIds = Object.keys(CHAPTERS)
+  const withResource = chapterIds.filter((id) => CHAPTERS[id].resource)
   {
-    assert.strictEqual(createRun(meta(false), { chapter: 'twilight', difficulty: 1 }).killRefill, 0,
-      'an unbought save must take 0 light per kill')
-    assert.strictEqual(createRun(meta(true), { chapter: 'twilight', difficulty: 1 }).killRefill, res.killRefill,
-      'a bought save must take the chapter resource killRefill')
-    // THE LADDER (owner ruling, 3 rungs): each level is a third of the chapter's own killRefill,
-    // so a maxed ladder is exactly what the old single purchase gave and the ceiling has not moved.
-    // `true` is a pre-ladder save that paid the full 15 — it reads as the TOP level, never less.
-    const MAXLT = unlockMax('undertow', 'lightThief')
-    for (const lv of [1, 2, 3]) {
-      assert.ok(Math.abs(createRun(meta(lv), { chapter: 'twilight', difficulty: 1 }).killRefill
-        - res.killRefill * lv / MAXLT) < 1e-9, `level ${lv} must take ${lv}/${MAXLT} of the chapter refill`)
-    }
-    // A numeric level is MEANINGFUL now, so the old "must be === true" rule is gone. What has to
-    // hold instead: nothing un-numeric grants anything, and a value past the top of the ladder
-    // clamps rather than scaling the refill past the chapter's own figure.
-    for (const bad of ['yes', {}, [], 'true', NaN, -3, false]) {
-      assert.strictEqual(createRun(meta(bad), { chapter: 'twilight', difficulty: 1 }).killRefill, 0,
-        `lightThief: ${JSON.stringify(bad)} is not a level and must grant nothing`)
-    }
-    assert.strictEqual(createRun(meta(99), { chapter: 'twilight', difficulty: 1 }).killRefill, res.killRefill,
-      'a level past the top of the ladder clamps to the top rather than scaling past the chapter refill')
-    assert.strictEqual(createRun(meta(true), { chapter: 'pond', difficulty: 1 }).killRefill, 0,
-      'a chapter with no resource takes 0 per kill even when the unlock is owned')
+    const stillDeclared = withResource.filter((id) => 'killRefill' in CHAPTERS[id].resource)
+    assert.deepStrictEqual(stillDeclared, [],
+      `chapter resource(s) still declaring killRefill: [${stillDeclared.join(', ')}] — Scavenger was the only reader and it is gone, so this is a number that looks like balance and is not`)
+    // `killBase` is what survived, and only where a chapter has no refill circle at all. If a second
+    // chapter grows one, that is a real design decision and this line is where it gets stated.
+    const withKillBase = withResource.filter((id) => (CHAPTERS[id].resource.killBase ?? 0) > 0)
+    assert.deepStrictEqual(withKillBase, ['wreck'],
+      `killBase is meant to be The Wreck's alone (it is the one bar with no place to stand in); found [${withKillBase.join(', ')}]`)
   }
 
-  // (b) THE EFFECT, not the field: kill things and watch the bar. Asserting run.killRefill alone
-  // passes with the refill site in sim.js deleted.
-  //
-  // The bar is RE-PINNED to the same value before every step, and that is what makes the two runs
-  // comparable at all. Charge drives the dark, the dark drives move speed, and move speed re-phases
-  // the entire RNG stream — so a bought run and an unbought run left to diverge would end up with
-  // different crowds and the kill counts could not be subtracted. Pinned, both runs are in
-  // lockstep and each step's delta is exactly what that step's refills and drain did.
-  const PIN = 50
-  const killRun = (thief) => {
-    Math.random = mulberry32(90210)
-    const run = createRun(meta(thief), { chapter: 'twilight', difficulty: 1 })
-    run.shafts.length = 0                       // no in-shaft refill: kills are the only credit
-    run.player.hp = run.player.maxHP = 1e9      // immortal, so the run cannot end mid-measurement
-    let gained = 0
-    for (let i = 0; i < 900; i++) {
-      // Park every live enemy on the player at 1 HP: the starter weapon then kills whatever the
-      // wave table has produced, which is what makes this a real kill count rather than a fixture.
-      for (const e of run.enemies) { if (!e._dead) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 } }
-      run.charge = PIN
-      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
-      run.events.length = 0
-      gained += run.charge - PIN
-      run.player.hp = run.player.maxHP
-    }
-    return { gained, kills: run.kills }
-  }
-  {
-    const off = killRun(false)
-    const on = killRun(true)
-    assert.ok(off.kills > 20, `the rig must actually kill things, got ${off.kills}`)
-    assert.strictEqual(off.kills, on.kills,
-      `pinning the bar must keep both runs in RNG lockstep — got ${off.kills} vs ${on.kills} kills, so the delta below would be meaningless`)
-    const delta = on.gained - off.gained
-    const want = off.kills * res.killRefill
-    assert.ok(Math.abs(delta - want) < 1e-6,
-      `buying Light Thief must be worth exactly ${res.killRefill} per kill: ${off.kills} kills -> ${want}, measured ${delta.toFixed(4)}`)
-    // And the unbought run must gain NOTHING from kills — its whole delta is the passive drain.
-    const drainOnly = -res.drain * (900 / 60)
-    assert.ok(Math.abs(off.gained - drainOnly) < 1e-6,
-      `an unbought run's bar must move by drain alone (${drainOnly.toFixed(2)}), measured ${off.gained.toFixed(2)} over ${off.kills} kills`)
-  }
-
-  // ...and it clamps. A bar over max is a rail drawn past the end of its own track.
-  {
-    Math.random = mulberry32(90210)
-    const run = createRun(meta(true), { chapter: 'twilight', difficulty: 1 })
-    run.player.hp = run.player.maxHP = 1e9
-    let peak = 0
-    for (let i = 0; i < 600; i++) {
-      for (const e of run.enemies) { if (!e._dead) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 } }
-      run.charge = res.max                      // already full when the kills land
-      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
-      run.events.length = 0
-      peak = Math.max(peak, run.charge)
-      run.player.hp = run.player.maxHP
-    }
-    assert.ok(run.kills > 10, `the clamp rig must land kills, got ${run.kills}`)
-    assert.ok(peak <= res.max + 1e-9, `kill refill must clamp at ${res.max}, peaked at ${peak}`)
-  }
-
-  // (c) sim.js NEVER reads the unlock. Same rule as meta.dev (the plan's R1): sim plays what it is
-  // handed, which is what makes a dev-gated chapter playtest as the thing that eventually ships.
+  // (b) THE REMOVAL IS COMPLETE, SIM SIDE — and this one fails SILENTLY rather than loudly. There is
+  // no run.killRefill any more, so a surviving `run.charge + run.killRefill` is `x + undefined` =
+  // NaN: the bar does not error, it disappears, and every downstream read (the dark, the Pulse's
+  // ammo, drowning) quietly goes with it.
   {
     const src = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
-    assert.ok(!/\bmeta\.lightThief\b/.test(src), 'sim.js must never read meta.lightThief — it reads run.killRefill')
-    assert.ok(/run\.killRefill/.test(src), 'sim.js must read the run-level snapshot')
+    assert.ok(!/\brun\.killRefill\b/.test(src),
+      'sim.js still reads run.killRefill — the field went with Scavenger, so this adds undefined to the bar and NaNs it silently')
+    assert.ok(/_res\?\.killBase \?\? 0/.test(src),
+      "sim.js must still read the chapter's own killBase at the kill site — that is the only per-kill refill left")
+    // The rule sim.js has always had, and the reason the snapshot existed in the first place: sim
+    // plays what it is handed. Worth keeping now that the field it guarded is gone.
+    assert.ok(!/\bmeta\.\w+/.test(src.replace(/^\s*\/\/.*$/gm, '')),
+      'sim.js must never read meta — it plays what createRun handed it (the plan\'s R1)')
   }
 
-  // (d) the shop rung. One claim made in prose in config.js and otherwise unguarded: it is the
-  // CHEAPEST thing on the sacrifice screen. (Task 6 REMOVED the old meta.dev gate here — see the
-  // block below for why reachability now does that job instead, and what replaced it.)
-  {
-    assert.ok(LIGHT_THIEF_COSTS[0] < SACRIFICE_COSTS[0],
-      `Light Thief's first rung (${LIGHT_THIEF_COSTS[0]}) must undercut the 3rd card slot (${SACRIFICE_COSTS[0]}) — it is meant to be a plausible FIRST sacrifice`)
-    assert.deepStrictEqual([...LIGHT_THIEF_COSTS].sort((a, b) => a - b), LIGHT_THIEF_COSTS,
-      'a ladder must get more expensive, not less — a cheaper later rung makes the earlier one a trap')
-    // unlockCost IS the already-bought gate: null once the ladder is finished. A separate
-    // `=== true` test alongside it would go stale the moment an unlock gains a second rung.
-    assert.strictEqual(unlockCost('undertow', 'lightThief', LIGHT_THIEF_COSTS.length), null,
-      'a finished ladder must price its next rung as null, which is what removes it from sacTargets')
-    assert.strictEqual(unlockLevel({ unlocks: { lightThief: true } }, 'undertow', 'lightThief'), LIGHT_THIEF_COSTS.length,
-      'a pre-ladder `true` must read as the TOP level — that save paid the full single price and must not lose it')
-    const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
-    // Task 5: onSacrifice gained a trailing bookId, defaulted to BOOK_ORDER[0] alongside target's
-    // own 'slot' default — same "an older caller keeps meaning what it used to" reasoning.
-    assert.ok(/onSacrifice\(picks, target = 'slot', bookId = BOOK_ORDER\[0\]\)/.test(main),
-      "onSacrifice must default target to 'slot' and bookId to BOOK_ORDER[0], so an older caller keeps meaning what it used to")
-    // Task 5: the cost resolution is book-general now (BOOK_UNLOCKS[bookId], not a Light-Thief-
-    // shaped literal), and the already-owned check reads the NEW per-book location
-    // (bm.unlocks[target], since createRun's killRefill has read bm.unlocks.lightThief since
-    // Task 2) rather than the legacy top-level meta.lightThief.
-    assert.ok(/cost = unlockCost\(bookId, target, unlockLevel\(bm, bookId, target\)\)/.test(main),
-      'onSacrifice must price the NEXT rung from the ladder (reading bm.unlocks via unlockLevel, not the legacy meta.lightThief) — a finished ladder prices null and is refused here rather than by the button being absent')
-    assert.ok(/\(bm\.unlocks \?\?= \{\}\)\[target\] = unlockLevel\(bm, bookId, target\) \+ 1/.test(main),
-      'onSacrifice must store the new LEVEL, not `true` — writing true would jump a part-bought ladder straight to the top')
-  }
-
-  // (e) RULING 1 (Task 6, 2026-08-16 amendment) — ui.js's sacTargets used to hand-roll its own
-  // Light Thief branch: a hardcoded id: 'thief' behind a bare meta.dev check, reading the LEGACY
-  // meta.lightThief for "already bought". That was TWO bugs at once, both silent: onSacrifice
-  // resolves a non-'slot' target's cost as BOOK_UNLOCKS[bookId]?.[target]?.cost (Task 5), and
-  // BOOK_UNLOCKS.undertow's real key is 'lightThief' — so the mismatched id made Light Thief
-  // permanently unpurchasable (cost always resolved to null, the button never lit even when
-  // affordable), and the meta.lightThief read meant the button would never disappear after a
-  // purchase either, since Task 5's onSacrifice no longer writes that legacy field at all (it
-  // writes bm.unlocks[target] — see (d) above and Task 5's ruling G).
+  // (c) THE SEAM IS STILL CORRECTLY SHAPED. All source-text, because ui.js cannot be imported here
+  // (initUI calls document.getElementById on its first line and there is no jsdom) — same trick run
+  // UG.k uses for render.js's hooks.
   //
-  // ui.js cannot be imported and driven directly here: initUI() calls document.getElementById at
-  // its very first line and this suite runs in plain node (no jsdom in package.json — verified),
-  // so sacTargets is unreachable as a live function. Same situation run UG.k documents for
-  // render.js's Pixi hooks — read the function as TEXT and assert the wiring, rather than skip
-  // the guard entirely.
+  // RULING 1 (Task 6, 2026-08-16) is what these guard, and it is worth restating because the empty
+  // table cannot: sacTargets once hand-rolled its own branch with a hardcoded id: 'thief' behind a
+  // bare meta.dev check, reading a legacy top-level field for "already bought". Two silent bugs at
+  // once — onSacrifice resolves a non-'slot' target through BOOK_UNLOCKS[bookId], and the real key
+  // was 'lightThief', so the unlock was permanently unpurchasable (cost resolved null, the button
+  // never lit) AND would never have disappeared after a purchase. An empty table makes all of that
+  // unreachable, which is exactly why it needs a structural guard rather than a behavioural one:
+  // the next person to add a row inherits either the shape or the bug.
   {
     const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
     const start = ui.indexOf('function sacTargets(bookId) {')
@@ -9116,46 +9971,56 @@ function runLightThief() {
     assert.ok(end > start, 'could not find the end of sacTargets')
     const body = ui.slice(start, end)
 
-    // No hand-rolled meta.dev gate left in the function that emits targets — reachability (an
-    // Undertow target only ever exists to be asked for once the book itself is browsable) is what
-    // gates this now, per the ruling. A meta.dev check reappearing here is the exact shape of the
-    // regression: it is what let a hardcoded, driftable id sit right next to it.
     assert.doesNotMatch(body, /meta\.dev/,
-      'sacTargets must not gate on meta.dev directly — reachability already gates an Undertow target (see the ruling comment above sacTargets in ui.js)')
+      'sacTargets must not gate on meta.dev directly — reachability already gates a book-specific target (see the ruling comment above sacTargets in ui.js)')
     assert.doesNotMatch(body, /meta\.lightThief/,
-      "sacTargets must not read the legacy meta.lightThief — Task 5's onSacrifice writes the unlock to bm.unlocks[target], and reading the old field is exactly why the button never disappeared after a purchase")
-
-    // The already-owned gate must read THIS BOOK's own purse, keyed by the loop's own id. Unlocks
-    // are LADDERS now, so the gate is "the next rung prices null" rather than a boolean — one
-    // expression that both prices the offer and retires it, where a separate `=== true` test
-    // alongside it would go stale the moment an unlock gained a second rung. unlockLevel takes
-    // `bm`, so it is still this book's purse and never a Book-1-shaped legacy field.
+      'sacTargets must not read the legacy top-level meta.lightThief — onSacrifice writes bm.unlocks[target], and reading the old field is exactly why the button never disappeared after a purchase')
     assert.ok(/const cost = unlockCost\(bookId, id, unlockLevel\(bm, bookId, id\)\)/.test(body),
       "sacTargets must price the next rung from THIS book's purse via unlockLevel(bm, …), not a Book-1-shaped legacy field")
     assert.ok(/if \(cost == null\) continue/.test(body),
       'sacTargets must drop an unlock whose ladder is finished — that null IS the already-bought gate')
-
-    // The structural proof for "every id sacTargets can emit is either 'slot' or a real key of
-    // BOOK_UNLOCKS[bookId]": the ONLY branch that can push a non-'slot' id must destructure that
-    // id straight out of Object.entries(BOOK_UNLOCKS[bookId] ?? {}) and push that SAME binding —
-    // never a separately-typed literal, which is exactly how 'thief' drifted from the table's real
-    // key 'lightThief' with nothing to catch it.
     assert.ok(/for \(const \[id, u\] of Object\.entries\(BOOK_UNLOCKS\[bookId\] \?\? \{\}\)\)/.test(body),
-      'sacTargets must iterate Object.entries(BOOK_UNLOCKS[bookId] ?? {}) by its own keys')
-    // `cost` is the local holding the NEXT rung's price now, not u.cost — but the point of this
-    // assertion is the `id` binding, which must still be the loop's own.
+      'sacTargets must iterate Object.entries(BOOK_UNLOCKS[bookId] ?? {}) by its own keys — the ?? {} is what makes an EMPTY table a no-op instead of a throw')
     assert.ok(/out\.push\(\{ id, cost,/.test(body),
       "the BOOK_UNLOCKS branch must push the LOOP's own `id` binding — a separately-typed id here (however named) can silently stop matching the table's real key")
-    // Every OTHER id: assignment in the function body must be the literal 'slot' — if it is
-    // anything else, some branch is hardcoding an id instead of reading it off BOOK_UNLOCKS.
     const idLiterals = [...body.matchAll(/\bid:\s*'([^']+)'/g)].map((m) => m[1])
     assert.deepStrictEqual(idLiterals, ['slot'],
       `sacTargets may only hardcode 'slot' as a literal id; every other emitted id must come from the BOOK_UNLOCKS loop above — found literal id(s): ${JSON.stringify(idLiterals)}`)
   }
 
-  console.log(`PASS run LT (Light Thief): ${LIGHT_THIEF_COSTS.length} rungs at ${LIGHT_THIEF_COSTS.join('/')} sacrificed levels, +${res.killRefill}/kill at full and thirds below, 0 for 7 junk saves, over-max clamps, pre-ladder true reads as top, bar clamps, sim.js never reads meta, first rung under the ${SACRIFICE_COSTS[0]} card slot, and sacTargets emits only 'slot' or a real BOOK_UNLOCKS[bookId] key`)
+  // (d) onSacrifice's half of the same seam. 'slot' is the only target the shipped UI can send while
+  // the table is empty, so every one of these is guarding the future row rather than today's screen.
+  {
+    const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    assert.ok(/onSacrifice\(picks, target = 'slot', bookId = BOOK_ORDER\[0\]\)/.test(main),
+      "onSacrifice must default target to 'slot' and bookId to BOOK_ORDER[0], so an older caller keeps meaning what it used to")
+    assert.ok(/cost = unlockCost\(bookId, target, unlockLevel\(bm, bookId, target\)\)/.test(main),
+      'onSacrifice must price the NEXT rung from the ladder — a finished ladder prices null and is refused here rather than by the button being absent')
+    assert.ok(/\(bm\.unlocks \?\?= \{\}\)\[target\] = unlockLevel\(bm, bookId, target\) \+ 1/.test(main),
+      'onSacrifice must store the new LEVEL, not `true` — writing true would jump a part-bought ladder straight to the top')
+    assert.doesNotMatch(main, /meta\.lightThief\s*=\s*true/,
+      'onSacrifice must never write the legacy top-level meta.lightThief — an unlock goes to bookMeta(meta,bookId).unlocks[target] only')
+  }
+
+  // (e) THE HELPERS SURVIVE AN EMPTY TABLE. Every one of them is called on today's shop screen with
+  // a book that has no unlocks at all, so "returns a sane zero" is live behaviour, not a hypothetical
+  // — purseSwitchHtml sums unlockMax/unlockLevel over the (empty) id list on every render.
+  {
+    assert.strictEqual(Object.keys(BOOK_UNLOCKS).length, 0,
+      'BOOK_UNLOCKS is expected to be empty since Scavenger was removed — if a row was added back, give it a real behavioural test and update this scenario')
+    assert.strictEqual(unlockMax('undertow', 'lightThief'), 0, 'unlockMax must read a removed unlock as 0 rungs, never throw')
+    assert.strictEqual(unlockCost('undertow', 'lightThief', 0), null, 'unlockCost must price a removed unlock as null, which is what keeps it out of sacTargets')
+    assert.strictEqual(unlockLevel({ unlocks: { lightThief: true } }, 'undertow', 'lightThief'), 0,
+      'a save still carrying the old flag must resolve to level 0 — the unlock is gone, and `true` must not read as "owned" against a table that no longer describes it')
+    // The card-slot ladder is what the screen sells now, and it must be untouched by all of this.
+    assert.ok(SACRIFICE_COSTS.length > 0, 'the card-slot ladder is the only sacrifice target left — an empty one would leave the screen selling nothing')
+    assert.deepStrictEqual([...SACRIFICE_COSTS].sort((x, y) => x - y), SACRIFICE_COSTS,
+      'a ladder must get more expensive, not less — a cheaper later rung makes the earlier one a trap')
+  }
+
+  console.log(`PASS run SC (sacrifice seam): 0 BOOK_UNLOCKS entries, ${withResource.length} of ${chapterIds.length} chapters carry a resource and none declares killRefill, killBase is The Wreck's alone, sim.js reads neither run.killRefill nor meta, sacTargets emits only 'slot' or a real BOOK_UNLOCKS key, onSacrifice prices and stores a LEVEL, and the helpers read a removed unlock as 0/null`)
 }
-run(runLightThief)
+run(runSacrificeSeam)
 
 // ---- Run U: per-chapter runs, weapon pools, chapter unlock (v5.0 task 2) -----------------
 // Chapter unlock itself (endRun in main.js) is untestable glue here (no DOM/main.js import) —
@@ -22975,10 +23840,11 @@ function testWreckBloodlust() {
       `the drain at t=200 (${late.toFixed(1)} over 2s) is not meaningfully faster than at t=0 (${early.toFixed(1)}) — drainPerSpawn is in config and stepCharge is reading a constant, which is the tune this chapter exists to avoid`)
     const dropped = late
 
-    // A kill pays. `killBase` is the field under test and it is NOT shop-gated, so this must hold on
-    // a meta that bought nothing — which is the whole difference from every other Book 2 chapter.
+    // A kill pays. `killBase` is the field under test, and since v7.x removed Scavenger it is the
+    // ONLY per-kill refill in the game — which is the whole difference from every other Book 2
+    // chapter, where a kill moves the bar by nothing at all.
     const r3 = wreckRun()
-    assert.strictEqual(r3.killRefill, 0, 'run WK bought Scavenger by accident — killBase must be proven on an UNBOUGHT save, since that is the case every other chapter reads as zero')
+    assert.ok(!('killRefill' in r3), 'run.killRefill went with Scavenger (v7.x) — nothing may stack on killBase any more')
     r3.charge = 20
     const victim = pin(r3, 60, 1)
     const before = r3.charge
@@ -24931,9 +25797,9 @@ function testTheDeep() {
       `run DP.a: a maw on its post-swallow cooldown still fed the player (${spent.charge.toFixed(1)}) — _shutT is declared but stepCharge does not read it`)
     // And the chapter's own rule: kills give NOTHING. This is what makes the maw the only decision
     // in the chapter rather than one option among two.
-    assert.strictEqual(res.killRefill, 0,
-      `run DP.a: The Deep's killRefill is ${res.killRefill} — at any positive value the player tops the bar up by doing what they were going to do anyway, and the maw stops being the only source`)
-    console.log(`PASS run DP.a (the only food bites): 20 -> ${near.charge.toFixed(1)} inside a maw, ${far.charge.toFixed(1)} outside one, ${none.charge.toFixed(1)} with none, ${spent.charge.toFixed(1)} in a spent one, killRefill ${res.killRefill}`)
+    assert.ok(!res.killRefill && !res.killBase,
+      `run DP.a: The Deep's resource declares a per-kill refill (killRefill ${res.killRefill}, killBase ${res.killBase}) — at any positive value the player tops the bar up by doing what they were going to do anyway, and the maw stops being the only source`)
+    console.log(`PASS run DP.a (the only food bites): 20 -> ${near.charge.toFixed(1)} inside a maw, ${far.charge.toFixed(1)} outside one, ${none.charge.toFixed(1)} with none, ${spent.charge.toFixed(1)} in a spent one, no per-kill refill`)
   }
 
   // (b) THE MOUTH IS THE CLOCK, AND IT RUNS BACKWARDS WHEN YOU LEAVE. The gape is the chapter's
@@ -27078,10 +27944,12 @@ function testVocabularies() {
   const radiusless = STRUCTURE_KINDS.filter((k) => STRUCTURE_RADIUS[k] == null)
   assert.deepStrictEqual(radiusless, [], `structure kind(s) with no STRUCTURE_RADIUS: [${radiusless.join(', ')}] — sim would collide against undefined`)
 
-  // (e) BOOK_UNLOCKS. Same shape as (a)/(b): config declares the id (BOOK_UNLOCKS[bookId][id]),
-  // state.js is the one file that may special-case what it DOES (Light Thief's killRefill
-  // snapshot, see bm.unlocks?.lightThief in createRun) — nothing imports the two together, so a
-  // rename on either side is a typo that fails silently. The generic half of the design (main.js's
+  // (e) BOOK_UNLOCKS. Same shape as (a)/(b): config declares the id (BOOK_UNLOCKS[bookId][id]) and
+  // state.js is the one file that may special-case what it DOES (a read off bm.unlocks in
+  // createRun) — nothing imports the two together, so a rename on either side is a typo that fails
+  // silently. VACUOUS TODAY: the table is empty since Scavenger was removed, so this walks zero
+  // ids. It is the guard that has to exist the day a row is added back, which is the only moment
+  // the seam can go wrong — see run SC for the seam's own structural checks. The generic half of the design (main.js's
   // cost lookup, ui.js's already-bought gate) reads `bm.unlocks?.[id]` off the LOOP's own binding
   // and can never go stale this way; this check only has to cover the special-cased half, which is
   // exactly the seam the BOOK_UNLOCKS comment in config.js describes ("a row here plus a read in
