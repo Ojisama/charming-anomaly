@@ -346,3 +346,51 @@ Then `node scripts/test-isolation.mjs`.
 3. **Part 1** with the ruled currency; fit `BALL_FULL_N` off the histogram, both shop axes.
 4. **Part 3** (prey flees predators, with the hoisted array and the ally exclusion).
 5. **Part 4** (the orca).
+
+---
+
+# Rev 5 — the v7.199.0 playtest verdict (2026-08-23)
+
+Owner, having played the shipped orca build: *"I still don't think the wreck is fun to play."*
+Five specifics, and none of them is a balance number. Each is a mechanic that reads as absent or
+as the wrong shape on screen.
+
+## 5.1 What he reported
+
+1. **The orca has no opening act.** *"orca was supposed to start with a shadow passing underneath
+   you several times."* The shipped `rising` state is a 3.2s telegraph immediately before a strike;
+   the passes he asked for are a separate, earlier, harmless thing that teaches the silhouette.
+2. **The prey are one animal wearing three stat lines.** *"they should have different behaviour.
+   Some faster, some with more hp, some could leave a slowing ink or have defense mechanisms."*
+   mackerel/damselfish/moray differ only by `hpMul`/`speedMul`, which is invisible in motion.
+3. **Chum opens too strong and is a magnet, not a trap.** Reduced range, and it becomes *"an amount
+   of food that disappears if too many fishes have come and eat it."* Plus: improve the art.
+4. **Bilge reads as puddles, and its trail mod reads as puddles in a line.** A fish that goes
+   through oil should be **stained** — visibly, and slowed **permanently, a little**, after it
+   leaves.
+5. **The orca ignores the thing the chapter is about.** It should be drawn to big baits and to
+   crowds: *"the more there is the more it attacks."*
+
+## 5.2 Rulings taken (AskUserQuestion, 2026-08-23)
+
+| Question | Ruling |
+|---|---|
+| Prey refuse to enter oil — that avoidance IS bilge's wall. How can they be stained? | **Panic beats avoidance.** Fish still steer around oil at rest, but one fleeing the player at close range does not look where it is going. Driving prey through your own slick is the play; they exit stained and permanently slower, i.e. catchable. The ambient leak stains too. The wall survives AND becomes a hunting tool. |
+| What does the orca eat when it commits? | **The shoal — the player is collateral.** It commits through the densest cluster; fish on that line die with **no** kill credit, Bloodlust or on-kill proc for the player. It hits the player only if the player is on the line. A big bait ball is now a risk: you rang the dinner bell, eat fast or lose it. |
+| Which new prey behaviours? | **Squid** (inks a cloud that slows the PLAYER), **pufferfish** (puffs, refuses the first bite, deflates over ~1.5s — a timing beat), **herring** (tiny, very fast, coheres hard, never splits). A fourth option — a fat "sea bream" hiding in wreckage — was offered and **not** picked. |
+| What does a fish that reaches the bait do? | **Stops and feeds, held ~1.5s.** The bait parks them rather than only gathering them. `CHUM_PANIC_R` still applies, so the player still has to come in from outside. |
+
+## 5.3 Two constraints these rulings collide with
+
+- **The puffer is the moray's `guard` again unless it is drawn.** `guard` was removed because it
+  refused 7.6% of bites while soaking a third of all bites via `aimAngle`'s nearest-body pick, and
+  because a refused bite was indistinguishable from a miss. The puffer needs an unmistakable
+  inflated pose and must not become an aim magnet.
+- **The ambient leak affects the player only.** `stepSlick` tests `p` and nothing else; enemies are
+  untouched by `run.slicks`. Staining fish is therefore new code in both oils, not a flag flip.
+
+## 5.4 Still open
+
+The rev 4 §0 question is **untouched by any of this**: whether The Wreck keeps `spawnMul` 2.2 —
+crowding as ambient wallpaper — or drops it hard and spawns prey as discrete shoals in empty water.
+Herring cohesion makes the second reading more attractive, but it remains the owner's call.

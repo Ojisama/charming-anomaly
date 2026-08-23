@@ -2600,12 +2600,18 @@ export const WEAPONS = {
     //
     // No burst and no damage: the card is the gather. `dur` is long and `rate` slow because a bait
     // ball has to have time to form — a 1s gather is a flinch, not a shoal turning round.
+    //
+    // `food` IS THE CARD'S SECOND HALF. A bait is a fixed number of servings, one per fish that
+    // reaches it, and at zero it is gone — see the CHUM_FEED_R block for why that turns a magnet
+    // into a trap with a budget, and ORCA_BAIT_FULL_FOOD for what reads it.
+    // balance_decision : L1 pull cut hard, levels and mods buy it back 2026-08-23
+    //  - aggro was 240/265/290/320/355; CHUM_PANIC_R (80) is the floor this must always clear
     levels: [
-      { rate: 5.0, castRange: 250, dur: 4.0, aggro: 240 },
-      { rate: 4.6, castRange: 265, dur: 4.4, aggro: 265 },
-      { rate: 4.2, castRange: 280, dur: 4.8, aggro: 290 },
-      { rate: 3.8, castRange: 300, dur: 5.2, aggro: 320 },
-      { rate: 3.4, castRange: 320, dur: 5.6, aggro: 355 },
+      { rate: 5.0, castRange: 250, dur: 4.0, aggro: 150, food: 5 },
+      { rate: 4.6, castRange: 265, dur: 4.4, aggro: 185, food: 7 },
+      { rate: 4.2, castRange: 280, dur: 4.8, aggro: 225, food: 9 },
+      { rate: 3.8, castRange: 300, dur: 5.2, aggro: 270, food: 12 },
+      { rate: 3.4, castRange: 320, dur: 5.6, aggro: 320, food: 15 },
     ],
   },
   bilge: {
@@ -3048,6 +3054,10 @@ export const WEAPON_MODS = {
     // that keeps its nerve closer in. Priced against CHUM_PANIC_R, so at full stacks the ball still
     // breaks — an unbreakable one would be a pause button on the chapter.
     deepChum:   { name: 'Deep Chum',   desc: 'baited fish hold their nerve closer to you', icon: '🩸', base: 0.30, kind: 'pct' },
+    // The card the servings are for (see CHUM_FEED_R). `tier`, not `pct`: a bait is counted in
+    // fish that got a bite, the drawing shows one chunk per serving, and 4.4 mouthfuls is not a
+    // thing either of those can state. Read at the fire site, like every other tier mod.
+    fullBucket: { name: 'Full Bucket', desc: 'mouthful(s) of food in each bait', icon: '🍖', kind: 'tier', perTier: 2 },
   },
   // thickOil/wideBilge fold into levels[] via WEAPON_STAT_MODS; slickTrail is behavioral.
   bilge: {
@@ -7122,9 +7132,40 @@ CHAPTERS.wreck = {
   // damage across three 300s runs — against the leak's 234, in the one chapter whose whole premise
   // is that the leak is the only thing that can kill you. The other two are disarmed by `skittish`
   // as well; the moray has no skittish, and now needs none.
+  // ---- SIX, AND THREE OF THEM ARE BEHAVIOUR (v7.x) --------------------------------------------
+  // Owner, 2026-08-23: "preys are too similar, they should have different behaviour. Some faster,
+  // some with more hp, some could leave a slowing ink or have defense mechanisms."
+  //
+  // The three above differ only by hpMul/speedMul, which makes them one animal at three sizes: the
+  // player's verb against every one of them is "swim at it". The three added here each take a
+  // different verb away, and none of them is a damage number:
+  //   squid       INKS. Measured, that is a 7% tax on a straight-line hunter's whole kill rate, and
+  //               the answer it rewards is a different TARGET rather than a different route — see
+  //               the INK_* block, which also records that steering round the cloud loses.
+  //   pufferfish  REFUSES ONE BITE, then drifts deflating for PUFFER_COOL_T. Bite, wait, bite —
+  //               a rhythm, not a shield, and read its block for the two ways `guard` failed here.
+  //   sardine     BALLS. Cheap alone and it never splits, so the payout is a dozen at once or none.
+  // ⚠ THE WEIGHTS KEEP THE MACKEREL THE STAPLE. Two new `normal` entries would otherwise cut the
+  // bar's whole income to a third (spawnEnemy picks the TYPE first, then draws within it), and the
+  // mackerel is what CHAPTERS.wreck.resource was fitted against.
+  // ⚠ EVERY NUMBER ON THESE ROWS SHIFTS THE BAR, and adding the last three cost a refit:
+  // drainPerSpawn went 2.4 -> 3.2 because six entries halved the hunt/ignore separation. Re-sweep
+  // this chapter's bar before any balance claim about it ships.
   roster: [
-    { id: 'mackerel',   archetype: 'normal', name: 'Mackerel',   hpMul: 0.55, speedMul: 0.85, dmgMul: 0, flags: ['skittish'] },
-    { id: 'damselfish', archetype: 'fast',   name: 'Damselfish', hpMul: 0.4,  speedMul: 1,    dmgMul: 0, flags: ['skittish'] },
+    { id: 'mackerel',   archetype: 'normal', name: 'Mackerel',   hpMul: 0.55, speedMul: 0.85, dmgMul: 0, weight: 2,   flags: ['skittish'] },
+    // Faster than the mackerel on purpose: the ink is only a decision if the straight chase was
+    // already marginal. 90 x 1.15 x PREY_FLEE_MUL = 140 px/s against the player's 220 — you win it,
+    // but not while you are inside the cloud.
+    { id: 'squid',      archetype: 'normal', name: 'Squid',      hpMul: 0.7,  speedMul: 1.15, dmgMul: 0, weight: 1,   flags: ['skittish', 'inkjet'] },
+    // The slowest thing that flees, which is WHY it needs a defence: at 90 x 0.6 x 1.35 = 73 px/s
+    // it would otherwise be free food. Fat and wide rather than tanky — one bite once it is down.
+    { id: 'pufferfish', archetype: 'normal', name: 'Pufferfish', hpMul: 1.0,  speedMul: 0.6,  dmgMul: 0, weight: 1, radiusMul: 1.2, flags: ['skittish', 'puffup'] },
+    { id: 'damselfish', archetype: 'fast',   name: 'Damselfish', hpMul: 0.4,  speedMul: 1,    dmgMul: 0, weight: 2,   flags: ['skittish'] },
+    // UNDER the player's 220 (165 x 0.82 x 1.35 = 183), which is the whole separation from the
+    // damselfish sharing its archetype: that one cannot be caught by swimming at all, this one can
+    // — if you can get round the ball. xpMul holds the level pace down against a kill count that
+    // arrives a dozen at a time; `fast` already pays 2x a drone per point of health.
+    { id: 'sardine',    archetype: 'fast',   name: 'Sardine',    hpMul: 0.25, speedMul: 0.82, dmgMul: 0, weight: 1.6, xpMul: 0.45, radiusMul: 0.62, flags: ['skittish', 'tight'] },
     // balance_decision : moray HP -40%, the chapter's kit is crowd control 2026-08-18
     //  - chum and bilge deal NO damage at all, so gnash is the entire damage budget all run
     { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 1.32, speedMul: 0.7,  dmgMul: 0, flags: [] },
@@ -7214,6 +7255,31 @@ CHAPTERS.wreck = {
     //           4.5             25.4 /  51%               4.9 /  76%              5.18x
     //   (base save, hoard spend, 3 seeds x 300s, immortal, `hunt` and `ignore` from WRECK_MOVES.)
     //
+    // ⚠ THAT TABLE IS THE THREE-ENTRY ROSTER'S AND IT NO LONGER DESCRIBES THIS CHAPTER. The prey
+    // rework (six entries, chum servings + feeding hold, the orca eating uncredited) collapsed the
+    // separation the fit bought: the SAME 2.4 measured 2.07x where it had been 5.38x, because gnash
+    // now darts onto a denser, softer, more varied field even under a passive walk. Both halves rose;
+    // the GAP is what fell, and the gap is the whole thesis. Refit, same rig, on the current tree
+    // (i.e. after v7.204.0 deleted killRefill from every resource chapter):
+    //      drainPerSpawn    hunt: mean / at-zero     ignore: mean / at-zero     separation
+    //           1.6             94.3 /   1%             81.9 /   2%              1.15x
+    //           2.4             88.2 /   2%             58.0 /  14%              1.52x
+    //           2.8             86.3 /   4%             43.7 /  20%              1.97x
+    //           3.2             78.0 /   7%             33.5 /  30%              2.33x
+    // 3.2 is where separation is still climbing and the hunter is still healthy (median 89.6, at zero
+    // 7% of the run). Pre-merge the same sweep found the overshoot at 4.0, where separation stops
+    // paying and the HUNTER starts sitting at zero — do not chase the old 5.38x by going past 3.2.
+    // ⚠ 3 SEEDS, AND NOISIER THAN THE FIRST SWEEP: single-cell separation is +/-0.3-0.4x and the
+    // ignore arm's kill count is non-monotonic across it. Read the trend, not one row.
+    // ⚠ LOSING killRefill DID NOT MAKE THIS HARSHER, which was the obvious prediction and it was
+    // wrong: at matching drainPerSpawn the passive player's mean ROSE (2.4: 42.3 -> 58.0), because
+    // something else in the same nine versions raised its kill count 42%. Measure, do not reason
+    // from the diff.
+    // ⚠ SEPARATION IS NO LONGER DRAINPERSPAWN'S ALONE, which is why 5.38x is not the target any more:
+    // ~39-41% of every prey death in an `ignore` run is the ORCA eating it (~20% hunting). A player
+    // who stands off both earns less and has the rest stolen. That punishment used to be the drain's
+    // job entirely. orcaRush and tankRefill are the other levers on this number now.
+    //
     // THE COLUMN THAT DECIDES IT IS THE SEPARATION, not either bar on its own — this chapter's
     // thesis is "stop and you starve", so what has to be true is that ENGAGING pays and STANDING
     // OFF does not. At 1.6 it barely does: a player who never closes still holds a mean of 40
@@ -7242,7 +7308,9 @@ CHAPTERS.wreck = {
     // feedSlow: THE CHAPTER'S PAYOFF FOR HERDING. Being inside the shoal slows the drain (FEED_*).
     // It is a rate rather than a refill because the bar is CLAMPED and a refill multiplier measured
     // regressive — see the FEED block in this file and stepCharge for the numbers.
-    name: 'Bloodlust', drainPerSpawn: 2.4, refill: 0, killBase: 5, tankRefill: 30, max: 100, feedSlow: true,
+    // balance_decision : drain 2.4 -> 3.2, the six-prey roster halved separation 2026-08-23
+    //  - re-run the wreck sweep after ANY roster/chum/orca change; the number tracks the kill rate
+    name: 'Bloodlust', drainPerSpawn: 3.2, refill: 0, killBase: 5, tankRefill: 30, max: 100, feedSlow: true,
     damage: { floor: 1, peak: 1.8 },
     rate: { floor: 1, peak: 1.5 },
     // 4, not 5, and the reason is arithmetic rather than balance: hurtPlayer ROUNDS a dot hit, so
@@ -7281,11 +7349,10 @@ CHAPTERS.wreck = {
   //                   as much as a design one: this has not been profiled on a phone, and fleeing
   //                   bodies spread out (cheaper separation) but also stay alive longer.
   //   xpMul 0.5       the kill count roughly triples; level pace should not.
-  // ⚠ THE RESOURCE BLOCK ABOVE WAS FITTED TO THE OLD CHAPTER AND IS NOW LYING. drainPerSpawn is
-  // denominated in spawnRate(t), so raising spawnMul to 2.2 raises the DRAIN 2.3x by itself, while
-  // the kill rate moves by some other factor entirely. Re-run scripts/charge-probe.mjs before any
-  // balance claim about this chapter leaves the branch — that is the same gate the previous cut
-  // wrote for itself, and the premise change invalidated its answer.
+  // ⚠ drainPerSpawn is denominated in spawnRate(t), so spawnMul moves the DRAIN by the same factor
+  // while the kill rate moves by some other one entirely — and the ROSTER moves the kill rate on its
+  // own. Both have now invalidated this block's fit once each. Re-sweep before any balance claim
+  // about this chapter leaves the branch; the current fit (3.2) is recorded in the resource block.
   balance: { spawnMul: 2.2, enemyHpMul: 0.45, maxAliveMul: 1.55, xpMul: 0.5 },
 
   // ---- render-only (ZERO sim effect) ----
@@ -9354,23 +9421,118 @@ export const CHUM_PULL_MUL = 0.85
 //  - if gnash's L1 range is ever cut below ~100 this becomes unusable again; they are one decision
 export const CHUM_PANIC_R = 80
 
+// A BAIT IS A FIXED AMOUNT OF FOOD, NOT A MAGNET (owner ruling 2026-08-23: "an amount of food that
+// disappears if too many fishes have come and eat it"). Each bait carries `food` servings; the
+// first fish to reach it takes one, and at zero the bait is gone regardless of how much `dur` is
+// left. That is what makes placement a decision: a shoal strips a bait in seconds, and a bait
+// nobody found sits there for its whole duration. It is also the field the orca reads
+// (ORCA_BAIT_FULL_FOOD), so a stripped bait stops ringing the dinner bell.
+//   ONE SERVING PER FISH PER BAIT, tracked as `_fedBait` on the fish (the bait object itself, so a
+// fish that swims to a SECOND bait may eat again). A per-frame radius test with no memory would
+// drain a bait in one frame from a single fish sitting in it.
+// balance_decision : a serving is taken at the bait, not near it 2026-08-23
+//  - well inside CHUM_PANIC_R (80) on purpose: the fish must actually arrive, and the player
+//    cannot be standing there when it does
+export const CHUM_FEED_R = 40
+// AND REACHING IT PARKS THE FISH (owner ruling, 2026-08-23). A serving is not taken in passing —
+// the fish stops, goes head-down and takes a bite, and for that long it is a body sitting still in
+// open water. THAT is the trap: chum on its own only gathers, and a gathered shoal is still a
+// gathered shoal moving at 103-223 px/s. This is the card's payoff.
+//   It does NOT override panic: CHUM_PANIC_R still applies, so the hold breaks the moment you get
+// close and you still have to come in from outside your own bait ball. A hold that survived the
+// player walking into it would be a pause button on the chapter.
+//   PUFFING WINS. A pufferfish inflating is a reaction to the predator and outranks a mouthful, so
+// a fish mid-puff neither starts nor keeps a hold (stepPrey, stepLures).
+// balance_decision : a bite parks the fish for a second and a half 2026-08-23
+//  - the tell is CHUM_VIS.feedSquash, a nose-down foreshortening: there is no held pose in any of
+//    the roster bakes and this must not need one
+export const CHUM_FEED_HOLD = 1.5
+
+// RENDER-ONLY. The bait is a cloud of rotted catch in the water, and its STATE is the tactical
+// information the servings created — a full bucket and a stripped one have to be different
+// pictures, or the player is guessing at the one number the card now turns on. So the drawing
+// COUNTS: one chunk of offal per remaining serving, up to `chunks`, over a murk that shrinks with
+// them. Below `chunks` the count is exact, which is the half that matters — "nearly gone" must be
+// readable at a glance, "very full" only has to read as full.
+//   The outer haze is sized from the bait's own `aggro` and nothing else: the reach is what the
+// player is placing, so a bait drawn at a fixed size would lie the moment Wide Slick is picked.
+export const CHUM_VIS = {
+  chunks: 8,                       // most offal pieces drawn at once
+  cloudMin: 30, cloudPer: 6,       // px, murk radius: cloudMin + cloudPer x drawn chunks
+  // OXBLOOD, NOT BROWN, and the first cut was brown. The Wreck's floor props are sandy-brown coral
+  // and rusted hull (BIOME_WRECK), so a 0x6e3a2c cloud photographed as one more piece of the
+  // scenery the moment it landed near one. Blood in water is the read; the props are not red.
+  murk: 0x6b2a2a, murkA: 0.46,     // the blood-and-offal body
+  fat: 0xb0a189,                   // suspended fat and scale, and the streak on each chunk
+  chunk: 0x6d2723,                 // a piece of the catch
+  haze: 0x9a6a52, hazeA: 0.30,     // the smell, drawn at the FULL aggro diameter
+  // THE FEEDING TELL, and it is a transform rather than a pose because none of the roster's 48
+  // bakes has a head-down frame and adding one to each is a different project. Seen from directly
+  // overhead a fish that tips nose-down is FORESHORTENED, so the body is squashed along its own
+  // forward axis by this fraction, worrying at the food on animT. It composes with every look for
+  // free and cannot get out of step with the art.
+  feedSquash: 0.45,
+}
+
 // ---- BILGE (v7.x, The Wreck) -------------------------------------------------------------------
 // The oil's drag is BLOOM_SLOW's, not its own number. bloomSlowT is a boolean-ish window — it
 // records THAT a cloud touched this frame, never which one — so a second magnitude would need a
 // second field, a second decay and a second tell before it was distinguishable from the first. The
 // card quotes no figure, so there is nothing for a shared constant to make untrue.
 // slickTrail: the card stops being one circle at a time and becomes a line you draw. Implemented as
-// a faster, smaller cast rather than as a new entity — a trail IS a chain of pools, and the shipped
-// bloom already knows how to be one. The pair has to move together: keeping the radius while
-// tripling the cadence would carpet the map in oil, which is a wall against the whole chapter.
-export const BILGE_TRAIL_RATE_MUL = 0.36   // x the cast interval
+// a chain of smaller pools rather than as a new entity — a trail IS a chain of pools, and the
+// shipped bloom already knows how to be one.
+//
+// ⚠ TRIGGERED BY DISTANCE, NOT BY A TIMER, and that is the whole of why it now reads as a trail
+// (owner, 2026-08-23: "mazout is only puddles, when it trails behind you it should be a trail not
+// puddles"). On a timer the cast interval and the player's speed are two independent numbers, and
+// at this chapter's 220px/s the shipped 1.5s cadence laid pools 333px apart against a 139px
+// diameter — a dotted line, at any tuning that did not also carpet the map when you stopped
+// moving. A pool every BILGE_TRAIL_STEP_FRAC x radius TRAVELLED cannot come apart at any speed,
+// and a player standing still lays nothing, which is the carpet problem gone as a side effect.
+export const BILGE_TRAIL_STEP_FRAC = 0.75  // x the trail pool radius, between consecutive pools
 export const BILGE_TRAIL_R_MUL = 0.58      // x the pool radius
+// A trail pool reaches full size almost at once. On the shared BLOOM_GROW_FRAC ramp (1.6s here) the
+// newest half-dozen pools are all still growing, so the ribbon would be dotted for exactly the
+// stretch behind the player that they are watching.
+export const BILGE_TRAIL_GROW = 0.22       // s, 0 -> maxR for a trail pool
+// RENDER-ONLY, and it is the other half of "a trail, not puddles". The ambient spills and a thrown
+// bilge pool each get a hard rim stroke, because a hazard's boundary is a contract the player
+// learns by eye. A CHAIN of overlapping pools drawn that way is a row of circles with their own
+// outlines running through the middle of the ribbon — the seams read as the puddles the distance
+// trigger just got rid of. So a trail pool drops the rim entirely and fills lighter: the overlap
+// of two of them lands near the ambient film's own density, which makes the dense centreline and
+// the thin ragged edges one continuous pour rather than a bead chain.
+export const BILGE_TRAIL_VIS = { filmA: 0.36, sheenA: 0.18, edgeW: 6, edgeA: 0.14 }
 // How far OUTSIDE the oil a skittish fish starts turning away. The wall has to have a shoulder or
 // prey clip the rim before they react and the barrier reads as porous.
 export const BILGE_AVOID_PAD = 46
 // How hard the avoidance steers, blended against whatever the fish was already doing. At 1 they
 // pivot on the spot, which reads as a force field; this is a fish declining to go that way.
 export const BILGE_AVOID_BLEND = 0.75
+// ⚠ PANIC BEATS AVOIDANCE, and without this the card cannot be used offensively at all. Prey
+// refuse to enter oil, which is the wall and has to survive — but a fish being run down by the
+// shark at close range does not look where it is going. Inside this radius of the PLAYER the
+// avoidance blend ramps to zero, so driving a shoal through your own slick is the play, and the
+// wall still stands everywhere the player is not.
+// balance_decision : prey stop watching for oil once you are on them 2026-08-23
+//  - must stay well under PREY_SIGHT_R (340): at sight range the fence would stop working at all
+export const PREY_PANIC_BLIND_R = 260
+
+// THE STAIN (owner ruling, 2026-08-23: "a fish going through mazout should be 'stained' visually,
+// and be slowed forever a bit, even when they get out of the mazout"). A body in oil accumulates
+// `oiled`, a permanent fraction of its speed, and never gets it back. BOTH oils stain: the player's
+// look:'bilge' blooms and the chapter's own ambient run.slicks — it is the same substance, and the
+// leak being usable against the shoal is the chapter reading its own hazard as terrain.
+//   ⚠ CAPPED, and the cap is the whole safety. Uncapped, a shoal herded across the same slick ten
+// times stops dead and the chapter is over; capped, the stain is what finally makes the damselfish
+// (223 px/s against the player's 220) catchable at all without being a lock on anything.
+//   Ink does NOT stain. The squid's cloud is look:'inkjet' and carries slow: 0, so it never enters the
+// branch this is applied in — the stain is oil, and only oil.
+// balance_decision : one crossing costs a tenth of a fish's speed, capped at a fifth 2026-08-23
+//  - 0.20 takes the damselfish to 178 px/s, i.e. under the player, which is the point of the card
+export const OIL_STAIN_RATE = 0.18   // speed fraction added per second spent in oil
+export const OIL_STAIN_MAX = 0.20    // hard ceiling on `oiled`, forever
 
 // ---- PREY (v7.x, The Wreck) — the `skittish` flag ---------------------------------------------
 // THE ONE THING IN THIS GAME THAT IS NOT COMING FOR YOU. Every other creature in every other
@@ -9495,6 +9657,94 @@ export const FEED_DRAIN_MIN = 0.45
 export const PREY_PREDATOR_FEAR_R = 170
 export const PREY_PREDATOR_BLEND = 0.55
 
+// ---- THE SQUID'S INK (v7.x, The Wreck — the `inkjet` flag) ------------------------------------
+// THE ONLY THING IN THIS CHAPTER THAT SLOWS THE PLAYER AND IS NOT A HAZARD YOU CAN AVOID BY
+// ROUTING. The leak sits on the floor and never moves; this arrives underneath you because you
+// chose to chase. Owner, 2026-08-23: "some could leave a slowing ink".
+//
+// IT SLOWS THE PLAYER AND NOTHING ELSE (`slow: 0` on the bloom opts out of stepBlooms' enemy
+// slow). That asymmetry is the whole card: an ink that also held the shoal would be a gift, and
+// the point is that a straight-line chase costs you the fish you were ALREADY going to reach.
+//
+// ⚠ IT IS A run.blooms ENTRY TAGGED `look: 'inkjet'` — the fifth look on that array, after the pond's
+// toxin, The Shelf's silt, The Twilight's foxfire and this chapter's own bilge. No new run.* array:
+// blooms already carry a grow curve, an expiry, a per-look tint and a pool that reset() clears, and
+// designing-an-enemy asks for a stated reason before adding a family. There is none here.
+//
+// THE SLOW JOINS THE MIN IN stepPlayerMovement, never a multiply — the same reason its five
+// neighbours give: multiplying would make every latch and web in this chapter strictly nastier than
+// the identical one anywhere else.
+// ⚠ WHAT IT MEASURABLY IS: A TAX ON COMMITTING TO A CHASE, NOT A ROUTING PUZZLE. Measured over 6
+// seeds x 120s of an immortal player hunting this chapter's real roster, total kills:
+//        nearest target, ink neutralised   247.7 (sd 29.6)   <- the do-nothing control
+//        nearest target, shipped 0.66      230.0 (sd 25.0)   -7%
+//        abandon an inked fish, 0.66       242.7 (sd 18.5)   recovers ~72% of that
+//        nearest target, slow 0.45         203.8 (sd 21.5)
+//        abandon an inked fish, 0.45       197.0 (sd 13.5)   <- taxing harder does NOT buy the play
+// The recovery at 0.66 is about 1 sigma at n=6, so read it as suggestive and not as established.
+// What IS established is the tax and the shape of the answer to it: STEERING ROUND THE CLOUD LOSES.
+// A separate sweep of three chase policies against a squid-only field had lead pursuit tie a
+// straight chase (217.5 against 220.3) and skirting the cloud lose outright (200.0) — the cloud is
+// laid at the squid's own position, so it is always between you and it, and the detour costs more
+// than crossing does. The play the numbers support is switching TARGET, not switching ROUTE.
+export const INK_TRIGGER_R = 190   // px. Well inside PREY_SIGHT_R (340), so the squid has already
+                                   // been running for 150px before it inks — a last resort, not an aura
+export const INK_COOLDOWN = 5.5    // s per squid. One cloud per chase; a field of sprinklers is a wall
+export const INK_R = 110           // px. ⚠ UNSWEPT — only the slow was.
+export const INK_DUR = 3.2         // s of cloud. Long enough to still be there when you commit
+// balance_decision : ink slow, swept 0.45/0.66 against a do-nothing control 2026-08-23
+//  - MIN-composed, so standing in ink AND oil is the oil's 0.62 and never the product
+export const INK_SLOW_MUL = 0.66
+
+// ---- THE PUFFERFISH (v7.x, The Wreck — the `puffup` flag) --------------------------------------
+// A TIMING BEAT, NOT A SHIELD, and the distinction is the entire brief. Owner, 2026-08-23: "puffs
+// up, refuses the first bite". Read CHAPTERS.wreck.roster's post-mortem on the moray's `guard`
+// before touching these: that shield refused 7.6% of bites (far too few to read as a puzzle) while
+// soaking a third of the bite's aim, because a creature that neither flees nor hurries is nearly
+// always the nearest body. Both failures are answered here rather than repeated.
+//   (a) INVISIBLE. `puffT` is a PUBLISHED contract field, read by ROSTER_LOOKS.pufferfish.poseOf
+//       (render.js) to swap to the inflated ball. A private `_puffT` would refuse a bite with
+//       nothing on screen, which is what "the weapon is broken" looks like.
+//   (b) AN AIM MAGNET. The refusal window is ended by the FIRST refused hit, not by a timer, so a
+//       puffer can never soak more than one bite before it is food again — and it is bitable for
+//       the whole PUFFER_COOL_T drift that follows.
+// It also inherits `skittish`: it is food, it flees, and it can never hurt you. The puff is the one
+// thing in the roster that stops a fleeing fish, which is why it is a chance rather than a wall.
+export const PUFFER_TRIGGER_R = 130  // px. You have to be genuinely on it — under the squid's ink
+                                     // radius on purpose, so the two never trigger at the same range
+export const PUFFER_PUFF_T = 1.4     // s of inflation if nothing hits it. A cap, not a duration: the
+                                     // first refused bite ends it early, which is the mechanic
+// balance_decision : deflate window the owner asked for, roughly 1.5s 2026-08-23
+//  - it is BITABLE for this whole window; the wait is the puffer's, not the player's
+export const PUFFER_COOL_T = 1.5
+export const PUFFER_DRIFT_MUL = 0.25 // x its own speed while inflated OR deflating. A ball does not
+                                     // swim, and this is what makes the punish window generous
+
+// ---- THE SARDINE'S BALL (v7.x, The Wreck — the `tight` flag) -----------------------------------
+// Owner, 2026-08-23: "tiny, very fast, moves as one tight ball... individually near-worthless, but
+// they school hard and never split: the reward for a good circle is a dozen at once, or nothing."
+//
+// ONE NUMBER, NOT A SECOND COHESION SYSTEM. stepPrey's selfish-herd term already steers a
+// threatened fish at the centroid its neighbours accumulated (see PREY_COHESION_BLEND); the sardine
+// is that same term with the blend swapped. The flag buys nothing else — same BALL_R, same
+// PREY_COHESION_MIN_N, same accumulate pass.
+//
+// ⚠ IT IS A BRAKE, NOT A TIGHTENER, AND THE SWEEP SAYS SO. 16 bodies approached from 220px, 1.5s
+// of flee, 6 seeds — rms spread against how far the ball's centroid actually got:
+//        blend   rms      travel        blend   rms      travel
+//        0.35    35.2     133           0.62    34.2     109
+//        0.45    35.1     133           0.72    31.5      68
+//        0.55    34.8     121           0.82    30.7      34
+// The rms hardly moves because stepEnemySeparation floors it: 16 bodies at minSep cannot pack
+// tighter than ~30px however hard they steer. What the blend actually controls is how much of its
+// own speed the ball SPENDS on staying together — at 0.62 the sardine converts 40% of its 183px/s
+// into distance where an untight one converts 69%, which is what makes the second-fastest fish in
+// the roster catchable at all. Past ~0.75 it converts 25% and then 12%, i.e. it stops being prey
+// and becomes a stationary target.
+// balance_decision : sardine cohesion, swept 0.35-0.82 on ball travel 2026-08-23
+//  - all 16 stayed in one body at EVERY value swept; "never splits" is not what this number buys
+export const TIGHT_COHESION_BLEND = 0.62
+
 // ---- THE ORCA (v7.x, The Wreck — chapters declaring `orca: true`) ------------------------------
 // THE ONLY THING IN THIS CHAPTER THAT AIMS AT YOU. Owner ruling 2026-08-22: "maybe an orca
 // sometimes... it comes like 4 times after 100s, very telegraph with a big shadow underneath you,
@@ -9535,6 +9785,67 @@ export const ORCA_HIT_R = 52           // px contact radius, DURING THE COMMIT O
 export const ORCA_DMG_FRAC = 0.34
 export const ORCA_LEN = 360            // body length px — ~7.7x the player, it must read as bigger
 export const ORCA_FEAR_TELL = 0.55     // render: alpha of the ring tell at full close
+
+// THE SHADOW PASSES. Owner ruling 2026-08-23: "orca was supposed to start with a shadow passing
+// underneath you several times". Three harmless silhouettes slide under the player before the first
+// real visit, so the shape is learned before it can hurt. No ring, no contact, no death — the only
+// consequence is that the shoal scatters, which teaches "this thing ruins my bait ball" before it
+// teaches "this thing kills me".
+// ⚠ ORCA_FIRST_PASS STAYS THE SOURCE OF TRUTH for when the danger starts, so the last gap is
+// DERIVED rather than typed. Typed as a literal, re-tuning any of the other three silently moves
+// the chapter's quiet half. The subtraction counts the PASSES THEMSELVES too: every gap is measured
+// from a pass CLEARING (stepTrawl's rule, and stepOrca's), so three 2.6s passes are three 2.6s of
+// ladder — leave them out and the first real visit lands at 107.8s while the constant still reads
+// 100. The shadows come out at 28 / 56.6 / 85.2, and the danger at 100.
+export const ORCA_SHADOW_PASSES = 3
+export const ORCA_SHADOW_FIRST = 28    // s to the first shadow — after the chapter has taught the hunt
+export const ORCA_SHADOW_GAP = 26      // s between shadows, pass-clear to pass-spawn
+export const ORCA_SHADOW_DUR = 2.6     // s end to end; speed is 2 x RANGE / DUR, no separate knob
+export const ORCA_SHADOW_LAST_GAP =    // s from the last shadow clearing to the first real visit
+  ORCA_FIRST_PASS - ORCA_SHADOW_FIRST - ORCA_SHADOW_PASSES * ORCA_SHADOW_DUR
+    - ORCA_SHADOW_GAP * (ORCA_SHADOW_PASSES - 1)
+// ⚠ SCREEN-RELATIVE, NOT WORLD PX, and this is the trap that shipped the light chapter's vignette.
+// The pass must ENTER from off-screen at EVERY viewport. A fixed 620px range is comfortably off a
+// 390-wide phone (half-diagonal 465) and comfortably ON a 1280-wide desktop (755), where the shadow
+// would fade up at the screen edge instead of sliding in from beyond it — right on the one screen
+// it was shot at. So this is the margin BEYOND run.viewRadius (main.js's own half-diagonal): the
+// body's half-length (ORCA_LEN / 2) plus slack, so nose and fluke are both clear before it starts.
+export const ORCA_SHADOW_MARGIN = 240  // px past run.viewRadius that the pass starts and ends
+export const ORCA_SHADOW_FADE = 0.5    // s of alpha ramp at each end, so it never pops
+export const ORCA_SHADOW_FEAR_R = 190  // px around the moving shadow that scatters what it passes under
+// balance_decision : shadow scatters the shoal for a second, harmlessly 2026-08-23
+//  - published into e.fearT, the shipped contract field — fear flees the PLAYER, and the pass runs
+//    under the player, so the two point the same way. Never raise past ORCA_SHADOW_DUR.
+export const ORCA_SHADOW_FEAR_T = 1.1
+
+// DENSITY BRINGS IT IN. Owner ruling 2026-08-23: "the orca should be attracted to big appats or
+// groups of fishes, the more there is the more it attacks". ONE mechanism, not a second timer: the
+// same _orcaAcc countdown that schedules every visit ticks FASTER while the water around the player
+// is packed, so hoarding a ball is what buys the visit. Reads run._feedN (stepShoals already counts
+// it — see FEED_R/FEED_FULL_N) plus the number of live chum baits on the map.
+// balance_decision : a full field plus a bait roughly halves the wait 2026-08-23
+//  - ORCA_RUSH_MAX is the ceiling and is load-bearing: uncapped, a permanently dense chapter is a
+//    chapter the orca never leaves
+export const ORCA_DENSITY_RUSH = 1.2   // countdown speed added at a saturated FEED_FULL_N field
+// A bait pulls by HOW MUCH FOOD IS STILL IN IT, not by existing (owner: "the more there is the more
+// it attacks"). A fresh bait rings the bell; one the shoal has stripped has nothing left to smell.
+export const ORCA_BAIT_PULL = 0.5      // a FULL chum bait counts as this much of a full field
+// ⚠ ABOVE THE FIRST TWO LEVELS' `food` (5 and 7), DELIBERATELY. An early bait is a handful of scraps
+// and should not ring the bell as loudly as a late one; a full pull is something the ladder and
+// Full Bucket buy, not something every cast gets.
+export const ORCA_BAIT_FULL_FOOD = 8   // servings that count as a full bait (WEAPONS.chum `food`)
+export const ORCA_RUSH_MAX = 2.2       // hard ceiling on the countdown's speed multiplier
+
+// IT COMMITS THROUGH THE SHOAL, NOT THROUGH YOU. Owner ruling 2026-08-23, asked what it eats when it
+// commits: "The shoal — you're collateral." The line is aimed at the densest cluster of prey near
+// the ring, and every prey body inside ORCA_BITE_R of the sweep dies UNCREDITED — no kill, no gem,
+// no Bloodlust, no on-kill proc (the stepLeaks idiom: _dead plus an event, and nothing else).
+// Building a big ball is therefore ringing the dinner bell: eat fast or lose the food.
+export const ORCA_COMMIT_SEEK_R = 520  // px around the ring centre it looks for a cluster to aim at
+// balance_decision : bite swath is about twice the body's own width 2026-08-23
+//  - elites and non-prey are excluded at the read site: an orca deleting an elite the player has
+//    been whittling down steals a reward they earned
+export const ORCA_BITE_R = 85
 
 // ---- THE LEAK (v7.x, The Wreck's signature) ----------------------------------------------------
 // THE BOAT IS THE POLLUTION. Owner ruling 2026-08-17, taken when the chapter turned into a hunt:

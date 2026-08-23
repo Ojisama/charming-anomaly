@@ -6,7 +6,7 @@ import {
   EARLY_CALM, MAX_CHOICE_SLOTS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
-  pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, ORCA_FIRST_PASS,
+  pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, ORCA_SHADOW_FIRST, ORCA_SHADOW_PASSES,
   BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, CURRENT_RESIST_FLOOR, unlockLevel, unlockMax,
   lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost, SPUR_TICK } from './config.js'
 
@@ -945,6 +945,26 @@ function generateWells(sig) {
  *                 BLOOM_SLOW_T every frame stepBlooms finds the enemy inside a cloud's radius
  *                 (guarded by damageImmune — a ghosted phase flicker ignores the cloud like it
  *                 ignores everything else); decays like the other three once outside.
+ *               feedT (v7.x The Wreck, s of a mouthful remaining): the fish reached a Chum bait,
+ *                 took one serving and STOPPED for it. While > 0 stepPrey returns before it steers,
+ *                 so the body sits still in open water — that hold, not the gather, is what the
+ *                 card is bought for. Set ONCE, in stepLures, on the frame the serving is taken
+ *                 (never refreshed by standing in the cloud: a re-arming hold would pin the shoal
+ *                 for the bait's whole duration), `skittish` only, and not at all on a fish that is
+ *                 mid-puff. TWO things break it early: the player closing inside
+ *                 CHUM_PANIC_R x nerve, and inflating. render.js reads it as a CONTRACT FIELD and
+ *                 squashes the body along its own forward axis by CHUM_VIS.feedSquash — the camera
+ *                 looks straight down, so nose-first into the food is foreshortening, and no
+ *                 roster bake needs a head-down frame.
+ *               oiled (v7.x The Wreck, 0..OIL_STAIN_MAX): PERMANENT, and the only field in this
+ *                 list that is. A body in oil accumulates OIL_STAIN_RATE per second and never gets
+ *                 it back; stepEnemyMovement's slowMul is multiplied by (1 - oiled). BOTH oils
+ *                 stain — the player's look:'bilge' blooms (stepBlooms) and the chapter's own
+ *                 ambient run.slicks (stepSlick) — because it is the same substance. The squid's
+ *                 look:'inkjet' cloud does NOT: it carries slow: 0 and never enters that branch.
+ *                 render.js reads it as a contract field and tints the body toward oil-black,
+ *                 ramped by oiled / OIL_STAIN_MAX. The cap is the safety: uncapped, a shoal herded
+ *                 over the same slick repeatedly would stop dead.
  *               Sim-internal only (not a render contract, do not rely on these): _elCold/_elVenom
  *               (the rolling damage windows the three derived fields above are computed from),
  *               _elFrozen/_elResist (the freeze and its aftermath),
@@ -1014,7 +1034,12 @@ function generateWells(sig) {
  *               sporeburst mini-clouds (SPOREBURST_FRAC of the parent's maxR), spawned when a
  *               non-mini cloud's own tick kills an enemy — minis never spawn further minis.
  *               OPTIONAL `look` tags a cloud as another weapon's (see the Foxfire and Silt Veil
- *               notes below); OPTIONAL `slow: 0` opts it out of BLOOM_SLOW_T entirely; OPTIONAL
+ *               notes below) — or as a CREATURE's: look:'inkjet' is The Wreck's squid, the one entry
+ *               on this array no weapon casts, and the only one that slows the PLAYER (read in
+ *               stepPlayerMovement's MIN, not here — see INK_SLOW_MUL). It carries `slow: 0`, so
+ *               the enemy slow below never touches it. NOT to be confused with The Reef's Squid
+ *               Ink WEAPON, which is a `blind` bloom and a different mechanic entirely;
+ *               OPTIONAL `slow: 0` opts it out of BLOOM_SLOW_T entirely; OPTIONAL
  *               `blind` (seconds, v7.x Squid Ink) refreshes e.blindT on every body inside, every
  *               frame; OPTIONAL `airHold: true` (v7.x Oxygen Tank's boil) is read by stepCharge
  *               ALONE, where it multiplies the chapter bar's drain by zero while the PLAYER stands
@@ -1023,6 +1048,11 @@ function generateWells(sig) {
  *               `daze` (seconds) is Silt Veil's, published into e.stunT against the enemy's own
  *               dazeCd window (see SILT_DAZE_REFRACTORY). It replaced a `fear` field in v7.x --
  *               fear scattered the crowd out of the cloud that was damaging it.
+ *               OPTIONAL `grow` (seconds) overrides dur x BLOOM_GROW_FRAC as the 0 -> maxR ramp for
+ *               this cloud alone; OPTIONAL `trail: true` marks a Bilge pool laid by slickTrail, so
+ *               render can draw the chain of them as one continuous film rather than as a row of
+ *               separately rimmed circles (see BILGE_TRAIL_* in config.js — both fields exist for
+ *               that mod and nothing else).
  *               OPTIONAL `tick` (seconds) overrides BLOOM_TICK for this cloud alone. Silt Veil
  *               sets it from its LEVEL (0.75s at Lv1 down to 0.4s at Lv5), which is why the veil's
  *               dps curve is far steeper than its dmgPerTick ladder alone suggests; Toxin Bloom,
@@ -1391,6 +1421,34 @@ function generateWells(sig) {
  *   spill and ticked down after leaving, exactly as bloomSlowT/fearT decay. Read in stepPlayer,
  *   where it joins the MIN of the speed floors rather than multiplying into them (see the block
  *   there). The LINGER is the design: a slow that ends at the rim is just a wider slick.
+ * orca: null | { state, t, cx, cy, r, ang, x, y, dirX, dirY, hit, alpha } — v7.x The Wreck's apex
+ *   predator, in chapters declaring `orca: true`. A SINGLE NULLABLE OBJECT with a countdown, the
+ *   same idiom as `net` above and never a pool: there is only ever one, and it is UNKILLABLE (no
+ *   hp field, no vulnerability window). `state` walks 'shadow' | 'rising' | 'circling' |
+ *   'committing' | 'leaving'; `t` is the seconds left in the current state; (cx, cy)/r are the
+ *   closing ring's centre and radius (stepPrey reads them — the wall the shoal will not cross);
+ *   (x, y) is the body; ang is its bearing around the ring; (dirX, dirY) is the locked commit
+ *   heading; `hit` latches the once-per-pass player hit (and, in 'shadow', the once-per-pass
+ *   whoosh); alpha is the fade render draws with. null between visits and in every other chapter.
+ *   'shadow' IS THE OPENING AND IT IS HARMLESS: a silhouette that slides under the player, scatters
+ *   the shoal by publishing e.fearT, and clears itself without escalating. No ring, no contact,
+ *   no death — foreshadowing, so the shape is learned before it can hurt.
+ * _orcaAcc: number — seconds until the next orca event. Seeded at ORCA_SHADOW_FIRST (the first
+ *   SHADOW, not the first real visit), then ORCA_SHADOW_GAP / ORCA_SHADOW_LAST_GAP / ORCA_INTERVAL.
+ *   ⚠ IT DOES NOT TICK IN REAL TIME. stepOrca's orcaRush multiplies dt by how packed the water
+ *   around the player is (run._feedN plus live chum baits WEIGHTED BY THE FOOD LEFT IN THEM, capped
+ *   at ORCA_RUSH_MAX), so hoarding a bait ball is what buys the visit — owner: "the more there is
+ *   the more it attacks". A bait the shoal has stripped no longer rings the bell.
+ * _orcaShadows: number — opening shadow passes still owed, ORCA_SHADOW_PASSES down to 0. While
+ *   above zero the countdown produces a harmless pass; at zero the real ladder starts.
+ * {type:'orcaShadow', x, y}: an opening pass at its closest approach to the player — fired ONCE per
+ *   pass, latched on o.hit, at the midpoint rather than at spawn so the whoosh lands when the shape
+ *   is actually underneath you. SFX only (`hole`): the shadow itself is the visual.
+ * {type:'orcaFeed', x, y}: one prey body eaten by the commit sweep. THE DEATH IS UNCREDITED —
+ *   `_dead` and this event, and nothing else (stepLeaks' idiom), so it pays no run.kills, no gem,
+ *   no XP, no Bloodlust and no on-kill proc. All of those live inside dealDamage, which this path
+ *   never enters. Render-only, no SFX entry: a commit eats a dozen fish in under a second, so a
+ *   sound per fish would machine-gun — the strike already has one (`orcaStrike` -> `hole`).
  * _rushT, _rushN: number — BLOODRUSH (gnash's `bloodrush` mod, The Wreck). _rushT is the window in
  *   seconds, refreshed to RUSH_DUR by every bite that actually LANDS; _rushN is how many bites have
  *   stacked, capped at RUSH_MAX_STACKS. Read in stepPlayerMovement, where the pair become a speed
@@ -1535,6 +1593,17 @@ function generateWells(sig) {
  *   t ages to dur, then the lure BURSTS: player-scaled AoE damage (applyDamage) to enemies within
  *   burstR + an {type:'explode', x, y, radius} event, and (sticky, from the stickyScent mod) a
  *   LURE_STICKY_R/DUR slow zone into run.webs (stepLures). Removed on burst. See WEAPONS.lure.
+ *   OPTIONAL `bait: true` (The Wreck's Chum) makes it the same object pointed at fleeing animals:
+ *   stepPrey inverts its response to the seek target, so a baited fish swims TO it. A bait also
+ *   carries `food` (servings left) and `food0` (what it was cast with). Every enemy that reaches
+ *   within CHUM_FEED_R takes one serving, once per bait — the fish remembers which bait it ate at
+ *   in `_fedBait` (the lure object itself), so a second bait feeds it again. At food 0 the bait is
+ *   removed on the spot with a {type:'chumOut'} event, whatever `dur` had left; a bait that ages
+ *   out emits the same event rather than the burst path, since burstR/burstDmg are 0 for chum.
+ *   render sizes the cloud off `aggro` and counts out one chunk per remaining serving, and
+ *   orcaRush weights the orca's arrival by `food` (ORCA_BAIT_FULL_FOOD).
+ * {type:'chumOut', x, y}: a chum bait gone — stripped by the shoal or aged out. Render-only, no
+ *   SFX entry: it is the quiet end of a zone, and the chapter already sounds the cast.
  *
  * ---- v5.4 chapters (undergrowth/city/skies/beyond) ----------------------------------------
  * Behavior flags added to the enemies[].flags vocabulary above (all documented phase by phase on
@@ -1547,7 +1616,15 @@ function generateWells(sig) {
  * else; see stepObstacles), 'phase' (phase flicker), 'pullBeam' (UFO elites),
  * 'guard' (The Surf's Shore Crab: alternates guarded <-> open, refusing DIRECT damage inside a
  * 120-degree arc while guarded — see stepCrabGuard/guardBlocks in sim.js and the CRAB_GUARD_*
- * block in config.js).
+ * block in config.js),
+ * 'inkjet' (The Wreck's Squid: lays a run.blooms cloud tagged look:'inkjet' at its own position when
+ * the player closes inside INK_TRIGGER_R, on a per-fish INK_COOLDOWN. The cloud slows the PLAYER
+ * only — see stepInkjet and the INK_* block),
+ * 'puffup' (The Wreck's Pufferfish: inflates when the player closes inside PUFFER_TRIGGER_R and
+ * refuses EXACTLY ONE direct hit, which pops it; it then drifts at PUFFER_DRIFT_MUL, bitable, for
+ * PUFFER_COOL_T before it may inflate again — see stepPuffUp/guardBlocks and the PUFFER_* block),
+ * 'tight' (The Wreck's Sardine: read inside stepPrey, it swaps PREY_COHESION_BLEND for
+ * TIGHT_COHESION_BLEND and buys nothing else — the ball that will not break).
  * RETIRED v6.9: 'blink' (a crawl punctuated by a burst — it read as teleporting through two
  * rewrites; see the retirement note in config.js before reaching for that shape again).
  * Their phase state lives on sim-internal `_`-prefixed fields following the diveBomb idiom; the
@@ -1557,11 +1634,22 @@ function generateWells(sig) {
  * carry no underscore precisely because they are a render contract, not internals: ROSTER_LOOKS
  * .shorecrab reads `guarding` through poseOf to pick the bake and `guardAngle` through faceDir to
  * turn the body. A guard kept private would step, refuse damage, and never appear on screen.
+ * `e.puffT` (s, The Wreck's Pufferfish) is published for the same reason and read the same way:
+ * ROSTER_LOOKS.pufferfish takes poseOf off it to swap to the inflated ball. guardBlocks also writes
+ * `guardAngle` when a puffer pops, so the guardblock spark below is thrown at the player rather
+ * than due east. Its cooldown `e._puffCd` and the squid's `e._inkCd` stay private — neither is
+ * drawn.
  * {type:'guardblock', x, y, angle}: a direct hit refused by a Shore Crab's raised claw. Pushed
  *   INSTEAD OF {type:'hit'}, never alongside it — a blocked shot removed no HP, and floating its
  *   damage number would be a lie about the one thing the player needs to read. angle = the guard's
  *   held bearing, so the spark can be thrown back along the side that is covered. No SFX entry, and
  *   that is deliberate: it fires on every refused hit, which for a fast weapon is several a second.
+ *   The Wreck's Pufferfish pushes this same event when it pops (guardBlocks) — one refusal, one
+ *   tell, and the ball deflating on the very next frame is the rest of it.
+ * {type:'inkjet', x, y, r} (v7.x, The Wreck's Squid): a cloud squirted. The bloom it leaves fades UP
+ *   over BLOOM_GROW_FRAC of its life, which is far too slow to read as a squirt, so this event is
+ *   the burst and the bloom is what is left of it. No SFX entry, for the guardblock reason above:
+ *   at this chapter's density several squid within INK_TRIGGER_R at once is ordinary.
  * {type:'strafeLock', x, y, angle, len} (v5.9.1 bugfix, see sim.js's stepStrafe): fired ONCE, the
  *   instant a 'strafe' jet's bank ends and its heading locks — the start of STRAFE_TELEGRAPH_T s of
  *   holding position before the fast run. x,y = the jet's (stationary, for the telegraph's
@@ -2340,7 +2428,15 @@ export function createRun(meta, opts = {}) {
     // v7.x The Wreck. Same single-nullable-object idiom as `net` above: the orca is one body with a
     // countdown, never a pool. `{state,t,cx,cy,r,ang,x,y,dirX,dirY,hit,alpha}` — see stepOrca.
     orca: null,
-    _orcaAcc: ORCA_FIRST_PASS,   // first visit is LATE on purpose: the chapter's first 100s are quiet
+    // The countdown seeds at the first SHADOW pass, not at the first real visit: the ladder is
+    // three harmless silhouettes and then the danger, and _orcaShadows is what says which is due.
+    // Its speed is not real time — stepOrca's orcaRush accelerates it with the crowd around you.
+    _orcaAcc: ORCA_SHADOW_FIRST,
+    // Where slickTrail last laid a pool. null until the first one; the mod lays by DISTANCE from
+    // this point rather than on a timer (stepBilgeWeapon, BILGE_TRAIL_STEP_FRAC).
+    _bilgeTrailX: null,
+    _bilgeTrailY: null,
+    _orcaShadows: ORCA_SHADOW_PASSES,
     // v7.x The Deep. _scentT: seconds left on the Scent window the skill button bought; while it
     // is up, stepScent keeps every body inside SCENT_R marked and the player moves at
     // SCENT_SPEED_MUL. _finPrevA / _finSide are Fin Hit's memory of which way you were last
