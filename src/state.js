@@ -6,7 +6,7 @@ import {
   EARLY_CALM, MAX_CHOICE_SLOTS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
-  pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS,
+  pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, ORCA_FIRST_PASS,
   BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, CURRENT_RESIST_FLOOR, unlockLevel, unlockMax,
   lineMax, SACRIFICE_COSTS, BOOK_UNLOCKS, unlockCost, SPUR_TICK } from './config.js'
 
@@ -786,7 +786,8 @@ function generateWells(sig) {
  *               non-elites always carry affixes: [] (harmless to check unconditionally, but
  *               sim.js still guards elite-only affix logic behind `e.elite &&` first for cost).
  *               Elites roll 1 random affix at spawn, 2 distinct ones once run.time >=
- *               AFFIX_SECOND_AT. Render/shield contract: draw a shield bubble while `affixes`
+ *               AFFIX_SECOND_AT. `anchored` is never in that roll: it is layered on top at
+ *               ANCHORED_CHANCE, so ~half of elites carry it as well as their rolled affix(es). Render/shield contract: draw a shield bubble while `affixes`
  *               includes 'shielded' AND `hp > maxHP * SHIELD_HP_FRAC` (the shield "breaks" once
  *               hp drops under that fraction, matching the reduced-damage window in sim.js).
  *
@@ -1005,7 +1006,7 @@ function generateWells(sig) {
  *               already visual-safe here since it re-reads h.radius/coreRadius every frame. Big
  *               Crunch (v4.3): on expiry a hole collapses in one last detonation at its FINAL
  *               radius — an {type:'explode'} event, no new field.
- * blooms[i]:    { x, y, r, maxR, t, dur, dmgPerTick, _mini? }  Toxin Bloom clouds (v5.0 pond
+ * blooms[i]:    { x, y, r, maxR, t, dur, dmgPerTick, tick?, _mini? }  Toxin Bloom clouds (v5.0 pond
  *               native, sim-owned/render-drawn). Planted by stepBloomWeapon at a random enemy
  *               within castRange (fallback: a random offset near the player); r grows 0 -> maxR
  *               over dur × BLOOM_GROW_FRAC (see config.js) then holds maxR; every BLOOM_TICK it
@@ -1023,8 +1024,19 @@ function generateWells(sig) {
  *               `daze` (seconds) is Silt Veil's, published into e.stunT against the enemy's own
  *               dazeCd window (see SILT_DAZE_REFRACTORY). It replaced a `fear` field in v7.x --
  *               fear scattered the crowd out of the cloud that was damaging it.
+ *               OPTIONAL `tick` (seconds) overrides BLOOM_TICK for this cloud alone. Silt Veil
+ *               sets it from its LEVEL (0.75s at Lv1 down to 0.4s at Lv5), which is why the veil's
+ *               dps curve is far steeper than its dmgPerTick ladder alone suggests; Toxin Bloom,
+ *               Foxfire and sporeburst minis carry none and keep the shared 0.5s. Note the daze
+ *               rides this same tick, so a low-level cloud also re-dazes more slowly.
  *               OPTIONAL `arc` (full cone angle, rad) + `angle` (its bearing) make the bloom a
  *               WEDGE instead of a disc, apex at (x, y): Silt Veil's, and the only one today.
+ *               ⚠ A look:'silt' bloom is NOT always the Silt Veil's own cast. Three other sites
+ *               push one (spawnSiltCloud in sim.js): Foul Spring turns a whole clean-water
+ *               patch into a disc of its radius, and the two DUO BOONS -- ballast.siltPlume
+ *               (three around a landing) and downwash.siltFlush (one huge one on the burst).
+ *               All three are DISCS with no `arc`, all three carry the veil's live
+ *               dmgPerTick/dur/daze, and that is how they are told apart from a cast cone.
  *               Both passes in stepBlooms route through inSector when `arc` is present, so a
  *               cone hits exactly what the whip and the claw would hit; render.js rotates the
  *               puff rig to `angle` and marches its puffs down the axis. A cone NEVER moves
@@ -1625,9 +1637,12 @@ function generateWells(sig) {
  * debris[i]: { x, y, r, tgt } — Trash Tornado funnels (city weapon). v6.8: NOT the run.orbs
  *   contract any more — these PERSIST between frames, because a funnel hunts and so carries its
  *   own position. stepTornadoWeapon resizes the array to `chunks` and moves each entry: toward
- *   `tgt` (the enemy object it has claimed, sticky while that enemy is alive and inside `hunt` px
- *   of the PLAYER) at travelSpeed, or spiralling back into a ring of `radius` around the player at
- *   rotSpeed when tgt is null. r = DEBRIS_R. `tgt` is sim-internal — render draws x/y/r only.
+ *   `tgt` (the enemy object it has claimed, sticky while that enemy is alive and its BODY is
+ *   inside `hunt` px of the PLAYER — the leash is `hunt + e.radius`, so a big foe is reachable by
+ *   its hide rather than its centre) at travelSpeed, or spiralling back into a ring of `radius`
+ *   around the player at rotSpeed when tgt is null. Funnels prefer one target each, but double up
+ *   on a foe that survives what is already on it rather than idling, and a damage tick is worth
+ *   every funnel standing on the body. r = DEBRIS_R. `tgt` is sim-internal — render draws x/y/r.
  * zones[i]: { x, y, r, fuse, dur, dmg, delay?, jetDur?, tick?, nStreams?, jet?, streams?, _cd?,
  *   _chained?, a?, d? }
  *   — telegraphed zones (Burst Hydrant, city weapon; also reused by the Reality Shard's tornSeam
@@ -2313,6 +2328,10 @@ export function createRun(meta, opts = {}) {
     // null between passes, and null forever in every chapter whose signature is not `trawl`.
     net: null,
     _netAcc: TRAWL_FIRST_PASS,   // NOT the interval — see its block for why the first pass is early
+    // v7.x The Wreck. Same single-nullable-object idiom as `net` above: the orca is one body with a
+    // countdown, never a pool. `{state,t,cx,cy,r,ang,x,y,dirX,dirY,hit,alpha}` — see stepOrca.
+    orca: null,
+    _orcaAcc: ORCA_FIRST_PASS,   // first visit is LATE on purpose: the chapter's first 100s are quiet
     // v7.x The Deep. _scentT: seconds left on the Scent window the skill button bought; while it
     // is up, stepScent keeps every body inside SCENT_R marked and the player moves at
     // SCENT_SPEED_MUL. _finPrevA / _finSide are Fin Hit's memory of which way you were last
