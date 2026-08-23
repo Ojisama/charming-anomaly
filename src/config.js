@@ -7255,23 +7255,28 @@ CHAPTERS.wreck = {
     //           4.5             25.4 /  51%               4.9 /  76%              5.18x
     //   (base save, hoard spend, 3 seeds x 300s, immortal, `hunt` and `ignore` from WRECK_MOVES.)
     //
-    // ⚠ THAT TABLE IS THE THREE-ENTRY ROSTER'S AND IT NO LONGER DESCRIBES THIS CHAPTER. Re-measured
-    // after the prey rework (six entries, chum servings + feeding hold, the orca eating uncredited),
-    // the SAME 2.4 reads hunt 87.7 / ignore 42.3 — separation 2.07x where the fit bought 5.38x. Both
-    // halves rose because gnash now darts onto a denser, softer, more varied field even under a
-    // passive walk; the gap is what collapsed, and the gap is the whole thesis. Refit, same rig:
+    // ⚠ THAT TABLE IS THE THREE-ENTRY ROSTER'S AND IT NO LONGER DESCRIBES THIS CHAPTER. The prey
+    // rework (six entries, chum servings + feeding hold, the orca eating uncredited) collapsed the
+    // separation the fit bought: the SAME 2.4 measured 2.07x where it had been 5.38x, because gnash
+    // now darts onto a denser, softer, more varied field even under a passive walk. Both halves rose;
+    // the GAP is what fell, and the gap is the whole thesis. Refit, same rig, on the current tree
+    // (i.e. after v7.204.0 deleted killRefill from every resource chapter):
     //      drainPerSpawn    hunt: mean / at-zero     ignore: mean / at-zero     separation
-    //           1.6             93.8 /   0%             74.6 /   6%              1.26x
-    //           2.4             87.7 /   3%             42.3 /  18%              2.07x
-    //           2.8             84.4 /   4%             38.4 /  23%              2.20x
-    //           3.2             70.9 /  11%             24.5 /  36%              2.89x
-    //           4.0             60.3 /  15%             19.3 /  48%              3.12x
-    // 3.2 is where separation is still climbing and the hunter is still healthy (median 84.8). At
-    // 4.0 it overshoots exactly as 4.5 did before: separation stops paying and the hunter starts
-    // sitting at zero too. Note 3.2 is GENTLER on the passive player than the original 2.4 was
-    // (24.5/36% against 9.6/58%) — the chapter kept its teeth by other means.
+    //           1.6             94.3 /   1%             81.9 /   2%              1.15x
+    //           2.4             88.2 /   2%             58.0 /  14%              1.52x
+    //           2.8             86.3 /   4%             43.7 /  20%              1.97x
+    //           3.2             78.0 /   7%             33.5 /  30%              2.33x
+    // 3.2 is where separation is still climbing and the hunter is still healthy (median 89.6, at zero
+    // 7% of the run). Pre-merge the same sweep found the overshoot at 4.0, where separation stops
+    // paying and the HUNTER starts sitting at zero — do not chase the old 5.38x by going past 3.2.
+    // ⚠ 3 SEEDS, AND NOISIER THAN THE FIRST SWEEP: single-cell separation is +/-0.3-0.4x and the
+    // ignore arm's kill count is non-monotonic across it. Read the trend, not one row.
+    // ⚠ LOSING killRefill DID NOT MAKE THIS HARSHER, which was the obvious prediction and it was
+    // wrong: at matching drainPerSpawn the passive player's mean ROSE (2.4: 42.3 -> 58.0), because
+    // something else in the same nine versions raised its kill count 42%. Measure, do not reason
+    // from the diff.
     // ⚠ SEPARATION IS NO LONGER DRAINPERSPAWN'S ALONE, which is why 5.38x is not the target any more:
-    // 50.3% of every prey death in an `ignore` run is the ORCA eating it (23.2% hunting). A player
+    // ~39-41% of every prey death in an `ignore` run is the ORCA eating it (~20% hunting). A player
     // who stands off both earns less and has the rest stolen. That punishment used to be the drain's
     // job entirely. orcaRush and tankRefill are the other levers on this number now.
     //
