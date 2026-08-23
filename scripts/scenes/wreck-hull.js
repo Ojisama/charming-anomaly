@@ -7,9 +7,9 @@
 //
 // ⚠ `--chapter wreck` IS NOT OPTIONAL AND ITS ABSENCE IS SILENT (see wreck-place.js).
 //
-// WHY IT SOLVES FOR THE PLAYER POSITION INSTEAD OF WALKING: the hulls sit on a 2450px grid in
-// PARALLAX space at 0.45, so they repeat every 2450/0.45 = 5444 WORLD px and only ~80% of cells
-// hold one. A walking scene therefore returns mostly empty water, and an empty frame reads as
+// WHY IT SOLVES FOR THE PLAYER POSITION INSTEAD OF WALKING: the hulls sit on a 3200px grid in
+// PARALLAX space at 0.45, so they repeat every 3200/0.45 = 7111 WORLD px and not every cell holds
+// one. A walking scene therefore returns mostly empty water, and an empty frame reads as
 // "there is no ship" rather than as "you did not walk far enough" — the failure wreck-place.js's
 // own header warns about. This reproduces updateWreckHull's cell hash, picks cells that DO hold a
 // hull, and inverts the parallax transform so the chosen one lands in the middle of the frame:
@@ -29,13 +29,17 @@ const hash = (n) => { const s = Math.sin(n) * 43758.5453; return s - Math.floor(
 // ⚠ ONLY CELLS THAT ACTUALLY HOLD A HULL. updateWreckHull skips a cell when
 // hash(i*3.7 + j*11.3 + 5.1) > chance, so naming a cell that fails that test shoots open water and
 // reads as "the ship is invisible" — the exact false report this scene exists to prevent. Re-derive
-// this list if `chance` moves.
+// this list if `chance` moves. At chance 0.90 every cell in the -2..2 block holds one.
 const CELLS = [[0, 0], [-1, -1], [-2, -2], [-1, 1], [0, 1], [-2, 0]]
 // ⚠ MIRRORS CHAPTERS.wreck.render.hull.{cell,parallax}. They are literals here because the page
 // does not expose the config object, and when they go stale this scene silently shoots OPEN WATER
 // rather than erroring — which is exactly the "the ship is invisible" false report it exists to
 // prevent. If a frame comes back empty, check these two numbers FIRST.
-const CS = 2750, PX = 0.45
+// ⚠ AND CS_JITTER MUST BE `HULL_JITTER * 2`, NOT THE OLD 0.5. This scene was written in the same
+// commit that moved HULL_JITTER 0.25 -> 0.13 and it kept the old factor, so "one hull centred per
+// frame" was false by up to 326px — 84% of a phone width — while the header claimed otherwise. A
+// rig that lies about its own framing turns every art judgement into an argument about the rig.
+const CS = 3200, PX = 0.45, CS_JITTER = 0.26
 
 H.note('frames: one hull centred per frame, six different cells (rotation is hashed per cell)')
 
@@ -51,8 +55,8 @@ return () => {
   p.hp = p.maxHP
 
   const [ci, cj] = CELLS[i % CELLS.length]
-  const hx = (ci + 0.5) * CS + (hash(ci * 7.1 + cj * 2.9 + 13.3) - 0.5) * CS * 0.5
-  const hy = (cj + 0.5) * CS + (hash(ci * 2.3 + cj * 5.7 + 29.7) - 0.5) * CS * 0.5
+  const hx = (ci + 0.5) * CS + (hash(ci * 7.1 + cj * 2.9 + 13.3) - 0.5) * CS * CS_JITTER
+  const hy = (cj + 0.5) * CS + (hash(ci * 2.3 + cj * 5.7 + 29.7) - 0.5) * CS * CS_JITTER
   const tx = (hx - (app.screen.width / 2) * (1 - PX)) / PX
   const ty = (hy - (app.screen.height / 2) * (1 - PX)) / PX
   p.x = tx

@@ -7417,16 +7417,19 @@ CHAPTERS.wreck = {
     // hashed per cell (there was one texture and one uniform scale). A stale comment here is worse
     // than none, because the next tuner trusts it instead of measuring. Both are now true.
     hull: {
-      // ⚠ cell, len, HULL_JITTER and HULL_SCALE_MAX (render.js) ARE ONE DECISION. The invariant is
-      //     cell * (1 - 2 * HULL_JITTER) >= len * HULL_SCALE_MAX
-      // and run WK asserts it, because getting it wrong does not look like a spacing bug — two
-      // sprites at alpha a stack to 1-(1-a)², so an overlap is a visibly BRIGHTER quadrilateral with
-      // straight edges belonging to neither wreck, which reads as a rendering artefact. The old pair
-      // (cell 2450, jitter ±0.25) allowed 1225px between two 1820px hulls and did exactly that.
-      // 2750 x 0.74 = 2035 against 1820 x 1.08 = 1966. Small margin, deliberately: a graveyard wants
-      // its hulls close, it just does not want them inside each other.
-      cell: 2750,
-      chance: 0.85,      // under 1 so the field reads as a graveyard rather than as a lattice
+      // ⚠ cell, len, HULL_JITTER, HULL_SCALE_MAX and HULL_EXTENT (render.js) ARE ONE DECISION.
+      //     cell * (1 - 2 * HULL_JITTER) >= len * HULL_SCALE_MAX * HULL_EXTENT
+      // run WG asserts it, because getting it wrong does not look like a spacing bug — two sprites
+      // at alpha a stack to 1-(1-a)², so an overlap is a visibly brighter quadrilateral with
+      // straight edges belonging to neither wreck, which reads as a rendering artefact. The first
+      // pair (cell 2450, jitter ±0.25) allowed 1225px between two 1820px hulls and did exactly that.
+      // ⚠ THE SECOND PAIR STILL DID, AND THE GUARD PASSED, because it was stated over `len` — and
+      // the TEXTURE is not `len` long. bake() frames the drawing's real bounds and the drawing
+      // reaches outboard of the plating (the scour pit, the silt banks), so the stamped sprite is
+      // ~1.15x the stated length and two hulls could still touch by ~300px. HULL_EXTENT is that
+      // factor. 3200 x 0.74 = 2368 against 1820 x 1.12 x 1.15 = 2344.
+      cell: 3200,
+      chance: 0.90,      // under 1 so the field reads as a graveyard rather than as a lattice
       parallax: 0.45,    // fraction of camera motion the layer takes. 1 = welded to the world, 0 =
                          // pinned to the screen. Under 1 = deeper. Far under and it reads as a
                          // painted backdrop that slides, which is the failure mode to shoot for.

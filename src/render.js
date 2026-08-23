@@ -5892,91 +5892,88 @@ export function createRenderer(app) {
       T.drum = bake(g)
     }
     {
-      // THE SUNKEN SHIP — the thing the chapter is named after. A stern trawler on the bottom, seen
-      // from directly overhead like everything else that is not a building, BROKEN IN TWO and
+      // THE SUNKEN SHIP — the thing the chapter is named after. A ~70m stern trawler on the bottom,
+      // seen from directly overhead like everything else that is not a building, BROKEN IN TWO and
       // SETTLING. Owner: "I'd like a big sunken ship behind with parallax effect."
       //
-      // ⚠ IT IS DRAWN FOR ITS CROP, NOT FOR ITS WHOLE. The hull is 1820px long on a 390px-wide
-      // phone, so the player almost never sees an end of it. The first cut put all its information
-      // at the extremities — a pointed bow, a gantry over the stern — leaving every real frame
-      // cropped to flat fill.
+      // THIS BAKE HAS BEEN WRONG THREE TIMES AND EACH TIME FOR A DIFFERENT REASON. All three are
+      // written down because the third one is invisible in a screenshot and cost two full rounds.
       //
-      // ⚠ AND THE SECOND CUT'S ANSWER TO THAT WAS WRONG IN A WAY ONLY A FRAME SHOWS. "Make the
-      // structure continuous" was read as a uniform LATTICE — a spine, two deck rails and sixteen
-      // evenly spaced transverse frames — and a uniform lattice is the one pattern that is NOT a
-      // ship. Measured off the shipped frames it was a 91 x 121 world-px grid with a chevron at one
-      // end: a road with lane markings and a junction arrow, which is this game's OWN grammar for a
-      // street grid. Both reviews reached "drowned city block" independently. Regularity makes a
-      // crop read as MANUFACTURED. It does not make it read as a VESSEL, and those are different
-      // jobs. Whatever else changes here, do not put the spine and the two full-length rails back.
+      // ⚠ 1 IT WAS DRAWN FOR ITS WHOLE INSTEAD OF FOR ITS CROP. The hull is 1820px long on a
+      // 390px-wide phone, so the player almost never sees an end of it, and the first cut put all
+      // its information at the extremities — a pointed bow, a gantry over the stern — leaving every
+      // real frame cropped to flat fill.
       //
-      // ⚠ THE THIRD THING THAT WAS WRONG DOES NOT SHOW IN A SCREENSHOT AT ALL, AND IT IS THE ONE
-      // THAT MATTERED MOST. The old bake authored three greys (0xffffff / 0xcfcfcf / 0x4a4a4a) and
-      // then shipped them through ONE multiply tint and ONE alpha, which divides every authored
-      // delta by about three and then again by the tint. Composited, the whole ship lived inside a
-      // luminance band 0.049-0.067 wide: the interior lines sat at 1.18:1 against their own plate,
-      // and the outline stroke — nominally the silhouette — came out DARKER THAN THE BARE FLOOR by
-      // 0.002. The chapter's own ambient light patches (L 0.088) out-valued the hull plate (L 0.066),
-      // i.e. the wreck lost a value contest to a lighting gradient. So: RANGE HAS TO BE BOUGHT
-      // INSIDE THE BAKE AND PAID FOR WITH ALPHA. Every value below sits at one END of the range on
-      // purpose and the middle is left deliberately empty; cfg.alpha went 0.34 -> 0.5 to pay for it.
+      // ⚠ 2 THE FIX FOR THAT WAS A LATTICE. "Make the structure continuous" became a spine, two
+      // full-length deck rails and sixteen evenly spaced transverse frames — measured off the
+      // shipped frames, a 91 x 121 world-px grid with a chevron at one end, which is this game's OWN
+      // grammar for a street grid. Two independent reviews reached "drowned city block" without
+      // conferring. Regularity makes a crop read as MANUFACTURED; it does not make it read as a
+      // VESSEL. Do not put the spine and the two full-length rails back.
       //
-      // What the bake is organised around, in priority order:
-      //   VOIDS     a hole is the only element that reads reliably through a tint and an alpha,
-      //             because it is the one place the floor colour does not come through. Open hatches,
-      //             the engine room, the stern ramp and the fracture are all near-black. Every
-      //             opening in a real wreck is the darkest thing in the picture — that is what an
-      //             aerial photograph of one looks like.
-      //   SHADOW    in plan view, cast shadow is the ONLY height cue there is: no parallax inside a
-      //             sprite, no perspective. Everything that stands up — wheelhouse, gantry, drum,
-      //             winches, the felled mast — lays an offset dark copy of itself on the deck, all
-      //             displaced the same way (SHX/SHY). This is what gives the sprite mass, and the
-      //             chapter's own props already do it.
-      //   SHEER     one continuous deck-edge curve the whole length with a second a bulwark's width
-      //             outboard. Two long curves holding a near-constant gap and slowly converging are
-      //             a hull; nothing else on a seabed does that.
-      //   INCIDENT  irregular, non-repeating deck furniture, so any 390px window holds at least one
-      //             nameable object rather than more of the same rhythm.
-      // Ribs did not go away, they moved: frames are drawn ONLY where the plating is gone. Exposed
-      // frames inside a tear are what a wreck looks like; frames ruled across intact deck are what a
-      // blueprint looks like, which is the drawing the lattice actually was.
+      // ⚠ 3 AND THE REAL ONE: THE VALUES NEVER SURVIVED THE TINT, AND NO SCREENSHOT SAYS SO. One
+      // multiply tint and one alpha divide every delta the bake authors. Composited on this floor:
+      //     the ORIGINAL ship lived inside a luminance band 0.018 wide — interior lines at 1.18:1
+      //     against their own plate, outline stroke DARKER THAN THE BARE FLOOR by 0.002;
+      //     the SECOND cut spent the whole new range downward, on holes. Voids reached 1.83:1
+      //     against the deck, and the hull's own outer band still measured 1.05:1 against the sand
+      //     while the sheer highlight measured 1.09:1 against the deck it sat on. So the drawing
+      //     was three black rectangles floating in a pale haze with no edge anywhere, and the
+      //     ragged fracture — correct geometry, in the silhouette, exactly as asked — could not be
+      //     located in twelve captures.
+      // The rule that came out of it, and the one worth keeping:
+      //     PUT THE HIGHEST-CONTRAST PAIR ON THE SILHOUETTE, AND MAKE THE DARK END ACTUALLY DARK.
+      // A single mark's contrast against the FLOOR is not yours to choose — the chapter's own
+      // lighting gradient spans 1.94:1, so the same deck pixel measures 1.40:1 on dark ground and
+      // 1.02:1 on an ambient patch. What IS stable is the ratio between two adjacent marks of the
+      // sprite, because they share the alpha. Hence a pale deck held inside a HARD DARK RIM: that
+      // pair holds 1.64-1.69:1 over every floor value in the chapter, and the rim IS the sheer, IS
+      // the silhouette and IS the torn fracture face, so one value collects three failures.
+      // Corollary, and it is why the palette below has a hole in the middle: no pale mark can ever
+      // beat this chapter's light patches (1.14:1 at the physical ceiling, with alpha at 1.0), while
+      // a near-black one gets 1.90:1 there and never drops below 1.25:1 anywhere. Dark wins. Author
+      // at the two ENDS and leave 0x40-0xc0 empty.
       //
-      // ⚠ HOW BIG SHE IS, because the two reviews disagreed and the disagreement is instructive.
-      // The naval read called 4.65:1 far too fine for a trawler and asked for 3.3-3.7:1; the art
-      // read measured the beam at 391px against a 390px phone and asked for LESS, because an object
-      // whose two gunwales are never in frame together has no silhouette by construction. They only
-      // conflict if the boat is small: 3.5:1 is right for a 23m inshore boat and wrong for a deep-sea
-      // stern trawler, which runs 5.5-6.5:1. So she is committed as a ~70m stern trawler — L:B 6:1,
-      // beam 303px, both gunwales on a phone with room to spare — and the layout follows that type
-      // rather than splitting the difference: wheelhouse FORWARD, whole working deck aft of it,
-      // gantry and net drum over the stern, and a ramp cut into the transom. Owner: "boats should be
-      // wayyyy bigger", so `len` did not move; the beam ratio did.
+      // ⚠ AND MEASURE IT. Every claim in this header is a contrast ratio decoded out of a frame, not
+      // an impression. The second cut's header called the sheer "two long curves nothing else on a
+      // seabed does" over a mark at 1.09:1. If you cannot state it as a ratio, do not write it as a
+      // principle.
       //
-      // Baked at HULL_REF half-length and scaled by CHAPTERS.wreck.render.hull.len, so the config
-      // number is the only place the size is stated.
+      // ⚠ HOW BIG SHE IS, because two reviews disagreed and the disagreement is instructive. The
+      // naval read called 4.65:1 far too fine for a trawler and asked for 3.3-3.7:1; the art read
+      // measured the beam at 391px against a 390px phone and asked for LESS, because an object whose
+      // two gunwales are never in frame together has no silhouette by construction. They conflict
+      // only if the boat is small: 3.5:1 is right for a 23m inshore boat and wrong for a deep-sea
+      // stern trawler, which runs 5.0-6.5:1. So she is committed as a ~70m STERN TRAWLER at 6:1,
+      // beam 302px, and the layout follows that type rather than splitting the difference —
+      // wheelhouse forward, the whole working deck aft of it, gantry and net drum over the stern,
+      // and a RAMP cut into the transom. Owner: "boats should be wayyyy bigger", so `len` did not
+      // move; the beam ratio did.
+      //
+      // Baked at HULL_REF half-length and scaled by CHAPTERS.wreck.render.hull.len.
       const g = new Graphics()
       const L = HULL_REF, B = HULL_REF * 0.166
-      const VOID = 0x080808     // flooded inside, open hatch, stern ramp. The anchor of the range.
-      const SHADE = 0x262626    // cast shadow on the deck
-      const STRUCT = 0x4e4e4e   // anything that STANDS UP. Dark on purpose — see the note below.
-      const SCOUR = 0x3a3a3a    // the moat the current digs round a hull
-      const SIDE = 0x8a8a8a     // side plating / bulwark, seen edge-on
-      const DECK = 0xdcdcdc     // deck plating: the pale wash the rest is read against
-      const RAIL = 0xffffff     // lit edges only — sheer, coamings, the top of the gantry
-      const GROWTH = 0x6e6e6e   // biofouling, on upstanding edges and one flank
-      const SILT = 0xb4b4b4     // sediment, drawn last so it EATS detail
-      // ⚠ STRUCT IS DARKER THAN DECK, WHICH IS THE OPPOSITE OF THE OLD BAKE, AND IT IS A PHYSICAL
-      // RULE RATHER THAN A TASTE CALL. What you see through fifty metres of water is mostly veiling
-      // light scattered in by the column ABOVE the object, so less water above a surface means less
-      // veil: the taller a part stands, the darker and crisper it reads. The old cut had it exactly
-      // inverted — wheelhouse and gantry were the brightest things on the sprite — which is why they
-      // read as painted markings rather than as structures standing on a deck.
-      const SHX = L * 0.011, SHY = L * 0.020   // one shadow direction for the whole ship
+      // ---- THE PALETTE. Two ends and an empty middle, on purpose (see ⚠3) ------------------------
+      const VOID = 0x070707     // holes: hatches, engine room, the gash, the ramp mouth
+      const SCOUR = 0x0e0e0e    // the pit the current digs round a hull
+      const SHADE = 0x141414    // contact shadow. Drawn at alpha 0.8 — see the note on `block`.
+      const SIDE = 0x2a2a2a     // ⚠ THE RIM. Hull side band, torn faces, debris, exposed frame ends.
+                                // This one constant is the silhouette, the sheer and the fracture.
+      const STRUCT = 0x3a3a3a   // anything that stands up
+      //  --- nothing lives between here and there ---
+      const SILT = 0xc8c8c8     // sediment banked against the hull, drawn last
+      const DECK = 0xd8d8d8     // deck plating: the pale field the dark marks are read against
+      const RAIL = 0xffffff     // the few lit edges: coaming lips, ramp bars, gantry top
+      // ⚠ STRUCT AND SIDE ARE DARKER THAN DECK, WHICH IS THE OPPOSITE OF THE FIRST TWO CUTS, AND IT
+      // IS A PHYSICAL RULE RATHER THAN A TASTE CALL. What you see through fifty metres of water is
+      // mostly veiling light scattered in by the column ABOVE the object, so less water above a
+      // surface means less veil: the taller a part stands, the darker and crisper it reads. The old
+      // cuts had it exactly inverted — wheelhouse and gantry were the brightest things on the sprite
+      // — which is why they read as painted markings rather than as structures standing on a deck.
 
-      // Rotate a flat [x, y, …] list about (ox, oy). The aft section is now genuinely canted rather
-      // than described as canted: the previous cut's comment said "offset and canted" over
-      // coordinates whose centreline drifted 0.005 rad — three tenths of one degree — so the two
-      // halves were coaxial and read as one continuous object.
+      // Rotate a flat [x, y, …] list about (ox, oy). The aft section is genuinely canted rather than
+      // described as canted: an earlier comment said "offset and canted" over coordinates whose
+      // centreline drifted 0.005 rad — three tenths of one degree — so the halves were coaxial.
       const turn = (pts, a, ox, oy) => {
         const c = Math.cos(a), s = Math.sin(a), out = []
         for (let i = 0; i < pts.length; i += 2) {
@@ -5985,94 +5982,132 @@ export function createRenderer(app) {
         }
         return out
       }
-      const AFT_A = -0.30, AFT_OX = -L * 0.66
-      const aft = (pts) => turn(pts, AFT_A, AFT_OX, 0)
-      const shd = (pts) => pts.map((v, i) => (i % 2 ? v + SHY : v + SHX))
+      const aft = (pts) => turn(pts, -0.30, -L * 0.60, 0)
+      const shiftX = (pts, d) => pts.map((v, i) => (i % 2 ? v : v + d))
       const grow = (pts, kx, ky, cx) => pts.map((v, i) => (i % 2 ? v * ky : cx + (v - cx) * kx))
+      // Dilate a polygon about its OWN centroid — the contact shadow, and the reason it is a
+      // dilation rather than the offset copy the first attempt used: the sprite is stamped rotated
+      // (grain ± 34°) and y-mirrored half the time, so a BAKED directional shadow gives every wreck
+      // in the field a different light direction, which is impossible under one downwelling sun and
+      // reads as "stamp" faster than any repeated geometry does. It is also the more physical
+      // answer: at the depth this drawing's own veiling-light rule assumes, the light field is
+      // near-isotropic in azimuth, so real wreck survey shows ambient occlusion banked at the foot
+      // of a structure, not a cast shadow beside it. Rotation-invariant, mirror-invariant, free.
+      const halo = (pts) => {
+        let cx = 0, cy = 0
+        for (let i = 0; i < pts.length; i += 2) { cx += pts[i]; cy += pts[i + 1] }
+        cx /= pts.length / 2; cy /= pts.length / 2
+        return pts.map((v, i) => (i % 2 ? cy + (v - cy) * 1.30 : cx + (v - cx) * 1.16))
+      }
 
       // ---- THE FRACTURE, AUTHORED ONCE AND USED BY BOTH HALVES -----------------------------------
       // They were one piece of steel: whatever tongue stands proud on the forward section's aft face
-      // has to be the matching notch in the aft section's forward face. The old cut strokes two
-      // unrelated squiggles of different amplitudes INBOARD of two dead-straight polygon edges, so
-      // the silhouette was a clean guillotine and the raggedness was interior decoration at an
-      // effective 0.31 alpha — which is why "broken in two" appeared in none of the shipped frames.
-      // One curve, used as the aft boundary of the bow half and the forward boundary of the stern
-      // half. Butted they would mate exactly; the visible mismatch after the cant is then precisely,
-      // and only, what says THESE WERE ONE OBJECT AND ARE NOT ANY MORE.
-      const FRAC = []
-      for (let k = 0; k <= 7; k++) {
-        FRAC.push(-L * 0.02 + (hash(k * 5.9 + 2.3) - 0.5) * L * 0.075, -B + (k / 7) * 2 * B)
-      }
-      // Metres, not the old 1.4m crack: a broken-backed hull separates by hull-fractions, because the
-      // lighter half kites as it goes down.
-      const GAP = L * 0.30
+      // is the matching notch in the aft section's forward face. One curve, used as the aft boundary
+      // of the bow half and — shifted by the gap — as the forward boundary of the stern half. Butted
+      // they would mate exactly; the mismatch after the cant is then precisely, and only, what says
+      // THESE WERE ONE OBJECT AND ARE NOT ANY MORE.
+      //
+      // ⚠ IT IS A STAIRCASE, NOT A WIGGLE. A hull-girder failure tears from a stress riser and
+      // FOLLOWS THE PLATING: long runs along a fore-and-aft seam, short jumps across a butt. The
+      // earlier cut drew eight small perpendicular wiggles totalling 2.2m of relief on an 11.6m
+      // beam, which the 17° cant then swamped with 3.5m of lateral offset for free — the tear's own
+      // signature was a third of the noise around it. This is 9.8m of relief in four plate runs,
+      // skewed off athwartships, which is what a survey photograph of a broken back looks like.
+      const FRAC = [
+        L * 0.20, -B, L * 0.20, -B * 0.52,
+        L * 0.02, -B * 0.52, L * 0.02, B * 0.04,
+        -L * 0.08, B * 0.04, -L * 0.08, B * 0.56,
+        L * 0.14, B * 0.56, L * 0.14, B,
+      ]
+      const GAP = L * 0.22
+      const AFT_FACE = shiftX(FRAC, -GAP)
 
       // ---- OUTLINES -------------------------------------------------------------------------------
       // A blunt convex stem, not a dart. From overhead you see the DECK EDGE, and flare means the
-      // deck edge is far fuller forward than the waterline is — the old two-straight-lines-to-a-point
-      // bow is a waterline plan drawn where a deck plan belongs, and it tapered to zero width, which
-      // is a knife rather than a stem with a bow roller on it.
+      // deck edge is far fuller forward than the waterline is — an earlier cut's two straight lines
+      // to a mathematical point is a waterline plan drawn where a deck plan belongs, and it tapered
+      // to zero width, which is a knife rather than a stem with a bow roller on it.
       const FWD = [
         L * 0.995, -B * 0.11, L * 0.965, -B * 0.36, L * 0.90, -B * 0.60, L * 0.795, -B * 0.79,
-        L * 0.63, -B * 0.92, L * 0.42, -B * 0.99, L * 0.19, -B, L * 0.02, -B * 0.99,
+        L * 0.63, -B * 0.92, L * 0.45, -B * 0.99, L * 0.30, -B,
         ...FRAC,
-        L * 0.02, B * 0.99, L * 0.19, B, L * 0.42, B * 0.99, L * 0.63, B * 0.92,
-        L * 0.795, B * 0.79, L * 0.90, B * 0.60, L * 0.965, B * 0.36, L * 0.995, B * 0.11,
+        L * 0.30, B, L * 0.45, B * 0.99, L * 0.63, B * 0.92, L * 0.795, B * 0.79,
+        L * 0.90, B * 0.60, L * 0.965, B * 0.36, L * 0.995, B * 0.11,
       ]
       const AFT = aft([
-        ...FRAC.map((v, i) => (i % 2 ? v : v - GAP)),
-        -L * 0.42, B * 0.99, -L * 0.62, B, -L * 0.79, B * 0.94, -L * 0.91, B * 0.82,
-        -L * 0.975, B * 0.60, -L, B * 0.34,
-        -L, -B * 0.34, -L * 0.975, -B * 0.60, -L * 0.91, -B * 0.82, -L * 0.79, -B * 0.94,
-        -L * 0.62, -B, -L * 0.42, -B * 0.99,
+        ...AFT_FACE,
+        -L * 0.46, B * 0.99, -L * 0.66, B, -L * 0.81, B * 0.94, -L * 0.92, B * 0.82,
+        -L * 0.978, B * 0.60, -L, B * 0.34,
+        -L, -B * 0.34, -L * 0.978, -B * 0.60, -L * 0.92, -B * 0.82, -L * 0.81, -B * 0.94,
+        -L * 0.66, -B, -L * 0.46, -B * 0.99,
       ])
-      // The deck, one bulwark inboard of the sheer. Authored rather than derived: an inset that is
-      // proportional to the beam runs to zero at the stem, i.e. exactly where a bow's bulwark is at
-      // its most obvious from above. The band is ~0.16B — about 0.9m on a 70m boat, so roughly twice
-      // life size. Deliberate: a true 0.1-0.2m gunwale is three screen pixels and the SHEER cue dies
-      // with it, and this is the one exaggeration in the drawing.
+      // The deck, one bulwark inboard of the sheer, so the band between them is the dark rim. Its
+      // torn end is the SAME staircase shifted 1.7m inboard of the hull's — plating peeled back from
+      // the fracture, and it keeps the rim a constant width all the way round including the tear.
+      // The band is ~0.17B, about 1m on a 70m boat against a real gunwale's 0.15-0.25m. That 4-6x
+      // is the one deliberate exaggeration in the drawing: at life size the rim is three screen
+      // pixels and the whole silhouette argument above dies with it.
       const DFWD = [
-        L * 0.955, -B * 0.05, L * 0.925, -B * 0.24, L * 0.865, -B * 0.45, L * 0.765, -B * 0.63,
-        L * 0.61, -B * 0.76, L * 0.41, -B * 0.83, L * 0.19, -B * 0.84, L * 0.03, -B * 0.83,
-        -L * 0.005, -B * 0.55, -L * 0.045, -B * 0.10, -L * 0.02, B * 0.35, -L * 0.05, B * 0.72,
-        L * 0.03, B * 0.83, L * 0.19, B * 0.84, L * 0.41, B * 0.83, L * 0.61, B * 0.76,
-        L * 0.765, B * 0.63, L * 0.865, B * 0.45, L * 0.925, B * 0.24, L * 0.955, B * 0.05,
+        L * 0.955, -B * 0.05, L * 0.925, -B * 0.20, L * 0.865, -B * 0.44, L * 0.765, -B * 0.62,
+        L * 0.61, -B * 0.75, L * 0.44, -B * 0.82, L * 0.31, -B * 0.83,
+        ...shiftX(FRAC, L * 0.05),
+        L * 0.31, B * 0.83, L * 0.44, B * 0.82, L * 0.61, B * 0.75, L * 0.765, B * 0.62,
+        L * 0.865, B * 0.44, L * 0.925, B * 0.20, L * 0.955, B * 0.05,
       ]
       const DAFT = aft([
-        -L * 0.325, -B * 0.72, -L * 0.36, -B * 0.30, -L * 0.315, B * 0.12, -L * 0.355, B * 0.55,
-        -L * 0.325, B * 0.80,
-        -L * 0.46, B * 0.83, -L * 0.63, B * 0.84, -L * 0.79, B * 0.78, -L * 0.90, B * 0.66,
-        -L * 0.955, B * 0.46, -L * 0.965, B * 0.22,
-        -L * 0.965, -B * 0.22, -L * 0.955, -B * 0.46, -L * 0.90, -B * 0.66, -L * 0.79, -B * 0.78,
-        -L * 0.63, -B * 0.84, -L * 0.46, -B * 0.83,
+        ...shiftX(AFT_FACE, -L * 0.05),
+        -L * 0.47, B * 0.82, -L * 0.66, B * 0.83, -L * 0.81, B * 0.77, -L * 0.91, B * 0.65,
+        -L * 0.958, B * 0.44, -L * 0.972, B * 0.20,
+        -L * 0.972, -B * 0.20, -L * 0.958, -B * 0.44, -L * 0.91, -B * 0.65, -L * 0.81, -B * 0.77,
+        -L * 0.66, -B * 0.83, -L * 0.47, -B * 0.82,
       ])
 
-      // ---- 1 SCOUR AND THE SCATTERING FRINGE --------------------------------------------------------
-      // A hull that has been down long enough is IN the bottom, not on it: the current accelerating
-      // round it digs a moat, and what it digs out banks up outside. It is the most reliably present
-      // feature on any wreck survey, and the old bake had no footprint at all — which is exactly why
-      // it read as printed on the ground while the chapter's own crates and drums sit in soft rings.
-      // Three offset fills at falling alpha are the cheapest soft edge Graphics has, and soft is the
-      // point: a hard-edged shadow under a sprite is the thing that reads as a decal. The widest ring
-      // doubles as the forward-scatter fringe an object boundary has through tens of metres of water.
-      for (const [kx, ky, a] of [[1.06, 1.62, 0.20], [1.035, 1.36, 0.20], [1.015, 1.16, 0.22]]) {
-        g.poly(grow(FWD, kx, ky, L * 0.48)).fill({ color: SCOUR, alpha: a })
-        g.poly(grow(AFT, kx, ky, -L * 0.66)).fill({ color: SCOUR, alpha: a })
+      // ---- 1 THE PIT ------------------------------------------------------------------------------
+      // A hull that has been down long enough for its deck plating to fail is IN the bottom, not on
+      // it: the current accelerating round it digs a moat, and it is the most reliably present
+      // feature on any wreck survey. The chapter's own crates and drums already prove the cue works
+      // — every one of them sits in a hard dark ring, and those rings are the most legible
+      // ground-contact mark in the picture. The previous cut drew this ring at 0x3a3a3a and 0.20
+      // alpha, which composites to 1.04:1 against the sand: it passed an eyeball test and failed a
+      // photometer, which is this whole feature's recurring failure in one sentence.
+      //
+      // ONE pit, not two. The halves are 8m apart; two hulls that close share a single scour, and
+      // the ground between them is where the debris collects — so the gap quad is grown with them
+      // rather than each half carrying a moat edge around its own torn face.
+      const revPts = (pts) => {
+        const out = []
+        for (let i = pts.length - 2; i >= 0; i -= 2) out.push(pts[i], pts[i + 1])
+        return out
+      }
+      const BRIDGE = [...FRAC, ...revPts(aft(AFT_FACE))]
+      for (const [kx, ky, a] of [[1.10, 2.05, 0.12], [1.05, 1.60, 0.24], [1.018, 1.22, 0.42]]) {
+        g.poly(grow(FWD, kx, ky, L * 0.55)).fill({ color: SCOUR, alpha: a })
+        g.poly(grow(AFT, kx, ky, -L * 0.62)).fill({ color: SCOUR, alpha: a })
+        g.poly(grow(BRIDGE, kx, ky, -L * 0.05)).fill({ color: SCOUR, alpha: a })
       }
 
-      // ---- 2 HULL, DECK, SHEER ----------------------------------------------------------------------
+      // ---- 2 HULL, DECK, RIM ------------------------------------------------------------------------
+      // Fill the whole hull with the RIM value, then lay the pale deck inside it. The band left
+      // showing IS the bulwark seen edge-on, and it is the highest-contrast pair in the drawing at
+      // 1.69:1 — stable across every floor value in the chapter, which no single mark can be.
       g.poly(FWD).fill(SIDE)
       g.poly(AFT).fill(SIDE)
       g.poly(DFWD).fill(DECK)
       g.poly(DAFT).fill(DECK)
-      g.poly(FWD).stroke({ width: L * 0.010, color: STRUCT, alpha: 0.85 })
-      g.poly(AFT).stroke({ width: L * 0.010, color: STRUCT, alpha: 0.85 })
-      g.poly(DFWD).stroke({ width: L * 0.007, color: RAIL, alpha: 0.8 })
-      g.poly(DAFT).stroke({ width: L * 0.007, color: RAIL, alpha: 0.8 })
+      // No highlight stroke on the deck edge: white-on-pale measured 1.09:1, i.e. it was not there.
+      // The edge is the value STEP between the rim and the deck, which needs no line to help it.
 
-      // ---- 3 THE OPENINGS -----------------------------------------------------------------------
+      // ---- 3 THE OPENINGS ---------------------------------------------------------------------------
       // Hatch covers are the first thing to go, and what is under them is the hold, flooded. A grey
-      // patch is a deck marking; a black hole with a lit coaming is a hatch.
+      // patch is a deck marking; a near-black hole with a lit coaming is a hatch, and a hole is the
+      // one mark that reads at any alpha because it is the one place the floor colour does not come
+      // through at all.
+      //
+      // ⚠ AND THEY MUST STATE THE SHIP'S AXIS. The previous cut's main hold was 146 x 184px — WIDER
+      // ACROSS THE BEAM THAN ALONG THE KEEL — and, being the strongest mark in the drawing, it made
+      // the whole thing read as a submerged concrete structure with rectangular openings. The
+      // strongest mark in a plan view of a ship has to run fore-and-aft. Three openings, three
+      // different SHAPES, all long along the keel.
       const torn = (x0, y0, x1, y1, amp, seed) => {
         const pts = []
         const side = (ax, ay, bx, by, n) => {
@@ -6083,157 +6118,166 @@ export function createRenderer(app) {
             pts.push(ax + dx * t - (dy / len) * j, ay + dy * t + (dx / len) * j)
           }
         }
-        side(x0, y0, x1, y0, 5); side(x1, y0, x1, y1, 3)
-        side(x1, y1, x0, y1, 5); side(x0, y1, x0, y0, 3)
+        side(x0, y0, x1, y0, 6); side(x1, y0, x1, y1, 2)
+        side(x1, y1, x0, y1, 6); side(x0, y1, x0, y0, 2)
         return pts
       }
       const hole = (pts, lip = 0.55) => {
         g.poly(pts).fill(VOID)
         g.poly(pts).stroke({ width: L * 0.008, color: RAIL, alpha: lip })
       }
-      hole(torn(L * 0.615, -B * 0.55, L * 0.735, B * 0.55, 2.6, 11.2))       // fish room hatch
-      hole(torn(L * 0.055, -B * 0.60, L * 0.215, B * 0.62, 2.9, 27.5))       // main hold, opened up
-      // The engine room, open to the sea since the deck over it went, and a plating loss on the
-      // quarter where the shell is simply gone. Frames are drawn HERE and nowhere else.
-      hole(aft(torn(-L * 0.65, -B * 0.50, -L * 0.44, B * 0.50, 3.4, 61.3)), 0.4)
-      const gash = aft(torn(-L * 0.86, B * 0.16, -L * 0.70, B * 0.74, 2.8, 77.9))
+      hole(torn(L * 0.155, -B * 0.30, L * 0.385, B * 0.30, 2.4, 27.5))     // main hold, 2.2:1 axial
+      hole(torn(L * 0.755, -B * 0.26, L * 0.865, B * 0.26, 2.0, 11.2))     // fish room hatch
+      hole(aft(torn(-L * 0.545, -B * 0.30, -L * 0.325, B * 0.30, 2.8, 61.3)), 0.4)   // engine room
+      // The plating loss on the starboard quarter: the shell is simply gone and the frames are all
+      // that is left. Frames are drawn HERE and nowhere else — ruled across intact deck they are a
+      // blueprint, standing inside a tear they are a wreck. Light on black, so they carry.
+      const gash = aft(torn(-L * 0.62, B * 0.48, -L * 0.44, B * 0.84, 2.6, 77.9))
       g.poly(gash).fill(VOID)
       g.beginPath()
-      for (let k = 0; k < 6; k++) {
-        const x = -L * 0.852 + k * L * 0.028
-        const s = aft([x, B * 0.18, x, B * 0.72])
+      for (let k = 0; k < 7; k++) {
+        const x = -L * 0.612 + k * L * 0.026
+        const s = aft([x, B * 0.50, x, B * 0.82])
         g.moveTo(s[0], s[1]).lineTo(s[2], s[3])
       }
-      g.stroke({ width: L * 0.005, color: SIDE, alpha: 0.9 })
-      // THE STERN RAMP — on a stern trawler the single most identifying thing there is from above: a
-      // slot cut clean through the transom. It is a void, so it reads at any alpha, and it is the
-      // element that names the TYPE rather than just saying "boat".
-      const ramp = aft([-L * 0.815, -B * 0.42, -L * 1.005, -B * 0.34, -L * 1.005, B * 0.34,
-                        -L * 0.815, B * 0.42])
-      g.poly(ramp).fill(VOID)
-      g.poly(ramp).stroke({ width: L * 0.007, color: RAIL, alpha: 0.5 })
+      g.stroke({ width: L * 0.005, color: DECK, alpha: 0.85 })
 
-      // ---- 4 WHAT STANDS UP, AND WHAT IT CASTS -----------------------------------------------------
-      // Every block below is drawn twice: once as an offset shadow on the deck, once as the thing.
-      // Same displacement for all of them, because they are all lit by the same water.
+      // ---- 4 WHAT STANDS UP, AND WHAT IT BANKS -------------------------------------------------------
+      // ⚠ THE SHADOW ALPHA IS THE LOAD-BEARING NUMBER HERE AND IT USED TO BE ARITHMETICALLY
+      // IMPOSSIBLE. At alpha 0.5 over DECK 0xd8, the darkest a shadow can composite to is 0.5 x 0xd8
+      // = 0x6c — LIGHTER than STRUCT itself, so the drawing said every structure was darker than its
+      // own shadow. No value of SHADE fixes that; the alpha was the bug. 0.8 lands it under the
+      // block that casts it.
       const block = (pts, lit) => {
-        g.poly(shd(pts)).fill({ color: SHADE, alpha: 0.5 })
-        g.poly(pts).fill(STRUCT).stroke({ width: L * 0.006, color: VOID, alpha: 0.7 })
-        if (lit) g.poly(lit).fill({ color: RAIL, alpha: 0.5 })
+        g.poly(halo(pts)).fill({ color: SHADE, alpha: 0.8 })
+        g.poly(pts).fill(STRUCT).stroke({ width: L * 0.005, color: VOID, alpha: 0.8 })
+        if (lit) g.poly(lit).fill({ color: RAIL, alpha: 0.45 })
       }
-      // The wheelhouse, FORWARD, which is where a stern trawler's is — the working deck is aft of it.
-      // Longer fore-and-aft than it is wide, which every deckhouse is and the old rounded square was
-      // not, and 0.27L clear of the fracture: superstructure is the FIRST thing to fail when the
+      // The wheelhouse, FORWARD, which is where a stern trawler's is — the working deck is aft of
+      // it. Longer fore-and-aft than wide, which every deckhouse is and an earlier rounded square
+      // was not, and well clear of the fracture: superstructure is the FIRST thing to fail when the
       // girder goes, so a wheelhouse sitting squarely on the break with its corners intact was the
-      // drawing saying the ship snapped at its own aft bulkhead and nothing noticed.
-      block([L * 0.575, -B * 0.60, L * 0.30, -B * 0.62, L * 0.295, B * 0.58, L * 0.565, B * 0.60],
-            [L * 0.575, -B * 0.60, L * 0.30, -B * 0.62, L * 0.30, -B * 0.40, L * 0.575, -B * 0.38])
-      // …caved on the port quarter, because it is the first thing to go.
-      g.poly([L * 0.36, B * 0.15, L * 0.295, B * 0.58, L * 0.44, B * 0.59, L * 0.45, B * 0.20])
-        .fill({ color: VOID, alpha: 0.85 })
-      g.circle(L * 0.255 + SHX, SHY, L * 0.026).fill({ color: SHADE, alpha: 0.5 })
-      g.circle(L * 0.255, 0, L * 0.026).fill(STRUCT).stroke({ width: L * 0.005, color: VOID, alpha: 0.7 })
-      // The trawl winch, forward of the break, and the net drum aft of it — a wide transverse bar
-      // across the ship is unmistakable and nothing else on a seabed makes one.
-      block([L * 0.115, -B * 0.66, L * 0.03, -B * 0.66, L * 0.03, B * 0.66, L * 0.115, B * 0.66])
-      block(aft([-L * 0.44, -B * 0.76, -L * 0.365, -B * 0.76, -L * 0.365, B * 0.76, -L * 0.44, B * 0.76]))
+      // drawing saying the ship snapped at its own aft bulkhead and nothing noticing.
+      block([L * 0.70, -B * 0.60, L * 0.42, -B * 0.62, L * 0.415, B * 0.58, L * 0.695, B * 0.60],
+            [L * 0.70, -B * 0.60, L * 0.42, -B * 0.62, L * 0.42, -B * 0.42, L * 0.70, -B * 0.40])
+      g.poly([L * 0.48, B * 0.16, L * 0.415, B * 0.58, L * 0.565, B * 0.59, L * 0.575, B * 0.21])
+        .fill({ color: VOID, alpha: 0.9 })                                  // …caved on one quarter
+      block([L * 0.405, -B * 0.16, L * 0.365, -B * 0.16, L * 0.365, B * 0.16, L * 0.405, B * 0.16])
+      // Anchor windlass, and two hawse ports AT THE DECK EDGE — a hawse pipe is where the cable
+      // leaves the ship, never out in the middle of the foredeck where the previous cut drew them.
+      block([L * 0.935, -B * 0.30, L * 0.895, -B * 0.30, L * 0.895, B * 0.30, L * 0.935, B * 0.30])
+      for (const s of [-1, 1]) g.circle(L * 0.955, s * B * 0.34, L * 0.009).fill(VOID)
+      // THE STERN RAMP — on a stern trawler the single most identifying thing there is from above.
+      // ⚠ AND IT IS A SURFACE, NOT A HOLE. The previous cut filled it near-black, which is what a
+      // TORN-OFF STERN looks like: decay attributed to the wrong cause, on the one feature that is
+      // supposed to name the vessel type. A ramp is a sloping steel plate rising from the waterline
+      // at the transom to deck level, parallel-sided, with a coaming each side and transverse bars
+      // on it. Only the mouth — the last metre and a half at the transom — is a void.
+      const ramp = aft([-L * 0.66, -B * 0.45, -L * 1.002, -B * 0.45, -L * 1.002, B * 0.45,
+                        -L * 0.66, B * 0.45])
+      g.poly(ramp).fill(SIDE).stroke({ width: L * 0.006, color: VOID, alpha: 0.7 })
       g.beginPath()
-      for (const f of [-0.42, 0, 0.42]) {
-        const s = aft([-L * 0.44, B * f, -L * 0.365, B * f])
+      for (let k = 0; k < 4; k++) {
+        const x = -L * (0.72 + k * 0.07)
+        const s = aft([x, -B * 0.43, x, B * 0.43])
         g.moveTo(s[0], s[1]).lineTo(s[2], s[3])
       }
-      g.stroke({ width: L * 0.004, color: RAIL, alpha: 0.45 })
-      // THE GANTRY, and it is a transverse bar spanning the full beam with a foot at each bulwark —
-      // about 1.5m of fore-and-aft extent. The old cut drew two lines converging AFT to a point,
-      // which is 3m long, narrows the wrong way, and reads in every phone frame as a road chevron.
-      block(aft([-L * 0.745, -B * 0.94, -L * 0.70, -B * 0.94, -L * 0.70, B * 0.94, -L * 0.745, B * 0.94]))
+      g.stroke({ width: L * 0.006, color: RAIL, alpha: 0.4 })
+      g.poly(aft([-L * 0.958, -B * 0.44, -L * 1.002, -B * 0.44, -L * 1.002, B * 0.44,
+                  -L * 0.958, B * 0.44])).fill(VOID)                        // the mouth
+      // The ramp coamings — the two raised walls running forward from the transom either side of the
+      // ramp. These replace a GALLOWS PAIR the previous cut carried, which was a type contradiction
+      // rather than a scale error: gallows are the defining gear of a SIDE trawler, the A-frames on
+      // the rail you shoot and haul over. A vessel with a stern ramp hauls over the stern, has no
+      // gallows, and has nowhere to put them, because the deck they would stand on is the run the
+      // cod end comes up.
       for (const s of [-1, 1]) {
-        block(aft([-L * 0.775, s * B * 0.94, -L * 0.67, s * B * 0.94, -L * 0.67, s * B * 0.76,
-                   -L * 0.775, s * B * 0.76]))
+        block(aft([-L * 0.62, s * B * 0.46, -L * 1.00, s * B * 0.46, -L * 1.00, s * B * 0.58,
+                   -L * 0.62, s * B * 0.58]))
       }
-      // The gallows pair at the bulwarks, with the otter boards still hanging off them.
+      // THE GANTRY: a transverse bar spanning the full beam with a foot at each bulwark, straddling
+      // the ramp head. An earlier cut drew two lines converging AFT to a point, which is three
+      // metres long, narrows the wrong way, and read in every phone frame as a road chevron.
+      block(aft([-L * 0.735, -B * 0.94, -L * 0.695, -B * 0.94, -L * 0.695, B * 0.94, -L * 0.735, B * 0.94]))
       for (const s of [-1, 1]) {
-        block(aft([-L * 0.545, s * B * 0.98, -L * 0.475, s * B * 0.98, -L * 0.475, s * B * 0.70,
-                   -L * 0.545, s * B * 0.70]))
+        block(aft([-L * 0.765, s * B * 0.96, -L * 0.665, s * B * 0.96, -L * 0.665, s * B * 0.78,
+                   -L * 0.765, s * B * 0.78]))
       }
-      // Anchor windlass and two hawse ports either side of the stem — the only place a bow has gear.
-      block([L * 0.815, -B * 0.44, L * 0.755, -B * 0.44, L * 0.755, B * 0.44, L * 0.815, B * 0.44])
-      for (const s of [-1, 1]) g.circle(L * 0.90, s * B * 0.42, L * 0.014).fill(VOID)
-      // THE FELLED MAST. One long diagonal over a deck of longitudinal lines is what says the ship
+      // The net drum, just forward of the ramp head where it belongs — the single most
+      // trawler-shaped object on the boat, and a wide transverse bar is a thing nothing on a seabed
+      // makes by itself.
+      block(aft([-L * 0.635, -B * 0.62, -L * 0.565, -B * 0.62, -L * 0.565, B * 0.62, -L * 0.635, B * 0.62]))
+      g.beginPath()
+      for (const f of [-0.40, 0, 0.40]) {
+        const s = aft([-L * 0.635, B * f, -L * 0.565, B * f])
+        g.moveTo(s[0], s[1]).lineTo(s[2], s[3])
+      }
+      g.stroke({ width: L * 0.004, color: RAIL, alpha: 0.4 })
+      // THE FELLED MAST. One long diagonal over a deck of fore-and-aft lines is what says the ship
       // came apart rather than was parked, and it is the element that breaks the rhythm on purpose.
-      // Its kingpost is still stepped just abaft the wheelhouse; the spar itself lies out over the
-      // port rail with its two derrick booms alongside.
-      const MAST = [[L * 0.25, -B * 0.05], [L * 0.02, -B * 0.72], [-L * 0.19, -B * 1.55]]
-      taperStroke(g, MAST.map(([x, y]) => [x + SHX, y + SHY]), L * 0.017, L * 0.006, SHADE, 5)
-      taperStroke(g, MAST, L * 0.017, L * 0.006, STRUCT, 5)
-      taperStroke(g, [[L * 0.115, -B * 0.42], [-L * 0.04, -B * 0.95]], L * 0.008, L * 0.004, STRUCT, 3)
-      taperStroke(g, [[L * 0.055, -B * 0.60], [-L * 0.13, -B * 0.86]], L * 0.007, L * 0.004, STRUCT, 3)
-      g.circle(L * 0.25, -B * 0.05, L * 0.020).fill(STRUCT).stroke({ width: L * 0.005, color: VOID, alpha: 0.7 })
+      // Its kingpost is still stepped just abaft the wheelhouse; the spar lies out over the rail
+      // with its two derrick booms alongside. NO separate shadow: a translated copy of a 460px
+      // stroke is a second stroke 20px away, and the pair read as a rail line in three frames.
+      taperStroke(g, [[L * 0.40, -B * 0.05], [L * 0.16, -B * 0.78], [-L * 0.06, -B * 1.62]],
+                  L * 0.019, L * 0.007, STRUCT, 5)
+      taperStroke(g, [[L * 0.27, -B * 0.44], [L * 0.10, -B * 1.02]], L * 0.008, L * 0.004, STRUCT, 3)
+      taperStroke(g, [[L * 0.20, -B * 0.66], [L * 0.02, -B * 0.92]], L * 0.007, L * 0.004, STRUCT, 3)
+      g.circle(L * 0.40, -B * 0.05, L * 0.020).fill(STRUCT).stroke({ width: L * 0.005, color: VOID, alpha: 0.8 })
 
       // ---- 5 THE BREAK ------------------------------------------------------------------------------
       // Frame ends standing proud of both torn faces, and the plating that came off between them.
-      // This is the only place in the drawing where a regular repeat is honest: those ARE ribs.
-      for (const [pts, dir] of [[FRAC, 1], [FRAC.map((v, i) => (i % 2 ? v : v - GAP)), -1]]) {
+      // This is the only place in the drawing where a regular repeat is honest: those ARE ribs. And
+      // a broken back does not shed gravel — it sheds PLATING TONGUES, 4-15m strips of shell and
+      // deck plate that peel outboard and lie flat, trailing off to one side and thinning with
+      // distance. Three of the seven pieces are those; the rest is deck gear.
+      for (const [face, dir] of [[FRAC, 1], [AFT_FACE, -1]]) {
         g.beginPath()
-        for (let k = 1; k < 7; k++) {
-          const x = pts[k * 2], y = pts[k * 2 + 1]
-          const e = dir > 0 ? [x + L * 0.035, y] : aft([x - L * 0.035, y])
+        for (let k = 0; k < face.length / 2; k++) {
+          const x = face[k * 2], y = face[k * 2 + 1]
           const s = dir > 0 ? [x, y] : aft([x, y])
+          const e = dir > 0 ? [x + L * 0.03, y] : aft([x - L * 0.03, y])
           g.moveTo(s[0], s[1]).lineTo(e[0], e[1])
         }
-        g.stroke({ width: L * 0.006, color: SIDE, alpha: 0.85 })
+        g.stroke({ width: L * 0.006, color: SIDE, alpha: 0.9 })
       }
-      for (let k = 0; k < 12; k++) {
-        const x = -L * (0.06 + hash(k * 2.1 + 4) * 0.26)
-        const y = B * (hash(k * 6.3 + 9) - 0.5) * 2.4
-        const r = L * (0.008 + hash(k * 8.9) * 0.016)
-        g.poly([x - r, y - r * 0.6, x + r * 0.8, y - r, x + r, y + r * 0.7, x - r * 0.7, y + r])
-          .fill({ color: SIDE, alpha: 0.7 })
-      }
-
-      // ---- 6 SNAGGED NET ------------------------------------------------------------------------------
-      // A fishing wreck is a net magnet, and the drape is the fastest "this was a fishing boat"
-      // signal there is from above. It is also the only ORGANIC shape on an otherwise rectilinear
-      // sprite, which is most of why it is here: sagging catenaries are the opposite of a lattice.
-      g.beginPath()
-      const netA = aft([-L * 0.72, -B * 0.90])
-      const netB = aft([-L * 0.72, B * 0.90])
-      g.moveTo(netA[0], netA[1]).quadraticCurveTo(netA[0] - L * 0.16, netA[1] + B * 1.5, netB[0] - L * 0.30, netB[1] + B * 0.8)
-      g.moveTo(netA[0], netA[1]).quadraticCurveTo(netA[0] - L * 0.24, netA[1] + B * 0.6, netA[0] - L * 0.40, netA[1] - B * 0.5)
-      g.moveTo(netB[0], netB[1]).quadraticCurveTo(netB[0] - L * 0.22, netB[1] + B * 0.9, netB[0] - L * 0.44, netB[1] + B * 0.6)
-      g.stroke({ width: L * 0.005, color: STRUCT, alpha: 0.55 })
       for (let k = 0; k < 7; k++) {
-        const f = aft([-L * (0.98 + hash(k * 3.3 + 1) * 0.28), B * (0.6 + hash(k * 7.1 + 5) * 1.3)])
-        g.circle(f[0], f[1], L * 0.008).fill({ color: RAIL, alpha: 0.4 })
+        const long = k < 3
+        const x = L * (0.14 - hash(k * 2.1 + 4) * 0.30)
+        const y = B * ((hash(k * 6.3 + 9) - 0.3) * 2.3)
+        const w = L * (long ? 0.06 + hash(k * 8.9) * 0.06 : 0.012 + hash(k * 8.9) * 0.016)
+        const h = L * (long ? 0.010 : 0.012 + hash(k * 4.4) * 0.010)
+        const a = (hash(k * 3.1 + 2) - 0.5) * (long ? 0.9 : 2.4)
+        g.poly(turn([x - w, y - h, x + w, y - h * 1.3, x + w * 0.9, y + h, x - w * 1.1, y + h * 1.2], a, x, y))
+          .fill({ color: SIDE, alpha: 0.85 })
       }
 
-      // ---- 7 GROWTH AND SILT -----------------------------------------------------------------------
-      // Fouling concentrates on upstanding edges and the current-facing flank, never uniformly, and
-      // the flat deck stays comparatively bare because silt smothers it. Low frequency and no
-      // outline: this is growth, not detail — detail at this range is exactly what the water takes.
-      for (let k = 0; k < 9; k++) {
-        const t = k / 8
-        const x = L * (0.86 - t * 1.7)
-        const y = -B * (0.55 + hash(k * 4.7) * 0.45)
-        const r = L * (0.03 + hash(k * 9.3) * 0.045)
-        g.ellipse(x, y, r, r * 0.5).fill({ color: GROWTH, alpha: 0.28 })
-      }
-      // Sediment banks against one flank and buries both ends, and where it lies the detail
-      // underneath is simply gone — which is also the honest way to lose high-frequency detail at
-      // the edges of a thing seen through fifty metres of water.
-      for (const [k, a] of [[1.0, 0.18], [0.84, 0.16], [0.66, 0.14]]) {
+      // ---- 6 SILT -----------------------------------------------------------------------------------
+      // Drawn LAST, over everything, because that is the order it happened in. A steel hull on a soft
+      // bottom embeds within years, so the plan silhouette is not the ship's plan — it is the ship's
+      // plan CUT BY THE MUDLINE, and the sediment the current carried past banks up on one flank and
+      // streams off one end as a depositional tail. Where it lies the detail underneath is simply
+      // gone, which is also the honest way to lose high-frequency detail at the edges of a thing
+      // seen through fifty metres of water.
+      //
+      // Everything else that used to be in this section is DELETED rather than retuned: biofouling
+      // mottle measured 1.02:1 on the flank it existed to describe, and a snagged net measured
+      // 1.13:1 while being the aft extremity of the whole texture — i.e. it was making `len` a lie
+      // and eating the grid's overlap margin in exchange for marks nobody could see. Fifty polygons
+      // that do not reach the page are not detail, they are cost.
+      for (const [k, a] of [[1.0, 0.30], [0.78, 0.26], [0.55, 0.22]]) {
         g.poly([
-          L * (1.00 - 0.08 * (1 - k)), -B * 0.25 * k, L * 0.86, -B * 1.15 * k, L * 0.62, -B * 1.20 * k,
-          L * 0.68, -B * 0.60 * k, L * 0.88, -B * 0.12 * k,
+          L * (0.99 - 0.10 * (1 - k)), -B * 0.30 * k, L * 0.84, -B * 1.30 * k, L * 0.56, -B * 1.36 * k,
+          L * 0.62, -B * 0.66 * k, L * 0.88, -B * 0.14 * k,
         ]).fill({ color: SILT, alpha: a })
         g.poly(aft([
-          -L * 1.02, B * 0.12 * k, -L * 0.99, B * 1.05 * k, -L * 0.76, B * 1.18 * k,
-          -L * 0.80, B * 0.66 * k, -L * 0.96, B * 0.32 * k,
+          -L * 1.04, -B * 0.20 * k, -L * 0.98, -B * 1.20 * k, -L * 0.72, -B * 1.30 * k,
+          -L * 0.78, -B * 0.70 * k, -L * 0.97, -B * 0.30 * k,
         ])).fill({ color: SILT, alpha: a })
-        g.poly([
-          L * 0.02, B * (0.78 + 0.55 * k), L * 0.40, B * (0.74 + 0.55 * k), L * 0.66, B * (0.56 + 0.45 * k),
-          L * 0.64, B * 0.66, L * 0.34, B * 0.86, L * 0.00, B * 0.90,
-        ]).fill({ color: SILT, alpha: a * 0.85 })
+        g.poly(aft([
+          -L * 0.40, -B * (0.90 + 0.60 * k), -L * 0.78, -B * (0.94 + 0.60 * k),
+          -L * 0.95, -B * (0.74 + 0.50 * k), -L * 0.92, -B * 0.86, -L * 0.70, -B * 1.02,
+          -L * 0.42, -B * 1.00,
+        ])).fill({ color: SILT, alpha: a * 0.9 })
       }
       T.wreckHull = bake(g)
     }
@@ -12219,7 +12263,23 @@ const spurG = new Graphics()
   // CHAPTERS.wreck.render.hull — cell, len, jitter and scale are ONE decision about whether the
   // field is a graveyard or a pile-up, and they live in two files.
   const HULL_JITTER = 0.13
-  const HULL_SCALE_MAX = 1.08
+  const HULL_SCALE_MAX = 1.12
+  // ⚠ THE TEXTURE IS LONGER THAN cfg.len AND THAT BROKE THE SPACING GUARD SILENTLY. `bake()` frames
+  // the drawing's real bounds, and the drawing reaches past the hull: the scour pit, the silt banks
+  // and (before it was deleted) a snagged net all sit outboard of the plating, so the sprite that
+  // gets stamped is ~1.15x what the config calls its length. The invariant was therefore asserted
+  // over a number that is not the object's size, and two hulls could still interpenetrate by ~300px
+  // while run WG printed a pass. This constant is the honest reach, and it is LOAD-BEARING rather
+  // than decorative — the cull margins below use it, so a value too small makes hulls pop in at the
+  // screen edge, which is the kind of wrong you can see.
+  const HULL_EXTENT = 1.15
+  // Where the CELL CENTRE lands on the drawing, as a fraction of the half-length forward of the
+  // bake's origin. The origin is the FRACTURE — graphics x = 0 sits on the tear — so at 0 the grid
+  // is placing the gap in the middle of the viewport, and the modal crop a player gets is the one
+  // part of the object that is deliberately empty. Three of six hull-centred probe frames came back
+  // as open water for exactly this reason, which reads as "the ship is invisible" and is really
+  // "the ship is 300px to the side". 0.42 puts the working deck under the cell centre.
+  const HULL_LEAD = 0.42
   const hullSprites = []
   function updateWreckHull(cx, cy) {
     const cfg = chapterRender.hull
@@ -12232,8 +12292,8 @@ const spurG = new Graphics()
     const px = -cx * cfg.parallax
     const py = -cy * cfg.parallax
     const cs = cfg.cell
-    const halfW = viewW() / 2 + cfg.len
-    const halfH = viewH() / 2 + cfg.len
+    const halfW = viewW() / 2 + cfg.len * HULL_EXTENT
+    const halfH = viewH() / 2 + cfg.len * HULL_EXTENT
     const i0 = Math.floor((px - halfW) / cs), i1 = Math.floor((px + halfW) / cs)
     const j0 = Math.floor((py - halfH) / cs), j1 = Math.floor((py + halfH) / cs)
     let n = 0
@@ -12257,12 +12317,11 @@ const spurG = new Graphics()
         // while each was 1820 long, i.e. interpenetrating by a third of a ship. That is not a
         // graveyard, it is an alpha artefact: two sprites at alpha a stack to 1-(1-a)², a visibly
         // brighter quadrilateral bounded by straight edges belonging to neither wreck, and it is
-        // there in half the probe frames. The invariant is cell * (1 - 2*JITTER) >= len * SCALE_MAX,
-        // and run WK in the suite asserts it against config rather than trusting this comment.
-        sp.position.set(
-          (i + 0.5) * cs + (hash(i * 7.1 + j * 2.9 + 13.3) - 0.5) * cs * HULL_JITTER * 2,
-          (j + 0.5) * cs + (hash(i * 2.3 + j * 5.7 + 29.7) - 0.5) * cs * HULL_JITTER * 2,
-        )
+        // there in half the probe frames. The invariant is
+        //     cell * (1 - 2*HULL_JITTER) >= len * HULL_SCALE_MAX * HULL_EXTENT
+        // and run WG in the suite asserts it against config rather than trusting this comment.
+        const jx = (i + 0.5) * cs + (hash(i * 7.1 + j * 2.9 + 13.3) - 0.5) * cs * HULL_JITTER * 2
+        const jy = (j + 0.5) * cs + (hash(i * 2.3 + j * 5.7 + 29.7) - 0.5) * cs * HULL_JITTER * 2
         // HEADING WITH A GRAIN. A full circle is the safe answer to "a field all pointing the same
         // way is a fleet, not a graveyard" and it is also wrong: wrecks settling in a directional
         // flow scour into it, so a real graveyard has grain. cfg.grain is the chapter's own tide
@@ -12276,20 +12335,31 @@ const spurG = new Graphics()
         //           mirrored ship is still a valid ship — two variants for one line.
         //   heel    a wreck lying flat and level is the exception; 20-60° of heel is the norm, and
         //           in plan a heeled hull is simply a narrower one, so squashing y IS cos(heel).
-        //   size    a real seabed holds a size range.
-        //   alpha   ±0.05 reads as ±a few metres of depth, which is the cheap proxy for the
-        //           per-cell parallax this single shared container cannot give.
+        //   size    a real seabed holds a size range. ±0.18 was measured as ~6.7% between two
+        //           random instances, i.e. under the threshold at which anyone calls them different
+        //           sizes; ±0.40 is the smallest spread that actually reads.
+        // Alpha jitter was DELETED rather than widened: ±0.06 moved the deck's contrast against the
+        // floor by ΔL 0.006 — undetectable — and the honest lesson is that three of the four axes
+        // were randomising things nobody can see while the thing the eye matches on (the
+        // constellation of near-black holes, the only marks above 1.4:1) stayed identical in every
+        // instance. Mirror, heel and a real size spread are what is left, and they are the three
+        // that move that constellation.
         // ponytail: one texture, so both halves keep a fixed relative pose. If the field ever reads
         // as stamped again, the upgrade is T.wreckBow + T.wreckStern as two sprites per cell with
         // independently hashed gap and relative heading — not more knobs on this one.
-        const sc = (cfg.len / (HULL_REF * 2)) * (0.90 + hash(i * 4.1 + j * 6.7 + 3.3) * 0.18)
+        const sc = (cfg.len / (HULL_REF * 2)) * (0.72 + hash(i * 4.1 + j * 6.7 + 3.3) * 0.40)
         // 0.76 floor, not 0.62: at 6:1 the beam is already narrow, and 0.62 (a 52° heel, perfectly
         // realistic) turned the hull into a stick with sticks on it — the deck furniture stopped
         // being nameable, which is the whole reason it is there. Read it as a wreck heeled up to 40°.
         const heel = 0.76 + hash(i * 5.3 + j * 2.1 + 71.3) * 0.24
         sp.scale.set(sc, sc * heel * (hash(i * 9.1 + j * 1.3 + 17.7) < 0.5 ? -1 : 1))
+        // The bake's origin is the FRACTURE, so without this the grid centres the empty gap on the
+        // viewport — see HULL_LEAD. Push the sprite back along its own heading so the cell centre
+        // lands on the forward working deck instead.
+        const lead = HULL_LEAD * HULL_REF * sc
+        sp.position.set(jx - Math.cos(sp.rotation) * lead, jy - Math.sin(sp.rotation) * lead)
         sp.tint = cfg.tint
-        sp.alpha = cfg.alpha * (0.88 + hash(i * 6.1 + j * 3.9 + 53.7) * 0.24)
+        sp.alpha = cfg.alpha
         n++
       }
     }
