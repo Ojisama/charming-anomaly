@@ -123,7 +123,7 @@ import {
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_WAKE, burstWakeAt, DUST, dustVel, DROWN_TICK,
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
-  SPUR_DPS, SPUR_TICK, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
+  SPUR_DPS, SPUR_TICK, caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
   SNAP_BACKBLAST_FRAC, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, BREACH_R_MIN, BREACH_R_AT_FULL, tiredness,
   // v6.8 Trash Tornado rework (Run AA.d)
@@ -22408,8 +22408,17 @@ function testLaneAxis() {
       const f0 = run._laneFront
       const steps = Math.round(12 / dt)
       for (let i = 0; i < steps; i++) { stepSim(run, { x: 0, y: dir }, dt); run.events.length = 0 }
-      assert.ok(Math.abs(run.player.y - dir * hw) < 1e-6,
-        `expected the player pinned to the lane wall at y=${(dir * hw).toFixed(1)}, got ${run.player.y.toFixed(1)} — the clamp is on the wrong axis`)
+      // HELD BY THE CAVE, NOT BY THE LANE WALL, and that is the chapter working. The corridor clamp
+      // is still there and still on the cross axis, but the cave passage is strictly inside it
+      // (wander + halfMax = 305 against laneHalfW 330), so the wall the player actually meets is
+      // always the coral. Asserting the corridor clamp here measured a boundary the player can no
+      // longer reach: it read y=144.2 against an expected 330 and called the clamp broken.
+      const cav = caveAt(run.player.x, CHAPTERS.reef.cave, run._obstacleSeed)
+      const lim = cav.hw - PLAYER.radius
+      assert.ok(Math.abs(Math.abs(run.player.y - cav.c) - lim) < 1.5,
+        `expected the player held against the cave wall ${lim.toFixed(1)}px off a passage centred at ${cav.c.toFixed(1)}, got y=${run.player.y.toFixed(1)} — the contact is on the wrong axis or the drawn passage and the tested one have come apart`)
+      assert.ok(Math.abs(run.player.y) < hw,
+        `the cave let the player reach y=${run.player.y.toFixed(1)}, outside the corridor clamp at ${hw.toFixed(1)} — the passage has escaped the lane and the player is being pinned by a wall that is not drawn`)
       assert.ok(run._crushing,
         `pinned to the wall for 12s the player should be held against the lane's trailing edge (the wall is solid coral at every spur), but _crushing is false and they advanced ${(run.player.x - x0).toFixed(0)}px`)
       // The front STOPS with a pinned player rather than running off without them, and that is the
@@ -22537,209 +22546,24 @@ function testLaneAxis() {
 //   - the ridges cost nothing, so weaving between the channels is a choice with no stakes;
 //   - the scrape leaks into the forward scroll, which is the one thing a lane promises never moves;
 //   - SPUR_SLOW_MUL sits in config and no MIN reads it, so coral takes HP but never your steering.
+// -- run RS: THE CAVE ---------------------------------------------------------------------------
+// The Reef is a single passage that wanders, with coral filling everything outside it. This
+// replaces a suite that measured ridges-as-bars: a slab spanning the lane with grooves cut in it,
+// which the player crossed. That level is gone (owner, 2026-08-23: "coral forms the caves and the
+// paths... paths should be horizontal"), and assertions about riding a wall, clipping a groove edge
+// or dashing across a band describe geometry that no longer exists. Kept from it: the properties
+// that are still true of ANY version of this chapter, re-derived against caveAt.
 function testReefSpurScrape() {
   const dt = 1 / 60
-  const LAX = laneAxes(CHAPTERS.reef)
-  const spec = CHAPTERS.reef.spurs
-  let noSpiral = null
   const meta = makeMeta()
-  meta.dev = true
   for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
     ensureChapterMeta(meta, id)
     meta.chapters[id].unlocked = true
     meta.chapters[id].difficulty = 3
   }
-
-  // (a) ONE CHAPTER DECLARES CORAL, and the sweep's denominator is every chapter that exists —
-  // CHAPTER_ORDER is Book 1 only and ALL_CHAPTER_IDS still drops the hidden ones.
-  const all = Object.keys(CHAPTERS)
-  const withSpurs = all.filter((id) => CHAPTERS[id].spurs)
-  assert.deepStrictEqual(withSpurs, ['reef'],
-    `run RS.a: expected exactly one chapter of ${all.length} to declare a spur field, found [${withSpurs.join(', ')}]`)
-  // ...and the ART MAY NOT OUTGROW WHAT THE PLAYER IS HELD OFF BY.
-  //
-  // This used to read `SPUR_VIS.bump + SPUR_VIS.bumpOut <= 1` — the lobes had to stay inside the
-  // charged band, or you would swim through solid-looking coral for nothing. Those four knobs are
-  // gone with the pass that read them (they drew a spine of same-coloured circles whose union was
-  // exactly the rectangle, i.e. nothing at all), so an assertion on them now guards a relationship
-  // that governs no pixels — green forever, whatever the art does.
-  //
-  // The real invariant, since the coral became SOLID: a colony may reach half the ridge thickness
-  // plus PLAYER.radius and not one pixel further, because blockOnCoral holds the player exactly
-  // PLAYER.radius clear of the band. Coral drawn out to that line is coral you genuinely cannot
-  // enter; coral drawn past it is a wall in the wrong place. syncSpurs clamps to it, and this is
-  // the number it clamps to.
-  // THE BRANCHING IS THE SUBJECT, so it is what gets asserted. Three revisions of this art were
-  // rejected — a plain slab, a scalloped slab, and a band packed with spheres ("just ugly balls")
-  // — and all three failed for one reason: they drew a SOLID SHAPE. What identifies coral is the
-  // fork. depth 0 or trunks 1 silently turns every colony back into a stick, which is the same
-  // failure arriving through the config rather than through the draw.
-  // ⚠ depthLo >= 2, NOT >= 3, AND THAT IS A DEBT. The owner asked for "one more fractal depth" and
-  // got it; a browser then froze on it, because syncSpurs paths its coral as vector strokes and
-  // every fork level doubles the segment count (measured: 550ms median per rebuild, 822ms worst).
-  // The floor is temporarily 2 so the chapter is playable while the colonies are still un-baked.
-  // It stays an assertion rather than being deleted because 2 is still the difference between a
-  // fork and a stick. RAISE IT BACK TO 3 with the bake.
-  assert.ok(SPUR_VIS.depthLo >= 2 && SPUR_VIS.trunksHi >= 3,
-    `run RS.a: colonies grow up to ${SPUR_VIS.trunksHi} stem(s) forking at least ${SPUR_VIS.depthLo} time(s) — below 2 forks a colony is a stick, and the ridges stop reading as coral for the fourth time`)
-  assert.ok(SPUR_VIS.lenFallHi < 1 && SPUR_VIS.widthFall < 1,
-    `run RS.a: branches do not taper (lenFall up to ${SPUR_VIS.lenFallHi}, widthFall ${SPUR_VIS.widthFall}) — every fork the same size as its parent is a net, not an antler`)
-
-  // EVERY HABIT MUST BE A RANGE, NOT A CONSTANT. This is the guard for "coral is too similar,
-  // should be procedural, not always the + base" (owner, 2026-08-23). The previous revision fixed
-  // trunks at 4 and spaced them at an even (t / trunks) x 2pi, so every colony in the chapter was
-  // the same PLUS SIGN under a rotation — structurally identical, and no assertion could tell,
-  // because each individual colony was branching perfectly well.
-  //
-  // Collapsing any one of these ranges to a point silently restores that: one stem count, or one
-  // fork angle, or one taper is one species stamped over the whole reef. Checked as a SPREAD on
-  // each axis rather than as a mention of the field, since lo === hi is exactly the regression and
-  // it leaves every name in place.
-  for (const [lo, hi, what] of [
-    [SPUR_VIS.trunksLo, SPUR_VIS.trunksHi, 'stems per colony'],
-    [SPUR_VIS.depthLo, SPUR_VIS.depthHi, 'fork depth'],
-    [SPUR_VIS.spreadLo, SPUR_VIS.spreadHi, 'fork angle'],
-    [SPUR_VIS.lenFallLo, SPUR_VIS.lenFallHi, 'taper'],
-    [SPUR_VIS.trunkLenLo, SPUR_VIS.trunkLenHi, 'stem length'],
-    [SPUR_VIS.segLenLo, SPUR_VIS.segLenHi, 'branch length'],
-    // The two that make the ridge's DENSITY ragged rather than machined. gapLo === gapHi restores
-    // a uniform stride with the accumulation still in place, which no source regex can see.
-    [SPUR_VIS.colonyEveryLo, SPUR_VIS.colonyEveryHi, 'ridge grain'],
-    [SPUR_VIS.gapLo, SPUR_VIS.gapHi, 'colony gap'],
-  ]) {
-    assert.ok(hi > lo,
-      `run RS.a: ${what} is fixed at ${lo} — every colony then shares that habit and the whole reef is one stamp repeated, which is the "+ base" defect by another name`)
-  }
-  // ...and a fork is not always two. A perfectly binary tree is the other tell of a generated
-  // plant, and these two shares are the only thing preventing it.
-  assert.ok(SPUR_VIS.triFrac > 0 && SPUR_VIS.whipFrac > 0,
-    `run RS.a: every fork splits in exactly two (triFrac ${SPUR_VIS.triFrac}, whipFrac ${SPUR_VIS.whipFrac}) — a perfect binary tree reads as generated however varied its angles are`)
-
-  // ...AND NEITHER LENGTH RANGE MAY EXCEED 1.0. Both multiply the reach a colony was sized against
-  // (room - |spine offset|), so a factor above 1 puts its tips outside the wall — coral drawn over
-  // a channel the player is meant to swim through, which is the one thing this art may never do.
-  // The stem factor WAS 0.85 + h * 0.3, i.e. up to 1.15, and that 15% shipped unnoticed through
-  // two revisions because nothing compared it against the bound it was multiplying.
-  assert.ok(SPUR_VIS.trunkLenHi <= 1 && SPUR_VIS.segLenHi <= 1,
-    `run RS.a: branch lengths scale up to ${Math.max(SPUR_VIS.trunkLenHi, SPUR_VIS.segLenHi)} of a colony's nominal reach — above 1.0 the coral grows past the wall the player is held off by`)
-
-  // THE HOLE A FUTURE TUNE COULD OPEN, as an inequality rather than as a warning. The widest gap
-  // the walk can leave between two colony bases is colonyEveryHi x gapHi; if that ever exceeds the
-  // player's own diameter, the ridge grows a hole the player reads as a way through — and since
-  // spurs.solid it is not one, so the misread costs a crush at LANE_CRUSH_DPS.
-  //
-  // 4x THE RADIUS, NOT 2x, AND THE CALIBRATION IS THE POINT. Rasterising the shipped geometry says
-  // a hole first reads as passable at a knob mean around 44 (colonyEveryHi ~55); today's widest
-  // see-through run is 15px against a 44px player. A bound at 2 x PLAYER.radius caps colonyEveryHi
-  // at 27.5 and goes red on colonyEveryHi 30 — a plausible "open it up a bit" tune that measures a
-  // 21px hole, half a player, and is fine. That is the same over-tight warning this diff deleted
-  // from config.js, recommitted as a hard red: an assertion that fires on healthy tunes teaches
-  // the next editor to widen it, and then it is not there for the tune that matters. 4x still
-  // catches the pathology (a 55px stride) and leaves the healthy ones alone.
-  assert.ok(SPUR_VIS.colonyEveryHi * SPUR_VIS.gapHi < 4 * PLAYER.radius,
-    `run RS.a: the colony walk can leave ${(SPUR_VIS.colonyEveryHi * SPUR_VIS.gapHi).toFixed(1)}px between bases against a ${2 * PLAYER.radius}px player — past ${4 * PLAYER.radius}px that is a hole reading as a way through a wall that is solid`)
-  // A deleted knob may not come back, same rule as SPUR_VIS.bump above: an unread entry in a config
-  // table is one the next reader will tune and watch do nothing.
-  assert.ok(SPUR_VIS.colonyEvery === undefined && SPUR_VIS.reachMax === undefined,
-    'run RS.a: SPUR_VIS.colonyEvery / reachMax are back. Both were replaced (by the hashed walk and by the reachLo..reachHi fraction) and nothing reads them')
-  {
-    const gsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    // The stem angles moved into bakeCoral() when the colonies stopped being pathed per rebuild
-    // and started being baked once — the shape is decided there now, so that is where this lints.
-    assert.ok(!/ang = \(t \/ gen\.trunks\) \* Math\.PI \* 2/.test(gsrc),
-      'run RS.a: stem angles are back to an even division of the circle — that is the plus sign, whatever the stem count')
-    assert.ok(/ang \+= \(\(Math\.PI \* 2\) \/ gen\.trunks\) \* \(0\.5 \+ hash\(/.test(gsrc),
-      'run RS.a: stem angles are no longer accumulated from jittered gaps — colonies will differ only by rotation again')
-
-    // ⚠ THE COLONIES MUST STAY BAKED. This is the rule render.js states in its own file header —
-    // "All entity looks are baked into textures once; per-frame work is sprite pools only" — and
-    // breaking it is not a style question here, it is a browser freeze: pathing the colonies live
-    // measured a 550ms median main-thread block per field rebuild, every 2.33s, and hung the tab.
-    // Baked, the same rebuild is 1.4ms. Nothing else in the suite can see a frame time, so this
-    // lints the two halves of the architecture instead: the bake exists, and syncSpurs STAMPS.
-    assert.ok(/function bakeCoral\s*\(/.test(gsrc),
-      'run RS.a: bakeCoral() is gone — if the colonies are being drawn any other way, check a real frame time before believing it is cheap')
-    assert.ok(/syncPool\(coralPool, coralLayer, stamps,/.test(gsrc),
-      'run RS.a: syncSpurs no longer stamps its colonies from a sprite pool — pathing them live is what froze the browser at 550ms a rebuild')
-
-    // THE SAME LINT ONE LEVEL UP, which is where "straight wall" actually lived. The stem-angle
-    // pair above was written for an even division of the circle; the COLONY WALK along the spine
-    // was still doing exactly that -- c0 + (c1-c0)*k/n with a small wobble, which cannot produce a
-    // clump or a thin patch. Even density along a ridge's length reads as machined however organic
-    // each plant on it is, and machined is what the eye calls a straight wall.
-    assert.ok(!/const cc = c0 \+ \(\(c1 - c0\) \* k\) \/ n/.test(gsrc),
-      'run RS.a: colony placement is back to an even division of the ridge — that is a machined wall, whatever each colony looks like')
-    // ⚠ THE DRAWN WALL AND THE WALL THAT STOPS YOU ARE ONE PREDICATE. render.js finds the cave's
-    // inner edge by BISECTING channelAt() — the same function sim.js blocks the player with, which
-    // is why it lives in config.js (render.js may not import from sim.js at all). Anything that
-    // re-derives the edge from spurAt's grooves directly would look identical on screen and drift
-    // the moment pinchSpan or the interpolation changes, and the player would be stopped by a wall
-    // that is not where the coral is. This is the defect that costs this repo the most.
-    assert.ok(/channelAt\(sp, f, m, spec, hw\)/.test(gsrc),
-      'run RS.a: the drawn cave edge is no longer bisected out of channelAt — the wall you can see has stopped being the wall that stops you')
-    // ⚠ `hash\(cc \*`, NOT `hash\(`. The gap has to be hashed off the RUNNING POSITION. Hashing it
-    // off the ridge instead — `hash(f * 2.7, f * 1.3)`, a one-character edit — gives every step on
-    // that ridge the SAME gap: a uniform stride again, wearing an accumulation. Measured, the ink
-    // is statistically indistinguishable, and with the looser regex every guard here stayed green.
-    // The regression this whole block exists to prevent, escaping through one character.
-    // The walk runs ALONG the lane now rather than across a ridge (the cave has a ceiling and a
-    // floor, not bars), so the running variable is fw. The property is unchanged and is the whole
-    // reason the wall does not read as machined: gaps HASHED OFF THE RUNNING POSITION, so they
-    // clump and thin. Hashing off anything constant along the walk gives every step the same gap.
-    assert.ok(/fw \+= step \* \(V\.gapLo \+ hash\(fw \*/.test(gsrc),
-      'run RS.a: the wall walk no longer accumulates gaps hashed off the RUNNING POSITION — every step gets the same gap, which is a uniform stride again')
-  }
-  assert.strictEqual(SPUR_VIS.bump, undefined,
-    'run RS.a: SPUR_VIS.bump is back. The lobe pass it fed is deleted; a knob nothing reads is one the next reader will tune and watch do nothing')
-
-  // THE PALETTE IS THE MECHANISM, NOT DECORATION, so it gets a real guard rather than a comment.
-  // "Realistic" here means a crowd of DIFFERENT colonies; collapse SPUR_VIS.tones to one colour and
-  // the ridge is a flat slab again with the packing still running, which is the exact failure this
-  // whole revision exists to undo — and a mutation doing precisely that passed every other
-  // assertion in this file. Two properties, because either alone is satisfiable by a cheat: enough
-  // distinct tones, AND a real spread of VALUE across them (five near-identical browns are one
-  // colour with extra steps, and read as gravel).
-  {
-    const lum = (h) => 0.2126 * ((h >> 16) & 255) + 0.7152 * ((h >> 8) & 255) + 0.0722 * (h & 255)
-    const ls = SPUR_VIS.tones.map(lum)
-    assert.ok(SPUR_VIS.tones.length >= 4,
-      `run RS.a: the coral is drawn from ${SPUR_VIS.tones.length} tone(s) — a reef is a crowd of different colonies, and under 4 the packing renders as one flat slab again`)
-    assert.ok(Math.max(...ls) - Math.min(...ls) > 40,
-      `run RS.a: the coral's tones span only ${(Math.max(...ls) - Math.min(...ls)).toFixed(0)} of luminance — that is one colour with extra steps, and it reads as gravel rather than as separate colonies`)
-  }
-  // THE CLAMP ITSELF, AS SOURCE. render.js is not importable here, so this is the only reach the
-  // suite has on the drawing. Linted as the EXPRESSION rather than as a mention of PLAYER.radius:
-  // that constant is named a dozen times in the file, so a token grep stays green with the clamp
-  // deleted and the colonies free to grow across the channel the player must swim through.
-  {
-    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    // The colonies are packed from the corridor WALL inward to the opening's edge now, so the
-    // bound that matters is the depth between those two, and it is measured from channelAt rather
-    // than from a spine offset. The lint above covers it; these two described the cross-walk.
-    assert.ok(/const depth = Math\.abs\(sign \* hw - e\)/.test(rsrc),
-      'run RS.a: the wall no longer packs from the corridor edge to the opening — coral placed any other way can reach across the channel')
-  }  // ...and the RATE keeps the band its own block claims. SPUR_DPS is priced against the flat DoTs
-  // that share its `dot: true` rules — the chapter's own drowning at the bottom, SLICK/SOAP 6 at
-  // the top — and it has to stay between them: over, and a soaped groove stops being worse than the
-  // coral beside it, which is the inversion that killed spec rev 3; well under, and the ridge is
-  // scenery again with every EFFECT case below still passing, since they all measure the config
-  // number against itself.
-  // ...and the FIELD DECLARES ITS OWN SEED. streamSpurs early-returns on a null _obstacleSeed like
-  // the five older streamers, but usesObstacleSeed did not name `spurs` — so the entire coral field
-  // existed only because this chapter's air pockets happen to make `refillSpec` true. Stripping the
-  // signature and the (already null) obstacles leaves the coral as the sole claimant, which is the
-  // shape of The Surf's own bug: it turned `obstacles` off and lost two unrelated fields silently.
-  {
-    const { signature, obstacles, ...coralOnly } = CHAPTERS.reef
-    assert.ok(usesObstacleSeed(coralOnly),
-      'run RS.a: a chapter whose only streamed field is the spur field gets NO run._obstacleSeed — usesObstacleSeed does not name `spurs`, so The Reef\'s coral is riding on its air pockets and dies with them')
-  }
-
-  const drownDps = CHAPTERS.reef.resource.drown.dps
-  assert.ok(SPUR_DPS <= drownDps && SPUR_DPS >= drownDps / 2,
-    `run RS.a: the coral scrapes at ${SPUR_DPS} dps against this chapter's own drowning at ${drownDps} — outside [${drownDps / 2}, ${drownDps}] the ridge is either worse than the hazards it is meant to sit under or too cheap to be a decision`)
-
-  const reefRun = (seed = 20260822) => {
+  const LAX = laneAxes(CHAPTERS.reef)
+  const spec = CHAPTERS.reef.cave
+  const reefRun = (seed = 20260823) => {
     Math.random = mulberry32(seed)
     const run = createRun(meta, { chapter: 'reef', difficulty: 1 })
     assert.strictEqual(run.chapter, 'reef', 'run RS did not start in the reef — the WIP gate or the meta is wrong, and every number below would be another chapter')
@@ -22747,455 +22571,110 @@ function testReefSpurScrape() {
     run.mods.spawnMul = 0
     return run
   }
-  // THE WALL IS ALWAYS CORAL, and that is what makes the fixture below a fixture rather than a
-  // coin flip: the braid's FAR EDGE is braidSep/2 + grooveMax/2, and the lane wall is beyond it, so
-  // a player pressed against the wall meets solid ridge at every single spur. Derived from the
-  // config rather than typed, so widening the braid past the wall fails here instead of silently
-  // turning the coral case into a groove case.
-  const hw = laneHalfWidth(reefRun().viewRadius, CHAPTERS.reef)
-  const farEdge = spec.braidSep / 2 + spec.grooveMax / 2
-  assert.ok(farEdge < hw,
-    `run RS: the braid's far edge (${farEdge}) has reached the lane wall (${hw}) — riding the wall is no longer guaranteed coral and every case below would measure the wrong thing`)
 
-  // A run driven for `secs` with the CROWD emptied every frame — a crowd contributes contact damage
-  // and knockback to exactly the quantities being read. Nothing else is emptied.
-  //   'coral'  ride the wall — solid ridge at every spur, played with the stick, no teleporting
-  //   'wall'   pinned to the wall each frame: the same coral, without the ramp-up the stick takes,
-  //            so two arms of a burst A/B meet the ridges at identical cross positions
-  //   'centre' pinned to the centre line: coral at every ridge but the merged ones, and RF.a proves
-  //            no air pocket can reach it, so this is the drive on which the Air bar really empties
-  //   'groove' pinned to the nearest ridge's own channel each frame
-  //   'osc'    alternating between the two every frame: the edge-clipping exploit, as a fixture
-  // `air` decides which of the chapter's two DoTs is in play: 'full' holds the bar up so the scrape
-  // is the only thing that can charge, 'drain' leaves it alone so drowning happens too.
-  //
-  // ⚠ run.rocks IS NOT CLEARED, and the line that used to clear it is why this scenario could not
-  // see the largest defect in the chapter: stepRocks gated on `lane` alone, so the reef spawned The
-  // Beyond's asteroids for ~180 HP a run, and every case here zeroed them off the board one frame
-  // after they were made. A fixture that deletes a hazard cannot report it. `by` is now the honest
-  // list of everything that hurt the player, and RS.b/RS.g both read it as one.
-  //
-  // `burst` holds run._burstT live for the whole drive, the way RS.d holds run._scraping: the point
-  // is what the flag DOES to the grate, not how the button is pressed (run RF owns that).
-  // `inBand` is the fixture's OWN geometry — the player is inside some ridge's band and outside its
-  // grooves — computed without asking run._scraping, because under `burst` that field is exactly
-  // what is expected to be false while the player is physically in the coral.
-  const drive = (mode, secs, t0 = 0, { burst = false, air = 'full' } = {}) => {
+  // (a) THE PASSAGE FITS INSIDE THE CORRIDOR THE PLAYER IS CLAMPED TO. If it ever wandered outside,
+  // the player would be pinned by the lane clamp — a wall with no coral drawn on it — while the
+  // coral they can see sits somewhere else entirely.
+  {
+    const hw = laneHalfWidth(reefRun().viewRadius, CHAPTERS.reef)
+    assert.ok(spec.wander + spec.halfMax <= hw,
+      `run RS.a: the passage reaches ${spec.wander + spec.halfMax}px off centre against a corridor clamp at ${hw.toFixed(0)} — it leaves the lane, and the player is stopped by something that is not drawn`)
+    assert.ok(spec.halfMin > PLAYER.radius * 2,
+      `run RS.a: the passage narrows to ${spec.halfMin}px of half-width against a ${PLAYER.radius}px player — there has to be room to be in it without touching both walls`)
+    // NO OPEN WATER BEHIND THE CORAL. The owner named this twice; `fill` is what makes the wall
+    // opaque, and it has to beat the largest half-view the game can present on the cross axis.
+    assert.ok(spec.fill >= 760,
+      `run RS.a: coral is only drawn ${spec.fill}px past the passage — a wide screen then shows open water outside the cave, which is the one thing the wall exists to prevent`)
+    // Every habit of the passage must be a RANGE. A single wavelength is a corrugation, and this
+    // chapter has had regular pattern rejected on its art twice.
+    assert.ok(spec.waves.length >= 3 && spec.widthWave.length >= 2,
+      `run RS.a: the passage is built from ${spec.waves.length} centre octave(s) and ${spec.widthWave.length} width octave(s) — under three and two it reads as one wave, which is a corrugation and not a cave`)
+    const gsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(/const cav = caveAt\(fw, cspec, run\._obstacleSeed\)/.test(gsrc),
+      'run RS.a: the drawn cave wall no longer comes from caveAt — the coral you can see has stopped being the wall that stops you')
+    assert.ok(/const edge = cav\.c \+ sign \* cav\.hw/.test(gsrc),
+      'run RS.a: the wall no longer starts at the passage edge — coral placed any other way can reach across the channel the player is meant to swim down')
+  }
+
+  // (b) A PLAYER WHO FOLLOWS THE PASSAGE NEVER TOUCHES IT. This is the whole level: it must be
+  // navigable without contact, or the chapter is a damage race rather than a thing you fly.
+  let clean = null
+  {
     const run = reefRun()
-    run.time = t0
-    const f0 = run.player[LAX.fwd]
-    let scraped = 0, inBand = 0
+    let touches = 0
+    const secs = 120
     for (let i = 0; i < Math.round(secs / dt); i++) {
-      if (mode === 'wall') run.player[LAX.cross] = hw
-      else if (mode === 'centre') run.player[LAX.cross] = 0
-      else if (mode !== 'coral') {
-        let best = null, bd = Infinity
-        for (const sp of run.spurs) {
-          const d = Math.abs(sp.f - run.player[LAX.fwd])
-          if (d < bd) { bd = d; best = sp }
-        }
-        if (best) run.player[LAX.cross] = mode === 'osc' && i % 2 === 0 ? hw : best.grooves[0].c
-      }
-      if (burst) run._burstT = 1
-      const stick = mode === 'coral' ? 1 : 0
-      stepSim(run, LAX.cross === 'y' ? { x: 0, y: stick } : { x: stick, y: 0 }, dt)
-      run.enemies.length = 0
+      const cav = caveAt(run.player[LAX.fwd] + LAX.dir * 60, spec, run._obstacleSeed)
+      const want = cav.c
+      const c = run.player[LAX.cross]
+      const v = Math.abs(want - c) < 4 ? 0 : want > c ? 1 : -1
+      stepSim(run, LAX.cross === 'x' ? { x: v, y: 0 } : { x: 0, y: v }, dt)
       run.events.length = 0
-      if (air === 'full') run.charge = run.chargeMax
-      if (run._scraping) scraped++
-      const pf = run.player[LAX.fwd], pc = run.player[LAX.cross]
-      for (const sp of run.spurs) {
-        // CONTACT, not containment, and it has to match stepSpurs or this counter measures a
-        // different band from the one being priced. Since spurs.solid the player is STOPPED at
-        // thick/2 + PLAYER.radius and can never be geometrically inside a ridge at all — this
-        // read 1 frame of 720 and reported it as "the fixture is measuring open water".
-        if (Math.abs(pf - sp.f) > sp.thick / 2 + (spec.solid ? PLAYER.radius : 0)) continue
-        if (sp.grooves.every((g) => Math.abs(pc - g.c) > g.hw)) inBand++
-        break
-      }
+      if (run._caveHit) touches++
     }
-    return { hp: run.player.maxHP - run.player.hp, fwd: run.player[LAX.fwd] - f0, by: { ...(run.dmgBySrc ?? {}) }, scraped, inBand, rocks: run.rocks.length }
+    clean = { travelled: run.player[LAX.fwd], touches }
+    assert.strictEqual(touches, 0,
+      `run RS.b: a player steering down the middle of the passage touched the wall on ${touches} frames — the cave is not navigable, so every other case here is measuring a damage race`)
+    assert.ok(run.player[LAX.fwd] * LAX.dir > laneScrollFor(CHAPTERS.reef) * secs * 0.98,
+      `run RS.b: following the passage carried the player ${run.player[LAX.fwd].toFixed(0)}px in ${secs}s against a scroll that should give ${(laneScrollFor(CHAPTERS.reef) * secs).toFixed(0)} — something is stopping a player who is doing it right`)
   }
 
-  // (b) CORAL GRATES, A CHANNEL DOES NOT, AND NEITHER TOUCHES THE SCROLL.
-  const secs = 12
-  const coral = drive('coral', secs)
-  const groove = drive('groove', secs)
-  assert.ok(coral.scraped > 60,
-    `run RS.b: the wall-riding fixture spent only ${coral.scraped} frames in coral over ${secs}s — it is measuring open water, and every assertion below would pass vacuously`)
-  assert.ok(coral.hp > 0,
-    `run RS.b: a player who spent ${(coral.scraped * dt).toFixed(1)}s inside the coral lost NO hp — the ridges are decoration and the chapter's level design costs nothing`)
-  // AND IT COSTS THE STATED RATE, not merely something. `> 0` survives the grate charging a
-  // quarter of SPUR_DPS — which is exactly what the whole suite did when a critic tried it — so the
-  // hp is tied to the time the same fixture MEASURED itself inside coral. 0.8 absorbs hurtPlayer's
-  // per-tick rounding and the part-ticks at each edge; it is not slack for a wrong rate.
-  // PRICED OFF dmgBySrc.scrape, NOT OFF TOTAL HP, and since spurs.solid that distinction is the
-  // whole assertion. A wall-rider is now STOPPED by the first ridge and held against it, so it is
-  // also being crushed — and crush damage alone (36dps against the scrape's 4) clears any floor
-  // written against total hp. The old form would have passed with the grate deleted outright.
-  const inCoral = coral.scraped * dt
-  const byScrape = coral.by.scrape ?? 0
-  assert.ok(byScrape >= SPUR_DPS * inCoral * 0.8,
-    `run RS.b: ${inCoral.toFixed(1)}s inside the coral was charged only ${byScrape} hp of SCRAPE, under the ${(SPUR_DPS * inCoral * 0.8).toFixed(1)} floor that ${SPUR_DPS} dps must charge over it — the grate is running at a fraction of its stated rate and nothing else in this file would notice`)
-
-  // ...and the BAND is the one the config declares.
-  //
-  // THIS USED TO BE A DUTY CYCLE (share of the run spent scraping == thick/spacing) and that
-  // measurement stopped meaning anything when the ridges became walls: a wall-rider no longer
-  // PASSES THROUGH a ridge every spacing px, it stops at the first one and rests there, so the
-  // share went to 91.5% of a declared 42.9% — the fixture reporting the collision working as a
-  // geometry mismatch. The property that check existed to defend is still exactly right, though:
-  // if stepSpurs tests a different band from the one config draws and prices, the player spends
-  // less time in coral AND takes proportionally less damage, so the floor above scales with the
-  // defect and passes. Pinned now as a DISTANCE, which is what the same fact looks like for a
-  // player who is held rather than passing: a stopped body rests exactly one half-thickness plus
-  // its own radius from the ridge centre, and any drift in either band moves it.
+  // (c) TOUCHING IT BOUNCES, AND A BOUNCE IS BOUNDED. The mechanic the owner asked for, and the bug
+  // it replaces: the old wall ASSIGNED an absolute position, so a graze near a pinch threw the
+  // player a hundred pixels and could deposit them past the trailing edge to die. A bounce moves
+  // you by a bounce.
+  let hit = null
   {
-    // Same stick 'coral' mode drives with (hard across the lane), same housekeeping, so this is the
-    // fixture above measured one frame at a time rather than a second one that could disagree.
     const run = reefRun()
-    const CROSS_STICK = LAX.cross === 'y' ? { x: 0, y: 1 } : { x: 1, y: 0 }
-    let held = null
-    for (let i = 0; i < Math.round(secs / dt) && !held; i++) {
-      stepSim(run, CROSS_STICK, dt)
-      run.enemies.length = 0
+    const secs = 20
+    let touched = 0, worstJump = 0
+    let prev = { f: run.player[LAX.fwd], c: run.player[LAX.cross] }
+    // Held hard against one side: the passage wanders under them, so they meet a wall repeatedly.
+    const STICK = LAX.cross === 'y' ? { x: 0, y: 1 } : { x: 1, y: 0 }
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      stepSim(run, STICK, dt)
       run.events.length = 0
-      run.charge = run.chargeMax
-      if (!run._crushing) continue
-      const pf = run.player[LAX.fwd]
-      for (const sp of run.spurs) {
-        if (Math.abs(pf - sp.f) > sp.thick / 2 + PLAYER.radius + 2) continue
-        held = { gap: Math.abs(pf - sp.f), want: sp.thick / 2 + PLAYER.radius }
-        break
+      const f = run.player[LAX.fwd], c = run.player[LAX.cross]
+      if (run._caveHit) {
+        touched++
+        worstJump = Math.max(worstJump, Math.hypot(f - prev.f, c - prev.c))
       }
+      prev = { f, c }
     }
-    assert.ok(held,
-      'run RS.b: riding the wall never came to rest against a ridge — spurs.solid is not stopping the player, so the crush cannot happen and the chapter has no walls')
-    assert.ok(Math.abs(held.gap - held.want) < 1.5,
-      `run RS.b: a player stopped by coral rests ${held.gap.toFixed(2)}px from the ridge centre, not the ${held.want.toFixed(2)}px its half-thickness plus PLAYER.radius declares — blockOnCoral and the drawn band have come apart`)
-  }
-  assert.deepStrictEqual(Object.keys(coral.by).sort(), ['crush', 'scrape'],
-    // TWO sources now, and the second is not contamination: since spurs.solid a wall-rider is
-    // STOPPED by the first ridge, so it is both grinding on the face (scrape) and being left
-    // behind by the lane (crush). Both belong to this chapter and to this fixture. Still an
-    // exact list rather than a filter — a THIRD source means the world is not empty and the
-    // numbers above are not the coral's, which is the whole job of this line.
-    `run RS.b: the coral fixture took damage from [${Object.keys(coral.by).sort().join(', ')}] — anything but scrape+crush means the world is not empty and the number is not the coral's`)
-  assert.strictEqual(groove.hp, 0,
-    `run RS.b: a player who held a channel the whole way still lost ${groove.hp} hp — the grooves are not a way through, so there is no choice to make`)
-  // THE PROMISE MOVED, AND THIS IS THE ASSERTION THAT SAYS SO. It used to read
-  // `coral.fwd === groove.fwd` — the coral may take your steering and your HP but never your
-  // advance, "the one thing the lane promises". Owner's ruling, 2026-08-23, having played it:
-  // the ridges "should block you", and losing the advance is now precisely the point. So the
-  // promise is no longer "you always move forward", it is "a CHANNEL always moves you forward":
-  // the way through is guaranteed, and refusing to find it is what costs you.
-  assert.ok(Math.abs(groove.fwd - laneScrollFor(CHAPTERS.reef) * secs) < 1e-6,
-    `run RS.b: a player holding a channel advanced ${groove.fwd.toFixed(3)}px over ${secs}s instead of the ${(laneScrollFor(CHAPTERS.reef) * secs).toFixed(3)} its scroll guarantees — the grooves have stopped being a clean way through`)
-  assert.ok(coral.fwd < groove.fwd * 0.5,
-    `run RS.b: riding the coral advanced ${coral.fwd.toFixed(3)}px against the channel's ${groove.fwd.toFixed(3)} — the ridges are not blocking, so spurs.solid is inert and the crush can never happen`)
-
-  // (c) THE RATE IS THE STATED ONE AT WORST, however you enter and leave. The carried accumulator
-  // exists for this: zeroed on exit, clipping a groove edge is free; ticked from zero on entry, a
-  // player oscillating on an edge pays a full tick per crossing — 5/s against a stated 4 dps. Both
-  // mutations are visible here, in opposite directions, which is why the band has two sides.
-  // PRICED BY SOURCE, for the same reason RS.b above is: an oscillating player clips the ridge and
-  // is therefore sometimes STOPPED by it, so total hp now carries crush damage at 36 dps beside the
-  // scrape's 4 — the ceiling below is a scrape ceiling, and comparing it against total hp read 390
-  // of an allowed 50.0 the first time this ran. dmgBySrc is the only number here that is the
-  // scrape's alone.
-  const osc = drive('osc', secs)
-  const oscScrape = osc.by.scrape ?? 0
-  const ceiling = SPUR_DPS * secs + SPUR_DPS * SPUR_TICK
-  assert.ok(oscScrape > 0,
-    'run RS.c: a player clipping the coral every other frame paid NOTHING in scrape — the accumulator is being zeroed on exit, so hugging a channel edge is free')
-  assert.ok(oscScrape <= ceiling,
-    `run RS.c: oscillating on the edge cost ${oscScrape} hp of SCRAPE in ${secs}s, past the ${ceiling.toFixed(1)} that ${SPUR_DPS} dps can charge in that time — the tick is firing per crossing instead of per SPUR_TICK`)
-  assert.ok(byScrape <= ceiling,
-    `run RS.c: committing to the coral cost ${byScrape} hp of SCRAPE in ${secs}s, past the ${ceiling.toFixed(1)} ceiling — same defect, seen from the other fixture`)
-  // ...AND THE RATE NEVER RAMPS, which no reading of config.js can tell you: `SPUR_DPS = 4` looks
-  // flat whether or not the fire site multiplies it by dmgScale(run.time). The same fixture, same
-  // seed, same path, four minutes later: dmgScale(240) is 1.8, which is where a scaled scrape
-  // passes the SOAP trail's flat 6 and a soaped groove stops being worse than the coral beside it.
-  const late = drive('coral', secs, 240)
-  assert.strictEqual(late.by.scrape, coral.by.scrape,
-    `run RS.c: the same ${secs}s of coral cost ${late.by.scrape} hp at t=240 against ${coral.by.scrape} at t=0 — the scrape is scaling with run time, so it does not stay under the flat DoTs it is priced against`)
-
-  // (d) IT TAKES YOUR STEERING AND NOT YOUR SCROLL. Measured in The Beyond, which has no coral at
-  // all: the slow MIN is chapter-agnostic, so this isolates SPUR_SLOW_MUL as the only difference
-  // between two otherwise identical lane runs. In the reef the geometry moves both sides at once.
-  {
-    const BAX = laneAxes(CHAPTERS.beyond)
-    const laneRun = (scraping) => {
-      Math.random = mulberry32(20260822)
-      const run = createRun(meta, { chapter: 'beyond', difficulty: 1 })
-      run.player.hp = run.player.maxHP = 100000
-      run.mods.spawnMul = 0
-      const c0 = run.player[BAX.cross], f0 = run.player[BAX.fwd]
-      for (let i = 0; i < Math.round(0.4 / dt); i++) {
-        run._scraping = scraping
-        stepSim(run, BAX.cross === 'y' ? { x: 0, y: 1 } : { x: 1, y: 0 }, dt)
-        run.enemies.length = 0
-        run.rocks.length = 0
-        run.events.length = 0
-      }
-      return { cross: Math.abs(run.player[BAX.cross] - c0), fwd: Math.abs(run.player[BAX.fwd] - f0), scrape: (run.dmgBySrc ?? {}).scrape }
-    }
-    const free = laneRun(false)
-    const held = laneRun(true)
-    assert.ok(free.cross > 50, `run RS.d: the control run strafed only ${free.cross.toFixed(1)}px — the fixture is not moving and the ratio below would be noise`)
-    assert.ok(Math.abs(held.cross / free.cross - SPUR_SLOW_MUL) < 0.02,
-      `run RS.d: scraping strafed x${(held.cross / free.cross).toFixed(3)} of a free strafe, not x${SPUR_SLOW_MUL} — SPUR_SLOW_MUL never reaches the slow MIN, so coral takes hp and never your steering`)
-    assert.strictEqual(held.fwd, free.fwd,
-      `run RS.d: scraping advanced ${held.fwd.toFixed(3)}px against ${free.fwd.toFixed(3)}px free — the strafe slow has leaked into the scroll`)
-    // ...and the no-op, as an effect: a chapter with no spur field takes no scrape damage at all.
-    assert.strictEqual(held.scrape, undefined,
-      'run RS.d: a chapter that declares no spur field still tallied scrape damage — stepSpurs is not gated on the descriptor')
+    const paid = (run.dmgBySrc ?? {}).scrape ?? 0
+    hit = { touched, worstJump, paid }
+    assert.ok(touched > 60,
+      `run RS.c: a player pressed against one side for ${secs}s only touched the wall on ${touched} frames — the fixture is in open water and the numbers below are vacuous`)
+    assert.ok(paid > 0,
+      'run RS.c: touching the cave wall cost NOTHING — the owner asked for it to damage you, and without that the passage is decoration')
+    // The bound: one frame of contact may move the player by the bounce plus one frame of scroll
+    // and strafe, and nothing like the ~100px teleport this replaces.
+    const bound = CAVE_BOUNCE_PX + (laneScrollFor(CHAPTERS.reef) + PLAYER.baseSpeed * LANE_STRAFE_MUL) * dt + 4
+    assert.ok(worstJump <= bound,
+      `run RS.c: a single frame of wall contact moved the player ${worstJump.toFixed(1)}px against a ${bound.toFixed(1)}px bound — that is a teleport, which is exactly what made the level read as glitching`)
   }
 
-  let burstFree = null, soloSrcs = ''
-
-  // (e) EVERY RIDGE ITS OWN THICKNESS, and the art follows THAT and not the spec's mean. Before
-  // this, spurAt returned `thick: spec.thick` for every index and the reef front was a row of
-  // identical slabs — the lobe pass could not change that, because with a rectangular collider the
-  // drawn union has to BE the rectangle (bump + bumpOut <= 1) and interior circles add nothing to a
-  // silhouette. Varying the TESTED band is the only raggedness available, so it is the one shipped.
+  // (d) THE BURST PASSES THROUGH, the same ruling that waived the old scrape: the dash is the
+  // button that gets you OUT of trouble, and a wall that stops it ends runs on a spend.
   {
-    const V = SPUR_VIS
-    const seed = reefRun()._obstacleSeed
-    assert.ok(seed != null, 'run RS.e: the reef drew no _obstacleSeed — usesObstacleSeed has stopped naming the spur field and the whole coral field is gone')
-    const N = 600
-    const ts = []
-    const seps = new Set()
-    for (let i = -N / 2; i < N / 2; i++) {
-      const sp = spurAt(i, spec, seed)
-      ts.push(sp.thick)
-      if (!sp.merged) seps.add(+(2 * Math.abs(sp.grooves[0].c)).toFixed(3))
-      // THE INVARIANT, PER RIDGE: every colony on this ridge is drawn inside half ITS OWN
-      // thickness plus PLAYER.radius. Per-ridge rather than against the spec's mean, because
-      // spurAt gives each ridge its own thickness (thickVar) and a check written against the mean
-      // silently allows the art to overgrow every thin ridge — the exact drawn-vs-tested defect
-      // this block exists to prevent, in a form no screenshot shows.
-      // A COLONY MAY NOT SWAMP THE RIDGE IT SITS ON. syncSpurs clamps every head into
-      // half + PLAYER.radius of the ridge centre (linted as source in RS.a, since render.js is not
-      // importable) -- but the clamp alone cannot save a THIN ridge from a head bigger than it is:
-      // at headMax > half the packing degenerates to one blob per ridge and the per-ridge thickness
-      // spurAt works to produce stops being visible at all. Checked per ridge, not against the
-      // spec's mean, for the same reason everything else in this block is.
-      // A COLONY MAY NOT OUTGROW THE RIDGE IT SITS ON. syncSpurs keeps every base a full reachMax
-      // inside half + PLAYER.radius (linted as source in RS.a), so no tip can leave the wall — but
-      // that clamp collapses to a single line of bases the moment reachMax exceeds the half-width,
-      // and every colony on a thin ridge then grows from the same place. Checked per ridge against
-      // the thinnest the field can make, not against the spec's mean, for the same reason the rest
-      // of this block is per-ridge.
-      // Reach is a FRACTION of each ridge's own room now, not a px constant, so the bound is
-      // structural and holds on every ridge the field can make rather than on the mean. reachHi
-      // above 1 puts coral outside the wall on ALL of them at once.
-      assert.ok(SPUR_VIS.reachHi <= 1 && SPUR_VIS.reachLo > 0 && SPUR_VIS.reachLo < SPUR_VIS.reachHi,
-        `run RS.e: colony reach spans ${SPUR_VIS.reachLo}..${SPUR_VIS.reachHi} of each ridge's room — above 1 the coral leaves the wall, and lo === hi makes every colony the same size and traces the band's rectangle back`)
-    }
-    const mean = ts.reduce((a, b) => a + b, 0) / ts.length
-    const lo = Math.min(...ts), hi = Math.max(...ts)
-    assert.ok(new Set(ts.map((t) => t.toFixed(2))).size > N / 4,
-      `run RS.e: ${new Set(ts.map((t) => t.toFixed(2))).size} distinct thicknesses over ${N} ridges — the field is back to one slab repeated and the reef front has no silhouette`)
-    // The MEAN is the whole reason this is safe to ship: §7 prices "90px of ridge = 2.0s inside" and
-    // that table reads an expectation, so raggedness that moved the mean would silently re-price
-    // every ridge in the chapter. 1% over 600 ridges is far inside the hash's own noise.
-    assert.ok(Math.abs(mean - spec.thick) < spec.thick * 0.01,
-      `run RS.e: the mean ridge is ${mean.toFixed(2)}px against the ${spec.thick}px §7 prices — thickVar has moved the expectation, not just the spread`)
-    assert.ok(Math.abs(lo - spec.thick * (1 - spec.thickVar)) < 1 && Math.abs(hi - spec.thick * (1 + spec.thickVar)) < 1,
-      `run RS.e: thickness ran ${lo.toFixed(1)}-${hi.toFixed(1)}px against the ${(spec.thick * (1 - spec.thickVar)).toFixed(1)}-${(spec.thick * (1 + spec.thickVar)).toFixed(1)} thickVar declares`)
-    // stepSpurs BREAKS on the first band that holds the player, so two ridges may never overlap.
-    assert.ok(hi < spec.spacing,
-      `run RS.e: the fattest ridge is ${hi.toFixed(1)}px against a ${spec.spacing}px spacing — bands overlap and the grate silently tests only the nearer one`)
-    // ...and the braid floor is untouched by any of it, because separation is 2|c| off the sine.
-    const minSep = Math.min(...seps)
-    assert.ok(minSep > spec.grooveMax,
-      `run RS.e: the braid's smallest separation is ${minSep.toFixed(0)} against grooveMax ${spec.grooveMax} — there is a cross position that is channel at every ridge, i.e. a lane you never have to leave`)
-
-    // ...AND THE RENDERER MEASURES THE RIDGE, NOT THE SPEC. render.js is not importable (Pixi + DOM),
-    // so this is run UG.k's source-text trick. `const half = spec.thick / 2` hoisted out of the loop
-    // is what the drawing code USED to be, and it is the natural thing to leave behind: it throws
-    // nothing, it draws a plausible reef, and it overgrows every thin ridge and undergrows every fat
-    // one by up to thickVar — alternating down the field, so no screenshot reads as wrong either.
-    const renderSrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    const from = renderSrc.indexOf('const coralSegs =')
-    const to = renderSrc.indexOf('function syncSlicks')
-    assert.ok(from > 0 && to > from, 'run RS.e: could not locate coralSegs..syncSlicks in render.js — the anchors moved and this check is asserting nothing')
-    const drawSrc = renderSrc.slice(from, to).replace(/^[ \t]*\/\/.*$/gm, '')
-    assert.ok(/sp\.thick/.test(drawSrc),
-      'run RS.e: render.js draws the reef without ever reading sp.thick — the ridges are being drawn at one shared thickness again')
-    assert.ok(!/spec\.thick/.test(drawSrc),
-      'run RS.e: render.js still reads spec.thick inside the ridge drawing — that is the FIELD MEAN, and every ridge that is not exactly the mean is now drawn at the wrong depth')
-    console.log(`PASS run RS.e (per-ridge thickness): ${N} ridges run ${lo.toFixed(1)}-${hi.toFixed(1)}px about a mean of ${mean.toFixed(2)} (spec ${spec.thick}, ±${(100 * spec.thickVar).toFixed(0)}%), all under the ${spec.spacing}px spacing, braid floor ${minSep.toFixed(0)} > ${spec.grooveMax}, every lobe inside its own band, and render.js draws off sp.thick with no spec.thick left in it`)
-  }
-
-  // (f) THE BURST CROSSES A RIDGE FREE (owner, 2026-08-22). What the 45 Air buys now that the coral
-  // heads are cut. Same fixture, same pin, same ridges — one arm holding the dash, one not.
-  {
-    const paid = drive('wall', secs)
-    const dash = drive('wall', secs, 0, { burst: true })
-    assert.ok(paid.inBand > 60,
-      `run RS.f: the control spent only ${paid.inBand} frames geometrically inside coral over ${secs}s — the fixture is measuring open water and both arms would read 0`)
-    assert.ok(dash.inBand > 60,
-      `run RS.f: the bursting arm spent only ${dash.inBand} frames inside coral — it is not crossing ridges at all, so "free" is vacuous`)
-    // Measured on the SCRAPE column and not on total hp, deliberately. Total hp red here would also
-    // fire for any other hazard the chapter picked up, under a message about the Burst — which is
-    // the mis-attribution trap the suite documents. "Costs 0" is this line plus RS.g's source list.
-    assert.ok((paid.by.scrape ?? 0) > 0,
-      `run RS.f: the control paid no scrape for ${paid.inBand} frames of coral — the grate is off and this case cannot see the burst`)
-    assert.strictEqual(dash.by.scrape ?? 0, 0,
-      `run RS.f: a player holding the Burst still paid ${dash.by.scrape} hp of scrape across ${dash.inBand} frames of coral — the 45 Air buys nothing and the button is still the chapter's dead spend`)
-    // ...and the TELL goes with it, in the one field render.js already reads. updateCoralGrit keys
-    // the grate's only feedback off run._scraping, so a free crossing that still published `true`
-    // would spray grit while costing nothing — the player could not tell the two crossings apart,
-    // which is the whole point of spending the bar.
-    assert.strictEqual(dash.scraped, 0,
-      `run RS.f: run._scraping was published on ${dash.scraped} frames of a free crossing — the grit tell and SPUR_SLOW_MUL both hang off that field, so a bought crossing still looks and steers like a paid one`)
-    burstFree = { paid, dash }
-  }
-
-  // (g) THE REEF'S DAMAGE COMES FROM THE REEF. The whole-chapter version of RS.b's source list, over
-  // a real drive with nothing deleted: an empty world, the Air bar left alone, and the centre line —
-  // which RF.a proves carries no pocket, so the bar really does empty and both hazards are live.
-  // This is the case run RS did not have when stepRocks gated on `lane` alone: the chapter took ~180
-  // HP a run from The Beyond's asteroids and printed "Killed by Asteroids", and no assertion in this
-  // file could see it because every fixture zeroed run.rocks one frame after the spawn.
-  {
-    const long = 120
-    const solo = drive('centre', long, 0, { air: 'drain' })
-    const srcs = Object.keys(solo.by).sort()
-    assert.deepStrictEqual(srcs.sort(), ['crush', 'drown', 'scrape'],
-    // THREE hazards, all three designed here: the water (drown), brushing a ridge (scrape), and
-    // being stopped by one until the lane leaves without you (crush). The point of an EXACT list
-    // is unchanged -- a fourth entry is a hazard this chapter inherited rather than designed,
-    // which is precisely how it was spawning The Beyond's asteroids and printing "Killed by
-    // Asteroids" on its own death screen.
-    `run RS.g: 120s of an EMPTY reef took damage from [${srcs.sort().join(', ')}] -- this chapter designs exactly three hazards (drown, scrape, crush), and anything else in that list is one it inherited`)
-    assert.strictEqual(solo.rocks, 0,
-      `run RS.g: ${solo.rocks} asteroids were alive in the reef at the end of the drive — CHAPTERS.reef.rocks is not being read`)
-    soloSrcs = srcs.map((k) => `${k} ${solo.by[k]}`).join(', ')
-  }
-
-  // (h) THE NO-SPIRAL FLOOR AS A RELATIONSHIP, not as a sentence in config.js. spec 8.2 says a
-  // player at an empty bar must never be structurally trapped, and here that cashes out as one
-  // inequality: the shortest dash the button can produce must carry you clear of the FATTEST ridge
-  // the field can generate. Five knobs feed it and they live in three blocks nobody edits together
-  // — BURST_DUR_MIN and BURST_SPEED_MUL beside the button, laneScroll and spurs.thick/thickVar
-  // beside the chapter — so any one of them can eat the margin with nothing on screen changing and
-  // the config prose still reading as reassurance. The margin is PRINTED because it is thin.
-  {
-    // ⚠ BOTH SIDES OF THIS INEQUALITY WERE WRONG, IN OPPOSITE DIRECTIONS, WHICH IS WHY IT STAYED
-    // GREEN. Two adversarial rounds were needed to land it, and the middle version was the worst of
-    // the three -- worth recording, because the mistake is a tempting one.
-    //
-    // THE BAR (right-hand side). It read `spec.thick * (1 + spec.thickVar)`: the whole drawn band,
-    // 109.8px. I "corrected" that to `+ 2 * PLAYER.radius` = 153.8 on the argument that a dash must
-    // carry the player from one blockOnCoral hold position to the other. That argument is FALSE and
-    // it misreads the line it cites. sim.js: `p[ax.fwd] = sp.f + (f < sp.f ? -half : half)` -- the
-    // moment the player's centre is one pixel PAST sp.f, the very next frame ejects them out the
-    // FAR face for free. The far hold position is where blockOnCoral PUTS you, not anywhere the
-    // dash has to reach. The dash only has to cross the CENTRE LINE, so the bar is half the band
-    // plus the radius it is held off by. Measured against the real sim (one synthetic fattest
-    // ridge, no grooves, player on the near face, binary search on _burstT): the shortest dash that
-    // clears it travels 81.0px — six quantised frames — and 76.9 is the EXACT continuous threshold
-    // it brackets, not a conservative one. There is no slack here to tighten: a five-frame dash
-    // travels 54px, coasts 13.5 more on the frame _burstT hits zero, lands 9.4px short of the
-    // centre line, and blockOnCoral snaps it all the way back for a net zero. The old line
-    // overstated the bar by 63%; my first correction overstated it by 128%.
-    //
-    // THE REACH (left-hand side) STAYS THE FORMULA, and the frame count that looked like a better
-    // number is a trap. stepPlayerMovement applies the velocity and decrements _burstT afterwards,
-    // so at dt = 1/60 a nineteenth frame runs (repeated subtraction of 1/60 from 0.3 leaves 4.86e-17
-    // rather than zero — note `0.3 - 18/60` evaluates to exactly 0, so the residue is the LOOP's,
-    // not the expression's) and the dash really does travel 256.5px. But `frames * dt >= dur` for
-    // every dt, so counting frames measures the BEST case on this device, and the worst case over
-    // all of them is the product — 36 frames at 1/120 gives exactly 243.0. Substituting the count
-    // swapped the floor for a ceiling on a guard whose whole point is that the margin is thin.
-    const reach = BURST_DUR_MIN * laneScrollFor(CHAPTERS.reef) * BURST_SPEED_MUL
-    const widest = spec.thick * (1 + spec.thickVar) / 2 + PLAYER.radius
-    noSpiral = { reach, widest, margin: reach - widest }
-    assert.ok(reach > widest,
-      `run RS.h: the empty-bar Burst travels ${reach.toFixed(1)}px (BURST_DUR_MIN ${BURST_DUR_MIN} x laneScroll ${laneScrollFor(CHAPTERS.reef)} x BURST_SPEED_MUL ${BURST_SPEED_MUL}; a 60Hz device gets 256.5 from the extra frame, this is the floor across refresh rates) against a required crossing of ${widest.toFixed(1)}px (half of spurs.thick ${spec.thick} x 1+thickVar ${spec.thickVar}, plus PLAYER.radius ${PLAYER.radius}: the dash must carry the player past the ridge's CENTRE LINE, from which blockOnCoral ejects them out the far face) — a player at an empty bar cannot press their way across the fattest band the field generates, which is spec 8.2's no-spiral rule broken by ${(widest - reach).toFixed(1)}px`)
-  }
-
-    // (k) THE CRUSH: THE LANE LEAVES WITHOUT YOU, AND THAT IS WHAT ENDS THE RUN.
-  // Owner's ruling, 2026-08-23, chosen over an instant kill and over a pure grace timer:
-  // "survivable with HP to spare, death only if you stay stuck". So the three things that must be
-  // true are a RATE (not a kill), a HOLD (you are never carried off screen), and an EXIT (a channel
-  // never does this to you). Each is asserted against an effect rather than a flag.
-  {
-    const CROSS_STICK = LAX.cross === 'y' ? { x: 0, y: 1 } : { x: 1, y: 0 }
     const run = reefRun()
-    let crushFrames = 0, worstGap = 0
-    const maxLag = (1 - LANE_CAMERA_FRAC) * 2 * run.viewW - PLAYER.radius
-    for (let i = 0; i < Math.round(20 / dt); i++) {
-      stepSim(run, CROSS_STICK, dt)
-      run.enemies.length = 0
-      run.events.length = 0
-      run.charge = run.chargeMax           // isolate the crush from the drown
-      if (run._crushing) crushFrames++
-      worstGap = Math.max(worstGap, run._laneFront - run.player[LAX.fwd])
-    }
-    const paid = (run.dmgBySrc ?? {}).crush ?? 0
-    assert.ok(crushFrames > 60,
-      `run RS.k: a player driven into the coral for 20s was only held against the trailing edge for ${crushFrames} frames — spurs.solid is not stopping them, so the crush cannot be measured`)
-    // THE RATE, both sides. A floor alone passes a crush charging a quarter of its stated dps; a
-    // ceiling alone passes one charging four times it. Tied to the time this fixture MEASURED
-    // itself crushing, so a change to the collision cannot scale the expectation with the defect.
-    const secsHeld = crushFrames * dt
-    const want = LANE_CRUSH_DPS * secsHeld
-    assert.ok(paid >= want * 0.8 && paid <= want + LANE_CRUSH_DPS * LANE_CRUSH_TICK,
-      `run RS.k: ${secsHeld.toFixed(1)}s pinned against the trailing edge cost ${paid} hp of crush, outside the ${(want * 0.8).toFixed(0)}-${(want + LANE_CRUSH_DPS * LANE_CRUSH_TICK).toFixed(0)} band that ${LANE_CRUSH_DPS} dps must charge over it`)
-    // THE HOLD. The clamp exists so a stuck player is ground down ON SCREEN rather than quietly
-    // carried out of the frame — without it the lane keeps advancing and the fish is gone.
-    assert.ok(worstGap <= maxLag + 1e-6,
-      `run RS.k: the player fell ${worstGap.toFixed(1)}px behind the lane front against a ${maxLag.toFixed(1)}px trailing edge — they are being carried off the screen instead of held against it`)
-  }
-  {
-    // THE EXIT. Same 20s, same stick pressure, but held on a channel: the way through is guaranteed,
-    // so nothing here may crush at all. This is the assertion that fails if blockOnCoral ever starts
-    // testing the band instead of the grooves — at which point the chapter would have no way through.
-    const run = reefRun()
-    let crushed = 0
-    for (let i = 0; i < Math.round(20 / dt); i++) {
-      let best = null, bd = Infinity
-      for (const sp of run.spurs) {
-        const d = Math.abs(sp.f - run.player[LAX.fwd])
-        if (d < bd) { bd = d; best = sp }
-      }
-      if (best) run.player[LAX.cross] = best.grooves[0].c
-      stepSim(run, { x: 0, y: 0 }, dt)
-      run.enemies.length = 0
-      run.events.length = 0
-      run.charge = run.chargeMax
-      if (run._crushing) crushed++
-    }
-    assert.strictEqual(crushed, 0,
-      `run RS.k: a player holding a channel was crushed on ${crushed} frames — the grooves are not a way through and the chapter is a dead end`)
+    run.player[LAX.cross] = spec.wander + spec.halfMax   // buried in the wall
+    run._burstT = 1
+    const before = run.player[LAX.cross]
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run._caveHit, false,
+      'run RS.d: a held Burst was stopped by the cave wall — the dash is the one thing allowed through it, and without that a mistimed spend is a death')
+    assert.strictEqual(run.player[LAX.cross], before,
+      'run RS.d: a bursting player was pushed off their line by the wall — the dash commits to a heading, and the wall may not steer it')
   }
 
-  console.log(`PASS run RS (the coral grate, now a WALL): 1 of ${all.length} chapters declares spurs, grown as ${SPUR_VIS.trunksLo}-${SPUR_VIS.trunksHi} stems forking ${SPUR_VIS.depthLo}-${SPUR_VIS.depthHi} deep on a hashed walk whose per-ridge mean gap is ${SPUR_VIS.colonyEveryLo}-${SPUR_VIS.colonyEveryHi}px (individual gaps ${(SPUR_VIS.colonyEveryLo * SPUR_VIS.gapLo).toFixed(1)}-${(SPUR_VIS.colonyEveryHi * SPUR_VIS.gapHi).toFixed(1)}px); riding the wall for ${secs}s was STOPPED by it (${coral.fwd.toFixed(0)}px against a channel's ${groove.fwd.toFixed(0)}px of clean scroll) and cost ${byScrape} hp of 'scrape' over ${inCoral.toFixed(1)}s of contact, resting exactly half-a-thickness + PLAYER.radius off the ridge centre; holding a channel cost 0, clipping the edge every frame cost ${oscScrape} of scrape against a ${SPUR_DPS} dps ceiling that four minutes in still charges the same ${late.by.scrape}; the scrape strafes at x${SPUR_SLOW_MUL}, a held Burst crossed ${burstFree.dash.inBand} frames of the same coral for 0 scrape against the control's ${burstFree.paid.by.scrape}, 120s of the empty chapter took damage from [${soloSrcs}] and nothing else, and the empty-bar dash clears the fattest ridge the field can make by ${noSpiral.margin.toFixed(1)}px (${noSpiral.reach.toFixed(1)} travelled against ${noSpiral.widest.toFixed(1)})`)
+  const all = Object.keys(CHAPTERS)
+  const caves = all.filter((id) => CHAPTERS[id].cave)
+  assert.deepStrictEqual(caves, ['reef'],
+    `run RS: ${caves.length} chapters declare a cave [${caves.join(', ')}] — this is The Reef's own geometry and nothing else reads caveAt`)
+  console.log(`PASS run RS (the cave): 1 of ${all.length} chapters declares one, a passage ${2 * spec.halfMin}-${2 * spec.halfMax}px wide wandering +/-${spec.wander} inside a ${2 * laneHalfWidth(reefRun().viewRadius, CHAPTERS.reef)}px corridor, coral filled ${spec.fill}px past it either side; steering down the middle for 120s touched the wall ${clean.touches} times and travelled ${clean.travelled.toFixed(0)}px, pressing one side for 20s touched it ${hit.touched} times for ${hit.paid} hp with a worst single-frame move of ${hit.worstJump.toFixed(1)}px (bounce ${CAVE_BOUNCE_PX}), and a held Burst passes straight through`)
 }
 
-// ---- run RN: The Reef's first two natives (v7.x) -----------------------------------------------
-// EVERY CASE IS AN EFFECT — hp actually lost by a named body — because both of these cards fail in
-// the one way a state assertion cannot see. The Pistol Shrimp's whole design is a NEGATIVE (it has
-// no targeting), and an entry in run.beams looks identical whether its angle came from the lane or
-// from the nearest straggler; Fire Coral's band is derived from a field that is wiped and rebuilt
-// every 4.7s, so a snapshot that quietly went stale still has a length, a thickness and grooves.
-//
-// The six silent failures it guards:
-//   - the snap starts aiming (at nearestEnemy, or at facing) and the chapter's thesis card becomes
-//     'an aimed cone', which is exactly what the borrowed stinger it replaced already was;
-//   - the crack ticks twice per cast, doubling the starter's dps with nothing on screen changing;
-//   - Backblast is unwired, or wired at full strength, and the switch is either inert or a double;
-//   - a lit ridge burns the CHANNEL as well as the coral, which deletes the choice the whole
-//     chapter is built on (and Overgrowth, the card sold for exactly that, becomes a no-op);
-//   - a multi-ridge cast lights ONE ridge three times, the pickBloomSpot pathology, which renders
-//     identically to no change at all;
-//   - a re-cast onto a ridge already burning STACKS a second entry instead of topping the first up,
-//     which is a damage doubling on that band at a fire rate the player can buy, with nothing on
-//     screen changing and no other case in this run able to see it.
 function testReefNatives() {
   const dt = 1 / 60
   const AX = laneAxes(CHAPTERS.reef)
@@ -24440,51 +23919,31 @@ function testReefAirBurst() {
   // What a player working the mechanic actually does: steer across the lane at the nearest pocket
   // ahead. Deliberately the same model scripts/charge-probe.mjs uses for its `pocket` row, so the
   // suite and the probe are asserting the same claim about the same chapter.
-  // THE POLICY HAS TO READ THE CORAL, and until spurs.solid it did not have to. This rig steers
-  // only on the cross axis (forward is the scroll), so before the ridges became walls a stick that
-  // ignored them still arrived: you scraped through and kept going. Now a ridge STOPS you, the lane
-  // front stalls waiting, and a pocket-seeking policy that swims into solid coral never reaches the
-  // next pocket at all — this fixture drowned on 0.0 of 100 and read as "the scroll broke the Air
-  // economy" when what had broken was the model of the player.
+  // THE POLICY FOLLOWS THE PASSAGE, because the passage is now the whole level.
   //
-  // That is the rig-geometry trap in its cleanest form: the knob moved (45 -> 90px/s, ridges solid)
-  // and the FIXTURE's own competence had to move with it. Four policies were measured before this
-  // one; the three that failed are worth naming, because each looks reasonable written down:
-  //   - seek the pocket, ignore coral        -> 138px of 13500 in 150s, stuck 8908 frames
-  //   - seek the gate nearest the POCKET     -> 782px, 0 pocket frames (commits to gates it cannot reach)
-  //   - hold the line whenever inside a band -> 138px (starts inside one, so it never strafes out)
-  // GROOVE-FIRST, AIR OPPORTUNISTIC is the one that behaves like a person: take the gate nearest
-  // YOU (always reachable — run RS.j proves the field guarantees it), and only once you are on that
-  // gate line drift along it toward the air. Measured over 6 seeds: 13456-13481px of 13500
-  // travelled, ZERO crush frames, Air ending 20.9-67.4 of 100 and never touching zero.
+  // It used to aim at a ridge's grooves, which described the openings when the field was bars with
+  // gaps cut in them. Since the cave it is one continuous corridor whose centre and width wander
+  // (caveAt), and grooves describe nothing the player can swim through -- a policy steering by them
+  // walks into a wall, and this fixture read that as the Air economy being broken.
+  //
+  // So: stay inside the passage, and spend whatever slack it leaves on reaching the air. The clamp
+  // is the honest part -- a real player hugs the side of the passage the pocket is on, and cannot
+  // leave it however much they want the air.
   const towardPockets = (run) => {
     const p = run.player, c = p[LAX.cross], f = p[LAX.fwd]
-    let sp = null, sd = Infinity
-    for (const s of run.spurs) {
-      const a = (s.f - f) * LAX.dir
-      if (a < -s.thick || a > sd) continue
-      sd = a; sp = s
+    const spec = CHAPTERS.reef.cave
+    // Read the passage a little AHEAD, not underfoot: by the time the wall is beside you it is too
+    // late to be anywhere else, and the scroll gives no way to wait.
+    const cav = caveAt(f + LAX.dir * 90, spec, run._obstacleSeed)
+    const safe = Math.max(0, cav.hw - PLAYER.radius - 6)
+    let sh = null, hd = Infinity
+    for (const q of run.shafts) {
+      const a = (q[LAX.fwd] - f) * LAX.dir
+      if (a < -q.r || a > hd) continue
+      hd = a; sh = q
     }
-    if (!sp) return LAX.cross === 'x' ? { x: 0, y: 0 } : { x: 0, y: 0 }
-    let g = null, gd = Infinity
-    for (const q of sp.grooves) { const d = Math.abs(q.c - c); if (d < gd) { gd = d; g = q } }
-    let target = g.c
-    if (Math.abs(c - g.c) <= g.hw) {
-      // On the gate line already: this is the only slack there is, so spend it on air. Clamped
-      // inside the groove (0.7 of its half-width) so chasing a pocket can never walk into the ridge.
-      let sh = null, hd = Infinity
-      for (const q of run.shafts) {
-        const a = (q[LAX.fwd] - f) * LAX.dir
-        if (a < -q.r || a > hd) continue
-        hd = a; sh = q
-      }
-      // 0.7 -> 0.4 OF THE GROOVE WHEN THE FIELD BECAME A CAVE. The walls now start closing
-      // pinchSpan BEFORE the ridge line, so a policy that wanders to the outer edge of a gate is
-      // already in rock by the time it arrives -- and the grooves themselves narrowed with the
-      // corridor (grooveMax 200 -> 154). Holding nearer the centre of the gate is what a player
-      // does when they can see the ceiling coming down; at 0.7 this fixture drowned on 0.0.
-      if (sh) target = Math.max(g.c - g.hw * 0.4, Math.min(g.c + g.hw * 0.4, sh[LAX.cross]))
-    }
+    const want = sh ? sh[LAX.cross] : cav.c
+    const target = Math.max(cav.c - safe, Math.min(cav.c + safe, want))
     const v = Math.abs(target - c) < 5 ? 0 : target > c ? 1 : -1
     return LAX.cross === 'x' ? { x: v, y: 0 } : { x: 0, y: v }
   }
@@ -24495,10 +23954,20 @@ function testReefAirBurst() {
   // is the whole "a slope, not a countdown" claim, and it is what a probe row can only suggest.
   {
     const steps = Math.round(150 / dt)
+    // THE CONTROL HOLDS THE PASSAGE CENTRE, not world zero. In a cave the middle of the LANE is
+    // mostly solid rock and the middle of the PASSAGE is what "never commit to a side" means -- a
+    // stick of {0,0} just presses the player into whichever wall the corridor has wandered under,
+    // which is a different claim entirely (and read 100.0 air, because the wall it pinned against
+    // happened to pass through pockets).
     const centre = reefRun()
     let centreInPocket = 0
     for (let i = 0; i < steps; i++) {
       stepSim(centre, { x: 0, y: 0 }, dt)
+      // Snapped AFTER the step, so the sample below is taken with the player exactly on the
+      // passage centre. Snapping before it left them a few pixels off by the time the check ran --
+      // the centre moves as they advance -- and those few pixels clipped a pocket's inner edge.
+      const cv = caveAt(centre.player[LAX.fwd], CHAPTERS.reef.cave, centre._obstacleSeed)
+      centre.player[LAX.cross] = cv.c
       quiet(centre)
       const p = centre.player
       if (centre.shafts.some((sh) => Math.hypot(sh.x - p.x, sh.y - p.y) <= sh.r)) centreInPocket++
