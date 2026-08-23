@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -4262,6 +4262,279 @@ export function createRenderer(app) {
     }
   }
 
+  // ---- The Wreck (Book 2 chapter 6) — the three that are BEHAVIOUR ------------------------------
+  // This chapter already fielded three animals that differ only by size and speed (owner, 2026-08-23:
+  // "preys are too similar"), so the art brief for these three is harsher than the usual one: they
+  // must not merely be distinguishable from each other, they must be distinguishable from the three
+  // FISH already swimming beside them — a barred blue-grey mackerel, a white damselfish with three
+  // hard black bars, and a pale ochre ribbon of a moray. Six fusiform bodies is one animal six times.
+  //
+  // So none of the three is a fusiform fish, and each takes a different axis away:
+  //   squid       NOT A FISH SHAPE. A pointed mantle with two triangular fins at the BLUNT end and a
+  //               crown of ten arms at the other — the only radiating limbs in the chapter, and the
+  //               only warm hue in it.
+  //   pufferfish  NOT A CONSTANT SHAPE. Two poses that share no outline: a stubby pear, and a very
+  //               nearly perfect SPINED DISC. Radial where everything else is bilateral.
+  //   sardine     THE SAME SHAPE, DELIBERATELY, AND HALF THE SIZE. It is a fish and pretending
+  //               otherwise would be a lie about the animal; what separates it is that it is never
+  //               alone. The read is a DOZEN small bright slivers, so the drawing optimises for what
+  //               survives at 0.62 radiusMul: one hard blue-green back line, unmarked silver, and a
+  //               deep fork. No bars — the damselfish owns bars in this chapter.
+  //
+  // All three PLAN VIEW and all three lean 90, and that is the geometry rather than a habit: each is
+  // bilaterally symmetric about its own +x front with paired eyes and paired appendages in ±y and
+  // nothing that could be called UP. (The moon jelly is the game's one side elevation and it earns
+  // that by hanging in a water column; these three are over a silt floor.) A missing ROSTER_LOOKS
+  // key is SILENT — syncEnemies falls through to a generic Book 1 archetype blob.
+
+  // squid: mantle at -x, arms at +x, and the ARMS ARE THE FRONT. That is not a stylistic choice —
+  // a squid swims arms-first when it is manoeuvring and mantle-first only when it jets, and the
+  // roster's +x-is-forward contract has to point at something. Ten of them: eight short arms fanned
+  // in ±y pairs and two long tentacles reaching furthest, which is the count that reads as a squid
+  // rather than as an octopus or an anemone.
+  //   THE FINS ARE AT THE BLUNT TAIL END and they are the second read. A mantle alone is a cone,
+  // and a cone in this game is a fin or a wedge of silt; two triangles on the wide end of it is a
+  // squid and nothing else.
+  //   WARM MAUVE-RED on a floor that is dark blue-teal: the only warm body in the chapter, taken
+  // from a real squid's chromatophores rather than invented, and it separates from the mackerel's
+  // steel blue and the damselfish's white on hue alone before any silhouette work is needed.
+  function drawSquid(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x3d1f2b)
+    const skin = f(0xd4756e)
+    const pale = f(0xf0c0b4)
+    const fin = f(0xc4635f)
+    const lw = Math.max(2, r * 0.1)
+    groundShadow(r * 1.0, r * 0.35)
+    // The mantle: a cone with its apex at -x (the tail) and its mouth at the arm crown. `spine`
+    // walks +x -> -x as every other body here does, so t=0 is the collar and t=1 is the point.
+    const collarX = r * 0.28
+    const mantleLen = r * 1.5
+    const spine = (t) => [collarX - t * mantleLen, 0]
+    const mantle = (t) => r * 0.42 * Math.max(0.03, Math.pow(1 - t, 0.62))
+    // FINS FIRST, so the mantle's outline overlaps their roots and no seam opens along the flank.
+    // Swept back off the last third — a real squid's fins are a rhomb wrapped round the tail, and
+    // from directly above that is two triangles.
+    const [fx] = spine(0.62)
+    for (const s of [-1, 1]) {
+      g.poly([
+        fx, s * mantle(0.62),
+        fx - r * 0.30, s * (mantle(0.62) + r * 0.46),
+        fx - r * 0.86, s * (mantle(0.95) + r * 0.10),
+        fx - r * 0.80, s * mantle(0.9),
+      ]).fill({ color: fin, alpha: 0.92 }).stroke({ width: lw * 0.5, color: line })
+    }
+    // THE ARMS. Eight short ones fanned across ±y plus two long tentacles that reach furthest —
+    // drawn BEFORE the mantle for the same overlap reason, and tapered so they read as flesh rather
+    // than as spokes. The fan is deliberately asymmetric in LENGTH, not in angle: a symmetric fan of
+    // eight equal sticks came out as a starburst, which is the pufferfish's silhouette two entries
+    // down and the one thing this must not be.
+    const armLen = [1.02, 0.86, 0.72, 0.60]
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < 4; i++) {
+        const a = s * (0.16 + i * 0.30)
+        const L = r * armLen[i]
+        taperStroke(g, [
+          [collarX + r * 0.06, s * r * 0.05],
+          [collarX + r * 0.30 + Math.cos(a) * L * 0.5, Math.sin(a) * L * 0.62],
+          [collarX + r * 0.34 + Math.cos(a) * L, Math.sin(a) * L],
+        ], r * 0.13, r * 0.03, skin, 4)
+      }
+      // The two feeding tentacles: longer, thinner, and CLUBBED at the tip, which is the detail that
+      // names them. They run nearly straight forward between the arm fans.
+      const ta = s * 0.07
+      taperStroke(g, [
+        [collarX + r * 0.06, s * r * 0.03],
+        [collarX + r * 0.9, Math.sin(ta) * r * 1.1],
+        [collarX + r * 1.62, Math.sin(ta) * r * 1.9],
+      ], r * 0.09, r * 0.035, pale, 4)
+      if (!white) {
+        g.ellipse(collarX + r * 1.62, Math.sin(ta) * r * 1.9, r * 0.11, r * 0.07).fill({ color: fin, alpha: 0.95 })
+      }
+    }
+    g.poly(spineOutline(spine, mantle, 30)).fill(skin).stroke({ width: lw, color: line })
+    if (!white) {
+      // The gladius line down the mantle's midline — one stroke, and it is what stops the cone
+      // reading as a flat paper triangle.
+      g.moveTo(collarX - r * 0.06, 0).lineTo(collarX - mantleLen * 0.92, 0)
+        .stroke({ width: lw * 0.7, color: f(0x8f4a4c), alpha: 0.75 })
+      // Chromatophore speckle: three ±y pairs down the mantle, sparse enough not to become a texture.
+      for (let i = 0; i < 3; i++) {
+        const t = 0.18 + i * 0.24
+        const [sx] = spine(t)
+        for (const s of [-1, 1]) g.circle(sx, s * mantle(t) * 0.5, r * 0.06).fill({ color: f(0x8f4a4c), alpha: 0.6 })
+      }
+      // THE EYES ARE HUGE AND THEY SIT ON THE COLLAR, in a ±y pair, which is the third thing after
+      // the fins and the arms that says squid. A cephalopod's eye is the largest in the ocean
+      // relative to its body and drawing it fish-sized loses the whole animal.
+      for (const s of [-1, 1]) darkEye(g, collarX - r * 0.02, s * r * 0.30, r * 0.15, r * 0.13, 0x14090f, true)
+    }
+    if (elite) eliteCrown(-r * 1.0, r)
+  }
+
+  // pufferfish, POSE 0 — DEFLATED. A stubby pear: a blunt round head at +x that is most of the
+  // animal, a short body behind it and a small rounded caudal paddle. No fork anywhere, which is
+  // what separates it from every other fish in the chapter before colour does — a puffer swims on
+  // its pectorals and its tail is a rudder, so a forked tail here would be the wrong fish.
+  // Sandy olive with dark chocolate blotches: the one EARTH-toned body in a chapter of blue-greys
+  // and whites, and the one that is spotted rather than barred or unmarked.
+  function puffBody(g, elite, white, puffed) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x2e2416)
+    const back = f(0xa8904f)
+    const skin = f(0xd8c48a)
+    const belly = f(0xf0e4c4)
+    const fin = f(0xe6d3a2)
+    const lw = Math.max(2, r * 0.11)
+    if (puffed) {
+      // POSE 1 — INFLATED, AND IT SHARES NO OUTLINE WITH POSE 0. This is the whole tell: the moray's
+      // `guard` failed in this chapter partly because a refused bite looked exactly like a miss, so
+      // the inflated pose is not a bigger fish, it is a DIFFERENT SHAPE — a near-perfect disc with
+      // spines standing out all round it. Radial, where every other body in the chapter is a
+      // bilateral spindle, and it survives at gameplay zoom, in the white hit-flash twin, and as a
+      // pure silhouette.
+      const R = r * 1.06
+      groundShadow(r * 1.15, r * 0.42)
+      // The spines go down FIRST so the ball's outline caps their roots. 18 of them, longest across
+      // the flanks and shortest fore-and-aft, because that is where a real puffer's are longest and
+      // because it keeps the +x nose readable rather than burying it in a starburst.
+      for (let i = 0; i < 18; i++) {
+        const a = (i / 18) * Math.PI * 2
+        const L = R * (0.30 + 0.16 * Math.abs(Math.sin(a)))
+        const w = 0.10
+        g.poly([
+          Math.cos(a - w) * R * 0.94, Math.sin(a - w) * R * 0.94,
+          Math.cos(a) * (R + L), Math.sin(a) * (R + L),
+          Math.cos(a + w) * R * 0.94, Math.sin(a + w) * R * 0.94,
+        ]).fill({ color: back, alpha: 0.95 }).stroke({ width: lw * 0.45, color: line })
+      }
+      // The ball. Very slightly longer than it is wide so the animal still has a heading, and the
+      // tail is a small paddle poking out of the back of it — a puffed fish is a ball with a fish
+      // attached, not a sphere.
+      const txp = -R * 1.02
+      g.poly([txp, 0, txp - r * 0.42, r * 0.3, txp - r * 0.34, 0, txp - r * 0.42, -r * 0.3])
+        .fill({ color: fin, alpha: 0.92 }).stroke({ width: lw * 0.5, color: line })
+      g.ellipse(0, 0, R * 1.04, R).fill(skin).stroke({ width: lw * 1.15, color: line })
+      if (!white) {
+        // The back, as a cap over the top half of the disc rather than a stripe — from overhead an
+        // inflated puffer is nearly all back.
+        g.ellipse(-R * 0.12, 0, R * 0.74, R * 0.78).fill({ color: back, alpha: 0.5 })
+        for (let i = 0; i < 7; i++) {
+          const a = 0.7 + i * 0.72
+          g.circle(Math.cos(a) * R * 0.46, Math.sin(a) * R * 0.44, r * 0.11).fill({ color: f(0x4a3a1e), alpha: 0.7 })
+        }
+        g.ellipse(R * 0.72, 0, r * 0.2, r * 0.14).fill({ color: belly, alpha: 0.85 })  // the pursed mouth
+        // The eyes stay where they were on the deflated body and get BIGGER, which is what makes the
+        // pose read as the same animal alarmed rather than as a second creature.
+        for (const s of [-1, 1]) darkEye(g, R * 0.42, s * R * 0.42, r * 0.17, r * 0.15, 0x120d05, true)
+      }
+      if (elite) eliteCrown(-r * 1.5, r)
+      return
+    }
+    // SHORT. The first two cuts ran to 1.85r and came back as a carrot, then as a hornet's
+    // abdomen — length is what made them, not the fins, because a body twice as long as it is wide
+    // is a fusiform fish whatever is painted on it. A puffer is barely longer than it is wide, and
+    // that is the only proportion under which the deflated pose reads as the ball's own animal.
+    const noseX = r * 0.82
+    const len = r * 1.34
+    const spine = (t) => [noseX - t * len, 0]
+    // Fattest RIGHT AT THE FRONT and tapering all the way back — the inverse of every fusiform body
+    // in this chapter, which are all widest a third of the way along. That inversion is the read.
+    // ⚠ THE TAPER STOPS AT 0.34, IT DOES NOT REACH A POINT, and that floor is load-bearing: the
+    // first cut fell to 0.1 and, with the fins that shipped alongside it, the animal came back as a
+    // BONE — two pale lumps on a thin stick. A puffer has no peduncle at all; the tail is stuck
+    // straight onto a fat body, and that is what makes the deflated pose read as the same creature
+    // the inflated one is.
+    // THE TWO ENDS FLOOR DIFFERENTLY, and one shared floor is what turned cut 3 into a SLAB.
+    // spineOutline closes whatever width is left at an end with a straight segment, so a single
+    // Math.max applied to both gave a flat face AND a flat stern — a rounded rectangle with fins.
+    // A blunt snout is right for this animal (0.34); a blunt stern is not (0.17), because the wrist
+    // is what tells the eye which end the tail is on.
+    const body = (t) => {
+      if (t < 0.22) return r * 0.6 * Math.max(0.34, Math.pow(t / 0.22, 0.4))
+      return r * 0.6 * Math.max(0.17, Math.pow(Math.max(0, 1 - (t - 0.22) / 0.86), 0.75))
+    }
+    groundShadow(r * 0.8, r * 0.4)
+    // Pectorals: small ROUND paddles held CLOSE to the flank, not stood off it. A puffer sculls
+    // rather than glides, so a swept fin would say "fast" about the slowest thing in the roster —
+    // but the first cut's answer to that was a big pale ellipse at 0.22r of clearance, and two of
+    // those at the widest point of the body are what made it a bone. Skin-coloured and tucked in,
+    // they widen the shoulder instead of hanging off it.
+    const pt = 0.34
+    const [ptx] = spine(pt)
+    const pw = body(pt)
+    for (const s of [-1, 1]) {
+      g.ellipse(ptx - r * 0.04, s * (pw + r * 0.06), r * 0.21, r * 0.13)
+        .fill({ color: skin, alpha: 0.95 }).stroke({ width: lw * 0.4, color: line })
+    }
+    // Caudal: a rounded PADDLE, no fork. The one unforked tail in the chapter.
+    const [tx] = spine(0.94)
+    g.ellipse(tx - r * 0.2, 0, r * 0.26, r * 0.22)
+      .fill({ color: fin, alpha: 0.9 }).stroke({ width: lw * 0.5, color: line })
+    g.poly(spineOutline(spine, body, 32)).fill(skin).stroke({ width: lw, color: line })
+    if (!white) {
+      g.poly(spineOutline(spine, (t) => body(t) * 0.62, 26, 0.04, 0.9)).fill({ color: back, alpha: 0.55 })
+      // The blotches, the same seven the inflated pose wears so the two read as one animal.
+      for (const [t, s] of [[0.24, -1], [0.3, 1], [0.46, -1], [0.52, 1], [0.66, -1], [0.72, 1], [0.4, 0]]) {
+        const [bx] = spine(t)
+        g.circle(bx, s * body(t) * 0.45, r * 0.1).fill({ color: f(0x4a3a1e), alpha: 0.7 })
+      }
+      const [mx] = spine(0.02)
+      g.ellipse(mx, 0, r * 0.16, r * 0.12).fill({ color: belly, alpha: 0.85 })
+      const [ex] = spine(0.16)
+      for (const s of [-1, 1]) darkEye(g, ex, s * body(0.16) * 0.66, r * 0.13, r * 0.115, 0x120d05, true)
+    }
+    if (elite) eliteCrown(-r * 0.95, r)
+  }
+  function drawPufferfish(g, elite, white, pose = 0) { puffBody(g, elite, white, pose === 1) }
+
+  // sardine: the smallest body in the game, and the only one whose design brief is about the CROWD
+  // rather than the individual. It rides radiusMul 0.62, so anything an eye needs at that size has
+  // to be one hard high-contrast mark and nothing else — the mackerel's six back bars would be six
+  // grey smudges. It gets exactly one: a saturated blue-green dorsal line over unmarked silver, the
+  // real fish's own colouring and the brightest body in the chapter.
+  // The other half of the read is the FORK, which is deep and wide relative to a body this slim, so
+  // a ball of them is a field of small bright V's rather than a field of dots.
+  function drawSardine(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x1c2b31)
+    const back = f(0x2f8f7e)
+    const flank = f(0xeff6f8)
+    const fin = f(0xc8dde2)
+    const lw = Math.max(2, r * 0.12)
+    const noseX = r * 1.0
+    const len = r * 2.0
+    const spine = (t) => [noseX - t * len, 0]
+    // Slimmer than anything else here (0.26r against the mackerel's 0.34 and the damselfish's 0.40)
+    // and widest EARLY, so the outline is a dart rather than a spindle.
+    const body = (t) => {
+      const rise = Math.pow(Math.min(1, t / 0.26), 0.5)
+      const fall = Math.pow(Math.max(0, 1 - (t - 0.26) / 0.68), 1.35)
+      return r * 0.26 * Math.max(0.07, t < 0.26 ? rise : fall)
+    }
+    groundShadow(r * 0.8, r * 0.3)
+    const [tx] = spine(0.94)
+    for (const s of [-1, 1]) {
+      g.poly([tx, 0, tx - r * 0.66, s * r * 0.52, tx - r * 0.5, s * r * 0.08])
+        .fill({ color: fin, alpha: 0.92 }).stroke({ width: lw * 0.5, color: line })
+    }
+    g.poly(spineOutline(spine, body, 30)).fill(flank).stroke({ width: lw, color: line })
+    if (!white) {
+      // THE ONE MARK. Cut from the body's own outline so it can never overhang, and taken to 0.5 of
+      // the half-width rather than the mackerel's 0.55 because on a slimmer body the same fraction
+      // is a thinner line — the point is that it stays visible when the sprite is 20px across.
+      g.poly(spineOutline(spine, (t) => body(t) * 0.5, 24, 0.05, 0.9)).fill({ color: back, alpha: 0.95 })
+      const [ex] = spine(0.12)
+      // Oversized for the body, deliberately: a sardine's eye is large and it is the only interior
+      // detail that survives the size. Same reasoning as the squid's.
+      for (const s of [-1, 1]) darkEye(g, ex, s * body(0.12) * 0.7, r * 0.1, r * 0.095, 0x0c1418, true)
+    }
+    if (elite) eliteCrown(-r * 0.8, r)
+  }
+
   // `lean` = MAX LEAN IN DEGREES, 0..90: how far off horizontal this creature may aim its +x nose
   // at the player (syncEnemies mirrors it left/right on top of that, so lean+flip spans the circle).
   // The number falls straight out of the VIEW the art is drawn in, so judge it from the geometry:
@@ -4329,6 +4602,25 @@ export function createRenderer(app) {
     hagfish: { archetype: 'normal', draw: drawHagfish, lean: 90 },       // top-down: near-constant-width rope, slime pores in ±y rows
     viperfish: { archetype: 'fast', draw: drawViperfish, lean: 90 },     // top-down: thin ribbon, fangs past the snout, photophore rows
     gulper: { archetype: 'tank', draw: drawGulperEel, lean: 90 },        // top-down: open pouch at +x collapsing to a whip at -x
+    // v7.x The Wreck's own three, added when the chapter's prey stopped being three sizes of one
+    // animal (see the Wreck section of the draw fns). All PLAN VIEW, all lean 90 — each is
+    // bilaterally symmetric about its own +x front with paired eyes and paired appendages in ±y.
+    // The squid's +x is its ARM CROWN, not its mantle: it manoeuvres arms-first, and +x is where the
+    // roster contract points the animal at the player.
+    squid: { archetype: 'normal', draw: drawSquid, lean: 90 },       // top-down: 8 arms + 2 tentacles fanned ±y, mantle and fins -x
+    sardine: { archetype: 'fast', draw: drawSardine, lean: 90 },     // top-down: slim dart, deep fork -x, one dorsal line, eyes in a ±y pair
+    // TWO POSES, chosen by the sim's published `puffT` and not by a timer — the pose IS the state,
+    // exactly as the shore crab's is, and for the harder version of the same reason: this chapter
+    // has already shipped one invisible damage refusal (the moray's `guard`, see CHAPTERS.wreck
+    // .roster), where a bounced bite was indistinguishable from a miss. The two bakes deliberately
+    // share no outline — a spindle and a spined disc — so the refusal reads as a silhouette change
+    // rather than as a size change, which is what survives a phone viewport.
+    //   NO faceDir/turnRate override: a puffed fish keeps steering (stepPrey still runs it at
+    // PUFFER_DRIFT_MUL), so it should keep turning too. A held heading here would read as stunned.
+    pufferfish: {
+      archetype: 'normal', draw: drawPufferfish, lean: 90, poses: 2,
+      poseOf: (e) => ((e.puffT ?? 0) > 0 ? 1 : 0),
+    },
     mackerel: { archetype: 'normal', draw: drawMackerel, lean: 90 }, // top-down: barred spindle, forked tail -x, eyes in a ±y pair
     tuna: { archetype: 'fast', draw: drawTuna, lean: 90 },           // top-down: crescent tail, sickle pectorals and finlets all ±y mirrored
     sealion: { archetype: 'tank', draw: drawSeaLion, lean: 90 },     // top-down: fore-flippers thrown wide ±y, blunt head +x, hind flippers -x
@@ -11756,18 +12048,32 @@ export function createRenderer(app) {
     const oils = (run.blooms || []).filter((b) => b.look === 'bilge' && b.r > 0)
     const all = (run.slicks || []).concat(oils)
     if (!all.length) return
+    //   A slickTrail POOL IS NOT DRAWN LIKE A POOL (v7.x). One pool is a wall and gets the rim; a
+    // chain of them is one pour, and rimming every link draws the ribbon as a bead chain — the exact
+    // "puddles, not a trail" the distance trigger exists to fix, reintroduced in the renderer.
+    // ponytail: the seam-free read comes from lighter fills that stack, not from a real union of
+    // the outlines — Pixi has no union and a group alpha needs a filter pass per frame. If a trail
+    // ever needs one hard outer edge, that filter (or an offset ribbon polygon) is the upgrade.
     for (const sl of all) {
+      const trail = !!sl.trail
+      const filmA = trail ? BILGE_TRAIL_VIS.filmA : 0.5
+      const sheenA = trail ? BILGE_TRAIL_VIS.sheenA : 1
       const pts = lobePoly(sl.r, sl.shape, sl.rot, sl.x, sl.y)
       // The film itself: dark and dead, because that is what it does to the water.
-      slickG.poly(pts).fill({ color: 0x14181a, alpha: 0.5 })
+      slickG.poly(pts).fill({ color: 0x14181a, alpha: filmA })
       // The sheen. Two offset inner lobes in oil's own colours, breathing on animT so the surface
       // is not a static decal — a spill that never moves reads as a hole in the floor.
       const br = 1 + Math.sin(animT * 0.6 + sl.x * 0.01) * 0.03
       slickG.poly(lobePoly(sl.r * 0.72 * br, sl.shape, sl.rot + 0.4, sl.x - sl.r * 0.08, sl.y + sl.r * 0.05))
-        .fill({ color: 0x6a3f7a, alpha: 0.3 })
+        .fill({ color: 0x6a3f7a, alpha: 0.3 * sheenA })
       slickG.poly(lobePoly(sl.r * 0.46 * br, sl.shape, sl.rot - 0.6, sl.x + sl.r * 0.1, sl.y - sl.r * 0.06))
-        .fill({ color: 0x3f6a5a, alpha: 0.28 })
-      slickG.poly(pts).stroke({ width: 3, color: 0x2b2016, alpha: 0.72 })
+        .fill({ color: 0x3f6a5a, alpha: 0.28 * sheenA })
+      // The rim. A thrown pool gets the hazard contract's hard brown line; a trail link gets a wide
+      // soft stroke in the FILM'S OWN COLOUR instead, which is what keeps the chain seam-free: with
+      // no colour contrast an interior join just reads as slightly thicker oil, while the outer
+      // boundary — stroked once, against open water — still gains an edge.
+      if (trail) slickG.poly(pts).stroke({ width: BILGE_TRAIL_VIS.edgeW, color: 0x14181a, alpha: BILGE_TRAIL_VIS.edgeA })
+      else slickG.poly(pts).stroke({ width: 3, color: 0x2b2016, alpha: 0.72 })
     }
   }
 
@@ -12097,23 +12403,29 @@ export function createRenderer(app) {
     // The bake is 226px nose to fluke; ORCA_LEN states the real one, so config owns the dimension.
     const s = ORCA_LEN / 250   // the bake runs -142..108 nose to fluke; config owns the real dimension
     const rising = o.state === 'rising'
+    // The opening foreshadowing pass: a shadow and NOTHING ELSE — no surfaced body, no ring. It is
+    // deeper than the pre-strike rise, so it is drawn smaller and fainter, and it never sharpens:
+    // the whole read is "something big just went under me", not "something is coming up at me".
+    const passing = o.state === 'shadow'
 
     // THE TELEGRAPH. A dark shape on the floor that grows and sharpens as it comes up from below.
     // Scale runs UNDER 1 and climbs: something rising toward the camera gets bigger, and starting
     // small is what sells "deep" without needing a blur it cannot afford.
-    orcaShadowSp.visible = rising || o.state === 'circling'
+    orcaShadowSp.visible = rising || passing || o.state === 'circling'
     if (orcaShadowSp.visible) {
       const k = rising ? o.alpha : 1
       orcaShadowSp.position.set(o.x, o.y)
-      orcaShadowSp.rotation = o.ang + Math.PI / 2
-      orcaShadowSp.scale.set(s * (0.72 + 0.28 * k))
+      // The pass travels a straight locked line, so it faces the way the commit does, not the way
+      // the ring does. Reading o.ang here would leave it broadside to its own direction of travel.
+      orcaShadowSp.rotation = passing ? Math.atan2(o.dirY, o.dirX) : o.ang + Math.PI / 2
+      orcaShadowSp.scale.set(passing ? s * 0.82 : s * (0.72 + 0.28 * k))
       orcaShadowSp.tint = 0x02060a
-      orcaShadowSp.alpha = 0.16 + 0.30 * k
+      orcaShadowSp.alpha = passing ? 0.34 * Math.max(0, o.alpha) : 0.16 + 0.30 * k
     }
 
-    // THE ANIMAL, once it has surfaced. Hidden during the rise: the whole point of the telegraph is
-    // that you see a shadow and not yet a body.
-    orcaSp.visible = !rising
+    // THE ANIMAL, once it has surfaced. Hidden during the rise AND during an opening pass: the
+    // whole point of both is that you see a shadow and not yet a body.
+    orcaSp.visible = !rising && !passing
     if (orcaSp.visible) {
       orcaSp.position.set(o.x, o.y)
       // Facing: along the ring while circling, along the locked line once committed.
@@ -14661,7 +14973,12 @@ export function createRenderer(app) {
           s.position.set(depth, Math.sin(animT * 0.9 * churn + k * 1.7 + hash * 6.28) * rad * 0.16)
           s.scale.set(fxScale(T.fx.circle_05, rad * 2) * lump * (1 + 0.05 * Math.sin(animT * 3 + k)))
         } else {
-          const spread = silt ? 0.30 + 0.20 * frac(hash * 7.3 + k * 0.37) : 0.4
+          // `ink` PACKS TIGHTER THAN THE OTHER DISCS (0.26 against 0.4), and that is a legibility
+          // decision rather than a look. Every other cloud on this array deals damage, so a player
+          // standing in one is told where it is by the numbers coming off them; the ink's only
+          // effect is a SLOW with no number at all, and the soft circle sprite has no edge, so at
+          // the shared 0.4 offset the drawn blob ran well past the radius the sim actually tests.
+          const spread = silt ? 0.30 + 0.20 * frac(hash * 7.3 + k * 0.37) : (bl.look === 'inkjet' ? 0.26 : 0.4)
           const off = k === 0 ? 0 : bl.r * spread
           const ang = animT * 0.6 * churn + k * 2.1 + hash * Math.PI * 2
           const lump = silt ? 0.82 + 0.36 * frac(hash * 11.7 + k * 0.61) : 1
@@ -14700,12 +15017,23 @@ export function createRenderer(app) {
         // so the cloud and what it did to them are one drawing.
         const ink = bl.look === 'ink'
         const boil = bl.look === 'boil'
+        // `inkjet` is The Wreck's SQUID — the seventh look, and the only one on this array that no
+        // weapon casts. NOT The Reef's `ink` above: that is a weapon that blinds, this is a creature
+        // shedding pigment to escape, and they never share a chapter. It must not read as the
+        // player's own oil either, which is the other dark cloud in The Wreck and the one the player
+        // is holding a card for: the oil is a FILM ON THE BOTTOM (syncSlicks draws it with a lobed
+        // edge and an iridescent rim, excluded from this pool entirely), where this hangs IN THE
+        // WATER with no edge at all. So it is the darkest thing in the set and the only one with no
+        // second hue — a hole rather than a stain — and its alpha is the highest here, because the
+        // one thing an ink cloud has to do is hide the fish inside it.
+        const inkjet = bl.look === 'inkjet'
         s.tint = fox
           ? (k % 2 ? 0xeafcff : 0xd9ffe8)
           : silt ? (k % 2 ? 0x9a9670 : 0x6e6a4c)
           : oil ? (k % 2 ? 0x4b3a63 : 0x1b2128)
           : ink ? (k % 2 ? 0x3a2a56 : 0x1a1030)
           : boil ? (k % 2 ? 0xe4f4ff : 0xbfe9ff)
+          : inkjet ? (k % 2 ? 0x0a0812 : 0x040308)
           : inEddy ? (k % 2 ? 0x6fe0c0 : 0x3faea0) : (k % 2 ? 0x6fe04a : 0x3fae2f)
         // Denser than a toxin cloud on purpose: this one's job is that you cannot see through it.
         // A cone THINS with depth (0.46 at the apex down to 0.29 at the tip): the silt you just
@@ -14715,7 +15043,7 @@ export function createRenderer(app) {
         // it — and the boil the faintest, because it is a patch of water you have to be able to
         // see the reef and the crowd THROUGH while you swim it.
         s.alpha = alpha * (cone ? 0.46 - 0.034 * k : k === 0 ? 0.5 : 0.4) *
-          (fox ? 1.45 : silt ? 1.6 : oil ? 1.7 : ink ? 2.2 : boil ? 0.75 : 1)
+          (fox ? 1.45 : silt ? 1.6 : oil ? 1.7 : ink ? 2.2 : boil ? 0.75 : inkjet ? 2.5 : 1)
       }
     }
     for (let i = n; i < prevCount.bloom; i++) bloomPool[i].root.visible = false
@@ -14987,6 +15315,56 @@ export function createRenderer(app) {
   // star, which reads as a pickup, not as a copy of the player. The body below is T.playerBody,
   // the player's OWN bake, scaled down: the repo's rule is that UI depicting a game entity uses
   // the game's art rather than a lookalike, and here the entity being depicted is the player.
+  // CHUM (v7.x, The Wreck) — the bait's own art, baked once. Offal in the water, drawn from
+  // directly overhead like everything else: a lobed murk of blood and gut with fat suspended
+  // through it, and separate chunks of the rotted catch laid over it, ONE PER REMAINING SERVING.
+  // That count is the whole point of the drawing (see CHUM_VIS) — the servings are the mechanic,
+  // so the picture has to state them, and a soft glow can only state "there is a bait here".
+  //   Baked at CHUM_BAKE_R and scaled DOWN to the live cloud radius, per the bake-large rule.
+  const CHUM_BAKE_R = 120
+  const chumCloudTex = LOBE_SHAPES.map((_, shapeIdx) => {
+    const V = CHUM_VIS
+    const R = CHUM_BAKE_R
+    const g = new Graphics()
+    // Three offset lobed passes rather than one: a single outline reads as a stain with an edge,
+    // and this has to read as something dispersing. rot 0 — the per-bait turn is on the SPRITE, so
+    // the sim's stored `rot` and the drawing's rotation are the one same angle.
+    g.poly(lobePoly(R, shapeIdx, 0)).fill({ color: V.murk, alpha: V.murkA * 0.55 })
+    g.poly(lobePoly(R * 0.74, shapeIdx, 1.1, R * 0.07, -R * 0.05)).fill({ color: V.murk, alpha: V.murkA * 0.7 })
+    g.poly(lobePoly(R * 0.44, shapeIdx, 2.4, -R * 0.09, R * 0.05)).fill({ color: V.murk, alpha: V.murkA })
+    // Suspended fat and scale. Pulled inside the profile at each speck's own angle, the same rule
+    // the sandbar's grit follows — a speck outside a notch is the tell that the outline and the
+    // decoration disagree.
+    for (let k = 0; k < 54; k++) {
+      const a = hash(k * 3.1 + shapeIdx * 1.7) * Math.PI * 2
+      const d = Math.sqrt(hash(k * 5.7 + 1.3 + shapeIdx)) * R * 0.9 * lobeFactor(shapeIdx, a, 0)
+      g.circle(Math.cos(a) * d, Math.sin(a) * d, 1.4 + hash(k * 7.1 + 2.9) * 2.4)
+    }
+    g.fill({ color: V.fat, alpha: 0.42 })
+    return bake(g)
+  })
+  // A piece of the catch: a ragged flattened lump with one pale streak of fat across it. Three
+  // cuts so eight of them in one bait are not one shape stamped eight times.
+  const CHUM_BIT_R = 22
+  const chumBitTex = [0, 1, 2].map((v) => {
+    const g = new Graphics()
+    const pts = []
+    // Deep radial variance and a hard squash: the first cut ran 0.58-1.0 of the radius at 0.78
+    // squash and came out as a row of glossy kidney beans — even, rounded and identical enough to
+    // read as pickups. Offal is torn, so the outline has to be.
+    for (let i = 0; i < 13; i++) {
+      const a = (i / 13) * Math.PI * 2
+      const rr = CHUM_BIT_R * (0.40 + 0.60 * hash(i * 2.7 + v * 11.3))
+      pts.push(Math.cos(a) * rr, Math.sin(a) * rr * (0.62 + 0.2 * hash(v * 5.5 + 1.1)))
+    }
+    g.poly(pts).fill({ color: CHUM_VIS.chunk, alpha: 0.92 })
+    g.poly(pts).stroke({ width: 2, color: 0x24100e, alpha: 0.7 })
+    // A smear of fat, not a highlight. At 0.5 it was a specular dot and every piece looked wet.
+    g.ellipse(-CHUM_BIT_R * 0.14, -CHUM_BIT_R * 0.1, CHUM_BIT_R * 0.3, CHUM_BIT_R * 0.12)
+      .fill({ color: CHUM_VIS.fat, alpha: 0.3 })
+    return bake(g)
+  })
+
   const lurePool = []
   function acquireLure() {
     const root = new Container()
@@ -14994,6 +15372,13 @@ export function createRenderer(app) {
     const ring = new Sprite(T.fx.light_02); ring.anchor.set(0.5)
     const star1 = new Sprite(T.fx.star_04); star1.anchor.set(0.5)
     const star2 = new Sprite(T.fx.star_04); star2.anchor.set(0.5)
+    const cloud = spriteOf(chumCloudTex[0]); cloud.visible = false
+    const bits = []
+    for (let k = 0; k < CHUM_VIS.chunks; k++) {
+      const b = spriteOf(chumBitTex[k % chumBitTex.length])
+      b.visible = false
+      bits.push(b)
+    }
     // spriteOf, NOT `new Sprite(T.playerBody)`: bake() returns a LOOK ({tex, ax, ay}), not a
     // Texture, and it carries its own anchor. Constructing the sprite by hand hands Pixi an object
     // and draws nothing at all — no throw, no warning, an empty patch of floor where the copy
@@ -15006,9 +15391,9 @@ export function createRenderer(app) {
     // green player in a visor. Both are reproduced below at the same proportions.
     const eyeL = spriteOf(T.pupil); eyeL.visible = false
     const eyeR = spriteOf(T.pupil); eyeR.visible = false
-    root.addChild(glow, ring, star1, star2, shadow, body, eyeL, eyeR)
+    root.addChild(glow, ring, cloud, ...bits, star1, star2, shadow, body, eyeL, eyeR)
     lureLayer.addChild(root)
-    return { root, glow, ring, star1, star2, shadow, body, eyeL, eyeR }
+    return { root, glow, ring, cloud, bits, star1, star2, shadow, body, eyeL, eyeR }
   }
   function syncLures(list) {
     const n = list.length
@@ -15024,6 +15409,11 @@ export function createRenderer(app) {
       // `lu.minime` is the sim's own flag (sim.js sets it on the entity it pushes into run.lures).
       const mini = !!lu.minime
       lv.star1.visible = lv.star2.visible = lv.ring.visible = !mini
+      // The chum parts are off unless this IS a bait. Three kinds of entity share this pool and
+      // this rig; a part left visible from the previous occupant of the slot is the pooled-sprite
+      // failure that never throws.
+      lv.cloud.visible = false
+      for (const b of lv.bits) b.visible = false
       lv.body.visible = lv.shadow.visible = lv.eyeL.visible = lv.eyeR.visible = mini
       // "A MINIME IS A SMALL YOU" is the whole contract, so it takes the skin as well - a decoy
       // still wearing the face you paid to lose is the same one-fact-two-places drift this file is
@@ -15070,19 +15460,47 @@ export function createRenderer(app) {
       // heartbeat is what makes the amber lure read as a device, and chum is not a device.
       const bait = !!lu.bait
       if (bait) {
+        const V = CHUM_VIS
         lv.star1.visible = lv.star2.visible = false
-        // ⚠ SIZED FROM `lu.aggro`, NOT FROM A CONSTANT, and that is information rather than polish:
-        // this card's entire job is "the shoal will gather HERE", so the reach IS the thing the
-        // player is placing, and a bait drawn at a fixed size lies about it the moment Wide Slick is
-        // picked. Same contract an obstacle's footprint ring states — the edge you can see is the
-        // edge that acts.
+        // ⚠ THE HAZE IS SIZED FROM `lu.aggro`, NOT FROM A CONSTANT, and that is information rather
+        // than polish: this card's job is "the shoal will gather HERE", so the reach IS the thing
+        // the player is placing, and a bait drawn at a fixed size lies about it the moment Wide
+        // Slick is picked. Drawn at the FULL diameter, so the edge you can see is the edge that
+        // acts — the same contract an obstacle's footprint ring states.
         const reach = lu.aggro || 240
-        // Warm, pale and dirty. The first cut was 0x6b6a3a at 0.42 and photographed as a faint
-        // smudge on a dark blue floor — invisible enough that a player could not tell they had cast.
-        lv.glow.tint = 0xa89a63; lv.glow.alpha = 0.5 * inA
-        lv.glow.scale.set(fxScale(T.fx.circle_05, reach * 0.55 + pulse * 6))
-        lv.ring.tint = 0xd8c489; lv.ring.alpha = 0.34 * inA
-        lv.ring.scale.set(fxScale(T.fx.light_02, reach * 0.95))
+        lv.ring.tint = V.haze; lv.ring.alpha = V.hazeA * inA
+        lv.ring.scale.set(fxScale(T.fx.light_02, reach * 2))
+        // HOW MUCH IS LEFT, COUNTED OUT. `drawn` is the exact number of servings below the cap,
+        // and both the murk's size and the chunks read off it — one number, two tells, so a bait
+        // cannot look full while being empty.
+        const food = Math.max(0, lu.food ?? 0)
+        const drawn = Math.min(V.chunks, Math.ceil(food))
+        const cloudR = V.cloudMin + V.cloudPer * drawn
+        const rot = lu.rot || 0
+        const cl = chumCloudTex[(lu.shape || 0) % chumCloudTex.length]
+        if (lv.cloud.texture !== cl.tex) { lv.cloud.texture = cl.tex; lv.cloud.anchor.set(cl.ax, cl.ay) }
+        lv.cloud.visible = true
+        lv.cloud.rotation = rot + animT * 0.06
+        lv.cloud.scale.set(cloudR / CHUM_BAKE_R)
+        lv.cloud.alpha = inA
+        // A close inner bloom of murk under the chunks, so the middle of the cloud is dense where
+        // the food actually is. `circle_05` rather than a fourth lobe pass — this one is meant to
+        // be soft and edgeless, and the ragged edge is the baked cloud's job.
+        lv.glow.tint = V.murk; lv.glow.alpha = V.murkA * 0.55 * inA
+        lv.glow.scale.set(fxScale(T.fx.circle_05, cloudR * 1.5 + pulse * 5))
+        // THE CHUNKS. Hashed placement so a bait's pieces never jitter, turning slowly together so
+        // the pile reads as suspended in water rather than lying on the floor. They vanish from the
+        // top of the list as they are eaten, which is what makes "nearly stripped" a picture.
+        for (let k = 0; k < drawn; k++) {
+          const b = lv.bits[k]
+          b.visible = true
+          const ha = hash(k * 4.3 + 0.7) * Math.PI * 2 + rot + animT * 0.14
+          const hd = (0.12 + 0.74 * hash(k * 6.1 + 2.2)) * cloudR * 0.72
+          b.position.set(Math.cos(ha) * hd, Math.sin(ha) * hd)
+          b.rotation = ha * 1.7 + animT * 0.22
+          b.scale.set(0.46 + 0.34 * hash(k * 8.9 + 3.4))
+          b.alpha = inA
+        }
         continue
       }
       lv.glow.tint = 0xffd36b; lv.glow.alpha = 0.5 * inA * (0.7 + 0.3 * pulse)
@@ -17282,8 +17700,43 @@ export function createRenderer(app) {
           }
           break
         }
+        // v7.x THE WRECK's squid (sim.js's stepInkjet, {type:'inkjet',x,y,r}). THE BLOOM IS NOT THE
+        // TELL: it fades up over BLOOM_GROW_FRAC of its life (~1.1s here), which is a stain
+        // appearing rather than a squirt. This is the squirt — a dozen near-black puffs thrown out
+        // fast and slowed hard, so they are already spent by the time the cloud has grown under
+        // them. Deliberately silent: at this chapter's density several squid inside INK_TRIGGER_R
+        // at once is ordinary, which is the frequency bar SFX_FOR_EVENT keeps.
+        case 'inkjet': {
+          const ir = e.r ?? 110
+          for (let i = 0; i < 14; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = ir * (0.9 + Math.random() * 1.3)
+            // ONE IN FOUR IS PALE, and that quarter is what makes the burst visible at all. This
+            // chapter's floor is a dark blue-teal, so near-black particles on it are a darkness
+            // moving across a darkness — the first shot of this had the squirt effectively absent
+            // while the cloud it left was fine. The pale ones are the water the jet displaced,
+            // which is both the honest reading and the only high-contrast mark available.
+            const pale = i % 4 === 0
+            spawnParticle(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.34 + Math.random() * 0.22, 0.13 + Math.random() * 0.07,
+              pale ? 0x9fc3cf : (i % 3 ? 0x0a0812 : 0x1c1430), 0.5, 3.4)
+          }
+          break
+        }
         case 'kill':
           killPoof(e.x, e.y, e.etype, e.elite)
+          break
+        // v7.x The Wreck: a fish the ORCA ate on its commit sweep. Deliberately NOT killPoof —
+        // that ends on a white pop, which is this game's "you killed that", and the player gets
+        // nothing at all from these (no kill, no gem, no Bloodlust; see stepOrca's orcaBite). A
+        // dark spread of blood and no flash, so a shoal being taken off you reads as a LOSS.
+        case 'orcaFeed':
+          for (let i = 0; i < 4; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 30 + Math.random() * 80
+            spawnParticle(T.dot.tex, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.4 + Math.random() * 0.3, 0.55 + Math.random() * 0.5, 0x9c2b30, -0.55, 3)
+          }
           break
         // v6.6.25: something the mower cut down (sim.js's stepLanePasses, {type:'mow',x,y,r}).
         // Deliberately NOT the 'crush' path below — that is the skies' masonry treatment, with
@@ -17485,6 +17938,9 @@ export function createRenderer(app) {
           break
         case 'bloom':  spawnRing(e.x, e.y, 40, 0.35, T.nova, 0x2fb6a3); break // v6.2: cast was invisible
         case 'lure':   spawnRing(e.x, e.y, 34, 0.30, T.nova, 0x67b26f); break // v6.2: cast was invisible
+        // A chum bait gone — stripped by the shoal or aged out. Dim and small on purpose: the
+        // information is that the food is finished, and the bait's disappearance already carries it.
+        case 'chumOut': spawnRing(e.x, e.y, 26, 0.32, T.nova, 0x7c2f26); break
         case 'hydrant': spawnRing(e.x, e.y, 44, 0.40, T.nova, 0x5c8a4e); break // v6.2: cast was invisible
         case 'whip':
           // flagella lash: arc sweep flash + a soft shake (melee weight)
@@ -18928,7 +19384,17 @@ export function createRenderer(app) {
       // not exist on older/other enemies — guard it. Shrinks + spins the sprite as it nears.
       const pull = e.holePull || 0
       const shrink = 1 - pull * 0.45
-      s.scale.set(k * flip * shrink, k * shrink)
+      // HEAD DOWN IN THE CHUM (v7.x, The Wreck). `feedT` is a contract field like frozen/stunT —
+      // sim owns it, this only reads it, and it is guarded the same way. There is no head-down
+      // frame in any of the roster bakes and there must not need to be one: the camera looks
+      // straight down, so a fish that tips nose-first into the food is FORESHORTENED, and squashing
+      // the body along its own forward axis (x, pre-rotation) is that read for every look at once.
+      // It worries on animT rather than holding still, because a fish tearing at offal is the
+      // picture — a frozen one just looks stunned, which is a tint this creature has not got.
+      const feedK = (e.feedT || 0) > 0
+        ? 1 - CHUM_VIS.feedSquash * (0.78 + 0.22 * Math.sin(animT * 11 + e.id * 2.1))
+        : 1
+      s.scale.set(k * flip * shrink * feedK, k * shrink)
 
       // Elemental status (contract fields, guarded — sim half may not have landed yet).
       const frozen = e.frozen || 0
@@ -19020,6 +19486,20 @@ export function createRenderer(app) {
       // damage-desync bug on the most-farmed pond enemy, so ghosting gets its own tint: a pale
       // spectral blue-cyan, hue-clear of every elemental tint above it (frozen's 0x9fd8ff included).
       else if (e._phaseSolid === false) s.tint = 0x9fd4e8
+      // OILED (v7.x, The Wreck): a body that has crossed a slick keeps the stain for the rest of
+      // its life, and its speed loss with it. A contract field like the rest of this chain — CLAUDE.md
+      // records a status kept in a private field shipping to the live URL doing nothing visible.
+      //   Ranked here, below every ticking-damage and behavioural status and above the elite
+      // shimmer, because it is the only PERMANENT one: it is what this body is now, not what is
+      // happening to it, so anything actually happening outranks it.
+      //   The ramp starts already dulled rather than near white, the venom rule — a first crossing
+      // that reads as no tint at all is exactly the "I can't tell it did anything" complaint, and
+      // the stain has to be legible against the clean fish next to it.
+      //   ⚠ AND IT STOPS WELL SHORT OF BLACK. The first cut ended at 0x4a4a3c and photographed as a
+      // silhouette on this chapter's dark floor — the same dark-on-dark failure BIOME_WRECK's own
+      // note warns about, and backwards for a status whose whole point is "this one is catchable".
+      // A dulled khaki reads as grease rather than as shadow and keeps the body visible.
+      else if ((e.oiled || 0) > 0) s.tint = mix(0xa79e88, 0x776f56, Math.min(1, (e.oiled || 0) / OIL_STAIN_MAX))
       else if (e.elite && chapterRender.eliteIridescent) {
         // pond soap-bubble elites shimmer through pale iridescent hues. Bodies are now baked
         // saturated, and tint multiplies, so mix the hue 50% toward white first — otherwise the
