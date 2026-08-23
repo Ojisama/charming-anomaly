@@ -150,6 +150,7 @@ import {
   CRAB_OPEN_T,
   CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
+  caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK,
   LANE_CRUSH_DPS, LANE_CRUSH_TICK,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
@@ -315,6 +316,7 @@ export function stepSim(run, input, dt) {
   if (stepRocks(run, dt)) return // v5.21 lane: drifting asteroids (phase may be 'dead')
   // BEFORE stepLeaks, which measures "behind" against the player this may still be moving, and
   // before the sweep reads the same viewport expression.
+  if (stepCaveWall(run, dt)) return // v7.x reef: touched the cave wall (phase may be 'dead')
   if (stepLaneFront(run, dt)) return // v7.x reef: pinned against the back edge (phase may be 'dead')
   if (stepLeaks(run)) return // v5.18 beyond lane: invaders that got past you (phase may be 'dead')
   if (stepContactDamage(run)) return // phase is now 'dead'
@@ -797,7 +799,6 @@ function stepPlayerMovement(run, input, dt) {
   if (ax) {
     const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
     p[ax.cross] = Math.max(-hw, Math.min(hw, p[ax.cross]))
-    blockOnCoral(run, ax, p)
   }
   // p.vx/p.vy above ARE the snapshot the skies' artillery flag leads its shells with
   // (ARTILLERY_LEAD). Deliberately input-only: drift/pull forces aren't something a tank can read —
@@ -4005,8 +4006,45 @@ export function streamShafts(run) {
       if (live.has(key)) continue
       const c = refillCircleAt(i, j, seed, spec)
       if (!c) continue
-      const bx = c.x, by = c.y
-      if (lax && Math.abs(lax.cross === 'x' ? bx : by) - spec.r > laneHW) continue // see the lane note above
+      let bx = c.x, by = c.y
+      // A POCKET INSIDE THE WALL IS NOT A POCKET. The refill fields are placed on their own cell
+      // grid, which was right when the lane was open water either side of some bars; in a cave most
+      // of the cross axis is solid rock, so an unsnapped pocket is simply unreachable and the bar
+      // starves. Measured before this: 9.4% of a run spent in a pocket, against a fixture that
+      // wants a field worth working.
+      //
+      // Snapped ONTO the passage at its own position along the lane -- but OFFSET toward one wall
+      // by a hashed fraction, never onto the centre line. Centring them would make air free: you
+      // would collect it by flying the corridor, and this chapter's whole resource argument is that
+      // breathing costs you a commitment. Off-centre keeps the decision (which side do I hug) while
+      // making it a decision the player can actually act on.
+      const caveSpec = lax && CHAPTERS[run.chapter].cave
+      if (caveSpec) {
+        const along = lax.fwd === 'x' ? bx : by
+        const cav = caveAt(along, caveSpec, seed)
+        const side = obstacleCellHash(i, j, seed, (spec.salt ?? 40) + 7) < 0.5 ? -1 : 1
+        // Far enough off the centre line that its inner edge clears it, close enough in that its
+        // outer edge stays inside the wall. Both hold at the narrowest passage the field makes.
+        // 1.35 rather than 1.15: the passage centre MOVES as the player advances, so a fixture (or
+        // a player) holding the centre drifts a few pixels off it between frames. At 1.15 the
+        // pocket's inner edge sat 7px from the centre line and that drift was enough to clip it,
+        // which reads as air being free when it is not.
+        // 1.9 x the radius, NOT 1.35, and the extra pays for the passage WANDERING. The offset is
+        // measured against the centre at the POCKET's position along the lane; a player following
+        // that centre is at a different position, and between the two the centre can swing by tens
+        // of pixels (the shortest octave is 170px long against a 100px amplitude). At 1.35 that
+        // swing carried a centre-holding player into the pocket's edge for 18 frames of free air.
+        // 2.4 x the radius, and the multiplier is DERIVED rather than guessed. The passage centre's
+        // steepest slope is sum(weight_i x 2pi/len_i) x wander/sum(weight_i) = 1.29px per px, so
+        // over a pocket's own radius the centre can swing 62px -- more than the radius itself. The
+        // offset therefore has to clear r + 62, not r + a little. Guessing it at 1.35 and then 1.9
+        // left 18 and then 4 pockets sitting on the centre line, each one free air for a player who
+        // never commits to a side.
+        const room = Math.max(spec.r * 2.4, cav.hw - spec.r)
+        const cross = cav.c + side * room
+        if (lax.cross === 'x') bx = cross; else by = cross
+      }
+      if (!caveSpec && lax && Math.abs(lax.cross === 'x' ? bx : by) - spec.r > laneHW) continue // see the lane note above
       if (Math.hypot(bx - p.x, by - p.y) > OBSTACLE_STREAM_RADIUS) continue
       run.shafts.push({ x: bx, y: by, bx, by, r: spec.r, phase: c.phase, shape: c.shape, rot: c.rot, _cell: key })
     }
@@ -4084,6 +4122,8 @@ export function streamSpurs(run) {
 // stored f). Splitting the groove test out is what stops the burn band and the scrape band from
 // drifting apart, which is the one-fact-in-two-places class CLAUDE.md names as the largest
 // defect source in this repo.
+// The tightest form, kept for the callers that ask about a ridge's own cross-section (Fire Coral
+// burns the ridge line itself, and the fixtures aim at grooves). Same predicate at w = 1.
 const onCoral = (sp, c) => !sp.grooves.some((g) => Math.abs(c - g.c) <= g.hw)
 
 // HOW FAR BEHIND THE LANE FRONT THE PLAYER CAN GET BEFORE THEY ARE OFF THE BACK OF THE SCREEN.
@@ -4103,23 +4143,50 @@ const laneBehindPx = (run, ax) => (1 - LANE_CAMERA_FRAC) * 2 * (ax.fwd === 'x' ?
 // one, which is a far better reason to spend the bar than shaving a little damage. It also removes
 // the only tunnelling case -- at BURST_SPEED_MUL the player covers more than a ridge's thickness
 // in a frame, and a solve that assumed otherwise would put them out the FAR side for free.
-function blockOnCoral(run, ax, p) {
-  const spec = CHAPTERS[run.chapter].spurs
-  if (!spec || !spec.solid) return
-  if ((run._burstT ?? 0) > 0) return
-  const f = p[ax.fwd], c = p[ax.cross]
-  for (const sp of run.spurs) {
-    const half = sp.thick / 2 + PLAYER.radius
-    if (Math.abs(f - sp.f) > half) continue
-    if (!onCoral(sp, c)) continue          // a groove: this is the gap, swim through it
-    // The near face. The player advances at most laneScroll x dt in a frame (4.5px at 90px/s and
-    // a clamped 0.05s), and every ridge is far thicker than that, so the face they are nearest to
-    // is always the face they entered by. Ridges are spaced further apart than they are thick, so
-    // at most one band can hold the player -- the same fact stepSpurs' single break relies on.
-    p[ax.fwd] = sp.f + (f < sp.f ? -half : half)
-    return
+// THE CAVE WALL, AND WHAT TOUCHING IT COSTS.
+//
+// Replaces a solid-ridge solver that ASSIGNED the player an absolute position -- from a graze that
+// was a jump of a hundred pixels or more, which read on a phone as the level throwing you
+// somewhere, and could deposit you past the trailing edge to be crushed. Owner saw exactly that.
+//
+// What happens now, in the order it matters:
+//   1. clamp ACROSS to the wall face you touched, and no further. The correction is bounded by how
+//      far you had already gone in, so a graze moves you a graze's worth.
+//   2. nudge a little back DOWN the lane (CAVE_BOUNCE_PX), which is the "bounces you back on
+//      track" half -- you lose ground, you are not relocated.
+//   3. publish contact so the damage tick and the render tell can both read it.
+// Returns true if the player died.
+function stepCaveWall(run, dt) {
+  const ch = CHAPTERS[run.chapter]
+  const spec = ch.cave
+  if (!spec) { run._caveHit = false; return false }
+  const ax = laneAxes(ch)
+  const p = run.player
+  const cav = caveAt(p[ax.fwd], spec, run._obstacleSeed)
+  // The BURST passes through, the same ruling that waived the old scrape: the dash is the button
+  // that gets you out of trouble, and a wall that stops it is a wall that ends runs on a spend.
+  if ((run._burstT ?? 0) > 0) { run._caveHit = false; return false }
+  const off = p[ax.cross] - cav.c
+  const lim = cav.hw - PLAYER.radius
+  if (Math.abs(off) <= lim) {
+    run._caveHit = false
+    run._caveAcc = Math.min(run._caveAcc ?? 0, CAVE_HIT_TICK)
+    return false
   }
+  p[ax.cross] = cav.c + Math.sign(off) * lim
+  p[ax.fwd] -= ax.dir * CAVE_BOUNCE_PX * dt * 60 / 60 * 1
+  run._caveHit = true
+  run._caveAcc = (run._caveAcc ?? 0) + dt
+  let died = false
+  while (run._caveAcc >= CAVE_HIT_TICK) {
+    run._caveAcc -= CAVE_HIT_TICK
+    // `dot: true` and a named src, as the drown is: main.js silences the per-tick audio on e.dot
+    // and render.js keys its hurt reaction off the source name.
+    if (!died && hurtPlayer(run, CAVE_HIT_DPS * CAVE_HIT_TICK, true, 'scrape')) died = true
+  }
+  return died
 }
+
 
 // THE GRATE. What makes a ridge a decision instead of scenery: you are either in a groove, or in
 // coral where it costs HP and your steering while the crowd is still on you. Never a wall — the
@@ -4152,6 +4219,11 @@ function blockOnCoral(run, ax, p) {
 function stepSpurs(run, dt) {
   const spec = CHAPTERS[run.chapter].spurs
   if (!spec) return false
+  // A CHAPTER WITH A CAVE HAS NO SEPARATE SCRAPE. stepCaveWall owns contact there -- it charges the
+  // same 'scrape' source when the player touches a wall -- and running both would bill twice for
+  // one touch. Left in place rather than deleted because the spur field is still a legitimate thing
+  // for another chapter to declare without a cave around it.
+  if (CHAPTERS[run.chapter].cave) { run._scraping = false; return false }
   const ax = laneAxes(CHAPTERS[run.chapter])
   const p = run.player
   const f = p[ax.fwd], c = p[ax.cross]
@@ -4164,13 +4236,21 @@ function stepSpurs(run, dt) {
   //
   // So the two hazards layer instead of replacing each other: grinding along a face costs you the
   // scrape and your steering, and only being left behind by the lane costs you the crush.
-  const solid = (CHAPTERS[run.chapter].spurs || {}).solid
+  const spec0 = CHAPTERS[run.chapter].spurs || {}
+  const solid = spec0.solid
   const reach = solid ? PLAYER.radius : 0
+  const hwS = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
   let inside = false
   for (const sp of run.spurs) {
-    if (Math.abs(f - sp.f) > sp.thick / 2 + reach) continue
-    // Ridges are spaced further apart than they are thick, so at most one band can hold the player.
-    inside = onCoral(sp, c)
+    // The CAVE's reach, not the ridge's: the walls are already closing pinchSpan before the ridge
+    // line, so a player grinding along a narrowing ceiling is on coral well before sp.f.
+    if (Math.abs(f - sp.f) > sp.thick / 2 + (spec0.pinchSpan ?? 0) + reach) continue
+    // THE LEADING EDGE, NOT THE CENTRE, and without this the scrape is unreachable code again.
+    // blockOnCoral holds the player PLAYER.radius clear of the point where they exactly fit, so a
+    // test at their centre always answers "fits" and _scraping never fires -- the same failure the
+    // scrape had when the ridges first became solid, arriving through a different door. Testing a
+    // radius further up the lane asks the question that matters: is my nose in the coral.
+    inside = !channelAt(sp, f + ax.dir * reach, c, spec0, hwS)
     break
   }
   // balance_decision : the burst crosses coral free, strafe slow lifts too [2026-08-22]
