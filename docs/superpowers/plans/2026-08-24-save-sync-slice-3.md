@@ -6,21 +6,29 @@ and `../specs/2026-08-04-cross-device-save-sync-tech-strategy.md` (the five-slic
 **This document:** what slices 0–2 actually shipped, what drifted underneath them in the ~215
 releases since, and the task list for slices 3 and 4.
 
+**Status, 2026-08-24: slice 3 is BUILT and slice 4 is one constant away.** S3.0–S3.6 are all done
+and on `worktree-save-sync-slice-3`; `npm test` is green including three new scenarios (run XU,
+run SY, run ZY), and every sheet has been shot at 320×568 and 568×320 in both languages. What
+remains is genuinely only the part a person has to do: set `SYNC_URL` in the build and walk two real
+devices end to end, including the return leg from the summary screen. See §6.
+
 ---
 
 ## 1. Status, verified against the tree
 
-Slices 0, 1 and 2 are **done**. They landed as `chore:` commits and therefore carry no version
-number, which is why the release log shows no trace of a feature that is two thirds built.
+Slices 0, 1 and 2 were **already done** when this plan was written; they landed as `chore:` commits
+and therefore carry no version number, which is why the release log showed no trace of a feature
+that was two thirds built. Slice 3 and the missing transport were built on 2026-08-24 — the rows
+below record both what was found and what changed.
 
 | Slice | State | Evidence |
 |---|---|---|
 | 0 — harden `state.js` | shipped | `SCHEMA = 1` and the R4 `schema` field, R3 clamp-on-use (`maxDifficulty`/`choiceSlots` floored on load, clamped in `createRun`), R1 pointer guard, `NAME_MAX = 14`, `exportSlot`/`importSlot`/`freezeSaves`/`setSaveHook`. |
 | 1 — the Worker | shipped **and deployed** | `worker/src/index.js` serves GET/PUT/DELETE `/v1/save`: gen-counter optimistic concurrency, `INSERT .. DO NOTHING` for the first write, tombstones, `prev_blob`/`prev_gen` operator undo, rate limiter keyed on the code hash. Live at `charming-anomaly-sync.ojisama-san.workers.dev` — no auth answers 401, a well-formed code answers 404 `no save under this code`, so the D1 `saves` table exists and the row lookup runs. `worker/test.sh` holds the curl assertions. |
 | 2 — `sync.js` **decision core** | shipped | `decide` (all five rows including the resync), `deriveDirty`, `isOwnLostAck`, `schemaOk`, `adopt`, record I/O. Covered by run **ZZ.a–h**, **SM.a–e** and `testForwardCompatibleSave`. |
-| 2 — `sync.js` **transport** | **missing** | There is no `fetch` in `src/sync.js` — the only occurrence of the word is in the header comment. No code generation, no `navigator.locks`, no timeout, no status classification. See S3.0. |
-| 3 — UI | not started | Nothing imports `sync.js` but `test/sim-test.js`. |
-| 4 — turn it on | not started | `vite.config.js` defines only `__BUILD_STAMP__`; `SYNC_URL` reads `''` in every build. |
+| 2 — `sync.js` **transport** | ~~missing~~ **built 2026-08-24** | *Was:* no `fetch` in `src/sync.js` at all — the only occurrence of the word was in the header comment. Now the code minting/canonicalizing, `call()`, `withLock`, and every operation. See §6. |
+| 3 — UI | ~~not started~~ **built 2026-08-24** | The settings row, the sheet's five states, pairing both ways, the destination picker, the §7.2 conflict prompt, the seven triggers, 46 French strings, three new suite scenarios. See §6. |
+| 4 — turn it on | **not started — and it is the only thing left** | `vite.config.js` now defines `__SYNC_URL__`, but the constant is `''`, so the feature is invisible in a production build by construction (run SY asserts this). Needs the value set and a two-device walkthrough. See §6. |
 
 Two design sections turn out to be **already built** as part of slices 0/2, and the strategy's
 slice-3 list should not be read as still owing them:
@@ -225,3 +233,55 @@ Not oversights; each has a stated trigger for revisiting.
 - **A second `prev_blob` generation.** One generation covers a phone and a laptop completely; three
   devices diverging at once leaves the middle session unrecoverable. Revisit if a third device
   becomes normal.
+
+---
+
+## 6. What actually shipped, and the one step left
+
+Every item of §4 is done. Notes worth carrying, in the order a future editor will meet them:
+
+- **S3.0** — the transport is in `sync.js`: `newCode`/`canonicalize`/`groupCode`, `call()` returning a
+  distinct tag per failure class, `withLock` around every push, and the operations
+  (`link`/`lookup`/`joinInto`/`evaluate`/`push`/`unlink`/`resolveConflict`). Two orderings are
+  load-bearing and commented in place: `reqId` is persisted **before** the request, and
+  `isOwnLostAck` runs **before** the decision table.
+- **S3.1–S3.3** — the settings row, the sheet's five states, pairing both directions, the
+  destination picker and the §7.2 conflict prompt. The linked steady state keeps the code behind a
+  **Show code** tap rather than on the face of the sheet.
+- **S3.4** — all seven triggers wired in `main.js`, with `isIdle: () => run === null` passed in.
+- **S3.5** — 46 strings translated. Owner's calls: TU throughout, ACTIF/INACTIF over OUI/NON,
+  `Synchroniser l'emplacement {n}` (it **wraps** to two lines in the button rather than overflowing,
+  so it needed no font change), and `Dissocier`.
+- **S3.6** — run XU (every `t()`/`tt()` literal in ui.js has French), run SY (the wiring), run ZY
+  (the code and the adopt path). 18 mutations, all caught.
+
+**Slice 4, and it is the only thing left:**
+
+1. `SYNC_URL=https://charming-anomaly-sync.ojisama-san.workers.dev/v1/save npm run build`, or set the
+   constant in `vite.config.js` directly. Nothing else needs provisioning — the Worker is deployed
+   and already serves the leaderboard from that origin.
+2. Pair a phone and a laptop and walk the use case, **including the return leg**: end a run on the
+   laptop and leave it on the summary screen, play on the phone, then reopen the laptop. That is the
+   path an earlier draft of §6.3 got wrong, and run SY guards the trigger but cannot prove the
+   round trip.
+3. Add the sync host to the deploy-watch gate so the `define` substitution is confirmed in the live
+   bundle rather than assumed.
+
+Until step 1 happens the feature is invisible in a production build by construction — the row is
+dev-only while `SYNC_URL` is empty, which run SY asserts.
+
+## 7. Two findings that outlived the feature
+
+- **`nick` is the second value that can arrive from another device.** `loadMeta` only does
+  `m.nick ??= ''` — no clamp, unlike `name`, which has `cleanName` + `NAME_MAX` for exactly this
+  reason. It is escaped at render and `validNick`-ed before submission, so the exposure is layout
+  rather than injection; the settings row's value now ellipsises. A clamp in `loadMeta` would be the
+  belt to that braces if a foreign `nick` ever reaches a surface that does not escape it.
+- **The suite's comment stripper was eating whole regions of files**, and two bugs were cancelling.
+  Block comments were stripped before line comments (so a `/*` inside prose or inside
+  `import.meta.glob('./cast/*.png')` opened a real one — 1832 lines of config.js, 1012 of ui.js), and
+  the three quote kinds were stripped in sequence (so an apostrophe inside a double-quoted string
+  opened a bogus span, hiding `spendSecs`'s declaration from run UR). Measured after the fix: run
+  UR's five files check the identical 2737/144/160/212/118 call sites, so it bought no coverage
+  there — the file where the hole actually bit is ui.js. Recorded because the FLOORS could not see
+  any of it: they were measured against the already-broken stripper.
