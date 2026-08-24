@@ -3,7 +3,10 @@
 **Date:** 2026-08-04
 **Companion to:** `2026-08-03-cross-device-save-sync-design.md` (the design; what to build and why)
 **This document:** how to build it — order, repo layout, save-schema evolution, rollout, operations.
-**Status:** not started.
+**Status:** slices 0, 1 and 2 shipped (2026-08-04..08); the Worker is deployed and live. The
+decision core of `sync.js` is done, its TRANSPORT is not. Slices 3 and 4 are open, and four of the
+costs §9 budgets have since been paid by other work — see
+`../plans/2026-08-24-save-sync-slice-3.md` for the verified status, the drift, and the task list.
 
 ---
 
