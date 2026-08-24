@@ -842,7 +842,7 @@ function beginDeathOutro(dt) {
 // direction, any WASD/arrow key, or the skill button all skip. Upgrade path if it ever matters:
 // input.js would have to expose a press EDGE rather than a held vector.
 function deathSkipPressed() {
-  const inp = getInput()
+  const inp = getInput(renderer.playerScreen)
   const moved = Math.abs(inp.x) > 0.2 || Math.abs(inp.y) > 0.2 || inp.skill
   if (!moved) { deathSkipArmed = true; return false }
   return deathSkipArmed
@@ -858,7 +858,7 @@ app.ticker.add((ticker) => {
     // canCommitFrom in config.js. The camera centres the player in every chapter but the lane.
     run.viewW = app.screen.width / 2
     run.viewH = app.screen.height / 2
-    stepSim(run, getInput(), dt)
+    stepSim(run, getInput(renderer.playerScreen), dt)
     const events = run.events
     run.events = []
     renderer.sync(run, dt, events)
