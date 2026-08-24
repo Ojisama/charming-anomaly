@@ -5,6 +5,10 @@
 /* eslint-disable quote-props */
 
 const UI = {
+  // The loading screen (index.html). Its English is what shows until main.js reaches setLang, i.e.
+  // for the bundle download on a first visit — every later boot is served from cache and lands here
+  // fast enough that the word is French from the start.
+  'Loading…': 'Chargement…',
   // v6.6.17 pause build readout. Stat-table labels are column headers on a 320px sheet, so they
   // are kept to a single word wherever French allows one.
   'Damage': 'Dégâts',
