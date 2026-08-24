@@ -17435,15 +17435,36 @@ function testSyncWiring() {
   assert.ok(/settings-slots" data-act="sync-open"/.test(u),
     'run SY: the sync row is no longer a .settings-slots button opening the sheet')
 
-  // (e) THE KILL SWITCH REALLY REMOVES EVERY PIXEL. An empty __SYNC_URL__ is the whole rollback
-  // story (tech strategy §1); a production build with it empty must draw nothing, not a dead row
-  // reading "Cloud sync is off in this build".
+  // (e) NOT PUBLIC YET, AND THIS IS THE ASSERT THAT KEEPS IT THAT WAY. The Worker is live and
+  // __SYNC_URL__ is set, so the only thing standing between an unreleased feature and every player
+  // is one line in syncRowHtml. Delete it and the sheet is on the title screen for everyone, with
+  // nothing thrown and — before this assert existed — the whole suite still green.
+  const row = u.slice(u.indexOf('function syncRowHtml'))
+  const rowBody = row.slice(0, row.indexOf('\n  }'))
+  assert.ok(/!import\.meta\.env\.DEV && !meta\.dev\) return ''/.test(rowBody),
+    'run SY: syncRowHtml no longer gates on meta.dev in a production build — cloud sync is exposed ' +
+    'to every player before its two-device walkthrough has happened')
+
+  // ONE DEV SWITCH, NOT TWO. CLAUDE.md records what a second one cost: the coin badge used to carry
+  // its own seven-tap burst, so the game had two answers to "is this a dev run", the leaderboard was
+  // wired to only one of them, and a run played to reach a WIP chapter submitted to the public board
+  // (v7.161.0). meta.dev is that one switch; this asserts the sync gate did not invent another.
+  assert.ok(!/sync[A-Za-z]*Dev|devSync|_devSync/.test(u),
+    'run SY: ui.js has grown a sync-specific dev flag — meta.dev is the ONE dev switch, and a second ' +
+    'one is how the leaderboard came to disagree with itself about what a dev run is')
+
+  // The kill switch still removes every pixel when SYNC_URL is empty, which is the rollback story.
   assert.ok(/reason === 'disabled' && !import\.meta\.env\.DEV.*return ''/.test(u),
-    'run SY: ui.js renders the sync row in a production build with no SYNC_URL — the kill switch ' +
-    'leaves a dead control behind instead of removing the feature')
+    'run SY: ui.js renders the sync row in a build with no SYNC_URL — the kill switch leaves a dead ' +
+    'control behind instead of removing the feature')
   assert.ok(/__SYNC_URL__:\s*JSON\.stringify/.test(vite),
     'run SY: vite.config.js no longer defines __SYNC_URL__, so sync.js falls back to the disabled ' +
     'branch in EVERY build and the feature can never be turned on')
+  // And it must actually point somewhere, or "shipped behind the dev gate" is a claim about a
+  // feature that cannot work at all.
+  assert.ok(/https:\/\/[a-z0-9.-]+\/v1\/save/.test(vite),
+    'run SY: vite.config.js no longer carries a sync endpoint — the dev-gated flow has nothing to ' +
+    'talk to, so walking it on a phone would fail for a reason the UI cannot explain')
 
   // (f) the service worker must never intercept the sync API. Cross-origin today, so the existing
   // origin check already covers it — this is the line that survives a custom-domain move.
@@ -17452,7 +17473,8 @@ function testSyncWiring() {
     'and starts being cached and replayed')
 
   console.log(`PASS run SY (sync wiring): isIdle reads run === null, all ${TRIGGERS.length} pull/push ` +
-    `triggers present at their named sites, ui.js holds no protocol, the kill switch removes every pixel`)
+    `triggers present at their named sites, ui.js holds no protocol, the entry point is behind ` +
+    `meta.dev in production, and the kill switch still removes every pixel`)
 }
 
 // ---- Run ZY: the pairing code, and what the adopt path tolerates ------------------------------

@@ -25,14 +25,17 @@ function buildStamp() {
   }
 }
 
-// THE WHOLE FEATURE'S KILL SWITCH for cloud save sync (tech strategy §1). An empty string
-// disables it at the module level — sync.js early-returns from every entry point and ui.js draws
-// nothing in a production build — so "turn it off" is a one-word change and never a revert.
+// THE WHOLE FEATURE'S KILL SWITCH for cloud save sync (tech strategy §1). Setting this to an
+// empty string disables it at the module level — sync.js early-returns from every entry point
+// and ui.js draws nothing — so "turn it off" stays a one-word change and never a revert.
+// SYNC_URL= in the environment overrides it, which is how a fork or a local build opts out.
 //
-// The Worker is already deployed and already serves the leaderboard from this same origin (see
-// scores.js's SCORES_URL), so turning sync on provisions nothing: it is this constant and a
-// two-device walkthrough. Left empty until that walkthrough has happened.
-const SYNC_URL = process.env.SYNC_URL ?? ''
+// Same Worker and same origin as the leaderboard (scores.js's SCORES_URL), so turning this on
+// provisioned nothing new. It is LIVE but not yet public: ui.js keeps the entry point behind
+// meta.dev in a production build, so the owner can walk two real devices against the deployed
+// URL — which is the one part of slice 4 that cannot be done on localhost — before any player
+// meets it.
+const SYNC_URL = process.env.SYNC_URL ?? 'https://charming-anomaly-sync.ojisama-san.workers.dev/v1/save'
 
 export default defineConfig({
   base: './',
