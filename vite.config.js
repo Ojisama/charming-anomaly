@@ -25,9 +25,18 @@ function buildStamp() {
   }
 }
 
+// THE WHOLE FEATURE'S KILL SWITCH for cloud save sync (tech strategy §1). An empty string
+// disables it at the module level — sync.js early-returns from every entry point and ui.js draws
+// nothing in a production build — so "turn it off" is a one-word change and never a revert.
+//
+// The Worker is already deployed and already serves the leaderboard from this same origin (see
+// scores.js's SCORES_URL), so turning sync on provisions nothing: it is this constant and a
+// two-device walkthrough. Left empty until that walkthrough has happened.
+const SYNC_URL = process.env.SYNC_URL ?? ''
+
 export default defineConfig({
   base: './',
-  define: { __BUILD_STAMP__: JSON.stringify(buildStamp()) },
+  define: { __BUILD_STAMP__: JSON.stringify(buildStamp()), __SYNC_URL__: JSON.stringify(SYNC_URL) },
   // inlineDynamicImports: Pixi v8 auto-detects its environment via dynamic import;
   // as a split chunk it never loads in prod (app.init() hangs on a blank page).
   build: { target: 'es2022', rolldownOptions: { output: { inlineDynamicImports: true } } },

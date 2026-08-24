@@ -27979,7 +27979,7 @@ function testUnresolvedRefs() {
   // Names that are neither imported nor declared but are legitimately callable.
   const GLOBALS = new Set(['Math', 'Object', 'Array', 'JSON', 'Number', 'String', 'Boolean', 'Set', 'Map',
     'Date', 'isNaN', 'isFinite', 'parseFloat', 'parseInt', 'Symbol', 'Promise', 'Error', 'TypeError',
-    'RegExp', 'WeakMap', 'WeakSet', 'BigInt', 'structuredClone',
+    'RegExp', 'WeakMap', 'WeakSet', 'BigInt', 'structuredClone', 'Uint8Array', 'Intl',
     // keywords the call-site regex cannot tell from a call, since `if (` looks exactly like `f (`
     'if', 'for', 'while', 'switch', 'catch', 'return', 'typeof', 'function', 'of', 'in', 'new', 'do',
     'else', 'try', 'await', 'yield', 'delete', 'void', 'instanceof'])
@@ -28014,11 +28014,20 @@ function testUnresolvedRefs() {
     'sync.js': 18,       // measured 30
     'terrain.js': 70,    // measured 118
   }
+  // THE ONE FILE ALLOWED HOST FUNCTIONS, and the allowance is narrow on purpose. sync.js talks to
+  // the network, so `fetch` and the timer pair are legitimately its job — but sim.js reaching for
+  // setTimeout would be a real defect, which is why this is per-file and not another GLOBALS row.
+  //
+  // This does NOT weaken sync.js's actual rule, which is "no browser globals at MODULE SCOPE":
+  // that one is proved by something stronger than a lint. This suite IMPORTS sync.js at the top
+  // of the file with only localStorage stubbed, so a browser global evaluated at module scope is
+  // a ReferenceError that takes the whole run down before any assertion executes.
+  const HOST_OK = { 'sync.js': ['fetch', 'setTimeout', 'clearTimeout'] }
   const report = []
   for (const file of FILES) {
     const src = readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8')
     const code = strip(src)
-    const known = new Set(GLOBALS)
+    const known = new Set([...GLOBALS, ...(HOST_OK[file] ?? [])])
     // Imports are read from the RAW source: the list spans lines and carries `//` comments between
     // entries, which the stripper turns into whitespace either way.
     for (const m of src.matchAll(/import\s*\{([\s\S]*?)\}\s*from/g)) {

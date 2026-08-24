@@ -1,6 +1,6 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
-import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, SAVE_SLOTS } from './state.js'
+import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS } from './state.js'
 import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
@@ -9,6 +9,10 @@ import { initInput, getInput, pressSkill } from './input.js'
 import { initAudio, playSfx } from './audio.js'
 import { setLang, t } from './i18n.js'
 import { submitScore, podiumRank, validNick } from './scores.js'
+// Cloud save sync (design docs/superpowers/specs/2026-08-03-cross-device-save-sync-design.md).
+// main.js owns the two things sync.js structurally cannot: the `run === null` predicate behind
+// every adopt, and the DOM registrations §6.3's triggers need. Everything else is sync.js's.
+import { initSync, noteSave, evaluate as syncEvaluate, pushNow, status as syncStatus, link as syncLink, lookup as syncLookup, joinInto as syncJoinInto, unlink as syncUnlink, resolveConflict as syncResolve } from './sync.js'
 
 // base64url -> the original UTF-8 JSON. Not atob alone: a save carries a player-authored name.
 function decodeSharedSave(b64) {
@@ -113,6 +117,17 @@ initInput(document.body)
 
 const ui = initUI({
   meta,
+  // ONE hook holding sync.js's whole surface, rather than seven. ui.js never imports sync.js —
+  // it owns every pixel of the sync sheet and none of the protocol (design §3.1).
+  sync: {
+    status: syncStatus,
+    evaluate: syncEvaluate,
+    link: syncLink,
+    lookup: syncLookup,
+    joinInto: syncJoinInto,
+    unlink: syncUnlink,
+    resolveConflict: syncResolve,
+  },
   onPlay() {
     initAudio()
     // Classic = the selected chapter (meta.chapter) at ITS OWN difficulty ladder (level 1 adds
@@ -389,6 +404,12 @@ const ui = initUI({
     run = null
     renderer.reset(null)
     ui.showScreen('title')
+    // §6.3 pull trigger 3, and it is the one that rescues the owner's own use case. `run` is
+    // set to null in exactly this one place, so the summary and pause screens both have
+    // run !== null — without a trigger tied to LEAVING them, a laptop closed on the summary
+    // screen re-opens, pulls once (bumping the throttle), never adopts, and plays a whole
+    // session on a stale generation before 409ing into the destructive prompt.
+    syncEvaluate({ force: true })
   },
   // Shop's "Reset all progress" button (full new-game wipe) — erase the save and reload so
   // every module re-reads a fresh loadMeta() rather than trying to reconcile in-memory state.
@@ -675,6 +696,10 @@ function endRun(victory) {
   }
 
   saveMeta(meta)
+  // §6.3 push trigger 1. The save hook's 10s debounce would carry this too, but this is the
+  // write that holds a whole session's progress and the moment a player is most likely to put
+  // the phone down — ten seconds of tab-still-open is not a bet worth taking on it.
+  pushNow()
   // Held in a local rather than passed as a literal: the leaderboard hands this exact object back
   // to ui.setPodiumResult below, and identity is what proves the rank belongs to THIS run's summary
   // and not to one the player has already replaced.
@@ -836,4 +861,34 @@ app.ticker.add((ticker) => {
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(() => {})
 }
+
+// ---- cloud sync wiring (design §3.1, §6.3) ---------------------------------------------------
+// LAST in boot, and never awaited. localStorage is the source of truth and sync is best-effort:
+// a player on a train opening the PWA gets the title screen at exactly the speed they always did.
+initSync({
+  // The safety invariant behind every adopt, and the reason this predicate is passed rather than
+  // read: `run` is a `let` local in this function, not exported and not reachable from sync.js.
+  isIdle: () => run === null,
+  onChange: () => ui.syncChanged(),
+  // §8: an adopt reloads the page under the player and every number changes. Silent, that is
+  // indistinguishable from a crash or a corrupted save — which is the most likely source of a
+  // "the game deleted my save" report. sessionStorage because the notice must survive exactly
+  // one reload and no more.
+  onAdopted: (reason) => { try { sessionStorage.setItem('ca-sync-adopted', reason) } catch { /* private mode */ } },
+  reload: () => location.reload(),
+})
+setSaveHook(noteSave)
+// §6.3 pull trigger 1: after the title has rendered, never before, and never awaited.
+syncEvaluate()
+document.addEventListener('visibilitychange', () => {
+  // Pull on the way in, push on the way out. The throttle inside evaluate() is what keeps a
+  // tab-switching player from issuing a GET per switch; pushNow is already a no-op when the
+  // disk matches what was last pushed, so it costs nothing when there is nothing to send.
+  if (document.visibilityState === 'visible') syncEvaluate()
+  else pushNow()
+})
+// The phone going in a pocket. sendBeacon cannot carry an Authorization header (§5.4), so this
+// is an ordinary fetch that may not finish — which is survivable, because the content hash still
+// differs and the next trigger retries.
+addEventListener('pagehide', () => { pushNow() })
 }

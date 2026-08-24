@@ -26,6 +26,10 @@ self.addEventListener('activate', (e) => e.waitUntil((async () => {
 self.addEventListener('fetch', (e) => {
   const req = e.request
   if (req.method !== 'GET' || !req.url.startsWith(self.location.origin)) return
+  // Cloud sync. Cross-origin today (GitHub Pages cannot host a Worker route on github.io), so
+  // the line above already excludes it — this is the one that survives a custom-domain move,
+  // where the API would suddenly become same-origin and start being cached and replayed.
+  if (new URL(req.url).pathname.startsWith('/v1/')) return
   // A navigate-mode Request cannot be copied (`new Request(req, {...})` throws on it), so the
   // no-store refetch goes by URL. Hashed assets keep the plain request — a content hash cannot go
   // stale by construction, so their HTTP cache hits are free and correct.

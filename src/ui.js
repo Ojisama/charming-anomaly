@@ -2,7 +2,7 @@
 import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
-import { SAVE_SLOTS, activeSlot, slotSummary, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
+import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
 // The leaderboard's read side. ui.js fetching its own boards is deliberate — see the comment on
 // loadPodium for where the line between "hook" and "direct import" is drawn.
 import { fetchBoards, validNick, NICK_MIN, NICK_MAX } from './scores.js'
@@ -975,11 +975,14 @@ export function initUI(hooks) {
         ${meta.dev ? '<span class="dev-pill">DEV</span>' : ''}
       </header>
       ${bookcaseHtml()}
+      ${syncNoticeHtml()}
       <div class="title-below">${titleBelowHtml()}</div>
       ${settingsSheetHtml()}
       ${slotsModalHtml()}
       ${renameSheetHtml()}
       ${nickSheetHtml()}
+      ${syncSheetHtml()}
+      ${conflictSheetHtml()}
     `)
     paintRoom()
     // THE MANDATORY SHEET, MADE ACTUALLY MANDATORY. A modal backdrop blocks the pointer and nothing
@@ -988,10 +991,18 @@ export function initUI(hooks) {
     // nothing with no explanation. `inert` removes the rest of the screen from the tab order and
     // from hit-testing in one attribute; the click guard stays as the floor for a browser that does
     // not support it. Cleared on every render, so it cannot outlive the sheet.
-    const blocked = nickPrompted()
-    for (const n of screens.title.children) n.toggleAttribute('inert', blocked && !n.classList.contains('nick-sheet'))
+    // The conflict prompt joins the mandatory nickname here for the same reason and one more:
+    // §7.2 must disable Play and the nav while it is up. It cannot use `case 'play'`'s
+    // force-close escape (the sheet is not dismissible), and ui.js already documents that
+    // keyboard focus reaches Play behind a backdrop — so Tab-then-Enter would start a run under
+    // an unresolved prompt whose held cloud row then goes stale.
+    const blocked = nickPrompted() || conflictPending()
+    for (const n of screens.title.children) {
+      n.toggleAttribute('inert', blocked && !n.classList.contains('nick-sheet') && !n.classList.contains('conflict-sheet'))
+    }
     // After the wholesale innerHTML rewrite, never before it.
     focusRenameField()
+    armSyncNotice()
     markBookcaseScroll()
   }
 
@@ -1043,6 +1054,7 @@ export function initUI(hooks) {
                again?" without opening anything. -->
           <button class="btn btn--soft btn--small settings-slots" data-act="nick-edit">${ICO_PODIUM} ${t('Nickname')} <i>${esc(meta.nick || '—')}</i></button>
           <button class="btn btn--soft btn--small settings-slots" data-act="slots">💾 ${t('Save slots')} <i>${activeSlot()}/${SAVE_SLOTS}</i></button>
+          ${syncRowHtml()}
           ${buildStampHtml()}
           <button class="btn btn--soft btn--small sheet-done" data-act="settings-close">${t('Done')}</button>
         </div>
@@ -1182,7 +1194,9 @@ export function initUI(hooks) {
   // markup and querySelector returns document order. Focusing the buried field would move focus out
   // of the sheet the player is actually typing into on every render.
   function focusRenameField() {
-    const el = screens.title.querySelector('#nick-field') ?? screens.title.querySelector('.text-field')
+    const el = screens.title.querySelector('#nick-field')
+      ?? screens.title.querySelector('#sync-code')
+      ?? screens.title.querySelector('.text-field')
     if (!el) return
     el.focus()
     try { el.setSelectionRange(el.value.length, el.value.length) } catch { /* not all input types support it */ }
@@ -1201,6 +1215,280 @@ export function initUI(hooks) {
             <button class="btn btn--soft btn--small" data-act="slots-cancel">${t('Cancel')}</button>
           </div>
         </div>
+      </div>`
+  }
+
+  // ---- cloud sync (design §9; plan docs/superpowers/plans/2026-08-24-save-sync-slice-3.md) -----
+  //
+  // THE ENTRY POINT IS A ⚙ SETTINGS ROW, NOT A ROW IN THE SLOTS SHEET the design first chose (§9.1).
+  // v6.7 moved the title's floating controls behind one ⚙ and gave that sheet a row component whose
+  // right-aligned <i> is exactly the ambient status field §9.7 asked for — so the signal costs no new
+  // glyph and no new tap target, and the slots sheet's height budget, which §9.1's arithmetic showed
+  // had nothing left to give, is untouched.
+  //
+  // ui.js NEVER IMPORTS sync.js. main.js hands the module in as `sync`, the same seam every other
+  // hook here uses: this file owns every pixel and none of the protocol.
+  //
+  // `syncView` is the FLOW step, not the link state — the link state is sync.status(). It lives out
+  // here with syncDraft for the reason renameDraft does: renderTitle() rewrites innerHTML wholesale,
+  // so a half-typed code and a half-finished pairing would both die on any unrelated re-render.
+  let syncOpen = false
+  let syncView = 'home' // 'home' | 'uploading' | 'ready' | 'enter' | 'pick'
+  let syncDraft = ''
+  let syncCloud = null  // the row a lookup returned, held for the destination picker
+  let syncMsg = ''      // last failure tag; one line, cleared by the next action
+  let syncCopied = false
+  // When the conflict sheet first drew. §7.2's tap shield: it appears UNBIDDEN over the title while
+  // a thumb may already be travelling toward Play, and two of its three buttons destroy a save.
+  let conflictShownAt = 0
+  const CONFLICT_SHIELD_MS = 400
+
+  // §8: AN ADOPT IS ANNOUNCED, NEVER SILENT. The page reloads under the player and every number
+  // on it changes; with no text that is indistinguishable from a crash or a corrupted save, and
+  // is the most likely source of a "the game deleted my save" report.
+  // READ ONCE HERE, not per render: it must survive exactly one reload, and renderTitle runs
+  // many times before the player has finished reading anything.
+  let syncNotice = ''
+  try {
+    syncNotice = sessionStorage.getItem('ca-sync-adopted') ?? ''
+    if (syncNotice) sessionStorage.removeItem('ca-sync-adopted')
+  } catch { /* private mode */ }
+
+  function syncNoticeHtml() {
+    if (!syncNotice) return ''
+    const st = syncState()
+    const text = syncNotice === 'linked'
+      ? tt('Linked. Slot {n} now follows you between devices.', { n: st.slot ?? activeSlot() })
+      : t('Loaded your latest save from the cloud.')
+    return `<p class="sync-notice">${esc(text)}</p>`
+  }
+
+  // Cleared after ~3s and re-rendered once. A timer rather than a CSS animation because the
+  // string has to leave the DOM: it is not interactive, but a stale "Linked." sitting under the
+  // bookcase two minutes later is a claim about right now.
+  let syncNoticeTimer = 0
+  function armSyncNotice() {
+    if (!syncNotice || syncNoticeTimer) return
+    syncNoticeTimer = setTimeout(() => { syncNotice = ''; syncNoticeTimer = 0; if (active === 'title') renderTitle() }, 3000)
+  }
+  const conflictPending = () => !!syncState().conflict
+
+  const syncOn = () => !!hooks.sync
+  const syncState = () => (hooks.sync ? hooks.sync.status() : { on: false, available: false, reason: 'disabled' })
+
+  // Every failure §8 enumerates, one sentence each. They are NOT collapsed into a single "sync
+  // failed": "Offline" is a lie when the wifi is fine and the server is down, and a player who reads
+  // it goes looking at their router instead of waiting.
+  function syncMsgText(tag) {
+    switch (tag) {
+      case 'offline': return t('Offline — your progress is safe here.')
+      case 'network': case 'timeout': return t('Not uploaded yet — waiting for a connection.')
+      case 'serverError': return t('Sync is down right now. Nothing is lost.')
+      case 'rateLimited': return t('Too many tries. Wait a minute and try again.')
+      case 'badCode': return t('That code is not valid.')
+      // Both causes, because §6.1 documents both and the earlier copy asserted only the mistype —
+      // which was also wrong on its face, since Crockford base32 is letters AND digits.
+      case 'notFound': return t('No save under that code yet. Check the code, and make sure the other device says Ready.')
+      case 'refused-schema': return t('That cloud save was written by a newer version of the game.')
+      case 'refused-shape': return t('That cloud save could not be read. Your save here is untouched.')
+      case 'no-storage': return t('Unavailable in private browsing.')
+      case 'no-save': return t('There is nothing saved in this slot yet.')
+      // §9.3: unlinking here does NOT unlink there. The other device keeps the old code and
+      // keeps pushing to a row this one no longer reads — 200s all the way, and the handoff
+      // silently dead. Saying so is the only warning that state ever gets.
+      case 'unlinked': return t('Your other devices are still using the old code. Unlink there too.')
+      default: return ''
+    }
+  }
+
+  // Relative when it is recent enough to mean something, absolute beyond a day. In the active
+  // language, because a French player reading "2 days ago" inside a French sheet is a seam.
+  function whenText(ms) {
+    if (!ms) return t('unknown')
+    const secs = Math.round((ms - Date.now()) / 1000) // negative = in the past
+    const abs = Math.abs(secs)
+    try {
+      const rtf = new Intl.RelativeTimeFormat(getLang(), { numeric: 'auto' })
+      if (abs < 60) return rtf.format(Math.min(0, secs), 'second')
+      if (abs < 3600) return rtf.format(Math.min(0, Math.round(secs / 60)), 'minute')
+      if (abs < 86400) return rtf.format(Math.min(0, Math.round(secs / 3600)), 'hour')
+      return new Date(ms).toLocaleDateString(getLang())
+    } catch { return new Date(ms).toLocaleDateString() }
+  }
+
+  // §9.3 STATUS IS EVIDENCE, NOT INTENT. "Synced · 2 minutes ago" derived from the last successful
+  // handshake reads reassuringly while every push has failed for an hour, and survives a broken
+  // pairing entirely — unlink on the phone and re-pair it, and the laptop keeps pushing happily to
+  // the orphaned row, 200s all the way, status green, handoff silently dead. Silence is the only
+  // symptom of that, so silence is what this surfaces.
+  const QUIET_MS = 3 * 24 * 3600 * 1000
+  function syncRowValue() {
+    const st = syncState()
+    if (!st.available) return t('Off')
+    if (!st.on) return t('Off')
+    const quiet = Date.now() - (st.pulledAt || 0)
+    if (quiet > QUIET_MS) return t('quiet')
+    return tt('Slot {n}', { n: st.slot })
+  }
+
+  function syncStatusLine() {
+    const st = syncState()
+    if (!st.available) {
+      return st.reason === 'no-storage' ? t('Unavailable in private browsing.') : t('Cloud sync is off in this build.')
+    }
+    if (!st.on) return t('Off — this save stays on this device')
+    if (st.dirty) return t('Not uploaded yet — waiting for a connection.')
+    const quiet = Date.now() - (st.pulledAt || 0)
+    if (quiet > QUIET_MS) return tt('On — nothing new in {when}', { when: whenText(st.pulledAt) })
+    return tt('On — Slot {n}, updated {when}', { n: st.slot, when: whenText(st.pulledAt) })
+  }
+
+  // The ⚙ row. Same component as 💾 Save slots and 🏆 Nickname above it.
+  function syncRowHtml() {
+    if (!syncOn()) return ''
+    const st = syncState()
+    // §8 wants the disabled preview VISIBLE so the 320px layout can be judged on a phone against
+    // `npm run dev`, which sets no SYNC_URL. But a production build with the switch off has no
+    // feature to preview — a row reading "Cloud sync is off in this build" is a dead end, not an
+    // explanation. So the preview is dev-only and the kill switch really does remove every pixel.
+    if (st.reason === 'disabled' && !import.meta.env.DEV) return ''
+    return `<button class="btn btn--soft btn--small settings-slots" data-act="sync-open"
+      ${st.available ? '' : 'disabled'}>☁️ ${t('Cloud sync')} <i>${esc(syncRowValue())}</i></button>`
+  }
+
+  function syncSheetHtml() {
+    if (!syncOpen || !syncOn()) return ''
+    const st = syncState()
+    const msg = syncMsg ? `<p class="confirm-sheet-body sync-msg">${esc(syncMsgText(syncMsg))}</p>` : ''
+    return `
+      <div class="modal-backdrop" data-act="sync-close" data-pop="sync">
+        <div class="confirm-sheet">
+          <h2 class="confirm-sheet-title">☁️ ${t('Cloud sync')}</h2>
+          ${syncBodyHtml(st)}
+          ${msg}
+          <div class="confirm-sheet-actions">
+            <button class="btn btn--soft btn--small" data-act="sync-close">${t('Done')}</button>
+          </div>
+        </div>
+      </div>`
+  }
+
+  function syncBodyHtml(st) {
+    if (!st.available) return `<p class="confirm-sheet-body">${esc(syncStatusLine())}</p>`
+
+    // FIRST RUN MUST EXPLAIN ITSELF, and it must offer BOTH branches. One unpaired device is
+    // indistinguishable from another, so the client cannot know whether this is the first device or
+    // the second — an earlier draft assumed it could, and the missing branch was a whole screen.
+    // The slot number is interpolated into the button rather than left implicit: §5.3 goes to real
+    // trouble to stop device B adopting into "whatever slot happens to be active", and a device A
+    // that designates one silently undoes that.
+    if (!st.on && syncView === 'home') {
+      return `
+        <p class="confirm-sheet-body">${t('Keep one save in step across your phone and computer. No account — you type a code once.')}</p>
+        <div class="sync-actions">
+          <button class="btn btn--small" data-act="sync-link">${tt('Sync Slot {n}', { n: activeSlot() })}</button>
+          <button class="btn btn--soft btn--small" data-act="sync-enter">${t('I have a code')}</button>
+        </div>`
+    }
+
+    if (syncView === 'uploading') return `<p class="confirm-sheet-body">${t('Uploading…')}</p>`
+
+    // §5.1: the code appears ONLY after the upload is ACKed. Show it earlier and the player walks to
+    // the laptop, types all sixteen characters correctly, and is told the code is wrong.
+    if (syncView === 'ready' || (st.on && syncView === 'home')) {
+      return `
+        <p class="confirm-sheet-body">${esc(syncStatusLine())}</p>
+        <p class="confirm-sheet-body">${t('Ready — enter this code on your other device')}</p>
+        <p class="sync-code">${esc(groupCodeText(st.code))}</p>
+        <div class="sync-actions">
+          <button class="btn btn--small" data-act="sync-copy">${syncCopied ? t('Copied') : t('Copy code')}</button>
+          <button class="btn btn--soft btn--small" data-act="sync-unlink">${t('Unlink')}</button>
+        </div>
+        <p class="confirm-sheet-body sync-fine">${t('Anyone with this code can read and change this save.')}</p>`
+    }
+
+    if (syncView === 'enter') {
+      return `
+        <p class="confirm-sheet-body">${t('Type the code shown on your other device.')}</p>
+        <input class="text-field" id="sync-code" type="text" value="${esc(syncDraft)}"
+          maxlength="19" inputmode="text" autocapitalize="characters" autocorrect="off"
+          autocomplete="off" spellcheck="false" enterkeyhint="go" aria-label="${t('Pairing code')}">
+        <div class="sync-actions">
+          <button class="btn btn--small" data-act="sync-lookup" ${syncDraft.replace(/[\s-]/g, '').length === 16 ? '' : 'disabled'}>${t('Continue')}</button>
+        </div>`
+    }
+
+    // §5.3 destination picker — slotRowHtml with a different heading and a different action, so the
+    // rows a player already knows keep behaving the way they already do.
+    if (syncView === 'pick') {
+      const rows = Array.from({ length: SAVE_SLOTS }, (_, i) => i + 1)
+        .map((n) => slotRowHtml(n, { act: 'sync-pick', rename: false })).join('')
+      return `<p class="confirm-sheet-body">${t('Where should this save go?')}</p>${rows}`
+    }
+    return ''
+  }
+
+  // Display grouping lives here rather than in sync.js's groupCode because this is presentation.
+  const groupCodeText = (code) => String(code ?? '').replace(/(.{4})(?=.)/g, '$1-')
+
+  // ---- the conflict prompt (§7.2) --------------------------------------------------------------
+  // ONE COMPONENT, TWO ENTRY CONTEXTS. They differ only in heading — the rows, the data, the buttons
+  // and the consequences are identical, which is the point: the choice a player makes about their
+  // progress should look the same wherever it reaches them.
+  //
+  // TWO STACKED CARDS, NOT THREE COLUMNS. At 320px .confirm-sheet gives 235.6px of content; three
+  // columns with a label column leave ~14 characters a side, and `The Undergrowth` is 15 before the
+  // difficulty suffix. Each card owning its own button also removes the "which button belongs to
+  // which column" ambiguity.
+  function conflictSheetHtml() {
+    const st = syncState()
+    const c = st.conflict
+    if (!c) { conflictShownAt = 0; return '' }
+    if (!conflictShownAt) conflictShownAt = Date.now()
+    const slot = c.context === 'pairing' ? c.slot : st.slot
+    let local = null
+    let cloud = null
+    // §4.2 promises saveSummary is total, but this modal renders an UNTRUSTED blob from the network
+    // and a half-drawn irreversible choice is the worst possible failure here. The fallback keeps
+    // the local save and says so, rather than offering two buttons over a blank card.
+    try {
+      local = saveSummary(JSON.parse(exportSlot(slot) ?? 'null'))
+      cloud = saveSummary(JSON.parse(c.blob ?? 'null'))
+    } catch { local = null; cloud = null }
+    const body = (local && cloud)
+      ? `${conflictCardHtml(t('THIS DEVICE'), local, 'local')}${conflictCardHtml(t('THE CLOUD'), cloud, 'cloud')}
+         <p class="confirm-sheet-body sync-fine">${t('The other one is deleted.')}</p>`
+      : `<p class="confirm-sheet-body">${t('That cloud save could not be read. Your save here is untouched.')}</p>`
+    return `
+      <div class="modal-backdrop conflict-sheet" data-pop="conflict">
+        <div class="confirm-sheet">
+          <h2 class="confirm-sheet-title">${c.context === 'pairing'
+            ? esc(tt('Slot {n} already has a save', { n: slot }))
+            : t('Two versions of this save')}</h2>
+          ${body}
+          <div class="confirm-sheet-actions">
+            <button class="btn btn--soft btn--small" data-act="sync-later">${t('Decide later')}</button>
+          </div>
+        </div>
+      </div>`
+  }
+
+  function conflictCardHtml(label, s, which) {
+    const ch = CHAPTERS[s.chapterId]
+    // The hero card's own ★ field and the same fallback, so the card and this prompt can never state
+    // two different numbers. "beat 3" is vocabulary this game has never used.
+    const stars = Array.from({ length: MAX_DIFFICULTY }, (_, i) =>
+      `<i class="vol-star${i < s.beaten ? ' vol-star--on' : ''}">★</i>`).join('')
+    return `
+      <div class="sync-card">
+        <div class="sync-card-head"><b>${esc(label)}</b><small>${esc(whenText(s.savedAt))}</small></div>
+        <div class="sync-card-line">${esc(ch ? t(ch.name) : s.chapterId)} <span class="sync-card-stars">${stars}</span></div>
+        <!-- Coins and upgrades on ONE line so the trade reads as a trade: §7.1 proves coins get
+             SPENT, so the more advanced save routinely shows the SMALLER number, and stacking them
+             as peers invites the player to pick the save that is behind. The run count is the best
+             "which is my main save" tiebreaker in the blob. -->
+        <div class="sync-card-line sync-card-sub">${tt('{r} runs', { r: s.runs })} · ${tt('{u} upgrades', { u: s.upgrades })} · 🪙 ${s.coins}</div>
+        <button class="btn btn--small" data-act="sync-keep" data-which="${which}">${t('Use this one')}</button>
       </div>`
   }
 
@@ -2893,7 +3181,10 @@ export function initUI(hooks) {
     // don't strand a sheet open on return. nickEditing belongs in this list for the same reason —
     // the RENAME sheet, which reopens on the title with no way to tell it from the mandatory one.
     // (The mandatory prompt is not stranded by this: it is driven by !meta.nick, not by the flag.)
-    if (active === 'title') { slotsOpen = false; settingsOpen = false; nickEditing = false }
+    // §9.5's fifth cost: a player who checks the shop mid-pairing loses the sheet. The typed
+    // code is gone, but the CODE ITSELF is not — it is on disk the moment link() succeeds, so
+    // reopening the sheet shows it again rather than restarting the flow.
+    if (active === 'title') { slotsOpen = false; settingsOpen = false; nickEditing = false; syncOpen = false }
     if (active === 'brief') boostersOpen = false // v6.7: same, for the booster sheet that lives there now
     playSfx('click')
     showScreen(target)
@@ -2919,9 +3210,31 @@ export function initUI(hooks) {
     }
     // Repaint the LIST only, never the modal: rewriting screens.dev.innerHTML on every keystroke
     // would destroy the field being typed into and drop focus after one character.
+    else if (e.target.id === 'sync-code') {
+      const el = e.target
+      const atEnd = el.selectionStart === el.value.length
+      // Regroup only while the caret is at the END — i.e. while typing, which is how sixteen
+      // characters actually get in. Reformatting during a mid-string edit would move the caret
+      // to the end after every keystroke, which is the exact bug the nickname field's comment
+      // warns about one branch up.
+      if (atEnd) {
+        const grouped = el.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 16).replace(/(.{4})(?=.)/g, '$1-')
+        if (grouped !== el.value) { el.value = grouped; try { el.setSelectionRange(grouped.length, grouped.length) } catch { /* unsupported */ } }
+      }
+      syncDraft = el.value
+      // Patch the one thing that changes, never re-render: the field being typed into would be
+      // destroyed and focus dropped after a single character.
+      root.querySelector('[data-act="sync-lookup"]')?.toggleAttribute('disabled', syncDraft.replace(/[\s-]/g, '').length !== 16)
+    }
     else if (e.target.id === 'dev-filter') { devFilter = e.target.value; paintDevList() }
   })
   root.addEventListener('keydown', (e) => {
+    if (e.target.id === 'sync-code') {
+      const go = () => root.querySelector('[data-act="sync-lookup"]')
+      if (e.key === 'Enter') { e.preventDefault(); go()?.click() }
+      else if (e.key === 'Escape') { e.preventDefault(); root.querySelector('[data-act="sync-close"]')?.click() }
+      return
+    }
     const nick = e.target.id === 'nick-field'
     if (!nick && e.target.id !== 'rename-field') return
     // Enter commits and Escape cancels, because a soft keyboard's "done" key is the only obvious
@@ -2987,6 +3300,9 @@ export function initUI(hooks) {
     // a whole-app click kill switch that happens to be safe only because the title is the boot
     // screen and no screen change is reachable without a click.
     if (nickPrompted() && active === 'title' && !el.closest('.nick-sheet')) return
+    // Same shape, same reasoning, for the conflict prompt (§7.2). Two of its three buttons
+    // destroy a save, so nothing outside it may fire while it is open.
+    if (conflictPending() && active === 'title' && !el.closest('.conflict-sheet')) return
     if (el.dataset.dev !== undefined) {
       // The screen stays open — testing a card usually means stacking two or three of them, and
       // re-showing rebuilds the list against the run that just changed (a weapon card that read
@@ -3187,6 +3503,130 @@ export function initUI(hooks) {
         renderTitle()
         break
       }
+      // ---- cloud sync (design §9) ----
+      // Opening the sheet is a deliberate act, so it pulls past the 10s throttle: a player who came
+      // here to check whether sync is working is the one person entitled to a fresh answer.
+      case 'sync-open':
+        syncOpen = true
+        syncView = 'home'
+        syncMsg = ''
+        syncCopied = false
+        playSfx('click')
+        renderTitle()
+        hooks.sync?.evaluate({ force: true })
+        break
+      case 'sync-close':
+        if (el.classList.contains('modal-backdrop') && el !== e.target) break
+        syncOpen = false
+        syncView = 'home'
+        syncDraft = ''
+        syncCloud = null
+        playSfx('click')
+        renderTitle()
+        break
+      case 'sync-enter':
+        syncView = 'enter'
+        syncDraft = ''
+        syncMsg = ''
+        playSfx('click')
+        renderTitle()
+        break
+      // §5.1: uploading → ready are real states, not decoration. link() resolves only once the push
+      // is ACKed, and the code is rendered only in 'ready' — show it earlier and the player types
+      // sixteen correct characters into the other device and is told the code is wrong.
+      case 'sync-link':
+        syncView = 'uploading'
+        syncMsg = ''
+        playSfx('click')
+        renderTitle()
+        Promise.resolve(hooks.sync?.link(activeSlot())).then((tag) => {
+          syncView = tag === 'ok' ? 'ready' : 'home'
+          syncMsg = tag === 'ok' ? '' : tag
+          renderTitle()
+        })
+        break
+      case 'sync-lookup': {
+        // The LIVE field, for the same reason rename-save and nick-save read it: a paste or an
+        // autocomplete can commit text without ever firing `input`.
+        const field = screens.title.querySelector('#sync-code')
+        const typed = field ? field.value : syncDraft
+        syncMsg = ''
+        playSfx('click')
+        Promise.resolve(hooks.sync?.lookup(typed)).then((r) => {
+          if (!r || r.tag !== 'ok') { syncMsg = r?.tag ?? 'network'; renderTitle(); return }
+          // A tombstone is a row with no save in it, so "no save under that code" is literally true
+          // and is the message the player needs. (No player-reachable path writes one in this build
+          // — plan D1 — but a dev-erased row is still a row this can meet.)
+          if (r.body?.blob == null) { syncMsg = 'notFound'; renderTitle(); return }
+          syncCloud = { ...r.body, code: r.code }
+          syncView = 'pick'
+          renderTitle()
+        })
+        break
+      }
+      // §5.3. An EMPTY destination adopts outright and nothing is destroyed; an OCCUPIED one raises
+      // the §7.2 prompt, so an overwrite is one the player steered into rather than a side effect of
+      // linking two devices.
+      case 'sync-pick': {
+        if (!syncCloud) break
+        const n = Number(el.dataset.slot)
+        playSfx('click')
+        const tag = hooks.sync?.joinInto({ code: syncCloud.code, slot: n, cloud: syncCloud })
+        if (tag === 'conflict') syncOpen = false      // the prompt takes the screen
+        else if (tag !== 'adopted') syncMsg = tag     // 'adopted' is already reloading
+        renderTitle()
+        break
+      }
+      case 'sync-copy': {
+        // §5.1 estimated "about fifteen seconds of typing"; with shift-per-character on a soft
+        // keyboard and one retry it is 30-60s, and this turns phone→laptop into a paste.
+        playSfx('click')
+        try { navigator.clipboard?.writeText(groupCodeText(syncState().code))?.catch(() => {}) } catch { /* no clipboard */ }
+        syncCopied = true
+        renderTitle()
+        break
+      }
+      case 'sync-unlink':
+        playSfx('click')
+        hooks.sync?.unlink()
+        syncView = 'home'
+        // Never silent: the other devices keep the old code and keep pushing to a row this one no
+        // longer reads, which is §9.3's confident-but-false state seen from the other side.
+        syncMsg = 'unlinked'
+        renderTitle()
+        break
+      // ---- the conflict prompt (§7.2) ----
+      case 'sync-keep': {
+        // The tap shield. This sheet appears UNBIDDEN over the title while a thumb may already be
+        // travelling toward Play. Note pop-in is disabled under prefers-reduced-motion, which
+        // renders both destructive buttons instantly — so the shield is a clock, not an animation
+        // callback.
+        if (Date.now() - conflictShownAt < CONFLICT_SHIELD_MS) break
+        const which = el.dataset.which === 'cloud' ? 'cloud' : 'local'
+        playSfx('click')
+        Promise.resolve(hooks.sync?.resolveConflict(which)).then((tag) => {
+          conflictShownAt = 0
+          syncCloud = null
+          if (tag === 'adopted') return              // a reload is already on its way
+          syncOpen = true
+          syncView = 'home'
+          if (tag && tag !== 'ok') syncMsg = tag
+          renderTitle()
+        })
+        break
+      }
+      case 'sync-later':
+        // Deliberately NOT behind the shield: it writes nothing, both saves survive either way, and
+        // it is therefore the only one of the three that is safe to reach by accident.
+        playSfx('click')
+        hooks.sync?.resolveConflict('later')
+        conflictShownAt = 0
+        // At pairing, "later" almost always means "I aimed at the wrong row" — so go back to the
+        // picker rather than dumping the player on the title with sixteen characters to retype.
+        // In steady state there is nothing to go back to and it simply dismisses.
+        if (syncCloud) { syncOpen = true; syncView = 'pick' }
+        renderTitle()
+        break
       // ---- the level preview's podium page ----
       // updateTitleBelow, not renderTitle: only the panel under the bookcase changes, and rebuilding
       // the shelf would throw away its scroll offset — the same reason the difficulty pips use the
@@ -3426,5 +3866,10 @@ export function initUI(hooks) {
   // board just changed. It is called when a submitted run PLACED — the title's leader line is drawn
   // from a session cache, so without it you beat the record, back out to the title, and it still
   // names whoever you just overtook for the rest of the session.
-  return { showScreen, updateHUD, activeScreen: () => active, setPodiumResult, forgetBoard }
+  // sync.js calls this through main.js whenever its state moves (a push ACKed, a conflict
+  // arrived, a pull adopted). Only the title carries sync pixels, so anywhere else it is inert
+  // rather than a re-render of a screen the player is mid-way through.
+  function syncChanged() { if (active === 'title') renderTitle() }
+
+  return { showScreen, updateHUD, activeScreen: () => active, setPodiumResult, forgetBoard, syncChanged }
 }

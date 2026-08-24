@@ -2111,6 +2111,78 @@ body {
 }
 .text-field:focus { outline: 3px solid var(--mint-dark); outline-offset: 2px; }
 
+/* ---- cloud sync (design §9) --------------------------------------------------------------------
+   Everything here lives inside .confirm-sheet, which is text-align:center and a flex column, so the
+   rules below are about the two shapes that sheet does not already provide: a row of buttons, and a
+   comparison card.
+   NOTE: no `position` on any screen-level class here — run SP lints exactly that, and .screen is
+   already position:absolute;inset:0. */
+.sync-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+
+/* The pairing code is READ ALOUD OR RETYPED across a room, so it gets the biggest, most separable
+   glyphs on the sheet. Monospace because the groups must line up under each other when it wraps, and
+   letter-spacing because a 16-character string with no rhythm is where a transcription slips. */
+.sync-code {
+  margin: 4px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  user-select: text;
+  -webkit-user-select: text;
+  overflow-wrap: anywhere;
+}
+
+.sync-msg { color: var(--ink-soft); font-weight: 700; }
+/* The bearer-token warning and "the other one is deleted" — true, load-bearing, and not the thing
+   the eye should land on first. */
+.sync-fine { font-size: 0.76rem; color: var(--ink-soft); }
+
+/* The adopt notice. Non-interactive, sits above the bookcase, gone in ~3s. */
+.sync-notice {
+  margin: 4px 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--mint-dark);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+/* ---- the conflict prompt's two cards (§7.2) ----
+   FULL-WIDTH AND STACKED, not side by side. At 320px .confirm-sheet gives 235.6px of content; three
+   columns with a label column leave ~84px a side ≈ 14 characters at 0.7rem, and `The Undergrowth` is
+   15 before any difficulty suffix — roughly 2x over budget in English and worse in French. Each card
+   carrying its own button also removes the "which button belongs to which column" ambiguity. */
+.sync-card {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.55);
+}
+/* Recency is PROMOTED to the header: it is the strongest signal for "which one has last night's
+   session in it", and it was the last row in an earlier draft. */
+.sync-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.sync-card-head b { font-size: 0.72rem; letter-spacing: 0.06em; }
+.sync-card-head small { font-size: 0.72rem; color: var(--ink-soft); font-weight: 700; }
+.sync-card-line {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  font-weight: 800;
+  /* A chapter name is long and a save name is player-authored: ellipsise rather than wrap, for the
+     same reason .slot-row-name does — a wrapped line grows the card and cascades into the sheet's
+     height budget, which at 320x568 has nothing to give. */
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sync-card-sub { font-size: 0.76rem; font-weight: 700; color: var(--ink-soft); }
+.sync-card-stars { display: inline-flex; font-size: 0.5rem; line-height: 1; flex: none; }
+
 /* ---- Repulsion skill button (v5.21, lane chapters only) ---------------------------------------
    Bottom-RIGHT, mirroring the floating joystick's usual thumb: the lane is strafe-only, so the left
    thumb lives on the stick and the right one has nothing to do until now. .screen--hud is
