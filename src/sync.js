@@ -17,7 +17,7 @@
 //    passes an isIdle() predicate in at wiring time and this module calls it before any adopt.
 //    Without that the invariant is prose with no implementation.
 
-import { exportSlot, importSlot, freezeSaves, SCHEMA } from './state.js'
+import { exportSlot, importSlot, freezeSaves, setActiveSlot, SCHEMA } from './state.js'
 
 const RECORD_KEY = 'charming-anomaly-sync-v1'
 
@@ -144,7 +144,13 @@ export function deriveDirty(record) {
 
 // Returns 'adopted' | 'refused-schema' | 'refused-shape' | 'not-idle'. The caller reloads on
 // 'adopted' and reports anything else to the player — a refused import is never silent (§8).
-export function adopt({ record, blob, gen, isIdle }) {
+//
+// `activate` POINTS THE SLOT POINTER AT record.slot, and only PAIRING passes it. Without it the
+// import lands in the slot the player chose and the reload boots whatever slot was already active
+// — sixteen typed characters, a destination picked on purpose, and the save is nowhere on screen.
+// A steady-state pull must NOT pass it: there the player may be playing another slot deliberately,
+// and adopting into the synced one is no reason to drag them out of it.
+export function adopt({ record, blob, gen, isIdle, activate = false }) {
   if (!isIdle()) return 'not-idle'
   if (!schemaOk(blob)) return 'refused-schema'
   // freezeSaves() first and permanently: location.reload() below queues a navigation but does not
@@ -152,6 +158,7 @@ export function adopt({ record, blob, gen, isIdle }) {
   // this blob and then announce that write to sync.
   freezeSaves()
   if (!importSlot(record.slot, blob)) return 'refused-shape'
+  if (activate) setActiveSlot(record.slot)
   writeRecord({ ...record, gen, syncedHash: hash(blob), pulledAt: nowMs() })
   return 'adopted'
 }
@@ -476,7 +483,7 @@ export function joinInto({ code, slot, cloud }) {
   }
   const rec = { code, slot, device: uuid(), gen: 0, syncedHash: '', reqId: '', pulledAt: 0 }
   if (!writeRecord(rec)) return settle('no-storage')
-  const verdict = adopt({ record: rec, blob: cloud.blob, gen: cloud.gen, isIdle: hooks.isIdle })
+  const verdict = adopt({ record: rec, blob: cloud.blob, gen: cloud.gen, isIdle: hooks.isIdle, activate: true })
   if (verdict !== 'adopted') { clearRecord(); return settle(verdict) }
   // SUCCESS IS CONFIRMED. Sixteen typed characters and a slot choice ending in a silent reload
   // is indistinguishable from failure on a slow connection (§9.2).
@@ -518,7 +525,7 @@ export async function resolveConflict(choice) {
 
   if (choice === 'cloud') {
     stashDiscarded(exportSlot(rec.slot))
-    const verdict = adopt({ record: rec, blob: c.blob, gen: c.gen, isIdle: hooks.isIdle })
+    const verdict = adopt({ record: rec, blob: c.blob, gen: c.gen, isIdle: hooks.isIdle, activate: c.context === 'pairing' })
     if (verdict !== 'adopted') {
       if (c.context === 'pairing') clearRecord()
       return settle(verdict)

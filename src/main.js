@@ -1,6 +1,6 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
-import { loadMeta, saveMeta, resetSave, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS } from './state.js'
+import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS } from './state.js'
 import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
@@ -421,6 +421,27 @@ const ui = initUI({
   // every module re-reads loadMeta() from the new slot rather than reconciling in-memory state.
   onSlot(n) {
     setActiveSlot(n)
+    location.reload()
+  },
+  // The slots sheet's 🗑️ (v7.x). Two things ui.js structurally cannot do, which is why this is
+  // a hook and not a state.js call from the sheet:
+  //
+  // 1. UNLINK FIRST when the slot being erased is the SYNCED one. With the blob gone `dirty`
+  //    derives false and nothing is ever pushed, so the cloud row survives holding the save —
+  //    and the next generation another device writes reads as `pull`, adopts, and the save the
+  //    player just deleted REAPPEARS and reloads the page under them. The row itself is left
+  //    alone, so re-pairing with the same code is still the rollback (sync.js's unlink note).
+  // 2. RELOAD when it is the slot being PLAYED. `meta` is live in this closure and every later
+  //    saveMeta writes it straight back over the erase; freezeSaves stops that for the tens to
+  //    hundreds of ms a queued navigation still runs for (state.js's latch, same as an adopt).
+  //    Any other slot is just bytes on disk — ui.js re-renders the row and there is nothing else
+  //    in memory that refers to it.
+  onDeleteSlot(n) {
+    const st = syncStatus()
+    if (st.on && st.slot === n) syncUnlink()
+    deleteSlot(n)
+    if (n !== activeSlot()) return
+    freezeSaves()
     location.reload()
   },
   // v6.6.12 save names (the slots sheet's ✏️). Two paths, and they are not interchangeable: the
