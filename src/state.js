@@ -501,6 +501,14 @@ export function setSlotName(n, name) {
   } catch { return false }
 }
 
+// Erases slot n outright (the slots sheet's delete button). resetSave's per-slot sibling, and the
+// reason it is a second function rather than an argument: resetSave writes through `boundKey` — the
+// key loadMeta actually read — so it can only ever erase the slot being PLAYED. This one takes the
+// number, which is what a row in the picker has.
+export function deleteSlot(n) {
+  try { localStorage.removeItem(slotKey(n)); return true } catch { return false }
+}
+
 // Full new-game wipe (shop's "Reset all progress" button, see hooks.onReset in main.js) —
 // erases the save outright; the caller is expected to reload the page right after.
 export function resetSave() {

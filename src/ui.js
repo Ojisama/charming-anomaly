@@ -980,6 +980,7 @@ export function initUI(hooks) {
       ${settingsSheetHtml()}
       ${slotsModalHtml()}
       ${renameSheetHtml()}
+      ${deleteSheetHtml()}
       ${nickSheetHtml()}
       ${syncSheetHtml()}
       ${conflictSheetHtml()}
@@ -1074,10 +1075,21 @@ export function initUI(hooks) {
   // you are actually playing is the single most likely thing a player wants. As a separate element
   // the ✏️ stays live. It is a full 44px target rather than a ~24px glyph, which matters because a
   // miss on this row reloads the page into a different save.
-  // `rename` renders the ✏️ COLUMN, disabled when the slot is empty rather than omitted: dropping the
-  // button lets that row stretch into the column and the sheet's right edge goes ragged. Disabled
-  // also says the true thing — there is no save here to name yet.
-  function slotRowHtml(n, { act = 'slot-pick', disabled = false, rename = true } = {}) {
+  // DRAWN, NOT AN EMOJI, and the reason is in the shot: 🗑️ is a colour glyph, so it renders as a
+  // pale blue wastebasket and `color: var(--danger)` slides straight off it — the only control in
+  // the game that destroys a save was the least alarming thing on the sheet, 8px from the button
+  // that loads one. Stroked in currentColor in .rr-ico's language (the podium icon's), so the
+  // danger colour and the disabled fade both come for free.
+  const ICO_BIN = '<svg class="rr-ico" viewBox="0 0 24 24" aria-hidden="true">'
+    + '<path d="M4.2 6.6h15.6"/><path d="M9.8 6.6V4.4h4.4v2.2"/>'
+    + '<path d="M6.4 6.6 7.4 20h9.2l1-13.4"/><path d="M10.3 10.4v6.1M13.7 10.4v6.1"/></svg>'
+
+  // `manage` renders the ✏️ AND 🗑️ COLUMNS, disabled when the slot is empty rather than omitted:
+  // dropping the buttons lets that row stretch into the columns and the sheet's right edge goes
+  // ragged. Disabled also says the true thing — there is no save here to name or to erase yet. The
+  // sync destination picker passes false: it is asking WHERE, and neither verb belongs to that
+  // question.
+  function slotRowHtml(n, { act = 'slot-pick', disabled = false, manage = true } = {}) {
     const summary = slotSummary(n)
     const named = summary?.name
     const line1 = `${named || `${t('Slot')} ${n}`}${n === activeSlot() ? ` — ${t('Current')}` : ''}`
@@ -1092,8 +1104,10 @@ export function initUI(hooks) {
           <span class="slot-row-name">${esc(line1)}</span>
           <small class="slot-row-summary">${esc(line2)}</small>
         </button>
-        ${rename ? `<button class="btn btn--soft slot-rename" data-act="slot-rename" data-slot="${n}"
-          ${summary ? '' : 'disabled'} aria-label="${t('Name this save')}">✏️</button>` : ''}
+        ${manage ? `<button class="btn btn--soft slot-glyph" data-act="slot-rename" data-slot="${n}"
+          ${summary ? '' : 'disabled'} aria-label="${t('Name this save')}">✏️</button>
+        <button class="btn btn--soft slot-glyph slot-delete" data-act="slot-delete" data-slot="${n}"
+          ${summary ? '' : 'disabled'} aria-label="${t('Delete this save')}">${ICO_BIN}</button>` : ''}
       </div>`
   }
 
@@ -1119,6 +1133,36 @@ export function initUI(hooks) {
           <div class="confirm-sheet-actions">
             <button class="btn btn--soft btn--small" data-act="rename-cancel">${t('Cancel')}</button>
             <button class="btn btn--small" data-act="rename-save">${t('Done')}</button>
+          </div>
+        </div>
+      </div>`
+  }
+
+  // 🗑️ Erasing one slot. A CONFIRM, not an in-row tap: this is the only control in the game that
+  // destroys a save outright, it sits 44px from the one that loads it, and there is no undo. Opens
+  // OVER the slots sheet exactly as the rename does, so Cancel lands back on the list.
+  //
+  // main.js owns what happens next (hooks.onDeleteSlot): erasing the slot being PLAYED reloads,
+  // because the live in-memory meta would otherwise be written straight back over the erase.
+  let delSlot = null
+
+  function deleteSheetHtml() {
+    if (delSlot == null) return ''
+    // THE SYNC CONSEQUENCE IS STATED, because it is not guessable and it is not reversible from
+    // this screen. Deleting the synced slot unlinks this device (main.js): without that the next
+    // generation another device writes is PULLED back in, and the save the player just erased
+    // reappears and reloads the page under them.
+    const st = syncState()
+    const synced = st.on && st.slot === delSlot
+    return `
+      <div class="modal-backdrop" data-act="delete-cancel" data-pop="delete">
+        <div class="confirm-sheet">
+          <h2 class="confirm-sheet-title">${ICO_BIN} ${t('Delete this save?')}</h2>
+          <p class="confirm-sheet-body">${tt('Everything in slot {n} is erased. This cannot be undone.', { n: delSlot })}</p>
+          ${synced ? `<p class="confirm-sheet-body sync-fine">${t('This device stops syncing it. The cloud copy is not deleted.')}</p>` : ''}
+          <div class="confirm-sheet-actions">
+            <button class="btn btn--soft btn--small" data-act="delete-cancel">${t('Cancel')}</button>
+            <button class="btn btn--danger btn--small" data-act="delete-confirm">${t('Delete')}</button>
           </div>
         </div>
       </div>`
@@ -1452,7 +1496,7 @@ export function initUI(hooks) {
     // rows a player already knows keep behaving the way they already do.
     if (syncView === 'pick') {
       const rows = Array.from({ length: SAVE_SLOTS }, (_, i) => i + 1)
-        .map((n) => slotRowHtml(n, { act: 'sync-pick', rename: false })).join('')
+        .map((n) => slotRowHtml(n, { act: 'sync-pick', manage: false })).join('')
       return `<p class="confirm-sheet-body">${t('Where should this save go?')}</p>${rows}`
     }
     return ''
@@ -3223,7 +3267,7 @@ export function initUI(hooks) {
     // §9.5's fifth cost: a player who checks the shop mid-pairing loses the sheet. The typed
     // code is gone, but the CODE ITSELF is not — it is on disk the moment link() succeeds, so
     // reopening the sheet shows it again rather than restarting the flow.
-    if (active === 'title') { slotsOpen = false; settingsOpen = false; nickEditing = false; syncOpen = false }
+    if (active === 'title') { slotsOpen = false; settingsOpen = false; nickEditing = false; syncOpen = false; delSlot = null }
     if (active === 'brief') boostersOpen = false // v6.7: same, for the booster sheet that lives there now
     playSfx('click')
     showScreen(target)
@@ -3507,6 +3551,30 @@ export function initUI(hooks) {
         hooks.onRename?.(renameSlot, field ? field.value : renameDraft)
         renameSlot = null
         playSfx('click')
+        renderTitle()
+        break
+      }
+      // 🗑️ the same shape as slot-rename, one sheet further: it opens over the slots list and
+      // leaves it open underneath, so Cancel is a return rather than an exit.
+      case 'slot-delete': {
+        delSlot = Number(el.dataset.slot)
+        playSfx('click')
+        renderTitle()
+        break
+      }
+      case 'delete-cancel':
+        if (el.classList.contains('modal-backdrop') && el !== e.target) break
+        delSlot = null
+        playSfx('click')
+        renderTitle()
+        break
+      case 'delete-confirm': {
+        // Read and cleared BEFORE the hook: erasing the slot being played reloads the page from
+        // inside it, and a sheet left open in this closure would be the last thing on screen.
+        const n = delSlot
+        delSlot = null
+        playSfx('click')
+        hooks.onDeleteSlot?.(n)
         renderTitle()
         break
       }

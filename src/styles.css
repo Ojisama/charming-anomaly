@@ -2087,7 +2087,7 @@ body {
   padding: 10px 18px;
   text-align: left;
 }
-.slot-row-name { font-weight: 800; font-size: 1rem; }
+.slot-row-name { font-weight: 800; font-size: 0.95rem; }
 .slot-row-summary { font-size: 0.76rem; font-weight: 600; color: var(--ink-soft); }
 
 /* v6.6.12 save names. Both lines are ellipsised rather than wrapped: a name is player-authored and
@@ -2095,15 +2095,32 @@ body {
    row past 56px and cascades into the sheet's height budget — which at 320×568 has no slack to
    give. min-width:0 on the flex child is what actually lets text-overflow fire inside a flex row. */
 .slot-row-wrap { display: flex; align-items: stretch; gap: 8px; width: 100%; }
-.slot-row-wrap .slot-row { flex: 1 1 auto; min-width: 0; width: auto; }
-.slot-row-name, .slot-row-summary { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* EVERY PIXEL HERE WAS MEASURED, not chosen. With two 44px columns at the original 6px gap and
+   18px row padding the row had 108px of text and 'Emplacement 3' needs 123 — so in French slot 1
+   and slot 3 BOTH rendered as 'Emplaceme…' and the picker could not tell one save from another.
+   40px columns, 5px gaps and 10px padding give it back. 40 is under the 44px guideline by width
+   only: the row is ~66px tall, so the target is 40x66, and the documented worry these columns
+   carry (a miss lands on the row and reloads into a different save) gets SMALLER as they narrow. */
+.slot-row-wrap { gap: 5px; }
+.slot-row-wrap .slot-row { flex: 1 1 auto; min-width: 0; width: auto; padding-left: 10px; padding-right: 10px; }
+.slot-row-name, .slot-row-summary { max-width: 100%; overflow: hidden; }
+.slot-row-name { white-space: nowrap; text-overflow: ellipsis; }
+/* THE SECOND LINE WRAPS, and only the first ellipsises. Same split, same reason, as the conflict
+   card's (v7.220): a name is player-authored and unbounded, so it must be cut; this line is
+   generated and bounded, so cutting it hides a number. With two 44px glyph columns the row is
+   131.6px at 320px and 'Vide — nouvelle partie' does not fit on one line — ellipsised, the empty
+   slot read 'Vide — nouvelle p…' and slot 2's coin total read '🪙 90210…'. */
+.slot-row-summary { white-space: normal; }
 /* A full 44px target, not a ~24px glyph tucked into the row: a miss on the row itself reloads the
    page into a different save. Sibling to the picker rather than inside it, because buttons cannot
    nest AND because the current slot's picker is `disabled` — renaming the save you are playing is
-   the most likely rename there is, and inside a disabled button it would never fire. */
-.slot-rename {
-  flex: 0 0 44px;
-  width: 44px;
+   the most likely rename there is, and inside a disabled button it would never fire.
+   TWO of them since v7.x (✏️ and 🗑️), which is what the narrowed .slot-row padding below pays
+   for: at 320px the sheet has 235.6px of content and two 44px columns plus their gaps leave the
+   row 131.6px, against 193.6px when ✏️ was alone. */
+.slot-glyph {
+  flex: 0 0 40px;
+  width: 40px;
   min-width: 0;
   padding: 0;
   font-size: 1.1rem;
@@ -2111,6 +2128,10 @@ body {
   align-items: center;
   justify-content: center;
 }
+/* The one control in the game that destroys a save. It reads as the danger colour so it cannot be
+   mistaken for its neighbour at a glance, which is the whole risk of putting them 8px apart. */
+.slot-delete { color: var(--danger); }
+.slot-delete .rr-ico { width: 21px; height: 21px; }
 
 /* v6.6.12: the codebase's first text input. Three global rules have to be undone for a caret and
    selection handles to behave — body{user-select:none} and html,body{touch-action:none} exist for

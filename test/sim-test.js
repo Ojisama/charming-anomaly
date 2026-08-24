@@ -1,9 +1,9 @@
 // Headless self-check for src/sim.js. Plain node, no framework: `npm test`.
 import assert from 'node:assert'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta, grantBook, unlockBook, bookProgress } from '../src/state.js'
+import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, deleteSlot, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta, grantBook, unlockBook, bookProgress } from '../src/state.js'
 // sync.js keeps browser globals out of its module scope precisely so it can be imported here.
-import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRecord, RECORD_KEY, newCode, canonicalize, groupCode } from '../src/sync.js'
+import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRecord, adopt, initSync, joinInto, RECORD_KEY, newCode, canonicalize, groupCode } from '../src/sync.js'
 // scores.js follows sync.js's rule — no browser globals at module scope — so the leaderboard's two
 // pure functions are testable here with no network. See run LB.
 import { validNick, podiumRank, NICK_MIN, NICK_MAX } from '../src/scores.js'
@@ -17466,6 +17466,44 @@ function testSyncWiring() {
     'run SY: vite.config.js no longer carries a sync endpoint — the dev-gated flow has nothing to ' +
     'talk to, so walking it on a phone would fail for a reason the UI cannot explain')
 
+  // (g) THE SLOTS SHEET'S DELETE BUTTON (v7.x). ui.js owns the confirm and NONE of the
+  // consequences; main.js owns both, and every one of them fails silently.
+  const slotFn = u.slice(u.indexOf('function slotRowHtml'))
+  const slotBody = slotFn.slice(0, slotFn.indexOf('\n  }'))
+  assert.ok(slotBody.length > 0 && slotBody.length < 1200,
+    'run SY: could not isolate slotRowHtml in ui.js — the asserts below would be measuring nothing')
+  assert.ok(/data-act="slot-delete"/.test(slotBody),
+    'run SY: the save-slot row has no delete button — the only control that erases one profile is gone')
+  assert.ok(/onDeleteSlot\?\.\(/.test(u),
+    'run SY: nothing in ui.js calls onDeleteSlot — the confirm sheet still opens and its Delete button does nothing')
+  // NOT ON THE DESTINATION PICKER. That list asks WHERE THIS SAVE SHOULD GO; a delete glyph on it
+  // erases a save from the one screen whose whole job is choosing somewhere to put one.
+  assert.ok(/act: 'sync-pick', manage: false/.test(u),
+    'run SY: the §5.3 destination picker renders the row-management glyphs — a delete button on ' +
+    '"Where should this save go?" destroys a save from the screen that is asking where to put one')
+
+  const del = m.slice(m.indexOf('onDeleteSlot(n) {'))
+  const delBody = del.slice(0, del.indexOf('\n  },'))
+  assert.ok(delBody.length > 0 && delBody.length < 600,
+    'run SY: main.js has no onDeleteSlot hook — ui.js calls it optionally, so the button is inert with nothing thrown')
+  // UNLINK FIRST, AND ONLY FOR THE SYNCED SLOT. With the blob gone `dirty` derives false, so
+  // nothing is ever pushed and the cloud row survives holding the save — the next generation
+  // another device writes reads as `pull`, adopts, and the save the player just deleted REAPPEARS
+  // and reloads the page under them. Unlinking unconditionally is the opposite failure: erasing
+  // slot 2 silently stops slot 1 syncing.
+  assert.ok(/st\.on && st\.slot === n\) syncUnlink\(\)/.test(delBody),
+    'run SY: onDeleteSlot no longer unlinks exactly when the slot it erases is the SYNCED one — ' +
+    'either the deleted save comes back on the next pull, or an unrelated slot silently unlinks')
+  // AND RELOAD, ONLY FOR THE SLOT BEING PLAYED. `meta` is live in main.js's closure and every later
+  // saveMeta writes it straight back over the erase — deleting the save you are playing would
+  // simply not happen, with the row redrawing empty until the next write puts it back.
+  assert.ok(/n !== activeSlot\(\)\) return/.test(delBody),
+    'run SY: onDeleteSlot no longer distinguishes the ACTIVE slot — it either reloads on every ' +
+    'delete or on none, and on none the live meta is written straight back over the erase')
+  assert.ok(/freezeSaves\(\)/.test(delBody) && /location\.reload\(\)/.test(delBody),
+    'run SY: onDeleteSlot must freezeSaves() before location.reload() — a queued navigation does ' +
+    'not stop script execution, and a stale handler rewrites the slot that was just erased')
+
   // (f) the service worker must never intercept the sync API. Cross-origin today, so the existing
   // origin check already covers it — this is the line that survives a custom-domain move.
   assert.ok(/pathname\.startsWith\('\/v1\/'\)/.test(sw),
@@ -17474,7 +17512,9 @@ function testSyncWiring() {
 
   console.log(`PASS run SY (sync wiring): isIdle reads run === null, all ${TRIGGERS.length} pull/push ` +
     `triggers present at their named sites, ui.js holds no protocol, the entry point is behind ` +
-    `meta.dev in production, and the kill switch still removes every pixel`)
+    `meta.dev in production, the kill switch still removes every pixel, and the slots sheet's ` +
+    `delete button unlinks the synced slot, reloads only the active one, and stays off the ` +
+    `destination picker`)
 }
 
 // ---- Run ZY: the pairing code, and what the adopt path tolerates ------------------------------
@@ -18203,8 +18243,65 @@ function testSyncDecisions() {
   assert.strictEqual(leaked, false, 'setSaveHook(null) must fully uninstall — a test suite that quietly talks to the internet is worse than one that fails')
   console.log('PASS run ZZ.h (no leaked hook): setSaveHook(null) uninstalls, so npm test can never fire a real sync request')
 
+  // (i) ERASING ONE SLOT (the slots sheet's delete button). resetSave cannot do this job and the
+  // way it fails is silent: it writes through `boundKey`, the key loadMeta actually READ, so it
+  // only ever erases the slot being played. Pointed at row 3 from row 1 it erases ROW 1, leaves
+  // row 3 on disk, and reports true — a delete button that destroys the wrong save.
+  store.clear()
+  setActiveSlot(1)
+  store.set(KEY, validBlob(11))
+  store.set(`${KEY}:2`, validBlob(22))
+  store.set(`${KEY}:3`, validBlob(33))
+  loadMeta() // binds boundKey to slot 1, exactly as booting on slot 1 does
+  assert.strictEqual(deleteSlot(3), true, 'deleteSlot reports what it did')
+  assert.strictEqual(exportSlot(3), null, 'the slot it was POINTED AT is gone')
+  assert.strictEqual(JSON.parse(exportSlot(1)).coins, 11, 'and the slot being played is untouched — this is the resetSave trap')
+  assert.strictEqual(JSON.parse(exportSlot(2)).coins, 22, 'as is every other slot')
+  assert.strictEqual(deleteSlot(3), true, 'erasing an already-empty slot is not an error')
+  console.log('PASS run ZZ.i (deleteSlot): erases the slot it is handed and only that one, so the picker cannot destroy the save being played')
+
+  // (j) A PAIRING ADOPT MOVES THE SLOT POINTER; A STEADY-STATE PULL MUST NOT. Device B types
+  // sixteen characters, picks slot 3, and the page reloads — on whatever slot was already active,
+  // with the cloud save sitting invisibly in row 3 under a "Linked." notice. Nothing throws and
+  // nothing else in the suite can see it. The other direction is just as silent: a background pull
+  // that repointed the slot would drag a player out of the profile they deliberately switched to.
+  store.clear()
+  setActiveSlot(1)
+  const rec3 = { code: 'ABCDEFGHJKMNPQRS', slot: 3, device: 'devB', gen: 0, syncedHash: '', reqId: '', pulledAt: 0 }
+  assert.strictEqual(adopt({ record: rec3, blob: validBlob(77), gen: 5, isIdle: () => true, activate: true }), 'adopted')
+  assert.strictEqual(activeSlot(), 3, 'a PAIRING adopt points the pointer at the slot it just wrote — the reload boots what the player chose')
+  assert.strictEqual(JSON.parse(exportSlot(3)).coins, 77, 'and the blob really landed in that slot')
+  setActiveSlot(1)
+  assert.strictEqual(adopt({ record: rec3, blob: validBlob(88), gen: 6, isIdle: () => true }), 'adopted')
+  assert.strictEqual(activeSlot(), 1, 'a steady-state pull must NOT move it — the player chose the slot they are on')
+  // AND THE POINTER IS WRITTEN AFTER THE IMPORT, not before: pointing at a slot whose write was
+  // REFUSED boots the player into a fresh save on the strength of an import that never happened.
+  setActiveSlot(1)
+  assert.strictEqual(adopt({ record: rec3, blob: '{"coins":5}', gen: 7, isIdle: () => true, activate: true }), 'refused-shape')
+  assert.strictEqual(activeSlot(), 1, 'a refused import leaves the pointer where it was')
+  assert.strictEqual(adopt({ record: rec3, blob: validBlob(9), gen: 8, isIdle: () => false, activate: true }), 'not-idle')
+  assert.strictEqual(activeSlot(), 1, 'and so does an adopt blocked by a live run')
+  // AND THE CALL SITE, NOT THE PARAMETER — the same trap run SY records against syncRowHtml.
+  // Every assertion above drives adopt() directly, which leaves joinInto free to stop passing the
+  // flag: the pairing flow then reloads onto the old slot with the cloud save invisible in the one
+  // the player chose, and this block stays green. That mutation got through the first cut of it.
+  // So drive the real entry point device B actually reaches.
+  store.clear()
+  setActiveSlot(1)
+  let reloads = 0
+  const linkNotes = []
+  initSync({ isIdle: () => true, reload: () => { reloads++ }, onAdopted: (r) => linkNotes.push(r) })
+  assert.strictEqual(joinInto({ code: 'ABCDEFGHJKMNPQRS', slot: 2, cloud: { gen: 3, blob: validBlob(55) } }), 'adopted')
+  assert.strictEqual(activeSlot(), 2, 'joinInto must hand adopt the activation — device B picked a destination and the reload has to open it')
+  assert.strictEqual(JSON.parse(exportSlot(2)).coins, 55, 'and the cloud blob really landed in that slot')
+  assert.deepStrictEqual(linkNotes, ['linked'], 'a pairing adopt is announced, never silent (§9.2)')
+  assert.strictEqual(reloads, 1, 'and the caller reloads exactly once')
+  // Back to the default that REFUSES, so nothing later in the suite can adopt through a live stub.
+  initSync({ isIdle: () => false, reload: () => {}, onAdopted: () => {}, onChange: () => {} })
+  console.log('PASS run ZZ.j (adopt activates at pairing only): joinInto opens the slot the player picked, a background pull never repoints, and a refused or blocked adopt moves nothing')
+
   delete globalThis.localStorage
-  console.log('PASS run ZZ (sync core): decision table, derived dirty, lost-ACK reqId rule, schema gate, shape validation, freeze latch')
+  console.log('PASS run ZZ (sync core): decision table, derived dirty, lost-ACK reqId rule, schema gate, shape validation, freeze latch, per-slot erase, pairing activation')
 }
 
 // run SM — saveSummary's TOTALITY (design §4.2) and the two new meta fields (§4.1). This exists
