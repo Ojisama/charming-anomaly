@@ -166,6 +166,21 @@ const UI = {
   // the exact ambiguity this line exists to remove.
   'Slot {n} — leave it empty to go back to a number.':
     'Emplacement {n} — laisse vide pour revenir au numéro.',
+  // v7.x 🗑️. 'Supprimer', not 'Effacer': 'Tout effacer' two blocks up is the whole-profile
+  // reset, and a player who reads the same verb on a single row has every reason to think the
+  // 🗑️ does that. Two keys again for the same reason 'Name this save' has two — the heading is a
+  // question and the 🗑️ button's aria-label is an infinitive, and a screen reader announcing the
+  // question mark twice carries nothing.
+  'Delete this save': 'Supprimer cette sauvegarde',
+  'Delete this save?': 'Supprimer cette sauvegarde ?',
+  'Everything in slot {n} is erased. This cannot be undone.':
+    'Tout le contenu de l\'emplacement {n} sera effacé. C\'est irréversible.',
+  // Only when the erased slot is the SYNCED one. Says what happens HERE and what does not happen
+  // THERE, because the cloud row surviving is the rollback and a player who assumes it is gone
+  // will not think to re-pair.
+  'This device stops syncing it. The cloud copy is not deleted.':
+    'Cet appareil arrête de la synchroniser. La copie dans le cloud n\'est pas supprimée.',
+  'Delete': 'Supprimer',
 
   // ---- cloud sync (design §9; plan docs/superpowers/plans/2026-08-24-save-sync-slice-3.md) ----
   // TU throughout, the owner's call: this sheet opens from the same ⚙ as Save slots, whose own
@@ -184,7 +199,10 @@ const UI = {
   'unknown': 'inconnu',
   'Slot {n}': 'Emplacement {n}',
   'Off — this save stays on this device': 'Inactif — cette sauvegarde reste sur cet appareil',
-  'On — Slot {n}, updated {when}': 'Actif — emplacement {n}, {when}',
+  // NAMES WHAT THE TIMESTAMP IS. The comma form read 'Actif — emplacement 1, maintenant', which
+  // states a moment and never says which event happened at it — and 'maintenant' on its own is the
+  // worst case of that, since it is the reading a player most wants to trust.
+  'On — Slot {n}, updated {when}': 'Actif — emplacement {n} · dernière synchro : {when}',
   'On — nothing new in {when}': 'Actif — rien de neuf depuis {when}',
   'Cloud sync is off in this build.': 'La synchro cloud est désactivée dans cette version.',
   'Keep one save in step across your phone and computer. No account — you type a code once.':
