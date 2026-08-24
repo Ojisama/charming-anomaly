@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -12551,10 +12551,10 @@ const spurG = new Graphics()
     // blocking everything... paths should be horizontal."
     //
     // So the wall is not built from ridges at all now. caveAt() gives ONE opening whose centre and
-    // width wander along the lane, and this fills everything outside it, out to spec.fill -- past
-    // the edge of any screen the game can present, because "you should not see water outside the
-    // coral cave" is the other half of the brief. Nothing here streams: caveAt is a pure function
-    // of the position along the lane, so any point can be asked about at any time.
+    // width wander along the lane, and this fills everything outside it, out to the edge of
+    // whatever screen the game is presenting on BOTH axes, because "you should not see water
+    // outside the coral cave" is the other half of the brief. Nothing here streams: caveAt is a
+    // pure function of the position along the lane, so any point can be asked about at any time.
     //
     // ONE DEFINITION, TWO CONSUMERS: stepCaveWall stops the player against the same caveAt this
     // draws from. A second opinion about where the wall is would be the drawn-vs-tested defect
@@ -12577,8 +12577,17 @@ const spurG = new Graphics()
       // looking at it and whenever the rebuild happens. The raggedness that the walk existed for
       // survives: cellEmpty leaves gaps and cellDouble puts two in one cell, which is the same
       // clump-and-thin the accumulated gaps gave, minus the anchoring bug.
-      const k0 = Math.floor((drawF - V.drawWithin) / step)
-      const k1 = Math.ceil((drawF + V.drawWithin) / step)
+      //
+      // ⚠ AND THE WINDOW IS THE SCREEN'S, NOT A NUMBER. It was a flat ±620px, measured on the phone
+      // where an x-lane shows 312px ahead. A desktop shows 1490, so the wall stopped 865px short of
+      // the right edge and half the screen was open water outside the cave. laneDrawSpan reads the
+      // viewport on the forward axis and splits it at LANE_CAMERA_FRAC; the slack is one ridge,
+      // which is how far the player advances before the next rebuild.
+      const span = laneDrawSpan(xAxis ? viewW() : viewH(), spec.spacing + V.bakeReach)
+      const lo = drawF - ax.dir * span.astern
+      const hi = drawF + ax.dir * span.ahead
+      const k0 = Math.floor(Math.min(lo, hi) / step)
+      const k1 = Math.ceil(Math.max(lo, hi) / step)
       for (let k = k0; k <= k1; k++) {
         const hN = hash(k * 1.7, 91.3)
         const cnt = hN < V.cellEmpty ? 0 : hN > 1 - V.cellDouble ? 2 : 1
@@ -12586,9 +12595,11 @@ const spurG = new Graphics()
         const fw = (k + (m + hash(k * 3.1 + m * 5.9, 7.7)) / Math.max(1, cnt)) * step
         const cav = caveAt(fw, cspec, run._obstacleSeed)
         for (const sign of [-1, 1]) {
-          // From the passage edge outward. Packed until the coral leaves the screen, not until it
-          // reaches spec.fill -- the fill distance is what makes the wall opaque on a wide screen,
-          // and drawing all of it on a phone would be thousands of invisible sprites.
+          // From the passage edge outward, packed until the coral leaves the screen. The cross
+          // axis is the screen's own half-extent (halfCross), for the same reason the lane axis is
+          // laneDrawSpan: a fixed depth is right on exactly one device -- a phone's worth of it on
+          // a desktop leaves open water, a desktop's worth on a phone is thousands of invisible
+          // sprites.
           const edge = cav.c + sign * cav.hw
           const stop = sign < 0 ? -halfCross : halfCross
           if ((stop - edge) * sign <= 0) continue

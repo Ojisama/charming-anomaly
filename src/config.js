@@ -6869,10 +6869,11 @@ CHAPTERS.reef = {
     waves: [[900, 1], [380, 0.42], [170, 0.18]],   // [wavelength px, weight]
     widthWave: [[640, 1], [250, 0.45]],
     salt: 47,                                      // next free salt block; 44-46 were the spurs'
-    // How far past the passage edge coral is drawn. Must exceed the largest half-view the game can
-    // present on the cross axis, or a wide screen shows open water beyond the cave wall -- which is
-    // the one thing the owner named twice. 760 covers a 1520px cross extent.
-    fill: 760,
+    // NO `fill` HERE, AND DELIBERATELY NOT. It read "how far past the passage edge coral is drawn,
+    // must exceed the largest half-view the game can present" and NOTHING EVER READ IT -- syncSpurs
+    // packs from the passage edge to the screen's own cross half-extent, which is the honest answer
+    // and needs no number. Run RS.a asserted `fill >= 760` for two versions, which is a green check
+    // on a knob with no consumer while the defect it describes was live on the other axis.
   },
 
   // FOUR NATIVES AND NOTHING BORROWED (owner, 2026-08-22). Every card is picked for the LANE rather
@@ -8536,12 +8537,13 @@ export const SPUR_VIS = Object.freeze({
   // every stroke, which is fine on a 5.6px trunk and swallows a 1px twig whole -- the deep forks
   // were rendering as dark smudges for that reason alone, independent of the count.
   tipR: 2.0, outlineFrac: 0.42, tipMix: 0.55,
-  // HOW FAR EITHER SIDE OF THE PLAYER COLONIES ARE BUILT AT ALL. The spur COLLIDER streams over
-  // OBSTACLE_STREAM_RADIUS (1400px) and must, but the art has no reason to: on the phone the view
-  // reaches ~312px ahead and ~78px astern, and a rebuild only has to stay valid until the next one
-  // (one ridge, 210px). Building the full 1400 drew 15 ridges to show about three, and cost
+  // HOW FAR EITHER SIDE OF THE PLAYER COLONIES ARE BUILT IS NOT A KNOB — it is laneDrawSpan(), the
+  // viewport read. `drawWithin: 620` used to sit here and it was a phone measurement (312px ahead,
+  // 78px astern on a 390-wide x-lane) applied to every screen, so a desktop drew its cave wall to
+  // 620 of the 1490px it can see ahead and showed open water for the rest. The reason the art does
+  // NOT simply follow the collider's OBSTACLE_STREAM_RADIUS (1400px) still holds and is why the
+  // span is computed rather than maxed: the full 1400 drew 15 ridges to show about three, and cost
   // 87,987 branch segments and 45,531 tip circles in one synchronous spike every 2.33s.
-  drawWithin: 620,
   wall: 96,
   // `bump`, `bumpOut`, `bumpGap` and `lobes` USED TO LIVE HERE and are gone with the pass that read
   // them. They described a single spine of same-coloured circles inset inside the band, which drew
@@ -9314,6 +9316,22 @@ export const caveAt = (f, spec, seed) => {
 }
 
 export const laneHalfWidth = (viewRadius, ch) => Math.min(ch?.laneHalfW ?? LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)
+
+// HOW FAR ALONG THE LANE THE ART HAS TO BE BUILT — a VIEWPORT read, never a constant. `view` is the
+// screen extent on the FORWARD axis; the camera puts LANE_CAMERA_FRAC of it ahead of the player and
+// the remainder astern, so the two sides are wildly different and neither is a number you can pick.
+// `slack` is how long one build has to stay valid: the coral rebuilds once per ridge crossing, and
+// the player advances a ridge's spacing under it.
+//
+// The Reef's coral used to take a flat 620px here, measured on a 390x844 phone where the x-lane
+// shows 312px ahead. A 1862px desktop shows 1490 — so the cave wall stopped 865px short of the
+// right edge and 46% of the screen was open water outside it, which is the one thing that wall
+// exists to prevent (owner, 2026-08-23: "you should not see water outside the coral cave").
+// Run RS.a asserts this scales rather than trusting the sentence.
+export const laneDrawSpan = (view, slack = 0) => ({
+  ahead: view * LANE_CAMERA_FRAC + slack,
+  astern: view * (1 - LANE_CAMERA_FRAC) + slack,
+})
 
 // THE LANE HAS AN AXIS (v7.x). The Beyond scrolls bottom-to-top; The Reef (Book 2 ch 3) scrolls
 // left-to-right. `lane: true` still means "this chapter is a scroller" and is compared with STRICT
