@@ -18821,6 +18821,7 @@ run(testLeLargeWeapons)
   run(testUnresolvedRefs)
   run(testScreenPositioning)
   run(testRefund)
+  run(testBootLoader)
   console.log('ALL TESTS PASSED')
   runSummary()
 } catch (err) {
@@ -28813,4 +28814,52 @@ function testRefund() {
   }
 
   console.log(`PASS run RF (refunds): ${LINES.length} shop lines pay back floor(cost x ${REFUND_RATE}) over ${checked} priced levels, clamped to lineMax, monotone, never whole; main.js zeroes the line and credits the purse behind the book guard; 6 new strings translated`)
+}
+
+// run BL (boot loader) — the loading screen spans FOUR files that no import joins: index.html holds
+// the element and its clock, styles.css paints it, main.js reports the real milestones, fr.js
+// translates the one word on it. Every drift between them fails silently and two of them fail
+// badly: drop main.js's 100% call and the loader never leaves, so the game is unreachable behind a
+// full-screen cream overlay; drop a CSS rule and the thing is unstyled — which is the shape the bug
+// this was written for arrived in ("tucked in a corner, not animated, no % increasing, no copy").
+function testBootLoader() {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+  const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+
+  // (a) THE ELEMENT AND EVERY CLASS IT WEARS IS STYLED. An id/class in the markup with no rule is
+  // a loader with no layout: default block flow puts it at the top-left of the page, which is
+  // exactly where the reported one was.
+  assert.ok(/id="boot"/.test(html), 'index.html has no #boot element — the loading screen is gone')
+  const marks = [...new Set([...html.matchAll(/class="(boot-[\w- ]+)"/g)].flatMap((m) => m[1].split(/\s+/)))]
+  assert.ok(marks.length >= 5, `run BL parsed only ${marks.length} boot-* classes out of index.html — the parser has gone stale`)
+  for (const cls of ['#boot', ...marks.map((c) => `.${c}`)]) {
+    assert.ok(css.includes(`${cls} {`) || css.includes(`${cls},`), `${cls} is used by the loading screen and has no rule in styles.css`)
+  }
+
+  // (b) IT ANIMATES AND IT FILLS. Both were absent from the report, and both are one deleted
+  // declaration away from being absent again. The fill's WIDTH is what the percentage is drawn as.
+  assert.match(css, /\.boot-mark \{[^}]*animation:\s*boot-bob/, 'the loading screen no longer animates — .boot-mark has lost its bob')
+  assert.ok(css.includes('@keyframes boot-bob'), '@keyframes boot-bob is gone, so .boot-mark animates to nothing')
+  assert.match(css, /\.boot-fill \{[^}]*width:/, '.boot-fill declares no width — the progress bar can never show progress')
+  assert.match(html, /fill\.style\.width = p \+ '%'/, "index.html's clock no longer writes the fill width — the bar sits at 0 forever")
+  assert.match(html, /pct\.textContent = p \+ '%'/, 'index.html no longer prints the percentage')
+
+  // (c) THE MILESTONES, AND 100 ABOVE ALL. window.__boot is a global with no import to break, so
+  // a rename or a deleted call throws nothing anywhere: the loader simply never reaches 100 and
+  // never removes itself, and the title screen is behind it forever.
+  const pcts = [...mainSrc.matchAll(/window\.__boot\?\.\((\d+)/g)].map((m) => Number(m[1]))
+  assert.ok(pcts.length >= 3, `main.js reports only ${pcts.length} boot milestone(s) — the bar's second half is meant to be measured, not estimated`)
+  assert.ok(pcts.includes(100), 'main.js never calls window.__boot?.(100) — the loading screen never goes away and the game is unreachable behind it')
+  assert.deepStrictEqual([...pcts].sort((a, b) => a - b), pcts, `boot milestones run backwards: [${pcts.join(' ')}]`)
+  assert.ok(html.includes('window.__boot = function'), 'index.html no longer defines window.__boot — every call in main.js is a silent no-op')
+  assert.match(html, /el\.remove\(\)/, 'the loading screen never removes itself')
+
+  // (d) THE ONE WORD ON IT IS TRANSLATED, and the HTML's fallback is the exact dictionary key.
+  // A mismatch here is English on a French screen — with no throw and nothing to see in review.
+  assert.ok(html.includes('>Loading…<'), "index.html's loading label is no longer 'Loading…' — its French cannot be keyed to it")
+  assert.ok(mainSrc.includes("t('Loading…')"), 'main.js does not translate the loading label')
+  assert.ok(FR['Loading…'], "'Loading…' has no French")
+
+  console.log(`PASS run BL (boot loader): #boot + ${marks.length} classes all styled, bob + fill declared, milestones [${pcts.join(' ')}] end at 100, label translated`)
 }

@@ -29,6 +29,11 @@ boot()
 async function boot() {
 const meta = loadMeta()
 setLang(meta.lang) // i18n before any screen renders — ui.js translates at render time
+// THE LOADING SCREEN'S REAL MILESTONES (index.html owns the element and its clock). The bar
+// estimates its way through the bundle download, which nothing in here can observe; from this line
+// on every bump is a thing that actually finished. The label is set here rather than in the HTML
+// because this is the first line that knows the player's language.
+window.__boot?.(30, t('Loading…'))
 
 // A save handed over as a LINK: '#save=' + base64url of a slot blob, built by scripts/make-save.mjs.
 // It exists because there is no other way in on a phone - localStorage is the only store and a
@@ -98,9 +103,11 @@ await app.init({
   autoDensity: true,
 })
 document.getElementById('game').appendChild(app.canvas)
+window.__boot?.(55)
 
 const renderer = createRenderer(app)
 await renderer.ready // prop sprites load async
+window.__boot?.(80)
 if (new URLSearchParams(location.search).has('debug')) {
   window.__app = app
   // MAP MODE (v5.12, dev only): lets a debug session hide the player/entities/weather and stitch a
@@ -463,6 +470,9 @@ const ui = initUI({
     playSfx('click')
   },
 })
+// initUI renders the title before it returns, so there is a screen underneath now — anything after
+// this line (the ticker, sync) happens behind a game the player can already see and touch.
+window.__boot?.(100)
 
 // buildReadout is a read-only projection (see sim.js): main is the only place allowed to hand sim
 // data to ui, which never imports sim. Two callers — a plain pause, and the same sheet opened

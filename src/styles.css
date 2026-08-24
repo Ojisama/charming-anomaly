@@ -2870,6 +2870,62 @@ body {
   .spread--turn, .podium-bone, .rank-chip { animation: none; }
 }
 
+/* ---- the loading screen (markup + clock in index.html, removed by main.js at 100%) ----
+   Cream and opaque, over everything, because it is also what hides the boot gap: until the ticker's
+   first idle() the title's drifting creatures all sit at the canvas ORIGIN, which showed as one
+   clipped blob in the top-left corner. The bar is the .xp-bar idiom (2px ink outline, pill, tinted
+   trough) in mint rather than gold — this is not an in-run resource. */
+#boot {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--cream);
+  transition: opacity 0.3s ease-out;
+}
+.boot--done { opacity: 0; }
+.boot-mark { animation: boot-bob 1.5s ease-in-out infinite; }
+.boot-logo {
+  margin: 0;
+  font-size: clamp(1rem, 5vw, 1.35rem);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.boot-logo span:last-child { color: var(--mint-dark); }
+.boot-bar {
+  width: min(62vw, 240px);
+  height: 12px;
+  border: 2px solid rgba(53, 53, 74, 0.35);
+  border-radius: 999px;
+  background: rgba(53, 53, 74, 0.12);
+  overflow: hidden;
+}
+.boot-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--mint);
+  transition: width 0.2s;
+}
+.boot-status { margin: 0; font-size: 0.8rem; font-weight: 700; color: var(--ink-soft); }
+.boot-pct { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* the same squash-and-bounce the idle title creatures do, so the wait is in the game's language */
+@keyframes boot-bob {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  50% { transform: translateY(-9px) scale(0.96, 1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-mark { animation: none; }
+}
+
 /* ---- no-pop: the entrance-animation kill switch (v7.10) ----
    Every screen re-renders by rewriting its innerHTML, which rebuilds an open modal from scratch —
    and a brand-new element REPLAYS pop-in / sheet-up. That is why every sheet in the game popped in
