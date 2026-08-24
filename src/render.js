@@ -20197,8 +20197,14 @@ const spurG = new Graphics()
       // holds a heading it took before it lost you and the lane scroll carries it past. sim's blind
       // branch publishes that held point into the same pair. Without this term the ink's bodies
       // crab sideways with their eyes locked on you, which is the card's product drawn inside out.
+      // v7.x THE REEF AGAIN: CHAPTERS[].passiveCrowd is the fourth case and the same case once
+      // more. Its crowd does not know the player is there — it swims down the lane and is overtaken
+      // — so a bearing derived from run.player draws the entire chapter sideways. Keyed off the
+      // CHAPTER and not off a per-body flag because the declaration is chapter-wide (one fact, one
+      // place); sim's own branch publishes the heading into the same pair the three above use.
       const facesOwnHeading = (e.allyT || 0) > 0 || (e.blindT || 0) > 0 ||
-        (e.flags && e.flags.includes('skittish'))
+        (e.flags && e.flags.includes('skittish')) ||
+        CHAPTERS[run.chapter]?.passiveCrowd === true
       if (facesOwnHeading && (e._tgtX !== undefined)) {
         tdx = e._tgtX - e.x
         tdy = e._tgtY - e.y

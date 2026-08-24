@@ -774,9 +774,12 @@ function stepPlayerMovement(run, input, dt) {
     // stepLaneFront has to advance the crush edge and the camera at the SAME rate — see the field's
     // block in config.js. Absent on a chapter that does not declare one, so The Beyond keeps its
     // golden master by construction.
-    const thr = CHAPTERS[run.chapter].laneThrottle ?? 0
-    const fwdIn = (ax.fwd === 'x' ? ix : iy) * ax.dir
-    run._laneThrottle = 1 + Math.max(-1, Math.min(1, fwdIn)) * thr
+    //   The two ends are separate multipliers (see the field's block) because they are not
+    // symmetric: full push is thr.max and full ease-off is thr.min, and the low one may never reach
+    // 0 — a lane that can be stopped is not a lane.
+    const thr = CHAPTERS[run.chapter].laneThrottle
+    const fwdIn = Math.max(-1, Math.min(1, (ax.fwd === 'x' ? ix : iy) * ax.dir))
+    run._laneThrottle = thr ? 1 + fwdIn * (fwdIn >= 0 ? thr.max - 1 : 1 - thr.min) : 1
     p[ax.vCross] = (ax.cross === 'x' ? ix : iy) * speed * LANE_STRAFE_MUL
     p[ax.vFwd] = ax.dir * laneScrollFor(CHAPTERS[run.chapter], run.mods) * burstMul * run._laneThrottle
     if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
@@ -2327,6 +2330,14 @@ function stepEnemyMovement(run, dt) {
       // That placement is what makes the roster's latch and pounce inert here without deleting
       // them -- the chapter is one boolean away from its combative self.
       if (slowMul > 0) e[laneAx.fwd] -= laneAx.dir * e.speed * slowMul * dt
+      //   AND THE POINT THE DRAWING READS. render.js derives every body's bearing from run.player
+      // unless _tgtX/_tgtY says otherwise, so without these two lines the whole crowd swims down
+      // the lane with its eyes locked on you — crabbing sideways, tail first, which is precisely
+      // the picture the ally, the prey and the blind each needed this same pair to fix. Publishing
+      // into the shipped contract field rather than teaching render a new one (CLAUDE.md), and
+      // render's facesOwnHeading gains the chapter so it knows to read it.
+      e._tgtX = e.x - (laneAx.fwd === 'x' ? laneAx.dir * 100 : 0)
+      e._tgtY = e.y - (laneAx.fwd === 'y' ? laneAx.dir * 100 : 0)
     } else if (e.flags && e.flags.includes('skittish')) {
       // PREY (v7.x, The Wreck). The one branch in this chain that walks AWAY from the player.
       // Sits directly under fear because it is the same motion for a different reason — fear is a
