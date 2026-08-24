@@ -768,8 +768,17 @@ function stepPlayerMovement(run, input, dt) {
     // is set by stepRepulse and ticked at the bottom of this branch; it is 0 for every chapter that
     // does not declare `burst`, so this multiplier is 1 everywhere else including The Beyond.
     const burstMul = (run._burstT ?? 0) > 0 ? BURST_SPEED_MUL : 1
+    // THE THROTTLE (v7.x, The Reef — CHAPTERS[].laneThrottle). The stick's FORWARD component, which
+    // a lane has always thrown away, now leans on the scroll: push the way you are travelling and
+    // the level runs at you faster, ease back and it slows. Published on run._laneThrottle because
+    // stepLaneFront has to advance the crush edge and the camera at the SAME rate — see the field's
+    // block in config.js. Absent on a chapter that does not declare one, so The Beyond keeps its
+    // golden master by construction.
+    const thr = CHAPTERS[run.chapter].laneThrottle ?? 0
+    const fwdIn = (ax.fwd === 'x' ? ix : iy) * ax.dir
+    run._laneThrottle = 1 + Math.max(-1, Math.min(1, fwdIn)) * thr
     p[ax.vCross] = (ax.cross === 'x' ? ix : iy) * speed * LANE_STRAFE_MUL
-    p[ax.vFwd] = ax.dir * laneScrollFor(CHAPTERS[run.chapter], run.mods) * burstMul
+    p[ax.vFwd] = ax.dir * laneScrollFor(CHAPTERS[run.chapter], run.mods) * burstMul * run._laneThrottle
     if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
   } else if ((run._lungeT ?? 0) > 0) {
     // THE LUNGE (v7.x, The Wreck). The free-roaming twin of the burst above, and it has to live in
@@ -1643,7 +1652,10 @@ function stepLaneFront(run, dt) {
   const p = run.player
   const along = (v) => v * ax.dir
   const solid = ch.spurs && ch.spurs.solid
-  let front = Math.max(along(run._laneFront ?? 0) + laneScrollFor(ch, run.mods) * dt, along(p[ax.fwd]))
+  // x run._laneThrottle: the player's own hand on the scroll (stepPlayer, one call earlier this
+  // step). The front is the crush edge and the camera anchor, so easing off has to slow IT or the
+  // level would not slow down at all — you would simply be left behind by a lane still running 90.
+  let front = Math.max(along(run._laneFront ?? 0) + laneScrollFor(ch, run.mods) * (run._laneThrottle ?? 1) * dt, along(p[ax.fwd]))
   // A chapter with nothing that can stop the player never separates from them, so it keeps exactly
   // the old behaviour by construction rather than by a flag: The Beyond's front IS its player.
   if (!solid) { run._laneFront = front * ax.dir; run._crushing = false; return false }
@@ -4168,12 +4180,21 @@ function stepCaveWall(run, dt) {
   if ((run._burstT ?? 0) > 0) { run._caveHit = false; return false }
   const off = p[ax.cross] - cav.c
   const lim = cav.hw - PLAYER.radius
-  if (Math.abs(off) <= lim) {
+  // THE ISLAND (caveAt's `ph`): where the passage forks, the middle of it is coral. Same contact,
+  // same bounce, same tick — the only new thing is that the free band is an ANNULUS for those few
+  // hundred px, so a player holding the centre line is now in the wall rather than in the safest
+  // place in the chapter. Clamped at `lim` so an island that ever grew wider than its passage
+  // would pin the player against the outer wall instead of trapping them in coral with no exit.
+  const inner = cav.ph > 0 ? Math.min(cav.ph + PLAYER.radius, lim) : 0
+  const a = Math.abs(off)
+  if (a <= lim && a >= inner) {
     run._caveHit = false
     run._caveAcc = Math.min(run._caveAcc ?? 0, CAVE_HIT_TICK)
     return false
   }
-  p[ax.cross] = cav.c + Math.sign(off) * lim
+  // Out through the nearer face: pushed off the island the way you were already leaning, held
+  // against the wall face you touched.
+  p[ax.cross] = cav.c + (off >= 0 ? 1 : -1) * (a > lim ? lim : inner)
   p[ax.fwd] -= ax.dir * CAVE_BOUNCE_PX * dt * 60 / 60 * 1
   run._caveHit = true
   run._caveAcc = (run._caveAcc ?? 0) + dt
