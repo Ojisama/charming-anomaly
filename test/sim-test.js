@@ -17435,15 +17435,20 @@ function testSyncWiring() {
   assert.ok(/settings-slots" data-act="sync-open"/.test(u),
     'run SY: the sync row is no longer a .settings-slots button opening the sheet')
 
-  // (e) NOT PUBLIC YET, AND THIS IS THE ASSERT THAT KEEPS IT THAT WAY. The Worker is live and
-  // __SYNC_URL__ is set, so the only thing standing between an unreleased feature and every player
-  // is one line in syncRowHtml. Delete it and the sheet is on the title screen for everyone, with
-  // nothing thrown and — before this assert existed — the whole suite still green.
+  // (e) PUBLIC, AND THIS IS THE ASSERT THAT KEEPS IT THAT WAY. The row spent one release behind
+  // meta.dev so the flow could be walked on a phone against the live URL. It is every player's
+  // now, and the only switch that may still remove it is an empty SYNC_URL (asserted below).
   const row = u.slice(u.indexOf('function syncRowHtml'))
   const rowBody = row.slice(0, row.indexOf('\n  }'))
-  assert.ok(/!import\.meta\.env\.DEV && !meta\.dev\) return ''/.test(rowBody),
-    'run SY: syncRowHtml no longer gates on meta.dev in a production build — cloud sync is exposed ' +
-    'to every player before its two-device walkthrough has happened')
+  // The isolation first: a NEGATIVE assert against an empty slice passes while checking nothing.
+  assert.ok(rowBody.length > 200 && rowBody.length < 1200 && /data-act="sync-open"/.test(rowBody),
+    `run SY: could not isolate syncRowHtml in ui.js (${rowBody.length} chars, measured 723) — the assert below would be measuring nothing`)
+  // meta.dev is the game's ONE dev switch, so its absence from this function IS "every player can
+  // reach cloud sync". Comments stripped, per run MB.a: the flag is discussed by name right here,
+  // and a raw search is satisfied by the prose alone.
+  assert.ok(!/meta\.dev/.test(rowBody.replace(/^\s*\/\/.*$/gm, '')),
+    'run SY: syncRowHtml gates on the dev flag again — cloud sync is invisible to every ordinary ' +
+    'player, with nothing thrown and the rest of the feature still wired and syncing')
 
   // ONE DEV SWITCH, NOT TWO. CLAUDE.md records what a second one cost: the coin badge used to carry
   // its own seven-tap burst, so the game had two answers to "is this a dev run", the leaderboard was
@@ -17474,14 +17479,13 @@ function testSyncWiring() {
     `run SY: could not isolate slotRowHtml in ui.js (${slotBody.length} chars, measured 1277) — the asserts below would be measuring nothing`)
   assert.ok(/data-act="slot-delete"/.test(slotBody),
     'run SY: the save-slot row has no delete button — the only control that erases one profile is gone')
-  // THE CLOUD MARK, AND THE SLOT IT IS KEYED ON. Once the ⚙ entry point is behind meta.dev this
-  // row is the only surface that says a save is synced at all, so losing the mark leaves the fact
-  // with nowhere to live. The keying is the subtler half: `st.slot` is the SYNCED slot and
+  // THE CLOUD MARK, AND THE SLOT IT IS KEYED ON. The ⚙ sheet states the fact once it is open;
+  // this row is where a player CHOOSING a save meets it. The keying is the subtler half: `st.slot` is the SYNCED slot and
   // activeSlot() is the one being played, they are routinely different (that is the whole point of
   // a per-slot pairing), and swapping them puts a confident cloud on the wrong save.
   assert.ok(/icoCloud\(t\('Synced'\)\)/.test(slotBody),
-    'run SY: the save-slot row no longer marks the synced save — with the sheet behind meta.dev ' +
-    'nothing else on any screen says a save follows the player between devices')
+    'run SY: the save-slot row no longer marks the synced save — nothing on the screen where a ' +
+    'player CHOOSES a save says which one follows them between devices')
   assert.ok(/cloud = summary && st\.on && st\.slot === n/.test(slotBody) && !/activeSlot\(\) === n/.test(slotBody),
     'run SY: the cloud mark is no longer gated on `summary && st.on && st.slot === n`. Each ' +
     'clause is a different lie on screen: without `summary` an EMPTY row claims to sync, without ' +
@@ -17530,8 +17534,8 @@ function testSyncWiring() {
     'and starts being cached and replayed')
 
   console.log(`PASS run SY (sync wiring): isIdle reads run === null, all ${TRIGGERS.length} pull/push ` +
-    `triggers present at their named sites, ui.js holds no protocol, the entry point is behind ` +
-    `meta.dev in production, the kill switch still removes every pixel, and the slots sheet's ` +
+    `triggers present at their named sites, ui.js holds no protocol, the entry point carries no dev ` +
+    `gate, the kill switch still removes every pixel, and the slots sheet's ` +
     `delete button unlinks the synced slot, reloads only the active one, stays off the ` +
     `destination picker, and the row marks the SYNCED slot with a sized cloud`)
 }

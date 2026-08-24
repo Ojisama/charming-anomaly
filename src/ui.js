@@ -1084,11 +1084,10 @@ export function initUI(hooks) {
     + '<path d="M4.2 6.6h15.6"/><path d="M9.8 6.6V4.4h4.4v2.2"/>'
     + '<path d="M6.4 6.6 7.4 20h9.2l1-13.4"/><path d="M10.3 10.4v6.1M13.7 10.4v6.1"/></svg>'
 
-  // WHICH SAVE IS THE ONE THAT FOLLOWS YOU. Once the ⚙ entry point is behind meta.dev this row is
-  // the ONLY surface that says a save is synced at all, and it stays honest when the gate closes:
-  // a paired device keeps syncing whatever meta.dev reads, by design (see syncRowHtml), so hiding
-  // the mark with the sheet would leave the one fact the player still needs with nowhere to live.
-  // A function, not a const like the two above, because it carries a translated label.
+  // WHICH SAVE IS THE ONE THAT FOLLOWS YOU. The ⚙ sheet says it only once it is open; this mark
+  // says it on the screen where a player CHOOSES a save, which is the screen where the answer
+  // changes what they tap. A function, not a const like the two above, because it carries a
+  // translated label.
   const icoCloud = (label) => `<svg class="slot-row-cloud" viewBox="0 0 24 24" role="img" aria-label="${esc(label)}">`
     + '<path d="M7.4 18.6h9.3a4 4 0 0 0 .5-8 5.3 5.3 0 0 0-10-1.5 4.7 4.7 0 0 0 .2 9.5z"/></svg>'
 
@@ -1418,20 +1417,9 @@ export function initUI(hooks) {
   function syncRowHtml() {
     if (!syncOn()) return ''
     const st = syncState()
-    // NOT PUBLIC YET. In a production build the entry point sits behind meta.dev — the same one
-    // switch the card list uses, and deliberately not a second one: CLAUDE.md records that two
-    // dev switches gave the game two different answers to "is this a dev run" and put a WIP
-    // chapter's score on the public board (v7.161.0).
-    //
-    // The point of gating rather than shipping dark: the Worker is live, so seven taps on the
-    // wordmark make the whole flow walkable ON A PHONE AGAINST THE DEPLOYED URL. Pairing two real
-    // devices is the one part of slice 4 that localhost cannot do, and a feature nobody can reach
-    // in production cannot be walked there at all.
-    //
-    // ONLY THE ENTRY POINT IS GATED, NEVER THE MECHANISM. Once a device is paired the record is on
-    // disk and main.js's triggers fire regardless of meta.dev — so turning dev back off leaves a
-    // paired device syncing, which is the intended behaviour and not an oversight.
-    if (!import.meta.env.DEV && !meta.dev) return ''
+    // EVERY PLAYER SEES THIS ROW. The one thing that removes it is an empty SYNC_URL — the kill
+    // switch on the next line — and there is deliberately no dev flag beside it: CLAUDE.md records
+    // what a second answer to "is this a dev run" cost the leaderboard (v7.161.0).
     // A dev build with no SYNC_URL still renders the disabled preview (§8), because `npm run dev`
     // sets none and that is the layout the phone-on-the-LAN check is meant to judge.
     if (st.reason === 'disabled' && !import.meta.env.DEV) return ''
