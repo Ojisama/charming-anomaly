@@ -124,7 +124,7 @@ import {
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
   SPUR_DPS, SPUR_TICK, caveAt, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
-  SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
+  SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, SNAP_CAVITY, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, BREACH_R_MIN, BREACH_R_AT_FULL, tiredness,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
@@ -21000,10 +21000,9 @@ function testUndertowTide() {
   // only and would report "every chapter has a tide" having looked at none of the seven that do.
   const withTide = Object.keys(CHAPTERS).filter((id) => CHAPTERS[id].tide)
   // Undertow MINUS The Reef. The exception is the owner's and it is load-bearing, not an oversight:
-  // The Reef's lane is already a current, and a tide costs it either its 45 px/s scroll (which
-  // swings 2-88 along the lane) or its Air decision (205px of sway across it walks a do-nothing
-  // player into the pockets, ending RF.a's centre-line run on 93 of 100 instead of 0). Spelled as
-  // the set and not as a count, so a chapter silently losing its tide cannot pass this.
+  // The Reef's lane is already a current, and a tide would cost it its 45 px/s scroll, which swings
+  // 2-88 along the lane. Spelled as the set and not as a count, so a chapter silently losing its
+  // tide cannot pass this.
   assert.deepStrictEqual([...withTide].sort(), BOOKS.undertow.chapters.filter((id) => id !== 'reef').sort(),
     'exactly the Undertow chapters except The Reef declare a tide')
   assert.ok(!CHAPTERS.reef.tide && CHAPTERS.reef.lane === true,
@@ -23459,11 +23458,11 @@ function testReefNatives() {
   // Cases (b) and (d) hold the CROSS stick down for their whole window, so the player is really
   // swimming the lane while the crack is asked to hold its bearing — and the bodies are pinned
   // RELATIVE to the player, so the geometry under test does not move with them.
-  //   ⚠ It cannot separate the lane heading from p.facingAngle, and nothing can: stepPlayerMovement
-  //   PINS facingAngle to laneAxes().angle in every lane chapter (see the `if (ax)` line there), so
-  //   the two are equal by construction here and a mutation swapping one for the other is an
-  //   equivalent, not a defect. fireSnap reads the axis descriptor anyway, deliberately — that
-  //   pinning is another module's decision and this weapon must not silently depend on it.
+  //   ⚠ The lane heading and p.facingAngle cannot be told apart here, and nothing can tell them
+  //   apart: stepPlayerMovement PINS facingAngle to laneAxes().angle in every lane chapter (see the
+  //   `if (ax)` line there). Since fireSnap started tracking (aimAngle, owner 2026-08-24) that
+  //   only matters when the screen is EMPTY — with a body on it the crack points at the body, which
+  //   is what (b) below plants two of to separate.
   const CROSS = AX.cross === 'y' ? { x: 0, y: 1 } : { x: 1, y: 0 }
   // RUN RN MEASURES WEAPONS IN OPEN WATER, DELIBERATELY.
   //
@@ -23503,10 +23502,14 @@ function testReefNatives() {
   }
   const lost = (e) => e.maxHP - e.hp
 
-  // (b) IT AIMS NOWHERE. The far body sits dead on the lane heading at 300px; the near one is 5x
-  // CLOSER but 220px off the line, i.e. it is what nearestEnemy returns and what aimAngle would
-  // point at. Only the far one may be struck. This is the whole card: swap laneAxes().angle for
-  // aimAngle and the two numbers below trade places.
+  // (b) IT TRACKS. The far body sits dead on the lane heading at 300px; the near one is 5x CLOSER
+  // but 220px off the line, i.e. it is what nearestEnemy returns. Only the NEAR one may be struck.
+  // This is the whole card since the owner's 2026-08-24 ruling ("the shrimp gun should aim at
+  // enemies"): weld the crack back to laneAxes().angle and the two numbers below trade places.
+  //
+  // The far body is the half that fails silently. A crack that tracks AND keeps a lane-wide slab
+  // of the old bearing would strike both, and asserting only that the near one bleeds cannot see
+  // it — 220px off a 130px-wide beam at L5 is the whole margin this case has.
   {
     const run = reefRun('pistolShrimp', 5)
     const cross0 = run.player[AX.cross]
@@ -23519,18 +23522,18 @@ function testReefNatives() {
     assert.ok(Math.abs(run.player[AX.cross] - cross0) > 100,
       `run RN.b: the fixture strafed ${Math.abs(run.player[AX.cross] - cross0).toFixed(0)}px — it is standing still, so the crack was never asked to hold its bearing while the player moved`)
     assert.ok(snaps >= 4, `run RN.b: only ${snaps} snaps in 4s at L5 (interval ${WEAPONS.pistolShrimp.levels[4].interval}) — the weapon is barely firing and every count below is noise`)
-    assert.ok(lost(far) > 0,
-      'run RN.b: the body dead ahead on the lane heading took NOTHING — the snap is not anchored to laneAxes().angle, and position has stopped being aim')
-    assert.strictEqual(lost(near), 0,
-      `run RN.b: the NEARER body 220px off the line took ${lost(near)} — the weapon has started aiming (nearestEnemy/aimAngle), which is the one thing this card must never do`)
+    assert.ok(lost(near) > 0,
+      'run RN.b: the NEAREST body took NOTHING — fireSnap is not reading aimAngle, so the crack is welded to a bearing again')
+    assert.strictEqual(lost(far), 0,
+      `run RN.b: the body 300px dead ahead — 289px off the aimed line, against a ${WEAPONS.pistolShrimp.levels[4].width}px beam — took ${lost(far)}. The crack is covering the old lane bearing as well as the aim, which is two weapons at once`)
 
     // (c) ONE TICK PER SNAP. snapT/tick is deliberately under 2, so a body held on the line is
     // struck exactly once however long it stands there. `snaps - 1` is allowed for the single beam
     // that may still be in flight when the window closes — a second tick would read ~2x, not 1.
     assert.ok(hits === snaps || hits === snaps - 1,
       `run RN.c: ${snaps} snaps landed ${hits} hits on one body — the crack is ticking more than once per cast (snapT/tick has crossed 2), which doubles the starter's damage with nothing on screen changing`)
-    assert.ok(Math.abs(lost(far) / hits - WEAPONS.pistolShrimp.levels[4].dmg) < 0.51,
-      `run RN.c: ${hits} hits for ${lost(far)} hp is ${(lost(far) / hits).toFixed(1)} a hit against a stated ${WEAPONS.pistolShrimp.levels[4].dmg}`)
+    assert.ok(Math.abs(lost(near) / hits - WEAPONS.pistolShrimp.levels[4].dmg) < 0.51,
+      `run RN.c: ${hits} hits for ${lost(near)} hp is ${(lost(near) / hits).toFixed(1)} a hit against a stated ${WEAPONS.pistolShrimp.levels[4].dmg}`)
   }
 
   // (d) THE REAR CRACK IS BASELINE, AND BACKBLAST BUYS ITS STRENGTH. Two identical fixtures on one
@@ -23557,11 +23560,16 @@ function testReefNatives() {
     // short" from "the lane deleted it". Without this the reach is unguarded, and a rear crack
     // silently back at the forward 340 spends most of itself killing bodies the player cannot see
     // and the lane was about to drop: free XP on the card whose whole subject is choosing a line.
+    // ⚠ THE FORWARD BODY IS AT 80px AND THAT IS LOAD-BEARING, not a tidier number. Since fireSnap
+    // tracks, the rear crack points opposite the AIM rather than down the lane — so the aim has to
+    // be the forward body or the whole fixture inverts and "the rear crack" measures the front one.
+    // 80 < REAR_PX 100 makes it the nearest, which is what aimAngle picks.
+    const AHEAD_PX = 80
     const REAR_PX = 100
     const FAR_REAR_PX = 200
     const measure = (mods) => {
       const run = reefRun('pistolShrimp', 5, mods)
-      const ahead = plant(run, { _off: [300, 0] })
+      const ahead = plant(run, { _off: [AHEAD_PX, 0] })
       const behind = plant(run, { _off: [-REAR_PX, 0] })
       const farBehind = plant(run, { _off: [-FAR_REAR_PX, 0] })
       drive(run, [ahead, behind, farBehind], 4, null, CROSS)
@@ -23888,7 +23896,101 @@ function testReefNatives() {
     assert.strictEqual(checked, 20, `run RN.i: checked ${checked} weapon-levels, expected 20`)
   }
 
-  console.log(`PASS run RN (The Reef's first two natives): the snap strikes the body 300px dead ahead and never the NEARER one 220px off the line, exactly once per cast, a BARE snap already cracks astern at x${SNAP_BACKBLAST_FRAC} and Backblast takes that to x${SNAP_BACKBLAST_FULL_FRAC} without touching the forward one; Fire Coral lights 3 DISTINCT ridges ${FIRE_CORAL_LEAD} past the nearest, every one still agreeing with spurAt, burning the coral and never the channel until Overgrowth is taken, reaching the player never, surviving a re-light without its ignition ramp restarting or stacking a second entry on the index (one band's worth of burn, measured on 5 occupied ridges), and lighting nothing at all in a chapter with no ridges; and all 20 beam weapon-levels in the game reach >=90% width at >=60% alpha in one frame`)
+  // (j) THE SNAP HAS NO BAR, AND ITS BUBBLES ARE THE HITBOX. The owner's 2026-08-24 ruling took the
+  // blade out from under the cavitation chain ("I don't like the white rectangle underneath all,
+  // remove it it looks too bright"), which moved the whole of this weapon's on-screen extent onto
+  // SNAP_CAVITY. Nothing else in the suite can see that: (b)-(d) measure damage, run EV only asks
+  // that {type:'snap'} has a consumer, and RN.i above measures the ENVELOPE of a bar this look no
+  // longer draws. A snap whose chain collapses to one bubble, or to a row so short it stops at a
+  // third of its reach, is a starter with no readable cast and nothing goes red.
+  //
+  // Two halves, the RN.i idiom: the SOURCE, so the bar cannot quietly come back and the numbers
+  // cannot drift back inline; and the ARITHMETIC, replaying render.js's own two functions off
+  // SNAP_CAVITY so a table edit that makes the chain illegible fails here rather than on a phone.
+  {
+    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    const at = rsrc.indexOf('function placeBeam')
+    const end = rsrc.indexOf('\n  }\n', at)
+    assert.ok(at > 0 && end > at, 'run RN.j: placeBeam is gone or re-indented — this case is measuring nothing')
+    const place = rsrc.slice(at, end).replace(/\/\/.*$/gm, '')
+    // THE BAR IS OFF FOR THIS LOOK. Asserted as the ASSIGNMENT and its polarity, not as the mere
+    // presence of the word: `bv.beamBody.visible = snap` contains every token a name-grep looks for
+    // and is the exact inversion that puts the white slab back under every cast.
+    assert.ok(/bv\.beamBody\.visible\s*=\s*!snap/.test(place),
+      'run RN.j: placeBeam no longer hides beamBody for look \'snap\' — the pale bar is back under the cavitation chain, which is what the owner had removed')
+    assert.ok(/bv\.tip\.visible\s*=\s*!snap/.test(place),
+      'run RN.j: the tip flare is drawn for look \'snap\' again — with no bar under it that is a bright sprite hanging in open water at the end of nothing')
+    assert.ok(/SNAP_CAVITY/.test(rsrc.slice(rsrc.indexOf('function snapBubble'), rsrc.indexOf('function placeBeam'))),
+      'run RN.j: snapBubble no longer reads SNAP_CAVITY — the chain\'s numbers have drifted back inline where config.js cannot reach them')
+
+    // ---- the arithmetic, replayed off the same table render.js reads --------------------------
+    const C = SNAP_CAVITY
+    const count = (len) => Math.max(3, Math.min(C.max, Math.round(len / C.gap)))
+    const bubble = (k, n, len, w, ph) => {
+      if (k === 0) return { x: len * C.leadX, y: 0, r: (w / 2) * C.leadR, a: C.leadA }
+      const h = (m) => { const v = Math.sin((k + 1) * m + ph * 12.9898) * 43758.5453; return v - Math.floor(v) }
+      const fr = 1 - (k - 0.5) / (n - 1)
+      return {
+        x: len * (C.frothX[0] + (C.frothX[1] - C.frothX[0]) * fr),
+        y: (h(3.1) - 0.5) * 2 * (w / 2) * C.frothSpread * (0.35 + 0.65 * fr),
+        r: (w / 2) * (C.frothR[0] + (C.frothR[1] - C.frothR[0]) * fr) * (1 - C.frothJitter / 2 + C.frothJitter * h(5.7)),
+        a: C.alpha[0] + (C.alpha[1] - C.alpha[0]) * fr,
+      }
+    }
+    const L = WEAPONS.pistolShrimp.levels
+    let rows = 0
+    for (let lv = 0; lv < L.length; lv++) {
+      // BOTH BEAMS OF ONE CAST, because they are the pathology this case exists for: the rear crack
+      // is SNAP_BACKBLAST_LEN (140) against a forward 340, and a chain sized for one is wrong for
+      // the other. A fixed count crams the forward layout into 40% of the room and the rear crack
+      // comes out as a single white blob — which is what the first cut of this look actually did.
+      for (const [tag, len] of [['forward', L[lv].length], ['rear', SNAP_BACKBLAST_LEN]]) {
+        const w = L[lv].width
+        const n = count(len)
+        rows++
+        assert.ok(n >= 3, `run RN.j: ${tag} crack at L${lv + 1} draws ${n} bubbles — under three there is no chain, just a dot and a blob`)
+        const qs = []
+        for (let k = 0; k < n; k++) qs.push(bubble(k, n, len, w, 0.7))
+        // IT REACHES. With no bar, the far bubble is the ONLY thing stating how far the crack goes,
+        // so it has to sit near the end of it — a chain stopping at half reach draws a weapon that
+        // hits things it visibly never touched.
+        const far = Math.max(...qs.map((q) => q.x + q.r))
+        assert.ok(far > len * 0.85,
+          `run RN.j: the ${tag} crack at L${lv + 1} draws nothing past ${far.toFixed(0)}px of its ${len}px reach — the chain stops short of the damage`)
+        // IT STAYS INSIDE THE WIDTH. The other direction of the same claim: a bubble wider than the
+        // beam states a hitbox the weapon does not have.
+        const wide = Math.max(...qs.map((q) => Math.abs(q.y) + q.r))
+        assert.ok(wide <= w * 0.62,
+          `run RN.j: the ${tag} crack at L${lv + 1} draws ${wide.toFixed(0)}px off centre against a ${w}px beam — the picture is wider than the hitbox`)
+        // THE LEAD CAVITY IS THE BIGGEST THING IN IT, which is the whole read of the look the owner
+        // picked: small froth at the claw growing into one cavity where the damage lands. Swap the
+        // ramp and the shot reads as travelling the other way.
+        const lead = qs[0]
+        const biggestFroth = Math.max(...qs.slice(1).map((q) => q.r))
+        assert.ok(lead.r > biggestFroth * 1.2,
+          `run RN.j: the lead cavity (${lead.r.toFixed(0)}px) is not clearly the biggest bubble in the ${tag} chain (froth reaches ${biggestFroth.toFixed(0)}px) — the size ramp no longer states which way the crack went`)
+        // ...AND THE FROTH RAMPS THE SAME WAY THE LEAD DOES. The check above only says the lead is
+        // biggest; reversing frothR alone leaves that true while the froth grows toward the CLAW,
+        // so the chain reads as a shot arriving rather than one leaving. Measured over the froth's
+        // own two ends, ignoring the per-index jitter by comparing the modelled ramp rather than a
+        // sampled pair — a jittered pair can invert by chance and that would be a flaky red.
+        assert.ok(C.frothR[1] > C.frothR[0] * 1.3,
+          `run RN.j: SNAP_CAVITY.frothR runs ${C.frothR[0]} -> ${C.frothR[1]} — the froth does not clearly grow toward the front, so the chain no longer says which way the crack went`)
+        assert.ok(C.frothJitter < 2 * (C.frothR[1] - C.frothR[0]) / (C.frothR[1] + C.frothR[0]),
+          `run RN.j: SNAP_CAVITY.frothJitter (${C.frothJitter}) is larger than the ramp it rides on — individual bubbles invert the size gradient and the chain reads as noise`)
+        assert.ok(qs.every((q) => q.a > 0.25),
+          `run RN.j: a bubble in the ${tag} chain at L${lv + 1} is drawn under 25% alpha — over this chapter's coral that is invisible`)
+      }
+      // AND THE COUNT FOLLOWS THE LENGTH. Stated as a comparison rather than as two numbers: at
+      // L1-L5 the forward crack is 2.4x the rear one, so it must draw more of them.
+      assert.ok(count(L[lv].length) > count(SNAP_BACKBLAST_LEN),
+        `run RN.j: at L${lv + 1} the 340px forward crack draws no more bubbles than the ${SNAP_BACKBLAST_LEN}px rear one — the count is fixed rather than sized to the beam, so one of the two is wrong`)
+    }
+    assert.strictEqual(rows, L.length * 2, `run RN.j: replayed ${rows} chains, expected ${L.length * 2}`)
+    console.log(`PASS run RN.j (the snap is its bubbles): placeBeam hides the bar and the tip for look 'snap'; ${rows} chains replayed off SNAP_CAVITY across ${L.length} levels x both cracks, every one reaching past 85% of its beam, inside 62% of its width, led by a cavity over 1.2x the froth, and the forward crack always drawing more than the rear`)
+  }
+
+  console.log(`PASS run RN (The Reef's first two natives): the snap strikes the NEAREST body 220px off the lane heading and never the one 300px dead ahead, exactly once per cast, a BARE snap already cracks astern at x${SNAP_BACKBLAST_FRAC} and Backblast takes that to x${SNAP_BACKBLAST_FULL_FRAC} without touching the forward one; Fire Coral lights 3 DISTINCT ridges ${FIRE_CORAL_LEAD} past the nearest, every one still agreeing with spurAt, burning the coral and never the channel until Overgrowth is taken, reaching the player never, surviving a re-light without its ignition ramp restarting or stacking a second entry on the index (one band's worth of burn, measured on 5 occupied ridges), and lighting nothing at all in a chapter with no ridges; and all 20 beam weapon-levels in the game reach >=90% width at >=60% alpha in one frame`)
 }
 // ---- run RP: The Reef's other two natives, its anomaly and its mutator ------------------------
 // WHAT THIS CATCHES THAT NOTHING ELSE CAN. All four of these are behaviour with no health bar
@@ -24708,26 +24810,30 @@ function testReefAirBurst() {
     return LAX.cross === 'x' ? { x: v, y: 0 } : { x: 0, y: v }
   }
 
-  // (a) THE POCKETS ARE THE ONLY REFILL, AND TAKING ONE MEANS LEAVING THE MIDDLE. Two 150s runs off
-  // the SAME seed with the SAME everything except where the stick points: hold the centre line and
-  // the bar dies, work the pockets and it lives. That difference — not the geometry it comes from —
-  // is the whole "a slope, not a countdown" claim, and it is what a probe row can only suggest.
+  // (a) THE POCKETS ARE THE ONLY REFILL, AND THEY ARE WHAT KEEPS THE BAR UP. Two 150s runs off the
+  // SAME seed with the SAME everything except one thing: the field. Work the pockets and the bar
+  // lives; suppress the field and the same policy drowns on schedule. That difference — not the
+  // geometry it comes from — is the whole "a slope, not a countdown" claim.
+  //
+  // THE CONTROL IS FEATURE-REMOVED, NOT A SECOND POLICY, and the swap is the owner's 2026-08-24
+  // ruling ("make the air refill bubble bigger and refill faster. they don't have to be touching
+  // coral"). It used to be a POLICY control: pockets were shoved out against a wall, so a player
+  // holding the passage centre provably never touched one and ended on 0. With the wall-hug off and
+  // r at 90 no legal line inside the passage avoids them — measured, a policy actively steering AWAY
+  // from the nearest pocket ahead still ends 84/71/86 of 100 across three seeds. So the bar no
+  // longer separates two ways of flying the corridor, and asserting that it does would be a green
+  // check on a dead property. What is still true, and is the reason the resource exists at all, is
+  // that the refill comes from the FIELD: take the field away and the drain is the whole story.
   {
     const steps = Math.round(150 / dt)
-    // THE CONTROL HOLDS THE PASSAGE CENTRE, not world zero. In a cave the middle of the LANE is
-    // mostly solid rock and the middle of the PASSAGE is what "never commit to a side" means -- a
-    // stick of {0,0} just presses the player into whichever wall the corridor has wandered under,
-    // which is a different claim entirely (and read 100.0 air, because the wall it pinned against
-    // happened to pass through pockets).
     const centre = reefRun()
     let centreInPocket = 0
     for (let i = 0; i < steps; i++) {
-      stepSim(centre, { x: 0, y: 0 }, dt)
-      // Snapped AFTER the step, so the sample below is taken with the player exactly on the
-      // passage centre. Snapping before it left them a few pixels off by the time the check ran --
-      // the centre moves as they advance -- and those few pixels clipped a pocket's inner edge.
-      const cv = caveAt(centre.player[LAX.fwd], CHAPTERS.reef.cave, centre._obstacleSeed)
-      centre.player[LAX.cross] = cv.c
+      stepSim(centre, towardPockets(centre), dt)
+      // The field, deleted after the step — so the player is flying the identical policy through
+      // the identical cave and the ONLY thing missing is the air. streamShafts refills run.shafts
+      // on the next cell crossing, which is why this is per-frame and not once.
+      centre.shafts.length = 0
       quiet(centre)
       const p = centre.player
       if (centre.shafts.some((sh) => Math.hypot(sh.x - p.x, sh.y - p.y) <= sh.r)) centreInPocket++
@@ -24742,9 +24848,9 @@ function testReefAirBurst() {
       seekMin = Math.min(seekMin, seek.charge)
     }
     assert.strictEqual(centre.charge, 0,
-      `a player who never leaves the centre of the lane must run out of Air — ended on ${centre.charge.toFixed(1)}`)
+      `with the pocket field suppressed the bar must empty — ended on ${centre.charge.toFixed(1)} of ${res.max}, so something other than run.shafts is refilling Air`)
     assert.strictEqual(centreInPocket, 0,
-      `${centreInPocket} frames of refill without ever crossing the lane — a pocket is reachable from the centre line, so committing to a side is not a decision`)
+      `${centreInPocket} refill frames in a run with no field at all — the control is not controlling anything`)
     // NOT "> half a bar" ANY MORE, AND THE REASON IS THE CORAL. That threshold was set when the
     // ridges were scenery you could swim through, so the only cost of crossing to a pocket was a
     // little damage. Since spurs.solid the crossing must also be routed through gates, which spends
@@ -24759,26 +24865,28 @@ function testReefAirBurst() {
     assert.ok(seek.charge > res.max * 0.15,
       `a player working the pockets must survive on Air, ended on ${seek.charge.toFixed(1)} of ${res.max} (measured band across seeds: 20.9-67.4)`)
     assert.ok(seek.charge > centre.charge + res.max * 0.1,
-      `working the pockets (${seek.charge.toFixed(1)}) must beat holding the centre (${centre.charge.toFixed(1)}) by a clear margin — otherwise crossing the lane buys nothing`)
+      `the pockets (${seek.charge.toFixed(1)}) must beat their own absence (${centre.charge.toFixed(1)}) by a clear margin — otherwise the field is not the refill`)
     assert.ok(seekInPocket > 0,
       'the pocket-working run never actually sat in a pocket — the policy is not reaching them and every number above is measuring something else')
     assert.ok(seekMin > 0,
       `working the pockets still bottomed the bar out (min ${seekMin.toFixed(1)}) — the refill cannot keep up with the drain at all`)
     assert.ok(seekInPocket > 0.10 * steps,
       `only ${(100 * seekInPocket / steps).toFixed(1)}% of the run was spent in a pocket — the field is too sparse to be worked`)
-    console.log(`PASS run RF.a (Air is a map, not a clock): 150s holding the centre ends on 0 with 0 refill frames; 150s working the pockets ends on ${seek.charge.toFixed(0)}/${res.max}, never below ${seekMin.toFixed(0)}, ${(100 * seekInPocket / steps).toFixed(1)}% of it inside one`)
+    console.log(`PASS run RF.a (the field is the refill): the same 150s policy with the field suppressed ends on ${centre.charge.toFixed(0)} and 0 refill frames; with it live it ends on ${seek.charge.toFixed(0)}/${res.max}, never below ${seekMin.toFixed(0)}, ${(100 * seekInPocket / steps).toFixed(1)}% of it inside a pocket`)
   }
 
-  // (b) EVERY POCKET IS REACHABLE. The streaming grid covers a 1400px disc and the lane is ~860px
-  // wide, so two whole cell rows either side of it will happily materialise circles the player is
-  // CLAMPED away from. Nothing throws, the renderer draws them faithfully, and the chapter reads as
-  // "the bar cannot be filled" — which is the same misreading (a) exists to disprove, arrived at
-  // from the geometry rather than the rate. Measured at four positions down the lane, so this is
-  // the field and not one lucky cell.
+  // (b) EVERY POCKET IS REACHABLE — inside the lane walls AND inside the cave passage. The
+  // streaming grid covers a 1400px disc and the lane is ~860px wide, so two whole cell rows either
+  // side of it will happily materialise circles the player is CLAMPED away from; and the passage
+  // inside that lane is narrower still. Nothing throws, the renderer draws them faithfully, and the
+  // chapter reads as "the bar cannot be filled" — which is the same misreading (a) exists to
+  // disprove, arrived at from the geometry rather than the rate. Measured at four positions down
+  // the lane, so this is the field and not one lucky cell.
   {
     const run = reefRun()
     const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
-    let checked = 0, unreachable = 0, onCentre = 0
+    let checked = 0, unreachable = 0, inRock = 0
+    const offs = []
     for (const along of [3000, 9000, 15000, 21000]) {
       run.player[LAX.fwd] = along * LAX.dir
       run.shafts.length = 0
@@ -24787,15 +24895,44 @@ function testReefAirBurst() {
       for (const sh of run.shafts) {
         checked++
         if (Math.abs(sh[LAX.cross]) - sh.r > hw) unreachable++
-        if (Math.abs(sh[LAX.cross]) <= sh.r) onCentre++
+        // INSIDE THE PASSAGE, measured at the pocket's own position along the lane — the one
+        // clamp streamShafts still applies since the wall-hug came off (owner, 2026-08-24). A
+        // pocket whose centre sits outside the rock is one the player cannot swim into, which is
+        // the same "the bar cannot be filled" reading the lane check above exists to stop.
+        const cav = caveAt(sh[LAX.fwd], CHAPTERS.reef.cave, run._obstacleSeed)
+        const off = Math.abs(sh[LAX.cross] - cav.c)
+        if (off > cav.hw) inRock++
+        // NORMALISED BY THE SLACK THE PLACEMENT ACTUALLY HAS, not by the passage half-width. The
+        // rule is "anywhere the whole pocket still fits", so the room is hw - r and a free draw is
+        // uniform on [0, 1] of THAT. Dividing by hw instead compresses every reading into
+        // [0, 1 - r/hw] = [0, 0.47..0.59], which moves with the passage's own width wave and makes
+        // any threshold here a number nobody can derive.
+        offs.push(off / Math.max(1, cav.hw - sh.r))
       }
     }
     assert.ok(checked > 12, `only ${checked} pockets streamed across 4 positions — this case would pass vacuously`)
     assert.strictEqual(unreachable, 0,
       `${unreachable} of ${checked} pockets lie entirely outside the lane walls (±${hw.toFixed(0)}) — the player can only watch them scroll past`)
-    assert.strictEqual(onCentre, 0,
-      `${onCentre} of ${checked} pockets cover the centre line — those refill a player who never commits to a side, which is the property (a) measures`)
-    console.log(`PASS run RF.b (the field fits the lane): ${checked} pockets across 4 positions, 0 outside the ±${hw.toFixed(0)} walls and 0 covering the centre line`)
+    assert.strictEqual(inRock, 0,
+      `${inRock} of ${checked} pockets have their centre outside the passage — the player is clamped off them and the bar reads as unfillable`)
+    // AND THE PLACEMENT IS FREE ACROSS THE PASSAGE, which is the owner's 2026-08-24 ruling ("they
+    // don't have to be touching coral") and the thing that has no other guard. Asserted as the
+    // SPREAD of the cross offsets, not as "some pocket covers the centre line": at r 90 in a
+    // 340-440px passage a pocket cannot avoid the centre whatever the rule is, so that count is
+    // near-tautological and would pass with the wall-hug restored. What a wall-hug actually does is
+    // PIN every pocket to one distance from the centre, so the honest tell is that the offsets do
+    // not cluster — some pockets sit near the middle and some near a wall.
+    // A free draw is uniform on [0, 1] of the slack, so its deciles land near 0.1 and 0.9; the bands
+    // below are loose around that. A WALL-HUG pins every reading at 1.0 (or past it, into the rock),
+    // so `lo` is what kills it — and `hi` kills the opposite pinning, a field snapped to the centre.
+    // Both are needed: either one alone passes under the other's pathology.
+    offs.sort((a, b) => a - b)
+    const lo = offs[Math.floor(offs.length * 0.1)], hi = offs[Math.floor(offs.length * 0.9)]
+    assert.ok(lo < 0.35,
+      `the closest-to-centre decile of pockets still sits at ${(lo * 100).toFixed(0)}% of its available room — nothing is placed near the middle of the passage, i.e. the wall-hug the 2026-08-24 ruling removed is back`)
+    assert.ok(hi > 0.6,
+      `the furthest-out decile only reaches ${(hi * 100).toFixed(0)}% of its available room — the field has collapsed onto the centre line, which is a different pinning, not free placement`)
+    console.log(`PASS run RF.b (the field fits the lane): ${checked} pockets across 4 positions, 0 outside the ±${hw.toFixed(0)} walls, 0 with a centre in the rock, and their cross offsets spread over ${(lo * 100).toFixed(0)}%-${(hi * 100).toFixed(0)}% of the room each one has`)
   }
 
   // (c) DROWNING IS DAMAGE, IT ONLY EXISTS AT EMPTY, AND IT STOPS WHEN YOU BREATHE. Measured as HP
@@ -24817,6 +24954,12 @@ function testReefAirBurst() {
       const other = new Set()
       for (let i = 0; i < Math.round(secs / dt); i++) {
         stepSim(run, { x: 0, y: 0 }, dt)
+        // THE FIELD IS SUPPRESSED FOR THE DROWNING WINDOWS, and it has to be since the pockets
+        // stopped hugging a wall (owner, 2026-08-24): at r 90 they cover the passage centre, so a
+        // player holding station on the stick is carried through one inside the first second and
+        // the window measures a refill instead of a drowning. The breathe half below streams the
+        // field back deliberately — that is where a pocket is supposed to appear.
+        run.shafts.length = 0
         for (const e of run.events) if (e.type === 'hurt') {
           if (e.src === 'drown') { events++; if (e.dot) dots++ } else other.add(e.src ?? 'unlabelled')
         }
@@ -25091,7 +25234,7 @@ function testReefAirBurst() {
     console.log(`PASS run RF.e (the reef draws its own): refillLook resolves pocket and updateShafts reads AIR_POCKET_VIS; drawBurstWake reads run._burstT through burstWakeAt against BURST_DUR_AT_FULL ${BURST_DUR_AT_FULL}s and the view behind the lane camera, and is called from sync(); updateCoralGrit reads run._scraping and reuses CORAL_CRUSH every ${CORAL_CRUSH.gritEvery}s with no sound; syncPolyps ramps on the polyp age`)
   }
 
-  console.log(`PASS run RF (The Reef's Air and Burst): the bar is decided by which side of the lane you commit to (0 vs ${res.max} over 150s), an empty bar drowns you at ${res.drown.dps}/s and stops the moment you breathe, and the button dashes ${BURST_DUR_MIN}s empty and ${BURST_DUR_AT_FULL}s full`)
+  console.log(`PASS run RF (The Reef's Air and Burst): the bar is fed by the pocket field and nothing else (0 vs ${res.max} over 150s with it suppressed), an empty bar drowns you at ${res.drown.dps}/s and stops the moment you breathe, and the button dashes ${BURST_DUR_MIN}s empty and ${BURST_DUR_AT_FULL}s full`)
 }
 
 // ---- run TR: The Trawl's net (the gimmick), Feed (the bar) and Breach (the button) --------------

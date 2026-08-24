@@ -2295,12 +2295,16 @@ export const WEAPONS = {
   // the first to the heading, the second to the terrain — and neither reads nearestEnemy at all.
   pistolShrimp: {
     name: 'Pistol Shrimp',
-    desc: 'Snaps a bolt of boiling water straight ahead, and a weaker one straight behind. It never turns to aim — line the shot up yourself.',
+    desc: 'Snaps a bolt of boiling water, and a weaker one out the other side.',
     icon: '🦐', rarity: 'normal',
-    // THE STARTER AND THE CHAPTER'S THESIS CARD: the cross stick IS the aim. The shot is welded to
-    // the lane's forward heading (laneAxes().angle) and has no targeting of any kind, so sliding one
-    // groove to line three bodies onto one crack is the whole lesson (fireSnap has the non-lane
-    // fallback). A run.beams entry with rotSpeed 0, the Sunlance's idiom, look: 'snap' for its bake.
+    // THE STARTER. The claw TRACKS the nearest body on screen (fireSnap -> aimAngle, owner
+    // 2026-08-24: "the shrimp gun should aim at enemies") and cracks a weaker, shorter bolt straight
+    // out the back of it. A run.beams entry with rotSpeed 0, the Sunlance's idiom, look: 'snap' for
+    // its bake.
+    //   ⚠ THE CARD SAYS NOTHING ABOUT AIMING, AND THAT IS THE OWNER'S RULING, NOT AN OVERSIGHT
+    // (2026-08-24: "just don't mention anything about aiming"). Every other weapon in the game
+    // tracks without saying so; naming it here would make tracking sound like this card's gimmick
+    // when it is the house default. Do not "restore" it.
     //   snapT/tick     how long the crack is on screen, and ONE tick inside it: stepBeams fires
     //                  while acc >= tick, so tick must clear snapT/2 or a body on the line is
     //                  struck twice. That is also why this weapon sells no duration mod.
@@ -2309,8 +2313,8 @@ export const WEAPONS = {
     //   length         FLAT. L1's 340 already clears the ~312 world px of lane a 390x844 phone
     //                  shows ahead of the player, so every px past that is reach nobody sees.
     //   width          THE LADDER: 30px across an 836px lane (3.6%) at L1, 130px (15.6%) at L5. A
-    //                  level buys how many bodies one groove change can line up, which is the only
-    //                  thing this card asks the player to do.
+    //                  level buys how many bodies fall inside a bolt that is already pointed at one
+    //                  of them — the aim picks the target, the width picks up its neighbours.
     //                  ⚠ 130 IS 3.25x THE BAKED BAR. render.js bakes all four blades once at
     //                  WEAPONS.rainbow's top width (40) and scales, so L5 magnifies rather than
     //                  scales down — and Wide Crack goes further. Raising the bake is not free:
@@ -6901,11 +6905,10 @@ CHAPTERS.reef = {
   // than for the theme, because a scroller only works if what you hold can answer things arriving
   // from ahead — and each of the four answers a DIFFERENT question about a corridor you cannot stop
   // in, which is what stops the pool being one idea at four intensities:
-  //   pistolShrimp  the starter and the thesis — a line welded to the lane heading, no targeting at
-  //                 all, so the cross stick is the aim. It cracks BOTH ways along that heading, the
-  //                 rear one shorter and softer: this chapter's crowd sits astern of the player
-  //                 (53% of live bodies, scripts/reef-pileup.mjs) and a starter that could not
-  //                 touch any of it left the whole opening rear-blind.
+  //   pistolShrimp  the starter — a tracking line at the nearest body, cracking a shorter, softer
+  //                 bolt out the back of itself at the same time: this chapter's crowd sits astern
+  //                 of the player (53% of live bodies, scripts/reef-pileup.mjs) and a starter that
+  //                 could only ever face one way left the whole opening half-blind.
   //   squidInk      the only card that does not damage its way out of a problem. It takes the
   //                 crowd's ability to FOLLOW you and lets the scroll carry them off, and it is the
   //                 only one planted ON the player, so it is also this pool's answer to what is
@@ -6914,9 +6917,9 @@ CHAPTERS.reef = {
   //                 gap, so the throw and the arriving stream keep the same appointment.
   //   fireCoral     the terrain, armed. A burn band across the lane, placed ahead of the stream.
   // quillBurst and pulsarSweep left with the last of the stand-ins; neither is deleted, both are
-  // still in the chapters whose pools own them. The stinger left with the starter slot before them,
-  // for the same reason: it is a forward cone at the NEAREST enemy, which is the one thing the
-  // Pistol Shrimp exists to refuse.
+  // still in the chapters whose pools own them. The stinger left with the starter slot before them:
+  // a forward cone at the nearest enemy is what the Pistol Shrimp now is, so the two cards would be
+  // one card at two widths.
   //   NO EPIC WEAPON IN THIS POOL, AND IT COSTS NOTHING — measured, not assumed. Both stand-ins
   // carried the chapter's only epic-rarity weapon offers, so makeWeaponCard now returns null at
   // that tier here and rollCard falls through to a passive, an element or an anomaly. Over 6 x 300s
@@ -6968,11 +6971,23 @@ CHAPTERS.reef = {
   // false.
   signature: {
     type: 'air',
-    // chance 0.5 -> 0.66 WHEN THE CORRIDOR NARROWED TO 330. streamShafts drops any pocket whose
-    // cross position falls outside the lane, so narrowing the corridor by ~23% for the cave walls
-    // culled the same share of the air supply -- the fixture caught it as "only 11 pockets streamed
-    // across 4 positions". This restores the COUNT the air economy was tuned against; it is a
-    // compensation for a geometry change, not a buff, and it moves with laneHalfW if that moves.
+    // chance 0.66 -> 0.14, AND IT IS WHAT PAYS FOR THE OTHER TWO NUMBERS (owner, 2026-08-24: "make
+    // them rarer to compensate"). A pocket 2x wider refilling 2.2x faster, at the old occupancy, is
+    // air you cannot miss: measured, a player steering AWAY from every pocket still ended 84-92 of
+    // 100 and nobody drowned. Rare, big and generous is a different shape from frequent, small and
+    // stingy, and it is the better one -- the pocket becomes a landmark you steer for rather than
+    // a toll you pay.
+    //   THE NUMBER IS THE SWEEP'S, NOT A GUESS. 150s x 3 seeds at r 90 / refill 20, a pocket-seeking
+    // policy against a pocket-dodging one, both clamped inside the passage:
+    //   chance   SEEK end (min)              DODGE end
+    //   0.66     98 100 100  (min 90-93)     87 92 90     nobody drowns, the bar is decoration
+    //   0.28    100  97 100  (min 77-85)     84 68 83     still nobody drowns
+    //   0.14     91  98  97  (min 55-63)      4  0  0     the axis is back AND the bar cycles
+    //   0.10     82  96  97  (min 55-57)      4  0  0     same axis, tighter on the seeker for free
+    // 0.14 is where a player working the field still lives comfortably while the bar visibly moves
+    // (a 55-63 trough is the thing that makes it a resource at all), and a player ignoring it dies.
+    // ⚠ IT MOVES WITH r AND refill, NOT WITH laneHalfW. This used to be a lane-width compensation;
+    // it is now the third leg of the air economy, so re-sweep all three together.
     // r 130 -> 155 WITH THE CAVE, AND THE SWEEP SAYS WHY IT IS THE RADIUS AND NOT THE COUNT.
     // Narrowing the corridor for the cave walls (and scaling the braid with it) cut how far a
     // player may deviate from a gate line to collect air: pocket-frames fell 1090-1280 -> 738 and
@@ -6983,14 +6998,16 @@ CHAPTERS.reef = {
     // the pocket keeps the same share of a narrower lane. Measured over five seeds, end-of-run air
     // lands at 27..52 against the pre-cave 20.9..67.4, i.e. the same mean. A compensation, not a
     // buff: at the old 130 the fixture's own seed drowns on 0.
-    // r 165 -> 48 FOR THE CAVE, AND THE POCKET IS NOW SMALLER THAN THE PASSAGE ON PURPOSE.
-    // 165 was sized against a 660px-wide open lane. The cave's passage is 200-370px wide, so a
-    // 165px pocket is wider than the corridor it sits in: it spans the whole opening, which makes
-    // air free (you collect it by flying the passage) and deletes the one decision this resource
-    // exists to pose. At 48 a pocket fits BESIDE the centre line -- offset + r stays inside the
-    // wall and offset - r stays clear of the middle even at the narrowest squeeze (hw 100) -- so
-    // breathing still costs you a commitment to one side of the cave.
-    pockets: { cell: 640, chance: 0.66, r: 48, minDist: 420, salt: 40 },
+    // r 48 -> 90, AND THE POCKET NO LONGER HUGS A WALL (owner, 2026-08-24: "make the air refill
+    // bubble bigger and refill faster. they don't have to be touching coral"). 48 was the radius
+    // that let a pocket fit BESIDE the centre line of a 340-440px passage; with that constraint
+    // dropped (streamShafts) the ceiling is the passage itself, and 90 stays under halfMin 170 so
+    // even the tightest squeeze holds one whole. At laneScroll 90 a pass through the middle is
+    // 2r/90 = 2.0s of contact against 1.1s before.
+    // balance_decision : rare, big, generous instead of frequent, small, stingy [2026-08-24]
+    //  - the three numbers only make sense together: r 48->90, refill 9->20, chance 0.66->0.14.
+    //    Any two of them without the third either deletes the resource or starves it.
+    pockets: { cell: 640, chance: 0.14, r: 90, minDist: 420, salt: 40 },
   },
 
   // SPUR AND GROOVE (level design spec 2026-08-20, rev 4). The reef front as this game's only
@@ -7095,7 +7112,10 @@ CHAPTERS.reef = {
   // you breathe. See DROWN_TICK's block for why it is a DoT and not a damage multiplier, and for
   // why it deliberately introduces no new event.
   //
-  resource: { name: 'Air', drain: 1.4, refill: 9, max: 100, drown: { dps: 4 } },
+  // balance_decision : refill 9 -> 20/s, a pocket is a breath not a top-up [2026-08-24]
+  //  - the RATE is what ends the drowning, more than the radius: at r 48 a dodging player still
+  //    clips 6-11% of frames, and 20/s over those frames is enough to hold the bar up.
+  resource: { name: 'Air', drain: 1.4, refill: 20, max: 100, drown: { dps: 4 } },
 
   // NO FURNITURE (owner, 2026-08-22). The spur field above is this chapter's only coral and its only
   // collision story: everything solid GRATES and nothing shoves, so there is exactly one answer to
@@ -8622,6 +8642,44 @@ export const CORAL_CRUSH = {
   silt: 4, siltSpeed: 50, siltT: 1.2, siltTint: 0xc0aa9e,
   bubbles: 6, bubbleRise: 95, bubbleT: 0.9, bubbleTint: 0xdff2ff,
   grit: 2, gritEvery: 0.1, gritDrift: 70,   // scrape tell: motes per beat, s per beat, px/s down-lane
+}
+
+// THE PISTOL SHRIMP'S CAVITATION CHAIN (The Reef, render.js snapBubble/placeBeam). The weapon's
+// whole picture: a froth of small bubbles at the claw growing along the shot into ONE big cavity at
+// the far end, where the damage lands. Owner's pick out of three bubble layouts, 2026-08-24.
+//
+// ⚠ THERE IS NO BAR BEHIND IT (owner, same round: "I don't like the white rectangle underneath all,
+// remove it it looks too bright"). placeBeam hides beamBody and the tip flare for look 'snap', so
+// these bubbles state the whole hitbox — `per` and `lead` are the only things telling the player
+// how far the crack reaches, which is why they are keyed off the beam's own length and width rather
+// than being px.
+//
+// ⚠ AND THEY ARE SPRITES, NOT PART OF THE BAKE, WHICH IS NOT A STYLE CHOICE. The beam bar is scaled
+// anisotropically (b.length / T.beamRefLen along by b.width / T.beamRefWidth across — 0.85 x 3.25 at
+// L5), so every circle baked into that texture arrives as a 3.8:1 oval; the first cut of this look
+// shipped as a row of eggs. Pre-squashing cannot fix it either, because the ratio moves with the
+// ladder (0.88:1 at L1). Anything round has to live outside beamBody.
+export const SNAP_CAVITY = {
+  max: 16,        // sprite budget per beam. Two beams per cast (forward + rear), one rig slot each.
+  gap: 22,        // px ALONG THE SHOT per bubble: count = clamp(round(length / gap), 3, max).
+                  //   ⚠ COUNT FOLLOWS LENGTH OR THE REAR CRACK IS A BLOB. One cast draws a 340px
+                  //   forward crack and a 140px rear one (SNAP_BACKBLAST_LEN); a fixed count crams
+                  //   the same chain into 40% of the room. 340/22 = 15.5 -> the cap, 140/22 -> 6.
+                  //   ⚠ AND IT IS PX, NOT BUBBLE RADII, WHICH IS THE VERSION THAT FAILED. Radii
+                  //   scale with the level's WIDTH (30 at L1, 130 at L5), so a spacing measured in
+                  //   them collapses to a few px at L1 and BOTH cracks saturate `max` — the rear
+                  //   one at 140px long, i.e. the exact blob this rule exists to stop. The chain is
+                  //   laid out along the shot, so its spacing is a length.
+  leadX: 0.86,    // the big cavity's position along the shot, as a fraction of length
+  leadR: 0.8,     // ...and its radius, as a fraction of the beam's half-width
+  leadA: 0.9,
+  frothX: [0.06, 0.86],  // the froth spans this fraction of the shot, claw end first
+  frothR: [0.12, 0.5],   // ...growing over that span, as a fraction of half-width
+  frothJitter: 0.6,      // ± this fraction of the froth radius, from the index hash
+  frothSpread: 0.7,      // how far off the centre line a froth bubble may sit, x half-width
+  alpha: [0.6, 0.96],    // claw end -> front
+  tint: 0xdff5ff,
+  tintHi: 0xffffff,      // every third bubble, so the chain is not one flat colour
 }
 
 // Night-thunderstorm overlay (skies chapter, v5.6.18, render.js updateStorm): three cosmetic,

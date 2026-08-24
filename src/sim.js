@@ -4025,35 +4025,22 @@ export function streamShafts(run) {
       // starves. Measured before this: 9.4% of a run spent in a pocket, against a fixture that
       // wants a field worth working.
       //
-      // Snapped ONTO the passage at its own position along the lane -- but OFFSET toward one wall
-      // by a hashed fraction, never onto the centre line. Centring them would make air free: you
-      // would collect it by flying the corridor, and this chapter's whole resource argument is that
-      // breathing costs you a commitment. Off-centre keeps the decision (which side do I hug) while
-      // making it a decision the player can actually act on.
+      // Snapped ONTO the passage at its own position along the lane, and free to sit anywhere
+      // across it (owner, 2026-08-24: "they don't have to be touching coral"). It used to be shoved
+      // out against a wall so that breathing cost a commitment to one side; the bar is now a
+      // pacing device rather than a puzzle, so the pocket takes a hashed cross position and the
+      // only clamp is that it stays off the rock.
       const caveSpec = lax && CHAPTERS[run.chapter].cave
       if (caveSpec) {
         const along = lax.fwd === 'x' ? bx : by
         const cav = caveAt(along, caveSpec, seed)
-        const side = obstacleCellHash(i, j, seed, (spec.salt ?? 40) + 7) < 0.5 ? -1 : 1
-        // Far enough off the centre line that its inner edge clears it, close enough in that its
-        // outer edge stays inside the wall. Both hold at the narrowest passage the field makes.
-        // 1.35 rather than 1.15: the passage centre MOVES as the player advances, so a fixture (or
-        // a player) holding the centre drifts a few pixels off it between frames. At 1.15 the
-        // pocket's inner edge sat 7px from the centre line and that drift was enough to clip it,
-        // which reads as air being free when it is not.
-        // 1.9 x the radius, NOT 1.35, and the extra pays for the passage WANDERING. The offset is
-        // measured against the centre at the POCKET's position along the lane; a player following
-        // that centre is at a different position, and between the two the centre can swing by tens
-        // of pixels (the shortest octave is 170px long against a 100px amplitude). At 1.35 that
-        // swing carried a centre-holding player into the pocket's edge for 18 frames of free air.
-        // 2.4 x the radius, and the multiplier is DERIVED rather than guessed. The passage centre's
-        // steepest slope is sum(weight_i x 2pi/len_i) x wander/sum(weight_i) = 1.29px per px, so
-        // over a pocket's own radius the centre can swing 62px -- more than the radius itself. The
-        // offset therefore has to clear r + 62, not r + a little. Guessing it at 1.35 and then 1.9
-        // left 18 and then 4 pockets sitting on the centre line, each one free air for a player who
-        // never commits to a side.
-        const room = Math.max(spec.r * 2.4, cav.hw - spec.r)
-        const cross = cav.c + side * room
+        // Slack, not a fixed offset: at the narrowest squeeze the field makes this collapses to 0
+        // and the pocket simply sits on the passage centre, which is the widest it can be and still
+        // be swimmable. The centre it is measured against is the one at the POCKET's own position
+        // along the lane, and that centre wanders by up to 1.29px per px travelled -- so a pocket
+        // near the edge of its slack can still touch a wall a moment later. That is cosmetic now.
+        const slack = Math.max(0, cav.hw - spec.r)
+        const cross = cav.c + (obstacleCellHash(i, j, seed, (spec.salt ?? 40) + 7) - 0.5) * 2 * slack
         if (lax.cross === 'x') bx = cross; else by = cross
       }
       if (!caveSpec && lax && Math.abs(lax.cross === 'x' ? bx : by) - spec.r > laneHW) continue // see the lane note above
@@ -11227,43 +11214,31 @@ function stepSunlanceWeapon(run, w, stats, fireRateMul, dt) {
 // function to keep out of this block.
 
 // PISTOL SHRIMP. A run.beams entry with rotSpeed 0, the Sunlance's idiom (a stab held on one
-// bearing, never a sweep), tagged look: 'snap'. The angle is the chapter's forward heading off
-// laneAxes(), exactly as firePulsar anchors its fan — so the cross stick is the whole of the aim
-// and sliding one groove to line three bodies onto one crack is the chapter's own lesson.
+// bearing, never a sweep), tagged look: 'snap'. The claw TRACKS: the crack goes at the nearest body
+// on screen (aimAngle, owner 2026-08-24), so what a level buys — width — is how many of a pack one
+// bolt lines up once it is already pointed at them.
 //
-// ⚠ THE NON-LANE BRANCH IS A FALLBACK, NOT A SECOND DESIGN. The card is scoped to The Reef's pool,
-// but devCards ignores every eligibility rule and BLANK_WEAPONS is a union of pools, so it can be
-// held where nothing scrolls. There 'straight ahead' has no meaning, so it takes p.facingAngle —
-// the direction you last MOVED — which keeps the weapon aimless, which is the point of it. It is
-// deliberately not aimAngle: nearestEnemy is the one thing this card must never read anywhere, or
-// the two chapters ship two different weapons under one name (the trap the Pulsar Sweep's own
-// comments walked into, documented at length in design-a-weapon).
+// aimAngle is the same call every other tracking weapon makes, which is what keeps this ONE weapon
+// in both places that can hold it (The Reef's pool, and blank/devCards, which ignore every
+// eligibility rule). With nothing on screen it falls through to p.facingAngle, and
+// stepPlayerMovement pins that to laneAxes().angle inside a lane — so an empty lane still cracks
+// straight ahead without this function naming the lane at all.
 function stepSnapWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.pistolShrimp?.quickSnap ?? 0
   fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireSnap(run, stats))
 }
 
 function fireSnap(run, stats) {
-  const ch = CHAPTERS[run.chapter]
   const p = run.player
-  // Both arms of this ternary happen to agree inside a lane today, because stepPlayerMovement
-  // PINS p.facingAngle to laneAxes().angle there. Read the descriptor anyway: that pinning is
-  // another function's decision about the player's SPRITE, and a weapon whose whole identity is
-  // 'it points down the lane' must not inherit its heading from it by luck.
-  const heading = ch.lane === true
-    ? laneAxes(ch).angle
-    : (p.facingAngle ?? (p.facing >= 0 ? 0 : Math.PI))
+  const heading = aimAngle(run)
   // THE REAR CRACK IS BASELINE (v7.x). A snapping shrimp's claw collapses a cavity, and a cavity
-  // collapses both ways; the mod below now buys its STRENGTH rather than its existence.
+  // collapses both ways; the mod below buys its STRENGTH rather than its existence.
   //   It is what the chapter's own geometry asks for. Measured over 6 seeded 300s runs at d3 on a
   // phone (scripts/reef-pileup.mjs): 53% of live bodies sit ASTERN of the player, because
   // laneScroll 90 ties the drone's own 90px/s and a damselfish can neither catch you nor fall
-  // behind. Every other card in this pool answers that — Squid Ink lands 91% of its damage astern,
-  // the Oxygen Tank 54%, Fire Coral 50% — and the starter landed 0.0%, in the slot the player
-  // holds for the whole opening.
-  //   THE THESIS IS UNTOUCHED, which is why this is the rear crack and not a turn: both cracks are
-  // welded to the lane heading, so the weapon still has no targeting of any kind and the cross
-  // stick is still the whole of the aim.
+  // behind. The aim points at ONE of them, so the crack opposite it is what keeps the other side of
+  // the corridor covered — shorter and softer (SNAP_BACKBLAST_LEN, backFrac), because a full-length
+  // second bolt would make the aim decide nothing.
   const backFrac = (run.weaponMods.pistolShrimp?.backblast ?? 0) > 0 ? SNAP_BACKBLAST_FULL_FRAC : SNAP_BACKBLAST_FRAC
   const push = (angle, dmg, length = stats.length) => run.beams.push({
     // `snapT` and not `duration`: the levels[] key is deliberately outside STAT_KEYS (see
@@ -11278,14 +11253,11 @@ function fireSnap(run, stats) {
     // The rear crack goes through ipecacAngles with the first one rather than being added after
     // it, so an Ipecac build multiplies BOTH — the alternative (forward only) would make the
     // anomaly quietly halve this weapon's coverage, which is fireBreaker's own ruling.
-    //   ⚠ IT IS SHORTER THAN THE FORWARD CRACK, AND THAT IS THE CARD'S PRICE, NOT A ROUNDING. The
-    // forward 340 is sized to clear the ~312 world px of lane a phone shows AHEAD; astern the
-    // player sees only 78px, and the lane deletes a seeker at seekerBack (~138px on that phone)
-    // whatever this weapon does. A rear line running the full 340 therefore spends most of its
-    // reach killing bodies that are off-screen and already leaving — free XP for a card whose
-    // whole subject is choosing a line, and measured as such: at 340 the census read 155.9
-    // kills/min at L1 against a pool topping out at 126.5, i.e. the starter as the chapter's best
-    // killer. Cut to what the player can actually SEE behind them, it lands back inside its band.
+    //   ⚠ IT IS SHORTER THAN THE FORWARD CRACK, AND THAT IS THE CARD'S PRICE, NOT A ROUNDING. At
+    // the full 340 the pair covers a 680px line through the player and the aim stops mattering:
+    // measured at that length the census read 155.9 kills/min at L1 against a pool topping out at
+    // 126.5, i.e. the starter as the chapter's best killer. Cut short, the back crack is a mop and
+    // the front one is the shot.
     push(a + Math.PI, stats.dmg * backFrac, SNAP_BACKBLAST_LEN)
   }
   // The event carries the geometry the renderer needs for the cavitation puff, rather than making

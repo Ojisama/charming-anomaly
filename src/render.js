@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -5188,6 +5188,18 @@ export function createRenderer(app) {
       // arm and a cavitation crack came out crimson — over a deep cold blue floor, the one
       // colour boiling water cannot be. Baked cold instead: a pure white core in a pale cyan
       // sheath, which is what a collapsing vapour cavity actually looks like from above.
+      // The Reef's Pistol Shrimp is the FOURTH weapon through run.beams, and it needed the fourth
+      // blade for the reason stated twice above: it is not `swept`, so it fell into the saber's
+      // arm and a cavitation crack came out crimson — over a deep cold blue floor, the one colour
+      // boiling water cannot be. Baked cold instead: a pure white core in a pale cyan sheath.
+      //
+      // ⚠ IT IS THE HAZE, NOT THE PICTURE, since the 2026-08-24 look round. The shape the player
+      // reads is the BUBBLE CHAIN drawn over it (snapBubbles below, real sprites in the rig's root)
+      // — and the reason the bubbles could not be baked into this bar is worth keeping: the bar is
+      // scaled ANISOTROPICALLY, b.length / T.beamRefLen along and b.width / T.beamRefWidth across,
+      // which at L5 is 0.85 x 3.25. Every circle in this texture arrives on screen as a 3.8:1 oval.
+      // Pre-squashing them does not help either, because that ratio moves with the ladder (0.88:1
+      // at L1). Anything round has to live outside this bake.
       T.beamSnap = blade(0x1d5c86, 0x6fc4e6, 0xdff5ff, 0xffffff)
       T.beamRefLen = len
       T.beamRefWidth = w
@@ -15233,9 +15245,25 @@ const spurG = new Graphics()
     muzzle.anchor.set(0.5)
     muzzle.tint = 0xff5a52 // emitter flash, same red as the tip
 
-    root.addChild(beamBody, tip, muzzle)
+    // Cavitation bubbles for the Pistol Shrimp (snapBubble above). In `root`, so they escape
+    // beamBody's anisotropic scale and stay ROUND at every level. Sized for the boil variant, the
+    // hungriest of the three; the others hide the tail of the array. Hidden by default — every
+    // other weapon through this pool leaves them off.
+    // T.bubble, NOT T.fx.circle_05, and bakeBubble's own comment is the argument: circle_05 is a
+    // Kenney glow — soft, filled, and at this size it reads as fog. It was tried here first and the
+    // chain vanished into the haze it was drawn over. T.bubble is mostly empty with a bright rim
+    // and one specular dot, which is what makes a bubble legible over a busy floor.
+    const bubbles = []
+    for (let k = 0; k < SNAP_CAVITY.max; k++) {
+      const sp = new Sprite(T.bubble.tex)
+      sp.anchor.set(0.5)
+      sp.visible = false
+      bubbles.push(sp)
+    }
+
+    root.addChild(beamBody, ...bubbles, tip, muzzle)
     beamLayer.addChild(root)
-    return { root, beamBody, bar, streakA, streakB, tip, muzzle }
+    return { root, beamBody, bar, streakA, streakB, tip, muzzle, bubbles }
   }
 
   function expandBeamArms(beams) {
@@ -20995,6 +21023,36 @@ const spurG = new Graphics()
       }
     }
   }
+  // THE PISTOL SHRIMP'S CAVITATION CHAIN. A froth of small bubbles at the claw growing along the
+  // shot into one big cavity at the far end — SNAP_CAVITY in config.js carries the numbers and the
+  // two warnings that matter (why there is no bar behind it, and why these are sprites rather than
+  // part of the bake). Real sprites in the beam rig's `root`, deliberately NOT in `beamBody`,
+  // which carries the bar's anisotropic scale and would turn every circle into an oval.
+  //
+  // Everything here is in the beam's LOCAL frame — x runs from the claw at 0 to the tip at
+  // b.length, y is across — so the rig's own rotation aims it. A pure function of its arguments:
+  // no state, no allocation per frame, and the same cast draws the same chain every frame it lives.
+  const snapBubbleCount = (len) =>
+    Math.max(3, Math.min(SNAP_CAVITY.max, Math.round(len / SNAP_CAVITY.gap)))
+
+  function snapBubble(k, n, len, w, ph) {
+    const C = SNAP_CAVITY
+    const R = w / 2
+    if (k === 0) return { x: len * C.leadX, y: 0, r: R * C.leadR, a: C.leadA }
+    // A hash of the index and the cast's own heading, NOT Math.random: a crack lives 0.14s and a
+    // per-frame draw would make the froth crawl instead of hanging in the water. `ph` is the beam
+    // ANGLE, which is what stops a cast's forward and rear cracks being the same stamp twice —
+    // they share a slot ordering but never a heading.
+    const h = (m) => { const v = Math.sin((k + 1) * m + ph * 12.9898) * 43758.5453; return v - Math.floor(v) }
+    const f = 1 - (k - 0.5) / (n - 1)          // 0 at the claw, 1 at the front
+    return {
+      x: len * (C.frothX[0] + (C.frothX[1] - C.frothX[0]) * f),
+      y: (h(3.1) - 0.5) * 2 * R * C.frothSpread * (0.35 + 0.65 * f),
+      r: R * (C.frothR[0] + (C.frothR[1] - C.frothR[0]) * f) * (1 - C.frothJitter / 2 + C.frothJitter * h(5.7)),
+      a: C.alpha[0] + (C.alpha[1] - C.alpha[0]) * f,
+    }
+  }
+
   function placeBeam(bv, b) {
     bv.root.position.set(playerX, playerY)
     bv.root.rotation = b.angle
@@ -21026,6 +21084,16 @@ const spurG = new Graphics()
     const pulse = 0.8 + 0.15 * Math.sin(animT * 20)
 
     bv.beamBody.scale.set(b.length / T.beamRefLen, (b.width / T.beamRefWidth) * spawnIn * pulse)
+    // THE PISTOL SHRIMP DRAWS NO BAR AT ALL (owner, 2026-08-24: "I don't like the white rectangle
+    // underneath all, remove it it looks too bright"). Its cavitation chain below IS the weapon;
+    // the blade behind it was a pale slab washing out the reef's own floor and every bubble drawn
+    // over it. beamBody carries the bar AND both shimmer streaks, so hiding the container is the
+    // whole edit — and the tip flare goes with it, since a flare hanging at the end of nothing
+    // reads as a stray sprite.
+    //   T.beamSnap is still baked and still assigned above: it is what the OTHER three beam looks
+    // fall through to, and the texture swap has to keep happening or a snap would leave its slot
+    // showing the last weapon's blade the next time one is drawn.
+    bv.beamBody.visible = !snap
     bv.beamBody.alpha = despawnOut
 
     // shimmer streaks scrolling along the beam's local (pre-scale) length
@@ -21036,12 +21104,30 @@ const spurG = new Graphics()
     // end-cap flare at the live tip (outside beamBody so width-squash doesn't distort it)
     bv.tip.position.x = b.length
     bv.tip.scale.set(fxScale(T.fx.flare_01, b.width * 1.3))
+    bv.tip.visible = !snap
     bv.tip.alpha = spawnIn * despawnOut * (0.7 + 0.2 * Math.sin(animT * 16))
 
     // origin flash: big pop on spawn, settles into a small idle spark, fades on despawn
     const muzzlePop = spawnIn < 1 ? lerp(0.2, 1.4, spawnIn) : 1
     bv.muzzle.scale.set(fxScale(T.fx.muzzle_02, b.width * 2.2) * muzzlePop)
     bv.muzzle.alpha = (spawnIn < 1 ? spawnIn : 0.55 + 0.15 * Math.sin(animT * 18)) * despawnOut
+
+    // The cavitation chain. `ph` is the beam's own angle rather than a pool index: the forward and
+    // rear cracks of one cast share a slot ordering but never a heading, so this is what stops the
+    // two of them being the same picture stamped twice.
+    const nBub = snap ? snapBubbleCount(b.length) : 0
+    for (let k = 0; k < bv.bubbles.length; k++) {
+      const sp = bv.bubbles[k]
+      if (k >= nBub) { sp.visible = false; continue }
+      const q = snapBubble(k, nBub, b.length, b.width, b.angle)
+      sp.visible = true
+      sp.position.set(q.x, q.y)
+      // The bake is 32px in radius, so the scale is just the wanted radius over that (the same
+      // conversion the vent stream does). fxScale is for the Kenney PNGs and is wrong here.
+      sp.scale.set((q.r / 32) * (0.6 + 0.4 * spawnIn))
+      sp.tint = k % 3 === 0 ? SNAP_CAVITY.tintHi : SNAP_CAVITY.tint
+      sp.alpha = q.a * despawnOut * spawnIn
+    }
   }
 
   // -------------------------------------------------------------------- idle

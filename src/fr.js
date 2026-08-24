@@ -1398,8 +1398,8 @@ const CONFIG = {
   // lines up already owns that, and two cards in Book 2 wearing one French name is the kind of
   // collision the dictionary cannot see (different keys, identical on screen).
   'Pistol Shrimp': 'Crevette-pistolet',
-  'Snaps a bolt of boiling water straight ahead, and a weaker one straight behind. It never turns to aim — line the shot up yourself.':
-    'Claque un jet d’eau bouillante droit devant, et un plus faible droit derrière. Elle ne vise jamais — c’est à toi de t’aligner.',
+  'Snaps a bolt of boiling water, and a weaker one out the other side.':
+    'Claque un jet d’eau bouillante, et un plus faible dans le dos.',
   'Fire Coral': 'Corail de Feu',
   'Wakes the stinging polyps on the coral ahead of you. Anything crossing a lit ridge burns; the gaps through it stay cold.':
     'Réveille les polypes urticants du corail devant toi. Tout ce qui traverse une crête allumée brûle ; les passages, eux, restent froids.',
