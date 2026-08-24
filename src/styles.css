@@ -627,7 +627,14 @@ body {
   transition: transform 0.1s;
 }
 .btn-pause:active { transform: translateY(2px) scale(0.95); }
-.xp-row { width: 100%; display: flex; align-items: center; gap: 8px; }
+/* max-width, the same cap .hp-wrap right above it already carries. Without one the flex:1 bar takes
+   the whole viewport, which is ~300px on a phone and 1776px on a desktop — a 10px-tall gold
+   hairline drawn clean across the middle of the play area, which reads as a rendering artefact
+   rather than as a meter. 400 is above any phone's row width, so this changes nothing there.
+   margin-right: auto goes WITH the cap: the hud screen centres its children, so a capped row that
+   does not claim the leftover space floats to the middle of the header, away from the HP bar it
+   belongs under. */
+.xp-row { width: 100%; max-width: 400px; margin-right: auto; display: flex; align-items: center; gap: 8px; }
 .lv-badge {
   padding: 3px 10px;
   border-radius: 999px;

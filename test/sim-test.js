@@ -123,7 +123,7 @@ import {
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_WAKE, burstWakeAt, DUST, dustVel, DROWN_TICK,
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
-  SPUR_DPS, SPUR_TICK, caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
+  SPUR_DPS, SPUR_TICK, caveAt, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
   SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, BREACH_R_MIN, BREACH_R_AT_FULL, tiredness,
   // v6.8 Trash Tornado rework (Run AA.d)
@@ -23101,10 +23101,24 @@ function testReefSpurScrape() {
       `run RS.a: the passage reaches ${spec.wander + spec.halfMax}px off centre against a corridor clamp at ${hw.toFixed(0)} — it leaves the lane, and the player is stopped by something that is not drawn`)
     assert.ok(spec.halfMin > PLAYER.radius * 2,
       `run RS.a: the passage narrows to ${spec.halfMin}px of half-width against a ${PLAYER.radius}px player — there has to be room to be in it without touching both walls`)
-    // NO OPEN WATER BEHIND THE CORAL. The owner named this twice; `fill` is what makes the wall
-    // opaque, and it has to beat the largest half-view the game can present on the cross axis.
-    assert.ok(spec.fill >= 760,
-      `run RS.a: coral is only drawn ${spec.fill}px past the passage — a wide screen then shows open water outside the cave, which is the one thing the wall exists to prevent`)
+    // NO OPEN WATER BEHIND THE CORAL, AT ANY SCREEN SIZE. The owner named this twice, and the
+    // previous guard here asserted `cave.fill >= 760` — a field NOTHING READ. It was green for two
+    // versions while the defect it describes was live on the other axis: the coral's draw window
+    // ALONG the lane was a flat 620px measured on a 390-wide phone, so a 1862px desktop (which sees
+    // 1490px ahead of the player) drew its cave wall to 620 and left 46% of the screen as open
+    // water. Both halves are asserted now — the span scales with the viewport, and render.js
+    // actually calls it.
+    for (const view of [390, 1280, 1862, 2560]) {
+      const span = laneDrawSpan(view, CHAPTERS.reef.spurs.spacing)
+      assert.ok(span.ahead >= view * LANE_CAMERA_FRAC,
+        `run RS.a: at a ${view}px view the coral is built ${span.ahead.toFixed(0)}px ahead of the player against ${(view * LANE_CAMERA_FRAC).toFixed(0)}px of visible lane — the cave wall stops short of the edge and the screen shows open water outside it`)
+      assert.ok(span.astern >= view * (1 - LANE_CAMERA_FRAC),
+        `run RS.a: at a ${view}px view the coral is built ${span.astern.toFixed(0)}px astern against ${(view * (1 - LANE_CAMERA_FRAC)).toFixed(0)}px of visible lane behind the player`)
+    }
+    assert.ok(laneDrawSpan(1862).ahead > laneDrawSpan(390).ahead * 4,
+      'run RS.a: laneDrawSpan does not scale with the viewport — if it has gone back to a constant, it is right on exactly one device')
+    assert.ok(CHAPTERS.reef.cave.fill === undefined,
+      'run RS.a: cave.fill is back — nothing reads it, and a knob with no consumer is one the next reader will tune and watch do nothing')
     // Every habit of the passage must be a RANGE. A single wavelength is a corrugation, and this
     // chapter has had regular pattern rejected on its art twice.
     assert.ok(spec.waves.length >= 3 && spec.widthWave.length >= 2,
@@ -23120,8 +23134,11 @@ function testReefSpurScrape() {
     //
     // A world cell index is the fix and this is its guard: the key must come from a floor of an
     // absolute position, and nothing in the placement may be hashed off drawF.
-    assert.ok(/const k0 = Math\.floor\(\(drawF - V\.drawWithin\) \/ step\)/.test(gsrc),
+    assert.ok(/const k0 = Math\.floor\(Math\.min\(lo, hi\) \/ step\)/.test(gsrc),
       'run RS.a: coral placement is no longer keyed on a world cell — if it is anchored to the player again, the whole reef re-randomises on every rebuild')
+    // The other half of the span guard above: the numbers are only right if render.js asks for them.
+    assert.ok(/const span = laneDrawSpan\(xAxis \? viewW\(\) : viewH\(\), /.test(gsrc),
+      'run RS.a: the coral draw window no longer reads the viewport — a constant here is a phone measurement applied to every screen, which is how half a desktop became open water')
     // ⚠ COMMENTS STRIPPED FIRST, AND THAT LINE IS LOAD-BEARING. This is a NEGATIVE lint, so the
     // prose explaining the defect it prevents matches it: the comment above syncSpurs' cell walk
     // names `hash(drawF ...)` as the thing that used to be wrong, and the check fired on its own
@@ -23210,7 +23227,7 @@ function testReefSpurScrape() {
   const caves = all.filter((id) => CHAPTERS[id].cave)
   assert.deepStrictEqual(caves, ['reef'],
     `run RS: ${caves.length} chapters declare a cave [${caves.join(', ')}] — this is The Reef's own geometry and nothing else reads caveAt`)
-  console.log(`PASS run RS (the cave): 1 of ${all.length} chapters declares one, a passage ${2 * spec.halfMin}-${2 * spec.halfMax}px wide wandering +/-${spec.wander} inside a ${2 * laneHalfWidth(reefRun().viewRadius, CHAPTERS.reef)}px corridor, coral filled ${spec.fill}px past it either side; steering down the middle for 120s touched the wall ${clean.touches} times and travelled ${clean.travelled.toFixed(0)}px, pressing one side for 20s touched it ${hit.touched} times for ${hit.paid} hp with a worst single-frame move of ${hit.worstJump.toFixed(1)}px (bounce ${CAVE_BOUNCE_PX}), and a held Burst passes straight through`)
+  console.log(`PASS run RS (the cave): 1 of ${all.length} chapters declares one, a passage ${2 * spec.halfMin}-${2 * spec.halfMax}px wide wandering +/-${spec.wander} inside a ${2 * laneHalfWidth(reefRun().viewRadius, CHAPTERS.reef)}px corridor, coral built ${laneDrawSpan(390, CHAPTERS.reef.spurs.spacing).ahead.toFixed(0)}px ahead on a phone and ${laneDrawSpan(1862, CHAPTERS.reef.spurs.spacing).ahead.toFixed(0)}px on a 1862px desktop; steering down the middle for 120s touched the wall ${clean.touches} times and travelled ${clean.travelled.toFixed(0)}px, pressing one side for 20s touched it ${hit.touched} times for ${hit.paid} hp with a worst single-frame move of ${hit.worstJump.toFixed(1)}px (bounce ${CAVE_BOUNCE_PX}), and a held Burst passes straight through`)
 }
 
 function testReefNatives() {
