@@ -2131,10 +2131,18 @@ body {
   color: var(--ink);
   user-select: text;
   -webkit-user-select: text;
-  overflow-wrap: anywhere;
+  /* pre-line, not anywhere: codeLinesHtml decides where the break goes so it lands on a group
+     boundary. Left to the browser at 320px it broke after a hyphen, mid-group. */
+  white-space: pre-line;
+  line-height: 1.5;
 }
 
 .sync-msg { color: var(--ink-soft); font-weight: 700; }
+/* Unlink sits directly above the sheet's own Done, same width, same soft style — shot at 320px
+   the two were indistinguishable at a glance and a miss un-pairs the device. Coloured text on a
+   soft button rather than .btn--danger's filled red: unlinking is RECOVERABLE (the cloud row is
+   untouched and the same code re-pairs), so it wants to be distinguishable, not alarming. */
+.sync-danger { color: var(--danger); }
 /* The bearer-token warning and "the other one is deleted" — true, load-bearing, and not the thing
    the eye should land on first. */
 .sync-fine { font-size: 0.76rem; color: var(--ink-soft); }
@@ -2182,6 +2190,43 @@ body {
 }
 .sync-card-sub { font-size: 0.76rem; font-weight: 700; color: var(--ink-soft); }
 .sync-card-stars { display: inline-flex; font-size: 0.5rem; line-height: 1; flex: none; }
+
+/* SHORT LANDSCAPE (568x320). Shot there, the second card's button AND `Decide later` — the only
+   exit — both sat below the fold. .confirm-sheet does scroll, but styles.css already records
+   that its overflow-y is a documented failure fallback rather than headroom to spend, and a
+   modal that makes an irreversible choice must never hide one of its options: a player in
+   landscape saw one button and no way out.
+   Two cards genuinely do not fit 288px of budget however tightly they are packed (measured:
+   ~109px each at the smallest legible size, against a 288px budget that also owes a title, a
+   warning line and an exit). So the scroll stays and the EXIT is pinned to the bottom of it,
+   which is the property that actually matters. Not a screen-level class, so run SP's
+   never-re-declare-position rule does not apply. */
+.conflict-sheet .confirm-sheet-actions {
+  position: sticky;
+  bottom: -2px;
+  /* NOT margin-top:auto — it does nothing once the content overflows (which is the only case
+     this rule exists for) and opens a gap when it does not. */
+  padding: 8px 0 2px;
+  background: linear-gradient(to top, var(--cream) 72%, transparent);
+}
+/* A sticky bar OVERLAYS what it pins over, so without this the last thing in the scroll — the
+   cloud card's own button — is permanently underneath it and can never be scrolled clear.
+   Measured at 568x320: sheet 288px against 448px of content.
+   TARGETED BY POSITION, not by class: `:last-of-type` reads TYPE, and the last `div` in this
+   sheet is the actions row itself, so `.sync-card:last-of-type` matched nothing at all and the
+   rule was inert (scrollHeight never moved off 448 — which is how it was caught). nth-last-child
+   also covers the try/catch fallback branch, where the element above the actions is a <p> and
+   there are no cards. */
+@media (max-height: 460px) {
+  /* Buy back what can be bought back, so there is less to scroll rather than more. */
+  .sync-card { padding: 6px 10px; gap: 3px; }
+  .sync-card .btn { padding: 6px 10px; }
+  /* SCOPED TO THE SHORT VIEWPORTS THAT ACTUALLY OVERFLOW. Applied unconditionally the spacer
+     pushed 320x568 PORTRAIT from 509px of content to 553px against a 536px budget — inventing
+     a scroll on the one viewport that fitted, to solve a problem that only exists when the bar
+     is sticking. Measured both ways. */
+  .conflict-sheet .confirm-sheet > *:nth-last-child(2) { margin-bottom: 44px; }
+}
 
 /* ---- Repulsion skill button (v5.21, lane chapters only) ---------------------------------------
    Bottom-RIGHT, mirroring the floating joystick's usual thumb: the lane is strafe-only, so the left

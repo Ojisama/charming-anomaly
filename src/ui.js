@@ -1312,6 +1312,12 @@ export function initUI(hooks) {
       if (abs < 60) return rtf.format(Math.min(0, secs), 'second')
       if (abs < 3600) return rtf.format(Math.min(0, Math.round(secs / 60)), 'minute')
       if (abs < 86400) return rtf.format(Math.min(0, Math.round(secs / 3600)), 'hour')
+      // A DAY TIER, and it is not cosmetic. Without it a 26-hour-old save renders as an
+      // absolute date beside a relative one — shot at 320px, the conflict prompt read
+      // "8 minutes ago" against "8/23/2026", on the one screen whose whole job is comparing
+      // those two values. numeric:'auto' also turns -1 into "yesterday", which is what the
+      // design's own mock of this card shows.
+      if (abs < 7 * 86400) return rtf.format(Math.min(0, Math.round(secs / 86400)), 'day')
       return new Date(ms).toLocaleDateString(getLang())
     } catch { return new Date(ms).toLocaleDateString() }
   }
@@ -1393,18 +1399,30 @@ export function initUI(hooks) {
 
     if (syncView === 'uploading') return `<p class="confirm-sheet-body">${t('Uploading…')}</p>`
 
-    // §5.1: the code appears ONLY after the upload is ACKed. Show it earlier and the player walks to
-    // the laptop, types all sixteen characters correctly, and is told the code is wrong.
-    if (syncView === 'ready' || (st.on && syncView === 'home')) {
+    // §5.1: the code appears ONLY after the upload is ACKed. Show it earlier and the player walks
+    // to the laptop, types all sixteen characters correctly, and is told the code is wrong.
+    if (syncView === 'ready') {
       return `
-        <p class="confirm-sheet-body">${esc(syncStatusLine())}</p>
         <p class="confirm-sheet-body">${t('Ready — enter this code on your other device')}</p>
-        <p class="sync-code">${esc(groupCodeText(st.code))}</p>
+        <p class="sync-code">${esc(codeLinesHtml(st.code))}</p>
         <div class="sync-actions">
           <button class="btn btn--small" data-act="sync-copy">${syncCopied ? t('Copied') : t('Copy code')}</button>
-          <button class="btn btn--soft btn--small" data-act="sync-unlink">${t('Unlink')}</button>
         </div>
         <p class="confirm-sheet-body sync-fine">${t('Anyone with this code can read and change this save.')}</p>`
+    }
+
+    // LINKED, STEADY. The code is behind a tap rather than on the face of the sheet: it is a
+    // bearer token with no revocation short of re-pairing (§10), and the everyday reason to open
+    // this sheet is to check that sync is working, not to read the code out. Revealing it is also
+    // §9.5's fifth cost paid — a player whose pairing was interrupted by a tab switch gets the
+    // code back rather than restarting the flow, because it has been on disk since link().
+    if (st.on) {
+      return `
+        <p class="confirm-sheet-body">${esc(syncStatusLine())}</p>
+        <div class="sync-actions">
+          <button class="btn btn--soft btn--small" data-act="sync-reveal">${t('Show code')}</button>
+          <button class="btn btn--soft btn--small sync-danger" data-act="sync-unlink">${t('Unlink')}</button>
+        </div>`
     }
 
     if (syncView === 'enter') {
@@ -1430,6 +1448,15 @@ export function initUI(hooks) {
 
   // Display grouping lives here rather than in sync.js's groupCode because this is presentation.
   const groupCodeText = (code) => String(code ?? '').replace(/(.{4})(?=.)/g, '$1-')
+
+  // TWO LINES OF TWO GROUPS, decided here rather than left to the browser. Shot at 320px the
+  // single line wrapped as "A7K3-9WQM-2FTX-" / "B4NE", which breaks a group across a line ending
+  // in a hyphen — on the one string in this game that gets transcribed by hand or read aloud
+  // across a room, and where a dropped character costs the player the whole flow.
+  function codeLinesHtml(code) {
+    const g = groupCodeText(code).split('-')
+    return g.length === 4 ? `${g[0]}-${g[1]}\n${g[2]}-${g[3]}` : groupCodeText(code)
+  }
 
   // ---- the conflict prompt (§7.2) --------------------------------------------------------------
   // ONE COMPONENT, TWO ENTRY CONTEXTS. They differ only in heading — the rows, the data, the buttons
@@ -3521,6 +3548,12 @@ export function initUI(hooks) {
         syncView = 'home'
         syncDraft = ''
         syncCloud = null
+        playSfx('click')
+        renderTitle()
+        break
+      case 'sync-reveal':
+        syncView = 'ready'
+        syncCopied = false
         playSfx('click')
         renderTitle()
         break
