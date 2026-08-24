@@ -149,7 +149,7 @@ import {
   CRAB_GUARD_T,
   CRAB_OPEN_T,
   CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
-  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
+  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes, CIRCUIT_ACCEL,
   caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK,
   LANE_CRUSH_DPS, LANE_CRUSH_TICK,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
@@ -781,7 +781,44 @@ function stepPlayerMovement(run, input, dt) {
     const fwdIn = Math.max(-1, Math.min(1, (ax.fwd === 'x' ? ix : iy) * ax.dir))
     run._laneThrottle = thr ? 1 + fwdIn * (fwdIn >= 0 ? thr.max - 1 : 1 - thr.min) : 1
     p[ax.vCross] = (ax.cross === 'x' ? ix : iy) * speed * LANE_STRAFE_MUL
-    p[ax.vFwd] = ax.dir * laneScrollFor(CHAPTERS[run.chapter], run.mods) * burstMul * run._laneThrottle
+    // MOMENTUM (v7.x, a `circuit` chapter only — see CIRCUIT_ACCEL). The throttle stops BEING the
+    // speed and starts being the speed you are asking for; run._laneSpeed eases toward it. Gated on
+    // `circuit` and never on `lane`, so The Beyond keeps its golden master by construction.
+    //
+    // SEEDED AT THE TARGET, NOT AT 0, and that is not a nicety: a run that eases up from a standstill
+    // spends its first half-second travelling slower than the lane it is scored against, which would
+    // silently tax every lap 1 in the game and show up as a mystery split.
+    // THE BURST IS NOT SUBJECT TO MOMENTUM, and that is a statement about what each one models
+    // rather than a tuning convenience. Momentum is the weight of your own swimming: lean into it
+    // and you gather speed, ease off and you shed it. A burst is an IMPULSE — you do not accelerate
+    // into a dash, the dash is the acceleration. So the ease targets the throttle alone and the
+    // multiplier lands on top of the result.
+    //   Folding the burst into the eased target instead breaks the dash outright, and quietly: at
+    // BURST_SPEED_MUL 9 the target leaps to 810px/s, which at CIRCUIT_ACCEL takes 1.7s to reach,
+    // while an empty press lasts BURST_DUR_MIN 0.3s. Run RF.d measured the result at 42px against
+    // the 206px the button promises — the dash was still "firing", just never arriving.
+    const want = laneScrollFor(CHAPTERS[run.chapter], run.mods) * run._laneThrottle
+    if (CHAPTERS[run.chapter].circuit) {
+      // SEEDED AT THE CHAPTER'S OWN SCROLL — not at 0, and not at `want`.
+      //   Not 0: a run easing up from a standstill travels slower than the lane it is scored
+      // against for its first half-second, taxing every lap 1 and showing up as a mystery split.
+      //   Not `want`: that hands the FIRST FRAME of input for free, so a stick already pushed at
+      // t=0 is at x3 before momentum exists. One frame is nothing to play but it is exactly the
+      // sort of edge a time board eventually finds, and it made run RS.e green for the wrong
+      // reason — the old assertion demanded x3 after a single frame and got it from this seed
+      // rather than from the throttle.
+      if (run._laneSpeed == null) run._laneSpeed = laneScrollFor(CHAPTERS[run.chapter], run.mods)
+      // Toward `want` at a fixed px/s^2, never past it — a clamped step rather than a lerp, so the
+      // ramp takes the same time whatever the frame rate and cannot overshoot on a long dt. stepSim
+      // clamps dt to 0.05s, so the largest single step is 21px/s.
+      const step = CIRCUIT_ACCEL * dt
+      run._laneSpeed = run._laneSpeed < want
+        ? Math.min(want, run._laneSpeed + step)
+        : Math.max(want, run._laneSpeed - step)
+      p[ax.vFwd] = ax.dir * run._laneSpeed * burstMul
+    } else {
+      p[ax.vFwd] = ax.dir * want * burstMul
+    }
     if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
   } else if ((run._lungeT ?? 0) > 0) {
     // THE LUNGE (v7.x, The Wreck). The free-roaming twin of the burst above, and it has to live in
@@ -1658,7 +1695,18 @@ function stepLaneFront(run, dt) {
   // x run._laneThrottle: the player's own hand on the scroll (stepPlayer, one call earlier this
   // step). The front is the crush edge and the camera anchor, so easing off has to slow IT or the
   // level would not slow down at all — you would simply be left behind by a lane still running 90.
-  let front = Math.max(along(run._laneFront ?? 0) + laneScrollFor(ch, run.mods) * (run._laneThrottle ?? 1) * dt, along(p[ax.fwd]))
+  // In a `circuit` the front advances at the speed the player is ACTUALLY travelling, not the one
+  // they are asking for. Momentum put those two apart: the throttle is the request, run._laneSpeed
+  // is what it has become. Left reading the throttle, the front would leap to x3 the instant the
+  // stick moved while the player was still gathering speed behind it — the lag would grow out of
+  // the ramp itself, and the crush edge would bill you for accelerating.
+  //   This does NOT re-tie the front to the player's POSITION, which is the invariant this function
+  // exists for: _laneSpeed is a rate, so a player stopped dead against coral still watches the lane
+  // leave without them.
+  const rate = ch.circuit && run._laneSpeed != null
+    ? run._laneSpeed
+    : laneScrollFor(ch, run.mods) * (run._laneThrottle ?? 1)
+  let front = Math.max(along(run._laneFront ?? 0) + rate * dt, along(p[ax.fwd]))
   // A chapter with nothing that can stop the player never separates from them, so it keeps exactly
   // the old behaviour by construction rather than by a flag: The Beyond's front IS its player.
   if (!solid) { run._laneFront = front * ax.dir; run._crushing = false; return false }

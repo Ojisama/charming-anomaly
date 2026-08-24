@@ -84,7 +84,7 @@ import {
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
-  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
+  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, CIRCUIT_ACCEL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
@@ -18810,6 +18810,7 @@ run(testLeLargeWeapons)
   run(testReefPassiveCrowd)
   run(testReefAirBurst)
   run(testReefSpurScrape)
+  run(testReefLap)
   run(testReefNatives)
   run(testReefPool)
   run(testWreckBloodlust)
@@ -22867,9 +22868,29 @@ function testLaneAxis() {
     const steps = Math.round(2 / dt)
     const f0 = run._laneFront ?? x0
     for (let i = 0; i < steps; i++) { stepSim(run, { x: -1, y: 0 }, dt); run.events.length = 0 }
-    const want = laneScrollFor(CHAPTERS.reef) * CHAPTERS.reef.laneThrottle.min * steps * dt
-    assert.ok(Math.abs((run._laneFront - f0) - want) < 1e-6,
-      `expected the reef's LANE FRONT to advance +x at its own laneScroll (${laneScrollFor(CHAPTERS.reef)}) eased off to laneThrottle.min x${CHAPTERS.reef.laneThrottle.min}, moved ${(run._laneFront - f0).toFixed(3)} vs ${want.toFixed(3)}`)
+    // THE RAMP IS PART OF THE ANSWER NOW. This chapter is a `circuit`, so easing off does not drop
+    // the speed the same frame — it sheds it at CIRCUIT_ACCEL, and the distance covered while
+    // shedding is real travel the front has to account for. Settled rate x time UNDERSTATES it by
+    // exactly the area of that ramp, so the check is against both, not against a magic number:
+    //   floor  the settled rate alone (what an instant throttle would have given)
+    //   extra  (v0 - v1)^2 / (2 a), the triangle the ease adds on top
+    const v0 = laneScrollFor(CHAPTERS.reef), v1 = v0 * CHAPTERS.reef.laneThrottle.min
+    const floorPx = v1 * steps * dt
+    const rampPx = ((v0 - v1) ** 2) / (2 * CIRCUIT_ACCEL)
+    const moved = run._laneFront - f0
+    assert.ok(moved > floorPx && Math.abs(moved - (floorPx + rampPx)) < 1,
+      `expected the reef's LANE FRONT to advance +x at its own laneScroll (${v0}) eased off to laneThrottle.min x${CHAPTERS.reef.laneThrottle.min} — ${floorPx.toFixed(3)}px settled plus ${rampPx.toFixed(3)}px of CIRCUIT_ACCEL ramp — moved ${moved.toFixed(3)} vs ${(floorPx + rampPx).toFixed(3)}`)
+    // ...and the front is still on its OWN clock rather than on the player's progress, which is the
+    // invariant this whole block exists for. In a circuit the two travel together by design, so the
+    // proof is that the front keeps moving when the player CANNOT: pin the player and step again.
+    {
+      const rax = laneAxes(CHAPTERS.reef)
+      const pinned = run.player[rax.fwd]
+      const fBefore = run._laneFront
+      for (let i = 0; i < 10; i++) { run.player[rax.fwd] = pinned; stepSim(run, { x: -1, y: 0 }, dt); run.events.length = 0 }
+      assert.ok((run._laneFront - fBefore) * rax.dir > 0,
+        'the reef LANE FRONT stopped when the player did — it must advance on its own clock, or being blocked by coral would cost nothing and the crush edge would be decorative')
+    }
     {
       // The same two seconds on a neutral stick: exactly the chapter's own scroll, which is the
       // number every other constant in this chapter is measured against.
@@ -23468,7 +23489,7 @@ function testReefSpurScrape() {
   // feature existing on one of the two clocks: throttle the player alone and the lane front (the
   // crush edge AND the camera) keeps running at 90, so easing off does not slow the level down, it
   // feeds you to the back edge. `crush` damage at half throttle is that bug, stated as HP.
-  let thr = null
+  let thr = null, ramp = null
   {
     const T = CHAPTERS.reef.laneThrottle
     assert.ok(T && T.max > 1 && T.min > 0 && T.min < 1,
@@ -23504,12 +23525,45 @@ function testReefSpurScrape() {
       `run RS.e: easing off cost ${back.crush} hp of CRUSH — the lane front is still advancing at the full scroll, so slowing down is not slowing the level down, it is being left behind by it`)
     // The velocity itself, on a stick with no cross component at all, so the unit-circle clamp is
     // not quietly scaling the number this asserts.
+    //
+    // STEADY STATE, NOT ONE FRAME. This chapter is a `circuit`, so the throttle no longer reaches
+    // the velocity the frame it is pushed — CIRCUIT_ACCEL eases toward it. Asserting the target
+    // after a single step is asserting the absence of momentum, which is why that older form of
+    // this check had to go. It also passed for the wrong reason for one commit: _laneSpeed used to
+    // seed at the target, so frame 1 hit x3 through the seed rather than through the stick.
+    const settle = Math.round(2 / dt)   // 2s — comfortably past (270-90)/420 = 0.43s
     for (const [fwdIn, want] of [[1, T.max], [-1, T.min], [0, 1]]) {
       const run = reefRun()
-      stepSim(run, stick(0, fwdIn * LAX.dir), dt)
+      for (let i = 0; i < settle; i++) { stepSim(run, stick(0, fwdIn * LAX.dir), dt); run.events.length = 0 }
       assert.ok(Math.abs(run.player[LAX.vFwd] * LAX.dir - nominal * want) < 1e-6,
-        `run RS.e: a ${fwdIn} forward stick gives ${(run.player[LAX.vFwd] * LAX.dir).toFixed(2)}px/s against the ${(nominal * want).toFixed(2)} laneThrottle {min ${T.min}, max ${T.max}} asks for`)
+        `run RS.e: a ${fwdIn} forward stick settles at ${(run.player[LAX.vFwd] * LAX.dir).toFixed(2)}px/s against the ${(nominal * want).toFixed(2)} laneThrottle {min ${T.min}, max ${T.max}} asks for`)
       assert.ok(Math.abs(run._laneThrottle - want) < 1e-6, 'run RS.e: run._laneThrottle disagrees with the velocity it produced — stepLaneFront reads that field, so the camera and the crush edge would run at a rate the player is not travelling at')
+    }
+    // ...and that getting there TAKES TIME, which is the whole of momentum. Without this the only
+    // thing above proves is that the throttle arrives eventually, which a zero-accel build also
+    // satisfies. Measured against CIRCUIT_ACCEL's own arithmetic rather than an eyeballed window.
+    {
+      const run = reefRun()
+      stepSim(run, stick(0, LAX.dir), dt)          // one frame of FULL forward push
+      const v1 = run.player[LAX.vFwd] * LAX.dir
+      assert.ok(v1 > nominal && v1 < nominal * T.max - 1,
+        `run RS.e: one frame of full push already gives ${v1.toFixed(2)}px/s of a possible ${(nominal * T.max).toFixed(2)} — the throttle is reaching the velocity instantly, so CIRCUIT_ACCEL is not being applied and this chapter has no momentum`)
+      assert.ok(Math.abs(v1 - (nominal + CIRCUIT_ACCEL * dt)) < 1e-6,
+        `run RS.e: the first frame moved the speed to ${v1.toFixed(3)} rather than the ${(nominal + CIRCUIT_ACCEL * dt).toFixed(3)} a ${CIRCUIT_ACCEL}px/s^2 ramp from the chapter's own ${nominal} gives — the seed or the step has drifted from CIRCUIT_ACCEL`)
+      let frames = 1
+      while (run.player[LAX.vFwd] * LAX.dir < nominal * T.max - 1e-6 && frames < settle) { stepSim(run, stick(0, LAX.dir), dt); run.events.length = 0; frames++ }
+      const secsToTop = frames * dt, ideal = (nominal * T.max - nominal) / CIRCUIT_ACCEL
+      assert.ok(Math.abs(secsToTop - ideal) < 2 * dt,
+        `run RS.e: full throttle took ${secsToTop.toFixed(3)}s to arrive against the ${ideal.toFixed(3)}s CIRCUIT_ACCEL ${CIRCUIT_ACCEL} implies`)
+      ramp = { v1, secsToTop, ideal }
+    }
+    // The Beyond has no `circuit`, so momentum must not have followed the lane flag over to it.
+    {
+      const bax2 = laneAxes(CHAPTERS.beyond)
+      const r = (() => { Math.random = mulberry32(11); const x = createRun(meta, { chapter: 'beyond', difficulty: 1 }); x.mods.spawnMul = 0; return x })()
+      stepSim(r, bax2.cross === 'x' ? { x: 0, y: -1 } : { x: -1, y: 0 }, dt)
+      assert.strictEqual(r._laneSpeed, undefined,
+        'run RS.e: The Beyond grew a _laneSpeed — momentum is keyed off `circuit` precisely so a chapter that is merely `lane` cannot inherit it, and The Beyond is a shipped golden master')
     }
     // And no other lane chapter is touched: The Beyond declares no throttle, so its own golden
     // master cannot move whatever this stick does.
@@ -23593,7 +23647,80 @@ function testReefSpurScrape() {
   assert.deepStrictEqual(caves, ['reef'],
     `run RS: ${caves.length} chapters declare a cave [${caves.join(', ')}] — this is The Reef's own geometry and nothing else reads caveAt`)
   console.log(`PASS run RS (the cave): 1 of ${all.length} chapters declares one, a passage ${2 * spec.halfMin}-${2 * spec.halfMax}px wide wandering +/-${spec.wander} inside a ${2 * laneHalfWidth(reefRun().viewRadius, CHAPTERS.reef)}px corridor, coral built ${laneDrawSpan(390, CHAPTERS.reef.spurs.spacing).ahead.toFixed(0)}px ahead on a phone and ${laneDrawSpan(1862, CHAPTERS.reef.spurs.spacing).ahead.toFixed(0)}px on a 1862px desktop; following it for 120s touched the wall ${clean.touches} times and travelled ${clean.travelled.toFixed(0)}px, pressing one side for 20s touched it ${hit.touched} times for ${hit.paid} hp with a worst single-frame move of ${hit.worstJump.toFixed(1)}px (bounce ${CAVE_BOUNCE_PX}), and a held Burst passes straight through`)
-  console.log(`PASS run RS.e/f (the throttle and the fork): 60s of lane travelled ${thr.back.toFixed(0)}/${thr.idle.toFixed(0)}/${thr.fwd.toFixed(0)}px eased-off/neutral/pushed (laneThrottle x${CHAPTERS.reef.laneThrottle.min}..x${CHAPTERS.reef.laneThrottle.max}, 0 crush hp for easing off, The Beyond unmoved); ${fork.islands} islands over 60000px = one every ${fork.everyPx.toFixed(0)}px (${(fork.everyPx / laneScrollFor(CHAPTERS.reef)).toFixed(1)}s), ${(fork.share * 100).toFixed(0)}% of the lane forked, widest ${fork.maxPh.toFixed(0)}px against a tightest branch of ${fork.minBranch.toFixed(0)}px, and both sides flown clean for 90s`)
+  console.log(`PASS run RS.e/f (the throttle and the fork): 60s of lane travelled ${thr.back.toFixed(0)}/${thr.idle.toFixed(0)}/${thr.fwd.toFixed(0)}px eased-off/neutral/pushed (laneThrottle x${CHAPTERS.reef.laneThrottle.min}..x${CHAPTERS.reef.laneThrottle.max}, 0 crush hp for easing off, The Beyond unmoved); momentum ramps one frame to ${ramp.v1.toFixed(1)}px/s and reaches full throttle in ${ramp.secsToTop.toFixed(2)}s against CIRCUIT_ACCEL's own ${ramp.ideal.toFixed(2)}s, and The Beyond grows no _laneSpeed at all; ${fork.islands} islands over 60000px = one every ${fork.everyPx.toFixed(0)}px (${(fork.everyPx / laneScrollFor(CHAPTERS.reef)).toFixed(1)}s), ${(fork.share * 100).toFixed(0)}% of the lane forked, widest ${fork.maxPh.toFixed(0)}px against a tightest branch of ${fork.minBranch.toFixed(0)}px, and both sides flown clean for 90s`)
+}
+
+// ---- run RL: The Reef's cave repeats every lap (config.js's own `waves`/`branch.every`/`lapLen`
+// comment names this check by number — "Run RL asserts it") --------------------------------------
+// caveAt is pure: c and hw are sums of sines whose wavelengths all divide lapLen, so they repeat on
+// their own once every wavelength is a divisor — nothing here wraps `f`. The fork (`ph`) is the one
+// field that needs an explicit wrap, because it hashes a cell index (floor(f / branch.every)) that
+// keeps climbing forever otherwise; config.js:9484-9491 documents the 57px island discrepancy that
+// shipped before that wrap existed. A track that silently fails to repeat reads as a rendering bug,
+// not a circuit — and nothing else in this suite samples caveAt across a lap boundary at all.
+function testReefLap() {
+  const spec = CHAPTERS.reef.cave
+  const LAP = spec.lapLen
+  const SEEDS = [1, 7, 20260824]
+  const STEP = 3
+
+  // THE THRESHOLD, AGAINST A MEASURED SCALE, NOT AN EYEBALL. Floating-point noise from summing
+  // phase-shifted sines tops out around 1e-12 (measured against this exact sweep). A real
+  // discontinuity — a wavelength that doesn't divide lapLen, or an unwrapped fork cell — moves c or
+  // ph by tens to low hundreds of px: config.js's own comment reports 173.1/20.6 against the OLD
+  // (non-divisor) 900/380/170 lengths, and this scenario's own mutation-proof script (run outside
+  // the tree, never touching src/) reproduced 118.9 (a re-broken wavelength) and 58.2 (an unwrapped
+  // fork — within 2% of that same 57px historical figure). 1e-6 sits six-plus orders of magnitude
+  // above the noise floor and six below the smallest real defect measured, so it cannot be
+  // satisfied by rounding and cannot miss the pathology it exists to catch.
+  const EPS = 1e-6
+
+  // (a) EVERY PERIOD DIVIDES THE LAP. The constraint config.js calls "the single hardest" in the
+  // whole design, and the one a future retune is most likely to break by hand. Fails with the
+  // actual numbers named, not a downstream epsilon mismatch nobody could trace back to this.
+  const periods = [...spec.waves.map(([len]) => len), ...spec.widthWave.map(([len]) => len), spec.branch.every]
+  const nonDivisors = periods.filter((p) => LAP % p !== 0)
+  assert.deepStrictEqual(nonDivisors, [],
+    `run RL.a: period(s) [${nonDivisors.join(', ')}] do not divide lapLen ${LAP} (${nonDivisors.map((p) => `${LAP} % ${p} = ${LAP % p}`).join(', ')}) — a wavelength that doesn't divide the lap puts a seam at the start line, which the player crosses four times a race and is looking at`)
+
+  // (b) THE FIELD REPEATS, swept every ${STEP}px across a full lap at three seeds, lap 1 against
+  // BOTH lap 2 and lap 4 — a bug that only shows up two laps out (a hash rolled off an index that
+  // climbs by more than one lapLen per step) would pass a lap-1-vs-lap-2 check alone and never
+  // surface before the player's third or fourth crossing.
+  const sweep = (lapsAhead, fFrom, fTo) => {
+    let maxDc = 0, maxDhw = 0, maxDph = 0, n = 0
+    for (const seed of SEEDS) {
+      for (let f = fFrom; f < fTo; f += STEP) {
+        const a = caveAt(f, spec, seed)
+        const b = caveAt(f + lapsAhead * LAP, spec, seed)
+        maxDc = Math.max(maxDc, Math.abs(a.c - b.c))
+        maxDhw = Math.max(maxDhw, Math.abs(a.hw - b.hw))
+        maxDph = Math.max(maxDph, Math.abs(a.ph - b.ph))
+        n++
+      }
+    }
+    return { maxDc, maxDhw, maxDph, n }
+  }
+  const lap2 = sweep(1, 0, LAP)
+  const lap4 = sweep(3, 0, LAP)
+  // (c) BEHIND THE ORIGIN TOO. The player can fall back of f=0 (a slow start, a crash under the
+  // circuit's momentum), and caveAt has no special case for f<0 — if the wrap or a sine's phase
+  // ever silently assumed f>=0, this is the only place that would show it.
+  const behind = sweep(1, -LAP * 1.5, -LAP * 0.5)
+
+  for (const [label, r] of [['lap 1 vs lap 2', lap2], ['lap 1 vs lap 4', lap4], ['behind the origin (f<0)', behind]]) {
+    assert.ok(r.maxDc < EPS,
+      `run RL.b: ${label} — max|Δc| ${r.maxDc.toExponential(2)} over ${r.n} samples exceeds ${EPS} — the passage centreline does not repeat every lap`)
+    assert.ok(r.maxDhw < EPS,
+      `run RL.b: ${label} — max|Δhw| ${r.maxDhw.toExponential(2)} over ${r.n} samples exceeds ${EPS} — the passage width does not repeat every lap`)
+    assert.ok(r.maxDph < EPS,
+      `run RL.b: ${label} — max|Δph| ${r.maxDph.toExponential(2)} over ${r.n} samples exceeds ${EPS} — the fork island does not repeat every lap (an unwrapped branch cell is exactly this failure)`)
+  }
+
+  console.log(`PASS run RL (the lap repeats): ${periods.length} periods [${periods.join(', ')}] all divide lapLen ${LAP}; ` +
+    `${lap2.n} samples/comparison x 3 comparisons (lap1-vs-lap2, lap1-vs-lap4, behind the origin) x 3 seeds held every ` +
+    `field to ${EPS} against a measured noise floor of max|Δc| ${Math.max(lap2.maxDc, lap4.maxDc, behind.maxDc).toExponential(2)}, ` +
+    `max|Δhw| ${Math.max(lap2.maxDhw, lap4.maxDhw, behind.maxDhw).toExponential(2)}, max|Δph| ${Math.max(lap2.maxDph, lap4.maxDph, behind.maxDph).toExponential(2)}`)
 }
 
 function testReefNatives() {

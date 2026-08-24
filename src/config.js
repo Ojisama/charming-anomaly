@@ -6860,6 +6860,14 @@ CHAPTERS.reef = {
   //   ratio — scripts/charge-probe.mjs --chapter reef is the rig, and its `pocket` lane policy
   //   would need a throttle to sweep before any number here can be quoted.
   laneThrottle: { min: 0.5, max: 3 },
+  // THE CHAPTER IS A CIRCUIT. The cave's `lapLen` is the track; this is how many times you drive it.
+  // Deliberately NOT carrying the lap length — that lives on the cave spec, because it is the period
+  // its wavelengths divide and the modulus its forks wrap by. One fact, one place.
+  //
+  // Every consumer keys off THIS flag and never off `lane`: The Beyond is `lane: true` as well, and
+  // hanging circuit behaviour on the lane flag would silently convert a chapter whose whole design
+  // is being chased. 4 laps x ~28s is about 112s, against the 300s the other chapters run.
+  circuit: { laps: 4 },
   // THE LANE DROPS WHAT FALLS BEHIND (v7.x). Opt-in per chapter -- see stepLeaks for why the
   // default must stay off. The Reef needs it and The Beyond does not: this roster's moray moves
   // 39px/s against a 45px/s advance, so it falls astern BY CONSTRUCTION and can never return,
@@ -9389,6 +9397,24 @@ export const LANE_SCROLL_SPEED = 70      // px/s the player advances up the lane
 // draw a wake for a scroll the player is not travelling at.
 export const laneScrollFor = (ch, mods) => (ch?.laneScroll ?? LANE_SCROLL_SPEED) * (mods?.laneScrollMul ?? 1)
 export const LANE_STRAFE_MUL = 1.25      // strafe is a touch quicker than base speed — it is all you have
+
+// MOMENTUM, and it exists only in a `circuit` chapter. Everywhere else the throttle reaches the
+// player's forward velocity the same frame it is pushed, which is what The Beyond's golden master
+// measures — so this is gated on the flag rather than on `lane`, and The Beyond is untouched by
+// construction.
+//
+// WHY A RACER NEEDS IT AT ALL: with an instantaneous throttle a lap time is `lapLen / speed`, near
+// deterministic algebra. Every driver converges on the same number, nothing a card does is legible,
+// and crashing costs you only the frames you spend in the wall. Momentum is what turns a lap into
+// something you can drive well or badly.
+//
+// px/s^2. Reaching the 270px/s ceiling from the 45px/s floor takes (270-45)/420 = 0.54s, and
+// recovering from a crash-stop to a working 180px/s takes 0.43s. Both are meant to be FELT and
+// neither is meant to be a punishment on its own — the punishment is the clock.
+// balance_decision : momentum you can feel, not fight [2026-08-24]
+//  - UNMEASURED. The lap-time probe has not been built, so this is a starting point for the knob
+//    grid and not a tuned number. Do not quote it as measured.
+export const CIRCUIT_ACCEL = 420
 
 // THE LANE HAS WALLS, and this is the correction that makes the chapter playable at all. Rev.1 had
 // an unbounded lane with ranks 900px wide centred on the player: on a phone (viewRadius ~465) most
