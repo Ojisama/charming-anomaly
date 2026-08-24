@@ -3,7 +3,7 @@ import assert from 'node:assert'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { createRun, loadMeta, saveMeta, ensureChapterMeta, activeSlot, setActiveSlot, slotSummary, SAVE_SLOTS, SCHEMA, setSaveHook, freezeSaves, exportSlot, importSlot, saveSummary, NAME_MAX, bookMeta, ensureBookMeta, grantBook, unlockBook, bookProgress } from '../src/state.js'
 // sync.js keeps browser globals out of its module scope precisely so it can be imported here.
-import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRecord, RECORD_KEY } from '../src/sync.js'
+import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRecord, RECORD_KEY, newCode, canonicalize, groupCode } from '../src/sync.js'
 // scores.js follows sync.js's rule — no browser globals at module scope — so the leaderboard's two
 // pure functions are testable here with no network. See run LB.
 import { validNick, podiumRank, NICK_MIN, NICK_MAX } from '../src/scores.js'
@@ -17362,6 +17362,177 @@ function testFrenchDictionary() {
   console.log(`PASS run XX (v6.6.8 French dictionary): ${keys.length} keys, no duplicates, none dead, no NBSP in keys, ${Object.values(FR).filter((v) => v.includes(NBSP)).length} values with French NBSP, full config.js coverage`)
 }
 
+// ---- Run SY: the sync wiring nothing else can see --------------------------------------------
+//
+// sync.js is unit-testable; the things that CONNECT it are not. main.js and ui.js cannot be
+// imported here, so these are source-text contracts in the style of run UG.k and run MB.a — and
+// every one of them fails SILENTLY: a missing trigger is a handoff that quietly does not happen,
+// which is precisely the symptom this whole feature exists to remove.
+function testSyncWiring() {
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+  const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+  const sw = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8')
+  const vite = readFileSync(new URL('../vite.config.js', import.meta.url), 'utf8')
+  // Same two clauses, same reason, as run UR's — see the long note there. ui.js is exactly the file
+  // that proves it: two import.meta.glob('./cast/*.png') calls were blanking 1012 of its lines.
+  const strip = (src) => src
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+    .replace(/(^|[\s(,;={[])\/\*[\s\S]*?\*\//g, '$1 ')
+  const m = strip(main)
+  const u = strip(ui)
+
+  // (a) THE SAFETY INVARIANT BEHIND EVERY ADOPT. `run` is a `let` local inside boot(), unreachable
+  // from sync.js, so main.js must hand the predicate in — and it must actually read `run === null`,
+  // not something that merely looks like it. sync.js's own default REFUSES, so a missing wire fails
+  // closed rather than adopting over a live run; this asserts the wire exists at all.
+  assert.ok(/isIdle:\s*\(\)\s*=>\s*run === null/.test(m),
+    'run SY: main.js does not pass `isIdle: () => run === null` to initSync — without it the ' +
+    'invariant that an adopt never lands mid-run is prose with no implementation')
+
+  // (b) ALL SEVEN TRIGGERS (§6.3). Named individually rather than counted, because "6 of 7" and
+  // "7 of 7" print identically in a count and the missing one is always the interesting one.
+  const TRIGGERS = [
+    ['pull on boot', /\n\s*syncEvaluate\(\)/],
+    ['pull on visible', /visibilityState === 'visible'\) syncEvaluate\(\)/],
+    ['pull on run becoming null (onQuit)', /run = null[\s\S]{0,400}?syncEvaluate\(\{ force: true \}\)/],
+    ['push at run end', /saveMeta\(meta\)\s*pushNow\(\)/],
+    ['push on hidden', /else pushNow\(\)/],
+    ['push on pagehide', /addEventListener\('pagehide'[\s\S]{0,80}?pushNow\(\)/],
+    ['push debounce via the save hook', /setSaveHook\(noteSave\)/],
+  ]
+  const absent = TRIGGERS.filter(([, re]) => !re.test(m)).map(([n]) => n)
+  assert.deepStrictEqual(absent, [],
+    `run SY: main.js is missing sync trigger(s) ${JSON.stringify(absent)} — each one is a handoff ` +
+    `that silently does not happen, with nothing thrown and no other test red`)
+
+  // (c) THE THIRD PULL TRIGGER IS THE ONE THAT RESCUES THE OWNER'S USE CASE, and it is the one an
+  // earlier draft of §6.3 left out. `run` is set to null in exactly ONE place, so the summary and
+  // pause screens both have run !== null: without a trigger tied to leaving them, a laptop closed
+  // on the summary screen re-opens, pulls once (bumping the throttle), never adopts, and plays a
+  // whole session on a stale generation before 409ing into the destructive prompt.
+  // THE DECLARATION IS EXCLUDED. `let run = null` at the top of boot() is not a mid-session
+  // transition to idle, and counting it is how the first cut of this assert went red on correct
+  // code — the measured answer is 1 assignment, not the 2 a bare substring finds.
+  const toIdle = (m.match(/(?<!let\s)\brun = null/g) ?? []).length
+  assert.strictEqual(toIdle, 1,
+    `run SY: run is assigned null at ${toIdle} sites, not 1 — the pull trigger is wired to onQuit ` +
+    `alone, so a second one is a path that leaves the sim idle without ever re-evaluating sync`)
+
+  // (d) ui.js owns the pixels and NONE of the protocol (design §3.1).
+  assert.ok(!/from '\.\/sync\.js'/.test(ui),
+    'run SY: ui.js imports sync.js — main.js must hand the module in as a hook, or ui.js has ' +
+    'learned the protocol and the boundary that makes the renderer swappable is gone')
+  // ⚠ THE CALL SITE, NOT THE NAME. The first cut of this asserted /syncRowHtml\(\)/ against the whole
+  // file, which matches the FUNCTION DECLARATION — so deleting the `${syncRowHtml()}` line out of the
+  // settings template left the feature with no entry point and this check green. A mutation proved
+  // it: "the settings row is dropped" was the one pathology of eighteen that got through. Scope the
+  // search to settingsSheetHtml's own body.
+  const sheet = u.slice(u.indexOf('function settingsSheetHtml'))
+  const sheetBody = sheet.slice(0, sheet.indexOf('\n  }'))
+  assert.ok(/\$\{syncRowHtml\(\)\}/.test(sheetBody),
+    'run SY: settingsSheetHtml no longer CALLS syncRowHtml — the cloud-sync row is gone from the ' +
+    'only sheet that opens it, so the feature has no entry point at all')
+  assert.ok(/settings-slots" data-act="sync-open"/.test(u),
+    'run SY: the sync row is no longer a .settings-slots button opening the sheet')
+
+  // (e) THE KILL SWITCH REALLY REMOVES EVERY PIXEL. An empty __SYNC_URL__ is the whole rollback
+  // story (tech strategy §1); a production build with it empty must draw nothing, not a dead row
+  // reading "Cloud sync is off in this build".
+  assert.ok(/reason === 'disabled' && !import\.meta\.env\.DEV.*return ''/.test(u),
+    'run SY: ui.js renders the sync row in a production build with no SYNC_URL — the kill switch ' +
+    'leaves a dead control behind instead of removing the feature')
+  assert.ok(/__SYNC_URL__:\s*JSON\.stringify/.test(vite),
+    'run SY: vite.config.js no longer defines __SYNC_URL__, so sync.js falls back to the disabled ' +
+    'branch in EVERY build and the feature can never be turned on')
+
+  // (f) the service worker must never intercept the sync API. Cross-origin today, so the existing
+  // origin check already covers it — this is the line that survives a custom-domain move.
+  assert.ok(/pathname\.startsWith\('\/v1\/'\)/.test(sw),
+    'run SY: public/sw.js does not skip /v1/ — on a custom domain the sync API becomes same-origin ' +
+    'and starts being cached and replayed')
+
+  console.log(`PASS run SY (sync wiring): isIdle reads run === null, all ${TRIGGERS.length} pull/push ` +
+    `triggers present at their named sites, ui.js holds no protocol, the kill switch removes every pixel`)
+}
+
+// ---- Run ZY: the pairing code, and what the adopt path tolerates ------------------------------
+function testSyncCode() {
+  // (a) the alphabet is Crockford's, and it must equal the Worker's CODE_RE character class — the
+  // one-fact-two-places trap, across a network boundary this time, where the symptom is a code the
+  // player typed correctly being answered 401.
+  const worker = readFileSync(new URL('../worker/src/index.js', import.meta.url), 'utf8')
+  assert.ok(/\[0-9A-HJKMNP-TV-Z\]\{16\}/.test(worker),
+    'run ZY: the Worker no longer validates a 16-char Crockford code — client and server disagree ' +
+    'about what a code IS, and the failure is a 401 on a correctly typed code')
+
+  // (b) 1000 minted codes are all 16 chars of that alphabet, and no character falls outside it.
+  const seen = new Set()
+  for (let i = 0; i < 1000; i++) {
+    const c = newCode()
+    assert.match(c, /^[0-9A-HJKMNP-TV-Z]{16}$/, `run ZY: minted a code outside the alphabet: ${c}`)
+    seen.add(c)
+  }
+  assert.strictEqual(seen.size, 1000, 'run ZY: 1000 mints produced a collision — the entropy is not what it claims')
+
+  // (c) THE CANONICALIZER IS WHY CROCKFORD WAS CHOSEN. Every one of these is a real thing a player
+  // does when copying sixteen characters off another screen.
+  const OK = 'A7K39WQM2FTXB4NE'
+  const TABLE = [
+    ['exact', 'A7K39WQM2FTXB4NE', OK],
+    ['grouped', 'A7K3-9WQM-2FTX-B4NE', OK],
+    ['lowercase', 'a7k39wqm2ftxb4ne', OK],
+    ['spaces', 'A7K3 9WQM 2FTX B4NE', OK],
+    ['I reads as 1', 'IIII9WQM2FTXB4NE', '11119WQM2FTXB4NE'],
+    ['L reads as 1', 'LLLL9WQM2FTXB4NE', '11119WQM2FTXB4NE'],
+    ['O reads as 0', 'OOOO9WQM2FTXB4NE', '00009WQM2FTXB4NE'],
+    ['too short', 'A7K3', null],
+    ['too long', OK + 'X', null],
+    ['U is not remappable', 'UUUU9WQM2FTXB4NE', null],
+    ['punctuation', 'A7K3/9WQM2FTXB4N!', null],
+    ['empty', '', null],
+    ['null', null, null],
+  ]
+  for (const [what, input, want] of TABLE) {
+    assert.strictEqual(canonicalize(input), want,
+      `run ZY: canonicalize(${JSON.stringify(input)}) [${what}] gave ${JSON.stringify(canonicalize(input))}, wanted ${JSON.stringify(want)}`)
+  }
+
+  // (d) U IS DELIBERATELY NOT REMAPPED and that is worth its own line, because "be generous about
+  // what the player types" invites mapping it to something. Crockford omits U to avoid accidental
+  // obscenity, not because it collides with another glyph — there is nothing to map it TO, and
+  // inventing one would accept a code that is genuinely wrong.
+  assert.strictEqual(canonicalize('UUUU9WQM2FTXB4NE'), null, 'run ZY: a typed U was accepted')
+
+  // (e) the display grouping round-trips.
+  assert.strictEqual(groupCode(OK), 'A7K3-9WQM-2FTX-B4NE')
+  assert.strictEqual(canonicalize(groupCode(OK)), OK)
+
+  // (f) PER-BOOK PROGRESSION LANDED AFTER THIS FEATURE WAS DESIGNED. importSlot validates `shop`
+  // and `chapters` and knows nothing about `books`/`grants`, so a synced blob carrying them must
+  // still import — loadMeta's own guard (run BP.ad) covers the shapes, but the ADOPT path deserves
+  // its own assertion rather than inheriting one from a test about something else.
+  const store = {}
+  globalThis.localStorage = {
+    getItem: (k) => store[k] ?? null,
+    setItem: (k, v) => { store[k] = String(v) },
+    removeItem: (k) => { delete store[k] },
+  }
+  const withBooks = JSON.stringify({
+    schema: 1, coins: 5, shop: {}, chapters: {},
+    books: { undertow: { coins: 40, shop: {}, choiceSlots: 2, unlocks: {} } },
+    grants: { undertow: true },
+  })
+  assert.ok(importSlot(1, withBooks), 'run ZY: importSlot refused a blob carrying per-book progression')
+  const back = JSON.parse(exportSlot(1))
+  assert.strictEqual(back.books.undertow.coins, 40,
+    'run ZY: a synced blob lost its Book 2 purse on import — books are additive and must survive verbatim')
+  assert.strictEqual(back.grants.undertow, true, 'run ZY: a synced blob lost its unlock grants on import')
+
+  console.log(`PASS run ZY (pairing code): 1000 mints all in Crockford's alphabet with no collision, ` +
+    `${TABLE.length} canonicalizer cases including I/L->1 and O->0 with U correctly refused, ` +
+    `and an adopted blob keeps its per-book purses`)
+}
+
 // ---- Run XU: every LITERAL string ui.js hands to t()/tt() has French ---------------------------
 //
 // THE HOLE run XX CANNOT SEE, and it has now shipped untranslated copy four separate times (two
@@ -18425,6 +18596,8 @@ try {
   run(testLaneOpening)
   run(testFrenchDictionary)
   run(testUiStringsTranslated)
+  run(testSyncWiring)
+  run(testSyncCode)
   run(testForwardCompatibleSave)
   // BEFORE testSyncDecisions, and that is not cosmetic: run ZZ.f calls freezeSaves(), which is a
   // ONE-WAY latch with no unlatch by design (§3.3 — the only exit is the reload already on its way),
@@ -28036,12 +28209,31 @@ function testUnresolvedRefs() {
   // ⚠ STRIP COMMENTS AND STRING LITERALS FIRST, and it is load-bearing for the same reason run MB.a
   // strips them: every identifier in this repo is discussed in prose right beside its wiring, so a
   // raw scan would see `channelAt` in the paragraph explaining it and call the reference resolved.
+  // ⚠ ORDER, AND THE OPENER'S LEFT-HAND CHARACTER. Both clauses are load-bearing and neither is
+  // defensive: a naive block-comment strip run first was eating 1832 LINES OF config.js and 1012 of
+  // ui.js, i.e. scanning a seventh of one file and none of the other's second half, while printing
+  // a reassuring count. Two independent causes, one fix each:
+  //   1. LINE COMMENTS FIRST. config.js discusses `fr/*.js` inside a `//` comment. A block strip
+  //      run first sees that `/*` as an opener and runs to the next `*/` — 1832 lines away.
+  //   2. THE OPENER MUST BE IN CODE POSITION. `import.meta.glob('./cast/*.png')` contains `/*`
+  //      inside a STRING, and ui.js and render.js both have one. Requiring whitespace or an opening
+  //      bracket before it distinguishes a comment from a glob without needing a real tokenizer.
+  // This was found by a mutation that went uncaught (run SY's settings-row check, which was
+  // searching a mutilated ui.js), not by any assert — the FLOORS below could not see it because
+  // they were MEASURED against the already-broken stripper, which is how a measured floor still
+  // enshrines a defect that predates it.
   const strip = (src) => src
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
-    .replace(/`(?:\\.|\$\{[^}]*\}|[^`\\])*`/g, '""')
-    .replace(/'(?:\\.|[^'\\])*'/g, '""')
-    .replace(/"(?:\\.|[^"\\])*"/g, '""')
+    .replace(/(^|[\s(,;={[])\/\*[\s\S]*?\*\//g, '$1 ')
+    //   3. ONE ALTERNATION FOR ALL THREE QUOTE KINDS, not three sequential passes. Run in sequence,
+    //      the single-quote pass fires first and an APOSTROPHE INSIDE A DOUBLE-QUOTED STRING opens a
+    //      bogus span that runs to the next quote anywhere in the file, swallowing real code.
+    //      config.js has exactly one — "shard(s) on an antigen's first hit" — and it was hiding the
+    //      declaration of `spendSecs` from this very check. It went unnoticed because the runaway
+    //      block comment above was ALREADY deleting the region it broke: two bugs cancelling, which
+    //      is why fixing only the first one turned this scenario red on correct code.
+    //      One alternation lets whichever quote opens FIRST win, exactly as a tokenizer would.
+    .replace(/`(?:\\.|\$\{[^}]*\}|[^`\\])*`|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/g, '""')
 
   // fr.js is absent on purpose and not by oversight: it is a pure translation table with ZERO call
   // sites, so a row for it would be a floor of 0 — the exact vacuous-denominator shape the floors

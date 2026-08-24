@@ -1700,8 +1700,23 @@ body {
   cursor: pointer;
 }
 .settings-lang--on { background: var(--mint); border-color: var(--mint-dark); color: var(--ink); }
-.settings-slots { display: flex; align-items: center; justify-content: center; gap: 8px; }
-.settings-slots i { font-style: normal; color: var(--ink-soft); font-size: 0.8rem; }
+.settings-slots { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; }
+/* ELLIPSISED BECAUSE OF SYNC. These values used to be this device's own — a slot count, a
+   nickname this player typed under a 15-char maxlength. A synced save makes `nick` the second
+   value in the game that can ARRIVE FROM ANOTHER DEVICE, and loadMeta only does `m.nick ??= ''`
+   — no clamp, unlike `name`, which has cleanName + NAME_MAX for exactly this reason. It is
+   escaped at render and validNick-ed before it is ever submitted, so the exposure is layout,
+   not injection: an over-long one stretches the row and the sheet with it. Same fix .slot-row
+   already carries, and min-width:0 on the flex child is what lets text-overflow fire at all. */
+.settings-slots i {
+  font-style: normal;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .booster-item {
   display: flex;
   align-items: center;
