@@ -7,6 +7,8 @@ import { hash, decide, isOwnLostAck, schemaOk, deriveDirty, readRecord, writeRec
 // scores.js follows sync.js's rule — no browser globals at module scope — so the leaderboard's two
 // pure functions are testable here with no network. See run LB.
 import { validNick, podiumRank, NICK_MIN, NICK_MAX } from '../src/scores.js'
+// input.js touches the DOM only inside initInput, so its pure steering math imports headlessly.
+import { steerFromAnchor } from '../src/input.js'
 // fr.js is pure data (no Pixi, no DOM), so run XX can check it here — see testFrenchDictionary.
 import { FR } from '../src/fr.js'
 import {
@@ -18802,6 +18804,7 @@ run(testLeLargeWeapons)
   run(testSurfGulls)
   run(testPlayerForms)
   run(testMultitouchControls)
+  run(testMouseSteering)
   run(testLaneGolden)
   run(testLaneAxis)
   run(testReefPassiveCrowd)
@@ -29267,4 +29270,71 @@ function testBootLoader() {
   assert.ok(FR['Loading…'], "'Loading…' has no French")
 
   console.log(`PASS run BL (boot loader): #boot + ${marks.length} classes all styled, bob + fill declared, milestones [${pcts.join(' ')}] end at 100, label translated`)
+}
+
+// ---- run MS: desktop mouse steering ------------------------------------------------------------
+// Hold the left button and the player swims toward the cursor. Two halves, and BOTH fail silently:
+// the vector math (a bad ramp is a control that feels wrong, not one that throws) and the ANCHOR
+// wiring (getInput ignores the mouse when handed no anchor, so a dropped argument in main.js
+// deletes the whole feature with nothing red anywhere).
+function testMouseSteering() {
+  const input = readFileSync(new URL('../src/input.js', import.meta.url), 'utf8')
+  const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+  const render = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+
+  // (a) THE CURSOR ON THE PLAYER IS A STOP. Zero offset is the one input that can produce NaN here
+  // (dx/len with len 0), and a NaN move vector propagates straight into run.player.x, which is
+  // unrecoverable for the rest of the run.
+  assert.deepStrictEqual(steerFromAnchor(0, 0), { x: 0, y: 0 }, 'a cursor sitting on the player is not a stop')
+
+  // (b) IT RAMPS, and that is not decoration: the lane chapters read the forward MAGNITUDE as their
+  // scroll throttle (v7.226), so a bang-bang normalize-always would hand The Reef two speeds where
+  // the stick gives it a range.
+  const mags = []
+  for (let d = 1; d <= 300; d++) mags.push(Math.hypot(...Object.values(steerFromAnchor(d, 0))))
+  for (let i = 1; i < mags.length; i++) {
+    assert.ok(mags[i] >= mags[i - 1] - 1e-12, `steering magnitude drops between ${i}px and ${i + 1}px away`)
+    assert.ok(mags[i] <= 1 + 1e-12, `steering magnitude exceeds full speed at ${i + 1}px away: ${mags[i]}`)
+  }
+  const partial = new Set(mags.filter((m) => m > 0 && m < 1 - 1e-9).map((m) => m.toFixed(3)))
+  assert.ok(partial.size >= 8, `only ${partial.size} partial-speed steps between stopped and full — the mouse has become an on/off switch and the lane throttle has no range`)
+  assert.ok(mags[0] === 0, 'a 1px cursor jitter already moves the player — the deadzone is gone')
+  assert.ok(mags[mags.length - 1] === 1, 'a cursor across the screen is not full speed')
+
+  // (c) DIRECTION. Diagonals must NOT get the keyboard's SQRT1_2 pair-scaling on top of the
+  // normalize — that is how the same vector ends up 0.707 long in one code path and 1 in another.
+  const diag = steerFromAnchor(-400, 400)
+  assert.ok(Math.abs(diag.x + Math.SQRT1_2) < 1e-9 && Math.abs(diag.y - Math.SQRT1_2) < 1e-9,
+    `a down-left cursor steers to (${diag.x.toFixed(3)}, ${diag.y.toFixed(3)}), not the unit diagonal`)
+
+  // (d) THE ANCHOR REACHES getInput. render.js owns the camera, so the player's screen position is
+  // published from there; every getInput call site in main.js must hand it over, and a bare
+  // getInput() is the silent-death case this whole block exists for.
+  assert.ok(/playerScreen\.x = /.test(render) && /playerScreen\.y = /.test(render),
+    'render.js no longer publishes playerScreen — input.js has nothing to steer from')
+  assert.match(render, /return \{ reset, sync,[^}]*playerScreen[^}]*\}/,
+    'playerScreen is not on the renderer API, so main.js cannot read it')
+  // Comments stripped first, for run MB.a's reason: main.js discusses getInput() in prose right
+  // beside the call, and a raw search is satisfied (or here, falsely failed) by the sentence alone.
+  const mainCode = mainSrc.replace(/^\s*\/\/.*$/gm, '')
+  const calls = [...mainCode.matchAll(/getInput\(([^)]*)\)/g)].map((m) => m[1].trim())
+  assert.ok(calls.length >= 2, `main.js calls getInput ${calls.length} time(s) — run MS has gone stale`)
+  for (const arg of calls) {
+    assert.strictEqual(arg, 'renderer.playerScreen', `a getInput(${arg}) in main.js passes no anchor — mouse steering is dead on that path and nothing throws`)
+  }
+
+  // (e) A HELD BUTTON MUST BE RELEASABLE. Without the blur/mouseleave clears, releasing outside the
+  // window leaves the player walking with no input on screen at all.
+  assert.ok(/addEventListener\('mouseup'[\s\S]{0,120}mouseHeld = false/.test(input), 'input.js never clears mouseHeld on mouseup')
+  assert.ok(/addEventListener\('blur'[\s\S]{0,120}mouseHeld = false/.test(input), 'input.js keeps steering after the window loses focus')
+  assert.ok(/addEventListener\('mouseleave'[\s\S]{0,120}mouseHeld = false/.test(input), 'a button released outside the window leaves the player stuck walking')
+
+  // (f) THE UI GUARD, the same one touchstart carries: a click on a level-up card or the skill
+  // button is a click, not a move order.
+  const down = input.match(/addEventListener\('mousedown',[\s\S]*?\n  \}\)/)
+  assert.ok(down, 'input.js binds no mousedown — there is no mouse steering at all')
+  assert.ok(/closest\('button, \.card, \[data-ui\]'\)/.test(down[0]),
+    'the mousedown handler does not skip UI targets — clicking a card now also lurches the player toward it')
+
+  console.log(`PASS run MS (mouse steering): ramp monotonic over 300px with ${partial.size} partial-speed steps, unit diagonal, ${calls.length} getInput call sites all anchored to renderer.playerScreen, held button cleared on mouseup/blur/mouseleave`)
 }

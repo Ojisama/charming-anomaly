@@ -18079,6 +18079,13 @@ const spurG = new Graphics()
   const shotTimers = []   // per-slot accumulator: index-aligned with the enemyShots pool, smoke cadence
   const holeParticleTimers = [] // per-slot accumulator: index-aligned with holePool, suction particle cadence
   const shake = { t: 0, dur: 1, amp: 0, ox: 0, oy: 0 }
+  // The player's SCREEN position, republished every sync. input.js turns a desktop cursor into a
+  // move vector and needs the point to steer FROM; the camera block below is the only place that
+  // point is resolved, and the lane chapters anchor the player off-centre, so a "the player is at
+  // the middle of the viewport" constant in input.js would be a second copy of a formula that
+  // already disagrees with it. Read one frame stale by construction (main.js reads it before this
+  // sync runs) -- which is the frame the player was actually looking at when they aimed.
+  const playerScreen = { x: 0, y: 0 }
 
   function addShake(amp, dur) {
     const current = shake.t > 0 ? shake.amp * (shake.t / shake.dur) : 0
@@ -20599,6 +20606,8 @@ const spurG = new Graphics()
     const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - camY + shake.oy
     world.scale.set(mapZoom)
     world.position.set(cx * mapZoom, cy * mapZoom)
+    playerScreen.x = (run.player.x + cx) * mapZoom
+    playerScreen.y = (run.player.y + cy) * mapZoom
     updateGroundField(cx, cy)
     updateFloorLayer(cx, cy)
     // v7.x The Wreck: the sunken ship behind. Camera-driven like its two neighbours rather than
@@ -21630,5 +21639,5 @@ const spurG = new Graphics()
     return out
   }
 
-  return { reset, sync, idle, ready, setMapMode, castThumbs, hazardThumbs }
+  return { reset, sync, idle, ready, setMapMode, castThumbs, hazardThumbs, playerScreen }
 }
