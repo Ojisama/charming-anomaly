@@ -5,6 +5,10 @@
 /* eslint-disable quote-props */
 
 const UI = {
+  // The loading screen (index.html). Its English is what shows until main.js reaches setLang, i.e.
+  // for the bundle download on a first visit — every later boot is served from cache and lands here
+  // fast enough that the word is French from the start.
+  'Loading…': 'Chargement…',
   // v6.6.17 pause build readout. Stat-table labels are column headers on a 320px sheet, so they
   // are kept to a single word wherever French allows one.
   'Damage': 'Dégâts',
@@ -171,6 +175,9 @@ const UI = {
   // 🗑️ does that. Two keys again for the same reason 'Name this save' has two — the heading is a
   // question and the 🗑️ button's aria-label is an infinitive, and a screen reader announcing the
   // question mark twice carries nothing.
+  // The cloud mark on a save-slot row. Screen-reader only (it is the svg's aria-label), so it is
+  // the WORD for the state rather than a sentence — the row's own text says everything else.
+  'Synced': 'Synchronisée',
   'Delete this save': 'Supprimer cette sauvegarde',
   'Delete this save?': 'Supprimer cette sauvegarde ?',
   'Everything in slot {n} is erased. This cannot be undone.':

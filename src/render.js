@@ -12588,9 +12588,39 @@ const spurG = new Graphics()
       const hi = drawF + ax.dir * span.ahead
       const k0 = Math.floor(Math.min(lo, hi) / step)
       const k1 = Math.ceil(Math.max(lo, hi) / step)
+      // ONE COLUMN OF COLONIES, from a face of the passage into the solid behind it. `into` is the
+      // way it walks and the way every colony on it is turned: a colony always faces back out into
+      // the water it grew from, which is what makes the wall a cave rather than a hedge. `d0` sinks
+      // the column, and `depth` is how far there is to fill.
+      const pack = (fw, edge, into, depth, d0, sizeMul = 1) => {
+        let d = d0
+        for (let j = 0; d < depth && j < 96; j++) {
+          const h1 = hash(fw + j * 5.3, d * 2.1)
+          const h2 = hash(d * 7.9, fw - j * 4.3)
+          const h3 = hash(fw * 1.7 - j * 3.7, d * 2.9 + j * 6.1)
+          const reach = V.bakeReach * (V.reachLo + (V.reachHi - V.reachLo) * h2) * sizeMul
+          stamps.push({
+            f: fw + (h1 - 0.5) * step * 0.8,
+            c: edge + into * d,
+            v: Math.floor(h3 * T.coral.length) % T.coral.length,
+            rot: -into * Math.PI / 2 + (h1 - 0.5) * 1.2,
+            scale: Math.max(0.3, reach / V.bakeReach),
+            tone: V.tones[Math.floor(h2 * V.tones.length) % V.tones.length],
+          })
+          d += Math.max(10, reach * 0.8)
+        }
+      }
       for (let k = k0; k <= k1; k++) {
         const hN = hash(k * 1.7, 91.3)
-        const cnt = hN < V.cellEmpty ? 0 : hN > 1 - V.cellDouble ? 2 : 1
+        const cnt = hN > 1 - V.cellDouble ? 2 : 1
+        // A THIN CELL SINKS ITS COLUMN, IT DOES NOT SKIP IT (owner, 2026-08-24: "on desktop there
+        // are gaps between parts of the coral cave"). cellEmpty used to drop the cell entirely, and
+        // a column is the WHOLE DEPTH of the wall — so two adjacent empties cut a see-through slot
+        // from the passage clean off the edge of the screen. Measured over 200k cells: a >= 48px
+        // hole every 540px of lane against a 44px player, and 64-144px ones beyond that. A desktop
+        // shows 1862px of lane at once, which is why it reads as gaps THERE and as raggedness on a
+        // phone. Starting the walk one colony deep buys the same thin shoulder with no hole in it.
+        const sunk = hN < V.cellEmpty ? V.bakeReach : 0
         for (let m = 0; m < cnt; m++) {
         const fw = (k + (m + hash(k * 3.1 + m * 5.9, 7.7)) / Math.max(1, cnt)) * step
         const cav = caveAt(fw, cspec, run._obstacleSeed)
@@ -12602,26 +12632,17 @@ const spurG = new Graphics()
           // sprites.
           const edge = cav.c + sign * cav.hw
           const stop = sign < 0 ? -halfCross : halfCross
-          if ((stop - edge) * sign <= 0) continue
-          let d = 0
-          const depth = Math.abs(stop - edge)
-          for (let k = 0; d < depth && k < 96; k++) {
-            const h1 = hash(fw + k * 5.3, d * 2.1)
-            const h2 = hash(d * 7.9, fw - k * 4.3)
-            const h3 = hash(fw * 1.7 - k * 3.7, d * 2.9 + k * 6.1)
-            const reach = V.bakeReach * (V.reachLo + (V.reachHi - V.reachLo) * h2)
-            stamps.push({
-              f: fw + (h1 - 0.5) * step * 0.8,
-              c: edge + sign * d,
-              v: Math.floor(h3 * T.coral.length) % T.coral.length,
-              // Grown INTO the passage: a colony on the upper wall reaches down, one on the lower
-              // wall reaches up. Rotation is what makes it a cave rather than a hedge.
-              rot: (sign < 0 ? Math.PI / 2 : -Math.PI / 2) + (h1 - 0.5) * 1.2,
-              scale: Math.max(0.3, reach / V.bakeReach),
-              tone: V.tones[Math.floor(h2 * V.tones.length) % V.tones.length],
-            })
-            d += Math.max(10, reach * 0.8)
-          }
+          if ((stop - edge) * sign > 0) pack(fw, edge, sign, Math.abs(stop - edge), sunk)
+          // THE ISLAND that forks the passage (caveAt's `ph`), grown from its own two faces back
+          // into the water — so the fork you steer around is the fork stepCaveWall stops you on.
+          // Never sunk: this face IS the collider, and coral you can see daylight through here is
+          // coral the player will try to swim into.
+          //   DRAWN SMALLER THAN A WALL FACE, and the phone is why. Every colony OVERHANGS the edge
+          // it grew from by its own reach, so a branch has two of them leaning into it — at a wall
+          // colony's size the tight case closed to a channel you could not see through while the
+          // collider still said 122px. An outcrop mid-channel is a smaller thing than a reef wall
+          // anyway, which is the same answer from the art side.
+          if (cav.ph > 0) pack(fw, cav.c + sign * cav.ph, -sign, cav.ph, 0, V.islandSize)
         }
         }
       }

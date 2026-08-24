@@ -6827,6 +6827,21 @@ CHAPTERS.reef = {
   // an x-lane has only 312 world px ahead of the player against the y-lane's 675, so at 70 this
   // chapter would give HALF The Beyond's reaction time on the device the game ships to.
   laneScroll: 90,
+  // THE THROTTLE (owner, 2026-08-24: "the move right / move left actions should actually make the
+  // level scroll faster / slower"). The stick's FORWARD component was doing nothing at all in a
+  // lane — only the cross axis was read — so this is the axis the player was already pushing.
+  // +/- this fraction of laneScroll: 45..135 px/s, i.e. 7.0s of warning down to 2.3s on a phone.
+  //
+  // IT MOVES THE LANE FRONT TOO, and that is the whole feature rather than a detail. The front
+  // (stepLaneFront) is the crush edge AND the camera anchor, and it advances on its own clock at
+  // laneScrollFor: throttling only the player would leave the front running at 90, so easing off
+  // would not slow the level down, it would slide you into the back edge and grind you. Both read
+  // run._laneThrottle, so the world genuinely runs slower and being STOPPED still costs you.
+  //
+  // WHAT STOPS THE PLAYER SIMPLY HOLDING 0.5x FOREVER: the air. Pockets are placed per px of lane
+  // and the bar drains per second, so half speed is half the air supply for the same clock — the
+  // chapter's own resource prices the throttle and nothing new had to.
+  laneThrottle: 0.5,
   // THE LANE DROPS WHAT FALLS BEHIND (v7.x). Opt-in per chapter -- see stepLeaks for why the
   // default must stay off. The Reef needs it and The Beyond does not: this roster's moray moves
   // 39px/s against a 45px/s advance, so it falls astern BY CONSTRUCTION and can never return,
@@ -6868,6 +6883,12 @@ CHAPTERS.reef = {
     wander: 100, halfMin: 170, halfMax: 220,
     waves: [[900, 1], [380, 0.42], [170, 0.18]],   // [wavelength px, weight]
     widthWave: [[640, 1], [250, 0.45]],
+    // THE BRANCHES (caveAt's own block has the geometry). One island every `every / chance` = 1000px
+    // of lane, i.e. a fork about every 11s at laneScroll 90, each one 380px long = 4.2s of committed
+    // side. `frac` is the share of the passage the island takes, so each branch is 36% of it — 122px
+    // at the tightest squeeze the field makes, against a 44px player. Capped by the air pockets
+    // before it is capped by the swim: see the warning in caveAt.
+    branch: { every: 700, chance: 0.7, span: 380, frac: 0.28 },
     salt: 47,                                      // next free salt block; 44-46 were the spurs'
     // NO `fill` HERE, AND DELIBERATELY NOT. It read "how far past the passage edge coral is drawn,
     // must exceed the largest half-view the game can present" and NOTHING EVER READ IT -- syncSpurs
@@ -8545,6 +8566,10 @@ export const SPUR_VIS = Object.freeze({
   //                     none does -- and it replaces a cumulative walk of hashed gaps that produced
   //                     the same look but could not be anchored (see syncSpurs).
   colonyEveryLo: 12, colonyEveryHi: 20, cellEmpty: 0.22, cellDouble: 0.26,
+  //   islandSize  a colony on the ISLAND that forks the passage (caveAt's `ph`), as a fraction of a
+  //               wall colony's reach. Under 1 because a branch has coral overhanging it from BOTH
+  //               sides — see the note at its pack() call in syncSpurs.
+  islandSize: 0.6,
   reachLo: 0.45, reachHi: 1.0, spineJitter: 0.16,
   //   tipMix  how far each bud is lightened from its OWN colony's tone toward `tip`. Not 1: at
   //           depth 3 there are 32 buds per colony, so a single cream for all of them stops being
@@ -9328,7 +9353,38 @@ export const caveAt = (f, spec, seed) => {
     hnorm += w
   }
   const t = (h / hnorm + 1) / 2               // 0..1
-  return { c: (c / norm) * spec.wander, hw: spec.halfMin + (spec.halfMax - spec.halfMin) * t }
+  const hw = spec.halfMin + (spec.halfMax - spec.halfMin) * t
+  // THE FORK (owner, 2026-08-24: "i don't see branches in the coral cave, this is always 1 path").
+  // A coral ISLAND standing in the middle of the passage, so for `span` px of lane there are two
+  // openings instead of one and the player has to pick a side. `ph` is its half-width at this
+  // point along the lane and it is 0 everywhere else, which is why every consumer can read the
+  // same {c, hw, ph} and a chapter with no `branch` block is bit-identical.
+  //
+  // BOTH BRANCHES ALWAYS REJOIN, and in a lane that is not a preference: you cannot swim back, so
+  // a dead end is a death with no decision in it. The island is a lens — cos(u x pi/2) is zero at
+  // both tips and blunt in the middle — so it OPENS in front of you rather than appearing as a
+  // block, and the tip is where the choice is cheap.
+  //
+  // ⚠ A FRACTION OF THE PASSAGE, NEVER A PIXEL WIDTH, and that is a legibility rule as much as a
+  // fairness one. At a flat 60px the island took a third of a wide chamber and over a third of the
+  // narrowest squeeze, and since BOTH edges of a branch are drawn with coral that overhangs them
+  // (the wall's colonies grow into the passage, the island's grow out of it) the tight case closed
+  // to a channel you could not see through while the collider still said 110px. `frac` keeps every
+  // branch the same SHARE of its passage: 1 - frac of it, split in two.
+  //   It also has to stay clear of the air pockets, which streamShafts snaps to |off| >=
+  // max(r x 2.4, hw - r) = 122 at the narrowest passage, i.e. an inner edge at 74px against an
+  // island of 48 there — run RS.f pins both, because a pocket inside the island is air the player
+  // cannot reach.
+  let ph = 0
+  const bs = spec.branch
+  if (bs) {
+    const cell = Math.floor(f / bs.every)
+    if (caveHash(cell * 3.7 + 5, s0) < bs.chance) {
+      const u = (f - (cell + 0.5) * bs.every) / (bs.span / 2)
+      if (u > -1 && u < 1) ph = hw * bs.frac * Math.cos(u * Math.PI / 2)
+    }
+  }
+  return { c: (c / norm) * spec.wander, hw, ph }
 }
 
 export const laneHalfWidth = (viewRadius, ch) => Math.min(ch?.laneHalfW ?? LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)

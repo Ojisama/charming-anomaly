@@ -17470,10 +17470,29 @@ function testSyncWiring() {
   // consequences; main.js owns both, and every one of them fails silently.
   const slotFn = u.slice(u.indexOf('function slotRowHtml'))
   const slotBody = slotFn.slice(0, slotFn.indexOf('\n  }'))
-  assert.ok(slotBody.length > 0 && slotBody.length < 1200,
-    'run SY: could not isolate slotRowHtml in ui.js — the asserts below would be measuring nothing')
+  assert.ok(slotBody.length > 0 && slotBody.length < 1800,
+    `run SY: could not isolate slotRowHtml in ui.js (${slotBody.length} chars, measured 1277) — the asserts below would be measuring nothing`)
   assert.ok(/data-act="slot-delete"/.test(slotBody),
     'run SY: the save-slot row has no delete button — the only control that erases one profile is gone')
+  // THE CLOUD MARK, AND THE SLOT IT IS KEYED ON. Once the ⚙ entry point is behind meta.dev this
+  // row is the only surface that says a save is synced at all, so losing the mark leaves the fact
+  // with nowhere to live. The keying is the subtler half: `st.slot` is the SYNCED slot and
+  // activeSlot() is the one being played, they are routinely different (that is the whole point of
+  // a per-slot pairing), and swapping them puts a confident cloud on the wrong save.
+  assert.ok(/icoCloud\(t\('Synced'\)\)/.test(slotBody),
+    'run SY: the save-slot row no longer marks the synced save — with the sheet behind meta.dev ' +
+    'nothing else on any screen says a save follows the player between devices')
+  assert.ok(/cloud = summary && st\.on && st\.slot === n/.test(slotBody) && !/activeSlot\(\) === n/.test(slotBody),
+    'run SY: the cloud mark is no longer gated on `summary && st.on && st.slot === n`. Each ' +
+    'clause is a different lie on screen: without `summary` an EMPTY row claims to sync, without ' +
+    '`st.on` every row does, and keyed on activeSlot() rather than st.slot the mark lands on the ' +
+    'slot being PLAYED — which is routinely not the one that syncs, since the pairing is per-slot')
+  // An inline <svg> with no intrinsic size and no CSS rule lays out at 300x150 and takes the sheet
+  // apart, so this is a blank-screen guard, not a styling one. Matched on a declaration the rule
+  // OWNS (run BP.q4's reason: a bare selector test is satisfied by any later override).
+  assert.ok(/\.slot-row-cloud \{[^}]*width:/.test(readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')),
+    'run SY: .slot-row-cloud has no sizing rule — an inline svg with no intrinsic size renders at ' +
+    '300x150 and blows the slots sheet apart')
   assert.ok(/onDeleteSlot\?\.\(/.test(u),
     'run SY: nothing in ui.js calls onDeleteSlot — the confirm sheet still opens and its Delete button does nothing')
   // NOT ON THE DESTINATION PICKER. That list asks WHERE THIS SAVE SHOULD GO; a delete glyph on it
@@ -17513,8 +17532,8 @@ function testSyncWiring() {
   console.log(`PASS run SY (sync wiring): isIdle reads run === null, all ${TRIGGERS.length} pull/push ` +
     `triggers present at their named sites, ui.js holds no protocol, the entry point is behind ` +
     `meta.dev in production, the kill switch still removes every pixel, and the slots sheet's ` +
-    `delete button unlinks the synced slot, reloads only the active one, and stays off the ` +
-    `destination picker`)
+    `delete button unlinks the synced slot, reloads only the active one, stays off the ` +
+    `destination picker, and the row marks the SYNCED slot with a sized cloud`)
 }
 
 // ---- Run ZY: the pairing code, and what the adopt path tolerates ------------------------------
@@ -17611,20 +17630,43 @@ function testSyncCode() {
 // ⚠ COMMENTS ARE STRIPPED FIRST, load-bearing for the same reason run MB.a strips them: this file
 // discusses its own copy in prose right beside the wiring, and a raw scan would collect sentences
 // out of comments and demand French for them.
+//
+// ⚠⚠ AND THE STRIPPER MUST BE run UR's TWO-CLAUSE FORM, NOT run MB.a's. MB.a's is written for
+// sim.js, which has no globs; this file has `import.meta.glob('./cast/*.png', …)`, and the `/*`
+// inside that PATH opens a block comment for a naive scan. The first cut of run XU used MB.a's
+// version and was therefore reading 2935 of ui.js's 4010 lines: 1075 lines blanked, and the 35
+// literals in them — the whole save-slots sheet, the whole settings sheet, Play, Shop, Boosters,
+// every leaderboard string — were never checked by the assert whose entire job is checking them.
+// It still printed "all 124 literals resolve" and cleared its own floor of 100 by 24, which is
+// precisely the shape CLAUDE.md warns about: a confident answer to a question it never asked.
+// The guarded clause requires a delimiter before the `/*`, so a path inside a string cannot open
+// one. CLAUDE.md names this exact trap against this exact file; run UR and run SY already carry it.
 function testUiStringsTranslated() {
   const raw = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
   const code = raw
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+    .replace(/(^|[\s(,;={[])\/\*[\s\S]*?\*\//g, '$1 ')
+
+  // THE DENOMINATOR THAT ACTUALLY CATCHES A DESYNCED STRIPPER, and the one the first cut lacked.
+  // A literal count cannot: 124 out of a possible 159 looks like a healthy number and reads as a
+  // pass. Lines can — an eaten file loses them in bulk. Block comments legitimately consume ~115
+  // lines here (4010 -> 3895, 97%), while the naive stripper left 73%.
+  const rawLines = raw.split('\n').length
+  const keptLines = code.split('\n').length
+  assert.ok(keptLines >= rawLines * 0.9,
+    `run XU: the comment stripper ate ${rawLines - keptLines} of ui.js's ${rawLines} lines (kept ` +
+    `${Math.round((keptLines / rawLines) * 100)}%, floor 90%) — every t() in the blanked region is ` +
+    `unchecked, and "nothing missing" below would be a scan that never read them`)
 
   const keys = new Set()
   for (const m of code.matchAll(/\btt?\(\s*'((?:\\.|[^'\\])*)'/g)) keys.add(m[1].replace(/\\'/g, "'"))
   for (const m of code.matchAll(/\btt?\(\s*"((?:\\.|[^"\\])*)"/g)) keys.add(m[1].replace(/\\"/g, '"'))
 
-  // A FLOOR ON THE DENOMINATOR, measured not guessed (124 today): "0 missing" is also what a scan
-  // whose stripper desynced and ate the file prints, and the two are indistinguishable.
-  assert.ok(keys.size >= 100,
-    `run XU: only ${keys.size} t()/tt() literals found in ui.js against a floor of 100 — the comment ` +
+  // A FLOOR ON THE COUNT TOO, measured not guessed (159 today, was 124 while 1075 lines were
+  // being blanked). The line check above is the sharper instrument; this one still catches a
+  // stripper that eats a little rather than a lot, and a regex that stops matching t() entirely.
+  assert.ok(keys.size >= 150,
+    `run XU: only ${keys.size} t()/tt() literals found in ui.js against a floor of 150 — the comment ` +
     `stripper has desynced, so "nothing missing" below would be a scan that checked nothing`)
 
   const missing = [...keys].filter((k) => !(k in FR))
@@ -18780,6 +18822,7 @@ run(testLeLargeWeapons)
   run(testUnresolvedRefs)
   run(testScreenPositioning)
   run(testRefund)
+  run(testBootLoader)
   console.log('ALL TESTS PASSED')
   runSummary()
 } catch (err) {
@@ -22804,24 +22847,40 @@ function testLaneAxis() {
   //
   // Against laneScrollFor(reef) rather than the shared LANE_SCROLL_SPEED on purpose: The Reef
   // overrides it, and an assertion pinned to the shared constant would have to be edited every time
-  // a chapter tunes its own — the edit that quietly turns a guard into a rubber stamp. The stick is
-  // held hard the WRONG way (full -x) to prove the forward component is not the joystick's.
+  // a chapter tunes its own — the edit that quietly turns a guard into a rubber stamp.
+  //
+  // ⚠ THE STICK'S FORWARD COMPONENT IS NO LONGER A NO-OP (v7.x, CHAPTERS.reef.laneThrottle). This
+  // case used to hold it hard the WRONG way to prove the scroll was not the joystick's; it is the
+  // joystick's now, by a bounded fraction, so the same input is the THROTTLE's floor and the check
+  // is that the front advances at exactly laneScroll x (1 - laneThrottle). The invariant that
+  // survives intact is the one this block was written for: the front advances on ITS OWN clock,
+  // never on how far the player got. run RS.e owns the throttle itself.
   {
     const run = reefRun()
     const x0 = run.player.x, y0 = run.player.y
     const steps = Math.round(2 / dt)
     const f0 = run._laneFront ?? x0
     for (let i = 0; i < steps; i++) { stepSim(run, { x: -1, y: 0 }, dt); run.events.length = 0 }
-    const want = laneScrollFor(CHAPTERS.reef) * steps * dt
+    const want = laneScrollFor(CHAPTERS.reef) * (1 - CHAPTERS.reef.laneThrottle) * steps * dt
     assert.ok(Math.abs((run._laneFront - f0) - want) < 1e-6,
-      `expected the reef's LANE FRONT to advance +x at exactly its own laneScroll (${laneScrollFor(CHAPTERS.reef)}), moved ${(run._laneFront - f0).toFixed(3)} vs ${want.toFixed(3)}`)
+      `expected the reef's LANE FRONT to advance +x at its own laneScroll (${laneScrollFor(CHAPTERS.reef)}) eased off by laneThrottle ${CHAPTERS.reef.laneThrottle}, moved ${(run._laneFront - f0).toFixed(3)} vs ${want.toFixed(3)}`)
+    {
+      // The same two seconds on a neutral stick: exactly the chapter's own scroll, which is the
+      // number every other constant in this chapter is measured against.
+      const idle = reefRun()
+      const g0 = idle._laneFront ?? idle.player.x
+      for (let i = 0; i < steps; i++) { stepSim(idle, { x: 0, y: 0 }, dt); idle.events.length = 0 }
+      const wantIdle = laneScrollFor(CHAPTERS.reef) * steps * dt
+      assert.ok(Math.abs((idle._laneFront - g0) - wantIdle) < 1e-6,
+        `expected an UNTOUCHED stick to advance the lane front at exactly laneScroll (${laneScrollFor(CHAPTERS.reef)}), moved ${(idle._laneFront - g0).toFixed(3)} vs ${wantIdle.toFixed(3)}`)
+    }
     // And the player is never AHEAD of it, on any frame: the front is pulled forward by a bursting
     // player rather than left behind, so this is the invariant that catches the camera being handed
     // a front the player has already swum past.
     assert.ok(run.player.x <= run._laneFront + 1e-6,
       `the player (x=${run.player.x.toFixed(3)}) is ahead of the lane front (${run._laneFront.toFixed(3)}) — the front is not being pulled`)
     assert.ok(Math.abs(run.player.y - y0) < 1e-9,
-      `the stick's x must do NOTHING in an x-lane — it moved the player across the lane to y=${run.player.y.toFixed(3)}`)
+      `the stick's x is the THROTTLE in an x-lane and never the strafe — it moved the player across the lane to y=${run.player.y.toFixed(3)}`)
     assert.strictEqual(run.player.facingAngle, 0, 'an x-lane faces +x (angle 0), so a weapon with nothing to aim at fires up the lane')
     assert.strictEqual(run.player.moving, true, 'in the lane you are never stationary, whatever the stick says')
   }
@@ -23206,6 +23265,34 @@ function testReefSpurScrape() {
     run.mods.spawnMul = 0
     return run
   }
+  // FLYING THE PASSAGE, as a policy — the fixture's model of a player doing it right, and the one
+  // place in this scenario that knows the passage can FORK. Aims at the centre of the opening it is
+  // already nearest to: the middle where there is one, and the middle of its own branch where the
+  // island (caveAt's `ph`) has split it in two. `side` comes from where the player already is,
+  // which is what makes it a choice a player could make rather than an oracle.
+  const follow = (run, forceSide = 0) => {
+    // ⚠ THE OPENING BESIDE THE PLAYER, NOT THE ONE 60px AHEAD. The passage centre moves up to
+    // 1.29px per px of lane, so a 60px lookahead aims up to 77px off the wall that is actually
+    // beside you — which the old single-passage fixture could absorb (148px of slack either side)
+    // and a BRANCH cannot (43px). Aim at here; anticipate only the island, below.
+    const cav = caveAt(run.player[LAX.fwd], spec, run._obstacleSeed)
+    // ⚠ SCANNED OVER THE WHOLE ISLAND, NOT SAMPLED AT ONE POINT AHEAD, and this is a fixture bug
+    // that reads exactly like a level defect. Steering at the opening 60px ahead puts the player ON
+    // the island's face rather than in the middle of their branch — the face then grows under them
+    // and they grind along it for half a second, and the trailing tip does the same in reverse
+    // (ph is 0 at the lookahead while the island is still beside them). It reported 136 touches on
+    // a passage a human flies clean. Commit to the branch on the WIDEST the island gets nearby,
+    // which is what a player looking at their screen does.
+    const F = run.player[LAX.fwd]
+    let ph = 0
+    for (let s = 0; s <= 200; s += 40) ph = Math.max(ph, caveAt(F + LAX.dir * s, spec, run._obstacleSeed).ph)
+    const c = run.player[LAX.cross]
+    const want = ph > 0
+      ? cav.c + (forceSide || (c >= cav.c ? 1 : -1)) * (ph + cav.hw) / 2
+      : cav.c
+    return Math.abs(want - c) < 4 ? 0 : want > c ? 1 : -1
+  }
+  const stick = (cross, fwd = 0) => (LAX.cross === 'x' ? { x: cross, y: fwd } : { x: fwd, y: cross })
 
   // (a) THE PASSAGE FITS INSIDE THE CORRIDOR THE PLAYER IS CLAMPED TO. If it ever wandered outside,
   // the player would be pinned by the lane clamp — a wall with no coral drawn on it — while the
@@ -23264,6 +23351,18 @@ function testReefSpurScrape() {
       'run RS.a: something in the coral placement is hashed off the PLAYER position (drawF) — that is exactly what made the layout change every 2.3 seconds')
     assert.ok(/const edge = cav\.c \+ sign \* cav\.hw/.test(gsrc),
       'run RS.a: the wall no longer starts at the passage edge — coral placed any other way can reach across the channel the player is meant to swim down')
+    // THE ISLAND HAS TO BE DRAWN, and it is the one piece of this geometry the sim cannot check for
+    // itself: stepCaveWall stops the player on caveAt's `ph` whether or not anything renders it, so
+    // dropping this call leaves an INVISIBLE WALL down the middle of the passage — solid, damaging,
+    // and reading as the game glitching. Run RS.f proves the collider; this proves the picture.
+    assert.ok(/if \(cav\.ph > 0\) pack\(/.test(gcode),
+      'run RS.a: the fork island is no longer packed with coral — the passage still splits and stepCaveWall still stops you on it, so the player is being blocked by open water')
+    // AND A THIN CELL MAY NOT SKIP ITS COLUMN. `cnt = 0` cut the WHOLE DEPTH of the wall at that
+    // cell, and two adjacent ones made a see-through slot from the passage to the edge of the
+    // screen — measured at >= 48px every 540px of lane against a 44px player, which is what a
+    // desktop showed as gaps in the cave (owner, 2026-08-24). Sink the column instead.
+    assert.ok(!/cellEmpty \? 0 :/.test(gcode),
+      'run RS.a: an empty coral cell draws nothing again — a column is the whole depth of the wall, so this is a hole you can see the open sea through, worst on a desktop')
   }
 
   // (b) A PLAYER WHO FOLLOWS THE PASSAGE NEVER TOUCHES IT. This is the whole level: it must be
@@ -23274,17 +23373,13 @@ function testReefSpurScrape() {
     let touches = 0
     const secs = 120
     for (let i = 0; i < Math.round(secs / dt); i++) {
-      const cav = caveAt(run.player[LAX.fwd] + LAX.dir * 60, spec, run._obstacleSeed)
-      const want = cav.c
-      const c = run.player[LAX.cross]
-      const v = Math.abs(want - c) < 4 ? 0 : want > c ? 1 : -1
-      stepSim(run, LAX.cross === 'x' ? { x: v, y: 0 } : { x: 0, y: v }, dt)
+      stepSim(run, stick(follow(run)), dt)
       run.events.length = 0
       if (run._caveHit) touches++
     }
     clean = { travelled: run.player[LAX.fwd], touches }
     assert.strictEqual(touches, 0,
-      `run RS.b: a player steering down the middle of the passage touched the wall on ${touches} frames — the cave is not navigable, so every other case here is measuring a damage race`)
+      `run RS.b: a player following the passage touched the wall on ${touches} frames — the cave is not navigable, so every other case here is measuring a damage race`)
     assert.ok(run.player[LAX.fwd] * LAX.dir > laneScrollFor(CHAPTERS.reef) * secs * 0.98,
       `run RS.b: following the passage carried the player ${run.player[LAX.fwd].toFixed(0)}px in ${secs}s against a scroll that should give ${(laneScrollFor(CHAPTERS.reef) * secs).toFixed(0)} — something is stopping a player who is doing it right`)
   }
@@ -23338,11 +23433,128 @@ function testReefSpurScrape() {
       'run RS.d: a bursting player was pushed off their line by the wall — the dash commits to a heading, and the wall may not steer it')
   }
 
+  // (e) THE THROTTLE: THE LEVEL RUNS AT THE RATE THE PLAYER ASKS FOR (owner, 2026-08-24, "the move
+  // right / move left actions should actually make the level scroll faster / slower"). Asserted as
+  // px TRAVELLED and as the velocity itself, because the failure this is written against is the
+  // feature existing on one of the two clocks: throttle the player alone and the lane front (the
+  // crush edge AND the camera) keeps running at 90, so easing off does not slow the level down, it
+  // feeds you to the back edge. `crush` damage at half throttle is that bug, stated as HP.
+  let thr = null
+  {
+    const T = CHAPTERS.reef.laneThrottle
+    assert.ok(T > 0, 'run RS.e: CHAPTERS.reef.laneThrottle is gone — the stick no longer touches the scroll and this whole case is vacuous')
+    const nominal = laneScrollFor(CHAPTERS.reef)
+    const secs = 60
+    const leg = (fwd) => {
+      const run = reefRun()
+      for (let i = 0; i < Math.round(secs / dt); i++) {
+        stepSim(run, stick(follow(run), fwd * LAX.dir), dt)
+        run.events.length = 0
+      }
+      return { px: run.player[LAX.fwd] * LAX.dir, crush: (run.dmgBySrc ?? {}).crush ?? 0 }
+    }
+    const back = leg(-1), idle = leg(0), fwd = leg(1)
+    thr = { back: back.px, idle: idle.px, fwd: fwd.px }
+    assert.ok(Math.abs(idle.px - nominal * secs) < 1,
+      `run RS.e: an untouched forward stick travelled ${idle.px.toFixed(0)}px in ${secs}s against the chapter's own ${(nominal * secs).toFixed(0)} — the neutral scroll has moved, which is every other number in this chapter`)
+    assert.ok(fwd.px > idle.px * 1.2 && fwd.px <= idle.px * (1 + T) + 1,
+      `run RS.e: pushing forward for ${secs}s travelled ${fwd.px.toFixed(0)}px against ${idle.px.toFixed(0)} idle — the stick's forward component is being thrown away, which is what a lane used to do with it`)
+    assert.ok(back.px < idle.px * 0.8 && back.px >= idle.px * (1 - T) - 1,
+      `run RS.e: easing off for ${secs}s still travelled ${back.px.toFixed(0)}px against ${idle.px.toFixed(0)} idle — the level did not slow down`)
+    assert.strictEqual(back.crush, 0,
+      `run RS.e: easing off cost ${back.crush} hp of CRUSH — the lane front is still advancing at the full scroll, so slowing down is not slowing the level down, it is being left behind by it`)
+    // The velocity itself, on a stick with no cross component at all, so the unit-circle clamp is
+    // not quietly scaling the number this asserts.
+    for (const [fwdIn, want] of [[1, 1 + T], [-1, 1 - T], [0, 1]]) {
+      const run = reefRun()
+      stepSim(run, stick(0, fwdIn * LAX.dir), dt)
+      assert.ok(Math.abs(run.player[LAX.vFwd] * LAX.dir - nominal * want) < 1e-6,
+        `run RS.e: a ${fwdIn} forward stick gives ${(run.player[LAX.vFwd] * LAX.dir).toFixed(2)}px/s against the ${(nominal * want).toFixed(2)} laneThrottle ${T} asks for`)
+      assert.ok(Math.abs(run._laneThrottle - want) < 1e-6, 'run RS.e: run._laneThrottle disagrees with the velocity it produced — stepLaneFront reads that field, so the camera and the crush edge would run at a rate the player is not travelling at')
+    }
+    // And no other lane chapter is touched: The Beyond declares no throttle, so its own golden
+    // master cannot move whatever this stick does.
+    const bax = laneAxes(CHAPTERS.beyond)
+    const bRun = (() => { Math.random = mulberry32(7); const r = createRun(meta, { chapter: 'beyond', difficulty: 1 }); r.mods.spawnMul = 0; return r })()
+    assert.strictEqual(bRun.chapter, 'beyond', 'run RS.e: the control run is not The Beyond, so the no-throttle-elsewhere claim is untested')
+    for (let i = 0; i < 60; i++) { stepSim(bRun, bax.cross === 'x' ? { x: 0, y: -1 } : { x: -1, y: 0 }, dt); bRun.events.length = 0 }
+    assert.ok(Math.abs(bRun.player[bax.vFwd] * bax.dir - laneScrollFor(CHAPTERS.beyond)) < 1e-6,
+      `run RS.e: The Beyond's scroll answered the forward stick (${bRun.player[bax.vFwd].toFixed(2)}px/s) — laneThrottle is The Reef's field and adopting it elsewhere moves a shipped chapter's golden master`)
+  }
+
+  // (f) THE FORK IS TWO REAL PATHS (owner, 2026-08-24: "i don't see branches in the coral cave,
+  // this is always 1 path"). Three things have to hold at once, and each of them is a way for a
+  // fork to be a fake: the islands have to EXIST at a rate the player meets them, BOTH sides have
+  // to be flyable clean, and the middle has to stop being the safest place in the chapter.
+  let fork = null
+  {
+    const bs = spec.branch
+    assert.ok(bs, 'run RS.f: CHAPTERS.reef.cave.branch is gone — the passage is one path again')
+    const seed = reefRun()._obstacleSeed
+    let islands = 0, inIsland = 0, maxPh = 0, minBranch = Infinity, samples = 0
+    let was = false
+    const SPAN = 60000
+    for (let f = 0; f < SPAN; f += 5) {
+      const cav = caveAt(f, spec, seed)
+      samples++
+      if (cav.ph > 0) {
+        inIsland++
+        maxPh = Math.max(maxPh, cav.ph)
+        minBranch = Math.min(minBranch, cav.hw - cav.ph)
+        if (!was) islands++
+      }
+      was = cav.ph > 0
+    }
+    const everyPx = SPAN / islands
+    fork = { islands, everyPx, maxPh, minBranch, share: inIsland / samples }
+    assert.ok(everyPx < 2000,
+      `run RS.f: one fork every ${everyPx.toFixed(0)}px of lane (${(everyPx / laneScrollFor(CHAPTERS.reef)).toFixed(1)}s) — at that rate a whole run can pass without the player meeting one, which is the report this exists to answer`)
+    assert.ok(minBranch >= 4 * PLAYER.radius,
+      `run RS.f: the tightest branch is ${minBranch.toFixed(0)}px wide against a ${2 * PLAYER.radius}px player — a fork you cannot fit through is a wall`)
+    assert.ok(maxPh <= spec.halfMin - 2 * PLAYER.radius,
+      `run RS.f: the island reaches ${maxPh.toFixed(0)}px against a passage that narrows to ${spec.halfMin} — it can swallow the passage whole`)
+    // AN ISLAND MUST NOT EAT THE AIR. streamShafts snaps every pocket to |off| >= max(r x 2.4,
+    // hw - r) off the passage centre; at the narrowest passage that is the smallest it ever gets,
+    // and a pocket whose inner edge falls inside the island is air the player cannot reach.
+    const pk = CHAPTERS.reef.signature.pockets
+    const pocketInner = Math.max(pk.r * 2.4, spec.halfMin - pk.r) - pk.r
+    assert.ok(pocketInner > maxPh,
+      `run RS.f: an air pocket's inner edge sits ${pocketInner.toFixed(0)}px off the passage centre against a ${maxPh.toFixed(0)}px island — the refill is inside the coral, and the bar starves with nothing thrown`)
+    // BOTH SIDES, FLOWN. Same policy as RS.b with the choice forced, so an island that only opens
+    // one way — or a wall the far branch runs into — cannot pass as a fork.
+    for (const side of [-1, 1]) {
+      const run = reefRun()
+      let touches = 0
+      for (let i = 0; i < Math.round(90 / dt); i++) {
+        stepSim(run, stick(follow(run, side)), dt)
+        run.events.length = 0
+        if (run._caveHit) touches++
+      }
+      assert.strictEqual(touches, 0,
+        `run RS.f: committing to the ${side < 0 ? 'near' : 'far'} branch touched the wall on ${touches} frames — that side is not a path, so the fork is a decision with one answer`)
+    }
+    // AND THE MIDDLE NOW COSTS. The island is the only thing that can charge a player holding the
+    // centre line, so this is the effect the sim change is proved by: delete the push-out and this
+    // is 0 while everything else here still passes.
+    const mid = reefRun()
+    for (let i = 0; i < Math.round(90 / dt); i++) {
+      const cav = caveAt(mid.player[LAX.fwd], spec, mid._obstacleSeed)
+      const c = mid.player[LAX.cross]
+      const v = Math.abs(cav.c - c) < 4 ? 0 : cav.c > c ? 1 : -1
+      stepSim(mid, stick(v), dt)
+      mid.events.length = 0
+    }
+    const paidMid = (mid.dmgBySrc ?? {}).scrape ?? 0
+    assert.ok(paidMid > 0,
+      'run RS.f: 90s of holding the passage centre line cost 0 hp — the islands are drawn and not solid, so the fork is decoration and the middle is still the safest place in the chapter')
+  }
+
   const all = Object.keys(CHAPTERS)
   const caves = all.filter((id) => CHAPTERS[id].cave)
   assert.deepStrictEqual(caves, ['reef'],
     `run RS: ${caves.length} chapters declare a cave [${caves.join(', ')}] — this is The Reef's own geometry and nothing else reads caveAt`)
-  console.log(`PASS run RS (the cave): 1 of ${all.length} chapters declares one, a passage ${2 * spec.halfMin}-${2 * spec.halfMax}px wide wandering +/-${spec.wander} inside a ${2 * laneHalfWidth(reefRun().viewRadius, CHAPTERS.reef)}px corridor, coral built ${laneDrawSpan(390, CHAPTERS.reef.spurs.spacing).ahead.toFixed(0)}px ahead on a phone and ${laneDrawSpan(1862, CHAPTERS.reef.spurs.spacing).ahead.toFixed(0)}px on a 1862px desktop; steering down the middle for 120s touched the wall ${clean.touches} times and travelled ${clean.travelled.toFixed(0)}px, pressing one side for 20s touched it ${hit.touched} times for ${hit.paid} hp with a worst single-frame move of ${hit.worstJump.toFixed(1)}px (bounce ${CAVE_BOUNCE_PX}), and a held Burst passes straight through`)
+  console.log(`PASS run RS (the cave): 1 of ${all.length} chapters declares one, a passage ${2 * spec.halfMin}-${2 * spec.halfMax}px wide wandering +/-${spec.wander} inside a ${2 * laneHalfWidth(reefRun().viewRadius, CHAPTERS.reef)}px corridor, coral built ${laneDrawSpan(390, CHAPTERS.reef.spurs.spacing).ahead.toFixed(0)}px ahead on a phone and ${laneDrawSpan(1862, CHAPTERS.reef.spurs.spacing).ahead.toFixed(0)}px on a 1862px desktop; following it for 120s touched the wall ${clean.touches} times and travelled ${clean.travelled.toFixed(0)}px, pressing one side for 20s touched it ${hit.touched} times for ${hit.paid} hp with a worst single-frame move of ${hit.worstJump.toFixed(1)}px (bounce ${CAVE_BOUNCE_PX}), and a held Burst passes straight through`)
+  console.log(`PASS run RS.e/f (the throttle and the fork): 60s of lane travelled ${thr.back.toFixed(0)}/${thr.idle.toFixed(0)}/${thr.fwd.toFixed(0)}px eased-off/neutral/pushed (laneThrottle ${CHAPTERS.reef.laneThrottle}, 0 crush hp for easing off, The Beyond unmoved); ${fork.islands} islands over 60000px = one every ${fork.everyPx.toFixed(0)}px (${(fork.everyPx / laneScrollFor(CHAPTERS.reef)).toFixed(1)}s), ${(fork.share * 100).toFixed(0)}% of the lane forked, widest ${fork.maxPh.toFixed(0)}px against a tightest branch of ${fork.minBranch.toFixed(0)}px, and both sides flown clean for 90s`)
 }
 
 function testReefNatives() {
@@ -24079,12 +24291,19 @@ function testReefPool() {
   {
     const run = reefRun('oxygenTank', 5)
     const bait = mk(run, AX.cross === 'x' ? 300 : 0, AX.cross === 'y' ? 300 : 0, 0)
-    let hit = null
+    let hit = null, toss = null
     drive(run, [bait], 6, { x: 0, y: 0 }, (r) => {
-      for (const ev of r.events) if (ev.type === 'rupture' && !hit) hit = { ...ev, px: r.player.x, py: r.player.y }
+      // ⚠ MEASURED AGAINST THE THROW, NOT AGAINST WHERE THE PLAYER ENDED UP. The lob's target is
+      // banked at the cast (fireTank), and since the cave forks the player is no longer guaranteed
+      // to sit still across the flight — an island's tip nudges them a few px off and the fixture
+      // reported that drift as the CARD aiming at bodies.
+      for (const ev of r.events) {
+        if (ev.type === 'toss' && !hit) toss = { ...ev }
+        if (ev.type === 'rupture' && !hit) hit = { ...ev }
+      }
     })
-    assert.ok(hit, 'run RP.f: no rupture in 6s — the tank never landed')
-    const off = Math.abs(hit[AX.cross] - (AX.cross === 'x' ? hit.px : hit.py))
+    assert.ok(hit && toss, 'run RP.f: no rupture in 6s — the tank never landed')
+    const off = Math.abs(hit[AX.cross] - toss[AX.cross])
     assert.ok(off < 1,
       `run RP.f: the tank landed ${off.toFixed(0)}px off the lane axis, with a fat body sitting exactly that way — it is aiming at enemies rather than throwing up the lane`)
     assert.strictEqual(bait.hp, bait.maxHP,
@@ -28752,4 +28971,52 @@ function testRefund() {
   }
 
   console.log(`PASS run RF (refunds): ${LINES.length} shop lines pay back floor(cost x ${REFUND_RATE}) over ${checked} priced levels, clamped to lineMax, monotone, never whole; main.js zeroes the line and credits the purse behind the book guard; 6 new strings translated`)
+}
+
+// run BL (boot loader) — the loading screen spans FOUR files that no import joins: index.html holds
+// the element and its clock, styles.css paints it, main.js reports the real milestones, fr.js
+// translates the one word on it. Every drift between them fails silently and two of them fail
+// badly: drop main.js's 100% call and the loader never leaves, so the game is unreachable behind a
+// full-screen cream overlay; drop a CSS rule and the thing is unstyled — which is the shape the bug
+// this was written for arrived in ("tucked in a corner, not animated, no % increasing, no copy").
+function testBootLoader() {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+  const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+
+  // (a) THE ELEMENT AND EVERY CLASS IT WEARS IS STYLED. An id/class in the markup with no rule is
+  // a loader with no layout: default block flow puts it at the top-left of the page, which is
+  // exactly where the reported one was.
+  assert.ok(/id="boot"/.test(html), 'index.html has no #boot element — the loading screen is gone')
+  const marks = [...new Set([...html.matchAll(/class="(boot-[\w- ]+)"/g)].flatMap((m) => m[1].split(/\s+/)))]
+  assert.ok(marks.length >= 5, `run BL parsed only ${marks.length} boot-* classes out of index.html — the parser has gone stale`)
+  for (const cls of ['#boot', ...marks.map((c) => `.${c}`)]) {
+    assert.ok(css.includes(`${cls} {`) || css.includes(`${cls},`), `${cls} is used by the loading screen and has no rule in styles.css`)
+  }
+
+  // (b) IT ANIMATES AND IT FILLS. Both were absent from the report, and both are one deleted
+  // declaration away from being absent again. The fill's WIDTH is what the percentage is drawn as.
+  assert.match(css, /\.boot-mark \{[^}]*animation:\s*boot-bob/, 'the loading screen no longer animates — .boot-mark has lost its bob')
+  assert.ok(css.includes('@keyframes boot-bob'), '@keyframes boot-bob is gone, so .boot-mark animates to nothing')
+  assert.match(css, /\.boot-fill \{[^}]*width:/, '.boot-fill declares no width — the progress bar can never show progress')
+  assert.match(html, /fill\.style\.width = p \+ '%'/, "index.html's clock no longer writes the fill width — the bar sits at 0 forever")
+  assert.match(html, /pct\.textContent = p \+ '%'/, 'index.html no longer prints the percentage')
+
+  // (c) THE MILESTONES, AND 100 ABOVE ALL. window.__boot is a global with no import to break, so
+  // a rename or a deleted call throws nothing anywhere: the loader simply never reaches 100 and
+  // never removes itself, and the title screen is behind it forever.
+  const pcts = [...mainSrc.matchAll(/window\.__boot\?\.\((\d+)/g)].map((m) => Number(m[1]))
+  assert.ok(pcts.length >= 3, `main.js reports only ${pcts.length} boot milestone(s) — the bar's second half is meant to be measured, not estimated`)
+  assert.ok(pcts.includes(100), 'main.js never calls window.__boot?.(100) — the loading screen never goes away and the game is unreachable behind it')
+  assert.deepStrictEqual([...pcts].sort((a, b) => a - b), pcts, `boot milestones run backwards: [${pcts.join(' ')}]`)
+  assert.ok(html.includes('window.__boot = function'), 'index.html no longer defines window.__boot — every call in main.js is a silent no-op')
+  assert.match(html, /el\.remove\(\)/, 'the loading screen never removes itself')
+
+  // (d) THE ONE WORD ON IT IS TRANSLATED, and the HTML's fallback is the exact dictionary key.
+  // A mismatch here is English on a French screen — with no throw and nothing to see in review.
+  assert.ok(html.includes('>Loading…<'), "index.html's loading label is no longer 'Loading…' — its French cannot be keyed to it")
+  assert.ok(mainSrc.includes("t('Loading…')"), 'main.js does not translate the loading label')
+  assert.ok(FR['Loading…'], "'Loading…' has no French")
+
+  console.log(`PASS run BL (boot loader): #boot + ${marks.length} classes all styled, bob + fill declared, milestones [${pcts.join(' ')}] end at 100, label translated`)
 }

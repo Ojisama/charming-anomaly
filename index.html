@@ -15,6 +15,53 @@
 <body>
   <div id="game"></div>
   <div id="ui"></div>
+  <!-- THE LOADING SCREEN. Markup and clock both live here rather than in ui.js because the wait
+       they cover IS the bundle: on a cold phone the module takes over a second to arrive, and a
+       loader that only exists once main.js has parsed cannot show any of it. Uncovered, that gap
+       showed the Pixi canvas with every idle title creature stacked at the stage ORIGIN — one blob
+       clipped into the top-left corner until the ticker's first idle() spreads them. -->
+  <div id="boot">
+    <img class="boot-mark" src="./icon.svg" alt="" width="96" height="96">
+    <h1 class="boot-logo"><span>Charming</span> <span>Anomaly</span></h1>
+    <div class="boot-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <i class="boot-fill"></i>
+    </div>
+    <p class="boot-status"><span>Loading…</span> <b class="boot-pct">0%</b></p>
+  </div>
+  <script>
+    // ponytail: the curve is an ESTIMATE, not bytes — a <script type=module> fetch reports no
+    // progress to the page. main.js raises the floor at each real boot milestone (window.__boot),
+    // so the second half is measured; swap in a streamed fetch of the bundle if that ever misleads.
+    ;(function () {
+      var el = document.getElementById('boot')
+      var bar = el.querySelector('.boot-bar')
+      var fill = el.querySelector('.boot-fill')
+      var pct = el.querySelector('.boot-pct')
+      var t0 = Date.now()
+      var floor = 0
+      // Eases from the last milestone toward 96, never past it and never backwards. The curve is
+      // RESTARTED at each milestone (t0 below) so the number keeps moving through the long stretches
+      // between them — parked on a floor is what "the % doesn't increase" looks like.
+      function draw() {
+        var p = Math.round(floor + (96 - floor) * (1 - Math.exp(-(Date.now() - t0) / 1500)))
+        fill.style.width = p + '%'
+        pct.textContent = p + '%'
+        bar.setAttribute('aria-valuenow', p)
+      }
+      var tick = setInterval(draw, 90)
+      draw()
+      // main.js calls this: (percent, translated label). 100 finishes and takes the screen away.
+      window.__boot = function (n, msg) {
+        if (msg) el.querySelector('.boot-status span').textContent = msg
+        if (n > floor) { floor = n; t0 = Date.now() }
+        draw()
+        if (n < 100) return
+        clearInterval(tick)
+        el.classList.add('boot--done')
+        setTimeout(function () { el.remove() }, 300)
+      }
+    })()
+  </script>
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>
