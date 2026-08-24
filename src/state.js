@@ -2270,7 +2270,14 @@ export function createRun(meta, opts = {}) {
       moving: false,
       vx: 0, vy: 0,       // v5.4: this frame's own input velocity, px/s (see the doc block above)
     },
-    weapons: [{ id: starterId, level: startWeaponLevel }],
+    // A chapter with no `starter` starts UNARMED, and the empty array is the whole point: a
+    // `{ id: null }` entry is not "no weapon", it is a corpse that every consumer dereferences.
+    // effectiveWeaponStats reads `WEAPONS[w.id].levels` from stepWeapons EVERY FRAME, so a null id
+    // throws on frame 1 — and test/sim-test.js's `run()` has no try/catch, so that one TypeError
+    // ends the whole synchronous suite: every scenario after it never runs and never reports. A
+    // genuinely empty array is already safe and already exercised (dozens of scenarios disarm the
+    // player with `run.weapons = []` mid-test), and render.js never reads run.weapons at all.
+    weapons: starterId ? [{ id: starterId, level: startWeaponLevel }] : [],
     // Which weapon this run STARTED on, published rather than inferred. It is weapons[0] today —
     // nothing removes or reorders that array — but that is an ordering accident, not a contract,
     // and the one consumer is a LEADERBOARD row: read positionally, the first mechanic that drops
