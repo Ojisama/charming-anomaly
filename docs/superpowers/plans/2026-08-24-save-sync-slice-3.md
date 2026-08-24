@@ -6,11 +6,13 @@ and `../specs/2026-08-04-cross-device-save-sync-tech-strategy.md` (the five-slic
 **This document:** what slices 0–2 actually shipped, what drifted underneath them in the ~215
 releases since, and the task list for slices 3 and 4.
 
-**Status, 2026-08-24: slice 3 is BUILT and slice 4 is one constant away.** S3.0–S3.6 are all done
-and on `worktree-save-sync-slice-3`; `npm test` is green including three new scenarios (run XU,
-run SY, run ZY), and every sheet has been shot at 320×568 and 568×320 in both languages. What
-remains is genuinely only the part a person has to do: set `SYNC_URL` in the build and walk two real
-devices end to end, including the return leg from the summary screen. See §6.
+**Status, 2026-08-24: SHIPPED as v7.220.0, live and behind the dev gate.** S3.0–S3.6 are done and
+slice 4's constant is set, so the Worker is reachable from the production bundle — but the entry
+point sits behind `meta.dev`, so no ordinary player meets it yet. `npm test` is green including
+three new scenarios (run XU, run SY, run ZY, 20/20 mutations caught), every sheet was shot at
+320×568 and 568×320 in both languages, and the live bundle was greped for the endpoint rather than
+assumed. **The one thing left is the two-device walkthrough** — seven taps on the wordmark, on a
+phone, against the live URL. See §6.
 
 ---
 
@@ -28,7 +30,7 @@ below record both what was found and what changed.
 | 2 — `sync.js` **decision core** | shipped | `decide` (all five rows including the resync), `deriveDirty`, `isOwnLostAck`, `schemaOk`, `adopt`, record I/O. Covered by run **ZZ.a–h**, **SM.a–e** and `testForwardCompatibleSave`. |
 | 2 — `sync.js` **transport** | ~~missing~~ **built 2026-08-24** | *Was:* no `fetch` in `src/sync.js` at all — the only occurrence of the word was in the header comment. Now the code minting/canonicalizing, `call()`, `withLock`, and every operation. See §6. |
 | 3 — UI | ~~not started~~ **built 2026-08-24** | The settings row, the sheet's five states, pairing both ways, the destination picker, the §7.2 conflict prompt, the seven triggers, 46 French strings, three new suite scenarios. See §6. |
-| 4 — turn it on | **not started — and it is the only thing left** | `vite.config.js` now defines `__SYNC_URL__`, but the constant is `''`, so the feature is invisible in a production build by construction (run SY asserts this). Needs the value set and a two-device walkthrough. See §6. |
+| 4 — turn it on | **shipped v7.220.0, dev-gated** | `__SYNC_URL__` points at the live Worker and greps once in the deployed bundle. The entry point is behind `meta.dev` in a production build (run SY asserts it, and a mutation deleting the gate is caught), so the flow is walkable on a phone against the live URL without any player meeting it. Only the two-device walkthrough remains. See §6. |
 
 Two design sections turn out to be **already built** as part of slices 0/2, and the strategy's
 slice-3 list should not be read as still owing them:
@@ -255,20 +257,30 @@ Every item of §4 is done. Notes worth carrying, in the order a future editor wi
 - **S3.6** — run XU (every `t()`/`tt()` literal in ui.js has French), run SY (the wiring), run ZY
   (the code and the adopt path). 18 mutations, all caught.
 
-**Slice 4, and it is the only thing left:**
+**Slice 4 — steps 1 and 3 are done; step 2 is a person's job.**
 
-1. `SYNC_URL=https://charming-anomaly-sync.ojisama-san.workers.dev/v1/save npm run build`, or set the
-   constant in `vite.config.js` directly. Nothing else needs provisioning — the Worker is deployed
-   and already serves the leaderboard from that origin.
-2. Pair a phone and a laptop and walk the use case, **including the return leg**: end a run on the
+1. ~~Set the constant.~~ Done: `vite.config.js` defaults to the live endpoint, and `SYNC_URL=` in the
+   environment still empties it, so the kill switch survives. Nothing needed provisioning — the
+   Worker was already deployed and already serves the leaderboard from that origin.
+2. **Pair a phone and a laptop and walk the use case, including the return leg**: end a run on the
    laptop and leave it on the summary screen, play on the phone, then reopen the laptop. That is the
-   path an earlier draft of §6.3 got wrong, and run SY guards the trigger but cannot prove the
-   round trip.
-3. Add the sync host to the deploy-watch gate so the `define` substitution is confirmed in the live
-   bundle rather than assumed.
+   path an earlier draft of §6.3 got wrong; run SY guards the trigger but cannot prove the round
+   trip. Reach it with seven taps on the title wordmark, then ⚙ → Cloud sync.
+3. ~~Add the sync host to the deploy-watch gate.~~ Done — v7.220.0 was gated on
+   `charming-anomaly-sync.ojisama-san.workers.dev/v1/save`, `Synchro cloud` and
+   `Two versions of this save`, all confirmed present in the live bundle.
 
-Until step 1 happens the feature is invisible in a production build by construction — the row is
-dev-only while `SYNC_URL` is empty, which run SY asserts.
+**Why dev-gated rather than shipped dark (owner, 2026-08-24: "this should be accessible to me in
+prod behind dev gate").** Shipping dark would have made step 2 impossible to take: pairing two real
+devices is the one part localhost cannot do, and a feature nobody can reach in production cannot be
+walked there. The gate is `meta.dev` — the SAME switch the card list uses, never a second one, for
+the reason CLAUDE.md records at v7.161.0. Only the entry point is gated: once a device is paired the
+record is on disk and main.js's triggers fire regardless, so dev can go back off and the pair keeps
+syncing.
+
+**To make it public**, delete the one line in `syncRowHtml` that returns `''` when
+`!import.meta.env.DEV && !meta.dev` — and update run SY's assertion in the same commit, or the suite
+will (correctly) tell you the feature has been exposed.
 
 ## 7. Two findings that outlived the feature
 
