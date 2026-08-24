@@ -6899,14 +6899,34 @@ CHAPTERS.reef = {
     // at hw 100 with r 48 those two demands have no overlap. wander drops to 100 to pay for it:
     // wander + halfMax must stay inside laneHalfW 330, and 100 + 210 = 310 does.
     wander: 100, halfMin: 170, halfMax: 220,
-    waves: [[900, 1], [380, 0.42], [170, 0.18]],   // [wavelength px, weight]
-    widthWave: [[640, 1], [250, 0.45]],
+    // EVERY WAVELENGTH DIVIDES lapLen (5040), WHICH IS WHAT MAKES THE TRACK A CIRCUIT. The passage
+    // is summed sines of f, so it repeats exactly when every length divides the lap -- no `f % lap`
+    // wrap, no seam to blend, caveAt untouched. Retuned from 900/380/170 and 640/250, which were
+    // already within 7% of divisors: the cave keeps its character and gains a lap.
+    //   5040 / 840 = 6   / 360 = 14   / 168 = 30   / 630 = 8   / 252 = 20   / 720 = 7
+    // Measured against the shipped caveAt, 720 samples across a lap boundary: max|dc| 9.7e-13 and
+    // max|dhw| 4.0e-13, against 173.1 and 20.6 on the old values. Run RL asserts it.
+    //   ⚠ CHANGING lapLen MEANS RETUNING ALL SIX. A length that does not divide it puts a
+    //   discontinuity at the start line, which is the one place on the track the player crosses
+    //   four times a race and is looking at.
+    waves: [[840, 1], [360, 0.42], [168, 0.18]],   // [wavelength px, weight]
+    widthWave: [[630, 1], [252, 0.45]],
     // THE BRANCHES (caveAt's own block has the geometry). One island every `every / chance` = 1000px
     // of lane, i.e. a fork about every 11s at laneScroll 90, each one 380px long = 4.2s of committed
     // side. `frac` is the share of the passage the island takes, so each branch is 36% of it — 122px
     // at the tightest squeeze the field makes, against a 44px player. Capped by the air pockets
     // before it is capped by the swim: see the warning in caveAt.
-    branch: { every: 700, chance: 0.7, span: 380, frac: 0.28 },
+    // `every` 700 -> 720 for the same reason as the wavelengths: 5040 / 720 = 7, so the forks fall
+    // on the same seven places every lap. The wavelengths alone do NOT give this -- the island
+    // hashes floor(f / every), a cell index that keeps climbing, so lap 2 rolled a different fork
+    // at the same place until caveAt wrapped it (57px of island discrepancy, measured).
+    branch: { every: 720, chance: 0.7, span: 380, frac: 0.28 },
+    // THE LAP, IN PIXELS, AND IT LIVES HERE RATHER THAN ON `circuit` BECAUSE IT IS A PROPERTY OF
+    // THIS GEOMETRY: it is the period every wavelength above divides, and the modulus caveAt wraps
+    // the fork cell by. Authoring it twice is the drift this repo's own CLAUDE.md calls its largest
+    // defect class, so `circuit` carries the lap COUNT and reads the length from here.
+    // 5040px is about 28s at a realistic 180px/s -- the owner's "a lap should be 30s average".
+    lapLen: 5040,
     salt: 47,                                      // next free salt block; 44-46 were the spurs'
     // NO `fill` HERE, AND DELIBERATELY NOT. It read "how far past the passage edge coral is drawn,
     // must exceed the largest half-view the game can present" and NOTHING EVER READ IT -- syncSpurs
@@ -9461,7 +9481,15 @@ export const caveAt = (f, spec, seed) => {
   const bs = spec.branch
   if (bs) {
     const cell = Math.floor(f / bs.every)
-    if (caveHash(cell * 3.7 + 5, s0) < bs.chance) {
+    // THE FORKS REPEAT EVERY LAP, and this wrap is the only reason they do. `c` and `hw` above are
+    // sums of sines whose wavelengths all divide spec.lapLen, so they come back on their own -- but
+    // the island is a HASH of a cell index that keeps climbing, so the same place on lap 2 rolled a
+    // different fork (57px of island discrepancy, measured, with the wavelengths already correct).
+    //   The hash reads the WRAPPED cell; the geometry below reads the RAW one. Wrapping both would
+    // put `u` a whole lap away from f and the island would never draw.
+    const cells = spec.lapLen ? Math.round(spec.lapLen / bs.every) : 0
+    const key = cells ? ((cell % cells) + cells) % cells : cell
+    if (caveHash(key * 3.7 + 5, s0) < bs.chance) {
       const u = (f - (cell + 0.5) * bs.every) / (bs.span / 2)
       if (u > -1 && u < 1) ph = hw * bs.frac * Math.cos(u * Math.PI / 2)
     }
