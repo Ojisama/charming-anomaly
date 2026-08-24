@@ -6922,6 +6922,22 @@ CHAPTERS.reef = {
   ],
   eliteFlags: ['soapTrail'],   // the Undertow's own elite flag, shared with The Surf and The Shelf
 
+  // THE CROWD IS SCENERY, NOT A THREAT. Owner, 2026-08-24: "in the reef, enemies should just pass
+  // by you not attack you." Two halves, both read by sim.js and both chapter-wide rather than
+  // per-roster-row, so a creature added here later cannot forget one of them:
+  //   the damage  zeroed at spawn (see the dmg line in spawnEnemy) rather than by a dmgMul: 0 on
+  //               each row. contactHarmless already treats 0 as 0 -- that clause is why The
+  //               Wreck's fish do not chip 1 HP per touch -- so this needs no second site.
+  //   the seek    replaced in stepEnemyMovement by a swim DOWN the lane, so every body streams
+  //               past you and out the back while you advance up it. It sits above every
+  //               behaviour machine, which is what makes the roster's latch and pounce unreachable
+  //               here without deleting them.
+  // What is left to kill you is the chapter: the coral, the crush and the air. The roster keeps
+  // its flags on purpose, so the combative Reef is one boolean away rather than a rewrite.
+  //   WARNING: ELITE POOLS ARE NOT COVERED. eliteFlags' soapTrail still lays a damaging trail;
+  //   that is a pool and not a contact, and turning it off is a separate ruling.
+  passiveCrowd: true,
+
   // AIR POCKETS. The signature carries no mechanic of its own — the LANE is this chapter's gimmick
   // — it carries the geometry of the one thing that refills the bar, in the same vocabulary as the
   // Shelf's shafts, the Surf's tide pools, the pond's eddies and the undergrowth's traps: `cell` is

@@ -1944,7 +1944,13 @@ function spawnEnemy(run, opts = {}) {
   // roster entry hit softer were the archetype base in ENEMIES (which moves that archetype in every
   // chapter) or the chapter's own balance.enemyDmgMul (which moves every creature in the chapter) —
   // neither of which can say "this one enemy is too harsh", which is the note it was added for.
+  // CHAPTERS[].passiveCrowd (v7.x, The Reef): the chapter-wide twin of roster.dmgMul, and it is a
+  // FACTOR on this same line rather than a branch in stepContactDamage for the reason that line's
+  // own block gives -- contactHarmless already reads 0 as harmless, so one term here disarms every
+  // path that reaches the player (plain contact, the latch clause, the formation ranks) with
+  // nothing else to keep in step. See CHAPTERS.reef.passiveCrowd for the other half.
   const dmg = base.dmg * dmgScale(run.time) * (isElite ? ELITE.dmgMul : 1) * run.mods.enemyDmgMul * (roster?.dmgMul ?? 1)
+    * (CHAPTERS[run.chapter].passiveCrowd ? 0 : 1)
   const radius = base.radius * (isElite ? ELITE.sizeMul : 1) * run.mods.enemyRadiusMul * (roster?.radiusMul ?? 1)
 
   const affixes = isElite ? rollAffixes(run) : []
@@ -2124,6 +2130,9 @@ function stepEnemyMovement(run, dt) {
   // v7.x: which way is "down the lane" for the `march` machine below. Hoisted out of the per-enemy
   // loop — it is one frozen lookup per frame, and non-lane chapters simply never reach the branch.
   const laneAx = laneAxes(CHAPTERS[run.chapter])
+  // v7.x: CHAPTERS[].passiveCrowd -- this chapter's creatures never seek. Hoisted beside laneAx for
+  // the same reason: one frozen lookup per frame.
+  const passiveCrowd = CHAPTERS[run.chapter].passiveCrowd === true
 
   for (const e of run.enemies) {
     // Seek target: the player by default, or the nearest Pheromone Lure decoy (v5.3 garden) whose
@@ -2295,6 +2304,17 @@ function stepEnemyMovement(run, dt) {
         e.x -= (dx / d) * e.speed * FEAR_SPEED_MUL * slowMul * dt
         e.y -= (dy / d) * e.speed * FEAR_SPEED_MUL * slowMul * dt
       }
+    } else if (passiveCrowd) {
+      // THE CROWD IGNORES YOU (v7.x, The Reef -- CHAPTERS[].passiveCrowd). It does not know you are
+      // there: no seek, no machine, just its own swim DOWN the lane while you advance up it, so it
+      // streams past and the astern sweep takes it out the back. Closing speed is the scroll PLUS
+      // its own, which is the whole of "pass by" -- a body that merely stopped seeking would sit
+      // still in the water and read as dead.
+      //   ABOVE every behaviour machine and below stun/fear, exactly where skittish sits and for
+      // the same reason: a fish that is not hunting you is not running its hunting routine either.
+      // That placement is what makes the roster's latch and pounce inert here without deleting
+      // them -- the chapter is one boolean away from its combative self.
+      if (slowMul > 0) e[laneAx.fwd] -= laneAx.dir * e.speed * slowMul * dt
     } else if (e.flags && e.flags.includes('skittish')) {
       // PREY (v7.x, The Wreck). The one branch in this chain that walks AWAY from the player.
       // Sits directly under fear because it is the same motion for a different reason — fear is a

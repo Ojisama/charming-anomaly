@@ -18758,6 +18758,7 @@ run(testLeLargeWeapons)
   run(testMultitouchControls)
   run(testLaneGolden)
   run(testLaneAxis)
+  run(testReefPassiveCrowd)
   run(testReefAirBurst)
   run(testReefSpurScrape)
   run(testReefNatives)
@@ -22989,6 +22990,162 @@ function testLaneAxis() {
   }
 
   console.log(`PASS run LX (the lane has an axis): the reef scrolls +x at ${laneScrollFor(CHAPTERS.reef)}px/s (the beyond keeps ${LANE_SCROLL_SPEED}) under a stick that cannot touch it, strafes on y at x${LANE_STRAFE_MUL}, clamps to both y walls, spawns everything ahead, and the camera reads the axis`)
+}
+
+
+// ---- run RC: The Reef's crowd passes you by ----------------------------------------------------
+// Owner, 2026-08-24: "in the reef, enemies should just pass by you not attack you."
+//
+// BOTH HALVES ARE ASSERTED AS EFFECTS, never as the flag. CHAPTERS.reef.passiveCrowd reads true
+// whether or not either of its two sites honours it, so a test that looked at the boolean — or at
+// the spawned enemy's own `dmg` field — would pass with the movement branch deleted, which is
+// exactly the half the player actually sees.
+//
+// THE BEYOND IS THE CONTROL ON BOTH CASES, and it is not decoration: the same lane machinery runs
+// there, so an arm where seeking or contact damage is broken EVERYWHERE would satisfy the reef
+// assertions on its own. Two chapters, one fixture, opposite answers.
+function testReefPassiveCrowd() {
+  const dt = 1 / 60
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  // No weapons: every case below reads an enemy's OWN displacement, and a bullet landing on it
+  // applies knockback through the same e.x/e.y the branch writes. Immortal for the same reason the
+  // rest of the reef fixtures are — the coral and the air are not what this run is measuring.
+  const laneRun = (chapter, seed = 20260824) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter, difficulty: 1 })
+    assert.strictEqual(run.chapter, chapter, `run RC did not start in ${chapter} — the WIP gate or the meta is wrong`)
+    run.weapons.length = 0
+    run.player.hp = run.player.maxHP = 1e9
+    return run
+  }
+  // The first live body, however long the chapter takes to make one.
+  const firstBody = (run, secs = 60) => {
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      const e = run.enemies.find((q) => !q._dead)
+      if (e) return e
+    }
+    return null
+  }
+
+  // (a) CONTACT COSTS NOTHING. A body pinned on the player for six seconds, which is ~360 contact
+  // frames — every one of them a chance for stepContactDamage, the latch clause, or an elite affix
+  // to take a bite. Read off run.dmgBySrc and NOT off p.hp, because the reef also charges you for
+  // coral, crush and drowning in those six seconds and a total would drown the signal in them:
+  // the bucket is keyed by the creature's own rosterId, so this asks the one question that matters.
+  for (const [chapter, wantBite] of [['reef', false], ['beyond', true]]) {
+    const run = laneRun(chapter)
+    const e = firstBody(run)
+    assert.ok(e, `run RC.a saw no enemy at all in 60s of ${chapter} — the fixture asserts nothing`)
+    const key = e.rosterId ?? e.type
+    run.dmgBySrc = {}
+    run.player.invuln = 0
+    for (let i = 0; i < Math.round(6 / dt); i++) {
+      // Held ON the player and kept alive: nothing else in the run may end this contact early.
+      e._dead = false
+      e.hp = 1e9
+      e.x = run.player.x
+      e.y = run.player.y
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+    }
+    const bit = run.dmgBySrc[key] ?? 0
+    if (wantBite) {
+      assert.ok(bit > 0,
+        `run RC.a control: a ${key} sat inside The Beyond's player for 6s and took 0 HP — this case cannot tell a disarmed crowd from a broken fixture`)
+    } else {
+      assert.strictEqual(bit, 0,
+        `run RC.a: The Reef's ${key} took ${bit} HP off a player it was pinned inside for 6s — passiveCrowd is not reaching stepContactDamage`)
+    }
+  }
+
+  // (b) IT NEVER TURNS TOWARD YOU. The player is held hard against one side of the lane while a
+  // single body is left alive: a seeker closes the CROSS gap, and this one may not move on that
+  // axis at all. The forward half is asserted too, and it is the half that makes "pass by" true
+  // rather than merely "stops chasing" — a body that only stopped seeking would hang motionless in
+  // the water and read as dead, so the branch swims it DOWN the lane at its own speed.
+  for (const [chapter, wantTurn] of [['reef', false], ['beyond', true]]) {
+    const run = laneRun(chapter)
+    const ax = laneAxes(CHAPTERS[chapter])
+    const e = firstBody(run)
+    assert.ok(e, `run RC.b saw no enemy at all in 60s of ${chapter}`)
+    // ONE body only. Separation pushes neighbours apart on the same coordinates this case reads,
+    // so a second live enemy is an unmeasured force inside the assertion.
+    const cross0 = e[ax.cross]
+    const fwd0 = e[ax.fwd]
+    const secs = 1.5
+    // ACROSS THE LANE, whichever axis that is. Held on a literal { x: 0, y: 1 } this pushed The
+    // Beyond's player straight up its FORWARD axis instead — the control never left the centre
+    // line, its seeker had no gap to close, and the case reported the seek as disabled in the one
+    // chapter where it is not.
+    const stick = ax.cross === 'x' ? { x: 1, y: 0 } : { x: 0, y: 1 }
+    let moved = 0
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      for (const q of run.enemies) if (q !== e) q._dead = true
+      e._dead = false
+      e.hp = 1e9
+      e.kb.x = 0
+      e.kb.y = 0
+      stepSim(run, stick, dt)            // strafe hard toward one wall, the whole time
+      run.events.length = 0
+      moved += dt
+      if (e._dead) break                 // swept astern; whatever it did, it did before here
+    }
+    const dCross = Math.abs(e[ax.cross] - cross0)
+    if (wantTurn) {
+      assert.ok(dCross > 20,
+        `run RC.b control: The Beyond's crowd moved ${dCross.toFixed(1)}px across the lane while the player fled to a wall — an ordinary seeker must close that gap, so this case cannot see a disabled seek`)
+    } else {
+      assert.ok(dCross < 1e-6,
+        `run RC.b: The Reef's ${e.rosterId ?? e.type} moved ${dCross.toFixed(2)}px across the lane toward a fleeing player — it is still seeking`)
+      const want = -ax.dir * e.speed * moved
+      assert.ok(Math.abs((e[ax.fwd] - fwd0) - want) < 1e-3,
+        `run RC.b: expected the body to swim ${want.toFixed(1)}px down the lane in ${moved.toFixed(2)}s at its own ${e.speed.toFixed(0)}px/s, it moved ${(e[ax.fwd] - fwd0).toFixed(1)} — it is not passing by, it is parked`)
+    }
+  }
+
+  // (d) NO MACHINE EVER STARTS. Cases (a) and (b) both read whichever body the chapter happened to
+  // make first, and that is a damselfish — the roster's deliberately FLAGLESS baseline — so neither
+  // of them can see the branch being moved DOWN the chain below the behaviour machines, which is
+  // the plausible edit and the one that puts the lionfish's leap back. stepPounce publishes
+  // _pounceState the first frame it runs, so its absence over a whole run of lionfish is the
+  // ordering asserted as an effect. Counted, so a run that rolled none says so instead of passing.
+  {
+    const run = laneRun('reef')
+    const seen = new Map()
+    let pouncing = 0
+    for (let i = 0; i < Math.round(60 / dt); i++) {
+      stepSim(run, { x: 0, y: Math.sin(i / 90) }, dt)
+      run.events.length = 0
+      for (const e of run.enemies) {
+        if (e._dead) continue
+        seen.set(e.id, e.rosterId ?? e.type)
+        if (e._pounceState !== undefined) pouncing++
+      }
+    }
+    const lionfish = [...seen.values()].filter((id) => id === 'lionfish').length
+    assert.ok(lionfish > 0,
+      `run RC.d saw 0 lionfish in 60s of the reef (${seen.size} bodies) — the one roster entry carrying a behaviour machine never spawned, so this case asserts nothing`)
+    assert.strictEqual(pouncing, 0,
+      `run RC.d: ${pouncing} enemy-frames ran the pounce machine in the reef — the passiveCrowd branch has fallen below the behaviour machines in stepEnemyMovement, and the lionfish is leaping at the player again`)
+  }
+
+  // (c) THE DECLARATION IS THE REEF'S ALONE. passiveCrowd disarms every creature in a chapter, so
+  // it landing on a second one is a whole chapter turning into target practice with nothing thrown
+  // and no other case here going red. Over Object.keys(CHAPTERS) and not CHAPTER_ORDER, which is
+  // Book 1 only and would not see this chapter at all (CLAUDE.md).
+  const declared = Object.keys(CHAPTERS).filter((id) => CHAPTERS[id].passiveCrowd)
+  assert.deepStrictEqual(declared, ['reef'],
+    `run RC.c: passiveCrowd is declared by [${declared.join(', ')}] — it disarms a chapter's whole roster, so anything but the reef here is an accident`)
+
+  console.log(`PASS run RC (the reef's crowd passes by): pinned inside the player for 6s it takes 0 HP (The Beyond's bites), it holds its cross line against a fleeing player (The Beyond's closes) and swims down-lane at its own speed; declared by ${declared.length} of ${Object.keys(CHAPTERS).length} chapters`)
 }
 
 // ---- run RF: The Reef's Air (the bar) and Burst (the button) -----------------------------------
