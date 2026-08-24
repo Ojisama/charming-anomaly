@@ -136,7 +136,7 @@ const UI = {
   // the shop is not a market, and the sentence below has to say plainly that half the coins
   // stay behind — which is the only reason this control needs words at all.
   'Refund': 'Rembourser',
-  'You get back {pct}% of what you paid.': 'Vous récupérez {pct}% de ce que vous avez payé.',
+  'You get back {pct}% of what you paid.': 'Tu récupères {pct}% de ce que tu as payé.',
   'Refund all : 🪙 {n}': 'Tout rembourser : 🪙 {n}',
   'Refund everything?': 'Tout rembourser ?',
   'Every level in this book goes back to zero.': 'Tous les niveaux de ce livre repassent à zéro.',
@@ -166,6 +166,82 @@ const UI = {
   // the exact ambiguity this line exists to remove.
   'Slot {n} — leave it empty to go back to a number.':
     'Emplacement {n} — laisse vide pour revenir au numéro.',
+
+  // ---- cloud sync (design §9; plan docs/superpowers/plans/2026-08-24-save-sync-slice-3.md) ----
+  // TU throughout, the owner's call: this sheet opens from the same ⚙ as Save slots, whose own
+  // copy is already tu ('laisse vide pour revenir au numéro'), and a player moving between the two
+  // would otherwise hear the voice change mid-flow.
+  //
+  // ACTIF / INACTIF rather than the spec's Oui / Non. The row's own value is the ambient status
+  // signal (§9.7), so the word in the ⚙ row and the word opening the sheet's status line have to be
+  // the SAME word — 'Inactif' in the row against 'Non — cette sauvegarde…' below it reads as two
+  // different facts about one thing.
+  'Cloud sync': 'Synchro cloud',
+  'Off': 'Inactif',
+  // The row's value when nothing has come back for days. Not 'inactif' — sync IS on, which is
+  // exactly what makes the silence worth showing (§9.3).
+  'quiet': 'silence',
+  'unknown': 'inconnu',
+  'Slot {n}': 'Emplacement {n}',
+  'Off — this save stays on this device': 'Inactif — cette sauvegarde reste sur cet appareil',
+  'On — Slot {n}, updated {when}': 'Actif — emplacement {n}, {when}',
+  'On — nothing new in {when}': 'Actif — rien de neuf depuis {when}',
+  'Cloud sync is off in this build.': 'La synchro cloud est désactivée dans cette version.',
+  'Keep one save in step across your phone and computer. No account — you type a code once.':
+    'Garde une sauvegarde à jour entre ton téléphone et ton ordinateur. Sans compte — un code à saisir une fois.',
+  'Sync Slot {n}': 'Synchroniser l\'emplacement {n}',
+  'I have a code': 'J\'ai déjà un code',
+  'Uploading…': 'Envoi…',
+  'Ready — enter this code on your other device': 'Prêt — saisis ce code sur ton autre appareil',
+  'Copy code': 'Copier',
+  'Copied': 'Copié',
+  'Show code': 'Voir le code',
+  // 'Dissocier' (owner's call) is the word the phone OSes use in French for un-pairing a device, so
+  // it is the one a player has already read for this exact action.
+  'Unlink': 'Dissocier',
+  'Anyone with this code can read and change this save.':
+    'Toute personne ayant ce code peut lire et modifier cette sauvegarde.',
+  'Type the code shown on your other device.': 'Saisis le code affiché sur ton autre appareil.',
+  'Pairing code': 'Code d\'association',
+  'Continue': 'Continuer',
+  'Where should this save go?': 'Où placer cette sauvegarde ?',
+  'THIS DEVICE': 'CET APPAREIL',
+  'THE CLOUD': 'LE CLOUD',
+  // 'sera supprimée', future rather than present: the deletion happens when the player taps, not
+  // now, and the present tense reads as though one is already gone while both are still on screen.
+  'The other one is deleted.': 'L\'autre sera supprimée.',
+  'Two versions of this save': 'Deux versions de cette sauvegarde',
+  'Slot {n} already has a save': 'L\'emplacement {n} contient déjà une sauvegarde',
+  'Decide later': 'Plus tard',
+  '{r} runs': '{r} parties',
+  '{u} upgrades': '{u} améliorations',
+  // 'celle-ci', feminine, agreeing with 'sauvegarde' — the noun the whole sheet is about, even
+  // though it does not appear on the button itself.
+  'Use this one': 'Garder celle-ci',
+  'Linked. Slot {n} now follows you between devices.':
+    'Lié. L\'emplacement {n} te suit maintenant d\'un appareil à l\'autre.',
+  'Loaded your latest save from the cloud.': 'Dernière sauvegarde chargée depuis le cloud.',
+  'Offline — your progress is safe here.': 'Hors ligne — ta progression est en sécurité ici.',
+  'Not uploaded yet — waiting for a connection.': 'Pas encore envoyé — en attente de connexion.',
+  'Sync is down right now. Nothing is lost.': 'La synchro est indisponible. Rien n\'est perdu.',
+  'Too many tries. Wait a minute and try again.': 'Trop de tentatives. Attends une minute et réessaie.',
+  'That code is not valid.': 'Ce code n\'est pas valide.',
+  // Both causes, because a 404 means either one and the player cannot tell which.
+  'No save under that code yet. Check the code, and make sure the other device says Ready.':
+    'Aucune sauvegarde pour ce code. Vérifie le code, et que l\'autre appareil affiche Prêt.',
+  'That cloud save was written by a newer version of the game.':
+    'Cette sauvegarde cloud vient d\'une version plus récente du jeu.',
+  'That cloud save could not be read. Your save here is untouched.':
+    'Cette sauvegarde cloud est illisible. Celle-ci n\'a pas changé.',
+  'Unavailable in private browsing.': 'Indisponible en navigation privée.',
+  'There is nothing saved in this slot yet.': 'Cet emplacement est encore vide.',
+  'Your other devices are still using the old code. Unlink there too.':
+    'Tes autres appareils utilisent encore l\'ancien code. Dissocie-les aussi.',
+
+  // Not a sync string. Found by run XU on the day it was written: the pause sheet's and the codex
+  // modal's own heading had no entry and has been rendering in English on the French screen. The
+  // word is identical in French — which is a translation decision, not an absence of one.
+  'Codex': 'Codex',
 
   // level-up
   // 'montée de niveau' is the term the dictionary already uses for this concept elsewhere

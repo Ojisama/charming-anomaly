@@ -17362,6 +17362,54 @@ function testFrenchDictionary() {
   console.log(`PASS run XX (v6.6.8 French dictionary): ${keys.length} keys, no duplicates, none dead, no NBSP in keys, ${Object.values(FR).filter((v) => v.includes(NBSP)).length} values with French NBSP, full config.js coverage`)
 }
 
+// ---- Run XU: every LITERAL string ui.js hands to t()/tt() has French ---------------------------
+//
+// THE HOLE run XX CANNOT SEE, and it has now shipped untranslated copy four separate times (two
+// City enemies in v6.3, every weapon mod in v6.6.26, the whole elements redesign in v7.55, and the
+// three creature names found in v7.120 by SHOOTING the French panel). run XX walks config TABLES
+// reading name/desc/title one level deep — so copy that lives in a ui.js FUNCTION is exempt from it
+// by construction, which is where every screen's own chrome lives. The cloud-sync sheet added 45
+// such strings and the full suite stayed green over every one of them.
+//
+// The check is the other direction from run XX's: not "is this table covered" but "does every string
+// this file actually asks to translate exist in the dictionary". Only LITERALS — `t(ch.name)` is a
+// table value and run XX owns it.
+//
+// ⚠ COMMENTS ARE STRIPPED FIRST, load-bearing for the same reason run MB.a strips them: this file
+// discusses its own copy in prose right beside the wiring, and a raw scan would collect sentences
+// out of comments and demand French for them.
+function testUiStringsTranslated() {
+  const raw = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+  const code = raw
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+
+  const keys = new Set()
+  for (const m of code.matchAll(/\btt?\(\s*'((?:\\.|[^'\\])*)'/g)) keys.add(m[1].replace(/\\'/g, "'"))
+  for (const m of code.matchAll(/\btt?\(\s*"((?:\\.|[^"\\])*)"/g)) keys.add(m[1].replace(/\\"/g, '"'))
+
+  // A FLOOR ON THE DENOMINATOR, measured not guessed (124 today): "0 missing" is also what a scan
+  // whose stripper desynced and ate the file prints, and the two are indistinguishable.
+  assert.ok(keys.size >= 100,
+    `run XU: only ${keys.size} t()/tt() literals found in ui.js against a floor of 100 — the comment ` +
+    `stripper has desynced, so "nothing missing" below would be a scan that checked nothing`)
+
+  const missing = [...keys].filter((k) => !(k in FR))
+  assert.deepStrictEqual(missing, [],
+    `run XU: ui.js asks t()/tt() to translate ${missing.length} string(s) with no fr.js entry, so they ` +
+    `render in ENGLISH on a French screen with nothing thrown and no test red: ${JSON.stringify(missing)}`)
+
+  // Placeholder parity, for the same reason run XX asserts it across the dictionary: a misspelt
+  // {n} prints literal braces to the player and reads perfectly in review.
+  const ph = (v) => [...String(v).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(',')
+  const skew = [...keys].filter((k) => ph(k) !== ph(FR[k]))
+  assert.deepStrictEqual(skew, [],
+    `run XU: English and French disagree about placeholders — the French renders literal braces: ${JSON.stringify(skew)}`)
+
+  console.log(`PASS run XU (ui.js copy is translated): all ${keys.size} t()/tt() literals in ui.js ` +
+    `resolve to an fr.js entry, placeholders agree on every one`)
+}
+
 // ---- Run WW: v6.6.5 early spawn boost (owner directive) --------------------------------------
 // "have early monsters (<1min in) spawn a bit faster". spawnRate is multiplied by spawnEarlyMul,
 // which is 1 + SPAWN_EARLY_BOOST at t=0 and decays LINEARLY to exactly 1 at SPAWN_EARLY_UNTIL.
@@ -18376,6 +18424,7 @@ try {
   run(testEarlySpawnBoost)
   run(testLaneOpening)
   run(testFrenchDictionary)
+  run(testUiStringsTranslated)
   run(testForwardCompatibleSave)
   // BEFORE testSyncDecisions, and that is not cosmetic: run ZZ.f calls freezeSaves(), which is a
   // ONE-WAY latch with no unlatch by design (§3.3 — the only exit is the reload already on its way),

@@ -2188,7 +2188,22 @@ body {
      height budget, which at 320x568 has nothing to give. */
   min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.sync-card-sub { font-size: 0.76rem; font-weight: 700; color: var(--ink-soft); }
+/* THE NOWRAP ABOVE IS FOR THE NAME LINE ONLY, and this line must undo it. Shot in FRENCH, where
+   'ameliorations' is half again the width of 'upgrades', the stat line overflowed — and because
+   .sync-card-line is a CENTRED FLEX ROW, text-overflow:ellipsis never fires: the line clipped
+   symmetrically instead, eating a digit off each END. It read ") parties · 12 ameliorations ·
+   310(" — with the coin total silently wrong on the screen where the player compares two saves
+   by their numbers. English fitted, so only the French shot could show it.
+   Numbers wrap; a name still ellipsises, because a name is player-authored and unbounded. */
+.sync-card-sub {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
 .sync-card-stars { display: inline-flex; font-size: 0.5rem; line-height: 1; flex: none; }
 
 /* SHORT LANDSCAPE (568x320). Shot there, the second card's button AND `Decide later` — the only
