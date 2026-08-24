@@ -1084,6 +1084,14 @@ export function initUI(hooks) {
     + '<path d="M4.2 6.6h15.6"/><path d="M9.8 6.6V4.4h4.4v2.2"/>'
     + '<path d="M6.4 6.6 7.4 20h9.2l1-13.4"/><path d="M10.3 10.4v6.1M13.7 10.4v6.1"/></svg>'
 
+  // WHICH SAVE IS THE ONE THAT FOLLOWS YOU. Once the ⚙ entry point is behind meta.dev this row is
+  // the ONLY surface that says a save is synced at all, and it stays honest when the gate closes:
+  // a paired device keeps syncing whatever meta.dev reads, by design (see syncRowHtml), so hiding
+  // the mark with the sheet would leave the one fact the player still needs with nowhere to live.
+  // A function, not a const like the two above, because it carries a translated label.
+  const icoCloud = (label) => `<svg class="slot-row-cloud" viewBox="0 0 24 24" role="img" aria-label="${esc(label)}">`
+    + '<path d="M7.4 18.6h9.3a4 4 0 0 0 .5-8 5.3 5.3 0 0 0-10-1.5 4.7 4.7 0 0 0 .2 9.5z"/></svg>'
+
   // `manage` renders the ✏️ AND 🗑️ COLUMNS, disabled when the slot is empty rather than omitted:
   // dropping the buttons lets that row stretch into the columns and the sheet's right edge goes
   // ragged. Disabled also says the true thing — there is no save here to name or to erase yet. The
@@ -1095,14 +1103,27 @@ export function initUI(hooks) {
     const line1 = `${named || `${t('Slot')} ${n}`}${n === activeSlot() ? ` — ${t('Current')}` : ''}`
     // The slot NUMBER moves to the small line once a name replaces it on the headline: the reset
     // confirm and the sync copy both say "Slot 2", so the number has to stay visible somewhere.
+    // U+00A0 BEFORE EACH SEPARATOR, so a wrap can never start a line with a bare '·'. This line
+    // wraps now (it has to — see .slot-row-summary), and left to a plain space it broke as
+    // '☁ Slot 2 · 🪙 90210' / '· 1/7', which reads as a bullet list rather than one sentence.
+    // Binding the dot to the token before it means the break lands AFTER the dot or not at all.
+    // The coin is bound to its number for the same reason, found the same way — at 3x, with
+    // only the dots bound, the line broke as 'Slot 2 · 🪙' / '90210 · 1/7' and orphaned
+    // the glyph from the number it labels.
     const line2 = summary
-      ? `${named ? `${t('Slot')} ${n} · ` : ''}🪙 ${summary.coins} · ${summary.unlocked}/${summary.total}`
+      ? `${named ? `${t('Slot')} ${n} · ` : ''}🪙 ${summary.coins} · ${summary.unlocked}/${summary.total}`
       : t('Empty — new game')
+    // ON THE SMALL LINE, not the headline. That line already carries what this save IS (its number,
+    // its purse, its chapters) and it WRAPS, so a glyph there cannot push anything off the end —
+    // the headline ellipsises, and a mark riding on it would be the first thing cut on the row it
+    // is describing. `st.slot` is the SYNCED slot, which is not necessarily the active one.
+    const st = syncState()
+    const cloud = summary && st.on && st.slot === n ? icoCloud(t('Synced')) : ''
     return `
       <div class="slot-row-wrap">
         <button class="btn btn--soft slot-row" data-act="${act}" data-slot="${n}" ${disabled ? 'disabled' : ''}>
           <span class="slot-row-name">${esc(line1)}</span>
-          <small class="slot-row-summary">${esc(line2)}</small>
+          <small class="slot-row-summary">${cloud}${esc(line2)}</small>
         </button>
         ${manage ? `<button class="btn btn--soft slot-glyph" data-act="slot-rename" data-slot="${n}"
           ${summary ? '' : 'disabled'} aria-label="${t('Name this save')}">✏️</button>

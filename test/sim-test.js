@@ -17470,10 +17470,29 @@ function testSyncWiring() {
   // consequences; main.js owns both, and every one of them fails silently.
   const slotFn = u.slice(u.indexOf('function slotRowHtml'))
   const slotBody = slotFn.slice(0, slotFn.indexOf('\n  }'))
-  assert.ok(slotBody.length > 0 && slotBody.length < 1200,
-    'run SY: could not isolate slotRowHtml in ui.js — the asserts below would be measuring nothing')
+  assert.ok(slotBody.length > 0 && slotBody.length < 1800,
+    `run SY: could not isolate slotRowHtml in ui.js (${slotBody.length} chars, measured 1277) — the asserts below would be measuring nothing`)
   assert.ok(/data-act="slot-delete"/.test(slotBody),
     'run SY: the save-slot row has no delete button — the only control that erases one profile is gone')
+  // THE CLOUD MARK, AND THE SLOT IT IS KEYED ON. Once the ⚙ entry point is behind meta.dev this
+  // row is the only surface that says a save is synced at all, so losing the mark leaves the fact
+  // with nowhere to live. The keying is the subtler half: `st.slot` is the SYNCED slot and
+  // activeSlot() is the one being played, they are routinely different (that is the whole point of
+  // a per-slot pairing), and swapping them puts a confident cloud on the wrong save.
+  assert.ok(/icoCloud\(t\('Synced'\)\)/.test(slotBody),
+    'run SY: the save-slot row no longer marks the synced save — with the sheet behind meta.dev ' +
+    'nothing else on any screen says a save follows the player between devices')
+  assert.ok(/cloud = summary && st\.on && st\.slot === n/.test(slotBody) && !/activeSlot\(\) === n/.test(slotBody),
+    'run SY: the cloud mark is no longer gated on `summary && st.on && st.slot === n`. Each ' +
+    'clause is a different lie on screen: without `summary` an EMPTY row claims to sync, without ' +
+    '`st.on` every row does, and keyed on activeSlot() rather than st.slot the mark lands on the ' +
+    'slot being PLAYED — which is routinely not the one that syncs, since the pairing is per-slot')
+  // An inline <svg> with no intrinsic size and no CSS rule lays out at 300x150 and takes the sheet
+  // apart, so this is a blank-screen guard, not a styling one. Matched on a declaration the rule
+  // OWNS (run BP.q4's reason: a bare selector test is satisfied by any later override).
+  assert.ok(/\.slot-row-cloud \{[^}]*width:/.test(readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')),
+    'run SY: .slot-row-cloud has no sizing rule — an inline svg with no intrinsic size renders at ' +
+    '300x150 and blows the slots sheet apart')
   assert.ok(/onDeleteSlot\?\.\(/.test(u),
     'run SY: nothing in ui.js calls onDeleteSlot — the confirm sheet still opens and its Delete button does nothing')
   // NOT ON THE DESTINATION PICKER. That list asks WHERE THIS SAVE SHOULD GO; a delete glyph on it
@@ -17513,8 +17532,8 @@ function testSyncWiring() {
   console.log(`PASS run SY (sync wiring): isIdle reads run === null, all ${TRIGGERS.length} pull/push ` +
     `triggers present at their named sites, ui.js holds no protocol, the entry point is behind ` +
     `meta.dev in production, the kill switch still removes every pixel, and the slots sheet's ` +
-    `delete button unlinks the synced slot, reloads only the active one, and stays off the ` +
-    `destination picker`)
+    `delete button unlinks the synced slot, reloads only the active one, stays off the ` +
+    `destination picker, and the row marks the SYNCED slot with a sized cloud`)
 }
 
 // ---- Run ZY: the pairing code, and what the adopt path tolerates ------------------------------
@@ -17611,20 +17630,43 @@ function testSyncCode() {
 // ⚠ COMMENTS ARE STRIPPED FIRST, load-bearing for the same reason run MB.a strips them: this file
 // discusses its own copy in prose right beside the wiring, and a raw scan would collect sentences
 // out of comments and demand French for them.
+//
+// ⚠⚠ AND THE STRIPPER MUST BE run UR's TWO-CLAUSE FORM, NOT run MB.a's. MB.a's is written for
+// sim.js, which has no globs; this file has `import.meta.glob('./cast/*.png', …)`, and the `/*`
+// inside that PATH opens a block comment for a naive scan. The first cut of run XU used MB.a's
+// version and was therefore reading 2935 of ui.js's 4010 lines: 1075 lines blanked, and the 35
+// literals in them — the whole save-slots sheet, the whole settings sheet, Play, Shop, Boosters,
+// every leaderboard string — were never checked by the assert whose entire job is checking them.
+// It still printed "all 124 literals resolve" and cleared its own floor of 100 by 24, which is
+// precisely the shape CLAUDE.md warns about: a confident answer to a question it never asked.
+// The guarded clause requires a delimiter before the `/*`, so a path inside a string cannot open
+// one. CLAUDE.md names this exact trap against this exact file; run UR and run SY already carry it.
 function testUiStringsTranslated() {
   const raw = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
   const code = raw
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+    .replace(/(^|[\s(,;={[])\/\*[\s\S]*?\*\//g, '$1 ')
+
+  // THE DENOMINATOR THAT ACTUALLY CATCHES A DESYNCED STRIPPER, and the one the first cut lacked.
+  // A literal count cannot: 124 out of a possible 159 looks like a healthy number and reads as a
+  // pass. Lines can — an eaten file loses them in bulk. Block comments legitimately consume ~115
+  // lines here (4010 -> 3895, 97%), while the naive stripper left 73%.
+  const rawLines = raw.split('\n').length
+  const keptLines = code.split('\n').length
+  assert.ok(keptLines >= rawLines * 0.9,
+    `run XU: the comment stripper ate ${rawLines - keptLines} of ui.js's ${rawLines} lines (kept ` +
+    `${Math.round((keptLines / rawLines) * 100)}%, floor 90%) — every t() in the blanked region is ` +
+    `unchecked, and "nothing missing" below would be a scan that never read them`)
 
   const keys = new Set()
   for (const m of code.matchAll(/\btt?\(\s*'((?:\\.|[^'\\])*)'/g)) keys.add(m[1].replace(/\\'/g, "'"))
   for (const m of code.matchAll(/\btt?\(\s*"((?:\\.|[^"\\])*)"/g)) keys.add(m[1].replace(/\\"/g, '"'))
 
-  // A FLOOR ON THE DENOMINATOR, measured not guessed (124 today): "0 missing" is also what a scan
-  // whose stripper desynced and ate the file prints, and the two are indistinguishable.
-  assert.ok(keys.size >= 100,
-    `run XU: only ${keys.size} t()/tt() literals found in ui.js against a floor of 100 — the comment ` +
+  // A FLOOR ON THE COUNT TOO, measured not guessed (159 today, was 124 while 1075 lines were
+  // being blanked). The line check above is the sharper instrument; this one still catches a
+  // stripper that eats a little rather than a lot, and a regex that stops matching t() entirely.
+  assert.ok(keys.size >= 150,
+    `run XU: only ${keys.size} t()/tt() literals found in ui.js against a floor of 150 — the comment ` +
     `stripper has desynced, so "nothing missing" below would be a scan that checked nothing`)
 
   const missing = [...keys].filter((k) => !(k in FR))

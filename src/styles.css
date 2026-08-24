@@ -2104,6 +2104,15 @@ body {
    131.6px at 320px and 'Vide — nouvelle partie' does not fit on one line — ellipsised, the empty
    slot read 'Vide — nouvelle p…' and slot 2's coin total read '🪙 90210…'. */
 .slot-row-summary { white-space: normal; }
+/* FILLED, not stroked like .rr-ico. At 14px a hairline cloud dissolves into the line of text it
+   sits in — the same failure .shop-ico documents at 22px — and this mark has to read as a property
+   of the row rather than as a character in its sentence. --mint-dark, so it is the one positive
+   thing on a line otherwise set in --ink-soft. Baseline-nudged to sit WITH the text. */
+.slot-row-cloud {
+  width: 14px; height: 14px; flex: none;
+  vertical-align: -2px; margin-right: 4px;
+  fill: var(--mint-dark);
+}
 /* A full 44px target, not a ~24px glyph tucked into the row: a miss on the row itself reloads the
    page into a different save. Sibling to the picker rather than inside it, because buttons cannot
    nest AND because the current slot's picker is `disabled` — renaming the save you are playing is
