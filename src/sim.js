@@ -4237,20 +4237,17 @@ function stepSpurs(run, dt) {
   // So the two hazards layer instead of replacing each other: grinding along a face costs you the
   // scrape and your steering, and only being left behind by the lane costs you the crush.
   const spec0 = CHAPTERS[run.chapter].spurs || {}
-  const solid = spec0.solid
-  const reach = solid ? PLAYER.radius : 0
-  const hwS = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
+  const reach = spec0.solid ? PLAYER.radius : 0
   let inside = false
   for (const sp of run.spurs) {
-    // The CAVE's reach, not the ridge's: the walls are already closing pinchSpan before the ridge
-    // line, so a player grinding along a narrowing ceiling is on coral well before sp.f.
+    // The band reaches a PLAYER.radius past the ridge on a solid field, so a player held flush
+    // against the face is inside it rather than a hair outside and paying nothing.
     if (Math.abs(f - sp.f) > sp.thick / 2 + (spec0.pinchSpan ?? 0) + reach) continue
-    // THE LEADING EDGE, NOT THE CENTRE, and without this the scrape is unreachable code again.
-    // blockOnCoral holds the player PLAYER.radius clear of the point where they exactly fit, so a
-    // test at their centre always answers "fits" and _scraping never fires -- the same failure the
-    // scrape had when the ridges first became solid, arriving through a different door. Testing a
-    // radius further up the lane asks the question that matters: is my nose in the coral.
-    inside = !channelAt(sp, f + ax.dir * reach, c, spec0, hwS)
+    // onCoral is the file's single definition of "this cross position is coral and not a channel",
+    // shared with Fire Coral's burn band -- which is the point of it existing at all, since the two
+    // drifting apart is the one-fact-in-two-places class CLAUDE.md names as the largest defect
+    // source here. It reads the CROSS coordinate only; the forward band above is this caller's half.
+    inside = onCoral(sp, c)
     break
   }
   // balance_decision : the burst crosses coral free, strafe slow lifts too [2026-08-22]

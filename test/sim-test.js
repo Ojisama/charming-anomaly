@@ -18435,6 +18435,7 @@ run(testLeLargeWeapons)
   run(testSpawnQueueInvariant)
   run(testPoolClearing)
   run(testVocabularies)
+  run(testUnresolvedRefs)
   run(testScreenPositioning)
   run(testRefund)
   console.log('ALL TESTS PASSED')
@@ -27953,6 +27954,112 @@ function testVocabularies() {
 
   console.log(`PASS run VO (vocabularies): ${declaredFlags.size} behaviour flags all read, ${Object.keys(ELITE_AFFIXES).length} affixes all read, ` +
     `${wantedSfx.length} sfx names all defined, ${STRUCTURE_KINDS.length} structure kinds all skinned and sized, ${declaredUnlocks.size} BOOK_UNLOCKS id(s) all read off bm.unlocks, ${shopBonusIds.length} shopBonus id(s) all resolve to a real shop line`)
+}
+
+// ---- run UR: NOTHING CALLS A NAME THAT RESOLVES NOWHERE ----------------------------------------
+// The cheapest possible member of the cross-file-contract family, and it exists because a rename
+// got past every other one. The Reef's cave rework (v7.213) deleted config's `channelAt` and
+// `pinchAt`, deleted the one caller it knew about (blockOnCoral), and left a SECOND caller standing
+// in stepSpurs. Nothing threw, because stepSpurs early-returns on any chapter declaring `cave` and
+// The Reef is the only chapter with `spurs` — so the line is unreachable TODAY and is a guaranteed
+// ReferenceError the moment a chapter declares a spur field without a cave around it, which is
+// exactly the case the comment above that early-return says it is being kept alive for. A latent
+// crash in code kept for reuse is the worst shape this repo's largest defect class takes: the
+// rename is done, the tree is green, and the bill arrives for whoever next writes a chapter.
+//
+// ⚠ THE FILE SET IS THE PIXI- AND DOM-FREE ONE, AND THAT IS A REAL CAP, NOT A SHRUG. render.js,
+// main.js, ui.js and audio.js are excluded for two structural reasons: they define functions as
+// OBJECT-LITERAL METHOD SHORTHAND (`shoot() { … }` in audio's SFX table) and receive others as hook
+// PROPERTIES, neither of which is a declaration this can see; and render.js contains regex literals
+// that desync the string-stripper below, which would make its result unreliable in the direction
+// that matters (code eaten as a string is a call site NOT CHECKED). Those four need a real parser.
+// The six files here are 100% of what sim-test can already import, and sim.js — where the bug was,
+// and where this repo concentrates its logic — is one of them.
+function testUnresolvedRefs() {
+  // Names that are neither imported nor declared but are legitimately callable.
+  const GLOBALS = new Set(['Math', 'Object', 'Array', 'JSON', 'Number', 'String', 'Boolean', 'Set', 'Map',
+    'Date', 'isNaN', 'isFinite', 'parseFloat', 'parseInt', 'Symbol', 'Promise', 'Error', 'TypeError',
+    'RegExp', 'WeakMap', 'WeakSet', 'BigInt', 'structuredClone',
+    // keywords the call-site regex cannot tell from a call, since `if (` looks exactly like `f (`
+    'if', 'for', 'while', 'switch', 'catch', 'return', 'typeof', 'function', 'of', 'in', 'new', 'do',
+    'else', 'try', 'await', 'yield', 'delete', 'void', 'instanceof'])
+
+  // ⚠ STRIP COMMENTS AND STRING LITERALS FIRST, and it is load-bearing for the same reason run MB.a
+  // strips them: every identifier in this repo is discussed in prose right beside its wiring, so a
+  // raw scan would see `channelAt` in the paragraph explaining it and call the reference resolved.
+  const strip = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+    .replace(/`(?:\\.|\$\{[^}]*\}|[^`\\])*`/g, '""')
+    .replace(/'(?:\\.|[^'\\])*'/g, '""')
+    .replace(/"(?:\\.|[^"\\])*"/g, '""')
+
+  // fr.js is absent on purpose and not by oversight: it is a pure translation table with ZERO call
+  // sites, so a row for it would be a floor of 0 — the exact vacuous-denominator shape the floors
+  // below exist to prevent.
+  const FILES = ['sim.js', 'config.js', 'state.js', 'sync.js', 'terrain.js']
+  // A FLOOR ON THE DENOMINATOR PER FILE, because "0 unresolved" is what a scan that saw nothing at
+  // all also prints (CLAUDE.md: 0/75 proves a run happened, 0/0 proves nothing and looks identical).
+  // Set well under the current counts so ordinary edits never trip it; a stripper that desyncs and
+  // eats half a file will.
+  // MEASURED, NOT EXPECTED — CLAUDE.md's rule for any count a harness asserts, because a guessed
+  // one is a safety rail you learn to scroll past (the first cut of this block guessed 200 for
+  // config.js, which has 144, and went red on a file that was clean). Each floor is 60% of what the
+  // scan actually reports today, so ordinary edits never trip it and a stripper that desyncs and
+  // eats a third of a file does.
+  const FLOOR = {
+    'sim.js': 1642,      // measured 2737
+    'config.js': 86,     // measured 144
+    'state.js': 96,      // measured 160
+    'sync.js': 18,       // measured 30
+    'terrain.js': 70,    // measured 118
+  }
+  const report = []
+  for (const file of FILES) {
+    const src = readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8')
+    const code = strip(src)
+    const known = new Set(GLOBALS)
+    // Imports are read from the RAW source: the list spans lines and carries `//` comments between
+    // entries, which the stripper turns into whitespace either way.
+    for (const m of src.matchAll(/import\s*\{([\s\S]*?)\}\s*from/g)) {
+      for (const t of m[1].split(',')) {
+        const n = t.replace(/\/\/[^\n]*/g, '').trim().split(/\s+as\s+/).pop().trim()
+        if (/^[A-Za-z_$][\w$]*$/.test(n)) known.add(n)
+      }
+    }
+    for (const re of [/\bfunction\s+([A-Za-z_$][\w$]*)/g, /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g,
+                      /\bclass\s+([A-Za-z_$][\w$]*)/g]) {
+      for (const m of code.matchAll(re)) known.add(m[1])
+    }
+    // PARAMETER NAMES COUNT AS DECLARED. A callback is called by its parameter name, which is
+    // neither imported nor declared at module scope — without this every one of them reports, and a
+    // lint that cries wolf is a lint nobody reads, which is the only way one ever fails.
+    for (const re of [/\(([^()]*)\)\s*=>/g, /function\s*[\w$]*\s*\(([^()]*)\)/g]) {
+      for (const m of code.matchAll(re)) {
+        for (const t of m[1].split(',')) {
+          const n = t.trim().split(/[=:\s]/)[0].replace(/^\.\.\./, '')
+          if (/^[A-Za-z_$][\w$]*$/.test(n)) known.add(n)
+        }
+      }
+    }
+    let checked = 0
+    const bad = new Set()
+    for (const m of code.matchAll(/(^|[^.\w$])([A-Za-z_$][\w$]*)\s*\(/g)) {
+      checked++
+      if (!known.has(m[2])) bad.add(m[2])
+    }
+    assert.ok(checked >= FLOOR[file],
+      `run UR: only ${checked} call sites found in ${file} against a floor of ${FLOOR[file]} — the ` +
+      `comment/string stripper has desynced and eaten part of the file, so "0 unresolved" below would ` +
+      `be a scan that checked nothing rather than a file that is clean`)
+    assert.deepStrictEqual([...bad], [],
+      `run UR: ${file} calls [${[...bad].join(', ')}], which is neither imported nor declared in it. ` +
+      `That is a ReferenceError the moment the line runs — and a line that does not run today is the ` +
+      `dangerous case, because nothing will tell you until a chapter reaches it.`)
+    report.push(`${file} ${checked}`)
+  }
+  console.log(`PASS run UR (unresolved refs): every bare call target resolves to an import or a ` +
+    `declaration across ${FILES.length} files — ${report.join(', ')} call sites checked`)
 }
 
 // run SP (screen positioning) — the CSS twin of the source-text contract lints above.
