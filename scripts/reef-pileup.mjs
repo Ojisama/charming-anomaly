@@ -13,7 +13,7 @@
 // that is off-screen — the player cannot see it, shoot it, or know it is there.
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim } from '../src/sim.js'
-import { CHAPTERS, bookOf, shopLines, ENEMIES, laneScrollFor, LANE_CAMERA_FRAC } from '../src/config.js'
+import { CHAPTERS, bookOf, shopLines, ENEMIES, ARCHETYPE_TYPE, speedCreepMul, laneScrollFor, LANE_CAMERA_FRAC } from '../src/config.js'
 
 const DT = 1 / 60, SECS = 300
 const SEEDS = [1001, 2002, 3003]
@@ -44,15 +44,20 @@ const scroll = laneScrollFor(ch)
 console.log(`reef, d3, ${SECS}s x ${SEEDS.length} seeds, starter-only, immortal player, stick {0.4,0.2}`)
 console.log(`  scroll ${scroll}px/s   visible astern ${BEHIND_PX.toFixed(0)}px (${PHONE_W}px phone, LANE_CAMERA_FRAC ${LANE_CAMERA_FRAC})`)
 console.log(`  roster closing speed vs the player's own ${scroll}px/s advance:`)
+// ARCHETYPE_TYPE, not the roster's own word: a roster entry says normal/fast/tank and ENEMIES is
+// keyed drone/wisp/tank, so indexing ENEMIES by e.archetype misses two rows of three and prints a
+// 'skipped' line that reads like a roster problem rather than a lookup bug in this file.
 for (const e of ch.roster) {
-  const base = ENEMIES[e.archetype]?.speed
-  if (base == null) { console.log(`    ${e.id}: archetype ${e.archetype} not in ENEMIES — skipped`); continue }
+  const base = ENEMIES[ARCHETYPE_TYPE[e.archetype]]?.speed
+  if (base == null) { console.log(`    ${e.id}: archetype ${e.archetype} not in ARCHETYPE_TYPE — skipped`); continue }
   const px = base * (e.speedMul ?? 1)
+  const late = px * speedCreepMul(SECS)
   const verdict = px <= scroll ? 'CANNOT EVER CATCH UP' : `closes at ${(px - scroll).toFixed(0)}px/s`
-  console.log(`    ${e.id.padEnd(11)} ${px.toFixed(0).padStart(4)}px/s   ${verdict}`)
+  console.log(`    ${e.id.padEnd(11)} ${px.toFixed(0).padStart(4)}px/s (${late.toFixed(0)} at ${SECS}s)   ${verdict}`)
 }
 
 let sumAhead = 0, sumAsternSeen = 0, sumAsternGone = 0, samples = 0
+const byId = new Map()   // rosterId -> [ahead, asternSeen, asternGone]
 const ages = []
 for (const seed of SEEDS) {
   Math.random = mulberry32(seed)
@@ -76,9 +81,12 @@ for (const seed of SEEDS) {
     for (const e of run.enemies) {
       if (e._dead) continue
       const d = e.x - run.player.x                   // >0 ahead, <0 astern
-      if (d >= 0) sumAhead++
-      else if (-d <= BEHIND_PX) sumAsternSeen++
-      else sumAsternGone++
+      const id = e.rosterId ?? '?'
+      let row = byId.get(id)
+      if (!row) byId.set(id, row = [0, 0, 0])
+      if (d >= 0) { sumAhead++; row[0]++ }
+      else if (-d <= BEHIND_PX) { sumAsternSeen++; row[1]++ }
+      else { sumAsternGone++; row[2]++ }
     }
   }
   // How long has the crowd that is off-screen-astern at the end been alive?
@@ -94,6 +102,12 @@ console.log(`\nLIVE BODIES per second-sample (${samples} samples across ${SEEDS.
 console.log(`  ahead of you        ${per(sumAhead).padStart(6)}   ${(100 * sumAhead / tot).toFixed(1)}%`)
 console.log(`  astern, ON SCREEN   ${per(sumAsternSeen).padStart(6)}   ${(100 * sumAsternSeen / tot).toFixed(1)}%`)
 console.log(`  astern, OFF SCREEN  ${per(sumAsternGone).padStart(6)}   ${(100 * sumAsternGone / tot).toFixed(1)}%  <- unreachable and invisible`)
+console.log('\n  WHO IS IN THE PILE (share of each creature\'s own live-body samples):')
+for (const [id, row] of [...byId].sort((x, y) => (y[1][0] + y[1][1] + y[1][2]) - (x[1][0] + x[1][1] + x[1][2]))) {
+  const [a, s1, s2] = row
+  const n = a + s1 + s2
+  console.log(`    ${id.padEnd(11)} n=${String(n).padStart(6)}  ahead ${(100 * a / n).toFixed(1).padStart(5)}%  astern-seen ${(100 * s1 / n).toFixed(1).padStart(5)}%  astern-gone ${(100 * s2 / n).toFixed(1).padStart(5)}%`)
+}
 ages.sort((a, b) => a - b)
 if (ages.length) {
   const med = ages[Math.floor(ages.length / 2)]

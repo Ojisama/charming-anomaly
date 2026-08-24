@@ -2295,7 +2295,7 @@ export const WEAPONS = {
   // the first to the heading, the second to the terrain — and neither reads nearestEnemy at all.
   pistolShrimp: {
     name: 'Pistol Shrimp',
-    desc: 'Snaps a bolt of boiling water straight ahead. It never turns to aim — line the shot up yourself.',
+    desc: 'Snaps a bolt of boiling water straight ahead, and a weaker one straight behind. It never turns to aim — line the shot up yourself.',
     icon: '🦐', rarity: 'normal',
     // THE STARTER AND THE CHAPTER'S THESIS CARD: the cross stick IS the aim. The shot is welded to
     // the lane's forward heading (laneAxes().angle) and has no targeting of any kind, so sliding one
@@ -2319,24 +2319,30 @@ export const WEAPONS = {
     // balance_decision : levels buy width, not length or damage [2026-08-22]
     //  - per-hit damage is the only lever that really moves the column and it is the one this
     //    ladder may not spend. Sweep grid in the commit body.
+    // balance_decision : per-hit damage 12 -> 8 pays for the rear crack [2026-08-23]
+    //  - the rear crack's OWN knobs cannot pay for it: swept, its damage fraction and its reach are
+    //    both nearly dead (0.25-0.60 moves kills/min 130-156; reach 80-340 moves it 127-156). What
+    //    it buys is coverage, so the forward column is the only place to pay from.
     // MEASURED, reef, 240s x 5 seeds, d3 — all four of the chapter's natives in ONE census
-    // invocation, never across two. L1 -> L5: eff dps 151 -> 219, kills/min 119.5 -> 162.3, waste
-    // 7% -> 6%.
-    // THE POOL, ON eff dps, WHICH IS THE RARITY ORDERING AT BOTH ENDS:
-    //   L1  Oxygen Tank 145, Pistol Shrimp 151 (normal)  <  Squid Ink 187, Fire Coral 206 (rare)
-    //   L5  Pistol Shrimp 219, Oxygen Tank 246 (normal)  <  Fire Coral 274, Squid Ink 297 (rare)
-    // Both normals under both rares at both ends, and the starter at the bottom of its own band at
-    // L1, which is where a starter belongs.
-    // ⚠ TWO THINGS THE CENSUS CANNOT TELL YOU. kills/min is the weaker read — at L5 all four sit
-    // inside 162-181, i.e. the rig is measuring the spawner. And the rig walks a fixed stick, so it
-    // measures a line that happens to cross bodies; the skill this card sells is choosing the
-    // groove that puts three of them on it. Treat both numbers as floors.
+    // invocation, never across two.
+    // ⚠ READ raw dps HERE, NOT eff dps, AND THE REASON IS THIS CHAPTER. The coral grate (SPUR_DPS)
+    // takes enemies down all run, and weapon-census diffs enemy hp, so every card in the reef is
+    // credited with damage it did not deal: all four now read 397-520 eff dps at NEGATIVE waste,
+    // which cannot order anything. The eff-dps table this block used to carry (151 -> 219) predates
+    // the grate and is not comparable to anything measurable today.
+    // THE POOL, ON raw dps — the weapon's own swings — WITH THE STARTER AT THE BOTTOM AT L1:
+    //   L1  Pistol Shrimp 174  <  Fire Coral 178, Squid Ink 180 (rare)  <  Oxygen Tank 190
+    //   L5  Squid Ink 237, Fire Coral 254, Pistol Shrimp 257  <  Oxygen Tank 316
+    // ⚠ TWO THINGS THE CENSUS CANNOT TELL YOU. kills/min is the weaker read — at L5 three of the
+    // four sit inside 169-176, i.e. the rig is measuring the spawner. And the rig walks a fixed
+    // stick, so it measures a line that happens to cross bodies; the skill this card sells is
+    // choosing the groove that puts three of them on it. Treat both numbers as floors.
     levels: [
-      { dmg: 12, interval: 0.90, length: 340, width: 30, snapT: 0.14, tick: 0.10 },
-      { dmg: 12, interval: 0.82, length: 340, width: 52, snapT: 0.14, tick: 0.10 },
-      { dmg: 12, interval: 0.74, length: 340, width: 76, snapT: 0.14, tick: 0.10 },
-      { dmg: 12, interval: 0.66, length: 340, width: 102, snapT: 0.14, tick: 0.10 },
-      { dmg: 12, interval: 0.58, length: 340, width: 130, snapT: 0.14, tick: 0.10 },
+      { dmg: 8, interval: 0.90, length: 340, width: 30, snapT: 0.14, tick: 0.10 },
+      { dmg: 8, interval: 0.82, length: 340, width: 52, snapT: 0.14, tick: 0.10 },
+      { dmg: 8, interval: 0.74, length: 340, width: 76, snapT: 0.14, tick: 0.10 },
+      { dmg: 8, interval: 0.66, length: 340, width: 102, snapT: 0.14, tick: 0.10 },
+      { dmg: 8, interval: 0.58, length: 340, width: 130, snapT: 0.14, tick: 0.10 },
     ],
   },
   fireCoral: {
@@ -2415,6 +2421,10 @@ export const WEAPONS = {
     // 180s x 3 seeds at d3, all in one invocation, one fixed lane position).
     //   L1  Pistol Shrimp 0.0% | Oxygen Tank 4.1% | Fire Coral 50.5% | Squid Ink 91.2%
     //   L5  Pistol Shrimp 0.0% | Fire Coral 48.1% | Oxygen Tank 53.7% | Squid Ink 82.0%
+    // ⚠ THE SHRIMP'S TWO ZEROES ARE HISTORICAL — its rear crack became baseline in v7.x (fireSnap),
+    // so it no longer sits at 0. It is still the pool's SHORTEST rear answer by a wide margin:
+    // SNAP_BACKBLAST_LEN is 140px against a cloud planted on the player and a burn band across the
+    // whole lane. Re-run scripts/reef-astern.mjs before quoting this table again.
     // The cloud is planted ON the player and the world scrolls, so it spends its whole life behind
     // you: the ONLY card in the pool over 80% at either end. It is not the pool's only rear answer
     // and never was — Fire Coral is already at 50.5% on turn one and the tank reaches 53.7% once its
@@ -3473,7 +3483,7 @@ export const WEAPON_MODS = {
     // It does NOT break the thesis: the second crack is welded to the same lane heading, pointing
     // the other way along it, so the weapon still has no targeting and the stick is still the aim.
     // Read at the fire site (fireSnap).
-    backblast:    { name: 'Backblast',    desc: 'a second crack snaps out behind you', icon: '💨', kind: 'switch' },
+    backblast:    { name: 'Backblast',    desc: 'the crack behind you hits as hard as the one ahead', icon: '💨', kind: 'switch' },
   },
   fireCoral: {
     // 'polyp damage per tick' for the reason barnacles says 'crust damage per tick': the number is
@@ -6830,13 +6840,50 @@ CHAPTERS.reef = {
   // instead of sitting 4px off the edge. Strafe still crosses 642px between ridges against a 660px
   // corridor, so every pinch stays reachable -- run RS checks it rather than trusting this sentence.
   laneHalfW: 330,
+  // THE CAVE IS A SINGLE PASSAGE THAT WANDERS, and this replaces the braid entirely.
+  //
+  // Owner, 2026-08-23, playing v7.213.0: "coral is blocking everything... what I want: coral forms
+  // the caves and the paths, and you have to navigate the scrolled level without touching it.
+  // Touching it bounces you a little bit back on track, and damages you. You should not see water
+  // outside the coral cave, and paths should be HORIZONTAL."
+  //
+  // The previous shape got that exactly backwards. It closed the walls to a ridge's GROOVES at
+  // every ridge line, which draws a full-height column of coral with holes punched in it -- a
+  // perpendicular bar by another name, crossing the lane the player is trying to swim along. What
+  // a cave passage actually is: ONE opening, running the way you travel, whose centre and width
+  // wander. Coral is everything else, out past the edge of the screen so no open water is ever
+  // visible behind it.
+  //
+  //   centre  wanders on summed octaves (three wavelengths, hashed phases) so it is neither a sine
+  //           nor a jitter -- long swings with smaller kinks riding on them
+  //   half    the passage's half-width, on its own octave sum: chambers and squeezes
+  //   ⚠ wander + halfMax must stay inside laneHalfW or the passage leaves the corridor the lane
+  //     clamps the player to, and the player is pinned against a wall that is not drawn. 120 + 185
+  //     = 305 against 330. run RS asserts it rather than trusting this line.
+  cave: {
+    // halfMin 100 -> 150 SO THE PASSAGE CAN HOLD AN OFF-CENTRE POCKET. An air pocket has to clear
+    // the centre line (or breathing is free) and stay inside the wall (or it is unreachable), and
+    // at hw 100 with r 48 those two demands have no overlap. wander drops to 100 to pay for it:
+    // wander + halfMax must stay inside laneHalfW 330, and 100 + 210 = 310 does.
+    wander: 100, halfMin: 170, halfMax: 220,
+    waves: [[900, 1], [380, 0.42], [170, 0.18]],   // [wavelength px, weight]
+    widthWave: [[640, 1], [250, 0.45]],
+    salt: 47,                                      // next free salt block; 44-46 were the spurs'
+    // How far past the passage edge coral is drawn. Must exceed the largest half-view the game can
+    // present on the cross axis, or a wide screen shows open water beyond the cave wall -- which is
+    // the one thing the owner named twice. 760 covers a 1520px cross extent.
+    fill: 760,
+  },
 
   // FOUR NATIVES AND NOTHING BORROWED (owner, 2026-08-22). Every card is picked for the LANE rather
   // than for the theme, because a scroller only works if what you hold can answer things arriving
   // from ahead — and each of the four answers a DIFFERENT question about a corridor you cannot stop
   // in, which is what stops the pool being one idea at four intensities:
-  //   pistolShrimp  the starter and the thesis — a line welded to the forward heading, no targeting
-  //                 at all, so the cross stick is the aim.
+  //   pistolShrimp  the starter and the thesis — a line welded to the lane heading, no targeting at
+  //                 all, so the cross stick is the aim. It cracks BOTH ways along that heading, the
+  //                 rear one shorter and softer: this chapter's crowd sits astern of the player
+  //                 (53% of live bodies, scripts/reef-pileup.mjs) and a starter that could not
+  //                 touch any of it left the whole opening rear-blind.
   //   squidInk      the only card that does not damage its way out of a problem. It takes the
   //                 crowd's ability to FOLLOW you and lets the scroll carry them off, and it is the
   //                 only one planted ON the player, so it is also this pool's answer to what is
@@ -6914,7 +6961,14 @@ CHAPTERS.reef = {
     // the pocket keeps the same share of a narrower lane. Measured over five seeds, end-of-run air
     // lands at 27..52 against the pre-cave 20.9..67.4, i.e. the same mean. A compensation, not a
     // buff: at the old 130 the fixture's own seed drowns on 0.
-    pockets: { cell: 640, chance: 0.66, r: 165, minDist: 420, salt: 40 },
+    // r 165 -> 48 FOR THE CAVE, AND THE POCKET IS NOW SMALLER THAN THE PASSAGE ON PURPOSE.
+    // 165 was sized against a 660px-wide open lane. The cave's passage is 200-370px wide, so a
+    // 165px pocket is wider than the corridor it sits in: it spans the whole opening, which makes
+    // air free (you collect it by flying the passage) and deletes the one decision this resource
+    // exists to pose. At 48 a pocket fits BESIDE the centre line -- offset + r stays inside the
+    // wall and offset - r stays clear of the middle even at the narrowest squeeze (hw 100) -- so
+    // breathing still costs you a commitment to one side of the cave.
+    pockets: { cell: 640, chance: 0.66, r: 48, minDist: 420, salt: 40 },
   },
 
   // SPUR AND GROOVE (level design spec 2026-08-20, rev 4). The reef front as this game's only
@@ -7125,6 +7179,13 @@ CHAPTERS.reef = {
 // ⚠ PHASE 1 — IT PLAYS, IT DOES NOT YET LOOK LIKE A WRECK. The arsenal, the three creature bakes and
 // the floor are BORROWED FROM THE REEF wholesale, exactly as The Reef and The Trawl each shipped
 // borrowed. What is real here is the bar, the button, the starving and the roster's behaviour.
+// The bearing the water here runs along. TWO consumers — the tide itself and the grain the sunken
+// hulls settled into (render.hull.grain) — and they are the same physical fact, so they are one
+// const. Written out because a second literal 120 in the render block is precisely the shape of
+// defect this repo loses most releases to: one fact authored twice, no import between them, nothing
+// thrown when they drift.
+const WRECK_TIDE_DEG = 120
+
 CHAPTERS.wreck = {
   name: 'The Wreck', tagline: 'stop and you starve', icon: '⚓',
 
@@ -7253,8 +7314,9 @@ CHAPTERS.wreck = {
   //
   // See SLICK_* above for the numbers and for why this rides refillCircleAt but lives in run.slicks
   // rather than run.shafts.
-  // 120° — see the TIDE block for how the six bearings are spread.
-  tide: tideAt(120),
+  // 120° — see the TIDE block for how the six bearings are spread. WRECK_TIDE_DEG, not a literal:
+  // render.hull.grain is the same bearing and they must not drift.
+  tide: tideAt(WRECK_TIDE_DEG),
   signature: {
     type: 'leak',
     // chance/cell together set how much of the floor is poisoned. 0.34 of a 900px cell at r 190
@@ -7437,42 +7499,71 @@ CHAPTERS.wreck = {
     //
     // A GRID, NOT ONE SHIP, and that is the only honest answer on an infinite map. A single hull at
     // the run origin is a landmark you swim away from in twenty seconds, after which the chapter is
-    // called The Wreck and has no wreck in it. `cell` is deliberately huge so two are never on
-    // screen together and the repeat cannot read as tiling; variant and rotation are hashed per
-    // cell off the run's own obstacle seed, like every other streamed field here.
+    // called The Wreck and has no wreck in it. Position, heading, size, heel and mirror are all
+    // hashed per CELL off the run's own obstacle seed, like every other streamed field here.
     // ⚠ EVERY NUMBER BELOW WAS CORRECTED FROM A SCREENSHOT, and the first cut was wrong in the two
     // ways this repo keeps being wrong about art: it was invisible, and it was the wrong size.
+    // ⚠ THIS BLOCK ALSO CARRIED TWO CLAIMS THAT WERE SIMPLY FALSE AGAINST THE CODE, both caught by
+    // reading the frames rather than the file: it said two hulls are never on screen together (they
+    // overlapped in half the probe frames — see HULL_JITTER in render.js) and that a VARIANT was
+    // hashed per cell (there was one texture and one uniform scale). A stale comment here is worse
+    // than none, because the next tuner trusts it instead of measuring. Both are now true.
     hull: {
-      // 1250, DOWN FROM 2200, AND THE REASON IS A SHAPE MISMATCH RATHER THAN A TASTE CALL. The grid
-      // is square and a hull is not: at 950 x 205 in a 2200 cell it covered 43% of the span across
-      // its length and 9% across its beam, so the chance of one intersecting the viewport at all
-      // was about one frame in twenty-five. On screen that is a chapter with no wreck in it, which
-      // is precisely the report this whole change answers. Measured off the frames, not reasoned.
-      // Owner, 2026-08-18: "boats should be wayyyy bigger." cell tracks len at ~1.35x so a bigger
-      // hull does not simply overlap its neighbour — the grid spacing and the object's own length
-      // are one decision, and moving either alone is how a graveyard turns into a pile-up.
-      cell: 2450,
-      chance: 0.8,       // under 1 so the field reads as a graveyard rather than as a lattice
+      // ⚠ cell, len, HULL_JITTER, HULL_SCALE_MAX and HULL_REACH (render.js) ARE ONE DECISION.
+      //     cell * (1 - 2 * HULL_JITTER) >= 2 * len * HULL_REACH * HULL_SCALE_MAX
+      // run WG asserts it, because getting it wrong does not look like a spacing bug — two sprites
+      // at alpha a stack to 1-(1-a)², so an overlap is a visibly brighter quadrilateral with
+      // straight edges belonging to neither wreck, which reads as a rendering artefact. The first
+      // pair (cell 2450, jitter ±0.25) allowed 1225px between two 1820px hulls and did exactly that.
+      // ⚠ AND SO DID THE NEXT TWO, WITH THE GUARD GREEN EACH TIME. Stated over the stated length it
+      // missed that the TEXTURE is longer; restated over the texture it missed that HULL_LEAD had
+      // stopped the sprite being centred on its cell at all, so the binding quantity is the reach
+      // FROM THE PLACEMENT POINT and the requirement is twice it. 3800 x 0.74 = 2812 against
+      // 2 x 1820 x 0.68 x 1.12 = 2772.
+      cell: 3800,
+      // ⚠ NOT A GRAVEYARD, AND THE COMMENT USED TO SAY IT WAS. At this spacing two cell centres can
+      // never both be inside a viewport — 2812px of guaranteed separation against a 1280px desktop
+      // and 390px phone — so the player never sees two hulls to count. It is a LANDMARK YOU CROSS,
+      // about every 8400 world px. That is a legitimate thing to be and the number below is tuned
+      // for it; the tension is real, though, because run WG's non-overlap requirement at this hull
+      // size is what forces a spacing two-in-frame cannot survive. If the graveyard read is ever
+      // wanted, the answer is the ponytail note in updateWreckHull (two half-sprites per cell), not
+      // another tune here.
+      chance: 0.90,      // under 1 so meeting one stays an event rather than a metronome
       parallax: 0.45,    // fraction of camera motion the layer takes. 1 = welded to the world, 0 =
                          // pinned to the screen. Under 1 = deeper. Far under and it reads as a
                          // painted backdrop that slides, which is the failure mode to shoot for.
+      // THE FIELD HAS A GRAIN, and it is the chapter's own tide bearing. A uniform full-circle
+      // heading is the safe answer to "a field all pointing the same way is a fleet" and it is also
+      // less physical than it looks: hulls settling in a directional flow scour into it. render.js
+      // spreads ±34° around this, which is scatter by any eye. WRECK_TIDE_DEG feeds this AND the
+      // chapter's own tide, so the two cannot drift apart.
+      grain: WRECK_TIDE_DEG * Math.PI / 180,
       // 1820. THE EARLIER CUT TO 620 FIXED THE WRONG HALF OF THE PROBLEM. At 1560 the hull read as a
       // pale slab, and the diagnosis — "a landmark has to FIT" — was wrong: what actually failed was
       // that all its detail sat at the bow and the stern, so the crop a player really sees was empty
-      // fill. That was fixed separately by making the structure CONTINUOUS (spine, deck rails,
-      // evenly spaced transverse frames), and once a crop reads as built, size stops being the
-      // constraint and starts being the point. Owner: "boats should be wayyyy bigger."
-      // 1820 is ~45x the player's own body and about two phone-screens down its length.
+      // fill. Owner, 2026-08-18: "boats should be wayyyy bigger."
+      // 1820 is ~45x the player's own body and about two phone-screens down its length. It is also
+      // why the BEAM ratio moved instead of the length when the beam turned out to be 391px against
+      // a 390px phone — see the L:B note in the bake (render.js).
       len: 1820,
       // Lighter than the floor, not darker: underwater, distance makes a thing PALER and BLUER,
       // because the water column between you and it scatters light in. The first cut used 0x14242c
       // on the reasoning that dead steel is dark and it vanished completely.
       // ⚠ THEN IT OVERSHOT. 0x54737d at alpha 0.6 was the BRIGHTEST thing in the chapter, and a
       // backdrop that wins the frame is not a backdrop — it read as a pale wall rather than as
-      // something deep. This pair is the third reading, and the rule it follows is that the hull
-      // must be clearly separable from the floor and clearly quieter than the roster.
+      // something deep. The rule those two readings settled on still holds: the hull must be clearly
+      // separable from the floor and clearly quieter than the roster.
       tint: 0x486a74,
-      alpha: 0.34,
+      // 0.50, UP FROM 0.34, AND IT IS NOT A BRIGHTNESS CHANGE — IT IS PAYING FOR CONTRAST. One
+      // multiply tint and one alpha divide every value the bake authors: at 0.34 the whole ship
+      // composited into a luminance band 0.018 wide, its interior lines sat at 1.18:1 against their
+      // own plate and its outline came out darker than the bare floor. The bake now spends the range
+      // instead of crowding the middle — near-black voids inside a pale deck — so its MEAN value is
+      // lower than the old near-white fill was, and 0.50 lands the sprite at about the old presence
+      // with a real range inside it. Raise the two together or not at all: alpha alone on the old
+      // flat fill is what produced the pale-wall reading above.
+      alpha: 0.50,
     },
     // The bar's tell. Opt-in per chapter so pHot keeps meaning "berserk" everywhere else — see
     // LUST_TINT_MAX. Render-only, like everything in this block.
@@ -8235,14 +8326,30 @@ export const UPWELLING_VIS = {
 // is deep cold blue (bgColor 0x0a3358) and every prop on it is warm coral, so a bright achromatic
 // disc cannot be confused with either. RAW final colours — shaftLayer lives in entitiesLayer and is
 // never multiplied by render.floorTint, exactly like the eddy and tide-pool decals.
+// AIR IS A STREAM OF BUBBLES NOW, NOT A POOL OF IT. Owner, 2026-08-23: "i dont like big air
+// pockets like that, rather lots of little bubble floating up."
+//
+// The disc is gone. What marks the refill is a VENT on the cave floor that lets go of small bubbles
+// continuously, and they rise. That reads as a place air comes FROM rather than a place air is
+// stored, which is what a reef actually offers a fish, and it is legible at a glance from further
+// away than the disc was -- a rising column crosses the whole passage.
+//
+// ⚠ THE BUBBLES ARE DECORATION AND THE SIM DOES NOT SEE THEM. The zone that refills you is still
+// the circle inMaw() tests, unchanged and still off-centre in the passage, so nothing about the Air
+// economy moves with this. What changed is that the circle is no longer DRAWN as a disc -- only its
+// mouth is, as the vent the stream leaves from. If those two ever need to disagree, they must not:
+// the stream is emitted from the circle's own r.
 export const AIR_POCKET_VIS = {
-  shade: 0x0d2b44, shadeA: 0.55,     // the overhang's shadow: the collar the air is trapped under
-  air: 0xe4f4ff, airA: 0.82,         // the air itself — a silver mirror, hard-edged, not a glow
-  lobe: 0xffffff, lobeA: 0.55,       // the brighter blob inside it, offset so it is not a bullseye
-  rim: 0xffffff, rimA: 0.9, rimW: 3, // the meniscus, ON r — the edge the mechanic is tested against
-  airFrac: 0.86,                     // air edge as a fraction of r; the shade collar spans this..1
-  sheen: 0xbfe9ff, sheenA: 0.18, sheenFrac: 1.15, // additive spill onto the water around it
-  breathe: 0.05,                     // ± fraction the sheen's size wanders — trapped air, not a beacon
+  vent: 0x0d2b44, ventA: 0.6,        // the dark mouth in the coral the air escapes through
+  ventW: 0.9, ventH: 0.28,           // the mouth as a fraction of r: a slot, not a hole
+  bubble: 0xdff2ff,                  // the air itself, the chapter's silver
+  rate: 30,                          // bubbles a second per VISIBLE vent
+  rise: 78,                          // px/s upward, before the per-bubble spread below
+  riseVar: 0.5, drift: 26,           // ± fraction of rise, and sideways wander
+  life: 1.5, lifeVar: 0.35,
+  rMin: 0.09, rMax: 0.2,             // bubble size as a fraction of the zone radius
+  alpha: 0.85,
+  sheen: 0xbfe9ff, sheenA: 0.1, sheenFrac: 0.9,  // the faintest halo, so the mouth reads when idle
 }
 
 // THE SPUR FIELD, RENDER-ONLY (v7.x, The Reef). Zero sim effect — the edge that HURTS is the
@@ -8415,7 +8522,12 @@ export const SPUR_VIS = Object.freeze({
   // neighbour rather than its first. Swept independently: dropping reachHi from 1.0 to 0.30 never
   // took the widest hole past 22px, so the GAP dominates and the reach does not.
   branchW: 5.6,
-  colonyEveryLo: 12, colonyEveryHi: 20, gapLo: 0.45, gapHi: 1.6,
+  //   colonyEveryLo/Hi  the world CELL a colony is placed in, and the range each ridge draws from
+  //   cellEmpty/cellDouble  share of cells that hold no colony / two of them. This is what makes
+  //                     the density ragged -- knots where two land together, thin shoulders where
+  //                     none does -- and it replaces a cumulative walk of hashed gaps that produced
+  //                     the same look but could not be anchored (see syncSpurs).
+  colonyEveryLo: 12, colonyEveryHi: 20, cellEmpty: 0.22, cellDouble: 0.26,
   reachLo: 0.45, reachHi: 1.0, spineJitter: 0.16,
   //   tipMix  how far each bud is lightened from its OWN colony's tone toward `tip`. Not 1: at
   //           depth 3 there are 32 buds per colony, so a single cream for all of them stops being
@@ -9167,34 +9279,39 @@ export const LANE_VIEW_FRAC = 0.9        // lane never exceeds this fraction of 
 // 422px and the clamp sits at 418 — four pixels apart. The Reef's banks (owner, 2026-08-23: the
 // top and bottom of the screen "should be coral too, like you're in an underground cave") only
 // exist in the strip a narrower lane gives back.
-// -- The Reef's cave profile (v7.x) -------------------------------------------------------------
+// -- The Reef's cave passage (v7.x) --------------------------------------------------------------
+// ONE OPENING, RUNNING THE WAY THE PLAYER TRAVELS. Pure function of the position along the lane, so
+// nothing streams and both sides can ask about any point at any time.
+//
 // IN config.js AND NOT IN sim.js, because BOTH sides need it: sim.js decides where the player is
-// stopped and render.js decides where the wall is drawn, and if those two ever disagree the gap
+// stopped and render.js decides where the coral is drawn, and if those two ever disagree the gap
 // you can see is not the gap you can swim through. render.js may not import from sim.js at all
 // (see the module table in CLAUDE.md), so config is the only place one definition can live.
-// HOW CLOSED THE CAVE IS AT A GIVEN POINT ALONG THE LANE. 1 exactly at a ridge, falling linearly
-// to 0 by pinchSpan beyond its face. LINEAR on purpose and not a smoothstep: blockOnCoral has to
-// INVERT this to work out how far back to push a blocked player, and a straight line inverts in one
-// expression where a curve needs a search.
-export const pinchAt = (sp, f, spec) => {
-  const span = sp.thick / 2 + (spec.pinchSpan ?? 0)
-  return Math.max(0, 1 - Math.abs(f - sp.f) / span)
-}
-
-// THE OPEN CHANNEL AT A POINT, as [centre, halfWidth] per groove.
 //
-// At w = 1 (the ridge itself) this is exactly the grooves spurAt returned — so the tightest point
-// of the cave is the same opening the braid has always described, and every reachability property
-// measured against the old bars still holds. At w = 0 it is the whole corridor. In between the
-// ceiling and floor are still closing, which is the shape that replaced the bars.
-export const channelAt = (sp, f, c, spec, hw) => {
-  const w = pinchAt(sp, f, spec)
-  for (const g of sp.grooves) {
-    if (Math.abs(c - g.c * w) <= g.hw * w + hw * (1 - w)) return true
-  }
-  return false
+// SUMMED OCTAVES, NOT A SINE. A single wavelength reads as a corrugation and the owner has rejected
+// regular pattern on this chapter's art twice already; three wavelengths with hashed phases give
+// long swings with smaller kinks riding on them, which is what a cave passage looks like.
+const caveHash = (n, salt) => {
+  const x = Math.sin(n * 127.1 + salt * 311.7) * 43758.5453
+  return x - Math.floor(x)
 }
-
+export const caveAt = (f, spec, seed) => {
+  const s0 = (spec.salt ?? 47) + (seed ?? 0) * 0.001
+  let c = 0, norm = 0
+  for (let i = 0; i < spec.waves.length; i++) {
+    const [len, w] = spec.waves[i]
+    c += w * Math.sin((2 * Math.PI * f) / len + caveHash(i + 1, s0) * Math.PI * 2)
+    norm += w
+  }
+  let h = 0, hnorm = 0
+  for (let i = 0; i < spec.widthWave.length; i++) {
+    const [len, w] = spec.widthWave[i]
+    h += w * Math.sin((2 * Math.PI * f) / len + caveHash(i + 11, s0) * Math.PI * 2)
+    hnorm += w
+  }
+  const t = (h / hnorm + 1) / 2               // 0..1
+  return { c: (c / norm) * spec.wander, hw: spec.halfMin + (spec.halfMax - spec.halfMin) * t }
+}
 
 export const laneHalfWidth = (viewRadius, ch) => Math.min(ch?.laneHalfW ?? LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)
 
@@ -10548,6 +10665,17 @@ export const DROWN_TICK = 1.0            // s between drowning ticks while the b
 // and a pure grace timer: "survivable with HP to spare, death only if you stay stuck". So one bad
 // groove read costs a tick or two and a full bar can eat a mistake, while standing there cannot be
 // waited out. 36 on a 0.5s beat is 18 a tick, ~2.8s of being stuck to kill a starting 100 max HP.
+// TOUCHING THE CAVE. Owner: "touching it bounces you a little bit back on track, and damages you."
+//
+// A BOUNCE, NOT A TELEPORT, and the distinction is the bug it replaces. The previous wall solved
+// for the exact point where the player would fit and ASSIGNED it -- an absolute position, which
+// from a graze near a pinch is a jump of a hundred pixels or more. On a phone that reads as the
+// level glitching and throwing you somewhere, and it could drop you behind the trailing edge and
+// kill you outright, which is what the owner saw. So: put them back to the wall face they touched
+// (never further), nudge them a little back down the lane, and charge for it.
+export const CAVE_BOUNCE_PX = 26      // how far back along the lane a touch pushes you
+export const CAVE_HIT_DPS = 22        // charged while you are in contact, on the tick below
+export const CAVE_HIT_TICK = 0.45
 export const LANE_CRUSH_DPS = 36
 export const LANE_CRUSH_TICK = 0.5
 export const SPUR_DPS = 4                // HP/s inside coral — flat for the whole run, exactly like drowning and the slick
@@ -10561,13 +10689,18 @@ export const SPUR_SLOW_MUL = 0.6         // strafe multiplier while scraping —
 //    level with, i.e. a band already half-crossed by everything it was meant to catch.
 export const FIRE_CORAL_LEAD = 1
 
-// Pistol Shrimp's Backblast (WEAPON_MODS.pistolShrimp). The rear crack's damage as a fraction of
-// the forward one, the Breaker's BREAKER_BACKWASH_DMG_FRAC idiom.
-// balance_decision : the backward crack lands at 0.6 of the forward one [2026-08-22]
-//  - NOT the Bubble Puff's full-strength Backblow. That cone shoves nothing and races nothing,
-//    so doubling its coverage is free; a piercing line in a chapter that spawns behind you as
-//    well as ahead would be close to +100% dps for one switch pick.
+// Pistol Shrimp's rear crack (fireSnap), as a fraction of the forward one — the Breaker's
+// BREAKER_BACKWASH_DMG_FRAC idiom. BASELINE is 0.6; WEAPON_MODS.pistolShrimp's Backblast raises it
+// to FULL, so that card buys the rear crack's strength rather than its existence.
+// balance_decision : the rear crack is baseline at 0.6, Backblast takes it to 1 [2026-08-23]
+//  - 0.6 and not full: a piercing line pointing both ways down a corridor is close to +100% dps,
+//    which is a starter rewritten rather than a starter given an answer. The mod is what pays for
+//    the other 40%.
 export const SNAP_BACKBLAST_FRAC = 0.6
+export const SNAP_BACKBLAST_FULL_FRAC = 1
+// The rear crack's REACH, flat like the forward one and deliberately far shorter — see fireSnap
+// for why the two are not the same number.
+export const SNAP_BACKBLAST_LEN = 140
 
 // ---- Squid Ink (WEAPONS.squidInk) -------------------------------------------------------------
 // THE BLIND, at the retarget seam in stepEnemyMovement. A blinded body is handed a POINT this far
