@@ -15,7 +15,13 @@ database_id = "5b826e56-9fe7-4930-98fa-ede74f4a2ca0"
 # CNAME), so WAF rate-limiting rules have nothing to attach to. Enforced per Cloudflare location, so
 # it is a loose filter rather than a hard cap. §10 is explicit that the 100k/day account budget is
 # unprotectable on the free tier as deployed; this narrows the cheap cases, it does not close them.
+#
+# 40, NOT THE DESIGN DOC'S 10, because 10 sits INSIDE ordinary browsing. The leaderboard spends one
+# GET per (chapter, difficulty) the player looks at — seven books times five difficulty pips is 35
+# reachable pairs — and scores.js reports every non-2xx as "could not reach the podium", whose retry
+# button spends another. A player walking the shelf therefore 429'd their own podium, which is what
+# this was raised from (measured: 22 of 40 sequential reads rejected, first at #15).
 [[ratelimits]]
 name = "LIMITER"
 namespace_id = "1001"
-simple = { limit = 10, period = 60 }
+simple = { limit = 40, period = 60 }

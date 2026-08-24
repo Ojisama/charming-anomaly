@@ -6,9 +6,10 @@
 # Each run mints a FRESH random code, so generations start from zero without wiping the database and
 # two runs cannot collide.
 #
-# Runs against wrangler.test.toml, which differs from the deployed config in exactly one value: the
-# rate limit, raised so ~30 functional requests against one code are not throttled. The production
-# numbers are asserted from wrangler.toml below, and the enforcement path gets its own test.
+# Runs against wrangler.test.toml, which holds the rate limit the ~30 functional requests against
+# one code need. It happens to equal the deployed 40 right now; that is a coincidence of tuning and
+# not a thing to rely on — see that file's header. The production numbers are asserted from
+# wrangler.toml below, and the enforcement path gets its own test.
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -124,7 +125,7 @@ is "DELETE on an unknown code is 404"       404   "$(status DELETE -H "Authoriza
 echo "-- rate limiting (§10) --"
 # The DEPLOYED numbers, read from the real config — wrangler.test.toml raises the limit, so without
 # this a bad edit to wrangler.toml would ship unnoticed behind a green suite.
-is "deployed limit is 10"                   10    "$(grep -oE 'limit *= *[0-9]+' wrangler.toml | grep -oE '[0-9]+')"
+is "deployed limit is 40"                   40    "$(grep -oE 'limit *= *[0-9]+' wrangler.toml | grep -oE '[0-9]+')"
 is "deployed period is 60"                  60    "$(grep -oE 'period *= *[0-9]+' wrangler.toml | grep -oE '[0-9]+')"
 # And the enforcement path itself: hammer a FRESH code past the test config's 40 and expect a 429.
 # Keyed on the code hash, so this cannot throttle the assertions above.

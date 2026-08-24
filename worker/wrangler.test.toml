@@ -1,7 +1,13 @@
-# test.sh only. Identical to wrangler.toml except the rate limit, which is raised so the functional
-# assertions (~30 requests against one code) are not throttled by the production 10/60. The real
-# numbers are asserted from wrangler.toml by the suite, and the enforcement path is exercised
-# separately by hammering a fresh code past this limit — so raising it here hides nothing.
+# test.sh only. Identical to wrangler.toml except the placeholder database_id — the rate limit now
+# MATCHES production (both 40), where this file used to raise it above a production 10 so the ~30
+# functional assertions against one code were not throttled.
+#
+# KEEP THIS FILE AND THIS BLOCK EVEN THOUGH THE NUMBERS AGREE. Deleting the override would re-couple
+# the suite's headroom to a production knob that is tuned for players, not for tests: the next tune
+# downward silently starts throttling the functional assertions, and a throttled assertion fails as
+# a wrong STATUS CODE, which reads as a broken endpoint rather than as a limit. The real numbers are
+# still asserted from wrangler.toml by the suite, and the enforcement path is still exercised by
+# hammering a fresh code past this limit.
 name = "charming-anomaly-sync"
 main = "src/index.js"
 compatibility_date = "2025-01-01"

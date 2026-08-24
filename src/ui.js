@@ -650,8 +650,10 @@ export function initUI(hooks) {
   // Turning the page still always re-reads — a board that has not moved costs one small request and
   // a board that HAS moved is the entire point of turning to it — but the leader is drawn on every
   // title render and every difficulty pip tap, and fetching there would mean a request on every
-  // boot plus five more on a walk up the ladder. The limiter is 10/60s per IP and a household
-  // shares one, so that is a real way to 429 your own friends into a blank line.
+  // boot plus five more on a walk up the ladder. The limiter is 40/60s per IP and a household
+  // shares one, so that is a real way to 429 your own friends into a blank line. It was 10, and 10
+  // was inside ordinary browsing: 35 (chapter, difficulty) pairs are reachable from this screen and
+  // each costs a GET the first time it is looked at.
   // ONE cache for both paths, deliberately: separate freshness would let the front page name
   // someone the back page does not have at the top.
   const podiumCache = new Map()   // 'chapter:difficulty' -> boards

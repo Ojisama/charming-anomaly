@@ -3,9 +3,10 @@
 # `wrangler dev --local`; this is the subset that proves the same behaviour survives the real edge,
 # the real D1 and the real rate-limit binding.
 #
-# WHY IT IS NOT JUST test.sh POINTED AT PROD: production allows 10 requests/60s per code, and the
-# full suite fires ~30 at a single code. So the lifecycle is budgeted to 9 requests on one code, the
-# 400-level checks get their own, and the limiter gets a third that it is SUPPOSED to throttle.
+# WHY IT IS NOT JUST test.sh POINTED AT PROD: production allows 40 requests/60s per code, and the
+# full suite fires ~30 at a single code — inside that now, but only just, and the limit is
+# best-effort per location so "inside" is not a promise. So the lifecycle stays budgeted to 9
+# requests on one code, the 400-level checks get their own, and the limiter gets a third.
 # Requests that 401 (malformed code) and OPTIONS cost nothing — the Worker rejects both before the
 # limiter and before D1, which is itself part of what this asserts.
 #
@@ -54,8 +55,11 @@ is "non-string blob is 400"          400  "$(status PUT -H "$BAUTH" -H 'content-
 is "nothing was written"             404  "$(status GET -H "$BAUTH")"
 
 echo "-- the production rate limiter, on a throwaway code --"
-# MEASURED 2026-08-04, and it is NOT a 10-per-60s counter: 40 SEQUENTIAL requests against one code
-# drew zero 429s, while 30 PARALLEL ones drew two. That matches the documented design rather than
+# MEASURED 2026-08-04, and it is NOT an exact counter: at the then-configured 10, 40 SEQUENTIAL
+# requests against one code drew zero 429s, while 30 PARALLEL ones drew two. Do not read that as
+# "sequential is never throttled" — the same shape of burst against /scores on 2026-08-24 (also at
+# 10) drew 22 of 40, first at #15. Which way it falls depends on the location and the key. That
+# matches the documented design rather than
 # contradicting it — Cloudflare states the binding is "permissive, eventually consistent, and
 # intentionally designed to not be used as an accurate accounting system", with counters "cached on
 # the same machine that your Worker runs in, and updated asynchronously in the background", and a
@@ -69,7 +73,7 @@ echo "-- the production rate limiter, on a throwaway code --"
 # identical bursts. An assertion either way would be flaky forever, and a flaky gate is worse than no
 # gate: it trains you to re-run until green, which is how a real failure gets waved through. What IS
 # asserted is that the binding is still CONFIGURED, so deleting it from wrangler.toml is caught.
-is "the limiter is still declared"   10   "$(grep -oE 'limit *= *[0-9]+' wrangler.toml | grep -oE '[0-9]+')"
+is "the limiter is still declared"   40   "$(grep -oE 'limit *= *[0-9]+' wrangler.toml | grep -oE '[0-9]+')"
 is "at the intended period"          60   "$(grep -oE 'period *= *[0-9]+' wrangler.toml | grep -oE '[0-9]+')"
 # Reported, never gated — a number to eyeball, not a pass/fail.
 C=$(newcode)
