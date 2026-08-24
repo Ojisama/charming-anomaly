@@ -1353,10 +1353,22 @@ export function initUI(hooks) {
   function syncRowHtml() {
     if (!syncOn()) return ''
     const st = syncState()
-    // §8 wants the disabled preview VISIBLE so the 320px layout can be judged on a phone against
-    // `npm run dev`, which sets no SYNC_URL. But a production build with the switch off has no
-    // feature to preview — a row reading "Cloud sync is off in this build" is a dead end, not an
-    // explanation. So the preview is dev-only and the kill switch really does remove every pixel.
+    // NOT PUBLIC YET. In a production build the entry point sits behind meta.dev — the same one
+    // switch the card list uses, and deliberately not a second one: CLAUDE.md records that two
+    // dev switches gave the game two different answers to "is this a dev run" and put a WIP
+    // chapter's score on the public board (v7.161.0).
+    //
+    // The point of gating rather than shipping dark: the Worker is live, so seven taps on the
+    // wordmark make the whole flow walkable ON A PHONE AGAINST THE DEPLOYED URL. Pairing two real
+    // devices is the one part of slice 4 that localhost cannot do, and a feature nobody can reach
+    // in production cannot be walked there at all.
+    //
+    // ONLY THE ENTRY POINT IS GATED, NEVER THE MECHANISM. Once a device is paired the record is on
+    // disk and main.js's triggers fire regardless of meta.dev — so turning dev back off leaves a
+    // paired device syncing, which is the intended behaviour and not an oversight.
+    if (!import.meta.env.DEV && !meta.dev) return ''
+    // A dev build with no SYNC_URL still renders the disabled preview (§8), because `npm run dev`
+    // sets none and that is the layout the phone-on-the-LAN check is meant to judge.
     if (st.reason === 'disabled' && !import.meta.env.DEV) return ''
     return `<button class="btn btn--soft btn--small settings-slots" data-act="sync-open"
       ${st.available ? '' : 'disabled'}>☁️ ${t('Cloud sync')} <i>${esc(syncRowValue())}</i></button>`
