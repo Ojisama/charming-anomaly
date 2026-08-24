@@ -517,6 +517,15 @@ const SFX_FOR_EVENT = {
   // v5.21 lane (beyond): the active shove reuses the hole whoosh, and a rock clipping the player
   // is an ordinary hurt — it is damage, not a special occasion.
   repulse: 'hole', rockhit: 'hurt',
+  // v7.x The Reef's circuit. THESE SOUNDS ARE LOAD-BEARING, not decoration, and that is unusual
+  // enough to write down. On a 390x844 phone an x-lane shows 312px ahead of the player and the
+  // throttle tops out at 270px/s, so the lap line gets 1.2s on screen at racing speed — nowhere
+  // near enough for ART to say "this ridge is the one you started on" while you are also threading
+  // traffic. The CROSSING has to carry the read, so the sound is part of the mechanic working.
+  //   A swimthrough takes `gem` — a small, frequent, unambiguously-good pickup note, which is
+  // exactly what a checkpoint is (24 a race, so it must not be a fanfare). The lap line takes
+  // `levelup`, the game's existing "something just went your way" jingle, at four a race.
+  swimthrough: 'gem', lap: 'levelup',
   // v7.x The Wreck: the orca. All three get a sound BECAUSE they are rare — four visits a run, one
   // strike each — which is the opposite of the freeze/submission-expiry reasoning that withholds
   // one from anything firing dozens of times a minute. bossRise is already the game's "something

@@ -9416,6 +9416,26 @@ export const LANE_STRAFE_MUL = 1.25      // strafe is a touch quicker than base 
 //    grid and not a tuned number. Do not quote it as measured.
 export const CIRCUIT_ACCEL = 420
 
+// THE RACE CLOCK. It counts down in real seconds and a swimthrough tops it up TO A CEILING.
+//
+// THE CAP IS THE MECHANIC, not a safety rail on it. Uncapped, the countdown is a runaway: a fast
+// driver shortens the interval between checkpoints AND banks more time, so skill pays twice and the
+// pressure inverts for exactly the players who need it. Slightly generous and the clock is
+// decorative from lap 2; slightly stingy and everyone dies on lap 1 and never sees the other three.
+// Capped, it self-corrects at every skill level -- a clean driver sits pinned at the ceiling and the
+// clock stops mattering while they are clean; the moment they crash it starts biting.
+//
+// The comparison that governs the whole feel, and the one to sweep:
+//   CIRCUIT_SWIM_TIME  vs  mean seconds between swimthroughs at the pace the difficulty demands
+// Measured spacing is 528..1272px, i.e. 2.9..7.1s at 180px/s, so a top-up below ~3s can never keep
+// a clean lap alive and one above ~7s can never fail to.
+// balance_decision : capped bank, so skill stops paying twice [2026-08-24]
+//  - UNMEASURED, all three. scripts/reef-lap-probe.mjs is the rig and it has never been run against
+//    a live clock; these are the starting point for its knob grid, not tuned numbers.
+export const CIRCUIT_CLOCK_START = 30    // seconds on the clock at the start line
+export const CIRCUIT_CLOCK_CAP = 30      // ...and the ceiling a swimthrough may top it back up to
+export const CIRCUIT_SWIM_TIME = 6       // seconds a swimthrough is worth
+
 // THE LANE HAS WALLS, and this is the correction that makes the chapter playable at all. Rev.1 had
 // an unbounded lane with ranks 900px wide centred on the player: on a phone (viewRadius ~465) most
 // of every rank was off-screen, so ~65% of all damage taken came from invaders the player never saw,
@@ -9521,6 +9541,43 @@ export const caveAt = (f, spec, seed) => {
     }
   }
   return { c: (c / norm) * spec.wander, hw, ph }
+}
+
+// THE SWIMTHROUGHS: the tightest places on the lap, and the circuit's checkpoints.
+//
+// A merge used to be the obvious candidate and it was never honest -- a merged ridge was ROUTE-
+// narrow (one way through instead of two), not WIDTH-narrow, so "the checkpoint is the tightest
+// point on the track" was a sentence the geometry did not support. `hw` is a continuous width, so
+// here it simply is true: these are its deepest local minima.
+//
+// PURE, and worth keeping pure: the lap repeats, so a caller computes this ONCE for a seed and
+// reuses it for every lap of every run at that seed.
+//
+// MEASURED before the rule was written, which is why it takes the deepest SIX of twenty rather than
+// every minimum. The count is structural, not incidental: lapLen / widthWave's short period is
+// 5040 / 252 = 20, and 20 checkpoints on a ~28s lap is one every 1.4s.
+//   the twenty       hw 171..204 against the spec's own 170..220
+//   the deepest six  hw 170..177 -- genuinely the squeezes, not merely dips
+//   their spacing    528..1272px = 2.9..7.1s at a realistic 180px/s, on every seed sampled
+// The uneven cadence is the track's own beat (the two width waves at 630 and 252) and not noise --
+// it repeats seed to seed. Run RL.b asserts the spacing rather than a guard clause defending it: a
+// retune that clustered them would be a real defect and should say so out loud, not be silently
+// corrected here.
+export const SWIMTHROUGHS_PER_LAP = 6
+export const SWIMTHROUGH_STEP = 24   // px between samples; the count is stable from 3px to 24px and starts missing minima at 48
+export const swimthroughsFor = (spec, seed) => {
+  const L = spec?.lapLen
+  if (!L) return []
+  const at = (f) => caveAt(((f % L) + L) % L, spec, seed).hw
+  const mins = []
+  for (let f = 0; f < L; f += SWIMTHROUGH_STEP) {
+    const h = at(f)
+    if (h < at(f - SWIMTHROUGH_STEP) && h <= at(f + SWIMTHROUGH_STEP)) mins.push({ f, hw: h })
+  }
+  // by depth, then by position -- the tie-break is not cosmetic, it is what makes the chosen six
+  // identical on every machine and every run at a seed, which a race scored on time requires.
+  mins.sort((a, b) => a.hw - b.hw || a.f - b.f)
+  return mins.slice(0, SWIMTHROUGHS_PER_LAP).sort((a, b) => a.f - b.f)
 }
 
 export const laneHalfWidth = (viewRadius, ch) => Math.min(ch?.laneHalfW ?? LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)

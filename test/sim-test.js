@@ -84,7 +84,7 @@ import {
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
-  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, CIRCUIT_ACCEL, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
+  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, CIRCUIT_ACCEL, swimthroughsFor, SWIMTHROUGHS_PER_LAP, CIRCUIT_CLOCK_CAP, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
@@ -18811,6 +18811,7 @@ run(testLeLargeWeapons)
   run(testReefAirBurst)
   run(testReefSpurScrape)
   run(testReefLap)
+  run(testReefCircuit)
   run(testReefNatives)
   run(testReefPool)
   run(testWreckBloodlust)
@@ -23658,6 +23659,135 @@ function testReefSpurScrape() {
 // keeps climbing forever otherwise; config.js:9484-9491 documents the 57px island discrepancy that
 // shipped before that wrap existed. A track that silently fails to repeat reads as a rendering bug,
 // not a circuit — and nothing else in this suite samples caveAt across a lap boundary at all.
+// ---- run CT: the circuit — swimthroughs, laps, the race clock, and how a race ENDS -------------
+// The lap repeating is run RL's job; this is what the game does with it. Every assertion here is
+// against a driven run rather than against config, because a checkpoint that exists in a table and
+// never fires is exactly the shape of defect this chapter's own history is made of.
+function testReefCircuit() {
+  const dt = 1 / 60
+  const ch = CHAPTERS.reef
+  const spec = ch.cave, LAP = spec.lapLen
+  const drive = (fwd, opts = {}) => {
+    Math.random = mulberry32(opts.seed ?? 3)
+    const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+    run.mods.spawnMul = 0
+    const laps = [], swims = []
+    let peakClock = 0
+    for (let i = 0; i < 60 * 400; i++) {
+      run.player.hp = run.player.maxHp          // immortal: this measures the circuit, not survival
+      stepSim(run, { x: fwd, y: 0 }, dt)
+      peakClock = Math.max(peakClock, run.raceClock ?? 0)
+      for (const e of run.events) {
+        if (e.type === 'lap') laps.push(e)
+        if (e.type === 'swimthrough') swims.push(e)
+      }
+      run.events.length = 0
+      if (run.phase === 'victory' || run.phase === 'dead') break
+      if (run.phase === 'levelup') run.phase = 'playing'   // the cards are not this scenario's subject
+    }
+    return { run, laps, swims, peakClock }
+  }
+
+  // (a) THE CHECKPOINTS ARE THE SQUEEZES, six of them, and they are spread rather than clustered.
+  // The count is structural (lapLen / widthWave's short period = 5040/252 = 20 minima, of which the
+  // deepest six are taken) and the spacing is the track's own beat — so both are asserted, not
+  // assumed. A retune that clustered them would still "have six checkpoints" and would play as a
+  // burst of top-ups followed by nothing.
+  let picked = null
+  for (const seed of [1, 7, 20260824, 555]) {
+    const sw = swimthroughsFor(spec, seed)
+    assert.strictEqual(sw.length, SWIMTHROUGHS_PER_LAP,
+      `run CT.a: seed ${seed} gives ${sw.length} swimthroughs a lap, not ${SWIMTHROUGHS_PER_LAP} — the selection rule has drifted from the geometry it reads`)
+    const gaps = sw.map((s, i) => i ? s.f - sw[i - 1].f : s.f + LAP - sw[sw.length - 1].f)
+    assert.ok(Math.min(...gaps) > 400,
+      `run CT.a: two swimthroughs sit ${Math.min(...gaps).toFixed(0)}px apart on seed ${seed} — the tightest measured spacing is 528px, so anything near it means the deepest minima have clustered and the top-ups arrive in a burst`)
+    // ...and they are genuinely the narrow places, not merely local dips near the wide end.
+    const mid = (spec.halfMin + spec.halfMax) / 2
+    assert.ok(sw.every((s) => s.hw < mid),
+      `run CT.a: a swimthrough sits at hw ${Math.max(...sw.map((s) => s.hw)).toFixed(0)} against a passage midpoint of ${mid} — these are supposed to be the tightest points on the track, and one of them is in the wide half`)
+    if (seed === 3 || !picked) picked = sw
+  }
+
+  // (b) A RACE IS FOUR LAPS AND ENDS IN A VICTORY WITH A TIME ON IT.
+  const fast = drive(1)
+  assert.strictEqual(fast.run.phase, 'victory',
+    `run CT.b: full throttle for 400s ended '${fast.run.phase}' — a circuit is won by finishing its laps and nothing else does it`)
+  assert.strictEqual(fast.laps.length, ch.circuit.laps,
+    `run CT.b: ${fast.laps.length} lap events over a ${ch.circuit.laps}-lap race`)
+  assert.strictEqual(fast.swims.length, ch.circuit.laps * SWIMTHROUGHS_PER_LAP,
+    `run CT.b: ${fast.swims.length} swimthroughs over ${ch.circuit.laps} laps of ${SWIMTHROUGHS_PER_LAP} — a checkpoint was missed or double-counted, and at full throttle plus a burst the player can cross more than one in a frame`)
+  assert.ok(fast.run.raceTime > 0 && Math.abs(fast.run.raceTime - fast.run._realTime) < 1e-9,
+    `run CT.b: raceTime ${fast.run.raceTime} is not the run's REAL elapsed time — Time Debt advances run.time at 1.5x, and a board sorted fastest-first would hand the anomaly free seconds`)
+  // THE LOOP, PROVED FROM THE OUTSIDE: identical coral means identical splits. This is the
+  // gameplay-level twin of run RL's geometry check, and it would catch a lap that repeated in the
+  // generator but not in what the player actually drives through.
+  const splits = fast.laps.map((l) => l.split)
+  const spread = Math.max(...splits.slice(1)) - Math.min(...splits.slice(1))
+  assert.ok(spread < 0.25,
+    `run CT.b: laps 2-4 took ${splits.slice(1).map((s) => s.toFixed(2)).join('/')}s — a spread of ${spread.toFixed(2)}s means the player is not driving the same track twice`)
+
+  // (f) THE BANK IS CAPPED, which is the mechanic and not a rail on it. Uncapped, a clean driver
+  // gathers time faster than they spend it — 24 checkpoints x CIRCUIT_SWIM_TIME against a ~76s race
+  // — so the countdown stops existing for exactly the players who are already winning, and skill
+  // pays twice. This assertion exists because removing the Math.min was mutation-tested and every
+  // OTHER case in this scenario stayed green: the race still finishes, the laps still count, and
+  // only the slow run's death time moves. Nothing else here can see it.
+  assert.ok(fast.peakClock <= CIRCUIT_CLOCK_CAP + 1e-9,
+    `run CT.f: the clock reached ${fast.peakClock.toFixed(1)}s against a cap of ${CIRCUIT_CLOCK_CAP} — a clean lap is banking time it can never spend, so the countdown is decorative from lap 2 and the pressure inverts for the better driver`)
+  assert.ok(fast.peakClock >= CIRCUIT_CLOCK_CAP - 1e-9,
+    `run CT.f: a clean full-throttle race never reached the cap (peak ${fast.peakClock.toFixed(1)} of ${CIRCUIT_CLOCK_CAP}) — the cap is not actually binding, so this case is vacuous and CIRCUIT_SWIM_TIME is too small to be worth capping`)
+
+  // (c) THE CLOCK IS A REAL FAIL STATE. Easing off is slow enough that the top-ups cannot keep up.
+  const slow = drive(-1)
+  assert.strictEqual(slow.run.phase, 'dead',
+    `run CT.c: easing off for 400s ended '${slow.run.phase}' — at laneThrottle.min the checkpoints arrive far too slowly to hold the clock up, so this is the countdown's only proof that it bites`)
+  assert.strictEqual(slow.run.killedBy, 'clock',
+    `run CT.c: the clock killed the run but blamed '${slow.run.killedBy}' — the summary reads this label`)
+  assert.strictEqual(slow.run.raceClock, 0, 'run CT.c: the clock died at a non-zero value')
+
+  // (d) THE 300s VICTORY MUST NOT FIRE HERE. Without the exemption the race ends mid-lap at
+  // RUN_DURATION regardless of how far round the track the player is — and it would look like a win.
+  // THE CONDITION HAS TO BE REACHABLE OR THIS PROVES NOTHING. With the clock live, no run survives
+  // to 300s — the countdown kills a slow driver in well under a minute — so a plain slow run can
+  // never distinguish an armed timer from a disarmed one. Hold the clock open and crawl at
+  // laneThrottle.min instead: 4 x 5040 / 45px/s = 448s, comfortably past RUN_DURATION. An armed
+  // timer wins the run at 300s with the player barely two laps in; the exemption carries it to a
+  // real fourth lap.
+  {
+    Math.random = mulberry32(21)
+    const r = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+    r.mods.spawnMul = 0
+    let laps = 0
+    for (let i = 0; i < 60 * 600; i++) {
+      r.player.hp = r.player.maxHp
+      r.raceClock = 999                    // the countdown is CT.c's subject, not this one
+      stepSim(r, { x: -1, y: 0 }, dt)
+      for (const e of r.events) if (e.type === 'lap') laps++
+      r.events.length = 0
+      if (r.phase === 'victory' || r.phase === 'dead') break
+      if (r.phase === 'levelup') r.phase = 'playing'
+    }
+    assert.ok(r._realTime > RUN_DURATION,
+      `run CT.d: the crawling run ended at ${r._realTime.toFixed(1)}s, short of RUN_DURATION ${RUN_DURATION} — it never reached the point where an armed survival timer would have fired, so this case cannot see the exemption at all`)
+    assert.strictEqual(r.phase, 'victory', `run CT.d: the crawling run ended '${r.phase}'`)
+    assert.strictEqual(laps, ch.circuit.laps,
+      `run CT.d: won after ${laps} of ${ch.circuit.laps} laps at ${r._realTime.toFixed(1)}s — the RUN_DURATION timer is still armed in a chapter that is not scored on it, so outlasting the clock counts as finishing the race`)
+  }
+
+  // (e) AND NO OTHER CHAPTER GREW A CLOCK. `circuit` is the gate; `lane` is not.
+  {
+    Math.random = mulberry32(5)
+    const b = createRun(makeMeta(), { chapter: 'beyond', difficulty: 1 })
+    b.mods.spawnMul = 0
+    for (let i = 0; i < 120; i++) { stepSim(b, { x: 0, y: -1 }, dt); b.events.length = 0 }
+    assert.strictEqual(b.raceClock, undefined,
+      'run CT.e: The Beyond grew a raceClock — it is `lane` but not `circuit`, and a shipped chapter must not inherit a countdown')
+    assert.strictEqual(b.lap, undefined, 'run CT.e: The Beyond grew a lap counter')
+  }
+
+  console.log(`PASS run CT (the circuit): ${SWIMTHROUGHS_PER_LAP} swimthroughs a lap on 4 seeds, ${Math.min(...picked.map((s) => s.hw)).toFixed(0)}-${Math.max(...picked.map((s) => s.hw)).toFixed(0)}px wide against a ${spec.halfMin}-${spec.halfMax} passage and never closer than 400px apart; full throttle finishes ${ch.circuit.laps} laps in ${fast.run.raceTime.toFixed(2)}s real (splits ${splits.map((s) => s.toFixed(1)).join('/')}, spread ${spread.toFixed(2)}s) crossing all ${fast.swims.length} checkpoints; easing off dies to the clock at ${slow.run._realTime.toFixed(1)}s; The Beyond grows neither clock nor lap`)
+}
+
 function testReefLap() {
   const spec = CHAPTERS.reef.cave
   const LAP = spec.lapLen

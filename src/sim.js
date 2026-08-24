@@ -150,6 +150,7 @@ import {
   CRAB_OPEN_T,
   CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes, CIRCUIT_ACCEL,
+  swimthroughsFor, CIRCUIT_CLOCK_START, CIRCUIT_CLOCK_CAP, CIRCUIT_SWIM_TIME,
   caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK,
   LANE_CRUSH_DPS, LANE_CRUSH_TICK,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
@@ -260,7 +261,10 @@ export function stepSim(run, input, dt) {
   flushSpawns(run)
   // v5.24: a scripted chapter (The Blank) has no timer victory at all — killing the script's last
   // boss IS the win (see stepBossScript), so the survival clock below never fires there.
-  if (!CHAPTERS[run.chapter].scripted && run.time >= RUN_DURATION) {
+  // v7.x: a `circuit` chapter is won by finishing its laps (stepCircuit), not by outlasting a
+  // clock — the same exemption a scripted chapter takes, for the same reason. Without this the
+  // Reef would end at 300s mid-race regardless of how far round the track the player had got.
+  if (!CHAPTERS[run.chapter].scripted && !CHAPTERS[run.chapter].circuit && run.time >= RUN_DURATION) {
     run.phase = 'victory'
     run.events.push({ type: 'victory' })
     return
@@ -318,6 +322,7 @@ export function stepSim(run, input, dt) {
   // before the sweep reads the same viewport expression.
   if (stepCaveWall(run, dt)) return // v7.x reef: touched the cave wall (phase may be 'dead')
   if (stepLaneFront(run, dt)) return // v7.x reef: pinned against the back edge (phase may be 'dead')
+  if (stepCircuit(run, dt)) return // v7.x reef: the lap, the swimthroughs and the race clock (phase may be 'victory' or 'dead')
   if (stepLeaks(run)) return // v5.18 beyond lane: invaders that got past you (phase may be 'dead')
   if (stepContactDamage(run)) return // phase is now 'dead'
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
@@ -1685,6 +1690,81 @@ function seekerBack(run, ax) {
 // screen while stuck. That is why the world appears to stall when you are pinned: it has, because
 // the alternative is watching your own fish leave the frame. The reef grinds while it waits, and
 // the moment you strafe into a groove the front is free to run again.
+// THE CIRCUIT: laps, swimthroughs and the race clock (v7.x, The Reef).
+//
+// The whole chapter's scoring lives here and it is deliberately small, because everything it needs
+// already exists: the lap is a DISTANCE (the track repeats every cave.lapLen, so the lap index is
+// a division), the checkpoints are a pure function of the seed computed once, and the clock is one
+// float. No streaming, no pools, no per-frame search.
+//
+// SCORED ON run._realTime, NEVER run.time. Time Debt advances run.time at 1.5x, and a race time is
+// compared across runs — banking the inflated one would let an anomaly shave real seconds off a
+// board sorted fastest-first. Every gameplay system here still reads run.time; only the RECORD is
+// in real seconds. See its own block at the top of stepSim.
+//
+// @returns true if the run ended this frame (phase is 'victory' or 'dead') — stepSim must stop.
+function stepCircuit(run, dt) {
+  const ch = CHAPTERS[run.chapter]
+  const cc = ch.circuit
+  if (!cc) return false
+  const spec = ch.cave
+  const L = spec?.lapLen
+  if (!L) return false
+  const ax = laneAxes(ch)
+  const along = run.player[ax.fwd] * ax.dir
+
+  // The chosen six, once per run. They are identical for every lap because the track is.
+  if (!run._swims) run._swims = swimthroughsFor(spec, run._obstacleSeed)
+
+  run.raceClock = (run.raceClock ?? CIRCUIT_CLOCK_START) - dt
+
+  // A RUNNING COUNT, not a nearest-checkpoint test. run._swimN counts every swimthrough crossed
+  // since the run began, so a lap boundary needs no special case at all — the count simply keeps
+  // going, and laps and checkpoints cannot disagree about how far round the player is.
+  //   The loop below can bank more than one at a time and today never has to: the fastest a player
+  // can travel in one clamped frame is 3x scroll x BURST_SPEED_MUL x 0.05s = 122px, against a
+  // measured minimum checkpoint spacing of 528px. It is written as a loop because the alternative
+  // is an `if` that silently drops a checkpoint the day either of those numbers moves, and that
+  // failure would look like a clock that occasionally forgets to top up.
+  const passed = Math.floor(along / L) * run._swims.length +
+    run._swims.filter((s) => ((along % L) + L) % L >= s.f).length
+  const prev = run._swimN ?? passed          // first frame banks the start line rather than firing it
+  if (passed > prev) {
+    for (let k = prev; k < passed; k++) {
+      run.raceClock = Math.min(CIRCUIT_CLOCK_CAP, run.raceClock + CIRCUIT_SWIM_TIME)
+      run.events.push({ type: 'swimthrough', x: run.player.x, y: run.player.y, n: k + 1 })
+    }
+  }
+  run._swimN = passed
+
+  const lap = Math.max(0, Math.floor(along / L))
+  if (lap > (run.lap ?? 0)) {
+    run.lap = lap
+    // The split is what makes the loop legible — see the design doc's note that at 270px/s the art
+    // has 1.2s to say "this is the lap line" and cannot. The EVENT carries the read.
+    const at = run._realTime ?? 0
+    run.events.push({ type: 'lap', lap, x: run.player.x, y: run.player.y, split: at - (run._lapAt ?? 0), total: at })
+    run._lapAt = at
+  }
+
+  if (lap >= cc.laps) {
+    run.raceTime = run._realTime ?? 0       // the score, in real seconds
+    run.phase = 'victory'
+    run.events.push({ type: 'victory' })
+    return true
+  }
+  if (run.raceClock <= 0) {
+    run.raceClock = 0
+    run.phase = 'dead'
+    // No event: every other death path in this file signals by the phase alone and main.js reacts
+    // to the transition. Inventing a 'death' event here would be a type with no consumer, which is
+    // exactly what run EV exists to catch.
+    run.killedBy = 'clock'
+    return true
+  }
+  return false
+}
+
 function stepLaneFront(run, dt) {
   const ch = CHAPTERS[run.chapter]
   if (!ch.lane) return false
