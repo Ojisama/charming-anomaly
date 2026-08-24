@@ -6821,8 +6821,8 @@ CHAPTERS.surf = {
 // rock, the leak line, the camera's trailing-edge anchor. `lane` stays the BOOLEAN true — sim.js
 // compares it with strict equality in two places, so the direction had to be its own field.
 //
-// ⚠ EVERYTHING BELOW MARKED "borrowed" IS A STAND-IN, not a design. Two of the chapter's four
-// natives (Squid Ink, Oxygen Tank) are still to come; the other two ship here.
+// NOTHING HERE IS BORROWED ANY MORE: all four natives shipped, and the pool is now the three that
+// survived passiveCrowd — see the weapons block for which one left and why.
 CHAPTERS.reef = {
   name: 'The Reef', tagline: 'the current only runs one way', icon: '🪸',
   lane: true,
@@ -6832,9 +6832,18 @@ CHAPTERS.reef = {
   // chapter would give HALF The Beyond's reaction time on the device the game ships to.
   laneScroll: 90,
   // THE THROTTLE (owner, 2026-08-24: "the move right / move left actions should actually make the
-  // level scroll faster / slower"). The stick's FORWARD component was doing nothing at all in a
-  // lane — only the cross axis was read — so this is the axis the player was already pushing.
-  // +/- this fraction of laneScroll: 45..135 px/s, i.e. 7.0s of warning down to 2.3s on a phone.
+  // level scroll faster / slower", then "it should be wayyyy speedier, like 3x the speed"). The
+  // stick's FORWARD component was doing nothing at all in a lane — only the cross axis was read —
+  // so this is the axis the player was already pushing.
+  //
+  // THE TWO MULTIPLIERS, NOT ONE ± FRACTION, and the asymmetry is forced rather than chosen: the
+  // ruling is 3x at full push, and the symmetric ±2 that would give would run the player BACKWARDS
+  // at full ease-off. stepLaneFront's own max() carries the crush edge forward regardless, so in a
+  // lane "reverse" is spelled "held against the back edge and ground" — there is no version of this
+  // number where the low end may cross 0.
+  //   min 0.5   45px/s — 6.9s of warning on the 390x844 phone the game ships to
+  //   max 3    270px/s — 1.2s of it. That is the PRICE of the speed and not a mis-tune; the coral
+  //            is what charges it, since a passage squeeze arrives in a third of the time.
   //
   // IT MOVES THE LANE FRONT TOO, and that is the whole feature rather than a detail. The front
   // (stepLaneFront) is the crush edge AND the camera anchor, and it advances on its own clock at
@@ -6845,7 +6854,12 @@ CHAPTERS.reef = {
   // WHAT STOPS THE PLAYER SIMPLY HOLDING 0.5x FOREVER: the air. Pockets are placed per px of lane
   // and the bar drains per second, so half speed is half the air supply for the same clock — the
   // chapter's own resource prices the throttle and nothing new had to.
-  laneThrottle: 0.5,
+  //   ⚠ THE SAME ARITHMETIC MAKES FULL THROTTLE AIR-RICH, and at 3x that is no longer a rounding
+  //   error: 3x the px of lane per second is 3x the pockets met against an unchanged per-second
+  //   drain. So the air prices the SLOW end and the coral prices the fast one. UNMEASURED at this
+  //   ratio — scripts/charge-probe.mjs --chapter reef is the rig, and its `pocket` lane policy
+  //   would need a throttle to sweep before any number here can be quoted.
+  laneThrottle: { min: 0.5, max: 3 },
   // THE LANE DROPS WHAT FALLS BEHIND (v7.x). Opt-in per chapter -- see stepLeaks for why the
   // default must stay off. The Reef needs it and The Beyond does not: this roster's moray moves
   // 39px/s against a 45px/s advance, so it falls astern BY CONSTRUCTION and can never return,
@@ -6901,18 +6915,24 @@ CHAPTERS.reef = {
     // on a knob with no consumer while the defect it describes was live on the other axis.
   },
 
-  // FOUR NATIVES AND NOTHING BORROWED (owner, 2026-08-22). Every card is picked for the LANE rather
-  // than for the theme, because a scroller only works if what you hold can answer things arriving
-  // from ahead — and each of the four answers a DIFFERENT question about a corridor you cannot stop
-  // in, which is what stops the pool being one idea at four intensities:
-  //   pistolShrimp  the starter — a tracking line at the nearest body, cracking a shorter, softer
-  //                 bolt out the back of itself at the same time: this chapter's crowd sits astern
-  //                 of the player (53% of live bodies, scripts/reef-pileup.mjs) and a starter that
-  //                 could only ever face one way left the whole opening half-blind.
-  //   squidInk      the only card that does not damage its way out of a problem. It takes the
-  //                 crowd's ability to FOLLOW you and lets the scroll carry them off, and it is the
-  //                 only one planted ON the player, so it is also this pool's answer to what is
-  //                 already beside you.
+  // FOUR NATIVES BUILT, THREE OFFERED (owner, 2026-08-22, then 2026-08-24). Every card is picked
+  // for the LANE rather than for the theme, because a scroller only works if what you hold can
+  // answer things arriving from ahead — and each answers a DIFFERENT question about a corridor you
+  // cannot stop in, which is what stops the pool being one idea at three intensities:
+  //   pistolShrimp  the starter — a tracking line at the nearest body (fireSnap -> aimAngle, owner
+  //                 2026-08-24), cracking a shorter, softer bolt out the back of itself at the same
+  //                 time: this chapter's crowd sits astern of the player (53% of live bodies,
+  //                 scripts/reef-pileup.mjs) and a starter that could only ever face one way left
+  //                 the whole opening half-blind.
+  //   squidInk      GONE FROM THIS POOL (owner, 2026-08-24), and passiveCrowd is why. Its whole
+  //                 payload is the blind — it took the crowd's ability to FOLLOW you and let the
+  //                 scroll carry them off — and it deals no damage at all. A crowd that never
+  //                 follows you cannot be stopped from following you, so every one of its five mods
+  //                 folded onto a number nothing read: an INERT CARD, offered and picked and doing
+  //                 nothing, which is the exact pathology run MB.a exists for and which no test
+  //                 would have gone red over. The card, its mods and its blind machinery all stay
+  //                 built and dev-takeable — devCards ignores the chapter pool, and the blind works
+  //                 in every chapter whose crowd still seeks, which is where run RP now tests it.
   //   oxygenTank    the only card thrown AHEAD of you rather than at a body — the scroll closes the
   //                 gap, so the throw and the arriving stream keep the same appointment.
   //   fireCoral     the terrain, armed. A burn band across the lane, placed ahead of the stream.
@@ -6928,7 +6948,11 @@ CHAPTERS.reef = {
   //   shelf  282 cards, 0 empty screens — normal 50.7% rare 30.9% epic 4.3% legendary 2.8% mythic 0.7%
   // The epic TIER is not the epic WEAPONS: it is fed by every bucket, and a pool of four cards at
   // normal/rare/rare/normal does not starve it.
-  weapons: ['pistolShrimp', 'squidInk', 'oxygenTank', 'fireCoral'], starter: 'pistolShrimp',
+  // THREE, NOT FOUR — see squidInk above. The three that remain still answer three different
+  // questions about a corridor you cannot stop in, which was the argument for the pool's shape:
+  // the starter is welded to the lane heading, the tank is thrown AHEAD of you, and the coral is
+  // the terrain armed. What left with the ink is this pool's only non-damage card.
+  weapons: ['pistolShrimp', 'oxygenTank', 'fireCoral'], starter: 'pistolShrimp',
 
   // The cast. All three flags already exist in sim.js and are chapter-agnostic, so this roster is
   // real behaviour rather than a placeholder: the damselfish is the deliberately FLAGLESS baseline
@@ -6945,6 +6969,22 @@ CHAPTERS.reef = {
     { id: 'lionfish',   archetype: 'fast',   name: 'Lionfish',   hpMul: 0.9, speedMul: 1.15, flags: ['pounce'] },
   ],
   eliteFlags: ['soapTrail'],   // the Undertow's own elite flag, shared with The Surf and The Shelf
+
+  // THE CROWD IS SCENERY, NOT A THREAT. Owner, 2026-08-24: "in the reef, enemies should just pass
+  // by you not attack you." Two halves, both read by sim.js and both chapter-wide rather than
+  // per-roster-row, so a creature added here later cannot forget one of them:
+  //   the damage  zeroed at spawn (see the dmg line in spawnEnemy) rather than by a dmgMul: 0 on
+  //               each row. contactHarmless already treats 0 as 0 -- that clause is why The
+  //               Wreck's fish do not chip 1 HP per touch -- so this needs no second site.
+  //   the seek    replaced in stepEnemyMovement by a swim DOWN the lane, so every body streams
+  //               past you and out the back while you advance up it. It sits above every
+  //               behaviour machine, which is what makes the roster's latch and pounce unreachable
+  //               here without deleting them.
+  // What is left to kill you is the chapter: the coral, the crush and the air. The roster keeps
+  // its flags on purpose, so the combative Reef is one boolean away rather than a rewrite.
+  //   WARNING: ELITE POOLS ARE NOT COVERED. eliteFlags' soapTrail still lays a damaging trail;
+  //   that is a pool and not a contact, and turning it off is a separate ruling.
+  passiveCrowd: true,
 
   // AIR POCKETS. The signature carries no mechanic of its own — the LANE is this chapter's gimmick
   // — it carries the geometry of the one thing that refills the bar, in the same vocabulary as the

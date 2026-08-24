@@ -1229,11 +1229,14 @@ function generateWells(sig) {
  *   stepLaneFront; render.js anchors the lane camera to it and writes nothing.
  *   Only separates from the player where a chapter can STOP one — CHAPTERS[].spurs.solid. Without
  *   that it tracks the player exactly, which is how The Beyond keeps its pre-front behaviour.
- * _laneThrottle: number — the player's own hand on the scroll, 1 ± CHAPTERS[].laneThrottle, off the
- *   stick's FORWARD component (which a lane otherwise throws away). Written by stepPlayerMovement
- *   and read by stepLaneFront in the same step, so the player's advance and the lane's own advance
- *   are one rate: throttling one alone would slow the fish and not the level. 1 in every chapter
- *   that declares no laneThrottle, which is every chapter but The Reef.
+ * _laneThrottle: number — the player's own hand on the scroll, off the stick's FORWARD component,
+ *   which every other lane throws away. 1 at neutral, CHAPTERS[].laneThrottle.max at full push and
+ *   .min at full ease-off (The Reef: 3 and 0.5) — two multipliers rather than one ± fraction,
+ *   because the low end may never reach 0 and 3x on the high end would take it past -1.
+ *   READ BY TWO CLOCKS: the player's forward velocity (stepPlayerMovement) and the lane front
+ *   (stepLaneFront, the crush edge and the camera anchor). Throttling only the first would leave
+ *   the level running at full speed while the player fell into the back edge.
+ *   Stays 1 for a chapter that declares no laneThrottle, which is every chapter but The Reef.
  * _crushing: boolean — the player is pinned against the lane's trailing edge THIS frame, i.e. the
  *   lane has left without them. Published by stepLaneFront; the tell render.js draws off.
  * _crushAcc: number — the crush's part-tick accumulator (LANE_CRUSH_TICK). _spurAcc's twin.

@@ -18800,6 +18800,7 @@ run(testLeLargeWeapons)
   run(testMultitouchControls)
   run(testLaneGolden)
   run(testLaneAxis)
+  run(testReefPassiveCrowd)
   run(testReefAirBurst)
   run(testReefSpurScrape)
   run(testReefNatives)
@@ -22859,9 +22860,9 @@ function testLaneAxis() {
     const steps = Math.round(2 / dt)
     const f0 = run._laneFront ?? x0
     for (let i = 0; i < steps; i++) { stepSim(run, { x: -1, y: 0 }, dt); run.events.length = 0 }
-    const want = laneScrollFor(CHAPTERS.reef) * (1 - CHAPTERS.reef.laneThrottle) * steps * dt
+    const want = laneScrollFor(CHAPTERS.reef) * CHAPTERS.reef.laneThrottle.min * steps * dt
     assert.ok(Math.abs((run._laneFront - f0) - want) < 1e-6,
-      `expected the reef's LANE FRONT to advance +x at its own laneScroll (${laneScrollFor(CHAPTERS.reef)}) eased off by laneThrottle ${CHAPTERS.reef.laneThrottle}, moved ${(run._laneFront - f0).toFixed(3)} vs ${want.toFixed(3)}`)
+      `expected the reef's LANE FRONT to advance +x at its own laneScroll (${laneScrollFor(CHAPTERS.reef)}) eased off to laneThrottle.min x${CHAPTERS.reef.laneThrottle.min}, moved ${(run._laneFront - f0).toFixed(3)} vs ${want.toFixed(3)}`)
     {
       // The same two seconds on a neutral stick: exactly the chapter's own scroll, which is the
       // number every other constant in this chapter is measured against.
@@ -23047,6 +23048,185 @@ function testLaneAxis() {
   }
 
   console.log(`PASS run LX (the lane has an axis): the reef scrolls +x at ${laneScrollFor(CHAPTERS.reef)}px/s (the beyond keeps ${LANE_SCROLL_SPEED}) under a stick that cannot touch it, strafes on y at x${LANE_STRAFE_MUL}, clamps to both y walls, spawns everything ahead, and the camera reads the axis`)
+}
+
+
+// ---- run RC: The Reef's crowd passes you by ----------------------------------------------------
+// Owner, 2026-08-24: "in the reef, enemies should just pass by you not attack you."
+//
+// BOTH HALVES ARE ASSERTED AS EFFECTS, never as the flag. CHAPTERS.reef.passiveCrowd reads true
+// whether or not either of its two sites honours it, so a test that looked at the boolean — or at
+// the spawned enemy's own `dmg` field — would pass with the movement branch deleted, which is
+// exactly the half the player actually sees.
+//
+// THE BEYOND IS THE CONTROL ON BOTH CASES, and it is not decoration: the same lane machinery runs
+// there, so an arm where seeking or contact damage is broken EVERYWHERE would satisfy the reef
+// assertions on its own. Two chapters, one fixture, opposite answers.
+function testReefPassiveCrowd() {
+  const dt = 1 / 60
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  // No weapons: every case below reads an enemy's OWN displacement, and a bullet landing on it
+  // applies knockback through the same e.x/e.y the branch writes. Immortal for the same reason the
+  // rest of the reef fixtures are — the coral and the air are not what this run is measuring.
+  const laneRun = (chapter, seed = 20260824) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter, difficulty: 1 })
+    assert.strictEqual(run.chapter, chapter, `run RC did not start in ${chapter} — the WIP gate or the meta is wrong`)
+    run.weapons.length = 0
+    run.player.hp = run.player.maxHP = 1e9
+    return run
+  }
+  // The first live body, however long the chapter takes to make one.
+  const firstBody = (run, secs = 60) => {
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+      const e = run.enemies.find((q) => !q._dead)
+      if (e) return e
+    }
+    return null
+  }
+
+  // (a) CONTACT COSTS NOTHING. A body pinned on the player for six seconds, which is ~360 contact
+  // frames — every one of them a chance for stepContactDamage, the latch clause, or an elite affix
+  // to take a bite. Read off run.dmgBySrc and NOT off p.hp, because the reef also charges you for
+  // coral, crush and drowning in those six seconds and a total would drown the signal in them:
+  // the bucket is keyed by the creature's own rosterId, so this asks the one question that matters.
+  for (const [chapter, wantBite] of [['reef', false], ['beyond', true]]) {
+    const run = laneRun(chapter)
+    const e = firstBody(run)
+    assert.ok(e, `run RC.a saw no enemy at all in 60s of ${chapter} — the fixture asserts nothing`)
+    const key = e.rosterId ?? e.type
+    run.dmgBySrc = {}
+    run.player.invuln = 0
+    for (let i = 0; i < Math.round(6 / dt); i++) {
+      // Held ON the player and kept alive: nothing else in the run may end this contact early.
+      e._dead = false
+      e.hp = 1e9
+      e.x = run.player.x
+      e.y = run.player.y
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+    }
+    const bit = run.dmgBySrc[key] ?? 0
+    if (wantBite) {
+      assert.ok(bit > 0,
+        `run RC.a control: a ${key} sat inside The Beyond's player for 6s and took 0 HP — this case cannot tell a disarmed crowd from a broken fixture`)
+    } else {
+      assert.strictEqual(bit, 0,
+        `run RC.a: The Reef's ${key} took ${bit} HP off a player it was pinned inside for 6s — passiveCrowd is not reaching stepContactDamage`)
+    }
+  }
+
+  // (b) IT NEVER TURNS TOWARD YOU. The player is held hard against one side of the lane while a
+  // single body is left alive: a seeker closes the CROSS gap, and this one may not move on that
+  // axis at all. The forward half is asserted too, and it is the half that makes "pass by" true
+  // rather than merely "stops chasing" — a body that only stopped seeking would hang motionless in
+  // the water and read as dead, so the branch swims it DOWN the lane at its own speed.
+  for (const [chapter, wantTurn] of [['reef', false], ['beyond', true]]) {
+    const run = laneRun(chapter)
+    const ax = laneAxes(CHAPTERS[chapter])
+    const e = firstBody(run)
+    assert.ok(e, `run RC.b saw no enemy at all in 60s of ${chapter}`)
+    // ONE body only. Separation pushes neighbours apart on the same coordinates this case reads,
+    // so a second live enemy is an unmeasured force inside the assertion.
+    const cross0 = e[ax.cross]
+    const fwd0 = e[ax.fwd]
+    const secs = 1.5
+    // ACROSS THE LANE, whichever axis that is. Held on a literal { x: 0, y: 1 } this pushed The
+    // Beyond's player straight up its FORWARD axis instead — the control never left the centre
+    // line, its seeker had no gap to close, and the case reported the seek as disabled in the one
+    // chapter where it is not.
+    const stick = ax.cross === 'x' ? { x: 1, y: 0 } : { x: 0, y: 1 }
+    let moved = 0
+    for (let i = 0; i < Math.round(secs / dt); i++) {
+      for (const q of run.enemies) if (q !== e) q._dead = true
+      e._dead = false
+      e.hp = 1e9
+      e.kb.x = 0
+      e.kb.y = 0
+      stepSim(run, stick, dt)            // strafe hard toward one wall, the whole time
+      run.events.length = 0
+      moved += dt
+      if (e._dead) break                 // swept astern; whatever it did, it did before here
+    }
+    const dCross = Math.abs(e[ax.cross] - cross0)
+    if (wantTurn) {
+      assert.ok(dCross > 20,
+        `run RC.b control: The Beyond's crowd moved ${dCross.toFixed(1)}px across the lane while the player fled to a wall — an ordinary seeker must close that gap, so this case cannot see a disabled seek`)
+    } else {
+      assert.ok(dCross < 1e-6,
+        `run RC.b: The Reef's ${e.rosterId ?? e.type} moved ${dCross.toFixed(2)}px across the lane toward a fleeing player — it is still seeking`)
+      const want = -ax.dir * e.speed * moved
+      assert.ok(Math.abs((e[ax.fwd] - fwd0) - want) < 1e-3,
+        `run RC.b: expected the body to swim ${want.toFixed(1)}px down the lane in ${moved.toFixed(2)}s at its own ${e.speed.toFixed(0)}px/s, it moved ${(e[ax.fwd] - fwd0).toFixed(1)} — it is not passing by, it is parked`)
+      // AND THE POINT THE DRAWING READS. render.js takes every body's bearing from run.player
+      // unless _tgtX/_tgtY says otherwise, so all of the above can be perfect while the sprite
+      // still stares at you — the crowd would crab down the lane tail-first, which is the same
+      // defect the ally, the prey and the blind each needed this pair to fix. Asserted as the
+      // published POINT lying down-lane, not merely as the field being present.
+      assert.ok(e._tgtX !== undefined && e._tgtY !== undefined,
+        'run RC.b: a passiveCrowd body publishes no _tgtX/_tgtY — render derives its bearing from run.player, so the whole chapter is drawn swimming sideways with its eyes on you')
+      const tl = Math.hypot(e._tgtX - e.x, e._tgtY - e.y) || 1
+      const along = ((e._tgtX - e.x) * (ax.fwd === 'x' ? 1 : 0) + (e._tgtY - e.y) * (ax.fwd === 'y' ? 1 : 0)) / tl
+      assert.ok(along * ax.dir < -0.99,
+        `run RC.b: the published seek point lies ${(Math.acos(Math.max(-1, Math.min(1, -along * ax.dir))) * 180 / Math.PI).toFixed(0)}° off the direction the body is actually swimming — render would face the sprite somewhere it is not going`)
+    }
+  }
+
+  // (e) AND RENDER ACTUALLY READS IT. render.js is not importable (Pixi + DOM), so this is run
+  // UG.k's source-text trick, and it is the only guard available for the half that lives there:
+  // sim can publish a perfect heading into _tgtX/_tgtY and the sprite still faces you, because
+  // facesOwnHeading is what decides whether that pair is consulted at all.
+  {
+    const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    const m = src.match(/const facesOwnHeading = [\s\S]{0,400}?\n\s*if \(facesOwnHeading/)
+    assert.ok(m, 'run RC.e: render.js no longer declares facesOwnHeading before its use — the bearing override has moved and this guard is stale')
+    assert.ok(/passiveCrowd/.test(m[0]),
+      'run RC.e: render.js\'s facesOwnHeading does not mention passiveCrowd — the reef publishes a heading into _tgtX/_tgtY that nothing reads, and the whole crowd is drawn facing the player while swimming away from them')
+  }
+
+  // (d) NO MACHINE EVER STARTS. Cases (a) and (b) both read whichever body the chapter happened to
+  // make first, and that is a damselfish — the roster's deliberately FLAGLESS baseline — so neither
+  // of them can see the branch being moved DOWN the chain below the behaviour machines, which is
+  // the plausible edit and the one that puts the lionfish's leap back. stepPounce publishes
+  // _pounceState the first frame it runs, so its absence over a whole run of lionfish is the
+  // ordering asserted as an effect. Counted, so a run that rolled none says so instead of passing.
+  {
+    const run = laneRun('reef')
+    const seen = new Map()
+    let pouncing = 0
+    for (let i = 0; i < Math.round(60 / dt); i++) {
+      stepSim(run, { x: 0, y: Math.sin(i / 90) }, dt)
+      run.events.length = 0
+      for (const e of run.enemies) {
+        if (e._dead) continue
+        seen.set(e.id, e.rosterId ?? e.type)
+        if (e._pounceState !== undefined) pouncing++
+      }
+    }
+    const lionfish = [...seen.values()].filter((id) => id === 'lionfish').length
+    assert.ok(lionfish > 0,
+      `run RC.d saw 0 lionfish in 60s of the reef (${seen.size} bodies) — the one roster entry carrying a behaviour machine never spawned, so this case asserts nothing`)
+    assert.strictEqual(pouncing, 0,
+      `run RC.d: ${pouncing} enemy-frames ran the pounce machine in the reef — the passiveCrowd branch has fallen below the behaviour machines in stepEnemyMovement, and the lionfish is leaping at the player again`)
+  }
+
+  // (c) THE DECLARATION IS THE REEF'S ALONE. passiveCrowd disarms every creature in a chapter, so
+  // it landing on a second one is a whole chapter turning into target practice with nothing thrown
+  // and no other case here going red. Over Object.keys(CHAPTERS) and not CHAPTER_ORDER, which is
+  // Book 1 only and would not see this chapter at all (CLAUDE.md).
+  const declared = Object.keys(CHAPTERS).filter((id) => CHAPTERS[id].passiveCrowd)
+  assert.deepStrictEqual(declared, ['reef'],
+    `run RC.c: passiveCrowd is declared by [${declared.join(', ')}] — it disarms a chapter's whole roster, so anything but the reef here is an accident`)
+
+  console.log(`PASS run RC (the reef's crowd passes by): pinned inside the player for 6s it takes 0 HP (The Beyond's bites), it holds its cross line against a fleeing player (The Beyond's closes) and swims down-lane at its own speed; declared by ${declared.length} of ${Object.keys(CHAPTERS).length} chapters`)
 }
 
 // ---- run RF: The Reef's Air (the bar) and Burst (the button) -----------------------------------
@@ -23284,7 +23464,17 @@ function testReefSpurScrape() {
   let thr = null
   {
     const T = CHAPTERS.reef.laneThrottle
-    assert.ok(T > 0, 'run RS.e: CHAPTERS.reef.laneThrottle is gone — the stick no longer touches the scroll and this whole case is vacuous')
+    assert.ok(T && T.max > 1 && T.min > 0 && T.min < 1,
+      'run RS.e: CHAPTERS.reef.laneThrottle is gone, or one of its ends no longer straddles neutral — the stick no longer touches the scroll and this whole case is vacuous')
+    // THE RULING ITSELF, and not merely "some number above 1". Owner, 2026-08-24: "the go right to
+    // speed up should be wayyyy speedier, like 3x the speed". Every other assertion in this case
+    // reads T back out of the config and compares the sim against it, so all of them stay green on
+    // a max of 1.05 — the tune is the one fact here that a config-derived check cannot see.
+    assert.strictEqual(T.max, 3,
+      `run RS.e: full throttle is x${T.max}, not the x3 the owner asked for — the rest of this case reads the config back and cannot tell`)
+    // AND THE LOW END MAY NEVER REACH 0. A lane that can be stopped is not a lane, and a negative
+    // one runs the player backwards into a crush edge that keeps advancing regardless.
+    assert.ok(T.min > 0.05, `run RS.e: laneThrottle.min is ${T.min} — at or near 0 the player can park in a lane, and the crush edge does not stop with them`)
     const nominal = laneScrollFor(CHAPTERS.reef)
     const secs = 60
     const leg = (fwd) => {
@@ -23299,19 +23489,19 @@ function testReefSpurScrape() {
     thr = { back: back.px, idle: idle.px, fwd: fwd.px }
     assert.ok(Math.abs(idle.px - nominal * secs) < 1,
       `run RS.e: an untouched forward stick travelled ${idle.px.toFixed(0)}px in ${secs}s against the chapter's own ${(nominal * secs).toFixed(0)} — the neutral scroll has moved, which is every other number in this chapter`)
-    assert.ok(fwd.px > idle.px * 1.2 && fwd.px <= idle.px * (1 + T) + 1,
+    assert.ok(fwd.px > idle.px * 1.2 && fwd.px <= idle.px * T.max + 1,
       `run RS.e: pushing forward for ${secs}s travelled ${fwd.px.toFixed(0)}px against ${idle.px.toFixed(0)} idle — the stick's forward component is being thrown away, which is what a lane used to do with it`)
-    assert.ok(back.px < idle.px * 0.8 && back.px >= idle.px * (1 - T) - 1,
+    assert.ok(back.px < idle.px * 0.8 && back.px >= idle.px * T.min - 1,
       `run RS.e: easing off for ${secs}s still travelled ${back.px.toFixed(0)}px against ${idle.px.toFixed(0)} idle — the level did not slow down`)
     assert.strictEqual(back.crush, 0,
       `run RS.e: easing off cost ${back.crush} hp of CRUSH — the lane front is still advancing at the full scroll, so slowing down is not slowing the level down, it is being left behind by it`)
     // The velocity itself, on a stick with no cross component at all, so the unit-circle clamp is
     // not quietly scaling the number this asserts.
-    for (const [fwdIn, want] of [[1, 1 + T], [-1, 1 - T], [0, 1]]) {
+    for (const [fwdIn, want] of [[1, T.max], [-1, T.min], [0, 1]]) {
       const run = reefRun()
       stepSim(run, stick(0, fwdIn * LAX.dir), dt)
       assert.ok(Math.abs(run.player[LAX.vFwd] * LAX.dir - nominal * want) < 1e-6,
-        `run RS.e: a ${fwdIn} forward stick gives ${(run.player[LAX.vFwd] * LAX.dir).toFixed(2)}px/s against the ${(nominal * want).toFixed(2)} laneThrottle ${T} asks for`)
+        `run RS.e: a ${fwdIn} forward stick gives ${(run.player[LAX.vFwd] * LAX.dir).toFixed(2)}px/s against the ${(nominal * want).toFixed(2)} laneThrottle {min ${T.min}, max ${T.max}} asks for`)
       assert.ok(Math.abs(run._laneThrottle - want) < 1e-6, 'run RS.e: run._laneThrottle disagrees with the velocity it produced — stepLaneFront reads that field, so the camera and the crush edge would run at a rate the player is not travelling at')
     }
     // And no other lane chapter is touched: The Beyond declares no throttle, so its own golden
@@ -23396,7 +23586,7 @@ function testReefSpurScrape() {
   assert.deepStrictEqual(caves, ['reef'],
     `run RS: ${caves.length} chapters declare a cave [${caves.join(', ')}] — this is The Reef's own geometry and nothing else reads caveAt`)
   console.log(`PASS run RS (the cave): 1 of ${all.length} chapters declares one, a passage ${2 * spec.halfMin}-${2 * spec.halfMax}px wide wandering +/-${spec.wander} inside a ${2 * laneHalfWidth(reefRun().viewRadius, CHAPTERS.reef)}px corridor, coral built ${laneDrawSpan(390, CHAPTERS.reef.spurs.spacing).ahead.toFixed(0)}px ahead on a phone and ${laneDrawSpan(1862, CHAPTERS.reef.spurs.spacing).ahead.toFixed(0)}px on a 1862px desktop; following it for 120s touched the wall ${clean.touches} times and travelled ${clean.travelled.toFixed(0)}px, pressing one side for 20s touched it ${hit.touched} times for ${hit.paid} hp with a worst single-frame move of ${hit.worstJump.toFixed(1)}px (bounce ${CAVE_BOUNCE_PX}), and a held Burst passes straight through`)
-  console.log(`PASS run RS.e/f (the throttle and the fork): 60s of lane travelled ${thr.back.toFixed(0)}/${thr.idle.toFixed(0)}/${thr.fwd.toFixed(0)}px eased-off/neutral/pushed (laneThrottle ${CHAPTERS.reef.laneThrottle}, 0 crush hp for easing off, The Beyond unmoved); ${fork.islands} islands over 60000px = one every ${fork.everyPx.toFixed(0)}px (${(fork.everyPx / laneScrollFor(CHAPTERS.reef)).toFixed(1)}s), ${(fork.share * 100).toFixed(0)}% of the lane forked, widest ${fork.maxPh.toFixed(0)}px against a tightest branch of ${fork.minBranch.toFixed(0)}px, and both sides flown clean for 90s`)
+  console.log(`PASS run RS.e/f (the throttle and the fork): 60s of lane travelled ${thr.back.toFixed(0)}/${thr.idle.toFixed(0)}/${thr.fwd.toFixed(0)}px eased-off/neutral/pushed (laneThrottle x${CHAPTERS.reef.laneThrottle.min}..x${CHAPTERS.reef.laneThrottle.max}, 0 crush hp for easing off, The Beyond unmoved); ${fork.islands} islands over 60000px = one every ${fork.everyPx.toFixed(0)}px (${(fork.everyPx / laneScrollFor(CHAPTERS.reef)).toFixed(1)}s), ${(fork.share * 100).toFixed(0)}% of the lane forked, widest ${fork.maxPh.toFixed(0)}px against a tightest branch of ${fork.minBranch.toFixed(0)}px, and both sides flown clean for 90s`)
 }
 
 function testReefNatives() {
@@ -23414,8 +23604,14 @@ function testReefNatives() {
   // (a) THE POOL IS THE ONE THE CHAPTER DECLARES, and the two natives are natives — a card that
   // leaked into another chapter's pool would take every branch below into a chapter with no lane
   // and no ridges, where both weapons are something else entirely.
+  // THE POOL IS THREE AND THE NATIVE SET IS FOUR, since CHAPTERS.reef.passiveCrowd: Squid Ink's
+  // whole payload is the blind and a crowd that never seeks cannot be blinded, so the card left the
+  // OFFERS (config.js) while staying in WEAPONS and staying this chapter's creature. The leak check
+  // below still walks all four, because a card being dropped from its own pool is no licence for it
+  // to appear in somebody else's.
   const REEF_NATIVES = ['pistolShrimp', 'squidInk', 'oxygenTank', 'fireCoral']
-  assert.deepStrictEqual(CHAPTERS.reef.weapons, REEF_NATIVES,
+  const REEF_POOL = ['pistolShrimp', 'oxygenTank', 'fireCoral']
+  assert.deepStrictEqual(CHAPTERS.reef.weapons, REEF_POOL,
     `run RN.a: The Reef's pool is [${CHAPTERS.reef.weapons.join(', ')}]`)
   assert.strictEqual(CHAPTERS.reef.starter, 'pistolShrimp',
     `run RN.a: the starter is '${CHAPTERS.reef.starter}', not the chapter's own thesis card`)
@@ -23432,6 +23628,17 @@ function testReefNatives() {
     const owners = Object.entries(CHAPTERS).filter(([, ch]) => (ch.weapons ?? []).includes(id)).map(([cid]) => cid)
     assert.ok(owners.length > 0, `run RN.a: ${id} is in no chapter's pool at all — it left The Reef and landed nowhere`)
   }
+  // SQUID INK IS THE THIRD CASE AND ITS OWN SHAPE: it left The Reef's pool and landed in NO pool at
+  // all, which is deliberate and is the one thing the loop above forbids. It is still a built card
+  // with its mods and its blind machinery intact, and devCards ignores every pool, so it is takeable
+  // from the dev menu in any chapter — including the ones whose crowd still seeks, which is where
+  // run RP tests it. Deleting it instead would take the blind seam out of the game entirely.
+  assert.ok(WEAPONS.squidInk, 'run RN.a: squidInk was DELETED rather than dropped from The Reef\'s pool — the blind seam in stepEnemyMovement now has no card at all')
+  assert.ok(WEAPON_MODS.squidInk && Object.keys(WEAPON_MODS.squidInk).length > 0,
+    'run RN.a: squidInk lost its mods when it left the pool — the card is dev-takeable and its upgrades have to still resolve')
+  const inkPools = Object.entries(CHAPTERS).filter(([, ch]) => (ch.weapons ?? []).includes('squidInk')).map(([cid]) => cid)
+  assert.deepStrictEqual(inkPools, [],
+    `run RN.a: squidInk is offered by [${inkPools.join(', ')}] — it was dropped because a passiveCrowd chapter cannot use a blind, and putting it back into any pool re-offers an inert card`)
 
   // A run with the world switched off: no spawner, an immortal player, and the enemy list rebuilt
   // from `mine` every frame so the ONLY bodies in it are the ones each case planted. `_off` pins a
@@ -24020,6 +24227,25 @@ function testReefPool() {
     meta.chapters[id].unlocked = true
     meta.chapters[id].difficulty = 3
   }
+  // THE INK IS TESTED IN THE BEYOND AND THE REST OF THE POOL IN THE REEF, and that split is the
+  // whole of CHAPTERS.reef.passiveCrowd's fallout on this file. Squid Ink's entire payload is the
+  // blind at the retarget seam; the reef's crowd no longer seeks anything, so a blind there changes
+  // nothing that can be measured and cases (a)-(c) were reduced to watching a body swim away on its
+  // own. The card left the reef's pool for exactly that reason (config.js) — it is dev-takeable in
+  // every chapter, and The Beyond is the one other LANE, which cases (a) and (c) both need: their
+  // subject is a blinded body being carried off by a scroll the player is riding.
+  const IAX = laneAxes(CHAPTERS.beyond)
+  const inkRun = (wid, level, mods, seed = 20260822) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'beyond', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'beyond', 'run RP: the ink fixture is not in The Beyond, so it is measuring a blind in a chapter that may not seek')
+    run.weapons = wid ? [{ id: wid, level }] : []
+    run.player.hp = run.player.maxHP = 1e9
+    run.mods.spawnMul = 0
+    run.player.critChance = 0
+    if (wid && mods) Object.assign(run.weaponMods[wid], mods)
+    return run
+  }
   const reefRun = (wid, level, mods, seed = 20260822) => {
     Math.random = mulberry32(seed)
     const run = createRun(meta, { chapter: 'reef', difficulty: 1 })
@@ -24047,7 +24273,10 @@ function testReefPool() {
       // stop the player at a gate while the bodies keep drifting -- which changes every distance
       // here for a reason that has nothing to do with Squid Ink. The level's own geometry is run
       // RS's subject and is tested there against the real field.
-      run.spurs.length = 0
+      if (run.spurs) run.spurs.length = 0
+      // The Beyond's own hazard, for the ink fixtures: an asteroid drifting through the measurement
+      // moves the player and the bodies for a reason that is not Squid Ink.
+      if (run.rocks) run.rocks.length = 0
       run.enemies = mine.filter((e) => !e._dead)
       stepSim(run, stick, dt)
       if (each) each(run)
@@ -24057,7 +24286,9 @@ function testReefPool() {
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
   // The shortest angle between two bearings, folded to [0, pi].
   const between = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)))
-  const CROSS = AX.cross === 'y' ? { x: 0, y: 1 } : { x: 1, y: 0 }
+  const crossStick = (ax) => (ax.cross === 'y' ? { x: 0, y: 1 } : { x: 1, y: 0 })
+  const CROSS = crossStick(AX)
+  const ICROSS = crossStick(IAX)
 
   // (a) THE BLIND IS A PERCEPTION CHANGE, MEASURED AS A HEADING THAT STOPS TURNING. Two runs off the
   // same seed and the same fixture, one holding the ink and one holding nothing at all; in both the
@@ -24072,12 +24303,12 @@ function testReefPool() {
   const WINDOW = 1.2
   {
     const sample = (withInk, forSecs) => {
-      const run = reefRun(withInk ? 'squidInk' : null, 5)
+      const run = inkRun(withInk ? 'squidInk' : null, 5)
       // The cadence is 3.8s at L5 and the body would be standing on the player by then. Arming the
       // timer is a fixture convenience and changes nothing the case measures — the cloud that lands
       // is the one fireInk builds, at the level's own numbers.
       if (withInk) run.weaponTimers.squidInk = 0.02
-      const e = mk(run, AX.cross === 'x' ? 150 : 0, AX.cross === 'y' ? 150 : 0)
+      const e = mk(run, IAX.cross === 'x' ? 150 : 0, IAX.cross === 'y' ? 150 : 0)
       const mine = [e]
       let t = 0
       while (t < 4 && (withInk ? (e.blindT ?? 0) <= 0 : t < forSecs)) { drive(run, mine, dt); t += dt }
@@ -24085,7 +24316,7 @@ function testReefPool() {
       // Direction of travel over the first six frames of the window, and over the last six.
       const leg = (frames) => {
         const from = { x: e.x, y: e.y }
-        drive(run, mine, frames * dt, CROSS)
+        drive(run, mine, frames * dt, ICROSS)
         return { b: Math.atan2(e.y - from.y, e.x - from.x), d: dist(from, e) }
       }
       const first = leg(6)
@@ -24148,13 +24379,13 @@ function testReefPool() {
   // decay — the timer, and the CLEARED HEADING. Leave _blindHx set and a body inked a second time
   // resumes a bearing it has not held since the first cloud, which no damage assertion can see.
   {
-    const run = reefRun('squidInk', 5)
+    const run = inkRun('squidInk', 5)
     run.weaponTimers.squidInk = 0.02
-    // FASTER THAN THE FIXTURES ABOVE, and it has to be: the lane carries the player forward at
-    // laneScroll 45 px/s, so a 60 px/s body re-acquiring perfectly still only closes 15 px/s and
-    // "it never re-acquired" and "it re-acquired and the scroll outran it" read the same. At 150 the
-    // net closing rate is 105 px/s and the two are no longer the same measurement.
-    const e = mk(run, AX.cross === 'x' ? 150 : 0, AX.cross === 'y' ? 150 : 0, 150)
+    // FASTER THAN THE FIXTURES ABOVE, and it has to be: the lane carries the player forward at its
+    // own laneScroll, so a 60 px/s body re-acquiring perfectly still barely closes at all and "it
+    // never re-acquired" and "it re-acquired and the scroll outran it" read the same. At 150 the
+    // net closing rate is 80 px/s in The Beyond and the two are no longer the same measurement.
+    const e = mk(run, IAX.cross === 'x' ? 150 : 0, IAX.cross === 'y' ? 150 : 0, 150)
     const mine = [e]
     let t = 0
     while (t < 4 && (e.blindT ?? 0) <= 0) { drive(run, mine, dt); t += dt }
@@ -25322,10 +25553,37 @@ function testDeathAttribution() {
     assert.ok(tally.drown > 0,
       `run DA.a: the Air bar was held empty for 90s and no damage was tallied under 'drown' ` +
       `(tally: ${JSON.stringify(tally)}) — stepDrown's src label is not reaching run.dmgBySrc`)
+    // THE REEF CANNOT PRODUCE A CREATURE LABEL ANY MORE, and asserting that is the cross-guard
+    // rather than the loss: CHAPTERS.reef.passiveCrowd zeroes every body's contact damage, so this
+    // chapter's tally is coral, crush and air and never a name. If one appears here, the flag has
+    // stopped reaching spawnEnemy and the crowd is biting again.
     const creatures = Object.keys(tally).filter((k) => CHAPTERS.reef.roster.some((r) => r.id === k))
+    assert.deepStrictEqual(creatures, [],
+      `run DA.a: ${creatures.join(', ')} tallied damage in The Reef (tally: ${JSON.stringify(tally)}) — passiveCrowd is not reaching spawnEnemy's dmg line`)
+  }
+
+  // (a2) AND THE CLAIM ITSELF, IN A CHAPTER WHOSE CROWD STILL BITES. stepContactDamage labels its
+  // hit with the ENEMY'S OWN roster id, which is the whole of "Killed by a Flounder"; (a) used to
+  // prove it in The Reef and can no longer, so it moves rather than being dropped. The Shelf is the
+  // nearest thing to the old fixture — Book 2, a seeking crowd, an ordinary contact hit.
+  {
+    Math.random = mulberry32(20260824)
+    const run = createRun(meta, { chapter: 'shelf', difficulty: 3 })
+    assert.strictEqual(run.chapter, 'shelf',
+      'run DA.a2 did not start in The Shelf — the label below would be another chapter\'s roster')
+    run.player.maxHP = 100000
+    run.player.hp = run.player.maxHP
+    for (let i = 0; i < 60 * 90 && run.phase === 'playing'; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.events.length = 0
+    }
+    const tally = run.dmgBySrc ?? {}
+    const creatures = Object.keys(tally).filter((k) => CHAPTERS.shelf.roster.some((r) => r.id === k))
     assert.ok(creatures.length >= 1,
-      `run DA.a: no damage tallied against any Reef roster id (tally: ${JSON.stringify(tally)}) — ` +
+      `run DA.a2: no damage tallied against any Shelf roster id (tally: ${JSON.stringify(tally)}) — ` +
       `stepContactDamage is not passing the enemy's own identity, so "killed by <creature>" is impossible`)
+    assert.ok(!tally.unknown,
+      `run DA.a2: ${tally.unknown} HP landed in the 'unknown' bucket — a hurtPlayer call site is not passing a src`)
   }
 
   // (b) EVERY LABEL THE TALLY PRODUCES RESOLVES TO DISPLAY COPY. dmgSrcName returning null is what
