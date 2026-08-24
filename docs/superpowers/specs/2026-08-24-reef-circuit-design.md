@@ -1,11 +1,18 @@
 # The Reef as a circuit — design
 
 **Date** 2026-08-24
-**Status** design agreed, unimplemented, every number provisional
-**Supersedes** nothing; the Reef's lane, spur field, air and throttle all survive and are reused
+**Status** rev 2 — design agreed, unimplemented, every balance number provisional
+**Supersedes** its own rev 1 §2, which was built on dead code. The Reef's lane, cave, air and
+throttle all survive and are reused.
 
-The Reef stops being a survival chapter. It becomes a **circuit**: a 24-ridge loop driven four
+The Reef stops being a survival chapter. It becomes a **circuit**: a 5040px loop driven four
 times against a countdown, scored on elapsed time, gated by finishing at all.
+
+**Revision history.** Rev 1 built the track on `spurAt`'s ridge/braid/merge model. A recon pass
+found that model unreachable — `stepSpurs` bails for any chapter with a `cave`, and the Reef gained
+one on 2026-08-23, the day before rev 1 was written. Rev 2 rebuilds §2 on `caveAt`, the live
+geometry, and re-sites the crash detection accordingly. The clock, the cards, the scoring and the
+progression are unchanged.
 
 Owner, 2026-08-24: *"This should be like a micromachine race, and the scores are not enemies but
 time to complete X laps. With like time to beat to pass to next level."*
@@ -25,88 +32,111 @@ Greps run before a line was written, as `renaming-safely` requires. All as ident
 | Name | Role | Existing hits |
 |---|---|---|
 | `circuit` | the chapter flag | **0** |
-| `swimthrough` | a checkpoint — a merged ridge you pass through | **0** |
-| `lapSpurs` | ridges per lap | **0** |
+| `swimthrough` | a checkpoint — the passage at its narrowest | **0** |
+| `lapLen` | px per lap (5040) | **0** |
 | `raceClock` | the countdown, seconds | **0** |
 | `run.lap` | lap index | 3, all prose in comments about the orca spiral. No identifiers. |
 
 `arch` was the first choice and was rejected: zero identifier collisions, but eleven prose hits in
 render.js — including a *root arch* and an *arched stub* that are real drawn objects. The one file
 that would draw the Reef's checkpoint already uses the word for something else, which is the
-one-fact-two-places trap wearing a hat. `swimthrough` is the diving term for a coral arch you pass
+one-fact-two-places trap wearing a hat. `swimthrough` is the diving term for a passage you swim
 through, and it is unique in this repo forever.
 
 `gate` was rejected on 140 existing hits.
 
+⚠ Rev 1 also proposed `lapSpurs` — **dropped with the ridge model**. There are no ridges to count;
+the lap is a distance. Do not reintroduce the name, and do not let `spurAt`/`spurs` vocabulary back
+into the circuit code: those identifiers still exist and still run, they simply have no consumer,
+and a new mechanic naming itself after them would look wired when it is not.
+
 ---
 
-## 2. The track — a loop, from one modulo
+## 2. The track — a loop on the CAVE, not on the ridges
 
-`spurAt(i, spec, seed)` (sim.js) is already a pure function of one integer index. It reads three
-hashes off `i` and a braid off `sin(2πi / braidSpurs)`. Wrap **the noise index only**:
+⚠ **Rev 2 rewrote this section completely.** Rev 1 built the loop on `spurAt`'s ridge index and its
+`merged` braid. **That model is dead code.** `stepSpurs` (sim.js:4265) opens with
+`if (CHAPTERS[run.chapter].cave) { run._scraping = false; return false }`, and the Reef declares a
+`cave` — so it bails every frame before touching `run.spurs`, before charging `SPUR_DPS`.
+`grep "\.merged\b" src/sim.js` returns exactly one line: `spurAt`'s own assignment. **Nothing reads
+it.** The cave landed 2026-08-23, one day before rev 1, on the owner's ruling that "coral forms the
+caves and the paths". Rev 1 read `spurs.solid: true` in config and never checked whether the
+function honouring it was reachable.
+
+The live geometry is `caveAt(f, spec, seed)` (config.js:9423) — a **continuous** passage with no
+ridge index and no discrete narrowest point:
 
 ```
-thick, w1, w2   <-  hash(i % lapSpurs)     the coral repeats exactly
-c               <-  sin(2πi / 8)           unchanged
-f               <-  i * spacing            true world position, never wrapped
+c   centre, summed sines over spec.waves        [[900,1], [380,0.42], [170,0.18]]
+hw  half-width, over spec.widthWave             [[640,1], [250,0.45]]
+ph  a forking island's half-width, 0 elsewhere  branch { every:700, chance:0.7, span:380, frac:0.28 }
 ```
 
-`lapSpurs: 24`.
+### The loop: retune the wavelengths to divide the lap
 
-**24 must stay a multiple of `braidSpurs` (8).** The braid is `sin(2πi/8)`, period 8, and 24 is
-three exact periods — so wrapping the index does not move the braid at all and the seam is
-automatically continuous. Any `lapSpurs` not divisible by 8 puts a braid discontinuity at the lap
-line that no other ridge has. This is the single hardest constraint in the document.
+`f % lapLen` would repeat by construction but leaves a visible jump at the seam. Instead make the
+generator **genuinely periodic**: every wavelength an exact divisor of the lap. The live values sit
+remarkably close to divisors of 5040 already, so the cave keeps its character.
 
-Lap length = 24 × 210 = **5040px**. At a realistic 180px/s that is ~28s, which is the owner's
-"a lap should be 30s average". Four laps ≈ 112s.
+| | live | tuned | lap/len | drift |
+|---|---|---|---|---|
+| `waves[0]` | 900 | **840** | 6 | −6.7% |
+| `waves[1]` | 380 | **360** | 14 | −5.3% |
+| `waves[2]` | 170 | **168** | 30 | −1.2% |
+| `widthWave[0]` | 640 | **630** | 8 | −1.6% |
+| `widthWave[1]` | 250 | **252** | 20 | +0.8% |
+| `branch.every` | 700 | **720** | 7 | +2.9% |
 
-### Swimthroughs are structural, not tuned
+**Six values, not five — `branch.every` is one of them.** Verified by direct computation against the
+shipped `caveAt`:
 
-A ridge is `merged` when `2|c| < (w1 + w2)/2` — the two channels have closed into one gap and the
-ridge has a single way through. With `braidSpurs: 8`:
+```
+retuned   max|Δc| = 9.7e-13   max|Δhw| = 4.0e-13     <- repeats to float precision
+live      max|Δc| = 173.1     max|Δhw| = 20.6        <- control: today it does not repeat at all
+```
 
-- at `i % 8 ∈ {0, 4}` the sine is **0**, so `merged` is true regardless of the rolled widths;
-- at `i % 8 ∈ {1, 2, 3}` the smallest separation is `2|c| = 260` against a maximum groove of 154,
-  so nothing else can merge.
+⚠ **The branch needs its own index wrap, and the wavelengths alone do not give it.** The island
+hashes a *cell index*, `Math.floor(f / bs.every)`, which keeps climbing across laps — so the same
+place on lap 2 rolls a different fork. Measured: **57px of island discrepancy** with the wavelengths
+already retuned. Wrap the cell (`cell % (lapLen / bs.every)`) or the forks do not repeat. This is
+the exact trap rev 1 described for the ridge index, in the one place it still applies.
 
-Merges therefore land on exactly every 4th ridge: **6 per lap, 24 per race**. Read the swimthrough
-off `spurAt().merged`, never off `i % 4`, so retuning the braid moves the checkpoints with it.
+Lap length stays **5040px** ≈ 28s at a realistic 180px/s — the owner's "a lap should be 30s average".
+Four laps ≈ 112s.
 
-Ridge 0 is a merge, so **the lap line is itself a swimthrough**.
+### Checkpoints: the narrowest points of the passage
 
-⚠ A merged ridge is *route*-narrow, not *width*-narrow: one gap of up to 154px versus two gaps of
-108–154 each. config.js calls it "the narrowest point in the level" and means the choice, not the
-squeeze. If the swimthrough art implies a tight squeeze it will contradict the collider.
+There are no merges to be checkpoints. Instead, **scan `hw(f)` across one lap and take its local
+minima** — the genuinely tightest squeezes on the circuit. The lap is periodic, so this is computed
+**once** and reused for every lap and every run at that seed.
+
+This is better than what rev 1 proposed, not a fallback. A merged ridge was *route*-narrow, not
+*width*-narrow — one gap of up to 154px against two gaps of 108–154 — so "the checkpoint is the
+tightest point on the track" was never literally true. With a continuous width function it is.
+
+Target ~6 per lap, matching rev 1's cadence. `widthWave` is two summed sines, so the count of minima
+is a property of the tuned wavelengths and must be **verified, not assumed** — if the retune yields
+too few or too many, take the N deepest, and record the actual count.
 
 ### Air pockets must loop too
 
-Pockets are a **cell grid** (`pockets.cell: 640`), and 5040 / 640 = 7.875 — they will not repeat.
+Pockets are a cell grid (`pockets.cell: 640`), and 5040/640 = 7.875 — they will not repeat.
 
-- `pockets.cell: 640 -> 630`, giving exactly 8 cells per lap.
-- The refill spec gains an optional `lapCells`; when set, the along-lane cell index wraps at it.
-  A no-op in the Shelf, Surf and Deep, which share `streamShafts`.
-
-**`minDist` must be applied against the TRUE unwrapped position**, not the wrapped index.
-`pockets.minDist: 420` clears pockets around the run origin so you do not start inside one. Wrap
-that and the clearance repeats every lap — a permanent air-free zone at the exact ridge that is
-also the lap line and an unconditional merge. Unwrapped, lap 1 keeps its clearance and laps 2–4
-get the pocket like any other cell.
+- `pockets.cell: 640 -> 630` (8 exact cells per lap), and the refill spec gains an optional
+  `lapCells` that wraps the along-lane cell index. A no-op in the Shelf, Surf and Deep, which share
+  `streamShafts`.
+- **`minDist` applies against the TRUE unwrapped position.** `pockets.minDist: 420` clears pockets
+  around the run origin; wrap that and the clearance repeats every lap, leaving a permanent air-free
+  zone at the start line. Unwrapped, lap 1 keeps its clearance and laps 2–4 get the pocket.
 
 ### The player must see the loop
 
-A procedural coral corridor that silently repeats reads as a rendering bug, not a circuit — and if
-the player never notices it repeats, the whole reason for choosing a loop over procedural terrain
-evaporates. Three things, together:
-
-- the lap-line ridge gets **its own art** — a distinct swimthrough you pass through, not just
-  another merge;
+- the lap line gets **its own art** — a landmark you pass through;
 - a **lap counter** on the HUD;
-- a **split time** that flashes on crossing, against the previous lap.
+- a **split time** that flashes on crossing.
 
 ⚠ **THE ART CANNOT CARRY THIS ALONE, AND MUST NOT BE ASKED TO.** A 390x844 phone shows 312 world px
-ahead of the player in an x-lane (config.js:6830-6832), and the throttle tops out at 270px/s. The
-lap-line ridge streams in no earlier than any other ridge, so the player gets:
+ahead of the player in an x-lane (config.js:6830-6832), and the throttle tops out at 270px/s:
 
 ```
  45px/s (min throttle)   312/45  = 6.9s of warning
@@ -114,23 +144,18 @@ lap-line ridge streams in no earlier than any other ridge, so the player gets:
 270px/s (max throttle)   312/270 = 1.2s
 ```
 
-At speed that is nowhere near enough to read "this ridge is different" while also threading traffic.
-**The crossing EVENT carries the read, not the approaching art** — a light shake/flash on
-`swimthrough` (the `hurt` handler's damped `overload` variant at render.js:18714 is the template
-for a non-damage event), the SFX entry, and the HUD split landing in the same instant. All three are
-already mandated by §10 anyway; the change is that they are **load-bearing for legibility and may
-not be cut as polish**. The art stays a genuine pleasure for the player at low throttle who is
-looking around, without being asked to do a job it structurally cannot do at 270px/s.
+At speed that is nowhere near enough to read "this is the lap line" while also threading traffic.
+**The crossing EVENT carries the read** — a light shake/flash (the `hurt` handler's damped
+`overload` variant at render.js:18714 is the template for a non-damage event), the SFX entry, and the
+HUD split landing in the same instant. All three are mandated by §10 anyway; the change is that they
+are **load-bearing for legibility and may not be cut as polish**.
 
-⚠ **Where the art branch has to live.** Ridges are neither a sprite pool nor a rig — they are drawn
-straight into one `Graphics` (`spurG`), redrawn when `run._spurRev` bumps. The helper `coralSegs`
-**discards `sp.i` and `sp.merged`**, flattening each ridge into anonymous `[f, c0, c1, half]` tuples.
-So the lap-line branch must happen **inside the existing per-`sp` loop**, reading `sp.i`/`sp.merged`
-off the spur itself. Anything downstream of `coralSegs` has already thrown away the identity it
-would need. Done there it is one extra `if` — no new pool, no new rig, and nothing for `run CP` to
-police.
-
----
+⚠ **Where the art branch lives.** The passage is drawn from `caveAt` into a single `Graphics`
+(`spurG`), redrawn when `run._spurRev` bumps — neither a sprite pool nor a rig, so `run CP` has
+nothing to police as long as no new pool is introduced. render.js's own comment states the contract:
+"ONE DEFINITION, TWO CONSUMERS: stepCaveWall stops the player against the same caveAt this draws
+from." The lap-line landmark must respect that — derive it from the same `caveAt` the collider
+reads, or the art and the wall part company.
 
 ## 3. The clock
 
@@ -226,19 +251,40 @@ and four events cost you speed rather than health:
 | oil slick (elite) | turn rate `* CIRCUIT_SLICK_TURN` for `CIRCUIT_SLICK_T` s, no damage |
 | boost | existing `BURST_SPEED_MUL`, spends air |
 
-⚠ **OPEN: where a crash is actually detected, and whether a crash can be told from a graze.**
-`stepSpurs` short-circuits to a no-op whenever the chapter declares a `cave` — and the Reef declares
-**both** `cave` and `spurs`. So `spurs.solid: true` may not be what stops the player today; the cave
-wall may be. Until that is settled, the crash site above is unsited.
+### The crash site, and telling a crash from a graze
 
-The design question behind it matters more than the plumbing: **the corridor pinches, so the player
-is frequently sliding along coral.** If every touch counts as a crash, the momentum penalty fires
-almost continuously and the chapter is unplayable. Either the collision site can distinguish a
-head-on hit from a glancing graze — by approach angle or by speed lost — or the crash rule needs its
-own test and a graze needs to stay free. This must be resolved before `CIRCUIT_CRASH_MUL` means
-anything.
+**The site is `stepCaveWall` (sim.js:4189-4227), not `stepSpurs`** — which is dead here, per §2.
 
-Coral still **grates HP** (`SPUR_DPS`) — the owner ruled HP and death stay real — so a scraped race
+`stepCaveWall` today is a pure **position** test: `a <= lim && a >= inner`, evaluated fresh each
+frame, with **no read of cross-axis velocity anywhere**. Every frame of contact sets `_caveHit` and
+ticks the same flat `CAVE_HIT_DPS`, whether you clipped one corner or have been pinned against the
+face for two seconds. The only thing scaling severity is *duration*, via the `_caveAcc` accumulator.
+
+That matters because **the corridor pinches, so sliding along coral is normal play, not exceptional
+play.** Hooking momentum loss to `_caveHit` would fire it near-continuously and make the chapter
+unplayable.
+
+**Ruling: price the overshoot depth.** `a - lim` — how far past the boundary the raw, uncorrected
+position landed this frame — is *already computed* in that function as a byproduct of the clamp:
+
+```
+depth = a - lim                    (or inner - a on the island side)
+depth >  CIRCUIT_CRASH_DEPTH  ->   you drove into it: momentum penalty
+depth <= CIRCUIT_CRASH_DEPTH  ->   you brushed it:    free, still grates HP
+```
+
+Deep overshoot means you were carrying speed *into* the wall; a shallow one means you were running
+along it. It is a few lines inside a function that already exists, needs no velocity tracking, and
+leaves grazing free.
+
+⚠ **`CAVE_HIT_DPS` is 22, not `SPUR_DPS`'s 4.** The live grate is **5.5x** what any cost table
+quoting the old constant would assume. Anything pricing "a second against the wall" must use 22.
+
+⚠ **`SPUR_SLOW_MUL` (0.6) is real but orphaned** — `run._scraping` is hardwired `false` for any
+chapter with a cave, so the `scrapeMul` term in `stepPlayerMovement`'s slow chain is permanently 1
+here. It is the right *precedent* for the slick's grip penalty, but it is not live code to extend.
+
+Coral still **grates HP** (`CAVE_HIT_DPS`, 22) — the owner ruled HP and death stay real — so a scraped race
 can still end in death. That plus the d3+ front are the only ways to die.
 
 **The boost already works.** `p[ax.vFwd] = ax.dir * laneScrollFor(...) * burstMul * _laneThrottle`
@@ -332,6 +378,36 @@ Three pools must be scoped, and the third is not optional:
 card forever. With the gate, exhaustion needs ~30 picks against a 3–4 pick budget, so the fallback
 is unreachable in practice — which is the correct outcome.
 
+### XP and coins — one decision resolves four inert cards at once
+
+**XP.** Every coin and every XP gem in the game today drops inside the enemy-death branch of
+`dealDamage`. Strictly kill-gated, no other site. So a weaponless Reef earns nothing and levels
+never fire — the player would see **zero cards for the entire run**. A checkpoint grant is therefore
+forced, not chosen. Precedent exists: The Blank already grants XP outside the kill economy on a
+scripted phase transition, through the same `p.xp`/`stepLevelUp` machinery.
+
+The XP curve is `xpForLevel(level) = 5 + level * 4`, cumulative 9/22/39/60/85 for levels 2–6. Over
+24 checkpoints that puts the 3–4 level-up target at roughly **2.5–3 XP per swimthrough** — a
+starting point for the knob grid, not a shipped number.
+
+**Coins — and the decision that matters.** The new grant must push through the existing
+`run.coins.push(...)` → `collect()` pickup pipeline rather than writing `run.coinsEarned` directly.
+That single choice decides the fate of four other things at once: `run.mods.coinMul`, `avarice`'s
+heal-on-pickup half, `bulky` and `jumbo`'s coin halves, and the "richer coins" the *heavy traffic*
+mutator already promises in its own description. Writing the total directly is marginally less code
+and leaves all four silently inert. **The pipeline already exists and `collect()` already drains it
+every frame, so reusing it is the lazier build as well as the correct one.**
+
+Scale: `city` at d2 measures **593 coins over a 300s run ≈ 119/min**. Matching that rate over a 112s
+race is ≈**220 coins**. Derived, not measured, and it assumes coins-per-minute is the right fairness
+metric — a race either finishes or does not, so coins-per-*finish* may be the better comparison.
+Settle it with the knob grid.
+
+⚠ Do not route the checkpoint XP through `run.mods.xpMul` / `passives.xpGain`. Those exist to keep a
+kill economy proportional, and there is no kill economy here to stay proportional to. Note this also
+makes `CHAPTERS[].balance.xpMul` — the obvious pacing lever, used by five chapters — **inert for the
+Reef**, because it multiplies gem pickups.
+
 ### `starter: null` is an audit, not a line
 
 `createRun` (state.js) builds `weapons: [{ id: starterId, level: startWeaponLevel }]`
@@ -347,6 +423,18 @@ assume a populated weapon list. All of them need checking.
   makes them swim down the lane. Clipping one costs momentum. A moray parked in the good groove is
   a chicane — the roster stops being decoration and becomes the thing that makes the fast line hard
   to hold.
+
+  ⚠ **Contact is not merely undamaging here — it is not detected at all.** `contactHarmless(e)`
+  returns true when `(e.dmg ?? 0) <= 0`, and the loop `continue`s on it **before** the
+  circle-overlap test. So for every Reef fish the position check never runs, and there is no
+  discarded "you touched something" signal to piggyback on. The fix is a **six-line reorder** of the
+  same `O(enemies)` loop — move the overlap test above the early exit and branch on the result — not
+  a new collision pass. The loop, the array and the squared-distance math already run every frame.
+
+  ⚠ **And the flagship example barely happens.** `WAVE_TABLE` is keyed to *absolute seconds* and its
+  tank brackets start at 140s, so in a ~112s race the moray — the "chicane in the good groove" this
+  mechanic is sold on — essentially never spawns. Traffic composition needs a Reef-scoped table, not
+  the shared one; see §7.
 - **The elite is an oil slick.** `soapTrail` keeps laying its trail; in a circuit it deals no damage
   and instead costs grip. An unkillable fish leaving a slick down the racing line is a proper
   hazard, and it is the flag that already exists.
@@ -428,6 +516,32 @@ first three, a hard step at d3 on the fourth.
 
 Winning at difficulty ≥3 still unlocks the next chapter, unchanged.
 
+### Two shared curves cannot deliver the traffic lever, and must be replaced rather than retuned
+
+Both are calibrated against reaching t=200–300s, and a 112s race provably never gets there:
+
+- **`eliteEveryAt(t)`** ramps 45s → 12s across the run. At t=112 it is still ≈32.7s, so a race sees
+  roughly **three elites total**, all near the ramp's start. Since the elite *is* the oil slick,
+  this is the slick's whole cadence — it cannot be made to rise across a race by reparametrising a
+  function whose range needs 300s to traverse.
+- **`WAVE_TABLE`** is absolute-second brackets; the tank bracket opens at 140s. The moray never
+  arrives. Composition, not just density, needs a Reef-scoped table.
+
+Everything else on the shared curves is fine sampled short and should be **left alone**:
+`spawnTiltMul` is already inert here (`reef` declares no `balance.spawnTilt`), `dmgScale` multiplies
+a contact damage that `passiveCrowd` has already forced to zero, and `hpScale`'s base term is
+`1 + t/90` — nothing to do with `RUN_DURATION` — so it is at 2.24x by t=112 already.
+
+Two things genuinely break and both need fixing regardless of balance:
+
+- **`chaosPact.when`** gates on `RUN_DURATION - run.time >= 120`. In a 112s race that is true for
+  all but the last 8 seconds, so its "don't offer this too late" guard never engages. Moot if the
+  anomaly allowlist (§6a) excludes it, which it should.
+- ⚠ **The HUD counts down to 5:00.** `ui.js:2222` renders `RUN_DURATION - run.time` every frame.
+  This is not a balance curve sampled short — it is a **player-facing lie**, a timer ticking toward
+  a mark that has nothing to do with the race. It must be branched for a circuit chapter, and the
+  template is two lines above it: `updateHUD` already switches that slot for `scriptedChapter`.
+
 ---
 
 ## 8. Score, save and leaderboard
@@ -458,8 +572,19 @@ Winning at difficulty ≥3 still unlocks the next chapter, unchanged.
 | | where it goes |
 |---|---|
 | Oxygen Tank | **rehomed to the Wreck** — a scuba tank in a shipwreck is where it always belonged |
-| Pistol Shrimp | dropped |
-| Fire Coral | dropped |
+| Pistol Shrimp | **orphaned** — out of the Reef's pool, kept in `WEAPONS` with its mods and art |
+| Fire Coral | **orphaned**, same |
+
+**Orphaned, not deleted**, on the `squidInk` precedent already in the codebase. They stay
+dev-takeable for testing, the French file loses nothing, and flipping the Reef back to combat
+restores them. The cost is code no player can reach — which is why §10 requires a new assertion
+proving they appear in **zero** chapter pools, since `run MB.a` structurally cannot see it.
+
+⚠ Fire Coral is the last live consumer of `spurAt` (sim.js:11348, its burn geometry). Once it leaves
+the pool, `spurAt`/`streamSpurs`/`run.spurs` have **no gameplay consumer at all** — still called
+every frame, still costing time, feeding only a dead early-return and a disabled debug draw path.
+Removing that machinery is a separate, larger cleanup and is deliberately **not** in this scope; do
+not let it grow into this work. It is recorded here so the next reader knows it is known.
 
 The Pistol Shrimp redesign shipped in v7.227.0, two releases before this document. Dropping it is a
 deliberate decision taken with that known, not a side effect.
@@ -512,12 +637,14 @@ cover:**
 
 **And one gap where no guard exists at all:**
 
-- **Nothing today would catch a broken `spurAt` wrap.** `spurAt` is called twice in the entire
-  suite, both comparing a snapshot against a live call *at the same index* — that proves internal
-  consistency, never periodicity or seam continuity. A new assertion must sample across the lap
-  boundary and assert `spurAt(i) ≡ spurAt(i + lapSpurs)`. Changing `lapSpurs` from 24 to 25 must
-  turn it red, and it needs a second, distinct mutation that breaks periodicity without touching
-  `lapSpurs`.
+- **Nothing today would catch a track that fails to loop.** A new assertion must sample `caveAt`
+  densely across a lap boundary and assert `caveAt(f) ≡ caveAt(f + lapLen)` in `c`, `hw` **and**
+  `ph`. Two distinct mutations must turn it red, and they must be different edits rather than one
+  relabelled: **(1)** put any one of the six wavelengths back to a non-divisor — `waves[0]`
+  840 → 900; **(2)** leave the wavelengths alone and drop the branch cell wrap, which breaks `ph`
+  only. The measured signals for both are recorded in §2 (173px of centre drift; 57px of island
+  discrepancy), so the assertion's thresholds have a real scale to sit against rather than an
+  eyeballed epsilon.
 - **Nothing enumerates chapter/mutator compatibility either**, which is why "eight of twelve go
   inert" was invisible. A new race mutator shipping with no measurable effect would be equally
   invisible.
@@ -543,7 +670,26 @@ keys as well as missing ones, so this can turn red from the opposite direction.
   `SFX_FOR_EVENT` entry, or a written line in `SILENT_BY_DESIGN`.
 - **run XX** — new card and HUD copy must sit in a config **table** with `.name`/`.desc` **one
   level deep**, plus `fr.js`. Copy in a function or a bare const is exempt from the walk by
-  construction, which has shipped untranslated strings four times.
+  construction, which has shipped untranslated strings four times. Specifically:
+
+  - **The racing cards get their OWN table, not `PASSIVES`.** Adding them to `PASSIVES` would give
+    free i18n coverage — it is already table #7 in the walk's literal list — but `PASSIVES` has no
+    per-chapter scoping field at all, so lane-momentum stats would be offered in every chapter
+    unless a hardcoded exclusion is bolted on beside the existing `lane && id === 'magnet'` line.
+    That puts the scoping rule outside the table it describes: one fact, two places. A new flat
+    table costs **one line in config.js and one line in the test's table list** — the same price
+    `PASSIVES` already pays — and scopes correctly.
+  - ⚠ **The four HUD strings are the real gap.** ui.js writes screen chrome as bare `t('…')` calls,
+    and `t` is `DICTS[lang]?.[s] ?? s` — a missing entry **silently falls through to English**. The
+    walk never scans ui.js for `t()` call sites, so a lap counter, split, par and countdown written
+    inline would render fine, ship in English, and turn nothing red. This is precisely the failure
+    CLAUDE.md records four times. The project already has the fix template: `MUTATOR_EFFECT_LABELS`
+    lived in a bare const inside ui.js until it was promoted into a config table so the walk could
+    reach it. Do the same, and have ui.js read from the table.
+  - Orphaning rather than deleting the two weapons means **`fr.js` loses nothing** — the walk's
+    `produced` set enumerates `WEAPONS`/`WEAPON_MODS` directly and never consults pool membership.
+    Deleting them would instead have forced ~12 name entries plus their descs out of `fr.js` in the
+    same commit. This is why §9's orphan/delete ruling had to be explicit.
 - **run MB.a** — dropping the weapons orphans their mods. MB.a will not catch it: the mods still
   resolve to their folds, they are simply unreachable.
 - **run CP / `reset()`** — anything new that pools sprites must be in `clearWorld`'s flat list, and
@@ -558,16 +704,62 @@ keys as well as missing ones, so this can turn red from the opposite direction.
 
 ## 11. What must be measured before anything ships
 
-No number in this document is measured. Load `probing-the-game` first.
+No balance number in this document is measured. Load `probing-the-game` first.
 
-1. **Lap time distribution** — a new probe driving the circuit at several skill policies, to
-   establish the mean seconds between swimthroughs. Everything about the clock derives from it.
-2. **`swimTime` and the cap, per difficulty** — a knob grid, not a guess. A countdown tuned by
-   feel ships unplayable.
-3. **The air economy under momentum** — `scripts/charge-probe.mjs --chapter reef`. Its own comment
-   already flags the 3x throttle ratio as unmeasured, and momentum changes the px-of-lane-per-second
-   relationship the pocket field was tuned against.
-4. **Traffic density per difficulty** — clip rate per lap is the readable statistic.
+### ⚠ Every Reef air number in the repo was taken at one throttle
+
+`charge-probe.mjs`'s lane policies (`centre`, `pocket`) build their input through `crossInput`,
+which **hard-sets the forward axis to 0** — the comment says so: "only the cross component survives
+the lane". With `fwdIn` always 0, `_laneThrottle` is pinned at exactly **1.0** for every existing
+Reef row. The 0.5x–3x range the chapter shipped has never been measured at all, and the resource
+block's own note that the 3x ratio is unmeasured is more literally true than it reads.
+
+`reef-astern`/`reef-pileup` do pass a nonzero forward stick (`{x:0.4}` → throttle 1.8), which proves
+throttle **can** be injected through the existing input contract — but it is one hardcoded constant,
+never swept, in rigs that measure something else.
+
+**So a throttle axis is the first thing the rig needs**, crossed with the existing movement family.
+Mind the axis math: the forward literal has to land on whichever of x/y is `ax.fwd`.
+
+### What to build
+
+| # | measurement | rig |
+|---|---|---|
+| 1 | lap-time distribution across skill policies | **one new file**, `scripts/reef-lap-probe.mjs`, cloning `reef-burst-grid.mjs`'s shape (seeded, paired seeds, policy table) plus the throttle axis |
+| 2 | `swimTime` + cap per difficulty | **a flag on #1**, same idiom as `charge-probe`'s `--drainPerSpawn` |
+| 3 | air economy under momentum | **not a new rig** — `charge-probe.mjs --chapter reef` once its lane policies gain the throttle axis |
+| 4 | clip rate per lap | **a column on #1**, counted off the event stream inline |
+
+One new file total.
+
+### Traps that apply, and the one that decides whether the number is real
+
+- **Paired seeds, one invocation.** Two rigs already say this in their own comments: a delta must
+  come from one invocation sharing a seed list, never two runs eyeballed against each other.
+- **A do-nothing control is required.** Every real rig here has one. The lap probe needs a row with
+  the clock removed, or "the countdown makes laps X% harder" is unmeasurable — you would only have
+  "laps take Y seconds" with no idea how much of Y the clock owns.
+- **The rig's own geometry.** The steering-reachability windows these policies use are tuned
+  constants *on the rig*, not the game. If they make the "aggressive" policy too timid to react at
+  270px/s, the probe reports a harder track than exists — it is measuring its own reaction time.
+- ⚠ **Track or policy?** A lap time is only trustworthy once it **moves when a track knob moves at
+  fixed policy**, *and* **separates a floor policy from a ceiling policy at fixed track**. If a track
+  knob barely moves either number while the floor/ceiling gap stays large and constant, the probe is
+  measuring the driver, not the circuit. Run both directions before quoting anything.
+
+### Sequencing — measurement starts earlier than it looks
+
+Only two things must land before the first probe run means anything:
+
+1. **the loop** (retuned wavelengths, branch cell wrap, pocket `lapCells`, unwrapped `minDist`);
+2. **momentum** and the crash/clip/slick speed costs.
+
+Without (2) especially, lap time collapses to `lapLen / throttled speed` — near-deterministic
+algebra where every policy converges and there is no signal to measure.
+
+**Not required first:** the camera anchor, the HUD, the lap-line art, the card set. None of them
+touch a headless number, and they can proceed in parallel with the balance phase. The throttle axis
+on the probe has no dependency at all and can be written immediately.
 
 ---
 
