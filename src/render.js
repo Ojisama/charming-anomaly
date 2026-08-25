@@ -10212,6 +10212,7 @@ const gateArt = (() => {
 const BUOY_MARK = { body: 0xf2c53d, bodyDone: 0x5c5330, band: 0x121d22, lamp: 0xfff8e0, rope: true }
 const BUOY_FINISH = { body: 0xf4efe2, bodyDone: 0x5a5a52, band: 0x121d22, lamp: 0x121d22 }
 const gateFloorG = new Graphics()
+const gateFrontG = new Graphics()
 const spurG = new Graphics()
   // THE CORAL IS SPRITES NOW, NOT A PATH. spurG survives only for the flat-slab A/B fallback
   // (spurArt 0) and for the ridge FOOT; every colony is a stamp out of coralPool. See bakeCoral().
@@ -10237,7 +10238,7 @@ const spurG = new Graphics()
     rockLayer,
     orcaShadowSp, orcaG,
     enemyShadowLayer, enemyLayer, enemyCrownLayer, orcaSp, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, breakerG, puffG, splashG, columnG, shorebreakG,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -12804,6 +12805,7 @@ const spurG = new Graphics()
   function syncGates(run) {
     gateG.clear()
     gateFloorG.clear()
+    gateFrontG.clear()
     const cfg = CHAPTERS[run.chapter]
     const cspec = cfg?.cave
     if (!cfg?.circuit || !cspec || !run._swims || run._swims.length === 0) return
@@ -13024,7 +13026,320 @@ const spurG = new Graphics()
       gateFloorG.lineTo(B.x, B.y)
       gateFloorG.stroke({ width: 6, color: 0x2a2620, alpha: done ? 0.2 : 0.45, cap: 'round' })
     }
+    // ---- gv=10..13: drawn the way the CORAL is drawn ------------------------------------------
+    // Nine rejected candidates shared one thing nothing in the earlier notes named: they were
+    // Graphics PRIMITIVES — circles and lines — while every other object in this chapter is a
+    // two-pass illustration (bakeCoral: a wide dark outline stroke, then the body over it, then
+    // pale tips). A primitive will read cheaper than its neighbours however well it is shaded,
+    // because it is not drawn in the same hand. These four use the coral's own idiom, and all four
+    // are living reef rather than course hardware.
+    //   ponytail: drawn live rather than baked — a dozen gates on screen at ~40 primitives each is
+    // affordable and this is a proposal. The pick gets bake()d into a sprite pool like the
+    // colonies, which is also what buys per-instance tinting.
+    const fuShape = (G, f0, u0, pts, fill, alpha, outline, ow) => {
+      const arr = []
+      for (const [df, du] of pts) {
+        const q = P(f0 + dFor(df, u0 + du), u0 + du)
+        arr.push(q.x, q.y)
+      }
+      G.poly(arr)
+      G.stroke({ width: ow, color: outline, alpha, join: 'round' })
+      G.poly(arr)
+      G.fill({ color: fill, alpha })
+    }
+    const fuLine = (G, f0, u0, pts, color, alpha, w) => {
+      for (let i = 0; i < pts.length; i++) {
+        const q = P(f0 + dFor(pts[i][0], u0 + pts[i][1]), u0 + pts[i][1])
+        if (i) G.lineTo(q.x, q.y)
+        else G.moveTo(q.x, q.y)
+      }
+      G.stroke({ width: w, color, alpha, cap: 'round', join: 'round' })
+    }
+    // gv=10 — GIANT CLAM. Iconic reef fauna, and the only candidate whose CROSSED state is a pose
+    // rather than a fade: the shell shuts. A scalloped rim and radiating ribs give it the volume
+    // the flat float never had, and the mantle is the one saturated colour in the frame.
+    const clam = (f0, cav, done, fin) => {
+      const t = run.time ?? 0
+      const a = done ? 0.75 : 1
+      for (const sign of [-1, 1]) {
+        const u0 = cav.c + sign * (cav.hw - 36)
+        const A = 48, B = 32
+        const q = P(f0, u0)
+        shadowAt(q.x, q.y, 30, done ? 0.16 : 0.3)
+        const rim = []
+        for (let i = 0; i < 30; i++) {
+          const th = (i / 30) * Math.PI * 2
+          const r = 1 + 0.07 * Math.sin(th * 7)
+          rim.push([Math.cos(th) * A * r, Math.sin(th) * B * r])
+        }
+        fuShape(gateG, f0, u0, rim, done ? 0x7d7566 : 0xd8ccb2, a, 0x2c2a24, 8)
+        for (let i = 0; i < 13; i++) {
+          const th = (i / 12) * Math.PI * 2
+          fuLine(gateG, f0, u0, [
+            [Math.cos(th) * A * 0.3, Math.sin(th) * B * 0.3],
+            [Math.cos(th) * A * 0.93, Math.sin(th) * B * 0.93],
+          ], 0x9d9484, a, 3)
+        }
+        // the mantle: a wavy gape along the track, wide open until you cross it
+        const gape = []
+        const open = done ? 2 : 11 + Math.sin(t * 1.4 + sign) * 2
+        for (let i = 0; i <= 16; i++) {
+          const x = -A * 0.82 + (A * 1.64 * i) / 16
+          gape.push([x, Math.sin((i / 16) * Math.PI * 3) * 5])
+        }
+        fuLine(gateG, f0, u0, gape, 0x1d2b30, a, open + 7)
+        fuLine(gateG, f0, u0, gape, done ? 0x3f4a44 : (fin ? 0xf0ead8 : 0x2fd0c8), a, open)
+        if (!done) fuLine(gateG, f0, u0, gape, 0xd8fff6, a * 0.5, Math.max(1, open * 0.32))
+      }
+    }
+    // gv=11 — SEA FAN. A gorgonian is a BLADE, not a bush, so from above it is a silhouette the
+    // staghorn cannot be confused with: ribs radiating from one foot, cross-linked into a net,
+    // pale at the tips. Deep red-violet, the one hue the passage walls do not already use.
+    const seaFan = (f0, cav, done, fin) => {
+      const t = run.time ?? 0
+      const a = done ? 0.65 : 1
+      for (const sign of [-1, 1]) {
+        const u0 = cav.c + sign * (cav.hw - 6)
+        const q = P(f0, u0)
+        shadowAt(q.x, q.y, 22, done ? 0.12 : 0.26)
+        const N = 9, REACH = 76
+        const rib = (k) => {
+          const sp = (k / (N - 1) - 0.5) * 2
+          const sway = Math.sin(t * 0.8 + k * 0.4 + sign) * 5
+          const out = []
+          for (let j = 0; j <= 5; j++) {
+            const r = (j / 5) * REACH
+            out.push([sp * r * 0.72 + sway * (j / 5), -sign * r])
+          }
+          return out
+        }
+        const body = done ? 0x5a4450 : (fin ? 0xd8d2c4 : 0x8e2f56)
+        for (let k = 0; k < N; k++) fuLine(gateG, f0, u0, rib(k), 0x2a1a22, a, 9)
+        for (let k = 0; k < N; k++) fuLine(gateG, f0, u0, rib(k), body, a, 5)
+        // the cross-links that make it a net rather than a comb
+        for (let j = 2; j <= 5; j++) {
+          const row = []
+          for (let k = 0; k < N; k++) row.push(rib(k)[j])
+          fuLine(gateG, f0, u0, row, 0x2a1a22, a * 0.8, 5)
+          fuLine(gateG, f0, u0, row, body, a * 0.9, 2.5)
+        }
+        for (let k = 0; k < N; k++) {
+          const tip = rib(k)[5]
+          const w = P(f0 + dFor(tip[0], u0 + tip[1]), u0 + tip[1])
+          gateG.circle(w.x, w.y, 5)
+          gateG.fill({ color: done ? 0x6b5a62 : (fin ? 0xffffff : 0xffc9d8), alpha: a })
+        }
+      }
+    }
+    // gv=12 — BUBBLE VENT. Two seabed vents, and the column IS the marker: it moves, so it is the
+    // only candidate that catches the eye without contrast. It also borrows a shape the chapter
+    // already draws, which is the cheapest way to belong.
+    const vent = (f0, cav, done, fin) => {
+      const t = run.time ?? 0
+      const a = done ? 0.4 : 1
+      for (const sign of [-1, 1]) {
+        const u0 = cav.c + sign * (cav.hw - 26)
+        const cone = []
+        for (let i = 0; i < 14; i++) {
+          const th = (i / 14) * Math.PI * 2
+          const r = 26 * (0.78 + 0.3 * hsh(i, sign + 5))
+          cone.push([Math.cos(th) * r, Math.sin(th) * r * 0.78])
+        }
+        fuShape(gateFloorG, f0, u0, cone, 0x2b3138, done ? 0.5 : 0.9, 0x14181c, 7)
+        fuShape(gateFloorG, f0, u0, cone.map(([x, y]) => [x * 0.45, y * 0.45]), 0x12171b, done ? 0.5 : 0.95, 0x0c1013, 4)
+        // the plume: each bubble on its own clock, growing and fading as it rises out of frame
+        for (let i = 0; i < 9; i++) {
+          const ph = ((t * 0.55 + hsh(i, sign + 11)) % 1)
+          const r = 4 + ph * 13
+          const dx = (hsh(i, 3) - 0.5) * 34 * ph
+          const dy = (hsh(i, 7) - 0.5) * 30 * ph
+          const w = P(f0 + dFor(dx, u0), u0 + dy)
+          gateG.circle(w.x, w.y, r)
+          gateG.fill({ color: 0xcfe6f2, alpha: a * 0.42 * (1 - ph) })
+          gateG.circle(w.x, w.y, r)
+          gateG.stroke({ width: 2, color: 0xeaf6ff, alpha: a * 0.5 * (1 - ph) })
+        }
+      }
+    }
+    // gv=13 — BRAIN CORAL. No new object at all: the two colonies that ALREADY form the squeeze are
+    // drawn as a different species. A dome of winding grooves is unmistakable against branching
+    // staghorn, so a checkpoint becomes a PLACE in the reef rather than a thing planted in it.
+    const brain = (f0, cav, done, fin) => {
+      const a = done ? 0.7 : 1
+      for (const sign of [-1, 1]) {
+        const u0 = cav.c + sign * (cav.hw - 30)
+        const R = 58
+        const q = P(f0, u0)
+        shadowAt(q.x, q.y, R * 0.8, done ? 0.14 : 0.28)
+        const dome = []
+        for (let i = 0; i < 26; i++) {
+          const th = (i / 26) * Math.PI * 2
+          const r = R * (0.93 + 0.09 * Math.sin(th * 5 + sign))
+          dome.push([Math.cos(th) * r, Math.sin(th) * r * 0.9])
+        }
+        fuShape(gateG, f0, u0, dome, done ? 0x6e6a58 : (fin ? 0xe4dcc6 : 0xc9a24e), a, 0x2e2718, 9)
+        // the grooves: nested wavy rings, phase-shifted so they wander like a real meandroid
+        for (let g2 = 1; g2 <= 4; g2++) {
+          const ring = []
+          for (let i = 0; i <= 28; i++) {
+            const th = (i / 28) * Math.PI * 2
+            const rr = R * (g2 / 5) * (1 + 0.16 * Math.sin(th * (2 + g2) + g2 * 1.7 + sign))
+            ring.push([Math.cos(th) * rr, Math.sin(th) * rr * 0.9])
+          }
+          fuLine(gateG, f0, u0, ring, 0x4a3a1e, a * 0.9, 6)
+          fuLine(gateG, f0, u0, ring, done ? 0x8a8674 : (fin ? 0xfffaf0 : 0xf0d79a), a * 0.85, 2.5)
+        }
+      }
+    }
+    // ---- gv=14..17: TURNED, because the water says they may be -------------------------------
+    // Owner, 2026-08-25: "remember this is underwater so this doesn't have to be top/down view",
+    // which is the v7.143 ruling ("this is underwater, so stuff can be whatever 3D rotated")
+    // applied to the gates. THE TURN HAS TO BUY SOMETHING, and here it buys the whole silhouette:
+    // a buoy seen from directly overhead is a circle, and nine rounds of surface detail on a circle
+    // failed exactly the way five rounds on the oil drum did before it was turned. No amount of
+    // paint fixes a silhouette. Turned, every one of these is legible in one glance.
+    const ell = (cx, cy, rx, ry, n, a0, a1) => {
+      const out = []
+      for (let i = 0; i <= n; i++) {
+        const a = a0 + (a1 - a0) * (i / n)
+        out.push([Math.cos(a) * rx, Math.sin(a) * ry])
+      }
+      return out
+    }
+    // gv=14 — RING GATE. A hoop standing on the sand that you swim THROUGH; the downstream half is
+    // drawn in front of the player and the upstream half behind, so crossing it is an occlusion
+    // rather than a colour change.
+    const ringGate = (f0, cav, done, fin) => {
+      const t = run.time ?? 0
+      const a = done ? 0.5 : 1
+      const RU = Math.min(cav.hw - 8, 132), RF = RU * 0.56
+      const u0 = cav.c
+      const base = P(f0, u0)
+      gateFloorG.ellipse(base.x, base.y + RF * 0.5, RU * 0.95, RF * 0.5)
+      gateFloorG.fill({ color: 0x0b1a22, alpha: done ? 0.12 : 0.26 })
+      const body = done ? 0x4d5a4f : (fin ? 0xf4efe2 : 0xf2c53d)
+      const half = (G, a0, a1, front) => {
+        const pts = ell(0, 0, RF, RU, 22, a0, a1).map(([x, y]) => [x, y])
+        fuLine(G, f0, u0, pts, 0x101b20, a, 26)
+        fuLine(G, f0, u0, pts, body, a, 17)
+        fuLine(G, f0, u0, pts, front ? 0xfff6d8 : 0x8a7a3c, a * 0.7, 6)
+      }
+      half(gateG, Math.PI * 0.5, Math.PI * 1.5, false)
+      half(gateFrontG, -Math.PI * 0.5, Math.PI * 0.5, true)
+      // the two feet, so the hoop is planted rather than hovering
+      for (const sign of [-1, 1]) {
+        fuLine(gateG, f0, u0, [[0, sign * RU * 0.94], [RF * 0.62, sign * RU * 0.99]], 0x101b20, a, 15)
+        fuLine(gateG, f0, u0, [[0, sign * RU * 0.94], [RF * 0.62, sign * RU * 0.99]], 0x6b6f72, a, 9)
+      }
+      if (!done) {
+        const gl = 0.5 + 0.5 * Math.sin(t * 2)
+        fuLine(gateFrontG, f0, u0, ell(0, 0, RF, RU, 16, -Math.PI * 0.5, Math.PI * 0.5), 0xffffff, a * 0.18 * gl, 30)
+      }
+    }
+    // gv=15 — BANNER GANTRY. Two posts on the banks with fabric between their tops, streaming in
+    // the current. You swim UNDER it, so the banner is drawn over the player.
+    const gantry = (f0, cav, done, fin) => {
+      const t = run.time ?? 0
+      const a = done ? 0.5 : 1
+      const H = 96
+      for (const sign of [-1, 1]) {
+        const u = cav.c + sign * (cav.hw - 12)
+        const foot = P(f0, u)
+        gateFloorG.ellipse(foot.x, foot.y + 8, 20, 9)
+        gateFloorG.fill({ color: 0x0b1a22, alpha: done ? 0.12 : 0.28 })
+        // the post leans downstream a touch, which is what makes it read as standing rather than lying
+        fuLine(gateG, f0, u, [[10, 0], [-H * 0.1, 0]], 0x101b20, a, 20)
+        fuLine(gateG, f0, u, [[10, 0], [-H * 0.1, 0]], done ? 0x4f4a3e : 0x8c6b3f, a, 13)
+        const capw = P(f0 + dFor(-H * 0.1, u), u)
+        gateG.circle(capw.x, capw.y, 9)
+        gateG.fill({ color: done ? 0x5a554a : 0xd8c9a4, alpha: a })
+      }
+      // the fabric: a quad between the post tops, rippling
+      const uA = cav.c - cav.hw + 12, uB = cav.c + cav.hw - 12
+      const top = [], bot = []
+      for (let i = 0; i <= 12; i++) {
+        const u = uA + (uB - uA) * (i / 12)
+        const rip = Math.sin(t * 1.6 + i * 0.7) * 5
+        top.push([-H * 0.1 + rip, u - cav.c])
+        bot.push([-H * 0.1 + 34 + rip, u - cav.c])
+      }
+      const quadPts = top.concat(bot.slice().reverse())
+      if (fin) {
+        for (let i = 0; i < 12; i++) {
+          const seg = [top[i], top[i + 1], bot[i + 1], bot[i]]
+          fuShape(gateFrontG, f0, cav.c, seg, i % 2 ? 0xf4efe2 : 0x1b2b33, a, 0x101b20, 2)
+        }
+      } else {
+        fuShape(gateFrontG, f0, cav.c, quadPts, done ? 0x4f5a52 : 0xd8452f, a, 0x101b20, 5)
+        for (let i = 2; i < 12; i += 4) {
+          fuLine(gateFrontG, f0, cav.c, [[top[i][0] + 8, top[i][1]], [top[i][0] + 26, top[i][1] + 16], [top[i][0] + 8, top[i][1] + 32]], 0xfff1d8, a * 0.9, 5)
+        }
+      }
+    }
+    // gv=16 — BUOY, TURNED. Ball, mast, flag, chain down to a sinker: the silhouette everybody
+    // already knows, and the one the plan view could never produce.
+    const buoyTurned = (f0, cav, done, fin) => {
+      const t = run.time ?? 0
+      const a = done ? 0.5 : 1
+      for (const sign of [-1, 1]) {
+        const u = cav.c + sign * (cav.hw - 30)
+        const bob = Math.sin(t * 0.9 + sign) * 4
+        const q = P(f0 + dFor(bob, u), u)
+        const sink = P(f0 + dFor(76, u), u + sign * 12)
+        gateFloorG.ellipse(sink.x, sink.y, 17, 9)
+        gateFloorG.fill({ color: 0x22303a, alpha: done ? 0.35 : 0.8 })
+        gateFloorG.ellipse(q.x + 10, q.y + 62, 22, 10)
+        gateFloorG.fill({ color: 0x0b1a22, alpha: done ? 0.1 : 0.22 })
+        fuLine(gateG, f0, u, [[bob, 0], [76, sign * 12]], 0x1a2a30, a * 0.85, 5)
+        // mast + flag above the ball (up-track on screen), then the ball over the mast's foot
+        fuLine(gateG, f0, u, [[bob, 0], [bob - 54, 0]], 0x2b3a40, a, 7)
+        fuShape(gateG, f0, u, [[bob - 54, 0], [bob - 34, 26], [bob - 20, 0]],
+          done ? 0x5b4a44 : (fin ? 0xf4efe2 : 0xd8452f), a, 0x101b20, 4)
+        ball(gateG, q.x, q.y, 26, done ? 0x5c5330 : (fin ? 0xe8e2d4 : 0xf2c53d), 0xffe89a, a)
+        fuLine(gateG, f0, u, [[bob - 13, -22], [bob - 13, 22]], 0x101b20, a * 0.55, 6)
+      }
+    }
+    // gv=17 — CORAL ARCH. The in-theme hoop: a natural span you swim under, in the reef's own
+    // palette, so the gate is part of the world rather than planted in it.
+    const arch = (f0, cav, done, fin) => {
+      const a = done ? 0.55 : 1
+      const RU = Math.min(cav.hw - 6, 138), RF = RU * 0.5
+      const u0 = cav.c
+      const base = P(f0, u0)
+      gateFloorG.ellipse(base.x, base.y + RF * 0.45, RU * 0.9, RF * 0.45)
+      gateFloorG.fill({ color: 0x0b1a22, alpha: done ? 0.12 : 0.24 })
+      const body = done ? 0x6b5a52 : (fin ? 0xe8dcc4 : 0xc4566f)
+      const span = ell(0, 0, RF, RU, 20, Math.PI * 0.5, Math.PI * 1.5)
+      fuLine(gateG, f0, u0, span, 0x2c1d22, a, 40)
+      fuLine(gateG, f0, u0, span, body, a, 29)
+      fuLine(gateG, f0, u0, span, done ? 0x7d6c62 : 0xf0b8c4, a * 0.65, 10)
+      // the branching crust that makes it coral and not concrete
+      for (let i = 1; i < span.length - 1; i += 2) {
+        const [x, y] = span[i]
+        const n = 1 + (i % 3)
+        for (let k = 0; k < n; k++) {
+          const sp = (k - (n - 1) / 2) * 13
+          fuLine(gateG, f0, u0, [[x, y], [x - 16 - (i % 4) * 5, y + sp]], 0x2c1d22, a, 8)
+          fuLine(gateG, f0, u0, [[x, y], [x - 15 - (i % 4) * 5, y + sp]], body, a, 4.5)
+          const w = P(f0 + dFor(x - 16 - (i % 4) * 5, u0 + y + sp), u0 + y + sp)
+          gateG.circle(w.x, w.y, 4)
+          gateG.fill({ color: done ? 0x8d8078 : 0xffe4ea, alpha: a })
+        }
+      }
+      for (const sign of [-1, 1]) {
+        fuLine(gateFrontG, f0, u0, [[0, sign * RU * 0.98], [RF * 0.7, sign * RU * 1.02]], 0x2c1d22, a, 34)
+        fuLine(gateFrontG, f0, u0, [[0, sign * RU * 0.98], [RF * 0.7, sign * RU * 1.02]], body, a, 24)
+      }
+    }
     const realMarker = (f0, cav, done, fin) => {
+      if (gateArt === 14) return ringGate(f0, cav, done, fin)
+      if (gateArt === 15) return gantry(f0, cav, done, fin)
+      if (gateArt === 16) return buoyTurned(f0, cav, done, fin)
+      if (gateArt === 17) return arch(f0, cav, done, fin)
+      if (gateArt === 10) return clam(f0, cav, done, fin)
+      if (gateArt === 11) return seaFan(f0, cav, done, fin)
+      if (gateArt === 12) return vent(f0, cav, done, fin)
+      if (gateArt === 13) return brain(f0, cav, done, fin)
       if (gateArt === 7) floatLine(f0, cav, done, fin)
       else if (gateArt === 8) scaffold(f0, cav, done, fin)
       else if (gateArt === 9) cairn(f0, cav, done, fin)
@@ -19730,6 +20045,7 @@ const spurG = new Graphics()
     spurG.clear()
     gateG.clear()
     gateFloorG.clear()
+    gateFrontG.clear()
     // THE COLONIES ARE A SPRITE POOL NOW, so clearing the Graphics is no longer enough: without
     // this the previous run's coral is still parented and visible on the next one. This is the
     // exact failure run CP exists to catch.
@@ -21825,6 +22141,7 @@ const spurG = new Graphics()
     spurG.clear()
     gateG.clear()
     gateFloorG.clear()
+    gateFrontG.clear()
     // THE COLONIES ARE A SPRITE POOL NOW, so clearing the Graphics is no longer enough: without
     // this the previous run's coral is still parented and visible on the next one. This is the
     // exact failure run CP exists to catch.
