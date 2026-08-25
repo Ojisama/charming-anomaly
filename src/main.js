@@ -526,6 +526,10 @@ const SFX_FOR_EVENT = {
   // exactly what a checkpoint is (24 a race, so it must not be a fanfare). The lap line takes
   // `levelup`, the game's existing "something just went your way" jingle, at four a race.
   swimthrough: 'gem', lap: 'levelup',
+  // A crash takes `crush`, the heaviest impact in the bank — it is the one moment in a race where
+  // the player loses something they cannot get back, and it fires on the entry frame only, so it
+  // cannot machine-gun the way a per-frame contact would.
+  crash: 'crush',
   // v7.x The Wreck: the orca. All three get a sound BECAUSE they are rare — four visits a run, one
   // strike each — which is the opposite of the freeze/submission-expiry reasoning that withholds
   // one from anything firing dozens of times a minute. bossRise is already the game's "something

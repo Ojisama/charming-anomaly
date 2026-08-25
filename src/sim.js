@@ -4352,6 +4352,21 @@ function stepCaveWall(run, dt) {
     run._caveAcc = Math.min(run._caveAcc ?? 0, CAVE_HIT_TICK)
     return false
   }
+  // THE CRASH, AS DISTINCT FROM THE GRAZE (v7.x circuit). The overshoot — how far past the face the
+  // uncorrected position landed — is the only severity signal this function has: it is a position
+  // test and never reads velocity. Because the clamp below puts the player back on the face every
+  // frame, that overshoot is exactly (inward cross speed) x dt, so dividing by dt gives a px/s
+  // number that means the same thing at any frame rate.
+  //   ON THE ENTRY FRAME ONLY. Held against the wall, this would fire every frame and compound into
+  // an exponential decay — which is the "sustained contact bleeds speed" rule the owner considered
+  // and did not choose. A brush stays free; driving INTO coral costs you the corner.
+  if (ch.circuit && run._laneSpeed != null && !run._caveHit && dt > 0) {
+    const inward = ((a > lim ? a - lim : inner - a) / dt)
+    if (inward > circuitKnob(ch, 'crashSpeed')) {
+      run._laneSpeed *= circuitKnob(ch, 'crashMul')
+      run.events.push({ type: 'crash', x: p.x, y: p.y, speed: inward })
+    }
+  }
   // Out through the nearer face: pushed off the island the way you were already leaning, held
   // against the wall face you touched.
   p[ax.cross] = cav.c + (off >= 0 ? 1 : -1) * (a > lim ? lim : inner)

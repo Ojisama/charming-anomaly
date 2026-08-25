@@ -9439,6 +9439,16 @@ export const CIRCUIT_DEFAULTS = {
   clockStart: 30,    // seconds on the clock at the start line
   clockCap: 30,      // ...and the ceiling a swimthrough may top it back up to
   swimTime: 6,       // seconds a swimthrough is worth
+  // THE CRASH, AND WHAT SEPARATES IT FROM A GRAZE. The corridor pinches, so sliding along coral is
+  // ordinary play — charge momentum for every touch and the chapter is unplayable. stepCaveWall is
+  // a position test with no velocity read, so the signal is the OVERSHOOT: how far past the wall
+  // the uncorrected position landed. The clamp resets the player onto the face every frame, so that
+  // overshoot is exactly (inward cross speed) x dt — which is why the knob is in px/s rather than
+  // px, and does not change meaning with the frame rate.
+  //   Fires on the ENTRY frame only. Applied every frame of contact it would be an exponential
+  // decay, i.e. the "sustained contact" rule the owner did not pick.
+  crashSpeed: 137,   // px/s of inward cross speed that separates a crash from a brush (half of the 275 max strafe)
+  crashMul: 0.55,    // what a crash leaves of _laneSpeed
 }
 /** Read a circuit knob for a chapter, falling back to the shared default. */
 export const circuitKnob = (ch, key) => ch?.circuit?.[key] ?? CIRCUIT_DEFAULTS[key]

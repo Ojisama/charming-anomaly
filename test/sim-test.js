@@ -22896,9 +22896,33 @@ function testLaneAxis() {
     {
       // The same two seconds on a neutral stick: exactly the chapter's own scroll, which is the
       // number every other constant in this chapter is measured against.
+      //   STEERED CLEAR OF THE CORAL, deliberately. The stick's FORWARD component is what this
+      // measures and it stays untouched at 0; the cross component follows the passage centre so the
+      // window contains no crash. Once a circuit crash multiplies _laneSpeed — and the front reads
+      // _laneSpeed — a fixture that drifts into a wall is measuring a collision while claiming to
+      // measure the scroll. It failed exactly that way when the crash landed (177.942 vs 180.000).
+      const rax2 = laneAxes(CHAPTERS.reef)
       const idle = reefRun()
       const g0 = idle._laneFront ?? idle.player.x
-      for (let i = 0; i < steps; i++) { stepSim(idle, { x: 0, y: 0 }, dt); idle.events.length = 0 }
+      let crashed = 0
+      for (let i = 0; i < steps; i++) {
+        // PARKED IN THE CLEAR BAND rather than steered into it. A bang-bang follower overshoots at
+        // 275px/s of strafe, and where the fork's island stands the passage CENTRE is coral — so a
+        // fixture that merely aims at cav.c still collides. Placing the player mid-channel each
+        // frame removes the collision entirely, which is the point: the subject here is the front's
+        // own clock on an untouched FORWARD stick, and nothing else.
+        // ONE FRAME OF LOOKAHEAD, because stepSim advances the player BEFORE stepCaveWall reads the
+        // passage: parking at the centre of where they are puts them in the wall by the time it is
+        // checked. The centre wanders up to ~5.6px a frame (100px of wander on a 168px wavelength
+        // at 90px/s), which reads as ~336px/s of inward speed — well past the crash threshold.
+        const lookX = idle.player[rax2.fwd] + rax2.dir * laneScrollFor(CHAPTERS.reef) * dt
+        const cav = caveAt(lookX, CHAPTERS.reef.cave, idle._obstacleSeed)
+        idle.player[rax2.cross] = cav.c + (cav.ph > 0 ? (cav.ph + cav.hw) / 2 : 0)
+        stepSim(idle, { x: 0, y: 0 }, dt)
+        for (const e of idle.events) if (e.type === 'crash') crashed++
+        idle.events.length = 0
+      }
+      assert.strictEqual(crashed, 0, 'the idle-front fixture crashed, so it is measuring a collision rather than the scroll')
       const wantIdle = laneScrollFor(CHAPTERS.reef) * steps * dt
       assert.ok(Math.abs((idle._laneFront - g0) - wantIdle) < 1e-6,
         `expected an UNTOUCHED stick to advance the lane front at exactly laneScroll (${laneScrollFor(CHAPTERS.reef)}), moved ${(idle._laneFront - g0).toFixed(3)} vs ${wantIdle.toFixed(3)}`)
