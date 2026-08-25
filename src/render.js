@@ -10206,6 +10206,11 @@ const gateArt = (() => {
 })()
 // Under the coral, so a mark PAINTED ON THE SEABED tucks beneath the colonies overhanging the
 // passage edge instead of climbing over them. gateG stays above for anything standing in water.
+// BUOY LIVERIES. Yellow-and-black is what a real course marker is painted, and neither colour is
+// anywhere in the coral palette (pink, cyan, red, orange, cream, gold) — so the marker cannot be
+// mistaken for the reef it is moored against. The finish keeps the same hardware in chequer livery.
+const BUOY_MARK = { body: 0xf2c53d, bodyDone: 0x5c5330, band: 0x121d22, lamp: 0xfff8e0, rope: true }
+const BUOY_FINISH = { body: 0xf4efe2, bodyDone: 0x5a5a52, band: 0x121d22, lamp: 0x121d22 }
 const gateFloorG = new Graphics()
 const spurG = new Graphics()
   // THE CORAL IS SPRITES NOW, NOT A PATH. spurG survives only for the flat-slab A/B fallback
@@ -12873,6 +12878,91 @@ const spurG = new Graphics()
         }
       }
     }
+    // A BUOY IS A FLOAT, A CHAIN AND AN ANCHOR, and the two on the seabed are what stop the float
+    // reading as a decal. Top-down, a moored float shows as concentric bands (that IS what one
+    // looks like from a boat), its shadow offset by the sun, and the chain foreshortened to a short
+    // run out to the sinker — so the tether is drawn OUTWARD, toward the bank it is moored off.
+    const buoy = (f0, cav, done, liv) => {
+      const t = run.time ?? 0
+      // THE GROUNDLINE, and it is the piece that turns two floats into a gate. Two markers alone
+      // are two objects; a rope on the sand between them is one instruction, and it is real course
+      // hardware rather than a graphic. On the SEABED, so it passes under the player and under the
+      // coral overhang and never paints the strip being steered down — which is the whole failure
+      // of the bar it replaces.
+      // ...but NOT at the finish: there the mat IS the connector, and a rope laid over the chequer
+      // only muddies the one pattern the player has to read at a glance.
+      if (liv.rope) {
+        const a = P(f0, cav.c - cav.hw + 12), b = P(f0, cav.c + cav.hw - 12)
+        gateFloorG.moveTo(a.x, a.y)
+        gateFloorG.lineTo(b.x, b.y)
+        gateFloorG.stroke({ width: 7, color: 0x14262e, alpha: done ? 0.22 : 0.5, cap: 'round' })
+        gateFloorG.moveTo(a.x, a.y)
+        gateFloorG.lineTo(b.x, b.y)
+        gateFloorG.stroke({ width: 2.5, color: liv.body, alpha: done ? 0.14 : 0.34, cap: 'round' })
+      }
+      for (const sign of [-1, 1]) {
+        // Off the racing line by construction: the float sits just inside the bank, never in the
+        // strip the player steers down. That is the whole correction over the shipped bar.
+        const u = cav.c + sign * (cav.hw - 24)
+        // A MOORED FLOAT MOVES. Phase off f so two buoys on screen never bob in lockstep, which is
+        // what reads as one object rather than two.
+        const bob = Math.sin(t * 0.9 + f0 * 0.004 + sign) * 3
+        const f = f0 + dFor(bob, u)
+        const q = P(f, u + bob * 0.4)
+        const sink = P(f - dFor(30, u), u + sign * 34)
+        // the sinker and its chain, on the sand
+        gateFloorG.circle(sink.x, sink.y, 13)
+        gateFloorG.fill({ color: 0x1a2a30, alpha: done ? 0.3 : 0.6 })
+        gateFloorG.moveTo(sink.x, sink.y)
+        gateFloorG.lineTo(q.x, q.y)
+        gateFloorG.stroke({ width: 4, color: 0x1a2a30, alpha: done ? 0.25 : 0.5, cap: 'round' })
+        // ...and the float's own shadow, cast past the sinker so the two never sit on top of
+        // each other and flatten back into one blob.
+        gateFloorG.circle(q.x + 14, q.y + 16, 24)
+        gateFloorG.fill({ color: 0x0b1a22, alpha: done ? 0.14 : 0.3 })
+        const a = done ? 0.45 : 1
+        gateG.circle(q.x, q.y, 26)
+        gateG.fill({ color: done ? liv.bodyDone : liv.body, alpha: a })
+        gateG.circle(q.x, q.y, 26)
+        gateG.stroke({ width: 3, color: 0x121d22, alpha: a })
+        gateG.circle(q.x, q.y, 16)
+        gateG.stroke({ width: 9, color: liv.band, alpha: a })
+        gateG.circle(q.x, q.y, 6)
+        gateG.fill({ color: done ? liv.bodyDone : liv.lamp, alpha: done ? 0.5 : 0.85 + 0.15 * Math.sin(t * 3) })
+      }
+    }
+    // THE FINISH MAT: rows of SQUARE squares laid on the sand. Square because the shipped line was
+    // one row 38px deep on a passage cut into 38px columns — right proportion, wrong count, and one
+    // row of alternating squares is a level-crossing arm rather than a chequered flag.
+    const mat = (cav, rows) => {
+      const lo = cav.c - cav.hw, stepU = (cav.hw * 2) / V.checks
+      const half = (rows * stepU) / 2
+      // the mat's own dark bed, a touch proud of the squares, so it reads as a thing LAID on the
+      // sand with an edge rather than as paint soaked into it.
+      // ONE stroke for the bed, across the whole passage. A per-column loop left a tab sticking out
+      // at each end, which read as torn shadow rather than as the edge of a laid mat.
+      {
+        const A0 = P(0, lo - 7), B0 = P(0, lo + cav.hw * 2 + 7)
+        gateFloorG.moveTo(A0.x, A0.y)
+        gateFloorG.lineTo(B0.x, B0.y)
+        gateFloorG.stroke({ width: (half + 7) * 2, color: 0x0e1a20, alpha: 0.45, cap: 'butt' })
+      }
+      for (let r = 0; r < rows; r++) {
+        for (let i = 0; i < V.checks; i++) {
+          const u0 = lo + i * stepU, u1 = lo + (i + 1) * stepU
+          const um = (u0 + u1) / 2
+          const fr = dFor(stepU * (r - (rows - 1) / 2), um)
+          const a = P(fr, u0), b = P(fr, u1)
+          // WORN, NOT PRINTED. The alpha wobbles per square off a cheap hash of its own address, so
+          // the mat is a weathered object instead of a UI swatch — the same reason the coral is
+          // three summed octaves and not one sine.
+          const h = Math.abs(Math.sin(i * 12.9898 + r * 78.233) * 43758.5453) % 1
+          gateFloorG.moveTo(a.x, a.y)
+          gateFloorG.lineTo(b.x, b.y)
+          gateFloorG.stroke({ width: stepU + 1, color: (i + r) % 2 ? V.line : V.lineDark, alpha: 0.72 + h * 0.24, cap: 'butt' })
+        }
+      }
+    }
     {
       const cav = caveAt(0, cspec, seed)
       if (near(P(0, cav.c))) {
@@ -12881,9 +12971,11 @@ const spurG = new Graphics()
           // and not as a seventh checkpoint.
           chequer(gateG, 0, 1, cav, 0.92)
         } else {
-          chequer(gateFloorG, 0, 2, cav, 0.95)
+          if (gateArt === 5) mat(cav, 3)
+          else chequer(gateFloorG, 0, 2, cav, 0.95)
           // ...and a chequered pylon on each bank, so the line still has ends when the floor is busy.
-          for (const sign of [-1, 1]) {
+          if (gateArt === 5) buoy(0, cav, false, BUOY_FINISH)
+          else for (const sign of [-1, 1]) {
             const edge = cav.c + sign * (cav.hw - 10)
             for (let b = 0; b < 3; b++) {
               const q = P(dFor((b - 1) * 23, edge), edge)
@@ -12903,7 +12995,15 @@ const spurG = new Graphics()
       const lapDone = Math.floor((run._swimN ?? 0) / per) * per + k < (run._swimN ?? 0)
       const col = lapDone ? V.postDone : V.post
       const al = lapDone ? V.doneAlpha : 1
-      if (gateArt === 4) {
+      if (gateArt === 5) {
+        // MOORED MARKER BUOYS — real course hardware, seen from directly above. What made every
+        // earlier cut read as UI is that it had no way of being IN the water: a float that is only
+        // a disc could be painted on the glass. A buoy has a TETHER and it has a SHADOW, and both
+        // land on the seabed under it, so the thing is anchored to the world in two ways at once.
+        //   Owner, 2026-08-25, on all four of the first candidates: "more realistic and more in
+        // theme".
+        buoy(f, cav, lapDone, BUOY_MARK)
+      } else if (gateArt === 4) {
         // BUOYS + FLOOR ARROWS. The banks say WHERE the line is, the seabed says WHICH WAY, and
         // nothing at all stands in the strip the player steers down.
         for (let i = 0; i < 3; i++) {
