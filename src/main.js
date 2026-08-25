@@ -530,6 +530,10 @@ const SFX_FOR_EVENT = {
   // the player loses something they cannot get back, and it fires on the entry frame only, so it
   // cannot machine-gun the way a per-frame contact would.
   crash: 'crush',
+  // A traffic bump takes `hit` — the bank's LIGHT impact, and audio.js already throttles it, which
+  // matters here because a crowded squeeze can put three fish on the player inside a second. It is
+  // deliberately not `crush`: a crash is the moment you lose something, a bump is a nudge.
+  bump: 'hit',
   // v7.x The Wreck: the orca. All three get a sound BECAUSE they are rare — four visits a run, one
   // strike each — which is the opposite of the freeze/submission-expiry reasoning that withholds
   // one from anything firing dozens of times a minute. bossRise is already the game's "something

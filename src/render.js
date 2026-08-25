@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -10209,10 +10209,15 @@ const spurG = new Graphics()
   // (once per lane crossing), while a burning ridge pulses every frame. Cleared and redrawn each
   // sync, the slickG idiom. It sits immediately over spurG so the fire is ON the coral.
   const polypG = new Graphics()
+  // v7.x The Reef: THE CIRCUIT'S GATES (the six checkpoints and the start line). Its own Graphics
+  // for polypG's reason — spurG caches on _spurRev and these change every time one goes behind you
+  // — and it sits ABOVE the coral so the posts are not buried by the colonies overhanging the very
+  // edge they grow from.
+  const gateG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, spurG, coralLayer, polypG, burstWakeG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, spurG, coralLayer, polypG, gateG, burstWakeG, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
@@ -12675,6 +12680,86 @@ const spurG = new Graphics()
       s.tint = st.tone
     })
   }
+  // ---- The Reef: the circuit's gates (v7.x) -----------------------------------------------------
+  // The six checkpoints and the start line, drawn from the SAME swimthroughsFor list and the SAME
+  // caveAt that stepCircuit tops the clock up from — one definition, two consumers, so the gate you
+  // can see is the gate that pays. Cleared and redrawn every sync (the polypG idiom): which gates
+  // are behind you changes every few seconds, and there are at most a dozen on screen.
+  //
+  // Owner, playing v7.231: "the checkpoints are invisible, the lap line same." Neither had ever
+  // been drawn — both are pure geometry with no entity behind them, so nothing in this file knew
+  // they existed. See CIRCUIT_GATE_VIS.
+  function syncGates(run) {
+    gateG.clear()
+    const cfg = CHAPTERS[run.chapter]
+    const cspec = cfg?.cave
+    if (!cfg?.circuit || !cspec || !run._swims || run._swims.length === 0) return
+    const V = CIRCUIT_GATE_VIS
+    const ax = laneAxes(cfg)
+    const xAxis = ax.fwd === 'x'
+    const L = cspec.lapLen
+    const per = run._swims.length
+    const seed = run._obstacleSeed
+    // THE WINDOW IS THE SCREEN'S, NOT A NUMBER — laneDrawSpan, for the reason syncSpurs uses it: a
+    // flat span is right on exactly one device.
+    const span = laneDrawSpan(xAxis ? viewW() : viewH(), V.postDepth * 2)
+    const here = run.player[ax.fwd]
+    const e0 = here - ax.dir * span.astern
+    const e1 = here + ax.dir * span.ahead
+    const from = Math.min(e0, e1), to = Math.max(e0, e1)
+    const bar = (f, half, c0, c1) => (xAxis
+      ? gateG.rect(f - half, c0, half * 2, c1 - c0)
+      : gateG.rect(c0, f - half, c1 - c0, half * 2))
+    const roundBar = (f, half, c0, c1, r) => (xAxis
+      ? gateG.roundRect(f - half, c0, half * 2, c1 - c0, r)
+      : gateG.roundRect(c0, f - half, c1 - c0, half * 2, r))
+    // caveAt IS PERIODIC IN lapLen BY CONSTRUCTION (every wavelength divides it and the fork cell
+    // wraps by it), which is what makes the track a circuit at all — so a gate's cross-section can
+    // be asked for at its own offset within the lap and reused on every lap of the race.
+    for (let n = Math.floor(from / L); n <= Math.floor(to / L); n++) {
+      const base = n * L
+      // THE START LINE: a chequered band across the WHOLE corridor, so it reads as a finish line
+      // and not as a seventh checkpoint.
+      if (base >= from && base <= to) {
+        const cav = caveAt(0, cspec, seed)
+        const lo = cav.c - cav.hw, step = (cav.hw * 2) / V.checks
+        for (let i = 0; i < V.checks; i++) {
+          bar(base, V.lineW / 2, lo + i * step, lo + (i + 1) * step)
+          gateG.fill({ color: i % 2 ? V.line : V.lineDark, alpha: 0.92 })
+        }
+      }
+      for (let k = 0; k < per; k++) {
+        const f = base + run._swims[k].f
+        if (f < from || f > to) continue
+        const cav = caveAt(run._swims[k].f, cspec, seed)
+        // run._swimN is a RUNNING COUNT since the run began, which is exactly what makes this one
+        // comparison enough — no per-lap bookkeeping, the same arithmetic stepCircuit banks with.
+        const done = n * per + k < (run._swimN ?? 0)
+        bar(f, V.postW / 2, cav.c - cav.hw, cav.c + cav.hw)
+        gateG.fill({ color: V.band, alpha: done ? V.bandAlpha * V.doneAlpha : V.bandAlpha })
+        // THE CHEVRONS: the difference between a barrier and an instruction. They point the way the
+        // player travels (ax.dir), so a gate says "through here" rather than "something is here".
+        for (let i = 0; i < V.chevron; i++) {
+          const c = cav.c - cav.hw + (cav.hw * 2) * (i + 0.5) / V.chevron
+          const w = V.chevronW * ax.dir, h = V.chevronH
+          if (xAxis) { gateG.moveTo(f - w, c - h); gateG.lineTo(f + w, c); gateG.lineTo(f - w, c + h) }
+          else { gateG.moveTo(c - h, f - w); gateG.lineTo(c, f + w); gateG.lineTo(c + h, f - w) }
+          gateG.stroke({ width: 5, color: done ? V.postDone : V.post, alpha: done ? V.doneAlpha : 0.8, cap: 'round', join: 'round' })
+        }
+        for (const sign of [-1, 1]) {
+          const edge = cav.c + sign * cav.hw
+          const back = edge + sign * V.postDepth
+          roundBar(f, V.postW / 2, Math.min(edge, back), Math.max(edge, back), V.postR)
+          gateG.fill({ color: done ? V.postDone : V.post, alpha: done ? V.doneAlpha : 1 })
+          // ...and a lit lip on the face that looks into the passage, so the post has a front. A
+          // flat slab of one colour is what read as a UI artefact in the first shot of this.
+          roundBar(f, V.postW / 2 - 6, Math.min(edge, edge + sign * 14), Math.max(edge, edge + sign * 14), 6)
+          gateG.fill({ color: done ? V.postDone : V.postCore, alpha: done ? V.doneAlpha : 0.9 })
+        }
+      }
+    }
+  }
+
   // ---- The Reef: Fire Coral's lit ridges (v7.x) -------------------------------------------------
   // run.polyps, drawn from the SAME snapshot stepPolyps damages against, through the SAME
   // coralSegs the ridge itself is drawn from — so the lit band is the burning band is the ridge.
@@ -19123,6 +19208,7 @@ const spurG = new Graphics()
     mownDirty = false
     laneG.clear()
     spurG.clear()
+    gateG.clear()
     // THE COLONIES ARE A SPRITE POOL NOW, so clearing the Graphics is no longer enough: without
     // this the previous run's coral is still parented and visible on the next one. This is the
     // exact failure run CP exists to catch.
@@ -20658,6 +20744,7 @@ const spurG = new Graphics()
     syncPools(run.pools || [])
     syncSlicks(run)   // v7.x The Wreck: pollution spills (no-op in every other chapter)
     syncSpurs(run)    // v7.x The Reef: the coral ridges (no-op in every other chapter)
+    syncGates(run)    // ...and the circuit's checkpoints and start line (no-op unless `circuit`)
     syncPolyps(run)   // ...and Fire Coral burning on them (no-op unless the card is held)
     syncTrails(run.trails || [])
     syncWebs(run.webs || [], CHAPTERS[run.chapter]?.render?.webLook === 'slime')
@@ -21215,6 +21302,7 @@ const spurG = new Graphics()
     // sets `.visible` on sprites, and spurRev has to go with it or the next run draws nothing
     // until its first lane crossing.
     spurG.clear()
+    gateG.clear()
     // THE COLONIES ARE A SPRITE POOL NOW, so clearing the Graphics is no longer enough: without
     // this the previous run's coral is still parented and visible on the next one. This is the
     // exact failure run CP exists to catch.

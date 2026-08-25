@@ -6893,8 +6893,10 @@ CHAPTERS.reef = {
   //
   // Every consumer keys off THIS flag and never off `lane`: The Beyond is `lane: true` as well, and
   // hanging circuit behaviour on the lane flag would silently convert a chapter whose whole design
-  // is being chased. 4 laps x ~28s is about 112s, against the 300s the other chapters run.
-  circuit: { laps: 4 },
+  // is being chased. 5 laps x ~28s is about 140s, against the 300s the other chapters run.
+  // balance_decision : five laps, the race was over in a minute [2026-08-25]
+  //  - the boost nerf above is most of that minute back; this is the rest
+  circuit: { laps: 5 },
   // THE LANE DROPS WHAT FALLS BEHIND (v7.x). Opt-in per chapter -- see stepLeaks for why the
   // default must stay off. The Reef needs it and The Beyond does not: this roster's moray moves
   // 39px/s against a 45px/s advance, so it falls astern BY CONSTRUCTION and can never return,
@@ -9476,7 +9478,61 @@ export const CIRCUIT_DEFAULTS = {
   // decay, i.e. the "sustained contact" rule the owner did not pick.
   crashSpeed: 137,   // px/s of inward cross speed that separates a crash from a brush (half of the 275 max strafe)
   crashMul: 0.55,    // what a crash leaves of _laneSpeed
+  // XP COMES FROM THE TRACK, NOT FROM KILLS (owner, playing v7.231: "no upgrades given in my run").
+  // A racer drives PAST the crowd — that is what passiveCrowd is for — so the chapter had no xp
+  // source at all and the level-up screen never opened once in a whole race. The checkpoint is the
+  // right till: it is the thing the mode already rewards you for hitting.
+  //   THE NUMBER IS THE CURVE, not a guess. xpForLevel is 5 + level*4, so four level-ups cost
+  // 9+13+17+21 = 60xp, against 5 laps x 6 swimthroughs = 30 crossings. 2 pays exactly four screens
+  // over a clean race, which is the owner's own "fewer level-ups, 3-4 a race" ruling.
+  swimXp: 2,
+  // TRAFFIC (owner, same session: "the enemies/decor fishes swim through coral and do nothing. i
+  // thought they were supposed to create traffic congestion"). Both halves were missing: nothing
+  // held the crowd inside the passage, and contact was free because passiveCrowd zeroes their
+  // damage. A bump now costs SPEED and never HP, which is the ruling.
+  //   THE KNOCK IS THE PART YOU FEEL, and the speed tax alone is not. accel 420 is high enough
+  // that losing 30% of 270px/s is bought back in 0.14s — about 4px of race, which is invisible.
+  // (The same arithmetic is why 15 crashes were measured costing 1.0s of race time.) Being shoved
+  // OFF YOUR LINE is what traffic costs a driver, so contact moves the player across the lane as
+  // well. If that knock puts you in coral you crash, and that is the intended reading: the fish
+  // put you into the wall.
+  bumpMul: 0.7,      // what bumping a fish leaves of _laneSpeed
+  bumpKnock: 24,     // px across the lane the PLAYER is shoved, away from the body
+  bumpCool: 0.6,     // s before the SAME fish can charge you again — a body scraping along the
+                     // player must not compound into an exponential stop, the crashMul reasoning
+  bumpShove: 34,     // px the fish is knocked clear, so you are never dragging one on the bonnet
 }
+// ---- THE CIRCUIT'S GATES (v7.x, The Reef — render only, zero sim effect) ------------------------
+// The six checkpoints and the start line were INVISIBLE for the whole of v7.231 — owner, playing
+// it: "the checkpoints are invisible, the lap line same". Neither was a regression; neither had
+// ever been drawn. Both are pure geometry (swimthroughsFor picks the lap's six narrowest points,
+// the lap line is f = 0), so there was nothing on screen at either, and a race whose clock is
+// topped up by a place you cannot see is a race scored on luck.
+//   Drawn ABOVE the coral, not under it: every colony overhangs the passage edge by its own reach,
+// so a post that reached into the wall from below would be buried by the very sprites it has to
+// stand out against.
+export const CIRCUIT_GATE_VIS = {
+  post: 0x8ff2dd,      // the two posts, one on each face of the squeeze
+  postCore: 0xffffff,  // ...and the lit edge facing into the passage
+  postDone: 0x2f6a66,  // ...once it is behind you
+  postW: 30,           // px along the lane
+  postDepth: 62,       // px each post reaches back into the coral
+  postR: 12,           // corner radius — a flat bar reads as a UI artefact, not as a marker
+  band: 0x8ff2dd,      // the curtain between them
+  bandAlpha: 0.16,
+  doneAlpha: 0.35,     // what a crossed gate keeps of its colour
+  // THE CHEVRONS ARE WHAT MAKES IT A GATE. Two posts and a haze band is a barrier; arrows pointing
+  // the way you travel are an instruction. Shot at 1280x800 before and after: the bare version read
+  // as a translucent sheet across the corridor and could as easily have been a hazard.
+  chevron: 3,          // arrows across the curtain
+  chevronH: 16,        // half-height of each, across the lane
+  chevronW: 11,        // ...and its reach along the lane
+  line: 0xfff4d6,      // the start/finish line
+  lineDark: 0x1b2b33,
+  lineW: 38,
+  checks: 9,           // squares across the corridor
+}
+
 /** Read a circuit knob for a chapter, falling back to the shared default. */
 export const circuitKnob = (ch, key) => ch?.circuit?.[key] ?? CIRCUIT_DEFAULTS[key]
 
@@ -9927,18 +9983,24 @@ export const CLEAR_STUN = 1.1            // s of stagger inside the wide shove
 // player with no charge must never be structurally trapped, only slowed, and that has to be
 // re-verified per chapter rather than assumed — so an empty bar still dashes, just BURST_DUR_MIN
 // instead of BURST_DUR_AT_FULL. Run RF.d pins that.
-// At laneScroll 45 x BURST_SPEED_MUL 9 = 405 px/s:
-//   empty bar  0.30s -> 121.5px travelled (108 of that BOUGHT; 13.5 was the scroll anyway)
-//   full bar   0.75s -> 304px travelled, 270px bought — a ridge and its clear water either side
-// THE FLOOR IS SET AGAINST THE FATTEST RIDGE, and it is TRAVELLED that clears coral, never BOUGHT —
-// the 108 above is under the widest band the field can make and quoting it as the clearance reads
-// reassuring while being on the wrong side of the number. spurs.thick 90 x (1 + thickVar 0.22) is
-// 109.8px against 121.5px travelled: 11.7px of margin, which is thin, and five knobs in three
-// blocks nobody edits together can eat it. Run RS.h asserts the inequality and prints the margin.
-// The speed is FIXED across that range on purpose: a dash whose speed changed with the bar would be
-// a different move at every charge level, where a dash whose LENGTH changes is the same move, more
-// of it.
-export const BURST_SPEED_MUL = 9         // x the chapter's own laneScroll while the dash is live
+//   ⚠ AND THE NO-SPIRAL GUARANTEE IS THE PASS-THROUGH, NOT THE DISTANCE. It used to be argued from
+// px travelled against the fattest ridge, which stops working the moment the multiplier is sized
+// against a speed instead of a constant. It does not need to: a live burst waives the cave wall
+// (stepCaveWall returns early) and the ridge grate (stepSpurs sets `inside = false`), so the button
+// gets you OUT of coral whatever it buys in px. That is a stronger floor and it is unaffected by
+// any retune of the speed.
+// ⚠ IN A CIRCUIT THIS MULTIPLIES run._laneSpeed, NOT THE CHAPTER'S FIXED laneScroll, and that is
+// what made 9 absurd. The number was picked when the lane ran at a flat 45px/s, so a dash was
+// 405px/s. Momentum and the throttle then put the player's OWN speed at up to 270 — the same 9 is
+// 2430px/s. Measured before the owner ever played it: holding the button took a 76.7s race to
+// 53.5s, and he finished the four laps in a minute. Nobody chose 2430; it fell out of a multiplier
+// that was retargeted at a different quantity and never re-read.
+// The speed is FIXED across the charge range on purpose: a dash whose speed changed with the bar
+// would be a different move at every charge level, where a dash whose LENGTH changes is the same
+// move, more of it.
+// balance_decision : burst multiplies live speed, not the old fixed scroll [2026-08-25]
+//  - 486px/s at full throttle against 270 cruising; it was 2430
+export const BURST_SPEED_MUL = 1.8       // x the speed you are already making while the dash is live
 export const BURST_DUR_MIN = 0.30        // s of dash on an EMPTY bar — the no-spiral floor
 export const BURST_DUR_AT_FULL = 0.75    // s of dash at a full PULSE_CHARGE_COST spend
 
