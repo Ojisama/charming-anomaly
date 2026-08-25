@@ -2721,6 +2721,33 @@ export const PASSIVES = {
   armor:      { name: 'Thick Jelly',  desc: 'armor (flat damage block)', base: 1, kind: 'flat', values: { normal: 1, rare: 2, legendary: 4 } },
   regen:      { name: 'Self-Goo',     desc: 'HP regen per second', base: 0.5, kind: 'flat', values: { normal: 0.5, rare: 0.8, legendary: 1.5 } },
   xpGain:     { name: 'Big Brain',    desc: 'XP gain',      base: 0.08, kind: 'pct' },
+  // THE REEF'S RACING CARDS (v7.x). `chapter` scopes an entry to one chapter, exactly as ANOMALIES
+  // already do — three of those carry the field today and eligibleAnomalyIds reads it. Copying that
+  // shipped mechanism keeps the scoping rule ON the entry it describes rather than in a hardcoded
+  // exclusion beside it, which is the one-fact-two-places shape this repo leads its own defect list
+  // with. It also means every other consumer works untouched: run XX already walks PASSIVES so the
+  // copy is translated or the suite goes red, devCards already enumerates PASSIVES so all four are
+  // dev-takeable, and applyChoice's `passive` branch banks them with no new code.
+  //
+  // Only FOUR, and that is the point of the audit that preceded them: `handling` is already
+  // PASSIVES.moveSpeed (in a lane it feeds the CROSS axis only — sim.js says so where it reads it),
+  // and `hull` is already PASSIVES.armor, which blocks the coral grate through hurtPlayer like every
+  // other damage path. Writing either again would be a second name for a shipped card.
+  // THE ID IS THE MECHANIC, THE NAME IS THE COSTUME — the convention every row above already
+  // follows: `moveSpeed` wears 'Zoomies', `maxHP` wears 'Extra Squish', `critChance` wears 'Sharp
+  // Eye'. Ids derived from display names look tidy for exactly as long as the name holds, and on
+  // this project names get rewritten once the card has a picture — at which point the id is a lie
+  // that costs a full rename sweep to correct. Name a row for what it MOVES and the costume can
+  // change for free.
+  //   `accel` and `boost` were the obvious mechanic words and both are already common tokens in
+  // this repo (27 and 14 hits), so the ids carry the noun they modify instead — greppable to
+  // exactly themselves, which is what renaming-safely asks for before a name is chosen.
+  // balance_decision : four knobs, one per verb the racer has [2026-08-25]
+  //  - every base UNMEASURED. scripts/reef-lap-probe.mjs has never been run with a card taken.
+  topSpeed:   { name: 'Turbo Fin',    desc: 'top speed',    base: 0.10, kind: 'pct', chapter: 'reef' },
+  accelRate:  { name: 'Quick Start',  desc: 'acceleration', base: 0.15, kind: 'pct', chapter: 'reef' },
+  airMax:     { name: 'Big Lungs',    desc: 'Air capacity', base: 0.20, kind: 'pct', chapter: 'reef' },
+  dashLength: { name: 'Jet Puff',     desc: 'dash length',  base: 0.15, kind: 'pct', chapter: 'reef' },
 }
 export const MAX_PASSIVE_LEVEL = 5
 

@@ -18812,6 +18812,7 @@ run(testLeLargeWeapons)
   run(testReefSpurScrape)
   run(testReefLap)
   run(testReefCircuit)
+  run(testCircuitCards)
   run(testReefNatives)
   run(testReefPool)
   run(testWreckBloodlust)
@@ -23703,6 +23704,59 @@ function testReefSpurScrape() {
 // keeps climbing forever otherwise; config.js:9484-9491 documents the 57px island discrepancy that
 // shipped before that wrap existed. A track that silently fails to repeat reads as a rendering bug,
 // not a circuit — and nothing else in this suite samples caveAt across a lap boundary at all.
+// ---- run CD: the Reef's racing cards are not decoration ---------------------------------------
+// The complaint that started the circuit work was that the Reef's cards did nothing. So this does
+// not check the four exist, or that their ids resolve, or that applyChoice banks them — a card can
+// pass all three and still be inert, which is precisely how the chapter got here. It DRIVES a race
+// with the card at max against a paired control on the identical track, and asserts the clock moved.
+function testCircuitCards() {
+  const dt = 1 / 60
+  const CARDS = ['topSpeed', 'accelRate', 'airMax', 'dashLength']
+  // PAIRED SEEDS. Two createRun calls draw different obstacle seeds unless Math.random is re-seeded
+  // between them, and an unseeded pair silently compares two DIFFERENT TRACKS — I did exactly that
+  // on the first cut of this measurement and it reported a card as slower that cannot affect a run
+  // where the button is never pressed.
+  const race = (card, seed, press) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+    run.mods.spawnMul = 0
+    if (card) {
+      run.passives[card] = PASSIVES[card].base * MAX_PASSIVE_LEVEL
+      run.passivePicks[card] = MAX_PASSIVE_LEVEL
+      if (card === 'airMax') { const g = run.chargeMax * run.passives[card]; run.chargeMax += g; run.charge += g }
+    }
+    for (let i = 0; i < 60 * 400; i++) {
+      run.player.hp = run.player.maxHp
+      const skill = press && (run._burstT ?? 0) <= 0 && run.charge > 20
+      stepSim(run, { x: 1, y: 0, skill }, dt)
+      run.events.length = 0
+      if (run.phase === 'victory' || run.phase === 'dead') break
+      if (run.phase === 'levelup') run.phase = 'playing'
+    }
+    return run.raceTime ?? Infinity
+  }
+  const SEEDS = [11, 22, 33]
+  const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length
+  const gain = (card, press) => mean(SEEDS.map((s) => race(null, s, press))) - mean(SEEDS.map((s) => race(card, s, press)))
+
+  // Each card has a policy under which it must EARN TIME. The dash cards buy nothing if the button
+  // is never pressed — that is the build decision, not a defect — so each is measured where it is
+  // supposed to work, and the pairing is what makes the difference attributable to the card.
+  const measured = {}
+  for (const [card, press] of [['topSpeed', false], ['accelRate', false], ['airMax', true], ['dashLength', true]]) {
+    const g = gain(card, press)
+    measured[card] = g
+    assert.ok(g > 0.2,
+      `run CD: ${PASSIVES[card].name} (${card}) at MAX_PASSIVE_LEVEL saved ${g.toFixed(2)}s over a paired control with the dash ${press ? 'held' : 'unpressed'} — a card the clock cannot feel is exactly the inert pick this chapter was rebuilt to remove`)
+  }
+  // ...and each is scoped to this chapter, or the whole game inherits lane stats it cannot use.
+  for (const card of CARDS) {
+    assert.strictEqual(PASSIVES[card].chapter, 'reef',
+      `run CD: ${card} has no chapter, so it is offered in every chapter in the game — none of which has a throttle for it to move`)
+  }
+  console.log(`PASS run CD (the racing cards earn their slot): over ${SEEDS.length} paired seeds at max level — ${CARDS.map((c) => `${PASSIVES[c].name} ${measured[c] > 0 ? '-' : '+'}${Math.abs(measured[c]).toFixed(1)}s`).join(', ')} — every one scoped to the reef`)
+}
+
 // ---- run CT: the circuit — swimthroughs, laps, the race clock, and how a race ENDS -------------
 // The lap repeating is run RL's job; this is what the game does with it. Every assertion here is
 // against a driven run rather than against config, because a checkpoint that exists in a table and

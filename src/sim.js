@@ -378,6 +378,17 @@ export function applyChoice(run, i, subject = null) {
         healPlayer(run, choice.bonus)
       }
     }
+    if (choice.id === 'airMax') {
+      // AIR CAPACITY grows the bar the same way maxHP grows the HP pool, and for the same reason it
+      // has to happen HERE: run.chargeMax is a run-start value (state.js reads resource.max once),
+      // so a card taken mid-race would otherwise raise a number nothing reads again. Fills by the
+      // same amount it added, exactly as maxHP heals by its own bonus — a bigger lung you have to
+      // go and fill is a card that does nothing until the next pocket, which on a race clock is a
+      // card that did nothing.
+      const grew = run.chargeMax * choice.bonus
+      run.chargeMax += grew
+      run.charge = Math.min(run.chargeMax, run.charge + grew)
+    }
   } else if (choice.kind === 'mod') {
     const mods = run.weaponMods[choice.weapon]
     const picks = run.weaponModPicks[choice.weapon]
@@ -816,7 +827,10 @@ function stepPlayerMovement(run, input, dt) {
     // BURST_SPEED_MUL 9 the target leaps to 810px/s, which at CIRCUIT_ACCEL takes 1.7s to reach,
     // while an empty press lasts BURST_DUR_MIN 0.3s. Run RF.d measured the result at 42px against
     // the 206px the button promises — the dash was still "firing", just never arriving.
-    const want = laneScrollFor(CHAPTERS[run.chapter], run.mods) * run._laneThrottle
+    // TURBO FIN raises the ceiling the throttle reaches for; QUICK START is how fast you get there.
+    // Both are folded here rather than at their card, because this is the one expression that owns
+    // the player's forward speed and a second site would drift from it.
+    const want = laneScrollFor(CHAPTERS[run.chapter], run.mods) * run._laneThrottle * (1 + (run.passives.topSpeed ?? 0))
     if (CHAPTERS[run.chapter].circuit) {
       // SEEDED AT THE CHAPTER'S OWN SCROLL — not at 0, and not at `want`.
       //   Not 0: a run easing up from a standstill travels slower than the lane it is scored
@@ -830,7 +844,7 @@ function stepPlayerMovement(run, input, dt) {
       // Toward `want` at a fixed px/s^2, never past it — a clamped step rather than a lerp, so the
       // ramp takes the same time whatever the frame rate and cannot overshoot on a long dt. stepSim
       // clamps dt to 0.05s, so the largest single step is 21px/s.
-      const step = circuitKnob(CHAPTERS[run.chapter], 'accel') * dt
+      const step = circuitKnob(CHAPTERS[run.chapter], 'accel') * (1 + (run.passives.accelRate ?? 0)) * dt
       run._laneSpeed = run._laneSpeed < want
         ? Math.min(want, run._laneSpeed + step)
         : Math.max(want, run._laneSpeed - step)
@@ -1495,7 +1509,10 @@ function stepRepulse(run, input, dt) {
   // dash through open water has no other visible sign the shove's own ring didn't already cover —
   // `_burstT` had zero render.js consumer before this line (grep `_burstT` src/render.js was empty).
   if (ch.burst) {
-    run._burstT = BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t
+    // DASH LENGTH ('Jet Puff') stretches the whole range, floor included — the floor exists so an
+    // empty bar still buys a way out (see BURST_DUR_MIN's no-spiral argument), and a card that only
+    // paid at a full bar would be worth nothing in exactly the moment the button matters.
+    run._burstT = (BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t) * (1 + (run.passives.dashLength ?? 0))
     run.events.push({ type: 'burst', x: p.x, y: p.y })
   }
   // THE LUNGE (v7.x, The Wreck — CHAPTERS[].lunge). Same press, same cooldown, same `t`, and the
@@ -11823,8 +11840,21 @@ function eligiblePassiveIds(run) {
   // 6.4% of every card offered, and under that card healPlayer refuses it outright. The card is
   // supposed to RE-PRICE the passive pool, not quietly keep selling you the one pick it voided.
   const noHeal = !!run.anomalies?.bloodPact
+  // A PASSIVE MAY BELONG TO ONE CHAPTER, read exactly as eligibleAnomalyIds reads it — the field
+  // sits on the entry, so the rule and the card it governs are one fact in one place. The Reef's
+  // four racing stats carry it; everything else has no `chapter` and is offered everywhere as before.
+  const owned = (id) => !PASSIVES[id].chapter || PASSIVES[id].chapter === run.chapter
+  // ...AND A WEAPON STAT IS DEAD WHERE THERE IS NO WEAPON. All four of these reach the player only
+  // through the weapon-damage roll, so in a chapter with an empty arsenal they are offered, picked,
+  // banked and do NOTHING — the same silent-dud shape the magnet exclusion above exists for, and the
+  // complaint that started the circuit work in the first place. Keyed off the pool being empty
+  // rather than off a chapter id, so any future weaponless chapter is covered by construction.
+  const unarmed = (CHAPTERS[run.chapter].weapons ?? []).length === 0
+  const WEAPON_PASSIVES = ['damage', 'fireRate', 'critChance', 'critDamage']
   return Object.keys(PASSIVES).filter((id) =>
     (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL
+    && owned(id)
+    && !(unarmed && WEAPON_PASSIVES.includes(id))
     && !(lane && id === 'magnet')
     && !(brittle && DEFENSIVE_PASSIVES.includes(id))
     && !(noHeal && id === 'regen')

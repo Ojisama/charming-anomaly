@@ -317,6 +317,11 @@ export function createRenderer(app) {
   // v7.x: WHICH edge — laneAxes(cfg) (config.js). 'y' (The Beyond) anchors the player near the
   // bottom; 'x' (The Reef) near the left. Latched with chapterHasLane and read only by the camera.
   let chapterLaneAxis = LANE_AXIS_Y
+  // v7.x reef circuit: the camera anchors to the PLAYER, not the lane front. A SEPARATE latch from
+  // chapterHasLane on purpose — The Beyond is `lane: true` as well, and keying this off `lane`
+  // would silently convert its chase camera too. `CHAPTERS[].circuit` is an object ({ laps }), so
+  // this reads `!= null` rather than `=== true` the way chapterHasLane does.
+  let chapterIsCircuit = false
   // v5.24 the blank: the white void draws NO decorative floor (CHAPTERS[].render.voidFloor) —
   // every scatter layer's populate callback early-outs on this, so bgColor alone is the ground.
   // Same latch pattern as chapterHasLane.
@@ -20599,7 +20604,14 @@ const spurG = new Graphics()
     // the player can never leave the frame; this side only reads it. The `??` is not defensive
     // padding -- the title screen and every probe holding a run before its first step have no
     // front yet, and the player's own position is what the front is initialised to anyway.
-    const camFwd = run._laneFront ?? (chapterHasLane ? run.player[chapterLaneAxis.fwd] : 0)
+    //   A CIRCUIT IS THE ONE EXCEPTION, and it is gated on chapterIsCircuit rather than folded into
+    // the line above on purpose: The Beyond is chapterHasLane too, and anchoring IT to the player
+    // would silently turn a chase you are meant to outrun into a camera that holds still with you.
+    // The front still exists and still advances (it has not been gated to d3+ yet) — this only
+    // changes which one the CAMERA follows; sim.js's own use of _laneFront is untouched.
+    const camFwd = chapterIsCircuit
+      ? run.player[chapterLaneAxis.fwd]
+      : run._laneFront ?? (chapterHasLane ? run.player[chapterLaneAxis.fwd] : 0)
     const camX = laneAheadX ? camFwd : run.player.x
     const camY = laneAheadY ? camFwd : run.player.y
     const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - camX + shake.ox
@@ -21281,6 +21293,7 @@ const spurG = new Graphics()
     // the player on the Paused screen. Every other line in this block already guards for that.
     chapterHasLane = cfg?.lane === true
     chapterLaneAxis = laneAxes(cfg)   // null-safe on the quit-to-title path, like the line above
+    chapterIsCircuit = cfg?.circuit != null   // same null-safety; `circuit` is an object, not a bool
     chapterIsVoid = !!chapterRender.voidFloor
     chapterHasDistricts = !!chapterRender.districts
     districtSeed = run?._districtSeed ?? 0
