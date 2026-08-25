@@ -1443,6 +1443,11 @@ function generateWells(sig) {
  *   stepCharge loops them handing out resource. Empty in every other chapter.
  * _slickAcc: number — the slick DoT's part-tick accumulator; _drownAcc/_starveAcc's third twin,
  *   separate for the same reason they are separate from each other.
+ * _slickDmgCarry: number — the slick tick's RESISTED damage, banked as a float and spent through
+ *   hurtPlayer only once it clears a whole point (Oilskin, v7.x). A per-tick round quantises badly
+ *   against a 3-damage tick: one normal Oilskin pick scales it to 2.5, which Math.round takes back
+ *   UP to 3 — an inert card. Carrying the remainder makes any resist magnitude eventually visible
+ *   and survives SLICK_DPS/SLICK_TICK being retuned later.
  * _foulT: number — s of oil still on the player. Refreshed to SLICK_SLOW_T every frame inside a
  *   spill and ticked down after leaving, exactly as bloomSlowT/fearT decay. Read in stepPlayer,
  *   where it joins the MIN of the speed floors rather than multiplying into them (see the block
@@ -2408,6 +2413,7 @@ export function createRun(meta, opts = {}) {
     _crushAcc: 0,          // the crush's part-tick accumulator, LANE_CRUSH_TICK's twin of _spurAcc
     polyps: [],            // Fire Coral's lit ridges — snapshots of spurAt, never references into run.spurs
     _slickAcc: 0,          // part-tick accumulator, the exact twin of _drownAcc/_starveAcc
+    _slickDmgCarry: 0,     // Oilskin's resisted-damage remainder, spent once it clears a whole point
     _foulT: 0,             // s of oil still on you — lingers SLICK_SLOW_T past the rim (see sim.js)
     _rushT: 0,             // s left on BLOODRUSH's window (gnash's bloodrush mod)
     _rushN: 0,             // bites stacked on it, capped at RUSH_MAX_STACKS

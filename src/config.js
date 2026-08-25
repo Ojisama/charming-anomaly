@@ -171,7 +171,7 @@ export const REROLL_RARITY_CAP = 3       // rerolls of one screen past which the
 //     far more (the ladder starts at rare and there are only four of them), so at 18 the slate
 //     was routine; at 7.5 an element is a FIND, and the freed weight goes to the base attributes.
 export const BUCKET_WEIGHTS = { defense: 19, utility: 21, mod: 25, weapon: 17, element: 7.5 }
-export const DEFENSIVE_PASSIVES = ['armor', 'regen', 'maxHP']
+export const DEFENSIVE_PASSIVES = ['armor', 'regen', 'maxHP', 'sleek', 'oilskin']
 // Inside the weapon bucket, an UPGRADE of an owned weapon competes at this flat weight while a
 // `New!` card competes at its weapon's inherent rarity weight (times newWeaponChance — see
 // NEW_WEAPON_FADE below). Rarity TILTS acquisition; it must never touch LEVELLING. Weighting
@@ -2721,8 +2721,34 @@ export const PASSIVES = {
   armor:      { name: 'Thick Jelly',  desc: 'armor (flat damage block)', base: 1, kind: 'flat', values: { normal: 1, rare: 2, legendary: 4 } },
   regen:      { name: 'Self-Goo',     desc: 'HP regen per second', base: 0.5, kind: 'flat', values: { normal: 0.5, rare: 0.8, legendary: 1.5 } },
   xpGain:     { name: 'Big Brain',    desc: 'XP gain',      base: 0.08, kind: 'pct' },
+  // balance_decision : unswept first cut, wreck-only (2026-08-24)
+  sleek:      { name: 'Sleek',   desc: '{pct}% resistance to slows', base: 0.15, kind: 'resist', icon: '🐬', chapters: ['wreck'] },
+  // balance_decision : unswept first cut, wreck-only (2026-08-24)
+  oilskin:    { name: 'Oilskin', desc: "{pct}% resistance to the Leak's burn", base: 0.20, kind: 'resist', icon: '🧥', chapters: ['wreck'] },
 }
 export const MAX_PASSIVE_LEVEL = 5
+// A passive's magnitude -> its effect text, ONCE — makePassiveCard (sim.js, the level-up card) and
+// the pause build sheet (ui.js) both call this rather than composing the sentence themselves. Before
+// this existed the pause sheet grew its own copy that never learned about `kind: 'resist'`
+// (resistFrac was added for Sleek/Oilskin below in this file), so it kept printing "+N% " off the
+// raw accumulated bonus and a raw, unsubstituted "{pct}" — the one-fact-two-places class, and a
+// silent one: nothing throws, the sheet just lies about the number the moment either card is banked.
+// `resist` kind returns the {s,p} template pair (tt()/elText's own contract — see elementCardDesc,
+// the precedent this follows); `pct`/`flat` return the same plain "+N ..." string both sites already
+// produced, so a caller wanting the OLD shape does not have to change at all.
+// `fmt` formats the NUMBER only, and defaults to a locale-blind stringify so the level-up card is
+// byte-identical to what it has always printed. The pause sheet passes its own `fmtNum`, which is
+// locale-aware — French wants "2,4", not "2.4". Injected rather than chosen here because config.js
+// cannot see the language, and because one composer with a formatter beats two composers.
+export const passiveEffectText = (cfg, bonus, fmt = (n) => String(n)) => {
+  if (cfg.kind === 'resist') return { s: cfg.desc, p: { pct: Math.round(resistFrac(bonus) * 100) } }
+  // Rounded even though makePassiveCard's own `bonus` already is (one decimal, see its `flat`
+  // branch): a caller summing several picks itself (the pause sheet's `ps.bonus`) can hand this a
+  // float JS addition left dirty — 0.5+0.8+1.5+0.5+0.8 lands on 4.099999999999999, not 4.1 — and
+  // that must not reach the player as "+4.099999999999999 HP regen".
+  const n = cfg.kind === 'pct' ? Math.round(bonus * 100) : Math.round(bonus * 10) / 10
+  return cfg.kind === 'pct' ? `+${fmt(n)}% ${cfg.desc}` : `+${fmt(n)} ${cfg.desc}`
+}
 
 // ---- Weapon mods (v4.1: weapon-mod parity) -------------------------------------
 // Every equipped weapon gets its own mod pool (star's original six, plus a matching set for
@@ -10498,6 +10524,14 @@ export const SLICK_DPS = 6
 // how a shortcut through a slick costs you the fish you were chasing as well as the health.
 export const SLICK_SLOW_MUL = 0.62
 export const SLICK_SLOW_T = 1.4        // s the fouling lasts after you leave
+// Diminishing returns on a passive's resist fraction (Sleek, Oilskin). run.passives[id] is
+// uncapped — applyChoice just adds — so the raw fraction reaches 4.875 at five mythic picks, and
+// read directly it would cross 1.0 into a speed BONUS for standing in oil. r/(r+K) is asymptotic
+// to 1: every pick is worth less than the last, and the toll never reaches zero, so the chapter's
+// central hazard cannot be switched off however invested you are.
+// balance_decision : unswept first cut, K=1 (2026-08-24)
+export const PASSIVE_RESIST_K = 1
+export const resistFrac = (r) => r / (r + PASSIVE_RESIST_K)
 
 // ---- THE TRAWL (v7.x Book 2 ch 4 — chapters whose signature is `trawl`) ------------------------
 // A net wall crosses the map on a timer, from a direction, and it AIMS AT NOTHING. It kills the

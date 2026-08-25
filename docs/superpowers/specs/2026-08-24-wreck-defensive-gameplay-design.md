@@ -91,11 +91,40 @@ which inverted two rows.
 4. **Elite pools are 3.5%** of what kills a player, so Part 3's swap costs the chapter almost
    nothing.
 
-**Two caveats that must travel with this table.** One seed (56667) survived the full 300s and so
-contributes ~4× the exposure of the others to every mortal row — excluding it, mean death is 138s
-and the orca's mean falls from 102 to 77. And the `bomb` row is an artifact of the rig's loadout:
-seed 17072 took `unstableCores`, which alone is 76 of the 8-seed total. Any comparative arm needs a
-**fixed** loadout.
+**Two caveats that travelled with that table**, both since resolved by the fixed-loadout re-run
+below: one seed (56667) survived the full 300s and contributed ~4× the exposure of the others, and
+the `bomb` row was partly seed 17072's `unstableCores`.
+
+### 1.1b THE CANONICAL BASELINE — fixed loadout
+
+**This is the arm every later change is diffed against.** Same 8 seeds, same rig, one change: the
+level-up policy never takes an anomaly and picks the chapter's own cards in a fixed priority order.
+**Fallbacks to index 0: zero**, across all four arms — the loadout is genuinely fixed, not
+fixed-ish.
+
+`hunt`, MORTAL — death at **144s** (sd 39, min 95, max 197):
+
+| source | dmg/run | share | per-seed |
+|---|---|---|---|
+| orca | 92 | 66.9% | 86, 109, 132, 78, 132, 66, 102, 34 |
+| **the Leak** | **35** | **25.5%** | **57, 87, 18, 24, 3, 33, 27, 33** |
+| elite core blast | 7 | 5.2% | 0, 0, 0, 18, 19, 0, 0, 20 |
+| elite soap pools | 3 | 2.4% | 0, 4, 0, 0, 6, 2, 0, 14 |
+
+**What the fixed loadout changed, and what it did not:**
+
+- **The spread tightened materially** — death sd 70 → 39, and the 300s survivor is gone. That
+  outlier was inflating every mortal row.
+- **§0's load-bearing claim survives.** The Leak holds at 24.9% → **25.5%**, still the row present
+  in every run and still the most predictable thing in the table. All three cards point at it and
+  that is still correct.
+- **The `bomb` row shrank but did not vanish** (8.5% → 5.2%, three seeds). So it is *not* purely the
+  `unstableCores` seed — some of it is ordinary `volatile` affix rolls, which a fixed loadout cannot
+  remove. Do not attribute the whole row to the rig.
+- **`ignore`/mortal is unchanged** (83s, 78.8% starvation) — that policy barely levels up, so the
+  loadout policy should not move it, and it did not. That is the rig's own sanity check.
+- Elite pools fall to **2.4%**, reinforcing Part 3: the soap-trail swap costs the chapter almost
+  nothing that kills a player.
 
 ### 1.2 The premise rev 1 got backwards
 
@@ -342,14 +371,30 @@ composed terms are reachable in this chapter: `foulMul` (the Leak) and `inkMul` 
 around that `Math.min` forbid a chapter's own slow **multiplying** with latch/web — a post-min
 resist does not do that.
 
-**Two things that must be specified or the pair breaks:**
+**Three things that must be specified or the pair breaks:**
 
-1. **Clamp the resist.** `run.passives[id] += bonus` is uncapped (`sim.js:361`), so base 0.15 ×
-   mythic 6.5 × 5 picks = 2.1, and `1 - (1 - slowMul)(1 - 2.1) > 1` — **a speed bonus for standing
-   in oil.** Clamp at the read site.
-2. **Sleek + Oilskin together make crossing a spill free**, which is the whole toll gone for two
-   cards in one bucket, both repeatable to 5. That is an acceptable *build* — three cards to turn
-   the chapter's worst hazard into your kitchen — but it must be priced in §5, not discovered.
+1. **Diminishing returns, not a clamp** (ruled 2026-08-24). `run.passives[id] += bonus` is uncapped
+   (`sim.js:361`), so base 0.15 × mythic 6.5 × 5 picks = **4.875** — read raw, `1 - (1 - slowMul)
+   (1 - 4.875) > 1` is **a speed bonus for standing in oil.**
+   *(An earlier revision said 2.1 here. That was wrong arithmetic, inherited from the adversarial
+   review and propagated unchecked; the implementer caught it. 0.15 × 6.5 × 5 = 4.875.)*
+   A hard clamp at 1 was rejected: it stops the speed bonus but still permits **total immunity**,
+   and at 0.975 from a single mythic pick that is a lucky roll rather than a build. The shipped form
+   is asymptotic — `resistFrac(r) = r / (r + PASSIVE_RESIST_K)`, K = 1 — so every pick is worth less
+   than the last and **the toll never reaches zero**. The chapter's central hazard cannot be switched
+   off, however invested you are. Curve: 0.15 → 0.130, 0.975 (one mythic) → 0.494, 4.875 (five
+   mythic) → 0.830.
+2. **An integer tick quantises a percentage resist into nothing at the low end.** `SLICK_DPS` 6 ×
+   `SLICK_TICK` 0.5 = 3, and `hurtPlayer` rounds a dot — so a resist must clear 1/6 of the tick just
+   to move it by one. `resistFrac(0.20)` is 0.1667, giving 2.50, which `Math.round` takes straight
+   back to 3: **a first normal-rarity Oilskin pick was measurably inert**, with nothing red (MB.a
+   covers weapon mods only). The fix is to carry the fractional damage between ticks and spend whole
+   points, **not** to raise the base until it clears the boundary — `SLICK_DPS` is itself an unswept
+   first cut and any re-tune would silently re-break the card. Any future percentage resist against
+   a small integer tick has this same failure mode.
+3. **Sleek + Oilskin together** are the whole toll of one hazard bought down by two cards in one
+   bucket, both repeatable to 5. Under DR that is a genuine build rather than a switch, but it must
+   still be priced in §5, not discovered.
 
 ### 4.3 Bucketing — ruled, because the default silently taxes `moveSpeed`
 
@@ -412,9 +457,10 @@ ordering is correct as shipped; it just must not be inverted by whoever adds the
 None of this may be quoted until run. **≥6 seeds, print every one, read the spread. Mortal arm for
 anything about lethality; fixed loadout for anything comparative.**
 
-1. **§1.1 exists** (8 seeds, per-seed, both arms) **but on a rolling loadout.** Re-run it once with
-   a FIXED loadout before diffing anything against it — the `bomb` row is one seed's `unstableCores`
-   and the mortal rows carry a 300s survivor at 4× everyone else's exposure.
+1. **DONE — §1.1b is the canonical baseline.** 8 seeds, per-seed, all four arms, fixed loadout, zero
+   fallbacks. Probe: `wreck-threat-spread-fixed.mjs`, run against a frozen `git archive` extraction
+   so a concurrently-edited tree could not contaminate it. Diff every later change against 1.1b, not
+   1.1.
 2. **Rust's `chance`, `r` and cloud count — the single most important number in this document.**
    Ruled strong-and-rare, so the knob is scarcity and nothing else. Measure **what share of a run's
    kills happen inside one**, and **what share of the run the player spends in or adjacent to one**.

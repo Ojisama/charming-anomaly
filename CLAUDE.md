@@ -37,6 +37,7 @@ hidden layers). `probing-the-game` holds all of them; load it before you measure
 | `node scripts/fx-probe.mjs --scene scripts/scenes/beam-prism.js --out /tmp/pr --frames 14` | reproducible in-game frames of ONE effect, for A/B-ing a look |
 | `node scripts/weapon-census.mjs --chapter city --level 5 --weapons sewerGeyser --mods launch=1` | what a weapon actually DOES over real runs: raw vs effective dps, overkill, kills/min |
 | `node scripts/charge-probe.mjs` | what a chapter RESOURCE bar (The Twilight's Light) does over real 300s runs |
+| `node scripts/wreck-threat.mjs` | WHAT KILLS YOU, by source, per seed — 8 seeds x hunt/ignore x mortal/immortal, FIXED loadout. Read the MORTAL arm for lethality: the immortal one holds a player at bar-zero for 300s and reports starvation at 20x its real share |
 | `node scripts/obstacle-contrast.mjs` | WCAG contrast audit of obstacle footprints per biome |
 | `node scripts/prop-scale.mjs` | PROP_SCALE ladder audit + render.js bare-`scale:` regression grep |
 | `node scripts/bake-cast.mjs` | re-bake `src/cast/*.png` (title cards' creature thumbnails) |

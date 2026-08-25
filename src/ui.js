@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -2896,11 +2896,26 @@ export function initUI(hooks) {
       secs.push(sectionHtml(`w:${w.id}`, cfg.icon ?? '⭐', t(cfg.name), headline, table + lines, `${t('LV')} ${w.level}`))
     }
     if (build.passives.length) {
+      // passiveEffectText (config.js) is the ONE place a passive's magnitude becomes text — the
+      // level-up card (makePassiveCard, sim.js) calls the same function, so this sheet cannot drift
+      // out of sync with it again the way it did before this comment existed (the resist branch's
+      // {pct} template used to be composed here too, and rotted the moment Sleek/Oilskin shipped).
       const body = build.passives.map((ps) => {
         const cfg = PASSIVES[ps.id]
         if (!cfg) return ''
-        const head = cfg.kind === 'pct' ? `+${Math.round(ps.bonus * 100)}% ` : `+${fmtNum(ps.bonus)} `
-        return `<div class="bd-eff"><span class="bd-eff-i">💪</span><span class="bd-eff-t"><b>${esc(head)}</b>${esc(t(cfg.desc))}</span></div>`
+        if (cfg.kind === 'resist') {
+          const { s, p } = passiveEffectText(cfg, ps.bonus)
+          return `<div class="bd-eff"><span class="bd-eff-i">💪</span><span class="bd-eff-t">${esc(tt(s, p))}</span></div>`
+        }
+        // Same head/tail split modLine below uses for a weapon mod's "+N " head: bold the number,
+        // translate only the description that follows it.
+        // fmtNum, so a French player reads "+2,4" rather than "+2.4" — this sheet localised its
+        // numbers before the composer was extracted and must not lose it to the extraction.
+        const text = passiveEffectText(cfg, ps.bonus, fmtNum)
+        const head = /^(\+[\d.,]+%? )/.exec(text)
+        return head
+          ? `<div class="bd-eff"><span class="bd-eff-i">💪</span><span class="bd-eff-t"><b>${esc(head[1])}</b>${esc(t(text.slice(head[1].length)))}</span></div>`
+          : `<div class="bd-eff"><span class="bd-eff-i">💪</span><span class="bd-eff-t">${esc(t(text))}</span></div>`
       }).join('')
       const n = build.passives.reduce((s, x) => s + x.picks, 0)
       secs.push(sectionHtml('you', '🧍', t('You'), tt('{n} picks', { n }), body))

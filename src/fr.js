@@ -1687,6 +1687,10 @@ const CONFIG = {
   'HP regen per second': 'régén. de PV par seconde',
   'Big Brain': 'Gros Cerveau',
   'XP gain': 'gain d\'XP',
+  'Sleek': 'Fuselé',
+  '{pct}% resistance to slows': '{pct}% de résistance aux ralentissements',
+  'Oilskin': 'Ciré',
+  "{pct}% resistance to the Leak's burn": "{pct}% de résistance à la brûlure de la Fuite",
 
   // ---- What killed you (v7.x) --------------------------------------------------------------
   // DMG_SRC_NAME (config.js) + the summary screen's two headers. 'Overload' and 'Blood Money'

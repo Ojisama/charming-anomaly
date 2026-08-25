@@ -13,7 +13,7 @@ import { steerFromAnchor } from '../src/input.js'
 import { FR } from '../src/fr.js'
 import {
   SHOP, shopCost, refundValue, REFUND_RATE, MAX_SHOP_LEVEL, lineMax, CURRENT_RESIST_FLOOR, SHOP_FAMILY, SHOP_COST_CAP, SHOP_COST_CAP_DEFAULT,
-  PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY,
+  PASSIVES, RARITIES, RARITY_ORDER, RARITY_WEIGHTS, UPGRADE_RARITY, resistFrac, PASSIVE_RESIST_K, passiveEffectText,
   REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, NEW_WEAPON_MIN_RATE, spawnRate, hpScale, eliteEveryAt,
   CHAPTER_LATE_RATE, lateRateFor, HP_SCALE_LATE_START, HP_SCALE_LATE_RATE,
@@ -18813,6 +18813,7 @@ run(testLeLargeWeapons)
   run(testReefNatives)
   run(testReefPool)
   run(testWreckBloodlust)
+  run(testWreckDefense)
   run(testTrawlNet)
   run(testTrawlNatives)
   run(testTheDeep)
@@ -24986,6 +24987,292 @@ function testWreckBloodlust() {
   }
 
   console.log('PASS run WK (The Wreck): the refill is a kill and there is nowhere to stand, the bar pays without taxing and drives a cadence the readout agrees with, starving is a DoT gated on its own chapter, and the lunge dashes, bites and pays itself back while an empty bar keeps the shove')
+}
+
+// ---- run WD: The Wreck's defensive passives — Sleek + Oilskin (spec 2026-08-24 §4.2/4.4) -----
+// Two chapter-scoped cards, plus the two vehicles they ride in on: `PASSIVES[].chapters` (read by
+// eligiblePassiveIds, NOT by makePassiveCard — devCards calls the card factory directly to bypass
+// eligibility on purpose, and the clause landing in the wrong function breaks the dev menu with
+// nothing red) and `PASSIVES[].icon` (the factory hardcoded the bicep before this).
+// EVERY CASE HERE IS AN EFFECT: a card that is or isn't OFFERED, a measured px/HP difference, never
+// a read of the config table the change lives next to.
+function testWreckDefense() {
+  const dt = 1 / 60
+  // Immortal, weaponless, motionless by default — same shape as run PY/WK's own `mk`, kept local
+  // because those two live inside their own functions and this one has no business reaching in.
+  const mk = (chapter, seed) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(makeMeta(), { chapter, difficulty: 1 })
+    run.player.maxHP = run.player.hp = 1e9
+    run.weapons = []
+    run.enemies.length = 0
+    return run
+  }
+  // Drops an oil spill under the player, big enough (r 400) that a few seconds of reduced-speed
+  // travel never crosses the rim — the same fixture shape run PY.e already proved out.
+  const oilUnder = (run) => {
+    stepSim(run, { x: 0, y: 0 }, dt)   // one warm step: streamSlicks' cell scan runs once and then
+                                        // leaves the player's cell alone, so a spill pushed after it
+                                        // is never spliced back out.
+    run.slicks.push({ x: run.player.x, y: run.player.y, r: 400, shape: null, rot: 0, _cell: 'test' })
+  }
+
+  // -- WD.a: CHAPTER SCOPING. Sleek/Oilskin must be offered in The Wreck and nowhere else. -------
+  {
+    const idsSeenIn = (chapter, seed) => {
+      const run = mk(chapter, seed)
+      run.player.level = 10
+      const seen = new Set()
+      // 400 screens: the defense bucket alone is ~20% of every card slot and a card is a uniform
+      // pick inside it, so a real eligible id shows up dozens of times; a real ABSENCE stays at 0
+      // regardless of sample size, which is what makes this a fair "never" check.
+      for (let i = 0; i < 400; i++) {
+        run.levelUpChoices = buildLevelUpChoices(run)
+        for (const c of run.levelUpChoices) if (c.kind === 'passive') seen.add(c.id)
+      }
+      return seen
+    }
+    const wreck = idsSeenIn('wreck', 20260824)
+    const other = idsSeenIn('city', 20260824)
+    assert.ok(wreck.has('sleek'), `Sleek never appeared across 400 wreck screens (saw: ${[...wreck].join(', ')}) — eligiblePassiveIds is dropping it, or the chapters clause is inverted`)
+    assert.ok(wreck.has('oilskin'), `Oilskin never appeared across 400 wreck screens (saw: ${[...wreck].join(', ')}) — same failure as Sleek`)
+    assert.ok(!other.has('sleek'), 'Sleek was offered in City — PASSIVES[].chapters is not filtering eligiblePassiveIds')
+    assert.ok(!other.has('oilskin'), 'Oilskin was offered in City — PASSIVES[].chapters is not filtering eligiblePassiveIds')
+    console.log(`PASS run WD.a (chapter scoping): sleek + oilskin both seen among ${wreck.size} passive ids across 400 wreck screens, absent from ${other.size} ids seen in City`)
+  }
+
+  // -- WD.b: devCards BYPASSES eligibility on purpose. Both cards must show up in every chapter. --
+  {
+    const idsOf = (run) => new Set(devCards(run).filter((c) => c.kind === 'passive').map((c) => c.id))
+    const wreckIds = idsOf(mk('wreck', 1))
+    const cityIds = idsOf(mk('city', 1))
+    assert.ok(wreckIds.has('sleek') && wreckIds.has('oilskin'), 'devCards is missing sleek/oilskin in The Wreck')
+    assert.ok(cityIds.has('sleek') && cityIds.has('oilskin'), 'devCards is missing sleek/oilskin outside The Wreck — the chapters clause has leaked into makePassiveCard and the dev menu can no longer test either card off-chapter')
+    console.log(`PASS run WD.b (dev menu bypass): devCards returns both cards in wreck (${wreckIds.size} passive cards total) and in city (${cityIds.size}) alike`)
+  }
+
+  // Shared by WD.c/WD.e: 1s of travel through a spill at a given Sleek resist, and the clean
+  // (no oil, no Sleek) baseline that same seed produces.
+  const travelInOil = (sleek, seed) => {
+    const run = mk('wreck', seed)
+    oilUnder(run)
+    run.passives.sleek = sleek
+    const x0 = run.player.x
+    for (let i = 0; i < Math.round(1 / dt); i++) { run.enemies.length = 0; stepSim(run, { x: 1, y: 0 }, dt) }
+    return run.player.x - x0
+  }
+  const travelClean = (seed) => {
+    const run = mk('wreck', seed)
+    const x0 = run.player.x
+    for (let i = 0; i < Math.round(1 / dt); i++) { run.enemies.length = 0; stepSim(run, { x: 1, y: 0 }, dt) }
+    return run.player.x - x0
+  }
+
+  // -- WD.c: SLEEK measurably lifts the composed slow floor while standing in oil. ----------------
+  {
+    const base = travelInOil(0, 7)
+    const withSleek = travelInOil(PASSIVES.sleek.base, 7)
+    assert.ok(withSleek > base * 1.05, `+${Math.round(PASSIVES.sleek.base * 100)}% Sleek must measurably raise distance travelled in a spill: 0% resist ${base.toFixed(1)}px/1s, Sleek ${withSleek.toFixed(1)}px/1s`)
+    console.log(`PASS run WD.c (sleek lifts the floor): 1s crossing a spill travelled ${base.toFixed(1)}px unresisted vs ${withSleek.toFixed(1)}px with one Sleek pick (${(100 * (withSleek / base - 1)).toFixed(1)}% further)`)
+  }
+
+  // -- WD.d: OILSKIN measurably cuts run.dmgBySrc.slick over a fixed exposure, on ONE pick. --------
+  // ONE pick is the point: SLICK_DPS*SLICK_TICK is exactly 3, and one pick's DR-adjusted resist
+  // (resistFrac(0.20) = 0.167) scales it to exactly 2.5 — a per-tick Math.round takes that back UP
+  // to 3, identical to the unresisted tick, which is an INERT CARD at the exact rarity a player
+  // hits first. run._slickDmgCarry (sim.js's stepSlick) exists to fix this by banking the resisted
+  // fraction as a float and spending only whole points, so this asserts the fix at the magnitude
+  // that used to be silently dead, not at a magnitude that happens to clear the boundary.
+  {
+    const soak = (oilskin, seed) => {
+      const run = mk('wreck', seed)
+      oilUnder(run)
+      run.passives.oilskin = oilskin
+      for (let i = 0; i < Math.round(3 / dt); i++) { run.enemies.length = 0; stepSim(run, { x: 0, y: 0 }, dt) }
+      return run.dmgBySrc.slick ?? 0
+    }
+    const base = soak(0, 3)
+    const resisted = soak(PASSIVES.oilskin.base, 3)
+    assert.ok(base > 0, 'the control took 0 slick damage over 3s in a spill — this fixture proves nothing until it does')
+    assert.ok(resisted < base * 0.9, `one Oilskin pick (raw ${PASSIVES.oilskin.base}, resistFrac ${resistFrac(PASSIVES.oilskin.base).toFixed(3)}) must measurably cut run.dmgBySrc.slick: 0% resist ${base}, Oilskin ${resisted}`)
+    console.log(`PASS run WD.d (oilskin cuts the tick): 3s in a spill cost ${base} HP to slick unresisted, ${resisted} at ONE Oilskin pick (resistFrac ${resistFrac(PASSIVES.oilskin.base).toFixed(3)}) — the exact magnitude a flat per-tick round used to leave inert`)
+  }
+
+  // -- WD.e: DIMINISHING RETURNS, not a clamp (owner ruling 2026-08-24). run.passives.sleek is
+  // uncapped (applyChoice just adds), so 0.15 base x 6.5 mythic mult x 5 picks sails past 1.0 — read
+  // directly that used to hand out a SPEED BONUS for standing in oil. resistFrac's r/(r+K) shape
+  // fixes that two ways, and both must hold:
+  //   (a) the toll never fully vanishes, however invested — a mythic-stacked resist still leaves
+  //       SOME slow in oil and SOME raw slick damage (measured on the pre-floor quantity, since
+  //       hurtPlayer's own max(1, round(...)) floor would hide a formula that reached exactly 0);
+  //   (b) the returns actually DIMINISH — the 2nd equal-sized step buys less than the 1st, the 3rd
+  //       less than the 2nd. A flat additive resist (the bug this replaces) would pass (a) at any
+  //       K>0 but fails (b) outright, which is why both are asserted, not just the first.
+  {
+    const mythic5 = PASSIVES.sleek.base * RARITIES.mythic.mult * 5
+
+    // (a) non-zero toll, both sides of the pair.
+    const oiledDist = travelInOil(mythic5, 9)
+    const baseline = travelClean(9)
+    assert.ok(oiledDist < baseline - 1, `5 mythic Sleek picks (raw ${mythic5.toFixed(2)}) travelled ${oiledDist.toFixed(1)}px/1s in a spill, indistinguishable from the ${baseline.toFixed(1)}px/1s un-slowed baseline — the toll has vanished`)
+    const rawOilFrac = 1 - resistFrac(mythic5)
+    assert.ok(rawOilFrac > 0, `resistFrac(${mythic5.toFixed(2)}) reached 1.0 — the pre-floor Oilskin damage is exactly 0, not merely floored to 1 by hurtPlayer`)
+
+    // (b) strictly diminishing marginal returns over three equal steps.
+    const step = PASSIVES.sleek.base
+    const f0 = resistFrac(0), f1 = resistFrac(step), f2 = resistFrac(2 * step), f3 = resistFrac(3 * step)
+    const d1 = f1 - f0, d2 = f2 - f1, d3 = f3 - f2
+    assert.ok(d1 > d2 && d2 > d3, `resistFrac's marginal gain per equal step must strictly decrease: Δ1=${d1.toFixed(4)} Δ2=${d2.toFixed(4)} Δ3=${d3.toFixed(4)}`)
+
+    console.log(`PASS run WD.e (diminishing returns): 5 mythic Sleek picks (raw ${mythic5.toFixed(2)}) still travel only ${oiledDist.toFixed(1)}px/1s in oil against a ${baseline.toFixed(1)}px/1s clean baseline (never 0 toll, pre-floor Oilskin fraction ${rawOilFrac.toFixed(3)}), and equal steps buy Δ${d1.toFixed(3)} -> Δ${d2.toFixed(3)} -> Δ${d3.toFixed(3)}`)
+  }
+
+  // -- WD.f: THE ICON DEFAULT leaves every pre-existing passive byte-identical. --------------------
+  // makePassiveCard hardcoded icon: '💪' before this change; now it reads cfg.icon ?? '💪'. Every
+  // shipped passive still carries no icon field, so this proves the fallback keeps them all on the
+  // bicep, and that Sleek/Oilskin — which DO carry one — do not fall back to it.
+  {
+    const run = mk('wreck', 5)
+    const cards = devCards(run).filter((c) => c.kind === 'passive')
+    const byId = Object.fromEntries(cards.map((c) => [c.id, c]))
+    const legacy = Object.keys(PASSIVES).filter((id) => !PASSIVES[id].icon)
+    assert.ok(legacy.length >= 8, `expected most of the ${Object.keys(PASSIVES).length} passives to declare no icon field (the byte-identical default case); only ${legacy.length} do`)
+    for (const id of legacy)
+      assert.strictEqual(byId[id]?.icon, '💪', `${id} declares no icon field, so its card must still show the bicep — got '${byId[id]?.icon}'`)
+    assert.strictEqual(byId.sleek.icon, PASSIVES.sleek.icon, 'Sleek must show the icon its PASSIVES entry declares')
+    assert.strictEqual(byId.oilskin.icon, PASSIVES.oilskin.icon, 'Oilskin must show the icon its PASSIVES entry declares')
+    assert.notStrictEqual(byId.sleek.icon, '💪', 'Sleek must not render as the generic bicep')
+    assert.notStrictEqual(byId.oilskin.icon, '💪', 'Oilskin must not render as the generic bicep')
+    console.log(`PASS run WD.f (icon default): ${legacy.length} pre-existing passives still render 💪 with no icon field; Sleek shows ${byId.sleek.icon}, Oilskin shows ${byId.oilskin.icon}`)
+  }
+
+  // -- WD.g: THE CARRY NEVER STARVES. A near-total Oilskin resist must still cost HP eventually. ---
+  // run._slickDmgCarry accumulates a float across ticks and only spends a whole point; at a
+  // near-total resist that float grows slowly (~0.03/tick here), but it must keep GROWING rather
+  // than being discarded every tick — which is what an implementation that overwrites instead of
+  // accumulating the carry would do, and it would look identical to WD.d at low resist.
+  {
+    const nearTotal = 100   // resistFrac(100) = 0.990 — as close to "fully resisted" as any real stack reaches
+    const run = mk('wreck', 11)
+    oilUnder(run)
+    run.passives.oilskin = nearTotal
+    for (let i = 0; i < Math.round(60 / dt); i++) { run.enemies.length = 0; stepSim(run, { x: 0, y: 0 }, dt) }
+    const took = run.dmgBySrc.slick ?? 0
+    assert.ok(took > 0, `a near-total Oilskin resist (resistFrac ${resistFrac(nearTotal).toFixed(3)}) took 0 slick damage over 60s in a spill — the carry starved to zero and never spent`)
+    console.log(`PASS run WD.g (the carry never starves): resistFrac ${resistFrac(nearTotal).toFixed(3)} still cost ${took} HP to slick over 60s in a spill — the resisted fraction keeps accumulating instead of being discarded every tick`)
+  }
+
+  // -- WD.h: BEFORE -> AFTER. A first pick carries no prev; a second pick's prev is the REALIZED --
+  // value the first pick actually printed — the owner's "do like infusions" ruling, applied through
+  // the shipped element idiom (elementCardDesc/elText/elDescHtml — the dispatch is keyed on descT
+  // existing, not on kind, so this rides the same renderer for free).
+  {
+    const cardFor = (run, rarity) => devCards(run, rarity).find((c) => c.id === 'sleek')
+    const run = mk('wreck', 13)
+    const first = cardFor(run, 'normal')
+    assert.ok(first.descT, 'a resist-kind passive card must carry descT')
+    assert.ok(!('prev' in first.descT), `a first Sleek pick must carry no prev — got ${JSON.stringify(first.descT)}`)
+    const firstPct = first.descT.p.pct
+    assert.strictEqual(firstPct, Math.round(resistFrac(PASSIVES.sleek.base * RARITIES.normal.mult) * 100),
+      `first pick's printed pct (${firstPct}) does not match resistFrac(bonus)`)
+
+    // Bank it for real, through the shipped path — never hand-set run.passives here.
+    run.levelUpChoices = [{ kind: 'passive', id: 'sleek', bonus: first.bonus }]
+    applyChoice(run, 0)
+
+    const second = cardFor(run, 'normal')
+    assert.ok(second.descT.prev, 'a second Sleek pick must carry a prev — the before->after strikethrough has nothing to show')
+    assert.strictEqual(second.descT.prev.pct, firstPct,
+      `prev.pct must equal the realized value the FIRST pick printed (${firstPct}), got ${second.descT.prev.pct}`)
+    console.log(`PASS run WD.h (before -> after): first pick prints ${firstPct}% with no prev; second pick prints ${second.descT.p.pct}% with prev ${second.descT.prev.pct}% — exactly what the first pick showed`)
+  }
+
+  // -- WD.i: THE PRINTED NUMBER EQUALS THE MEASURED EFFECT. This is the whole point of the change --
+  // — the card promises a REALIZED total, and that promise must be checkable against what the sim
+  // actually does, not merely against the same formula the card used to print it (a formula bug
+  // would then agree with itself). So the effective resist is derived independently, from travel
+  // distance alone, and compared against the printed pct.
+  {
+    const run = mk('wreck', 17)
+    const card = devCards(run, 'normal').find((c) => c.id === 'sleek')
+    const printedPct = card.descT.p.pct
+
+    const distNoSleek = travelInOil(0, 17)          // composedSlowMul alone
+    const distClean = travelClean(17)                // no slow at all — the r=1 asymptote
+    const distWithSleek = travelInOil(card.bonus, 17) // what the card's own bonus buys
+    const measuredResistPct = 100 * (distWithSleek - distNoSleek) / (distClean - distNoSleek)
+    assert.ok(Math.abs(measuredResistPct - printedPct) < 1.5,
+      `the card printed ${printedPct}% but travel distance measures an effective resist of ${measuredResistPct.toFixed(1)}% — the number on the card does not match what the pick does`)
+    console.log(`PASS run WD.i (printed = measured): card prints ${printedPct}%, independently measured from travel distance (${distNoSleek.toFixed(1)} -> ${distWithSleek.toFixed(1)} of ${distNoSleek.toFixed(1)} -> ${distClean.toFixed(1)} un-slowed) as ${measuredResistPct.toFixed(1)}%`)
+  }
+
+  // -- WD.j: THE OTHER TEN PASSIVES ARE UNTOUCHED — no descT, additive "+N%"/"+N " desc as before. --
+  {
+    const run = mk('wreck', 19)
+    const legacy = devCards(run, 'rare').filter((c) => c.kind === 'passive' && c.id !== 'sleek' && c.id !== 'oilskin')
+    assert.ok(legacy.length >= 8, `expected most of the ${Object.keys(PASSIVES).length} passives to be the untouched ten; only found ${legacy.length}`)
+    for (const c of legacy) {
+      assert.strictEqual(c.descT, undefined, `${c.id} unexpectedly carries a descT — the resist branch has leaked into a non-resist passive`)
+      assert.ok(/^\+\d/.test(c.desc), `${c.id}'s desc no longer starts with "+N" — got "${c.desc}"`)
+    }
+    console.log(`PASS run WD.j (the other ten, unchanged): ${legacy.length} non-resist passive cards carry no descT and keep their additive "+N" desc`)
+  }
+
+  // -- WD.k: THE SHARED COMPOSER, TESTED BEHAVIOURALLY. ------------------------------------------
+  // Reviewer finding on the first version of this scenario: it was a TOKEN LINT. It grepped ui.js
+  // for two regex tokens that both stayed present even under a mutation where the resist branch
+  // computes resistFrac(ps.bonus) into a DEAD VARIABLE and falls through to the OLD render — so the
+  // lint passed green while the pause sheet printed a literal, unsubstituted "{pct}" to the player.
+  // The fix is at the root, not a cleverer regex: passiveEffectText (config.js) is now the ONE place
+  // a passive's magnitude becomes text. makePassiveCard (sim.js) and the pause sheet (ui.js) both
+  // call it; neither composes the sentence itself any more. So this tests THAT function's actual
+  // OUTPUT — a token near it proves nothing, as the reviewer showed.
+  {
+    // (a) resist kind: the {s,p} pair, pct = resistFrac(bonus) rounded — the exact number both
+    // consumers print, and the exact number WD.i already proved agrees with the measured effect.
+    const rSleek = passiveEffectText(PASSIVES.sleek, 0.30)
+    assert.deepStrictEqual(rSleek, { s: PASSIVES.sleek.desc, p: { pct: Math.round(resistFrac(0.30) * 100) } },
+      `passiveEffectText(sleek, 0.30) returned ${JSON.stringify(rSleek)}`)
+
+    // (b) pct kind: unchanged plain-string shape.
+    const rMove = passiveEffectText(PASSIVES.moveSpeed, 0.08)
+    assert.strictEqual(rMove, `+8% ${PASSIVES.moveSpeed.desc}`, `passiveEffectText(moveSpeed, 0.08) returned "${rMove}"`)
+
+    // (c) flat kind, fed a deliberately float-DIRTY sum — exactly the shape of number the pause
+    // sheet's ps.bonus actually is (several picks added by applyChoice), never a clean table
+    // lookup. Must round the garbage away, not print it.
+    const dirty = 0.8 + 0.8 + 0.8   // 2.4000000000000004 in real JS float math — three regen picks
+    assert.ok(String(dirty).length > 10, 'fixture is not actually float-dirty — this proves nothing about rounding')
+    const rRegen = passiveEffectText(PASSIVES.regen, dirty)
+    assert.strictEqual(rRegen, `+2.4 ${PASSIVES.regen.desc}`, `passiveEffectText(regen, ${dirty}) returned "${rRegen}" — float noise reached the player`)
+
+    // (d) THE NUMBER FORMATTER IS INJECTED, and the default must stay locale-blind so the level-up
+    // card prints exactly what it always has. The pause sheet localised its numbers BEFORE the
+    // composer was extracted out of it, and an extraction may not make a surface worse than it
+    // found it — French reads "+2,4", not "+2.4".
+    const rFr = passiveEffectText(PASSIVES.regen, dirty, (n) => String(n).replace('.', ','))
+    assert.strictEqual(rFr, `+2,4 ${PASSIVES.regen.desc}`,
+      `an injected formatter did not reach the number — got "${rFr}", so the pause sheet cannot localise`)
+    assert.strictEqual(passiveEffectText(PASSIVES.regen, dirty), `+2.4 ${PASSIVES.regen.desc}`,
+      'the DEFAULT formatter is no longer locale-blind — the level-up card just changed what it prints')
+
+    // (e) SECONDARY guard only — ui.js is DOM-bound and not importable, so this is source text, the
+    // CLAUDE.md idiom for a render-side contract with no other guard. It earns its place ALONGSIDE
+    // (a)-(d), never in place of them: it catches ui.js re-composing the sentence itself again,
+    // which a passiveEffectText-only test cannot see since it never touches ui.js's call site.
+    //   It pins `fmtNum` too: dropping that argument is a silent French regression, and it is
+    // exactly the edit that would otherwise ship one.
+    const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.match(uiSrc, /passiveEffectText\(cfg, ps\.bonus, fmtNum\)/,
+      "ui.js's pause sheet no longer calls passiveEffectText with fmtNum — it is re-composing the sentence, or has dropped French number formatting")
+    // The bold-number split must accept a COMMA, or every French number silently stops being bold.
+    assert.match(uiSrc, /\^\(\\\+\[\\d\.,\]\+%\? \)/,
+      "the pause sheet's head regex no longer accepts a comma — a French '+2,4' will not match and loses its bold")
+
+    console.log(`PASS run WD.k (the shared composer, behaviourally): resist -> {pct: ${rSleek.p.pct}}, pct -> "${rMove}", flat -> "${rRegen}" from a float-dirty ${dirty} input, an injected formatter yields "${rFr}" while the default stays locale-blind, and ui.js's pause sheet still calls the shared function with fmtNum`)
+  }
+
+  console.log('PASS run WD (The Wreck: Sleek + Oilskin): both cards are chapter-scoped through eligiblePassiveIds while staying reachable from the dev menu, each measurably moves its own quantity (slow floor / slick damage) at the FIRST pick, resistFrac keeps a non-zero toll under a deliberately absurd stack while its returns strictly diminish, Oilskin\'s resisted damage carries across ticks instead of quantising to inert, the printed pct is the before->after realized total and agrees with the measured effect, and the other ten passives (icon default included) are byte-identical')
 }
 
 function testReefAirBurst() {

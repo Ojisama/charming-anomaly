@@ -181,7 +181,7 @@ import {
   ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
   ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX,
-  SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
+  SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
   BREACH_R_MIN, BREACH_R_AT_FULL, BREACH_REACH, BREACH_MAX_HOLES, tiredness,
@@ -729,7 +729,13 @@ function stepPlayerMovement(run, input, dt) {
   // neighbours and for the same reason; it sits ABOVE LATCH_SLOW_MUL on purpose, so a latched moray
   // in coral is still the worst case in the chapter rather than the coral swallowing the moray.
   const scrapeMul = run._scraping ? SPUR_SLOW_MUL : 1
-  const slowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul, inkMul, scrapeMul)
+  const composedSlowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul, inkMul, scrapeMul)
+  // SLEEK (v7.x, The Wreck): lifts the composed floor toward 1 (no slow) by the passive's resist
+  // fraction, run through resistFrac's diminishing returns (never reaches 1, so the toll never
+  // reaches zero), and the `1 - (1-x)(1-y)` shape means it can never drop below the raw composed
+  // floor either.
+  const sleekResist = resistFrac(run.passives.sleek)
+  const slowMul = 1 - (1 - composedSlowMul) * (1 - sleekResist)
   const rampMul = run.rampageT > 0 ? RAMPAGE_SPEED_MUL : 1   // v5.14, read-time only (see config)
   // SCENT (v7.x, The Deep): "or move faster towards your prey" — the owner's own framing for the
   // button. MULTIPLIED, not MIN-composed with the three slows above, and the asymmetry is right:
@@ -4373,15 +4379,27 @@ function stepSlick(run, dt) {
   const p = run.player
   let inside = false
   for (const sl of run.slicks) if (inLobe(sl, p.x, p.y)) { inside = true; break }
-  if (!inside) { run._slickAcc = 0; return false }
+  if (!inside) { run._slickAcc = 0; run._slickDmgCarry = 0; return false }
   run._foulT = SLICK_SLOW_T
   run._slickAcc = (run._slickAcc ?? 0) + dt
   let died = false
+  // OILSKIN (v7.x, The Wreck): scales the raw tick down by resistFrac, the same as Sleek. A plain
+  // per-tick round quantises brutally against a 3-damage tick (SLICK_DPS * SLICK_TICK): one normal
+  // pick scales it to 2.5, which Math.round takes back UP to 3 — an INERT CARD, indistinguishable
+  // from no resist at all. So the resisted damage is banked as a float in run._slickDmgCarry and
+  // only spent through hurtPlayer once it clears a whole point, keeping the remainder — that makes
+  // every resist magnitude eventually visible (even a near-total one, just slowly) and survives
+  // SLICK_DPS/SLICK_TICK being retuned later (SLICK_DPS is a documented unmeasured first cut).
+  const oilResist = resistFrac(run.passives.oilskin)
   while (run._slickAcc >= SLICK_TICK) {
     run._slickAcc -= SLICK_TICK
+    run._slickDmgCarry = (run._slickDmgCarry ?? 0) + SLICK_DPS * SLICK_TICK * (1 - oilResist)
+    const whole = Math.floor(run._slickDmgCarry)
+    if (whole < 1) continue
+    run._slickDmgCarry -= whole
     // `dot: true` and a named src, exactly as drowning and starving are: the renderer's hurt
     // reaction is keyed off both, and main.js's `if (e.dot) continue` already silences the audio.
-    if (!died && hurtPlayer(run, SLICK_DPS * SLICK_TICK, true, 'slick')) died = true
+    if (!died && hurtPlayer(run, whole, true, 'slick')) died = true
   }
   return died
 }
@@ -11666,11 +11684,15 @@ function eligiblePassiveIds(run) {
   // 6.4% of every card offered, and under that card healPlayer refuses it outright. The card is
   // supposed to RE-PRICE the passive pool, not quietly keep selling you the one pick it voided.
   const noHeal = !!run.anomalies?.bloodPact
+  // CHAPTER-SCOPED PASSIVES (v7.x, The Wreck): an entry may declare `chapters: [...]` to restrict
+  // where the real pool offers it. devCards calls makePassiveCard directly and never reaches this
+  // function, so a chapter-scoped card stays testable from the dev menu in every chapter.
   return Object.keys(PASSIVES).filter((id) =>
     (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL
     && !(lane && id === 'magnet')
     && !(brittle && DEFENSIVE_PASSIVES.includes(id))
     && !(noHeal && id === 'regen')
+    && !(PASSIVES[id].chapters && !PASSIVES[id].chapters.includes(run.chapter))
     && !(floored && PASSIVES[id].values
       && Object.keys(PASSIVES[id].values).filter((r) => RARITY_ORDER.indexOf(r) >= floorIdx).length < 2))
 }
@@ -11815,10 +11837,26 @@ function makePassiveCard(run, id, rarity) {
     if (cfg.kind === 'flat') bonus = Math.round(bonus * 10) / 10
   }
   const picks = run.passivePicks[id] ?? 0
-  const desc = cfg.kind === 'pct'
-    ? `+${Math.round(bonus * 100)}% ${cfg.desc}`
-    : `+${bonus} ${cfg.desc}`
-  return { kind: 'passive', id, title: cfg.name, desc, tag: `Lv ${picks + 1}`, rarity, icon: '💪', bonus }
+  // passiveEffectText (config.js) is the ONE place a passive's magnitude becomes text — the pause
+  // build sheet (ui.js) calls the same function, so the two can no longer drift apart.
+  if (cfg.kind === 'resist') {
+    // RESIST PASSIVES (Sleek, Oilskin, v7.x): print what the player will HAVE after the pick, not
+    // the raw increment — resistFrac's diminishing returns mean the same base no longer buys the
+    // same thing twice, so a "+N%" desc would overstate every pick after the first (owner ruling:
+    // "do like infusions, the before -> after number"). Exactly the element idiom
+    // (elementCardDesc/elText, config.js): descT carries the template + its numbers, desc is the
+    // same sentence composed in English for consumers that want a plain string (dev-menu filter,
+    // buildReadout, tests), and ui.js's cardDescHtml dispatches on descT EXISTING, not on kind —
+    // so this gets the before->after strikethrough for free.
+    const now = run.passives[id]
+    const descT = passiveEffectText(cfg, now + bonus)
+    // `prev` is the same template's number at the potency the player has right now — absent on a
+    // first pick (now === 0), exactly as elements leave it off.
+    if (now > 0) descT.prev = passiveEffectText(cfg, now).p
+    return { kind: 'passive', id, title: cfg.name, desc: elText(descT), descT, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon ?? '💪', bonus }
+  }
+  const desc = passiveEffectText(cfg, bonus)
+  return { kind: 'passive', id, title: cfg.name, desc, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon ?? '💪', bonus }
 }
 
 // A weapon-mod card adopts whatever rarity was rolled for its slot, same as passives.
