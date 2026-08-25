@@ -1261,6 +1261,12 @@ function generateWells(sig) {
  *   Read by stepLaneFront as well as stepPlayerMovement: the front must advance at the speed the
  *   player is TRAVELLING, not the speed they are asking for, or accelerating bills you for ground
  *   you have not covered.
+ * _kickX/_kickY: number — THE BOUNCE. px/s of sideways throw left over from hitting coral
+ *   (stepCaveWall, circuit.crashKick) or a fish (bumpTraffic, circuit.bumpKick), summed on top of
+ *   (heading x _laneSpeed) by stepPlayerMovement's circuit branch and dragged to a hard zero at
+ *   circuit.kickDrag px/s². The only impulse in the chapter that survives a frame — every other is
+ *   erased by that same velocity rewrite, which is why both impacts used to be position teleports.
+ *   Written by whatever hit you and spent by the movement step; nothing else touches them.
  * ---- The circuit (v7.x, The Reef). All four exist only where CHAPTERS[id].circuit is set. ----
  * lap: number — completed laps, 0..circuit.laps. A DISTANCE, not a counter: the track repeats every
  *   cave.lapLen, so this is floor(along / lapLen) and nothing can desynchronise it from the world.
