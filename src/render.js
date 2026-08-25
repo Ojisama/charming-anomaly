@@ -12882,6 +12882,183 @@ const spurG = new Graphics()
     // reading as a decal. Top-down, a moored float shows as concentric bands (that IS what one
     // looks like from a boat), its shadow offset by the sun, and the chain foreshortened to a short
     // run out to the sinker — so the tether is drawn OUTWARD, toward the bank it is moored off.
+    const hsh = (a, b) => Math.abs(Math.sin(a * 12.9898 + b * 78.233) * 43758.5453) % 1
+    const quad = (G, f0, f1, u0, u1, color, alpha) => {
+      const a = P(f0, u0), b = P(f0, u1), c = P(f1, u1), d = P(f1, u0)
+      G.poly([a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y])
+      G.fill({ color, alpha })
+    }
+    // A BALL, NOT A BULLSEYE. Concentric rings ARE what a float looks like from straight above and
+    // it still reads as a dartboard, because a target is the only thing the player has ever seen
+    // drawn that way — which is why the first realistic pass was rejected. VOLUME is the fix: one
+    // off-centre highlight and a dark rim, the same way every other round thing here is baked.
+    const ball = (G, x, y, r, color, hi, alpha) => {
+      G.circle(x, y, r)
+      G.fill({ color, alpha })
+      G.circle(x - r * 0.26, y - r * 0.3, r * 0.62)
+      G.fill({ color: hi, alpha: alpha * 0.5 })
+      G.circle(x - r * 0.36, y - r * 0.42, r * 0.24)
+      G.fill({ color: 0xffffff, alpha: alpha * 0.5 })
+      G.circle(x, y, r)
+      G.stroke({ width: Math.max(2, r * 0.14), color: 0x101b20, alpha })
+    }
+    // Cast past the object, never under it — a shadow concentric with its caster flattens straight
+    // back into the disc it was meant to lift off the sand.
+    const shadowAt = (x, y, r, a) => {
+      gateFloorG.circle(x + r * 0.5, y + r * 0.6, r * 0.95)
+      gateFloorG.fill({ color: 0x0b1a22, alpha: a })
+    }
+    // gv=6 — SPAR BUOY. The volume fix applied to the moored float, plus the mast and topmark that
+    // a real course buoy carries; the mast leans downstream, which is also a direction cue.
+    const sparBuoy = (f0, cav, done, fin) => {
+      const t = run.time ?? 0
+      const a = done ? 0.5 : 1
+      if (!fin) {
+        const A = P(f0, cav.c - cav.hw + 14), B = P(f0, cav.c + cav.hw - 14)
+        gateFloorG.moveTo(A.x, A.y)
+        gateFloorG.lineTo(B.x, B.y)
+        gateFloorG.stroke({ width: 7, color: 0x14262e, alpha: done ? 0.22 : 0.5, cap: 'round' })
+      }
+      for (const sign of [-1, 1]) {
+        const u = cav.c + sign * (cav.hw - 24)
+        const bob = Math.sin(t * 0.9 + f0 * 0.004 + sign) * 3
+        const f = f0 + dFor(bob, u)
+        const q = P(f, u + bob * 0.4)
+        const sink = P(f - dFor(34, u), u + sign * 36)
+        gateFloorG.circle(sink.x, sink.y, 12)
+        gateFloorG.fill({ color: 0x1a2a30, alpha: done ? 0.3 : 0.6 })
+        gateFloorG.moveTo(sink.x, sink.y)
+        gateFloorG.lineTo(q.x, q.y)
+        gateFloorG.stroke({ width: 4, color: 0x1a2a30, alpha: done ? 0.25 : 0.5, cap: 'round' })
+        shadowAt(q.x, q.y, 24, done ? 0.14 : 0.3)
+        ball(gateG, q.x, q.y, 24, done ? 0x5c5330 : (fin ? 0xe8e2d4 : 0xf2c53d), 0xffe89a, a)
+        // the spar, drawn OVER the float and long enough to clear it — leaning downstream, which
+        // makes the mast a direction cue as well as a silhouette.
+        const mt = P(f + dFor(52, u), u + 24)
+        gateG.moveTo(q.x, q.y)
+        gateG.lineTo(mt.x, mt.y)
+        gateG.stroke({ width: 7, color: done ? 0x3a4348 : 0x2b3a40, alpha: a, cap: 'round' })
+        ball(gateG, mt.x, mt.y, 9, done ? 0x4a4a44 : 0x121d22, 0x6d7b82, a)
+      }
+    }
+    // gv=7 — FLOAT LINE. How an open-water course, a marina boom and a net are ACTUALLY rigged:
+    // two sinkers, a rope, floats strung along it. It spans the passage, but a rope is thin enough
+    // to see the track through, which is the whole difference from the bar it replaces.
+    const floatLine = (f0, cav, done, fin) => {
+      const t = run.time ?? 0
+      const a = done ? 0.45 : 1
+      const uA = cav.c - cav.hw + 10, uB = cav.c + cav.hw - 10
+      for (const sign of [-1, 1]) {
+        const e = P(f0, cav.c + sign * (cav.hw - 4))
+        gateFloorG.circle(e.x, e.y, 14)
+        gateFloorG.fill({ color: 0x25323a, alpha: done ? 0.3 : 0.7 })
+      }
+      const A = P(f0, uA), B = P(f0, uB)
+      gateG.moveTo(A.x, A.y)
+      gateG.lineTo(B.x, B.y)
+      gateG.stroke({ width: 3.5, color: 0x2b3a40, alpha: a, cap: 'round' })
+      const n = 7
+      for (let i = 0; i < n; i++) {
+        const u = uA + (uB - uA) * (i + 0.5) / n
+        const bob = Math.sin(t * 1.3 + i * 0.8) * 2.5
+        const q = P(f0 + dFor(bob, u), u)
+        shadowAt(q.x, q.y, 11, done ? 0.1 : 0.22)
+        const lit = i % 2 === 0
+        const col = done ? 0x55524a : (fin ? (lit ? 0xf4efe2 : 0x121d22) : (lit ? 0xf2c53d : 0x121d22))
+        ball(gateG, q.x, q.y, 11, col, 0xffe89a, a)
+      }
+    }
+    // gv=8 — SCAFFOLD GATE. Galvanised pipe tripods driven into the sand with a line strung
+    // between: survey and dive-platform hardware, the least decorative option here.
+    const scaffold = (f0, cav, done, fin) => {
+      const a = done ? 0.45 : 1
+      for (const sign of [-1, 1]) {
+        const u = cav.c + sign * (cav.hw - 22)
+        const q = P(f0, u)
+        for (const [df, du] of [[-30, -18], [26, -12], [-4, 30]]) {
+          const e = P(f0 + dFor(df, u), u + du)
+          gateFloorG.circle(e.x, e.y, 7)
+          gateFloorG.fill({ color: 0x16242b, alpha: done ? 0.3 : 0.6 })
+          gateG.moveTo(q.x, q.y)
+          gateG.lineTo(e.x, e.y)
+          gateG.stroke({ width: 7, color: done ? 0x4e565a : 0x8a949a, alpha: a, cap: 'round' })
+          gateG.moveTo(q.x, q.y)
+          gateG.lineTo(e.x, e.y)
+          gateG.stroke({ width: 2, color: 0xcfd8dc, alpha: a * 0.6, cap: 'round' })
+        }
+        shadowAt(q.x, q.y, 16, done ? 0.12 : 0.26)
+        ball(gateG, q.x, q.y, 13, done ? 0x585f63 : 0xb9c3c8, 0xeef4f6, a)
+        gateG.circle(q.x, q.y, 5)
+        gateG.fill({ color: done ? 0x4a4a44 : (fin ? 0x121d22 : 0xf2c53d), alpha: a })
+      }
+      const A = P(f0, cav.c - cav.hw + 22), B = P(f0, cav.c + cav.hw - 22)
+      gateG.moveTo(A.x, A.y)
+      gateG.lineTo(B.x, B.y)
+      gateG.stroke({ width: 3, color: 0xcfd8dc, alpha: a * 0.6, cap: 'round' })
+    }
+    // gv=9 — STONE CAIRNS. No manufactured hardware at all: stacked rock, the way a reef course
+    // would actually be marked by whoever swims it. The stack is drawn offset rather than
+    // concentric, which is the same convention the coral uses to show height from straight above.
+    const cairn = (f0, cav, done, fin) => {
+      const a = done ? 0.5 : 1
+      for (const sign of [-1, 1]) {
+        const u = cav.c + sign * (cav.hw - 22)
+        const q = P(f0, u)
+        shadowAt(q.x, q.y, 26, done ? 0.14 : 0.3)
+        const rocks = [[0, 0, 25], [6, -8, 19], [-4, -15, 13], [2, -21, 8]]
+        for (let i = 0; i < rocks.length; i++) {
+          const [dx, dy, r] = rocks[i]
+          const h = hsh(i, sign + 3)
+          gateG.circle(q.x + dx, q.y + dy, r)
+          gateG.fill({ color: done ? 0x4b4a45 : (i % 2 ? 0x8d8375 : 0x9c9384), alpha: a })
+          gateG.circle(q.x + dx, q.y + dy, r)
+          gateG.stroke({ width: 3, color: 0x2a2620, alpha: a })
+          gateG.circle(q.x + dx - r * 0.3, q.y + dy - r * 0.34, r * 0.48)
+          gateG.fill({ color: 0xc8bfa8, alpha: a * (0.26 + h * 0.2) })
+        }
+        gateG.circle(q.x + 2, q.y - 21, 8)
+        gateG.fill({ color: done ? 0x4a4a44 : (fin ? 0xf4efe2 : 0xf2c53d), alpha: a })
+      }
+      const A = P(f0, cav.c - cav.hw + 18), B = P(f0, cav.c + cav.hw - 18)
+      gateFloorG.moveTo(A.x, A.y)
+      gateFloorG.lineTo(B.x, B.y)
+      gateFloorG.stroke({ width: 6, color: 0x2a2620, alpha: done ? 0.2 : 0.45, cap: 'round' })
+    }
+    const realMarker = (f0, cav, done, fin) => {
+      if (gateArt === 7) floatLine(f0, cav, done, fin)
+      else if (gateArt === 8) scaffold(f0, cav, done, fin)
+      else if (gateArt === 9) cairn(f0, cav, done, fin)
+      else sparBuoy(f0, cav, done, fin)
+    }
+    // A WORN MAT, not a printed one: separate tiles with grout between them, a few lost to the
+    // reef, and sand drifted over the edges. The v5 mat was butted strokes at one alpha, which is
+    // a swatch — the thing that makes an object look laid down is that it is not uniform.
+    const matWorn = (cav, rows) => {
+      const lo = cav.c - cav.hw, stepU = (cav.hw * 2) / V.checks
+      const half = (rows * stepU) / 2
+      const A0 = P(0, lo - 8), B0 = P(0, lo + cav.hw * 2 + 8)
+      gateFloorG.moveTo(A0.x, A0.y)
+      gateFloorG.lineTo(B0.x, B0.y)
+      gateFloorG.stroke({ width: (half + 8) * 2, color: 0x0e1a20, alpha: 0.42, cap: 'butt' })
+      for (let r = 0; r < rows; r++) {
+        for (let i = 0; i < V.checks; i++) {
+          const h = hsh(i, r)
+          if (h > 0.94) continue
+          const u0 = lo + i * stepU + 1.5, u1 = lo + (i + 1) * stepU - 1.5
+          const um = (u0 + u1) / 2
+          const fc = dFor(stepU * (r - (rows - 1) / 2), um)
+          const fh = dFor(stepU / 2 - 1.5, um)
+          quad(gateFloorG, fc - fh, fc + fh, u0, u1, (i + r) % 2 ? V.line : V.lineDark, 0.7 + h * 0.26)
+        }
+      }
+      for (let i = 0; i < 7; i++) {
+        const h = hsh(i, 21), h2 = hsh(i, 33)
+        const u = lo + cav.hw * 2 * h
+        const q = P(dFor(half * (h2 * 2 - 1), u), u)
+        gateFloorG.circle(q.x, q.y, 12 + h2 * 16)
+        gateFloorG.fill({ color: 0xb9a98a, alpha: 0.16 + h * 0.12 })
+      }
+    }
     const buoy = (f0, cav, done, liv) => {
       const t = run.time ?? 0
       // THE GROUNDLINE, and it is the piece that turns two floats into a gate. Two markers alone
@@ -12971,10 +13148,12 @@ const spurG = new Graphics()
           // and not as a seventh checkpoint.
           chequer(gateG, 0, 1, cav, 0.92)
         } else {
-          if (gateArt === 5) mat(cav, 3)
+          if (gateArt >= 6) matWorn(cav, 3)
+          else if (gateArt === 5) mat(cav, 3)
           else chequer(gateFloorG, 0, 2, cav, 0.95)
           // ...and a chequered pylon on each bank, so the line still has ends when the floor is busy.
-          if (gateArt === 5) buoy(0, cav, false, BUOY_FINISH)
+          if (gateArt >= 6) realMarker(0, cav, false, true)
+          else if (gateArt === 5) buoy(0, cav, false, BUOY_FINISH)
           else for (const sign of [-1, 1]) {
             const edge = cav.c + sign * (cav.hw - 10)
             for (let b = 0; b < 3; b++) {
@@ -12995,7 +13174,9 @@ const spurG = new Graphics()
       const lapDone = Math.floor((run._swimN ?? 0) / per) * per + k < (run._swimN ?? 0)
       const col = lapDone ? V.postDone : V.post
       const al = lapDone ? V.doneAlpha : 1
-      if (gateArt === 5) {
+      if (gateArt >= 6) {
+        realMarker(f, cav, lapDone, false)
+      } else if (gateArt === 5) {
         // MOORED MARKER BUOYS — real course hardware, seen from directly above. What made every
         // earlier cut read as UI is that it had no way of being IN the water: a float that is only
         // a disc could be painted on the glass. A buoy has a TETHER and it has a SHADOW, and both
