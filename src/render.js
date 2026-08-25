@@ -10198,6 +10198,15 @@ export function createRenderer(app) {
 const spurArt = (() => {
   try { return Number(new URLSearchParams(location.search).get('cv') ?? 3) } catch { return 3 }
 })()
+// Under the coral, so the finish mat tucks beneath the colonies overhanging the passage edge.
+const gateFloorG = new Graphics()
+const gateFrontG = new Graphics()
+// THE CROSSING CLOCK. {type:'swimthrough'} has had an SFX_FOR_EVENT entry ('gem') since it was
+// written and NO consumer in this file — so threading a gate has always made a sound and never
+// changed a pixel. run EV is satisfied by the sound alone, which is why nothing caught it. Derived
+// from run._swimN rather than plumbed through sync's event list: render must not mutate run, a
+// counter cannot desync from itself, and a dropped frame cannot lose the pulse.
+let gateLastN = -1, gateCrossAt = -99, gateCrossK = -1
 const spurG = new Graphics()
   // THE CORAL IS SPRITES NOW, NOT A PATH. spurG survives only for the flat-slab A/B fallback
   // (spurArt 0) and for the ridge FOOT; every colony is a stamp out of coralPool. See bakeCoral().
@@ -10217,13 +10226,13 @@ const spurG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, spurG, coralLayer, polypG, gateG, burstWakeG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, gateFloorG, spurG, coralLayer, polypG, gateG, burstWakeG, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     orcaShadowSp, orcaG,
     enemyShadowLayer, enemyLayer, enemyCrownLayer, orcaSp, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, breakerG, puffG, splashG, columnG, shorebreakG,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -12789,28 +12798,32 @@ const spurG = new Graphics()
   // they existed. See CIRCUIT_GATE_VIS.
   function syncGates(run) {
     gateG.clear()
+    gateFloorG.clear()
+    gateFrontG.clear()
     const cfg = CHAPTERS[run.chapter]
     const cspec = cfg?.cave
     if (!cfg?.circuit || !cspec || !run._swims || run._swims.length === 0) return
     const V = CIRCUIT_GATE_VIS
-    const ax = laneAxes(cfg)
-    const xAxis = ax.fwd === 'x'
     const L = cspec.lapLen
     const per = run._swims.length
     const seed = run._obstacleSeed
+    const t = run.time ?? 0
     // A RING HAS NO FORWARD WINDOW, ONLY A DISTANCE. The camera is centred and a gate can be at
     // any bearing, so the cull is the screen's half-DIAGONAL plus a gate's own reach rather than
     // laneDrawSpan's ahead/astern split.
-    const cullR = Math.hypot(viewW(), viewH()) / 2 + V.postDepth * 2 + V.lineW
-    // A GATE IS A RADIAL SEGMENT ON A RING, not an axis-aligned rectangle — so every piece is drawn
-    // as a STROKED LINE between two (f, u) points rather than as a rect. That also buys the rounded
-    // caps for free, which is what stops a post reading as a UI slab (the first shot of these did).
-    const seg = (f, u0, u1, width, color, alpha) => {
-      const a = ringXY(cspec, f, u0)
-      const b = ringXY(cspec, f, u1)
-      gateG.moveTo(a.x, a.y)
-      gateG.lineTo(b.x, b.y)
-      gateG.stroke({ width, color, alpha, cap: 'round' })
+    const cullR = Math.hypot(viewW(), viewH()) / 2 + V.cullPad
+    // EVERY SHAPE IS BUILT FROM RING POINTS, so a marker follows the corner it stands on instead of
+    // shearing off it. (f, u) in, world out.
+    const P = (f, u) => ringXY(cspec, f, u)
+    const dFor = (px, u) => (px * L) / (2 * Math.PI * Math.max(1, cspec.ring.r0 - u))
+    const hsh = (x, y) => Math.abs(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1
+    const fuLine = (G, f0, u0, pts, color, alpha, w) => {
+      for (let n = 0; n < pts.length; n++) {
+        const q = P(f0 + dFor(pts[n][0], u0 + pts[n][1]), u0 + pts[n][1])
+        if (n) G.lineTo(q.x, q.y)
+        else G.moveTo(q.x, q.y)
+      }
+      G.stroke({ width: w, color, alpha, cap: 'round', join: 'round' })
     }
     // THE PLUG, AND IT IS DELIBERATELY TINY. Every f-cell of the wall converges on the ring's
     // centre, so the colony walk has to stop somewhere rather than stack sprites into one point;
@@ -12822,52 +12835,142 @@ const spurG = new Graphics()
     gateG.circle(-cspec.ring.r0, 0, 26)
     gateG.fill({ color: SPUR_VIS.body ?? 0x3b2b45, alpha: 1 })
 
+    const pw = run.player.x, ph2 = run.player.y
+    const near = (w) => (w.x - pw) * (w.x - pw) + (w.y - ph2) * (w.y - ph2) < cullR * cullR
+
+    // ONLY THE NEXT GATE IS LIT, and that is the largest single UX win available here. Every other
+    // gate on the lap goes quiet, so "where do I go" needs no arrow and no minimap.
+    const swimNow = run._swimN ?? 0
+    if (swimNow < gateLastN) gateLastN = -1
+    if (gateLastN >= 0 && swimNow > gateLastN) { gateCrossAt = t; gateCrossK = (swimNow - 1) % per }
+    gateLastN = swimNow
+    const nextK = swimNow % per
+    // 0 far .. 1 on top of it. The ramp is what turns a marker into an approach.
+    const nearness = (w) => Math.max(0, Math.min(1, 1 - Math.hypot(w.x - pw, w.y - ph2) / V.nearR))
+    const crossAge = (k) => (k === gateCrossK ? Math.max(0, 1 - (t - gateCrossAt) / V.crossT) : 0)
+
+    // THE REWARD. {type:'swimthrough'} is pushed by stepCircuit and has had an SFX_FOR_EVENT entry
+    // ('gem') since it was written, with NO consumer in this file at all — so the most important
+    // moment in this chapter was audio-only, and run EV was satisfied by the sound alone. This is
+    // the pixel half of it.
+    //   Derived from run._swimN rather than plumbed through sync's event list: render must not
+    // mutate run, a counter cannot desync from itself, and a dropped frame cannot lose the pulse.
+    const burst = (w, k) => {
+      const c = crossAge(k)
+      if (c <= 0) return
+      const e = 1 - c
+      gateFrontG.circle(w.x, w.y, 26 + e * 190)
+      gateFrontG.stroke({ width: 20 * c + 2, color: V.glow, alpha: 0.55 * c * c })
+      gateFrontG.circle(w.x, w.y, 12 + e * 92)
+      gateFrontG.stroke({ width: 10 * c + 1, color: 0xffffff, alpha: 0.5 * c })
+    }
+
+    // A stand on each bank, and the pair frame the squeeze. fin marks the start/finish line, which
+    // is always lit because it is always the thing you are ultimately driving at.
+    const stand = (f0, cav, fin, k) => {
+      const w0 = P(f0, cav.c)
+      const nr = nearness(w0), lit = fin || k === nextK
+      const c = crossAge(k)
+      const body = fin ? V.bodyFinish : V.body
+      // the reach the rods get here: cut back at the finish so the mat between them stays legible
+      const rm = fin ? V.finReachMul : 1
+      if (lit && !fin) {
+        const pu = 0.6 + 0.4 * Math.sin(t * 2.6)
+        for (const [w, al] of V.haze) {
+          fuLine(gateFrontG, f0, cav.c, [[0, -cav.hw + 20], [0, cav.hw - 20]], V.glow,
+            (al + al * 1.7 * nr) * pu + c * al * 5, w + c * 28)
+        }
+      }
+      for (const sign of [-1, 1]) {
+        const uBase = cav.c + sign * (cav.hw - 2)
+        for (let n = 0; n < V.rods; n++) {
+          const h = hsh(n, sign + 2), h2 = hsh(n, sign + 9)
+          const g = n / (V.rods - 1) - 0.5
+          const fr = g * V.footSpan + (h2 - 0.5) * V.footJitter
+          const splay = g * V.splay + (h - 0.5) * V.splayJitter
+          const sway = Math.sin(t * 1.1 + n * 1.3 + sign) * V.swayPx
+          // the wake shove: hardest on the rods nearest the middle, where the player went through
+          const push = c * c * V.shove * (0.35 + 0.65 * (n / V.rods))
+          const reach = (V.reachLo + h * V.reachSpan) * cav.hw * rm
+          const pts = []
+          for (let m = 0; m <= 6; m++) {
+            const g2 = m / 6
+            pts.push([fr + (splay + sway + push) * g2 * g2, -sign * reach * g2])
+          }
+          fuLine(gateG, f0, uBase, pts, V.outline, 1, V.rodOutlineW)
+          fuLine(gateG, f0, uBase, pts, body, 1, V.rodBodyW)
+          // polyps along the rod — what makes it coral rather than a reed
+          for (let m = 1; m <= 5; m++) {
+            const pt = pts[m]
+            const uu = uBase + pt[1]
+            const q2 = P(f0 + dFor(pt[0] + (m % 2 ? 4 : -4), uu), uu)
+            gateG.circle(q2.x, q2.y, V.polypR)
+            gateG.fill({ color: V.polyp, alpha: 0.85 })
+          }
+          const tip = pts[6]
+          const uu = uBase + tip[1]
+          const q = P(f0 + dFor(tip[0], uu), uu)
+          if (lit) {
+            const pu = 0.6 + 0.4 * Math.sin(t * 3 + n * 0.5)
+            gateFrontG.circle(q.x, q.y, 30 + c * 24)
+            gateFrontG.fill({ color: V.glow, alpha: (0.1 + 0.16 * nr) * pu + c * 0.3 })
+            gateFrontG.circle(q.x, q.y, 16 + c * 12)
+            gateFrontG.fill({ color: V.glow, alpha: (0.16 + 0.22 * nr) * pu + c * 0.36 })
+            gateG.circle(q.x, q.y, V.bulbR)
+            gateG.fill({ color: V.bulb, alpha: 0.8 + 0.2 * pu })
+          } else {
+            gateG.circle(q.x, q.y, V.bulbDarkR)
+            gateG.fill({ color: V.bulbDark, alpha: 1 })
+          }
+        }
+      }
+      burst(w0, k)
+    }
+
+    // The chequered mat, laid on the sand at f = 0.
+    const mat = (cav) => {
+      const lo = cav.c - cav.hw, stepU = (cav.hw * 2) / V.checks
+      const half = (V.matRows * stepU) / 2
+      // one stroke for the bed, across the whole passage: a per-column loop left a tab sticking out
+      // at each end, which read as torn shadow rather than as the edge of a laid mat.
+      const A0 = P(0, lo - 8), B0 = P(0, lo + cav.hw * 2 + 8)
+      gateFloorG.moveTo(A0.x, A0.y)
+      gateFloorG.lineTo(B0.x, B0.y)
+      gateFloorG.stroke({ width: (half + 8) * 2, color: V.matBed, alpha: 0.42, cap: 'butt' })
+      for (let r = 0; r < V.matRows; r++) {
+        for (let n = 0; n < V.checks; n++) {
+          const h = hsh(n, r)
+          if (h > V.matLost) continue
+          const u0 = lo + n * stepU + 1.5, u1 = lo + (n + 1) * stepU - 1.5
+          const um = (u0 + u1) / 2
+          const fc = dFor(stepU * (r - (V.matRows - 1) / 2), um)
+          const fh = dFor(stepU / 2 - 1.5, um)
+          const c0 = P(fc - fh, u0), c1 = P(fc - fh, u1), c2 = P(fc + fh, u1), c3 = P(fc + fh, u0)
+          gateFloorG.poly([c0.x, c0.y, c1.x, c1.y, c2.x, c2.y, c3.x, c3.y])
+          gateFloorG.fill({ color: (n + r) % 2 ? V.line : V.lineDark, alpha: 0.7 + h * 0.26 })
+        }
+      }
+      for (let n = 0; n < 7; n++) {
+        const h = hsh(n, 21), h2 = hsh(n, 33)
+        const u = lo + cav.hw * 2 * h
+        const q = P(dFor(half * (h2 * 2 - 1), u), u)
+        gateFloorG.circle(q.x, q.y, 12 + h2 * 16)
+        gateFloorG.fill({ color: V.sand, alpha: 0.16 + h * 0.12 })
+      }
+    }
+
     // ONE LAP, NOT A WINDOW. On a ring the gates ARE the lap — f wraps, so there is no `n` to walk
     // and every checkpoint is either on screen or culled by its own distance. The start line is
     // simply the gate at f = 0.
-    const pw = run.player.x, ph2 = run.player.y
-    const near = (w) => (w.x - pw) * (w.x - pw) + (w.y - ph2) * (w.y - ph2) < cullR * cullR
     {
       const cav = caveAt(0, cspec, seed)
-      const lo = cav.c - cav.hw, stepU = (cav.hw * 2) / V.checks
-      if (near(ringXY(cspec, 0, cav.c))) {
-        // THE START LINE: a chequered band across the WHOLE passage, so it reads as a finish line
-        // and not as a seventh checkpoint.
-        for (let i = 0; i < V.checks; i++) {
-          seg(0, lo + i * stepU, lo + (i + 1) * stepU, V.lineW, i % 2 ? V.line : V.lineDark, 0.92)
-        }
-      }
+      if (near(P(0, cav.c))) { mat(cav); stand(0, cav, true, -1) }
     }
     for (let k = 0; k < per; k++) {
       const f = run._swims[k].f
       const cav = caveAt(f, cspec, seed)
-      if (!near(ringXY(cspec, f, cav.c))) continue
-      // run._swimN is a RUNNING COUNT since the run began, so which lap's gate this is falls out of
-      // it with no per-lap bookkeeping — the same arithmetic stepCircuit banks with.
-      const lapDone = Math.floor((run._swimN ?? 0) / per) * per + k < (run._swimN ?? 0)
-      const col = lapDone ? V.postDone : V.post
-      const al = lapDone ? V.doneAlpha : 1
-      seg(f, cav.c - cav.hw, cav.c + cav.hw, V.postW, V.band, lapDone ? V.bandAlpha * V.doneAlpha : V.bandAlpha)
-      // THE CHEVRONS: the difference between a barrier and an instruction. They point the way the
-      // player travels, so a gate says "through here" rather than "something is here".
-      for (let i = 0; i < V.chevron; i++) {
-        const u = cav.c - cav.hw + (cav.hw * 2) * (i + 0.5) / V.chevron
-        const dF = (V.chevronW * cspec.lapLen) / (2 * Math.PI * Math.max(1, cspec.ring.r0 - u))
-        const a = ringXY(cspec, f - dF, u - V.chevronH)
-        const b = ringXY(cspec, f + dF, u)
-        const c2 = ringXY(cspec, f - dF, u + V.chevronH)
-        gateG.moveTo(a.x, a.y)
-        gateG.lineTo(b.x, b.y)
-        gateG.lineTo(c2.x, c2.y)
-        gateG.stroke({ width: 5, color: col, alpha: lapDone ? V.doneAlpha : 0.8, cap: 'round', join: 'round' })
-      }
-      for (const sign of [-1, 1]) {
-        const edge = cav.c + sign * cav.hw
-        seg(f, edge, edge + sign * V.postDepth, V.postW, col, al)
-        // ...and a lit lip on the face that looks into the passage, so the post has a front. A flat
-        // slab of one colour is what read as a UI artefact in the first shot of these.
-        seg(f, edge, edge + sign * 14, V.postW - 12, lapDone ? V.postDone : V.postCore, lapDone ? V.doneAlpha : 0.9)
-      }
+      if (!near(P(f, cav.c))) continue
+      stand(f, cav, false, k)
     }
   }
 
@@ -19320,6 +19423,8 @@ const spurG = new Graphics()
     laneG.clear()
     spurG.clear()
     gateG.clear()
+    gateFloorG.clear()
+    gateFrontG.clear()
     // THE COLONIES ARE A SPRITE POOL NOW, so clearing the Graphics is no longer enough: without
     // this the previous run's coral is still parented and visible on the next one. This is the
     // exact failure run CP exists to catch.
@@ -21414,6 +21519,8 @@ const spurG = new Graphics()
     // until its first lane crossing.
     spurG.clear()
     gateG.clear()
+    gateFloorG.clear()
+    gateFrontG.clear()
     // THE COLONIES ARE A SPRITE POOL NOW, so clearing the Graphics is no longer enough: without
     // this the previous run's coral is still parented and visible on the next one. This is the
     // exact failure run CP exists to catch.
