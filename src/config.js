@@ -9412,9 +9412,7 @@ export const LANE_STRAFE_MUL = 1.25      // strafe is a touch quicker than base 
 // recovering from a crash-stop to a working 180px/s takes 0.43s. Both are meant to be FELT and
 // neither is meant to be a punishment on its own — the punishment is the clock.
 // balance_decision : momentum you can feel, not fight [2026-08-24]
-//  - UNMEASURED. The lap-time probe has not been built, so this is a starting point for the knob
-//    grid and not a tuned number. Do not quote it as measured.
-export const CIRCUIT_ACCEL = 420
+//  - the number itself is CIRCUIT_DEFAULTS.accel below, with the other three circuit knobs.
 
 // THE RACE CLOCK. It counts down in real seconds and a swimthrough tops it up TO A CEILING.
 //
@@ -9429,12 +9427,21 @@ export const CIRCUIT_ACCEL = 420
 //   CIRCUIT_SWIM_TIME  vs  mean seconds between swimthroughs at the pace the difficulty demands
 // Measured spacing is 528..1272px, i.e. 2.9..7.1s at 180px/s, so a top-up below ~3s can never keep
 // a clean lap alive and one above ~7s can never fail to.
+// THE FOUR NUMBERS LIVE ON `CHAPTERS[id].circuit`, NOT HERE, and that placement is what makes them
+// sweepable. A primitive `export const` cannot be reassigned by a probe, so a knob grid over module
+// constants needs a source edit per cell — which is how a "measured" number ends up being whatever
+// the last hand edit left behind. As object properties they override the way charge-probe.mjs
+// already overrides `res.drainPerSpawn`. scripts/reef-lap-probe.mjs named this exact obstacle.
 // balance_decision : capped bank, so skill stops paying twice [2026-08-24]
-//  - UNMEASURED, all three. scripts/reef-lap-probe.mjs is the rig and it has never been run against
-//    a live clock; these are the starting point for its knob grid, not tuned numbers.
-export const CIRCUIT_CLOCK_START = 30    // seconds on the clock at the start line
-export const CIRCUIT_CLOCK_CAP = 30      // ...and the ceiling a swimthrough may top it back up to
-export const CIRCUIT_SWIM_TIME = 6       // seconds a swimthrough is worth
+//  - UNMEASURED, all of them. Starting points for the lap probe's grid, not tuned numbers.
+export const CIRCUIT_DEFAULTS = {
+  accel: 420,        // px/s^2 the throttle's speed eases at — see CIRCUIT_ACCEL's block above
+  clockStart: 30,    // seconds on the clock at the start line
+  clockCap: 30,      // ...and the ceiling a swimthrough may top it back up to
+  swimTime: 6,       // seconds a swimthrough is worth
+}
+/** Read a circuit knob for a chapter, falling back to the shared default. */
+export const circuitKnob = (ch, key) => ch?.circuit?.[key] ?? CIRCUIT_DEFAULTS[key]
 
 // THE LANE HAS WALLS, and this is the correction that makes the chapter playable at all. Rev.1 had
 // an unbounded lane with ranks 900px wide centred on the player: on a phone (viewRadius ~465) most

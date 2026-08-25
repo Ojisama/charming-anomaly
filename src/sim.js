@@ -149,8 +149,8 @@ import {
   CRAB_GUARD_T,
   CRAB_OPEN_T,
   CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
-  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes, CIRCUIT_ACCEL,
-  swimthroughsFor, CIRCUIT_CLOCK_START, CIRCUIT_CLOCK_CAP, CIRCUIT_SWIM_TIME,
+  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
+  swimthroughsFor, circuitKnob,
   caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK,
   LANE_CRUSH_DPS, LANE_CRUSH_TICK,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
@@ -659,6 +659,9 @@ function stepPlayerMovement(run, input, dt) {
   const p = run.player
   let ix = input?.x || 0
   let iy = input?.y || 0
+  // THE RAW STICK, KEPT. In a `circuit` the forward component is a THROTTLE, not half of a
+  // direction, and the unit-circle clamp below is the wrong tool for it — see the lane branch.
+  const rawX = ix, rawY = iy
   const len = Math.hypot(ix, iy)
   if (len > 1) { ix /= len; iy /= len } // clamp to unit circle, keep sub-unit analog magnitude
 
@@ -783,7 +786,18 @@ function stepPlayerMovement(run, input, dt) {
     // symmetric: full push is thr.max and full ease-off is thr.min, and the low one may never reach
     // 0 — a lane that can be stopped is not a lane.
     const thr = CHAPTERS[run.chapter].laneThrottle
-    const fwdIn = Math.max(-1, Math.min(1, (ax.fwd === 'x' ? ix : iy) * ax.dir))
+    // THROTTLE AND STEERING ARE SEPARATE CONTROLS IN A CIRCUIT, so the throttle reads the RAW stick
+    // and not the unit-clamped one (owner, 2026-08-25).
+    //   The clamp is right for a direction and wrong for a throttle. A player correcting their line
+    // at full push sends (1, 1), which hypot scales to (0.707, 0.707) — so the throttle formula gave
+    // 1 + 0.707 x 2 = 2.41 instead of 3, and MEASURED 217.3px/s against 270. Turning cost 19.5% of
+    // top speed, and nobody chose that number: it fell out of a 2D movement helper written for a
+    // twin-stick game where the stick is a heading. In a lane it is two controls sharing one stick.
+    //   The CROSS axis still reads the clamped value, so strafe speed stays bounded exactly as it
+    // was. Only the forward read changes, and only where `circuit` is set — every other lane chapter
+    // keeps the old behaviour by construction.
+    const fwdSrc = CHAPTERS[run.chapter].circuit ? (ax.fwd === 'x' ? rawX : rawY) : (ax.fwd === 'x' ? ix : iy)
+    const fwdIn = Math.max(-1, Math.min(1, fwdSrc * ax.dir))
     run._laneThrottle = thr ? 1 + fwdIn * (fwdIn >= 0 ? thr.max - 1 : 1 - thr.min) : 1
     p[ax.vCross] = (ax.cross === 'x' ? ix : iy) * speed * LANE_STRAFE_MUL
     // MOMENTUM (v7.x, a `circuit` chapter only — see CIRCUIT_ACCEL). The throttle stops BEING the
@@ -816,7 +830,7 @@ function stepPlayerMovement(run, input, dt) {
       // Toward `want` at a fixed px/s^2, never past it — a clamped step rather than a lerp, so the
       // ramp takes the same time whatever the frame rate and cannot overshoot on a long dt. stepSim
       // clamps dt to 0.05s, so the largest single step is 21px/s.
-      const step = CIRCUIT_ACCEL * dt
+      const step = circuitKnob(CHAPTERS[run.chapter], 'accel') * dt
       run._laneSpeed = run._laneSpeed < want
         ? Math.min(want, run._laneSpeed + step)
         : Math.max(want, run._laneSpeed - step)
@@ -1716,7 +1730,7 @@ function stepCircuit(run, dt) {
   // The chosen six, once per run. They are identical for every lap because the track is.
   if (!run._swims) run._swims = swimthroughsFor(spec, run._obstacleSeed)
 
-  run.raceClock = (run.raceClock ?? CIRCUIT_CLOCK_START) - dt
+  run.raceClock = (run.raceClock ?? circuitKnob(ch, 'clockStart')) - dt
 
   // A RUNNING COUNT, not a nearest-checkpoint test. run._swimN counts every swimthrough crossed
   // since the run began, so a lap boundary needs no special case at all — the count simply keeps
@@ -1731,7 +1745,7 @@ function stepCircuit(run, dt) {
   const prev = run._swimN ?? passed          // first frame banks the start line rather than firing it
   if (passed > prev) {
     for (let k = prev; k < passed; k++) {
-      run.raceClock = Math.min(CIRCUIT_CLOCK_CAP, run.raceClock + CIRCUIT_SWIM_TIME)
+      run.raceClock = Math.min(circuitKnob(ch, 'clockCap'), run.raceClock + circuitKnob(ch, 'swimTime'))
       run.events.push({ type: 'swimthrough', x: run.player.x, y: run.player.y, n: k + 1 })
     }
   }

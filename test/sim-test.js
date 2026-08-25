@@ -84,7 +84,7 @@ import {
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
-  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, CIRCUIT_ACCEL, swimthroughsFor, SWIMTHROUGHS_PER_LAP, CIRCUIT_CLOCK_CAP, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
+  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, circuitKnob, swimthroughsFor, SWIMTHROUGHS_PER_LAP, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
@@ -22819,6 +22819,7 @@ function testLaneGolden() {
 // invariants the axis IS — forward is +x at exactly LANE_SCROLL_SPEED, the stick's y is the strafe
 // and its x is nothing, the walls are on y, and everything arrives from +x.
 function testLaneAxis() {
+  const CIRCUIT_ACCEL = circuitKnob(CHAPTERS.reef, 'accel')
   const dt = 1 / 60
   const meta = makeMeta()
   meta.dev = true
@@ -23299,6 +23300,7 @@ function testReefPassiveCrowd() {
 // or dashing across a band describe geometry that no longer exists. Kept from it: the properties
 // that are still true of ANY version of this chapter, re-derived against caveAt.
 function testReefSpurScrape() {
+  const CIRCUIT_ACCEL = circuitKnob(CHAPTERS.reef, 'accel')
   const dt = 1 / 60
   const meta = makeMeta()
   for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
@@ -23558,6 +23560,24 @@ function testReefSpurScrape() {
         `run RS.e: full throttle took ${secsToTop.toFixed(3)}s to arrive against the ${ideal.toFixed(3)}s CIRCUIT_ACCEL ${CIRCUIT_ACCEL} implies`)
       ramp = { v1, secsToTop, ideal }
     }
+    // STEERING DOES NOT COST THROTTLE (owner, 2026-08-25). In a circuit the stick is two controls,
+    // not one heading, so correcting your line at full push must still be full push. It did not use
+    // to be: stepPlayerMovement clamps the input to the unit circle, so (1,1) became (0.707,0.707)
+    // and the throttle read 2.414 instead of 3 — MEASURED at 217.3px/s against 270, a 19.5% tax on
+    // turning that nobody designed. Asserted against the straight-line case rather than a literal,
+    // so it keeps holding if laneThrottle is retuned.
+    {
+      const straight = reefRun(), turning = reefRun()
+      for (let i = 0; i < 120; i++) {
+        stepSim(straight, stick(0, LAX.dir), dt); straight.events.length = 0
+        stepSim(turning, { x: LAX.fwd === 'x' ? LAX.dir : 1, y: LAX.fwd === 'y' ? LAX.dir : 1 }, dt); turning.events.length = 0
+      }
+      assert.ok(Math.abs(turning._laneThrottle - straight._laneThrottle) < 1e-9,
+        `run RS.e: steering while flooring it gives throttle ${turning._laneThrottle.toFixed(3)} against ${straight._laneThrottle.toFixed(3)} going straight — the unit-circle clamp is diluting the throttle, so threading a squeeze costs top speed in a chapter scored on time`)
+      assert.ok(Math.abs(turning.player[LAX.vCross]) > 1e-6,
+        'run RS.e: the turning control is not actually steering, so it cannot show a steering tax either way')
+    }
+
     // The Beyond has no `circuit`, so momentum must not have followed the lane flag over to it.
     {
       const bax2 = laneAxes(CHAPTERS.beyond)
@@ -23664,6 +23684,7 @@ function testReefSpurScrape() {
 // against a driven run rather than against config, because a checkpoint that exists in a table and
 // never fires is exactly the shape of defect this chapter's own history is made of.
 function testReefCircuit() {
+  const CIRCUIT_CLOCK_CAP = circuitKnob(CHAPTERS.reef, 'clockCap')
   const dt = 1 / 60
   const ch = CHAPTERS.reef
   const spec = ch.cave, LAP = spec.lapLen
