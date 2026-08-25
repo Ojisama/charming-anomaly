@@ -6997,13 +6997,24 @@ CHAPTERS.reef = {
     //   ⚠ THE CEILING IS CLEARANCE, NOT hw, AND THE TWO ARE NOT THE SAME NUMBER. hw is measured
     //   RADIALLY; where the track runs steeply across the radii the real gap is hw x cos(that
     //   angle), and at a high enough wander/r0 the inner edge of a hairpin folds through itself
-    //   while hw still reads 200. Measured worst clearance off the racing line: 85px, with 3% of
-    //   the lap under 90 (player radius 22). reef-track-map.mjs prints it; do not move this knob —
-    //   or r0 — without reading it, and move the two together.
-    // halfMin/halfMax 170/220 -> 150/200: on a phone the visible world is ~390px across the short
-    // axis and the camera is centred now (no lane to bias it), so a 440px track is wider than the
-    // screen at the moments you are driving across it. 300-400px still holds ~7 player widths.
-    wander: 572, halfMin: 150, halfMax: 200,
+    //   while hw still reads its nominal value. Measured worst clearance off the racing line:
+    //   102px, with 0% of the lap under 90 (player radius 22) — it was 85px and 3% before the
+    //   passage widened. reef-track-map.mjs prints it; do not move this knob — or r0 — without
+    //   reading it, and move the two together.
+    // THE PASSAGE WIDTH. 150/200 -> 180/240, a 360-480px track (owner, 2026-08-25: "make track
+    // width +20%").
+    //   ⚠ IT IS NOW WIDER THAN THE PHONE'S SHORT AXIS, WHICH IS THE THING THE PREVIOUS CUT TRADED
+    // IT AWAY FOR. 170/220 came down to 150/200 on exactly this argument: the visible world is
+    // ~390px across the short axis of a 390x844 phone and the camera is CENTRED here (no lane to
+    // bias it), so at the widest chambers both walls no longer fit on screen while you are driving
+    // across them. That is a deliberate re-trade, not an oversight — the fix if it reads badly is
+    // this knob and not the camera.
+    //   AND IT CUTS THE OTHER WAY ON THE IMPACTS. `lim` is hw - PLAYER.radius, so 20% more room is
+    // 20% fewer chances to be in the wall at all; the crash tune (circuit.crashSpeed and the kick
+    // block) is unchanged and simply fires less often. Everything measured as a FRACTION of hw
+    // follows on its own — the island (branch.frac), the checkpoint rods (CIRCUIT_GATE_VIS.reachLo
+    // /reachSpan) and the air pockets' inner snap all scale with it by construction.
+    wander: 572, halfMin: 180, halfMax: 240,
     // EVERY WAVELENGTH DIVIDES lapLen (5040), WHICH IS WHAT MAKES THE TRACK A CIRCUIT. The passage
     // is summed sines of f, so it repeats exactly when every length divides the lap -- no `f % lap`
     // wrap, no seam to blend, caveAt untouched.
