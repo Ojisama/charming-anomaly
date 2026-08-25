@@ -2745,7 +2745,12 @@ export const PASSIVES = {
   // balance_decision : four knobs, one per verb the racer has [2026-08-25]
   //  - every base UNMEASURED. scripts/reef-lap-probe.mjs has never been run with a card taken.
   topSpeed:   { name: 'Turbo Fin',    desc: 'top speed',    base: 0.10, kind: 'pct', chapter: 'reef' },
-  accelRate:  { name: 'Quick Start',  desc: 'acceleration', base: 0.15, kind: 'pct', chapter: 'reef' },
+  // base 0.15 -> 0.45. MEASURED: at 0.15 (x1.75 accel at MAX_PASSIVE_LEVEL) a whole race with a
+  // cornering brake saved 0.12-0.20s of ~110s — a card you cannot feel, which is exactly the inert
+  // pick run CD exists to catch. See CIRCUIT_DEFAULTS.accel, which had to come down first: while
+  // the ramp took 0.64s there was nothing for any multiple of it to buy.
+  // balance_decision : Quick Start has to be worth a card slot [2026-08-25]
+  accelRate:  { name: 'Quick Start',  desc: 'acceleration', base: 0.45, kind: 'pct', chapter: 'reef' },
   airMax:     { name: 'Big Lungs',    desc: 'Air capacity', base: 0.20, kind: 'pct', chapter: 'reef' },
   dashLength: { name: 'Jet Puff',     desc: 'dash length',  base: 0.15, kind: 'pct', chapter: 'reef' },
 }
@@ -6071,13 +6076,15 @@ CHAPTERS.blank = {
 // (Reef: none), 120, 45, 95, 150 — no two adjacent chapters within 45 degrees.
 //
 // THE REEF HAS NO TIDE, deliberately (owner ruling, on these measurements). A zero-mean sine
-// displaces 102px at its extreme, and its lane cannot pay that in either direction:
-//  - across it (90 deg), the water walks a player who is not steering 205px sideways, into the air
-//    pockets (r 130) — RF.a's centre-line run ended on 93 of 100 Air instead of 0, i.e. the water
-//    made the chapter's one decision for them.
-//  - along it (20 deg), the advance swings 2-88 px/s against a steady 45.
-// For any future lane chapter: a tide costs you the scroll or the cross-lane decision, so measure
-// both — the sway came in at 205px where the sine alone predicts 102, the lane's terms adding to it.
+// displaces 102px at its extreme, and the chapter cannot pay that:
+//  - ACROSS the track (90 deg), the water walks a player who is not steering 205px sideways, into
+//    the air pockets (r 130) — RF.a's centre-line run ended on 93 of 100 Air instead of 0, i.e. the
+//    water made the chapter's one decision for them.
+//  - ALONG it (20 deg), the advance used to swing 2-88 px/s against a steady 45.
+// ⚠ STILL TRUE NOW THE LANE IS A RING (v7.x), and it was re-measured rather than inherited: the
+// argument that buys the exception is the WIDTH, and the ring's passage is 300-400px against that
+// same 205px sway. For any future scroller: a tide costs you the scroll or the cross-lane decision,
+// so measure both — the sway came in at 205px where the sine alone predicts 102.
 export const TIDE = { surge: 46, period: 14 }
 export const tideAt = (deg) => ({ ...TIDE, axis: deg * Math.PI / 180 })
 
@@ -6852,7 +6859,17 @@ CHAPTERS.surf = {
 // survived passiveCrowd — see the weapons block for which one left and why.
 CHAPTERS.reef = {
   name: 'The Reef', tagline: 'the current only runs one way', icon: '🪸',
-  lane: true,
+  // ⚠ NO `lane: true` SINCE v7.x, AND THAT IS THE RING (see ringXY). A lane is a straight corridor
+  // with a fixed forward axis, which is exactly the shape the owner rejected — so The Reef is a
+  // FREE-ROAM chapter whose obstacle field happens to be "coral everywhere except a ring-shaped
+  // passage". Dropping the flag is what buys the change cheaply: sixteen sites in sim.js gate on
+  // `lane` and every one of them wants the free-roam answer here (the stick is a heading, spawns
+  // ring the player, nothing auto-scrolls, the camera centres). The four that did NOT are named
+  // where they now read `circuit` instead — the magnet, the spawn placement, the astern sweep and
+  // the straggler recycler. The Beyond keeps `lane: true` and is untouched by construction.
+  //   `laneAxis` STAYS. laneAxes() is still the answer to "which way is the start line" for the
+  // handful of readers that predate the ring, and ui.js reads it for the joystick. It is inert for
+  // movement now.
   laneAxis: 'x',
   // 45 rather than the shared 70 — see laneScrollFor's block. Measured, not felt: on a 390x844 phone
   // an x-lane has only 312 world px ahead of the player against the y-lane's 675, so at 70 this
@@ -6935,19 +6952,53 @@ CHAPTERS.reef = {
     // the centre line (or breathing is free) and stay inside the wall (or it is unreachable), and
     // at hw 100 with r 48 those two demands have no overlap. wander drops to 100 to pay for it:
     // wander + halfMax must stay inside laneHalfW 330, and 100 + 210 = 310 does.
-    wander: 100, halfMin: 170, halfMax: 220,
+    // wander 100 -> 240 BECAUSE IT IS A RADIUS NOW, not a sideways offset inside a 330px corridor.
+    // The old ceiling was `wander + halfMax must stay inside laneHalfW`; a ring has no corridor to
+    // stay inside, so the constraint is gone and the number can finally do what it is for. At 240
+    // on r0 900 the centreline radius swings 660-1140 with the dominant octave at 60 degrees of
+    // arc, which is what turns a snaking corridor into straights, sweepers and hairpins.
+    // halfMin/halfMax 170/220 -> 150/200: on a phone the visible world is ~390px across the short
+    // axis and the camera is centred now (no lane to bias it), so a 440px track is wider than the
+    // screen at the moments you are driving across it. 300-400px still holds ~7 player widths.
+    wander: 130, halfMin: 150, halfMax: 200,
     // EVERY WAVELENGTH DIVIDES lapLen (5040), WHICH IS WHAT MAKES THE TRACK A CIRCUIT. The passage
     // is summed sines of f, so it repeats exactly when every length divides the lap -- no `f % lap`
-    // wrap, no seam to blend, caveAt untouched. Retuned from 900/380/170 and 640/250, which were
-    // already within 7% of divisors: the cave keeps its character and gains a lap.
-    //   5040 / 840 = 6   / 360 = 14   / 168 = 30   / 630 = 8   / 252 = 20   / 720 = 7
-    // Measured against the shipped caveAt, 720 samples across a lap boundary: max|dc| 9.7e-13 and
-    // max|dhw| 4.0e-13, against 173.1 and 20.6 on the old values. Run RL asserts it.
-    //   ⚠ CHANGING lapLen MEANS RETUNING ALL SIX. A length that does not divide it puts a
+    // wrap, no seam to blend, caveAt untouched.
+    //   5040 / 2520 = 2   / 1008 = 5   / 504 = 10   / 1680 = 3   / 720 = 7   / 1008 = 5
+    //   ⚠ CHANGING lapLen MEANS RETUNING ALL OF THEM. A length that does not divide it puts a
     //   discontinuity at the start line, which is the one place on the track the player crosses
-    //   four times a race and is looking at.
-    waves: [[840, 1], [360, 0.42], [168, 0.18]],   // [wavelength px, weight]
-    widthWave: [[630, 1], [252, 0.45]],
+    //   five times a race and is looking at.
+    //
+    // ⚠ TRIPLED FOR THE RING, AND THE OLD SET WAS NOT DRIVABLE ON ONE. On a corridor these were
+    // 840/360/168 with wander 100, and the steepest the centreline could move was 1.33px sideways
+    // per px forward — punishing but survivable, because a lane clamps you inside it and the walls
+    // came to you. On a ring f is an ANGLE, so a px of travel is up to 1.58 of f at the tight end,
+    // and at wander 240 the same shape reached 5px of radius per px driven: measured, the centre
+    // swung 200px in 80px of f, which is a 79-degree kink no steering can hold. A probe driver
+    // aiming 220px ahead was in the wall from the first corner on every seed.
+    //   Amplitude falls SLOWER THAN WAVELENGTH in this set, which is why the short octaves were as
+    // steep as the long one rather than being detail on top of it: each of the three contributed
+    // about 1.1 of that slope. Tripling every length and dropping wander to 130 puts the worst case
+    // at 0.6 — long sweepers with real corners, and a shape a driver can read a screen ahead.
+    waves: [[2520, 1], [1008, 0.42], [504, 0.18]],   // [wavelength px, weight]
+    // THE SQUEEZES, AND THEIR COUNT IS STRUCTURAL: lapLen / the short period = 5040 / 720 = 7 local
+    // minima a lap, of which swimthroughsFor takes the deepest SWIMTHROUGHS_PER_LAP. At the old
+    // 252 it was 20 minima, i.e. a pinch every 280px of arc — under a second apart at racing speed,
+    // which on a ring reads as a corridor that is permanently closing rather than as a track with
+    // places in it.
+    //   ⚠ A THIRD OCTAVE, AND IT IS THE COUNT THAT NEEDS IT. Two waves give 5040/720 = 7 local
+    // minima a lap, and swimthroughsFor takes the deepest SWIMTHROUGHS_PER_LAP of them — so with 7
+    // it is taking almost all of them, and the sixth was landing at hw 177 against a passage
+    // midpoint of 175, i.e. in the WIDE half. "The checkpoint is the tightest point on the track"
+    // stops being true when there is barely a field to choose from. 5040/504 = 10 restores the
+    // choice, at a minimum spacing of ~580px of arc.
+    // 5040 / 252 = 20 local minima a lap, of which swimthroughsFor takes the deepest
+    // SWIMTHROUGHS_PER_LAP — the same 6-of-20 selection the corridor had, and the selection RATIO
+    // is what makes "the checkpoint is the tightest point on the track" true. At 6 of 7 (two
+    // octaves) and 6 of 10 (three) the sixth-deepest was landing in the WIDE half, because taking
+    // most of a field is not choosing from it. The short octave is deliberately faint: it is there
+    // to give the picker candidates, not to corrugate a 300-400px passage.
+    widthWave: [[1680, 1], [720, 0.45], [504, 0.22], [252, 0.12]],
     // THE BRANCHES (caveAt's own block has the geometry). One island every `every / chance` = 1000px
     // of lane, i.e. a fork about every 11s at laneScroll 90, each one 380px long = 4.2s of committed
     // side. `frac` is the share of the passage the island takes, so each branch is 36% of it — 122px
@@ -6957,13 +7008,21 @@ CHAPTERS.reef = {
     // on the same seven places every lap. The wavelengths alone do NOT give this -- the island
     // hashes floor(f / every), a cell index that keeps climbing, so lap 2 rolled a different fork
     // at the same place until caveAt wrapped it (57px of island discrepancy, measured).
-    branch: { every: 720, chance: 0.7, span: 380, frac: 0.28 },
+    // `every` 720 -> 1008 (5040 / 1008 = 5, so five candidate forks a lap on the same seven-places
+    // rule) and the span with it: at 7 forks of 380 the player was committing to a side of the
+    // track every 1.6s, which is a texture rather than a decision.
+    branch: { every: 1008, chance: 0.7, span: 500, frac: 0.28 },
     // THE LAP, IN PIXELS, AND IT LIVES HERE RATHER THAN ON `circuit` BECAUSE IT IS A PROPERTY OF
     // THIS GEOMETRY: it is the period every wavelength above divides, and the modulus caveAt wraps
     // the fork cell by. Authoring it twice is the drift this repo's own CLAUDE.md calls its largest
     // defect class, so `circuit` carries the lap COUNT and reads the length from here.
     // 5040px is about 28s at a realistic 180px/s -- the owner's "a lap should be 30s average".
     lapLen: 5040,
+    // THE LOOP ITSELF. r0 is the nominal radius the passage centre wobbles about; see ringXY for
+    // why the centre sits at (-r0, 0) and why u is measured inward. 900 is chosen from the LAP
+    // TIME, not from the picture: the arc a lap actually covers is ~5800px once the wobble is paid
+    // for, which at the 270px/s a full throttle makes is ~21s a lap and ~108s for the five.
+    ring: { r0: 900 },
     salt: 47,                                      // next free salt block; 44-46 were the spurs'
     // NO `fill` HERE, AND DELIBERATELY NOT. It read "how far past the passage edge coral is drawn,
     // must exceed the largest half-view the game can present" and NOTHING EVER READ IT -- syncSpurs
@@ -7104,7 +7163,20 @@ CHAPTERS.reef = {
     // balance_decision : rare, big, generous instead of frequent, small, stingy [2026-08-24]
     //  - the three numbers only make sense together: r 48->90, refill 9->20, chance 0.66->0.14.
     //    Any two of them without the third either deletes the resource or starves it.
-    pockets: { cell: 640, chance: 0.14, r: 90, minDist: 420, salt: 40 },
+    // ⚠ `ringCells`/`ringChance` ARE THE ONES THAT FIRE, and cell/chance are now the dead half.
+    // The square cell grid was right for a lane, where the pockets were snapped ACROSS a corridor
+    // whose forward axis was a world coordinate. On a ring the track is an annulus: most of that
+    // grid is inside the hole or out past the far wall, and snapping those cells onto the passage
+    // would pile the whole field into a few angles. The ring streams pockets on a 1-D grid along f
+    // instead (streamRingPockets), which is the same idiom as the cave's own fork cells and gives
+    // an even spacing by construction.
+    //   8 cells at 0.7 is ~5.6 pockets a lap over ~5800px of arc — one every ~1030px, which is what
+    // the lane's grid worked out to and is deliberately unchanged: the bar's whole tune was
+    // measured against that spacing.
+    //   IT WRAPS MOD ringCells, so a pocket is in the SAME PLACE every lap. On a circuit that is
+    // the point — the track is a thing you learn — and it is also what stops a fresh roll appearing
+    // where you already breathed.
+    pockets: { cell: 640, chance: 0.14, r: 90, minDist: 420, salt: 40, ringCells: 8, ringChance: 0.7 },
   },
 
   // SPUR AND GROOVE (level design spec 2026-08-20, rev 4). The reef front as this game's only
@@ -7294,7 +7366,14 @@ CHAPTERS.reef = {
     // the multiplied value, which also puts real distance between the mote and the three colours
     // that mean AIR here (AIR_POCKET_VIS.sheen 0xbfe9ff / .air 0xe4f4ff, CORAL_CRUSH.bubbleTint
     // 0xdff2ff) — distance the old warm near-white did not have.
-    dust: { tint: 0x949ba3, alpha: 0.35, speedMul: -3.0, sway: 5 },
+    // ⚠ speedMul -3.0 -> 0.15 WITH THE RING (v7.x). -3.0 existed to drive the motes DOWN the lane
+    // at three times the base, so the field read as the scroll carrying you rather than as grit
+    // hanging in water — correct while the chapter auto-scrolled at 45px/s. There is no scroll now:
+    // the track is a loop and the player does their own moving, so a signed multiplier against a
+    // lane axis that no longer exists just blew the litter across the world at 32.3px/s. Measured,
+    // and it is the wind pace the motes were originally authored at. 0.15 is the suspended-grit
+    // number every other floor in the book uses, which is what this chapter now is.
+    dust: { tint: 0x949ba3, alpha: 0.35, speedMul: 0.15, sway: 5 },
   },
 }
 // Book 2 chapter 4 — THE ONE BAR YOU PUSH UP. Written as a WHOLE literal for the same reason every
@@ -9464,7 +9543,16 @@ export const LANE_STRAFE_MUL = 1.25      // strafe is a touch quicker than base 
 // balance_decision : capped bank, so skill stops paying twice [2026-08-24]
 //  - UNMEASURED, all of them. Starting points for the lap probe's grid, not tuned numbers.
 export const CIRCUIT_DEFAULTS = {
-  accel: 420,        // px/s^2 the throttle's speed eases at — see CIRCUIT_ACCEL's block above
+  // 420 -> 180. MEASURED, and it is the same finding from three directions. At 420 a full stop to
+  // top speed takes 0.64s, so momentum barely exists: Quick Start (accelRate) at MAX_PASSIVE_LEVEL
+  // saved 0.07s over a whole race and then -0.03s with a cornering brake in the fixture, i.e. an
+  // INERT CARD; a crash costs 45% of your speed and buys it back in 0.29s, which run CT measured as
+  // 15 crashes costing 1.0s of race time; and a traffic bump was worth about 4px. All three are the
+  // same number being too big. At 180 the ramp is 1.5s, a crash costs 0.68s of rebuild and a bump
+  // 0.45s — the penalties become things you feel and the two momentum cards become things you buy.
+  // balance_decision : momentum you can feel, so its cards and its penalties bite [2026-08-25]
+  //  - three separate "this does nothing" findings were all this knob
+  accel: 180,        // px/s^2 the throttle's speed eases at — see CIRCUIT_ACCEL's block above
   clockStart: 30,    // seconds on the clock at the start line
   clockCap: 30,      // ...and the ceiling a swimthrough may top it back up to
   swimTime: 6,       // seconds a swimthrough is worth
@@ -9664,6 +9752,9 @@ export const caveAt = (f, spec, seed) => {
 // retune that clustered them would be a real defect and should say so out loud, not be silently
 // corrected here.
 export const SWIMTHROUGHS_PER_LAP = 6
+// How far apart two checkpoints must be, in f. 5040 / 6 = 840 is perfectly even, so 500 leaves the
+// picker real freedom to follow the depths while ruling out the clumping above.
+export const SWIMTHROUGH_MIN_GAP = 500
 export const SWIMTHROUGH_STEP = 24   // px between samples; the count is stable from 3px to 24px and starts missing minima at 48
 export const swimthroughsFor = (spec, seed) => {
   const L = spec?.lapLen
@@ -9677,7 +9768,86 @@ export const swimthroughsFor = (spec, seed) => {
   // by depth, then by position -- the tie-break is not cosmetic, it is what makes the chosen six
   // identical on every machine and every run at a seed, which a race scored on time requires.
   mins.sort((a, b) => a.hw - b.hw || a.f - b.f)
-  return mins.slice(0, SWIMTHROUGHS_PER_LAP).sort((a, b) => a.f - b.f)
+  // ⚠ DEEPEST-FIRST WITH A MINIMUM SEPARATION, not simply the deepest six. Plain `slice(0, 6)` was
+  // right while the field was 20 minima on a corridor whose depths were well separated; on the ring
+  // the width octaves put near-equal minima next to each other, and the deepest six came back 144px
+  // apart — six checkpoints in two clumps, so the clock arrives in bursts and most of the lap has
+  // nothing on it. That property used to be ASSERTED and not enforced (run CT.a), on the argument
+  // that a retune which clustered them should say so out loud rather than be silently corrected.
+  // It said so; this is the correction, and it is the generator's job rather than the tune's.
+  //   THE GAP RELAXES RATHER THAN THE COUNT SHRINKING. A seed whose minima genuinely cannot be
+  // spread must still get SWIMTHROUGHS_PER_LAP of them — a lap with four checkpoints is a lap whose
+  // clock arithmetic is wrong, which is worse than two that sit closer than the ideal.
+  const gapOf = (a, b) => { const d = Math.abs(a - b) % L; return Math.min(d, L - d) }
+  for (let gap = SWIMTHROUGH_MIN_GAP; ; gap *= 0.5) {
+    const picked = []
+    for (const m of mins) {
+      if (picked.length >= SWIMTHROUGHS_PER_LAP) break
+      if (picked.every((q) => gapOf(q.f, m.f) >= gap)) picked.push(m)
+    }
+    if (picked.length >= SWIMTHROUGHS_PER_LAP || gap < 1) return picked.sort((a, b) => a.f - b.f)
+  }
+}
+
+// ---- THE RING (v7.x, The Reef): THE TRACK IS A CLOSED LOOP, NOT A CORRIDOR ---------------------
+//
+// Owner, playing v7.231.0: "the track isnt a micromachine type circle lap". It was not one. The
+// reef was a straight lane whose walls wandered, so you always drove +x, you never turned a corner,
+// and a "lap" was only a distance travelled. This is the whole of the fix.
+//
+// IT IS NOT A NEW GENERATOR. Every piece of track geometry stays in caveAt's (f, u) space — f along
+// the lap, u across the passage — and ONLY the map from that space to the world changes. caveAt,
+// swimthroughsFor, the island, the six checkpoints and the wall test are untouched by construction.
+//
+//   f  ->  ANGLE. f = 0 and f = lapLen are the same place, so the loop closes with no seam to blend
+//          and no `% lapLen` anywhere. It is why every wavelength has to keep dividing lapLen (see
+//          the cave spec): that property was already what made the track a circuit, and it is now
+//          what makes it a circle.
+//   u  ->  RADIUS, INWARD. The passage centre's wander becomes a RADIAL wobble, so the same octave
+//          sum that made the corridor snake left and right now makes the loop bulge and pinch —
+//          straights, sweepers and hairpins out of a field that was already there.
+//
+// ⚠ u IS MEASURED INWARD (r = r0 - u) AND THAT IS LOAD-BEARING, not a sign convention to tidy.
+// With r = r0 + u the lane basis maps to the ring basis through a REFLECTION, not a rotation, and
+// every baked sprite placed by it would be mirrored — a thing that is invisible on a jittered coral
+// colony and glaring on anything with a front. Inward makes it a pure rotation by ringRot(f), so
+// render.js can keep placing what it already bakes and merely add that angle.
+//
+// ⚠ f IS A PARAMETER, NEVER AN ARC LENGTH, and the difference is the point of the corners. At
+// `wander` 240 on an r0 of 900 the radius swings 660-1140, so a lap is about 5800px of real driving
+// against a lapLen of 5040. Nothing may convert f into px of travel — ask the world positions.
+//
+// The centre sits at (-r0, 0) so that (f 0, u 0) is the world ORIGIN, which is where createRun puts
+// the player and where every spawn-ring `minDist` is measured from. A ring centred on the origin
+// would have put the start line 900px away inside solid coral.
+export const ringXY = (spec, f, u) => {
+  const t = (2 * Math.PI * f) / spec.lapLen
+  const r = spec.ring.r0 - u
+  return { x: r * Math.cos(t) - spec.ring.r0, y: r * Math.sin(t) }
+}
+export const ringFU = (spec, x, y) => {
+  const L = spec.lapLen
+  const dx = x + spec.ring.r0
+  const t = Math.atan2(y, dx)
+  return { f: ((((t / (2 * Math.PI)) * L) % L) + L) % L, u: spec.ring.r0 - Math.hypot(dx, y), t }
+}
+/** Lane frame -> ring frame: the angle to add to anything baked as though the track ran along +x. */
+export const ringRot = (spec, f) => (2 * Math.PI * f) / spec.lapLen + Math.PI / 2
+/** Where the track's CENTRELINE is heading at f — the tangent, radial wobble included. */
+export const ringHeading = (spec, f, seed) => {
+  const e = spec.lapLen / 720
+  const a = ringXY(spec, f - e, caveAt(f - e, spec, seed).c)
+  const b = ringXY(spec, f + e, caveAt(f + e, spec, seed).c)
+  return Math.atan2(b.y - a.y, b.x - a.x)
+}
+/** The world point on the track's centreline at f — where a spawn, a pocket or a gate belongs. */
+export const ringCentre = (spec, f, seed) => ringXY(spec, f, caveAt(f, spec, seed).c)
+/** Shortest signed distance from a to b in f, i.e. round the loop rather than along a line. */
+export const ringDelta = (spec, a, b) => {
+  const L = spec.lapLen
+  let d = (((b - a) % L) + L) % L
+  if (d > L / 2) d -= L
+  return d
 }
 
 export const laneHalfWidth = (viewRadius, ch) => Math.min(ch?.laneHalfW ?? LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)
@@ -11392,6 +11562,13 @@ export const DMG_SRC_NAME = {
   // mistakes (you brushed a ridge / you were stopped by one and the lane left without you) and a
   // summary blaming one for the other sends the player to fix the wrong thing.
   crush: 'Crushed',
+  // A CIRCUIT CHAPTER ONLY, and the ONE row here that names something which does no damage at all:
+  // stepCircuit ends the run when raceClock reaches 0. That is why it is easy to miss — every other
+  // label in this table is written by hurtPlayer, so a source with no tally entry is normally the
+  // symptom of a bug. Here it is the mechanic: you were not hurt, you ran out of time.
+  //   ⚠ ui.js's breakdown is keyed on run.dmgBySrc, so this row exists for the KILLER LINE alone.
+  // Without it a race lost on the clock printed no cause of death at all.
+  clock: 'Out of Time',
   // THE WRECK ONLY, on the same gate-reading rule the comment above insists on: stepStarve returns
   // early unless the chapter's resource declares `starve`, and Bloodlust is the only one that does.
   // Its own row rather than sharing 'Drowning' — they are the same DoT mechanism, and the whole
@@ -11496,6 +11673,9 @@ export const DMG_SRC_NO_ART = {
   // can carry a drawing, so "it is a state, not a world object" is NOT the argument here. The Reef
   // is still behind its wipFrom gate. DELETE THIS LINE when hazardThumbs.crush lands.
   crush: 'OWED — The Reef has not authored a coral ridge thumbnail yet, not a permanent exemption',
+  // The race clock is a HUD rail and a rule, not a thing in the water — the same argument the two
+  // anomaly rows below make. There is nothing to draw a picture of.
+  clock: 'a rule and a HUD rail, not a world object',
   // Costs you chose to pay. Neither has a world object; their honest picture is the anomaly card.
   overload: 'a card you took, not a thing in the world',
   bloodMoney: 'a card you took, not a thing in the world',
@@ -13425,7 +13605,12 @@ export const MUTATORS = {
   // ahead of the player, i.e. 6.9s of warning; at x1.4 that is 4.9s. The probe that settles it is
   // scripts/shot.mjs at the phone viewport with a seeded run, or charge-probe's lane policies,
   // which already walk this chapter — neither has been run against this number.
-  tidalRace:    { name: 'Tidal Race',     icon: '💨', desc: 'The current runs far faster. Richer coins.', chapters: ['reef'], effects: { laneScrollMul: 1.4, coinMul: 1.25 } },
+  // ⚠ RE-POINTED FROM laneScrollMul TO raceClockMul (v7.x), because the ring INVERTED it. The cost
+  // used to be that the corridor ran at you 40% faster — a real cost while the chapter auto-
+  // scrolled. There is no scroll on a loop: laneScrollFor is now the ceiling the player's own
+  // throttle reaches for, so x1.4 made you FASTER, paired it with x1.25 coins, and turned a trade
+  // into a pure buff nobody would decline. The clock is what a race can actually be taxed on.
+  tidalRace:    { name: 'Tidal Race',     icon: '💨', desc: 'Less time on the clock. Richer coins.', chapters: ['reef'], effects: { raceClockMul: 0.7, coinMul: 1.25 } },
 }
 // Every key mergeMutatorMods can produce, all defaulted to 1 (neutral) before mutator effects
 // multiply in. sim.js applies each of these at one specific point — see sim.js's module doc.
@@ -13444,7 +13629,9 @@ export const MUTATOR_MOD_KEYS = [
   'wellForceMul',       // wellForce (beyond gravity bend on every projectile)
   'refillChanceMul',    // streamShafts (shelf; how often a refill circle materialises in a cell)
   'refillSpendMul',     // drawdownSecsFor (shelf; how long one circle feeds you before it is spent)
-  'laneScrollMul',      // laneScrollFor (reef; how fast the corridor runs past you)
+  'laneScrollMul',      // laneScrollFor (kept for any future scroller; The Reef stopped reading it
+                        // as a cost when its track became a ring — see tidalRace)
+  'raceClockMul',       // stepCircuit (reef; the countdown's start, its cap and what a checkpoint pays)
 ]
 // Human label + "does a value above 1 help the player" for every MUTATOR_MOD_KEYS entry — the
 // brief/pause/summary effect chips read this (ui.js effectChipList) to word the trade and colour
@@ -13485,6 +13672,9 @@ export const MUTATOR_EFFECT_LABELS = {
   // Worded off Tidal Race's own card ('The current runs far faster'), not off laneScrollFor:
   // sibling to currentForceMul's chip, which is the same fiction under a different verb.
   laneScrollMul: ['current speed', false],
+  // Worded from the HUD, which is where the player meets this: the rail says a number of seconds
+  // and this multiplies all three of the things that put seconds on it.
+  raceClockMul: ['time on the clock', true],
 }
 // Pure helper: given a list of mutator ids (run.mutators), returns the full run.mods object —
 // every key above defaulted to 1, with each selected mutator's effects multiplied in. Unknown

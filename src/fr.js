@@ -452,6 +452,7 @@ const UI = {
   'infusion card chance': 'chance de carte d\'infusion',
   'pickup magnet': 'aimant à butin',
   'current push': 'poussée du courant',
+  'time on the clock': 'temps au compteur',
   'current speed': 'vitesse du courant',
   // Same noun as its sibling above, because on screen they ARE siblings — Riptide's chip and
   // Spring Tide's chip sit in the same slot of the same trade, one per chapter.
@@ -1479,7 +1480,7 @@ const CONFIG = {
   // ('Grande Marée'), and two chapter mutators in one book wearing the same noun is the collision
   // the dictionary cannot see -- different keys, one word on screen.
   'Tidal Race': 'Grand Courant',
-  'The current runs far faster. Richer coins.': 'Le courant file bien plus vite. Pièces plus riches.',
+  'Less time on the clock. Richer coins.': 'Moins de temps au compteur. Pièces plus riches.',
   'Stirs the bottom into a cone of silt that poisons and dazes what swims in.': 'Soulève un cône de vase qui empoisonne et étourdit tes poursuivants.',
   // Voile de Vase's four (2026-08-19). 'vase' throughout, never 'limon', because the weapon's own
   // name already fixed the word -- the rule the Coquille Ricochet entry states: one word for one
@@ -1718,6 +1719,7 @@ const CONFIG = {
   'Starvation': 'Famine',
   'The Leak': 'La Fuite',
   'The Coral': 'Le Corail',
+  'Out of Time': 'Temps écoulé',
   'Crushed': 'Écrasé',
   // Owner's pick, 2026-08-22, over 'L'Orque' and 'L'Épaulard': the chapter's own premise turned
   // back on the player — you spent the run being the predator, and this is the one that outranks you.

@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS } from './state.js'
-import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
+import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, caveAt, ringXY, ringFU, ringCentre, ringRot, swimthroughsFor } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -119,6 +119,12 @@ if (new URLSearchParams(location.search).has('debug')) {
   // map-mode capture has to advance the sim at each tile position to stream that tile's buildings
   // in before rendering it.
   window.__stepSim = stepSim
+  // THE PURE GEOMETRY, for probe scenes (scripts/scenes/*.js run as eval'd source in the page and
+  // therefore cannot import anything). A scene that restates a chapter's geometry to place its
+  // camera is a second copy of the level, and it goes stale the day the spec moves — which is the
+  // one-fact-two-places defect this repo's own CLAUDE.md calls its largest class. Debug-gated with
+  // __run above, so it costs a shipped build nothing.
+  window.__cfg = { CHAPTERS, caveAt, ringXY, ringFU, ringCentre, ringRot, swimthroughsFor }
 }
 initInput(document.body)
 
