@@ -648,6 +648,11 @@ export const ALIGNMENT_POTENCY_MUL = 2
 // DEADFALL. The trap field is undergrowth's identity, so this is a chapter inversion: the hazard
 // stops being something you route around and becomes furniture you kite ACROSS.
 export const DEADFALL_REARM_MUL = 0.2
+// MAREE NOIRE. Same shape as DEADFALL, on the wreck's own hazard instead of undergrowth's: multiplies
+// CHAPTERS.wreck.signature.slicks.chance, read by streamSlicks (sim.js) via run.anomalies?.blackTide.
+// balance_decision : leak spawn chance x3, clamps to guaranteed [2026-08-25]
+//  - measured area coverage ~3.3% -> ~9.9% of the plane (Monte Carlo over refillCircleAt, not eyeballed)
+export const BLACK_TIDE_CHANCE_MUL = 3
 // RUNOFF. The Shelf's own bar sold as an anomaly: it pays you for the state every other consumer of
 // run.charge pays you to escape. Read off pollutionFrac, the same derivation the Scour and Foul
 // Water mods use, so the card cannot drift from its two chapter siblings.
@@ -1005,6 +1010,24 @@ export const ANOMALIES = {
     // so a player meets the hazard as a hazard first.
     when: () => true,
     weight: 2, chapter: 'undergrowth', kind: 'pivot',
+    minLevel: 10,
+  },
+  blackTide: {
+    // THE ONE CARD IN THE GAME WHOSE ENGLISH NAME IS FRENCH (owner ruling 2026-08-25): marée noire
+    // is the real term for an oil spill at sea, and fr.js already reached for it once. It names the
+    // SCALE of the thing; the id it replaced ('overspill') named the plumbing. Its fr.js entry
+    // therefore maps the string to ITSELF — deliberate, not a missing translation, and run XX
+    // counts it as covered because the key is present.
+    name: 'Marée Noire', icon: '🛢️',
+    from: 'every seam in the hull let go at once',
+    desc: 'The Leak spreads until every stretch of water that could hold oil does.',
+    // Chapter-scoped exactly like DEADFALL, and the same reasoning: the gate IS the chapter field
+    // (`chapter: 'wreck'`), so `when` stays unconditional rather than adding a second narrowing on
+    // top of an already-narrow one. See BLACK_TIDE_CHANCE_MUL for the coverage math this turns.
+    when: () => true,
+    weight: 2, chapter: 'wreck', kind: 'pivot',
+    // Same as DEADFALL's own reasoning: a player meets the Leak as a hazard, and Sleek/Oilskin as
+    // an answer to it, before the run offers to turn the hazard up.
     minLevel: 10,
   },
 
@@ -7436,9 +7459,14 @@ CHAPTERS.wreck = {
   signature: {
     type: 'leak',
     // chance/cell together set how much of the floor is poisoned. 0.34 of a 900px cell at r 190
-    // covers roughly a tenth of the plane — enough that a straight line across the map usually
+    // covers 3.3% of the plane — MEASURED 2026-08-25 (Monte Carlo over refillCircleAt/inLobe), and
+    // the "roughly a tenth" this line claimed until then was a guess that was wrong by 3x. The
+    // geometry's own packing ceiling is 9.9%, reached at chance = 1, which is what ANOMALIES
+    // .blackTide turns it to — so a tenth was never the default, it was the maximum.
+    // Still the right shape for the intent: a straight line across the map usually
     // meets one and never enough to wall a route off, which is the whole difference between a
-    // hazard you route around and a hazard you resent. ⚠ UNMEASURED FIRST CUT.
+    // hazard you route around and a hazard you resent — and at 3.3% it is further from walling a
+    // route off than the guess implied, not closer.
     // `blob: true` because a spill has an outline and a bubble does not: LOBE_SHAPES is the same
     // lobed-outline opt-in The Surf's tide pools use, and sim and render both read the stored
     // shape/rot rather than re-deriving it (the documented way those two drift apart).

@@ -182,7 +182,7 @@ import {
   ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
   ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX,
-  SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText,
+  SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
   BREACH_R_MIN, BREACH_R_AT_FULL, BREACH_REACH, BREACH_MAX_HOLES, tiredness,
@@ -4356,8 +4356,13 @@ function stepSpurs(run, dt) {
 // cursor is its own (_slickCellI/J) so it scans independently of the other four streamers.
 export function streamSlicks(run) {
   const sig = CHAPTERS[run.chapter].signature
-  const spec = sig && sig.type === 'leak' ? sig.slicks : null
-  if (!spec) return
+  const spec0 = sig && sig.type === 'leak' ? sig.slicks : null
+  if (!spec0) return
+  // MAREE NOIRE (ANOMALIES.blackTide): same chanceMul idiom as streamShafts' Dead Water
+  // (run.mods.refillChanceMul), read here instead as a plain run.anomalies?.<id> flag — the field
+  // this streamer materializes is the whole of what the card turns, so there is no second site.
+  const chanceMul = run.anomalies?.blackTide ? BLACK_TIDE_CHANCE_MUL : 1
+  const spec = chanceMul === 1 ? spec0 : { ...spec0, chance: Math.min(1, spec0.chance * chanceMul) }
   if (run._obstacleSeed == null) return
   const p = run.player
   const cs = spec.cell

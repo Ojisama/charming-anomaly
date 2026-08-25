@@ -522,6 +522,14 @@ const CONFIG = {
   'Deadfall': 'Chausse-Trappe',
   'Snap traps ignore you, and re-arm 5 times faster.': "Les pièges à mâchoires t'ignorent et se réarment 5 fois plus vite.",
   'the traps stopped caring about you': 'les pièges se sont désintéressés de toi',
+  // The Wreck's own card (v7.x, spec 2026-08-24 §4.5). 'la Fuite'/'mazout' reused verbatim from
+  // 'The Leak'/Slick Feed's own French rather than coined — see the naming rule above.
+  // Maps to ITSELF: this card's English name IS French (owner ruling 2026-08-25). The key is
+  // present, so run XX counts it covered — it is not a missing translation.
+  'Marée Noire': 'Marée Noire',
+  'The Leak spreads until every stretch of water that could hold oil does.':
+    "La Fuite se répand jusqu'à couvrir toute étendue d'eau qui peut retenir du mazout.",
+  'every seam in the hull let go at once': "chaque joint de la coque a lâché d'un coup",
   'Alignment': 'Alignement',
   'All your elements now have ×2 potency.': 'Tous les éléments ont maintenant une puissance doublée.',
   'two elements found the same beat': 'deux éléments ont trouvé le même tempo',

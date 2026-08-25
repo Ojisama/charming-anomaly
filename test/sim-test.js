@@ -18895,6 +18895,7 @@ run(testLeLargeWeapons)
   run(testReefPool)
   run(testWreckBloodlust)
   run(testWreckDefense)
+  run(testWreckBlackTide)
   run(testTrawlNet)
   run(testTrawlNatives)
   run(testTheDeep)
@@ -25494,6 +25495,104 @@ function testWreckDefense() {
   }
 
   console.log('PASS run WD (The Wreck: Sleek + Oilskin + Slick Feed): both resist cards are chapter-scoped through eligiblePassiveIds while staying reachable from the dev menu, each measurably moves its own quantity (slow floor / slick damage) at the FIRST pick, resistFrac keeps a non-zero toll under a deliberately absurd stack while its returns strictly diminish, Oilskin\'s resisted damage carries across ticks instead of quantising to inert, the printed pct is the before->after realized total and agrees with the measured effect, the other ten passives (icon default included) are byte-identical, and Slick Feed — the payoff card, utility not defensive — deals measurably more damage to a stained body and exactly the same to an unstained one')
+}
+
+// ---- run WO: The Wreck's owed anomaly — Marée Noire (spec 2026-08-24 §4.5) -----------------------
+// The Leak's own field turned up: streamSlicks (sim.js) reads run.anomalies?.blackTide and
+// multiplies CHAPTERS.wreck.signature.slicks.chance by BLACK_TIDE_CHANCE_MUL (config.js), clamped
+// to 1 — the same run.anomalies?.<id> idiom RUNOFF_SPEED_FLOOR and lastBreath use, and the same
+// chanceMul SHAPE streamShafts already uses for Dead Water. One knob: more of the floor is oil, so
+// the toll (run.dmgBySrc.slick) and the hunting tool (the stain, WD's Slick Feed) both scale with
+// it — which is what is meant to take Sleek/Oilskin/Slick Feed (run WD) from useful to load-bearing.
+// EVERY CASE HERE IS AN EFFECT, same discipline as run WD: a card that is or isn't OFFERED, or a
+// measured coverage/HP difference — never a read of the config table the change lives next to.
+function testWreckBlackTide() {
+  const dt = 1 / 60
+  const mk = (chapter, seed) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(makeMeta(), { chapter, difficulty: 1 })
+    run.player.maxHP = run.player.hp = 1e9
+    run.weapons = []
+    run.mods.spawnMul = 0
+    run.enemies.length = 0
+    return run
+  }
+
+  // -- WO.a: CHAPTER SCOPING + THE GATE. Marée Noire is offered ONLY in the wreck, and only at its ---
+  // own minLevel — never below it. Run PB2's `gated` helper already proves the SHARED eligibility
+  // engine (minLevel, `when`, chapter) works in general; this aims the same shape at THIS card's
+  // own fields rather than re-testing the engine, per the spec's own instruction to extend, not
+  // duplicate. 800 screens: seed(id)-> first offer that took, measured, is under 270 of 2000 —
+  // 800 leaves a wide margin against the anomaly tier's own low per-screen weight before the
+  // pity ramp saturates it.
+  {
+    const seenAt = (chapter, level, seed) => {
+      const run = mk(chapter, seed)
+      run.player.level = level
+      for (let i = 0; i < 800; i++) {
+        if (buildLevelUpChoices(run).some((c) => c.kind === 'anomaly' && c.id === 'blackTide')) return true
+      }
+      return false
+    }
+    assert.ok(seenAt('wreck', 12, 20260825),
+      'Marée Noire never appeared across 800 wreck screens at level 12 — the chapter clause, or a bad `when`, is dropping a card the table says should be reachable')
+    assert.ok(!seenAt('city', 12, 20260825),
+      'Marée Noire was offered in City — ANOMALIES.blackTide.chapter is not scoping it to the wreck')
+    assert.ok(!seenAt('wreck', (ANOMALIES.blackTide.minLevel ?? ANOMALY_MIN_LEVEL) - 1, 20260825),
+      `Marée Noire was offered below its own minLevel (${ANOMALIES.blackTide.minLevel})`)
+    console.log(`PASS run WO.a (chapter scoping + the gate): Marée Noire reachable in the wreck at level ${ANOMALIES.blackTide.minLevel}, absent from 800 City screens, absent below its own minLevel`)
+  }
+
+  // -- WO.b: devCards BYPASSES eligibility on purpose — Marée Noire must show up in every chapter, ---
+  // same shape as run WD.b/WD.m.
+  {
+    const idsOf = (run) => new Set(devCards(run).filter((c) => c.kind === 'anomaly').map((c) => c.id))
+    assert.ok(idsOf(mk('wreck', 1)).has('blackTide'), 'devCards is missing blackTide in The Wreck')
+    assert.ok(idsOf(mk('city', 1)).has('blackTide'), 'devCards is missing blackTide outside The Wreck — the chapter clause has leaked into the dev-menu path')
+    console.log('PASS run WO.b (dev menu bypass): devCards returns blackTide in both wreck and city')
+  }
+
+  // Shared by WO.c/WO.d: a fixed diagonal walk through the wreck's own oil field, long enough
+  // (180s, ~35-37k px at the player's base speed) to cross dozens of the field's 900px cells while
+  // staying identical between arms — same _obstacleSeed (drawn from the same Math.random seed at
+  // createRun), same input, same lack of enemies/weapons, so anomalies.blackTide is the ONLY thing
+  // that can move either reading.
+  const walkOilField = (seed, on) => {
+    const run = mk('wreck', seed)
+    if (on) run.anomalies = { ...run.anomalies, blackTide: true }
+    const totalFrames = Math.round(180 / dt)
+    let framesInOil = 0
+    for (let i = 0; i < totalFrames; i++) {
+      run.enemies.length = 0
+      stepSim(run, { x: 1, y: 0.3 }, dt)
+      for (const sl of run.slicks) if (inLobe(sl, run.player.x, run.player.y)) { framesInOil++; break }
+    }
+    return { coverageFrac: framesInOil / totalFrames, slickDmg: run.dmgBySrc.slick ?? 0 }
+  }
+
+  // -- WO.c: THE FIELD MEASURABLY COVERS MORE GROUND, over the same seeded walk. -------------------
+  {
+    const off = walkOilField(1, false)
+    const on = walkOilField(1, true)
+    assert.ok(off.coverageFrac > 0, 'the control walk spent 0% of 180s inside a slick — this fixture proves nothing until it does')
+    assert.ok(on.coverageFrac > off.coverageFrac * 1.8,
+      `Marée Noire must measurably widen the ambient field: ${(100 * off.coverageFrac).toFixed(2)}% of the walk was in oil without it, ${(100 * on.coverageFrac).toFixed(2)}% with it`)
+    console.log(`PASS run WO.c (the field covers more ground): the same 180s walk spent ${(100 * off.coverageFrac).toFixed(2)}% of its time in oil without Marée Noire, ${(100 * on.coverageFrac).toFixed(2)}% with it (x${(on.coverageFrac / off.coverageFrac).toFixed(2)})`)
+  }
+
+  // -- WO.d: THE PLAYER'S DAMAGE FROM THE LEAK RISES WITH IT ON, over the same seeded walk. --------
+  // Read off run.dmgBySrc.slick, the exact row §1.1b measures as 25.5% of what kills a mortal
+  // hunter — the number this card is meant to move.
+  {
+    const off = walkOilField(1, false)
+    const on = walkOilField(1, true)
+    assert.ok(off.slickDmg > 0, 'the control walk took 0 dmgBySrc.slick over 180s — this fixture proves nothing until it does')
+    assert.ok(on.slickDmg > off.slickDmg * 1.8,
+      `Marée Noire must measurably raise run.dmgBySrc.slick over the same walk: ${off.slickDmg} without it, ${on.slickDmg} with it`)
+    console.log(`PASS run WO.d (the Leak's toll rises): the same 180s walk cost ${off.slickDmg} HP to dmgBySrc.slick without Marée Noire, ${on.slickDmg} with it (x${(on.slickDmg / off.slickDmg).toFixed(2)})`)
+  }
+
+  console.log('PASS run WO (The Wreck: Marée Noire): the card is chapter-scoped through eligibleAnomalyIds while staying reachable from the dev menu, and turns one knob — CHAPTERS.wreck.signature.slicks.chance, read through run.anomalies?.blackTide in streamSlicks — that measurably widens the ambient field and measurably raises the Leak\'s own toll over the same seeded walk')
 }
 
 function testReefAirBurst() {
