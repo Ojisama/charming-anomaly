@@ -13368,42 +13368,67 @@ const spurG = new Graphics()
       G.circle(w.x, w.y, 12 + e * 92)
       G.stroke({ width: 10 * c + 1, color: 0xffffff, alpha: 0.5 * c })
     }
-    // gv=18 — CHANNEL MARKER LIGHTS. Lit navigation posts are what actually marks a channel, and a
-    // lamp has the one property none of the painted markers had: it can be OFF. The next gate's
-    // pair breathe, the rest are dark posts, and threading one blows the lamps white.
+    // gv=18 — CHANNEL MARKER LIGHTS. A lit pile has the one property no painted marker had: it can
+    // be OFF, so "which gate is mine" needs no arrow and no colour code. Three things sell the lamp
+    // as a real light rather than a bright dot — a halo in the water, a POOL ON THE SAND under it,
+    // and a warm hue. Warm is deliberate: every colour in this chapter is blue, green, pink or
+    // coral-orange, so amber is the only light that cannot be read as part of the reef.
     const markerLights = (f0, cav, done, fin, k) => {
       const t = run.time ?? 0
       const w0 = P(f0, cav.c)
       const nr = nearness(w0), lit = k === nextK || fin
       const c = crossAge(k)
       const puls = 0.55 + 0.45 * Math.sin(t * 3.4)
-      const glow = lit ? (0.5 + 0.5 * nr) * (0.62 + 0.38 * puls) : 0.06
-      if (lit && !done) {
-        // the lit channel between the pair — the instruction, and it strengthens as you close
-        fuLine(gateFrontG, f0, cav.c, [[0, -cav.hw + 16], [0, cav.hw - 16]], fin ? 0xfff4d6 : 0x7fe8ff,
-          (0.16 + 0.26 * nr) * (0.6 + 0.4 * puls) + c * 0.5, 30 + c * 30)
+      const glow = lit ? (0.5 + 0.5 * nr) * (0.62 + 0.38 * puls) : 0
+      const warm = fin ? 0xfff4d6 : 0xffb43a
+      const core = fin ? 0xffffff : 0xfff0c4
+      if (lit) {
+        // THE LIT CHANNEL, built as three stacked strokes rather than one bar: light in water has
+        // no edge, and a single flat stroke is what read as a grey slab across the corridor.
+        for (const [w, al] of [[64, 0.05], [38, 0.07], [17, 0.1]]) {
+          fuLine(gateFrontG, f0, cav.c, [[0, -cav.hw + 18], [0, cav.hw - 18]], warm,
+            (al + al * 1.6 * nr) * (0.6 + 0.4 * puls) + c * al * 5, w + c * 26)
+        }
       }
       for (const sign of [-1, 1]) {
         const u = cav.c + sign * (cav.hw - 14)
         const foot = P(f0, u)
-        gateFloorG.ellipse(foot.x, foot.y + 7, 17, 8)
-        gateFloorG.fill({ color: 0x0b1a22, alpha: 0.26 })
-        fuLine(gateG, f0, u, [[8, 0], [-72, 0]], 0x101b20, 1, 17)
-        fuLine(gateG, f0, u, [[8, 0], [-72, 0]], done ? 0x3c4348 : 0x5d666c, 1, 10)
-        const head = P(f0 + dFor(-72, u), u)
+        // the pool of light the lamp throws on the sand — the cheapest proof that it is ON
         if (lit) {
-          gateFrontG.circle(head.x, head.y, 54 + c * 40)
-          gateFrontG.fill({ color: fin ? 0xfff4d6 : 0x7fe8ff, alpha: 0.3 * glow + c * 0.4 })
-          gateFrontG.circle(head.x, head.y, 27 + c * 22)
-          gateFrontG.fill({ color: fin ? 0xfffaea : 0xcaf6ff, alpha: 0.34 * glow + c * 0.45 })
+          gateFloorG.ellipse(foot.x, foot.y + 6, 62, 30)
+          gateFloorG.fill({ color: warm, alpha: 0.1 * glow + c * 0.2 })
         }
-        ball(gateG, head.x, head.y, 20, lit ? (fin ? 0xfff4d6 : 0x9df2ff) : 0x39424a, 0xffffff, 1)
+        gateFloorG.ellipse(foot.x, foot.y + 7, 19, 9)
+        gateFloorG.fill({ color: 0x0b1a22, alpha: 0.3 })
+        // A TAPERED PILE, not a stick: wide where it is driven into the sand, narrow at the head,
+        // with a collar under the lamp. The taper is what stops it reading as a drawn line.
+        for (const [a0, b0, w, col] of [[10, -74, 22, 0x101b20], [10, -74, 15, done ? 0x3c4348 : 0x6a747a],
+          [10, -30, 11, done ? 0x333a3e : 0x525b60]]) {
+          fuLine(gateG, f0, u, [[a0, 0], [b0, 0]], col, 1, w)
+        }
+        // encrusting growth at the waterline of the pile, so it has been here a while
+        for (let i = 0; i < 3; i++) {
+          const q2 = P(f0 + dFor(2 - i * 9, u), u + (i % 2 ? 5 : -5))
+          gateG.circle(q2.x, q2.y, 6 - i)
+          gateG.fill({ color: 0x8d7f6a, alpha: 0.8 })
+        }
+        const head = P(f0 + dFor(-74, u), u)
+        const collar = P(f0 + dFor(-62, u), u)
+        gateG.circle(collar.x, collar.y, 13)
+        gateG.fill({ color: done ? 0x333a3e : 0x59636a, alpha: 1 })
+        if (lit) {
+          gateFrontG.circle(head.x, head.y, 58 + c * 44)
+          gateFrontG.fill({ color: warm, alpha: 0.22 * glow + c * 0.34 })
+          gateFrontG.circle(head.x, head.y, 30 + c * 24)
+          gateFrontG.fill({ color: warm, alpha: 0.3 * glow + c * 0.4 })
+        }
+        ball(gateG, head.x, head.y, 19, lit ? warm : 0x39424a, core, 1)
         if (lit) {
           gateFrontG.circle(head.x, head.y, 10)
-          gateFrontG.fill({ color: 0xffffff, alpha: 0.55 + 0.45 * puls })
+          gateFrontG.fill({ color: core, alpha: 0.6 + 0.4 * puls })
         }
       }
-      burst(gateFrontG, w0, k, fin ? 0xfff4d6 : 0x7fe8ff)
+      burst(gateFrontG, w0, k, warm)
     }
     // gv=19 — BUBBLE CURTAIN. Two vents on the sand and a wall of bubbles between them. The most
     // underwater answer available, it spans the passage so the line is unmissable, and it is the
@@ -13445,39 +13470,66 @@ const spurG = new Graphics()
       }
       burst(gateFrontG, w0, k, 0xd6ecf7)
     }
-    // gv=20 — SEA WHIPS. Two stands of whip coral leaning in the current. Alive, so the gate is
-    // part of the reef; and they BOW APART as you thread them, which is the only candidate whose
-    // reaction is the player's own wake rather than a light show.
+    // gv=20 — SEA WHIPS. Whip coral is an unbranched rod rising off the seabed, so a stand of them
+    // is a natural palisade — and two stands facing each other across the passage is a DOORWAY made
+    // of living reef, with no manufactured object anywhere in it.
+    //   GREEN, and that is the reason it can be seen at all. The reef's palette is pink, cyan, red,
+    // orange, cream, gold and plum; the first cut drew these in 0xb8567e, which is the pink already
+    // on both walls, and the stand vanished into the coral behind it. Green is the one hue the
+    // chapter never uses.
+    //   The rods BOW OUT OF YOUR WAY as you thread them, which is the only reaction in the set
+    // driven by the player's own wake instead of by a light.
     const whips = (f0, cav, done, fin, k) => {
       const t = run.time ?? 0
       const w0 = P(f0, cav.c)
       const nr = nearness(w0), lit = k === nextK || fin
       const c = crossAge(k)
+      const body = done ? 0x4a5a4e : (fin ? 0xdfe4cf : 0x3f7d55)
+      const N = 7
       for (const sign of [-1, 1]) {
-        const uBase = cav.c + sign * (cav.hw - 4)
-        for (let i = 0; i < 7; i++) {
-          const fr = (i / 6 - 0.5) * 46
-          const sway = Math.sin(t * 1.1 + i * 0.7 + sign) * 7
-          const push = c * c * 62 * (1 - i / 9)
+        for (let i = 0; i < N; i++) {
+          const h = hsh(i, sign + 2), h2 = hsh(i, sign + 9)
+          // a WIDE foot, and jittered, so the bases are a scatter on the sand rather than a row
+          const fr = (i / (N - 1) - 0.5) * 148 + (h2 - 0.5) * 26
+          // ...and each rod leans its own way, which is what turns a comb into a stand
+          const splay = (i / (N - 1) - 0.5) * 96 + (h - 0.5) * 34
+          const sway = Math.sin(t * 1.1 + i * 1.3 + sign) * 9
+          // the wake shove: hardest on the rods nearest the middle, where the player went through
+          const push = c * c * 96 * (0.35 + 0.65 * (i / N))
+          const reach = 54 + h * 78
           const pts = []
           for (let j = 0; j <= 6; j++) {
             const g2 = j / 6
-            const reach = (34 + i % 3 * 15 + 44) * g2
-            pts.push([fr + (sway + push * 1.4) * g2 * g2, -sign * reach * (1 - c * 0.42)])
+            pts.push([fr + (splay + sway + push) * g2 * g2, -sign * reach * g2])
           }
-          fuLine(gateG, f0, uBase, pts, 0x2a1f2c, 1, 10)
-          fuLine(gateG, f0, uBase, pts, done ? 0x5d5560 : (fin ? 0xe0d8c8 : 0xb8567e), 1, 5.5)
+          fuLine(gateG, f0, cav.c + sign * (cav.hw - 2), pts, 0x1e2a20, 1, 8.5)
+          fuLine(gateG, f0, cav.c + sign * (cav.hw - 2), pts, body, 1, 4.5)
+          // polyps along the rod — what makes it coral rather than a reed
+          for (let j = 1; j <= 5; j++) {
+            const pt = pts[j]
+            const uu = cav.c + sign * (cav.hw - 2) + pt[1]
+            const q2 = P(f0 + dFor(pt[0] + (j % 2 ? 4 : -4), uu), uu)
+            gateG.circle(q2.x, q2.y, 3)
+            gateG.fill({ color: done ? 0x6b7a6f : 0x8fc99a, alpha: 0.85 })
+          }
           const tip = pts[6]
-          const q = P(f0 + dFor(tip[0], uBase + tip[1]), uBase + tip[1])
+          const uu = cav.c + sign * (cav.hw - 2) + tip[1]
+          const q = P(f0 + dFor(tip[0], uu), uu)
+          // THE TIPS ARE THE SWITCH. Bioluminescent bulbs that only light on the gate that is
+          // yours: the same on/off the lamps have, from an organism rather than from hardware.
           if (lit) {
-            gateG.circle(q.x, q.y, 15)
-            gateG.fill({ color: 0xffd98a, alpha: 0.2 + 0.3 * nr })
+            const pu = 0.6 + 0.4 * Math.sin(t * 3 + i * 0.5)
+            gateFrontG.circle(q.x, q.y, 17 + c * 18)
+            gateFrontG.fill({ color: 0xaaffc0, alpha: (0.09 + 0.14 * nr) * pu + c * 0.3 })
+            gateG.circle(q.x, q.y, 7)
+            gateG.fill({ color: 0xe8ffd8, alpha: 0.75 + 0.25 * pu })
+          } else {
+            gateG.circle(q.x, q.y, 5)
+            gateG.fill({ color: done ? 0x59665c : 0x6f8a74, alpha: 1 })
           }
-          gateG.circle(q.x, q.y, lit ? 8 : 5)
-          gateG.fill({ color: lit ? 0xfff0d8 : 0x6d6470, alpha: 1 })
         }
       }
-      burst(gateFrontG, w0, k, 0xffc9d8)
+      burst(gateFrontG, w0, k, 0xaaffc0)
     }
     // gv=21 — LIT RING. The hoop that already reads, given the state the other sixteen lacked: a
     // dead grey loop until it is your next gate, breathing once it is, and blown white when you
