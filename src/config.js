@@ -7053,7 +7053,10 @@ CHAPTERS.reef = {
   // (an element only reaches the world through applyDamage's hit path), makeWeaponCard and the
   // weapon-mod bucket have no subjects to build from, and createRun leaves run.weapons genuinely
   // empty rather than seeding a `{ id: null }` corpse. What is LEFT on a level-up screen is the four
-  // racing stats plus armor/regen/maxHP/moveSpeed — coral damage is real, so those four still work.
+  // RACING stats and nothing else — eligiblePassiveIds allowlists a circuit to its own
+  // `PASSIVES[].chapter` entries (owner's ruling, 2026-08-25: a race is scored on a clock, so a card
+  // that does not move the clock is a slot spent reading). armor/regen/maxHP left with them, and
+  // CAVE_HIT_DPS was re-swept against their absence rather than left to make up the difference.
   //
   // NOTHING IS DELETED. pistolShrimp, oxygenTank and fireCoral keep their entries, their mods and
   // their art, and devCards ignores the chapter pool entirely — so all three stay takeable from the
@@ -11227,7 +11230,21 @@ export const DROWN_TICK = 1.0            // s between drowning ticks while the b
 // kill you outright, which is what the owner saw. So: put them back to the wall face they touched
 // (never further), nudge them a little back down the lane, and charge for it.
 export const CAVE_BOUNCE_PX = 26      // how far back along the lane a touch pushes you
-export const CAVE_HIT_DPS = 22        // charged while you are in contact, on the tick below
+// 22 -> 16, AND BOTH THINGS IT WAS BALANCED AGAINST MOVED UNDER IT. It was set on a track a
+// centreline driver could lap with ZERO frames of contact, and against a pool that still sold armor,
+// regen and maxHP. The lap now has corners and the pool is the four racing cards alone, so it is an
+// untuned number rather than a shipped decision. Swept against the shipped track and pool
+// (scripts/reef-lap-probe.mjs --mortal, 3 seeds), a driver who holds a line vs one who reads too far
+// ahead and hugs the wall:
+//     dps    22    16    12     9     6
+//     holds  2/3   3/3   3/3   3/3   3/3
+//     hugs   0/3   0/3   0/3   1/3   1/3
+// 16 is the only value where the first row is clean and the second is still empty — below 12 the
+// wall-hugger starts finishing, which is the skill test leaking away.
+// balance_decision : the scrape stops ending clean races, still ends dirty ones [2026-08-25]
+//  - the punishment for coral is meant to be the CLOCK (circuit.crashMul takes 45% of your speed);
+//    this number only has to make sustained contact untenable, not out-damage a lost corner.
+export const CAVE_HIT_DPS = 16        // charged while you are in contact, on the tick below
 export const CAVE_HIT_TICK = 0.45
 export const LANE_CRUSH_DPS = 36
 export const LANE_CRUSH_TICK = 0.5

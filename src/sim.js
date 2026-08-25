@@ -12141,22 +12141,27 @@ function eligiblePassiveIds(run) {
   // rather than off a chapter id, so any future weaponless chapter is covered by construction.
   const unarmed = (CHAPTERS[run.chapter].weapons ?? []).length === 0
   const WEAPON_PASSIVES = ['damage', 'fireRate', 'critChance', 'critDamage']
-  // ...AND A CIRCUIT DOES NOT MOVE THE WAY EVERY OTHER CHAPTER DOES, which voids two more.
-  //   `magnet` was ALREADY dead here and the exclusion below could not see it: stepPickups reads
-  // `(lane || circuit) ? Infinity : ...`, while this filter read `lane` alone — one fact authored in
-  // two places, drifted apart the day The Reef dropped the lane flag for the ring. Sticky Aura has
-  // been an offered no-op on this chapter ever since, and nothing threw.
-  //   `moveSpeed` is the same shape found from the other end. It multiplies `p.speed` in
-  // stepPlayerMovement's FREE-ROAM branch, and a circuit never reaches that branch — its velocity is
-  // `_laneSpeed`, whose ceiling is laneThrottle.max x (1 + passives.topSpeed). Turbo Fin is the
-  // chapter's handling card; Zoomies is the same idea wired to a line this chapter does not execute.
+  // ...AND A CIRCUIT OFFERS ITS OWN CARDS AND NOTHING ELSE. Owner's ruling, 2026-08-25, choosing
+  // between three slates: the Reef deals the four that change how you DRIVE, and not the survivor
+  // stats that merely survive better. A race is scored on a clock, so a card that does not move the
+  // clock is a slot spent reading.
+  //   IT IS ALSO WHAT MAKES THE INERT-CARD QUESTION STOP BEING A LIST. Auditing the general pool
+  // one entry at a time found `moveSpeed` multiplying `p.speed` — which stepPlayerMovement's circuit
+  // branch never reaches, its velocity being `_laneSpeed` — and would have had to find the next one
+  // by hand too. An allowlist inverts the default: a card reaches a circuit only if it was written
+  // for it. `PASSIVES[id].chapter` is the same field eligibleAnomalyIds already scopes on.
   const circuit = !!CHAPTERS[run.chapter].circuit
   return Object.keys(PASSIVES).filter((id) =>
     (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL
     && owned(id)
+    && !(circuit && PASSIVES[id].chapter !== run.chapter)
     && !(unarmed && WEAPON_PASSIVES.includes(id))
-    && !((lane || circuit) && id === 'magnet')
-    && !(circuit && id === 'moveSpeed')
+    // ...and `magnet` needs no `|| circuit` beside it, though it looked like it did. stepPickups
+    // reads `(lane || circuit) ? Infinity : ...`, so Sticky Aura has been an offered no-op in The
+    // Reef since the day it dropped the lane flag for the ring — but the allowlist above now keeps
+    // it out of every circuit structurally, and widening this line as well is a second expression of
+    // the same exclusion that no test can distinguish from a typo.
+    && !(lane && id === 'magnet')
     && !(brittle && DEFENSIVE_PASSIVES.includes(id))
     && !(noHeal && id === 'regen')
     && !(floored && PASSIVES[id].values

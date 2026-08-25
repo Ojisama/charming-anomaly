@@ -23934,12 +23934,15 @@ function testCircuitCards() {
   // whole rollCard -> buildLevelUpChoices path, and a gate that fires in the pool builder and not on
   // the screen is exactly the kind of thing that passes a unit check and ships.
   {
+    // THE WHOLE SLATE, AND IT IS THE FOUR THAT MOVE THE CLOCK. Owner's ruling, 2026-08-25: a race is
+    // scored on a clock, so the survivor stats that merely survive better (armor, regen, maxHP,
+    // xpGain) leave with the combat ones even though all four still technically function here.
     const LIVE = {
       topSpeed: 'the throttle ceiling', accelRate: 'how fast _laneSpeed recovers from a crash',
       airMax: 'the Air bar the dash spends', dashLength: 'the dash itself',
-      maxHP: 'coral scrape is real damage', armor: 'blocks that scrape', regen: 'heals it back',
-      xpGain: 'multiplies the checkpoint grant (stepCircuit reads passives.xpGain)',
     }
+    assert.deepStrictEqual(Object.keys(LIVE).sort(), Object.keys(PASSIVES).filter((id) => PASSIVES[id].chapter === 'reef').sort(),
+      'run CD.b: the live set here and the reef-scoped entries in PASSIVES disagree — one of them was edited alone, and the allowlist in eligiblePassiveIds reads the OTHER one')
     let screens = 0
     const seen = new Map()
     for (const seed of [11, 22, 33, 44]) {
