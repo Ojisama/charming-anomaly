@@ -10213,6 +10213,12 @@ const BUOY_MARK = { body: 0xf2c53d, bodyDone: 0x5c5330, band: 0x121d22, lamp: 0x
 const BUOY_FINISH = { body: 0xf4efe2, bodyDone: 0x5a5a52, band: 0x121d22, lamp: 0x121d22 }
 const gateFloorG = new Graphics()
 const gateFrontG = new Graphics()
+// THE CROSSING CLOCK. {type:'swimthrough'} has had an SFX_FOR_EVENT entry ('gem') since it was
+// written and NO consumer in this file — so threading a gate has always made a sound and never
+// changed a pixel. run EV is satisfied by the sound alone, which is why nothing caught it. Derived
+// from run._swimN rather than plumbed through sync's event list: render must not mutate run, a
+// counter cannot desync from itself, and a dropped frame cannot lose the pulse.
+let gateLastN = -1, gateCrossAt = -99, gateCrossK = -1
 const spurG = new Graphics()
   // THE CORAL IS SPRITES NOW, NOT A PATH. spurG survives only for the flat-slab A/B fallback
   // (spurArt 0) and for the ridge FOOT; every colony is a stamp out of coralPool. See bakeCoral().
@@ -13331,7 +13337,187 @@ const spurG = new Graphics()
         fuLine(gateFrontG, f0, u0, [[0, sign * RU * 0.98], [RF * 0.7, sign * RU * 1.02]], body, a, 24)
       }
     }
-    const realMarker = (f0, cav, done, fin) => {
+    // ---- gv=18..21: the gate REACTS -----------------------------------------------------------
+    // Owner, 2026-08-25: "more realistic, clearer ux and game feel". Seventeen candidates in and
+    // every one of them was static furniture whose only state was an alpha — so none of them could
+    // answer the three questions a racer actually asks: where do I go NEXT, am I nearly there, and
+    // did that count?
+    //   ONLY THE NEXT GATE IS LIT, and that is the single biggest UX win available here. A lap has
+    // ten checkpoints and several are on screen at once; lighting all of them says "gates exist",
+    // lighting exactly one says "go there". Everything else on the lap goes quiet.
+    const swimNow = run._swimN ?? 0
+    if (swimNow < gateLastN) gateLastN = -1
+    if (gateLastN >= 0 && swimNow > gateLastN) { gateCrossAt = run.time; gateCrossK = (swimNow - 1) % per }
+    gateLastN = swimNow
+    const nextK = per > 0 ? swimNow % per : -1
+    const CROSS_T = 0.55
+    // 0 far .. 1 on top of it. The ramp is what turns a marker into an approach.
+    const nearness = (w) => {
+      const d = Math.hypot(w.x - pw, w.y - ph2)
+      return Math.max(0, Math.min(1, 1 - d / 820))
+    }
+    const crossAge = (k) => (k === gateCrossK ? Math.max(0, 1 - (run.time - gateCrossAt) / CROSS_T) : 0)
+    // The reward: a ring of light thrown off the gate you just threaded. One shape, every design,
+    // so the crossing always feels the same however the marker is drawn.
+    const burst = (G, w, k, tint) => {
+      const c = crossAge(k)
+      if (c <= 0) return
+      const e = 1 - c
+      G.circle(w.x, w.y, 26 + e * 190)
+      G.stroke({ width: 20 * c + 2, color: tint, alpha: 0.55 * c * c })
+      G.circle(w.x, w.y, 12 + e * 92)
+      G.stroke({ width: 10 * c + 1, color: 0xffffff, alpha: 0.5 * c })
+    }
+    // gv=18 — CHANNEL MARKER LIGHTS. Lit navigation posts are what actually marks a channel, and a
+    // lamp has the one property none of the painted markers had: it can be OFF. The next gate's
+    // pair breathe, the rest are dark posts, and threading one blows the lamps white.
+    const markerLights = (f0, cav, done, fin, k) => {
+      const t = run.time ?? 0
+      const w0 = P(f0, cav.c)
+      const nr = nearness(w0), lit = k === nextK || fin
+      const c = crossAge(k)
+      const puls = 0.55 + 0.45 * Math.sin(t * 3.4)
+      const glow = lit ? (0.5 + 0.5 * nr) * (0.62 + 0.38 * puls) : 0.06
+      if (lit && !done) {
+        // the lit channel between the pair — the instruction, and it strengthens as you close
+        fuLine(gateFrontG, f0, cav.c, [[0, -cav.hw + 16], [0, cav.hw - 16]], fin ? 0xfff4d6 : 0x7fe8ff,
+          (0.16 + 0.26 * nr) * (0.6 + 0.4 * puls) + c * 0.5, 30 + c * 30)
+      }
+      for (const sign of [-1, 1]) {
+        const u = cav.c + sign * (cav.hw - 14)
+        const foot = P(f0, u)
+        gateFloorG.ellipse(foot.x, foot.y + 7, 17, 8)
+        gateFloorG.fill({ color: 0x0b1a22, alpha: 0.26 })
+        fuLine(gateG, f0, u, [[8, 0], [-72, 0]], 0x101b20, 1, 17)
+        fuLine(gateG, f0, u, [[8, 0], [-72, 0]], done ? 0x3c4348 : 0x5d666c, 1, 10)
+        const head = P(f0 + dFor(-72, u), u)
+        if (lit) {
+          gateFrontG.circle(head.x, head.y, 54 + c * 40)
+          gateFrontG.fill({ color: fin ? 0xfff4d6 : 0x7fe8ff, alpha: 0.3 * glow + c * 0.4 })
+          gateFrontG.circle(head.x, head.y, 27 + c * 22)
+          gateFrontG.fill({ color: fin ? 0xfffaea : 0xcaf6ff, alpha: 0.34 * glow + c * 0.45 })
+        }
+        ball(gateG, head.x, head.y, 20, lit ? (fin ? 0xfff4d6 : 0x9df2ff) : 0x39424a, 0xffffff, 1)
+        if (lit) {
+          gateFrontG.circle(head.x, head.y, 10)
+          gateFrontG.fill({ color: 0xffffff, alpha: 0.55 + 0.45 * puls })
+        }
+      }
+      burst(gateFrontG, w0, k, fin ? 0xfff4d6 : 0x7fe8ff)
+    }
+    // gv=19 — BUBBLE CURTAIN. Two vents on the sand and a wall of bubbles between them. The most
+    // underwater answer available, it spans the passage so the line is unmissable, and it is the
+    // only marker that can be BLOWN APART — which is the crossing made physical rather than
+    // announced.
+    const curtain = (f0, cav, done, fin, k) => {
+      const t = run.time ?? 0
+      const w0 = P(f0, cav.c)
+      const nr = nearness(w0), lit = k === nextK || fin
+      const c = crossAge(k)
+      const strength = lit ? 0.45 + 0.55 * nr : 0.07
+      for (const sign of [-1, 1]) {
+        const u = cav.c + sign * (cav.hw - 12)
+        const cone = []
+        for (let i = 0; i < 12; i++) {
+          const th = (i / 12) * Math.PI * 2
+          const r = 22 * (0.8 + 0.28 * hsh(i, sign + 5))
+          cone.push([Math.cos(th) * r, Math.sin(th) * r * 0.8])
+        }
+        fuShape(gateFloorG, f0, u, cone, 0x2b3138, 0.9, 0x14181c, 6)
+      }
+      const N = 34
+      for (let i = 0; i < N; i++) {
+        const lane = i / N
+        const u = cav.c - cav.hw + 14 + (cav.hw * 2 - 28) * lane
+        // each bubble on its own clock so the wall shimmers instead of pulsing as one object
+        const ph = (t * (0.5 + 0.35 * hsh(i, 2)) + hsh(i, 9)) % 1
+        const r = (2.5 + ph * 9) * (0.5 + strength)
+        // the crossing shoves the wall outward, hardest at the middle where the player went through
+        const shove = c * c * 150 * (1 - Math.abs(lane - 0.5) * 1.4)
+        const dx = (hsh(i, 3) - 0.5) * 26 * ph + shove
+        const dy = (hsh(i, 7) - 0.5) * 22 * ph
+        const q = P(f0 + dFor(dx, u), u + dy)
+        const G = dx > 0 ? gateFrontG : gateG
+        G.circle(q.x, q.y, r)
+        G.fill({ color: 0xd6ecf7, alpha: (0.1 + 0.4 * strength) * (1 - ph) })
+        G.circle(q.x, q.y, r)
+        G.stroke({ width: 1.6, color: 0xf2fbff, alpha: (0.14 + 0.46 * strength) * (1 - ph) })
+      }
+      burst(gateFrontG, w0, k, 0xd6ecf7)
+    }
+    // gv=20 — SEA WHIPS. Two stands of whip coral leaning in the current. Alive, so the gate is
+    // part of the reef; and they BOW APART as you thread them, which is the only candidate whose
+    // reaction is the player's own wake rather than a light show.
+    const whips = (f0, cav, done, fin, k) => {
+      const t = run.time ?? 0
+      const w0 = P(f0, cav.c)
+      const nr = nearness(w0), lit = k === nextK || fin
+      const c = crossAge(k)
+      for (const sign of [-1, 1]) {
+        const uBase = cav.c + sign * (cav.hw - 4)
+        for (let i = 0; i < 7; i++) {
+          const fr = (i / 6 - 0.5) * 46
+          const sway = Math.sin(t * 1.1 + i * 0.7 + sign) * 7
+          const push = c * c * 62 * (1 - i / 9)
+          const pts = []
+          for (let j = 0; j <= 6; j++) {
+            const g2 = j / 6
+            const reach = (34 + i % 3 * 15 + 44) * g2
+            pts.push([fr + (sway + push * 1.4) * g2 * g2, -sign * reach * (1 - c * 0.42)])
+          }
+          fuLine(gateG, f0, uBase, pts, 0x2a1f2c, 1, 10)
+          fuLine(gateG, f0, uBase, pts, done ? 0x5d5560 : (fin ? 0xe0d8c8 : 0xb8567e), 1, 5.5)
+          const tip = pts[6]
+          const q = P(f0 + dFor(tip[0], uBase + tip[1]), uBase + tip[1])
+          if (lit) {
+            gateG.circle(q.x, q.y, 15)
+            gateG.fill({ color: 0xffd98a, alpha: 0.2 + 0.3 * nr })
+          }
+          gateG.circle(q.x, q.y, lit ? 8 : 5)
+          gateG.fill({ color: lit ? 0xfff0d8 : 0x6d6470, alpha: 1 })
+        }
+      }
+      burst(gateFrontG, w0, k, 0xffc9d8)
+    }
+    // gv=21 — LIT RING. The hoop that already reads, given the state the other sixteen lacked: a
+    // dead grey loop until it is your next gate, breathing once it is, and blown white when you
+    // thread it.
+    const litRing = (f0, cav, done, fin, k) => {
+      const t = run.time ?? 0
+      const RU = Math.min(cav.hw - 8, 132), RF = RU * 0.56
+      const u0 = cav.c
+      const w0 = P(f0, u0)
+      const nr = nearness(w0), lit = k === nextK || fin
+      const c = crossAge(k)
+      const puls = 0.5 + 0.5 * Math.sin(t * 3)
+      const base = P(f0, u0)
+      gateFloorG.ellipse(base.x, base.y + RF * 0.5, RU * 0.95, RF * 0.5)
+      gateFloorG.fill({ color: 0x0b1a22, alpha: 0.24 })
+      const body = lit ? (fin ? 0xf4efe2 : 0xf2c53d) : 0x4a5157
+      const half = (G, a0, a1, front) => {
+        const pts = ell(0, 0, RF, RU, 22, a0, a1)
+        if (lit) {
+          fuLine(G, f0, u0, pts, fin ? 0xfff4d6 : 0xffe07a,
+            (0.2 + 0.26 * nr) * (0.6 + 0.4 * puls) + c * 0.6, 58 + c * 34)
+        }
+        fuLine(G, f0, u0, pts, 0x101b20, 1, 26)
+        fuLine(G, f0, u0, pts, body, 1, 17)
+        fuLine(G, f0, u0, pts, front ? (lit ? 0xfff6d8 : 0x767d82) : 0x8a7a3c, 0.7, 6)
+        if (c > 0) fuLine(G, f0, u0, pts, 0xffffff, c * 0.85, 17)
+      }
+      half(gateG, Math.PI * 0.5, Math.PI * 1.5, false)
+      half(gateFrontG, -Math.PI * 0.5, Math.PI * 0.5, true)
+      for (const sign of [-1, 1]) {
+        fuLine(gateG, f0, u0, [[0, sign * RU * 0.94], [RF * 0.62, sign * RU * 0.99]], 0x101b20, 1, 15)
+        fuLine(gateG, f0, u0, [[0, sign * RU * 0.94], [RF * 0.62, sign * RU * 0.99]], 0x6b6f72, 1, 9)
+      }
+      burst(gateFrontG, w0, k, fin ? 0xfff4d6 : 0xffe07a)
+    }
+    const realMarker = (f0, cav, done, fin, kOf = -1) => {
+      if (gateArt === 18) return markerLights(f0, cav, done, fin, kOf)
+      if (gateArt === 19) return curtain(f0, cav, done, fin, kOf)
+      if (gateArt === 20) return whips(f0, cav, done, fin, kOf)
+      if (gateArt === 21) return litRing(f0, cav, done, fin, kOf)
       if (gateArt === 14) return ringGate(f0, cav, done, fin)
       if (gateArt === 15) return gantry(f0, cav, done, fin)
       if (gateArt === 16) return buoyTurned(f0, cav, done, fin)
@@ -13467,7 +13653,7 @@ const spurG = new Graphics()
           else if (gateArt === 5) mat(cav, 3)
           else chequer(gateFloorG, 0, 2, cav, 0.95)
           // ...and a chequered pylon on each bank, so the line still has ends when the floor is busy.
-          if (gateArt >= 6) realMarker(0, cav, false, true)
+          if (gateArt >= 6) realMarker(0, cav, false, true, -1)
           else if (gateArt === 5) buoy(0, cav, false, BUOY_FINISH)
           else for (const sign of [-1, 1]) {
             const edge = cav.c + sign * (cav.hw - 10)
@@ -13490,7 +13676,7 @@ const spurG = new Graphics()
       const col = lapDone ? V.postDone : V.post
       const al = lapDone ? V.doneAlpha : 1
       if (gateArt >= 6) {
-        realMarker(f, cav, lapDone, false)
+        realMarker(f, cav, lapDone, false, k)
       } else if (gateArt === 5) {
         // MOORED MARKER BUOYS — real course hardware, seen from directly above. What made every
         // earlier cut read as UI is that it had no way of being IN the water: a float that is only
