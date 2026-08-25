@@ -2725,6 +2725,11 @@ export const PASSIVES = {
   sleek:      { name: 'Sleek',   desc: '{pct}% resistance to slows', base: 0.15, kind: 'resist', icon: '🐬', chapters: ['wreck'] },
   // balance_decision : unswept first cut, wreck-only (2026-08-24)
   oilskin:    { name: 'Oilskin', desc: "{pct}% resistance to the Leak's burn", base: 0.20, kind: 'resist', icon: '🧥', chapters: ['wreck'] },
+  // Utility, not DEFENSIVE_PASSIVES: this is a damage card, not a reduce-harm one (§4.3 ruling).
+  // `pct` kind, not `resist` — there is no diminishing-returns curve to hide, so the printed
+  // number is honest additively, same as `damage`/`critChance` above.
+  // balance_decision : unswept first cut, wreck-only (2026-08-25)
+  slickFeed:  { name: 'Slick Feed', desc: 'damage to oil-stained prey', base: 0.25, kind: 'pct', icon: '🦷', chapters: ['wreck'] },
 }
 export const MAX_PASSIVE_LEVEL = 5
 // A passive's magnitude -> its effect text, ONCE — makePassiveCard (sim.js, the level-up card) and

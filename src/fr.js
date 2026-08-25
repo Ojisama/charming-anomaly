@@ -1691,6 +1691,8 @@ const CONFIG = {
   '{pct}% resistance to slows': '{pct}% de résistance aux ralentissements',
   'Oilskin': 'Ciré',
   "{pct}% resistance to the Leak's burn": "{pct}% de résistance à la brûlure de la Fuite",
+  'Slick Feed': 'Proie Tachée',
+  'damage to oil-stained prey': 'dégâts aux proies tachées de mazout',
 
   // ---- What killed you (v7.x) --------------------------------------------------------------
   // DMG_SRC_NAME (config.js) + the summary screen's two headers. 'Overload' and 'Blood Money'

@@ -20811,8 +20811,18 @@ function testSubmission() {
   // running over a parked player, nothing to do with the ally. Every chapter has some passive
   // hazard like that (traffic, bombardment, rocks, currents), so the only honest question is
   // whether the ALLY changed anything: run the identical fixture with and without it and diff.
+  // Object.keys(CHAPTERS), NOT CHAPTER_ORDER: that is BOOKS.book1.chapters, so this guard could
+  // not see a single Book 2 chapter — 5 of 13. The tell CLAUDE.md names is a denominator you never
+  // checked, and this one printed "5 chapters" while the honest number is every chapter declaring
+  // eliteFlags.
+  //   ⚠ WIDER, STILL NOT COMPLETE, and the gap is the ASSERTION rather than the loop: this measures
+  // DAMAGE against a control, so a hostile affix that does not deal HP damage is invisible to it
+  // however many chapters it walks. Proven: dropping 'webZone' from SUBMISSION_STRIP_FLAGS leaves
+  // this GREEN, because a web slows the player and never hurts them. Any new non-damaging affix —
+  // The Wreck's oil trail is one, `dmgPerTick: 0` by ruling — needs its own assertion that the flag
+  // is stripped or the entity is not laid. Do not read a pass here as "the ally is harmless".
   let checked = 0
-  for (const id of CHAPTER_ORDER) {
+  for (const id of Object.keys(CHAPTERS)) {
     const flags = CHAPTERS[id].eliteFlags || []
     if (flags.length === 0) continue
 
@@ -20856,7 +20866,7 @@ function testSubmission() {
     checked++
   }
   assert.ok(checked >= 5, `expected at least 5 chapters with eliteFlags to exercise, got ${checked}`)
-  console.log(`PASS run SB.a (the ally is harmless to you): ${checked} chapters with eliteFlags, ally parked ON the player for 10s, damage identical to a no-ally control`)
+  console.log(`PASS run SB.a (the ally DEALS YOU NO DAMAGE): ${checked} of ${Object.keys(CHAPTERS).length} chapters, ally parked ON the player for 10s, damage identical to a no-ally control — says nothing about a non-damaging affix (see the note above)`)
 
   // (b) THE PAYOUT RUNS EXACTLY ONCE PER ELITE. The failure this guards is not an exception, it is a
   // gem and coin fountain: clear _turned and the ally's own fall re-enters the death branch, paying
@@ -24989,11 +24999,14 @@ function testWreckBloodlust() {
   console.log('PASS run WK (The Wreck): the refill is a kill and there is nowhere to stand, the bar pays without taxing and drives a cadence the readout agrees with, starving is a DoT gated on its own chapter, and the lunge dashes, bites and pays itself back while an empty bar keeps the shove')
 }
 
-// ---- run WD: The Wreck's defensive passives — Sleek + Oilskin (spec 2026-08-24 §4.2/4.4) -----
-// Two chapter-scoped cards, plus the two vehicles they ride in on: `PASSIVES[].chapters` (read by
+// ---- run WD: The Wreck's oil cards — Sleek + Oilskin + Slick Feed (spec 2026-08-24 §4.2/4.4) --
+// Three chapter-scoped cards, plus the vehicle they ride in on: `PASSIVES[].chapters` (read by
 // eligiblePassiveIds, NOT by makePassiveCard — devCards calls the card factory directly to bypass
 // eligibility on purpose, and the clause landing in the wrong function breaks the dev menu with
-// nothing red) and `PASSIVES[].icon` (the factory hardcoded the bicep before this).
+// nothing red) and `PASSIVES[].icon` (the factory hardcoded the bicep before this). Sleek/Oilskin
+// buy the oil's toll down (DEFENSIVE_PASSIVES); Slick Feed (WD.l-o) is the third card, ruled to
+// PAY instead — bonus damage to a body the oil has already stained — and stays in the utility
+// bucket rather than joining the other two (§4.3).
 // EVERY CASE HERE IS AN EFFECT: a card that is or isn't OFFERED, a measured px/HP difference, never
 // a read of the config table the change lives next to.
 function testWreckDefense() {
@@ -25272,7 +25285,107 @@ function testWreckDefense() {
     console.log(`PASS run WD.k (the shared composer, behaviourally): resist -> {pct: ${rSleek.p.pct}}, pct -> "${rMove}", flat -> "${rRegen}" from a float-dirty ${dirty} input, an injected formatter yields "${rFr}" while the default stays locale-blind, and ui.js's pause sheet still calls the shared function with fmtNum`)
   }
 
-  console.log('PASS run WD (The Wreck: Sleek + Oilskin): both cards are chapter-scoped through eligiblePassiveIds while staying reachable from the dev menu, each measurably moves its own quantity (slow floor / slick damage) at the FIRST pick, resistFrac keeps a non-zero toll under a deliberately absurd stack while its returns strictly diminish, Oilskin\'s resisted damage carries across ticks instead of quantising to inert, the printed pct is the before->after realized total and agrees with the measured effect, and the other ten passives (icon default included) are byte-identical')
+  // -- WD.l: SLICK FEED deals more damage to a STAINED body, and EXACTLY the same to an unstained --
+  // one — the second half is the real guard: a bonus that applies to everything is a much stronger
+  // (and undesigned) card. Fires gnash, The Wreck's own starter bite, through the shipped path
+  // (applyDamage, not a hand call) at a fixed target, reseeding identically per arm so the crit roll
+  // lines up (same idiom as run TT.d's ambushRun).
+  {
+    const bite = (oiled, slickFeed, seed) => {
+      Math.random = mulberry32(seed)
+      const run = createRun(makeMeta(), { chapter: 'wreck', difficulty: 1 })
+      run.weapons = [{ id: 'gnash', level: MAX_WEAPON_LEVEL }]
+      run.obstacles = []; run._obstacleSeed = null; run.mods.spawnMul = 0
+      run.passives.slickFeed = slickFeed
+      run.player.x = 0; run.player.y = 0; run.player.hp = run.player.maxHP = 1e9
+      const target = makeStatusEnemy(run, { x: 100, y: 0, hp: 1e9, speed: 0 })
+      target.oiled = oiled
+      run.enemies.push(target)
+      for (let i = 0; i < Math.round(2 / dt); i++) {
+        if (run.phase === 'levelup') { declineLevelUp(run); continue }
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return 1e9 - target.hp
+    }
+    const seed = 20260825
+    const oiledOff = bite(OIL_STAIN_MAX, 0, seed)
+    const oiledOn = bite(OIL_STAIN_MAX, PASSIVES.slickFeed.base, seed)
+    assert.ok(oiledOff > 0, 'the stained control took 0 damage in 2s of gnash bites — this fixture proves nothing until it does')
+    assert.ok(oiledOn > oiledOff * 1.05,
+      `Slick Feed must measurably raise damage to a stained body: ${oiledOff} without the card, ${oiledOn} with it`)
+
+    const cleanOff = bite(0, 0, seed)
+    const cleanOn = bite(0, PASSIVES.slickFeed.base, seed)
+    assert.strictEqual(cleanOn, cleanOff,
+      `Slick Feed must deal EXACTLY the same damage to an UNSTAINED body — ${cleanOff} without the card, ${cleanOn} with it (a bonus reaching an unstained target is a different, far stronger card)`)
+
+    console.log(`PASS run WD.l (Slick Feed, bonus to stained prey): a stained body took ${oiledOff} dmg unmodded vs ${oiledOn} with the card (+${(100 * (oiledOn / oiledOff - 1)).toFixed(1)}%) over 2s of gnash bites; an unstained body took exactly ${cleanOff} either way`)
+  }
+
+  // -- WD.m: CHAPTER SCOPING, same shape as WD.a/WD.b — offered only in wreck, but reachable from --
+  // devCards (which bypasses eligiblePassiveIds on purpose) everywhere.
+  {
+    const idsSeenIn = (chapter, seed) => {
+      const run = mk(chapter, seed)
+      run.player.level = 10
+      const seen = new Set()
+      for (let i = 0; i < 400; i++) {
+        run.levelUpChoices = buildLevelUpChoices(run)
+        for (const c of run.levelUpChoices) if (c.kind === 'passive') seen.add(c.id)
+      }
+      return seen
+    }
+    const wreck = idsSeenIn('wreck', 20260825)
+    const other = idsSeenIn('city', 20260825)
+    assert.ok(wreck.has('slickFeed'), `Slick Feed never appeared across 400 wreck screens (saw: ${[...wreck].join(', ')})`)
+    assert.ok(!other.has('slickFeed'), 'Slick Feed was offered in City — PASSIVES.slickFeed.chapters is not filtering eligiblePassiveIds')
+
+    const devIdsOf = (run) => new Set(devCards(run).filter((c) => c.kind === 'passive').map((c) => c.id))
+    assert.ok(devIdsOf(mk('wreck', 1)).has('slickFeed'), 'devCards is missing slickFeed in The Wreck')
+    assert.ok(devIdsOf(mk('city', 1)).has('slickFeed'), 'devCards is missing slickFeed outside The Wreck — the chapters clause has leaked into makePassiveCard')
+    console.log(`PASS run WD.m (chapter scoping): slickFeed seen among ${wreck.size} wreck passive ids, absent from ${other.size} city ids, reachable from devCards in both`)
+  }
+
+  // -- WD.n: BUCKETING, BEHAVIOURALLY (owner ruling §4.3, 2026-08-24 round 4) — Sleek/Oilskin join --
+  // DEFENSIVE_PASSIVES, Slick Feed stays UTILITY. Reading DEFENSIVE_PASSIVES.includes('slickFeed')
+  // would be a state check on the config table the card lives next to; BRITTLE voids the whole
+  // defensive bucket (eligiblePassiveIds: `!(brittle && DEFENSIVE_PASSIVES.includes(id))`), so
+  // whether it survives BRITTLE is an observable EFFECT of which bucket it is actually in.
+  {
+    const idsUnderBrittle = (seed) => {
+      const run = mk('wreck', seed)
+      run.player.level = 10
+      run.anomalies = { ...run.anomalies, brittle: true }
+      const seen = new Set()
+      for (let i = 0; i < 400; i++) {
+        run.levelUpChoices = buildLevelUpChoices(run)
+        for (const c of run.levelUpChoices) if (c.kind === 'passive') seen.add(c.id)
+      }
+      return seen
+    }
+    const seen = idsUnderBrittle(20260825)
+    assert.ok(seen.has('slickFeed'), `Slick Feed must survive BRITTLE (it is a utility card, not a defensive one) — saw: ${[...seen].join(', ')}`)
+    assert.ok(!seen.has('sleek') && !seen.has('oilskin'), 'Sleek/Oilskin must NOT survive BRITTLE — it voids the whole defensive bucket they are in')
+    console.log(`PASS run WD.n (bucketing, behaviourally): under BRITTLE (voids the defensive bucket), Slick Feed still appears among ${seen.size} offered ids while Sleek/Oilskin do not`)
+  }
+
+  // -- WD.o: CARD TEXT is the plain "+N% <desc>" additive shape, with no descT — a `pct` passive, --
+  // not the resist idiom Sleek/Oilskin use, because there is no diminishing-returns curve to hide.
+  {
+    const run = mk('wreck', 23)
+    const card = devCards(run, 'normal').find((c) => c.id === 'slickFeed')
+    assert.ok(card, 'devCards did not return a slickFeed card in The Wreck at normal rarity')
+    assert.strictEqual(card.descT, undefined, `slickFeed unexpectedly carries a descT — got ${JSON.stringify(card.descT)}`)
+    // The literal is hardcoded here, NOT read back off PASSIVES.slickFeed.desc — a desc that grew
+    // a stray "{pct}" template (the resist-only shape this card must never use) would satisfy a
+    // self-referential comparison, since both sides read the same mutated config.
+    const expectPct = Math.round(PASSIVES.slickFeed.base * RARITIES.normal.mult * 100)
+    assert.strictEqual(card.desc, `+${expectPct}% damage to oil-stained prey`,
+      `slickFeed's card desc does not match the plain "+N% <desc>" shape — got "${card.desc}"`)
+    console.log(`PASS run WD.o (card text): slickFeed renders as "${card.desc}" with no descT`)
+  }
+
+  console.log('PASS run WD (The Wreck: Sleek + Oilskin + Slick Feed): both resist cards are chapter-scoped through eligiblePassiveIds while staying reachable from the dev menu, each measurably moves its own quantity (slow floor / slick damage) at the FIRST pick, resistFrac keeps a non-zero toll under a deliberately absurd stack while its returns strictly diminish, Oilskin\'s resisted damage carries across ticks instead of quantising to inert, the printed pct is the before->after realized total and agrees with the measured effect, the other ten passives (icon default included) are byte-identical, and Slick Feed — the payoff card, utility not defensive — deals measurably more damage to a stained body and exactly the same to an unstained one')
 }
 
 function testReefAirBurst() {

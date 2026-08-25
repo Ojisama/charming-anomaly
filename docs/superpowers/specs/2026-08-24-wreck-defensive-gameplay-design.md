@@ -310,12 +310,18 @@ identity, not budget, and it should be made on those terms.
 
 - **`SUBMISSION_STRIP_FLAGS`** (`config.js:497`) lists `soapTrail`. A replacement that is not on it
   means a submitted elite becomes **your own ally laying oil walls across the field**.
-- **`run SB.a` cannot see this chapter.** The test that guards that list loops
-  `for (const id of CHAPTER_ORDER)` (`test/sim-test.js:20813`), and `CHAPTER_ORDER` is
-  `BOOKS.book1.chapters` — The Wreck is Book 2. **The chapter's current `soapTrail` is already
-  unguarded**, and the replacement would be too. Fix is one expression:
-  `Object.keys(CHAPTERS)`. This is CLAUDE.md's denominator trap, live, in a test this design
-  depends on.
+- **`run SB.a` could not see this chapter, and widening it is NOT enough.** The test guarding that
+  list looped `for (const id of CHAPTER_ORDER)` — `BOOKS.book1.chapters` — so it walked 5 of 13
+  chapters and no Book 2 chapter at all. **Fixed** to `Object.keys(CHAPTERS)`; the count in its PASS
+  line now reads 13.
+  **But the real gap is the ASSERTION, not the loop, and this affects Part 3 directly.** SB.a
+  measures *damage* against a no-ally control, so a hostile affix that deals no HP damage is
+  invisible to it however many chapters it walks. Proven: dropping `webZone` from
+  `SUBMISSION_STRIP_FLAGS` leaves SB.a **green**, because a web slows and never hurts.
+  **The oil trail is `dmgPerTick: 0` by ruling — so it is exactly that kind of affix.** A submitted
+  elite dragging oil walls across the field would pass SB.a silently. Part 3 must therefore ship its
+  own assertion: the flag is stripped, or the ally lays no `look:'bilge'` bloom. Do not rely on
+  SB.a's pass.
 - **PLAUSIBLE, unproven:** the stain line sits *inside* `if (bl.slow !== 0)` (`sim.js:8601`), so an
   elite trail set to `slow: 0` to avoid double-slowing would inherit avoidance but **not** the
   stain. Build the entity and check before assuming either way.
@@ -518,6 +524,12 @@ never `git checkout src/sim.js` over a live edit).
 - **The Leak as a fence.** Ruled dropped, twice measured. Do not re-propose it without re-reading
   §1.2.
 - **The 4th weapon** `chapter-stage.mjs` asks for. Hazards and upgrades only.
+- **The level-up card's number localisation.** Found while extracting `passiveEffectText`: the
+  card's `+N ` head has never been locale-formatted — `tCardDesc` translates the tail and passes the
+  number through untouched, so French reads `+2.4` where the pause sheet reads `+2,4`. Pre-existing,
+  on a different surface, and deliberately NOT bundled into a passive-cards commit. The composer now
+  takes an injected formatter, so fixing it is passing one argument at the card's call site — but it
+  affects every passive in the game and wants its own change and its own French check.
 - **The orca.** Ruled: no card. Its share is untouched; this design does not reduce the chapter's
   peak damage and is not trying to.
 - **A bubble curtain** (offered as the fence's replacement, not picked).

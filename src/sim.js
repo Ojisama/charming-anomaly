@@ -6560,7 +6560,14 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
 function applyDamage(run, enemy, baseDmg, critBonus = 0) {
   if (damageImmune(enemy)) return 0 // v5.4 untouchable window: no crit roll, no elements either
   const p = run.player
-  let dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run)
+  // SLICK FEED (v7.x, The Wreck): the payoff for driving prey through oil, not the toll of
+  // crossing it — a flat bonus against any stained body (e.oiled > 0), not scaled with HOW
+  // stained, same idiom as run.passives.damage right beside it. Read here rather than in
+  // dealDamage, which is also the HAZARD path (chapter vehicles, the pounce trap — damage the
+  // player did not deal, see this function's own `hazard` doc above) and would hand the bonus to
+  // the world instead of the player.
+  const slickFeedMul = (enemy.oiled || 0) > 0 ? run.passives.slickFeed : 0
+  let dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * (1 + slickFeedMul) * run.mods.playerDmgMul * anomalyDamageMul(run)
     * (run.rampageT > 0 ? RAMPAGE_DMG_MUL : 1)   // v5.14, read-time only (see config)
     // v7.55 §5.3 owner ruling: Humidity only. run.chargeMax (Task 9 fix round): Deep Lungs' own
     // ceiling, not the config max — see resourceDamageMul's own note.
@@ -8530,7 +8537,10 @@ function pickBloomSpot(run, castRange) {
 // player's damage passives/shop like every other weapon.
 function applyDotDamage(run, enemy, baseDmg) {
   const p = run.player
-  const dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * run.mods.playerDmgMul * anomalyDamageMul(run)
+  // SLICK FEED: same conditional bonus as applyDamage, and for the same reason a bilge weapon's
+  // OWN tick has to see it — the pool that stains a body is itself a weapon, ticking through here.
+  const slickFeedMul = (enemy.oiled || 0) > 0 ? run.passives.slickFeed : 0
+  const dmg = baseDmg * p.damageMul * (1 + run.passives.damage) * (1 + slickFeedMul) * run.mods.playerDmgMul * anomalyDamageMul(run)
     // v7.55 §5.3 owner ruling: Humidity only. run.chargeMax (Task 9 fix round), not the config max.
     * resourceDamageMul(run.charge, CHAPTERS[run.chapter].resource, run.chargeMax)
   dealDamage(run, enemy, dmg, false, true)
