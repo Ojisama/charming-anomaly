@@ -556,6 +556,15 @@ Each step is shippable and measurable alone. Stop at any step whose measurement 
    sweep. The largest single piece of work here.
 5. **Part 1** (Rust) — last of the hazards, because it is the strongest and the easiest to cut if
    §5.2 says it eats the chapter.
-6. **Part 3** (the elite oil trail) **and the run SB.a denominator fix in the same commit**, then
-   **§5.7 re-fit the bar**.
+6. **DONE — Part 3** (the elite oil trail), `273398b`. The SB.a denominator fix landed a commit
+   earlier with Slick Feed, along with the `webZone` mutation proving SB.a is blind to a
+   non-damaging affix; `run SB.d` is this affix's own guard and asserts the bloom is absent.
+   **§5.7's re-fit is RULED AWAY, not owed.** Measured: the wall cuts the kill rate 3.25/s → 2.34/s
+   (8 seeds, fixed loadout, mortal arm; pools never damaged enemies — `stepPools` only calls
+   `hurtPlayer` — so this is the wall genuinely fencing prey away, not the lost pools).
+   **Owner ruling 2026-08-25: keep both, a harder chapter.** `drainPerSpawn` 3.2 therefore now sits
+   ABOVE what this chapter's kill rate would fit, deliberately. Recorded in its own
+   `balance_decision` line so nobody "fixes" it back. If the bar later reads too punishing, the
+   lever is the drain or the affix's cadence — **not** re-tuning the wall's radius on the assumption
+   it was an accident.
 7. **§4.5** (anomaly + mutator), which closes the ideation axis.

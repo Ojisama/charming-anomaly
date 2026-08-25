@@ -7544,6 +7544,8 @@ CHAPTERS.wreck = {
     // regressive — see the FEED block in this file and stepCharge for the numbers.
     // balance_decision : drain 2.4 -> 3.2, the six-prey roster halved separation 2026-08-23
     //  - re-run the wreck sweep after ANY roster/chum/orca change; the number tracks the kill rate
+    // balance_decision : oilTrail cut the kill rate 28%, drain HELD not re-fitted 2026-08-25
+    //  - owner ruled a harder chapter: 3.2 is now ABOVE what this kill rate would fit, deliberately
     name: 'Bloodlust', drainPerSpawn: 3.2, refill: 0, killBase: 5, tankRefill: 30, max: 100, feedSlow: true,
     damage: { floor: 1, peak: 1.8 },
     rate: { floor: 1, peak: 1.5 },
