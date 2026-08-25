@@ -23205,25 +23205,41 @@ function testReefPassiveCrowd() {
     // line, its seeker had no gap to close, and the case reported the seek as disabled in the one
     // chapter where it is not.
     const stick = ax.cross === 'x' ? { x: 1, y: 0 } : { x: 0, y: 1 }
-    let moved = 0
-    for (let i = 0; i < Math.round(secs / dt); i++) {
-      for (const q of run.enemies) if (q !== e) q._dead = true
-      e._dead = false
-      e.hp = 1e9
-      e.kb.x = 0
-      e.kb.y = 0
-      stepSim(run, stick, dt)            // strafe hard toward one wall, the whole time
-      run.events.length = 0
-      moved += dt
-      if (e._dead) break                 // swept astern; whatever it did, it did before here
+    // DRIVEN TWICE, TO OPPOSITE WALLS, and the mirror is what carries the claim now. It used to
+    // demand dCross < 1e-6 — literally no cross movement at all — which stopped being true the day
+    // the crowd was clamped inside the cave passage (clampCrowdToCave, sim.js): the wall moves a
+    // body across the lane for reasons that have nothing to do with the player, and the old
+    // assertion could not tell those two apart. A MIRROR CAN. The clamp reads caveAt and the body's
+    // own forward position; a seek reads run.player. So flee to the far wall instead and a seeker's
+    // track flips while a clamped body's is bit-identical — which is a STRONGER statement than the
+    // one it replaces, not a weaker one, because it also rules out a seek the wall happens to mask.
+    const drive = (r, body, sx, sy) => {
+      let t = 0
+      for (let i = 0; i < Math.round(secs / dt); i++) {
+        for (const q of r.enemies) if (q !== body) q._dead = true
+        body._dead = false
+        body.hp = 1e9
+        body.kb.x = 0
+        body.kb.y = 0
+        stepSim(r, { x: sx, y: sy }, dt)  // strafe hard toward one wall, the whole time
+        r.events.length = 0
+        t += dt
+        if (body._dead) break             // swept astern; whatever it did, it did before here
+      }
+      return t
     }
+    const moved = drive(run, e, stick.x, stick.y)
     const dCross = Math.abs(e[ax.cross] - cross0)
     if (wantTurn) {
       assert.ok(dCross > 20,
         `run RC.b control: The Beyond's crowd moved ${dCross.toFixed(1)}px across the lane while the player fled to a wall — an ordinary seeker must close that gap, so this case cannot see a disabled seek`)
     } else {
-      assert.ok(dCross < 1e-6,
-        `run RC.b: The Reef's ${e.rosterId ?? e.type} moved ${dCross.toFixed(2)}px across the lane toward a fleeing player — it is still seeking`)
+      const mirror = laneRun(chapter)
+      const em = firstBody(mirror)
+      assert.ok(em, 'run RC.b mirror saw no enemy at all — the two halves are not the same fixture')
+      drive(mirror, em, -stick.x, -stick.y)
+      assert.ok(Math.abs(em[ax.cross] - e[ax.cross]) < 1e-6,
+        `run RC.b: The Reef's ${e.rosterId ?? e.type} ended ${Math.abs(em[ax.cross] - e[ax.cross]).toFixed(2)}px apart across the lane depending on which wall the player fled to — its track reads run.player, so it is still seeking`)
       const want = -ax.dir * e.speed * moved
       assert.ok(Math.abs((e[ax.fwd] - fwd0) - want) < 1e-3,
         `run RC.b: expected the body to swim ${want.toFixed(1)}px down the lane in ${moved.toFixed(2)}s at its own ${e.speed.toFixed(0)}px/s, it moved ${(e[ax.fwd] - fwd0).toFixed(1)} — it is not passing by, it is parked`)
@@ -23541,7 +23557,15 @@ function testReefSpurScrape() {
     const secs = 60
     const leg = (fwd) => {
       const run = reefRun()
+      // NO CROWD. This case measures the throttle, and since v7.x a fish the player touches costs
+      // speed and knocks them across the lane (bumpTraffic) — a real force, and an unmeasured one
+      // inside an assertion about px travelled. Measured on the idle leg: 15 bumps and 6 crashes in
+      // 60s, 827px of 5400 gone.
+      //   KILLED EACH FRAME, NOT mods.spawnMul = 0. That knob does not empty this chapter — the
+      // reef still streamed 12 live bodies with it at zero — and a silent no-op there would leave
+      // the force in place under a line claiming it is gone.
       for (let i = 0; i < Math.round(secs / dt); i++) {
+        for (const q of run.enemies) q._dead = true
         stepSim(run, stick(follow(run), fwd * LAX.dir), dt)
         run.events.length = 0
       }
@@ -23568,7 +23592,9 @@ function testReefSpurScrape() {
     const settle = Math.round(2 / dt)   // 2s — comfortably past (270-90)/420 = 0.43s
     for (const [fwdIn, want] of [[1, T.max], [-1, T.min], [0, 1]]) {
       const run = reefRun()
-      for (let i = 0; i < settle; i++) { stepSim(run, stick(0, fwdIn * LAX.dir), dt); run.events.length = 0 }
+      // Same reason as the legs above: traffic is a real force on _laneSpeed, and mods.spawnMul
+      // does not empty this chapter, so the bodies have to be killed.
+      for (let i = 0; i < settle; i++) { for (const q of run.enemies) q._dead = true; stepSim(run, stick(0, fwdIn * LAX.dir), dt); run.events.length = 0 }
       assert.ok(Math.abs(run.player[LAX.vFwd] * LAX.dir - nominal * want) < 1e-6,
         `run RS.e: a ${fwdIn} forward stick settles at ${(run.player[LAX.vFwd] * LAX.dir).toFixed(2)}px/s against the ${(nominal * want).toFixed(2)} laneThrottle {min ${T.min}, max ${T.max}} asks for`)
       assert.ok(Math.abs(run._laneThrottle - want) < 1e-6, 'run RS.e: run._laneThrottle disagrees with the velocity it produced — stepLaneFront reads that field, so the camera and the crush edge would run at a rate the player is not travelling at')
@@ -23910,6 +23936,12 @@ function testReefCircuit() {
     let peakClock = 0
     for (let i = 0; i < 60 * 400; i++) {
       run.player.hp = run.player.maxHp          // immortal: this measures the circuit, not survival
+      // ...AND EMPTY, WHICH mods.spawnMul = 0 ABOVE DOES NOT ACHIEVE HERE — the reef still streamed
+      // 12 live bodies with it at zero. Since v7.x a fish the player touches costs speed and knocks
+      // them across the lane (bumpTraffic), and traffic is not periodic, so lap 2 and lap 4 stop
+      // being the same drive: measured, the split spread went 0.06s -> 0.27s against a 0.25 band.
+      // (b)'s claim is about the GEOMETRY repeating; the crowd is (CT.b was never its subject.)
+      for (const q of run.enemies) q._dead = true
       stepSim(run, { x: fwd, y: 0 }, dt)
       peakClock = Math.max(peakClock, run.raceClock ?? 0)
       for (const e of run.events) {
@@ -23943,7 +23975,7 @@ function testReefCircuit() {
     if (seed === 3 || !picked) picked = sw
   }
 
-  // (b) A RACE IS FOUR LAPS AND ENDS IN A VICTORY WITH A TIME ON IT.
+  // (b) A RACE IS ch.circuit.laps LAPS AND ENDS IN A VICTORY WITH A TIME ON IT.
   const fast = drive(1)
   assert.strictEqual(fast.run.phase, 'victory',
     `run CT.b: full throttle for 400s ended '${fast.run.phase}' — a circuit is won by finishing its laps and nothing else does it`)
@@ -23959,7 +23991,7 @@ function testReefCircuit() {
   const splits = fast.laps.map((l) => l.split)
   const spread = Math.max(...splits.slice(1)) - Math.min(...splits.slice(1))
   assert.ok(spread < 0.25,
-    `run CT.b: laps 2-4 took ${splits.slice(1).map((s) => s.toFixed(2)).join('/')}s — a spread of ${spread.toFixed(2)}s means the player is not driving the same track twice`)
+    `run CT.b: laps 2+ took ${splits.slice(1).map((s) => s.toFixed(2)).join('/')}s — a spread of ${spread.toFixed(2)}s means the player is not driving the same track twice`)
 
   // (f) THE BANK IS CAPPED, which is the mechanic and not a rail on it. Uncapped, a clean driver
   // gathers time faster than they spend it — 24 checkpoints x CIRCUIT_SWIM_TIME against a ~76s race
@@ -23991,17 +24023,21 @@ function testReefCircuit() {
   // THE CONDITION HAS TO BE REACHABLE OR THIS PROVES NOTHING. With the clock live, no run survives
   // to 300s — the countdown kills a slow driver in well under a minute — so a plain slow run can
   // never distinguish an armed timer from a disarmed one. Hold the clock open and crawl at
-  // laneThrottle.min instead: 4 x 5040 / 45px/s = 448s, comfortably past RUN_DURATION. An armed
+  // laneThrottle.min instead: 5 x 5040 / 45px/s = 560s, comfortably past RUN_DURATION. An armed
   // timer wins the run at 300s with the player barely two laps in; the exemption carries it to a
-  // real fourth lap.
+  // real final lap.
   {
     Math.random = mulberry32(21)
     const r = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
     r.mods.spawnMul = 0
     let laps = 0
-    for (let i = 0; i < 60 * 600; i++) {
+    for (let i = 0; i < 60 * 900; i++) {
       r.player.hp = r.player.maxHp
       r.raceClock = 999                    // the countdown is CT.c's subject, not this one
+      // ...and empty, which mods.spawnMul does not achieve in this chapter — see the note in
+      // `drive` above. A crawl already takes 560s and traffic taxes _laneSpeed on every touch, so
+      // with the crowd live this run does not finish inside any budget worth waiting for.
+      for (const q of r.enemies) q._dead = true
       stepSim(r, { x: -1, y: 0 }, dt)
       for (const e of r.events) if (e.type === 'lap') laps++
       r.events.length = 0
@@ -24030,10 +24066,15 @@ function testReefCircuit() {
   // is a green assertion about the wall that says nothing about the wall.
   {
     const ax = laneAxes(ch)
-    // A REALISTIC driver, deliberately not the best one: it holds an open lane but reads it at its
-    // own position rather than ahead, so it clips the corners — ~15 wall contacts a race, finishing
-    // around 79/100. That is what makes it the right subject: it PAYS the wall, so the wall's price
-    // is visible in whether it lives.
+    // A REALISTIC driver, deliberately not the best one: it reads the open lane only 60px ahead
+    // against a 840px centre wavelength, so it clips the corners and pays the wall — 60 HP of one
+    // of these four seeds, 0 on the other three. THAT is what makes it the right subject, and it
+    // is the whole reason the block below is not vacuous: a driver the damage cannot reach is a
+    // green assertion about the wall that says nothing about the wall.
+    //   THE LOOKAHEAD IS SWEPT, NOT CHOSEN. At 0 it dies on seed 2 (the race is 5 laps now, and a
+    // corner-clipper pays about 25 HP a lap there); at 140 it dies on three of the four, because a
+    // lookahead that long leads the turn into the OUTSIDE wall. 60 is the band that finishes all
+    // four while still paying — measured across lookahead 0/40/60/80/100/140 x gain 30/60.
     //   `openLane` is what makes even this honest. caveAt's `c` is the passage centre, and where
     // ph > 0 the centre IS the coral island — steering at it drives into the rock, which is exactly
     // how one of those three probes concluded the chapter was unplayable.
@@ -24047,6 +24088,14 @@ function testReefCircuit() {
       const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
       run.mods.spawnMul = 0            // the crowd is CT.b's subject; this block is the WALL
       for (let i = 0; i < 60 * 200; i++) {
+        // ...AND THAT LINE IS A NO-OP HERE, WHICH IS WHY THIS ONE EXISTS. mods.spawnMul does not
+        // empty the reef — it still streams ~12 live bodies at zero — so the sentence above was
+        // true about the intent and false about the tree. Since v7.x that gap has teeth: a fish the
+        // player touches knocks them ACROSS the lane (bumpTraffic), i.e. into the very wall this
+        // block measures, so the crude driver was being pushed into coral by a force the case does
+        // not name. It died on 1 of these 4 seeds that way. Traffic is worth its own scenario; it
+        // is not worth being an unnamed term in this one.
+        for (const q of run.enemies) q._dead = true
         const c = cross(run)
         stepSim(run, { x: ax.fwd === 'x' ? 1 : c, y: ax.fwd === 'y' ? 1 : c }, dt)
         run.events.length = 0
@@ -24059,11 +24108,11 @@ function testReefCircuit() {
     // The single-seed version of this assertion was mutation-proved at 0 of 3, because seed 9's
     // track happens to cost this driver NOTHING: 0.4s of glancing contact, never enough to reach
     // CAVE_HIT_TICK, so the wall's price could be tripled or zeroed underneath it unnoticed. The
-    // same driver pays 0 / 20 / 80 / 0 across these four, so seed 2 is the one carrying the check
+    // same driver pays 0 / 0 / 60 / 0 across these four, so seed 2 is the one carrying the check
     // and the others are what stop a tune being judged on a single lucky lap.
     //   A COUNT, NOT AN HP BAND. The measured spread is 0-80 HP on one driver, so any threshold
     // would be an eyeballed literal a re-phasing could walk through; "did it finish" cannot drift.
-    const drive = (run) => Math.max(-1, Math.min(1, (openLane(run, 0) - run.player[ax.cross]) / 30))
+    const drive = (run) => Math.max(-1, Math.min(1, (openLane(run, 60) - run.player[ax.cross]) / 30))
     const RACE_SEEDS = [9, 1, 2, 3]
     const driven = RACE_SEEDS.map((seed) => race(drive, seed))
     const lost = driven.filter((r) => r.phase !== 'victory')
@@ -25834,12 +25883,14 @@ function testReefAirBurst() {
     const none = advance(0, false)
     const empty = advance(0, true)
     const full = advance(res.max, true)
+    const ordering = () => {
+      assert.ok(empty > none + want(BURST_DUR_MIN) * 0.9,
+        `pressing on an EMPTY bar bought ${(empty - none).toFixed(1)}px of the ${want(BURST_DUR_MIN).toFixed(1)} it owes — the no-spiral floor is gone, so a player with no charge is stuck behind whatever is in front of them`)
+      assert.ok(full > empty + (want(BURST_DUR_AT_FULL) - want(BURST_DUR_MIN)) * 0.9,
+        `a full bar dashed only ${(full - empty).toFixed(1)}px further than an empty one — the charge buys nothing, so the bar is not the button's ammunition`)
+    }
     assert.ok(Math.abs(none - scroll * 1.2) < 1e-6,
       `the no-press control must advance at exactly laneScroll (${scroll}), moved ${none.toFixed(3)} vs ${(scroll * 1.2).toFixed(3)}`)
-    assert.ok(empty > none + 50,
-      `pressing on an EMPTY bar bought ${(empty - none).toFixed(1)}px — the no-spiral floor is gone, so a player with no charge is stuck behind whatever is in front of them`)
-    assert.ok(full > empty + 50,
-      `a full bar dashed ${(full - empty).toFixed(1)}px further than an empty one — the charge buys nothing, so the bar is not the button's ammunition`)
     // Against the constants, so a retune moves this with config.js instead of leaving a literal.
     // ONE FRAME of slack, and no more: the timer is spent before it is decremented, so a duration
     // that is a whole number of frames leaves a float residue (0.30 - 18/60 is 2.7e-17, not 0) and
@@ -25847,6 +25898,13 @@ function testReefAirBurst() {
     // here would hide the thing this pair is actually for — that the LENGTH is what the bar buys.
     const want = (dur) => scroll * (BURST_SPEED_MUL - 1) * dur
     const frame = scroll * (BURST_SPEED_MUL - 1) * dt
+    // ⚠ THE ORDERING PAIR IS SIZED FROM THE CONSTANTS, NOT FROM A px LITERAL, and that is a repair
+    // rather than a loosening. Both used to read `> x + 50`, a number eyeballed when the dash was
+    // 405px/s flat; BURST_SPEED_MUL now multiplies the speed the player is ACTUALLY making, and
+    // this fixture holds a dead stick, so it measures the dash at bare laneScroll — 10.8px, not
+    // 405. The 50 was never a property of the design, it was a property of the old multiplier, and
+    // it would have gone red for every future retune too.
+    ordering()
     assert.ok(Math.abs((empty - none) - want(BURST_DUR_MIN)) <= frame + 0.5,
       `an empty-bar dash should buy ${want(BURST_DUR_MIN).toFixed(0)}px, bought ${(empty - none).toFixed(0)}`)
     assert.ok(Math.abs((full - none) - want(BURST_DUR_AT_FULL)) <= frame + 0.5,

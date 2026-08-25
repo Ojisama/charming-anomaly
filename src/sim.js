@@ -343,6 +343,16 @@ export function stepSim(run, input, dt) {
   stepMartyr(run)         // v7.2: resolve the anomaly's queued blasts — after every hurtPlayer caller above
   stepGravityWells(run, dt) // v5.4 beyond signature: bend every projectile in flight (damages nothing)
   stepWeapons(run, dt)
+  // TERRAIN SNAPS LAST AND WINS — the same rule stepObstacles states one screen up, and the reason
+  // this is here rather than beside stepCaveWall (which is where the player's half lives). A body's
+  // position is written by half a dozen things in a frame: its own swim, separation, the obstacle
+  // push-out, knockback, a weapon's shove. Clamping before those runs corrects a stale position and
+  // leaves a body sitting in coral for the frame it is actually drawn and touched in.
+  //   It also keeps every weapon fixture honest. run RN plants bodies at exact offsets and reads
+  // what a weapon does to them; a clamp ahead of stepWeapons snaps those bodies to a wall face
+  // mid-step, and the case then measures a fixture that was never where it put it — which cost
+  // RN.d a ratio of 0.733 against the 0.625 the weapon was correctly producing.
+  clampCrowdToCave(run)
   stepStatuses(run, dt)
   stepPickups(run, dt)
   stepLevelUp(run)
@@ -1763,6 +1773,10 @@ function stepCircuit(run, dt) {
   if (passed > prev) {
     for (let k = prev; k < passed; k++) {
       run.raceClock = Math.min(circuitKnob(ch, 'clockCap'), run.raceClock + circuitKnob(ch, 'swimTime'))
+      // THE CHAPTER'S ONLY XP SOURCE (see CIRCUIT_DEFAULTS.swimXp). Through the SAME multipliers a
+      // gem is, so every xp card in the game still reads on a race rather than going inert here.
+      // stepLevelUp runs later in this same frame, so the screen opens on the crossing.
+      run.player.xp += circuitKnob(ch, 'swimXp') * (1 + run.passives.xpGain) * run.mods.xpMul
       run.events.push({ type: 'swimthrough', x: run.player.x, y: run.player.y, n: k + 1 })
     }
   }
@@ -3641,13 +3655,41 @@ function contactHarmless(e) {
 }
 
 /** @returns true if the player died this frame (phase set to 'dead'). */
+// A BUMP COSTS SPEED AND NEVER HP (v7.x circuit — owner's ruling when the fish became traffic).
+// It has to live off stepContactDamage's overlap test rather than beside it, because that test is
+// the only place in the file that already knows the player is touching a body — and a circuit
+// chapter's crowd is contactHarmless, so this fires on exactly the bodies that `continue` below.
+//   ONE CHARGE PER FISH PER bumpCool, for the crash's reasoning: applied every frame of contact it
+// is an exponential decay, i.e. "sustained contact bleeds speed", which the owner considered and
+// did not choose. The shove is what stops the same body riding the player and re-charging on the
+// cooldown's edge; clampCrowdToCave puts it back in the passage on the next frame.
+function bumpTraffic(run, ch, e, dx, dy) {
+  if (run.time - (e._bumpAt ?? -999) < circuitKnob(ch, 'bumpCool')) return
+  e._bumpAt = run.time
+  if (run._laneSpeed != null) run._laneSpeed *= circuitKnob(ch, 'bumpMul')
+  const d = Math.hypot(dx, dy) || 1
+  const shove = circuitKnob(ch, 'bumpShove')
+  e.x += (dx / d) * shove
+  e.y += (dy / d) * shove
+  // ...and the player goes the other way, ACROSS the lane only. A POSITION nudge and not a
+  // velocity one: p[vCross] is rewritten from the stick every frame, so an impulse there is erased
+  // before it moves anything. Forward is left alone — the lane owns that axis, which is the same
+  // rule that forbids the obstacle push-out and the UFO's pull beam from touching it.
+  const ax = laneAxes(ch)
+  run.player[ax.cross] -= (ax.cross === 'x' ? dx : dy) / d * circuitKnob(ch, 'bumpKnock')
+  run.events.push({ type: 'bump', x: e.x, y: e.y })
+}
+
 function stepContactDamage(run) {
   const p = run.player
+  const circuit = CHAPTERS[run.chapter].circuit != null
   for (const e of run.enemies) {
-    if (e._dead || contactHarmless(e)) continue
+    if (e._dead) continue
     const dx = e.x - p.x, dy = e.y - p.y
     const rad = PLAYER.radius + e.radius
-    if (dx * dx + dy * dy >= rad * rad) continue
+    const touching = dx * dx + dy * dy < rad * rad
+    if (circuit && touching) bumpTraffic(run, CHAPTERS[run.chapter], e, dx, dy)
+    if (!touching || contactHarmless(e)) continue
 
     // latch flag (v5.0, e.g. body's antibody): applies a movement debuff then spends itself —
     // no normal contact damage, and unlike the plain path below, not gated behind p.invuln (the
@@ -4350,6 +4392,34 @@ const laneBehindPx = (run, ax) => (1 - LANE_CAMERA_FRAC) * 2 * (ax.fwd === 'x' ?
 //      track" half -- you lose ground, you are not relocated.
 //   3. publish contact so the damage tick and the render tell can both read it.
 // Returns true if the player died.
+// THE CROWD LIVES IN THE PASSAGE TOO (v7.x circuit). Owner, playing v7.231: "the enemies/decor
+// fishes swim through coral". They did — stepCaveWall is the only thing in the file that reads the
+// cave and it only ever ran on the player, so a fish's swim down the lane took it straight through
+// a wall the player is bounced off. On a race track that is worse than ugly: traffic you can drive
+// around is only traffic if it is in the road with you.
+//   THE SAME caveAt THE PLAYER IS STOPPED AGAINST, and the same island rule — a second opinion
+// about where the wall is would be the drawn-vs-tested defect this repo keeps paying for. No
+// damage, no bounce, no event: this is a clamp, and the fish is scenery that now stays on the road.
+function clampCrowdToCave(run) {
+  const ch = CHAPTERS[run.chapter]
+  const spec = ch.cave
+  if (!spec) return
+  const ax = laneAxes(ch)
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const cav = caveAt(e[ax.fwd], spec, run._obstacleSeed)
+    const off = e[ax.cross] - cav.c
+    const a = Math.abs(off)
+    const sign = off >= 0 ? 1 : -1
+    const lim = Math.max(0, cav.hw - e.radius)
+    if (a > lim) { e[ax.cross] = cav.c + sign * lim; continue }
+    // ...and out of the island where the passage forks, clamped at `lim` exactly as the player is
+    // so an island wider than its own passage cannot pin a body against the outer wall.
+    const inner = cav.ph > 0 ? Math.min(cav.ph + e.radius, lim) : 0
+    if (a < inner) e[ax.cross] = cav.c + sign * inner
+  }
+}
+
 function stepCaveWall(run, dt) {
   const ch = CHAPTERS[run.chapter]
   const spec = ch.cave
