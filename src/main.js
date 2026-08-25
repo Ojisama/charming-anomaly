@@ -659,6 +659,15 @@ function endRun(victory) {
   const chMeta = ensureChapterMeta(meta, run.chapter)
   chMeta.best.time = Math.max(chMeta.best.time, Math.floor(run._realTime ?? run.time))
   chMeta.best.kills = Math.max(chMeta.best.kills, run.kills)
+  // A RACE'S RECORD IS THE LOWEST, so it gets the opposite comparison and its own field — the two
+  // lines above are a MAX and stay one for every chapter including this one, because meta is
+  // additive-only (R2) and an older build still writes them. See ensureChapterMeta.
+  //   Gated on run.raceTime rather than on `victory`, and that is the tighter test: raceTime is
+  // stamped by stepCircuit at the moment the last lap lands and is undefined for a run that ran the
+  // clock out, so a loss cannot reach this line even if some other path calls endRun(true).
+  if (run.raceTime > 0) {
+    chMeta.bestRaceTime = chMeta.bestRaceTime > 0 ? Math.min(chMeta.bestRaceTime, run.raceTime) : run.raceTime
+  }
 
   // Difficulty unlock (v4.10, now per-chapter): winning a classic run at the run's chapter's
   // current ceiling unlocks the next level FOR THAT CHAPTER. Only fires on the level actually
@@ -747,8 +756,13 @@ function endRun(victory) {
   // Held in a local rather than passed as a literal: the leaderboard hands this exact object back
   // to ui.setPodiumResult below, and identity is what proves the rank belongs to THIS run's summary
   // and not to one the player has already replaced.
+  // A RACE'S `Time` IS ITS SCORE, not its survival clock, so the summary's own row has to change
+  // source with the chapter. On a win that is run.raceTime, the stamped record; on a loss there is
+  // no record and the honest number is how long you lasted in REAL seconds — the same unit, so the
+  // two lines of that row are comparable to each other and to the board.
+  const shownTime = CHAPTERS[run.chapter]?.circuit ? (run.raceTime > 0 ? run.raceTime : run._realTime ?? run.time) : run.time
   const summaryData = {
-    victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus,
+    victory, time: shownTime, kills: run.kills, level: run.player.level, earned, bonus,
     mutators: run.mutators, nextDifficulty,
     // v7.x "what happened to me": the fatal hit's source label and the whole run's damage tally
     // (run.killedBy / run.dmgBySrc — see state.js's doc block). Passed raw, as LABELS not copy:
@@ -792,9 +806,20 @@ function endRun(victory) {
     // ordinary chapter — where every victory is the same 300s survival clock — would put whoever
     // died first on top of a board about nothing. Null is the honest value for both, and the
     // Worker stores it as one: the time board's query skips NULL rows outright.
+    // THE TIME BOARD NOW HAS A SECOND KIND OF ROW, and it is not measured on the same clock.
+    // A boss chapter submits run.time — its kill time IS the survival clock. A CIRCUIT submits
+    // run.raceTime, which is real seconds, because Time Debt advances run.time at 1.5x and a board
+    // sorted fastest-first would hand that anomaly free places on it. Same reason stepCircuit
+    // scores the race on _realTime; the unit reaching the Worker has to match the one banked.
+    //   No `victory &&` on the circuit arm and it is not an omission: raceTime is stamped by
+    // stepCircuit only when the last lap lands, so it is already the tighter test. A run that ran
+    // the clock out submits null, and the Worker's time query skips NULL rows outright.
+    const timeMs = CHAPTERS[chapter]?.circuit
+      ? (run.raceTime > 0 ? Math.round(run.raceTime * 1000) : null)
+      : (victory && CHAPTERS[chapter]?.scripted ? Math.round(run.time * 1000) : null)
     const entry = {
       nick, chapter, difficulty: run.difficulty ?? 1, kills: run.kills, level: run.player.level,
-      timeMs: victory && CHAPTERS[chapter]?.scripted ? Math.round(run.time * 1000) : null,
+      timeMs,
       // ONLY WHERE IT IS ROLLED (owner, 2026-08-19). A chapter whose `starter` is a plain string
       // gives every player the same weapon, so recording it on every row of those boards is a
       // column of one repeated answer. `Array.isArray` is the same test createRun rolls on, so the

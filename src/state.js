@@ -152,6 +152,10 @@ let boundSlot = null
 //   unlocked — so it can never express "beat the hardest level" and the hero card's final star was
 //   unreachable. Stamped by endRun on every classic victory, backfilled from maxDifficulty - 1 on
 //   load, floored but never capped (R3). Read by the ★ row (ui.js) and saveSummary's `beaten`.
+//   bestRaceTime (v7.x): seconds of the FASTEST completed race, 0 for none — a circuit chapter's
+//   score, and the opposite comparison from `best.time` beside it, which is a max. Written only on
+//   a circuit victory; stays 0 for every other chapter forever. See ensureChapterMeta for why it is
+//   its own field rather than a reused one.
 // meta.best: { time, kills } — all-time aggregate across every chapter, unrelated to any
 //   single chapters[id].best; still updated by endRun (main.js) on every run.
 // meta.nick: the leaderboard name, 3-10 chars, '' until chosen (scores.js owns the rule via
@@ -246,6 +250,17 @@ export function ensureChapterMeta(meta, id) {
   entry.best ??= { time: 0, kills: 0 }
   entry.best.time ??= 0
   entry.best.kills ??= 0
+  // A RACE'S BEST IS THE LOWEST, AND IT CANNOT SHARE `best.time`. That field is a MAX written
+  // unconditionally by endRun for every chapter — "survived longest" — so on a lap race it records
+  // your SLOWEST finish and puts it on the chapter card under the word `best`. A wrong number, not
+  // a missing one, which is why this is a fix rather than a feature.
+  //   A SEPARATE FIELD RATHER THAN A REPURPOSED ONE, per R2 (meta is additive-only): an older build
+  // is always still out there and still writes max() into best.time, and whichever build saves last
+  // wins. bestRaceTime is a slot no shipped build touches, so the two can never fight.
+  //   0 means "never finished a race here", which is why every read is guarded on `> 0` rather than
+  // on the field existing — a chapter that has one races against it, a chapter that does not shows
+  // nothing. Flat number, not a `{ time }` object: there is one fact here.
+  entry.bestRaceTime = Math.max(0, Number(entry.bestRaceTime) || 0)
   meta.chapters[id] = entry
   return entry
 }
@@ -1237,6 +1252,32 @@ function generateWells(sig) {
  *   (stepLaneFront, the crush edge and the camera anchor). Throttling only the first would leave
  *   the level running at full speed while the player fell into the back edge.
  *   Stays 1 for a chapter that declares no laneThrottle, which is every chapter but The Reef.
+ * _laneSpeed: number — the throttle with WEIGHT, and the only one of this family the player can
+ *   feel. _laneThrottle is where the stick is; this is where the fish actually is, easing toward
+ *   `laneScrollFor x _laneThrottle` at CIRCUIT_DEFAULTS.accel px/s². Exists only in a `circuit`
+ *   chapter — elsewhere the throttle reaches the velocity in one frame and this stays null.
+ *   SEEDED AT THE CHAPTER'S NOMINAL SCROLL, never 0, or the first second of every race is spent
+ *   accelerating from a standstill the design never asked for.
+ *   Read by stepLaneFront as well as stepPlayerMovement: the front must advance at the speed the
+ *   player is TRAVELLING, not the speed they are asking for, or accelerating bills you for ground
+ *   you have not covered.
+ * ---- The circuit (v7.x, The Reef). All four exist only where CHAPTERS[id].circuit is set. ----
+ * lap: number — completed laps, 0..circuit.laps. A DISTANCE, not a counter: the track repeats every
+ *   cave.lapLen, so this is floor(along / lapLen) and nothing can desynchronise it from the world.
+ *   Reaching circuit.laps ends the run in victory.
+ * raceClock: number — seconds of race left. The chapter's whole failure condition: it falls at 1s/s,
+ *   is topped up by circuit.swimTime at every swimthrough and CAPPED at circuit.clockCap, and at 0
+ *   the run is dead (killedBy 'clock'). Counts DOWN where run.time counts up, and the HUD's timer
+ *   slot renders this instead of the 300s survival countdown for a circuit chapter.
+ * raceTime: number — the SCORE, in real seconds, stamped once when the last lap lands. Undefined
+ *   until then, which is what makes "did this run finish" a field test rather than a phase test.
+ *   run._realTime and NEVER run.time: Time Debt advances run.time at 1.5x, and a race time is
+ *   compared across runs on a board sorted fastest-first, so banking the inflated one would let an
+ *   anomaly shave real seconds off a record. See stepCircuit's own block.
+ * _swims / _swimN: the lap's checkpoints (swimthroughsFor, computed once from the obstacle seed) and
+ *   a RUNNING count of how many have been crossed since the run began. The count never resets at a
+ *   lap boundary, which is what lets laps and checkpoints share one arithmetic and never disagree.
+ * _lapAt: number — run._realTime at the last lap line, so the `lap` event can carry its own split.
  * _crushing: boolean — the player is pinned against the lane's trailing edge THIS frame, i.e. the
  *   lane has left without them. Published by stepLaneFront; the tell render.js draws off.
  * _crushAcc: number — the crush's part-tick accumulator (LANE_CRUSH_TICK). _spurAcc's twin.
@@ -1693,6 +1734,18 @@ function generateWells(sig) {
  *   travel (px), for render to draw an accurately-scaled incoming-attack line during the wind-up.
  *   Before this event existed the run had no warning at all — see the bug/arithmetic writeup on
  *   stepStrafe in sim.js for why STRAFE_TELEGRAPH_T (0.5s) is enough to actually dodge it.
+ * ---- THE CIRCUIT'S THREE EVENTS (v7.x, The Reef) — pushed only where CHAPTERS[id].circuit is set.
+ * {type:'swimthrough', x, y, n}: a checkpoint crossed, and the only thing that puts seconds back on
+ *   run.raceClock. n is the RUNNING count since the run began, not the index within the lap, so it
+ *   keeps climbing past lapLen — the same number stepCircuit counts with, deliberately, so a tell
+ *   drawn off the event can never disagree with the clock that banked it.
+ * {type:'lap', lap, x, y, split, total}: a lap line crossed. split = seconds since the previous one,
+ *   total = run._realTime at the crossing. THE EVENT CARRIES THE READ because the art cannot: at
+ *   270px/s the lap line is on screen for about 1.2s and looks like every other stretch of reef.
+ * {type:'crash', x, y, speed}: driving INTO the wall hard enough to be billed for it, fired on the
+ *   entry frame only. speed is the inward component in px/s — the overshoot DEPTH, not sustained
+ *   contact, so grazing along a wall is free and a hard corner is not. Costs circuit.crashMul of
+ *   your momentum; the damage is a separate, pre-existing path.
  *
  * traps[i]: { x, y, r, armed, rearmAt, _cell } — v6.5: snap traps, STREAMED by sim.js's
  *   streamTraps (the same _obstacleSeed cell-hash idiom as obstacles/eddies, own salts 15-17) from

@@ -596,7 +596,11 @@ export function initUI(hooks) {
       .filter((rid) => CAST_ART[rid])
       .map((rid) => `<span class="detail-face"><img src="${CAST_ART[rid]}" alt="" draggable="false"></span>`)
       .join('')
-    const best = chMeta.best?.time ? `<span class="detail-best">${t('best')} ${fmtTime(chMeta.best.time)}</span>` : ''
+    // A CIRCUIT'S `best` IS A DIFFERENT FIELD AND THE OPPOSITE COMPARISON. chMeta.best.time is a
+    // MAX — "survived longest" — which on a lap race is your SLOWEST finish, printed under the word
+    // `best`. See ensureChapterMeta for why bestRaceTime is its own slot rather than a reused one.
+    const bestSecs = chapter.circuit ? chMeta.bestRaceTime : chMeta.best?.time
+    const best = bestSecs > 0 ? `<span class="detail-best">${t('best')} ${fmtTime(bestSecs)}</span>` : ''
     return `
       <div class="detail-head">
         <span class="detail-ico">${chapter.icon}</span>

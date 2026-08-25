@@ -17970,7 +17970,11 @@ function testLeaderboard() {
   // from a kill takes first place off everyone who actually killed the thing. Both terms are one
   // `&&` away from gone and neither leaves a mark anywhere else — a lost run submits a real number,
   // and an ordinary chapter submits its 300s survival clock, so the board just fills with nonsense.
-  const timeExpr = /timeMs:\s*([^\n]*)/.exec(endRunBody)?.[1]
+  // v7.x: the term is now HOISTED to a `const timeMs` above the entry literal, because a circuit
+  // chapter submits a different clock entirely and the expression stopped fitting on the property
+  // line. Only the two gates below are this scenario's business; the circuit arm has its own
+  // evaluated proof in run RK.c.
+  const timeExpr = /const timeMs = ([\s\S]*?)\n\s*const entry = \{/.exec(endRunBody)?.[1]
   assert.ok(timeExpr, 'run LB could not find the timeMs term in endRun — the leaderboard no longer submits a kill time')
   assert.ok(/\bvictory\b/.test(timeExpr),
     'the kill time must be gated on victory: on a shortest-wins board a death at 12s outranks every real kill')
@@ -18813,6 +18817,7 @@ run(testLeLargeWeapons)
   run(testReefLap)
   run(testReefCircuit)
   run(testCircuitCards)
+  run(testRaceRecord)
   run(testReefNatives)
   run(testReefPool)
   run(testWreckBloodlust)
@@ -23709,6 +23714,73 @@ function testReefSpurScrape() {
 // not check the four exist, or that their ids resolve, or that applyChoice banks them — a card can
 // pass all three and still be inert, which is precisely how the chapter got here. It DRIVES a race
 // with the card at max against a paired control on the identical track, and asserts the clock moved.
+// run RK: THE RACE RECORD — the score a circuit banks, and the one number in this chapter compared
+// the other way round from every other number in the game.
+//
+// MAIN.JS IS NOT IMPORTABLE (it boots Pixi), so the two rules that live there are checked the way
+// run UG.k checks render.js: as source text. But a grep for 'Math.min' would be a TOKEN lint, and
+// a token lint passes while the behaviour is reverted — so both expressions are EXTRACTED and RUN
+// against stub inputs instead. What is asserted is which number comes out, not which words are in
+// the file.
+function testRaceRecord() {
+  const mainSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+
+  // (a) THE SAVE SLOT DEFAULTS TO "NEVER FINISHED" AND SURVIVES EVERY LATER REPAIR. 0 is the whole
+  // sentinel — every read is guarded on > 0 rather than on the field existing — so a repair pass
+  // that overwrote a real record with its default would erase the chapter's only score silently.
+  {
+    const m = makeMeta()
+    assert.strictEqual(ensureChapterMeta(m, 'reef').bestRaceTime, 0,
+      'run RK.a: a fresh save does not start with bestRaceTime 0, so "never finished a race here" is not expressible')
+    m.chapters.reef.bestRaceTime = 74.25
+    assert.strictEqual(ensureChapterMeta(m, 'reef').bestRaceTime, 74.25,
+      'run RK.a: ensureChapterMeta walked over a real record on reload — this runs on EVERY loadMeta, so the record would survive exactly one session')
+    for (const junk of [-12, NaN, undefined, 'sevenish', null]) {
+      m.chapters.reef.bestRaceTime = junk
+      assert.strictEqual(ensureChapterMeta(m, 'reef').bestRaceTime, 0,
+        `run RK.a: bestRaceTime ${String(junk)} survived the repair — it feeds a Math.min, so one poisoned value makes every future race a new record or none at all`)
+    }
+  }
+
+  // (b) THE RECORD IS THE LOWEST. Extracted from main.js and evaluated: a copy-paste of the
+  // Math.max line two lines above it is the realistic mutation here, and it would look right,
+  // read right, and record your SLOWEST finish as your best.
+  {
+    const m = mainSrc.match(/chMeta\.bestRaceTime = ([^\n]+)/)
+    assert.ok(m, 'run RK.b: main.js writes no bestRaceTime at all — a finished race banks nothing')
+    const pick = new Function('chMeta', 'run', `return ${m[1]}`)
+    assert.strictEqual(pick({ bestRaceTime: 80 }, { raceTime: 74 }), 74,
+      'run RK.b: a 74s race did not beat an 80s record — the comparison is not a minimum, so the chapter card shows your worst finish under the word best')
+    assert.strictEqual(pick({ bestRaceTime: 70 }, { raceTime: 74 }), 70,
+      'run RK.b: a 74s race overwrote a 70s record — the record is being assigned rather than compared, so it walks backwards on every slow run')
+    assert.strictEqual(pick({ bestRaceTime: 0 }, { raceTime: 74 }), 74,
+      'run RK.b: the FIRST race never lands — 0 is the "never finished" sentinel, and a bare Math.min against it pins the record at 0 forever')
+    // ...and it is gated on the run having a time at all, not on the victory flag.
+    assert.ok(/if \(run\.raceTime > 0\) \{\s*\n\s*chMeta\.bestRaceTime/.test(mainSrc),
+      'run RK.b: the bestRaceTime write is not gated on run.raceTime > 0 — a run that ran the clock out has no stamped time, and banking undefined poisons the field (see RK.a)')
+  }
+
+  // (c) THE LEADERBOARD ROW, SAME TREATMENT. Two things break independently and both are silent: a
+  // circuit row dropped entirely (the board stays empty and reads as merely unpopular), and a
+  // circuit row submitted on run.time, which Time Debt advances at 1.5x — on a board sorted
+  // FASTEST first that is an anomaly buying places.
+  {
+    const m = mainSrc.match(/const timeMs = ([\s\S]*?)\n\s*const entry = \{/)
+    assert.ok(m, 'run RK.c: main.js no longer computes timeMs as its own expression')
+    const submit = new Function('CHAPTERS', 'chapter', 'run', 'victory', `return ${m[1]}`)
+    const C = { reef: { circuit: { laps: 4 } }, blank: { scripted: true }, body: {} }
+    assert.strictEqual(submit(C, 'reef', { raceTime: 74.25, time: 111 }, true), 74250,
+      'run RK.c: a finished race submits no time, or submits the wrong clock — 74.25 real seconds must reach the board as 74250ms, not as run.time')
+    assert.strictEqual(submit(C, 'reef', { time: 41 }, false), null,
+      'run RK.c: a race that ran the clock out submitted a time — every way of ending a run early becomes a way of topping a fastest-first board')
+    assert.strictEqual(submit(C, 'blank', { time: 120 }, true), 120000,
+      'run RK.c: the boss chapter kill-time board lost its rows to the circuit branch')
+    assert.strictEqual(submit(C, 'body', { time: 300 }, true), null,
+      'run RK.c: an ordinary survival chapter now submits a time — every victory there is the same 300s clock, so the board would rank identical numbers')
+  }
+
+  console.log('PASS run RK (the race record): the lowest time wins, 0 means never, and the board takes real seconds')
+}
 function testCircuitCards() {
   const dt = 1 / 60
   const CARDS = ['topSpeed', 'accelRate', 'airMax', 'dashLength']
@@ -23843,6 +23915,12 @@ function testReefCircuit() {
   assert.strictEqual(slow.run.killedBy, 'clock',
     `run CT.c: the clock killed the run but blamed '${slow.run.killedBy}' — the summary reads this label`)
   assert.strictEqual(slow.run.raceClock, 0, 'run CT.c: the clock died at a non-zero value')
+  // A LOST RACE HAS NO TIME, and that absence is load-bearing rather than incidental: endRun banks
+  // the record and submits the board row off `run.raceTime > 0` alone, with no victory flag on
+  // either (see run RK). Stamp it on the way out of a losing run and the fastest-first board fills
+  // up with people who died early.
+  assert.strictEqual(slow.run.raceTime, undefined,
+    `run CT.c: a run killed by the clock still carries raceTime ${slow.run.raceTime} — that field IS the "did this finish" test everything downstream reads`)
 
   // (d) THE 300s VICTORY MUST NOT FIRE HERE. Without the exemption the race ends mid-lap at
   // RUN_DURATION regardless of how far round the track the player is — and it would look like a win.
