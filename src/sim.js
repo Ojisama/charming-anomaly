@@ -12141,11 +12141,22 @@ function eligiblePassiveIds(run) {
   // rather than off a chapter id, so any future weaponless chapter is covered by construction.
   const unarmed = (CHAPTERS[run.chapter].weapons ?? []).length === 0
   const WEAPON_PASSIVES = ['damage', 'fireRate', 'critChance', 'critDamage']
+  // ...AND A CIRCUIT DOES NOT MOVE THE WAY EVERY OTHER CHAPTER DOES, which voids two more.
+  //   `magnet` was ALREADY dead here and the exclusion below could not see it: stepPickups reads
+  // `(lane || circuit) ? Infinity : ...`, while this filter read `lane` alone — one fact authored in
+  // two places, drifted apart the day The Reef dropped the lane flag for the ring. Sticky Aura has
+  // been an offered no-op on this chapter ever since, and nothing threw.
+  //   `moveSpeed` is the same shape found from the other end. It multiplies `p.speed` in
+  // stepPlayerMovement's FREE-ROAM branch, and a circuit never reaches that branch — its velocity is
+  // `_laneSpeed`, whose ceiling is laneThrottle.max x (1 + passives.topSpeed). Turbo Fin is the
+  // chapter's handling card; Zoomies is the same idea wired to a line this chapter does not execute.
+  const circuit = !!CHAPTERS[run.chapter].circuit
   return Object.keys(PASSIVES).filter((id) =>
     (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL
     && owned(id)
     && !(unarmed && WEAPON_PASSIVES.includes(id))
-    && !(lane && id === 'magnet')
+    && !((lane || circuit) && id === 'magnet')
+    && !(circuit && id === 'moveSpeed')
     && !(brittle && DEFENSIVE_PASSIVES.includes(id))
     && !(noHeal && id === 'regen')
     && !(floored && PASSIVES[id].values
@@ -12271,6 +12282,16 @@ export function eligibleWeaponModCandidates(run) {
 // card appears is BUCKET_WEIGHTS.element and nothing else, so the declared 18% is deliverable.
 // (Dropping all four ids on 31.6% of pools capped the bucket at ~12%.)
 function eligibleElementIds(run) {
+  // AN ELEMENT WITHOUT A WEAPON IS AN INERT CARD. `run.elements[id]` becomes an effect in exactly
+  // one place — applyElements, called from applyDamage's hit path — so with an empty arsenal every
+  // element is offered, picked, banked and does nothing. Keyed off the POOL being empty rather than
+  // off a chapter id, so any future weaponless chapter is covered without a second edit.
+  //   ⚠ THIS GATE IS ALSO WHAT KEEPS buildLevelUpChoices' `heal` FALLBACK OUT OF REACH, which is
+  //   the opposite of what it looks like. That fallback fires only when all four pools are empty at
+  //   once; without the gate elementIds never empties, so it can never fire — and the screen deals a
+  //   dead element card forever instead. With it, exhausting the pools needs ~30 picks against a
+  //   3-4 pick race budget, so the fallback stays unreachable in practice and the cards stay live.
+  if ((CHAPTERS[run.chapter].weapons ?? []).length === 0) return []
   return Object.keys(ELEMENTS).filter((id) => (run.elementPicks[id] ?? 0) < MAX_ELEMENT_PICKS)
 }
 

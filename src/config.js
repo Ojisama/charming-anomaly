@@ -6948,39 +6948,47 @@ CHAPTERS.reef = {
   //     clamps the player to, and the player is pinned against a wall that is not drawn. 120 + 185
   //     = 305 against 330. run RS asserts it rather than trusting this line.
   cave: {
-    // halfMin 100 -> 150 SO THE PASSAGE CAN HOLD AN OFF-CENTRE POCKET. An air pocket has to clear
-    // the centre line (or breathing is free) and stay inside the wall (or it is unreachable), and
-    // at hw 100 with r 48 those two demands have no overlap. wander drops to 100 to pay for it:
-    // wander + halfMax must stay inside laneHalfW 330, and 100 + 210 = 310 does.
-    // wander 100 -> 240 BECAUSE IT IS A RADIUS NOW, not a sideways offset inside a 330px corridor.
-    // The old ceiling was `wander + halfMax must stay inside laneHalfW`; a ring has no corridor to
-    // stay inside, so the constraint is gone and the number can finally do what it is for. At 240
-    // on r0 900 the centreline radius swings 660-1140 with the dominant octave at 60 degrees of
-    // arc, which is what turns a snaking corridor into straights, sweepers and hairpins.
+    // WANDER IS WHAT MAKES THE TRACK TURN BOTH WAYS, AND BELOW A THRESHOLD IT CANNOT. Owner,
+    // playing v7.233.0: "the reef circuit is just a loop, that's weird... not a roundabout or a
+    // carousel". It was a roundabout, and the reason is arithmetic rather than taste.
+    //
+    // A polar track r(θ) curves the OTHER way — a right-hander on an anticlockwise lap — exactly
+    // where `r * r'' > r^2 + 2 * r'^2`. For one harmonic of amplitude A at harmonic number n on a
+    // radius r0 that is `A * n^2 > r0 - A`, so the counter-turn is bought by AMPLITUDE ON A LOW
+    // HARMONIC and by nothing else. At wander 130 spread over harmonics 2/5/10 the lap held one
+    // sign for three quarters of its length and every reversal it did have was a short-octave kink.
+    // 380 over 3/4/7 measures (scripts/reef-track-map.mjs, seed 0):
+    //     wander 130, 2/5/10   25% of the lap turns the other way, 16 direction changes, min r 272
+    //     wander 380, 3/4/7    36%,                                12 changes,            min r 188
+    // Three hairpins with counter-curves and straights between them, instead of a doughnut.
+    //   ⚠ THE CEILING IS CLEARANCE, NOT hw, AND THE TWO ARE NOT THE SAME NUMBER. hw is measured
+    //   RADIALLY; where the track runs steeply across the radii the real gap is hw x cos(that
+    //   angle), and past about wander 500 the inner edge of a hairpin folds through itself while hw
+    //   still reads 200. Measured worst clearance off the racing line: 149px at 130, 86px at 380,
+    //   63px at 520 with 19% of the lap under 90. 380 is the last value that never closes below two
+    //   player widths. reef-track-map.mjs prints it; do not move this knob without reading it.
     // halfMin/halfMax 170/220 -> 150/200: on a phone the visible world is ~390px across the short
     // axis and the camera is centred now (no lane to bias it), so a 440px track is wider than the
     // screen at the moments you are driving across it. 300-400px still holds ~7 player widths.
-    wander: 130, halfMin: 150, halfMax: 200,
+    wander: 380, halfMin: 150, halfMax: 200,
     // EVERY WAVELENGTH DIVIDES lapLen (5040), WHICH IS WHAT MAKES THE TRACK A CIRCUIT. The passage
     // is summed sines of f, so it repeats exactly when every length divides the lap -- no `f % lap`
     // wrap, no seam to blend, caveAt untouched.
-    //   5040 / 2520 = 2   / 1008 = 5   / 504 = 10   / 1680 = 3   / 720 = 7   / 1008 = 5
+    //   5040 / 1680 = 3   / 1260 = 4   / 720 = 7   |   widthWave: / 1680 = 3  / 720 = 7  / 504 = 10
     //   ⚠ CHANGING lapLen MEANS RETUNING ALL OF THEM. A length that does not divide it puts a
     //   discontinuity at the start line, which is the one place on the track the player crosses
     //   five times a race and is looking at.
     //
-    // ⚠ TRIPLED FOR THE RING, AND THE OLD SET WAS NOT DRIVABLE ON ONE. On a corridor these were
-    // 840/360/168 with wander 100, and the steepest the centreline could move was 1.33px sideways
-    // per px forward — punishing but survivable, because a lane clamps you inside it and the walls
-    // came to you. On a ring f is an ANGLE, so a px of travel is up to 1.58 of f at the tight end,
-    // and at wander 240 the same shape reached 5px of radius per px driven: measured, the centre
-    // swung 200px in 80px of f, which is a 79-degree kink no steering can hold. A probe driver
-    // aiming 220px ahead was in the wall from the first corner on every seed.
-    //   Amplitude falls SLOWER THAN WAVELENGTH in this set, which is why the short octaves were as
-    // steep as the long one rather than being detail on top of it: each of the three contributed
-    // about 1.1 of that slope. Tripling every length and dropping wander to 130 puts the worst case
-    // at 0.6 — long sweepers with real corners, and a shape a driver can read a screen ahead.
-    waves: [[2520, 1], [1008, 0.42], [504, 0.18]],   // [wavelength px, weight]
+    // ⚠ THE CORNERS LIVE ON THE HARMONIC NUMBER, SO THIS SET IS 3/4/7 AND NOT 2/5/10. See wander
+    // above for why: a counter-turn costs `A * n^2 > r0 - A`, which n=2 cannot pay at any amplitude
+    // this passage survives (it needs A > 180 on r0 900 before the sign even changes) and which
+    // n=10 pays with a 79-degree kink no driver can read — the failure the previous set was tuned
+    // away from. 3 is the corner-maker, 4 breaks the three lobes out of symmetry so no two are the
+    // same corner, and 7 is texture riding on top rather than a fourth corner.
+    //   AMPLITUDE FALLS FASTER THAN WAVELENGTH HERE, which is the property that keeps 7 as texture:
+    // at [1,0.5,0.2] the short octave contributes a fifth of the swing over a third of the arc, so
+    // it kinks the entry to a corner instead of being one.
+    waves: [[1680, 1], [1260, 0.5], [720, 0.2]],   // [wavelength px, weight]
     // THE SQUEEZES, AND THEIR COUNT IS STRUCTURAL: lapLen / the short period = 5040 / 720 = 7 local
     // minima a lap, of which swimthroughsFor takes the deepest SWIMTHROUGHS_PER_LAP. At the old
     // 252 it was 20 minima, i.e. a pinch every 280px of arc — under a second apart at racing speed,
@@ -6999,19 +7007,23 @@ CHAPTERS.reef = {
     // most of a field is not choosing from it. The short octave is deliberately faint: it is there
     // to give the picker candidates, not to corrugate a 300-400px passage.
     widthWave: [[1680, 1], [720, 0.45], [504, 0.22], [252, 0.12]],
-    // THE BRANCHES (caveAt's own block has the geometry). One island every `every / chance` = 1000px
-    // of lane, i.e. a fork about every 11s at laneScroll 90, each one 380px long = 4.2s of committed
-    // side. `frac` is the share of the passage the island takes, so each branch is 36% of it — 122px
-    // at the tightest squeeze the field makes, against a 44px player. Capped by the air pockets
-    // before it is capped by the swim: see the warning in caveAt.
-    // `every` 700 -> 720 for the same reason as the wavelengths: 5040 / 720 = 7, so the forks fall
-    // on the same seven places every lap. The wavelengths alone do NOT give this -- the island
-    // hashes floor(f / every), a cell index that keeps climbing, so lap 2 rolled a different fork
-    // at the same place until caveAt wrapped it (57px of island discrepancy, measured).
-    // `every` 720 -> 1008 (5040 / 1008 = 5, so five candidate forks a lap on the same seven-places
-    // rule) and the span with it: at 7 forks of 380 the player was committing to a side of the
-    // track every 1.6s, which is a texture rather than a decision.
-    branch: { every: 1008, chance: 0.7, span: 500, frac: 0.28 },
+    // THE BRANCHES (caveAt's own block has the geometry), AND THEY ARE THIS TRACK'S ONLY OBSTACLE.
+    // The spur ridges do not stream on a ring (streamSpurs clears them by construction) and
+    // `obstacles` is null, so the island is the whole of what stands IN the passage rather than
+    // bounding it — which is why "more obstacles" is spelled here.
+    //   `every` must divide lapLen or the forks move between laps: the island hashes
+    // floor(f / every), a cell index that keeps climbing, and caveAt wraps it mod lapLen/every. At
+    // 5040 / 720 = 7 there are seven candidate places, the same seven every lap, and a track you
+    // can learn is the point of a circuit.
+    //   ONE EVERY ~1200px OF ARC. 7 candidates at 0.8 is 5.6 forks over the 6717px a lap now
+    // covers. The previous cut backed off to 5 candidates because 7 of them on a 5785px doughnut
+    // was a side-commitment every 1.6s — a texture rather than a decision. The corners are what buy
+    // it back: an island now lands ON them, so picking a side is picking the inside or the outside
+    // line rather than choosing between two identical tubes.
+    // balance_decision : more islands, because corners made them a choice [2026-08-25]
+    //  - `frac` is a SHARE and never a pixel width — see the warning in caveAt, and run RS.f, which
+    //    pins it against the air pockets a branch must not swallow.
+    branch: { every: 720, chance: 0.8, span: 420, frac: 0.3 },
     // THE LAP, IN PIXELS, AND IT LIVES HERE RATHER THAN ON `circuit` BECAUSE IT IS A PROPERTY OF
     // THIS GEOMETRY: it is the period every wavelength above divides, and the modulus caveAt wraps
     // the fork cell by. Authoring it twice is the drift this repo's own CLAUDE.md calls its largest
@@ -7031,44 +7043,26 @@ CHAPTERS.reef = {
     // on a knob with no consumer while the defect it describes was live on the other axis.
   },
 
-  // FOUR NATIVES BUILT, THREE OFFERED (owner, 2026-08-22, then 2026-08-24). Every card is picked
-  // for the LANE rather than for the theme, because a scroller only works if what you hold can
-  // answer things arriving from ahead — and each answers a DIFFERENT question about a corridor you
-  // cannot stop in, which is what stops the pool being one idea at three intensities:
-  //   pistolShrimp  the starter — a tracking line at the nearest body (fireSnap -> aimAngle, owner
-  //                 2026-08-24), cracking a shorter, softer bolt out the back of itself at the same
-  //                 time: this chapter's crowd sits astern of the player (53% of live bodies,
-  //                 scripts/reef-pileup.mjs) and a starter that could only ever face one way left
-  //                 the whole opening half-blind.
-  //   squidInk      GONE FROM THIS POOL (owner, 2026-08-24), and passiveCrowd is why. Its whole
-  //                 payload is the blind — it took the crowd's ability to FOLLOW you and let the
-  //                 scroll carry them off — and it deals no damage at all. A crowd that never
-  //                 follows you cannot be stopped from following you, so every one of its five mods
-  //                 folded onto a number nothing read: an INERT CARD, offered and picked and doing
-  //                 nothing, which is the exact pathology run MB.a exists for and which no test
-  //                 would have gone red over. The card, its mods and its blind machinery all stay
-  //                 built and dev-takeable — devCards ignores the chapter pool, and the blind works
-  //                 in every chapter whose crowd still seeks, which is where run RP now tests it.
-  //   oxygenTank    the only card thrown AHEAD of you rather than at a body — the scroll closes the
-  //                 gap, so the throw and the arriving stream keep the same appointment.
-  //   fireCoral     the terrain, armed. A burn band across the lane, placed ahead of the stream.
-  // quillBurst and pulsarSweep left with the last of the stand-ins; neither is deleted, both are
-  // still in the chapters whose pools own them. The stinger left with the starter slot before them:
-  // a forward cone at the nearest enemy is what the Pistol Shrimp now is, so the two cards would be
-  // one card at two widths.
-  //   NO EPIC WEAPON IN THIS POOL, AND IT COSTS NOTHING — measured, not assumed. Both stand-ins
-  // carried the chapter's only epic-rarity weapon offers, so makeWeaponCard now returns null at
-  // that tier here and rollCard falls through to a passive, an element or an anomaly. Over 6 x 300s
-  // seeded runs at d3 the slate comes out level with The Shelf's, the shipped four-native chapter:
-  //   reef   232 cards, 0 empty screens — normal 50.9% rare 32.3% epic 3.9% legendary 1.7% mythic 0.9%
-  //   shelf  282 cards, 0 empty screens — normal 50.7% rare 30.9% epic 4.3% legendary 2.8% mythic 0.7%
-  // The epic TIER is not the epic WEAPONS: it is fed by every bucket, and a pool of four cards at
-  // normal/rare/rare/normal does not starve it.
-  // THREE, NOT FOUR — see squidInk above. The three that remain still answer three different
-  // questions about a corridor you cannot stop in, which was the argument for the pool's shape:
-  // the starter is welded to the lane heading, the tank is thrown AHEAD of you, and the coral is
-  // the terrain armed. What left with the ink is this pool's only non-damage card.
-  weapons: ['pistolShrimp', 'oxygenTank', 'fireCoral'], starter: 'pistolShrimp',
+  // NO WEAPONS AT ALL. Owner, playing v7.233.0: "the weapons are useless, just remove them and the
+  // upgrades from this chapter". They were useless for a reason that is structural rather than a
+  // tuning miss — `passiveCrowd` makes the whole roster harmless traffic, so there is nothing here
+  // to kill and nothing that killing would earn. A racer drives past the field; it does not shoot it.
+  //
+  // AN EMPTY POOL IS A SWITCH, NOT A HOLE, and four separate gates read it rather than reading a
+  // chapter id: eligiblePassiveIds drops the four weapon stats, eligibleElementIds returns nothing
+  // (an element only reaches the world through applyDamage's hit path), makeWeaponCard and the
+  // weapon-mod bucket have no subjects to build from, and createRun leaves run.weapons genuinely
+  // empty rather than seeding a `{ id: null }` corpse. What is LEFT on a level-up screen is the four
+  // racing stats plus armor/regen/maxHP/moveSpeed — coral damage is real, so those four still work.
+  //
+  // NOTHING IS DELETED. pistolShrimp, oxygenTank and fireCoral keep their entries, their mods and
+  // their art, and devCards ignores the chapter pool entirely — so all three stay takeable from the
+  // dev menu, which is where run MB.a still resolves their mods.
+  //   ⚠ THE XP TILL IS THE CHECKPOINT AND NOT THE KILL (circuit.swimXp): every coin and gem in this
+  //   game drops inside dealDamage's enemy-death branch, so an unarmed chapter earns nothing and the
+  //   level-up screen would never open once in a whole race. That grant is what keeps this an empty
+  //   ARSENAL rather than an empty progression.
+  weapons: [], starter: null,
 
   // The cast. All three flags already exist in sim.js and are chapter-agnostic, so this roster is
   // real behaviour rather than a placeholder: the damselfish is the deliberately FLAGLESS baseline

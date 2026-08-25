@@ -125,7 +125,7 @@ import {
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_WAKE, burstWakeAt, DUST, dustVel, DROWN_TICK,
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
-  SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
+  SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
   SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, SNAP_CAVITY, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, BREACH_R_MIN, BREACH_R_AT_FULL, tiredness,
   // v6.8 Trash Tornado rework (Run AA.d)
@@ -4650,7 +4650,13 @@ function runBooks() {
   assert.strictEqual(playableChapterId(metaOn), 'reef', 'gate on: the WIP chapter is what Play reads')
   const wipRun = createRun(metaOn, { chapter: 'reef', difficulty: 1 })
   assert.strictEqual(wipRun.chapter, 'reef', "createRun kept 'reef' — if this reads 'body', the gate leaked into resolveChapterId and endRun would credit the wrong chapter")
-  assert.strictEqual(wipRun.weapons.length > 0, true, 'the WIP run got a real starter weapon, so it is genuinely playable and not a husk')
+  // ...ARMED FROM ITS OWN CHAPTER, which is the husk test now that a chapter may be armed with
+  // NOTHING. `weapons.length > 0` was the proxy, and it stopped meaning "genuinely playable" the day
+  // The Reef declared `starter: null` — but the defect it guards is unchanged and is not about the
+  // count: a leaked resolve arms the player from the WRONG chapter's table (body's `star`), which
+  // this catches and a length test never did.
+  assert.deepStrictEqual(wipRun.weapons.map((w) => w.id), CHAPTERS.reef.starter ? [CHAPTERS.reef.starter] : [],
+    `the WIP run is holding [${wipRun.weapons.map((w) => w.id).join(', ')}] against a declared starter of '${CHAPTERS.reef.starter}' — it was armed from some other chapter's table, or from a null id, which is a corpse every firing site dereferences`)
 
   // (e) Gate ON: the carousel LISTS it and the selection guard ACCEPTS it. Without both, phase 2
   // ships a chapter nothing can select — and every other assertion in this file still passes.
@@ -18842,7 +18848,7 @@ run(testLeLargeWeapons)
   console.log('ALL TESTS PASSED')
   runSummary()
 } catch (err) {
-  console.error('FAIL:', err.message)
+  console.error('FAIL:', err.stack)
   process.exit(1)
 }
 
@@ -23309,7 +23315,7 @@ function testReefSpurScrape() {
     const fu = ringFU(spec, run.player.x, run.player.y)
     return fu.f + (px * spec.lapLen) / (2 * Math.PI * Math.max(1, spec.ring.r0 - fu.u))
   }
-  const follow = (run, forceSide = 0, ahead = 140) => {
+  const follow = (run, forceSide = 0, ahead = 20) => {
     const fu = ringFU(spec, run.player.x, run.player.y)
     const fA = fAhead(run, ahead)
     const cav = caveAt(fA, spec, run._obstacleSeed)
@@ -23325,27 +23331,103 @@ function testReefSpurScrape() {
     const want = ph > 0
       ? cav.c + (forceSide || (fu.u >= cav.c ? 1 : -1)) * (ph + cav.hw) / 2
       : cav.c
-    // A RING'S STICK IS A HEADING, so the policy returns a world unit vector rather than a signed
-    // cross-axis nudge — which is what a lane's stick was and what every fixture in this scenario
-    // used to build with `stick()`.
-    const w = ringXY(spec, fA, want)
-    const dx = w.x - run.player.x, dy = w.y - run.player.y
-    const d = Math.hypot(dx, dy) || 1
-    return { x: dx / d, y: dy / d }
+    // ⚠ A TRACK-FRAME CONTROLLER, NOT PURE PURSUIT, AND THE DIFFERENCE IS A FIXTURE BUG THAT READS
+    // AS A LEVEL DEFECT. Aiming the stick at a point `ahead` px up the passage drives the CHORD to
+    // that point, and on a corner tighter than the look-ahead is long that chord leaves the passage —
+    // so the policy steers into the outside wall on purpose. It reported ZERO touches for as long as
+    // the track was a roundabout (a lap holding one steering sign has no corner tight enough to show
+    // it) and 760 the moment the lap grew hairpins, which is indistinguishable from "the level is
+    // unnavigable". The claim this case makes is that a clean line EXISTS, so the driver has to be
+    // one that can hold a line rather than one that can only aim at a point.
+    //   The track frame gives it directly: go the way the centreline is going (ringHeading, the
+    // tangent at the player's own f), plus a correction across the passage toward the line you want.
+    // `u` is measured INWARD (see ringXY), so the cross unit vector at the player's angle is
+    // -(cos t, sin t) and a positive (want - u) means "further in".
+    //   ⚠ THE LOOK-AHEAD IS SHORT ON PURPOSE AND IT IS THE WHOLE PARAMETER. The tangent has to be
+    //   the one where the player IS, not where they will be: at `ahead` 140 this same controller
+    //   steers along a heading the track only adopts a corner later and reads 1724 touches, at 60 it
+    //   reads 873, and at 20 it reads ZERO at 266px/s — i.e. flat out. A long look-ahead is a driver
+    //   aiming at the exit of a corner they have not entered.
+    const tan = ringHeading(spec, fA, run._obstacleSeed)
+    const k = Math.max(-1, Math.min(1, (want - fu.u) / 60))
+    const vx = Math.cos(tan) - Math.cos(fu.t) * k * 1.6
+    const vy = Math.sin(tan) - Math.sin(fu.t) * k * 1.6
+    const d = Math.hypot(vx, vy) || 1
+    return { x: vx / d, y: vy / d }
   }
   // ...and the arc a run actually covered, which replaces `player[fwd] * dir` as "how far did it
   // get". Summed per frame rather than taken end to end, so a lap that comes back on itself counts.
   const ringArc = (a, b) => Math.hypot(b.x - a.x, b.y - a.y)
 
-  // (a) THE PASSAGE FITS INSIDE THE CORRIDOR THE PLAYER IS CLAMPED TO. If it ever wandered outside,
-  // the player would be pinned by the lane clamp — a wall with no coral drawn on it — while the
-  // coral they can see sits somewhere else entirely.
+  // (a) THE PASSAGE FITS INSIDE ITS OWN RING. The guard here used to be `wander + halfMax <=
+  // laneHalfWidth` — a LANE-era constraint that stopped applying the moment the chapter dropped
+  // `lane: true` (stepPlayerMovement's clamp is `lane ? laneAxes(...) : null`, so The Reef is not
+  // clamped to a corridor at all any more). It survived only because 130 + 200 happened to equal
+  // 330 exactly, i.e. it was green by coincidence on a number it no longer governed. What DOES
+  // govern the ring is the hub: the passage's inner edge is at `r0 - wander - halfMax`, and once
+  // that reaches zero the track swallows its own centre and every f maps to the same place.
   {
-    const hw = laneHalfWidth(reefRun().viewRadius, CHAPTERS.reef)
-    assert.ok(spec.wander + spec.halfMax <= hw,
-      `run RS.a: the passage reaches ${spec.wander + spec.halfMax}px off centre against a corridor clamp at ${hw.toFixed(0)} — it leaves the lane, and the player is stopped by something that is not drawn`)
+    assert.ok(spec.wander + spec.halfMax < spec.ring.r0 * 0.9,
+      `run RS.a: the passage reaches ${spec.wander + spec.halfMax}px off a ring of radius ${spec.ring.r0} — its inner edge is at the hub, where the whole lap collapses to one point`)
     assert.ok(spec.halfMin > PLAYER.radius * 2,
       `run RS.a: the passage narrows to ${spec.halfMin}px of half-width against a ${PLAYER.radius}px player — there has to be room to be in it without touching both walls`)
+
+    // ...AND IT IS A CIRCUIT, NOT A ROUNDABOUT. Owner, playing v7.233.0: "the reef circuit is just
+    // a loop, that's weird... not a roundabout or a carousel". Every knob involved was already
+    // "correct" — it was a closed track, it had a lap counter, its width wandered — and it still
+    // held ONE STEERING SIGN for three quarters of its length, which is the property that makes a
+    // lap a carousel. Nothing in the suite could see that, because no assertion had ever asked
+    // which WAY the track turns.
+    //   ⚠ MEASURED AS COUNTER-TURN, NOT AS A SHARE OF SAMPLES, and the first cut of this assertion
+    // got that wrong and PASSED ON THE ROUNDABOUT IT WAS WRITTEN TO CATCH. "What fraction of the lap
+    // curves the other way" reads 25% on the shipped circle, because the short width octave flicks
+    // the curvature sign back and forth constantly — a 2-degree kink counts the same as a hairpin.
+    //   A closed loop's NET turning is exactly 2pi whatever its shape, so the TOTAL turning is
+    // `2pi + 2 x (whatever was turned the other way and undone)`. That inverts to one scale-free
+    // number, in radians a lap, that a kink cannot inflate because it contributes only its own two
+    // degrees. Measured over seeds 0/1/5/77:
+    //     the shipped roundabout (wander 130, harmonics 2/5/10)   0.88 1.01 1.03 1.37
+    //     half the amplitude     (wander 190, harmonics 3/4/7)    0.53 ... (seed 0 alone is enough)
+    //     THIS TRACK            (wander 380, harmonics 3/4/7)     2.45 3.30 3.93 4.07
+    // The floor sits at 1.8: 1.36x under the worst seed this track produces and 1.3x over the best
+    // seed the roundabout did. scripts/reef-track-map.mjs prints it, and draws the lap it read.
+    for (const seed of [0, 1, 5, 77]) {
+      const N = 900
+      const pts = []
+      for (let i = 0; i < N; i++) {
+        const f = (i / N) * spec.lapLen
+        pts.push(ringXY(spec, f, caveAt(f, spec, seed).c))
+      }
+      let totalTurn = 0, minClear = Infinity
+      for (let i = 0; i < N; i++) {
+        const a = pts[(i - 1 + N) % N], b = pts[i], c = pts[(i + 1) % N]
+        const cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
+        const dot = (b.x - a.x) * (c.x - b.x) + (b.y - a.y) * (c.y - b.y)
+        totalTurn += Math.abs(Math.atan2(cross, dot))
+      }
+      const counterTurn = (totalTurn - 2 * Math.PI) / 2
+      assert.ok(counterTurn > 1.8,
+        `run RS.a: seed ${seed} turns the other way for only ${(counterTurn * 180 / Math.PI).toFixed(0)}deg over a whole lap — a circle scores 0 and the roundabout the owner rejected scored 50-79, so this is that shape again`)
+
+      // AND THE CORNERS DO NOT CLOSE THE TRACK. `hw` is measured RADIALLY, so it is NOT the gap a
+      // player fits through: where the track runs steeply across the radii the real clearance is
+      // hw x cos(that angle), and past about wander 500 a hairpin's inner edge folds through itself
+      // while hw still reads 200. This is the ceiling on the knob above, and it cannot be written as
+      // an inequality between two constants — it has to be measured off the drawn shape.
+      const edge = []
+      for (let i = 0; i < N; i++) {
+        const f = (i / N) * spec.lapLen
+        const cav = caveAt(f, spec, seed)
+        edge.push(ringXY(spec, f, cav.c - cav.hw), ringXY(spec, f, cav.c + cav.hw))
+      }
+      for (const p of pts) {
+        let d = Infinity
+        for (const q of edge) d = Math.min(d, Math.hypot(q.x - p.x, q.y - p.y))
+        minClear = Math.min(minClear, d)
+      }
+      assert.ok(minClear > PLAYER.radius * 2.5,
+        `run RS.a: seed ${seed} closes to ${minClear.toFixed(0)}px of clearance off the racing line against a ${PLAYER.radius}px player — a corner that tight is a wall, not a corner`)
+    }
     // NO OPEN WATER BEHIND THE CORAL, AT ANY SCREEN SIZE. The owner named this twice, and the
     // previous guard here asserted `cave.fill >= 760` — a field NOTHING READ. It was green for two
     // versions while the defect it describes was live on the other axis: the coral's draw window
@@ -23746,6 +23828,26 @@ function testCircuitHud() {
 function testCircuitCards() {
   const dt = 1 / 60
   const CARDS = ['topSpeed', 'accelRate', 'airMax', 'dashLength']
+  // A CLEAN LAP, for the cases that need a race to FINISH rather than to be timed. Run RS's own
+  // `follow` in track-frame form: go the way the centreline is going under you, and correct across
+  // the passage toward the line. The short look-ahead is the load-bearing part — see run RS.
+  const follow2 = (run) => {
+    const sp = CHAPTERS.reef.cave
+    const fu = ringFU(sp, run.player.x, run.player.y)
+    const fA = fu.f + (20 * sp.lapLen) / (2 * Math.PI * Math.max(1, sp.ring.r0 - fu.u))
+    const cav = caveAt(fA, sp, run._obstacleSeed)
+    let ph = 0
+    for (let px = 0; px <= 260; px += 40) {
+      ph = Math.max(ph, caveAt(fu.f + (px * sp.lapLen) / (2 * Math.PI * Math.max(1, sp.ring.r0 - fu.u)), sp, run._obstacleSeed).ph)
+    }
+    const want = ph > 0 ? cav.c + (fu.u >= cav.c ? 1 : -1) * (ph + cav.hw) / 2 : cav.c
+    const tan = ringHeading(sp, fA, run._obstacleSeed)
+    const k = Math.max(-1, Math.min(1, (want - fu.u) / 60))
+    const vx = Math.cos(tan) - Math.cos(fu.t) * k * 1.6
+    const vy = Math.sin(tan) - Math.sin(fu.t) * k * 1.6
+    const d = Math.hypot(vx, vy) || 1
+    return { x: vx / d, y: vy / d }
+  }
   // PAIRED SEEDS. Two createRun calls draw different obstacle seeds unless Math.random is re-seeded
   // between them, and an unseeded pair silently compares two DIFFERENT TRACKS — I did exactly that
   // on the first cut of this measurement and it reported a card as slower that cannot affect a run
@@ -23815,6 +23917,58 @@ function testCircuitCards() {
   for (const card of CARDS) {
     assert.strictEqual(PASSIVES[card].chapter, 'reef',
       `run CD: ${card} has no chapter, so it is offered in every chapter in the game — none of which has a throttle for it to move`)
+  }
+
+  // (b) ...AND NOTHING THE REEF OFFERS IS A DUD. The case above proves the four racing cards EARN
+  // their slot; this is the other half, and it is the owner's own complaint: "the weapons are
+  // useless, just remove them and the upgrades from this chapter". Every card on a Reef level-up
+  // screen has to reach the player, and four separate things had to be true at once for that:
+  //   weapons/elements  gone with the empty pool — an element only becomes an effect through
+  //                     applyDamage's hit path, so with no weapon every one of them is inert
+  //   damage/fireRate/crit x2   reach the player only through the weapon-damage roll
+  //   magnet            stepPickups already reads `(lane || circuit) ? Infinity`, so Sticky Aura
+  //                     was an offered no-op from the day this chapter dropped the lane flag
+  //   moveSpeed         multiplies `p.speed`, which the circuit branch of stepPlayerMovement never
+  //                     reaches — `_laneSpeed` is the velocity here, and topSpeed is its card
+  // DRIVEN, NOT READ OFF eligiblePassiveIds: the question is what a player is SHOWN, which is the
+  // whole rollCard -> buildLevelUpChoices path, and a gate that fires in the pool builder and not on
+  // the screen is exactly the kind of thing that passes a unit check and ships.
+  {
+    const LIVE = {
+      topSpeed: 'the throttle ceiling', accelRate: 'how fast _laneSpeed recovers from a crash',
+      airMax: 'the Air bar the dash spends', dashLength: 'the dash itself',
+      maxHP: 'coral scrape is real damage', armor: 'blocks that scrape', regen: 'heals it back',
+      xpGain: 'multiplies the checkpoint grant (stepCircuit reads passives.xpGain)',
+    }
+    let screens = 0
+    const seen = new Map()
+    for (const seed of [11, 22, 33, 44]) {
+      Math.random = mulberry32(seed)
+      const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 3 })
+      run.player.hp = run.player.maxHP = 1e9
+      for (let i = 0; i < 60 * 400; i++) {
+        stepSim(run, follow2(run), dt)
+        run.events.length = 0
+        if (run.phase === 'levelup') {
+          screens++
+          for (const c of run.levelUpChoices ?? []) seen.set(`${c.kind}:${c.id}`, (seen.get(`${c.kind}:${c.id}`) ?? 0) + 1)
+          assert.ok((run.levelUpChoices ?? []).length > 0,
+            'run CD.b: a Reef level-up screen came up EMPTY — the pools were gated past the point where anything is left, and buildLevelUpChoices fell through to nothing')
+          run.phase = 'playing'
+        }
+        if (run.phase === 'victory' || run.phase === 'dead') break
+      }
+    }
+    // The denominator, printed and asserted — `0 of 0 cards were duds` is a pass that proves nothing.
+    assert.ok(screens >= 12, `run CD.b: only ${screens} level-up screens over 4 races — this case would pass vacuously`)
+    for (const key of seen.keys()) {
+      const [kind, id] = key.split(':')
+      assert.strictEqual(kind, 'passive',
+        `run CD.b: the Reef offered a '${kind}' card (${id}) — with no arsenal a weapon, a weapon mod and an element are all offered, picked, banked and do nothing`)
+      assert.ok(LIVE[id],
+        `run CD.b: the Reef offered '${id}', which reaches the player through no code path this chapter executes — that is the inert card the owner asked to have removed`)
+    }
+    console.log(`PASS run CD.b (nothing offered is a dud): ${screens} screens over 4 races, ${[...seen.values()].reduce((a, b) => a + b, 0)} cards, all passives, ${seen.size} distinct ids all in the live set of ${Object.keys(LIVE).length}`)
   }
   console.log(`PASS run CD (the racing cards earn their slot): over ${SEEDS.length} paired seeds at max level — ${CARDS.map((c) => `${PASSIVES[c].name} ${measured[c] > 0 ? '-' : '+'}${Math.abs(measured[c]).toFixed(1)}s`).join(', ')} — every one scoped to the reef`)
 }
@@ -24179,17 +24333,27 @@ function testReefNatives() {
   // (a) THE POOL IS THE ONE THE CHAPTER DECLARES, and the two natives are natives — a card that
   // leaked into another chapter's pool would take every branch below into a chapter with no lane
   // and no ridges, where both weapons are something else entirely.
-  // THE POOL IS THREE AND THE NATIVE SET IS FOUR, since CHAPTERS.reef.passiveCrowd: Squid Ink's
-  // whole payload is the blind and a crowd that never seeks cannot be blinded, so the card left the
-  // OFFERS (config.js) while staying in WEAPONS and staying this chapter's creature. The leak check
-  // below still walks all four, because a card being dropped from its own pool is no licence for it
-  // to appear in somebody else's.
+  // THE POOL IS EMPTY AND THE NATIVE SET IS STILL FOUR. Owner, playing v7.233.0: "the weapons are
+  // useless, just remove them and the upgrades from this chapter". They were useless structurally
+  // rather than by mis-tune — `passiveCrowd` makes the whole roster harmless traffic, so there is
+  // nothing here to kill — and an empty pool is the SWITCH four separate gates read: the four weapon
+  // passives leave eligiblePassiveIds, eligibleElementIds returns nothing at all, the weapon and
+  // weapon-mod buckets have no subjects, and createRun leaves run.weapons genuinely empty.
+  //   ⚠ EMPTY POOL, NULL STARTER, NOTHING DELETED — and the three have to be asserted together.
+  // A null starter with a non-empty pool arms nobody but still offers weapon cards; an empty pool
+  // with a live starter hands the player a weapon it will never upgrade; and deleting the entries
+  // to "tidy up" would take three cards out of the dev menu and their mods out of run MB.a's fold
+  // check, which is the one place they still have to resolve.
   const REEF_NATIVES = ['pistolShrimp', 'squidInk', 'oxygenTank', 'fireCoral']
-  const REEF_POOL = ['pistolShrimp', 'oxygenTank', 'fireCoral']
-  assert.deepStrictEqual(CHAPTERS.reef.weapons, REEF_POOL,
-    `run RN.a: The Reef's pool is [${CHAPTERS.reef.weapons.join(', ')}]`)
-  assert.strictEqual(CHAPTERS.reef.starter, 'pistolShrimp',
-    `run RN.a: the starter is '${CHAPTERS.reef.starter}', not the chapter's own thesis card`)
+  assert.deepStrictEqual(CHAPTERS.reef.weapons, [],
+    `run RN.a: The Reef's pool is [${CHAPTERS.reef.weapons.join(', ')}] — the chapter is a race with no combat, and a single weapon in the pool puts the whole dead slate back on the level-up screen`)
+  assert.strictEqual(CHAPTERS.reef.starter, null,
+    `run RN.a: the starter is '${CHAPTERS.reef.starter}' — an unarmed chapter must start unarmed, and a starter outside its own pool is a card that can never be levelled`)
+  for (const id of REEF_NATIVES) {
+    assert.ok(WEAPONS[id], `run RN.a: ${id} was DELETED rather than dropped from The Reef's pool — it is still dev-takeable and still this chapter's creature`)
+    assert.ok(WEAPON_MODS[id] && Object.keys(WEAPON_MODS[id]).length > 0,
+      `run RN.a: ${id} lost its mods when the pool emptied — run MB.a still has to resolve every one of them`)
+  }
   const elsewhere = Object.entries(CHAPTERS)
     .filter(([id, ch]) => id !== 'reef' && id !== 'blank' && (ch.weapons ?? []).some((w) => REEF_NATIVES.includes(w)))
     .map(([id]) => id)
@@ -25041,13 +25205,15 @@ function testReefPool() {
   // Debris Toss with a reef noun, which is the objection it was rebuilt against.
   {
     const run = reefRun('oxygenTank', 5)
-    // ⚠ OFF THE PLAYER'S HEADING, WHICH ON A RING IS THE RADIAL DIRECTION. The old placement was
-    // `AX.cross` — the lane's own sideways axis — and the ring's tangent at the start line happens
-    // to be +y, so that put the bait STRAIGHT AHEAD and the throw hit it legitimately. Radially
-    // outward is perpendicular to the track wherever the player is, which is what "off to one side"
-    // has always meant here. (clampCrowdToCave will pull it back to the wall face; that is fine and
-    // still well off the heading.)
-    const bait = mk(run, 300, 0, 0)
+    // ⚠ OFF THE PLAYER'S HEADING, AND THAT HAS TO BE READ FROM THE TRACK RATHER THAN ASSUMED.
+    // This has now been wrong twice for the same reason — a world axis standing in for "sideways".
+    // First it was `AX.cross`, the lane's own axis, which the ring made meaningless. Then it was
+    // world +x, i.e. radially outward, which is only perpendicular to the track on a track whose
+    // centreline runs perfectly circumferentially: at wander 380 the centreline crosses the radii at
+    // up to ~50°, so "radially outward" became "half ahead" and the tank hit the bait legitimately.
+    // The tangent is the only honest source, and ringHeading is what answers it at any shape.
+    const h0 = ringHeading(CHAPTERS.reef.cave, ringFU(CHAPTERS.reef.cave, run.player.x, run.player.y).f, run._obstacleSeed)
+    const bait = mk(run, Math.cos(h0 + Math.PI / 2) * 300, Math.sin(h0 + Math.PI / 2) * 300, 0)
     let hit = null, toss = null
     drive(run, [bait], 6, { x: 0, y: 0 }, (r) => {
       // ⚠ MEASURED AGAINST THE THROW, NOT AGAINST WHERE THE PLAYER ENDED UP. The lob's target is
@@ -25408,13 +25574,20 @@ function testWreckBloodlust() {
     assert.ok(Math.abs(lo / hi - res.rate.peak) < 1e-6,
       `a full bar fires ${(lo / hi).toFixed(3)}x as often and the config says ${res.rate.peak}x — the readout and the ramp disagree`)
     // And nowhere else: a chapter with no `rate` block must report the same cadence at both ends.
+    // ⚠ THE CONTROL IS THE SURF, NOT THE REEF, AND THE REASON IS WORTH A LINE. The Reef was the
+    // obvious pick — it has a resource bar and no `rate` block — and it stopped being usable the day
+    // its weapon pool emptied: `weapons[0].stats` on an unarmed run is a TypeError, not a red
+    // assertion, and a thrown fixture takes every scenario registered after it down with it. A
+    // control for "a weapon's cadence does not move" has to be a chapter that HAS a weapon.
     Math.random = mulberry32(20260817)
-    const reef = createRun(meta, { chapter: 'reef', difficulty: 1 })
-    reef.charge = 0
-    const rLo = cadence(reef)
-    reef.charge = reef.chargeMax
-    assert.strictEqual(cadence(reef), rLo,
-      'The Reef\'s cadence moved with its Air bar — the fire-rate ramp is not gated on the chapter declaring one')
+    const ctrl = createRun(meta, { chapter: 'surf', difficulty: 1 })
+    assert.ok(ctrl.weapons.length > 0 && !CHAPTERS.surf.resource?.rate,
+      'run WK.b: the cadence control chapter is either unarmed or declares its own rate ramp — either way it cannot say what this case claims')
+    ctrl.charge = 0
+    const rLo = cadence(ctrl)
+    ctrl.charge = ctrl.chargeMax
+    assert.strictEqual(cadence(ctrl), rLo,
+      'The Surf\'s cadence moved with its Humidity bar — the fire-rate ramp is not gated on the chapter declaring one')
     console.log(`PASS run WK.b (the bar pays, never taxes): damage ${resourceDamageMul(0, res, res.max)} -> ${res.damage.peak}, rate ${resourceRateMul(0, res, res.max)} -> ${res.rate.peak}, readout cadence ${lo.toFixed(3)}s -> ${hi.toFixed(3)}s (x${(lo / hi).toFixed(2)}), and The Surf still floors at ${HUMIDITY_DMG_FLOOR} with no rate ramp`)
   }
 
