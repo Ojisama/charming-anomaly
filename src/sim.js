@@ -151,6 +151,7 @@ import {
   CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
   swimthroughsFor, circuitKnob,
+  ringXY, ringFU, ringHeading, ringCentre, ringDelta,
   caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK,
   LANE_CRUSH_DPS, LANE_CRUSH_TICK,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
@@ -863,6 +864,56 @@ function stepPlayerMovement(run, input, dt) {
       p[ax.vFwd] = ax.dir * want * burstMul
     }
     if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
+  } else if (CHAPTERS[run.chapter].circuit) {
+    // THE RING (v7.x, The Reef). The chapter dropped `lane: true` when the track became a closed
+    // loop (see ringXY in config.js), so the branch above no longer fires here and this is what
+    // owns the player's velocity instead. Two controls sharing one stick, exactly as the lane's
+    // throttle was, but neither of them is pinned to a world axis any more:
+    //   DIRECTION comes from the stick and is taken IMMEDIATELY. THROTTLE is its magnitude, and
+    // only the throttle has momentum.
+    //   ⚠ THAT SPLIT IS THE OWNER'S RULING ("steering must not cost throttle") AND IT IS WHY THE
+    //   VELOCITY VECTOR IS NOT EASED AS A VECTOR. Easing (vx, vy) toward the target vector is the
+    //   obvious way to write this and it bleeds speed on every corner — the harder you turn, the
+    //   more of your speed the ease spends rotating instead of carrying you. That is precisely the
+    //   tax the ruling forbids, arrived at from a different direction than the unit-clamp bug was.
+    const cch = CHAPTERS[run.chapter]
+    const top = laneScrollFor(cch, run.mods) * (cch.laneThrottle?.max ?? 1) * (1 + (run.passives.topSpeed ?? 0))
+    const thr = Math.min(1, len)
+    const want = top * thr
+    // SEEDED AT THE CHAPTER'S OWN SCROLL, not at 0 and not at `want` — the lane branch's reasoning,
+    // unchanged: from 0 the opening half-second is slower than the track is scored against, and
+    // from `want` a stick already pushed at t=0 is at full speed before momentum exists.
+    if (run._laneSpeed == null) run._laneSpeed = laneScrollFor(cch, run.mods)
+    // ⚠ QUICK START SPEEDS THE RAMP UP AND NOT THE RAMP DOWN, and applying it to both is what made
+    // the card inert. `accel` is symmetric — it is the rate the speed eases toward the throttle in
+    // either direction — so a card that raised it also made you SHED speed faster on every corner
+    // entry. Measured over three seeded races with a cornering brake: +0.13s with no braking (you
+    // ramp once, at the start), and -0.05 / -0.07 / 0.00 with braking, i.e. the gain out of a
+    // corner paid for exactly by the loss into it. The card is called Quick Start.
+    const rising = run._laneSpeed < want
+    const step = circuitKnob(cch, 'accel') * (1 + (rising ? (run.passives.accelRate ?? 0) : 0)) * dt
+    run._laneSpeed = rising
+      ? Math.min(want, run._laneSpeed + step)
+      : Math.max(want, run._laneSpeed - step)
+    // THE HEADING IS REMEMBERED. Let go of the stick and you coast on the line you were holding
+    // rather than stopping dead facing nowhere — which is what momentum means to a driver, and
+    // what makes easing off into a corner a move instead of a mistake.
+    // ⚠ NORMALISED, AND ix/iy ARE NOT. The unit-circle clamp above only divides when len > 1, so a
+    // HALF-pushed stick arrives here as (0.5x, 0.5y) — and multiplying that by _laneSpeed applies
+    // the throttle a second time. Measured: a stick at min/max = 0.167 of full moved the player at
+    // 7.5px/s instead of 45, i.e. throttle SQUARED. It is invisible at full stick, which is what
+    // every fixture and every probe had been holding, and it is the whole feel of easing into a
+    // corner. The throttle is the MAGNITUDE (read off `len` below); this is only the direction.
+    if (len > 1e-6) { run._headX = ix / Math.min(1, len); run._headY = iy / Math.min(1, len) }
+    else if (run._headX == null) {
+      const spec0 = cch.cave
+      const h0 = spec0?.ring ? ringHeading(spec0, 0, run._obstacleSeed) : 0
+      run._headX = Math.cos(h0); run._headY = Math.sin(h0)
+    }
+    const burstMul2 = (run._burstT ?? 0) > 0 ? BURST_SPEED_MUL : 1
+    p.vx = run._headX * run._laneSpeed * burstMul2
+    p.vy = run._headY * run._laneSpeed * burstMul2
+    if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
   } else if ((run._lungeT ?? 0) > 0) {
     // THE LUNGE (v7.x, The Wreck). The free-roaming twin of the burst above, and it has to live in
     // this function for the same reason: whatever owns the player's velocity owns the dash. The
@@ -901,7 +952,9 @@ function stepPlayerMovement(run, input, dt) {
   // shadow squash, the eye look), so without it the fish holds a full idle pose while crossing
   // 270px at 900px/s — the same publish-into-the-contract-field fix p.facingAngle needed at the
   // press site, and invisible for exactly the same reason.
-  p.moving = lane || len > 1e-6 || (run._lungeT ?? 0) > 0   // in the lane you are never stationary
+  // ...and in a CIRCUIT the same is true for the same reason: momentum carries you with the stick
+  // released, so a `len > 0` test would hold a full idle pose through a coasting corner.
+  p.moving = lane || len > 1e-6 || (run._lungeT ?? 0) > 0 || (CHAPTERS[run.chapter].circuit && (run._laneSpeed ?? 0) > 1)
   if (ix > 1e-6) p.facing = 1
   else if (ix < -1e-6) p.facing = -1
   // v5.0: last non-zero move direction as a full angle — render orients the pond tail to it, and
@@ -909,6 +962,10 @@ function stepPlayerMovement(run, input, dt) {
   // Stays null until the player first moves. In the lane you always face up it, so a weapon with
   // nothing to shoot at fires forward rather than at wherever you last strafed.
   if (ax) p.facingAngle = ax.angle
+  // A CIRCUIT FACES ITS OWN HEADING, not the last frame the stick was touched: coasting round a
+  // bend with the stick released, `len` is 0 and the fish would keep pointing wherever it was aimed
+  // when you let go.
+  else if (CHAPTERS[run.chapter].circuit && run._headX != null) p.facingAngle = Math.atan2(run._headY, run._headX)
   else if (len > 1e-6) p.facingAngle = Math.atan2(iy, ix)
 
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt)
@@ -986,7 +1043,10 @@ function stepSpawning(run, dt) {
   // than a wall. See LANE_SPAWN_MUL.
   // laneEarlyMul is the +33% opening (see LANE_EARLY_BOOST) — it also compresses the rank cadence in
   // stepFormations, because the ranks are the majority of this chapter's early arrivals.
-  const laneMul = CHAPTERS[run.chapter].lane ? LANE_SPAWN_MUL * laneEarlyMul(run.time) : 1
+  // ...and a `circuit` reads the same multiplier, for the reason the lane does: everything spawns
+  // ahead of you and streams past once, so the population on screen at any moment is a fraction of
+  // what a free-roam chapter's ring holds around a player who can turn and re-meet it.
+  const laneMul = (CHAPTERS[run.chapter].lane || CHAPTERS[run.chapter].circuit) ? LANE_SPAWN_MUL * laneEarlyMul(run.time) : 1
   // CHAOS PACT (v7.2): the danger half of the cycle. Read-time, never written into run.mods —
   // that table is the run's MUTATOR product, chosen before the run, and folding a per-second
   // oscillation into it would corrupt it permanently (the same reason RAMPAGE's multipliers are
@@ -1751,13 +1811,31 @@ function stepCircuit(run, dt) {
   const spec = ch.cave
   const L = spec?.lapLen
   if (!L) return false
-  const ax = laneAxes(ch)
-  const along = run.player[ax.fwd] * ax.dir
+  if (!spec.ring) return false
+
+  // HOW FAR ROUND, AS AN UNWRAPPED ANGLE. On a lane this was `player[fwd] * dir` — a coordinate that
+  // only ever grows. A ring has no such coordinate: atan2 wraps at every half turn, so the lap count
+  // has to be integrated rather than read. Accumulating the per-frame DELTA is what makes a lap
+  // boundary need no special case at all, exactly as the lane's running count did.
+  //   The delta is folded into (-pi, pi], which is correct for any speed this game can reach: at
+  // the 2430px/s the old burst managed, one clamped 0.05s frame covered 121px against the ~4100px
+  // half-circumference. A frame that genuinely crossed half the ring would be unrecoverable, and it
+  // is unreachable by three orders of magnitude.
+  const fuP = ringFU(spec, run.player.x, run.player.y)
+  let dT = fuP.t - (run._ringRaw ?? fuP.t)
+  if (dT > Math.PI) dT -= 2 * Math.PI
+  else if (dT < -Math.PI) dT += 2 * Math.PI
+  run._ringRaw = fuP.t
+  run._ringT = (run._ringT ?? 0) + dT
+  const along = (run._ringT / (2 * Math.PI)) * L
 
   // The chosen six, once per run. They are identical for every lap because the track is.
   if (!run._swims) run._swims = swimthroughsFor(spec, run._obstacleSeed)
 
-  run.raceClock = (run.raceClock ?? circuitKnob(ch, 'clockStart')) - dt
+  // TIDAL RACE'S ONE KNOB (MUTATORS.tidalRace). It has to touch all THREE of the clock's numbers or
+  // it is not a tax at all: shorten only the start and a player is level again after one checkpoint.
+  const clockMul = run.mods?.raceClockMul ?? 1
+  run.raceClock = (run.raceClock ?? circuitKnob(ch, 'clockStart') * clockMul) - dt
 
   // A RUNNING COUNT, not a nearest-checkpoint test. run._swimN counts every swimthrough crossed
   // since the run began, so a lap boundary needs no special case at all — the count simply keeps
@@ -1772,7 +1850,7 @@ function stepCircuit(run, dt) {
   const prev = run._swimN ?? passed          // first frame banks the start line rather than firing it
   if (passed > prev) {
     for (let k = prev; k < passed; k++) {
-      run.raceClock = Math.min(circuitKnob(ch, 'clockCap'), run.raceClock + circuitKnob(ch, 'swimTime'))
+      run.raceClock = Math.min(circuitKnob(ch, 'clockCap') * clockMul, run.raceClock + circuitKnob(ch, 'swimTime') * clockMul)
       // THE CHAPTER'S ONLY XP SOURCE (see CIRCUIT_DEFAULTS.swimXp). Through the SAME multipliers a
       // gem is, so every xp card in the game still reads on a race rather than going inert here.
       // stepLevelUp runs later in this same frame, so the screen opens on the crossing.
@@ -1780,7 +1858,12 @@ function stepCircuit(run, dt) {
       run.events.push({ type: 'swimthrough', x: run.player.x, y: run.player.y, n: k + 1 })
     }
   }
-  run._swimN = passed
+  // ⚠ A HIGH-WATER MARK, WHICH A LANE NEVER NEEDED. You cannot swim back up a lane, so `passed`
+  // only ever grew there. On a ring you can turn round — and a player who yo-yos across one
+  // checkpoint would bank CIRCUIT_SWIM_TIME every time they re-crossed it forwards, i.e. an
+  // unlimited clock and an unlimited xp tap from one squeeze. Taking the max makes going backwards
+  // free but never profitable.
+  run._swimN = Math.max(prev, passed)
 
   const lap = Math.max(0, Math.floor(along / L))
   if (lap > (run.lap ?? 0)) {
@@ -2096,7 +2179,29 @@ function spawnEnemy(run, opts = {}) {
     // play. Spawning up the lane instead makes a seeker something you meet, dodge across, and leave
     // behind: the shmup contract, and the one that makes "you can only strafe" a game rather than a
     // countdown. Anything that does get past you is now genuinely past you.
-    if (CHAPTERS[run.chapter].lane) {
+    if (CHAPTERS[run.chapter].cave?.ring && CHAPTERS[run.chapter].circuit) {
+      // TRAFFIC BELONGS IN THE ROAD (v7.x, The Reef's ring). The lane branch below used to do this
+      // job and is gated on `lane`, which this chapter dropped when the track closed into a loop.
+      // Spawning on the ordinary free-roam ring instead would put most of the crowd inside solid
+      // coral, where clampCrowdToCave would snap it to a wall face the moment it appeared.
+      //   AHEAD, and spread over the arc rather than pinned to one distance: a fish that is always
+      // exactly a screen away arrives on a metronome. The window is converted from px to f at the
+      // radius the PLAYER is at, because a hairpin's inner edge is a third shorter than r0.
+      const spec = CHAPTERS[run.chapter].cave
+      const fu = ringFU(spec, p.x, p.y)
+      const rHere = Math.max(1, spec.ring.r0 - fu.u)
+      const px = run.viewRadius + SPAWN_RING * (0.4 + Math.random() * 1.6)
+      const f = fu.f + (px * spec.lapLen) / (2 * Math.PI * rHere)
+      const cav = caveAt(f, spec, run._obstacleSeed)
+      // Inside the passage and clear of both faces, so a body never spawns already in the wall.
+      const room = Math.max(0, cav.hw - 46)
+      let u = cav.c + (Math.random() * 2 - 1) * room
+      // ...and off the island where the passage forks, on whichever side the roll landed.
+      if (cav.ph > 0 && Math.abs(u - cav.c) < cav.ph + 46) u = cav.c + (u >= cav.c ? 1 : -1) * Math.min(cav.ph + 46, room)
+      const w = ringXY(spec, f, u)
+      x = w.x
+      y = w.y
+    } else if (CHAPTERS[run.chapter].lane) {
       const ax = laneAxes(CHAPTERS[run.chapter])
       const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
       const cross = -hw + Math.random() * hw * 2
@@ -2213,7 +2318,10 @@ function spawnEnemy(run, opts = {}) {
 // boss duel whose antibody carries catch-up gear — both exempt. Anchored entities never move.
 function stepStragglers(run) {
   const ch = CHAPTERS[run.chapter]
-  if (ch.lane || ch.scripted) return
+  // `circuit` joins them: the recycler exists to stop a KITER shedding chasers, and a circuit's
+  // crowd never chased in the first place (passiveCrowd). Recycling it would teleport traffic onto
+  // the ring ahead of a driver who simply drove past it, which is the opposite of the mechanic.
+  if (ch.lane || ch.scripted || ch.circuit) return
   const p = run.player
   if (Math.hypot(p.vx, p.vy) < KITE_MIN_SPEED) return
   const heading = Math.atan2(p.vy, p.vx)
@@ -2507,15 +2615,31 @@ function stepEnemyMovement(run, dt) {
       // the same reason: a fish that is not hunting you is not running its hunting routine either.
       // That placement is what makes the roster's latch and pounce inert here without deleting
       // them -- the chapter is one boolean away from its combative self.
-      if (slowMul > 0) e[laneAx.fwd] -= laneAx.dir * e.speed * slowMul * dt
+      //   ON A RING THERE IS NO FIXED "DOWN THE LANE" — the direction the fish should swim is the
+      // track's own tangent where the fish IS, which is what ringHeading answers. It swims the way
+      // you came, so the two of you close at your speed plus its own and it streams past: the whole
+      // of "pass by", and the same sentence the lane version wrote as a single axis.
+      const ringSpec = CHAPTERS[run.chapter].cave
+      let hx = 0, hy = 0
+      if (ringSpec?.ring) {
+        const h = ringHeading(ringSpec, ringFU(ringSpec, e.x, e.y).f, run._obstacleSeed)
+        hx = Math.cos(h); hy = Math.sin(h)
+      } else {
+        hx = laneAx.fwd === 'x' ? laneAx.dir : 0
+        hy = laneAx.fwd === 'y' ? laneAx.dir : 0
+      }
+      if (slowMul > 0) {
+        e.x -= hx * e.speed * slowMul * dt
+        e.y -= hy * e.speed * slowMul * dt
+      }
       //   AND THE POINT THE DRAWING READS. render.js derives every body's bearing from run.player
       // unless _tgtX/_tgtY says otherwise, so without these two lines the whole crowd swims down
       // the lane with its eyes locked on you — crabbing sideways, tail first, which is precisely
       // the picture the ally, the prey and the blind each needed this same pair to fix. Publishing
       // into the shipped contract field rather than teaching render a new one (CLAUDE.md), and
       // render's facesOwnHeading gains the chapter so it knows to read it.
-      e._tgtX = e.x - (laneAx.fwd === 'x' ? laneAx.dir * 100 : 0)
-      e._tgtY = e.y - (laneAx.fwd === 'y' ? laneAx.dir * 100 : 0)
+      e._tgtX = e.x - hx * 100
+      e._tgtY = e.y - hy * 100
     } else if (e.flags && e.flags.includes('skittish')) {
       // PREY (v7.x, The Wreck). The one branch in this chain that walks AWAY from the player.
       // Sits directly under fear because it is the same motion for a different reason — fear is a
@@ -4210,6 +4334,57 @@ export function refillCircleAt(i, j, seed, spec) {
   return c
 }
 
+// AIR ON A RING (v7.x, The Reef). The square-grid streamer below cannot place this field once the
+// track is a loop — see the `ringCells` note on the spec. Pockets live on a 1-D grid along f, one
+// cell per ringCells of the lap, wrapped, so the field repeats exactly with the track.
+function streamRingPockets(run, spec, cave) {
+  const p = run.player
+  const seed = run._obstacleSeed
+  if (seed == null) return
+  const L = cave.lapLen
+  const cells = Math.max(1, spec.ringCells ?? 8)
+  const cellF = L / cells
+  const s0 = spec.salt ?? 40
+  for (let k = run.shafts.length - 1; k >= 0; k--) {
+    if (Math.hypot(run.shafts[k].bx - p.x, run.shafts[k].by - p.y) > OBSTACLE_DROP_RADIUS) run.shafts.splice(k, 1)
+  }
+  const live = new Set()
+  for (const sh of run.shafts) live.add(sh._cell)
+  const pf = ringFU(cave, p.x, p.y).f
+  // SAME CELL AS THE LAST SCAN -> THE FIELD IS UNCHANGED, which is the square grid's own early-out
+  // and is not merely a saving. Without it the whole field is re-derived every frame, so a pocket
+  // that has just been consumed or dropped is re-created on the spot — a player parked on one
+  // refills forever, and run RF's feature-removed control (which empties run.shafts after every
+  // step) ended a 150s run on a FULL bar instead of an empty one.
+  const cellNow = Math.floor(pf / (L / cells))
+  if (cellNow === run._shaftRingCell) return
+  run._shaftRingCell = cellNow
+  // How many f-cells the streaming disc can possibly reach. Measured at the TIGHTEST radius the
+  // track makes rather than at r0, because f is an angle: the same px of reach is more f where the
+  // loop pinches, and sizing this at r0 would leave a pocket unstreamed exactly in the hairpins.
+  const rMin = Math.max(1, cave.ring.r0 - cave.wander - cave.halfMax)
+  const reach = Math.ceil((OBSTACLE_STREAM_RADIUS * L) / (2 * Math.PI * rMin) / cellF) + 1
+  const k0 = Math.floor(pf / cellF)
+  for (let k = k0 - reach; k <= k0 + reach; k++) {
+    const cell = ((k % cells) + cells) % cells
+    const key = 'r' + cell
+    if (live.has(key)) continue
+    if (obstacleCellHash(cell, 0, seed, s0) >= (spec.ringChance ?? 0.7)) continue
+    // Jittered inside its cell but never against the seam, so two neighbouring pockets cannot land
+    // on top of each other across a cell boundary.
+    const f = (cell + 0.15 + obstacleCellHash(cell, 1, seed, s0 + 1) * 0.7) * cellF
+    const cav = caveAt(f, cave, seed)
+    // Anywhere across the passage, clamped only so it stays off the rock — the owner's 2026-08-24
+    // ruling ("they don't have to be touching coral"), and `slack` collapses to 0 at a squeeze so
+    // the pocket simply takes the centre line there.
+    const slack = Math.max(0, cav.hw - spec.r)
+    const u = cav.c + (obstacleCellHash(cell, 2, seed, s0 + 7) - 0.5) * 2 * slack
+    const w = ringXY(cave, f, u)
+    if (Math.hypot(w.x - p.x, w.y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+    run.shafts.push({ x: w.x, y: w.y, bx: w.x, by: w.y, r: spec.r, phase: obstacleCellHash(cell, 3, seed, s0 + 3) * Math.PI * 2, _cell: key })
+  }
+}
+
 export function streamShafts(run) {
   const sig = CHAPTERS[run.chapter].signature
   const spec0 = refillSpec(sig)
@@ -4221,8 +4396,13 @@ export function streamShafts(run) {
   // A shallow copy, so cell/r/drawdownSecs stay the spec's own; identity is preserved at x1 so
   // every chapter without the mutator is byte-for-byte unchanged.
   const chanceMul = run.mods?.refillChanceMul ?? 1
-  const spec = chanceMul === 1 ? spec0 : { ...spec0, chance: spec0.chance * chanceMul }
+  // ...and it has to reach BOTH occupancy rolls. The square grid reads `chance`, the ring reads
+  // `ringChance`; scaling only the first would leave the mutator silently inert on the one chapter
+  // whose bar has a single refill source.
+  const spec = chanceMul === 1 ? spec0 : { ...spec0, chance: spec0.chance * chanceMul, ringChance: (spec0.ringChance ?? 0.7) * chanceMul }
   if (run._obstacleSeed == null) return
+  const ringCave = CHAPTERS[run.chapter].cave?.ring ? CHAPTERS[run.chapter].cave : null
+  if (ringCave) return streamRingPockets(run, spec, ringCave)
   const p = run.player
   const cs = spec.cell
   const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
@@ -4340,6 +4520,16 @@ export function spurAt(i, spec, seed) {
 export function streamSpurs(run) {
   const spec = CHAPTERS[run.chapter].spurs
   if (!spec) return
+  // ⚠ NOT ON A RING. The ridges are a field laid perpendicular to a straight lane, indexed off a
+  // world coordinate (`player[ax.fwd] / spacing`) that goes round in circles once the track closes
+  // — so on a ring they are bars at meaningless angles, re-rolled every time the player's x happens
+  // to recross a boundary. The CAVE is the terrain here and has been since v7.213; this is the last
+  // consumer of the braid it replaced. Cleared rather than merely skipped, so a field streamed
+  // before the flag was read cannot be left on screen.
+  if (CHAPTERS[run.chapter].cave?.ring) {
+    if (run.spurs.length) { run.spurs.length = 0; run._spurRev = (run._spurRev || 0) + 1 }
+    return
+  }
   if (run._obstacleSeed == null) return
   const ax = laneAxes(CHAPTERS[run.chapter])
   const i0 = Math.round(run.player[ax.fwd] / spec.spacing)
@@ -4403,34 +4593,50 @@ const laneBehindPx = (run, ax) => (1 - LANE_CAMERA_FRAC) * 2 * (ax.fwd === 'x' ?
 function clampCrowdToCave(run) {
   const ch = CHAPTERS[run.chapter]
   const spec = ch.cave
-  if (!spec) return
-  const ax = laneAxes(ch)
+  if (!spec?.ring) return
+  const pf = ringFU(spec, run.player.x, run.player.y).f
+  // HOW FAR BEHIND IS TOO FAR. The lane had stepLeaks and `sweepAstern` for this and both are gated
+  // on `lane`, which The Reef no longer sets — so without a ring twin every fish ever spawned stays
+  // in the world forever. Measured on the lane before it existed: 34% of live bodies sat off-screen
+  // astern, the oldest still alive at 290s of a 300s run.
+  const drop = spec.lapLen * 0.12
   for (const e of run.enemies) {
     if (e._dead) continue
-    const cav = caveAt(e[ax.fwd], spec, run._obstacleSeed)
-    const off = e[ax.cross] - cav.c
+    const fu = ringFU(spec, e.x, e.y)
+    if (ringDelta(spec, pf, fu.f) < -drop) { e._dead = true; continue }   // silent, not a kill: no xp, no gem
+    const cav = caveAt(fu.f, spec, run._obstacleSeed)
+    const off = fu.u - cav.c
     const a = Math.abs(off)
     const sign = off >= 0 ? 1 : -1
     const lim = Math.max(0, cav.hw - e.radius)
-    if (a > lim) { e[ax.cross] = cav.c + sign * lim; continue }
     // ...and out of the island where the passage forks, clamped at `lim` exactly as the player is
     // so an island wider than its own passage cannot pin a body against the outer wall.
     const inner = cav.ph > 0 ? Math.min(cav.ph + e.radius, lim) : 0
-    if (a < inner) e[ax.cross] = cav.c + sign * inner
+    let u = fu.u
+    if (a > lim) u = cav.c + sign * lim
+    else if (a < inner) u = cav.c + sign * inner
+    else continue
+    const w = ringXY(spec, fu.f, u)
+    e.x = w.x
+    e.y = w.y
   }
 }
 
 function stepCaveWall(run, dt) {
   const ch = CHAPTERS[run.chapter]
   const spec = ch.cave
-  if (!spec) { run._caveHit = false; return false }
-  const ax = laneAxes(ch)
+  if (!spec?.ring) { run._caveHit = false; return false }
   const p = run.player
-  const cav = caveAt(p[ax.fwd], spec, run._obstacleSeed)
+  // ONE CONVERSION, THEN THE ORIGINAL TEST UNCHANGED. Everything below this line is the corridor
+  // version word for word — the overshoot, the crash, the island, the tick — because the ring is a
+  // change of MAP and not of geometry (ringXY's block). `u` is what `p[ax.cross] - cav.c` used to
+  // read, and it is still px, so crashSpeed keeps its meaning.
+  const fu = ringFU(spec, p.x, p.y)
+  const cav = caveAt(fu.f, spec, run._obstacleSeed)
   // The BURST passes through, the same ruling that waived the old scrape: the dash is the button
   // that gets you out of trouble, and a wall that stops it is a wall that ends runs on a spend.
   if ((run._burstT ?? 0) > 0) { run._caveHit = false; return false }
-  const off = p[ax.cross] - cav.c
+  const off = fu.u - cav.c
   const lim = cav.hw - PLAYER.radius
   // THE ISLAND (caveAt's `ph`): where the passage forks, the middle of it is coral. Same contact,
   // same bounce, same tick — the only new thing is that the free band is an ANNULUS for those few
@@ -4460,9 +4666,15 @@ function stepCaveWall(run, dt) {
     }
   }
   // Out through the nearer face: pushed off the island the way you were already leaning, held
-  // against the wall face you touched.
-  p[ax.cross] = cav.c + (off >= 0 ? 1 : -1) * (a > lim ? lim : inner)
-  p[ax.fwd] -= ax.dir * CAVE_BOUNCE_PX * dt * 60 / 60 * 1
+  // against the wall face you touched — and knocked back ALONG the track, which on a ring means
+  // back in f. CAVE_BOUNCE_PX is px of travel, so it is converted at the radius the player is
+  // actually at rather than at r0; at the inner edge of a hairpin the two differ by a third.
+  const nu = cav.c + (off >= 0 ? 1 : -1) * (a > lim ? lim : inner)
+  const rHere = Math.max(1, spec.ring.r0 - nu)
+  const backF = (CAVE_BOUNCE_PX * dt * spec.lapLen) / (2 * Math.PI * rHere)
+  const wOut = ringXY(spec, fu.f - backF, nu)
+  p.x = wOut.x
+  p.y = wOut.y
   run._caveHit = true
   run._caveAcc = (run._caveAcc ?? 0) + dt
   let died = false
@@ -11769,7 +11981,10 @@ function stepPickups(run, dt) {
   // number would only invite it to be wrong on some viewport.
   // magnetSpeed() reads the radius too — at Infinity its distance ramp collapses to 0, so gems fly
   // at the flat near-field 800px/s, comfortably above LANE_SCROLL_SPEED, and always catch up.
-  const magnet = CHAPTERS[run.chapter].lane ? Infinity : p.magnet * (1 + run.passives.magnet) * run.mods.magnetMul
+  // `circuit` JOINS `lane` HERE, and it is the same argument: you cannot double back for a gem you
+  // flew past. The Reef dropped `lane` when its track closed into a loop, and a race at 270px/s is
+  // if anything a stronger case for it than a scroller was.
+  const magnet = (CHAPTERS[run.chapter].lane || CHAPTERS[run.chapter].circuit) ? Infinity : p.magnet * (1 + run.passives.magnet) * run.mods.magnetMul
   const magnetSq = magnet * magnet
   const pickupSq = PLAYER.pickupRadius * PLAYER.pickupRadius
 

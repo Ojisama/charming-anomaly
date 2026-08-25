@@ -2485,6 +2485,27 @@ body {
 .charge--armed .chaos-vrail-num { background: rgba(70, 46, 12, 0.92); color: #fff3d0; }
 
 /* live wave: violet -> red. Never colour ALONE — the seconds chip is the other half. */
+/* THE RESERVE'S WARNING STATES (owner, 2026-08-25). AFTER .charge--armed deliberately: the two can
+   co-occur, because PULSE_CHARGE_COST is a fraction of max rather than a majority of it, and the
+   warning has to win — that you can still afford the button matters less than that you are about to
+   drown. Same specificity, so the later rule takes it. */
+/* ⚠ THE BASE FILL IS ALREADY AMBER (#ffb347 above), so "orange" has to be a DEEP orange or the
+   warning is invisible — shot side by side at 29% and 45% and the first pass (#ffa53d) was
+   indistinguishable from a full bar. The border carries as much of it as the fill does. */
+.charge--low .chaos-vrail-track i { background: #ff6a12; }
+.charge--low .chaos-vrail-track { border-color: rgba(255, 122, 30, 0.85); }
+.charge--low .chaos-vrail-num { color: #ffc98f; }
+.charge--crit .chaos-vrail-track i { background: #ff4d3d; }
+.charge--crit .chaos-vrail-num { color: #ffc9c2; }
+.charge--crit .chaos-vrail-track { border-color: rgba(255, 90, 70, 0.8); }
+/* At zero there is no fill left to colour at all, so the blink goes on the empty track and the
+   number — the two things still on screen. */
+.charge--empty .chaos-vrail-track,
+.charge--empty .chaos-vrail-num { animation: chargeEmptyBlink 0.6s steps(1, end) infinite; }
+.charge--empty .chaos-vrail-track { border-color: rgba(255, 80, 64, 0.9); }
+.charge--empty .chaos-vrail-num { color: #ffd2cb; }
+@keyframes chargeEmptyBlink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.28; } }
+
 .chaos--on .chaos-vrail-track { border-color: rgba(255, 166, 148, 0.6); }
 .chaos--on .chaos-vrail-track i { background: #ff6b52; }
 .chaos--on .chaos-vrail-num { background: rgba(52, 18, 16, 0.92); color: #ffd7cf; }

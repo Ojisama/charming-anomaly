@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -12513,8 +12513,17 @@ const spurG = new Graphics()
     const cfg = CHAPTERS[run.chapter]
     const spec = cfg.spurs
     if (!spec) { if (spurRev !== -1) { spurG.clear(); spurRev = -1 } return }
-    if (run._spurRev === spurRev) return
-    spurRev = run._spurRev
+    // WHAT COUNTS AS "THE FIELD CHANGED". On a lane it was run._spurRev, bumped by streamSpurs
+    // once per ridge crossing. A ring has no spur field at all (streamSpurs returns early there),
+    // so the trigger is the player's own position ALONG the track: rebuild every RING_COLONY_REV of
+    // f, which at racing speed is about twice a second — the same cadence the ridge crossing gave.
+    // Without this the wall is built once, at the start line, and never again.
+    const ringRev = cfg.cave?.ring
+      ? Math.floor(ringFU(cfg.cave, run.player.x, run.player.y).f / 160)
+      : null
+    const wantRev = ringRev != null ? ringRev : run._spurRev
+    if (wantRev === spurRev) return
+    spurRev = wantRev
     spurG.clear()
     const V = SPUR_VIS
     const ax = laneAxes(cfg)
@@ -12583,7 +12592,75 @@ const spurG = new Graphics()
     // this file keeps paying for.
     const stamps = []
     const cspec = cfg.cave
-    if (cspec) {
+    // THE RING (v7.x). Everything below still works in caveAt's (f, u) space — see ringXY in
+    // config.js — so this is one window calculation and one placement, not a second wall generator.
+    // ⚠ u IS MEASURED INWARD, so `sign` +1 walks toward the ring's centre and -1 walks out past the
+    // outer wall. The hole has to be filled as hard as the outside does: standing at the track's
+    // inner edge the centre is only ~570px away, which is inside a desktop's half-diagonal.
+    if (cspec?.ring) {
+      const R0 = cspec.ring.r0
+      const step = V.colonyEveryLo + (V.colonyEveryHi - V.colonyEveryLo) * 0.5
+      // Half the screen's DIAGONAL, because a ring has no cross axis to measure against — the
+      // camera is centred and the wall can arrive from any bearing.
+      const reachPx = Math.hypot(viewW(), viewH()) / 2 + V.bakeReach
+      const fu = ringFU(cspec, run.player.x, run.player.y)
+      // f IS AN ANGLE, so the same px of reach is more f where the loop pinches. Sized at the
+      // TIGHTEST radius the track makes, or the hairpins come up short.
+      const rMin = Math.max(60, R0 - cspec.wander - cspec.halfMax)
+      const spanF = (reachPx * cspec.lapLen) / (2 * Math.PI * rMin) + step
+      const k0 = Math.floor((fu.f - spanF) / step)
+      const k1 = Math.ceil((fu.f + spanF) / step)
+      const hash = (a, b) => {
+        const x = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453
+        return x - Math.floor(x)
+      }
+      // ONE COLUMN, from a face of the passage into the solid behind it — the corridor's `pack`,
+      // with two things the ring adds. `m` is how many colonies to lay across the cell at this
+      // depth: the outer wall's arc is up to twice the track's for the same f-step, so a single
+      // colony per cell leaves see-through gaps out there and piles up inside. And the walk STOPS
+      // near the middle, where every f-cell converges on the same point; the plug in syncGates
+      // fills that last disc instead of ten thousand overlapping sprites.
+      const pack = (fw, edge, into, depth, d0, sizeMul = 1) => {
+        let d = d0
+        for (let j = 0; d < depth && j < 96; j++) {
+          const u = edge + into * d
+          const rr = R0 - u
+          if (rr < 10) break
+          const h2 = hash(d * 7.9, fw - j * 4.3)
+          const reach = V.bakeReach * (V.reachLo + (V.reachHi - V.reachLo) * h2) * sizeMul
+          const m = Math.max(1, Math.round(rr / R0))
+          for (let q = 0; q < m; q++) {
+            const h1 = hash(fw + j * 5.3 + q * 17.1, d * 2.1)
+            const h3 = hash(fw * 1.7 - j * 3.7 + q * 9.7, d * 2.9 + j * 6.1)
+            stamps.push({
+              f: fw + (q + h1) / m * step * 0.9 - step * 0.45,
+              c: u,
+              v: Math.floor(h3 * T.coral.length) % T.coral.length,
+              rot: -into * Math.PI / 2 + (h1 - 0.5) * 1.2,
+              scale: Math.max(0.3, reach / V.bakeReach),
+              tone: V.tones[Math.floor(h2 * V.tones.length) % V.tones.length],
+            })
+          }
+          d += Math.max(10, reach * 0.8)
+        }
+      }
+      for (let k = k0; k <= k1; k++) {
+        const hN = hash(k * 1.7, 91.3)
+        const cnt = hN > 1 - V.cellDouble ? 2 : 1
+        const sunk = hN < V.cellEmpty ? V.bakeReach : 0
+        for (let mm = 0; mm < cnt; mm++) {
+          const fw = (k + (mm + hash(k * 3.1 + mm * 5.9, 7.7)) / Math.max(1, cnt)) * step
+          const cav = caveAt(fw, cspec, run._obstacleSeed)
+          for (const sign of [-1, 1]) {
+            const edge = cav.c + sign * cav.hw
+            // Inward stops at the centre; outward stops where the screen does.
+            const depth = sign > 0 ? Math.min(reachPx, Math.max(0, R0 - edge)) : reachPx
+            if (depth > 0) pack(fw, edge, sign, depth, sunk)
+            if (cav.ph > 0) pack(fw, cav.c + sign * cav.ph, -sign, cav.ph, 0, V.islandSize)
+          }
+        }
+      }
+    } else if (cspec) {
       const drawF = run.player[ax.fwd]
       const step = V.colonyEveryLo + (V.colonyEveryHi - V.colonyEveryLo) * 0.5
       // Only what the screen can show, plus a colony's reach so nothing pops in at the edge.
@@ -12673,9 +12750,18 @@ const spurG = new Graphics()
       const b = T.coral[st.v]
       s.texture = b.tex
       s.anchor.set(b.ax, b.ay)
-      if (xAxis) s.position.set(st.f, st.c)
-      else s.position.set(st.c, st.f)
-      s.rotation = st.rot
+      if (cspec?.ring) {
+        // ONE PLACEMENT FOR THE WHOLE WALL. The bake is unchanged — the lane->ring map is a pure
+        // ROTATION by construction (ringXY's block on why u is inward), so a colony keeps the
+        // orientation it was baked with and merely turns with the track.
+        const w = ringXY(cspec, st.f, st.c)
+        s.position.set(w.x, w.y)
+        s.rotation = st.rot + ringRot(cspec, st.f)
+      } else {
+        if (xAxis) s.position.set(st.f, st.c)
+        else s.position.set(st.c, st.f)
+        s.rotation = st.rot
+      }
       s.scale.set(st.scale)
       s.tint = st.tone
     })
@@ -12700,62 +12786,75 @@ const spurG = new Graphics()
     const L = cspec.lapLen
     const per = run._swims.length
     const seed = run._obstacleSeed
-    // THE WINDOW IS THE SCREEN'S, NOT A NUMBER — laneDrawSpan, for the reason syncSpurs uses it: a
-    // flat span is right on exactly one device.
-    const span = laneDrawSpan(xAxis ? viewW() : viewH(), V.postDepth * 2)
-    const here = run.player[ax.fwd]
-    const e0 = here - ax.dir * span.astern
-    const e1 = here + ax.dir * span.ahead
-    const from = Math.min(e0, e1), to = Math.max(e0, e1)
-    const bar = (f, half, c0, c1) => (xAxis
-      ? gateG.rect(f - half, c0, half * 2, c1 - c0)
-      : gateG.rect(c0, f - half, c1 - c0, half * 2))
-    const roundBar = (f, half, c0, c1, r) => (xAxis
-      ? gateG.roundRect(f - half, c0, half * 2, c1 - c0, r)
-      : gateG.roundRect(c0, f - half, c1 - c0, half * 2, r))
-    // caveAt IS PERIODIC IN lapLen BY CONSTRUCTION (every wavelength divides it and the fork cell
-    // wraps by it), which is what makes the track a circuit at all — so a gate's cross-section can
-    // be asked for at its own offset within the lap and reused on every lap of the race.
-    for (let n = Math.floor(from / L); n <= Math.floor(to / L); n++) {
-      const base = n * L
-      // THE START LINE: a chequered band across the WHOLE corridor, so it reads as a finish line
-      // and not as a seventh checkpoint.
-      if (base >= from && base <= to) {
-        const cav = caveAt(0, cspec, seed)
-        const lo = cav.c - cav.hw, step = (cav.hw * 2) / V.checks
+    // A RING HAS NO FORWARD WINDOW, ONLY A DISTANCE. The camera is centred and a gate can be at
+    // any bearing, so the cull is the screen's half-DIAGONAL plus a gate's own reach rather than
+    // laneDrawSpan's ahead/astern split.
+    const cullR = Math.hypot(viewW(), viewH()) / 2 + V.postDepth * 2 + V.lineW
+    // A GATE IS A RADIAL SEGMENT ON A RING, not an axis-aligned rectangle — so every piece is drawn
+    // as a STROKED LINE between two (f, u) points rather than as a rect. That also buys the rounded
+    // caps for free, which is what stops a post reading as a UI slab (the first shot of these did).
+    const seg = (f, u0, u1, width, color, alpha) => {
+      const a = ringXY(cspec, f, u0)
+      const b = ringXY(cspec, f, u1)
+      gateG.moveTo(a.x, a.y)
+      gateG.lineTo(b.x, b.y)
+      gateG.stroke({ width, color, alpha, cap: 'round' })
+    }
+    // THE PLUG, AND IT IS DELIBERATELY TINY. Every f-cell of the wall converges on the ring's
+    // centre, so the colony walk has to stop somewhere rather than stack sprites into one point;
+    // this covers the last few px it cannot reach.
+    //   ⚠ SIZE IT BY WHAT THE COLONIES LEAVE, NOT BY WHAT LOOKS SAFE. At 130 (and again at 70) it
+    // read as a flat disc of one colour sitting ON TOP of the coral — the centre comes within
+    // ~610px of the track at the hairpin, which is inside a desktop's half-diagonal, so it is a
+    // thing the player actually sees. Letting the walk run in to r 10 buries all but a 26px dot.
+    gateG.circle(-cspec.ring.r0, 0, 26)
+    gateG.fill({ color: SPUR_VIS.body ?? 0x3b2b45, alpha: 1 })
+
+    // ONE LAP, NOT A WINDOW. On a ring the gates ARE the lap — f wraps, so there is no `n` to walk
+    // and every checkpoint is either on screen or culled by its own distance. The start line is
+    // simply the gate at f = 0.
+    const pw = run.player.x, ph2 = run.player.y
+    const near = (w) => (w.x - pw) * (w.x - pw) + (w.y - ph2) * (w.y - ph2) < cullR * cullR
+    {
+      const cav = caveAt(0, cspec, seed)
+      const lo = cav.c - cav.hw, stepU = (cav.hw * 2) / V.checks
+      if (near(ringXY(cspec, 0, cav.c))) {
+        // THE START LINE: a chequered band across the WHOLE passage, so it reads as a finish line
+        // and not as a seventh checkpoint.
         for (let i = 0; i < V.checks; i++) {
-          bar(base, V.lineW / 2, lo + i * step, lo + (i + 1) * step)
-          gateG.fill({ color: i % 2 ? V.line : V.lineDark, alpha: 0.92 })
+          seg(0, lo + i * stepU, lo + (i + 1) * stepU, V.lineW, i % 2 ? V.line : V.lineDark, 0.92)
         }
       }
-      for (let k = 0; k < per; k++) {
-        const f = base + run._swims[k].f
-        if (f < from || f > to) continue
-        const cav = caveAt(run._swims[k].f, cspec, seed)
-        // run._swimN is a RUNNING COUNT since the run began, which is exactly what makes this one
-        // comparison enough — no per-lap bookkeeping, the same arithmetic stepCircuit banks with.
-        const done = n * per + k < (run._swimN ?? 0)
-        bar(f, V.postW / 2, cav.c - cav.hw, cav.c + cav.hw)
-        gateG.fill({ color: V.band, alpha: done ? V.bandAlpha * V.doneAlpha : V.bandAlpha })
-        // THE CHEVRONS: the difference between a barrier and an instruction. They point the way the
-        // player travels (ax.dir), so a gate says "through here" rather than "something is here".
-        for (let i = 0; i < V.chevron; i++) {
-          const c = cav.c - cav.hw + (cav.hw * 2) * (i + 0.5) / V.chevron
-          const w = V.chevronW * ax.dir, h = V.chevronH
-          if (xAxis) { gateG.moveTo(f - w, c - h); gateG.lineTo(f + w, c); gateG.lineTo(f - w, c + h) }
-          else { gateG.moveTo(c - h, f - w); gateG.lineTo(c, f + w); gateG.lineTo(c + h, f - w) }
-          gateG.stroke({ width: 5, color: done ? V.postDone : V.post, alpha: done ? V.doneAlpha : 0.8, cap: 'round', join: 'round' })
-        }
-        for (const sign of [-1, 1]) {
-          const edge = cav.c + sign * cav.hw
-          const back = edge + sign * V.postDepth
-          roundBar(f, V.postW / 2, Math.min(edge, back), Math.max(edge, back), V.postR)
-          gateG.fill({ color: done ? V.postDone : V.post, alpha: done ? V.doneAlpha : 1 })
-          // ...and a lit lip on the face that looks into the passage, so the post has a front. A
-          // flat slab of one colour is what read as a UI artefact in the first shot of this.
-          roundBar(f, V.postW / 2 - 6, Math.min(edge, edge + sign * 14), Math.max(edge, edge + sign * 14), 6)
-          gateG.fill({ color: done ? V.postDone : V.postCore, alpha: done ? V.doneAlpha : 0.9 })
-        }
+    }
+    for (let k = 0; k < per; k++) {
+      const f = run._swims[k].f
+      const cav = caveAt(f, cspec, seed)
+      if (!near(ringXY(cspec, f, cav.c))) continue
+      // run._swimN is a RUNNING COUNT since the run began, so which lap's gate this is falls out of
+      // it with no per-lap bookkeeping — the same arithmetic stepCircuit banks with.
+      const lapDone = Math.floor((run._swimN ?? 0) / per) * per + k < (run._swimN ?? 0)
+      const col = lapDone ? V.postDone : V.post
+      const al = lapDone ? V.doneAlpha : 1
+      seg(f, cav.c - cav.hw, cav.c + cav.hw, V.postW, V.band, lapDone ? V.bandAlpha * V.doneAlpha : V.bandAlpha)
+      // THE CHEVRONS: the difference between a barrier and an instruction. They point the way the
+      // player travels, so a gate says "through here" rather than "something is here".
+      for (let i = 0; i < V.chevron; i++) {
+        const u = cav.c - cav.hw + (cav.hw * 2) * (i + 0.5) / V.chevron
+        const dF = (V.chevronW * cspec.lapLen) / (2 * Math.PI * Math.max(1, cspec.ring.r0 - u))
+        const a = ringXY(cspec, f - dF, u - V.chevronH)
+        const b = ringXY(cspec, f + dF, u)
+        const c2 = ringXY(cspec, f - dF, u + V.chevronH)
+        gateG.moveTo(a.x, a.y)
+        gateG.lineTo(b.x, b.y)
+        gateG.lineTo(c2.x, c2.y)
+        gateG.stroke({ width: 5, color: col, alpha: lapDone ? V.doneAlpha : 0.8, cap: 'round', join: 'round' })
+      }
+      for (const sign of [-1, 1]) {
+        const edge = cav.c + sign * cav.hw
+        seg(f, edge, edge + sign * V.postDepth, V.postW, col, al)
+        // ...and a lit lip on the face that looks into the passage, so the post has a front. A flat
+        // slab of one colour is what read as a UI artefact in the first shot of these.
+        seg(f, edge, edge + sign * 14, V.postW - 12, lapDone ? V.postDone : V.postCore, lapDone ? V.doneAlpha : 0.9)
       }
     }
   }

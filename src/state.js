@@ -4,7 +4,7 @@ import {
   difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, ALL_CHAPTER_IDS, CHAPTERS,
   chapterMaxDifficulty, resolveChapterId,
   EARLY_CALM, MAX_CHOICE_SLOTS,
-  OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
+  OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS, ringCentre,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, ORCA_SHADOW_FIRST, ORCA_SHADOW_PASSES,
   BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, CURRENT_RESIST_FLOOR, unlockLevel, unlockMax,
@@ -2303,8 +2303,18 @@ export function createRun(meta, opts = {}) {
     // store a future build's higher ceiling (loadMeta/ensureBookMeta no longer cap it), but
     // sim.js's buildLevelUpChoices must never deal more cards than the level-up screen is laid out for.
     choiceSlots: Math.max(2, Math.min(MAX_CHOICE_SLOTS, Number(bm.choiceSlots) || 2)),
+    // ⚠ ON THE START LINE, NOT AT THE ORIGIN, in a chapter whose track is a ring. ringXY puts the
+    // ring's centre at (-r0, 0) precisely so that (f 0, u 0) IS the world origin — but the track's
+    // CENTRELINE at f = 0 is offset by the passage wander, up to 240px of it, and 240 against a
+    // 300px-wide passage is the difference between starting on the road and starting in the coral
+    // with the wall shoving you out on frame one.
+    //   THROUGH THE RUN'S OWN obstacleSeed, which is the whole reason this is computed here rather
+    // than baked into the chapter: caveAt hashes its phases off that seed, so `null` would put the
+    // start line on a DIFFERENT track from the one the run generates.
     player: {
-      x: 0, y: 0,
+      ...(CHAPTERS[chapter]?.cave?.ring
+        ? ringCentre(CHAPTERS[chapter].cave, 0, obstacleSeed)
+        : { x: 0, y: 0 }),
       hp: maxHP, maxHP,
       speed: PLAYER.baseSpeed * (1 + shopBonus(bm, bookId, 'moveSpeed')),
       magnet: PLAYER.baseMagnet * (1 + shopBonus(bm, bookId, 'magnet')),

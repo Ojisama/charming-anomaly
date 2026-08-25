@@ -2409,6 +2409,20 @@ export function initUI(hooks) {
       last.chargeArmed = armed
       hud.chargeWrap.classList.toggle('charge--armed', armed)
     }
+    // THE RESERVE WARNS BEFORE IT KILLS YOU (owner, 2026-08-25: "the air reserve bar should become
+    // orange under 30% and red under 10% and blink when 0%"). It is a height and a number, and a
+    // player driving a race track is reading neither — colour is the only channel left.
+    //   READ OFF THE SHOWN FRACTION, NOT THE RAW ONE, and gated on `invert`. An inverted rail (The
+    // Shelf's Pollution) fills as the run goes WRONG, so "the bar is nearly empty" is the good news
+    // there and painting it red would say the opposite of what is happening. One bar, two meanings,
+    // and only the reserve kind gets the warning.
+    const level = invert ? '' : (charge <= 0 ? 'empty' : frac < 0.10 ? 'crit' : frac < 0.30 ? 'low' : '')
+    if (level !== last.chargeLevel) {
+      last.chargeLevel = level
+      hud.chargeWrap.classList.toggle('charge--low', level === 'low')
+      hud.chargeWrap.classList.toggle('charge--crit', level === 'crit')
+      hud.chargeWrap.classList.toggle('charge--empty', level === 'empty')
+    }
     const n = Math.round(invert ? Math.max(0, max - charge) : charge)
     if (n !== last.chargeNum) { last.chargeNum = n; chargeRefs.text.textContent = `${n}` }
     // Latched, because re-translating a word that can only change between runs is a t() call and a

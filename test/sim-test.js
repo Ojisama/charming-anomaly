@@ -125,7 +125,7 @@ import {
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_WAKE, burstWakeAt, DUST, dustVel, DROWN_TICK,
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
-  SPUR_DPS, SPUR_TICK, caveAt, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
+  SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
   SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, SNAP_CAVITY, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, BREACH_R_MIN, BREACH_R_AT_FULL, tiredness,
   // v6.8 Trash Tornado rework (Run AA.d)
@@ -18810,7 +18810,7 @@ run(testLeLargeWeapons)
   run(testMultitouchControls)
   run(testMouseSteering)
   run(testLaneGolden)
-  run(testLaneAxis)
+  run(testRingTrack)
   run(testReefPassiveCrowd)
   run(testReefAirBurst)
   run(testReefSpurScrape)
@@ -21016,14 +21016,19 @@ function testUndertowTide() {
   // (a) THE DENOMINATOR. Walked over Object.keys(CHAPTERS) and not CHAPTER_ORDER, which is Book 1
   // only and would report "every chapter has a tide" having looked at none of the seven that do.
   const withTide = Object.keys(CHAPTERS).filter((id) => CHAPTERS[id].tide)
-  // Undertow MINUS The Reef. The exception is the owner's and it is load-bearing, not an oversight:
-  // The Reef's lane is already a current, and a tide would cost it its 45 px/s scroll, which swings
-  // 2-88 along the lane. Spelled as the set and not as a count, so a chapter silently losing its
-  // tide cannot pass this.
+  // Undertow MINUS The Reef. The exception is the owner's and it is load-bearing, not an oversight.
+  // Spelled as the set and not as a count, so a chapter silently losing its tide cannot pass this.
   assert.deepStrictEqual([...withTide].sort(), BOOKS.undertow.chapters.filter((id) => id !== 'reef').sort(),
     'exactly the Undertow chapters except The Reef declare a tide')
-  assert.ok(!CHAPTERS.reef.tide && CHAPTERS.reef.lane === true,
-    'The Reef opts out BECAUSE it is a lane chapter — if the lane ever goes, revisit the tide with it')
+  // ⚠ THE REASON CHANGED WITH THE CHAPTER AND THE RULING DID NOT. This used to read `lane === true`
+  // and carried a note saying "if the lane ever goes, revisit the tide with it" — the lane did go,
+  // in v7.x, when the track closed into a ring. Revisited: the measurement that bought the
+  // exception is about the WIDTH, not about the scroll. A zero-mean sine walks an unsteering player
+  // 205px sideways, and the ring's passage is 300-400px wide, so the water would still be choosing
+  // your line and still be carrying you into the air pockets. Re-anchored on `circuit`, which is
+  // what the argument is actually about.
+  assert.ok(!CHAPTERS.reef.tide && CHAPTERS.reef.circuit != null,
+    'The Reef opts out BECAUSE it is a circuit — a 205px sway across a 300px track chooses the racing line for you')
   assert.ok(!CHAPTERS.pond.tide && !CHAPTERS.blank.tide,
     'Book 1 must not have picked up a tide — The Pond has its own currents field and The Blank has neither')
 
@@ -21411,7 +21416,12 @@ function testSurfFloor() {
   // PACE band only where one declared a look, because an undeclared chapter has the signed default
   // and that is a floor, not a tune.
   const laneIds = Object.keys(CHAPTERS).filter((id) => CHAPTERS[id].lane)
-  assert.ok(laneIds.includes('reef') && laneIds.includes('beyond'),
+  // ⚠ THE REEF LEFT THIS SET IN v7.x and is not coming back — its track is a ring, so it is a
+  // free-roam chapter and its dust is measured by the underwater sweep above instead. The Beyond is
+  // the only lane left, which makes this a set of one; it stays because the DEFAULT is the defect
+  // this half exists for (a lane chapter with no dust block points its whole field up the lane and
+  // into the camera), and that default is still there waiting for the next scroller.
+  assert.ok(laneIds.includes('beyond'),
     `the lane dust sweep is missing a lane chapter it exists for: ${laneIds.join(',')}`)
   const laneShare = []
   for (const id of laneIds) {
@@ -22814,19 +22824,20 @@ function testLaneGolden() {
   console.log(`PASS run LN (lane golden master): the beyond is unchanged across ${BEYOND_GOLDEN.length} seeded 180s runs — scroll, strafe, formations, rocks and kills all bit-identical`)
 }
 
-// ---- run LX: the lane has an AXIS, and The Reef runs it sideways ------------------------------
-// Run LN's job is "The Beyond did not move". This one's is the other half: that the axis is a real
-// generalisation rather than a field nothing reads. Every assertion below is written against The
-// REEF, and every one of them PASSES TODAY IF THE FEATURE IS DELETED — a lane whose forward axis is
-// still hardcoded to y simply drives the reef's player straight up out of a corridor that runs
-// sideways, which throws nothing, renders fine, and is only visible as "the chapter does not work".
-// So each is paired with the site it guards, and the mutation table is in the report for this task.
+// ---- run RG: The Reef's track is a RING ---------------------------------------------------------
+// Owner, playing v7.231.0: "the track isnt a micromachine type circle lap". It was not one — the
+// reef was a straight lane whose walls wandered. This scenario replaces run LX, which asserted the
+// opposite (that the reef is an x-LANE, scrolling +x at 90px/s, strafing on y, clamped to two
+// walls); every one of those statements is now false BY DESIGN, so keeping them would have been a
+// green check on a chapter that no longer exists. LX's two halves that were never about the reef —
+// The Beyond's rocks and the lane camera's source lint — are kept below verbatim.
 //
-// Deliberately NOT a golden master: no number here is a captured sample. They are the four
-// invariants the axis IS — forward is +x at exactly LANE_SCROLL_SPEED, the stick's y is the strafe
-// and its x is nothing, the walls are on y, and everything arrives from +x.
-function testLaneAxis() {
-  const CIRCUIT_ACCEL = circuitKnob(CHAPTERS.reef, 'accel')
+// WHAT IS WORTH GUARDING ABOUT A RING is not the same as what was worth guarding about a lane. A
+// lane's invariants were directions (forward is +x, the walls are on y). A ring has no fixed
+// direction at all, so the invariants are the MAP: that it round-trips, that it is a rotation and
+// not a reflection, and that the two things the map has to keep true of the player — starting on
+// the road, and steering without paying for it — actually hold.
+function testRingTrack() {
   const dt = 1 / 60
   const meta = makeMeta()
   meta.dev = true
@@ -22836,232 +22847,138 @@ function testLaneAxis() {
     meta.chapters[id].unlocked = true
     meta.chapters[id].difficulty = 3
   }
+  const CH = CHAPTERS.reef
+  const spec = CH.cave
   const reefRun = (seed = 20260813) => {
     Math.random = mulberry32(seed)
     const run = createRun(meta, { chapter: 'reef', difficulty: 1 })
-    assert.strictEqual(run.chapter, 'reef', 'run LX did not start in the reef — the WIP gate or the meta is wrong, and everything below would measure another chapter')
+    assert.strictEqual(run.chapter, 'reef', 'run RG did not start in the reef — the WIP gate or the meta is wrong')
     run.player.hp = run.player.maxHP = 1e9
     return run
   }
 
-  // The descriptor itself, first: everything below is only meaningful if the reef really declares
-  // the x axis and The Beyond really keeps y. Two chapters, one helper, opposite answers.
-  assert.strictEqual(CHAPTERS.reef.lane, true, 'CHAPTERS.reef.lane must stay the BOOLEAN true — sim.js compares it with === in two places')
-  assert.strictEqual(laneAxes(CHAPTERS.reef).fwd, 'x', 'the reef must declare laneAxis x')
-  assert.strictEqual(laneAxes(CHAPTERS.reef).cross, 'y', "an x-lane's cross axis is y")
-  assert.strictEqual(laneAxes(CHAPTERS.beyond).fwd, 'y', 'The Beyond must still read the y axis from the same helper')
-  assert.strictEqual(laneAxes(CHAPTERS.beyond).dir, -1, 'The Beyond advances -y')
-  assert.strictEqual(laneAxes(CHAPTERS.reef).dir, 1, 'The Reef advances +x')
+  // (a) THE CHAPTER IS A RING AND NOT A LANE, which is one line and guards sixteen sites. Every
+  // `lane` gate in sim.js — the auto-scroll, the cross-axis wall clamp, the rank spawner, the crush
+  // front, the leak line, the straggler exemption — reads this flag, and re-adding it would put a
+  // straight corridor's machinery back on a circular track with nothing thrown and nothing red.
+  assert.ok(!CH.lane, 'CHAPTERS.reef.lane is back — the ring is a free-roam chapter, and a lane would auto-scroll the player off its own track')
+  assert.ok(CH.circuit && spec?.ring?.r0 > 0, 'The Reef must declare a circuit and a cave.ring — without the ring the track has no shape at all')
+  // `laneAxis` STAYS, and is deliberately not deleted with the flag: ui.js reads it to place the
+  // resource rail. Asserted so a tidy-up cannot take it and move the HUD without saying so.
+  assert.strictEqual(CH.laneAxis, 'x', 'CHAPTERS.reef.laneAxis went with the lane flag — ui.js reads it to place the charge rail')
 
-  // (a) FORWARD IS +x, AT EXACTLY THE CHAPTER'S OWN SCROLL — AND THE SUBJECT IS THE LANE FRONT.
-  // It used to be the PLAYER, and that assertion was correct right up until the coral became solid
-  // (CHAPTERS.reef.spurs.solid, owner's ruling 2026-08-23). A player who can be STOPPED cannot also
-  // be the thing that advances at a guaranteed rate — this failed at 151.410 of an expected 180.000
-  // the first time it ran against solid ridges, which is the fixture meeting a wall and reporting
-  // it as a broken scroll. run._laneFront is what carries the guarantee now: it advances on its own
-  // clock whatever the player is doing, which is the whole reason it exists.
-  //
-  // Against laneScrollFor(reef) rather than the shared LANE_SCROLL_SPEED on purpose: The Reef
-  // overrides it, and an assertion pinned to the shared constant would have to be edited every time
-  // a chapter tunes its own — the edit that quietly turns a guard into a rubber stamp.
-  //
-  // ⚠ THE STICK'S FORWARD COMPONENT IS NO LONGER A NO-OP (v7.x, CHAPTERS.reef.laneThrottle). This
-  // case used to hold it hard the WRONG way to prove the scroll was not the joystick's; it is the
-  // joystick's now, by a bounded fraction, so the same input is the THROTTLE's floor and the check
-  // is that the front advances at exactly laneScroll x (1 - laneThrottle). The invariant that
-  // survives intact is the one this block was written for: the front advances on ITS OWN clock,
-  // never on how far the player got. run RS.e owns the throttle itself.
+  // (b) THE MAP ROUND-TRIPS. ringXY and ringFU are the only two functions that know where the track
+  // is; every consumer (the wall, the crowd clamp, the spawner, the air, the renderer) goes through
+  // them. If they disagree by so much as a pixel, the wall the player is stopped against is not the
+  // wall that is drawn — the single defect class this repo pays for most.
   {
-    const run = reefRun()
-    const x0 = run.player.x, y0 = run.player.y
-    const steps = Math.round(2 / dt)
-    const f0 = run._laneFront ?? x0
-    for (let i = 0; i < steps; i++) { stepSim(run, { x: -1, y: 0 }, dt); run.events.length = 0 }
-    // THE RAMP IS PART OF THE ANSWER NOW. This chapter is a `circuit`, so easing off does not drop
-    // the speed the same frame — it sheds it at CIRCUIT_ACCEL, and the distance covered while
-    // shedding is real travel the front has to account for. Settled rate x time UNDERSTATES it by
-    // exactly the area of that ramp, so the check is against both, not against a magic number:
-    //   floor  the settled rate alone (what an instant throttle would have given)
-    //   extra  (v0 - v1)^2 / (2 a), the triangle the ease adds on top
-    const v0 = laneScrollFor(CHAPTERS.reef), v1 = v0 * CHAPTERS.reef.laneThrottle.min
-    const floorPx = v1 * steps * dt
-    const rampPx = ((v0 - v1) ** 2) / (2 * CIRCUIT_ACCEL)
-    const moved = run._laneFront - f0
-    assert.ok(moved > floorPx && Math.abs(moved - (floorPx + rampPx)) < 1,
-      `expected the reef's LANE FRONT to advance +x at its own laneScroll (${v0}) eased off to laneThrottle.min x${CHAPTERS.reef.laneThrottle.min} — ${floorPx.toFixed(3)}px settled plus ${rampPx.toFixed(3)}px of CIRCUIT_ACCEL ramp — moved ${moved.toFixed(3)} vs ${(floorPx + rampPx).toFixed(3)}`)
-    // ...and the front is still on its OWN clock rather than on the player's progress, which is the
-    // invariant this whole block exists for. In a circuit the two travel together by design, so the
-    // proof is that the front keeps moving when the player CANNOT: pin the player and step again.
-    {
-      const rax = laneAxes(CHAPTERS.reef)
-      const pinned = run.player[rax.fwd]
-      const fBefore = run._laneFront
-      for (let i = 0; i < 10; i++) { run.player[rax.fwd] = pinned; stepSim(run, { x: -1, y: 0 }, dt); run.events.length = 0 }
-      assert.ok((run._laneFront - fBefore) * rax.dir > 0,
-        'the reef LANE FRONT stopped when the player did — it must advance on its own clock, or being blocked by coral would cost nothing and the crush edge would be decorative')
+    let worst = 0
+    for (let i = 0; i < 400; i++) {
+      const f = (i / 400) * spec.lapLen
+      const u = ((i * 37) % 601) - 300
+      const w = ringXY(spec, f, u)
+      const b = ringFU(spec, w.x, w.y)
+      const df = Math.min(Math.abs(b.f - f), spec.lapLen - Math.abs(b.f - f))
+      worst = Math.max(worst, df, Math.abs(b.u - u))
     }
-    {
-      // The same two seconds on a neutral stick: exactly the chapter's own scroll, which is the
-      // number every other constant in this chapter is measured against.
-      //   STEERED CLEAR OF THE CORAL, deliberately. The stick's FORWARD component is what this
-      // measures and it stays untouched at 0; the cross component follows the passage centre so the
-      // window contains no crash. Once a circuit crash multiplies _laneSpeed — and the front reads
-      // _laneSpeed — a fixture that drifts into a wall is measuring a collision while claiming to
-      // measure the scroll. It failed exactly that way when the crash landed (177.942 vs 180.000).
-      const rax2 = laneAxes(CHAPTERS.reef)
-      const idle = reefRun()
-      const g0 = idle._laneFront ?? idle.player.x
-      let crashed = 0
-      for (let i = 0; i < steps; i++) {
-        // PARKED IN THE CLEAR BAND rather than steered into it. A bang-bang follower overshoots at
-        // 275px/s of strafe, and where the fork's island stands the passage CENTRE is coral — so a
-        // fixture that merely aims at cav.c still collides. Placing the player mid-channel each
-        // frame removes the collision entirely, which is the point: the subject here is the front's
-        // own clock on an untouched FORWARD stick, and nothing else.
-        // ONE FRAME OF LOOKAHEAD, because stepSim advances the player BEFORE stepCaveWall reads the
-        // passage: parking at the centre of where they are puts them in the wall by the time it is
-        // checked. The centre wanders up to ~5.6px a frame (100px of wander on a 168px wavelength
-        // at 90px/s), which reads as ~336px/s of inward speed — well past the crash threshold.
-        const lookX = idle.player[rax2.fwd] + rax2.dir * laneScrollFor(CHAPTERS.reef) * dt
-        const cav = caveAt(lookX, CHAPTERS.reef.cave, idle._obstacleSeed)
-        idle.player[rax2.cross] = cav.c + (cav.ph > 0 ? (cav.ph + cav.hw) / 2 : 0)
-        stepSim(idle, { x: 0, y: 0 }, dt)
-        for (const e of idle.events) if (e.type === 'crash') crashed++
-        idle.events.length = 0
-      }
-      assert.strictEqual(crashed, 0, 'the idle-front fixture crashed, so it is measuring a collision rather than the scroll')
-      const wantIdle = laneScrollFor(CHAPTERS.reef) * steps * dt
-      assert.ok(Math.abs((idle._laneFront - g0) - wantIdle) < 1e-6,
-        `expected an UNTOUCHED stick to advance the lane front at exactly laneScroll (${laneScrollFor(CHAPTERS.reef)}), moved ${(idle._laneFront - g0).toFixed(3)} vs ${wantIdle.toFixed(3)}`)
-    }
-    // And the player is never AHEAD of it, on any frame: the front is pulled forward by a bursting
-    // player rather than left behind, so this is the invariant that catches the camera being handed
-    // a front the player has already swum past.
-    assert.ok(run.player.x <= run._laneFront + 1e-6,
-      `the player (x=${run.player.x.toFixed(3)}) is ahead of the lane front (${run._laneFront.toFixed(3)}) — the front is not being pulled`)
-    assert.ok(Math.abs(run.player.y - y0) < 1e-9,
-      `the stick's x is the THROTTLE in an x-lane and never the strafe — it moved the player across the lane to y=${run.player.y.toFixed(3)}`)
-    assert.strictEqual(run.player.facingAngle, 0, 'an x-lane faces +x (angle 0), so a weapon with nothing to aim at fires up the lane')
-    assert.strictEqual(run.player.moving, true, 'in the lane you are never stationary, whatever the stick says')
+    assert.ok(worst < 1e-6, `run RG.b: ringXY -> ringFU loses ${worst.toExponential(2)} of a point — the drawn track and the tested track are different tracks`)
   }
 
-  // (b) THE STRAFE IS THE STICK'S y, and it is the ONLY thing the stick does. Measured against the
-  // real strafe speed rather than "it moved": LANE_STRAFE_MUL is what makes sideways the skill, and
-  // a cross axis wired to the wrong input would still drift the player around convincingly.
+  // (c) ...AND IT IS A ROTATION, NOT A REFLECTION. u is measured INWARD (r = r0 - u) for exactly
+  // this reason, and it looks like an arbitrary sign convention until you ask what it buys: with
+  // r = r0 + u the lane basis maps to the ring basis through a mirror, and every sprite render.js
+  // places by it comes out flipped. Invisible on a jittered coral colony — which is most of what
+  // the wall is made of — and glaring on anything with a front, so this is the kind of thing that
+  // ships. Asserted as the SIGN OF THE CROSS PRODUCT of the mapped basis, which is what handedness
+  // is; ringRot's whole contract (render adds one angle and keeps its bake) rests on it.
   {
-    const run = reefRun()
-    // IN OPEN WATER, DELIBERATELY, AND IT NOW PROVES IT RATHER THAN ASSUMING IT. The coral grates
-    // (SPUR_SLOW_MUL) and since spurs.solid it also grates on CONTACT, so a strafe measured against
-    // a ridge face is x0.6 of this one — run RS.d's claim, not this one.
-    //
-    // The old fixture parked mid-gap and ran for a full second, arithmetic that was written against
-    // a 45px/s scroll: "105px of clearance against 45px of scroll". At 90 that second carries the
-    // player 90px, straight into the next ridge, and this measured 264.00 of an expected 275.00 —
-    // a 4% shortfall that looks exactly like a broken strafe constant and was the lane arriving
-    // early. A window sized in SECONDS against a distance in PIXELS is the bug; both now come off
-    // the config, and the frame-by-frame scrape check below makes the next such drift fail loudly
-    // instead of quietly measuring a slowed strafe.
-    let sp0 = null
-    stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0
-    for (const sp of run.spurs) if (!sp0 || Math.abs(sp.f - run.player.x) < Math.abs(sp0.f - run.player.x)) sp0 = sp
-    assert.ok(sp0, 'run LX.b: no ridge streamed, so "open water" is unproven and this measures nothing')
-    // Just past that ridge's trailing face, with the whole gap ahead.
-    run.player.x = sp0.f + sp0.thick / 2 + PLAYER.radius + 2
-    const spec = CHAPTERS.reef.spurs
-    // Half the clearance to the NEXT ridge's leading face, so the window cannot reach it.
-    const clear = spec.spacing - spec.thick * (1 + spec.thickVar) / 2 - PLAYER.radius - (sp0.thick / 2 + PLAYER.radius + 2)
-    const steps = Math.max(6, Math.floor((clear / 2) / laneScrollFor(CHAPTERS.reef) / dt))
-    const y0 = run.player.y
-    let scraped = 0
-    for (let i = 0; i < steps; i++) {
-      stepSim(run, { x: 0, y: 1 }, dt); run.events.length = 0
-      if (run._scraping) scraped++
+    const e = 0.5
+    for (const f of [0, 700, 1900, 3300, 4800]) {
+      const o = ringXY(spec, f, 0)
+      const fx = ringXY(spec, f + e, 0), ux = ringXY(spec, f, e)
+      const cross = (fx.x - o.x) * (ux.y - o.y) - (fx.y - o.y) * (ux.x - o.x)
+      assert.ok(cross > 0,
+        `run RG.c: at f=${f} the lane basis maps to the ring through a REFLECTION (cross ${cross.toExponential(2)}) — every sprite placed by ringRot is mirrored, and on coral you will not see it`)
+      // ...and ringRot IS that rotation, not merely some angle: the f direction it claims has to be
+      // the f direction the map produces.
+      const want = Math.atan2(fx.y - o.y, fx.x - o.x)
+      let d = ringRot(spec, f) - want
+      while (d > Math.PI) d -= 2 * Math.PI
+      while (d < -Math.PI) d += 2 * Math.PI
+      assert.ok(Math.abs(d) < 0.02,
+        `run RG.c: ringRot(${f}) is ${(ringRot(spec, f) * 180 / Math.PI).toFixed(1)}deg against a real tangent of ${(want * 180 / Math.PI).toFixed(1)} — render adds this angle to every colony's bake`)
     }
-    assert.strictEqual(scraped, 0,
-      `run LX.b touched coral on ${scraped} of ${steps} frames — this fixture is measuring a SLOWED strafe and the constant below is not what it claims`)
-    const want = run.player.speed * LANE_STRAFE_MUL * steps * dt
-    assert.ok(Math.abs((run.player.y - y0) - want) < 1e-6,
-      `expected the stick's y to strafe across the lane at speed x LANE_STRAFE_MUL, moved ${(run.player.y - y0).toFixed(2)} vs ${want.toFixed(2)}`)
   }
 
-  // (c) THE WALLS ARE ON y. Held hard against one wall long enough to overshoot it many times over,
-  // then the other — a clamp still written against x lets the player leave the corridor entirely,
-  // and nothing in the sim ever complains.
-  //
-  // THE FORWARD HALF OF THIS USED TO ASSERT THE PLAYER KEPT ADVANCING, AND THAT IS NOW FALSE BY
-  // DESIGN. run RS derives, from the config rather than from a literal, that the lane WALL is
-  // always coral — the braid's far edge sits inside it — so a player pinned to the wall meets solid
-  // ridge at every single spur. Since spurs.solid they stop there: 151px in 12s, which is the
-  // chapter working, not a clamp on the wrong axis. Hugging the wall was a way to sit out the
-  // groove decision and it now kills you.
-  //
-  // The original intent still needs a guard, so it moves to the two things that ARE still absolute:
-  // the lane FRONT is never wall-clamped (it has no cross axis at all), and a player stopped here
-  // is stopped by CORAL, which is observable as the crush rather than inferred from a distance.
+  // (d) THE PLAYER STARTS ON THE ROAD. createRun puts every other chapter's player at the world
+  // origin; ringXY is built so that (f 0, u 0) IS that origin, which makes this look automatic —
+  // and it is not, because the track's CENTRELINE at f 0 is offset by the passage wander, up to
+  // 130px of it against a passage half-width of 150-200. Get it wrong and the run opens with the
+  // wall shoving the player out on frame one, on some seeds only.
+  for (const seed of [1, 5, 12, 77, 20260813]) {
+    const run = reefRun(seed)
+    const fu = ringFU(spec, run.player.x, run.player.y)
+    const cav = caveAt(fu.f, spec, run._obstacleSeed)
+    assert.ok(Math.abs(fu.u - cav.c) < 1e-6,
+      `run RG.d: seed ${seed} starts ${Math.abs(fu.u - cav.c).toFixed(0)}px off the centreline at f=${fu.f.toFixed(0)} (passage half-width ${cav.hw.toFixed(0)}) — the run opens inside coral`)
+  }
+
+  // (e) STEERING DOES NOT COST THROTTLE. The owner's ruling, and the reason stepPlayerMovement eases
+  // the SPEED and takes the DIRECTION straight from the stick rather than easing the velocity
+  // VECTOR. Easing the vector is the obvious way to write it and it bleeds speed on every corner —
+  // the harder you turn, the more of the ease is spent rotating instead of carrying you. That is
+  // the same tax the unit-circle clamp used to charge in the lane, arrived at from the other side.
+  //   Measured as: full stick on eight bearings settles at ONE speed. A vector ease would show up
+  //   here as a spread the moment the heading had to swing.
   {
-    const hw = laneHalfWidth(createRun(meta, { chapter: 'reef', difficulty: 1 }).viewRadius, CHAPTERS.reef)
-    for (const dir of [1, -1]) {
+    const speeds = []
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2
       const run = reefRun()
-      const x0 = run.player.x
-      const f0 = run._laneFront
-      const steps = Math.round(12 / dt)
-      for (let i = 0; i < steps; i++) { stepSim(run, { x: 0, y: dir }, dt); run.events.length = 0 }
-      // HELD BY THE CAVE, NOT BY THE LANE WALL, and that is the chapter working. The corridor clamp
-      // is still there and still on the cross axis, but the cave passage is strictly inside it
-      // (wander + halfMax = 305 against laneHalfW 330), so the wall the player actually meets is
-      // always the coral. Asserting the corridor clamp here measured a boundary the player can no
-      // longer reach: it read y=144.2 against an expected 330 and called the clamp broken.
-      const cav = caveAt(run.player.x, CHAPTERS.reef.cave, run._obstacleSeed)
-      const lim = cav.hw - PLAYER.radius
-      assert.ok(Math.abs(Math.abs(run.player.y - cav.c) - lim) < 1.5,
-        `expected the player held against the cave wall ${lim.toFixed(1)}px off a passage centred at ${cav.c.toFixed(1)}, got y=${run.player.y.toFixed(1)} — the contact is on the wrong axis or the drawn passage and the tested one have come apart`)
-      assert.ok(Math.abs(run.player.y) < hw,
-        `the cave let the player reach y=${run.player.y.toFixed(1)}, outside the corridor clamp at ${hw.toFixed(1)} — the passage has escaped the lane and the player is being pinned by a wall that is not drawn`)
-      assert.ok(run._crushing,
-        `pinned to the wall for 12s the player should be held against the lane's trailing edge (the wall is solid coral at every spur), but _crushing is false and they advanced ${(run.player.x - x0).toFixed(0)}px`)
-      // The front STOPS with a pinned player rather than running off without them, and that is the
-      // clamp doing its job: the alternative is watching your own fish leave the frame. So the
-      // invariant here is not a rate but a GAP — the player is held exactly the visible strip
-      // astern behind the front, which is the trailing edge of the screen and nowhere else.
-      const maxLag = (1 - LANE_CAMERA_FRAC) * 2 * run.viewW - PLAYER.radius
-      assert.ok(Math.abs((run._laneFront - run.player.x) - maxLag) < 1e-6,
-        `a crushed player must sit exactly at the trailing edge: front - player = ${(run._laneFront - run.player.x).toFixed(2)}, expected ${maxLag.toFixed(2)}`)
-      // ...and the cross-axis wall is not what stopped them: the front is never wall-clamped, so it
-      // is still AHEAD of the player rather than pinned with them.
-      assert.ok(run._laneFront > run.player.x,
-        'the lane front is not ahead of a stuck player — the forward axis has been clamped by the wall')
+      run.mods.spawnMul = 0
+      for (let i = 0; i < Math.round(3 / dt); i++) {
+        for (const q of run.enemies) q._dead = true   // a bump taxes _laneSpeed; this case is the stick
+        stepSim(run, { x: Math.cos(a), y: Math.sin(a) }, dt)
+        run.events.length = 0
+        if (run.phase === 'levelup') run.phase = 'playing'
+      }
+      speeds.push(Math.hypot(run.player.vx, run.player.vy))
     }
+    const lo = Math.min(...speeds), hi = Math.max(...speeds)
+    const top = laneScrollFor(CH) * CH.laneThrottle.max
+    assert.ok(hi - lo < 1e-6,
+      `run RG.e: full stick settles between ${lo.toFixed(1)} and ${hi.toFixed(1)}px/s depending on the BEARING — steering is costing throttle, which is the one thing the owner ruled out`)
+    assert.ok(Math.abs(hi - top) < 1e-6,
+      `run RG.e: full stick settles at ${hi.toFixed(1)}px/s against the ${top.toFixed(1)} laneThrottle.max asks for — the throttle ceiling is not being reached`)
   }
 
-  // (d) EVERYTHING ARRIVES FROM AHEAD, and "ahead" is +x. Two spawn sites feed THIS lane —
-  // spawnEnemy's own lane branch (the seeking swarm) and stepFormations (the ranks) — and each
-  // writes its own coordinates. Snapshotted at the frame each thing is BORN, because a seeker that
-  // has been chasing for a second is behind you legitimately.
-  //
-  // stepRocks is a lane's THIRD spawn site, and this chapter deliberately has none: gating it on
-  // `lane` alone made every scroller The Beyond, so a coral reef drifted cratered space rock through
-  // itself for ~180 HP a run and printed "Killed by Asteroids" (owner, 2026-08-22 —
-  // CHAPTERS.reef.rocks). Asserted here as an emptiness, and in run RS.g as an EFFECT.
+  // (f) THE CROWD SPAWNS IN THE ROAD. A ring's traffic is placed by its own branch in spawnEnemy;
+  // fall back to the free-roam ring that every other chapter uses and most of the crowd appears
+  // inside solid coral, where clampCrowdToCave snaps it to a wall face the instant it exists. That
+  // is not a crash and not a red test — it is a chapter whose traffic teleports.
   {
-    const run = reefRun()
-    const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
+    const run = reefRun(20260825)
+    let checked = 0, inside = 0
     const seen = new Set()
-    let enemiesChecked = 0
     for (let i = 0; i < Math.round(30 / dt); i++) {
-      stepSim(run, { x: 0, y: Math.sin(i / 90) }, dt)
+      stepSim(run, { x: 1, y: 0 }, dt)
       run.events.length = 0
-      const p = run.player
+      if (run.phase === 'levelup') run.phase = 'playing'
       for (const e of run.enemies) {
-        if (seen.has('e' + e.id)) continue
-        seen.add('e' + e.id)
-        enemiesChecked++
-        assert.ok(e.x > p.x, `a new ${e.rosterId} spawned BEHIND the player (x ${e.x.toFixed(0)} vs ${p.x.toFixed(0)}) — in a strafe-only lane that is unshakeable by construction`)
-        assert.ok(Math.abs(e.y) <= hw + 1, `a new ${e.rosterId} spawned outside the lane at y=${e.y.toFixed(0)} (wall ${hw}) — the cross spread is on the wrong axis`)
+        if (e._dead || seen.has(e)) continue
+        seen.add(e)
+        checked++
+        const fu = ringFU(spec, e.x, e.y)
+        const cav = caveAt(fu.f, spec, run._obstacleSeed)
+        if (Math.abs(fu.u - cav.c) <= cav.hw) inside++
       }
-      assert.strictEqual(run.rocks.length, 0,
-        `an asteroid drifted through The Reef at t=${run.time.toFixed(1)}s — stepRocks is back to gating on \`lane\` alone and this chapter is fielding The Beyond's hazard`)
     }
-    assert.ok(enemiesChecked > 30, `expected the reef to actually spawn a crowd, saw only ${enemiesChecked} — this case would pass vacuously`)
+    // Floor MEASURED, not guessed: 21 bodies over 30s on this seed. A floor of 30 was the first cut
+    // and it was a number nobody had counted — the astern sweep drops bodies the player has passed,
+    // so what this sees is the ARRIVAL RATE and not the size of the field.
+    assert.ok(checked >= 15, `run RG.f: only ${checked} bodies spawned in 30s — this case would pass vacuously`)
+    assert.ok(inside === checked,
+      `run RG.f: ${checked - inside} of ${checked} bodies spawned OUTSIDE the passage — the ring branch in spawnEnemy is not firing and the crowd is being born in the wall`)
   }
 
   // (d2) ...and the SAME spawn geometry, in the one chapter that does field rocks. The rock half of
@@ -23108,9 +23025,8 @@ function testLaneAxis() {
       'render.js still anchors the lane camera on one hardcoded axis — an x-lane would frame the player centred')
   }
 
-  console.log(`PASS run LX (the lane has an axis): the reef scrolls +x at ${laneScrollFor(CHAPTERS.reef)}px/s (the beyond keeps ${LANE_SCROLL_SPEED}) under a stick that cannot touch it, strafes on y at x${LANE_STRAFE_MUL}, clamps to both y walls, spawns everything ahead, and the camera reads the axis`)
+  console.log(`PASS run RG (the track is a ring): r0 ${spec.ring.r0} over a ${spec.lapLen}px lap, the map round-trips to 1e-6 and is a rotation at 5 bearings, 5 seeds all start on the centreline, full stick settles at one speed on 8 bearings, and every body spawns inside the passage`)
 }
-
 
 // ---- run RC: The Reef's crowd passes you by ----------------------------------------------------
 // Owner, 2026-08-24: "in the reef, enemies should just pass by you not attack you."
@@ -23199,6 +23115,7 @@ function testReefPassiveCrowd() {
     // so a second live enemy is an unmeasured force inside the assertion.
     const cross0 = e[ax.cross]
     const fwd0 = e[ax.fwd]
+    const x0 = e.x, y0 = e.y      // world start: a ring has no forward coordinate to subtract
     const secs = 1.5
     // ACROSS THE LANE, whichever axis that is. Held on a literal { x: 0, y: 1 } this pushed The
     // Beyond's player straight up its FORWARD axis instead — the control never left the centre
@@ -23240,9 +23157,22 @@ function testReefPassiveCrowd() {
       drive(mirror, em, -stick.x, -stick.y)
       assert.ok(Math.abs(em[ax.cross] - e[ax.cross]) < 1e-6,
         `run RC.b: The Reef's ${e.rosterId ?? e.type} ended ${Math.abs(em[ax.cross] - e[ax.cross]).toFixed(2)}px apart across the lane depending on which wall the player fled to — its track reads run.player, so it is still seeking`)
-      const want = -ax.dir * e.speed * moved
-      assert.ok(Math.abs((e[ax.fwd] - fwd0) - want) < 1e-3,
-        `run RC.b: expected the body to swim ${want.toFixed(1)}px down the lane in ${moved.toFixed(2)}s at its own ${e.speed.toFixed(0)}px/s, it moved ${(e[ax.fwd] - fwd0).toFixed(1)} — it is not passing by, it is parked`)
+      // ...AND IT IS TRAVELLING, WHICH IS THE HALF THAT MAKES "PASS BY" TRUE. A body that merely
+      // stopped seeking would hang motionless in the water and read as dead.
+      //   MEASURED AS ARC AND AS DIRECTION ROUND THE LOOP, not as a coordinate. On a lane this was
+      // `fwd - fwd0` against `-dir * speed * t`, which needs a fixed forward axis; a ring has none,
+      // so the two honest statements are that the distance covered is the body's own speed x time,
+      // and that it went BACKWARDS in f — the way the player came, which is what closes at your
+      // speed plus its own. The 4% band is the curvature: a chord across a bend is shorter than the
+      // arc swum along it.
+      const cave = CHAPTERS[chapter].cave
+      const wantPx = e.speed * moved
+      const gotPx = Math.hypot(e.x - x0, e.y - y0)
+      assert.ok(Math.abs(gotPx - wantPx) < wantPx * 0.04,
+        `run RC.b: expected the body to swim ${wantPx.toFixed(1)}px in ${moved.toFixed(2)}s at its own ${e.speed.toFixed(0)}px/s, it covered ${gotPx.toFixed(1)} — it is not passing by, it is parked`)
+      const df = ringDelta(cave, ringFU(cave, x0, y0).f, ringFU(cave, e.x, e.y).f)
+      assert.ok(df < 0,
+        `run RC.b: the body advanced ${df.toFixed(0)} of f round the track — it is swimming WITH the player instead of against them, so nothing ever streams past`)
       // AND THE POINT THE DRAWING READS. render.js takes every body's bearing from run.player
       // unless _tgtX/_tgtY says otherwise, so all of the above can be perfect while the sprite
       // still stares at you — the crowd would crab down the lane tail-first, which is the same
@@ -23250,10 +23180,13 @@ function testReefPassiveCrowd() {
       // published POINT lying down-lane, not merely as the field being present.
       assert.ok(e._tgtX !== undefined && e._tgtY !== undefined,
         'run RC.b: a passiveCrowd body publishes no _tgtX/_tgtY — render derives its bearing from run.player, so the whole chapter is drawn swimming sideways with its eyes on you')
+      // Against the direction it ACTUALLY MOVED over the window rather than against a lane axis —
+      // which is both what the claim has always meant and the only form of it a ring can state.
       const tl = Math.hypot(e._tgtX - e.x, e._tgtY - e.y) || 1
-      const along = ((e._tgtX - e.x) * (ax.fwd === 'x' ? 1 : 0) + (e._tgtY - e.y) * (ax.fwd === 'y' ? 1 : 0)) / tl
-      assert.ok(along * ax.dir < -0.99,
-        `run RC.b: the published seek point lies ${(Math.acos(Math.max(-1, Math.min(1, -along * ax.dir))) * 180 / Math.PI).toFixed(0)}° off the direction the body is actually swimming — render would face the sprite somewhere it is not going`)
+      const gl = Math.hypot(e.x - x0, e.y - y0) || 1
+      const dot = ((e._tgtX - e.x) * (e.x - x0) + (e._tgtY - e.y) * (e.y - y0)) / (tl * gl)
+      assert.ok(dot > 0.99,
+        `run RC.b: the published seek point lies ${(Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI).toFixed(0)}° off the direction the body is actually swimming — render would face the sprite somewhere it is not going`)
     }
   }
 
@@ -23370,29 +23303,39 @@ function testReefSpurScrape() {
   // already nearest to: the middle where there is one, and the middle of its own branch where the
   // island (caveAt's `ph`) has split it in two. `side` comes from where the player already is,
   // which is what makes it a choice a player could make rather than an oracle.
-  const follow = (run, forceSide = 0) => {
-    // ⚠ THE OPENING BESIDE THE PLAYER, NOT THE ONE 60px AHEAD. The passage centre moves up to
-    // 1.29px per px of lane, so a 60px lookahead aims up to 77px off the wall that is actually
-    // beside you — which the old single-passage fixture could absorb (148px of slack either side)
-    // and a BRANCH cannot (43px). Aim at here; anticipate only the island, below.
-    const cav = caveAt(run.player[LAX.fwd], spec, run._obstacleSeed)
-    // ⚠ SCANNED OVER THE WHOLE ISLAND, NOT SAMPLED AT ONE POINT AHEAD, and this is a fixture bug
-    // that reads exactly like a level defect. Steering at the opening 60px ahead puts the player ON
-    // the island's face rather than in the middle of their branch — the face then grows under them
-    // and they grind along it for half a second, and the trailing tip does the same in reverse
-    // (ph is 0 at the lookahead while the island is still beside them). It reported 136 touches on
-    // a passage a human flies clean. Commit to the branch on the WIDEST the island gets nearby,
-    // which is what a player looking at their screen does.
-    const F = run.player[LAX.fwd]
-    let ph = 0
-    for (let s = 0; s <= 200; s += 40) ph = Math.max(ph, caveAt(F + LAX.dir * s, spec, run._obstacleSeed).ph)
-    const c = run.player[LAX.cross]
-    const want = ph > 0
-      ? cav.c + (forceSide || (c >= cav.c ? 1 : -1)) * (ph + cav.hw) / 2
-      : cav.c
-    return Math.abs(want - c) < 4 ? 0 : want > c ? 1 : -1
+  // px -> f at the radius the player is actually at. A hairpin's inner edge is a third shorter than
+  // r0, so the same distance is more angle there, and a fixed conversion aims short in every corner.
+  const fAhead = (run, px) => {
+    const fu = ringFU(spec, run.player.x, run.player.y)
+    return fu.f + (px * spec.lapLen) / (2 * Math.PI * Math.max(1, spec.ring.r0 - fu.u))
   }
-  const stick = (cross, fwd = 0) => (LAX.cross === 'x' ? { x: cross, y: fwd } : { x: fwd, y: cross })
+  const follow = (run, forceSide = 0, ahead = 140) => {
+    const fu = ringFU(spec, run.player.x, run.player.y)
+    const fA = fAhead(run, ahead)
+    const cav = caveAt(fA, spec, run._obstacleSeed)
+    // ⚠ SCANNED OVER THE WHOLE ISLAND, NOT SAMPLED AT ONE POINT AHEAD, and this is a fixture bug
+    // that reads exactly like a level defect. Steering at the opening at one lookahead puts the
+    // player ON the island's face rather than in the middle of their branch — the face then grows
+    // under them and they grind along it, and the trailing tip does the same in reverse (ph is 0 at
+    // the lookahead while the island is still beside them). It reported 136 touches on a passage a
+    // human flies clean. Commit to the branch on the WIDEST the island gets nearby, which is what a
+    // player looking at their screen does.
+    let ph = 0
+    for (let px = 0; px <= 260; px += 40) ph = Math.max(ph, caveAt(fAhead(run, px), spec, run._obstacleSeed).ph)
+    const want = ph > 0
+      ? cav.c + (forceSide || (fu.u >= cav.c ? 1 : -1)) * (ph + cav.hw) / 2
+      : cav.c
+    // A RING'S STICK IS A HEADING, so the policy returns a world unit vector rather than a signed
+    // cross-axis nudge — which is what a lane's stick was and what every fixture in this scenario
+    // used to build with `stick()`.
+    const w = ringXY(spec, fA, want)
+    const dx = w.x - run.player.x, dy = w.y - run.player.y
+    const d = Math.hypot(dx, dy) || 1
+    return { x: dx / d, y: dy / d }
+  }
+  // ...and the arc a run actually covered, which replaces `player[fwd] * dir` as "how far did it
+  // get". Summed per frame rather than taken end to end, so a lap that comes back on itself counts.
+  const ringArc = (a, b) => Math.hypot(b.x - a.x, b.y - a.y)
 
   // (a) THE PASSAGE FITS INSIDE THE CORRIDOR THE PLAYER IS CLAMPED TO. If it ever wandered outside,
   // the player would be pinned by the lane clamp — a wall with no coral drawn on it — while the
@@ -23470,18 +23413,27 @@ function testReefSpurScrape() {
   let clean = null
   {
     const run = reefRun()
-    let touches = 0
-    const secs = 120
+    run.player.hp = run.player.maxHP = 1e9
+    let touches = 0, arc = 0
+    const secs = 60
+    const top = laneScrollFor(CHAPTERS.reef) * CHAPTERS.reef.laneThrottle.max
     for (let i = 0; i < Math.round(secs / dt); i++) {
-      stepSim(run, stick(follow(run)), dt)
+      const a = { x: run.player.x, y: run.player.y }
+      stepSim(run, follow(run), dt)
       run.events.length = 0
+      if (run.phase === 'levelup') run.phase = 'playing'
+      if (run.phase !== 'playing') break
+      arc += ringArc(a, run.player)
       if (run._caveHit) touches++
     }
-    clean = { travelled: run.player[LAX.fwd], touches }
+    clean = { travelled: arc, touches }
     assert.strictEqual(touches, 0,
       `run RS.b: a player following the passage touched the wall on ${touches} frames — the cave is not navigable, so every other case here is measuring a damage race`)
-    assert.ok(run.player[LAX.fwd] * LAX.dir > laneScrollFor(CHAPTERS.reef) * secs * 0.98,
-      `run RS.b: following the passage carried the player ${run.player[LAX.fwd].toFixed(0)}px in ${secs}s against a scroll that should give ${(laneScrollFor(CHAPTERS.reef) * secs).toFixed(0)} — something is stopping a player who is doing it right`)
+    // DISTANCE COVERED, NOT A COORDINATE. A ring has no forward axis to read, and the claim was
+    // never about an axis: it is that nothing STOPS a player who is flying it right. Against the
+    // settled throttle, with the ramp and the traffic taxing a couple of percent off it.
+    assert.ok(arc > top * secs * 0.9,
+      `run RS.b: following the passage covered ${arc.toFixed(0)}px in ${secs}s against the ${(top * secs).toFixed(0)} a settled throttle gives — something is stopping a player who is doing it right`)
   }
 
   // (c) TOUCHING IT BOUNCES, AND A BOUNCE IS BOUNDED. The mechanic the owner asked for, and the bug
@@ -23523,134 +23475,49 @@ function testReefSpurScrape() {
   // button that gets you OUT of trouble, and a wall that stops it ends runs on a spend.
   {
     const run = reefRun()
-    run.player[LAX.cross] = spec.wander + spec.halfMax   // buried in the wall
+    // Buried in the wall, in RING terms: u is the radial offset, so this is well outside the
+    // passage at the player's own position round the loop.
+    const fu0 = ringFU(spec, run.player.x, run.player.y)
+    const cav0 = caveAt(fu0.f, spec, run._obstacleSeed)
+    const buried = ringXY(spec, fu0.f, cav0.c + cav0.hw + 120)
+    run.player.x = buried.x
+    run.player.y = buried.y
     run._burstT = 1
-    const before = run.player[LAX.cross]
+    const before = ringFU(spec, run.player.x, run.player.y).u
     stepSim(run, { x: 0, y: 0 }, dt)
     assert.strictEqual(run._caveHit, false,
       'run RS.d: a held Burst was stopped by the cave wall — the dash is the one thing allowed through it, and without that a mistimed spend is a death')
-    assert.strictEqual(run.player[LAX.cross], before,
-      'run RS.d: a bursting player was pushed off their line by the wall — the dash commits to a heading, and the wall may not steer it')
+    // ⚠ THE RADIAL OFFSET, NOT THE WORLD POSITION. On a lane the player was motionless under a dead
+    // stick and this could assert the coordinate itself; a circuit has momentum, so a bursting
+    // player is travelling ALONG the track whatever the stick says. What the claim has always meant
+    // is that the wall does not steer you — i.e. it does not move you ACROSS the passage.
+    const after = ringFU(spec, run.player.x, run.player.y).u
+    assert.ok(Math.abs(after - before) < 1,
+      `run RS.d: a bursting player was pushed ${(after - before).toFixed(1)}px across the passage by the wall — the dash commits to a heading, and the wall may not steer it`)
   }
 
-  // (e) THE THROTTLE: THE LEVEL RUNS AT THE RATE THE PLAYER ASKS FOR (owner, 2026-08-24, "the move
-  // right / move left actions should actually make the level scroll faster / slower"). Asserted as
-  // px TRAVELLED and as the velocity itself, because the failure this is written against is the
-  // feature existing on one of the two clocks: throttle the player alone and the lane front (the
-  // crush edge AND the camera) keeps running at 90, so easing off does not slow the level down, it
-  // feeds you to the back edge. `crush` damage at half throttle is that bug, stated as HP.
-  let thr = null, ramp = null
+  // (e) THE THROTTLE — DELETED WITH THE LANE, and replaced rather than dropped. Every assertion it
+  // made was about a scroll: that the neutral stick advanced the level at exactly laneScroll, that
+  // pushing forward multiplied it by laneThrottle.max, that easing off did not feed you to the
+  // crush edge, and that the unit-circle clamp was not taxing a steering player. A ring has no
+  // scroll and no crush edge, so those are statements about a chapter that stopped existing in
+  // v7.x. What SURVIVED the change is the one the owner actually ruled on — that steering must not
+  // cost throttle — and it is asserted in run RG.e against the ring's own movement, on eight
+  // bearings, which is a stronger form than the two-run comparison here ever was.
+  //
+  // The Beyond's half stays, because The Beyond is still a lane and still a shipped golden master:
+  // momentum is keyed on `circuit` precisely so a chapter that is merely `lane` cannot inherit it.
   {
-    const T = CHAPTERS.reef.laneThrottle
-    assert.ok(T && T.max > 1 && T.min > 0 && T.min < 1,
-      'run RS.e: CHAPTERS.reef.laneThrottle is gone, or one of its ends no longer straddles neutral — the stick no longer touches the scroll and this whole case is vacuous')
-    // THE RULING ITSELF, and not merely "some number above 1". Owner, 2026-08-24: "the go right to
-    // speed up should be wayyyy speedier, like 3x the speed". Every other assertion in this case
-    // reads T back out of the config and compares the sim against it, so all of them stay green on
-    // a max of 1.05 — the tune is the one fact here that a config-derived check cannot see.
-    assert.strictEqual(T.max, 3,
-      `run RS.e: full throttle is x${T.max}, not the x3 the owner asked for — the rest of this case reads the config back and cannot tell`)
-    // AND THE LOW END MAY NEVER REACH 0. A lane that can be stopped is not a lane, and a negative
-    // one runs the player backwards into a crush edge that keeps advancing regardless.
-    assert.ok(T.min > 0.05, `run RS.e: laneThrottle.min is ${T.min} — at or near 0 the player can park in a lane, and the crush edge does not stop with them`)
-    const nominal = laneScrollFor(CHAPTERS.reef)
-    const secs = 60
-    const leg = (fwd) => {
-      const run = reefRun()
-      // NO CROWD. This case measures the throttle, and since v7.x a fish the player touches costs
-      // speed and knocks them across the lane (bumpTraffic) — a real force, and an unmeasured one
-      // inside an assertion about px travelled. Measured on the idle leg: 15 bumps and 6 crashes in
-      // 60s, 827px of 5400 gone.
-      //   KILLED EACH FRAME, NOT mods.spawnMul = 0. That knob does not empty this chapter — the
-      // reef still streamed 12 live bodies with it at zero — and a silent no-op there would leave
-      // the force in place under a line claiming it is gone.
-      for (let i = 0; i < Math.round(secs / dt); i++) {
-        for (const q of run.enemies) q._dead = true
-        stepSim(run, stick(follow(run), fwd * LAX.dir), dt)
-        run.events.length = 0
-      }
-      return { px: run.player[LAX.fwd] * LAX.dir, crush: (run.dmgBySrc ?? {}).crush ?? 0 }
-    }
-    const back = leg(-1), idle = leg(0), fwd = leg(1)
-    thr = { back: back.px, idle: idle.px, fwd: fwd.px }
-    assert.ok(Math.abs(idle.px - nominal * secs) < 1,
-      `run RS.e: an untouched forward stick travelled ${idle.px.toFixed(0)}px in ${secs}s against the chapter's own ${(nominal * secs).toFixed(0)} — the neutral scroll has moved, which is every other number in this chapter`)
-    assert.ok(fwd.px > idle.px * 1.2 && fwd.px <= idle.px * T.max + 1,
-      `run RS.e: pushing forward for ${secs}s travelled ${fwd.px.toFixed(0)}px against ${idle.px.toFixed(0)} idle — the stick's forward component is being thrown away, which is what a lane used to do with it`)
-    assert.ok(back.px < idle.px * 0.8 && back.px >= idle.px * T.min - 1,
-      `run RS.e: easing off for ${secs}s still travelled ${back.px.toFixed(0)}px against ${idle.px.toFixed(0)} idle — the level did not slow down`)
-    assert.strictEqual(back.crush, 0,
-      `run RS.e: easing off cost ${back.crush} hp of CRUSH — the lane front is still advancing at the full scroll, so slowing down is not slowing the level down, it is being left behind by it`)
-    // The velocity itself, on a stick with no cross component at all, so the unit-circle clamp is
-    // not quietly scaling the number this asserts.
-    //
-    // STEADY STATE, NOT ONE FRAME. This chapter is a `circuit`, so the throttle no longer reaches
-    // the velocity the frame it is pushed — CIRCUIT_ACCEL eases toward it. Asserting the target
-    // after a single step is asserting the absence of momentum, which is why that older form of
-    // this check had to go. It also passed for the wrong reason for one commit: _laneSpeed used to
-    // seed at the target, so frame 1 hit x3 through the seed rather than through the stick.
-    const settle = Math.round(2 / dt)   // 2s — comfortably past (270-90)/420 = 0.43s
-    for (const [fwdIn, want] of [[1, T.max], [-1, T.min], [0, 1]]) {
-      const run = reefRun()
-      // Same reason as the legs above: traffic is a real force on _laneSpeed, and mods.spawnMul
-      // does not empty this chapter, so the bodies have to be killed.
-      for (let i = 0; i < settle; i++) { for (const q of run.enemies) q._dead = true; stepSim(run, stick(0, fwdIn * LAX.dir), dt); run.events.length = 0 }
-      assert.ok(Math.abs(run.player[LAX.vFwd] * LAX.dir - nominal * want) < 1e-6,
-        `run RS.e: a ${fwdIn} forward stick settles at ${(run.player[LAX.vFwd] * LAX.dir).toFixed(2)}px/s against the ${(nominal * want).toFixed(2)} laneThrottle {min ${T.min}, max ${T.max}} asks for`)
-      assert.ok(Math.abs(run._laneThrottle - want) < 1e-6, 'run RS.e: run._laneThrottle disagrees with the velocity it produced — stepLaneFront reads that field, so the camera and the crush edge would run at a rate the player is not travelling at')
-    }
-    // ...and that getting there TAKES TIME, which is the whole of momentum. Without this the only
-    // thing above proves is that the throttle arrives eventually, which a zero-accel build also
-    // satisfies. Measured against CIRCUIT_ACCEL's own arithmetic rather than an eyeballed window.
-    {
-      const run = reefRun()
-      stepSim(run, stick(0, LAX.dir), dt)          // one frame of FULL forward push
-      const v1 = run.player[LAX.vFwd] * LAX.dir
-      assert.ok(v1 > nominal && v1 < nominal * T.max - 1,
-        `run RS.e: one frame of full push already gives ${v1.toFixed(2)}px/s of a possible ${(nominal * T.max).toFixed(2)} — the throttle is reaching the velocity instantly, so CIRCUIT_ACCEL is not being applied and this chapter has no momentum`)
-      assert.ok(Math.abs(v1 - (nominal + CIRCUIT_ACCEL * dt)) < 1e-6,
-        `run RS.e: the first frame moved the speed to ${v1.toFixed(3)} rather than the ${(nominal + CIRCUIT_ACCEL * dt).toFixed(3)} a ${CIRCUIT_ACCEL}px/s^2 ramp from the chapter's own ${nominal} gives — the seed or the step has drifted from CIRCUIT_ACCEL`)
-      let frames = 1
-      while (run.player[LAX.vFwd] * LAX.dir < nominal * T.max - 1e-6 && frames < settle) { stepSim(run, stick(0, LAX.dir), dt); run.events.length = 0; frames++ }
-      const secsToTop = frames * dt, ideal = (nominal * T.max - nominal) / CIRCUIT_ACCEL
-      assert.ok(Math.abs(secsToTop - ideal) < 2 * dt,
-        `run RS.e: full throttle took ${secsToTop.toFixed(3)}s to arrive against the ${ideal.toFixed(3)}s CIRCUIT_ACCEL ${CIRCUIT_ACCEL} implies`)
-      ramp = { v1, secsToTop, ideal }
-    }
-    // STEERING DOES NOT COST THROTTLE (owner, 2026-08-25). In a circuit the stick is two controls,
-    // not one heading, so correcting your line at full push must still be full push. It did not use
-    // to be: stepPlayerMovement clamps the input to the unit circle, so (1,1) became (0.707,0.707)
-    // and the throttle read 2.414 instead of 3 — MEASURED at 217.3px/s against 270, a 19.5% tax on
-    // turning that nobody designed. Asserted against the straight-line case rather than a literal,
-    // so it keeps holding if laneThrottle is retuned.
-    {
-      const straight = reefRun(), turning = reefRun()
-      for (let i = 0; i < 120; i++) {
-        stepSim(straight, stick(0, LAX.dir), dt); straight.events.length = 0
-        stepSim(turning, { x: LAX.fwd === 'x' ? LAX.dir : 1, y: LAX.fwd === 'y' ? LAX.dir : 1 }, dt); turning.events.length = 0
-      }
-      assert.ok(Math.abs(turning._laneThrottle - straight._laneThrottle) < 1e-9,
-        `run RS.e: steering while flooring it gives throttle ${turning._laneThrottle.toFixed(3)} against ${straight._laneThrottle.toFixed(3)} going straight — the unit-circle clamp is diluting the throttle, so threading a squeeze costs top speed in a chapter scored on time`)
-      assert.ok(Math.abs(turning.player[LAX.vCross]) > 1e-6,
-        'run RS.e: the turning control is not actually steering, so it cannot show a steering tax either way')
-    }
-
-    // The Beyond has no `circuit`, so momentum must not have followed the lane flag over to it.
-    {
-      const bax2 = laneAxes(CHAPTERS.beyond)
-      const r = (() => { Math.random = mulberry32(11); const x = createRun(meta, { chapter: 'beyond', difficulty: 1 }); x.mods.spawnMul = 0; return x })()
-      stepSim(r, bax2.cross === 'x' ? { x: 0, y: -1 } : { x: -1, y: 0 }, dt)
-      assert.strictEqual(r._laneSpeed, undefined,
-        'run RS.e: The Beyond grew a _laneSpeed — momentum is keyed off `circuit` precisely so a chapter that is merely `lane` cannot inherit it, and The Beyond is a shipped golden master')
-    }
-    // And no other lane chapter is touched: The Beyond declares no throttle, so its own golden
-    // master cannot move whatever this stick does.
-    const bax = laneAxes(CHAPTERS.beyond)
-    const bRun = (() => { Math.random = mulberry32(7); const r = createRun(meta, { chapter: 'beyond', difficulty: 1 }); r.mods.spawnMul = 0; return r })()
+    const bax2 = laneAxes(CHAPTERS.beyond)
+    const r = (() => { Math.random = mulberry32(11); const x = createRun(meta, { chapter: 'beyond', difficulty: 1 }); x.mods.spawnMul = 0; return x })()
+    stepSim(r, bax2.cross === 'x' ? { x: 0, y: -1 } : { x: -1, y: 0 }, dt)
+    assert.strictEqual(r._laneSpeed, undefined,
+      'run RS.e: The Beyond grew a _laneSpeed — momentum is keyed off `circuit` precisely so a chapter that is merely `lane` cannot inherit it, and The Beyond is a shipped golden master')
+    const bRun = (() => { Math.random = mulberry32(7); const q = createRun(meta, { chapter: 'beyond', difficulty: 1 }); q.mods.spawnMul = 0; return q })()
     assert.strictEqual(bRun.chapter, 'beyond', 'run RS.e: the control run is not The Beyond, so the no-throttle-elsewhere claim is untested')
-    for (let i = 0; i < 60; i++) { stepSim(bRun, bax.cross === 'x' ? { x: 0, y: -1 } : { x: -1, y: 0 }, dt); bRun.events.length = 0 }
-    assert.ok(Math.abs(bRun.player[bax.vFwd] * bax.dir - laneScrollFor(CHAPTERS.beyond)) < 1e-6,
-      `run RS.e: The Beyond's scroll answered the forward stick (${bRun.player[bax.vFwd].toFixed(2)}px/s) — laneThrottle is The Reef's field and adopting it elsewhere moves a shipped chapter's golden master`)
+    for (let i = 0; i < 60; i++) { stepSim(bRun, bax2.cross === 'x' ? { x: 0, y: -1 } : { x: -1, y: 0 }, dt); bRun.events.length = 0 }
+    assert.ok(Math.abs(bRun.player[bax2.vFwd] * bax2.dir - laneScrollFor(CHAPTERS.beyond)) < 1e-6,
+      `run RS.e: The Beyond's scroll answered the forward stick (${bRun.player[bax2.vFwd].toFixed(2)}px/s) — laneThrottle was The Reef's field and adopting it elsewhere moves a shipped chapter's golden master`)
   }
 
   // (f) THE FORK IS TWO REAL PATHS (owner, 2026-08-24: "i don't see branches in the coral cave,
@@ -23697,7 +23564,7 @@ function testReefSpurScrape() {
       const run = reefRun()
       let touches = 0
       for (let i = 0; i < Math.round(90 / dt); i++) {
-        stepSim(run, stick(follow(run, side)), dt)
+        stepSim(run, follow(run, side), dt)
         run.events.length = 0
         if (run._caveHit) touches++
       }
@@ -23708,12 +23575,17 @@ function testReefSpurScrape() {
     // centre line, so this is the effect the sim change is proved by: delete the push-out and this
     // is 0 while everything else here still passes.
     const mid = reefRun()
+    mid.player.hp = mid.player.maxHP = 1e9
     for (let i = 0; i < Math.round(90 / dt); i++) {
-      const cav = caveAt(mid.player[LAX.fwd], spec, mid._obstacleSeed)
-      const c = mid.player[LAX.cross]
-      const v = Math.abs(cav.c - c) < 4 ? 0 : cav.c > c ? 1 : -1
-      stepSim(mid, stick(v), dt)
+      // The centre line, island and all — which is the point: caveAt's `c` IS the island where the
+      // passage forks, so a player who holds it is holding coral.
+      const fA = fAhead(mid, 140)
+      const w = ringXY(spec, fA, caveAt(fA, spec, mid._obstacleSeed).c)
+      const dx = w.x - mid.player.x, dy = w.y - mid.player.y
+      const d = Math.hypot(dx, dy) || 1
+      stepSim(mid, { x: dx / d, y: dy / d }, dt)
       mid.events.length = 0
+      if (mid.phase === 'levelup') mid.phase = 'playing'
     }
     const paidMid = (mid.dmgBySrc ?? {}).scrape ?? 0
     assert.ok(paidMid > 0,
@@ -23724,8 +23596,8 @@ function testReefSpurScrape() {
   const caves = all.filter((id) => CHAPTERS[id].cave)
   assert.deepStrictEqual(caves, ['reef'],
     `run RS: ${caves.length} chapters declare a cave [${caves.join(', ')}] — this is The Reef's own geometry and nothing else reads caveAt`)
-  console.log(`PASS run RS (the cave): 1 of ${all.length} chapters declares one, a passage ${2 * spec.halfMin}-${2 * spec.halfMax}px wide wandering +/-${spec.wander} inside a ${2 * laneHalfWidth(reefRun().viewRadius, CHAPTERS.reef)}px corridor, coral built ${laneDrawSpan(390, CHAPTERS.reef.spurs.spacing).ahead.toFixed(0)}px ahead on a phone and ${laneDrawSpan(1862, CHAPTERS.reef.spurs.spacing).ahead.toFixed(0)}px on a 1862px desktop; following it for 120s touched the wall ${clean.touches} times and travelled ${clean.travelled.toFixed(0)}px, pressing one side for 20s touched it ${hit.touched} times for ${hit.paid} hp with a worst single-frame move of ${hit.worstJump.toFixed(1)}px (bounce ${CAVE_BOUNCE_PX}), and a held Burst passes straight through`)
-  console.log(`PASS run RS.e/f (the throttle and the fork): 60s of lane travelled ${thr.back.toFixed(0)}/${thr.idle.toFixed(0)}/${thr.fwd.toFixed(0)}px eased-off/neutral/pushed (laneThrottle x${CHAPTERS.reef.laneThrottle.min}..x${CHAPTERS.reef.laneThrottle.max}, 0 crush hp for easing off, The Beyond unmoved); momentum ramps one frame to ${ramp.v1.toFixed(1)}px/s and reaches full throttle in ${ramp.secsToTop.toFixed(2)}s against CIRCUIT_ACCEL's own ${ramp.ideal.toFixed(2)}s, and The Beyond grows no _laneSpeed at all; ${fork.islands} islands over 60000px = one every ${fork.everyPx.toFixed(0)}px (${(fork.everyPx / laneScrollFor(CHAPTERS.reef)).toFixed(1)}s), ${(fork.share * 100).toFixed(0)}% of the lane forked, widest ${fork.maxPh.toFixed(0)}px against a tightest branch of ${fork.minBranch.toFixed(0)}px, and both sides flown clean for 90s`)
+  console.log(`PASS run RS (the cave): 1 of ${all.length} chapters declares one, a passage ${2 * spec.halfMin}-${2 * spec.halfMax}px wide wandering +/-${spec.wander} of radius on an r0 of ${spec.ring.r0}; following it for 60s touched the wall ${clean.touches} times and covered ${clean.travelled.toFixed(0)}px, pressing one side for 20s touched it ${hit.touched} times for ${hit.paid} hp with a worst single-frame move of ${hit.worstJump.toFixed(1)}px (bounce ${CAVE_BOUNCE_PX}), and a held Burst passes straight through`)
+  console.log(`PASS run RS.f (the fork): ${fork.islands} islands over 60000px = one every ${fork.everyPx.toFixed(0)}px, ${(fork.share * 100).toFixed(0)}% of the lap forked, widest ${fork.maxPh.toFixed(0)}px against a tightest branch of ${fork.minBranch.toFixed(0)}px, both sides flown clean for 90s, and the centre line costs; The Beyond keeps its own scroll and grows no _laneSpeed`)
 }
 
 // ---- run RL: The Reef's cave repeats every lap (config.js's own `waves`/`branch.every`/`lapLen`
@@ -23887,10 +23759,38 @@ function testCircuitCards() {
       run.passivePicks[card] = MAX_PASSIVE_LEVEL
       if (card === 'airMax') { const g = run.chargeMax * run.passives[card]; run.chargeMax += g; run.charge += g }
     }
+    // ⚠ THE STICK IS RE-AIMED AT THE TRACK EVERY FRAME. A fixed `{ x: 1, y: 0 }` was full throttle
+    // while the lane's forward axis was +x; on a ring it is a world BEARING, so it drives into the
+    // outer wall and every race in this case returned Infinity (the gains printed as NaN).
+    const sp = CHAPTERS.reef.cave
+    const aim = () => {
+      const fu = ringFU(sp, run.player.x, run.player.y)
+      const fA = fu.f + (150 * sp.lapLen) / (2 * Math.PI * Math.max(1, sp.ring.r0 - fu.u))
+      const cav = caveAt(fA, sp, run._obstacleSeed)
+      const u = cav.ph > 0 ? cav.c + (fu.u >= cav.c ? 1 : -1) * (cav.ph + cav.hw) / 2 : cav.c
+      const w = ringXY(sp, fA, u)
+      const dx = w.x - run.player.x, dy = w.y - run.player.y
+      const d = Math.hypot(dx, dy) || 1
+      // ...AND IT EASES OFF FOR THE CORNERS, which is what gives accelRate anything to measure.
+      // Holding full throttle round a whole lap, Quick Start saved 0.07s — correctly, because a
+      // driver who never slows down never accelerates either. That is a fixture that cannot see the
+      // card rather than a card that does nothing, and it is the same "measure it where it is
+      // supposed to work" rule this block already applies to the two dash cards.
+      //   The brake is the TURN the track is about to make, read as the angle between the heading
+      // now and the heading a further lookahead on — which is what a driver looking at their screen
+      // has. 40% off at a right-angle bend, nothing on a straight.
+      const fB = fu.f + (420 * sp.lapLen) / (2 * Math.PI * Math.max(1, sp.ring.r0 - fu.u))
+      const cB = caveAt(fB, sp, run._obstacleSeed)
+      const w2 = ringXY(sp, fB, cB.c)
+      const bend = Math.abs(Math.atan2(w2.y - w.y, w2.x - w.x) - Math.atan2(dy, dx))
+      const turn = Math.min(1, (bend > Math.PI ? 2 * Math.PI - bend : bend) / (Math.PI / 2))
+      const thr = 1 - 0.4 * turn
+      return { x: (dx / d) * thr, y: (dy / d) * thr }
+    }
     for (let i = 0; i < 60 * 400; i++) {
       run.player.hp = run.player.maxHp
       const skill = press && (run._burstT ?? 0) <= 0 && run.charge > 20
-      stepSim(run, { x: 1, y: 0, skill }, dt)
+      stepSim(run, { ...aim(), skill }, dt)
       run.events.length = 0
       if (run.phase === 'victory' || run.phase === 'dead') break
       if (run.phase === 'levelup') run.phase = 'playing'
@@ -23928,7 +23828,25 @@ function testReefCircuit() {
   const dt = 1 / 60
   const ch = CHAPTERS.reef
   const spec = ch.cave, LAP = spec.lapLen
-  const drive = (fwd, opts = {}) => {
+  // FLYING THE TRACK, as a policy. `thr` is the throttle — the MAGNITUDE of the stick, which is what
+  // a circuit reads — and the direction is re-aimed at the passage every frame.
+  //   ⚠ A FIXED BEARING IS NOT "FULL THROTTLE" ON A RING. This used to pass `{ x: fwd, y: 0 }`,
+  // correct while the lane's forward axis was +x and the stick's x WAS the throttle. Held on a loop
+  // it drives straight into the outer wall and a 400s run at "full throttle" dies without finishing
+  // a lap. Island-aware for the reason CT.g's own block spells out: caveAt's `c` IS the island
+  // where the passage forks, so aiming at the centre is aiming at rock.
+  const trackStick = (run, thr, ahead = 150) => {
+    const sp = CHAPTERS.reef.cave
+    const fu = ringFU(sp, run.player.x, run.player.y)
+    const fA = fu.f + (ahead * sp.lapLen) / (2 * Math.PI * Math.max(1, sp.ring.r0 - fu.u))
+    const cav = caveAt(fA, sp, run._obstacleSeed)
+    const u = cav.ph > 0 ? cav.c + (fu.u >= cav.c ? 1 : -1) * (cav.ph + cav.hw) / 2 : cav.c
+    const w = ringXY(sp, fA, u)
+    const dx = w.x - run.player.x, dy = w.y - run.player.y
+    const d = Math.hypot(dx, dy) || 1
+    return { x: (dx / d) * thr, y: (dy / d) * thr }
+  }
+  const drive = (thr, opts = {}) => {
     Math.random = mulberry32(opts.seed ?? 3)
     const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
     run.mods.spawnMul = 0
@@ -23942,7 +23860,7 @@ function testReefCircuit() {
       // being the same drive: measured, the split spread went 0.06s -> 0.27s against a 0.25 band.
       // (b)'s claim is about the GEOMETRY repeating; the crowd is (CT.b was never its subject.)
       for (const q of run.enemies) q._dead = true
-      stepSim(run, { x: fwd, y: 0 }, dt)
+      stepSim(run, trackStick(run, thr), dt)
       peakClock = Math.max(peakClock, run.raceClock ?? 0)
       for (const e of run.events) {
         if (e.type === 'lap') laps.push(e)
@@ -23969,14 +23887,34 @@ function testReefCircuit() {
     assert.ok(Math.min(...gaps) > 400,
       `run CT.a: two swimthroughs sit ${Math.min(...gaps).toFixed(0)}px apart on seed ${seed} — the tightest measured spacing is 528px, so anything near it means the deepest minima have clustered and the top-ups arrive in a burst`)
     // ...and they are genuinely the narrow places, not merely local dips near the wide end.
-    const mid = (spec.halfMin + spec.halfMax) / 2
-    assert.ok(sw.every((s) => s.hw < mid),
-      `run CT.a: a swimthrough sits at hw ${Math.max(...sw.map((s) => s.hw)).toFixed(0)} against a passage midpoint of ${mid} — these are supposed to be the tightest points on the track, and one of them is in the wide half`)
+    //
+    // ⚠ AGAINST THE LAP'S OWN DISTRIBUTION, NOT AGAINST (halfMin + halfMax) / 2. The spec's midpoint
+    // is the midpoint of a RANGE the field never uniformly covers — a sum of sines is centre-heavy,
+    // so half the lap does not sit below it and "every pick is under the midpoint" is a claim about
+    // the tune rather than about the picks. It also became unsatisfiable the moment swimthroughsFor
+    // started enforcing a minimum SPACING: spread and depth trade against each other, and a picker
+    // that must not clump will sometimes take the 8th-deepest minimum over the 3rd.
+    //   What "these are the tightest points" actually means, stated so both properties can hold:
+    // on AVERAGE they are in the tightest quarter of the lap, and not one of them is in the widest
+    // tenth. Measured across these seeds the picks run 152-183 against a lap of 152-198.
+    const lap = []
+    for (let f = 0; f < LAP; f += 12) lap.push(caveAt(f, spec, seed).hw)
+    lap.sort((a, b) => a - b)
+    const pct = (q) => lap[Math.min(lap.length - 1, Math.floor(lap.length * q))]
+    // MEASURED BEFORE THE BAND WAS PICKED: the picks average 162.5 / 164.3 / 165.0 / 167.0 across
+    // these four seeds against lap medians of 174-176, so the margin at the worst seed is 7px. A
+    // first cut at "under the lap's tightest QUARTER" sat at 167 against a p25 of 166 — a threshold
+    // 1px from its own subject, which is a coin toss dressed as an assertion.
+    const meanPick = sw.reduce((a, b) => a + b.hw, 0) / sw.length
+    assert.ok(meanPick < pct(0.5),
+      `run CT.a: the swimthroughs average hw ${meanPick.toFixed(0)} against a lap median of ${pct(0.5).toFixed(0)} (seed ${seed}) — they are not the tight places, they are just places`)
+    assert.ok(sw.every((q) => q.hw < pct(0.9)),
+      `run CT.a: a swimthrough sits at hw ${Math.max(...sw.map((q) => q.hw)).toFixed(0)} against a lap whose widest tenth starts at ${pct(0.9).toFixed(0)} (seed ${seed}) — a checkpoint in the widest part of the track is not a checkpoint`)
     if (seed === 3 || !picked) picked = sw
   }
 
   // (b) A RACE IS ch.circuit.laps LAPS AND ENDS IN A VICTORY WITH A TIME ON IT.
-  const fast = drive(1)
+  const fast = drive(1)          // full stick
   assert.strictEqual(fast.run.phase, 'victory',
     `run CT.b: full throttle for 400s ended '${fast.run.phase}' — a circuit is won by finishing its laps and nothing else does it`)
   assert.strictEqual(fast.laps.length, ch.circuit.laps,
@@ -24005,7 +23943,9 @@ function testReefCircuit() {
     `run CT.f: a clean full-throttle race never reached the cap (peak ${fast.peakClock.toFixed(1)} of ${CIRCUIT_CLOCK_CAP}) — the cap is not actually binding, so this case is vacuous and CIRCUIT_SWIM_TIME is too small to be worth capping`)
 
   // (c) THE CLOCK IS A REAL FAIL STATE. Easing off is slow enough that the top-ups cannot keep up.
-  const slow = drive(-1)
+  // The crawl. On a lane this was `-1`, i.e. the stick pulled back to laneThrottle.min; on a ring
+  // the throttle IS the stick's magnitude, so the same crawl is min/max = 0.5/3 of full.
+  const slow = drive(CHAPTERS.reef.laneThrottle.min / CHAPTERS.reef.laneThrottle.max)
   assert.strictEqual(slow.run.phase, 'dead',
     `run CT.c: easing off for 400s ended '${slow.run.phase}' — at laneThrottle.min the checkpoints arrive far too slowly to hold the clock up, so this is the countdown's only proof that it bites`)
   assert.strictEqual(slow.run.killedBy, 'clock',
@@ -24023,7 +23963,9 @@ function testReefCircuit() {
   // THE CONDITION HAS TO BE REACHABLE OR THIS PROVES NOTHING. With the clock live, no run survives
   // to 300s — the countdown kills a slow driver in well under a minute — so a plain slow run can
   // never distinguish an armed timer from a disarmed one. Hold the clock open and crawl at
-  // laneThrottle.min instead: 5 x 5040 / 45px/s = 560s, comfortably past RUN_DURATION. An armed
+  // laneThrottle.min instead — which on a ring is a stick held at min/max of full, since the
+  // throttle is the stick's MAGNITUDE now. 5 laps x ~5800px of arc / 45px/s = ~640s, comfortably
+  // past RUN_DURATION. An armed
   // timer wins the run at 300s with the player barely two laps in; the exemption carries it to a
   // real final lap.
   {
@@ -24031,14 +23973,14 @@ function testReefCircuit() {
     const r = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
     r.mods.spawnMul = 0
     let laps = 0
-    for (let i = 0; i < 60 * 900; i++) {
+    for (let i = 0; i < 60 * 1400; i++) {
       r.player.hp = r.player.maxHp
       r.raceClock = 999                    // the countdown is CT.c's subject, not this one
       // ...and empty, which mods.spawnMul does not achieve in this chapter — see the note in
       // `drive` above. A crawl already takes 560s and traffic taxes _laneSpeed on every touch, so
       // with the crowd live this run does not finish inside any budget worth waiting for.
       for (const q of r.enemies) q._dead = true
-      stepSim(r, { x: -1, y: 0 }, dt)
+      stepSim(r, trackStick(r, CHAPTERS.reef.laneThrottle.min / CHAPTERS.reef.laneThrottle.max), dt)
       for (const e of r.events) if (e.type === 'lap') laps++
       r.events.length = 0
       if (r.phase === 'victory' || r.phase === 'dead') break
@@ -24078,10 +24020,15 @@ function testReefCircuit() {
     //   `openLane` is what makes even this honest. caveAt's `c` is the passage centre, and where
     // ph > 0 the centre IS the coral island — steering at it drives into the rock, which is exactly
     // how one of those three probes concluded the chapter was unplayable.
+    // The open lane at `ahead` px, as a WORLD POINT — a ring has no cross coordinate to aim a signed
+    // nudge at. `openLane` returning a radial offset and the caller turning it into a stick is the
+    // lane's shape; here the two are one step.
     const openLane = (run, ahead) => {
-      const { c, hw, ph } = caveAt(run.player[ax.fwd] + ax.dir * ahead, spec, run._obstacleSeed)
-      if (ph <= 0) return c
-      return c + (run.player[ax.cross] >= c ? 1 : -1) * (ph + hw) / 2
+      const fu = ringFU(spec, run.player.x, run.player.y)
+      const fA = fu.f + (ahead * spec.lapLen) / (2 * Math.PI * Math.max(1, spec.ring.r0 - fu.u))
+      const { c, hw, ph } = caveAt(fA, spec, run._obstacleSeed)
+      const u = ph > 0 ? c + (fu.u >= c ? 1 : -1) * (ph + hw) / 2 : c
+      return ringXY(spec, fA, u)
     }
     const race = (cross, seed = 9) => {
       Math.random = mulberry32(seed)
@@ -24096,8 +24043,7 @@ function testReefCircuit() {
         // not name. It died on 1 of these 4 seeds that way. Traffic is worth its own scenario; it
         // is not worth being an unnamed term in this one.
         for (const q of run.enemies) q._dead = true
-        const c = cross(run)
-        stepSim(run, { x: ax.fwd === 'x' ? 1 : c, y: ax.fwd === 'y' ? 1 : c }, dt)
+        stepSim(run, cross(run), dt)
         run.events.length = 0
         if (run.phase === 'levelup') run.phase = 'playing'
         if (run.phase === 'victory' || run.phase === 'dead') break
@@ -24112,7 +24058,12 @@ function testReefCircuit() {
     // and the others are what stop a tune being judged on a single lucky lap.
     //   A COUNT, NOT AN HP BAND. The measured spread is 0-80 HP on one driver, so any threshold
     // would be an eyeballed literal a re-phasing could walk through; "did it finish" cannot drift.
-    const drive = (run) => Math.max(-1, Math.min(1, (openLane(run, 60) - run.player[ax.cross]) / 30))
+    const drive = (run) => {
+      const w = openLane(run, 60)
+      const dx = w.x - run.player.x, dy = w.y - run.player.y
+      const d = Math.hypot(dx, dy) || 1
+      return { x: dx / d, y: dy / d }
+    }
     const RACE_SEEDS = [9, 1, 2, 3]
     const driven = RACE_SEEDS.map((seed) => race(drive, seed))
     const lost = driven.filter((r) => r.phase !== 'victory')
@@ -24123,7 +24074,13 @@ function testReefCircuit() {
     // if you stay stuck". Hold the stick into one side and never come off it. Asserting killedBy is
     // what pins this to the CORAL — drifting also runs the race clock out, and a clock death here
     // would let a wall that does nothing at all pass as a wall that kills.
-    const stuck = race(() => 1)
+    // Held into the wall for a whole race. On a lane this was `() => 1`, the cross stick pinned; the
+    // ring equivalent is a stick pointing straight OUT of the loop, which is radial and therefore
+    // into the outer wall wherever the player happens to be.
+    const stuck = race((run) => {
+      const d = Math.hypot(run.player.x + spec.ring.r0, run.player.y) || 1
+      return { x: (run.player.x + spec.ring.r0) / d, y: run.player.y / d }
+    })
     assert.strictEqual(stuck.killedBy, 'scrape',
       `run CT.g: holding the stick into the wall for a whole race ended '${stuck.phase}' killed by '${stuck.killedBy}' — if coral cannot kill a player parked in it, the passage is scenery and the chapter is one input`)
   }
@@ -25084,7 +25041,13 @@ function testReefPool() {
   // Debris Toss with a reef noun, which is the objection it was rebuilt against.
   {
     const run = reefRun('oxygenTank', 5)
-    const bait = mk(run, AX.cross === 'x' ? 300 : 0, AX.cross === 'y' ? 300 : 0, 0)
+    // ⚠ OFF THE PLAYER'S HEADING, WHICH ON A RING IS THE RADIAL DIRECTION. The old placement was
+    // `AX.cross` — the lane's own sideways axis — and the ring's tangent at the start line happens
+    // to be +y, so that put the bait STRAIGHT AHEAD and the throw hit it legitimately. Radially
+    // outward is perpendicular to the track wherever the player is, which is what "off to one side"
+    // has always meant here. (clampCrowdToCave will pull it back to the wall face; that is fine and
+    // still well off the heading.)
+    const bait = mk(run, 300, 0, 0)
     let hit = null, toss = null
     drive(run, [bait], 6, { x: 0, y: 0 }, (r) => {
       // ⚠ MEASURED AGAINST THE THROW, NOT AGAINST WHERE THE PLAYER ENDED UP. The lob's target is
@@ -25092,14 +25055,23 @@ function testReefPool() {
       // to sit still across the flight — an island's tip nudges them a few px off and the fixture
       // reported that drift as the CARD aiming at bodies.
       for (const ev of r.events) {
-        if (ev.type === 'toss' && !hit) toss = { ...ev }
+        // The HEADING AT THE CAST, banked with the toss. fireTank reads p.facingAngle, and on a ring
+        // that is the direction the player is travelling rather than a fixed world axis — so the
+        // claim "thrown ahead of you, not at a body" can only be measured against it.
+        if (ev.type === 'toss' && !hit) toss = { ...ev, a: r.player.facingAngle ?? 0 }
         if (ev.type === 'rupture' && !hit) hit = { ...ev }
       }
     })
     assert.ok(hit && toss, 'run RP.f: no rupture in 6s — the tank never landed')
-    const off = Math.abs(hit[AX.cross] - toss[AX.cross])
-    assert.ok(off < 1,
-      `run RP.f: the tank landed ${off.toFixed(0)}px off the lane axis, with a fat body sitting exactly that way — it is aiming at enemies rather than throwing up the lane`)
+    // ⚠ AGAINST THE PLAYER'S OWN HEADING, NOT AGAINST THE LANE AXIS. This used to compare the
+    // landing's CROSS coordinate with the throw's, which was the same statement while the chapter's
+    // forward direction was a fixed world axis. The Reef's track is a ring now: "up the lane" is
+    // the tangent under the player, so the old form read the difference between the tangent and +x
+    // as the card aiming at bodies — 164px of it, with the card working perfectly.
+    const dev = Math.abs(Math.atan2(hit.y - toss.y, hit.x - toss.x) - toss.a)
+    const off = Math.min(dev, Math.abs(dev - 2 * Math.PI)) * 180 / Math.PI
+    assert.ok(off < 2,
+      `run RP.f: the tank landed ${off.toFixed(0)}° off the player's own heading, with a fat body sitting off to one side — it is aiming at enemies rather than throwing ahead of you`)
     assert.strictEqual(bait.hp, bait.maxHP,
       'run RP.f: the off-axis bait took damage — the throw found it, so this card has targeting it must not have')
   }
@@ -25118,7 +25090,15 @@ function testReefPool() {
       // about (the shove) rather than the geometry (that is RP.f). The RP.g assert below proves
       // the body was in the blast, so this stays honest if the radius ladder moves again.
       run.weaponTimers.oxygenTank = 0.02
-      const at = mk(run, AX.fwd === 'x' ? R : 0, AX.fwd === 'y' ? -R : 0, 0)
+      // ON THE LANDING POINT, WHICH ON A RING IS R px ALONG THE TRACK rather than R px up a world
+      // axis. fireTank throws along p.facingAngle — the tangent under the player — so `AX.fwd`
+      // pointed the fixture 90 degrees away from where the tank actually goes and the body sat
+      // outside every blast.
+      const sp = CHAPTERS.reef.cave
+      const fu0 = ringFU(sp, run.player.x, run.player.y)
+      const w0 = ringCentre(sp, fu0.f + 200, run._obstacleSeed)
+      const ul = Math.hypot(w0.x - run.player.x, w0.y - run.player.y) || 1
+      const at = mk(run, ((w0.x - run.player.x) / ul) * R, ((w0.y - run.player.y) / ul) * R, 0)
       let kb = 0
       // 5s, not 3: the cadence at L5 is 2.60s and the flight another 0.85, so the first tank lands
       // at 3.45 and a 3s window measured a weapon that had not gone off yet.
@@ -25218,28 +25198,45 @@ function testReefPool() {
       `run RP.i: reef is not among the ${alone.length} of ${Object.keys(CHAPTERS).length} chapters carrying a mutator of their own`)
     assert.ok(M.effects.coinMul > 1,
       'run RP.i: Tidal Race has no reward beside its cost — every chapter mutator in the table pairs one with the other')
-    // MEASURED ON THE LANE FRONT, NOT ON THE PLAYER, since spurs.solid. The player can be STOPPED
-    // by a ridge, and a stopped player advances the same distance under either multiplier — this
-    // read x1.00 and reported a live mutator as inert. The front is what laneScrollFor actually
-    // drives, so it is also the honest subject: Tidal Race speeds up the LANE, and being run down
-    // by it faster is the cost the card is priced on.
-    const advance = (mul) => {
+    // MEASURED ON THE CLOCK, WHICH IS WHAT THE CARD NOW COSTS YOU. It used to be measured on the
+    // lane front — the crush edge laneScrollFor drove — and both the front and that reading of the
+    // mutator went with the lane: on a ring laneScrollFor is the ceiling the player's own throttle
+    // reaches for, so x1.4 would have made Tidal Race a pure BUFF paired with x1.25 coins. See the
+    // re-point on MUTATORS.tidalRace.
+    //   ALL THREE NUMBERS, because a tax on the start alone is not a tax: one checkpoint and the
+    // player is level again. The start is read on frame one; the CAP is read by driving a clean lap
+    // and taking the highest the bar ever reaches, which is the cap by construction.
+    const clockRun = (mul) => {
       const run = reefRun(null, 1)
-      run.mods.laneScrollMul = mul
-      const from = run._laneFront
-      drive(run, [], 2)
-      return Math.abs(run._laneFront - from)
+      run.mods.raceClockMul = mul
+      run.player.hp = run.player.maxHP = 1e9
+      let start = 0, peak = 0
+      const sp = CHAPTERS.reef.cave
+      for (let i = 0; i < Math.round(40 / dt); i++) {
+        const fu = ringFU(sp, run.player.x, run.player.y)
+        const fA = fu.f + (150 * sp.lapLen) / (2 * Math.PI * Math.max(1, sp.ring.r0 - fu.u))
+        const cav = caveAt(fA, sp, run._obstacleSeed)
+        const u = cav.ph > 0 ? cav.c + (fu.u >= cav.c ? 1 : -1) * (cav.ph + cav.hw) / 2 : cav.c
+        const w = ringXY(sp, fA, u)
+        const dx = w.x - run.player.x, dy = w.y - run.player.y
+        const d = Math.hypot(dx, dy) || 1
+        stepSim(run, { x: dx / d, y: dy / d }, dt)
+        run.events.length = 0
+        if (run.phase === 'levelup') run.phase = 'playing'
+        if (i === 0) start = run.raceClock
+        peak = Math.max(peak, run.raceClock ?? 0)
+        if (run.phase !== 'playing') break
+      }
+      return { start, peak }
     }
-    const base = advance(1)
-    const ratio = advance(M.effects.laneScrollMul) / base
-    assert.ok(base > 50, `run RP.i: the control's lane front advanced ${base.toFixed(0)}px in 2s against an expected ~180 — the fixture is not scrolling`)
-    assert.ok(Math.abs(ratio - M.effects.laneScrollMul) < 0.02,
-      `run RP.i: laneScrollMul ${M.effects.laneScrollMul} moved the lane front x${ratio.toFixed(2)} — the mutator is declared and nothing reads it`)
-    // The RENDER half reads the SAME helper with run.mods threaded through, or the burst wake is
-    // drawn for a scroll the player is not travelling at. Source text, the run UG.k trick.
-    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    assert.ok(/laneScrollFor\(CHAPTERS\[run\.chapter\], run\.mods\)/.test(rsrc),
-      'run RP.i: render.js calls laneScrollFor without run.mods — under Tidal Race the burst wake is sized off the un-raced scroll')
+    const base = clockRun(1)
+    const taxed = clockRun(M.effects.raceClockMul)
+    assert.ok(base.start > 5 && base.peak > base.start * 0.9,
+      `run RP.i: the control opened on ${base.start.toFixed(1)}s and peaked at ${base.peak.toFixed(1)} — the fixture is not driving a clock at all`)
+    assert.ok(Math.abs(taxed.start / base.start - M.effects.raceClockMul) < 0.02,
+      `run RP.i: raceClockMul ${M.effects.raceClockMul} moved the opening clock x${(taxed.start / base.start).toFixed(2)} — the mutator is declared and nothing reads it`)
+    assert.ok(Math.abs(taxed.peak / base.peak - M.effects.raceClockMul) < 0.05,
+      `run RP.i: the CAP moved x${(taxed.peak / base.peak).toFixed(2)} against ${M.effects.raceClockMul} — taxing the start alone is no tax at all, one checkpoint puts the player back level`)
   }
 
   // (j) THE RENDER HALF OF THE FACING, AND ONLY THAT HALF. The sim half — that the point published
@@ -25640,23 +25637,35 @@ function testReefAirBurst() {
   // So: stay inside the passage, and spend whatever slack it leaves on reaching the air. The clamp
   // is the honest part -- a real player hugs the side of the passage the pocket is on, and cannot
   // leave it however much they want the air.
+  // ⚠ REWRITTEN FOR THE RING, and the old one is worth describing because of HOW it failed. It
+  // returned a CROSS-axis stick and nothing else — correct on a lane, where forward was the scroll's
+  // job and the stick's only say was sideways. On a ring the stick IS the heading, so that policy
+  // swam the player straight out of the track at full speed with no forward component at all, and
+  // the case reported "a player working the pockets drowns". The driver was broken, not the air.
+  //   Same policy, stated in ring terms: aim at a point on the track a little AHEAD (by the time
+  // the wall is beside you it is too late to be anywhere else), at the radius of the nearest pocket
+  // ahead if there is one and at the passage centre otherwise, clamped to stay off the rock.
   const towardPockets = (run) => {
-    const p = run.player, c = p[LAX.cross], f = p[LAX.fwd]
+    const p = run.player
     const spec = CHAPTERS.reef.cave
-    // Read the passage a little AHEAD, not underfoot: by the time the wall is beside you it is too
-    // late to be anywhere else, and the scroll gives no way to wait.
-    const cav = caveAt(f + LAX.dir * 90, spec, run._obstacleSeed)
+    const fu = ringFU(spec, p.x, p.y)
+    const rHere = Math.max(1, spec.ring.r0 - fu.u)
+    const fA = fu.f + (140 * spec.lapLen) / (2 * Math.PI * rHere)
+    const cav = caveAt(fA, spec, run._obstacleSeed)
     const safe = Math.max(0, cav.hw - PLAYER.radius - 6)
-    let sh = null, hd = Infinity
+    // The nearest pocket AHEAD round the loop, within a window worth steering for.
+    let want = cav.c, best = Infinity
     for (const q of run.shafts) {
-      const a = (q[LAX.fwd] - f) * LAX.dir
-      if (a < -q.r || a > hd) continue
-      hd = a; sh = q
+      const qf = ringFU(spec, q.x, q.y)
+      const d = ringDelta(spec, fu.f, qf.f)
+      if (d < -q.r || d > 900 || d > best) continue
+      best = d; want = qf.u
     }
-    const want = sh ? sh[LAX.cross] : cav.c
     const target = Math.max(cav.c - safe, Math.min(cav.c + safe, want))
-    const v = Math.abs(target - c) < 5 ? 0 : target > c ? 1 : -1
-    return LAX.cross === 'x' ? { x: v, y: 0 } : { x: 0, y: v }
+    const w = ringXY(spec, fA, target)
+    const dx = w.x - p.x, dy = w.y - p.y
+    const d = Math.hypot(dx, dy) || 1
+    return { x: dx / d, y: dy / d }
   }
 
   // (a) THE POCKETS ARE THE ONLY REFILL, AND THEY ARE WHAT KEEPS THE BAR UP. Two 150s runs off the
@@ -25724,32 +25733,45 @@ function testReefAirBurst() {
     console.log(`PASS run RF.a (the field is the refill): the same 150s policy with the field suppressed ends on ${centre.charge.toFixed(0)} and 0 refill frames; with it live it ends on ${seek.charge.toFixed(0)}/${res.max}, never below ${seekMin.toFixed(0)}, ${(100 * seekInPocket / steps).toFixed(1)}% of it inside a pocket`)
   }
 
-  // (b) EVERY POCKET IS REACHABLE — inside the lane walls AND inside the cave passage. The
-  // streaming grid covers a 1400px disc and the lane is ~860px wide, so two whole cell rows either
-  // side of it will happily materialise circles the player is CLAMPED away from; and the passage
-  // inside that lane is narrower still. Nothing throws, the renderer draws them faithfully, and the
-  // chapter reads as "the bar cannot be filled" — which is the same misreading (a) exists to
-  // disprove, arrived at from the geometry rather than the rate. Measured at four positions down
-  // the lane, so this is the field and not one lucky cell.
+  // (b) EVERY POCKET IS REACHABLE — inside the cave passage, at its own position along the track.
+  // A pocket in the rock is one the player is clamped off; nothing throws, the renderer draws it
+  // faithfully, and the chapter reads as "the bar cannot be filled", which is the same misreading
+  // (a) exists to disprove arrived at from the geometry rather than the rate.
+  //
+  // ⚠ WALKED ROUND THE WHOLE LAP, because the ring's field is only ringCells wide. The lane version
+  // sampled four positions 6000px apart down an infinite corridor and saw a fresh grid each time;
+  // the ring streams pockets on a 1-D grid along f that WRAPS, so four samples would re-see the
+  // same handful and a whole quadrant could be unchecked. Deduped by _cell so the count is pockets
+  // and not sightings. The "inside the lane walls" half of this case is gone with the lane — the
+  // passage IS the reachable set now, and the clamp below is the whole of it.
   {
-    const run = reefRun()
-    const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
-    let checked = 0, unreachable = 0, inRock = 0
+    const spec = CHAPTERS.reef.cave
+    let checked = 0, inRock = 0
     const offs = []
-    for (const along of [3000, 9000, 15000, 21000]) {
-      run.player[LAX.fwd] = along * LAX.dir
+    // ⚠ EIGHT SEEDS, BECAUSE ONE LAP IS NOT A SAMPLE. The lane's field was an infinite grid and four
+    // positions 6000px apart gave ~20 pockets; a ring holds ringCells x ringChance = ~5.6 for the
+    // whole track, and the spread test below is a DECILE. On five readings a decile is one reading,
+    // and it duly reported "nothing is placed near the middle" from a field that is placed freely —
+    // a false red, and the kind that gets a working mechanic retuned.
+    for (const seed of [1, 2, 3, 5, 8, 13, 21, 34]) {
+    const run = reefRun(seed)
+    const seenCells = new Set()
+    for (let i = 0; i < 16; i++) {
+      const f = (i / 16) * spec.lapLen
+      const w = ringCentre(spec, f, run._obstacleSeed)
+      run.player.x = w.x; run.player.y = w.y
       run.shafts.length = 0
-      run._shaftCellI = null; run._shaftCellJ = null
+      run._shaftRingCell = null
       streamShafts(run)
       for (const sh of run.shafts) {
+        if (seenCells.has(sh._cell)) continue
+        seenCells.add(sh._cell)
         checked++
-        if (Math.abs(sh[LAX.cross]) - sh.r > hw) unreachable++
-        // INSIDE THE PASSAGE, measured at the pocket's own position along the lane — the one
-        // clamp streamShafts still applies since the wall-hug came off (owner, 2026-08-24). A
-        // pocket whose centre sits outside the rock is one the player cannot swim into, which is
-        // the same "the bar cannot be filled" reading the lane check above exists to stop.
-        const cav = caveAt(sh[LAX.fwd], CHAPTERS.reef.cave, run._obstacleSeed)
-        const off = Math.abs(sh[LAX.cross] - cav.c)
+        // INSIDE THE PASSAGE, measured at the pocket's own position along the track — the one clamp
+        // streamRingPockets still applies since the wall-hug came off (owner, 2026-08-24).
+        const fu = ringFU(spec, sh.x, sh.y)
+        const cav = caveAt(fu.f, spec, run._obstacleSeed)
+        const off = Math.abs(fu.u - cav.c)
         if (off > cav.hw) inRock++
         // NORMALISED BY THE SLACK THE PLACEMENT ACTUALLY HAS, not by the passage half-width. The
         // rule is "anywhere the whole pocket still fits", so the room is hw - r and a free draw is
@@ -25759,9 +25781,10 @@ function testReefAirBurst() {
         offs.push(off / Math.max(1, cav.hw - sh.r))
       }
     }
-    assert.ok(checked > 12, `only ${checked} pockets streamed across 4 positions — this case would pass vacuously`)
-    assert.strictEqual(unreachable, 0,
-      `${unreachable} of ${checked} pockets lie entirely outside the lane walls (±${hw.toFixed(0)}) — the player can only watch them scroll past`)
+    }
+    // ~5.6 pockets a lap x 8 seeds. Floor well under that so the roll's own variance cannot red it,
+    // and printed in the PASS line so a collapsed field is visible rather than merely not-failing.
+    assert.ok(checked >= 30, `only ${checked} pockets streamed over 8 seeded laps — this case would pass vacuously`)
     assert.strictEqual(inRock, 0,
       `${inRock} of ${checked} pockets have their centre outside the passage — the player is clamped off them and the bar reads as unfillable`)
     // AND THE PLACEMENT IS FREE ACROSS THE PASSAGE, which is the owner's 2026-08-24 ruling ("they
@@ -25781,7 +25804,7 @@ function testReefAirBurst() {
       `the closest-to-centre decile of pockets still sits at ${(lo * 100).toFixed(0)}% of its available room — nothing is placed near the middle of the passage, i.e. the wall-hug the 2026-08-24 ruling removed is back`)
     assert.ok(hi > 0.6,
       `the furthest-out decile only reaches ${(hi * 100).toFixed(0)}% of its available room — the field has collapsed onto the centre line, which is a different pinning, not free placement`)
-    console.log(`PASS run RF.b (the field fits the lane): ${checked} pockets across 4 positions, 0 outside the ±${hw.toFixed(0)} walls, 0 with a centre in the rock, and their cross offsets spread over ${(lo * 100).toFixed(0)}%-${(hi * 100).toFixed(0)}% of the room each one has`)
+    console.log(`PASS run RF.b (the field fits the track): ${checked} pockets over 8 seeded laps of ${spec.pockets?.ringCells ?? 8} cells, 0 with a centre in the rock, and their radial offsets spread over ${(lo * 100).toFixed(0)}%-${(hi * 100).toFixed(0)}% of the room each one has`)
   }
 
   // (c) DROWNING IS DAMAGE, IT ONLY EXISTS AT EMPTY, AND IT STOPS WHEN YOU BREATHE. Measured as HP
@@ -25837,7 +25860,7 @@ function testReefAirBurst() {
       `something other than the ${OWNED.length + 1} hazards this chapter owns hit the player: [${w1.other.join(', ')}] -- the world is not empty and these numbers are not the bar's`)
     // Breathe. Parked in a pocket, the bar climbs off zero and the damage must stop with it — the
     // half that makes this a state you can leave rather than a timer that has expired.
-    run._shaftCellI = null; run._shaftCellJ = null
+    run._shaftCellI = null; run._shaftCellJ = null; run._shaftRingCell = null
     streamShafts(run)
     assert.ok(run.shafts.length > 0, 'no pocket streamed to breathe in — the rest of this case cannot run')
     const sh = run.shafts[0]
@@ -25863,22 +25886,56 @@ function testReefAirBurst() {
 
   // (d) THE BURST IS A DASH, AND AN EMPTY BAR STILL GETS ONE. Three runs off one seed with identical
   // input, differing only in the button: not pressed, pressed at 0, pressed at a full bar. Measured
-  // as DISTANCE ALONG THE LANE over the same window, which is the only thing the dash can be — a
-  // burst that sets its timer and is never read moves the player exactly as far as not pressing.
-  // The no-press control is also pinned to the exact scroll, so this cannot pass by the whole
-  // chapter having sped up.
+  // as DISTANCE TRAVELLED over the same window, which is the only thing the dash can be — a burst
+  // that sets its timer and is never read moves the player exactly as far as not pressing.
+  //
+  // ⚠ HELD AT FULL THROTTLE, AND SETTLED FIRST. This used to hold a DEAD STICK and pin the no-press
+  // control to the chapter's laneScroll, which was exact while the lane carried you at 90px/s
+  // whether you asked or not. There is no scroll on a ring: a dead stick means throttle zero, the
+  // player coasts to a stop, and the control moved 24px against the 108 it demanded. The honest
+  // ring form is to hold the stick, let CIRCUIT_ACCEL finish its ramp, and only then open the
+  // window — which also makes `want` below read the speed the multiplier actually multiplies.
+  //   Measured as a straight-line distance rather than as a coordinate. Over 1.2s at 270px/s the
+  // track bends, so the chord is a little under the arc; that is the same for all three runs and
+  // cancels in the differences this case is built on, and the absolute checks carry a tolerance.
   {
+    const settled = laneScrollFor(CHAPTERS.reef) * CHAPTERS.reef.laneThrottle.max
+    // ⚠ A FIXED STICK IS NOT "FULL THROTTLE" ON A RING, and the first cut of this used one. {x:1,y:0}
+    // is a WORLD bearing; at f = 0 the track's tangent is +y, so holding it drives the player
+    // straight into the outer wall, where the clamp holds them and 1.2s of "full throttle" covers
+    // 24px. The stick has to be re-aimed at the track every frame, which is what a driver does.
+    const alongTrack = (run, ahead = 200) => {
+      const sp = CHAPTERS.reef.cave
+      const fu = ringFU(sp, run.player.x, run.player.y)
+      const r = Math.max(1, sp.ring.r0 - fu.u)
+      const w = ringCentre(sp, fu.f + (ahead * sp.lapLen) / (2 * Math.PI * r), run._obstacleSeed)
+      const dx = w.x - run.player.x, dy = w.y - run.player.y
+      const d = Math.hypot(dx, dy) || 1
+      return { x: dx / d, y: dy / d }
+    }
     const advance = (charge, press) => {
       const run = reefRun()
       run.obstacles.length = 0
-      run._obstacleSeed = null
+      // ⚠ THE SEED IS NOT NULLED ANY MORE, and nulling it is what made the control read 249px/s
+      // against 270. createRun places the player on the track's centreline THROUGH the run's own
+      // obstacleSeed (caveAt hashes its phases off it), so clearing the seed afterwards moves the
+      // whole cave out from under a player who is then somewhere in the wall. It was harmless when
+      // the lane's forward axis was a world coordinate; on a ring the cave IS the track.
+      // Ramp to the ceiling BEFORE the window opens, or the measurement is mostly CIRCUIT_ACCEL.
+      for (let i = 0; i < Math.round(2 / dt); i++) { stepSim(run, alongTrack(run), dt); quiet(run) }
       run.charge = charge
-      const p0 = run.player[LAX.fwd]
+      // PATH LENGTH, NOT DISPLACEMENT. A straight line between the ends of a 1.2s window at 270px/s
+      // cuts the corner the player drove round — 298px against the 324 actually covered, 8%, which
+      // is bigger than the empty-bar dash this case has to resolve. Summing the frames is exact and
+      // has no band to argue about.
+      let path = 0
       for (let i = 0; i < Math.round(1.2 / dt); i++) {
-        stepSim(run, { x: 0, y: 0, skill: press && i === 0 }, dt)
+        const px0 = run.player.x, py0 = run.player.y
+        stepSim(run, { ...alongTrack(run), skill: press && i === 0 }, dt)
         quiet(run)
+        path += Math.hypot(run.player.x - px0, run.player.y - py0)
       }
-      return (run.player[LAX.fwd] - p0) * LAX.dir
+      return path
     }
     const none = advance(0, false)
     const empty = advance(0, true)
@@ -25889,25 +25946,25 @@ function testReefAirBurst() {
       assert.ok(full > empty + (want(BURST_DUR_AT_FULL) - want(BURST_DUR_MIN)) * 0.9,
         `a full bar dashed only ${(full - empty).toFixed(1)}px further than an empty one — the charge buys nothing, so the bar is not the button's ammunition`)
     }
-    assert.ok(Math.abs(none - scroll * 1.2) < 1e-6,
-      `the no-press control must advance at exactly laneScroll (${scroll}), moved ${none.toFixed(3)} vs ${(scroll * 1.2).toFixed(3)}`)
+    // The control is pinned to the SETTLED throttle, so this cannot pass by the whole chapter having
+    // sped up. Exact now that it is a path length: the wall may still shave a frame, hence 1%.
+    assert.ok(Math.abs(none - settled * 1.2) < settled * 1.2 * 0.01,
+      `the no-press control must travel at the settled throttle (${settled}px/s), covered ${none.toFixed(1)} vs ${(settled * 1.2).toFixed(1)}`)
     // Against the constants, so a retune moves this with config.js instead of leaving a literal.
     // ONE FRAME of slack, and no more: the timer is spent before it is decremented, so a duration
     // that is a whole number of frames leaves a float residue (0.30 - 18/60 is 2.7e-17, not 0) and
     // the dash runs a 19th frame. That is 6px at these numbers, it is harmless, and a fat tolerance
     // here would hide the thing this pair is actually for — that the LENGTH is what the bar buys.
-    const want = (dur) => scroll * (BURST_SPEED_MUL - 1) * dur
-    const frame = scroll * (BURST_SPEED_MUL - 1) * dt
+    const want = (dur) => settled * (BURST_SPEED_MUL - 1) * dur
+    const frame = settled * (BURST_SPEED_MUL - 1) * dt
     // ⚠ THE ORDERING PAIR IS SIZED FROM THE CONSTANTS, NOT FROM A px LITERAL, and that is a repair
     // rather than a loosening. Both used to read `> x + 50`, a number eyeballed when the dash was
-    // 405px/s flat; BURST_SPEED_MUL now multiplies the speed the player is ACTUALLY making, and
-    // this fixture holds a dead stick, so it measures the dash at bare laneScroll — 10.8px, not
-    // 405. The 50 was never a property of the design, it was a property of the old multiplier, and
-    // it would have gone red for every future retune too.
+    // 405px/s flat; BURST_SPEED_MUL now multiplies the speed the player is ACTUALLY making, so no
+    // literal here can survive a retune of either the multiplier or the throttle.
     ordering()
-    assert.ok(Math.abs((empty - none) - want(BURST_DUR_MIN)) <= frame + 0.5,
+    assert.ok(Math.abs((empty - none) - want(BURST_DUR_MIN)) <= frame + 1,
       `an empty-bar dash should buy ${want(BURST_DUR_MIN).toFixed(0)}px, bought ${(empty - none).toFixed(0)}`)
-    assert.ok(Math.abs((full - none) - want(BURST_DUR_AT_FULL)) <= frame + 0.5,
+    assert.ok(Math.abs((full - none) - want(BURST_DUR_AT_FULL)) <= frame + 1,
       `a full-bar dash should buy ${want(BURST_DUR_AT_FULL).toFixed(0)}px, bought ${(full - none).toFixed(0)}`)
     // The Beyond presses the same button and must not move: it declares no `burst`, and run LN's
     // golden master is the wider proof, but a config slip here is worth naming on its own.
@@ -26237,7 +26294,13 @@ function testDeathAttribution() {
     run.player.maxHP = 1
     run.player.hp = 1
     let guard = 0
-    while (run.phase === 'playing' && guard++ < 60 * 300) { stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
+    // ⚠ THE CLOCK IS HELD OPEN, because this case is about the label of the thing that HURT you and
+    // a clock death is the one killedBy in the game with no damage behind it (stepCircuit ends the
+    // run at raceClock 0; nothing calls hurtPlayer). A player standing still in a race runs out of
+    // time long before anything touches them, so without this the case measured the clock and then
+    // failed its own "that source did damage" assertion — correctly, and about the wrong subject.
+    // The clock's own label is covered by DMG_SRC_NAME.clock and by run XX's French walk.
+    while (run.phase === 'playing' && guard++ < 60 * 300) { run.raceClock = 999; stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
     assert.strictEqual(run.phase, 'dead', 'run DA.c: a 1 HP player standing still in The Reef never died — the rig is wrong')
     assert.ok(run.killedBy, 'run DA.c: the run ended in death with run.killedBy still null')
     assert.ok(dmgSrcName(run.killedBy),
@@ -26254,7 +26317,7 @@ function testDeathAttribution() {
     rev.player.hp = 1
     rev.revives = 1
     let g2 = 0
-    while (rev.revives > 0 && g2++ < 60 * 300) { stepSim(rev, { x: 0, y: 0 }, dt); rev.events.length = 0 }
+    while (rev.revives > 0 && g2++ < 60 * 300) { rev.raceClock = 999; stepSim(rev, { x: 0, y: 0 }, dt); rev.events.length = 0 }   // clock held open, as above
     assert.strictEqual(rev.revives, 0, 'run DA.c: the revive was never consumed — the rig cannot test the revive branch')
     assert.strictEqual(rev.phase, 'playing', 'run DA.c: a consumed revive did not keep the run alive')
     assert.strictEqual(rev.killedBy, null,
