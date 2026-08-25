@@ -24436,6 +24436,168 @@ function testReefCircuit() {
     console.log(`PASS run CT.h (the stands are on the wall): the face moves up to ${worst.toFixed(0)}px across a ${V.footSpan}px foot, and every rod takes its base and its lean from the wall at its own f`)
   }
 
+  // (i) THE BOUNCE. Owner, playing v7.237.0: "a clearer feel when you bump into coral or other
+  // fishes. like real slow, bounce, visual hint."
+  //
+  // BOTH IMPACTS USED TO MOVE THE PLAYER BY TELEPORT, and a teleport is not a bounce. Coral got one
+  // frame of CAVE_BOUNCE_PX and a fish got one frame of 24px, because stepPlayerMovement's circuit
+  // branch rewrites p.vx/p.vy from (heading x _laneSpeed) EVERY frame and erases any impulse
+  // written into them. run._kickX/_kickY are summed into that rewrite instead, so the throw lasts
+  // circuit.kickDecay and is a thing you can see.
+  //
+  // ASSERTED AS TRAVEL, NOT AS A FIELD, and the difference is the whole scenario. `_kickX != 0` is
+  // satisfied by a kick that is set and then overwritten before it moves anything — which is
+  // exactly the bug the field exists to fix. What is measured here is where the player ENDS UP.
+  {
+    const reef = () => {
+      Math.random = mulberry32(4242)
+      const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+      run.mods.spawnMul = 0
+      run.player.hp = run.player.maxHP = 100000
+      for (const q of run.enemies) q._dead = true
+      return run
+    }
+    // Park the player ON the face at f, at full speed.
+    //   ⚠ THE FACE THE STICK BELOW DRIVES INTO, AND THE TWO ARE NOT INTERCHANGEABLE. `intoWall`
+    // points away from the loop's hub, which is DECREASING u (ringXY has r = r0 - u) — so the
+    // player belongs on `c - (hw - radius)`. The first cut of this fixture used `c + ...`, the
+    // other face, and the player simply crossed the whole passage at full throttle: it recorded 34
+    // frames "off the face" and a depth of 0.02 and asserted green on a traverse with no crash in
+    // it at all. The kiting rig's own geometry, again.
+    const atWall = (run, f) => {
+      const cav = caveAt(f, spec, run._obstacleSeed)
+      const w = ringXY(spec, f, cav.c - (cav.hw - PLAYER.radius))
+      run.player.x = w.x
+      run.player.y = w.y
+      run._laneSpeed = laneScrollFor(ch) * ch.laneThrottle.max
+      run._headX = null
+    }
+    // How deep in the passage the player is, as a fraction: 0 on the centreline, 1 on the face.
+    const depth = (run) => {
+      const fu = ringFU(spec, run.player.x, run.player.y)
+      const cav = caveAt(fu.f, spec, run._obstacleSeed)
+      return Math.abs(fu.u - cav.c) / Math.max(1, cav.hw - PLAYER.radius)
+    }
+    // Radially OUTWARD from the loop's hub, i.e. straight into the outer wall wherever you are —
+    // CT.g's own stick.
+    const intoWall = (run) => {
+      const d = Math.hypot(run.player.x + spec.ring.r0, run.player.y) || 1
+      return { x: (run.player.x + spec.ring.r0) / d, y: run.player.y / d }
+    }
+
+    // -- coral. Drive INTO the face and hold there. Without a kick the clamp pins you on it every
+    // frame and `depth` never leaves 1; the bounce has to carry you measurably off it, and for
+    // longer than the single frame CAVE_BOUNCE_PX lasts.
+    //   THE STICK IS RELEASED AFTER THE IMPACT, and that is the case worth measuring rather than a
+    // convenience. Held into the wall the clamp wins and the player stays pinned — correctly: CT.g
+    // asserts a driver parked in coral dies there. What a bounce has to do is show up for a driver
+    // who clips the wall and then goes back to driving, so the stick fires one frame into the face
+    // and then lets go.
+    const F = 1500
+    const run = reef()
+    atWall(run, F)
+    const speed0 = run._laneSpeed
+    let crashes = 0, minDepth = 9, thrown = 0, speedAfter = null
+    let prev = 9
+    for (let i = 0; i < 40; i++) {
+      stepSim(run, i === 0 ? intoWall(run) : { x: 0, y: 0 }, dt)
+      if (run.events.some((e) => e.type === 'crash')) { crashes++; speedAfter = run._laneSpeed }
+      run.events.length = 0
+      const dp = depth(run)
+      if (crashes && dp < prev - 1e-6) thrown++       // still travelling away from the face
+      prev = dp
+      minDepth = Math.min(minDepth, dp)
+      if (run.phase !== 'playing') break
+    }
+    assert.ok(crashes >= 1,
+      `run CT.i: driving straight into the coral at full throttle raised ${crashes} crash events — circuit.crashSpeed ${circuitKnob(ch, 'crashSpeed')} is above the inward speed the track can actually generate, so nothing in the chapter is a crash`)
+    assert.ok(minDepth < 0.75,
+      `run CT.i: the crash left the player at ${(minDepth * 100).toFixed(0)}% of the way to the wall face at its furthest — the clamp is holding them ON the coral, which is the "coral does nothing" report. A bounce has to take them off it`)
+    assert.ok(thrown >= 8,
+      `run CT.i: the player was still being carried away from the face for only ${thrown} frames — a single-frame displacement is a correction, not a bounce. circuit.crashKick ${circuitKnob(ch, 'crashKick')} against kickDrag ${circuitKnob(ch, 'kickDrag')} should run for ~${Math.round(circuitKnob(ch, 'crashKick') / circuitKnob(ch, 'kickDrag') * 60)} frames`)
+    assert.ok(speedAfter != null && speedAfter < speed0 * (circuitKnob(ch, 'crashMul') + 0.05),
+      `run CT.i: the crash left ${((speedAfter ?? speed0) / speed0 * 100).toFixed(0)}% of top speed against a crashMul of ${circuitKnob(ch, 'crashMul')} — the "real slow" half of the ruling`)
+
+    // -- traffic. THE KNOCK IS THE CONTACT NORMAL AND NOT A WORLD AXIS, which is what this half
+    // exists for: the old code read laneAxes(reef).cross, i.e. world y, and on a ring that is
+    // across the passage at exactly two points of the lap and straight ALONG the track a quarter
+    // turn from them. At f = lapLen/2 the track runs along world y and the passage is crossed along
+    // world x, so the old knock was a shove straight up the road: the fish is parked there.
+    {
+      const bumped = reef()
+      // ⚠ AND NOT ON AN ISLAND. caveAt's `c` IS coral where the passage forks, so the centreline at
+      // a fork is the one place in the chapter a parked player is inside the wall — the first cut
+      // of this fixture landed on one and measured a CORAL crash kick, not a bump. Walk out from
+      // the half-lap to the first fork-free f; +/-150 of 5040 keeps the bearing within 11 degrees
+      // of the half-lap's, which is what the world-axis comparison below needs.
+      let HF = LAP / 2
+      for (let d = 0; d <= 150; d += 10) {
+        if (caveAt(LAP / 2 + d, spec, bumped._obstacleSeed).ph === 0) { HF = LAP / 2 + d; break }
+        if (caveAt(LAP / 2 - d, spec, bumped._obstacleSeed).ph === 0) { HF = LAP / 2 - d; break }
+      }
+      const cav = caveAt(HF, spec, bumped._obstacleSeed)
+      assert.strictEqual(cav.ph, 0, 'run CT.i: no fork-free point within 150f of the half-lap — the fixture would be measuring a coral crash and calling it a bump')
+      const home = ringXY(spec, HF, cav.c)
+      bumped.player.x = home.x
+      bumped.player.y = home.y
+      bumped.mods.spawnMul = 1          // ...turned back off once the loop below has its body
+      // ...and the fish sits directly OUTWARD of the player, so "away from the body" is radial and
+      // the world-y answer the old knock gave is very nearly along the track.
+      const outward = ringXY(spec, HF, cav.c - 1)
+      const nx = outward.x - home.x, ny = outward.y - home.y
+      const nd = Math.hypot(nx, ny) || 1
+      // A REAL SPAWNED BODY, not a literal: run SQ confines run.enemies.push to spawnEnemy, so the
+      // only honest way to get one is to let the chapter make it. Stepped with the stick at rest so
+      // the player has not moved off `home` by the time the fish is parked on them.
+      let fish = null
+      for (let i = 0; i < 60 * 8 && !fish; i++) {
+        stepSim(bumped, { x: 0, y: 0 }, dt)
+        bumped.events.length = 0
+        fish = bumped.enemies.find((q) => !q._dead) ?? null
+      }
+      assert.ok(fish, 'run CT.i: the reef spawned no body in 8s — this half of the scenario is asserting nothing')
+      bumped.mods.spawnMul = 0
+      for (const q of bumped.enemies) if (q !== fish) q._dead = true
+      bumped.player.x = home.x
+      bumped.player.y = home.y
+      bumped._laneSpeed = laneScrollFor(ch) * ch.laneThrottle.max
+      fish._dead = false
+      fish.hp = 1e6
+      fish._bumpAt = -999               // it may already have drifted into the player during the spawn loop
+      fish.x = home.x + (nx / nd) * (PLAYER.radius + fish.radius - 4)
+      fish.y = home.y + (ny / nd) * (PLAYER.radius + fish.radius - 4)
+      // THROTTLE OFF, so the only thing that can move the player is the bump. At full speed the
+      // 27px of forward travel in these three frames swamps the ~14px the kick is worth and the
+      // measurement reads whichever way the heading happened to be pointing.
+      bumped._laneSpeed = 0
+      const before = { x: bumped.player.x, y: bumped.player.y }
+      let bumps = 0, strays = 0
+      for (let i = 0; i < 4; i++) {
+        stepSim(bumped, { x: 0, y: 0 }, dt)
+        bumps += bumped.events.filter((e) => e.type === 'bump').length
+        strays += bumped.events.filter((e) => e.type === 'crash').length
+        bumped.events.length = 0
+        for (const q of bumped.enemies) if (q !== fish) q._dead = true
+      }
+      assert.ok(bumps >= 1, 'run CT.i: a fish overlapping the player raised no bump event — traffic is free again')
+      assert.strictEqual(strays, 0, 'run CT.i: the player crashed into coral during the traffic fixture — whatever this measured, it was not the bump')
+      const mx = bumped.player.x - before.x, my = bumped.player.y - before.y
+      const moved = Math.hypot(mx, my)
+      assert.ok(moved > 8,
+        `run CT.i: a traffic bump moved the player ${moved.toFixed(1)}px in 4 frames — circuit.bumpKick ${circuitKnob(ch, 'bumpKick')} is being written and then erased by the velocity rewrite, which is what the old position-nudge existed to dodge`)
+      // ...AND IT WENT STRAIGHT AWAY FROM THE FISH. The angle is the assertion, not the distance:
+      // laneAxes(reef).cross is world y, and this fixture is parked where the contact normal is
+      // nearly perpendicular to it — so a knock on the world axis lands ~90 degrees off here.
+      const offNormal = Math.acos(Math.max(-1, Math.min(1, (mx * -(nx / nd) + my * -(ny / nd)) / (moved || 1)))) * 180 / Math.PI
+      const axisVsNormal = Math.acos(Math.min(1, Math.abs(ny / nd))) * 180 / Math.PI
+      assert.ok(axisVsNormal > 60,
+        `run CT.i: at f = lapLen/2 the contact normal is only ${axisVsNormal.toFixed(0)} degrees off world y — this fixture was chosen because the two DISAGREE there, and if the ring has moved it is no longer testing anything`)
+      assert.ok(offNormal < 15,
+        `run CT.i: the bump threw the player ${offNormal.toFixed(0)} degrees off the line away from the fish — on a ring the knock has to be the contact normal, and laneAxes(reef).cross (world y) is ${axisVsNormal.toFixed(0)} degrees away from it at this point of the lap`)
+      console.log(`PASS run CT.i (the bounce): driving into coral raised ${crashes} crashes, left ${(speedAfter / speed0 * 100).toFixed(0)}% of top speed (crashMul ${circuitKnob(ch, 'crashMul')}) and carried the player off the face for ${thrown} frames, down to ${(minDepth * 100).toFixed(0)}% of the way to it; a fish threw them ${moved.toFixed(1)}px, ${offNormal.toFixed(0)} degrees off the contact normal, where world y sits ${axisVsNormal.toFixed(0)} degrees off it`)
+    }
+  }
+
   console.log(`PASS run CT (the circuit): ${SWIMTHROUGHS_PER_LAP} swimthroughs a lap on 4 seeds, ${Math.min(...picked.map((s) => s.hw)).toFixed(0)}-${Math.max(...picked.map((s) => s.hw)).toFixed(0)}px wide against a ${spec.halfMin}-${spec.halfMax} passage and never closer than 400px apart; full throttle finishes ${ch.circuit.laps} laps in ${fast.run.raceTime.toFixed(2)}s real (splits ${splits.map((s) => s.toFixed(1)).join('/')}, spread ${spread.toFixed(2)}s) crossing all ${fast.swims.length} checkpoints; easing off dies to the clock at ${slow.run._realTime.toFixed(1)}s; The Beyond grows neither clock nor lap`)
 }
 

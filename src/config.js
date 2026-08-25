@@ -6901,8 +6901,9 @@ CHAPTERS.reef = {
   // magnitude; `player.speed` never reaches it. (Proven the expensive way: a chapter speed
   // multiplier on player.speed moved the measured 4-lap race time by 0.00s.)
   // balance_decision : the reef drives at twice its old speed [2026-08-25]
-  //  - CIRCUIT_DEFAULTS.accel and crashSpeed are both DEFINED against this number and were doubled
-  //    with it; the air economy is denominated in pockets met per second and is now ~2x richer.
+  //  - CIRCUIT_DEFAULTS.accel is DEFINED against this number and was doubled with it; the air
+  //    economy is denominated in pockets met per second and is now ~2x richer. crashSpeed WAS too
+  //    and no longer is — see its own block for why the inward component is not half of top speed.
   laneScroll: 180,
   // THE THROTTLE (owner, 2026-08-24: "the move right / move left actions should actually make the
   // level scroll faster / slower", then "it should be wayyyy speedier, like 3x the speed"). The
@@ -6987,20 +6988,22 @@ CHAPTERS.reef = {
     // radius r0 that is `A * n^2 > r0 - A`, so the counter-turn is bought by AMPLITUDE ON A LOW
     // HARMONIC and by nothing else. At wander 130 spread over harmonics 2/5/10 the lap held one
     // sign for three quarters of its length and every reversal it did have was a short-octave kink.
-    // 380 over 3/4/7 measures (scripts/reef-track-map.mjs, seed 0):
-    //     wander 130, 2/5/10   25% of the lap turns the other way, 16 direction changes, min r 272
-    //     wander 380, 3/4/7    36%,                                12 changes,            min r 188
-    // Three hairpins with counter-curves and straights between them, instead of a doughnut.
+    //   ⚠ IT IS A RATIO WITH r0, NEVER A PIXEL COUNT, WHICH IS WHY IT MOVED WITH THE RING. The
+    //   counter-turn test above is A * n^2 > r0 - A, so holding wander still while r0 grew would
+    //   have flattened the lap back toward the doughnut the owner rejected. 440/1400 and 572/1820
+    //   are the same track at two sizes, and reef-track-map.mjs says so: identical counter-turn
+    //   (7.75 rad/lap, 444deg), identical 16 direction changes, identical 37% of samples turning
+    //   the other way, with every radius 30% larger (tightest corner 97px -> 126px).
     //   ⚠ THE CEILING IS CLEARANCE, NOT hw, AND THE TWO ARE NOT THE SAME NUMBER. hw is measured
     //   RADIALLY; where the track runs steeply across the radii the real gap is hw x cos(that
-    //   angle), and past about wander 500 the inner edge of a hairpin folds through itself while hw
-    //   still reads 200. Measured worst clearance off the racing line: 149px at 130, 86px at 380,
-    //   63px at 520 with 19% of the lap under 90. 380 is the last value that never closes below two
-    //   player widths. reef-track-map.mjs prints it; do not move this knob without reading it.
+    //   angle), and at a high enough wander/r0 the inner edge of a hairpin folds through itself
+    //   while hw still reads 200. Measured worst clearance off the racing line: 85px, with 3% of
+    //   the lap under 90 (player radius 22). reef-track-map.mjs prints it; do not move this knob —
+    //   or r0 — without reading it, and move the two together.
     // halfMin/halfMax 170/220 -> 150/200: on a phone the visible world is ~390px across the short
     // axis and the camera is centred now (no lane to bias it), so a 440px track is wider than the
     // screen at the moments you are driving across it. 300-400px still holds ~7 player widths.
-    wander: 440, halfMin: 150, halfMax: 200,
+    wander: 572, halfMin: 150, halfMax: 200,
     // EVERY WAVELENGTH DIVIDES lapLen (5040), WHICH IS WHAT MAKES THE TRACK A CIRCUIT. The passage
     // is summed sines of f, so it repeats exactly when every length divides the lap -- no `f % lap`
     // wrap, no seam to blend, caveAt untouched.
@@ -7045,26 +7048,36 @@ CHAPTERS.reef = {
     // floor(f / every), a cell index that keeps climbing, and caveAt wraps it mod lapLen/every. At
     // 5040 / 720 = 7 there are seven candidate places, the same seven every lap, and a track you
     // can learn is the point of a circuit.
-    //   ONE EVERY ~1200px OF ARC. 7 candidates at 0.8 is 5.6 forks over the 6717px a lap now
-    // covers. The previous cut backed off to 5 candidates because 7 of them on a 5785px doughnut
-    // was a side-commitment every 1.6s — a texture rather than a decision. The corners are what buy
-    // it back: an island now lands ON them, so picking a side is picking the inside or the outside
-    // line rather than choosing between two identical tubes.
+    //   ONE CANDIDATE EVERY ~1600px OF ARC. The previous cut backed off to 5 candidates because 7
+    // of them on a 5785px doughnut was a side-commitment every 1.6s — a texture rather than a
+    // decision. The corners are what buy it back: an island now lands ON them, so picking a side is
+    // picking the inside or the outside line rather than choosing between two identical tubes.
+    //   ⚠ every AND span ARE IN f, SO A BIGGER RING STRETCHES BOTH IN PIXELS. Holding them still
+    // while r0 grew 30% would have thinned the islands to one per 2080px and stretched each lens
+    // 30% longer for the same width. 720 -> 560 keeps 5040/560 = 9 candidates at 1615px of arc
+    // apart (it was 7 at 1597px), and 250 -> 192 keeps the lens the same 436px long it was.
     // balance_decision : more islands, because corners made them a choice [2026-08-25]
     //  - `frac` is a SHARE and never a pixel width — see the warning in caveAt, and run RS.f, which
     //    pins it against the air pockets a branch must not swallow.
-    branch: { every: 720, chance: 0.75, span: 250, frac: 0.3 },
+    branch: { every: 560, chance: 0.75, span: 192, frac: 0.3 },
     // THE LAP, IN PIXELS, AND IT LIVES HERE RATHER THAN ON `circuit` BECAUSE IT IS A PROPERTY OF
     // THIS GEOMETRY: it is the period every wavelength above divides, and the modulus caveAt wraps
     // the fork cell by. Authoring it twice is the drift this repo's own CLAUDE.md calls its largest
     // defect class, so `circuit` carries the lap COUNT and reads the length from here.
-    // 5040px is about 28s at a realistic 180px/s -- the owner's "a lap should be 30s average".
+    //   ⚠ IT IS AN ANGLE AND NOT A LENGTH. ringXY reads it only as 2*pi*f / lapLen, so changing it
+    // rescales f and moves nothing on screen; the track's actual length is cave.ring.r0. Read that
+    // knob's block before quoting a lap time off this number.
     lapLen: 5040,
     // THE LOOP ITSELF. r0 is the nominal radius the passage centre wobbles about; see ringXY for
-    // why the centre sits at (-r0, 0) and why u is measured inward. 900 is chosen from the LAP
-    // TIME, not from the picture: the arc a lap actually covers is ~5800px once the wobble is paid
-    // for, which at the 270px/s a full throttle makes is ~21s a lap and ~108s for the five.
-    ring: { r0: 1400 },
+    // why the centre sits at (-r0, 0) and why u is measured inward.
+    //   ⚠ THIS IS THE TRACK'S LENGTH, AND lapLen IS NOT. lapLen is an ANGLE (ringXY divides by it
+    // to get t), so a bigger lapLen at a fixed r0 changes nothing but the f scale. The arc a lap
+    // actually covers is 2*pi*r0 plus what the wobble adds — 14537px here, which reef-track-map.mjs
+    // prints and nothing else does. At the 540px/s a full throttle makes that is ~27s a lap.
+    // balance_decision : the circuit is 30% longer [2026-08-25]
+    //  - scale wander WITH it (same ratio) or the corners flatten out, and re-derive
+    //    SWIMTHROUGHS_PER_LAP from the new arc. Both are noted at their own knobs.
+    ring: { r0: 1820 },
     salt: 47,                                      // next free salt block; 44-46 were the spurs'
     // NO `fill` HERE, AND DELIBERATELY NOT. It read "how far past the passage edge coral is drawn,
     // must exceed the largest half-view the game can present" and NOTHING EVER READ IT -- syncSpurs
@@ -9584,9 +9597,16 @@ export const CIRCUIT_DEFAULTS = {
   // 270; the reef now tops out at 540, so holding this constant would have doubled all three and
   // undone the tune by leaving it alone.
   accel: 360,        // px/s^2 the throttle's speed eases at — see CIRCUIT_ACCEL's block above
-  clockStart: 30,    // seconds on the clock at the start line
-  clockCap: 30,      // ...and the ceiling a swimthrough may top it back up to
-  swimTime: 6,       // seconds a swimthrough is worth
+  // 30/30/6 -> 40/40/8, ALL THREE BY THE SAME 4/3, because the lap grew 30% under a fixed ten
+  // checkpoints. What the clock actually is, is the ratio of seconds-banked to seconds-between-
+  // gates (see the block above); leaving these alone under a longer lap would have shrunk that
+  // ratio by 30% and quietly turned a clean lap into a losing one. See SWIMTHROUGHS_PER_LAP for
+  // why the gate COUNT could not absorb it instead. 4/3 rather than the arc's exact 1.30 so the
+  // two numbers the player reads on the HUD are round; the 2.5% of slack that buys is well inside
+  // the 528..1272px spread the gate spacing already has.
+  clockStart: 40,    // seconds on the clock at the start line
+  clockCap: 40,      // ...and the ceiling a swimthrough may top it back up to
+  swimTime: 8,       // seconds a swimthrough is worth
   // THE CRASH, AND WHAT SEPARATES IT FROM A GRAZE. The corridor pinches, so sliding along coral is
   // ordinary play — charge momentum for every touch and the chapter is unplayable. stepCaveWall is
   // a position test with no velocity read, so the signal is the OVERSHOOT: how far past the wall
@@ -9595,16 +9615,27 @@ export const CIRCUIT_DEFAULTS = {
   // px, and does not change meaning with the frame rate.
   //   Fires on the ENTRY frame only. Applied every frame of contact it would be an exponential
   // decay, i.e. the "sustained contact" rule the owner did not pick.
-  crashSpeed: 274,   // px/s of inward cross speed that separates a crash from a brush (half of the 540 top speed)
-  crashMul: 0.55,    // what a crash leaves of _laneSpeed
+  // 274 -> 150. Owner, playing v7.237.0: "have a clearer feel when you bump into coral or other
+  // fishes. like real slow, bounce, visual hint." Half of top speed sounds like the natural split
+  // and is the wrong quantity: this is the INWARD component, and a driver clipping a corner is
+  // mostly travelling ALONG the wall. 274 of 540 is sin(30deg), so nothing shallower than a
+  // 30-degree stuff registered at all — every apex clip in the chapter was a free graze that took
+  // HP and cost no speed, which is exactly "coral does nothing". 150 is sin(16deg): a glance still
+  // slides, a stuff still costs you the corner.
+  // balance_decision : anything steeper than a 16-degree glance is a crash [2026-08-25]
+  crashSpeed: 150,   // px/s of inward cross speed that separates a crash from a brush
+  crashMul: 0.35,    // what a crash leaves of _laneSpeed
   // XP COMES FROM THE TRACK, NOT FROM KILLS (owner, playing v7.231: "no upgrades given in my run").
   // A racer drives PAST the crowd — that is what passiveCrowd is for — so the chapter had no xp
   // source at all and the level-up screen never opened once in a whole race. The checkpoint is the
   // right till: it is the thing the mode already rewards you for hitting.
   //   THE NUMBER IS THE CURVE, not a guess. xpForLevel is 5 + level*4, so four level-ups cost
-  // 9+13+17+21 = 60xp, against 5 laps x 6 swimthroughs = 30 crossings. 2 pays exactly four screens
-  // over a clean race, which is the owner's own "fewer level-ups, 3-4 a race" ruling.
-  swimXp: 2,
+  // 9+13+17+21 = 60xp and six cost 114, against 4 laps x SWIMTHROUGHS_PER_LAP crossings.
+  // balance_decision : 30% more xp a checkpoint [2026-08-25]
+  //  - 4 laps x 10 checkpoints x 2.6 = 104xp, i.e. five level-up screens over a clean race where
+  //    it used to be four. The checkpoint COUNT is pinned by swimthroughsFor's field of candidates
+  //    and cannot be the knob here — see SWIMTHROUGHS_PER_LAP.
+  swimXp: 2.6,
   // TRAFFIC (owner, same session: "the enemies/decor fishes swim through coral and do nothing. i
   // thought they were supposed to create traffic congestion"). Both halves were missing: nothing
   // held the crowd inside the passage, and contact was free because passiveCrowd zeroes their
@@ -9615,8 +9646,32 @@ export const CIRCUIT_DEFAULTS = {
   // OFF YOUR LINE is what traffic costs a driver, so contact moves the player across the lane as
   // well. If that knock puts you in coral you crash, and that is the intended reading: the fish
   // put you into the wall.
-  bumpMul: 0.7,      // what bumping a fish leaves of _laneSpeed
-  bumpKnock: 24,     // px across the lane the PLAYER is shoved, away from the body
+  // THE BOUNCE (owner, same sentence as crashSpeed above). Both impacts used to move the player by
+  // TELEPORT — one frame of CAVE_BOUNCE_PX for coral, one frame of 24px for a fish — and a
+  // single-frame displacement is not a bounce, it is a correction you cannot see. This is a
+  // velocity that decays, added on top of the heading in stepPlayerMovement's circuit branch, so
+  // the rebound plays out over a third of a second and reads as being thrown off the wall.
+  //   IT IS THE ONLY IMPULSE IN THE CHAPTER THAT SURVIVES A FRAME. p.vx/p.vy are rewritten from
+  // (heading x _laneSpeed) every frame, which is why bumpKnock was a position nudge in the first
+  // place; run._kickX/_kickY are summed into that rewrite instead of fighting it.
+  //   ⚠ ACROSS THE PASSAGE, WHICH ON A RING IS RADIAL AND NOT A WORLD AXIS. bumpKnock read
+  // laneAxes(ch).cross, i.e. world y — correct on the straight lane this was written for, and on a
+  // ring correct at exactly two points of the lap and pure forward/backward a quarter turn from
+  // them. Half of every traffic bump in the chapter was shoving the player along the track.
+  //   ⚠ IT DECAYS TO ZERO AT A FIXED px/s^2, NOT BY A FRACTION A FRAME. The obvious `kick *=
+  // 1 - dt/T` never reaches zero — it is a half-life, so the punch is smeared into a tail and what
+  // the player feels is a drift. MEASURED at 420 px/s on a 0.3s half-life: 48px of throw spread
+  // over 0.4s, peaking at 240px/s, which reads as the current pushing you rather than as coral
+  // hitting you. A constant drag front-loads it and ENDS it, and it gets the second property for
+  // free — a bigger hit throws you further AND for longer, off one knob.
+  //   THE TWO SPEEDS ARE READ AGAINST WHAT IS LEFT OF THE THROTTLE, not against top speed: a crash
+  // leaves 189px/s, so 640 sideways is unmistakably a throw. Travel is kick^2 / (2 x kickDrag):
+  // 85px over 0.27s for coral (about two player widths, out of a ~167px half-passage) and 33px
+  // over 0.17s for a fish, against the flat 24px teleport the bump used to be.
+  bumpMul: 0.55,     // what bumping a fish leaves of _laneSpeed
+  bumpKick: 400,     // px/s the PLAYER is thrown, away from the body
+  crashKick: 640,    // px/s the PLAYER is thrown, out of the coral face just hit
+  kickDrag: 2400,    // px/s^2 either of those bleeds off at, to a hard zero
   bumpCool: 0.6,     // s before the SAME fish can charge you again — a body scraping along the
                      // player must not compound into an exponential stop, the crashMul reasoning
   bumpShove: 34,     // px the fish is knocked clear, so you are never dragging one on the bonnet
@@ -9845,8 +9900,16 @@ export const caveAt = (f, spec, seed) => {
 // whole tune is the comparison in CIRCUIT_DEFAULTS' block: swimTime against the seconds between
 // checkpoints. A lap that grew from ~5800px of arc to ~11200 doubles that interval at a fixed six,
 // so a clean driver would arrive at each gate having spent more than the 6s it hands back and the
-// countdown would bleed out on a perfect lap. Ten keeps the interval at ~1120px of arc, i.e. the
-// number the 6s was measured against, and nothing downstream has to be re-swept.
+// countdown would bleed out on a perfect lap. Ten kept the interval at ~1120px of arc, i.e. the
+// number the 6s was measured against.
+//   ⚠ AND THERE IS A CEILING ON IT, WHICH IS WHY THE 30% LONGER LAP RAISED THE CLOCK INSTEAD.
+// swimthroughsFor picks the deepest N of the lapLen/168 = 30 local minima; take too many and the
+// last ones are not squeezes at all. 13 puts a gate at hw 190 against a lap whose widest tenth
+// starts at 189 — run CT.a catches it, and it is right to: "the checkpoint is the tightest point on
+// the track" stops being true when you are taking most of the field. Scaling circuit.swimTime and
+// the two clock knobs by the same 4/3 is the same tune from the other side — the ratio of
+// seconds-banked to seconds-between-gates is what the mechanic is, and it is untouched — and it
+// costs no geometry.
 export const SWIMTHROUGHS_PER_LAP = 10
 // How far apart two checkpoints must be, IN f — and f is an angle, so this is not a distance until
 // it is multiplied by the radius the track is at. That is the whole reason it moved with the ring:
@@ -11354,7 +11417,7 @@ export const CAVE_BOUNCE_PX = 26      // how far back along the lane a touch pus
 // 16 is the only value where the first row is clean and the second is still empty — below 12 the
 // wall-hugger starts finishing, which is the skill test leaking away.
 // balance_decision : the scrape stops ending clean races, still ends dirty ones [2026-08-25]
-//  - the punishment for coral is meant to be the CLOCK (circuit.crashMul takes 45% of your speed);
+//  - the punishment for coral is meant to be the CLOCK (circuit.crashMul takes 65% of your speed);
 //    this number only has to make sustained contact untenable, not out-damage a lost corner.
 // How long a driver has to stay off the coral before PASSIVES.cleanHeal starts paying. Every touch
 // resets it — see stepCircuit for why the delay is the whole card and a per-second drip is not.

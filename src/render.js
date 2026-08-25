@@ -18401,6 +18401,7 @@ const spurG = new Graphics()
   // see handleEvents. Stays 0 forever for any chapter without `crush` (state.js: rampageT never
   // moves off 0 there), so this is inert everywhere but skies.
   let prevRampageT = 0
+  let scrapeT = 0      // The Reef: cadence for the coral-scrape grit, reset the frame contact ends
   let frameDt = 0      // this frame's dt, for pool callbacks that need real elapsed time
   let playerX = 0      // player position, for pool callbacks whose entities are player-anchored (beams)
   let playerY = 0
@@ -18858,6 +18859,33 @@ const spurG = new Graphics()
     if (run.rampageT > 0 && prevRampageT <= 0) addShake(5, 0.3) // the widened crush radius just landed
     prevRampageT = run.rampageT
 
+    // v7.x THE REEF — SCRAPING CORAL. run._caveHit is sim's contract field for "the player is in the
+    // wall right now" (stepCaveWall publishes it every frame) and NOTHING READ IT: a graze under
+    // crashSpeed quietly billed CAVE_HIT_DPS and put nothing at all on screen, which is the same
+    // shape as the dead freeze this file's doc block warns about — a cost with no tell is
+    // indistinguishable from a bug, and the owner's report was that coral does nothing.
+    //   A TRICKLE AND NOT A BURST, deliberately: this is CONTACT, which lasts, and the impact
+    // already has its own event below. Grit off the player in the chapter's own coral tones, at a
+    // fixed cadence so a long scrape does not turn into a firework.
+    //   PALE, NOT CORAL-COLOURED, and that is the difference between a tell and nothing. The first
+    // cut drew the grit in SPUR_VIS.tones — the honest choice, since what comes off the wall IS the
+    // wall — and shot against a field built from those same six hues it was invisible at phone
+    // scale. Water-white is the one value the chapter's coral never reaches, and it reads as
+    // abrasion rather than as another polyp; one chip in three keeps a coral tone so the stream
+    // still says what it is scraping.
+    if (run._caveHit) {
+      scrapeT += frameDt
+      while (scrapeT >= 0.035) {
+        scrapeT -= 0.035
+        const a = Math.random() * Math.PI * 2
+        const sp = 60 + Math.random() * 90
+        spawnParticle(T.fx.circle_05, run.player.x, run.player.y, Math.cos(a) * sp, Math.sin(a) * sp,
+          0.26 + Math.random() * 0.16, 0.055,
+          scrapeT > 0.02 ? SPUR_VIS.tones[(Math.random() * SPUR_VIS.tones.length) | 0] : 0xdff0ff,
+          0.2, 2.4)
+      }
+    } else scrapeT = 0
+
     for (const e of events) {
       switch (e.type) {
         case 'hit':
@@ -19061,6 +19089,50 @@ const spurG = new Graphics()
           break
         case 'rockhit':
           spawnRing(e.x, e.y, 70, 0.26, T.novaWarm, 0xc9bda4)
+          break
+        // v7.x THE REEF — DRIVING INTO CORAL (sim.js stepCaveWall, {type:'crash',x,y,speed}). The
+        // crash has cost the player 65% of their speed and thrown them back out of the wall since
+        // the day it shipped, and it was AUDIBLE ONLY: SFX_FOR_EVENT gave it `crush` and render.js
+        // had no case at all, so on screen the two most expensive frames in a race looked exactly
+        // like a dropped frame. Owner, playing v7.237.0: "a clearer feel when you bump into coral".
+        //   THE SHAKE IS SCALED BY THE HIT, because the crash test is a threshold and a threshold
+        // with one fixed reaction says every stuff is the same stuff. `speed` is the inward px/s
+        // the wall took off you — the same number crashSpeed is compared against.
+        //   THE CHIPS ARE THE CHAPTER'S OWN CORAL (SPUR_VIS.tones), thrown out and dragged hard, so
+        // what flies off the wall is the wall. A generic white spark here would read as a weapon.
+        //   TWO RINGS AND THE OUTER ONE IS WHITE, for the reason the scrape's grit is pale: the
+        // burst is standing ON a wall drawn from the same six coral tones the chips are, and a
+        // shot of the first cut had it reading as more coral rather than as an impact. White is
+        // the value the chapter's palette never reaches. (Green would be higher contrast still and
+        // is spoken for — CIRCUIT_GATE_VIS lights the checkpoints in it, and "you hit something"
+        // must never wear the colour of "go here".)
+        //   AND THE CHIPS HAVE TO TRAVEL. At drag 3.4 they were spent inside their own spawn
+        // radius, so what shot was a soft cluster sitting on the player — the shape of a stain, not
+        // of an impact. Smaller, faster, and dragged a third as hard: they leave.
+        case 'crash': {
+          const sev = Math.min(1, (e.speed ?? 200) / 420)
+          addShake(5 + sev * 7, 0.22 + sev * 0.14)
+          spawnRing(e.x, e.y, 74 + sev * 46, 0.30, T.novaWarm, 0xffffff)
+          spawnRing(e.x, e.y, 40 + sev * 24, 0.20, T.novaWarm, 0xfff0d8)
+          for (let i = 0; i < 12 + ((sev * 8) | 0); i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 180 + Math.random() * (220 + sev * 260)
+            spawnParticle(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.28 + Math.random() * 0.22, 0.05 + Math.random() * 0.045,
+              i % 3 === 0 ? 0xffffff : SPUR_VIS.tones[(Math.random() * SPUR_VIS.tones.length) | 0],
+              0.15, 1.6)
+          }
+          break
+        }
+        // ...and BUMPING A FISH ({type:'bump',x,y} at the body, not the player). Same omission, and
+        // the same fix one weight down: a bump costs speed and never HP, so its tell must not read
+        // as damage. A soft ring on the BODY says which fish you hit and which way you got thrown,
+        // which is the information a driver needs; no chips, because nothing broke.
+        //   Fires at most once per body per circuit.bumpCool, which is what keeps a fish scraping
+        // along the player from strobing.
+        case 'bump':
+          addShake(2.5, 0.14)
+          spawnRing(e.x, e.y, 46, 0.24, T.novaWarm, 0xdff0ff)
           break
         // v7.x The Surf — the Shorebreak going up. This is ONLY the moment of the press: the crest
         // itself lasts for run._shorebreakT and is drawn every frame by drawShorebreak, which is

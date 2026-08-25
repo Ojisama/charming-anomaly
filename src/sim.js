@@ -911,8 +911,27 @@ function stepPlayerMovement(run, input, dt) {
       run._headX = Math.cos(h0); run._headY = Math.sin(h0)
     }
     const burstMul2 = (run._burstT ?? 0) > 0 ? BURST_SPEED_MUL : 1
-    p.vx = run._headX * run._laneSpeed * burstMul2
-    p.vy = run._headY * run._laneSpeed * burstMul2
+    // THE BOUNCE (v7.x — CIRCUIT_DEFAULTS' kick block). Coral and traffic both throw the player,
+    // and this is the ONLY impulse in the chapter that survives a frame: the two lines below
+    // rewrite the velocity from (heading x speed) every frame, so an impulse written into p.vx is
+    // erased before it moves anything. That is why the old bumpKnock was a position teleport, and
+    // a one-frame displacement is not a bounce — it is a correction you cannot see. Summed here
+    // instead, decaying over kickDecay, so the rebound plays out and reads.
+    //   NOT ROTATED INTO THE HEADING: run._headX/_headY are what the fish points along and what
+    // the throttle drives, and a bounce that turned the player would be a steering input. You are
+    // shoved sideways while still facing your line, which is what a wall does to a car.
+    const kx = run._kickX ?? 0, ky = run._kickY ?? 0
+    p.vx = run._headX * run._laneSpeed * burstMul2 + kx
+    p.vy = run._headY * run._laneSpeed * burstMul2 + ky
+    if (kx || ky) {
+      // A CONSTANT DRAG TO A HARD ZERO, never a fraction a frame — see kickDrag's block for the
+      // measurement. `kick *= 1 - dt/T` is a half-life: it never ends, so the impulse arrives as a
+      // long weak tail and the impact reads as a current rather than as a wall.
+      const mag = Math.hypot(kx, ky)
+      const left = mag - circuitKnob(cch, 'kickDrag') * dt
+      if (left <= 0) { run._kickX = 0; run._kickY = 0 }
+      else { run._kickX = (kx / mag) * left; run._kickY = (ky / mag) * left }
+    }
     if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
   } else if ((run._lungeT ?? 0) > 0) {
     // THE LUNGE (v7.x, The Wreck). The free-roaming twin of the burst above, and it has to live in
@@ -3821,12 +3840,17 @@ function bumpTraffic(run, ch, e, dx, dy) {
   const shove = circuitKnob(ch, 'bumpShove')
   e.x += (dx / d) * shove
   e.y += (dy / d) * shove
-  // ...and the player goes the other way, ACROSS the lane only. A POSITION nudge and not a
-  // velocity one: p[vCross] is rewritten from the stick every frame, so an impulse there is erased
-  // before it moves anything. Forward is left alone — the lane owns that axis, which is the same
-  // rule that forbids the obstacle push-out and the UFO's pull beam from touching it.
-  const ax = laneAxes(ch)
-  run.player[ax.cross] -= (ax.cross === 'x' ? dx : dy) / d * circuitKnob(ch, 'bumpKnock')
+  // ...and the player is thrown the other way, straight away from the body. A DECAYING VELOCITY
+  // (run._kickX/_kickY, spent by stepPlayerMovement's circuit branch) rather than the single-frame
+  // position nudge this used to be: 24px applied in one frame is a correction the player cannot
+  // see, which is half of why traffic read as free.
+  //   AND IT IS THE CONTACT NORMAL, NOT A WORLD AXIS. This read laneAxes(ch).cross — world y —
+  // which is "across the lane" on the straight corridor it was written for and, on a ring, is
+  // across the passage at exactly two points of the lap and straight along the track a quarter
+  // turn from them. Half of every bump in the chapter was shoving the player up the road.
+  const kick = circuitKnob(ch, 'bumpKick')
+  run._kickX = -(dx / d) * kick
+  run._kickY = -(dy / d) * kick
   run.events.push({ type: 'bump', x: e.x, y: e.y })
 }
 
@@ -4688,6 +4712,14 @@ function stepCaveWall(run, dt) {
     const inward = ((a > lim ? a - lim : inner - a) / dt)
     if (inward > circuitKnob(ch, 'crashSpeed')) {
       run._laneSpeed *= circuitKnob(ch, 'crashMul')
+      // ...and you are thrown back out of it. Radially, because `u` is the across-the-passage axis
+      // and the world one is meaningless on a ring: ringXY puts the point at r = r0 - u, so growing
+      // u travels along (-cos t, -sin t). Outward from the OUTER wall means shrinking |off|; out of
+      // the ISLAND means growing it, which is the same sign flip the clamp below makes.
+      const du = (off >= 0 ? 1 : -1) * (a > lim ? -1 : 1)
+      const kick = circuitKnob(ch, 'crashKick') * du
+      run._kickX = -Math.cos(fu.t) * kick
+      run._kickY = -Math.sin(fu.t) * kick
       run.events.push({ type: 'crash', x: p.x, y: p.y, speed: inward })
     }
   }
