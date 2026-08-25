@@ -210,6 +210,13 @@ function furthestUnlockedChapterId(meta) {
   return furthest
 }
 
+// The race clock's danger threshold and the split flash's window, in seconds. HUD-only — neither
+// changes anything the sim can see, which is why they sit here rather than in config.js's balance
+// tables. The flash window is the whole reason the lap line is legible: at racing speed it is on
+// screen for about a second and looks like every other stretch of reef.
+const CIRCUIT_CLOCK_LOW_S = 5
+const CIRCUIT_SPLIT_FLASH_S = 1.8
+
 function fmtTime(s) {
   const t = Math.max(0, Math.floor(s))
   const m = String(Math.floor(t / 60)).padStart(2, '0')
@@ -2028,6 +2035,12 @@ export function initUI(hooks) {
         <span class="hp-text"></span>
       </div>
       <div class="hud-timer">${fmtTime(RUN_DURATION)}</div>
+      <!-- THE RACE PILL (v7.x, a circuit chapter only) — built unconditionally like the rampage
+           meter above and hidden until updateHUD knows the chapter. Pinned to row 2 / column 2
+           explicitly for the same reason .rampage-wrap is pinned to row 2 / column 1: hud-top is a
+           3-column grid and a 5th child would wrap SOMEWHERE, which is not the same as wrapping
+           under the clock on purpose. -->
+      <div class="hud-lap hud-lap--hidden"></div>
       <div class="hud-right">
         <!-- data-act="dev-tap": opens the hidden dev menu, and does nothing whatsoever unless the
              title's DEV toggle is on (see the 'dev-tap' click case). The badge is otherwise inert,
@@ -2106,6 +2119,7 @@ export function initUI(hooks) {
     hpFill: screens.hud.querySelector('.hp-fill'),
     hpText: screens.hud.querySelector('.hp-text'),
     timer: screens.hud.querySelector('.hud-timer'),
+    lap: screens.hud.querySelector('.hud-lap'),
     coins: screens.hud.querySelector('.hud-coins'),
     lv: screens.hud.querySelector('.lv-badge'),
     xpFill: screens.hud.querySelector('.xp-fill'),
@@ -2136,6 +2150,9 @@ export function initUI(hooks) {
     // per-chapter constant, checked once per change rather than every frame); bossBarShown/Pct
     // gate the new boss HP bar the same way rampagePct/rampageActive gate the rampage meter.
     scriptedChapter: undefined, bossBarShown: undefined, bossBarPct: -1,
+    // v7.x circuit: same per-chapter latch, plus two cached strings. `lapText` covers the pill and
+    // `lowClock` the countdown's danger class — both would otherwise be written 60x a second.
+    circuitChapter: undefined, lapText: '', lowClock: undefined, lapFlash: undefined,
     // CHAOS PACT: the seconds tick once a second and the bonus only on a surviving a wave, so both
     // are cached and only the rail's height is repainted every frame — a per-frame textContent
     // write is the expensive half.
@@ -2204,6 +2221,21 @@ export function initUI(hooks) {
     // above — a per-chapter constant, not something that flips mid-run.
     const scriptedChapter = CHAPTERS[run.chapter].scripted === true
     if (scriptedChapter !== last.scriptedChapter) last.scriptedChapter = scriptedChapter
+    // v7.x THE CIRCUIT'S READOUT. Latched per chapter exactly like crushChapter/scriptedChapter
+    // above, and the latch earns its keep on the way OUT: Play again into a different chapter
+    // reuses this same hud object, so the pill has to be hidden again rather than left showing the
+    // last race's lap count. `!= null` rather than `=== true` — CHAPTERS[].circuit is an object.
+    const circuitChapter = CHAPTERS[run.chapter].circuit != null
+    if (circuitChapter !== last.circuitChapter) {
+      last.circuitChapter = circuitChapter
+      hud.lap.classList.toggle('hud-lap--hidden', !circuitChapter)
+      // THE TIMER SLOT MEANS SOMETHING DIFFERENT ON EITHER SIDE OF THIS FLIP AND BOTH SIDES RENDER
+      // A SMALL INTEGER, so the cache can be holding a number that is accidentally still "equal"
+      // for the new meaning — 27 seconds of race clock and 27 seconds of survival clock look the
+      // same to `!==`, and the slot would keep the old chapter's number until the value moved.
+      last.remain = NaN
+      if (!circuitChapter) hud.timer.classList.remove('hud-timer--low')
+    }
     // TIME DEBT marks the clock it is accelerating (v7.15). The card changes the RATE, never the
     // number, so at the instant you take it the timer reads exactly what it read before — measured,
     // 4:01 either way — and one real second later both still read 3:59. It works (run.time advances
@@ -2222,11 +2254,48 @@ export function initUI(hooks) {
         last.remain = label
         hud.timer.textContent = label
       }
+    } else if (circuitChapter) {
+      // THE RACE CLOCK, WHICH IS NOT A CLOCK OF THE SAME KIND AS THE ONE IT REPLACES. Until this
+      // branch existed the Reef rendered `RUN_DURATION - run.time`, counting down to 5:00 — a mark
+      // with nothing to do with the race, on a chapter that ends in about 76 seconds. It is bare
+      // seconds rather than fmtTime because it lives between 0 and circuit.clockCap (30s), and a
+      // 27-second countdown written `00:27` spends its two largest glyphs on zeros.
+      const remain = Math.max(0, Math.ceil(run.raceClock ?? 0))
+      if (remain !== last.remain) {
+        last.remain = remain
+        hud.timer.textContent = String(remain)
+      }
+      const lowClock = remain <= CIRCUIT_CLOCK_LOW_S
+      if (lowClock !== last.lowClock) {
+        last.lowClock = lowClock
+        hud.timer.classList.toggle('hud-timer--low', lowClock)
+      }
     } else {
       const remain = Math.max(0, Math.ceil(RUN_DURATION - run.time))
       if (remain !== last.remain) {
         last.remain = remain
         hud.timer.textContent = fmtTime(remain)
+      }
+    }
+    if (circuitChapter) {
+      // THE PILL, AND ITS SPLIT FLASH IS DERIVED RATHER THAN SUBSCRIBED. stepCircuit publishes
+      // run.lapSplit and run._lapAt precisely so this needs no event feed: derived from state it
+      // survives a dropped frame and a paused one, and ui.js gains no subscription to maintain.
+      //   The lap NUMBER is `done + 1` — run.lap counts laps COMPLETED — clamped so the final
+      // frame of the winning lap reads 4/4 rather than 5/4.
+      const laps = CHAPTERS[run.chapter].circuit.laps
+      const done = run.lap ?? 0
+      const flash = done > 0 && (run._realTime ?? 0) - (run._lapAt ?? 0) < CIRCUIT_SPLIT_FLASH_S
+      const lapText = flash
+        ? `${t('LAP')} ${done} · ${run.lapSplit.toFixed(1)}s`
+        : `${t('LAP')} ${Math.min(done + 1, laps)}/${laps} · ${fmtTime(run._realTime ?? 0)}`
+      if (lapText !== last.lapText) {
+        last.lapText = lapText
+        hud.lap.textContent = lapText
+      }
+      if (flash !== last.lapFlash) {
+        last.lapFlash = flash
+        hud.lap.classList.toggle('hud-lap--split', flash)
       }
     }
     // Boss HP bar: gated on scriptedChapter too (not just run.bossBar) so leaving the chapter mid-

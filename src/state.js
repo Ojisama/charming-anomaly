@@ -1278,6 +1278,10 @@ function generateWells(sig) {
  *   a RUNNING count of how many have been crossed since the run began. The count never resets at a
  *   lap boundary, which is what lets laps and checkpoints share one arithmetic and never disagree.
  * _lapAt: number — run._realTime at the last lap line, so the `lap` event can carry its own split.
+ * lapSplit: number — the last COMPLETED lap's duration in seconds, undefined before lap 1. The same
+ *   value the `lap` event carries, published so the HUD's split flash can be derived from state
+ *   (run.lap, this, and _realTime - _lapAt for the window) instead of from an event subscription —
+ *   which is what lets it survive a dropped frame and a paused one.
  * _crushing: boolean — the player is pinned against the lane's trailing edge THIS frame, i.e. the
  *   lane has left without them. Published by stepLaneFront; the tell render.js draws off.
  * _crushAcc: number — the crush's part-tick accumulator (LANE_CRUSH_TICK). _spurAcc's twin.

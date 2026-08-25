@@ -1774,7 +1774,12 @@ function stepCircuit(run, dt) {
     // The split is what makes the loop legible — see the design doc's note that at 270px/s the art
     // has 1.2s to say "this is the lap line" and cannot. The EVENT carries the read.
     const at = run._realTime ?? 0
-    run.events.push({ type: 'lap', lap, x: run.player.x, y: run.player.y, split: at - (run._lapAt ?? 0), total: at })
+    // PUBLISHED ON THE RUN AS WELL AS ON THE EVENT, and it is the same value read twice rather than
+    // two computations of it. The HUD's split flash is derived from state (run.lap, run.lapSplit,
+    // _realTime - _lapAt) rather than from this event, so it survives a dropped frame and a paused
+    // one and costs ui.js no event subscription at all.
+    run.lapSplit = at - (run._lapAt ?? 0)
+    run.events.push({ type: 'lap', lap, x: run.player.x, y: run.player.y, split: run.lapSplit, total: at })
     run._lapAt = at
   }
 

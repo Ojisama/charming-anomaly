@@ -345,6 +345,9 @@ const UI = {
 
   // HUD
   'WAVE': 'VAGUE',
+  // The race pill's only word — the lap count and the split are numbers, kept OUT of the key so the
+  // key cannot change every time they do (the tt() rule).
+  'LAP': 'TOUR',
   'Lv': 'Niv',
   // v6.3 dispatch beat (city elite spawn) — transient HUD banner, see updateHUD/dispatch in ui.js
 

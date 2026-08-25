@@ -18818,6 +18818,7 @@ run(testLeLargeWeapons)
   run(testReefCircuit)
   run(testCircuitCards)
   run(testRaceRecord)
+  run(testCircuitHud)
   run(testReefNatives)
   run(testReefPool)
   run(testWreckBloodlust)
@@ -23780,6 +23781,69 @@ function testRaceRecord() {
   }
 
   console.log('PASS run RK (the race record): the lowest time wins, 0 means never, and the board takes real seconds')
+}
+// run HD: THE CIRCUIT'S HUD — the readout that was a player-facing lie until v7.x.
+//
+// ui.js is not importable (it wants a DOM), so this reads it as source text like run SP and run XU
+// already do. But the two facts worth guarding are not the presence of words, so both expressions
+// are EXTRACTED FROM ui.js AND EVALUATED against stubs: what is asserted is the string a player
+// would read, not which identifiers appear near it.
+function testCircuitHud() {
+  const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+
+  // (a) THE TIMER SLOT NO LONGER COUNTS DOWN TO 5:00 IN A RACE. Until this branch existed the
+  // Reef rendered RUN_DURATION - run.time — a countdown to a mark with nothing to do with the
+  // race, on a chapter that ends in about 76 seconds. Nothing threw, nothing went red, and the
+  // number was simply wrong for the whole life of the chapter.
+  {
+    // COMMENTS STRIPPED FIRST, and that line is load-bearing exactly as it is in run MB.a — for the
+    // opposite reason. There the prose beside a mod's wiring SATISFIED a substring search after the
+    // wiring was deleted; here the comment explaining what this branch replaced names RUN_DURATION,
+    // so an unstripped search finds it in the arm that exists to not use it. Same rule either way:
+    // search the code, never the prose about it.
+    const bare = uiSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+    const arm = /\} else if \(circuitChapter\) \{([\s\S]*?)\n    \} else \{/.exec(bare)?.[1]
+    assert.ok(arm, 'run HD.a: updateHUD has no circuit arm on the timer slot — a race renders the 300s survival countdown, which is a number about nothing')
+    assert.ok(/run\.raceClock/.test(arm),
+      'run HD.a: the circuit timer arm does not read run.raceClock — whatever it is showing, it is not the clock that ends the race')
+    assert.ok(!/RUN_DURATION/.test(arm),
+      'run HD.a: the circuit timer arm still reads RUN_DURATION — that is the survival clock, and in a 76s race it counts down to a mark the player never reaches')
+  }
+
+  // (b) THE PILL'S OWN COMPOSITION, evaluated. Three things break here and every one of them
+  // renders a plausible string: the lap number is off by one (run.lap counts laps COMPLETED, so a
+  // fresh race is lap 1 of 4 and not 0 of 4), the final lap reads 5/4 without the clamp, and the
+  // split flash either never fires or never stops.
+  {
+    const expr = /const lapText = ([\s\S]*?)\n      if \(lapText !== last\.lapText\)/.exec(uiSrc)?.[1]
+    assert.ok(expr, 'run HD.b: updateHUD no longer composes a lapText — the race pill has no content')
+    const compose = new Function('t', 'fmtTime', 'flash', 'done', 'laps', 'run', `return ${expr}`)
+    const T = (x) => x
+    const FMT = (x) => `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(Math.floor(x) % 60).padStart(2, '0')}`
+    assert.strictEqual(compose(T, FMT, false, 0, 4, { _realTime: 8.4 }), 'LAP 1/4 · 00:08',
+      'run HD.b: a race that has completed no laps does not read LAP 1/4 — run.lap counts laps COMPLETED, so showing it raw tells the player they are on lap 0 of 4')
+    assert.strictEqual(compose(T, FMT, false, 4, 4, { _realTime: 76.2 }), 'LAP 4/4 · 01:16',
+      'run HD.b: the last frame of the winning lap reads past the lap count — without the clamp the pill says 5/4 as the race ends')
+    assert.strictEqual(compose(T, FMT, true, 3, 4, { lapSplit: 19.14 }), 'LAP 3 · 19.1s',
+      'run HD.b: the split flash does not show the lap just completed and its time — that flash is the ONLY read the player gets on a lap line, which at racing speed is on screen for about a second and looks like every other stretch of reef')
+  }
+
+  // (c) THE PILL IS BOUNDED. A grid child with no max-width stretches its whole track — the xp bar
+  // learned that here at ~300px on a phone against 1776px on a desktop window, and a HUD element
+  // is only ever verified at ONE viewport unless something says otherwise.
+  {
+    const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+    const rule = /\.hud-lap \{([\s\S]*?)\}/.exec(css)?.[1]
+    assert.ok(rule, 'run HD.c: .hud-lap has no CSS rule at all')
+    assert.ok(/max-width:/.test(rule),
+      'run HD.c: .hud-lap declares no max-width — it is a grid child, so on a desktop window it stretches its whole column and the pill becomes a bar')
+    assert.ok(/grid-row:\s*2/.test(rule) && /grid-column:\s*2/.test(rule),
+      'run HD.c: .hud-lap is not pinned to its grid cell — hud-top is a 3-column grid, so an unplaced 5th child wraps SOMEWHERE, which is not the same as wrapping under the clock')
+    assert.ok(/\.hud-lap--hidden/.test(css) && /\.hud-lap--split/.test(css),
+      'run HD.c: .hud-lap--hidden or --split has no rule — the first leaves the pill on screen in every other chapter, the second makes the split flash invisible')
+  }
+
+  console.log('PASS run HD (the circuit HUD): the timer slot shows the race clock, the pill reads LAP n/4 with its split flash, and it is bounded and placed')
 }
 function testCircuitCards() {
   const dt = 1 / 60

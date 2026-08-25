@@ -601,6 +601,43 @@ body {
   border-color: rgba(90, 30, 10, 0.5);
   color: #fff3ea;
 }
+/* THE RACE PILL (v7.x, a circuit chapter only). Row 2 / column 2 explicitly, under the countdown,
+   for the same reason .rampage-wrap pins itself to row 2 / column 1 rather than trusting markup
+   order — hud-top is a 3-column grid, so a 5th child wraps SOMEWHERE, which is not the same thing
+   as wrapping where it was meant to.
+   MAX-WIDTH IS NOT OPTIONAL. Without one a grid child stretches its whole track, and the xp bar
+   already learned that here the expensive way: ~300px on a phone, 1776px on a desktop window. */
+.hud-lap {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: center;
+  max-width: 220px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding: 1px 12px;
+  border-radius: 999px;
+  background: rgba(244, 239, 230, 0.85);
+  border: 2px solid rgba(53, 53, 74, 0.2);
+}
+.hud-lap--hidden { display: none; }
+/* The split, for CIRCUIT_SPLIT_FLASH_S after a lap line. Gold — the reward register the xp bar and
+   coin badge already own — because completing a lap is the only unambiguously good thing that
+   happens in this chapter, and the pill's ordinary state has to stay quiet next to it. */
+.hud-lap--split {
+  background: var(--gold);
+  border-color: rgba(53, 53, 74, 0.45);
+}
+/* The race clock's last CIRCUIT_CLOCK_LOW_S seconds. Deliberately the same vermillion as
+   .hud-timer--debt: both mean "this clock is about to cost you", they can never appear together
+   (Time Debt is a survival-chapter anomaly, this is a circuit), and a second alarm hue on one
+   small pill would be a distinction the player has no way to learn. */
+.hud-timer--low {
+  background: rgba(214, 84, 44, 0.95);
+  border-color: rgba(90, 30, 10, 0.5);
+  color: #fff3ea;
+}
 .hud-right { justify-self: end; display: flex; align-items: center; gap: 8px; }
 .hud-coins {
   /* the badge is the hidden dev menu's seven-tap target (ui.js), and the HUD around it is
