@@ -84,7 +84,7 @@ import {
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
-  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, circuitKnob, swimthroughsFor, SWIMTHROUGHS_PER_LAP, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
+  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, circuitKnob, swimthroughsFor, SWIMTHROUGHS_PER_LAP, CIRCUIT_GATE_VIS, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
@@ -22968,9 +22968,16 @@ function testRingTrack() {
       const a = (k / 8) * Math.PI * 2
       const run = reefRun()
       run.mods.spawnMul = 0
+      // HELD ON THE START LINE, and that is a fixture detail rather than part of the claim. A crash
+      // taxes _laneSpeed by crashMul exactly as a bump does, and at 540px/s full stick covers a
+      // third of the lap in these 3 seconds — so most bearings drive into coral and the spread this
+      // case reads becomes a map of which way the wall happens to be. Pinning the position lets the
+      // throttle ramp while nothing can hit anything, which is the only thing being measured.
+      const sx = run.player.x, sy = run.player.y
       for (let i = 0; i < Math.round(3 / dt); i++) {
         for (const q of run.enemies) q._dead = true   // a bump taxes _laneSpeed; this case is the stick
         stepSim(run, { x: Math.cos(a), y: Math.sin(a) }, dt)
+        run.player.x = sx; run.player.y = sy
         run.events.length = 0
         if (run.phase === 'levelup') run.phase = 'playing'
       }
@@ -23170,6 +23177,13 @@ function testReefPassiveCrowd() {
         body.hp = 1e9
         body.kb.x = 0
         body.kb.y = 0
+        // AND IT MAY NOT BE BUMPED, which is the same exclusion as zeroing kb above and not a new
+        // one. The circuit's traffic knock shoves a fish bumpShove px clear of the player — a real
+        // mechanic with its own case, and one this mirror cannot tell from a seek, because it only
+        // fires on the side the player happened to drive toward. It became reachable when the reef
+        // doubled its speed: 810px covered in these 1.5s against ~500px of separation at the start.
+        // stepBump's own cooldown gate is the switch.
+        body._bumpAt = r.time
         stepSim(r, { x: sx, y: sy }, dt)  // strafe hard toward one wall, the whole time
         r.events.length = 0
         t += dt
@@ -23594,17 +23608,20 @@ function testReefSpurScrape() {
     run.player.x = buried.x
     run.player.y = buried.y
     run._burstT = 1
-    const before = ringFU(spec, run.player.x, run.player.y).u
+    const x0 = run.player.x, y0 = run.player.y
     stepSim(run, { x: 0, y: 0 }, dt)
     assert.strictEqual(run._caveHit, false,
       'run RS.d: a held Burst was stopped by the cave wall — the dash is the one thing allowed through it, and without that a mistimed spend is a death')
-    // ⚠ THE RADIAL OFFSET, NOT THE WORLD POSITION. On a lane the player was motionless under a dead
-    // stick and this could assert the coordinate itself; a circuit has momentum, so a bursting
-    // player is travelling ALONG the track whatever the stick says. What the claim has always meant
-    // is that the wall does not steer you — i.e. it does not move you ACROSS the passage.
-    const after = ringFU(spec, run.player.x, run.player.y).u
-    assert.ok(Math.abs(after - before) < 1,
-      `run RS.d: a bursting player was pushed ${(after - before).toFixed(1)}px across the passage by the wall — the dash commits to a heading, and the wall may not steer it`)
+    // ⚠ AGAINST THE PLAYER'S OWN VELOCITY, NOT AGAINST A px BAND. On a lane the player was
+    // motionless under a dead stick and this could assert the coordinate itself; a circuit has
+    // momentum, so a bursting player is travelling ALONG the track whatever the stick says, and a
+    // fixed tolerance is really a bound on ONE FRAME OF TRAVEL — it read 0.8px at laneScroll 90 and
+    // 1.6px at 180 against a threshold of 1, so it turned red for a speed change that has nothing
+    // to do with the claim. stepPlayerMovement's `p.vx/vy` IS the frame's intended displacement, so
+    // "the wall did not steer you" is exactly "you went where your velocity said", at any speed.
+    const drift = Math.hypot(run.player.x - x0 - run.player.vx * dt, run.player.y - y0 - run.player.vy * dt)
+    assert.ok(drift < 1e-6,
+      `run RS.d: a bursting player ended ${drift.toFixed(2)}px off where their own velocity put them — something in the wall is steering the dash, and the dash commits to a heading`)
   }
 
   // (e) THE THROTTLE — DELETED WITH THE LANE, and replaced rather than dropped. Every assertion it
@@ -24382,6 +24399,41 @@ function testReefCircuit() {
     assert.strictEqual(b.raceClock, undefined,
       'run CT.e: The Beyond grew a raceClock — it is `lane` but not `circuit`, and a shipped chapter must not inherit a countdown')
     assert.strictEqual(b.lap, undefined, 'run CT.e: The Beyond grew a lap counter')
+  }
+
+  // (h) THE CHECKPOINT STAND IS BUILT ON THE WALL, NOT ON ONE POINT OF IT. Owner, 2026-08-25:
+  // "checkpoints are not stuck to walls sometimes weird angles."
+  //
+  // The number first, because it is the whole reason: the passage CENTRE wanders fast enough that
+  // over the length of one stand's foot the wall face is somewhere else entirely. Pinning every rod
+  // in the stand to the face at the stand's own f therefore buries half of them in coral and leaves
+  // the other half hanging in open water — and points them radially rather than out of the face.
+  //
+  // Asserted in two halves because either alone is silent: the geometry says the correction is
+  // needed, and the source says render.js still applies it. render.js is not importable, so this is
+  // run UG.k's trick — comments stripped first, for run MB.a's reason.
+  {
+    const V = CIRCUIT_GATE_VIS
+    let worst = 0
+    for (const seed of [1, 7, 20260824, 555]) {
+      for (const s of swimthroughsFor(spec, seed)) {
+        for (const sign of [-1, 1]) {
+          const at = (d) => { const c = caveAt(s.f + d, spec, seed); return c.c + sign * c.hw }
+          worst = Math.max(worst, Math.abs(at(V.footSpan / 2) - at(-V.footSpan / 2)))
+        }
+      }
+    }
+    assert.ok(worst > V.footSpan / 2,
+      `run CT.h: the wall face moves only ${worst.toFixed(0)}px across a ${V.footSpan}px stand — if the passage has been straightened this much, the per-rod wall sample below is dead weight and should go`)
+    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    const stand = rsrc.slice(rsrc.indexOf('const stand = ('), rsrc.indexOf('const mat = ('))
+    assert.ok(stand.length > 400, 'run CT.h: the stand() slice markers moved — this whole block is asserting nothing')
+    assert.ok(/const wn = wall\(fn\)/.test(stand),
+      `run CT.h: a checkpoint rod no longer takes its base from the wall at its OWN f — the face moves ${worst.toFixed(0)}px across one stand, so the outer rods are that far into the coral on one side and that far out in open water on the other`)
+    assert.ok(/wn\.s/.test(stand) && /slopeE/.test(rsrc),
+      'run CT.h: the rods no longer lean into the wall\'s own gradient — they grow along -u, which on a face running diagonally through (f, u) is a stand of coral sticking out at an angle nothing on screen explains')
+    console.log(`PASS run CT.h (the stands are on the wall): the face moves up to ${worst.toFixed(0)}px across a ${V.footSpan}px foot, and every rod takes its base and its lean from the wall at its own f`)
   }
 
   console.log(`PASS run CT (the circuit): ${SWIMTHROUGHS_PER_LAP} swimthroughs a lap on 4 seeds, ${Math.min(...picked.map((s) => s.hw)).toFixed(0)}-${Math.max(...picked.map((s) => s.hw)).toFixed(0)}px wide against a ${spec.halfMin}-${spec.halfMax} passage and never closer than 400px apart; full throttle finishes ${ch.circuit.laps} laps in ${fast.run.raceTime.toFixed(2)}s real (splits ${splits.map((s) => s.toFixed(1)).join('/')}, spread ${spread.toFixed(2)}s) crossing all ${fast.swims.length} checkpoints; easing off dies to the clock at ${slow.run._realTime.toFixed(1)}s; The Beyond grows neither clock nor lap`)
@@ -25339,6 +25391,11 @@ function testReefPool() {
   // Debris Toss with a reef noun, which is the objection it was rebuilt against.
   {
     const run = reefRun('oxygenTank', 5)
+    // Far enough out that the tank's own blast cannot reach it: WEAPONS.oxygenTank tops out at
+    // r 190, thrown range 170 ahead, so 420 to the side leaves 230px of clearance at the worst
+    // level. Close enough that pickBloomSpot would still choose it, which is the failure this
+    // case exists to catch.
+    const BAIT_OFF = 420
     // ⚠ OFF THE PLAYER'S HEADING, AND THAT HAS TO BE READ FROM THE TRACK RATHER THAN ASSUMED.
     // This has now been wrong twice for the same reason — a world axis standing in for "sideways".
     // First it was `AX.cross`, the lane's own axis, which the ring made meaningless. Then it was
@@ -25347,9 +25404,20 @@ function testReefPool() {
     // up to ~50°, so "radially outward" became "half ahead" and the tank hit the bait legitimately.
     // The tangent is the only honest source, and ringHeading is what answers it at any shape.
     const h0 = ringHeading(CHAPTERS.reef.cave, ringFU(CHAPTERS.reef.cave, run.player.x, run.player.y).f, run._obstacleSeed)
-    const bait = mk(run, Math.cos(h0 + Math.PI / 2) * 300, Math.sin(h0 + Math.PI / 2) * 300, 0)
-    let hit = null, toss = null
+    const bait = mk(run, Math.cos(h0 + Math.PI / 2) * BAIT_OFF, Math.sin(h0 + Math.PI / 2) * BAIT_OFF, 0)
+    let hit = null, toss = null, baitHp = null
     drive(run, [bait], 6, { x: 0, y: 0 }, (r) => {
+      // ⚠ HELD BESIDE THE PLAYER UNTIL THE THROW, and re-derived from the heading the CARD reads.
+      // A bait parked at a world point is only off-axis at t=0: the first tank does not fly for
+      // seconds, and by then the player has driven a few hundred px round a bend and the bait has
+      // swum off with the traffic, so a fixture that pre-places it is really asserting where two
+      // drifting things happened to end up. Pinned, the geometry at the cast is the geometry the
+      // case describes — a fat body BAIT_OFF px to one side, outside the blast, ignored.
+      if (!toss) {
+        const a0 = r.player.facingAngle ?? h0
+        bait.x = r.player.x + Math.cos(a0 + Math.PI / 2) * BAIT_OFF
+        bait.y = r.player.y + Math.sin(a0 + Math.PI / 2) * BAIT_OFF
+      }
       // ⚠ MEASURED AGAINST THE THROW, NOT AGAINST WHERE THE PLAYER ENDED UP. The lob's target is
       // banked at the cast (fireTank), and since the cave forks the player is no longer guaranteed
       // to sit still across the flight — an island's tip nudges them a few px off and the fixture
@@ -25359,7 +25427,7 @@ function testReefPool() {
         // that is the direction the player is travelling rather than a fixed world axis — so the
         // claim "thrown ahead of you, not at a body" can only be measured against it.
         if (ev.type === 'toss' && !hit) toss = { ...ev, a: r.player.facingAngle ?? 0 }
-        if (ev.type === 'rupture' && !hit) hit = { ...ev }
+        if (ev.type === 'rupture' && !hit) { hit = { ...ev }; baitHp = bait.hp }
       }
     })
     assert.ok(hit && toss, 'run RP.f: no rupture in 6s — the tank never landed')
@@ -25372,8 +25440,12 @@ function testReefPool() {
     const off = Math.min(dev, Math.abs(dev - 2 * Math.PI)) * 180 / Math.PI
     assert.ok(off < 2,
       `run RP.f: the tank landed ${off.toFixed(0)}° off the player's own heading, with a fat body sitting off to one side — it is aiming at enemies rather than throwing ahead of you`)
-    assert.strictEqual(bait.hp, bait.maxHP,
-      'run RP.f: the off-axis bait took damage — the throw found it, so this card has targeting it must not have')
+    // READ ON THE FRAME THE FIRST TANK RUPTURES, not at the end of the drive. The claim is about
+    // where a throw GOES; a 6s drive covers 3240px of a 7000px lap at this chapter's speed, so a
+    // static bait 300px off the start heading is swept up by a LATER throw somewhere round the
+    // bend, and the fixture read that as targeting.
+    assert.strictEqual(baitHp, bait.maxHP,
+      'run RP.f: the off-axis bait took damage from the first tank — the throw found it, so this card has targeting it must not have')
   }
 
   // (g) PRESSURE WAVE SHOVES, AND ONLY WITH THE SWITCH HELD. An inert switch is the failure run MB.a
@@ -26493,6 +26565,68 @@ function testReefAirBurst() {
       'syncPolyps keys the ignition ramp off something other than the polyp age — a re-lit ridge blanks for FIRE_CORAL_VIS.igniteT while it is still doing full damage')
     assert.ok(FIRE_CORAL_VIS.igniteT > 0, 'a zero ignition ramp makes the blink assertion above unfalsifiable')
     console.log(`PASS run RF.e (the reef draws its own): refillLook resolves pocket and updateShafts reads AIR_POCKET_VIS; drawBurstWake reads run._burstT through burstWakeAt against BURST_DUR_AT_FULL ${BURST_DUR_AT_FULL}s and the view behind the lane camera, and is called from sync(); updateCoralGrit reads run._scraping and reuses CORAL_CRUSH every ${CORAL_CRUSH.gritEvery}s with no sound; syncPolyps ramps on the polyp age`)
+  }
+
+  // (f) THE VENT ONLY BUBBLES WHILE IT IS BREATHING INTO YOU. Owner, 2026-08-25: "refill bubbles
+  // don't disappear when they stop refilling." A pocket stops in three different ways — you left
+  // it, it drew down (US.k: 1.77s here), or your bar hit its ceiling — and all three used to draw
+  // the identical column of air. `feeding` is stepCharge's own answer to "did THIS circle add to
+  // the bar this tick", published on the circle for the reason `drawdown` and the maw's `gape` are.
+  //
+  // ASSERTED AS AN EFFECT AND NOT AS A FLAG: each case pairs the flag with the bar actually moving
+  // (or not), so a mutation that pins `feeding` true still fails on the case where the bar is flat.
+  {
+    const dtF = 1 / 60
+    const park = (run, sh) => { run.player.x = sh.x; run.player.y = sh.y }
+    const window = (run, sh, n) => {
+      const c0 = run.charge
+      let fed = 0
+      for (let i = 0; i < n; i++) { stepSim(run, { x: 0, y: 0 }, dtF); park(run, sh); if (sh.feeding) fed++; quiet(run) }
+      return { fed, gained: run.charge - c0 }
+    }
+    const run = reefRun(20260825)
+    run._shaftCellI = null; run._shaftCellJ = null; run._shaftRingCell = null
+    streamShafts(run)
+    assert.ok(run.shafts.length > 0, 'run RF.f: no pocket streamed — every assertion below would be vacuous')
+    const sh = run.shafts[0]
+    park(run, sh)
+    run.charge = 0
+    // (1) empty bar, inside it: feeding, and the bar climbs.
+    const fill = window(run, sh, 30)
+    assert.ok(fill.gained > 0, `run RF.f: half a second inside a pocket on an empty bar added ${fill.gained.toFixed(2)} Air — the fixture is not in a pocket and nothing below means anything`)
+    assert.ok(fill.fed >= 25, `run RF.f: the pocket that just refilled the bar by ${fill.gained.toFixed(1)} reported feeding on only ${fill.fed}/30 frames — the stream would be off while the air is arriving`)
+    // (2) full bar, same spot: the add is swallowed by the clamp, so it is NOT feeding.
+    run.charge = run.chargeMax
+    sh.drawdown = 0
+    const full = window(run, sh, 30)
+    assert.ok(Math.abs(full.gained) < 1e-6, `run RF.f: the bar moved ${full.gained.toFixed(3)} at its ceiling — this case is not testing a clamped bar`)
+    assert.strictEqual(full.fed, 0, `run RF.f: a pocket pouring into a FULL bar reported feeding on ${full.fed}/30 frames — the bubbles keep coming while the bar cannot take them, which is the whole of the report`)
+    // (3) outside every circle: nothing is feeding. The player has to be MOVED — this chapter no
+    // longer scrolls, so a fixture that merely stops parking stays exactly where it was parked.
+    run.charge = 0
+    for (const s of run.shafts) s.drawdown = 0
+    const home = { x: run.player.x, y: run.player.y }
+    for (let i = 0; i < 5; i++) { stepSim(run, { x: 0, y: 0 }, dtF); quiet(run) }
+    let outside = false
+    for (let d = 200; d <= 2000 && !outside; d += 100) {
+      run.player.x = home.x + d; run.player.y = home.y + d
+      outside = !run.shafts.some((s) => Math.hypot(s.x - run.player.x, s.y - run.player.y) <= s.r)
+    }
+    assert.ok(outside, 'run RF.f: could not find a spot outside every streamed pocket — this case cannot run')
+    const px = run.player.x, py = run.player.y
+    for (let i = 0; i < 5; i++) { stepSim(run, { x: 0, y: 0 }, dtF); run.player.x = px; run.player.y = py; quiet(run) }
+    const idle = run.shafts.filter((s) => s.feeding).length
+    assert.strictEqual(idle, 0, `run RF.f: ${idle} pocket(s) reported feeding with the player nowhere near one — every vent on screen streams air at a fish that is not there`)
+    // AND RENDER READS IT. Without this the flag is a fact sim knows and nothing draws, which is
+    // byte-for-byte the frozen-enemies scar: the mechanic is invisible, and invisible is
+    // indistinguishable from the bug it was written to fix. Comments stripped, same reason as above.
+    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    const vents = rsrc.slice(rsrc.indexOf('function updateAirVents('), rsrc.indexOf('function updateCoralGrit('))
+    assert.ok(vents.length > 200, 'run RF.f: the updateAirVents slice markers moved — this check is asserting nothing')
+    assert.ok(/feeding/.test(vents),
+      "run RF.f: updateAirVents never reads sh.feeding — it is back to streaming from every vent on screen whether or not it is refilling anyone")
+    console.log(`PASS run RF.f (the vent stops when the air does): +${fill.gained.toFixed(1)} Air on ${fill.fed}/30 feeding frames from empty, ${full.fed}/30 at the ceiling for ${full.gained.toFixed(1)} Air, 0 of ${run.shafts.length} feeding from outside; updateAirVents reads the flag`)
   }
 
   console.log(`PASS run RF (The Reef's Air and Burst): the bar is fed by the pocket field and nothing else (0 vs ${res.max} over 150s with it suppressed), an empty bar drowns you at ${res.drown.dps}/s and stops the moment you breathe, and the button dashes ${BURST_DUR_MIN}s empty and ${BURST_DUR_AT_FULL}s full`)
