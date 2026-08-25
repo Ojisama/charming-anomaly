@@ -24015,6 +24015,70 @@ function testReefCircuit() {
       `run CT.d: won after ${laps} of ${ch.circuit.laps} laps at ${r._realTime.toFixed(1)}s — the RUN_DURATION timer is still armed in a chapter that is not scored on it, so outlasting the clock counts as finishing the race`)
   }
 
+
+  // (g) THE RACE IS BEATABLE WITH HP LIVE, AND THE WALL CAN STILL KILL YOU. Every other assertion
+  // in this file — (b), (c), (d), run CD, scripts/reef-lap-probe.mjs — resets player.hp every frame
+  // on purpose, so until this block a coral tune that made the chapter UNFINISHABLE would have left
+  // the whole suite green. Not hypothetical: two probes and a peer session driving the real game all
+  // reported 0/N finishes on 2026-08-25, and all three were wrong about their own DRIVER rather than
+  // about the game (scripts/reef-survive.mjs's header has the three failures).
+  //
+  // BOTH SUBJECTS ARE CHOSEN SO THE WALL CAN REACH THEM, and the first cut of this block was not.
+  // It flew the measured-best driver, which holds an open lane and never touches coral at all
+  // (0.0s of contact over a whole race) — so tripling CAVE_HIT_DPS, and separately zeroing it,
+  // changed nothing it could see. Mutation-proved: 0 of 3 caught. A driver the damage cannot reach
+  // is a green assertion about the wall that says nothing about the wall.
+  {
+    const ax = laneAxes(ch)
+    // A REALISTIC driver, deliberately not the best one: it holds an open lane but reads it at its
+    // own position rather than ahead, so it clips the corners — ~15 wall contacts a race, finishing
+    // around 79/100. That is what makes it the right subject: it PAYS the wall, so the wall's price
+    // is visible in whether it lives.
+    //   `openLane` is what makes even this honest. caveAt's `c` is the passage centre, and where
+    // ph > 0 the centre IS the coral island — steering at it drives into the rock, which is exactly
+    // how one of those three probes concluded the chapter was unplayable.
+    const openLane = (run, ahead) => {
+      const { c, hw, ph } = caveAt(run.player[ax.fwd] + ax.dir * ahead, spec, run._obstacleSeed)
+      if (ph <= 0) return c
+      return c + (run.player[ax.cross] >= c ? 1 : -1) * (ph + hw) / 2
+    }
+    const race = (cross, seed = 9) => {
+      Math.random = mulberry32(seed)
+      const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+      run.mods.spawnMul = 0            // the crowd is CT.b's subject; this block is the WALL
+      for (let i = 0; i < 60 * 200; i++) {
+        const c = cross(run)
+        stepSim(run, { x: ax.fwd === 'x' ? 1 : c, y: ax.fwd === 'y' ? 1 : c }, dt)
+        run.events.length = 0
+        if (run.phase === 'levelup') run.phase = 'playing'
+        if (run.phase === 'victory' || run.phase === 'dead') break
+      }
+      return run
+    }
+    // FOUR SEEDS, ALL OF WHICH MUST FINISH — and the count is what gives this any power at all.
+    // The single-seed version of this assertion was mutation-proved at 0 of 3, because seed 9's
+    // track happens to cost this driver NOTHING: 0.4s of glancing contact, never enough to reach
+    // CAVE_HIT_TICK, so the wall's price could be tripled or zeroed underneath it unnoticed. The
+    // same driver pays 0 / 20 / 80 / 0 across these four, so seed 2 is the one carrying the check
+    // and the others are what stop a tune being judged on a single lucky lap.
+    //   A COUNT, NOT AN HP BAND. The measured spread is 0-80 HP on one driver, so any threshold
+    // would be an eyeballed literal a re-phasing could walk through; "did it finish" cannot drift.
+    const drive = (run) => Math.max(-1, Math.min(1, (openLane(run, 0) - run.player[ax.cross]) / 30))
+    const RACE_SEEDS = [9, 1, 2, 3]
+    const driven = RACE_SEEDS.map((seed) => race(drive, seed))
+    const lost = driven.filter((r) => r.phase !== 'victory')
+    assert.deepStrictEqual(lost.map((r) => `${r.phase} on lap ${r.lap ?? 0} at ${(r._realTime ?? 0).toFixed(1)}s (${r.killedBy ?? '-'})`), [],
+      `run CT.g: ${lost.length} of ${RACE_SEEDS.length} seeded races could not be finished by a driver holding an open lane — the chapter is unbeatable, and every other scenario here is immortal so none of them can see it`)
+
+    // ...and the other direction, whose subject is the owner's own words for this wall: "death only
+    // if you stay stuck". Hold the stick into one side and never come off it. Asserting killedBy is
+    // what pins this to the CORAL — drifting also runs the race clock out, and a clock death here
+    // would let a wall that does nothing at all pass as a wall that kills.
+    const stuck = race(() => 1)
+    assert.strictEqual(stuck.killedBy, 'scrape',
+      `run CT.g: holding the stick into the wall for a whole race ended '${stuck.phase}' killed by '${stuck.killedBy}' — if coral cannot kill a player parked in it, the passage is scenery and the chapter is one input`)
+  }
+
   // (e) AND NO OTHER CHAPTER GREW A CLOCK. `circuit` is the gate; `lane` is not.
   {
     Math.random = mulberry32(5)
