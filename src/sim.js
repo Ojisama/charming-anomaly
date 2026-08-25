@@ -152,7 +152,7 @@ import {
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
   swimthroughsFor, circuitKnob,
   ringXY, ringFU, ringHeading, ringCentre, ringDelta,
-  caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK,
+  caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY,
   LANE_CRUSH_DPS, LANE_CRUSH_TICK,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
@@ -1837,6 +1837,27 @@ function stepCircuit(run, dt) {
   const clockMul = run.mods?.raceClockMul ?? 1
   run.raceClock = (run.raceClock ?? circuitKnob(ch, 'clockStart') * clockMul) - dt
 
+  // CLEAN LINE (PASSIVES.cleanHeal): HP a second, but only once you have been off the coral for
+  // CLEAN_LINE_DELAY. Every touch resets the streak to zero.
+  //
+  // ⚠ THE STREAK IS THE CARD. Paying per clean SECOND instead — the obvious build — is a plain
+  // regen wearing a racing name, and the arithmetic says so rather than the taste: over a measured
+  // race the good driver spends 4.6s on coral and the bad one 14.6s, out of ~170s, so a per-second
+  // drip pays them 165 and 155 HP. Ten HP is not a skill gradient. With a delay, a driver who
+  // clips something every few seconds never reaches the payout at all while a clean lap is paid for
+  // nearly all of it, which is the same shape as the race clock's cap.
+  //
+  // ⚠ AND IT READS run._caveHit, WHICH IS WHY IT LIVES HERE AND NOT IN stepCaveWall. That flag is
+  // set by stepCaveWall earlier in the SAME frame (stepSim's order), so this is the first place in
+  // the step where "am I scraping right now" is both known and current. Put it inside stepCaveWall's
+  // own early-out instead and it silently stops paying in every frame that function returns early
+  // from — the Burst pass-through being the obvious one, i.e. the card would go dead exactly while
+  // you were dashing.
+  //   It cannot be farmed by stopping: the countdown above is already decremented and does not care
+  // how fast you are going, so parking trades a race you can win for HP you cannot spend.
+  run._cleanT = run._caveHit ? 0 : (run._cleanT ?? 0) + dt
+  if (run.passives.cleanHeal > 0 && run._cleanT >= CLEAN_LINE_DELAY) healPlayer(run, run.passives.cleanHeal * dt)
+
   // A RUNNING COUNT, not a nearest-checkpoint test. run._swimN counts every swimthrough crossed
   // since the run began, so a lap boundary needs no special case at all — the count simply keeps
   // going, and laps and checkpoints cannot disagree about how far round the player is.
@@ -1855,6 +1876,11 @@ function stepCircuit(run, dt) {
       // gem is, so every xp card in the game still reads on a race rather than going inert here.
       // stepLevelUp runs later in this same frame, so the screen opens on the crossing.
       run.player.xp += circuitKnob(ch, 'swimXp') * (1 + run.passives.xpGain) * run.mods.xpMul
+      // PIT STOP (PASSIVES.gateHeal). The checkpoint is already this chapter's till, so the heal is
+      // paid at the same window as the clock and the xp — one crossing, one reward, and a player can
+      // plan a lap around it. Through healPlayer and never a direct `p.hp =` write, or Blood Pact
+      // silently stops meaning what its card says (see healPlayer's own block).
+      if (run.passives.gateHeal > 0) healPlayer(run, run.passives.gateHeal)
       run.events.push({ type: 'swimthrough', x: run.player.x, y: run.player.y, n: k + 1 })
     }
   }
