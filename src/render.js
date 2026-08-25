@@ -10198,19 +10198,7 @@ export function createRenderer(app) {
 const spurArt = (() => {
   try { return Number(new URLSearchParams(location.search).get('cv') ?? 3) } catch { return 3 }
 })()
-// A/B SWITCH FOR THE CIRCUIT'S GATES, throwaway. 0 = shipped (mint bar + one-row chequer),
-// 1 = buoys (edge pylons, clear racing line), 2 = seabed paint (nothing above the floor),
-// 3 = light arch (bioluminescent clusters, edge-weighted curtain). DELETE with the pick.
-const gateArt = (() => {
-  try { return Number(new URLSearchParams(location.search).get('gv') ?? 0) } catch { return 0 }
-})()
-// Under the coral, so a mark PAINTED ON THE SEABED tucks beneath the colonies overhanging the
-// passage edge instead of climbing over them. gateG stays above for anything standing in water.
-// BUOY LIVERIES. Yellow-and-black is what a real course marker is painted, and neither colour is
-// anywhere in the coral palette (pink, cyan, red, orange, cream, gold) — so the marker cannot be
-// mistaken for the reef it is moored against. The finish keeps the same hardware in chequer livery.
-const BUOY_MARK = { body: 0xf2c53d, bodyDone: 0x5c5330, band: 0x121d22, lamp: 0xfff8e0, rope: true }
-const BUOY_FINISH = { body: 0xf4efe2, bodyDone: 0x5a5a52, band: 0x121d22, lamp: 0x121d22 }
+// Under the coral, so the finish mat tucks beneath the colonies overhanging the passage edge.
 const gateFloorG = new Graphics()
 const gateFrontG = new Graphics()
 // THE CROSSING CLOCK. {type:'swimthrough'} has had an SFX_FOR_EVENT entry ('gem') since it was
@@ -12816,24 +12804,26 @@ const spurG = new Graphics()
     const cspec = cfg?.cave
     if (!cfg?.circuit || !cspec || !run._swims || run._swims.length === 0) return
     const V = CIRCUIT_GATE_VIS
-    const ax = laneAxes(cfg)
-    const xAxis = ax.fwd === 'x'
     const L = cspec.lapLen
     const per = run._swims.length
     const seed = run._obstacleSeed
+    const t = run.time ?? 0
     // A RING HAS NO FORWARD WINDOW, ONLY A DISTANCE. The camera is centred and a gate can be at
     // any bearing, so the cull is the screen's half-DIAGONAL plus a gate's own reach rather than
     // laneDrawSpan's ahead/astern split.
-    const cullR = Math.hypot(viewW(), viewH()) / 2 + V.postDepth * 2 + V.lineW
-    // A GATE IS A RADIAL SEGMENT ON A RING, not an axis-aligned rectangle — so every piece is drawn
-    // as a STROKED LINE between two (f, u) points rather than as a rect. That also buys the rounded
-    // caps for free, which is what stops a post reading as a UI slab (the first shot of these did).
-    const seg = (f, u0, u1, width, color, alpha) => {
-      const a = ringXY(cspec, f, u0)
-      const b = ringXY(cspec, f, u1)
-      gateG.moveTo(a.x, a.y)
-      gateG.lineTo(b.x, b.y)
-      gateG.stroke({ width, color, alpha, cap: 'round' })
+    const cullR = Math.hypot(viewW(), viewH()) / 2 + V.cullPad
+    // EVERY SHAPE IS BUILT FROM RING POINTS, so a marker follows the corner it stands on instead of
+    // shearing off it. (f, u) in, world out.
+    const P = (f, u) => ringXY(cspec, f, u)
+    const dFor = (px, u) => (px * L) / (2 * Math.PI * Math.max(1, cspec.ring.r0 - u))
+    const hsh = (x, y) => Math.abs(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1
+    const fuLine = (G, f0, u0, pts, color, alpha, w) => {
+      for (let n = 0; n < pts.length; n++) {
+        const q = P(f0 + dFor(pts[n][0], u0 + pts[n][1]), u0 + pts[n][1])
+        if (n) G.lineTo(q.x, q.y)
+        else G.moveTo(q.x, q.y)
+      }
+      G.stroke({ width: w, color, alpha, cap: 'round', join: 'round' })
     }
     // THE PLUG, AND IT IS DELIBERATELY TINY. Every f-cell of the wall converges on the ring's
     // centre, so the colony walk has to stop somewhere rather than stack sprites into one point;
@@ -12845,991 +12835,142 @@ const spurG = new Graphics()
     gateG.circle(-cspec.ring.r0, 0, 26)
     gateG.fill({ color: SPUR_VIS.body ?? 0x3b2b45, alpha: 1 })
 
-    // ONE LAP, NOT A WINDOW. On a ring the gates ARE the lap — f wraps, so there is no `n` to walk
-    // and every checkpoint is either on screen or culled by its own distance. The start line is
-    // simply the gate at f = 0.
     const pw = run.player.x, ph2 = run.player.y
     const near = (w) => (w.x - pw) * (w.x - pw) + (w.y - ph2) * (w.y - ph2) < cullR * cullR
-    const P = (f, u) => ringXY(cspec, f, u)
-    // px ALONG the lane -> f. Every shape here is built from ring points, so a marker follows the
-    // corner it stands on instead of shearing off it.
-    const dFor = (px, u) => (px * L) / (2 * Math.PI * Math.max(1, cspec.ring.r0 - u))
-    const fseg = (f, u0, u1, width, color, alpha) => {
-      const a = P(f, u0), b = P(f, u1)
-      gateFloorG.moveTo(a.x, a.y)
-      gateFloorG.lineTo(b.x, b.y)
-      gateFloorG.stroke({ width, color, alpha, cap: 'butt' })
-    }
-    const arrow = (G, f, u, halfU, reach, color, alpha, w) => {
-      const a = P(f - dFor(reach, u), u - halfU)
-      const b = P(f + dFor(reach, u), u)
-      const c = P(f - dFor(reach, u), u + halfU)
-      G.moveTo(a.x, a.y)
-      G.lineTo(b.x, b.y)
-      G.lineTo(c.x, c.y)
-      G.stroke({ width: w, color, alpha, cap: 'round', join: 'round' })
-    }
-    // ROWS IS THE WHOLE DIFFERENCE BETWEEN A FINISH LINE AND A LEVEL CROSSING. One row of
-    // alternating squares is a barrier arm; two offset rows is a chequered flag, which is the only
-    // shape a player already reads as "lap".
-    const chequer = (G, f0, rows, cav, alpha) => {
-      const lo = cav.c - cav.hw, stepU = (cav.hw * 2) / V.checks
-      const rowPx = V.lineW / rows
-      for (let r = 0; r < rows; r++) {
-        for (let i = 0; i < V.checks; i++) {
-          const u0 = lo + i * stepU, u1 = lo + (i + 1) * stepU
-          const fr = f0 + dFor(rowPx * (r - (rows - 1) / 2), (u0 + u1) / 2)
-          const a = P(fr, u0), b = P(fr, u1)
-          G.moveTo(a.x, a.y)
-          G.lineTo(b.x, b.y)
-          G.stroke({ width: rowPx + 1, color: (i + r) % 2 ? V.line : V.lineDark, alpha, cap: 'butt' })
-        }
-      }
-    }
-    // A BUOY IS A FLOAT, A CHAIN AND AN ANCHOR, and the two on the seabed are what stop the float
-    // reading as a decal. Top-down, a moored float shows as concentric bands (that IS what one
-    // looks like from a boat), its shadow offset by the sun, and the chain foreshortened to a short
-    // run out to the sinker — so the tether is drawn OUTWARD, toward the bank it is moored off.
-    const hsh = (a, b) => Math.abs(Math.sin(a * 12.9898 + b * 78.233) * 43758.5453) % 1
-    const quad = (G, f0, f1, u0, u1, color, alpha) => {
-      const a = P(f0, u0), b = P(f0, u1), c = P(f1, u1), d = P(f1, u0)
-      G.poly([a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y])
-      G.fill({ color, alpha })
-    }
-    // A BALL, NOT A BULLSEYE. Concentric rings ARE what a float looks like from straight above and
-    // it still reads as a dartboard, because a target is the only thing the player has ever seen
-    // drawn that way — which is why the first realistic pass was rejected. VOLUME is the fix: one
-    // off-centre highlight and a dark rim, the same way every other round thing here is baked.
-    const ball = (G, x, y, r, color, hi, alpha) => {
-      G.circle(x, y, r)
-      G.fill({ color, alpha })
-      G.circle(x - r * 0.26, y - r * 0.3, r * 0.62)
-      G.fill({ color: hi, alpha: alpha * 0.5 })
-      G.circle(x - r * 0.36, y - r * 0.42, r * 0.24)
-      G.fill({ color: 0xffffff, alpha: alpha * 0.5 })
-      G.circle(x, y, r)
-      G.stroke({ width: Math.max(2, r * 0.14), color: 0x101b20, alpha })
-    }
-    // Cast past the object, never under it — a shadow concentric with its caster flattens straight
-    // back into the disc it was meant to lift off the sand.
-    const shadowAt = (x, y, r, a) => {
-      gateFloorG.circle(x + r * 0.5, y + r * 0.6, r * 0.95)
-      gateFloorG.fill({ color: 0x0b1a22, alpha: a })
-    }
-    // gv=6 — SPAR BUOY. The volume fix applied to the moored float, plus the mast and topmark that
-    // a real course buoy carries; the mast leans downstream, which is also a direction cue.
-    const sparBuoy = (f0, cav, done, fin) => {
-      const t = run.time ?? 0
-      const a = done ? 0.5 : 1
-      if (!fin) {
-        const A = P(f0, cav.c - cav.hw + 14), B = P(f0, cav.c + cav.hw - 14)
-        gateFloorG.moveTo(A.x, A.y)
-        gateFloorG.lineTo(B.x, B.y)
-        gateFloorG.stroke({ width: 7, color: 0x14262e, alpha: done ? 0.22 : 0.5, cap: 'round' })
-      }
-      for (const sign of [-1, 1]) {
-        const u = cav.c + sign * (cav.hw - 24)
-        const bob = Math.sin(t * 0.9 + f0 * 0.004 + sign) * 3
-        const f = f0 + dFor(bob, u)
-        const q = P(f, u + bob * 0.4)
-        const sink = P(f - dFor(34, u), u + sign * 36)
-        gateFloorG.circle(sink.x, sink.y, 12)
-        gateFloorG.fill({ color: 0x1a2a30, alpha: done ? 0.3 : 0.6 })
-        gateFloorG.moveTo(sink.x, sink.y)
-        gateFloorG.lineTo(q.x, q.y)
-        gateFloorG.stroke({ width: 4, color: 0x1a2a30, alpha: done ? 0.25 : 0.5, cap: 'round' })
-        shadowAt(q.x, q.y, 24, done ? 0.14 : 0.3)
-        ball(gateG, q.x, q.y, 24, done ? 0x5c5330 : (fin ? 0xe8e2d4 : 0xf2c53d), 0xffe89a, a)
-        // the spar, drawn OVER the float and long enough to clear it — leaning downstream, which
-        // makes the mast a direction cue as well as a silhouette.
-        const mt = P(f + dFor(52, u), u + 24)
-        gateG.moveTo(q.x, q.y)
-        gateG.lineTo(mt.x, mt.y)
-        gateG.stroke({ width: 7, color: done ? 0x3a4348 : 0x2b3a40, alpha: a, cap: 'round' })
-        ball(gateG, mt.x, mt.y, 9, done ? 0x4a4a44 : 0x121d22, 0x6d7b82, a)
-      }
-    }
-    // gv=7 — FLOAT LINE. How an open-water course, a marina boom and a net are ACTUALLY rigged:
-    // two sinkers, a rope, floats strung along it. It spans the passage, but a rope is thin enough
-    // to see the track through, which is the whole difference from the bar it replaces.
-    const floatLine = (f0, cav, done, fin) => {
-      const t = run.time ?? 0
-      const a = done ? 0.45 : 1
-      const uA = cav.c - cav.hw + 10, uB = cav.c + cav.hw - 10
-      for (const sign of [-1, 1]) {
-        const e = P(f0, cav.c + sign * (cav.hw - 4))
-        gateFloorG.circle(e.x, e.y, 14)
-        gateFloorG.fill({ color: 0x25323a, alpha: done ? 0.3 : 0.7 })
-      }
-      const A = P(f0, uA), B = P(f0, uB)
-      gateG.moveTo(A.x, A.y)
-      gateG.lineTo(B.x, B.y)
-      gateG.stroke({ width: 3.5, color: 0x2b3a40, alpha: a, cap: 'round' })
-      const n = 7
-      for (let i = 0; i < n; i++) {
-        const u = uA + (uB - uA) * (i + 0.5) / n
-        const bob = Math.sin(t * 1.3 + i * 0.8) * 2.5
-        const q = P(f0 + dFor(bob, u), u)
-        shadowAt(q.x, q.y, 11, done ? 0.1 : 0.22)
-        const lit = i % 2 === 0
-        const col = done ? 0x55524a : (fin ? (lit ? 0xf4efe2 : 0x121d22) : (lit ? 0xf2c53d : 0x121d22))
-        ball(gateG, q.x, q.y, 11, col, 0xffe89a, a)
-      }
-    }
-    // gv=8 — SCAFFOLD GATE. Galvanised pipe tripods driven into the sand with a line strung
-    // between: survey and dive-platform hardware, the least decorative option here.
-    const scaffold = (f0, cav, done, fin) => {
-      const a = done ? 0.45 : 1
-      for (const sign of [-1, 1]) {
-        const u = cav.c + sign * (cav.hw - 22)
-        const q = P(f0, u)
-        for (const [df, du] of [[-30, -18], [26, -12], [-4, 30]]) {
-          const e = P(f0 + dFor(df, u), u + du)
-          gateFloorG.circle(e.x, e.y, 7)
-          gateFloorG.fill({ color: 0x16242b, alpha: done ? 0.3 : 0.6 })
-          gateG.moveTo(q.x, q.y)
-          gateG.lineTo(e.x, e.y)
-          gateG.stroke({ width: 7, color: done ? 0x4e565a : 0x8a949a, alpha: a, cap: 'round' })
-          gateG.moveTo(q.x, q.y)
-          gateG.lineTo(e.x, e.y)
-          gateG.stroke({ width: 2, color: 0xcfd8dc, alpha: a * 0.6, cap: 'round' })
-        }
-        shadowAt(q.x, q.y, 16, done ? 0.12 : 0.26)
-        ball(gateG, q.x, q.y, 13, done ? 0x585f63 : 0xb9c3c8, 0xeef4f6, a)
-        gateG.circle(q.x, q.y, 5)
-        gateG.fill({ color: done ? 0x4a4a44 : (fin ? 0x121d22 : 0xf2c53d), alpha: a })
-      }
-      const A = P(f0, cav.c - cav.hw + 22), B = P(f0, cav.c + cav.hw - 22)
-      gateG.moveTo(A.x, A.y)
-      gateG.lineTo(B.x, B.y)
-      gateG.stroke({ width: 3, color: 0xcfd8dc, alpha: a * 0.6, cap: 'round' })
-    }
-    // gv=9 — STONE CAIRNS. No manufactured hardware at all: stacked rock, the way a reef course
-    // would actually be marked by whoever swims it. The stack is drawn offset rather than
-    // concentric, which is the same convention the coral uses to show height from straight above.
-    const cairn = (f0, cav, done, fin) => {
-      const a = done ? 0.5 : 1
-      for (const sign of [-1, 1]) {
-        const u = cav.c + sign * (cav.hw - 22)
-        const q = P(f0, u)
-        shadowAt(q.x, q.y, 26, done ? 0.14 : 0.3)
-        const rocks = [[0, 0, 25], [6, -8, 19], [-4, -15, 13], [2, -21, 8]]
-        for (let i = 0; i < rocks.length; i++) {
-          const [dx, dy, r] = rocks[i]
-          const h = hsh(i, sign + 3)
-          gateG.circle(q.x + dx, q.y + dy, r)
-          gateG.fill({ color: done ? 0x4b4a45 : (i % 2 ? 0x8d8375 : 0x9c9384), alpha: a })
-          gateG.circle(q.x + dx, q.y + dy, r)
-          gateG.stroke({ width: 3, color: 0x2a2620, alpha: a })
-          gateG.circle(q.x + dx - r * 0.3, q.y + dy - r * 0.34, r * 0.48)
-          gateG.fill({ color: 0xc8bfa8, alpha: a * (0.26 + h * 0.2) })
-        }
-        gateG.circle(q.x + 2, q.y - 21, 8)
-        gateG.fill({ color: done ? 0x4a4a44 : (fin ? 0xf4efe2 : 0xf2c53d), alpha: a })
-      }
-      const A = P(f0, cav.c - cav.hw + 18), B = P(f0, cav.c + cav.hw - 18)
-      gateFloorG.moveTo(A.x, A.y)
-      gateFloorG.lineTo(B.x, B.y)
-      gateFloorG.stroke({ width: 6, color: 0x2a2620, alpha: done ? 0.2 : 0.45, cap: 'round' })
-    }
-    // ---- gv=10..13: drawn the way the CORAL is drawn ------------------------------------------
-    // Nine rejected candidates shared one thing nothing in the earlier notes named: they were
-    // Graphics PRIMITIVES — circles and lines — while every other object in this chapter is a
-    // two-pass illustration (bakeCoral: a wide dark outline stroke, then the body over it, then
-    // pale tips). A primitive will read cheaper than its neighbours however well it is shaded,
-    // because it is not drawn in the same hand. These four use the coral's own idiom, and all four
-    // are living reef rather than course hardware.
-    //   ponytail: drawn live rather than baked — a dozen gates on screen at ~40 primitives each is
-    // affordable and this is a proposal. The pick gets bake()d into a sprite pool like the
-    // colonies, which is also what buys per-instance tinting.
-    const fuShape = (G, f0, u0, pts, fill, alpha, outline, ow) => {
-      const arr = []
-      for (const [df, du] of pts) {
-        const q = P(f0 + dFor(df, u0 + du), u0 + du)
-        arr.push(q.x, q.y)
-      }
-      G.poly(arr)
-      G.stroke({ width: ow, color: outline, alpha, join: 'round' })
-      G.poly(arr)
-      G.fill({ color: fill, alpha })
-    }
-    const fuLine = (G, f0, u0, pts, color, alpha, w) => {
-      for (let i = 0; i < pts.length; i++) {
-        const q = P(f0 + dFor(pts[i][0], u0 + pts[i][1]), u0 + pts[i][1])
-        if (i) G.lineTo(q.x, q.y)
-        else G.moveTo(q.x, q.y)
-      }
-      G.stroke({ width: w, color, alpha, cap: 'round', join: 'round' })
-    }
-    // gv=10 — GIANT CLAM. Iconic reef fauna, and the only candidate whose CROSSED state is a pose
-    // rather than a fade: the shell shuts. A scalloped rim and radiating ribs give it the volume
-    // the flat float never had, and the mantle is the one saturated colour in the frame.
-    const clam = (f0, cav, done, fin) => {
-      const t = run.time ?? 0
-      const a = done ? 0.75 : 1
-      for (const sign of [-1, 1]) {
-        const u0 = cav.c + sign * (cav.hw - 36)
-        const A = 48, B = 32
-        const q = P(f0, u0)
-        shadowAt(q.x, q.y, 30, done ? 0.16 : 0.3)
-        const rim = []
-        for (let i = 0; i < 30; i++) {
-          const th = (i / 30) * Math.PI * 2
-          const r = 1 + 0.07 * Math.sin(th * 7)
-          rim.push([Math.cos(th) * A * r, Math.sin(th) * B * r])
-        }
-        fuShape(gateG, f0, u0, rim, done ? 0x7d7566 : 0xd8ccb2, a, 0x2c2a24, 8)
-        for (let i = 0; i < 13; i++) {
-          const th = (i / 12) * Math.PI * 2
-          fuLine(gateG, f0, u0, [
-            [Math.cos(th) * A * 0.3, Math.sin(th) * B * 0.3],
-            [Math.cos(th) * A * 0.93, Math.sin(th) * B * 0.93],
-          ], 0x9d9484, a, 3)
-        }
-        // the mantle: a wavy gape along the track, wide open until you cross it
-        const gape = []
-        const open = done ? 2 : 11 + Math.sin(t * 1.4 + sign) * 2
-        for (let i = 0; i <= 16; i++) {
-          const x = -A * 0.82 + (A * 1.64 * i) / 16
-          gape.push([x, Math.sin((i / 16) * Math.PI * 3) * 5])
-        }
-        fuLine(gateG, f0, u0, gape, 0x1d2b30, a, open + 7)
-        fuLine(gateG, f0, u0, gape, done ? 0x3f4a44 : (fin ? 0xf0ead8 : 0x2fd0c8), a, open)
-        if (!done) fuLine(gateG, f0, u0, gape, 0xd8fff6, a * 0.5, Math.max(1, open * 0.32))
-      }
-    }
-    // gv=11 — SEA FAN. A gorgonian is a BLADE, not a bush, so from above it is a silhouette the
-    // staghorn cannot be confused with: ribs radiating from one foot, cross-linked into a net,
-    // pale at the tips. Deep red-violet, the one hue the passage walls do not already use.
-    const seaFan = (f0, cav, done, fin) => {
-      const t = run.time ?? 0
-      const a = done ? 0.65 : 1
-      for (const sign of [-1, 1]) {
-        const u0 = cav.c + sign * (cav.hw - 6)
-        const q = P(f0, u0)
-        shadowAt(q.x, q.y, 22, done ? 0.12 : 0.26)
-        const N = 9, REACH = 76
-        const rib = (k) => {
-          const sp = (k / (N - 1) - 0.5) * 2
-          const sway = Math.sin(t * 0.8 + k * 0.4 + sign) * 5
-          const out = []
-          for (let j = 0; j <= 5; j++) {
-            const r = (j / 5) * REACH
-            out.push([sp * r * 0.72 + sway * (j / 5), -sign * r])
-          }
-          return out
-        }
-        const body = done ? 0x5a4450 : (fin ? 0xd8d2c4 : 0x8e2f56)
-        for (let k = 0; k < N; k++) fuLine(gateG, f0, u0, rib(k), 0x2a1a22, a, 9)
-        for (let k = 0; k < N; k++) fuLine(gateG, f0, u0, rib(k), body, a, 5)
-        // the cross-links that make it a net rather than a comb
-        for (let j = 2; j <= 5; j++) {
-          const row = []
-          for (let k = 0; k < N; k++) row.push(rib(k)[j])
-          fuLine(gateG, f0, u0, row, 0x2a1a22, a * 0.8, 5)
-          fuLine(gateG, f0, u0, row, body, a * 0.9, 2.5)
-        }
-        for (let k = 0; k < N; k++) {
-          const tip = rib(k)[5]
-          const w = P(f0 + dFor(tip[0], u0 + tip[1]), u0 + tip[1])
-          gateG.circle(w.x, w.y, 5)
-          gateG.fill({ color: done ? 0x6b5a62 : (fin ? 0xffffff : 0xffc9d8), alpha: a })
-        }
-      }
-    }
-    // gv=12 — BUBBLE VENT. Two seabed vents, and the column IS the marker: it moves, so it is the
-    // only candidate that catches the eye without contrast. It also borrows a shape the chapter
-    // already draws, which is the cheapest way to belong.
-    const vent = (f0, cav, done, fin) => {
-      const t = run.time ?? 0
-      const a = done ? 0.4 : 1
-      for (const sign of [-1, 1]) {
-        const u0 = cav.c + sign * (cav.hw - 26)
-        const cone = []
-        for (let i = 0; i < 14; i++) {
-          const th = (i / 14) * Math.PI * 2
-          const r = 26 * (0.78 + 0.3 * hsh(i, sign + 5))
-          cone.push([Math.cos(th) * r, Math.sin(th) * r * 0.78])
-        }
-        fuShape(gateFloorG, f0, u0, cone, 0x2b3138, done ? 0.5 : 0.9, 0x14181c, 7)
-        fuShape(gateFloorG, f0, u0, cone.map(([x, y]) => [x * 0.45, y * 0.45]), 0x12171b, done ? 0.5 : 0.95, 0x0c1013, 4)
-        // the plume: each bubble on its own clock, growing and fading as it rises out of frame
-        for (let i = 0; i < 9; i++) {
-          const ph = ((t * 0.55 + hsh(i, sign + 11)) % 1)
-          const r = 4 + ph * 13
-          const dx = (hsh(i, 3) - 0.5) * 34 * ph
-          const dy = (hsh(i, 7) - 0.5) * 30 * ph
-          const w = P(f0 + dFor(dx, u0), u0 + dy)
-          gateG.circle(w.x, w.y, r)
-          gateG.fill({ color: 0xcfe6f2, alpha: a * 0.42 * (1 - ph) })
-          gateG.circle(w.x, w.y, r)
-          gateG.stroke({ width: 2, color: 0xeaf6ff, alpha: a * 0.5 * (1 - ph) })
-        }
-      }
-    }
-    // gv=13 — BRAIN CORAL. No new object at all: the two colonies that ALREADY form the squeeze are
-    // drawn as a different species. A dome of winding grooves is unmistakable against branching
-    // staghorn, so a checkpoint becomes a PLACE in the reef rather than a thing planted in it.
-    const brain = (f0, cav, done, fin) => {
-      const a = done ? 0.7 : 1
-      for (const sign of [-1, 1]) {
-        const u0 = cav.c + sign * (cav.hw - 30)
-        const R = 58
-        const q = P(f0, u0)
-        shadowAt(q.x, q.y, R * 0.8, done ? 0.14 : 0.28)
-        const dome = []
-        for (let i = 0; i < 26; i++) {
-          const th = (i / 26) * Math.PI * 2
-          const r = R * (0.93 + 0.09 * Math.sin(th * 5 + sign))
-          dome.push([Math.cos(th) * r, Math.sin(th) * r * 0.9])
-        }
-        fuShape(gateG, f0, u0, dome, done ? 0x6e6a58 : (fin ? 0xe4dcc6 : 0xc9a24e), a, 0x2e2718, 9)
-        // the grooves: nested wavy rings, phase-shifted so they wander like a real meandroid
-        for (let g2 = 1; g2 <= 4; g2++) {
-          const ring = []
-          for (let i = 0; i <= 28; i++) {
-            const th = (i / 28) * Math.PI * 2
-            const rr = R * (g2 / 5) * (1 + 0.16 * Math.sin(th * (2 + g2) + g2 * 1.7 + sign))
-            ring.push([Math.cos(th) * rr, Math.sin(th) * rr * 0.9])
-          }
-          fuLine(gateG, f0, u0, ring, 0x4a3a1e, a * 0.9, 6)
-          fuLine(gateG, f0, u0, ring, done ? 0x8a8674 : (fin ? 0xfffaf0 : 0xf0d79a), a * 0.85, 2.5)
-        }
-      }
-    }
-    // ---- gv=14..17: TURNED, because the water says they may be -------------------------------
-    // Owner, 2026-08-25: "remember this is underwater so this doesn't have to be top/down view",
-    // which is the v7.143 ruling ("this is underwater, so stuff can be whatever 3D rotated")
-    // applied to the gates. THE TURN HAS TO BUY SOMETHING, and here it buys the whole silhouette:
-    // a buoy seen from directly overhead is a circle, and nine rounds of surface detail on a circle
-    // failed exactly the way five rounds on the oil drum did before it was turned. No amount of
-    // paint fixes a silhouette. Turned, every one of these is legible in one glance.
-    const ell = (cx, cy, rx, ry, n, a0, a1) => {
-      const out = []
-      for (let i = 0; i <= n; i++) {
-        const a = a0 + (a1 - a0) * (i / n)
-        out.push([Math.cos(a) * rx, Math.sin(a) * ry])
-      }
-      return out
-    }
-    // gv=14 — RING GATE. A hoop standing on the sand that you swim THROUGH; the downstream half is
-    // drawn in front of the player and the upstream half behind, so crossing it is an occlusion
-    // rather than a colour change.
-    const ringGate = (f0, cav, done, fin) => {
-      const t = run.time ?? 0
-      const a = done ? 0.5 : 1
-      const RU = Math.min(cav.hw - 8, 132), RF = RU * 0.56
-      const u0 = cav.c
-      const base = P(f0, u0)
-      gateFloorG.ellipse(base.x, base.y + RF * 0.5, RU * 0.95, RF * 0.5)
-      gateFloorG.fill({ color: 0x0b1a22, alpha: done ? 0.12 : 0.26 })
-      const body = done ? 0x4d5a4f : (fin ? 0xf4efe2 : 0xf2c53d)
-      const half = (G, a0, a1, front) => {
-        const pts = ell(0, 0, RF, RU, 22, a0, a1).map(([x, y]) => [x, y])
-        fuLine(G, f0, u0, pts, 0x101b20, a, 26)
-        fuLine(G, f0, u0, pts, body, a, 17)
-        fuLine(G, f0, u0, pts, front ? 0xfff6d8 : 0x8a7a3c, a * 0.7, 6)
-      }
-      half(gateG, Math.PI * 0.5, Math.PI * 1.5, false)
-      half(gateFrontG, -Math.PI * 0.5, Math.PI * 0.5, true)
-      // the two feet, so the hoop is planted rather than hovering
-      for (const sign of [-1, 1]) {
-        fuLine(gateG, f0, u0, [[0, sign * RU * 0.94], [RF * 0.62, sign * RU * 0.99]], 0x101b20, a, 15)
-        fuLine(gateG, f0, u0, [[0, sign * RU * 0.94], [RF * 0.62, sign * RU * 0.99]], 0x6b6f72, a, 9)
-      }
-      if (!done) {
-        const gl = 0.5 + 0.5 * Math.sin(t * 2)
-        fuLine(gateFrontG, f0, u0, ell(0, 0, RF, RU, 16, -Math.PI * 0.5, Math.PI * 0.5), 0xffffff, a * 0.18 * gl, 30)
-      }
-    }
-    // gv=15 — BANNER GANTRY. Two posts on the banks with fabric between their tops, streaming in
-    // the current. You swim UNDER it, so the banner is drawn over the player.
-    const gantry = (f0, cav, done, fin) => {
-      const t = run.time ?? 0
-      const a = done ? 0.5 : 1
-      const H = 96
-      for (const sign of [-1, 1]) {
-        const u = cav.c + sign * (cav.hw - 12)
-        const foot = P(f0, u)
-        gateFloorG.ellipse(foot.x, foot.y + 8, 20, 9)
-        gateFloorG.fill({ color: 0x0b1a22, alpha: done ? 0.12 : 0.28 })
-        // the post leans downstream a touch, which is what makes it read as standing rather than lying
-        fuLine(gateG, f0, u, [[10, 0], [-H * 0.1, 0]], 0x101b20, a, 20)
-        fuLine(gateG, f0, u, [[10, 0], [-H * 0.1, 0]], done ? 0x4f4a3e : 0x8c6b3f, a, 13)
-        const capw = P(f0 + dFor(-H * 0.1, u), u)
-        gateG.circle(capw.x, capw.y, 9)
-        gateG.fill({ color: done ? 0x5a554a : 0xd8c9a4, alpha: a })
-      }
-      // the fabric: a quad between the post tops, rippling
-      const uA = cav.c - cav.hw + 12, uB = cav.c + cav.hw - 12
-      const top = [], bot = []
-      for (let i = 0; i <= 12; i++) {
-        const u = uA + (uB - uA) * (i / 12)
-        const rip = Math.sin(t * 1.6 + i * 0.7) * 5
-        top.push([-H * 0.1 + rip, u - cav.c])
-        bot.push([-H * 0.1 + 34 + rip, u - cav.c])
-      }
-      const quadPts = top.concat(bot.slice().reverse())
-      if (fin) {
-        for (let i = 0; i < 12; i++) {
-          const seg = [top[i], top[i + 1], bot[i + 1], bot[i]]
-          fuShape(gateFrontG, f0, cav.c, seg, i % 2 ? 0xf4efe2 : 0x1b2b33, a, 0x101b20, 2)
-        }
-      } else {
-        fuShape(gateFrontG, f0, cav.c, quadPts, done ? 0x4f5a52 : 0xd8452f, a, 0x101b20, 5)
-        for (let i = 2; i < 12; i += 4) {
-          fuLine(gateFrontG, f0, cav.c, [[top[i][0] + 8, top[i][1]], [top[i][0] + 26, top[i][1] + 16], [top[i][0] + 8, top[i][1] + 32]], 0xfff1d8, a * 0.9, 5)
-        }
-      }
-    }
-    // gv=16 — BUOY, TURNED. Ball, mast, flag, chain down to a sinker: the silhouette everybody
-    // already knows, and the one the plan view could never produce.
-    const buoyTurned = (f0, cav, done, fin) => {
-      const t = run.time ?? 0
-      const a = done ? 0.5 : 1
-      for (const sign of [-1, 1]) {
-        const u = cav.c + sign * (cav.hw - 30)
-        const bob = Math.sin(t * 0.9 + sign) * 4
-        const q = P(f0 + dFor(bob, u), u)
-        const sink = P(f0 + dFor(76, u), u + sign * 12)
-        gateFloorG.ellipse(sink.x, sink.y, 17, 9)
-        gateFloorG.fill({ color: 0x22303a, alpha: done ? 0.35 : 0.8 })
-        gateFloorG.ellipse(q.x + 10, q.y + 62, 22, 10)
-        gateFloorG.fill({ color: 0x0b1a22, alpha: done ? 0.1 : 0.22 })
-        fuLine(gateG, f0, u, [[bob, 0], [76, sign * 12]], 0x1a2a30, a * 0.85, 5)
-        // mast + flag above the ball (up-track on screen), then the ball over the mast's foot
-        fuLine(gateG, f0, u, [[bob, 0], [bob - 54, 0]], 0x2b3a40, a, 7)
-        fuShape(gateG, f0, u, [[bob - 54, 0], [bob - 34, 26], [bob - 20, 0]],
-          done ? 0x5b4a44 : (fin ? 0xf4efe2 : 0xd8452f), a, 0x101b20, 4)
-        ball(gateG, q.x, q.y, 26, done ? 0x5c5330 : (fin ? 0xe8e2d4 : 0xf2c53d), 0xffe89a, a)
-        fuLine(gateG, f0, u, [[bob - 13, -22], [bob - 13, 22]], 0x101b20, a * 0.55, 6)
-      }
-    }
-    // gv=17 — CORAL ARCH. The in-theme hoop: a natural span you swim under, in the reef's own
-    // palette, so the gate is part of the world rather than planted in it.
-    const arch = (f0, cav, done, fin) => {
-      const a = done ? 0.55 : 1
-      const RU = Math.min(cav.hw - 6, 138), RF = RU * 0.5
-      const u0 = cav.c
-      const base = P(f0, u0)
-      gateFloorG.ellipse(base.x, base.y + RF * 0.45, RU * 0.9, RF * 0.45)
-      gateFloorG.fill({ color: 0x0b1a22, alpha: done ? 0.12 : 0.24 })
-      const body = done ? 0x6b5a52 : (fin ? 0xe8dcc4 : 0xc4566f)
-      const span = ell(0, 0, RF, RU, 20, Math.PI * 0.5, Math.PI * 1.5)
-      fuLine(gateG, f0, u0, span, 0x2c1d22, a, 40)
-      fuLine(gateG, f0, u0, span, body, a, 29)
-      fuLine(gateG, f0, u0, span, done ? 0x7d6c62 : 0xf0b8c4, a * 0.65, 10)
-      // the branching crust that makes it coral and not concrete
-      for (let i = 1; i < span.length - 1; i += 2) {
-        const [x, y] = span[i]
-        const n = 1 + (i % 3)
-        for (let k = 0; k < n; k++) {
-          const sp = (k - (n - 1) / 2) * 13
-          fuLine(gateG, f0, u0, [[x, y], [x - 16 - (i % 4) * 5, y + sp]], 0x2c1d22, a, 8)
-          fuLine(gateG, f0, u0, [[x, y], [x - 15 - (i % 4) * 5, y + sp]], body, a, 4.5)
-          const w = P(f0 + dFor(x - 16 - (i % 4) * 5, u0 + y + sp), u0 + y + sp)
-          gateG.circle(w.x, w.y, 4)
-          gateG.fill({ color: done ? 0x8d8078 : 0xffe4ea, alpha: a })
-        }
-      }
-      for (const sign of [-1, 1]) {
-        fuLine(gateFrontG, f0, u0, [[0, sign * RU * 0.98], [RF * 0.7, sign * RU * 1.02]], 0x2c1d22, a, 34)
-        fuLine(gateFrontG, f0, u0, [[0, sign * RU * 0.98], [RF * 0.7, sign * RU * 1.02]], body, a, 24)
-      }
-    }
-    // ---- gv=18..21: the gate REACTS -----------------------------------------------------------
-    // Owner, 2026-08-25: "more realistic, clearer ux and game feel". Seventeen candidates in and
-    // every one of them was static furniture whose only state was an alpha — so none of them could
-    // answer the three questions a racer actually asks: where do I go NEXT, am I nearly there, and
-    // did that count?
-    //   ONLY THE NEXT GATE IS LIT, and that is the single biggest UX win available here. A lap has
-    // ten checkpoints and several are on screen at once; lighting all of them says "gates exist",
-    // lighting exactly one says "go there". Everything else on the lap goes quiet.
+
+    // ONLY THE NEXT GATE IS LIT, and that is the largest single UX win available here. Every other
+    // gate on the lap goes quiet, so "where do I go" needs no arrow and no minimap.
     const swimNow = run._swimN ?? 0
     if (swimNow < gateLastN) gateLastN = -1
-    if (gateLastN >= 0 && swimNow > gateLastN) { gateCrossAt = run.time; gateCrossK = (swimNow - 1) % per }
+    if (gateLastN >= 0 && swimNow > gateLastN) { gateCrossAt = t; gateCrossK = (swimNow - 1) % per }
     gateLastN = swimNow
-    const nextK = per > 0 ? swimNow % per : -1
-    const CROSS_T = 0.55
+    const nextK = swimNow % per
     // 0 far .. 1 on top of it. The ramp is what turns a marker into an approach.
-    const nearness = (w) => {
-      const d = Math.hypot(w.x - pw, w.y - ph2)
-      return Math.max(0, Math.min(1, 1 - d / 820))
-    }
-    const crossAge = (k) => (k === gateCrossK ? Math.max(0, 1 - (run.time - gateCrossAt) / CROSS_T) : 0)
-    // The reward: a ring of light thrown off the gate you just threaded. One shape, every design,
-    // so the crossing always feels the same however the marker is drawn.
-    const burst = (G, w, k, tint) => {
+    const nearness = (w) => Math.max(0, Math.min(1, 1 - Math.hypot(w.x - pw, w.y - ph2) / V.nearR))
+    const crossAge = (k) => (k === gateCrossK ? Math.max(0, 1 - (t - gateCrossAt) / V.crossT) : 0)
+
+    // THE REWARD. {type:'swimthrough'} is pushed by stepCircuit and has had an SFX_FOR_EVENT entry
+    // ('gem') since it was written, with NO consumer in this file at all — so the most important
+    // moment in this chapter was audio-only, and run EV was satisfied by the sound alone. This is
+    // the pixel half of it.
+    //   Derived from run._swimN rather than plumbed through sync's event list: render must not
+    // mutate run, a counter cannot desync from itself, and a dropped frame cannot lose the pulse.
+    const burst = (w, k) => {
       const c = crossAge(k)
       if (c <= 0) return
       const e = 1 - c
-      G.circle(w.x, w.y, 26 + e * 190)
-      G.stroke({ width: 20 * c + 2, color: tint, alpha: 0.55 * c * c })
-      G.circle(w.x, w.y, 12 + e * 92)
-      G.stroke({ width: 10 * c + 1, color: 0xffffff, alpha: 0.5 * c })
+      gateFrontG.circle(w.x, w.y, 26 + e * 190)
+      gateFrontG.stroke({ width: 20 * c + 2, color: V.glow, alpha: 0.55 * c * c })
+      gateFrontG.circle(w.x, w.y, 12 + e * 92)
+      gateFrontG.stroke({ width: 10 * c + 1, color: 0xffffff, alpha: 0.5 * c })
     }
-    // gv=18 — CHANNEL MARKER LIGHTS. A lit pile has the one property no painted marker had: it can
-    // be OFF, so "which gate is mine" needs no arrow and no colour code. Three things sell the lamp
-    // as a real light rather than a bright dot — a halo in the water, a POOL ON THE SAND under it,
-    // and a warm hue. Warm is deliberate: every colour in this chapter is blue, green, pink or
-    // coral-orange, so amber is the only light that cannot be read as part of the reef.
-    const markerLights = (f0, cav, done, fin, k) => {
-      const t = run.time ?? 0
+
+    // A stand on each bank, and the pair frame the squeeze. fin marks the start/finish line, which
+    // is always lit because it is always the thing you are ultimately driving at.
+    const stand = (f0, cav, fin, k) => {
       const w0 = P(f0, cav.c)
-      const nr = nearness(w0), lit = k === nextK || fin
+      const nr = nearness(w0), lit = fin || k === nextK
       const c = crossAge(k)
-      const puls = 0.55 + 0.45 * Math.sin(t * 3.4)
-      const glow = lit ? (0.5 + 0.5 * nr) * (0.62 + 0.38 * puls) : 0
-      const warm = fin ? 0xfff4d6 : 0xffb43a
-      const core = fin ? 0xffffff : 0xfff0c4
-      if (lit) {
-        // THE LIT CHANNEL, built as three stacked strokes rather than one bar: light in water has
-        // no edge, and a single flat stroke is what read as a grey slab across the corridor.
-        for (const [w, al] of [[64, 0.05], [38, 0.07], [17, 0.1]]) {
-          fuLine(gateFrontG, f0, cav.c, [[0, -cav.hw + 18], [0, cav.hw - 18]], warm,
-            (al + al * 1.6 * nr) * (0.6 + 0.4 * puls) + c * al * 5, w + c * 26)
+      const body = fin ? V.bodyFinish : V.body
+      // the reach the rods get here: cut back at the finish so the mat between them stays legible
+      const rm = fin ? V.finReachMul : 1
+      if (lit && !fin) {
+        const pu = 0.6 + 0.4 * Math.sin(t * 2.6)
+        for (const [w, al] of V.haze) {
+          fuLine(gateFrontG, f0, cav.c, [[0, -cav.hw + 20], [0, cav.hw - 20]], V.glow,
+            (al + al * 1.7 * nr) * pu + c * al * 5, w + c * 28)
         }
       }
       for (const sign of [-1, 1]) {
-        const u = cav.c + sign * (cav.hw - 14)
-        const foot = P(f0, u)
-        // the pool of light the lamp throws on the sand — the cheapest proof that it is ON
-        if (lit) {
-          gateFloorG.ellipse(foot.x, foot.y + 6, 62, 30)
-          gateFloorG.fill({ color: warm, alpha: 0.1 * glow + c * 0.2 })
-        }
-        gateFloorG.ellipse(foot.x, foot.y + 7, 19, 9)
-        gateFloorG.fill({ color: 0x0b1a22, alpha: 0.3 })
-        // A TAPERED PILE, not a stick: wide where it is driven into the sand, narrow at the head,
-        // with a collar under the lamp. The taper is what stops it reading as a drawn line.
-        for (const [a0, b0, w, col] of [[10, -74, 22, 0x101b20], [10, -74, 15, done ? 0x3c4348 : 0x6a747a],
-          [10, -30, 11, done ? 0x333a3e : 0x525b60]]) {
-          fuLine(gateG, f0, u, [[a0, 0], [b0, 0]], col, 1, w)
-        }
-        // encrusting growth at the waterline of the pile, so it has been here a while
-        for (let i = 0; i < 3; i++) {
-          const q2 = P(f0 + dFor(2 - i * 9, u), u + (i % 2 ? 5 : -5))
-          gateG.circle(q2.x, q2.y, 6 - i)
-          gateG.fill({ color: 0x8d7f6a, alpha: 0.8 })
-        }
-        const head = P(f0 + dFor(-74, u), u)
-        const collar = P(f0 + dFor(-62, u), u)
-        gateG.circle(collar.x, collar.y, 13)
-        gateG.fill({ color: done ? 0x333a3e : 0x59636a, alpha: 1 })
-        if (lit) {
-          gateFrontG.circle(head.x, head.y, 58 + c * 44)
-          gateFrontG.fill({ color: warm, alpha: 0.22 * glow + c * 0.34 })
-          gateFrontG.circle(head.x, head.y, 30 + c * 24)
-          gateFrontG.fill({ color: warm, alpha: 0.3 * glow + c * 0.4 })
-        }
-        ball(gateG, head.x, head.y, 19, lit ? warm : 0x39424a, core, 1)
-        if (lit) {
-          gateFrontG.circle(head.x, head.y, 10)
-          gateFrontG.fill({ color: core, alpha: 0.6 + 0.4 * puls })
-        }
-      }
-      burst(gateFrontG, w0, k, warm)
-    }
-    // gv=19 — BUBBLE CURTAIN. Two vents on the sand and a wall of bubbles between them. The most
-    // underwater answer available, it spans the passage so the line is unmissable, and it is the
-    // only marker that can be BLOWN APART — which is the crossing made physical rather than
-    // announced.
-    const curtain = (f0, cav, done, fin, k) => {
-      const t = run.time ?? 0
-      const w0 = P(f0, cav.c)
-      const nr = nearness(w0), lit = k === nextK || fin
-      const c = crossAge(k)
-      const strength = lit ? 0.45 + 0.55 * nr : 0.07
-      for (const sign of [-1, 1]) {
-        const u = cav.c + sign * (cav.hw - 12)
-        const cone = []
-        for (let i = 0; i < 12; i++) {
-          const th = (i / 12) * Math.PI * 2
-          const r = 22 * (0.8 + 0.28 * hsh(i, sign + 5))
-          cone.push([Math.cos(th) * r, Math.sin(th) * r * 0.8])
-        }
-        fuShape(gateFloorG, f0, u, cone, 0x2b3138, 0.9, 0x14181c, 6)
-      }
-      const N = 34
-      for (let i = 0; i < N; i++) {
-        const lane = i / N
-        const u = cav.c - cav.hw + 14 + (cav.hw * 2 - 28) * lane
-        // each bubble on its own clock so the wall shimmers instead of pulsing as one object
-        const ph = (t * (0.5 + 0.35 * hsh(i, 2)) + hsh(i, 9)) % 1
-        const r = (2.5 + ph * 9) * (0.5 + strength)
-        // the crossing shoves the wall outward, hardest at the middle where the player went through
-        const shove = c * c * 150 * (1 - Math.abs(lane - 0.5) * 1.4)
-        const dx = (hsh(i, 3) - 0.5) * 26 * ph + shove
-        const dy = (hsh(i, 7) - 0.5) * 22 * ph
-        const q = P(f0 + dFor(dx, u), u + dy)
-        const G = dx > 0 ? gateFrontG : gateG
-        G.circle(q.x, q.y, r)
-        G.fill({ color: 0xd6ecf7, alpha: (0.1 + 0.4 * strength) * (1 - ph) })
-        G.circle(q.x, q.y, r)
-        G.stroke({ width: 1.6, color: 0xf2fbff, alpha: (0.14 + 0.46 * strength) * (1 - ph) })
-      }
-      burst(gateFrontG, w0, k, 0xd6ecf7)
-    }
-    // gv=20 — SEA WHIPS. Whip coral is an unbranched rod rising off the seabed, so a stand of them
-    // is a natural palisade — and two stands facing each other across the passage is a DOORWAY made
-    // of living reef, with no manufactured object anywhere in it.
-    //   GREEN, and that is the reason it can be seen at all. The reef's palette is pink, cyan, red,
-    // orange, cream, gold and plum; the first cut drew these in 0xb8567e, which is the pink already
-    // on both walls, and the stand vanished into the coral behind it. Green is the one hue the
-    // chapter never uses.
-    //   The rods BOW OUT OF YOUR WAY as you thread them, which is the only reaction in the set
-    // driven by the player's own wake instead of by a light.
-    const whips = (f0, cav, done, fin, k) => {
-      const t = run.time ?? 0
-      const w0 = P(f0, cav.c)
-      const nr = nearness(w0), lit = k === nextK || fin
-      const c = crossAge(k)
-      const body = done ? 0x4a5a4e : (fin ? 0xdfe4cf : 0x3f7d55)
-      const N = 7
-      for (const sign of [-1, 1]) {
-        for (let i = 0; i < N; i++) {
-          const h = hsh(i, sign + 2), h2 = hsh(i, sign + 9)
-          // a WIDE foot, and jittered, so the bases are a scatter on the sand rather than a row
-          const fr = (i / (N - 1) - 0.5) * 148 + (h2 - 0.5) * 26
-          // ...and each rod leans its own way, which is what turns a comb into a stand
-          const splay = (i / (N - 1) - 0.5) * 96 + (h - 0.5) * 34
-          const sway = Math.sin(t * 1.1 + i * 1.3 + sign) * 9
+        const uBase = cav.c + sign * (cav.hw - 2)
+        for (let n = 0; n < V.rods; n++) {
+          const h = hsh(n, sign + 2), h2 = hsh(n, sign + 9)
+          const g = n / (V.rods - 1) - 0.5
+          const fr = g * V.footSpan + (h2 - 0.5) * V.footJitter
+          const splay = g * V.splay + (h - 0.5) * V.splayJitter
+          const sway = Math.sin(t * 1.1 + n * 1.3 + sign) * V.swayPx
           // the wake shove: hardest on the rods nearest the middle, where the player went through
-          const push = c * c * 96 * (0.35 + 0.65 * (i / N))
-          const reach = 54 + h * 78
+          const push = c * c * V.shove * (0.35 + 0.65 * (n / V.rods))
+          const reach = (V.reachLo + h * V.reachSpan) * cav.hw * rm
           const pts = []
-          for (let j = 0; j <= 6; j++) {
-            const g2 = j / 6
+          for (let m = 0; m <= 6; m++) {
+            const g2 = m / 6
             pts.push([fr + (splay + sway + push) * g2 * g2, -sign * reach * g2])
           }
-          fuLine(gateG, f0, cav.c + sign * (cav.hw - 2), pts, 0x1e2a20, 1, 8.5)
-          fuLine(gateG, f0, cav.c + sign * (cav.hw - 2), pts, body, 1, 4.5)
+          fuLine(gateG, f0, uBase, pts, V.outline, 1, V.rodOutlineW)
+          fuLine(gateG, f0, uBase, pts, body, 1, V.rodBodyW)
           // polyps along the rod — what makes it coral rather than a reed
-          for (let j = 1; j <= 5; j++) {
-            const pt = pts[j]
-            const uu = cav.c + sign * (cav.hw - 2) + pt[1]
-            const q2 = P(f0 + dFor(pt[0] + (j % 2 ? 4 : -4), uu), uu)
-            gateG.circle(q2.x, q2.y, 3)
-            gateG.fill({ color: done ? 0x6b7a6f : 0x8fc99a, alpha: 0.85 })
+          for (let m = 1; m <= 5; m++) {
+            const pt = pts[m]
+            const uu = uBase + pt[1]
+            const q2 = P(f0 + dFor(pt[0] + (m % 2 ? 4 : -4), uu), uu)
+            gateG.circle(q2.x, q2.y, V.polypR)
+            gateG.fill({ color: V.polyp, alpha: 0.85 })
           }
           const tip = pts[6]
-          const uu = cav.c + sign * (cav.hw - 2) + tip[1]
+          const uu = uBase + tip[1]
           const q = P(f0 + dFor(tip[0], uu), uu)
-          // THE TIPS ARE THE SWITCH. Bioluminescent bulbs that only light on the gate that is
-          // yours: the same on/off the lamps have, from an organism rather than from hardware.
           if (lit) {
-            const pu = 0.6 + 0.4 * Math.sin(t * 3 + i * 0.5)
-            gateFrontG.circle(q.x, q.y, 17 + c * 18)
-            gateFrontG.fill({ color: 0xaaffc0, alpha: (0.09 + 0.14 * nr) * pu + c * 0.3 })
-            gateG.circle(q.x, q.y, 7)
-            gateG.fill({ color: 0xe8ffd8, alpha: 0.75 + 0.25 * pu })
+            const pu = 0.6 + 0.4 * Math.sin(t * 3 + n * 0.5)
+            gateFrontG.circle(q.x, q.y, 30 + c * 24)
+            gateFrontG.fill({ color: V.glow, alpha: (0.1 + 0.16 * nr) * pu + c * 0.3 })
+            gateFrontG.circle(q.x, q.y, 16 + c * 12)
+            gateFrontG.fill({ color: V.glow, alpha: (0.16 + 0.22 * nr) * pu + c * 0.36 })
+            gateG.circle(q.x, q.y, V.bulbR)
+            gateG.fill({ color: V.bulb, alpha: 0.8 + 0.2 * pu })
           } else {
-            gateG.circle(q.x, q.y, 5)
-            gateG.fill({ color: done ? 0x59665c : 0x6f8a74, alpha: 1 })
+            gateG.circle(q.x, q.y, V.bulbDarkR)
+            gateG.fill({ color: V.bulbDark, alpha: 1 })
           }
         }
       }
-      burst(gateFrontG, w0, k, 0xaaffc0)
+      burst(w0, k)
     }
-    // gv=21 — LIT RING. The hoop that already reads, given the state the other sixteen lacked: a
-    // dead grey loop until it is your next gate, breathing once it is, and blown white when you
-    // thread it.
-    const litRing = (f0, cav, done, fin, k) => {
-      const t = run.time ?? 0
-      const RU = Math.min(cav.hw - 8, 132), RF = RU * 0.56
-      const u0 = cav.c
-      const w0 = P(f0, u0)
-      const nr = nearness(w0), lit = k === nextK || fin
-      const c = crossAge(k)
-      const puls = 0.5 + 0.5 * Math.sin(t * 3)
-      const base = P(f0, u0)
-      gateFloorG.ellipse(base.x, base.y + RF * 0.5, RU * 0.95, RF * 0.5)
-      gateFloorG.fill({ color: 0x0b1a22, alpha: 0.24 })
-      const body = lit ? (fin ? 0xf4efe2 : 0xf2c53d) : 0x4a5157
-      const half = (G, a0, a1, front) => {
-        const pts = ell(0, 0, RF, RU, 22, a0, a1)
-        if (lit) {
-          fuLine(G, f0, u0, pts, fin ? 0xfff4d6 : 0xffe07a,
-            (0.2 + 0.26 * nr) * (0.6 + 0.4 * puls) + c * 0.6, 58 + c * 34)
-        }
-        fuLine(G, f0, u0, pts, 0x101b20, 1, 26)
-        fuLine(G, f0, u0, pts, body, 1, 17)
-        fuLine(G, f0, u0, pts, front ? (lit ? 0xfff6d8 : 0x767d82) : 0x8a7a3c, 0.7, 6)
-        if (c > 0) fuLine(G, f0, u0, pts, 0xffffff, c * 0.85, 17)
-      }
-      half(gateG, Math.PI * 0.5, Math.PI * 1.5, false)
-      half(gateFrontG, -Math.PI * 0.5, Math.PI * 0.5, true)
-      for (const sign of [-1, 1]) {
-        fuLine(gateG, f0, u0, [[0, sign * RU * 0.94], [RF * 0.62, sign * RU * 0.99]], 0x101b20, 1, 15)
-        fuLine(gateG, f0, u0, [[0, sign * RU * 0.94], [RF * 0.62, sign * RU * 0.99]], 0x6b6f72, 1, 9)
-      }
-      burst(gateFrontG, w0, k, fin ? 0xfff4d6 : 0xffe07a)
-    }
-    const realMarker = (f0, cav, done, fin, kOf = -1) => {
-      if (gateArt === 18) return markerLights(f0, cav, done, fin, kOf)
-      if (gateArt === 19) return curtain(f0, cav, done, fin, kOf)
-      if (gateArt === 20) return whips(f0, cav, done, fin, kOf)
-      if (gateArt === 21) return litRing(f0, cav, done, fin, kOf)
-      if (gateArt === 14) return ringGate(f0, cav, done, fin)
-      if (gateArt === 15) return gantry(f0, cav, done, fin)
-      if (gateArt === 16) return buoyTurned(f0, cav, done, fin)
-      if (gateArt === 17) return arch(f0, cav, done, fin)
-      if (gateArt === 10) return clam(f0, cav, done, fin)
-      if (gateArt === 11) return seaFan(f0, cav, done, fin)
-      if (gateArt === 12) return vent(f0, cav, done, fin)
-      if (gateArt === 13) return brain(f0, cav, done, fin)
-      if (gateArt === 7) floatLine(f0, cav, done, fin)
-      else if (gateArt === 8) scaffold(f0, cav, done, fin)
-      else if (gateArt === 9) cairn(f0, cav, done, fin)
-      else sparBuoy(f0, cav, done, fin)
-    }
-    // A WORN MAT, not a printed one: separate tiles with grout between them, a few lost to the
-    // reef, and sand drifted over the edges. The v5 mat was butted strokes at one alpha, which is
-    // a swatch — the thing that makes an object look laid down is that it is not uniform.
-    const matWorn = (cav, rows) => {
+
+    // The chequered mat, laid on the sand at f = 0.
+    const mat = (cav) => {
       const lo = cav.c - cav.hw, stepU = (cav.hw * 2) / V.checks
-      const half = (rows * stepU) / 2
+      const half = (V.matRows * stepU) / 2
+      // one stroke for the bed, across the whole passage: a per-column loop left a tab sticking out
+      // at each end, which read as torn shadow rather than as the edge of a laid mat.
       const A0 = P(0, lo - 8), B0 = P(0, lo + cav.hw * 2 + 8)
       gateFloorG.moveTo(A0.x, A0.y)
       gateFloorG.lineTo(B0.x, B0.y)
-      gateFloorG.stroke({ width: (half + 8) * 2, color: 0x0e1a20, alpha: 0.42, cap: 'butt' })
-      for (let r = 0; r < rows; r++) {
-        for (let i = 0; i < V.checks; i++) {
-          const h = hsh(i, r)
-          if (h > 0.94) continue
-          const u0 = lo + i * stepU + 1.5, u1 = lo + (i + 1) * stepU - 1.5
+      gateFloorG.stroke({ width: (half + 8) * 2, color: V.matBed, alpha: 0.42, cap: 'butt' })
+      for (let r = 0; r < V.matRows; r++) {
+        for (let n = 0; n < V.checks; n++) {
+          const h = hsh(n, r)
+          if (h > V.matLost) continue
+          const u0 = lo + n * stepU + 1.5, u1 = lo + (n + 1) * stepU - 1.5
           const um = (u0 + u1) / 2
-          const fc = dFor(stepU * (r - (rows - 1) / 2), um)
+          const fc = dFor(stepU * (r - (V.matRows - 1) / 2), um)
           const fh = dFor(stepU / 2 - 1.5, um)
-          quad(gateFloorG, fc - fh, fc + fh, u0, u1, (i + r) % 2 ? V.line : V.lineDark, 0.7 + h * 0.26)
+          const c0 = P(fc - fh, u0), c1 = P(fc - fh, u1), c2 = P(fc + fh, u1), c3 = P(fc + fh, u0)
+          gateFloorG.poly([c0.x, c0.y, c1.x, c1.y, c2.x, c2.y, c3.x, c3.y])
+          gateFloorG.fill({ color: (n + r) % 2 ? V.line : V.lineDark, alpha: 0.7 + h * 0.26 })
         }
       }
-      for (let i = 0; i < 7; i++) {
-        const h = hsh(i, 21), h2 = hsh(i, 33)
+      for (let n = 0; n < 7; n++) {
+        const h = hsh(n, 21), h2 = hsh(n, 33)
         const u = lo + cav.hw * 2 * h
         const q = P(dFor(half * (h2 * 2 - 1), u), u)
         gateFloorG.circle(q.x, q.y, 12 + h2 * 16)
-        gateFloorG.fill({ color: 0xb9a98a, alpha: 0.16 + h * 0.12 })
+        gateFloorG.fill({ color: V.sand, alpha: 0.16 + h * 0.12 })
       }
     }
-    const buoy = (f0, cav, done, liv) => {
-      const t = run.time ?? 0
-      // THE GROUNDLINE, and it is the piece that turns two floats into a gate. Two markers alone
-      // are two objects; a rope on the sand between them is one instruction, and it is real course
-      // hardware rather than a graphic. On the SEABED, so it passes under the player and under the
-      // coral overhang and never paints the strip being steered down — which is the whole failure
-      // of the bar it replaces.
-      // ...but NOT at the finish: there the mat IS the connector, and a rope laid over the chequer
-      // only muddies the one pattern the player has to read at a glance.
-      if (liv.rope) {
-        const a = P(f0, cav.c - cav.hw + 12), b = P(f0, cav.c + cav.hw - 12)
-        gateFloorG.moveTo(a.x, a.y)
-        gateFloorG.lineTo(b.x, b.y)
-        gateFloorG.stroke({ width: 7, color: 0x14262e, alpha: done ? 0.22 : 0.5, cap: 'round' })
-        gateFloorG.moveTo(a.x, a.y)
-        gateFloorG.lineTo(b.x, b.y)
-        gateFloorG.stroke({ width: 2.5, color: liv.body, alpha: done ? 0.14 : 0.34, cap: 'round' })
-      }
-      for (const sign of [-1, 1]) {
-        // Off the racing line by construction: the float sits just inside the bank, never in the
-        // strip the player steers down. That is the whole correction over the shipped bar.
-        const u = cav.c + sign * (cav.hw - 24)
-        // A MOORED FLOAT MOVES. Phase off f so two buoys on screen never bob in lockstep, which is
-        // what reads as one object rather than two.
-        const bob = Math.sin(t * 0.9 + f0 * 0.004 + sign) * 3
-        const f = f0 + dFor(bob, u)
-        const q = P(f, u + bob * 0.4)
-        const sink = P(f - dFor(30, u), u + sign * 34)
-        // the sinker and its chain, on the sand
-        gateFloorG.circle(sink.x, sink.y, 13)
-        gateFloorG.fill({ color: 0x1a2a30, alpha: done ? 0.3 : 0.6 })
-        gateFloorG.moveTo(sink.x, sink.y)
-        gateFloorG.lineTo(q.x, q.y)
-        gateFloorG.stroke({ width: 4, color: 0x1a2a30, alpha: done ? 0.25 : 0.5, cap: 'round' })
-        // ...and the float's own shadow, cast past the sinker so the two never sit on top of
-        // each other and flatten back into one blob.
-        gateFloorG.circle(q.x + 14, q.y + 16, 24)
-        gateFloorG.fill({ color: 0x0b1a22, alpha: done ? 0.14 : 0.3 })
-        const a = done ? 0.45 : 1
-        gateG.circle(q.x, q.y, 26)
-        gateG.fill({ color: done ? liv.bodyDone : liv.body, alpha: a })
-        gateG.circle(q.x, q.y, 26)
-        gateG.stroke({ width: 3, color: 0x121d22, alpha: a })
-        gateG.circle(q.x, q.y, 16)
-        gateG.stroke({ width: 9, color: liv.band, alpha: a })
-        gateG.circle(q.x, q.y, 6)
-        gateG.fill({ color: done ? liv.bodyDone : liv.lamp, alpha: done ? 0.5 : 0.85 + 0.15 * Math.sin(t * 3) })
-      }
-    }
-    // THE FINISH MAT: rows of SQUARE squares laid on the sand. Square because the shipped line was
-    // one row 38px deep on a passage cut into 38px columns — right proportion, wrong count, and one
-    // row of alternating squares is a level-crossing arm rather than a chequered flag.
-    const mat = (cav, rows) => {
-      const lo = cav.c - cav.hw, stepU = (cav.hw * 2) / V.checks
-      const half = (rows * stepU) / 2
-      // the mat's own dark bed, a touch proud of the squares, so it reads as a thing LAID on the
-      // sand with an edge rather than as paint soaked into it.
-      // ONE stroke for the bed, across the whole passage. A per-column loop left a tab sticking out
-      // at each end, which read as torn shadow rather than as the edge of a laid mat.
-      {
-        const A0 = P(0, lo - 7), B0 = P(0, lo + cav.hw * 2 + 7)
-        gateFloorG.moveTo(A0.x, A0.y)
-        gateFloorG.lineTo(B0.x, B0.y)
-        gateFloorG.stroke({ width: (half + 7) * 2, color: 0x0e1a20, alpha: 0.45, cap: 'butt' })
-      }
-      for (let r = 0; r < rows; r++) {
-        for (let i = 0; i < V.checks; i++) {
-          const u0 = lo + i * stepU, u1 = lo + (i + 1) * stepU
-          const um = (u0 + u1) / 2
-          const fr = dFor(stepU * (r - (rows - 1) / 2), um)
-          const a = P(fr, u0), b = P(fr, u1)
-          // WORN, NOT PRINTED. The alpha wobbles per square off a cheap hash of its own address, so
-          // the mat is a weathered object instead of a UI swatch — the same reason the coral is
-          // three summed octaves and not one sine.
-          const h = Math.abs(Math.sin(i * 12.9898 + r * 78.233) * 43758.5453) % 1
-          gateFloorG.moveTo(a.x, a.y)
-          gateFloorG.lineTo(b.x, b.y)
-          gateFloorG.stroke({ width: stepU + 1, color: (i + r) % 2 ? V.line : V.lineDark, alpha: 0.72 + h * 0.24, cap: 'butt' })
-        }
-      }
-    }
+
+    // ONE LAP, NOT A WINDOW. On a ring the gates ARE the lap — f wraps, so there is no `n` to walk
+    // and every checkpoint is either on screen or culled by its own distance. The start line is
+    // simply the gate at f = 0.
     {
       const cav = caveAt(0, cspec, seed)
-      if (near(P(0, cav.c))) {
-        if (gateArt === 0) {
-          // THE START LINE: a chequered band across the WHOLE passage, so it reads as a finish line
-          // and not as a seventh checkpoint.
-          chequer(gateG, 0, 1, cav, 0.92)
-        } else {
-          if (gateArt >= 6) matWorn(cav, 3)
-          else if (gateArt === 5) mat(cav, 3)
-          else chequer(gateFloorG, 0, 2, cav, 0.95)
-          // ...and a chequered pylon on each bank, so the line still has ends when the floor is busy.
-          if (gateArt >= 6) realMarker(0, cav, false, true, -1)
-          else if (gateArt === 5) buoy(0, cav, false, BUOY_FINISH)
-          else for (const sign of [-1, 1]) {
-            const edge = cav.c + sign * (cav.hw - 10)
-            for (let b = 0; b < 3; b++) {
-              const q = P(dFor((b - 1) * 23, edge), edge)
-              gateG.circle(q.x, q.y, 15)
-              gateG.fill({ color: b % 2 ? V.lineDark : V.line, alpha: 0.95 })
-            }
-          }
-        }
-      }
+      if (near(P(0, cav.c))) { mat(cav); stand(0, cav, true, -1) }
     }
     for (let k = 0; k < per; k++) {
       const f = run._swims[k].f
       const cav = caveAt(f, cspec, seed)
       if (!near(P(f, cav.c))) continue
-      // run._swimN is a RUNNING COUNT since the run began, so which lap's gate this is falls out of
-      // it with no per-lap bookkeeping — the same arithmetic stepCircuit banks with.
-      const lapDone = Math.floor((run._swimN ?? 0) / per) * per + k < (run._swimN ?? 0)
-      const col = lapDone ? V.postDone : V.post
-      const al = lapDone ? V.doneAlpha : 1
-      if (gateArt >= 6) {
-        realMarker(f, cav, lapDone, false, k)
-      } else if (gateArt === 5) {
-        // MOORED MARKER BUOYS — real course hardware, seen from directly above. What made every
-        // earlier cut read as UI is that it had no way of being IN the water: a float that is only
-        // a disc could be painted on the glass. A buoy has a TETHER and it has a SHADOW, and both
-        // land on the seabed under it, so the thing is anchored to the world in two ways at once.
-        //   Owner, 2026-08-25, on all four of the first candidates: "more realistic and more in
-        // theme".
-        buoy(f, cav, lapDone, BUOY_MARK)
-      } else if (gateArt === 4) {
-        // BUOYS + FLOOR ARROWS. The banks say WHERE the line is, the seabed says WHICH WAY, and
-        // nothing at all stands in the strip the player steers down.
-        for (let i = 0; i < 3; i++) {
-          const u = cav.c - cav.hw + (cav.hw * 2) * (i + 0.5) / 3
-          arrow(gateFloorG, f, u, 26, 20, col, lapDone ? V.doneAlpha * 0.6 : 0.6, 10)
-        }
-        for (const sign of [-1, 1]) {
-          const edge = cav.c + sign * (cav.hw - 16)
-          const q = P(f, edge)
-          const m = P(f, edge + sign * 54)
-          gateG.moveTo(m.x, m.y)
-          gateG.lineTo(q.x, q.y)
-          gateG.stroke({ width: 6, color: 0x14323a, alpha: al * 0.85, cap: 'round' })
-          gateG.circle(q.x, q.y, 27)
-          gateG.fill({ color: 0x14323a, alpha: al })
-          gateG.circle(q.x, q.y, 27)
-          gateG.stroke({ width: 6, color: col, alpha: al })
-          gateG.circle(q.x, q.y, 11)
-          gateG.fill({ color: lapDone ? V.postDone : V.postCore, alpha: lapDone ? V.doneAlpha : 1 })
-        }
-      } else if (gateArt === 1) {
-        // BUOYS. The information moves to the BANKS and the racing line is left clear water: what
-        // makes the shipped bar read as a barrier is that it paints the exact strip you steer down.
-        fseg(f, cav.c - cav.hw, cav.c + cav.hw, 12, col, lapDone ? 0.10 : 0.28)
-        for (const sign of [-1, 1]) {
-          const edge = cav.c + sign * (cav.hw - 16)
-          const q = P(f, edge)
-          const m = P(f, edge + sign * 54)
-          gateG.moveTo(m.x, m.y)
-          gateG.lineTo(q.x, q.y)
-          gateG.stroke({ width: 6, color: 0x14323a, alpha: al * 0.85, cap: 'round' })
-          gateG.circle(q.x, q.y, 27)
-          gateG.fill({ color: 0x14323a, alpha: al })
-          gateG.circle(q.x, q.y, 27)
-          gateG.stroke({ width: 6, color: col, alpha: al })
-          gateG.circle(q.x, q.y, 11)
-          gateG.fill({ color: lapDone ? V.postDone : V.postCore, alpha: lapDone ? V.doneAlpha : 1 })
-        }
-      } else if (gateArt === 2) {
-        // SEABED PAINT. Nothing stands in the water at all — the mark is under the coral overhang
-        // and under the fish, so it can never be mistaken for something you must avoid.
-        fseg(f, cav.c - cav.hw, cav.c + cav.hw, 58, col, lapDone ? 0.10 : 0.20)
-        for (let i = 0; i < 3; i++) {
-          const u = cav.c - cav.hw + (cav.hw * 2) * (i + 0.5) / 3
-          arrow(gateFloorG, f, u, 26, 20, col, lapDone ? V.doneAlpha * 0.6 : 0.75, 10)
-        }
-        for (const sign of [-1, 1]) {
-          const q = P(f, cav.c + sign * (cav.hw - 10))
-          gateG.circle(q.x, q.y, 9)
-          gateG.fill({ color: lapDone ? V.postDone : V.postCore, alpha: lapDone ? V.doneAlpha : 1 })
-        }
-      } else if (gateArt === 3) {
-        // LIGHT ARCH. The curtain is EDGE-WEIGHTED — bright at the wall, gone at the centre — so
-        // the threshold still spans the passage while the line you drive stays clear.
-        const N = 9
-        for (let i = 0; i < N; i++) {
-          const u0 = cav.c - cav.hw + (cav.hw * 2) * i / N
-          const u1 = cav.c - cav.hw + (cav.hw * 2) * (i + 1) / N
-          const w = Math.abs(((u0 + u1) / 2 - cav.c) / cav.hw)
-          seg(f, u0, u1, 26, V.band, (lapDone ? V.doneAlpha : 1) * 0.5 * w * w)
-        }
-        const pulse = 0.5 + 0.5 * Math.sin((run.time ?? 0) * 2.2)
-        for (const sign of [-1, 1]) {
-          for (let t = 0; t < 5; t++) {
-            const spread = t / 4 - 0.5
-            const baseU = cav.c + sign * cav.hw
-            const tipU = baseU - sign * (26 + 24 * (0.35 + 0.65 * pulse) * (1 - Math.abs(spread) * 1.2))
-            const a = P(f + dFor(spread * 26, baseU), baseU)
-            const b = P(f + dFor(spread * 40, tipU), tipU)
-            gateG.moveTo(a.x, a.y)
-            gateG.lineTo(b.x, b.y)
-            gateG.stroke({ width: 7, color: col, alpha: al * 0.9, cap: 'round' })
-            gateG.circle(b.x, b.y, 5)
-            gateG.fill({ color: lapDone ? V.postDone : V.postCore, alpha: lapDone ? V.doneAlpha : 0.6 + 0.4 * pulse })
-          }
-        }
-      } else {
-        seg(f, cav.c - cav.hw, cav.c + cav.hw, V.postW, V.band, lapDone ? V.bandAlpha * V.doneAlpha : V.bandAlpha)
-        // THE CHEVRONS: the difference between a barrier and an instruction. They point the way the
-        // player travels, so a gate says "through here" rather than "something is here".
-        for (let i = 0; i < V.chevron; i++) {
-          const u = cav.c - cav.hw + (cav.hw * 2) * (i + 0.5) / V.chevron
-          arrow(gateG, f, u, V.chevronH, V.chevronW, col, lapDone ? V.doneAlpha : 0.8, 5)
-        }
-        for (const sign of [-1, 1]) {
-          const edge = cav.c + sign * cav.hw
-          seg(f, edge, edge + sign * V.postDepth, V.postW, col, al)
-          // ...and a lit lip on the face that looks into the passage, so the post has a front. A flat
-          // slab of one colour is what read as a UI artefact in the first shot of these.
-          seg(f, edge, edge + sign * 14, V.postW - 12, lapDone ? V.postDone : V.postCore, lapDone ? V.doneAlpha : 0.9)
-        }
-      }
+      stand(f, cav, false, k)
     }
   }
 

@@ -9620,25 +9620,63 @@ export const CIRCUIT_DEFAULTS = {
 // so a post that reached into the wall from below would be buried by the very sprites it has to
 // stand out against.
 export const CIRCUIT_GATE_VIS = {
-  post: 0x8ff2dd,      // the two posts, one on each face of the squeeze
-  postCore: 0xffffff,  // ...and the lit edge facing into the passage
-  postDone: 0x2f6a66,  // ...once it is behind you
-  postW: 30,           // px along the lane
-  postDepth: 62,       // px each post reaches back into the coral
-  postR: 12,           // corner radius — a flat bar reads as a UI artefact, not as a marker
-  band: 0x8ff2dd,      // the curtain between them
-  bandAlpha: 0.16,
-  doneAlpha: 0.35,     // what a crossed gate keeps of its colour
-  // THE CHEVRONS ARE WHAT MAKES IT A GATE. Two posts and a haze band is a barrier; arrows pointing
-  // the way you travel are an instruction. Shot at 1280x800 before and after: the bare version read
-  // as a translucent sheet across the corridor and could as easily have been a hazard.
-  chevron: 3,          // arrows across the curtain
-  chevronH: 16,        // half-height of each, across the lane
-  chevronW: 11,        // ...and its reach along the lane
-  line: 0xfff4d6,      // the start/finish line
-  lineDark: 0x1b2b33,
-  lineW: 38,
+  // THE MARKER IS A STAND OF WHIP CORAL, one on each bank, and the pair frame the squeeze the
+  // checkpoint already is. Nothing manufactured anywhere in it: the reef marks its own track.
+  //
+  // GREEN, AND THAT IS THE REASON IT CAN BE SEEN AT ALL. The reef's palette is pink, cyan, red,
+  // orange, cream, gold and plum. The first cut drew these in 0xb8567e -- the pink already on both
+  // walls -- and the stand vanished into the coral behind it. Green is the one hue the chapter
+  // never uses, so it is free.
+  //   AND THEY HAVE TO SPLAY. Ten rods packed into 58px, all parallel and all the same reach, is a
+  // COMB; shot against the coral it read as a green crate. A real stand has a wide jittered foot,
+  // each rod leaning its own way and no two the same height.
+  rods: 8,
+  footSpan: 148,       // px along the lane the bases are scattered over
+  footJitter: 26,
+  splay: 96,           // px of lean, fanned across the stand
+  splayJitter: 34,
+  // REACH IS A FRACTION OF THE PASSAGE, NOT PX, because the squeeze varies gate to gate: a fixed
+  // 54-132 left the wide gates unframed and nearly closed the narrow ones.
+  reachLo: 0.44,       // ...of cav.hw, plus up to reachSpan more, per rod
+  reachSpan: 0.34,
+  swayPx: 9,           // drift in the current
+  rodOutlineW: 12,
+  rodBodyW: 7,
+  outline: 0x1e2a20,
+  body: 0x3f7d55,
+  bodyFinish: 0xdfe4cf,
+  polyp: 0x8fc99a,
+  polypR: 4.5,
+  // THE TIPS ARE THE SWITCH. Bioluminescent bulbs that light ONLY on the gate that is next: the
+  // same on/off a lamp has, from an organism instead of from hardware. A lap has ten checkpoints
+  // and several are on screen at once -- lighting all of them says "gates exist", lighting exactly
+  // one says "go there".
+  bulb: 0xe8ffd8,
+  bulbR: 11,
+  bulbDark: 0x6f8a74,
+  bulbDarkR: 7,
+  glow: 0x8cffb4,
+  // THE LINE BETWEEN THE STANDS, as three stacked strokes at falling alpha rather than one bar:
+  // light in water has no edge, and a single flat stroke reads as a barrier across the track.
+  haze: [[70, 0.04], [42, 0.055], [19, 0.075]],
+  nearR: 820,          // px at which a gate starts to brighten -- the approach ramp
+  crossT: 0.55,        // s the crossing burst lasts
+  shove: 130,          // px the rods are bowed aside by the player's wake
+  cullPad: 260,
+  finReachMul: 0.5,    // the finish's rods are cut back so the mat between them stays legible        // added to the screen half-diagonal; covers the longest rod and the mat
+  // THE START/FINISH LINE: a chequered mat laid on the seabed. Owner, 2026-08-25: "more realistic,
+  // seabed, at least 3 rows" -- one row of alternating squares is a level-crossing arm, and two
+  // offset rows is the first count that reads as a chequered flag.
+  //   Squares that are SQUARE: the passage is cut into stepU-wide columns, so a row is stepU deep.
+  // Worn rather than printed -- separate tiles with grout between them, a few lost to the reef,
+  // sand drifted over the edges. What makes an object look laid down is that it is not uniform.
+  matRows: 3,
   checks: 9,           // squares across the corridor
+  line: 0xfff4d6,
+  lineDark: 0x1b2b33,
+  matBed: 0x0e1a20,
+  matLost: 0.94,       // tiles with a hash above this are missing
+  sand: 0xb9a98a,
 }
 
 /** Read a circuit knob for a chapter, falling back to the shared default. */
