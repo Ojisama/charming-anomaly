@@ -125,7 +125,7 @@ import {
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_WAKE, burstWakeAt, DUST, dustVel, DROWN_TICK,
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
-  SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
+  SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
   SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, SNAP_CAVITY, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, BREACH_R_MIN, BREACH_R_AT_FULL, tiredness,
   // v6.8 Trash Tornado rework (Run AA.d)
@@ -22873,6 +22873,32 @@ function testRingTrack() {
   // resource rail. Asserted so a tidy-up cannot take it and move the HUD without saying so.
   assert.strictEqual(CH.laneAxis, 'x', 'CHAPTERS.reef.laneAxis went with the lane flag — ui.js reads it to place the charge rail')
 
+  // (g) A DIFFERENT CIRCUIT EVERY RUN, AND IT IS ONE `??` FROM NEVER CHANGING AGAIN. Owner,
+  // 2026-08-25: "can we randomise the circuit for each level?" — it already was, but only by
+  // accident: the whole track is a pure function of run._obstacleSeed, and the Reef was being handed
+  // one because `usesObstacleSeed` matched its AIR POCKETS, not its cave. Drop the air, or add a
+  // circuit with no resource bar, and the seed is null; caveAt reads `seed ?? 0` and every run of
+  // that chapter drives the identical lap for ever, with nothing thrown. Asserted from both ends:
+  // the chapter really gets a seed, and the tracks it produces really differ.
+  {
+    assert.ok(usesObstacleSeed(CH), 'run RG.g: The Reef is not in usesObstacleSeed — createRun hands it a null _obstacleSeed, so caveAt falls to seed 0 and every race is the same lap')
+    const bare = { cave: CHAPTERS.reef.cave }
+    assert.ok(usesObstacleSeed(bare),
+      'run RG.g: a chapter whose ONLY generated thing is a cave gets no obstacle seed — the clause that matches The Reef today is its air pockets, and a circuit without a resource bar would silently ship one fixed track')
+    const shape = (seed) => {
+      let s = 0
+      for (let i = 0; i < 64; i++) s += Math.abs(caveAt((i / 64) * spec.lapLen, spec, seed).c) * (i + 1)
+      return Math.round(s)
+    }
+    const shapes = new Set()
+    for (let i = 0; i < 10; i++) {
+      Math.random = mulberry32(90000 + i)
+      shapes.add(shape(createRun(meta, { chapter: 'reef', difficulty: 1 + (i % 3) })._obstacleSeed))
+    }
+    assert.ok(shapes.size === 10,
+      `run RG.g: 10 runs produced only ${shapes.size} distinct tracks — the circuit is not being re-rolled per run`)
+  }
+
   // (b) THE MAP ROUND-TRIPS. ringXY and ringFU are the only two functions that know where the track
   // is; every consumer (the wall, the crowd clamp, the spawner, the air, the renderer) goes through
   // them. If they disagree by so much as a pixel, the wall the player is stopped against is not the
@@ -23386,11 +23412,14 @@ function testReefSpurScrape() {
     // `2pi + 2 x (whatever was turned the other way and undone)`. That inverts to one scale-free
     // number, in radians a lap, that a kink cannot inflate because it contributes only its own two
     // degrees. Measured over seeds 0/1/5/77:
-    //     the shipped roundabout (wander 130, harmonics 2/5/10)   0.88 1.01 1.03 1.37
-    //     half the amplitude     (wander 190, harmonics 3/4/7)    0.53 ... (seed 0 alone is enough)
-    //     THIS TRACK            (wander 380, harmonics 3/4/7)     2.45 3.30 3.93 4.07
-    // The floor sits at 1.8: 1.36x under the worst seed this track produces and 1.3x over the best
-    // seed the roundabout did. scripts/reef-track-map.mjs prints it, and draws the lap it read.
+    //     the shipped roundabout (wander 130, harmonics 2/5/10, r0 900)   0.88 1.01 1.03 1.37
+    //     the first cut of this  (wander 380, harmonics 3/4/7,  r0 900)   2.45 3.30 3.93 4.07
+    //     half amplitude         (wander 190, harmonics 5/7/10, r0 1400)  3.05
+    //     THIS TRACK             (wander 440, harmonics 5/7/10, r0 1400)  7.75 .. 8.02
+    // The floor sits at 4.5: 1.7x under the worst seed this track produces and comfortably over
+    // both the roundabout and a halved amplitude on the same harmonics — the second of which the
+    // old 1.8 floor did NOT catch, because higher harmonics buy counter-turn cheaply enough that a
+    // much flatter track still cleared it. scripts/reef-track-map.mjs prints it and draws the lap.
     for (const seed of [0, 1, 5, 77]) {
       const N = 900
       const pts = []
@@ -23406,8 +23435,8 @@ function testReefSpurScrape() {
         totalTurn += Math.abs(Math.atan2(cross, dot))
       }
       const counterTurn = (totalTurn - 2 * Math.PI) / 2
-      assert.ok(counterTurn > 1.8,
-        `run RS.a: seed ${seed} turns the other way for only ${(counterTurn * 180 / Math.PI).toFixed(0)}deg over a whole lap — a circle scores 0 and the roundabout the owner rejected scored 50-79, so this is that shape again`)
+      assert.ok(counterTurn > 4.5,
+        `run RS.a: seed ${seed} turns the other way for only ${(counterTurn * 180 / Math.PI).toFixed(0)}deg over a whole lap — a circle scores 0, the roundabout the owner rejected scored 50-79 and half this amplitude scores 175, so the corners have been flattened`)
 
       // AND THE CORNERS DO NOT CLOSE THE TRACK. `hw` is measured RADIALLY, so it is NOT the gap a
       // player fits through: where the track runs steeply across the radii the real clearance is
@@ -23940,6 +23969,8 @@ function testCircuitCards() {
     const LIVE = {
       topSpeed: 'the throttle ceiling', accelRate: 'how fast _laneSpeed recovers from a crash',
       airMax: 'the Air bar the dash spends', dashLength: 'the dash itself',
+      gateHeal: 'HP at every checkpoint (stepCircuit, the same window as the clock and the xp)',
+      cleanHeal: 'HP a second while run._caveHit is false',
     }
     assert.deepStrictEqual(Object.keys(LIVE).sort(), Object.keys(PASSIVES).filter((id) => PASSIVES[id].chapter === 'reef').sort(),
       'run CD.b: the live set here and the reef-scoped entries in PASSIVES disagree — one of them was edited alone, and the allowlist in eligiblePassiveIds reads the OTHER one')
@@ -23972,6 +24003,80 @@ function testCircuitCards() {
         `run CD.b: the Reef offered '${id}', which reaches the player through no code path this chapter executes — that is the inert card the owner asked to have removed`)
     }
     console.log(`PASS run CD.b (nothing offered is a dud): ${screens} screens over 4 races, ${[...seen.values()].reduce((a, b) => a + b, 0)} cards, all passives, ${seen.size} distinct ids all in the live set of ${Object.keys(LIVE).length}`)
+  }
+
+  // (c) THE TWO HEALS HEAL, AND EACH ONLY UNDER ITS OWN CONDITION. Owner, 2026-08-25: "add healing
+  // cards". Asserted as an EFFECT on hp and not as a passive being set — a `run.passives.x > 0`
+  // check is exactly the token lint this repo keeps proving is not a guard, and both of these are
+  // one deleted line away from being an offered card that does nothing.
+  //   Each is measured against ITS OWN control (the same run, same seed, card absent), because a
+  // Reef run's hp moves for two other reasons — the coral scrape and the drown — and neither is
+  // this case's subject.
+  {
+    const hpAfter = (card, opts) => {
+      Math.random = mulberry32(4242)
+      const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+      run.mods.spawnMul = 0
+      if (card) { run.passives[card] = PASSIVES[card].base; run.passivePicks[card] = 1 }
+      // Big enough that neither the scrape nor a heal can clip at either end — a heal that hits
+      // maxHP silently stops paying, which would read as the card not working.
+      run.player.maxHP = 5000
+      run.player.hp = 2500
+      let swims = 0, scraped = 0
+      for (let i = 0; i < Math.round(opts.secs / dt); i++) {
+        for (const q of run.enemies) q._dead = true
+        run.charge = run.chargeMax                       // never drown: that is a different hp path
+        // ⚠ THE WALL POLICY STEERS OUTWARD, IT DOES NOT RELEASE THE STICK. Releasing it makes the
+        // player COAST — the circuit branch keeps the last heading and decays the speed — so they
+        // roll to a stop in open water and scrape on exactly 0 frames, which is a negative control
+        // that proves nothing. Radially outward (r = r0 - u, so +cos/+sin t is away from the hub)
+        // drives them into the outer face and holds them there.
+        const fw = ringFU(CHAPTERS.reef.cave, run.player.x, run.player.y)
+        // `clip` drives the line but lurches at the wall for a few frames every ~2s, which is what a
+        // scrappy driver looks like — brief contact, often, rather than parked against a face.
+        const clipping = opts.clip && (i % 150) < 34
+        stepSim(run, (opts.wall || clipping) ? { x: Math.cos(fw.t), y: Math.sin(fw.t) } : follow2(run), dt)
+        for (const e of run.events) if (e.type === 'swimthrough') swims++
+        run.events.length = 0
+        if (run._caveHit) scraped++
+        if (run.phase === 'levelup') run.phase = 'playing'
+        if (run.phase !== 'playing') break
+      }
+      return { hp: run.player.hp, swims, scraped }
+    }
+    // PIT STOP: driving a clean lap crosses checkpoints, and each one has to pay.
+    const gateOff = hpAfter(null, { secs: 45 })
+    const gateOn = hpAfter('gateHeal', { secs: 45 })
+    assert.ok(gateOn.swims >= 8, `run CD.c: only ${gateOn.swims} checkpoints crossed in 45s — this case would pass vacuously`)
+    const owed = gateOn.swims * PASSIVES.gateHeal.base
+    assert.ok(gateOn.hp - gateOff.hp > owed * 0.9,
+      `run CD.c: Pit Stop paid ${(gateOn.hp - gateOff.hp).toFixed(0)} HP over ${gateOn.swims} checkpoints against the ${owed} it owes — the heal is not on the checkpoint window`)
+    // CLEAN LINE: a clean 20s pays for all but the CLEAN_LINE_DELAY it takes to start.
+    const cleanOff = hpAfter(null, { secs: 20 })
+    const cleanOn = hpAfter('cleanHeal', { secs: 20 })
+    const owedClean = (20 - CLEAN_LINE_DELAY) * PASSIVES.cleanHeal.base
+    assert.ok(cleanOn.scraped === 0 && cleanOff.scraped === 0,
+      `run CD.c: the clean control scraped on ${cleanOn.scraped}/${cleanOff.scraped} frames — it is not a clean line, so "heals while clear" is not what was measured`)
+    assert.ok(cleanOn.hp - cleanOff.hp > owedClean * 0.9,
+      `run CD.c: Clean Line paid ${(cleanOn.hp - cleanOff.hp).toFixed(0)} HP over 20 clean seconds against the ${owedClean} it owes after its ${CLEAN_LINE_DELAY}s delay`)
+    // ⚠ THE CASE THAT SEPARATES IT FROM A PLAIN REGEN, and without it the card can be reduced to one
+    // by deleting the streak with every other assertion here still green. A driver who CLIPS
+    // something every couple of seconds spends almost as long off the coral as a clean one — that is
+    // the measurement that killed the per-second version, 155 HP against 165 — so what has to be
+    // asserted is that they still collect almost nothing, because the streak never matures.
+    const clipOff = hpAfter(null, { secs: 20, clip: true })
+    const clipOn = hpAfter('cleanHeal', { secs: 20, clip: true })
+    assert.ok(clipOn.scraped > 40 && clipOn.scraped < 20 * 60 * 0.5,
+      `run CD.c: the clipping driver scraped ${clipOn.scraped} of ${20 * 60} frames — it has to be CLIPPING (a few frames at a time), not parked in the wall, or this proves only what the stuck case does`)
+    assert.ok(clipOn.hp - clipOff.hp < owedClean * 0.35,
+      `run CD.c: Clean Line paid ${(clipOn.hp - clipOff.hp).toFixed(0)} HP to a driver who clips coral every couple of seconds, against ${owedClean} for a clean line — the streak is not resetting, so this is a plain regen with a racing name on it`)
+    const stuckOff = hpAfter(null, { secs: 20, wall: true })
+    const stuckOn = hpAfter('cleanHeal', { secs: 20, wall: true })
+    assert.ok(stuckOn.scraped > 100,
+      `run CD.c: the wall run only scraped ${stuckOn.scraped} frames — it is not pinned to the coral, so the negative half of this case proves nothing`)
+    assert.ok(stuckOn.hp - stuckOff.hp < owedClean * 0.1,
+      `run CD.c: Clean Line paid ${(stuckOn.hp - stuckOff.hp).toFixed(0)} HP to a player spending ${stuckOn.scraped} frames INSIDE the coral`)
+    console.log(`PASS run CD.c (the heals are paid for by driving): Pit Stop +${(gateOn.hp - gateOff.hp).toFixed(0)} HP over ${gateOn.swims} checkpoints; Clean Line +${(cleanOn.hp - cleanOff.hp).toFixed(0)} over 20 clean seconds, +${(clipOn.hp - clipOff.hp).toFixed(0)} clipping (${clipOn.scraped} frames) and +${(stuckOn.hp - stuckOff.hp).toFixed(0)} pinned in the coral (${stuckOn.scraped})`)
   }
   console.log(`PASS run CD (the racing cards earn their slot): over ${SEEDS.length} paired seeds at max level — ${CARDS.map((c) => `${PASSIVES[c].name} ${measured[c] > 0 ? '-' : '+'}${Math.abs(measured[c]).toFixed(1)}s`).join(', ')} — every one scoped to the reef`)
 }
@@ -24030,19 +24135,35 @@ function testReefCircuit() {
     return { run, laps, swims, peakClock }
   }
 
-  // (a) THE CHECKPOINTS ARE THE SQUEEZES, six of them, and they are spread rather than clustered.
-  // The count is structural (lapLen / widthWave's short period = 5040/252 = 20 minima, of which the
-  // deepest six are taken) and the spacing is the track's own beat — so both are asserted, not
-  // assumed. A retune that clustered them would still "have six checkpoints" and would play as a
-  // burst of top-ups followed by nothing.
+  // (a) THE CHECKPOINTS ARE THE SQUEEZES, and they are spread rather than clustered. The count is
+  // structural (the deepest SWIMTHROUGHS_PER_LAP of the width field's local minima) and the spacing
+  // is the track's own beat — so both are asserted, not assumed. A retune that clustered them would
+  // still "have ten checkpoints" and would play as a burst of top-ups followed by nothing.
+  //
+  // ⚠ THE SPACING IS ASSERTED IN PX OF ARC, NOT IN f, AND THE DIFFERENCE IS NOT COSMETIC. f is an
+  // ANGLE: the same gap in f is 692px of track at r0 900 and 1108px at r0 1400. This case compared
+  // an f gap against a number measured in px and got away with it for exactly as long as r0 never
+  // moved — then read "312px apart" for checkpoints that are really 692px apart, which is the
+  // failure mode where a green-looking guard turns red for a reason that is not true. What the
+  // clock actually cares about is SECONDS between top-ups, and seconds are arc over speed.
   let picked = null
+  const arcPerF = (seed) => {
+    let arc = 0
+    for (let i = 0; i < 900; i++) {
+      const f0 = (i / 900) * LAP, f1 = ((i + 1) / 900) * LAP
+      const a = ringXY(spec, f0, caveAt(f0, spec, seed).c), b = ringXY(spec, f1, caveAt(f1, spec, seed).c)
+      arc += Math.hypot(b.x - a.x, b.y - a.y)
+    }
+    return arc / LAP
+  }
   for (const seed of [1, 7, 20260824, 555]) {
     const sw = swimthroughsFor(spec, seed)
     assert.strictEqual(sw.length, SWIMTHROUGHS_PER_LAP,
       `run CT.a: seed ${seed} gives ${sw.length} swimthroughs a lap, not ${SWIMTHROUGHS_PER_LAP} — the selection rule has drifted from the geometry it reads`)
-    const gaps = sw.map((s, i) => i ? s.f - sw[i - 1].f : s.f + LAP - sw[sw.length - 1].f)
+    const k = arcPerF(seed)
+    const gaps = sw.map((s, i) => (i ? s.f - sw[i - 1].f : s.f + LAP - sw[sw.length - 1].f) * k)
     assert.ok(Math.min(...gaps) > 400,
-      `run CT.a: two swimthroughs sit ${Math.min(...gaps).toFixed(0)}px apart on seed ${seed} — the tightest measured spacing is 528px, so anything near it means the deepest minima have clustered and the top-ups arrive in a burst`)
+      `run CT.a: two swimthroughs sit ${Math.min(...gaps).toFixed(0)}px of ARC apart on seed ${seed} — the tightest measured spacing is 692px, so anything near 400 means the deepest minima have clustered and the top-ups arrive in a burst`)
     // ...and they are genuinely the narrow places, not merely local dips near the wide end.
     //
     // ⚠ AGAINST THE LAP'S OWN DISTRIBUTION, NOT AGAINST (halfMin + halfMax) / 2. The spec's midpoint
@@ -24085,8 +24206,18 @@ function testReefCircuit() {
   // generator but not in what the player actually drives through.
   const splits = fast.laps.map((l) => l.split)
   const spread = Math.max(...splits.slice(1)) - Math.min(...splits.slice(1))
-  assert.ok(spread < 0.25,
-    `run CT.b: laps 2+ took ${splits.slice(1).map((s) => s.toFixed(2)).join('/')}s — a spread of ${spread.toFixed(2)}s means the player is not driving the same track twice`)
+  // ⚠ AS A FRACTION OF THE LAP, NOT AS A FLAT 0.25s. The residual spread is the FIXTURE'S DRIVER,
+  // not the track: the geometry repeats to 1e-6 (run RL), but the player does not re-cross the start
+  // line at exactly the same u each lap, and a look-ahead driver turns a few px of starting offset
+  // into a slightly different line. More corners means more of that, so the residual grows with the
+  // shape and a flat band silently tightens every time the track gets more interesting — it went red
+  // at 0.33s on a lap that had grown from 24s to 39s, which is 0.85% either way.
+  //   2% is the band, against 0.85% measured, and it is still small enough to catch the thing this
+  // case is for: breaking caveAt's fork wrap (so lap 2 rolls different islands) blows the split
+  // spread past 2% because a fork you did not expect is a corner you take badly.
+  const lapMedian = [...splits].sort((a, b) => a - b)[Math.floor(splits.length / 2)]
+  assert.ok(spread < lapMedian * 0.02,
+    `run CT.b: laps 2+ took ${splits.slice(1).map((s) => s.toFixed(2)).join('/')}s — a spread of ${spread.toFixed(2)}s is ${((spread / lapMedian) * 100).toFixed(1)}% of a lap, and over 2% means the player is not driving the same track twice`)
 
   // (f) THE BANK IS CAPPED, which is the mechanic and not a rail on it. Uncapped, a clean driver
   // gathers time faster than they spend it — 24 checkpoints x CIRCUIT_SWIM_TIME against a ~76s race
@@ -26080,14 +26211,32 @@ function testReefAirBurst() {
     // is a WORLD bearing; at f = 0 the track's tangent is +y, so holding it drives the player
     // straight into the outer wall, where the clamp holds them and 1.2s of "full throttle" covers
     // 24px. The stick has to be re-aimed at the track every frame, which is what a driver does.
-    const alongTrack = (run, ahead = 200) => {
+    // ⚠ ...AND AIMING AT A POINT 200px UP THE TRACK IS NOT ENOUGH EITHER, for the reason run RS's
+    // own `follow` documents: pure pursuit drives the CHORD to its target, so on a corner tighter
+    // than the look-ahead is long it steers into the outside wall. Harmless while the lap was a
+    // gentle circle; on a track with real corners the BURST carries the player into that wall
+    // hardest, so the full-bar run lost more distance to scraping than the charge bought it and
+    // this case read "the charge buys nothing" about a working dash.
+    //   Track frame instead: go the way the centreline is going under you (ringHeading) and correct
+    // across the passage toward it. Same controller as run RS, same short look-ahead.
+    const alongTrack = (run, ahead = 20) => {
       const sp = CHAPTERS.reef.cave
       const fu = ringFU(sp, run.player.x, run.player.y)
       const r = Math.max(1, sp.ring.r0 - fu.u)
-      const w = ringCentre(sp, fu.f + (ahead * sp.lapLen) / (2 * Math.PI * r), run._obstacleSeed)
-      const dx = w.x - run.player.x, dy = w.y - run.player.y
-      const d = Math.hypot(dx, dy) || 1
-      return { x: dx / d, y: dy / d }
+      const fA = fu.f + (ahead * sp.lapLen) / (2 * Math.PI * r)
+      const tan = ringHeading(sp, fA, run._obstacleSeed)
+      // ⚠ AND IT STEERS ROUND THE ISLAND. Aiming at `cav.c` where the passage forks aims at the
+      // middle of the island — the player is bounced back along f every frame (CAVE_BOUNCE_PX), and
+      // a bounce is PATH LENGTH with no progress in it, so `full - none` read 174px against a dash
+      // that owes 162 and this case failed for a reason that had nothing to do with the bar. It only
+      // surfaced when the forks went from ~5 a lap to ~10 and the 1.2s window started meeting one.
+      const cav = caveAt(fA, sp, run._obstacleSeed)
+      const want = cav.ph > 0 ? cav.c + (fu.u >= cav.c ? 1 : -1) * (cav.ph + cav.hw) / 2 : cav.c
+      const k = Math.max(-1, Math.min(1, (want - fu.u) / 150))
+      const vx = Math.cos(tan) - Math.cos(fu.t) * k * 0.5
+      const vy = Math.sin(tan) - Math.sin(fu.t) * k * 0.5
+      const d = Math.hypot(vx, vy) || 1
+      return { x: vx / d, y: vy / d }
     }
     const advance = (charge, press) => {
       const run = reefRun()
@@ -26099,6 +26248,27 @@ function testReefAirBurst() {
       // the lane's forward axis was a world coordinate; on a ring the cave IS the track.
       // Ramp to the ceiling BEFORE the window opens, or the measurement is mostly CIRCUIT_ACCEL.
       for (let i = 0; i < Math.round(2 / dt); i++) { stepSim(run, alongTrack(run), dt); quiet(run) }
+      // ...AND THEN WAIT FOR A CLEAN STRETCH. What this case compares is `speed x time`, and every
+      // frame the player is against coral breaks that: the wall bounces them back along f, which is
+      // PATH LENGTH with no progress in it, and the dashed run meets more of it than the control
+      // because it is going faster. A window that starts wherever 2s of ramp happens to end used to
+      // be fine on a gentle lap; with ~10 forks and 14 direction changes a lap it lands on coral
+      // often enough to add 12px to a 162px answer, i.e. to fail the case over the track's shape.
+      //   Deterministic, not lucky: the same rule from the same seed stops at the same place in all
+      // three runs, so the three are still measuring one stretch of track.
+      const sp0 = CHAPTERS.reef.cave
+      let waited = 0
+      for (; waited < Math.round(12 / dt); waited++) {
+        const fu = ringFU(sp0, run.player.x, run.player.y)
+        const ahead = (1.2 * settled * BURST_SPEED_MUL * sp0.lapLen) / (2 * Math.PI * Math.max(1, sp0.ring.r0 - fu.u))
+        let clean = !run._caveHit
+        for (let q = 0; clean && q <= 12; q++) if (caveAt(fu.f + (q / 12) * ahead, sp0, run._obstacleSeed).ph > 0) clean = false
+        if (clean) break
+        stepSim(run, alongTrack(run), dt)
+        quiet(run)
+      }
+      assert.ok(waited < Math.round(12 / dt),
+        'run RF.d: no island-free stretch of track in 12s — the fork density has passed the point where this measurement can find clean ground, and every dash number below would be measuring coral')
       run.charge = charge
       // PATH LENGTH, NOT DISPLACEMENT. A straight line between the ends of a 1.2s window at 270px/s
       // cuts the corner the player drove round — 298px against the 324 actually covered, 8%, which

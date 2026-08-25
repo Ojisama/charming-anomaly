@@ -12704,6 +12704,15 @@ const spurG = new Graphics()
             v: Math.floor(h3 * T.coral.length) % T.coral.length,
             rot: -into * Math.PI / 2 + (h1 - 0.5) * 1.2,
             scale: Math.max(0.3, reach / V.bakeReach),
+            // HALF OF THEM ARE MIRRORED (owner, 2026-08-25: "randomize mirror reflections"). There
+            // are only T.coral.length baked colonies and a lap is now ~11k px of wall, so the same
+            // drawing recurs every few hundred px in the same handedness. A flip doubles the
+            // apparent variety for one field, and coral is the one subject it is free on: ringXY's
+            // own block notes a mirrored colony is invisible AS a mirror precisely because the bake
+            // is a jittered branching blob with no front. Chosen off the same world-cell hash as
+            // everything else here, so it is stable across rebuilds — see the block above on why a
+            // per-rebuild roll re-randomises the whole reef while the player watches.
+            flip: hash(fw * 2.3 + d, j * 8.9 + 13.7) < 0.5 ? -1 : 1,
             tone: V.tones[Math.floor(h2 * V.tones.length) % V.tones.length],
           })
           d += Math.max(10, reach * 0.8)
@@ -12762,7 +12771,10 @@ const spurG = new Graphics()
         else s.position.set(st.c, st.f)
         s.rotation = st.rot
       }
-      s.scale.set(st.scale)
+      // A NEGATIVE X SCALE IS THE MIRROR, and it composes with the rotation rather than fighting it:
+      // Pixi applies scale before rotation, so a flipped colony still faces back out into the water
+      // it grew from. `?? 1` because the non-ring branch above shares this pool.
+      s.scale.set((st.flip ?? 1) * st.scale, st.scale)
       s.tint = st.tone
     })
   }

@@ -2753,6 +2753,28 @@ export const PASSIVES = {
   accelRate:  { name: 'Quick Start',  desc: 'acceleration', base: 0.45, kind: 'pct', chapter: 'reef' },
   airMax:     { name: 'Big Lungs',    desc: 'Air capacity', base: 0.20, kind: 'pct', chapter: 'reef' },
   dashLength: { name: 'Jet Puff',     desc: 'dash length',  base: 0.15, kind: 'pct', chapter: 'reef' },
+  // THE TWO HEALS, AND NEITHER OF THEM IS `regen` (owner, 2026-08-25: "add healing cards"). The Reef
+  // took armor/regen/maxHP out with the combat slate because a race is scored on a clock and those
+  // three only pay in survival — so a heal has to come back as something the RACE does, or the same
+  // argument deletes it again. Both are paid for by driving well:
+  //   Pit Stop     the checkpoint is already this chapter's till (it pays the XP), so it pays HP too.
+  //                Threading the tightest gap on the lap is the thing the mode rewards, and it is the
+  //                one heal a player can plan a lap around.
+  //   Clean Line   HP a second for every second you are NOT touching coral. It cannot be farmed by
+  //                stopping — the clock is running and the countdown does not care — and it pays
+  //                exactly the skill the chapter is about. It is also the direct answer to
+  //                CAVE_HIT_DPS: scrape and you stop healing at the same moment you start bleeding.
+  // ⚠ BOTH ARE `flat`, NOT `pct`. A percentage of what? There is no rate to scale — a pct card needs
+  // a base the player already has, and the Reef's HP economy is a flat drip against a flat scrape.
+  // balance_decision : a heal has to be paid for by driving, not by surviving [2026-08-25]
+  //  - sized against CAVE_HIT_DPS 16 and a ~38s lap: see run CD.c for the measurement.
+  //   BOTH BASES SIZED AGAINST THE RACE, NOT PICKED. A measured race takes 73 HP of scrape (274
+  //   frames of contact at CAVE_HIT_DPS 16) against a 100 HP pool, and a lap now has 10 checkpoints
+  //   over 4 laps. Pit Stop at base 1 therefore pays 40 HP across a whole race — about half the
+  //   scrape, so it matters and does not make the coral free. At the base 3 this was first written
+  //   with it paid 120, i.e. more than the race can charge you, which is the coral deleted.
+  gateHeal:   { name: 'Pit Stop',     desc: 'HP at every checkpoint',   base: 1, kind: 'flat', chapter: 'reef' },
+  cleanHeal:  { name: 'Clean Line',   desc: 'HP a second off the coral', base: 1, kind: 'flat', chapter: 'reef' },
 }
 export const MAX_PASSIVE_LEVEL = 5
 
@@ -6910,10 +6932,11 @@ CHAPTERS.reef = {
   //
   // Every consumer keys off THIS flag and never off `lane`: The Beyond is `lane: true` as well, and
   // hanging circuit behaviour on the lane flag would silently convert a chapter whose whole design
-  // is being chased. 5 laps x ~28s is about 140s, against the 300s the other chapters run.
-  // balance_decision : five laps, the race was over in a minute [2026-08-25]
-  //  - the boost nerf above is most of that minute back; this is the rest
-  circuit: { laps: 5 },
+  // is being chased.
+  // balance_decision : four laps, because each one now costs more to drive [2026-08-25]
+  //  - a lap grew from 5785px of arc to 6993 and from 8 direction changes to 12, so 4 of them is
+  //    more DRIVING than the old 5 and lands the race back on the ~2 minutes it was tuned at.
+  circuit: { laps: 4 },
   // THE LANE DROPS WHAT FALLS BEHIND (v7.x). Opt-in per chapter -- see stepLeaks for why the
   // default must stay off. The Reef needs it and The Beyond does not: this roster's moray moves
   // 39px/s against a 45px/s advance, so it falls astern BY CONSTRUCTION and can never return,
@@ -6970,7 +6993,7 @@ CHAPTERS.reef = {
     // halfMin/halfMax 170/220 -> 150/200: on a phone the visible world is ~390px across the short
     // axis and the camera is centred now (no lane to bias it), so a 440px track is wider than the
     // screen at the moments you are driving across it. 300-400px still holds ~7 player widths.
-    wander: 380, halfMin: 150, halfMax: 200,
+    wander: 440, halfMin: 150, halfMax: 200,
     // EVERY WAVELENGTH DIVIDES lapLen (5040), WHICH IS WHAT MAKES THE TRACK A CIRCUIT. The passage
     // is summed sines of f, so it repeats exactly when every length divides the lap -- no `f % lap`
     // wrap, no seam to blend, caveAt untouched.
@@ -6988,7 +7011,7 @@ CHAPTERS.reef = {
     //   AMPLITUDE FALLS FASTER THAN WAVELENGTH HERE, which is the property that keeps 7 as texture:
     // at [1,0.5,0.2] the short octave contributes a fifth of the swing over a third of the arc, so
     // it kinks the entry to a corner instead of being one.
-    waves: [[1680, 1], [1260, 0.5], [720, 0.2]],   // [wavelength px, weight]
+    waves: [[1008, 1], [720, 0.6], [504, 0.3]],   // [wavelength px, weight]
     // THE SQUEEZES, AND THEIR COUNT IS STRUCTURAL: lapLen / the short period = 5040 / 720 = 7 local
     // minima a lap, of which swimthroughsFor takes the deepest SWIMTHROUGHS_PER_LAP. At the old
     // 252 it was 20 minima, i.e. a pinch every 280px of arc — under a second apart at racing speed,
@@ -7006,7 +7029,7 @@ CHAPTERS.reef = {
     // octaves) and 6 of 10 (three) the sixth-deepest was landing in the WIDE half, because taking
     // most of a field is not choosing from it. The short octave is deliberately faint: it is there
     // to give the picker candidates, not to corrugate a 300-400px passage.
-    widthWave: [[1680, 1], [720, 0.45], [504, 0.22], [252, 0.12]],
+    widthWave: [[1680, 1], [720, 0.45], [504, 0.22], [168, 0.2]],
     // THE BRANCHES (caveAt's own block has the geometry), AND THEY ARE THIS TRACK'S ONLY OBSTACLE.
     // The spur ridges do not stream on a ring (streamSpurs clears them by construction) and
     // `obstacles` is null, so the island is the whole of what stands IN the passage rather than
@@ -7023,7 +7046,7 @@ CHAPTERS.reef = {
     // balance_decision : more islands, because corners made them a choice [2026-08-25]
     //  - `frac` is a SHARE and never a pixel width — see the warning in caveAt, and run RS.f, which
     //    pins it against the air pockets a branch must not swallow.
-    branch: { every: 720, chance: 0.8, span: 420, frac: 0.3 },
+    branch: { every: 720, chance: 0.75, span: 250, frac: 0.3 },
     // THE LAP, IN PIXELS, AND IT LIVES HERE RATHER THAN ON `circuit` BECAUSE IT IS A PROPERTY OF
     // THIS GEOMETRY: it is the period every wavelength above divides, and the modulus caveAt wraps
     // the fork cell by. Authoring it twice is the drift this repo's own CLAUDE.md calls its largest
@@ -7034,7 +7057,7 @@ CHAPTERS.reef = {
     // why the centre sits at (-r0, 0) and why u is measured inward. 900 is chosen from the LAP
     // TIME, not from the picture: the arc a lap actually covers is ~5800px once the wobble is paid
     // for, which at the 270px/s a full throttle makes is ~21s a lap and ~108s for the five.
-    ring: { r0: 900 },
+    ring: { r0: 1400 },
     salt: 47,                                      // next free salt block; 44-46 were the spurs'
     // NO `fill` HERE, AND DELIBERATELY NOT. It read "how far past the passage edge coral is drawn,
     // must exceed the largest half-view the game can present" and NOTHING EVER READ IT -- syncSpurs
@@ -7173,7 +7196,7 @@ CHAPTERS.reef = {
     //   IT WRAPS MOD ringCells, so a pocket is in the SAME PLACE every lap. On a circuit that is
     // the point — the track is a thing you learn — and it is also what stops a fresh roll appearing
     // where you already breathed.
-    pockets: { cell: 640, chance: 0.14, r: 90, minDist: 420, salt: 40, ringCells: 8, ringChance: 0.7 },
+    pockets: { cell: 640, chance: 0.14, r: 90, minDist: 420, salt: 40, ringCells: 15, ringChance: 0.7 },
   },
 
   // SPUR AND GROOVE (level design spec 2026-08-20, rev 4). The reef front as this game's only
@@ -9673,6 +9696,18 @@ const caveHash = (n, salt) => {
 }
 export const caveAt = (f, spec, seed) => {
   const s0 = (spec.salt ?? 47) + (seed ?? 0) * 0.001
+  // NO MIRROR BIT HERE, AND THAT IS A DELETION WITH A REASON (owner, 2026-08-25: "randomize
+  // mirror reflections"). One was built — reflect f about the start line on half the seeds, so a
+  // left-hander becomes a right-hander — and it is a NO-OP, provably rather than approximately.
+  // Reflecting this field gives -sum w_i sin(2pi f n_i / L - phi_i): the same sum with its phases
+  // negated and its sign flipped. The phases are caveHash(...) x 2pi, i.e. uniform, so a mirrored
+  // track is drawn from the identical distribution as an unmirrored one — a second roll of the
+  // same dice, not a second track. It passed every assertion that could be written for it because
+  // there was nothing to assert: a mutation deleting the whole line stayed green.
+  //   The variety that request was after already exists and is now measured (run RG.g): every run
+  // rolls its own _obstacleSeed, and 10 runs give 10 distinct laps. The mirroring that DOES change
+  // what the player sees is per-colony and lives in render.js's coral stamps, where the thing
+  // being reflected is a fixed bake rather than a random field.
   let c = 0, norm = 0
   for (let i = 0; i < spec.waves.length; i++) {
     const [len, w] = spec.waves[i]
@@ -9748,10 +9783,21 @@ export const caveAt = (f, spec, seed) => {
 // it repeats seed to seed. Run RL.b asserts the spacing rather than a guard clause defending it: a
 // retune that clustered them would be a real defect and should say so out loud, not be silently
 // corrected here.
-export const SWIMTHROUGHS_PER_LAP = 6
-// How far apart two checkpoints must be, in f. 5040 / 6 = 840 is perfectly even, so 500 leaves the
-// picker real freedom to follow the depths while ruling out the clumping above.
-export const SWIMTHROUGH_MIN_GAP = 500
+// 6 -> 10 WITH THE LAP, AND THE COUNT IS NOT THE THING BEING CHOSEN — the SPACING is. The clock's
+// whole tune is the comparison in CIRCUIT_DEFAULTS' block: swimTime against the seconds between
+// checkpoints. A lap that grew from ~5800px of arc to ~11200 doubles that interval at a fixed six,
+// so a clean driver would arrive at each gate having spent more than the 6s it hands back and the
+// countdown would bleed out on a perfect lap. Ten keeps the interval at ~1120px of arc, i.e. the
+// number the 6s was measured against, and nothing downstream has to be re-swept.
+export const SWIMTHROUGHS_PER_LAP = 10
+// How far apart two checkpoints must be, IN f — and f is an angle, so this is not a distance until
+// it is multiplied by the radius the track is at. That is the whole reason it moved with the ring:
+// at r0 900 a gap of 500f was 692px of arc, and at r0 1400 the same 500f is 1108px. Ten checkpoints
+// each 1108px apart need 11080 of a lap that is 11200 long, so the picker could never place them
+// and swimthroughsFor's relax loop halved the gap until they CLUSTERED — 168px apart on seed 1,
+// which is the exact pathology the gap exists to prevent, arrived at by leaving it alone.
+// 300f is 665px of arc, which is the 692 it has always been.
+export const SWIMTHROUGH_MIN_GAP = 300
 export const SWIMTHROUGH_STEP = 24   // px between samples; the count is stable from 3px to 24px and starts missing minima at 48
 export const swimthroughsFor = (spec, seed) => {
   const L = spec?.lapLen
@@ -11120,8 +11166,16 @@ export const drawdownSecsFor = (run) =>
 // null seed exactly like the other five, so The Reef's ENTIRE coral field hangs off this predicate.
 // Until it was listed the field existed only because that chapter's air pockets happen to make
 // `refillSpec` true — cut the pockets and the reef comes up as bare sand, with nothing thrown.
+// ⚠ `ch.cave` IS IN THIS LIST AND IT WAS NOT, WHICH IS A TRAP RATHER THAN AN OMISSION. The Reef's
+// whole track — the wander, the widths, the forks and (v7.x) which way round the lap is mirrored —
+// is a pure function of run._obstacleSeed, and it was getting one only because the chapter ALSO
+// declares air pockets, which is what `refillSpec` matches. Take the air away, or give a future
+// circuit no resource bar, and the seed comes back null: caveAt falls to `seed ?? 0` and every run
+// of that chapter drives the identical track for ever, with nothing thrown and no test red. The
+// clause costs nothing and says what the cave actually needs. Run RG.g asserts it rather than
+// trusting this paragraph.
 export const usesObstacleSeed = (ch) => !!ch.obstacles || !!refillSpec(ch.signature) || !!ch.spurs ||
-  !!(ch.signature && (ch.signature.eddies || ch.signature.traps || ch.signature.bars))
+  !!ch.cave || !!(ch.signature && (ch.signature.eddies || ch.signature.traps || ch.signature.bars))
 
 // How hard you hit, as a function of the chapter bar. OWNER RULING 2026-08-13, overriding the
 // earlier rule that the bar never touches damage — see the design doc's §5.3 for what that rule was
@@ -11244,6 +11298,12 @@ export const CAVE_BOUNCE_PX = 26      // how far back along the lane a touch pus
 // balance_decision : the scrape stops ending clean races, still ends dirty ones [2026-08-25]
 //  - the punishment for coral is meant to be the CLOCK (circuit.crashMul takes 45% of your speed);
 //    this number only has to make sustained contact untenable, not out-damage a lost corner.
+// How long a driver has to stay off the coral before PASSIVES.cleanHeal starts paying. Every touch
+// resets it — see stepCircuit for why the delay is the whole card and a per-second drip is not.
+// balance_decision : four seconds, long enough that a scrappy lap never collects [2026-08-25]
+//  - measured over a race: a clean line touches coral 4.6s in 170 and a bad one 14.6s, so without
+//    a delay both collect ~160 HP and the card is a flat regen.
+export const CLEAN_LINE_DELAY = 4
 export const CAVE_HIT_DPS = 16        // charged while you are in contact, on the tick below
 export const CAVE_HIT_TICK = 0.45
 export const LANE_CRUSH_DPS = 36
