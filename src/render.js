@@ -10198,6 +10198,15 @@ export function createRenderer(app) {
 const spurArt = (() => {
   try { return Number(new URLSearchParams(location.search).get('cv') ?? 3) } catch { return 3 }
 })()
+// A/B SWITCH FOR THE CIRCUIT'S GATES, throwaway. 0 = shipped (mint bar + one-row chequer),
+// 1 = buoys (edge pylons, clear racing line), 2 = seabed paint (nothing above the floor),
+// 3 = light arch (bioluminescent clusters, edge-weighted curtain). DELETE with the pick.
+const gateArt = (() => {
+  try { return Number(new URLSearchParams(location.search).get('gv') ?? 0) } catch { return 0 }
+})()
+// Under the coral, so a mark PAINTED ON THE SEABED tucks beneath the colonies overhanging the
+// passage edge instead of climbing over them. gateG stays above for anything standing in water.
+const gateFloorG = new Graphics()
 const spurG = new Graphics()
   // THE CORAL IS SPRITES NOW, NOT A PATH. spurG survives only for the flat-slab A/B fallback
   // (spurArt 0) and for the ridge FOOT; every colony is a stamp out of coralPool. See bakeCoral().
@@ -10217,7 +10226,7 @@ const spurG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, spurG, coralLayer, polypG, gateG, burstWakeG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, gateFloorG, spurG, coralLayer, polypG, gateG, burstWakeG, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
@@ -12789,6 +12798,7 @@ const spurG = new Graphics()
   // they existed. See CIRCUIT_GATE_VIS.
   function syncGates(run) {
     gateG.clear()
+    gateFloorG.clear()
     const cfg = CHAPTERS[run.chapter]
     const cspec = cfg?.cave
     if (!cfg?.circuit || !cspec || !run._swims || run._swims.length === 0) return
@@ -12827,46 +12837,164 @@ const spurG = new Graphics()
     // simply the gate at f = 0.
     const pw = run.player.x, ph2 = run.player.y
     const near = (w) => (w.x - pw) * (w.x - pw) + (w.y - ph2) * (w.y - ph2) < cullR * cullR
+    const P = (f, u) => ringXY(cspec, f, u)
+    // px ALONG the lane -> f. Every shape here is built from ring points, so a marker follows the
+    // corner it stands on instead of shearing off it.
+    const dFor = (px, u) => (px * L) / (2 * Math.PI * Math.max(1, cspec.ring.r0 - u))
+    const fseg = (f, u0, u1, width, color, alpha) => {
+      const a = P(f, u0), b = P(f, u1)
+      gateFloorG.moveTo(a.x, a.y)
+      gateFloorG.lineTo(b.x, b.y)
+      gateFloorG.stroke({ width, color, alpha, cap: 'butt' })
+    }
+    const arrow = (G, f, u, halfU, reach, color, alpha, w) => {
+      const a = P(f - dFor(reach, u), u - halfU)
+      const b = P(f + dFor(reach, u), u)
+      const c = P(f - dFor(reach, u), u + halfU)
+      G.moveTo(a.x, a.y)
+      G.lineTo(b.x, b.y)
+      G.lineTo(c.x, c.y)
+      G.stroke({ width: w, color, alpha, cap: 'round', join: 'round' })
+    }
+    // ROWS IS THE WHOLE DIFFERENCE BETWEEN A FINISH LINE AND A LEVEL CROSSING. One row of
+    // alternating squares is a barrier arm; two offset rows is a chequered flag, which is the only
+    // shape a player already reads as "lap".
+    const chequer = (G, f0, rows, cav, alpha) => {
+      const lo = cav.c - cav.hw, stepU = (cav.hw * 2) / V.checks
+      const rowPx = V.lineW / rows
+      for (let r = 0; r < rows; r++) {
+        for (let i = 0; i < V.checks; i++) {
+          const u0 = lo + i * stepU, u1 = lo + (i + 1) * stepU
+          const fr = f0 + dFor(rowPx * (r - (rows - 1) / 2), (u0 + u1) / 2)
+          const a = P(fr, u0), b = P(fr, u1)
+          G.moveTo(a.x, a.y)
+          G.lineTo(b.x, b.y)
+          G.stroke({ width: rowPx + 1, color: (i + r) % 2 ? V.line : V.lineDark, alpha, cap: 'butt' })
+        }
+      }
+    }
     {
       const cav = caveAt(0, cspec, seed)
-      const lo = cav.c - cav.hw, stepU = (cav.hw * 2) / V.checks
-      if (near(ringXY(cspec, 0, cav.c))) {
-        // THE START LINE: a chequered band across the WHOLE passage, so it reads as a finish line
-        // and not as a seventh checkpoint.
-        for (let i = 0; i < V.checks; i++) {
-          seg(0, lo + i * stepU, lo + (i + 1) * stepU, V.lineW, i % 2 ? V.line : V.lineDark, 0.92)
+      if (near(P(0, cav.c))) {
+        if (gateArt === 0) {
+          // THE START LINE: a chequered band across the WHOLE passage, so it reads as a finish line
+          // and not as a seventh checkpoint.
+          chequer(gateG, 0, 1, cav, 0.92)
+        } else {
+          chequer(gateFloorG, 0, 2, cav, 0.95)
+          // ...and a chequered pylon on each bank, so the line still has ends when the floor is busy.
+          for (const sign of [-1, 1]) {
+            const edge = cav.c + sign * (cav.hw - 10)
+            for (let b = 0; b < 3; b++) {
+              const q = P(dFor((b - 1) * 23, edge), edge)
+              gateG.circle(q.x, q.y, 15)
+              gateG.fill({ color: b % 2 ? V.lineDark : V.line, alpha: 0.95 })
+            }
+          }
         }
       }
     }
     for (let k = 0; k < per; k++) {
       const f = run._swims[k].f
       const cav = caveAt(f, cspec, seed)
-      if (!near(ringXY(cspec, f, cav.c))) continue
+      if (!near(P(f, cav.c))) continue
       // run._swimN is a RUNNING COUNT since the run began, so which lap's gate this is falls out of
       // it with no per-lap bookkeeping — the same arithmetic stepCircuit banks with.
       const lapDone = Math.floor((run._swimN ?? 0) / per) * per + k < (run._swimN ?? 0)
       const col = lapDone ? V.postDone : V.post
       const al = lapDone ? V.doneAlpha : 1
-      seg(f, cav.c - cav.hw, cav.c + cav.hw, V.postW, V.band, lapDone ? V.bandAlpha * V.doneAlpha : V.bandAlpha)
-      // THE CHEVRONS: the difference between a barrier and an instruction. They point the way the
-      // player travels, so a gate says "through here" rather than "something is here".
-      for (let i = 0; i < V.chevron; i++) {
-        const u = cav.c - cav.hw + (cav.hw * 2) * (i + 0.5) / V.chevron
-        const dF = (V.chevronW * cspec.lapLen) / (2 * Math.PI * Math.max(1, cspec.ring.r0 - u))
-        const a = ringXY(cspec, f - dF, u - V.chevronH)
-        const b = ringXY(cspec, f + dF, u)
-        const c2 = ringXY(cspec, f - dF, u + V.chevronH)
-        gateG.moveTo(a.x, a.y)
-        gateG.lineTo(b.x, b.y)
-        gateG.lineTo(c2.x, c2.y)
-        gateG.stroke({ width: 5, color: col, alpha: lapDone ? V.doneAlpha : 0.8, cap: 'round', join: 'round' })
-      }
-      for (const sign of [-1, 1]) {
-        const edge = cav.c + sign * cav.hw
-        seg(f, edge, edge + sign * V.postDepth, V.postW, col, al)
-        // ...and a lit lip on the face that looks into the passage, so the post has a front. A flat
-        // slab of one colour is what read as a UI artefact in the first shot of these.
-        seg(f, edge, edge + sign * 14, V.postW - 12, lapDone ? V.postDone : V.postCore, lapDone ? V.doneAlpha : 0.9)
+      if (gateArt === 4) {
+        // BUOYS + FLOOR ARROWS. The banks say WHERE the line is, the seabed says WHICH WAY, and
+        // nothing at all stands in the strip the player steers down.
+        for (let i = 0; i < 3; i++) {
+          const u = cav.c - cav.hw + (cav.hw * 2) * (i + 0.5) / 3
+          arrow(gateFloorG, f, u, 26, 20, col, lapDone ? V.doneAlpha * 0.6 : 0.6, 10)
+        }
+        for (const sign of [-1, 1]) {
+          const edge = cav.c + sign * (cav.hw - 16)
+          const q = P(f, edge)
+          const m = P(f, edge + sign * 54)
+          gateG.moveTo(m.x, m.y)
+          gateG.lineTo(q.x, q.y)
+          gateG.stroke({ width: 6, color: 0x14323a, alpha: al * 0.85, cap: 'round' })
+          gateG.circle(q.x, q.y, 27)
+          gateG.fill({ color: 0x14323a, alpha: al })
+          gateG.circle(q.x, q.y, 27)
+          gateG.stroke({ width: 6, color: col, alpha: al })
+          gateG.circle(q.x, q.y, 11)
+          gateG.fill({ color: lapDone ? V.postDone : V.postCore, alpha: lapDone ? V.doneAlpha : 1 })
+        }
+      } else if (gateArt === 1) {
+        // BUOYS. The information moves to the BANKS and the racing line is left clear water: what
+        // makes the shipped bar read as a barrier is that it paints the exact strip you steer down.
+        fseg(f, cav.c - cav.hw, cav.c + cav.hw, 12, col, lapDone ? 0.10 : 0.28)
+        for (const sign of [-1, 1]) {
+          const edge = cav.c + sign * (cav.hw - 16)
+          const q = P(f, edge)
+          const m = P(f, edge + sign * 54)
+          gateG.moveTo(m.x, m.y)
+          gateG.lineTo(q.x, q.y)
+          gateG.stroke({ width: 6, color: 0x14323a, alpha: al * 0.85, cap: 'round' })
+          gateG.circle(q.x, q.y, 27)
+          gateG.fill({ color: 0x14323a, alpha: al })
+          gateG.circle(q.x, q.y, 27)
+          gateG.stroke({ width: 6, color: col, alpha: al })
+          gateG.circle(q.x, q.y, 11)
+          gateG.fill({ color: lapDone ? V.postDone : V.postCore, alpha: lapDone ? V.doneAlpha : 1 })
+        }
+      } else if (gateArt === 2) {
+        // SEABED PAINT. Nothing stands in the water at all — the mark is under the coral overhang
+        // and under the fish, so it can never be mistaken for something you must avoid.
+        fseg(f, cav.c - cav.hw, cav.c + cav.hw, 58, col, lapDone ? 0.10 : 0.20)
+        for (let i = 0; i < 3; i++) {
+          const u = cav.c - cav.hw + (cav.hw * 2) * (i + 0.5) / 3
+          arrow(gateFloorG, f, u, 26, 20, col, lapDone ? V.doneAlpha * 0.6 : 0.75, 10)
+        }
+        for (const sign of [-1, 1]) {
+          const q = P(f, cav.c + sign * (cav.hw - 10))
+          gateG.circle(q.x, q.y, 9)
+          gateG.fill({ color: lapDone ? V.postDone : V.postCore, alpha: lapDone ? V.doneAlpha : 1 })
+        }
+      } else if (gateArt === 3) {
+        // LIGHT ARCH. The curtain is EDGE-WEIGHTED — bright at the wall, gone at the centre — so
+        // the threshold still spans the passage while the line you drive stays clear.
+        const N = 9
+        for (let i = 0; i < N; i++) {
+          const u0 = cav.c - cav.hw + (cav.hw * 2) * i / N
+          const u1 = cav.c - cav.hw + (cav.hw * 2) * (i + 1) / N
+          const w = Math.abs(((u0 + u1) / 2 - cav.c) / cav.hw)
+          seg(f, u0, u1, 26, V.band, (lapDone ? V.doneAlpha : 1) * 0.5 * w * w)
+        }
+        const pulse = 0.5 + 0.5 * Math.sin((run.time ?? 0) * 2.2)
+        for (const sign of [-1, 1]) {
+          for (let t = 0; t < 5; t++) {
+            const spread = t / 4 - 0.5
+            const baseU = cav.c + sign * cav.hw
+            const tipU = baseU - sign * (26 + 24 * (0.35 + 0.65 * pulse) * (1 - Math.abs(spread) * 1.2))
+            const a = P(f + dFor(spread * 26, baseU), baseU)
+            const b = P(f + dFor(spread * 40, tipU), tipU)
+            gateG.moveTo(a.x, a.y)
+            gateG.lineTo(b.x, b.y)
+            gateG.stroke({ width: 7, color: col, alpha: al * 0.9, cap: 'round' })
+            gateG.circle(b.x, b.y, 5)
+            gateG.fill({ color: lapDone ? V.postDone : V.postCore, alpha: lapDone ? V.doneAlpha : 0.6 + 0.4 * pulse })
+          }
+        }
+      } else {
+        seg(f, cav.c - cav.hw, cav.c + cav.hw, V.postW, V.band, lapDone ? V.bandAlpha * V.doneAlpha : V.bandAlpha)
+        // THE CHEVRONS: the difference between a barrier and an instruction. They point the way the
+        // player travels, so a gate says "through here" rather than "something is here".
+        for (let i = 0; i < V.chevron; i++) {
+          const u = cav.c - cav.hw + (cav.hw * 2) * (i + 0.5) / V.chevron
+          arrow(gateG, f, u, V.chevronH, V.chevronW, col, lapDone ? V.doneAlpha : 0.8, 5)
+        }
+        for (const sign of [-1, 1]) {
+          const edge = cav.c + sign * cav.hw
+          seg(f, edge, edge + sign * V.postDepth, V.postW, col, al)
+          // ...and a lit lip on the face that looks into the passage, so the post has a front. A flat
+          // slab of one colour is what read as a UI artefact in the first shot of these.
+          seg(f, edge, edge + sign * 14, V.postW - 12, lapDone ? V.postDone : V.postCore, lapDone ? V.doneAlpha : 0.9)
+        }
       }
     }
   }
@@ -19320,6 +19448,7 @@ const spurG = new Graphics()
     laneG.clear()
     spurG.clear()
     gateG.clear()
+    gateFloorG.clear()
     // THE COLONIES ARE A SPRITE POOL NOW, so clearing the Graphics is no longer enough: without
     // this the previous run's coral is still parented and visible on the next one. This is the
     // exact failure run CP exists to catch.
@@ -21414,6 +21543,7 @@ const spurG = new Graphics()
     // until its first lane crossing.
     spurG.clear()
     gateG.clear()
+    gateFloorG.clear()
     // THE COLONIES ARE A SPRITE POOL NOW, so clearing the Graphics is no longer enough: without
     // this the previous run's coral is still parented and visible on the next one. This is the
     // exact failure run CP exists to catch.
