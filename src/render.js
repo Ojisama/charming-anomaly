@@ -12882,34 +12882,61 @@ const spurG = new Graphics()
         }
       }
       for (const sign of [-1, 1]) {
-        const uBase = cav.c + sign * (cav.hw - 2)
+        // THE WALL AT f, ON THIS BANK: where its face is in u, how wide the passage is there, and
+        // WHICH WAY IT RUNS. The last one is the whole of this fix. `c` wanders ~1.9px per px of
+        // lane, so the face is a steep diagonal in (f, u) — a rod grown along -u leaves the coral
+        // at whatever angle the diagonal happens to make, and a whole stand pinned to f0's face has
+        // its outer rods hundreds of px off the wall in both directions.
+        const dE = dFor(V.slopeE, cav.c)
+        const wall = (f) => {
+          const m = caveAt(f, cspec, seed)
+          const a = caveAt(f - dE, cspec, seed), b = caveAt(f + dE, cspec, seed)
+          return {
+            u: m.c + sign * (m.hw - 2),
+            hw: m.hw,
+            // du per px ALONG the lane — the gradient the rod has to lean into to come out square.
+            s: ((b.c + sign * b.hw) - (a.c + sign * a.hw)) / (2 * V.slopeE),
+          }
+        }
+        const w1 = wall(f0)
+        // Along-wall px -> along-lane px. The foot span is measured along the FACE now, so a stand
+        // on a steep stretch covers the same length of coral as one on a straight.
+        const kf = 1 / Math.hypot(1, w1.s)
         for (let n = 0; n < V.rods; n++) {
           const h = hsh(n, sign + 2), h2 = hsh(n, sign + 9)
           const g = n / (V.rods - 1) - 0.5
           const fr = g * V.footSpan + (h2 - 0.5) * V.footJitter
+          const fn = f0 + dFor(fr * kf, w1.u)
+          const wn = wall(fn)
+          // cos/sin of the face's own angle: rotating the rod's (along-face, out-of-face) offsets
+          // by it turns "out of the face" into the face's normal instead of into bare -u.
+          const kn = 1 / Math.hypot(1, wn.s)
+          const cs = kn, sn = wn.s * kn
           const splay = g * V.splay + (h - 0.5) * V.splayJitter
           const sway = Math.sin(t * 1.1 + n * 1.3 + sign) * V.swayPx
           // the wake shove: hardest on the rods nearest the middle, where the player went through
           const push = c * c * V.shove * (0.35 + 0.65 * (n / V.rods))
-          const reach = (V.reachLo + h * V.reachSpan) * cav.hw * rm
+          const reach = (V.reachLo + h * V.reachSpan) * wn.hw * rm
           const pts = []
           for (let m = 0; m <= 6; m++) {
             const g2 = m / 6
-            pts.push([fr + (splay + sway + push) * g2 * g2, -sign * reach * g2])
+            const al = (splay + sway + push) * g2 * g2   // along the face
+            const ac = -sign * reach * g2                // out of it
+            pts.push([al * cs - ac * sn, al * sn + ac * cs])
           }
-          fuLine(gateG, f0, uBase, pts, V.outline, 1, V.rodOutlineW)
-          fuLine(gateG, f0, uBase, pts, body, 1, V.rodBodyW)
+          fuLine(gateG, fn, wn.u, pts, V.outline, 1, V.rodOutlineW)
+          fuLine(gateG, fn, wn.u, pts, body, 1, V.rodBodyW)
           // polyps along the rod — what makes it coral rather than a reed
           for (let m = 1; m <= 5; m++) {
             const pt = pts[m]
-            const uu = uBase + pt[1]
-            const q2 = P(f0 + dFor(pt[0] + (m % 2 ? 4 : -4), uu), uu)
+            const uu = wn.u + pt[1]
+            const q2 = P(fn + dFor(pt[0] + (m % 2 ? 4 : -4), uu), uu)
             gateG.circle(q2.x, q2.y, V.polypR)
             gateG.fill({ color: V.polyp, alpha: 0.85 })
           }
           const tip = pts[6]
-          const uu = uBase + tip[1]
-          const q = P(f0 + dFor(tip[0], uu), uu)
+          const uu = wn.u + tip[1]
+          const q = P(fn + dFor(tip[0], uu), uu)
           if (lit) {
             const pu = 0.6 + 0.4 * Math.sin(t * 3 + n * 0.5)
             gateFrontG.circle(q.x, q.y, 30 + c * 24)
@@ -14087,14 +14114,12 @@ const spurG = new Graphics()
     if (refillLook !== 'pocket') return
     const P2 = AIR_POCKET_VIS
     const ax = chapterLaneAxis
-    // ONLY THE VENTS THAT ARE ON SCREEN. run.shafts streams a 1400px disc and the phone shows a
-    // fraction of it, so emitting from the whole list spends almost every bubble outside the view:
-    // 24 vents streamed, a handful visible, and the stream read as a trickle. The rate is per
-    // VISIBLE vent now, which is what makes the density on screen independent of how far the
-    // streamer happens to reach.
-    const p = run.player
-    const mx = viewW() / 2 + 80, my = viewH() / 2 + 80
-    const near = run.shafts.filter((sh) => Math.abs(sh.x - p.x) < mx && Math.abs(sh.y - p.y) < my)
+    // ONLY THE VENT THAT IS ACTUALLY BREATHING INTO YOU. `feeding` is stepCharge's own flag —
+    // written on the circle it added air from, and false the moment the bar hits its ceiling — so
+    // the column you can see is the air the sim is giving you (owner, 2026-08-25: "refill bubbles
+    // don't disappear when they stop refilling"). At most one circle can be feeding, which is why
+    // the whole-field screen cull this used to need has gone with it.
+    const near = run.shafts.filter((sh) => sh.feeding)
     if (!near.length) return
     ventAcc += dt * P2.rate * near.length
     let n = Math.floor(ventAcc)

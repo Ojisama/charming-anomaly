@@ -1304,7 +1304,7 @@ function generateWells(sig) {
  *   `t` back up, and exists so syncPolyps' ignition ramp cannot blank a ridge that is still
  *   burning. Enemies only: nothing in here can touch the player. render.js draws the band
  *   straight off this list.
- * shafts[i]: { x, y, bx, by, r, phase, _cell, gape?, _shutT?, drawdown?, fouled? } — v7.x Book 2: streamed REFILL
+ * shafts[i]: { x, y, bx, by, r, phase, _cell, feeding, gape?, _shutT?, drawdown?, fouled? } — v7.x Book 2: streamed REFILL
  *   CIRCLES the player stands in to refill `charge`. ONE list fed from any of FOUR places, decided
  *   by refillSpec() (config.js): The Twilight's sun shafts (its signature IS the refill spec:
  *   cell/chance/r/minDist/driftAmp/driftHz sit directly on it), The Surf's tide pools
@@ -1323,6 +1323,12 @@ function generateWells(sig) {
  *     `drawdown` (s of occupancy, The Shelf) is how long the player has stood in this circle; at
  *   signature.drawdownSecs it stops being food. Written by stepCharge and read by render.js, which
  *   fades the circle off this exact number so the seconds watched are the seconds counted.
+ *     `feeding` is "did THIS circle add to the bar on THIS tick", rewritten for every circle
+ *   by stepCharge every step. It is false for the three different ways a circle stops paying — you
+ *   are not in it, it has drawn down, or the bar is already at its ceiling and swallowed the add
+ *   — and it exists because all three look identical from render.js, which used to stream The
+ *   Reef's bubbles from every vent on screen regardless (owner, 2026-08-25: "refill bubbles don't
+ *   disappear when they stop refilling"). Read by updateAirVents and by nothing else.
  *     `fouled` (s REMAINING) is Foul Spring's animation clock, set to FOUL_SPRING_FOUL_T when a Silt
  *   Veil cloud lands in a live circle and counted down by stepShafts. It is the PICTURE only —
  *   `drawdown` is slammed to full in the same breath, so the circle stops feeding the player at

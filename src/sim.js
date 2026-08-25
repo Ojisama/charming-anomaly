@@ -5617,6 +5617,12 @@ export function stepCharge(run, dt) {
   // of its readers (here, foulUpwelling, render.js) must move together or the circle the player
   // watches fade is running a different clock from the one feeding them.
   const drawdownSecs = drawdownSecsFor(run)
+  // IS THIS CIRCLE ACTUALLY FEEDING YOU RIGHT NOW. Published on the circle for the same reason
+  // `drawdown` and the maw's `gape` are: render.js draws off it, so the air you can see arriving is
+  // the air stepCharge is adding. Owner, 2026-08-25: "refill bubbles don't disappear when they stop
+  // refilling" — The Reef's vents streamed the same column whether they were topping you up, were
+  // clamped against a full bar, or had nobody in them at all.
+  for (const sh of run.shafts) sh.feeding = false
   for (const sh of run.shafts) {
     // Inside the circle's own outline: standing IN the light, not brushing its edge. inMaw is that
     // same centre-to-centre test for a round field (every one but The Surf's pools), following the
@@ -5644,6 +5650,9 @@ export function stepCharge(run, dt) {
       sh.drawdown = (sh.drawdown ?? 0) + dt
     }
     c += res.refill * run.chargeRefillMul * dt
+    // `c` after the add, not before: a bar already at the ceiling swallows the whole tick, and a
+    // vent pouring into a full fish is the exact thing the flag exists to switch off.
+    sh.feeding = c < run.chargeMax
     break
   }
   // THE TRAWL'S REFILL IS NOT A PLACE (see CHAPTERS.trawl.signature). Every other Book 2 chapter's

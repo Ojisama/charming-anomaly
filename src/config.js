@@ -6893,10 +6893,17 @@ CHAPTERS.reef = {
   // handful of readers that predate the ring, and ui.js reads it for the joystick. It is inert for
   // movement now.
   laneAxis: 'x',
-  // 45 rather than the shared 70 — see laneScrollFor's block. Measured, not felt: on a 390x844 phone
-  // an x-lane has only 312 world px ahead of the player against the y-lane's 675, so at 70 this
-  // chapter would give HALF The Beyond's reaction time on the device the game ships to.
-  laneScroll: 90,
+  // THE CAR'S BASE SPEED, and on a ring that is ALL it is — the chapter dropped `lane: true`, so
+  // nothing scrolls and this is simply what a throttle of 1 is worth. The band is this x
+  // laneThrottle: 90..540 px/s.
+  //   ⚠ PLAYER.baseSpeed IS NOT THE REEF'S SPEED and a knob added there is inert. The circuit
+  // branch in stepPlayerMovement builds the velocity out of laneScrollFor and the stick's
+  // magnitude; `player.speed` never reaches it. (Proven the expensive way: a chapter speed
+  // multiplier on player.speed moved the measured 4-lap race time by 0.00s.)
+  // balance_decision : the reef drives at twice its old speed [2026-08-25]
+  //  - CIRCUIT_DEFAULTS.accel and crashSpeed are both DEFINED against this number and were doubled
+  //    with it; the air economy is denominated in pockets met per second and is now ~2x richer.
+  laneScroll: 180,
   // THE THROTTLE (owner, 2026-08-24: "the move right / move left actions should actually make the
   // level scroll faster / slower", then "it should be wayyyy speedier, like 3x the speed"). The
   // stick's FORWARD component was doing nothing at all in a lane — only the cross axis was read —
@@ -9572,7 +9579,11 @@ export const CIRCUIT_DEFAULTS = {
   // 0.45s — the penalties become things you feel and the two momentum cards become things you buy.
   // balance_decision : momentum you can feel, so its cards and its penalties bite [2026-08-25]
   //  - three separate "this does nothing" findings were all this knob
-  accel: 180,        // px/s^2 the throttle's speed eases at — see CIRCUIT_ACCEL's block above
+  // 180 -> 360 WITH THE SPEED, and it is not a second decision. Every finding in the paragraph above
+  // is stated in SECONDS (a 1.5s ramp, a 0.68s crash rebuild, a 0.45s bump) against a top speed of
+  // 270; the reef now tops out at 540, so holding this constant would have doubled all three and
+  // undone the tune by leaving it alone.
+  accel: 360,        // px/s^2 the throttle's speed eases at — see CIRCUIT_ACCEL's block above
   clockStart: 30,    // seconds on the clock at the start line
   clockCap: 30,      // ...and the ceiling a swimthrough may top it back up to
   swimTime: 6,       // seconds a swimthrough is worth
@@ -9584,7 +9595,7 @@ export const CIRCUIT_DEFAULTS = {
   // px, and does not change meaning with the frame rate.
   //   Fires on the ENTRY frame only. Applied every frame of contact it would be an exponential
   // decay, i.e. the "sustained contact" rule the owner did not pick.
-  crashSpeed: 137,   // px/s of inward cross speed that separates a crash from a brush (half of the 275 max strafe)
+  crashSpeed: 274,   // px/s of inward cross speed that separates a crash from a brush (half of the 540 top speed)
   crashMul: 0.55,    // what a crash leaves of _laneSpeed
   // XP COMES FROM THE TRACK, NOT FROM KILLS (owner, playing v7.231: "no upgrades given in my run").
   // A racer drives PAST the crowd — that is what passiveCrowd is for — so the chapter had no xp
@@ -9640,6 +9651,15 @@ export const CIRCUIT_GATE_VIS = {
   reachLo: 0.44,       // ...of cav.hw, plus up to reachSpan more, per rod
   reachSpan: 0.34,
   swayPx: 9,           // drift in the current
+  // HOW FAR EITHER SIDE OF A ROD THE WALL IS SAMPLED to get the gradient it grows out of. The
+  // passage CENTRE wanders up to ~1.9px per px of lane at `wander` 440, so a stand pinned to one
+  // f's edge had half its rods buried 140px inside the coral and half floating 140px out in open
+  // water, every one of them growing radially instead of out of the wall it belongs to (owner,
+  // 2026-08-25: "checkpoints are not stuck to walls sometimes weird angles"). Each rod now takes
+  // its base from the wall at its OWN f and its angle from the wall's local slope.
+  //   12px, not 1: the width octaves put a 252px ripple on hw, so a very short baseline reads that
+  // ripple as the wall's direction and the stand fans out. 12 is a twentieth of the foot span.
+  slopeE: 12,
   rodOutlineW: 12,
   rodBodyW: 7,
   outline: 0x1e2a20,
