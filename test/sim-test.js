@@ -55,6 +55,7 @@ import {
   ELEMENTS, CONSUMABLES,
   LATCH_SLOW_T, SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, DASH_SPEED_MUL, ACID_R, ACID_DUR, ACID_DPS, SOAP_R, SOAP_DUR,
+  OIL_TRAIL_INTERVAL, OIL_TRAIL_R, OIL_TRAIL_DUR, BILGE_TRAIL_GROW,
   MAX_WEAPON_LEVEL, FLAGELLA_CYCLONE_EVERY, SPOREBURST_FRAC, SILT_VEIL_ARC, BLOOM_TICK, SHARD_RIFT_W, SHARD_RIFT_FUSE,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T,
   STINGER_HIVE_EVERY,
@@ -10777,6 +10778,86 @@ function testChapterBehaviors() {
     console.log(`PASS run V.e (soapTrail): nodes=${run.pools.length}`)
   }
 
+  // (e2) oilTrail (elite flag, The Wreck's own — Part 3 of the defensive-gameplay spec): drags a
+  // wall of oil behind it, a run.blooms entry tagged look:'bilge' rather than a run.pools node.
+  // Assert the spawned ENTITY, never the config table: every produced bloom deals no damage, a
+  // skittish body is steered clear of it exactly as it is by the player's own Bilge, and a body
+  // sitting in it stains ('oiled' rises). The last of those is the spec's own unproven trap: the
+  // stain (sim.js ~8629) sits inside `if (bl.slow !== 0)`, while the avoidance loop (sim.js ~9122)
+  // reads only bl.look/bl.r and never checks `slow` at all — so `slow: 0` would keep the wall but
+  // silently drop the stain, and only `slow: 1` (what's shipped) buys both.
+  {
+    const run = createRun(makeMeta())
+    run.weapons = []
+    run.player.x = 5000; run.player.y = 0 // far away: the elite never contacts, the pools never expire from distance culling
+    const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 80, elite: true })
+    e.flags = ['oilTrail']
+    run.enemies.push(e)
+
+    const steps = Math.round(1.5 / dt)
+    for (let i = 0; i < steps; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const trail = run.blooms.filter((b) => b.look === 'bilge')
+    assert(trail.length >= 3, `expected an oilTrail elite to lay >= 3 look:'bilge' blooms over 1.5s, got ${trail.length}`)
+    for (const b of trail) {
+      assert.strictEqual(b.dmgPerTick, 0, `expected an oil trail pool to deal no damage, got dmgPerTick=${b.dmgPerTick}`)
+      // A chain of pools laid behind a moving body draws as a dotted line of rimmed circles without
+      // these two — the same pair bilge's own slickTrail carries, for the same reason (BILGE_TRAIL_GROW's
+      // own comment). Render-side (syncSlicks in render.js) is not headless-testable; see the source
+      // tripwire below for that half of the contract.
+      assert.strictEqual(b.grow, BILGE_TRAIL_GROW, `expected an oil trail pool to carry grow:${BILGE_TRAIL_GROW} (else it draws as a dotted chain), got ${b.grow}`)
+      assert.strictEqual(b.trail, true, `expected an oil trail pool to carry trail:true (else render draws rimmed circles instead of one film), got ${b.trail}`)
+    }
+    const spot = trail[trail.length - 1] // the freshest one: furthest from OIL_TRAIL_DUR expiry for what follows
+
+    // SOURCE TRIPWIRE (the run UG.k idiom): render.js is not headless-testable, so this is the other
+    // half of the grow/trail contract above — the sim-side entity carries the fields, this confirms
+    // render.js's syncSlicks still actually READS `sl.trail` to draw the seam-free film rather than
+    // rimmed circles. A refactor that silently drops that branch would leave every bloom-side assert
+    // above green while the wall drew as puddles again.
+    const renderSrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(/const trail = !!sl\.trail/.test(renderSrc),
+      'render.js no longer reads bl.trail off a run.blooms entry — the oilTrail/slickTrail seam-free render may be dead')
+
+    // Remove the elite before testing prey behaviour: stepShoals treats any non-skittish, non-ally
+    // enemy as a PREDATOR prey flees from (sim.js:8974), and an elite still on the field would add
+    // a second fleeing force that has nothing to do with the oil this scenario is about.
+    run.enemies = run.enemies.filter((x) => x !== e)
+
+    // AVOIDANCE. Same geometry PY.j uses for the player's own Bilge: the fish flees the player in a
+    // straight line, and the oil sits directly in that path. Track the CLOSEST approach across the
+    // whole run (not the final distance) — the fish deflects along the rim rather than stopping, so
+    // a late sample could read "clear" after it already breached the wall.
+    run.player.x = spot.x - 420; run.player.y = spot.y
+    const prey = makeStatusEnemy(run, { x: run.player.x + 150, y: run.player.y, hp: 1e6, speed: 90 })
+    prey.flags = ['skittish']
+    run.enemies.push(prey)
+    let deepest = Infinity
+    for (let i = 0; i < Math.round(3 / dt); i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      deepest = Math.min(deepest, Math.hypot(prey.x - spot.x, prey.y - spot.y))
+    }
+    assert(deepest > spot.maxR * 0.6,
+      `expected a skittish body to be steered clear of an oilTrail pool (closest approach ${deepest.toFixed(0)}px to a ${spot.maxR.toFixed(0)}px pool)`)
+
+    // THE STAIN. A body pinned in the pool (speed 0, so it cannot flee out) must accumulate `oiled`
+    // over time — proving `slow: 1` reaches the branch the spec flagged as unproven.
+    const pinned = makeStatusEnemy(run, { x: spot.x, y: spot.y, hp: 1e6, speed: 0 })
+    pinned.flags = ['skittish']
+    run.enemies.push(pinned)
+    const oiledBefore = pinned.oiled || 0
+    const hpBefore = run.player.hp
+    for (let i = 0; i < Math.round(1 / dt); i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert(pinned.oiled > oiledBefore,
+      `expected a body sitting in an oilTrail pool to accumulate 'oiled' (before=${oiledBefore}, after=${pinned.oiled})`)
+    // NO DAMAGE. run.blooms never reaches the player through any path but hurtPlayer (dmgBySrc's one
+    // funnel), so this also stands as a mutation guard on dmgPerTick: 0 rather than a redundant check.
+    assert.strictEqual(run.player.hp, hpBefore, `expected the oil trail to deal 0 damage to a player sitting in it, lost ${hpBefore - run.player.hp} HP`)
+    assert.ok(!run.dmgBySrc || Object.keys(run.dmgBySrc).length === 0,
+      `expected run.dmgBySrc to gain nothing from the oil trail, got ${JSON.stringify(run.dmgBySrc)}`)
+
+    console.log(`PASS run V.e2 (oilTrail): ${trail.length} blooms in 1.5s all dmgPerTick=0, prey held ${deepest.toFixed(0)}px clear of a ${spot.maxR.toFixed(0)}px pool, oiled ${oiledBefore.toFixed(3)} -> ${pinned.oiled.toFixed(3)}, 0 HP lost`)
+  }
+
   // (f) currents signature: a stationary pond player drifts, a stationary body player never does.
   //
   // SEEDED, and the threshold is 5 rather than 20. This block drew no seed of its own, so it ran
@@ -20922,6 +21003,33 @@ function testSubmission() {
   assert.strictEqual(a2.hp, hpAtTurn,
     `the player's own weapons took ${hpAtTurn - a2.hp} HP off their ally over 10s at point-blank range`)
   console.log(`PASS run SB.c (friendly fire): a ${Math.round(10 / dt)}-frame point-blank barrage at x20 damage took 0 HP off the ally`)
+
+  // (d) A CONVERTED OIL-TRAIL ALLY LAYS NO WALL. SB.a cannot see this: it measures DAMAGE against a
+  // no-ally control, and The Wreck's oilTrail is dmgPerTick: 0 by ruling — exactly the affix class
+  // SB.a is proven blind to (dropping 'webZone' from SUBMISSION_STRIP_FLAGS leaves SB.a green too,
+  // because a web slows the player and never hurts them). So this asserts the ENTITY is absent, not
+  // that the player is unhurt.
+  // MUTATION: remove 'oilTrail' from SUBMISSION_STRIP_FLAGS and this goes red while SB.a stays green.
+  Math.random = mulberry32(20260810)
+  const r3 = createRun(makeMeta(), { chapter: 'wreck', difficulty: 1 })
+  r3.anomalies.submission = true
+  r3.weapons = []
+  r3.mods.spawnMul = 0
+  r3.player.hp = r3.player.maxHP = 5000
+  const a3 = makeStatusEnemy(r3, { x: r3.player.x, y: r3.player.y, elite: true, hp: 1e6, speed: 0 })
+  a3.flags = ['oilTrail']
+  a3._dead = true
+  r3.enemies.push(a3)
+  stepSim(r3, { x: 0, y: 0 }, dt)
+  assert.ok(a3.allyT > 0, 'the dead elite did not turn — fixture broken, not the sim')
+  for (let i = 0; i < Math.round(10 / dt); i++) {
+    if (r3.phase !== 'playing') break
+    a3.x = r3.player.x; a3.y = r3.player.y; a3.allyT = SUBMISSION_DURATION
+    stepSim(r3, { x: 0, y: 0 }, dt)
+  }
+  const laid = r3.blooms.filter((b) => b.look === 'bilge')
+  assert.strictEqual(laid.length, 0, `expected a converted oilTrail ally to lay 0 look:'bilge' blooms over 10s, got ${laid.length}`)
+  console.log(`PASS run SB.d (converted ally lays no oil wall): 0 look:'bilge' blooms over 10s — SB.a's damage-only guard cannot see this affix class (dmgPerTick: 0)`)
 }
 
 // ---- run US.a (v7.55): The Surf's tide — alternating lateral surge and backwash ------

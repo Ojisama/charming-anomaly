@@ -87,6 +87,7 @@ import {
   SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
   DASH_IDLE_T, DASH_T, DASH_IDLE_SPEED_MUL, DASH_SPEED_MUL,
   ACID_R, ACID_DUR, ACID_DPS, SOAP_INTERVAL, SOAP_R, SOAP_DUR, SOAP_DPS,
+  OIL_TRAIL_INTERVAL, OIL_TRAIL_R, OIL_TRAIL_DUR,
   FLAGELLA_CYCLONE_EVERY, BARBED_DMG_MUL, BARBED_DURATION,
   BLOOM_GROW_FRAC, BLOOM_TICK, SPOREBURST_FRAC, BLOOM_SLOW, BLOOM_SLOW_T, TIDE_DMG_BONUS,
   STINGER_R, STINGER_HIVE_EVERY, LURE_STICKY_R, LURE_STICKY_DUR,
@@ -2460,6 +2461,36 @@ function stepEnemyMovement(run, dt) {
       if (e._soapAcc >= SOAP_INTERVAL) {
         e._soapAcc -= SOAP_INTERVAL
         run.pools.push({ x: e.x, y: e.y, r: SOAP_R, t: SOAP_DUR, dps: SOAP_DPS })
+      }
+    }
+
+    // oilTrail elite flag (v7.x, The Wreck's own elite affix — replaces the borrowed soapTrail):
+    // drags a wall of oil behind it, on soapTrail's own timer cadence but pushing a run.blooms entry
+    // tagged look: 'bilge' rather than a run.pools node. The tag is what makes it the same substance
+    // as the player's own Bilge weapon and the chapter's ambient Leak, so it inherits their prey
+    // avoidance (stepPrey), their permanent stain (stepBlooms) and their render for free — no new art.
+    // `slow: 1`, NOT 0: the stain is gated on `bl.slow !== 0` (stepBlooms), while the prey-avoidance
+    // loop reads only `bl.look`/`bl.r` and does not check `slow` at all — so 0 would keep the wall but
+    // silently drop the stain. `dmgPerTick: 0` (ruling): a fence that walks, not a damage zone.
+    // `grow`/`trail`, THE SAME PAIR BILGE'S OWN slickTrail CARRIES (sim.js's stepBilgeWeapon): a
+    // chain of pools laid behind a moving body is exactly what this is, and without them it draws as
+    // a dotted line of separate rimmed circles instead of one film — see BILGE_TRAIL_GROW's own
+    // comment. Reusing the constant rather than a per-elite one: OIL_TRAIL_INTERVAL (0.35s) already
+    // exceeds it (0.22s), so every pool is fully grown before the next one lays regardless of how
+    // fast the elite carrying it moves — no per-speed retune needed. syncSlicks (render.js) draws
+    // every look:'bilge' bloom off its OWN stored fields with no reference to run.player, so an
+    // enemy-laid entry renders exactly like the player's.
+    if (e.elite && e.flags && e.flags.includes('oilTrail') && !e._dead && e._phaseSolid !== false) {
+      e._oilAcc = (e._oilAcc ?? 0) + dt
+      if (e._oilAcc >= OIL_TRAIL_INTERVAL) {
+        e._oilAcc -= OIL_TRAIL_INTERVAL
+        run.blooms.push({
+          x: e.x, y: e.y, t: 0, r: 0, maxR: OIL_TRAIL_R, dur: OIL_TRAIL_DUR,
+          dmgPerTick: 0, tick: 0, look: 'bilge',
+          shape: Math.floor(Math.random() * LOBE_SHAPES.length) % LOBE_SHAPES.length,
+          rot: Math.random() * Math.PI * 2,
+          slow: 1, grow: BILGE_TRAIL_GROW, trail: true,
+        })
       }
     }
 

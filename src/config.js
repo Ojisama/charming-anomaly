@@ -495,7 +495,7 @@ export const SUBMISSION_DMG_FRAC = 0.5     // the spec's "50% of your damage"; f
 // damage), so the fidelity lost is one turret's aim. Upgrade path is retargeting `artillery`,
 // whose shells already damage enemies via run.bombs.
 export const SUBMISSION_STRIP_FLAGS = [
-  'soapTrail', 'webZone', 'wake', 'artillery', 'missileVolley', 'spawner', 'flashlightCone', 'pullBeam',
+  'soapTrail', 'oilTrail', 'webZone', 'wake', 'artillery', 'missileVolley', 'spawner', 'flashlightCone', 'pullBeam',
 ]
 export const SUBMISSION_HIT_EVERY = 0.5    // seconds between an ally's contact hits on one target
 // BLOOD MONEY. Owner overruled a maxHP proposal: flat current HP, and the objection ("that is 23
@@ -7400,7 +7400,10 @@ CHAPTERS.wreck = {
     //  - chum and bilge deal NO damage at all, so gnash is the entire damage budget all run
     { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 1.32, speedMul: 0.7,  dmgMul: 0, flags: [] },
   ],
-  eliteFlags: ['soapTrail'],   // shared with surf/shelf/reef/trawl. NOT the whole book: deep is webZone
+  // The chapter's own affix, not the borrowed soapTrail: a wall of oil the elite drags behind it,
+  // tagged look:'bilge' so it is the same substance as the player's own Bilge and the ambient Leak
+  // (see OIL_TRAIL_* in config.js and the flag's own block in sim.js). Pure wall — dmgPerTick: 0.
+  eliteFlags: ['oilTrail'],
 
   // 70% FEWER MORAYS. Owner ruling 2026-08-18: "70% less tanks (murènes)". The moray is the one
   // thing in this chapter that does not flee and cannot be eaten on demand, so it is the chapter's
@@ -10090,6 +10093,16 @@ export const PREY_PANIC_BLIND_R = 260
 //  - 0.20 takes the damselfish to 178 px/s, i.e. under the player, which is the point of the card
 export const OIL_STAIN_RATE = 0.18   // speed fraction added per second spent in oil
 export const OIL_STAIN_MAX = 0.20    // hard ceiling on `oiled`, forever
+
+// ---- ELITE OIL TRAIL (v7.x, The Wreck's own elite affix) ---------------------------------------
+// eliteFlags: ['oilTrail'] replaces the borrowed soapTrail here. Laid on soapTrail's own timer
+// cadence (sim.js), but as a run.blooms entry tagged look: 'bilge' rather than a run.pools node —
+// tagging it bilge is what makes it the same substance as the player's own Bilge and the ambient
+// Leak, so it inherits their avoidance and their stain for free (see BILGE_AVOID_PAD/OIL_STAIN_RATE
+// above). `dmgPerTick: 0` (ruling): a fence that walks, not a damage zone.
+export const OIL_TRAIL_INTERVAL = 0.35 // s between dropped trail pools — soapTrail's own cadence
+export const OIL_TRAIL_R = 70          // px, close to a thrown Bilge's own trail pool (BILGE_TRAIL_R_MUL x L1 maxR)
+export const OIL_TRAIL_DUR = 5.0       // s a trail pool lives before decaying off run.blooms
 
 // ---- PREY (v7.x, The Wreck) — the `skittish` flag ---------------------------------------------
 // THE ONE THING IN THIS GAME THAT IS NOT COMING FOR YOU. Every other creature in every other
