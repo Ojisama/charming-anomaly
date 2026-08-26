@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -12865,20 +12865,40 @@ const spurG = new Graphics()
       gateFrontG.stroke({ width: 10 * c + 1, color: 0xffffff, alpha: 0.5 * c })
     }
 
+    // WHERE THE POST ON THIS BANK BELONGS, AND IT IS NOT AT f0 — config.js's gateAnchorF, whose
+    // block carries the measurement and the reason it is not defined here. Both posts used to be
+    // drawn at the same f, i.e. on one radius of the ring, which is only the way across the track
+    // where the centreline runs square to the radii; measured, the pair sat up to 59 degrees off
+    // perpendicular. Every rod still takes its own base from the wall at its own f FROM the anchor —
+    // that is run CT.h's fix, which solves the different problem of a stand shearing off the wall
+    // along its length.
     // A stand on each bank, and the pair frame the squeeze. fin marks the start/finish line, which
     // is always lit because it is always the thing you are ultimately driving at.
     const stand = (f0, cav, fin, k) => {
       const w0 = P(f0, cav.c)
+      const fA = { '-1': gateAnchorF(cspec, f0, cav, -1, seed), 1: gateAnchorF(cspec, f0, cav, 1, seed) }
       const nr = nearness(w0), lit = fin || k === nextK
       const c = crossAge(k)
       const body = fin ? V.bodyFinish : V.body
       // the reach the rods get here: cut back at the finish so the mat between them stays legible
       const rm = fin ? V.finReachMul : 1
       if (lit && !fin) {
+        // ...AND THE BAR BETWEEN THEM IS THE SAME CHORD. It used to run from -hw to +hw in u at f0,
+        // i.e. along the radius the posts no longer stand on — so a corrected pair would have been
+        // strung together by a light that missed both of them. Drawn between the two anchors, pulled
+        // 20px in at each end so it reads as light in the gap rather than as a bar across it.
         const pu = 0.6 + 0.4 * Math.sin(t * 2.6)
+        const eA = P(fA['-1'], caveAt(fA['-1'], cspec, seed).c - caveAt(fA['-1'], cspec, seed).hw + 20)
+        const eB = P(fA[1], caveAt(fA[1], cspec, seed).c + caveAt(fA[1], cspec, seed).hw - 20)
         for (const [w, al] of V.haze) {
-          fuLine(gateFrontG, f0, cav.c, [[0, -cav.hw + 20], [0, cav.hw - 20]], V.glow,
-            (al + al * 1.7 * nr) * pu + c * al * 5, w + c * 28)
+          gateFrontG.moveTo(eA.x, eA.y)
+          gateFrontG.lineTo(eB.x, eB.y)
+          gateFrontG.stroke({
+            width: w + c * 28,
+            color: V.glow,
+            alpha: (al + al * 1.7 * nr) * pu + c * al * 5,
+            cap: 'round',
+          })
         }
       }
       for (const sign of [-1, 1]) {
@@ -12898,7 +12918,8 @@ const spurG = new Graphics()
             s: ((b.c + sign * b.hw) - (a.c + sign * a.hw)) / (2 * V.slopeE),
           }
         }
-        const w1 = wall(f0)
+        const fB = fA[sign]
+        const w1 = wall(fB)
         // Along-wall px -> along-lane px. The foot span is measured along the FACE now, so a stand
         // on a steep stretch covers the same length of coral as one on a straight.
         const kf = 1 / Math.hypot(1, w1.s)
@@ -12906,7 +12927,7 @@ const spurG = new Graphics()
           const h = hsh(n, sign + 2), h2 = hsh(n, sign + 9)
           const g = n / (V.rods - 1) - 0.5
           const fr = g * V.footSpan + (h2 - 0.5) * V.footJitter
-          const fn = f0 + dFor(fr * kf, w1.u)
+          const fn = fB + dFor(fr * kf, w1.u)
           const wn = wall(fn)
           // cos/sin of the face's own angle: rotating the rod's (along-face, out-of-face) offsets
           // by it turns "out of the face" into the face's normal instead of into bare -u.

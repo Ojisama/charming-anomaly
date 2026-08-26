@@ -125,7 +125,7 @@ import {
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_WAKE, burstWakeAt, DUST, dustVel, DROWN_TICK,
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
-  SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
+  SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, gateAnchorF, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
   SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, SNAP_CAVITY, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, BREACH_R_MIN, BREACH_R_AT_FULL, tiredness,
   // v6.8 Trash Tornado rework (Run AA.d)
@@ -24129,7 +24129,7 @@ function testReefCircuit() {
     Math.random = mulberry32(opts.seed ?? 3)
     const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
     run.mods.spawnMul = 0
-    const laps = [], swims = []
+    const laps = [], swims = [], levels = []
     let peakClock = 0
     for (let i = 0; i < 60 * 400; i++) {
       run.player.hp = run.player.maxHp          // immortal: this measures the circuit, not survival
@@ -24147,9 +24147,9 @@ function testReefCircuit() {
       }
       run.events.length = 0
       if (run.phase === 'victory' || run.phase === 'dead') break
-      if (run.phase === 'levelup') run.phase = 'playing'   // the cards are not this scenario's subject
+      if (run.phase === 'levelup') { levels.push(run.lap ?? 0); run.phase = 'playing' }   // the cards are not this scenario's subject
     }
-    return { run, laps, swims, peakClock }
+    return { run, laps, swims, peakClock, levels }
   }
 
   // (a) THE CHECKPOINTS ARE THE SQUEEZES, and they are spread rather than clustered. The count is
@@ -24596,6 +24596,124 @@ function testReefCircuit() {
         `run CT.i: the bump threw the player ${offNormal.toFixed(0)} degrees off the line away from the fish — on a ring the knock has to be the contact normal, and laneAxes(reef).cross (world y) is ${axisVsNormal.toFixed(0)} degrees away from it at this point of the lap`)
       console.log(`PASS run CT.i (the bounce): driving into coral raised ${crashes} crashes, left ${(speedAfter / speed0 * 100).toFixed(0)}% of top speed (crashMul ${circuitKnob(ch, 'crashMul')}) and carried the player off the face for ${thrown} frames, down to ${(minDepth * 100).toFixed(0)}% of the way to it; a fish threw them ${moved.toFixed(1)}px, ${offNormal.toFixed(0)} degrees off the contact normal, where world y sits ${axisVsNormal.toFixed(0)} degrees off it`)
     }
+  }
+
+  // (j) A GATE CROSSES THE TRACK, NOT THE RADIUS. Owner, 2026-08-26: "some checkpoints are weirdly
+  // positioned, not face to face."
+  //
+  // Both posts were drawn at the same f, which is one radius of the ring. That is only the way
+  // across the passage where the centreline runs square to the radii, and `c` wanders up to ~1.9px
+  // per px of lane, so most of the lap it does not. render.js now marches out along the track's own
+  // NORMAL and stops on the wall.
+  //
+  // ASSERTED IN TWO HALVES, because either alone is silent — CT.h's structure, for the same reason:
+  // the geometry says the correction is needed, and the source says render.js still applies it.
+  {
+    const P = (f, u) => ringXY(spec, f, u)
+    // THE SHIPPED gateAnchorF, IMPORTED — never restated here. It was written as a copy in this
+    // file first, and that copy made the whole scenario a liar: a mutation stopping render.js's own
+    // march from converging left the suite GREEN, because the geometry half was checking the test's
+    // arithmetic and the source half was a grep for a name that still existed. Moving the function
+    // into config.js is what makes the assertions below about the GAME.
+    const anchorF = (f0, cav, sign, seed) => gateAnchorF(spec, f0, cav, sign, seed)
+    // How far off perpendicular a gate chord is, in degrees. 0 is a gate; 90 is two posts in line
+    // astern of each other.
+    const offPerp = (a, b, f0, seed) => {
+      const gx = b.x - a.x, gy = b.y - a.y, gl = Math.hypot(gx, gy) || 1
+      const h = ringHeading(spec, f0, seed)
+      const dot = Math.abs((gx / gl) * Math.cos(h) + (gy / gl) * Math.sin(h))
+      return Math.abs(90 - Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI)
+    }
+    const SEEDS = [0, 1, 7, 20260824]
+    let worstOld = 0, worstNew = 0, worstWall = 0, n = 0
+    for (const seed of SEEDS) {
+      for (const sw of swimthroughsFor(spec, seed)) {
+        const cav = caveAt(sw.f, spec, seed)
+        n++
+        // the pair as it USED to be drawn: same f, u from c-hw to c+hw
+        worstOld = Math.max(worstOld, offPerp(P(sw.f, cav.c - cav.hw), P(sw.f, cav.c + cav.hw), sw.f, seed))
+        // ...and as it is now
+        const fm = anchorF(sw.f, cav, -1, seed), fp = anchorF(sw.f, cav, 1, seed)
+        const cm = caveAt(fm, spec, seed), cp = caveAt(fp, spec, seed)
+        worstNew = Math.max(worstNew, offPerp(P(fm, cm.c - cm.hw), P(fp, cp.c + cp.hw), sw.f, seed))
+        // and each anchor still sits ON its own wall — a square gate hanging in open water, or
+        // buried in coral, would be a different defect wearing this fix's name.
+        for (const [f, c2, sg] of [[fm, cm, -1], [fp, cp, 1]]) {
+          const w = P(f, c2.c + sg * c2.hw)
+          const fu = ringFU(spec, w.x, w.y)
+          worstWall = Math.max(worstWall, Math.abs(Math.abs(fu.u - caveAt(fu.f, spec, seed).c) - caveAt(fu.f, spec, seed).hw))
+        }
+      }
+    }
+    assert.ok(worstOld > 25,
+      `run CT.j: drawing both posts at the same f is only ${worstOld.toFixed(0)} degrees off perpendicular at its worst — if the passage has been straightened this much the whole anchor march is dead weight and should go`)
+    assert.ok(worstNew < 3,
+      `run CT.j: the corrected gate is still ${worstNew.toFixed(1)} degrees off perpendicular over ${n} checkpoints — the two posts do not face each other, which is the owner's report`)
+    assert.ok(worstWall < 1,
+      `run CT.j: an anchor sits ${worstWall.toFixed(1)}px off its own wall — a gate square to the track but not standing on the coral is the CT.h defect from the other direction`)
+
+    // ...and render.js still CALLS it. The geometry above proves the function is right; only the
+    // source can say the drawer uses it, and render.js is not importable.
+    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    assert.ok(/gateAnchorF\(cspec/.test(rsrc),
+      `run CT.j: render.js no longer calls gateAnchorF to place a gate post — both posts are back on one radius, which is ${worstOld.toFixed(0)} degrees off square at the worst checkpoint`)
+    const st = rsrc.slice(rsrc.indexOf('const stand = ('), rsrc.indexOf('const mat = ('))
+    assert.ok(st.length > 400, 'run CT.j: the stand() slice markers moved — this half is asserting nothing')
+    assert.ok(/const fB = fA\[sign\]/.test(st) && /wall\(fB\)/.test(st),
+      'run CT.j: the rods are anchored at f0 again rather than at this bank\'s own anchor, so the pair is back on one radius however anchorF is computed')
+    console.log(`PASS run CT.j (the gate crosses the track): over ${n} checkpoints on ${SEEDS.length} seeds, the same-f pair sits up to ${worstOld.toFixed(0)}deg off perpendicular and the anchored pair ${worstNew.toFixed(1)}deg, every anchor within ${worstWall.toFixed(2)}px of its own wall; render.js still marches the normal`)
+  }
+
+  // (k) ONE LAP, ONE LEVEL. Owner, 2026-08-26: "only gain a level for a lap."
+  //
+  // The till used to be the checkpoint and it used to be a CURRENCY — an amount of xp, through
+  // xpGain and mods.xpMul, landing the player somewhere on xpForLevel's curve. A LEVEL is a
+  // different unit, so this asserts the COUNT of screens and where they open, which is the thing
+  // the owner can see. A grant that paid "about a level" would satisfy any xp-total check and would
+  // still hand out five screens on one lap and none on the next.
+  {
+    const fast = drive(1, { seed: 11 })
+    assert.strictEqual(fast.run.phase, 'victory', `run CT.k: the reference race ended '${fast.run.phase}' — the level count below would be measuring an aborted run`)
+    assert.strictEqual(fast.levels.length, ch.circuit.laps - 1,
+      `run CT.k: a full race opened ${fast.levels.length} level-up screens over ${ch.circuit.laps} laps — it must be one per lap, minus the lap that wins (the victory check returns before stepLevelUp, so a grant there opens nothing)`)
+    // ...and one per lap, not several on one lap and none on another.
+    const perLap = new Set(fast.levels)
+    assert.strictEqual(perLap.size, fast.levels.length,
+      `run CT.k: two level-ups landed on the same lap (${fast.levels.join(',')}) — the grant is not the lap`)
+    // THE WINNING LAP MUST NOT BANK ONE, AND `levels` CANNOT SEE THAT. The victory check returns
+    // before stepLevelUp and the phase is 'victory' on every frame after, so a grant on the last lap
+    // opens no screen and never reaches the list — a `!levels.includes(laps)` check here passes
+    // whatever sim.js does, which is a green assertion that asserts nothing. It was written that way
+    // first and a mutation deleting the guard sailed through it. The observable is the BAR: a level
+    // banked and never spendable sits on it at the flag.
+    assert.ok(fast.run.player.xp < fast.run.player.xpNext,
+      `run CT.k: the race finished with ${fast.run.player.xp.toFixed(0)}/${fast.run.player.xpNext} xp banked — the winning lap paid a level-up the player can never be shown, because stepCircuit returns 'victory' before stepLevelUp ever runs`)
+    // THE CHECKPOINT PAYS NO XP AT ALL ANY MORE, and 35 crossings that each paid even 1 would be
+    // three extra screens. Asserted as xp on the bar rather than as an absent knob: `swimXp` is
+    // gone, and a check for a missing config key passes whatever the code does.
+    const solo = (() => {
+      Math.random = mulberry32(12)
+      const r = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+      r.mods.spawnMul = 0
+      const before = { xp: r.player.xp, level: r.player.level }
+      let crossed = 0
+      for (let i = 0; i < 60 * 60; i++) {
+        r.player.hp = r.player.maxHp
+        for (const q of r.enemies) q._dead = true
+        stepSim(r, trackStick(r, 1), dt)
+        crossed += r.events.filter((e) => e.type === 'swimthrough').length
+        const lapped = r.events.some((e) => e.type === 'lap')
+        r.events.length = 0
+        if (r.phase === 'levelup') r.phase = 'playing'
+        if (lapped || r.phase !== 'playing') break
+      }
+      return { crossed, before, r }
+    })()
+    assert.ok(solo.crossed >= 3, `run CT.k: only ${solo.crossed} checkpoints were crossed before the first lap — this half is asserting nothing`)
+    assert.strictEqual(solo.r.player.level, solo.before.level + (solo.r.lap > 0 ? 1 : 0),
+      `run CT.k: ${solo.crossed} checkpoints and ${solo.r.lap} lap(s) moved the player to level ${solo.r.player.level} from ${solo.before.level} — a checkpoint must pay no xp at all now`)
+    console.log(`PASS run CT.k (one lap, one level): a ${ch.circuit.laps}-lap race opens ${fast.levels.length} level-up screens, one on each of laps ${fast.levels.join('/')} and none on the lap that wins; ${solo.crossed} checkpoints crossed before the first lap moved the bar by 0`)
   }
 
   console.log(`PASS run CT (the circuit): ${SWIMTHROUGHS_PER_LAP} swimthroughs a lap on 4 seeds, ${Math.min(...picked.map((s) => s.hw)).toFixed(0)}-${Math.max(...picked.map((s) => s.hw)).toFixed(0)}px wide against a ${spec.halfMin}-${spec.halfMax} passage and never closer than 400px apart; full throttle finishes ${ch.circuit.laps} laps in ${fast.run.raceTime.toFixed(2)}s real (splits ${splits.map((s) => s.toFixed(1)).join('/')}, spread ${spread.toFixed(2)}s) crossing all ${fast.swims.length} checkpoints; easing off dies to the clock at ${slow.run._realTime.toFixed(1)}s; The Beyond grows neither clock nor lap`)

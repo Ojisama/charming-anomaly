@@ -6941,10 +6941,10 @@ CHAPTERS.reef = {
   // Every consumer keys off THIS flag and never off `lane`: The Beyond is `lane: true` as well, and
   // hanging circuit behaviour on the lane flag would silently convert a chapter whose whole design
   // is being chased.
-  // balance_decision : four laps, because each one now costs more to drive [2026-08-25]
-  //  - a lap grew from 5785px of arc to 6993 and from 8 direction changes to 12, so 4 of them is
-  //    more DRIVING than the old 5 and lands the race back on the ~2 minutes it was tuned at.
-  circuit: { laps: 4 },
+  // balance_decision : five laps, and a level-up screen on each of the first four [2026-08-26]
+  //  - the lap is now the XP till (CIRCUIT_DEFAULTS has no swimXp any more), so this number IS the
+  //    build: change it and the player gets a different number of cards.
+  circuit: { laps: 5 },
   // THE LANE DROPS WHAT FALLS BEHIND (v7.x). Opt-in per chapter -- see stepLeaks for why the
   // default must stay off. The Reef needs it and The Beyond does not: this roster's moray moves
   // 39px/s against a 45px/s advance, so it falls astern BY CONSTRUCTION and can never return,
@@ -7115,8 +7115,8 @@ CHAPTERS.reef = {
   // NOTHING IS DELETED. pistolShrimp, oxygenTank and fireCoral keep their entries, their mods and
   // their art, and devCards ignores the chapter pool entirely — so all three stay takeable from the
   // dev menu, which is where run MB.a still resolves their mods.
-  //   ⚠ THE XP TILL IS THE CHECKPOINT AND NOT THE KILL (circuit.swimXp): every coin and gem in this
-  //   game drops inside dealDamage's enemy-death branch, so an unarmed chapter earns nothing and the
+  //   ⚠ THE XP TILL IS THE LAP AND NOT THE KILL (stepCircuit): every coin and gem in this game
+  //   drops inside dealDamage's enemy-death branch, so an unarmed chapter earns nothing and the
   //   level-up screen would never open once in a whole race. That grant is what keeps this an empty
   //   ARSENAL rather than an empty progression.
   weapons: [], starter: null,
@@ -9608,16 +9608,32 @@ export const CIRCUIT_DEFAULTS = {
   // 270; the reef now tops out at 540, so holding this constant would have doubled all three and
   // undone the tune by leaving it alone.
   accel: 360,        // px/s^2 the throttle's speed eases at — see CIRCUIT_ACCEL's block above
-  // 30/30/6 -> 40/40/8, ALL THREE BY THE SAME 4/3, because the lap grew 30% under a fixed ten
-  // checkpoints. What the clock actually is, is the ratio of seconds-banked to seconds-between-
-  // gates (see the block above); leaving these alone under a longer lap would have shrunk that
-  // ratio by 30% and quietly turned a clean lap into a losing one. See SWIMTHROUGHS_PER_LAP for
-  // why the gate COUNT could not absorb it instead. 4/3 rather than the arc's exact 1.30 so the
-  // two numbers the player reads on the HUD are round; the 2.5% of slack that buys is well inside
-  // the 528..1272px spread the gate spacing already has.
+  // clockStart/clockCap 30 -> 40 with the 30% longer lap: what the clock IS, is the ratio of
+  // seconds-banked to seconds-between-gates, and leaving the bank alone under a longer lap shrinks
+  // that ratio. Round numbers because the player reads both on the HUD.
+  //
+  // swimTime 6 -> 8 -> 4, AND THE LAST MOVE DELIBERATELY BREAKS THAT RATIO. Owner, 2026-08-26: "the
+  // race is too easy". Removing a third of the checkpoints was the ask and it is not, on its own,
+  // a difficulty change: MEASURED with scripts/reef-lap-probe.mjs, all 8 driving policies x 3 seeds
+  // finished with ZERO clock deaths both before (10 gates, 4 laps) and after (7 gates, 5 laps),
+  // because at swimTime 8 every policy banks more at a gate than it spends reaching the next one.
+  // A countdown nobody can lose is scenery.
+  //   THE GRID (reef-lap-probe, d1, 3 seeds, finishes out of 3, at 7 gates x 5 laps):
+  //     swimTime      8     6     5    4.5     4    3.5
+  //     wall read/brake   3/3   3/3   3/3   2/3   0/3   0/3     <- 189s, 147 wall touches a lap
+  //     wall late/brake   3/3   3/3   3/3   3/3   2/3   0/3
+  //     wall read/flat    3/3   3/3   3/3   3/3   3/3   3/3     <- 136s, the clean line
+  //     open read/brake   3/3   3/3   3/3   3/3   3/3   1/3     <- the OPEN track, no coral at all
+  //   4 is the only value that separates the two things this chapter is about. Above it nothing can
+  // be lost; at 3.5 the open-track braker starts dying too, which is the clock punishing SLOWNESS
+  // rather than coral — the wrong axis, and the opposite of the chapter's own rule that the
+  // punishment for coral is the clock (see CAVE_HIT_DPS's block).
+  // balance_decision : the clock can be lost again, and only by hugging coral [2026-08-26]
+  //  - swimTime is the knob here, NOT the gate count and NOT clockCap; the grid above was swept
+  //    with the cap held at 40 and moving both would make neither readable.
   clockStart: 40,    // seconds on the clock at the start line
   clockCap: 40,      // ...and the ceiling a swimthrough may top it back up to
-  swimTime: 8,       // seconds a swimthrough is worth
+  swimTime: 4,       // seconds a swimthrough is worth
   // THE CRASH, AND WHAT SEPARATES IT FROM A GRAZE. The corridor pinches, so sliding along coral is
   // ordinary play — charge momentum for every touch and the chapter is unplayable. stepCaveWall is
   // a position test with no velocity read, so the signal is the OVERSHOOT: how far past the wall
@@ -9638,15 +9654,14 @@ export const CIRCUIT_DEFAULTS = {
   crashMul: 0.35,    // what a crash leaves of _laneSpeed
   // XP COMES FROM THE TRACK, NOT FROM KILLS (owner, playing v7.231: "no upgrades given in my run").
   // A racer drives PAST the crowd — that is what passiveCrowd is for — so the chapter had no xp
-  // source at all and the level-up screen never opened once in a whole race. The checkpoint is the
-  // right till: it is the thing the mode already rewards you for hitting.
-  //   THE NUMBER IS THE CURVE, not a guess. xpForLevel is 5 + level*4, so four level-ups cost
-  // 9+13+17+21 = 60xp and six cost 114, against 4 laps x SWIMTHROUGHS_PER_LAP crossings.
-  // balance_decision : 30% more xp a checkpoint [2026-08-25]
-  //  - 4 laps x 10 checkpoints x 2.6 = 104xp, i.e. five level-up screens over a clean race where
-  //    it used to be four. The checkpoint COUNT is pinned by swimthroughsFor's field of candidates
-  //    and cannot be the knob here — see SWIMTHROUGHS_PER_LAP.
-  swimXp: 2.6,
+  // source at all and the level-up screen never opened once in a whole race.
+  //   ⚠ THERE IS NO swimXp KNOB ANY MORE, AND ITS ABSENCE IS THE DESIGN. The till was the
+  // CHECKPOINT and it was a CURRENCY: an amount of xp, through xpGain and mods.xpMul, landing you
+  // somewhere on a curve. Owner, 2026-08-26: "only gain a level for a lap." That is not a smaller
+  // number, it is a different unit — the LAP pays exactly one level, whatever level you are on, and
+  // stepCircuit grants it the way the Blank's phase kills do (p.xp += p.xpNext, the bar filled from
+  // wherever it stands). No multiplier applies to "one level", which is why none is read there.
+  //   What a checkpoint still pays: the race clock (swimTime, above) and PASSIVES.gateHeal.
   // TRAFFIC (owner, same session: "the enemies/decor fishes swim through coral and do nothing. i
   // thought they were supposed to create traffic congestion"). Both halves were missing: nothing
   // held the crowd inside the passage, and contact was free because passiveCrowd zeroes their
@@ -9907,21 +9922,23 @@ export const caveAt = (f, spec, seed) => {
 // it repeats seed to seed. Run RL.b asserts the spacing rather than a guard clause defending it: a
 // retune that clustered them would be a real defect and should say so out loud, not be silently
 // corrected here.
-// 6 -> 10 WITH THE LAP, AND THE COUNT IS NOT THE THING BEING CHOSEN — the SPACING is. The clock's
-// whole tune is the comparison in CIRCUIT_DEFAULTS' block: swimTime against the seconds between
-// checkpoints. A lap that grew from ~5800px of arc to ~11200 doubles that interval at a fixed six,
-// so a clean driver would arrive at each gate having spent more than the 6s it hands back and the
-// countdown would bleed out on a perfect lap. Ten kept the interval at ~1120px of arc, i.e. the
-// number the 6s was measured against.
-//   ⚠ AND THERE IS A CEILING ON IT, WHICH IS WHY THE 30% LONGER LAP RAISED THE CLOCK INSTEAD.
-// swimthroughsFor picks the deepest N of the lapLen/168 = 30 local minima; take too many and the
-// last ones are not squeezes at all. 13 puts a gate at hw 190 against a lap whose widest tenth
-// starts at 189 — run CT.a catches it, and it is right to: "the checkpoint is the tightest point on
-// the track" stops being true when you are taking most of the field. Scaling circuit.swimTime and
-// the two clock knobs by the same 4/3 is the same tune from the other side — the ratio of
-// seconds-banked to seconds-between-gates is what the mechanic is, and it is untouched — and it
-// costs no geometry.
-export const SWIMTHROUGHS_PER_LAP = 10
+// 6 -> 10 -> 7. Every previous move of this number was made to HOLD the gate spacing, because the
+// clock's whole tune is the comparison in CIRCUIT_DEFAULTS' block: swimTime against the seconds
+// between checkpoints. This one deliberately breaks it (owner, 2026-08-26: "the race is too easy,
+// let's remove 1/3 of the checkpoints"), and breaking it is the entire difficulty change.
+//   The interval goes 1454px of arc -> 2077px, i.e. 3.8s at full throttle and 7.7s at the 270px/s
+// a real driver averages, and swimTime is NOT scaled up with it.
+//   ⚠ ON ITS OWN THIS CHANGED NOTHING MEASURABLE, WHICH IS WORTH KNOWING BEFORE YOU REACH FOR IT
+// AGAIN. MEASURED with scripts/reef-lap-probe.mjs: all 8 driving policies x 3 seeds finished with
+// ZERO clock deaths at 10 gates AND at 7, because swimTime 8 sat above every policy's gate interval
+// either way. What actually made the race lose-able is swimTime coming down to 4 in the same
+// commit — see the grid in CIRCUIT_DEFAULTS. Pull THAT knob if the race needs to move again; this
+// one changes the texture of a lap, not whether you can fail it.
+//   ⚠ TAKING FEWER IS ALSO STRICTLY BETTER FOR WHAT A CHECKPOINT IS. swimthroughsFor picks the
+// deepest N of the lapLen/168 = 30 local minima, so a smaller N is a stricter selection: 13 put a
+// gate at hw 190 against a lap whose widest tenth started at 189, which run CT.a catches. 7 of 30
+// is the tightest field this chapter has ever chosen from.
+export const SWIMTHROUGHS_PER_LAP = 7
 // How far apart two checkpoints must be, IN f — and f is an angle, so this is not a distance until
 // it is multiplied by the radius the track is at. That is the whole reason it moved with the ring:
 // at r0 900 a gap of 500f was 692px of arc, and at r0 1400 the same 500f is 1108px. Ten checkpoints
@@ -10017,6 +10034,43 @@ export const ringHeading = (spec, f, seed) => {
 }
 /** The world point on the track's centreline at f — where a spawn, a pocket or a gate belongs. */
 export const ringCentre = (spec, f, seed) => ringXY(spec, f, caveAt(f, spec, seed).c)
+// WHERE A CHECKPOINT POST BELONGS ON ONE BANK, and it is NOT at the gate's own f.
+//
+// Both posts used to be drawn at the same f, which puts them on one RADIUS of the ring — and a
+// radius is only the way across the passage where the centreline runs square to it. `c` wanders up
+// to ~1.9px per px of lane, so most of the lap it does not: measured over the checkpoints of four
+// seeds, the pair sat a MEDIAN of 29 degrees off perpendicular and as much as 59 (owner, 2026-08-26:
+// "some checkpoints are weirdly positioned, not face to face"). It also lied about the gap, drawing
+// a 436px chord across a squeeze whose real clearance is 242px.
+//
+// So march out from the centreline point along the track's own NORMAL and stop on the wall; the f
+// that lands on is the anchor. A FIXED POINT, NOT A BISECTION: `off` is very nearly linear in the
+// distance marched, so scaling the guess by (hw / off) converges in two or three passes. The clamp
+// is what keeps a hairpin — where the normal can leave the passage almost immediately — from
+// throwing the guess across the track.
+//
+// ⚠ IT LIVES HERE, NOT IN render.js, AND THAT PLACEMENT IS THE POINT. It is the only geometry in
+// the gate drawer that a test can check, and a copy in each place is this repo's largest defect
+// class. Proven while it was written: with the formula restated in test/sim-test.js, a mutation
+// that stopped render.js's own copy converging left the whole suite GREEN — the geometry half was
+// checking the test's arithmetic and the source half was a grep for a name that still existed.
+export const gateAnchorF = (spec, f0, cav, sign, seed) => {
+  const hd = ringHeading(spec, f0, seed)
+  const nx = -Math.sin(hd) * sign, ny = Math.cos(hd) * sign
+  const w0 = ringXY(spec, f0, cav.c)
+  let d = cav.hw
+  for (let i = 0; i < 4; i++) {
+    const fu = ringFU(spec, w0.x + nx * d, w0.y + ny * d)
+    const m = caveAt(fu.f, spec, seed)
+    const off = Math.abs(fu.u - m.c)
+    if (off < 0.5) { d *= 2; continue }
+    const scale = (m.hw - 2) / off
+    if (Math.abs(scale - 1) < 0.01) break
+    d *= Math.min(2, Math.max(0.4, scale))
+  }
+  return ringFU(spec, w0.x + nx * d, w0.y + ny * d).f
+}
+
 /** Shortest signed distance from a to b in f, i.e. round the loop rather than along a line. */
 export const ringDelta = (spec, a, b) => {
   const L = spec.lapLen
