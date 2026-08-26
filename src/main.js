@@ -532,6 +532,12 @@ const SFX_FOR_EVENT = {
   // exactly what a checkpoint is (24 a race, so it must not be a fanfare). The lap line takes
   // `levelup`, the game's existing "something just went your way" jingle, at four a race.
   swimthrough: 'gem', lap: 'levelup',
+  // TAKING AN AIR VENT. `coin`, and the choice is free in a way it would not be anywhere else: this
+  // chapter has no weapons, so nothing in it ever drops a coin and the note is unambiguous here.
+  // It must NOT be `gem` — that is the checkpoint's, and the two pickups mean opposite halves of the
+  // chapter (a checkpoint is time, a vent is air). One note for both would make the bar and the
+  // clock sound identical at the moment they diverge.
+  airgulp: 'coin',
   // A crash takes `crush`, the heaviest impact in the bank — it is the one moment in a race where
   // the player loses something they cannot get back, and it fires on the entry frame only, so it
   // cannot machine-gun the way a per-frame contact would.

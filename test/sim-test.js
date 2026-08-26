@@ -84,7 +84,7 @@ import {
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
-  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, circuitKnob, circuitLadder, caveSpecOf, swimthroughsFor, SWIMTHROUGHS_PER_LAP, CIRCUIT_GATE_VIS, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
+  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, circuitKnob, circuitLadder, caveSpecOf, refillGrantFor, swimthroughsFor, SWIMTHROUGHS_PER_LAP, CIRCUIT_GATE_VIS, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
@@ -22854,7 +22854,12 @@ function testRingTrack() {
     meta.chapters[id].difficulty = 3
   }
   const CH = CHAPTERS.reef
-  const spec = CH.cave
+  // THE TRACK A d1 RUN DRIVES, NOT THE CHAPTER'S. Since the difficulty ladder CHAPTERS.reef.cave is
+  // the ladder's INPUT and nothing drives it at d1 (d1 is x1.40 of it; d3 is the x1.00 rung). Every
+  // case here places or reads an entity inside a real d1 run, so it has to measure against the spec
+  // that run collides with — run RG.f caught this the moment the ladder widened, reporting 6 of 21
+  // bodies "spawned outside the passage" when they were inside the passage the run actually has.
+  const spec = caveSpecOf(createRun(meta, { chapter: 'reef', difficulty: 1 }))
   const reefRun = (seed = 20260813) => {
     Math.random = mulberry32(seed)
     const run = createRun(meta, { chapter: 'reef', difficulty: 1 })
@@ -23335,7 +23340,14 @@ function testReefSpurScrape() {
     meta.chapters[id].difficulty = 3
   }
   const LAX = laneAxes(CHAPTERS.reef)
-  const spec = CHAPTERS.reef.cave
+  // THE TRACK A d1 RUN DRIVES, NOT THE CHAPTER'S. Since the difficulty ladder CHAPTERS.reef.cave is
+  // the ladder's INPUT and nothing drives it at d1 (d1 is x1.40 of it; d3 is the x1.00 rung). It
+  // matters here even though the ladder leaves the CENTRELINE alone, because `follow` steers around
+  // the fork's island and `ph` scales with the passage: read off the chapter's narrower spec, the
+  // policy commits to the middle of a branch narrower than the one the run actually has and lands
+  // on the real island's face. That is run RS.b's 40 wall frames, and it reads exactly like a level
+  // that cannot be flown.
+  const spec = caveSpecOf(createRun(meta, { chapter: 'reef', difficulty: 1 }))
   const reefRun = (seed = 20260823) => {
     Math.random = mulberry32(seed)
     const run = createRun(meta, { chapter: 'reef', difficulty: 1 })
@@ -23878,7 +23890,11 @@ function testCircuitCards() {
   // `follow` in track-frame form: go the way the centreline is going under you, and correct across
   // the passage toward the line. The short look-ahead is the load-bearing part — see run RS.
   const follow2 = (run) => {
-    const sp = CHAPTERS.reef.cave
+    // caveSpecOf(run), NOT CHAPTERS.reef.cave: since the difficulty ladder the chapter's spec is
+    // the ladder's INPUT and no run drives it (d1 is x1.40, d3 is the x1.00 rung). The centreline
+    // is the same at every rung, but `hw` and the fork's island are not — a policy that steers
+    // around an island sized off the wrong spec lands on the real one's face.
+    const sp = caveSpecOf(run)
     const fu = ringFU(sp, run.player.x, run.player.y)
     const fA = fu.f + (20 * sp.lapLen) / (2 * Math.PI * Math.max(1, sp.ring.r0 - fu.u))
     const cav = caveAt(fA, sp, run._obstacleSeed)
@@ -23910,7 +23926,7 @@ function testCircuitCards() {
     // ⚠ THE STICK IS RE-AIMED AT THE TRACK EVERY FRAME. A fixed `{ x: 1, y: 0 }` was full throttle
     // while the lane's forward axis was +x; on a ring it is a world BEARING, so it drives into the
     // outer wall and every race in this case returned Infinity (the gains printed as NaN).
-    const sp = CHAPTERS.reef.cave
+    const sp = caveSpecOf(run)
     const aim = () => {
       const fu = ringFU(sp, run.player.x, run.player.y)
       const fA = fu.f + (150 * sp.lapLen) / (2 * Math.PI * Math.max(1, sp.ring.r0 - fu.u))
@@ -24048,10 +24064,19 @@ function testCircuitCards() {
         // roll to a stop in open water and scrape on exactly 0 frames, which is a negative control
         // that proves nothing. Radially outward (r = r0 - u, so +cos/+sin t is away from the hub)
         // drives them into the outer face and holds them there.
-        const fw = ringFU(CHAPTERS.reef.cave, run.player.x, run.player.y)
+        const fw = ringFU(caveSpecOf(run), run.player.x, run.player.y)
         // `clip` drives the line but lurches at the wall for a few frames every ~2s, which is what a
         // scrappy driver looks like — brief contact, often, rather than parked against a face.
-        const clipping = opts.clip && (i % 150) < 34
+        //   ⚠ THE CYCLE MATTERS, NOT THE LURCH LENGTH, and the obvious fix is the wrong one. When
+        // the width ladder widened d1 this fixture stopped clipping (36 contact frames of a required
+        // 40) because the wall is further from the centreline, so the natural repair is a LONGER
+        // lurch. Measured, that makes it worse: 150/34 -> 17 frames, 150/48 -> 24, 120/40 -> 8. A
+        // long lurch ends in a crash, and a crash BOUNCES the player off the coral (circuit.
+        // crashKick) and bleeds their speed, so most of the extra frames are spent flying away from
+        // the wall rather than against it. More lurches, not longer ones: 60/30 measures 57 frames
+        // against a band of 40..600, i.e. contact about once a second, which is what a scrappy
+        // driver looks like.
+        const clipping = opts.clip && (i % 60) < 30
         stepSim(run, (opts.wall || clipping) ? { x: Math.cos(fw.t), y: Math.sin(fw.t) } : follow2(run), dt)
         for (const e of run.events) if (e.type === 'swimthrough') swims++
         run.events.length = 0
@@ -24106,7 +24131,16 @@ function testReefCircuit() {
   const CIRCUIT_CLOCK_CAP = circuitKnob(CHAPTERS.reef, 'clockCap')
   const dt = 1 / 60
   const ch = CHAPTERS.reef
-  const spec = ch.cave, LAP = spec.lapLen
+  // THE TRACK A d1 RUN ACTUALLY DRIVES, WHICH IS NOT CHAPTERS.reef.cave ANY MORE. Since the
+  // difficulty ladder the chapter's own spec is the ladder's INPUT, and no run drives it at any
+  // rung — d1 is x1.40 of it and d3 is the x1.00 rung. Every case below is one of two kinds: it
+  // measures the field's SHAPE (unchanged at every rung, because the ladder scales both ends of the
+  // passage together) or it positions a player inside a real run and reads how far off the wall
+  // they ended up. The second kind is wrong against any spec but the one that run collides with —
+  // CT.i caught this the moment the ladder moved, reading a player 104% of the way to a wall face
+  // that was not where the test thought it was.
+  const spec = caveSpecOf(createRun(makeMeta(), { chapter: 'reef', difficulty: 1 }))
+  const LAP = spec.lapLen
   // FLYING THE TRACK, as a policy. `thr` is the throttle — the MAGNITUDE of the stick, which is what
   // a circuit reads — and the direction is re-aimed at the passage every frame.
   //   ⚠ A FIXED BEARING IS NOT "FULL THROTTLE" ON A RING. This used to pass `{ x: fwd, y: 0 }`,
@@ -24132,7 +24166,7 @@ function testReefCircuit() {
     Math.random = mulberry32(opts.seed ?? 3)
     const run = createRun(makeMeta(), { chapter: 'reef', difficulty: opts.difficulty ?? 1 })
     run.mods.spawnMul = 0
-    const laps = [], swims = [], levels = []
+    const laps = [], swims = [], levels = [], gulps = []
     let peakClock = 0, wallFrames = 0, frames = 0
     for (let i = 0; i < 60 * 400; i++) {
       run.player.hp = run.player.maxHp          // immortal: this measures the circuit, not survival
@@ -24149,12 +24183,13 @@ function testReefCircuit() {
       for (const e of run.events) {
         if (e.type === 'lap') laps.push(e)
         if (e.type === 'swimthrough') swims.push(e)
+        if (e.type === 'airgulp') gulps.push(e)
       }
       run.events.length = 0
       if (run.phase === 'victory' || run.phase === 'dead') break
       if (run.phase === 'levelup') { levels.push(run.lap ?? 0); run.phase = 'playing' }   // the cards are not this scenario's subject
     }
-    return { run, laps, swims, peakClock, levels, wallFrames, frames, secs: frames * dt }
+    return { run, laps, swims, gulps, peakClock, levels, wallFrames, frames, secs: frames * dt }
   }
 
   // (a) THE CHECKPOINTS ARE THE SQUEEZES, and they are spread rather than clustered. The count is
@@ -24478,16 +24513,31 @@ function testReefCircuit() {
       run._headX = null
     }
     // How deep in the passage the player is, as a fraction: 0 on the centreline, 1 on the face.
+    //   ⚠ THE FRACTION IS FOR THE DIRECTION OF TRAVEL ONLY, never for how far the bounce threw
+    // them. crashKick and kickDrag are authored in px/s and px/s^2, while the passage width is a
+    // difficulty-ladder rung (x1.40 at d1, x0.70 at d5) — so the same bounce is a different
+    // FRACTION on every rung, and an assertion in fractions is a statement about the track. It read
+    // 104% the day the ladder widened d1 and the bounce had not changed at all. `offFace` below is
+    // the number the mechanic is actually authored in.
     const depth = (run) => {
-      const fu = ringFU(spec, run.player.x, run.player.y)
-      const cav = caveAt(fu.f, spec, run._obstacleSeed)
+      const sp = caveSpecOf(run)
+      const fu = ringFU(sp, run.player.x, run.player.y)
+      const cav = caveAt(fu.f, sp, run._obstacleSeed)
       return Math.abs(fu.u - cav.c) / Math.max(1, cav.hw - PLAYER.radius)
+    }
+    // PX between the player and the wall face they just hit.
+    const offFace = (run) => {
+      const sp = caveSpecOf(run)
+      const fu = ringFU(sp, run.player.x, run.player.y)
+      const cav = caveAt(fu.f, sp, run._obstacleSeed)
+      return Math.max(0, cav.hw - PLAYER.radius) - Math.abs(fu.u - cav.c)
     }
     // Radially OUTWARD from the loop's hub, i.e. straight into the outer wall wherever you are —
     // CT.g's own stick.
     const intoWall = (run) => {
-      const d = Math.hypot(run.player.x + spec.ring.r0, run.player.y) || 1
-      return { x: (run.player.x + spec.ring.r0) / d, y: run.player.y / d }
+      const sp = caveSpecOf(run)
+      const d = Math.hypot(run.player.x + sp.ring.r0, run.player.y) || 1
+      return { x: (run.player.x + sp.ring.r0) / d, y: run.player.y / d }
     }
 
     // -- coral. Drive INTO the face and hold there. Without a kick the clamp pins you on it every
@@ -24502,7 +24552,7 @@ function testReefCircuit() {
     const run = reef()
     atWall(run, F)
     const speed0 = run._laneSpeed
-    let crashes = 0, minDepth = 9, thrown = 0, speedAfter = null
+    let crashes = 0, minDepth = 9, maxOff = 0, thrown = 0, speedAfter = null
     let prev = 9
     for (let i = 0; i < 40; i++) {
       stepSim(run, i === 0 ? intoWall(run) : { x: 0, y: 0 }, dt)
@@ -24512,12 +24562,18 @@ function testReefCircuit() {
       if (crashes && dp < prev - 1e-6) thrown++       // still travelling away from the face
       prev = dp
       minDepth = Math.min(minDepth, dp)
+      if (crashes) maxOff = Math.max(maxOff, offFace(run))
       if (run.phase !== 'playing') break
     }
     assert.ok(crashes >= 1,
       `run CT.i: driving straight into the coral at full throttle raised ${crashes} crash events — circuit.crashSpeed ${circuitKnob(ch, 'crashSpeed')} is above the inward speed the track can actually generate, so nothing in the chapter is a crash`)
-    assert.ok(minDepth < 0.75,
-      `run CT.i: the crash left the player at ${(minDepth * 100).toFixed(0)}% of the way to the wall face at its furthest — the clamp is holding them ON the coral, which is the "coral does nothing" report. A bounce has to take them off it`)
+    // 40px, against a measured 56 and a theoretical ceiling of crashKick^2 / (2 * kickDrag) = 85px
+    // from a standing start. Comfortably above PLAYER.radius (22), so the player ends up visibly
+    // clear of the coral rather than scraping along it, and comfortably above the ~0 a clamp alone
+    // produces — mutation-proved by deleting the kick. Stated in px so it means the same thing on
+    // every rung of the width ladder.
+    assert.ok(maxOff > 40,
+      `run CT.i: the crash carried the player only ${maxOff.toFixed(0)}px off the wall face (${(minDepth * 100).toFixed(0)}% of the way in at its furthest) — the clamp is holding them ON the coral, which is the "coral does nothing" report. A bounce has to take them off it`)
     assert.ok(thrown >= 8,
       `run CT.i: the player was still being carried away from the face for only ${thrown} frames — a single-frame displacement is a correction, not a bounce. circuit.crashKick ${circuitKnob(ch, 'crashKick')} against kickDrag ${circuitKnob(ch, 'kickDrag')} should run for ~${Math.round(circuitKnob(ch, 'crashKick') / circuitKnob(ch, 'kickDrag') * 60)} frames`)
     assert.ok(speedAfter != null && speedAfter < speed0 * (circuitKnob(ch, 'crashMul') + 0.05),
@@ -24742,8 +24798,18 @@ function testReefCircuit() {
     const rungs = [1, 2, 3, 4, 5].map((d) => circuitLadder(ch, d))
     assert.ok(rungs.every((r, i) => i === 0 || (r.clock <= rungs[i - 1].clock && r.width <= rungs[i - 1].width)),
       `run CT.l: the reef ladder is not monotone (${rungs.map((r) => `${r.clock}/${r.width}`).join(' ')}) — a rung that is easier than the one below it is a ladder in name only`)
-    assert.ok(rungs[0].clock === 1 && rungs[0].width === 1,
-      'run CT.l: difficulty 1 no longer reproduces the base race — d1 IS the shipped circuit by construction, and every number measured for it was measured there')
+    // THE SPAN IS THE SPEC. Owner, 2026-08-26: "have the width ladder way more pronounced, way
+    // easier at lv1 like lv1 should be double the width of lv5." A ratio, not a pair of numbers, so
+    // this asserts the ratio — a future retune may move both ends and must keep the factor of two.
+    assert.ok(Math.abs(rungs[0].width / rungs[4].width - 2) < 1e-9,
+      `run CT.l: d1 is ${(rungs[0].width / rungs[4].width).toFixed(2)}x the width of d5, not 2x — the span is the owner's spec and the rest of this case measures what that span buys`)
+    // ...and the MIDDLE rung is the chapter's own spec, so CHAPTERS.reef.cave still describes a
+    // track someone drives. Nothing breaks if this moves, but every width in config.js and in the
+    // other cases below is quoted against it, so it moving silently would make all of them lies.
+    assert.strictEqual(rungs[2].width, 1,
+      `run CT.l: d3 is x${rungs[2].width} rather than the chapter's own passage — CHAPTERS.reef.cave is the ladder's input and no rung drives it, so every px width quoted anywhere is against a track nobody plays`)
+    assert.ok(rungs[0].clock === 1,
+      `run CT.l: d1 costs clock x${rungs[0].clock} — the clock ladder is anchored at the base race on its easiest rung, and the WIDTH ladder is the half the owner asked to widen`)
     assert.ok(rungs[4].clock < 1 && rungs[4].width < 1,
       `run CT.l: the top rung costs clock x${rungs[4].clock} width x${rungs[4].width} — one of the two halves of the ladder is not wired, and an inert half is exactly the defect this scenario exists for`)
 
@@ -24754,16 +24820,16 @@ function testReefCircuit() {
     // compared against itself, and it passed a mutation that scaled ONE end of the passage: the
     // formula the test asserts and the formula the game runs were two different formulas, and only
     // one of them was under test. Same trap as CT.j's anchor, one case earlier in this file.
-    const W = rungs[4].width
+    const W = rungs[4].width / rungs[0].width
     const specOfRun = (d) => { Math.random = mulberry32(91); return caveSpecOf(createRun(makeMeta(), { chapter: 'reef', difficulty: d })) }
-    const wide = specOfRun(1), narrow = specOfRun(5)
+    const wide = specOfRun(1), narrow = specOfRun(5), mid = specOfRun(3)
     // NAMED BEFORE IT IS READ. Without this the missing-field case (createRun computes the narrowed
     // spec but never lands it on the run under the name every reader uses) surfaces as a TypeError
     // on `wide.halfMin` — a red suite that says nothing about a chapter driving the wrong track.
     assert.ok(wide && narrow,
       'run CT.l: caveSpecOf came back empty for a reef run — createRun is not putting the narrowed spec on run.caveSpec under that name, so every reader in sim.js and render.js silently has no track at all')
-    assert.deepStrictEqual({ lo: wide.halfMin, hi: wide.halfMax }, { lo: spec.halfMin, hi: spec.halfMax },
-      `run CT.l: a d1 run drives a ${wide.halfMin}-${wide.halfMax} passage against the chapter's own ${spec.halfMin}-${spec.halfMax} — d1 must BE the base race`)
+    assert.deepStrictEqual({ lo: mid.halfMin, hi: mid.halfMax }, { lo: ch.cave.halfMin, hi: ch.cave.halfMax },
+      `run CT.l: a d3 run drives a ${mid.halfMin}-${mid.halfMax} passage against the chapter's own ${ch.cave.halfMin}-${ch.cave.halfMax} — the x1 rung must be the chapter's own track`)
     let worstRatio = 0, movedGates = 0, gateN = 0
     for (const seed of [0, 3, 7, 11]) {
       const gw = swimthroughsFor(wide, seed).map((s) => s.f)
@@ -24815,14 +24881,105 @@ function testReefCircuit() {
       assert.strictEqual(bare.length, 0,
         `run CT.l: ${name} still reads the CHAPTER's cave spec ${bare.length} time(s) (${[...new Set(bare)].join(', ')}) — that is the d1 corridor, so above d1 ${name === 'sim.js' ? 'the player collides with walls the ladder moved' : 'the coral drawn is not the coral that stops you'}`)
     }
-    console.log(`PASS run CT.l (the ladder taxes time and room): d5 costs clock x${rungs[4].clock}/width x${rungs[4].width}, leaving all ${gateN} checkpoints where they were and hw scaling uniformly; the throttle that wins at d1 dies on lap ${hard.run.lap} at d5, coral contact goes ${easy.wallFrames}->${hard.wallFrames} frames, and survival falls ${ramp.map((s) => s.toFixed(0)).join('->')}s across the five rungs`)
+    // (m) THE VENT IS A PICKUP, TAKEN ONCE. Owner, 2026-08-26: "bubble should just give 25 air when
+    // you pass through it, remove the 'stay in it to get more' part."
+    //
+    // ⚠ WHY THE SOAK WAS WRONG HERE, because it is the reason this is not just a smaller number. A
+    // vent paid resource.refill PER SECOND OF OCCUPANCY. A pocket is 2*r = 180px across and a
+    // full-throttle racer covers that in about a third of a second, so the fastest driver took ~6
+    // air out of a vent while a driver who PARKED in one took the drawdown's full ~35 — six times
+    // as much, for doing the one thing a race is about not doing. The grant makes a vent worth the
+    // same to everyone, which is what a pickup is.
+    //
+    // Asserted as EFFECTS on the bar, and each half fails differently: the amount (a pass-through
+    // is worth the whole grant, not a sliver of it), the once-ness (sitting in it pays nothing
+    // more), and the event (without it the mechanic has no tell at all — `feeding` is true for a
+    // single frame now, so the rising column the player used to read is gone).
+    {
+      const grant = refillGrantFor({ chapter: 'reef' })
+      assert.ok(grant > 0, 'run CT.m: The Reef declares no pocket grant — the vents are back on the per-second soak')
+
+      // A vent pinned under a stationary player, so this measures the ECONOMY and not the driving.
+      const sit = (frames) => {
+        Math.random = mulberry32(21)
+        const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+        run.mods.spawnMul = 0
+        run.charge = 10
+        const sh = { x: run.player.x, y: run.player.y, bx: run.player.x, by: run.player.y, r: 90, phase: 0, _cell: 'test' }
+        const gains = [], gulps = []
+        for (let i = 0; i < frames; i++) {
+          for (const q of run.enemies) q._dead = true
+          // Re-pinned every frame: streamShafts would otherwise drop or replace it, and a fixture
+          // whose subject silently disappears reports "the grant does nothing".
+          sh.x = sh.bx = run.player.x; sh.y = sh.by = run.player.y
+          run.shafts = [sh]
+          const before = run.charge
+          stepSim(run, { x: 0, y: 0 }, dt)
+          gains.push(run.charge - before)
+          for (const e of run.events) if (e.type === 'airgulp') gulps.push(e)
+          run.events.length = 0
+        }
+        return { run, gains, gulps, sh }
+      }
+
+      const held = sit(180)                       // three seconds sat in one vent
+      const paid = held.gains.filter((g) => g > 0.5)
+      assert.strictEqual(paid.length, 1,
+        `run CT.m: sitting in one vent for 3s paid the bar on ${paid.length} separate frames — a vent must hand over its air ONCE, on entry, which is the half of the ruling that removes "stay in it to get more"`)
+      // NET OF ONE FRAME'S DRAIN, because the entry frame drains too — the bar moves by
+      // grant - drain*dt, not by grant. The tolerance is that one frame and nothing more, so a
+      // grant metered over even two frames still fails.
+      const perFrame = ch.resource.drain * dt
+      assert.ok(Math.abs(paid[0] - (grant - perFrame)) < 0.01,
+        `run CT.m: the vent moved the bar by ${paid[0].toFixed(3)} against a declared grant of ${grant} less one frame of drain (${(grant - perFrame).toFixed(3)}) — stepCharge is metering it rather than granting it`)
+      assert.strictEqual(held.gulps.length, 1,
+        `run CT.m: taking a vent pushed ${held.gulps.length} airgulp events — render.js and SFX_FOR_EVENT hang the entire tell off that event, and a one-shot grant leaves 'feeding' true for a single frame, so without it the vent gives no sign it paid`)
+      assert.ok(held.sh.taken === true,
+        'run CT.m: the vent was not marked taken, so it will pay again the moment the player re-enters it — a pickup that re-arms in place is the soak with extra steps')
+
+      // ...and the bar still FALLS the rest of the time, i.e. the grant has not turned the vent
+      // into a standing refill. Without this the case passes with a vent that pays 25 a frame.
+      const fell = held.gains.filter((g) => g < 0).length
+      assert.ok(fell > 170,
+        `run CT.m: the bar only fell on ${fell} of 180 frames while parked in a vent — something is still pouring air in, which is what the ruling removes`)
+
+      // THE RACER'S SIDE OF IT, which is the whole point: a pass-through at speed is worth the same
+      // as a park. Measured through the real wall/traffic-free drive rather than asserted from the
+      // grant, so a per-second remnant anywhere in stepCharge would show up as a shortfall.
+      const seen = new Set()
+      const raced = drive(1, { seed: 3 })
+      assert.strictEqual(raced.run.phase, 'victory', `run CT.m: the reference race ended '${raced.run.phase}'`)
+      assert.ok(raced.gulps.length >= 5,
+        `run CT.m: a full 5-lap race took only ${raced.gulps.length} vents — the field is unreachable at racing speed, so the Air bar is a countdown with decoration`)
+      for (const g of raced.gulps) {
+          assert.ok(Math.abs(g.amount - grant) < 1e-9,
+          `run CT.m: a vent taken at racing speed paid ${g.amount} against ${grant} — the grant is still being scaled by how long the player was inside`)
+        seen.add(`${Math.round(g.x)},${Math.round(g.y)}`)
+      }
+      // ONCE PER VISIT, NOT ONCE PER RUN, and the difference is the whole reason `taken` lives on
+      // the streamed shaft rather than on the run. The field wraps mod ringCells, so a lap meets the
+      // SAME vents in the same places; the shaft object dies when the player drives out of range and
+      // is rebuilt fresh on the next lap, which re-arms it. So the honest invariant is
+      // gulps == distinct positions x laps: any vent taken twice in one pass, or any vent that
+      // failed to re-arm for the next lap, breaks it in opposite directions.
+      assert.strictEqual(raced.gulps.length, seen.size * ch.circuit.laps,
+        `run CT.m: ${raced.gulps.length} gulps came from ${seen.size} distinct vents over ${ch.circuit.laps} laps — expected ${seen.size * ch.circuit.laps}, i.e. each vent taken exactly once per lap. Fewer means a vent did not re-arm between laps; more means one paid twice in a single pass`)
+      console.log(`PASS run CT.m (the vent is a pickup): sitting in one for 3s pays ${paid[0].toFixed(0)} air on exactly 1 frame and the bar falls on the other ${fell}; a full race takes ${raced.gulps.length} vents at ${grant} each — ${seen.size} places x ${ch.circuit.laps} laps, so each re-arms exactly once a lap — every one pushing an airgulp for render and sfx to hang on`)
+    }
+
+    console.log(`PASS run CT.l (the ladder taxes time and room): the passage runs ${Math.round(wide.halfMin * 2)}-${Math.round(wide.halfMax * 2)}px at d1 down to ${Math.round(narrow.halfMin * 2)}-${Math.round(narrow.halfMax * 2)}px at d5 (exactly 2x) on clock x1->x${rungs[4].clock}, leaving all ${gateN} checkpoints where they were and hw scaling uniformly; the throttle that wins at d1 dies on lap ${hard.run.lap} at d5, coral contact goes ${easy.wallFrames}->${hard.wallFrames} frames, and survival falls ${ramp.map((s) => s.toFixed(0)).join('->')}s across the five rungs`)
   }
 
-  console.log(`PASS run CT (the circuit): ${SWIMTHROUGHS_PER_LAP} swimthroughs a lap on 4 seeds, ${Math.min(...picked.map((s) => s.hw)).toFixed(0)}-${Math.max(...picked.map((s) => s.hw)).toFixed(0)}px wide against a ${spec.halfMin}-${spec.halfMax} passage and never closer than 400px apart; full throttle finishes ${ch.circuit.laps} laps in ${fast.run.raceTime.toFixed(2)}s real (splits ${splits.map((s) => s.toFixed(1)).join('/')}, spread ${spread.toFixed(2)}s) crossing all ${fast.swims.length} checkpoints; easing off dies to the clock at ${slow.run._realTime.toFixed(1)}s; The Beyond grows neither clock nor lap`)
+  console.log(`PASS run CT (the circuit): ${SWIMTHROUGHS_PER_LAP} swimthroughs a lap on 4 seeds, ${Math.min(...picked.map((s) => s.hw)).toFixed(0)}-${Math.max(...picked.map((s) => s.hw)).toFixed(0)}px wide against a ${spec.halfMin.toFixed(0)}-${spec.halfMax.toFixed(0)} d1 passage and never closer than 400px apart; full throttle finishes ${ch.circuit.laps} laps in ${fast.run.raceTime.toFixed(2)}s real (splits ${splits.map((s) => s.toFixed(1)).join('/')}, spread ${spread.toFixed(2)}s) crossing all ${fast.swims.length} checkpoints; easing off dies to the clock at ${slow.run._realTime.toFixed(1)}s; The Beyond grows neither clock nor lap`)
 }
 
 function testReefLap() {
-  const spec = CHAPTERS.reef.cave
+  // THE TRACK A d1 RUN DRIVES, NOT THE CHAPTER'S. Since the difficulty ladder CHAPTERS.reef.cave
+  // is the ladder's INPUT and nothing drives it at d1 (d1 is x1.40 of it; d3 is the x1.00 rung).
+  // Every case here places or reads an entity inside a real run, so it has to measure against the
+  // spec that run collides with — run RG.f caught this the moment the ladder widened, reporting 6
+  // of 21 bodies 'spawned outside the passage' when they were inside the passage the run has.
+  const spec = caveSpecOf(createRun(makeMeta(), { chapter: 'reef', difficulty: 1 }))
   const LAP = spec.lapLen
   const SEEDS = [1, 7, 20260824]
   const STEP = 3
@@ -25785,7 +25942,7 @@ function testReefPool() {
     // centreline runs perfectly circumferentially: at wander 380 the centreline crosses the radii at
     // up to ~50°, so "radially outward" became "half ahead" and the tank hit the bait legitimately.
     // The tangent is the only honest source, and ringHeading is what answers it at any shape.
-    const h0 = ringHeading(CHAPTERS.reef.cave, ringFU(CHAPTERS.reef.cave, run.player.x, run.player.y).f, run._obstacleSeed)
+    const h0 = ringHeading(caveSpecOf(run), ringFU(caveSpecOf(run), run.player.x, run.player.y).f, run._obstacleSeed)
     const bait = mk(run, Math.cos(h0 + Math.PI / 2) * BAIT_OFF, Math.sin(h0 + Math.PI / 2) * BAIT_OFF, 0)
     let hit = null, toss = null, baitHp = null
     drive(run, [bait], 6, { x: 0, y: 0 }, (r) => {
@@ -25848,7 +26005,7 @@ function testReefPool() {
       // axis. fireTank throws along p.facingAngle — the tangent under the player — so `AX.fwd`
       // pointed the fixture 90 degrees away from where the tank actually goes and the body sat
       // outside every blast.
-      const sp = CHAPTERS.reef.cave
+      const sp = caveSpecOf(run)
       const fu0 = ringFU(sp, run.player.x, run.player.y)
       const w0 = ringCentre(sp, fu0.f + 200, run._obstacleSeed)
       const ul = Math.hypot(w0.x - run.player.x, w0.y - run.player.y) || 1
@@ -25965,7 +26122,7 @@ function testReefPool() {
       run.mods.raceClockMul = mul
       run.player.hp = run.player.maxHP = 1e9
       let start = 0, peak = 0
-      const sp = CHAPTERS.reef.cave
+      const sp = caveSpecOf(run)
       for (let i = 0; i < Math.round(40 / dt); i++) {
         const fu = ringFU(sp, run.player.x, run.player.y)
         const fA = fu.f + (150 * sp.lapLen) / (2 * Math.PI * Math.max(1, sp.ring.r0 - fu.u))
@@ -26408,7 +26565,12 @@ function testReefAirBurst() {
   // ahead if there is one and at the passage centre otherwise, clamped to stay off the rock.
   const towardPockets = (run) => {
     const p = run.player
-    const spec = CHAPTERS.reef.cave
+    // THE TRACK A d1 RUN DRIVES, NOT THE CHAPTER'S. Since the difficulty ladder CHAPTERS.reef.cave
+    // is the ladder's INPUT and nothing drives it at d1 (d1 is x1.40 of it; d3 is the x1.00 rung).
+    // Every case here places or reads an entity inside a real run, so it has to measure against the
+    // spec that run collides with — run RG.f caught this the moment the ladder widened, reporting 6
+    // of 21 bodies 'spawned outside the passage' when they were inside the passage the run has.
+    const spec = caveSpecOf(createRun(makeMeta(), { chapter: 'reef', difficulty: 1 }))
     const fu = ringFU(spec, p.x, p.y)
     const rHere = Math.max(1, spec.ring.r0 - fu.u)
     const fA = fu.f + (140 * spec.lapLen) / (2 * Math.PI * rHere)
@@ -26506,7 +26668,12 @@ function testReefAirBurst() {
   // and not sightings. The "inside the lane walls" half of this case is gone with the lane — the
   // passage IS the reachable set now, and the clamp below is the whole of it.
   {
-    const spec = CHAPTERS.reef.cave
+    // THE TRACK A d1 RUN DRIVES, NOT THE CHAPTER'S. Since the difficulty ladder CHAPTERS.reef.cave
+    // is the ladder's INPUT and nothing drives it at d1 (d1 is x1.40 of it; d3 is the x1.00 rung).
+    // Every case here places or reads an entity inside a real run, so it has to measure against the
+    // spec that run collides with — run RG.f caught this the moment the ladder widened, reporting 6
+    // of 21 bodies 'spawned outside the passage' when they were inside the passage the run has.
+    const spec = caveSpecOf(createRun(makeMeta(), { chapter: 'reef', difficulty: 1 }))
     let checked = 0, inRock = 0
     const offs = []
     // ⚠ EIGHT SEEDS, BECAUSE ONE LAP IS NOT A SAMPLE. The lane's field was an infinite grid and four
@@ -26674,7 +26841,7 @@ function testReefAirBurst() {
     //   Track frame instead: go the way the centreline is going under you (ringHeading) and correct
     // across the passage toward it. Same controller as run RS, same short look-ahead.
     const alongTrack = (run, ahead = 20) => {
-      const sp = CHAPTERS.reef.cave
+      const sp = caveSpecOf(run)
       const fu = ringFU(sp, run.player.x, run.player.y)
       const r = Math.max(1, sp.ring.r0 - fu.u)
       const fA = fu.f + (ahead * sp.lapLen) / (2 * Math.PI * r)
@@ -26710,7 +26877,7 @@ function testReefAirBurst() {
       // often enough to add 12px to a 162px answer, i.e. to fail the case over the track's shape.
       //   Deterministic, not lucky: the same rule from the same seed stops at the same place in all
       // three runs, so the three are still measuring one stretch of track.
-      const sp0 = CHAPTERS.reef.cave
+      const sp0 = caveSpecOf(run)
       let waited = 0
       for (; waited < Math.round(12 / dt); waited++) {
         const fu = ringFU(sp0, run.player.x, run.player.y)
@@ -26949,23 +27116,34 @@ function testReefAirBurst() {
     console.log(`PASS run RF.e (the reef draws its own): refillLook resolves pocket and updateShafts reads AIR_POCKET_VIS; drawBurstWake reads run._burstT through burstWakeAt against BURST_DUR_AT_FULL ${BURST_DUR_AT_FULL}s and the view behind the lane camera, and is called from sync(); updateCoralGrit reads run._scraping and reuses CORAL_CRUSH every ${CORAL_CRUSH.gritEvery}s with no sound; syncPolyps ramps on the polyp age`)
   }
 
-  // (f) THE VENT ONLY BUBBLES WHILE IT IS BREATHING INTO YOU. Owner, 2026-08-25: "refill bubbles
-  // don't disappear when they stop refilling." A pocket stops in three different ways — you left
-  // it, it drew down (US.k: 1.77s here), or your bar hit its ceiling — and all three used to draw
-  // the identical column of air. `feeding` is stepCharge's own answer to "did THIS circle add to
-  // the bar this tick", published on the circle for the reason `drawdown` and the maw's `gape` are.
+  // (f) THE VENT IS A PICKUP: ONE GULP, THEN IT IS EMPTY. Owner, 2026-08-26: "bubble should just
+  // give 25 air when you pass through it, remove the 'stay in it to get more' part."
   //
-  // ASSERTED AS AN EFFECT AND NOT AS A FLAG: each case pairs the flag with the bar actually moving
-  // (or not), so a mutation that pins `feeding` true still fails on the case where the bar is flat.
+  // ⚠ THIS CASE USED TO BE ABOUT `feeding`, and the rewrite is the point rather than a tidy-up. The
+  // old vent paid per second of occupancy and `feeding` was stepCharge's answer to "is THIS circle
+  // adding to the bar this tick", which render.js streamed bubbles from (owner, 2026-08-25:
+  // "refill bubbles don't disappear when they stop refilling"). A one-shot grant leaves that flag
+  // true for at most a single frame, so the stream cannot be the tell any more and asserting it
+  // would be asserting a mechanic the chapter no longer has. What replaces it, and what this case
+  // now pins, is the pair render.js actually reads: the `airgulp` EVENT for the moment of taking,
+  // and `sh.taken` for the difference between a charged vent and a spent one.
+  //
+  // ASSERTED AS EFFECTS: every case pairs the flag with the bar moving, or provably not moving.
   {
     const dtF = 1 / 60
     const park = (run, sh) => { run.player.x = sh.x; run.player.y = sh.y }
     const window = (run, sh, n) => {
       const c0 = run.charge
-      let fed = 0
-      for (let i = 0; i < n; i++) { stepSim(run, { x: 0, y: 0 }, dtF); park(run, sh); if (sh.feeding) fed++; quiet(run) }
-      return { fed, gained: run.charge - c0 }
+      let gulps = 0
+      for (let i = 0; i < n; i++) {
+        stepSim(run, { x: 0, y: 0 }, dtF)
+        park(run, sh)
+        gulps += run.events.filter((e) => e.type === 'airgulp').length
+        quiet(run)
+      }
+      return { gulps, gained: run.charge - c0 }
     }
+    const grant = refillGrantFor({ chapter: 'reef' })
     const run = reefRun(20260825)
     run._shaftCellI = null; run._shaftCellJ = null; run._shaftRingCell = null
     streamShafts(run)
@@ -26973,42 +27151,73 @@ function testReefAirBurst() {
     const sh = run.shafts[0]
     park(run, sh)
     run.charge = 0
-    // (1) empty bar, inside it: feeding, and the bar climbs.
+    // (1) empty bar, sat in it for half a second: ONE gulp of the whole grant, and then nothing.
     const fill = window(run, sh, 30)
     assert.ok(fill.gained > 0, `run RF.f: half a second inside a pocket on an empty bar added ${fill.gained.toFixed(2)} Air — the fixture is not in a pocket and nothing below means anything`)
-    assert.ok(fill.fed >= 25, `run RF.f: the pocket that just refilled the bar by ${fill.gained.toFixed(1)} reported feeding on only ${fill.fed}/30 frames — the stream would be off while the air is arriving`)
-    // (2) full bar, same spot: the add is swallowed by the clamp, so it is NOT feeding.
+    assert.strictEqual(fill.gulps, 1,
+      `run RF.f: half a second inside one vent pushed ${fill.gulps} airgulp events — a vent pays ONCE on entry, and the event is the only tell render.js and SFX_FOR_EVENT have`)
+    assert.ok(Math.abs(fill.gained - (grant - res.drain * dtF * 30)) < 0.05,
+      `run RF.f: the bar moved ${fill.gained.toFixed(2)} across those 30 frames against a grant of ${grant} less 30 frames of drain (${(grant - res.drain * dtF * 30).toFixed(2)}) — the vent is still metering air in rather than handing it over`)
+    assert.ok(sh.taken === true, 'run RF.f: the vent was not marked taken, so nothing distinguishes it from a charged one and it will pay again on re-entry')
+    // (2) FULL bar, same spot, vent re-armed: the vent is LEFT ALONE rather than burned for nothing.
+    //     The pickup's answer to the same question the old `feeding` flag existed for. The guard is
+    //     HALF THE GRANT of headroom rather than a full bar, because `c` is already net of this
+    //     frame's drain and an equality test would never fire — see stepCharge's own block.
     run.charge = run.chargeMax
-    sh.drawdown = 0
+    sh.taken = false
     const full = window(run, sh, 30)
-    assert.ok(Math.abs(full.gained) < 1e-6, `run RF.f: the bar moved ${full.gained.toFixed(3)} at its ceiling — this case is not testing a clamped bar`)
-    assert.strictEqual(full.fed, 0, `run RF.f: a pocket pouring into a FULL bar reported feeding on ${full.fed}/30 frames — the bubbles keep coming while the bar cannot take them, which is the whole of the report`)
-    // (3) outside every circle: nothing is feeding. The player has to be MOVED — this chapter no
-    // longer scrolls, so a fixture that merely stops parking stays exactly where it was parked.
+    // The bar FALLS by exactly the drain, which is the tell that nothing topped it up: under the
+    // old soak it sat pinned at the ceiling because the vent refilled it every frame.
+    assert.ok(Math.abs(full.gained + res.drain * dtF * 30) < 0.01,
+      `run RF.f: the bar moved ${full.gained.toFixed(3)} over 30 frames at its ceiling against a plain drain of ${(-res.drain * dtF * 30).toFixed(3)} — something is still topping it up while it cannot take any`)
+    assert.strictEqual(full.gulps, 0, `run RF.f: a vent crossed at a FULL bar pushed ${full.gulps} gulps — it is being consumed for air the player cannot hold`)
+    assert.strictEqual(sh.taken, false, 'run RF.f: a vent crossed at a full bar was still marked taken — it is gone from the track for air that went nowhere, and it does not come back until the next lap')
+    // (3) outside every circle: nothing is taken and nothing sounds. The player has to be MOVED —
+    //     this chapter no longer scrolls, so a fixture that merely stops parking stays put.
     run.charge = 0
-    for (const s of run.shafts) s.drawdown = 0
     const home = { x: run.player.x, y: run.player.y }
     for (let i = 0; i < 5; i++) { stepSim(run, { x: 0, y: 0 }, dtF); quiet(run) }
     let outside = false
     for (let d = 200; d <= 2000 && !outside; d += 100) {
       run.player.x = home.x + d; run.player.y = home.y + d
-      outside = !run.shafts.some((s) => Math.hypot(s.x - run.player.x, s.y - run.player.y) <= s.r)
+      outside = !run.shafts.some((s2) => Math.hypot(s2.x - run.player.x, s2.y - run.player.y) <= s2.r)
     }
     assert.ok(outside, 'run RF.f: could not find a spot outside every streamed pocket — this case cannot run')
+    // RE-ARMED ONLY NOW THE PLAYER IS CLEAR. Doing it before the search runs the fixture for a few
+    // frames with the player still sitting on the vent from case (2), which takes it legitimately
+    // and then reads as the failure this case is looking for.
+    for (const s2 of run.shafts) s2.taken = false
     const px = run.player.x, py = run.player.y
-    for (let i = 0; i < 5; i++) { stepSim(run, { x: 0, y: 0 }, dtF); run.player.x = px; run.player.y = py; quiet(run) }
-    const idle = run.shafts.filter((s) => s.feeding).length
-    assert.strictEqual(idle, 0, `run RF.f: ${idle} pocket(s) reported feeding with the player nowhere near one — every vent on screen streams air at a fish that is not there`)
-    // AND RENDER READS IT. Without this the flag is a fact sim knows and nothing draws, which is
+    let strayGulps = 0
+    for (let i = 0; i < 5; i++) {
+      stepSim(run, { x: 0, y: 0 }, dtF)
+      run.player.x = px; run.player.y = py
+      strayGulps += run.events.filter((e) => e.type === 'airgulp').length
+      quiet(run)
+    }
+    assert.strictEqual(strayGulps, 0, `run RF.f: ${strayGulps} vent(s) paid out with the player nowhere near one`)
+    const idle = run.shafts.filter((s2) => s2.taken).length
+    assert.strictEqual(idle, 0, `run RF.f: ${idle} pocket(s) were marked taken with the player nowhere near one — every vent on the track reads as spent`)
+    // AND RENDER READS BOTH. Without this they are facts sim knows and nothing draws, which is
     // byte-for-byte the frozen-enemies scar: the mechanic is invisible, and invisible is
-    // indistinguishable from the bug it was written to fix. Comments stripped, same reason as above.
+    // indistinguishable from broken. Comments stripped — this repo names its fields in prose.
     const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
-    const vents = rsrc.slice(rsrc.indexOf('function updateAirVents('), rsrc.indexOf('function updateCoralGrit('))
-    assert.ok(vents.length > 200, 'run RF.f: the updateAirVents slice markers moved — this check is asserting nothing')
-    assert.ok(/feeding/.test(vents),
-      "run RF.f: updateAirVents never reads sh.feeding — it is back to streaming from every vent on screen whether or not it is refilling anyone")
-    console.log(`PASS run RF.f (the vent stops when the air does): +${fill.gained.toFixed(1)} Air on ${fill.fed}/30 feeding frames from empty, ${full.fed}/30 at the ceiling for ${full.gained.toFixed(1)} Air, 0 of ${run.shafts.length} feeding from outside; updateAirVents reads the flag`)
+    assert.ok(/case 'airgulp'/.test(rsrc),
+      "run RF.f: render.js has no 'airgulp' case — taking a vent has no picture at all, and with the stream gone that is the entire tell")
+    const shafts = rsrc.slice(rsrc.indexOf('function updateShafts('), rsrc.indexOf('function updateAirVents('))
+    assert.ok(shafts.length > 200, 'run RF.f: the updateShafts slice markers moved — this check is asserting nothing')
+    assert.ok(/sh\.taken/.test(shafts),
+      'run RF.f: updateShafts never reads sh.taken — a spent vent draws exactly like a charged one, so the field the player is steering by is a guess')
+    // ...AND IT IS IN THE CACHE KEY, which is a SECOND failure the read above cannot see. The vent
+    // body is a cached Graphics rebuilt only when its key changes, so a `taken` gate inside a draw
+    // that never re-runs is a no-op: the rim of stuck bubbles that says "still charged" stays on a
+    // vent with nothing left, `sh.taken` reads true, and every other assertion here passes. Found by
+    // SHOOTING it — the spent frame and the charged frame came back as the same picture — not by any
+    // assert, which is why this one exists.
+    assert.ok(/_taken !== /.test(shafts),
+      'run RF.f: sh.taken is not part of updateShafts\' cache key, so the vent body is never redrawn when it empties — the gate runs on a Graphics nobody rebuilds and a spent vent keeps its charged drawing')
+    console.log(`PASS run RF.f (the vent is a pickup): +${fill.gained.toFixed(1)} Air on exactly ${fill.gulps} gulp from empty and the vent marked taken, ${full.gulps} gulps and still charged at the ceiling, 0 taken and 0 sounded from outside; render.js draws the gulp and reads sh.taken`)
   }
 
   console.log(`PASS run RF (The Reef's Air and Burst): the bar is fed by the pocket field and nothing else (0 vs ${res.max} over 150s with it suppressed), an empty bar drowns you at ${res.drown.dps}/s and stops the moment you breathe, and the button dashes ${BURST_DUR_MIN}s empty and ${BURST_DUR_AT_FULL}s full`)
@@ -29213,12 +29422,32 @@ function testUndertowLadder() {
       // the failure mode of the second ruling is a field nobody remembered to opt in — silent, and
       // indistinguishable from a chapter that is simply generous. The two exemptions are named here
       // so removing one is a deliberate edit rather than a default.
-      const WANT_DRAWDOWN = ['shelf', 'twilight', 'reef']
+      //   THE REEF SATISFIES THE RULING THE OTHER WAY (owner, 2026-08-26: "bubble should just give
+      // 25 air when you pass through it, remove the 'stay in it to get more' part"). The ruling is
+      // that a zone disappears once it has given you a share of the bar; a drawdown meters that
+      // share out over seconds, a `grant` hands the whole share over on entry and marks the vent
+      // spent. Both end with a used-up zone, so the set below asks for EITHER, and a chapter with
+      // NEITHER is still the silent failure this case exists for. A chapter with BOTH would be two
+      // rules on one field and is rejected outright — stepCharge's grant branch returns before the
+      // soak, so the drawdown would be dead config that reads as live.
+      const WANT_SPEND = ['shelf', 'twilight', 'reef']
       const EXEMPT = ['surf', 'deep']
-      for (const id of WANT_DRAWDOWN) {
+      for (const id of WANT_SPEND) {
         const spec = refillSpec(CHAPTERS[id].signature)
         const res = CHAPTERS[id].resource
-        assert.ok(spec?.drawdownSecs > 0, `${id}'s refill field never draws down — its circles are infinite`)
+        const grant = spec?.grant ?? 0
+        assert.ok(spec?.drawdownSecs > 0 || grant > 0,
+          `${id}'s refill field neither draws down nor grants — its circles are infinite, and a player can park in one forever`)
+        assert.ok(!(spec?.drawdownSecs > 0 && grant > 0),
+          `${id}'s refill field declares BOTH a ${spec.drawdownSecs}s drawdown and a grant of ${grant} — stepCharge takes the grant and returns, so the drawdown is dead config that reads as live`)
+        if (grant > 0) {
+          // A grant is denominated in BAR, which is what the ruling is denominated in — so it is
+          // checked directly against the share rather than against seconds.
+          const share = grant / res.max
+          assert.ok(share >= 0.2 && share <= 0.4,
+            `${id} grants ${grant} of a ${res.max} bar (${(share * 100).toFixed(0)}%) — the book's rule is about a third of the bar per zone`)
+          continue
+        }
         // And it is the BOOK'S RULE, not a hand-picked number: a third of the bar, net of the drain.
         // A per-chapter literal would drift the moment refill or drain is retuned, which is the
         // one-fact-two-places class this suite exists to catch.
@@ -29286,8 +29515,8 @@ function testUndertowLadder() {
         'updateDark punches the lightmap without reading sh.drawdown — a spent upwelling still clears the murk')
       assert.ok(/lobePoly/.test(punch),
         'updateDark punches a CIRCLE for a lobed field — it clears water outside the shape the sim tests')
-      console.log(`PASS run US.k (refill drawdown): ${WANT_DRAWDOWN.length} Book 2 fields draw down on the book's own rule ` +
-        `[${WANT_DRAWDOWN.map((id) => id + ' ' + refillSpec(CHAPTERS[id].signature).drawdownSecs + 's').join(', ')}], ${EXEMPT.join('/')} exempt; ` +
+      console.log(`PASS run US.k (refill zones are spent): ${WANT_SPEND.length} Book 2 fields give up a share of the bar and stop ` +
+        `[${WANT_SPEND.map((id) => { const sp = refillSpec(CHAPTERS[id].signature); return id + ' ' + (sp.grant > 0 ? sp.grant + ' on entry' : sp.drawdownSecs + 's') }).join(', ')}], ${EXEMPT.join('/')} exempt; ` +
         `a lobed upwelling feeds the bar, its clock runs only while stood in, and at ${LIFE}s it stops being food ` +
         `(bar fell to ${run.charge.toFixed(1)} while parked in it); render fades off the same field`)
     }

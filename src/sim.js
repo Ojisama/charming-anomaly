@@ -156,7 +156,7 @@ import {
   LANE_CRUSH_DPS, LANE_CRUSH_TICK,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, refillGrantFor, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, DROWN_TICK,
@@ -5656,6 +5656,10 @@ export function stepCharge(run, dt) {
   // of its readers (here, foulUpwelling, render.js) must move together or the circle the player
   // watches fade is running a different clock from the one feeding them.
   const drawdownSecs = drawdownSecsFor(run)
+  // A PICKUP FIELD PAYS ON ENTRY AND PAYS NOTHING AFTER (The Reef's air vents — see that chapter's
+  // pockets block). 0 everywhere else, which leaves every other chapter on the per-second branch
+  // byte-for-byte.
+  const grant = refillGrantFor(run)
   // IS THIS CIRCLE ACTUALLY FEEDING YOU RIGHT NOW. Published on the circle for the same reason
   // `drawdown` and the maw's `gape` are: render.js draws off it, so the air you can see arriving is
   // the air stepCharge is adding. Owner, 2026-08-25: "refill bubbles don't disappear when they stop
@@ -5683,6 +5687,37 @@ export function stepCharge(run, dt) {
     // render.js fades the drawing off this exact number, so the five seconds the player watches are
     // the five seconds stepCharge is counting rather than a parallel animation that can disagree.
     // Undefined for every other field, which reads as 0 and leaves those byte-for-byte unchanged.
+    // THE PICKUP BRANCH, and it is `else`-exclusive with the soak below on purpose: a field that
+    // paid both would hand over the grant AND keep pouring, which is the mechanic the owner asked
+    // to remove wearing a bigger number.
+    if (grant > 0) {
+      // ONCE PER VISIT. `taken` lives on the streamed shaft, so it dies with the shaft when you
+      // drive out of range and the vent is live again next lap — which is what a circuit wants,
+      // since the field wraps mod ringCells and you meet the same vents every lap. `continue`, not
+      // `break`: a spent vent you are still sitting in must not mask a live one you are also
+      // touching, exactly as the drawdown branch argues below.
+      if (sh.taken) continue
+      // A NEARLY-FULL BAR LEAVES THE VENT ALONE rather than wasting it. This is the pickup's
+      // version of the flag the soak used to carry (`feeding = c < chargeMax`, owner 2026-08-25: a
+      // vent must not pour into a fish that cannot take it) — and as a pickup it can do better than
+      // merely going quiet, because a vent nobody consumed is still standing on the way back round.
+      //   HALF THE GRANT OF HEADROOM, not `c >= chargeMax`. `c` is already net of this frame's
+      // drain, so a bar sitting exactly at the ceiling reads as chargeMax - drain*dt here and an
+      // equality test never fires — the player would burn a 25-air vent for 0.02 of a point and the
+      // guard would look like it was working. Half is the line between "worth stopping for" and
+      // "thrown away"; above it the vent is spent and the excess is clamped off below, which is
+      // ordinary pickup behaviour.
+      if (run.chargeMax - c < grant * 0.5) continue
+      sh.taken = true
+      // Big Gulp (chargeRefillMul) scales the grant for the same reason it scales the soak — it is
+      // the card's whole text — and the clamp below is what stops a full bar overflowing.
+      c += grant * run.chargeRefillMul
+      // The event is the tell. render.js bursts the vent's stored air upward and SFX_FOR_EVENT
+      // gives it the coin note; without it the whole mechanic is a number moving on a bar, and a
+      // one-frame grant leaves `feeding` true for a single frame, i.e. no visible stream at all.
+      run.events.push({ type: 'airgulp', x: sh.x, y: sh.y, amount: grant })
+      break
+    }
     const life = drawdownSecs
     if (life > 0) {
       if ((sh.drawdown ?? 0) >= life) continue

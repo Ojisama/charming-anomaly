@@ -13253,8 +13253,15 @@ const spurG = new Graphics()
       // has no `shape` and no `rot` and every one of them has the same radius, so without it this
       // cache is "draw once" and the first tank's bearing would be stamped on every pocket in the
       // chapter -- verbatim the failure `shape` is in this key to prevent.
-      if (sv._r !== sh.r || sv._look !== refillLook || sv._shape !== sh.shape || sv._rot !== sh.rot || sv._phase !== sh.phase || sv._foul !== foulStep) {
+      // ⚠ `taken` IS PART OF THE CACHE KEY, and leaving it out is a silent no-op rather than a
+      // visible bug. This body is a cached Graphics rebuilt only when its key changes, so a vent
+      // that empties mid-frame keeps the drawing it already had: the rim of stuck bubbles that says
+      // "still charged" stays on a vent that has nothing left. Shot and confirmed — with `taken`
+      // out of the key the spent frame and the charged frame are the same picture, `sh.taken` reads
+      // true, and the gate below runs on a Graphics nobody redraws.
+      if (sv._r !== sh.r || sv._look !== refillLook || sv._shape !== sh.shape || sv._rot !== sh.rot || sv._phase !== sh.phase || sv._foul !== foulStep || sv._taken !== !!sh.taken) {
         sv._foul = foulStep
+        sv._taken = !!sh.taken
         sv._phase = sh.phase
         sv._r = sh.r
         sv._look = refillLook
@@ -13281,12 +13288,21 @@ const spurG = new Graphics()
           sv.body.ellipse(0, 0, sh.r * P2.ventW * 0.5, sh.r * P2.ventH * 0.5)
             .fill({ color: P2.vent, alpha: P2.ventA })
           // A rim of small stuck bubbles around the mouth, so it reads as gassy even in a still.
+          //
+          // ⚠ AND THE RIM IS WHAT SAYS THE VENT IS STILL CHARGED. Since the grant became a one-shot
+          // (stepCharge, CHAPTERS.reef.signature.pockets.grant) the STREAM is no use as that tell:
+          // it only runs while `feeding`, and `feeding` is now true for a single frame. Without a
+          // difference here the vent you already emptied and the vent you are steering for are the
+          // same picture, and the field turns into a guess. A charged vent wears a rim of stuck
+          // bubbles; a spent one is a bare dark slot in the coral.
           const ta = sh.phase ?? 0
-          for (let b = 0; b < 7; b++) {
-            const a = ta + (b / 7) * Math.PI * 2
-            const rr = sh.r * (P2.rMin + (P2.rMax - P2.rMin) * ((b * 0.37) % 1))
-            sv.body.circle(Math.cos(a) * sh.r * 0.34, Math.sin(a) * sh.r * 0.16, rr)
-              .fill({ color: P2.bubble, alpha: 0.5 })
+          if (!sh.taken) {
+            for (let b = 0; b < 7; b++) {
+              const a = ta + (b / 7) * Math.PI * 2
+              const rr = sh.r * (P2.rMin + (P2.rMax - P2.rMin) * ((b * 0.37) % 1))
+              sv.body.circle(Math.cos(a) * sh.r * 0.34, Math.sin(a) * sh.r * 0.16, rr)
+                .fill({ color: P2.bubble, alpha: 0.5 })
+            }
           }
         } else if (upwelling && fouling) {
           // FOUL SPRING (Silt Veil's mod). The clean water being taken by the player's own silt.
@@ -19142,6 +19158,30 @@ const spurG = new Graphics()
               0.28 + Math.random() * 0.22, 0.05 + Math.random() * 0.045,
               i % 3 === 0 ? 0xffffff : SPUR_VIS.tones[(Math.random() * SPUR_VIS.tones.length) | 0],
               0.15, 1.6)
+          }
+          break
+        }
+        // TAKING A VENT ({type:'airgulp',x,y,amount} at the VENT, not the player). The whole tell for
+        // a mechanic that is otherwise one number moving on a bar: since 2026-08-26 a vent hands
+        // over its air the instant you touch it rather than pouring it in, so `feeding` is true for
+        // a single frame and the rising column the player used to read is simply gone.
+        //   THE AIR GOES UP, on the cross axis, because that is the direction every other bubble in
+        // this chapter travels (updateAirVents) — a burst that sprayed radially would read as an
+        // impact, which is the one thing this is not. Fast and short: it is a pickup, not an event,
+        // and 25 of them a race must not each stop the screen.
+        case 'airgulp': {
+          const P2 = AIR_POCKET_VIS
+          const ax = chapterLaneAxis
+          spawnRing(e.x, e.y, 54, 0.22, T.novaWarm, P2.bubble)
+          for (let i = 0; i < 14; i++) {
+            const rise = P2.rise * (1.4 + Math.random() * 1.2)
+            const jit = (Math.random() - 0.5) * 2 * P2.drift * 2.2
+            const ux = ax.cross === 'x' ? -rise : jit
+            const uy = ax.cross === 'x' ? jit : -rise
+            spawnSmoke(T.bubble.tex,
+              e.x + (Math.random() - 0.5) * 70, e.y + (Math.random() - 0.5) * 30,
+              ux, uy, 0.5 + Math.random() * 0.4,
+              (18 + Math.random() * 26) / 32, P2.bubble, P2.alpha, 0.95, 0, 0, 0.35)
           }
           break
         }
