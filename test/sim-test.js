@@ -34,7 +34,7 @@ import {
   MUTATORS, mergeMutatorMods, randomMutators, rerollMutator,
   sacrificeCost, MAX_CHOICE_SLOTS, resolveChapterId,
   SHIELD_HP_FRAC, SHIELD_DMG_MUL, SPLITTER_COUNT, VOLATILE_FUSE, VOLATILE_RADIUS, VOLATILE_DMG,
-  MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS,
+  MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_GLOW, SUNLANCE_REACH_MIN,
@@ -23919,7 +23919,14 @@ function testCircuitCards() {
     const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
     run.mods.spawnMul = 0
     if (card) {
-      run.passives[card] = PASSIVES[card].base * MAX_PASSIVE_LEVEL
+      // FOLDED THROUGH passiveTotal, NOT `base x MAX_PASSIVE_LEVEL`: a card carrying a `cap`
+      // (config.js) banks along an asymptote, so the flat product is a build no player can hold —
+      // 0.50 for Turbo Fin against the 0.39 five normal picks actually bank, and 2.25 for Quick
+      // Start against 0.89. A fixture that overstates a card by 2.5x is exactly the rig that would
+      // still report a gain after the cap had made the card inert.
+      let banked = 0
+      for (let i = 0; i < MAX_PASSIVE_LEVEL; i++) banked = passiveTotal(card, banked, PASSIVES[card].base)
+      run.passives[card] = banked
       run.passivePicks[card] = MAX_PASSIVE_LEVEL
       if (card === 'airMax') { const g = run.chargeMax * run.passives[card]; run.chargeMax += g; run.charge += g }
     }
@@ -24120,6 +24127,78 @@ function testCircuitCards() {
       `run CD.c: Clean Line paid ${(stuckOn.hp - stuckOff.hp).toFixed(0)} HP to a player spending ${stuckOn.scraped} frames INSIDE the coral`)
     console.log(`PASS run CD.c (the heals are paid for by driving): Pit Stop +${(gateOn.hp - gateOff.hp).toFixed(0)} HP over ${gateOn.swims} checkpoints; Clean Line +${(cleanOn.hp - cleanOff.hp).toFixed(0)} over 20 clean seconds, +${(clipOn.hp - clipOff.hp).toFixed(0)} clipping (${clipOn.scraped} frames) and +${(stuckOn.hp - stuckOff.hp).toFixed(0)} pinned in the coral (${stuckOn.scraped})`)
   }
+  // (d) THE TWO MOMENTUM CARDS BANK ALONG AN ASYMPTOTE, AND THE CARD SAYS WHERE IT LEAVES YOU.
+  // Owner, 2026-08-26: "the cards upgrades should be less potent (with diminishing returns, and
+  // infusion style before->after description). There should be a diminishing return to +100% speed,
+  // and +100% accel."
+  //   DRIVEN THROUGH devTake -> applyChoice, the shipped banking path, and never through
+  // passiveTotal directly: the helper being right is not the claim. The claim is that what a player
+  // TAKES lands on the curve, and the fold is one deleted call away from being a straight sum with
+  // every other assertion in this file still green.
+  {
+    const CAPPED = Object.keys(PASSIVES).filter((id) => PASSIVES[id].cap)
+    assert.deepStrictEqual(CAPPED.slice().sort(), ['accelRate', 'topSpeed'],
+      `run CD.d: the capped set is ${JSON.stringify(CAPPED)} — the owner named speed and acceleration, and a cap silently dropped from one of them is a card that runs away again`)
+    for (const id of CAPPED) {
+      const cap = PASSIVES[id].cap
+      // ⚠ MYTHIC IS THE ROLL THAT MATTERS. 6.5 x 0.45 is 2.925 for Quick Start — a SINGLE roll
+      // approaching three times the cap — and the obvious `have + bonus * (1 - have / cap)` form
+      // banks +2743% on exactly this input, because past the cap its remaining-gap term goes
+      // negative and every further pick swings it further out. The card is offered at every tier,
+      // so this is the ordinary case and not a corner.
+      for (const rarity of ['normal', 'mythic']) {
+        Math.random = mulberry32(5)
+        const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+        let have = 0, prevStep = Infinity
+        for (let i = 0; i < MAX_PASSIVE_LEVEL; i++) {
+          const card = devCards(run, rarity).find((c) => c.kind === 'passive' && c.id === id)
+          assert.ok(card, `run CD.d: ${id} is not in the dev list at ${rarity} — this case cannot see the card it is about`)
+          // The card states the total it LEAVES you on, and `was` the total it moves off (ui.js
+          // strikes that one through — the element cards' arrow). Under a cap the ROLL is not what
+          // you get, so a card printing its roll is a card lying about its own effect.
+          assert.strictEqual(card.desc, `+${Math.round(passiveTotal(id, have, card.bonus) * 100)}% ${PASSIVES[id].desc}`,
+            `run CD.d: a ${rarity} ${id} card reads "${card.desc}" on a bank of ${(have * 100).toFixed(0)}% — a capped card must print the total it leaves you on, not the roll`)
+          assert.strictEqual(card.was, i === 0 ? null : `+${Math.round(have * 100)}%`,
+            `run CD.d: pick ${i + 1} of ${id} carries was=${JSON.stringify(card.was)} — the before/after arrow is the only place the player can see that a pick bought less than the one before it`)
+          devTake(run, card)
+          const now = run.passives[id]
+          assert.ok(now < cap,
+            `run CD.d: ${MAX_PASSIVE_LEVEL >= i ? i + 1 : i} ${rarity} ${id} picks bank ${(now * 100).toFixed(1)}% against a cap of ${cap * 100}% — the total left the asymptote`)
+          const step = now - have
+          assert.ok(step < prevStep,
+            `run CD.d: pick ${i + 1} of ${id} at ${rarity} banked ${(step * 100).toFixed(1)}pts against the previous pick's ${(prevStep * 100).toFixed(1)} — that is not a diminishing return`)
+          prevStep = step
+          have = now
+        }
+      }
+    }
+    // ...AND THE CEILING IS REAL IN THE SIM, not just in run.passives. Turbo Fin is folded at
+    // exactly one expression (stepPlayerMovement's `top`), so a driven run is where the cap either
+    // holds or does not: five MYTHIC picks and the fastest frame of a lap must still sit under
+    // twice the chapter's own top speed, having got close enough to prove the fixture can see it.
+    {
+      Math.random = mulberry32(9)
+      const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+      run.mods.spawnMul = 0
+      for (let i = 0; i < MAX_PASSIVE_LEVEL; i++) devTake(run, devCards(run, 'mythic').find((c) => c.kind === 'passive' && c.id === 'topSpeed'))
+      const top0 = CHAPTERS.reef.laneScroll * CHAPTERS.reef.laneThrottle.max
+      let fastest = 0
+      for (let i = 0; i < 60 * 60; i++) {
+        run.player.hp = run.player.maxHP
+        stepSim(run, follow2(run), dt)
+        run.events.length = 0
+        fastest = Math.max(fastest, run._laneSpeed ?? 0)
+        if (run.phase === 'levelup') run.phase = 'playing'
+        if (run.phase !== 'playing') break
+      }
+      assert.ok(fastest > top0 * 1.8,
+        `run CD.d: a maxed Turbo Fin only reached ${fastest.toFixed(0)}px/s of the ${(top0 * 2).toFixed(0)} ceiling — the driver never got near it, so the cap assertion below would pass on a rig that cannot test it`)
+      assert.ok(fastest <= top0 * 2,
+        `run CD.d: a maxed Turbo Fin drove at ${fastest.toFixed(0)}px/s against a hard ceiling of ${(top0 * 2).toFixed(0)} (2x the chapter's ${top0}) — +100% is the cap, and this build is past it`)
+      console.log(`PASS run CD.d (diminishing returns): five normal picks bank +${(passiveTotal('topSpeed', passiveTotal('topSpeed', passiveTotal('topSpeed', passiveTotal('topSpeed', passiveTotal('topSpeed', 0, 0.1), 0.1), 0.1), 0.1), 0.1) * 100).toFixed(0)}% top speed where the flat sum is +50%, mythic never passes +100%, every card shows its before -> after, and a maxed build drove ${fastest.toFixed(0)}px/s under the ${(top0 * 2).toFixed(0)} ceiling`)
+    }
+  }
+
   console.log(`PASS run CD (the racing cards earn their slot): over ${SEEDS.length} paired seeds at max level — ${CARDS.map((c) => `${PASSIVES[c].name} ${measured[c] > 0 ? '-' : '+'}${Math.abs(measured[c]).toFixed(1)}s`).join(', ')} — every one scoped to the reef`)
 }
 

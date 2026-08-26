@@ -29,7 +29,7 @@
 
 import {
   RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
-  PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
+  PASSIVES, MAX_PASSIVE_LEVEL, passiveTotal, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
   MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, DUO_PITY_SCREENS, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
   ELEMENTS, MAX_ELEMENT_PICKS,
   // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
@@ -374,7 +374,11 @@ export function applyChoice(run, i, subject = null) {
     if (existing) existing.level = Math.min(MAX_WEAPON_LEVEL, existing.level + 1)
     else if (run.weapons.length < MAX_WEAPONS) run.weapons.push({ id: choice.id, level: 1 })
   } else if (choice.kind === 'passive') {
-    run.passives[choice.id] = (run.passives[choice.id] ?? 0) + choice.bonus
+    // passiveTotal, not `+ bonus`: a passive carrying a `cap` (config.js) banks along an asymptote
+    // instead of a line. Uncapped ids are untouched — the helper returns the same sum for them —
+    // so this is the ONE site the whole game's passive arithmetic goes through, which is what stops
+    // the card's printed total and the banked one drifting apart.
+    run.passives[choice.id] = passiveTotal(choice.id, run.passives[choice.id] ?? 0, choice.bonus)
     run.passivePicks[choice.id] = (run.passivePicks[choice.id] ?? 0) + 1
     if (choice.id === 'maxHP') {
       // BRITTLE (v7.2) holds the ceiling for the whole run. Without this the card is repairable:
@@ -12427,10 +12431,19 @@ function makePassiveCard(run, id, rarity) {
     if (cfg.kind === 'flat') bonus = Math.round(bonus * 10) / 10
   }
   const picks = run.passivePicks[id] ?? 0
+  // A CAPPED CARD STATES THE TOTAL IT LEAVES YOU ON, NOT THE ROLL — the element cards' rule
+  // (makeElementCard), and here it is not a nicety: under diminishing returns the roll is NOT what
+  // you get, so a fifth Quick Start printing "+45% acceleration" over a bank that moves 91% -> 95%
+  // is a card lying about its own effect. `was` is the same figure before the pick, which ui.js
+  // strikes through — the infusion cards' before/after arrow, reusing their .lv-was styling and
+  // their translated wording, so this adds no new string to fr.js.
+  const have = run.passives[id] ?? 0
+  const shown = cfg.cap ? passiveTotal(id, have, bonus) : bonus
   const desc = cfg.kind === 'pct'
-    ? `+${Math.round(bonus * 100)}% ${cfg.desc}`
-    : `+${bonus} ${cfg.desc}`
-  return { kind: 'passive', id, title: cfg.name, desc, tag: `Lv ${picks + 1}`, rarity, icon: '💪', bonus }
+    ? `+${Math.round(shown * 100)}% ${cfg.desc}`
+    : `+${shown} ${cfg.desc}`
+  const was = cfg.cap && have > 0 ? `+${Math.round(have * 100)}%` : null
+  return { kind: 'passive', id, title: cfg.name, desc, was, tag: `Lv ${picks + 1}`, rarity, icon: '💪', bonus }
 }
 
 // A weapon-mod card adopts whatever rarity was rolled for its slot, same as passives.
