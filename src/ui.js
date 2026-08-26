@@ -2916,6 +2916,12 @@ export function initUI(hooks) {
     // one per value the numbers can take. c.desc holds the composed English for everything that
     // wants a plain string, and is the fallback for the old element system's cards.
     if (c.descT) return elDescHtml(c.descT)
+    // A CAPPED PASSIVE (makePassiveCard) carries the total it leaves you on, and `was` is the total
+    // it moves off. Same arrow and same strike as an element upgrade, but composed here rather than
+    // through elDescHtml: a passive's line is the "+N% <thing>" shape tCardDesc already splits and
+    // translates, so borrowing the template path would need a dictionary entry per card to say what
+    // that function says for free. Numbers only, both sides — nothing here is user text.
+    if (c.was) return `<s class="lv-was">${c.was}</s>&nbsp;→&nbsp;${tCardDesc(c.desc)}`
     return tCardDesc(c.desc)
   }
   // An element upgrade shows what the pick MOVES: the figure the player has now, struck through,

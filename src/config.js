@@ -2744,13 +2744,13 @@ export const PASSIVES = {
   // exactly themselves, which is what renaming-safely asks for before a name is chosen.
   // balance_decision : four knobs, one per verb the racer has [2026-08-25]
   //  - every base UNMEASURED. scripts/reef-lap-probe.mjs has never been run with a card taken.
-  topSpeed:   { name: 'Turbo Fin',    desc: 'top speed',    base: 0.10, kind: 'pct', chapter: 'reef' },
+  topSpeed:   { name: 'Turbo Fin',    desc: 'top speed',    base: 0.10, kind: 'pct', chapter: 'reef', cap: 1 },
   // base 0.15 -> 0.45. MEASURED: at 0.15 (x1.75 accel at MAX_PASSIVE_LEVEL) a whole race with a
   // cornering brake saved 0.12-0.20s of ~110s — a card you cannot feel, which is exactly the inert
   // pick run CD exists to catch. See CIRCUIT_DEFAULTS.accel, which had to come down first: while
   // the ramp took 0.64s there was nothing for any multiple of it to buy.
   // balance_decision : Quick Start has to be worth a card slot [2026-08-25]
-  accelRate:  { name: 'Quick Start',  desc: 'acceleration', base: 0.45, kind: 'pct', chapter: 'reef' },
+  accelRate:  { name: 'Quick Start',  desc: 'acceleration', base: 0.45, kind: 'pct', chapter: 'reef', cap: 1 },
   airMax:     { name: 'Big Lungs',    desc: 'Air capacity', base: 0.20, kind: 'pct', chapter: 'reef' },
   dashLength: { name: 'Jet Puff',     desc: 'dash length',  base: 0.15, kind: 'pct', chapter: 'reef' },
   // THE TWO HEALS, AND NEITHER OF THEM IS `regen` (owner, 2026-08-25: "add healing cards"). The Reef
@@ -2777,6 +2777,35 @@ export const PASSIVES = {
   cleanHeal:  { name: 'Clean Line',   desc: 'HP a second off the coral', base: 1, kind: 'flat', chapter: 'reef' },
 }
 export const MAX_PASSIVE_LEVEL = 5
+
+// DIMINISHING RETURNS, and `cap` is the whole of it (owner, 2026-08-26: "the cards upgrades should
+// be less potent (with diminishing returns) [...] there should be a diminishing return to +100%
+// speed, and +100% accel"). A capped passive APPROACHES its cap and never reaches it — what is left
+// of the gap shrinks by a constant FACTOR per point of bonus, so the ladder for a normal Turbo Fin
+// runs +10 / +18 / +26 / +33 / +39% where it used to run 10 / 20 / 30 / 40 / 50, and five normal
+// Quick Starts bank +89% instead of +225%.
+//   EXPONENTIAL AND NOT `have + bonus * (1 - have / cap)`, WHICH DIVERGES. The linear-remainder form
+// is the obvious way to write this and it is correct only while a single bonus stays under the cap:
+// a mythic Quick Start rolls 6.5 x 0.45 = 2.925 against a cap of 1, which drives the total PAST the
+// cap, after which `1 - have / cap` is negative and each further pick swings it further out — the
+// measured result was +2743% acceleration, i.e. a card that is 27x its own ceiling. Rarity is
+// exactly what makes an oversized bonus routine, so the formula has to be unconditionally
+// saturating rather than clamped after the fact.
+//   ORDER-INDEPENDENT BY CONSTRUCTION, which is not a nicety on a card that rolls a rarity: the gap
+// is multiplied by exp(-b / cap) per pick, and multiplication commutes — so a mythic-then-normal
+// build and its mirror end on the same number, and pick order can never be the tell.
+//   THE CAP IS ON THE BANKED TOTAL, NOT ON THE ROLL. A mythic Turbo Fin still lands the biggest
+// single step available (0 -> +96%); it just cannot leave the asymptote, and a sixth pick could
+// never take it past +100%. The first pick lands a hair under `base` by construction (+9.5% for a
+// normal Turbo Fin, not +10%) — the card prints the real total, so nothing advertises the base.
+//   ⚠ THE ONE PLACE THIS MAY BE APPLIED IS applyChoice, because run.passives[id] IS the applied
+// bonus every reader folds in directly (sim.js reads `1 + run.passives.topSpeed` and nothing else).
+// Fold it at a read site instead and the second read site drifts; fold it at both and it compounds.
+// makePassiveCard calls it only to SHOW the result, which is what the card's before/after arrow is.
+export const passiveTotal = (id, have, bonus) => {
+  const cap = PASSIVES[id]?.cap
+  return cap ? cap - (cap - have) * Math.exp(-bonus / cap) : have + bonus
+}
 
 // ---- Weapon mods (v4.1: weapon-mod parity) -------------------------------------
 // Every equipped weapon gets its own mod pool (star's original six, plus a matching set for
@@ -6895,7 +6924,7 @@ CHAPTERS.reef = {
   laneAxis: 'x',
   // THE CAR'S BASE SPEED, and on a ring that is ALL it is — the chapter dropped `lane: true`, so
   // nothing scrolls and this is simply what a throttle of 1 is worth. The band is this x
-  // laneThrottle: 90..540 px/s.
+  // laneThrottle: 76.5..459 px/s.
   //   ⚠ PLAYER.baseSpeed IS NOT THE REEF'S SPEED and a knob added there is inert. The circuit
   // branch in stepPlayerMovement builds the velocity out of laneScrollFor and the stick's
   // magnitude; `player.speed` never reaches it. (Proven the expensive way: a chapter speed
@@ -6904,7 +6933,15 @@ CHAPTERS.reef = {
   //  - CIRCUIT_DEFAULTS.accel is DEFINED against this number and was doubled with it; the air
   //    economy is denominated in pockets met per second and is now ~2x richer. crashSpeed WAS too
   //    and no longer is — see its own block for why the inward component is not half of top speed.
-  laneScroll: 180,
+  // 180 -> 153. Owner, 2026-08-26: "in the reef, you should start with 15% less speed". The car
+  // starts slower and Turbo Fin is what buys it back, which is what a CAPPED card changes about
+  // that trade (passiveTotal, beside PASSIVES): the ceiling a full build reaches is 2x this number,
+  // so the 15% moves the floor down and the cards can no longer run away from the ceiling.
+  //  - crashSpeed moved with it, because that knob is stated as an ANGLE against top speed.
+  //  - the air economy is denominated in pockets met per PX of track, so 15% slower is 15% fewer
+  //    pockets per second against an unchanged per-second drain.
+  // balance_decision : the car starts 15% slower and buys it back [2026-08-26]
+  laneScroll: 153,
   // THE THROTTLE (owner, 2026-08-24: "the move right / move left actions should actually make the
   // level scroll faster / slower", then "it should be wayyyy speedier, like 3x the speed"). The
   // stick's FORWARD component was doing nothing at all in a lane — only the cross axis was read —
@@ -9663,8 +9700,8 @@ export const LANE_STRAFE_MUL = 1.25      // strafe is a touch quicker than base 
 //
 // The comparison that governs the whole feel, and the one to sweep:
 //   CIRCUIT_SWIM_TIME  vs  mean seconds between swimthroughs at the pace the difficulty demands
-// Measured spacing is 528..1272px, i.e. 2.9..7.1s at 180px/s, so a top-up below ~3s can never keep
-// a clean lap alive and one above ~7s can never fail to.
+// Measured spacing is 528..1272px, i.e. 3.5..8.3s at the 153px/s the car now drives at, so a top-up
+// below ~3.5s can never keep a clean lap alive and one above ~8.3s can never fail to.
 // THE FOUR NUMBERS LIVE ON `CHAPTERS[id].circuit`, NOT HERE, and that placement is what makes them
 // sweepable. A primitive `export const` cannot be reassigned by a probe, so a knob grid over module
 // constants needs a source edit per cell — which is how a "measured" number ends up being whatever
@@ -9707,23 +9744,26 @@ export const CIRCUIT_DEFAULTS = {
   // be lost; at 3.5 the open-track braker starts dying too, which is the clock punishing SLOWNESS
   // rather than coral — the wrong axis, and the opposite of the chapter's own rule that the
   // punishment for coral is the clock (see CAVE_HIT_DPS's block).
+  //   4 -> 5 WITH laneScroll's 15%, AND IT IS THE SAME DECISION RATHER THAN A NEW ONE. The clock is
+  // denominated in SECONDS and the gates in PX, so cutting the car's speed re-prices every row of
+  // the grid above — measured at laneScroll 153, swimTime 4 killed the OPEN-TRACK braker 3 times
+  // out of 3 on a track with no coral in it at all, which is precisely the wrong axis this block
+  // rejected 3.5 for. The re-swept grid (reef-lap-probe, d1, 3 seeds, 7 gates x 5 laps):
+  //     swimTime          4    4.5    4.7      5
+  //     wall read/brake     0/3    0/3    0/3    1/3   <- hug the coral and brake: still loses
+  //     wall late/brake     0/3    1/3    3/3    3/3
+  //     wall read/flat      3/3    3/3    3/3    3/3   <- the clean line, never at risk
+  //     open read/brake     0/3    1/3    1/3    3/3   <- no coral: must never lose, and only 5 holds
+  // 5 is the lowest value that puts the open-track braker back at 3/3 while a coral-hugger can
+  // still be killed by the clock. clockStart/clockCap were swept with it and did not need to move:
+  // at 5 the clean policies sit at 31-37s mean clock against a 40s cap, i.e. the bank is still the
+  // ceiling it was.
   // balance_decision : the clock can be lost again, and only by hugging coral [2026-08-26]
   //  - swimTime is the knob here, NOT the gate count and NOT clockCap; the grid above was swept
   //    with the cap held at 40 and moving both would make neither readable.
-  // 4 -> 3.25 WITH lineMul BELOW, AND IT IS ONE DECISION RATHER THAN TWO. The grid above was
-  // swept when a lap paid 7 x swimTime; the start line paying double makes it 9 x, so leaving
-  // this at 4 raises a lap's clock income 28s -> 36s and hands the race back. MEASURED, same rig
-  // (reef-lap-probe, 6 seeds x 8 policies, mortal, finishes of 48):
-  //                            d1     d3     d5
-  //   4,   no line (shipped)  30/48  30/48  16/48
-  //   4,   line x2            36/48  38/48  24/48   <- the ask, unretuned: half the ladder gone
-  //   3.25 line x2            30/48  33/48  19/48   <- 9 x 3.25 = 29.3s a lap against 28
-  //   3,   line x2            27/48  28/48  10/48
-  // balance_decision : the line pays double, so a gate pays 3.25 not 4 [2026-08-26]
-  //  - the two are ONE lever: a lap now banks 9 x this, and retuning either alone moves the race
   clockStart: 40,    // seconds on the clock at the start line
   clockCap: 40,      // ...and the ceiling a swimthrough may top it back up to
-  swimTime: 3.25,    // seconds a swimthrough is worth
+  swimTime: 5,       // seconds a swimthrough is worth
   // THE START/FINISH LINE IS A CHECKPOINT TOO, AND IT PAYS DOUBLE (owner, 2026-08-26: "its
   // checkpoint doesn't work / doesn't add seconds to timer (should be twice the seconds of a
   // normal checkpoint)"). It has been drawn as a gate since gates were drawn and it paid nothing:
@@ -9748,8 +9788,11 @@ export const CIRCUIT_DEFAULTS = {
   // 30-degree stuff registered at all — every apex clip in the chapter was a free graze that took
   // HP and cost no speed, which is exactly "coral does nothing". 150 is sin(16deg): a glance still
   // slides, a stuff still costs you the corner.
+  // 150 -> 128 WITH laneScroll's 15%, and it is not a second decision: the paragraph above prices
+  // this knob as a SINE of top speed, so holding it still while the car slowed would quietly have
+  // tightened the crash angle to 19 degrees.
   // balance_decision : anything steeper than a 16-degree glance is a crash [2026-08-25]
-  crashSpeed: 150,   // px/s of inward cross speed that separates a crash from a brush
+  crashSpeed: 128,   // px/s of inward cross speed that separates a crash from a brush
   crashMul: 0.35,    // what a crash leaves of _laneSpeed
   // XP COMES FROM THE TRACK, NOT FROM KILLS (owner, playing v7.231: "no upgrades given in my run").
   // A racer drives PAST the crowd — that is what passiveCrowd is for — so the chapter had no xp
