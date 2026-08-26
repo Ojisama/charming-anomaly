@@ -24819,13 +24819,14 @@ function testReefCircuit() {
     Math.random = mulberry32(3)
     const r = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
     r.mods.spawnMul = 0
-    const cap = circuitKnob(ch, 'clockCap')
-    // A DRIVER WHO IS BEHIND ON TIME, and it is the only rig that can see this at all: clockStart
-    // and clockCap are the same 40, so a clean full-throttle race sits pinned at the ceiling and
-    // EVERY top-up is clipped by the Math.min — 0 readable lap crossings out of 4 (CT.f asserts
-    // that pinning from the other side). Starting the clock low is not a tune, it is the state any
-    // race is in the moment it stops being clean.
-    r.raceClock = 18
+    // THE CLOCK IS HELD DOWN, EVERY FRAME, and it is the only rig that can read a payout at all:
+    // clockStart and clockCap are the same 40 and a lap banks more than it spends, so a race sits
+    // PINNED at the ceiling and every top-up is clipped by the Math.min (CT.f asserts that pinning
+    // from the other side). Unheld this case saw 1 readable lap crossing out of 4. Not a tune —
+    // it is the state any race is in the moment it stops being clean, and the alternative is
+    // asserting a number the top-up never got to add.
+    const HELD = 15
+    r.raceClock = HELD
     const lineJumps = [], swimJumps = []
     for (let i = 0; i < 60 * 400; i++) {
       r.player.hp = r.player.maxHp
@@ -24834,13 +24835,10 @@ function testReefCircuit() {
       stepSim(r, trackStick(r, 1), dt)
       let laps = 0, swims = 0
       for (const e of r.events) { if (e.type === 'lap') laps++; if (e.type === 'swimthrough') swims++ }
-      // The cap is a Math.min, so a frame that clips it hides whatever it was paid — skip those
-      // rather than assert a number the top-up never got to add.
       const gain = (r.raceClock ?? 0) + dt - before
-      if ((r.raceClock ?? 0) < cap - 0.01) {
-        if (laps === 1 && swims === 0) lineJumps.push(gain)
-        if (laps === 0 && swims === 1) swimJumps.push(gain)
-      }
+      if (laps === 1 && swims === 0) lineJumps.push(gain)
+      if (laps === 0 && swims === 1) swimJumps.push(gain)
+      r.raceClock = Math.min(r.raceClock, HELD)
       r.events.length = 0
       if (r.phase === 'victory' || r.phase === 'dead') break
       if (r.phase === 'levelup') r.phase = 'playing'
