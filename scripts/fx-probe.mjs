@@ -67,6 +67,16 @@ if (!scenePath || !out) {
 const url = arg('url', 'http://127.0.0.1:5173/')
 const frames = +arg('frames', '1')
 const chapter = arg('chapter', 'city')
+// WHICH RUNG. It seeds the chapter's saved `difficulty`, which main.js reads to start the run — so
+// this is the shipped path, not a poke at the run afterwards. It matters for any chapter whose
+// ladder changes what is DRAWN rather than only what the numbers are: The Reef's narrows the
+// passage itself (CHAPTERS.reef.circuit.ladder), so a frame shot without saying which rung it is
+// is a frame of an unstated track.
+const difficulty = Number(arg('difficulty', '1'))
+if (!Number.isFinite(difficulty) || difficulty < 1 || difficulty > 5) {
+  console.error(`fx-probe: --difficulty must be 1..5, got ${arg('difficulty', '1')}`)
+  process.exit(1)
+}
 const waitMs = +arg('wait', '16000')
 const W = +arg('w', '390')
 const H = +arg('h', '844')
@@ -74,7 +84,7 @@ const H = +arg('h', '844')
 // trap (CLAUDE.md) silently degrades an unresolvable chapter id to Body at difficulty 1, and this
 // print is what would catch it if bootstrap's seeded `chapter` field were ever wrong. Confirmed
 // again below, against window.__run.chapter, once the page actually boots.
-console.log(`fx-probe: scene=${scenePath} chapter=${chapter} book=${bookOf(chapter) ?? 'book1'} frames=${frames} ${W}x${H}`)
+console.log(`fx-probe: scene=${scenePath} chapter=${chapter} d${difficulty} book=${bookOf(chapter) ?? 'book1'} frames=${frames} ${W}x${H}`)
 
 function findChrome() {
   if (process.env.CHROME_HEADLESS_SHELL) return process.env.CHROME_HEADLESS_SHELL
@@ -110,7 +120,7 @@ const bootstrap = `(() => {
   // without it throws and silently falls back to a fresh meta) — see CLAUDE.md.
   const chapters = {}
   for (const id of ['body', ${JSON.stringify(chapter)}]) {
-    chapters[id] = { unlocked: true, maxDifficulty: 5, difficulty: 1, best: { time: 0, kills: 0 } }
+    chapters[id] = { unlocked: true, maxDifficulty: 5, difficulty: ${difficulty}, best: { time: 0, kills: 0 } }
   }
   // dev: true (v7.x) so a WIP chapter can be probed at all. playableChapterId downgrades a book
   // marked \`wip\` to CHAPTER_ORDER[0] for any save without this flag, so without it --chapter shelf
@@ -342,7 +352,9 @@ if (!ready) die('scene never became ready — raise --wait, or check that the pa
 // (main.js) or a stale/garbage seed could otherwise have quietly landed on CHAPTER_ORDER[0].
 const actualChapter = await evaluate('window.__run && window.__run.chapter')
 if (actualChapter !== chapter) die(`asked for chapter=${chapter}, but window.__run.chapter=${actualChapter}`)
-console.log(`run.chapter confirmed: ${actualChapter}`)
+const actualD = await evaluate('window.__run && window.__run.difficulty')
+if (actualD !== difficulty) die(`asked for difficulty=${difficulty}, but window.__run.difficulty=${actualD} — the seeded ladder did not reach the run, so this frame is of the wrong rung`)
+console.log(`run.chapter confirmed: ${actualChapter} at d${actualD}`)
 
 for (let i = 0; i < frames; i++) {
   await evaluate(`window.__fxScrub(${frames > 1 ? (i / (frames - 1)).toFixed(4) : '0'})`)

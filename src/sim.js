@@ -150,7 +150,7 @@ import {
   CRAB_OPEN_T,
   CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
-  swimthroughsFor, circuitKnob,
+  swimthroughsFor, circuitKnob, caveSpecOf,
   ringXY, ringFU, ringHeading, ringCentre, ringDelta,
   caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY,
   LANE_CRUSH_DPS, LANE_CRUSH_TICK,
@@ -906,7 +906,7 @@ function stepPlayerMovement(run, input, dt) {
     // corner. The throttle is the MAGNITUDE (read off `len` below); this is only the direction.
     if (len > 1e-6) { run._headX = ix / Math.min(1, len); run._headY = iy / Math.min(1, len) }
     else if (run._headX == null) {
-      const spec0 = cch.cave
+      const spec0 = caveSpecOf(run)
       const h0 = spec0?.ring ? ringHeading(spec0, 0, run._obstacleSeed) : 0
       run._headX = Math.cos(h0); run._headY = Math.sin(h0)
     }
@@ -1827,7 +1827,7 @@ function stepCircuit(run, dt) {
   const ch = CHAPTERS[run.chapter]
   const cc = ch.circuit
   if (!cc) return false
-  const spec = ch.cave
+  const spec = caveSpecOf(run)
   const L = spec?.lapLen
   if (!L) return false
   if (!spec.ring) return false
@@ -2232,7 +2232,7 @@ function spawnEnemy(run, opts = {}) {
     // play. Spawning up the lane instead makes a seeker something you meet, dodge across, and leave
     // behind: the shmup contract, and the one that makes "you can only strafe" a game rather than a
     // countdown. Anything that does get past you is now genuinely past you.
-    if (CHAPTERS[run.chapter].cave?.ring && CHAPTERS[run.chapter].circuit) {
+    if (caveSpecOf(run)?.ring && CHAPTERS[run.chapter].circuit) {
       // TRAFFIC BELONGS IN THE ROAD (v7.x, The Reef's ring). The lane branch below used to do this
       // job and is gated on `lane`, which this chapter dropped when the track closed into a loop.
       // Spawning on the ordinary free-roam ring instead would put most of the crowd inside solid
@@ -2240,7 +2240,7 @@ function spawnEnemy(run, opts = {}) {
       //   AHEAD, and spread over the arc rather than pinned to one distance: a fish that is always
       // exactly a screen away arrives on a metronome. The window is converted from px to f at the
       // radius the PLAYER is at, because a hairpin's inner edge is a third shorter than r0.
-      const spec = CHAPTERS[run.chapter].cave
+      const spec = caveSpecOf(run)
       const fu = ringFU(spec, p.x, p.y)
       const rHere = Math.max(1, spec.ring.r0 - fu.u)
       const px = run.viewRadius + SPAWN_RING * (0.4 + Math.random() * 1.6)
@@ -2672,7 +2672,7 @@ function stepEnemyMovement(run, dt) {
       // track's own tangent where the fish IS, which is what ringHeading answers. It swims the way
       // you came, so the two of you close at your speed plus its own and it streams past: the whole
       // of "pass by", and the same sentence the lane version wrote as a single axis.
-      const ringSpec = CHAPTERS[run.chapter].cave
+      const ringSpec = caveSpecOf(run)
       let hx = 0, hy = 0
       if (ringSpec?.ring) {
         const h = ringHeading(ringSpec, ringFU(ringSpec, e.x, e.y).f, run._obstacleSeed)
@@ -4459,7 +4459,7 @@ export function streamShafts(run) {
   // whose bar has a single refill source.
   const spec = chanceMul === 1 ? spec0 : { ...spec0, chance: spec0.chance * chanceMul, ringChance: (spec0.ringChance ?? 0.7) * chanceMul }
   if (run._obstacleSeed == null) return
-  const ringCave = CHAPTERS[run.chapter].cave?.ring ? CHAPTERS[run.chapter].cave : null
+  const ringCave = caveSpecOf(run)?.ring ? caveSpecOf(run) : null
   if (ringCave) return streamRingPockets(run, spec, ringCave)
   const p = run.player
   const cs = spec.cell
@@ -4505,7 +4505,7 @@ export function streamShafts(run) {
       // out against a wall so that breathing cost a commitment to one side; the bar is now a
       // pacing device rather than a puzzle, so the pocket takes a hashed cross position and the
       // only clamp is that it stays off the rock.
-      const caveSpec = lax && CHAPTERS[run.chapter].cave
+      const caveSpec = lax && caveSpecOf(run)
       if (caveSpec) {
         const along = lax.fwd === 'x' ? bx : by
         const cav = caveAt(along, caveSpec, seed)
@@ -4584,7 +4584,7 @@ export function streamSpurs(run) {
   // to recross a boundary. The CAVE is the terrain here and has been since v7.213; this is the last
   // consumer of the braid it replaced. Cleared rather than merely skipped, so a field streamed
   // before the flag was read cannot be left on screen.
-  if (CHAPTERS[run.chapter].cave?.ring) {
+  if (caveSpecOf(run)?.ring) {
     if (run.spurs.length) { run.spurs.length = 0; run._spurRev = (run._spurRev || 0) + 1 }
     return
   }
@@ -4649,8 +4649,7 @@ const laneBehindPx = (run, ax) => (1 - LANE_CAMERA_FRAC) * 2 * (ax.fwd === 'x' ?
 // about where the wall is would be the drawn-vs-tested defect this repo keeps paying for. No
 // damage, no bounce, no event: this is a clamp, and the fish is scenery that now stays on the road.
 function clampCrowdToCave(run) {
-  const ch = CHAPTERS[run.chapter]
-  const spec = ch.cave
+  const spec = caveSpecOf(run)
   if (!spec?.ring) return
   const pf = ringFU(spec, run.player.x, run.player.y).f
   // HOW FAR BEHIND IS TOO FAR. The lane had stepLeaks and `sweepAstern` for this and both are gated
@@ -4682,7 +4681,7 @@ function clampCrowdToCave(run) {
 
 function stepCaveWall(run, dt) {
   const ch = CHAPTERS[run.chapter]
-  const spec = ch.cave
+  const spec = caveSpecOf(run)
   if (!spec?.ring) { run._caveHit = false; return false }
   const p = run.player
   // ONE CONVERSION, THEN THE ORIGINAL TEST UNCHANGED. Everything below this line is the corridor
@@ -4789,7 +4788,7 @@ function stepSpurs(run, dt) {
   // same 'scrape' source when the player touches a wall -- and running both would bill twice for
   // one touch. Left in place rather than deleted because the spur field is still a legitimate thing
   // for another chapter to declare without a cave around it.
-  if (CHAPTERS[run.chapter].cave) { run._scraping = false; return false }
+  if (caveSpecOf(run)) { run._scraping = false; return false }
   const ax = laneAxes(CHAPTERS[run.chapter])
   const p = run.player
   const f = p[ax.fwd], c = p[ax.cross]
