@@ -6994,11 +6994,11 @@ CHAPTERS.reef = {
   circuit: {
     laps: 5,
     ladder: {
-      1: { clock: 1,    width: 1    },
-      2: { clock: 0.96, width: 0.96 },
-      3: { clock: 0.92, width: 0.92 },
-      4: { clock: 0.88, width: 0.88 },
-      5: { clock: 0.84, width: 0.84 },
+      1: { clock: 1,    width: 1.40 },
+      2: { clock: 0.96, width: 1.18 },
+      3: { clock: 0.92, width: 1.00 },
+      4: { clock: 0.88, width: 0.84 },
+      5: { clock: 0.84, width: 0.70 },
     },
   },
   // THE LANE DROPS WHAT FALLS BEHIND (v7.x). Opt-in per chapter -- see stepLeaks for why the
@@ -7283,7 +7283,25 @@ CHAPTERS.reef = {
     //   IT WRAPS MOD ringCells, so a pocket is in the SAME PLACE every lap. On a circuit that is
     // the point — the track is a thing you learn — and it is also what stops a fresh roll appearing
     // where you already breathed.
-    pockets: { cell: 640, chance: 0.14, r: 90, minDist: 420, salt: 40, ringCells: 15, ringChance: 0.7 },
+    //
+    // ⚠ `grant` — A PICKUP, NOT A SOAK, AND A SOAK WAS THE WRONG SHAPE ON A CIRCUIT. Owner,
+    // 2026-08-26: "bubble should just give 25 air when you pass through it, remove the 'stay in it
+    // to get more' part."
+    //   Until now a vent paid `resource.refill` per second of OCCUPANCY, capped by the book-wide
+    // drawdown at a third of the bar. On a lane that reads as a generous pool. On a circuit it
+    // quietly pays you to STOP: a pocket is 180px across and a full-throttle racer covers that in
+    // 0.32s, so the fastest driver took about 6 air out of a vent while a driver who parked in one
+    // took 35 — six times as much, for doing the one thing a race is about not doing. The chapter's
+    // whole rule is that the punishment for coral is the clock; nothing in it should reward braking
+    // for a pickup.
+    //   A flat grant on ENTRY makes the vent worth the same to everybody, which is what a pickup is,
+    // and is a straight FOUR-FOLD raise for anyone actually racing. It is taken once per visit —
+    // `sh.taken`, on the streamed shaft — so it cannot be farmed by circling; and because the field
+    // wraps mod ringCells, the same vent is live again on your next lap, which is the behaviour a
+    // circuit wants.
+    // balance_decision : the vent is a pickup, taken once, worth 25 of 100 [2026-08-26]
+    //  - stepCharge reads `grant` INSTEAD of the per-second refill, never as well as it
+    pockets: { cell: 640, chance: 0.14, r: 90, minDist: 420, salt: 40, ringCells: 15, ringChance: 0.7, grant: 25 },
   },
 
   // SPUR AND GROOVE (level design spec 2026-08-20, rev 4). The reef front as this game's only
@@ -8296,10 +8314,15 @@ CHAPTERS.deep = {
 //   wreck  — no refill field at all; Bloodlust is fed by killing.
 //   trawl  — its food is the net's wake, which is not a place and cannot be used up.
 //   deep   — exempt: see the ⚠ at CHAPTERS.deep.signature. The maw already takes itself away.
+//   reef   — exempt since 2026-08-26, and it is the ruling's OWN SPIRIT rather than an escape from
+//            it. The owner: "bubble should just give 25 air when you pass through it, remove the
+//            'stay in it to get more' part." A vent still disappears once it has given you a share
+//            of the bar; it just hands the whole share over at the moment you touch it instead of
+//            metering it out. See CHAPTERS.reef.signature.pockets.grant for why a soak is the wrong
+//            shape on a circuit specifically.
 for (const [id, spec] of [
   ['shelf', CHAPTERS.shelf.signature],                 // upwellings: was a flat 5s, now the book's rule
   ['twilight', CHAPTERS.twilight.signature],           // sun shafts
-  ['reef', CHAPTERS.reef.signature.pockets],           // air pockets
 ]) spec.drawdownSecs = spendSecs(CHAPTERS[id].resource)
 
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
@@ -11409,6 +11432,13 @@ export const refillSpec = (sig) => (sig?.type === 'shafts' ? sig : (sig?.pools ?
 // 0 for every field but The Shelf's, where a circle simply cannot be spent.
 export const drawdownSecsFor = (run) =>
   (refillSpec(CHAPTERS[run?.chapter]?.signature)?.drawdownSecs ?? 0) * (run?.mods?.refillSpendMul ?? 1)
+
+// How much a refill field hands over the MOMENT you touch it, or 0 for a field that pays by the
+// second instead. Read through refillSpec for the same reason drawdownSecsFor is: the streamer and
+// the economy must ask the field the same question, or the circle you can see is running a
+// different rule from the one feeding you. Non-zero on The Reef alone — see its pockets block.
+export const refillGrantFor = (run) =>
+  refillSpec(CHAPTERS[run?.chapter]?.signature)?.grant ?? 0
 
 // DOES THIS CHAPTER NEED run._obstacleSeed? Six streamers hash off that one seed — obstacles,
 // eddies, traps, refill circles, sandbars and The Reef's spur field — but createRun used to draw it
