@@ -9761,9 +9761,21 @@ export const CIRCUIT_DEFAULTS = {
   // balance_decision : the clock can be lost again, and only by hugging coral [2026-08-26]
   //  - swimTime is the knob here, NOT the gate count and NOT clockCap; the grid above was swept
   //    with the cap held at 40 and moving both would make neither readable.
+  // 5 -> 4 WITH lineMul BELOW, AND IT IS ONE DECISION RATHER THAN TWO. Every grid above was swept
+  // when a lap paid 7 x swimTime; the start line paying double makes it 9 x, so leaving this at 5
+  // raises a lap's clock income 35s -> 45s and hands the race straight back. MEASURED on top of
+  // laneScroll 153 (reef-lap-probe, 6 seeds x 8 policies, MORTAL, finishes of 48):
+  //                       d1     d3     d5
+  //   5, no line         26/48  22/48  10/48   <- v7.243, the race this is measured against
+  //   5, line x2         30/48  30/48  19/48   <- the ask, unretuned: d5 nearly doubles
+  //   4, line x2         26/48  22/48  10/48   <- 9 x 4 = 36s a lap against 35
+  //   4 lands on the shipped race EXACTLY, on all three rungs, which is the whole point of the
+  // retune: the line becoming a checkpoint is a thing the player can SEE, not a difficulty change.
+  // balance_decision : the line pays double, so a gate pays 4 not 5 [2026-08-26]
+  //  - the two are ONE lever: a lap banks 9 x this now, and moving either alone moves the race
   clockStart: 40,    // seconds on the clock at the start line
   clockCap: 40,      // ...and the ceiling a swimthrough may top it back up to
-  swimTime: 5,       // seconds a swimthrough is worth
+  swimTime: 4,       // seconds a swimthrough is worth
   // THE START/FINISH LINE IS A CHECKPOINT TOO, AND IT PAYS DOUBLE (owner, 2026-08-26: "its
   // checkpoint doesn't work / doesn't add seconds to timer (should be twice the seconds of a
   // normal checkpoint)"). It has been drawn as a gate since gates were drawn and it paid nothing:
