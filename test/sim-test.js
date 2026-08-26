@@ -84,7 +84,7 @@ import {
   QUILL_R, QUILL_REBOUND_SPEED_MUL, REBOUND_MAX_PICKS,
   ROAR_RESONANCE_EVERY, STAGGER_STUN_PER_PICK, PULSAR_ARMS,
   DISTRICTS, districtAt, districtTintAt, DISTRICT_STRUCTURE_KINDS,
-  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, circuitKnob, swimthroughsFor, SWIMTHROUGHS_PER_LAP, CIRCUIT_GATE_VIS, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
+  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, circuitKnob, circuitLadder, caveSpecOf, swimthroughsFor, SWIMTHROUGHS_PER_LAP, CIRCUIT_GATE_VIS, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
@@ -24115,7 +24115,10 @@ function testReefCircuit() {
   // a lap. Island-aware for the reason CT.g's own block spells out: caveAt's `c` IS the island
   // where the passage forks, so aiming at the centre is aiming at rock.
   const trackStick = (run, thr, ahead = 150) => {
-    const sp = CHAPTERS.reef.cave
+    // THE RUN'S OWN TRACK. CHAPTERS.reef.cave is the d1 corridor; the difficulty ladder narrows a
+    // run's copy of it (createRun), so steering off the chapter's spec would aim this driver at
+    // walls the run does not have the moment CT.l drives a rung above 1.
+    const sp = caveSpecOf(run)
     const fu = ringFU(sp, run.player.x, run.player.y)
     const fA = fu.f + (ahead * sp.lapLen) / (2 * Math.PI * Math.max(1, sp.ring.r0 - fu.u))
     const cav = caveAt(fA, sp, run._obstacleSeed)
@@ -24127,10 +24130,10 @@ function testReefCircuit() {
   }
   const drive = (thr, opts = {}) => {
     Math.random = mulberry32(opts.seed ?? 3)
-    const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+    const run = createRun(makeMeta(), { chapter: 'reef', difficulty: opts.difficulty ?? 1 })
     run.mods.spawnMul = 0
     const laps = [], swims = [], levels = []
-    let peakClock = 0
+    let peakClock = 0, wallFrames = 0, frames = 0
     for (let i = 0; i < 60 * 400; i++) {
       run.player.hp = run.player.maxHp          // immortal: this measures the circuit, not survival
       // ...AND EMPTY, WHICH mods.spawnMul = 0 ABOVE DOES NOT ACHIEVE HERE — the reef still streamed
@@ -24141,6 +24144,8 @@ function testReefCircuit() {
       for (const q of run.enemies) q._dead = true
       stepSim(run, trackStick(run, thr), dt)
       peakClock = Math.max(peakClock, run.raceClock ?? 0)
+      frames++
+      if (run._caveHit) wallFrames++
       for (const e of run.events) {
         if (e.type === 'lap') laps.push(e)
         if (e.type === 'swimthrough') swims.push(e)
@@ -24149,7 +24154,7 @@ function testReefCircuit() {
       if (run.phase === 'victory' || run.phase === 'dead') break
       if (run.phase === 'levelup') { levels.push(run.lap ?? 0); run.phase = 'playing' }   // the cards are not this scenario's subject
     }
-    return { run, laps, swims, peakClock, levels }
+    return { run, laps, swims, peakClock, levels, wallFrames, frames, secs: frames * dt }
   }
 
   // (a) THE CHECKPOINTS ARE THE SQUEEZES, and they are spread rather than clustered. The count is
@@ -24714,6 +24719,103 @@ function testReefCircuit() {
     assert.strictEqual(solo.r.player.level, solo.before.level + (solo.r.lap > 0 ? 1 : 0),
       `run CT.k: ${solo.crossed} checkpoints and ${solo.r.lap} lap(s) moved the player to level ${solo.r.player.level} from ${solo.before.level} — a checkpoint must pay no xp at all now`)
     console.log(`PASS run CT.k (one lap, one level): a ${ch.circuit.laps}-lap race opens ${fast.levels.length} level-up screens, one on each of laps ${fast.levels.join('/')} and none on the lap that wins; ${solo.crossed} checkpoints crossed before the first lap moved the bar by 0`)
+  }
+
+  // (l) THE DIFFICULTY LADDER IS THE RACE'S, NOT THE ROSTER'S.
+  //
+  // Every other chapter climbs on difficultyHpMul/difficultyDmgMul/difficultyCoinMul, and all three
+  // are INERT here: `weapons: []` means nothing can be killed so enemy HP is a number no card reads,
+  // `passiveCrowd` multiplies enemy damage by 0 so the damage tax is 1.6 x 0, and every coin drops
+  // in dealDamage's death branch so the coin tax pays out on a purse of 5. The chapter shipped with
+  // a five-rung ladder on which d1 and d5 measured BYTE-IDENTICAL over 8 driving policies. So the
+  // ladder taxes what a race has: TIME (mods.raceClockMul, the term tidalRace already uses) and ROOM
+  // (halfMin/halfMax on the run's own cave spec).
+  //
+  // ⚠ WHAT MAKES THIS A DIFFICULTY KNOB RATHER THAN A DIFFERENT TRACK is that both ends of the
+  // passage scale by the SAME factor. hw is halfMin + (halfMax - halfMin) * t, so one factor on both
+  // scales hw uniformly and leaves the centreline, the wobble, the fork and the ordering of the
+  // local minima untouched — swimthroughsFor therefore picks the same seven checkpoints at every
+  // rung and a player's learned line still holds at d5. Scale one end only and the width field
+  // changes shape, the minima reorder, and d5 becomes a circuit nobody has driven before. That is
+  // the first assertion below, and it is the one a plausible "just make it narrower" edit fails.
+  {
+    const rungs = [1, 2, 3, 4, 5].map((d) => circuitLadder(ch, d))
+    assert.ok(rungs.every((r, i) => i === 0 || (r.clock <= rungs[i - 1].clock && r.width <= rungs[i - 1].width)),
+      `run CT.l: the reef ladder is not monotone (${rungs.map((r) => `${r.clock}/${r.width}`).join(' ')}) — a rung that is easier than the one below it is a ladder in name only`)
+    assert.ok(rungs[0].clock === 1 && rungs[0].width === 1,
+      'run CT.l: difficulty 1 no longer reproduces the base race — d1 IS the shipped circuit by construction, and every number measured for it was measured there')
+    assert.ok(rungs[4].clock < 1 && rungs[4].width < 1,
+      `run CT.l: the top rung costs clock x${rungs[4].clock} width x${rungs[4].width} — one of the two halves of the ladder is not wired, and an inert half is exactly the defect this scenario exists for`)
+
+    // SAME TRACK, LESS ROOM. Asserted over every seed the other cases use, because a width field
+    // whose minima reorder would still look fine on one.
+    //   ⚠ THE SPECS COME FROM createRun, NEVER BUILT HERE. Written the obvious way — a `narrow`
+    // composed in this file from spec.halfMin * W — the whole check is the test's own arithmetic
+    // compared against itself, and it passed a mutation that scaled ONE end of the passage: the
+    // formula the test asserts and the formula the game runs were two different formulas, and only
+    // one of them was under test. Same trap as CT.j's anchor, one case earlier in this file.
+    const W = rungs[4].width
+    const specOfRun = (d) => { Math.random = mulberry32(91); return caveSpecOf(createRun(makeMeta(), { chapter: 'reef', difficulty: d })) }
+    const wide = specOfRun(1), narrow = specOfRun(5)
+    // NAMED BEFORE IT IS READ. Without this the missing-field case (createRun computes the narrowed
+    // spec but never lands it on the run under the name every reader uses) surfaces as a TypeError
+    // on `wide.halfMin` — a red suite that says nothing about a chapter driving the wrong track.
+    assert.ok(wide && narrow,
+      'run CT.l: caveSpecOf came back empty for a reef run — createRun is not putting the narrowed spec on run.caveSpec under that name, so every reader in sim.js and render.js silently has no track at all')
+    assert.deepStrictEqual({ lo: wide.halfMin, hi: wide.halfMax }, { lo: spec.halfMin, hi: spec.halfMax },
+      `run CT.l: a d1 run drives a ${wide.halfMin}-${wide.halfMax} passage against the chapter's own ${spec.halfMin}-${spec.halfMax} — d1 must BE the base race`)
+    let worstRatio = 0, movedGates = 0, gateN = 0
+    for (const seed of [0, 3, 7, 11]) {
+      const gw = swimthroughsFor(wide, seed).map((s) => s.f)
+      const gn = swimthroughsFor(narrow, seed).map((s) => s.f)
+      gateN += gw.length
+      movedGates += gw.length === gn.length ? gw.filter((f, i) => f !== gn[i]).length : gw.length
+      for (let i = 0; i < 300; i++) {
+        const f = (i / 300) * LAP
+        worstRatio = Math.max(worstRatio, Math.abs(caveAt(f, narrow, seed).hw / caveAt(f, wide, seed).hw - W))
+      }
+    }
+    assert.ok(gateN > 20, `run CT.l: only ${gateN} checkpoints across the seeds — this half is asserting nothing`)
+    assert.strictEqual(movedGates, 0,
+      `run CT.l: narrowing the passage moved ${movedGates} of ${gateN} checkpoints — the ladder is generating a DIFFERENT circuit per difficulty, not a tighter one, so nothing a player learns at d1 transfers`)
+    assert.ok(worstRatio < 1e-9,
+      `run CT.l: hw scales by ${(W + worstRatio).toFixed(4)} rather than ${W} somewhere on the lap — the two ends of the passage are not moving together, which reshapes the width field instead of tightening it`)
+
+    // ...AND IT REACHES THE RACE. State proves the table; only a driven run proves the wiring, and
+    // the two halves fail differently on purpose: the same throttle that WINS at d1 must lose at d5
+    // (the clock), and the same centreline that never touches coral at d1 must start clipping it
+    // (the room). A ladder with only its clock half wired passes the first and fails the second.
+    const easy = drive(0.8, { seed: 3, difficulty: 1 })
+    const hard = drive(0.8, { seed: 3, difficulty: 5 })
+    assert.strictEqual(easy.run.phase, 'victory',
+      `run CT.l: the reference drive ended '${easy.run.phase}' at d1 — if it cannot win the base race there is no flip to measure`)
+    assert.strictEqual(hard.run.phase, 'dead',
+      `run CT.l: the same drive that wins at d1 still wins at d5 (${hard.secs.toFixed(0)}s, lap ${hard.run.lap}) — the ladder does not reach the race`)
+    assert.ok(hard.wallFrames > easy.wallFrames + 20,
+      `run CT.l: that drive clipped coral for ${easy.wallFrames} frames at d1 and ${hard.wallFrames} at d5 — the WIDTH half of the ladder is not reaching the wall test, so the whole ladder is riding on the clock`)
+
+    // MONOTONE IN SURVIVAL, not merely different at the ends. A ladder that jumps at d5 and does
+    // nothing at d2/d3/d4 is three dead rungs, and no single-pair assertion can see that.
+    const ramp = [1, 2, 3, 4, 5].map((d) => drive(0.7, { seed: 3, difficulty: d }).secs)
+    assert.ok(ramp.every((s, i) => i === 0 || s <= ramp[i - 1] + 1e-9),
+      `run CT.l: survival at a fixed throttle runs ${ramp.map((s) => s.toFixed(0)).join('s > ')}s across the rungs — a rung that outlives the one below it is not a difficulty step`)
+    assert.ok(ramp[0] - ramp[4] > 30,
+      `run CT.l: the whole ladder is worth ${(ramp[0] - ramp[4]).toFixed(0)}s of survival at a fixed throttle — too small to be felt, which is how the shared HP/damage/coin ladder failed this chapter in the first place`)
+
+    // BOTH SIDES DRIVE THE RUN'S TRACK. The spec is per-RUN now, and a bare CHAPTERS[x].cave read
+    // left anywhere in sim or render is the d1 corridor: in sim.js that collides the player against
+    // walls the ladder moved, and in render.js it draws coral that is not where the coral is. Nothing
+    // throws either way — this is the repo's largest defect class, one fact authored in two places —
+    // so the only guard is the source.
+    for (const [name, file] of [['sim.js', '../src/sim.js'], ['render.js', '../src/render.js']]) {
+      const src = readFileSync(new URL(file, import.meta.url), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+      assert.ok(/caveSpecOf\(run\)/.test(src), `run CT.l: ${name} never calls caveSpecOf(run) — it cannot be reading the run's own track`)
+      const bare = src.match(/[A-Za-z0-9_\]]\??\.cave\b/g) ?? []
+      assert.strictEqual(bare.length, 0,
+        `run CT.l: ${name} still reads the CHAPTER's cave spec ${bare.length} time(s) (${[...new Set(bare)].join(', ')}) — that is the d1 corridor, so above d1 ${name === 'sim.js' ? 'the player collides with walls the ladder moved' : 'the coral drawn is not the coral that stops you'}`)
+    }
+    console.log(`PASS run CT.l (the ladder taxes time and room): d5 costs clock x${rungs[4].clock}/width x${rungs[4].width}, leaving all ${gateN} checkpoints where they were and hw scaling uniformly; the throttle that wins at d1 dies on lap ${hard.run.lap} at d5, coral contact goes ${easy.wallFrames}->${hard.wallFrames} frames, and survival falls ${ramp.map((s) => s.toFixed(0)).join('->')}s across the five rungs`)
   }
 
   console.log(`PASS run CT (the circuit): ${SWIMTHROUGHS_PER_LAP} swimthroughs a lap on 4 seeds, ${Math.min(...picked.map((s) => s.hw)).toFixed(0)}-${Math.max(...picked.map((s) => s.hw)).toFixed(0)}px wide against a ${spec.halfMin}-${spec.halfMax} passage and never closer than 400px apart; full throttle finishes ${ch.circuit.laps} laps in ${fast.run.raceTime.toFixed(2)}s real (splits ${splits.map((s) => s.toFixed(1)).join('/')}, spread ${spread.toFixed(2)}s) crossing all ${fast.swims.length} checkpoints; easing off dies to the clock at ${slow.run._realTime.toFixed(1)}s; The Beyond grows neither clock nor lap`)

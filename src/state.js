@@ -4,7 +4,7 @@ import {
   difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, ALL_CHAPTER_IDS, CHAPTERS,
   chapterMaxDifficulty, resolveChapterId,
   EARLY_CALM, MAX_CHOICE_SLOTS,
-  OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS, ringCentre,
+  OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS, ringCentre, circuitLadder,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, ORCA_SHADOW_FIRST, ORCA_SHADOW_PASSES,
   BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, CURRENT_RESIST_FLOOR, unlockLevel, unlockMax,
@@ -1267,6 +1267,15 @@ function generateWells(sig) {
  *   circuit.kickDrag px/s². The only impulse in the chapter that survives a frame — every other is
  *   erased by that same velocity rewrite, which is why both impacts used to be position teleports.
  *   Written by whatever hit you and spent by the movement step; nothing else touches them.
+ * caveSpec: object|undefined — THE TRACK THIS RUN IS DRIVING, which is not always its chapter's.
+ *   CHAPTERS[id].cave with the difficulty ladder's width applied to halfMin and halfMax (see
+ *   CHAPTERS.reef.circuit.ladder), frozen, set once here and never written again. Undefined for a
+ *   chapter with no cave.
+ *   ⚠ EVERY READER GOES THROUGH caveSpecOf(run), INCLUDING render.js. A bare CHAPTERS[x].cave read
+ *   left anywhere is the d1 corridor: in sim.js that collides the player against walls the ladder
+ *   moved, and in render.js it draws coral somewhere other than where the coral is. Neither throws.
+ *   run CT.l lints both files for it, and caveSpecOf deliberately has no fallback so a field that
+ *   goes missing crashes instead of quietly handing back the easy track.
  * ---- The circuit (v7.x, The Reef). All four exist only where CHAPTERS[id].circuit is set. ----
  * lap: number — completed laps, 0..circuit.laps. A DISTANCE, not a counter: the track repeats every
  *   cave.lapLen, so this is floor(along / lapLen) and nothing can desynchronise it from the world.
@@ -2233,6 +2242,25 @@ export function createRun(meta, opts = {}) {
   mods.enemyHpMul *= difficultyHpMul(difficulty)
   mods.enemyDmgMul *= difficultyDmgMul(difficulty)
   mods.coinMul *= difficultyCoinMul(difficulty)
+  // A CIRCUIT CLIMBS ON TIME AND ROOM, because the three taxes above are all inert on one (see
+  // CHAPTERS.reef.circuit.ladder for the measurement — an unarmed chapter with passiveCrowd cannot
+  // feel an HP, damage or coin multiplier, and d1 vs d5 measured byte-identical). The clock half
+  // goes through raceClockMul rather than a new term so it composes with MUTATORS.tidalRace by
+  // plain multiplication; the width half becomes the run's own cave spec, below.
+  const ladder = circuitLadder(CHAPTERS[chapter], difficulty)
+  mods.raceClockMul *= ladder.clock
+  // THE RUN'S OWN TRACK. Both ends of the passage scale by the same factor, which is what makes this
+  // a margin change and not a different circuit: hw is halfMin + (halfMax - halfMin) * t, so one
+  // factor on both scales hw uniformly and leaves the centreline, the wobble, the fork and the
+  // ordering of the local minima alone — swimthroughsFor therefore picks the SAME seven checkpoints
+  // at every rung, just narrower ones, and a player's learned line still holds at d5.
+  //   Frozen with Object.freeze because it is READ from a dozen places in sim.js and render.js and
+  // written from exactly one (here). A spec that some later frame edits in place would change the
+  // track under a run already driving it.
+  const chapterCave = CHAPTERS[chapter]?.cave
+  const caveSpec = chapterCave && Object.freeze(ladder.width === 1
+    ? { ...chapterCave }
+    : { ...chapterCave, halfMin: chapterCave.halfMin * ladder.width, halfMax: chapterCave.halfMax * ladder.width })
   // Chapter snapshot (v5.0, see CHAPTERS in config.js): opts.chapter (default 'body') picks the
   // chapter's starter weapon and, via CHAPTERS[run.chapter].weapons, scopes sim.js's level-up
   // weapon pool (weaponCandidates/buildLevelUpChoices) to that chapter's natives for the whole
@@ -2301,6 +2329,11 @@ export function createRun(meta, opts = {}) {
     events: [],
     chapter,
     difficulty,
+    // The track this run is driving — the chapter's, with the difficulty ladder's width applied.
+    // Undefined for a chapter with no cave. caveSpecOf(run) (config.js) is the read; nothing in
+    // sim.js or render.js may reach for CHAPTERS[run.chapter].cave instead, or the coral drawn
+    // stops being the coral that stops you (run CT.l lints exactly that).
+    caveSpec,
     // COSMETIC ONLY - nothing in sim.js reads it. render.js latches it in reset() beside playerForm
     // and swaps the player's baked body for the cheeks one; the skin is bought per BOOK, like every
     // other shop line, so it dresses whichever body this book uses. DEV wears it outright, same
@@ -2324,8 +2357,8 @@ export function createRun(meta, opts = {}) {
     // than baked into the chapter: caveAt hashes its phases off that seed, so `null` would put the
     // start line on a DIFFERENT track from the one the run generates.
     player: {
-      ...(CHAPTERS[chapter]?.cave?.ring
-        ? ringCentre(CHAPTERS[chapter].cave, 0, obstacleSeed)
+      ...(caveSpec?.ring
+        ? ringCentre(caveSpec, 0, obstacleSeed)
         : { x: 0, y: 0 }),
       hp: maxHP, maxHP,
       speed: PLAYER.baseSpeed * (1 + shopBonus(bm, bookId, 'moveSpeed')),

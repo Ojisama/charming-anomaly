@@ -6944,7 +6944,63 @@ CHAPTERS.reef = {
   // balance_decision : five laps, and a level-up screen on each of the first four [2026-08-26]
   //  - the lap is now the XP till (CIRCUIT_DEFAULTS has no swimXp any more), so this number IS the
   //    build: change it and the player gets a different number of cards.
-  circuit: { laps: 5 },
+  // THE DIFFICULTY LADDER, AND THIS CHAPTER NEEDED ITS OWN BECAUSE THE SHARED ONE IS INERT HERE.
+  // Every other chapter climbs on difficultyHpMul/difficultyDmgMul/difficultyCoinMul, and MEASURED
+  // against The Reef all three are no-ops: `weapons: []` means nothing can be killed so doubling
+  // enemy HP moves a number no card reads, `passiveCrowd` multiplies enemy damage by 0 so the damage
+  // tax is 1.6 x 0, and every coin in the game drops in dealDamage's death branch so the coin tax
+  // pays out on a purse of 5 (runBonusCoins(0, level)). The lap probe agreed from the other side:
+  // difficulty 1 and difficulty 5 produced BYTE-IDENTICAL output across 8 driving policies x 3
+  // seeds. The chapter shipped with a five-rung ladder that did nothing at all on any rung.
+  //
+  // What a race can actually be taxed on is time and room, so the ladder moves both:
+  //   clock — folded into mods.raceClockMul, the SAME term MUTATORS.tidalRace already uses, so it
+  //           scales clockStart, clockCap and swimTime together and the two compose multiplicatively
+  //           rather than needing a second mechanism.
+  //   width — halfMin and halfMax scaled TOGETHER, which is what keeps this a difficulty knob and
+  //           not a different track. hw is halfMin + (halfMax - halfMin) * t, so one factor on both
+  //           ends scales hw uniformly: the centreline, the wobble, the fork placement and the
+  //           ordering of the local minima are all untouched, so swimthroughsFor picks the SAME
+  //           seven checkpoints at every rung and a player's learned racing line still holds. Only
+  //           the margin either side of it shrinks.
+  //
+  // ⚠ THE TWO CLOCK KNOBS ARE ONE LEVER, NOT TWO. A driver dies when mean lap time exceeds
+  // 7 * swimTime + clockStart / laps, so 1s of checkpoint time is worth 35s of starting bank and a
+  // ladder that moved them separately would be double-counting. That formula predicted every row of
+  // the sweep. The CAP alone is very nearly inert on top of that: traced over a full race, drivers
+  // sit pinned at it 1-9% of the time, so lowering the ceiling without the start changes nothing —
+  // and a cap below the current clock makes crossing a checkpoint SUBTRACT time, since the top-up is
+  // Math.min(cap, clock + swimTime).
+  //
+  // MEASURED — scripts/reef-lap-probe.mjs, 8 driving policies x 6 seeds, every rung, both rigs.
+  // Finishes of 48, and the three rows that carry the whole design:
+  //
+  //                          d1     d2     d3     d4     d5
+  //   all policies, mortal  29/48  26/48  22/48  21/48  15/48
+  //   clean fast line        6/6    6/6    6/6    6/6    5/6   <- still winnable at the top
+  //   corner-cutter          5/6    4/6    3/6    3/6    2/6   <- dies to SCRAPE, the width ladder
+  //   slow but tidy          5/6    5/6    2/6    1/6    0/6   <- dies to CLOCK, the clock ladder
+  //
+  // Two different drivers failing for two different reasons is the point rather than a side effect.
+  // The clock punishes SLOWNESS — which on an open lap means a careful driver who never touched
+  // anything — while the walls punish CORAL. This chapter's own rule is that the punishment for
+  // coral is the clock, so a ladder built only on the clock would climb the wrong axis, and one
+  // built only on the walls would let a driver dawdle round a clean line forever.
+  //   SIX SEEDS, NOT THREE, AND THAT IS NOT CEREMONY. At three the gradient was NOT monotone (d4
+  // read easier than d3) because one borderline policy flips a whole 1/3 on a single seed. The
+  // rungs are 4 points apart; the noise was bigger than the step.
+  // balance_decision : reef ladder taxes time and room, not HP [2026-08-26]
+  //  - d1 is exactly the shipped v7.240 race, by construction: both multipliers are 1.
+  circuit: {
+    laps: 5,
+    ladder: {
+      1: { clock: 1,    width: 1    },
+      2: { clock: 0.96, width: 0.96 },
+      3: { clock: 0.92, width: 0.92 },
+      4: { clock: 0.88, width: 0.88 },
+      5: { clock: 0.84, width: 0.84 },
+    },
+  },
   // THE LANE DROPS WHAT FALLS BEHIND (v7.x). Opt-in per chapter -- see stepLeaks for why the
   // default must stay off. The Reef needs it and The Beyond does not: this roster's moray moves
   // 39px/s against a 45px/s advance, so it falls astern BY CONSTRUCTION and can never return,
@@ -9782,6 +9838,26 @@ export const CIRCUIT_GATE_VIS = {
 
 /** Read a circuit knob for a chapter, falling back to the shared default. */
 export const circuitKnob = (ch, key) => ch?.circuit?.[key] ?? CIRCUIT_DEFAULTS[key]
+
+// What difficulty d costs on a circuit chapter — see CHAPTERS.reef.circuit.ladder for why a race
+// needs its own ladder at all. Returns all-1 for a chapter with no ladder and for any d off the
+// end, so a circuit that never declares one behaves exactly as it did before this existed, and a
+// save carrying a difficulty past the table's last rung lands on the base race rather than on
+// `undefined.clock`. CLAMPED rather than extrapolated: an unbounded ladder invents a rung nobody
+// swept.
+export const circuitLadder = (ch, d) => ch?.circuit?.ladder?.[Math.max(1, Math.round(Number(d) || 1))] ?? { clock: 1, width: 1 }
+
+// The cave spec a RUN is actually driving, which is not always its chapter's. The difficulty ladder
+// scales halfMin/halfMax per run (createRun, state.js), so `CHAPTERS[run.chapter].cave` is the d1
+// track and reading it anywhere else draws or collides against walls the player does not have.
+// Both sides must agree or the coral you can see is not the coral that stops you — run CT.l lints
+// sim.js and render.js for bare reads to keep that from drifting back.
+//   NO `?? CHAPTERS[run.chapter].cave` FALLBACK, DELIBERATELY. createRun sets caveSpec on every run
+// (undefined for a chapter that has no cave), so a fallback could only ever fire when the field went
+// missing — and what it would do there is silently hand back the d1 corridor, which is the exact
+// bug it looks like a guard against. Without it the same slip early-returns stepCaveWall and is
+// loud. Mutation-proved: run CT.l's N6 renames the field.
+export const caveSpecOf = (run) => run.caveSpec
 
 // THE LANE HAS WALLS, and this is the correction that makes the chapter playable at all. Rev.1 had
 // an unbounded lane with ranks 900px wide centred on the player: on a phone (viewRadius ~465) most

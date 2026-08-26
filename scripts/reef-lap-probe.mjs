@@ -37,13 +37,24 @@
 // overrides `res.drainPerSpawn`. Sweeping them needs a source change first; noted, not worked around.
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim, applyChoice } from '../src/sim.js'
-import { CHAPTERS, caveAt, ringFU, ringXY, bookOf, shopLines } from '../src/config.js'
+import { CHAPTERS, caveAt, ringFU, ringXY, bookOf, shopLines, circuitKnob, circuitLadder } from '../src/config.js'
 
 const CH = 'reef'
 const DT = 1 / 60
 const MAX_SECS = 300   // safety valve only — every policy below either finishes or dies to the
                         // clock well under this; a run that hits it prints 'timeout', not a number
-const SEEDS = [1001, 2002, 3003]   // fixed, same list as reef-astern.mjs/reef-pileup.mjs
+// FIXED, and the first three are the same list as reef-astern.mjs/reef-pileup.mjs so a row here can
+// be compared with a row there. --seeds=N takes the first N of the extended list: three is enough to
+// rank two tracks against each other, but NOT enough to call a ladder monotone — a policy sitting on
+// the edge of the clock flips a whole 1/3 on one seed, which reads as a rung being easier than the
+// one below it. Ask for six before quoting a gradient.
+const ALL_SEEDS = [1001, 2002, 3003, 4004, 5005, 6006, 7007, 8008]
+const SEED_N = Number(process.argv.find((a) => a.startsWith('--seeds='))?.slice(8) ?? 3)
+if (!Number.isFinite(SEED_N) || SEED_N < 1 || SEED_N > ALL_SEEDS.length) {
+  console.error(`ABORT: --seeds must be 1..${ALL_SEEDS.length}, got ${process.argv.find((a) => a.startsWith('--seeds='))}`)
+  process.exit(1)
+}
+const SEEDS = ALL_SEEDS.slice(0, SEED_N)
 const DIFFICULTY = Number(process.argv.find((a) => a.startsWith('--difficulty='))?.slice(13) ?? 1)
 const MORTAL = process.argv.includes('--mortal')
 
@@ -77,8 +88,26 @@ if (specPatch) {
   try { patch = JSON.parse(specPatch) } catch (e) { console.error(`ABORT: --spec is not JSON (${e.message})`); process.exit(1) }
   Object.assign(ch0.cave, patch)
 }
+// A CANDIDATE CLOCK IS A COMMAND LINE TOO — same idiom as --spec above, and it works for the same
+// reason: circuitKnob(ch, key) reads ch.circuit[key] ?? CIRCUIT_DEFAULTS[key], so writing the knob
+// onto the chapter's own circuit block overrides the default without touching config.js.
+//   `node scripts/reef-lap-probe.mjs --circuit='{"swimTime":3.6,"clockStart":40,"clockCap":40}'`
+// ⚠ clockStart AND clockCap MOVE TOGETHER OR NOT AT ALL. The bank starts full (both are 40), and a
+// checkpoint does Math.min(cap, clock + swimTime) — so a cap BELOW the current clock makes crossing
+// a checkpoint SUBTRACT time. Sweep cap alone and you are measuring a punishment for reaching a
+// gate, which is not a difficulty knob, it is a bug wearing one.
+const circuitPatch = process.argv.find((a) => a.startsWith('--circuit='))?.slice(10)
+if (circuitPatch) {
+  let patch
+  try { patch = JSON.parse(circuitPatch) } catch (e) { console.error(`ABORT: --circuit is not JSON (${e.message})`); process.exit(1) }
+  if (patch.clockCap != null && patch.clockStart == null) { console.error('ABORT: --circuit moved clockCap without clockStart — see the block above'); process.exit(1) }
+  Object.assign(ch0.circuit, patch)
+}
 if (!ch0.circuit || !ch0.cave?.lapLen) { console.error(`ABORT: ${CH} declares no circuit/cave.lapLen — nothing to lap-time`); process.exit(1) }
 const LAPS = ch0.circuit.laps
+const CAP = circuitKnob(ch0, 'clockCap')
+const SWIM_TIME = circuitKnob(ch0, 'swimTime')
+const CLOCK_START = circuitKnob(ch0, 'clockStart')
 if (!ch0.cave.ring?.r0) { console.error('ABORT: the reef cave has no ring — this driver only knows how to lap a closed track'); process.exit(1) }
 
 // LOOK-AHEAD, in PX OF TRACK, and it is the skill axis. A driver who reads one car length ahead
@@ -141,9 +170,19 @@ function oneRun(steerName, throttleName, seed) {
   const run = createRun(probeMeta(), { chapter: CH, difficulty: DIFFICULTY })
   if (run.chapter !== CH) { console.error(`ABORT: asked for ${CH}, got ${run.chapter}`); process.exit(1) }
   const look = LOOKS[steerName], throttleFn = THROTTLES[throttleName]
-  const spec = CHAPTERS[CH].cave
+  // THE RUN'S OWN TRACK, NOT THE CHAPTER'S. The difficulty ladder scales halfMin/halfMax per run
+  // (createRun), so reading CHAPTERS[CH].cave here would steer the driver down the d1 corridor while
+  // the sim collided them against the d5 one — a driver aiming at walls that are not there, which is
+  // the same failure the file header describes for the lane-era driver.
+  const spec = run.caveSpec
 
   let wallFrames = 0, crashes = 0
+  // THE CLOCK'S OWN TRACE, because "does this knob do anything" is not answerable from finishes
+  // alone. A driver pinned at the cap for the whole race is being taxed by the CAP (their surplus is
+  // thrown away every gate); one who never comes near it is being taxed by swimTime, and lowering
+  // the cap on them changes literally nothing. Which of those two the shipped tuning produces is
+  // the whole question, and only a trace can say.
+  let clockMin = Infinity, clockFrames = 0, clockAtCap = 0, clockSum = 0
   const wallFramesPerLap = new Array(LAPS).fill(0)
   const lapSplits = [], lapOdom = []
   let odom = 0
@@ -190,6 +229,13 @@ function oneRun(steerName, throttleName, seed) {
 
     if (run._caveHit) { wallFrames++; wallFramesPerLap[Math.min(run.lap ?? 0, LAPS - 1)]++ }
 
+    if (run.raceClock != null) {
+      clockFrames++
+      clockSum += run.raceClock
+      if (run.raceClock < clockMin) clockMin = run.raceClock
+      if (run.raceClock >= CAP - 0.5) clockAtCap++
+    }
+
     // Immortal to HP, mortal to the clock — see the file header for why this is three mechanics
     // neutralised on purpose and one left fully live. `--mortal` puts the HP back, which is the only
     // way to ask whether a TRACK is survivable rather than merely lappable: the scrape is charged per
@@ -209,6 +255,9 @@ function oneRun(steerName, throttleName, seed) {
     lapsCompleted: run.lap ?? 0,
     lapSplits, lapOdom, wallFrames, wallFramesPerLap, swims, crashes,
     secs: run._realTime ?? 0,
+    clockMin: clockFrames ? clockMin : null,
+    clockMean: clockFrames ? clockSum / clockFrames : null,
+    capFrac: clockFrames ? clockAtCap / clockFrames : null,
   }
 }
 
@@ -240,7 +289,11 @@ for (const open of [false, true]) {
   }
 }
 
-console.log('policy                 fin  DNF        time    min    max  lap1  lap2  lap3  lap4  wall/lap  swims  crash  odom1/arc  meanSecs')
+const LAD = circuitLadder(ch0, DIFFICULTY)
+console.log(`ladder d${DIFFICULTY}: clock x${LAD.clock} width x${LAD.width} -> passage ${(ch0.cave.halfMin * 2 * LAD.width).toFixed(0)}-${(ch0.cave.halfMax * 2 * LAD.width).toFixed(0)}px, clock x${LAD.clock}`)
+console.log(`clock: start=${CLOCK_START}s cap=${CAP}s swimTime=${SWIM_TIME}s x ${ch0.circuit.laps} laps — a driver dies when mean lap time exceeds ~${(7 * (SWIM_TIME + CLOCK_START / (7 * LAPS))).toFixed(1)}s`)
+console.log('')
+console.log('policy                 fin  DNF        time    min    max  lap1  lap2  lap3  lap4  wall/lap  swims  crash  odom1/arc  meanSecs  clkMin  clkMean  atCap')
 for (const [key, runs] of Object.entries(rows)) {
   const fin = runs.filter((r) => r.finished)
   const finRate = `${fin.length}/${runs.length}`
@@ -270,7 +323,10 @@ for (const [key, runs] of Object.entries(rows)) {
     key.padEnd(23) + finRate.padStart(5) + dnfLabel.padStart(9) +
     meanT.padStart(8) + minT.padStart(7) + maxT.padStart(7) + '  ' +
     [0, 1, 2, 3].map(lapAvg).map((s) => s.padStart(4)).join('  ') + '  ' +
-    wallPerLapStr.padStart(8) + swimAvg.padStart(7) + crashAvg.padStart(7) + odom1Str.padStart(11) + meanSecs.padStart(10))
+    wallPerLapStr.padStart(8) + swimAvg.padStart(7) + crashAvg.padStart(7) + odom1Str.padStart(11) + meanSecs.padStart(10) +
+    avg(runs.map((r) => r.clockMin ?? 0)).toFixed(1).padStart(8) +
+    avg(runs.map((r) => r.clockMean ?? 0)).toFixed(1).padStart(9) +
+    `${(100 * avg(runs.map((r) => r.capFrac ?? 0))).toFixed(0)}%`.padStart(7))
 }
 
 console.log('')
