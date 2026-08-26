@@ -1891,11 +1891,7 @@ function stepCircuit(run, dt) {
   if (passed > prev) {
     for (let k = prev; k < passed; k++) {
       run.raceClock = Math.min(circuitKnob(ch, 'clockCap') * clockMul, run.raceClock + circuitKnob(ch, 'swimTime') * clockMul)
-      // THE CHAPTER'S ONLY XP SOURCE (see CIRCUIT_DEFAULTS.swimXp). Through the SAME multipliers a
-      // gem is, so every xp card in the game still reads on a race rather than going inert here.
-      // stepLevelUp runs later in this same frame, so the screen opens on the crossing.
-      run.player.xp += circuitKnob(ch, 'swimXp') * (1 + run.passives.xpGain) * run.mods.xpMul
-      // PIT STOP (PASSIVES.gateHeal). The checkpoint is already this chapter's till, so the heal is
+      // PIT STOP (PASSIVES.gateHeal). The checkpoint is still this chapter's HEAL till, so it is
       // paid at the same window as the clock and the xp — one crossing, one reward, and a player can
       // plan a lap around it. Through healPlayer and never a direct `p.hp =` write, or Blood Pact
       // silently stops meaning what its card says (see healPlayer's own block).
@@ -1923,6 +1919,18 @@ function stepCircuit(run, dt) {
     run.lapSplit = at - (run._lapAt ?? 0)
     run.events.push({ type: 'lap', lap, x: run.player.x, y: run.player.y, split: run.lapSplit, total: at })
     run._lapAt = at
+    // ONE LAP, ONE LEVEL (owner, 2026-08-26: "only gain a level for a lap"). The till used to be
+    // the checkpoint and it used to be a CURRENCY — circuit.swimXp through xpGain and mods.xpMul,
+    // landing the player somewhere on xpForLevel's curve. A LEVEL is not a smaller amount of that,
+    // it is a different unit, so no multiplier is read here: the bar is filled from wherever it
+    // stands, exactly as the Blank's phase kills bank theirs (`p.xp += p.xpNext`). stepLevelUp runs
+    // later in this same frame, so the screen opens on the line.
+    //   ⚠ NOT ON THE LAP THAT WINS. The victory check below fires in this same block, so a grant
+    // there would open no screen at all — stepSim returns before stepLevelUp and the phase is
+    // 'victory' on every frame after. Five laps therefore pay FOUR screens, and the fifth lap's
+    // reward is the race. Written as a guard rather than left to fall out of the ordering, because
+    // "the last one silently does nothing" is a bug the day someone reorders these two blocks.
+    if (lap < cc.laps) run.player.xp += run.player.xpNext
   }
 
   if (lap >= cc.laps) {
