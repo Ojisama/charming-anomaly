@@ -1919,6 +1919,16 @@ function stepCircuit(run, dt) {
     run.lapSplit = at - (run._lapAt ?? 0)
     run.events.push({ type: 'lap', lap, x: run.player.x, y: run.player.y, split: run.lapSplit, total: at })
     run._lapAt = at
+    // THE LINE PAYS, AND IT PAYS DOUBLE -- CIRCUIT_DEFAULTS.lineMul, whose block carries the
+    // owner report and why it is capped like every other top-up. It has to be banked HERE and
+    // not by adding f = 0 to run._swims: that list is the width field's local minima and the
+    // start line is not one of them, and inserting a fake pick would also change the gates
+    // render.js draws, the spacing run CT.a asserts and the count SWIMTHROUGHS_PER_LAP names.
+    //   ⚠ NOT ON THE FIRST CROSSING. This block only runs when the lap INDEX grows, so the
+    // frame the race starts on -- which is on the line, at f = 0 -- banks nothing, exactly as
+    // `prev` keeps the first frame from firing every checkpoint behind the player.
+    run.raceClock = Math.min(circuitKnob(ch, 'clockCap') * clockMul,
+      run.raceClock + circuitKnob(ch, 'swimTime') * circuitKnob(ch, 'lineMul') * clockMul)
     // ONE LAP, ONE LEVEL (owner, 2026-08-26: "only gain a level for a lap"). The till used to be
     // the checkpoint and it used to be a CURRENCY — circuit.swimXp through xpGain and mods.xpMul,
     // landing the player somewhere on xpForLevel's curve. A LEVEL is not a smaller amount of that,

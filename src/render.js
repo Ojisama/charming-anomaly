@@ -12975,13 +12975,35 @@ const spurG = new Graphics()
       burst(w0, k)
     }
 
-    // The chequered mat, laid on the sand at f = 0.
+    // The chequered mat and the direction chevrons, laid on the sand at the start line (f = 0).
     const mat = (cav) => {
-      const lo = cav.c - cav.hw, stepU = (cav.hw * 2) / V.checks
+      // SQUARE TO THE TRACK, NOT TO THE RADIUS (owner, 2026-08-26: "lap line is weird, not
+      // aligned"). The mat was laid in (f, u) at f = 0 -- a strip along one RADIUS of the ring,
+      // which is the way across the passage only where the centreline happens to run square to
+      // it. That is exactly the defect gateAnchorF was written to fix for the two posts, left in
+      // place for the thing BETWEEN them: measured over four seeds a same-f pair sits a median 29
+      // degrees off perpendicular, so the chequered flag crossed the track diagonally, ran into
+      // the coral at one end and stopped short of it at the other.
+      //   Built between the SAME two anchors the finish stand is pinned to, so the mat, the posts
+      // and the crossing stepCircuit scores all agree about where the line is. Both anchors lie
+      // on the track's own normal through the centreline point by construction, so A -> B IS the
+      // across axis and its perpendicular IS the way the race runs -- no second frame to keep in
+      // sync, and the tiles come out square instead of sheared.
+      const fA = gateAnchorF(cspec, 0, cav, -1, seed), fB = gateAnchorF(cspec, 0, cav, 1, seed)
+      const mA = caveAt(fA, cspec, seed), mB = caveAt(fB, cspec, seed)
+      const A = P(fA, mA.c - mA.hw), B = P(fB, mB.c + mB.hw)
+      const span = Math.hypot(B.x - A.x, B.y - A.y) || 1
+      const ax = (B.x - A.x) / span, ay = (B.y - A.y) / span     // across the track, A -> B
+      const hd = ringHeading(cspec, 0, seed)
+      // A -> B's perpendicular, turned to agree with the direction f grows
+      const sgn = -ay * Math.cos(hd) + ax * Math.sin(hd) >= 0 ? 1 : -1
+      const fx = -ay * sgn, fy = ax * sgn                        // along the track, forwards
+      const stepU = span / V.checks
       const half = (V.matRows * stepU) / 2
+      const at = (sc, dp) => ({ x: A.x + ax * sc + fx * dp, y: A.y + ay * sc + fy * dp })
       // one stroke for the bed, across the whole passage: a per-column loop left a tab sticking out
       // at each end, which read as torn shadow rather than as the edge of a laid mat.
-      const A0 = P(0, lo - 8), B0 = P(0, lo + cav.hw * 2 + 8)
+      const A0 = at(-8, 0), B0 = at(span + 8, 0)
       gateFloorG.moveTo(A0.x, A0.y)
       gateFloorG.lineTo(B0.x, B0.y)
       gateFloorG.stroke({ width: (half + 8) * 2, color: V.matBed, alpha: 0.42, cap: 'butt' })
@@ -12989,21 +13011,35 @@ const spurG = new Graphics()
         for (let n = 0; n < V.checks; n++) {
           const h = hsh(n, r)
           if (h > V.matLost) continue
-          const u0 = lo + n * stepU + 1.5, u1 = lo + (n + 1) * stepU - 1.5
-          const um = (u0 + u1) / 2
-          const fc = dFor(stepU * (r - (V.matRows - 1) / 2), um)
-          const fh = dFor(stepU / 2 - 1.5, um)
-          const c0 = P(fc - fh, u0), c1 = P(fc - fh, u1), c2 = P(fc + fh, u1), c3 = P(fc + fh, u0)
+          const s0 = n * stepU + 1.5, s1 = (n + 1) * stepU - 1.5
+          const dc = stepU * (r - (V.matRows - 1) / 2), dh = stepU / 2 - 1.5
+          const c0 = at(s0, dc - dh), c1 = at(s1, dc - dh), c2 = at(s1, dc + dh), c3 = at(s0, dc + dh)
           gateFloorG.poly([c0.x, c0.y, c1.x, c1.y, c2.x, c2.y, c3.x, c3.y])
           gateFloorG.fill({ color: (n + r) % 2 ? V.line : V.lineDark, alpha: 0.7 + h * 0.26 })
         }
       }
       for (let n = 0; n < 7; n++) {
         const h = hsh(n, 21), h2 = hsh(n, 33)
-        const u = lo + cav.hw * 2 * h
-        const q = P(dFor(half * (h2 * 2 - 1), u), u)
+        const q = at(span * h, half * (h2 * 2 - 1))
         gateFloorG.circle(q.x, q.y, 12 + h2 * 16)
         gateFloorG.fill({ color: V.sand, alpha: 0.16 + h * 0.12 })
+      }
+      // THE WAY OUT OF THE LINE -- CIRCUIT_GATE_VIS.arrows, whose block carries the owner report.
+      // Placed at f offsets on the CENTRELINE and each turned by the heading THERE, not
+      // extrapolated straight off the line: the far chevron is 410px up a passage whose tightest
+      // corner turns inside 126px, so a straight run would walk it into the wall.
+      for (const [px, al] of V.arrows) {
+        const fa = dFor(px, cav.c)
+        const m = caveAt(fa, cspec, seed)
+        const hdA = ringHeading(cspec, fa, seed)
+        const q = P(fa, m.c)
+        const w = m.hw * V.arrowW, dp = w * V.arrowDepth
+        const nx = -Math.sin(hdA), ny = Math.cos(hdA)
+        const gx = Math.cos(hdA), gy = Math.sin(hdA)
+        gateFloorG.moveTo(q.x - nx * w - gx * dp, q.y - ny * w - gy * dp)
+        gateFloorG.lineTo(q.x + gx * dp, q.y + gy * dp)
+        gateFloorG.lineTo(q.x + nx * w - gx * dp, q.y + ny * w - gy * dp)
+        gateFloorG.stroke({ width: V.arrowStroke, color: V.line, alpha: al, cap: 'round', join: 'round' })
       }
     }
 

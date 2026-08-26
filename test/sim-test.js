@@ -24726,6 +24726,92 @@ function testReefCircuit() {
     console.log(`PASS run CT.j (the gate crosses the track): over ${n} checkpoints on ${SEEDS.length} seeds, the same-f pair sits up to ${worstOld.toFixed(0)}deg off perpendicular and the anchored pair ${worstNew.toFixed(1)}deg, every anchor within ${worstWall.toFixed(2)}px of its own wall; render.js still marches the normal`)
   }
 
+  // (n) THE START/FINISH LINE PAYS THE CLOCK, AND IT PAYS DOUBLE. Owner, 2026-08-26: "its
+  // checkpoint doesn't work / doesn't add seconds to timer (should be twice the seconds of a normal
+  // checkpoint)". It was drawn as a gate from the day gates were drawn and banked nothing, because
+  // swimthroughsFor picks local minima of the width field and f = 0 is not one of them — an
+  // invisible-by-arithmetic reward, the same shape as every other defect in this chapter's history.
+  //
+  // ⚠ MEASURED AS A RATIO OFF A DRIVEN RUN, NEVER AS circuitKnob(ch, 'lineMul') === 2. Reading the
+  // constant back is a token lint: it stays green with the top-up deleted, which is precisely the
+  // state the owner reported. What is asserted is the CLOCK MOVING at the line, against the same
+  // clock moving at an ordinary checkpoint in the same race.
+  {
+    Math.random = mulberry32(3)
+    const r = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+    r.mods.spawnMul = 0
+    const cap = circuitKnob(ch, 'clockCap')
+    // A DRIVER WHO IS BEHIND ON TIME, and it is the only rig that can see this at all: clockStart
+    // and clockCap are the same 40, so a clean full-throttle race sits pinned at the ceiling and
+    // EVERY top-up is clipped by the Math.min — 0 readable lap crossings out of 4 (CT.f asserts
+    // that pinning from the other side). Starting the clock low is not a tune, it is the state any
+    // race is in the moment it stops being clean.
+    r.raceClock = 18
+    const lineJumps = [], swimJumps = []
+    for (let i = 0; i < 60 * 400; i++) {
+      r.player.hp = r.player.maxHp
+      for (const q of r.enemies) q._dead = true
+      const before = r.raceClock ?? circuitKnob(ch, 'clockStart')
+      stepSim(r, trackStick(r, 1), dt)
+      let laps = 0, swims = 0
+      for (const e of r.events) { if (e.type === 'lap') laps++; if (e.type === 'swimthrough') swims++ }
+      // The cap is a Math.min, so a frame that clips it hides whatever it was paid — skip those
+      // rather than assert a number the top-up never got to add.
+      const gain = (r.raceClock ?? 0) + dt - before
+      if ((r.raceClock ?? 0) < cap - 0.01) {
+        if (laps === 1 && swims === 0) lineJumps.push(gain)
+        if (laps === 0 && swims === 1) swimJumps.push(gain)
+      }
+      r.events.length = 0
+      if (r.phase === 'victory' || r.phase === 'dead') break
+      if (r.phase === 'levelup') r.phase = 'playing'
+    }
+    assert.ok(lineJumps.length >= 3 && swimJumps.length >= 8,
+      `run CT.n: the race gave ${lineJumps.length} clean lap crossings and ${swimJumps.length} clean checkpoint crossings under the cap — this case cannot see either payout, so it is asserting nothing`)
+    const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length
+    const line = mean(lineJumps), swim = mean(swimJumps)
+    assert.ok(line > 0.5,
+      `run CT.n: crossing the start/finish line moved the race clock by ${line.toFixed(2)}s — the lap line pays nothing, which is the owner's report verbatim`)
+    assert.ok(Math.abs(line / swim - circuitKnob(ch, 'lineMul')) < 0.02,
+      `run CT.n: the line paid ${line.toFixed(2)}s against a checkpoint's ${swim.toFixed(2)}s, a ratio of ${(line / swim).toFixed(2)} rather than circuit lineMul ${circuitKnob(ch, 'lineMul')}`)
+    // ...and the FIRST crossing, the one the player is sitting on when the race starts, pays nothing:
+    // the grant hangs off the lap INDEX growing, exactly as `prev` keeps frame 1 from firing every
+    // checkpoint already behind the player. A line that paid at t=0 would hand out a free top-up for
+    // never having driven anywhere.
+    Math.random = mulberry32(3)
+    const r0 = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+    r0.mods.spawnMul = 0
+    stepSim(r0, { x: 0, y: 0 }, dt)
+    assert.ok((r0.raceClock ?? 0) <= circuitKnob(ch, 'clockStart') - dt + 1e-9,
+      `run CT.n: the first frame banked the line (clock ${r0.raceClock}) — the player starts ON f = 0, so a crossing test rather than a lap-index test pays a lap they have not driven`)
+
+    // THE MAT IS SQUARE TO THE TRACK. Owner, same session: "lap line is weird, not aligned". The
+    // posts were fixed by gateAnchorF (CT.j) and the chequered mat BETWEEN them was left laid along
+    // one radius of the ring — the same defect, in the same drawer, on the thing the player is
+    // actually looking at. Geometry-side there is nothing new to check (CT.j already measures the
+    // anchors); only the source can say the mat is built from them, and render.js is not importable.
+    const rs = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    const mt = rs.slice(rs.indexOf('const mat = ('), rs.indexOf('const cav = caveAt(0, cspec, seed)'))
+    assert.ok(mt.length > 400, 'run CT.n: the mat() slice markers moved — this half is asserting nothing')
+    assert.ok(/gateAnchorF\(cspec, 0, cav/.test(mt),
+      'run CT.n: the start-line mat is no longer built between the track\'s own anchors — it is back on one radius of the ring, which is up to 59 degrees off square and is the owner\'s "not aligned"')
+    assert.ok(!/P\(0,/.test(mt) && !/dFor\(stepU/.test(mt),
+      'run CT.n: the mat is laying tiles in (f, u) at f = 0 again — a chequered flag sheared along a radius rather than across the passage')
+    // ...and the chevrons that say which way the race runs (owner: "not very clear the starting
+    // direction when you start the race"). Config side first, because a table that reads as a
+    // direction is the half that can be wrong without looking wrong.
+    const AR = CIRCUIT_GATE_VIS.arrows
+    assert.ok(Array.isArray(AR) && AR.length >= 2, 'run CT.n: CIRCUIT_GATE_VIS.arrows is not a table of chevrons — nothing on screen says which way the race runs')
+    for (let i = 1; i < AR.length; i++) {
+      assert.ok(AR[i][0] > AR[i - 1][0] && AR[i][1] < AR[i - 1][1],
+        `run CT.n: chevron ${i} sits at ${AR[i][0]}px alpha ${AR[i][1]} against ${AR[i - 1][0]}px alpha ${AR[i - 1][1]} — they must march AWAY from the line and fade, or they read as three marks rather than as one direction`)
+    }
+    assert.ok(/V\.arrows/.test(mt) && /ringHeading\(cspec, fa, seed\)/.test(mt),
+      'run CT.n: the chevrons are not drawn from V.arrows turned by the heading at their own f — extrapolated straight off the line they walk into the wall on any corner')
+    console.log(`PASS run CT.n (the line pays, and points the way): crossing it banks ${line.toFixed(2)}s against a checkpoint's ${swim.toFixed(2)}s (x${(line / swim).toFixed(2)}), the first frame banks nothing, the mat is built between the track's own anchors and ${AR.length} chevrons mark the way out of it`)
+  }
+
   // (k) ONE LAP, ONE LEVEL. Owner, 2026-08-26: "only gain a level for a lap."
   //
   // The till used to be the checkpoint and it used to be a CURRENCY — an amount of xp, through

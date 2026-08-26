@@ -9710,9 +9710,29 @@ export const CIRCUIT_DEFAULTS = {
   // balance_decision : the clock can be lost again, and only by hugging coral [2026-08-26]
   //  - swimTime is the knob here, NOT the gate count and NOT clockCap; the grid above was swept
   //    with the cap held at 40 and moving both would make neither readable.
+  // 4 -> 3.25 WITH lineMul BELOW, AND IT IS ONE DECISION RATHER THAN TWO. The grid above was
+  // swept when a lap paid 7 x swimTime; the start line paying double makes it 9 x, so leaving
+  // this at 4 raises a lap's clock income 28s -> 36s and hands the race back. MEASURED, same rig
+  // (reef-lap-probe, 6 seeds x 8 policies, mortal, finishes of 48):
+  //                            d1     d3     d5
+  //   4,   no line (shipped)  30/48  30/48  16/48
+  //   4,   line x2            36/48  38/48  24/48   <- the ask, unretuned: half the ladder gone
+  //   3.25 line x2            30/48  33/48  19/48   <- 9 x 3.25 = 29.3s a lap against 28
+  //   3,   line x2            27/48  28/48  10/48
+  // balance_decision : the line pays double, so a gate pays 3.25 not 4 [2026-08-26]
+  //  - the two are ONE lever: a lap now banks 9 x this, and retuning either alone moves the race
   clockStart: 40,    // seconds on the clock at the start line
   clockCap: 40,      // ...and the ceiling a swimthrough may top it back up to
-  swimTime: 4,       // seconds a swimthrough is worth
+  swimTime: 3.25,    // seconds a swimthrough is worth
+  // THE START/FINISH LINE IS A CHECKPOINT TOO, AND IT PAYS DOUBLE (owner, 2026-08-26: "its
+  // checkpoint doesn't work / doesn't add seconds to timer (should be twice the seconds of a
+  // normal checkpoint)"). It has been drawn as a gate since gates were drawn and it paid nothing:
+  // swimthroughsFor picks local minima of the width field and never puts one at f = 0, so
+  // stepCircuit's running `passed` count cannot see the line at all.
+  //   ⚠ IT IS THE SAME Math.min(cap, ...) TOP-UP, so a lap crossed with the clock already at the
+  // cap banks nothing. That is the intended shape rather than a case to route around -- a driver
+  // clean enough to arrive at the line full is not the driver this countdown is for.
+  lineMul: 2,        // ...and the line is worth this many of them
   // THE CRASH, AND WHAT SEPARATES IT FROM A GRAZE. The corridor pinches, so sliding along coral is
   // ordinary play — charge momentum for every touch and the chapter is unplayable. stepCaveWall is
   // a position test with no velocity read, so the signal is the OVERSHOOT: how far past the wall
@@ -9857,6 +9877,18 @@ export const CIRCUIT_GATE_VIS = {
   matBed: 0x0e1a20,
   matLost: 0.94,       // tiles with a hash above this are missing
   sand: 0xb9a98a,
+  // WHICH WAY THE RACE RUNS. Owner, 2026-08-26: "it's not very clear the starting direction when
+  // you start the race." A corridor reads both ways, and at t = 0 the player is sitting ON the
+  // line with the stick untouched -- the only thing in the game that knows the answer is the
+  // heading stepPlayerMovement seeds from ringHeading, and a heading is not a pixel.
+  //   Chevrons painted on the seabed past the line, in the mat's own cream, fading with distance
+  // so they read as a direction rather than as three separate marks. They are the START LINE's
+  // alone and not every gate's: the checkpoints already answer "where next" with the one lit
+  // stand, and this answers the different question you only ask once a lap.
+  arrows: [[150, 0.5], [280, 0.34], [410, 0.2]],   // [px up the track, alpha]
+  arrowW: 0.3,         // ...of cav.hw at that point: the chevron scales with the passage
+  arrowDepth: 0.8,     // ...of its own half-width, so the V keeps its angle at any width
+  arrowStroke: 9,
 }
 
 /** Read a circuit knob for a chapter, falling back to the shared default. */
