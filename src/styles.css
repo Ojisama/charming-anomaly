@@ -745,7 +745,14 @@ body {
 }
 .hud--race .hud-timer-num { display: block; font-size: 2rem; font-weight: 900; line-height: 1; }
 .hud--race .hud-timer-k {
-  display: block;
+  /* FLEX, NOT BLOCK, AND THAT IS THE WHOLE POINT OF THE LINE. The box below is zero-width, and
+     `text-align: center` does NOT centre a line that overflows its box — it lays the glyphs out
+     from the box's own edge and lets them run off to the right. Measured: the numeral's ink sat at
+     offAxis -0.0 and this caption's at +35.2 on the same frame, which is the misalignment the
+     owner reported. `justify-content: center` on a flex container centres an over-wide item on the
+     container's midline, spilling equally both ways, which is what a zero-width box needs. */
+  display: flex;
+  justify-content: center;
   /* ZERO-WIDTH, CENTRED, OVERFLOWING BOTH WAYS. The caption is the widest thing in the middle
      column — 100px of CHECKPOINT against ~35px of numeral — and an auto track sized to it eats
      65px the two outer tracks then have to share out of, which is most of the off-axis error the
