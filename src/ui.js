@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, CHAPTER_BOARDS_DEFAULT } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -222,6 +222,22 @@ function fmtTime(s) {
   const m = String(Math.floor(t / 60)).padStart(2, '0')
   return `${m}:${String(t % 60).padStart(2, '0')}`
 }
+
+// A LAP CANNOT USE fmtTime, AND THE REASON IS MEASURED. That formatter FLOORS to whole seconds,
+// which is right for a board whose entries are minutes apart and useless for one whose entries are
+// not: scripts/reef-lap-probe.mjs puts a Reef lap at 26.6-46.6s across every driving policy it
+// models, clustered near 31s, so a whole-second lap board would show two drivers a tenth apart as
+// the same '00:31'. That is the same "a board that cannot rank anybody" this chapter's podium was
+// rebuilt to stop being — the rows would still SORT correctly (the sort is on raw ms, server-side)
+// and simply not look it, which is worse than being wrong, because nothing about it reads as a bug.
+// The race board keeps fmtTime: the same probe spreads a full race over 137-207s, where the minute
+// is the part that carries the meaning.
+// ponytail: seconds only, no minute field, so a lap over a minute would read '72.40' rather than
+//   '1:12.40'. Unreachable in the shipped game — the clock caps at 40s and a driver dies once the
+//   mean lap passes ~36s, and this is a MINIMUM over the run's laps, so recording one would mean
+//   every lap was that slow, which is a run that died before it banked anything. Add the branch if
+//   a chapter ever ships a lap that long.
+const fmtLap = (ms) => (Math.max(0, ms) / 1000).toFixed(2)
 
 // Interpolates two '#rrggbb' colors at t (0..1) — used for the sacrifice modal's counter,
 // which reads from ink-soft toward the danger red as the offered total climbs.
@@ -671,12 +687,16 @@ export function initUI(hooks) {
   const podiumPending = new Set() // keys with a fetch in flight, so a render cannot start a second
   const boardKey = (chapterId, difficulty) => `${chapterId}:${difficulty}`
 
-  // The recto's board, and the ONE place that decides it. Keyed off CHAPTERS[].scripted — the same
-  // flag the HUD reads to drop the survival countdown — so a future boss chapter gets the time
-  // board by being a boss chapter, with nothing here to remember to update. The Worker returns all
-  // three boards regardless (it knows no chapter ids); choosing between them is a game fact and
-  // lives on this side.
-  const secondBoard = (chapterId) => (CHAPTERS[chapterId]?.scripted ? 'time' : 'level')
+  // WHICH TWO BOARDS THIS CHAPTER DRAWS — verso, then recto. Read from the chapter rather than
+  // inferred here, which is the whole point: this used to be `scripted ? 'time' : 'level'`, an
+  // inference that was true of the one boss chapter and had to be extended by hand the moment a
+  // second kind of chapter wanted a clock. It also could only ever change the RECTO, and The Reef
+  // needs both leaves changed — it is `weapons: []`, so its kills board is a column of zeroes.
+  // See CHAPTER_BOARDS_DEFAULT in config.js for the rest of that reasoning.
+  //
+  // The Worker returns all four boards regardless (it knows no chapter ids), so choosing between
+  // them stays a game fact on this side; only WHERE the fact is written has moved.
+  const boardsFor = (chapterId) => CHAPTERS[chapterId]?.boards ?? CHAPTER_BOARDS_DEFAULT
 
   // Dropped when a run PLACES. Not after every run: a score that missed the top 3 moved no board,
   // and re-reading then is a request that can only return what is already held.
@@ -796,18 +816,20 @@ export function initUI(hooks) {
       </div>`
     }
     // Nobody has played this board at all — which on launch day is every board in the game. Against
-    // THIS chapter's own two boards, not all three: on a boss chapter the level board fills up like
-    // anywhere else and is simply not shown, so testing it here would keep a genuinely empty spread
-    // out of this branch and draw two blank leaves instead.
-    const second = secondBoard(browseChapterId)
-    if (podiumState && !podiumState.kills.length && !podiumState[second].length) {
+    // THIS chapter's own two boards, never all four: every chapter's rows land on the kills and
+    // level boards whether it draws them or not, so testing those would keep a genuinely empty
+    // spread out of this branch and draw two blank leaves instead. The Reef is the case that makes
+    // it concrete — every race submits kills 0 and a level, so its kills board is never empty and
+    // is never shown.
+    const [verso, recto] = boardsFor(browseChapterId)
+    if (podiumState && !podiumState[verso].length && !podiumState[recto].length) {
       return `<div class="page page--board page--solo">
         <p class="diff-hint podium-empty">${t('No scores yet — be the first.')}</p>
       </div>`
     }
     return `
-      <div class="page page--verso page--board">${podiumPageHtml('kills')}</div>
-      <div class="page page--recto page--board">${podiumPageHtml(second)}</div>`
+      <div class="page page--verso page--board">${podiumPageHtml(verso)}</div>
+      <div class="page page--recto page--board">${podiumPageHtml(recto)}</div>`
   }
 
   // Who holds this board's kills record, under the Podium button on the CLOSED page — so the panel
@@ -820,15 +842,20 @@ export function initUI(hooks) {
   // also means this can never make the panel taller than the 34px of slack measured under the
   // button, because the only thing it ever draws is one line.
   //
-  // Kills, not level: the two boards disagree often (they did in every screenshot of this feature),
-  // and one line has to pick. Kills is the number the chapter is about.
+  // THE CHAPTER'S FIRST BOARD, not kills. One line has to pick, and on an ordinary chapter the pick
+  // is still kills — the two boards disagree often (they did in every screenshot of this feature)
+  // and kills is the number that chapter is about. But on The Reef there is no kills board to lead:
+  // nothing in it can die, so a hardcoded `.kills[0]` would put a name here off a table of zeroes,
+  // ranked by nothing, on the one panel whose whole job is answering "is anyone ahead of me here?".
+  // The verso is by construction the board a chapter considers its headline, so it is the one to
+  // read.
   //
   // The gold disc rather than a medal emoji — it is the SAME element the podium's first row uses,
   // so the closed page and the turned page name first place with one mark. A cross-platform emoji
   // could not do that (see the drawn shop icons, same ruling).
   function leaderLine(chapterId, difficulty) {
     ensureBoards(chapterId, difficulty)
-    const top = podiumCache.get(boardKey(chapterId, difficulty))?.kills?.[0]
+    const top = podiumCache.get(boardKey(chapterId, difficulty))?.[boardsFor(chapterId)[0]]?.[0]
     if (!top) return ''
     return `<div class="spread-leader">
       ${medalHtml(1)}
@@ -849,14 +876,22 @@ export function initUI(hooks) {
     // French for the longer one wraps to two lines, which drops the recto's rows out of line with
     // the verso's across the gutter and grows the panel. 'Meilleur temps' is exactly as long as
     // 'Niveau atteint', the label already measured to fit.
-    const label = { kills: 'Kills', level: 'Level reached', time: 'Best time' }[which]
+    // 'Best lap' for the same width reason the two above were chosen: 'Meilleur tour' is SHORTER
+    // than 'Meilleur temps', which is itself exactly as long as 'Niveau atteint', so it clears the
+    // 142px the eyebrow gets with room over and cannot wrap the leaf to two lines.
+    const label = { kills: 'Kills', level: 'Level reached', time: 'Best time', lap: 'Best lap' }[which]
     const eyebrow = `<div class="brief-eyebrow podium-eyebrow">${t(label)}</div>`
     if (podiumState === null) return `${eyebrow}${podiumSkeleton()}`
     // Each board is scored by its OWN metric. Passing rows through with a `score` field rather than
     // teaching podiumRowHtml which board it is drawing keeps one row renderer for all three — and
     // the time board is the reason that indirection now earns its keep, since its score is the only
     // one that is not the raw number (mm:ss, off milliseconds).
-    const score = { kills: (r) => r.kills, level: (r) => r.level, time: (r) => fmtTime(r.timeMs / 1000) }[which]
+    const score = {
+      kills: (r) => r.kills,
+      level: (r) => r.level,
+      time: (r) => fmtTime(r.timeMs / 1000),
+      lap: (r) => fmtLap(r.lapMs),
+    }[which]
     const rows = podiumState[which].map((r) => ({ ...r, score: score(r) }))
     return `${eyebrow}${podiumBoardHtml(rows)}`
   }

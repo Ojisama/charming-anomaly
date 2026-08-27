@@ -833,9 +833,19 @@ function endRun(victory) {
     const timeMs = CHAPTERS[chapter]?.circuit
       ? (run.raceTime > 0 ? Math.round(run.raceTime * 1000) : null)
       : (victory && CHAPTERS[chapter]?.scripted ? Math.round(run.time * 1000) : null)
+    // THE RACE'S SECOND SCORE, and the only board a run can place on WITHOUT finishing. It needs
+    // none of the two terms above: `bestLap` is undefined until a lap line is actually crossed, so
+    // that one field already answers both "is this a circuit" and "did anything happen" — and
+    // unlike a kill time there is no early-exit exploit to guard against, because a lap has to be
+    // completed to be timed at all. A run that ran the clock out on lap 4 drove three real laps and
+    // one of them was its best. See run.bestLap in sim.js and state.js.
+    //   Real seconds, exactly like raceTime and for the same reason: bestLap is taken off lapSplit,
+    // which is measured on run._realTime, because Time Debt advances run.time at 1.5x and both of
+    // these boards sort fastest-first.
+    const lapMs = run.bestLap > 0 ? Math.round(run.bestLap * 1000) : null
     const entry = {
       nick, chapter, difficulty: run.difficulty ?? 1, kills: run.kills, level: run.player.level,
-      timeMs,
+      timeMs, lapMs,
       // ONLY WHERE IT IS ROLLED (owner, 2026-08-19). A chapter whose `starter` is a plain string
       // gives every player the same weapon, so recording it on every row of those boards is a
       // column of one repeated answer. `Array.isArray` is the same test createRun rolls on, so the

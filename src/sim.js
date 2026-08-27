@@ -1939,6 +1939,18 @@ function stepCircuit(run, dt) {
     // _realTime - _lapAt) rather than from this event, so it survives a dropped frame and a paused
     // one and costs ui.js no event subscription at all.
     run.lapSplit = at - (run._lapAt ?? 0)
+    // THE RACE'S SECOND SCORE, and it is not a restatement of the first: a driver can hold the
+    // best lap and still lose the race on one bad one, which is what earns it a board of its own
+    // rather than a column on the time board. Taken off lapSplit rather than off _realTime a
+    // second time, so the two can never disagree about what a lap took -- and so this inherits
+    // that field's Time Debt immunity for free (see raceTime's block in state.js). The nullish
+    // fallback only ever runs on lap 1; every later lap compares against a finite number.
+    //   EVERY COMPLETED LAP COUNTS, including on a run that then runs the clock out. The boss
+    // time board has to test `victory` because dying early is a way of shortening a kill time; a
+    // lap cannot be shortened that way -- it has to be CROSSED to have a split at all, and
+    // run.lap is a high-water mark so no crossing can be banked twice. A DNF's laps are real
+    // laps, and a `victory` guard here would only throw away honest times.
+    run.bestLap = Math.min(run.bestLap ?? Infinity, run.lapSplit)
     run.events.push({ type: 'lap', lap, x: run.player.x, y: run.player.y, split: run.lapSplit, total: at })
     run._lapAt = at
     // THE LINE PAYS, AND IT PAYS DOUBLE -- CIRCUIT_DEFAULTS.lineMul, whose block carries the
