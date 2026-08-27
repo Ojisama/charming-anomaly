@@ -1302,6 +1302,11 @@ function generateWells(sig) {
  *   value the `lap` event carries, published so the HUD's split flash can be derived from state
  *   (run.lap, this, and _realTime - _lapAt for the window) instead of from an event subscription —
  *   which is what lets it survive a dropped frame and a paused one.
+ * lapDelta: number|null — the last completed lap measured against the BEST of the laps before it,
+ *   in seconds; negative is faster. null on lap 1, where there is nothing to compare against.
+ *   Taken before bestLap folds the new lap in, which is the whole reason it is a field and not a
+ *   subtraction the HUD could do for itself: after that line the two numbers are equal on every
+ *   personal best and the delta could never read negative.
  * bestLap: number — the FASTEST completed lap of this run, in real seconds; undefined until lap 1.
  *   The second score a race has, and the only one that is not a restatement of the first: a driver
  *   can hold the best lap and lose the race, which is exactly what earns it its own board.

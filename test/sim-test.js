@@ -23965,22 +23965,83 @@ function testCircuitHud() {
       'run HD.a: the circuit timer arm still reads RUN_DURATION — that is the survival clock, and in a 76s race it counts down to a mark the player never reaches')
   }
 
-  // (b) THE PILL'S OWN COMPOSITION, evaluated. Three things break here and every one of them
-  // renders a plausible string: the lap number is off by one (run.lap counts laps COMPLETED, so a
-  // fresh race is lap 1 of 4 and not 0 of 4), the final lap reads 5/4 without the clamp, and the
-  // split flash either never fires or never stops.
+  // (b) THE PLATES' OWN COMPOSITION, evaluated. Every failure here renders a PLAUSIBLE string,
+  // which is why they are evaluated rather than grepped for: the lap number off by one (run.lap
+  // counts laps COMPLETED, so a fresh race is lap 1 of 4 and not 0 of 4), the final lap reading
+  // 5/4 without the clamp, a race clock that floors and so appears frozen, and a delta with no
+  // sign on it — which is the one number whose whole message is which side of your best you are on.
   {
-    const expr = /const lapText = ([\s\S]*?)\n      if \(lapText !== last\.lapText\)/.exec(uiSrc)?.[1]
-    assert.ok(expr, 'run HD.b: updateHUD no longer composes a lapText — the race pill has no content')
-    const compose = new Function('t', 'fmtTime', 'flash', 'done', 'laps', 'run', `return ${expr}`)
-    const T = (x) => x
-    const FMT = (x) => `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(Math.floor(x) % 60).padStart(2, '0')}`
-    assert.strictEqual(compose(T, FMT, false, 0, 4, { _realTime: 8.4 }), 'LAP 1/4 · 00:08',
-      'run HD.b: a race that has completed no laps does not read LAP 1/4 — run.lap counts laps COMPLETED, so showing it raw tells the player they are on lap 0 of 4')
-    assert.strictEqual(compose(T, FMT, false, 4, 4, { _realTime: 76.2 }), 'LAP 4/4 · 01:16',
-      'run HD.b: the last frame of the winning lap reads past the lap count — without the clamp the pill says 5/4 as the race ends')
-    assert.strictEqual(compose(T, FMT, true, 3, 4, { lapSplit: 19.14 }), 'LAP 3 · 19.1s',
-      'run HD.b: the split flash does not show the lap just completed and its time — that flash is the ONLY read the player gets on a lap line, which at racing speed is on screen for about a second and looks like every other stretch of reef')
+    const expr = /const lapText = ([^\n]+)/.exec(uiSrc)?.[1]
+    assert.ok(expr, 'run HD.b: updateHUD no longer composes a lapText — the race lap plate has no content')
+    const compose = new Function('done', 'laps', `return ${expr}`)
+    assert.strictEqual(compose(0, 4), '1/4',
+      'run HD.b: a race that has completed no laps does not read 1/4 — run.lap counts laps COMPLETED, so showing it raw tells the player they are on lap 0 of 4')
+    assert.strictEqual(compose(4, 4), '4/4',
+      'run HD.b: the last frame of the winning lap reads past the lap count — without the clamp the plate says 5/4 as the race ends')
+
+    // THE RACE CLOCK MUST NOT FLOOR. fmtTime does, which is right for a board whose rows are
+    // minutes apart and wrong for the number a driver watches: floored, it sits still for a whole
+    // second at a time and reads as a HUD that has stopped updating.
+    const rf = /const fmtRace = (\([\s\S]*?\n\})/.exec(uiSrc)?.[1]
+    assert.ok(rf, 'run HD.b: ui.js defines no fmtRace — the race clock has no formatter of its own')
+    const fmtRace = new Function(`return ${rf}`)()
+    assert.strictEqual(fmtRace(41.24), '0:41.2',
+      'run HD.b: fmtRace does not render tenths — the clock a driver is racing would tick once a second and look frozen between ticks')
+    assert.strictEqual(fmtRace(161.05), '2:41.1',
+      'run HD.b: fmtRace loses the minute field — a race runs 137-207s, so a bare seconds count is where the meaning is')
+    assert.strictEqual(fmtRace(65.0), '1:05.0',
+      'run HD.b: fmtRace does not pad the seconds — 1:5.0 is not a time')
+
+    // THE DELTA IS ALWAYS SIGNED, both ways. An unsigned one is unreadable at a glance and a '-'
+    // that only appears for the negative case leaves the positive one looking like a lap time.
+    const df = /const fmtDelta = (\([^\n]*?=>[^\n]+)/.exec(uiSrc)?.[1]
+    assert.ok(df, 'run HD.b: ui.js defines no fmtDelta — the split has no formatter')
+    const fmtDelta = new Function(`return ${df}`)()
+    assert.strictEqual(fmtDelta(-1.423), '-1.42',
+      'run HD.b: a lap faster than your best does not render a leading minus — the whole message of the number is which side of your best you are on')
+    assert.strictEqual(fmtDelta(0.87), '+0.87',
+      'run HD.b: a lap slower than your best renders no sign — it reads as a lap time rather than as a comparison')
+  }
+
+  // (b0) THE SIM SIDE OF THE DELTA, AND ITS ORDERING IS THE WHOLE MECHANISM. bestLap folds the lap
+  // that just finished into itself, so a delta taken AFTER that line is 0 on every personal best
+  // and can never read negative — i.e. the readout would silently lose the only direction it exists
+  // to show, while still rendering a perfectly plausible '+0.00'. Nothing throws, and a race with
+  // no personal best in it looks exactly the same. Asserted as ORDER, because that is the defect.
+  {
+    const simSrc2 = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+    const iDelta = simSrc2.indexOf('run.lapDelta =')
+    const iBest = simSrc2.indexOf('run.bestLap = Math.min')
+    assert.ok(iDelta > 0, 'run HD.b0: sim.js publishes no run.lapDelta — the HUD has no split to show')
+    assert.ok(iBest > 0, 'run HD.b0: sim.js no longer folds bestLap on a lap line')
+    assert.ok(iDelta < iBest,
+      'run HD.b0: run.lapDelta is taken AFTER bestLap absorbs the lap that just finished — the two are then equal on every personal best, so the delta reads +0.00 for a lap that was the fastest of the race and can never go negative at all')
+    const rhs = /run\.lapDelta = ([^\n]+)/.exec(simSrc2)?.[1]
+    const delta = new Function('run', `return ${rhs}`)
+    assert.strictEqual(delta({ bestLap: 30.0, lapSplit: 28.6 }).toFixed(2), '-1.40',
+      'run HD.b0: a lap 1.4s inside the previous best does not compute as -1.40')
+    assert.strictEqual(delta({ bestLap: undefined, lapSplit: 31.2 }), null,
+      'run HD.b0: the first completed lap computes a delta — there is no earlier lap to compare it against, so this is a number about nothing')
+  }
+
+  // (b1) THE DELTA'S GATE, EVALUATED. Three ways it fails and all three render a HUD that looks
+  // fine: it never appears (the window or the lap guard wrong), it never leaves, or it prints a
+  // comparison on lap 1 — where run.lapDelta is null because there was nothing to compare against,
+  // and a '+0.00' there would state a measurement that was never made.
+  {
+    const expr = /const dOn = ([\s\S]*?)\n      const dText/.exec(uiSrc)?.[1]
+    assert.ok(expr, 'run HD.b1: updateHUD no longer gates the split delta — it is on screen for the whole race or for none of it')
+    assert.ok(/run\.lapDelta != null/.test(expr),
+      'run HD.b1: the delta gate does not test run.lapDelta for null — lap 1 has no earlier lap, so this would print a comparison against nothing')
+    const on = new Function('CIRCUIT_DELTA_S', 'done', 'run', `return ${expr}`)
+    assert.strictEqual(on(3.2, 1, { lapDelta: -1.4, _realTime: 31.5, _lapAt: 31.0 }), true,
+      'run HD.b1: the frame after a lap line does not show the delta — this is the only moment the number exists')
+    assert.strictEqual(on(3.2, 1, { lapDelta: -1.4, _realTime: 40.0, _lapAt: 31.0 }), false,
+      'run HD.b1: the delta never expires — it would sit under the clock for the rest of the race commenting on a lap long gone')
+    assert.strictEqual(on(3.2, 1, { lapDelta: null, _realTime: 31.5, _lapAt: 31.0 }), true === false,
+      'run HD.b1: lap 1 shows a delta — run.lapDelta is null there, so this renders a comparison the sim never made')
+    assert.strictEqual(on(3.2, 0, { lapDelta: -1.4, _realTime: 0.2, _lapAt: 0 }), false,
+      'run HD.b1: a race that has crossed no line yet shows a delta — the first frame sits at f=0 on the start line, which is not a completed lap')
   }
 
   // (b2) SPLIT SECOND'S GATE, EVALUATED. The CSS half is asserted in (c); this is the other half,
@@ -24009,14 +24070,72 @@ function testCircuitHud() {
   // is only ever verified at ONE viewport unless something says otherwise.
   {
     const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
-    const rule = /\.hud-lap \{([\s\S]*?)\}/.exec(css)?.[1]
-    assert.ok(rule, 'run HD.c: .hud-lap has no CSS rule at all')
-    assert.ok(/max-width:/.test(rule),
-      'run HD.c: .hud-lap declares no max-width — it is a grid child, so on a desktop window it stretches its whole column and the pill becomes a bar')
-    assert.ok(/grid-row:\s*2/.test(rule) && /grid-column:\s*2/.test(rule),
-      'run HD.c: .hud-lap is not pinned to its grid cell — hud-top is a 3-column grid, so an unplaced 5th child wraps SOMEWHERE, which is not the same as wrapping under the clock')
-    assert.ok(/\.hud-lap--hidden/.test(css) && /\.hud-lap--split/.test(css),
-      'run HD.c: .hud-lap--hidden or --split has no rule — the first leaves the pill on screen in every other chapter, the second makes the split flash invisible')
+    // v7.x: the pill became three plates and a delta, and EVERY ONE of them is a grid child, so
+    // every one needs both halves. Walked as a table rather than asserted three times over, so a
+    // fourth box added to the race HUD joins the check by being added to this list.
+    for (const [sel, col, row] of [['.race-lap', 1, 1], ['.race-delta', 2, 2]]) {
+      const rule = new RegExp(`\\${sel} \\{([\\s\\S]*?)\\}`).exec(css)?.[1]
+      assert.ok(rule, `run HD.c: ${sel} has no CSS rule at all`)
+      assert.ok(/max-width:/.test(rule),
+        `run HD.c: ${sel} declares no max-width — it is a grid child, so on a desktop window it stretches its whole column and the plate becomes a bar`)
+      assert.ok(new RegExp(`grid-column:\\s*${col}`).test(rule) && new RegExp(`grid-row:\\s*${row}`).test(rule),
+        `run HD.c: ${sel} is not pinned to grid cell ${col}/${row} — hud-top is a 3-column grid, so an unplaced child wraps SOMEWHERE, which is not the same as landing where it was meant to`)
+    }
+    // .race-time is the one plate that is NOT a direct grid child (it lives inside .hud-right,
+    // beside the pause button), so it takes the max-width half of that rule and not the cell half.
+    assert.ok(/max-width:/.test(/\.race-time \{([\s\S]*?)\}/.exec(css)?.[1] ?? ''),
+      'run HD.c: .race-time declares no max-width — it is a flex child of .hud-right and will grow to whatever the race clock renders')
+    // THE BAND MUST REACH THE GLASS, and it takes TWO declarations that each fail alone — both
+    // were shipped and shot wrong in the same session. Left at the inherited width:100% the band
+    // resolves against .screen--hud's CONTENT box and comes out 24px narrow, shifted by its own
+    // negative margin: a strip of water down each edge that reads as a rendering fault rather than
+    // as a margin. Given width:auto WITHOUT align-self:stretch it shrink-wraps instead, because
+    // .screen is a centering flex column — a band as wide as its own text, floating in the middle.
+    // Neither throws, neither is visible in a test that only checks the readouts.
+    {
+      // ⚠ COMMENTS STRIPPED FIRST, AND THAT LINE IS LOAD-BEARING — the same trap run MB.a documents
+      // for sim.js, in CSS. The block below is explained in prose that NAMES the two declarations
+      // it is about ("`width:auto` alone SHRINK-WRAPS", "align-self:stretch is what makes..."), so
+      // a raw search over the rule is satisfied by the comment alone: delete either declaration and
+      // leave the sentence explaining it, and the band breaks while this check stays green. Proven
+      // — all three band mutations survived until this strip existed.
+      const cssCode = css.replace(/\/\*[\s\S]*?\*\//g, '')
+      const band = /\.hud--race \.hud-top\s*\{([\s\S]*?)\n\}/.exec(cssCode)?.[1] ?? ''
+      assert.ok(band, 'run HD.c: .hud--race .hud-top has no rule — the race HUD has no band behind it at all')
+      assert.ok(/width:\s*auto/.test(band),
+        'run HD.c: the race band does not override width — it inherits width:100% from .hud-top, which is measured against the padded content box, so the band is narrower than the screen and offset by its own negative margin')
+      assert.ok(/align-self:\s*stretch/.test(band),
+        'run HD.c: the race band sets width:auto without align-self:stretch — .screen is a centering flex column, so auto shrink-wraps the band to its own text and centres it instead of bleeding to the edges')
+      // BOUNDED TO THE MARGIN'S OWN DECLARATION ([^;]*, not [\s\S]*). The padding two lines below
+      // also mentions safe-area-inset-left, so an unbounded match reads straight past a constant
+      // margin into the padding and passes — measured: that mutation survived until the bound.
+      assert.ok(/margin:[^;]*safe-area-inset-left[^;]*;/.test(band),
+        'run HD.c: the race band\'s negative margin does not account for safe-area-inset-left — on a notched phone the inset widens .screen--hud\'s padding, so a constant margin leaves a sliver of water down the edge on exactly the devices this game is played on')
+    }
+    // THE HIDE MUST OUT-RANK THE READOUTS' OWN `display`, AND A BARE `.race-hidden` DOES NOT.
+    // .race-lap sets `display: flex`; both selectors are a single class, so specificity ties and
+    // whichever sits later in the file wins. It shipped that way for one round: the lap readout was
+    // never hidden, occupied grid cell 1/1 of .hud-top on EVERY non-circuit chapter, and squeezed
+    // The Surf's HP bar to a 6px sliver — measured, not guessed. Asserting the selector is compound
+    // is stronger than asserting rule order, because the next person to give a race readout a
+    // `display` has no way to know they are re-creating it.
+    const hide = /([^\n{]*\.race-hidden[^\n{]*)\{[^}]*display:\s*none/.exec(css)
+    assert.ok(hide,
+      'run HD.c: nothing hides .race-hidden — every race readout is built unconditionally, so without this rule the lap count, the race clock and the speedo sit on screen in every other chapter')
+    assert.ok(/\S\s+\.race-hidden|\.race-hidden\./.test(hide[1]),
+      `run HD.c: the .race-hidden rule is a bare single class (${hide[1].trim()}) — .race-lap sets display:flex at the same specificity, so the later rule in the file wins and the lap readout is never hidden. It then sits in .hud-top's first grid cell on every non-circuit chapter and evicts the HP bar. Scope it (.screen--hud .race-hidden) so it out-ranks any element rule wherever either lands.`)
+    // THE DELTA'S TWO DIRECTIONS MUST BE DIFFERENT COLOURS. ui.js toggles .race-delta--up for a
+    // lap faster than your best; with no rule behind it a -1.42 and a +1.42 are the same pixels and
+    // the readout says nothing at all — the class-with-no-rule failure this whole run exists for.
+    const upRule = /\.race-delta--up\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+    assert.ok(/color:/.test(upRule),
+      'run HD.c: .race-delta--up sets no color — a faster lap and a slower one render identically')
+    // THE BURST'S GLYPH IS SWAPPED BY CSS, and both halves fail silently: leave the sun shown and
+    // the disc carries two symbols, hide the chevrons and it carries none.
+    assert.ok(/\.hud--race\s+\.skill-btn-glyph\s*\{[^}]*display:\s*none/.test(css),
+      'run HD.c: .hud--race does not hide .skill-btn-glyph — the sun and the chevrons would both draw inside one 78px disc')
+    assert.ok(/\.hud--race\s+\.skill-btn-chev\s*\{[^}]*display:\s*block/.test(css),
+      'run HD.c: .hud--race does not show .skill-btn-chev — the button is a blank cyan disc, since .skill-btn-chev is display:none by default')
     // SPLIT SECOND'S TELL (PASSIVES.gateFreeze), AND IT IS A RING RATHER THAN A FILL. Two ways this
     // fails and neither throws: a class ui.js toggles with no rule behind it (the countdown really
     // is held, the player sees a number pause for 0.8s and reads it as a misread — the dead-card
@@ -24033,7 +24152,7 @@ function testCircuitHud() {
       `run HD.c: .hud-timer--held changes the pill METRICS (${heldRule.trim()}) — this pill sits in a fixed grid slot beside the coin badge and anything that widens it wraps the badge onto a second line at 390px, which is why --debt is colour-only`)
   }
 
-  console.log('PASS run HD (the circuit HUD): the timer slot shows the race clock, the pill reads LAP n/4 with its split flash, it is bounded and placed, and a held clock lights a ring that costs no width and never paints over the last-seconds alarm')
+  console.log('PASS run HD (the circuit HUD): the timer slot shows the race clock under a CHECKPOINT caption, the lap plate clamps at n/n, the race clock keeps its tenths, the split delta is signed both ways and taken BEFORE bestLap absorbs the lap, every readout is bounded and placed, the band bleeds to the glass on both axes, the burst swaps the sun for its chevrons, and a held clock lights a ring that costs no width and never paints over the last-seconds alarm')
 }
 function testCircuitCards() {
   const dt = 1 / 60
