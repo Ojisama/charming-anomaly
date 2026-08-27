@@ -193,15 +193,32 @@ function audit (id) {
     'owes 1 unique mutator')
 
   // ---- wiring: does it exist, is it read, does it run ----
-  add('wiring', roster.length > 0 && weapons.length > 0, `roster ${roster.length}, weapon pool ${weapons.length}`)
-  // `starter` is a string on every normal chapter and an ARRAY on The Blank, which hands you the
-  // whole arsenal at once. Both are legal; treating it as a string reports The Blank as unbuilt.
-  const starters = Array.isArray(c.starter) ? c.starter : [c.starter]
-  const badStart = starters.filter(s => !WEAPONS[s] || !weapons.includes(s))
-  add('wiring', badStart.length === 0,
-    badStart.length
-      ? `starter(s) ${badStart.map(s => `'${s}'`).join(', ')} missing from WEAPONS or from the chapter's own pool`
-      : `starter ${starters.length === 1 ? `'${starters[0]}'` : `set of ${starters.length}`} resolves and sits in the pool`)
+  // AN EMPTY POOL IS A SWITCH, NOT A HOLE, AND THIS GATE USED TO CALL IT A HOLE. The Reef ships
+  // `weapons: []` and `starter: null` deliberately — it is a RACE, scored on a clock, and four
+  // separate gates in sim.js read the empty pool rather than the chapter id (eligiblePassiveIds
+  // drops the weapon stats, eligibleElementIds returns nothing, makeWeaponCard has no subjects,
+  // createRun leaves run.weapons genuinely empty instead of seeding a `{ id: null }` corpse). The
+  // XP till is the LAP, not the kill. See CHAPTERS.reef's weapons block for the whole argument.
+  //   Read as "roster 3, weapon pool 0 — FAIL", which is what this printed before, the audit was
+  // permanently red on a shipped chapter for doing exactly what it was designed to do. A gate that
+  // can never go green says nothing, the same way a gate that can never go red says nothing.
+  //   The exemption is on the EMPTY POOL and never on the id, so a chapter that loses its arsenal
+  // by accident still reports FAIL — an empty pool is only legal alongside a null starter, which is
+  // the pair that means "deliberately unarmed" rather than "half-deleted".
+  const unarmed = weapons.length === 0 && c.starter == null
+  if (unarmed) {
+    add('wiring', roster.length > 0, `roster ${roster.length}, DELIBERATELY UNARMED (weapons: [], starter: null — a race, not a hole)`)
+  } else {
+    add('wiring', roster.length > 0 && weapons.length > 0, `roster ${roster.length}, weapon pool ${weapons.length}`)
+    // `starter` is a string on every normal chapter and an ARRAY on The Blank, which hands you the
+    // whole arsenal at once. Both are legal; treating it as a string reports The Blank as unbuilt.
+    const starters = Array.isArray(c.starter) ? c.starter : [c.starter]
+    const badStart = starters.filter(s => !WEAPONS[s] || !weapons.includes(s))
+    add('wiring', badStart.length === 0,
+      badStart.length
+        ? `starter(s) ${badStart.map(s => `'${s}'`).join(', ')} missing from WEAPONS or from the chapter's own pool`
+        : `starter ${starters.length === 1 ? `'${starters[0]}'` : `set of ${starters.length}`} resolves and sits in the pool`)
+  }
   const flags = [...new Set(roster.flatMap(r => r.flags || []).concat(c.eliteFlags || []))]
   const deadFlags = flags.filter(f => !SIM.includes(`'${f}'`) && !SIM.includes(`"${f}"`))
   add('wiring', deadFlags.length === 0,
