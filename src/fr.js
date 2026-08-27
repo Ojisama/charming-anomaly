@@ -355,6 +355,16 @@ const UI = {
   // The race pill's only word — the lap count and the split are numbers, kept OUT of the key so the
   // key cannot change every time they do (the tt() rule).
   'LAP': 'TOUR',
+  // The race plates' captions (v7.x). Numbers are kept OUT of every key, same as 'LAP' above, so a
+  // key cannot change every time the value does — the tt() rule.
+  'RACE': 'COURSE',
+  // The countdown's caption, left in English on the owner's ruling (2026-08-27). 'Point de
+  // contrôle' — the phrase this dictionary uses in the two Reef card descs — is 17 characters and
+  // does not fit under a 2.7rem numeral, and 'checkpoint' is the word French racing games use.
+  // Present as a key rather than absent so run XX's coverage walk sees a decision, not a gap.
+  'CHECKPOINT': 'CHECKPOINT',
+  // Unchanged in French, and present so the key is not simply missing from the dictionary.
+  'KM/H': 'KM/H',
   'Lv': 'Niv',
   // v6.3 dispatch beat (city elite spawn) — transient HUD banner, see updateHUD/dispatch in ui.js
 

@@ -1950,6 +1950,14 @@ function stepCircuit(run, dt) {
     // lap cannot be shortened that way -- it has to be CROSSED to have a split at all, and
     // run.lap is a high-water mark so no crossing can be banked twice. A DNF's laps are real
     // laps, and a `victory` guard here would only throw away honest times.
+    // THE SPLIT DELTA, AND IT HAS TO BE TAKEN BEFORE THE LINE BELOW MOVES THE REFERENCE. bestLap
+    // folds the lap that just finished into itself, so `lapSplit - bestLap` read after it is 0 on
+    // every personal best and can never go negative — which is the one number the readout exists to
+    // show. Published on the run for the same reason lapSplit is: the HUD derives its flash from
+    // state, so this survives a dropped frame and needs no event subscription.
+    //   null on lap 1 and only there: with no earlier lap there is nothing to be faster than, and a
+    // delta against the lap you are on would compare a time to itself.
+    run.lapDelta = run.bestLap == null ? null : run.lapSplit - run.bestLap
     run.bestLap = Math.min(run.bestLap ?? Infinity, run.lapSplit)
     run.events.push({ type: 'lap', lap, x: run.player.x, y: run.player.y, split: run.lapSplit, total: at })
     run._lapAt = at

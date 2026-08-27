@@ -210,12 +210,18 @@ function furthestUnlockedChapterId(meta) {
   return furthest
 }
 
-// The race clock's danger threshold and the split flash's window, in seconds. HUD-only — neither
-// changes anything the sim can see, which is why they sit here rather than in config.js's balance
-// tables. The flash window is the whole reason the lap line is legible: at racing speed it is on
-// screen for about a second and looks like every other stretch of reef.
+// The race clock's danger threshold, in seconds. HUD-only — it changes nothing the sim can see,
+// which is why it sits here rather than in config.js's balance tables.
 const CIRCUIT_CLOCK_LOW_S = 5
-const CIRCUIT_SPLIT_FLASH_S = 1.8
+// The split DELTA's window. Longer than the flash above because it is a number to read rather than
+// a colour to notice, and it is the one thing on this HUD a driver looks away from the track for.
+const CIRCUIT_DELTA_S = 3.2
+// px/s -> the number on the speedo. A DISPLAY SCALE AND NOTHING ELSE — no sim reads it, which is
+// why it sits here with the two above rather than in config.js's balance tables.
+//   0.5 puts the chapter's own band (laneScroll 153 x laneThrottle 0.5..3 = 76..459px/s) at 38..230,
+// which is the range an arcade racer's dial is drawn for. Turbo Fin and the Burst then push past it
+// on purpose: the point of the readout is that the speed cards visibly move a number.
+const CIRCUIT_KMH_PER_PX = 0.5
 
 function fmtTime(s) {
   const t = Math.max(0, Math.floor(s))
@@ -238,6 +244,20 @@ function fmtTime(s) {
 //   every lap was that slow, which is a run that died before it banked anything. Add the branch if
 //   a chapter ever ships a lap that long.
 const fmtLap = (ms) => (Math.max(0, ms) / 1000).toFixed(2)
+
+// The LIVE race clock, in seconds, at one decimal — `2:41.6`. Not fmtTime (which floors, so the
+// number a driver watches would sit still for a whole second at a time and read as a frozen HUD)
+// and not fmtLap (no minute field: a race runs 137-207s, where the minute is the part that carries
+// the meaning — see fmtLap's own block for the other half of that argument).
+const fmtRace = (s) => {
+  const t = Math.max(0, s)
+  const m = Math.floor(t / 60)
+  return `${m}:${(t - m * 60).toFixed(1).padStart(4, '0')}`
+}
+
+// The split delta against the best lap so far — `-1.42` / `+0.87`, always signed, because an
+// unsigned one is unreadable at a glance: the whole message is which side of your best you are on.
+const fmtDelta = (s) => `${s < 0 ? '-' : '+'}${Math.abs(s).toFixed(2)}`
 
 // Interpolates two '#rrggbb' colors at t (0..1) — used for the sacrifice modal's counter,
 // which reads from ink-soft toward the danger red as the offered total climbs.
@@ -2069,14 +2089,26 @@ export function initUI(hooks) {
         <div class="hp-bar"><div class="hp-fill"></div></div>
         <span class="hp-text"></span>
       </div>
-      <div class="hud-timer">${fmtTime(RUN_DURATION)}</div>
-      <!-- THE RACE PILL (v7.x, a circuit chapter only) — built unconditionally like the rampage
-           meter above and hidden until updateHUD knows the chapter. Pinned to row 2 / column 2
-           explicitly for the same reason .rampage-wrap is pinned to row 2 / column 1: hud-top is a
-           3-column grid and a 5th child would wrap SOMEWHERE, which is not the same as wrapping
-           under the clock on purpose. -->
-      <div class="hud-lap hud-lap--hidden"></div>
+      <!-- THE NUMBER IS ITS OWN CHILD so the slot can carry a CAPTION under it without every
+           textContent write in updateHUD wiping the caption out. Empty and hidden off a circuit,
+           where the slot is a bare countdown pill exactly as it always was. -->
+      <div class="hud-timer"><b class="hud-timer-num">${fmtTime(RUN_DURATION)}</b><span class="hud-timer-k"></span></div>
+      <!-- THE RACE READOUT (v7.x, a circuit chapter only) — three plates and a delta, built
+           unconditionally like the rampage meter above and hidden until updateHUD knows the
+           chapter. Every one is pinned to its grid cell explicitly, for the same reason
+           .rampage-wrap is: hud-top is a 3-column grid and an unplaced child wraps SOMEWHERE,
+           which is not the same as landing where it was meant to.
+             LAP takes column 1 / row 1 and pushes the HP bar down to row 2 under it — a race
+           groups "how far along am I" at the top and "what shape am I in" beneath, and the clock
+           in the middle is the one that kills you. -->
+      <div class="race-lap race-hidden"><b></b><span class="race-k" data-race-k="LAP"></span></div>
+      <!-- The split against your best lap so far, row 2 / column 2, under the checkpoint clock it
+           is a comment on. Text only, no plate: it is present for CIRCUIT_DELTA_S after a lap line
+           and absent the rest of the time, and a box that appeared and vanished would read as the
+           HUD breaking rather than as a number arriving. -->
+      <div class="race-delta race-hidden"></div>
       <div class="hud-right">
+        <div class="race-time race-hidden"><b></b><span class="race-k" data-race-k="RACE"></span></div>
         <!-- data-act="dev-tap": opens the hidden dev menu, and does nothing whatsoever unless the
              title's DEV toggle is on (see the 'dev-tap' click case). The badge is otherwise inert,
              and styles.css has to give it pointer-events:auto — the whole HUD is pointer-events:none
@@ -2145,8 +2177,23 @@ export function initUI(hooks) {
       <div class="xp-bar"><div class="xp-fill"></div></div>
     </div>
     <div class="weapon-row"></div>
+    <!-- THE SPEEDO (v7.x, a circuit chapter only). Bottom RIGHT, opposite the air rail and the
+         burst button on the left, so the two thumbs' worth of screen stay clear. It exists because
+         the whole Reef card pool is speed — Turbo Fin, Quick Start, Jet Puff — and nothing on
+         screen moved when you took one, which is this repo's standard shape for a card that reads
+         as dead in play. Outside .hud-top's grid (position:fixed, styles.css) like .chaos-wrap. -->
+    <div class="race-speed race-hidden"><b></b><span class="race-k" data-race-k="KM/H"></span></div>
     <button class="skill-btn skill-btn--hidden" data-act="skill" aria-label="Pulse">
       <span class="skill-btn-glyph">☉</span>
+      <!-- THE BURST'S GLYPH, shown instead of the sun on a circuit chapter (see .hud--race in
+           styles.css, which owns the swap — this is markup that is always present and usually
+           display:none, the same idiom as the rampage meter). Three chevrons along the way you
+           travel: the racing genre's own way of writing "faster", so it needs no legend, where a
+           sun said nothing about a dash. Drawn rather than an emoji — CLAUDE.md's UI-icon rule. -->
+      <svg class="skill-btn-chev" viewBox="0 0 40 40" fill="none" stroke="currentColor"
+           stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M7 12l8 8-8 8" opacity=".55"/><path d="M17 12l8 8-8 8"/><path d="M27 12l8 8-8 8" opacity=".8"/>
+      </svg>
       <span class="skill-btn-cd"></span>
     </button>
   `
@@ -2154,7 +2201,17 @@ export function initUI(hooks) {
     hpFill: screens.hud.querySelector('.hp-fill'),
     hpText: screens.hud.querySelector('.hp-text'),
     timer: screens.hud.querySelector('.hud-timer'),
-    lap: screens.hud.querySelector('.hud-lap'),
+    timerNum: screens.hud.querySelector('.hud-timer-num'),
+    timerK: screens.hud.querySelector('.hud-timer-k'),
+    raceLap: screens.hud.querySelector('.race-lap b'),
+    raceTime: screens.hud.querySelector('.race-time b'),
+    raceDelta: screens.hud.querySelector('.race-delta'),
+    raceSpeed: screens.hud.querySelector('.race-speed b'),
+    // Every circuit-only box at once — one classList toggle per box on the chapter flip, which is
+    // the only moment any of them can change.
+    raceBoxes: [...screens.hud.querySelectorAll('.race-lap, .race-time, .race-speed')],
+    raceCaps: [...screens.hud.querySelectorAll('[data-race-k]')],
+    xpRow: screens.hud.querySelector('.xp-row'),
     coins: screens.hud.querySelector('.hud-coins'),
     lv: screens.hud.querySelector('.lv-badge'),
     xpFill: screens.hud.querySelector('.xp-fill'),
@@ -2185,9 +2242,11 @@ export function initUI(hooks) {
     // per-chapter constant, checked once per change rather than every frame); bossBarShown/Pct
     // gate the new boss HP bar the same way rampagePct/rampageActive gate the rampage meter.
     scriptedChapter: undefined, bossBarShown: undefined, bossBarPct: -1,
-    // v7.x circuit: same per-chapter latch, plus two cached strings. `lapText` covers the pill and
-    // `lowClock` the countdown's danger class — both would otherwise be written 60x a second.
-    circuitChapter: undefined, lapText: '', lowClock: undefined, lapFlash: undefined,
+    // v7.x circuit: same per-chapter latch, plus one cached string per readout. The race clock and
+    // the speedo move every frame, so without these the HUD does four textContent writes at 60Hz;
+    // the cache keys are the FORMATTED strings, which is what makes a tenth-second clock cost ten
+    // writes a second instead of sixty.
+    circuitChapter: undefined, lapText: '', raceText: '', deltaText: '', kmh: -1, lowClock: undefined,
     // CHAOS PACT: the seconds tick once a second and the bonus only on a surviving a wave, so both
     // are cached and only the rail's height is repainted every frame — a per-frame textContent
     // write is the expensive half.
@@ -2263,7 +2322,33 @@ export function initUI(hooks) {
     const circuitChapter = CHAPTERS[run.chapter].circuit != null
     if (circuitChapter !== last.circuitChapter) {
       last.circuitChapter = circuitChapter
-      hud.lap.classList.toggle('hud-lap--hidden', !circuitChapter)
+      for (const el of hud.raceBoxes) el.classList.toggle('race-hidden', !circuitChapter)
+      // ONE CLASS ON THE ROOT CARRIES THE WHOLE RE-LAYOUT — the HP bar dropping to row 2 under the
+      // lap plate, the countdown becoming a captioned plate, the pause button making room for the
+      // race clock. Every one of those is a CSS rule under .hud--race (styles.css) rather than a
+      // style written from here, so the two halves of the design cannot drift apart in two files.
+      screens.hud.classList.toggle('hud--race', circuitChapter)
+      // WHAT THE COUNTDOWN COUNTS DOWN TO, and the noun is the CARDS' noun. Pit Stop and Split
+      // Second both say "at every checkpoint", so a HUD that said "gate" would coin a second name
+      // for one object — the failure game-art-and-copy records as the `upwelling` bug.
+      hud.timerK.textContent = circuitChapter ? t('CHECKPOINT') : ''
+      // ...and every other caption with it. TRANSLATED HERE AND NOT IN THE MARKUP: the HUD's
+      // innerHTML is written exactly once at boot, so a t() call inside it bakes whatever language
+      // was current then — change language on the title screen and the plates would still be
+      // captioned in the old one, with no way to notice short of playing a race in both. Each span
+      // carries its own English key (the dictionary IS keyed by the English), so this is one loop
+      // rather than three refs, and a fourth plate joins it by existing.
+      if (circuitChapter) for (const el of hud.raceCaps) el.textContent = t(el.dataset.raceK)
+      // THE SURVIVAL FURNITURE, GONE — and every one of these is dead rather than merely unhelpful
+      // in a race, which is why they are hidden and not restyled:
+      //   the COIN BADGE is pinned at 0. The Reef is `weapons: []` (config.js), coins drop only
+      //     from a kill (sim.js), so nothing in the chapter can ever move it. It stays for a DEV
+      //     run because it is the dev menu's seven-tap target and nothing else is.
+      //   the XP ROW is pinned at 0% and duplicates the lap plate. A circuit banks one level per
+      //     lap (`p.xp += p.xpNext`, sim.js), so the bar fills and empties inside one frame and
+      //     `Lv N` is the lap count wearing another unit.
+      hud.coins.style.display = circuitChapter && !meta.dev ? 'none' : ''
+      hud.xpRow.style.display = circuitChapter ? 'none' : ''
       // THE TIMER SLOT MEANS SOMETHING DIFFERENT ON EITHER SIDE OF THIS FLIP AND BOTH SIDES RENDER
       // A SMALL INTEGER, so the cache can be holding a number that is accidentally still "equal"
       // for the new meaning — 27 seconds of race clock and 27 seconds of survival clock look the
@@ -2294,7 +2379,7 @@ export function initUI(hooks) {
       const label = script.stage % 2 === 0 ? `${t('WAVE')} ${script.waveIdx + 1}` : ''
       if (label !== last.remain) {
         last.remain = label
-        hud.timer.textContent = label
+        hud.timerNum.textContent = label
       }
     } else if (circuitChapter) {
       // THE RACE CLOCK, WHICH IS NOT A CLOCK OF THE SAME KIND AS THE ONE IT REPLACES. Until this
@@ -2305,7 +2390,7 @@ export function initUI(hooks) {
       const remain = Math.max(0, Math.ceil(run.raceClock ?? 0))
       if (remain !== last.remain) {
         last.remain = remain
-        hud.timer.textContent = String(remain)
+        hud.timerNum.textContent = String(remain)
       }
       const lowClock = remain <= CIRCUIT_CLOCK_LOW_S
       if (lowClock !== last.lowClock) {
@@ -2316,8 +2401,9 @@ export function initUI(hooks) {
       // Math.ceil'd, so it moves once a second, and a 0.3s hold merely delays one tick — a player
       // cannot distinguish "held" from "I misread the clock". Same argument, and the same fix, as
       // .hud-timer--debt, whose block records the card that read as dead for exactly this reason.
-      //   Derived from run._clockHold rather than from the 'swimthrough' event, the .hud-lap--split
-      // idiom: state survives a dropped frame and a paused one and needs no subscription here.
+      //   Derived from run._clockHold rather than from the 'swimthrough' event, the same idiom as
+      // the split delta below: state survives a dropped frame and a paused one and needs no
+      // subscription here.
       const heldClock = (run._clockHold ?? 0) > 0
       if (heldClock !== last.heldClock) {
         last.heldClock = heldClock
@@ -2327,28 +2413,56 @@ export function initUI(hooks) {
       const remain = Math.max(0, Math.ceil(RUN_DURATION - run.time))
       if (remain !== last.remain) {
         last.remain = remain
-        hud.timer.textContent = fmtTime(remain)
+        hud.timerNum.textContent = fmtTime(remain)
       }
     }
     if (circuitChapter) {
-      // THE PILL, AND ITS SPLIT FLASH IS DERIVED RATHER THAN SUBSCRIBED. stepCircuit publishes
-      // run.lapSplit and run._lapAt precisely so this needs no event feed: derived from state it
-      // survives a dropped frame and a paused one, and ui.js gains no subscription to maintain.
+      // THE PLATES, AND EVERY ONE IS DERIVED RATHER THAN SUBSCRIBED. stepCircuit publishes
+      // run.lapSplit, run.lapDelta and run._lapAt precisely so this needs no event feed: derived
+      // from state it survives a dropped frame and a paused one, and ui.js gains no subscription.
       //   The lap NUMBER is `done + 1` — run.lap counts laps COMPLETED — clamped so the final
-      // frame of the winning lap reads 4/4 rather than 5/4.
+      // frame of the winning lap reads 5/5 rather than 6/5.
       const laps = CHAPTERS[run.chapter].circuit.laps
       const done = run.lap ?? 0
-      const flash = done > 0 && (run._realTime ?? 0) - (run._lapAt ?? 0) < CIRCUIT_SPLIT_FLASH_S
-      const lapText = flash
-        ? `${t('LAP')} ${done} · ${run.lapSplit.toFixed(1)}s`
-        : `${t('LAP')} ${Math.min(done + 1, laps)}/${laps} · ${fmtTime(run._realTime ?? 0)}`
+      const lapText = `${Math.min(done + 1, laps)}/${laps}`
       if (lapText !== last.lapText) {
         last.lapText = lapText
-        hud.lap.textContent = lapText
+        hud.raceLap.textContent = lapText
       }
-      if (flash !== last.lapFlash) {
-        last.lapFlash = flash
-        hud.lap.classList.toggle('hud-lap--split', flash)
+      // TENTHS, so the clock a driver is racing visibly MOVES. It is also the cache key, and one
+      // that changes ten times a second rather than sixty is still nine writes a second saved.
+      const raceText = fmtRace(run._realTime ?? 0)
+      if (raceText !== last.raceText) {
+        last.raceText = raceText
+        hud.raceTime.textContent = raceText
+      }
+      // THE SPEEDO reads the player's OWN velocity, not run._laneSpeed, and that is the point: the
+      // Burst multiplies the velocity and never touches _laneSpeed, so a readout off the latter
+      // would sit still through the one move the button exists for. Rounded to whole units — this
+      // is a cache key too, and a decimal here would write every frame for a digit nobody reads.
+      // ponytail: a bounce (run._kickX/Y) is summed into the velocity, so a wall briefly reads a
+      //   few units high. It decays to a hard zero inside ~0.2s and "you just got shoved" is
+      //   arguably the honest reading; split the heading component out if it ever looks wrong.
+      const kmh = Math.round(Math.hypot(p.vx ?? 0, p.vy ?? 0) * CIRCUIT_KMH_PER_PX)
+      if (kmh !== last.kmh) {
+        last.kmh = kmh
+        hud.raceSpeed.textContent = String(kmh)
+      }
+      // THE SPLIT DELTA. Present for CIRCUIT_DELTA_S after a lap line and absent otherwise, so the
+      // slot under the clock is empty while you drive and carries one number when you cross. null
+      // on lap 1 (nothing to be faster than) is a SEPARATE case from "no lap yet", and both render
+      // as nothing — writing '+0.00' for the first crossing would state a comparison never made.
+      const dOn = done > 0 && run.lapDelta != null
+        && (run._realTime ?? 0) - (run._lapAt ?? 0) < CIRCUIT_DELTA_S
+      const dText = dOn ? fmtDelta(run.lapDelta) : ''
+      if (dText !== last.deltaText) {
+        last.deltaText = dText
+        hud.raceDelta.textContent = dText
+        hud.raceDelta.classList.toggle('race-hidden', !dOn)
+        // Faster is the game's own reward register (mint, as the lap pill's gold flash was); slower
+        // is warm rather than the danger red the low clock owns, because losing a tenth is not the
+        // same news as being about to die and must not shout as loudly.
+        hud.raceDelta.classList.toggle('race-delta--up', dOn && run.lapDelta < 0)
       }
     }
     // Boss HP bar: gated on scriptedChapter too (not just run.bossBar) so leaving the chapter mid-
