@@ -98,6 +98,7 @@ import {
   BLANK_BAND_W, BLANK_BAND_DPS, BLANK_BAND_GROW, STATUS_TICK,
   BLANK_RECRUIT_T, BLANK_WAVE_XP_MUL, BLANK_WAVE_GAP,
   SPAWN_RING, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES,
+  CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE,
   // v6.3.1 difficulty pass (Run LL)
   BLANK_BOSS_SPEED, BLANK_BOSS_SPEED_P1, BLANK_BOSS_HP, BLANK_MAX_ALIVE, BLANK_CATCHUP_MAX,
   BLANK_SHOT_T, BLANK_SHOT_TURN, BLANK_ACCEL_MUL, BLANK_DESPERATE_MUL,
@@ -23796,10 +23797,62 @@ function testReefSpurScrape() {
       'run RS.f: 90s of holding the passage centre line cost 0 hp — the islands are drawn and not solid, so the fork is decoration and the middle is still the safest place in the chapter')
   }
 
+  // (h) THE CAMERA LOOKS AHEAD, AND IT IS A SOURCE-TEXT CHECK BECAUSE THE DEFECT WAS ONE.
+  // render.js gates the lane's look-ahead on `cfg?.lane === true`. The Reef dropped that flag when
+  // it became a ring and nothing replaced it, so the whole LANE_CAMERA_FRAC machinery — 80% of the
+  // screen ahead of you — silently became dead code here and the camera reverted to dead centre.
+  // Measured on the shipped build: playerScreen (195, 294) of a 390x588 viewport, i.e. 195px of
+  // warning driving ACROSS a phone, which at laneScroll x laneThrottle.max is 0.42s and half that
+  // once topSpeed's cap doubles it. Nothing threw, nothing was red, and a chapter whose passage is
+  // 360-480px wide against a 390px screen was un-drivable at the fast half of its own throttle.
+  //   Asserted as TEXT for the reason run UG.k is: render.js is not importable, so the only thing
+  // that can hold "the circuit camera is wired to the circuit flag" is the source. Three facts,
+  // because dropping any one of them restores the bug in a different way — the knob must be read,
+  // it must be read under the CIRCUIT gate (not the lane one), and the offset it produces must
+  // actually reach the camera position.
+  {
+    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert.ok(rsrc.includes('CIRCUIT_CAM_LEAD') && rsrc.includes('CIRCUIT_CAM_EASE'),
+      'run RS.h: render.js never reads CIRCUIT_CAM_LEAD/CIRCUIT_CAM_EASE — the circuit camera is a config knob with no consumer, which is exactly the shape the lane camera failed in')
+    const at = rsrc.indexOf('if (chapterIsCircuit && run._headX != null) {')
+    const block = at < 0 ? '' : rsrc.slice(at, rsrc.indexOf('const camX =', at))
+    assert.ok(at >= 0 && block.includes('CIRCUIT_CAM_LEAD') && block.includes('run._headY'),
+      'run RS.h: the lead is not computed inside a `chapterIsCircuit` block off run._headX/_headY — a ring has no fixed forward axis, so a lane-style one-axis bias cannot express it')
+    assert.ok(/const camX = \(laneAheadX \? camFwd : run\.player\.x\) \+ camLead\.x/.test(rsrc)
+      && /const camY = \(laneAheadY \? camFwd : run\.player\.y\) \+ camLead\.y/.test(rsrc),
+      'run RS.h: camLead never reaches camX/camY — the offset is computed and thrown away, which looks identical to having no camera lead at all')
+    assert.ok(/camLead\.x = 0; camLead\.y = 0/.test(rsrc),
+      'run RS.h: reset() does not clear camLead — last run\'s offset holds the new one\'s first frames a fifth of a screen off centre, which reads as the start line drifting')
+    // A RATIO, NEVER A PIXEL COUNT (the screen-relative rule). A px lead is correct at exactly one
+    // viewport; this one is a share of the distance to the screen edge along the heading, so the
+    // phone and the desktop get the same fraction of the warning each can give.
+    assert.ok(CIRCUIT_CAM_LEAD > 0 && CIRCUIT_CAM_LEAD < 1,
+      `run RS.h: CIRCUIT_CAM_LEAD is ${CIRCUIT_CAM_LEAD} — it multiplies the distance to the screen edge, so anything at or past 1 puts the player off the screen entirely`)
+    assert.ok(CIRCUIT_CAM_EASE > 0, 'run RS.h: a non-positive ease freezes the lead at 0 forever')
+  }
+
+  // (i) THE KEYBOARD CAN EASE OFF. A circuit reads the stick's MAGNITUDE as the throttle, and keys
+  // are binary — so without a modifier the gas is full or nothing and "ease off into the corner",
+  // the move this chapter is designed around, cannot be typed at all. steerFromAnchor is exported
+  // for exactly this reason (a DOM-free assertion); getInput is not, so the wiring is read as text.
+  {
+    const isrc = readFileSync(new URL('../src/input.js', import.meta.url), 'utf8')
+    assert.ok(/keys\.has\('ShiftLeft'\) \|\| keys\.has\('ShiftRight'\)/.test(isrc),
+      'run RS.i: input.js reads no shift key — the keyboard throttle is back to on/off, and a circuit chapter has no other way to spell a part-open stick')
+    const halved = isrc.match(/HALF_STICK = ([\d.]+)/)
+    assert.ok(halved && Number(halved[1]) > 0 && Number(halved[1]) < 1,
+      `run RS.i: HALF_STICK is ${halved?.[1]} — at 0 shift is a handbrake and at 1 it does nothing`)
+    // It must land AFTER the diagonal normalisation, or a half-pressed diagonal is half of an
+    // over-long vector rather than half a stick.
+    assert.ok(isrc.indexOf('Math.SQRT1_2') < isrc.indexOf("keys.has('ShiftLeft')"),
+      'run RS.i: the shift scale runs before the diagonal normalisation — a half-pressed diagonal would come out longer than a half-pressed cardinal')
+  }
+
   const all = Object.keys(CHAPTERS)
   const caves = all.filter((id) => CHAPTERS[id].cave)
   assert.deepStrictEqual(caves, ['reef'],
     `run RS: ${caves.length} chapters declare a cave [${caves.join(', ')}] — this is The Reef's own geometry and nothing else reads caveAt`)
+  console.log(`PASS run RS.h/i (the driver's view): the circuit camera reads CIRCUIT_CAM_LEAD ${CIRCUIT_CAM_LEAD} of the distance to the screen edge under its own flag and clears on reset, and the keyboard can hold a part-open stick`)
   console.log(`PASS run RS (the cave): 1 of ${all.length} chapters declares one, a passage ${2 * spec.halfMin}-${2 * spec.halfMax}px wide wandering +/-${spec.wander} of radius on an r0 of ${spec.ring.r0}; following it for 60s touched the wall ${clean.touches} times and covered ${clean.travelled.toFixed(0)}px, pressing one side for 20s touched it ${hit.touched} times for ${hit.paid} hp with a worst single-frame move of ${hit.worstJump.toFixed(1)}px (bounce ${CAVE_BOUNCE_PX}), and a held Burst passes straight through`)
   console.log(`PASS run RS.f (the fork): ${fork.islands} islands over 60000px = one every ${fork.everyPx.toFixed(0)}px, ${(fork.share * 100).toFixed(0)}% of the lap forked, widest ${fork.maxPh.toFixed(0)}px against a tightest branch of ${fork.minBranch.toFixed(0)}px, both sides flown clean for 90s, and the centre line costs; The Beyond keeps its own scroll and grows no _laneSpeed`)
 }

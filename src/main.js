@@ -777,8 +777,19 @@ function endRun(victory) {
   // no record and the honest number is how long you lasted in REAL seconds — the same unit, so the
   // two lines of that row are comparable to each other and to the board.
   const shownTime = CHAPTERS[run.chapter]?.circuit ? (run.raceTime > 0 ? run.raceTime : run._realTime ?? run.time) : run.time
+  // A RACE'S OTHER TWO FACTS, and they are the rows that replace Kills and Level reached on the
+  // summary — see renderSummary. Both are already stamped for the leaderboard a few lines down
+  // (run.lap, run.bestLap); passing them here is what stops the end of a race being scored on a
+  // kill count that `passiveCrowd` pins at 0 and a level every finisher ties on. `lapsTotal` is
+  // read off the chapter rather than off the run because a DNF has no total of its own.
+  const cc = CHAPTERS[run.chapter]?.circuit
   const summaryData = {
     victory, time: shownTime, kills: run.kills, level: run.player.level, earned, bonus,
+    laps: cc ? (run.lap ?? 0) : null,
+    lapsTotal: cc ? cc.laps : null,
+    // Milliseconds, the unit fmtLap and the podium's lap board already speak, so the summary and
+    // the board can never round the same lap two different ways. 0 means "never banked a lap".
+    bestLapMs: cc && run.bestLap > 0 ? Math.round(run.bestLap * 1000) : 0,
     mutators: run.mutators, nextDifficulty,
     // v7.x "what happened to me": the fatal hit's source label and the whole run's damage tally
     // (run.killedBy / run.dmgBySrc — see state.js's doc block). Passed raw, as LABELS not copy:

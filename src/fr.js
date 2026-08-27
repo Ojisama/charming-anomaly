@@ -315,6 +315,9 @@ const UI = {
   // fastest lap, and it is a character SHORTER than 'Meilleur temps' above -- so it clears the
   // same 142px eyebrow that comment measured, with room over.
   'Best lap': 'Meilleur tour',
+  // The circuit summary's own row, beside 'Meilleur tour'. 'Tours' and not 'Tours de piste':
+  // the row prints '3/5' next to it, which is what says these are laps of a circuit.
+  'Laps': 'Tours',
   // v7.x leaderboard. 'Podium' is the same word in both languages and still needs its key here, or
   // the coverage assert reads it as an untranslated string. 'Pseudo' rather than 'surnom': it is
   // what French players actually call the name they use online, and it fits the 26px rank row.
@@ -656,6 +659,11 @@ const CONFIG = {
   // whatever landed the last hit — the rail is inverted here, so the death is silt ARRIVING.
   'You found clear water! 🎉': 'Tu as trouvé de l\'eau claire ! 🎉',
   'Silted up… 🌫️': 'Envasé·e… 🌫️',
+  // The Reef. A race, so neither line is a survival line: 'Drapeau à damier' is the term French
+  // motorsport uses for the chequered flag, and 'Hors course' is what a French race says of a
+  // car that did not finish -- the exact sense of the English, and short enough for the title.
+  'Chequered flag! 🏁': 'Drapeau à damier ! 🏁',
+  'Out of the race… 🏁': 'Hors course… 🏁',
   // v6.2 Remaster — watcher unlock lines
   'The Pond — word of you travels downstream': 'La Mare — la rumeur descend le courant',
   'The Garden — something marked your trail': 'Le Jardin — quelque chose a marqué ta piste',
@@ -1751,7 +1759,7 @@ const CONFIG = {
   'Starvation': 'Famine',
   'The Leak': 'La Fuite',
   'The Coral': 'Le Corail',
-  'Out of Time': 'Temps écoulé',
+  'The Clock': 'Le Chrono',
   'Crushed': 'Écrasé',
   // Owner's pick, 2026-08-22, over 'L'Orque' and 'L'Épaulard': the chapter's own premise turned
   // back on the player — you spent the run being the predator, and this is the one that outranks you.

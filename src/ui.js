@@ -3303,6 +3303,35 @@ export function initUI(hooks) {
     if (active === 'summary') renderSummary(lastSummaryData)
   }
 
+  // THE TWO ROWS UNDER `Time`, AND ON A RACE THEY ARE DIFFERENT ROWS. A `circuit` chapter has no
+  // weapons and a crowd `passiveCrowd` makes harmless, so Kills is 0 on every run ever played
+  // there; its xp till is the LAP, so Level reached is the lap count in disguise and every finisher
+  // ties on it. Two rows of nothing, on the screen that tells you how the race went. v7.246 rebuilt
+  // the PODIUM around a race's real scores and left this screen printing the old pair.
+  //   The lap row takes no rank chip: there is no lap-COUNT board. The best-lap row takes the `lap`
+  // board's, which podiumRank already returns and which the podium already draws under 'Best lap'.
+  // Same string, so the two screens cannot name it two ways.
+  function raceRows(d, chapterId) {
+    if (CHAPTERS[chapterId]?.circuit) {
+      // A DNF prints the laps it actually drove — 3/5 is the honest answer and is what the player
+      // watched happen. Its best lap is real too (bestLap is a minimum over COMPLETED laps), so it
+      // shows whenever one was banked and is simply absent when none was.
+      return `
+          <div class="stat-row"><span>${t('Laps')}</span><b>${d.laps ?? 0}/${d.lapsTotal ?? 0}</b></div>
+          ${d.bestLapMs > 0
+            ? `<div class="stat-row"><span>${t('Best lap')}</span><b>${fmtLap(d.bestLapMs)}s${rankChip(d.podium?.lap, 'lap')}</b></div>`
+            : ''}`
+    }
+    // The level chip is suppressed on a boss chapter even though the level board still takes its
+    // score: that board is not drawn anywhere for a scripted chapter, so a rank on it points at a
+    // page the player cannot open. The time chip needs no such guard — podium.time only exists for
+    // a WON boss run in the first place.
+    return `
+          <div class="stat-row"><span>${t('Kills')}</span><b>${d.kills}${rankChip(d.podium?.kills, 'kills')}</b></div>
+          <div class="stat-row"><span>${t('Level reached')}</span><b>${d.level}${
+            CHAPTERS[chapterId]?.scripted ? '' : rankChip(d.podium?.level, 'level')}</b></div>`
+  }
+
   function renderSummary(d) {
     lastSummaryData = d
     const mutatorIds = d.mutators || []
@@ -3333,13 +3362,7 @@ export function initUI(hooks) {
         ${killedByLine}
         <div class="stats">
           <div class="stat-row"><span>${t('Time')}</span><b>${fmtTime(d.time)}${rankChip(d.podium?.time, 'time')}</b></div>
-          <div class="stat-row"><span>${t('Kills')}</span><b>${d.kills}${rankChip(d.podium?.kills, 'kills')}</b></div>
-          <!-- The level chip is suppressed on a boss chapter even though the level board still
-               takes its score: that board is not drawn anywhere for a scripted chapter, so a rank
-               on it points at a page the player cannot open. The time chip needs no such guard —
-               podium.time only exists for a WON boss run in the first place. -->
-          <div class="stat-row"><span>${t('Level reached')}</span><b>${d.level}${
-            CHAPTERS[chapterId]?.scripted ? '' : rankChip(d.podium?.level, 'level')}</b></div>
+          ${raceRows(d, chapterId)}
         </div>
         ${damageBlock(d)}
         ${mutatorBlock}
