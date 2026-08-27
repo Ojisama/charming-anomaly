@@ -5583,6 +5583,29 @@ export const HUMIDITY_DMG_FLOOR = 0.7
 export const FOUL_SPRING_FOUL_T = 0.85
 export const REFILL_ZONE_SPEND = 0.33
 export const spendSecs = (res, spend = REFILL_ZONE_SPEND) => +((res.max * spend) / (res.refill - res.drain)).toFixed(2)
+// WHAT A CHAPTER IS SCORED ON -- the two leaderboards its podium spread draws, verso then recto.
+// A chapter that declares nothing gets this pair, which is what an ordinary survival run has to
+// show: how many things you killed and how far you levelled.
+//
+// THIS EXISTS BECAUSE THE RECTO USED TO BE INFERRED, and the inference was a coincidence rather
+// than a rule. ui.js read `CHAPTERS[id].scripted ? 'time' : 'level'` -- true for the one boss
+// chapter, and it had to be extended by hand the moment a SECOND kind of chapter wanted a clock.
+// The Reef is that chapter and it wants BOTH of its boards changed, not one: it is `weapons: []`,
+// so nothing in it can die and its kills board is a column of zeroes, and `ONE LAP, ONE LEVEL`
+// (stepCircuit) makes its level board a table where every finisher ties. Two boards, neither able
+// to rank anybody, while the race time the run actually earns was submitted and never drawn.
+//
+// A chapter naming its own boards is also the only shape that survives the next kind of chapter:
+// there is nothing here to remember to update, and a board name that does not resolve is a test
+// failure (run LB) rather than a blank leaf nobody notices.
+//
+// LEVEL IS NOT A STAND-IN FOR LAPS on a circuit, which is why the Reef does not simply keep it.
+// Level equals laps there, but only through how xp happens to be wired this month, and the leaf is
+// labelled `Level reached`. The day that 1:1 breaks the board goes on ranking confidently and
+// wrongly, with nothing thrown -- the one-fact-in-two-places class this file is full of warnings
+// about. `time` and `lap` are what a race is scored on, so those are what it declares.
+export const CHAPTER_BOARDS_DEFAULT = ['kills', 'level']
+
 export const CHAPTERS = {
   body: {
     name: 'The Body', tagline: 'escape the host', icon: '🦠',
@@ -6110,6 +6133,11 @@ const BLANK_WEAPONS = ['star','orbit','wave','homing','flagella','mines','bloom'
 CHAPTERS.blank = {
   name: 'The Blank', tagline: 'deletion in progress', icon: '⬜',
   scripted: true,          // gates victory timer + ordinary spawning (sim.js), HUD readout (ui.js)
+  // The recto ui.js used to DERIVE from `scripted` just above, now stated. A boss chapter has no
+  // survival clock and no reason to grind levels -- it ends when the boss dies, so how long that
+  // took is the only score its second board can be about (owner, 2026-08-19). Unchanged behaviour;
+  // the flag simply stopped being asked a question it was not about.
+  boards: ['kills', 'time'],
   maxDifficultyCap: 3,     // per-chapter ladder ceiling (see chapterMaxDifficulty helper)
   weapons: BLANK_WEAPONS,
   // balance_decision : the blank rolls its starter from its own pool 2026-08-19
@@ -7238,6 +7266,14 @@ CHAPTERS.reef = {
   //   level-up screen would never open once in a whole race. That grant is what keeps this an empty
   //   ARSENAL rather than an empty progression.
   weapons: [], starter: null,
+
+  // A RACE'S TWO SCORES, and the second one is not a restatement of the first -- which is the whole
+  // test for whether a board earns its half of the spread. `time` is the full five laps; `lap` is
+  // the best single one, and a driver can hold one without the other (a blazing lap and one bad
+  // corner loses the race; a metronome wins it holding neither). The two boards disagree, so both
+  // are worth reading. See CHAPTER_BOARDS_DEFAULT for why this is declared rather than inferred,
+  // and why `level` is NOT quietly reused as a lap count.
+  boards: ['time', 'lap'],
 
   // The cast. All three flags already exist in sim.js and are chapter-agnostic, so this roster is
   // real behaviour rather than a placeholder: the damselfish is the deliberately FLAGLESS baseline

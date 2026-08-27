@@ -160,7 +160,7 @@ import {
   ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
   ORCA_RING_MIN_R, ORCA_BITE_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, FEED_FULL_N,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_RING_R, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_SPIRAL_ACCEL, ORCA_TRAIL_MAX,
-  CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX,
+  CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX, CHAPTER_BOARDS_DEFAULT,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -17916,26 +17916,88 @@ function testLeaderboard() {
   const ANN = { nick: 'Ann', kills: 900, level: 20, timeMs: 240000 }
   const BOB = { nick: 'Bob', kills: 500, level: 12, timeMs: 180000 }
   const boards = { kills: [ANN, BOB], level: [BOB, ANN], time: [BOB, ANN] }
-  assert.deepStrictEqual(podiumRank(boards, { nick: 'Bob', kills: 500, level: 12 }), { kills: 2, level: 1, time: null },
+  assert.deepStrictEqual(podiumRank(boards, { nick: 'Bob', kills: 500, level: 12 }), { kills: 2, level: 1, time: null, lap: null },
     'a run on both boards reports both ranks, and they are allowed to differ')
   assert.strictEqual(podiumRank(boards, { nick: 'Cid', kills: 10, level: 2 }), null, 'a run on neither board reports nothing at all')
   assert.strictEqual(podiumRank(null, { nick: 'Bob', kills: 500, level: 12 }), null, 'an unreachable board is not a rank of null-th')
-  assert.deepStrictEqual(podiumRank({ kills: [ANN], level: [], time: [] }, { nick: 'Ann', kills: 900, level: 20 }),
-    { kills: 1, level: null, time: null }, 'one board without the other is still a result')
+  assert.deepStrictEqual(podiumRank({ kills: [ANN], level: [], time: [], lap: [] }, { nick: 'Ann', kills: 900, level: 20 }),
+    { kills: 1, level: null, time: null, lap: null }, 'one board without the other is still a result')
 
   // THE BOSS BOARD. A run that carries a kill time is ranked on it; one that does not must not be,
   // and `timeMs` defaulting to undefined is the whole reason that needs an assertion — findIndex on
   // a row whose own timeMs is null would MATCH a null lookup and hand an ordinary chapter's run a
   // place on a board it never entered.
   assert.deepStrictEqual(podiumRank(boards, { nick: 'Bob', kills: 500, level: 12, timeMs: 180000 }),
-    { kills: 2, level: 1, time: 1 }, 'a boss run reports its place on the time board too')
+    { kills: 2, level: 1, time: 1, lap: null }, 'a boss run reports its place on the time board too')
   assert.strictEqual(podiumRank({ kills: [], level: [], time: [{ nick: 'Ann', kills: 1, level: 1, timeMs: null }] },
     { nick: 'Ann', kills: 1, level: 1 }), null,
     'a run with no kill time holds no place on the time board, even against a row whose own time is null')
   // The Worker deploys separately from the game, so between shipping the client and deploying it
   // every response lacks the key. The podium must degrade to "no boss scores", not to a crash.
   assert.deepStrictEqual(podiumRank({ kills: [ANN], level: [] }, { nick: 'Ann', kills: 900, level: 20, timeMs: 240000 }),
-    { kills: 1, level: null, time: null }, 'a board response with no time key at all is still readable')
+    { kills: 1, level: null, time: null, lap: null }, 'a board response with no time key at all is still readable')
+
+  // THE CIRCUIT'S SECOND BOARD, on the same terms as the boss board above and with one difference
+  // that is the whole design: a run may place on it WITHOUT finishing. A lap has to be completed to
+  // be timed, so unlike a kill time there is no early-exit exploit to guard against.
+  const CID = { nick: 'Cid', kills: 0, level: 6, timeMs: 160100, lapMs: 30600 }
+  const DOT = { nick: 'Dot', kills: 0, level: 4, timeMs: null, lapMs: 29700 }
+  const race = { kills: [], level: [], time: [CID], lap: [DOT, CID] }
+  assert.deepStrictEqual(podiumRank(race, { nick: 'Cid', kills: 0, level: 6, timeMs: 160100, lapMs: 30600 }),
+    { kills: null, level: null, time: 1, lap: 2 },
+    'a finished race reports both of its boards, and the fastest race need not hold the fastest lap')
+  assert.deepStrictEqual(podiumRank(race, { nick: 'Dot', kills: 0, level: 4, lapMs: 29700 }),
+    { kills: null, level: null, time: null, lap: 1 },
+    'a race that ran the clock out still holds its best lap — the one board a run can place on without finishing')
+  // The same null-matching trap the boss board's case above exists for, on the new column. Without
+  // the `want == null` guard, findIndex would match a row whose own lapMs is null and hand every
+  // ordinary chapter's run a place on a board it never entered.
+  assert.strictEqual(podiumRank({ kills: [], level: [], time: [], lap: [{ nick: 'Ann', kills: 1, level: 1, lapMs: null }] },
+    { nick: 'Ann', kills: 1, level: 1 }), null,
+    'a run with no lap time holds no place on the lap board, even against a row whose own lap is null')
+  assert.deepStrictEqual(podiumRank({ kills: [ANN], level: [] }, { nick: 'Ann', kills: 900, level: 20, lapMs: 30000 }),
+    { kills: 1, level: null, time: null, lap: null }, 'a board response with no lap key at all is still readable')
+
+  // (b2) WHICH BOARDS A CHAPTER DRAWS, ACROSS THREE FILES THAT DO NOT IMPORT EACH OTHER.
+  // config.js declares the pair, ui.js has to have a LABEL and a SCORE FORMATTER for each name in
+  // it, and the Worker has to actually return a board under that key. Nothing throws if any of the
+  // three drifts: a name ui.js cannot label draws an eyebrow reading 'undefined' over three blank
+  // rows, and a name the Worker does not return throws inside the render and takes the whole panel.
+  // This used to be unguardable because the recto was INFERRED from `scripted`; now that a chapter
+  // names its boards, a typo is a real possibility and this is the only thing that can see one.
+  { // scoped: `uiSrc` is read again further down this same function, for an unrelated contract
+  const uiSrc = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+  const wkSrc = readFileSync(new URL('../worker/src/index.js', import.meta.url), 'utf8')
+  const keysOf = (src, re, what) => {
+    const body = re.exec(src)?.[1]
+    assert.ok(body, `run LB.b2: could not find ${what} — this check silently passes if its anchor moves, so it is asserted first`)
+    return new Set([...body.matchAll(/(\w+)\s*:/g)].map((m) => m[1]))
+  }
+  const labelKeys = keysOf(uiSrc, /const label = \{([^}]*)\}\[which\]/, "ui.js's podium label map")
+  const scoreKeys = keysOf(uiSrc, /const score = \{([\s\S]*?)\}\[which\]/, "ui.js's podium score map")
+  const workerKeys = keysOf(wkSrc, /async function readBoards[\s\S]*?return \{([\s\S]*?)\n  \}/, "the Worker's readBoards return")
+  // EVERY CHAPTER, off Object.keys — CHAPTER_ORDER is Book 1 only and would skip the Reef entirely,
+  // which is the one chapter this whole change exists for.
+  const chapterIds = Object.keys(CHAPTERS)
+  let declared = 0
+  for (const id of chapterIds) {
+    const pair = CHAPTERS[id].boards ?? CHAPTER_BOARDS_DEFAULT
+    if (CHAPTERS[id].boards) declared++
+    assert.strictEqual(pair.length, 2,
+      `run LB.b2: ${id} declares ${pair.length} boards — the spread has exactly two leaves, verso and recto`)
+    for (const which of pair) {
+      assert.ok(labelKeys.has(which), `run LB.b2: ${id} draws the '${which}' board and ui.js has no label for it — the eyebrow would read 'undefined'`)
+      assert.ok(scoreKeys.has(which), `run LB.b2: ${id} draws the '${which}' board and ui.js has no score formatter for it — the rows would throw`)
+      assert.ok(workerKeys.has(which), `run LB.b2: ${id} draws the '${which}' board and worker/src/index.js never returns one under that key`)
+    }
+  }
+  // The denominator, printed rather than assumed: a sweep that silently walked zero chapters, or
+  // only the ones that declare nothing, would pass every line above.
+  assert.ok(chapterIds.length >= 9 && declared >= 2,
+    `run LB.b2: walked ${chapterIds.length} chapters of which ${declared} declare their own boards — too few to be reading the real table`)
+  assert.deepStrictEqual(CHAPTERS.reef.boards, ['time', 'lap'],
+    'run LB.b2: The Reef is weapons:[] and one-level-per-lap, so neither a kills board nor a level board can rank anybody on it')
+  }
 
   // (c) THE INTEGRITY RULE, ACROSS TWO FILES. The owner's only anti-cheat ruling is "dev runs don't
   // count", and it is implemented as one write in sim.js and one read in main.js. Nothing imports
@@ -18156,7 +18218,8 @@ function testLeaderboard() {
     "the fresh-meta literal must carry nick: '' — loadMeta's repairs are in-memory only and never written back")
 
   console.log(`PASS run LB (leaderboard): validNick holds ${NICK_MIN}-${NICK_MAX} through whitespace, a cut-on-a-space clamp and a bisected emoji, ` +
-    `podiumRank reads all three boards independently, the kill time is gated on victory AND a scripted chapter on both sides, ` +
+    `podiumRank reads all four boards independently, the kill time is gated on victory AND a scripted chapter on both sides, ` +
+    `every chapter's declared board pair resolves to a label, a formatter and a Worker key, ` +
     `the rolled starter is published, submitted only where it is rolled and drawn off the row (${rolled.length} rollable, all ${weaponIds.length} weapon ids survive the Worker's shape check), ` +
     `both halves of the dev-run gate are wired across sim.js + ui.js + main.js, ` +
     `${leaderboardCopy.length} strings have French with placeholders intact, and the Worker's range, route order ` +
@@ -24643,6 +24706,36 @@ function testReefCircuit() {
   assert.ok(spread < lapMedian * 0.02,
     `run CT.b: laps 2+ took ${splits.slice(1).map((s) => s.toFixed(2)).join('/')}s — a spread of ${spread.toFixed(2)}s is ${((spread / lapMedian) * 100).toFixed(1)}% of a lap, and over 2% means the player is not driving the same track twice`)
 
+  // (g) THE SECOND SCORE: the fastest single lap, which is what the circuit's recto board ranks.
+  // Asserted against the splits the run actually emitted rather than against a remembered number,
+  // so it cannot drift when the track does.
+  assert.ok(Math.abs(fast.run.bestLap - Math.min(...splits)) < 1e-9,
+    `run CT.g: bestLap ${fast.run.bestLap?.toFixed(3)} is not the fastest of the run's own splits ${splits.map((x) => x.toFixed(2)).join('/')}`)
+  // The unit the board is sorted on. Same reasoning as raceTime's assertion above: Time Debt runs
+  // run.time at 1.5x, and lapSplit is measured on _realTime precisely so a fastest-first board
+  // cannot be won with an anomaly. If bestLap were ever recomputed off run.time this goes red.
+  assert.ok(fast.run.bestLap > 0 && fast.run.bestLap < fast.run.raceTime,
+    `run CT.g: bestLap ${fast.run.bestLap} is not a real fraction of the ${fast.run.raceTime?.toFixed(1)}s race it came from`)
+
+  // A MIN AND NOT A LAST, WHICH NEEDS ITS OWN FIXTURE — the two lines above cannot tell them apart
+  // and this was found by mutation, not by reading. `fast` is a clean full-throttle run, and those
+  // improve monotonically and then FLATTEN into exact ties (seed 3 drives 30.27/29.98/29.98/29.98/
+  // 29.97), so its final lap IS its fastest and `run.bestLap = run.lapSplit` passes everything
+  // above untouched. That is the single most likely way to get this wrong, so the assertion has to
+  // be able to see it.
+  //
+  // 0.85 stick on seed 2 is a run whose best lap is NOT its last: measured 36.43/36.63/36.22/36.22/
+  // 36.62, so a min reads 36.22 where a last reads 36.62. The gap is asserted before it is used, so
+  // the day the track changes under this fixture it fails LOUDLY as "this can no longer tell a min
+  // from a last" instead of quietly going vacuous again.
+  const varied = drive(0.85, { seed: 2 })
+  const vSplits = varied.laps.map((l) => l.split)
+  const vLast = vSplits[vSplits.length - 1]
+  assert.ok(vLast - Math.min(...vSplits) > 0.05,
+    `run CT.g: the varied fixture drove ${vSplits.map((x) => x.toFixed(2)).join('/')} — its last lap is its fastest (or within 0.05s of it), so it can no longer distinguish a MIN from a LAST and this case has gone vacuous`)
+  assert.ok(Math.abs(varied.run.bestLap - Math.min(...vSplits)) < 1e-9,
+    `run CT.g: bestLap ${varied.run.bestLap?.toFixed(3)} over splits ${vSplits.map((x) => x.toFixed(2)).join('/')} — the fastest lap is ${Math.min(...vSplits).toFixed(3)}, the last is ${vLast.toFixed(3)}`)
+
   // (f) THE BANK IS CAPPED, which is the mechanic and not a rail on it. Uncapped, a clean driver
   // gathers time faster than they spend it — 24 checkpoints x CIRCUIT_SWIM_TIME against a ~76s race
   // — so the countdown stops existing for exactly the players who are already winning, and skill
@@ -24669,6 +24762,31 @@ function testReefCircuit() {
   // up with people who died early.
   assert.strictEqual(slow.run.raceTime, undefined,
     `run CT.c: a run killed by the clock still carries raceTime ${slow.run.raceTime} — that field IS the "did this finish" test everything downstream reads`)
+  // NO LAP, NO LAP TIME. The crawl never reaches the first line, so it banks nothing — which is
+  // what makes main.js's `run.bestLap > 0` a sufficient test on its own, with none of the
+  // chapter-and-victory gating the race time above needs.
+  assert.strictEqual(slow.run.bestLap, undefined,
+    `run CT.c: a run that crossed no lap line carries bestLap ${slow.run.bestLap} — the submit reads that field as "did anything happen"`)
+
+  // (h) A DNF KEEPS ITS LAPS, and that asymmetry with raceTime is the design rather than an
+  // oversight. A race time has to be gated on finishing, because a shortest-first board would
+  // otherwise be led by whoever quit earliest; a LAP cannot be shortened that way — it has to be
+  // CROSSED to be timed at all, and run.lap is a high-water mark so no crossing banks twice.
+  // Discarding these would delete the only board a driver still learning the track can place on.
+  //
+  // ITS OWN FIXTURE, because neither of the two above can see this case: `fast` finishes, and
+  // `slow` is a crawl that never reaches the first line (asserted one line up, so this comment
+  // cannot quietly become false). 0.70 of full stick is the measured window — it dies to the clock
+  // on lap 4 having driven three real ones, and the band is wide enough not to be brittle: 0.62
+  // through 0.70 all DNF with laps on the board and 0.74 up finishes.
+  const dnf = drive(0.70)
+  assert.strictEqual(dnf.run.phase, 'dead',
+    `run CT.h: the 0.70-stick fixture ended '${dnf.run.phase}' — it has to LOSE for this case to be about a DNF at all`)
+  assert.ok(dnf.laps.length >= 2,
+    `run CT.h: it completed ${dnf.laps.length} laps — under two there is no minimum to take and the case is vacuous`)
+  assert.strictEqual(dnf.run.raceTime, undefined, 'run CT.h: a DNF must still carry no race time')
+  assert.ok(Math.abs(dnf.run.bestLap - Math.min(...dnf.laps.map((l) => l.split))) < 1e-9,
+    `run CT.h: a run killed by the clock banked bestLap ${dnf.run.bestLap} against its own splits ${dnf.laps.map((l) => l.split.toFixed(2)).join('/')}`)
 
   // (d) THE 300s VICTORY MUST NOT FIRE HERE. Without the exemption the race ends mid-lap at
   // RUN_DURATION regardless of how far round the track the player is — and it would look like a win.

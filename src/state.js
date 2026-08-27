@@ -1302,6 +1302,14 @@ function generateWells(sig) {
  *   value the `lap` event carries, published so the HUD's split flash can be derived from state
  *   (run.lap, this, and _realTime - _lapAt for the window) instead of from an event subscription —
  *   which is what lets it survive a dropped frame and a paused one.
+ * bestLap: number — the FASTEST completed lap of this run, in real seconds; undefined until lap 1.
+ *   The second score a race has, and the only one that is not a restatement of the first: a driver
+ *   can hold the best lap and lose the race, which is exactly what earns it its own board.
+ *   Every completed lap is eligible, INCLUDING a run that then ran the clock out. A lap has to be
+ *   finished to have a split at all, so — unlike the boss board's kill time, where dying early is a
+ *   way of "winning" — there is no way to shorten one by ending the run. A DNF's laps were still
+ *   driven.
+ *   Taken off lapSplit, so it inherits that field's _realTime clock and its Time Debt immunity.
  * _crushing: boolean — the player is pinned against the lane's trailing edge THIS frame, i.e. the
  *   lane has left without them. Published by stepLaneFront; the tell render.js draws off.
  * _crushAcc: number — the crush's part-tick accumulator (LANE_CRUSH_TICK). _spurAcc's twin.

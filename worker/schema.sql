@@ -29,10 +29,21 @@ CREATE TABLE IF NOT EXISTS scores (
                                 -- forever by whoever quit fastest. On a database that predates
                                 -- this column, migrate-scores-time.sql adds it -- ALTER appends,
                                 -- so the column order matches this literal either way.
-  starter    TEXT               -- the WEAPONS id this run began on, or NULL on a chapter whose
+  starter    TEXT,              -- the WEAPONS id this run began on, or NULL on a chapter whose
                                 -- starter is fixed (only a rolled one is worth recording). Carried
                                 -- for display beside the row and never sorted or filtered on, so
                                 -- unlike time_ms it needs no index of its own.
+  lap_ms     INTEGER            -- ms of the FASTEST single lap of a circuit run. NULL everywhere
+                                -- else, and on a race that completed no lap. Filtered and sorted
+                                -- exactly like time_ms, and bounded by the same hour ceiling.
+                                --   LAST IN THIS LITERAL ON PURPOSE, which is the only thing that
+                                -- keeps the sentence above time_ms true for this column too:
+                                -- migrate-scores-lap.sql is an ALTER, ALTER APPENDS, and a fresh
+                                -- database built from here would otherwise order its columns
+                                -- differently from every migrated one. Nothing would break --
+                                -- every statement in index.js names its columns -- but a schema
+                                -- that reads differently depending on when the database was made
+                                -- is a fact in two places waiting to be trusted.
 );
 -- One index per board, and EACH MUST COVER THE WHOLE ORDER BY, `at` included. Without the trailing
 -- `at` SQLite can seek the partition but not the order, so it materialises every row for that
@@ -50,9 +61,14 @@ CREATE TABLE IF NOT EXISTS scores (
 DROP INDEX IF EXISTS scores_kills;
 DROP INDEX IF EXISTS scores_level;
 DROP INDEX IF EXISTS scores_time;
+DROP INDEX IF EXISTS scores_lap;
 CREATE INDEX IF NOT EXISTS scores_kills ON scores (chapter, difficulty, kills DESC, at ASC);
 CREATE INDEX IF NOT EXISTS scores_level ON scores (chapter, difficulty, level DESC, kills DESC, at ASC);
 -- The boss board, and the only one that sorts ASC: the shortest kill wins. NULLs sort first in an
 -- ASC index, so readBoards filters them in the WHERE rather than leaning on the order -- the rows
 -- with no time are every ordinary chapter's, which is almost all of them.
 CREATE INDEX IF NOT EXISTS scores_time  ON scores (chapter, difficulty, time_ms ASC, at ASC);
+-- The circuit's second board, ASC for the same reason and filtered the same way. Its own index
+-- rather than a second column on scores_time: the two boards are read in the same batch but never
+-- in the same statement, so a composite would leave the lap board seeking on time_ms first.
+CREATE INDEX IF NOT EXISTS scores_lap   ON scores (chapter, difficulty, lap_ms ASC, at ASC);

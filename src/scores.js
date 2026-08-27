@@ -61,27 +61,37 @@ async function call(url, init) {
     if (!res.ok) return null
     const body = await res.json()
     if (!Array.isArray(body?.kills) || !Array.isArray(body?.level)) return null
-    // `time` (the boss board) is TOLERATED MISSING, unlike the other two, and that asymmetry is
-    // deliberate: the Worker deploys separately from the game, so between shipping this build and
-    // deploying that one every response lacks the key. Requiring it would turn the whole podium —
-    // every chapter, both other boards — into 'could not reach the podium' for the length of that
-    // gap. Defaulted to empty instead, which is what an unplayed board looks like anyway.
-    return { ...body, time: Array.isArray(body.time) ? body.time : [] }
+    // `time` and `lap` (the two DURATION boards) are TOLERATED MISSING, unlike the other two, and
+    // that asymmetry is deliberate: the Worker deploys separately from the game, so between
+    // shipping this build and deploying that one every response lacks the key. Requiring it would
+    // turn the whole podium — every chapter, every other board — into 'could not reach the podium'
+    // for the length of that gap. Defaulted to empty instead, which is what an unplayed board looks
+    // like anyway, and which is also what The Reef's lap board honestly IS on the day it ships: the
+    // column is new, so no existing row carries one.
+    return {
+      ...body,
+      time: Array.isArray(body.time) ? body.time : [],
+      lap: Array.isArray(body.lap) ? body.lap : [],
+    }
   } catch {
     return null
   }
 }
 
-// -> { kills: [{nick, kills, level, at, timeMs, starter}], level: [...], time: [...] } (each 0-3
-// long), or
-// null. `time` is the BOSS board — kill time in ms, shortest first — and is empty on every
-// chapter that is not one (see CHAPTERS[].scripted; ui.js is what decides which pair to draw).
+// -> { kills: [{nick, kills, level, at, timeMs, lapMs, starter}], level: [...], time: [...],
+// lap: [...] } (each 0-3 long), or null.
+//
+// FOUR BOARDS COME BACK AND A CHAPTER DRAWS TWO. `time` is a duration in ms, shortest first, and
+// means whatever its chapter means by one — a boss's kill time, a circuit's full race. `lap` is the
+// circuit's best single lap. Which pair a chapter draws is a game fact and lives in
+// CHAPTERS[].boards (config.js); ui.js reads it. Rows never mix across chapters, so one duration
+// column meaning two things is safe; the unit is reconciled at the submit site (main.js).
 export function fetchBoards(chapter, difficulty) {
   return call(`${SCORES_URL}?chapter=${encodeURIComponent(chapter)}&difficulty=${difficulty}`)
 }
 
 // Where a just-submitted run landed, read off the boards the POST answered with.
-// -> { kills, level, time } with 1|2|3|null in each, or null if it made no podium at all.
+// -> { kills, level, time, lap } with 1|2|3|null in each, or null if it made no podium at all.
 // Takes the SAME object submitScore was given, so the score being looked up cannot drift from the
 // score that was sent — with five positional arguments it silently could.
 //
@@ -90,17 +100,22 @@ export function fetchBoards(chapter, difficulty) {
 // player who submits the SAME kill count twice matches their earlier row and is told the rank that
 // row holds. It is still a rank they hold, so it is not a lie, and the alternative is an id column
 // and a rank query to remove an ambiguity nobody can perceive.
-export function podiumRank(boards, { nick, kills, level, timeMs = null }) {
+export function podiumRank(boards, { nick, kills, level, timeMs = null, lapMs = null }) {
   if (!boards) return null
   const at = (rows, key, want) => {
-    if (want == null) return null // a run with no kill time cannot hold a place on the time board
+    // A RUN THAT CARRIES NO SUCH SCORE HOLDS NO PLACE ON THAT BOARD -- and this guard now serves
+    // BOTH duration boards, not just the time one it was written for. Without it findIndex would
+    // match a stored row whose own timeMs/lapMs is null against a null lookup, and hand an
+    // ordinary chapter's run a rank on a board it never entered. run LB mutation-proves both.
+    if (want == null) return null
     const i = rows.findIndex((r) => r.nick === nick && r[key] === want)
     return i < 0 ? null : i + 1
   }
   const k = at(boards.kills, 'kills', kills)
   const l = at(boards.level, 'level', level)
   const t = at(boards.time ?? [], 'timeMs', timeMs)
-  return k || l || t ? { kills: k, level: l, time: t } : null
+  const p = at(boards.lap ?? [], 'lapMs', lapMs)
+  return k || l || t || p ? { kills: k, level: l, time: t, lap: p } : null
 }
 
 // Returns the boards AFTER the insert, so the caller can see where the run landed without a second
@@ -110,15 +125,20 @@ export function podiumRank(boards, { nick, kills, level, timeMs = null }) {
 // decides, and it has to: the board sorts SHORTEST FIRST, so a death at 12 seconds would take
 // first place off everyone who actually killed the thing.
 //
+// `lapMs` is null off a circuit, and on a race that crossed no lap line. It does NOT need the
+// won/lost test its twin does: a lap has to be COMPLETED to be timed at all, so unlike a kill time
+// there is no way to shorten one by ending the run early, and a race that ran the clock out on lap
+// 4 still drove three real laps. See sim.js's run.bestLap block.
+//
 // `starter` is null unless the chapter ROLLS its starter. It ranks nothing — it is carried so a
 // podium row can say which weapon the record was set with, which is only a fact worth recording
 // where two rows can differ.
-export function submitScore({ nick, chapter, difficulty, kills, level, timeMs = null, starter = null }) {
+export function submitScore({ nick, chapter, difficulty, kills, level, timeMs = null, lapMs = null, starter = null }) {
   const name = validNick(nick)
   if (!name) return Promise.resolve(null)
   return call(SCORES_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ nick: name, chapter, difficulty, kills, level, timeMs, starter }),
+    body: JSON.stringify({ nick: name, chapter, difficulty, kills, level, timeMs, lapMs, starter }),
   })
 }

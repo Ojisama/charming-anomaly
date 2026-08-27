@@ -311,6 +311,10 @@ const UI = {
   // pushes the recto's rows out of line with the verso's. 'Meilleur temps' rather than 'Temps de
   // mise a mort', which is the accurate phrase and twice too long.
   'Best time': 'Meilleur temps',
+  // The circuit's second leaf. 'Meilleur tour' is the term French motorsport actually uses for a
+  // fastest lap, and it is a character SHORTER than 'Meilleur temps' above -- so it clears the
+  // same 142px eyebrow that comment measured, with room over.
+  'Best lap': 'Meilleur tour',
   // v7.x leaderboard. 'Podium' is the same word in both languages and still needs its key here, or
   // the coverage assert reads it as an untranslated string. 'Pseudo' rather than 'surnom': it is
   // what French players actually call the name they use online, and it fits the 26px rank row.

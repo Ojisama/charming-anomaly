@@ -105,32 +105,41 @@ const validChapter = (v) => typeof v === 'string' && /^[a-z][a-z0-9]{0,15}$/.tes
 const validId = (v) => typeof v === 'string' && /^[a-zA-Z][a-zA-Z0-9]{0,23}$/.test(v)
 const int = (v, lo, hi) => (Number.isInteger(v) && v >= lo && v <= hi ? v : null)
 
-const boardRow = (r) => ({ nick: r.nick, kills: r.kills, level: r.level, at: r.at, timeMs: r.time_ms, starter: r.starter })
+const boardRow = (r) => ({ nick: r.nick, kills: r.kills, level: r.level, at: r.at, timeMs: r.time_ms, lapMs: r.lap_ms, starter: r.starter })
 
 // `at ASC` on every board so a tie goes to whoever got there FIRST. Without it SQLite is free to
 // return either row and the podium reorders itself between two reads of an unchanged board.
 //
-// THREE BOARDS, ALWAYS, and the client picks which two to draw. The `time` board is the boss
-// chapters' second board (kill time, SHORTEST wins) in place of `level` — but WHICH chapters those
-// are is a game fact, and this Worker is deliberately ignorant of chapter ids so a new chapter
-// never needs a deploy (see validChapter). Asking the client which board it wants would put that
-// fact in the query string, where a stale build would then be asking for the wrong one; a third
-// 3-row index scan inside the SAME batch is one round trip and no new parameter.
+// FOUR BOARDS, ALWAYS, and the client picks which two to draw. `time` is a duration that wins by
+// being SMALL, and it means whatever the chapter it belongs to means: a boss chapter's kill time, a
+// circuit's full race. `lap` is the circuit's second one — its best single lap. WHICH chapters draw
+// which pair is a game fact, and this Worker is deliberately ignorant of chapter ids so a new
+// chapter never needs a deploy (see validChapter). Asking the client which boards it wants would
+// put that fact in the query string, where a stale build would then be asking for the wrong ones;
+// a fourth 3-row index scan inside the SAME batch is one round trip and no new parameter.
 //
-// `time_ms IS NOT NULL` is not a tidiness filter. Every ordinary chapter's rows and every LOSS on
-// a boss chapter store NULL, an ASC index sorts NULLs first, and this board's whole ordering is
-// "smallest wins" — so without the filter the podium would be three players who never killed it.
+// Rows never mix across chapters — every query is partitioned by (chapter, difficulty) — which is
+// what makes one duration column safe to mean two things. The one place that could still have gone
+// wrong is the UNIT, and it is reconciled on the client: a boss submits its sim clock, a circuit
+// submits real seconds, because Time Debt runs the sim clock at 1.5x (see main.js).
+//
+// `IS NOT NULL` on both ASC boards is not a tidiness filter. Every ordinary chapter's rows, every
+// LOSS on a boss chapter and every run that completed no lap store NULL; an ASC index sorts NULLs
+// first, and these boards' whole ordering is "smallest wins" — so without the filter each podium
+// would be three players who never finished.
 async function readBoards(env, chapter, difficulty) {
-  const cols = 'SELECT nick, kills, level, at, time_ms, starter FROM scores WHERE chapter = ? AND difficulty = ?'
-  const [byKills, byLevel, byTime] = await env.DB.batch([
+  const cols = 'SELECT nick, kills, level, at, time_ms, lap_ms, starter FROM scores WHERE chapter = ? AND difficulty = ?'
+  const [byKills, byLevel, byTime, byLap] = await env.DB.batch([
     env.DB.prepare(`${cols} ORDER BY kills DESC, at ASC LIMIT 3`).bind(chapter, difficulty),
     env.DB.prepare(`${cols} ORDER BY level DESC, kills DESC, at ASC LIMIT 3`).bind(chapter, difficulty),
     env.DB.prepare(`${cols} AND time_ms IS NOT NULL ORDER BY time_ms ASC, at ASC LIMIT 3`).bind(chapter, difficulty),
+    env.DB.prepare(`${cols} AND lap_ms IS NOT NULL ORDER BY lap_ms ASC, at ASC LIMIT 3`).bind(chapter, difficulty),
   ])
   return {
     kills: byKills.results.map(boardRow),
     level: byLevel.results.map(boardRow),
     time: byTime.results.map(boardRow),
+    lap: byLap.results.map(boardRow),
   }
 }
 
@@ -181,6 +190,11 @@ async function scores(req, env) {
     // 400 only for a field that is PRESENT and malformed. The ceiling is an hour of milliseconds;
     // the floor is 1 so a zero cannot claim an unbeatable board.
     const timeMs = body.timeMs == null ? null : int(body.timeMs, 1, 3600000)
+    // The best single lap of a circuit run, on the same terms as the time above and for the same
+    // reason: it is absent from every submit that is not a race, and from a race that completed no
+    // lap at all. Same hour ceiling — one bound for every duration this table stores, so there is
+    // no second number to keep in step with the first.
+    const lapMs = body.lapMs == null ? null : int(body.lapMs, 1, 3600000)
     // The weapon the run rolled, on a chapter that rolls one — absent everywhere else, so the same
     // `== null` tolerance the time gets. Shape-checked like a chapter id, and for the same reason:
     // WEAPONS ids are a game fact this Worker must never need a deploy to learn.
@@ -201,9 +215,10 @@ async function scores(req, env) {
     if (!validChapter(chapter)) return json(400, { error: 'bad chapter' })
     if (difficulty === null || kills === null || level === null) return json(400, { error: 'bad score' })
     if (body.timeMs != null && timeMs === null) return json(400, { error: 'bad time' })
+    if (body.lapMs != null && lapMs === null) return json(400, { error: 'bad lap' })
 
-    await env.DB.prepare('INSERT INTO scores (chapter, difficulty, nick, kills, level, at, time_ms, starter) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .bind(chapter, difficulty, nick, kills, level, Date.now(), timeMs, starter)
+    await env.DB.prepare('INSERT INTO scores (chapter, difficulty, nick, kills, level, at, time_ms, lap_ms, starter) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(chapter, difficulty, nick, kills, level, Date.now(), timeMs, lapMs, starter)
       .run()
     // The boards come back in the same round trip, so a submit that landed is visibly a submit
     // that landed rather than a 200 the client takes on faith — and the summary screen can say
