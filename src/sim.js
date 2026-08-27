@@ -1858,7 +1858,21 @@ function stepCircuit(run, dt) {
   // TIDAL RACE'S ONE KNOB (MUTATORS.tidalRace). It has to touch all THREE of the clock's numbers or
   // it is not a tax at all: shorten only the start and a player is level again after one checkpoint.
   const clockMul = run.mods?.raceClockMul ?? 1
-  run.raceClock = (run.raceClock ?? circuitKnob(ch, 'clockStart') * clockMul) - dt
+  if (run.raceClock == null) run.raceClock = circuitKnob(ch, 'clockStart') * clockMul
+
+  // SPLIT SECOND (PASSIVES.gateFreeze): the checkpoint HOLDS the countdown instead of topping it up.
+  // run._clockHold is a bank of held seconds; each frame spends as much of it as it can afford and
+  // the countdown only falls by what is left of dt. Written that way rather than as "any frame with
+  // hold left is skipped whole", which rounds the hold UP to the next tick and so pays a 60Hz and a
+  // 30Hz player differently for the same pick. It is a real difference and an easy one to miss: at
+  // dt = 1/60 a 0.5s hold divides evenly and both forms agree exactly, so run CD.e deliberately
+  // measures 0.51s, where the skip overshoots by one frame.
+  //   ⚠ NOT ROUTED THROUGH THE Math.min(clockCap, ...) TOP-UP BELOW, deliberately. That cap is what
+  // makes a checkpoint pay nothing to a driver who arrives full, and this card exists precisely to
+  // be the one checkpoint reward that still pays them. See PASSIVES.gateFreeze.
+  const held = Math.min(run._clockHold ?? 0, dt)
+  if (held > 0) run._clockHold -= held
+  run.raceClock -= dt - held
 
   // CLEAN LINE (PASSIVES.cleanHeal): HP a second, but only once you have been off the coral for
   // CLEAN_LINE_DELAY. Every touch resets the streak to zero.
@@ -1900,6 +1914,10 @@ function stepCircuit(run, dt) {
       // plan a lap around it. Through healPlayer and never a direct `p.hp =` write, or Blood Pact
       // silently stops meaning what its card says (see healPlayer's own block).
       if (run.passives.gateHeal > 0) healPlayer(run, run.passives.gateHeal)
+      // SPLIT SECOND, banked at the same window as the clock, the heal and the xp — one crossing,
+      // one set of rewards. Accumulates rather than assigns, so two checkpoints inside one hold
+      // (impossible today at a 528px minimum spacing, cheap to be right about) add up.
+      if (run.passives.gateFreeze > 0) run._clockHold = (run._clockHold ?? 0) + run.passives.gateFreeze
       run.events.push({ type: 'swimthrough', x: run.player.x, y: run.player.y, n: k + 1 })
     }
   }
@@ -1933,6 +1951,10 @@ function stepCircuit(run, dt) {
     // `prev` keeps the first frame from firing every checkpoint behind the player.
     run.raceClock = Math.min(circuitKnob(ch, 'clockCap') * clockMul,
       run.raceClock + circuitKnob(ch, 'swimTime') * circuitKnob(ch, 'lineMul') * clockMul)
+    // ...AND IT PAYS DOUBLE OF SPLIT SECOND TOO. The line is a checkpoint (lineMul's block above),
+    // so every checkpoint reward has to answer for it: leave this out and the one gate a player
+    // aims a whole lap at is the one their card ignores.
+    if (run.passives.gateFreeze > 0) run._clockHold = (run._clockHold ?? 0) + run.passives.gateFreeze * circuitKnob(ch, 'lineMul')
     // ONE LAP, ONE LEVEL (owner, 2026-08-26: "only gain a level for a lap"). The till used to be
     // the checkpoint and it used to be a CURRENCY — circuit.swimXp through xpGain and mods.xpMul,
     // landing the player somewhere on xpForLevel's curve. A LEVEL is not a smaller amount of that,
@@ -5634,7 +5656,9 @@ export function stepCharge(run, dt) {
   // the drain by it holds break-even at roughly a fixed FRACTION of the achievable kill rate at
   // every point in the run, instead of at one moment of it. One expression, one existing curve, no
   // new machinery — and it is opt-in per chapter, so nothing else in the game can see it.
-  const drainRate = res.drainPerSpawn != null ? res.drainPerSpawn * spawnRate(run.time) : res.drain
+  //   mods.airDrainMul (MUTATORS.thinAir) multiplies whichever of the two the chapter declares, so a
+  // per-spawn chapter and a flat-drain one are taxed the same way by the same knob.
+  const drainRate = (res.drainPerSpawn != null ? res.drainPerSpawn * spawnRate(run.time) : res.drain) * (run.mods?.airDrainMul ?? 1)
   // v7.x Book 2 Task 9: Slow Burn (chargeDrainMul) and Big Gulp (chargeRefillMul) scale the drain
   // and the in-circle refill respectively — both default to 1 (no-op) unbought, and both are 1 in
   // every chapter with no resource, so this is inert wherever it always was.
@@ -12447,12 +12471,15 @@ function makePassiveCard(run, id, rarity) {
   // is a card lying about its own effect. `was` is the same figure before the pick, which ui.js
   // strikes through — the infusion cards' before/after arrow, reusing their .lv-was styling and
   // their translated wording, so this adds no new string to fr.js.
+  //   ⚠ BOTH LINES BELOW USED TO ASSUME A CAPPED CARD IS A `pct` ONE, which held only while the
+  // reef's four driving knobs were the only capped passives in the game. PASSIVES.gateFreeze is
+  // `flat` AND capped, and unfixed this printed "+0.3 seconds..." over a struck-through "+30%".
+  // `fmt` is the one place either kind is turned into a number, so they cannot drift apart again.
   const have = run.passives[id] ?? 0
+  const fmt = (v) => (cfg.kind === 'pct' ? `+${Math.round(v * 100)}%` : `+${Math.round(v * 10) / 10}`)
   const shown = cfg.cap ? passiveTotal(id, have, bonus) : bonus
-  const desc = cfg.kind === 'pct'
-    ? `+${Math.round(shown * 100)}% ${cfg.desc}`
-    : `+${shown} ${cfg.desc}`
-  const was = cfg.cap && have > 0 ? `+${Math.round(have * 100)}%` : null
+  const desc = `${fmt(shown)} ${cfg.desc}`
+  const was = cfg.cap && have > 0 ? fmt(have) : null
   return { kind: 'passive', id, title: cfg.name, desc, was, tag: `Lv ${picks + 1}`, rarity, icon: '💪', bonus }
 }
 

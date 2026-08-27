@@ -2775,6 +2775,22 @@ export const PASSIVES = {
   //   with it paid 120, i.e. more than the race can charge you, which is the coral deleted.
   gateHeal:   { name: 'Pit Stop',     desc: 'HP at every checkpoint',   base: 1, kind: 'flat', chapter: 'reef' },
   cleanHeal:  { name: 'Clean Line',   desc: 'HP a second off the coral', base: 1, kind: 'flat', chapter: 'reef' },
+  // THE CLOCK STOPS, IT DOES NOT GROW (owner, 2026-08-27: "checkpoints pause the timer for 0.3s up
+  // to 1s"). Written as a HOLD rather than as `+0.3 * gateFreeze` on the top-up, and the difference
+  // is the whole card: every other checkpoint reward here is `Math.min(clockCap, clock + swimTime)`,
+  // so a driver clean enough to arrive at a gate already full banks NOTHING from it. A hold is not
+  // capped by anything — it pays the good driver too, which is what makes it a different card from
+  // "Pit Stop for the clock" rather than a smaller version of swimTime.
+  //   ⚠ THE ONLY `flat` PASSIVE IN THE GAME THAT ALSO CARRIES A `cap`, and both formatting sites in
+  // makePassiveCard had to learn about the pair — a capped card prints the TOTAL it leaves you on,
+  // and until this existed that total was unconditionally rendered as a percentage.
+  //   base 0.35 against cap 1: the ladder runs 0.30 / 0.50 / 0.65 / 0.75 / 0.83, so a first pick is
+  // the 0.3s the owner asked for and the ceiling it approaches is his 1s. 40 crossings in a five-lap
+  // race (7 gates + the line, and the line pays lineMul of these like it pays lineMul of swimTime),
+  // so the ceiling is worth ~33s against a race that banks ~220s of clock in total.
+  // balance_decision : a checkpoint holds the clock, it does not top it up [2026-08-27]
+  //  - the hold is NOT capped by clockCap; that is the point, do not route it through the top-up
+  gateFreeze: { name: 'Split Second', desc: 'seconds the clock stops at every checkpoint', base: 0.35, kind: 'flat', chapter: 'reef', cap: 1 },
 }
 export const MAX_PASSIVE_LEVEL = 5
 
@@ -4820,13 +4836,22 @@ export const EARLY_CALM = {
 // `exclude` (denylist) scope an anomaly to where its mechanic actually exists. With no
 // chapterId, every scoped entry is out — a caller that doesn't say where it is gets only the
 // universally-valid pool.
-const mutatorPool = (chapterId) => Object.keys(MUTATORS).filter((id) => {
-  const m = MUTATORS[id]
-  if (m.hidden) return false
-  if (m.chapters && !m.chapters.includes(chapterId)) return false
-  if (m.exclude && m.exclude.includes(chapterId)) return false
-  return true
-})
+// CHAPTERS[].noGenericMutators OPTS A CHAPTER OUT OF THE UNSCOPED POOL ENTIRELY, leaving it only
+// the entries that name it in `chapters`. One field rather than eight more `exclude` lists, because
+// the reason is a property of the CHAPTER and not of each mutator: an unarmed chapter (The Reef,
+// `weapons: []`) cannot feel an enemy-HP, elite-rate, player-damage, infusion, xp or coin knob, and
+// those eight keys are the whole generic pool. See MUTATORS.narrows for the audit, entry by entry.
+const mutatorPool = (chapterId) => {
+  const ownOnly = CHAPTERS[chapterId]?.noGenericMutators === true
+  return Object.keys(MUTATORS).filter((id) => {
+    const m = MUTATORS[id]
+    if (m.hidden) return false
+    if (m.chapters) return m.chapters.includes(chapterId)
+    if (ownOnly) return false
+    if (m.exclude && m.exclude.includes(chapterId)) return false
+    return true
+  })
+}
 
 export const randomMutators = (count, chapterId) => {
   const pool = mutatorPool(chapterId)
@@ -7245,6 +7270,11 @@ CHAPTERS.reef = {
   //   WARNING: ELITE POOLS ARE NOT COVERED. eliteFlags' soapTrail still lays a damaging trail;
   //   that is a pool and not a contact, and turning it off is a separate ruling.
   passiveCrowd: true,
+  // ...WHICH IS ALSO WHY THIS CHAPTER TAKES NO GENERIC MUTATOR. The pre-run pool prices combat on
+  // both sides — enemy HP, elite rate, player damage, infusions, xp, coins — and an unarmed chapter
+  // whose crowd cannot hurt it feels none of them. mutatorPool reads this flag; MUTATORS.narrows
+  // carries the entry-by-entry audit and the five race-terms mutators that replace them.
+  noGenericMutators: true,
 
   // AIR POCKETS. The signature carries no mechanic of its own — the LANE is this chapter's gimmick
   // — it carries the geometry of the one thing that refills the bar, in the same vocabulary as the
@@ -14060,7 +14090,91 @@ export const MUTATORS = {
   // scrolled. There is no scroll on a loop: laneScrollFor is now the ceiling the player's own
   // throttle reaches for, so x1.4 made you FASTER, paired it with x1.25 coins, and turned a trade
   // into a pure buff nobody would decline. The clock is what a race can actually be taxed on.
-  tidalRace:    { name: 'Tidal Race',     icon: '💨', desc: 'Less time on the clock. Richer coins.', chapters: ['reef'], effects: { raceClockMul: 0.7, coinMul: 1.25 } },
+  //   ⚠ AND ITS REWARD WAS DEAD TOO, WHICH IS THE OTHER HALF OF THE SAME AUDIT (2026-08-27, owner:
+  // "the mutators need a pass since we changed to a full on race"). Every coin in the game drops in
+  // dealDamage's death branch and this chapter's `weapons: []` means nothing ever dies, so x1.25
+  // coins paid a run bonus of runBonusCoins(0, 5) = 5 — a real cost against a reward the chapter
+  // cannot pay, i.e. a pure DOWNSIDE nobody would take. Room is what a race can be paid in.
+  //   x0.7 -> x0.88, AND AT 0.7 IT WAS THE HARSHEST THING IN THE CHAPTER: this one card cost more
+  // than the entire five-rung difficulty ladder, 2/24 finishes against a 14/24 baseline (3 seeds).
+  tidalRace:    { name: 'Tidal Race',     icon: '💨', desc: 'Less time on the clock. A wider passage.',              chapters: ['reef'], effects: { raceClockMul: 0.88, trackWidthMul: 1.25 } },
+  // THE OTHER FOUR OF THE REEF'S OWN SLATE, and they exist because the chapter takes NO generic
+  // mutator at all (CHAPTERS.reef.noGenericMutators, and mutatorPool is where that is read). The
+  // generic pool is eight entries that all price COMBAT, and audited against this chapter every one
+  // of them is inert on at least one side:
+  //   bulky / eliterush / unstable   inert on BOTH sides — enemyHpMul, eliteEveryMul, playerDmgMul
+  //                                  and elementWeightMul have no reader in an unarmed chapter, and
+  //                                  coinMul pays out of a purse of 5 (see tidalRace above).
+  //   glass                          inert on both too, and the second half is the subtle one: the
+  //                                  coral scrape is `hurtPlayer(..., dot = true)`, and the dot
+  //                                  branch skips armor AND contactDmgTakenMul by design. The only
+  //                                  damage in the chapter cannot feel the multiplier.
+  //   overtime / caffeine / jumbo    real COST (the crowd is solid — bumpTraffic costs you speed),
+  //                                  dead REWARD: xpMul cannot be felt because a lap grants a whole
+  //                                  LEVEL outright (`p.xp += p.xpNext`, stepCircuit) rather than xp.
+  //   sticky                         already excluded here since v6.4.
+  // So the reef rolls these five instead. randomMutators takes difficulty - 1, so d5 draws 4 of 5
+  // and the reroll still has somewhere to go on the top rung — which is why the slate is five and
+  // not the four the axes alone would need.
+  //
+  // EVERY ONE TRADES TWO OF THE FOUR THINGS A RACE ACTUALLY HAS: the clock, the width of the
+  // passage, the car's top speed, and the air. Written as pairs on purpose — a mutator whose reward
+  // the chapter cannot pay is the exact bug tidalRace shipped with, and run CX.c drives every one of
+  // these eleven keys ON ITS OWN and fails on a byte-identical run.
+  //
+  // MEASURED — scripts/reef-lap-probe.mjs (which grew a --mutators= flag for this), 8 driving
+  // policies x 6 seeds, MORTAL, finishes of 48, one mutator at a time against the same baseline:
+  //
+  //                        d1     d3     d5    what kills the runs that fail
+  //   no mutator         28/48  25/48  13/48   drowning, then scrape at d5
+  //   Tidal Race         21/48  21/48  10/48   THE CLOCK, on every rung
+  //   The Narrows        32/48  21/48   8/48   SCRAPE — and it scales with the rung (see below)
+  //   Rip Current        33/48  22/48   9/48   the clock, then scrape
+  //   Bait Ball          20/48  20/48   9/48   the clock and scrape together, evenly on every rung
+  //   Thin Air           18/48  23/48  11/48   DROWNING, which no other entry here does
+  //
+  // Five entries, five different ways to lose, which is the same thing the difficulty ladder above
+  // is built on ("two different drivers failing for two different reasons is the point").
+  //
+  // ⚠ THE d1 COLUMN IS A CONTROL, NOT A RUNG. main.js rolls randomMutators(difficulty - 1), so NO
+  // mutator can ever appear at difficulty 1 — read every row on d3 and d5, where all five are a real
+  // tax, and do not be alarmed by the two that read as EASIER at d1. The Narrows is the clearest
+  // case: at d1 the passage is already x1.40 so x0.72 of it is still roomy and the clock bonus is
+  // free; at d5 it is x0.72 of x0.70 and it is the tightest track in the game.
+  //
+  // ⚠ AND TWO OF THESE ROWS ARE CEILINGS RATHER THAN FINDINGS. The lap probe steers with a px
+  // look-ahead and no reaction delay, so it cannot price TOP SPEED or PASSAGE WIDTH the way a human
+  // pays for them — a faster car reads as far up the track as a slow one and simply arrives sooner,
+  // and a perfect racing line barely notices a narrower margin. Rip Current and The Narrows are
+  // therefore NOT tuned down to what this rig calls neutral; the probe's own SCOPE block carries the
+  // measurement that settles it (laneScrollMul 1.3 paired with raceClockMul 0.85 measured
+  // BYTE-IDENTICAL to the same mutator with no clock cost at all — on this circuit a 30% faster car
+  // reaches its checkpoints 30% sooner and banks the tax straight back, which is exactly the runaway
+  // CIRCUIT_DEFAULTS' cap block predicts).
+  // balance_decision : five race-terms mutators, each a trade the chapter can pay [2026-08-27]
+  //  - the d1 column of the table above is a CONTROL, not a rung: no mutator rolls at difficulty 1
+  narrows:      { name: 'The Narrows',    icon: '🪸', desc: 'A tighter passage. More time on the clock.',            chapters: ['reef'], effects: { trackWidthMul: 0.72, raceClockMul: 1.05 } },
+  // laneScrollMul is the reef's TOP SPEED and not a scroll (see MUTATOR_MOD_KEYS' note on the key),
+  // so this is the one entry whose "cost" is the thing the player wants: a faster car is a shorter
+  // lap AND less warning of the coral. The clock is what pays for it, and it takes a 28% cut to do
+  // so because the speed hands most of a smaller one straight back at the next checkpoint.
+  ripCurrent:   { name: 'Rip Current',    icon: '🌊', desc: 'The water runs far faster, through a tighter passage.', chapters: ['reef'], effects: { laneScrollMul: 1.3, trackWidthMul: 0.85, raceClockMul: 0.72 } },
+  // ⚠ THE COPY NAMES NO NUMBER, and it used to say "twice" while this read spawnMul 2. The sweep
+  // landed on 2.5 and the sentence was instantly false — the same trap ANOMALIES.lastBreath's
+  // "twice as much" is guarded against by an assert. A mutator desc has no card to interpolate
+  // into, so the cheap answer is a sentence a retune cannot falsify.
+  // The crowd is scenery that you can still HIT (passiveCrowd zeroes its damage, never its body), so
+  // spawnMul and enemyRadiusMul are the two generic keys that survive the audit above — this is the
+  // rescue of overtime/jumbo's cost half, paired with a reward the chapter can pay. MEASURED over a
+  // 150s immortal run: 29.1 bodies alive at a mean radius of 15.5px becomes 73.6 at 22.5px, against
+  // a shared MAX_ALIVE cap of 300 that is nowhere near binding at either.
+  baitBall:     { name: 'Bait Ball',      icon: '🐟', desc: 'Far more traffic, and bigger with it. More time on the clock.', chapters: ['reef'], effects: { spawnMul: 2.5, enemyRadiusMul: 1.45, raceClockMul: 1.15 } },
+  // THE ONLY ENTRY THAT KILLS YOU BY DROWNING, which is why the air is worth a slate slot at all:
+  // the bar is the chapter's second failure condition and nothing else in the pool touches it. x3.0
+  // and not the 1.6 this shipped as a first cut — at 1.6 the mutator measured NET EASIER than no
+  // mutator (15/24 against 14/24), because the clock bonus outran a drain the wall-hugging policies
+  // never felt.
+  thinAir:      { name: 'Thin Air',       icon: '🫧', desc: 'Your air runs out far faster. More time on the clock.', chapters: ['reef'], effects: { airDrainMul: 3, raceClockMul: 1.08 } },
 }
 // Every key mergeMutatorMods can produce, all defaulted to 1 (neutral) before mutator effects
 // multiply in. sim.js applies each of these at one specific point — see sim.js's module doc.
@@ -14079,9 +14193,15 @@ export const MUTATOR_MOD_KEYS = [
   'wellForceMul',       // wellForce (beyond gravity bend on every projectile)
   'refillChanceMul',    // streamShafts (shelf; how often a refill circle materialises in a cell)
   'refillSpendMul',     // drawdownSecsFor (shelf; how long one circle feeds you before it is spent)
-  'laneScrollMul',      // laneScrollFor (kept for any future scroller; The Reef stopped reading it
-                        // as a cost when its track became a ring — see tidalRace)
+  'laneScrollMul',      // laneScrollFor — on a SCROLLER the corridor's speed, on a CIRCUIT the car's
+                        // top speed, and MUTATORS.ripCurrent is the only entry carrying it. Scoped
+                        // to the reef, so the label below is worded for the circuit meaning; a
+                        // future scroller mutator would need its own key rather than this one.
   'raceClockMul',       // stepCircuit (reef; the countdown's start, its cap and what a checkpoint pays)
+  'trackWidthMul',      // createRun (state.js) — scales the run's cave halfMin/halfMax TOGETHER, the
+                        // same lever CHAPTERS.reef.circuit.ladder's `width` pulls, so the two just
+                        // multiply and the racing line survives both
+  'airDrainMul',        // stepCharge (sim.js) — the resource bar's per-second drain
 ]
 // Human label + "does a value above 1 help the player" for every MUTATOR_MOD_KEYS entry — the
 // brief/pause/summary effect chips read this (ui.js effectChipList) to word the trade and colour
@@ -14119,12 +14239,19 @@ export const MUTATOR_EFFECT_LABELS = {
   // i.e. how much of the bar one circle is worth, so "clean water per spot" is what it buys you.
   refillChanceMul: ['clean-water spots', true],
   refillSpendMul: ['clean water per spot', true],
-  // Worded off Tidal Race's own card ('The current runs far faster'), not off laneScrollFor:
-  // sibling to currentForceMul's chip, which is the same fiction under a different verb.
-  laneScrollMul: ['current speed', false],
+  // THE REEF'S MEANING, because MUTATORS.ripCurrent is the only entry that carries this key and it
+  // is scoped to the reef alone. On a circuit laneScrollFor is the ceiling the throttle reaches, so
+  // this is the car's top speed and it is GOOD — the old ['current speed', false] was worded for the
+  // auto-scroller the chapter stopped being, and would have coloured a buff red. Reuses Turbo Fin's
+  // exact words so the chip and the card name the same quantity (and share one fr.js key).
+  laneScrollMul: ['top speed', true],
   // Worded from the HUD, which is where the player meets this: the rail says a number of seconds
   // and this multiplies all three of the things that put seconds on it.
   raceClockMul: ['time on the clock', true],
+  // 'passage' is the reef's own word for its track — CHAPTERS.reef.cave's block and Tidal Race's
+  // card both use it, so the chip says what the cards say.
+  trackWidthMul: ['passage width', true],
+  airDrainMul: ['air drain', false],
 }
 // Pure helper: given a list of mutator ids (run.mutators), returns the full run.mods object —
 // every key above defaulted to 1, with each selected mutator's effects multiplied in. Unknown

@@ -2,7 +2,7 @@
 // CIRCUIT_ACCEL/CIRCUIT_CLOCK_START/CLOCK_CAP/SWIM_TIME comments as the rig their knob grid needs —
 // this is the first real number for that grid, not a tuned one.
 //
-//   node scripts/reef-lap-probe.mjs [--difficulty N]
+//   node scripts/reef-lap-probe.mjs [--difficulty=N] [--seeds=N] [--mortal] [--mutators=id,id]
 //
 // SCOPE, read before quoting a row:
 //   - THROTTLE x STEERING, the axis charge-probe.mjs's LANE_MOVES and reef-burst-grid.mjs's MOVES
@@ -20,6 +20,16 @@
 //     does not drive — skill is always false. Air's own circuit role is itself unshipped (still the
 //     old drown resource, not yet "fuel for boost and nothing else" per the design doc). Add a burst
 //     policy once that lands, or a boost number gets quoted from a rig that never pressed the button.
+//   - ⚠ IT CANNOT PRICE TOP SPEED, AND THAT IS A PROPERTY OF THE DRIVER RATHER THAN A GAP TO PATCH
+//     LATER. LOOKS is in PX (170 / 460) and the policy re-steers every frame with no reaction
+//     delay, so a faster car reads exactly as far up the track as a slow one and simply arrives
+//     sooner. A human loses the other thing: 460px is 1.00s of warning at the chapter's 459px/s
+//     ceiling and 0.77s at x1.3 of it. Measured, this makes a speed bonus look like a free lunch —
+//     MUTATORS.ripCurrent at laneScrollMul 1.3 finished 21/24 against a 14/24 baseline, and pairing
+//     it with raceClockMul 0.85 measured BYTE-IDENTICAL to no clock cost at all, because a 30%
+//     faster car reaches its checkpoints 30% sooner and banks the tax straight back. Both numbers
+//     are UPPER BOUNDS on how good speed is. Read a speed row as a ceiling, not as a finding, and
+//     do not tune a speed knob down to what this rig calls neutral.
 //   - THE CRASH PENALTY IS LIVE (circuit.crashMul, shipped v7.232): driving INTO coral above
 //     crashSpeed takes 45% of your speed. That is most of what separates the two throttle policies
 //     below, so a row's time is a driving result and not just a distance divided by a speed.
@@ -37,7 +47,7 @@
 // overrides `res.drainPerSpawn`. Sweeping them needs a source change first; noted, not worked around.
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
 import { stepSim, applyChoice } from '../src/sim.js'
-import { CHAPTERS, caveAt, ringFU, ringXY, bookOf, shopLines, circuitKnob, circuitLadder } from '../src/config.js'
+import { CHAPTERS, caveAt, ringFU, ringXY, bookOf, shopLines, circuitKnob, circuitLadder, MUTATORS } from '../src/config.js'
 
 const CH = 'reef'
 const DT = 1 / 60
@@ -57,6 +67,19 @@ if (!Number.isFinite(SEED_N) || SEED_N < 1 || SEED_N > ALL_SEEDS.length) {
 const SEEDS = ALL_SEEDS.slice(0, SEED_N)
 const DIFFICULTY = Number(process.argv.find((a) => a.startsWith('--difficulty='))?.slice(13) ?? 1)
 const MORTAL = process.argv.includes('--mortal')
+// PRE-RUN MUTATORS (--mutators=id,id). The reef takes only its own five since v7.x -- the generic
+// pool prices combat and this chapter has none -- so every one of them is a trade between the
+// clock, the width of the passage, the car's top speed and the air, i.e. exactly the four things
+// this rig already measures. An unknown id is fatal rather than ignored: mergeMutatorMods skips
+// what it does not recognise, so a typo would otherwise measure the BASE race and report it under
+// the mutator's name.
+const MUTS = (process.argv.find((a) => a.startsWith('--mutators=')) ?? '').slice(11).split(',').filter(Boolean)
+for (const id of MUTS) {
+  if (!MUTATORS[id]) {
+    console.error(`ABORT: unknown mutator '${id}' -- the reef's own are ${Object.keys(MUTATORS).filter((k) => MUTATORS[k].chapters?.length === 1 && MUTATORS[k].chapters[0] === CH).join(', ')}`)
+    process.exit(1)
+  }
+}
 
 function mulberry32(seed) {
   return function () {
@@ -167,7 +190,7 @@ function withTrack(open, fn) {
 function oneRun(steerName, throttleName, seed) {
   const orig = Math.random
   Math.random = mulberry32(seed)
-  const run = createRun(probeMeta(), { chapter: CH, difficulty: DIFFICULTY })
+  const run = createRun(probeMeta(), { chapter: CH, difficulty: DIFFICULTY, mutators: MUTS })
   if (run.chapter !== CH) { console.error(`ABORT: asked for ${CH}, got ${run.chapter}`); process.exit(1) }
   const look = LOOKS[steerName], throttleFn = THROTTLES[throttleName]
   // THE RUN'S OWN TRACK, NOT THE CHAPTER'S. The difficulty ladder scales halfMin/halfMax per run
@@ -276,7 +299,7 @@ const lapArc = (() => {
   }
   return arc
 })()
-console.log(`chapter=${CH} book=${bookOf(CH)} difficulty=${DIFFICULTY} laps=${LAPS} lapLen=${ch0.cave.lapLen}f = ~${lapArc.toFixed(0)}px of arc  wander=${ch0.cave.wander} r0=${ch0.cave.ring.r0} laneThrottle=${JSON.stringify(ch0.laneThrottle)} x ${SEEDS.length} seeded runs, ${MORTAL ? "MORTAL to HP" : "immortal-to-HP"} + mortal-to-clock`)
+console.log(`chapter=${CH} book=${bookOf(CH)} difficulty=${DIFFICULTY} mutators=${MUTS.join(',') || 'none'} laps=${LAPS} lapLen=${ch0.cave.lapLen}f = ~${lapArc.toFixed(0)}px of arc  wander=${ch0.cave.wander} r0=${ch0.cave.ring.r0} laneThrottle=${JSON.stringify(ch0.laneThrottle)} x ${SEEDS.length} seeded runs, ${MORTAL ? "MORTAL to HP" : "immortal-to-HP"} + mortal-to-clock`)
 console.log('')
 
 const rows = {}

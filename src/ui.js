@@ -2234,7 +2234,14 @@ export function initUI(hooks) {
       // for the new meaning — 27 seconds of race clock and 27 seconds of survival clock look the
       // same to `!==`, and the slot would keep the old chapter's number until the value moved.
       last.remain = NaN
-      if (!circuitChapter) hud.timer.classList.remove('hud-timer--low')
+      if (!circuitChapter) {
+        hud.timer.classList.remove('hud-timer--low')
+        // ...and the hold, which only a circuit can set. Both cached flags are cleared with the
+        // classes so the next race re-derives them rather than comparing against the last one's.
+        hud.timer.classList.remove('hud-timer--held')
+        last.lowClock = false
+        last.heldClock = false
+      }
     }
     // TIME DEBT marks the clock it is accelerating (v7.15). The card changes the RATE, never the
     // number, so at the instant you take it the timer reads exactly what it read before — measured,
@@ -2269,6 +2276,17 @@ export function initUI(hooks) {
       if (lowClock !== last.lowClock) {
         last.lowClock = lowClock
         hud.timer.classList.toggle('hud-timer--low', lowClock)
+      }
+      // SPLIT SECOND'S ONLY TELL, and without it the card is invisible: the number above is
+      // Math.ceil'd, so it moves once a second, and a 0.3s hold merely delays one tick — a player
+      // cannot distinguish "held" from "I misread the clock". Same argument, and the same fix, as
+      // .hud-timer--debt, whose block records the card that read as dead for exactly this reason.
+      //   Derived from run._clockHold rather than from the 'swimthrough' event, the .hud-lap--split
+      // idiom: state survives a dropped frame and a paused one and needs no subscription here.
+      const heldClock = (run._clockHold ?? 0) > 0
+      if (heldClock !== last.heldClock) {
+        last.heldClock = heldClock
+        hud.timer.classList.toggle('hud-timer--held', heldClock)
       }
     } else {
       const remain = Math.max(0, Math.ceil(RUN_DURATION - run.time))
