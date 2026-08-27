@@ -24139,6 +24139,14 @@ function testCircuitHud() {
         'run HD.c: the race band does not re-declare its outer tracks as minmax(0, 1fr) — it inherits `1fr auto 1fr` from .hud-top, and `1fr` is minmax(auto, 1fr), so the 160px HP bar on the left and the clock-plus-pause on the right size their tracks differently and push the checkpoint countdown and the split delta off the screen\'s axis. Measured at 17px right of centre when it shipped that way.')
       assert.ok(/width:\s*0/.test(rule('.hud--race .hud-timer-k')),
         'run HD.c: the CHECKPOINT caption is not zero-width — it is ~3x wider than the numeral above it, so the middle auto track sizes to the caption and steals ~65px the two outer tracks have to share, which is most of the off-axis error minmax(0,1fr) exists to remove')
+      // ...AND ZERO-WIDTH IS ONLY HALF OF IT. `text-align: center` does NOT centre a line that
+      // overflows its own box — it lays the glyphs from the box's edge and lets them run off to
+      // one side, so the caption shipped 35px right of the numeral it belongs under while the
+      // NUMERAL measured dead centre. Both were true on the same frame, which is why the band
+      // looked fixed: ink offAxis -0.0 for the number, +35.2 for the caption. A flex container
+      // centres an over-wide item on its midline instead, spilling equally both ways.
+      assert.ok(/justify-content:\s*center/.test(rule('.hud--race .hud-timer-k')),
+        'run HD.c: the CHECKPOINT caption is zero-width but centres with text-align alone — that does not centre an overflowing line, it spills it to one side, so the caption sits ~35px off the numeral it captions while the numeral itself measures dead centre')
       assert.ok(!/position:\s*absolute/.test(rule('.hud--race .hud-timer-k')),
         'run HD.c: the CHECKPOINT caption is absolutely positioned — that drops its HEIGHT out of row 1 as well as its width, and the split delta on row 2 rises straight onto the word')
       // THE DEV BADGE MAY NOT MOVE THE GAME'S HUD. It is shown only under meta.dev, so anything it
