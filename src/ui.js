@@ -2348,6 +2348,14 @@ export function initUI(hooks) {
       //     lap (`p.xp += p.xpNext`, sim.js), so the bar fills and empties inside one frame and
       //     `Lv N` is the lap count wearing another unit.
       hud.coins.style.display = circuitChapter && !meta.dev ? 'none' : ''
+      // A DEV RUN'S BADGE IS NOT A COIN BADGE ON A CIRCUIT, and leaving it one shipped the whole
+      // redesign looking undone: a gold disc is the loudest object this HUD can draw, gold is the
+      // currency register in this game, and the chapter has no currency — so the badge read as the
+      // coin counter surviving the redesign. Worse, the two glyphs WRAPPED to two lines in the
+      // narrowed right column beside the race clock, which doubled the band's height and threw
+      // every other readout off its axis. It says DEV in the pause button's own ghosted chip
+      // instead: the one thing on screen with no gameplay meaning now looks like it.
+      hud.coins.textContent = circuitChapter ? 'DEV' : `🪙 ${run.coinsEarned}`
       hud.xpRow.style.display = circuitChapter ? 'none' : ''
       // THE TIMER SLOT MEANS SOMETHING DIFFERENT ON EITHER SIDE OF THIS FLIP AND BOTH SIDES RENDER
       // A SMALL INTEGER, so the cache can be holding a number that is accidentally still "equal"
@@ -2480,7 +2488,9 @@ export function initUI(hooks) {
         hud.bossBarFill.style.width = `${pct}%`
       }
     }
-    if (run.coinsEarned !== last.coins) {
+    // ...but never on a circuit, where the badge is a DEV chip and this write would put the coin
+    // count straight back over it on the first frame the counter moved.
+    if (run.coinsEarned !== last.coins && !circuitChapter) {
       last.coins = run.coinsEarned
       hud.coins.textContent = `🪙 ${run.coinsEarned}`
     }

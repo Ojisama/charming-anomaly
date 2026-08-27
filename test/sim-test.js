@@ -24065,6 +24065,17 @@ function testCircuitHud() {
     assert.strictEqual(held({}), false,
       'run HD.b2: a run that has never held anything reads as held — the field is undefined until the first checkpoint, so this is every race before its first gate')
   }
+  // (b3) THE DEV BADGE SAYS DEV ON A CIRCUIT, AND THE PER-FRAME COIN WRITE MUST NOT PUT THE COIN
+  // COUNT BACK OVER IT. Two halves of one relabel, and the second fails only once the counter
+  // moves — which on a circuit is never in normal play and immediately under a dev card that
+  // grants coins, i.e. exactly the run the badge exists for.
+  {
+    const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
+    assert.ok(/hud\.coins\.textContent\s*=\s*circuitChapter\s*\?\s*'DEV'/.test(ui),
+      'run HD.b3: the dev badge is not relabelled on a circuit — it renders the coin count, which is pinned at 0 for the whole chapter (weapons: [], so nothing drops) inside a gold pill, and the owner read that as the coin counter surviving the redesign')
+    assert.ok(/run\.coinsEarned !== last\.coins && !circuitChapter/.test(ui),
+      'run HD.b3: the per-frame coin write is not gated on the chapter — it repaints the badge with the coin count on the first frame the counter moves, silently undoing the DEV relabel above')
+  }
   // (c) THE PILL IS BOUNDED. A grid child with no max-width stretches its whole track — the xp bar
   // learned that here at ~300px on a phone against 1776px on a desktop window, and a HUD element
   // is only ever verified at ONE viewport unless something says otherwise.
@@ -24111,6 +24122,43 @@ function testCircuitHud() {
       // margin into the padding and passes — measured: that mutation survived until the bound.
       assert.ok(/margin:[^;]*safe-area-inset-left[^;]*;/.test(band),
         'run HD.c: the race band\'s negative margin does not account for safe-area-inset-left — on a notched phone the inset widens .screen--hud\'s padding, so a constant margin leaves a sliver of water down the edge on exactly the devices this game is played on')
+    }
+    // THE BAND'S THREE READOUTS SIT ON THE SCREEN'S AXIS, AND EVERY DECLARATION THAT PUTS THEM
+    // THERE IS INVISIBLE TO A SCREENSHOT THAT WAS NOT MEASURED. It shipped 17px right of centre
+    // twice — once with the owner naming it ("the delta is not centered ?") and once after a
+    // rewrite that was supposed to have fixed it. The cause is that `1fr` is `minmax(auto, 1fr)`,
+    // so an outer track grows past its share for content it cannot shrink, and the auto column
+    // between two unequal tracks lands wherever the difference leaves it. Three declarations hold
+    // the axis and none of them throws when deleted.
+    {
+      // COMMENTS STRIPPED, same load-bearing line as the band block above: each rule's own comment
+      // names the declaration it explains, so a raw search over the rule passes on the prose alone.
+      const code = css.replace(/\/\*[\s\S]*?\*\//g, '')
+      const rule = (sel) => new RegExp(`\\${sel}\\s*\\{([\\s\\S]*?)\\n\\}`).exec(code)?.[1] ?? ''
+      assert.ok(/grid-template-columns:[^;]*minmax\(\s*0/.test(rule('.hud--race .hud-top')),
+        'run HD.c: the race band does not re-declare its outer tracks as minmax(0, 1fr) — it inherits `1fr auto 1fr` from .hud-top, and `1fr` is minmax(auto, 1fr), so the 160px HP bar on the left and the clock-plus-pause on the right size their tracks differently and push the checkpoint countdown and the split delta off the screen\'s axis. Measured at 17px right of centre when it shipped that way.')
+      assert.ok(/width:\s*0/.test(rule('.hud--race .hud-timer-k')),
+        'run HD.c: the CHECKPOINT caption is not zero-width — it is ~3x wider than the numeral above it, so the middle auto track sizes to the caption and steals ~65px the two outer tracks have to share, which is most of the off-axis error minmax(0,1fr) exists to remove')
+      assert.ok(!/position:\s*absolute/.test(rule('.hud--race .hud-timer-k')),
+        'run HD.c: the CHECKPOINT caption is absolutely positioned — that drops its HEIGHT out of row 1 as well as its width, and the split delta on row 2 rises straight onto the word')
+      // THE DEV BADGE MAY NOT MOVE THE GAME'S HUD. It is shown only under meta.dev, so anything it
+      // does to the band is a layout only the developer ever sees — and in .hud-right's flex row it
+      // added ~50px to the right track, i.e. 50px of axis error present in exactly the build used
+      // to judge the HUD and absent from the one that ships.
+      assert.ok(/position:\s*fixed/.test(rule('.hud--race .hud-coins')),
+        'run HD.c: the dev badge is still in .hud-right\'s flex row on a circuit — with the outer tracks locked equal it widens the right one, so a DEV run and a normal run are different layouts and the one you look at is not the one that ships')
+      assert.ok(!/background:[^;]*(gold|255,\s*217)/.test(rule('.hud--race .hud-coins')),
+        'run HD.c: the dev badge keeps its gold ground on a circuit — gold is this game\'s currency register and the chapter is `weapons: []`, so the loudest object on the race band would be a promise of coins that can never drop')
+      // AND IT MAY NEVER WRAP, in any chapter: two glyphs on two lines turn the pill into a disc
+      // twice its row's height, and .hud-top is align-items:center, so every readout beside it
+      // moves. That is what shipped on the Reef, and .hud-timer--held's rule warns of it too.
+      // ANCHORED AT LINE START (^, multiline). The circuit override .hud--race .hud-coins sits
+      // EARLIER in the file and ends in the same six characters, so an unanchored search finds
+      // that rule instead of the base one and reports on a chapter this line is not about. It
+      // did exactly that on the first run of this assert.
+      const base = /^\.hud-coins\s*\{([\s\S]*?)\n\}/m.exec(code)?.[1] ?? ''
+      assert.ok(/white-space:\s*nowrap/.test(base),
+        'run HD.c: .hud-coins may wrap — it shares a flex row with the pause button and, on a circuit, the race clock, and at 390px that row runs out of width. The badge then breaks onto two lines and doubles the band\'s height.')
     }
     // THE HIDE MUST OUT-RANK THE READOUTS' OWN `display`, AND A BARE `.race-hidden` DOES NOT.
     // .race-lap sets `display: flex`; both selectors are a single class, so specificity ties and
