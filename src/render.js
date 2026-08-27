@@ -21979,6 +21979,10 @@ const spurG = new Graphics()
     // borrow a LIVE shared object (poolLayer's disc pool, stripG, bombG) rather than making their own,
     // and leaving a hazard painted into a world Graphics would show it in the next run. `frame` is the
     // optional crop above, and only the soft-edged FX sprites need it.
+    // Which of bakeCoral's 28 colonies the summary's "The Coral" row shows. PICKED BY MEASUREMENT,
+    // NOT BY GENOME — see `scrape` below for the three wrong answers reasoning from the genome gave.
+    const CORAL_THUMB_BAKE = 19
+
     const build = {
       // ---- straight off a texture the game already baked -------------------------------------
       // spriteOf keeps the bake's own anchor, so the thumbnail is framed the way the world frames it.
@@ -21991,6 +21995,60 @@ const spurG = new Graphics()
         const s = new Sprite()
         placeRock(s, { x: 0, y: 0, r: 15, rot: 0.5 })   // via placeRock for its warm-stone tint,
         return [s, null]                                // which is the whole reason it reads as a hazard
+      },
+      // The Reef's ridge. The recap calls this row "The Coral", so the picture is a coral colony and
+      // nothing else — straight off T.coral, which is the SAME texture array syncPool packs the wall
+      // out of, tinted from the SAME SPUR_VIS.tones the field stamps. No new art: the branching
+      // silhouette is the whole read (see SPUR_VIS, where three revisions that dressed a solid shape
+      // were rejected for exactly that reason), and a silhouette is what survives a 20px slot.
+      //
+      // BAKE 19 OF 28, PICKED AND NOT ROLLED. Every colony draws its own genome from a hash of its
+      // index, so the 28 range from a two-stem whip to a five-stem head; a random pick would give the
+      // summary a different drawing every time the script is re-run.
+      //
+      // ⚠ PICKED BY BAKING ALL 28 AND MEASURING THEM, AND THE GENOME REASONING THAT PRECEDED IT WAS
+      // BACKWARDS. Owner, on the first cut: "maybe less coral detail, this is a very small preview".
+      // The obvious inference — fewer trunks, fewer forks, thicker strokes — produced two rejects in
+      // a row: bake 2 (the sparsest in the set) draws a red ZIGZAG, and bake 20 measures aspect 0.41,
+      // a whip that `object-fit: contain` would show at 41% of the slot width. Cropping to raise the
+      // stroke-to-extent ratio scored the best numbers in this whole table (21% mush, contrast 8.97)
+      // and came out as an angular BRACKET, because a tight frame keeps two trunk strokes and no fork.
+      //   What actually survives the slot is COMPACT MASS, which is not the same thing as few
+      // branches: 19 is a five-trunk, five-fork head whose branches overlap into solid ink, and it
+      // measured the LOWEST mush of all 28 (37%) with the highest fill (57%) at aspect 1.20. The
+      // densest genome, 22, measured 54% — so density is not the axis; extent is. Same ink over a
+      // wider box is what dissolves.
+      //   The rig is scripts/bake-cast.mjs pointed at throwaway `coralV0..27` builders, and it is
+      // worth rebuilding rather than re-deriving if this is ever retuned: three separate arguments
+      // from the generator's own parameters each picked a colony that looks wrong on the panel.
+      //
+      // TONE: `tones[1]` 0xd93b2b, the saturated red, chosen against the PANEL and not against the
+      // seabed. ui.js's recap is #fdeef0 parchment, and the palette's own cream (0xead9bd) and pink
+      // (0xe8718f) sit almost on top of that — the same trap the `drown` bubble hit when it borrowed
+      // the death outro's near-white. The bake carries its outline at 0x3a3a3a, so the tint multiply
+      // leaves a dark rim on the parchment whichever tone is picked, but the body needs to be one of
+      // the dark ones to be found at all.
+      //
+      // WHOLE, NOT CROPPED, and the two rejected crops are why. SCALING CANNOT FIX A BUSY ICON —
+      // ui.js fits the thumbnail with `object-fit: contain`, so the drawing is normalised to the
+      // slot whatever size it is authored at, and the only thing that decides legibility is the
+      // ratio of STROKE WIDTH to CONTENT EXTENT. Cropping raises that ratio, so it was tried twice:
+      // a 30px frame scored the best numbers in this whole table (21% mush, contrast 8.97) and came
+      // out as a red ANGULAR BRACKET, because what a tight frame keeps is two trunk strokes and no
+      // fork. A 52px frame was the same drawing with a corner more. Both are proof that the metric
+      // is a floor and not a judgement: a shape can survive the slot perfectly and still not be a
+      // picture of coral, and only looking catches that.
+      //
+      // So the lever is the GENOME instead, which costs nothing in silhouette. Bake 20 is three
+      // trunks at depthLo — three distinct stems, three forks each, no fourth-level twigs at
+      // branchW x widthFall^3 = 1.6px to dissolve into grey. It reads as a colony at full size and
+      // holds its stems at 20px.
+      scrape: () => {
+        const b = T.coral[CORAL_THUMB_BAKE % T.coral.length]
+        const s = new Sprite(b.tex)
+        s.anchor.set(b.ax, b.ay)
+        s.tint = SPUR_VIS.tones[1]
+        return [s, null]
       },
       // The Wreck's orca. Straight off its own bake, untinted and at full alpha — unlike the leak
       // below it is a BODY, not a wash, so there is nothing to compensate for. A private Sprite
@@ -22084,15 +22142,22 @@ const spurG = new Graphics()
         // NOT the death outro's ventTint, which was the first cut. Those bubbles are near-white
         // because they sit on dark water; this panel is #fdeef0 parchment, and measured against it the
         // near-white version scored a contrast ratio of 1.39 mean / 1.84 max — a ghost you could not
-        // find in the row. The pocket is drawn as a deep navy shade UNDER a pale air body, so taking
-        // BOTH gives a bubble that keeps the pale-air identity and still has an edge dark enough to
-        // see. Same trap as the chapter-agnostic FX tuned against dark floors: a colour that reads on
-        // one surface is not verified until it has been measured on the other.
+        // find in the row. The pocket is drawn as a deep navy vent mouth UNDER a pale air body, so
+        // taking BOTH gives a bubble that keeps the pale-air identity and still has an edge dark
+        // enough to see. Same trap as the chapter-agnostic FX tuned against dark floors: a colour
+        // that reads on one surface is not verified until it has been measured on the other.
+        //
+        // `bubble`/`alpha`/`vent` ARE THE FIELDS AIR_POCKET_VIS ACTUALLY HAS. This read `air`,
+        // `airA` and `shade` for four versions — three names that have never existed on that
+        // object — so every circle here was filled `undefined`, Graphics threw, and hazardThumbs'
+        // own catch swallowed it. Nothing went red and nothing was blank either: bake-cast simply
+        // left the last good drown.png on disk and printed one warning line among fifty. Run DA.i
+        // is the guard, and it walks every builder's palette reads rather than this one row.
         const A = AIR_POCKET_VIS
         const g = new Graphics()
         for (const [dx, dy, r] of [[-4, 3, 9], [5, -3, 6], [0, -10, 3.5]]) {
-          g.circle(dx, dy, r).fill({ color: A.air, alpha: A.airA })
-          g.circle(dx, dy, r).stroke({ width: 2.2, color: A.shade, alpha: 0.95 })
+          g.circle(dx, dy, r).fill({ color: A.bubble, alpha: A.alpha })
+          g.circle(dx, dy, r).stroke({ width: 2.2, color: A.vent, alpha: 0.95 })
         }
         return [g, null]
       },

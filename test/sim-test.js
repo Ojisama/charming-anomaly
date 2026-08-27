@@ -4616,13 +4616,13 @@ function runBooks() {
   for (const id of CHAPTER_ORDER) {
     assert.ok(!wip.includes(nextChapter(id)), `nextChapter('${id}') surfaced a WIP chapter — the unlock chain must never cross books`)
   }
-  // THE GATE IS PER CHAPTER, SO A BOOK MAY BE HALF-SHIPPED (BOOKS[].wipFrom). The Shelf is live and
-  // The Reef, one rung below it in the SAME book, is not — which the old book-wide boolean could
+  // THE GATE IS PER CHAPTER, SO A BOOK MAY BE HALF-SHIPPED (BOOKS[].wipFrom). The Reef is live and
+  // The Wreck, one rung below it in the SAME book, is not — which the old book-wide boolean could
   // not express at all. Asserting both sides of that boundary is the whole point of this pair: a
   // regression to a book-level flag makes one of them fail whichever way it goes. The pair walks
   // down the ladder with every reveal; what is asserted is the BOUNDARY, never these two ids.
-  assert.strictEqual(isWipChapter('shelf'), false, "isWipChapter('shelf') === false — Undertow's second rung ships")
-  assert.strictEqual(isWipChapter('reef'), true, "isWipChapter('reef') — the rung below The Shelf is still gated")
+  assert.strictEqual(isWipChapter('reef'), false, "isWipChapter('reef') === false — Undertow's third rung ships")
+  assert.strictEqual(isWipChapter('wreck'), true, "isWipChapter('wreck') — the rung below The Reef is still gated")
   // isWipChapter is what main.js's onChapter bypasses the unlock check with, so a false positive
   // here would make a SHIPPED locked chapter selectable — the gate leaking in the other direction.
   assert.strictEqual(isWipChapter('pond'), false, "isWipChapter('pond') === false — a shipped chapter is never a WIP bypass")
@@ -4633,8 +4633,8 @@ function runBooks() {
 
   // (c) Gate OFF: a save pointing at a WIP chapter plays a SHIPPED one. resolveChapterId still
   // returns it verbatim — it is a real chapter and that helper is only a "does this exist" test.
-  const metaOff = { chapter: 'reef', dev: false, chapters: {} }
-  assert.strictEqual(resolveChapterId('reef'), 'reef', 'resolveChapterId stays pure — it must NOT learn about the gate (see playableChapterId)')
+  const metaOff = { chapter: 'wreck', dev: false, chapters: {} }
+  assert.strictEqual(resolveChapterId('wreck'), 'wreck', 'resolveChapterId stays pure — it must NOT learn about the gate (see playableChapterId)')
   assert.strictEqual(playableChapterId(metaOff), CHAPTER_ORDER[0], 'gate off: a WIP meta.chapter falls back to the first shipped chapter')
   assert.strictEqual(playableChapterId({ chapter: 'pond', dev: false }), 'pond', 'gate off: a shipped chapter is untouched')
   for (const junk of [undefined, null, {}, { chapter: 'nope' }]) {
@@ -4647,17 +4647,17 @@ function runBooks() {
   // to consult, so every gated run became a Body run credited to body's ledger — no throw, no
   // warning. Note it must name a gated id EXPLICITLY: every existing test of this shape iterates
   // CHAPTER_ORDER, which by design never contains one, so they would all still have passed.
-  const metaOn = { coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'reef', dev: true, chapters: {} }
-  assert.strictEqual(playableChapterId(metaOn), 'reef', 'gate on: the WIP chapter is what Play reads')
-  const wipRun = createRun(metaOn, { chapter: 'reef', difficulty: 1 })
-  assert.strictEqual(wipRun.chapter, 'reef', "createRun kept 'reef' — if this reads 'body', the gate leaked into resolveChapterId and endRun would credit the wrong chapter")
+  const metaOn = { coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'wreck', dev: true, chapters: {} }
+  assert.strictEqual(playableChapterId(metaOn), 'wreck', 'gate on: the WIP chapter is what Play reads')
+  const wipRun = createRun(metaOn, { chapter: 'wreck', difficulty: 1 })
+  assert.strictEqual(wipRun.chapter, 'wreck', "createRun kept 'wreck' — if this reads 'body', the gate leaked into resolveChapterId and endRun would credit the wrong chapter")
   // ...ARMED FROM ITS OWN CHAPTER, which is the husk test now that a chapter may be armed with
   // NOTHING. `weapons.length > 0` was the proxy, and it stopped meaning "genuinely playable" the day
   // The Reef declared `starter: null` — but the defect it guards is unchanged and is not about the
   // count: a leaked resolve arms the player from the WRONG chapter's table (body's `star`), which
   // this catches and a length test never did.
-  assert.deepStrictEqual(wipRun.weapons.map((w) => w.id), CHAPTERS.reef.starter ? [CHAPTERS.reef.starter] : [],
-    `the WIP run is holding [${wipRun.weapons.map((w) => w.id).join(', ')}] against a declared starter of '${CHAPTERS.reef.starter}' — it was armed from some other chapter's table, or from a null id, which is a corpse every firing site dereferences`)
+  assert.deepStrictEqual(wipRun.weapons.map((w) => w.id), CHAPTERS.wreck.starter ? [CHAPTERS.wreck.starter] : [],
+    `the WIP run is holding [${wipRun.weapons.map((w) => w.id).join(', ')}] against a declared starter of '${CHAPTERS.wreck.starter}' — it was armed from some other chapter's table, or from a null id, which is a corpse every firing site dereferences`)
 
   // (e) Gate ON: the carousel LISTS it and the selection guard ACCEPTS it. Without both, phase 2
   // ships a chapter nothing can select — and every other assertion in this file still passes.
@@ -4665,9 +4665,9 @@ function runBooks() {
   // Same three assertions the carousel had, against the bookcase that replaced it: what matters is
   // still which chapter ids a player can reach, not the shape they are drawn in.
   const shelved = (m) => titleBookshelf(m).flatMap((sh) => sh.volumes.map((v) => v.id))
-  assert.ok(shelved(listed).includes('reef'), 'gate on: the bookcase must shelve the WIP chapter, or it cannot be selected')
+  assert.ok(shelved(listed).includes('wreck'), 'gate on: the bookcase must shelve the WIP chapter, or it cannot be selected')
   listed.dev = false
-  assert.ok(!shelved(listed).includes('reef'), 'gate off: the bookcase must NOT shelve the WIP chapter')
+  assert.ok(!shelved(listed).includes('wreck'), 'gate off: the bookcase must NOT shelve the WIP chapter')
   // THE SHELF IS EVERY LIVE RUNG, AND A HALF-SHIPPED BOOK CONTRIBUTES ONLY ITS LIVE ONES. Derived
   // rather than written down, for the same reason shippedChapterIds is: this used to read
   // `CHAPTER_ORDER` and assert the shelf was exactly book 1, which is a sentence about the release
@@ -4714,15 +4714,15 @@ function runBooks() {
   // fixed only onChapter, and the gated chapter duly appeared in the carousel as a locked "???" card
   // with a dead Play button — listed and unreachable, the same dead end one step further along.
   // Caught by a screenshot, not by a test, which is why it is asserted here now.
-  const wipLocked = { dev: false, chapters: { reef: { unlocked: false }, pond: { unlocked: true }, beyond: { unlocked: false } } }
-  assert.strictEqual(chapterAvailable(wipLocked, 'reef'), false, 'gate off: a WIP chapter is not available')
+  const wipLocked = { dev: false, chapters: { wreck: { unlocked: false }, pond: { unlocked: true }, beyond: { unlocked: false } } }
+  assert.strictEqual(chapterAvailable(wipLocked, 'wreck'), false, 'gate off: a WIP chapter is not available')
   assert.strictEqual(chapterAvailable(wipLocked, 'pond'), true, 'an unlocked shipped chapter is available, gate or no gate')
   assert.strictEqual(chapterAvailable(wipLocked, 'beyond'), false, 'a locked shipped chapter stays locked')
   const wipDev = { ...wipLocked, dev: true }
-  assert.strictEqual(chapterAvailable(wipDev, 'reef'), true, 'gate on: the WIP chapter becomes available WITHOUT writing `unlocked` to the save')
+  assert.strictEqual(chapterAvailable(wipDev, 'wreck'), true, 'gate on: the WIP chapter becomes available WITHOUT writing `unlocked` to the save')
   assert.strictEqual(chapterAvailable(wipDev, 'beyond'), false,
     'gate on must NOT unlock a shipped chapter — the bypass is for chapters with no unlock path, not a cheat for the ones that have one')
-  assert.strictEqual(wipDev.chapters.reef.unlocked, false,
+  assert.strictEqual(wipDev.chapters.wreck.unlocked, false,
     'chapterAvailable must stay a pure read — persisting the permission would outlive the gate and leave a WIP chapter unlocked after dev is turned off')
 
   // main.js and ui.js cannot be imported here (Pixi / import.meta.glob), so the WIRING is a source
@@ -12575,13 +12575,44 @@ function testV54Weapons() {
     // an unshipped book to satisfy an assertion would be a balance change smuggled in as a test
     // fix. shippedChapterIds() is derived from BOOKS[].wip, so it widens by itself the day undertow
     // ships and demands an answer then — before a player sees it, not after.
+    //
+    // IT DID WIDEN, AND THE REEF IS THE ANSWER IT DEMANDED. The paragraph above assumed the answer
+    // would be "give the Moray the flag". It is not: THE REEF SHIPS `weapons: []`, and every
+    // ccScale() call site in sim.js is weapon-sourced — the nova carry, the mine stun, the hydrant
+    // launch, the blast stagger, the longline snag, the loot snare. A chapter that cannot fire
+    // cannot land a control, so `unshakeable` there is a flag that resists something that never
+    // arrives: an inert card in the shape of a roster entry, which is the class CLAUDE.md's own
+    // "a chapter rule can make a card inert" note is about.
+    //
+    // MEASURED RATHER THAN INFERRED, with a do-nothing control, because "no weapons means no CC" is
+    // exactly the kind of inference this project has been wrong about before. Driving the circuit
+    // for 8 seeds x up to 320s — 216,638 enemy-frames, peak 26 alive — the Reef never once set
+    // stunT, fearT, frozen, chill, or a knockback component on any enemy: 0.00% on all five. The
+    // SAME probe pointed at The Shelf, which has an arsenal, reads chill on 15.31% of its
+    // enemy-frames, stun on 1.85% and freeze on 1.10%. So the zero is the chapter's, not the rig's.
+    //
+    // The exemption is therefore ON THE EMPTY POOL and not on the id, so it evaporates the moment
+    // the Reef is given weapons — which is exactly when the flag would start mattering — and it can
+    // never quietly cover a chapter that simply forgot the flag. The set it covers is asserted
+    // below, so widening it is a deliberate edit rather than a side effect.
     {
       const chapterIds = [...new Set(shippedChapterIds())]
+      // Armed chapters must carry the flag. Unarmed ones are listed, not skipped silently.
+      const unarmed = chapterIds.filter((id) => (CHAPTERS[id].weapons ?? []).length === 0)
+      assert.deepStrictEqual(unarmed, ['reef'],
+        `the unarmed-chapter exemption covers [${unarmed.join(', ')}] — it is meant to cover The Reef and nothing else. A new empty pool here means a chapter just lost its arsenal, or a new weaponless chapter shipped and needs its own ruling on crowd control.`)
       for (const id of chapterIds) {
+        if (unarmed.includes(id)) continue
         const tank = CHAPTERS[id].roster.find((x) => x.archetype === 'tank' && !x.formationOnly)
         assert.ok(tank && tank.flags.includes('unshakeable'),
           `${id}'s tank (${tank ? tank.name : 'none'}) is not unshakeable — that chapter has no heavy that leans into a fear/knockback wall`)
       }
+      // The exemption is a statement about the POOL, so prove the pool is really empty rather than
+      // trusting the filter above: a typo'd field name would make every chapter "unarmed".
+      assert.strictEqual(CHAPTERS.reef.weapons.length, 0,
+        'The Reef is exempt from unshakeable because it has no weapons — if it has an arsenal now, delete the exemption and give the Moray the flag')
+      assert.ok(chapterIds.length - unarmed.length >= 8,
+        `only ${chapterIds.length - unarmed.length} chapters were actually checked for unshakeable — the exemption has eaten the assertion`)
 
       // One shriek ring, three bodies at EQUAL range so the shove is the same magnitude for each:
       // a plain drone, an `unshakeable` tank, and an `anchored` elite.

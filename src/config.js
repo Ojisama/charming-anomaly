@@ -5516,7 +5516,7 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'twilight', 'deep'], hidden: [], wipFrom: 2, startCoins: 100 },
+  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'twilight', 'deep'], hidden: [], wipFrom: 3, startCoins: 100 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -12204,21 +12204,24 @@ export const DMG_SRC_NO_ART = {
   // DoT can carry a drawing, so "it is a state, not a world object" is NOT the argument here and must
   // not be borrowed from the two anomalies below. DELETE THIS LINE when hazardThumbs.starve lands.
   starve: 'OWED — The Wreck phase 2 has not authored its art yet, not a permanent exemption',
-  // ⚠ OWED, NOT EXEMPT, exactly as the line above. The Reef is still behind its wipFrom gate and
-  // has no hazardThumbs entry for a ridge yet; a coral ridge is a world object and can carry a
-  // drawing, so this is a debt. DELETE THIS LINE when hazardThumbs.scrape lands.
-  scrape: 'OWED — The Reef has not authored a coral ridge thumbnail yet, not a permanent exemption',
-  // ⚠ OWED, NOT EXEMPT, and it shares its debt with the line above: both want a picture of a
-  // coral ridge, one being brushed and one being pressed against. A ridge is a world object and
-  // can carry a drawing, so "it is a state, not a world object" is NOT the argument here. The Reef
-  // is still behind its wipFrom gate. DELETE THIS LINE when hazardThumbs.crush lands.
-  crush: 'OWED — The Reef has not authored a coral ridge thumbnail yet, not a permanent exemption',
   // The race clock is a HUD rail and a rule, not a thing in the water — the same argument the two
   // anomaly rows below make. There is nothing to draw a picture of.
   clock: 'a rule and a HUD rail, not a world object',
   // Costs you chose to pay. Neither has a world object; their honest picture is the anomaly card.
   overload: 'a card you took, not a thing in the world',
   bloodMoney: 'a card you took, not a thing in the world',
+  // UNREACHABLE SINCE THE REEF BECAME A RING, and this is a retirement rather than a debt — the
+  // line above it in this file used to say the opposite. `crush` is stepLaneFront's, and that
+  // function returns on its first line unless the chapter is BOTH `lane: true` and `spurs.solid`.
+  // No chapter is: The Reef has the solid spur field but dropped `lane` for the circuit (see
+  // CHAPTERS.reef, "NO `lane: true` SINCE v7.x, AND THAT IS THE RING"), and The Beyond keeps the
+  // lane but declares no solid spurs, so its front never separates from the player at all. Being
+  // ground against the trailing edge WAS how a Reef run ended; the race clock is how it ends now.
+  //   Owner confirmed from play, 2026-08-27: "I don't think you can get crunched anymore in the
+  // game". So the honest entry is this one and not a drawing — a thumbnail was authored for it
+  // first, measured, and thrown away, which is cheaper than a picture no player can ever reach.
+  // If the circuit ever grows its own falling-behind rule, this row wants art again.
+  crush: 'unreachable — no chapter is both `lane` and `spurs.solid` since The Reef became a ring',
   // Unreachable: every hurtPlayer call site is labelled (run DA.d), and all 13 chapters cover all
   // three archetypes, so nothing keys on the fallbacks today (run DA.h).
   unknown: 'unreachable — every damage site is labelled',
