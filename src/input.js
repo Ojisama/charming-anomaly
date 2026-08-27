@@ -3,6 +3,17 @@
 
 const RADIUS = 50
 const DEADZONE = 0.15
+// HOLD SHIFT TO EASE OFF. A key is either down or it is not, so the keyboard hands getInput a
+// vector of length 1 or of length 0 and nothing between — which is fine where the magnitude scales
+// a walk, and is the whole mechanic where it scales a THROTTLE. A circuit chapter reads the stick's
+// magnitude as the gas (CHAPTERS.reef.laneThrottle), so on keys the throttle was full or nothing
+// and "ease off into the corner" — the move that chapter is built around — could not be typed.
+//   A STICK DEFLECTION AND NOT A THROTTLE, which is why the number lives here beside DEADZONE
+// rather than in config.js. getInput returns a direction and a magnitude; what each chapter does
+// with 0.5 of a stick is that chapter's own curve, and on The Reef it happens to land exactly on
+// laneThrottle.min. Every other chapter reads it as a slow walk, which costs nothing and is only
+// ever opt-in — you have to be holding the key.
+const HALF_STICK = 0.5
 
 const vec = { x: 0, y: 0 }
 const keys = new Set()
@@ -156,6 +167,10 @@ export function getInput(anchor) {
   if (keys.has('KeyW') || keys.has('ArrowUp')) y -= 1
   if (keys.has('KeyS') || keys.has('ArrowDown')) y += 1
   if (x !== 0 && y !== 0) { x *= Math.SQRT1_2; y *= Math.SQRT1_2 }
+  // Applied AFTER the diagonal normalisation, so a half-pressed diagonal is half a stick and not
+  // half of an over-long one. Both shifts, because which one is under the hand depends on which
+  // half of the keyboard you steer with.
+  if (keys.has('ShiftLeft') || keys.has('ShiftRight')) { x *= HALF_STICK; y *= HALF_STICK }
   // Keys win while any are down: the two would otherwise fight over the same frame.
   if (x === 0 && y === 0 && mouseHeld && anchor) {
     const m = steerFromAnchor(mouseX - anchor.x, mouseY - anchor.y)

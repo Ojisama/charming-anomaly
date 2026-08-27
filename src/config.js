@@ -10437,6 +10437,27 @@ export const LANE_CONTACT_MUL = 0.4      // enemy contact damage multiplier in t
 // the Space Invaders frame: you at the bottom, everything descending toward you, and enough warning
 // to actually choose a gap. A centred camera spends half the screen on space already flown through.
 export const LANE_CAMERA_FRAC = 0.8
+// THE CIRCUIT CAMERA LOOKS WHERE YOU ARE POINTED, and it exists because the ring took the lane's
+// look-ahead away without replacing it. LANE_CAMERA_FRAC is gated on `lane === true` (render.js);
+// The Reef dropped that flag when it became a ring, so its camera silently fell back to DEAD
+// CENTRE — measured, playerScreen (195, 294) of a 390x588 viewport. On a 390x844 phone that is
+// 195px of warning when you are driving ACROSS the screen, which at the base top speed (laneScroll
+// 153 x laneThrottle.max 3 = 459px/s) is 0.42s, and 0.21s once Turbo Fin's cap doubles it. Human
+// reaction is ~0.25s, so the fast half of the throttle band was un-drivable by construction: the
+// passage is 360-480px wide against a 390px screen and the branch islands sit in the MIDDLE of it.
+//   A FRACTION OF THE DISTANCE TO THE SCREEN EDGE ALONG THE HEADING, never a pixel count. The lane
+// could bias one world axis because its forward direction never changed; a ring's heading sweeps
+// the full circle, so the lead has to be measured along `run._headX/_headY` and the viewport is
+// not square. `edge` below is the distance from the centre of the view to its border in that
+// direction, so this reads the same on a phone and on a desktop (the px-vs-ratio rule).
+//   ⚠ SCALED BY SPEED, WHICH IS WHAT MAKES IT FEEL LIKE A CAR AND NOT A ZOOM. At a standstill the
+// camera is centred (you are looking around); at full throttle it is pushed forward, so easing off
+// into a corner GIVES YOU BACK the room behind you. That is the same trade the throttle already is.
+export const CIRCUIT_CAM_LEAD = 0.42     // x the distance to the screen edge along the heading, at full throttle
+// How fast the offset chases its target, in fractions of the remaining gap per second. A ring turns
+// continuously, so an un-eased lead snaps the world sideways every time the heading crosses a
+// diagonal — most visibly on a keyboard, whose 8 directions arrive as steps rather than as a sweep.
+export const CIRCUIT_CAM_EASE = 3.5      // per second
 export const FORMATION_INTERVAL = 4.4    // s between ranks (5.0 left visible dead air between waves)
 // ponytail: density is two knobs (this + LANE_SPAWN_MUL) tuned as a pair against one measured
 // number. If a third source of lane pressure ever lands, measure the trio, don't add a third knob.
@@ -12084,7 +12105,10 @@ export const DMG_SRC_NAME = {
   // symptom of a bug. Here it is the mechanic: you were not hurt, you ran out of time.
   //   ⚠ ui.js's breakdown is keyed on run.dmgBySrc, so this row exists for the KILLER LINE alone.
   // Without it a race lost on the clock printed no cause of death at all.
-  clock: 'Out of Time',
+  //   The label is a NOUN because the line it lands in is 'Killed by {name}': 'Out of Time' read as
+  // "Killed by Out of Time", which is not English, and the row two above it already shows the shape
+  // that works — 'The Coral' / 'Le Corail'. Same chapter, same sentence, so they now match.
+  clock: 'The Clock',
   // THE WRECK ONLY, on the same gate-reading rule the comment above insists on: stepStarve returns
   // early unless the chapter's resource declares `starve`, and Bloodlust is the only one that does.
   // Its own row rather than sharing 'Drowning' — they are the same DoT mechanism, and the whole
@@ -13825,6 +13849,16 @@ export const CHAPTER_ENDINGS = {
   // fills instead of draining (resource.invert), so what kills you is silt arriving rather than
   // water running out — and 'silt' is a word the player has already read on two cards.
   shelf:       { victory: 'You found clear water! 🎉',              death: 'Silted up… 🌫️' },
+  // THE ONE PAIR IN THE GAME THAT IS NOT ABOUT SURVIVING, because this chapter is not. Every row
+  // above ends a run you outlasted; The Reef ends a RACE, and 'You escaped! 🎉' — the fallback it
+  // shipped with — is the wrong verb for crossing a finish line five laps after you started.
+  //   🏁 AND NOT 🎉, WHICH IS THE ONLY BREAK WITH THE COLUMN ABOVE AND IS THE POINT. The party
+  // popper says "a run ended well" and is right eight times; the flag says WHICH KIND of thing just
+  // ended, and it is the only chapter where that is a question.
+  //   The death line does NOT name the killer: unlike Humidity and Pollution above, this chapter
+  // kills you three ways (the coral, the clock, drowning) and the summary already prints which one
+  // on its own line right beneath. So it names the thing all three have in common instead.
+  reef:        { victory: 'Chequered flag! 🏁',                     death: 'Out of the race… 🏁' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',
