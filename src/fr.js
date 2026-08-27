@@ -453,7 +453,6 @@ const UI = {
   'pickup magnet': 'aimant à butin',
   'current push': 'poussée du courant',
   'time on the clock': 'temps au compteur',
-  'current speed': 'vitesse du courant',
   // Same noun as its sibling above, because on screen they ARE siblings — Riptide's chip and
   // Spring Tide's chip sit in the same slot of the same trade, one per chapter.
   'tide push': 'poussée de la marée',
@@ -1480,7 +1479,28 @@ const CONFIG = {
   // ('Grande Marée'), and two chapter mutators in one book wearing the same noun is the collision
   // the dictionary cannot see -- different keys, one word on screen.
   'Tidal Race': 'Grand Courant',
-  'Less time on the clock. Richer coins.': 'Moins de temps au compteur. Pièces plus riches.',
+  'Less time on the clock. A wider passage.': 'Moins de temps au compteur. Un passage plus large.',
+  // The other four of the race slate (2026-08-27). EVERY DISPLAY NAME IS A DRAFT pending the
+  // owner's pick, the idiom this block already runs on.
+  //   'Baine' over 'Courant d'Arrachement' -- which is the correct French term, and is exactly the
+  // collision the Grand Courant note above describes, seen from the other side: these two now roll
+  // in the SAME chapter and can sit side by side on one pause screen, so a second 'Courant' would
+  // be one word for two things. A baine is what an Atlantic swimmer calls the channel that drags
+  // you out, and no other entry in this dictionary uses the word.
+  //   'Air Rare' keeps the bar's own capitalised noun, the rule the Bouteille d'Oxygene entry
+  // states: the HUD rail says Air, so the card says Air.
+  'The Narrows': 'Le Goulet',
+  'A tighter passage. More time on the clock.': 'Un passage plus étroit. Plus de temps au compteur.',
+  'Rip Current': 'Baïne',
+  'The water runs far faster, through a tighter passage.': 'L\'eau file bien plus vite, dans un passage plus étroit.',
+  'Bait Ball': 'Boule d\'Appât',
+  'Far more traffic, and bigger with it. More time on the clock.': 'Bien plus de trafic, et plus gros avec ça. Plus de temps au compteur.',
+  'Thin Air': 'Air Rare',
+  'Your air runs out far faster. More time on the clock.': 'Ton Air s\'épuise bien plus vite. Plus de temps au compteur.',
+  // The two new effect chips (MUTATOR_EFFECT_LABELS). 'passage' is the word Le Goulet and Grand
+  // Courant already use, so the chip and the cards name one thing.
+  'passage width': 'largeur du passage',
+  'air drain': 'consommation d\'Air',
   'Stirs the bottom into a cone of silt that poisons and dazes what swims in.': 'Soulève un cône de vase qui empoisonne et étourdit tes poursuivants.',
   // Voile de Vase's four (2026-08-19). 'vase' throughout, never 'limon', because the weapon's own
   // name already fixed the word -- the rule the Coquille Ricochet entry states: one word for one
@@ -1686,6 +1706,10 @@ const CONFIG = {
   'HP at every checkpoint': 'PV à chaque point de contrôle',
   'Clean Line': 'Sans Accroc',
   'HP a second off the coral': 'PV par seconde sans toucher le corail',
+  // 'Fraction de Seconde' is the plain French idiom and reads as a racing word beside 'Arrêt au
+  // Stand'. The desc says 'compteur', the word 'temps au compteur' already fixed for this rail.
+  'Split Second': 'Fraction de Seconde',
+  'seconds the clock stops at every checkpoint': 'secondes d\'arrêt du compteur à chaque point de contrôle',
   'Sticky Aura': 'Aura Collante',
   'gem magnet': 'aimant à gemmes',
   'Extra Squish': 'Extra Moelleux',

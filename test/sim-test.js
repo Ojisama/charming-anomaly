@@ -18823,6 +18823,7 @@ run(testLeLargeWeapons)
   run(testReefLap)
   run(testReefCircuit)
   run(testCircuitCards)
+  run(testReefMutators)
   run(testRaceRecord)
   run(testCircuitHud)
   run(testReefNatives)
@@ -23866,6 +23867,27 @@ function testCircuitHud() {
       'run HD.b: the split flash does not show the lap just completed and its time — that flash is the ONLY read the player gets on a lap line, which at racing speed is on screen for about a second and looks like every other stretch of reef')
   }
 
+  // (b2) SPLIT SECOND'S GATE, EVALUATED. The CSS half is asserted in (c); this is the other half,
+  // and it fails silently in both directions. A `>= 0` reads TRUE for a run that has never held
+  // anything, so the ring is lit for the whole race and means nothing at all; a read of the wrong
+  // field (raceClock is right beside it and is nearly always > 0) does the same thing. Both render
+  // a perfectly plausible HUD.
+  //   ⚠ THE `?? 0` IN THE SHIPPED EXPRESSION IS NOT WHAT THESE CASES GUARD, and saying so is the
+  // point of the note: `undefined > 0` is already false, so removing it changes no answer here and
+  // this scenario would not notice. It is there for the reader, not for the test.
+  // Extracted and run against stubs rather than grepped, the run RK idiom: what is asserted is
+  // which boolean comes out, not which identifiers appear near it.
+  {
+    const expr = /const heldClock = ([^\n]+)/.exec(uiSrc)?.[1]
+    assert.ok(expr, 'run HD.b2: updateHUD computes no heldClock — the circuit timer never learns the clock is held, so PASSIVES.gateFreeze has no tell at all')
+    const held = new Function('run', `return ${expr}`)
+    assert.strictEqual(held({ _clockHold: 0.4 }), true,
+      'run HD.b2: a run holding 0.4s of clock does not read as held — the ring never lights, and a 0.3s pause on a Math.ceil\'d countdown is indistinguishable from a misread')
+    assert.strictEqual(held({ _clockHold: 0 }), false,
+      'run HD.b2: a spent hold still reads as held — the ring would stay lit for the rest of the race and stop meaning anything')
+    assert.strictEqual(held({}), false,
+      'run HD.b2: a run that has never held anything reads as held — the field is undefined until the first checkpoint, so this is every race before its first gate')
+  }
   // (c) THE PILL IS BOUNDED. A grid child with no max-width stretches its whole track — the xp bar
   // learned that here at ~300px on a phone against 1776px on a desktop window, and a HUD element
   // is only ever verified at ONE viewport unless something says otherwise.
@@ -23879,9 +23901,23 @@ function testCircuitHud() {
       'run HD.c: .hud-lap is not pinned to its grid cell — hud-top is a 3-column grid, so an unplaced 5th child wraps SOMEWHERE, which is not the same as wrapping under the clock')
     assert.ok(/\.hud-lap--hidden/.test(css) && /\.hud-lap--split/.test(css),
       'run HD.c: .hud-lap--hidden or --split has no rule — the first leaves the pill on screen in every other chapter, the second makes the split flash invisible')
+    // SPLIT SECOND'S TELL (PASSIVES.gateFreeze), AND IT IS A RING RATHER THAN A FILL. Two ways this
+    // fails and neither throws: a class ui.js toggles with no rule behind it (the countdown really
+    // is held, the player sees a number pause for 0.8s and reads it as a misread — the dead-card
+    // complaint .hud-timer--debt exists to answer), and a rule that paints a BACKGROUND, which
+    // replaces the vermillion when the clock is also low. Shot side by side in a pill harness: an
+    // ice ground turned a 4-second clock into something that looked as calm as a 27-second one. The
+    // alarm outranks the tell, so the hold may not own the ground.
+    const heldRule = css.match(/\.hud-timer--held\s*\{([^}]*)\}/)?.[1] ?? ''
+    assert.ok(/box-shadow:/.test(heldRule),
+      'run HD.c: .hud-timer--held has no box-shadow — ui.js toggles the class while the clock is held and nothing on screen changes, so the card is invisible')
+    assert.ok(!/(^|;)\s*background(-color)?\s*:/.test(heldRule),
+      `run HD.c: .hud-timer--held paints a background (${heldRule.trim()}) — it composes with .hud-timer--low, so it would erase the last-seconds alarm at exactly the moment the alarm is the thing that matters`)
+    assert.ok(!/(padding|font-size|width|border-width|outline)\s*:/.test(heldRule),
+      `run HD.c: .hud-timer--held changes the pill METRICS (${heldRule.trim()}) — this pill sits in a fixed grid slot beside the coin badge and anything that widens it wraps the badge onto a second line at 390px, which is why --debt is colour-only`)
   }
 
-  console.log('PASS run HD (the circuit HUD): the timer slot shows the race clock, the pill reads LAP n/4 with its split flash, and it is bounded and placed')
+  console.log('PASS run HD (the circuit HUD): the timer slot shows the race clock, the pill reads LAP n/4 with its split flash, it is bounded and placed, and a held clock lights a ring that costs no width and never paints over the last-seconds alarm')
 }
 function testCircuitCards() {
   const dt = 1 / 60
@@ -24011,6 +24047,7 @@ function testCircuitCards() {
       airMax: 'the Air bar the dash spends', dashLength: 'the dash itself',
       gateHeal: 'HP at every checkpoint (stepCircuit, the same window as the clock and the xp)',
       cleanHeal: 'HP a second while run._caveHit is false',
+      gateFreeze: 'seconds of run._clockHold banked at every checkpoint, spent against the countdown',
     }
     assert.deepStrictEqual(Object.keys(LIVE).sort(), Object.keys(PASSIVES).filter((id) => PASSIVES[id].chapter === 'reef').sort(),
       'run CD.b: the live set here and the reef-scoped entries in PASSIVES disagree — one of them was edited alone, and the allowlist in eligiblePassiveIds reads the OTHER one')
@@ -24137,8 +24174,13 @@ function testCircuitCards() {
   // every other assertion in this file still green.
   {
     const CAPPED = Object.keys(PASSIVES).filter((id) => PASSIVES[id].cap)
-    assert.deepStrictEqual(CAPPED.slice().sort(), ['accelRate', 'topSpeed'],
-      `run CD.d: the capped set is ${JSON.stringify(CAPPED)} — the owner named speed and acceleration, and a cap silently dropped from one of them is a card that runs away again`)
+    assert.deepStrictEqual(CAPPED.slice().sort(), ['accelRate', 'gateFreeze', 'topSpeed'],
+      `run CD.d: the capped set is ${JSON.stringify(CAPPED)} — the owner named speed, acceleration and the checkpoint hold, and a cap silently dropped from one of them is a card that runs away again`)
+    // ⚠ THE FORMATTER IS KIND-AWARE, AND gateFreeze IS WHY. It is the first capped `flat` passive in
+    // the game, and until it existed makePassiveCard rendered every capped total as a percentage —
+    // so this card printed "+0.3 seconds..." over a struck-through "+30%". Written as the same
+    // expression for both kinds so a fix on one side cannot leave the other behind.
+    const fmt = (id, v) => (PASSIVES[id].kind === 'pct' ? `+${Math.round(v * 100)}%` : `+${Math.round(v * 10) / 10}`)
     for (const id of CAPPED) {
       const cap = PASSIVES[id].cap
       // ⚠ MYTHIC IS THE ROLL THAT MATTERS. 6.5 x 0.45 is 2.925 for Quick Start — a SINGLE roll
@@ -24156,9 +24198,9 @@ function testCircuitCards() {
           // The card states the total it LEAVES you on, and `was` the total it moves off (ui.js
           // strikes that one through — the element cards' arrow). Under a cap the ROLL is not what
           // you get, so a card printing its roll is a card lying about its own effect.
-          assert.strictEqual(card.desc, `+${Math.round(passiveTotal(id, have, card.bonus) * 100)}% ${PASSIVES[id].desc}`,
-            `run CD.d: a ${rarity} ${id} card reads "${card.desc}" on a bank of ${(have * 100).toFixed(0)}% — a capped card must print the total it leaves you on, not the roll`)
-          assert.strictEqual(card.was, i === 0 ? null : `+${Math.round(have * 100)}%`,
+          assert.strictEqual(card.desc, `${fmt(id, passiveTotal(id, have, card.bonus))} ${PASSIVES[id].desc}`,
+            `run CD.d: a ${rarity} ${id} card reads "${card.desc}" on a bank of ${fmt(id, have)} — a capped card must print the total it leaves you on, not the roll`)
+          assert.strictEqual(card.was, i === 0 ? null : fmt(id, have),
             `run CD.d: pick ${i + 1} of ${id} carries was=${JSON.stringify(card.was)} — the before/after arrow is the only place the player can see that a pick bought less than the one before it`)
           devTake(run, card)
           const now = run.passives[id]
@@ -24199,9 +24241,255 @@ function testCircuitCards() {
     }
   }
 
+  // (e) SPLIT SECOND HOLDS THE CLOCK, IT DOES NOT TOP IT UP.
+  //
+  // THREE UNCONFOUNDED CLAIMS RATHER THAN ONE RACE-LONG TOTAL, and the first cut of this case was
+  // the race-long total. It measured the maxed card leaving +4.13s over a 30s drive (x0.83 of what
+  // the crossings owe) and +0.83s over a 45s one (x0.09) — same card, same seed, same track, a 9x
+  // swing decided entirely by whether the window reached the lap line. THE CAP IS WHY: the line
+  // pays swimTime x lineMul = 8s into a 40s ceiling, so both runs are pinned at it afterwards and
+  // every second the holder was ahead by is discarded at the clamp. A total measured over a window
+  // whose length silently decides the answer is not a measurement, so what is asserted below is the
+  // three things the card actually promises, each where nothing else can move them:
+  //   1. THE RATE     a held second costs the countdown nothing, and costs it 1:1 when the hold runs
+  //                   out. Driven with the hold set directly and no crossing in the window, so no
+  //                   top-up and no clamp is in play. This is the case that fails if the hold is
+  //                   spent a whole frame at a time rather than min(hold, dt) — that mutation pays a
+  //                   60Hz and a 30Hz player differently for the same pick.
+  //   2. A CHECKPOINT BANKS IT, AND THE CLAMP CANNOT TAKE IT. Pinned at clockCap up to the crossing
+  //                   — the state where swimTime is worth exactly nothing, and the whole reason this
+  //                   card is not just a smaller swimTime — then released. The control can only
+  //                   fall; the holder falls less.
+  //   3. THE LINE PAYS lineMul OF IT, like it pays lineMul of swimTime. The start line is a
+  //                   checkpoint (CIRCUIT_DEFAULTS.lineMul), so every checkpoint reward has to
+  //                   answer for it, and a reward that skips it skips the one gate a player aims a
+  //                   whole lap at.
+  //
+  // ⚠ WHAT THIS DELIBERATELY DOES NOT CLAIM: that the card is worth N seconds over a race. It is
+  // worth its full value only while the clock is BELOW the cap — i.e. exactly while the countdown
+  // is a threat — and nothing while a driver is pinned at the ceiling. That is the cap's own
+  // self-correcting shape (see CIRCUIT_DEFAULTS' block) and it is a design property, not a defect;
+  // it is measured in finishes by scripts/reef-lap-probe.mjs, not in seconds here.
+  {
+    const cap = circuitKnob(CHAPTERS.reef, 'clockCap')
+    const lineMul = circuitKnob(CHAPTERS.reef, 'lineMul')
+    let banked = 0
+    for (let i = 0; i < MAX_PASSIVE_LEVEL; i++) banked = passiveTotal('gateFreeze', banked, PASSIVES.gateFreeze.base)
+    assert.ok(banked > 0.5 && banked < PASSIVES.gateFreeze.cap,
+      `run CD.e: five picks bank a ${banked.toFixed(2)}s hold against a ${PASSIVES.gateFreeze.cap}s cap — under half a second there is nothing here a fixture can resolve, and at or past the cap the asymptote broke`)
+
+    // 1. THE RATE. run.mods.spawnMul = 0 keeps the crowd out of it; the run is driven for one second
+    // from a clock deliberately parked mid-band (no clamp reachable) with HELD seconds in the bank,
+    // and the countdown must fall by exactly the second minus the hold.
+    {
+      // 0.51 AND NOT 0.5, AND THE TOLERANCE IS UNDER ONE FRAME ON PURPOSE. The mutation this case
+      // exists for skips a WHOLE frame when any hold is left, rather than spending min(hold, dt)
+      // of it — and a hold that divides evenly into dt is IDENTICAL under that mutation. At 0.51s
+      // the mutant overshoots by exactly one dt (0.0167s), so the band has to be tighter than a
+      // frame to see it at all. Established by mutation, not by reading the code.
+      const HELD = 0.51
+      const rate = (hold) => {
+        Math.random = mulberry32(77)
+        const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+        run.mods.spawnMul = 0
+        run.raceClock = cap * 0.5
+        run._clockHold = hold
+        let crossings = 0
+        for (let i = 0; i < 60; i++) {
+          run.player.hp = run.player.maxHP
+          stepSim(run, follow2(run), dt)
+          for (const e of run.events) if (e.type === 'swimthrough' || e.type === 'lap') crossings++
+          run.events.length = 0
+          if (run.phase === 'levelup') run.phase = 'playing'
+          if (run.phase !== 'playing') break
+        }
+        return { fell: cap * 0.5 - run.raceClock, crossings }
+      }
+      const plain = rate(0)
+      const held = rate(HELD)
+      assert.ok(plain.crossings === 0 && held.crossings === 0,
+        `run CD.e: ${plain.crossings}/${held.crossings} checkpoints landed inside the rate window — a top-up in here makes "how fast did the clock fall" unanswerable`)
+      assert.ok(Math.abs(plain.fell - 1) < 0.005,
+        `run CD.e: an unheld clock fell ${plain.fell.toFixed(3)}s over one second — the countdown is not running at 1s/s, so nothing measured against it means anything`)
+      assert.ok(Math.abs(held.fell - (1 - HELD)) < 0.005,
+        `run CD.e: a clock holding ${HELD}s fell ${held.fell.toFixed(3)}s over one second instead of ${(1 - HELD).toFixed(3)} — the hold is not being spent against the countdown at 1:1, or it is being spent a whole frame at a time`)
+    }
+
+    // 2 and 3. BANKED AT A CROSSING, AND UNREACHABLE BY THE CLAMP. Pinned at the cap until the first
+    // crossing of `kind`, then both released for a window with no second crossing in it — asserted
+    // rather than assumed, because a second top-up levels both runs back to the ceiling and erases
+    // the difference. Gates run ~5s apart on this line, so 1.8s is clear with room to spare.
+    const RELEASE_S = 1.8
+    const capped = (card, kind) => {
+      Math.random = mulberry32(kind === 'lap' ? 31 : 77)
+      const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+      run.mods.spawnMul = 0
+      if (card) { run.passives.gateFreeze = banked; run.passivePicks.gateFreeze = MAX_PASSIVE_LEVEL }
+      let crossed = false, free = 0, again = 0, atCross = 0
+      for (let i = 0; i < 120 * 60; i++) {
+        run.player.hp = run.player.maxHP
+        if (!crossed) run.raceClock = cap
+        stepSim(run, follow2(run), dt)
+        for (const e of run.events) {
+          if (e.type !== 'swimthrough' && e.type !== 'lap') continue
+          if (crossed) again++
+          else if (e.type === kind) { crossed = true; atCross = run.raceClock }
+        }
+        run.events.length = 0
+        if (crossed && ++free >= RELEASE_S * 60) break
+        if (run.phase === 'levelup') run.phase = 'playing'
+        if (run.phase !== 'playing') break
+      }
+      return { clock: run.raceClock, free, again, atCross }
+    }
+    const paid = {}
+    for (const [kind, mul] of [['swimthrough', 1], ['lap', lineMul]]) {
+      const off = capped(false, kind)
+      const on = capped(true, kind)
+      assert.ok(off.free === Math.round(RELEASE_S * 60) && on.free === Math.round(RELEASE_S * 60),
+        `run CD.e: the capped ${kind} pair ran ${off.free}/${on.free} free frames instead of ${Math.round(RELEASE_S * 60)} — one never reached a ${kind} or died, so nothing below is measuring a checkpoint`)
+      assert.ok(off.again === 0 && on.again === 0,
+        `run CD.e: ${off.again}/${on.again} further crossings landed inside the ${kind} window — a second top-up levels both runs back to the cap and hides exactly what this fixture measures`)
+      // THE PROOF THAT THE TOP-UP PAID NOTHING, and it is exact rather than approximate: stepCircuit
+      // decrements the countdown before it banks the checkpoint, so a run pinned at the ceiling
+      // leaves its crossing frame on min(cap, cap - dt + swimTime) = cap. Both runs do. Whatever
+      // separates them after that frame cannot have come through swimTime.
+      for (const [who, r] of [['control', off], ['holder', on]]) {
+        assert.ok(Math.abs(r.atCross - cap) < 1e-6,
+          `run CD.e: the capped ${who} left its ${kind} frame on ${r.atCross.toFixed(4)}s rather than the ${cap}s cap — it did not arrive full, so the top-up still had somewhere to pay and this fixture proves nothing`)
+      }
+      const owed = Math.min(banked * mul, RELEASE_S)
+      paid[kind] = on.clock - off.clock
+      assert.ok(paid[kind] > owed - 0.05 && paid[kind] < owed + 0.05,
+        `run CD.e: at the ${cap}s cap a ${kind} paid Split Second ${paid[kind].toFixed(2)}s against the ${owed.toFixed(2)}s it holds (x${mul} of ${banked.toFixed(2)}) — under the band it is going through the same Math.min(clockCap, ...) as swimTime, which pays a full driver nothing; over it, the hold is banked more than once`)
+    }
+    assert.ok(paid.lap > paid.swimthrough * 1.5,
+      `run CD.e: the lap line paid ${paid.lap.toFixed(2)}s against a plain gate's ${paid.swimthrough.toFixed(2)} — the line is a checkpoint that pays lineMul (${lineMul}x) of every reward, and this one skips it`)
+    console.log(`PASS run CD.e (Split Second holds the clock): a held second costs the countdown 0.00s and an unheld one 1.00s; five picks bank a ${banked.toFixed(2)}s hold that a gate pays in full (${paid.swimthrough.toFixed(2)}s) and the line pays ${lineMul}x of (${paid.lap.toFixed(2)}s) — both to a driver arriving at the ${cap}s cap, where a swimTime top-up pays nothing at all`)
+  }
+
   console.log(`PASS run CD (the racing cards earn their slot): over ${SEEDS.length} paired seeds at max level — ${CARDS.map((c) => `${PASSIVES[c].name} ${measured[c] > 0 ? '-' : '+'}${Math.abs(measured[c]).toFixed(1)}s`).join(', ')} — every one scoped to the reef`)
 }
 
+// ---- run CX: the Reef's mutator slate is made of trades the race can actually pay ---------------
+// Owner, 2026-08-27: "the mutators need a pass since we changed to a full on race." The pass found
+// that the reef rolled EIGHT generic mutators and that every one of them was inert on at least one
+// side — and that the chapter's OWN entry, Tidal Race, was inert on its reward half too (x1.25
+// coins, in a chapter where every coin drops in dealDamage's death branch and nothing ever dies).
+//
+// That defect is invisible from every direction the suite already looks: the id resolves, the
+// effects object is well formed, mergeMutatorMods folds it, run.mods carries it, the pause screen
+// renders a chip for it, and the number reaches a multiplication that no code path in the chapter
+// executes. So this scenario asserts the only thing that could have caught it — that turning each
+// entry on CHANGES A DRIVEN RUN — plus the two structural rules the slate is built on.
+function testReefMutators() {
+  const dt = 1 / 60
+  const OWN = Object.keys(MUTATORS).filter((id) => MUTATORS[id].chapters?.length === 1 && MUTATORS[id].chapters[0] === 'reef')
+
+  // (a) THE POOL IS THE CHAPTER'S OWN AND NOTHING ELSE, and it is big enough to fill the top rung.
+  // main.js rolls randomMutators(difficulty - 1), so a pool under MAX_DIFFICULTY - 1 silently hands
+  // the hardest rung fewer modifiers than it asked for — which reads in play as the difficulty doing
+  // less, the exact complaint that started the reef's own ladder work.
+  {
+    assert.ok(CHAPTERS.reef.noGenericMutators === true,
+      'run CX.a: CHAPTERS.reef.noGenericMutators is not set — the chapter is back on the generic combat pool, where an unarmed race feels none of the eight (see MUTATORS.narrows for the audit)')
+    const seenAll = new Set()
+    for (let s = 0; s < 200; s++) {
+      Math.random = mulberry32(4000 + s)
+      for (const id of randomMutators(MAX_DIFFICULTY - 1, 'reef')) seenAll.add(id)
+    }
+    assert.deepStrictEqual([...seenAll].sort(), OWN.slice().sort(),
+      `run CX.a: 200 top-rung rolls in the reef drew ${JSON.stringify([...seenAll].sort())} against the chapter's own ${JSON.stringify(OWN.slice().sort())} — a generic entry is reachable here, or one of the reef's own is not`)
+    assert.ok(OWN.length >= MAX_DIFFICULTY - 1,
+      `run CX.a: the reef owns ${OWN.length} mutators against the ${MAX_DIFFICULTY - 1} a difficulty-${MAX_DIFFICULTY} run rolls — the top rung would come up short and the reroll would have nowhere to go`)
+    // ...and the flag must not have leaked. Every other chapter still takes the generic pool, and
+    // a chapter that quietly stopped rolling one would look like nothing at all on any screen.
+    for (const id of Object.keys(CHAPTERS)) {
+      if (id === 'reef') continue
+      Math.random = mulberry32(77)
+      const pool = randomMutators(99, id)
+      assert.ok(pool.includes('overtime'),
+        `run CX.a: '${id}' no longer rolls the generic pool (Overtime Shift is missing) — noGenericMutators or its read in mutatorPool has leaked past the chapter it was written for`)
+    }
+  }
+
+  // (b) EVERY ENTRY IS A TRADE, NOT A PURE BUFF AND NOT A PURE DOWNSIDE. Read through
+  // MUTATOR_EFFECT_LABELS, which is where the game itself decides whether a chip is green or red —
+  // so this asserts what the PLAYER is told, and a mutator whose chips are all one colour is a card
+  // nobody would ever decline or ever take. Tidal Race shipped as the second kind: x0.7 clock
+  // against a coin bonus the chapter could not pay.
+  {
+    for (const id of OWN) {
+      const eff = Object.entries(MUTATORS[id].effects)
+      assert.ok(eff.length >= 2, `run CX.b: '${id}' has ${eff.length} effect(s) — a single-sided mutator is not a trade`)
+      const good = eff.filter(([k, v]) => (MUTATOR_EFFECT_LABELS[k][1] ? v > 1 : v < 1))
+      const bad = eff.filter(([k, v]) => (MUTATOR_EFFECT_LABELS[k][1] ? v < 1 : v > 1))
+      assert.ok(good.length >= 1 && bad.length >= 1,
+        `run CX.b: '${id}' offers ${good.length} good and ${bad.length} bad effects — every chip would be one colour, so it is a card the player either always takes or always declines`)
+    }
+  }
+
+  // (c) THE ONE THAT MATTERS: EACH ENTRY CHANGES A DRIVEN RUN. Paired seeds, identical track, the
+  // same clean-ish line, mutator on versus off — and something the sim produced has to differ.
+  // A key with no reader in this chapter lands here as BYTE-IDENTICAL output, which is exactly what
+  // the reef's difficulty ladder measured before it was rewritten ("difficulty 1 and difficulty 5
+  // produced BYTE-IDENTICAL output across 8 driving policies x 3 seeds").
+  //   The fingerprint is deliberately WIDE rather than one field per mutator: a per-entry assertion
+  // tests the knob its author had in mind, and the defect being guarded is a knob that turned out
+  // to move nothing at all.
+  {
+    const SECS = 20
+    const fingerprint = (muts) => {
+      Math.random = mulberry32(808)
+      const run = createRun(makeMeta(), { chapter: 'reef', difficulty: 1, mutators: muts })
+      const sp = caveSpecOf(run)
+      // WIDE ON PURPOSE, AND IT GREW ONCE ALREADY: the first cut tracked the crowd only by COUNT,
+      // and reported baitBall.enemyRadiusMul as dead. It is not — spawnEnemy folds it into
+      // enemy.radius — the fixture simply could not see a bigger fish. `girth` is that fix, and
+      // `bumps` is the gameplay consequence a wider body has here (bumpTraffic, which is the whole
+      // reason enemyRadiusMul survived this chapter's audit at all). A fingerprint that cannot
+      // see a live key is indistinguishable from a key with no reader, and this case exists to
+      // tell those two apart.
+      let contacts = 0, bodies = 0, charge = 0, bumps = 0, girth = 0
+      for (let i = 0; i < SECS * 60; i++) {
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 1, y: 0 }, dt)
+        for (const e of run.events) if (e.type === 'bump') bumps++
+        run.events.length = 0
+        if (run._caveHit) contacts++
+        bodies += run.enemies.length
+        for (const e of run.enemies) girth += e.radius
+        charge += run.charge
+        if (run.phase === 'levelup') run.phase = 'playing'
+        if (run.phase !== 'playing') break
+      }
+      return [sp.halfMin, sp.halfMax, run.raceClock, run.player.x, run.player.y,
+        laneScrollFor(CHAPTERS.reef, run.mods), contacts, bodies, Math.round(charge), bumps, Math.round(girth)]
+        .map((n) => Number(n).toFixed(3)).join('|')
+    }
+    const base = fingerprint([])
+    //   ONE KEY AT A TIME, AND THAT IS THE WHOLE POINT. Tidal Race was not a dead ENTRY — it was a
+    // live cost (x0.7 clock) bolted to a dead reward (x1.25 coins), so a per-entry check would have
+    // sailed straight past it on the strength of the half that worked. Each key is therefore
+    // isolated behind a throwaway MUTATORS entry carrying that key alone, at the value its real
+    // entry uses, and deleted again in a finally — MUTATORS is a live module object and a leaked
+    // key would surface as a French-coverage failure two scenarios later.
+    const PROBE = String.fromCharCode(95, 95, 99, 120, 80, 114, 111, 98, 101)
+    const dead = []
+    try {
+      for (const id of OWN) {
+        for (const [k, v] of Object.entries(MUTATORS[id].effects)) {
+          MUTATORS[PROBE] = { name: PROBE, icon: PROBE, desc: PROBE, chapters: [], effects: { [k]: v } }
+          if (fingerprint([PROBE]) === base) dead.push(`${id}.${k} (x${v})`)
+        }
+      }
+    } finally { delete MUTATORS[PROBE] }
+    assert.deepStrictEqual(dead, [],
+      `run CX.c: ${JSON.stringify(dead)} produced a BYTE-IDENTICAL ${SECS}s run to the one with no mutator at all — each of those keys reaches a multiplication this chapter never executes, so the half of the card it belongs to is offered, picked, and does nothing. That is exactly what Tidal Race shipped as: a real cost paired with a coin bonus a chapter where nothing dies cannot pay.`)
+    const keys = OWN.reduce((n, id) => n + Object.keys(MUTATORS[id].effects).length, 0)
+    console.log(`PASS run CX (the reef's mutator slate): the chapter rolls its own ${OWN.length} (${OWN.join(', ')}) and no generic one, every other chapter still rolls the generic pool, all ${OWN.length} carry both a good and a bad chip, and all ${keys} of their effect keys move a driven ${SECS}s run ON THEIR OWN`)
+  }
+}
 // ---- run CT: the circuit — swimthroughs, laps, the race clock, and how a race ENDS -------------
 // The lap repeating is run RL's job; this is what the game does with it. Every assertion here is
 // against a driven run rather than against config, because a checkpoint that exists in a table and
@@ -26270,8 +26558,17 @@ function testReefPool() {
       Object.values(MUTATORS).some((m) => Array.isArray(m.chapters) && m.chapters.length === 1 && m.chapters[0] === cid))
     assert.ok(alone.includes('reef'),
       `run RP.i: reef is not among the ${alone.length} of ${Object.keys(CHAPTERS).length} chapters carrying a mutator of their own`)
-    assert.ok(M.effects.coinMul > 1,
-      'run RP.i: Tidal Race has no reward beside its cost — every chapter mutator in the table pairs one with the other')
+    // A REWARD THE CHAPTER CAN ACTUALLY PAY, read through MUTATOR_EFFECT_LABELS rather than named.
+    // This line used to be `M.effects.coinMul > 1`, and that is how the defect got here: the card
+    // DID carry a coin bonus, the assertion was satisfied, and every coin in the game drops in
+    // dealDamage's death branch — in a chapter whose arsenal is empty and whose crowd is scenery,
+    // so the reward paid out of a purse of runBonusCoins(0, 5) = 5. Naming the key is what made a
+    // pure downside look green. Run CX.c is the other half: it drives each key on its own and
+    // fails on a byte-identical run, which is the only thing that can tell a live knob from a dead
+    // one at all.
+    const rewards = Object.entries(M.effects).filter(([k, v]) => (MUTATOR_EFFECT_LABELS[k][1] ? v > 1 : v < 1))
+    assert.ok(rewards.length > 0,
+      `run RP.i: Tidal Race offers ${JSON.stringify(M.effects)} and not one of those chips reads as good to the player — every chapter mutator in the table pairs a reward with its cost, and a pure downside is a card nobody takes`)
     // MEASURED ON THE CLOCK, WHICH IS WHAT THE CARD NOW COSTS YOU. It used to be measured on the
     // lane front — the crush edge laneScrollFor drove — and both the front and that reading of the
     // mutator went with the lane: on a ring laneScrollFor is the ceiling the player's own throttle

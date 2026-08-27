@@ -1284,6 +1284,11 @@ function generateWells(sig) {
  *   is topped up by circuit.swimTime at every swimthrough and CAPPED at circuit.clockCap, and at 0
  *   the run is dead (killedBy 'clock'). Counts DOWN where run.time counts up, and the HUD's timer
  *   slot renders this instead of the 300s survival countdown for a circuit chapter.
+ * _clockHold: number — seconds of raceClock that are held (PASSIVES.gateFreeze, "Split Second").
+ *   A BANK, not a boolean: every checkpoint adds the card's value to it and every frame spends
+ *   min(hold, dt) of it, so the countdown falls by dt minus whatever was held. It is the one
+ *   checkpoint reward NOT passed through Math.min(clockCap, ...), which is the card's whole point —
+ *   see stepCircuit. ui.js reads it for the .hud-timer--held tell; nothing else does.
  * raceTime: number — the SCORE, in real seconds, stamped once when the last lap lands. Undefined
  *   until then, which is what makes "did this run finish" a field test rather than a phase test.
  *   run._realTime and NEVER run.time: Time Debt advances run.time at 1.5x, and a race time is
@@ -2257,10 +2262,14 @@ export function createRun(meta, opts = {}) {
   //   Frozen with Object.freeze because it is READ from a dozen places in sim.js and render.js and
   // written from exactly one (here). A spec that some later frame edits in place would change the
   // track under a run already driving it.
+  //   MUTATORS.narrows / tidalRace / ripCurrent pull the SAME lever through mods.trackWidthMul, so
+  // the ladder's rung and the player's chosen anomaly just multiply — one factor on both ends either
+  // way, which is what keeps every one of them a margin change rather than a different circuit.
+  const width = ladder.width * mods.trackWidthMul
   const chapterCave = CHAPTERS[chapter]?.cave
-  const caveSpec = chapterCave && Object.freeze(ladder.width === 1
+  const caveSpec = chapterCave && Object.freeze(width === 1
     ? { ...chapterCave }
-    : { ...chapterCave, halfMin: chapterCave.halfMin * ladder.width, halfMax: chapterCave.halfMax * ladder.width })
+    : { ...chapterCave, halfMin: chapterCave.halfMin * width, halfMax: chapterCave.halfMax * width })
   // Chapter snapshot (v5.0, see CHAPTERS in config.js): opts.chapter (default 'body') picks the
   // chapter's starter weapon and, via CHAPTERS[run.chapter].weapons, scopes sim.js's level-up
   // weapon pool (weaponCandidates/buildLevelUpChoices) to that chapter's natives for the whole

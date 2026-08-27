@@ -638,6 +638,18 @@ body {
   border-color: rgba(90, 30, 10, 0.5);
   color: #fff3ea;
 }
+/* SPLIT SECOND (PASSIVES.gateFreeze) has the countdown held. A RING, NOT A FILL, and that is the
+   correction rather than the first idea: every other state on this pill is a background swap, so an
+   ice ground for the hold read correctly on its own and REPLACED the vermillion when the clock was
+   also low — shot side by side in the harness, a 27 and a 4 that looked equally calm. The alarm
+   outranks the tell, and a ring composes with whatever ground is under it instead of arguing with
+   it, so the two states can both be true and both be legible.
+   box-shadow AND NOT outline/border-width: this pill sits in a fixed grid slot beside the coin
+   badge and anything that changes its metrics wraps the badge onto a second line at 390px (see
+   .hud-timer--debt). A shadow is painted outside the box and costs no layout at all. */
+.hud-timer--held {
+  box-shadow: 0 0 0 4px rgba(154, 224, 240, 0.95), 0 0 10px 4px rgba(154, 224, 240, 0.55);
+}
 .hud-right { justify-self: end; display: flex; align-items: center; gap: 8px; }
 .hud-coins {
   /* the badge is the hidden dev menu's seven-tap target (ui.js), and the HUD around it is
