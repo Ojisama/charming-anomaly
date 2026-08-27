@@ -630,6 +630,14 @@ body {
    register with the readouts sitting in its grid. */
 .hud--race .hud-top {
   min-height: 64px;
+  /* `1fr` IS `minmax(auto, 1fr)`, SO A TRACK GROWS PAST ITS SHARE FOR CONTENT IT CANNOT SHRINK —
+     which is why the checkpoint clock sat 17px right of the screen's axis and the delta with it
+     (owner, twice). The left cell holds a 160px HP bar and the right holds the race clock and the
+     pause button; those two mins differ, so the auto column between them lands wherever the
+     difference leaves it. minmax(0, 1fr) makes the two outer tracks exactly equal whatever they
+     hold, and the readouts inside them are capped (not fixed) so they shrink with their track
+     instead of overflowing it. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   /* TWO RULES, AND EITHER ALONE MAKES IT WORSE. width:100% (inherited from .hud-top) resolves
      against .screen--hud's CONTENT box, so the band came out 24px narrower than the screen and
      shifted by the negative margin -- a strip of water down each edge that reads as a rendering
@@ -659,7 +667,7 @@ body {
   grid-column: 1;
   grid-row: 1;
   justify-self: start;
-  max-width: 150px;
+  max-width: 160px;
   display: flex;
   align-items: baseline;
   gap: 6px;
@@ -738,6 +746,15 @@ body {
 .hud--race .hud-timer-num { display: block; font-size: 2rem; font-weight: 900; line-height: 1; }
 .hud--race .hud-timer-k {
   display: block;
+  /* ZERO-WIDTH, CENTRED, OVERFLOWING BOTH WAYS. The caption is the widest thing in the middle
+     column — 100px of CHECKPOINT against ~35px of numeral — and an auto track sized to it eats
+     65px the two outer tracks then have to share out of, which is most of the off-axis error the
+     rule above exists to remove. Zero width takes it out of the track's sizing while leaving its
+     HEIGHT in flow, which is what keeps the split delta on row 2 clear of it. NOT position:
+     absolute, which drops the height too and drops the delta straight onto this word. */
+  width: 0;
+  margin: 0 auto;
+  white-space: nowrap;
   font-size: 0.56rem;
   font-weight: 800;
   letter-spacing: 0.14em;
@@ -756,18 +773,46 @@ body {
 .hud--race .hp-wrap {
   grid-column: 1;
   grid-row: 2;
-  width: 108px;
-  margin-top: 4px;
+  /* THE SAME 160px CAP .race-lap CARRIES, so the two stacked readouts share a right edge and the
+     left cell reads as one block instead of two ragged ones. At 108px (as it shipped) with a
+     0.52rem label the bar was a hairline nobody could find — owner, 2026-08-27: "hp bar is too
+     small". It is a fraction, so it reads the same at any ceiling; do not size it to a max HP. */
+  width: 100%;
+  max-width: 160px;
+  margin-top: 5px;
 }
 .hud--race .hp-bar {
-  height: 12px;
-  border: 1.5px solid rgba(244, 239, 230, 0.35);
+  height: 18px;
+  border: 2px solid rgba(244, 239, 230, 0.45);
   background: rgba(4, 18, 26, 0.7);
 }
 .hud--race .hp-text {
-  font-size: 0.52rem;
+  font-size: 0.66rem;
   color: var(--cream);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+}
+/* THE DEV BADGE, and only on a circuit. Everywhere else this is the coin counter and stays gold.
+   Here the count is dead (weapons: [], so nothing drops) and gold is the loudest hue the HUD owns,
+   so the pill was a promise of a currency the chapter does not have — the redesign read as not
+   having happened. Same ghosted chip as the pause button it sits beside, at caption size, so the
+   only thing on this band with no gameplay meaning is also the quietest. ui.js writes the word. */
+.hud--race .hud-coins {
+  /* OUT OF THE GRID, into the empty right cell of row 2. In .hud-right's flex row it added ~50px
+     to the right track, and with the outer tracks locked equal that is 50px stolen from the axis
+     on a run nobody but the developer ever plays — a dev toggle may not move the game's HUD.
+     Fixed, so it is measured from the glass; the inset keeps it inside the band on a notched
+     phone, where the band itself starts lower. */
+  position: fixed;
+  top: calc(52px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+  background: rgba(8, 28, 38, 0.5);
+  border: 1.5px solid rgba(244, 239, 230, 0.3);
+  color: rgba(244, 239, 230, 0.7);
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  padding: 5px 7px;
+  border-radius: 8px;
 }
 /* The pause button is the least important thing on a race screen and was the loudest: a saturated
    mint slab sitting beside the mint checkpoint clock, reading as a second readout. Ghosted here,
@@ -810,6 +855,12 @@ body {
   /* the badge is the hidden dev menu's seven-tap target (ui.js), and the HUD around it is
      pointer-events:none so it cannot eat gameplay touches — so this one child opts back in */
   pointer-events: auto;
+  /* IT MAY NEVER WRAP. This pill shares a flex row with the pause button and, on a circuit, the
+     race clock; at 390px that row runs out of width and the two glyphs break onto a second line,
+     turning the pill into a disc twice its row's height. .hud-top is align-items:center, so
+     everything beside it then moves — which is what "the HUD is imbalanced" looked like when it
+     shipped. .hud-timer--held's rule already carries the same warning from the other side. */
+  white-space: nowrap;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   padding: 5px 12px;
