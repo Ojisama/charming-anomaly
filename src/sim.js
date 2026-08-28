@@ -1577,6 +1577,33 @@ function stepRepulse(run, input, dt) {
     run.events.push({ type: 'shorebreak', x: p.x, y: p.y, r: SHOREBREAK_RADIUS, charged: t, dur: run._shorebreakT })
     return
   }
+  // THE BURST (v7.x, The Reef — CHAPTERS[].burst). Same press, same cooldown, same `t`, and it
+  // RETURNS on the shorebreak's own argument: a `burst` chapter does not also fire the shove — no
+  // `repulse` event, no impulse loop below, no stagger. Owner, 2026-08-28: "the dash should not push
+  // back enemies, since it kills enemies now." The two halves were cancelling. stepRam eats what the
+  // dash ploughs through, and a shove on the same press threw that crowd clear of the reach the ram
+  // is measured against (BURST_RAM_MUL, 62px), so the button spent its charge making its own kill
+  // less likely. The Wreck settled the same collision by SEPARATING them — LUNGE_ARM_DIST, the shove
+  // takes what is on top of you and the dash what is out there — but a race is all traffic and has
+  // no "out there" to separate into, so here the shove goes instead.
+  //
+  // Set here rather than in stepPlayerMovement so the whole cast is one place, and read there because
+  // the lane owns the forward velocity — see the burstMul line in that function, and BURST_* in
+  // config.js for why the length and not the speed is what the bar buys. At t = 0 this is still
+  // BURST_DUR_MIN, never 0: spec §8.2's no-spiral floor says an empty bar may leave the player
+  // slower, never structurally trapped.
+  //
+  // THE `burst` EVENT NOW CARRIES THE WHOLE PRESS, sound included — it takes the shove's own whoosh
+  // in SFX_FOR_EVENT (main.js), exactly as `shorebreak` did when it replaced the Pulse, so the press
+  // is still one press and one sample and the swap is inaudible as a regression.
+  if (ch.burst) {
+    // DASH LENGTH ('Jet Puff') stretches the whole range, floor included — the floor exists so an
+    // empty bar still buys a way out (see BURST_DUR_MIN's no-spiral argument), and a card that only
+    // paid at a full bar would be worth nothing in exactly the moment the button matters.
+    run._burstT = (BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t) * (1 + (run.passives.dashLength ?? 0))
+    run.events.push({ type: 'burst', x: p.x, y: p.y })
+    return
+  }
   // THE CLEAR reaches further and staggers longer, off the SAME floor and the same `t` — an empty
   // bar throws exactly the shipped 340px shove in every chapter, this one included, so the widening
   // is something the bar buys rather than something the chapter is given. See CLEAR_* in config.js.
@@ -1589,14 +1616,6 @@ function stepRepulse(run, input, dt) {
   // cooldown feel arbitrary" - pushing REPULSE_RADIUS here would draw the 340px floor ring around
   // a 620px shove, which is that exact complaint with a bigger gap.
   run.events.push({ type: 'repulse', x: p.x, y: p.y, r: radius, charged: t })
-  // THE BURST (v7.x, The Reef — CHAPTERS[].burst). The same press, the same cooldown and the same
-  // `t`: a chapter declaring `burst` gets a forward dash on top of the shove, its DURATION bought
-  // with the charge that was already spent above. Set here rather than in stepPlayerMovement so the
-  // whole cast is one place, and read there because the lane owns the forward velocity — see the
-  // burstMul line in that function, and BURST_* in config.js for why the length and not the speed
-  // is what the bar buys. At t = 0 this is still BURST_DUR_MIN, never 0: spec §8.2's no-spiral floor
-  // says an empty bar may leave the player slower, never structurally trapped, and in a lane where
-  // the coral is solid "trapped" is a thing that can actually happen.
   // THE CLEAR (v7.x, The Shelf — CHAPTERS[].clear). Same press, same cooldown, same `t` again, and
   // the shove above still fires. All this line arms is the SIGHT window; the wider reach and the
   // longer stagger were already folded in above, because they are the shove rather than a second
@@ -1608,18 +1627,8 @@ function stepRepulse(run, input, dt) {
   // on the same frame and play the shove's sample twice, which is the exact complaint run SK.e pins
   // for The Surf. The murk visibly opening is the tell, and it is a bigger one than any ring.
   if (ch.clear) run._clearT = CLEAR_DUR_MIN + (CLEAR_DUR_AT_FULL - CLEAR_DUR_MIN) * t
-  // UNLIKE CLEAR, THE BURST NEEDS ITS OWN EVENT: Clear's tell is the murk visibly opening, but a
-  // dash through open water has no other visible sign the shove's own ring didn't already cover —
-  // `_burstT` had zero render.js consumer before this line (grep `_burstT` src/render.js was empty).
-  if (ch.burst) {
-    // DASH LENGTH ('Jet Puff') stretches the whole range, floor included — the floor exists so an
-    // empty bar still buys a way out (see BURST_DUR_MIN's no-spiral argument), and a card that only
-    // paid at a full bar would be worth nothing in exactly the moment the button matters.
-    run._burstT = (BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t) * (1 + (run.passives.dashLength ?? 0))
-    run.events.push({ type: 'burst', x: p.x, y: p.y })
-  }
   // THE LUNGE (v7.x, The Wreck — CHAPTERS[].lunge). Same press, same cooldown, same `t`, and the
-  // shove above still fires — this is additive like the burst, not a replacement like the shorebreak.
+  // shove above still fires — this one is additive, not a replacement like the shorebreak and the burst.
   //
   // THE FLOOR IS THE SHOVE ITSELF, and `LUNGE_DUR_AT_FULL * t` is the ONE thing that delivers it.
   // Every other chapter's second verb has a non-zero floor (BURST_DUR_MIN, BREACH_R_MIN,

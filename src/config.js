@@ -10706,6 +10706,10 @@ export const BURST_DUR_AT_FULL = 0.75    // s of dash at a full PULSE_CHARGE_COS
 // remaining hp instead, which cannot drift. The shielded and guard affixes still get their say --
 // that is what those affixes are for, and an elite surviving one ram is the shape of the design
 // rather than a hole in it.
+// AND THE PRESS NO LONGER SHOVES. Owner, 2026-08-28: "the dash should not push back enemies, since
+// it kills enemies now." A shove fired on the same press threw the crowd clear of the 62px below
+// before the ram could reach it, so the button was working against itself; stepRepulse now returns
+// for a `burst` chapter exactly as it does for The Surf's shorebreak.
 // balance_decision : the dash kills what it hits and pays for it [2026-08-28]
 //  - reach must stay above one frame of travel; see the arithmetic on BURST_RAM_MUL
 export const BURST_RAM_MUL = 2.8   // x PLAYER.radius -> 62px of reach, the LUNGE_BITE_MUL figure

@@ -28378,9 +28378,15 @@ function testReefAirBurst() {
     // OUT OF REACH IS OUT OF REACH. Bodies parked a clear multiple of the reach apart, so the dash
     // passes the first and the rest are never touched: a ram with no distance test at all would
     // clear the whole line, which is what makes this the case that pins the geometry.
-    const far = ram({ press: true, gap: REACH, n: 5, abeam: true })
+    //   ⚠ THE GAP IS 2x THE REACH, AND ONE REACH IS NOT ENOUGH. The test is `d <= reach + e.radius`,
+    // so at a one-reach step the SECOND body sits at 10 + 62 = 72px against a 78px threshold — i.e.
+    // inside. It read as out of reach only because the same press also threw a shove, which pushed
+    // it clear before stepRam measured; with the shove gone (a `burst` chapter returns out of
+    // stepRepulse) the fixture was measuring the Pulse rather than the ram's width.
+    const GAP = 2 * REACH
+    const far = ram({ press: true, gap: GAP, n: 5, abeam: true })
     assert.strictEqual(far.dead, 1,
-      `run RF.g: ${far.dead} of ${far.planted} bodies strung ACROSS the heading at ${REACH.toFixed(0)}px steps died — the one at the player's shoulder should, and nothing beyond ${REACH.toFixed(0)}px should, so the ram either has no width limit or has lost the body it is touching`)
+      `run RF.g: ${far.dead} of ${far.planted} bodies strung ACROSS the heading at ${GAP.toFixed(0)}px steps died — the one at the player's shoulder should, and nothing beyond ${REACH.toFixed(0)}px should, so the ram either has no width limit or has lost the body it is touching`)
     // AN ALLY IS NOT FOOD. SUBMISSION's loaned creature lives in run.enemies like everything else.
     const ally = ram({ press: true, extra: { allyT: 999 } })
     assert.strictEqual(ally.dead, 0,
@@ -28408,7 +28414,53 @@ function testReefAirBurst() {
       assert.strictEqual(marks.filter((e) => e._dead).length, 0,
         'run RF.g: The Shelf killed bodies with its own press — `burst` has leaked onto a chapter that never declared it, and the ram with it')
     }
-    console.log(`PASS run RF.g (the ram): a dash through ${on.planted} bodies kills ${on.dead} and banks ${on.paid} coins (${BURST_RAM_COINS} each) where the same fixture unpressed kills ${off.dead} for ${off.paid}; ${fat.dead} still die at 4,000,000 HP, ${far.planted - far.dead} of ${far.planted} strung ACROSS the heading past the ${REACH.toFixed(0)}px reach survive, an ally is never eaten, and The Shelf's own press kills none`)
+    // AND THE PRESS NO LONGER SHOVES. Owner, 2026-08-28: "the dash should not push back enemies,
+    // since it kills enemies now." Two halves, because either one alone stays green with the shove
+    // back: the EVENT has to be gone (a `repulse` still emitted draws the ring and plays the shove's
+    // sample for a push nobody feels — run SK.e pins that exact complaint for The Surf), and so does
+    // the IMPULSE. Measured 200px ACROSS the heading, the one band where the two mechanics disagree:
+    // clear of the ram's 62px reach and well inside the shove's 340px floor.
+    //   ⚠ DIFFERENTIAL, AGAINST THE SAME FIXTURE UNPRESSED, for RF.g's own stated reason. A parked
+    // body is not motionless in this chapter — the cave wall pushes what stands in coral — and an
+    // absolute "it must not move" read 55.9px off a run with no shove in it at all. Only the
+    // press-minus-no-press DIFFERENCE is the button.
+    const parked = ({ chapter, press }) => {
+      Math.random = mulberry32(20260828)
+      const run = chapter === 'reef' ? reefRun() : createRun(meta, { chapter, difficulty: 1 })
+      run.mods.spawnMul = 0
+      run.charge = res.max
+      run.repulseCd = 0
+      for (let i = 0; i < 60; i++) { quiet(run); stepSim(run, { x: 1, y: 0 }, dt) }
+      quiet(run)
+      const hx = run._headX ?? 1, hy = run._headY ?? 0
+      const e = body(run, run.player.x - hy * 200, run.player.y + hx * 200, 1e6)
+      run.enemies.push(e)
+      const x0 = e.x, y0 = e.y
+      let rings = 0
+      for (let i = 0; i < 5; i++) {
+        stepSim(run, { x: hx, y: hy, skill: press && i === 0 }, dt)
+        rings += run.events.filter((ev) => ev.type === 'repulse').length
+        run.events.length = 0
+        run.enemies = run.enemies.filter((o) => o === e)
+      }
+      return { moved: Math.hypot(e.x - x0, e.y - y0), rings, stunned: e.stunT > 0 }
+    }
+    const reefPress = parked({ chapter: 'reef', press: true })
+    const reefPush = Math.abs(reefPress.moved - parked({ chapter: 'reef', press: false }).moved)
+    assert.strictEqual(reefPress.rings, 0,
+      `run RF.g: The Reef emitted ${reefPress.rings} repulse event(s) on the press — the ring and the shove sample are back on a button whose whole job is the dash`)
+    assert.ok(reefPush < 1,
+      `run RF.g: pressing moved a body parked 200px abeam ${reefPush.toFixed(1)}px further than the unpressed control — the shove is still firing, and it throws the crowd clear of the reach the ram is measured against`)
+    assert.ok(!reefPress.stunned,
+      'run RF.g: the press staggered a body it never touched — the impulse loop is gone but the stagger came with it, and half a shove is still a shove')
+    // THE SHELF IS THE CONTROL: same press, same stepRepulse, and its button IS the shove.
+    const shelfPress = parked({ chapter: 'shelf', press: true })
+    const shelfPush = Math.abs(shelfPress.moved - parked({ chapter: 'shelf', press: false }).moved)
+    assert.ok(shelfPress.rings > 0,
+      'run RF.g: The Shelf stopped emitting repulse — the burst\'s early return has swallowed a chapter whose button IS the shove')
+    assert.ok(shelfPush > 5,
+      `run RF.g: The Shelf's own press moved a body 200px away only ${shelfPush.toFixed(1)}px further than the unpressed control — the impulse loop is unreachable, so the return added for the burst is firing for everyone`)
+    console.log(`PASS run RF.g (the ram): a dash through ${on.planted} bodies kills ${on.dead} and banks ${on.paid} coins (${BURST_RAM_COINS} each) where the same fixture unpressed kills ${off.dead} for ${off.paid}; ${fat.dead} still die at 4,000,000 HP, ${far.planted - far.dead} of ${far.planted} strung ACROSS the heading past the ${REACH.toFixed(0)}px reach survive, an ally is never eaten, The Shelf's own press kills none, and the press no longer shoves — 0 rings and ${reefPush.toFixed(2)}px of push on a body 200px abeam, against ${shelfPress.rings} ring(s) and ${shelfPush.toFixed(1)}px on The Shelf`)
   }
 
   // (h) FAST TWITCH. Owner, 2026-08-28: "a new upgrade 'dash cooldown reduction', starting at 0.5s
