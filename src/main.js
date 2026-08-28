@@ -542,6 +542,11 @@ const SFX_FOR_EVENT = {
   // the player loses something they cannot get back, and it fires on the entry frame only, so it
   // cannot machine-gun the way a per-frame contact would.
   crash: 'crush',
+  // A CUT-BACK TAKES `crush` TOO, and sharing the crash's note is the point rather than a shortcut:
+  // both are the chapter's "you just lost something you cannot get back" beat, and giving the
+  // refusal its own sample would make the player learn a second vocabulary for the same lesson.
+  // Rare enough to bear it — a race that never cuts a gate never hears it once.
+  cutback: 'crush',
   // A traffic bump takes `hit` — the bank's LIGHT impact, and audio.js already throttles it, which
   // matters here because a crowded squeeze can put three fish on the player inside a second. It is
   // deliberately not `crush`: a crash is the moment you lose something, a bump is a nudge.

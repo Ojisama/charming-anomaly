@@ -19201,6 +19201,46 @@ const spurG = new Graphics()
           }
           break
         }
+        // v7.x THE REEF — A CUT THAT SKIPPED A GATE (sim.js stepCircuit, {type:'cutback',x,y,n}).
+        // The player has just been put back where they left the track, which is the most visible
+        // thing that happens in this chapter and the least self-explanatory: a teleport with no
+        // tell is the exact shape of a bug report. So the frame has to say REFUSED rather than
+        // "something hit you".
+        //   NOT THE CRASH'S VOCABULARY. A crash throws coral chips OUTWARD from an impact and draws
+        // two concentric rings; this is the opposite event — nothing struck the player, a gain was
+        // taken away — so the particles fall INWARD and there is one ring, not a pair. Reusing the
+        // crash's shape here would say "you hit something", which is the one thing that did not
+        // happen.
+        //   ⚠ THE CONVERGENCE IS THE WHOLE TELL, AND THE RING CANNOT HELP IT. spawnRing only ever
+        // GROWS (updateRings drives radius off t/dur), so there is no collapsing ring to be had in
+        // this renderer and the first cut of this case described one it was not drawing. The ring
+        // is therefore only the "here" marker; the particles carry the "taken back".
+        //   ⚠ AND THEY HAVE TO ARRIVE. The first cut spawned them 170-300px out at 240-440px/s
+        // against a 0.30-0.46s life, so every one of them EXPIRED IN FLIGHT — shot at 390x844 the
+        // frame held a few specks drifting in open water and no convergence at all. The speed is
+        // now derived from the distance so they all land together at CUT_IN, which reads as one
+        // pulse closing rather than as sixteen unrelated motes.
+        //   AND NOT GREEN. CIRCUIT_GATE_VIS owns green for "go here" and the crash case already
+        // reasons that an impact must never wear it; a refusal has even less claim to it. White
+        // over the chapter's own coral tones is the value this palette never reaches.
+        //   The shake is FIXED, unlike the crash's: a cut-back has no severity axis — you either
+        // skipped a gate or you did not — and a scaled reaction would imply a gradient the rule
+        // does not have.
+        case 'cutback': {
+          const CUT_IN = 0.24                 // s for the converging ring of motes to reach him
+          addShake(9, 0.32)
+          spawnRing(e.x, e.y, 190, 0.38, T.novaWarm, 0xffffff)
+          for (let i = 0; i < 18; i++) {
+            const a = Math.random() * Math.PI * 2
+            const d = 120 + Math.random() * 90
+            spawnParticle(T.fx.circle_05, e.x + Math.cos(a) * d, e.y + Math.sin(a) * d,
+              (-Math.cos(a) * d) / CUT_IN, (-Math.sin(a) * d) / CUT_IN,
+              CUT_IN + 0.04 + Math.random() * 0.06, 0.055 + Math.random() * 0.04,
+              i % 3 === 0 ? 0xffffff : SPUR_VIS.tones[(Math.random() * SPUR_VIS.tones.length) | 0],
+              0.18, 1.4)
+          }
+          break
+        }
         // TAKING A VENT ({type:'airgulp',x,y,amount} at the VENT, not the player). The whole tell for
         // a mechanic that is otherwise one number moving on a bar: since 2026-08-26 a vent hands
         // over its air the instant you touch it rather than pouring it in, so `feeding` is true for

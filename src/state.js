@@ -1297,6 +1297,15 @@ function generateWells(sig) {
  * _swims / _swimN: the lap's checkpoints (swimthroughsFor, computed once from the obstacle seed) and
  *   a RUNNING count of how many have been crossed since the run began. The count never resets at a
  *   lap boundary, which is what lets laps and checkpoints share one arithmetic and never disagree.
+ * _offTrack: boolean — the player is OUTSIDE the passage this frame, which only a live Burst can
+ *   make true: every other frame stepCaveWall's clamp has already put them back. Published by
+ *   stepCaveWall above its own burst early-out and read by stepCircuit, which is the whole reason
+ *   it exists — a checkpoint is an angular test with no width in it, so without this flag a gate
+ *   crossed out in the coral banks exactly like one driven through.
+ * _legalX / _legalY / _legalRingT / _legalRingRaw: the last frame the player was on the track —
+ *   position AND the unwrapped ring angle, which have to travel together or a restore puts them
+ *   back in the right place a whole lap out. Written by stepCircuit on every on-track frame and
+ *   read only by its cut-back block.
  * _lapAt: number — run._realTime at the last lap line, so the `lap` event can carry its own split.
  * lapSplit: number — the last COMPLETED lap's duration in seconds, undefined before lap 1. The same
  *   value the `lap` event carries, published so the HUD's split flash can be derived from state
@@ -1777,7 +1786,7 @@ function generateWells(sig) {
  *   travel (px), for render to draw an accurately-scaled incoming-attack line during the wind-up.
  *   Before this event existed the run had no warning at all — see the bug/arithmetic writeup on
  *   stepStrafe in sim.js for why STRAFE_TELEGRAPH_T (0.5s) is enough to actually dodge it.
- * ---- THE CIRCUIT'S THREE EVENTS (v7.x, The Reef) — pushed only where CHAPTERS[id].circuit is set.
+ * ---- THE CIRCUIT'S FOUR EVENTS (v7.x, The Reef) — pushed only where CHAPTERS[id].circuit is set.
  * {type:'swimthrough', x, y, n}: a checkpoint crossed, and the only thing that puts seconds back on
  *   run.raceClock. n is the RUNNING count since the run began, not the index within the lap, so it
  *   keeps climbing past lapLen — the same number stepCircuit counts with, deliberately, so a tell
@@ -1789,6 +1798,11 @@ function generateWells(sig) {
  *   entry frame only. speed is the inward component in px/s — the overshoot DEPTH, not sustained
  *   contact, so grazing along a wall is free and a hard corner is not. Costs circuit.crashMul of
  *   your momentum; the damage is a separate, pre-existing path.
+ * {type:'cutback', x, y, n}: a cut through the coral crossed a gate the player never drove through,
+ *   so the whole cut was undone — x, y is where they were PUT BACK, not where they were caught, and
+ *   n is the checkpoint they would have banked. The gate itself never fires, so this event and
+ *   `swimthrough` are mutually exclusive for the same n on the same crossing. See stepCircuit's
+ *   cut-back block for the ruling.
  *
  * traps[i]: { x, y, r, armed, rearmAt, _cell } — v6.5: snap traps, STREAMED by sim.js's
  *   streamTraps (the same _obstacleSeed cell-hash idiom as obstacles/eddies, own salts 15-17) from
