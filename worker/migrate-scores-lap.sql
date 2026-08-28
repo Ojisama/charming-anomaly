@@ -1,0 +1,21 @@
+-- ONE-SHOT. Run this ONCE against a database whose `scores` table was created before the circuit
+-- best-lap board (v7.x), THEN run schema.sql — which creates the index this column needs and would
+-- otherwise fail on a table that has no such column:
+--
+--     npm run db:migrate:remote -- ./migrate-scores-lap.sql
+--     npm run db:remote                                        (and :local for the dev D1)
+--
+-- The twin of migrate-scores-time.sql, and for the same reasons: SQLite has no
+-- `ADD COLUMN IF NOT EXISTS`, and schema.sql's whole contract is that it can be re-applied at any
+-- time (that is what its `DROP INDEX IF EXISTS` block is for). An ALTER in there would make the
+-- second run of it an error.
+--
+-- A FRESH database does not need this file at all: schema.sql's CREATE TABLE already carries the
+-- column, and running this against one fails with "duplicate column name: lap_ms" — which is the
+-- correct, loud answer, not something to guard against.
+--
+-- DEPLOY THE WORKER BEFORE THE GAME. Both orders are safe — the client tolerates the `lap` board
+-- missing exactly as it tolerates `time` (see scores.js), and an old Worker ignores an unknown
+-- `lapMs` on a submit — but game-first means every race played in the gap has its best lap dropped
+-- on the floor and never recorded, and there is no way to recover one after the fact.
+ALTER TABLE scores ADD COLUMN lap_ms INTEGER;

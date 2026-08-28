@@ -1,5 +1,5 @@
 // DOM overlay inside #ui: title, shop, HUD, level-up, pause, summary. No Pixi.
-import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText } from './config.js'
+import { shopCost, refundValue, REFUND_RATE, shopLines, shopLineUnlocked, chaptersMastered, lineMax, SHOP_FAMILY, RUN_DURATION, RARITIES, WEAPONS, WEAPON_MODS, PASSIVES, ELEMENTS, MUTATORS, MUTATOR_EFFECT_LABELS, CONSUMABLES, MAX_DIFFICULTY, DIFFICULTY_COIN_PER_LEVEL, sacrificeCost, SACRIFICE_COSTS, ANOMALY_REROLL_COST, CHAPTER_ENDINGS, CHAPTER_UNLOCK_LINES, BOOK_UNLOCK_LINES, chapterNumber, CHAPTERS, CHAPTER_ORDER, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, titleBookshelf, spineName, chaosStatus, PULSE_CHARGE_COST, elementCodex, ELEMENT_CODEX_INTRO, STAT_KEYS, bookOf, BOOK_ORDER, BOOKS, BOOK_UNLOCKS, unlockCost, unlockLevel, unlockMax, dmgSrcName, dmgSrcArt, passiveEffectText, CHAPTER_BOARDS_DEFAULT } from './config.js'
 import { playSfx } from './audio.js'
 import { t, tt, getLang, LANGS } from './i18n.js'
 import { SAVE_SLOTS, activeSlot, slotSummary, saveSummary, exportSlot, NAME_MAX, bookMeta, ensureBookMeta, bookProgress } from './state.js'
@@ -210,11 +210,54 @@ function furthestUnlockedChapterId(meta) {
   return furthest
 }
 
+// The race clock's danger threshold, in seconds. HUD-only — it changes nothing the sim can see,
+// which is why it sits here rather than in config.js's balance tables.
+const CIRCUIT_CLOCK_LOW_S = 5
+// The split DELTA's window. Longer than the flash above because it is a number to read rather than
+// a colour to notice, and it is the one thing on this HUD a driver looks away from the track for.
+const CIRCUIT_DELTA_S = 3.2
+// px/s -> the number on the speedo. A DISPLAY SCALE AND NOTHING ELSE — no sim reads it, which is
+// why it sits here with the two above rather than in config.js's balance tables.
+//   0.5 puts the chapter's own band (laneScroll 153 x laneThrottle 0.5..3 = 76..459px/s) at 38..230,
+// which is the range an arcade racer's dial is drawn for. Turbo Fin and the Burst then push past it
+// on purpose: the point of the readout is that the speed cards visibly move a number.
+const CIRCUIT_KMH_PER_PX = 0.5
+
 function fmtTime(s) {
   const t = Math.max(0, Math.floor(s))
   const m = String(Math.floor(t / 60)).padStart(2, '0')
   return `${m}:${String(t % 60).padStart(2, '0')}`
 }
+
+// A LAP CANNOT USE fmtTime, AND THE REASON IS MEASURED. That formatter FLOORS to whole seconds,
+// which is right for a board whose entries are minutes apart and useless for one whose entries are
+// not: scripts/reef-lap-probe.mjs puts a Reef lap at 26.6-46.6s across every driving policy it
+// models, clustered near 31s, so a whole-second lap board would show two drivers a tenth apart as
+// the same '00:31'. That is the same "a board that cannot rank anybody" this chapter's podium was
+// rebuilt to stop being — the rows would still SORT correctly (the sort is on raw ms, server-side)
+// and simply not look it, which is worse than being wrong, because nothing about it reads as a bug.
+// The race board keeps fmtTime: the same probe spreads a full race over 137-207s, where the minute
+// is the part that carries the meaning.
+// ponytail: seconds only, no minute field, so a lap over a minute would read '72.40' rather than
+//   '1:12.40'. Unreachable in the shipped game — the clock caps at 40s and a driver dies once the
+//   mean lap passes ~36s, and this is a MINIMUM over the run's laps, so recording one would mean
+//   every lap was that slow, which is a run that died before it banked anything. Add the branch if
+//   a chapter ever ships a lap that long.
+const fmtLap = (ms) => (Math.max(0, ms) / 1000).toFixed(2)
+
+// The LIVE race clock, in seconds, at one decimal — `2:41.6`. Not fmtTime (which floors, so the
+// number a driver watches would sit still for a whole second at a time and read as a frozen HUD)
+// and not fmtLap (no minute field: a race runs 137-207s, where the minute is the part that carries
+// the meaning — see fmtLap's own block for the other half of that argument).
+const fmtRace = (s) => {
+  const t = Math.max(0, s)
+  const m = Math.floor(t / 60)
+  return `${m}:${(t - m * 60).toFixed(1).padStart(4, '0')}`
+}
+
+// The split delta against the best lap so far — `-1.42` / `+0.87`, always signed, because an
+// unsigned one is unreadable at a glance: the whole message is which side of your best you are on.
+const fmtDelta = (s) => `${s < 0 ? '-' : '+'}${Math.abs(s).toFixed(2)}`
 
 // Interpolates two '#rrggbb' colors at t (0..1) — used for the sacrifice modal's counter,
 // which reads from ink-soft toward the danger red as the offered total climbs.
@@ -596,7 +639,11 @@ export function initUI(hooks) {
       .filter((rid) => CAST_ART[rid])
       .map((rid) => `<span class="detail-face"><img src="${CAST_ART[rid]}" alt="" draggable="false"></span>`)
       .join('')
-    const best = chMeta.best?.time ? `<span class="detail-best">${t('best')} ${fmtTime(chMeta.best.time)}</span>` : ''
+    // A CIRCUIT'S `best` IS A DIFFERENT FIELD AND THE OPPOSITE COMPARISON. chMeta.best.time is a
+    // MAX — "survived longest" — which on a lap race is your SLOWEST finish, printed under the word
+    // `best`. See ensureChapterMeta for why bestRaceTime is its own slot rather than a reused one.
+    const bestSecs = chapter.circuit ? chMeta.bestRaceTime : chMeta.best?.time
+    const best = bestSecs > 0 ? `<span class="detail-best">${t('best')} ${fmtTime(bestSecs)}</span>` : ''
     return `
       <div class="detail-head">
         <span class="detail-ico">${chapter.icon}</span>
@@ -660,12 +707,16 @@ export function initUI(hooks) {
   const podiumPending = new Set() // keys with a fetch in flight, so a render cannot start a second
   const boardKey = (chapterId, difficulty) => `${chapterId}:${difficulty}`
 
-  // The recto's board, and the ONE place that decides it. Keyed off CHAPTERS[].scripted — the same
-  // flag the HUD reads to drop the survival countdown — so a future boss chapter gets the time
-  // board by being a boss chapter, with nothing here to remember to update. The Worker returns all
-  // three boards regardless (it knows no chapter ids); choosing between them is a game fact and
-  // lives on this side.
-  const secondBoard = (chapterId) => (CHAPTERS[chapterId]?.scripted ? 'time' : 'level')
+  // WHICH TWO BOARDS THIS CHAPTER DRAWS — verso, then recto. Read from the chapter rather than
+  // inferred here, which is the whole point: this used to be `scripted ? 'time' : 'level'`, an
+  // inference that was true of the one boss chapter and had to be extended by hand the moment a
+  // second kind of chapter wanted a clock. It also could only ever change the RECTO, and The Reef
+  // needs both leaves changed — it is `weapons: []`, so its kills board is a column of zeroes.
+  // See CHAPTER_BOARDS_DEFAULT in config.js for the rest of that reasoning.
+  //
+  // The Worker returns all four boards regardless (it knows no chapter ids), so choosing between
+  // them stays a game fact on this side; only WHERE the fact is written has moved.
+  const boardsFor = (chapterId) => CHAPTERS[chapterId]?.boards ?? CHAPTER_BOARDS_DEFAULT
 
   // Dropped when a run PLACES. Not after every run: a score that missed the top 3 moved no board,
   // and re-reading then is a request that can only return what is already held.
@@ -785,18 +836,20 @@ export function initUI(hooks) {
       </div>`
     }
     // Nobody has played this board at all — which on launch day is every board in the game. Against
-    // THIS chapter's own two boards, not all three: on a boss chapter the level board fills up like
-    // anywhere else and is simply not shown, so testing it here would keep a genuinely empty spread
-    // out of this branch and draw two blank leaves instead.
-    const second = secondBoard(browseChapterId)
-    if (podiumState && !podiumState.kills.length && !podiumState[second].length) {
+    // THIS chapter's own two boards, never all four: every chapter's rows land on the kills and
+    // level boards whether it draws them or not, so testing those would keep a genuinely empty
+    // spread out of this branch and draw two blank leaves instead. The Reef is the case that makes
+    // it concrete — every race submits kills 0 and a level, so its kills board is never empty and
+    // is never shown.
+    const [verso, recto] = boardsFor(browseChapterId)
+    if (podiumState && !podiumState[verso].length && !podiumState[recto].length) {
       return `<div class="page page--board page--solo">
         <p class="diff-hint podium-empty">${t('No scores yet — be the first.')}</p>
       </div>`
     }
     return `
-      <div class="page page--verso page--board">${podiumPageHtml('kills')}</div>
-      <div class="page page--recto page--board">${podiumPageHtml(second)}</div>`
+      <div class="page page--verso page--board">${podiumPageHtml(verso)}</div>
+      <div class="page page--recto page--board">${podiumPageHtml(recto)}</div>`
   }
 
   // Who holds this board's kills record, under the Podium button on the CLOSED page — so the panel
@@ -809,15 +862,20 @@ export function initUI(hooks) {
   // also means this can never make the panel taller than the 34px of slack measured under the
   // button, because the only thing it ever draws is one line.
   //
-  // Kills, not level: the two boards disagree often (they did in every screenshot of this feature),
-  // and one line has to pick. Kills is the number the chapter is about.
+  // THE CHAPTER'S FIRST BOARD, not kills. One line has to pick, and on an ordinary chapter the pick
+  // is still kills — the two boards disagree often (they did in every screenshot of this feature)
+  // and kills is the number that chapter is about. But on The Reef there is no kills board to lead:
+  // nothing in it can die, so a hardcoded `.kills[0]` would put a name here off a table of zeroes,
+  // ranked by nothing, on the one panel whose whole job is answering "is anyone ahead of me here?".
+  // The verso is by construction the board a chapter considers its headline, so it is the one to
+  // read.
   //
   // The gold disc rather than a medal emoji — it is the SAME element the podium's first row uses,
   // so the closed page and the turned page name first place with one mark. A cross-platform emoji
   // could not do that (see the drawn shop icons, same ruling).
   function leaderLine(chapterId, difficulty) {
     ensureBoards(chapterId, difficulty)
-    const top = podiumCache.get(boardKey(chapterId, difficulty))?.kills?.[0]
+    const top = podiumCache.get(boardKey(chapterId, difficulty))?.[boardsFor(chapterId)[0]]?.[0]
     if (!top) return ''
     return `<div class="spread-leader">
       ${medalHtml(1)}
@@ -838,14 +896,22 @@ export function initUI(hooks) {
     // French for the longer one wraps to two lines, which drops the recto's rows out of line with
     // the verso's across the gutter and grows the panel. 'Meilleur temps' is exactly as long as
     // 'Niveau atteint', the label already measured to fit.
-    const label = { kills: 'Kills', level: 'Level reached', time: 'Best time' }[which]
+    // 'Best lap' for the same width reason the two above were chosen: 'Meilleur tour' is SHORTER
+    // than 'Meilleur temps', which is itself exactly as long as 'Niveau atteint', so it clears the
+    // 142px the eyebrow gets with room over and cannot wrap the leaf to two lines.
+    const label = { kills: 'Kills', level: 'Level reached', time: 'Best time', lap: 'Best lap' }[which]
     const eyebrow = `<div class="brief-eyebrow podium-eyebrow">${t(label)}</div>`
     if (podiumState === null) return `${eyebrow}${podiumSkeleton()}`
     // Each board is scored by its OWN metric. Passing rows through with a `score` field rather than
     // teaching podiumRowHtml which board it is drawing keeps one row renderer for all three — and
     // the time board is the reason that indirection now earns its keep, since its score is the only
     // one that is not the raw number (mm:ss, off milliseconds).
-    const score = { kills: (r) => r.kills, level: (r) => r.level, time: (r) => fmtTime(r.timeMs / 1000) }[which]
+    const score = {
+      kills: (r) => r.kills,
+      level: (r) => r.level,
+      time: (r) => fmtTime(r.timeMs / 1000),
+      lap: (r) => fmtLap(r.lapMs),
+    }[which]
     const rows = podiumState[which].map((r) => ({ ...r, score: score(r) }))
     return `${eyebrow}${podiumBoardHtml(rows)}`
   }
@@ -2023,8 +2089,26 @@ export function initUI(hooks) {
         <div class="hp-bar"><div class="hp-fill"></div></div>
         <span class="hp-text"></span>
       </div>
-      <div class="hud-timer">${fmtTime(RUN_DURATION)}</div>
+      <!-- THE NUMBER IS ITS OWN CHILD so the slot can carry a CAPTION under it without every
+           textContent write in updateHUD wiping the caption out. Empty and hidden off a circuit,
+           where the slot is a bare countdown pill exactly as it always was. -->
+      <div class="hud-timer"><b class="hud-timer-num">${fmtTime(RUN_DURATION)}</b><span class="hud-timer-k"></span></div>
+      <!-- THE RACE READOUT (v7.x, a circuit chapter only) — three plates and a delta, built
+           unconditionally like the rampage meter above and hidden until updateHUD knows the
+           chapter. Every one is pinned to its grid cell explicitly, for the same reason
+           .rampage-wrap is: hud-top is a 3-column grid and an unplaced child wraps SOMEWHERE,
+           which is not the same as landing where it was meant to.
+             LAP takes column 1 / row 1 and pushes the HP bar down to row 2 under it — a race
+           groups "how far along am I" at the top and "what shape am I in" beneath, and the clock
+           in the middle is the one that kills you. -->
+      <div class="race-lap race-hidden"><b></b><span class="race-k" data-race-k="LAP"></span></div>
+      <!-- The split against your best lap so far, row 2 / column 2, under the checkpoint clock it
+           is a comment on. Text only, no plate: it is present for CIRCUIT_DELTA_S after a lap line
+           and absent the rest of the time, and a box that appeared and vanished would read as the
+           HUD breaking rather than as a number arriving. -->
+      <div class="race-delta race-hidden"></div>
       <div class="hud-right">
+        <div class="race-time race-hidden"><b></b><span class="race-k" data-race-k="RACE"></span></div>
         <!-- data-act="dev-tap": opens the hidden dev menu, and does nothing whatsoever unless the
              title's DEV toggle is on (see the 'dev-tap' click case). The badge is otherwise inert,
              and styles.css has to give it pointer-events:auto — the whole HUD is pointer-events:none
@@ -2093,8 +2177,23 @@ export function initUI(hooks) {
       <div class="xp-bar"><div class="xp-fill"></div></div>
     </div>
     <div class="weapon-row"></div>
+    <!-- THE SPEEDO (v7.x, a circuit chapter only). Bottom RIGHT, opposite the air rail and the
+         burst button on the left, so the two thumbs' worth of screen stay clear. It exists because
+         the whole Reef card pool is speed — Turbo Fin, Quick Start, Jet Puff — and nothing on
+         screen moved when you took one, which is this repo's standard shape for a card that reads
+         as dead in play. Outside .hud-top's grid (position:fixed, styles.css) like .chaos-wrap. -->
+    <div class="race-speed race-hidden"><b></b><span class="race-k" data-race-k="KM/H"></span></div>
     <button class="skill-btn skill-btn--hidden" data-act="skill" aria-label="Pulse">
       <span class="skill-btn-glyph">☉</span>
+      <!-- THE BURST'S GLYPH, shown instead of the sun on a circuit chapter (see .hud--race in
+           styles.css, which owns the swap — this is markup that is always present and usually
+           display:none, the same idiom as the rampage meter). Three chevrons along the way you
+           travel: the racing genre's own way of writing "faster", so it needs no legend, where a
+           sun said nothing about a dash. Drawn rather than an emoji — CLAUDE.md's UI-icon rule. -->
+      <svg class="skill-btn-chev" viewBox="0 0 40 40" fill="none" stroke="currentColor"
+           stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M7 12l8 8-8 8" opacity=".55"/><path d="M17 12l8 8-8 8"/><path d="M27 12l8 8-8 8" opacity=".8"/>
+      </svg>
       <span class="skill-btn-cd"></span>
     </button>
   `
@@ -2102,6 +2201,17 @@ export function initUI(hooks) {
     hpFill: screens.hud.querySelector('.hp-fill'),
     hpText: screens.hud.querySelector('.hp-text'),
     timer: screens.hud.querySelector('.hud-timer'),
+    timerNum: screens.hud.querySelector('.hud-timer-num'),
+    timerK: screens.hud.querySelector('.hud-timer-k'),
+    raceLap: screens.hud.querySelector('.race-lap b'),
+    raceTime: screens.hud.querySelector('.race-time b'),
+    raceDelta: screens.hud.querySelector('.race-delta'),
+    raceSpeed: screens.hud.querySelector('.race-speed b'),
+    // Every circuit-only box at once — one classList toggle per box on the chapter flip, which is
+    // the only moment any of them can change.
+    raceBoxes: [...screens.hud.querySelectorAll('.race-lap, .race-time, .race-speed')],
+    raceCaps: [...screens.hud.querySelectorAll('[data-race-k]')],
+    xpRow: screens.hud.querySelector('.xp-row'),
     coins: screens.hud.querySelector('.hud-coins'),
     lv: screens.hud.querySelector('.lv-badge'),
     xpFill: screens.hud.querySelector('.xp-fill'),
@@ -2132,12 +2242,23 @@ export function initUI(hooks) {
     // per-chapter constant, checked once per change rather than every frame); bossBarShown/Pct
     // gate the new boss HP bar the same way rampagePct/rampageActive gate the rampage meter.
     scriptedChapter: undefined, bossBarShown: undefined, bossBarPct: -1,
+    // v7.x circuit: same per-chapter latch, plus one cached string per readout. The race clock and
+    // the speedo move every frame, so without these the HUD does four textContent writes at 60Hz;
+    // the cache keys are the FORMATTED strings, which is what makes a tenth-second clock cost ten
+    // writes a second instead of sixty.
+    circuitChapter: undefined, lapText: '', raceText: '', deltaText: '', kmh: -1, lowClock: undefined,
     // CHAOS PACT: the seconds tick once a second and the bonus only on a surviving a wave, so both
     // are cached and only the rail's height is repainted every frame — a per-frame textContent
     // write is the expensive half.
     chaosShown: undefined, chaosSecs: -1, chaosBonus: -1,
     chargeShown: undefined, chargeNum: -1, chargeArmed: undefined, chargeLaneX: undefined, chargeName: undefined,
   }
+
+  // Is this the DEV chip's run? A circuit's badge is the hidden dev menu's seven-tap target and
+  // says so; every other chapter's is a plain coin counter. One expression, because the badge is
+  // written from two places (the chapter-change branch and the per-frame diff) and a copy in each
+  // is the one-fact-two-places shape this project leads its own defect list with.
+  const circuitDev = (run) => !!(CHAPTERS[run.chapter]?.circuit && meta.dev)
 
   function updateHUD(run, events) {
     const p = run.player
@@ -2200,6 +2321,70 @@ export function initUI(hooks) {
     // above — a per-chapter constant, not something that flips mid-run.
     const scriptedChapter = CHAPTERS[run.chapter].scripted === true
     if (scriptedChapter !== last.scriptedChapter) last.scriptedChapter = scriptedChapter
+    // v7.x THE CIRCUIT'S READOUT. Latched per chapter exactly like crushChapter/scriptedChapter
+    // above, and the latch earns its keep on the way OUT: Play again into a different chapter
+    // reuses this same hud object, so the pill has to be hidden again rather than left showing the
+    // last race's lap count. `!= null` rather than `=== true` — CHAPTERS[].circuit is an object.
+    const circuitChapter = CHAPTERS[run.chapter].circuit != null
+    if (circuitChapter !== last.circuitChapter) {
+      last.circuitChapter = circuitChapter
+      for (const el of hud.raceBoxes) el.classList.toggle('race-hidden', !circuitChapter)
+      // ONE CLASS ON THE ROOT CARRIES THE WHOLE RE-LAYOUT — the HP bar dropping to row 2 under the
+      // lap plate, the countdown becoming a captioned plate, the pause button making room for the
+      // race clock. Every one of those is a CSS rule under .hud--race (styles.css) rather than a
+      // style written from here, so the two halves of the design cannot drift apart in two files.
+      screens.hud.classList.toggle('hud--race', circuitChapter)
+      // WHAT THE COUNTDOWN COUNTS DOWN TO, and the noun is the CARDS' noun. Pit Stop and Split
+      // Second both say "at every checkpoint", so a HUD that said "gate" would coin a second name
+      // for one object — the failure game-art-and-copy records as the `upwelling` bug.
+      hud.timerK.textContent = circuitChapter ? t('CHECKPOINT') : ''
+      // ...and every other caption with it. TRANSLATED HERE AND NOT IN THE MARKUP: the HUD's
+      // innerHTML is written exactly once at boot, so a t() call inside it bakes whatever language
+      // was current then — change language on the title screen and the plates would still be
+      // captioned in the old one, with no way to notice short of playing a race in both. Each span
+      // carries its own English key (the dictionary IS keyed by the English), so this is one loop
+      // rather than three refs, and a fourth plate joins it by existing.
+      if (circuitChapter) for (const el of hud.raceCaps) el.textContent = t(el.dataset.raceK)
+      // THE SURVIVAL FURNITURE, GONE — and every one of these is dead rather than merely unhelpful
+      // in a race, which is why they are hidden and not restyled:
+      //   the COIN BADGE IS BACK, and the sentence that hid it is what changed. It read "the Reef
+      //     is `weapons: []`, coins drop only from a kill, so nothing in the chapter can ever move
+      //     it" — true until the Burst started killing what it rams and paying BURST_RAM_COINS for
+      //     each body (v7.x). A race now has a currency, and a driver who cannot see it accumulate
+      //     cannot tell the reward from a rumour. It keeps the ghosted chip and the FIXED slot
+      //     .hud--race .hud-coins already gives it — out of .hud-right's flex row entirely, which
+      //     is what stops it stealing width from the axis or wrapping to a second line.
+      //   the XP ROW is pinned at 0% and duplicates the lap plate. A circuit banks one level per
+      //     lap (`p.xp += p.xpNext`, sim.js), so the bar fills and empties inside one frame and
+      //     `Lv N` is the lap count wearing another unit.
+      hud.coins.style.display = ''
+      // A DEV RUN'S BADGE IS NOT A COIN BADGE ON A CIRCUIT, and leaving it one shipped the whole
+      // redesign looking undone: a gold disc is the loudest object this HUD can draw, gold is the
+      // currency register in this game, and the chapter has no currency — so the badge read as the
+      // coin counter surviving the redesign. Worse, the two glyphs WRAPPED to two lines in the
+      // narrowed right column beside the race clock, which doubled the band's height and threw
+      // every other readout off its axis. It says DEV in the pause button's own ghosted chip
+      // instead: the one thing on screen with no gameplay meaning now looks like it.
+      // A DEV RUN KEEPS ITS WORD AND ITS COUNT. The word cannot simply replace the number any more:
+      // the developer is the one person testing what the ram pays, so a dev run that hides the
+      // counter hides exactly the thing being tested. Both fit — the chip is `right`-anchored in an
+      // otherwise empty cell, so it grows leftward into space nothing else uses.
+      hud.coins.textContent = circuitDev(run) ? `DEV 🪙 ${run.coinsEarned}` : `🪙 ${run.coinsEarned}`
+      hud.xpRow.style.display = circuitChapter ? 'none' : ''
+      // THE TIMER SLOT MEANS SOMETHING DIFFERENT ON EITHER SIDE OF THIS FLIP AND BOTH SIDES RENDER
+      // A SMALL INTEGER, so the cache can be holding a number that is accidentally still "equal"
+      // for the new meaning — 27 seconds of race clock and 27 seconds of survival clock look the
+      // same to `!==`, and the slot would keep the old chapter's number until the value moved.
+      last.remain = NaN
+      if (!circuitChapter) {
+        hud.timer.classList.remove('hud-timer--low')
+        // ...and the hold, which only a circuit can set. Both cached flags are cleared with the
+        // classes so the next race re-derives them rather than comparing against the last one's.
+        hud.timer.classList.remove('hud-timer--held')
+        last.lowClock = false
+        last.heldClock = false
+      }
+    }
     // TIME DEBT marks the clock it is accelerating (v7.15). The card changes the RATE, never the
     // number, so at the instant you take it the timer reads exactly what it read before — measured,
     // 4:01 either way — and one real second later both still read 3:59. It works (run.time advances
@@ -2216,13 +2401,90 @@ export function initUI(hooks) {
       const label = script.stage % 2 === 0 ? `${t('WAVE')} ${script.waveIdx + 1}` : ''
       if (label !== last.remain) {
         last.remain = label
-        hud.timer.textContent = label
+        hud.timerNum.textContent = label
+      }
+    } else if (circuitChapter) {
+      // THE RACE CLOCK, WHICH IS NOT A CLOCK OF THE SAME KIND AS THE ONE IT REPLACES. Until this
+      // branch existed the Reef rendered `RUN_DURATION - run.time`, counting down to 5:00 — a mark
+      // with nothing to do with the race, on a chapter that ends in about 76 seconds. It is bare
+      // seconds rather than fmtTime because it lives between 0 and circuit.clockCap (30s), and a
+      // 27-second countdown written `00:27` spends its two largest glyphs on zeros.
+      const remain = Math.max(0, Math.ceil(run.raceClock ?? 0))
+      if (remain !== last.remain) {
+        last.remain = remain
+        hud.timerNum.textContent = String(remain)
+      }
+      const lowClock = remain <= CIRCUIT_CLOCK_LOW_S
+      if (lowClock !== last.lowClock) {
+        last.lowClock = lowClock
+        hud.timer.classList.toggle('hud-timer--low', lowClock)
+      }
+      // SPLIT SECOND'S ONLY TELL, and without it the card is invisible: the number above is
+      // Math.ceil'd, so it moves once a second, and a 0.3s hold merely delays one tick — a player
+      // cannot distinguish "held" from "I misread the clock". Same argument, and the same fix, as
+      // .hud-timer--debt, whose block records the card that read as dead for exactly this reason.
+      //   Derived from run._clockHold rather than from the 'swimthrough' event, the same idiom as
+      // the split delta below: state survives a dropped frame and a paused one and needs no
+      // subscription here.
+      const heldClock = (run._clockHold ?? 0) > 0
+      if (heldClock !== last.heldClock) {
+        last.heldClock = heldClock
+        hud.timer.classList.toggle('hud-timer--held', heldClock)
       }
     } else {
       const remain = Math.max(0, Math.ceil(RUN_DURATION - run.time))
       if (remain !== last.remain) {
         last.remain = remain
-        hud.timer.textContent = fmtTime(remain)
+        hud.timerNum.textContent = fmtTime(remain)
+      }
+    }
+    if (circuitChapter) {
+      // THE PLATES, AND EVERY ONE IS DERIVED RATHER THAN SUBSCRIBED. stepCircuit publishes
+      // run.lapSplit, run.lapDelta and run._lapAt precisely so this needs no event feed: derived
+      // from state it survives a dropped frame and a paused one, and ui.js gains no subscription.
+      //   The lap NUMBER is `done + 1` — run.lap counts laps COMPLETED — clamped so the final
+      // frame of the winning lap reads 5/5 rather than 6/5.
+      const laps = CHAPTERS[run.chapter].circuit.laps
+      const done = run.lap ?? 0
+      const lapText = `${Math.min(done + 1, laps)}/${laps}`
+      if (lapText !== last.lapText) {
+        last.lapText = lapText
+        hud.raceLap.textContent = lapText
+      }
+      // TENTHS, so the clock a driver is racing visibly MOVES. It is also the cache key, and one
+      // that changes ten times a second rather than sixty is still nine writes a second saved.
+      const raceText = fmtRace(run._realTime ?? 0)
+      if (raceText !== last.raceText) {
+        last.raceText = raceText
+        hud.raceTime.textContent = raceText
+      }
+      // THE SPEEDO reads the player's OWN velocity, not run._laneSpeed, and that is the point: the
+      // Burst multiplies the velocity and never touches _laneSpeed, so a readout off the latter
+      // would sit still through the one move the button exists for. Rounded to whole units — this
+      // is a cache key too, and a decimal here would write every frame for a digit nobody reads.
+      // ponytail: a bounce (run._kickX/Y) is summed into the velocity, so a wall briefly reads a
+      //   few units high. It decays to a hard zero inside ~0.2s and "you just got shoved" is
+      //   arguably the honest reading; split the heading component out if it ever looks wrong.
+      const kmh = Math.round(Math.hypot(p.vx ?? 0, p.vy ?? 0) * CIRCUIT_KMH_PER_PX)
+      if (kmh !== last.kmh) {
+        last.kmh = kmh
+        hud.raceSpeed.textContent = String(kmh)
+      }
+      // THE SPLIT DELTA. Present for CIRCUIT_DELTA_S after a lap line and absent otherwise, so the
+      // slot under the clock is empty while you drive and carries one number when you cross. null
+      // on lap 1 (nothing to be faster than) is a SEPARATE case from "no lap yet", and both render
+      // as nothing — writing '+0.00' for the first crossing would state a comparison never made.
+      const dOn = done > 0 && run.lapDelta != null
+        && (run._realTime ?? 0) - (run._lapAt ?? 0) < CIRCUIT_DELTA_S
+      const dText = dOn ? fmtDelta(run.lapDelta) : ''
+      if (dText !== last.deltaText) {
+        last.deltaText = dText
+        hud.raceDelta.textContent = dText
+        hud.raceDelta.classList.toggle('race-hidden', !dOn)
+        // Faster is the game's own reward register (mint, as the lap pill's gold flash was); slower
+        // is warm rather than the danger red the low clock owns, because losing a tenth is not the
+        // same news as being about to die and must not shout as loudly.
+        hud.raceDelta.classList.toggle('race-delta--up', dOn && run.lapDelta < 0)
       }
     }
     // Boss HP bar: gated on scriptedChapter too (not just run.bossBar) so leaving the chapter mid-
@@ -2240,9 +2502,12 @@ export function initUI(hooks) {
         hud.bossBarFill.style.width = `${pct}%`
       }
     }
+    // ...and on a circuit it has to keep the DEV word, or the first frame the counter moves wipes
+    // it. Written through the same helper as the chapter-change branch above so the two cannot
+    // drift into printing different things for the same run.
     if (run.coinsEarned !== last.coins) {
       last.coins = run.coinsEarned
-      hud.coins.textContent = `🪙 ${run.coinsEarned}`
+      hud.coins.textContent = circuitDev(run) ? `DEV 🪙 ${run.coinsEarned}` : `🪙 ${run.coinsEarned}`
     }
     if (p.level !== last.level) {
       last.level = p.level
@@ -2335,6 +2600,20 @@ export function initUI(hooks) {
     if (armed !== last.chargeArmed) {
       last.chargeArmed = armed
       hud.chargeWrap.classList.toggle('charge--armed', armed)
+    }
+    // THE RESERVE WARNS BEFORE IT KILLS YOU (owner, 2026-08-25: "the air reserve bar should become
+    // orange under 30% and red under 10% and blink when 0%"). It is a height and a number, and a
+    // player driving a race track is reading neither — colour is the only channel left.
+    //   READ OFF THE SHOWN FRACTION, NOT THE RAW ONE, and gated on `invert`. An inverted rail (The
+    // Shelf's Pollution) fills as the run goes WRONG, so "the bar is nearly empty" is the good news
+    // there and painting it red would say the opposite of what is happening. One bar, two meanings,
+    // and only the reserve kind gets the warning.
+    const level = invert ? '' : (charge <= 0 ? 'empty' : frac < 0.10 ? 'crit' : frac < 0.30 ? 'low' : '')
+    if (level !== last.chargeLevel) {
+      last.chargeLevel = level
+      hud.chargeWrap.classList.toggle('charge--low', level === 'low')
+      hud.chargeWrap.classList.toggle('charge--crit', level === 'crit')
+      hud.chargeWrap.classList.toggle('charge--empty', level === 'empty')
     }
     const n = Math.round(invert ? Math.max(0, max - charge) : charge)
     if (n !== last.chargeNum) { last.chargeNum = n; chargeRefs.text.textContent = `${n}` }
@@ -2829,6 +3108,12 @@ export function initUI(hooks) {
     // one per value the numbers can take. c.desc holds the composed English for everything that
     // wants a plain string, and is the fallback for the old element system's cards.
     if (c.descT) return elDescHtml(c.descT)
+    // A CAPPED PASSIVE (makePassiveCard) carries the total it leaves you on, and `was` is the total
+    // it moves off. Same arrow and same strike as an element upgrade, but composed here rather than
+    // through elDescHtml: a passive's line is the "+N% <thing>" shape tCardDesc already splits and
+    // translates, so borrowing the template path would need a dictionary entry per card to say what
+    // that function says for free. Numbers only, both sides — nothing here is user text.
+    if (c.was) return `<s class="lv-was">${c.was}</s>&nbsp;→&nbsp;${tCardDesc(c.desc)}`
     return tCardDesc(c.desc)
   }
   // An element upgrade shows what the pick MOVES: the figure the player has now, struck through,
@@ -3172,6 +3457,35 @@ export function initUI(hooks) {
     if (active === 'summary') renderSummary(lastSummaryData)
   }
 
+  // THE TWO ROWS UNDER `Time`, AND ON A RACE THEY ARE DIFFERENT ROWS. A `circuit` chapter has no
+  // weapons and a crowd `passiveCrowd` makes harmless, so Kills is 0 on every run ever played
+  // there; its xp till is the LAP, so Level reached is the lap count in disguise and every finisher
+  // ties on it. Two rows of nothing, on the screen that tells you how the race went. v7.246 rebuilt
+  // the PODIUM around a race's real scores and left this screen printing the old pair.
+  //   The lap row takes no rank chip: there is no lap-COUNT board. The best-lap row takes the `lap`
+  // board's, which podiumRank already returns and which the podium already draws under 'Best lap'.
+  // Same string, so the two screens cannot name it two ways.
+  function raceRows(d, chapterId) {
+    if (CHAPTERS[chapterId]?.circuit) {
+      // A DNF prints the laps it actually drove — 3/5 is the honest answer and is what the player
+      // watched happen. Its best lap is real too (bestLap is a minimum over COMPLETED laps), so it
+      // shows whenever one was banked and is simply absent when none was.
+      return `
+          <div class="stat-row"><span>${t('Laps')}</span><b>${d.laps ?? 0}/${d.lapsTotal ?? 0}</b></div>
+          ${d.bestLapMs > 0
+            ? `<div class="stat-row"><span>${t('Best lap')}</span><b>${fmtLap(d.bestLapMs)}s${rankChip(d.podium?.lap, 'lap')}</b></div>`
+            : ''}`
+    }
+    // The level chip is suppressed on a boss chapter even though the level board still takes its
+    // score: that board is not drawn anywhere for a scripted chapter, so a rank on it points at a
+    // page the player cannot open. The time chip needs no such guard — podium.time only exists for
+    // a WON boss run in the first place.
+    return `
+          <div class="stat-row"><span>${t('Kills')}</span><b>${d.kills}${rankChip(d.podium?.kills, 'kills')}</b></div>
+          <div class="stat-row"><span>${t('Level reached')}</span><b>${d.level}${
+            CHAPTERS[chapterId]?.scripted ? '' : rankChip(d.podium?.level, 'level')}</b></div>`
+  }
+
   function renderSummary(d) {
     lastSummaryData = d
     const mutatorIds = d.mutators || []
@@ -3202,13 +3516,7 @@ export function initUI(hooks) {
         ${killedByLine}
         <div class="stats">
           <div class="stat-row"><span>${t('Time')}</span><b>${fmtTime(d.time)}${rankChip(d.podium?.time, 'time')}</b></div>
-          <div class="stat-row"><span>${t('Kills')}</span><b>${d.kills}${rankChip(d.podium?.kills, 'kills')}</b></div>
-          <!-- The level chip is suppressed on a boss chapter even though the level board still
-               takes its score: that board is not drawn anywhere for a scripted chapter, so a rank
-               on it points at a page the player cannot open. The time chip needs no such guard —
-               podium.time only exists for a WON boss run in the first place. -->
-          <div class="stat-row"><span>${t('Level reached')}</span><b>${d.level}${
-            CHAPTERS[chapterId]?.scripted ? '' : rankChip(d.podium?.level, 'level')}</b></div>
+          ${raceRows(d, chapterId)}
         </div>
         ${damageBlock(d)}
         ${mutatorBlock}

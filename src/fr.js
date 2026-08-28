@@ -311,6 +311,13 @@ const UI = {
   // pushes the recto's rows out of line with the verso's. 'Meilleur temps' rather than 'Temps de
   // mise a mort', which is the accurate phrase and twice too long.
   'Best time': 'Meilleur temps',
+  // The circuit's second leaf. 'Meilleur tour' is the term French motorsport actually uses for a
+  // fastest lap, and it is a character SHORTER than 'Meilleur temps' above -- so it clears the
+  // same 142px eyebrow that comment measured, with room over.
+  'Best lap': 'Meilleur tour',
+  // The circuit summary's own row, beside 'Meilleur tour'. 'Tours' and not 'Tours de piste':
+  // the row prints '3/5' next to it, which is what says these are laps of a circuit.
+  'Laps': 'Tours',
   // v7.x leaderboard. 'Podium' is the same word in both languages and still needs its key here, or
   // the coverage assert reads it as an untranslated string. 'Pseudo' rather than 'surnom': it is
   // what French players actually call the name they use online, and it fits the 26px rank row.
@@ -345,6 +352,19 @@ const UI = {
 
   // HUD
   'WAVE': 'VAGUE',
+  // The race pill's only word — the lap count and the split are numbers, kept OUT of the key so the
+  // key cannot change every time they do (the tt() rule).
+  'LAP': 'TOUR',
+  // The race plates' captions (v7.x). Numbers are kept OUT of every key, same as 'LAP' above, so a
+  // key cannot change every time the value does — the tt() rule.
+  'RACE': 'COURSE',
+  // The countdown's caption, left in English on the owner's ruling (2026-08-27). 'Point de
+  // contrôle' — the phrase this dictionary uses in the two Reef card descs — is 17 characters and
+  // does not fit under a 2.7rem numeral, and 'checkpoint' is the word French racing games use.
+  // Present as a key rather than absent so run XX's coverage walk sees a decision, not a gap.
+  'CHECKPOINT': 'CHECKPOINT',
+  // Unchanged in French, and present so the key is not simply missing from the dictionary.
+  'KM/H': 'KM/H',
   'Lv': 'Niv',
   // v6.3 dispatch beat (city elite spawn) — transient HUD banner, see updateHUD/dispatch in ui.js
 
@@ -449,7 +469,7 @@ const UI = {
   'infusion card chance': 'chance de carte d\'infusion',
   'pickup magnet': 'aimant à butin',
   'current push': 'poussée du courant',
-  'current speed': 'vitesse du courant',
+  'time on the clock': 'temps au compteur',
   // Same noun as its sibling above, because on screen they ARE siblings — Riptide's chip and
   // Spring Tide's chip sit in the same slot of the same trade, one per chapter.
   'tide push': 'poussée de la marée',
@@ -657,6 +677,11 @@ const CONFIG = {
   // whatever landed the last hit — the rail is inverted here, so the death is silt ARRIVING.
   'You found clear water! 🎉': 'Tu as trouvé de l\'eau claire ! 🎉',
   'Silted up… 🌫️': 'Envasé·e… 🌫️',
+  // The Reef. A race, so neither line is a survival line: 'Drapeau à damier' is the term French
+  // motorsport uses for the chequered flag, and 'Hors course' is what a French race says of a
+  // car that did not finish -- the exact sense of the English, and short enough for the title.
+  'Chequered flag! 🏁': 'Drapeau à damier ! 🏁',
+  'Out of the race… 🏁': 'Hors course… 🏁',
   // v6.2 Remaster — watcher unlock lines
   'The Pond — word of you travels downstream': 'La Mare — la rumeur descend le courant',
   'The Garden — something marked your trail': 'Le Jardin — quelque chose a marqué ta piste',
@@ -1484,7 +1509,28 @@ const CONFIG = {
   // ('Grande Marée'), and two chapter mutators in one book wearing the same noun is the collision
   // the dictionary cannot see -- different keys, one word on screen.
   'Tidal Race': 'Grand Courant',
-  'The current runs far faster. Richer coins.': 'Le courant file bien plus vite. Pièces plus riches.',
+  'Less time on the clock. A wider passage.': 'Moins de temps au compteur. Un passage plus large.',
+  // The other four of the race slate (2026-08-27). EVERY DISPLAY NAME IS A DRAFT pending the
+  // owner's pick, the idiom this block already runs on.
+  //   'Baine' over 'Courant d'Arrachement' -- which is the correct French term, and is exactly the
+  // collision the Grand Courant note above describes, seen from the other side: these two now roll
+  // in the SAME chapter and can sit side by side on one pause screen, so a second 'Courant' would
+  // be one word for two things. A baine is what an Atlantic swimmer calls the channel that drags
+  // you out, and no other entry in this dictionary uses the word.
+  //   'Air Rare' keeps the bar's own capitalised noun, the rule the Bouteille d'Oxygene entry
+  // states: the HUD rail says Air, so the card says Air.
+  'The Narrows': 'Le Goulet',
+  'A tighter passage. More time on the clock.': 'Un passage plus étroit. Plus de temps au compteur.',
+  'Rip Current': 'Baïne',
+  'The water runs far faster, through a tighter passage.': 'L\'eau file bien plus vite, dans un passage plus étroit.',
+  'Bait Ball': 'Boule d\'Appât',
+  'Far more traffic, and bigger with it. More time on the clock.': 'Bien plus de trafic, et plus gros avec ça. Plus de temps au compteur.',
+  'Thin Air': 'Air Rare',
+  'Your air runs out far faster. More time on the clock.': 'Ton Air s\'épuise bien plus vite. Plus de temps au compteur.',
+  // The two new effect chips (MUTATOR_EFFECT_LABELS). 'passage' is the word Le Goulet and Grand
+  // Courant already use, so the chip and the cards name one thing.
+  'passage width': 'largeur du passage',
+  'air drain': 'consommation d\'Air',
   'Stirs the bottom into a cone of silt that poisons and dazes what swims in.': 'Soulève un cône de vase qui empoisonne et étourdit tes poursuivants.',
   // Voile de Vase's four (2026-08-19). 'vase' throughout, never 'limon', because the weapon's own
   // name already fixed the word -- the rule the Coquille Ricochet entry states: one word for one
@@ -1677,6 +1723,29 @@ const CONFIG = {
   'The Antibody': 'L\'Anticorps',
   'Zoomies': 'Ruée Folle',
   'move speed': 'vitesse de déplacement',
+  // The Reef's racing cards (v7.x circuit).
+  'Turbo Fin': 'Nageoire Turbo',
+  'top speed': 'vitesse de pointe',
+  'Quick Start': 'Départ Vif',
+  'acceleration': 'accélération',
+  'Big Lungs': 'Gros Poumons',
+  'Air capacity': 'capacité d\'Air',
+  'Jet Puff': 'Coup de Jet',
+  'dash length': 'durée de la ruée',
+  'Pit Stop': 'Arrêt au Stand',
+  'HP at every checkpoint': 'PV à chaque point de contrôle',
+  'Clean Line': 'Sans Accroc',
+  'HP a second off the coral': 'PV par seconde sans toucher le corail',
+  // 'Fraction de Seconde' is the plain French idiom and reads as a racing word beside 'Arrêt au
+  // Stand'. The desc says 'compteur', the word 'temps au compteur' already fixed for this rail.
+  'Split Second': 'Fraction de Seconde',
+  'seconds the clock stops at every checkpoint': 'secondes d\'arrêt du compteur à chaque point de contrôle',
+  // 'Fibre Rapide' is the real French term for a fast-twitch muscle fibre, so it says what the
+  // English says rather than translating the costume. 'recharge' for cooldown is this
+  // dictionary's own word (see 'Sans recharge, sans seuil.'), and 'ruée' for dash is fixed by
+  // 'durée de la ruée' above, so the two Reef dash cards read as a pair in French as well.
+  'Fast Twitch': 'Fibre Rapide',
+  'seconds off the dash cooldown': 'secondes de moins sur la recharge de la ruée',
   'Sticky Aura': 'Aura Collante',
   'gem magnet': 'aimant à gemmes',
   'Extra Squish': 'Extra Moelleux',
@@ -1720,6 +1789,7 @@ const CONFIG = {
   'Starvation': 'Famine',
   'The Leak': 'La Fuite',
   'The Coral': 'Le Corail',
+  'The Clock': 'Le Chrono',
   'Crushed': 'Écrasé',
   // Owner's pick, 2026-08-22, over 'L'Orque' and 'L'Épaulard': the chapter's own premise turned
   // back on the player — you spent the run being the predator, and this is the one that outranks you.

@@ -23,7 +23,8 @@ qualify () {
   sed -i "s/^  riptide:/  ${1}surge: { name: 'S', icon: '🌊', desc: 'd', chapters: ['$1'], effects: { coinMul: 1.1 } },\n  riptide:/" "$T/src/config.js"
   sed -i "s/weapons: \[$2\]/weapons: [$2, 'bloom']/" "$T/src/config.js"
 }
-REEF="'stinger', 'quillBurst', 'pulsarSweep'"
+# Only DEEP is still used (by the .maws wiring mutation below). The REEF constant was deleted with
+# the reef-based ideation mutations — see the block below for why they moved to the shelf.
 DEEP="'finHit', 'chitterShriek', 'mines'"
 
 fresh
@@ -34,36 +35,74 @@ echo "BASELINE body   $(axes body)"
 echo "BASELINE shelf  $(axes shelf)"
 echo
 
-fresh; qualify reef "$REEF"
-echo "M0 reef CLEARS the whole ideation bar    ideation=$(pick "$(axes reef)" ideation)      (want: ok — proves the bar is what held it)"
-
 # --- the four ideation bars (owner, 2026-08-20: 4 weapons, 4 mods each, 1 anomaly, 1 mutator) ---
-fresh; qualify reef "$REEF"
-sed -i "s/weapons: \[$REEF, 'bloom'\]/weapons: [$REEF]/" "$T/src/config.js"
-echo "M1 reef's pool falls back to 3 weapons   ideation=$(pick "$(axes reef)" ideation)   (want: owes1)"
+#
+# ⚠ THE SUBJECT IS THE SHELF, NOT THE REEF, AND THAT MOVED FOR A REASON WORTH READING. These six
+# used to run against the reef through `qualify reef "$REEF"`, whose weapons sed anchored on
+# `weapons: ['stinger', 'quillBurst', 'pulsarSweep']`. The Reef gave up its arsenal entirely — it
+# is a race now, and ships `weapons: []` deliberately — so that anchor stopped matching, qualify
+# became a silent no-op, and ALL SIX MUTATIONS MEASURED AN UNMUTATED CHAPTER. Every one printed the
+# baseline and read as a pass. That is the exact failure this file's own header warns about: a
+# mutation that does not bite is indistinguishable from a gate that does not work.
+#
+# The Shelf is the right subject because it CLEARS the whole bar unaided (four weapons, four mods
+# on the thinnest of them, its own anomaly and its own mutator), so its baseline is ideation=ok and
+# no qualify step is needed at all — which is also one less thing that can rot into a no-op. Every
+# mutation below must move it off ok. It is LIVE, so a shortfall prints `debt1` rather than
+# `owes1`: the vocabulary follows `reachable`, and what is being proven is that the axis MOVES.
+#
+# Each sed is checked: a mutation whose anchor has gone stale aborts this script instead of
+# printing a reassuring row.
+bite () {  # bite <file> <label> — fail loudly if the previous sed changed nothing
+  if cmp -s "$T/src/$1" "$REPO/src/$1"; then
+    echo "STALE ANCHOR: $2 changed nothing — the mutation is a no-op and proves nothing." >&2
+    exit 1
+  fi
+}
 
-# Swap a Reef weapon for 'chum', which really does carry 3 mods. Surgically deleting mods off
-# stinger (7 of them) proves nothing unless the cut crosses 4 — a mutation must cross the exact
-# threshold it is testing, and the simplest way to cross it is to point at something already past it.
-fresh; qualify reef "$REEF"
-sed -i "s/weapons: \['stinger', /weapons: ['chum', /" "$T/src/config.js"
-sed -i "s/starter: 'stinger',/starter: 'chum',/" "$T/src/config.js"
-echo "M2 a Reef weapon has only 3 mods         ideation=$(pick "$(axes reef)" ideation)   (want: owes1)"
+fresh
+sed -i "s/weapons: \['bubblePuff', 'siltVeil', 'ballast', 'downwash'\]/weapons: ['bubblePuff', 'siltVeil', 'ballast']/" "$T/src/config.js"
+bite config.js "M1"
+echo "M1 shelf's pool falls back to 3 weapons  ideation=$(pick "$(axes shelf)" ideation)   (want: debt1)"
 
-fresh; qualify reef "$REEF"
-sed -i "/^  reefquake:/d" "$T/src/config.js"
-echo "M3 reef loses its unique anomaly         ideation=$(pick "$(axes reef)" ideation)   (want: owes1)"
+# bubblePuff carries EXACTLY four mods, so deleting one crosses the bar rather than thinning a
+# weapon that was already well past it. No weapon in the game sits at three any more, which is why
+# this cuts rather than swapping the pool as the old M2 did.
+fresh
+sed -i "/^    froth:      { name: 'Froth',/d" "$T/src/config.js"
+bite config.js "M2"
+echo "M2 a Shelf weapon drops to 3 mods        ideation=$(pick "$(axes shelf)" ideation)   (want: debt1)"
 
-fresh; qualify reef "$REEF"
-sed -i "/^  reefsurge:/d" "$T/src/config.js"
-echo "M4 reef loses its unique mutator         ideation=$(pick "$(axes reef)" ideation)   (want: owes1)"
+fresh
+sed -i "/^  runoff: {/,/^  },/d" "$T/src/config.js"
+bite config.js "M3"
+echo "M3 shelf loses its unique anomaly        ideation=$(pick "$(axes shelf)" ideation)   (want: debt1)"
 
-# Not the same edit as M4: the mutator still EXISTS and still names the reef. It just names a
-# second chapter too, which makes it the book's and not the reef's. This is the bar that a
+fresh
+sed -i "/^  deadWater:/d" "$T/src/config.js"
+bite config.js "M4"
+echo "M4 shelf loses its unique mutator        ideation=$(pick "$(axes shelf)" ideation)   (want: debt1)"
+
+# Not the same edit as M4: the mutator still EXISTS and still names the shelf. It just names a
+# second chapter too, which makes it the book's and not the shelf's. This is the bar that a
 # chapter borrowing springtide would trip.
-fresh; qualify reef "$REEF"
-sed -i "s/chapters: \['reef'\], effects: { coinMul: 1.1 }/chapters: ['reef', 'deep'], effects: { coinMul: 1.1 }/" "$T/src/config.js"
-echo "M5 reef's mutator is SHARED with deep    ideation=$(pick "$(axes reef)" ideation)   (want: owes1 — shared is not its own)"
+fresh
+sed -i "s/chapters: \['shelf'\], effects: { refillChanceMul: 0.33/chapters: ['shelf', 'deep'], effects: { refillChanceMul: 0.33/" "$T/src/config.js"
+bite config.js "M5"
+echo "M5 shelf's mutator is SHARED with deep   ideation=$(pick "$(axes shelf)" ideation)   (want: debt1 — shared is not its own)"
+
+# --- the unarmed-chapter exemption on the WIRING gate (v7.x, The Reef) ---
+# An empty pool is a switch, not a hole: the Reef is a race and ships `weapons: []` with a null
+# starter on purpose, so chapter-stage exempts that PAIR rather than the id. Both halves are proven
+# — the exemption must hold for the real chapter, and must not cover a chapter that merely lost its
+# weapons and still declares a starter it can no longer offer.
+fresh
+echo "M14a reef unarmed by design              wiring=$(pick "$(axes reef)" wiring)      (want: ok — weapons: [] + starter: null is legal)"
+
+fresh
+sed -i "s/^  weapons: \[\], starter: null,/  weapons: [], starter: 'gnash',/" "$T/src/config.js"
+bite config.js "M14b"
+echo "M14b reef empty pool, starter kept       wiring=$(pick "$(axes reef)" wiring)    (want: FAIL — half-deleted, not deliberate)"
 
 # --- copy, wiring, art, numbers ---
 fresh
