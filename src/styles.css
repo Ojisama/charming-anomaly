@@ -798,11 +798,15 @@ body {
   color: var(--cream);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
 }
-/* THE DEV BADGE, and only on a circuit. Everywhere else this is the coin counter and stays gold.
-   Here the count is dead (weapons: [], so nothing drops) and gold is the loudest hue the HUD owns,
-   so the pill was a promise of a currency the chapter does not have — the redesign read as not
-   having happened. Same ghosted chip as the pause button it sits beside, at caption size, so the
-   only thing on this band with no gameplay meaning is also the quietest. ui.js writes the word. */
+/* THE COIN BADGE ON A CIRCUIT — a GHOSTED chip rather than the gold pill it is everywhere else.
+   The reason has changed once and the shape has not, which is worth stating so the next edit does
+   not undo the right thing for the old reason. It was ghosted because the count was DEAD here
+   (weapons: [], so nothing dropped) and gold is the loudest hue this HUD owns, so a gold pill
+   promised a currency the chapter did not have. Since v7.x the Burst kills what it rams and pays
+   BURST_RAM_COINS a body, so the count is live and the badge is shown on every run — but a race is
+   not scored in coins, and the clock and the lap are what a driver reads at speed. Quiet, at
+   caption size, is still the right weight for it; the gold is carried by the glyph alone.
+   ui.js writes the text, and adds the DEV word on a dev run. */
 .hud--race .hud-coins {
   /* OUT OF THE GRID, into the empty right cell of row 2. In .hud-right's flex row it added ~50px
      to the right track, and with the outer tracks locked equal that is 50px stolen from the axis

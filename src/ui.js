@@ -2254,6 +2254,12 @@ export function initUI(hooks) {
     chargeShown: undefined, chargeNum: -1, chargeArmed: undefined, chargeLaneX: undefined, chargeName: undefined,
   }
 
+  // Is this the DEV chip's run? A circuit's badge is the hidden dev menu's seven-tap target and
+  // says so; every other chapter's is a plain coin counter. One expression, because the badge is
+  // written from two places (the chapter-change branch and the per-frame diff) and a copy in each
+  // is the one-fact-two-places shape this project leads its own defect list with.
+  const circuitDev = (run) => !!(CHAPTERS[run.chapter]?.circuit && meta.dev)
+
   function updateHUD(run, events) {
     const p = run.player
     if (p.hp !== last.hp || p.maxHP !== last.maxHP) {
@@ -2341,13 +2347,17 @@ export function initUI(hooks) {
       if (circuitChapter) for (const el of hud.raceCaps) el.textContent = t(el.dataset.raceK)
       // THE SURVIVAL FURNITURE, GONE — and every one of these is dead rather than merely unhelpful
       // in a race, which is why they are hidden and not restyled:
-      //   the COIN BADGE is pinned at 0. The Reef is `weapons: []` (config.js), coins drop only
-      //     from a kill (sim.js), so nothing in the chapter can ever move it. It stays for a DEV
-      //     run because it is the dev menu's seven-tap target and nothing else is.
+      //   the COIN BADGE IS BACK, and the sentence that hid it is what changed. It read "the Reef
+      //     is `weapons: []`, coins drop only from a kill, so nothing in the chapter can ever move
+      //     it" — true until the Burst started killing what it rams and paying BURST_RAM_COINS for
+      //     each body (v7.x). A race now has a currency, and a driver who cannot see it accumulate
+      //     cannot tell the reward from a rumour. It keeps the ghosted chip and the FIXED slot
+      //     .hud--race .hud-coins already gives it — out of .hud-right's flex row entirely, which
+      //     is what stops it stealing width from the axis or wrapping to a second line.
       //   the XP ROW is pinned at 0% and duplicates the lap plate. A circuit banks one level per
       //     lap (`p.xp += p.xpNext`, sim.js), so the bar fills and empties inside one frame and
       //     `Lv N` is the lap count wearing another unit.
-      hud.coins.style.display = circuitChapter && !meta.dev ? 'none' : ''
+      hud.coins.style.display = ''
       // A DEV RUN'S BADGE IS NOT A COIN BADGE ON A CIRCUIT, and leaving it one shipped the whole
       // redesign looking undone: a gold disc is the loudest object this HUD can draw, gold is the
       // currency register in this game, and the chapter has no currency — so the badge read as the
@@ -2355,7 +2365,11 @@ export function initUI(hooks) {
       // narrowed right column beside the race clock, which doubled the band's height and threw
       // every other readout off its axis. It says DEV in the pause button's own ghosted chip
       // instead: the one thing on screen with no gameplay meaning now looks like it.
-      hud.coins.textContent = circuitChapter ? 'DEV' : `🪙 ${run.coinsEarned}`
+      // A DEV RUN KEEPS ITS WORD AND ITS COUNT. The word cannot simply replace the number any more:
+      // the developer is the one person testing what the ram pays, so a dev run that hides the
+      // counter hides exactly the thing being tested. Both fit — the chip is `right`-anchored in an
+      // otherwise empty cell, so it grows leftward into space nothing else uses.
+      hud.coins.textContent = circuitDev(run) ? `DEV 🪙 ${run.coinsEarned}` : `🪙 ${run.coinsEarned}`
       hud.xpRow.style.display = circuitChapter ? 'none' : ''
       // THE TIMER SLOT MEANS SOMETHING DIFFERENT ON EITHER SIDE OF THIS FLIP AND BOTH SIDES RENDER
       // A SMALL INTEGER, so the cache can be holding a number that is accidentally still "equal"
@@ -2488,11 +2502,12 @@ export function initUI(hooks) {
         hud.bossBarFill.style.width = `${pct}%`
       }
     }
-    // ...but never on a circuit, where the badge is a DEV chip and this write would put the coin
-    // count straight back over it on the first frame the counter moved.
-    if (run.coinsEarned !== last.coins && !circuitChapter) {
+    // ...and on a circuit it has to keep the DEV word, or the first frame the counter moves wipes
+    // it. Written through the same helper as the chapter-change branch above so the two cannot
+    // drift into printing different things for the same run.
+    if (run.coinsEarned !== last.coins) {
       last.coins = run.coinsEarned
-      hud.coins.textContent = `🪙 ${run.coinsEarned}`
+      hud.coins.textContent = circuitDev(run) ? `DEV 🪙 ${run.coinsEarned}` : `🪙 ${run.coinsEarned}`
     }
     if (p.level !== last.level) {
       last.level = p.level

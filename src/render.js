@@ -19318,6 +19318,13 @@ const spurG = new Graphics()
           // failure to move is invisible mid-fight, and +5 on a 150 HP bar is a couple of pixels.
           // Heart-pink to match the sparkle and the revive, so the whole vocabulary is one colour.
           if (e.healed && e.heal > 0) spawnDamage(e.x, e.y, 0, false, false, { text: `+${e.heal}`, tint: 0xff8fb1 })
+          // A COIN WORTH MORE THAN ONE SAYS SO (v7.x, The Reef's ram — BURST_RAM_COINS). Every coin
+          // in the game was value 1 until a rammed body started paying ten, and one coin of ten
+          // draws exactly the same sparkle as one coin of one: the reward would exist only in a HUD
+          // counter that jumps while the player is looking at the fish they just flattened. Same
+          // floating-number path as AVARICE's heal above, in the coin's own gold rather than its
+          // pink, so the vocabulary stays "this number is what that pickup just paid you".
+          else if (e.value > 1) spawnDamage(e.x, e.y, 0, false, false, { text: `+${e.value}`, tint: 0xffd45e })
           break
         case 'shoot':
           if (e.weapon === 'wave') {

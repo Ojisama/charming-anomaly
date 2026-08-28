@@ -1732,6 +1732,12 @@ const CONFIG = {
   // Stand'. The desc says 'compteur', the word 'temps au compteur' already fixed for this rail.
   'Split Second': 'Fraction de Seconde',
   'seconds the clock stops at every checkpoint': 'secondes d\'arrêt du compteur à chaque point de contrôle',
+  // 'Fibre Rapide' is the real French term for a fast-twitch muscle fibre, so it says what the
+  // English says rather than translating the costume. 'recharge' for cooldown is this
+  // dictionary's own word (see 'Sans recharge, sans seuil.'), and 'ruée' for dash is fixed by
+  // 'durée de la ruée' above, so the two Reef dash cards read as a pair in French as well.
+  'Fast Twitch': 'Fibre Rapide',
+  'seconds off the dash cooldown': 'secondes de moins sur la recharge de la ruée',
   'Sticky Aura': 'Aura Collante',
   'gem magnet': 'aimant à gemmes',
   'Extra Squish': 'Extra Moelleux',

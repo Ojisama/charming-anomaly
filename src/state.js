@@ -1009,6 +1009,12 @@ function generateWells(sig) {
  *             just draws them; r = ORB_R × (1 + orbit.bigOrbs bonus), same for main-ring and
  *             twinRing orbs — see WEAPON_MODS.orbit in config.js)
  * gems[i]:    { x, y, xp, _vac? }   coins[i]: { x, y, value, _vac? }
+ *             `value` IS NOT ALWAYS 1 (v7.x). Every drop in the game was worth one until The
+ *             Reef's ram started paying BURST_RAM_COINS on a body killed by the dash, and one
+ *             coin worth ten is a single pickup, not ten of them. stepPickups already read it
+ *             (`c.value * coinGainMul * coinMul`); what did not was AVARICE, whose own note
+ *             still reasons from a pickup COUNT, and render.js, which drew the same sparkle
+ *             either way — it now prints the number for anything over 1.
  *             _vac (v6.4.8, optional): set by Chemotaxis (WEAPON_MODS.wave.undertow) on every
  *             gem/coin within its reel radius at nova cast time — stepPickups then homes it to
  *             the player every frame regardless of magnet range, until collected.
@@ -1465,11 +1471,14 @@ function generateWells(sig) {
  * _burstT: number — seconds of Reef Burst dash remaining (CHAPTERS[chapter].burst). Set by
  *   stepRepulse on the same press, cooldown and charge spend as the Pulse, to BURST_DUR_MIN +
  *   (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t, so an EMPTY bar still dashes — the no-spiral floor.
- *   Read in three places. stepPlayerMovement's lane branch multiplies the forward scroll by
+ *   Read in five places. stepPlayerMovement's lane branch multiplies the forward scroll by
  *   BURST_SPEED_MUL while it is positive (the ONLY thing in the file allowed to change the lane's
  *   scroll rate, because it is the player's own button and not a force acting on them); stepSpurs
- *   forces _scraping false while it is live, which is R13's free crossing; and render.js's
- *   drawBurstWake draws the tail at what is LEFT of it, which is the only cast the duration has.
+ *   forces _scraping false while it is live, which is R13's free crossing; stepCaveWall waives the
+ *   passage wall on it and publishes _offTrack from it; stepRam kills every body within
+ *   BURST_RAM_MUL * PLAYER.radius on every frame it is live (v7.x — the dash is no longer pure
+ *   movement, see BURST_RAM_MUL); and render.js's drawBurstWake draws the tail at what is LEFT of
+ *   it, which is the only cast the duration has.
  *   0 on every run of every other chapter.
  * _shorebreakT: number — seconds of Surf Shorebreak left (CHAPTERS[chapter].shorebreak). Set by
  *   stepRepulse on the same press, cooldown and charge spend as everything else on that button, to

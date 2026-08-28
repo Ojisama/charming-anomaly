@@ -2791,6 +2791,20 @@ export const PASSIVES = {
   // balance_decision : a checkpoint holds the clock, it does not top it up [2026-08-27]
   //  - the hold is NOT capped by clockCap; that is the point, do not route it through the top-up
   gateFreeze: { name: 'Split Second', desc: 'seconds the clock stops at every checkpoint', base: 0.35, kind: 'flat', chapter: 'reef', cap: 1 },
+  // THE COOLDOWN, and it is the only card in the chapter that pays in PRESSES rather than in the
+  // press. Owner, 2026-08-28: "a new upgrade 'dash cooldown reduction', starting at 0.5s for
+  // normal, and asymptotically ceiling at 2.5s". Jet Puff already buys a longer dash and this buys
+  // more of them, so the two are a pair rather than a duplicate -- and with BURST_RAM_COINS on the
+  // other side of the button, the cooldown is now also the rate at which the lane pays out.
+  //   base 0.5 against cap 2.5 puts a normal first pick on 0.45s (the asymptote takes its bite
+  // immediately -- passiveTotal's own note says the first pick always lands a hair under `base`)
+  // and the ladder runs 0.45 / 0.82 / 1.13 / 1.38 / 1.58s, approaching the 2.5s ceiling asked for.
+  //   ⚠ THE CAP MUST STAY WELL UNDER REPULSE_CD (6.0), because sim.js SUBTRACTS this from it. At
+  // the ceiling the button comes back in 3.5s instead of 6.0; a cap that reached 6 would make the
+  // dash free, and one that passed it would make the cooldown negative -- which is not a clamp
+  // away, it is a different game. Run RF.h pins the floor against both constants.
+  // balance_decision : the dash comes back sooner, never for free [2026-08-28]
+  dashCooldown: { name: 'Fast Twitch', desc: 'seconds off the dash cooldown', base: 0.5, kind: 'flat', chapter: 'reef', cap: 2.5 },
 }
 export const MAX_PASSIVE_LEVEL = 5
 
@@ -10675,6 +10689,32 @@ export const CLEAR_STUN = 1.1            // s of stagger inside the wide shove
 export const BURST_SPEED_MUL = 1.8       // x the speed you are already making while the dash is live
 export const BURST_DUR_MIN = 0.30        // s of dash on an EMPTY bar — the no-spiral floor
 export const BURST_DUR_AT_FULL = 0.75    // s of dash at a full PULSE_CHARGE_COST spend
+
+// THE RAM (v7.x). Owner, 2026-08-28: "i want the dash to kill mobs, and give +10 coins per mob
+// killed". The block above says the Burst is PURE MOVEMENT; it is not any more, and this is the
+// one chapter where that does not make it a second Pulse.
+//
+// WHY IT BELONGS HERE AND NOWHERE ELSE: CHAPTERS.reef.passiveCrowd already rules that the crowd is
+// scenery -- the fish stream down the lane and their contact damage is zeroed at spawn -- so a body
+// in front of you was, until now, a thing with no interaction at all beyond being shot. Ploughing
+// through it is what turns the crowd into TRAFFIC: something on the racing line, worth taking
+// head-on rather than round, in a mode whose only other verbs are a strafe and a throttle.
+//
+// LETHAL BY CONSTRUCTION, NEVER A DAMAGE LITERAL, and LUNGE_DMG's own block is why: a flat number
+// is a real hit at t=60 and a scratch at t=300 because hpScale moves under it, so a "kill" written
+// as a literal quietly stops being one halfway through a race. sim.js spends the body's own
+// remaining hp instead, which cannot drift. The shielded and guard affixes still get their say --
+// that is what those affixes are for, and an elite surviving one ram is the shape of the design
+// rather than a hole in it.
+// balance_decision : the dash kills what it hits and pays for it [2026-08-28]
+//  - reach must stay above one frame of travel; see the arithmetic on BURST_RAM_MUL
+export const BURST_RAM_MUL = 2.8   // x PLAYER.radius -> 62px of reach, the LUNGE_BITE_MUL figure
+// ...and it is sized against the FRAME, not against the body. A full-throttle dash covers
+// topSpeed x BURST_SPEED_MUL x the 0.05s dt clamp = 972 x 0.05 = 49px in one step, and a reach
+// under that tunnels bodies past at exactly the speed the button is for -- a dash that silently
+// stops killing the faster you go, which reads as the mechanic being unreliable rather than as a
+// number being wrong. 62px clears it with the enemy's own radius still to spare.
+export const BURST_RAM_COINS = 10  // coins a rammed body pays, ON TOP of its ordinary coinChance drop
 
 // ---- LUNGE (v7.x, The Wreck — chapters declaring `lunge: true`) --------------------------------
 // The Wreck's half of the same one button. Same press, same cooldown, same PULSE_CHARGE_COST spend

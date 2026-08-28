@@ -123,7 +123,7 @@ import {
   SPAWN_EARLY_BOOST, SPAWN_EARLY_UNTIL, spawnEarlyMul, SPAWN_RATE_BASE, SPAWN_RATE_LINEAR,
   LANE_SPAWN_MUL, LANE_EARLY_BOOST, LANE_EARLY_UNTIL, laneEarlyMul, FORMATION_INTERVAL, FORMATION_COLS,
   // v7.x The Reef: Air (the bar) and Burst (the button) — run RF
-  BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_WAKE, burstWakeAt, DUST, dustVel, DROWN_TICK,
+  BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_RAM_MUL, BURST_RAM_COINS, BURST_WAKE, burstWakeAt, DUST, dustVel, DROWN_TICK,
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
   SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, gateAnchorF, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
@@ -24096,16 +24096,38 @@ function testCircuitHud() {
     assert.strictEqual(held({}), false,
       'run HD.b2: a run that has never held anything reads as held — the field is undefined until the first checkpoint, so this is every race before its first gate')
   }
-  // (b3) THE DEV BADGE SAYS DEV ON A CIRCUIT, AND THE PER-FRAME COIN WRITE MUST NOT PUT THE COIN
-  // COUNT BACK OVER IT. Two halves of one relabel, and the second fails only once the counter
-  // moves — which on a circuit is never in normal play and immediately under a dev card that
-  // grants coins, i.e. exactly the run the badge exists for.
+  // (b3) THE BADGE SHOWS THE COIN COUNT ON A CIRCUIT, AND A DEV RUN KEEPS ITS WORD AS WELL AS ITS
+  // COUNT. This case used to assert the opposite — that a circuit relabels the badge to a flat
+  // 'DEV' — on the premise that the chapter was `weapons: []` so the counter could never move.
+  // The Burst's ram (v7.x, BURST_RAM_COINS) falsified that: a race has a currency now, and a
+  // driver who cannot watch it accumulate cannot tell the reward from a rumour.
+  //   THE BADGE IS WRITTEN FROM TWO PLACES — the chapter-change branch and the per-frame diff —
+  // and the second only runs once the counter MOVES, which on a circuit was previously never. That
+  // is exactly the shape that ships: the first frame looks right and the badge changes meaning the
+  // moment the feature works. So both writes have to route through the one helper.
+  //   EVALUATED, NOT GREPPED (run HD.b2's idiom, and the "a token lint is not a guard" rule): what
+  // is asserted is which boolean comes out for which run, not which identifiers appear near it.
   {
     const ui = readFileSync(new URL('../src/ui.js', import.meta.url), 'utf8')
-    assert.ok(/hud\.coins\.textContent\s*=\s*circuitChapter\s*\?\s*'DEV'/.test(ui),
-      'run HD.b3: the dev badge is not relabelled on a circuit — it renders the coin count, which is pinned at 0 for the whole chapter (weapons: [], so nothing drops) inside a gold pill, and the owner read that as the coin counter surviving the redesign')
-    assert.ok(/run\.coinsEarned !== last\.coins && !circuitChapter/.test(ui),
-      'run HD.b3: the per-frame coin write is not gated on the chapter — it repaints the badge with the coin count on the first frame the counter moves, silently undoing the DEV relabel above')
+    const expr = /const circuitDev = \(run\) => ([^\n]+)/.exec(ui)?.[1]
+    assert.ok(expr, 'run HD.b3: updateHUD has no circuitDev helper — the two badge writes have nothing to share, so they can print different things for the same run')
+    const dev = new Function('CHAPTERS', 'meta', 'run', `return ${expr}`)
+    const CIRCUIT = { reef: { circuit: true } }
+    assert.strictEqual(dev(CIRCUIT, { dev: true }, { chapter: 'reef' }), true,
+      'run HD.b3: a DEV run on a circuit does not read as one — the badge is the hidden dev menu\'s only tap target and the word is the only thing that says the run will not be submitted')
+    assert.strictEqual(dev(CIRCUIT, { dev: false }, { chapter: 'reef' }), false,
+      'run HD.b3: an ordinary race reads as a dev run — every player would see DEV on their HUD')
+    assert.strictEqual(dev({ body: {} }, { dev: true }, { chapter: 'body' }), false,
+      'run HD.b3: a non-circuit chapter reads as a circuit dev run — the word would land on every chapter\'s coin badge')
+    const writes = ui.match(/hud\.coins\.textContent = [^\n]+/g) ?? []
+    assert.strictEqual(writes.length, 2,
+      `run HD.b3: ${writes.length} site(s) write the badge, expected the chapter-change branch and the per-frame diff — a third is a third answer to what the badge says`)
+    for (const w of writes) {
+      assert.ok(/circuitDev\(run\)/.test(w) && /run\.coinsEarned/.test(w),
+        `run HD.b3: a badge write does not go through circuitDev AND the coin count — "${w.trim().slice(0, 90)}" — so the two sites can disagree, and the one that runs second wins`)
+    }
+    assert.ok(!/hud\.coins\.style\.display\s*=\s*circuitChapter/.test(ui),
+      'run HD.b3: the badge is hidden again on a circuit — the ram pays BURST_RAM_COINS a body, and a reward with no counter is a reward the player cannot read')
   }
   // (c) THE PILL IS BOUNDED. A grid child with no max-width stretches its whole track — the xp bar
   // learned that here at ~300px on a phone against 1776px on a desktop window, and a HUD element
@@ -24185,9 +24207,9 @@ function testCircuitHud() {
       // added ~50px to the right track, i.e. 50px of axis error present in exactly the build used
       // to judge the HUD and absent from the one that ships.
       assert.ok(/position:\s*fixed/.test(rule('.hud--race .hud-coins')),
-        'run HD.c: the dev badge is still in .hud-right\'s flex row on a circuit — with the outer tracks locked equal it widens the right one, so a DEV run and a normal run are different layouts and the one you look at is not the one that ships')
+        'run HD.c: the coin badge is still in .hud-right\'s flex row on a circuit — with the outer tracks locked equal it widens the right one, so the race clock and the pause button move as the count grows a digit, and at 390px the pill breaks onto a second line')
       assert.ok(!/background:[^;]*(gold|255,\s*217)/.test(rule('.hud--race .hud-coins')),
-        'run HD.c: the dev badge keeps its gold ground on a circuit — gold is this game\'s currency register and the chapter is `weapons: []`, so the loudest object on the race band would be a promise of coins that can never drop')
+        'run HD.c: the coin badge keeps its gold ground on a circuit — the count is live now (the ram pays BURST_RAM_COINS a body) but a race is scored on a clock, and a gold pill is the loudest object this HUD can draw, so it would outshout the checkpoint countdown that actually ends the run')
       // AND IT MAY NEVER WRAP, in any chapter: two glyphs on two lines turn the pill into a disc
       // twice its row's height, and .hud-top is align-items:center, so every readout beside it
       // moves. That is what shipped on the Reef, and .hud-timer--held's rule warns of it too.
@@ -24370,6 +24392,7 @@ function testCircuitCards() {
       gateHeal: 'HP at every checkpoint (stepCircuit, the same window as the clock and the xp)',
       cleanHeal: 'HP a second while run._caveHit is false',
       gateFreeze: 'seconds of run._clockHold banked at every checkpoint, spent against the countdown',
+      dashCooldown: 'seconds off REPULSE_CD, subtracted at the one site that arms it (stepRepulse)',
     }
     assert.deepStrictEqual(Object.keys(LIVE).sort(), Object.keys(PASSIVES).filter((id) => PASSIVES[id].chapter === 'reef').sort(),
       'run CD.b: the live set here and the reef-scoped entries in PASSIVES disagree — one of them was edited alone, and the allowlist in eligiblePassiveIds reads the OTHER one')
@@ -24496,8 +24519,13 @@ function testCircuitCards() {
   // every other assertion in this file still green.
   {
     const CAPPED = Object.keys(PASSIVES).filter((id) => PASSIVES[id].cap)
-    assert.deepStrictEqual(CAPPED.slice().sort(), ['accelRate', 'gateFreeze', 'topSpeed'],
-      `run CD.d: the capped set is ${JSON.stringify(CAPPED)} — the owner named speed, acceleration and the checkpoint hold, and a cap silently dropped from one of them is a card that runs away again`)
+    assert.deepStrictEqual(CAPPED.slice().sort(), ['accelRate', 'dashCooldown', 'gateFreeze', 'topSpeed'],
+      `run CD.d: the capped set is ${JSON.stringify(CAPPED)} — the owner named speed, acceleration, the checkpoint hold and the dash cooldown, and a cap silently dropped from one of them is a card that runs away again`)
+    // dashCooldown's cap is load-bearing in a way the other three's are not: it is SUBTRACTED from
+    // REPULSE_CD rather than multiplied into a stat, so an uncapped ladder does not merely run away,
+    // it crosses zero and makes the button free. Asserted against the constant, never a literal.
+    assert.ok(PASSIVES.dashCooldown.cap < REPULSE_CD,
+      `run CD.d: Fast Twitch's cap ${PASSIVES.dashCooldown.cap} has reached REPULSE_CD ${REPULSE_CD} — a full build would take the dash's cooldown to zero`)
     // ⚠ THE FORMATTER IS KIND-AWARE, AND gateFreeze IS WHY. It is the first capped `flat` passive in
     // the game, and until it existed makePassiveCard rendered every capped total as a percentage —
     // so this card printed "+0.3 seconds..." over a struck-through "+30%". Written as the same
@@ -28263,6 +28291,183 @@ function testReefAirBurst() {
     assert.ok(/_taken !== /.test(shafts),
       'run RF.f: sh.taken is not part of updateShafts\' cache key, so the vent body is never redrawn when it empties — the gate runs on a Graphics nobody rebuilds and a spent vent keeps its charged drawing')
     console.log(`PASS run RF.f (the vent is a pickup): +${fill.gained.toFixed(1)} Air on exactly ${fill.gulps} gulp from empty and the vent marked taken, ${full.gulps} gulps and still charged at the ceiling, 0 taken and 0 sounded from outside; render.js draws the gulp and reads sh.taken`)
+  }
+
+  // (g) THE RAM. Owner, 2026-08-28: "i want the dash to kill mobs, and give +10 coins per mob
+  // killed". Every case here is an EFFECT rather than a state read, for run RF's own stated reason
+  // and because this feature's plausible failures ALL leave state looking right: the flag is set,
+  // the timer runs, the loop runs, and nothing dies. A `run._burstT > 0` assertion would pass with
+  // stepRam deleted.
+  //
+  // ⚠ THE CONTROL IS THE SAME FIXTURE WITH THE BUTTON UNPRESSED, not a different one. This chapter
+  // still has weapons, and they fire during a dash: without a matched no-press arm, "the bodies in
+  // front of me died" is a claim the starter weapon can satisfy on its own, and the case would pass
+  // with the ram gone.
+  {
+    const REACH = BURST_RAM_MUL * PLAYER.radius
+    // A plain body, no elements, no affixes. `hp` is a parameter because one of the cases below is
+    // specifically that a ram is lethal to a body far too fat for any damage LITERAL to kill --
+    // that is what stops BURST_RAM_* from decaying against hpScale the way LUNGE_DMG's own block
+    // warns a flat number does.
+    const body = (run, x, y, hp = 40, extra = {}) => ({
+      id: run._nextId++, type: 'drone', x, y, hp, maxHP: hp, radius: 16, speed: 0, dmg: 0,
+      elite: false, xp: 1, hitFlash: 0, orbCd: 0, kb: { x: 0, y: 0 }, holePull: 0,
+      ignite: 0, igniteDps: 0, chill: 0, frozen: 0, venom: 0,
+      _shockCd: 0, _elCold: newElWindow(), _elVenom: newElWindow(), _elFrozen: 0, _elResist: 0,
+      affixes: [], ...extra,
+    })
+    // Settle on the track first (the heading is what the bodies are planted along, and it is only
+    // meaningful once the player is actually driving), then plant and press.
+    const ram = ({ press, gap = 14, hp = 40, extra = {}, n = 8, abeam = false }) => {
+      const run = reefRun()
+      run.charge = res.max
+      for (let i = 0; i < 60; i++) { quiet(run); stepSim(run, { x: 1, y: 0 }, dt) }
+      quiet(run)
+      const hx = run._headX ?? 1, hy = run._headY ?? 0
+      // `abeam` plants ACROSS the heading instead of along it, and that distinction is the whole of
+      // the reach case. Strung out AHEAD, a body 370px away is not out of reach -- the dash drives
+      // straight over it a few frames later, and 0.75s at BURST_SPEED_MUL covers over a thousand
+      // px -- so a line astern of the player tests the dash's LENGTH and says nothing at all about
+      // its width. The first cut of this case did exactly that and read "the ram has no reach
+      // limit" off a ram whose reach was working. Abeam, a stationary body only gets further away.
+      const ax = abeam ? -hy : hx, ay = abeam ? hx : hy
+      const planted = []
+      for (let i = 0; i < n; i++) {
+        const e = body(run, run.player.x + ax * (10 + i * gap), run.player.y + ay * (10 + i * gap), hp, extra)
+        planted.push(e)
+        run.enemies.push(e)
+      }
+      const coins0 = run.coinsEarned
+      let kills = 0
+      for (let i = 0; i < 40; i++) {
+        stepSim(run, { x: hx, y: hy, skill: press && i === 0 }, dt)
+        kills += run.events.filter((e) => e.type === 'kill').length
+        run.events.length = 0
+        // Only the PLANTED bodies matter; the lane's own spawners keep arriving and would make the
+        // kill count a measurement of the chapter rather than of the button.
+        run.enemies = run.enemies.filter((e) => planted.includes(e) && !e._dead)
+      }
+      return { dead: planted.filter((e) => e._dead).length, planted: planted.length, kills, paid: run.coinsEarned - coins0 }
+    }
+    const off = ram({ press: false })
+    const on = ram({ press: true })
+    assert.strictEqual(off.dead, 0,
+      `run RF.g: ${off.dead} of ${off.planted} bodies died with the button NEVER PRESSED — something other than the ram is killing them, and every number below is measuring that instead`)
+    assert.ok(on.dead >= 6,
+      `run RF.g: a dash straight down a line of ${on.planted} bodies killed ${on.dead} of them — the ram is not reaching the crowd it is aimed at`)
+    // THE PAYOUT, AND IT IS THE BANKED FIGURE RATHER THAN THE DROPPED ONE. run.coins is REBUILT
+    // every step (stepPickups reassigns it through collect()), so counting pushes means indexing an
+    // array that no longer exists -- a probe written that way reported a ram paying 7, a number
+    // BURST_RAM_COINS cannot produce. coinsEarned is what the player actually gets, and reading it
+    // also proves the drop is COLLECTIBLE at dash speed rather than outrun and left on the track.
+    assert.strictEqual(off.paid, 0,
+      `run RF.g: the unpressed control banked ${off.paid} coins from bodies nothing killed`)
+    // A BAND, AND BOTH ENDS OF IT ARE THE MECHANIC. The ram's coin is paid ON TOP of the body's
+    // ordinary coinChance drop -- dealDamage rolls that on every kill, ram or not, and it is worth
+    // exactly 1 -- so the honest window is [10n, 11n] rather than a strict 10n. The first cut of
+    // this case asserted equality and went red at 81 against 80, which is the ordinary drop working
+    // and not the payout being wrong. The upper bound still fails a doubled payout and the lower one
+    // still fails a payout of 1, 0 or a coin that was outrun.
+    assert.ok(on.paid >= on.dead * BURST_RAM_COINS && on.paid <= on.dead * (BURST_RAM_COINS + 1),
+      `run RF.g: ${on.dead} rammed bodies banked ${on.paid} coins, outside the ${on.dead * BURST_RAM_COINS}-${on.dead * (BURST_RAM_COINS + 1)} that ${BURST_RAM_COINS} each plus at most one ordinary drop apiece allows — either the payout is the wrong size or the coin was left behind on the track`)
+    // LETHAL BY CONSTRUCTION, NOT BY A NUMBER. 4 million HP is past anything hpScale can reach in a
+    // run, so a ram written as a damage literal (LUNGE_DMG's shape) fails this and only this.
+    const fat = ram({ press: true, hp: 4e6 })
+    assert.ok(fat.dead >= 6,
+      `run RF.g: ${fat.dead} of ${fat.planted} bodies at 4,000,000 HP died to the ram — the kill is being written as a damage number, which means it stops being a kill as hpScale climbs`)
+    // OUT OF REACH IS OUT OF REACH. Bodies parked a clear multiple of the reach apart, so the dash
+    // passes the first and the rest are never touched: a ram with no distance test at all would
+    // clear the whole line, which is what makes this the case that pins the geometry.
+    const far = ram({ press: true, gap: REACH, n: 5, abeam: true })
+    assert.strictEqual(far.dead, 1,
+      `run RF.g: ${far.dead} of ${far.planted} bodies strung ACROSS the heading at ${REACH.toFixed(0)}px steps died — the one at the player's shoulder should, and nothing beyond ${REACH.toFixed(0)}px should, so the ram either has no width limit or has lost the body it is touching`)
+    // AN ALLY IS NOT FOOD. SUBMISSION's loaned creature lives in run.enemies like everything else.
+    const ally = ram({ press: true, extra: { allyT: 999 } })
+    assert.strictEqual(ally.dead, 0,
+      `run RF.g: the ram ate ${ally.dead} of the player's own allies — isAlly is not being consulted`)
+    // SCOPED BY THE FLAG, not by a chapter name. The Shelf spends the same press on its Clear and
+    // must kill nothing with it.
+    {
+      Math.random = mulberry32(20260828)
+      const shelf = createRun(meta, { chapter: 'shelf', difficulty: 1 })
+      assert.strictEqual(shelf.chapter, 'shelf', 'run RF.g: the control run is not The Shelf')
+      shelf.player.hp = shelf.player.maxHP = 100000
+      shelf.mods.spawnMul = 0
+      shelf.charge = 100
+      const marks = []
+      for (let i = 0; i < 8; i++) {
+        const e = body(shelf, shelf.player.x + 10 + i * 14, shelf.player.y, 1e6)
+        marks.push(e)
+        shelf.enemies.push(e)
+      }
+      for (let i = 0; i < 40; i++) {
+        stepSim(shelf, { x: 1, y: 0, skill: i === 0 }, dt)
+        shelf.events.length = 0
+        shelf.enemies = shelf.enemies.filter((e) => marks.includes(e) && !e._dead)
+      }
+      assert.strictEqual(marks.filter((e) => e._dead).length, 0,
+        'run RF.g: The Shelf killed bodies with its own press — `burst` has leaked onto a chapter that never declared it, and the ram with it')
+    }
+    console.log(`PASS run RF.g (the ram): a dash through ${on.planted} bodies kills ${on.dead} and banks ${on.paid} coins (${BURST_RAM_COINS} each) where the same fixture unpressed kills ${off.dead} for ${off.paid}; ${fat.dead} still die at 4,000,000 HP, ${far.planted - far.dead} of ${far.planted} strung ACROSS the heading past the ${REACH.toFixed(0)}px reach survive, an ally is never eaten, and The Shelf's own press kills none`)
+  }
+
+  // (h) FAST TWITCH. Owner, 2026-08-28: "a new upgrade 'dash cooldown reduction', starting at 0.5s
+  // for normal, and asymptotically ceiling at 2.5s". The card is a SUBTRACTION from a shared
+  // constant, which is the shape that goes wrong quietly: too big a cap and the button is free,
+  // a sign slip and it is longer, a missing read and the card is inert with nothing thrown.
+  {
+    const cfg = PASSIVES.dashCooldown
+    assert.strictEqual(cfg.chapter, 'reef',
+      'run RF.h: PASSIVES.dashCooldown is not scoped to the reef — it is being offered in chapters whose button it does not shorten')
+    assert.ok(cfg.cap > 0 && cfg.cap < REPULSE_CD,
+      `run RF.h: the cap ${cfg.cap} is not inside (0, REPULSE_CD ${REPULSE_CD}) — at or past the cooldown the dash becomes free, which is a different game rather than a tune`)
+    // THE OWNER'S TWO NUMBERS, against the shipped formula rather than against a literal. The first
+    // normal pick lands a hair under `base` by construction (passiveTotal's own note), so this is
+    // "0.5 to within the bite the asymptote takes", not "0.5 exactly".
+    const step = (have, mult = 1) => passiveTotal('dashCooldown', have, cfg.base * mult)
+    const first = step(0)
+    assert.ok(Math.abs(first - 0.5) < 0.06,
+      `run RF.h: a normal first pick takes ${first.toFixed(3)}s off the cooldown, and the ask was 0.5`)
+    let mythic = 0
+    for (let i = 0; i < MAX_PASSIVE_LEVEL; i++) mythic = step(mythic, RARITIES.mythic.mult)
+    assert.ok(mythic < cfg.cap && mythic > cfg.cap * 0.95,
+      `run RF.h: ${MAX_PASSIVE_LEVEL} mythic picks bank ${mythic.toFixed(3)}s against a ${cfg.cap}s ceiling — the ladder either cannot approach the asymptote or has passed it`)
+    // ...AND IT IS ACTUALLY READ. A card that banks a number nothing subtracts is the inert pick run
+    // MB.a exists to catch on the weapon side, and there is no equivalent walk for passives — so
+    // this counts PRESSES over a fixed window, which is the only thing the player can feel.
+    const presses = (bonus) => {
+      const run = reefRun()
+      run.passives.dashCooldown = bonus
+      let n = 0
+      for (let i = 0; i < Math.round(30 / dt); i++) {
+        const was = run._burstT ?? 0
+        run.charge = res.max
+        quiet(run)
+        stepSim(run, { x: 1, y: 0, skill: true }, dt)
+        if ((run._burstT ?? 0) > was) n++
+      }
+      return n
+    }
+    const bare = presses(0)
+    const one = presses(first)
+    const capped = presses(cfg.cap)
+    assert.ok(bare >= Math.floor(30 / REPULSE_CD) && bare <= Math.ceil(30 / REPULSE_CD) + 1,
+      `run RF.h: an uncarded run pressed ${bare} times in 30s against the ${(30 / REPULSE_CD).toFixed(1)} REPULSE_CD allows — the control is wrong, so the comparison below means nothing`)
+    assert.ok(one > bare,
+      `run RF.h: one pick bought ${one - bare} extra presses in 30s — the card banks a number nothing subtracts, which is an inert pick`)
+    assert.ok(capped > one,
+      `run RF.h: the ceiling pressed ${capped} times against one pick's ${one} — the ladder stops paying before it reaches its own cap`)
+    // THE FLOOR HOLDS FROM THE OTHER SIDE. Unreachable at cap 2.5 against REPULSE_CD 6, and that is
+    // exactly why it is asserted: it is the guard that a future retune of either constant cannot
+    // turn the button free, and nothing else in the suite would notice it going.
+    const floored = reefRun()
+    floored.passives.dashCooldown = REPULSE_CD * 10
+    floored.charge = res.max
+    quiet(floored)
+    stepSim(floored, { x: 1, y: 0, skill: true }, dt)
+    assert.ok(floored.repulseCd > 0,
+      `run RF.h: a bonus past REPULSE_CD left the cooldown at ${floored.repulseCd} — the subtraction has no floor, so the button is free (or the timer negative) the moment either constant moves`)
+    console.log(`PASS run RF.h (Fast Twitch): a normal pick takes ${first.toFixed(2)}s off REPULSE_CD ${REPULSE_CD}s and ${MAX_PASSIVE_LEVEL} mythics approach ${mythic.toFixed(2)} of a ${cfg.cap}s ceiling without passing it; 30s of holding the button fires ${bare} -> ${one} -> ${capped} times, the card is reef-scoped, and a bonus past the cooldown still leaves ${floored.repulseCd.toFixed(2)}s on it`)
   }
 
   console.log(`PASS run RF (The Reef's Air and Burst): the bar is fed by the pocket field and nothing else (0 vs ${res.max} over 150s with it suppressed), an empty bar drowns you at ${res.drown.dps}/s and stops the moment you breathe, and the button dashes ${BURST_DUR_MIN}s empty and ${BURST_DUR_AT_FULL}s full`)
