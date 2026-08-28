@@ -159,7 +159,7 @@ import {
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, refillGrantFor, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
-  BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, DROWN_TICK,
+  BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_RAM_MUL, BURST_RAM_COINS, DROWN_TICK,
   SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
   FIRE_CORAL_LEAD, SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, INK_BLIND_REACH, INK_JET_SPREAD, TANK_SHOVE_KB,
   LAST_BREATH_MAX_DMG_MUL, LAST_BREATH_DROWN_TAKEN_MUL,
@@ -312,6 +312,7 @@ export function stepSim(run, input, dt) {
   stepEnemySeparation(run) // v6.5.1: push overlapping enemies apart (owner directive: no 100% stacks)
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any) — terrain snaps last and wins
 
+  stepRam(run)            // v7.x The Reef: the Burst ploughs the crowd, the bite's own slot
   stepBite(run)           // v7.x The Wreck: the Lunge's bite, after the dash has moved the player
   stepCrush(run)          // v5.8 skies kaiju: destroy any structure overlapping the crush radius
   stepRampage(run, dt)    // v5.8 skies kaiju: rampage meter decay/trigger/drain (crush-gated, no-op elsewhere)
@@ -1544,7 +1545,16 @@ function stepRepulse(run, input, dt) {
   if (!ch.lane && !ch.resource) return
   run.repulseCd = Math.max(0, (run.repulseCd ?? 0) - dt)
   if (!input.skill || run.repulseCd > 0) return
-  run.repulseCd = REPULSE_CD
+  // FAST TWITCH (PASSIVES.dashCooldown) comes off the cooldown HERE, at the one site that arms it,
+  // for the reason passiveTotal's own block gives about applyChoice: run.passives holds the applied
+  // total, so a single subtraction at the single write site cannot drift against a second one.
+  // Chapter-scoped by the PASSIVES entry, exactly like dashLength below -- outside The Reef the
+  // total is 0 and this line is REPULSE_CD unchanged, which is what keeps the card off every other
+  // chapter's button without a chapter name appearing here.
+  //   Floored at 0.5s rather than at 0: the cap is 2.5 against a 6.0 cooldown so the floor is
+  // unreachable today, and it is here so that a future retune of either constant cannot make the
+  // button free (or the timer negative) by arithmetic nobody re-read. See PASSIVES.dashCooldown.
+  run.repulseCd = Math.max(0.5, REPULSE_CD - (run.passives.dashCooldown ?? 0))
   const p = run.player
   // The amplification. `spend` is capped by what the bar actually holds, so an EMPTY bar leaves
   // t = 0 and the shipped v5.21 shove fires unchanged - the floor that stops the spiral where
@@ -6222,6 +6232,58 @@ function stepObstacles(run) {
 // which render.js and SFX_FOR_EVENT already consume — and the dash itself is 900px/s of player
 // movement, which is not subtle. A {type:'lunge'} would have needed a consumer in two files to be
 // anything but silence, which is the freeze scar exactly.
+// -- The ram (v7.x, The Reef) ----------------------------------------------------------------
+// The half of the Burst that is not movement. Owner, 2026-08-28: "i want the dash to kill mobs,
+// and give +10 coins per mob killed". See BURST_RAM_MUL in config.js for why this chapter is the
+// one where a dash may kill, and why the kill is the body's own hp rather than a damage literal.
+//
+// EVERY BODY IN REACH, EVERY FRAME OF THE DASH -- the opposite of stepBite, deliberately. The Wreck
+// stops its lunge on the first body because that chapter's bar is trying to make you CHOOSE a
+// target; a race has no target to choose, the crowd is oncoming traffic, and a dash that stopped
+// dead on the first fish would be a brake in the one chapter where you cannot afford one.
+//
+// NO NEW EVENT TYPE, on stepBite's own argument: dealDamage already pushes {type:'kill'}, which
+// render.js and SFX_FOR_EVENT both consume, and the press already pushes {type:'burst'} for the
+// wake. A {type:'ram'} would need a consumer in two more files to be anything but silence.
+//
+// RUNS IN stepSim's POST-MOVEMENT SLOT, beside stepBite, so it tests where the dash actually is
+// this frame. No chapter declares both buttons, so the ram and the bite can never fire together.
+function stepRam(run) {
+  const ch = CHAPTERS[run.chapter]
+  if (!ch.burst || (run._burstT ?? 0) <= 0) return
+  const p = run.player
+  const reach = BURST_RAM_MUL * PLAYER.radius
+  for (const e of run.enemies) {
+    // NO ALLY TEST AND NO IMMUNITY TEST HERE, and both omissions are load-bearing rather than
+    // sloppy. damageImmune's own block is explicit that the ally clause lives in ONE place instead
+    // of in the 26 damage loops, and dealDamage consults it on the way in — so a copy on this line
+    // is a second guard for one fact, which this file's LUNGE gate records the cost of (each guard
+    // masks a defect in the other, and the suite can see neither). Proven rather than assumed: a
+    // mutation run deleting an isAlly call HERE left run RF.g green, because dealDamage was already
+    // refusing the ally two layers down. `_dead` stays — a body a weapon killed earlier in the same
+    // frame must not be rammed again and paid for twice.
+    if (e._dead) continue
+    if (Math.hypot(e.x - p.x, e.y - p.y) > reach + e.radius) continue
+    // dealDamage, NOT applyDamage, and both differences are deliberate. A ram does not roll crit
+    // (there is no aim in it to reward) and it does not carry the player's elements -- freezing a
+    // corpse is nothing, and feeding the element window off a kill that is lethal by construction
+    // would let one press launder an arbitrary element application. The `hazard` flag is what says
+    // so, and it is the same flag this chapter's own coral scrape already passes.
+    //   The body's OWN remaining hp is the damage, so this cannot decay against hpScale.
+    dealDamage(run, e, e.hp, false, false, true)
+    // _dead rather than hp <= 0: a shielded elite (SHIELD_DMG_MUL) or a raised guard eats part or
+    // all of the ram and is still alive, and nothing is owed for a body that did not die.
+    if (!e._dead) continue
+    // THE PAYOUT IS A DROPPED COIN, NOT A WALLET EDIT, so it goes through the one collection path
+    // every other coin in the game uses -- the magnet, Avarice, coinGainMul, run.mods.coinMul and
+    // COIN_CAP_PER_RUN all apply with no new code, and the player SEES the thing they earned.
+    // ONE coin of value BURST_RAM_COINS rather than ten of value 1: the pickup is a single event,
+    // so the HUD ticks up once by ten instead of ten times by one, and render.js prints the number
+    // on it (the coin case) rather than leaving a bigger sparkle to carry the whole difference.
+    run.coins.push({ x: e.x, y: e.y, value: BURST_RAM_COINS })
+  }
+}
+
 function stepBite(run) {
   const ch = CHAPTERS[run.chapter]
   // `_lungeMoved` — the dash must have CARRIED you LUNGE_ARM_DIST before the bite can land. See that
