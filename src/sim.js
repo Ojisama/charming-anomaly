@@ -1906,6 +1906,55 @@ function stepCircuit(run, dt) {
   const passed = Math.floor(along / L) * run._swims.length +
     run._swims.filter((s) => ((along % L) + L) % L >= s.f).length
   const prev = run._swimN ?? passed          // first frame banks the start line rather than firing it
+  const lap = Math.max(0, Math.floor(along / L))
+
+  // THE CUT-BACK (v7.x). Owner's ruling, 2026-08-28: "the dash must allow players to cut without
+  // rollback, except if that makes them skip a checkpoint, then they rollback".
+  //
+  // The Burst passes through coral on purpose (stepCaveWall's early-out) and the clamp that follows
+  // the dash keeps every degree of angle the cut bought — cutting a corner is a racing line, not a
+  // cheat. What a cut must NOT buy is a gate the player never drove through: `passed` above is a
+  // pure ANGULAR test with no width in it, so crossing a checkpoint's angle out in the coral is
+  // credited in full, clock top-up, heal, Split Second and lap XP with it. MEASURED before this
+  // block existed, over 4 seeds of a 5-lap race: 72 of 140 checkpoints banked from outside the
+  // passage on a strong Jet Puff build, and the race fell from 97.1s to 53.1s.
+  //
+  // So the cut is free right up until it passes a gate, and then the WHOLE cut is undone — position,
+  // unwrapped angle and the dash itself — back to the last frame the player was on the track.
+  //   ⚠ THE LINE COUNTS AS A GATE, which is why `lap` is hoisted above this rather than read in its
+  // own block below. CIRCUIT_DEFAULTS.lineMul makes the start line the checkpoint that pays DOUBLE,
+  // so leaving it out would make the one gate worth cutting the one gate you may cut.
+  //   ⚠ AND IT RESTORES BEFORE ANYTHING READS `along`. The clock has already ticked above (a
+  // rolled-back frame still costs you its time), but the bank loop, the lap block and the victory
+  // test all sit below and simply never run this frame — so there is no reward to claw back and
+  // `_swimN`, a high-water mark, never has to move backwards.
+  if (run._offTrack && (passed > prev || lap > (run.lap ?? 0)) && run._legalX != null) {
+    run.player.x = run._legalX
+    run.player.y = run._legalY
+    run._ringT = run._legalRingT
+    run._ringRaw = run._legalRingRaw
+    // THE DASH ENDS WITH THE CUT, or the penalty is a stutter instead of a penalty: put back facing
+    // the same line with the same dash still live, the player re-crosses the same gate on the very
+    // next frame and the block fires again, and again. The kick goes with it for the same reason —
+    // stepPlayerMovement spends `_kickX/_kickY` as an impulse that SURVIVES a frame, so a bounce
+    // carried through the restore would drag them straight back out of the passage.
+    run._burstT = 0
+    run._kickX = 0
+    run._kickY = 0
+    run.events.push({ type: 'cutback', x: run.player.x, y: run.player.y, n: prev + 1 })
+    return false
+  }
+  // WHERE TO PUT THEM BACK: the last frame the player was inside the passage. Snapshotted HERE and
+  // not in stepCaveWall because `_ringT` is integrated at the top of this function — a position
+  // without its unwrapped angle would restore the player to the right place with the lap count a
+  // whole turn out, which is the worse half of the bug this block exists to prevent.
+  if (!run._offTrack) {
+    run._legalX = run.player.x
+    run._legalY = run.player.y
+    run._legalRingT = run._ringT
+    run._legalRingRaw = run._ringRaw
+  }
+
   if (passed > prev) {
     for (let k = prev; k < passed; k++) {
       run.raceClock = Math.min(circuitKnob(ch, 'clockCap') * clockMul, run.raceClock + circuitKnob(ch, 'swimTime') * clockMul)
@@ -1928,7 +1977,6 @@ function stepCircuit(run, dt) {
   // free but never profitable.
   run._swimN = Math.max(prev, passed)
 
-  const lap = Math.max(0, Math.floor(along / L))
   if (lap > (run.lap ?? 0)) {
     run.lap = lap
     // The split is what makes the loop legible — see the design doc's note that at 270px/s the art
@@ -4738,7 +4786,7 @@ function clampCrowdToCave(run) {
 function stepCaveWall(run, dt) {
   const ch = CHAPTERS[run.chapter]
   const spec = caveSpecOf(run)
-  if (!spec?.ring) { run._caveHit = false; return false }
+  if (!spec?.ring) { run._caveHit = false; run._offTrack = false; return false }
   const p = run.player
   // ONE CONVERSION, THEN THE ORIGINAL TEST UNCHANGED. Everything below this line is the corridor
   // version word for word — the overshoot, the crash, the island, the tick — because the ring is a
@@ -4746,9 +4794,6 @@ function stepCaveWall(run, dt) {
   // read, and it is still px, so crashSpeed keeps its meaning.
   const fu = ringFU(spec, p.x, p.y)
   const cav = caveAt(fu.f, spec, run._obstacleSeed)
-  // The BURST passes through, the same ruling that waived the old scrape: the dash is the button
-  // that gets you out of trouble, and a wall that stops it is a wall that ends runs on a spend.
-  if ((run._burstT ?? 0) > 0) { run._caveHit = false; return false }
   const off = fu.u - cav.c
   const lim = cav.hw - PLAYER.radius
   // THE ISLAND (caveAt's `ph`): where the passage forks, the middle of it is coral. Same contact,
@@ -4758,6 +4803,17 @@ function stepCaveWall(run, dt) {
   // would pin the player against the outer wall instead of trapping them in coral with no exit.
   const inner = cav.ph > 0 ? Math.min(cav.ph + PLAYER.radius, lim) : 0
   const a = Math.abs(off)
+  // OUT OF THE PASSAGE, PUBLISHED FOR stepCircuit (v7.x). A burst is the ONLY way to be here: on
+  // every other frame the clamp at the bottom of this function has already put the player back
+  // before anything downstream looks, which is why this reads `_burstT` rather than trusting the
+  // geometry alone. stepCircuit reads it to decide whether a checkpoint the player just crossed was
+  // one they actually drove through — see its cut-back block.
+  //   ⚠ COMPUTED ABOVE THE BURST EARLY-OUT, AND THAT IS THE POINT. The early-out is what makes
+  // being off the track possible at all, so a publish placed after it can only ever say `false`.
+  run._offTrack = (run._burstT ?? 0) > 0 && !(a <= lim && a >= inner)
+  // The BURST passes through, the same ruling that waived the old scrape: the dash is the button
+  // that gets you out of trouble, and a wall that stops it is a wall that ends runs on a spend.
+  if ((run._burstT ?? 0) > 0) { run._caveHit = false; return false }
   if (a <= lim && a >= inner) {
     run._caveHit = false
     run._caveAcc = Math.min(run._caveAcc ?? 0, CAVE_HIT_TICK)

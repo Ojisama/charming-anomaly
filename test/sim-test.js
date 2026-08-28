@@ -25798,6 +25798,214 @@ function testReefCircuit() {
     console.log(`PASS run CT.l (the ladder taxes time and room): the passage runs ${Math.round(wide.halfMin * 2)}-${Math.round(wide.halfMax * 2)}px at d1 down to ${Math.round(narrow.halfMin * 2)}-${Math.round(narrow.halfMax * 2)}px at d5 (exactly 2x) on clock x1->x${rungs[4].clock}, leaving all ${gateN} checkpoints where they were and hw scaling uniformly; the throttle that wins at d1 dies on lap ${hard.run.lap} at d5, coral contact goes ${easy.wallFrames}->${hard.wallFrames} frames, and survival falls ${ramp.map((s) => s.toFixed(0)).join('->')}s across the five rungs`)
   }
 
+  // (o) THE CUT-BACK. Owner, 2026-08-28: "the dash must allow players to cut without rollback,
+  // except if that makes them skip a checkpoint, then they rollback".
+  //
+  // WHAT THIS GUARDS IS A HOLE THAT NOTHING ELSE IN THE SUITE CAN SEE, because the defect is a
+  // MISSING test rather than a wrong one: a checkpoint is banked off `along`, the integrated angle
+  // round the ring, with no width anywhere in the expression — so a player out in the coral is
+  // credited for a gate in full, clock and heal and lap XP with it, and every existing assertion
+  // (all 7 fire, in order, no gaps) stays green while it happens. Measured before the cut-back
+  // existed, over 4 seeds of a 5-lap race: 72 of 140 checkpoints banked from OUTSIDE the passage on
+  // a strong Jet Puff build, and the race fell from 97.1s to 53.1s. At the far end a burst aimed at
+  // the ring's hub reaches r ~= 1px, where the atan2 stepCircuit integrates is undefined and the
+  // (-pi, pi] fold flips half a lap per frame: a 5-lap race in 10.3s with a 0.3s best lap, which
+  // goes straight to the public board.
+  //
+  // BOTH DIRECTIONS ARE ASSERTED, and the first one is the half a "just block the burst" fix would
+  // fail. Cutting is meant to WORK — the ruling permits it — so a cut that skips nothing must go
+  // unpunished, and only a cut that crosses a gate may be undone.
+  {
+    const oReef = (seed) => {
+      Math.random = mulberry32(seed)
+      const r = createRun(makeMeta(), { chapter: 'reef', difficulty: 1 })
+      r.mods.spawnMul = 0
+      r.player.hp = r.player.maxHP = 100000
+      for (const q of r.enemies) q._dead = true
+      return r
+    }
+    // Put the player at f, `out` px past the passage's inner face (out 0 = on the centreline).
+    // The unwrapped angle is set with the position, or the first stepped frame reads a teleport as
+    // a lap's worth of travel and every number below is about a race that never happened.
+    const oPlace = (run, f, out, syncT) => {
+      const sp = caveSpecOf(run)
+      const cav = caveAt(f, sp, run._obstacleSeed)
+      const w = ringXY(sp, f, out > 0 ? cav.c + cav.hw + out : cav.c)
+      run.player.x = w.x
+      run.player.y = w.y
+      run._ringRaw = ringFU(sp, w.x, w.y).t
+      if (syncT) run._ringT = (2 * Math.PI * f) / sp.lapLen
+      run._laneSpeed = laneScrollFor(ch) * ch.laneThrottle.max
+    }
+    // OUT OF THE PASSAGE WITHOUT MOVING ALONG IT: same f, a bigger u. This is the shove a Burst
+    // aimed across the track gives you, and doing it at the player's own f is what keeps `_ringT`
+    // honest — an oPlace to a different f would leave the integrated angle behind the position and
+    // the gate would fire at the wrong place, which is a fixture that measures its own teleport.
+    const oShove = (run, out) => {
+      const sp = caveSpecOf(run)
+      const fu = ringFU(sp, run.player.x, run.player.y)
+      const cav = caveAt(fu.f, sp, run._obstacleSeed)
+      const w = ringXY(sp, fu.f, cav.c + cav.hw + out)
+      run.player.x = w.x
+      run.player.y = w.y
+    }
+    // Forward along the track AT THE PLAYER'S OWN u, so a driver placed in coral keeps flying
+    // through coral instead of steering back onto the road and quietly making this a legal run.
+    //   ⚠ THE LEGAL CASE MUST NOT USE THIS ONE, and the first cut of this fixture did: `c` wanders
+    // up to +/-800px at d1, so holding a constant radius walks you out of a passage that moved, and
+    // the "legal" driver was cut back for a cut it never chose to make. It uses `trackStick`, this
+    // scenario's own island-aware centreline follower, which is what a driver staying on the road
+    // actually does.
+    const oCoral = (run) => {
+      const sp = caveSpecOf(run)
+      const fu = ringFU(sp, run.player.x, run.player.y)
+      const w = ringXY(sp, fu.f + 200, fu.u)
+      const dx = w.x - run.player.x, dy = w.y - run.player.y
+      const d = Math.hypot(dx, dy) || 1
+      return { x: dx / d, y: dy / d }
+    }
+    // Drive `frames` frames on `stick` and collect what the circuit said about them.
+    // `stopOnCut` ends the drive on the cut-back itself, which is what makes `got.swims` mean
+    // "banked by the illegal crossing" rather than "banked in the next three seconds". Without
+    // it the fixture counts the gates the player goes on to cross LEGALLY after being put back,
+    // and reads a working rollback as a failure.
+    const oRun = (run, frames, stick = oCoral, stopOnCut = false) => {
+      const sp = caveSpecOf(run)
+      const got = { cutbacks: [], swims: [], laps: [], travel: [], alongAtCut: null }
+      for (let i = 0; i < frames; i++) {
+        const bx = run.player.x, by = run.player.y
+        const beforeAlong = ((run._ringT ?? 0) / (2 * Math.PI)) * sp.lapLen
+        stepSim(run, stick(run), dt)
+        if (got.alongAtCut == null && run.events.some((e) => e.type === 'cutback')) got.alongAtCut = beforeAlong
+        got.travel.push(Math.hypot(run.player.x - bx, run.player.y - by) / dt)
+        for (const e of run.events) {
+          if (e.type === 'cutback') got.cutbacks.push(e)
+          if (e.type === 'swimthrough') got.swims.push(e)
+          if (e.type === 'lap') got.laps.push(e)
+        }
+        run.events.length = 0
+        if (run.phase !== 'playing') break
+        if (stopOnCut && got.cutbacks.length) break
+      }
+      got.along = ((run._ringT ?? 0) / (2 * Math.PI)) * sp.lapLen
+      return got
+    }
+    const oTop = laneScrollFor(ch) * ch.laneThrottle.max
+    const oRoad = (run) => trackStick(run, 1, 150)
+
+    let legalSwims = 0, cutSwims = 0, cutbacks = 0, lineCuts = 0, lineLaps = 0
+    let worstDrift = 0, worstBurstSpeed = 0, worstClockGain = 0
+    const SEEDS_O = [4242, 77, 20260828]
+    for (const seed of SEEDS_O) {
+      const sp = caveSpecOf(oReef(seed))
+      const gates = swimthroughsFor(sp, oReef(seed)._obstacleSeed).map((s) => s.f)
+
+      // -- (1) A LEGAL CROSSING, WITH THE DASH LIVE. Same burst, same speed, inside the passage:
+      // the gate must pay exactly as it always has. This is the assertion that fails if the fix
+      // were "the burst may not cross a gate" rather than "a cut past a gate is undone".
+      {
+        const run = oReef(seed)
+        const G = gates[2]
+        oPlace(run, G - 420, 0, true)
+        run._swimN = null
+        oRun(run, 2, oRoad)
+        run._burstT = 5                                    // a dash long enough to span the gate
+        const got = oRun(run, Math.round(3 / dt), oRoad)
+        legalSwims += got.swims.length
+        assert.strictEqual(got.cutbacks.length, 0,
+          `run CT.o: a driver who crossed checkpoint ${G.toFixed(0)} INSIDE the passage with the dash live was cut back ${got.cutbacks.length} time(s). The ruling permits the cut — only a cut that skips a gate may be undone, and this one skipped nothing`)
+        assert.ok(got.swims.length >= 1,
+          `run CT.o: a legal crossing under a live dash banked ${got.swims.length} checkpoints — the burst has stopped the gate paying at all, which is a harsher rule than the one that was asked for`)
+      }
+
+      // -- (2) THE SAME CROSSING, OUT IN THE CORAL. The gate must not pay, and the cut must be
+      // undone: nothing banked, the player back where they left the track, the dash spent.
+      {
+        const run = oReef(seed)
+        const G = gates[2]
+        // 200 BEHIND THE GATE, and the number is bounded by the generator: SWIMTHROUGH_MIN_GAP
+        // keeps checkpoints 300f apart, so starting inside that window guarantees the next gate
+        // crossed is the one this case is about. The first cut started 420 back and banked the
+        // PREVIOUS checkpoint on the way, then read that legal bank as the exploit surviving.
+        oPlace(run, G - 200, 0, true)
+        run._swimN = null
+        oRun(run, 3, oRoad)                                 // seeds the on-track snapshot
+        const legalX = run.player.x, legalY = run.player.y
+        const swimN0 = run._swimN
+        const clock0 = run.raceClock
+        run._burstT = 5
+        oShove(run, 150)                                    // out into the coral, dash live
+        const got = oRun(run, Math.round(3 / dt), oCoral, true)
+        cutSwims += got.swims.length
+        cutbacks += got.cutbacks.length
+        assert.ok(got.cutbacks.length >= 1,
+          `run CT.o: a driver who crossed checkpoint ${G.toFixed(0)} 150px OUTSIDE the passage was not cut back. The checkpoint test is angular and has no width in it, so this is the shape that banked 72 of 140 gates from the coral and took a 5-lap race from 97.1s to 53.1s`)
+        assert.strictEqual(got.swims.length, 0,
+          `run CT.o: the skipped gate still paid ${got.swims.length} swimthrough(s) — the cut-back has to fire INSTEAD of the bank, not alongside it, or the exploit keeps its reward and merely gains a sound`)
+        assert.strictEqual(run._swimN, swimN0,
+          `run CT.o: _swimN moved ${swimN0} -> ${run._swimN} across a cut-back. It is a high-water mark, so a checkpoint credited here can never be taken back`)
+        worstClockGain = Math.max(worstClockGain, (run.raceClock ?? 0) - clock0)
+        // GROUND GIVEN BACK, AND MEASURED IN f RATHER THAN IN PX FROM THE SHOVE POINT. The first
+        // cut of this assertion compared the landing against where the player was pushed out of the
+        // passage and demanded 400px — but `c` wanders, so a driver holding a constant radius can
+        // find the passage has wandered back over them, which writes a NEW legal snapshot further
+        // round and is correct behaviour the fixture read as a failure (547px). What a rollback
+        // actually has to do is undo progress, so that is what is asserted.
+        assert.ok(got.alongAtCut != null && got.along < got.alongAtCut - 1,
+          `run CT.o: the cut-back left the player at ${got.along.toFixed(0)}f against the ${(got.alongAtCut ?? 0).toFixed(0)}f they had reached — no ground was given back, so the cut keeps everything it stole and pays only a sound`)
+        // ...AND BACK ON THE ROAD. Restoring the angle alone would leave the player sitting in the
+        // coral with the dash spent, i.e. pinned in a wall by their own penalty.
+        {
+          const spN = caveSpecOf(run)
+          const fuN = ringFU(spN, run.player.x, run.player.y)
+          const cavN = caveAt(fuN.f, spN, run._obstacleSeed)
+          assert.ok(Math.abs(fuN.u - cavN.c) <= cavN.hw,
+            `run CT.o: the cut-back left the player ${(Math.abs(fuN.u - cavN.c) - cavN.hw).toFixed(0)}px outside the passage — the penalty has to put them back on the track, not merely rewind the clock on them`)
+        }
+        void legalX; void legalY
+        // AND THE ANGLE CAME BACK WITH THE POSITION. Restoring x/y without _ringRaw leaves the
+        // integrator comparing the restored atan2 against the one from out in the coral, so the
+        // very next frame folds the whole cut straight back into `along` — the player is visibly
+        // returned and the lap count is not.
+        const after = oRun(run, 10, oRoad)
+        worstDrift = Math.max(worstDrift, Math.abs(after.along - got.along))
+        // ...AND THE DASH IS SPENT. Left running, the player is put back facing the same line with
+        // the same pass-through still live and re-cuts on the next frame — a stutter, not a
+        // penalty. Measured as the SPEED they actually travel at, which is where BURST_SPEED_MUL
+        // lands; the flag itself is not the mechanic.
+        worstBurstSpeed = Math.max(worstBurstSpeed, ...after.travel)
+      }
+
+      // -- (3) THE START LINE IS A GATE TOO. CIRCUIT_DEFAULTS.lineMul makes it the checkpoint that
+      // pays DOUBLE, so leaving it out of the test would make the one gate worth cutting the one
+      // gate a player may cut.
+      {
+        const run = oReef(seed)
+        const L0 = sp.lapLen
+        oPlace(run, L0 - 200, 0, true)
+        run._swimN = null
+        oRun(run, 3, oRoad)
+        const lap0 = run.lap ?? 0
+        run._burstT = 5
+        oShove(run, 150)
+        const got = oRun(run, Math.round(3 / dt), oCoral, true)
+        lineCuts += got.cutbacks.length
+        lineLaps += got.laps.length
+        assert.ok(got.cutbacks.length >= 1,
+          `run CT.o: crossing the START LINE 150px outside the passage was not cut back — the line pays x${circuitKnob(ch, 'lineMul')} of a checkpoint, so it is the most valuable gate on the track to skip`)
+        assert.strictEqual(run.lap ?? 0, lap0,
+          `run CT.o: a lap banked from outside the passage (${lap0} -> ${run.lap}). A lap is the chapter's XP till and its win condition; cutting the line has to cost the lap, not just the sound`)
+      }
+    }
+    assert.ok(worstClockGain < 0.001,
+      `run CT.o: a cut-back still put ${worstClockGain.toFixed(2)}s on the race clock — the whole reward of a checkpoint is that top-up, so paying it makes the penalty a formality`)
+    assert.ok(worstDrift < 250,
+      `run CT.o: ten frames after the cut-back the lap position had drifted ${worstDrift.toFixed(0)}px of track from where the rollback left it. The unwrapped angle is not being restored with the position, so the player is visibly returned and the lap count keeps the cut`)
+    assert.ok(worstBurstSpeed < oTop * 1.25,
+      `run CT.o: the player was still travelling ${worstBurstSpeed.toFixed(0)}px/s after the cut-back, against a non-dash top of ${oTop.toFixed(0)} (x${BURST_SPEED_MUL} while a burst is live) — the dash survived the rollback, so the same line is re-cut on the next frame and the penalty is a stutter`)
+    console.log(`PASS run CT.o (the cut-back): over ${SEEDS_O.length} seeds, a dash that crosses a gate INSIDE the passage banks all ${legalSwims} of them untouched; the same crossing 150px out in the coral banks ${cutSwims}, raises ${cutbacks} cut-backs, each giving back the ground it stole and landing the player inside the passage with +${worstClockGain.toFixed(2)}s of clock and ${worstDrift.toFixed(0)}px of lap drift over the next 10 frames; the start line cuts back ${lineCuts} times for ${lineLaps} laps banked`)
+  }
+
   console.log(`PASS run CT (the circuit): ${SWIMTHROUGHS_PER_LAP} swimthroughs a lap on 4 seeds, ${Math.min(...picked.map((s) => s.hw)).toFixed(0)}-${Math.max(...picked.map((s) => s.hw)).toFixed(0)}px wide against a ${spec.halfMin.toFixed(0)}-${spec.halfMax.toFixed(0)} d1 passage and never closer than 400px apart; full throttle finishes ${ch.circuit.laps} laps in ${fast.run.raceTime.toFixed(2)}s real (splits ${splits.map((s) => s.toFixed(1)).join('/')}, spread ${spread.toFixed(2)}s) crossing all ${fast.swims.length} checkpoints; easing off dies to the clock at ${slow.run._realTime.toFixed(1)}s; The Beyond grows neither clock nor lap`)
 }
 
