@@ -571,6 +571,10 @@ const SFX_FOR_EVENT = {
   // takes the same whoosh, which is both the right voice for a wall of water and the reason the
   // swap is inaudible as a regression: one press, one sample, exactly as before.
   shorebreak: 'hole',
+  // v7.x The Reef: the Burst does the same, for the same reason — a `burst` chapter no longer fires
+  // the shove (stepRepulse returns), so without this line the one press in the chapter would be
+  // silent. Same whoosh the shove itself had, so the swap is inaudible as a regression.
+  burst: 'hole',
   // v5.24 The Blank: the boss's scripted arrival/final kill and the P2 node yank each get their
   // own beat (audio.js) — the fight only has three of these total, no throttling needed.
   bossSpawn: 'bossRise', bossDead: 'bossFall', yank: 'zap',
