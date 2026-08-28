@@ -11,6 +11,13 @@ const lastPlay = {}
 // same run.gems.push path a kill uses — see sim.js's stepCrush/CRUSH_XP) — without a throttle both
 // sounds machine-gun the audio graph in lockstep with the crush rate (design doc §2).
 const THROTTLE_MS = { shoot: 40, hit: 40, zap: 40, crush: 70, gem: 50 }
+// The ⚙ settings row's sound switch (persisted as meta.sfx). A flag rather than master.gain = 0,
+// because it has to hold before initAudio has ever run — the switch is thrown on the title screen,
+// where there is no AudioContext yet.
+let sfxOn = true
+
+/** Sound on/off (ui.js's ⚙ row -> main.js onSfx -> here). */
+export function setSfxOn(on) { sfxOn = on }
 
 /** Create/resume the AudioContext. Must be called from a user gesture (Play button). */
 export function initAudio() {
@@ -140,7 +147,7 @@ const SFX = {
 }
 
 export function playSfx(name) {
-  if (!ctx) return
+  if (!ctx || !sfxOn) return
   // while resuming, still schedule — WebAudio queues events until the context runs
   if (ctx.state === 'suspended') ctx.resume()
   else if (ctx.state !== 'running') return

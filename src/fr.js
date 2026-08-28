@@ -151,8 +151,12 @@ const UI = {
   'add booster': 'ajouter un booster',
   'language': 'langue',
   'skill button': 'bouton d\'action',
+  'sound': 'son',
   'Left': 'Gauche',
   'Right': 'Droite',
+  // The sound row's two values. ACTIF/INACTIF rather than OUI/NON, the same register the cloud-sync
+  // row below already settled on — one ⚙ sheet, one word for a thing being on.
+  'On': 'Actif',
   'Slot': 'Emplacement',
   // The one thing a shared save link (main.js) can say out loud. It never overwrites a slot,
   // so the only failure is a full save file or a mangled link, and both read the same way here.
