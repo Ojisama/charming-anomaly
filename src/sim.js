@@ -29,7 +29,7 @@
 
 import {
   RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
-  PASSIVES, MAX_PASSIVE_LEVEL, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
+  PASSIVES, MAX_PASSIVE_LEVEL, passiveTotal, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
   MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, DUO_PITY_SCREENS, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
   ELEMENTS, MAX_ELEMENT_PICKS,
   // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
@@ -151,14 +151,16 @@ import {
   CRAB_OPEN_T,
   CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
-  caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK,
+  swimthroughsFor, circuitKnob, caveSpecOf,
+  ringXY, ringFU, ringHeading, ringCentre, ringDelta,
+  caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY,
   LANE_CRUSH_DPS, LANE_CRUSH_TICK,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
-  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
+  REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, refillGrantFor, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
   SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
-  BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, DROWN_TICK,
+  BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_RAM_MUL, BURST_RAM_COINS, DROWN_TICK,
   SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
   FIRE_CORAL_LEAD, SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, INK_BLIND_REACH, INK_JET_SPREAD, TANK_SHOVE_KB,
   LAST_BREATH_MAX_DMG_MUL, LAST_BREATH_DROWN_TAKEN_MUL,
@@ -261,7 +263,10 @@ export function stepSim(run, input, dt) {
   flushSpawns(run)
   // v5.24: a scripted chapter (The Blank) has no timer victory at all — killing the script's last
   // boss IS the win (see stepBossScript), so the survival clock below never fires there.
-  if (!CHAPTERS[run.chapter].scripted && run.time >= RUN_DURATION) {
+  // v7.x: a `circuit` chapter is won by finishing its laps (stepCircuit), not by outlasting a
+  // clock — the same exemption a scripted chapter takes, for the same reason. Without this the
+  // Reef would end at 300s mid-race regardless of how far round the track the player had got.
+  if (!CHAPTERS[run.chapter].scripted && !CHAPTERS[run.chapter].circuit && run.time >= RUN_DURATION) {
     run.phase = 'victory'
     run.events.push({ type: 'victory' })
     return
@@ -308,6 +313,7 @@ export function stepSim(run, input, dt) {
   stepEnemySeparation(run) // v6.5.1: push overlapping enemies apart (owner directive: no 100% stacks)
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any) — terrain snaps last and wins
 
+  stepRam(run)            // v7.x The Reef: the Burst ploughs the crowd, the bite's own slot
   stepBite(run)           // v7.x The Wreck: the Lunge's bite, after the dash has moved the player
   stepCrush(run)          // v5.8 skies kaiju: destroy any structure overlapping the crush radius
   stepRampage(run, dt)    // v5.8 skies kaiju: rampage meter decay/trigger/drain (crush-gated, no-op elsewhere)
@@ -319,6 +325,7 @@ export function stepSim(run, input, dt) {
   // before the sweep reads the same viewport expression.
   if (stepCaveWall(run, dt)) return // v7.x reef: touched the cave wall (phase may be 'dead')
   if (stepLaneFront(run, dt)) return // v7.x reef: pinned against the back edge (phase may be 'dead')
+  if (stepCircuit(run, dt)) return // v7.x reef: the lap, the swimthroughs and the race clock (phase may be 'victory' or 'dead')
   if (stepLeaks(run)) return // v5.18 beyond lane: invaders that got past you (phase may be 'dead')
   if (stepContactDamage(run)) return // phase is now 'dead'
   if (stepBombs(run, dt)) return // phase is now 'dead' (volatile-elite death bomb blast)
@@ -339,6 +346,16 @@ export function stepSim(run, input, dt) {
   stepMartyr(run)         // v7.2: resolve the anomaly's queued blasts — after every hurtPlayer caller above
   stepGravityWells(run, dt) // v5.4 beyond signature: bend every projectile in flight (damages nothing)
   stepWeapons(run, dt)
+  // TERRAIN SNAPS LAST AND WINS — the same rule stepObstacles states one screen up, and the reason
+  // this is here rather than beside stepCaveWall (which is where the player's half lives). A body's
+  // position is written by half a dozen things in a frame: its own swim, separation, the obstacle
+  // push-out, knockback, a weapon's shove. Clamping before those runs corrects a stale position and
+  // leaves a body sitting in coral for the frame it is actually drawn and touched in.
+  //   It also keeps every weapon fixture honest. run RN plants bodies at exact offsets and reads
+  // what a weapon does to them; a clamp ahead of stepWeapons snaps those bodies to a wall face
+  // mid-step, and the case then measures a fixture that was never where it put it — which cost
+  // RN.d a ratio of 0.733 against the 0.625 the weapon was correctly producing.
+  clampCrowdToCave(run)
   stepStatuses(run, dt)
   stepPickups(run, dt)
   stepLevelUp(run)
@@ -359,7 +376,11 @@ export function applyChoice(run, i, subject = null) {
     if (existing) existing.level = Math.min(MAX_WEAPON_LEVEL, existing.level + 1)
     else if (run.weapons.length < MAX_WEAPONS) run.weapons.push({ id: choice.id, level: 1 })
   } else if (choice.kind === 'passive') {
-    run.passives[choice.id] = (run.passives[choice.id] ?? 0) + choice.bonus
+    // passiveTotal, not `+ bonus`: a passive carrying a `cap` (config.js) banks along an asymptote
+    // instead of a line. Uncapped ids are untouched — the helper returns the same sum for them —
+    // so this is the ONE site the whole game's passive arithmetic goes through, which is what stops
+    // the card's printed total and the banked one drifting apart.
+    run.passives[choice.id] = passiveTotal(choice.id, run.passives[choice.id] ?? 0, choice.bonus)
     run.passivePicks[choice.id] = (run.passivePicks[choice.id] ?? 0) + 1
     if (choice.id === 'maxHP') {
       // BRITTLE (v7.2) holds the ceiling for the whole run. Without this the card is repairable:
@@ -373,6 +394,17 @@ export function applyChoice(run, i, subject = null) {
         // it. That is the card working — "you can never heal again", not "you can never grow".
         healPlayer(run, choice.bonus)
       }
+    }
+    if (choice.id === 'airMax') {
+      // AIR CAPACITY grows the bar the same way maxHP grows the HP pool, and for the same reason it
+      // has to happen HERE: run.chargeMax is a run-start value (state.js reads resource.max once),
+      // so a card taken mid-race would otherwise raise a number nothing reads again. Fills by the
+      // same amount it added, exactly as maxHP heals by its own bonus — a bigger lung you have to
+      // go and fill is a card that does nothing until the next pocket, which on a race clock is a
+      // card that did nothing.
+      const grew = run.chargeMax * choice.bonus
+      run.chargeMax += grew
+      run.charge = Math.min(run.chargeMax, run.charge + grew)
     }
   } else if (choice.kind === 'mod') {
     const mods = run.weaponMods[choice.weapon]
@@ -655,6 +687,9 @@ function stepPlayerMovement(run, input, dt) {
   const p = run.player
   let ix = input?.x || 0
   let iy = input?.y || 0
+  // THE RAW STICK, KEPT. In a `circuit` the forward component is a THROTTLE, not half of a
+  // direction, and the unit-circle clamp below is the wrong tool for it — see the lane branch.
+  const rawX = ix, rawY = iy
   const len = Math.hypot(ix, iy)
   if (len > 1) { ix /= len; iy /= len } // clamp to unit circle, keep sub-unit analog magnitude
 
@@ -785,10 +820,130 @@ function stepPlayerMovement(run, input, dt) {
     // symmetric: full push is thr.max and full ease-off is thr.min, and the low one may never reach
     // 0 — a lane that can be stopped is not a lane.
     const thr = CHAPTERS[run.chapter].laneThrottle
-    const fwdIn = Math.max(-1, Math.min(1, (ax.fwd === 'x' ? ix : iy) * ax.dir))
+    // THROTTLE AND STEERING ARE SEPARATE CONTROLS IN A CIRCUIT, so the throttle reads the RAW stick
+    // and not the unit-clamped one (owner, 2026-08-25).
+    //   The clamp is right for a direction and wrong for a throttle. A player correcting their line
+    // at full push sends (1, 1), which hypot scales to (0.707, 0.707) — so the throttle formula gave
+    // 1 + 0.707 x 2 = 2.41 instead of 3, and MEASURED 217.3px/s against 270. Turning cost 19.5% of
+    // top speed, and nobody chose that number: it fell out of a 2D movement helper written for a
+    // twin-stick game where the stick is a heading. In a lane it is two controls sharing one stick.
+    //   The CROSS axis still reads the clamped value, so strafe speed stays bounded exactly as it
+    // was. Only the forward read changes, and only where `circuit` is set — every other lane chapter
+    // keeps the old behaviour by construction.
+    const fwdSrc = CHAPTERS[run.chapter].circuit ? (ax.fwd === 'x' ? rawX : rawY) : (ax.fwd === 'x' ? ix : iy)
+    const fwdIn = Math.max(-1, Math.min(1, fwdSrc * ax.dir))
     run._laneThrottle = thr ? 1 + fwdIn * (fwdIn >= 0 ? thr.max - 1 : 1 - thr.min) : 1
     p[ax.vCross] = (ax.cross === 'x' ? ix : iy) * speed * LANE_STRAFE_MUL
-    p[ax.vFwd] = ax.dir * laneScrollFor(CHAPTERS[run.chapter], run.mods) * burstMul * run._laneThrottle
+    // MOMENTUM (v7.x, a `circuit` chapter only — see CIRCUIT_ACCEL). The throttle stops BEING the
+    // speed and starts being the speed you are asking for; run._laneSpeed eases toward it. Gated on
+    // `circuit` and never on `lane`, so The Beyond keeps its golden master by construction.
+    //
+    // SEEDED AT THE TARGET, NOT AT 0, and that is not a nicety: a run that eases up from a standstill
+    // spends its first half-second travelling slower than the lane it is scored against, which would
+    // silently tax every lap 1 in the game and show up as a mystery split.
+    // THE BURST IS NOT SUBJECT TO MOMENTUM, and that is a statement about what each one models
+    // rather than a tuning convenience. Momentum is the weight of your own swimming: lean into it
+    // and you gather speed, ease off and you shed it. A burst is an IMPULSE — you do not accelerate
+    // into a dash, the dash is the acceleration. So the ease targets the throttle alone and the
+    // multiplier lands on top of the result.
+    //   Folding the burst into the eased target instead breaks the dash outright, and quietly: at
+    // BURST_SPEED_MUL 9 the target leaps to 810px/s, which at CIRCUIT_ACCEL takes 1.7s to reach,
+    // while an empty press lasts BURST_DUR_MIN 0.3s. Run RF.d measured the result at 42px against
+    // the 206px the button promises — the dash was still "firing", just never arriving.
+    // TURBO FIN raises the ceiling the throttle reaches for; QUICK START is how fast you get there.
+    // Both are folded here rather than at their card, because this is the one expression that owns
+    // the player's forward speed and a second site would drift from it.
+    const want = laneScrollFor(CHAPTERS[run.chapter], run.mods) * run._laneThrottle * (1 + (run.passives.topSpeed ?? 0))
+    if (CHAPTERS[run.chapter].circuit) {
+      // SEEDED AT THE CHAPTER'S OWN SCROLL — not at 0, and not at `want`.
+      //   Not 0: a run easing up from a standstill travels slower than the lane it is scored
+      // against for its first half-second, taxing every lap 1 and showing up as a mystery split.
+      //   Not `want`: that hands the FIRST FRAME of input for free, so a stick already pushed at
+      // t=0 is at x3 before momentum exists. One frame is nothing to play but it is exactly the
+      // sort of edge a time board eventually finds, and it made run RS.e green for the wrong
+      // reason — the old assertion demanded x3 after a single frame and got it from this seed
+      // rather than from the throttle.
+      if (run._laneSpeed == null) run._laneSpeed = laneScrollFor(CHAPTERS[run.chapter], run.mods)
+      // Toward `want` at a fixed px/s^2, never past it — a clamped step rather than a lerp, so the
+      // ramp takes the same time whatever the frame rate and cannot overshoot on a long dt. stepSim
+      // clamps dt to 0.05s, so the largest single step is 21px/s.
+      const step = circuitKnob(CHAPTERS[run.chapter], 'accel') * (1 + (run.passives.accelRate ?? 0)) * dt
+      run._laneSpeed = run._laneSpeed < want
+        ? Math.min(want, run._laneSpeed + step)
+        : Math.max(want, run._laneSpeed - step)
+      p[ax.vFwd] = ax.dir * run._laneSpeed * burstMul
+    } else {
+      p[ax.vFwd] = ax.dir * want * burstMul
+    }
+    if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
+  } else if (CHAPTERS[run.chapter].circuit) {
+    // THE RING (v7.x, The Reef). The chapter dropped `lane: true` when the track became a closed
+    // loop (see ringXY in config.js), so the branch above no longer fires here and this is what
+    // owns the player's velocity instead. Two controls sharing one stick, exactly as the lane's
+    // throttle was, but neither of them is pinned to a world axis any more:
+    //   DIRECTION comes from the stick and is taken IMMEDIATELY. THROTTLE is its magnitude, and
+    // only the throttle has momentum.
+    //   ⚠ THAT SPLIT IS THE OWNER'S RULING ("steering must not cost throttle") AND IT IS WHY THE
+    //   VELOCITY VECTOR IS NOT EASED AS A VECTOR. Easing (vx, vy) toward the target vector is the
+    //   obvious way to write this and it bleeds speed on every corner — the harder you turn, the
+    //   more of your speed the ease spends rotating instead of carrying you. That is precisely the
+    //   tax the ruling forbids, arrived at from a different direction than the unit-clamp bug was.
+    const cch = CHAPTERS[run.chapter]
+    const top = laneScrollFor(cch, run.mods) * (cch.laneThrottle?.max ?? 1) * (1 + (run.passives.topSpeed ?? 0))
+    const thr = Math.min(1, len)
+    const want = top * thr
+    // SEEDED AT THE CHAPTER'S OWN SCROLL, not at 0 and not at `want` — the lane branch's reasoning,
+    // unchanged: from 0 the opening half-second is slower than the track is scored against, and
+    // from `want` a stick already pushed at t=0 is at full speed before momentum exists.
+    if (run._laneSpeed == null) run._laneSpeed = laneScrollFor(cch, run.mods)
+    // ⚠ QUICK START SPEEDS THE RAMP UP AND NOT THE RAMP DOWN, and applying it to both is what made
+    // the card inert. `accel` is symmetric — it is the rate the speed eases toward the throttle in
+    // either direction — so a card that raised it also made you SHED speed faster on every corner
+    // entry. Measured over three seeded races with a cornering brake: +0.13s with no braking (you
+    // ramp once, at the start), and -0.05 / -0.07 / 0.00 with braking, i.e. the gain out of a
+    // corner paid for exactly by the loss into it. The card is called Quick Start.
+    const rising = run._laneSpeed < want
+    const step = circuitKnob(cch, 'accel') * (1 + (rising ? (run.passives.accelRate ?? 0) : 0)) * dt
+    run._laneSpeed = rising
+      ? Math.min(want, run._laneSpeed + step)
+      : Math.max(want, run._laneSpeed - step)
+    // THE HEADING IS REMEMBERED. Let go of the stick and you coast on the line you were holding
+    // rather than stopping dead facing nowhere — which is what momentum means to a driver, and
+    // what makes easing off into a corner a move instead of a mistake.
+    // ⚠ NORMALISED, AND ix/iy ARE NOT. The unit-circle clamp above only divides when len > 1, so a
+    // HALF-pushed stick arrives here as (0.5x, 0.5y) — and multiplying that by _laneSpeed applies
+    // the throttle a second time. Measured: a stick at min/max = 0.167 of full moved the player at
+    // 7.5px/s instead of 45, i.e. throttle SQUARED. It is invisible at full stick, which is what
+    // every fixture and every probe had been holding, and it is the whole feel of easing into a
+    // corner. The throttle is the MAGNITUDE (read off `len` below); this is only the direction.
+    if (len > 1e-6) { run._headX = ix / Math.min(1, len); run._headY = iy / Math.min(1, len) }
+    else if (run._headX == null) {
+      const spec0 = caveSpecOf(run)
+      const h0 = spec0?.ring ? ringHeading(spec0, 0, run._obstacleSeed) : 0
+      run._headX = Math.cos(h0); run._headY = Math.sin(h0)
+    }
+    const burstMul2 = (run._burstT ?? 0) > 0 ? BURST_SPEED_MUL : 1
+    // THE BOUNCE (v7.x — CIRCUIT_DEFAULTS' kick block). Coral and traffic both throw the player,
+    // and this is the ONLY impulse in the chapter that survives a frame: the two lines below
+    // rewrite the velocity from (heading x speed) every frame, so an impulse written into p.vx is
+    // erased before it moves anything. That is why the old bumpKnock was a position teleport, and
+    // a one-frame displacement is not a bounce — it is a correction you cannot see. Summed here
+    // instead, decaying over kickDecay, so the rebound plays out and reads.
+    //   NOT ROTATED INTO THE HEADING: run._headX/_headY are what the fish points along and what
+    // the throttle drives, and a bounce that turned the player would be a steering input. You are
+    // shoved sideways while still facing your line, which is what a wall does to a car.
+    const kx = run._kickX ?? 0, ky = run._kickY ?? 0
+    p.vx = run._headX * run._laneSpeed * burstMul2 + kx
+    p.vy = run._headY * run._laneSpeed * burstMul2 + ky
+    if (kx || ky) {
+      // A CONSTANT DRAG TO A HARD ZERO, never a fraction a frame — see kickDrag's block for the
+      // measurement. `kick *= 1 - dt/T` is a half-life: it never ends, so the impulse arrives as a
+      // long weak tail and the impact reads as a current rather than as a wall.
+      const mag = Math.hypot(kx, ky)
+      const left = mag - circuitKnob(cch, 'kickDrag') * dt
+      if (left <= 0) { run._kickX = 0; run._kickY = 0 }
+      else { run._kickX = (kx / mag) * left; run._kickY = (ky / mag) * left }
+    }
     if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
   } else if ((run._lungeT ?? 0) > 0) {
     // THE LUNGE (v7.x, The Wreck). The free-roaming twin of the burst above, and it has to live in
@@ -828,7 +983,9 @@ function stepPlayerMovement(run, input, dt) {
   // shadow squash, the eye look), so without it the fish holds a full idle pose while crossing
   // 270px at 900px/s — the same publish-into-the-contract-field fix p.facingAngle needed at the
   // press site, and invisible for exactly the same reason.
-  p.moving = lane || len > 1e-6 || (run._lungeT ?? 0) > 0   // in the lane you are never stationary
+  // ...and in a CIRCUIT the same is true for the same reason: momentum carries you with the stick
+  // released, so a `len > 0` test would hold a full idle pose through a coasting corner.
+  p.moving = lane || len > 1e-6 || (run._lungeT ?? 0) > 0 || (CHAPTERS[run.chapter].circuit && (run._laneSpeed ?? 0) > 1)
   if (ix > 1e-6) p.facing = 1
   else if (ix < -1e-6) p.facing = -1
   // v5.0: last non-zero move direction as a full angle — render orients the pond tail to it, and
@@ -836,6 +993,10 @@ function stepPlayerMovement(run, input, dt) {
   // Stays null until the player first moves. In the lane you always face up it, so a weapon with
   // nothing to shoot at fires forward rather than at wherever you last strafed.
   if (ax) p.facingAngle = ax.angle
+  // A CIRCUIT FACES ITS OWN HEADING, not the last frame the stick was touched: coasting round a
+  // bend with the stick released, `len` is 0 and the fish would keep pointing wherever it was aimed
+  // when you let go.
+  else if (CHAPTERS[run.chapter].circuit && run._headX != null) p.facingAngle = Math.atan2(run._headY, run._headX)
   else if (len > 1e-6) p.facingAngle = Math.atan2(iy, ix)
 
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt)
@@ -913,7 +1074,10 @@ function stepSpawning(run, dt) {
   // than a wall. See LANE_SPAWN_MUL.
   // laneEarlyMul is the +33% opening (see LANE_EARLY_BOOST) — it also compresses the rank cadence in
   // stepFormations, because the ranks are the majority of this chapter's early arrivals.
-  const laneMul = CHAPTERS[run.chapter].lane ? LANE_SPAWN_MUL * laneEarlyMul(run.time) : 1
+  // ...and a `circuit` reads the same multiplier, for the reason the lane does: everything spawns
+  // ahead of you and streams past once, so the population on screen at any moment is a fraction of
+  // what a free-roam chapter's ring holds around a player who can turn and re-meet it.
+  const laneMul = (CHAPTERS[run.chapter].lane || CHAPTERS[run.chapter].circuit) ? LANE_SPAWN_MUL * laneEarlyMul(run.time) : 1
   // CHAOS PACT (v7.2): the danger half of the cycle. Read-time, never written into run.mods —
   // that table is the run's MUTATOR product, chosen before the run, and folding a per-second
   // oscillation into it would corrupt it permanently (the same reason RAMPAGE's multipliers are
@@ -1388,7 +1552,16 @@ function stepRepulse(run, input, dt) {
   if (!ch.lane && !ch.resource) return
   run.repulseCd = Math.max(0, (run.repulseCd ?? 0) - dt)
   if (!input.skill || run.repulseCd > 0) return
-  run.repulseCd = REPULSE_CD
+  // FAST TWITCH (PASSIVES.dashCooldown) comes off the cooldown HERE, at the one site that arms it,
+  // for the reason passiveTotal's own block gives about applyChoice: run.passives holds the applied
+  // total, so a single subtraction at the single write site cannot drift against a second one.
+  // Chapter-scoped by the PASSIVES entry, exactly like dashLength below -- outside The Reef the
+  // total is 0 and this line is REPULSE_CD unchanged, which is what keeps the card off every other
+  // chapter's button without a chapter name appearing here.
+  //   Floored at 0.5s rather than at 0: the cap is 2.5 against a 6.0 cooldown so the floor is
+  // unreachable today, and it is here so that a future retune of either constant cannot make the
+  // button free (or the timer negative) by arithmetic nobody re-read. See PASSIVES.dashCooldown.
+  run.repulseCd = Math.max(0.5, REPULSE_CD - (run.passives.dashCooldown ?? 0))
   const p = run.player
   // The amplification. `spend` is capped by what the bar actually holds, so an EMPTY bar leaves
   // t = 0 and the shipped v5.21 shove fires unchanged - the floor that stops the spiral where
@@ -1411,6 +1584,33 @@ function stepRepulse(run, input, dt) {
     run.events.push({ type: 'shorebreak', x: p.x, y: p.y, r: SHOREBREAK_RADIUS, charged: t, dur: run._shorebreakT })
     return
   }
+  // THE BURST (v7.x, The Reef — CHAPTERS[].burst). Same press, same cooldown, same `t`, and it
+  // RETURNS on the shorebreak's own argument: a `burst` chapter does not also fire the shove — no
+  // `repulse` event, no impulse loop below, no stagger. Owner, 2026-08-28: "the dash should not push
+  // back enemies, since it kills enemies now." The two halves were cancelling. stepRam eats what the
+  // dash ploughs through, and a shove on the same press threw that crowd clear of the reach the ram
+  // is measured against (BURST_RAM_MUL, 62px), so the button spent its charge making its own kill
+  // less likely. The Wreck settled the same collision by SEPARATING them — LUNGE_ARM_DIST, the shove
+  // takes what is on top of you and the dash what is out there — but a race is all traffic and has
+  // no "out there" to separate into, so here the shove goes instead.
+  //
+  // Set here rather than in stepPlayerMovement so the whole cast is one place, and read there because
+  // the lane owns the forward velocity — see the burstMul line in that function, and BURST_* in
+  // config.js for why the length and not the speed is what the bar buys. At t = 0 this is still
+  // BURST_DUR_MIN, never 0: spec §8.2's no-spiral floor says an empty bar may leave the player
+  // slower, never structurally trapped.
+  //
+  // THE `burst` EVENT NOW CARRIES THE WHOLE PRESS, sound included — it takes the shove's own whoosh
+  // in SFX_FOR_EVENT (main.js), exactly as `shorebreak` did when it replaced the Pulse, so the press
+  // is still one press and one sample and the swap is inaudible as a regression.
+  if (ch.burst) {
+    // DASH LENGTH ('Jet Puff') stretches the whole range, floor included — the floor exists so an
+    // empty bar still buys a way out (see BURST_DUR_MIN's no-spiral argument), and a card that only
+    // paid at a full bar would be worth nothing in exactly the moment the button matters.
+    run._burstT = (BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t) * (1 + (run.passives.dashLength ?? 0))
+    run.events.push({ type: 'burst', x: p.x, y: p.y })
+    return
+  }
   // THE CLEAR reaches further and staggers longer, off the SAME floor and the same `t` — an empty
   // bar throws exactly the shipped 340px shove in every chapter, this one included, so the widening
   // is something the bar buys rather than something the chapter is given. See CLEAR_* in config.js.
@@ -1423,14 +1623,6 @@ function stepRepulse(run, input, dt) {
   // cooldown feel arbitrary" - pushing REPULSE_RADIUS here would draw the 340px floor ring around
   // a 620px shove, which is that exact complaint with a bigger gap.
   run.events.push({ type: 'repulse', x: p.x, y: p.y, r: radius, charged: t })
-  // THE BURST (v7.x, The Reef — CHAPTERS[].burst). The same press, the same cooldown and the same
-  // `t`: a chapter declaring `burst` gets a forward dash on top of the shove, its DURATION bought
-  // with the charge that was already spent above. Set here rather than in stepPlayerMovement so the
-  // whole cast is one place, and read there because the lane owns the forward velocity — see the
-  // burstMul line in that function, and BURST_* in config.js for why the length and not the speed
-  // is what the bar buys. At t = 0 this is still BURST_DUR_MIN, never 0: spec §8.2's no-spiral floor
-  // says an empty bar may leave the player slower, never structurally trapped, and in a lane where
-  // the coral is solid "trapped" is a thing that can actually happen.
   // THE CLEAR (v7.x, The Shelf — CHAPTERS[].clear). Same press, same cooldown, same `t` again, and
   // the shove above still fires. All this line arms is the SIGHT window; the wider reach and the
   // longer stagger were already folded in above, because they are the shove rather than a second
@@ -1442,15 +1634,8 @@ function stepRepulse(run, input, dt) {
   // on the same frame and play the shove's sample twice, which is the exact complaint run SK.e pins
   // for The Surf. The murk visibly opening is the tell, and it is a bigger one than any ring.
   if (ch.clear) run._clearT = CLEAR_DUR_MIN + (CLEAR_DUR_AT_FULL - CLEAR_DUR_MIN) * t
-  // UNLIKE CLEAR, THE BURST NEEDS ITS OWN EVENT: Clear's tell is the murk visibly opening, but a
-  // dash through open water has no other visible sign the shove's own ring didn't already cover —
-  // `_burstT` had zero render.js consumer before this line (grep `_burstT` src/render.js was empty).
-  if (ch.burst) {
-    run._burstT = BURST_DUR_MIN + (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t
-    run.events.push({ type: 'burst', x: p.x, y: p.y })
-  }
   // THE LUNGE (v7.x, The Wreck — CHAPTERS[].lunge). Same press, same cooldown, same `t`, and the
-  // shove above still fires — this is additive like the burst, not a replacement like the shorebreak.
+  // shove above still fires — this one is additive, not a replacement like the shorebreak and the burst.
   //
   // THE FLOOR IS THE SHOVE ITSELF, and `LUNGE_DUR_AT_FULL * t` is the ONE thing that delivers it.
   // Every other chapter's second verb has a non-zero floor (BURST_DUR_MIN, BREACH_R_MIN,
@@ -1655,6 +1840,247 @@ function seekerBack(run, ax) {
 // screen while stuck. That is why the world appears to stall when you are pinned: it has, because
 // the alternative is watching your own fish leave the frame. The reef grinds while it waits, and
 // the moment you strafe into a groove the front is free to run again.
+// THE CIRCUIT: laps, swimthroughs and the race clock (v7.x, The Reef).
+//
+// The whole chapter's scoring lives here and it is deliberately small, because everything it needs
+// already exists: the lap is a DISTANCE (the track repeats every cave.lapLen, so the lap index is
+// a division), the checkpoints are a pure function of the seed computed once, and the clock is one
+// float. No streaming, no pools, no per-frame search.
+//
+// SCORED ON run._realTime, NEVER run.time. Time Debt advances run.time at 1.5x, and a race time is
+// compared across runs — banking the inflated one would let an anomaly shave real seconds off a
+// board sorted fastest-first. Every gameplay system here still reads run.time; only the RECORD is
+// in real seconds. See its own block at the top of stepSim.
+//
+// @returns true if the run ended this frame (phase is 'victory' or 'dead') — stepSim must stop.
+function stepCircuit(run, dt) {
+  const ch = CHAPTERS[run.chapter]
+  const cc = ch.circuit
+  if (!cc) return false
+  const spec = caveSpecOf(run)
+  const L = spec?.lapLen
+  if (!L) return false
+  if (!spec.ring) return false
+
+  // HOW FAR ROUND, AS AN UNWRAPPED ANGLE. On a lane this was `player[fwd] * dir` — a coordinate that
+  // only ever grows. A ring has no such coordinate: atan2 wraps at every half turn, so the lap count
+  // has to be integrated rather than read. Accumulating the per-frame DELTA is what makes a lap
+  // boundary need no special case at all, exactly as the lane's running count did.
+  //   The delta is folded into (-pi, pi], which is correct for any speed this game can reach: at
+  // the 2430px/s the old burst managed, one clamped 0.05s frame covered 121px against the ~4100px
+  // half-circumference. A frame that genuinely crossed half the ring would be unrecoverable, and it
+  // is unreachable by three orders of magnitude.
+  const fuP = ringFU(spec, run.player.x, run.player.y)
+  let dT = fuP.t - (run._ringRaw ?? fuP.t)
+  if (dT > Math.PI) dT -= 2 * Math.PI
+  else if (dT < -Math.PI) dT += 2 * Math.PI
+  run._ringRaw = fuP.t
+  run._ringT = (run._ringT ?? 0) + dT
+  const along = (run._ringT / (2 * Math.PI)) * L
+
+  // The chosen six, once per run. They are identical for every lap because the track is.
+  if (!run._swims) run._swims = swimthroughsFor(spec, run._obstacleSeed)
+
+  // TIDAL RACE'S ONE KNOB (MUTATORS.tidalRace). It has to touch all THREE of the clock's numbers or
+  // it is not a tax at all: shorten only the start and a player is level again after one checkpoint.
+  const clockMul = run.mods?.raceClockMul ?? 1
+  if (run.raceClock == null) run.raceClock = circuitKnob(ch, 'clockStart') * clockMul
+
+  // SPLIT SECOND (PASSIVES.gateFreeze): the checkpoint HOLDS the countdown instead of topping it up.
+  // run._clockHold is a bank of held seconds; each frame spends as much of it as it can afford and
+  // the countdown only falls by what is left of dt. Written that way rather than as "any frame with
+  // hold left is skipped whole", which rounds the hold UP to the next tick and so pays a 60Hz and a
+  // 30Hz player differently for the same pick. It is a real difference and an easy one to miss: at
+  // dt = 1/60 a 0.5s hold divides evenly and both forms agree exactly, so run CD.e deliberately
+  // measures 0.51s, where the skip overshoots by one frame.
+  //   ⚠ NOT ROUTED THROUGH THE Math.min(clockCap, ...) TOP-UP BELOW, deliberately. That cap is what
+  // makes a checkpoint pay nothing to a driver who arrives full, and this card exists precisely to
+  // be the one checkpoint reward that still pays them. See PASSIVES.gateFreeze.
+  const held = Math.min(run._clockHold ?? 0, dt)
+  if (held > 0) run._clockHold -= held
+  run.raceClock -= dt - held
+
+  // CLEAN LINE (PASSIVES.cleanHeal): HP a second, but only once you have been off the coral for
+  // CLEAN_LINE_DELAY. Every touch resets the streak to zero.
+  //
+  // ⚠ THE STREAK IS THE CARD. Paying per clean SECOND instead — the obvious build — is a plain
+  // regen wearing a racing name, and the arithmetic says so rather than the taste: over a measured
+  // race the good driver spends 4.6s on coral and the bad one 14.6s, out of ~170s, so a per-second
+  // drip pays them 165 and 155 HP. Ten HP is not a skill gradient. With a delay, a driver who
+  // clips something every few seconds never reaches the payout at all while a clean lap is paid for
+  // nearly all of it, which is the same shape as the race clock's cap.
+  //
+  // ⚠ AND IT READS run._caveHit, WHICH IS WHY IT LIVES HERE AND NOT IN stepCaveWall. That flag is
+  // set by stepCaveWall earlier in the SAME frame (stepSim's order), so this is the first place in
+  // the step where "am I scraping right now" is both known and current. Put it inside stepCaveWall's
+  // own early-out instead and it silently stops paying in every frame that function returns early
+  // from — the Burst pass-through being the obvious one, i.e. the card would go dead exactly while
+  // you were dashing.
+  //   It cannot be farmed by stopping: the countdown above is already decremented and does not care
+  // how fast you are going, so parking trades a race you can win for HP you cannot spend.
+  run._cleanT = run._caveHit ? 0 : (run._cleanT ?? 0) + dt
+  if (run.passives.cleanHeal > 0 && run._cleanT >= CLEAN_LINE_DELAY) healPlayer(run, run.passives.cleanHeal * dt)
+
+  // A RUNNING COUNT, not a nearest-checkpoint test. run._swimN counts every swimthrough crossed
+  // since the run began, so a lap boundary needs no special case at all — the count simply keeps
+  // going, and laps and checkpoints cannot disagree about how far round the player is.
+  //   The loop below can bank more than one at a time and today never has to: the fastest a player
+  // can travel in one clamped frame is 3x scroll x BURST_SPEED_MUL x 0.05s = 122px, against a
+  // measured minimum checkpoint spacing of 528px. It is written as a loop because the alternative
+  // is an `if` that silently drops a checkpoint the day either of those numbers moves, and that
+  // failure would look like a clock that occasionally forgets to top up.
+  const passed = Math.floor(along / L) * run._swims.length +
+    run._swims.filter((s) => ((along % L) + L) % L >= s.f).length
+  const prev = run._swimN ?? passed          // first frame banks the start line rather than firing it
+  const lap = Math.max(0, Math.floor(along / L))
+
+  // THE CUT-BACK (v7.x). Owner's ruling, 2026-08-28: "the dash must allow players to cut without
+  // rollback, except if that makes them skip a checkpoint, then they rollback".
+  //
+  // The Burst passes through coral on purpose (stepCaveWall's early-out) and the clamp that follows
+  // the dash keeps every degree of angle the cut bought — cutting a corner is a racing line, not a
+  // cheat. What a cut must NOT buy is a gate the player never drove through: `passed` above is a
+  // pure ANGULAR test with no width in it, so crossing a checkpoint's angle out in the coral is
+  // credited in full, clock top-up, heal, Split Second and lap XP with it. MEASURED before this
+  // block existed, over 4 seeds of a 5-lap race: 72 of 140 checkpoints banked from outside the
+  // passage on a strong Jet Puff build, and the race fell from 97.1s to 53.1s.
+  //
+  // So the cut is free right up until it passes a gate, and then the WHOLE cut is undone — position,
+  // unwrapped angle and the dash itself — back to the last frame the player was on the track.
+  //   ⚠ THE LINE COUNTS AS A GATE, which is why `lap` is hoisted above this rather than read in its
+  // own block below. CIRCUIT_DEFAULTS.lineMul makes the start line the checkpoint that pays DOUBLE,
+  // so leaving it out would make the one gate worth cutting the one gate you may cut.
+  //   ⚠ AND IT RESTORES BEFORE ANYTHING READS `along`. The clock has already ticked above (a
+  // rolled-back frame still costs you its time), but the bank loop, the lap block and the victory
+  // test all sit below and simply never run this frame — so there is no reward to claw back and
+  // `_swimN`, a high-water mark, never has to move backwards.
+  if (run._offTrack && (passed > prev || lap > (run.lap ?? 0)) && run._legalX != null) {
+    run.player.x = run._legalX
+    run.player.y = run._legalY
+    run._ringT = run._legalRingT
+    run._ringRaw = run._legalRingRaw
+    // THE DASH ENDS WITH THE CUT, or the penalty is a stutter instead of a penalty: put back facing
+    // the same line with the same dash still live, the player re-crosses the same gate on the very
+    // next frame and the block fires again, and again. The kick goes with it for the same reason —
+    // stepPlayerMovement spends `_kickX/_kickY` as an impulse that SURVIVES a frame, so a bounce
+    // carried through the restore would drag them straight back out of the passage.
+    run._burstT = 0
+    run._kickX = 0
+    run._kickY = 0
+    run.events.push({ type: 'cutback', x: run.player.x, y: run.player.y, n: prev + 1 })
+    return false
+  }
+  // WHERE TO PUT THEM BACK: the last frame the player was inside the passage. Snapshotted HERE and
+  // not in stepCaveWall because `_ringT` is integrated at the top of this function — a position
+  // without its unwrapped angle would restore the player to the right place with the lap count a
+  // whole turn out, which is the worse half of the bug this block exists to prevent.
+  if (!run._offTrack) {
+    run._legalX = run.player.x
+    run._legalY = run.player.y
+    run._legalRingT = run._ringT
+    run._legalRingRaw = run._ringRaw
+  }
+
+  if (passed > prev) {
+    for (let k = prev; k < passed; k++) {
+      run.raceClock = Math.min(circuitKnob(ch, 'clockCap') * clockMul, run.raceClock + circuitKnob(ch, 'swimTime') * clockMul)
+      // PIT STOP (PASSIVES.gateHeal). The checkpoint is still this chapter's HEAL till, so it is
+      // paid at the same window as the clock and the xp — one crossing, one reward, and a player can
+      // plan a lap around it. Through healPlayer and never a direct `p.hp =` write, or Blood Pact
+      // silently stops meaning what its card says (see healPlayer's own block).
+      if (run.passives.gateHeal > 0) healPlayer(run, run.passives.gateHeal)
+      // SPLIT SECOND, banked at the same window as the clock, the heal and the xp — one crossing,
+      // one set of rewards. Accumulates rather than assigns, so two checkpoints inside one hold
+      // (impossible today at a 528px minimum spacing, cheap to be right about) add up.
+      if (run.passives.gateFreeze > 0) run._clockHold = (run._clockHold ?? 0) + run.passives.gateFreeze
+      run.events.push({ type: 'swimthrough', x: run.player.x, y: run.player.y, n: k + 1 })
+    }
+  }
+  // ⚠ A HIGH-WATER MARK, WHICH A LANE NEVER NEEDED. You cannot swim back up a lane, so `passed`
+  // only ever grew there. On a ring you can turn round — and a player who yo-yos across one
+  // checkpoint would bank CIRCUIT_SWIM_TIME every time they re-crossed it forwards, i.e. an
+  // unlimited clock and an unlimited xp tap from one squeeze. Taking the max makes going backwards
+  // free but never profitable.
+  run._swimN = Math.max(prev, passed)
+
+  if (lap > (run.lap ?? 0)) {
+    run.lap = lap
+    // The split is what makes the loop legible — see the design doc's note that at 270px/s the art
+    // has 1.2s to say "this is the lap line" and cannot. The EVENT carries the read.
+    const at = run._realTime ?? 0
+    // PUBLISHED ON THE RUN AS WELL AS ON THE EVENT, and it is the same value read twice rather than
+    // two computations of it. The HUD's split flash is derived from state (run.lap, run.lapSplit,
+    // _realTime - _lapAt) rather than from this event, so it survives a dropped frame and a paused
+    // one and costs ui.js no event subscription at all.
+    run.lapSplit = at - (run._lapAt ?? 0)
+    // THE RACE'S SECOND SCORE, and it is not a restatement of the first: a driver can hold the
+    // best lap and still lose the race on one bad one, which is what earns it a board of its own
+    // rather than a column on the time board. Taken off lapSplit rather than off _realTime a
+    // second time, so the two can never disagree about what a lap took -- and so this inherits
+    // that field's Time Debt immunity for free (see raceTime's block in state.js). The nullish
+    // fallback only ever runs on lap 1; every later lap compares against a finite number.
+    //   EVERY COMPLETED LAP COUNTS, including on a run that then runs the clock out. The boss
+    // time board has to test `victory` because dying early is a way of shortening a kill time; a
+    // lap cannot be shortened that way -- it has to be CROSSED to have a split at all, and
+    // run.lap is a high-water mark so no crossing can be banked twice. A DNF's laps are real
+    // laps, and a `victory` guard here would only throw away honest times.
+    // THE SPLIT DELTA, AND IT HAS TO BE TAKEN BEFORE THE LINE BELOW MOVES THE REFERENCE. bestLap
+    // folds the lap that just finished into itself, so `lapSplit - bestLap` read after it is 0 on
+    // every personal best and can never go negative — which is the one number the readout exists to
+    // show. Published on the run for the same reason lapSplit is: the HUD derives its flash from
+    // state, so this survives a dropped frame and needs no event subscription.
+    //   null on lap 1 and only there: with no earlier lap there is nothing to be faster than, and a
+    // delta against the lap you are on would compare a time to itself.
+    run.lapDelta = run.bestLap == null ? null : run.lapSplit - run.bestLap
+    run.bestLap = Math.min(run.bestLap ?? Infinity, run.lapSplit)
+    run.events.push({ type: 'lap', lap, x: run.player.x, y: run.player.y, split: run.lapSplit, total: at })
+    run._lapAt = at
+    // THE LINE PAYS, AND IT PAYS DOUBLE -- CIRCUIT_DEFAULTS.lineMul, whose block carries the
+    // owner report and why it is capped like every other top-up. It has to be banked HERE and
+    // not by adding f = 0 to run._swims: that list is the width field's local minima and the
+    // start line is not one of them, and inserting a fake pick would also change the gates
+    // render.js draws, the spacing run CT.a asserts and the count SWIMTHROUGHS_PER_LAP names.
+    //   ⚠ NOT ON THE FIRST CROSSING. This block only runs when the lap INDEX grows, so the
+    // frame the race starts on -- which is on the line, at f = 0 -- banks nothing, exactly as
+    // `prev` keeps the first frame from firing every checkpoint behind the player.
+    run.raceClock = Math.min(circuitKnob(ch, 'clockCap') * clockMul,
+      run.raceClock + circuitKnob(ch, 'swimTime') * circuitKnob(ch, 'lineMul') * clockMul)
+    // ...AND IT PAYS DOUBLE OF SPLIT SECOND TOO. The line is a checkpoint (lineMul's block above),
+    // so every checkpoint reward has to answer for it: leave this out and the one gate a player
+    // aims a whole lap at is the one their card ignores.
+    if (run.passives.gateFreeze > 0) run._clockHold = (run._clockHold ?? 0) + run.passives.gateFreeze * circuitKnob(ch, 'lineMul')
+    // ONE LAP, ONE LEVEL (owner, 2026-08-26: "only gain a level for a lap"). The till used to be
+    // the checkpoint and it used to be a CURRENCY — circuit.swimXp through xpGain and mods.xpMul,
+    // landing the player somewhere on xpForLevel's curve. A LEVEL is not a smaller amount of that,
+    // it is a different unit, so no multiplier is read here: the bar is filled from wherever it
+    // stands, exactly as the Blank's phase kills bank theirs (`p.xp += p.xpNext`). stepLevelUp runs
+    // later in this same frame, so the screen opens on the line.
+    //   ⚠ NOT ON THE LAP THAT WINS. The victory check below fires in this same block, so a grant
+    // there would open no screen at all — stepSim returns before stepLevelUp and the phase is
+    // 'victory' on every frame after. Five laps therefore pay FOUR screens, and the fifth lap's
+    // reward is the race. Written as a guard rather than left to fall out of the ordering, because
+    // "the last one silently does nothing" is a bug the day someone reorders these two blocks.
+    if (lap < cc.laps) run.player.xp += run.player.xpNext
+  }
+
+  if (lap >= cc.laps) {
+    run.raceTime = run._realTime ?? 0       // the score, in real seconds
+    run.phase = 'victory'
+    run.events.push({ type: 'victory' })
+    return true
+  }
+  if (run.raceClock <= 0) {
+    run.raceClock = 0
+    run.phase = 'dead'
+    // No event: every other death path in this file signals by the phase alone and main.js reacts
+    // to the transition. Inventing a 'death' event here would be a type with no consumer, which is
+    // exactly what run EV exists to catch.
+    run.killedBy = 'clock'
+    return true
+  }
+  return false
+}
+
 function stepLaneFront(run, dt) {
   const ch = CHAPTERS[run.chapter]
   if (!ch.lane) return false
@@ -1665,7 +2091,18 @@ function stepLaneFront(run, dt) {
   // x run._laneThrottle: the player's own hand on the scroll (stepPlayer, one call earlier this
   // step). The front is the crush edge and the camera anchor, so easing off has to slow IT or the
   // level would not slow down at all — you would simply be left behind by a lane still running 90.
-  let front = Math.max(along(run._laneFront ?? 0) + laneScrollFor(ch, run.mods) * (run._laneThrottle ?? 1) * dt, along(p[ax.fwd]))
+  // In a `circuit` the front advances at the speed the player is ACTUALLY travelling, not the one
+  // they are asking for. Momentum put those two apart: the throttle is the request, run._laneSpeed
+  // is what it has become. Left reading the throttle, the front would leap to x3 the instant the
+  // stick moved while the player was still gathering speed behind it — the lag would grow out of
+  // the ramp itself, and the crush edge would bill you for accelerating.
+  //   This does NOT re-tie the front to the player's POSITION, which is the invariant this function
+  // exists for: _laneSpeed is a rate, so a player stopped dead against coral still watches the lane
+  // leave without them.
+  const rate = ch.circuit && run._laneSpeed != null
+    ? run._laneSpeed
+    : laneScrollFor(ch, run.mods) * (run._laneThrottle ?? 1)
+  let front = Math.max(along(run._laneFront ?? 0) + rate * dt, along(p[ax.fwd]))
   // A chapter with nothing that can stop the player never separates from them, so it keeps exactly
   // the old behaviour by construction rather than by a flag: The Beyond's front IS its player.
   if (!solid) { run._laneFront = front * ax.dir; run._crushing = false; return false }
@@ -1925,7 +2362,29 @@ function spawnEnemy(run, opts = {}) {
     // play. Spawning up the lane instead makes a seeker something you meet, dodge across, and leave
     // behind: the shmup contract, and the one that makes "you can only strafe" a game rather than a
     // countdown. Anything that does get past you is now genuinely past you.
-    if (CHAPTERS[run.chapter].lane) {
+    if (caveSpecOf(run)?.ring && CHAPTERS[run.chapter].circuit) {
+      // TRAFFIC BELONGS IN THE ROAD (v7.x, The Reef's ring). The lane branch below used to do this
+      // job and is gated on `lane`, which this chapter dropped when the track closed into a loop.
+      // Spawning on the ordinary free-roam ring instead would put most of the crowd inside solid
+      // coral, where clampCrowdToCave would snap it to a wall face the moment it appeared.
+      //   AHEAD, and spread over the arc rather than pinned to one distance: a fish that is always
+      // exactly a screen away arrives on a metronome. The window is converted from px to f at the
+      // radius the PLAYER is at, because a hairpin's inner edge is a third shorter than r0.
+      const spec = caveSpecOf(run)
+      const fu = ringFU(spec, p.x, p.y)
+      const rHere = Math.max(1, spec.ring.r0 - fu.u)
+      const px = run.viewRadius + SPAWN_RING * (0.4 + Math.random() * 1.6)
+      const f = fu.f + (px * spec.lapLen) / (2 * Math.PI * rHere)
+      const cav = caveAt(f, spec, run._obstacleSeed)
+      // Inside the passage and clear of both faces, so a body never spawns already in the wall.
+      const room = Math.max(0, cav.hw - 46)
+      let u = cav.c + (Math.random() * 2 - 1) * room
+      // ...and off the island where the passage forks, on whichever side the roll landed.
+      if (cav.ph > 0 && Math.abs(u - cav.c) < cav.ph + 46) u = cav.c + (u >= cav.c ? 1 : -1) * Math.min(cav.ph + 46, room)
+      const w = ringXY(spec, f, u)
+      x = w.x
+      y = w.y
+    } else if (CHAPTERS[run.chapter].lane) {
       const ax = laneAxes(CHAPTERS[run.chapter])
       const hw = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter])
       const cross = -hw + Math.random() * hw * 2
@@ -2042,7 +2501,10 @@ function spawnEnemy(run, opts = {}) {
 // boss duel whose antibody carries catch-up gear — both exempt. Anchored entities never move.
 function stepStragglers(run) {
   const ch = CHAPTERS[run.chapter]
-  if (ch.lane || ch.scripted) return
+  // `circuit` joins them: the recycler exists to stop a KITER shedding chasers, and a circuit's
+  // crowd never chased in the first place (passiveCrowd). Recycling it would teleport traffic onto
+  // the ring ahead of a driver who simply drove past it, which is the opposite of the mechanic.
+  if (ch.lane || ch.scripted || ch.circuit) return
   const p = run.player
   if (Math.hypot(p.vx, p.vy) < KITE_MIN_SPEED) return
   const heading = Math.atan2(p.vy, p.vx)
@@ -2336,15 +2798,31 @@ function stepEnemyMovement(run, dt) {
       // the same reason: a fish that is not hunting you is not running its hunting routine either.
       // That placement is what makes the roster's latch and pounce inert here without deleting
       // them -- the chapter is one boolean away from its combative self.
-      if (slowMul > 0) e[laneAx.fwd] -= laneAx.dir * e.speed * slowMul * dt
+      //   ON A RING THERE IS NO FIXED "DOWN THE LANE" — the direction the fish should swim is the
+      // track's own tangent where the fish IS, which is what ringHeading answers. It swims the way
+      // you came, so the two of you close at your speed plus its own and it streams past: the whole
+      // of "pass by", and the same sentence the lane version wrote as a single axis.
+      const ringSpec = caveSpecOf(run)
+      let hx = 0, hy = 0
+      if (ringSpec?.ring) {
+        const h = ringHeading(ringSpec, ringFU(ringSpec, e.x, e.y).f, run._obstacleSeed)
+        hx = Math.cos(h); hy = Math.sin(h)
+      } else {
+        hx = laneAx.fwd === 'x' ? laneAx.dir : 0
+        hy = laneAx.fwd === 'y' ? laneAx.dir : 0
+      }
+      if (slowMul > 0) {
+        e.x -= hx * e.speed * slowMul * dt
+        e.y -= hy * e.speed * slowMul * dt
+      }
       //   AND THE POINT THE DRAWING READS. render.js derives every body's bearing from run.player
       // unless _tgtX/_tgtY says otherwise, so without these two lines the whole crowd swims down
       // the lane with its eyes locked on you — crabbing sideways, tail first, which is precisely
       // the picture the ally, the prey and the blind each needed this same pair to fix. Publishing
       // into the shipped contract field rather than teaching render a new one (CLAUDE.md), and
       // render's facesOwnHeading gains the chapter so it knows to read it.
-      e._tgtX = e.x - (laneAx.fwd === 'x' ? laneAx.dir * 100 : 0)
-      e._tgtY = e.y - (laneAx.fwd === 'y' ? laneAx.dir * 100 : 0)
+      e._tgtX = e.x - hx * 100
+      e._tgtY = e.y - hy * 100
     } else if (e.flags && e.flags.includes('skittish')) {
       // PREY (v7.x, The Wreck). The one branch in this chain that walks AWAY from the player.
       // Sits directly under fear because it is the same motion for a different reason — fear is a
@@ -3514,13 +3992,46 @@ function contactHarmless(e) {
 }
 
 /** @returns true if the player died this frame (phase set to 'dead'). */
+// A BUMP COSTS SPEED AND NEVER HP (v7.x circuit — owner's ruling when the fish became traffic).
+// It has to live off stepContactDamage's overlap test rather than beside it, because that test is
+// the only place in the file that already knows the player is touching a body — and a circuit
+// chapter's crowd is contactHarmless, so this fires on exactly the bodies that `continue` below.
+//   ONE CHARGE PER FISH PER bumpCool, for the crash's reasoning: applied every frame of contact it
+// is an exponential decay, i.e. "sustained contact bleeds speed", which the owner considered and
+// did not choose. The shove is what stops the same body riding the player and re-charging on the
+// cooldown's edge; clampCrowdToCave puts it back in the passage on the next frame.
+function bumpTraffic(run, ch, e, dx, dy) {
+  if (run.time - (e._bumpAt ?? -999) < circuitKnob(ch, 'bumpCool')) return
+  e._bumpAt = run.time
+  if (run._laneSpeed != null) run._laneSpeed *= circuitKnob(ch, 'bumpMul')
+  const d = Math.hypot(dx, dy) || 1
+  const shove = circuitKnob(ch, 'bumpShove')
+  e.x += (dx / d) * shove
+  e.y += (dy / d) * shove
+  // ...and the player is thrown the other way, straight away from the body. A DECAYING VELOCITY
+  // (run._kickX/_kickY, spent by stepPlayerMovement's circuit branch) rather than the single-frame
+  // position nudge this used to be: 24px applied in one frame is a correction the player cannot
+  // see, which is half of why traffic read as free.
+  //   AND IT IS THE CONTACT NORMAL, NOT A WORLD AXIS. This read laneAxes(ch).cross — world y —
+  // which is "across the lane" on the straight corridor it was written for and, on a ring, is
+  // across the passage at exactly two points of the lap and straight along the track a quarter
+  // turn from them. Half of every bump in the chapter was shoving the player up the road.
+  const kick = circuitKnob(ch, 'bumpKick')
+  run._kickX = -(dx / d) * kick
+  run._kickY = -(dy / d) * kick
+  run.events.push({ type: 'bump', x: e.x, y: e.y })
+}
+
 function stepContactDamage(run) {
   const p = run.player
+  const circuit = CHAPTERS[run.chapter].circuit != null
   for (const e of run.enemies) {
-    if (e._dead || contactHarmless(e)) continue
+    if (e._dead) continue
     const dx = e.x - p.x, dy = e.y - p.y
     const rad = PLAYER.radius + e.radius
-    if (dx * dx + dy * dy >= rad * rad) continue
+    const touching = dx * dx + dy * dy < rad * rad
+    if (circuit && touching) bumpTraffic(run, CHAPTERS[run.chapter], e, dx, dy)
+    if (!touching || contactHarmless(e)) continue
 
     // latch flag (v5.0, e.g. body's antibody): applies a movement debuff then spends itself —
     // no normal contact damage, and unlike the plain path below, not gated behind p.invuln (the
@@ -4041,6 +4552,57 @@ export function refillCircleAt(i, j, seed, spec) {
   return c
 }
 
+// AIR ON A RING (v7.x, The Reef). The square-grid streamer below cannot place this field once the
+// track is a loop — see the `ringCells` note on the spec. Pockets live on a 1-D grid along f, one
+// cell per ringCells of the lap, wrapped, so the field repeats exactly with the track.
+function streamRingPockets(run, spec, cave) {
+  const p = run.player
+  const seed = run._obstacleSeed
+  if (seed == null) return
+  const L = cave.lapLen
+  const cells = Math.max(1, spec.ringCells ?? 8)
+  const cellF = L / cells
+  const s0 = spec.salt ?? 40
+  for (let k = run.shafts.length - 1; k >= 0; k--) {
+    if (Math.hypot(run.shafts[k].bx - p.x, run.shafts[k].by - p.y) > OBSTACLE_DROP_RADIUS) run.shafts.splice(k, 1)
+  }
+  const live = new Set()
+  for (const sh of run.shafts) live.add(sh._cell)
+  const pf = ringFU(cave, p.x, p.y).f
+  // SAME CELL AS THE LAST SCAN -> THE FIELD IS UNCHANGED, which is the square grid's own early-out
+  // and is not merely a saving. Without it the whole field is re-derived every frame, so a pocket
+  // that has just been consumed or dropped is re-created on the spot — a player parked on one
+  // refills forever, and run RF's feature-removed control (which empties run.shafts after every
+  // step) ended a 150s run on a FULL bar instead of an empty one.
+  const cellNow = Math.floor(pf / (L / cells))
+  if (cellNow === run._shaftRingCell) return
+  run._shaftRingCell = cellNow
+  // How many f-cells the streaming disc can possibly reach. Measured at the TIGHTEST radius the
+  // track makes rather than at r0, because f is an angle: the same px of reach is more f where the
+  // loop pinches, and sizing this at r0 would leave a pocket unstreamed exactly in the hairpins.
+  const rMin = Math.max(1, cave.ring.r0 - cave.wander - cave.halfMax)
+  const reach = Math.ceil((OBSTACLE_STREAM_RADIUS * L) / (2 * Math.PI * rMin) / cellF) + 1
+  const k0 = Math.floor(pf / cellF)
+  for (let k = k0 - reach; k <= k0 + reach; k++) {
+    const cell = ((k % cells) + cells) % cells
+    const key = 'r' + cell
+    if (live.has(key)) continue
+    if (obstacleCellHash(cell, 0, seed, s0) >= (spec.ringChance ?? 0.7)) continue
+    // Jittered inside its cell but never against the seam, so two neighbouring pockets cannot land
+    // on top of each other across a cell boundary.
+    const f = (cell + 0.15 + obstacleCellHash(cell, 1, seed, s0 + 1) * 0.7) * cellF
+    const cav = caveAt(f, cave, seed)
+    // Anywhere across the passage, clamped only so it stays off the rock — the owner's 2026-08-24
+    // ruling ("they don't have to be touching coral"), and `slack` collapses to 0 at a squeeze so
+    // the pocket simply takes the centre line there.
+    const slack = Math.max(0, cav.hw - spec.r)
+    const u = cav.c + (obstacleCellHash(cell, 2, seed, s0 + 7) - 0.5) * 2 * slack
+    const w = ringXY(cave, f, u)
+    if (Math.hypot(w.x - p.x, w.y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+    run.shafts.push({ x: w.x, y: w.y, bx: w.x, by: w.y, r: spec.r, phase: obstacleCellHash(cell, 3, seed, s0 + 3) * Math.PI * 2, _cell: key })
+  }
+}
+
 export function streamShafts(run) {
   const sig = CHAPTERS[run.chapter].signature
   const spec0 = refillSpec(sig)
@@ -4052,8 +4614,13 @@ export function streamShafts(run) {
   // A shallow copy, so cell/r/drawdownSecs stay the spec's own; identity is preserved at x1 so
   // every chapter without the mutator is byte-for-byte unchanged.
   const chanceMul = run.mods?.refillChanceMul ?? 1
-  const spec = chanceMul === 1 ? spec0 : { ...spec0, chance: spec0.chance * chanceMul }
+  // ...and it has to reach BOTH occupancy rolls. The square grid reads `chance`, the ring reads
+  // `ringChance`; scaling only the first would leave the mutator silently inert on the one chapter
+  // whose bar has a single refill source.
+  const spec = chanceMul === 1 ? spec0 : { ...spec0, chance: spec0.chance * chanceMul, ringChance: (spec0.ringChance ?? 0.7) * chanceMul }
   if (run._obstacleSeed == null) return
+  const ringCave = caveSpecOf(run)?.ring ? caveSpecOf(run) : null
+  if (ringCave) return streamRingPockets(run, spec, ringCave)
   const p = run.player
   const cs = spec.cell
   const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
@@ -4098,7 +4665,7 @@ export function streamShafts(run) {
       // out against a wall so that breathing cost a commitment to one side; the bar is now a
       // pacing device rather than a puzzle, so the pocket takes a hashed cross position and the
       // only clamp is that it stays off the rock.
-      const caveSpec = lax && CHAPTERS[run.chapter].cave
+      const caveSpec = lax && caveSpecOf(run)
       if (caveSpec) {
         const along = lax.fwd === 'x' ? bx : by
         const cav = caveAt(along, caveSpec, seed)
@@ -4171,6 +4738,16 @@ export function spurAt(i, spec, seed) {
 export function streamSpurs(run) {
   const spec = CHAPTERS[run.chapter].spurs
   if (!spec) return
+  // ⚠ NOT ON A RING. The ridges are a field laid perpendicular to a straight lane, indexed off a
+  // world coordinate (`player[ax.fwd] / spacing`) that goes round in circles once the track closes
+  // — so on a ring they are bars at meaningless angles, re-rolled every time the player's x happens
+  // to recross a boundary. The CAVE is the terrain here and has been since v7.213; this is the last
+  // consumer of the braid it replaced. Cleared rather than merely skipped, so a field streamed
+  // before the flag was read cannot be left on screen.
+  if (caveSpecOf(run)?.ring) {
+    if (run.spurs.length) { run.spurs.length = 0; run._spurRev = (run._spurRev || 0) + 1 }
+    return
+  }
   if (run._obstacleSeed == null) return
   const ax = laneAxes(CHAPTERS[run.chapter])
   const i0 = Math.round(run.player[ax.fwd] / spec.spacing)
@@ -4223,17 +4800,57 @@ const laneBehindPx = (run, ax) => (1 - LANE_CAMERA_FRAC) * 2 * (ax.fwd === 'x' ?
 //      track" half -- you lose ground, you are not relocated.
 //   3. publish contact so the damage tick and the render tell can both read it.
 // Returns true if the player died.
+// THE CROWD LIVES IN THE PASSAGE TOO (v7.x circuit). Owner, playing v7.231: "the enemies/decor
+// fishes swim through coral". They did — stepCaveWall is the only thing in the file that reads the
+// cave and it only ever ran on the player, so a fish's swim down the lane took it straight through
+// a wall the player is bounced off. On a race track that is worse than ugly: traffic you can drive
+// around is only traffic if it is in the road with you.
+//   THE SAME caveAt THE PLAYER IS STOPPED AGAINST, and the same island rule — a second opinion
+// about where the wall is would be the drawn-vs-tested defect this repo keeps paying for. No
+// damage, no bounce, no event: this is a clamp, and the fish is scenery that now stays on the road.
+function clampCrowdToCave(run) {
+  const spec = caveSpecOf(run)
+  if (!spec?.ring) return
+  const pf = ringFU(spec, run.player.x, run.player.y).f
+  // HOW FAR BEHIND IS TOO FAR. The lane had stepLeaks and `sweepAstern` for this and both are gated
+  // on `lane`, which The Reef no longer sets — so without a ring twin every fish ever spawned stays
+  // in the world forever. Measured on the lane before it existed: 34% of live bodies sat off-screen
+  // astern, the oldest still alive at 290s of a 300s run.
+  const drop = spec.lapLen * 0.12
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    const fu = ringFU(spec, e.x, e.y)
+    if (ringDelta(spec, pf, fu.f) < -drop) { e._dead = true; continue }   // silent, not a kill: no xp, no gem
+    const cav = caveAt(fu.f, spec, run._obstacleSeed)
+    const off = fu.u - cav.c
+    const a = Math.abs(off)
+    const sign = off >= 0 ? 1 : -1
+    const lim = Math.max(0, cav.hw - e.radius)
+    // ...and out of the island where the passage forks, clamped at `lim` exactly as the player is
+    // so an island wider than its own passage cannot pin a body against the outer wall.
+    const inner = cav.ph > 0 ? Math.min(cav.ph + e.radius, lim) : 0
+    let u = fu.u
+    if (a > lim) u = cav.c + sign * lim
+    else if (a < inner) u = cav.c + sign * inner
+    else continue
+    const w = ringXY(spec, fu.f, u)
+    e.x = w.x
+    e.y = w.y
+  }
+}
+
 function stepCaveWall(run, dt) {
   const ch = CHAPTERS[run.chapter]
-  const spec = ch.cave
-  if (!spec) { run._caveHit = false; return false }
-  const ax = laneAxes(ch)
+  const spec = caveSpecOf(run)
+  if (!spec?.ring) { run._caveHit = false; run._offTrack = false; return false }
   const p = run.player
-  const cav = caveAt(p[ax.fwd], spec, run._obstacleSeed)
-  // The BURST passes through, the same ruling that waived the old scrape: the dash is the button
-  // that gets you out of trouble, and a wall that stops it is a wall that ends runs on a spend.
-  if ((run._burstT ?? 0) > 0) { run._caveHit = false; return false }
-  const off = p[ax.cross] - cav.c
+  // ONE CONVERSION, THEN THE ORIGINAL TEST UNCHANGED. Everything below this line is the corridor
+  // version word for word — the overshoot, the crash, the island, the tick — because the ring is a
+  // change of MAP and not of geometry (ringXY's block). `u` is what `p[ax.cross] - cav.c` used to
+  // read, and it is still px, so crashSpeed keeps its meaning.
+  const fu = ringFU(spec, p.x, p.y)
+  const cav = caveAt(fu.f, spec, run._obstacleSeed)
+  const off = fu.u - cav.c
   const lim = cav.hw - PLAYER.radius
   // THE ISLAND (caveAt's `ph`): where the passage forks, the middle of it is coral. Same contact,
   // same bounce, same tick — the only new thing is that the free band is an ANNULUS for those few
@@ -4242,15 +4859,55 @@ function stepCaveWall(run, dt) {
   // would pin the player against the outer wall instead of trapping them in coral with no exit.
   const inner = cav.ph > 0 ? Math.min(cav.ph + PLAYER.radius, lim) : 0
   const a = Math.abs(off)
+  // OUT OF THE PASSAGE, PUBLISHED FOR stepCircuit (v7.x). A burst is the ONLY way to be here: on
+  // every other frame the clamp at the bottom of this function has already put the player back
+  // before anything downstream looks, which is why this reads `_burstT` rather than trusting the
+  // geometry alone. stepCircuit reads it to decide whether a checkpoint the player just crossed was
+  // one they actually drove through — see its cut-back block.
+  //   ⚠ COMPUTED ABOVE THE BURST EARLY-OUT, AND THAT IS THE POINT. The early-out is what makes
+  // being off the track possible at all, so a publish placed after it can only ever say `false`.
+  run._offTrack = (run._burstT ?? 0) > 0 && !(a <= lim && a >= inner)
+  // The BURST passes through, the same ruling that waived the old scrape: the dash is the button
+  // that gets you out of trouble, and a wall that stops it is a wall that ends runs on a spend.
+  if ((run._burstT ?? 0) > 0) { run._caveHit = false; return false }
   if (a <= lim && a >= inner) {
     run._caveHit = false
     run._caveAcc = Math.min(run._caveAcc ?? 0, CAVE_HIT_TICK)
     return false
   }
+  // THE CRASH, AS DISTINCT FROM THE GRAZE (v7.x circuit). The overshoot — how far past the face the
+  // uncorrected position landed — is the only severity signal this function has: it is a position
+  // test and never reads velocity. Because the clamp below puts the player back on the face every
+  // frame, that overshoot is exactly (inward cross speed) x dt, so dividing by dt gives a px/s
+  // number that means the same thing at any frame rate.
+  //   ON THE ENTRY FRAME ONLY. Held against the wall, this would fire every frame and compound into
+  // an exponential decay — which is the "sustained contact bleeds speed" rule the owner considered
+  // and did not choose. A brush stays free; driving INTO coral costs you the corner.
+  if (ch.circuit && run._laneSpeed != null && !run._caveHit && dt > 0) {
+    const inward = ((a > lim ? a - lim : inner - a) / dt)
+    if (inward > circuitKnob(ch, 'crashSpeed')) {
+      run._laneSpeed *= circuitKnob(ch, 'crashMul')
+      // ...and you are thrown back out of it. Radially, because `u` is the across-the-passage axis
+      // and the world one is meaningless on a ring: ringXY puts the point at r = r0 - u, so growing
+      // u travels along (-cos t, -sin t). Outward from the OUTER wall means shrinking |off|; out of
+      // the ISLAND means growing it, which is the same sign flip the clamp below makes.
+      const du = (off >= 0 ? 1 : -1) * (a > lim ? -1 : 1)
+      const kick = circuitKnob(ch, 'crashKick') * du
+      run._kickX = -Math.cos(fu.t) * kick
+      run._kickY = -Math.sin(fu.t) * kick
+      run.events.push({ type: 'crash', x: p.x, y: p.y, speed: inward })
+    }
+  }
   // Out through the nearer face: pushed off the island the way you were already leaning, held
-  // against the wall face you touched.
-  p[ax.cross] = cav.c + (off >= 0 ? 1 : -1) * (a > lim ? lim : inner)
-  p[ax.fwd] -= ax.dir * CAVE_BOUNCE_PX * dt * 60 / 60 * 1
+  // against the wall face you touched — and knocked back ALONG the track, which on a ring means
+  // back in f. CAVE_BOUNCE_PX is px of travel, so it is converted at the radius the player is
+  // actually at rather than at r0; at the inner edge of a hairpin the two differ by a third.
+  const nu = cav.c + (off >= 0 ? 1 : -1) * (a > lim ? lim : inner)
+  const rHere = Math.max(1, spec.ring.r0 - nu)
+  const backF = (CAVE_BOUNCE_PX * dt * spec.lapLen) / (2 * Math.PI * rHere)
+  const wOut = ringXY(spec, fu.f - backF, nu)
+  p.x = wOut.x
+  p.y = wOut.y
   run._caveHit = true
   run._caveAcc = (run._caveAcc ?? 0) + dt
   let died = false
@@ -4299,7 +4956,7 @@ function stepSpurs(run, dt) {
   // same 'scrape' source when the player touches a wall -- and running both would bill twice for
   // one touch. Left in place rather than deleted because the spur field is still a legitimate thing
   // for another chapter to declare without a cave around it.
-  if (CHAPTERS[run.chapter].cave) { run._scraping = false; return false }
+  if (caveSpecOf(run)) { run._scraping = false; return false }
   const ax = laneAxes(CHAPTERS[run.chapter])
   const p = run.player
   const f = p[ax.fwd], c = p[ax.cross]
@@ -5148,7 +5805,9 @@ export function stepCharge(run, dt) {
   // the drain by it holds break-even at roughly a fixed FRACTION of the achievable kill rate at
   // every point in the run, instead of at one moment of it. One expression, one existing curve, no
   // new machinery — and it is opt-in per chapter, so nothing else in the game can see it.
-  const drainRate = res.drainPerSpawn != null ? res.drainPerSpawn * spawnRate(run.time) : res.drain
+  //   mods.airDrainMul (MUTATORS.thinAir) multiplies whichever of the two the chapter declares, so a
+  // per-spawn chapter and a flat-drain one are taxed the same way by the same knob.
+  const drainRate = (res.drainPerSpawn != null ? res.drainPerSpawn * spawnRate(run.time) : res.drain) * (run.mods?.airDrainMul ?? 1)
   // v7.x Book 2 Task 9: Slow Burn (chargeDrainMul) and Big Gulp (chargeRefillMul) scale the drain
   // and the in-circle refill respectively — both default to 1 (no-op) unbought, and both are 1 in
   // every chapter with no resource, so this is inert wherever it always was.
@@ -5184,6 +5843,16 @@ export function stepCharge(run, dt) {
   // of its readers (here, foulUpwelling, render.js) must move together or the circle the player
   // watches fade is running a different clock from the one feeding them.
   const drawdownSecs = drawdownSecsFor(run)
+  // A PICKUP FIELD PAYS ON ENTRY AND PAYS NOTHING AFTER (The Reef's air vents — see that chapter's
+  // pockets block). 0 everywhere else, which leaves every other chapter on the per-second branch
+  // byte-for-byte.
+  const grant = refillGrantFor(run)
+  // IS THIS CIRCLE ACTUALLY FEEDING YOU RIGHT NOW. Published on the circle for the same reason
+  // `drawdown` and the maw's `gape` are: render.js draws off it, so the air you can see arriving is
+  // the air stepCharge is adding. Owner, 2026-08-25: "refill bubbles don't disappear when they stop
+  // refilling" — The Reef's vents streamed the same column whether they were topping you up, were
+  // clamped against a full bar, or had nobody in them at all.
+  for (const sh of run.shafts) sh.feeding = false
   for (const sh of run.shafts) {
     // Inside the circle's own outline: standing IN the light, not brushing its edge. inMaw is that
     // same centre-to-centre test for a round field (every one but The Surf's pools), following the
@@ -5205,12 +5874,46 @@ export function stepCharge(run, dt) {
     // render.js fades the drawing off this exact number, so the five seconds the player watches are
     // the five seconds stepCharge is counting rather than a parallel animation that can disagree.
     // Undefined for every other field, which reads as 0 and leaves those byte-for-byte unchanged.
+    // THE PICKUP BRANCH, and it is `else`-exclusive with the soak below on purpose: a field that
+    // paid both would hand over the grant AND keep pouring, which is the mechanic the owner asked
+    // to remove wearing a bigger number.
+    if (grant > 0) {
+      // ONCE PER VISIT. `taken` lives on the streamed shaft, so it dies with the shaft when you
+      // drive out of range and the vent is live again next lap — which is what a circuit wants,
+      // since the field wraps mod ringCells and you meet the same vents every lap. `continue`, not
+      // `break`: a spent vent you are still sitting in must not mask a live one you are also
+      // touching, exactly as the drawdown branch argues below.
+      if (sh.taken) continue
+      // A NEARLY-FULL BAR LEAVES THE VENT ALONE rather than wasting it. This is the pickup's
+      // version of the flag the soak used to carry (`feeding = c < chargeMax`, owner 2026-08-25: a
+      // vent must not pour into a fish that cannot take it) — and as a pickup it can do better than
+      // merely going quiet, because a vent nobody consumed is still standing on the way back round.
+      //   HALF THE GRANT OF HEADROOM, not `c >= chargeMax`. `c` is already net of this frame's
+      // drain, so a bar sitting exactly at the ceiling reads as chargeMax - drain*dt here and an
+      // equality test never fires — the player would burn a 25-air vent for 0.02 of a point and the
+      // guard would look like it was working. Half is the line between "worth stopping for" and
+      // "thrown away"; above it the vent is spent and the excess is clamped off below, which is
+      // ordinary pickup behaviour.
+      if (run.chargeMax - c < grant * 0.5) continue
+      sh.taken = true
+      // Big Gulp (chargeRefillMul) scales the grant for the same reason it scales the soak — it is
+      // the card's whole text — and the clamp below is what stops a full bar overflowing.
+      c += grant * run.chargeRefillMul
+      // The event is the tell. render.js bursts the vent's stored air upward and SFX_FOR_EVENT
+      // gives it the coin note; without it the whole mechanic is a number moving on a bar, and a
+      // one-frame grant leaves `feeding` true for a single frame, i.e. no visible stream at all.
+      run.events.push({ type: 'airgulp', x: sh.x, y: sh.y, amount: grant })
+      break
+    }
     const life = drawdownSecs
     if (life > 0) {
       if ((sh.drawdown ?? 0) >= life) continue
       sh.drawdown = (sh.drawdown ?? 0) + dt
     }
     c += res.refill * run.chargeRefillMul * dt
+    // `c` after the add, not before: a bar already at the ceiling swallows the whole tick, and a
+    // vent pouring into a full fish is the exact thing the flag exists to switch off.
+    sh.feeding = c < run.chargeMax
     break
   }
   // THE TRAWL'S REFILL IS NOT A PLACE (see CHAPTERS.trawl.signature). Every other Book 2 chapter's
@@ -5592,6 +6295,58 @@ function stepObstacles(run) {
 // which render.js and SFX_FOR_EVENT already consume — and the dash itself is 900px/s of player
 // movement, which is not subtle. A {type:'lunge'} would have needed a consumer in two files to be
 // anything but silence, which is the freeze scar exactly.
+// -- The ram (v7.x, The Reef) ----------------------------------------------------------------
+// The half of the Burst that is not movement. Owner, 2026-08-28: "i want the dash to kill mobs,
+// and give +10 coins per mob killed". See BURST_RAM_MUL in config.js for why this chapter is the
+// one where a dash may kill, and why the kill is the body's own hp rather than a damage literal.
+//
+// EVERY BODY IN REACH, EVERY FRAME OF THE DASH -- the opposite of stepBite, deliberately. The Wreck
+// stops its lunge on the first body because that chapter's bar is trying to make you CHOOSE a
+// target; a race has no target to choose, the crowd is oncoming traffic, and a dash that stopped
+// dead on the first fish would be a brake in the one chapter where you cannot afford one.
+//
+// NO NEW EVENT TYPE, on stepBite's own argument: dealDamage already pushes {type:'kill'}, which
+// render.js and SFX_FOR_EVENT both consume, and the press already pushes {type:'burst'} for the
+// wake. A {type:'ram'} would need a consumer in two more files to be anything but silence.
+//
+// RUNS IN stepSim's POST-MOVEMENT SLOT, beside stepBite, so it tests where the dash actually is
+// this frame. No chapter declares both buttons, so the ram and the bite can never fire together.
+function stepRam(run) {
+  const ch = CHAPTERS[run.chapter]
+  if (!ch.burst || (run._burstT ?? 0) <= 0) return
+  const p = run.player
+  const reach = BURST_RAM_MUL * PLAYER.radius
+  for (const e of run.enemies) {
+    // NO ALLY TEST AND NO IMMUNITY TEST HERE, and both omissions are load-bearing rather than
+    // sloppy. damageImmune's own block is explicit that the ally clause lives in ONE place instead
+    // of in the 26 damage loops, and dealDamage consults it on the way in — so a copy on this line
+    // is a second guard for one fact, which this file's LUNGE gate records the cost of (each guard
+    // masks a defect in the other, and the suite can see neither). Proven rather than assumed: a
+    // mutation run deleting an isAlly call HERE left run RF.g green, because dealDamage was already
+    // refusing the ally two layers down. `_dead` stays — a body a weapon killed earlier in the same
+    // frame must not be rammed again and paid for twice.
+    if (e._dead) continue
+    if (Math.hypot(e.x - p.x, e.y - p.y) > reach + e.radius) continue
+    // dealDamage, NOT applyDamage, and both differences are deliberate. A ram does not roll crit
+    // (there is no aim in it to reward) and it does not carry the player's elements -- freezing a
+    // corpse is nothing, and feeding the element window off a kill that is lethal by construction
+    // would let one press launder an arbitrary element application. The `hazard` flag is what says
+    // so, and it is the same flag this chapter's own coral scrape already passes.
+    //   The body's OWN remaining hp is the damage, so this cannot decay against hpScale.
+    dealDamage(run, e, e.hp, false, false, true)
+    // _dead rather than hp <= 0: a shielded elite (SHIELD_DMG_MUL) or a raised guard eats part or
+    // all of the ram and is still alive, and nothing is owed for a body that did not die.
+    if (!e._dead) continue
+    // THE PAYOUT IS A DROPPED COIN, NOT A WALLET EDIT, so it goes through the one collection path
+    // every other coin in the game uses -- the magnet, Avarice, coinGainMul, run.mods.coinMul and
+    // COIN_CAP_PER_RUN all apply with no new code, and the player SEES the thing they earned.
+    // ONE coin of value BURST_RAM_COINS rather than ten of value 1: the pickup is a single event,
+    // so the HUD ticks up once by ten instead of ten times by one, and render.js prints the number
+    // on it (the coin case) rather than leaving a bigger sparkle to carry the whole difference.
+    run.coins.push({ x: e.x, y: e.y, value: BURST_RAM_COINS })
+  }
+}
+
 function stepBite(run) {
   const ch = CHAPTERS[run.chapter]
   // `_lungeMoved` — the dash must have CARRIED you LUNGE_ARM_DIST before the bite can land. See that
@@ -11584,7 +12339,10 @@ function stepPickups(run, dt) {
   // number would only invite it to be wrong on some viewport.
   // magnetSpeed() reads the radius too — at Infinity its distance ramp collapses to 0, so gems fly
   // at the flat near-field 800px/s, comfortably above LANE_SCROLL_SPEED, and always catch up.
-  const magnet = CHAPTERS[run.chapter].lane ? Infinity : p.magnet * (1 + run.passives.magnet) * run.mods.magnetMul
+  // `circuit` JOINS `lane` HERE, and it is the same argument: you cannot double back for a gem you
+  // flew past. The Reef dropped `lane` when its track closed into a loop, and a race at 270px/s is
+  // if anything a stronger case for it than a scroller was.
+  const magnet = (CHAPTERS[run.chapter].lane || CHAPTERS[run.chapter].circuit) ? Infinity : p.magnet * (1 + run.passives.magnet) * run.mods.magnetMul
   const magnetSq = magnet * magnet
   const pickupSq = PLAYER.pickupRadius * PLAYER.pickupRadius
 
@@ -11730,15 +12488,42 @@ function eligiblePassiveIds(run) {
   // 6.4% of every card offered, and under that card healPlayer refuses it outright. The card is
   // supposed to RE-PRICE the passive pool, not quietly keep selling you the one pick it voided.
   const noHeal = !!run.anomalies?.bloodPact
-  // CHAPTER-SCOPED PASSIVES (v7.x, The Wreck): an entry may declare `chapters: [...]` to restrict
-  // where the real pool offers it. devCards calls makePassiveCard directly and never reaches this
-  // function, so a chapter-scoped card stays testable from the dev menu in every chapter.
+  // A PASSIVE MAY BELONG TO ONE CHAPTER, read exactly as eligibleAnomalyIds reads it — the field
+  // sits on the entry, so the rule and the card it governs are one fact in one place. The Reef's
+  // four racing stats carry it, and so do The Wreck's three defensive cards; everything else has no
+  // `chapter` and is offered everywhere as before. devCards calls makePassiveCard directly and never
+  // reaches this function, so a chapter-scoped card stays dev-takeable in every chapter.
+  const owned = (id) => !PASSIVES[id].chapter || PASSIVES[id].chapter === run.chapter
+  // ...AND A WEAPON STAT IS DEAD WHERE THERE IS NO WEAPON. All four of these reach the player only
+  // through the weapon-damage roll, so in a chapter with an empty arsenal they are offered, picked,
+  // banked and do NOTHING — the same silent-dud shape the magnet exclusion above exists for, and the
+  // complaint that started the circuit work in the first place. Keyed off the pool being empty
+  // rather than off a chapter id, so any future weaponless chapter is covered by construction.
+  const unarmed = (CHAPTERS[run.chapter].weapons ?? []).length === 0
+  const WEAPON_PASSIVES = ['damage', 'fireRate', 'critChance', 'critDamage']
+  // ...AND A CIRCUIT OFFERS ITS OWN CARDS AND NOTHING ELSE. Owner's ruling, 2026-08-25, choosing
+  // between three slates: the Reef deals the four that change how you DRIVE, and not the survivor
+  // stats that merely survive better. A race is scored on a clock, so a card that does not move the
+  // clock is a slot spent reading.
+  //   IT IS ALSO WHAT MAKES THE INERT-CARD QUESTION STOP BEING A LIST. Auditing the general pool
+  // one entry at a time found `moveSpeed` multiplying `p.speed` — which stepPlayerMovement's circuit
+  // branch never reaches, its velocity being `_laneSpeed` — and would have had to find the next one
+  // by hand too. An allowlist inverts the default: a card reaches a circuit only if it was written
+  // for it. `PASSIVES[id].chapter` is the same field eligibleAnomalyIds already scopes on.
+  const circuit = !!CHAPTERS[run.chapter].circuit
   return Object.keys(PASSIVES).filter((id) =>
     (run.passivePicks[id] ?? 0) < MAX_PASSIVE_LEVEL
+    && owned(id)
+    && !(circuit && PASSIVES[id].chapter !== run.chapter)
+    && !(unarmed && WEAPON_PASSIVES.includes(id))
+    // ...and `magnet` needs no `|| circuit` beside it, though it looked like it did. stepPickups
+    // reads `(lane || circuit) ? Infinity : ...`, so Sticky Aura has been an offered no-op in The
+    // Reef since the day it dropped the lane flag for the ring — but the allowlist above now keeps
+    // it out of every circuit structurally, and widening this line as well is a second expression of
+    // the same exclusion that no test can distinguish from a typo.
     && !(lane && id === 'magnet')
     && !(brittle && DEFENSIVE_PASSIVES.includes(id))
     && !(noHeal && id === 'regen')
-    && !(PASSIVES[id].chapters && !PASSIVES[id].chapters.includes(run.chapter))
     && !(floored && PASSIVES[id].values
       && Object.keys(PASSIVES[id].values).filter((r) => RARITY_ORDER.indexOf(r) >= floorIdx).length < 2))
 }
@@ -11862,6 +12647,16 @@ export function eligibleWeaponModCandidates(run) {
 // card appears is BUCKET_WEIGHTS.element and nothing else, so the declared 18% is deliverable.
 // (Dropping all four ids on 31.6% of pools capped the bucket at ~12%.)
 function eligibleElementIds(run) {
+  // AN ELEMENT WITHOUT A WEAPON IS AN INERT CARD. `run.elements[id]` becomes an effect in exactly
+  // one place — applyElements, called from applyDamage's hit path — so with an empty arsenal every
+  // element is offered, picked, banked and does nothing. Keyed off the POOL being empty rather than
+  // off a chapter id, so any future weaponless chapter is covered without a second edit.
+  //   ⚠ THIS GATE IS ALSO WHAT KEEPS buildLevelUpChoices' `heal` FALLBACK OUT OF REACH, which is
+  //   the opposite of what it looks like. That fallback fires only when all four pools are empty at
+  //   once; without the gate elementIds never empties, so it can never fire — and the screen deals a
+  //   dead element card forever instead. With it, exhausting the pools needs ~30 picks against a
+  //   3-4 pick race budget, so the fallback stays unreachable in practice and the cards stay live.
+  if ((CHAPTERS[run.chapter].weapons ?? []).length === 0) return []
   return Object.keys(ELEMENTS).filter((id) => (run.elementPicks[id] ?? 0) < MAX_ELEMENT_PICKS)
 }
 
@@ -11901,8 +12696,23 @@ function makePassiveCard(run, id, rarity) {
     if (now > 0) descT.prev = passiveEffectText(cfg, now).p
     return { kind: 'passive', id, title: cfg.name, desc: elText(descT), descT, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon ?? '💪', bonus }
   }
-  const desc = passiveEffectText(cfg, bonus)
-  return { kind: 'passive', id, title: cfg.name, desc, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon ?? '💪', bonus }
+  // A CAPPED CARD STATES THE TOTAL IT LEAVES YOU ON, NOT THE ROLL — the element cards' rule
+  // (makeElementCard), and here it is not a nicety: under diminishing returns the roll is NOT what
+  // you get, so a fifth Quick Start printing "+45% acceleration" over a bank that moves 91% -> 95%
+  // is a card lying about its own effect. `was` is the same figure before the pick, which ui.js
+  // strikes through — the infusion cards' before/after arrow, reusing their .lv-was styling and
+  // their translated wording, so this adds no new string to fr.js.
+  //   `was` is the NUMBER ALONE, because ui.js prints it in front of the whole sentence — so the
+  // one local formatter here is not a second copy of passiveEffectText, which composes the sentence
+  // and stays the only place that does. ⚠ IT MUST NOT ASSUME A CAPPED CARD IS A `pct` ONE, which
+  // held only while the reef's four driving knobs were the only capped passives in the game.
+  // PASSIVES.gateFreeze is `flat` AND capped, and unfixed this printed "+0.3 seconds..." over a
+  // struck-through "+30%".
+  const have = run.passives[id] ?? 0
+  const shown = cfg.cap ? passiveTotal(id, have, bonus) : bonus
+  const desc = passiveEffectText(cfg, shown)
+  const was = cfg.cap && have > 0 ? (cfg.kind === 'pct' ? `+${Math.round(have * 100)}%` : `+${Math.round(have * 10) / 10}`) : null
+  return { kind: 'passive', id, title: cfg.name, desc, was, tag: `Lv ${picks + 1}`, rarity, icon: cfg.icon ?? '💪', bonus }
 }
 
 // A weapon-mod card adopts whatever rarity was rolled for its slot, same as passives.

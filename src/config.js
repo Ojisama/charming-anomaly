@@ -2744,15 +2744,103 @@ export const PASSIVES = {
   armor:      { name: 'Thick Jelly',  desc: 'armor (flat damage block)', base: 1, kind: 'flat', values: { normal: 1, rare: 2, legendary: 4 } },
   regen:      { name: 'Self-Goo',     desc: 'HP regen per second', base: 0.5, kind: 'flat', values: { normal: 0.5, rare: 0.8, legendary: 1.5 } },
   xpGain:     { name: 'Big Brain',    desc: 'XP gain',      base: 0.08, kind: 'pct' },
+  // THE WRECK'S DEFENSIVE CARDS. `chapter` is the same one-chapter field the racing cards below
+  // carry and eligibleAnomalyIds already reads — these three were written against an array of their
+  // own and it is gone: two spellings of one rule is this repo's largest defect class, and nothing
+  // here has ever needed a card in two chapters.
   // balance_decision : unswept first cut, wreck-only (2026-08-24)
-  sleek:      { name: 'Sleek',   desc: '{pct}% resistance to slows', base: 0.15, kind: 'resist', icon: '🐬', chapters: ['wreck'] },
+  sleek:      { name: 'Sleek',   desc: '{pct}% resistance to slows', base: 0.15, kind: 'resist', icon: '🐬', chapter: 'wreck' },
   // balance_decision : unswept first cut, wreck-only (2026-08-24)
-  oilskin:    { name: 'Oilskin', desc: "{pct}% resistance to the Leak's burn", base: 0.20, kind: 'resist', icon: '🧥', chapters: ['wreck'] },
+  oilskin:    { name: 'Oilskin', desc: "{pct}% resistance to the Leak's burn", base: 0.20, kind: 'resist', icon: '🧥', chapter: 'wreck' },
   // Utility, not DEFENSIVE_PASSIVES: this is a damage card, not a reduce-harm one (§4.3 ruling).
   // `pct` kind, not `resist` — there is no diminishing-returns curve to hide, so the printed
   // number is honest additively, same as `damage`/`critChance` above.
   // balance_decision : unswept first cut, wreck-only (2026-08-25)
-  slickFeed:  { name: 'Slick Feed', desc: 'damage to oil-stained prey', base: 0.25, kind: 'pct', icon: '🦷', chapters: ['wreck'] },
+  slickFeed:  { name: 'Slick Feed', desc: 'damage to oil-stained prey', base: 0.25, kind: 'pct', icon: '🦷', chapter: 'wreck' },
+  // THE REEF'S RACING CARDS (v7.x). `chapter` scopes an entry to one chapter, exactly as ANOMALIES
+  // already do — three of those carry the field today and eligibleAnomalyIds reads it. Copying that
+  // shipped mechanism keeps the scoping rule ON the entry it describes rather than in a hardcoded
+  // exclusion beside it, which is the one-fact-two-places shape this repo leads its own defect list
+  // with. It also means every other consumer works untouched: run XX already walks PASSIVES so the
+  // copy is translated or the suite goes red, devCards already enumerates PASSIVES so all four are
+  // dev-takeable, and applyChoice's `passive` branch banks them with no new code.
+  //
+  // Only FOUR, and that is the point of the audit that preceded them: `handling` is already
+  // PASSIVES.moveSpeed (in a lane it feeds the CROSS axis only — sim.js says so where it reads it),
+  // and `hull` is already PASSIVES.armor, which blocks the coral grate through hurtPlayer like every
+  // other damage path. Writing either again would be a second name for a shipped card.
+  // THE ID IS THE MECHANIC, THE NAME IS THE COSTUME — the convention every row above already
+  // follows: `moveSpeed` wears 'Zoomies', `maxHP` wears 'Extra Squish', `critChance` wears 'Sharp
+  // Eye'. Ids derived from display names look tidy for exactly as long as the name holds, and on
+  // this project names get rewritten once the card has a picture — at which point the id is a lie
+  // that costs a full rename sweep to correct. Name a row for what it MOVES and the costume can
+  // change for free.
+  //   `accel` and `boost` were the obvious mechanic words and both are already common tokens in
+  // this repo (27 and 14 hits), so the ids carry the noun they modify instead — greppable to
+  // exactly themselves, which is what renaming-safely asks for before a name is chosen.
+  // balance_decision : four knobs, one per verb the racer has [2026-08-25]
+  //  - every base UNMEASURED. scripts/reef-lap-probe.mjs has never been run with a card taken.
+  topSpeed:   { name: 'Turbo Fin',    desc: 'top speed',    base: 0.10, kind: 'pct', chapter: 'reef', cap: 1 },
+  // base 0.15 -> 0.45. MEASURED: at 0.15 (x1.75 accel at MAX_PASSIVE_LEVEL) a whole race with a
+  // cornering brake saved 0.12-0.20s of ~110s — a card you cannot feel, which is exactly the inert
+  // pick run CD exists to catch. See CIRCUIT_DEFAULTS.accel, which had to come down first: while
+  // the ramp took 0.64s there was nothing for any multiple of it to buy.
+  // balance_decision : Quick Start has to be worth a card slot [2026-08-25]
+  accelRate:  { name: 'Quick Start',  desc: 'acceleration', base: 0.45, kind: 'pct', chapter: 'reef', cap: 1 },
+  airMax:     { name: 'Big Lungs',    desc: 'Air capacity', base: 0.20, kind: 'pct', chapter: 'reef' },
+  dashLength: { name: 'Jet Puff',     desc: 'dash length',  base: 0.15, kind: 'pct', chapter: 'reef' },
+  // THE TWO HEALS, AND NEITHER OF THEM IS `regen` (owner, 2026-08-25: "add healing cards"). The Reef
+  // took armor/regen/maxHP out with the combat slate because a race is scored on a clock and those
+  // three only pay in survival — so a heal has to come back as something the RACE does, or the same
+  // argument deletes it again. Both are paid for by driving well:
+  //   Pit Stop     the checkpoint is already this chapter's till (it pays the XP), so it pays HP too.
+  //                Threading the tightest gap on the lap is the thing the mode rewards, and it is the
+  //                one heal a player can plan a lap around.
+  //   Clean Line   HP a second for every second you are NOT touching coral. It cannot be farmed by
+  //                stopping — the clock is running and the countdown does not care — and it pays
+  //                exactly the skill the chapter is about. It is also the direct answer to
+  //                CAVE_HIT_DPS: scrape and you stop healing at the same moment you start bleeding.
+  // ⚠ BOTH ARE `flat`, NOT `pct`. A percentage of what? There is no rate to scale — a pct card needs
+  // a base the player already has, and the Reef's HP economy is a flat drip against a flat scrape.
+  // balance_decision : a heal has to be paid for by driving, not by surviving [2026-08-25]
+  //  - sized against CAVE_HIT_DPS 16 and a ~38s lap: see run CD.c for the measurement.
+  //   BOTH BASES SIZED AGAINST THE RACE, NOT PICKED. A measured race takes 73 HP of scrape (274
+  //   frames of contact at CAVE_HIT_DPS 16) against a 100 HP pool, and a lap now has 10 checkpoints
+  //   over 4 laps. Pit Stop at base 1 therefore pays 40 HP across a whole race — about half the
+  //   scrape, so it matters and does not make the coral free. At the base 3 this was first written
+  //   with it paid 120, i.e. more than the race can charge you, which is the coral deleted.
+  gateHeal:   { name: 'Pit Stop',     desc: 'HP at every checkpoint',   base: 1, kind: 'flat', chapter: 'reef' },
+  cleanHeal:  { name: 'Clean Line',   desc: 'HP a second off the coral', base: 1, kind: 'flat', chapter: 'reef' },
+  // THE CLOCK STOPS, IT DOES NOT GROW (owner, 2026-08-27: "checkpoints pause the timer for 0.3s up
+  // to 1s"). Written as a HOLD rather than as `+0.3 * gateFreeze` on the top-up, and the difference
+  // is the whole card: every other checkpoint reward here is `Math.min(clockCap, clock + swimTime)`,
+  // so a driver clean enough to arrive at a gate already full banks NOTHING from it. A hold is not
+  // capped by anything — it pays the good driver too, which is what makes it a different card from
+  // "Pit Stop for the clock" rather than a smaller version of swimTime.
+  //   ⚠ THE ONLY `flat` PASSIVE IN THE GAME THAT ALSO CARRIES A `cap`, and both formatting sites in
+  // makePassiveCard had to learn about the pair — a capped card prints the TOTAL it leaves you on,
+  // and until this existed that total was unconditionally rendered as a percentage.
+  //   base 0.35 against cap 1: the ladder runs 0.30 / 0.50 / 0.65 / 0.75 / 0.83, so a first pick is
+  // the 0.3s the owner asked for and the ceiling it approaches is his 1s. 40 crossings in a five-lap
+  // race (7 gates + the line, and the line pays lineMul of these like it pays lineMul of swimTime),
+  // so the ceiling is worth ~33s against a race that banks ~220s of clock in total.
+  // balance_decision : a checkpoint holds the clock, it does not top it up [2026-08-27]
+  //  - the hold is NOT capped by clockCap; that is the point, do not route it through the top-up
+  gateFreeze: { name: 'Split Second', desc: 'seconds the clock stops at every checkpoint', base: 0.35, kind: 'flat', chapter: 'reef', cap: 1 },
+  // THE COOLDOWN, and it is the only card in the chapter that pays in PRESSES rather than in the
+  // press. Owner, 2026-08-28: "a new upgrade 'dash cooldown reduction', starting at 0.5s for
+  // normal, and asymptotically ceiling at 2.5s". Jet Puff already buys a longer dash and this buys
+  // more of them, so the two are a pair rather than a duplicate -- and with BURST_RAM_COINS on the
+  // other side of the button, the cooldown is now also the rate at which the lane pays out.
+  //   base 0.5 against cap 2.5 puts a normal first pick on 0.45s (the asymptote takes its bite
+  // immediately -- passiveTotal's own note says the first pick always lands a hair under `base`)
+  // and the ladder runs 0.45 / 0.82 / 1.13 / 1.38 / 1.58s, approaching the 2.5s ceiling asked for.
+  //   ⚠ THE CAP MUST STAY WELL UNDER REPULSE_CD (6.0), because sim.js SUBTRACTS this from it. At
+  // the ceiling the button comes back in 3.5s instead of 6.0; a cap that reached 6 would make the
+  // dash free, and one that passed it would make the cooldown negative -- which is not a clamp
+  // away, it is a different game. Run RF.h pins the floor against both constants.
+  // balance_decision : the dash comes back sooner, never for free [2026-08-28]
+  dashCooldown: { name: 'Fast Twitch', desc: 'seconds off the dash cooldown', base: 0.5, kind: 'flat', chapter: 'reef', cap: 2.5 },
 }
 export const MAX_PASSIVE_LEVEL = 5
 // A passive's magnitude -> its effect text, ONCE — makePassiveCard (sim.js, the level-up card) and
@@ -2776,6 +2864,35 @@ export const passiveEffectText = (cfg, bonus, fmt = (n) => String(n)) => {
   // that must not reach the player as "+4.099999999999999 HP regen".
   const n = cfg.kind === 'pct' ? Math.round(bonus * 100) : Math.round(bonus * 10) / 10
   return cfg.kind === 'pct' ? `+${fmt(n)}% ${cfg.desc}` : `+${fmt(n)} ${cfg.desc}`
+}
+
+// DIMINISHING RETURNS, and `cap` is the whole of it (owner, 2026-08-26: "the cards upgrades should
+// be less potent (with diminishing returns) [...] there should be a diminishing return to +100%
+// speed, and +100% accel"). A capped passive APPROACHES its cap and never reaches it — what is left
+// of the gap shrinks by a constant FACTOR per point of bonus, so the ladder for a normal Turbo Fin
+// runs +10 / +18 / +26 / +33 / +39% where it used to run 10 / 20 / 30 / 40 / 50, and five normal
+// Quick Starts bank +89% instead of +225%.
+//   EXPONENTIAL AND NOT `have + bonus * (1 - have / cap)`, WHICH DIVERGES. The linear-remainder form
+// is the obvious way to write this and it is correct only while a single bonus stays under the cap:
+// a mythic Quick Start rolls 6.5 x 0.45 = 2.925 against a cap of 1, which drives the total PAST the
+// cap, after which `1 - have / cap` is negative and each further pick swings it further out — the
+// measured result was +2743% acceleration, i.e. a card that is 27x its own ceiling. Rarity is
+// exactly what makes an oversized bonus routine, so the formula has to be unconditionally
+// saturating rather than clamped after the fact.
+//   ORDER-INDEPENDENT BY CONSTRUCTION, which is not a nicety on a card that rolls a rarity: the gap
+// is multiplied by exp(-b / cap) per pick, and multiplication commutes — so a mythic-then-normal
+// build and its mirror end on the same number, and pick order can never be the tell.
+//   THE CAP IS ON THE BANKED TOTAL, NOT ON THE ROLL. A mythic Turbo Fin still lands the biggest
+// single step available (0 -> +96%); it just cannot leave the asymptote, and a sixth pick could
+// never take it past +100%. The first pick lands a hair under `base` by construction (+9.5% for a
+// normal Turbo Fin, not +10%) — the card prints the real total, so nothing advertises the base.
+//   ⚠ THE ONE PLACE THIS MAY BE APPLIED IS applyChoice, because run.passives[id] IS the applied
+// bonus every reader folds in directly (sim.js reads `1 + run.passives.topSpeed` and nothing else).
+// Fold it at a read site instead and the second read site drifts; fold it at both and it compounds.
+// makePassiveCard calls it only to SHOW the result, which is what the card's before/after arrow is.
+export const passiveTotal = (id, have, bonus) => {
+  const cap = PASSIVES[id]?.cap
+  return cap ? cap - (cap - have) * Math.exp(-bonus / cap) : have + bonus
 }
 
 // ---- Weapon mods (v4.1: weapon-mod parity) -------------------------------------
@@ -4791,13 +4908,22 @@ export const EARLY_CALM = {
 // `exclude` (denylist) scope an anomaly to where its mechanic actually exists. With no
 // chapterId, every scoped entry is out — a caller that doesn't say where it is gets only the
 // universally-valid pool.
-const mutatorPool = (chapterId) => Object.keys(MUTATORS).filter((id) => {
-  const m = MUTATORS[id]
-  if (m.hidden) return false
-  if (m.chapters && !m.chapters.includes(chapterId)) return false
-  if (m.exclude && m.exclude.includes(chapterId)) return false
-  return true
-})
+// CHAPTERS[].noGenericMutators OPTS A CHAPTER OUT OF THE UNSCOPED POOL ENTIRELY, leaving it only
+// the entries that name it in `chapters`. One field rather than eight more `exclude` lists, because
+// the reason is a property of the CHAPTER and not of each mutator: an unarmed chapter (The Reef,
+// `weapons: []`) cannot feel an enemy-HP, elite-rate, player-damage, infusion, xp or coin knob, and
+// those eight keys are the whole generic pool. See MUTATORS.narrows for the audit, entry by entry.
+const mutatorPool = (chapterId) => {
+  const ownOnly = CHAPTERS[chapterId]?.noGenericMutators === true
+  return Object.keys(MUTATORS).filter((id) => {
+    const m = MUTATORS[id]
+    if (m.hidden) return false
+    if (m.chapters) return m.chapters.includes(chapterId)
+    if (ownOnly) return false
+    if (m.exclude && m.exclude.includes(chapterId)) return false
+    return true
+  })
+}
 
 export const randomMutators = (count, chapterId) => {
   const pool = mutatorPool(chapterId)
@@ -5462,7 +5588,7 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'twilight', 'deep'], hidden: [], wipFrom: 2, startCoins: 100 },
+  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'twilight', 'deep'], hidden: [], wipFrom: 3, startCoins: 100 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -5529,6 +5655,29 @@ export const HUMIDITY_DMG_FLOOR = 0.7
 export const FOUL_SPRING_FOUL_T = 0.85
 export const REFILL_ZONE_SPEND = 0.33
 export const spendSecs = (res, spend = REFILL_ZONE_SPEND) => +((res.max * spend) / (res.refill - res.drain)).toFixed(2)
+// WHAT A CHAPTER IS SCORED ON -- the two leaderboards its podium spread draws, verso then recto.
+// A chapter that declares nothing gets this pair, which is what an ordinary survival run has to
+// show: how many things you killed and how far you levelled.
+//
+// THIS EXISTS BECAUSE THE RECTO USED TO BE INFERRED, and the inference was a coincidence rather
+// than a rule. ui.js read `CHAPTERS[id].scripted ? 'time' : 'level'` -- true for the one boss
+// chapter, and it had to be extended by hand the moment a SECOND kind of chapter wanted a clock.
+// The Reef is that chapter and it wants BOTH of its boards changed, not one: it is `weapons: []`,
+// so nothing in it can die and its kills board is a column of zeroes, and `ONE LAP, ONE LEVEL`
+// (stepCircuit) makes its level board a table where every finisher ties. Two boards, neither able
+// to rank anybody, while the race time the run actually earns was submitted and never drawn.
+//
+// A chapter naming its own boards is also the only shape that survives the next kind of chapter:
+// there is nothing here to remember to update, and a board name that does not resolve is a test
+// failure (run LB) rather than a blank leaf nobody notices.
+//
+// LEVEL IS NOT A STAND-IN FOR LAPS on a circuit, which is why the Reef does not simply keep it.
+// Level equals laps there, but only through how xp happens to be wired this month, and the leaf is
+// labelled `Level reached`. The day that 1:1 breaks the board goes on ranking confidently and
+// wrongly, with nothing thrown -- the one-fact-in-two-places class this file is full of warnings
+// about. `time` and `lap` are what a race is scored on, so those are what it declares.
+export const CHAPTER_BOARDS_DEFAULT = ['kills', 'level']
+
 export const CHAPTERS = {
   body: {
     name: 'The Body', tagline: 'escape the host', icon: '🦠',
@@ -6056,6 +6205,11 @@ const BLANK_WEAPONS = ['star','orbit','wave','homing','flagella','mines','bloom'
 CHAPTERS.blank = {
   name: 'The Blank', tagline: 'deletion in progress', icon: '⬜',
   scripted: true,          // gates victory timer + ordinary spawning (sim.js), HUD readout (ui.js)
+  // The recto ui.js used to DERIVE from `scripted` just above, now stated. A boss chapter has no
+  // survival clock and no reason to grind levels -- it ends when the boss dies, so how long that
+  // took is the only score its second board can be about (owner, 2026-08-19). Unchanged behaviour;
+  // the flag simply stopped being asked a question it was not about.
+  boards: ['kills', 'time'],
   maxDifficultyCap: 3,     // per-chapter ladder ceiling (see chapterMaxDifficulty helper)
   weapons: BLANK_WEAPONS,
   // balance_decision : the blank rolls its starter from its own pool 2026-08-19
@@ -6098,13 +6252,15 @@ CHAPTERS.blank = {
 // (Reef: none), 120, 45, 95, 150 — no two adjacent chapters within 45 degrees.
 //
 // THE REEF HAS NO TIDE, deliberately (owner ruling, on these measurements). A zero-mean sine
-// displaces 102px at its extreme, and its lane cannot pay that in either direction:
-//  - across it (90 deg), the water walks a player who is not steering 205px sideways, into the air
-//    pockets (r 130) — RF.a's centre-line run ended on 93 of 100 Air instead of 0, i.e. the water
-//    made the chapter's one decision for them.
-//  - along it (20 deg), the advance swings 2-88 px/s against a steady 45.
-// For any future lane chapter: a tide costs you the scroll or the cross-lane decision, so measure
-// both — the sway came in at 205px where the sine alone predicts 102, the lane's terms adding to it.
+// displaces 102px at its extreme, and the chapter cannot pay that:
+//  - ACROSS the track (90 deg), the water walks a player who is not steering 205px sideways, into
+//    the air pockets (r 130) — RF.a's centre-line run ended on 93 of 100 Air instead of 0, i.e. the
+//    water made the chapter's one decision for them.
+//  - ALONG it (20 deg), the advance used to swing 2-88 px/s against a steady 45.
+// ⚠ STILL TRUE NOW THE LANE IS A RING (v7.x), and it was re-measured rather than inherited: the
+// argument that buys the exception is the WIDTH, and the ring's passage is 300-400px against that
+// same 205px sway. For any future scroller: a tide costs you the scroll or the cross-lane decision,
+// so measure both — the sway came in at 205px where the sine alone predicts 102.
 export const TIDE = { surge: 46, period: 14 }
 export const tideAt = (deg) => ({ ...TIDE, axis: deg * Math.PI / 180 })
 
@@ -6879,12 +7035,38 @@ CHAPTERS.surf = {
 // survived passiveCrowd — see the weapons block for which one left and why.
 CHAPTERS.reef = {
   name: 'The Reef', tagline: 'the current only runs one way', icon: '🪸',
-  lane: true,
+  // ⚠ NO `lane: true` SINCE v7.x, AND THAT IS THE RING (see ringXY). A lane is a straight corridor
+  // with a fixed forward axis, which is exactly the shape the owner rejected — so The Reef is a
+  // FREE-ROAM chapter whose obstacle field happens to be "coral everywhere except a ring-shaped
+  // passage". Dropping the flag is what buys the change cheaply: sixteen sites in sim.js gate on
+  // `lane` and every one of them wants the free-roam answer here (the stick is a heading, spawns
+  // ring the player, nothing auto-scrolls, the camera centres). The four that did NOT are named
+  // where they now read `circuit` instead — the magnet, the spawn placement, the astern sweep and
+  // the straggler recycler. The Beyond keeps `lane: true` and is untouched by construction.
+  //   `laneAxis` STAYS. laneAxes() is still the answer to "which way is the start line" for the
+  // handful of readers that predate the ring, and ui.js reads it for the joystick. It is inert for
+  // movement now.
   laneAxis: 'x',
-  // 45 rather than the shared 70 — see laneScrollFor's block. Measured, not felt: on a 390x844 phone
-  // an x-lane has only 312 world px ahead of the player against the y-lane's 675, so at 70 this
-  // chapter would give HALF The Beyond's reaction time on the device the game ships to.
-  laneScroll: 90,
+  // THE CAR'S BASE SPEED, and on a ring that is ALL it is — the chapter dropped `lane: true`, so
+  // nothing scrolls and this is simply what a throttle of 1 is worth. The band is this x
+  // laneThrottle: 76.5..459 px/s.
+  //   ⚠ PLAYER.baseSpeed IS NOT THE REEF'S SPEED and a knob added there is inert. The circuit
+  // branch in stepPlayerMovement builds the velocity out of laneScrollFor and the stick's
+  // magnitude; `player.speed` never reaches it. (Proven the expensive way: a chapter speed
+  // multiplier on player.speed moved the measured 4-lap race time by 0.00s.)
+  // balance_decision : the reef drives at twice its old speed [2026-08-25]
+  //  - CIRCUIT_DEFAULTS.accel is DEFINED against this number and was doubled with it; the air
+  //    economy is denominated in pockets met per second and is now ~2x richer. crashSpeed WAS too
+  //    and no longer is — see its own block for why the inward component is not half of top speed.
+  // 180 -> 153. Owner, 2026-08-26: "in the reef, you should start with 15% less speed". The car
+  // starts slower and Turbo Fin is what buys it back, which is what a CAPPED card changes about
+  // that trade (passiveTotal, beside PASSIVES): the ceiling a full build reaches is 2x this number,
+  // so the 15% moves the floor down and the cards can no longer run away from the ceiling.
+  //  - crashSpeed moved with it, because that knob is stated as an ANGLE against top speed.
+  //  - the air economy is denominated in pockets met per PX of track, so 15% slower is 15% fewer
+  //    pockets per second against an unchanged per-second drain.
+  // balance_decision : the car starts 15% slower and buys it back [2026-08-26]
+  laneScroll: 153,
   // THE THROTTLE (owner, 2026-08-24: "the move right / move left actions should actually make the
   // level scroll faster / slower", then "it should be wayyyy speedier, like 3x the speed"). The
   // stick's FORWARD component was doing nothing at all in a lane — only the cross axis was read —
@@ -6914,6 +7096,73 @@ CHAPTERS.reef = {
   //   ratio — scripts/charge-probe.mjs --chapter reef is the rig, and its `pocket` lane policy
   //   would need a throttle to sweep before any number here can be quoted.
   laneThrottle: { min: 0.5, max: 3 },
+  // THE CHAPTER IS A CIRCUIT. The cave's `lapLen` is the track; this is how many times you drive it.
+  // Deliberately NOT carrying the lap length — that lives on the cave spec, because it is the period
+  // its wavelengths divide and the modulus its forks wrap by. One fact, one place.
+  //
+  // Every consumer keys off THIS flag and never off `lane`: The Beyond is `lane: true` as well, and
+  // hanging circuit behaviour on the lane flag would silently convert a chapter whose whole design
+  // is being chased.
+  // balance_decision : five laps, and a level-up screen on each of the first four [2026-08-26]
+  //  - the lap is now the XP till (CIRCUIT_DEFAULTS has no swimXp any more), so this number IS the
+  //    build: change it and the player gets a different number of cards.
+  // THE DIFFICULTY LADDER, AND THIS CHAPTER NEEDED ITS OWN BECAUSE THE SHARED ONE IS INERT HERE.
+  // Every other chapter climbs on difficultyHpMul/difficultyDmgMul/difficultyCoinMul, and MEASURED
+  // against The Reef all three are no-ops: `weapons: []` means nothing can be killed so doubling
+  // enemy HP moves a number no card reads, `passiveCrowd` multiplies enemy damage by 0 so the damage
+  // tax is 1.6 x 0, and every coin in the game drops in dealDamage's death branch so the coin tax
+  // pays out on a purse of 5 (runBonusCoins(0, level)). The lap probe agreed from the other side:
+  // difficulty 1 and difficulty 5 produced BYTE-IDENTICAL output across 8 driving policies x 3
+  // seeds. The chapter shipped with a five-rung ladder that did nothing at all on any rung.
+  //
+  // What a race can actually be taxed on is time and room, so the ladder moves both:
+  //   clock — folded into mods.raceClockMul, the SAME term MUTATORS.tidalRace already uses, so it
+  //           scales clockStart, clockCap and swimTime together and the two compose multiplicatively
+  //           rather than needing a second mechanism.
+  //   width — halfMin and halfMax scaled TOGETHER, which is what keeps this a difficulty knob and
+  //           not a different track. hw is halfMin + (halfMax - halfMin) * t, so one factor on both
+  //           ends scales hw uniformly: the centreline, the wobble, the fork placement and the
+  //           ordering of the local minima are all untouched, so swimthroughsFor picks the SAME
+  //           seven checkpoints at every rung and a player's learned racing line still holds. Only
+  //           the margin either side of it shrinks.
+  //
+  // ⚠ THE TWO CLOCK KNOBS ARE ONE LEVER, NOT TWO. A driver dies when mean lap time exceeds
+  // 7 * swimTime + clockStart / laps, so 1s of checkpoint time is worth 35s of starting bank and a
+  // ladder that moved them separately would be double-counting. That formula predicted every row of
+  // the sweep. The CAP alone is very nearly inert on top of that: traced over a full race, drivers
+  // sit pinned at it 1-9% of the time, so lowering the ceiling without the start changes nothing —
+  // and a cap below the current clock makes crossing a checkpoint SUBTRACT time, since the top-up is
+  // Math.min(cap, clock + swimTime).
+  //
+  // MEASURED — scripts/reef-lap-probe.mjs, 8 driving policies x 6 seeds, every rung, both rigs.
+  // Finishes of 48, and the three rows that carry the whole design:
+  //
+  //                          d1     d2     d3     d4     d5
+  //   all policies, mortal  29/48  26/48  22/48  21/48  15/48
+  //   clean fast line        6/6    6/6    6/6    6/6    5/6   <- still winnable at the top
+  //   corner-cutter          5/6    4/6    3/6    3/6    2/6   <- dies to SCRAPE, the width ladder
+  //   slow but tidy          5/6    5/6    2/6    1/6    0/6   <- dies to CLOCK, the clock ladder
+  //
+  // Two different drivers failing for two different reasons is the point rather than a side effect.
+  // The clock punishes SLOWNESS — which on an open lap means a careful driver who never touched
+  // anything — while the walls punish CORAL. This chapter's own rule is that the punishment for
+  // coral is the clock, so a ladder built only on the clock would climb the wrong axis, and one
+  // built only on the walls would let a driver dawdle round a clean line forever.
+  //   SIX SEEDS, NOT THREE, AND THAT IS NOT CEREMONY. At three the gradient was NOT monotone (d4
+  // read easier than d3) because one borderline policy flips a whole 1/3 on a single seed. The
+  // rungs are 4 points apart; the noise was bigger than the step.
+  // balance_decision : reef ladder taxes time and room, not HP [2026-08-26]
+  //  - d1 is exactly the shipped v7.240 race, by construction: both multipliers are 1.
+  circuit: {
+    laps: 5,
+    ladder: {
+      1: { clock: 1,    width: 1.40 },
+      2: { clock: 0.96, width: 1.18 },
+      3: { clock: 0.92, width: 1.00 },
+      4: { clock: 0.88, width: 0.84 },
+      5: { clock: 0.84, width: 0.70 },
+    },
+  },
   // THE LANE DROPS WHAT FALLS BEHIND (v7.x). Opt-in per chapter -- see stepLeaks for why the
   // default must stay off. The Reef needs it and The Beyond does not: this roster's moray moves
   // 39px/s against a 45px/s advance, so it falls astern BY CONSTRUCTION and can never return,
@@ -6948,19 +7197,116 @@ CHAPTERS.reef = {
   //     clamps the player to, and the player is pinned against a wall that is not drawn. 120 + 185
   //     = 305 against 330. run RS asserts it rather than trusting this line.
   cave: {
-    // halfMin 100 -> 150 SO THE PASSAGE CAN HOLD AN OFF-CENTRE POCKET. An air pocket has to clear
-    // the centre line (or breathing is free) and stay inside the wall (or it is unreachable), and
-    // at hw 100 with r 48 those two demands have no overlap. wander drops to 100 to pay for it:
-    // wander + halfMax must stay inside laneHalfW 330, and 100 + 210 = 310 does.
-    wander: 100, halfMin: 170, halfMax: 220,
-    waves: [[900, 1], [380, 0.42], [170, 0.18]],   // [wavelength px, weight]
-    widthWave: [[640, 1], [250, 0.45]],
-    // THE BRANCHES (caveAt's own block has the geometry). One island every `every / chance` = 1000px
-    // of lane, i.e. a fork about every 11s at laneScroll 90, each one 380px long = 4.2s of committed
-    // side. `frac` is the share of the passage the island takes, so each branch is 36% of it — 122px
-    // at the tightest squeeze the field makes, against a 44px player. Capped by the air pockets
-    // before it is capped by the swim: see the warning in caveAt.
-    branch: { every: 700, chance: 0.7, span: 380, frac: 0.28 },
+    // WANDER IS WHAT MAKES THE TRACK TURN BOTH WAYS, AND BELOW A THRESHOLD IT CANNOT. Owner,
+    // playing v7.233.0: "the reef circuit is just a loop, that's weird... not a roundabout or a
+    // carousel". It was a roundabout, and the reason is arithmetic rather than taste.
+    //
+    // A polar track r(θ) curves the OTHER way — a right-hander on an anticlockwise lap — exactly
+    // where `r * r'' > r^2 + 2 * r'^2`. For one harmonic of amplitude A at harmonic number n on a
+    // radius r0 that is `A * n^2 > r0 - A`, so the counter-turn is bought by AMPLITUDE ON A LOW
+    // HARMONIC and by nothing else. At wander 130 spread over harmonics 2/5/10 the lap held one
+    // sign for three quarters of its length and every reversal it did have was a short-octave kink.
+    //   ⚠ IT IS A RATIO WITH r0, NEVER A PIXEL COUNT, WHICH IS WHY IT MOVED WITH THE RING. The
+    //   counter-turn test above is A * n^2 > r0 - A, so holding wander still while r0 grew would
+    //   have flattened the lap back toward the doughnut the owner rejected. 440/1400 and 572/1820
+    //   are the same track at two sizes, and reef-track-map.mjs says so: identical counter-turn
+    //   (7.75 rad/lap, 444deg), identical 16 direction changes, identical 37% of samples turning
+    //   the other way, with every radius 30% larger (tightest corner 97px -> 126px).
+    //   ⚠ THE CEILING IS CLEARANCE, NOT hw, AND THE TWO ARE NOT THE SAME NUMBER. hw is measured
+    //   RADIALLY; where the track runs steeply across the radii the real gap is hw x cos(that
+    //   angle), and at a high enough wander/r0 the inner edge of a hairpin folds through itself
+    //   while hw still reads its nominal value. Measured worst clearance off the racing line:
+    //   102px, with 0% of the lap under 90 (player radius 22) — it was 85px and 3% before the
+    //   passage widened. reef-track-map.mjs prints it; do not move this knob — or r0 — without
+    //   reading it, and move the two together.
+    // THE PASSAGE WIDTH. 150/200 -> 180/240, a 360-480px track (owner, 2026-08-25: "make track
+    // width +20%").
+    //   ⚠ IT IS NOW WIDER THAN THE PHONE'S SHORT AXIS, WHICH IS THE THING THE PREVIOUS CUT TRADED
+    // IT AWAY FOR. 170/220 came down to 150/200 on exactly this argument: the visible world is
+    // ~390px across the short axis of a 390x844 phone and the camera is CENTRED here (no lane to
+    // bias it), so at the widest chambers both walls no longer fit on screen while you are driving
+    // across them. That is a deliberate re-trade, not an oversight — the fix if it reads badly is
+    // this knob and not the camera.
+    //   AND IT CUTS THE OTHER WAY ON THE IMPACTS. `lim` is hw - PLAYER.radius, so 20% more room is
+    // 20% fewer chances to be in the wall at all; the crash tune (circuit.crashSpeed and the kick
+    // block) is unchanged and simply fires less often. Everything measured as a FRACTION of hw
+    // follows on its own — the island (branch.frac), the checkpoint rods (CIRCUIT_GATE_VIS.reachLo
+    // /reachSpan) and the air pockets' inner snap all scale with it by construction.
+    wander: 572, halfMin: 180, halfMax: 240,
+    // EVERY WAVELENGTH DIVIDES lapLen (5040), WHICH IS WHAT MAKES THE TRACK A CIRCUIT. The passage
+    // is summed sines of f, so it repeats exactly when every length divides the lap -- no `f % lap`
+    // wrap, no seam to blend, caveAt untouched.
+    //   5040 / 1680 = 3   / 1260 = 4   / 720 = 7   |   widthWave: / 1680 = 3  / 720 = 7  / 504 = 10
+    //   ⚠ CHANGING lapLen MEANS RETUNING ALL OF THEM. A length that does not divide it puts a
+    //   discontinuity at the start line, which is the one place on the track the player crosses
+    //   five times a race and is looking at.
+    //
+    // ⚠ THE CORNERS LIVE ON THE HARMONIC NUMBER, SO THIS SET IS 3/4/7 AND NOT 2/5/10. See wander
+    // above for why: a counter-turn costs `A * n^2 > r0 - A`, which n=2 cannot pay at any amplitude
+    // this passage survives (it needs A > 180 on r0 900 before the sign even changes) and which
+    // n=10 pays with a 79-degree kink no driver can read — the failure the previous set was tuned
+    // away from. 3 is the corner-maker, 4 breaks the three lobes out of symmetry so no two are the
+    // same corner, and 7 is texture riding on top rather than a fourth corner.
+    //   AMPLITUDE FALLS FASTER THAN WAVELENGTH HERE, which is the property that keeps 7 as texture:
+    // at [1,0.5,0.2] the short octave contributes a fifth of the swing over a third of the arc, so
+    // it kinks the entry to a corner instead of being one.
+    waves: [[1008, 1], [720, 0.6], [504, 0.3]],   // [wavelength px, weight]
+    // THE SQUEEZES, AND THEIR COUNT IS STRUCTURAL: lapLen / the short period = 5040 / 720 = 7 local
+    // minima a lap, of which swimthroughsFor takes the deepest SWIMTHROUGHS_PER_LAP. At the old
+    // 252 it was 20 minima, i.e. a pinch every 280px of arc — under a second apart at racing speed,
+    // which on a ring reads as a corridor that is permanently closing rather than as a track with
+    // places in it.
+    //   ⚠ A THIRD OCTAVE, AND IT IS THE COUNT THAT NEEDS IT. Two waves give 5040/720 = 7 local
+    // minima a lap, and swimthroughsFor takes the deepest SWIMTHROUGHS_PER_LAP of them — so with 7
+    // it is taking almost all of them, and the sixth was landing at hw 177 against a passage
+    // midpoint of 175, i.e. in the WIDE half. "The checkpoint is the tightest point on the track"
+    // stops being true when there is barely a field to choose from. 5040/504 = 10 restores the
+    // choice, at a minimum spacing of ~580px of arc.
+    // 5040 / 252 = 20 local minima a lap, of which swimthroughsFor takes the deepest
+    // SWIMTHROUGHS_PER_LAP — the same 6-of-20 selection the corridor had, and the selection RATIO
+    // is what makes "the checkpoint is the tightest point on the track" true. At 6 of 7 (two
+    // octaves) and 6 of 10 (three) the sixth-deepest was landing in the WIDE half, because taking
+    // most of a field is not choosing from it. The short octave is deliberately faint: it is there
+    // to give the picker candidates, not to corrugate a 300-400px passage.
+    widthWave: [[1680, 1], [720, 0.45], [504, 0.22], [168, 0.2]],
+    // THE BRANCHES (caveAt's own block has the geometry), AND THEY ARE THIS TRACK'S ONLY OBSTACLE.
+    // The spur ridges do not stream on a ring (streamSpurs clears them by construction) and
+    // `obstacles` is null, so the island is the whole of what stands IN the passage rather than
+    // bounding it — which is why "more obstacles" is spelled here.
+    //   `every` must divide lapLen or the forks move between laps: the island hashes
+    // floor(f / every), a cell index that keeps climbing, and caveAt wraps it mod lapLen/every. At
+    // 5040 / 720 = 7 there are seven candidate places, the same seven every lap, and a track you
+    // can learn is the point of a circuit.
+    //   ONE CANDIDATE EVERY ~1600px OF ARC. The previous cut backed off to 5 candidates because 7
+    // of them on a 5785px doughnut was a side-commitment every 1.6s — a texture rather than a
+    // decision. The corners are what buy it back: an island now lands ON them, so picking a side is
+    // picking the inside or the outside line rather than choosing between two identical tubes.
+    //   ⚠ every AND span ARE IN f, SO A BIGGER RING STRETCHES BOTH IN PIXELS. Holding them still
+    // while r0 grew 30% would have thinned the islands to one per 2080px and stretched each lens
+    // 30% longer for the same width. 720 -> 560 keeps 5040/560 = 9 candidates at 1615px of arc
+    // apart (it was 7 at 1597px), and 250 -> 192 keeps the lens the same 436px long it was.
+    // balance_decision : more islands, because corners made them a choice [2026-08-25]
+    //  - `frac` is a SHARE and never a pixel width — see the warning in caveAt, and run RS.f, which
+    //    pins it against the air pockets a branch must not swallow.
+    branch: { every: 560, chance: 0.75, span: 192, frac: 0.3 },
+    // THE LAP, IN PIXELS, AND IT LIVES HERE RATHER THAN ON `circuit` BECAUSE IT IS A PROPERTY OF
+    // THIS GEOMETRY: it is the period every wavelength above divides, and the modulus caveAt wraps
+    // the fork cell by. Authoring it twice is the drift this repo's own CLAUDE.md calls its largest
+    // defect class, so `circuit` carries the lap COUNT and reads the length from here.
+    //   ⚠ IT IS AN ANGLE AND NOT A LENGTH. ringXY reads it only as 2*pi*f / lapLen, so changing it
+    // rescales f and moves nothing on screen; the track's actual length is cave.ring.r0. Read that
+    // knob's block before quoting a lap time off this number.
+    lapLen: 5040,
+    // THE LOOP ITSELF. r0 is the nominal radius the passage centre wobbles about; see ringXY for
+    // why the centre sits at (-r0, 0) and why u is measured inward.
+    //   ⚠ THIS IS THE TRACK'S LENGTH, AND lapLen IS NOT. lapLen is an ANGLE (ringXY divides by it
+    // to get t), so a bigger lapLen at a fixed r0 changes nothing but the f scale. The arc a lap
+    // actually covers is 2*pi*r0 plus what the wobble adds — 14537px here, which reef-track-map.mjs
+    // prints and nothing else does. At the 540px/s a full throttle makes that is ~27s a lap.
+    // balance_decision : the circuit is 30% longer [2026-08-25]
+    //  - scale wander WITH it (same ratio) or the corners flatten out, and re-derive
+    //    SWIMTHROUGHS_PER_LAP from the new arc. Both are noted at their own knobs.
+    ring: { r0: 1820 },
     salt: 47,                                      // next free salt block; 44-46 were the spurs'
     // NO `fill` HERE, AND DELIBERATELY NOT. It read "how far past the passage edge coral is drawn,
     // must exceed the largest half-view the game can present" and NOTHING EVER READ IT -- syncSpurs
@@ -6969,44 +7315,37 @@ CHAPTERS.reef = {
     // on a knob with no consumer while the defect it describes was live on the other axis.
   },
 
-  // FOUR NATIVES BUILT, THREE OFFERED (owner, 2026-08-22, then 2026-08-24). Every card is picked
-  // for the LANE rather than for the theme, because a scroller only works if what you hold can
-  // answer things arriving from ahead — and each answers a DIFFERENT question about a corridor you
-  // cannot stop in, which is what stops the pool being one idea at three intensities:
-  //   pistolShrimp  the starter — a tracking line at the nearest body (fireSnap -> aimAngle, owner
-  //                 2026-08-24), cracking a shorter, softer bolt out the back of itself at the same
-  //                 time: this chapter's crowd sits astern of the player (53% of live bodies,
-  //                 scripts/reef-pileup.mjs) and a starter that could only ever face one way left
-  //                 the whole opening half-blind.
-  //   squidInk      GONE FROM THIS POOL (owner, 2026-08-24), and passiveCrowd is why. Its whole
-  //                 payload is the blind — it took the crowd's ability to FOLLOW you and let the
-  //                 scroll carry them off — and it deals no damage at all. A crowd that never
-  //                 follows you cannot be stopped from following you, so every one of its five mods
-  //                 folded onto a number nothing read: an INERT CARD, offered and picked and doing
-  //                 nothing, which is the exact pathology run MB.a exists for and which no test
-  //                 would have gone red over. The card, its mods and its blind machinery all stay
-  //                 built and dev-takeable — devCards ignores the chapter pool, and the blind works
-  //                 in every chapter whose crowd still seeks, which is where run RP now tests it.
-  //   oxygenTank    the only card thrown AHEAD of you rather than at a body — the scroll closes the
-  //                 gap, so the throw and the arriving stream keep the same appointment.
-  //   fireCoral     the terrain, armed. A burn band across the lane, placed ahead of the stream.
-  // quillBurst and pulsarSweep left with the last of the stand-ins; neither is deleted, both are
-  // still in the chapters whose pools own them. The stinger left with the starter slot before them:
-  // a forward cone at the nearest enemy is what the Pistol Shrimp now is, so the two cards would be
-  // one card at two widths.
-  //   NO EPIC WEAPON IN THIS POOL, AND IT COSTS NOTHING — measured, not assumed. Both stand-ins
-  // carried the chapter's only epic-rarity weapon offers, so makeWeaponCard now returns null at
-  // that tier here and rollCard falls through to a passive, an element or an anomaly. Over 6 x 300s
-  // seeded runs at d3 the slate comes out level with The Shelf's, the shipped four-native chapter:
-  //   reef   232 cards, 0 empty screens — normal 50.9% rare 32.3% epic 3.9% legendary 1.7% mythic 0.9%
-  //   shelf  282 cards, 0 empty screens — normal 50.7% rare 30.9% epic 4.3% legendary 2.8% mythic 0.7%
-  // The epic TIER is not the epic WEAPONS: it is fed by every bucket, and a pool of four cards at
-  // normal/rare/rare/normal does not starve it.
-  // THREE, NOT FOUR — see squidInk above. The three that remain still answer three different
-  // questions about a corridor you cannot stop in, which was the argument for the pool's shape:
-  // the starter is welded to the lane heading, the tank is thrown AHEAD of you, and the coral is
-  // the terrain armed. What left with the ink is this pool's only non-damage card.
-  weapons: ['pistolShrimp', 'oxygenTank', 'fireCoral'], starter: 'pistolShrimp',
+  // NO WEAPONS AT ALL. Owner, playing v7.233.0: "the weapons are useless, just remove them and the
+  // upgrades from this chapter". They were useless for a reason that is structural rather than a
+  // tuning miss — `passiveCrowd` makes the whole roster harmless traffic, so there is nothing here
+  // to kill and nothing that killing would earn. A racer drives past the field; it does not shoot it.
+  //
+  // AN EMPTY POOL IS A SWITCH, NOT A HOLE, and four separate gates read it rather than reading a
+  // chapter id: eligiblePassiveIds drops the four weapon stats, eligibleElementIds returns nothing
+  // (an element only reaches the world through applyDamage's hit path), makeWeaponCard and the
+  // weapon-mod bucket have no subjects to build from, and createRun leaves run.weapons genuinely
+  // empty rather than seeding a `{ id: null }` corpse. What is LEFT on a level-up screen is the four
+  // RACING stats and nothing else — eligiblePassiveIds allowlists a circuit to its own
+  // `PASSIVES[].chapter` entries (owner's ruling, 2026-08-25: a race is scored on a clock, so a card
+  // that does not move the clock is a slot spent reading). armor/regen/maxHP left with them, and
+  // CAVE_HIT_DPS was re-swept against their absence rather than left to make up the difference.
+  //
+  // NOTHING IS DELETED. pistolShrimp, oxygenTank and fireCoral keep their entries, their mods and
+  // their art, and devCards ignores the chapter pool entirely — so all three stay takeable from the
+  // dev menu, which is where run MB.a still resolves their mods.
+  //   ⚠ THE XP TILL IS THE LAP AND NOT THE KILL (stepCircuit): every coin and gem in this game
+  //   drops inside dealDamage's enemy-death branch, so an unarmed chapter earns nothing and the
+  //   level-up screen would never open once in a whole race. That grant is what keeps this an empty
+  //   ARSENAL rather than an empty progression.
+  weapons: [], starter: null,
+
+  // A RACE'S TWO SCORES, and the second one is not a restatement of the first -- which is the whole
+  // test for whether a board earns its half of the spread. `time` is the full five laps; `lap` is
+  // the best single one, and a driver can hold one without the other (a blazing lap and one bad
+  // corner loses the race; a metronome wins it holding neither). The two boards disagree, so both
+  // are worth reading. See CHAPTER_BOARDS_DEFAULT for why this is declared rather than inferred,
+  // and why `level` is NOT quietly reused as a lap count.
+  boards: ['time', 'lap'],
 
   // The cast. All three flags already exist in sim.js and are chapter-agnostic, so this roster is
   // real behaviour rather than a placeholder: the damselfish is the deliberately FLAGLESS baseline
@@ -7039,6 +7378,11 @@ CHAPTERS.reef = {
   //   WARNING: ELITE POOLS ARE NOT COVERED. eliteFlags' soapTrail still lays a damaging trail;
   //   that is a pool and not a contact, and turning it off is a separate ruling.
   passiveCrowd: true,
+  // ...WHICH IS ALSO WHY THIS CHAPTER TAKES NO GENERIC MUTATOR. The pre-run pool prices combat on
+  // both sides — enemy HP, elite rate, player damage, infusions, xp, coins — and an unarmed chapter
+  // whose crowd cannot hurt it feels none of them. mutatorPool reads this flag; MUTATORS.narrows
+  // carries the entry-by-entry audit and the five race-terms mutators that replace them.
+  noGenericMutators: true,
 
   // AIR POCKETS. The signature carries no mechanic of its own — the LANE is this chapter's gimmick
   // — it carries the geometry of the one thing that refills the bar, in the same vocabulary as the
@@ -7101,7 +7445,38 @@ CHAPTERS.reef = {
     // balance_decision : rare, big, generous instead of frequent, small, stingy [2026-08-24]
     //  - the three numbers only make sense together: r 48->90, refill 9->20, chance 0.66->0.14.
     //    Any two of them without the third either deletes the resource or starves it.
-    pockets: { cell: 640, chance: 0.14, r: 90, minDist: 420, salt: 40 },
+    // ⚠ `ringCells`/`ringChance` ARE THE ONES THAT FIRE, and cell/chance are now the dead half.
+    // The square cell grid was right for a lane, where the pockets were snapped ACROSS a corridor
+    // whose forward axis was a world coordinate. On a ring the track is an annulus: most of that
+    // grid is inside the hole or out past the far wall, and snapping those cells onto the passage
+    // would pile the whole field into a few angles. The ring streams pockets on a 1-D grid along f
+    // instead (streamRingPockets), which is the same idiom as the cave's own fork cells and gives
+    // an even spacing by construction.
+    //   8 cells at 0.7 is ~5.6 pockets a lap over ~5800px of arc — one every ~1030px, which is what
+    // the lane's grid worked out to and is deliberately unchanged: the bar's whole tune was
+    // measured against that spacing.
+    //   IT WRAPS MOD ringCells, so a pocket is in the SAME PLACE every lap. On a circuit that is
+    // the point — the track is a thing you learn — and it is also what stops a fresh roll appearing
+    // where you already breathed.
+    //
+    // ⚠ `grant` — A PICKUP, NOT A SOAK, AND A SOAK WAS THE WRONG SHAPE ON A CIRCUIT. Owner,
+    // 2026-08-26: "bubble should just give 25 air when you pass through it, remove the 'stay in it
+    // to get more' part."
+    //   Until now a vent paid `resource.refill` per second of OCCUPANCY, capped by the book-wide
+    // drawdown at a third of the bar. On a lane that reads as a generous pool. On a circuit it
+    // quietly pays you to STOP: a pocket is 180px across and a full-throttle racer covers that in
+    // 0.32s, so the fastest driver took about 6 air out of a vent while a driver who parked in one
+    // took 35 — six times as much, for doing the one thing a race is about not doing. The chapter's
+    // whole rule is that the punishment for coral is the clock; nothing in it should reward braking
+    // for a pickup.
+    //   A flat grant on ENTRY makes the vent worth the same to everybody, which is what a pickup is,
+    // and is a straight FOUR-FOLD raise for anyone actually racing. It is taken once per visit —
+    // `sh.taken`, on the streamed shaft — so it cannot be farmed by circling; and because the field
+    // wraps mod ringCells, the same vent is live again on your next lap, which is the behaviour a
+    // circuit wants.
+    // balance_decision : the vent is a pickup, taken once, worth 25 of 100 [2026-08-26]
+    //  - stepCharge reads `grant` INSTEAD of the per-second refill, never as well as it
+    pockets: { cell: 640, chance: 0.14, r: 90, minDist: 420, salt: 40, ringCells: 15, ringChance: 0.7, grant: 25 },
   },
 
   // SPUR AND GROOVE (level design spec 2026-08-20, rev 4). The reef front as this game's only
@@ -7291,7 +7666,14 @@ CHAPTERS.reef = {
     // the multiplied value, which also puts real distance between the mote and the three colours
     // that mean AIR here (AIR_POCKET_VIS.sheen 0xbfe9ff / .air 0xe4f4ff, CORAL_CRUSH.bubbleTint
     // 0xdff2ff) — distance the old warm near-white did not have.
-    dust: { tint: 0x949ba3, alpha: 0.35, speedMul: -3.0, sway: 5 },
+    // ⚠ speedMul -3.0 -> 0.15 WITH THE RING (v7.x). -3.0 existed to drive the motes DOWN the lane
+    // at three times the base, so the field read as the scroll carrying you rather than as grit
+    // hanging in water — correct while the chapter auto-scrolled at 45px/s. There is no scroll now:
+    // the track is a loop and the player does their own moving, so a signed multiplier against a
+    // lane axis that no longer exists just blew the litter across the world at 32.3px/s. Measured,
+    // and it is the wind pace the motes were originally authored at. 0.15 is the suspended-grit
+    // number every other floor in the book uses, which is what this chapter now is.
+    dust: { tint: 0x949ba3, alpha: 0.35, speedMul: 0.15, sway: 5 },
   },
 }
 // Book 2 chapter 4 — THE ONE BAR YOU PUSH UP. Written as a WHOLE literal for the same reason every
@@ -8117,10 +8499,15 @@ CHAPTERS.deep = {
 //   wreck  — no refill field at all; Bloodlust is fed by killing.
 //   trawl  — its food is the net's wake, which is not a place and cannot be used up.
 //   deep   — exempt: see the ⚠ at CHAPTERS.deep.signature. The maw already takes itself away.
+//   reef   — exempt since 2026-08-26, and it is the ruling's OWN SPIRIT rather than an escape from
+//            it. The owner: "bubble should just give 25 air when you pass through it, remove the
+//            'stay in it to get more' part." A vent still disappears once it has given you a share
+//            of the bar; it just hands the whole share over at the moment you touch it instead of
+//            metering it out. See CHAPTERS.reef.signature.pockets.grant for why a soak is the wrong
+//            shape on a circuit specifically.
 for (const [id, spec] of [
   ['shelf', CHAPTERS.shelf.signature],                 // upwellings: was a flat 5s, now the book's rule
   ['twilight', CHAPTERS.twilight.signature],           // sun shafts
-  ['reef', CHAPTERS.reef.signature.pockets],           // air pockets
 ]) spec.drawdownSecs = spendSecs(CHAPTERS[id].resource)
 
 // Drift-current visualization (v5.2, render.js): world-space flow streaks that sample the REAL
@@ -9434,6 +9821,302 @@ export const LANE_SCROLL_SPEED = 70      // px/s the player advances up the lane
 export const laneScrollFor = (ch, mods) => (ch?.laneScroll ?? LANE_SCROLL_SPEED) * (mods?.laneScrollMul ?? 1)
 export const LANE_STRAFE_MUL = 1.25      // strafe is a touch quicker than base speed — it is all you have
 
+// MOMENTUM, and it exists only in a `circuit` chapter. Everywhere else the throttle reaches the
+// player's forward velocity the same frame it is pushed, which is what The Beyond's golden master
+// measures — so this is gated on the flag rather than on `lane`, and The Beyond is untouched by
+// construction.
+//
+// WHY A RACER NEEDS IT AT ALL: with an instantaneous throttle a lap time is `lapLen / speed`, near
+// deterministic algebra. Every driver converges on the same number, nothing a card does is legible,
+// and crashing costs you only the frames you spend in the wall. Momentum is what turns a lap into
+// something you can drive well or badly.
+//
+// px/s^2. Reaching the 270px/s ceiling from the 45px/s floor takes (270-45)/420 = 0.54s, and
+// recovering from a crash-stop to a working 180px/s takes 0.43s. Both are meant to be FELT and
+// neither is meant to be a punishment on its own — the punishment is the clock.
+// balance_decision : momentum you can feel, not fight [2026-08-24]
+//  - the number itself is CIRCUIT_DEFAULTS.accel below, with the other three circuit knobs.
+
+// THE RACE CLOCK. It counts down in real seconds and a swimthrough tops it up TO A CEILING.
+//
+// THE CAP IS THE MECHANIC, not a safety rail on it. Uncapped, the countdown is a runaway: a fast
+// driver shortens the interval between checkpoints AND banks more time, so skill pays twice and the
+// pressure inverts for exactly the players who need it. Slightly generous and the clock is
+// decorative from lap 2; slightly stingy and everyone dies on lap 1 and never sees the other three.
+// Capped, it self-corrects at every skill level -- a clean driver sits pinned at the ceiling and the
+// clock stops mattering while they are clean; the moment they crash it starts biting.
+//
+// The comparison that governs the whole feel, and the one to sweep:
+//   CIRCUIT_SWIM_TIME  vs  mean seconds between swimthroughs at the pace the difficulty demands
+// Measured spacing is 528..1272px, i.e. 3.5..8.3s at the 153px/s the car now drives at, so a top-up
+// below ~3.5s can never keep a clean lap alive and one above ~8.3s can never fail to.
+// THE FOUR NUMBERS LIVE ON `CHAPTERS[id].circuit`, NOT HERE, and that placement is what makes them
+// sweepable. A primitive `export const` cannot be reassigned by a probe, so a knob grid over module
+// constants needs a source edit per cell — which is how a "measured" number ends up being whatever
+// the last hand edit left behind. As object properties they override the way charge-probe.mjs
+// already overrides `res.drainPerSpawn`. scripts/reef-lap-probe.mjs named this exact obstacle.
+// balance_decision : capped bank, so skill stops paying twice [2026-08-24]
+//  - UNMEASURED, all of them. Starting points for the lap probe's grid, not tuned numbers.
+export const CIRCUIT_DEFAULTS = {
+  // 420 -> 180. MEASURED, and it is the same finding from three directions. At 420 a full stop to
+  // top speed takes 0.64s, so momentum barely exists: Quick Start (accelRate) at MAX_PASSIVE_LEVEL
+  // saved 0.07s over a whole race and then -0.03s with a cornering brake in the fixture, i.e. an
+  // INERT CARD; a crash costs 45% of your speed and buys it back in 0.29s, which run CT measured as
+  // 15 crashes costing 1.0s of race time; and a traffic bump was worth about 4px. All three are the
+  // same number being too big. At 180 the ramp is 1.5s, a crash costs 0.68s of rebuild and a bump
+  // 0.45s — the penalties become things you feel and the two momentum cards become things you buy.
+  // balance_decision : momentum you can feel, so its cards and its penalties bite [2026-08-25]
+  //  - three separate "this does nothing" findings were all this knob
+  // 180 -> 360 WITH THE SPEED, and it is not a second decision. Every finding in the paragraph above
+  // is stated in SECONDS (a 1.5s ramp, a 0.68s crash rebuild, a 0.45s bump) against a top speed of
+  // 270; the reef now tops out at 540, so holding this constant would have doubled all three and
+  // undone the tune by leaving it alone.
+  accel: 360,        // px/s^2 the throttle's speed eases at — see CIRCUIT_ACCEL's block above
+  // clockStart/clockCap 30 -> 40 with the 30% longer lap: what the clock IS, is the ratio of
+  // seconds-banked to seconds-between-gates, and leaving the bank alone under a longer lap shrinks
+  // that ratio. Round numbers because the player reads both on the HUD.
+  //
+  // swimTime 6 -> 8 -> 4, AND THE LAST MOVE DELIBERATELY BREAKS THAT RATIO. Owner, 2026-08-26: "the
+  // race is too easy". Removing a third of the checkpoints was the ask and it is not, on its own,
+  // a difficulty change: MEASURED with scripts/reef-lap-probe.mjs, all 8 driving policies x 3 seeds
+  // finished with ZERO clock deaths both before (10 gates, 4 laps) and after (7 gates, 5 laps),
+  // because at swimTime 8 every policy banks more at a gate than it spends reaching the next one.
+  // A countdown nobody can lose is scenery.
+  //   THE GRID (reef-lap-probe, d1, 3 seeds, finishes out of 3, at 7 gates x 5 laps):
+  //     swimTime      8     6     5    4.5     4    3.5
+  //     wall read/brake   3/3   3/3   3/3   2/3   0/3   0/3     <- 189s, 147 wall touches a lap
+  //     wall late/brake   3/3   3/3   3/3   3/3   2/3   0/3
+  //     wall read/flat    3/3   3/3   3/3   3/3   3/3   3/3     <- 136s, the clean line
+  //     open read/brake   3/3   3/3   3/3   3/3   3/3   1/3     <- the OPEN track, no coral at all
+  //   4 is the only value that separates the two things this chapter is about. Above it nothing can
+  // be lost; at 3.5 the open-track braker starts dying too, which is the clock punishing SLOWNESS
+  // rather than coral — the wrong axis, and the opposite of the chapter's own rule that the
+  // punishment for coral is the clock (see CAVE_HIT_DPS's block).
+  //   4 -> 5 WITH laneScroll's 15%, AND IT IS THE SAME DECISION RATHER THAN A NEW ONE. The clock is
+  // denominated in SECONDS and the gates in PX, so cutting the car's speed re-prices every row of
+  // the grid above — measured at laneScroll 153, swimTime 4 killed the OPEN-TRACK braker 3 times
+  // out of 3 on a track with no coral in it at all, which is precisely the wrong axis this block
+  // rejected 3.5 for. The re-swept grid (reef-lap-probe, d1, 3 seeds, 7 gates x 5 laps):
+  //     swimTime          4    4.5    4.7      5
+  //     wall read/brake     0/3    0/3    0/3    1/3   <- hug the coral and brake: still loses
+  //     wall late/brake     0/3    1/3    3/3    3/3
+  //     wall read/flat      3/3    3/3    3/3    3/3   <- the clean line, never at risk
+  //     open read/brake     0/3    1/3    1/3    3/3   <- no coral: must never lose, and only 5 holds
+  // 5 is the lowest value that puts the open-track braker back at 3/3 while a coral-hugger can
+  // still be killed by the clock. clockStart/clockCap were swept with it and did not need to move:
+  // at 5 the clean policies sit at 31-37s mean clock against a 40s cap, i.e. the bank is still the
+  // ceiling it was.
+  // balance_decision : the clock can be lost again, and only by hugging coral [2026-08-26]
+  //  - swimTime is the knob here, NOT the gate count and NOT clockCap; the grid above was swept
+  //    with the cap held at 40 and moving both would make neither readable.
+  // 5 -> 4 WITH lineMul BELOW, AND IT IS ONE DECISION RATHER THAN TWO. Every grid above was swept
+  // when a lap paid 7 x swimTime; the start line paying double makes it 9 x, so leaving this at 5
+  // raises a lap's clock income 35s -> 45s and hands the race straight back. MEASURED on top of
+  // laneScroll 153 (reef-lap-probe, 6 seeds x 8 policies, MORTAL, finishes of 48):
+  //                       d1     d3     d5
+  //   5, no line         26/48  22/48  10/48   <- v7.243, the race this is measured against
+  //   5, line x2         30/48  30/48  19/48   <- the ask, unretuned: d5 nearly doubles
+  //   4, line x2         26/48  22/48  10/48   <- 9 x 4 = 36s a lap against 35
+  //   4 lands on the shipped race EXACTLY, on all three rungs, which is the whole point of the
+  // retune: the line becoming a checkpoint is a thing the player can SEE, not a difficulty change.
+  // balance_decision : the line pays double, so a gate pays 4 not 5 [2026-08-26]
+  //  - the two are ONE lever: a lap banks 9 x this now, and moving either alone moves the race
+  clockStart: 40,    // seconds on the clock at the start line
+  clockCap: 40,      // ...and the ceiling a swimthrough may top it back up to
+  swimTime: 4,       // seconds a swimthrough is worth
+  // THE START/FINISH LINE IS A CHECKPOINT TOO, AND IT PAYS DOUBLE (owner, 2026-08-26: "its
+  // checkpoint doesn't work / doesn't add seconds to timer (should be twice the seconds of a
+  // normal checkpoint)"). It has been drawn as a gate since gates were drawn and it paid nothing:
+  // swimthroughsFor picks local minima of the width field and never puts one at f = 0, so
+  // stepCircuit's running `passed` count cannot see the line at all.
+  //   ⚠ IT IS THE SAME Math.min(cap, ...) TOP-UP, so a lap crossed with the clock already at the
+  // cap banks nothing. That is the intended shape rather than a case to route around -- a driver
+  // clean enough to arrive at the line full is not the driver this countdown is for.
+  lineMul: 2,        // ...and the line is worth this many of them
+  // THE CRASH, AND WHAT SEPARATES IT FROM A GRAZE. The corridor pinches, so sliding along coral is
+  // ordinary play — charge momentum for every touch and the chapter is unplayable. stepCaveWall is
+  // a position test with no velocity read, so the signal is the OVERSHOOT: how far past the wall
+  // the uncorrected position landed. The clamp resets the player onto the face every frame, so that
+  // overshoot is exactly (inward cross speed) x dt — which is why the knob is in px/s rather than
+  // px, and does not change meaning with the frame rate.
+  //   Fires on the ENTRY frame only. Applied every frame of contact it would be an exponential
+  // decay, i.e. the "sustained contact" rule the owner did not pick.
+  // 274 -> 150. Owner, playing v7.237.0: "have a clearer feel when you bump into coral or other
+  // fishes. like real slow, bounce, visual hint." Half of top speed sounds like the natural split
+  // and is the wrong quantity: this is the INWARD component, and a driver clipping a corner is
+  // mostly travelling ALONG the wall. 274 of 540 is sin(30deg), so nothing shallower than a
+  // 30-degree stuff registered at all — every apex clip in the chapter was a free graze that took
+  // HP and cost no speed, which is exactly "coral does nothing". 150 is sin(16deg): a glance still
+  // slides, a stuff still costs you the corner.
+  // 150 -> 128 WITH laneScroll's 15%, and it is not a second decision: the paragraph above prices
+  // this knob as a SINE of top speed, so holding it still while the car slowed would quietly have
+  // tightened the crash angle to 19 degrees.
+  // balance_decision : anything steeper than a 16-degree glance is a crash [2026-08-25]
+  crashSpeed: 128,   // px/s of inward cross speed that separates a crash from a brush
+  crashMul: 0.35,    // what a crash leaves of _laneSpeed
+  // XP COMES FROM THE TRACK, NOT FROM KILLS (owner, playing v7.231: "no upgrades given in my run").
+  // A racer drives PAST the crowd — that is what passiveCrowd is for — so the chapter had no xp
+  // source at all and the level-up screen never opened once in a whole race.
+  //   ⚠ THERE IS NO swimXp KNOB ANY MORE, AND ITS ABSENCE IS THE DESIGN. The till was the
+  // CHECKPOINT and it was a CURRENCY: an amount of xp, through xpGain and mods.xpMul, landing you
+  // somewhere on a curve. Owner, 2026-08-26: "only gain a level for a lap." That is not a smaller
+  // number, it is a different unit — the LAP pays exactly one level, whatever level you are on, and
+  // stepCircuit grants it the way the Blank's phase kills do (p.xp += p.xpNext, the bar filled from
+  // wherever it stands). No multiplier applies to "one level", which is why none is read there.
+  //   What a checkpoint still pays: the race clock (swimTime, above) and PASSIVES.gateHeal.
+  // TRAFFIC (owner, same session: "the enemies/decor fishes swim through coral and do nothing. i
+  // thought they were supposed to create traffic congestion"). Both halves were missing: nothing
+  // held the crowd inside the passage, and contact was free because passiveCrowd zeroes their
+  // damage. A bump now costs SPEED and never HP, which is the ruling.
+  //   THE KNOCK IS THE PART YOU FEEL, and the speed tax alone is not. accel 420 is high enough
+  // that losing 30% of 270px/s is bought back in 0.14s — about 4px of race, which is invisible.
+  // (The same arithmetic is why 15 crashes were measured costing 1.0s of race time.) Being shoved
+  // OFF YOUR LINE is what traffic costs a driver, so contact moves the player across the lane as
+  // well. If that knock puts you in coral you crash, and that is the intended reading: the fish
+  // put you into the wall.
+  // THE BOUNCE (owner, same sentence as crashSpeed above). Both impacts used to move the player by
+  // TELEPORT — one frame of CAVE_BOUNCE_PX for coral, one frame of 24px for a fish — and a
+  // single-frame displacement is not a bounce, it is a correction you cannot see. This is a
+  // velocity that decays, added on top of the heading in stepPlayerMovement's circuit branch, so
+  // the rebound plays out over a third of a second and reads as being thrown off the wall.
+  //   IT IS THE ONLY IMPULSE IN THE CHAPTER THAT SURVIVES A FRAME. p.vx/p.vy are rewritten from
+  // (heading x _laneSpeed) every frame, which is why bumpKnock was a position nudge in the first
+  // place; run._kickX/_kickY are summed into that rewrite instead of fighting it.
+  //   ⚠ ACROSS THE PASSAGE, WHICH ON A RING IS RADIAL AND NOT A WORLD AXIS. bumpKnock read
+  // laneAxes(ch).cross, i.e. world y — correct on the straight lane this was written for, and on a
+  // ring correct at exactly two points of the lap and pure forward/backward a quarter turn from
+  // them. Half of every traffic bump in the chapter was shoving the player along the track.
+  //   ⚠ IT DECAYS TO ZERO AT A FIXED px/s^2, NOT BY A FRACTION A FRAME. The obvious `kick *=
+  // 1 - dt/T` never reaches zero — it is a half-life, so the punch is smeared into a tail and what
+  // the player feels is a drift. MEASURED at 420 px/s on a 0.3s half-life: 48px of throw spread
+  // over 0.4s, peaking at 240px/s, which reads as the current pushing you rather than as coral
+  // hitting you. A constant drag front-loads it and ENDS it, and it gets the second property for
+  // free — a bigger hit throws you further AND for longer, off one knob.
+  //   THE TWO SPEEDS ARE READ AGAINST WHAT IS LEFT OF THE THROTTLE, not against top speed: a crash
+  // leaves 189px/s, so 640 sideways is unmistakably a throw. Travel is kick^2 / (2 x kickDrag):
+  // 85px over 0.27s for coral (about two player widths, out of a ~167px half-passage) and 33px
+  // over 0.17s for a fish, against the flat 24px teleport the bump used to be.
+  bumpMul: 0.55,     // what bumping a fish leaves of _laneSpeed
+  bumpKick: 400,     // px/s the PLAYER is thrown, away from the body
+  crashKick: 640,    // px/s the PLAYER is thrown, out of the coral face just hit
+  kickDrag: 2400,    // px/s^2 either of those bleeds off at, to a hard zero
+  bumpCool: 0.6,     // s before the SAME fish can charge you again — a body scraping along the
+                     // player must not compound into an exponential stop, the crashMul reasoning
+  bumpShove: 34,     // px the fish is knocked clear, so you are never dragging one on the bonnet
+}
+// ---- THE CIRCUIT'S GATES (v7.x, The Reef — render only, zero sim effect) ------------------------
+// The six checkpoints and the start line were INVISIBLE for the whole of v7.231 — owner, playing
+// it: "the checkpoints are invisible, the lap line same". Neither was a regression; neither had
+// ever been drawn. Both are pure geometry (swimthroughsFor picks the lap's six narrowest points,
+// the lap line is f = 0), so there was nothing on screen at either, and a race whose clock is
+// topped up by a place you cannot see is a race scored on luck.
+//   Drawn ABOVE the coral, not under it: every colony overhangs the passage edge by its own reach,
+// so a post that reached into the wall from below would be buried by the very sprites it has to
+// stand out against.
+export const CIRCUIT_GATE_VIS = {
+  // THE MARKER IS A STAND OF WHIP CORAL, one on each bank, and the pair frame the squeeze the
+  // checkpoint already is. Nothing manufactured anywhere in it: the reef marks its own track.
+  //
+  // GREEN, AND THAT IS THE REASON IT CAN BE SEEN AT ALL. The reef's palette is pink, cyan, red,
+  // orange, cream, gold and plum. The first cut drew these in 0xb8567e -- the pink already on both
+  // walls -- and the stand vanished into the coral behind it. Green is the one hue the chapter
+  // never uses, so it is free.
+  //   AND THEY HAVE TO SPLAY. Ten rods packed into 58px, all parallel and all the same reach, is a
+  // COMB; shot against the coral it read as a green crate. A real stand has a wide jittered foot,
+  // each rod leaning its own way and no two the same height.
+  rods: 8,
+  footSpan: 148,       // px along the lane the bases are scattered over
+  footJitter: 26,
+  splay: 96,           // px of lean, fanned across the stand
+  splayJitter: 34,
+  // REACH IS A FRACTION OF THE PASSAGE, NOT PX, because the squeeze varies gate to gate: a fixed
+  // 54-132 left the wide gates unframed and nearly closed the narrow ones.
+  reachLo: 0.44,       // ...of cav.hw, plus up to reachSpan more, per rod
+  reachSpan: 0.34,
+  swayPx: 9,           // drift in the current
+  // HOW FAR EITHER SIDE OF A ROD THE WALL IS SAMPLED to get the gradient it grows out of. The
+  // passage CENTRE wanders up to ~1.9px per px of lane at `wander` 440, so a stand pinned to one
+  // f's edge had half its rods buried 140px inside the coral and half floating 140px out in open
+  // water, every one of them growing radially instead of out of the wall it belongs to (owner,
+  // 2026-08-25: "checkpoints are not stuck to walls sometimes weird angles"). Each rod now takes
+  // its base from the wall at its OWN f and its angle from the wall's local slope.
+  //   12px, not 1: the width octaves put a 252px ripple on hw, so a very short baseline reads that
+  // ripple as the wall's direction and the stand fans out. 12 is a twentieth of the foot span.
+  slopeE: 12,
+  rodOutlineW: 12,
+  rodBodyW: 7,
+  outline: 0x1e2a20,
+  body: 0x3f7d55,
+  bodyFinish: 0xdfe4cf,
+  polyp: 0x8fc99a,
+  polypR: 4.5,
+  // THE TIPS ARE THE SWITCH. Bioluminescent bulbs that light ONLY on the gate that is next: the
+  // same on/off a lamp has, from an organism instead of from hardware. A lap has ten checkpoints
+  // and several are on screen at once -- lighting all of them says "gates exist", lighting exactly
+  // one says "go there".
+  bulb: 0xe8ffd8,
+  bulbR: 11,
+  bulbDark: 0x6f8a74,
+  bulbDarkR: 7,
+  glow: 0x8cffb4,
+  // THE LINE BETWEEN THE STANDS, as three stacked strokes at falling alpha rather than one bar:
+  // light in water has no edge, and a single flat stroke reads as a barrier across the track.
+  haze: [[70, 0.04], [42, 0.055], [19, 0.075]],
+  nearR: 820,          // px at which a gate starts to brighten -- the approach ramp
+  crossT: 0.55,        // s the crossing burst lasts
+  shove: 130,          // px the rods are bowed aside by the player's wake
+  cullPad: 260,
+  finReachMul: 0.5,    // the finish's rods are cut back so the mat between them stays legible        // added to the screen half-diagonal; covers the longest rod and the mat
+  // THE START/FINISH LINE: a chequered mat laid on the seabed. Owner, 2026-08-25: "more realistic,
+  // seabed, at least 3 rows" -- one row of alternating squares is a level-crossing arm, and two
+  // offset rows is the first count that reads as a chequered flag.
+  //   Squares that are SQUARE: the passage is cut into stepU-wide columns, so a row is stepU deep.
+  // Worn rather than printed -- separate tiles with grout between them, a few lost to the reef,
+  // sand drifted over the edges. What makes an object look laid down is that it is not uniform.
+  matRows: 3,
+  checks: 9,           // squares across the corridor
+  line: 0xfff4d6,
+  lineDark: 0x1b2b33,
+  matBed: 0x0e1a20,
+  matLost: 0.94,       // tiles with a hash above this are missing
+  sand: 0xb9a98a,
+  // WHICH WAY THE RACE RUNS. Owner, 2026-08-26: "it's not very clear the starting direction when
+  // you start the race." A corridor reads both ways, and at t = 0 the player is sitting ON the
+  // line with the stick untouched -- the only thing in the game that knows the answer is the
+  // heading stepPlayerMovement seeds from ringHeading, and a heading is not a pixel.
+  //   Chevrons painted on the seabed past the line, in the mat's own cream, fading with distance
+  // so they read as a direction rather than as three separate marks. They are the START LINE's
+  // alone and not every gate's: the checkpoints already answer "where next" with the one lit
+  // stand, and this answers the different question you only ask once a lap.
+  arrows: [[150, 0.5], [280, 0.34], [410, 0.2]],   // [px up the track, alpha]
+  arrowW: 0.3,         // ...of cav.hw at that point: the chevron scales with the passage
+  arrowDepth: 0.8,     // ...of its own half-width, so the V keeps its angle at any width
+  arrowStroke: 9,
+}
+
+/** Read a circuit knob for a chapter, falling back to the shared default. */
+export const circuitKnob = (ch, key) => ch?.circuit?.[key] ?? CIRCUIT_DEFAULTS[key]
+
+// What difficulty d costs on a circuit chapter — see CHAPTERS.reef.circuit.ladder for why a race
+// needs its own ladder at all. Returns all-1 for a chapter with no ladder and for any d off the
+// end, so a circuit that never declares one behaves exactly as it did before this existed, and a
+// save carrying a difficulty past the table's last rung lands on the base race rather than on
+// `undefined.clock`. CLAMPED rather than extrapolated: an unbounded ladder invents a rung nobody
+// swept.
+export const circuitLadder = (ch, d) => ch?.circuit?.ladder?.[Math.max(1, Math.round(Number(d) || 1))] ?? { clock: 1, width: 1 }
+
+// The cave spec a RUN is actually driving, which is not always its chapter's. The difficulty ladder
+// scales halfMin/halfMax per run (createRun, state.js), so `CHAPTERS[run.chapter].cave` is the d1
+// track and reading it anywhere else draws or collides against walls the player does not have.
+// Both sides must agree or the coral you can see is not the coral that stops you — run CT.l lints
+// sim.js and render.js for bare reads to keep that from drifting back.
+//   NO `?? CHAPTERS[run.chapter].cave` FALLBACK, DELIBERATELY. createRun sets caveSpec on every run
+// (undefined for a chapter that has no cave), so a fallback could only ever fire when the field went
+// missing — and what it would do there is silently hand back the d1 corridor, which is the exact
+// bug it looks like a guard against. Without it the same slip early-returns stepCaveWall and is
+// loud. Mutation-proved: run CT.l's N6 renames the field.
+export const caveSpecOf = (run) => run.caveSpec
+
 // THE LANE HAS WALLS, and this is the correction that makes the chapter playable at all. Rev.1 had
 // an unbounded lane with ranks 900px wide centred on the player: on a phone (viewRadius ~465) most
 // of every rank was off-screen, so ~65% of all damage taken came from invaders the player never saw,
@@ -9486,6 +10169,18 @@ const caveHash = (n, salt) => {
 }
 export const caveAt = (f, spec, seed) => {
   const s0 = (spec.salt ?? 47) + (seed ?? 0) * 0.001
+  // NO MIRROR BIT HERE, AND THAT IS A DELETION WITH A REASON (owner, 2026-08-25: "randomize
+  // mirror reflections"). One was built — reflect f about the start line on half the seeds, so a
+  // left-hander becomes a right-hander — and it is a NO-OP, provably rather than approximately.
+  // Reflecting this field gives -sum w_i sin(2pi f n_i / L - phi_i): the same sum with its phases
+  // negated and its sign flipped. The phases are caveHash(...) x 2pi, i.e. uniform, so a mirrored
+  // track is drawn from the identical distribution as an unmirrored one — a second roll of the
+  // same dice, not a second track. It passed every assertion that could be written for it because
+  // there was nothing to assert: a mutation deleting the whole line stayed green.
+  //   The variety that request was after already exists and is now measured (run RG.g): every run
+  // rolls its own _obstacleSeed, and 10 runs give 10 distinct laps. The mirroring that DOES change
+  // what the player sees is per-colony and lives in render.js's coral stamps, where the thing
+  // being reflected is a fixed bake rather than a random field.
   let c = 0, norm = 0
   for (let i = 0; i < spec.waves.length; i++) {
     const [len, w] = spec.waves[i]
@@ -9525,12 +10220,197 @@ export const caveAt = (f, spec, seed) => {
   const bs = spec.branch
   if (bs) {
     const cell = Math.floor(f / bs.every)
-    if (caveHash(cell * 3.7 + 5, s0) < bs.chance) {
+    // THE FORKS REPEAT EVERY LAP, and this wrap is the only reason they do. `c` and `hw` above are
+    // sums of sines whose wavelengths all divide spec.lapLen, so they come back on their own -- but
+    // the island is a HASH of a cell index that keeps climbing, so the same place on lap 2 rolled a
+    // different fork (57px of island discrepancy, measured, with the wavelengths already correct).
+    //   The hash reads the WRAPPED cell; the geometry below reads the RAW one. Wrapping both would
+    // put `u` a whole lap away from f and the island would never draw.
+    const cells = spec.lapLen ? Math.round(spec.lapLen / bs.every) : 0
+    const key = cells ? ((cell % cells) + cells) % cells : cell
+    if (caveHash(key * 3.7 + 5, s0) < bs.chance) {
       const u = (f - (cell + 0.5) * bs.every) / (bs.span / 2)
       if (u > -1 && u < 1) ph = hw * bs.frac * Math.cos(u * Math.PI / 2)
     }
   }
   return { c: (c / norm) * spec.wander, hw, ph }
+}
+
+// THE SWIMTHROUGHS: the tightest places on the lap, and the circuit's checkpoints.
+//
+// A merge used to be the obvious candidate and it was never honest -- a merged ridge was ROUTE-
+// narrow (one way through instead of two), not WIDTH-narrow, so "the checkpoint is the tightest
+// point on the track" was a sentence the geometry did not support. `hw` is a continuous width, so
+// here it simply is true: these are its deepest local minima.
+//
+// PURE, and worth keeping pure: the lap repeats, so a caller computes this ONCE for a seed and
+// reuses it for every lap of every run at that seed.
+//
+// MEASURED before the rule was written, which is why it takes the deepest SIX of twenty rather than
+// every minimum. The count is structural, not incidental: lapLen / widthWave's short period is
+// 5040 / 252 = 20, and 20 checkpoints on a ~28s lap is one every 1.4s.
+//   the twenty       hw 171..204 against the spec's own 170..220
+//   the deepest six  hw 170..177 -- genuinely the squeezes, not merely dips
+//   their spacing    528..1272px = 2.9..7.1s at a realistic 180px/s, on every seed sampled
+// The uneven cadence is the track's own beat (the two width waves at 630 and 252) and not noise --
+// it repeats seed to seed. Run RL.b asserts the spacing rather than a guard clause defending it: a
+// retune that clustered them would be a real defect and should say so out loud, not be silently
+// corrected here.
+// 6 -> 10 -> 7. Every previous move of this number was made to HOLD the gate spacing, because the
+// clock's whole tune is the comparison in CIRCUIT_DEFAULTS' block: swimTime against the seconds
+// between checkpoints. This one deliberately breaks it (owner, 2026-08-26: "the race is too easy,
+// let's remove 1/3 of the checkpoints"), and breaking it is the entire difficulty change.
+//   The interval goes 1454px of arc -> 2077px, i.e. 3.8s at full throttle and 7.7s at the 270px/s
+// a real driver averages, and swimTime is NOT scaled up with it.
+//   ⚠ ON ITS OWN THIS CHANGED NOTHING MEASURABLE, WHICH IS WORTH KNOWING BEFORE YOU REACH FOR IT
+// AGAIN. MEASURED with scripts/reef-lap-probe.mjs: all 8 driving policies x 3 seeds finished with
+// ZERO clock deaths at 10 gates AND at 7, because swimTime 8 sat above every policy's gate interval
+// either way. What actually made the race lose-able is swimTime coming down to 4 in the same
+// commit — see the grid in CIRCUIT_DEFAULTS. Pull THAT knob if the race needs to move again; this
+// one changes the texture of a lap, not whether you can fail it.
+//   ⚠ TAKING FEWER IS ALSO STRICTLY BETTER FOR WHAT A CHECKPOINT IS. swimthroughsFor picks the
+// deepest N of the lapLen/168 = 30 local minima, so a smaller N is a stricter selection: 13 put a
+// gate at hw 190 against a lap whose widest tenth started at 189, which run CT.a catches. 7 of 30
+// is the tightest field this chapter has ever chosen from.
+export const SWIMTHROUGHS_PER_LAP = 7
+// How far apart two checkpoints must be, IN f — and f is an angle, so this is not a distance until
+// it is multiplied by the radius the track is at. That is the whole reason it moved with the ring:
+// at r0 900 a gap of 500f was 692px of arc, and at r0 1400 the same 500f is 1108px. Ten checkpoints
+// each 1108px apart need 11080 of a lap that is 11200 long, so the picker could never place them
+// and swimthroughsFor's relax loop halved the gap until they CLUSTERED — 168px apart on seed 1,
+// which is the exact pathology the gap exists to prevent, arrived at by leaving it alone.
+// 300f is 665px of arc, which is the 692 it has always been.
+export const SWIMTHROUGH_MIN_GAP = 300
+export const SWIMTHROUGH_STEP = 24   // px between samples; the count is stable from 3px to 24px and starts missing minima at 48
+export const swimthroughsFor = (spec, seed) => {
+  const L = spec?.lapLen
+  if (!L) return []
+  const at = (f) => caveAt(((f % L) + L) % L, spec, seed).hw
+  const mins = []
+  for (let f = 0; f < L; f += SWIMTHROUGH_STEP) {
+    const h = at(f)
+    if (h < at(f - SWIMTHROUGH_STEP) && h <= at(f + SWIMTHROUGH_STEP)) mins.push({ f, hw: h })
+  }
+  // by depth, then by position -- the tie-break is not cosmetic, it is what makes the chosen six
+  // identical on every machine and every run at a seed, which a race scored on time requires.
+  mins.sort((a, b) => a.hw - b.hw || a.f - b.f)
+  // ⚠ DEEPEST-FIRST WITH A MINIMUM SEPARATION, not simply the deepest six. Plain `slice(0, 6)` was
+  // right while the field was 20 minima on a corridor whose depths were well separated; on the ring
+  // the width octaves put near-equal minima next to each other, and the deepest six came back 144px
+  // apart — six checkpoints in two clumps, so the clock arrives in bursts and most of the lap has
+  // nothing on it. That property used to be ASSERTED and not enforced (run CT.a), on the argument
+  // that a retune which clustered them should say so out loud rather than be silently corrected.
+  // It said so; this is the correction, and it is the generator's job rather than the tune's.
+  //   THE GAP RELAXES RATHER THAN THE COUNT SHRINKING. A seed whose minima genuinely cannot be
+  // spread must still get SWIMTHROUGHS_PER_LAP of them — a lap with four checkpoints is a lap whose
+  // clock arithmetic is wrong, which is worse than two that sit closer than the ideal.
+  const gapOf = (a, b) => { const d = Math.abs(a - b) % L; return Math.min(d, L - d) }
+  for (let gap = SWIMTHROUGH_MIN_GAP; ; gap *= 0.5) {
+    const picked = []
+    for (const m of mins) {
+      if (picked.length >= SWIMTHROUGHS_PER_LAP) break
+      if (picked.every((q) => gapOf(q.f, m.f) >= gap)) picked.push(m)
+    }
+    if (picked.length >= SWIMTHROUGHS_PER_LAP || gap < 1) return picked.sort((a, b) => a.f - b.f)
+  }
+}
+
+// ---- THE RING (v7.x, The Reef): THE TRACK IS A CLOSED LOOP, NOT A CORRIDOR ---------------------
+//
+// Owner, playing v7.231.0: "the track isnt a micromachine type circle lap". It was not one. The
+// reef was a straight lane whose walls wandered, so you always drove +x, you never turned a corner,
+// and a "lap" was only a distance travelled. This is the whole of the fix.
+//
+// IT IS NOT A NEW GENERATOR. Every piece of track geometry stays in caveAt's (f, u) space — f along
+// the lap, u across the passage — and ONLY the map from that space to the world changes. caveAt,
+// swimthroughsFor, the island, the six checkpoints and the wall test are untouched by construction.
+//
+//   f  ->  ANGLE. f = 0 and f = lapLen are the same place, so the loop closes with no seam to blend
+//          and no `% lapLen` anywhere. It is why every wavelength has to keep dividing lapLen (see
+//          the cave spec): that property was already what made the track a circuit, and it is now
+//          what makes it a circle.
+//   u  ->  RADIUS, INWARD. The passage centre's wander becomes a RADIAL wobble, so the same octave
+//          sum that made the corridor snake left and right now makes the loop bulge and pinch —
+//          straights, sweepers and hairpins out of a field that was already there.
+//
+// ⚠ u IS MEASURED INWARD (r = r0 - u) AND THAT IS LOAD-BEARING, not a sign convention to tidy.
+// With r = r0 + u the lane basis maps to the ring basis through a REFLECTION, not a rotation, and
+// every baked sprite placed by it would be mirrored — a thing that is invisible on a jittered coral
+// colony and glaring on anything with a front. Inward makes it a pure rotation by ringRot(f), so
+// render.js can keep placing what it already bakes and merely add that angle.
+//
+// ⚠ f IS A PARAMETER, NEVER AN ARC LENGTH, and the difference is the point of the corners. At
+// `wander` 240 on an r0 of 900 the radius swings 660-1140, so a lap is about 5800px of real driving
+// against a lapLen of 5040. Nothing may convert f into px of travel — ask the world positions.
+//
+// The centre sits at (-r0, 0) so that (f 0, u 0) is the world ORIGIN, which is where createRun puts
+// the player and where every spawn-ring `minDist` is measured from. A ring centred on the origin
+// would have put the start line 900px away inside solid coral.
+export const ringXY = (spec, f, u) => {
+  const t = (2 * Math.PI * f) / spec.lapLen
+  const r = spec.ring.r0 - u
+  return { x: r * Math.cos(t) - spec.ring.r0, y: r * Math.sin(t) }
+}
+export const ringFU = (spec, x, y) => {
+  const L = spec.lapLen
+  const dx = x + spec.ring.r0
+  const t = Math.atan2(y, dx)
+  return { f: ((((t / (2 * Math.PI)) * L) % L) + L) % L, u: spec.ring.r0 - Math.hypot(dx, y), t }
+}
+/** Lane frame -> ring frame: the angle to add to anything baked as though the track ran along +x. */
+export const ringRot = (spec, f) => (2 * Math.PI * f) / spec.lapLen + Math.PI / 2
+/** Where the track's CENTRELINE is heading at f — the tangent, radial wobble included. */
+export const ringHeading = (spec, f, seed) => {
+  const e = spec.lapLen / 720
+  const a = ringXY(spec, f - e, caveAt(f - e, spec, seed).c)
+  const b = ringXY(spec, f + e, caveAt(f + e, spec, seed).c)
+  return Math.atan2(b.y - a.y, b.x - a.x)
+}
+/** The world point on the track's centreline at f — where a spawn, a pocket or a gate belongs. */
+export const ringCentre = (spec, f, seed) => ringXY(spec, f, caveAt(f, spec, seed).c)
+// WHERE A CHECKPOINT POST BELONGS ON ONE BANK, and it is NOT at the gate's own f.
+//
+// Both posts used to be drawn at the same f, which puts them on one RADIUS of the ring — and a
+// radius is only the way across the passage where the centreline runs square to it. `c` wanders up
+// to ~1.9px per px of lane, so most of the lap it does not: measured over the checkpoints of four
+// seeds, the pair sat a MEDIAN of 29 degrees off perpendicular and as much as 59 (owner, 2026-08-26:
+// "some checkpoints are weirdly positioned, not face to face"). It also lied about the gap, drawing
+// a 436px chord across a squeeze whose real clearance is 242px.
+//
+// So march out from the centreline point along the track's own NORMAL and stop on the wall; the f
+// that lands on is the anchor. A FIXED POINT, NOT A BISECTION: `off` is very nearly linear in the
+// distance marched, so scaling the guess by (hw / off) converges in two or three passes. The clamp
+// is what keeps a hairpin — where the normal can leave the passage almost immediately — from
+// throwing the guess across the track.
+//
+// ⚠ IT LIVES HERE, NOT IN render.js, AND THAT PLACEMENT IS THE POINT. It is the only geometry in
+// the gate drawer that a test can check, and a copy in each place is this repo's largest defect
+// class. Proven while it was written: with the formula restated in test/sim-test.js, a mutation
+// that stopped render.js's own copy converging left the whole suite GREEN — the geometry half was
+// checking the test's arithmetic and the source half was a grep for a name that still existed.
+export const gateAnchorF = (spec, f0, cav, sign, seed) => {
+  const hd = ringHeading(spec, f0, seed)
+  const nx = -Math.sin(hd) * sign, ny = Math.cos(hd) * sign
+  const w0 = ringXY(spec, f0, cav.c)
+  let d = cav.hw
+  for (let i = 0; i < 4; i++) {
+    const fu = ringFU(spec, w0.x + nx * d, w0.y + ny * d)
+    const m = caveAt(fu.f, spec, seed)
+    const off = Math.abs(fu.u - m.c)
+    if (off < 0.5) { d *= 2; continue }
+    const scale = (m.hw - 2) / off
+    if (Math.abs(scale - 1) < 0.01) break
+    d *= Math.min(2, Math.max(0.4, scale))
+  }
+  return ringFU(spec, w0.x + nx * d, w0.y + ny * d).f
+}
+
+/** Shortest signed distance from a to b in f, i.e. round the loop rather than along a line. */
+export const ringDelta = (spec, a, b) => {
+  const L = spec.lapLen
+  let d = (((b - a) % L) + L) % L
+  if (d > L / 2) d -= L
+  return d
 }
 
 export const laneHalfWidth = (viewRadius, ch) => Math.min(ch?.laneHalfW ?? LANE_HALF_W, viewRadius * LANE_VIEW_FRAC)
@@ -9639,6 +10519,27 @@ export const LANE_CONTACT_MUL = 0.4      // enemy contact damage multiplier in t
 // the Space Invaders frame: you at the bottom, everything descending toward you, and enough warning
 // to actually choose a gap. A centred camera spends half the screen on space already flown through.
 export const LANE_CAMERA_FRAC = 0.8
+// THE CIRCUIT CAMERA LOOKS WHERE YOU ARE POINTED, and it exists because the ring took the lane's
+// look-ahead away without replacing it. LANE_CAMERA_FRAC is gated on `lane === true` (render.js);
+// The Reef dropped that flag when it became a ring, so its camera silently fell back to DEAD
+// CENTRE — measured, playerScreen (195, 294) of a 390x588 viewport. On a 390x844 phone that is
+// 195px of warning when you are driving ACROSS the screen, which at the base top speed (laneScroll
+// 153 x laneThrottle.max 3 = 459px/s) is 0.42s, and 0.21s once Turbo Fin's cap doubles it. Human
+// reaction is ~0.25s, so the fast half of the throttle band was un-drivable by construction: the
+// passage is 360-480px wide against a 390px screen and the branch islands sit in the MIDDLE of it.
+//   A FRACTION OF THE DISTANCE TO THE SCREEN EDGE ALONG THE HEADING, never a pixel count. The lane
+// could bias one world axis because its forward direction never changed; a ring's heading sweeps
+// the full circle, so the lead has to be measured along `run._headX/_headY` and the viewport is
+// not square. `edge` below is the distance from the centre of the view to its border in that
+// direction, so this reads the same on a phone and on a desktop (the px-vs-ratio rule).
+//   ⚠ SCALED BY SPEED, WHICH IS WHAT MAKES IT FEEL LIKE A CAR AND NOT A ZOOM. At a standstill the
+// camera is centred (you are looking around); at full throttle it is pushed forward, so easing off
+// into a corner GIVES YOU BACK the room behind you. That is the same trade the throttle already is.
+export const CIRCUIT_CAM_LEAD = 0.42     // x the distance to the screen edge along the heading, at full throttle
+// How fast the offset chases its target, in fractions of the remaining gap per second. A ring turns
+// continuously, so an un-eased lead snaps the world sideways every time the heading crosses a
+// diagonal — most visibly on a keyboard, whose 8 directions arrive as steps rather than as a sweep.
+export const CIRCUIT_CAM_EASE = 3.5      // per second
 export const FORMATION_INTERVAL = 4.4    // s between ranks (5.0 left visible dead air between waves)
 // ponytail: density is two knobs (this + LANE_SPAWN_MUL) tuned as a pair against one measured
 // number. If a third source of lane pressure ever lands, measure the trio, don't add a third knob.
@@ -9836,20 +10737,56 @@ export const CLEAR_STUN = 1.1            // s of stagger inside the wide shove
 // player with no charge must never be structurally trapped, only slowed, and that has to be
 // re-verified per chapter rather than assumed — so an empty bar still dashes, just BURST_DUR_MIN
 // instead of BURST_DUR_AT_FULL. Run RF.d pins that.
-// At laneScroll 45 x BURST_SPEED_MUL 9 = 405 px/s:
-//   empty bar  0.30s -> 121.5px travelled (108 of that BOUGHT; 13.5 was the scroll anyway)
-//   full bar   0.75s -> 304px travelled, 270px bought — a ridge and its clear water either side
-// THE FLOOR IS SET AGAINST THE FATTEST RIDGE, and it is TRAVELLED that clears coral, never BOUGHT —
-// the 108 above is under the widest band the field can make and quoting it as the clearance reads
-// reassuring while being on the wrong side of the number. spurs.thick 90 x (1 + thickVar 0.22) is
-// 109.8px against 121.5px travelled: 11.7px of margin, which is thin, and five knobs in three
-// blocks nobody edits together can eat it. Run RS.h asserts the inequality and prints the margin.
-// The speed is FIXED across that range on purpose: a dash whose speed changed with the bar would be
-// a different move at every charge level, where a dash whose LENGTH changes is the same move, more
-// of it.
-export const BURST_SPEED_MUL = 9         // x the chapter's own laneScroll while the dash is live
+//   ⚠ AND THE NO-SPIRAL GUARANTEE IS THE PASS-THROUGH, NOT THE DISTANCE. It used to be argued from
+// px travelled against the fattest ridge, which stops working the moment the multiplier is sized
+// against a speed instead of a constant. It does not need to: a live burst waives the cave wall
+// (stepCaveWall returns early) and the ridge grate (stepSpurs sets `inside = false`), so the button
+// gets you OUT of coral whatever it buys in px. That is a stronger floor and it is unaffected by
+// any retune of the speed.
+// ⚠ IN A CIRCUIT THIS MULTIPLIES run._laneSpeed, NOT THE CHAPTER'S FIXED laneScroll, and that is
+// what made 9 absurd. The number was picked when the lane ran at a flat 45px/s, so a dash was
+// 405px/s. Momentum and the throttle then put the player's OWN speed at up to 270 — the same 9 is
+// 2430px/s. Measured before the owner ever played it: holding the button took a 76.7s race to
+// 53.5s, and he finished the four laps in a minute. Nobody chose 2430; it fell out of a multiplier
+// that was retargeted at a different quantity and never re-read.
+// The speed is FIXED across the charge range on purpose: a dash whose speed changed with the bar
+// would be a different move at every charge level, where a dash whose LENGTH changes is the same
+// move, more of it.
+// balance_decision : burst multiplies live speed, not the old fixed scroll [2026-08-25]
+//  - 486px/s at full throttle against 270 cruising; it was 2430
+export const BURST_SPEED_MUL = 1.8       // x the speed you are already making while the dash is live
 export const BURST_DUR_MIN = 0.30        // s of dash on an EMPTY bar — the no-spiral floor
 export const BURST_DUR_AT_FULL = 0.75    // s of dash at a full PULSE_CHARGE_COST spend
+
+// THE RAM (v7.x). Owner, 2026-08-28: "i want the dash to kill mobs, and give +10 coins per mob
+// killed". The block above says the Burst is PURE MOVEMENT; it is not any more, and this is the
+// one chapter where that does not make it a second Pulse.
+//
+// WHY IT BELONGS HERE AND NOWHERE ELSE: CHAPTERS.reef.passiveCrowd already rules that the crowd is
+// scenery -- the fish stream down the lane and their contact damage is zeroed at spawn -- so a body
+// in front of you was, until now, a thing with no interaction at all beyond being shot. Ploughing
+// through it is what turns the crowd into TRAFFIC: something on the racing line, worth taking
+// head-on rather than round, in a mode whose only other verbs are a strafe and a throttle.
+//
+// LETHAL BY CONSTRUCTION, NEVER A DAMAGE LITERAL, and LUNGE_DMG's own block is why: a flat number
+// is a real hit at t=60 and a scratch at t=300 because hpScale moves under it, so a "kill" written
+// as a literal quietly stops being one halfway through a race. sim.js spends the body's own
+// remaining hp instead, which cannot drift. The shielded and guard affixes still get their say --
+// that is what those affixes are for, and an elite surviving one ram is the shape of the design
+// rather than a hole in it.
+// AND THE PRESS NO LONGER SHOVES. Owner, 2026-08-28: "the dash should not push back enemies, since
+// it kills enemies now." A shove fired on the same press threw the crowd clear of the 62px below
+// before the ram could reach it, so the button was working against itself; stepRepulse now returns
+// for a `burst` chapter exactly as it does for The Surf's shorebreak.
+// balance_decision : the dash kills what it hits and pays for it [2026-08-28]
+//  - reach must stay above one frame of travel; see the arithmetic on BURST_RAM_MUL
+export const BURST_RAM_MUL = 2.8   // x PLAYER.radius -> 62px of reach, the LUNGE_BITE_MUL figure
+// ...and it is sized against the FRAME, not against the body. A full-throttle dash covers
+// topSpeed x BURST_SPEED_MUL x the 0.05s dt clamp = 972 x 0.05 = 49px in one step, and a reach
+// under that tunnels bodies past at exactly the speed the button is for -- a dash that silently
+// stops killing the faster you go, which reads as the mechanic being unreliable rather than as a
+// number being wrong. 62px clears it with the enemy's own radius still to spare.
+export const BURST_RAM_COINS = 10  // coins a rammed body pays, ON TOP of its ordinary coinChance drop
 
 // ---- LUNGE (v7.x, The Wreck — chapters declaring `lunge: true`) --------------------------------
 // The Wreck's half of the same one button. Same press, same cooldown, same PULSE_CHARGE_COST spend
@@ -10800,6 +11737,13 @@ export const refillSpec = (sig) => (sig?.type === 'shafts' ? sig : (sig?.pools ?
 export const drawdownSecsFor = (run) =>
   (refillSpec(CHAPTERS[run?.chapter]?.signature)?.drawdownSecs ?? 0) * (run?.mods?.refillSpendMul ?? 1)
 
+// How much a refill field hands over the MOMENT you touch it, or 0 for a field that pays by the
+// second instead. Read through refillSpec for the same reason drawdownSecsFor is: the streamer and
+// the economy must ask the field the same question, or the circle you can see is running a
+// different rule from the one feeding you. Non-zero on The Reef alone — see its pockets block.
+export const refillGrantFor = (run) =>
+  refillSpec(CHAPTERS[run?.chapter]?.signature)?.grant ?? 0
+
 // DOES THIS CHAPTER NEED run._obstacleSeed? Six streamers hash off that one seed — obstacles,
 // eddies, traps, refill circles, sandbars and The Reef's spur field — but createRun used to draw it
 // for the FIRST of them
@@ -10818,8 +11762,16 @@ export const drawdownSecsFor = (run) =>
 // null seed exactly like the other five, so The Reef's ENTIRE coral field hangs off this predicate.
 // Until it was listed the field existed only because that chapter's air pockets happen to make
 // `refillSpec` true — cut the pockets and the reef comes up as bare sand, with nothing thrown.
+// ⚠ `ch.cave` IS IN THIS LIST AND IT WAS NOT, WHICH IS A TRAP RATHER THAN AN OMISSION. The Reef's
+// whole track — the wander, the widths, the forks and (v7.x) which way round the lap is mirrored —
+// is a pure function of run._obstacleSeed, and it was getting one only because the chapter ALSO
+// declares air pockets, which is what `refillSpec` matches. Take the air away, or give a future
+// circuit no resource bar, and the seed comes back null: caveAt falls to `seed ?? 0` and every run
+// of that chapter drives the identical track for ever, with nothing thrown and no test red. The
+// clause costs nothing and says what the cave actually needs. Run RG.g asserts it rather than
+// trusting this paragraph.
 export const usesObstacleSeed = (ch) => !!ch.obstacles || !!refillSpec(ch.signature) || !!ch.spurs ||
-  !!(ch.signature && (ch.signature.eddies || ch.signature.traps || ch.signature.bars))
+  !!ch.cave || !!(ch.signature && (ch.signature.eddies || ch.signature.traps || ch.signature.bars))
 
 // How hard you hit, as a function of the chapter bar. OWNER RULING 2026-08-13, overriding the
 // earlier rule that the bar never touches damage — see the design doc's §5.3 for what that rule was
@@ -10928,7 +11880,27 @@ export const DROWN_TICK = 1.0            // s between drowning ticks while the b
 // kill you outright, which is what the owner saw. So: put them back to the wall face they touched
 // (never further), nudge them a little back down the lane, and charge for it.
 export const CAVE_BOUNCE_PX = 26      // how far back along the lane a touch pushes you
-export const CAVE_HIT_DPS = 22        // charged while you are in contact, on the tick below
+// 22 -> 16, AND BOTH THINGS IT WAS BALANCED AGAINST MOVED UNDER IT. It was set on a track a
+// centreline driver could lap with ZERO frames of contact, and against a pool that still sold armor,
+// regen and maxHP. The lap now has corners and the pool is the four racing cards alone, so it is an
+// untuned number rather than a shipped decision. Swept against the shipped track and pool
+// (scripts/reef-lap-probe.mjs --mortal, 3 seeds), a driver who holds a line vs one who reads too far
+// ahead and hugs the wall:
+//     dps    22    16    12     9     6
+//     holds  2/3   3/3   3/3   3/3   3/3
+//     hugs   0/3   0/3   0/3   1/3   1/3
+// 16 is the only value where the first row is clean and the second is still empty — below 12 the
+// wall-hugger starts finishing, which is the skill test leaking away.
+// balance_decision : the scrape stops ending clean races, still ends dirty ones [2026-08-25]
+//  - the punishment for coral is meant to be the CLOCK (circuit.crashMul takes 65% of your speed);
+//    this number only has to make sustained contact untenable, not out-damage a lost corner.
+// How long a driver has to stay off the coral before PASSIVES.cleanHeal starts paying. Every touch
+// resets it — see stepCircuit for why the delay is the whole card and a per-second drip is not.
+// balance_decision : four seconds, long enough that a scrappy lap never collects [2026-08-25]
+//  - measured over a race: a clean line touches coral 4.6s in 170 and a bad one 14.6s, so without
+//    a delay both collect ~160 HP and the card is a flat regen.
+export const CLEAN_LINE_DELAY = 4
+export const CAVE_HIT_DPS = 16        // charged while you are in contact, on the tick below
 export const CAVE_HIT_TICK = 0.45
 export const LANE_CRUSH_DPS = 36
 export const LANE_CRUSH_TICK = 0.5
@@ -11257,6 +12229,16 @@ export const DMG_SRC_NAME = {
   // mistakes (you brushed a ridge / you were stopped by one and the lane left without you) and a
   // summary blaming one for the other sends the player to fix the wrong thing.
   crush: 'Crushed',
+  // A CIRCUIT CHAPTER ONLY, and the ONE row here that names something which does no damage at all:
+  // stepCircuit ends the run when raceClock reaches 0. That is why it is easy to miss — every other
+  // label in this table is written by hurtPlayer, so a source with no tally entry is normally the
+  // symptom of a bug. Here it is the mechanic: you were not hurt, you ran out of time.
+  //   ⚠ ui.js's breakdown is keyed on run.dmgBySrc, so this row exists for the KILLER LINE alone.
+  // Without it a race lost on the clock printed no cause of death at all.
+  //   The label is a NOUN because the line it lands in is 'Killed by {name}': 'Out of Time' read as
+  // "Killed by Out of Time", which is not English, and the row two above it already shows the shape
+  // that works — 'The Coral' / 'Le Corail'. Same chapter, same sentence, so they now match.
+  clock: 'The Clock',
   // THE WRECK ONLY, on the same gate-reading rule the comment above insists on: stepStarve returns
   // early unless the chapter's resource declares `starve`, and Bloodlust is the only one that does.
   // Its own row rather than sharing 'Drowning' — they are the same DoT mechanism, and the whole
@@ -11352,18 +12334,24 @@ export const DMG_SRC_NO_ART = {
   // DoT can carry a drawing, so "it is a state, not a world object" is NOT the argument here and must
   // not be borrowed from the two anomalies below. DELETE THIS LINE when hazardThumbs.starve lands.
   starve: 'OWED — The Wreck phase 2 has not authored its art yet, not a permanent exemption',
-  // ⚠ OWED, NOT EXEMPT, exactly as the line above. The Reef is still behind its wipFrom gate and
-  // has no hazardThumbs entry for a ridge yet; a coral ridge is a world object and can carry a
-  // drawing, so this is a debt. DELETE THIS LINE when hazardThumbs.scrape lands.
-  scrape: 'OWED — The Reef has not authored a coral ridge thumbnail yet, not a permanent exemption',
-  // ⚠ OWED, NOT EXEMPT, and it shares its debt with the line above: both want a picture of a
-  // coral ridge, one being brushed and one being pressed against. A ridge is a world object and
-  // can carry a drawing, so "it is a state, not a world object" is NOT the argument here. The Reef
-  // is still behind its wipFrom gate. DELETE THIS LINE when hazardThumbs.crush lands.
-  crush: 'OWED — The Reef has not authored a coral ridge thumbnail yet, not a permanent exemption',
+  // The race clock is a HUD rail and a rule, not a thing in the water — the same argument the two
+  // anomaly rows below make. There is nothing to draw a picture of.
+  clock: 'a rule and a HUD rail, not a world object',
   // Costs you chose to pay. Neither has a world object; their honest picture is the anomaly card.
   overload: 'a card you took, not a thing in the world',
   bloodMoney: 'a card you took, not a thing in the world',
+  // UNREACHABLE SINCE THE REEF BECAME A RING, and this is a retirement rather than a debt — the
+  // line above it in this file used to say the opposite. `crush` is stepLaneFront's, and that
+  // function returns on its first line unless the chapter is BOTH `lane: true` and `spurs.solid`.
+  // No chapter is: The Reef has the solid spur field but dropped `lane` for the circuit (see
+  // CHAPTERS.reef, "NO `lane: true` SINCE v7.x, AND THAT IS THE RING"), and The Beyond keeps the
+  // lane but declares no solid spurs, so its front never separates from the player at all. Being
+  // ground against the trailing edge WAS how a Reef run ended; the race clock is how it ends now.
+  //   Owner confirmed from play, 2026-08-27: "I don't think you can get crunched anymore in the
+  // game". So the honest entry is this one and not a drawing — a thumbnail was authored for it
+  // first, measured, and thrown away, which is cheaper than a picture no player can ever reach.
+  // If the circuit ever grows its own falling-behind rule, this row wants art again.
+  crush: 'unreachable — no chapter is both `lane` and `spurs.solid` since The Reef became a ring',
   // Unreachable: every hurtPlayer call site is labelled (run DA.d), and all 13 chapters cover all
   // three archetypes, so nothing keys on the fallbacks today (run DA.h).
   unknown: 'unreachable — every damage site is labelled',
@@ -12994,6 +13982,16 @@ export const CHAPTER_ENDINGS = {
   // fills instead of draining (resource.invert), so what kills you is silt arriving rather than
   // water running out — and 'silt' is a word the player has already read on two cards.
   shelf:       { victory: 'You found clear water! 🎉',              death: 'Silted up… 🌫️' },
+  // THE ONE PAIR IN THE GAME THAT IS NOT ABOUT SURVIVING, because this chapter is not. Every row
+  // above ends a run you outlasted; The Reef ends a RACE, and 'You escaped! 🎉' — the fallback it
+  // shipped with — is the wrong verb for crossing a finish line five laps after you started.
+  //   🏁 AND NOT 🎉, WHICH IS THE ONLY BREAK WITH THE COLUMN ABOVE AND IS THE POINT. The party
+  // popper says "a run ended well" and is right eight times; the flag says WHICH KIND of thing just
+  // ended, and it is the only chapter where that is a question.
+  //   The death line does NOT name the killer: unlike Humidity and Pollution above, this chapter
+  // kills you three ways (the coral, the clock, drowning) and the summary already prints which one
+  // on its own line right beneath. So it names the thing all three have in common instead.
+  reef:        { victory: 'Chequered flag! 🏁',                     death: 'Out of the race… 🏁' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',
@@ -13290,7 +14288,96 @@ export const MUTATORS = {
   // ahead of the player, i.e. 6.9s of warning; at x1.4 that is 4.9s. The probe that settles it is
   // scripts/shot.mjs at the phone viewport with a seeded run, or charge-probe's lane policies,
   // which already walk this chapter — neither has been run against this number.
-  tidalRace:    { name: 'Tidal Race',     icon: '💨', desc: 'The current runs far faster. Richer coins.', chapters: ['reef'], effects: { laneScrollMul: 1.4, coinMul: 1.25 } },
+  // ⚠ RE-POINTED FROM laneScrollMul TO raceClockMul (v7.x), because the ring INVERTED it. The cost
+  // used to be that the corridor ran at you 40% faster — a real cost while the chapter auto-
+  // scrolled. There is no scroll on a loop: laneScrollFor is now the ceiling the player's own
+  // throttle reaches for, so x1.4 made you FASTER, paired it with x1.25 coins, and turned a trade
+  // into a pure buff nobody would decline. The clock is what a race can actually be taxed on.
+  //   ⚠ AND ITS REWARD WAS DEAD TOO, WHICH IS THE OTHER HALF OF THE SAME AUDIT (2026-08-27, owner:
+  // "the mutators need a pass since we changed to a full on race"). Every coin in the game drops in
+  // dealDamage's death branch and this chapter's `weapons: []` means nothing ever dies, so x1.25
+  // coins paid a run bonus of runBonusCoins(0, 5) = 5 — a real cost against a reward the chapter
+  // cannot pay, i.e. a pure DOWNSIDE nobody would take. Room is what a race can be paid in.
+  //   x0.7 -> x0.88, AND AT 0.7 IT WAS THE HARSHEST THING IN THE CHAPTER: this one card cost more
+  // than the entire five-rung difficulty ladder, 2/24 finishes against a 14/24 baseline (3 seeds).
+  tidalRace:    { name: 'Tidal Race',     icon: '💨', desc: 'Less time on the clock. A wider passage.',              chapters: ['reef'], effects: { raceClockMul: 0.88, trackWidthMul: 1.25 } },
+  // THE OTHER FOUR OF THE REEF'S OWN SLATE, and they exist because the chapter takes NO generic
+  // mutator at all (CHAPTERS.reef.noGenericMutators, and mutatorPool is where that is read). The
+  // generic pool is eight entries that all price COMBAT, and audited against this chapter every one
+  // of them is inert on at least one side:
+  //   bulky / eliterush / unstable   inert on BOTH sides — enemyHpMul, eliteEveryMul, playerDmgMul
+  //                                  and elementWeightMul have no reader in an unarmed chapter, and
+  //                                  coinMul pays out of a purse of 5 (see tidalRace above).
+  //   glass                          inert on both too, and the second half is the subtle one: the
+  //                                  coral scrape is `hurtPlayer(..., dot = true)`, and the dot
+  //                                  branch skips armor AND contactDmgTakenMul by design. The only
+  //                                  damage in the chapter cannot feel the multiplier.
+  //   overtime / caffeine / jumbo    real COST (the crowd is solid — bumpTraffic costs you speed),
+  //                                  dead REWARD: xpMul cannot be felt because a lap grants a whole
+  //                                  LEVEL outright (`p.xp += p.xpNext`, stepCircuit) rather than xp.
+  //   sticky                         already excluded here since v6.4.
+  // So the reef rolls these five instead. randomMutators takes difficulty - 1, so d5 draws 4 of 5
+  // and the reroll still has somewhere to go on the top rung — which is why the slate is five and
+  // not the four the axes alone would need.
+  //
+  // EVERY ONE TRADES TWO OF THE FOUR THINGS A RACE ACTUALLY HAS: the clock, the width of the
+  // passage, the car's top speed, and the air. Written as pairs on purpose — a mutator whose reward
+  // the chapter cannot pay is the exact bug tidalRace shipped with, and run CX.c drives every one of
+  // these eleven keys ON ITS OWN and fails on a byte-identical run.
+  //
+  // MEASURED — scripts/reef-lap-probe.mjs (which grew a --mutators= flag for this), 8 driving
+  // policies x 6 seeds, MORTAL, finishes of 48, one mutator at a time against the same baseline:
+  //
+  //                        d1     d3     d5    what kills the runs that fail
+  //   no mutator         28/48  25/48  13/48   drowning, then scrape at d5
+  //   Tidal Race         21/48  21/48  10/48   THE CLOCK, on every rung
+  //   The Narrows        32/48  21/48   8/48   SCRAPE — and it scales with the rung (see below)
+  //   Rip Current        33/48  22/48   9/48   the clock, then scrape
+  //   Bait Ball          20/48  20/48   9/48   the clock and scrape together, evenly on every rung
+  //   Thin Air           18/48  23/48  11/48   DROWNING, which no other entry here does
+  //
+  // Five entries, five different ways to lose, which is the same thing the difficulty ladder above
+  // is built on ("two different drivers failing for two different reasons is the point").
+  //
+  // ⚠ THE d1 COLUMN IS A CONTROL, NOT A RUNG. main.js rolls randomMutators(difficulty - 1), so NO
+  // mutator can ever appear at difficulty 1 — read every row on d3 and d5, where all five are a real
+  // tax, and do not be alarmed by the two that read as EASIER at d1. The Narrows is the clearest
+  // case: at d1 the passage is already x1.40 so x0.72 of it is still roomy and the clock bonus is
+  // free; at d5 it is x0.72 of x0.70 and it is the tightest track in the game.
+  //
+  // ⚠ AND TWO OF THESE ROWS ARE CEILINGS RATHER THAN FINDINGS. The lap probe steers with a px
+  // look-ahead and no reaction delay, so it cannot price TOP SPEED or PASSAGE WIDTH the way a human
+  // pays for them — a faster car reads as far up the track as a slow one and simply arrives sooner,
+  // and a perfect racing line barely notices a narrower margin. Rip Current and The Narrows are
+  // therefore NOT tuned down to what this rig calls neutral; the probe's own SCOPE block carries the
+  // measurement that settles it (laneScrollMul 1.3 paired with raceClockMul 0.85 measured
+  // BYTE-IDENTICAL to the same mutator with no clock cost at all — on this circuit a 30% faster car
+  // reaches its checkpoints 30% sooner and banks the tax straight back, which is exactly the runaway
+  // CIRCUIT_DEFAULTS' cap block predicts).
+  // balance_decision : five race-terms mutators, each a trade the chapter can pay [2026-08-27]
+  //  - the d1 column of the table above is a CONTROL, not a rung: no mutator rolls at difficulty 1
+  narrows:      { name: 'The Narrows',    icon: '🪸', desc: 'A tighter passage. More time on the clock.',            chapters: ['reef'], effects: { trackWidthMul: 0.72, raceClockMul: 1.05 } },
+  // laneScrollMul is the reef's TOP SPEED and not a scroll (see MUTATOR_MOD_KEYS' note on the key),
+  // so this is the one entry whose "cost" is the thing the player wants: a faster car is a shorter
+  // lap AND less warning of the coral. The clock is what pays for it, and it takes a 28% cut to do
+  // so because the speed hands most of a smaller one straight back at the next checkpoint.
+  ripCurrent:   { name: 'Rip Current',    icon: '🌊', desc: 'The water runs far faster, through a tighter passage.', chapters: ['reef'], effects: { laneScrollMul: 1.3, trackWidthMul: 0.85, raceClockMul: 0.72 } },
+  // ⚠ THE COPY NAMES NO NUMBER, and it used to say "twice" while this read spawnMul 2. The sweep
+  // landed on 2.5 and the sentence was instantly false — the same trap ANOMALIES.lastBreath's
+  // "twice as much" is guarded against by an assert. A mutator desc has no card to interpolate
+  // into, so the cheap answer is a sentence a retune cannot falsify.
+  // The crowd is scenery that you can still HIT (passiveCrowd zeroes its damage, never its body), so
+  // spawnMul and enemyRadiusMul are the two generic keys that survive the audit above — this is the
+  // rescue of overtime/jumbo's cost half, paired with a reward the chapter can pay. MEASURED over a
+  // 150s immortal run: 29.1 bodies alive at a mean radius of 15.5px becomes 73.6 at 22.5px, against
+  // a shared MAX_ALIVE cap of 300 that is nowhere near binding at either.
+  baitBall:     { name: 'Bait Ball',      icon: '🐟', desc: 'Far more traffic, and bigger with it. More time on the clock.', chapters: ['reef'], effects: { spawnMul: 2.5, enemyRadiusMul: 1.45, raceClockMul: 1.15 } },
+  // THE ONLY ENTRY THAT KILLS YOU BY DROWNING, which is why the air is worth a slate slot at all:
+  // the bar is the chapter's second failure condition and nothing else in the pool touches it. x3.0
+  // and not the 1.6 this shipped as a first cut — at 1.6 the mutator measured NET EASIER than no
+  // mutator (15/24 against 14/24), because the clock bonus outran a drain the wall-hugging policies
+  // never felt.
+  thinAir:      { name: 'Thin Air',       icon: '🫧', desc: 'Your air runs out far faster. More time on the clock.', chapters: ['reef'], effects: { airDrainMul: 3, raceClockMul: 1.08 } },
 }
 // Every key mergeMutatorMods can produce, all defaulted to 1 (neutral) before mutator effects
 // multiply in. sim.js applies each of these at one specific point — see sim.js's module doc.
@@ -13309,7 +14396,15 @@ export const MUTATOR_MOD_KEYS = [
   'wellForceMul',       // wellForce (beyond gravity bend on every projectile)
   'refillChanceMul',    // streamShafts (shelf; how often a refill circle materialises in a cell)
   'refillSpendMul',     // drawdownSecsFor (shelf; how long one circle feeds you before it is spent)
-  'laneScrollMul',      // laneScrollFor (reef; how fast the corridor runs past you)
+  'laneScrollMul',      // laneScrollFor — on a SCROLLER the corridor's speed, on a CIRCUIT the car's
+                        // top speed, and MUTATORS.ripCurrent is the only entry carrying it. Scoped
+                        // to the reef, so the label below is worded for the circuit meaning; a
+                        // future scroller mutator would need its own key rather than this one.
+  'raceClockMul',       // stepCircuit (reef; the countdown's start, its cap and what a checkpoint pays)
+  'trackWidthMul',      // createRun (state.js) — scales the run's cave halfMin/halfMax TOGETHER, the
+                        // same lever CHAPTERS.reef.circuit.ladder's `width` pulls, so the two just
+                        // multiply and the racing line survives both
+  'airDrainMul',        // stepCharge (sim.js) — the resource bar's per-second drain
 ]
 // Human label + "does a value above 1 help the player" for every MUTATOR_MOD_KEYS entry — the
 // brief/pause/summary effect chips read this (ui.js effectChipList) to word the trade and colour
@@ -13347,9 +14442,19 @@ export const MUTATOR_EFFECT_LABELS = {
   // i.e. how much of the bar one circle is worth, so "clean water per spot" is what it buys you.
   refillChanceMul: ['clean-water spots', true],
   refillSpendMul: ['clean water per spot', true],
-  // Worded off Tidal Race's own card ('The current runs far faster'), not off laneScrollFor:
-  // sibling to currentForceMul's chip, which is the same fiction under a different verb.
-  laneScrollMul: ['current speed', false],
+  // THE REEF'S MEANING, because MUTATORS.ripCurrent is the only entry that carries this key and it
+  // is scoped to the reef alone. On a circuit laneScrollFor is the ceiling the throttle reaches, so
+  // this is the car's top speed and it is GOOD — the old ['current speed', false] was worded for the
+  // auto-scroller the chapter stopped being, and would have coloured a buff red. Reuses Turbo Fin's
+  // exact words so the chip and the card name the same quantity (and share one fr.js key).
+  laneScrollMul: ['top speed', true],
+  // Worded from the HUD, which is where the player meets this: the rail says a number of seconds
+  // and this multiplies all three of the things that put seconds on it.
+  raceClockMul: ['time on the clock', true],
+  // 'passage' is the reef's own word for its track — CHAPTERS.reef.cave's block and Tidal Race's
+  // card both use it, so the chip says what the cards say.
+  trackWidthMul: ['passage width', true],
+  airDrainMul: ['air drain', false],
 }
 // Pure helper: given a list of mutator ids (run.mutators), returns the full run.mods object —
 // every key above defaulted to 1, with each selected mutator's effects multiplied in. Unknown

@@ -4,7 +4,7 @@ import {
   difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, ALL_CHAPTER_IDS, CHAPTERS,
   chapterMaxDifficulty, resolveChapterId,
   EARLY_CALM, MAX_CHOICE_SLOTS,
-  OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS,
+  OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS, ringCentre, circuitLadder,
   GRAVITY_WELL_R, GRAVITY_FORCE, GRAVITY_MIN_DIST, GRAVITY_MIN_GAP,
   pickWorldSeed, usesObstacleSeed, TRAWL_FIRST_PASS, ORCA_SHADOW_FIRST, ORCA_SHADOW_PASSES,
   BOOKS, BOOK_ORDER, shopLines, bookOf, isWipChapter, SLOW_BURN_FLOOR, CURRENT_RESIST_FLOOR, unlockLevel, unlockMax,
@@ -152,6 +152,10 @@ let boundSlot = null
 //   unlocked — so it can never express "beat the hardest level" and the hero card's final star was
 //   unreachable. Stamped by endRun on every classic victory, backfilled from maxDifficulty - 1 on
 //   load, floored but never capped (R3). Read by the ★ row (ui.js) and saveSummary's `beaten`.
+//   bestRaceTime (v7.x): seconds of the FASTEST completed race, 0 for none — a circuit chapter's
+//   score, and the opposite comparison from `best.time` beside it, which is a max. Written only on
+//   a circuit victory; stays 0 for every other chapter forever. See ensureChapterMeta for why it is
+//   its own field rather than a reused one.
 // meta.best: { time, kills } — all-time aggregate across every chapter, unrelated to any
 //   single chapters[id].best; still updated by endRun (main.js) on every run.
 // meta.nick: the leaderboard name, 3-10 chars, '' until chosen (scores.js owns the rule via
@@ -246,6 +250,17 @@ export function ensureChapterMeta(meta, id) {
   entry.best ??= { time: 0, kills: 0 }
   entry.best.time ??= 0
   entry.best.kills ??= 0
+  // A RACE'S BEST IS THE LOWEST, AND IT CANNOT SHARE `best.time`. That field is a MAX written
+  // unconditionally by endRun for every chapter — "survived longest" — so on a lap race it records
+  // your SLOWEST finish and puts it on the chapter card under the word `best`. A wrong number, not
+  // a missing one, which is why this is a fix rather than a feature.
+  //   A SEPARATE FIELD RATHER THAN A REPURPOSED ONE, per R2 (meta is additive-only): an older build
+  // is always still out there and still writes max() into best.time, and whichever build saves last
+  // wins. bestRaceTime is a slot no shipped build touches, so the two can never fight.
+  //   0 means "never finished a race here", which is why every read is guarded on `> 0` rather than
+  // on the field existing — a chapter that has one races against it, a chapter that does not shows
+  // nothing. Flat number, not a `{ time }` object: there is one fact here.
+  entry.bestRaceTime = Math.max(0, Number(entry.bestRaceTime) || 0)
   meta.chapters[id] = entry
   return entry
 }
@@ -994,6 +1009,12 @@ function generateWells(sig) {
  *             just draws them; r = ORB_R × (1 + orbit.bigOrbs bonus), same for main-ring and
  *             twinRing orbs — see WEAPON_MODS.orbit in config.js)
  * gems[i]:    { x, y, xp, _vac? }   coins[i]: { x, y, value, _vac? }
+ *             `value` IS NOT ALWAYS 1 (v7.x). Every drop in the game was worth one until The
+ *             Reef's ram started paying BURST_RAM_COINS on a body killed by the dash, and one
+ *             coin worth ten is a single pickup, not ten of them. stepPickups already read it
+ *             (`c.value * coinGainMul * coinMul`); what did not was AVARICE, whose own note
+ *             still reasons from a pickup COUNT, and render.js, which drew the same sparkle
+ *             either way — it now prints the number for anything over 1.
  *             _vac (v6.4.8, optional): set by Chemotaxis (WEAPON_MODS.wave.undertow) on every
  *             gem/coin within its reel radius at nova cast time — stepPickups then homes it to
  *             the player every frame regardless of magnet range, until collected.
@@ -1237,6 +1258,78 @@ function generateWells(sig) {
  *   (stepLaneFront, the crush edge and the camera anchor). Throttling only the first would leave
  *   the level running at full speed while the player fell into the back edge.
  *   Stays 1 for a chapter that declares no laneThrottle, which is every chapter but The Reef.
+ * _laneSpeed: number — the throttle with WEIGHT, and the only one of this family the player can
+ *   feel. _laneThrottle is where the stick is; this is where the fish actually is, easing toward
+ *   `laneScrollFor x _laneThrottle` at CIRCUIT_DEFAULTS.accel px/s². Exists only in a `circuit`
+ *   chapter — elsewhere the throttle reaches the velocity in one frame and this stays null.
+ *   SEEDED AT THE CHAPTER'S NOMINAL SCROLL, never 0, or the first second of every race is spent
+ *   accelerating from a standstill the design never asked for.
+ *   Read by stepLaneFront as well as stepPlayerMovement: the front must advance at the speed the
+ *   player is TRAVELLING, not the speed they are asking for, or accelerating bills you for ground
+ *   you have not covered.
+ * _kickX/_kickY: number — THE BOUNCE. px/s of sideways throw left over from hitting coral
+ *   (stepCaveWall, circuit.crashKick) or a fish (bumpTraffic, circuit.bumpKick), summed on top of
+ *   (heading x _laneSpeed) by stepPlayerMovement's circuit branch and dragged to a hard zero at
+ *   circuit.kickDrag px/s². The only impulse in the chapter that survives a frame — every other is
+ *   erased by that same velocity rewrite, which is why both impacts used to be position teleports.
+ *   Written by whatever hit you and spent by the movement step; nothing else touches them.
+ * caveSpec: object|undefined — THE TRACK THIS RUN IS DRIVING, which is not always its chapter's.
+ *   CHAPTERS[id].cave with the difficulty ladder's width applied to halfMin and halfMax (see
+ *   CHAPTERS.reef.circuit.ladder), frozen, set once here and never written again. Undefined for a
+ *   chapter with no cave.
+ *   ⚠ EVERY READER GOES THROUGH caveSpecOf(run), INCLUDING render.js. A bare CHAPTERS[x].cave read
+ *   left anywhere is the d1 corridor: in sim.js that collides the player against walls the ladder
+ *   moved, and in render.js it draws coral somewhere other than where the coral is. Neither throws.
+ *   run CT.l lints both files for it, and caveSpecOf deliberately has no fallback so a field that
+ *   goes missing crashes instead of quietly handing back the easy track.
+ * ---- The circuit (v7.x, The Reef). All four exist only where CHAPTERS[id].circuit is set. ----
+ * lap: number — completed laps, 0..circuit.laps. A DISTANCE, not a counter: the track repeats every
+ *   cave.lapLen, so this is floor(along / lapLen) and nothing can desynchronise it from the world.
+ *   Reaching circuit.laps ends the run in victory.
+ * raceClock: number — seconds of race left. The chapter's whole failure condition: it falls at 1s/s,
+ *   is topped up by circuit.swimTime at every swimthrough and CAPPED at circuit.clockCap, and at 0
+ *   the run is dead (killedBy 'clock'). Counts DOWN where run.time counts up, and the HUD's timer
+ *   slot renders this instead of the 300s survival countdown for a circuit chapter.
+ * _clockHold: number — seconds of raceClock that are held (PASSIVES.gateFreeze, "Split Second").
+ *   A BANK, not a boolean: every checkpoint adds the card's value to it and every frame spends
+ *   min(hold, dt) of it, so the countdown falls by dt minus whatever was held. It is the one
+ *   checkpoint reward NOT passed through Math.min(clockCap, ...), which is the card's whole point —
+ *   see stepCircuit. ui.js reads it for the .hud-timer--held tell; nothing else does.
+ * raceTime: number — the SCORE, in real seconds, stamped once when the last lap lands. Undefined
+ *   until then, which is what makes "did this run finish" a field test rather than a phase test.
+ *   run._realTime and NEVER run.time: Time Debt advances run.time at 1.5x, and a race time is
+ *   compared across runs on a board sorted fastest-first, so banking the inflated one would let an
+ *   anomaly shave real seconds off a record. See stepCircuit's own block.
+ * _swims / _swimN: the lap's checkpoints (swimthroughsFor, computed once from the obstacle seed) and
+ *   a RUNNING count of how many have been crossed since the run began. The count never resets at a
+ *   lap boundary, which is what lets laps and checkpoints share one arithmetic and never disagree.
+ * _offTrack: boolean — the player is OUTSIDE the passage this frame, which only a live Burst can
+ *   make true: every other frame stepCaveWall's clamp has already put them back. Published by
+ *   stepCaveWall above its own burst early-out and read by stepCircuit, which is the whole reason
+ *   it exists — a checkpoint is an angular test with no width in it, so without this flag a gate
+ *   crossed out in the coral banks exactly like one driven through.
+ * _legalX / _legalY / _legalRingT / _legalRingRaw: the last frame the player was on the track —
+ *   position AND the unwrapped ring angle, which have to travel together or a restore puts them
+ *   back in the right place a whole lap out. Written by stepCircuit on every on-track frame and
+ *   read only by its cut-back block.
+ * _lapAt: number — run._realTime at the last lap line, so the `lap` event can carry its own split.
+ * lapSplit: number — the last COMPLETED lap's duration in seconds, undefined before lap 1. The same
+ *   value the `lap` event carries, published so the HUD's split flash can be derived from state
+ *   (run.lap, this, and _realTime - _lapAt for the window) instead of from an event subscription —
+ *   which is what lets it survive a dropped frame and a paused one.
+ * lapDelta: number|null — the last completed lap measured against the BEST of the laps before it,
+ *   in seconds; negative is faster. null on lap 1, where there is nothing to compare against.
+ *   Taken before bestLap folds the new lap in, which is the whole reason it is a field and not a
+ *   subtraction the HUD could do for itself: after that line the two numbers are equal on every
+ *   personal best and the delta could never read negative.
+ * bestLap: number — the FASTEST completed lap of this run, in real seconds; undefined until lap 1.
+ *   The second score a race has, and the only one that is not a restatement of the first: a driver
+ *   can hold the best lap and lose the race, which is exactly what earns it its own board.
+ *   Every completed lap is eligible, INCLUDING a run that then ran the clock out. A lap has to be
+ *   finished to have a split at all, so — unlike the boss board's kill time, where dying early is a
+ *   way of "winning" — there is no way to shorten one by ending the run. A DNF's laps were still
+ *   driven.
+ *   Taken off lapSplit, so it inherits that field's _realTime clock and its Time Debt immunity.
  * _crushing: boolean — the player is pinned against the lane's trailing edge THIS frame, i.e. the
  *   lane has left without them. Published by stepLaneFront; the tell render.js draws off.
  * _crushAcc: number — the crush's part-tick accumulator (LANE_CRUSH_TICK). _spurAcc's twin.
@@ -1259,7 +1352,7 @@ function generateWells(sig) {
  *   `t` back up, and exists so syncPolyps' ignition ramp cannot blank a ridge that is still
  *   burning. Enemies only: nothing in here can touch the player. render.js draws the band
  *   straight off this list.
- * shafts[i]: { x, y, bx, by, r, phase, _cell, gape?, _shutT?, drawdown?, fouled? } — v7.x Book 2: streamed REFILL
+ * shafts[i]: { x, y, bx, by, r, phase, _cell, feeding, gape?, _shutT?, drawdown?, fouled? } — v7.x Book 2: streamed REFILL
  *   CIRCLES the player stands in to refill `charge`. ONE list fed from any of FOUR places, decided
  *   by refillSpec() (config.js): The Twilight's sun shafts (its signature IS the refill spec:
  *   cell/chance/r/minDist/driftAmp/driftHz sit directly on it), The Surf's tide pools
@@ -1278,6 +1371,12 @@ function generateWells(sig) {
  *     `drawdown` (s of occupancy, The Shelf) is how long the player has stood in this circle; at
  *   signature.drawdownSecs it stops being food. Written by stepCharge and read by render.js, which
  *   fades the circle off this exact number so the seconds watched are the seconds counted.
+ *     `feeding` is "did THIS circle add to the bar on THIS tick", rewritten for every circle
+ *   by stepCharge every step. It is false for the three different ways a circle stops paying — you
+ *   are not in it, it has drawn down, or the bar is already at its ceiling and swallowed the add
+ *   — and it exists because all three look identical from render.js, which used to stream The
+ *   Reef's bubbles from every vent on screen regardless (owner, 2026-08-25: "refill bubbles don't
+ *   disappear when they stop refilling"). Read by updateAirVents and by nothing else.
  *     `fouled` (s REMAINING) is Foul Spring's animation clock, set to FOUL_SPRING_FOUL_T when a Silt
  *   Veil cloud lands in a live circle and counted down by stepShafts. It is the PICTURE only —
  *   `drawdown` is slammed to full in the same breath, so the circle stops feeding the player at
@@ -1372,11 +1471,14 @@ function generateWells(sig) {
  * _burstT: number — seconds of Reef Burst dash remaining (CHAPTERS[chapter].burst). Set by
  *   stepRepulse on the same press, cooldown and charge spend as the Pulse, to BURST_DUR_MIN +
  *   (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t, so an EMPTY bar still dashes — the no-spiral floor.
- *   Read in three places. stepPlayerMovement's lane branch multiplies the forward scroll by
+ *   Read in five places. stepPlayerMovement's lane branch multiplies the forward scroll by
  *   BURST_SPEED_MUL while it is positive (the ONLY thing in the file allowed to change the lane's
  *   scroll rate, because it is the player's own button and not a force acting on them); stepSpurs
- *   forces _scraping false while it is live, which is R13's free crossing; and render.js's
- *   drawBurstWake draws the tail at what is LEFT of it, which is the only cast the duration has.
+ *   forces _scraping false while it is live, which is R13's free crossing; stepCaveWall waives the
+ *   passage wall on it and publishes _offTrack from it; stepRam kills every body within
+ *   BURST_RAM_MUL * PLAYER.radius on every frame it is live (v7.x — the dash is no longer pure
+ *   movement, see BURST_RAM_MUL); and render.js's drawBurstWake draws the tail at what is LEFT of
+ *   it, which is the only cast the duration has.
  *   0 on every run of every other chapter.
  * _shorebreakT: number — seconds of Surf Shorebreak left (CHAPTERS[chapter].shorebreak). Set by
  *   stepRepulse on the same press, cooldown and charge spend as everything else on that button, to
@@ -1698,6 +1800,23 @@ function generateWells(sig) {
  *   travel (px), for render to draw an accurately-scaled incoming-attack line during the wind-up.
  *   Before this event existed the run had no warning at all — see the bug/arithmetic writeup on
  *   stepStrafe in sim.js for why STRAFE_TELEGRAPH_T (0.5s) is enough to actually dodge it.
+ * ---- THE CIRCUIT'S FOUR EVENTS (v7.x, The Reef) — pushed only where CHAPTERS[id].circuit is set.
+ * {type:'swimthrough', x, y, n}: a checkpoint crossed, and the only thing that puts seconds back on
+ *   run.raceClock. n is the RUNNING count since the run began, not the index within the lap, so it
+ *   keeps climbing past lapLen — the same number stepCircuit counts with, deliberately, so a tell
+ *   drawn off the event can never disagree with the clock that banked it.
+ * {type:'lap', lap, x, y, split, total}: a lap line crossed. split = seconds since the previous one,
+ *   total = run._realTime at the crossing. THE EVENT CARRIES THE READ because the art cannot: at
+ *   270px/s the lap line is on screen for about 1.2s and looks like every other stretch of reef.
+ * {type:'crash', x, y, speed}: driving INTO the wall hard enough to be billed for it, fired on the
+ *   entry frame only. speed is the inward component in px/s — the overshoot DEPTH, not sustained
+ *   contact, so grazing along a wall is free and a hard corner is not. Costs circuit.crashMul of
+ *   your momentum; the damage is a separate, pre-existing path.
+ * {type:'cutback', x, y, n}: a cut through the coral crossed a gate the player never drove through,
+ *   so the whole cut was undone — x, y is where they were PUT BACK, not where they were caught, and
+ *   n is the checkpoint they would have banked. The gate itself never fires, so this event and
+ *   `swimthrough` are mutually exclusive for the same n on the same crossing. See stepCircuit's
+ *   cut-back block for the ruling.
  *
  * traps[i]: { x, y, r, armed, rearmAt, _cell } — v6.5: snap traps, STREAMED by sim.js's
  *   streamTraps (the same _obstacleSeed cell-hash idiom as obstacles/eddies, own salts 15-17) from
@@ -2169,6 +2288,29 @@ export function createRun(meta, opts = {}) {
   mods.enemyHpMul *= difficultyHpMul(difficulty)
   mods.enemyDmgMul *= difficultyDmgMul(difficulty)
   mods.coinMul *= difficultyCoinMul(difficulty)
+  // A CIRCUIT CLIMBS ON TIME AND ROOM, because the three taxes above are all inert on one (see
+  // CHAPTERS.reef.circuit.ladder for the measurement — an unarmed chapter with passiveCrowd cannot
+  // feel an HP, damage or coin multiplier, and d1 vs d5 measured byte-identical). The clock half
+  // goes through raceClockMul rather than a new term so it composes with MUTATORS.tidalRace by
+  // plain multiplication; the width half becomes the run's own cave spec, below.
+  const ladder = circuitLadder(CHAPTERS[chapter], difficulty)
+  mods.raceClockMul *= ladder.clock
+  // THE RUN'S OWN TRACK. Both ends of the passage scale by the same factor, which is what makes this
+  // a margin change and not a different circuit: hw is halfMin + (halfMax - halfMin) * t, so one
+  // factor on both scales hw uniformly and leaves the centreline, the wobble, the fork and the
+  // ordering of the local minima alone — swimthroughsFor therefore picks the SAME seven checkpoints
+  // at every rung, just narrower ones, and a player's learned line still holds at d5.
+  //   Frozen with Object.freeze because it is READ from a dozen places in sim.js and render.js and
+  // written from exactly one (here). A spec that some later frame edits in place would change the
+  // track under a run already driving it.
+  //   MUTATORS.narrows / tidalRace / ripCurrent pull the SAME lever through mods.trackWidthMul, so
+  // the ladder's rung and the player's chosen anomaly just multiply — one factor on both ends either
+  // way, which is what keeps every one of them a margin change rather than a different circuit.
+  const width = ladder.width * mods.trackWidthMul
+  const chapterCave = CHAPTERS[chapter]?.cave
+  const caveSpec = chapterCave && Object.freeze(width === 1
+    ? { ...chapterCave }
+    : { ...chapterCave, halfMin: chapterCave.halfMin * width, halfMax: chapterCave.halfMax * width })
   // Chapter snapshot (v5.0, see CHAPTERS in config.js): opts.chapter (default 'body') picks the
   // chapter's starter weapon and, via CHAPTERS[run.chapter].weapons, scopes sim.js's level-up
   // weapon pool (weaponCandidates/buildLevelUpChoices) to that chapter's natives for the whole
@@ -2237,6 +2379,11 @@ export function createRun(meta, opts = {}) {
     events: [],
     chapter,
     difficulty,
+    // The track this run is driving — the chapter's, with the difficulty ladder's width applied.
+    // Undefined for a chapter with no cave. caveSpecOf(run) (config.js) is the read; nothing in
+    // sim.js or render.js may reach for CHAPTERS[run.chapter].cave instead, or the coral drawn
+    // stops being the coral that stops you (run CT.l lints exactly that).
+    caveSpec,
     // COSMETIC ONLY - nothing in sim.js reads it. render.js latches it in reset() beside playerForm
     // and swaps the player's baked body for the cheeks one; the skin is bought per BOOK, like every
     // other shop line, so it dresses whichever body this book uses. DEV wears it outright, same
@@ -2251,8 +2398,18 @@ export function createRun(meta, opts = {}) {
     // store a future build's higher ceiling (loadMeta/ensureBookMeta no longer cap it), but
     // sim.js's buildLevelUpChoices must never deal more cards than the level-up screen is laid out for.
     choiceSlots: Math.max(2, Math.min(MAX_CHOICE_SLOTS, Number(bm.choiceSlots) || 2)),
+    // ⚠ ON THE START LINE, NOT AT THE ORIGIN, in a chapter whose track is a ring. ringXY puts the
+    // ring's centre at (-r0, 0) precisely so that (f 0, u 0) IS the world origin — but the track's
+    // CENTRELINE at f = 0 is offset by the passage wander, up to 240px of it, and 240 against a
+    // 300px-wide passage is the difference between starting on the road and starting in the coral
+    // with the wall shoving you out on frame one.
+    //   THROUGH THE RUN'S OWN obstacleSeed, which is the whole reason this is computed here rather
+    // than baked into the chapter: caveAt hashes its phases off that seed, so `null` would put the
+    // start line on a DIFFERENT track from the one the run generates.
     player: {
-      x: 0, y: 0,
+      ...(caveSpec?.ring
+        ? ringCentre(caveSpec, 0, obstacleSeed)
+        : { x: 0, y: 0 }),
       hp: maxHP, maxHP,
       speed: PLAYER.baseSpeed * (1 + shopBonus(bm, bookId, 'moveSpeed')),
       magnet: PLAYER.baseMagnet * (1 + shopBonus(bm, bookId, 'magnet')),
@@ -2275,7 +2432,14 @@ export function createRun(meta, opts = {}) {
       moving: false,
       vx: 0, vy: 0,       // v5.4: this frame's own input velocity, px/s (see the doc block above)
     },
-    weapons: [{ id: starterId, level: startWeaponLevel }],
+    // A chapter with no `starter` starts UNARMED, and the empty array is the whole point: a
+    // `{ id: null }` entry is not "no weapon", it is a corpse that every consumer dereferences.
+    // effectiveWeaponStats reads `WEAPONS[w.id].levels` from stepWeapons EVERY FRAME, so a null id
+    // throws on frame 1 — and test/sim-test.js's `run()` has no try/catch, so that one TypeError
+    // ends the whole synchronous suite: every scenario after it never runs and never reports. A
+    // genuinely empty array is already safe and already exercised (dozens of scenarios disarm the
+    // player with `run.weapons = []` mid-test), and render.js never reads run.weapons at all.
+    weapons: starterId ? [{ id: starterId, level: startWeaponLevel }] : [],
     // Which weapon this run STARTED on, published rather than inferred. It is weapons[0] today —
     // nothing removes or reorders that array — but that is an ordering accident, not a contract,
     // and the one consumer is a LEADERBOARD row: read positionally, the first mechanic that drops

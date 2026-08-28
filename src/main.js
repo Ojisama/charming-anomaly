@@ -1,7 +1,7 @@
 // Glue: boots Pixi, owns the tick loop and phase transitions. Keep logic in sim/ui/render.
 import { Application } from 'pixi.js'
 import { loadMeta, saveMeta, resetSave, deleteSlot, createRun, ensureChapterMeta, ensureBookMeta, unlockBook, setActiveSlot, activeSlot, setSlotName, cleanName, exportSlot, importSlot, freezeSaves, setSaveHook, SAVE_SLOTS } from './state.js'
-import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO } from './config.js'
+import { shopCost, refundValue, shopLines, shopLineUnlocked, lineMax, runBonusCoins, randomMutators, rerollMutator, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, difficultyCoinMul, CONSUMABLES, ANOMALY_REROLL_COST, sacrificeCost, BOOK_UNLOCKS, CHAPTERS, nextChapter, chapterMaxDifficulty, resolveChapterId, playableChapterId, chapterAvailable, isWipChapter, COIN_CAP_PER_RUN, BOOK_ORDER, bookOf, isBookFinale, nextBook, unlockCost, unlockLevel, DEATH_OUTRO, caveAt, ringXY, ringFU, ringCentre, ringRot, swimthroughsFor } from './config.js'
 import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, devCards, devTake } from './sim.js'
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
@@ -119,6 +119,12 @@ if (new URLSearchParams(location.search).has('debug')) {
   // map-mode capture has to advance the sim at each tile position to stream that tile's buildings
   // in before rendering it.
   window.__stepSim = stepSim
+  // THE PURE GEOMETRY, for probe scenes (scripts/scenes/*.js run as eval'd source in the page and
+  // therefore cannot import anything). A scene that restates a chapter's geometry to place its
+  // camera is a second copy of the level, and it goes stale the day the spec moves — which is the
+  // one-fact-two-places defect this repo's own CLAUDE.md calls its largest class. Debug-gated with
+  // __run above, so it costs a shipped build nothing.
+  window.__cfg = { CHAPTERS, caveAt, ringXY, ringFU, ringCentre, ringRot, swimthroughsFor }
 }
 initInput(document.body)
 
@@ -517,6 +523,34 @@ const SFX_FOR_EVENT = {
   // v5.21 lane (beyond): the active shove reuses the hole whoosh, and a rock clipping the player
   // is an ordinary hurt — it is damage, not a special occasion.
   repulse: 'hole', rockhit: 'hurt',
+  // v7.x The Reef's circuit. THESE SOUNDS ARE LOAD-BEARING, not decoration, and that is unusual
+  // enough to write down. On a 390x844 phone an x-lane shows 312px ahead of the player and the
+  // throttle tops out at 270px/s, so the lap line gets 1.2s on screen at racing speed — nowhere
+  // near enough for ART to say "this ridge is the one you started on" while you are also threading
+  // traffic. The CROSSING has to carry the read, so the sound is part of the mechanic working.
+  //   A swimthrough takes `gem` — a small, frequent, unambiguously-good pickup note, which is
+  // exactly what a checkpoint is (24 a race, so it must not be a fanfare). The lap line takes
+  // `levelup`, the game's existing "something just went your way" jingle, at four a race.
+  swimthrough: 'gem', lap: 'levelup',
+  // TAKING AN AIR VENT. `coin`, and the choice is free in a way it would not be anywhere else: this
+  // chapter has no weapons, so nothing in it ever drops a coin and the note is unambiguous here.
+  // It must NOT be `gem` — that is the checkpoint's, and the two pickups mean opposite halves of the
+  // chapter (a checkpoint is time, a vent is air). One note for both would make the bar and the
+  // clock sound identical at the moment they diverge.
+  airgulp: 'coin',
+  // A crash takes `crush`, the heaviest impact in the bank — it is the one moment in a race where
+  // the player loses something they cannot get back, and it fires on the entry frame only, so it
+  // cannot machine-gun the way a per-frame contact would.
+  crash: 'crush',
+  // A CUT-BACK TAKES `crush` TOO, and sharing the crash's note is the point rather than a shortcut:
+  // both are the chapter's "you just lost something you cannot get back" beat, and giving the
+  // refusal its own sample would make the player learn a second vocabulary for the same lesson.
+  // Rare enough to bear it — a race that never cuts a gate never hears it once.
+  cutback: 'crush',
+  // A traffic bump takes `hit` — the bank's LIGHT impact, and audio.js already throttles it, which
+  // matters here because a crowded squeeze can put three fish on the player inside a second. It is
+  // deliberately not `crush`: a crash is the moment you lose something, a bump is a nudge.
+  bump: 'hit',
   // v7.x The Wreck: the orca. All three get a sound BECAUSE they are rare — four visits a run, one
   // strike each — which is the opposite of the freeze/submission-expiry reasoning that withholds
   // one from anything firing dozens of times a minute. bossRise is already the game's "something
@@ -537,6 +571,10 @@ const SFX_FOR_EVENT = {
   // takes the same whoosh, which is both the right voice for a wall of water and the reason the
   // swap is inaudible as a regression: one press, one sample, exactly as before.
   shorebreak: 'hole',
+  // v7.x The Reef: the Burst does the same, for the same reason — a `burst` chapter no longer fires
+  // the shove (stepRepulse returns), so without this line the one press in the chapter would be
+  // silent. Same whoosh the shove itself had, so the swap is inaudible as a regression.
+  burst: 'hole',
   // v5.24 The Blank: the boss's scripted arrival/final kill and the P2 node yank each get their
   // own beat (audio.js) — the fight only has three of these total, no throttling needed.
   bossSpawn: 'bossRise', bossDead: 'bossFall', yank: 'zap',
@@ -646,6 +684,15 @@ function endRun(victory) {
   const chMeta = ensureChapterMeta(meta, run.chapter)
   chMeta.best.time = Math.max(chMeta.best.time, Math.floor(run._realTime ?? run.time))
   chMeta.best.kills = Math.max(chMeta.best.kills, run.kills)
+  // A RACE'S RECORD IS THE LOWEST, so it gets the opposite comparison and its own field — the two
+  // lines above are a MAX and stay one for every chapter including this one, because meta is
+  // additive-only (R2) and an older build still writes them. See ensureChapterMeta.
+  //   Gated on run.raceTime rather than on `victory`, and that is the tighter test: raceTime is
+  // stamped by stepCircuit at the moment the last lap lands and is undefined for a run that ran the
+  // clock out, so a loss cannot reach this line even if some other path calls endRun(true).
+  if (run.raceTime > 0) {
+    chMeta.bestRaceTime = chMeta.bestRaceTime > 0 ? Math.min(chMeta.bestRaceTime, run.raceTime) : run.raceTime
+  }
 
   // Difficulty unlock (v4.10, now per-chapter): winning a classic run at the run's chapter's
   // current ceiling unlocks the next level FOR THAT CHAPTER. Only fires on the level actually
@@ -734,8 +781,24 @@ function endRun(victory) {
   // Held in a local rather than passed as a literal: the leaderboard hands this exact object back
   // to ui.setPodiumResult below, and identity is what proves the rank belongs to THIS run's summary
   // and not to one the player has already replaced.
+  // A RACE'S `Time` IS ITS SCORE, not its survival clock, so the summary's own row has to change
+  // source with the chapter. On a win that is run.raceTime, the stamped record; on a loss there is
+  // no record and the honest number is how long you lasted in REAL seconds — the same unit, so the
+  // two lines of that row are comparable to each other and to the board.
+  const shownTime = CHAPTERS[run.chapter]?.circuit ? (run.raceTime > 0 ? run.raceTime : run._realTime ?? run.time) : run.time
+  // A RACE'S OTHER TWO FACTS, and they are the rows that replace Kills and Level reached on the
+  // summary — see renderSummary. Both are already stamped for the leaderboard a few lines down
+  // (run.lap, run.bestLap); passing them here is what stops the end of a race being scored on a
+  // kill count that `passiveCrowd` pins at 0 and a level every finisher ties on. `lapsTotal` is
+  // read off the chapter rather than off the run because a DNF has no total of its own.
+  const cc = CHAPTERS[run.chapter]?.circuit
   const summaryData = {
-    victory, time: run.time, kills: run.kills, level: run.player.level, earned, bonus,
+    victory, time: shownTime, kills: run.kills, level: run.player.level, earned, bonus,
+    laps: cc ? (run.lap ?? 0) : null,
+    lapsTotal: cc ? cc.laps : null,
+    // Milliseconds, the unit fmtLap and the podium's lap board already speak, so the summary and
+    // the board can never round the same lap two different ways. 0 means "never banked a lap".
+    bestLapMs: cc && run.bestLap > 0 ? Math.round(run.bestLap * 1000) : 0,
     mutators: run.mutators, nextDifficulty,
     // v7.x "what happened to me": the fatal hit's source label and the whole run's damage tally
     // (run.killedBy / run.dmgBySrc — see state.js's doc block). Passed raw, as LABELS not copy:
@@ -779,9 +842,30 @@ function endRun(victory) {
     // ordinary chapter — where every victory is the same 300s survival clock — would put whoever
     // died first on top of a board about nothing. Null is the honest value for both, and the
     // Worker stores it as one: the time board's query skips NULL rows outright.
+    // THE TIME BOARD NOW HAS A SECOND KIND OF ROW, and it is not measured on the same clock.
+    // A boss chapter submits run.time — its kill time IS the survival clock. A CIRCUIT submits
+    // run.raceTime, which is real seconds, because Time Debt advances run.time at 1.5x and a board
+    // sorted fastest-first would hand that anomaly free places on it. Same reason stepCircuit
+    // scores the race on _realTime; the unit reaching the Worker has to match the one banked.
+    //   No `victory &&` on the circuit arm and it is not an omission: raceTime is stamped by
+    // stepCircuit only when the last lap lands, so it is already the tighter test. A run that ran
+    // the clock out submits null, and the Worker's time query skips NULL rows outright.
+    const timeMs = CHAPTERS[chapter]?.circuit
+      ? (run.raceTime > 0 ? Math.round(run.raceTime * 1000) : null)
+      : (victory && CHAPTERS[chapter]?.scripted ? Math.round(run.time * 1000) : null)
+    // THE RACE'S SECOND SCORE, and the only board a run can place on WITHOUT finishing. It needs
+    // none of the two terms above: `bestLap` is undefined until a lap line is actually crossed, so
+    // that one field already answers both "is this a circuit" and "did anything happen" — and
+    // unlike a kill time there is no early-exit exploit to guard against, because a lap has to be
+    // completed to be timed at all. A run that ran the clock out on lap 4 drove three real laps and
+    // one of them was its best. See run.bestLap in sim.js and state.js.
+    //   Real seconds, exactly like raceTime and for the same reason: bestLap is taken off lapSplit,
+    // which is measured on run._realTime, because Time Debt advances run.time at 1.5x and both of
+    // these boards sort fastest-first.
+    const lapMs = run.bestLap > 0 ? Math.round(run.bestLap * 1000) : null
     const entry = {
       nick, chapter, difficulty: run.difficulty ?? 1, kills: run.kills, level: run.player.level,
-      timeMs: victory && CHAPTERS[chapter]?.scripted ? Math.round(run.time * 1000) : null,
+      timeMs, lapMs,
       // ONLY WHERE IT IS ROLLED (owner, 2026-08-19). A chapter whose `starter` is a plain string
       // gives every player the same weapon, so recording it on every row of those boards is a
       // column of one repeated answer. `Array.isArray` is the same test createRun rolls on, so the

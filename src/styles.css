@@ -601,11 +601,277 @@ body {
   border-color: rgba(90, 30, 10, 0.5);
   color: #fff3ea;
 }
+/* ---- THE RACE READOUT (v7.x, a circuit chapter only) ------------------------------------------
+   ONE STRIP, NOT FOUR PLATES, and that correction is the whole design. The first cut gave every
+   readout its own outlined plate, which put five bordered containers (three plates, the pause slab,
+   the HP pill) inside the top 150px of a 390px screen, each with a 2.5px cream outline arguing with
+   the others. Owner's verdict: "ugly and too crammed". A band with dividers is one container doing
+   the same job — the boxes were never carrying information, only edges.
+
+   What was DELETED rather than restyled, because none of it can move in a race: the coin badge was
+   pinned at 0 (The Reef is `weapons: []`, and coins drop only from a kill), and the Lv badge + xp
+   bar were pinned at 0% while duplicating the lap count (a circuit banks one whole level per lap,
+   so the bar fills and empties inside a single frame). Half the old HUD was another chapter's
+   dashboard.
+
+   THE CENTRE COLUMN IS TRUE SCREEN CENTRE and that is inherited, not declared: .hud-top is already
+   `1fr auto 1fr`, so the outer columns stay equal whatever they hold and the checkpoint clock — with
+   the split delta below it — sits on the screen's axis without either one being positioned by hand. */
+/* ⚠ COMPOUND ON PURPOSE, AND THE BARE `.race-hidden` IS A BUG THAT REACHES EVERY OTHER CHAPTER.
+   .race-lap below sets `display: flex`. Both selectors are one class, so specificity ties and the
+   LATER rule in the file wins -- the lap readout is then never hidden, sits in grid cell 1/1 of
+   .hud-top on The Surf, The Shelf and everything else, and evicts the HP bar to a 6px sliver.
+   Measured exactly that way before this selector was scoped. Adding the parent makes the hide
+   out-rank any element rule regardless of where either one lands in the file, which matters more
+   than the ordering fix would: the next person to give a race readout a `display` has no way to
+   know they are re-creating this. Run HD.c asserts the selector stays compound. */
+.screen--hud .race-hidden { display: none; }
+/* The band. Painted on .hud-top itself rather than as a sibling, so it cannot drift out of
+   register with the readouts sitting in its grid. */
+.hud--race .hud-top {
+  min-height: 64px;
+  /* `1fr` IS `minmax(auto, 1fr)`, SO A TRACK GROWS PAST ITS SHARE FOR CONTENT IT CANNOT SHRINK —
+     which is why the checkpoint clock sat 17px right of the screen's axis and the delta with it
+     (owner, twice). The left cell holds a 160px HP bar and the right holds the race clock and the
+     pause button; those two mins differ, so the auto column between them lands wherever the
+     difference leaves it. minmax(0, 1fr) makes the two outer tracks exactly equal whatever they
+     hold, and the readouts inside them are capped (not fixed) so they shrink with their track
+     instead of overflowing it. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  /* TWO RULES, AND EITHER ALONE MAKES IT WORSE. width:100% (inherited from .hud-top) resolves
+     against .screen--hud's CONTENT box, so the band came out 24px narrower than the screen and
+     shifted by the negative margin -- a strip of water down each edge that reads as a rendering
+     fault. But `width:auto` alone SHRINK-WRAPS, because .screen is a centering flex column, so the
+     band pulled in to its own content and centred. align-self:stretch is what makes auto fill the
+     cross axis, after which the negative margins can carry it past the padding to the glass. */
+  width: auto;
+  align-self: stretch;
+  gap: 6px;
+  background: linear-gradient(180deg, rgba(4, 22, 30, 0.84), rgba(4, 22, 30, 0.44));
+  /* BLEED TO THE SCREEN EDGES. The negative margins are the EXACT inverse of .screen--hud's own
+     padding (10px top / 12px sides, each plus its safe-area inset) — guessed values leave a sliver
+     of water down one edge that reads as a rendering fault rather than as a margin, and the notch
+     insets make the width device-dependent, so it cannot be a constant. The padding is then added
+     back INSIDE, which is what keeps the readouts off the physical edge. */
+  margin: calc(-10px - env(safe-area-inset-top))
+          calc(-12px - env(safe-area-inset-right)) 0
+          calc(-12px - env(safe-area-inset-left));
+  padding: calc(6px + env(safe-area-inset-top))
+           calc(12px + env(safe-area-inset-right)) 6px
+           calc(12px + env(safe-area-inset-left));
+}
+/* LAP: the caption rides on the number's own baseline instead of under it (owner, 2026-08-27:
+   "lap should be on the same row as the 2/5 to gain room"), which frees row 2 of this cell for the
+   HP bar — and leaves all three cells two rows tall, so the band balances. */
+.race-lap {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+  max-width: 160px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--cream);
+  font-variant-numeric: tabular-nums;
+}
+.race-lap b { font-size: 1.15rem; font-weight: 900; line-height: 1; }
+.race-time {
+  max-width: 130px;
+  color: var(--cream);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.race-time b { display: block; font-size: 1.15rem; font-weight: 900; line-height: 1; }
+/* Every caption. Letter-spaced and uppercase so one word reads as a LABEL rather than a second
+   readout — the same argument, and deliberately the same size, as .chaos-vrail-label, so the two
+   families of readout on this screen agree with each other. */
+.race-k {
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  opacity: 0.78;
+}
+.race-time .race-k { display: block; }
+/* THE SPLIT DELTA against your best lap so far, directly under the clock it comments on. It is on
+   screen for CIRCUIT_DELTA_S after a lap line and gone the rest of the time, which is exactly why
+   it gets no box of its own: a container that appeared and vanished would read as the HUD breaking
+   rather than as a number arriving. */
+.race-delta {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: center;
+  max-width: 140px;
+  font-size: 1.15rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: #ff8f7a;
+  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.75);
+}
+/* Faster than your best. Mint is the reward register the old gold lap flash held, moved off gold on
+   purpose: gold is the coin badge's hue and this chapter has no coins. NOT the danger vermillion
+   for the slow case either — losing a tenth is not the same news as the clock running out, and the
+   two must not shout equally loudly on one small screen. */
+.race-delta--up { color: var(--mint); }
+/* THE SPEEDO. Outside the grid entirely (fixed, like .chaos-wrap), bottom RIGHT so it is opposite
+   the air rail and the burst button and neither thumb covers it. */
+.race-speed {
+  position: fixed;
+  right: 18px;
+  bottom: 30px;
+  text-align: right;
+  color: var(--cream);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.race-speed b {
+  display: block;
+  font-size: 2.9rem;
+  font-weight: 900;
+  line-height: 0.9;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.45);
+}
+.race-speed .race-k { display: block; letter-spacing: 0.2em; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5); }
+/* ---- what the band does to the boxes it INHERITS ---------------------------------------------
+   One class on the hud root carries all of it, so the design lives in one place instead of half
+   here and half in style writes from updateHUD. */
+/* The countdown is the loudest thing on the screen because it is the one that kills you — and it
+   is the only readout given a colour of its own, which is what buys the rest of the band its calm. */
+.hud--race .hud-timer {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: center;
+  color: #bdf5e4;
+}
+.hud--race .hud-timer-num { display: block; font-size: 2rem; font-weight: 900; line-height: 1; }
+.hud--race .hud-timer-k {
+  /* FLEX, NOT BLOCK, AND THAT IS THE WHOLE POINT OF THE LINE. The box below is zero-width, and
+     `text-align: center` does NOT centre a line that overflows its box — it lays the glyphs out
+     from the box's own edge and lets them run off to the right. Measured: the numeral's ink sat at
+     offAxis -0.0 and this caption's at +35.2 on the same frame, which is the misalignment the
+     owner reported. `justify-content: center` on a flex container centres an over-wide item on the
+     container's midline, spilling equally both ways, which is what a zero-width box needs. */
+  display: flex;
+  justify-content: center;
+  /* ZERO-WIDTH, CENTRED, OVERFLOWING BOTH WAYS. The caption is the widest thing in the middle
+     column — 100px of CHECKPOINT against ~35px of numeral — and an auto track sized to it eats
+     65px the two outer tracks then have to share out of, which is most of the off-axis error the
+     rule above exists to remove. Zero width takes it out of the track's sizing while leaving its
+     HEIGHT in flow, which is what keeps the split delta on row 2 clear of it. NOT position:
+     absolute, which drops the height too and drops the delta straight onto this word. */
+  width: 0;
+  margin: 0 auto;
+  white-space: nowrap;
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: #8fd8c4;
+}
+/* Its alarm state has to re-assert the NUMBER's ink, not just a ground: with no plate left to
+   fill, the last seconds turn the numerals themselves rather than the box behind them. */
+.hud--race .hud-timer--low { background: none; }
+.hud--race .hud-timer--low .hud-timer-num { color: #ff9c7d; text-shadow: 0 0 12px rgba(214, 84, 44, 0.7); }
+.hud--race .hud-timer--low .hud-timer-k { color: #ffbfa8; }
+/* HP TAKES ROW 2 OF THE LAP CELL, under the count. Owner's pick of three placements (2026-08-27),
+   on the ground that it puts the bar in the same spot no matter what the chapter's max HP is —
+   which is real: the Reef's is a flat 100 (measured; the chapter offers no maxHP card and the shop
+   line does not reach this book), but a bar is a fraction and reads the same at any ceiling, where
+   the pip row the other candidate used would not. */
+.hud--race .hp-wrap {
+  grid-column: 1;
+  grid-row: 2;
+  /* THE SAME 160px CAP .race-lap CARRIES, so the two stacked readouts share a right edge and the
+     left cell reads as one block instead of two ragged ones. At 108px (as it shipped) with a
+     0.52rem label the bar was a hairline nobody could find — owner, 2026-08-27: "hp bar is too
+     small". It is a fraction, so it reads the same at any ceiling; do not size it to a max HP. */
+  width: 100%;
+  max-width: 160px;
+  margin-top: 5px;
+}
+.hud--race .hp-bar {
+  height: 18px;
+  border: 2px solid rgba(244, 239, 230, 0.45);
+  background: rgba(4, 18, 26, 0.7);
+}
+.hud--race .hp-text {
+  font-size: 0.66rem;
+  color: var(--cream);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95);
+}
+/* THE COIN BADGE ON A CIRCUIT — a GHOSTED chip rather than the gold pill it is everywhere else.
+   The reason has changed once and the shape has not, which is worth stating so the next edit does
+   not undo the right thing for the old reason. It was ghosted because the count was DEAD here
+   (weapons: [], so nothing dropped) and gold is the loudest hue this HUD owns, so a gold pill
+   promised a currency the chapter did not have. Since v7.x the Burst kills what it rams and pays
+   BURST_RAM_COINS a body, so the count is live and the badge is shown on every run — but a race is
+   not scored in coins, and the clock and the lap are what a driver reads at speed. Quiet, at
+   caption size, is still the right weight for it; the gold is carried by the glyph alone.
+   ui.js writes the text, and adds the DEV word on a dev run. */
+.hud--race .hud-coins {
+  /* OUT OF THE GRID, into the empty right cell of row 2. In .hud-right's flex row it added ~50px
+     to the right track, and with the outer tracks locked equal that is 50px stolen from the axis
+     on a run nobody but the developer ever plays — a dev toggle may not move the game's HUD.
+     Fixed, so it is measured from the glass; the inset keeps it inside the band on a notched
+     phone, where the band itself starts lower. */
+  position: fixed;
+  top: calc(52px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+  background: rgba(8, 28, 38, 0.5);
+  border: 1.5px solid rgba(244, 239, 230, 0.3);
+  color: rgba(244, 239, 230, 0.7);
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  padding: 5px 7px;
+  border-radius: 8px;
+}
+/* The pause button is the least important thing on a race screen and was the loudest: a saturated
+   mint slab sitting beside the mint checkpoint clock, reading as a second readout. Ghosted here,
+   and shrunk, so the only mint left that MEANS anything is the clock and the delta. */
+.hud--race .btn-pause {
+  background: rgba(8, 28, 38, 0.5);
+  border: 1.5px solid rgba(244, 239, 230, 0.3);
+  /* the 3px mint-dark drop shadow is most of what made this shout, and a ghosted button that
+     still casts a coloured shadow is not ghosted */
+  box-shadow: none;
+  color: rgba(244, 239, 230, 0.75);
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  font-size: 12px;
+}
+/* The race clock's last CIRCUIT_CLOCK_LOW_S seconds. Deliberately the same vermillion as
+   .hud-timer--debt: both mean "this clock is about to cost you", they can never appear together
+   (Time Debt is a survival-chapter anomaly, this is a circuit), and a second alarm hue on one
+   small pill would be a distinction the player has no way to learn. */
+.hud-timer--low {
+  background: rgba(214, 84, 44, 0.95);
+  border-color: rgba(90, 30, 10, 0.5);
+  color: #fff3ea;
+}
+/* SPLIT SECOND (PASSIVES.gateFreeze) has the countdown held. A RING, NOT A FILL, and that is the
+   correction rather than the first idea: every other state on this pill is a background swap, so an
+   ice ground for the hold read correctly on its own and REPLACED the vermillion when the clock was
+   also low — shot side by side in the harness, a 27 and a 4 that looked equally calm. The alarm
+   outranks the tell, and a ring composes with whatever ground is under it instead of arguing with
+   it, so the two states can both be true and both be legible.
+   box-shadow AND NOT outline/border-width: this pill sits in a fixed grid slot beside the coin
+   badge and anything that changes its metrics wraps the badge onto a second line at 390px (see
+   .hud-timer--debt). A shadow is painted outside the box and costs no layout at all. */
+.hud-timer--held {
+  box-shadow: 0 0 0 4px rgba(154, 224, 240, 0.95), 0 0 10px 4px rgba(154, 224, 240, 0.55);
+}
 .hud-right { justify-self: end; display: flex; align-items: center; gap: 8px; }
 .hud-coins {
   /* the badge is the hidden dev menu's seven-tap target (ui.js), and the HUD around it is
      pointer-events:none so it cannot eat gameplay touches — so this one child opts back in */
   pointer-events: auto;
+  /* IT MAY NEVER WRAP. This pill shares a flex row with the pause button and, on a circuit, the
+     race clock; at 390px that row runs out of width and the two glyphs break onto a second line,
+     turning the pill into a disc twice its row's height. .hud-top is align-items:center, so
+     everything beside it then moves — which is what "the HUD is imbalanced" looked like when it
+     shipped. .hud-timer--held's rule already carries the same warning from the other side. */
+  white-space: nowrap;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   padding: 5px 12px;
@@ -2352,6 +2618,30 @@ body {
    violet on a violet-ish void; a saturated gold at 0.4 alpha is still the warmest thing on a blue
    screen and kept reading as available. Desaturating is what actually makes it look spent. */
 .skill-btn:not(.skill-btn--ready) { filter: saturate(0.55); }
+/* THE BURST, on a circuit only (v7.x). The shared button is a gold disc with a sun on it, which is
+   wrong here twice over: gold is the coin badge's register in this game, and this button is a
+   NITRO — BURST_SPEED_MUL x your live speed, paid for out of the air bar (config.js). It is the
+   same disc in the same corner at the same size; only the skin changes.
+   CYAN because it is the one hue nothing on this HUD has claimed — gold is coins, amber is the air
+   rail, mint is HP and the checkpoint plate, vermillion is the dying clock. A colour a player has
+   never seen anywhere else cannot be confused with anything.
+   The glyph is drawn in ui.js as inline SVG rather than an emoji: three chevrons along the way you
+   travel, which is the racing genre's own way of writing "faster" and needs no legend. */
+.hud--race .skill-btn {
+  border-color: rgba(190, 240, 255, 0.55);
+  background: radial-gradient(circle at 40% 30%, #f2fdff 4%, #8fe6ff 32%, #2aa8d8 66%, #0a5a7e);
+  color: #f2fdff;
+}
+.hud--race .skill-btn--ready {
+  border-color: rgba(210, 246, 255, 0.95);
+  box-shadow: 0 0 18px rgba(90, 215, 255, 0.7), 0 0 42px rgba(40, 170, 230, 0.32);
+}
+/* The chevrons fill the disc rather than sitting in it as a 30px character — an SVG has no font
+   metrics to fight, so this is a size, not a guess. */
+.skill-btn-chev { width: 40px; height: 40px; display: none; }
+.hud--race .skill-btn-chev { display: block; }
+.hud--race .skill-btn-glyph { display: none; }
+.hud--race .skill-btn:not(.skill-btn--ready) .skill-btn-chev { opacity: 0; }
 
 /* ---- pause: the build readout (v6.6.17) -------------------------------------------------- */
 /* Design 2's spec tables inside design 3's collapsible rows. The whole block is one flex column
@@ -2448,6 +2738,27 @@ body {
 .charge--armed .chaos-vrail-num { background: rgba(70, 46, 12, 0.92); color: #fff3d0; }
 
 /* live wave: violet -> red. Never colour ALONE — the seconds chip is the other half. */
+/* THE RESERVE'S WARNING STATES (owner, 2026-08-25). AFTER .charge--armed deliberately: the two can
+   co-occur, because PULSE_CHARGE_COST is a fraction of max rather than a majority of it, and the
+   warning has to win — that you can still afford the button matters less than that you are about to
+   drown. Same specificity, so the later rule takes it. */
+/* ⚠ THE BASE FILL IS ALREADY AMBER (#ffb347 above), so "orange" has to be a DEEP orange or the
+   warning is invisible — shot side by side at 29% and 45% and the first pass (#ffa53d) was
+   indistinguishable from a full bar. The border carries as much of it as the fill does. */
+.charge--low .chaos-vrail-track i { background: #ff6a12; }
+.charge--low .chaos-vrail-track { border-color: rgba(255, 122, 30, 0.85); }
+.charge--low .chaos-vrail-num { color: #ffc98f; }
+.charge--crit .chaos-vrail-track i { background: #ff4d3d; }
+.charge--crit .chaos-vrail-num { color: #ffc9c2; }
+.charge--crit .chaos-vrail-track { border-color: rgba(255, 90, 70, 0.8); }
+/* At zero there is no fill left to colour at all, so the blink goes on the empty track and the
+   number — the two things still on screen. */
+.charge--empty .chaos-vrail-track,
+.charge--empty .chaos-vrail-num { animation: chargeEmptyBlink 0.6s steps(1, end) infinite; }
+.charge--empty .chaos-vrail-track { border-color: rgba(255, 80, 64, 0.9); }
+.charge--empty .chaos-vrail-num { color: #ffd2cb; }
+@keyframes chargeEmptyBlink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.28; } }
+
 .chaos--on .chaos-vrail-track { border-color: rgba(255, 166, 148, 0.6); }
 .chaos--on .chaos-vrail-track i { background: #ff6b52; }
 .chaos--on .chaos-vrail-num { background: rgba(52, 18, 16, 0.92); color: #ffd7cf; }

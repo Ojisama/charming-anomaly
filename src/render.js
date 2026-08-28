@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -317,6 +317,11 @@ export function createRenderer(app) {
   // v7.x: WHICH edge — laneAxes(cfg) (config.js). 'y' (The Beyond) anchors the player near the
   // bottom; 'x' (The Reef) near the left. Latched with chapterHasLane and read only by the camera.
   let chapterLaneAxis = LANE_AXIS_Y
+  // v7.x reef circuit: the camera anchors to the PLAYER, not the lane front. A SEPARATE latch from
+  // chapterHasLane on purpose — The Beyond is `lane: true` as well, and keying this off `lane`
+  // would silently convert its chase camera too. `CHAPTERS[].circuit` is an object ({ laps }), so
+  // this reads `!= null` rather than `=== true` the way chapterHasLane does.
+  let chapterIsCircuit = false
   // v5.24 the blank: the white void draws NO decorative floor (CHAPTERS[].render.voidFloor) —
   // every scatter layer's populate callback early-outs on this, so bgColor alone is the ground.
   // Same latch pattern as chapterHasLane.
@@ -10193,6 +10198,15 @@ export function createRenderer(app) {
 const spurArt = (() => {
   try { return Number(new URLSearchParams(location.search).get('cv') ?? 3) } catch { return 3 }
 })()
+// Under the coral, so the finish mat tucks beneath the colonies overhanging the passage edge.
+const gateFloorG = new Graphics()
+const gateFrontG = new Graphics()
+// THE CROSSING CLOCK. {type:'swimthrough'} has had an SFX_FOR_EVENT entry ('gem') since it was
+// written and NO consumer in this file — so threading a gate has always made a sound and never
+// changed a pixel. run EV is satisfied by the sound alone, which is why nothing caught it. Derived
+// from run._swimN rather than plumbed through sync's event list: render must not mutate run, a
+// counter cannot desync from itself, and a dropped frame cannot lose the pulse.
+let gateLastN = -1, gateCrossAt = -99, gateCrossK = -1
 const spurG = new Graphics()
   // THE CORAL IS SPRITES NOW, NOT A PATH. spurG survives only for the flat-slab A/B fallback
   // (spurArt 0) and for the ridge FOOT; every colony is a stamp out of coralPool. See bakeCoral().
@@ -10204,16 +10218,21 @@ const spurG = new Graphics()
   // (once per lane crossing), while a burning ridge pulses every frame. Cleared and redrawn each
   // sync, the slickG idiom. It sits immediately over spurG so the fire is ON the coral.
   const polypG = new Graphics()
+  // v7.x The Reef: THE CIRCUIT'S GATES (the six checkpoints and the start line). Its own Graphics
+  // for polypG's reason — spurG caches on _spurRev and these change every time one goes behind you
+  // — and it sits ABOVE the coral so the posts are not buried by the colonies overhanging the very
+  // edge they grow from.
+  const gateG = new Graphics()
   const particleLayer = new Container()
   const textLayer = new Container()
   entitiesLayer.addChild(
-    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, spurG, coralLayer, polypG, burstWakeG, obstacleLayer, trapLayer,
+    mownG, sandLayer, netWakeG, wellG, bindG, poolLayer, slickG, trailLayer, webLayer, gateFloorG, spurG, coralLayer, polypG, gateG, burstWakeG, obstacleLayer, trapLayer,
     gemLayer, coinLayer, holeLayer, eddyLayer, shaftLayer, novaLayer, mineLayer,
     scarLayer, bombG, shellLayer, skyLayer, voltLayer, stripG, laneG, hazardG, jetLayer, teleG, strafePoolLayer, rampG, pacerG,
     rockLayer,
     orcaShadowSp, orcaG,
     enemyShadowLayer, enemyLayer, enemyCrownLayer, orcaSp, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, breakerG, puffG, splashG, columnG, shorebreakG,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -12503,8 +12522,17 @@ const spurG = new Graphics()
     const cfg = CHAPTERS[run.chapter]
     const spec = cfg.spurs
     if (!spec) { if (spurRev !== -1) { spurG.clear(); spurRev = -1 } return }
-    if (run._spurRev === spurRev) return
-    spurRev = run._spurRev
+    // WHAT COUNTS AS "THE FIELD CHANGED". On a lane it was run._spurRev, bumped by streamSpurs
+    // once per ridge crossing. A ring has no spur field at all (streamSpurs returns early there),
+    // so the trigger is the player's own position ALONG the track: rebuild every RING_COLONY_REV of
+    // f, which at racing speed is about twice a second — the same cadence the ridge crossing gave.
+    // Without this the wall is built once, at the start line, and never again.
+    const ringRev = caveSpecOf(run)?.ring
+      ? Math.floor(ringFU(caveSpecOf(run), run.player.x, run.player.y).f / 160)
+      : null
+    const wantRev = ringRev != null ? ringRev : run._spurRev
+    if (wantRev === spurRev) return
+    spurRev = wantRev
     spurG.clear()
     const V = SPUR_VIS
     const ax = laneAxes(cfg)
@@ -12572,8 +12600,76 @@ const spurG = new Graphics()
     // draws from. A second opinion about where the wall is would be the drawn-vs-tested defect
     // this file keeps paying for.
     const stamps = []
-    const cspec = cfg.cave
-    if (cspec) {
+    const cspec = caveSpecOf(run)
+    // THE RING (v7.x). Everything below still works in caveAt's (f, u) space — see ringXY in
+    // config.js — so this is one window calculation and one placement, not a second wall generator.
+    // ⚠ u IS MEASURED INWARD, so `sign` +1 walks toward the ring's centre and -1 walks out past the
+    // outer wall. The hole has to be filled as hard as the outside does: standing at the track's
+    // inner edge the centre is only ~570px away, which is inside a desktop's half-diagonal.
+    if (cspec?.ring) {
+      const R0 = cspec.ring.r0
+      const step = V.colonyEveryLo + (V.colonyEveryHi - V.colonyEveryLo) * 0.5
+      // Half the screen's DIAGONAL, because a ring has no cross axis to measure against — the
+      // camera is centred and the wall can arrive from any bearing.
+      const reachPx = Math.hypot(viewW(), viewH()) / 2 + V.bakeReach
+      const fu = ringFU(cspec, run.player.x, run.player.y)
+      // f IS AN ANGLE, so the same px of reach is more f where the loop pinches. Sized at the
+      // TIGHTEST radius the track makes, or the hairpins come up short.
+      const rMin = Math.max(60, R0 - cspec.wander - cspec.halfMax)
+      const spanF = (reachPx * cspec.lapLen) / (2 * Math.PI * rMin) + step
+      const k0 = Math.floor((fu.f - spanF) / step)
+      const k1 = Math.ceil((fu.f + spanF) / step)
+      const hash = (a, b) => {
+        const x = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453
+        return x - Math.floor(x)
+      }
+      // ONE COLUMN, from a face of the passage into the solid behind it — the corridor's `pack`,
+      // with two things the ring adds. `m` is how many colonies to lay across the cell at this
+      // depth: the outer wall's arc is up to twice the track's for the same f-step, so a single
+      // colony per cell leaves see-through gaps out there and piles up inside. And the walk STOPS
+      // near the middle, where every f-cell converges on the same point; the plug in syncGates
+      // fills that last disc instead of ten thousand overlapping sprites.
+      const pack = (fw, edge, into, depth, d0, sizeMul = 1) => {
+        let d = d0
+        for (let j = 0; d < depth && j < 96; j++) {
+          const u = edge + into * d
+          const rr = R0 - u
+          if (rr < 10) break
+          const h2 = hash(d * 7.9, fw - j * 4.3)
+          const reach = V.bakeReach * (V.reachLo + (V.reachHi - V.reachLo) * h2) * sizeMul
+          const m = Math.max(1, Math.round(rr / R0))
+          for (let q = 0; q < m; q++) {
+            const h1 = hash(fw + j * 5.3 + q * 17.1, d * 2.1)
+            const h3 = hash(fw * 1.7 - j * 3.7 + q * 9.7, d * 2.9 + j * 6.1)
+            stamps.push({
+              f: fw + (q + h1) / m * step * 0.9 - step * 0.45,
+              c: u,
+              v: Math.floor(h3 * T.coral.length) % T.coral.length,
+              rot: -into * Math.PI / 2 + (h1 - 0.5) * 1.2,
+              scale: Math.max(0.3, reach / V.bakeReach),
+              tone: V.tones[Math.floor(h2 * V.tones.length) % V.tones.length],
+            })
+          }
+          d += Math.max(10, reach * 0.8)
+        }
+      }
+      for (let k = k0; k <= k1; k++) {
+        const hN = hash(k * 1.7, 91.3)
+        const cnt = hN > 1 - V.cellDouble ? 2 : 1
+        const sunk = hN < V.cellEmpty ? V.bakeReach : 0
+        for (let mm = 0; mm < cnt; mm++) {
+          const fw = (k + (mm + hash(k * 3.1 + mm * 5.9, 7.7)) / Math.max(1, cnt)) * step
+          const cav = caveAt(fw, cspec, run._obstacleSeed)
+          for (const sign of [-1, 1]) {
+            const edge = cav.c + sign * cav.hw
+            // Inward stops at the centre; outward stops where the screen does.
+            const depth = sign > 0 ? Math.min(reachPx, Math.max(0, R0 - edge)) : reachPx
+            if (depth > 0) pack(fw, edge, sign, depth, sunk)
+            if (cav.ph > 0) pack(fw, cav.c + sign * cav.ph, -sign, cav.ph, 0, V.islandSize)
+          }
+        }
+      }
+    } else if (cspec) {
       const drawF = run.player[ax.fwd]
       const step = V.colonyEveryLo + (V.colonyEveryHi - V.colonyEveryLo) * 0.5
       // Only what the screen can show, plus a colony's reach so nothing pops in at the edge.
@@ -12617,6 +12713,15 @@ const spurG = new Graphics()
             v: Math.floor(h3 * T.coral.length) % T.coral.length,
             rot: -into * Math.PI / 2 + (h1 - 0.5) * 1.2,
             scale: Math.max(0.3, reach / V.bakeReach),
+            // HALF OF THEM ARE MIRRORED (owner, 2026-08-25: "randomize mirror reflections"). There
+            // are only T.coral.length baked colonies and a lap is now ~11k px of wall, so the same
+            // drawing recurs every few hundred px in the same handedness. A flip doubles the
+            // apparent variety for one field, and coral is the one subject it is free on: ringXY's
+            // own block notes a mirrored colony is invisible AS a mirror precisely because the bake
+            // is a jittered branching blob with no front. Chosen off the same world-cell hash as
+            // everything else here, so it is stable across rebuilds — see the block above on why a
+            // per-rebuild roll re-randomises the whole reef while the player watches.
+            flip: hash(fw * 2.3 + d, j * 8.9 + 13.7) < 0.5 ? -1 : 1,
             tone: V.tones[Math.floor(h2 * V.tones.length) % V.tones.length],
           })
           d += Math.max(10, reach * 0.8)
@@ -12663,13 +12768,296 @@ const spurG = new Graphics()
       const b = T.coral[st.v]
       s.texture = b.tex
       s.anchor.set(b.ax, b.ay)
-      if (xAxis) s.position.set(st.f, st.c)
-      else s.position.set(st.c, st.f)
-      s.rotation = st.rot
-      s.scale.set(st.scale)
+      if (cspec?.ring) {
+        // ONE PLACEMENT FOR THE WHOLE WALL. The bake is unchanged — the lane->ring map is a pure
+        // ROTATION by construction (ringXY's block on why u is inward), so a colony keeps the
+        // orientation it was baked with and merely turns with the track.
+        const w = ringXY(cspec, st.f, st.c)
+        s.position.set(w.x, w.y)
+        s.rotation = st.rot + ringRot(cspec, st.f)
+      } else {
+        if (xAxis) s.position.set(st.f, st.c)
+        else s.position.set(st.c, st.f)
+        s.rotation = st.rot
+      }
+      // A NEGATIVE X SCALE IS THE MIRROR, and it composes with the rotation rather than fighting it:
+      // Pixi applies scale before rotation, so a flipped colony still faces back out into the water
+      // it grew from. `?? 1` because the non-ring branch above shares this pool.
+      s.scale.set((st.flip ?? 1) * st.scale, st.scale)
       s.tint = st.tone
     })
   }
+  // ---- The Reef: the circuit's gates (v7.x) -----------------------------------------------------
+  // The six checkpoints and the start line, drawn from the SAME swimthroughsFor list and the SAME
+  // caveAt that stepCircuit tops the clock up from — one definition, two consumers, so the gate you
+  // can see is the gate that pays. Cleared and redrawn every sync (the polypG idiom): which gates
+  // are behind you changes every few seconds, and there are at most a dozen on screen.
+  //
+  // Owner, playing v7.231: "the checkpoints are invisible, the lap line same." Neither had ever
+  // been drawn — both are pure geometry with no entity behind them, so nothing in this file knew
+  // they existed. See CIRCUIT_GATE_VIS.
+  function syncGates(run) {
+    gateG.clear()
+    gateFloorG.clear()
+    gateFrontG.clear()
+    const cfg = CHAPTERS[run.chapter]
+    const cspec = caveSpecOf(run)
+    if (!cfg?.circuit || !cspec || !run._swims || run._swims.length === 0) return
+    const V = CIRCUIT_GATE_VIS
+    const L = cspec.lapLen
+    const per = run._swims.length
+    const seed = run._obstacleSeed
+    const t = run.time ?? 0
+    // A RING HAS NO FORWARD WINDOW, ONLY A DISTANCE. The camera is centred and a gate can be at
+    // any bearing, so the cull is the screen's half-DIAGONAL plus a gate's own reach rather than
+    // laneDrawSpan's ahead/astern split.
+    const cullR = Math.hypot(viewW(), viewH()) / 2 + V.cullPad
+    // EVERY SHAPE IS BUILT FROM RING POINTS, so a marker follows the corner it stands on instead of
+    // shearing off it. (f, u) in, world out.
+    const P = (f, u) => ringXY(cspec, f, u)
+    const dFor = (px, u) => (px * L) / (2 * Math.PI * Math.max(1, cspec.ring.r0 - u))
+    const hsh = (x, y) => Math.abs(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1
+    const fuLine = (G, f0, u0, pts, color, alpha, w) => {
+      for (let n = 0; n < pts.length; n++) {
+        const q = P(f0 + dFor(pts[n][0], u0 + pts[n][1]), u0 + pts[n][1])
+        if (n) G.lineTo(q.x, q.y)
+        else G.moveTo(q.x, q.y)
+      }
+      G.stroke({ width: w, color, alpha, cap: 'round', join: 'round' })
+    }
+    // THE PLUG, AND IT IS DELIBERATELY TINY. Every f-cell of the wall converges on the ring's
+    // centre, so the colony walk has to stop somewhere rather than stack sprites into one point;
+    // this covers the last few px it cannot reach.
+    //   ⚠ SIZE IT BY WHAT THE COLONIES LEAVE, NOT BY WHAT LOOKS SAFE. At 130 (and again at 70) it
+    // read as a flat disc of one colour sitting ON TOP of the coral — the centre comes within
+    // ~610px of the track at the hairpin, which is inside a desktop's half-diagonal, so it is a
+    // thing the player actually sees. Letting the walk run in to r 10 buries all but a 26px dot.
+    gateG.circle(-cspec.ring.r0, 0, 26)
+    gateG.fill({ color: SPUR_VIS.body ?? 0x3b2b45, alpha: 1 })
+
+    const pw = run.player.x, ph2 = run.player.y
+    const near = (w) => (w.x - pw) * (w.x - pw) + (w.y - ph2) * (w.y - ph2) < cullR * cullR
+
+    // ONLY THE NEXT GATE IS LIT, and that is the largest single UX win available here. Every other
+    // gate on the lap goes quiet, so "where do I go" needs no arrow and no minimap.
+    const swimNow = run._swimN ?? 0
+    if (swimNow < gateLastN) gateLastN = -1
+    if (gateLastN >= 0 && swimNow > gateLastN) { gateCrossAt = t; gateCrossK = (swimNow - 1) % per }
+    gateLastN = swimNow
+    const nextK = swimNow % per
+    // 0 far .. 1 on top of it. The ramp is what turns a marker into an approach.
+    const nearness = (w) => Math.max(0, Math.min(1, 1 - Math.hypot(w.x - pw, w.y - ph2) / V.nearR))
+    const crossAge = (k) => (k === gateCrossK ? Math.max(0, 1 - (t - gateCrossAt) / V.crossT) : 0)
+
+    // THE REWARD. {type:'swimthrough'} is pushed by stepCircuit and has had an SFX_FOR_EVENT entry
+    // ('gem') since it was written, with NO consumer in this file at all — so the most important
+    // moment in this chapter was audio-only, and run EV was satisfied by the sound alone. This is
+    // the pixel half of it.
+    //   Derived from run._swimN rather than plumbed through sync's event list: render must not
+    // mutate run, a counter cannot desync from itself, and a dropped frame cannot lose the pulse.
+    const burst = (w, k) => {
+      const c = crossAge(k)
+      if (c <= 0) return
+      const e = 1 - c
+      gateFrontG.circle(w.x, w.y, 26 + e * 190)
+      gateFrontG.stroke({ width: 20 * c + 2, color: V.glow, alpha: 0.55 * c * c })
+      gateFrontG.circle(w.x, w.y, 12 + e * 92)
+      gateFrontG.stroke({ width: 10 * c + 1, color: 0xffffff, alpha: 0.5 * c })
+    }
+
+    // WHERE THE POST ON THIS BANK BELONGS, AND IT IS NOT AT f0 — config.js's gateAnchorF, whose
+    // block carries the measurement and the reason it is not defined here. Both posts used to be
+    // drawn at the same f, i.e. on one radius of the ring, which is only the way across the track
+    // where the centreline runs square to the radii; measured, the pair sat up to 59 degrees off
+    // perpendicular. Every rod still takes its own base from the wall at its own f FROM the anchor —
+    // that is run CT.h's fix, which solves the different problem of a stand shearing off the wall
+    // along its length.
+    // A stand on each bank, and the pair frame the squeeze. fin marks the start/finish line, which
+    // is always lit because it is always the thing you are ultimately driving at.
+    const stand = (f0, cav, fin, k) => {
+      const w0 = P(f0, cav.c)
+      const fA = { '-1': gateAnchorF(cspec, f0, cav, -1, seed), 1: gateAnchorF(cspec, f0, cav, 1, seed) }
+      const nr = nearness(w0), lit = fin || k === nextK
+      const c = crossAge(k)
+      const body = fin ? V.bodyFinish : V.body
+      // the reach the rods get here: cut back at the finish so the mat between them stays legible
+      const rm = fin ? V.finReachMul : 1
+      if (lit && !fin) {
+        // ...AND THE BAR BETWEEN THEM IS THE SAME CHORD. It used to run from -hw to +hw in u at f0,
+        // i.e. along the radius the posts no longer stand on — so a corrected pair would have been
+        // strung together by a light that missed both of them. Drawn between the two anchors, pulled
+        // 20px in at each end so it reads as light in the gap rather than as a bar across it.
+        const pu = 0.6 + 0.4 * Math.sin(t * 2.6)
+        const eA = P(fA['-1'], caveAt(fA['-1'], cspec, seed).c - caveAt(fA['-1'], cspec, seed).hw + 20)
+        const eB = P(fA[1], caveAt(fA[1], cspec, seed).c + caveAt(fA[1], cspec, seed).hw - 20)
+        for (const [w, al] of V.haze) {
+          gateFrontG.moveTo(eA.x, eA.y)
+          gateFrontG.lineTo(eB.x, eB.y)
+          gateFrontG.stroke({
+            width: w + c * 28,
+            color: V.glow,
+            alpha: (al + al * 1.7 * nr) * pu + c * al * 5,
+            cap: 'round',
+          })
+        }
+      }
+      for (const sign of [-1, 1]) {
+        // THE WALL AT f, ON THIS BANK: where its face is in u, how wide the passage is there, and
+        // WHICH WAY IT RUNS. The last one is the whole of this fix. `c` wanders ~1.9px per px of
+        // lane, so the face is a steep diagonal in (f, u) — a rod grown along -u leaves the coral
+        // at whatever angle the diagonal happens to make, and a whole stand pinned to f0's face has
+        // its outer rods hundreds of px off the wall in both directions.
+        const dE = dFor(V.slopeE, cav.c)
+        const wall = (f) => {
+          const m = caveAt(f, cspec, seed)
+          const a = caveAt(f - dE, cspec, seed), b = caveAt(f + dE, cspec, seed)
+          return {
+            u: m.c + sign * (m.hw - 2),
+            hw: m.hw,
+            // du per px ALONG the lane — the gradient the rod has to lean into to come out square.
+            s: ((b.c + sign * b.hw) - (a.c + sign * a.hw)) / (2 * V.slopeE),
+          }
+        }
+        const fB = fA[sign]
+        const w1 = wall(fB)
+        // Along-wall px -> along-lane px. The foot span is measured along the FACE now, so a stand
+        // on a steep stretch covers the same length of coral as one on a straight.
+        const kf = 1 / Math.hypot(1, w1.s)
+        for (let n = 0; n < V.rods; n++) {
+          const h = hsh(n, sign + 2), h2 = hsh(n, sign + 9)
+          const g = n / (V.rods - 1) - 0.5
+          const fr = g * V.footSpan + (h2 - 0.5) * V.footJitter
+          const fn = fB + dFor(fr * kf, w1.u)
+          const wn = wall(fn)
+          // cos/sin of the face's own angle: rotating the rod's (along-face, out-of-face) offsets
+          // by it turns "out of the face" into the face's normal instead of into bare -u.
+          const kn = 1 / Math.hypot(1, wn.s)
+          const cs = kn, sn = wn.s * kn
+          const splay = g * V.splay + (h - 0.5) * V.splayJitter
+          const sway = Math.sin(t * 1.1 + n * 1.3 + sign) * V.swayPx
+          // the wake shove: hardest on the rods nearest the middle, where the player went through
+          const push = c * c * V.shove * (0.35 + 0.65 * (n / V.rods))
+          const reach = (V.reachLo + h * V.reachSpan) * wn.hw * rm
+          const pts = []
+          for (let m = 0; m <= 6; m++) {
+            const g2 = m / 6
+            const al = (splay + sway + push) * g2 * g2   // along the face
+            const ac = -sign * reach * g2                // out of it
+            pts.push([al * cs - ac * sn, al * sn + ac * cs])
+          }
+          fuLine(gateG, fn, wn.u, pts, V.outline, 1, V.rodOutlineW)
+          fuLine(gateG, fn, wn.u, pts, body, 1, V.rodBodyW)
+          // polyps along the rod — what makes it coral rather than a reed
+          for (let m = 1; m <= 5; m++) {
+            const pt = pts[m]
+            const uu = wn.u + pt[1]
+            const q2 = P(fn + dFor(pt[0] + (m % 2 ? 4 : -4), uu), uu)
+            gateG.circle(q2.x, q2.y, V.polypR)
+            gateG.fill({ color: V.polyp, alpha: 0.85 })
+          }
+          const tip = pts[6]
+          const uu = wn.u + tip[1]
+          const q = P(fn + dFor(tip[0], uu), uu)
+          if (lit) {
+            const pu = 0.6 + 0.4 * Math.sin(t * 3 + n * 0.5)
+            gateFrontG.circle(q.x, q.y, 30 + c * 24)
+            gateFrontG.fill({ color: V.glow, alpha: (0.1 + 0.16 * nr) * pu + c * 0.3 })
+            gateFrontG.circle(q.x, q.y, 16 + c * 12)
+            gateFrontG.fill({ color: V.glow, alpha: (0.16 + 0.22 * nr) * pu + c * 0.36 })
+            gateG.circle(q.x, q.y, V.bulbR)
+            gateG.fill({ color: V.bulb, alpha: 0.8 + 0.2 * pu })
+          } else {
+            gateG.circle(q.x, q.y, V.bulbDarkR)
+            gateG.fill({ color: V.bulbDark, alpha: 1 })
+          }
+        }
+      }
+      burst(w0, k)
+    }
+
+    // The chequered mat and the direction chevrons, laid on the sand at the start line (f = 0).
+    const mat = (cav) => {
+      // SQUARE TO THE TRACK, NOT TO THE RADIUS (owner, 2026-08-26: "lap line is weird, not
+      // aligned"). The mat was laid in (f, u) at f = 0 -- a strip along one RADIUS of the ring,
+      // which is the way across the passage only where the centreline happens to run square to
+      // it. That is exactly the defect gateAnchorF was written to fix for the two posts, left in
+      // place for the thing BETWEEN them: measured over four seeds a same-f pair sits a median 29
+      // degrees off perpendicular, so the chequered flag crossed the track diagonally, ran into
+      // the coral at one end and stopped short of it at the other.
+      //   Built between the SAME two anchors the finish stand is pinned to, so the mat, the posts
+      // and the crossing stepCircuit scores all agree about where the line is. Both anchors lie
+      // on the track's own normal through the centreline point by construction, so A -> B IS the
+      // across axis and its perpendicular IS the way the race runs -- no second frame to keep in
+      // sync, and the tiles come out square instead of sheared.
+      const fA = gateAnchorF(cspec, 0, cav, -1, seed), fB = gateAnchorF(cspec, 0, cav, 1, seed)
+      const mA = caveAt(fA, cspec, seed), mB = caveAt(fB, cspec, seed)
+      const A = P(fA, mA.c - mA.hw), B = P(fB, mB.c + mB.hw)
+      const span = Math.hypot(B.x - A.x, B.y - A.y) || 1
+      const ax = (B.x - A.x) / span, ay = (B.y - A.y) / span     // across the track, A -> B
+      const hd = ringHeading(cspec, 0, seed)
+      // A -> B's perpendicular, turned to agree with the direction f grows
+      const sgn = -ay * Math.cos(hd) + ax * Math.sin(hd) >= 0 ? 1 : -1
+      const fx = -ay * sgn, fy = ax * sgn                        // along the track, forwards
+      const stepU = span / V.checks
+      const half = (V.matRows * stepU) / 2
+      const at = (sc, dp) => ({ x: A.x + ax * sc + fx * dp, y: A.y + ay * sc + fy * dp })
+      // one stroke for the bed, across the whole passage: a per-column loop left a tab sticking out
+      // at each end, which read as torn shadow rather than as the edge of a laid mat.
+      const A0 = at(-8, 0), B0 = at(span + 8, 0)
+      gateFloorG.moveTo(A0.x, A0.y)
+      gateFloorG.lineTo(B0.x, B0.y)
+      gateFloorG.stroke({ width: (half + 8) * 2, color: V.matBed, alpha: 0.42, cap: 'butt' })
+      for (let r = 0; r < V.matRows; r++) {
+        for (let n = 0; n < V.checks; n++) {
+          const h = hsh(n, r)
+          if (h > V.matLost) continue
+          const s0 = n * stepU + 1.5, s1 = (n + 1) * stepU - 1.5
+          const dc = stepU * (r - (V.matRows - 1) / 2), dh = stepU / 2 - 1.5
+          const c0 = at(s0, dc - dh), c1 = at(s1, dc - dh), c2 = at(s1, dc + dh), c3 = at(s0, dc + dh)
+          gateFloorG.poly([c0.x, c0.y, c1.x, c1.y, c2.x, c2.y, c3.x, c3.y])
+          gateFloorG.fill({ color: (n + r) % 2 ? V.line : V.lineDark, alpha: 0.7 + h * 0.26 })
+        }
+      }
+      for (let n = 0; n < 7; n++) {
+        const h = hsh(n, 21), h2 = hsh(n, 33)
+        const q = at(span * h, half * (h2 * 2 - 1))
+        gateFloorG.circle(q.x, q.y, 12 + h2 * 16)
+        gateFloorG.fill({ color: V.sand, alpha: 0.16 + h * 0.12 })
+      }
+      // THE WAY OUT OF THE LINE -- CIRCUIT_GATE_VIS.arrows, whose block carries the owner report.
+      // Placed at f offsets on the CENTRELINE and each turned by the heading THERE, not
+      // extrapolated straight off the line: the far chevron is 410px up a passage whose tightest
+      // corner turns inside 126px, so a straight run would walk it into the wall.
+      for (const [px, al] of V.arrows) {
+        const fa = dFor(px, cav.c)
+        const m = caveAt(fa, cspec, seed)
+        const hdA = ringHeading(cspec, fa, seed)
+        const q = P(fa, m.c)
+        const w = m.hw * V.arrowW, dp = w * V.arrowDepth
+        const nx = -Math.sin(hdA), ny = Math.cos(hdA)
+        const gx = Math.cos(hdA), gy = Math.sin(hdA)
+        gateFloorG.moveTo(q.x - nx * w - gx * dp, q.y - ny * w - gy * dp)
+        gateFloorG.lineTo(q.x + gx * dp, q.y + gy * dp)
+        gateFloorG.lineTo(q.x + nx * w - gx * dp, q.y + ny * w - gy * dp)
+        gateFloorG.stroke({ width: V.arrowStroke, color: V.line, alpha: al, cap: 'round', join: 'round' })
+      }
+    }
+
+    // ONE LAP, NOT A WINDOW. On a ring the gates ARE the lap — f wraps, so there is no `n` to walk
+    // and every checkpoint is either on screen or culled by its own distance. The start line is
+    // simply the gate at f = 0.
+    {
+      const cav = caveAt(0, cspec, seed)
+      if (near(P(0, cav.c))) { mat(cav); stand(0, cav, true, -1) }
+    }
+    for (let k = 0; k < per; k++) {
+      const f = run._swims[k].f
+      const cav = caveAt(f, cspec, seed)
+      if (!near(P(f, cav.c))) continue
+      stand(f, cav, false, k)
+    }
+  }
+
   // ---- The Reef: Fire Coral's lit ridges (v7.x) -------------------------------------------------
   // run.polyps, drawn from the SAME snapshot stepPolyps damages against, through the SAME
   // coralSegs the ridge itself is drawn from — so the lit band is the burning band is the ridge.
@@ -12901,8 +13289,15 @@ const spurG = new Graphics()
       // has no `shape` and no `rot` and every one of them has the same radius, so without it this
       // cache is "draw once" and the first tank's bearing would be stamped on every pocket in the
       // chapter -- verbatim the failure `shape` is in this key to prevent.
-      if (sv._r !== sh.r || sv._look !== refillLook || sv._shape !== sh.shape || sv._rot !== sh.rot || sv._phase !== sh.phase || sv._foul !== foulStep) {
+      // ⚠ `taken` IS PART OF THE CACHE KEY, and leaving it out is a silent no-op rather than a
+      // visible bug. This body is a cached Graphics rebuilt only when its key changes, so a vent
+      // that empties mid-frame keeps the drawing it already had: the rim of stuck bubbles that says
+      // "still charged" stays on a vent that has nothing left. Shot and confirmed — with `taken`
+      // out of the key the spent frame and the charged frame are the same picture, `sh.taken` reads
+      // true, and the gate below runs on a Graphics nobody redraws.
+      if (sv._r !== sh.r || sv._look !== refillLook || sv._shape !== sh.shape || sv._rot !== sh.rot || sv._phase !== sh.phase || sv._foul !== foulStep || sv._taken !== !!sh.taken) {
         sv._foul = foulStep
+        sv._taken = !!sh.taken
         sv._phase = sh.phase
         sv._r = sh.r
         sv._look = refillLook
@@ -12929,12 +13324,21 @@ const spurG = new Graphics()
           sv.body.ellipse(0, 0, sh.r * P2.ventW * 0.5, sh.r * P2.ventH * 0.5)
             .fill({ color: P2.vent, alpha: P2.ventA })
           // A rim of small stuck bubbles around the mouth, so it reads as gassy even in a still.
+          //
+          // ⚠ AND THE RIM IS WHAT SAYS THE VENT IS STILL CHARGED. Since the grant became a one-shot
+          // (stepCharge, CHAPTERS.reef.signature.pockets.grant) the STREAM is no use as that tell:
+          // it only runs while `feeding`, and `feeding` is now true for a single frame. Without a
+          // difference here the vent you already emptied and the vent you are steering for are the
+          // same picture, and the field turns into a guess. A charged vent wears a rim of stuck
+          // bubbles; a spent one is a bare dark slot in the coral.
           const ta = sh.phase ?? 0
-          for (let b = 0; b < 7; b++) {
-            const a = ta + (b / 7) * Math.PI * 2
-            const rr = sh.r * (P2.rMin + (P2.rMax - P2.rMin) * ((b * 0.37) % 1))
-            sv.body.circle(Math.cos(a) * sh.r * 0.34, Math.sin(a) * sh.r * 0.16, rr)
-              .fill({ color: P2.bubble, alpha: 0.5 })
+          if (!sh.taken) {
+            for (let b = 0; b < 7; b++) {
+              const a = ta + (b / 7) * Math.PI * 2
+              const rr = sh.r * (P2.rMin + (P2.rMax - P2.rMin) * ((b * 0.37) % 1))
+              sv.body.circle(Math.cos(a) * sh.r * 0.34, Math.sin(a) * sh.r * 0.16, rr)
+                .fill({ color: P2.bubble, alpha: 0.5 })
+            }
           }
         } else if (upwelling && fouling) {
           // FOUL SPRING (Silt Veil's mod). The clean water being taken by the player's own silt.
@@ -13783,14 +14187,12 @@ const spurG = new Graphics()
     if (refillLook !== 'pocket') return
     const P2 = AIR_POCKET_VIS
     const ax = chapterLaneAxis
-    // ONLY THE VENTS THAT ARE ON SCREEN. run.shafts streams a 1400px disc and the phone shows a
-    // fraction of it, so emitting from the whole list spends almost every bubble outside the view:
-    // 24 vents streamed, a handful visible, and the stream read as a trickle. The rate is per
-    // VISIBLE vent now, which is what makes the density on screen independent of how far the
-    // streamer happens to reach.
-    const p = run.player
-    const mx = viewW() / 2 + 80, my = viewH() / 2 + 80
-    const near = run.shafts.filter((sh) => Math.abs(sh.x - p.x) < mx && Math.abs(sh.y - p.y) < my)
+    // ONLY THE VENT THAT IS ACTUALLY BREATHING INTO YOU. `feeding` is stepCharge's own flag —
+    // written on the circle it added air from, and false the moment the bar hits its ceiling — so
+    // the column you can see is the air the sim is giving you (owner, 2026-08-25: "refill bubbles
+    // don't disappear when they stop refilling"). At most one circle can be feeding, which is why
+    // the whole-field screen cull this used to need has gone with it.
+    const near = run.shafts.filter((sh) => sh.feeding)
     if (!near.length) return
     ventAcc += dt * P2.rate * near.length
     let n = Math.floor(ventAcc)
@@ -18072,6 +18474,7 @@ const spurG = new Graphics()
   // see handleEvents. Stays 0 forever for any chapter without `crush` (state.js: rampageT never
   // moves off 0 there), so this is inert everywhere but skies.
   let prevRampageT = 0
+  let scrapeT = 0      // The Reef: cadence for the coral-scrape grit, reset the frame contact ends
   let frameDt = 0      // this frame's dt, for pool callbacks that need real elapsed time
   let playerX = 0      // player position, for pool callbacks whose entities are player-anchored (beams)
   let playerY = 0
@@ -18079,6 +18482,10 @@ const spurG = new Graphics()
   const shotTimers = []   // per-slot accumulator: index-aligned with the enemyShots pool, smoke cadence
   const holeParticleTimers = [] // per-slot accumulator: index-aligned with holePool, suction particle cadence
   const shake = { t: 0, dur: 1, amp: 0, ox: 0, oy: 0 }
+  // The circuit camera's forward offset, in world px, eased toward its target every sync. Renderer
+  // state and not a `run` field, exactly like `shake`: this is a property of the VIEW, sim.js has
+  // no business knowing it, and render.js may not write to run. See CIRCUIT_CAM_LEAD in config.js.
+  const camLead = { x: 0, y: 0 }
   // The player's SCREEN position, republished every sync. input.js turns a desktop cursor into a
   // move vector and needs the point to steer FROM; the camera block below is the only place that
   // point is resolved, and the lane chapters anchor the player off-centre, so a "the player is at
@@ -18529,6 +18936,33 @@ const spurG = new Graphics()
     if (run.rampageT > 0 && prevRampageT <= 0) addShake(5, 0.3) // the widened crush radius just landed
     prevRampageT = run.rampageT
 
+    // v7.x THE REEF — SCRAPING CORAL. run._caveHit is sim's contract field for "the player is in the
+    // wall right now" (stepCaveWall publishes it every frame) and NOTHING READ IT: a graze under
+    // crashSpeed quietly billed CAVE_HIT_DPS and put nothing at all on screen, which is the same
+    // shape as the dead freeze this file's doc block warns about — a cost with no tell is
+    // indistinguishable from a bug, and the owner's report was that coral does nothing.
+    //   A TRICKLE AND NOT A BURST, deliberately: this is CONTACT, which lasts, and the impact
+    // already has its own event below. Grit off the player in the chapter's own coral tones, at a
+    // fixed cadence so a long scrape does not turn into a firework.
+    //   PALE, NOT CORAL-COLOURED, and that is the difference between a tell and nothing. The first
+    // cut drew the grit in SPUR_VIS.tones — the honest choice, since what comes off the wall IS the
+    // wall — and shot against a field built from those same six hues it was invisible at phone
+    // scale. Water-white is the one value the chapter's coral never reaches, and it reads as
+    // abrasion rather than as another polyp; one chip in three keeps a coral tone so the stream
+    // still says what it is scraping.
+    if (run._caveHit) {
+      scrapeT += frameDt
+      while (scrapeT >= 0.035) {
+        scrapeT -= 0.035
+        const a = Math.random() * Math.PI * 2
+        const sp = 60 + Math.random() * 90
+        spawnParticle(T.fx.circle_05, run.player.x, run.player.y, Math.cos(a) * sp, Math.sin(a) * sp,
+          0.26 + Math.random() * 0.16, 0.055,
+          scrapeT > 0.02 ? SPUR_VIS.tones[(Math.random() * SPUR_VIS.tones.length) | 0] : 0xdff0ff,
+          0.2, 2.4)
+      }
+    } else scrapeT = 0
+
     for (const e of events) {
       switch (e.type) {
         case 'hit':
@@ -18733,6 +19167,114 @@ const spurG = new Graphics()
         case 'rockhit':
           spawnRing(e.x, e.y, 70, 0.26, T.novaWarm, 0xc9bda4)
           break
+        // v7.x THE REEF — DRIVING INTO CORAL (sim.js stepCaveWall, {type:'crash',x,y,speed}). The
+        // crash has cost the player 65% of their speed and thrown them back out of the wall since
+        // the day it shipped, and it was AUDIBLE ONLY: SFX_FOR_EVENT gave it `crush` and render.js
+        // had no case at all, so on screen the two most expensive frames in a race looked exactly
+        // like a dropped frame. Owner, playing v7.237.0: "a clearer feel when you bump into coral".
+        //   THE SHAKE IS SCALED BY THE HIT, because the crash test is a threshold and a threshold
+        // with one fixed reaction says every stuff is the same stuff. `speed` is the inward px/s
+        // the wall took off you — the same number crashSpeed is compared against.
+        //   THE CHIPS ARE THE CHAPTER'S OWN CORAL (SPUR_VIS.tones), thrown out and dragged hard, so
+        // what flies off the wall is the wall. A generic white spark here would read as a weapon.
+        //   TWO RINGS AND THE OUTER ONE IS WHITE, for the reason the scrape's grit is pale: the
+        // burst is standing ON a wall drawn from the same six coral tones the chips are, and a
+        // shot of the first cut had it reading as more coral rather than as an impact. White is
+        // the value the chapter's palette never reaches. (Green would be higher contrast still and
+        // is spoken for — CIRCUIT_GATE_VIS lights the checkpoints in it, and "you hit something"
+        // must never wear the colour of "go here".)
+        //   AND THE CHIPS HAVE TO TRAVEL. At drag 3.4 they were spent inside their own spawn
+        // radius, so what shot was a soft cluster sitting on the player — the shape of a stain, not
+        // of an impact. Smaller, faster, and dragged a third as hard: they leave.
+        case 'crash': {
+          const sev = Math.min(1, (e.speed ?? 200) / 420)
+          addShake(5 + sev * 7, 0.22 + sev * 0.14)
+          spawnRing(e.x, e.y, 74 + sev * 46, 0.30, T.novaWarm, 0xffffff)
+          spawnRing(e.x, e.y, 40 + sev * 24, 0.20, T.novaWarm, 0xfff0d8)
+          for (let i = 0; i < 12 + ((sev * 8) | 0); i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 180 + Math.random() * (220 + sev * 260)
+            spawnParticle(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.28 + Math.random() * 0.22, 0.05 + Math.random() * 0.045,
+              i % 3 === 0 ? 0xffffff : SPUR_VIS.tones[(Math.random() * SPUR_VIS.tones.length) | 0],
+              0.15, 1.6)
+          }
+          break
+        }
+        // v7.x THE REEF — A CUT THAT SKIPPED A GATE (sim.js stepCircuit, {type:'cutback',x,y,n}).
+        // The player has just been put back where they left the track, which is the most visible
+        // thing that happens in this chapter and the least self-explanatory: a teleport with no
+        // tell is the exact shape of a bug report. So the frame has to say REFUSED rather than
+        // "something hit you".
+        //   NOT THE CRASH'S VOCABULARY. A crash throws coral chips OUTWARD from an impact and draws
+        // two concentric rings; this is the opposite event — nothing struck the player, a gain was
+        // taken away — so the particles fall INWARD and there is one ring, not a pair. Reusing the
+        // crash's shape here would say "you hit something", which is the one thing that did not
+        // happen.
+        //   ⚠ THE CONVERGENCE IS THE WHOLE TELL, AND THE RING CANNOT HELP IT. spawnRing only ever
+        // GROWS (updateRings drives radius off t/dur), so there is no collapsing ring to be had in
+        // this renderer and the first cut of this case described one it was not drawing. The ring
+        // is therefore only the "here" marker; the particles carry the "taken back".
+        //   ⚠ AND THEY HAVE TO ARRIVE. The first cut spawned them 170-300px out at 240-440px/s
+        // against a 0.30-0.46s life, so every one of them EXPIRED IN FLIGHT — shot at 390x844 the
+        // frame held a few specks drifting in open water and no convergence at all. The speed is
+        // now derived from the distance so they all land together at CUT_IN, which reads as one
+        // pulse closing rather than as sixteen unrelated motes.
+        //   AND NOT GREEN. CIRCUIT_GATE_VIS owns green for "go here" and the crash case already
+        // reasons that an impact must never wear it; a refusal has even less claim to it. White
+        // over the chapter's own coral tones is the value this palette never reaches.
+        //   The shake is FIXED, unlike the crash's: a cut-back has no severity axis — you either
+        // skipped a gate or you did not — and a scaled reaction would imply a gradient the rule
+        // does not have.
+        case 'cutback': {
+          const CUT_IN = 0.24                 // s for the converging ring of motes to reach him
+          addShake(9, 0.32)
+          spawnRing(e.x, e.y, 190, 0.38, T.novaWarm, 0xffffff)
+          for (let i = 0; i < 18; i++) {
+            const a = Math.random() * Math.PI * 2
+            const d = 120 + Math.random() * 90
+            spawnParticle(T.fx.circle_05, e.x + Math.cos(a) * d, e.y + Math.sin(a) * d,
+              (-Math.cos(a) * d) / CUT_IN, (-Math.sin(a) * d) / CUT_IN,
+              CUT_IN + 0.04 + Math.random() * 0.06, 0.055 + Math.random() * 0.04,
+              i % 3 === 0 ? 0xffffff : SPUR_VIS.tones[(Math.random() * SPUR_VIS.tones.length) | 0],
+              0.18, 1.4)
+          }
+          break
+        }
+        // TAKING A VENT ({type:'airgulp',x,y,amount} at the VENT, not the player). The whole tell for
+        // a mechanic that is otherwise one number moving on a bar: since 2026-08-26 a vent hands
+        // over its air the instant you touch it rather than pouring it in, so `feeding` is true for
+        // a single frame and the rising column the player used to read is simply gone.
+        //   THE AIR GOES UP, on the cross axis, because that is the direction every other bubble in
+        // this chapter travels (updateAirVents) — a burst that sprayed radially would read as an
+        // impact, which is the one thing this is not. Fast and short: it is a pickup, not an event,
+        // and 25 of them a race must not each stop the screen.
+        case 'airgulp': {
+          const P2 = AIR_POCKET_VIS
+          const ax = chapterLaneAxis
+          spawnRing(e.x, e.y, 54, 0.22, T.novaWarm, P2.bubble)
+          for (let i = 0; i < 14; i++) {
+            const rise = P2.rise * (1.4 + Math.random() * 1.2)
+            const jit = (Math.random() - 0.5) * 2 * P2.drift * 2.2
+            const ux = ax.cross === 'x' ? -rise : jit
+            const uy = ax.cross === 'x' ? jit : -rise
+            spawnSmoke(T.bubble.tex,
+              e.x + (Math.random() - 0.5) * 70, e.y + (Math.random() - 0.5) * 30,
+              ux, uy, 0.5 + Math.random() * 0.4,
+              (18 + Math.random() * 26) / 32, P2.bubble, P2.alpha, 0.95, 0, 0, 0.35)
+          }
+          break
+        }
+        // ...and BUMPING A FISH ({type:'bump',x,y} at the body, not the player). Same omission, and
+        // the same fix one weight down: a bump costs speed and never HP, so its tell must not read
+        // as damage. A soft ring on the BODY says which fish you hit and which way you got thrown,
+        // which is the information a driver needs; no chips, because nothing broke.
+        //   Fires at most once per body per circuit.bumpCool, which is what keeps a fish scraping
+        // along the player from strobing.
+        case 'bump':
+          addShake(2.5, 0.14)
+          spawnRing(e.x, e.y, 46, 0.24, T.novaWarm, 0xdff0ff)
+          break
         // v7.x The Surf — the Shorebreak going up. This is ONLY the moment of the press: the crest
         // itself lasts for run._shorebreakT and is drawn every frame by drawShorebreak, which is
         // what a duration move needs and what a one-shot ring cannot say. Two rings so the press has
@@ -18776,6 +19318,13 @@ const spurG = new Graphics()
           // failure to move is invisible mid-fight, and +5 on a 150 HP bar is a couple of pixels.
           // Heart-pink to match the sparkle and the revive, so the whole vocabulary is one colour.
           if (e.healed && e.heal > 0) spawnDamage(e.x, e.y, 0, false, false, { text: `+${e.heal}`, tint: 0xff8fb1 })
+          // A COIN WORTH MORE THAN ONE SAYS SO (v7.x, The Reef's ram — BURST_RAM_COINS). Every coin
+          // in the game was value 1 until a rammed body started paying ten, and one coin of ten
+          // draws exactly the same sparkle as one coin of one: the reward would exist only in a HUD
+          // counter that jumps while the player is looking at the fish they just flattened. Same
+          // floating-number path as AVARICE's heal above, in the coin's own gold rather than its
+          // pink, so the vocabulary stays "this number is what that pickup just paid you".
+          else if (e.value > 1) spawnDamage(e.x, e.y, 0, false, false, { text: `+${e.value}`, tint: 0xffd45e })
           break
         case 'shoot':
           if (e.weapon === 'wave') {
@@ -19118,6 +19667,9 @@ const spurG = new Graphics()
     mownDirty = false
     laneG.clear()
     spurG.clear()
+    gateG.clear()
+    gateFloorG.clear()
+    gateFrontG.clear()
     // THE COLONIES ARE A SPRITE POOL NOW, so clearing the Graphics is no longer enough: without
     // this the previous run's coral is still parented and visible on the next one. This is the
     // exact failure run CP exists to catch.
@@ -20599,9 +21151,41 @@ const spurG = new Graphics()
     // the player can never leave the frame; this side only reads it. The `??` is not defensive
     // padding -- the title screen and every probe holding a run before its first step have no
     // front yet, and the player's own position is what the front is initialised to anyway.
-    const camFwd = run._laneFront ?? (chapterHasLane ? run.player[chapterLaneAxis.fwd] : 0)
-    const camX = laneAheadX ? camFwd : run.player.x
-    const camY = laneAheadY ? camFwd : run.player.y
+    //   A CIRCUIT IS THE ONE EXCEPTION, and it is gated on chapterIsCircuit rather than folded into
+    // the line above on purpose: The Beyond is chapterHasLane too, and anchoring IT to the player
+    // would silently turn a chase you are meant to outrun into a camera that holds still with you.
+    // The front still exists and still advances (it has not been gated to d3+ yet) — this only
+    // changes which one the CAMERA follows; sim.js's own use of _laneFront is untouched.
+    const camFwd = chapterIsCircuit
+      ? run.player[chapterLaneAxis.fwd]
+      : run._laneFront ?? (chapterHasLane ? run.player[chapterLaneAxis.fwd] : 0)
+    // v7.x THE CIRCUIT LOOKS AHEAD ALONG ITS HEADING (CIRCUIT_CAM_LEAD). A ring has no fixed
+    // forward axis, so the lane's one-axis bias above cannot express this and the chapter had been
+    // running with a dead-centre camera since it dropped `lane: true`. Eased in the renderer's own
+    // state because run is read-only here, and because the heading arrives in 8 steps on a keyboard.
+    //   `edge` is the distance from the middle of the view to its border ALONG the heading, which is
+    // what makes the knob a ratio: the same 0.42 is 177px on a 390-wide phone driven sideways and
+    // 354px driven along its long axis, i.e. the same share of the warning the screen can give.
+    if (chapterIsCircuit && run._headX != null) {
+      const hx = run._headX, hy = run._headY
+      const halfW = viewW() / 2, halfH = viewH() / 2
+      const edge = Math.min(
+        Math.abs(hx) > 1e-6 ? halfW / Math.abs(hx) : Infinity,
+        Math.abs(hy) > 1e-6 ? halfH / Math.abs(hy) : Infinity,
+      )
+      // The SAME expression stepPlayerMovement builds its own `top` from, passive included: without
+      // it a maxed Turbo Fin (cap 1, i.e. 2x) pins thr at 1 for the whole race and the camera stops
+      // answering the throttle at all — which is the half of this that makes it read as driving.
+      const top = laneScrollFor(CHAPTERS[run.chapter], run.mods)
+        * (CHAPTERS[run.chapter].laneThrottle?.max ?? 1) * (1 + (run.passives?.topSpeed ?? 0))
+      const thr = Math.max(0, Math.min(1, (run._laneSpeed ?? 0) / Math.max(1, top)))
+      const lead = CIRCUIT_CAM_LEAD * edge * thr
+      const k = dt > 0 ? Math.min(1, CIRCUIT_CAM_EASE * dt) : 0
+      camLead.x += (hx * lead - camLead.x) * k
+      camLead.y += (hy * lead - camLead.y) * k
+    }
+    const camX = (laneAheadX ? camFwd : run.player.x) + camLead.x
+    const camY = (laneAheadY ? camFwd : run.player.y) + camLead.y
     const cx = (laneAheadX ? laneFrac(viewW(), chapterLaneAxis.dir) : viewW() / 2) - camX + shake.ox
     const cy = (laneAheadY ? laneFrac(viewH(), chapterLaneAxis.dir) : viewH() / 2) - camY + shake.oy
     world.scale.set(mapZoom)
@@ -20646,6 +21230,7 @@ const spurG = new Graphics()
     syncPools(run.pools || [])
     syncSlicks(run)   // v7.x The Wreck: pollution spills (no-op in every other chapter)
     syncSpurs(run)    // v7.x The Reef: the coral ridges (no-op in every other chapter)
+    syncGates(run)    // ...and the circuit's checkpoints and start line (no-op unless `circuit`)
     syncPolyps(run)   // ...and Fire Coral burning on them (no-op unless the card is held)
     syncTrails(run.trails || [])
     syncWebs(run.webs || [], CHAPTERS[run.chapter]?.render?.webLook === 'slime')
@@ -21176,6 +21761,10 @@ const spurG = new Graphics()
 
   // ------------------------------------------------------------------- reset
   function reset(run) {
+    // The circuit camera's forward offset. Left over from the previous run it would hold the world
+    // a third of a screen off-centre on the new one's first frames, easing back over ~0.3s — which
+    // reads as the start line drifting rather than as a camera.
+    camLead.x = 0; camLead.y = 0
     // Gull strikes in flight when a run ends. These are NOT in the flat-pool list below — that list
     // does `s.visible = false` over plain sprite arrays, and gullDives holds {sp, sh, ...} records
     // (TWO sprites each — the bird and the shadow it left on the sand), so adding it there would set
@@ -21203,6 +21792,9 @@ const spurG = new Graphics()
     // sets `.visible` on sprites, and spurRev has to go with it or the next run draws nothing
     // until its first lane crossing.
     spurG.clear()
+    gateG.clear()
+    gateFloorG.clear()
+    gateFrontG.clear()
     // THE COLONIES ARE A SPRITE POOL NOW, so clearing the Graphics is no longer enough: without
     // this the previous run's coral is still parented and visible on the next one. This is the
     // exact failure run CP exists to catch.
@@ -21281,6 +21873,7 @@ const spurG = new Graphics()
     // the player on the Paused screen. Every other line in this block already guards for that.
     chapterHasLane = cfg?.lane === true
     chapterLaneAxis = laneAxes(cfg)   // null-safe on the quit-to-title path, like the line above
+    chapterIsCircuit = cfg?.circuit != null   // same null-safety; `circuit` is an object, not a bool
     chapterIsVoid = !!chapterRender.voidFloor
     chapterHasDistricts = !!chapterRender.districts
     districtSeed = run?._districtSeed ?? 0
@@ -21433,6 +22026,10 @@ const spurG = new Graphics()
     // borrow a LIVE shared object (poolLayer's disc pool, stripG, bombG) rather than making their own,
     // and leaving a hazard painted into a world Graphics would show it in the next run. `frame` is the
     // optional crop above, and only the soft-edged FX sprites need it.
+    // Which of bakeCoral's 28 colonies the summary's "The Coral" row shows. PICKED BY MEASUREMENT,
+    // NOT BY GENOME — see `scrape` below for the three wrong answers reasoning from the genome gave.
+    const CORAL_THUMB_BAKE = 19
+
     const build = {
       // ---- straight off a texture the game already baked -------------------------------------
       // spriteOf keeps the bake's own anchor, so the thumbnail is framed the way the world frames it.
@@ -21445,6 +22042,60 @@ const spurG = new Graphics()
         const s = new Sprite()
         placeRock(s, { x: 0, y: 0, r: 15, rot: 0.5 })   // via placeRock for its warm-stone tint,
         return [s, null]                                // which is the whole reason it reads as a hazard
+      },
+      // The Reef's ridge. The recap calls this row "The Coral", so the picture is a coral colony and
+      // nothing else — straight off T.coral, which is the SAME texture array syncPool packs the wall
+      // out of, tinted from the SAME SPUR_VIS.tones the field stamps. No new art: the branching
+      // silhouette is the whole read (see SPUR_VIS, where three revisions that dressed a solid shape
+      // were rejected for exactly that reason), and a silhouette is what survives a 20px slot.
+      //
+      // BAKE 19 OF 28, PICKED AND NOT ROLLED. Every colony draws its own genome from a hash of its
+      // index, so the 28 range from a two-stem whip to a five-stem head; a random pick would give the
+      // summary a different drawing every time the script is re-run.
+      //
+      // ⚠ PICKED BY BAKING ALL 28 AND MEASURING THEM, AND THE GENOME REASONING THAT PRECEDED IT WAS
+      // BACKWARDS. Owner, on the first cut: "maybe less coral detail, this is a very small preview".
+      // The obvious inference — fewer trunks, fewer forks, thicker strokes — produced two rejects in
+      // a row: bake 2 (the sparsest in the set) draws a red ZIGZAG, and bake 20 measures aspect 0.41,
+      // a whip that `object-fit: contain` would show at 41% of the slot width. Cropping to raise the
+      // stroke-to-extent ratio scored the best numbers in this whole table (21% mush, contrast 8.97)
+      // and came out as an angular BRACKET, because a tight frame keeps two trunk strokes and no fork.
+      //   What actually survives the slot is COMPACT MASS, which is not the same thing as few
+      // branches: 19 is a five-trunk, five-fork head whose branches overlap into solid ink, and it
+      // measured the LOWEST mush of all 28 (37%) with the highest fill (57%) at aspect 1.20. The
+      // densest genome, 22, measured 54% — so density is not the axis; extent is. Same ink over a
+      // wider box is what dissolves.
+      //   The rig is scripts/bake-cast.mjs pointed at throwaway `coralV0..27` builders, and it is
+      // worth rebuilding rather than re-deriving if this is ever retuned: three separate arguments
+      // from the generator's own parameters each picked a colony that looks wrong on the panel.
+      //
+      // TONE: `tones[1]` 0xd93b2b, the saturated red, chosen against the PANEL and not against the
+      // seabed. ui.js's recap is #fdeef0 parchment, and the palette's own cream (0xead9bd) and pink
+      // (0xe8718f) sit almost on top of that — the same trap the `drown` bubble hit when it borrowed
+      // the death outro's near-white. The bake carries its outline at 0x3a3a3a, so the tint multiply
+      // leaves a dark rim on the parchment whichever tone is picked, but the body needs to be one of
+      // the dark ones to be found at all.
+      //
+      // WHOLE, NOT CROPPED, and the two rejected crops are why. SCALING CANNOT FIX A BUSY ICON —
+      // ui.js fits the thumbnail with `object-fit: contain`, so the drawing is normalised to the
+      // slot whatever size it is authored at, and the only thing that decides legibility is the
+      // ratio of STROKE WIDTH to CONTENT EXTENT. Cropping raises that ratio, so it was tried twice:
+      // a 30px frame scored the best numbers in this whole table (21% mush, contrast 8.97) and came
+      // out as a red ANGULAR BRACKET, because what a tight frame keeps is two trunk strokes and no
+      // fork. A 52px frame was the same drawing with a corner more. Both are proof that the metric
+      // is a floor and not a judgement: a shape can survive the slot perfectly and still not be a
+      // picture of coral, and only looking catches that.
+      //
+      // So the lever is the GENOME instead, which costs nothing in silhouette. Bake 20 is three
+      // trunks at depthLo — three distinct stems, three forks each, no fourth-level twigs at
+      // branchW x widthFall^3 = 1.6px to dissolve into grey. It reads as a colony at full size and
+      // holds its stems at 20px.
+      scrape: () => {
+        const b = T.coral[CORAL_THUMB_BAKE % T.coral.length]
+        const s = new Sprite(b.tex)
+        s.anchor.set(b.ax, b.ay)
+        s.tint = SPUR_VIS.tones[1]
+        return [s, null]
       },
       // The Wreck's orca. Straight off its own bake, untinted and at full alpha — unlike the leak
       // below it is a BODY, not a wash, so there is nothing to compensate for. A private Sprite
@@ -21538,15 +22189,22 @@ const spurG = new Graphics()
         // NOT the death outro's ventTint, which was the first cut. Those bubbles are near-white
         // because they sit on dark water; this panel is #fdeef0 parchment, and measured against it the
         // near-white version scored a contrast ratio of 1.39 mean / 1.84 max — a ghost you could not
-        // find in the row. The pocket is drawn as a deep navy shade UNDER a pale air body, so taking
-        // BOTH gives a bubble that keeps the pale-air identity and still has an edge dark enough to
-        // see. Same trap as the chapter-agnostic FX tuned against dark floors: a colour that reads on
-        // one surface is not verified until it has been measured on the other.
+        // find in the row. The pocket is drawn as a deep navy vent mouth UNDER a pale air body, so
+        // taking BOTH gives a bubble that keeps the pale-air identity and still has an edge dark
+        // enough to see. Same trap as the chapter-agnostic FX tuned against dark floors: a colour
+        // that reads on one surface is not verified until it has been measured on the other.
+        //
+        // `bubble`/`alpha`/`vent` ARE THE FIELDS AIR_POCKET_VIS ACTUALLY HAS. This read `air`,
+        // `airA` and `shade` for four versions — three names that have never existed on that
+        // object — so every circle here was filled `undefined`, Graphics threw, and hazardThumbs'
+        // own catch swallowed it. Nothing went red and nothing was blank either: bake-cast simply
+        // left the last good drown.png on disk and printed one warning line among fifty. Run DA.i
+        // is the guard, and it walks every builder's palette reads rather than this one row.
         const A = AIR_POCKET_VIS
         const g = new Graphics()
         for (const [dx, dy, r] of [[-4, 3, 9], [5, -3, 6], [0, -10, 3.5]]) {
-          g.circle(dx, dy, r).fill({ color: A.air, alpha: A.airA })
-          g.circle(dx, dy, r).stroke({ width: 2.2, color: A.shade, alpha: 0.95 })
+          g.circle(dx, dy, r).fill({ color: A.bubble, alpha: A.alpha })
+          g.circle(dx, dy, r).stroke({ width: 2.2, color: A.vent, alpha: 0.95 })
         }
         return [g, null]
       },
