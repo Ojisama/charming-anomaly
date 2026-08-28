@@ -1104,6 +1104,10 @@ export function initUI(hooks) {
     // (skill-btn-glyph), not a lookalike, so the row names the thing it moves.
     const sideRows = [['left', t('Left')], ['right', t('Right')]].map(([id, label]) => `
       <button class="settings-lang${id === meta.skillSide ? ' settings-lang--on' : ''}" data-act="side-pick" data-side="${id}">${label}</button>`).join('')
+    // Sound on/off, same picker shape again. data-sfx is the string '1'/'0' every dataset read is,
+    // compared as such and turned into a boolean once, at the hook call.
+    const sfxRows = [['1', t('On')], ['0', t('Off')]].map(([id, label]) => `
+      <button class="settings-lang${id === (meta.sfx === false ? '0' : '1') ? ' settings-lang--on' : ''}" data-act="sfx-pick" data-sfx="${id}">${label}</button>`).join('')
     return `
       <div class="modal-backdrop sheet-backdrop" data-act="settings-close" data-pop="settings">
         <div class="bottom-sheet">
@@ -1112,6 +1116,10 @@ export function initUI(hooks) {
           <div class="settings-row">
             <span class="settings-label">🌐 ${t('language')}</span>
             <span class="settings-langs">${langRows}</span>
+          </div>
+          <div class="settings-row">
+            <span class="settings-label">🔊 ${t('sound')}</span>
+            <span class="settings-langs">${sfxRows}</span>
           </div>
           <div class="settings-row">
             <span class="settings-label">☉ ${t('skill button')}</span>
@@ -3840,6 +3848,12 @@ export function initUI(hooks) {
           hooks.onSkillSide?.(side)     // persists; meta is the same object, so the class read below is current
           applySkillSide()
         }
+        renderTitle()
+        break
+      }
+      case 'sfx-pick': {
+        const on = el.dataset.sfx === '1'
+        if (on !== (meta.sfx !== false)) hooks.onSfx?.(on) // persists + flips audio.js; meta is the same object
         renderTitle()
         break
       }

@@ -6,7 +6,7 @@ import { stepSim, applyChoice, rerollLevelUpChoices, rerollPrice, buildReadout, 
 import { createRenderer } from './render.js'
 import { initUI } from './ui.js'
 import { initInput, getInput, pressSkill } from './input.js'
-import { initAudio, playSfx } from './audio.js'
+import { initAudio, playSfx, setSfxOn } from './audio.js'
 import { setLang, t } from './i18n.js'
 import { submitScore, podiumRank, validNick } from './scores.js'
 // Cloud save sync (design docs/superpowers/specs/2026-08-03-cross-device-save-sync-design.md).
@@ -29,6 +29,7 @@ boot()
 async function boot() {
 const meta = loadMeta()
 setLang(meta.lang) // i18n before any screen renders — ui.js translates at render time
+setSfxOn(meta.sfx) // sound switch, before the first click can play anything
 // THE LOADING SCREEN'S REAL MILESTONES (index.html owns the element and its clock). The bar
 // estimates its way through the bundle download, which nothing in here can observe; from this line
 // on every bump is a thing that actually finished. The label is set here rather than in the HTML
@@ -221,6 +222,14 @@ const ui = initUI({
   onSkillSide(side) {
     meta.skillSide = side
     saveMeta(meta)
+    playSfx('click')
+  },
+  // Sound on/off. setSfxOn BEFORE the click, so turning it off doesn't play the sound that
+  // confirms it just went off — and turning it back on does.
+  onSfx(on) {
+    meta.sfx = on
+    saveMeta(meta)
+    setSfxOn(on)
     playSfx('click')
   },
   // v7.x: `bookId` names WHOSE purse this purchase spends — ui.js's shopBookId(), which follows

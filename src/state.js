@@ -344,6 +344,9 @@ export function loadMeta() {
       // Which side of the screen the skill button sits on. 'left' is the right-handed default —
       // see the .skill-btn block in styles.css for why the button goes to the OFF hand.
       m.skillSide = m.skillSide === 'right' ? 'right' : 'left'
+      // Sound on/off (⚙ settings row -> audio.js setSfxOn). `!== false` rather than `??=`, so a
+      // save that predates the switch — every save shipped before it — comes back with sound ON.
+      m.sfx = m.sfx !== false
       // WIP gate (Book 2). Work-in-progress chapters are hidden from players behind this, and the
       // title's coin badge toggles it with seven taps (ui.js). Coerced to a real boolean rather
       // than `??=`: every gate reads `meta.dev === true`, so a hand-edited or imported save
@@ -411,6 +414,7 @@ export function loadMeta() {
     chapters: {},
     lang: 'en', // v6.1 i18n (see the loadMeta migration above)
     skillSide: 'left', // right-handed default (see the loadMeta migration above)
+    sfx: true, // sound on (see the loadMeta migration above)
     // WIP gate, off for every real player (see the loadMeta migration above). It is ALSO the
     // leaderboard's integrity rule: endRun (main.js) submits no score from a run played with this
     // on, because unlocking unfinished chapters and opening the dev card list are the same switch.
