@@ -554,6 +554,19 @@ const CONFIG = {
   'The Leak spreads until every stretch of water that could hold oil does.':
     "La Fuite se répand jusqu'à couvrir toute étendue d'eau qui peut retenir du mazout.",
   'every seam in the hull let go at once': "chaque joint de la coque a lâché d'un coup",
+  // The Trawl's chapter anomaly (2026-09-01). 'Maille Serrée' is the owner's pick.
+  //   NO SPACE BEFORE THE % SIGN, matching this file rather than the typography manual: 48 of the
+  // 51 percentages in here are written '30%', two use a plain space and none uses an NBSP. Formal
+  // French wants a narrow no-break space, and one entry adopting it alone would be a third
+  // convention in a file that already has two. Note also that run XX's NBSP guard only inspects
+  // ` [:;!?]` and never `%`, so nothing here would have caught it either way.
+  //   The desc IS a template on the English side, which is the part that matters: change
+  // TIGHT_WEAVE_TEAR_MUL and the English key changes with it, so run XX goes red rather than the
+  // card silently shipping a French sentence that states the old number.
+  'Tight Weave': 'Maille Serrée',
+  'The net\'s gaps close to 30% of their width, and it takes the crowd 2.2× harder.': 'Les trous du filet se referment à 30% de leur largeur, et il frappe la foule 2,2× plus fort.',
+  'the boat mended its gear overnight': 'le bateau a ramendé ses filets pendant la nuit',
+  'time between passes': 'temps entre les passages',
   'Alignment': 'Alignement',
   'All your elements now have ×2 potency.': 'Tous les éléments ont maintenant une puissance doublée.',
   'two elements found the same beat': 'deux éléments ont trouvé le même tempo',
@@ -776,6 +789,24 @@ const CONFIG = {
   'Your own body, swung where you turn. Worthless standing still — it hits as hard as you swim.': 'Ton propre corps, lancé où tu tournes. Inutile à l\'arrêt : il frappe aussi fort que tu nages.',
   'Longline': 'Ligne à Hameçons',
   'Sets a baited line across their path. Everything that touches it is hooked and bleeds.': 'Pose une ligne appâtée en travers de leur route. Tout ce qui la touche est ferré et saigne.',
+  // The Trawl's epic (2026-09-01). 'On Rentre' is the owner's pick over Halage / À Bord / Ligne
+  // Molle — it is what is shouted on deck rather than a piece of gear, which is why it is the one
+  // card name in the book that is a sentence.
+  //   ⚠ ITS MODS TAKE 'CÂBLE', NOT 'LIGNE', AND THAT IS DELIBERATE: 'Ligne' is already Longline's
+  // own name two lines up, in the same chapter's pool, so a mod called 'Ligne Barbelée' would read
+  // as an upgrade to the wrong weapon. A winch line is a câble; the family is coherent and distinct.
+  'Bring It In': 'On Rentre',
+  'Hooks the furthest one and winches it home through everything in the way. It does not arrive alive.': 'Harponne le plus éloigné et le ramène de force à travers tout ce qui gêne. Il n\'arrive pas vivant.',
+  'Barbed Line': 'Câble Barbelé',
+  'damage to what it drags through': 'dégâts à ce qu\'il traverse',
+  'Long Gaff': 'Longue Gaffe',
+  'how far out it can hook': 'jusqu\'où il peut harponner',
+  'Wide Drag': 'Large Sillon',
+  'how wide a corridor it ploughs': 'la largeur du sillon qu\'il creuse',
+  'Quick Reel': 'Moulinet Rapide',
+  'haul rate': 'cadence de halage',
+  'Double Rig': 'Double Câble',
+  'extra line(s) per haul': 'câble(s) en plus par prise',
   // The Wreck's native (v7.x). Owner's pick, 2026-08-18, from Croc / Morsure / Mâchoire: the
   // weapon takes the same noun as all five of its own mods (Morsure Profonde, Gueule Large…), the
   // way The Deep's 'Coup de Nageoire' shares 'nageoire' with its three.
@@ -1346,6 +1377,11 @@ const CONFIG = {
   'Half again more snap traps. Richer coins.': '50% de pièges à mâchoires en plus. Pièces plus généreuses.',
   'Rush Hour': 'Heure de Pointe',
   'Traffic barely lets up. Richer coins.': 'La circulation ne faiblit presque jamais. Pièces plus généreuses.',
+  // The Trawl's mutator (2026-09-01). Phrased off Rush Hour's line directly above — same family,
+  // same shape ('X ne faiblit presque jamais. Pièces plus généreuses.'), because they are the same
+  // card wearing two chapters. 'Pleine Saison' is the owner's pick over 'Saison Ouverte'.
+  'Full Season': 'Pleine Saison',
+  'The boat barely lets up. Richer coins.': 'Le bateau ne faiblit presque jamais. Pièces plus généreuses.',
   'Carpet Barrage': 'Tir de Barrage',
   'The bombardment barely pauses. Bonus XP.': 'Le bombardement ne s\'arrête presque jamais. XP en bonus.',
   'Supermassive': 'Supermassif',
