@@ -1618,7 +1618,7 @@ const CONFIG = {
   'Dead Water': 'Eau Croupie',
   'A third as many clean-water spots, each worth three times as much.': 'Trois fois moins de zones d\'eau claire, chacune trois fois plus généreuse.',
   'in troubled water': 'en eaux troubles',
-  // The Twilight (Book 2 chapter 5). Owner's pick, 2026-08-18: 'La Pénombre' is the half-light
+  // The Twilight (Book 2 chapter 6). Owner's pick, 2026-08-18: 'La Pénombre' is the half-light
   // itself — the state the whole chapter is about — and the spine takes the same word with the
   // article dropped, where a two-word name would not have fit the 110px slot.
   'The Twilight': 'La Pénombre',
@@ -1636,9 +1636,6 @@ const CONFIG = {
   // 'Soif de sang' is the standard French for bloodlust and keeps the bar's promise in the word:
   // it is a thirst that has to be fed, not a rage stat.
   'Bloodlust': 'Soif de sang',
-  // The Trawl's bar is the churn behind the net — what the crowd is feeding ON, so 'Fretin' (the
-  // small fry, marine) rather than 'Faim' (hunger, the state) or 'Festin' (a feast, over).
-  'Feed': 'Fretin',
   'the tide decides': 'la marée décide',
   'the light only goes down': 'la lumière ne fait que baisser',
   'the current only runs one way': 'le courant décide pour toi',
@@ -1648,7 +1645,7 @@ const CONFIG = {
   // the English says the net is indifferent to you, and this says the humans will catch every one
   // of you. Same chapter, aimed from the other end. If the English is ever brought into line with
   // it, remember the English string IS the key — changing it orphans this entry.
-  // The Deep (Book 2 chapter 5). The TAGLINE is the owner's own line, not a translation of the
+  // The Deep (Book 2 chapter 7). The TAGLINE is the owner's own line, not a translation of the
   // English ('nothing up there can reach you'): it names THEM, and so answers The Trawl's
   // 'ils vous pêcheront tous' directly — the fishermen who caught everything one chapter ago
   // cannot follow you down. Changing the English orphans this entry, because the English source
@@ -1660,7 +1657,7 @@ const CONFIG = {
   'Deep': 'Abysses',
   'The Trawl': 'Le Chalut',
   'the net is not aiming at you': 'ils vous pêcheront tous',
-  // The Wreck (Book 2 chapter 4). 'L'Épave' is the hull itself; 'Le Naufrage' would be the sinking
+  // The Wreck (Book 2 chapter 5). 'L'Épave' is the hull itself; 'Le Naufrage' would be the sinking
   // as an event and 'La Carcasse' the body being eaten — the owner picked the place over both.
   // THE TAGLINE IS THE OWNER'S OWN LINE, written by him rather than picked from the drafts: the
   // English names the punishment ('stop and you starve') and this names the person it happens to.
@@ -1683,6 +1680,10 @@ const CONFIG = {
   'Mackerel': 'Maquereau',
   'Tuna': 'Thon',
   'Sea Lion': 'Otarie',
+  // The two 2026-09-01 additions. Neither is a translation CHOICE — 'rémora' and 'tortue' are simply
+  // the French words, and the accent on the first is not optional.
+  'Sea Turtle': 'Tortue de mer',
+  'Remora': 'Rémora',
   'Moon Jelly': 'Méduse Lune',
   // The Shelf's own two (v7.x), replacing the Sand Hopper and Sea Roach loans above. Roster
   // `name`s are NOT in run XX's coverage walk, so nothing goes red if these are missing — see

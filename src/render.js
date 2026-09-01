@@ -2592,6 +2592,95 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 0.9, r)
   }
 
+  // sea turtle (2026-09-01, The Trawl's `cruise` slot). The one body in this chapter that is not a
+  // fish, and it has to be legible as that from across the screen because it is the creature you are
+  // meant to NOT be watching — you hit it by looking elsewhere, so its silhouette does the whole job.
+  //   The read is the SHELL: a broad ellipse, far wider than anything else here, with a scute grid
+  // on it. Four flippers thrown out at the diagonals give an outline nothing else in the roster has
+  // (every fish is one spindle), and the front pair are the long ones, as a real one's are.
+  //   lean 90 — bilaterally symmetric about the forward axis, like the fish it swims among.
+  function drawSeaTurtle(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x1c2a22)
+    const shell = f(0x4a6b4e)
+    const scute = f(0x6d8f63)
+    const skin = f(0x8fa98a)
+    const lw = Math.max(2, r * 0.1)
+    groundShadow(r * 1.15, r * 1.0)
+    // Flippers FIRST, so the shell's stroke sits over their roots and no seam shows. The forelimbs
+    // are long paddles swept forward-out; the hind pair are short and trail.
+    for (const s of [-1, 1]) {
+      g.poly([r * 0.34, s * r * 0.5, r * 1.12, s * r * 1.0, r * 1.24, s * r * 0.68, r * 0.5, s * r * 0.2])
+        .fill({ color: skin, alpha: 0.95 }).stroke({ width: lw * 0.5, color: line })
+      g.poly([-r * 0.5, s * r * 0.52, -r * 1.02, s * r * 0.82, -r * 1.04, s * r * 0.5, -r * 0.58, s * r * 0.24])
+        .fill({ color: skin, alpha: 0.92 }).stroke({ width: lw * 0.5, color: line })
+    }
+    // The head: blunt, short, and pushed just clear of the shell so the forward axis is unambiguous.
+    g.ellipse(r * 1.02, 0, r * 0.32, r * 0.26).fill({ color: skin }).stroke({ width: lw * 0.55, color: line })
+    // The carapace. Slightly egg-shaped — wider at the shoulders than at the tail — which is what
+    // stops it reading as a plain disc and gives the body a direction even with the head hidden.
+    g.poly(spineOutline((t) => [r * 0.86 - t * r * 1.86, 0], (t) => r * 0.92 * Math.max(0.12, Math.sin(Math.PI * Math.min(1, t * 0.94 + 0.06)) ** 0.62), 40))
+      .fill(shell).stroke({ width: lw * 1.1, color: line })
+    if (!white) {
+      // The scutes: a central row of five plus a ring around it, drawn as strokes rather than fills
+      // so the shell keeps one flat value and the grid reads at 20px without turning into noise.
+      for (let i = 0; i < 5; i++) {
+        const x = r * 0.62 - i * r * 0.34
+        g.ellipse(x, 0, r * 0.16, r * 0.24).stroke({ width: lw * 0.5, color: scute, alpha: 0.9 })
+      }
+      for (const s of [-1, 1]) {
+        for (let i = 0; i < 4; i++) {
+          const t = 0.16 + i * 0.22
+          const x = r * 0.86 - t * r * 1.86
+          const w = r * 0.92 * Math.max(0.12, Math.sin(Math.PI * Math.min(1, t * 0.94 + 0.06)) ** 0.62)
+          g.moveTo(x + r * 0.14, s * w * 0.42).lineTo(x - r * 0.14, s * w * 0.9)
+            .stroke({ width: lw * 0.5, color: scute, alpha: 0.85 })
+        }
+      }
+      for (const s of [-1, 1]) darkEye(g, r * 1.08, s * r * 0.13, r * 0.07, r * 0.065, 0x0d151d, true)
+    }
+    if (elite) eliteCrown(-r * 1.0, r)
+  }
+
+  // remora (2026-09-01, The Trawl's `latch` slot). Small, and the whole read is the SUCKER: a ridged
+  // oval plate on top of the head, which is the one feature that says "this thing is going to stick
+  // to you" before it has done it. Everything else is deliberately plain — a slim grey rod — because
+  // a remora that competed with the mackerel for detail would just be a smaller mackerel.
+  // lean 90, like every other fish here.
+  function drawRemora(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x1b2430)
+    const body = f(0x7c8b96)
+    const belly = f(0xc4ced6)
+    const plate = f(0x38434f)
+    const lw = Math.max(2, r * 0.1)
+    const noseX = r * 0.92
+    const len = r * 1.95
+    const spine = (t) => [noseX - t * len, 0]
+    // Near-cylindrical: a remora barely tapers until the last quarter, which is what makes it read
+    // as a rod rather than as a spindle.
+    const wid = (t) => r * 0.24 * Math.max(0.1, Math.pow(Math.min(1, t / 0.2), 0.6) * Math.pow(Math.max(0, 1 - (t - 0.2) / 0.8), 0.75))
+    groundShadow(r * 0.8, r * 0.26)
+    const [tx] = spine(0.96)
+    g.poly([tx + r * 0.05, 0, tx - r * 0.44, r * 0.32, tx - r * 0.3, 0, tx - r * 0.44, -r * 0.32])
+      .fill({ color: body, alpha: 0.92 }).stroke({ width: lw * 0.45, color: line })
+    g.poly(spineOutline(spine, wid, 30)).fill(belly).stroke({ width: lw, color: line })
+    if (!white) {
+      g.poly(spineOutline(spine, (t) => wid(t) * 0.5, 26, 0.05, 0.94)).fill({ color: body, alpha: 0.95 })
+      // THE SUCKER. A flat oval over the head with cross-ridges — the modified dorsal fin a real
+      // remora carries, and the only thing on this sprite worth looking at.
+      g.ellipse(r * 0.5, 0, r * 0.34, r * 0.17).fill({ color: plate }).stroke({ width: lw * 0.5, color: line })
+      for (let i = -2; i <= 2; i++) {
+        g.moveTo(r * 0.5 + i * r * 0.12, -r * 0.14).lineTo(r * 0.5 + i * r * 0.12, r * 0.14)
+          .stroke({ width: lw * 0.4, color: f(0x9aa7b2), alpha: 0.8 })
+      }
+      for (const s of [-1, 1]) darkEye(g, r * 0.8, s * wid(0.08) * 0.7, r * 0.07, r * 0.065, 0x0d151d, true)
+    }
+    if (elite) eliteCrown(-r * 0.85, r)
+  }
+
   // tuna: the fast slot, and the read is entirely in the outline. Deep through the shoulder, a hard
   // narrow wrist, and a CRESCENT (lunate) caudal — the shape only the ocean's fastest fish have, and
   // the one thing on screen that is unambiguously not the mackerel it is swimming beside.
@@ -4629,6 +4718,8 @@ export function createRenderer(app) {
     mackerel: { archetype: 'normal', draw: drawMackerel, lean: 90 }, // top-down: barred spindle, forked tail -x, eyes in a ±y pair
     tuna: { archetype: 'fast', draw: drawTuna, lean: 90 },           // top-down: crescent tail, sickle pectorals and finlets all ±y mirrored
     sealion: { archetype: 'tank', draw: drawSeaLion, lean: 90 },     // top-down: fore-flippers thrown wide ±y, blunt head +x, hind flippers -x
+    turtle: { archetype: 'normal', draw: drawSeaTurtle, lean: 90 },  // top-down: scuted carapace, four flippers at the diagonals, blunt head +x
+    remora: { archetype: 'fast', draw: drawRemora, lean: 90 },       // top-down: plain rod, the ridged sucker plate over the head is the read
     // v7.x The Surf (Book 2 chapter 1). A new roster, not a repaint — every flag here is new
     // (unshakeable, diveBomb) rather than carried over the way the Shelf's are. A missing key here
     // is SILENT — syncEnemies falls through to a generic archetype blob.
@@ -13117,7 +13208,11 @@ const spurG = new Graphics()
     // the design out loud: this card is the player doing the leak back.
     //   syncBlooms filters `bilge` out at its own top, or the oil would draw twice — an edge with a
     // glow sitting over it, which is the run.lobs three-consumers trap in miniature.
-    const oils = (run.blooms || []).filter((b) => b.look === 'bilge' && b.r > 0)
+    // `netdrag` rides the same pool (2026-09-01, The Trawl's netTrail elite): it is the same lobed
+    // film ENTITY, drawn as torn mesh instead of as oil. It is here rather than in syncBlooms for
+    // the shape — a thing lying on the bottom, not a cloud in the water — and it must NOT inherit
+    // the oil's colours, which is the whole reason netTrail is its own flag. See the branch below.
+    const oils = (run.blooms || []).filter((b) => (b.look === 'bilge' || b.look === 'netdrag') && b.r > 0)
     const all = (run.slicks || []).concat(oils)
     if (!all.length) return
     //   A slickTrail POOL IS NOT DRAWN LIKE A POOL (v7.x). One pool is a wall and gets the rim; a
@@ -13131,6 +13226,27 @@ const spurG = new Graphics()
       const filmA = trail ? BILGE_TRAIL_VIS.filmA : 0.5
       const sheenA = trail ? BILGE_TRAIL_VIS.sheenA : 1
       const pts = lobePoly(sl.r, sl.shape, sl.rot, sl.x, sl.y)
+      // TORN MESH, NOT OIL. Same lobed footprint so the hazard contract still reads, and everything
+      // else inverted: PALE where the oil is dark, twine where the oil has iridescence, and no sheen
+      // at all. The colours are the wall's own (NET_VIS.mesh/meshLine/rope, written out rather than
+      // referenced because that table is scoped to updateNet) so a dragged length reads as the same
+      // substance as the thing sweeping the chapter — which is the entire point of the affix.
+      if (sl.look === 'netdrag') {
+        slickG.poly(pts).fill({ color: 0x2b3b47, alpha: filmA * 0.85 })
+        // Two diagonal twine families, the same diamond the wall's mesh draws, clipped to the lobe's
+        // bounding span. Cheap and crude on purpose: at this size the eye only needs the hatching to
+        // say "net", and a real clip would be a filter pass per link of the trail.
+        const st = sl.r * 0.5
+        for (let k = -2; k <= 2; k++) {
+          const o = k * st
+          slickG.moveTo(sl.x - sl.r + o, sl.y - sl.r).lineTo(sl.x + sl.r + o, sl.y + sl.r)
+            .stroke({ width: 1.6, color: 0xd2dee6, alpha: 0.34 * sheenA, cap: 'round' })
+          slickG.moveTo(sl.x - sl.r + o, sl.y + sl.r).lineTo(sl.x + sl.r + o, sl.y - sl.r)
+            .stroke({ width: 1.6, color: 0xd2dee6, alpha: 0.34 * sheenA, cap: 'round' })
+        }
+        slickG.poly(pts).stroke({ width: trail ? BILGE_TRAIL_VIS.edgeW : 3, color: 0xe4d9a8, alpha: trail ? BILGE_TRAIL_VIS.edgeA : 0.72 })
+        continue
+      }
       // The film itself: dark and dead, because that is what it does to the water.
       slickG.poly(pts).fill({ color: 0x14181a, alpha: filmA })
       // The sheen. Two offset inner lobes in oil's own colours, breathing on animT so the surface
@@ -13656,7 +13772,7 @@ const spurG = new Graphics()
         .stroke({ width: 2.2, color: 0xc3d2da, alpha: 0.18 * (1 - f * 0.7), cap: 'round' })
     }
 
-    // THE MESH, in the SEGMENTS a Breach has left of it. Holes are stored in the sim's own t space,
+    // THE MESH, in the SEGMENTS ITS TEARS LEAVE OF IT. Holes are stored in the sim's own t space,
     // so they shift by the player's t to land in local x. Sorted and walked as intervals: whatever is
     // not a hole gets drawn, which means the picture and the damage test can never disagree about
     // where the gap is — they are reading the same list the same way.
@@ -13694,8 +13810,13 @@ const spurG = new Graphics()
         netG.moveTo(a, s * half).lineTo(b, s * half)
           .stroke({ width: 3.5, color: NET_VIS.rope, alpha: 0.85, cap: 'round' })
       }
-      // Frayed ends, at every edge that is a CUT rather than the end of the drawn span. Without this
-      // a hole reads as the net simply not being there — the tell has to say "you did this".
+      // Frayed ends, at every edge that is a TEAR rather than the end of the drawn span. Without
+      // this a hole reads as the net simply not being there — a rectangle of missing wall, which
+      // looks like a rendering bug. The fray is what says "this net came to you already torn",
+      // which since 2026-09-01 is the truth: the player has no button to cut it with.
+      //   ⚠ THIS IS THE ONE PLACE A TEAR IS ANNOUNCED. It is the only difference on screen between
+      // a gap you can swim through and solid mesh, and it has to read from TRAWL_LEAD_MUL's
+      // distance on a PHONE, because finding the gap early is the whole verb of the chapter.
       for (const [edge, isCut] of [[a, a > -L], [b, b < L]]) {
         if (!isCut) continue
         for (let k = -2; k <= 2; k++) {
@@ -16142,7 +16263,9 @@ const spurG = new Graphics()
     // in both, the same oil would draw twice: an edge with a glow sitting over it. That is the
     // run.lobs three-consumers trap in miniature, and the reason this line is a comment as well as
     // a filter.
-    const list = (run.blooms || []).filter((b) => b.look !== 'bilge')
+    // `netdrag` excluded alongside `bilge` and for the identical reason: syncSlicks already draws
+    // both, and a bloom drawn twice is an edge with a glow sitting over it.
+    const list = (run.blooms || []).filter((b) => b.look !== 'bilge' && b.look !== 'netdrag')
     const n = list.length
     while (bloomPool.length < n) bloomPool.push(acquireBloom())
     // v6.4 Tide-Carried (WEAPON_MODS.bloom.tideCarried): with picks held, stepBlooms drifts each
@@ -19284,21 +19407,6 @@ const spurG = new Graphics()
           spawnRing(e.x, e.y, e.r, 0.30, T.novaWarm, 0xffffff)
           spawnRing(e.x, e.y, e.r * 0.55, 0.22, T.novaWarm, 0xbfe8ff)
           break
-        // v7.x The Trawl — Breach. NO SFX_FOR_EVENT ENTRY, and that is a decision rather than an
-        // omission: Breach fires on the SAME press as the Pulse, which already sounds ('hole'), so a
-        // second sample would double up on one button. The rule CLAUDE.md states is that an event
-        // earns a sound by being rare enough to bear one; this one is rare and already audible.
-        //
-        // The HOLE itself is persistent and is drawn by updateNet (frayed
-        // ends at every cut edge), so this event is only the moment of tearing: a ring at the cut
-        // scaled to the hole the spend actually bought, so an empty bar and a full one visibly do
-        // different amounts of damage to the wall. `e.r` and not a constant, for the same reason
-        // stepRepulse pushes its scaled radius rather than REPULSE_RADIUS — a burst that lies about
-        // its reach makes the cooldown feel arbitrary.
-        case 'breach':
-          spawnRing(e.x, e.y, e.r, 0.34, T.novaWarm, 0xf2e6b4)
-          spawnRing(e.x, e.y, e.r * 0.55, 0.22, T.novaWarm, 0xffffff)
-          break
         case 'revive':
           // Revive Token fired (see CONSUMABLES in config.js): a heart-warm double ring +
           // levelup-style burst sells the second chance; the sim already shoved enemies back.
@@ -20790,7 +20898,7 @@ const spurG = new Graphics()
       // CHAPTER and not off a per-body flag because the declaration is chapter-wide (one fact, one
       // place); sim's own branch publishes the heading into the same pair the three above use.
       const facesOwnHeading = (e.allyT || 0) > 0 || (e.blindT || 0) > 0 ||
-        (e.flags && e.flags.includes('skittish')) ||
+        (e.flags && (e.flags.includes('skittish') || e.flags.includes('cruise'))) ||
         CHAPTERS[run.chapter]?.passiveCrowd === true
       if (facesOwnHeading && (e._tgtX !== undefined)) {
         tdx = e._tgtX - e.x

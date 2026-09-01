@@ -129,7 +129,7 @@ import {
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
   SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, gateAnchorF, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
   SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, SNAP_CAVITY, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
-  TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, BREACH_R_MIN, BREACH_R_AT_FULL, tiredness,
+  TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
@@ -6952,7 +6952,10 @@ function runClear() {
   // outside The Shelf — stepCharge sets it in every chapter with a resource — so this is the block
   // that catches it drifting away from the bar somewhere it was never meant to.
   {
-    const others = ['surf', 'reef', 'trawl', 'twilight', 'deep']
+    // ⚠ NOT The Trawl. It is the one Book 2 chapter with no `resource` at all (2026-09-01 — it is
+    // the book's normal chapter), so it has no bar for sightCharge to track and reading
+    // `.resource.max` here would be a TypeError rather than a failed assertion.
+    const others = ['surf', 'reef', 'twilight', 'deep']
     for (const id of others) {
       Math.random = mulberry32(4242)
       const run = createRun(devMeta(), { chapter: id, difficulty: 1 })
@@ -29132,7 +29135,7 @@ function testReefAirBurst() {
   console.log(`PASS run RF (The Reef's Air and Burst): the bar is fed by the pocket field and nothing else (0 vs ${res.max} over 150s with it suppressed), an empty bar drowns you at ${res.drown.dps}/s and stops the moment you breathe, and the button dashes ${BURST_DUR_MIN}s empty and ${BURST_DUR_AT_FULL}s full`)
 }
 
-// ---- run TR: The Trawl's net (the gimmick), Feed (the bar) and Breach (the button) --------------
+// ---- run TR: The Trawl's net (the gimmick) and the tears that are the way through it ------------
 // Spec §5.2's three-part ask again, one chapter on. Every case is written as an EFFECT for the
 // reason run RF's header spells out and which bites harder here: this chapter's whole state is
 // timers and a moving offset, and ALL of them keep moving with the feature gutted. `run.charge`
@@ -29745,7 +29748,6 @@ function testDeathOutro() {
 
 function testTrawlNet() {
   const dt = 1 / 60
-  const res = CHAPTERS.trawl.resource
 
   const meta = makeMeta()
   meta.dev = true
@@ -29783,6 +29785,31 @@ function testTrawlNet() {
     run.player.x += n.nx * (d - cur)
     run.player.y += n.ny * (d - cur)
   }
+  // Where along the wall is this point? The sim's own netAlong, which is module-local.
+  const alongOf = (n, x, y) => x * -n.ny + y * n.nx
+  // Move the player ALONG the wall to a `t` that is not in any tear, leaving their distance from the
+  // mesh untouched. Every case below that means "standing in the mesh" needs this: the net now
+  // arrives already torn, and standAt preserves the player's along-position, so a tear seeded near
+  // wherever they happen to be would make "the net hurts" pass or fail on the draw. That is exactly
+  // the non-determinism a fixed seed hides until an unrelated change re-phases the stream.
+  const standSolid = (run) => {
+    const n = run.net
+    const t = alongOf(n, run.player.x, run.player.y)
+    let best = null, bestGap = -Infinity
+    // Walk a window of candidate t's and take the one furthest from any tear's edge.
+    for (const h of n.holes) {
+      for (const side of [-1, 1]) {
+        const cand = h.t + side * (h.r + 120)
+        let gap = Infinity
+        for (const g of n.holes) gap = Math.min(gap, Math.abs(cand - g.t) - g.r)
+        if (gap > bestGap) { bestGap = gap; best = cand }
+      }
+    }
+    assert.ok(best !== null && bestGap > 40,
+      `no solid stretch of mesh within reach of the player — the tears are packed tighter than a body (best clearance ${bestGap.toFixed(0)}px)`)
+    run.player.x += -n.ny * (best - t)
+    run.player.y += n.nx * (best - t)
+  }
 
   // (a) THE NET REACHES THE PLAYER AND HURTS, AND ONLY WHERE IT IS. Two runs off the same seed with
   // the same everything except WHERE the player stands relative to the mesh. Standing in it costs
@@ -29792,6 +29819,7 @@ function testTrawlNet() {
   {
     const inMesh = trawlRun()
     summonNet(inMesh)
+    standSolid(inMesh)
     let hurtIn = 0
     for (let i = 0; i < 120; i++) {
       standAt(inMesh, 0)
@@ -29802,6 +29830,7 @@ function testTrawlNet() {
     }
     const clear = trawlRun()
     summonNet(clear)
+    standSolid(clear)
     let hurtClear = 0
     for (let i = 0; i < 120; i++) {
       standAt(clear, 300)   // ahead of the wall, well outside TRAWL_HALF + the player's radius
@@ -29822,6 +29851,7 @@ function testTrawlNet() {
   {
     const run = trawlRun()
     const net = summonNet(run)
+    standSolid(run)
     standAt(run, 0)
     // NO WEAPONS. This is what makes the case mean anything: the player auto-attacks whatever is in
     // range, so an enemy standing beside them loses HP whether or not the net ever touches it. The
@@ -29846,123 +29876,125 @@ function testTrawlNet() {
     console.log(`PASS run TR.b (it kills both sides): 1s in the mesh takes ${(pBefore - run.player.hp).toFixed(0)} from the player and ${(eBefore - e.hp).toFixed(0)} from an enemy beside them`)
   }
 
-  // (c) THE WAKE IS THE ONLY FOOD, AND IT IS BEHIND THE MESH. Three positions on the same net, off
-  // the same seed: in the wake the bar RISES, ahead of the wall it falls, and far behind it falls.
-  // The middle case is the sign check — if `behind` were computed with the opposite sign the bar
-  // would still rise somewhere, so a test that only proved "the bar can rise" would pass a net whose
-  // food is on the unreachable side. Also the do-nothing control for the whole resource: with no net
-  // at all there is nowhere in the chapter the bar can go up.
-  {
-    const feed = (d, withNet) => {
-      const run = trawlRun()
-      if (withNet) { summonNet(run); standAt(run, d) }
-      run.charge = 50
-      for (let i = 0; i < 60; i++) {
-        if (withNet) standAt(run, d)
-        stepSim(run, { x: 0, y: 0 }, dt)
-        quiet(run)
-      }
-      return run.charge - 50
-    }
-    const inWakeD = -(TRAWL_HALF + TRAWL_WAKE_DEPTH * 0.5)
-    const rose = feed(inWakeD, true)
-    const ahead = feed(TRAWL_HALF + 200, true)
-    const farBehind = feed(-(TRAWL_HALF + TRAWL_WAKE_DEPTH + 200), true)
-    const noNet = feed(0, false)
-    assert.ok(rose > 0, 'a second in the middle of the wake did not raise Feed — the chapter has no way to fill its bar')
-    assert.ok(ahead < 0, 'Feed rose while standing AHEAD of the net — the wake is on the side the net has not crossed yet')
-    assert.ok(farBehind < 0, 'Feed rose 200px past the back of the wake — the band has no far edge')
-    assert.ok(noNet < 0, 'Feed rose with no net on the map at all — something other than the wake is feeding it')
-    console.log(`PASS run TR.c (the wake is the only food, and it is behind): 1s in the wake ${rose > 0 ? '+' : ''}${rose.toFixed(1)}, ahead ${ahead.toFixed(1)}, past it ${farBehind.toFixed(1)}, no net at all ${noNet.toFixed(1)}`)
-  }
-
-  // (d) BREACH CUTS A DOOR, THE DOOR LASTS, AND THE CROWD USES IT. Damage taken standing in the mesh
-  // with a hole torn at your own position, against the same 2s without pressing the button. The hole
-  // must also still be there after the press, and an ENEMY inside it must be spared — that last part
-  // is the "a door you made, which the crowd will also use" clause, and it is the one a naive
-  // implementation gets wrong by testing the hole only for the player.
-  {
-    const cut = (press) => {
-      const run = trawlRun()
-      const net = summonNet(run)
-      run.charge = res.max
-      run.weapons.length = 0   // see (b): otherwise the enemy column below is measuring clawRake
-      let hurt = 0
-      const e = makeStatusEnemy(run, { x: run.player.x, y: run.player.y, speed: 0 })
-      run.enemies.push(e)
-      for (let i = 0; i < 120; i++) {
-        standAt(run, 0)
-        // 60px ALONG the wall: inside the hole (BREACH_R_AT_FULL is 220) but outside contact range
-        // (player 22 + enemy 16 = 38). At 20px the enemy was touching the player, and its contact
-        // damage landed in the very number this case reads as "damage from the net".
-        e.x = run.player.x + -net.ny * 60
-        e.y = run.player.y + net.nx * 60
-        const before = run.player.hp
-        stepSim(run, { x: 0, y: 0, skill: press && i === 0 }, dt)
-        hurt += before - run.player.hp
-        run.events.length = 0
-      }
-      return { hurt, holes: run.net ? run.net.holes.length : -1, enemyHurt: e.maxHP - e.hp }
-    }
-    const withoutBreach = cut(false)
-    const withBreach = cut(true)
-    assert.strictEqual(withoutBreach.holes, 0, 'a hole appeared without the button being pressed')
-    assert.strictEqual(withBreach.holes, 1, 'pressing the button in reach of the net tore no hole')
-    assert.ok(withBreach.hurt < withoutBreach.hurt,
-      `Breach did not reduce the damage of standing in the mesh (${withBreach.hurt} vs ${withoutBreach.hurt}) — the hole is drawn but nothing reads it`)
-    assert.ok(withBreach.enemyHurt < withoutBreach.enemyHurt,
-      'an enemy inside the torn hole still took net damage — the hole is tested for the player only, so the crowd cannot follow you through')
-    console.log(`PASS run TR.d (Breach cuts a door the crowd also uses): 2s in the mesh costs ${withoutBreach.hurt.toFixed(0)} HP unbreached and ${withBreach.hurt.toFixed(0)} through your own hole; the enemy in it takes ${withBreach.enemyHurt.toFixed(0)} against ${withoutBreach.enemyHurt.toFixed(0)}`)
-  }
-
-  // (e) THE NO-SPIRAL FLOOR, both halves of it, because in this chapter the bar's second job and the
-  // button share one bar and an empty one must not let them build a trap between them (spec §8.2).
-  //   - an EMPTY bar still cuts, just a smaller door;
-  //   - a fully TIRED player is still faster than the net.
-  // The second is arithmetic on shipped constants rather than a simulation, deliberately: it is the
-  // claim CHAPTERS.trawl.resource makes in prose, and prose does not fail when someone retunes
-  // speedFloor to 0.3 for feel.
+  // (c) THE NET ARRIVES ALREADY TORN, AND A TEAR IS A WAY THROUGH. The chapter's whole verb since
+  // 2026-09-01: there is no Breach button any more, so if a pass had no gaps in it the wall would be
+  // an unavoidable toll rather than a routing puzzle. Two positions on the SAME net — dead centre of
+  // a tear, and solid mesh — and only one of them may cost HP.
   {
     const run = trawlRun()
-    summonNet(run)
-    run.charge = 0
-    standAt(run, 0)
-    stepSim(run, { x: 0, y: 0, skill: true }, dt)
-    assert.strictEqual(run.net.holes.length, 1, 'an empty Feed bar could not tear a hole at all — running dry is a structural trap')
-    assert.ok(Math.abs(run.net.holes[0].r - BREACH_R_MIN) < 1e-6,
-      `an empty bar tore a ${run.net.holes[0].r}px hole, not the BREACH_R_MIN ${BREACH_R_MIN} floor`)
-    assert.ok(BREACH_R_MIN > PLAYER.radius * 2,
-      `BREACH_R_MIN ${BREACH_R_MIN} is not comfortably wider than the player (${PLAYER.radius}) — the floor exists but does not fit through`)
-    const tiredSpeed = PLAYER.baseSpeed * res.tire.speedFloor
-    assert.ok(tiredSpeed > TRAWL_SPEED,
-      `a fully tired player moves at ${tiredSpeed} px/s against a ${TRAWL_SPEED} px/s net — running dry means the net catches you and you cannot leave`)
-    console.log(`PASS run TR.e (no-spiral floor): an empty bar still cuts a ${BREACH_R_MIN}px door, and a fully tired player still makes ${tiredSpeed.toFixed(0)} px/s against the net's ${TRAWL_SPEED}`)
+    const net = summonNet(run)
+    assert.ok(net.holes.length > 0,
+      'the pass spawned with no tears at all — with Breach gone there is now no way through the wall, and it is a toll rather than a decision')
+
+    const hurtAt = (place) => {
+      const r = trawlRun()
+      summonNet(r)
+      place(r)
+      let hurt = 0
+      for (let i = 0; i < 120; i++) {
+        const before = r.player.hp
+        stepSim(r, { x: 0, y: 0 }, dt)
+        hurt += before - r.player.hp
+        // Re-seat every frame: the wall is advancing, and the point of the case is WHERE on it we are.
+        place(r)
+        quiet(r)
+      }
+      return hurt
+    }
+    // Dead centre of the widest tear, on the mesh's own centre line.
+    const inTear = hurtAt((r) => {
+      const n = r.net
+      const h = n.holes.reduce((a, b) => (b.r > a.r ? b : a))
+      const t = alongOf(n, r.player.x, r.player.y)
+      r.player.x += -n.ny * (h.t - t)
+      r.player.y += n.nx * (h.t - t)
+      standAt(r, 0)
+    })
+    const inMesh = hurtAt((r) => { standSolid(r); standAt(r, 0) })
+
+    assert.strictEqual(inTear, 0,
+      `2s in the middle of a tear still cost ${inTear.toFixed(0)} HP — inNetHole is not exempting the player, so the gaps are decoration`)
+    assert.ok(inMesh > 0, '2s in solid mesh cost nothing, so the comparison above proves nothing')
+    console.log(`PASS run TR.c (the net arrives torn, and a tear is a way through): ${net.holes.length} tears on the pass, 2s in one costs ${inTear.toFixed(0)} HP against ${inMesh.toFixed(0)} in the mesh beside it`)
   }
 
-  // (f) THE TIRE IS REAL AND IT IS A RAMP. A full bar and an empty bar, same input, same seed: the
-  // empty one must travel measurably less far, and a bar just above the threshold must travel the
-  // full distance. The second half is what separates a ramp from a switch, and it is also what
-  // catches `tire` being read but never composed into slowMul — a value that is computed, logged and
-  // dropped moves nothing and throws nothing.
+  // (d) THE TEARS REACH EVERYWHERE THE PLAYER CAN GO, which is the number the whole design lives on
+  // and the one a fixed COUNT of holes cannot deliver. render.js only draws the wall within ~1.6
+  // view radii, but a pass lasts 2 x lead / TRAWL_SPEED and the player can swim ALONG the wall the
+  // entire time — so a handful of tears seeded near the spawn point leaves anyone who drifts off the
+  // end of them facing a solid, infinite, un-cuttable wall for the rest of the pass.
+  //
+  // Asserted as a WORST-CASE GAP over the whole reachable band rather than as a count, because a
+  // count is exactly what does not answer the question.
   {
-    const walk = (charge) => {
+    const run = trawlRun()
+    const net = summonNet(run)
+    const lead = run.viewRadius * TRAWL_LEAD_MUL
+    const passDur = (2 * lead) / TRAWL_SPEED
+    const reach = passDur * run.player.speed
+    const t0 = alongOf(net, run.player.x, run.player.y)
+
+    const ts = net.holes.map((h) => h.t).sort((a, b) => a - b)
+    assert.ok(ts[0] <= t0 - reach && ts[ts.length - 1] >= t0 + reach,
+      `tears span ${(ts[0] - t0).toFixed(0)}..${(ts[ts.length - 1] - t0).toFixed(0)}px around the player but they can cover +/-${reach.toFixed(0)}px before the pass ends — a player who swims along the wall runs out of gaps`)
+    let worst = 0
+    for (let i = 1; i < ts.length; i++) worst = Math.max(worst, ts[i] - ts[i - 1])
+    const window = 2 * Math.max(600, run.viewRadius * 1.6)
+    assert.ok(worst < window,
+      `the widest stretch of unbroken mesh is ${worst.toFixed(0)}px against a ${window.toFixed(0)}px drawn window — a player can be looking at a wall with no visible way through it`)
+    console.log(`PASS run TR.d (the tears reach everywhere you can go): ${net.holes.length} tears spanning +/-${reach.toFixed(0)}px of reachable wall, widest solid stretch ${worst.toFixed(0)}px inside a ${window.toFixed(0)}px window`)
+  }
+
+  // (e) THE SPACING IS SCREEN-RELATIVE, the same rule as (g) below and for the same reason. A tear
+  // pattern fixed in world px would be a different amount of searching on a phone than on a desktop,
+  // and the phone is the one that has to work. Two runs, identical but for the viewport.
+  //   ⚠ THE RADIUS DELIBERATELY IS NOT. A tear is a hole your BODY fits through, and a body is a
+  // world-space thing — so it must NOT scale with the screen, and that is asserted too, because the
+  // obvious "fix" for this case would be to make both scale and it would be wrong.
+  {
+    const spacingFor = (viewRadius) => {
       const run = trawlRun()
-      run.charge = charge
-      const x0 = run.player.x, y0 = run.player.y
-      for (let i = 0; i < 60; i++) {
-        run.charge = charge   // held, so this measures the SPEED at that level and not the drain
-        stepSim(run, { x: 1, y: 0 }, dt)
-        quiet(run)
-      }
-      return Math.hypot(run.player.x - x0, run.player.y - y0)
+      run.viewRadius = viewRadius
+      const net = summonNet(run)
+      const ts = net.holes.map((h) => h.t).sort((a, b) => a - b)
+      return { space: ts[1] - ts[0], r: net.holes[0].r }
     }
-    const full = walk(res.max)
-    const atThreshold = walk(res.max * res.tire.from + 1)
-    const empty = walk(0)
-    assert.ok(empty < full * 0.95, `an empty Feed bar did not slow the player (${empty.toFixed(0)}px vs ${full.toFixed(0)}px in 1s) — tiredness() is computed and never applied`)
-    assert.ok(Math.abs(atThreshold - full) < 1, `a bar just above the ${res.tire.from} threshold was already slowed — the tire is a switch, not a ramp`)
-    assert.ok(empty > full * res.tire.speedFloor * 0.98, 'an empty bar slowed the player BELOW the declared floor — something is multiplying rather than joining by MIN')
-    console.log(`PASS run TR.f (Feed is your speed, on a ramp): 1s of walking covers ${full.toFixed(0)}px full, ${atThreshold.toFixed(0)}px at the threshold and ${empty.toFixed(0)}px empty (floor x${res.tire.speedFloor})`)
+    const phone = spacingFor(465)
+    const desktop = spacingFor(755)
+    assert.ok(Math.abs(phone.space / 465 - desktop.space / 755) < 0.02,
+      `tears sit ${phone.space.toFixed(0)}px apart on a phone and ${desktop.space.toFixed(0)}px on a desktop — those are not the same FRACTION of the screen, so finding a gap is a different job on each device`)
+    assert.ok(Math.abs(phone.space / 465 - TRAWL_TEAR_SPACE_MUL) < 0.02,
+      `spacing is ${(phone.space / 465).toFixed(2)} view radii, not the declared TRAWL_TEAR_SPACE_MUL ${TRAWL_TEAR_SPACE_MUL}`)
+    const maxR = TRAWL_TEAR_R * (1 + TRAWL_TEAR_R_VAR)
+    assert.ok(phone.r <= maxR && desktop.r <= maxR,
+      `a tear radius exceeded TRAWL_TEAR_R +/- its jitter (${phone.r.toFixed(0)}, ${desktop.r.toFixed(0)} against ${maxR.toFixed(0)}) — the radius has been made screen-relative, and a hole you fit through is a world-space measurement`)
+    console.log(`PASS run TR.e (spacing is screen-relative, radius is not): ${(phone.space / 465).toFixed(2)} view radii apart on both devices, tears ${phone.r.toFixed(0)}px wide either way`)
+  }
+
+  // (f) THE CHAPTER HAS NO BAR AND NO BUTTON, which is the entire point of the 2026-09-01 pass — it
+  // is the NORMAL chapter of Book 2. Asserted as EFFECTS and not as a field being undefined: a field
+  // check goes green the moment someone adds a bar back that nothing reads, and goes red for a
+  // rename that changed nothing. What must be true is that pressing the button does nothing to the
+  // world, and that no amount of play fills a meter.
+  {
+    const run = trawlRun()
+    const net = summonNet(run)
+    const holesBefore = net.holes.length
+    run.charge = 0
+    run.repulseCd = 0
+    standSolid(run)
+    standAt(run, 0)
+    for (let i = 0; i < 120; i++) {
+      run.repulseCd = 0
+      stepSim(run, { x: 0, y: 0, repulse: true }, dt)
+      quiet(run)
+      if (!run.net) break
+    }
+    assert.strictEqual(run.net ? run.net.holes.length : holesBefore, holesBefore,
+      'pressing the button cut a new hole in the net — Breach is back, and with it a second verb this chapter is not supposed to have')
+    assert.ok(!(run.charge > 0),
+      `run.charge reached ${run.charge} in a chapter with no resource — something is filling a bar the player cannot see`)
+    console.log(`PASS run TR.f (no bar, no button): 2s of pressing on the mesh leaves the wall at ${holesBefore} tears and the charge at ${run.charge || 0}`)
   }
 
   // (g) THE WARNING IS SCREEN-RELATIVE, asserted as a RATIO and never in px. A pass is spawned at
@@ -30005,11 +30037,11 @@ function testTrawlNet() {
     assert.ok(sawEnd, 'the first pass never ended in 120s — the net sweeps forever and the chapter is one wall')
     assert.ok(passes >= 2, `only ${passes} pass(es) in 120s — a second one never arrived, so the chapter has no food after the first`)
 
-    // THE FIRST PASS ARRIVES BEFORE THE BAR STARTS BITING, which is a teaching decision and not a
-    // tuning one — the chapter has to show you the wall before it shows you the hunger, or the first
-    // half-minute is a player slowing down for no visible reason with no way to act on it. Measured
-    // as elapsed seconds in a FRESH run rather than by reading _netAcc, so setting the field back to
-    // TRAWL_INTERVAL fails here instead of passing a field-equality check.
+    // THE FIRST PASS ARRIVES EARLY, and that is a teaching decision rather than a tuning one: the
+    // net is the only thing in this chapter a player has to learn, so every second before it shows
+    // up is a second spent in an ordinary fight that teaches them nothing about where they are.
+    // Measured as elapsed seconds in a FRESH run rather than by reading _netAcc, so setting the
+    // field back to TRAWL_INTERVAL fails here instead of passing a field-equality check.
     const fresh = trawlRun()
     let firstAt = null
     for (let i = 0; i < 60 * 60 && firstAt === null; i++) {
@@ -30017,14 +30049,13 @@ function testTrawlNet() {
       quiet(fresh)
       if (fresh.net) firstAt = i * dt
     }
-    const tireAt = (res.max - res.max * res.tire.from) / res.drain
     assert.ok(firstAt !== null, 'no pass at all in the first 60s of a fresh run')
-    assert.ok(firstAt < tireAt,
-      `the first net arrives at ${firstAt.toFixed(1)}s but the bar starts tiring the player at ${tireAt.toFixed(1)}s — the chapter teaches its hunger before its wall`)
-    console.log(`PASS run TR.h (the pass ends and another comes): ${passes} passes in 120s on TRAWL_INTERVAL ${TRAWL_INTERVAL}s, and the first arrives at ${firstAt.toFixed(1)}s — ahead of the ${tireAt.toFixed(1)}s at which Feed starts to bite`)
+    assert.ok(firstAt < TRAWL_INTERVAL,
+      `the first net arrives at ${firstAt.toFixed(1)}s, no sooner than the standing interval of ${TRAWL_INTERVAL}s — TRAWL_FIRST_PASS is not being used, so the chapter opens on an ordinary fight`)
+    console.log(`PASS run TR.h (the pass ends and another comes): ${passes} passes in 120s on TRAWL_INTERVAL ${TRAWL_INTERVAL}s, and the first arrives at ${firstAt.toFixed(1)}s`)
   }
 
-  console.log(`PASS run TR (The Trawl's net, Feed and Breach): the wall damages the player AND the crowd, the wake behind it is the only thing that feeds either, Breach cuts a door both sides can use, an empty bar still cuts one, and the warning is ${TRAWL_LEAD_MUL} view radii on every screen`)
+  console.log(`PASS run TR (The Trawl's net and its tears): the wall damages the player AND the crowd, it arrives already torn with gaps everywhere the player can reach, the spacing is ${TRAWL_TEAR_SPACE_MUL} view radii on every screen while the radius stays world-space, and the chapter has no bar and no button`)
 }
 
 // ---- run LG: The Trawl's two natives, Longline and Net Toss ------------------------------------
@@ -31129,10 +31160,13 @@ function testUndertowLadder() {
     // (e1) The fact the rename actually MOVES, asserted as an id -> bar map. The existing prefix
     // check above cannot see this: LADDER_PREFIX is ['surf','shelf','reef'] and stays true while
     // slot 2's MEANING is replaced wholesale.
-    const BARS = { surf: 'Humidity', shelf: 'Pollution', reef: 'Air', trawl: 'Feed', twilight: 'Light', deep: 'Light' }
+    // `trawl: null` is a REAL ROW, not an omission: as of 2026-09-01 it is Book 2's normal chapter
+    // and having no bar at all is the point of it. Left in the map so that quietly giving it one
+    // back — the easiest way to undo that design without touching a word of prose — goes red here.
+    const BARS = { surf: 'Humidity', shelf: 'Pollution', reef: 'Air', trawl: null, twilight: 'Light', deep: 'Light' }
     for (const [id, bar] of Object.entries(BARS)) {
-      assert.strictEqual(CHAPTERS[id]?.resource?.name, bar,
-        `${id}'s bar is '${CHAPTERS[id]?.resource?.name}', not '${bar}' — the light and the murk have swapped or drifted`)
+      assert.strictEqual(CHAPTERS[id]?.resource?.name ?? null, bar,
+        `${id}'s bar is '${CHAPTERS[id]?.resource?.name}', not '${bar}' — the light and the murk have swapped or drifted, or The Trawl has been handed a bar back`)
     }
     // (e1b) THE SHELF'S BAR READS BACKWARDS ON PURPOSE (owner, 2026-08-18: "this should be
     // pollution and the bar should fill rather than empty and filled bar = bad"). The sim still
