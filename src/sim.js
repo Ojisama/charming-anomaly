@@ -187,7 +187,7 @@ import {
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
-  BREACH_R_MIN, BREACH_R_AT_FULL, BREACH_REACH, BREACH_MAX_HOLES, tiredness,
+  TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
@@ -1572,7 +1572,7 @@ function stepRepulse(run, input, dt) {
   const t = res ? spend / PULSE_CHARGE_COST : 0
   if (spend > 0) run.charge -= spend
   // THE SHOREBREAK (v7.x, The Surf — CHAPTERS[].shorebreak). Same press, same cooldown, same `t`
-  // as the burst, the breach and the scent — and then it RETURNS, which is the one thing none of
+  // as the burst and the scent — and then it RETURNS, which is the one thing none of
   // those three do. A `wave` chapter does not also fire the shove: no `repulse` event, no impulse
   // loop below, no 'hole' sample. The wave IS the button here, sustained by stepWave for a duration
   // the spend bought, and the SHOREBREAK_* block in config.js has the argument for why firing both would
@@ -1638,8 +1638,8 @@ function stepRepulse(run, input, dt) {
   // shove above still fires — this one is additive, not a replacement like the shorebreak and the burst.
   //
   // THE FLOOR IS THE SHOVE ITSELF, and `LUNGE_DUR_AT_FULL * t` is the ONE thing that delivers it.
-  // Every other chapter's second verb has a non-zero floor (BURST_DUR_MIN, BREACH_R_MIN,
-  // SCENT_DUR_MIN) so an empty bar is weaker and never structurally trapped; here the duration goes
+  // Every other chapter's second verb has a non-zero floor (BURST_DUR_MIN, SCENT_DUR_MIN) so an
+  // empty bar is weaker and never structurally trapped; here the duration goes
   // to zero instead, which is the same rule reaching its limit rather than an exception to it. A
   // lunge exists to buy a kill that refills the bar, so a free one on an empty bar would be a free
   // refill, and this chapter's whole premise is that the bar is only ever paid for in kills. A
@@ -1687,35 +1687,15 @@ function stepRepulse(run, input, dt) {
     p.facingAngle = ang
     p.facing = Math.cos(ang) >= 0 ? 1 : -1
   }
-  // THE BREACH (v7.x, The Trawl — CHAPTERS[].breach). The same press, the same cooldown and the same
-  // `t` again: this chapter's answer to its own wall, and never a second button or a second bar. You
-  // tear the hole where YOU are on the net, and it lasts for the rest of that pass — a door you made,
-  // which the crowd will also use, because inNetHole does not ask who is standing in it.
-  //
-  // Gated on the net being in REACH, which is what stops the button being free: pressed on cooldown
-  // from anywhere, the wall would never be a decision. With the gate, breaching means turning back
-  // toward the thing that is killing you while it is still 500px out.
-  //
-  // The floor is the RADIUS, not the existence of the hole (BREACH_R_MIN, and see its block): this
-  // chapter's other half makes an empty bar SLOW, so a bar that also could not cut would let the two
-  // halves conspire into the structural trap spec §8.2 forbids.
   // THE SCENT (v7.x, The Deep — CHAPTERS[].scent). The same press, the same cooldown and the same
-  // `t` a third time. Ungated, unlike the breach: there is no "in reach" condition to meet because
-  // the smell is cast from the player and finds whatever is out there — in a chapter where you
-  // cannot see, a button with a targeting requirement would be a button you cannot aim.
-  // SCENT_DUR_MIN, never 0, on the same no-spiral floor argument as BURST_DUR_MIN and BREACH_R_MIN:
-  // an empty bar may leave you weaker, never structurally unable to act.
+  // `t` again. Ungated: the smell is cast from the player and finds whatever is out there — in a
+  // chapter where you cannot see, a button with a targeting requirement would be a button you
+  // cannot aim.
+  // SCENT_DUR_MIN, never 0, on the same no-spiral floor argument as BURST_DUR_MIN: an empty bar may
+  // leave you weaker, never structurally unable to act.
   if (ch.scent) {
     run._scentT = SCENT_DUR_MIN + (SCENT_DUR_AT_FULL - SCENT_DUR_MIN) * t
     run.events.push({ type: 'scent', x: p.x, y: p.y, r: SCENT_R, charged: t, dur: run._scentT })
-  }
-  if (ch.breach && run.net && run.net.holes.length < BREACH_MAX_HOLES) {
-    const nt = run.net
-    if (Math.abs(p.x * nt.nx + p.y * nt.ny - nt.pos) <= BREACH_REACH) {
-      const r = BREACH_R_MIN + (BREACH_R_AT_FULL - BREACH_R_MIN) * t
-      nt.holes.push({ t: p.x * -nt.ny + p.y * nt.nx, r })
-      run.events.push({ type: 'breach', x: p.x, y: p.y, r, charged: t })
-    }
   }
   const radSq = radius * radius
   const lax = laneAxes(ch)
@@ -2511,7 +2491,13 @@ function stepStragglers(run) {
   const spawnD = run.viewRadius + SPAWN_RING
   const dropSq = spawnD * KITE_DROP_MUL * (spawnD * KITE_DROP_MUL)
   for (const e of run.enemies) {
-    if (e._dead || isAlly(e) || (e.affixes && e.affixes.includes('anchored'))) continue   // SUBMISSION: never yank an ally off its fight
+    // `cruise` joins the exemptions for the same reason `circuit` exempts a whole chapter above: the
+    // recycler exists to stop a KITER shedding CHASERS, and a cruiser was never chasing. It is also
+    // by construction the body that falls behind fastest — it is swimming somewhere else — so
+    // without this it is the one creature the recycler would keep teleporting back into your path,
+    // which is the exact opposite of "it does not know you exist".
+    if (e._dead || isAlly(e) || (e.affixes && e.affixes.includes('anchored'))
+      || (e.flags && e.flags.includes('cruise'))) continue   // SUBMISSION: never yank an ally off its fight
     const dx = e.x - p.x, dy = e.y - p.y
     if (dx * dx + dy * dy < dropSq) continue
     const a = heading + (Math.random() - 0.5) * KITE_AHEAD_ARC
@@ -2829,6 +2815,35 @@ function stepEnemyMovement(run, dt) {
       // status a weapon applied, this is what the animal IS — and above every behaviour machine
       // because a fish that is running is not also running its hunting routine.
       stepPrey(run, e, dx, dy, d, dt, slowMul, baited)
+    } else if (e.flags && e.flags.includes('cruise')) {
+      // CRUISE (2026-09-01, The Trawl's sea turtle). Neither hunts you nor flees you: it holds the
+      // heading it spawned with and swims off the edge of the world. The book's second threat class
+      // — "does not know you exist" — as a creature rather than as a hazard, so it costs you
+      // attention, not health: you hit it because you were not looking.
+      //
+      // ⚠ HERE, ABOVE EVERY BEHAVIOUR MACHINE, and NOT down beside stepMarch. Same seam and same
+      // reason as passiveCrowd and skittish either side of it: a fish that is not hunting you is not
+      // running its hunting routine either. (weave's "must be last" argument is about a MODIFIER to
+      // seeking; this is a replacement for it, which is the opposite placement.)
+      //
+      // The heading is frozen once, from wherever the body happened to be pointing at spawn, so the
+      // line is genuinely straight — re-deriving it per frame from anything the player does would
+      // make it a very slow chase.
+      if (e._cruiseX === undefined) {
+        const a = Math.random() * Math.PI * 2
+        e._cruiseX = Math.cos(a); e._cruiseY = Math.sin(a)
+      }
+      if (slowMul > 0) {
+        e.x += e._cruiseX * e.speed * slowMul * dt
+        e.y += e._cruiseY * e.speed * slowMul * dt
+      }
+      // AND THE POINT THE DRAWING READS — the same two lines, for the same reason, as the passive
+      // crowd above. render.js derives a body's bearing from run.player unless _tgtX/_tgtY says
+      // otherwise, so without these the turtle swims one way and faces another. Publishing into the
+      // shipped contract field rather than teaching render a new one (CLAUDE.md); facesOwnHeading
+      // gains the flag so it knows to read it.
+      e._tgtX = e.x + e._cruiseX * 100
+      e._tgtY = e.y + e._cruiseY * 100
     } else if (e.flags && e.flags.includes('dashBurst')) {
       // affixSpeedMul is passed through (unlike the other machines, which take enrageMul alone)
       // because dashBurst used to ride the plain seek and therefore honoured pacer/frenzy. Keeping
@@ -2965,6 +2980,34 @@ function stepEnemyMovement(run, dt) {
         run.blooms.push({
           x: e.x, y: e.y, t: 0, r: 0, maxR: OIL_TRAIL_R, dur: OIL_TRAIL_DUR,
           dmgPerTick: 0, tick: 0, look: 'bilge',
+          shape: Math.floor(Math.random() * LOBE_SHAPES.length) % LOBE_SHAPES.length,
+          rot: Math.random() * Math.PI * 2,
+          slow: 1, grow: BILGE_TRAIL_GROW, trail: true,
+        })
+      }
+    }
+
+    // netTrail elite flag (2026-09-01, The Trawl's own elite affix — replaces the borrowed
+    // soapTrail, which was the pond's soap bubbles and the last loan in the book). An elite drags a
+    // length of lost mesh behind it: a small unscheduled piece of the wall, moving on a creature's
+    // logic instead of the sweep's, so the net can find you BETWEEN passes. That is what the quiet
+    // stretch needs now that this chapter has no bar to fill it.
+    //
+    // ⚠ oilTrail's ENTITY, DELIBERATELY NOT oilTrail's LOOK, and that distinction is the whole
+    // reason this is its own flag rather than a second chapter wearing `oilTrail`. That flag tags
+    // look:'bilge' *specifically* to inherit the Bilge weapon and the Leak's stain, prey-avoidance
+    // and render for free — and The Trawl has neither of those, so borrowing the tag would draw
+    // torn netting as an OIL SLICK. Same run.blooms entry, same cadence, own look; syncSlicks
+    // (render.js) branches on it.
+    // `dmgPerTick: 0` and `slow: 1` for the same reasons the oil gives: a fence that walks, not a
+    // damage zone, and the stain is gated on `bl.slow !== 0`.
+    if (e.elite && e.flags && e.flags.includes('netTrail') && !e._dead && e._phaseSolid !== false) {
+      e._netAcc2 = (e._netAcc2 ?? 0) + dt
+      if (e._netAcc2 >= OIL_TRAIL_INTERVAL) {
+        e._netAcc2 -= OIL_TRAIL_INTERVAL
+        run.blooms.push({
+          x: e.x, y: e.y, t: 0, r: 0, maxR: OIL_TRAIL_R, dur: OIL_TRAIL_DUR,
+          dmgPerTick: 0, tick: 0, look: 'netdrag',
           shape: Math.floor(Math.random() * LOBE_SHAPES.length) % LOBE_SHAPES.length,
           rot: Math.random() * Math.PI * 2,
           slow: 1, grow: BILGE_TRAIL_GROW, trail: true,
@@ -5273,28 +5316,21 @@ export function onSandbar(run) {
 // a wall you can walk round is not a wall. Every test below is one dot product, so the cost is flat
 // in how far the player has roamed.
 //
-// ⚠ THE THREE FUNCTIONS BELOW ARE THE ONLY PLACE THAT ARITHMETIC IS WRITTEN. Everything else —
-// contact, the wake, Breach, the renderer — calls these. That is deliberate: a sign error in "which
-// side has the net already crossed" is invisible (the wake simply appears on the wrong side of a
-// wall, which looks like a tuning choice), and duplicating the expression is how it would get one.
+// ⚠ THE TWO FUNCTIONS BELOW ARE THE ONLY PLACE IN THIS FILE THAT ARITHMETIC IS WRITTEN. Contact,
+// the tears and the seeder all call them. That is deliberate: a sign error in "which side has the
+// net already crossed" is invisible (the wake simply appears on the wrong side of a wall, which
+// looks like a tuning choice), and duplicating the expression is how it would get one.
+//   ⚠ AND render.js DOES NOT CALL THEM — it re-implements the same arithmetic inline where it draws
+// the mesh, because these are module-local. That duplication is live and untested: nothing asserts
+// the drawn gap and the damaging gap agree. Change one side and you must shoot the other.
 const netDist = (net, x, y) => x * net.nx + y * net.ny - net.pos   // signed: <0 = already crossed
 const netAlong = (net, x, y) => x * -net.ny + y * net.nx           // position ALONG the wall
-// Is this point in a torn hole? Same test for the player and for the crowd, which is the whole point
-// of Breach: the hole is a gap in a line, and the line does not know who is standing in it.
+// Is this point in a torn hole? Same test for the player and for the crowd, and that is the whole
+// point of a tear: the gap is a gap in a line, and the line does not know who is standing in it.
 const inNetHole = (net, x, y) => {
   const t = netAlong(net, x, y)
   for (const h of net.holes) if (Math.abs(t - h.t) <= h.r) return true
   return false
-}
-
-// Is this point in the churned wake — the ONLY place Feed comes from? Behind the mesh (the water the
-// net has already been through) and within TRAWL_WAKE_DEPTH of it. Exported because stepCharge asks
-// it in place of the shaft loop every other Book 2 chapter uses, and render.js draws the same band.
-export function inWake(run, x, y) {
-  const net = run.net
-  if (!net) return false
-  const d = netDist(net, x, y)
-  return d < -TRAWL_HALF && d >= -(TRAWL_HALF + TRAWL_WAKE_DEPTH)
 }
 
 // How much faster than real time the orca's countdown runs, given how packed the water around the
@@ -5581,6 +5617,37 @@ function stepOrca(run, dt) {
   return false
 }
 
+// THE TEARS (2026-09-01). The net arrives already torn, which is what it has instead of the Breach
+// button that went with the Feed bar. Same run.net.holes the button used to push into, so inNetHole
+// and the renderer are unchanged — only the author is.
+//
+// ⚠ PERIODIC ACROSS THE WHOLE REACHABLE BAND, never a fixed count, and that is the one thing this
+// function exists to get right. render.js draws the wall only within ~1.6 view radii of the player,
+// but a pass lasts 2*lead/TRAWL_SPEED and the player can swim ALONG the wall the whole time — so the
+// band a fixed handful of tears would have to cover is several times the window they are judged in.
+// A count gives you a coin flip on whether any gap is on screen, and a solid infinite wall for
+// anyone who drifts off the end of it. Spacing is screen-relative (TRAWL_TEAR_SPACE_MUL, the same
+// rule TRAWL_LEAD_MUL follows) and the SPAN is derived from the pass's own duration.
+//
+// Anchored on a GRID IN WORLD SPACE, not on the player: tears sit at whole multiples of `space`
+// along the wall's own axis, offset by a per-pass phase. Anchoring them relative to the player would
+// make the wall follow you, which is not a wall.
+function seedTears(run, nx, ny, lead) {
+  const p = run.player
+  const space = Math.max(1, run.viewRadius * TRAWL_TEAR_SPACE_MUL)
+  // Everywhere the player could reach along the wall before the pass ends, plus the drawn margin.
+  const reach = (2 * lead / TRAWL_SPEED) * (p.speed || PLAYER.baseSpeed) + lead
+  const t0 = p.x * -ny + p.y * nx
+  const phase = Math.random() * space
+  const holes = []
+  const first = Math.ceil((t0 - reach - phase) / space)
+  const last = Math.floor((t0 + reach - phase) / space)
+  for (let i = first; i <= last; i++) {
+    holes.push({ t: i * space + phase, r: TRAWL_TEAR_R * (1 + (Math.random() * 2 - 1) * TRAWL_TEAR_R_VAR) })
+  }
+  return holes
+}
+
 function stepTrawl(run, dt) {
   if (CHAPTERS[run.chapter].signature?.type !== 'trawl') return false
   const p = run.player
@@ -5607,7 +5674,7 @@ function stepTrawl(run, dt) {
     const d0 = p.x * nx + p.y * ny
     // Starts on the -n side and advances through the player. `end` is fixed at spawn rather than
     // trailing the player, so a player who outruns the wall ends the pass early instead of towing it.
-    run.net = { nx, ny, pos: d0 - lead, end: d0 + lead, holes: [], _acc: 0 }
+    run.net = { nx, ny, pos: d0 - lead, end: d0 + lead, holes: seedTears(run, nx, ny, lead), _acc: 0 }
     return false
   }
   net.pos += TRAWL_SPEED * dt
@@ -5706,7 +5773,7 @@ function stepMaws(run, dt) {
 }
 
 // -- The Deep's Scent (v7.x) -------------------------------------------------------------------
-// Fired from stepRepulse like The Reef's burst and The Trawl's breach — same press, same cooldown,
+// Fired from stepRepulse like The Reef's burst — same press, same cooldown,
 // same `t`. This is only the part that has to happen every frame afterwards: age the window, and
 // keep the mark on everything inside the radius.
 //
@@ -5732,7 +5799,7 @@ function stepScent(run, dt) {
 }
 
 // -- The Surf's Wave (v7.x) ---------------------------------------------------------------------
-// Fired from stepRepulse like the burst, the breach and the scent — same press, same cooldown, same
+// Fired from stepRepulse like the burst and the scent — same press, same cooldown, same
 // `t` — and this is the part that has to happen every frame afterwards: age the window, then push
 // and stagger whatever is still inside it.
 //
@@ -5916,11 +5983,6 @@ export function stepCharge(run, dt) {
     sh.feeding = c < run.chargeMax
     break
   }
-  // THE TRAWL'S REFILL IS NOT A PLACE (see CHAPTERS.trawl.signature). Every other Book 2 chapter's
-  // food is a circle on the map that streamShafts materialises into run.shafts, so the loop above
-  // finds all four; this chapter's is the churn behind a wall moving at 75 px/s, and there is
-  // nowhere on the map to stand. run.shafts is empty here, so this is the only branch that can fire.
-  if (inWake(run, p.x, p.y)) c += res.refill * dt
   // v7.x Book 2 Task 9: run.chargeMax, not res.max — Deep Lungs raises the RUN's own ceiling, and
   // this is one of TWO sites that must clamp against it (the other is the per-kill `killBase`,
   // below in dealDamage's kill branch). Missing either one is a flicker: the bar would refill past

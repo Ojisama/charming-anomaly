@@ -495,7 +495,7 @@ export const SUBMISSION_DMG_FRAC = 0.5     // the spec's "50% of your damage"; f
 // damage), so the fidelity lost is one turret's aim. Upgrade path is retargeting `artillery`,
 // whose shells already damage enemies via run.bombs.
 export const SUBMISSION_STRIP_FLAGS = [
-  'soapTrail', 'oilTrail', 'webZone', 'wake', 'artillery', 'missileVolley', 'spawner', 'flashlightCone', 'pullBeam',
+  'soapTrail', 'oilTrail', 'netTrail', 'webZone', 'wake', 'artillery', 'missileVolley', 'spawner', 'flashlightCone', 'pullBeam',
 ]
 export const SUBMISSION_HIT_EVERY = 0.5    // seconds between an ally's contact hits on one target
 // BLOOD MONEY. Owner overruled a maxHP proposal: flat current HP, and the objection ("that is 23
@@ -5588,7 +5588,13 @@ export const BOOKS = {
     chapters: ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond'],
     hidden: ['blank'],
   },
-  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'twilight', 'deep'], hidden: [], wipFrom: 3, startCoins: 100 },
+  // ⚠ THE TRAWL SITS IN FRONT OF THE WRECK, and the order is the design (2026-09-01 owner ruling).
+  // Living industry then dead industry: you meet the boat fishing, then you find it on the bottom.
+  // The Wreck's own LEAK block argues the same way round — "two adjacent chapters whose hazard is
+  // human gear tangled in the water are one chapter told twice" — which only resolves in this order.
+  //   `wipFrom` is an INDEX, so this reordering needed no edit to it: The Reef is still the last
+  // live rung and The Trawl is still the first gated one. Saves key on chapter ID, never position.
+  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'twilight', 'deep'], hidden: [], wipFrom: 3, startCoins: 100 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -7627,8 +7633,9 @@ CHAPTERS.reef = {
   //   every warm prop tint loses a third of its red before it reaches the screen, so BIOME_REEF's raw
   //   tints are authored several steps hotter than the colour they are meant to end up as. Cool the
   //   tint further and the corals cannot read as coral at all; warm it and the water stops being blue.
-  // form: 'fish' — ONE body serves all of Book 2 at one size (no formScale anywhere; The Surf
-  // leaves it at the default 1, The Shelf is 1.15 and The Twilight 1.62). playerTint MUST stay white with a `form`:
+  // form: 'fish' — ONE body serves all of Book 2 at one size. NO chapter declares `formScale`; the
+  // "you grow each chapter" ladder is gone book-wide, and render.js's `chapterRender.formScale ?? 1`
+  // is a live mechanism with no callers. playerTint MUST stay white with a `form`:
   // syncPlayer forces white for the body itself, but the level-up MINIME copies read this value
   // directly and a tinted one turns them into coloured ghosts of the fish (see CHAPTERS.surf.render).
   render: {
@@ -7676,7 +7683,7 @@ CHAPTERS.reef = {
     dust: { tint: 0x949ba3, alpha: 0.35, speedMul: 0.15, sway: 5 },
   },
 }
-// Book 2 chapter 4 — THE ONE BAR YOU PUSH UP. Written as a WHOLE literal for the same reason every
+// Book 2 chapter 5 — THE ONE BAR YOU PUSH UP. Written as a WHOLE literal for the same reason every
 // chapter below is: `{ ...CHAPTERS.x }` shares every nested object BY REFERENCE, so an edit
 // "modifying" this chapter in place would silently rewrite another one's.
 //
@@ -7702,7 +7709,13 @@ CHAPTERS.reef = {
 // const. Written out because a second literal 120 in the render block is precisely the shape of
 // defect this repo loses most releases to: one fact authored twice, no import between them, nothing
 // thrown when they drift.
-const WRECK_TIDE_DEG = 120
+// 2026-09-01: 120 -> 45, TRADED WITH THE TRAWL when the two chapters swapped rungs. The bearing is
+// a SLOT-encoded field, not an identity one (the same rule the Shelf/Twilight move was made under):
+// the ruling it serves is "no two chapters ADJACENT IN THE BOOK shove the same way", so a bearing
+// belongs to a position in the ladder rather than to a chapter. Move the chapter, leave the angle.
+// Run UT.d is what proves it — it measures the separation between book-adjacent pairs, and it went
+// red on shelf/trawl at 25 degrees the moment the order changed.
+const WRECK_TIDE_DEG = 45
 
 CHAPTERS.wreck = {
   name: 'The Wreck', tagline: 'stop and you starve', icon: '⚓',
@@ -7831,11 +7844,13 @@ CHAPTERS.wreck = {
   // Pollution, not traps, and the reason is a noun rather than a mechanic: The Trawl is the net, one
   // chapter later, and two adjacent chapters whose hazard is human gear tangled in the water are one
   // chapter told twice. This is the book's own line made literal instead — "the boat IS the
-  // pollution", dead industry here and living industry next door.
+  // pollution", dead industry here and living industry one rung UP: The Trawl is the boat still
+  // working, and this is that same boat on the bottom. The two were swapped on 2026-09-01 and this
+  // is the order the sentence needs — see BOOKS.undertow.
   //
   // See SLICK_* above for the numbers and for why this rides refillCircleAt but lives in run.slicks
   // rather than run.shafts.
-  // 120° — see the TIDE block for how the six bearings are spread. WRECK_TIDE_DEG, not a literal:
+  // 45° — see the TIDE block for how the six bearings are spread. WRECK_TIDE_DEG, not a literal:
   // render.hull.grain is the same bearing and they must not drift.
   tide: tideAt(WRECK_TIDE_DEG),
   signature: {
@@ -8100,11 +8115,18 @@ CHAPTERS.wreck = {
     // "phase 2" for the day someone gave the chapter a floor. A wreck sits on SILT, not on clean
     // sand and not on coral, so the tint carries a green-grey cast its two neighbours refuse: The
     // Reef is warm and saturated, The Trawl is clean open blue, and this is the murk between them.
-    // Effective floor (bgColor x floorTint, the obstacle-contrast.mjs model) lands between the two,
-    // which is the book's depth ladder — reef #06294d, HERE, trawl #021732.
+    // 0x082a44 -> 0x062136 (2026-09-01), traded with The Trawl's darkness when the two swapped
+    // rungs, for the reason its own block gives: brightness is slot-encoded, and the green-grey silt
+    // in `floorTint` is identity and does not move.
+    //   ⚠ THE LADDER RUN UD ENFORCES IS bgColor LUMINANCE, NOT THE FLOOR. On bgColor the book
+    // descends cleanly (reef 0.031, trawl 0.021, HERE 0.014, twilight 0.009). The FLOOR that
+    // obstacle-contrast.mjs measures is a different model and lands this chapter and The Trawl in a
+    // dead heat — 0.112 here against 0.110 there, measured 2026-09-01 — because this floorTint is
+    // the paler of the two. That is a TIE and not a rung, so do not write a floor ordering between
+    // these two into a comment: it was wrong here for one edit and the tool is the arbiter.
     // ⚠ Re-run scripts/obstacle-contrast.mjs after touching either number: BIOME_WRECK's steel is
     // the palest obstacle family in the book and it is the one that has to stay clear of the roster.
-    bgColor: 0x082a44,
+    bgColor: 0x062136,
     floorTint: 0x9ec4b8,
     playerTint: 0xffffff,
     tail: false,
@@ -8114,7 +8136,7 @@ CHAPTERS.wreck = {
     dust: { tint: 0xbfae94, alpha: 0.3, speedMul: 0.12, sway: 5 },
   },
 }
-// Book 2 chapter 5 — THE ONE THING THAT IS NOT AIMING AT YOU. Written as a WHOLE literal for the
+// Book 2 chapter 4 — THE ONE THING THAT IS NOT AIMING AT YOU. Written as a WHOLE literal for the
 // same reason CHAPTERS.reef and CHAPTERS.surf are: `{ ...CHAPTERS.x }` shares every nested object BY
 // REFERENCE (CHAPTERS.shelf.obstacles === CHAPTERS.pond.obstacles is literally true in shipped code),
 // so a later edit "modifying" this chapter's balance or weapons in place would silently rewrite
@@ -8125,10 +8147,27 @@ CHAPTERS.wreck = {
 // The net does not know you exist. It crosses on a timer, it kills whatever is in it, and it is the
 // only threat in Book 2 you cannot make a mistake in front of, because it is not watching.
 //
-// ⚠ THE NATIVE ARSENAL IS OWED. Longline and Net Toss (spec §7) are not built; the three weapons
-// below are BORROWED STAND-INS, exactly as The Reef shipped with three of them. The school-as-barrier
-// mackerel (spec §6.4) and the drifting bags that silence the button (§4) are owed too. Everything
-// else here — the net, the wake, Feed, the tire, Breach — is real.
+// THE NORMAL CHAPTER OF BOOK 2 (2026-09-01 owner ruling — see the design doc of that date). Every
+// other Undertow rung carries a bar, a button and a hazard; the owner's complaint was that The Reef
+// and The Wreck are two "original" levels back to back, and this is the one in between that is not.
+// So the stack came OFF: no `resource`, no `breach`, no meter to learn. What is left is free-roam,
+// a hostile crowd, a weapon pool and one environmental hazard on a timer — the shape The City's
+// traffic and The Undergrowth's snap traps already ship, in chapters nobody calls unusual.
+//
+// ⚠ THE NET'S TEETH ARE THE TEARS, NOT A SPEED PENALTY, and that is the whole consequence of losing
+// the bar. The wall is an infinite line, so it can never be walked around; at TRAWL_SPEED 75 against
+// the player's 220 you simply swim ahead of it, and the ONLY reason that was not free is that an
+// empty Feed bar dropped you to 136 px/s. With the bar gone the net arrives already torn and the
+// verb is routing: read the wall, pick a gap, thread it with the pack on you. See TRAWL_TEAR_*.
+//
+// ⚠ THE FEED BAR WAS DELETED WITH ITS MEASUREMENT INTACT. It is the best-evidenced mechanic this
+// chapter ever had — a 12-cell drain x refill grid picked against a stated predicate, with the
+// traces quoted in the block. It went because the chapter's JOB changed, not because the tuning was
+// wrong. Do not re-derive it as a mistake; read the design doc's §4 before reinstating anything.
+//
+// ⚠ Three BOOK_SHOP.undertow lines (deepLungs, slowBurn, bigGulp) act only through a chapter's
+// `resource` and are therefore dead money HERE, with no tell in the shop. Accepted price of a
+// chapter with no bar — the same way springtide is the book's mutator and not every chapter's.
 CHAPTERS.trawl = {
   name: 'The Trawl', tagline: 'the net is not aiming at you', icon: '🎣',
 
@@ -8141,93 +8180,90 @@ CHAPTERS.trawl = {
   // The tuna's speed is the point of the tuna: it is the fastest fish in the ocean, and this is the
   // chapter where the player's own speed is the resource. Meeting something that is simply quicker
   // than you while your Feed bar is low is the chapter stating its thesis with a creature.
+  // ---- FIVE, AND TWO OF THEM ARE THE 2026-09-01 PASS ------------------------------------------
+  // The school is CANCELLED. Spec §6.4 wanted the mackerel to become a school-as-barrier — one
+  // entity with a shape you cannot cross — and the owner ruled it out on the day the chapter became
+  // normal: the level already has one wall, and a second one on its own logic is one idea too many.
+  // The mackerel therefore STAYS the deliberately flagless `normal` baseline, on the same argument
+  // CHAPTERS.surf and CHAPTERS.reef make in their own rosters: with a flag on every entry, none of
+  // them reads as special.
+  //
+  // ⚠ THE MACKEREL IS ALSO IN CHAPTERS.wreck, AND THAT IS THE POINT. A chaser here, food one rung
+  // down. Owner ruling 2026-09-01: keep the overlap, because with The Trawl moving in front of The
+  // Wreck the same fish changing category is the book's "you got bigger" arc made literal, for free
+  // — and it only reads that way in this order. Do not "fix" it by renaming one of them.
+  //
+  // The tuna's speed is still the point of the tuna, but its OLD reason is gone: it used to state
+  // "your speed is the resource" in a chapter that no longer has one. What it does now is follow you
+  // through the gap — the thing that is simply quicker than you, arriving where you were headed.
+  //
+  // ⚠ WAVE_TABLE GATES `tank` TO t >= 140s, so the sea lion is absent from the first half of every
+  // run and from any probe shorter than that. Nothing here may lean on it for early pressure, and
+  // every measurement of this chapter has to run the full 300s.
   roster: [
-    { id: 'mackerel', archetype: 'normal', name: 'Mackerel', hpMul: 1,    speedMul: 1.05, flags: [] },
+    { id: 'mackerel', archetype: 'normal', name: 'Mackerel', hpMul: 1,    speedMul: 1.05, weight: 2, flags: [] },
+    // THE ONE THAT IGNORES YOU — the book's whole thesis ("a second threat class that does not know
+    // you exist") as a creature rather than as a hazard. It swims a straight line to somewhere else
+    // and does not stop for you, so it costs you ATTENTION rather than health: you hit it because
+    // you were not looking. Owner ruling 2026-09-01.
+    //   `normal`, NOT `tank`, and that is forced rather than chosen: tank does not spawn until 140s
+    // and this is the entry that teaches the chapter's grammar, so it has to be there at the start.
+    // The bulk is bought with hpMul and radiusMul instead.
+    //   ⚠ maxAlive, for the reason spawnEnemy's own block states about the anglerfish and ends with
+    // "any future roster entry that does not chase the player will need this too": a turtle never
+    // walks into you, so it never dies, so its spawn weight controls its ACCUMULATION rather than
+    // its density — and MAX_ALIVE is a shared budget it would otherwise eat whole.
+    //   xpMul is low on purpose: 60 hp for one point would already be the worst rate in the game,
+    // and it must not become a thing you farm instead of a thing you dodge.
+    { id: 'turtle',   archetype: 'normal', name: 'Sea Turtle', hpMul: 3, speedMul: 0.5, weight: 1, xpMul: 0.6, radiusMul: 1.5, maxAlive: 3, flags: ['cruise'] },
     { id: 'sealion',  archetype: 'tank',   name: 'Sea Lion', hpMul: 2.4,  speedMul: 0.85, flags: ['pounce'] },
-    { id: 'tuna',     archetype: 'fast',   name: 'Tuna',     hpMul: 0.95, speedMul: 1.25, flags: ['dashBurst'] },
+    { id: 'tuna',     archetype: 'fast',   name: 'Tuna',     hpMul: 0.95, speedMul: 1.25, weight: 2, flags: ['dashBurst'] },
+    // THE ONE THAT HOLDS YOU. A remora attaches BECAUSE you are big, which makes the player's own
+    // size the reason it is there — and being held while the wall closes is this chapter's fear
+    // expressed as a creature: `latch` is a 0.55x move speed for 0.9s, which at the net's 75 px/s is
+    // most of a tear you no longer reach. It turns the gap moment into something you can lose.
+    //   `latch` ALREADY EXISTS (The Wreck's moray wears it), so the behaviour costs nothing; the
+    // concept is what earns the slot. `fast` because it has to catch you to stick, and `weight` is
+    // what keeps the tuna the staple of that bucket — spawnEnemy picks the TYPE first, so a second
+    // `fast` entry at equal weight would halve the incumbent's share.
+    { id: 'remora',   archetype: 'fast',   name: 'Remora',   hpMul: 0.6,  speedMul: 1.15, weight: 1, xpMul: 0.7, radiusMul: 0.7, flags: ['latch'] },
   ],
-  eliteFlags: ['soapTrail'],   // the Undertow's own elite flag, shared with the other three
+  // ⚠ FIRST CUT ON EVERY NUMBER IN THE TWO NEW ROWS, and stated rather than implied — same standing
+  // as the `balance` block below. They were chosen to sit in the right ORDER against the incumbents
+  // (the remora catches you, the turtle does not), not measured. Six seeds and the spread before any
+  // claim about this chapter's difficulty ships.
+
+  // THE CHAPTER'S OWN ELITE AFFIX AT LAST. `soapTrail` is the pond's soap-bubble pool and The Trawl
+  // was the last Undertow chapter still borrowing it; The Wreck took its own oilTrail in v7.255.
+  //   An elite drags a length of torn mesh — a small unscheduled piece of the wall, moving on a
+  // creature's logic instead of the sweep's, so the wall can find you BETWEEN passes. That is what
+  // the quiet stretch needs now that no bar fills it.
+  //   ⚠ IT REUSES oilTrail's ENTITY AND NOT ITS LOOK. That flag tags its run.blooms entries
+  // look:'bilge' specifically to inherit Bilge and the Leak's stain and render for free — and this
+  // chapter has neither, so borrowing the look would draw netting as an OIL SLICK. `netTrail` is the
+  // same trail with its own look; see the flag's block in sim.js and syncSlicks in render.js.
+  eliteFlags: ['netTrail'],
 
   // THE NET. See the TRAWL_* block for the geometry (an infinite line, because a streamed world has
   // no edges for a wall to span) and for why 75 px/s is the one number here with a derived band.
   // This block carries only what is per-chapter: how often a pass comes, and how deep the wake it
   // leaves is. Everything else about a net is the same net.
   //
-  // The signature is ALSO the refill geometry, which is unique in the book and is the whole design:
-  // The Shelf's shafts, The Surf's pools and The Reef's pockets are all PLACES, so refillSpec() finds
-  // them and the same streamer materialises all three. There is no place here. The only food in the
-  // chapter is the churn behind a wall moving at 75 px/s, so the bar can only be filled by riding
-  // alongside the thing that kills you. refillSpec() returns null for a `trawl` signature with no
-  // special case (it looks for shafts/pools/pockets and finds none), and stepCharge asks inWake().
+  // THE ONLY SIGNATURE IN THE BOOK WITH NO BAR BEHIND IT, and that is what makes this the normal
+  // chapter: refillSpec() returns null for a `trawl` signature with no special case (it looks for
+  // shafts/pools/pockets and finds none), and with no `resource` declared above, nothing asks it.
+  // The churn behind a pass is still drawn — see TRAWL_WAKE_DEPTH, which is render-only now.
   //
   // NO NUMBERS IN THIS BLOCK, deliberately: every other signature carries its own geometry because
   // several chapters share a mechanic and tune it differently, where a net is the same net and only
   // one chapter has one. They live in the TRAWL_* block with the rest of the wall's constants. Note
   // that block sits BELOW this one in the file, so pulling one in here would be a TDZ throw at
   // import — see HUMIDITY_DMG_FLOOR above CHAPTERS for the one value that genuinely needed hoisting.
-  // 45° — see the TIDE block for how the six bearings are spread.
-  tide: tideAt(45),
+  // 120° — see the TIDE block for how the six bearings are spread. Traded with The Wreck's on
+  // 2026-09-01 when the two swapped rungs: the bearing goes with the SLOT, not with the chapter,
+  // because the ruling it serves is about book-ADJACENT pairs. See WRECK_TIDE_DEG's own block.
+  tide: tideAt(120),
   signature: { type: 'trawl' },
-
-  // FEED, and the second job is SPEED (§5.2's table: five bars, five different axes — output, sight,
-  // survival, mobility, perception; this is mobility). At the bottom of the bar you tire, and in this
-  // chapter specifically that means the net catches you. The bar's second job and the signature are
-  // the same sentence, which is the strongest version of §5.2's rule in the book.
-  //
-  // `tire` reads through tiredness() (see barRamp), the same curve The Shelf's dark runs on: a ramp
-  // that starts at `from` and reaches full at empty, NOT a cliff at zero. A cliff at exactly 0 gives
-  // the player no warning and no way to trade, where a ramp starting at 45% of the bar is something
-  // you can watch arriving and decide about — which is the same argument the dark's own block makes
-  // for its threshold, and it is worth more here because the consequence is a wall.
-  //
-  // speedFloor 0.62 IS ALSO THE NUMBER THAT MAKES THE NET CATCHABLE, and that pins it rather than
-  // leaving it to taste: base speed is 220, so a fully tired player moves at 136 px/s against a
-  // 75 px/s net. That is still faster than the net — running dry must never be an unrecoverable
-  // trap (spec §8.2) — but the margin falls from 145 px/s to 61, i.e. outrunning the wall stops
-  // being free and starts being the only thing you are doing. The Surf's sandbar floor is 0.62 too,
-  // and that is not a copied number: both are "you can still move, and you will not like it", and
-  // keeping them equal means a player who learned the feel in chapter 1 recognises it in chapter 4.
-  //
-  // MEASURED — scripts/charge-probe.mjs --chapter trawl, 300s x 3 seeded runs, difficulty 1,
-  // immortal. Its `kite`/`seek` policies CANNOT BE EXPRESSED HERE (they both walk toward the nearest
-  // entry of run.shafts, which is permanently empty in this chapter), so the probe grew a third
-  // movement family for it and the TRIO is the answer — never one row alone:
-  //
-  //   policy               mean  %at0  %atMax  %inRefill   the reading
-  //   base ignore hoard    17.3    41       0       13.6   the wake washes over you and it is not enough
-  //   base flee   hoard     6.4    87       0        0.0   outrun the net and you eat nothing at all
-  //   base ride   hoard    71.8     0      22       43.9   work it and the bar cycles, 23..100
-  //
-  // THE SHAPE IS THE EVIDENCE, not the mean — `ride hoard` samples every 10s of run 1 read
-  //   74 100 100 89 63 37 52 100 93 67 41 42 100 97 71 45 31 95 100 75 49 23 85 100 80 54 28 74 100
-  // which is a bar CYCLING with the passes: it fills as the net goes by and drains until the next
-  // one, 23..100, never resting at either end. `flee hoard` on the same seed is
-  //   74 48 22 0 0 0 0 0 0 0 0 0 0 0 ...
-  // for the remaining 280 seconds. A mean cannot tell those two apart from a bar pinned mid-range,
-  // which is why the probe prints the trace and why this block quotes it.
-  //
-  // ⚠ `ignore` IS THE ROW THAT SET THE DRAIN, and it is why this chapter's drain (2.6) is the
-  // highest in the book against The Shelf's 2.2 and The Reef's 1.4. Every other Book 2 refill is a
-  // place you must go to; this one MOVES, so it sweeps over a player who never engages, free, for
-  // TRAWL_WAKE_DEPTH / TRAWL_SPEED = 5.6s per pass. At the first tune (drain 1.1, refill 14) that
-  // paid for the whole run and `ignore` came out at a mean of 80/100 — the mechanic rewarding a
-  // player who never looked at it. The knob grid that fixed it swept drain x refill over 12 cells
-  // against a stated predicate (ignore mostly at zero, ride high and stable, flee worst), and two
-  // cells passed; this is the one with the wider separation.
-  //
-  // The food also ARRIVES IN BURSTS rather than being continuously available — six passes in 300s,
-  // against a pocket field you can steer into whenever you like — which is the second reason the
-  // drain is high: with a bar that only empties slowly, a burst economy would never bite.
-  //
-  // NO KILL REFILL: the wake is the only source. This chapter runs ~4 kills/s, so any per-kill
-  // refill worth naming paid multiples of the 2.6/s drain and flattened the three rows above into
-  // one — the same failure The Reef's block records at length.
-  resource: { name: 'Feed', drain: 2.6, refill: 9, max: 100, tire: { from: 0.45, speedFloor: 0.62 } },
-
-  // The button. See BREACH_* for the cast. The flag sits here beside `signature` because the two are
-  // one design: the net is the chapter's problem and this is the only answer to it that is not
-  // "swim faster".
-  breach: true,
 
   // NOTHING TO HIDE BEHIND. Open water is the point — the net spans everything, and furniture would
   // offer cover from a hazard that is not aiming at you anyway, which is a promise the geometry
@@ -8274,14 +8310,22 @@ CHAPTERS.trawl = {
   // for thinning a chapter's floor and it is gated on `chapterHasDistricts`; generalising it is the
   // upgrade path if this floor ever reads as too busy.
   //
-  // form: 'fish' — ONE body serves all of Book 2, at one size across every chapter
-  // (Surf 1.0, Shelf 1.15, Reef 1.3, here 1.55). playerTint MUST stay white with a `form`: syncPlayer
+  // form: 'fish' — ONE body serves all of Book 2, at one size across every chapter. NO chapter
+  // declares `formScale`; that ladder is gone book-wide. playerTint MUST stay white with a `form`: syncPlayer
   // forces white for the body itself, but the level-up MINIME copies read this value directly and a
   // tinted one turns them into coloured ghosts of the fish (see CHAPTERS.surf.render).
   render: {
     cast: ['mackerel', 'tuna', 'sealion'],
     form: 'fish',
-    bgColor: 0x05203f,
+    // 2026-09-01: 0x05203f -> 0x06284f, TRADED WITH THE WRECK when the two swapped rungs. Run UD
+    // asserts Book 2's bgColor luminance never rises as you descend, and it went red the moment the
+    // order changed — the darkness is a SLOT-encoded field and belongs to the position in the
+    // ladder, not to the chapter. Only the VALUE moved: the hue is untouched, so this is still the
+    // clean open blue the chapter is authored in, and the wreck below keeps its green-grey silt.
+    // Physically it is also the right way round now — open water under a working boat should be
+    // brighter than a hull settling into sediment.
+    // ⚠ Re-run scripts/obstacle-contrast.mjs after touching this.
+    bgColor: 0x06284f,
     floorTint: 0x93b6cc,
     playerTint: 0xffffff,
     tail: false,
@@ -11482,12 +11526,12 @@ export const ORCA_WAKE_PLAYER = 480    // px/s of lateral drift at the line itse
 // THE BOAT IS THE POLLUTION. Owner ruling 2026-08-17, taken when the chapter turned into a hunt:
 // with the whole roster demoted to food, nothing on the map is a threat any more, and a chapter you
 // cannot lose is not a chapter. The threat had to be human — a shark's only predators are orcas and
-// people — and it had to not be a NET, because The Trawl one chapter later is the net and owns that
+// people — and it had to not be a NET, because The Trawl one chapter EARLIER is the net and owns that
 // noun outright.
 //
 // So the wreck leaks. Drums and cargo split open on the bottom, and what comes out of them sits
 // there. It does not chase, does not aim, does not spawn on a timer and does not know the player
-// exists — the same "not aiming at you" grammar The Trawl's net is built on, one chapter early and
+// exists — the same "not aiming at you" grammar The Trawl's net is built on, one chapter later and
 // in a form that stays still. What makes it dangerous is entirely that the food is on the other
 // side of it.
 //
@@ -11536,21 +11580,26 @@ export const resistFrac = (r) => r / (r + PASSIVE_RESIST_K)
 //
 // ⚠ SPEED IS THE ONE NUMBER WITH A DERIVED BAND, from spec §6.4: outrunnable but not ignorable.
 // The joystick's expressible speed set is {0} ∪ [33, 220] — DEADZONE 0.15 x baseSpeed 220 is a hard
-// CUT, not a rescale — so anything under 33 is beneath the slowest correction a player can even
-// make, and anything near 220 is a wall rather than a sweep. 75 sits mid-band, and above
-// KITE_MIN_SPEED (100) is deliberately NOT crossed: stepStragglers recycles the horde into the
-// heading of a player moving faster than that, which here would mean the net herding the crowd onto
-// you. Running from the net should bring the crowd with you, but as a consequence of your own
-// speed, not of the net's.
+// CUT, not a rescale — so 33 is the genuine LOWER bound: anything under it is beneath the slowest
+// correction a player can even make. 220 is the upper one, where a sweep becomes a wall.
+//   ⚠ 2026-09-01: "NOT IGNORABLE" USED TO BE CARRIED BY THE BAR AND NOW IS NOT. The old argument was
+// that running dry dropped you to 136 px/s and collapsed the margin against 75; there is no bar any
+// more, so 75 alone is a speed you simply outswim. The TEARS carry it instead — you cannot outrun an
+// infinite line for a whole pass without arriving somewhere, and where you arrive has to be a gap.
+// The number therefore wants re-deriving against TRAWL_TEAR_SPACE_MUL rather than against a speed
+// floor, and is UNMEASURED under the new design.
+//   KITE_MIN_SPEED (100) is an UPPER bound on this, not a lower one, and it binds weakly: it is the
+// PLAYER's velocity stepStragglers gates on, so it only speaks to a player choosing to match the
+// net's pace. Staying under it keeps the net from herding the crowd onto such a player.
 export const TRAWL_SPEED = 75            // px/s the wall sweeps — spec §6.4's 60-90 band
 export const TRAWL_INTERVAL = 26         // s from one pass clearing to the next one arriving
-// The FIRST pass, which is deliberately not TRAWL_INTERVAL and is a teaching decision rather than a
-// tuning one. The bar starts full and drains at 2.6/s, so `tire` (below 45% of 100) begins biting at
-// ~21s — which is BEFORE the first wall would ever have appeared on the shipped interval. A player
-// would spend their first half-minute slowing down for no visible reason, in a chapter whose entire
-// answer to that is a thing they have not been shown yet. Ten seconds puts the wall on screen while
-// the bar is still comfortable, so the order the chapter teaches itself in is: here is the net, here
-// is what it leaves behind, here is why you needed it.
+// The FIRST pass, deliberately not TRAWL_INTERVAL, and a teaching decision rather than a tuning one:
+// the net is the only thing in this chapter a player has to learn, and every second before it
+// arrives is a second spent in an ordinary fight that teaches them nothing about where they are.
+// Ten seconds puts the wall on screen while the first wave is still small enough to leave.
+//   ⚠ ITS ORIGINAL REASON IS GONE. This was 10 because `tire` began biting at ~21s and a player
+// would otherwise spend half a minute slowing down for a cause they had not been shown. There is no
+// bar to bite, so the number survives on the weaker argument above and is unmeasured under it.
 export const TRAWL_FIRST_PASS = 10
 export const TRAWL_HALF = 30             // px half-thickness of the mesh itself
 // How far ahead of the player a pass STARTS, and how far past them it runs before it is dropped —
@@ -11564,37 +11613,42 @@ export const TRAWL_LEAD_MUL = 1.6
 export const TRAWL_TICK = 0.35           // s between contact ticks, for player and enemies alike
 export const TRAWL_DMG = 9               // player damage per tick in the mesh
 export const TRAWL_ENEMY_DMG = 34        // enemy damage per tick — the net out-kills you, and should
-// The churned wake: sediment and prey stirred up by the thing trying to catch you, and the ONLY
-// place Feed comes from. World px, like every other refill geometry in the book (the shelf's shafts,
-// the surf's pools, the reef's pockets are all world radii), because it is a place on the map rather
-// than a quantity compared against the screen.
-//
-// 420 against TRAWL_SPEED 75 is 5.6 seconds of feeding per pass if you ride it the whole way, and
-// riding it means holding station beside a wall that kills on contact. That is §5.2's refill rule —
-// "a place you can fight from, never a place you go to stop" — in its strongest form in the book:
-// there is nowhere to stop, because the only food in the chapter is moving at 75 px/s.
+// The churned wake: sediment and prey stirred up by the thing trying to catch you. RENDER-ONLY since
+// 2026-09-01 — it was the only place Feed came from, and the bar went with the chapter's redesign.
+// What it still does is say where the net has BEEN, which is the tell that tells a torn wall from an
+// untorn one after it has passed you. World px rather than screen-relative, because it is a place on
+// the map rather than a quantity compared against the screen.
 export const TRAWL_WAKE_DEPTH = 420
 
-// ---- BREACH (v7.x, The Trawl — the button) ----------------------------------------------------
-// The same press, the same cooldown and the same spend as the Pulse and the Burst: `t` comes from
-// stepRepulse, so a chapter never gets a second button or a second bar. Breach tears a hole in the
-// net at the player's own position on it, and THE HOLE PERSISTS for the rest of that pass — a door
-// you made, which the crowd will also use, because the hole is a gap in one line and the line does
-// not know who is standing in it.
+// ---- THE TEARS (2026-09-01, The Trawl — what the net has instead of a button) -------------------
+// The net arrives ALREADY TORN. There was a button here (Breach: spend charge, cut a door) and it
+// went with the Feed bar when the chapter became normal — so the gaps are the level's, not yours,
+// and the verb is routing rather than spending. Same run.net.holes array, same inNetHole test, same
+// "the line does not know who is standing in it": the crowd pours through your gap too, which is
+// what makes a tear the place the fight happens rather than an exit.
 //
-// THE FLOOR IS THE RADIUS, exactly as the Burst's floor is its duration, and here it is load-bearing
-// rather than a courtesy. This chapter's second job is that an empty bar makes you SLOW, and a slow
-// player is one the net catches — so if an empty bar also could not tear a hole, running dry would
-// be the structural trap spec §8.2 forbids, with the two halves of the chapter conspiring to build
-// it. BREACH_R_MIN is therefore wider than the player: at zero Feed you can still cut your way out,
-// you just cannot cut a door for the crowd to follow you through.
-export const BREACH_R_MIN = 70           // px hole radius on an EMPTY bar — the no-spiral floor
-export const BREACH_R_AT_FULL = 220      // px at a full PULSE_CHARGE_COST spend
-// You must be NEAR the net to cut it. Without this the button is free — pressed on cooldown from
-// anywhere, the wall is never a decision. With it, breaching means turning back toward the thing
-// that is killing you while it is still 500px out, which is the trade the chapter is made of.
-export const BREACH_REACH = 520          // px from the mesh's centre line, either side
-export const BREACH_MAX_HOLES = 6        // per pass; a wall cut to lace is not a wall
+// ⚠ SPACING IS SCREEN-RELATIVE AND THE SPAN IS DERIVED — a fixed COUNT of tears cannot work, and
+// that is measured rather than argued. render.js draws the wall only +/- max(600, viewRadius * 1.6)
+// either side of the player: 744px on a 390x844 phone, so a 1488px window. A pass lasts
+// 2 * lead / TRAWL_SPEED = 19.8s, in which a 220 px/s player covers 4365px ALONG the wall. Six
+// tears (the old BREACH_MAX_HOLES budget) spread over that band is one per ~730px against that
+// window — a coin flip on whether any gap is on screen — and a player who drifts past the band
+// meets a solid infinite wall for the rest of the pass. So: tears repeat forever at a fixed
+// spacing, and the seeder covers everywhere the player could reach.
+//   The same rule TRAWL_LEAD_MUL exists for, and for the same reason: the warning IS the mechanic,
+// and a world-px spacing would be a different amount of warning on a phone than on a desktop.
+export const TRAWL_TEAR_SPACE_MUL = 1.3  // gap-to-gap spacing, as a multiple of run.viewRadius
+// balance_decision : one tear on screen most of the time, not always [2026-09-01]
+//  - at 1.3 that is ~967px between gaps against a 1488px window on a phone: usually exactly one
+//    visible, sometimes none, and finding the next one is the pressure. Below ~1.0 a gap is always
+//    on screen and the wall stops being a decision; above ~2.0 it reads as solid.
+//
+// WORLD PX, NOT SCREEN-RELATIVE, and the difference is deliberate: the SPACING is about what you can
+// see, but the RADIUS is about whether your body fits through, and a body is a world-space thing.
+// This is the number BREACH_R_MIN measured as "wider than the player" and it is inherited unchanged.
+export const TRAWL_TEAR_R = 70           // px, half-width of one tear along the wall
+export const TRAWL_TEAR_R_VAR = 0.35     // +/- fraction of jitter on it, so the mesh reads as torn
+                                         // rather than as perforated
 
 // ---- THE DARK (v7.x Book 2, owner directive) --------------------------------------------------
 // The bar is no longer only the Pulse's ammo. Owner's words: "if we're stealing light, then our
@@ -11819,7 +11873,7 @@ export const resourceRateMul = (charge, res, max = res?.max) => rampOn(res?.rate
 export const pollutionFrac = (charge, max) => 1 - Math.min(1, Math.max(0, charge) / (max || 1))
 
 // ---- STARVING (v7.x, The Wreck — resources declaring a `starve` block) -------------------------
-// The Reef's `drown` shape, one chapter later, and the duplication is deliberate rather than
+// The Reef's `drown` shape, two chapters later, and the duplication is deliberate rather than
 // factored: they are the same MECHANISM answering opposite PROBLEMS, and a shared `dot` block would
 // hide that. Air is a routing problem — you are at zero because you did not cross the lane to a
 // pocket, and the fix is on the map. Bloodlust is a tempo problem — you are at zero because you
