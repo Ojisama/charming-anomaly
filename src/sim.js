@@ -188,6 +188,8 @@ import {
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
   TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
+  TIGHT_WEAVE_TEAR_MUL, TIGHT_WEAVE_ENEMY_DMG_MUL,
+  BRING_ARRIVE_PAD, BRING_MAX_LIVE, BRING_SNAP_T,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
@@ -5643,7 +5645,12 @@ function seedTears(run, nx, ny, lead) {
   const first = Math.ceil((t0 - reach - phase) / space)
   const last = Math.floor((t0 + reach - phase) / space)
   for (let i = first; i <= last; i++) {
-    holes.push({ t: i * space + phase, r: TRAWL_TEAR_R * (1 + (Math.random() * 2 - 1) * TRAWL_TEAR_R_VAR) })
+    // ANOMALIES.tightWeave narrows every tear, which is this chapter's trade: the gaps are your way
+    // through the wall, so selling their width is selling your escape. Applied to the RADIUS and
+    // never to the spacing or the count — a card that removed tears entirely would be a pivot, and
+    // TIGHT_WEAVE_TEAR_MUL's own block records the arithmetic that keeps one passable.
+    const tearMul = run.anomalies?.tightWeave ? TIGHT_WEAVE_TEAR_MUL : 1
+    holes.push({ t: i * space + phase, r: TRAWL_TEAR_R * tearMul * (1 + (Math.random() * 2 - 1) * TRAWL_TEAR_R_VAR) })
   }
   return holes
 }
@@ -5678,7 +5685,10 @@ function stepTrawl(run, dt) {
     return false
   }
   net.pos += TRAWL_SPEED * dt
-  if (net.pos > net.end) { run.net = null; run._netAcc = TRAWL_INTERVAL; return false }
+  // MUTATORS.fullSeason shortens the GAP and never the sweep, which is the whole reason the knob is
+  // here and not on TRAWL_SPEED: TRAWL_LEAD_MUL's warning is this chapter's mechanic, so a mutator
+  // that ate the reading time would play as unfair rather than as harder. More walls, same notice.
+  if (net.pos > net.end) { run.net = null; run._netAcc = TRAWL_INTERVAL * run.mods.trawlIntervalMul; return false }
 
   // Contact, on a tick rather than per frame — for the same reason stepRocks grinds on ROCK_TICK:
   // 60 fractional hits a second is unreadable and floods the event stream.
@@ -5694,7 +5704,11 @@ function stepTrawl(run, dt) {
     if (e._dead) continue
     if (Math.abs(netDist(net, e.x, e.y)) > TRAWL_HALF + e.radius) continue
     if (inNetHole(net, e.x, e.y)) continue
-    dealDamage(run, e, TRAWL_ENEMY_DMG * ticks, false, false, true)   // hazard: the player did not deal it
+    // tightWeave's other half: the wall does your killing in exchange for your way out of it. The
+    // multiplier is on the CROWD's side only — the player's TRAWL_DMG is untouched, or the card
+    // would be a pivot that punishes you twice for one trade.
+    const weaveMul = run.anomalies?.tightWeave ? TIGHT_WEAVE_ENEMY_DMG_MUL : 1
+    dealDamage(run, e, TRAWL_ENEMY_DMG * weaveMul * ticks, false, false, true)   // hazard: the player did not deal it
   }
   if (Math.abs(netDist(net, p.x, p.y)) > TRAWL_HALF + PLAYER.radius) return false
   if (inNetHole(net, p.x, p.y)) return false
@@ -7722,6 +7736,10 @@ const WEAPON_STAT_MODS = {
   // the base one) on the pause build sheet.
   longline:      { barbed: ['dmg', 'pct'], longSet: ['length', 'pct'], deepSet: ['setDur', 'pct'] },
   netToss:       { wideNet: ['r', 'pct'], heavyMesh: ['hold', 'pct'], weighted: ['dmg', 'pct'] },
+  // `doubleRig` is absent DELIBERATELY and read at the fire site instead, like hole's `singularity`
+  // and the star's multishot: it is a per-cast COUNT of LINES, and there is no `lines` key in
+  // levels[] for it to fold into. `quickReel` is in WEAPON_RATE_MODS for the usual reason.
+  bringItIn:     { barbedLine: ['dmg', 'pct'], longGaff: ['castRange', 'pct'], wideDrag: ['width', 'pct'] },
   // The Twilight's three natives. `secondSun` folds as 'flat' rather than going through
   // WEAPON_COUNT_MODS for the reason the Surf block above gives: `count` is a real key in levels[],
   // so effectiveWeaponStats folds it and the pause sheet reports it without a second registration —
@@ -7904,6 +7922,7 @@ function stepWeapons(run, dt) {
     else if (w.id === 'barnacles') stepBarnacleWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'longline') stepLonglineWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'netToss') stepNetTossWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'bringItIn') stepBringItInWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'sunspear') stepSunspearWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'bubblePuff') stepBubblePuffWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'siltVeil') stepSiltVeilWeapon(run, w, stats, fireRateMul, dt)
@@ -7935,6 +7954,7 @@ function stepWeapons(run, dt) {
   stepZones(run, dt)
   stepLobs(run, dt)
   stepLonglines(run, dt)
+  stepHauls(run, dt)
   // v7.23 skies. stepDrags moves bodies, so it runs BEFORE the dead sweep below and before
   // stepArcs, whose fork is rebuilt from live positions — a hooked aircraft should already be at
   // its new spot when the breath decides where to jump.
@@ -11971,6 +11991,127 @@ function stepLonglines(run, dt) {
     }
   }
   run.longlines = run.longlines.filter((l) => l.life > 0)
+}
+
+// BRING IT IN (2026-09-01, The Trawl's epic and the chapter's only execution). Hooks the FARTHEST
+// body it can reach and winches it home through everything in the way; it does not arrive alive.
+//
+// It is its own array (run.hauls) rather than a run.lobs rider, and the reason is that every other
+// entity in this game owns its own position. A haul does not: it owns an ENEMY ID, and the line's
+// far end is wherever that body is this frame. Riding lobs would mean a lob whose x/y are a lie,
+// and stepLobs' three render consumers would each draw it somewhere it is not.
+//
+// ⚠ FARTHEST, NOT NEAREST, which is the opposite of aimAngle's rule and is the whole card. Reaching
+// past the crowd at your feet to pick something out of the back is what buys the long corridor —
+// hooking the nearest body would plough two pixels and execute a mackerel that was already dying.
+//
+// ⚠ NEVER AN ELITE. The orca's own rule (see orcaBite) applied to a weapon: an unconditional execute
+// on an elite or a boss is not a balance number, it is a different game. Gating the HOOK rather than
+// the arrival is what lets the execute stay unconditional and clause-free. An elite standing in the
+// corridor still takes the plough damage like anything else.
+function pickHaulTargets(run, range, n) {
+  const p = run.player
+  const r2 = range * range
+  const cands = []
+  for (const e of run.enemies) {
+    if (e._dead || e.elite || isAlly(e)) continue
+    const dx = e.x - p.x, dy = e.y - p.y
+    const d2 = dx * dx + dy * dy
+    if (d2 > r2) continue
+    cands.push([d2, e])
+  }
+  // DISTINCT BY CONSTRUCTION: sort once, take the n farthest. A chooser that picked with replacement
+  // would put two lines on one body, which is the "same hit, bigger" outcome Double Rig exists to
+  // escape AND renders identically to no change at all — two ropes on one target look like one rope.
+  cands.sort((a, b) => b[0] - a[0])
+  return cands.slice(0, n).map(([, e]) => e)
+}
+
+function stepBringItInWeapon(run, w, stats, fireRateMul, dt) {
+  // DIVIDED HERE, not folded through WEAPON_STAT_MODS: folding a rate pick into `interval` would
+  // make the weapon SLOWER, which is the trap WEAPON_RATE_MODS exists to route around.
+  const quickReel = run.weaponMods.bringItIn?.quickReel ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quickReel)), dt, () => {
+    const lines = ipecacN(run, 1 + (run.weaponMods.bringItIn?.doubleRig ?? 0))
+    // Already-hooked bodies are excluded so a second cast cannot double up on one catch.
+    const busy = new Set(run.hauls.map((h) => h.eid))
+    const targets = pickHaulTargets(run, stats.castRange, lines + busy.size).filter((e) => !busy.has(e.id)).slice(0, lines)
+    for (const e of targets) {
+      run.hauls.push({
+        eid: e.id, x: e.x, y: e.y,
+        dmg: stats.dmg, tick: stats.tick, acc: 0,
+        speed: stats.travelSpeed, width: stats.width,
+        snap: 0,
+      })
+      run.events.push({ type: 'hookOn', x: e.x, y: e.y })
+    }
+    if (run.hauls.length > BRING_MAX_LIVE) run.hauls = run.hauls.slice(-BRING_MAX_LIVE)
+  })
+}
+
+// Reels every live haul, ploughs the corridor its catch sweeps, and lands it.
+function stepHauls(run, dt) {
+  if (run.hauls.length === 0) return
+  const p = run.player
+  for (const h of run.hauls) {
+    if (h.snap > 0) { h.snap -= dt; continue }
+    const e = run.enemies.find((x) => x.id === h.eid)
+    // The catch died on the way in — to the plough, to the net, to anything. The line goes slack.
+    if (!e || e._dead) { h.snap = -1; continue }
+    const dx = p.x - e.x, dy = p.y - e.y
+    const d = Math.hypot(dx, dy)
+    // LANDED. Executed with a credited kill rather than a bare `_dead`, so the gem, the coins and
+    // every on-kill proc fire — this is the player's own catch, not a hazard's (stepLeaks' idiom is
+    // the uncredited one and is deliberately not what this uses).
+    // ⚠ PLAYER.radius, NOT p.radius — the run's player object has no `radius` field at all, and the
+    // undefined made this threshold NaN, so `d <= NaN` was false forever: the catch was reeled
+    // straight through the player to d = 0, the unit vector below then divided by zero, and the body
+    // walked off to NaN and stayed there. Nothing threw and nothing went red; on screen it is an
+    // enemy that simply stops existing in the coordinate system.
+    if (d <= PLAYER.radius + e.radius + BRING_ARRIVE_PAD) {
+      applyDamage(run, e, e.hp + 1)
+      // ⚠ THE EXECUTE IS NOT UNCONDITIONAL, AND asking applyDamage does not tell you so.
+      // applyDamage returns the damage it INTENDED; dealDamage then decides whether any of it
+      // lands, and skips the HP subtraction entirely for a raised guard (guardBlocks) or a
+      // damage-immune body (damageImmune: a phased `_phaseSolid === false`, an ally). So `e._dead`
+      // is the only honest question, and it has to be asked AFTER the call.
+      //   Getting this wrong is not a silent no-op — it is a LIE. Pushing `boarded` regardless
+      // fires two rings and a screen shake at the player's feet, telling them a kill happened
+      // while the body stands there at full HP having eaten a whole 3-4s cast.
+      //   No Trawl roster entry carries guard, puffup or phase today, so this is unreachable in
+      // normal play and entirely reachable through the dev card list — and it would go live the
+      // day a guard-flagged fish joins this chapter, with nothing going red.
+      if (e._dead) {
+        run.events.push({ type: 'boarded', x: e.x, y: e.y })
+        h.snap = BRING_SNAP_T
+      } else {
+        // The catch shrugged the line off. Drop it with no tell at all rather than a kill VFX for
+        // a body that is still standing; -1 is what the filter below collects.
+        h.snap = -1
+      }
+      continue
+    }
+    const step = Math.min(d, h.speed * dt)
+    const ux = dx / d, uy = dy / d
+    e.x += ux * step
+    e.y += uy * step
+    h.x = e.x; h.y = e.y
+    // THE CORRIDOR. Everything within `width` of the catch takes the plough tick — the value of this
+    // card is the NUMBER OF BODIES it drags through, never the number on any one of them, which is
+    // the same reasoning WEAPONS.longline's own tick damage records.
+    h.acc += dt
+    const ticks = Math.floor(h.acc / h.tick)
+    if (ticks <= 0) continue
+    h.acc -= ticks * h.tick
+    const w2 = (h.width + e.radius) * (h.width + e.radius)
+    for (const o of run.enemies) {
+      if (o._dead || o === e || isAlly(o)) continue
+      const ox = o.x - e.x, oy = o.y - e.y
+      if (ox * ox + oy * oy > w2) continue
+      applyDamage(run, o, h.dmg * ticks)
+    }
+  }
+  run.hauls = run.hauls.filter((h) => h.snap >= 0)
 }
 
 // Net Toss. The throw is a run.lobs entry carrying `snare` — see the branch at the top of stepLobs

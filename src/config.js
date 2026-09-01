@@ -881,6 +881,27 @@ export const specialistSubjects = (run) => (run.weapons ?? [])
 // (roll the kind, then the card) rather than one flat list. `kind` is descriptive today — nothing
 // reads it. Hand-tuned weights hit the same mix for THIS slate and will drift as the remaining six
 // cards land, which is the right time to build the real thing.
+// ANOMALIES.tightWeave's two numbers (The Trawl). HOISTED HERE, above ANOMALIES, for the same
+// reason HUMIDITY_DMG_FLOOR is hoisted above CHAPTERS: the card's `desc` is a template that reads
+// them, and their natural home — the TRAWL_TEAR_* block beside the geometry they turn — sits
+// thousands of lines below, which would be a TDZ throw at import rather than a lint failure.
+// The template is what keeps the sentence on the card and the arithmetic in the sim from drifting.
+//   ⚠ PASSABILITY IS NOT A MARGIN QUESTION HERE, and the first version of this comment got the
+// arithmetic backwards in its own favour. It claimed 0.3 "leaves a 21px half-width to the player's
+// 22px radius, so you fit through dead centre" — but 21 < 22, which is a DEFICIT, and with
+// TRAWL_TEAR_R_VAR's jitter the narrowest tears are 13.7px. If the gap were a body-width test the
+// card would be a wall, not a trade.
+//   It is not one: inNetHole tests the player's CENTRE POINT along the wall's axis and never reads
+// PLAYER.radius, so standing on a tear's centre is safe at any radius and the trade holds by
+// construction. What 0.3 actually buys is PRECISION — the gap stops being something you drift
+// through and becomes something you aim at.
+//   The honest cost of that: your sprite is 44px across and the drawn gap at the low end of the
+// jitter is 27px, so the fish visibly overlaps mesh it is not being hurt by. That is a real visual
+// mismatch against copy that says "close to 30% of their width", and it is the thing to look at on
+// a phone before this number is defended.
+export const TIGHT_WEAVE_TEAR_MUL = 0.3
+export const TIGHT_WEAVE_ENEMY_DMG_MUL = 2.2
+
 export const ANOMALIES = {
   unstableCores: {
     name: 'Unstable Cores', icon: '💥',
@@ -1201,6 +1222,27 @@ export const ANOMALIES = {
     // reasons: a chapter inversion is rare by construction, and the level floor makes the player
     // meet the empty bar as a cost before it is ever offered as a currency.
     weight: 2, chapter: 'reef', kind: 'trade',
+    minLevel: 10,
+  },
+
+  // The Trawl's own (2026-09-01), and the chapter's fourth ideation debt cleared. The trade is on
+  // the one thing this chapter is about: the tears are your way through the wall, so selling them
+  // is selling your escape, and what you are paid in is the wall doing your killing for you.
+  //
+  // ⚠ IT NAMES THE TEARS, WHICH IS THE ONLY THING ON SCREEN IT CHANGES. The card must not coin a
+  // noun the player has never seen — they have been swimming through gaps in a net since the first
+  // pass, and 'the gaps close' is what they will watch happen.
+  tightWeave: {
+    name: 'Tight Weave', icon: '🕸️',
+    from: 'the boat mended its gear overnight',
+    desc: `The net's gaps close to ${Math.round(TIGHT_WEAVE_TEAR_MUL * 100)}% of their width, and it takes the crowd ${TIGHT_WEAVE_ENEMY_DMG_MUL}× harder.`,
+    // THE CHAPTER IS THE GATE, verbatim from Runoff/Deadfall/Black Tide: `chapter: 'trawl'` is
+    // already a narrow gate, so `when` stays unconditional rather than adding a second one.
+    when: () => true,
+    // Both numbers match every other chapter-scoped card for their stated reasons: a chapter
+    // inversion is rare by construction, and minLevel 10 makes the player meet the tears as a way
+    // out before the run offers to sell them.
+    weight: 2, chapter: 'trawl', kind: 'trade',
     minLevel: 10,
   },
 }
@@ -1953,6 +1995,78 @@ export const WEAPONS = {
       { dmg: 34, interval: 3.00, r: 119, hold: 1.40, flight: 0.42, castRange: 290 },
       { dmg: 42, interval: 2.80, r: 130, hold: 1.55, flight: 0.42, castRange: 305 },
       { dmg: 52, interval: 2.60, r: 142, hold: 1.75, flight: 0.42, castRange: 320 },
+    ],
+  },
+  // -- The Trawl's third native (2026-09-01) ------------------------------------------------------
+  // THE POOL HAD NO EXECUTION, and that is what this card is for. Longline is a grinder-fence, Net
+  // Toss is a group hold and the borrowed Mini Black Hole moves the crowd: three control cards, in a
+  // chapter whose own comment used to say "the chapter's own net does the executing". That was true
+  // when the wall swept constantly; since the 2026-09-01 pass it comes four times in three minutes
+  // and arrives full of gaps, so nothing in the arsenal actually kills things.
+  //
+  // It also fills the empty rung on the chapter's rarity ladder: normal (Longline), rare (Net Toss),
+  // EPIC (here), legendary (Mini Black Hole).
+  //
+  // THE SHAPE, and why it is not a weapon this game already has: it reaches out to the FARTHEST body
+  // it can, not the nearest, and drags it home through everything in between. Every other reach in
+  // the game either goes to the nearest thing (aimAngle's rule) or is aimed by facing; nothing else
+  // is a line that gets SHORTER, and nothing else turns an enemy into the projectile. The player's
+  // verb is picking what to bring, and the reward is the corridor it ploughs on the way.
+  //   ⚠ ELITES CANNOT BE HOOKED — the orca's own rule (`PREY ONLY, AND NEVER AN ELITE`) applied to
+  // a weapon instead of to a hazard. An unconditional execute on a boss is not a balance number, it
+  // is a different game, and gating it here means the arrival needs no exception clause at all. An
+  // elite still takes the plough damage like anything else standing in the path.
+  bringItIn: {
+    name: 'Bring It In',
+    desc: 'Hooks the furthest one and winches it home through everything in the way. It does not arrive alive.',
+    icon: '⚓', rarity: 'epic',
+    //   dmg          damage per plough TICK to what the dragged body passes through — the corridor,
+    //                not the catch. The execute is unconditional, so there is no number for it.
+    //   travelSpeed  how fast the body is reeled. Shared STAT_KEYS row ('Travel speed'), because
+    //                that is exactly what it is; a bespoke key here would be a second noun for it.
+    //   width        half-width of the ploughed corridor. Shared row ('Width') for the same reason.
+    //   castRange    how far out it can hook. Absent from STAT_KEYS deliberately, exactly as Net
+    //                Toss's own castRange is: the build sheet already shows four rows for this
+    //                weapon (dmg, travelSpeed, width, every) and STAT_MAX_ROWS is 5.
+    //   tick         plough cadence. Absent from STAT_KEYS, the same call every ticking weapon makes.
+    // The shape they were chosen for: a long cadence (this is one big event, not a grinder), a reel
+    // fast enough to read as a yank rather than a tow, and plough damage small enough that the value
+    // is the NUMBER OF BODIES in the corridor and never the number on one of them — the same
+    // reasoning WEAPONS.longline records for its own tick damage.
+    //
+    // MEASURED in ONE census invocation off one RNG stream (weapon-census.mjs --chapter surf, the
+    // control chapter — see the warning in WEAPONS.longline about reading trawl numbers, where the
+    // chapter's own net credits every weapon with roughly two thirds of its figure):
+    //
+    //                              raw  eff  waste  kills/min  dud
+    //   Longline        (normal)   133  122     8%      114.5   5%
+    //   Skipping Shell  (rare)     156  115    26%      112.4   1%
+    //   Net Toss        (rare)     148  110    26%      106.1   3%
+    //   Barnacles       (rare)      90   83     7%       91.7   5%
+    //   Bring It In     (EPIC)     142  119    16%      112.8   0%
+    //
+    // ⚠ IT SHIPS AT STARTER PARITY, ON THE OWNER'S RULING ("ship i'll playtest", 2026-09-01) — this
+    // is a known reading, not an untuned block. What the table cannot price is the two things the
+    // card actually sells: a 0% DUD RATE (it never fires at nothing, where both rares whiff a
+    // quarter of their casts) and the execute itself.
+    //
+    // ⚠ AND THE KNOB IS WIDTH, NOT DAMAGE, if it is ever tuned. Swept with its own mods rather than
+    // by editing this block between runs, so no arm re-phased another's stream:
+    //
+    //   barbedLine=2 (damage)  raw 142 -> 218, eff 119 -> 128, waste 16% -> 41%
+    //   wideDrag=1   (width)   raw 142 -> 155, eff 119 -> 130, waste 16% -> 16%
+    //   wideDrag=2   (width)   raw 142 -> 163, eff 119 -> 137, waste 16% -> 16%
+    //
+    // Raw damage buys 9 points of effective and spends the rest on corpses; width buys 18 at a
+    // waste that does not move, because a wider corridor catches more BODIES. That is the same
+    // lesson WEAPONS.longline's own block records from the other side, and the reason `wideDrag`
+    // exists as a card at all.
+    levels: [
+      { dmg: 12, interval: 4.20, castRange: 380, travelSpeed: 430, width: 42, tick: 0.18 },
+      { dmg: 16, interval: 3.90, castRange: 415, travelSpeed: 470, width: 47, tick: 0.18 },
+      { dmg: 20, interval: 3.60, castRange: 450, travelSpeed: 510, width: 52, tick: 0.18 },
+      { dmg: 25, interval: 3.30, castRange: 485, travelSpeed: 560, width: 57, tick: 0.18 },
+      { dmg: 31, interval: 3.00, castRange: 520, travelSpeed: 610, width: 62, tick: 0.18 },
     ],
   },
   // -- The Twilight's three natives ---------------------------------------------------------------
@@ -3799,6 +3913,21 @@ export const WEAPON_MODS = {
     weighted:  { name: 'Weighted',   desc: 'impact damage', icon: '💥', base: 0.30, kind: 'pct' },
     doubleHaul:{ name: 'Double Haul', desc: 'extra net(s) per cast', icon: '🔷', kind: 'tier' },
   },
+  // Bring It In's five. `dmg`/`travelSpeed`/`width`/`castRange` all fold through WEAPON_STAT_MODS;
+  // quickReel is in WEAPON_RATE_MODS and is divided at the fire site, never folded into a stat —
+  // folding a rate pick would SLOW the weapon, which is the trap that table exists to route around.
+  bringItIn: {
+    barbedLine: { name: 'Barbed Line', desc: 'damage to what it drags through', icon: '🪝', base: 0.28, kind: 'pct' },
+    longGaff:   { name: 'Long Gaff',   desc: 'how far out it can hook',         icon: '📏', base: 0.25, kind: 'pct' },
+    wideDrag:   { name: 'Wide Drag',   desc: 'how wide a corridor it ploughs',  icon: '↔️', base: 0.26, kind: 'pct' },
+    quickReel:  { name: 'Quick Reel',  desc: 'haul rate',                       icon: '⏩', base: 0.25, kind: 'pct' },
+    // THE COUNT MOD. A second line hooks a SECOND body, never the same one twice — see the fire
+    // site, which excludes each pick from the next. A chooser that picks with replacement would put
+    // both lines on one target, which is the "same hit, bigger" outcome this card exists to escape
+    // AND renders identically to no change at all (two ropes on one body look like one rope). The
+    // suite asserts DISTINCT hooked ids, never a count, for exactly that reason.
+    doubleRig:  { name: 'Double Rig',  desc: 'extra line(s) per haul',          icon: '🔱', kind: 'tier' },
+  },
   // Four apiece for The Twilight's three natives, the same ceiling the two blocks above hold to. Each
   // buys one stat the weapon already has; none of them buys the BAR. That is the line this chapter
   // has to keep — a mod that widened the dark's bonus or raised the lance's floor would be selling
@@ -3867,6 +3996,7 @@ export const WEAPON_RATE_MODS = {
   atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash', foxfire: 'quickKindle',
   breaker: 'quickBreak', ballast: 'quickWinch', siltVeil: 'quickStir', downwash: 'quickPour',
   pistolShrimp: 'quickSnap', fireCoral: 'quickWake', squidInk: 'quickInk', oxygenTank: 'quickTank',
+  bringItIn: 'quickReel',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.
@@ -8293,7 +8423,10 @@ CHAPTERS.trawl = {
   // back with an ORANGE MAPLE LEAF spinning through the open ocean, because T.boomerang is baked as
   // a leaf and the card is called Boomerang Leaf. A vortex carries no biome with it. Check the
   // sprite, not only the shape, when borrowing.
-  weapons: ['longline', 'netToss', 'hole'], starter: 'longline',
+  //   bringItIn — the epic, and the chapter's only EXECUTION. Added 2026-09-01 with the normal-
+  //              chapter pass: the three above are all control, which was fine while the wall did
+  //              the killing and is not fine now that it comes four times in three minutes.
+  weapons: ['longline', 'netToss', 'bringItIn', 'hole'], starter: 'longline',
 
   // ---- render-only (ZERO sim effect) ----
   // DEEPER AGAIN. The book's floors step down one measured stop per chapter (obstacle-contrast.mjs's
@@ -11637,6 +11770,10 @@ export const TRAWL_WAKE_DEPTH = 420
 // spacing, and the seeder covers everywhere the player could reach.
 //   The same rule TRAWL_LEAD_MUL exists for, and for the same reason: the warning IS the mechanic,
 // and a world-px spacing would be a different amount of warning on a phone than on a desktop.
+// ⚠ TIGHT_WEAVE_TEAR_MUL and TIGHT_WEAVE_ENEMY_DMG_MUL belong to this block and are DECLARED ABOVE
+// ANOMALIES instead, because ANOMALIES.tightWeave's `desc` is a template that reads them and this
+// block sits thousands of lines below it — a const here is a TDZ throw at import, exactly as this
+// file's own signature blocks warn. Their reasoning lives with the declaration.
 export const TRAWL_TEAR_SPACE_MUL = 1.3  // gap-to-gap spacing, as a multiple of run.viewRadius
 // balance_decision : one tear on screen most of the time, not always [2026-09-01]
 //  - at 1.3 that is ~967px between gaps against a 1488px window on a phone: usually exactly one
@@ -11646,6 +11783,17 @@ export const TRAWL_TEAR_SPACE_MUL = 1.3  // gap-to-gap spacing, as a multiple of
 // WORLD PX, NOT SCREEN-RELATIVE, and the difference is deliberate: the SPACING is about what you can
 // see, but the RADIUS is about whether your body fits through, and a body is a world-space thing.
 // This is the number BREACH_R_MIN measured as "wider than the player" and it is inherited unchanged.
+// ---- BRING IT IN (2026-09-01, The Trawl's epic) ------------------------------------------------
+// How close the hauled body has to get before it is landed and executed. A PAD on top of the two
+// radii rather than a bare distance, so the arrival happens when the sprites touch regardless of how
+// big either body is — a literal here would land a sardine and never land a sea lion.
+export const BRING_ARRIVE_PAD = 6
+// A cap on lines in the water at once, ZONE_MAX_LIVE's idiom. Reached only with Double Rig stacked
+// on a fast cadence; without it a long enough run is a permanent web of ropes.
+export const BRING_MAX_LIVE = 6
+// How long the line is drawn taut and empty after the catch lands, purely so the execute reads as
+// the end of a haul rather than as a body vanishing. Sim-side because the renderer draws off it.
+export const BRING_SNAP_T = 0.18
 export const TRAWL_TEAR_R = 70           // px, half-width of one tear along the wall
 export const TRAWL_TEAR_R_VAR = 0.35     // +/- fraction of jitter on it, so the mesh reads as torn
                                          // rather than as perforated
@@ -14328,6 +14476,12 @@ export const MUTATORS = {
   // 100 because res.max is 100. Scoped to shelf ALONE — it is the chapter's own, and Spring Tide is
   // the book's (chapters: every id with a tide), so that one can never count as this one.
   deadWater:    { name: 'Dead Water',     icon: '🫗', desc: 'A third as many clean-water spots, each worth three times as much.', chapters: ['shelf'], effects: { refillChanceMul: 0.33, refillSpendMul: 3 } },
+  // The Trawl's own (2026-09-01). Straight down the family's line — turn the chapter's signature up,
+  // pay a little for it — which is what rushhour does to traffic and barrage does to the bombardment.
+  // The knob is the GAP BETWEEN PASSES and not the sweep speed: the warning is this chapter's whole
+  // mechanic (TRAWL_LEAD_MUL), so a mutator that ate the reading time would read as unfair rather
+  // than as harder. More walls, same amount of notice for each.
+  fullSeason:   { name: 'Full Season',    icon: '🚢', desc: 'The boat barely lets up. Richer coins.',                            chapters: ['trawl'], effects: { trawlIntervalMul: 0.55, coinMul: 1.25 } },
   // The Reef's own, and scoped to it ALONE — the rule Dead Water's block states from the other
   // side. Spring Tide computes its chapter list as every id carrying a `tide`, so it is the BOOK's
   // mutator and can never satisfy this chapter's; The Beyond is a lane too and is deliberately not
@@ -14447,6 +14601,7 @@ export const MUTATOR_MOD_KEYS = [
   'trapCountMul',       // streamTraps (sim.js — undergrowth snap-trap cell chance)
   'trafficIntervalMul', // stepLanes cadence (city; <1 = more often, like eliteEveryMul)
   'bombardIntervalMul', // stepBombardment cadence (skies; <1 = more often)
+  'trawlIntervalMul',   // stepTrawl's gap between passes (trawl; <1 = more often)
   'wellForceMul',       // wellForce (beyond gravity bend on every projectile)
   'refillChanceMul',    // streamShafts (shelf; how often a refill circle materialises in a cell)
   'refillSpendMul',     // drawdownSecsFor (shelf; how long one circle feeds you before it is spent)
@@ -14489,6 +14644,7 @@ export const MUTATOR_EFFECT_LABELS = {
   trapCountMul: ['trap count', false],
   trafficIntervalMul: ['time between cars', true],
   bombardIntervalMul: ['time between shells', true],
+  trawlIntervalMul: ['time between passes', true],
   wellForceMul: ['gravity well force', false],
   acidPotencyMul: ['acid pool burn', false],
   // Both shelf keys are worded from the PLAYER's side, in the words already on the shelf's screens

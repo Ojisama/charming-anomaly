@@ -1508,7 +1508,11 @@ function testAnomalySlate() {
       // 'polyps' is The Reef's Fire Coral (v7.x) — the first weapon in Book 2 to need an array of
       // its own, and the day it landed this fixture reported 'spawned nothing' for a weapon that
       // was firing correctly, exactly as the comment above says it would.
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'polyps']
+      // `hauls` is Bring It In's (2026-09-01). Its entries track the body they hooked rather than
+      // owning a fixed position, so two lines read as two shapes here exactly as intended — and the
+      // day it landed, its absence from this array reported "spawned nothing" for a weapon that was
+      // firing correctly, which is the same bite `gnash` records against FX below.
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'polyps', 'hauls']
       // Same class of quoted-string list as LISTS above, and it bit for real: `gnash` (The Wreck's
       // native, v7.x) spawns no entity at all — its whole output is this event — so the day it
       // landed this fixture reported "spawned nothing — untestable here" for a weapon that was
@@ -19011,6 +19015,7 @@ run(testLeLargeWeapons)
   run(testWreckDefense)
   run(testWreckBlackTide)
   run(testTrawlNet)
+  run(testTrawlCards)
   run(testTrawlNatives)
   run(testTheDeep)
   run(testDevMenu)
@@ -29744,6 +29749,227 @@ function testDeathOutro() {
     `iris covers the screen from all 9 centres x 2 viewports ` +
     `(lane camera raises x${D.irisTo} -> x${irisCoverMul(D.irisTo, 390 * (1 - LANE_CAMERA_FRAC), 422, 390, 844).toFixed(2)}), ` +
     `vent stops at ${D.ventT}s, main.js gates on the book and defers endRun, render.js reads run.deathT`)
+}
+
+// ---- run TC: The Trawl's three 2026-09-01 cards — Bring It In, Tight Weave, Full Season ---------
+// Every case here asserts an EFFECT and not a field, because all three of these fail silently: a
+// weapon whose fire site never reads its mod is an inert card, an anomaly whose multiplier is never
+// applied is a sentence on a screen, and a mutator key absent from its one consumer is a chip that
+// says nothing. None of them throws.
+function testTrawlCards() {
+  const dt = 1 / 60
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  // A quiet Trawl run with the weapon held and nothing else armed, so every number below is this
+  // card's and not the starter's. Immortal, because the point is what it does, never what survives.
+  const armed = (seed = 20260901, mods = {}) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'trawl', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e6
+    run.mods.spawnMul = 0
+    run.viewRadius = 465
+    run.weapons.length = 0
+    run.weapons.push({ id: 'bringItIn', level: 5 })
+    run.weaponMods.bringItIn = { ...mods }
+    run.enemies.length = 0
+    run.hauls.length = 0
+    return run
+  }
+  // A ring of targets at a fixed distance, all identical, all far enough to be inside castRange.
+  const ring = (run, n, dist, hp = 400) => {
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2
+      run.enemies.push(makeStatusEnemy(run, { x: Math.cos(a) * dist, y: Math.sin(a) * dist, hp, speed: 0 }))
+    }
+  }
+
+  // (a) IT HOOKS THE FARTHEST, WHICH IS THE WHOLE CARD. aimAngle's rule everywhere else in this game
+  // is "nearest first"; reaching past the crowd at your feet to pick something out of the back is
+  // what buys the long corridor, and a card that hooked the nearest would plough two pixels. Two
+  // bodies, one close and one far, and only the far one may be taken.
+  {
+    const run = armed()
+    run.player.x = 0; run.player.y = 0
+    const near = makeStatusEnemy(run, { x: 60, y: 0, hp: 1e6, speed: 0 })
+    const far = makeStatusEnemy(run, { x: 360, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(near, far)
+    for (let i = 0; i < 60 * 6 && run.hauls.length === 0; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.hauls.length, 1, 'no line was ever cast in 6s with two bodies in range')
+    assert.strictEqual(run.hauls[0].eid, far.id,
+      'the hook took the NEAREST body — this weapon reaches past the crowd on purpose, and hooking the nearest makes its corridor two pixels long')
+    console.log(`PASS run TC.a (it hooks the farthest): took the body at 360px over the one at 60px`)
+  }
+
+  // (b) THE CATCH IS EXECUTED ON ARRIVAL, and it is a CREDITED kill — not a bare `_dead`. The
+  // difference is the whole economy of the card: a credited kill pays the gem, the coins and every
+  // on-kill proc, where stepLeaks' uncredited idiom pays none of them. Asserted as run.kills moving,
+  // which is dead if the arrival ever stops routing through applyDamage.
+  {
+    const run = armed()
+    run.player.x = 0; run.player.y = 0
+    const prey = makeStatusEnemy(run, { x: 340, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(prey)
+    const kills0 = run.kills
+    let landed = false
+    for (let i = 0; i < 60 * 12 && !landed; i++) { stepSim(run, { x: 0, y: 0 }, dt); landed = prey._dead }
+    assert.ok(landed, 'the catch was never landed in 12s — it is not being reeled, or the arrival test never fires')
+    assert.ok(run.kills > kills0,
+      'the catch died but run.kills did not move — the execute is not going through applyDamage, so it pays no gem, no coin and no on-kill proc')
+    console.log(`PASS run TC.b (arriving kills it, and it counts): the hauled body died and kills went ${kills0} -> ${run.kills}`)
+  }
+
+  // (c) AN ELITE CANNOT BE HOOKED. The orca's own rule applied to a weapon: an unconditional execute
+  // on an elite or a boss is not a balance number, it is a different game — and gating the HOOK is
+  // what lets the arrival stay clause-free. The elite is the ONLY body in range here, so a hook of
+  // any kind is a failure.
+  {
+    const run = armed()
+    run.player.x = 0; run.player.y = 0
+    const boss = makeStatusEnemy(run, { x: 340, y: 0, hp: 1e6, speed: 0 })
+    boss.elite = true
+    run.enemies.push(boss)
+    for (let i = 0; i < 60 * 12; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.hauls.length, 0,
+      'an ELITE was hooked — the arrival executes unconditionally, so this weapon would delete elites and bosses outright')
+    assert.ok(!boss._dead, 'the elite died to a weapon that must not be able to take it')
+    console.log(`PASS run TC.c (never an elite): 12s with an elite as the only body in range produced no line`)
+  }
+
+  // (c2) A CATCH THAT SURVIVES THE EXECUTE MUST NOT ANNOUNCE A KILL. applyDamage returns the damage
+  // it INTENDED, not what landed — dealDamage skips the subtraction entirely for a raised guard or
+  // a damage-immune body — so the arrival has to ask `e._dead` rather than assume. The shipped bug
+  // this guards fired `boarded` regardless, which is two rings and a screen shake at the player's
+  // feet telling them a kill happened while the body stood there at full HP.
+  //   `_phaseSolid = false` is the cheapest of the three immunities to set up (damageImmune reads it
+  // directly); guard geometry and puffup reach the same branch by a longer road.
+  {
+    const run = armed()
+    run.player.x = 0; run.player.y = 0
+    const ghost = makeStatusEnemy(run, { x: 340, y: 0, hp: 1e6, speed: 0 })
+    ghost._phaseSolid = false
+    run.enemies.push(ghost)
+    let boarded = 0
+    for (let i = 0; i < 60 * 12; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      boarded += run.events.filter((ev) => ev.type === 'boarded').length
+      run.events.length = 0
+    }
+    assert.ok(!ghost._dead, 'a damage-immune body died to the execute — the fixture is wrong, so the rest of this case proves nothing')
+    assert.strictEqual(boarded, 0,
+      `the execute failed but fired ${boarded} 'boarded' event(s) — the game is announcing a kill, with rings and a shake, for a body still standing at full HP`)
+    assert.strictEqual(run.hauls.length, 0, 'the line was never dropped after a failed execute — it re-triggers every frame on a body it cannot kill')
+    console.log(`PASS run TC.c2 (a survived execute announces nothing): immune catch reeled in, 0 'boarded' events, line dropped`)
+  }
+
+  // (d) DOUBLE RIG HOOKS DISTINCT BODIES. The count-mod trap, in its second form: a chooser that
+  // picks with replacement puts both lines on ONE target, which is the "same hit, bigger" outcome
+  // the card exists to escape AND renders identically to no change at all — two ropes on one body
+  // look like one rope. Asserted as the SET of hooked ids, never as a count, which is the only
+  // phrasing that can tell those apart.
+  {
+    const run = armed(20260901, { doubleRig: 1 })
+    run.player.x = 0; run.player.y = 0
+    ring(run, 6, 340, 1e6)
+    for (let i = 0; i < 60 * 6 && run.hauls.length < 2; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.hauls.length, 2, `Double Rig cast ${run.hauls.length} line(s), not 2 — the count is not read at the fire site`)
+    assert.strictEqual(new Set(run.hauls.map((h) => h.eid)).size, 2,
+      'both lines hooked the SAME body — the target chooser picks with replacement, which renders identically to no change at all')
+    console.log(`PASS run TC.d (Double Rig takes two distinct bodies): 2 lines, 2 different ids`)
+  }
+
+  // (e) THE CORRIDOR IS THE VALUE. The card's damage is what the dragged body ploughs THROUGH, so a
+  // crowd standing on the path must lose HP that a crowd standing off it does not. Two runs off one
+  // seed differing only in where the bystanders stand — the do-nothing control for the whole
+  // mechanic, without which "it deals damage" is satisfied by the execute alone.
+  {
+    const damageTo = (offset) => {
+      const run = armed()
+      run.player.x = 0; run.player.y = 0
+      const prey = makeStatusEnemy(run, { x: 360, y: 0, hp: 1e6, speed: 0 })
+      run.enemies.push(prey)
+      // Bystanders strung along the line the catch will travel, or well off to one side of it.
+      // ⚠ THEY ARE ELITES, AND THAT IS WHAT MAKES THE CASE HONEST. A plain body sitting inside
+      // castRange is a body this weapon will HOOK AND EXECUTE on its next cast, so an off-path
+      // control made of plain bodies measures the weapon working correctly and reports it as a
+      // corridor with no width limit — which is exactly what the first cut of this case did, at
+      // 3.5M damage. An elite cannot be hooked (TC.c) but still takes the plough, so this isolates
+      // the corridor and nothing else.
+      const wits = []
+      for (let i = 1; i <= 4; i++) {
+        const w = makeStatusEnemy(run, { x: i * 70, y: offset, hp: 1e6, speed: 0 })
+        w.elite = true
+        wits.push(w)
+        run.enemies.push(w)
+      }
+      const before = wits.reduce((s, w) => s + w.hp, 0)
+      for (let i = 0; i < 60 * 12 && !prey._dead; i++) stepSim(run, { x: 0, y: 0 }, dt)
+      return before - wits.reduce((s, w) => s + w.hp, 0)
+    }
+    const onPath = damageTo(0)
+    const offPath = damageTo(400)
+    assert.ok(onPath > 0, 'four bodies standing ON the drag path took no damage at all — the corridor is not being ploughed')
+    assert.strictEqual(offPath, 0, `bodies 400px off the path still took ${offPath} damage — the corridor has no width limit, so this is an arena nuke`)
+    console.log(`PASS run TC.e (the corridor is the value): ${onPath.toFixed(0)} damage to bodies on the path, ${offPath.toFixed(0)} to bodies 400px off it`)
+  }
+
+  // (f) TIGHT WEAVE NARROWS THE TEARS AND SHARPENS THE NET, and both halves are asserted because the
+  // card is a TRADE: one without the other is a pivot wearing a trade's copy. Measured off the same
+  // seed with the anomaly on and off, which is the only comparison that means anything here.
+  {
+    const tears = (withAnomaly) => {
+      Math.random = mulberry32(4242)
+      const run = createRun(meta, { chapter: 'trawl', difficulty: 1 })
+      run.player.hp = run.player.maxHP = 1e6
+      run.mods.spawnMul = 0
+      run.viewRadius = 465
+      if (withAnomaly) run.anomalies.tightWeave = 1
+      run._netAcc = 0
+      for (let i = 0; i < 300 && !run.net; i++) stepSim(run, { x: 0, y: 0 }, dt)
+      assert.ok(run.net, 'no pass arrived')
+      return run.net.holes.reduce((s, h) => s + h.r, 0) / run.net.holes.length
+    }
+    const plain = tears(false)
+    const woven = tears(true)
+    assert.ok(woven < plain * 0.5,
+      `mean tear radius went ${plain.toFixed(1)} -> ${woven.toFixed(1)} with Tight Weave — the anomaly is not reaching the seeder, so the card's first half does nothing`)
+    // And the gap must still be PASSABLE — a tear you cannot use makes this a pivot, not a trade.
+    assert.ok(woven > PLAYER.radius * 0.8,
+      `a woven tear is ${woven.toFixed(1)}px against a ${PLAYER.radius}px player — the gaps have closed to a wall, which is a different card than the one the copy sells`)
+    console.log(`PASS run TC.f (Tight Weave narrows but never seals): mean tear ${plain.toFixed(1)}px -> ${woven.toFixed(1)}px, still passable at radius ${PLAYER.radius}`)
+  }
+
+  // (g) FULL SEASON BRINGS MORE WALLS. The mutator's one consumer is stepTrawl's interval reset, and
+  // a key absent from it is a chip that says nothing with nothing going red. Counted as PASSES over a
+  // fixed window rather than by reading run.mods, which would pass with the multiplier unread.
+  {
+    const passesIn = (mut) => {
+      Math.random = mulberry32(777)
+      const run = createRun(meta, { chapter: 'trawl', difficulty: 1, mutators: mut })
+      run.player.hp = run.player.maxHP = 1e6
+      run.mods.spawnMul = 0
+      run.viewRadius = 465
+      let n = 0, had = false
+      for (let i = 0; i < 60 * 150; i++) {
+        stepSim(run, { x: 0, y: 0 }, dt)
+        run.events.length = 0
+        if (!had && run.net) n++
+        had = !!run.net
+      }
+      return n
+    }
+    const plain = passesIn([])
+    const season = passesIn(['fullSeason'])
+    assert.ok(season > plain,
+      `${plain} passes without Full Season and ${season} with it — trawlIntervalMul is not being read by stepTrawl, so the chip is decoration`)
+    console.log(`PASS run TC.g (Full Season brings more walls): ${plain} passes in 150s -> ${season} with the mutator`)
+  }
+
+  console.log(`PASS run TC (The Trawl's three new cards): Bring It In hooks the farthest, executes on arrival for a credited kill, refuses elites, takes distinct bodies with Double Rig and only damages its own corridor; Tight Weave narrows the tears without sealing them; Full Season brings more walls`)
 }
 
 function testTrawlNet() {

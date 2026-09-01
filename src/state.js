@@ -2743,6 +2743,12 @@ export function createRun(meta, opts = {}) {
     // duration, snagged }. A lob carrying `snare` is a Net Toss in flight and lands as a hold
     // rather than a burst (stepLobs), so Net Toss adds no array of its own.
     longlines: [],
+    // Bring It In's lines (The Trawl's epic). Each entry owns an ENEMY ID and not a position — the
+    // line's far end is wherever that body is this frame — which is why it is its own array rather
+    // than a run.lobs rider. `snap` is the taut-and-empty beat after the catch lands; it goes
+    // negative to mark the entry for collection, so a line whose catch died elsewhere is dropped by
+    // the same filter as one that landed. See stepHauls (sim.js).
+    hauls: [],
     // v7.23 skies. drags: aircraft being reeled in by the Tail Lash — { id, t, dur, dmg, hitIds }.
     // arcs: live Atomic Breath forks — { life, duration, charge, tick, acc, dmg, jumps, arcRange,
     // falloutBonus, nodes }, where `nodes` is the polyline player->body->body rebuilt every tick.

@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -13871,6 +13871,29 @@ const spurG = new Graphics()
     longlineG.clear()
     snareG.clear()
 
+    // BRING IT IN'S CABLES (2026-09-01). One taut line from the player to each catch, redrawn every
+    // frame because the far end is a BODY and moves — the sim entity stores an enemy id, not a
+    // position, so there is nothing here that could be cached.
+    //   Drawn thicker and straighter than a longline on purpose: that one is slack gear lying in
+    // the water and this is a cable under load. They share a palette and share this Graphics, so
+    // the two must not be told apart by colour — the read is the tension.
+    for (const h of run.hauls || []) {
+      const p = run.player
+      // `snap` counts DOWN the taut-and-empty beat after the catch lands. During it the cable is
+      // still drawn, whipping back, so the execute reads as the end of a haul rather than as a body
+      // that blinked out.
+      const spent = h.snap > 0
+      const a = spent ? 0.55 * (h.snap / BRING_SNAP_T) : 1
+      longlineG.moveTo(p.x, p.y).lineTo(h.x, h.y)
+        .stroke({ width: 3.2, color: GEAR_VIS.ropeDark, alpha: 0.45 * a, cap: 'round' })
+      longlineG.moveTo(p.x, p.y).lineTo(h.x, h.y)
+        .stroke({ width: 1.6, color: GEAR_VIS.rope, alpha: 0.9 * a, cap: 'round' })
+      if (spent) continue
+      // The hook itself, at the catch end — the same 2.1px bead the longline's snoods carry, so one
+      // chapter's gear is one visual vocabulary.
+      longlineG.circle(h.x, h.y, 3).fill({ color: GEAR_VIS.hook, alpha: 0.95 })
+    }
+
     for (const l of run.longlines || []) {
       // (nx, ny) is the NORMAL, so the rope itself runs along its perpendicular. Getting this pair
       // the wrong way round draws every line at 90 degrees to the thing that is actually damaging,
@@ -19538,6 +19561,27 @@ const spurG = new Graphics()
           // The line itself is drawn from run.longlines every frame (updateGear), because it
           // persists — the event is only the moment of paying it out.
           addShake(1.2, 0.07)
+          break
+        // Bring It In's two (2026-09-01). Same division of labour as `longline` above: the CABLE is
+        // drawn from run.hauls every frame because it persists, so these two events are only the
+        // instants at either end of the haul — the hook biting, and the catch landing.
+        //   NEITHER GETS AN SFX_FOR_EVENT ENTRY, and that is a decision rather than an omission.
+        // The rule CLAUDE.md states is that an event earns a sound by being rare enough to bear
+        // one, and these fire on a 3-4s cadence (twice that with Double Rig). `boarded` is also
+        // already audible for free: the execute goes through applyDamage, so it is a credited kill
+        // and the 'kill' sample fires on the same frame. A second sample would double up on it.
+        case 'hookOn':
+          // A small tight ring AT THE CATCH, not at the player: the whole card is that it reached
+          // out past the crowd, so the tell has to be where the far end went.
+          spawnRing(e.x, e.y, 34, 0.22, T.novaRing, 0xe4d9a8)
+          addShake(1.2, 0.07)
+          break
+        case 'boarded':
+          // The execute. Bigger kick than the hook and a warm double ring — this is the payoff beat
+          // of an epic, and it happens at the player's feet where the eye already is.
+          spawnRing(e.x, e.y, 66, 0.3, T.novaWarm, 0xf2e6b4)
+          spawnRing(e.x, e.y, 34, 0.2, T.novaWarm, 0xffffff)
+          addShake(3, 0.14)
           break
         case 'scent':
           // The Deep's button. The MARK on each body is drawn every frame from `scentT`
