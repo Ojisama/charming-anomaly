@@ -5253,9 +5253,13 @@ export function createRenderer(app) {
     // and the Downwash, and shares NONE of their drawing — T.holeDisc/T.holeCore are baked violet-
     // black and a tint can only darken, which is the palette-swap trap placeHole already records.
     // Two bakes, both at the weapon's max radius and scaled DOWN per entry (a bake magnified comes
-    // out stepped): the DEPRESSION, a dark navy radial disc — deeper water, same annuli technique
-    // as the Black Hole's body above — and the FOAM, a spiral the rig spins. The eye is drawn live
-    // in placeHole because its radius is the entry's coreRadius, which Widening Gyre moves.
+    // out stepped): the BODY, a radial gradient from pale aqua at the rim through blue to near-
+    // black at the eye — the same annuli technique as the Black Hole's disc above, and what
+    // carries the depth — and the FOAM, three faint spiral arms the rig spins. The eye is drawn
+    // live in placeHole because its radius is the entry's coreRadius, which Widening Gyre moves.
+    //   Owner's ruling on the first cut (2026-09-02): "a little bit less twirls, a bit more colour
+    // gradient". The first cut was six spiral lines (three arms plus a half-size inner copy at
+    // double speed) over a flat navy disc; this is three thinner, fainter arms over the gradient.
     //
     // PLAN VIEW, and this is the one shape in the game that needs no projection argument: a
     // whirlpool seen from directly above IS a spiral. From the side it is a funnel, and that is
@@ -5266,14 +5270,12 @@ export function createRenderer(app) {
     // following it INWARD turns counter-clockwise, and placeHole spins it with a NEGATIVE rotation
     // (Pixi's positive is clockwise, y being down). Wind or spin it the other way and the still
     // frame looks identical while the motion fights the bodies being dragged through it.
-    //
-    // All three WP_LOOK candidates are baked so the switch flips from the URL without a rebuild.
     {
       const R = WEAPONS.whirlpool.levels[WEAPONS.whirlpool.levels.length - 1].radius
       T.whirlRef = R
       {
         const RREF = 128, N = 96, T0 = 0.02
-        const stops = [[0, 0x02101f, 0.62], [0.5, 0x06213c, 0.36], [0.85, 0x0b3358, 0.12], [1, 0x0b3358, 0]]
+        const stops = [[0, 0x020c1c, 0.88], [0.3, 0x0a3a6e, 0.72], [0.62, 0x1f7aa8, 0.58], [0.9, 0x7fd3e8, 0.42], [1, 0x9fe4f2, 0]]
         const at = (t) => {
           let k = 1
           while (k < stops.length - 1 && t > stops[k][0]) k++
@@ -5326,12 +5328,9 @@ export function createRenderer(app) {
         }
         return g
       }
-      // WP_LOOK 0 — FOAM ARMS: three streamlines, three quarters of a turn each. A hurricane from
-      // above, which is what a whirlpool from above also is.
-      T.whirlArms = bake(spiral(3, 0.75, 0.2, 5, 13, 0.18, 0.85, 48))
-      // WP_LOOK 2 — COIL: a two-start band winding three and a half turns from rim to eye, the
-      // drain-illustration whirlpool.
-      T.whirlCoil = bake(spiral(2, 3.5, 0.16, 4, 9, 0.16, 0.8, 220))
+      // FOAM ARMS: three streamlines, six tenths of a turn each. A hurricane from above, which is
+      // what a whirlpool from above also is — kept faint so the gradient body carries the read.
+      T.whirlArms = bake(spiral(3, 0.6, 0.2, 4, 10, 0.14, 0.7, 48))
     }
     // neon beam: horizontal bar baked at the weapon's max length/width, anchored so local (0,0)
     // sits at the left edge (player origin). v5.6.13 (user art direction): a SITH SABER, not a
@@ -15813,13 +15812,6 @@ const spurG = new Graphics()
   // (both upscale cleanly); the twirl sprites stay near their native resolution as a
   // fixed-size spinning core — stretching them to a 700px+ radius washes them to fog.
   const HOLE_TWIRL_MAX = 460 // px, twirl detail size cap
-  // A/B SWITCH FOR THE WHIRLPOOL'S FOAM, read once at module scope like spurArt (bakes happen at
-  // boot; a per-frame read would be a different switch). 0 = foam arms (three log-spiral
-  // streamlines), 1 = the Black Hole's own twirl sprites tinted to foam and both turning with the
-  // flow, 2 = a three-and-a-half-turn coil. Judged on scripts/scenes/trawl-whirlpool.js; kept so
-  // the other two can be looked at on a phone against the live URL (?wp=1, ?wp=2). DELETE with
-  // the owner's ruling.
-  const WP_LOOK = (() => { try { return Number(new URLSearchParams(location.search).get('wp') ?? 0) } catch { return 0 } })()
   function acquireHole() {
     const root = new Container()
     const disc = spriteOf(T.holeDisc)
@@ -15840,17 +15832,14 @@ const spurG = new Graphics()
     const foam = new Sprite(T.fx.flare_01)
     foam.anchor.set(0.5)
     // The Whirlpool's own parts, on the same argument as the Downwash's: one pool, three drawings.
-    // wpDepth under everything (it is the water itself), the two foam layers over the rim ring so
-    // the arms run out to the edge, the eye on top. WP_LOOK 1 has no foam sprites of its own — it
-    // re-tints vortexA/vortexB per frame instead.
+    // wpDepth under everything (it is the water itself), the foam arms over the rim ring so they
+    // run out to the edge, the eye on top.
     const wpDepth = spriteOf(T.whirlDepth)
-    const wpFoam = WP_LOOK === 2 ? T.whirlCoil : T.whirlArms
-    const wpA = spriteOf(wpFoam)
-    const wpB = spriteOf(wpFoam)
+    const wpArms = spriteOf(T.whirlArms)
     const wpEye = new Graphics()
-    root.addChild(wpDepth, disc, ring, vortexA, vortexB, core, rings, foam, wpA, wpB, wpEye)
+    root.addChild(wpDepth, disc, ring, vortexA, vortexB, core, rings, foam, wpArms, wpEye)
     holeLayer.addChild(root)
-    return { root, disc, ring, vortexA, vortexB, core, rings, foam, wpDepth, wpA, wpB, wpEye, _r: 0, _look: undefined }
+    return { root, disc, ring, vortexA, vortexB, core, rings, foam, wpDepth, wpArms, wpEye, _r: 0, _look: undefined }
   }
 
   function syncHoles(list) {
@@ -21819,14 +21808,13 @@ const spurG = new Graphics()
     const whirl = h.look === 'whirlpool'
     hv.disc.visible = !wash && !whirl
     hv.core.visible = !wash && !whirl
-    hv.vortexA.visible = !wash && (!whirl || WP_LOOK === 1)
-    hv.vortexB.visible = hv.vortexA.visible
+    hv.vortexA.visible = !wash && !whirl
+    hv.vortexB.visible = !wash && !whirl
     hv.rings.visible = wash
     hv.foam.visible = wash
     hv.wpDepth.visible = whirl
+    hv.wpArms.visible = whirl
     hv.wpEye.visible = whirl
-    hv.wpA.visible = whirl && WP_LOOK !== 1
-    hv.wpB.visible = hv.wpA.visible
     const twirlPx = Math.min(h.radius * 1.2, HOLE_TWIRL_MAX)
     hv.vortexA.scale.set(fxScale(T.fx.twirl_01, twirlPx))
     hv.vortexB.scale.set(fxScale(T.fx.twirl_02, twirlPx * 0.85))
@@ -21873,27 +21861,11 @@ const spurG = new Graphics()
     hv.ring.rotation = animT * 0.4
     if (whirl) {
       hv.wpDepth.scale.set(h.radius / T.whirlDepthRef)
-      // NEGATIVE rotations throughout: counter-clockwise on screen, the way stepHoles drags bodies
-      // (see the bake's note). An outer layer at the entry's radius and an inner copy at half size
-      // turning twice as fast — the differential rotation is what makes it read as water rather
-      // than as a decal spinning, and it is also physically the right way round.
-      if (WP_LOOK === 1) {
-        hv.vortexA.tint = 0xeaf8ff; hv.vortexA.alpha = 0.9
-        hv.vortexB.tint = 0xa9dcee; hv.vortexB.alpha = 0.8
-        hv.vortexA.rotation = -animT * 1.8 + i * 0.6
-        hv.vortexB.rotation = -animT * 3.0 + i * 0.9
-      } else {
-        const k = h.radius / T.whirlRef
-        const w = WP_LOOK === 2 ? 2.2 : 1.5
-        hv.wpA.scale.set(k)
-        hv.wpA.rotation = -animT * w + i * 0.7
-        hv.wpB.scale.set(k * 0.5)
-        hv.wpB.alpha = 0.75
-        hv.wpB.rotation = -animT * w * 2 + i * 0.7 + 1.3
-      }
-    } else {
-      hv.vortexA.tint = 0x2f1a66; hv.vortexA.alpha = 1
-      hv.vortexB.tint = 0x5a2fb0; hv.vortexB.alpha = 0.9
+      // NEGATIVE rotation: counter-clockwise on screen, the way stepHoles drags bodies (see the
+      // bake's note). One layer at one speed — the first cut's half-size inner copy at double speed
+      // was the "twirls" the owner asked to see less of.
+      hv.wpArms.scale.set(h.radius / T.whirlRef)
+      hv.wpArms.rotation = -animT * 1.5 + i * 0.7
     }
 
     const elapsed = h.duration - h.life

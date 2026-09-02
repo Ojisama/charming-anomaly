@@ -1,10 +1,10 @@
 // Scene: The Trawl's Whirlpool mid-spin, a crowd being drawn into it. The frame the LOOK is judged
-// on — shot once per candidate drawing behind ?wp=N (render.js, WP_LOOK), and once more with the
-// Mini Black Hole it replaced (?bh=1 equips 'hole' instead) as the contact sheet's baseline panel.
+// on, and once more with the Mini Black Hole it replaced (?bh=1 equips 'hole' instead) as the
+// contact sheet's baseline panel.
 //
 //   npx vite --port 5204 --strictPort
 //   node scripts/fx-probe.mjs --scene scripts/scenes/trawl-whirlpool.js --chapter trawl \
-//     --url 'http://127.0.0.1:5204/?wp=0' --out /tmp/wp0 --frames 8
+//     --url 'http://127.0.0.1:5204/' --out /tmp/wp --frames 8
 //
 // The questions this frame has to answer, in order:
 //   1. Is it WATER? The Black Hole shares run.holes and the whole rig with this, so the drawing is
