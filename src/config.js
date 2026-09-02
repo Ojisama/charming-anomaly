@@ -1954,11 +1954,13 @@ export const WEAPONS = {
     // credits every weapon with the chapter's own net — roughly two thirds of the figure. Surf is
     // the control chapter precisely because nothing in it damages the crowd on its own.
     levels: [
-      { dmg: 5,  interval: 2.60, length: 260, setDur: 3.4, tick: 0.40, offset: 90 },
-      { dmg: 6,  interval: 2.45, length: 285, setDur: 3.6, tick: 0.40, offset: 95 },
-      { dmg: 8,  interval: 2.30, length: 315, setDur: 3.8, tick: 0.40, offset: 100 },
-      { dmg: 10, interval: 2.15, length: 345, setDur: 4.0, tick: 0.40, offset: 105 },
-      { dmg: 13, interval: 2.00, length: 380, setDur: 4.2, tick: 0.40, offset: 110 },
+      // balance_decision : +20% dmg, every Trawl weapon, owner ruling 2026-09-02
+      //  - x1.2 rounded to whole numbers, unmeasured (owner: "don't test, just ship")
+      { dmg: 6,  interval: 2.60, length: 260, setDur: 3.4, tick: 0.40, offset: 90 },
+      { dmg: 7,  interval: 2.45, length: 285, setDur: 3.6, tick: 0.40, offset: 95 },
+      { dmg: 10, interval: 2.30, length: 315, setDur: 3.8, tick: 0.40, offset: 100 },
+      { dmg: 12, interval: 2.15, length: 345, setDur: 4.0, tick: 0.40, offset: 105 },
+      { dmg: 16, interval: 2.00, length: 380, setDur: 4.2, tick: 0.40, offset: 110 },
     ],
   },
   netToss: {
@@ -1990,11 +1992,13 @@ export const WEAPONS = {
     // increase cannot be eaten by overkill. It stays the lowest-damage rare in the book on purpose —
     // the hold is the rest of the price, and Barnacles at 93 is the honest neighbour to sit beside.
     levels: [
-      { dmg: 22, interval: 3.40, r: 100, hold: 1.10, flight: 0.42, castRange: 260 },
-      { dmg: 27, interval: 3.20, r: 109, hold: 1.25, flight: 0.42, castRange: 275 },
-      { dmg: 34, interval: 3.00, r: 119, hold: 1.40, flight: 0.42, castRange: 290 },
-      { dmg: 42, interval: 2.80, r: 130, hold: 1.55, flight: 0.42, castRange: 305 },
-      { dmg: 52, interval: 2.60, r: 142, hold: 1.75, flight: 0.42, castRange: 320 },
+      // balance_decision : +20% dmg, every Trawl weapon, owner ruling 2026-09-02
+      //  - x1.2 rounded to whole numbers, unmeasured (owner: "don't test, just ship")
+      { dmg: 26, interval: 3.40, r: 100, hold: 1.10, flight: 0.42, castRange: 260 },
+      { dmg: 32, interval: 3.20, r: 109, hold: 1.25, flight: 0.42, castRange: 275 },
+      { dmg: 41, interval: 3.00, r: 119, hold: 1.40, flight: 0.42, castRange: 290 },
+      { dmg: 50, interval: 2.80, r: 130, hold: 1.55, flight: 0.42, castRange: 305 },
+      { dmg: 62, interval: 2.60, r: 142, hold: 1.75, flight: 0.42, castRange: 320 },
     ],
   },
   // -- The Trawl's third native (2026-09-01) ------------------------------------------------------
@@ -2062,11 +2066,13 @@ export const WEAPONS = {
     // lesson WEAPONS.longline's own block records from the other side, and the reason `wideDrag`
     // exists as a card at all.
     levels: [
-      { dmg: 12, interval: 4.20, castRange: 380, travelSpeed: 430, width: 42, tick: 0.18 },
-      { dmg: 16, interval: 3.90, castRange: 415, travelSpeed: 470, width: 47, tick: 0.18 },
-      { dmg: 20, interval: 3.60, castRange: 450, travelSpeed: 510, width: 52, tick: 0.18 },
-      { dmg: 25, interval: 3.30, castRange: 485, travelSpeed: 560, width: 57, tick: 0.18 },
-      { dmg: 31, interval: 3.00, castRange: 520, travelSpeed: 610, width: 62, tick: 0.18 },
+      // balance_decision : +20% dmg, every Trawl weapon, owner ruling 2026-09-02
+      //  - x1.2 rounded to whole numbers, unmeasured (owner: "don't test, just ship")
+      { dmg: 14, interval: 4.20, castRange: 380, travelSpeed: 430, width: 42, tick: 0.18 },
+      { dmg: 19, interval: 3.90, castRange: 415, travelSpeed: 470, width: 47, tick: 0.18 },
+      { dmg: 24, interval: 3.60, castRange: 450, travelSpeed: 510, width: 52, tick: 0.18 },
+      { dmg: 30, interval: 3.30, castRange: 485, travelSpeed: 560, width: 57, tick: 0.18 },
+      { dmg: 37, interval: 3.00, castRange: 520, travelSpeed: 610, width: 62, tick: 0.18 },
     ],
   },
   // -- The Trawl's fourth: the Whirlpool (2026-09-02) ---------------------------------------------
@@ -2096,11 +2102,13 @@ export const WEAPONS = {
     desc: 'Spins up a whirlpool that drags the swarm into its eye.',
     icon: '🌀', rarity: 'legendary',
     levels: [
-      { dmg: 8, tick: 0.20, interval: 6.5, radius: 170, duration: 1.8, pull: 170 },
-      { dmg: 10, tick: 0.20, interval: 6.0, radius: 190, duration: 2.0, pull: 190 },
-      { dmg: 12, tick: 0.18, interval: 5.5, radius: 196, duration: 2.2, pull: 196 },
-      { dmg: 15, tick: 0.18, interval: 5.0, radius: 205, duration: 2.4, pull: 205 },
-      { dmg: 18, tick: 0.16, interval: 4.5, radius: 215, duration: 2.6, pull: 215 },
+      // balance_decision : +20% dmg, every Trawl weapon, owner ruling 2026-09-02
+      //  - x1.2 rounded to whole numbers, unmeasured (owner: "don't test, just ship")
+      { dmg: 10, tick: 0.20, interval: 6.5, radius: 170, duration: 1.8, pull: 170 },
+      { dmg: 12, tick: 0.20, interval: 6.0, radius: 190, duration: 2.0, pull: 190 },
+      { dmg: 14, tick: 0.18, interval: 5.5, radius: 196, duration: 2.2, pull: 196 },
+      { dmg: 18, tick: 0.18, interval: 5.0, radius: 205, duration: 2.4, pull: 205 },
+      { dmg: 22, tick: 0.16, interval: 4.5, radius: 215, duration: 2.6, pull: 215 },
     ],
   },
   // -- The Twilight's three natives ---------------------------------------------------------------
