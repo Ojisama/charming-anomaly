@@ -8524,16 +8524,16 @@ CHAPTERS.trawl = {
   // for thinning a chapter's floor and it is gated on `chapterHasDistricts`; generalising it is the
   // upgrade path if this floor ever reads as too busy.
   //
-  // form: 'fish' — ONE body serves all of Book 2, at one size across every chapter, with ONE
-  // exception: this chapter draws it at 0.8 (owner ruling 2026-09-02, "player fish should be 20%
-  // smaller"). formScale is RENDER-ONLY, as it always was — the contact radius does not move with
-  // it. playerTint MUST stay white with a `form`: syncPlayer
+  // form: 'fish' — ONE body serves all of Book 2, at one size across every chapter. NO chapter
+  // declares `formScale`; that ladder is gone book-wide, and run US.e3 fails the first rung that
+  // comes back. The owner's "player fish should be 20% smaller" (2026-09-02) therefore landed on
+  // the BAKE (FISH_R in render.js), so the fish is smaller in every chapter of the book and still
+  // one size. playerTint MUST stay white with a `form`: syncPlayer
   // forces white for the body itself, but the level-up MINIME copies read this value directly and a
   // tinted one turns them into coloured ghosts of the fish (see CHAPTERS.surf.render).
   render: {
     cast: ['mackerel', 'tuna', 'sealion'],
     form: 'fish',
-    formScale: 0.8,
     // 2026-09-01: 0x05203f -> 0x06284f, TRADED WITH THE WRECK when the two swapped rungs. Run UD
     // asserts Book 2's bgColor luminance never rises as you descend, and it went red the moment the
     // order changed — the darkness is a SLOT-encoded field and belongs to the position in the

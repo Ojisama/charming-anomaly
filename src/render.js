@@ -2237,7 +2237,10 @@ export function createRenderer(app) {
   // same "pick a rung by hand" idiom the STILLNESS morph ladder (T.playerStill) already uses. This
   // still sits under the hop/breathe squash-stretch every other player form gets — the phase flip
   // and the squash-stretch are two independent transforms, not one replacing the other.
-  const FISH_R = 26
+  // balance_decision : player fish 20% smaller, book-wide, owner 2026-09-02
+  //  - RENDER-ONLY: the contact radius (PLAYER.radius) does not move with it. Book-wide rather
+  //    than per chapter because run US.e3 forbids a formScale rung — one size across the book.
+  const FISH_R = 26 * 0.8
   const FISH_PHASES = 6
   // `part` is drawButt's ('all' | 'shell' | 'cheeks'); 'cheeks' draws ONLY the moving mass and
   // nothing else of the fish. Returns the butt's centre in drawing space, which the jiggle needs as
@@ -19764,6 +19767,14 @@ const spurG = new Graphics()
         }
         case 'hole':
           // vortex opening reads fine on its own — no shake
+          break
+        // A JACKPOT KILL (The Trawl's sea turtle): two gold rings out of the body, so the twenty
+        // coins and the level that follow read as ONE payout rather than as a lucky drop. Sound is
+        // the shop's chime (SFX_FOR_EVENT in main.js).
+        case 'jackpot':
+          spawnRing(e.x, e.y, 110, 0.30, T.novaRing, 0xffd35a)
+          spawnRing(e.x, e.y, 60, 0.22, T.novaRing, 0xfff1b0)
+          addShake(2, 0.12)
           break
         case 'beam':
           beamSparkle(run.player.x, run.player.y)
