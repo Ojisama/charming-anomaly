@@ -1999,13 +1999,13 @@ export const WEAPONS = {
   },
   // -- The Trawl's third native (2026-09-01) ------------------------------------------------------
   // THE POOL HAD NO EXECUTION, and that is what this card is for. Longline is a grinder-fence, Net
-  // Toss is a group hold and the borrowed Mini Black Hole moves the crowd: three control cards, in a
+  // Toss is a group hold and the Whirlpool (then the borrowed Mini Black Hole) moves the crowd: three control cards, in a
   // chapter whose own comment used to say "the chapter's own net does the executing". That was true
   // when the wall swept constantly; since the 2026-09-01 pass it comes four times in three minutes
   // and arrives full of gaps, so nothing in the arsenal actually kills things.
   //
   // It also fills the empty rung on the chapter's rarity ladder: normal (Longline), rare (Net Toss),
-  // EPIC (here), legendary (Mini Black Hole).
+  // EPIC (here), legendary (the Whirlpool — the Mini Black Hole when this was written).
   //
   // THE SHAPE, and why it is not a weapon this game already has: it reaches out to the FARTHEST body
   // it can, not the nearest, and drags it home through everything in between. Every other reach in
@@ -2067,6 +2067,40 @@ export const WEAPONS = {
       { dmg: 20, interval: 3.60, castRange: 450, travelSpeed: 510, width: 52, tick: 0.18 },
       { dmg: 25, interval: 3.30, castRange: 485, travelSpeed: 560, width: 57, tick: 0.18 },
       { dmg: 31, interval: 3.00, castRange: 520, travelSpeed: 610, width: 62, tick: 0.18 },
+    ],
+  },
+  // -- The Trawl's fourth: the Whirlpool (2026-09-02) ---------------------------------------------
+  // THE BORROWED SLOT, MADE NATIVE. The pool's crowd-mover was The Beyond's Mini Black Hole, kept
+  // on the argument that a vortex is abstract and carries no biome with it. The owner's verdict
+  // from play: "le chalut has black holes". It did — the disc is a purple singularity baked for a
+  // chapter set in space, and the card said so in its own name. Abstract is not the same as
+  // placeless.
+  //
+  // SAME VORTEX, DIFFERENT WATER. This is the Black Hole's mechanic in full — stepHoles, run.holes,
+  // the rim-to-core pull, the spiral, the core crush, the coin sweep — with its entries tagged
+  // look: 'whirlpool', so render.js draws water and stepHoles reads THIS card's growth/collapse
+  // mods rather than the Black Hole's. The downwash idiom: one array, three drawings, and the tag
+  // is the only thing keeping the mods apart. What it DOES did not change; what it looks like and
+  // what it is called did.
+  //
+  // ⚠ THE LADDER IS A COPY OF WEAPONS.hole's, NOT A REFERENCE, and that is deliberate: the two live
+  // in different chapters against different rosters and are free to be tuned apart. They start
+  // identical so the chapter's balance is exactly what it was the day before this card existed.
+  // Do not "fix" the duplication by pointing one at the other — a Beyond retune would then silently
+  // move The Trawl, which is the drift CLAUDE.md's cross-file lints exist to catch, inverted.
+  //
+  // legendary, like the card it replaces: the chapter's rarity ladder (normal Longline, rare Net
+  // Toss, epic Bring It In, legendary here) was built around that rung — see WEAPONS.bringItIn.
+  whirlpool: {
+    name: 'Whirlpool',
+    desc: 'Spins up a whirlpool that drags the swarm into its eye.',
+    icon: '🌀', rarity: 'legendary',
+    levels: [
+      { dmg: 8, tick: 0.20, interval: 6.5, radius: 170, duration: 1.8, pull: 170 },
+      { dmg: 10, tick: 0.20, interval: 6.0, radius: 190, duration: 2.0, pull: 190 },
+      { dmg: 12, tick: 0.18, interval: 5.5, radius: 196, duration: 2.2, pull: 196 },
+      { dmg: 15, tick: 0.18, interval: 5.0, radius: 205, duration: 2.4, pull: 205 },
+      { dmg: 18, tick: 0.16, interval: 4.5, radius: 215, duration: 2.6, pull: 215 },
     ],
   },
   // -- The Twilight's three natives ---------------------------------------------------------------
@@ -3927,6 +3961,21 @@ export const WEAPON_MODS = {
     // AND renders identically to no change at all (two ropes on one body look like one rope). The
     // suite asserts DISTINCT hooked ids, never a count, for exactly that reason.
     doubleRig:  { name: 'Double Rig',  desc: 'extra line(s) per haul',          icon: '🔱', kind: 'tier' },
+  },
+  // The Trawl's Whirlpool: the Black Hole's six, one for one, under this card's own names — the
+  // same three folds (WEAPON_STAT_MODS.whirlpool in sim.js), the same count idiom at its own fire
+  // site (stepWhirlpoolWeapon), and growth and collapse read in stepHoles off
+  // run.weaponMods.whirlpool, never off .hole. A whirlpool player holding both cards (The Blank
+  // offers everything) gets each card's mods on its own vortexes only; run WP asserts it.
+  //   None of these display names existed in fr.js before this block — a second 'Suction' would
+  // have inherited the Downwash's French — and 'Undertow' is the book's title on that screen.
+  whirlpool: {
+    wideWhirl:  { name: 'Wide Whirl',    desc: 'whirlpool radius',                  icon: '⭕', base: 0.20, kind: 'pct' },
+    longWhirl:  { name: 'Long Whirl',    desc: 'whirlpool duration',                icon: '⏱️', base: 0.20, kind: 'pct' },
+    strongPull: { name: 'Strong Pull',   desc: 'whirlpool pull',                    icon: '🧲', base: 0.20, kind: 'pct' },
+    twinWhirl:  { name: 'Twin Whirl',    desc: 'extra whirlpool(s) per cast',       icon: '🔁', kind: 'tier' },
+    widening:   { name: 'Widening Gyre', desc: 'whirlpool growth rate while alive', icon: '📈', base: 0.20, kind: 'pct' },
+    maelstrom:  { name: 'Maelstrom',     desc: 'whirlpool collapse burst damage',   icon: '💥', base: 1.00, kind: 'pct' },
   },
   // Four apiece for The Twilight's three natives, the same ceiling the two blocks above hold to. Each
   // buys one stat the weapon already has; none of them buys the BAR. That is the line this chapter
@@ -8413,20 +8462,25 @@ CHAPTERS.trawl = {
   // pack OFF you and STILL — the chapter's own net does the executing.
   //   longline — the starter. A fence set between you and the pack; see WEAPONS.longline.
   //   netToss  — the pack held where it stands, for the wall to arrive into.
-  //   hole     — swallows the swarm. The one borrowed slot, kept because a vortex is the third
-  //              answer to a crowd (move it) that neither native gives, and because it is ABSTRACT.
+  //   whirlpool — swallows the swarm. The third answer to a crowd (move it) that neither native
+  //              gives. It was the BORROWED Mini Black Hole until 2026-09-02, kept because a vortex
+  //              is abstract — and the owner's verdict from play was that the open ocean had black
+  //              holes in it. Same vortex now, under its own name and drawn as water; see
+  //              WEAPONS.whirlpool.
   //
-  // ⚠ THE BORROWED SLOT IS CHOSEN FOR ITS SPRITE AS WELL AS ITS SHAPE, which is not usually a weapon
+  // ⚠ A BORROWED SLOT IS CHOSEN FOR ITS SPRITE AS WELL AS ITS SHAPE, which is not usually a weapon
   // criterion and is one here because a borrowed weapon brings its old chapter's ART with it. The
   // first cut of this list opened with the Boomerang, on the honest reasoning that "out along a line
   // and back" is Longline's shape one weapon early — and the first probe frame of the chapter came
   // back with an ORANGE MAPLE LEAF spinning through the open ocean, because T.boomerang is baked as
-  // a leaf and the card is called Boomerang Leaf. A vortex carries no biome with it. Check the
-  // sprite, not only the shape, when borrowing.
+  // a leaf and the card is called Boomerang Leaf. The Black Hole was then kept on the argument that
+  // a vortex carries no biome with it, and that was wrong too: its disc is a purple SINGULARITY,
+  // which is not a biome but is very much a place. Check the sprite, not only the shape, when
+  // borrowing — and do not stop at "abstract".
   //   bringItIn — the epic, and the chapter's only EXECUTION. Added 2026-09-01 with the normal-
   //              chapter pass: the three above are all control, which was fine while the wall did
   //              the killing and is not fine now that it comes four times in three minutes.
-  weapons: ['longline', 'netToss', 'bringItIn', 'hole'], starter: 'longline',
+  weapons: ['longline', 'netToss', 'bringItIn', 'whirlpool'], starter: 'longline',
 
   // ---- render-only (ZERO sim effect) ----
   // DEEPER AGAIN. The book's floors step down one measured stop per chapter (obstacle-contrast.mjs's

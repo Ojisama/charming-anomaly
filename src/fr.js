@@ -724,6 +724,12 @@ const CONFIG = {
   'A defected white cell that hunts your hunters.': 'Un globule blanc rallié qui chasse tes chasseurs.',
   'Mini Black Hole': 'Mini Trou Noir',
   'Opens a vortex that swallows the swarm.': 'Ouvre un vortex qui engloutit l\'essaim.',
+  // The Trawl's Whirlpool (2026-09-02), the Mini Black Hole's vortex made native to the chapter.
+  // 'Tourbillon' is the plain word and the one a French player has for the thing in the picture;
+  // 'maelström' is kept for the collapse card below, where a huge one is the point. 'l'œil' is
+  // what French calls the middle of one too.
+  'Whirlpool': 'Tourbillon',
+  'Spins up a whirlpool that drags the swarm into its eye.': 'Forme un tourbillon qui entraîne l\'essaim vers son œil.',
   'Neon Beam': 'Rayon Néon',
   'A searing crimson ray sweeps everything it touches.': 'Un rayon écarlate brûlant balaie tout ce qu\'il touche.',
   'Flagella Whip': 'Fouet de Flagelle',
@@ -902,6 +908,22 @@ const CONFIG = {
   'hole growth rate while alive': 'vitesse de croissance du trou tant qu\'il est actif',
   'Big Crunch': 'Grand Effondrement',
   'hole collapse detonation damage': 'dégâts de détonation à l\'effondrement du trou',
+  // The Whirlpool's six — the Black Hole's six under water. 'Tourbillon Large' / 'Tourbillon Long'
+  // follow the Downwash's 'Colonne Large' / 'Colonne Longue' pattern; 'Attraction Forte' keeps the
+  // noun the Black Hole's own 'Attraction Intense' already uses for the same stat. 'Maelström' is
+  // the French spelling.
+  'Wide Whirl': 'Tourbillon Large',
+  'whirlpool radius': 'rayon du tourbillon',
+  'Long Whirl': 'Tourbillon Long',
+  'whirlpool duration': 'durée du tourbillon',
+  'Strong Pull': 'Attraction Forte',
+  'whirlpool pull': 'force d\'attraction du tourbillon',
+  'Twin Whirl': 'Double Tourbillon',
+  'extra whirlpool(s) per cast': 'tourbillon(s) bonus par lancer',
+  'Widening Gyre': 'Tourbillon Grandissant',
+  'whirlpool growth rate while alive': 'vitesse de croissance du tourbillon tant qu\'il est actif',
+  'Maelstrom': 'Maelström',
+  'whirlpool collapse burst damage': 'dégâts à la fermeture du tourbillon',
   'Big Beam': 'Grand Rayon',
   'beam width & length': 'largeur et longueur du rayon',
   'Beam Prism': 'Prisme',

@@ -362,6 +362,7 @@ const NEW_WEAPON_ENTITY = {
   homing: 'homingShots',
   hole: 'holes',
   rainbow: 'beams',
+  whirlpool: 'holes',   // The Trawl's vortex shares the Black Hole's array; run WP owns the tag
 }
 
 function testNewWeapons() {
@@ -7765,6 +7766,141 @@ function runModBudget() {
   console.log('PASS run MB (Book 2 chapters 1-2 mod budget): no inert cards across every weapon, four-plus apiece in both chapters, rate mods speed up, count mods land on bodies, and the three Pollution/clean-water cards pay the right way round — including that a fouled patch stops recharging you')
 }
 run(runModBudget)
+
+// ---- run WP: The Trawl's Whirlpool — the Black Hole's vortex under its own tag (2026-09-02) ----
+// Every assertion here is about the TAG. The two weapons share run.holes, stepHoles and the hole
+// rig in render.js, and the only thing deciding which card's mods an entry wears and which drawing
+// it gets is `look`. Nothing throws if the tag is dropped or the mod switch reads the wrong card: a
+// whirlpool would simply grow on the Black Hole's Hungry Hole (an inert card on one side and a
+// cross-wired one on the other) and draw as the singularity the owner asked to see gone.
+// No enemies and no spawning, like run MB: every block measures what a CAST produces.
+function runWhirlpool() {
+  const dt = 1 / 60
+  const mkMeta = () => { const m = makeMeta(); m.dev = true; ensureChapterMeta(m); return m }
+  const boot = (chapter, id, mods) => {
+    Math.random = mulberry32(20260902)
+    const run = createRun(mkMeta(), { chapter, difficulty: 1 })
+    run.weapons = [{ id, level: 5 }]
+    run.player.maxHP = run.player.hp = 1e9
+    run.mods.spawnMul = 0
+    run.enemies.length = 0
+    for (const [wid, m] of Object.entries(mods ?? {})) Object.assign(run.weaponMods[wid], m)
+    return run
+  }
+  const step = (run) => stepSim(run, { x: 0, y: 0 }, dt)
+  // Steps until the first cast lands; returns that step's events. Never a fixed slice — the L5
+  // interval is 4.5s and a probe that stops short reads "the weapon does nothing".
+  const castUntil = (run, maxSecs = 12) => {
+    for (let i = 0; i < Math.round(maxSecs / dt); i++) {
+      run.events.length = 0
+      step(run)
+      if (run.holes.length > 0) return run.events.slice()
+    }
+    assert.fail('precondition: the vortex weapon must cast within 12s')
+  }
+
+  // (a) The pool, the tag on every entry, and each weapon's own cast event. The Black Hole is
+  // asserted alongside so the shared fire site cannot be "fixed" by tagging everything.
+  {
+    assert(CHAPTERS.trawl.weapons.includes('whirlpool') && !CHAPTERS.trawl.weapons.includes('hole'),
+      'The Trawl offers the Whirlpool and no longer the borrowed Mini Black Hole')
+    assert(CHAPTERS.beyond.weapons.includes('hole') && !CHAPTERS.beyond.weapons.includes('whirlpool'),
+      'The Beyond keeps its Mini Black Hole and does not get the Whirlpool')
+    const w = boot('trawl', 'whirlpool')
+    const ev = castUntil(w)
+    assert(w.holes.length > 0 && w.holes.every((h) => h.look === 'whirlpool'), 'every whirlpool entry carries look: whirlpool')
+    assert(ev.some((e) => e.type === 'whirlpool') && !ev.some((e) => e.type === 'hole'), 'a whirlpool cast emits {type:whirlpool}, never {type:hole}')
+    const b = boot('beyond', 'hole')
+    const evb = castUntil(b)
+    assert(b.holes.length > 0 && b.holes.every((h) => h.look == null), 'the Black Hole\'s entries stay untagged')
+    assert(evb.some((e) => e.type === 'hole') && !evb.some((e) => e.type === 'whirlpool'), 'a Black Hole cast still emits {type:hole}')
+  }
+
+  // (b) GROWTH: each card's growth mod moves its own vortex and never the other card's. Measured
+  // over 0.5s of a 2.6s life; 0.5 x 215 x 0.5s is ~54px, so the band is nowhere near noise.
+  const growthOf = (chapter, id, mods) => {
+    const r = boot(chapter, id, mods)
+    castUntil(r)
+    const h = r.holes[0]
+    const r0 = h.radius
+    for (let i = 0; i < 30; i++) step(r)
+    assert(r.holes.includes(h), 'precondition: the vortex is still alive after 0.5s')
+    return h.radius - r0
+  }
+  const g = {
+    wpOwn: growthOf('trawl', 'whirlpool', { whirlpool: { widening: 0.5 } }),
+    wpCross: growthOf('trawl', 'whirlpool', { hole: { hungry: 0.5 } }),
+    bhOwn: growthOf('beyond', 'hole', { hole: { hungry: 0.5 } }),
+    bhCross: growthOf('beyond', 'hole', { whirlpool: { widening: 0.5 } }),
+    none: growthOf('trawl', 'whirlpool', null),
+  }
+  assert(g.wpOwn > 20, `Widening Gyre must grow a whirlpool: grew ${g.wpOwn.toFixed(1)}px in 0.5s`)
+  assert.strictEqual(g.wpCross, 0, `the Black Hole's Hungry Hole must not grow a whirlpool: grew ${g.wpCross}`)
+  assert(g.bhOwn > 20, `Hungry Hole must still grow a Black Hole: grew ${g.bhOwn.toFixed(1)}px`)
+  assert.strictEqual(g.bhCross, 0, `Widening Gyre must not grow a Black Hole: grew ${g.bhCross}`)
+  assert.strictEqual(g.none, 0, 'an unmodded whirlpool holds its radius')
+
+  // (c) COLLAPSE: Maelstrom detonates a whirlpool on expiry (an explode event) and Big Crunch does
+  // not; the mirror holds for the Black Hole. Counted from the cast to the array emptying — the
+  // L5 life (2.6s) is shorter than the interval (4.5s), so a second cast can never be mistaken
+  // for the first detonating twice.
+  const burstsOf = (chapter, id, mods) => {
+    const r = boot(chapter, id, mods)
+    castUntil(r)
+    let n = 0
+    for (let i = 0; i < Math.round(4 / dt) && r.holes.length > 0; i++) {
+      r.events.length = 0
+      step(r)
+      n += r.events.filter((e) => e.type === 'explode').length
+    }
+    assert.strictEqual(r.holes.length, 0, 'precondition: the vortex expired within 4s')
+    return n
+  }
+  const c = {
+    wpOwn: burstsOf('trawl', 'whirlpool', { whirlpool: { maelstrom: 1 } }),
+    wpCross: burstsOf('trawl', 'whirlpool', { hole: { crunch: 1 } }),
+    bhOwn: burstsOf('beyond', 'hole', { hole: { crunch: 1 } }),
+    bhCross: burstsOf('beyond', 'hole', { whirlpool: { maelstrom: 1 } }),
+  }
+  assert.strictEqual(c.wpOwn, 1, `Maelstrom must detonate a whirlpool exactly once on expiry: ${c.wpOwn}`)
+  assert.strictEqual(c.wpCross, 0, `Big Crunch must not detonate a whirlpool: ${c.wpCross}`)
+  assert.strictEqual(c.bhOwn, 1, `Big Crunch must still detonate a Black Hole once: ${c.bhOwn}`)
+  assert.strictEqual(c.bhCross, 0, `Maelstrom must not detonate a Black Hole: ${c.bhCross}`)
+
+  // (d) COUNT: Twin Whirl lands a second, TAGGED vortex somewhere else (distinct positions, never a
+  // count — two on one spot render as one); the Black Hole's Singularity does nothing to it.
+  {
+    const r = boot('trawl', 'whirlpool', { whirlpool: { twinWhirl: 1 } })
+    castUntil(r)
+    assert.strictEqual(r.holes.length, 2, `Twin Whirl: expected 2 vortexes per cast, got ${r.holes.length}`)
+    assert(r.holes.every((h) => h.look === 'whirlpool'), 'the extra vortex carries the tag too')
+    const d = Math.hypot(r.holes[0].x - r.holes[1].x, r.holes[0].y - r.holes[1].y)
+    assert(d > 1, `the two vortexes must land apart, they are ${d.toFixed(1)}px from each other`)
+    const x = boot('trawl', 'whirlpool', { hole: { singularity: 1 } })
+    castUntil(x)
+    assert.strictEqual(x.holes.length, 1, `Singularity must not add vortexes to a whirlpool cast: ${x.holes.length}`)
+  }
+
+  // (e) THE FOLD: Wide Whirl is a WEAPON_STAT_MODS entry, so the cast radius carries its pct.
+  {
+    const r = boot('trawl', 'whirlpool', { whirlpool: { wideWhirl: 0.2 } })
+    castUntil(r)
+    const base = WEAPONS.whirlpool.levels[4].radius
+    assert(Math.abs(r.holes[0].radius - base * 1.2) < 1e-6, `Wide Whirl +20%: expected ${base * 1.2}, got ${r.holes[0].radius}`)
+  }
+
+  // (f) THE OTHER SIDE OF THE TAG, as source text (run UG.k's trick — render.js is unimportable):
+  // the drawing has to read the tag, or a whirlpool is a Black Hole with a different name, which
+  // is the exact frame this card exists to remove. The cast's sound is run EV's business.
+  {
+    const renderSrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    assert(renderSrc.includes("h.look === 'whirlpool'"), 'render.js must branch its hole rig on look === whirlpool')
+    assert(renderSrc.includes('T.whirlDepth') && renderSrc.includes('WEAPONS.whirlpool.levels'), 'render.js must bake the whirlpool at its own max radius')
+  }
+
+  console.log(`PASS run WP (The Trawl's Whirlpool): tagged on every entry with its own cast event; Widening Gyre +${g.wpOwn.toFixed(1)}px / Hungry Hole +${g.wpCross}px on a whirlpool (Black Hole: +${g.bhOwn.toFixed(1)} / +${g.bhCross}); Maelstrom ${c.wpOwn} burst vs Big Crunch ${c.wpCross} (Black Hole ${c.bhOwn} / ${c.bhCross}); Twin Whirl lands two tagged vortexes apart; Wide Whirl folds; render.js reads the tag`)
+}
+run(runWhirlpool)
 
 // ─── run DB: the duo boons actually reach the player ─────────────────────────────────────────
 // A DUO BOON is a weapon mod carrying `needs: '<weaponId>'` — a mod on weapon A that pays out

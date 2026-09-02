@@ -803,7 +803,8 @@ function generateWells(sig) {
  *               hole's core); set by stepHoles each frame an enemy is inside a hole's radius, decays
  *               back to 0 over time otherwise. Render can use it to squash/shrink sprites being sucked in.
  *               _holeLook: which KIND of hole last had hold of it — the `look` of that run.holes
- *               entry ('downwash' for The Shelf's water column, null for the Black Hole). Written
+ *               entry ('downwash' for The Shelf's water column, 'whirlpool' for The Trawl's, null
+ *               for the Black Hole). Written
  *               beside holePull and read only by contactHarmless, which disarms a body a water
  *               column is ragdolling. Sim-internal (underscore): the tell is holePull, which render
  *               already reads.
@@ -1049,8 +1050,12 @@ function generateWells(sig) {
  *               a Popping Wisps death-pop, see below). Popping Wisps (wispNova, v4.3): any wisp
  *               that dies (spent its last pierce on a hit, OR its life ran out) pops an AoE
  *               splash — no new field, just an {type:'explode'} event at its (x,y).
- * holes[i]:     { x, y, radius, coreRadius, life, duration, dmg, tick, pull, spawnRadius? }
+ * holes[i]:     { x, y, radius, coreRadius, life, duration, dmg, tick, pull, spawnRadius?, look }
  *               coreRadius is the inner "consumed" zone (amplified tick damage; see stepHoles).
+ *               look: which weapon's vortex this is — null for The Beyond's Mini Black Hole,
+ *               'whirlpool' for The Trawl's Whirlpool (same sim, water in render.js, its own
+ *               growth/collapse mods), 'downwash' for The Shelf's column (no core crush, bursts on
+ *               expiry). Render and stepHoles both key on it; nothing infers it from the numbers.
  *               Singularity (v4.1, see WEAPON_MODS.hole) spawns extra hole entries of this same
  *               shape at HOLE_SINGULARITY_FRAC radius/coreRadius/pull. spawnRadius (v4.3,
  *               optional): the hole's radius at creation — Hungry Hole (see WEAPON_MODS.hole)

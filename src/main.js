@@ -518,6 +518,8 @@ const SFX_FOR_EVENT = {
   hit: 'hit', kill: 'kill', gem: 'gem', coin: 'coin',
   levelup: 'levelup', hurt: 'hurt', dead: 'death', victory: 'victory', shoot: 'shoot',
   explode: 'explode', hole: 'hole', beam: 'beam',
+  // The Trawl's Whirlpool opens with the same vortex whoosh — it is the same vortex, in water.
+  whirlpool: 'hole',
   // Revive Token firing reuses the levelup jingle — it's a "good news" beat, same register
   revive: 'levelup',
   // SUBMISSION: an elite changing sides is the same register as a Revive — the run just went

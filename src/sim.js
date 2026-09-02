@@ -7667,6 +7667,10 @@ const WEAPON_STAT_MODS = {
   mines:     { minefield: ['maxAlive', 'flat'], bigBoom: ['radius', 'pct'], heavyCharge: ['dmg', 'pct'] },
   homing:    { extraWisp: ['count', 'flat'], longLife: ['life', 'pct'], agile: ['turnRate', 'pct'] },
   hole:      { biggerHole: ['radius', 'pct'], lasting: ['duration', 'pct'], denser: ['pull', 'pct'] },
+  // The Trawl's Whirlpool: the Black Hole's three folds under its own names. Its count (twinWhirl)
+  // is read at its fire site and growth/collapse (widening/maelstrom) in stepHoles, keyed on the
+  // entry's look so a Black Hole in the same array never inherits them.
+  whirlpool: { wideWhirl: ['radius', 'pct'], longWhirl: ['duration', 'pct'], strongPull: ['pull', 'pct'] },
   // The Shelf's Downwash. `secondFall` (the count) and `plunge` (the trigger) are read at their own
   // sites, like every other count and every other behavioural mod — a count folded here would grow
   // the stat and leave the loop bound alone, which renders identically to no mod at all.
@@ -7901,6 +7905,7 @@ function stepWeapons(run, dt) {
     else if (w.id === 'mines') stepMinesWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'homing') stepHomingWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'hole') stepHoleWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'whirlpool') stepWhirlpoolWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'rainbow') stepBeamWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'flagella') stepFlagellaWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'bloom') stepBloomWeapon(run, w, stats, fireRateMul, dt)
@@ -8815,6 +8820,15 @@ function stepHoleWeapon(run, w, stats, fireRateMul, dt) {
   fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () => fireHole(run, stats))
 }
 
+// The Trawl's Whirlpool (2026-09-02): the SAME cast as the Black Hole's, tagged look: 'whirlpool'
+// so render.js draws water and stepHoles reads this card's own growth/collapse mods. Its count mod
+// is read here, at its own fire site, exactly as Singularity is read in fireHole — never folded,
+// because a count folded into a stat grows the number and leaves the loop bound alone.
+function stepWhirlpoolWeapon(run, w, stats, fireRateMul, dt) {
+  fireOnTimer(run, w.id, stats.interval / fireRateMul, dt, () =>
+    castVortex(run, stats, { look: 'whirlpool', event: 'whirlpool', extra: run.weaponMods.whirlpool?.twinWhirl ?? 0 }))
+}
+
 // Picks a spawn spot for a hole: a random other in-view, not-yet-used enemy, falling back to a
 // random offset from the player when none are available (or all are excluded). Shared by the
 // main cast and Singularity's extra vortexes.
@@ -8840,6 +8854,13 @@ function pickHoleSpot(run, excludeIds) {
 }
 
 function fireHole(run, stats) {
+  castVortex(run, stats, { look: null, event: 'hole', extra: run.weaponMods.hole?.singularity ?? 0 })
+}
+
+// One cast of a vortex weapon: the main entry plus `extra` smaller ones (Singularity / Twin
+// Whirl), each on a DIFFERENT in-view enemy. `look` is the run.holes tag render.js and stepHoles
+// key on (null = the Black Hole, 'whirlpool' = The Trawl's); `event` is the cast's event type.
+function castVortex(run, stats, { look, event, extra }) {
   const usedIds = new Set()
   const main = pickHoleSpot(run, usedIds)
   if (main.id != null) usedIds.add(main.id)
@@ -8848,16 +8869,17 @@ function fireHole(run, stats) {
     x: main.x, y: main.y, radius: stats.radius, coreRadius: stats.radius * HOLE_CORE_FRAC,
     life: stats.duration, duration: stats.duration,
     dmg: stats.dmg, tick: stats.tick, pull: stats.pull, acc: 0,
-    spawnRadius: stats.radius, // Hungry Hole: growth is a fraction of THIS (per-hole) radius
+    spawnRadius: stats.radius, // Hungry Hole / Widening Gyre: growth is a fraction of THIS (per-hole) radius
+    look,
   })
-  run.events.push({ type: 'hole' })
+  run.events.push({ type: event })
 
-  // Singularity: N extra vortexes per cast, at HOLE_SINGULARITY_FRAC radius/coreRadius/pull,
-  // spawned on other random in-view enemies (falls back to a random offset, like the main cast).
-  // The main vortex is unconditional, so IPECAC's x3 is expressed as extras on top of it — one
-  // vortex becomes three, each landing on a DIFFERENT enemy via pickHoleSpot's exclusion set.
-  const singularity = ipecacN(run, 1 + (run.weaponMods.hole?.singularity ?? 0)) - 1
-  for (let i = 0; i < singularity; i++) {
+  // Singularity / Twin Whirl: N extra vortexes per cast, at HOLE_SINGULARITY_FRAC radius/coreRadius/
+  // pull, spawned on other random in-view enemies (falls back to a random offset, like the main
+  // cast). The main vortex is unconditional, so IPECAC's x3 is expressed as extras on top of it —
+  // one vortex becomes three, each landing on a DIFFERENT enemy via pickHoleSpot's exclusion set.
+  const extraN = ipecacN(run, 1 + extra) - 1
+  for (let i = 0; i < extraN; i++) {
     const spot = pickHoleSpot(run, usedIds)
     if (spot.id != null) usedIds.add(spot.id)
     const radius = stats.radius * HOLE_SINGULARITY_FRAC
@@ -8866,8 +8888,9 @@ function fireHole(run, stats) {
       life: stats.duration, duration: stats.duration,
       dmg: stats.dmg, tick: stats.tick, pull: stats.pull * HOLE_SINGULARITY_FRAC, acc: 0,
       spawnRadius: radius,
+      look,
     })
-    run.events.push({ type: 'hole' })
+    run.events.push({ type: event })
   }
 }
 
@@ -8995,22 +9018,29 @@ function stepHoles(run, dt) {
   const pulled = new Set() // enemy ids affected by a hole this frame; rest decay e.holePull toward 0
   const hungryBonus = run.weaponMods.hole?.hungry ?? 0
   const crunchBonus = run.weaponMods.hole?.crunch ?? 0
+  // The Trawl's Whirlpool carries the same two behaviours under its own cards.
+  const wideningBonus = run.weaponMods.whirlpool?.widening ?? 0
+  const maelstromBonus = run.weaponMods.whirlpool?.maelstrom ?? 0
 
   for (const h of run.holes) {
     h.life -= dt
+    // WHICH CARD'S MODS THIS ENTRY WEARS is decided by its `look`, never by which cards the player
+    // holds: hungry/crunch are read off run.weaponMods.hole and widening/maelstrom off .whirlpool,
+    // so without this switch every vortex in the array would inherit the other card's mods the
+    // moment a player held both (The Blank offers everything). A Downwash wears neither.
+    const growth = h.look === 'whirlpool' ? wideningBonus : h.look === 'downwash' ? 0 : hungryBonus
+    const collapse = h.look === 'whirlpool' ? maelstromBonus : h.look === 'downwash' ? 0 : crunchBonus
     if (h.life <= 0) {
-      // A Downwash pays its own burst and never Big Crunch's: `hungryBonus`/`crunchBonus` are read
-      // off run.weaponMods.hole, so without the `look` test every column in the array would inherit
-      // the Black Hole's mods the moment a player held both cards.
+      // A Downwash pays its own burst and never Big Crunch's or Maelstrom's.
       if (h.look === 'downwash') downwashBurst(run, h)
-      else if (crunchBonus > 0) holeCrunch(run, h, crunchBonus)
+      else if (collapse > 0) holeCrunch(run, h, collapse)
       continue
     }
 
-    // Hungry Hole: radius (and coreRadius, kept proportional) grows while alive. Render is
-    // visual-safe here — it already re-reads h.radius/coreRadius every frame.
-    if (hungryBonus > 0 && h.spawnRadius && h.look !== 'downwash') {
-      h.radius += hungryBonus * h.spawnRadius * dt
+    // Hungry Hole / Widening Gyre: radius (and coreRadius, kept proportional) grows while alive.
+    // Render is visual-safe here — it already re-reads h.radius/coreRadius every frame.
+    if (growth > 0 && h.spawnRadius) {
+      h.radius += growth * h.spawnRadius * dt
       h.coreRadius = h.radius * HOLE_CORE_FRAC
     }
 

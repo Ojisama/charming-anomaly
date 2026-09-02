@@ -5249,6 +5249,90 @@ export function createRenderer(app) {
         T.holeDiscRef = RREF
       }
     }
+    // THE TRAWL'S WHIRLPOOL (2026-09-02). It shares run.holes and the hole rig with the Black Hole
+    // and the Downwash, and shares NONE of their drawing — T.holeDisc/T.holeCore are baked violet-
+    // black and a tint can only darken, which is the palette-swap trap placeHole already records.
+    // Two bakes, both at the weapon's max radius and scaled DOWN per entry (a bake magnified comes
+    // out stepped): the DEPRESSION, a dark navy radial disc — deeper water, same annuli technique
+    // as the Black Hole's body above — and the FOAM, a spiral the rig spins. The eye is drawn live
+    // in placeHole because its radius is the entry's coreRadius, which Widening Gyre moves.
+    //
+    // PLAN VIEW, and this is the one shape in the game that needs no projection argument: a
+    // whirlpool seen from directly above IS a spiral. From the side it is a funnel, and that is
+    // the Trash Tornado mistake — do not draw the funnel.
+    //
+    // DIRECTION IS LOAD-BEARING. stepHoles' tangent term moves bodies COUNTER-CLOCKWISE on screen
+    // (e.x += -uy·v, e.y += ux·v, with (ux,uy) pointing inward), so every arm here is wound so that
+    // following it INWARD turns counter-clockwise, and placeHole spins it with a NEGATIVE rotation
+    // (Pixi's positive is clockwise, y being down). Wind or spin it the other way and the still
+    // frame looks identical while the motion fights the bodies being dragged through it.
+    //
+    // All three WP_LOOK candidates are baked so the switch flips from the URL without a rebuild.
+    {
+      const R = WEAPONS.whirlpool.levels[WEAPONS.whirlpool.levels.length - 1].radius
+      T.whirlRef = R
+      {
+        const RREF = 128, N = 96, T0 = 0.02
+        const stops = [[0, 0x02101f, 0.62], [0.5, 0x06213c, 0.36], [0.85, 0x0b3358, 0.12], [1, 0x0b3358, 0]]
+        const at = (t) => {
+          let k = 1
+          while (k < stops.length - 1 && t > stops[k][0]) k++
+          const [t0, c0, a0] = stops[k - 1]
+          const [t1, c1, a1] = stops[k]
+          const f = (t - t0) / (t1 - t0)
+          const ch = (sh) => Math.round(((c0 >> sh) & 255) + (((c1 >> sh) & 255) - ((c0 >> sh) & 255)) * f)
+          return { color: (ch(16) << 16) | (ch(8) << 8) | ch(0), alpha: a0 + (a1 - a0) * f }
+        }
+        const gd = new Graphics()
+        const w = (RREF * (1 - T0)) / N
+        for (let i = 0; i < N; i++) {
+          const r = RREF * T0 + (i + 0.5) * w
+          gd.circle(0, 0, r).stroke({ width: w, ...at(r / RREF) })
+        }
+        gd.circle(0, 0, RREF * T0).fill(at(T0 / 2))
+        T.whirlDepth = bake(gd)
+        T.whirlDepthRef = RREF
+      }
+      // `arms` streamlines, each `turns` of winding from the rim in to `rIn`·R, thickening
+      // (w0 -> w1) and brightening (a0 -> a1) toward the eye — the water runs fastest there and
+      // that is where foam packs. Drawn as `bands` polylines of constant width and alpha with BUTT
+      // caps, never as one stroke per segment: each stroke is its own primitive, so round-capped
+      // segments at half alpha overlap at every joint and the joints composite twice as bright —
+      // the arm comes out as a string of dots. Seen on the first mock-up of this bake. A tip disc
+      // finishes the inner end.
+      const FOAM = 0xe6f5fb
+      const spiral = (arms, turns, rIn, w0, w1, a0, a1, segs, bands = 12) => {
+        const g = new Graphics()
+        const at = (t) => {
+          const r = R * (1 - (1 - rIn) * t)
+          const phi = -turns * Math.PI * 2 * t
+          return [r, phi]
+        }
+        for (let k = 0; k < arms; k++) {
+          const phi0 = (k / arms) * Math.PI * 2
+          const per = Math.max(1, Math.round(segs / bands))
+          for (let b = 0; b < bands; b++) {
+            const tm = (b + 0.5) / bands
+            for (let i = 0; i <= per; i++) {
+              const t = (b + i / per) / bands
+              const [r, phi] = at(t)
+              const x = Math.cos(phi0 + phi) * r, y = Math.sin(phi0 + phi) * r
+              if (i === 0) g.moveTo(x, y); else g.lineTo(x, y)
+            }
+            g.stroke({ width: w0 + (w1 - w0) * tm, color: FOAM, alpha: a0 + (a1 - a0) * tm, cap: 'butt', join: 'round' })
+          }
+          const [r1, phi1] = at(1)
+          g.circle(Math.cos(phi0 + phi1) * r1, Math.sin(phi0 + phi1) * r1, w1 / 2).fill({ color: FOAM, alpha: a1 })
+        }
+        return g
+      }
+      // WP_LOOK 0 — FOAM ARMS: three streamlines, three quarters of a turn each. A hurricane from
+      // above, which is what a whirlpool from above also is.
+      T.whirlArms = bake(spiral(3, 0.75, 0.2, 5, 13, 0.18, 0.85, 48))
+      // WP_LOOK 2 — COIL: a two-start band winding three and a half turns from rim to eye, the
+      // drain-illustration whirlpool.
+      T.whirlCoil = bake(spiral(2, 3.5, 0.16, 4, 9, 0.16, 0.8, 220))
+    }
     // neon beam: horizontal bar baked at the weapon's max length/width, anchored so local (0,0)
     // sits at the left edge (player origin). v5.6.13 (user art direction): a SITH SABER, not a
     // rainbow — a white-hot core sheathed in crimson inside a soft red bloom. No gradients in
@@ -15729,6 +15813,13 @@ const spurG = new Graphics()
   // (both upscale cleanly); the twirl sprites stay near their native resolution as a
   // fixed-size spinning core — stretching them to a 700px+ radius washes them to fog.
   const HOLE_TWIRL_MAX = 460 // px, twirl detail size cap
+  // A/B SWITCH FOR THE WHIRLPOOL'S FOAM, read once at module scope like spurArt (bakes happen at
+  // boot; a per-frame read would be a different switch). 0 = foam arms (three log-spiral
+  // streamlines), 1 = the Black Hole's own twirl sprites tinted to foam and both turning with the
+  // flow, 2 = a three-and-a-half-turn coil. Judged on scripts/scenes/trawl-whirlpool.js; kept so
+  // the other two can be looked at on a phone against the live URL (?wp=1, ?wp=2). DELETE with
+  // the owner's ruling.
+  const WP_LOOK = (() => { try { return Number(new URLSearchParams(location.search).get('wp') ?? 0) } catch { return 0 } })()
   function acquireHole() {
     const root = new Container()
     const disc = spriteOf(T.holeDisc)
@@ -15748,9 +15839,18 @@ const spurG = new Graphics()
     const rings = new Graphics()
     const foam = new Sprite(T.fx.flare_01)
     foam.anchor.set(0.5)
-    root.addChild(disc, ring, vortexA, vortexB, core, rings, foam)
+    // The Whirlpool's own parts, on the same argument as the Downwash's: one pool, three drawings.
+    // wpDepth under everything (it is the water itself), the two foam layers over the rim ring so
+    // the arms run out to the edge, the eye on top. WP_LOOK 1 has no foam sprites of its own — it
+    // re-tints vortexA/vortexB per frame instead.
+    const wpDepth = spriteOf(T.whirlDepth)
+    const wpFoam = WP_LOOK === 2 ? T.whirlCoil : T.whirlArms
+    const wpA = spriteOf(wpFoam)
+    const wpB = spriteOf(wpFoam)
+    const wpEye = new Graphics()
+    root.addChild(wpDepth, disc, ring, vortexA, vortexB, core, rings, foam, wpA, wpB, wpEye)
     holeLayer.addChild(root)
-    return { root, disc, ring, vortexA, vortexB, core, rings, foam, _r: 0 }
+    return { root, disc, ring, vortexA, vortexB, core, rings, foam, wpDepth, wpA, wpB, wpEye, _r: 0, _look: undefined }
   }
 
   function syncHoles(list) {
@@ -21716,12 +21816,17 @@ const spurG = new Graphics()
     // hole in murky water — the exact opposite of clean water. So the Downwash hides them and draws
     // its own thing instead of wearing the singularity's.
     const wash = h.look === 'downwash'
-    hv.disc.visible = !wash
-    hv.core.visible = !wash
-    hv.vortexA.visible = !wash
-    hv.vortexB.visible = !wash
+    const whirl = h.look === 'whirlpool'
+    hv.disc.visible = !wash && !whirl
+    hv.core.visible = !wash && !whirl
+    hv.vortexA.visible = !wash && (!whirl || WP_LOOK === 1)
+    hv.vortexB.visible = hv.vortexA.visible
     hv.rings.visible = wash
     hv.foam.visible = wash
+    hv.wpDepth.visible = whirl
+    hv.wpEye.visible = whirl
+    hv.wpA.visible = whirl && WP_LOOK !== 1
+    hv.wpB.visible = hv.wpA.visible
     const twirlPx = Math.min(h.radius * 1.2, HOLE_TWIRL_MAX)
     hv.vortexA.scale.set(fxScale(T.fx.twirl_01, twirlPx))
     hv.vortexB.scale.set(fxScale(T.fx.twirl_02, twirlPx * 0.85))
@@ -21746,16 +21851,50 @@ const spurG = new Graphics()
       hv.foam.alpha = 0.85
       hv.foam.scale.set(fxScale(T.fx.flare_01, h.radius * 0.5))
     }
-    if (hv._r !== h.radius || hv._wash !== wash) { // crisp rim ring, redrawn only when it changes
+    if (hv._r !== h.radius || hv._look !== h.look) { // crisp rim ring, redrawn only when it changes
       hv._r = h.radius
-      hv._wash = wash
+      hv._look = h.look
       hv.ring.clear()
-      hv.ring.circle(0, 0, h.radius).stroke({ width: 5, color: wash ? 0x9fd8ea : 0x5a2fb0, alpha: 0.4 })
-      hv.ring.circle(0, 0, h.radius * 0.985).stroke({ width: 2, color: wash ? 0xffffff : 0xc9b3f5, alpha: 0.35 })
+      const rim = wash ? [0x9fd8ea, 0xffffff] : whirl ? [0xcfeaf5, 0xffffff] : [0x5a2fb0, 0xc9b3f5]
+      hv.ring.circle(0, 0, h.radius).stroke({ width: 5, color: rim[0], alpha: whirl ? 0.3 : 0.4 })
+      hv.ring.circle(0, 0, h.radius * 0.985).stroke({ width: 2, color: rim[1], alpha: whirl ? 0.25 : 0.35 })
+      // THE EYE: the crushed core (coreRadius, so it grows with Widening Gyre) as a near-black
+      // disc with a bright foam collar — the one place a whirlpool is darkest and its foam densest.
+      if (whirl) {
+        const rc = h.coreRadius
+        hv.wpEye.clear()
+        hv.wpEye.circle(0, 0, rc).fill({ color: 0x02101f, alpha: 0.92 })
+        hv.wpEye.circle(0, 0, rc).stroke({ width: 4, color: 0xf4fbff, alpha: 0.8 })
+        hv.wpEye.circle(0, 0, rc * 1.35).stroke({ width: 2, color: 0xdff2fa, alpha: 0.35 })
+      }
     }
     hv.vortexA.rotation = animT * 1.8 + i * 0.6
     hv.vortexB.rotation = -animT * 1.8 * 1.4 + i * 0.9 // counter-rotating, 1.4x speed
     hv.ring.rotation = animT * 0.4
+    if (whirl) {
+      hv.wpDepth.scale.set(h.radius / T.whirlDepthRef)
+      // NEGATIVE rotations throughout: counter-clockwise on screen, the way stepHoles drags bodies
+      // (see the bake's note). An outer layer at the entry's radius and an inner copy at half size
+      // turning twice as fast — the differential rotation is what makes it read as water rather
+      // than as a decal spinning, and it is also physically the right way round.
+      if (WP_LOOK === 1) {
+        hv.vortexA.tint = 0xeaf8ff; hv.vortexA.alpha = 0.9
+        hv.vortexB.tint = 0xa9dcee; hv.vortexB.alpha = 0.8
+        hv.vortexA.rotation = -animT * 1.8 + i * 0.6
+        hv.vortexB.rotation = -animT * 3.0 + i * 0.9
+      } else {
+        const k = h.radius / T.whirlRef
+        const w = WP_LOOK === 2 ? 2.2 : 1.5
+        hv.wpA.scale.set(k)
+        hv.wpA.rotation = -animT * w + i * 0.7
+        hv.wpB.scale.set(k * 0.5)
+        hv.wpB.alpha = 0.75
+        hv.wpB.rotation = -animT * w * 2 + i * 0.7 + 1.3
+      }
+    } else {
+      hv.vortexA.tint = 0x2f1a66; hv.vortexA.alpha = 1
+      hv.vortexB.tint = 0x5a2fb0; hv.vortexB.alpha = 0.9
+    }
 
     const elapsed = h.duration - h.life
     let a = elapsed < 0.2 ? elapsed / 0.2 : 1
@@ -21769,9 +21908,13 @@ const spurG = new Graphics()
       if (holeParticleTimers[i] >= 0.09) {
         holeParticleTimers[i] -= 0.09
         const ang = Math.random() * Math.PI * 2
-        const spin = (Math.random() < 0.5 ? 1 : -1) * (6 + Math.random() * 3)
-        const tex = Math.random() < 0.5 ? T.fx.star_08 : T.fx.circle_05
-        spawnSpiralParticle(tex, h.x, h.y, ang, h.radius * 0.95, spin, 0.7, 0.09, wash ? 0xbfe6f2 : 0x9a6fd0, -0.1)
+        const r1 = Math.random(), r2 = Math.random(), r3 = Math.random()
+        // A whirlpool's flecks are bubbles and ALL of them go the way the water goes (negative =
+        // counter-clockwise, see the bake); the Black Hole's spin either way, which is fine for a
+        // singularity and wrong for a fluid.
+        const spin = whirl ? -(7 + r2 * 3) : (r1 < 0.5 ? 1 : -1) * (6 + r2 * 3)
+        const tex = whirl ? T.fx.circle_05 : r3 < 0.5 ? T.fx.star_08 : T.fx.circle_05
+        spawnSpiralParticle(tex, h.x, h.y, ang, h.radius * 0.95, spin, 0.7, 0.09, whirl ? 0xe6f5fb : wash ? 0xbfe6f2 : 0x9a6fd0, -0.1)
       }
     }
   }
