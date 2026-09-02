@@ -58,7 +58,7 @@ import {
   BLIND_FAITH_NO_REROLL, BLIND_FAITH_FLOOR,
   IPECAC_COUNT_MUL, IPECAC_FIRE_MUL,
   ENEMIES, ELITE, WAVE_TABLE,
-  spawnRate, spawnTiltMul, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, lateEliteFor, SPAWN_RING, speedCreepMul,
+  spawnRate, spawnTiltMul, lateSpawnMulAt, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, lateEliteFor, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
   OBSTACLE_CELL, OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS, OBSTACLE_FIELD_RADIUS,
   xpForLevel, GEM_VALUE,
@@ -1085,7 +1085,7 @@ function stepSpawning(run, dt) {
   // oscillation into it would corrupt it permanently (the same reason RAMPAGE's multipliers are
   // read-time). The payoff half is the damage multiplier in anomalyDamageMul.
   const chaosMul = run.anomalies?.chaosPact && chaosSurgeActive(run.time) ? CHAOS_PACT_SPAWN_MUL : 1
-  run._spawnAcc += spawnRate(run.time) * run.mods.spawnMul * spawnTiltMul(run.mods.spawnTilt ?? 0, run.time) * laneMul * chaosMul * dt
+  run._spawnAcc += spawnRate(run.time) * run.mods.spawnMul * spawnTiltMul(run.mods.spawnTilt ?? 0, run.time) * lateSpawnMulAt(run.mods.lateSpawnMul ?? 1, run.time) * laneMul * chaosMul * dt
   // SUBMISSION: your allies must not eat the swarm's spawn budget. They live in run.enemies,
   // so without this the cap counts them and the game quietly spawns FEWER hostiles while an ally is
   // out — a second, invisible buff on top of the card, and one that corrupts any kills-per-run
@@ -7303,6 +7303,22 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
 
     const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)
     run.gems.push({ x: enemy.x, y: enemy.y, xp })
+
+    // JACKPOT (v7.x, The Trawl's sea turtle — CHAPTERS[].roster[].jackpot): a kill that pays a
+    // whole level on the spot and scatters a pile of coins. The level is the Reef's lap idiom
+    // (xp += xpNext, so the level-up opens on the next check whatever the bar read); the coins are
+    // ordinary pickups, so every coin rule — the magnet, Avarice, coinMul, the per-run cap — still
+    // applies to them. Chapter-scoped by the field being absent on every other roster entry.
+    const jackpot = enemy.rosterId ? CHAPTERS[run.chapter].roster?.find((r) => r.id === enemy.rosterId)?.jackpot : null
+    if (jackpot) {
+      if (jackpot.levels > 0) run.player.xp += run.player.xpNext * jackpot.levels
+      for (let i = 0; i < (jackpot.coins ?? 0); i++) {
+        const a = Math.random() * Math.PI * 2
+        const d = Math.random() * 28
+        run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
+      }
+      run.events.push({ type: 'jackpot', x: enemy.x, y: enemy.y })
+    }
 
     // WILDFIRE (v7.2): a burning enemy passes its fire on when it dies. The BUDGET is what stops
     // the cascade the spec warned about — in a 200-enemy field an unbudgeted jump-on-every-death

@@ -826,7 +826,9 @@ function generateWells(sig) {
  *               — what the kill is WORTH, which moves independently of how tough it is, and
  *               v7.x's dmgMul to contact damage — the per-CREATURE damage lever, as against
  *               ENEMIES[type].dmg which moves that archetype in every chapter and
- *               balance.enemyDmgMul which moves every creature in this one), and its
+ *               balance.enemyDmgMul which moves every creature in this one; and v7.x's
+ *               `jackpot: { levels, coins }`, read once at death — a whole level and a coin
+ *               pile on the spot, The Trawl's sea turtle), and its
  *               `flags` are copied in; elites additionally get CHAPTERS[chapter].eliteFlags
  *               appended (so an elite can carry both its roster's own flags and its chapter's
  *               elite-only ones). Always present (possibly []), safe to check unconditionally.
@@ -1141,7 +1143,9 @@ function generateWells(sig) {
  * Extra events beyond v1: {type:'explode',x,y,radius} mine pop, star-blast explosion, Supernova
  * Sparks orb-kill splash, Popping Wisps death-pop, or Big Crunch hole-collapse (radius from
  * config: mine's own blast radius, STAR_BLAST_RADIUS, ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, or
- * the hole's own final radius, respectively) · {type:'hole'} vortex opens · {type:'beam'} beam
+ * the hole's own final radius, respectively) · {type:'jackpot', x, y} a roster entry carrying a
+ * `jackpot` died there (The Trawl's sea turtle: a whole level and twenty coins) · {type:'hole'}
+ * vortex opens · {type:'beam'} beam
  * starts · {type:'bloom', x, y} a Toxin Bloom is cast (x,y = player, for a cast sfx; the clouds
  * themselves live in run.blooms above).
  *
@@ -2360,6 +2364,9 @@ export function createRun(meta, opts = {}) {
     // NOT a multiply: this one is a tilt around 0, read by spawnTiltMul in stepSpawning. Absent
     // everywhere but The Shelf, and 0 there means the shipped flat curve.
     mods.spawnTilt = bal.spawnTilt ?? 0
+    // Also not a multiply — a per-chapter late-game cut read by lateSpawnMulAt in stepSpawning;
+    // 1 everywhere it is absent (The Trawl carries 0.75).
+    mods.lateSpawnMul = bal.lateSpawnMul ?? 1
   }
   // Pre-run consumables (see CONSUMABLES in config.js and the doc block above).
   const consumables = opts.consumables ?? []

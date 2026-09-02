@@ -163,6 +163,8 @@ import {
   ORCA_RING_MIN_R, ORCA_BITE_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, FEED_FULL_N,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_RING_R, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_SPIRAL_ACCEL, ORCA_TRAIL_MAX,
   CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX, CHAPTER_BOARDS_DEFAULT,
+  // The Trawl's late-game cut (run TJ)
+  lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
 } from '../src/config.js'
 import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
@@ -7905,6 +7907,57 @@ function runWhirlpool() {
   console.log(`PASS run WP (The Trawl's Whirlpool): tagged on every entry with its own cast event; Widening Gyre +${g.wpOwn.toFixed(1)}px / Hungry Hole +${g.wpCross}px on a whirlpool (Black Hole: +${g.bhOwn.toFixed(1)} / +${g.bhCross}); Maelstrom ${c.wpOwn} burst vs Big Crunch ${c.wpCross} (Black Hole ${c.bhOwn} / ${c.bhCross}); Twin Whirl lands two tagged vortexes apart; the three folds carry; render.js reads the tag`)
 }
 run(runWhirlpool)
+
+// ---- run TJ: the sea turtle's jackpot (2026-09-02) ----------------------------------------------
+// A roster entry carrying `jackpot` pays a whole level and a coin pile the moment it dies, and a
+// roster entry without one pays nothing extra. Both halves are asserted on the ENTITY that died,
+// never on the table — a field in config that nothing reads is the silent failure this guards.
+function runTurtleJackpot() {
+  const dt = 1 / 60
+  const killOne = (rosterId) => {
+    Math.random = mulberry32(20260903)
+    const m = makeMeta(); m.dev = true; ensureChapterMeta(m)
+    const r = createRun(m, { chapter: 'trawl', difficulty: 1 })
+    r.weapons = [{ id: 'whirlpool', level: 5 }]   // one enemy in view, so the vortex lands on it
+    r.player.maxHP = r.player.hp = 1e9
+    r.mods.spawnMul = 0
+    r.enemies.length = 0
+    const e = makeStatusEnemy(r, { x: r.player.x + 120, y: r.player.y, hp: 1, speed: 0 })
+    e.rosterId = rosterId
+    r.enemies.push(e)
+    const level0 = r.player.level
+    let jackpots = 0, t = 0
+    while (r.kills === 0 && t < 12) {
+      r.events.length = 0
+      stepSim(r, { x: 0, y: 0 }, dt)
+      jackpots += r.events.filter((ev) => ev.type === 'jackpot').length
+      t += dt
+    }
+    assert.strictEqual(r.kills, 1, `precondition: the ${rosterId} must die within 12s`)
+    stepSim(r, { x: 0, y: 0 }, dt)   // one more step, so the level check runs on the granted xp
+    const coinsAtBody = r.coins.filter((c) => Math.hypot(c.x - e.x, c.y - e.y) <= 40).length
+    return { levelled: r.phase === 'levelup' || r.player.level > level0, coinsAtBody, jackpots }
+  }
+  const turtle = killOne('turtle')
+  const mackerel = killOne('mackerel')
+  assert(turtle.levelled, 'a sea turtle kill must pay a whole level on the spot')
+  assert(turtle.coinsAtBody >= 20, `a sea turtle kill must scatter twenty coins where it died, found ${turtle.coinsAtBody}`)
+  assert.strictEqual(turtle.jackpots, 1, `exactly one jackpot event per turtle, got ${turtle.jackpots}`)
+  assert(!mackerel.levelled, 'a mackerel kill must not pay a level')
+  assert(mackerel.coinsAtBody <= 1, `a mackerel drops at most its ordinary coin, found ${mackerel.coinsAtBody}`)
+  assert.strictEqual(mackerel.jackpots, 0, 'no jackpot event on a mackerel')
+  // The late-game cut: 1 until SPAWN_LATE_START, the full multiplier once the blend is over, and
+  // never more than 1 anywhere (a tilt would add bodies early; this must not).
+  assert.strictEqual(lateSpawnMulAt(0.75, 0), 1)
+  assert.strictEqual(lateSpawnMulAt(0.75, SPAWN_LATE_START), 1)
+  assert(Math.abs(lateSpawnMulAt(0.75, SPAWN_LATE_START + SPAWN_LATE_BLEND / 2) - 0.875) < 1e-9, 'halfway through the blend it is halfway there')
+  assert.strictEqual(lateSpawnMulAt(0.75, RUN_DURATION), 0.75)
+  assert.strictEqual(lateSpawnMulAt(1, RUN_DURATION), 1, 'a chapter without the knob is exactly 1 at every t')
+  const trawl = createRun((() => { const m = makeMeta(); m.dev = true; ensureChapterMeta(m); return m })(), { chapter: 'trawl', difficulty: 1 })
+  assert.strictEqual(trawl.mods.lateSpawnMul, 0.75, 'CHAPTERS.trawl.balance.lateSpawnMul reaches run.mods')
+  console.log(`PASS run TJ (sea turtle jackpot): a turtle kill pays a level and ${turtle.coinsAtBody} coins with one jackpot event, a mackerel pays neither; lateSpawnMulAt is 1 to ${SPAWN_LATE_START}s, 0.75 from ${SPAWN_LATE_START + SPAWN_LATE_BLEND}s, and The Trawl carries it`)
+}
+run(runTurtleJackpot)
 
 // ─── run DB: the duo boons actually reach the player ─────────────────────────────────────────
 // A DUO BOON is a weapon mod carrying `needs: '<weaponId>'` — a mod on weapon A that pays out

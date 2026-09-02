@@ -2068,11 +2068,13 @@ export const WEAPONS = {
     levels: [
       // balance_decision : +20% dmg, every Trawl weapon, owner ruling 2026-09-02
       //  - x1.2 rounded to whole numbers, unmeasured (owner: "don't test, just ship")
-      { dmg: 14, interval: 4.20, castRange: 380, travelSpeed: 430, width: 42, tick: 0.18 },
-      { dmg: 19, interval: 3.90, castRange: 415, travelSpeed: 470, width: 47, tick: 0.18 },
-      { dmg: 24, interval: 3.60, castRange: 450, travelSpeed: 510, width: 52, tick: 0.18 },
-      { dmg: 30, interval: 3.30, castRange: 485, travelSpeed: 560, width: 57, tick: 0.18 },
-      { dmg: 37, interval: 3.00, castRange: 520, travelSpeed: 610, width: 62, tick: 0.18 },
+      // balance_decision : the harpoon fires 30% more often, owner 2026-09-02
+      //  - interval / 1.3, two decimals; the +20% dmg line above is a separate ruling
+      { dmg: 14, interval: 3.23, castRange: 380, travelSpeed: 430, width: 42, tick: 0.18 },
+      { dmg: 19, interval: 3.00, castRange: 415, travelSpeed: 470, width: 47, tick: 0.18 },
+      { dmg: 24, interval: 2.77, castRange: 450, travelSpeed: 510, width: 52, tick: 0.18 },
+      { dmg: 30, interval: 2.54, castRange: 485, travelSpeed: 560, width: 57, tick: 0.18 },
+      { dmg: 37, interval: 2.31, castRange: 520, travelSpeed: 610, width: 62, tick: 0.18 },
     ],
   },
   // -- The Trawl's fourth: the Whirlpool (2026-09-02) ---------------------------------------------
@@ -5366,6 +5368,15 @@ export const spawnEarlyMul = (t) => (t >= SPAWN_EARLY_UNTIL ? 1 : 1 + SPAWN_EARL
 // along with the reshape. Run ST asserts the SHAPE (the early:late ratio) rather than the total,
 // which is the only thing a flat cut cannot fake.
 export const spawnTiltMul = (tilt, t) => 1 + tilt * (1 - 2 * Math.min(1, t / RUN_DURATION))
+// PER-CHAPTER LATE-GAME CUT (balance.lateSpawnMul, default 1): multiplies the spawn rate once the
+// late acceleration has begun — blending from 1 at SPAWN_LATE_START to the full multiplier over
+// SPAWN_LATE_BLEND seconds, then holding it to the end. A blend rather than a step for the reason
+// SPAWN_EARLY_BOOST's note gives: a rate that drops a quarter mid-fight reads as the game losing
+// interest. Unlike spawnTilt it never ADDS bodies anywhere, which is what "fewer enemies late"
+// asks for and a tilt cannot deliver without a matching early surplus. Written for The Trawl
+// (owner, 2026-09-02: "-25% enemies in late game"); absent everywhere else, where it is exactly 1.
+export const SPAWN_LATE_BLEND = 30
+export const lateSpawnMulAt = (m, t) => 1 + (m - 1) * Math.max(0, Math.min(1, (t - SPAWN_LATE_START) / SPAWN_LATE_BLEND))
 export const spawnRate = (t) => {
   const base = SPAWN_RATE_BASE + t * SPAWN_RATE_LINEAR
   if (t <= SPAWN_LATE_START) return base * spawnEarlyMul(t)
@@ -8402,7 +8413,13 @@ CHAPTERS.trawl = {
     // its density — and MAX_ALIVE is a shared budget it would otherwise eat whole.
     //   xpMul is low on purpose: 60 hp for one point would already be the worst rate in the game,
     // and it must not become a thing you farm instead of a thing you dodge.
-    { id: 'turtle',   archetype: 'normal', name: 'Sea Turtle', hpMul: 3, speedMul: 0.5, weight: 1, xpMul: 0.6, radiusMul: 1.5, maxAlive: 3, flags: ['cruise'] },
+    //   JACKPOT (owner ruling 2026-09-02: "Turtle gives 1 whole level and 20 coins"). The kill
+    // pays a whole level on the spot — the Reef's lap idiom, xp += xpNext — and scatters twenty
+    // coins where it died. Read in the death path (sim.js, `jackpot`); chapter-scoped by the field
+    // being absent on every other roster entry in the game. It overrides the "must not become a
+    // thing you farm" line above by the owner's own call: the turtle is the thing you hunt now,
+    // and maxAlive 3 is what keeps that a hunt rather than a harvest.
+    { id: 'turtle',   archetype: 'normal', name: 'Sea Turtle', hpMul: 3, speedMul: 0.5, weight: 1, xpMul: 0.6, radiusMul: 1.5, maxAlive: 3, flags: ['cruise'], jackpot: { levels: 1, coins: 20 } },
     { id: 'sealion',  archetype: 'tank',   name: 'Sea Lion', hpMul: 2.4,  speedMul: 0.85, flags: ['pounce'] },
     { id: 'tuna',     archetype: 'fast',   name: 'Tuna',     hpMul: 0.95, speedMul: 1.25, weight: 2, flags: ['dashBurst'] },
     // THE ONE THAT HOLDS YOU. A remora attaches BECAUSE you are big, which makes the player's own
@@ -8463,7 +8480,9 @@ CHAPTERS.trawl = {
   // knowing the net is NOT in this table and takes a real bite out of the crowd on every pass — the
   // first probe of this chapter should measure how much, because if the net is doing the thinning
   // then spawnMul is the wrong knob and maxAliveMul is the right one.
-  balance: { spawnMul: 0.8, enemyHpMul: 1, maxAliveMul: 0.85 },
+  // balance_decision : -15% hp, +20% xp, -25% late spawns, owner 2026-09-02
+  //  - lateSpawnMul blends in from SPAWN_LATE_START over SPAWN_LATE_BLEND (lateSpawnMulAt), no step
+  balance: { spawnMul: 0.8, enemyHpMul: 0.85, xpMul: 1.2, maxAliveMul: 0.85, lateSpawnMul: 0.75 },
 
   // ---- the arsenal. The chapter's problem is that you spend it running in a straight line with the
   // crowd behind you and a wall periodically making you turn, so what the gear has to do is keep the
@@ -8505,13 +8524,16 @@ CHAPTERS.trawl = {
   // for thinning a chapter's floor and it is gated on `chapterHasDistricts`; generalising it is the
   // upgrade path if this floor ever reads as too busy.
   //
-  // form: 'fish' — ONE body serves all of Book 2, at one size across every chapter. NO chapter
-  // declares `formScale`; that ladder is gone book-wide. playerTint MUST stay white with a `form`: syncPlayer
+  // form: 'fish' — ONE body serves all of Book 2, at one size across every chapter, with ONE
+  // exception: this chapter draws it at 0.8 (owner ruling 2026-09-02, "player fish should be 20%
+  // smaller"). formScale is RENDER-ONLY, as it always was — the contact radius does not move with
+  // it. playerTint MUST stay white with a `form`: syncPlayer
   // forces white for the body itself, but the level-up MINIME copies read this value directly and a
   // tinted one turns them into coloured ghosts of the fish (see CHAPTERS.surf.render).
   render: {
     cast: ['mackerel', 'tuna', 'sealion'],
     form: 'fish',
+    formScale: 0.8,
     // 2026-09-01: 0x05203f -> 0x06284f, TRADED WITH THE WRECK when the two swapped rungs. Run UD
     // asserts Book 2's bgColor luminance never rises as you descend, and it went red the moment the
     // order changed — the darkness is a SLOT-encoded field and belongs to the position in the
@@ -11787,7 +11809,8 @@ export const resistFrac = (r) => r / (r + PASSIVE_RESIST_K)
 // PLAYER's velocity stepStragglers gates on, so it only speaks to a player choosing to match the
 // net's pace. Staying under it keeps the net from herding the crowd onto such a player.
 export const TRAWL_SPEED = 75            // px/s the wall sweeps — spec §6.4's 60-90 band
-export const TRAWL_INTERVAL = 26         // s from one pass clearing to the next one arriving
+// balance_decision : nets come 20% more often, owner 2026-09-02
+export const TRAWL_INTERVAL = 26 / 1.2   // s from one pass clearing to the next one arriving
 // The FIRST pass, deliberately not TRAWL_INTERVAL, and a teaching decision rather than a tuning one:
 // the net is the only thing in this chapter a player has to learn, and every second before it
 // arrives is a second spent in an ordinary fight that teaches them nothing about where they are.
