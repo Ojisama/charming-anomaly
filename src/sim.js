@@ -9018,9 +9018,12 @@ function stepHoles(run, dt) {
   const pulled = new Set() // enemy ids affected by a hole this frame; rest decay e.holePull toward 0
   const hungryBonus = run.weaponMods.hole?.hungry ?? 0
   const crunchBonus = run.weaponMods.hole?.crunch ?? 0
-  // The Trawl's Whirlpool carries the same two behaviours under its own cards.
-  const wideningBonus = run.weaponMods.whirlpool?.widening ?? 0
-  const maelstromBonus = run.weaponMods.whirlpool?.maelstrom ?? 0
+  // The Trawl's Whirlpool carries the same two behaviours under its own cards. The locals are
+  // named so that NEITHER carries its mod id: run MB.a's inert-card guard is a substring search
+  // over this file, and a local called `wideningBonus` would keep it green with the property read
+  // gone (found by the adversarial pass, 2026-09-02).
+  const wpGrowth = run.weaponMods.whirlpool?.widening ?? 0
+  const wpCollapse = run.weaponMods.whirlpool?.maelstrom ?? 0
 
   for (const h of run.holes) {
     h.life -= dt
@@ -9028,8 +9031,8 @@ function stepHoles(run, dt) {
     // holds: hungry/crunch are read off run.weaponMods.hole and widening/maelstrom off .whirlpool,
     // so without this switch every vortex in the array would inherit the other card's mods the
     // moment a player held both (The Blank offers everything). A Downwash wears neither.
-    const growth = h.look === 'whirlpool' ? wideningBonus : h.look === 'downwash' ? 0 : hungryBonus
-    const collapse = h.look === 'whirlpool' ? maelstromBonus : h.look === 'downwash' ? 0 : crunchBonus
+    const growth = h.look === 'whirlpool' ? wpGrowth : h.look === 'downwash' ? 0 : hungryBonus
+    const collapse = h.look === 'whirlpool' ? wpCollapse : h.look === 'downwash' ? 0 : crunchBonus
     if (h.life <= 0) {
       // A Downwash pays its own burst and never Big Crunch's or Maelstrom's.
       if (h.look === 'downwash') downwashBurst(run, h)

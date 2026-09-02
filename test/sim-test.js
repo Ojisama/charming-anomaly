@@ -7881,12 +7881,16 @@ function runWhirlpool() {
     assert.strictEqual(x.holes.length, 1, `Singularity must not add vortexes to a whirlpool cast: ${x.holes.length}`)
   }
 
-  // (e) THE FOLD: Wide Whirl is a WEAPON_STAT_MODS entry, so the cast radius carries its pct.
+  // (e) THE FOLDS: all three WEAPON_STAT_MODS entries carry their pct into the cast — radius,
+  // duration and pull each, not only the first (adversarial pass, 2026-09-02).
   {
-    const r = boot('trawl', 'whirlpool', { whirlpool: { wideWhirl: 0.2 } })
+    const r = boot('trawl', 'whirlpool', { whirlpool: { wideWhirl: 0.2, longWhirl: 0.2, strongPull: 0.2 } })
     castUntil(r)
-    const base = WEAPONS.whirlpool.levels[4].radius
-    assert(Math.abs(r.holes[0].radius - base * 1.2) < 1e-6, `Wide Whirl +20%: expected ${base * 1.2}, got ${r.holes[0].radius}`)
+    const L5 = WEAPONS.whirlpool.levels[4]
+    const h = r.holes[0]
+    for (const [key, field, got] of [['wideWhirl', 'radius', h.radius], ['longWhirl', 'duration', h.duration], ['strongPull', 'pull', h.pull]]) {
+      assert(Math.abs(got - L5[field] * 1.2) < 1e-6, `${key} +20%: expected ${field} ${L5[field] * 1.2}, got ${got}`)
+    }
   }
 
   // (f) THE OTHER SIDE OF THE TAG, as source text (run UG.k's trick — render.js is unimportable):
@@ -7898,7 +7902,7 @@ function runWhirlpool() {
     assert(renderSrc.includes('T.whirlDepth') && renderSrc.includes('WEAPONS.whirlpool.levels'), 'render.js must bake the whirlpool at its own max radius')
   }
 
-  console.log(`PASS run WP (The Trawl's Whirlpool): tagged on every entry with its own cast event; Widening Gyre +${g.wpOwn.toFixed(1)}px / Hungry Hole +${g.wpCross}px on a whirlpool (Black Hole: +${g.bhOwn.toFixed(1)} / +${g.bhCross}); Maelstrom ${c.wpOwn} burst vs Big Crunch ${c.wpCross} (Black Hole ${c.bhOwn} / ${c.bhCross}); Twin Whirl lands two tagged vortexes apart; Wide Whirl folds; render.js reads the tag`)
+  console.log(`PASS run WP (The Trawl's Whirlpool): tagged on every entry with its own cast event; Widening Gyre +${g.wpOwn.toFixed(1)}px / Hungry Hole +${g.wpCross}px on a whirlpool (Black Hole: +${g.bhOwn.toFixed(1)} / +${g.bhCross}); Maelstrom ${c.wpOwn} burst vs Big Crunch ${c.wpCross} (Black Hole ${c.bhOwn} / ${c.bhCross}); Twin Whirl lands two tagged vortexes apart; the three folds carry; render.js reads the tag`)
 }
 run(runWhirlpool)
 
