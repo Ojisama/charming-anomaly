@@ -1262,6 +1262,21 @@ export const PLAYER = {
   baseCritDamage: 1.5,
   invulnTime: 0.75,      // s of invulnerability after being hit
 }
+// THE PLAYER'S BODY WHEN IT IS THE FISH (Book 2). PLAYER.radius above is the circle every other
+// form collides with, and it is also what the fish still uses for MOVING — walls, coral, obstacle
+// push-out — because a tail should not clip through a wall. What TOUCHES the fish (an enemy, the
+// orca, the net, a shot) is tested against this capsule instead: a segment from `tail` behind the
+// position to `nose` ahead of it along the facing, `halfWidth` wide, all in units of FISH_R — the
+// same numbers drawFish (render.js) draws with, so the hitbox IS the visible body (owner,
+// 2026-09-03: "the hitbox should be the visible body"). A chapter opts in with playerBody: 'fish';
+// run PH keeps that in lockstep with render.form, and sim.js's playerTouches is the one test.
+// balance_decision : player fish 20% smaller, book-wide, owner 2026-09-02
+export const FISH_R = 26 * 0.8
+export const FISH_BODY = {
+  nose: 1.5,        // drawFish's noseX — how far the snout reaches ahead of the player position
+  tail: 1.05,       // drawFish's len - noseX — the caudal fin's tip, behind it
+  halfWidth: 0.58,  // the widest point of drawFish's width profile
+}
 // v6.3.4 anti-turtle guard: no single non-dot hit exceeds this fraction of maxHP — protects
 // against multiplicative compositions (glass ×1.75 × difficulty ×1.6 × late-run ×2 × enrage ×1.5)
 // crossing the one-shot line.
@@ -6493,6 +6508,7 @@ export const tideAt = (deg) => ({ ...TIDE, axis: deg * Math.PI / 180 })
 // Sharing the pond's nested objects by reference is safe BECAUSE config.js is read-only ground
 // truth; this block replaces them wholesale rather than mutating them.
 CHAPTERS.twilight = {
+  playerBody: 'fish',   // what touches you is tested against the drawn fish (FISH_BODY); run PH pairs it with render.form
   ...CHAPTERS.pond,
   name: 'The Twilight',
   tagline: 'the light only goes down',
@@ -6724,6 +6740,7 @@ CHAPTERS.twilight = {
 // its ⚠ about the spend shrinking the resting radius has to be probed on charge-probe.mjs's
 // spend-policy AND movement axes before it is tuned by eye).
 CHAPTERS.shelf = {
+  playerBody: 'fish',   // what touches you is tested against the drawn fish (FISH_BODY); run PH pairs it with render.form
   ...CHAPTERS.pond,
   name: 'The Shelf',
   tagline: 'in troubled water',
@@ -6941,6 +6958,7 @@ CHAPTERS.shelf = {
 // render block. Nothing but `obstacles`, `eliteFlags` and the chapter-agnostic scaffolding is
 // still the pond's.
 CHAPTERS.surf = {
+  playerBody: 'fish',   // what touches you is tested against the drawn fish (FISH_BODY); run PH pairs it with render.form
   ...CHAPTERS.pond,
   name: 'The Surf',
   tagline: 'the tide decides',
@@ -7238,6 +7256,7 @@ CHAPTERS.surf = {
 // NOTHING HERE IS BORROWED ANY MORE: all four natives shipped, and the pool is now the three that
 // survived passiveCrowd — see the weapons block for which one left and why.
 CHAPTERS.reef = {
+  playerBody: 'fish',   // what touches you is tested against the drawn fish (FISH_BODY); run PH pairs it with render.form
   name: 'The Reef', tagline: 'the current only runs one way', icon: '🪸',
   // ⚠ NO `lane: true` SINCE v7.x, AND THAT IS THE RING (see ringXY). A lane is a straight corridor
   // with a fixed forward axis, which is exactly the shape the owner rejected — so The Reef is a
@@ -7916,6 +7935,7 @@ CHAPTERS.reef = {
 const WRECK_TIDE_DEG = 45
 
 CHAPTERS.wreck = {
+  playerBody: 'fish',   // what touches you is tested against the drawn fish (FISH_BODY); run PH pairs it with render.form
   name: 'The Wreck', tagline: 'stop and you starve', icon: '⚓',
 
   // ---- THE ARSENAL, AND EVERY CARD IN IT IS ABOUT REACHING FOOD THAT RUNS -----------------------
@@ -8367,6 +8387,7 @@ CHAPTERS.wreck = {
 // `resource` and are therefore dead money HERE, with no tell in the shop. Accepted price of a
 // chapter with no bar — the same way springtide is the book's mutator and not every chapter's.
 CHAPTERS.trawl = {
+  playerBody: 'fish',   // what touches you is tested against the drawn fish (FISH_BODY); run PH pairs it with render.form
   name: 'The Trawl', tagline: 'the net is not aiming at you', icon: '🎣',
 
   // The `normal` lane is the deliberately FLAGLESS baseline, the same argument CHAPTERS.surf and
@@ -8579,6 +8600,7 @@ CHAPTERS.trawl = {
 //   * The Kraken. Design deferred by the owner, and it needs the generalisation The Blank's seven
 //     hardcoded string literals never got.
 CHAPTERS.deep = {
+  playerBody: 'fish',   // what touches you is tested against the drawn fish (FISH_BODY); run PH pairs it with render.form
   name: 'The Deep',
   tagline: 'nothing up there can reach you',
   icon: '🦈',

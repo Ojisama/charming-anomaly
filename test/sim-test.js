@@ -7959,6 +7959,63 @@ function runTurtleJackpot() {
 }
 run(runTurtleJackpot)
 
+// ---- run PH: the player's hitbox is the drawn fish (2026-09-03) --------------------------------
+// Owner: "The hitbox should be the visible body." Book 2's fish collides as a capsule the size of
+// its own bake (FISH_BODY, in config.js, which drawFish also draws from); every other form keeps
+// the PLAYER.radius circle. Asserted on the ENTITY that hits — a hurt event from a placed enemy —
+// never on the table, and on both sides of the old circle: a body that the circle reached and the
+// capsule does not, and one the capsule reaches and the circle did not.
+function runPlayerHitbox() {
+  const dt = 1 / 60
+  // (a) the chapter field and the render form move together, over EVERY chapter — the sim must
+  // never collide with a body the renderer does not draw, or the reverse.
+  const all = Object.keys(CHAPTERS)
+  const fish = all.filter((id) => CHAPTERS[id].playerBody === 'fish')
+  for (const id of all) {
+    assert.strictEqual(CHAPTERS[id].render?.form === 'fish', CHAPTERS[id].playerBody === 'fish',
+      `${id}: render.form and playerBody disagree`)
+  }
+  assert(fish.includes('trawl') && !fish.includes('body') && !fish.includes('blank'), 'the fish set holds the trawl and no Book 1 chapter')
+  // (a2) drawFish draws from the same numbers the sim collides with — source text, render.js being
+  // unimportable. A local FISH_R in render.js would be the one-fact-two-places drift this guards.
+  const renderSrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  assert(renderSrc.includes('r * FISH_BODY.nose') && renderSrc.includes('FISH_BODY.nose + FISH_BODY.tail'), 'drawFish must take its nose and length from FISH_BODY')
+  assert(!/const FISH_R\s*=/.test(renderSrc), 'render.js must not carry its own FISH_R — it is config.js\'s')
+
+  // (b) GEOMETRY. The player faces +x and does not move; an enemy of radius 16 is pinned at an
+  // offset every frame. Fish: nose 31.2 ahead, tail 21.8 behind, half-width 12.1.
+  //   beside, 32 out:  capsule gap 19.9 > 16 -> no touch;  circle 32 < 22+16 -> touch
+  //   ahead, 44 out:   capsule gap 12.8 < 16 -> touch;     circle 44 > 38     -> no touch
+  const hurtAt = (chapter, ox, oy) => {
+    Math.random = mulberry32(20260904)
+    const m = makeMeta(); m.dev = true; ensureChapterMeta(m)
+    const r = createRun(m, { chapter, difficulty: 1 })
+    r.weapons = []
+    r.mods.spawnMul = 0
+    r.enemies.length = 0
+    r.player.facingAngle = 0; r.player.facing = 1
+    const e = makeStatusEnemy(r, { x: r.player.x + ox, y: r.player.y + oy, hp: 1e6, speed: 0 })
+    r.enemies.push(e)
+    let hurt = 0
+    for (let i = 0; i < 6; i++) {
+      r.player.invuln = 0
+      r.events.length = 0
+      stepSim(r, { x: 0, y: 0 }, dt)
+      hurt += r.events.filter((ev) => ev.type === 'hurt').length
+      e.x = r.player.x + ox; e.y = r.player.y + oy   // re-pinned: a current may drift the player
+    }
+    return hurt
+  }
+  const beside = hurtAt('trawl', 0, 32), ahead = hurtAt('trawl', 44, 0)
+  const besideB1 = hurtAt('body', 0, 32), aheadB1 = hurtAt('body', 44, 0)
+  assert.strictEqual(beside, 0, `a body beside the fish outside its half-width must not touch it (hurt ${beside} times)`)
+  assert(ahead > 0, 'a body at the fish\'s nose must touch it — the capsule reaches further than the circle did')
+  assert(besideB1 > 0, 'Book 1 keeps the circle: the same beside offset touches the blob')
+  assert.strictEqual(aheadB1, 0, `Book 1 keeps the circle: the same ahead offset is out of reach (hurt ${aheadB1} times)`)
+  console.log(`PASS run PH (player hitbox): ${fish.length}/${all.length} chapters collide as the fish and every one of them draws it; beside-32 hurts ${beside}x on the fish vs ${besideB1}x on the blob, ahead-44 hurts ${ahead}x vs ${aheadB1}x`)
+}
+run(runPlayerHitbox)
+
 // ─── run DB: the duo boons actually reach the player ─────────────────────────────────────────
 // A DUO BOON is a weapon mod carrying `needs: '<weaponId>'` — a mod on weapon A that pays out
 // through weapon B (The Shelf's Silt Plume and Silt Flush, both throwing up Silt Veil's own
@@ -9761,13 +9818,18 @@ function runOrca() {
       }
       const d0 = Math.hypot(e.x - p.x, e.y - p.y)
       const hp0 = p.hp
-      let peakFear = 0
+      let peakFear = 0, orcaHits = 0
       for (let i = 0; i < Math.round(ORCA_SHADOW_DUR / dt); i++) {
         hold(run, [e])
+        run.events.length = 0
         stepSim(run, { x: 0, y: 0 }, dt)
         peakFear = Math.max(peakFear, e.fearT || 0)
+        // The shadow's OWN bites, by source. The chaser is 150px off the player's NOSE, and since
+        // the fish collides as its drawn body (run PH) it can land one contact hit before the fear
+        // turns it — that is the fixture's geometry, not the pass costing anything.
+        orcaHits += run.events.filter((ev) => ev.type === 'hurt' && ev.src === 'orca').length
       }
-      return { moved: Math.hypot(e.x - run.player.x, e.y - run.player.y) - d0, peakFear, dmg: hp0 - run.player.hp, alive: !e._dead }
+      return { moved: Math.hypot(e.x - run.player.x, e.y - run.player.y) - d0, peakFear, dmg: hp0 - run.player.hp, orcaHits, alive: !e._dead }
     }
     const passed = measure(true)
     const control = measure(false)
@@ -9777,10 +9839,10 @@ function runOrca() {
     assert.ok(control.moved < -30,
       `the control must still CLOSE, or this block passes with the chase deleted globally (it moved ${control.moved.toFixed(0)}px)`)
     assert.strictEqual(control.peakFear, 0, 'the control must not be feared by anything else in the chapter, or the fear is not attributable to the pass')
-    assert.strictEqual(passed.dmg, 0, `a pass must cost the player nothing; it cost ${passed.dmg}`)
+    assert.strictEqual(passed.orcaHits, 0, `a pass must not bite: the orca hurt the player ${passed.orcaHits} times (${passed.dmg} HP lost in the window, contact included)`)
     assert.ok(passed.alive, 'a pass must not eat anything — only the commit sweep bites')
     console.log(`PASS run OR.d (the pass scatters): a chasing body went +${passed.moved.toFixed(0)}px away under the shadow at fearT ${passed.peakFear.toFixed(2)}, ` +
-      `against ${control.moved.toFixed(0)}px unshadowed, for 0 HP and 0 deaths`)
+      `against ${control.moved.toFixed(0)}px unshadowed, for 0 orca bites (${passed.dmg} HP of bystander contact) and 0 deaths`)
   }
 
   // -- OR.e: the commit is a BOW WAVE, and a visit is ORCA_COMMITS lines. ------------------------

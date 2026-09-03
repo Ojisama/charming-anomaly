@@ -19,6 +19,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
   LURE_GLOW, MAW_VIS,
+  FISH_R, FISH_BODY,  // Book 2's fish: the bake draws the same body the sim collides with (playerTouches)
   CHEEK_JIGGLE,       // the cheeks skin's spring — see syncPlayer's jiggle block
   BUTT_FEET,          // ...and its feet — see syncPlayer's feet block // The Deep: the anglerfish maw and its esca punched through the dark scrim
   FOXFIRE_GLOW,       // The Twilight: a foxfire punched through the same scrim — a fire is a light
@@ -2237,10 +2238,9 @@ export function createRenderer(app) {
   // same "pick a rung by hand" idiom the STILLNESS morph ladder (T.playerStill) already uses. This
   // still sits under the hop/breathe squash-stretch every other player form gets — the phase flip
   // and the squash-stretch are two independent transforms, not one replacing the other.
-  // balance_decision : player fish 20% smaller, book-wide, owner 2026-09-02
-  //  - RENDER-ONLY: the contact radius (PLAYER.radius) does not move with it. Book-wide rather
-  //    than per chapter because run US.e3 forbids a formScale rung — one size across the book.
-  const FISH_R = 26 * 0.8
+  // FISH_R and FISH_BODY live in config.js: the sim's capsule hitbox (playerTouches) reads the
+  // same numbers this bake draws with, so the two cannot drift apart. Book-wide rather than per
+  // chapter because run US.e3 forbids a formScale rung — one size across the book.
   const FISH_PHASES = 6
   // `part` is drawButt's ('all' | 'shell' | 'cheeks'); 'cheeks' draws ONLY the moving mass and
   // nothing else of the fish. Returns the butt's centre in drawing space, which the jiggle needs as
@@ -2251,8 +2251,8 @@ export function createRenderer(app) {
     const bodyLit = f(0xf2a184), bodyMid = f(0xd97a5c), bodyShade = f(0x8a3a2c)
     const line = f(0x5c2418), finFill = f(0xe0906c), finEdge = f(0x7a3122)
     const lw = Math.max(2.2, r * 0.11)
-    const noseX = r * 1.5
-    const len = r * 2.55
+    const noseX = r * FISH_BODY.nose
+    const len = r * (FISH_BODY.nose + FISH_BODY.tail)
     // The undulation, and the reason it is not a plain sine: a swimming fish holds its head almost
     // still and throws its tail, so the amplitude RAMPS with t^1.9 instead of running at one
     // amplitude down the whole body. A uniform sine is what makes a fish read as an eel.

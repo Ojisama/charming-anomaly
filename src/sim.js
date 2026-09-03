@@ -58,6 +58,7 @@ import {
   BLIND_FAITH_NO_REROLL, BLIND_FAITH_FLOOR,
   IPECAC_COUNT_MUL, IPECAC_FIRE_MUL,
   ENEMIES, ELITE, WAVE_TABLE,
+  FISH_R, FISH_BODY,
   spawnRate, spawnTiltMul, lateSpawnMulAt, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, lateEliteFor, SPAWN_RING, speedCreepMul,
   KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
   OBSTACLE_CELL, OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS, OBSTACLE_FIELD_RADIUS,
@@ -4067,14 +4068,54 @@ function bumpTraffic(run, ch, e, dx, dy) {
   run.events.push({ type: 'bump', x: e.x, y: e.y })
 }
 
+// ---- THE PLAYER'S TOUCH TEST ------------------------------------------------------------------
+// Everything that asks "does this touch the player" goes through playerTouches. Book 1's forms
+// are the PLAYER.radius circle. Book 2's fish (CHAPTERS[].playerBody === 'fish') is a CAPSULE — a
+// segment from FISH_BODY.tail behind the position to FISH_BODY.nose ahead of it along the facing,
+// FISH_BODY.halfWidth wide — the same numbers drawFish draws with, so the hitbox is the visible
+// body (owner, 2026-09-03). Movement, walls and coral keep PLAYER.radius on purpose: a tail should
+// not clip through a wall, and a body-shaped push-out is a different job. Area hazards you stand
+// IN (pools, slicks, the dark) stay a point test at the centre, which is where the body is.
+//
+// Facing: p.facingAngle is null until the player first moves; a fish that has not moved faces +x
+// (p.facing is 1 at spawn), which is where the renderer points it too.
+function playerBodyEnds(run) {
+  if (CHAPTERS[run.chapter].playerBody !== 'fish') return null
+  const p = run.player
+  const a = p.facingAngle ?? (p.facing < 0 ? Math.PI : 0)
+  const cx = Math.cos(a), cy = Math.sin(a)
+  return {
+    ax: p.x + cx * FISH_R * FISH_BODY.nose, ay: p.y + cy * FISH_R * FISH_BODY.nose,   // the nose
+    bx: p.x - cx * FISH_R * FISH_BODY.tail, by: p.y - cy * FISH_R * FISH_BODY.tail,   // the tail tip
+    halfWidth: FISH_R * FISH_BODY.halfWidth,
+  }
+}
+// Does a circle (x, y, r) overlap the player's body? A caller testing many circles in one step
+// (stepContactDamage: every enemy, every frame) computes the body once and passes it in, so the
+// loop allocates nothing.
+function playerTouches(run, x, y, r, body = playerBodyEnds(run)) {
+  const p = run.player
+  if (!body) {
+    const dx = x - p.x, dy = y - p.y
+    const rr = r + PLAYER.radius
+    return dx * dx + dy * dy < rr * rr
+  }
+  const sx = body.bx - body.ax, sy = body.by - body.ay
+  let t = ((x - body.ax) * sx + (y - body.ay) * sy) / (sx * sx + sy * sy)
+  t = t < 0 ? 0 : t > 1 ? 1 : t
+  const dx = x - (body.ax + sx * t), dy = y - (body.ay + sy * t)
+  const rr = r + body.halfWidth
+  return dx * dx + dy * dy < rr * rr
+}
+
 function stepContactDamage(run) {
   const p = run.player
   const circuit = CHAPTERS[run.chapter].circuit != null
+  const body = playerBodyEnds(run)   // once per step, not once per enemy
   for (const e of run.enemies) {
     if (e._dead) continue
-    const dx = e.x - p.x, dy = e.y - p.y
-    const rad = PLAYER.radius + e.radius
-    const touching = dx * dx + dy * dy < rad * rad
+    const dx = e.x - p.x, dy = e.y - p.y   // the contact normal, for the circuit's bump
+    const touching = playerTouches(run, e.x, e.y, e.radius, body)
     if (circuit && touching) bumpTraffic(run, CHAPTERS[run.chapter], e, dx, dy)
     if (!touching || contactHarmless(e)) continue
 
@@ -5580,9 +5621,7 @@ function stepOrca(run, dt) {
     }
     // ONCE PER PASS, not a DoT — `hit` latches so a slow frame cannot bill the same strike twice.
     if (!o.hit) {
-      const hx = p.x - o.x, hy = p.y - o.y
-      const rr = ORCA_HIT_R + PLAYER.radius
-      if (hx * hx + hy * hy < rr * rr) {
+      if (playerTouches(run, o.x, o.y, ORCA_HIT_R)) {
         o.hit = true
         run.events.push({ type: 'orcaHit', x: p.x, y: p.y })
         if (hurtPlayer(run, p.maxHP * ORCA_DMG_FRAC, false, 'orca')) return true
@@ -5710,7 +5749,14 @@ function stepTrawl(run, dt) {
     const weaveMul = run.anomalies?.tightWeave ? TIGHT_WEAVE_ENEMY_DMG_MUL : 1
     dealDamage(run, e, TRAWL_ENEMY_DMG * weaveMul * ticks, false, false, true)   // hazard: the player did not deal it
   }
-  if (Math.abs(netDist(net, p.x, p.y)) > TRAWL_HALF + PLAYER.radius) return false
+  // The wall is a LINE, so the body is tested as its two ends against it: the segment between
+  // them crossing the line, or either end within the mesh's half-thickness plus the body's
+  // half-width. With no fish body both ends are the centre and the half-width is PLAYER.radius,
+  // which is exactly the circle test this replaced.
+  const body = playerBodyEnds(run) ?? { ax: p.x, ay: p.y, bx: p.x, by: p.y, halfWidth: PLAYER.radius }
+  const dNose = netDist(net, body.ax, body.ay), dTail = netDist(net, body.bx, body.by)
+  const inMesh = dNose * dTail <= 0 || Math.min(Math.abs(dNose), Math.abs(dTail)) <= TRAWL_HALF + body.halfWidth
+  if (!inMesh) return false
   if (inNetHole(net, p.x, p.y)) return false
   // dot: true, which bypasses the invulnerability window on purpose. The net is a place you are
   // standing in, like an acid pool or a spray strip, not a thing that hits you once — and an
@@ -7079,9 +7125,7 @@ function stepEnemyShots(run, dt) {
     s.x += s.vx * dt
     s.y += s.vy * dt
 
-    const dx = p.x - s.x, dy = p.y - s.y
-    const rad = s.r + PLAYER.radius
-    if (dx * dx + dy * dy > rad * rad) continue
+    if (!playerTouches(run, s.x, s.y, s.r)) continue
     s._done = true
     run.events.push({ type: 'explode', x: s.x, y: s.y, radius: MISSILE_BLAST })
     if (!playerDied && p.invuln <= 0 && hurtPlayer(run, s.dmg, false, 'missile')) playerDied = true
