@@ -60,7 +60,7 @@ import {
   ENEMIES, ELITE, WAVE_TABLE,
   FISH_R, FISH_BODY,
   spawnRate, spawnTiltMul, lateSpawnMulAt, hpScale, lateRateFor, dmgScale, maxAliveFor, eliteEveryAt, lateEliteFor, SPAWN_RING, speedCreepMul,
-  KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC,
+  KITE_DROP_MUL, KITE_MIN_SPEED, KITE_AHEAD_ARC, CRUISE_AIM_ARC,
   OBSTACLE_CELL, OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS, OBSTACLE_FIELD_RADIUS,
   xpForLevel, GEM_VALUE,
   STAR_LIFE, STAR_R, STAR_FAN, ORB_R, NOVA_LIFE,
@@ -188,7 +188,7 @@ import {
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
-  TRAWL_DRAG_T, TRAWL_DRAG_DPS, TRAWL_DRAG_TICK, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T, TRAWL_DRAG_REEL,
+  TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T, TRAWL_DRAG_REEL,
   TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
   TIGHT_WEAVE_TEAR_MUL, TIGHT_WEAVE_ENEMY_DMG_MUL,
   BRING_ARRIVE_PAD, BRING_MAX_LIVE, BRING_SNAP_T,
@@ -2835,16 +2835,22 @@ function stepEnemyMovement(run, dt) {
       // running its hunting routine either. (weave's "must be last" argument is about a MODIFIER to
       // seeking; this is a replacement for it, which is the opposite placement.)
       //
-      // The heading is frozen once, from wherever the body happened to be pointing at spawn, so the
-      // line is genuinely straight — re-deriving it per frame from anything the player does would
-      // make it a very slow chase.
+      // The heading is frozen once, aimed at where the player stood at spawn ± CRUISE_AIM_ARC, so
+      // the line is genuinely straight AND crosses the screen — re-deriving it per frame from
+      // anything the player does would make it a very slow chase.
       if (e._cruiseX === undefined) {
-        const a = Math.random() * Math.PI * 2
+        const a = Math.atan2(dy, dx) + (Math.random() - 0.5) * 2 * CRUISE_AIM_ARC
         e._cruiseX = Math.cos(a); e._cruiseY = Math.sin(a)
       }
       if (slowMul > 0) {
         e.x += e._cruiseX * e.speed * slowMul * dt
         e.y += e._cruiseY * e.speed * slowMul * dt
+      }
+      // Gone past the straggler radius = off screen for good. Silent, not a kill: no xp, no gem,
+      // no jackpot — and it frees the roster's maxAlive slot so the next turtle can come.
+      {
+        const dropD = (run.viewRadius + SPAWN_RING) * KITE_DROP_MUL
+        if (dx * dx + dy * dy > dropD * dropD) { e._dead = true; continue }
       }
       // AND THE POINT THE DRAWING READS — the same two lines, for the same reason, as the passive
       // crowd above. render.js derives a body's bearing from run.player unless _tgtX/_tgtY says
@@ -5833,7 +5839,7 @@ function stepTrawl(run, dt) {
   net.dragT = Math.max(0, net.dragT - dt)
   // The ticks are counted from the CATCH rather than drawn from the crowd's accumulator: `due` is
   // how many TRAWL_DRAG_TICKs of the hold have elapsed, paid as they fall due, so the whole hold
-  // pays exactly TRAWL_DRAG_DPS x TRAWL_DRAG_T whatever the frame rate. A shared accumulator
+  // pays exactly T / TICK ticks of TRAWL_DRAG_TICK_PCT max HP whatever the frame rate. A shared accumulator
   // would pay 8 or 9 of the crowd's 0.35s ticks depending on where in one it caught you.
   const due = Math.min(Math.round(TRAWL_DRAG_T / TRAWL_DRAG_TICK), Math.floor((TRAWL_DRAG_T - net.dragT) / TRAWL_DRAG_TICK + 1e-6))
   const owed = due - net.dragTicks
@@ -5843,7 +5849,7 @@ function stepTrawl(run, dt) {
     // i-frame window would make being caught half price. The tell is the shipped one — hurtPlayer
     // pushes {type:'hurt', dot:true}, which render.js turns into the red vignette and shake and
     // main.js already silences for audio.
-    if (hurtPlayer(run, TRAWL_DRAG_DPS * TRAWL_DRAG_TICK * owed, true, 'trawl')) return true
+    if (hurtPlayer(run, p.maxHP * TRAWL_DRAG_TICK_PCT * owed, true, 'trawl')) return true
   }
   if (net.dragT === 0) {
     net.freeT = TRAWL_DRAG_FREE_T

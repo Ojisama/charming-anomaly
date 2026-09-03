@@ -19789,7 +19789,7 @@ const spurG = new Graphics()
         // 2026-09-03). The catch is the moment the chapter's whole threat lands on you, so it gets
         // the crash's weight: two rings closing on the body in the wall's own twine and rope
         // colours, and a burst of frayed ends. The release is lighter — one ring in the torn
-        // colour — because it is relief, not damage. The 3s between them are drawn by updateNet
+        // colour — because it is relief, not damage. The hold between them is drawn by updateNet
         // (the tangle over the fish) and by the hurt ticks themselves.
         case 'netCatch':
           addShake(7, 0.3)

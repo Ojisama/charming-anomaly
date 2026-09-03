@@ -5515,6 +5515,11 @@ export const SPAWN_RING = 60    // px beyond the larger half-screen diagonal
 export const KITE_DROP_MUL = 1.35     // × (viewRadius + SPAWN_RING); beyond this a chaser is a straggler
 export const KITE_MIN_SPEED = 100     // px/s of player motion below which nothing recycles
 export const KITE_AHEAD_ARC = Math.PI // rad centered on the heading where recycled enemies land
+// A `cruise` body (The Trawl's turtle) aims its one straight line at the player ± this half-arc, so
+// it actually CROSSES the screen instead of swimming off from the ring it spawned on; once it is
+// past KITE_DROP_MUL it is removed silently so the next one may come (owner 2026-09-03: "at most
+// 1 on the screen").
+export const CRUISE_AIM_ARC = 0.7     // rad, half-arc either side of the player
 // Enemy speed creep: enemies spawned later fly faster (already-spawned ones are untouched —
 // applied once at spawn time, not continuously).
 export const SPEED_CREEP_START = 120     // s, creep begins after this
@@ -11839,8 +11844,8 @@ export const resistFrac = (r) => r / (r + PASSIVE_RESIST_K)
 // PLAYER's velocity stepStragglers gates on, so it only speaks to a player choosing to match the
 // net's pace. Staying under it keeps the net from herding the crowd onto such a player.
 export const TRAWL_SPEED = 75            // px/s the wall sweeps — spec §6.4's 60-90 band
-// balance_decision : nets come 20% more often, owner 2026-09-02
-export const TRAWL_INTERVAL = 26 / 1.2   // s from one pass clearing to the next one arriving
+// balance_decision : nets come 40% more often again, owner 2026-09-03
+export const TRAWL_INTERVAL = 26 / 1.2 / 1.4   // s from one pass clearing to the next one arriving
 // The FIRST pass, deliberately not TRAWL_INTERVAL, and a teaching decision rather than a tuning one:
 // the net is the only thing in this chapter a player has to learn, and every second before it
 // arrives is a second spent in an ordinary fight that teaches them nothing about where they are.
@@ -11861,7 +11866,6 @@ export const TRAWL_LEAD_MUL = 1.6
 export const TRAWL_TICK = 0.35           // s between the CROWD's contact ticks (the player's are the hold's, below)
 export const TRAWL_ENEMY_DMG = 34        // enemy damage per tick — the net out-kills you, and should
 // ---- THE HOLD (2026-09-03, The Trawl — what the mesh does to YOU) ------------------------------
-// balance_decision : the net drags you 3s at 20 HP/s [2026-09-03]
 // The mesh does not tick on you like a pool: it TAKES you. Touch it and it has hold of you for
 // TRAWL_DRAG_T, carrying you along its sweep at TRAWL_SPEED, and you cannot leave the band until it
 // lets go. The stick still works at TRAWL_DRAG_STICK_MUL — a struggle, along the wall, never enough
@@ -11876,12 +11880,13 @@ export const TRAWL_ENEMY_DMG = 34        // enemy damage per tick — the net ou
 // inside the mesh that long after a release and it takes you again, so matching the wall's own
 // speed inside it is not a mobile kill zone that grinds the crowd for free. Six seconds covers a
 // full-speed diagonal run to a tear 1200px along the wall. Ticks are counted from the catch on a
-// tick that divides the hold, so it pays exactly DPS x T. A body taken by the nose is REELED into
-// the band at TRAWL_DRAG_REEL px/s rather than snapped — faster than the struggle can fight
-// (0.25 x 220 = 55 px/s), slow enough to read as the net closing.
-export const TRAWL_DRAG_T = 3
-export const TRAWL_DRAG_DPS = 20
-export const TRAWL_DRAG_TICK = 0.5
+// tick that divides the hold, so it pays exactly TICK_PCT x (T / TICK) of max HP. A body taken by
+// the nose is REELED into the band at TRAWL_DRAG_REEL px/s rather than snapped — faster than the
+// struggle can fight (0.25 x 220 = 55 px/s), slow enough to read as the net closing.
+// balance_decision : hold 1.2s, 3% max HP per 0.3s tick, owner 2026-09-03
+export const TRAWL_DRAG_T = 1.2
+export const TRAWL_DRAG_TICK_PCT = 0.03   // fraction of max HP per tick
+export const TRAWL_DRAG_TICK = 0.3
 export const TRAWL_DRAG_STICK_MUL = 0.25
 export const TRAWL_DRAG_FREE_T = 6
 export const TRAWL_DRAG_REEL = 260

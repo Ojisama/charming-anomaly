@@ -1577,7 +1577,7 @@ function generateWells(sig) {
  *   where the pass is dropped, `holes` the tears it arrived with ({ t, r } along the wall's own
  *   tangent), `_acc` the crowd's tick accumulator. THE HOLD (2026-09-03): `dragT` s left of its
  *   grip on the player (> 0 = held: carried with the wall, pinned in the band, ticked at
- *   TRAWL_DRAG_DPS, stick at TRAWL_DRAG_STICK_MUL), `dragTicks` ticks paid this hold, `freeT` the
+ *   TRAWL_DRAG_TICK_PCT of max HP per TRAWL_DRAG_TICK, stick at TRAWL_DRAG_STICK_MUL), `dragTicks` ticks paid this hold, `freeT` the
  *   ride cap after a release (zeroed the frame the body is clear of solid mesh). Written only by
  *   stepTrawl, plus hurtPlayer's revive zeroing dragT. _netAcc: s to the next pass, seeded at
  *   TRAWL_FIRST_PASS and reset to TRAWL_INTERVAL x trawlIntervalMul when a pass clears.
@@ -2672,7 +2672,7 @@ export function createRun(meta, opts = {}) {
     // offset at which the pass is dropped, and `holes` the tears it arrives with, each { t, r } on
     // the wall's own tangent axis. The last three are THE HOLD (2026-09-03): `dragT` s left of the
     // mesh's grip on the player (0 = not held; while > 0 stepTrawl carries the player with the
-    // wall, pins them inside its band and ticks TRAWL_DRAG_DPS on them, and stepPlayerMovement
+    // wall, pins them inside its band and ticks TRAWL_DRAG_TICK_PCT of max HP per TRAWL_DRAG_TICK on them, and stepPlayerMovement
     // reads it for the stick's struggle), `dragTicks` the hold's ticks paid so far, `freeT` the
     // ride cap left after a release: while > 0 the mesh cannot take the player, it is zeroed the
     // frame the body is clear of solid mesh (the window is positional — it ends when you LEAVE),
