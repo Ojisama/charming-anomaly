@@ -2730,6 +2730,25 @@ body {
    down to 7px of that button. 24vh -> 21vh is the same 25px back, so every clearance this rail was
    tuned against still holds and the readout is 3vh shorter, which nothing reads off. */
 .chaos-vrail--charge .chaos-vrail-track { height: 21vh; }
+/* The Trawl's WIGGLE TO ESCAPE rail (ui.js data-wiggle, run.net.wiggle, 2026-09-03). The same
+   battery, on the right, FILLING upward like a fairground strength tester: red at the foot,
+   orange, yellow at the top. The gradient is sized to the TRACK and pinned to its bottom, not
+   stretched over the fill, so the top edge of the fill changes colour as it climbs — a bar that
+   is one colour at every height is a level, this is a temperature. Same 21vh as the charge rail
+   for the same reason: the label above costs the column ~24px. */
+.chaos-vrail--wiggle .chaos-vrail-track { height: 21vh; }
+.chaos-vrail--wiggle .chaos-vrail-track i {
+  background: linear-gradient(to top, #ff3b3b 0%, #ff8c2a 50%, #ffe14a 100%);
+  background-size: 100% 21vh;
+  background-position: bottom;
+}
+.chaos-vrail--wiggle .chaos-vrail-label {
+  font-size: 0.56rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #ffd27a;
+  white-space: nowrap;
+}
 /* Armed = the next press is a full-strength Pulse rather than the floor shove. A brightness step,
    not a hue step: the bar is still the same resource, and PULSE_CHARGE_COST is not a round fraction
    of max, so the height alone cannot show where the threshold is. */

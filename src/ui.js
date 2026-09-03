@@ -2169,6 +2169,16 @@ export function initUI(hooks) {
           <span class="chaos-vrail-track"><i data-charge-fill></i></span>
         </span>
       </div>
+      <!-- The Trawl's WIGGLE TO ESCAPE rail (run.net.wiggle, 2026-09-03; owner: "vertical on the
+           right and red/orange/yellow"). The chaos rail's battery, on the RIGHT where that rail
+           sits — the two never share a chapter (chaos is a Book 1 mutator readout) — filling
+           upward through red, orange, yellow (styles.css .chaos-vrail--wiggle). -->
+      <div class="chaos-wrap" data-wiggle style="display:none;">
+        <span class="chaos-vrail chaos-vrail--wiggle">
+          <b class="chaos-vrail-num chaos-vrail-label">${t('Wiggle to escape!')}</b>
+          <span class="chaos-vrail-track"><i data-wiggle-fill></i></span>
+        </span>
+      </div>
       <!-- v5.24: The Blank's boss HP bar; v6.0.0 it spans the full hud-top row (grid-column
            1/-1) and IS the phase readout — the timer slot goes blank while a boss is up. Reuses
            .rampage-bar/.rampage-fill classes for chrome (border/radius/background); ui.js doesn't
@@ -2239,7 +2249,7 @@ export function initUI(hooks) {
     bossBarWrap: screens.hud.querySelector('[data-boss-bar]'),
     bossBarFill: screens.hud.querySelector('[data-boss-bar] .rampage-fill'),
     wiggleWrap: screens.hud.querySelector('[data-wiggle]'),
-    wiggleFill: screens.hud.querySelector('[data-wiggle] .rampage-fill'),
+    wiggleFill: screens.hud.querySelector('[data-wiggle-fill]'),
     chaosWrap: screens.hud.querySelector('[data-chaos]'),
     chargeWrap: screens.hud.querySelector('[data-charge]'),
   }
@@ -2504,7 +2514,7 @@ export function initUI(hooks) {
         hud.raceDelta.classList.toggle('race-delta--up', dOn && run.lapDelta < 0)
       }
     }
-    // The Trawl's wiggle bar: up while the net has the player, width = the escape bar.
+    // The Trawl's wiggle rail: up while the net has the player, height = the escape bar.
     const wiggleShown = (run.net?.dragT ?? 0) > 0
     if (wiggleShown !== last.wiggleShown) {
       last.wiggleShown = wiggleShown
@@ -2512,7 +2522,7 @@ export function initUI(hooks) {
     }
     if (wiggleShown) {
       const pct = Math.round(Math.max(0, Math.min(1, run.net.wiggle ?? 0)) * 100)
-      if (pct !== last.wigglePct) { last.wigglePct = pct; hud.wiggleFill.style.width = pct + '%' }
+      if (pct !== last.wigglePct) { last.wigglePct = pct; hud.wiggleFill.style.height = pct + '%' }
     }
     // Boss HP bar: gated on scriptedChapter too (not just run.bossBar) so leaving the chapter mid-
     // session — Play again into a different chapter reuses this same hud object — hides it again
