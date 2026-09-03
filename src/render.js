@@ -2781,7 +2781,9 @@ export function createRenderer(app) {
       const [ex] = spine(0.1)
       for (const s of [-1, 1]) darkEye(g, ex, s * body(0.1) * 0.6, r * 0.1, r * 0.095, 0x0b1219, true)
     }
-    if (elite) eliteCrown(-r * 1.0, r)
+    // 1.25r, not the 1.0r the other fish use: the wings reach ~1.2r out at the shoulder, and a
+    // crown on the body's own top edge would sit on a wing tip (adversarial pass, 2026-09-03).
+    if (elite) eliteCrown(-r * 1.25, r)
   }
 
   // sea lion: the tank, and the one body in this chapter that is not a fish. Everything about the
@@ -4422,7 +4424,8 @@ export function createRenderer(app) {
   // squid and nothing else.
   //   WARM MAUVE-RED on a floor that is dark blue-teal: the only warm body in the chapter, taken
   // from a real squid's chromatophores rather than invented, and it separates from the mackerel's
-  // steel blue and the damselfish's white on hue alone before any silhouette work is needed.
+  // green back (drawMackerel is SHARED with The Trawl, and went green with it on 2026-09-03) and
+  // the damselfish's white on hue alone before any silhouette work is needed.
   function drawSquid(g, elite, white) {
     const r = 16
     const f = (c) => white ? 0xffffff : c
@@ -4747,7 +4750,7 @@ export function createRenderer(app) {
       poseOf: (e) => ((e.puffT ?? 0) > 0 ? 1 : 0),
     },
     mackerel: { archetype: 'normal', draw: drawMackerel, lean: 90 }, // top-down: barred spindle, forked tail -x, eyes in a ±y pair
-    tuna: { archetype: 'fast', draw: drawTuna, lean: 90 },           // top-down: crescent tail, sickle pectorals and finlets all ±y mirrored
+    tuna: { archetype: 'fast', draw: drawTuna, lean: 90 },           // top-down: gold crescent, gold wing pectorals, side bands, sickles and finlets all ±y mirrored
     sealion: { archetype: 'tank', draw: drawSeaLion, lean: 90 },     // top-down: fore-flippers thrown wide ±y, blunt head +x, hind flippers -x
     turtle: { archetype: 'normal', draw: drawSeaTurtle, lean: 90 },  // top-down: scuted carapace, four flippers at the diagonals, blunt head +x
     remora: { archetype: 'fast', draw: drawRemora, lean: 90 },       // top-down: plain rod, the ridged sucker plate over the head is the read
