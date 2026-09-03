@@ -522,7 +522,7 @@ const SFX_FOR_EVENT = {
   whirlpool: 'hole',
   // The Trawl's mesh taking hold of you (2026-09-03): the vortex whoosh, the same voice 'snare'
   // below maps to for a thrown net closing, because this IS a net closing. The release
-  // ('netFree') gets no entry on purpose — it is the end of a 3s hurt, carried by the hurt ticks
+  // ('netFree') gets no entry on purpose — it is the end of a short hurt, carried by the hurt ticks
   // and by its own ring in render.js.
   netCatch: 'hole',
   // A jackpot kill (the sea turtle): the shop's purchase chime, because what just happened is a

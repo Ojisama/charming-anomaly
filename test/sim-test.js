@@ -130,7 +130,7 @@ import {
   SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, gateAnchorF, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
   SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, SNAP_CAVITY, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
-  TRAWL_DRAG_T, TRAWL_DRAG_DPS, TRAWL_DRAG_TICK, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T,
+  TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
@@ -7990,6 +7990,39 @@ function runTurtleJackpot() {
   console.log(`PASS run TJ (sea turtle jackpot): a turtle kill pays a level and ${turtle.coinsAtBody} coins with one jackpot event, a mackerel pays neither; lateSpawnMulAt is 1 to ${SPAWN_LATE_START}s, 0.75 from ${SPAWN_LATE_START + SPAWN_LATE_BLEND}s, and The Trawl carries it`)
 }
 run(runTurtleJackpot)
+
+// ---- run TC: the turtle CROSSES the screen, then leaves for good (2026-09-03) -------------------
+// Owner: "one spawns but never crosses the screen. what i wanted was at most 1 on the screen".
+// A cruiser spawned anywhere on the spawn ring must (a) come inside the view, (b) be removed once
+// it is past the straggler radius — silently, no kill — so maxAlive 1 frees up for the next one.
+function runTurtleCrosses() {
+  Math.random = mulberry32(20260903)
+  const dt = 1 / 60
+  const m = makeMeta(); m.dev = true; ensureChapterMeta(m)
+  const spawnD = 600 + SPAWN_RING
+  for (let k = 0; k < 8; k++) {
+    const r = createRun(m, { chapter: 'trawl', difficulty: 1 })
+    r.viewRadius = 600
+    r.player.maxHP = r.player.hp = 1e9
+    r.mods.spawnMul = 0
+    r.enemies.length = 0
+    const a = k * Math.PI / 4
+    const e = makeStatusEnemy(r, { x: r.player.x + Math.cos(a) * spawnD, y: r.player.y + Math.sin(a) * spawnD, hp: 1e6, speed: 200 })
+    e.flags = ['cruise']; e.rosterId = 'turtle'
+    r.enemies.push(e)
+    let seen = false, t = 0
+    while (r.enemies.includes(e) && t < 30) {
+      stepSim(r, { x: 0, y: 0 }, dt); t += dt
+      if (Math.hypot(e.x - r.player.x, e.y - r.player.y) < 600) seen = true
+    }
+    assert.ok(seen, `turtle from angle ${k}/8 never came inside the view`)
+    assert.ok(!r.enemies.includes(e), `turtle from angle ${k}/8 was never removed after ${t.toFixed(1)}s`)
+    assert.strictEqual(r.kills, 0, 'leaving the screen is not a kill')
+    assert.strictEqual(r.gems.length, 0, 'leaving the screen drops no gem')
+  }
+  console.log('PASS run TC (the turtle crosses): from 8 ring angles it enters the view and is then removed silently, freeing its maxAlive slot')
+}
+run(runTurtleCrosses)
 
 // ---- run PH: the player's hitbox is the drawn fish (2026-09-03) --------------------------------
 // Owner: "The hitbox should be the visible body." Book 2's fish collides as a capsule the size of
@@ -30660,10 +30693,14 @@ function testTrawlHold() {
   const count = (run, type) => run.events.filter((ev) => ev.type === type).length
   const off = (run) => Math.abs(run.player.y - run.net.pos)   // distance from the line, this wall's normal being +y
 
-  assert.strictEqual(TRAWL_DRAG_T, 3, `the hold is ${TRAWL_DRAG_T}s — the owner asked for 3`)
-  assert.strictEqual(TRAWL_DRAG_DPS, 20, `the hold pays ${TRAWL_DRAG_DPS} HP/s — the owner asked for 20`)
+  assert.strictEqual(TRAWL_DRAG_T, 1.2, `the hold is ${TRAWL_DRAG_T}s — the owner asked for 1.2`)
+  assert.strictEqual(TRAWL_DRAG_TICK_PCT, 0.03, `the hold pays ${TRAWL_DRAG_TICK_PCT} of max HP per tick — the owner asked for 3%`)
+  assert.strictEqual(TRAWL_DRAG_TICK, 0.3, `the hold ticks every ${TRAWL_DRAG_TICK}s — the owner asked for 0.3`)
   assert.ok(Math.abs(TRAWL_DRAG_T / TRAWL_DRAG_TICK - Math.round(TRAWL_DRAG_T / TRAWL_DRAG_TICK)) < 1e-9,
-    `TRAWL_DRAG_TICK ${TRAWL_DRAG_TICK} does not divide the hold — the hold cannot pay exactly DPS x T`)
+    `TRAWL_DRAG_TICK ${TRAWL_DRAG_TICK} does not divide the hold — the hold cannot pay an exact number of ticks`)
+  const TICKS = Math.round(TRAWL_DRAG_T / TRAWL_DRAG_TICK)          // ticks in one whole hold
+  const tickHP = (run) => run.player.maxHP * TRAWL_DRAG_TICK_PCT   // HP one tick costs THIS rig
+  const HOLD_HP = (run) => tickHP(run) * TICKS                     // HP one whole hold costs
 
   // (a) TOUCH IT AND IT HAS YOU. Stick idle; one catch; after 1s the body has been carried the
   // wall's own TRAWL_SPEED along its normal, is still inside the band, and has paid 1s of the rate.
@@ -30679,12 +30716,13 @@ function testTrawlHold() {
     assert.ok(Math.abs(run.player.y - TRAWL_SPEED) < 3,
       `carried ${run.player.y.toFixed(1)}px in 1s against the wall's ${TRAWL_SPEED} px/s — the hold does not carry the player with the wall`)
     assert.ok(off(run) <= TRAWL_HALF + 0.5, `the held body sits ${off(run).toFixed(1)}px from the line, outside the ${TRAWL_HALF}px band`)
-    assert.strictEqual(dmg, TRAWL_DRAG_DPS, `1s of hold cost ${dmg} HP, not the rate's ${TRAWL_DRAG_DPS}`)
+    const due1s = Math.min(TICKS, Math.floor(1 / TRAWL_DRAG_TICK + 1e-6))
+    assert.strictEqual(dmg, tickHP(run) * due1s, `1s of hold cost ${dmg} HP, not ${due1s} ticks of ${tickHP(run)}`)
     console.log(`PASS run TH.a (touch it and it has you): carried ${run.player.y.toFixed(0)}px in 1s, ${dmg} HP paid`)
   }
 
-  // (b) THREE SECONDS, SIXTY HP, THEN IT LETS GO — and an idle body is swept clear, not taken
-  // again. 5s idle: the hold's total is exactly DPS x T, one release at 3s, one catch in the whole
+  // (b) THE WHOLE HOLD, THEN IT LETS GO — and an idle body is swept clear, not taken again.
+  // 5s idle: the hold's total is exactly TICKS ticks, one release at T, one catch in the whole
   // pass, nothing paid after the release, and the wall has gone past the body.
   {
     const run = rig()
@@ -30698,12 +30736,12 @@ function testTrawlHold() {
     }
     assert.ok(freeAt !== null, 'the hold never let go in 5s')
     assert.ok(Math.abs(freeAt - TRAWL_DRAG_T) < 0.05, `released at ${freeAt.toFixed(2)}s, not ${TRAWL_DRAG_T}s`)
-    assert.strictEqual(dmg, TRAWL_DRAG_DPS * TRAWL_DRAG_T,
-      `the whole hold cost ${dmg} HP, not ${TRAWL_DRAG_DPS} x ${TRAWL_DRAG_T} = ${TRAWL_DRAG_DPS * TRAWL_DRAG_T}`)
+    assert.strictEqual(dmg, HOLD_HP(run),
+      `the whole hold cost ${dmg} HP, not ${TICKS} ticks x ${tickHP(run)} = ${HOLD_HP(run)}`)
     assert.strictEqual(after, 0, `${after} HP paid AFTER the release — the mesh keeps ticking on a body it has let go of`)
     assert.strictEqual(catches, 1, `${catches} catches on an idle body in one pass — the free window is shorter than the wall takes to sweep clear, so a hold is a chain`)
     assert.ok(run.net.pos - run.player.y > TRAWL_HALF, `after the release the wall (${run.net.pos.toFixed(0)}) has not swept past the body (${run.player.y.toFixed(0)})`)
-    console.log(`PASS run TH.b (3s, ${dmg} HP, then it lets go): released at ${freeAt.toFixed(2)}s, ${catches} catch, ${after} HP after`)
+    console.log(`PASS run TH.b (${TRAWL_DRAG_T}s, ${dmg} HP, then it lets go): released at ${freeAt.toFixed(2)}s, ${catches} catch, ${after} HP after`)
   }
 
   // (c) YOU CANNOT SWIM OUT OF IT, BUT YOU CAN STRUGGLE ALONG IT. Full stick straight against the
@@ -30713,7 +30751,7 @@ function testTrawlHold() {
   {
     const run = rig()
     let maxOff = 0
-    for (let i = 0; i < 180; i++) { stepSim(run, { x: 0, y: -1 }, dt); maxOff = Math.max(maxOff, off(run)); run.events.length = 0 }
+    for (let i = 0; i < Math.round(TRAWL_DRAG_T * 60); i++) { stepSim(run, { x: 0, y: -1 }, dt); maxOff = Math.max(maxOff, off(run)); run.events.length = 0 }
     assert.ok(maxOff <= TRAWL_HALF + 1, `pushing against the sweep got the body ${maxOff.toFixed(1)}px from the line — the hold lets you swim out`)
     for (let i = 0; i < 150; i++) { stepSim(run, { x: 0, y: -1 }, dt); run.events.length = 0 }
     assert.ok(off(run) > TRAWL_HALF + 60, `2.5s after the release the same stick has the body only ${off(run).toFixed(0)}px from the line — released, but still pinned`)
@@ -30752,7 +30790,7 @@ function testTrawlHold() {
   {
     const run = rig()
     let catches = 0
-    for (let i = 0; i < 180; i++) { stepSim(run, { x: 0, y: 0 }, dt); catches += count(run, 'netCatch'); run.events.length = 0 }
+    for (let i = 0; i < Math.round(TRAWL_DRAG_T * 60); i++) { stepSim(run, { x: 0, y: 0 }, dt); catches += count(run, 'netCatch'); run.events.length = 0 }
     for (let i = 0; i < 60; i++) { stepSim(run, { x: 0, y: 1 }, dt); catches += count(run, 'netCatch'); run.events.length = 0 }
     assert.ok(off(run) > TRAWL_HALF + 40, `1s of swimming ahead left the body ${off(run).toFixed(0)}px from the line — not clear, so the case cannot test a return`)
     for (let i = 0; i < 90; i++) { stepSim(run, { x: 0, y: -1 }, dt); catches += count(run, 'netCatch'); run.events.length = 0 }
@@ -30776,7 +30814,7 @@ function testTrawlHold() {
       run.events.length = 0
     }
     assert.strictEqual(catches, 1, `${catches} catches on a body drifting with the sweep at 60 px/s after its release — a hold chained into a second one`)
-    assert.strictEqual(dmg, TRAWL_DRAG_DPS * TRAWL_DRAG_T, `the drifting body paid ${dmg} HP, not one hold's ${TRAWL_DRAG_DPS * TRAWL_DRAG_T}`)
+    assert.strictEqual(dmg, HOLD_HP(run), `the drifting body paid ${dmg} HP, not one hold's ${HOLD_HP(run)}`)
     assert.ok(run.net.pos - run.player.y > TRAWL_HALF, 'the wall never cleared the drifting body')
     console.log(`PASS run TH.f2 (a drift does not chain): 1 catch, ${dmg} HP, the wall swept past`)
   }
@@ -30785,7 +30823,7 @@ function testTrawlHold() {
   // that stops the frame; a hold that swallowed it would keep carrying a corpse.
   {
     const run = rig()
-    run.player.maxHP = 100; run.player.hp = 25
+    run.player.maxHP = 100; run.player.hp = 10   // one hold is 12 HP of 100
     // A weapon, so the frame has something measurable AFTER stepTrawl: its timer must not move on
     // the death frame. A hold that swallowed hurtPlayer's return would run the rest of the frame
     // over a corpse, and the timer is the one thing in this quiet rig that would show it.
@@ -30797,7 +30835,7 @@ function testTrawlHold() {
       if (run.phase === 'dead') timerAtDeath = run.weaponTimers.longline
       run.events.length = 0
     }
-    assert.strictEqual(run.phase, 'dead', `a 25 HP body in a 60 HP hold is ${run.phase} after 3s`)
+    assert.strictEqual(run.phase, 'dead', `a 10 HP body in a ${HOLD_HP(run)} HP hold is ${run.phase} after 3s`)
     assert.strictEqual(run.killedBy, 'trawl', `killed by ${run.killedBy}, not the net`)
     assert.strictEqual(timerAtDeath, timerBefore, 'the weapons stepped on the death frame — the hold does not end the frame when its tick kills')
     console.log(`PASS run TH.g (dying in it ends the run, and the frame): dead at ${run.time.toFixed(2)}s, killed by ${run.killedBy}`)
@@ -30842,12 +30880,12 @@ function testTrawlHold() {
   // (j) A PASS ENDING MID-HOLD LETS GO: one release event, the net gone, only the ticks due paid.
   {
     const run = rig()
-    run.net.end = 100   // the wall reaches it 1.33s in
+    run.net.end = 50   // the wall reaches it 0.67s in, mid-hold
     let frees = 0, dmg = 0
     for (let i = 0; i < 180; i++) { stepSim(run, { x: 0, y: 0 }, dt); frees += count(run, 'netFree'); dmg += trawlHurt(run); run.events.length = 0 }
     assert.strictEqual(frees, 1, `${frees} release events when the pass ended mid-hold`)
     assert.strictEqual(run.net, null, 'the pass did not end')
-    assert.strictEqual(dmg, TRAWL_DRAG_DPS * TRAWL_DRAG_TICK * 2, `${dmg} HP paid in a hold cut off at 1.33s — expected two ticks`)
+    assert.strictEqual(dmg, tickHP(run) * 2, `${dmg} HP paid in a hold cut off at 0.67s — expected two ticks`)
     console.log(`PASS run TH.j (the pass ends mid-hold): one release, ${dmg} HP`)
   }
 
@@ -30855,7 +30893,7 @@ function testTrawlHold() {
   // let go, or the remaining ticks (dot, immune to REVIVE_INVULN) take the half bar straight back.
   {
     const run = rig()
-    run.player.maxHP = 100; run.player.hp = 25
+    run.player.maxHP = 100; run.player.hp = 8   // the third 3-HP tick kills it
     run.revives = 1
     let frees = 0, after = 0
     for (let i = 0; i < 180; i++) {
@@ -30888,6 +30926,7 @@ function testTrawlHold() {
   {
     const run = rig()
     run.player.x = 3000
+    run.viewRadius = 5000   // the player is far from the mesh but the turtle is still IN VIEW — else the cruise cull takes it first
     const turtle = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 0 }); turtle.flags = ['cruise']; turtle.rosterId = 'turtle'
     const mackerel = makeStatusEnemy(run, { x: 60, y: 0, hp: 1e6, speed: 0 }); mackerel.flags = []
     run.enemies.push(turtle, mackerel)
@@ -30898,7 +30937,7 @@ function testTrawlHold() {
     console.log(`PASS run TH.l (a cruiser is carried, not ground): turtle rode ${turtle.y.toFixed(0)}px unhurt, mackerel paid ${(1e6 - mackerel.hp).toFixed(0)} HP`)
   }
 
-  console.log(`PASS run TH (the net's hold): touch the mesh and it carries you with it for ${TRAWL_DRAG_T}s at ${TRAWL_DRAG_DPS} HP/s, you cannot leave the band but can struggle along it at ${TRAWL_DRAG_STICK_MUL}x, and once it lets go it cannot take you again until you have left it (ride cap ${TRAWL_DRAG_FREE_T}s)`)
+  console.log(`PASS run TH (the net's hold): touch the mesh and it carries you with it for ${TRAWL_DRAG_T}s at ${TRAWL_DRAG_TICK_PCT * 100}% max HP per ${TRAWL_DRAG_TICK}s, you cannot leave the band but can struggle along it at ${TRAWL_DRAG_STICK_MUL}x, and once it lets go it cannot take you again until you have left it (ride cap ${TRAWL_DRAG_FREE_T}s)`)
 }
 
 // ---- run LG: The Trawl's two natives, Longline and Net Toss ------------------------------------
