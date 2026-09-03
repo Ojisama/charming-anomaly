@@ -130,6 +130,7 @@ import {
   SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, gateAnchorF, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
   SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, SNAP_CAVITY, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
+  TRAWL_DRAG_T, TRAWL_DRAG_DPS, TRAWL_DRAG_TICK, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
@@ -19297,6 +19298,7 @@ run(testLeLargeWeapons)
   run(testWreckDefense)
   run(testWreckBlackTide)
   run(testTrawlNet)
+  run(testTrawlHold)
   run(testTrawlCards)
   run(testTrawlNatives)
   run(testTheDeep)
@@ -30564,6 +30566,143 @@ function testTrawlNet() {
   }
 
   console.log(`PASS run TR (The Trawl's net and its tears): the wall damages the player AND the crowd, it arrives already torn with gaps everywhere the player can reach, the spacing is ${TRAWL_TEAR_SPACE_MUL} view radii on every screen while the radius stays world-space, and the chapter has no bar and no button`)
+}
+
+// ---- run TH: the net's HOLD (2026-09-03) --------------------------------------------------------
+// Owner: "trawler net should drag you with it for 3s, and deal you 20dmg per second". Every case
+// is an EFFECT — where the body ended up, HP that left, an event that fired — never a field that
+// was set. The two numbers he gave are pinned as themselves at the top, so a re-tune is a
+// deliberate edit here and never a drift.
+//
+// THE WALL IS HAND-BUILT, like run PH's: nx 0, ny 1, so it runs along x and sweeps +y, with one
+// tear 5000px away so the mesh under the player is solid. The spawn is run TR's subject, and a
+// hand-built line is one dot product away from the real one. The tide is zeroed (its surge would
+// add its own drift to every displacement below and the sign of that drift depends on the clock).
+function testTrawlHold() {
+  const dt = 1 / 60
+  const meta = makeMeta()
+  meta.dev = true
+  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
+    ensureChapterMeta(meta, id)
+    meta.chapters[id].unlocked = true
+    meta.chapters[id].difficulty = 3
+  }
+  const rig = (seed = 20260903) => {
+    Math.random = mulberry32(seed)
+    const run = createRun(meta, { chapter: 'trawl', difficulty: 1 })
+    assert.strictEqual(run.chapter, 'trawl', 'run TH did not start in The Trawl')
+    run.player.hp = run.player.maxHP = 100000
+    run.mods.spawnMul = 0
+    run.mods.tideSurgeMul = 0
+    run.enemies.length = 0
+    run.weapons.length = 0
+    run.player.x = 0; run.player.y = 0
+    run.player.facingAngle = 0; run.player.facing = 1
+    run.net = { nx: 0, ny: 1, pos: 0, end: 100000, holes: [{ t: 5000, r: 70 }], _acc: 0 }
+    run.events.length = 0
+    return run
+  }
+  const trawlHurt = (run) => run.events.filter((ev) => ev.type === 'hurt' && ev.src === 'trawl').reduce((a, ev) => a + ev.dmg, 0)
+  const count = (run, type) => run.events.filter((ev) => ev.type === type).length
+  const off = (run) => Math.abs(run.player.y - run.net.pos)   // distance from the line, this wall's normal being +y
+
+  assert.strictEqual(TRAWL_DRAG_T, 3, `the hold is ${TRAWL_DRAG_T}s — the owner asked for 3`)
+  assert.strictEqual(TRAWL_DRAG_DPS, 20, `the hold pays ${TRAWL_DRAG_DPS} HP/s — the owner asked for 20`)
+  assert.ok(Math.abs(TRAWL_DRAG_T / TRAWL_DRAG_TICK - Math.round(TRAWL_DRAG_T / TRAWL_DRAG_TICK)) < 1e-9,
+    `TRAWL_DRAG_TICK ${TRAWL_DRAG_TICK} does not divide the hold — the hold cannot pay exactly DPS x T`)
+
+  // (a) TOUCH IT AND IT HAS YOU. Stick idle; one catch; after 1s the body has been carried the
+  // wall's own TRAWL_SPEED along its normal, is still inside the band, and has paid 1s of the rate.
+  {
+    const run = rig()
+    let catches = 0, dmg = 0
+    for (let i = 0; i < 60; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      catches += count(run, 'netCatch'); dmg += trawlHurt(run)
+      run.events.length = 0
+    }
+    assert.strictEqual(catches, 1, `${catches} catches in 1s of standing in the mesh — the mesh does not take the player (or takes them every frame)`)
+    assert.ok(Math.abs(run.player.y - TRAWL_SPEED) < 3,
+      `carried ${run.player.y.toFixed(1)}px in 1s against the wall's ${TRAWL_SPEED} px/s — the hold does not carry the player with the wall`)
+    assert.ok(off(run) <= TRAWL_HALF + 0.5, `the held body sits ${off(run).toFixed(1)}px from the line, outside the ${TRAWL_HALF}px band`)
+    assert.strictEqual(dmg, TRAWL_DRAG_DPS, `1s of hold cost ${dmg} HP, not the rate's ${TRAWL_DRAG_DPS}`)
+    console.log(`PASS run TH.a (touch it and it has you): carried ${run.player.y.toFixed(0)}px in 1s, ${dmg} HP paid`)
+  }
+
+  // (b) THREE SECONDS, SIXTY HP, THEN IT LETS GO — and an idle body is swept clear, not taken
+  // again. 5s idle: the hold's total is exactly DPS x T, one release at 3s, one catch in the whole
+  // pass, nothing paid after the release, and the wall has gone past the body.
+  {
+    const run = rig()
+    let dmg = 0, after = 0, catches = 0, freeAt = null
+    for (let i = 0; i < 300; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (freeAt === null) dmg += trawlHurt(run); else after += trawlHurt(run)
+      if (count(run, 'netFree') > 0) freeAt = i * dt
+      catches += count(run, 'netCatch')
+      run.events.length = 0
+    }
+    assert.ok(freeAt !== null, 'the hold never let go in 5s')
+    assert.ok(Math.abs(freeAt - TRAWL_DRAG_T) < 0.05, `released at ${freeAt.toFixed(2)}s, not ${TRAWL_DRAG_T}s`)
+    assert.strictEqual(dmg, TRAWL_DRAG_DPS * TRAWL_DRAG_T,
+      `the whole hold cost ${dmg} HP, not ${TRAWL_DRAG_DPS} x ${TRAWL_DRAG_T} = ${TRAWL_DRAG_DPS * TRAWL_DRAG_T}`)
+    assert.strictEqual(after, 0, `${after} HP paid AFTER the release — the mesh keeps ticking on a body it has let go of`)
+    assert.strictEqual(catches, 1, `${catches} catches on an idle body in one pass — the free window is shorter than the wall takes to sweep clear, so a hold is a chain`)
+    assert.ok(run.net.pos - run.player.y > TRAWL_HALF, `after the release the wall (${run.net.pos.toFixed(0)}) has not swept past the body (${run.player.y.toFixed(0)})`)
+    console.log(`PASS run TH.b (3s, ${dmg} HP, then it lets go): released at ${freeAt.toFixed(2)}s, ${catches} catch, ${after} HP after`)
+  }
+
+  // (c) YOU CANNOT SWIM OUT OF IT, BUT YOU CAN STRUGGLE ALONG IT. Full stick straight against the
+  // sweep for the whole hold never gets the body out of the band; the same stick after the free
+  // window takes it clear. Full stick ALONG the wall moves the body at TRAWL_DRAG_STICK_MUL of what
+  // the same stick does with no net — the struggle, measured as a ratio of two displacements.
+  {
+    const run = rig()
+    let maxOff = 0
+    for (let i = 0; i < 180; i++) { stepSim(run, { x: 0, y: -1 }, dt); maxOff = Math.max(maxOff, off(run)); run.events.length = 0 }
+    assert.ok(maxOff <= TRAWL_HALF + 1, `pushing against the sweep got the body ${maxOff.toFixed(1)}px from the line — the hold lets you swim out`)
+    for (let i = 0; i < 150; i++) { stepSim(run, { x: 0, y: -1 }, dt); run.events.length = 0 }
+    assert.ok(off(run) > TRAWL_HALF + 60, `2.5s after the release the same stick has the body only ${off(run).toFixed(0)}px from the line — released, but still pinned`)
+
+    const heldX = (() => { const r = rig(); for (let i = 0; i < 60; i++) { stepSim(r, { x: 1, y: 0 }, dt); r.events.length = 0 } return r.player.x })()
+    const freeX = (() => { const r = rig(); r.net = null; for (let i = 0; i < 60; i++) { stepSim(r, { x: 1, y: 0 }, dt); r.events.length = 0 } return r.player.x })()
+    assert.ok(freeX > 100, `a free body moved only ${freeX.toFixed(0)}px in 1s — the rig is not moving at all, so the ratio below means nothing`)
+    const ratio = heldX / freeX
+    // The catch lands in stepTrawl, AFTER the first frame's movement, so one of 60 frames is free.
+    assert.ok(Math.abs(ratio - TRAWL_DRAG_STICK_MUL) < 0.03,
+      `held, the stick moves the body ${(ratio * 100).toFixed(0)}% as far along the wall as free — not TRAWL_DRAG_STICK_MUL ${TRAWL_DRAG_STICK_MUL} (either the struggle is not composed into the slow, or it is composed twice)`)
+    console.log(`PASS run TH.c (no way out, a struggle along): never past ${maxOff.toFixed(0)}px of the line while held, ${off(run).toFixed(0)}px clear after; along the wall ${(ratio * 100).toFixed(0)}% of free speed`)
+  }
+
+  // (d) THE FREE WINDOW IS A WINDOW, not immunity. A body re-seated ON the line every frame (the
+  // test's doing, as run TR's standAt is) is taken again exactly when the window closes.
+  {
+    const run = rig()
+    const catches = []
+    for (let i = 0; i < 360; i++) {
+      run.player.y = run.net.pos
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (count(run, 'netCatch') > 0) catches.push(i * dt)
+      run.events.length = 0
+    }
+    assert.strictEqual(catches.length, 2, `${catches.length} catches in 6s on a body that never leaves the line — expected the first and one more when the window closed`)
+    assert.ok(Math.abs(catches[1] - (TRAWL_DRAG_T + TRAWL_DRAG_FREE_T)) < 0.06,
+      `the second catch came at ${catches[1].toFixed(2)}s, not at the hold plus the window (${TRAWL_DRAG_T + TRAWL_DRAG_FREE_T}s)`)
+    console.log(`PASS run TH.d (the window closes): a body kept on the line is taken again at ${catches[1].toFixed(2)}s`)
+  }
+
+  // (e) A TEAR IS STILL NOT A HOLD. The same rig with the body over the tear: 2s, no catch, no HP.
+  {
+    const run = rig()
+    run.player.x = -5000   // netAlong is -x for this wall, so t 5000 is x -5000
+    let catches = 0, dmg = 0
+    for (let i = 0; i < 120; i++) { stepSim(run, { x: 0, y: 0 }, dt); catches += count(run, 'netCatch'); dmg += trawlHurt(run); run.events.length = 0 }
+    assert.strictEqual(catches, 0, `${catches} catches over a tear — the hold does not read the tears`)
+    assert.strictEqual(dmg, 0, `${dmg} HP over a tear`)
+    console.log(`PASS run TH.e (a tear is not a hold): 2s over the tear, no catch, no HP`)
+  }
+
+  console.log(`PASS run TH (the net's hold): touch the mesh and it carries you with it for ${TRAWL_DRAG_T}s at ${TRAWL_DRAG_DPS} HP/s, you cannot leave the band but can struggle along it at ${TRAWL_DRAG_STICK_MUL}x, and it lets go for ${TRAWL_DRAG_FREE_T}s before it can take you again`)
 }
 
 // ---- run LG: The Trawl's two natives, Longline and Net Toss ------------------------------------

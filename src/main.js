@@ -520,6 +520,10 @@ const SFX_FOR_EVENT = {
   explode: 'explode', hole: 'hole', beam: 'beam',
   // The Trawl's Whirlpool opens with the same vortex whoosh — it is the same vortex, in water.
   whirlpool: 'hole',
+  // The Trawl's mesh taking hold of you (2026-09-03): the whoosh 'snare' below borrows for a net
+  // closing, because it IS a net closing. The release ('netFree') gets no entry on purpose — it
+  // is the end of a 3s hurt, carried by the hurt ticks and by its own ring in render.js.
+  netCatch: 'hole',
   // A jackpot kill (the sea turtle): the shop's purchase chime, because what just happened is a
   // pile of coins. The level it also pays announces itself through the ordinary levelup event.
   jackpot: 'buy',

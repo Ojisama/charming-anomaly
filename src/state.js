@@ -1144,7 +1144,10 @@ function generateWells(sig) {
  * Sparks orb-kill splash, Popping Wisps death-pop, or Big Crunch hole-collapse (radius from
  * config: mine's own blast radius, STAR_BLAST_RADIUS, ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, or
  * the hole's own final radius, respectively) · {type:'jackpot', x, y} a roster entry carrying a
- * `jackpot` died there (The Trawl's sea turtle: a whole level and twenty coins) · {type:'hole'}
+ * `jackpot` died there (The Trawl's sea turtle: a whole level and twenty coins) · {type:'netCatch',
+ * x, y} The Trawl's mesh took hold of the player (run.net.dragT starts; render.js closes a ring on
+ * the body, main.js sounds it) · {type:'netFree', x, y} it let go, at the end of the hold or with
+ * the pass (a ring, no sound) · {type:'hole'}
  * vortex opens · {type:'beam'} beam
  * starts · {type:'bloom', x, y} a Toxin Bloom is cast (x,y = player, for a cast sfx; the clouds
  * themselves live in run.blooms above).
@@ -2653,10 +2656,16 @@ export function createRun(meta, opts = {}) {
     sightCharge: chargeMax,
     // v7.x The Trawl: the net wall, and the countdown to the next pass. `net` is a single OBJECT and
     // not an array, because there is only ever one wall and it is an infinite LINE rather than an
-    // entity with a position — { nx, ny, pos, end, holes, _acc }, where (nx, ny) is the unit normal
-    // it advances along, `pos` the signed offset of the line, `end` the offset at which the pass is
-    // dropped, and `holes` the Breach cuts, each { t, r } on the wall's own tangent axis. See
-    // stepTrawl in sim.js for the arithmetic — it is written in exactly one place on purpose.
+    // entity with a position — { nx, ny, pos, end, holes, _acc, dragT, dragTicks, freeT }, where
+    // (nx, ny) is the unit normal it advances along, `pos` the signed offset of the line, `end` the
+    // offset at which the pass is dropped, and `holes` the tears it arrives with, each { t, r } on
+    // the wall's own tangent axis. The last three are THE HOLD (2026-09-03): `dragT` s left of the
+    // mesh's grip on the player (0 = not held; while > 0 stepTrawl carries the player with the
+    // wall, pins them inside its band and ticks TRAWL_DRAG_DPS on them, and stepPlayerMovement
+    // reads it for the stick's struggle), `dragTicks` the hold's ticks paid so far, `freeT` s left
+    // after a release in which the mesh cannot take the player again. All on the net rather than
+    // the player so a pass ending clears them. See stepTrawl in sim.js for the arithmetic — it is
+    // written in exactly one place on purpose.
     // null between passes, and null forever in every chapter whose signature is not `trawl`.
     net: null,
     _netAcc: TRAWL_FIRST_PASS,   // NOT the interval — see its block for why the first pass is early

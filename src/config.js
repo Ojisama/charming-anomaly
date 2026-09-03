@@ -11850,9 +11850,25 @@ export const TRAWL_HALF = 30             // px half-thickness of the mesh itself
 // 1.6 x 465 / 75 = 9.9s of warning on a phone and 16.1s on a desktop — the phone's is the one that
 // has to be survivable, and the desktop simply sees it coming sooner, which is the right way round.
 export const TRAWL_LEAD_MUL = 1.6
-export const TRAWL_TICK = 0.35           // s between contact ticks, for player and enemies alike
-export const TRAWL_DMG = 9               // player damage per tick in the mesh
+export const TRAWL_TICK = 0.35           // s between the CROWD's contact ticks (the player's are the hold's, below)
 export const TRAWL_ENEMY_DMG = 34        // enemy damage per tick — the net out-kills you, and should
+// ---- THE HOLD (2026-09-03, The Trawl — what the mesh does to YOU) ------------------------------
+// balance_decision : the net drags you 3s at 20 HP/s [2026-09-03]
+// The mesh does not tick on you like a pool: it TAKES you. Touch it and it has hold of you for
+// TRAWL_DRAG_T, carrying you along its sweep at TRAWL_SPEED, and you cannot leave the band until it
+// lets go. The stick still works at TRAWL_DRAG_STICK_MUL — a struggle, along the wall, never enough
+// to outswim the wall's own 75 px/s across it. On release the mesh cannot take you again for
+// TRAWL_DRAG_FREE_T: longer than the wall takes to sweep clear of a body that does nothing (the
+// band is 60px plus a body, at 75 px/s ~1.1s), so a hold is a hold and never a chain. Ticks are
+// counted from the catch on a tick that divides the hold, so it pays exactly DPS x T. A body taken
+// by the nose is REELED into the band at TRAWL_DRAG_REEL px/s rather than snapped — faster than
+// the struggle can fight (0.25 x 220 = 55 px/s), slow enough to read as the net closing.
+export const TRAWL_DRAG_T = 3
+export const TRAWL_DRAG_DPS = 20
+export const TRAWL_DRAG_TICK = 0.5
+export const TRAWL_DRAG_STICK_MUL = 0.25
+export const TRAWL_DRAG_FREE_T = 1.5
+export const TRAWL_DRAG_REEL = 260
 // The churned wake: sediment and prey stirred up by the thing trying to catch you. RENDER-ONLY since
 // 2026-09-01 — it was the only place Feed came from, and the bar went with the chapter's redesign.
 // What it still does is say where the net has BEEN, which is the tell that tells a torn wall from an

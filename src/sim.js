@@ -187,7 +187,8 @@ import {
   ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
-  TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_DMG, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
+  TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
+  TRAWL_DRAG_T, TRAWL_DRAG_DPS, TRAWL_DRAG_TICK, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T, TRAWL_DRAG_REEL,
   TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
   TIGHT_WEAVE_TEAR_MUL, TIGHT_WEAVE_ENEMY_DMG_MUL,
   BRING_ARRIVE_PAD, BRING_MAX_LIVE, BRING_SNAP_T,
@@ -711,6 +712,11 @@ function stepPlayerMovement(run, input, dt) {
   // stepBossScript. They STACK via a MIN of the multipliers — the strongest slow wins rather than
   // compounding (documented on WEB_SLOW_MUL in config.js).
   const latchMul = p.slowT > 0 ? LATCH_SLOW_MUL : 1
+  // HELD BY THE NET (The Trawl, 2026-09-03): while the mesh has you the stick is a struggle. Same
+  // MIN composition as its neighbours, and it is the strongest term by design — no other slow makes
+  // the wall's grip worse, and Sleek lifts it like every other slow (a resist card that cannot
+  // fight the net is not a resist card). Where you can and cannot GO while held is stepTrawl's.
+  const dragMul = (run.net?.dragT ?? 0) > 0 ? TRAWL_DRAG_STICK_MUL : 1
   let webMul = 1
   if (run.webs && run.webs.length > 0) {
     for (const web of run.webs) {
@@ -768,7 +774,7 @@ function stepPlayerMovement(run, input, dt) {
   // neighbours and for the same reason; it sits ABOVE LATCH_SLOW_MUL on purpose, so a latched moray
   // in coral is still the worst case in the chapter rather than the coral swallowing the moray.
   const scrapeMul = run._scraping ? SPUR_SLOW_MUL : 1
-  const composedSlowMul = Math.min(latchMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul, inkMul, scrapeMul)
+  const composedSlowMul = Math.min(latchMul, dragMul, webMul, run._bindSlow ?? 1, darkMul, sandMul, tireMul, foulMul, inkMul, scrapeMul)
   // SLEEK (v7.x, The Wreck): lifts the composed floor toward 1 (no slow) by the passive's resist
   // fraction, run through resistFrac's diminishing returns (never reaches 1, so the toll never
   // reaches zero), and the `1 - (1-x)(1-y)` shape means it can never drop below the raw composed
@@ -5720,59 +5726,107 @@ function stepTrawl(run, dt) {
     const d0 = p.x * nx + p.y * ny
     // Starts on the -n side and advances through the player. `end` is fixed at spawn rather than
     // trailing the player, so a player who outruns the wall ends the pass early instead of towing it.
-    run.net = { nx, ny, pos: d0 - lead, end: d0 + lead, holes: seedTears(run, nx, ny, lead), _acc: 0 }
+    run.net = { nx, ny, pos: d0 - lead, end: d0 + lead, holes: seedTears(run, nx, ny, lead), _acc: 0, dragT: 0, dragTicks: 0, freeT: 0 }
     return false
   }
   net.pos += TRAWL_SPEED * dt
   // MUTATORS.fullSeason shortens the GAP and never the sweep, which is the whole reason the knob is
   // here and not on TRAWL_SPEED: TRAWL_LEAD_MUL's warning is this chapter's mechanic, so a mutator
   // that ate the reading time would play as unfair rather than as harder. More walls, same notice.
-  if (net.pos > net.end) { run.net = null; run._netAcc = TRAWL_INTERVAL * run.mods.trawlIntervalMul; return false }
+  if (net.pos > net.end) {
+    // A pass that ends while it has you just leaves you where it drops: the hold is the wall's, and
+    // there is no wall. The release still announces itself, so the tangle on screen lets go.
+    if (net.dragT > 0) run.events.push({ type: 'netFree', x: p.x, y: p.y })
+    run.net = null; run._netAcc = TRAWL_INTERVAL * run.mods.trawlIntervalMul; return false
+  }
 
-  // Contact, on a tick rather than per frame — for the same reason stepRocks grinds on ROCK_TICK:
-  // 60 fractional hits a second is unreadable and floods the event stream.
+  // THE CROWD. Contact on a tick rather than per frame — for the same reason stepRocks grinds on
+  // ROCK_TICK: 60 fractional hits a second is unreadable and floods the event stream.
   net._acc += dt
   let ticks = 0
   while (net._acc >= TRAWL_TICK) { net._acc -= TRAWL_TICK; ticks++ }
-  if (ticks === 0) return false
+  // BOTH SIDES, in the same pass — the mechanic, not a side effect. Precedent is shipped twice:
+  // stepRocks and the undergrowth's snap traps, whose config block says outright "it damages BOTH
+  // sides, and that IS the mechanic". The crowd is ground where it stands; the player is TAKEN
+  // (below), which is the 2026-09-03 ruling and the one asymmetry between the two halves.
+  if (ticks > 0) {
+    for (const e of run.enemies) {
+      if (e._dead) continue
+      if (Math.abs(netDist(net, e.x, e.y)) > TRAWL_HALF + e.radius) continue
+      if (inNetHole(net, e.x, e.y)) continue
+      // tightWeave's other half: the wall does your killing in exchange for your way out of it. The
+      // multiplier is on the CROWD's side only — the player's hold is untouched, or the card would
+      // be a pivot that punishes you twice for one trade.
+      const weaveMul = run.anomalies?.tightWeave ? TIGHT_WEAVE_ENEMY_DMG_MUL : 1
+      dealDamage(run, e, TRAWL_ENEMY_DMG * weaveMul * ticks, false, false, true)   // hazard: the player did not deal it
+    }
+  }
 
-  // BOTH SIDES, in the same pass, on the same tick — the mechanic, not a side effect. Precedent is
-  // shipped twice: stepRocks and the undergrowth's snap traps, whose config block says outright
-  // "it damages BOTH sides, and that IS the mechanic".
-  for (const e of run.enemies) {
-    if (e._dead) continue
-    if (Math.abs(netDist(net, e.x, e.y)) > TRAWL_HALF + e.radius) continue
-    if (inNetHole(net, e.x, e.y)) continue
-    // tightWeave's other half: the wall does your killing in exchange for your way out of it. The
-    // multiplier is on the CROWD's side only — the player's TRAWL_DMG is untouched, or the card
-    // would be a pivot that punishes you twice for one trade.
-    const weaveMul = run.anomalies?.tightWeave ? TIGHT_WEAVE_ENEMY_DMG_MUL : 1
-    dealDamage(run, e, TRAWL_ENEMY_DMG * weaveMul * ticks, false, false, true)   // hazard: the player did not deal it
+  // THE HOLD (2026-09-03, owner: "trawler net should drag you with it for 3s, and deal you 20dmg
+  // per second"). Three states, all carried on run.net so a pass ending clears them: HELD
+  // (dragT > 0), just RELEASED (freeT > 0, the mesh cannot take you), and neither, where touching
+  // the mesh starts a hold. The numbers are the TRAWL_DRAG_* block in config.js. `!(dragT > 0)`
+  // and not `dragT <= 0`: a hand-built net (run PH's, run TH's, a probe's) carries no hold fields
+  // at all, and `undefined <= 0` is false — which would skip the catch and carry an untaken body.
+  if (!(net.dragT > 0)) {
+    if (net.freeT > 0) { net.freeT = Math.max(0, net.freeT - dt); return false }
+    // The wall is a LINE with tears in it, so the body is sampled at its nose, its centre and its
+    // tail, and the mesh takes the player if ANY sample is inside the mesh band (the wall's
+    // half-thickness plus the body's half-width) and not over a tear. The same three samples decide
+    // both halves — a nose in solid mesh while the centre sits over a tear is IN the net, and a
+    // centre in mesh with the whole body in a tear is not (adversarial pass, 2026-09-03: the first
+    // cut tested the mesh on the body and the tears on the centre). Three samples 26px apart cannot
+    // miss an 84px band. With no fish body the three samples are the centre and the half-width is
+    // PLAYER.radius, which is exactly the circle test this replaced.
+    const body = playerBodyEnds(run)
+    const halfW = body ? body.halfWidth : PLAYER.radius
+    const samples = body ? [body.ax, body.ay, p.x, p.y, body.bx, body.by] : [p.x, p.y]
+    let inMesh = false
+    for (let i = 0; i < samples.length && !inMesh; i += 2) {
+      const x = samples[i], y = samples[i + 1]
+      inMesh = Math.abs(netDist(net, x, y)) <= TRAWL_HALF + halfW && !inNetHole(net, x, y)
+    }
+    if (!inMesh) return false
+    net.dragT = TRAWL_DRAG_T
+    net.dragTicks = 0
+    run.events.push({ type: 'netCatch', x: p.x, y: p.y })
+    // No return: the hold starts THIS frame, so a second of frames is a second of hold. Starting
+    // it next frame paid one tick short of the rate over any window counted from the catch.
   }
-  // The wall is a LINE with tears in it, so the body is sampled at its nose, its centre and its
-  // tail, and the mesh has hold of the player if ANY sample is inside the mesh band (the wall's
-  // half-thickness plus the body's half-width) and not over a tear. The same three samples decide
-  // both halves — a nose in solid mesh while the centre sits over a tear is IN the net, and a
-  // centre in mesh with the whole body in a tear is not (adversarial pass, 2026-09-03: the first
-  // cut tested the mesh on the body and the tears on the centre). Three samples 26px apart cannot
-  // miss an 84px band. With no fish body the three samples are the centre and the half-width is
-  // PLAYER.radius, which is exactly the circle test this replaced.
-  const body = playerBodyEnds(run)
-  const halfW = body ? body.halfWidth : PLAYER.radius
-  const samples = body ? [body.ax, body.ay, p.x, p.y, body.bx, body.by] : [p.x, p.y]
-  let inMesh = false
-  for (let i = 0; i < samples.length && !inMesh; i += 2) {
-    const x = samples[i], y = samples[i + 1]
-    inMesh = Math.abs(netDist(net, x, y)) <= TRAWL_HALF + halfW && !inNetHole(net, x, y)
+  // HELD. Carried with the wall — the same TRAWL_SPEED the line advanced by this frame, so your
+  // offset from it holds — then kept inside the band. stepPlayerMovement has already run this
+  // frame and moved you at TRAWL_DRAG_STICK_MUL; across the band that is a squirm the pin undoes,
+  // along the wall it is a real struggle the pin never touches. REELED, not snapped: a body taken
+  // by the nose has its centre up to ~40px outside the band on the catch frame, and a one-frame
+  // snap of that reads as a glitch where a pull at TRAWL_DRAG_REEL reads as the net closing.
+  p.x += net.nx * TRAWL_SPEED * dt
+  p.y += net.ny * TRAWL_SPEED * dt
+  const d = netDist(net, p.x, p.y)
+  const c = d < -TRAWL_HALF ? -TRAWL_HALF : d > TRAWL_HALF ? TRAWL_HALF : d
+  if (c !== d) {
+    const pull = Math.sign(c - d) * Math.min(Math.abs(c - d), TRAWL_DRAG_REEL * dt)
+    p.x += net.nx * pull; p.y += net.ny * pull
   }
-  if (!inMesh) return false
-  // dot: true, which bypasses the invulnerability window on purpose. The net is a place you are
-  // standing in, like an acid pool or a spray strip, not a thing that hits you once — and an
-  // i-frame window would make swimming through the mesh free, which is the opposite of the chapter.
-  // The tell is the shipped one: hurtPlayer pushes {type:'hurt', dot:true}, which render.js already
-  // turns into a red vignette and shake and main.js already silences for audio. Publishing into a
-  // contract field render.js reads is the whole of the lesson the freeze scar taught.
-  return hurtPlayer(run, TRAWL_DMG * ticks, true, 'trawl')
+  net.dragT = Math.max(0, net.dragT - dt)
+  // The ticks are counted from the CATCH rather than drawn from the crowd's accumulator: `due` is
+  // how many TRAWL_DRAG_TICKs of the hold have elapsed, paid as they fall due, so the whole hold
+  // pays exactly TRAWL_DRAG_DPS x TRAWL_DRAG_T whatever the frame rate. A shared accumulator
+  // would pay 8 or 9 of the crowd's 0.35s ticks depending on where in one it caught you.
+  const due = Math.min(Math.round(TRAWL_DRAG_T / TRAWL_DRAG_TICK), Math.floor((TRAWL_DRAG_T - net.dragT) / TRAWL_DRAG_TICK + 1e-6))
+  const owed = due - net.dragTicks
+  if (owed > 0) {
+    net.dragTicks = due
+    // dot: true, which bypasses the invulnerability window on purpose, as the mesh always has: an
+    // i-frame window would make being caught half price. The tell is the shipped one — hurtPlayer
+    // pushes {type:'hurt', dot:true}, which render.js turns into the red vignette and shake and
+    // main.js already silences for audio.
+    if (hurtPlayer(run, TRAWL_DRAG_DPS * TRAWL_DRAG_TICK * owed, true, 'trawl')) return true
+  }
+  if (net.dragT === 0) {
+    net.freeT = TRAWL_DRAG_FREE_T
+    run.events.push({ type: 'netFree', x: p.x, y: p.y })
+  }
+  return false
 }
 
 // -- The Deep's anglerfish: the refill IS the trap (v7.x) --------------------------------------

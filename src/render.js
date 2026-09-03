@@ -10361,6 +10361,11 @@ export function createRenderer(app) {
   // reset.
   const burstWakeG = new Graphics()
   const netG = new Graphics()
+  // The Trawl's HOLD (2026-09-03): the tangle drawn over the fish while the mesh has it. Its own
+  // Graphics because it has to sit ABOVE playerC where netG sits below the crowd's crowns — drawn
+  // on netG the twine would be a few strand ends peeking out from under the body. Same local frame
+  // as netG (updateNet anchors all three on the player); clearing IS the reset, like netG.
+  const netHoldG = new Graphics()
   // ---- THE ORCA (v7.x, The Wreck) --------------------------------------------------------------
   // Three objects, because the animal is in two different places over one visit. `orcaShadowSp` is
   // the telegraph: a dark shape on the FLOOR, under everything, growing as it rises — owner's
@@ -10440,7 +10445,7 @@ const spurG = new Graphics()
     rockLayer,
     orcaShadowSp, orcaG,
     enemyShadowLayer, enemyLayer, enemyCrownLayer, orcaSp, netG, longlineG, snareG,
-    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG,
+    bloomLayer, lureLayer, shieldG, affixLayer, crustG, deepG, lockLayer, playerC, netHoldG, gateFrontG, breakerG, puffG, splashG, columnG, shorebreakG,
     bulletLayer, boomerangLayer, orbLayer, debrisLayer, homingLayer, shotLayer, beamLayer, whipLayer, arcG, breathG,
     lobLayer, carLayer, smokeLayer, particleLayer,
     // v6.7.7: the refraction sits in FRONT of traffic, smoke and particles — everything except the
@@ -13843,6 +13848,7 @@ const spurG = new Graphics()
     const net = run.net
     netG.clear()
     netWakeG.clear()
+    netHoldG.clear()
     if (!net) return
     const p = run.player
     // The player's coordinate ALONG the wall, and the world point that corresponds to. Local x is
@@ -13851,7 +13857,7 @@ const spurG = new Graphics()
     const ox = net.nx * net.pos + -net.ny * tp
     const oy = net.ny * net.pos + net.nx * tp
     const rot = Math.atan2(net.nx, -net.ny)
-    for (const G of [netG, netWakeG]) { G.position.set(ox, oy); G.rotation = rot }
+    for (const G of [netG, netWakeG, netHoldG]) { G.position.set(ox, oy); G.rotation = rot }
     // Half the drawn span. 1.6 x the view radius comfortably crosses either viewport at any rotation
     // (the worst case is the wall running corner to corner, which needs the half-diagonal itself).
     const L = Math.max(600, run.viewRadius * 1.6)
@@ -13940,6 +13946,45 @@ const spurG = new Graphics()
           const y = (k / 2) * half
           netG.moveTo(edge, y).lineTo(edge + (edge === a ? -1 : 1) * (6 + (k & 1) * 7), y * 0.82)
             .stroke({ width: 2, color: NET_VIS.torn, alpha: 0.9, cap: 'round' })
+        }
+      }
+    }
+
+    // THE HOLD (sim.js stepTrawl, run.net.dragT — 2026-09-03). While the mesh has the player, a
+    // tangle of twine over the fish on netHoldG, which sits ABOVE playerC. Same local frame: the
+    // player is at local x 0, and local y is MINUS their signed distance from the line (local +y is
+    // behind the wall, see the frame note at NET_VIS). Two things say "held" from across the
+    // screen: the diamond mesh drawn over the body in the bright twine, and strands running from
+    // the body to BOTH ropes, which is what a net closed on something looks like from above. The
+    // jitter is animT-driven, so it freezes behind a modal like every other animation here.
+    if (net.dragT > 0) {
+      const py = -(p.x * net.nx + p.y * net.ny - net.pos)
+      const R = PLAYER.radius * 1.35
+      const j = Math.sin(animT * 21) * 1.6
+      for (let k = -2; k <= 2; k++) {
+        const x0 = k * R * 0.45 + j * (k & 1 ? 1 : -1)
+        netHoldG.moveTo(x0, py - R * 0.6).lineTo(x0 * 1.6 + j, -half)
+          .stroke({ width: 1.8, color: NET_VIS.meshLine, alpha: 0.7, cap: 'round' })
+        netHoldG.moveTo(x0, py + R * 0.6).lineTo(x0 * 1.6 - j, half)
+          .stroke({ width: 1.8, color: NET_VIS.meshLine, alpha: 0.7, cap: 'round' })
+      }
+      // The lattice, CLIPPED TO A DISC around the body: unclipped it is a square of net with hard
+      // corners, which at 3x reads as a window pane laid on the fish rather than as mesh bunched
+      // round it. Each diagonal is cut where it meets the disc |P - (0, py)| = Rc.
+      const Rc = R * 1.45
+      const cell = NET_VIS.cell * 0.55
+      for (let d = -Rc; d <= Rc; d += cell) {
+        for (const s of [-1, 1]) {
+          const ax = d - Rc * s + j, ay = py - Rc, dx = 2 * Rc * s, dy = 2 * Rc
+          const fx = ax, fy = ay - py
+          const A = dx * dx + dy * dy, B = 2 * (fx * dx + fy * dy), C = fx * fx + fy * fy - Rc * Rc
+          const disc = B * B - 4 * A * C
+          if (disc <= 0) continue
+          const sq = Math.sqrt(disc)
+          const t0 = Math.max(0, (-B - sq) / (2 * A)), t1 = Math.min(1, (-B + sq) / (2 * A))
+          if (t1 <= t0) continue
+          netHoldG.moveTo(ax + dx * t0, ay + dy * t0).lineTo(ax + dx * t1, ay + dy * t1)
+            .stroke({ width: 1.6, color: NET_VIS.meshLine, alpha: 0.9 })
         }
       }
     }
@@ -19738,6 +19783,27 @@ const spurG = new Graphics()
           pushSnare(e.x, e.y, e.radius, e.hold)
           addShake(e.caught > 0 ? 2.6 : 1.2, e.caught > 0 ? 0.12 : 0.07)
           break
+        // THE TRAWL'S HOLD (sim.js stepTrawl, {type:'netCatch',x,y} / {type:'netFree',x,y},
+        // 2026-09-03). The catch is the moment the chapter's whole threat lands on you, so it gets
+        // the crash's weight: two rings closing on the body in the wall's own twine and rope
+        // colours, and a burst of frayed ends. The release is lighter — one ring in the torn
+        // colour — because it is relief, not damage. The 3s between them are drawn by updateNet
+        // (the tangle over the fish) and by the hurt ticks themselves.
+        case 'netCatch':
+          addShake(7, 0.3)
+          spawnRing(e.x, e.y, 96, 0.34, T.novaWarm, NET_VIS.meshLine)
+          spawnRing(e.x, e.y, 52, 0.22, T.novaWarm, NET_VIS.rope)
+          for (let i = 0; i < 14; i++) {
+            const a = Math.random() * Math.PI * 2
+            const sp = 120 + Math.random() * 200
+            spawnParticle(T.fx.circle_05, e.x, e.y, Math.cos(a) * sp, Math.sin(a) * sp,
+              0.3 + Math.random() * 0.2, 0.045 + Math.random() * 0.04,
+              i % 3 === 0 ? NET_VIS.torn : NET_VIS.meshLine, 0.1, 1.5)
+          }
+          break
+        case 'netFree':
+          spawnRing(e.x, e.y, 70, 0.28, T.novaWarm, NET_VIS.torn)
+          break
         case 'clawRake':
           // Claw Rake: three parallel gashes (spawnClaw — NOT the whip's swoosh; see there). A
           // lighter shake than the lash: it's a quick shred, and at this cadence a full-weight one
@@ -19968,6 +20034,7 @@ const spurG = new Graphics()
     // hanging over the summary screen and the next chapter.
     netG.clear()
     netWakeG.clear()
+    netHoldG.clear()
     // v7.x The Wreck: the orca is TWO SPRITES AND A GRAPHICS, so clearing the Graphics alone is not
     // the reset — a run that ends mid-visit would leave a whale parked over the summary screen.
     // Sprites, not a pool, so they are hidden here rather than in reset()'s flat-pool list.
