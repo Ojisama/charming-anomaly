@@ -46,7 +46,7 @@ return () => {
   layout()
   const ui = document.getElementById('ui'); if (ui) ui.style.display = ''
   const w = document.querySelector('[data-wiggle]')
-  if (w) { w.style.display = ''; w.querySelector('.rampage-fill').style.width = ((run.net?.wiggle ?? 0) * 100) + '%' }
+  if (w) { w.style.display = ''; w.querySelector('[data-wiggle-fill]').style.height = ((run.net?.wiggle ?? 0) * 100) + '%' }
   for (const e of crowd) e.hitFlash = 0
   run.player.invuln = 0
   H.pin()
