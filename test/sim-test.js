@@ -30284,6 +30284,29 @@ function testTrawlCards() {
     console.log(`PASS run TC.g (Full Season brings more walls): ${plain} passes in 150s -> ${season} with the mutator`)
   }
 
+  // (h) THE CATCH CANNOT SCRAPE ITS CASTER. The reel drags the body straight through the player, and
+  // stepContactDamage runs BEFORE stepHauls in a step — so the frame the catch arrived it landed a
+  // contact hit before the execute killed it (owner, 2026-09-03: "the harpoon still damages you").
+  // Asserted on the arrival frame itself, against a control with no line on the same body.
+  {
+    const arrive = (hookIt) => {
+      const run = armed()
+      run.player.x = 0; run.player.y = 0
+      run.player.hp = run.player.maxHP = 500
+      run.player.invuln = 0
+      const e = makeStatusEnemy(run, { x: 20, y: 0, hp: 1e6, speed: 0 })
+      e.dmg = 40
+      run.enemies.push(e)
+      if (hookIt) run.hauls.push({ eid: e.id, x: e.x, y: e.y, dmg: 1, tick: 0.18, acc: 0, speed: 600, width: 40, snap: 0 })
+      stepSim(run, { x: 0, y: 0 }, dt)
+      return 500 - run.player.hp
+    }
+    const hooked = arrive(true), loose = arrive(false)
+    assert.ok(loose > 0, `control: an unhooked body touching the player must hurt, or this block is vacuous; it took ${loose} HP`)
+    assert.strictEqual(hooked, 0, `a hooked body scraped its caster for ${hooked} HP on the arrival frame`)
+    console.log(`PASS run TC.h (the catch cannot hurt you): hooked body on the player cost 0 HP where the same body loose cost ${loose}`)
+  }
+
   console.log(`PASS run TC (The Trawl's three new cards): Bring It In hooks the farthest, executes on arrival for a credited kill, refuses elites, takes distinct bodies with Double Rig and only damages its own corridor; Tight Weave narrows the tears without sealing them; Full Season brings more walls`)
 }
 
