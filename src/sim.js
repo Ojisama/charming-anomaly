@@ -4124,12 +4124,15 @@ function stepContactDamage(run) {
   const p = run.player
   const circuit = CHAPTERS[run.chapter].circuit != null
   const body = playerBodyEnds(run)   // once per step, not once per enemy
+  // A body on the harpoon's line cannot hurt you. The reel drags it straight through the player, so
+  // without this the card scraped its own caster on every landing (owner, 2026-09-03).
+  const hooked = new Set(run.hauls.map((h) => h.eid))
   for (const e of run.enemies) {
     if (e._dead) continue
     const dx = e.x - p.x, dy = e.y - p.y   // the contact normal, for the circuit's bump
     const touching = playerTouches(run, e.x, e.y, e.radius, body)
     if (circuit && touching) bumpTraffic(run, CHAPTERS[run.chapter], e, dx, dy)
-    if (!touching || contactHarmless(e)) continue
+    if (!touching || hooked.has(e.id) || contactHarmless(e)) continue
 
     // latch flag (v5.0, e.g. body's antibody): applies a movement debuff then spends itself —
     // no normal contact damage, and unlike the plain path below, not gated behind p.invuln (the
