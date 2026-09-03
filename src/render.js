@@ -2526,12 +2526,14 @@ export function createRenderer(app) {
   // 0x93b6cc), and there is no decor competing for attention the way the reef's coral does. So this
   // roster's separation problem is the OPPOSITE of the reef's: not "how do three warm bodies avoid a
   // warm floor" but "how do three pelagic fish, which in life are all silver, avoid being the same
-  // fish three times". They separate on SILHOUETTE and on tail, which is also how you tell them apart
-  // in the water:
-  //   mackerel — a plain spindle with a small forked tail and a barred back. The baseline.
-  //   tuna     — thicker through the shoulder, tapering to a hard narrow wrist and a CRESCENT tail,
-  //              with long sickle pectorals swept back. The outline says "this one is fast" before
-  //              any colour does, which matters because dashBurst gives no telegraph of its own.
+  // fish three times". The first cut separated them on SILHOUETTE and on tail alone, and the owner's
+  // verdict from play (2026-09-03) was that the two fish looked alike — at 16px a fork and a crescent
+  // are the same three pixels. They separate on COLOUR first now, outline second:
+  //   mackerel — the GREEN fish: a slim spindle, green back, five black zigzag bars, forked tail.
+  //   tuna     — the NAVY-AND-GOLD fish: deeper through the shoulder, a gold band down each side,
+  //              long gold pectorals held out as wings, gold sickles and finlets, a gold CRESCENT.
+  //              The wings say "this one is fast" before the dash does, which matters because
+  //              dashBurst gives no telegraph of its own.
   //   sea lion — NOT A FISH, and that is the whole design of the tank slot. Broad fore-flippers
   //              thrown out to the sides, a blunt round whiskered head, hind flippers trailing. The
   //              one body in the chapter that breaks the fish outline, and it is also the one that
@@ -2541,15 +2543,21 @@ export function createRenderer(app) {
   // (the game's one deliberate side elevation) each is bilaterally symmetric about that nose with
   // paired eyes and paired fins in ±y and nothing that could be called UP. See CLAUDE.md.
 
-  // mackerel: the flagless baseline, drawn as the plainest fish in the game. Steel-blue back with the
-  // wavy black bars a real mackerel wears, silver flanks. The bars run ACROSS the body rather than
+  // mackerel: the flagless baseline, drawn as the plainest fish in the game. GREEN back with the
+  // black zigzag bars a real mackerel wears, silver flanks. The bars run ACROSS the body rather than
   // along it, which from directly above is the pattern's actual orientation — a fish's bars are on
   // its back, and its back is what an overhead camera sees.
+  //   2026-09-03, owner: "tuna and mackerel look too much alike". At phone size two silver spindles
+  // with blue backs were one fish, whatever their tails did (judged on a four-row sheet of the bake
+  // code, baseline against three cuts). The separation now runs on COLOUR first: this one is the
+  // green fish with the tiger bars, the tuna is the navy fish with gold. The bars went from six thin
+  // wavy strokes over half the back to five bold chevrons across nearly all of it — the mark a real
+  // mackerel is named for, and the one thing on it that survives 16px.
   function drawMackerel(g, elite, white) {
     const r = 16
     const f = (c) => white ? 0xffffff : c
     const line = f(0x1b2733)
-    const back = f(0x4d7f9e)
+    const back = f(0x2f8f7a)
     const flank = f(0xc8dae6)
     const fin = f(0x9fbccd)
     const lw = Math.max(2, r * 0.1)
@@ -2581,13 +2589,15 @@ export function createRenderer(app) {
       // The back, cut from the body's own outline so it can never overhang the fish — the damselfish's
       // bar trick, used here for the dorsal half instead of for stripes.
       g.poly(spineOutline(spine, (t) => body(t) * 0.55, 28, 0.04, 0.93)).fill({ color: back, alpha: 0.95 })
-      // The bars: short strokes across the back, thinning toward the tail as a real one's do.
-      for (let i = 0; i < 6; i++) {
-        const t = 0.14 + i * 0.12
+      // The bars: five bold chevrons across nearly the whole back, thinning toward the tail as a real
+      // one's do. Zigzag rather than a wave because at 16px a wave is a smudge and a chevron is a mark.
+      for (let i = 0; i < 5; i++) {
+        const t = 0.14 + i * 0.144
         const [bx] = spine(t)
-        const w = body(t) * 0.5
-        g.moveTo(bx, -w).quadraticCurveTo(bx - r * 0.09, 0, bx, w)
-          .stroke({ width: lw * 0.72, color: f(0x14202b), alpha: 0.85 })
+        const w = body(t) * 0.92
+        g.moveTo(bx + r * 0.05, -w).lineTo(bx - r * 0.07, -w * 0.35).lineTo(bx + r * 0.05, 0)
+          .lineTo(bx - r * 0.07, w * 0.35).lineTo(bx + r * 0.05, w)
+          .stroke({ width: lw * 0.95, color: f(0x0f1a1f), alpha: 0.9, join: 'round' })
       }
       const [ex] = spine(0.1)
       for (const s of [-1, 1]) darkEye(g, ex, s * body(0.1) * 0.66, r * 0.085, r * 0.08, 0x0d151d, true)
@@ -2684,16 +2694,22 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 0.85, r)
   }
 
-  // tuna: the fast slot, and the read is entirely in the outline. Deep through the shoulder, a hard
-  // narrow wrist, and a CRESCENT (lunate) caudal — the shape only the ocean's fastest fish have, and
-  // the one thing on screen that is unambiguously not the mackerel it is swimming beside.
+  // tuna: the fast slot. Deep through the shoulder, a hard narrow wrist, and a CRESCENT (lunate)
+  // caudal — the shape only the ocean's fastest fish have.
+  //   2026-09-03, owner: "tuna and mackerel look too much alike". The outline alone did not carry it
+  // at phone size, so this is a YELLOWFIN now, and the read is colour and wings: a navy back on a
+  // cooler flank, a gold band down each side, a gold crescent, and the long falcate pectorals a
+  // yellowfin actually has, held OUT as two gold wings. That last one is the silhouette — a gold
+  // arrowhead in a shoal of green-barred spindles — and it is the thing a mixed shoal at 1:1 was
+  // judged on. (The first cut of this fish laid the pectorals along the body because in the FLANK
+  // colour with a hard outline they read as white blades; in gold with no outline they read as fins.)
   function drawTuna(g, elite, white) {
     const r = 16
     const f = (c) => white ? 0xffffff : c
     const line = f(0x18242f)
-    const back = f(0x2f5f86)
-    const flank = f(0xdbe8f0)
-    const fin = f(0xf2c94c)   // the yellow finlets a real tuna carries — the one warm accent
+    const back = f(0x1a2f4d)
+    const flank = f(0xb9cbd9)
+    const fin = f(0xf2c94c)   // yellowfin gold — the wings, the side band, the finlets and sickles
     const lw = Math.max(2, r * 0.1)
     const noseX = r * 1.05
     const len = r * 2.1
@@ -2706,22 +2722,19 @@ export function createRenderer(app) {
       return r * 0.46 * Math.max(0.07, t < 0.3 ? rise : fall)
     }
     groundShadow(r * 1.0, r * 0.4)
-    // Sickle pectorals: long, thin and swept hard back, reaching most of the way to the wrist.
+    // THE WINGS: long falcate pectorals held out and swept back, gold, no outline. Part of the
+    // silhouette, so they are drawn in the white (hit-flash) bake too.
     const pt = 0.32
     const [ptx] = spine(pt)
     const pw = body(pt)
-    // Laid ALONG the body, not held out from it. The first cut put these at 0.62r of clearance in
-    // the bright flank colour with a hard outline, and they read as two white blades crossing the
-    // fish — a tuna folds its pectorals into grooves at speed, so the honest drawing is a narrow
-    // sliver close to the flank. No outline, and it inherits the flank colour, so it reads as part
-    // of the same animal rather than as something attached to it.
     for (const s of [-1, 1]) {
       g.poly([
-        ptx + r * 0.04, s * pw * 0.85,
-        ptx - r * 0.72, s * (pw + r * 0.3),
-        ptx - r * 0.9, s * (pw + r * 0.2),
-        ptx - r * 0.34, s * pw * 0.92,
-      ]).fill({ color: flank, alpha: 0.7 })
+        ptx + r * 0.08, s * pw * 0.9,
+        ptx - r * 0.55, s * (pw + r * 0.62),
+        ptx - r * 0.95, s * (pw + r * 0.72),
+        ptx - r * 0.42, s * (pw + r * 0.22),
+        ptx - r * 0.2, s * pw * 0.95,
+      ]).fill({ color: fin, alpha: 0.95 })
     }
     // THE CRESCENT. Two swept lobes meeting at a narrow centre, concave on the trailing edge — that
     // concavity is the whole difference between this and the mackerel's fork, so it is drawn with a
@@ -2731,24 +2744,39 @@ export function createRenderer(app) {
       g.moveTo(tx, 0)
         .quadraticCurveTo(tx - r * 0.14, s * r * 0.34, tx - r * 0.54, s * r * 0.7)
         .quadraticCurveTo(tx - r * 0.3, s * r * 0.26, tx - r * 0.16, 0)
-        .fill({ color: back, alpha: 0.9 }).stroke({ width: lw * 0.4, color: line })
+        .fill({ color: f(0xd9b13f), alpha: 0.9 }).stroke({ width: lw * 0.4, color: line })
     }
     g.poly(spineOutline(spine, body, 34)).fill(flank).stroke({ width: lw, color: line })
     if (!white) {
       g.poly(spineOutline(spine, (t) => body(t) * 0.6, 28, 0.03, 0.92)).fill({ color: back, alpha: 0.95 })
-      // Finlets: the little yellow flags between the second dorsal and the tail, in ±y pairs. TINY —
-      // the first cut stood them off the body by 0.16r and they read as a row of spikes, which turned
-      // the whole animal into something mechanical. At 0.07r they are a serrated yellow edge, which
-      // is what they look like on a real fish and is still the second thing (after the crescent) that
-      // names it a tuna.
+      // The gold band a yellowfin wears down each side, seen from above along the flank's edge.
+      for (const s of [-1, 1]) {
+        for (let i = 0; i <= 12; i++) {
+          const t = 0.16 + (0.7 * i) / 12
+          const [x] = spine(t)
+          const y = s * body(t) * 0.78
+          if (i === 0) g.moveTo(x, y); else g.lineTo(x, y)
+        }
+        g.stroke({ width: lw * 0.55, color: fin, alpha: 0.95, cap: 'round' })
+      }
+      // Finlets: the little yellow flags between the second dorsal and the tail, in ±y pairs. Small —
+      // an earlier cut stood them off the body by 0.16r and they read as a row of spikes, which turned
+      // the whole animal into something mechanical. At 0.09r they are a serrated gold edge.
       for (let i = 0; i < 4; i++) {
         const t = 0.62 + i * 0.075
         const [fx] = spine(t)
         const w = body(t)
         for (const s of [-1, 1]) {
-          g.poly([fx, s * w, fx - r * 0.07, s * (w + r * 0.07), fx - r * 0.13, s * w])
+          g.poly([fx, s * w, fx - r * 0.09, s * (w + r * 0.09), fx - r * 0.17, s * w])
             .fill({ color: fin, alpha: 0.85 })
         }
+      }
+      // The second dorsal and the anal fin: two gold sickles at the wrist, the other thing a
+      // yellowfin shows from above.
+      const [sx] = spine(0.56)
+      const sw = body(0.56)
+      for (const s of [-1, 1]) {
+        g.poly([sx, s * sw, sx - r * 0.1, s * (sw + r * 0.3), sx - r * 0.3, s * sw]).fill({ color: fin, alpha: 0.95 })
       }
       const [ex] = spine(0.1)
       for (const s of [-1, 1]) darkEye(g, ex, s * body(0.1) * 0.6, r * 0.1, r * 0.095, 0x0b1219, true)
