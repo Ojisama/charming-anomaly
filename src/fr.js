@@ -805,8 +805,6 @@ const CONFIG = {
   'Hooks the furthest one and winches it home through everything in the way. It does not arrive alive.': 'Harponne le plus éloigné et le ramène de force à travers tout ce qui gêne. Il n\'arrive pas vivant.',
   'Barbed Line': 'Câble Barbelé',
   'damage to what it drags through': 'dégâts à ce qu\'il traverse',
-  'Long Gaff': 'Longue Gaffe',
-  'how far out it can hook': 'jusqu\'où il peut harponner',
   'Wide Drag': 'Large Sillon',
   'how wide a corridor it ploughs': 'la largeur du sillon qu\'il creuse',
   'Quick Reel': 'Moulinet Rapide',
