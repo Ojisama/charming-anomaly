@@ -1891,7 +1891,8 @@ function generateWells(sig) {
  *   in-run. See spawnEnemy in sim.js.
  * enemyShots[i]: { x, y, vx, vy, r, dmg, life, turnRate } — the ONLY enemy-owned projectile array,
  *   fed by 'missileVolley' helicopters. Homes toward the player at turnRate rad/s, expires at
- *   life <= 0 (removed, no blast), and on overlapping the player (r + PLAYER.radius) damages the
+ *   life <= 0 (removed, no blast), and on overlapping the player (playerTouches: r against the
+ *   PLAYER.radius circle, or against the drawn fish's capsule in a playerBody chapter) damages the
  *   PLAYER only (normal armor path, respects invuln) and emits {type:'explode', x, y, radius:
  *   MISSILE_BLAST}. Never damages enemies. Bent by run.wells like any other projectile. See
  *   stepEnemyShots in sim.js.

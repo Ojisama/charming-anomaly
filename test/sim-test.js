@@ -8012,7 +8012,34 @@ function runPlayerHitbox() {
   assert(ahead > 0, 'a body at the fish\'s nose must touch it — the capsule reaches further than the circle did')
   assert(besideB1 > 0, 'Book 1 keeps the circle: the same beside offset touches the blob')
   assert.strictEqual(aheadB1, 0, `Book 1 keeps the circle: the same ahead offset is out of reach (hurt ${aheadB1} times)`)
-  console.log(`PASS run PH (player hitbox): ${fish.length}/${all.length} chapters collide as the fish and every one of them draws it; beside-32 hurts ${beside}x on the fish vs ${besideB1}x on the blob, ahead-44 hurts ${ahead}x vs ${aheadB1}x`)
+
+  // (c) THE NET reads the same body for the mesh and for its tears. A wall lying along x through
+  // the player (nx 0, ny 1, so "along" is -x), one tear centred on the player's centre: at r 20
+  // the nose (31px ahead) and the tail (22px behind) are both in solid mesh, so the net has the
+  // fish even though its centre sits in the gap — the first cut waived it there. At r 40 the whole
+  // body is in the tear and the net does not. Re-pinned every frame: the wall sweeps at 75px/s.
+  const netHurt = (tearR) => {
+    Math.random = mulberry32(20260905)
+    const m = makeMeta(); m.dev = true; ensureChapterMeta(m)
+    const r = createRun(m, { chapter: 'trawl', difficulty: 1 })
+    r.weapons = []
+    r.mods.spawnMul = 0
+    r.enemies.length = 0
+    r.player.facingAngle = 0; r.player.facing = 1
+    r.net = { nx: 0, ny: 1, pos: r.player.y, end: r.player.y + 4000, holes: [{ t: -r.player.x, r: tearR }], _acc: 0 }
+    let hurt = 0
+    for (let i = 0; i < 60; i++) {
+      r.net.pos = r.player.y; r.net.holes[0].t = -r.player.x
+      r.events.length = 0
+      stepSim(r, { x: 0, y: 0 }, dt)
+      hurt += r.events.filter((ev) => ev.type === 'hurt' && ev.src === 'trawl').length
+    }
+    return hurt
+  }
+  const noseOut = netHurt(20), allIn = netHurt(40)
+  assert(noseOut > 0, 'a tear the centre sits in but the nose reaches past is still the net')
+  assert.strictEqual(allIn, 0, `a tear the whole body fits in is not the net (hurt ${allIn} times)`)
+  console.log(`PASS run PH (player hitbox): ${fish.length}/${all.length} chapters collide as the fish and every one of them draws it; beside-32 hurts ${beside}x on the fish vs ${besideB1}x on the blob, ahead-44 hurts ${ahead}x vs ${aheadB1}x; the net ticks ${noseOut}x with the nose past a 20px tear and ${allIn}x inside a 40px one`)
 }
 run(runPlayerHitbox)
 
