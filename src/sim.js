@@ -5749,15 +5749,23 @@ function stepTrawl(run, dt) {
     const weaveMul = run.anomalies?.tightWeave ? TIGHT_WEAVE_ENEMY_DMG_MUL : 1
     dealDamage(run, e, TRAWL_ENEMY_DMG * weaveMul * ticks, false, false, true)   // hazard: the player did not deal it
   }
-  // The wall is a LINE, so the body is tested as its two ends against it: the segment between
-  // them crossing the line, or either end within the mesh's half-thickness plus the body's
-  // half-width. With no fish body both ends are the centre and the half-width is PLAYER.radius,
-  // which is exactly the circle test this replaced.
-  const body = playerBodyEnds(run) ?? { ax: p.x, ay: p.y, bx: p.x, by: p.y, halfWidth: PLAYER.radius }
-  const dNose = netDist(net, body.ax, body.ay), dTail = netDist(net, body.bx, body.by)
-  const inMesh = dNose * dTail <= 0 || Math.min(Math.abs(dNose), Math.abs(dTail)) <= TRAWL_HALF + body.halfWidth
+  // The wall is a LINE with tears in it, so the body is sampled at its nose, its centre and its
+  // tail, and the mesh has hold of the player if ANY sample is inside the mesh band (the wall's
+  // half-thickness plus the body's half-width) and not over a tear. The same three samples decide
+  // both halves — a nose in solid mesh while the centre sits over a tear is IN the net, and a
+  // centre in mesh with the whole body in a tear is not (adversarial pass, 2026-09-03: the first
+  // cut tested the mesh on the body and the tears on the centre). Three samples 26px apart cannot
+  // miss an 84px band. With no fish body the three samples are the centre and the half-width is
+  // PLAYER.radius, which is exactly the circle test this replaced.
+  const body = playerBodyEnds(run)
+  const halfW = body ? body.halfWidth : PLAYER.radius
+  const samples = body ? [body.ax, body.ay, p.x, p.y, body.bx, body.by] : [p.x, p.y]
+  let inMesh = false
+  for (let i = 0; i < samples.length && !inMesh; i += 2) {
+    const x = samples[i], y = samples[i + 1]
+    inMesh = Math.abs(netDist(net, x, y)) <= TRAWL_HALF + halfW && !inNetHole(net, x, y)
+  }
   if (!inMesh) return false
-  if (inNetHole(net, p.x, p.y)) return false
   // dot: true, which bypasses the invulnerability window on purpose. The net is a place you are
   // standing in, like an acid pool or a spray strip, not a thing that hits you once — and an
   // i-frame window would make swimming through the mesh free, which is the opposite of the chapter.
@@ -7110,6 +7118,7 @@ function stepEnemyShots(run, dt) {
   const p = run.player
   let playerDied = false
 
+  const body = playerBodyEnds(run)   // once per step, as stepContactDamage does
   for (const s of run.enemyShots) {
     s.life -= dt
     if (s.life <= 0) { s._done = true; continue } // fizzles: removed, no blast
@@ -7125,7 +7134,7 @@ function stepEnemyShots(run, dt) {
     s.x += s.vx * dt
     s.y += s.vy * dt
 
-    if (!playerTouches(run, s.x, s.y, s.r)) continue
+    if (!playerTouches(run, s.x, s.y, s.r, body)) continue
     s._done = true
     run.events.push({ type: 'explode', x: s.x, y: s.y, radius: MISSILE_BLAST })
     if (!playerDied && p.invuln <= 0 && hurtPlayer(run, s.dmg, false, 'missile')) playerDied = true
