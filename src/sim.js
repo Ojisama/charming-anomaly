@@ -5755,17 +5755,24 @@ function stepTrawl(run, dt) {
   // stepRocks and the undergrowth's snap traps, whose config block says outright "it damages BOTH
   // sides, and that IS the mechanic". The crowd is ground where it stands; the player is TAKEN
   // (below), which is the 2026-09-03 ruling and the one asymmetry between the two halves.
-  if (ticks > 0) {
-    for (const e of run.enemies) {
-      if (e._dead) continue
-      if (Math.abs(netDist(net, e.x, e.y)) > TRAWL_HALF + e.radius) continue
-      if (inNetHole(net, e.x, e.y)) continue
-      // tightWeave's other half: the wall does your killing in exchange for your way out of it. The
-      // multiplier is on the CROWD's side only — the player's hold is untouched, or the card would
-      // be a pivot that punishes you twice for one trade.
-      const weaveMul = run.anomalies?.tightWeave ? TIGHT_WEAVE_ENEMY_DMG_MUL : 1
-      dealDamage(run, e, TRAWL_ENEMY_DMG * weaveMul * ticks, false, false, true)   // hazard: the player did not deal it
+  for (const e of run.enemies) {
+    if (e._dead) continue
+    if (Math.abs(netDist(net, e.x, e.y)) > TRAWL_HALF + e.radius) continue
+    if (inNetHole(net, e.x, e.y)) continue
+    // CARRIED, NOT GROUND (owner 2026-09-03: the turtle "gets dragged by the trawl fishnet, but
+    // doesn't take dmg from it"). A cruiser in the mesh rides the wall at its own TRAWL_SPEED,
+    // every frame, and never pays a tick — the player's carry, minus the pin and the price.
+    // Keyed on `cruise` because that is the flag for a body that was never fighting the wall.
+    if (e.flags && e.flags.includes('cruise')) {
+      e.x += net.nx * TRAWL_SPEED * dt; e.y += net.ny * TRAWL_SPEED * dt
+      continue
     }
+    if (ticks === 0) continue
+    // tightWeave's other half: the wall does your killing in exchange for your way out of it. The
+    // multiplier is on the CROWD's side only — the player's hold is untouched, or the card would
+    // be a pivot that punishes you twice for one trade.
+    const weaveMul = run.anomalies?.tightWeave ? TIGHT_WEAVE_ENEMY_DMG_MUL : 1
+    dealDamage(run, e, TRAWL_ENEMY_DMG * weaveMul * ticks, false, false, true)   // hazard: the player did not deal it
   }
 
   // THE HOLD (2026-09-03, owner: "trawler net should drag you with it for 3s, and deal you 20dmg
@@ -7421,16 +7428,19 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     }
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
 
-    const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)
-    run.gems.push({ x: enemy.x, y: enemy.y, xp })
-
     // JACKPOT (v7.x, The Trawl's sea turtle — CHAPTERS[].roster[].jackpot): a kill that pays a
     // whole level on the spot and scatters a pile of coins. The level is the Reef's lap idiom
     // (xp += xpNext, so the level-up opens on the next check whatever the bar read); the coins are
     // ordinary pickups, so every coin rule — the magnet, Avarice, coinMul, the per-run cap — still
     // applies to them. Chapter-scoped by the field being absent on every other roster entry.
+    //   ON SCREEN OR NOTHING (owner 2026-09-03: "loot and xp only if they're visible"). A jackpot
+    // body that dies out of view — ground by the net a pass away, eaten by a whirlpool that drifted
+    // off — drops neither its xp gem nor its jackpot. The kill still counts.
     const jackpot = enemy.rosterId ? CHAPTERS[run.chapter].roster?.find((r) => r.id === enemy.rosterId)?.jackpot : null
-    if (jackpot) {
+    const paid = !jackpot || onScreen(run, enemy.x, enemy.y)
+    const xp = enemy.xp * (enemy.elite ? ELITE.xpMul : 1)
+    if (paid) run.gems.push({ x: enemy.x, y: enemy.y, xp })
+    if (jackpot && paid) {
       if (jackpot.levels > 0) run.player.xp += run.player.xpNext * jackpot.levels
       for (let i = 0; i < (jackpot.coins ?? 0); i++) {
         const a = Math.random() * Math.PI * 2
@@ -7487,10 +7497,12 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
         if (Math.random() >= coinDropMul) continue
         const a = Math.random() * Math.PI * 2
         const d = Math.random() * 20
-        run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
+        // `paid` (above): an off-screen jackpot body drops no coin of any kind. The draws still
+        // happen, so the gate moves no random for a kill it does not touch.
+        if (paid) run.coins.push({ x: enemy.x + Math.cos(a) * d, y: enemy.y + Math.sin(a) * d, value: 1 })
       }
     } else if (Math.random() < ENEMIES[enemy.type].coinChance * coinDropMul) {
-      run.coins.push({ x: enemy.x, y: enemy.y, value: 1 })
+      if (paid) run.coins.push({ x: enemy.x, y: enemy.y, value: 1 })
     }
 
     // Splitter (elite affix): spawns SPLITTER_COUNT wisps around the corpse.
@@ -7770,6 +7782,8 @@ function nearestEnemy(run, pad = 100) {
 // ONE random draw rather than one per candidate: reservoir sampling would burn a crowd-sized number
 // of randoms on every cast, and this project's suite seeds Math.random once per scenario — a draw
 // count that moves with the crowd size re-phases every sampled statistic downstream of it.
+const onScreen = (run, x, y) =>
+  Math.abs(x - run.player.x) <= (run.viewW ?? run.viewRadius ?? 0) && Math.abs(y - run.player.y) <= (run.viewH ?? run.viewRadius ?? 0)
 function randomVisibleEnemy(run) {
   const p = run.player
   const hw = run.viewW ?? run.viewRadius ?? 0
