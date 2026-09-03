@@ -7941,6 +7941,37 @@ function runTurtleJackpot() {
   }
   const turtle = killOne('turtle')
   const mackerel = killOne('mackerel')
+  // (c) OFF SCREEN, NOTHING. Same rig, but once the vortex has the turtle the player leaves the
+  // screen: the kill lands out of view and pays no level, no coins, no gem, no jackpot event.
+  {
+    Math.random = mulberry32(20260903)
+    const m = makeMeta(); m.dev = true; ensureChapterMeta(m)
+    const r = createRun(m, { chapter: 'trawl', difficulty: 1 })
+    r.weapons = [{ id: 'whirlpool', level: 5 }]
+    r.player.maxHP = r.player.hp = 1e9
+    r.mods.spawnMul = 0
+    r.enemies.length = 0
+    const e = makeStatusEnemy(r, { x: r.player.x + 120, y: r.player.y, hp: 1, speed: 0, elite: true })   // elite: its own 8-coin pile must stay in the net too
+    e.rosterId = 'turtle'
+    r.enemies.push(e)
+    const level0 = r.player.level, gems0 = r.gems.length, coins0 = r.coins.length
+    let jackpots = 0, t = 0, fled = false
+    while (r.kills === 0 && t < 12) {
+      if (!fled && r.holes.length) { r.player.x += r.viewW * 2 + 400; fled = true }   // two screens away
+      r.events.length = 0
+      stepSim(r, { x: 0, y: 0 }, dt)
+      jackpots += r.events.filter((ev) => ev.type === 'jackpot').length
+      t += dt
+    }
+    assert(fled && r.kills === 1, 'precondition: the turtle must die after the player has left the screen')
+    stepSim(r, { x: 0, y: 0 }, dt)
+    assert.strictEqual(jackpots, 0, 'an off-screen turtle kill must not fire a jackpot')
+    assert(!(r.phase === 'levelup' || r.player.level > level0), 'an off-screen turtle kill must not pay a level')
+    assert.strictEqual(r.coins.length, coins0, `an off-screen turtle kill must drop no coin of any kind, found ${r.coins.length - coins0}`)
+    assert.strictEqual(r.gems.length, gems0, 'an off-screen turtle kill must drop no xp gem')
+    console.log('PASS run TJ.c (off screen, nothing): the turtle died two screens away and paid no level, no coins, no gem')
+  }
+  assert.strictEqual(CHAPTERS.trawl.roster.find((x) => x.id === 'turtle').maxAlive, 1, 'owner 2026-09-03: max 1 turtle alive')
   assert(turtle.levelled, 'a sea turtle kill must pay a whole level on the spot')
   assert(turtle.coinsAtBody >= 20, `a sea turtle kill must scatter twenty coins where it died, found ${turtle.coinsAtBody}`)
   assert.strictEqual(turtle.jackpots, 1, `exactly one jackpot event per turtle, got ${turtle.jackpots}`)
@@ -30826,6 +30857,22 @@ function testTrawlHold() {
     assert.strictEqual(catches, 0, `${catches} catches over a tear — the hold does not read the tears`)
     assert.strictEqual(dmg, 0, `${dmg} HP over a tear`)
     console.log(`PASS run TH.e (a tear is not a hold): 2s over the tear, no catch, no HP`)
+  }
+
+  // (l) A CRUISER IS CARRIED, NOT GROUND. A turtle and a mackerel side by side in the mesh, the
+  // player far away: after 1s the turtle has ridden the wall its TRAWL_SPEED at full hp, and the
+  // mackerel has stayed put and paid the crowd's ticks.
+  {
+    const run = rig()
+    run.player.x = 3000
+    const turtle = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 0 }); turtle.flags = ['cruise']; turtle.rosterId = 'turtle'
+    const mackerel = makeStatusEnemy(run, { x: 60, y: 0, hp: 1e6, speed: 0 }); mackerel.flags = []
+    run.enemies.push(turtle, mackerel)
+    for (let i = 0; i < 60; i++) { stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
+    assert.ok(Math.abs(turtle.y - TRAWL_SPEED) < 3, `the turtle rode ${turtle.y.toFixed(1)}px in 1s against the wall's ${TRAWL_SPEED} px/s — the mesh does not carry a cruiser`)
+    assert.strictEqual(turtle.hp, 1e6, `the turtle paid ${1e6 - turtle.hp} HP to the mesh — a cruiser must not be ground`)
+    assert.ok(mackerel.hp < 1e6, 'the mackerel beside it must still be ground by the mesh')
+    console.log(`PASS run TH.l (a cruiser is carried, not ground): turtle rode ${turtle.y.toFixed(0)}px unhurt, mackerel paid ${(1e6 - mackerel.hp).toFixed(0)} HP`)
   }
 
   console.log(`PASS run TH (the net's hold): touch the mesh and it carries you with it for ${TRAWL_DRAG_T}s at ${TRAWL_DRAG_DPS} HP/s, you cannot leave the band but can struggle along it at ${TRAWL_DRAG_STICK_MUL}x, and once it lets go it cannot take you again until you have left it (ride cap ${TRAWL_DRAG_FREE_T}s)`)

@@ -828,7 +828,8 @@ function generateWells(sig) {
  *               ENEMIES[type].dmg which moves that archetype in every chapter and
  *               balance.enemyDmgMul which moves every creature in this one; and v7.x's
  *               `jackpot: { levels, coins }`, read once at death — a whole level and a coin
- *               pile on the spot, The Trawl's sea turtle), and its
+ *               pile on the spot, The Trawl's sea turtle; paid, gem included, only when the
+ *               body dies inside the run.viewW/viewH rectangle), and its
  *               `flags` are copied in; elites additionally get CHAPTERS[chapter].eliteFlags
  *               appended (so an elite can carry both its roster's own flags and its chapter's
  *               elite-only ones). Always present (possibly []), safe to check unconditionally.

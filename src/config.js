@@ -2123,11 +2123,13 @@ export const WEAPONS = {
     levels: [
       // balance_decision : +20% dmg, every Trawl weapon, owner ruling 2026-09-02
       //  - x1.2 rounded to whole numbers, unmeasured (owner: "don't test, just ship")
-      { dmg: 10, tick: 0.20, interval: 6.5, radius: 170, duration: 1.8, pull: 170 },
-      { dmg: 12, tick: 0.20, interval: 6.0, radius: 190, duration: 2.0, pull: 190 },
-      { dmg: 14, tick: 0.18, interval: 5.5, radius: 196, duration: 2.2, pull: 196 },
-      { dmg: 18, tick: 0.18, interval: 5.0, radius: 205, duration: 2.4, pull: 205 },
-      { dmg: 22, tick: 0.16, interval: 4.5, radius: 215, duration: 2.6, pull: 215 },
+      // balance_decision : whirlpool base radius -20%, too strong, owner 2026-09-03
+      //  - pull is a radial SPEED, not a reach: it stays
+      { dmg: 10, tick: 0.20, interval: 6.5, radius: 170 * 0.8, duration: 1.8, pull: 170 },
+      { dmg: 12, tick: 0.20, interval: 6.0, radius: 190 * 0.8, duration: 2.0, pull: 190 },
+      { dmg: 14, tick: 0.18, interval: 5.5, radius: 196 * 0.8, duration: 2.2, pull: 196 },
+      { dmg: 18, tick: 0.18, interval: 5.0, radius: 205 * 0.8, duration: 2.4, pull: 205 },
+      { dmg: 22, tick: 0.16, interval: 4.5, radius: 215 * 0.8, duration: 2.6, pull: 215 },
     ],
   },
   // -- The Twilight's three natives ---------------------------------------------------------------
@@ -8441,8 +8443,12 @@ CHAPTERS.trawl = {
     // coins where it died. Read in the death path (sim.js, `jackpot`); chapter-scoped by the field
     // being absent on every other roster entry in the game. It overrides the "must not become a
     // thing you farm" line above by the owner's own call: the turtle is the thing you hunt now,
-    // and maxAlive 3 is what keeps that a hunt rather than a harvest.
-    { id: 'turtle',   archetype: 'normal', name: 'Sea Turtle', hpMul: 3, speedMul: 0.5, weight: 1, xpMul: 0.6, radiusMul: 1.5, maxAlive: 3, flags: ['cruise'], jackpot: { levels: 1, coins: 20 } },
+    // and maxAlive 1 is what keeps that a hunt rather than a harvest (owner 2026-09-03: "max 1
+    // turtle alive"). The kill pays ONLY IF THE BODY DIES ON SCREEN (same ruling): a turtle the
+    // net ground down two screens away, or a whirlpool ate out of view, drops neither its gem nor
+    // its jackpot — the sim's death path reads run.viewW/viewH for it. And the net CARRIES a
+    // cruiser instead of grinding it (stepTrawl): it is dragged along, unhurt.
+    { id: 'turtle',   archetype: 'normal', name: 'Sea Turtle', hpMul: 3, speedMul: 0.5, weight: 1, xpMul: 0.6, radiusMul: 1.5, maxAlive: 1, flags: ['cruise'], jackpot: { levels: 1, coins: 20 } },
     { id: 'sealion',  archetype: 'tank',   name: 'Sea Lion', hpMul: 2.4,  speedMul: 0.85, flags: ['pounce'] },
     { id: 'tuna',     archetype: 'fast',   name: 'Tuna',     hpMul: 0.95, speedMul: 1.25, weight: 2, flags: ['dashBurst'] },
     // THE ONE THAT HOLDS YOU. A remora attaches BECAUSE you are big, which makes the player's own
