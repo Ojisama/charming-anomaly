@@ -1570,6 +1570,16 @@ function generateWells(sig) {
  *   spill and ticked down after leaving, exactly as bloomSlowT/fearT decay. Read in stepPlayer,
  *   where it joins the MIN of the speed floors rather than multiplying into them (see the block
  *   there). The LINGER is the design: a slow that ends at the rim is just a wider slick.
+ * net: null | { nx, ny, pos, end, holes, _acc, dragT, dragTicks, freeT } — The Trawl's net wall,
+ *   in chapters whose signature is `trawl`; null between passes and everywhere else. An infinite
+ *   LINE, not an entity: (nx, ny) its unit normal, `pos` the signed offset it has swept to, `end`
+ *   where the pass is dropped, `holes` the tears it arrived with ({ t, r } along the wall's own
+ *   tangent), `_acc` the crowd's tick accumulator. THE HOLD (2026-09-03): `dragT` s left of its
+ *   grip on the player (> 0 = held: carried with the wall, pinned in the band, ticked at
+ *   TRAWL_DRAG_DPS, stick at TRAWL_DRAG_STICK_MUL), `dragTicks` ticks paid this hold, `freeT` the
+ *   ride cap after a release (zeroed the frame the body is clear of solid mesh). Written only by
+ *   stepTrawl, plus hurtPlayer's revive zeroing dragT. _netAcc: s to the next pass, seeded at
+ *   TRAWL_FIRST_PASS and reset to TRAWL_INTERVAL x trawlIntervalMul when a pass clears.
  * orca: null | { state, t, cx, cy, r, ang, x, y, tx, ty, dirX, dirY, hit, splashed, alpha, passes } — The Wreck's apex
  *   predator, in chapters declaring `orca: true`. A SINGLE NULLABLE OBJECT with a countdown, the
  *   same idiom as `net` above and never a pool: there is only ever one, and it is UNKILLABLE (no
@@ -2662,10 +2672,12 @@ export function createRun(meta, opts = {}) {
     // the wall's own tangent axis. The last three are THE HOLD (2026-09-03): `dragT` s left of the
     // mesh's grip on the player (0 = not held; while > 0 stepTrawl carries the player with the
     // wall, pins them inside its band and ticks TRAWL_DRAG_DPS on them, and stepPlayerMovement
-    // reads it for the stick's struggle), `dragTicks` the hold's ticks paid so far, `freeT` s left
-    // after a release in which the mesh cannot take the player again. All on the net rather than
-    // the player so a pass ending clears them. See stepTrawl in sim.js for the arithmetic — it is
-    // written in exactly one place on purpose.
+    // reads it for the stick's struggle), `dragTicks` the hold's ticks paid so far, `freeT` the
+    // ride cap left after a release: while > 0 the mesh cannot take the player, it is zeroed the
+    // frame the body is clear of solid mesh (the window is positional — it ends when you LEAVE),
+    // and it runs out on a body that stays inside. All on the net rather than the player so a pass
+    // ending clears them. See stepTrawl in sim.js for the arithmetic — it is written in exactly
+    // one place on purpose.
     // null between passes, and null forever in every chapter whose signature is not `trawl`.
     net: null,
     _netAcc: TRAWL_FIRST_PASS,   // NOT the interval — see its block for why the first pass is early

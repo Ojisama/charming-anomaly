@@ -3797,6 +3797,12 @@ function hurtPlayer(run, rawDmg, dot = false, src = null) {
       // allowed to void it — Brittle was voiding it anyway, through a different door.
       p.hp = Math.max(1, p.maxHP * REVIVE_HP_FRAC)
       p.invuln = REVIVE_INVULN
+      // THE NET LETS GO OF A REVIVED BODY (The Trawl's hold, adversarial pass 2026-09-03). The
+      // hold's ticks are dot and ignore REVIVE_INVULN, so a token spent mid-hold bought half a bar
+      // and the remaining ticks took it straight back — a burned token, pinned and unable to act,
+      // which is the opposite of the shove below. Zeroing dragT here is enough: stepTrawl, which is
+      // the caller, sees it on return and fires its own release (the window and the event).
+      if (run.net && run.net.dragT > 0) run.net.dragT = 0
       const radSq = REVIVE_SHOVE_RADIUS * REVIVE_SHOVE_RADIUS
       for (const e of run.enemies) {
         if (e.affixes && e.affixes.includes('anchored')) continue // kb-immune (v5.24: the antibody holds its band even through a revive)
@@ -5769,7 +5775,6 @@ function stepTrawl(run, dt) {
   // and not `dragT <= 0`: a hand-built net (run PH's, run TH's, a probe's) carries no hold fields
   // at all, and `undefined <= 0` is false — which would skip the catch and carry an untaken body.
   if (!(net.dragT > 0)) {
-    if (net.freeT > 0) { net.freeT = Math.max(0, net.freeT - dt); return false }
     // The wall is a LINE with tears in it, so the body is sampled at its nose, its centre and its
     // tail, and the mesh takes the player if ANY sample is inside the mesh band (the wall's
     // half-thickness plus the body's half-width) and not over a tear. The same three samples decide
@@ -5786,7 +5791,15 @@ function stepTrawl(run, dt) {
       const x = samples[i], y = samples[i + 1]
       inMesh = Math.abs(netDist(net, x, y)) <= TRAWL_HALF + halfW && !inNetHole(net, x, y)
     }
-    if (!inMesh) return false
+    // JUST RELEASED (freeT > 0). The mesh cannot take a body it has just dropped until that body
+    // has LEFT it: the frame no sample is in solid mesh ends the window, and it can take you again
+    // the moment you come back. Positional and not timed, because a front catch is released at the
+    // band's front edge with the wall 1.38s from clearing it, and any forward drift — the chapter's
+    // own tide, a diagonal run for a tear — kept a timed window's body in the band past its end
+    // and chained a second 60 HP hold (adversarial pass, 2026-09-03). The countdown is only the
+    // ride cap: stay inside the mesh TRAWL_DRAG_FREE_T after a release and it takes you again.
+    if (!inMesh) { net.freeT = 0; return false }
+    if (net.freeT > 0) { net.freeT = Math.max(0, net.freeT - dt); return false }
     net.dragT = TRAWL_DRAG_T
     net.dragTicks = 0
     run.events.push({ type: 'netCatch', x: p.x, y: p.y })
