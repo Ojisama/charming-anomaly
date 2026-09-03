@@ -891,14 +891,16 @@ export const specialistSubjects = (run) => (run.weapons ?? [])
 // 22px radius, so you fit through dead centre" — but 21 < 22, which is a DEFICIT, and with
 // TRAWL_TEAR_R_VAR's jitter the narrowest tears are 13.7px. If the gap were a body-width test the
 // card would be a wall, not a trade.
-//   It is not one: inNetHole tests the player's CENTRE POINT along the wall's axis and never reads
-// PLAYER.radius, so standing on a tear's centre is safe at any radius and the trade holds by
-// construction. What 0.3 actually buys is PRECISION — the gap stops being something you drift
-// through and becomes something you aim at.
-//   The honest cost of that: your sprite is 44px across and the drawn gap at the low end of the
-// jitter is 27px, so the fish visibly overlaps mesh it is not being hurt by. That is a real visual
-// mismatch against copy that says "close to 30% of their width", and it is the thing to look at on
-// a phone before this number is defended.
+//   It is not one: inNetHole tests a POINT'S position along the wall's axis and never reads a
+// radius. Since v7.262 stepTrawl asks it about three points — the fish's nose, centre and tail —
+// and since the hold (2026-09-03) any one of them in solid mesh is a full 60 HP hold. Crossing a
+// tear STRAIGHT puts all three on one `t`, so a straight crossing is safe at any radius and the
+// trade holds by construction; crossing at an angle spreads them by up to the body's 53px, and
+// that is the real cost of 0.3 — the gap stops being something you drift through and becomes
+// something you line up on and aim at.
+//   The honest visual cost: the fish is 53px long and the drawn gap at the low end of the jitter
+// is 27px, so a fish threading it at an angle overlaps mesh that IS holding it. That is the thing
+// to look at on a phone before this number is defended.
 export const TIGHT_WEAVE_TEAR_MUL = 0.3
 export const TIGHT_WEAVE_ENEMY_DMG_MUL = 2.2
 
@@ -11857,17 +11859,25 @@ export const TRAWL_ENEMY_DMG = 34        // enemy damage per tick — the net ou
 // The mesh does not tick on you like a pool: it TAKES you. Touch it and it has hold of you for
 // TRAWL_DRAG_T, carrying you along its sweep at TRAWL_SPEED, and you cannot leave the band until it
 // lets go. The stick still works at TRAWL_DRAG_STICK_MUL — a struggle, along the wall, never enough
-// to outswim the wall's own 75 px/s across it. On release the mesh cannot take you again for
-// TRAWL_DRAG_FREE_T: longer than the wall takes to sweep clear of a body that does nothing (the
-// band is 60px plus a body, at 75 px/s ~1.1s), so a hold is a hold and never a chain. Ticks are
-// counted from the catch on a tick that divides the hold, so it pays exactly DPS x T. A body taken
-// by the nose is REELED into the band at TRAWL_DRAG_REEL px/s rather than snapped — faster than
-// the struggle can fight (0.25 x 220 = 55 px/s), slow enough to read as the net closing.
+// to outswim the wall's own 75 px/s across it. ON RELEASE THE MESH CANNOT TAKE YOU AGAIN UNTIL YOU
+// HAVE LEFT IT — positional, not timed. The first cut used a 1.5s timer on the argument that the
+// wall sweeps clear of an idle body in ~1.1s; the adversarial pass measured the real geometry
+// (a front catch is reeled to the band's FRONT edge and released there, so the wall has 103px to
+// cover: 1.38s, a 0.12s margin) and showed the chapter's own tide, or any diagonal run toward a
+// tear, keeps you in the band past a timer and chains a second hold — 120 HP from full, with no
+// crowd involved. So the window ends the frame no sample of the body is in solid mesh, and the
+// mesh can take you again the moment you come back. TRAWL_DRAG_FREE_T is only the RIDE CAP: stay
+// inside the mesh that long after a release and it takes you again, so matching the wall's own
+// speed inside it is not a mobile kill zone that grinds the crowd for free. Six seconds covers a
+// full-speed diagonal run to a tear 1200px along the wall. Ticks are counted from the catch on a
+// tick that divides the hold, so it pays exactly DPS x T. A body taken by the nose is REELED into
+// the band at TRAWL_DRAG_REEL px/s rather than snapped — faster than the struggle can fight
+// (0.25 x 220 = 55 px/s), slow enough to read as the net closing.
 export const TRAWL_DRAG_T = 3
 export const TRAWL_DRAG_DPS = 20
 export const TRAWL_DRAG_TICK = 0.5
 export const TRAWL_DRAG_STICK_MUL = 0.25
-export const TRAWL_DRAG_FREE_T = 1.5
+export const TRAWL_DRAG_FREE_T = 6
 export const TRAWL_DRAG_REEL = 260
 // The churned wake: sediment and prey stirred up by the thing trying to catch you. RENDER-ONLY since
 // 2026-09-01 — it was the only place Feed came from, and the bar went with the chapter's redesign.

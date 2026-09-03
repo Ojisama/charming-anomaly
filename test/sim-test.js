@@ -30674,21 +30674,147 @@ function testTrawlHold() {
     console.log(`PASS run TH.c (no way out, a struggle along): never past ${maxOff.toFixed(0)}px of the line while held, ${off(run).toFixed(0)}px clear after; along the wall ${(ratio * 100).toFixed(0)}% of free speed`)
   }
 
-  // (d) THE FREE WINDOW IS A WINDOW, not immunity. A body re-seated ON the line every frame (the
-  // test's doing, as run TR's standAt is) is taken again exactly when the window closes.
+  // (d) THE RIDE CAP: staying inside the mesh is not immunity. A body re-seated ON the line every
+  // frame (the test's doing, as run TR's standAt is) is taken again exactly when the cap runs out.
   {
     const run = rig()
     const catches = []
-    for (let i = 0; i < 360; i++) {
+    const frames = Math.round((TRAWL_DRAG_T + TRAWL_DRAG_FREE_T + 1.5) * 60)
+    for (let i = 0; i < frames; i++) {
       run.player.y = run.net.pos
       stepSim(run, { x: 0, y: 0 }, dt)
       if (count(run, 'netCatch') > 0) catches.push(i * dt)
       run.events.length = 0
     }
-    assert.strictEqual(catches.length, 2, `${catches.length} catches in 6s on a body that never leaves the line — expected the first and one more when the window closed`)
+    assert.strictEqual(catches.length, 2, `${catches.length} catches in ${(frames * dt).toFixed(1)}s on a body that never leaves the line — expected the first and one more when the ride cap ran out`)
     assert.ok(Math.abs(catches[1] - (TRAWL_DRAG_T + TRAWL_DRAG_FREE_T)) < 0.06,
-      `the second catch came at ${catches[1].toFixed(2)}s, not at the hold plus the window (${TRAWL_DRAG_T + TRAWL_DRAG_FREE_T}s)`)
-    console.log(`PASS run TH.d (the window closes): a body kept on the line is taken again at ${catches[1].toFixed(2)}s`)
+      `the second catch came at ${catches[1].toFixed(2)}s, not at the hold plus the cap (${TRAWL_DRAG_T + TRAWL_DRAG_FREE_T}s)`)
+    console.log(`PASS run TH.d (the ride cap): a body kept on the line is taken again at ${catches[1].toFixed(2)}s`)
+  }
+
+  // (f) THE WINDOW IS POSITIONAL: LEAVING ENDS IT. Released, the body swims clear ahead of the wall
+  // for 1s and then swims back into the mesh well inside the cap — and is taken again. A timed
+  // window would have waved it through for free.
+  {
+    const run = rig()
+    let catches = 0
+    for (let i = 0; i < 180; i++) { stepSim(run, { x: 0, y: 0 }, dt); catches += count(run, 'netCatch'); run.events.length = 0 }
+    for (let i = 0; i < 60; i++) { stepSim(run, { x: 0, y: 1 }, dt); catches += count(run, 'netCatch'); run.events.length = 0 }
+    assert.ok(off(run) > TRAWL_HALF + 40, `1s of swimming ahead left the body ${off(run).toFixed(0)}px from the line — not clear, so the case cannot test a return`)
+    for (let i = 0; i < 90; i++) { stepSim(run, { x: 0, y: -1 }, dt); catches += count(run, 'netCatch'); run.events.length = 0 }
+    assert.strictEqual(catches, 2, `${catches} catches: a body that left the mesh and swam back in ${(4.5).toFixed(1)}s after the first catch was not taken again — the window is timed, not positional`)
+    console.log(`PASS run TH.f (leaving ends the window): out ahead, back in, taken again`)
+  }
+
+  // (f2) A FORWARD DRIFT DOES NOT CHAIN. The adversarial pass's case: a body caught from the front
+  // is released at the band's FRONT edge, and a 1.5s timer chained it under any forward drift over
+  // ~6 px/s (the tide alone peaks at 46). Here the body drifts WITH the sweep at 60 px/s from the
+  // moment it is released: the wall takes ~4.8s to clear it, longer than the old window and
+  // shorter than the cap, and it must not be taken twice.
+  {
+    const run = rig()
+    run.player.y = 40   // the centre 40px ahead: in the band's reach (30 + the body's 12), taken from the front
+    let catches = 0, dmg = 0
+    const drift = { x: 0, y: 60 / run.player.speed }
+    for (let i = 0; i < 60 * 9; i++) {
+      stepSim(run, i < 180 ? { x: 0, y: 0 } : drift, dt)
+      catches += count(run, 'netCatch'); dmg += trawlHurt(run)
+      run.events.length = 0
+    }
+    assert.strictEqual(catches, 1, `${catches} catches on a body drifting with the sweep at 60 px/s after its release — a hold chained into a second one`)
+    assert.strictEqual(dmg, TRAWL_DRAG_DPS * TRAWL_DRAG_T, `the drifting body paid ${dmg} HP, not one hold's ${TRAWL_DRAG_DPS * TRAWL_DRAG_T}`)
+    assert.ok(run.net.pos - run.player.y > TRAWL_HALF, 'the wall never cleared the drifting body')
+    console.log(`PASS run TH.f2 (a drift does not chain): 1 catch, ${dmg} HP, the wall swept past`)
+  }
+
+  // (g) DYING IN THE HOLD ENDS THE RUN, credited to the net. hurtPlayer's return is the only thing
+  // that stops the frame; a hold that swallowed it would keep carrying a corpse.
+  {
+    const run = rig()
+    run.player.maxHP = 100; run.player.hp = 25
+    // A weapon, so the frame has something measurable AFTER stepTrawl: its timer must not move on
+    // the death frame. A hold that swallowed hurtPlayer's return would run the rest of the frame
+    // over a corpse, and the timer is the one thing in this quiet rig that would show it.
+    run.weapons.push({ id: 'longline', level: 1 })
+    let timerAtDeath = null, timerBefore = null
+    for (let i = 0; i < 180 && run.phase === 'playing'; i++) {
+      timerBefore = run.weaponTimers.longline
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (run.phase === 'dead') timerAtDeath = run.weaponTimers.longline
+      run.events.length = 0
+    }
+    assert.strictEqual(run.phase, 'dead', `a 25 HP body in a 60 HP hold is ${run.phase} after 3s`)
+    assert.strictEqual(run.killedBy, 'trawl', `killed by ${run.killedBy}, not the net`)
+    assert.strictEqual(timerAtDeath, timerBefore, 'the weapons stepped on the death frame — the hold does not end the frame when its tick kills')
+    console.log(`PASS run TH.g (dying in it ends the run, and the frame): dead at ${run.time.toFixed(2)}s, killed by ${run.killedBy}`)
+  }
+
+  // (h) THE TICKS ARE DOT, SO THE CROWD STILL BITES A HELD BODY — "3s of being mobbed" is real. A
+  // biter pinned on the player through the whole hold lands its contact hits on the invuln cadence;
+  // a non-dot tick would hand the player 0.75s of i-frames every half second and disarm the crowd.
+  {
+    const run = rig()
+    const biter = makeStatusEnemy(run, { x: 0, y: 0, speed: 0 })
+    run.enemies.push(biter)
+    let bites = 0
+    for (let i = 0; i < 180; i++) {
+      biter.x = run.player.x; biter.y = run.player.y
+      stepSim(run, { x: 0, y: 0 }, dt)
+      // The biter's own hits only: a hold tick that stopped being dot would count here as a bite
+      // and hide exactly the pathology this case exists for.
+      bites += run.events.filter((ev) => ev.type === 'hurt' && !ev.dot && ev.src !== 'trawl').length
+      run.events.length = 0
+    }
+    assert.ok(bites >= 3, `a biter pinned on the held body landed ${bites} hits in 3s — the hold's ticks are granting i-frames`)
+    console.log(`PASS run TH.h (held, and still mobbed): ${bites} contact hits in one hold`)
+  }
+
+  // (i) THE CROWD IS GROUND THROUGH THE WINDOW. The crowd's ticks come before the player's states,
+  // so a release does not pause the grinder; asserted on a body planted in the mesh after the
+  // release, disarmed player (run.weapons is already empty in the rig).
+  {
+    const run = rig()
+    let freed = false
+    for (let i = 0; i < 200 && !freed; i++) { stepSim(run, { x: 0, y: 0 }, dt); freed = count(run, 'netFree') > 0; run.events.length = 0 }
+    assert.ok(freed && !(run.net.dragT > 0), 'never released within 3.3s')
+    const e = makeStatusEnemy(run, { x: 200, y: run.net.pos, speed: 0 })
+    run.enemies.push(e)
+    const before = e.hp
+    for (let i = 0; i < 60; i++) { e.x = 200; e.y = run.net.pos; stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
+    assert.ok(before - e.hp > 0, 'a body in the mesh during the window lost nothing — the release paused the crowd\'s grinder')
+    console.log(`PASS run TH.i (the grinder runs through the window): ${(before - e.hp).toFixed(0)} HP off a body in the mesh after the release`)
+  }
+
+  // (j) A PASS ENDING MID-HOLD LETS GO: one release event, the net gone, only the ticks due paid.
+  {
+    const run = rig()
+    run.net.end = 100   // the wall reaches it 1.33s in
+    let frees = 0, dmg = 0
+    for (let i = 0; i < 180; i++) { stepSim(run, { x: 0, y: 0 }, dt); frees += count(run, 'netFree'); dmg += trawlHurt(run); run.events.length = 0 }
+    assert.strictEqual(frees, 1, `${frees} release events when the pass ended mid-hold`)
+    assert.strictEqual(run.net, null, 'the pass did not end')
+    assert.strictEqual(dmg, TRAWL_DRAG_DPS * TRAWL_DRAG_TICK * 2, `${dmg} HP paid in a hold cut off at 1.33s — expected two ticks`)
+    console.log(`PASS run TH.j (the pass ends mid-hold): one release, ${dmg} HP`)
+  }
+
+  // (k) A REVIVE MID-HOLD IS NOT A BURNED TOKEN. The token fires at the third tick; the net must
+  // let go, or the remaining ticks (dot, immune to REVIVE_INVULN) take the half bar straight back.
+  {
+    const run = rig()
+    run.player.maxHP = 100; run.player.hp = 25
+    run.revives = 1
+    let frees = 0, after = 0
+    for (let i = 0; i < 180; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (frees > 0) after += trawlHurt(run)
+      frees += count(run, 'netFree')
+      run.events.length = 0
+    }
+    assert.strictEqual(run.revives, 0, 'the token never fired — the rig is not dying')
+    assert.strictEqual(run.phase, 'playing', `revived mid-hold and ${run.phase} by 3s — the token was burned`)
+    assert.strictEqual(frees, 1, `${frees} release events around a revive`)
+    assert.strictEqual(after, 0, `${after} HP taken by the net after the revive`)
+    console.log(`PASS run TH.k (a revive lets go): alive at ${run.player.hp.toFixed(0)} HP, released, nothing taken after`)
   }
 
   // (e) A TEAR IS STILL NOT A HOLD. The same rig with the body over the tear: 2s, no catch, no HP.
@@ -30702,7 +30828,7 @@ function testTrawlHold() {
     console.log(`PASS run TH.e (a tear is not a hold): 2s over the tear, no catch, no HP`)
   }
 
-  console.log(`PASS run TH (the net's hold): touch the mesh and it carries you with it for ${TRAWL_DRAG_T}s at ${TRAWL_DRAG_DPS} HP/s, you cannot leave the band but can struggle along it at ${TRAWL_DRAG_STICK_MUL}x, and it lets go for ${TRAWL_DRAG_FREE_T}s before it can take you again`)
+  console.log(`PASS run TH (the net's hold): touch the mesh and it carries you with it for ${TRAWL_DRAG_T}s at ${TRAWL_DRAG_DPS} HP/s, you cannot leave the band but can struggle along it at ${TRAWL_DRAG_STICK_MUL}x, and once it lets go it cannot take you again until you have left it (ride cap ${TRAWL_DRAG_FREE_T}s)`)
 }
 
 // ---- run LG: The Trawl's two natives, Longline and Net Toss ------------------------------------

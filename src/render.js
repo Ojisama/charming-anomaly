@@ -13956,8 +13956,10 @@ const spurG = new Graphics()
     // behind the wall, see the frame note at NET_VIS). Two things say "held" from across the
     // screen: the diamond mesh drawn over the body in the bright twine, and strands running from
     // the body to BOTH ropes, which is what a net closed on something looks like from above. The
-    // jitter is animT-driven, so it freezes behind a modal like every other animation here.
-    if (net.dragT > 0) {
+    // jitter is animT-driven, so it freezes behind a modal like every other animation here. Not
+    // over a DEAD fish: the outro sinks and dims playerC while run.net keeps its frozen dragT, and
+    // a full-alpha tangle hanging 40px above a sinking body reads as the net letting go upward.
+    if (net.dragT > 0 && run.phase !== 'dead') {
       const py = -(p.x * net.nx + p.y * net.ny - net.pos)
       const R = PLAYER.radius * 1.35
       const j = Math.sin(animT * 21) * 1.6
