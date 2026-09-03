@@ -3976,12 +3976,12 @@ export const WEAPON_MODS = {
     weighted:  { name: 'Weighted',   desc: 'impact damage', icon: '💥', base: 0.30, kind: 'pct' },
     doubleHaul:{ name: 'Double Haul', desc: 'extra net(s) per cast', icon: '🔷', kind: 'tier' },
   },
-  // Bring It In's five. `dmg`/`travelSpeed`/`width`/`castRange` all fold through WEAPON_STAT_MODS;
+  // Bring It In's four. `dmg`/`width` fold through WEAPON_STAT_MODS (no range mod: the owner swapped
+  // it out for the count, 2026-09-03 — Double Rig is the card that makes it MORE harpoons);
   // quickReel is in WEAPON_RATE_MODS and is divided at the fire site, never folded into a stat —
   // folding a rate pick would SLOW the weapon, which is the trap that table exists to route around.
   bringItIn: {
     barbedLine: { name: 'Barbed Line', desc: 'damage to what it drags through', icon: '🪝', base: 0.28, kind: 'pct' },
-    longGaff:   { name: 'Long Gaff',   desc: 'how far out it can hook',         icon: '📏', base: 0.25, kind: 'pct' },
     wideDrag:   { name: 'Wide Drag',   desc: 'how wide a corridor it ploughs',  icon: '↔️', base: 0.26, kind: 'pct' },
     quickReel:  { name: 'Quick Reel',  desc: 'haul rate',                       icon: '⏩', base: 0.25, kind: 'pct' },
     // THE COUNT MOD. A second line hooks a SECOND body, never the same one twice — see the fire

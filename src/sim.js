@@ -7896,7 +7896,7 @@ const WEAPON_STAT_MODS = {
   // `doubleRig` is absent DELIBERATELY and read at the fire site instead, like hole's `singularity`
   // and the star's multishot: it is a per-cast COUNT of LINES, and there is no `lines` key in
   // levels[] for it to fold into. `quickReel` is in WEAPON_RATE_MODS for the usual reason.
-  bringItIn:     { barbedLine: ['dmg', 'pct'], longGaff: ['castRange', 'pct'], wideDrag: ['width', 'pct'] },
+  bringItIn:     { barbedLine: ['dmg', 'pct'], wideDrag: ['width', 'pct'] },
   // The Twilight's three natives. `secondSun` folds as 'flat' rather than going through
   // WEAPON_COUNT_MODS for the reason the Surf block above gives: `count` is a real key in levels[],
   // so effectiveWeaponStats folds it and the pause sheet reports it without a second registration —
