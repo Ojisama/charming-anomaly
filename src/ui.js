@@ -2179,6 +2179,13 @@ export function initUI(hooks) {
       <div class="boss-bar-wrap" data-boss-bar style="display:none; grid-column:1 / -1; grid-row:2;">
         <div class="rampage-bar" style="height:14px;"><div class="rampage-fill" style="background:#8a5fe0;"></div></div>
       </div>
+      <!-- The Trawl's WIGGLE TO ESCAPE bar (run.net.wiggle, 2026-09-03): same slot and chrome as
+           the boss bar — the two never share a chapter — filled in the net's own twine colour
+           (NET_VIS.meshLine, render.js) so it reads as the mesh's, not as xp or rampage. -->
+      <div class="boss-bar-wrap" data-wiggle style="display:none; grid-column:1 / -1; grid-row:2; text-align:center;">
+        <b style="display:block; font-size:12px; line-height:14px; letter-spacing:.04em; color:#eaf2f6; text-shadow:0 1px 3px rgba(0,0,0,.8);">${t('Wiggle to escape!')}</b>
+        <div class="rampage-bar" style="height:14px;"><div class="rampage-fill" style="background:#d2dee6; width:0%;"></div></div>
+      </div>
     </div>
     <div class="xp-row">
       <span class="lv-badge">${t('Lv')} 1</span>
@@ -2231,6 +2238,8 @@ export function initUI(hooks) {
     skillCd: screens.hud.querySelector('.skill-btn-cd'),
     bossBarWrap: screens.hud.querySelector('[data-boss-bar]'),
     bossBarFill: screens.hud.querySelector('[data-boss-bar] .rampage-fill'),
+    wiggleWrap: screens.hud.querySelector('[data-wiggle]'),
+    wiggleFill: screens.hud.querySelector('[data-wiggle] .rampage-fill'),
     chaosWrap: screens.hud.querySelector('[data-chaos]'),
     chargeWrap: screens.hud.querySelector('[data-charge]'),
   }
@@ -2249,7 +2258,7 @@ export function initUI(hooks) {
     // v5.24: The Blank — scriptedChapter mirrors the crush/lane cache-gate pattern above (a
     // per-chapter constant, checked once per change rather than every frame); bossBarShown/Pct
     // gate the new boss HP bar the same way rampagePct/rampageActive gate the rampage meter.
-    scriptedChapter: undefined, bossBarShown: undefined, bossBarPct: -1,
+    scriptedChapter: undefined, bossBarShown: undefined, bossBarPct: -1, wiggleShown: undefined, wigglePct: -1,
     // v7.x circuit: same per-chapter latch, plus one cached string per readout. The race clock and
     // the speedo move every frame, so without these the HUD does four textContent writes at 60Hz;
     // the cache keys are the FORMATTED strings, which is what makes a tenth-second clock cost ten
@@ -2494,6 +2503,16 @@ export function initUI(hooks) {
         // same news as being about to die and must not shout as loudly.
         hud.raceDelta.classList.toggle('race-delta--up', dOn && run.lapDelta < 0)
       }
+    }
+    // The Trawl's wiggle bar: up while the net has the player, width = the escape bar.
+    const wiggleShown = (run.net?.dragT ?? 0) > 0
+    if (wiggleShown !== last.wiggleShown) {
+      last.wiggleShown = wiggleShown
+      hud.wiggleWrap.style.display = wiggleShown ? '' : 'none'
+    }
+    if (wiggleShown) {
+      const pct = Math.round(Math.max(0, Math.min(1, run.net.wiggle ?? 0)) * 100)
+      if (pct !== last.wigglePct) { last.wigglePct = pct; hud.wiggleFill.style.width = pct + '%' }
     }
     // Boss HP bar: gated on scriptedChapter too (not just run.bossBar) so leaving the chapter mid-
     // session — Play again into a different chapter reuses this same hud object — hides it again

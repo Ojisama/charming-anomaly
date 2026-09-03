@@ -130,7 +130,7 @@ import {
   SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, gateAnchorF, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
   SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, SNAP_CAVITY, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
-  TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T,
+  TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
@@ -30693,12 +30693,12 @@ function testTrawlHold() {
   const count = (run, type) => run.events.filter((ev) => ev.type === type).length
   const off = (run) => Math.abs(run.player.y - run.net.pos)   // distance from the line, this wall's normal being +y
 
-  assert.strictEqual(TRAWL_DRAG_T, 1.2, `the hold is ${TRAWL_DRAG_T}s — the owner asked for 1.2`)
-  assert.strictEqual(TRAWL_DRAG_TICK_PCT, 0.03, `the hold pays ${TRAWL_DRAG_TICK_PCT} of max HP per tick — the owner asked for 3%`)
-  assert.strictEqual(TRAWL_DRAG_TICK, 0.3, `the hold ticks every ${TRAWL_DRAG_TICK}s — the owner asked for 0.3`)
-  assert.ok(Math.abs(TRAWL_DRAG_T / TRAWL_DRAG_TICK - Math.round(TRAWL_DRAG_T / TRAWL_DRAG_TICK)) < 1e-9,
-    `TRAWL_DRAG_TICK ${TRAWL_DRAG_TICK} does not divide the hold — the hold cannot pay an exact number of ticks`)
-  const TICKS = Math.round(TRAWL_DRAG_T / TRAWL_DRAG_TICK)          // ticks in one whole hold
+  assert.strictEqual(TRAWL_DRAG_T, 2, `the hold is ${TRAWL_DRAG_T}s — the owner asked for 2`)
+  assert.strictEqual(TRAWL_WIGGLE_FLICKS, 6, `${TRAWL_WIGGLE_FLICKS} flicks to escape — the owner's bar fills on 6`)
+  assert.strictEqual(TRAWL_DRAG_TICK, 0.2, `the hold ticks every ${TRAWL_DRAG_TICK}s — the owner asked for 0.2`)
+  const TICKS = Math.floor(TRAWL_DRAG_T / TRAWL_DRAG_TICK + 1e-6)   // ticks that FIT one whole hold (2s / 0.2 = 10)
+  assert.strictEqual(TICKS, 10, `${TICKS} ticks fit the hold — owner: 2s at one per 0.2s is ten`)
+  assert.strictEqual(TRAWL_DRAG_TICK_PCT, 0.02, 'owner 2026-09-03: 2% per tick')
   const tickHP = (run) => run.player.maxHP * TRAWL_DRAG_TICK_PCT   // HP one tick costs THIS rig
   const HOLD_HP = (run) => tickHP(run) * TICKS                     // HP one whole hold costs
 
@@ -30807,13 +30807,13 @@ function testTrawlHold() {
     const run = rig()
     run.player.y = 40   // the centre 40px ahead: in the band's reach (30 + the body's 12), taken from the front
     let catches = 0, dmg = 0
-    const drift = { x: 0, y: 60 / run.player.speed }
+    const drift = { x: 0, y: 40 / run.player.speed }   // 40, not 60: the fish body (run PH) is long enough that at 60 the wall needs > FREE_T to clear it and the ride cap fires, by design
     for (let i = 0; i < 60 * 9; i++) {
-      stepSim(run, i < 180 ? { x: 0, y: 0 } : drift, dt)
+      stepSim(run, i < Math.round(TRAWL_DRAG_T * 60) ? { x: 0, y: 0 } : drift, dt)
       catches += count(run, 'netCatch'); dmg += trawlHurt(run)
       run.events.length = 0
     }
-    assert.strictEqual(catches, 1, `${catches} catches on a body drifting with the sweep at 60 px/s after its release — a hold chained into a second one`)
+    assert.strictEqual(catches, 1, `${catches} catches on a body drifting with the sweep at 40 px/s after its release — a hold chained into a second one`)
     assert.strictEqual(dmg, HOLD_HP(run), `the drifting body paid ${dmg} HP, not one hold's ${HOLD_HP(run)}`)
     assert.ok(run.net.pos - run.player.y > TRAWL_HALF, 'the wall never cleared the drifting body')
     console.log(`PASS run TH.f2 (a drift does not chain): 1 catch, ${dmg} HP, the wall swept past`)
@@ -30823,7 +30823,7 @@ function testTrawlHold() {
   // that stops the frame; a hold that swallowed it would keep carrying a corpse.
   {
     const run = rig()
-    run.player.maxHP = 100; run.player.hp = 10   // one hold is 12 HP of 100
+    run.player.maxHP = 100; run.player.hp = 10   // one hold is 20 HP of 100
     // A weapon, so the frame has something measurable AFTER stepTrawl: its timer must not move on
     // the death frame. A hold that swallowed hurtPlayer's return would run the rest of the frame
     // over a corpse, and the timer is the one thing in this quiet rig that would show it.
@@ -30885,7 +30885,7 @@ function testTrawlHold() {
     for (let i = 0; i < 180; i++) { stepSim(run, { x: 0, y: 0 }, dt); frees += count(run, 'netFree'); dmg += trawlHurt(run); run.events.length = 0 }
     assert.strictEqual(frees, 1, `${frees} release events when the pass ended mid-hold`)
     assert.strictEqual(run.net, null, 'the pass did not end')
-    assert.strictEqual(dmg, tickHP(run) * 2, `${dmg} HP paid in a hold cut off at 0.67s — expected two ticks`)
+    assert.strictEqual(dmg, tickHP(run) * 3, `${dmg} HP paid in a hold cut off at 0.67s — expected three ticks (0.2, 0.4, 0.6)`)
     console.log(`PASS run TH.j (the pass ends mid-hold): one release, ${dmg} HP`)
   }
 
@@ -30893,7 +30893,7 @@ function testTrawlHold() {
   // let go, or the remaining ticks (dot, immune to REVIVE_INVULN) take the half bar straight back.
   {
     const run = rig()
-    run.player.maxHP = 100; run.player.hp = 8   // the third 3-HP tick kills it
+    run.player.maxHP = 100; run.player.hp = 8   // the fourth 2-HP tick kills it
     run.revives = 1
     let frees = 0, after = 0
     for (let i = 0; i < 180; i++) {
@@ -30920,9 +30920,9 @@ function testTrawlHold() {
     console.log(`PASS run TH.e (a tear is not a hold): 2s over the tear, no catch, no HP`)
   }
 
-  // (l) A CRUISER IS CARRIED, NOT GROUND. A turtle and a mackerel side by side in the mesh, the
-  // player far away: after 1s the turtle has ridden the wall its TRAWL_SPEED at full hp, and the
-  // mackerel has stayed put and paid the crowd's ticks.
+  // (l) EVERY BODY IS CARRIED; A CRUISER IS NOT GROUND. A turtle and a mackerel side by side in
+  // the mesh, the player far away: after 1s BOTH have ridden the wall its TRAWL_SPEED, the turtle
+  // at full hp, the mackerel having paid the crowd's ticks.
   {
     const run = rig()
     run.player.x = 3000
@@ -30934,7 +30934,65 @@ function testTrawlHold() {
     assert.ok(Math.abs(turtle.y - TRAWL_SPEED) < 3, `the turtle rode ${turtle.y.toFixed(1)}px in 1s against the wall's ${TRAWL_SPEED} px/s — the mesh does not carry a cruiser`)
     assert.strictEqual(turtle.hp, 1e6, `the turtle paid ${1e6 - turtle.hp} HP to the mesh — a cruiser must not be ground`)
     assert.ok(mackerel.hp < 1e6, 'the mackerel beside it must still be ground by the mesh')
+    assert.ok(Math.abs(mackerel.y - TRAWL_SPEED) < 3, `the mackerel rode ${mackerel.y.toFixed(1)}px in 1s — the mesh grabs every body, not only a cruiser`)
     console.log(`PASS run TH.l (a cruiser is carried, not ground): turtle rode ${turtle.y.toFixed(0)}px unhurt, mackerel paid ${(1e6 - mackerel.hp).toFixed(0)} HP`)
+  }
+
+  // (n) THE HAUL. Two bodies on the line and one 200px clear of it when the pass ends: the two are
+  // yanked up (dead, two netHaul events, two kills) and the third is untouched. A body that can
+  // walk (speed 90, seeking the far-off player) is pinned in the band until then, so it is hauled
+  // too rather than having stepped out.
+  {
+    const run = rig()
+    run.player.x = 3000
+    run.net.end = 60   // the wall reaches it 0.8s in
+    const a = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 0 }); a.flags = []
+    const b = makeStatusEnemy(run, { x: 80, y: 10, hp: 1e6, speed: 90 }); b.flags = []
+    const c = makeStatusEnemy(run, { x: 0, y: 200, hp: 1e6, speed: 0 }); c.flags = []
+    run.enemies.push(a, b, c)
+    let hauls = 0
+    for (let i = 0; i < 90; i++) { stepSim(run, { x: 0, y: 0 }, dt); hauls += count(run, 'netHaul'); run.events.length = 0 }
+    assert.strictEqual(run.net, null, 'the pass did not end')
+    assert.strictEqual(hauls, 2, `${hauls} netHaul events — expected the two bodies on the line`)
+    assert.ok(!run.enemies.includes(a) && !run.enemies.includes(b), 'the two bodies on the line were not pulled out of the world')
+    assert.ok(run.enemies.includes(c) && c.hp === 1e6, 'the body clear of the line was hauled or hurt')
+    assert.strictEqual(run.kills, 2, `${run.kills} kills — a haul is a hazard kill, one per body`)
+    console.log(`PASS run TH.n (the haul): ${hauls} bodies on the line at the pass end were yanked up, the one clear of it swims on`)
+  }
+
+  // (m) WIGGLE TO ESCAPE. Shaking the stick left-right while held fills run.net.wiggle and the
+  // net lets go early, paying only the ticks that fell due; a stick held still, and a stick tapped
+  // in the SAME direction over and over, both ride out the whole hold.
+  {
+    const hold = (inputAt) => {
+      const run = rig()
+      let freeAt = null, dmg = 0, wiggle = 0
+      for (let i = 0; i < 240 && freeAt === null; i++) {
+        stepSim(run, inputAt(i), dt)
+        dmg += trawlHurt(run)
+        wiggle = Math.max(wiggle, run.net?.wiggle ?? 0)
+        if (count(run, 'netFree') > 0) freeAt = i * dt
+        run.events.length = 0
+      }
+      return { freeAt, dmg, wiggle, run }
+    }
+    const shake = hold((i) => ({ x: (i >> 2) & 1 ? 1 : -1, y: 0 }))       // a reversal every 4 frames
+    const still = hold((i) => ({ x: 1, y: 0 }))                             // pushed one way the whole time
+    const taps = hold((i) => ((i >> 2) & 1 ? { x: 1, y: 0 } : { x: 0, y: 0 }))   // same direction, re-pressed
+    const phone = hold((i) => ({ x: 0, y: 0, shakes: i % 4 === 0 ? 1 : 0 }))     // stick idle, phone shaken
+    assert.ok(shake.freeAt !== null && shake.freeAt < TRAWL_DRAG_T - 0.5,
+      `shaking the stick released at ${shake.freeAt}s — the wiggle bar does not free the player early`)
+    assert.strictEqual(shake.wiggle, 1, `the bar peaked at ${shake.wiggle}, never full`)
+    assert.ok(shake.dmg < HOLD_HP(shake.run), `the wiggled-out body still paid the whole hold (${shake.dmg} HP)`)
+    assert.strictEqual(shake.dmg, tickHP(shake.run) * Math.floor(shake.freeAt / TRAWL_DRAG_TICK + 1e-6),
+      `the wiggled-out body paid ${shake.dmg} HP, not the ticks that fell due by ${shake.freeAt.toFixed(2)}s`)
+    assert.ok(still.freeAt !== null && Math.abs(still.freeAt - TRAWL_DRAG_T) < 0.05,
+      `a stick held one way was released at ${still.freeAt}s — holding still is being read as wiggling`)
+    assert.ok(taps.freeAt !== null && Math.abs(taps.freeAt - TRAWL_DRAG_T) < 0.05 && taps.wiggle === 0,
+      `re-pressing the same direction released at ${taps.freeAt}s with the bar at ${taps.wiggle} — a press is not a flick`)
+    assert.ok(phone.freeAt !== null && phone.freeAt < TRAWL_DRAG_T - 0.5 && phone.wiggle === 1,
+      `shaking the phone (input.shakes) released at ${phone.freeAt}s with the bar at ${phone.wiggle} — shakes do not fill the bar`)
+    console.log(`PASS run TH.m (wiggle to escape): shaking the stick frees you at ${shake.freeAt.toFixed(2)}s for ${shake.dmg} HP, shaking the phone at ${phone.freeAt.toFixed(2)}s, a still stick rides the whole ${TRAWL_DRAG_T}s, same-direction taps fill nothing`)
   }
 
   console.log(`PASS run TH (the net's hold): touch the mesh and it carries you with it for ${TRAWL_DRAG_T}s at ${TRAWL_DRAG_TICK_PCT * 100}% max HP per ${TRAWL_DRAG_TICK}s, you cannot leave the band but can struggle along it at ${TRAWL_DRAG_STICK_MUL}x, and once it lets go it cannot take you again until you have left it (ride cap ${TRAWL_DRAG_FREE_T}s)`)
@@ -33334,6 +33392,7 @@ function testEventConsumers() {
   const SILENT_BY_DESIGN = {
     freeze: 'the tell is the `frozen` contract field render already reads (run EL.j), and CLAUDE.md forbids a sound on something that fires dozens of times a minute',
     leak: 'stepLeaks calls hurtPlayer(LANE_LEAK_DMG) on the very next line, and `hurt` has both a render case and an sfx entry — the player already sees and hears a marcher getting past them',
+    netHaul: 'has a render case (the rising spray); NO sfx on purpose — a haul is the whole crowd at once, and each body dies through dealDamage, whose kill already sounds',
   }
 
   const orphans = types.filter((t) => !hasRender(t) && !hasSfx(t) && !SILENT_BY_DESIGN[t])

@@ -188,7 +188,7 @@ import {
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
-  TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T, TRAWL_DRAG_REEL,
+  TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T, TRAWL_DRAG_REEL,
   TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
   TIGHT_WEAVE_TEAR_MUL, TIGHT_WEAVE_ENEMY_DMG_MUL,
   BRING_ARRIVE_PAD, BRING_MAX_LIVE, BRING_SNAP_T,
@@ -717,6 +717,20 @@ function stepPlayerMovement(run, input, dt) {
   // the wall's grip worse, and Sleek lifts it like every other slow (a resist card that cannot
   // fight the net is not a resist card). Where you can and cannot GO while held is stepTrawl's.
   const dragMul = (run.net?.dragT ?? 0) > 0 ? TRAWL_DRAG_STICK_MUL : 1
+  // WIGGLE TO ESCAPE (2026-09-03, see TRAWL_WIGGLE_FLICKS). Read here for the reason stillness is:
+  // this is the only place the raw stick is known. A flick is the stick swinging through a
+  // reversal (dot < 0 against the last held direction) at half deflection or more; the last held
+  // direction is kept on the net so a catch starts it clean (stepTrawl zeroes both).
+  // `input.shakes` is the phone shaken (input.js, devicemotion), one shake = one flick.
+  if (dragMul !== 1) {
+    const net = run.net
+    let flicks = input?.shakes || 0
+    if (len >= 0.5) {
+      if (net._stkX !== undefined && ix * net._stkX + iy * net._stkY < 0) flicks++
+      net._stkX = ix; net._stkY = iy
+    }
+    if (flicks > 0) net.wiggle = Math.min(1, (net.wiggle ?? 0) + flicks / TRAWL_WIGGLE_FLICKS)
+  }
   let webMul = 1
   if (run.webs && run.webs.length > 0) {
     for (const web of run.webs) {
@@ -5749,6 +5763,15 @@ function stepTrawl(run, dt) {
   // here and not on TRAWL_SPEED: TRAWL_LEAD_MUL's warning is this chapter's mechanic, so a mutator
   // that ate the reading time would play as unfair rather than as harder. More walls, same notice.
   if (net.pos > net.end) {
+    // HAULED (owner 2026-09-03: "grab the other fishes along the way too ... and then yank them up
+    // at the end, literally fishing them"). Every body still on the line when the pass ends is
+    // pulled up and out: a hazard kill, same path and same rewards as the grind below, plus a
+    // {type:'netHaul'} per body for the tell. The player is not hauled — the hold just lets go.
+    for (const e of run.enemies) {
+      if (e._dead || Math.abs(netDist(net, e.x, e.y)) > TRAWL_HALF + e.radius || inNetHole(net, e.x, e.y)) continue
+      run.events.push({ type: 'netHaul', x: e.x, y: e.y })
+      dealDamage(run, e, e.hp + e.maxHP, false, false, true)
+    }
     // A pass that ends while it has you just leaves you where it drops: the hold is the wall's, and
     // there is no wall. The release still announces itself, so the tangle on screen lets go.
     if (net.dragT > 0) run.events.push({ type: 'netFree', x: p.x, y: p.y })
@@ -5766,16 +5789,18 @@ function stepTrawl(run, dt) {
   // (below), which is the 2026-09-03 ruling and the one asymmetry between the two halves.
   for (const e of run.enemies) {
     if (e._dead) continue
-    if (Math.abs(netDist(net, e.x, e.y)) > TRAWL_HALF + e.radius) continue
+    let d = netDist(net, e.x, e.y)
+    if (Math.abs(d) > TRAWL_HALF + e.radius) continue
     if (inNetHole(net, e.x, e.y)) continue
-    // CARRIED, NOT GROUND (owner 2026-09-03: the turtle "gets dragged by the trawl fishnet, but
-    // doesn't take dmg from it"). A cruiser in the mesh rides the wall at its own TRAWL_SPEED,
-    // every frame, and never pays a tick — the player's carry, minus the pin and the price.
-    // Keyed on `cruise` because that is the flag for a body that was never fighting the wall.
-    if (e.flags && e.flags.includes('cruise')) {
-      e.x += net.nx * TRAWL_SPEED * dt; e.y += net.ny * TRAWL_SPEED * dt
-      continue
-    }
+    // GRABBED (owner 2026-09-03: "grab the other fishes along the way too, like it does to the
+    // player"). Every body in the mesh rides the wall at TRAWL_SPEED and is pinned inside the band
+    // — the player's carry, exactly — until the pass ends and hauls it (above). A cruiser (the
+    // turtle: "dragged by the trawl fishnet, but doesn't take dmg from it") pays no tick; the rest
+    // pay the crowd's while they ride.
+    e.x += net.nx * TRAWL_SPEED * dt; e.y += net.ny * TRAWL_SPEED * dt; d += TRAWL_SPEED * dt
+    const c = Math.max(-TRAWL_HALF, Math.min(TRAWL_HALF, d))
+    if (c !== d) { e.x += net.nx * (c - d); e.y += net.ny * (c - d) }
+    if (e.flags && e.flags.includes('cruise')) continue
     if (ticks === 0) continue
     // tightWeave's other half: the wall does your killing in exchange for your way out of it. The
     // multiplier is on the CROWD's side only — the player's hold is untouched, or the card would
@@ -5818,6 +5843,7 @@ function stepTrawl(run, dt) {
     if (net.freeT > 0) { net.freeT = Math.max(0, net.freeT - dt); return false }
     net.dragT = TRAWL_DRAG_T
     net.dragTicks = 0
+    net.wiggle = 0; net._stkX = undefined; net._stkY = undefined
     run.events.push({ type: 'netCatch', x: p.x, y: p.y })
     // No return: the hold starts THIS frame, so a second of frames is a second of hold. Starting
     // it next frame paid one tick short of the rate over any window counted from the catch.
@@ -5836,12 +5862,15 @@ function stepTrawl(run, dt) {
     const pull = Math.sign(c - d) * Math.min(Math.abs(c - d), TRAWL_DRAG_REEL * dt)
     p.x += net.nx * pull; p.y += net.ny * pull
   }
-  net.dragT = Math.max(0, net.dragT - dt)
+  // WIGGLED FREE: the bar is full, so the hold ends this frame and pays nothing more — the ticks
+  // below are skipped, because `due` read off a zeroed dragT would bill the whole hold at once.
+  const escaped = (net.wiggle ?? 0) >= 1
+  net.dragT = escaped ? 0 : Math.max(0, net.dragT - dt)
   // The ticks are counted from the CATCH rather than drawn from the crowd's accumulator: `due` is
   // how many TRAWL_DRAG_TICKs of the hold have elapsed, paid as they fall due, so the whole hold
-  // pays exactly T / TICK ticks of TRAWL_DRAG_TICK_PCT max HP whatever the frame rate. A shared accumulator
+  // pays exactly floor(T / TICK) ticks of TRAWL_DRAG_TICK_PCT max HP whatever the frame rate. A shared accumulator
   // would pay 8 or 9 of the crowd's 0.35s ticks depending on where in one it caught you.
-  const due = Math.min(Math.round(TRAWL_DRAG_T / TRAWL_DRAG_TICK), Math.floor((TRAWL_DRAG_T - net.dragT) / TRAWL_DRAG_TICK + 1e-6))
+  const due = escaped ? net.dragTicks : Math.min(Math.floor(TRAWL_DRAG_T / TRAWL_DRAG_TICK + 1e-6), Math.floor((TRAWL_DRAG_T - net.dragT) / TRAWL_DRAG_TICK + 1e-6))
   const owed = due - net.dragTicks
   if (owed > 0) {
     net.dragTicks = due

@@ -9,6 +9,8 @@ const UI = {
   // for the bundle download on a first visit — every later boot is served from cache and lands here
   // fast enough that the word is French from the start.
   'Loading…': 'Chargement…',
+  // The Trawl's escape bar label (ui.js HUD, shown only while the net holds the player).
+  'Wiggle to escape!': 'Gigote pour t’échapper !',
   // v6.6.17 pause build readout. Stat-table labels are column headers on a 320px sheet, so they
   // are kept to a single word wherever French allows one.
   'Damage': 'Dégâts',

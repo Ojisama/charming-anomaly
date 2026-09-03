@@ -1148,7 +1148,9 @@ function generateWells(sig) {
  * `jackpot` died there (The Trawl's sea turtle: a whole level and twenty coins) · {type:'netCatch',
  * x, y} The Trawl's mesh took hold of the player (run.net.dragT starts; render.js closes a ring on
  * the body, main.js sounds it) · {type:'netFree', x, y} it let go, at the end of the hold or with
- * the pass (a ring, no sound) · {type:'hole'}
+ * the pass (a ring, no sound) · {type:'netHaul', x, y} the pass ended with this body on the line
+ * and pulled it up and out — a hazard kill, one event per body (a rising spray, no sound: the
+ * kill sounds) · {type:'hole'}
  * vortex opens · {type:'beam'} beam
  * starts · {type:'bloom', x, y} a Toxin Bloom is cast (x,y = player, for a cast sfx; the clouds
  * themselves live in run.blooms above).
@@ -1571,15 +1573,17 @@ function generateWells(sig) {
  *   spill and ticked down after leaving, exactly as bloomSlowT/fearT decay. Read in stepPlayer,
  *   where it joins the MIN of the speed floors rather than multiplying into them (see the block
  *   there). The LINGER is the design: a slow that ends at the rim is just a wider slick.
- * net: null | { nx, ny, pos, end, holes, _acc, dragT, dragTicks, freeT } — The Trawl's net wall,
+ * net: null | { nx, ny, pos, end, holes, _acc, dragT, dragTicks, freeT, wiggle } — The Trawl's net wall,
  *   in chapters whose signature is `trawl`; null between passes and everywhere else. An infinite
  *   LINE, not an entity: (nx, ny) its unit normal, `pos` the signed offset it has swept to, `end`
  *   where the pass is dropped, `holes` the tears it arrived with ({ t, r } along the wall's own
  *   tangent), `_acc` the crowd's tick accumulator. THE HOLD (2026-09-03): `dragT` s left of its
  *   grip on the player (> 0 = held: carried with the wall, pinned in the band, ticked at
  *   TRAWL_DRAG_TICK_PCT of max HP per TRAWL_DRAG_TICK, stick at TRAWL_DRAG_STICK_MUL), `dragTicks` ticks paid this hold, `freeT` the
- *   ride cap after a release (zeroed the frame the body is clear of solid mesh). Written only by
- *   stepTrawl, plus hurtPlayer's revive zeroing dragT. _netAcc: s to the next pass, seeded at
+ *   ride cap after a release (zeroed the frame the body is clear of solid mesh), `wiggle` 0..1 the
+ *   escape bar (each stick reversal adds 1/TRAWL_WIGGLE_FLICKS; full = let go this frame — the HUD
+ *   paints it while dragT > 0). Written only by stepTrawl, plus hurtPlayer's revive zeroing dragT
+ *   and stepPlayerMovement's wiggle count (with `_stkX/_stkY`, the last held stick direction). _netAcc: s to the next pass, seeded at
  *   TRAWL_FIRST_PASS and reset to TRAWL_INTERVAL x trawlIntervalMul when a pass clears.
  * orca: null | { state, t, cx, cy, r, ang, x, y, tx, ty, dirX, dirY, hit, splashed, alpha, passes } — The Wreck's apex
  *   predator, in chapters declaring `orca: true`. A SINGLE NULLABLE OBJECT with a countdown, the

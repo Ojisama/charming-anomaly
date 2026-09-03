@@ -26,6 +26,33 @@ let mouseX = 0
 let mouseY = 0
 let joyEl = null
 let knobEl = null
+// SHAKE THE PHONE (owner 2026-09-03: "use the accelerometer so that shaking the phone works too").
+// devicemotion's `acceleration` (gravity already removed) spikes past SHAKE_G on a shake; each
+// spike counts once (re-armed when it drops under half), and getInput() drains the count as
+// `shakes` — sim.js reads it exactly like a stick flick (TRAWL_WIGGLE_FLICKS). iOS only delivers
+// motion after a permission call made INSIDE a user gesture, so it is asked on the first
+// touchstart; Android needs no ask; a desktop simply never fires the event.
+let shakes = 0
+let shakeArmed = true
+let motionAsked = false
+const SHAKE_G = 14   // m/s² — a brisk shake; walking with the phone reads 2-3
+function onMotion(e) {
+  const a = e.acceleration
+  if (!a) return
+  const g = Math.hypot(a.x || 0, a.y || 0, a.z || 0)
+  if (g > SHAKE_G) { if (shakeArmed) { shakes++; shakeArmed = false } } else if (g < SHAKE_G * 0.5) shakeArmed = true
+}
+function askMotion() {
+  if (motionAsked) return
+  motionAsked = true
+  const DME = window.DeviceMotionEvent
+  if (!DME) return
+  if (typeof DME.requestPermission === 'function') {
+    DME.requestPermission().then((r) => { if (r === 'granted') window.addEventListener('devicemotion', onMotion) }).catch(() => {})
+  } else {
+    window.addEventListener('devicemotion', onMotion)
+  }
+}
 
 function moveKnob(dx, dy) {
   knobEl.style.transform = `translate(${dx}px, ${dy}px)`
@@ -57,6 +84,7 @@ export function initInput(rootEl) {
   knobEl = joyEl.querySelector('.joy-knob')
 
   rootEl.addEventListener('touchstart', (e) => {
+    askMotion()   // first touch is the gesture iOS wants the motion permission asked from
     if (joyId !== null) return                                   // a second finger is free to hit buttons
     if (e.target.closest('button, .card, [data-ui]')) return     // don't steal taps from the UI
     const t = e.changedTouches[0]
@@ -159,7 +187,9 @@ export function steerFromAnchor(dx, dy) {
 export function getInput(anchor) {
   const skill = skillPending
   skillPending = false
-  if (joyId !== null) return { x: vec.x, y: vec.y, skill }
+  const sh = shakes
+  shakes = 0
+  if (joyId !== null) return { x: vec.x, y: vec.y, skill, shakes: sh }
   let x = 0
   let y = 0
   if (keys.has('KeyA') || keys.has('ArrowLeft')) x -= 1
@@ -177,5 +207,5 @@ export function getInput(anchor) {
     x = m.x
     y = m.y
   }
-  return { x, y, skill }
+  return { x, y, skill, shakes: sh }
 }

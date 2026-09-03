@@ -11880,13 +11880,19 @@ export const TRAWL_ENEMY_DMG = 34        // enemy damage per tick — the net ou
 // inside the mesh that long after a release and it takes you again, so matching the wall's own
 // speed inside it is not a mobile kill zone that grinds the crowd for free. Six seconds covers a
 // full-speed diagonal run to a tear 1200px along the wall. Ticks are counted from the catch on a
-// tick that divides the hold, so it pays exactly TICK_PCT x (T / TICK) of max HP. A body taken by
+// tick, so it pays exactly TICK_PCT x floor(T / TICK) of max HP (2s at 0.2 = 10 ticks). A body taken by
 // the nose is REELED into the band at TRAWL_DRAG_REEL px/s rather than snapped — faster than the
 // struggle can fight (0.25 x 220 = 55 px/s), slow enough to read as the net closing.
-// balance_decision : hold 1.2s, 3% max HP per 0.3s tick, owner 2026-09-03
-export const TRAWL_DRAG_T = 1.2
-export const TRAWL_DRAG_TICK_PCT = 0.03   // fraction of max HP per tick
-export const TRAWL_DRAG_TICK = 0.3
+// WIGGLE TO ESCAPE (owner 2026-09-03: "force the player to wiggle ... a 'wiggle to escape' bar that
+// fills when you wiggle the joystick"). A stick REVERSAL while held is a flick (stepPlayerMovement,
+// the only place the raw stick is known); TRAWL_WIGGLE_FLICKS of them fill run.net.wiggle and
+// stepTrawl lets go on the spot, paying no further ticks. Holding the stick still, or tapping the
+// same direction twice, is not a flick — the bar reads the SIGN change, not the press.
+// balance_decision : hold 2s, 2% max HP per 0.2s, 6 flicks free you, owner 2026-09-03
+export const TRAWL_DRAG_T = 2
+export const TRAWL_WIGGLE_FLICKS = 6
+export const TRAWL_DRAG_TICK_PCT = 0.02   // fraction of max HP per tick
+export const TRAWL_DRAG_TICK = 0.2
 export const TRAWL_DRAG_STICK_MUL = 0.25
 export const TRAWL_DRAG_FREE_T = 6
 export const TRAWL_DRAG_REEL = 260

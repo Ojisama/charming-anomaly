@@ -19806,6 +19806,19 @@ const spurG = new Graphics()
         case 'netFree':
           spawnRing(e.x, e.y, 70, 0.28, T.novaWarm, NET_VIS.torn)
           break
+        case 'netHaul':
+          // The Trawl hauls its catch (sim.js stepTrawl, pass end): the body is yanked UP and out,
+          // which top-down is a fast rise toward the camera — a tight ring and a spray of twine
+          // flecks thrown straight up the screen, falling back as spray. Silent by design (run EV):
+          // a haul is the whole crowd at once, and each body's own kill already sounds.
+          spawnRing(e.x, e.y, 44, 0.2, T.novaWarm, NET_VIS.meshLine)
+          for (let i = 0; i < 8; i++) {
+            spawnParticle(T.fx.circle_05, e.x + (Math.random() - 0.5) * 16, e.y,
+              (Math.random() - 0.5) * 60, -(220 + Math.random() * 180),
+              0.35 + Math.random() * 0.2, 0.04 + Math.random() * 0.03,
+              i % 2 ? NET_VIS.torn : NET_VIS.meshLine, 0.1, 1.5)
+          }
+          break
         case 'clawRake':
           // Claw Rake: three parallel gashes (spawnClaw — NOT the whip's swoosh; see there). A
           // lighter shake than the lash: it's a quick shred, and at this cadence a full-weight one
