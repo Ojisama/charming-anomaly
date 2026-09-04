@@ -12237,7 +12237,9 @@ function pickHaulTargets(run, range, n) {
   const r2 = range * range
   const cands = []
   for (const e of run.enemies) {
-    if (e._dead || e.elite || isAlly(e)) continue
+    // _netted: the wall already has this body, same exemption stepStragglers uses — a catch on
+    // the harpoon's line and on the net at once is a body fighting two hazards for one cast.
+    if (e._dead || e.elite || isAlly(e) || e._netted) continue
     const dx = e.x - p.x, dy = e.y - p.y
     const d2 = dx * dx + dy * dy
     if (d2 > r2) continue
