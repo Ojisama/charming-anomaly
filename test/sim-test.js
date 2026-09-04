@@ -30340,7 +30340,27 @@ function testTrawlCards() {
     console.log(`PASS run TC.h (the catch cannot hurt you): hooked body on the player cost 0 HP where the same body loose cost ${loose}`)
   }
 
-  console.log(`PASS run TC (The Trawl's three new cards): Bring It In hooks the farthest, executes on arrival for a credited kill, refuses elites, takes distinct bodies with Double Rig and only damages its own corridor; Tight Weave narrows the tears without sealing them; Full Season brings more walls`)
+  // (i) NEVER A BODY THE WALL ALREADY HAS. `_netted` (set true by stepTrawl's hold when the mesh
+  // grabs a body, cleared at the haul) is the SAME exemption stepStragglers already reads for the
+  // same reason — a body pinned to the wall and reeled by the harpoon in the same beat is fighting
+  // two hazards for one cast. `netted` is placed FARTHER than `clear` on purpose: picking it is
+  // exactly what the farthest-first rule (TC.a) would do on its own, so only the exclusion — never
+  // distance — can be what stops it.
+  {
+    const run = armed()
+    run.player.x = 0; run.player.y = 0
+    const netted = makeStatusEnemy(run, { x: 400, y: 0, hp: 1e6, speed: 0 })
+    netted._netted = true
+    const clear = makeStatusEnemy(run, { x: 200, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(netted, clear)
+    for (let i = 0; i < 60 * 6 && run.hauls.length === 0; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.hauls.length, 1, 'no line was ever cast with a hookable body clear of the net in range')
+    assert.strictEqual(run.hauls[0].eid, clear.id,
+      'the hook took the body the wall ALREADY HAS over the nearer one clear of it — _netted is not read at the fire site')
+    console.log(`PASS run TC.i (never a body the wall already has): the farther, netted body was skipped for the nearer clear one`)
+  }
+
+  console.log(`PASS run TC (The Trawl's three new cards): Bring It In hooks the farthest, executes on arrival for a credited kill, refuses elites, takes distinct bodies with Double Rig, only damages its own corridor and never hooks a body the wall already has; Tight Weave narrows the tears without sealing them; Full Season brings more walls`)
 }
 
 function testTrawlNet() {
