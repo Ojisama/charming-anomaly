@@ -188,7 +188,7 @@ import {
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
-  TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T, TRAWL_DRAG_REEL,
+  TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_WIGGLE_ARC, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T, TRAWL_DRAG_REEL,
   TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
   TIGHT_WEAVE_TEAR_MUL, TIGHT_WEAVE_ENEMY_DMG_MUL, TIGHT_WEAVE_BLAST_RADIUS, TIGHT_WEAVE_BLAST_DMG, TIGHT_WEAVE_BLAST_MAX,
   BRING_ARRIVE_PAD, BRING_MAX_LIVE, BRING_SNAP_T,
@@ -718,15 +718,21 @@ function stepPlayerMovement(run, input, dt) {
   // fight the net is not a resist card). Where you can and cannot GO while held is stepTrawl's.
   const dragMul = (run.net?.dragT ?? 0) > 0 ? TRAWL_DRAG_STICK_MUL : 1
   // WIGGLE TO ESCAPE (2026-09-03, see TRAWL_WIGGLE_FLICKS). Read here for the reason stillness is:
-  // this is the only place the raw stick is known. A flick is the stick swinging through a
-  // reversal (dot < 0 against the last held direction) at half deflection or more; the last held
-  // direction is kept on the net so a catch starts it clean (stepTrawl zeroes both).
+  // this is the only place the raw stick is known. A flick is TRAWL_WIGGLE_ARC of stick SWING at
+  // half deflection or more — the angle between this frame's stick and the last, summed unsigned so
+  // a swirl round the rim counts exactly like a sweep back and forth. The running total and the
+  // last held direction are kept on the net so a catch starts clean (stepTrawl zeroes all three).
+  //  - ⚠ NOT a sign change against the previous frame: at 60fps a real thumb turns ~20° per frame
+  //    and never trips it. See the ⚠ on TRAWL_WIGGLE_ARC in config.js.
   // `input.shakes` is the phone shaken (input.js, devicemotion), one shake = one flick.
   if (dragMul !== 1) {
     const net = run.net
     let flicks = input?.shakes || 0
     if (len >= 0.5) {
-      if (net._stkX !== undefined && ix * net._stkX + iy * net._stkY < 0) flicks++
+      if (net._stkX !== undefined) {
+        net._stkA = (net._stkA ?? 0) + Math.abs(Math.atan2(ix * net._stkY - iy * net._stkX, ix * net._stkX + iy * net._stkY))
+        while (net._stkA >= TRAWL_WIGGLE_ARC) { net._stkA -= TRAWL_WIGGLE_ARC; flicks++ }
+      }
       net._stkX = ix; net._stkY = iy
     }
     if (flicks > 0) net.wiggle = Math.min(1, (net.wiggle ?? 0) + flicks / TRAWL_WIGGLE_FLICKS)
@@ -5882,7 +5888,7 @@ function stepTrawl(run, dt) {
     if (net.freeT > 0) { net.freeT = Math.max(0, net.freeT - dt); return false }
     net.dragT = TRAWL_DRAG_T
     net.dragTicks = 0
-    net.wiggle = 0; net._stkX = undefined; net._stkY = undefined
+    net.wiggle = 0; net._stkX = undefined; net._stkY = undefined; net._stkA = 0
     run.events.push({ type: 'netCatch', x: p.x, y: p.y })
     // No return: the hold starts THIS frame, so a second of frames is a second of hold. Starting
     // it next frame paid one tick short of the rate over any window counted from the catch.

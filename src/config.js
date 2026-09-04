@@ -11902,13 +11902,19 @@ export const TIGHT_WEAVE_BLAST_MAX = 24      // bursts per pass-frame; a dense c
 // the nose is REELED into the band at TRAWL_DRAG_REEL px/s rather than snapped — faster than the
 // struggle can fight (0.25 x 220 = 55 px/s), slow enough to read as the net closing.
 // WIGGLE TO ESCAPE (owner 2026-09-03: "force the player to wiggle ... a 'wiggle to escape' bar that
-// fills when you wiggle the joystick"). A stick REVERSAL while held is a flick (stepPlayerMovement,
-// the only place the raw stick is known); TRAWL_WIGGLE_FLICKS of them fill run.net.wiggle and
-// stepTrawl lets go on the spot, paying no further ticks. Holding the stick still, or tapping the
-// same direction twice, is not a flick — the bar reads the SIGN change, not the press.
-// balance_decision : hold 2s, 2% max HP per 0.2s, 6 flicks free you, owner 2026-09-03
+// fills when you wiggle the joystick"). The bar reads TURNING: every TRAWL_WIGGLE_ARC radians the
+// stick swings, either way, is one flick (stepPlayerMovement, the only place the raw stick is
+// known), and TRAWL_WIGGLE_FLICKS of them free you on the spot with no further ticks. Holding the
+// stick still, or tapping the same direction twice, turns nothing and rides the whole hold.
+//  - ⚠ THE ARC IS THE WHOLE MECHANIC, NOT A DETAIL. The first cut counted a SIGN change
+//    (dot < 0 against the previous frame's stick) and shipped broken: a thumb swirling the rim or
+//    shaking ±80° around the held direction never turns 90° in one 16ms frame, so the bar stayed at
+//    0% and the player rode out every hold — only the suite's digital +1/−1 teleport, and a thumb
+//    sweeping clean through the base, ever registered. Measured: 6 gestures, 4 scored 0%.
+// balance_decision : hold 2s, 2% max HP per 0.2s, 540° of swing frees you, owner 2026-09-03
 export const TRAWL_DRAG_T = 2
 export const TRAWL_WIGGLE_FLICKS = 6
+export const TRAWL_WIGGLE_ARC = Math.PI / 2   // rad of stick swing per flick
 export const TRAWL_DRAG_TICK_PCT = 0.02   // fraction of max HP per tick
 export const TRAWL_DRAG_TICK = 0.2
 export const TRAWL_DRAG_STICK_MUL = 0.25

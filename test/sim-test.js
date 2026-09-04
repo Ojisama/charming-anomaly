@@ -31096,6 +31096,15 @@ function testTrawlHold() {
     const still = hold((i) => ({ x: 1, y: 0 }))                             // pushed one way the whole time
     const taps = hold((i) => ((i >> 2) & 1 ? { x: 1, y: 0 } : { x: 0, y: 0 }))   // same direction, re-pressed
     const phone = hold((i) => ({ x: 0, y: 0, shakes: i % 4 === 0 ? 1 : 0 }))     // stick idle, phone shaken
+    // A REAL THUMB, WHICH IS THE ONE THAT SHIPPED BROKEN. Every gesture above is digital — the
+    // stick teleports from +1 to -1 between two frames. A thumb sweeps CONTINUOUSLY, ~20 deg per
+    // 16ms frame, so it never reverses sign against the previous frame and the v7.274 rule scored
+    // these two at 0%: the bar sat empty and the player rode out every hold (owner, 2026-09-04:
+    // "i wiggle but the bar doesnt fill up"). Keep both — they are the mutation proof that the
+    // arc rule is the arc rule, and a revert to a sign test fails them and nothing else.
+    const ang = (a) => ({ x: Math.cos(a), y: Math.sin(a) })
+    const swirl = hold((i) => ang(2 * Math.PI * 3 * i * dt))                        // thumb round the rim, 3 rev/s
+    const shimmy = hold((i) => ang(Math.sin(2 * Math.PI * 5 * i * dt) * Math.PI / 4)) // +-45 deg about "right", 5 Hz
     assert.ok(shake.freeAt !== null && shake.freeAt < TRAWL_DRAG_T - 0.5,
       `shaking the stick released at ${shake.freeAt}s — the wiggle bar does not free the player early`)
     assert.strictEqual(shake.wiggle, 1, `the bar peaked at ${shake.wiggle}, never full`)
@@ -31108,7 +31117,11 @@ function testTrawlHold() {
       `re-pressing the same direction released at ${taps.freeAt}s with the bar at ${taps.wiggle} — a press is not a flick`)
     assert.ok(phone.freeAt !== null && phone.freeAt < TRAWL_DRAG_T - 0.5 && phone.wiggle === 1,
       `shaking the phone (input.shakes) released at ${phone.freeAt}s with the bar at ${phone.wiggle} — shakes do not fill the bar`)
-    console.log(`PASS run TH.m (wiggle to escape): shaking the stick frees you at ${shake.freeAt.toFixed(2)}s for ${shake.dmg} HP, shaking the phone at ${phone.freeAt.toFixed(2)}s, a still stick rides the whole ${TRAWL_DRAG_T}s, same-direction taps fill nothing`)
+    assert.ok(swirl.freeAt !== null && swirl.freeAt < TRAWL_DRAG_T - 0.5 && swirl.wiggle === 1,
+      `a thumb swirling the rim released at ${swirl.freeAt}s with the bar at ${swirl.wiggle} — a continuous swirl is not filling the bar`)
+    assert.ok(shimmy.freeAt !== null && shimmy.freeAt < TRAWL_DRAG_T - 0.5 && shimmy.wiggle === 1,
+      `a thumb shaking +-45 deg released at ${shimmy.freeAt}s with the bar at ${shimmy.wiggle} — a small fast wiggle is not filling the bar`)
+    console.log(`PASS run TH.m (wiggle to escape): shaking the stick frees you at ${shake.freeAt.toFixed(2)}s for ${shake.dmg} HP, a swirled thumb at ${swirl.freeAt.toFixed(2)}s, a +-45 deg shimmy at ${shimmy.freeAt.toFixed(2)}s, the phone at ${phone.freeAt.toFixed(2)}s, a still stick rides the whole ${TRAWL_DRAG_T}s, same-direction taps fill nothing`)
   }
 
   console.log(`PASS run TH (the net's hold): touch the mesh and it carries you with it for ${TRAWL_DRAG_T}s at ${TRAWL_DRAG_TICK_PCT * 100}% max HP per ${TRAWL_DRAG_TICK}s, you cannot leave the band but can struggle along it at ${TRAWL_DRAG_STICK_MUL}x, and once it lets go it cannot take you again until you have left it (ride cap ${TRAWL_DRAG_FREE_T}s)`)
