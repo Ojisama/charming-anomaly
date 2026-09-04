@@ -3022,34 +3022,6 @@ function stepEnemyMovement(run, dt) {
       }
     }
 
-    // netTrail elite flag (2026-09-01, The Trawl's own elite affix — replaces the borrowed
-    // soapTrail, which was the pond's soap bubbles and the last loan in the book). An elite drags a
-    // length of lost mesh behind it: a small unscheduled piece of the wall, moving on a creature's
-    // logic instead of the sweep's, so the net can find you BETWEEN passes. That is what the quiet
-    // stretch needs now that this chapter has no bar to fill it.
-    //
-    // ⚠ oilTrail's ENTITY, DELIBERATELY NOT oilTrail's LOOK, and that distinction is the whole
-    // reason this is its own flag rather than a second chapter wearing `oilTrail`. That flag tags
-    // look:'bilge' *specifically* to inherit the Bilge weapon and the Leak's stain, prey-avoidance
-    // and render for free — and The Trawl has neither of those, so borrowing the tag would draw
-    // torn netting as an OIL SLICK. Same run.blooms entry, same cadence, own look; syncSlicks
-    // (render.js) branches on it.
-    // `dmgPerTick: 0` and `slow: 1` for the same reasons the oil gives: a fence that walks, not a
-    // damage zone, and the stain is gated on `bl.slow !== 0`.
-    if (e.elite && e.flags && e.flags.includes('netTrail') && !e._dead && e._phaseSolid !== false) {
-      e._netAcc2 = (e._netAcc2 ?? 0) + dt
-      if (e._netAcc2 >= OIL_TRAIL_INTERVAL) {
-        e._netAcc2 -= OIL_TRAIL_INTERVAL
-        run.blooms.push({
-          x: e.x, y: e.y, t: 0, r: 0, maxR: OIL_TRAIL_R, dur: OIL_TRAIL_DUR,
-          dmgPerTick: 0, tick: 0, look: 'netdrag',
-          shape: Math.floor(Math.random() * LOBE_SHAPES.length) % LOBE_SHAPES.length,
-          rot: Math.random() * Math.PI * 2,
-          slow: 1, grow: BILGE_TRAIL_GROW, trail: true,
-        })
-      }
-    }
-
     // webZone flag (v5.3 garden's spiders): drop a player-slowing web patch into run.webs every
     // WEB_INTERVAL while alive (NOT elite-gated — spiders are ordinary tank-archetype enemies).
     if (e.flags && e.flags.includes('webZone') && !e._dead) {

@@ -13335,11 +13335,7 @@ const spurG = new Graphics()
     // the design out loud: this card is the player doing the leak back.
     //   syncBlooms filters `bilge` out at its own top, or the oil would draw twice — an edge with a
     // glow sitting over it, which is the run.lobs three-consumers trap in miniature.
-    // `netdrag` rides the same pool (2026-09-01, The Trawl's netTrail elite): it is the same lobed
-    // film ENTITY, drawn as torn mesh instead of as oil. It is here rather than in syncBlooms for
-    // the shape — a thing lying on the bottom, not a cloud in the water — and it must NOT inherit
-    // the oil's colours, which is the whole reason netTrail is its own flag. See the branch below.
-    const oils = (run.blooms || []).filter((b) => (b.look === 'bilge' || b.look === 'netdrag') && b.r > 0)
+    const oils = (run.blooms || []).filter((b) => b.look === 'bilge' && b.r > 0)
     const all = (run.slicks || []).concat(oils)
     if (!all.length) return
     //   A slickTrail POOL IS NOT DRAWN LIKE A POOL (v7.x). One pool is a wall and gets the rim; a
@@ -13353,27 +13349,6 @@ const spurG = new Graphics()
       const filmA = trail ? BILGE_TRAIL_VIS.filmA : 0.5
       const sheenA = trail ? BILGE_TRAIL_VIS.sheenA : 1
       const pts = lobePoly(sl.r, sl.shape, sl.rot, sl.x, sl.y)
-      // TORN MESH, NOT OIL. Same lobed footprint so the hazard contract still reads, and everything
-      // else inverted: PALE where the oil is dark, twine where the oil has iridescence, and no sheen
-      // at all. The colours are the wall's own (NET_VIS.mesh/meshLine/rope, written out rather than
-      // referenced because that table is scoped to updateNet) so a dragged length reads as the same
-      // substance as the thing sweeping the chapter — which is the entire point of the affix.
-      if (sl.look === 'netdrag') {
-        slickG.poly(pts).fill({ color: 0x2b3b47, alpha: filmA * 0.85 })
-        // Two diagonal twine families, the same diamond the wall's mesh draws, clipped to the lobe's
-        // bounding span. Cheap and crude on purpose: at this size the eye only needs the hatching to
-        // say "net", and a real clip would be a filter pass per link of the trail.
-        const st = sl.r * 0.5
-        for (let k = -2; k <= 2; k++) {
-          const o = k * st
-          slickG.moveTo(sl.x - sl.r + o, sl.y - sl.r).lineTo(sl.x + sl.r + o, sl.y + sl.r)
-            .stroke({ width: 1.6, color: 0xd2dee6, alpha: 0.34 * sheenA, cap: 'round' })
-          slickG.moveTo(sl.x - sl.r + o, sl.y + sl.r).lineTo(sl.x + sl.r + o, sl.y - sl.r)
-            .stroke({ width: 1.6, color: 0xd2dee6, alpha: 0.34 * sheenA, cap: 'round' })
-        }
-        slickG.poly(pts).stroke({ width: trail ? BILGE_TRAIL_VIS.edgeW : 3, color: 0xe4d9a8, alpha: trail ? BILGE_TRAIL_VIS.edgeA : 0.72 })
-        continue
-      }
       // The film itself: dark and dead, because that is what it does to the water.
       slickG.poly(pts).fill({ color: 0x14181a, alpha: filmA })
       // The sheen. Two offset inner lobes in oil's own colours, breathing on animT so the surface
@@ -16580,9 +16555,9 @@ const spurG = new Graphics()
     // in both, the same oil would draw twice: an edge with a glow sitting over it. That is the
     // run.lobs three-consumers trap in miniature, and the reason this line is a comment as well as
     // a filter.
-    // `netdrag` excluded alongside `bilge` and for the identical reason: syncSlicks already draws
+    // `bilge` excluded because syncSlicks already draws
     // both, and a bloom drawn twice is an edge with a glow sitting over it.
-    const list = (run.blooms || []).filter((b) => b.look !== 'bilge' && b.look !== 'netdrag')
+    const list = (run.blooms || []).filter((b) => b.look !== 'bilge')
     const n = list.length
     while (bloomPool.length < n) bloomPool.push(acquireBloom())
     // v6.4 Tide-Carried (WEAPON_MODS.bloom.tideCarried): with picks held, stepBlooms drifts each
