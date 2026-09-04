@@ -13693,6 +13693,7 @@ const spurG = new Graphics()
   // mid-pass. It is a handful of strokes on one Graphics.
   const NET_VIS = {
     mesh: 0x2b3b47, meshLine: 0xd2dee6, rope: 0xe4d9a8,   // mesh body, twine, the head/foot ropes
+    ropeDark: 0x8f7a48,                                    // the rope's twisted underside + knots
     wake: 0x6d7f88, wakeA: 0.24,                           // churned sediment behind the wall
     torn: 0xf2e6b4,                                        // the bright frayed ends at a cut
     cell: 34,                                              // px between twines — the mesh's own scale
@@ -13912,26 +13913,48 @@ const spurG = new Graphics()
     if (x < L) spans.push([x, L])
     for (const [a, b] of spans) {
       if (b - a < 1) continue
-      // 0.34, not the 0.55 this started at: a net is mostly HOLE, and a dark band at half opacity
-      // reads as a plank floating on the water. The twines carry the object; the fill only has to
-      // darken the water enough that the wall is legible where it crosses a pale patch of floor.
-      netG.rect(a, -half, b - a, half * 2).fill({ color: NET_VIS.mesh, alpha: 0.34 })
-      // The twines. Two diagonal families make the diamond mesh a real net has; drawn per span so a
-      // cut genuinely removes the netting rather than painting a gap over it.
+      // PATCHY FILL, not one flat wash. Real netting picks up weed and grime unevenly, and a single
+      // rect at one alpha reads as a plank floating on the water (see the 0.34 note below, which
+      // this keeps as the AVERAGE). Sliced into cell-sized strips and hashed per strip — deterministic
+      // on position, so a wall does not shimmer as it scrolls.
+      const FILL_CELL = NET_VIS.cell * 1.25
+      for (let d = Math.floor(a / FILL_CELL) * FILL_CELL; d < b; d += FILL_CELL) {
+        const x0 = Math.max(a, d), x1 = Math.min(b, d + FILL_CELL)
+        if (x1 <= x0) continue
+        const k = 0.22 + 0.24 * hash(d * 0.041 + 6.7)
+        netG.rect(x0, -half, x1 - x0, half * 2).fill({ color: NET_VIS.mesh, alpha: k })
+      }
+      // The twines. Two diagonal families make the diamond mesh a real net has — and both must
+      // extend the SAME way in x, only swapping which end sits at -half vs +half, or they are just
+      // one family drawn twice: the first cut used `s * half * 2` for BOTH the x-step and the y-ends,
+      // which flips x and y together and reproduces the same slope every time (owner, 2026-09-04:
+      // "why are there only parallel oblique lines, why not crossing lines like a net"). Drawn per
+      // span so a cut genuinely removes the netting rather than painting a gap over it.
       for (let d = Math.floor(a / NET_VIS.cell) * NET_VIS.cell; d < b + half * 2; d += NET_VIS.cell) {
+        const x0 = Math.max(a, Math.min(b, d))
+        const x1 = Math.max(a, Math.min(b, d + half * 2))
+        if (x1 === x0) continue
         for (const s of [-1, 1]) {
-          const x0 = Math.max(a, Math.min(b, d))
-          const x1 = Math.max(a, Math.min(b, d + s * half * 2))
-          if (x1 === x0) continue
           netG.moveTo(x0, -half * s).lineTo(x1, half * s)
             .stroke({ width: 1.6, color: NET_VIS.meshLine, alpha: 0.5 })
         }
       }
-      // Head and foot ropes: the two bright lines that make the wall read as a made object rather
-      // than as a shadow, and the thing you actually track from across the screen.
+      // Head and foot ropes: a dark twisted underlay plus the bright strand on top, the same
+      // two-pass idiom GEAR_VIS's longline rope uses for the same reason — a single flat stroke
+      // reads as a bar, and two passes at different widths read as a cord with body to it.
       for (const s of [-1, 1]) {
         netG.moveTo(a, s * half).lineTo(b, s * half)
-          .stroke({ width: 3.5, color: NET_VIS.rope, alpha: 0.85, cap: 'round' })
+          .stroke({ width: 5, color: NET_VIS.ropeDark, alpha: 0.5, cap: 'round' })
+        netG.moveTo(a, s * half).lineTo(b, s * half)
+          .stroke({ width: 3.2, color: NET_VIS.rope, alpha: 0.85, cap: 'round' })
+      }
+      // Knots, ON TOP of the rope — drawn after it on purpose, or the stroke paints over them. Same
+      // spacing the twines hang from, the attachment points a real net is tied at, and the thing
+      // that says "cord", not "line", when you are close enough to see it.
+      for (let d = Math.floor(a / NET_VIS.cell) * NET_VIS.cell; d < b + half * 2; d += NET_VIS.cell) {
+        const x0 = Math.max(a, Math.min(b, d))
+        if (x0 <= a || x0 >= b) continue
+        for (const s of [-1, 1]) netG.circle(x0, s * half, 2.2).fill({ color: NET_VIS.ropeDark, alpha: 0.9 })
       }
       // Frayed ends, at every edge that is a TEAR rather than the end of the drawn span. Without
       // this a hole reads as the net simply not being there — a rectangle of missing wall, which
@@ -13940,12 +13963,20 @@ const spurG = new Graphics()
       //   ⚠ THIS IS THE ONE PLACE A TEAR IS ANNOUNCED. It is the only difference on screen between
       // a gap you can swim through and solid mesh, and it has to read from TRAWL_LEAD_MUL's
       // distance on a PHONE, because finding the gap early is the whole verb of the chapter.
+      // Tassels are HASHED PER TEAR EDGE rather than a fixed fan, so no two gaps fray the same way —
+      // varied length and a slight bend, which is what a snapped strand does and a straight radial
+      // line does not.
       for (const [edge, isCut] of [[a, a > -L], [b, b < L]]) {
         if (!isCut) continue
-        for (let k = -2; k <= 2; k++) {
-          const y = (k / 2) * half
-          netG.moveTo(edge, y).lineTo(edge + (edge === a ? -1 : 1) * (6 + (k & 1) * 7), y * 0.82)
-            .stroke({ width: 2, color: NET_VIS.torn, alpha: 0.9, cap: 'round' })
+        const dir = edge === a ? -1 : 1
+        for (let k = 0; k < 7; k++) {
+          const y = (hash(edge * 0.83 + k * 3.31) - 0.5) * half * 2
+          const len = 5 + hash(edge * 0.19 + k * 7.7) * 12
+          const bend = (hash(edge * 1.27 + k * 2.11) - 0.5) * 7
+          netG.moveTo(edge, y)
+            .lineTo(edge + dir * len * 0.6, y + bend * 0.4)
+            .lineTo(edge + dir * len, y + bend)
+            .stroke({ width: 1.6, color: NET_VIS.torn, alpha: 0.85, cap: 'round' })
         }
       }
     }
@@ -14125,21 +14156,25 @@ const spurG = new Graphics()
       // barely findable in its own probe frame — a hold with no visible cause reads as the enemies
       // randomly stopping, which is the "mechanic with no tell" failure this repo has shipped
       // before. It has to be the second most obvious thing on screen after the wall.
+      //   The alphas below are UNCHANGED from that finding. What thinned out (owner, 2026-09-04:
+      // "more transparent or a bit less cluttered") is the ELEMENT COUNT — 3 rings to 2, 10 radials
+      // to 6 and stopped short of the rim so they do not pile onto the rim stroke, 8 floats to 6 —
+      // which cuts the line density without repeating the low-alpha mistake.
       snareG.circle(s.x, s.y, r).fill({ color: GEAR_VIS.meshFill, alpha: 0.38 * a })
       // Concentric rings + radials: a net seen from directly overhead, which is a web, not a dome.
-      for (let i = 1; i <= 3; i++) {
-        snareG.circle(s.x, s.y, r * (i / 3.4))
+      for (let i = 1; i <= 2; i++) {
+        snareG.circle(s.x, s.y, r * (i / 2.3))
           .stroke({ width: 1.6, color: GEAR_VIS.mesh, alpha: 0.85 * a })
       }
-      for (let i = 0; i < 10; i++) {
-        const ang = (i / 10) * Math.PI * 2
-        snareG.moveTo(s.x, s.y).lineTo(s.x + Math.cos(ang) * r, s.y + Math.sin(ang) * r)
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2
+        snareG.moveTo(s.x, s.y).lineTo(s.x + Math.cos(ang) * r * 0.86, s.y + Math.sin(ang) * r * 0.86)
           .stroke({ width: 1.3, color: GEAR_VIS.mesh, alpha: 0.65 * a })
       }
       // The weighted rim is what says "this is closed and you are inside it".
       snareG.circle(s.x, s.y, r).stroke({ width: 2.6, color: GEAR_VIS.rope, alpha: 0.8 * a })
-      for (let i = 0; i < 8; i++) {
-        const ang = (i / 8) * Math.PI * 2 + 0.2
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2 + 0.2
         snareG.circle(s.x + Math.cos(ang) * r, s.y + Math.sin(ang) * r, 2.8)
           .fill({ color: GEAR_VIS.float, alpha: 0.85 * a })
       }

@@ -131,6 +131,7 @@ import {
   SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, SNAP_CAVITY, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
   TRAWL_DRAG_T, TRAWL_TICK, TRAWL_ENEMY_DMG, TIGHT_WEAVE_ENEMY_DMG_MUL, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T,
+  TIGHT_WEAVE_BLAST_RADIUS, TIGHT_WEAVE_BLAST_DMG,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
@@ -30971,6 +30972,46 @@ function testTrawlHold() {
     assert.strictEqual(t2.hp, 1e6, 'Tight Weave ground the turtle — a cruiser is never ground')
     assert.ok(Math.abs((1e6 - m2.hp) - TRAWL_ENEMY_DMG * TIGHT_WEAVE_ENEMY_DMG_MUL * wovenTicks) <= 1, `Tight Weave took ${1e6 - m2.hp} HP off the mackerel in 1s — expected ${wovenTicks} ticks of ${TRAWL_ENEMY_DMG} × ${TIGHT_WEAVE_ENEMY_DMG_MUL}`)
     console.log(`PASS run TH.l (carried, not ground): turtle and mackerel rode ${turtle.y.toFixed(0)}px unhurt; under Tight Weave the mackerel paid ${(1e6 - m2.hp).toFixed(0)} HP, the turtle none`)
+  }
+
+  // (p) TIGHT WEAVE'S NEW JOB: A KILL DETONATES. The 2026-09-04 redesign's whole payout — the plain
+  // net already kills its catch for free at the haul, so Tight Weave has to do something the plain
+  // net does not. Asserted as an EFFECT on a BYSTANDER, never as a run.bombs entry: a push with no
+  // consumer would pass a state check and still do nothing for a player watching. The bystander
+  // sits OUTSIDE the mesh band (60px off the wall's line against a 30px half-thickness) so it is
+  // never netted or ground itself — any HP it loses can only be the blast.
+  {
+    const run = rig()
+    run.anomalies.tightWeave = 1
+    run.player.x = 0; run.player.y = 0
+    // A frail catch, close enough to the player that the reel (TRAWL_DRAG_REEL) brings it to the
+    // player's own doorstep well before its first grind tick at TRAWL_TICK.
+    const prey = makeStatusEnemy(run, { x: 40, y: 0, hp: 1, speed: 0 })
+    run.enemies.push(prey)
+    // NEGATIVE y, not +60: the wall's `pos` SWEEPS (+ny), so a fixed point on the approaching side
+    // gets netted itself once the sweep reaches it — the first cut of this case put the bystander
+    // there and the wall walked right into it within ~11 frames, well before the kill. A point on
+    // the side the wall has ALREADY crossed only gets MORE distant from the band as pos advances
+    // (netDist's own sign convention: negative = already crossed), so this side is safe for the
+    // whole test regardless of how long it runs.
+    const bystander = makeStatusEnemy(run, { x: 0, y: -60, hp: 1e6, speed: 0 })
+    run.enemies.push(bystander)
+    let deadAt = -1
+    for (let i = 0; i < 90 && deadAt < 0; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt)
+      if (prey._dead) deadAt = i
+      run.events.length = 0
+    }
+    assert.ok(deadAt >= 0, 'the netted catch never died under Tight Weave\'s own grind')
+    // stepBombs fires the charge one frame after stepTrawl pushes it (fuse behind the kill, not
+    // simultaneous with it) — a few extra frames comfortably clears that beat.
+    for (let i = 0; i < 20; i++) { stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
+    const blastDmg = 1e6 - bystander.hp
+    assert.ok(blastDmg > 0,
+      `a bystander 60px from the kill (blast radius ${TIGHT_WEAVE_BLAST_RADIUS}px) took no damage — Tight Weave's kill is not detonating`)
+    assert.ok(blastDmg <= TIGHT_WEAVE_BLAST_DMG + 1,
+      `bystander took ${blastDmg} HP against a ${TIGHT_WEAVE_BLAST_DMG} HP blast — hit more than once, or the blast is not the flat charge it is meant to be`)
+    console.log(`PASS run TH.p (Tight Weave's kill detonates): dead at frame ${deadAt}, a bystander 60px away took ${blastDmg} HP from a kill it never touched`)
   }
 
   // (n) THE HAUL. Two bodies on the line and one 200px clear of it when the pass ends: the two are

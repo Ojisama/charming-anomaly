@@ -190,7 +190,7 @@ import {
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
   TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T, TRAWL_DRAG_REEL,
   TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
-  TIGHT_WEAVE_TEAR_MUL, TIGHT_WEAVE_ENEMY_DMG_MUL,
+  TIGHT_WEAVE_TEAR_MUL, TIGHT_WEAVE_ENEMY_DMG_MUL, TIGHT_WEAVE_BLAST_RADIUS, TIGHT_WEAVE_BLAST_DMG, TIGHT_WEAVE_BLAST_FUSE,
   BRING_ARRIVE_PAD, BRING_MAX_LIVE, BRING_SNAP_T,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
@@ -5785,9 +5785,16 @@ function stepTrawl(run, dt) {
   let ticks = 0
   while (net._acc >= TRAWL_TICK) { net._acc -= TRAWL_TICK; ticks++ }
   // The crowd is CARRIED, not ground (owner 2026-09-04: "i want it to work as a real net by
-  // dragging enemies in it"). The mesh only hurts what it carries under Tight Weave — that card's
-  // stated trade is the wall doing your killing — otherwise a body rides to the pass end and is
-  // hauled there. The player is TAKEN (below), the 2026-09-03 ruling.
+  // dragging enemies in it") — that is the PLAIN mesh's whole deal, and it is free: the haul at the
+  // pass's end (above) is what kills a plain catch, no card required. Tight Weave used to just grind
+  // the same carried body in place, which made its "the wall does your killing" pitch true of the
+  // plain net already and left the card with nothing of its own to sell. Its job now (owner
+  // 2026-09-04: "keep the free kill, give Tight Weave a new job... dragged bodies get pulled toward
+  // the player and detonate near them"): REEL instead of carry, at TRAWL_DRAG_REEL — the same speed
+  // the net already reels a caught PLAYER at, so both halves of one mechanic move at one number —
+  // and whatever it kills leaves a `run.bombs` charge at the death spot, the volatile-elite family
+  // (see volatileBomb/stepBombs), reused rather than reinvented: this is exactly "an enemy corpse
+  // that damages nearby enemies", already built. The player is TAKEN (below), the 2026-09-03 ruling.
   const grind = run.anomalies?.tightWeave ? TRAWL_ENEMY_DMG * TIGHT_WEAVE_ENEMY_DMG_MUL : 0
   for (const e of run.enemies) {
     // Allies and `anchored` are the shipped exemptions of every forced displacement in this file.
@@ -5803,12 +5810,32 @@ function stepTrawl(run, dt) {
       if (Math.abs(d) > TRAWL_HALF + e.radius || inNetHole(net, e.x, e.y)) continue
       e._netted = true
     }
+    // A CRUISER IS NEVER GROUND, Tight Weave included — it takes neither the reel nor the grind, so
+    // it falls straight through to the plain wall-carry below, same as it always has.
+    const cruiser = e.flags && e.flags.includes('cruise')
+    if (grind > 0 && !cruiser) {
+      // Reeled OFF the wall's band on purpose, not clamped into it — the band clamp belongs to the
+      // plain carry, and this catch is headed somewhere else entirely.
+      const pdx = p.x - e.x, pdy = p.y - e.y
+      const pdist = Math.hypot(pdx, pdy)
+      if (pdist > 1) {
+        const step = Math.min(pdist, TRAWL_DRAG_REEL * dt)
+        e.x += (pdx / pdist) * step; e.y += (pdy / pdist) * step
+      }
+      if (ticks > 0) {
+        dealDamage(run, e, grind * ticks, false, false, true)   // hazard: the player did not deal it
+        if (e._dead) {
+          run.bombs.push({
+            x: e.x, y: e.y, radius: TIGHT_WEAVE_BLAST_RADIUS,
+            fuse: TIGHT_WEAVE_BLAST_FUSE, duration: TIGHT_WEAVE_BLAST_FUSE, dmg: TIGHT_WEAVE_BLAST_DMG, src: 'tightWeave',
+          })
+        }
+      }
+      continue
+    }
     e.x += net.nx * TRAWL_SPEED * dt; e.y += net.ny * TRAWL_SPEED * dt; d += TRAWL_SPEED * dt
     const c = Math.max(-TRAWL_HALF, Math.min(TRAWL_HALF, d))
     if (c !== d) { e.x += net.nx * (c - d); e.y += net.ny * (c - d) }
-    if (e.flags && e.flags.includes('cruise')) continue
-    if (ticks === 0 || grind === 0) continue
-    dealDamage(run, e, grind * ticks, false, false, true)   // hazard: the player did not deal it
   }
 
   // THE HOLD (2026-09-03, owner: "trawler net should drag you with it for 3s, and deal you 20dmg

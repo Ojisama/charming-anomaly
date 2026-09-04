@@ -881,11 +881,15 @@ export const specialistSubjects = (run) => (run.weapons ?? [])
 // (roll the kind, then the card) rather than one flat list. `kind` is descriptive today — nothing
 // reads it. Hand-tuned weights hit the same mix for THIS slate and will drift as the remaining six
 // cards land, which is the right time to build the real thing.
-// ANOMALIES.tightWeave's two numbers (The Trawl). HOISTED HERE, above ANOMALIES, for the same
-// reason HUMIDITY_DMG_FLOOR is hoisted above CHAPTERS: the card's `desc` is a template that reads
-// them, and their natural home — the TRAWL_TEAR_* block beside the geometry they turn — sits
-// thousands of lines below, which would be a TDZ throw at import rather than a lint failure.
-// The template is what keeps the sentence on the card and the arithmetic in the sim from drifting.
+// TIGHT_WEAVE_TEAR_MUL (The Trawl). HOISTED HERE, above ANOMALIES, for the same reason
+// HUMIDITY_DMG_FLOOR is hoisted above CHAPTERS: the card's `desc` is a template that reads it, and
+// its natural home — the TRAWL_TEAR_* block beside the geometry it turns — sits thousands of lines
+// below, which would be a TDZ throw at import rather than a lint failure. The template is what keeps
+// the sentence on the card and the arithmetic in the sim from drifting.
+//   TIGHT_WEAVE_ENEMY_DMG_MUL sits beside it for that reason alone, not because the desc reads it
+// too (it no longer does, since the 2026-09-04 redesign below dropped the numeric kill-speed claim)
+// — it is still the grind's own multiplier, read only by sim.js, and stays here with its sibling
+// rather than moving for the sake of moving.
 //   ⚠ PASSABILITY IS NOT A MARGIN QUESTION HERE, and the first version of this comment got the
 // arithmetic backwards in its own favour. It claimed 0.3 "leaves a 21px half-width to the player's
 // 22px radius, so you fit through dead centre" — but 21 < 22, which is a DEFICIT, and with
@@ -1227,17 +1231,23 @@ export const ANOMALIES = {
     minLevel: 10,
   },
 
-  // The Trawl's own (2026-09-01), and the chapter's fourth ideation debt cleared. The trade is on
-  // the one thing this chapter is about: the tears are your way through the wall, so selling them
-  // is selling your escape, and what you are paid in is the wall doing your killing for you.
+  // The Trawl's own (2026-09-01). The trade is on the one thing this chapter is about: the tears
+  // are your way through the wall, so selling them is selling your escape.
+  //   ⚠ REDESIGNED 2026-09-04. The payout used to be "the wall does your killing for you" — but by
+  // the time this shipped, THE PLAIN NET ALREADY DOES THAT for free (the pass-end haul kills every
+  // catch, no card needed), so the card had nothing left to sell but a slightly earlier kill timer.
+  // Owner: "keep the free kill, give Tight Weave a new job." The new payout is the one thing the
+  // plain net does not do: PULL the catch to you and make its death hurt the crowd around you.
   //
-  // ⚠ IT NAMES THE TEARS, WHICH IS THE ONLY THING ON SCREEN IT CHANGES. The card must not coin a
-  // noun the player has never seen — they have been swimming through gaps in a net since the first
-  // pass, and 'the gaps close' is what they will watch happen.
+  // ⚠ IT NAMES THE TEARS, WHICH IS THE ONLY THING ON SCREEN IT ALREADY CHANGES. The card must not
+  // coin a noun the player has never seen — they have been swimming through gaps in a net since the
+  // first pass, and 'the gaps close' is what they will watch happen. 'Drags' and 'detonates' are
+  // plain verbs for things the player will SEE (a body sliding toward them, a blast where it died),
+  // not a named system — same bar the Sunlance's "reaches as far as your Light does" sets.
   tightWeave: {
     name: 'Tight Weave', icon: '🕸️',
     from: 'the boat mended its gear overnight',
-    desc: `The net's gaps close to ${Math.round(TIGHT_WEAVE_TEAR_MUL * 100)}% of their width, and its mesh kills what it carries instead of hauling it in.`,
+    desc: `The net's gaps close to ${Math.round(TIGHT_WEAVE_TEAR_MUL * 100)}% of their width, and it drags whatever it catches to you — anything that dies there detonates, hurting what's nearby.`,
     // THE CHAPTER IS THE GATE, verbatim from Runoff/Deadfall/Black Tide: `chapter: 'trawl'` is
     // already a narrow gate, so `when` stays unconditional rather than adding a second one.
     when: () => true,
@@ -11862,6 +11872,13 @@ export const TRAWL_HALF = 30             // px half-thickness of the mesh itself
 export const TRAWL_LEAD_MUL = 1.6
 export const TRAWL_TICK = 0.35           // s between the CROWD's contact ticks (the player's are the hold's, below)
 export const TRAWL_ENEMY_DMG = 34        // enemy damage per tick, ONLY under Tight Weave (× TIGHT_WEAVE_ENEMY_DMG_MUL); plain mesh carries the crowd unhurt
+// Tight Weave's blast (2026-09-04): what a body it kills leaves behind. Same shape as a volatile
+// elite's death bomb (VOLATILE_RADIUS/VOLATILE_DMG) — a smaller, plain-flat version of it, since this
+// one is not a rare elite death but a repeatable proc off a chapter-scoped card, and never scales
+// with hpScale for the same reason TRAWL_ENEMY_DMG above does not: the grind that feeds it is flat.
+export const TIGHT_WEAVE_BLAST_RADIUS = 90
+export const TIGHT_WEAVE_BLAST_DMG = 40
+export const TIGHT_WEAVE_BLAST_FUSE = 0.15   // s — a beat behind the kill, not simultaneous with it
 // ---- THE HOLD (2026-09-03, The Trawl — what the mesh does to YOU) ------------------------------
 // The mesh does not tick on you like a pool: it TAKES you. Touch it and it has hold of you for
 // TRAWL_DRAG_T, carrying you along its sweep at TRAWL_SPEED, and you cannot leave the band until it

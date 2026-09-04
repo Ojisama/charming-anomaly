@@ -556,7 +556,9 @@ const CONFIG = {
   'The Leak spreads until every stretch of water that could hold oil does.':
     "La Fuite se répand jusqu'à couvrir toute étendue d'eau qui peut retenir du mazout.",
   'every seam in the hull let go at once': "chaque joint de la coque a lâché d'un coup",
-  // The Trawl's chapter anomaly (2026-09-01). 'Maille Serrée' is the owner's pick.
+  // The Trawl's chapter anomaly (2026-09-01, redesigned 2026-09-04). 'Maille Serrée' is the owner's
+  // pick and unaffected by the redesign — only the desc's mechanic changed (drag-to-player + detonate
+  // on death, replacing the old "kills what it carries" grind-in-place). French approved 2026-09-04.
   //   NO SPACE BEFORE THE % SIGN, matching this file rather than the typography manual: 48 of the
   // 51 percentages in here are written '30%', two use a plain space and none uses an NBSP. Formal
   // French wants a narrow no-break space, and one entry adopting it alone would be a third
@@ -566,7 +568,7 @@ const CONFIG = {
   // TIGHT_WEAVE_TEAR_MUL and the English key changes with it, so run XX goes red rather than the
   // card silently shipping a French sentence that states the old number.
   'Tight Weave': 'Maille Serrée',
-  'The net\'s gaps close to 30% of their width, and its mesh kills what it carries instead of hauling it in.': 'Les trous du filet se referment à 30% de leur largeur, et sa maille tue ce qu\'elle emporte au lieu de le remonter.',
+  'The net\'s gaps close to 30% of their width, and it drags whatever it catches to you — anything that dies there detonates, hurting what\'s nearby.': 'Les trous du filet se referment à 30% de leur largeur, et il traîne tout ce qu\'il attrape vers toi — ce qui y meurt explose et blesse ce qui est proche.',
   'the boat mended its gear overnight': 'le bateau a ramendé ses filets pendant la nuit',
   'time between passes': 'temps entre les passages',
   'Alignment': 'Alignement',
