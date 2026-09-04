@@ -130,7 +130,7 @@ import {
   SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, gateAnchorF, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
   SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, SNAP_CAVITY, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
-  TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T,
+  TRAWL_DRAG_T, TRAWL_TICK, TRAWL_ENEMY_DMG, TIGHT_WEAVE_ENEMY_DMG_MUL, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T,
   // v6.8 Trash Tornado rework (Run AA.d)
   DEBRIS_R,
   // v7.23 skies weapon rework (Run AA.g / AA.g2)
@@ -30469,8 +30469,10 @@ function testTrawlNet() {
       run.events.length = 0
     }
     assert.ok(pBefore - run.player.hp > 0, 'the net did not hurt the player')
-    assert.ok(eBefore - e.hp > 0, 'the net did not hurt the enemy standing in it — "it aims at nothing" is only true of the player')
-    console.log(`PASS run TR.b (it kills both sides): 1s in the mesh takes ${(pBefore - run.player.hp).toFixed(0)} from the player and ${(eBefore - e.hp).toFixed(0)} from an enemy beside them`)
+    // The crowd is CARRIED, never ground (owner 2026-09-04) — run TH.l pins the ride and the one
+    // exception, Tight Weave. Here: the enemy beside you in the mesh loses nothing.
+    assert.strictEqual(e.hp, eBefore, `the net took ${eBefore - e.hp} HP off the enemy standing in it — a real net carries the crowd, it does not grind it`)
+    console.log(`PASS run TR.b (it takes you, it carries them): 1s in the mesh takes ${(pBefore - run.player.hp).toFixed(0)} from the player and nothing from the enemy beside them`)
   }
 
   // (c) THE NET ARRIVES ALREADY TORN, AND A TEAR IS A WAY THROUGH. The chapter's whole verb since
@@ -30652,7 +30654,7 @@ function testTrawlNet() {
     console.log(`PASS run TR.h (the pass ends and another comes): ${passes} passes in 120s on TRAWL_INTERVAL ${TRAWL_INTERVAL}s, and the first arrives at ${firstAt.toFixed(1)}s`)
   }
 
-  console.log(`PASS run TR (The Trawl's net and its tears): the wall damages the player AND the crowd, it arrives already torn with gaps everywhere the player can reach, the spacing is ${TRAWL_TEAR_SPACE_MUL} view radii on every screen while the radius stays world-space, and the chapter has no bar and no button`)
+  console.log(`PASS run TR (The Trawl's net and its tears): the wall takes the player and carries the crowd, it arrives already torn with gaps everywhere the player can reach, the spacing is ${TRAWL_TEAR_SPACE_MUL} view radii on every screen while the radius stays world-space, and the chapter has no bar and no button`)
 }
 
 // ---- run TH: the net's HOLD (2026-09-03) --------------------------------------------------------
@@ -30861,11 +30863,13 @@ function testTrawlHold() {
     console.log(`PASS run TH.h (held, and still mobbed): ${bites} contact hits in one hold`)
   }
 
-  // (i) THE CROWD IS GROUND THROUGH THE WINDOW. The crowd's ticks come before the player's states,
-  // so a release does not pause the grinder; asserted on a body planted in the mesh after the
-  // release, disarmed player (run.weapons is already empty in the rig).
+  // (i) THE CROWD LOOP RUNS THROUGH THE WINDOW. The crowd's pass comes before the player's states,
+  // so a release does not pause it; asserted under Tight Weave (the only build where the mesh
+  // hurts the crowd, see TH.l) on a body planted in the mesh after the release, disarmed player
+  // (run.weapons is already empty in the rig).
   {
     const run = rig()
+    run.anomalies.tightWeave = 1
     let freed = false
     for (let i = 0; i < 200 && !freed; i++) { stepSim(run, { x: 0, y: 0 }, dt); freed = count(run, 'netFree') > 0; run.events.length = 0 }
     assert.ok(freed && !(run.net.dragT > 0), 'never released within 3.3s')
@@ -30874,7 +30878,7 @@ function testTrawlHold() {
     const before = e.hp
     for (let i = 0; i < 60; i++) { e.x = 200; e.y = run.net.pos; stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
     assert.ok(before - e.hp > 0, 'a body in the mesh during the window lost nothing — the release paused the crowd\'s grinder')
-    console.log(`PASS run TH.i (the grinder runs through the window): ${(before - e.hp).toFixed(0)} HP off a body in the mesh after the release`)
+    console.log(`PASS run TH.i (the crowd loop runs through the window, Tight Weave on): ${(before - e.hp).toFixed(0)} HP off a body in the mesh after the release`)
   }
 
   // (j) A PASS ENDING MID-HOLD LETS GO: one release event, the net gone, only the ticks due paid.
@@ -30933,9 +30937,20 @@ function testTrawlHold() {
     for (let i = 0; i < 60; i++) { stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
     assert.ok(Math.abs(turtle.y - TRAWL_SPEED) < 3, `the turtle rode ${turtle.y.toFixed(1)}px in 1s against the wall's ${TRAWL_SPEED} px/s — the mesh does not carry a cruiser`)
     assert.strictEqual(turtle.hp, 1e6, `the turtle paid ${1e6 - turtle.hp} HP to the mesh — a cruiser must not be ground`)
-    assert.ok(mackerel.hp < 1e6, 'the mackerel beside it must still be ground by the mesh')
+    assert.strictEqual(mackerel.hp, 1e6, `the mackerel paid ${1e6 - mackerel.hp} HP to the mesh — a real net carries, it does not grind (owner 2026-09-04)`)
     assert.ok(Math.abs(mackerel.y - TRAWL_SPEED) < 3, `the mackerel rode ${mackerel.y.toFixed(1)}px in 1s — the mesh grabs every body, not only a cruiser`)
-    console.log(`PASS run TH.l (a cruiser is carried, not ground): turtle rode ${turtle.y.toFixed(0)}px unhurt, mackerel paid ${(1e6 - mackerel.hp).toFixed(0)} HP`)
+    // Tight Weave is the one thing that makes the mesh bite the crowd: same rig, card on, the
+    // mackerel pays TRAWL_ENEMY_DMG × TIGHT_WEAVE_ENEMY_DMG_MUL per TRAWL_TICK and the turtle still nothing.
+    const woven = rig()
+    woven.player.x = 3000; woven.viewRadius = 5000; woven.anomalies.tightWeave = 1
+    const t2 = makeStatusEnemy(woven, { x: 0, y: 0, hp: 1e6, speed: 0 }); t2.flags = ['cruise']; t2.rosterId = 'turtle'
+    const m2 = makeStatusEnemy(woven, { x: 60, y: 0, hp: 1e6, speed: 0 }); m2.flags = []
+    woven.enemies.push(t2, m2)
+    for (let i = 0; i < 60; i++) { stepSim(woven, { x: 0, y: 0 }, dt); woven.events.length = 0 }
+    const wovenTicks = Math.floor(1 / TRAWL_TICK)
+    assert.strictEqual(t2.hp, 1e6, 'Tight Weave ground the turtle — a cruiser is never ground')
+    assert.ok(Math.abs((1e6 - m2.hp) - TRAWL_ENEMY_DMG * TIGHT_WEAVE_ENEMY_DMG_MUL * wovenTicks) <= 1, `Tight Weave took ${1e6 - m2.hp} HP off the mackerel in 1s — expected ${wovenTicks} ticks of ${TRAWL_ENEMY_DMG} × ${TIGHT_WEAVE_ENEMY_DMG_MUL}`)
+    console.log(`PASS run TH.l (carried, not ground): turtle and mackerel rode ${turtle.y.toFixed(0)}px unhurt; under Tight Weave the mackerel paid ${(1e6 - m2.hp).toFixed(0)} HP, the turtle none`)
   }
 
   // (n) THE HAUL. Two bodies on the line and one 200px clear of it when the pass ends: the two are
@@ -30958,6 +30973,30 @@ function testTrawlHold() {
     assert.ok(run.enemies.includes(c) && c.hp === 1e6, 'the body clear of the line was hauled or hurt')
     assert.strictEqual(run.kills, 2, `${run.kills} kills — a haul is a hazard kill, one per body`)
     console.log(`PASS run TH.n (the haul): ${hauls} bodies on the line at the pass end were yanked up, the one clear of it swims on`)
+  }
+
+  // (o) THE HOLD IS A STATE, NOT A BAND TEST. A body fast enough to cross the band's margin (its
+  // own radius) in one frame, seeking a player on the far side of the wall: the net keeps it. The
+  // per-frame test this replaced let 7 in 8 bodies swim free before the haul (adversarial pass,
+  // 2026-09-04) — a fast one escaped the frame after it was pinned. And a body the net holds is
+  // still hauled when the pass ends, wherever its own swim tried to take it.
+  {
+    const run = rig()
+    run.player.x = 0; run.player.y = 600   // across the wall (+y is this wall's normal)
+    const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e6, speed: 2500 }); e.flags = []
+    run.enemies.push(e)
+    let inBand = 0
+    for (let i = 0; i < 120; i++) {
+      stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0
+      if (Math.abs(e.y - run.net.pos) <= TRAWL_HALF + e.radius) inBand++
+    }
+    assert.ok(e._netted, 'a body the mesh touched is not held (_netted unset)')
+    assert.strictEqual(inBand, 120, `a ${e.speed} px/s body was inside the band on ${inBand}/120 frames — the net let it swim out`)
+    run.net.end = run.net.pos + 1
+    let hauls = 0
+    for (let i = 0; i < 5; i++) { stepSim(run, { x: 0, y: 0 }, dt); hauls += count(run, 'netHaul'); run.events.length = 0 }
+    assert.strictEqual(hauls, 1, `${hauls} netHaul events — the held body was not hauled at the pass end`)
+    console.log(`PASS run TH.o (the hold is a state): a ${e.speed} px/s body stayed in the band 120/120 frames and was hauled`)
   }
 
   // (m) WIGGLE TO ESCAPE. Shaking the stick left-right while held fills run.net.wiggle and the

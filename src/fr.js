@@ -566,7 +566,7 @@ const CONFIG = {
   // TIGHT_WEAVE_TEAR_MUL and the English key changes with it, so run XX goes red rather than the
   // card silently shipping a French sentence that states the old number.
   'Tight Weave': 'Maille Serrée',
-  'The net\'s gaps close to 30% of their width, and it takes the crowd 2.2× harder.': 'Les trous du filet se referment à 30% de leur largeur, et il frappe la foule 2,2× plus fort.',
+  'The net\'s gaps close to 30% of their width, and its mesh kills what it carries instead of hauling it in.': 'Les trous du filet se referment à 30% de leur largeur, et sa maille tue ce qu\'elle emporte au lieu de le remonter.',
   'the boat mended its gear overnight': 'le bateau a ramendé ses filets pendant la nuit',
   'time between passes': 'temps entre les passages',
   'Alignment': 'Alignement',

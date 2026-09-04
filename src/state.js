@@ -942,6 +942,9 @@ function generateWells(sig) {
  *                 (SUBMISSION_HIT_EVERY). Contact is its ONLY attack: the player-directed flags are
  *                 stripped at the turn (SUBMISSION_STRIP_FLAGS), and for the rest of the roster
  *                 pounce/dive/charge/strafe all resolve to contact damage anyway.
+ *               _netted (bool) — The Trawl: the net has this body. Set by stepTrawl when it touches
+ *                 solid mesh, held (carried and pinned in the band, exempt from stepStragglers)
+ *                 until the pass ends and hauls it. Sim-only; render sees the ride, not the flag.
  *               _tgtX/_tgtY (px) — SUBMISSION: the seek point stepEnemyMovement chose for an ally,
  *                 published so RENDER can face the sprite. render derives every other enemy's
  *                 bearing from run.player each frame, so without this an ally charging the swarm
