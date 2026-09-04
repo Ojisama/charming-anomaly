@@ -2049,7 +2049,13 @@ export const WEAPONS = {
   // elite still takes the plough damage like anything else standing in the path.
   bringItIn: {
     name: 'Bring It In',
-    desc: 'Hooks the furthest one and winches it home through everything in the way. It does not arrive alive.',
+    // Owner's own sentence (2026-09-04: "hooks the furthest fish, turn the small o'es into
+    // torpedos"), and it earns its length twice over: "the small ones" is BRING_TANK_FRAC stated
+    // without a clause — a tank is not small, and the player learns why the hook came back empty
+    // from the card they already read. "Torpedoes" is the tow, the corridor it ploughs and the fact
+    // that the catch does not arrive alive, in one noun. The three-sentence version this replaced
+    // spelled all of that out and was longer than any other card in the chapter.
+    desc: 'Hooks the furthest fish and turns the small ones into torpedoes.',
     icon: '⚓', rarity: 'epic',
     //   dmg          damage per plough TICK to what the dragged body passes through — the corridor,
     //                not the catch. The execute is unconditional, so there is no number for it.
@@ -11976,6 +11982,27 @@ export const BRING_MAX_LIVE = 6
 // How long the line is drawn taut and empty after the catch lands, purely so the execute reads as
 // the end of a haul rather than as a body vanishing. Sim-side because the renderer draws off it.
 export const BRING_SNAP_T = 0.18
+// A TANK CANNOT BE LANDED (owner, 2026-09-04: "they can't reel in the tanks, they just do 20%
+// damage and the hooks comes back without the fish"). The hook bites, tears this fraction of the
+// tank's maxHP out of it, and the line comes back empty — the cast is spent, with no catch and no
+// corridor. The execute stays unconditional on everything it CAN land, so the clause lives at the
+// hook and not at the arrival, exactly as the never-an-elite rule does.
+// balance_decision : the harpoon cannot land a tank, 20% maxHP instead [2026-09-04]
+//  - of maxHP, not current: five casts kill a tank whatever it has left, which is the number to
+//    read this against. A tank is still a legal TARGET, so a cast can be spent on one.
+export const BRING_TANK_FRAC = 0.2
+// THE CATCH SHOVES WHAT IT IS DRAGGED THROUGH (owner, 2026-09-04: "show a fish reeled in pushes
+// aside other fishes"). px/s of LATERAL push, away from the tow line, applied every frame to bodies
+// inside the corridor — the same field the plough damages, so the drawing, the damage and the shove
+// all state one extent. A tank is not moved by a mackerel on a rope, and `anchored` is exempt like
+// every other forced displacement in sim.js.
+// balance_decision : the towed catch shoves the corridor aside, 100px/s [2026-09-04]
+//  - lateral only, never along the tow: pushing bodies FORWARD would feed them to the player
+//  - ⚠ THE SHOVE IS A NERF ABOVE ~120. It evicts bodies from the very corridor that damages them,
+//    so raising it costs ticks. Swept in three census runs whose other three weapons came back
+//    identical (178/164/225), i.e. one unmoved RNG stream: eff dps 167 with no shove at all, 173 at
+//    100 (waste 26% -> 23%, the lowest of the four), 139 at 200. 100 is the peak, not a compromise.
+export const BRING_SHOVE = 100
 export const TRAWL_TEAR_R = 70           // px, half-width of one tear along the wall
 export const TRAWL_TEAR_R_VAR = 0.35     // +/- fraction of jitter on it, so the mesh reads as torn
                                          // rather than as perforated

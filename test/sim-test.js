@@ -129,7 +129,7 @@ import {
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
   SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, gateAnchorF, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
   SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, SNAP_CAVITY, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
-  TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
+  TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, BRING_TANK_FRAC, TIDE, tiredness,
   TRAWL_DRAG_T, TRAWL_TICK, TRAWL_ENEMY_DMG, TIGHT_WEAVE_ENEMY_DMG_MUL, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T,
   TIGHT_WEAVE_BLAST_RADIUS, TIGHT_WEAVE_BLAST_DMG,
   // v6.8 Trash Tornado rework (Run AA.d)
@@ -30380,6 +30380,116 @@ function testTrawlCards() {
     assert.strictEqual(run.hauls[0].eid, clear.id,
       'the hook took the body the wall ALREADY HAS over the nearer one clear of it — _netted is not read at the fire site')
     console.log(`PASS run TC.i (never a body the wall already has): the farther, netted body was skipped for the nearer clear one`)
+  }
+
+  // (j) ON SCREEN OR NOTHING (owner, 2026-09-04). castRange reaches 520px at level 5 against a
+  // ~195px horizontal half-view on a portrait phone, so farthest-first was picking bodies off the
+  // side of the screen and dragging them in from nowhere. The rectangle, never the radius: `offside`
+  // sits at x 400, which is well inside castRange and well outside the half-view, and `seen` sits
+  // nearer and visible. Farthest-first (TC.a) would take `offside` on its own, so only the screen
+  // gate can be what stops it — the same construction TC.i uses for _netted.
+  {
+    const run = armed()
+    run.player.x = 0; run.player.y = 0
+    run.viewW = 195; run.viewH = 420   // a portrait phone's half-extents, main.js's own numbers
+    const offside = makeStatusEnemy(run, { x: 400, y: 0, hp: 1e6, speed: 0 })
+    const seen = makeStatusEnemy(run, { x: 180, y: 0, hp: 1e6, speed: 0 })
+    run.enemies.push(offside, seen)
+    for (let i = 0; i < 60 * 6 && run.hauls.length === 0; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.hauls.length, 1, 'no line was ever cast with a visible body in range')
+    assert.strictEqual(run.hauls[0].eid, seen.id,
+      'the hook took a body OFF THE SIDE OF THE SCREEN over the nearer visible one — the cast is spent on something the player never saw')
+    console.log(`PASS run TC.j (on screen or nothing): the body at x 400 outside a 195px half-view was skipped for the visible one at 180`)
+  }
+
+  // (k) A TANK CANNOT BE LANDED (owner, 2026-09-04: "they can't reel in the tanks, they just do 20%
+  // damage and the hooks comes back without the fish"). Asserted as all three effects, because each
+  // one fails on its own: the damage LANDED, the body did NOT MOVE, and the body is STILL ALIVE. A
+  // check on hp alone passes with the tank being reeled and executed a moment later; a check on
+  // position alone passes with a hook that does nothing at all.
+  {
+    const run = armed()
+    run.player.x = 0; run.player.y = 0
+    // `anchored` exempts it from the chapter's OWN trawler wall, which sweeps the whole map and
+    // otherwise reels it ~49px/s while this scenario is watching for movement — the position
+    // assertion below would then be reading the net, not the harpoon. It does not exempt it from the
+    // harpoon: neither pickHaulTargets nor stepHauls reads resistsCC, so a reeled tank still moves
+    // and the mutation this check exists for is still visible.
+    const tank = makeStatusEnemy(run, { x: 300, y: 0, type: 'tank', hp: 1000, speed: 0, affixes: ['anchored'] })
+    run.enemies.push(tank)
+    for (let i = 0; i < 60 * 6 && run.hauls.length === 0; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.hauls.length, 1, 'the harpoon never fired at a lone tank in range — a tank must still be a legal TARGET, it just cannot be landed')
+    assert.ok(run.hauls[0].snap > 0, 'the tank was hooked as a LIVE haul — it will be reeled and executed like anything else')
+    const want = 1000 * BRING_TANK_FRAC
+    assert.ok(Math.abs((1000 - tank.hp) - want) < 1e-6,
+      `the hook took ${(1000 - tank.hp).toFixed(1)} HP off the tank, expected ${want.toFixed(1)} (${BRING_TANK_FRAC * 100}% of maxHP)`)
+    // Let the beat run out, and then some. NOT asserted as "x never changed": this chapter has a
+    // TIDE, which walks every body ~46px/s on its own, so a position equality here reads the water
+    // and not the harpoon. Asserted as the two things only a tow can produce — the catch ARRIVES
+    // (610px/s covers the 300px gap in half a second) and is then EXECUTED. Still alive and still
+    // 80% at 2s is a line that never reeled. The next cast is 2.31s away, so this window holds one.
+    // NEVER TOWED, ASSERTED PER FRAME. An end-position equality is not available here: this chapter
+    // has a TIDE that walks every body on its own, and a control run cannot be held in lockstep
+    // because the armed run's own weapon draws randoms and re-phases the chapter's streaming. The
+    // per-frame STEP separates the two cleanly instead — the tide moves a body at most
+    // TIDE.surge * dt (0.77px a frame), a tow moves it travelSpeed * dt (10.2px). The 2px band sits
+    // in that gap, so even a SINGLE frame of reeling — what a spent line falling through to the
+    // haul body would produce — trips it.
+    let maxStep = 0
+    for (let i = 0; i < 120; i++) {
+      const bx = tank.x, by = tank.y
+      stepSim(run, { x: 0, y: 0 }, dt)
+      maxStep = Math.max(maxStep, Math.hypot(tank.x - bx, tank.y - by))
+    }
+    assert.ok(!tank._dead, 'the tank was reeled in and executed — the harpoon must not land one')
+    assert.ok(Math.abs((1000 - tank.hp) - want) < 1e-6,
+      `the tank lost ${(1000 - tank.hp).toFixed(1)} HP over 2s, expected only the hook's ${want.toFixed(1)} — a tank must take no corridor tick from its own line either`)
+    assert.ok(maxStep < 2,
+      `the tank moved ${maxStep.toFixed(2)}px in one frame — the tide alone cannot exceed ${(TIDE.surge * dt).toFixed(2)}px, so the line towed it`)
+    console.log(`PASS run TC.k (a tank tears free): 1000 -> ${tank.hp} HP (${BRING_TANK_FRAC * 100}% of maxHP), never moved more than ${maxStep.toFixed(2)}px in a frame (a tow is ${(610 * dt).toFixed(1)}), never landed`)
+  }
+
+  // (l) THE CATCH SHOVES THE CORRIDOR ASIDE (owner, 2026-09-04: "show a fish reeled in pushes aside
+  // other fishes"). TWO bystanders at mirrored distances from the tow line — one INSIDE the corridor,
+  // one well outside it — and the assertion is the GAP between how far each was moved sideways. A
+  // single body's displacement cannot be read here: this chapter's tide walks everything, so an
+  // absolute number would be measuring the water. Both bystanders feel the same tide at the same
+  // instant, so the tide cancels and only the shove is left. Neither is `anchored`: that flag is
+  // exactly what the shove exempts, so anchoring them to duck the tide would delete the subject.
+  {
+    const run = armed()
+    run.player.x = 0; run.player.y = 0
+    const W = WEAPONS.bringItIn.levels[4].width
+    const prey = makeStatusEnemy(run, { x: 0, y: 300, hp: 1e6, speed: 0 })
+    const inside = makeStatusEnemy(run, { x: W * 0.5, y: 150, hp: 1e6, speed: 0 })
+    const outside = makeStatusEnemy(run, { x: W * 3, y: 150, hp: 1e6, speed: 0 })
+    run.enemies.push(prey, inside, outside)
+    // ⚠ THE WINDOW OPENS WHEN THE LINE DOES, not when the scenario does. The harpoon's first cast is
+    // a full 2.31s interval away, and this chapter's tide walks every body ~27px sideways in that
+    // time — baselining before the cast measures the water for two seconds and the shove for half of
+    // one, and reports the tide.
+    for (let i = 0; i < 60 * 6 && run.hauls.length === 0; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(run.hauls.length, 1, 'the harpoon never fired at the prey, so nothing was towed past the bystanders')
+    const x0in = inside.x, x0out = outside.x
+    // ONE PASS ONLY. Left running, the harpoon refires and the next cast hooks whichever BYSTANDER is
+    // farthest — towing the subject of the measurement to the player, which reads as the shove
+    // pushing it inward. Stop the moment the catch lands.
+    for (let i = 0; i < 60 * 3 && !prey._dead; i++) stepSim(run, { x: 0, y: 0 }, dt)
+    const dIn = inside.x - x0in, dOut = outside.x - x0out
+    // THE SIGNS ARE THE ASSERTION. Both bystanders sit at the same y and feel the same tide at the
+    // same instants, and the tide here has a NEGATIVE x component — so `outside`, which the corridor
+    // never reaches, drifts one way and `inside` must be driven the OTHER way against it. A pair of
+    // magnitudes would still be reading the water; opposite signs cannot be.
+    assert.ok(dIn > 0 && dOut < 0,
+      `inside the corridor moved ${dIn.toFixed(1)}px and outside moved ${dOut.toFixed(1)}px — they must move APART, one shoved out and one only drifting`)
+    // The band, with its power stated. The tide contributes exactly ZERO to the SEPARATION by
+    // construction — both bodies sit at the same y and take the same push on the same frames — so
+    // this number has no noise floor: it is the shove or it is nothing. Measured 12.3px at the
+    // shipped BRING_SHOVE of 100; with the shove deleted it is 0.0. 6 sits halfway, so it still
+    // fails on the pathology with a 2x margin and survives halving the constant again.
+    assert.ok(dIn - dOut > 6,
+      `the two bystanders separated by only ${(dIn - dOut).toFixed(1)}px over the pass — with no shove they separate by 0`)
+    console.log(`PASS run TC.l (the catch shoves the corridor aside): over one pass a body inside the corridor went +${dIn.toFixed(1)}px out against the tide while one at 3x the width drifted ${dOut.toFixed(1)}px with it`)
   }
 
   console.log(`PASS run TC (The Trawl's three new cards): Bring It In hooks the farthest, executes on arrival for a credited kill, refuses elites, takes distinct bodies with Double Rig, only damages its own corridor and never hooks a body the wall already has; Tight Weave narrows the tears without sealing them; Full Season brings more walls`)

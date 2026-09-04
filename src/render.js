@@ -28,6 +28,11 @@ import { currentForce, tideForce } from './sim.js'
 
 
 const DARK = 0x3b3345
+// THE HAUL WAKE (owner pick, 2026-09-04). Shot as four arms on one frame — no wake, the first
+// concentric-arc cut, this at 0.32 alpha, and this. He took the loudest: the chapter's floor already
+// carries big pale lobed props and 40 pale tide streaks, so a 0.3-alpha hairline is invisible on
+// half the tiles, which the A/B proved by coming back indistinguishable from the baseline.
+const WAKE_VIS_HAUL = { c: 0xcfe6f2, w: 2.2, a: 0.5 }
 // THE CHEEKS SKIN's own palette (SHOP.cheeks). Book 1 wears it outright; the fish and the kaiju
 // keep their own body colours and use only the drawing.
 const BUTT_PEACH = { fill: 0xf2b18e, shade: 0xc97c58, lit: 0xffd9c0, line: 0x8a4a30, crease: 0x9c583a, blush: 0xff9d9d }
@@ -14043,6 +14048,8 @@ const spurG = new Graphics()
     hook: 0xffd98a,                        // the hooks — the brightest thing in the chapter
     float: 0xf25f3a,                       // floats and sinkers, the one saturated red
     mesh: 0xf0a94a, meshFill: 0x7a4517,    // a thrown net's twine and the water it darkens
+    wake: 0xcfe6f2,                        // displaced water behind a hauled catch — NOT gear, so
+                                           // it sits outside the chapter's orange rope palette
     snood: 26,                             // px between hooks along a set line
     floatGap: 96,                          // px between floats
     fade: 0.7,                             // s of fade-out at the end of a line's life
@@ -14091,6 +14098,78 @@ const spurG = new Graphics()
       longlineG.moveTo(p.x, p.y).lineTo(h.x, h.y)
         .stroke({ width: 1.6, color: GEAR_VIS.rope, alpha: 0.9 * a, cap: 'round' })
       if (spent) continue
+      // THE WAKE (owner, 2026-09-04: "a subtle animation of wave corridor or something to show a
+      // fish reeled in pushes aside other fishes"). The corridor is the whole value of this card and
+      // it had no drawing at all — the plough damage happened in clear water, so a body dying beside
+      // the catch read as coincidence rather than as the thing the cable just dragged through it.
+      //
+      // DISPLACEMENT, WHICH IS WHAT WATER ACTUALLY DOES (owner, 2026-09-04: "those arcs are not how
+      // water would be displaced"). The first cut stacked concentric fronts behind the catch and he
+      // was right to reject it: water does not leave rings behind something towed THROUGH it. It
+      // leaves two things, and this draws both, seen from directly above:
+      //
+      //  1. THE SHEAR LINES — a V opening BACKWARDS from the catch's flanks, the shape everyone
+      //     reads as "something is moving through this". It is also literally the boundary of what
+      //     the plough damages and what BRING_SHOVE pushes aside, so the drawing states the extent
+      //     without outlining it as a band, which would read as a UI overlay on the floor. Off
+      //     `h.width`, so a Wide Drag pick widens what you see by exactly what it widened.
+      //  2. THE VORTEX STREET — behind the body the water closes back in and sheds curls,
+      //     ALTERNATING side to side. Alternating is the whole tell: symmetric puffs read as an
+      //     exhaust, staggered ones read as turbulence.
+      //
+      // ⚠ THE V STARTS AT THE FLANKS, NEVER AT THE NOSE. Two curves that both leave the leading
+      // point and bow outward MEET, and a closed dome over the body reads as a parachute or a shield
+      // bubble — which is exactly what the second cut photographed as.
+      //
+      // The phase is the catch's own DISTANCE TO THE PLAYER, not a clock: the trail then scrolls only
+      // while the haul is actually travelling, and a frozen frame behind a modal freezes it too,
+      // which is the rule every other pooled effect here follows via animT. It costs no state.
+      const wx = p.x - h.x, wy = p.y - h.y
+      const wd = Math.hypot(wx, wy) || 1
+      const ux = wx / wd, uy = wy / wd     // toward the player: the direction it is being towed
+      const nx = -uy, ny = ux              // across the tow, where the water is pushed aside
+      const WK = WAKE_VIS_HAUL
+      const t = (wd * 0.011) % 1
+      // THE SHEARS FADE ALONG THEIR LENGTH, which is the difference between water and a drawn
+      // line. A single stroke carries one alpha end to end, so it stops dead at its tail and
+      // reads as UI; this walks the curve in SEG pieces and drops the alpha down it, so the
+      // shear dissolves into the water the way a real one loses height. Twelve short strokes a
+      // haul, against a cap of BRING_MAX_LIVE.
+      const flank = h.width * 0.26
+      const SEG = 6
+      for (const s of [1, -1]) {
+        const sx = h.x + nx * s * flank, sy = h.y + ny * s * flank   // the flank, not the nose
+        const ex = h.x - ux * 58 + nx * s * h.width * 1.1
+        const ey = h.y - uy * 58 + ny * s * h.width * 1.1
+        const mx = (sx + ex) / 2 + nx * s * 6, my = (sy + ey) / 2 + ny * s * 6
+        // The quadratic, by hand, so each piece can carry its own alpha.
+        const at = (q) => {
+          const j = 1 - q
+          return [j * j * sx + 2 * j * q * mx + q * q * ex, j * j * sy + 2 * j * q * my + q * q * ey]
+        }
+        let [px0, py0] = at(0)
+        for (let i = 1; i <= SEG; i++) {
+          const q = i / SEG
+          const [px1, py1] = at(q)
+          longlineG.moveTo(px0, py0).lineTo(px1, py1)
+            .stroke({ width: WK.w * (1 - q * 0.45), color: WK.c, alpha: WK.a * (1 - q) ** 1.3, cap: 'round' })
+          px0 = px1; py0 = py1
+        }
+      }
+      // Four curls, each a half-turn of a circle whose centre walks back down the tow. `s`
+      // alternates with k so consecutive curls sit on opposite flanks.
+      for (let k = 0; k < 4; k++) {
+        const ph = (t + k / 4) % 1
+        const back = 16 + ph * 62
+        const s = (k & 1) ? 1 : -1
+        const off = h.width * (0.30 + ph * 0.55)
+        const cx = h.x - ux * back + nx * s * off
+        const cy = h.y - uy * back + ny * s * off
+        const r = 5 + ph * 9
+        const a0 = Math.atan2(-uy, -ux) + s * Math.PI * 0.5
+        longlineG.arc(cx, cy, r, a0, a0 + s * Math.PI * 1.15, s < 0)
+          .stroke({ width: WK.w * 0.8, color: WK.c, alpha: WK.a * 0.85 * (1 - ph), cap: 'round' })
+      }
       // The hook itself, at the catch end — the same 2.1px bead the longline's snoods carry, so one
       // chapter's gear is one visual vocabulary.
       longlineG.circle(h.x, h.y, 3).fill({ color: GEAR_VIS.hook, alpha: 0.95 })
