@@ -806,7 +806,7 @@ const CONFIG = {
   // own name two lines up, in the same chapter's pool, so a mod called 'Ligne Barbelée' would read
   // as an upgrade to the wrong weapon. A winch line is a câble; the family is coherent and distinct.
   'Bring It In': 'On Rentre',
-  'Hooks the furthest one and winches it home through everything in the way. It does not arrive alive.': 'Harponne le plus éloigné et le ramène de force à travers tout ce qui gêne. Il n\'arrive pas vivant.',
+  'Hooks the furthest fish and turns the small ones into torpedoes.': 'Harponne le poisson le plus éloigné et transforme les petits en torpilles.',
   'Barbed Line': 'Câble Barbelé',
   'damage to what it drags through': 'dégâts à ce qu\'il traverse',
   'Wide Drag': 'Large Sillon',

@@ -191,7 +191,7 @@ import {
   TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_WIGGLE_ARC, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T, TRAWL_DRAG_REEL,
   TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
   TIGHT_WEAVE_TEAR_MUL, TIGHT_WEAVE_ENEMY_DMG_MUL, TIGHT_WEAVE_BLAST_RADIUS, TIGHT_WEAVE_BLAST_DMG, TIGHT_WEAVE_BLAST_MAX,
-  BRING_ARRIVE_PAD, BRING_MAX_LIVE, BRING_SNAP_T,
+  BRING_ARRIVE_PAD, BRING_MAX_LIVE, BRING_SNAP_T, BRING_TANK_FRAC, BRING_SHOVE,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
   SHARD_R, SHARD_RIFT_FUSE, SHARD_RIFT_W, SHARD_RIFT_FRAC,
@@ -4152,7 +4152,10 @@ function stepContactDamage(run) {
   const body = playerBodyEnds(run)   // once per step, not once per enemy
   // A body on the harpoon's line cannot hurt you. The reel drags it straight through the player, so
   // without this the card scraped its own caster on every landing (owner, 2026-09-03).
-  const hooked = new Set(run.hauls.map((h) => h.eid))
+  // ⚠ LIVE HAULS ONLY. A spent haul (snap > 0) is a line whipping back EMPTY, and since 2026-09-04
+  // a hooked tank is pushed as one — so taking every eid here would hand the tank BRING_SNAP_T of
+  // contact immunity for a hook it just shrugged off, which is the opposite of the rule.
+  const hooked = new Set(run.hauls.filter((h) => h.snap <= 0).map((h) => h.eid))
   for (const e of run.enemies) {
     if (e._dead) continue
     const dx = e.x - p.x, dy = e.y - p.y   // the contact normal, for the circuit's bump
@@ -12286,6 +12289,13 @@ function pickHaulTargets(run, range, n) {
     // _netted: the wall already has this body, same exemption stepStragglers uses — a catch on
     // the harpoon's line and on the net at once is a body fighting two hazards for one cast.
     if (e._dead || e.elite || isAlly(e) || e._netted) continue
+    // ON SCREEN OR NOTHING (owner, 2026-09-04: "make it unable to bring fishes outside of screen
+    // range"). castRange reaches 520px at level 5 against a ~195px horizontal half-view on a
+    // portrait phone, so FARTHEST-first was reliably picking a body the player had never seen and
+    // dragging it in from off the side — an execute spent on nothing you chose, and a corridor
+    // ploughed through water you were not looking at. The same rectangle-not-radius rule
+    // randomVisibleEnemy documents, and the same ruling the jackpot's payout takes.
+    if (!onScreen(run, e.x, e.y)) continue
     const dx = e.x - p.x, dy = e.y - p.y
     const d2 = dx * dx + dy * dy
     if (d2 > r2) continue
@@ -12308,6 +12318,21 @@ function stepBringItInWeapon(run, w, stats, fireRateMul, dt) {
     const busy = new Set(run.hauls.map((h) => h.eid))
     const targets = pickHaulTargets(run, stats.castRange, lines + busy.size).filter((e) => !busy.has(e.id)).slice(0, lines)
     for (const e of targets) {
+      // THE TANK TEARS FREE. Pushed as a haul that is ALREADY spent (snap > 0) rather than as no
+      // haul at all, so the cable is drawn whipping back for the same beat a landed catch gets:
+      // the player sees the hook bite and come home empty, which is the whole tell. It never reels
+      // and never ploughs — stepHauls' first line retires it before either.
+      if (e.type === 'tank') {
+        applyDamage(run, e, Math.max(1, e.maxHP * BRING_TANK_FRAC))
+        run.hauls.push({
+          eid: e.id, x: e.x, y: e.y,
+          dmg: stats.dmg, tick: stats.tick, acc: 0,
+          speed: stats.travelSpeed, width: stats.width,
+          snap: BRING_SNAP_T,
+        })
+        run.events.push({ type: 'hookOn', x: e.x, y: e.y })
+        continue
+      }
       run.hauls.push({
         eid: e.id, x: e.x, y: e.y,
         dmg: stats.dmg, tick: stats.tick, acc: 0,
@@ -12325,6 +12350,10 @@ function stepHauls(run, dt) {
   if (run.hauls.length === 0) return
   const p = run.player
   for (const h of run.hauls) {
+    // A SPENT LINE COUNTS ITS BEAT DOWN AND NEVER REACHES THE REEL BELOW: the frame `snap` goes
+    // negative is the same frame the `snap >= 0` filter at the bottom collects it. That is what lets
+    // a hooked TANK be pushed as an already-spent haul (see stepBringItInWeapon) — the cable draws,
+    // and the body is never towed or ploughed. Mutation-checked: adding a clamp here changes nothing.
     if (h.snap > 0) { h.snap -= dt; continue }
     const e = run.enemies.find((x) => x.id === h.eid)
     // The catch died on the way in — to the plough, to the net, to anything. The line goes slack.
@@ -12372,14 +12401,35 @@ function stepHauls(run, dt) {
     // the same reasoning WEAPONS.longline's own tick damage records.
     h.acc += dt
     const ticks = Math.floor(h.acc / h.tick)
-    if (ticks <= 0) continue
-    h.acc -= ticks * h.tick
+    if (ticks > 0) h.acc -= ticks * h.tick
     const w2 = (h.width + e.radius) * (h.width + e.radius)
+    // ONE SCAN, TWO EFFECTS, AND THEY RUN AT DIFFERENT RATES. The damage is on the weapon's own
+    // `tick` cadence (a per-frame tick would make dmg a framerate reading); the SHOVE is per frame,
+    // because a body that jumps aside 3 times a second reads as teleporting where a body eased aside
+    // every frame reads as water. Same `w2` for both, so the corridor the player learns from the
+    // shove is exactly the corridor that damages.
     for (const o of run.enemies) {
       if (o._dead || o === e || isAlly(o)) continue
       const ox = o.x - e.x, oy = o.y - e.y
       if (ox * ox + oy * oy > w2) continue
-      applyDamage(run, o, h.dmg * ticks)
+      if (ticks > 0) applyDamage(run, o, h.dmg * ticks)
+      // LATERAL ONLY (BRING_SHOVE). The push is along the corridor's normal, away from the tow line
+      // — never along it, which would sweep the crowd INTO the player, i.e. hand the swarm a free
+      // approach for firing your own weapon. `anchored` is exempt like every other forced
+      // displacement here, and a TANK is not moved by a mackerel on a rope.
+      // `_netted` joins the exemptions for the reason stepStragglers gives ("the net has it") and
+      // pickHaulTargets already honours: a body the wall is holding is not also shoved by the
+      // harpoon. stepTrawl re-clamps it to the band next frame either way, so the shove would only
+      // fight the wall for a frame — but an inconsistent exemption list is how the next reader
+      // learns the wrong convention.
+      if (o.type === 'tank' || o._netted || resistsCC(o)) continue
+      const side = ox * -uy + oy * ux           // signed distance across the tow
+      const s = side === 0 ? 1 : Math.sign(side)
+      // Fades to nothing at the corridor's edge: a body already clear of the line is not shoved
+      // further out, so the effect states the extent instead of pushing past it.
+      const fall = 1 - Math.min(1, Math.abs(side) / (h.width + e.radius))
+      o.x += -uy * s * BRING_SHOVE * fall * dt
+      o.y += ux * s * BRING_SHOVE * fall * dt
     }
   }
   run.hauls = run.hauls.filter((h) => h.snap >= 0)
