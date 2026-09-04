@@ -1584,9 +1584,10 @@ function generateWells(sig) {
  *   grip on the player (> 0 = held: carried with the wall, pinned in the band, ticked at
  *   TRAWL_DRAG_TICK_PCT of max HP per TRAWL_DRAG_TICK, stick at TRAWL_DRAG_STICK_MUL), `dragTicks` ticks paid this hold, `freeT` the
  *   ride cap after a release (zeroed the frame the body is clear of solid mesh), `wiggle` 0..1 the
- *   escape bar (each stick reversal adds 1/TRAWL_WIGGLE_FLICKS; full = let go this frame — the HUD
- *   paints it while dragT > 0). Written only by stepTrawl, plus hurtPlayer's revive zeroing dragT
- *   and stepPlayerMovement's wiggle count (with `_stkX/_stkY`, the last held stick direction). _netAcc: s to the next pass, seeded at
+ *   escape bar (every TRAWL_WIGGLE_ARC of stick SWING adds 1/TRAWL_WIGGLE_FLICKS; full = let go
+ *   this frame — the HUD paints it while dragT > 0). Written only by stepTrawl, plus hurtPlayer's
+ *   revive zeroing dragT and stepPlayerMovement's wiggle count (with `_stkX/_stkY`, the last held
+ *   stick direction, and `_stkA`, the swing banked toward the next flick). _netAcc: s to the next pass, seeded at
  *   TRAWL_FIRST_PASS and reset to TRAWL_INTERVAL x trawlIntervalMul when a pass clears.
  * orca: null | { state, t, cx, cy, r, ang, x, y, tx, ty, dirX, dirY, hit, splashed, alpha, passes } — The Wreck's apex
  *   predator, in chapters declaring `orca: true`. A SINGLE NULLABLE OBJECT with a countdown, the
