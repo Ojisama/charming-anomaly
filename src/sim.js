@@ -2519,8 +2519,8 @@ function stepStragglers(run) {
     // by construction the body that falls behind fastest — it is swimming somewhere else — so
     // without this it is the one creature the recycler would keep teleporting back into your path,
     // which is the exact opposite of "it does not know you exist".
-    if (e._dead || isAlly(e) || (e.affixes && e.affixes.includes('anchored'))
-      || (e.flags && e.flags.includes('cruise'))) continue   // SUBMISSION: never yank an ally off its fight
+    if (e._dead || isAlly(e) || e._netted || (e.affixes && e.affixes.includes('anchored'))
+      || (e.flags && e.flags.includes('cruise'))) continue   // SUBMISSION: never yank an ally off its fight; _netted: the net has it
     const dx = e.x - p.x, dy = e.y - p.y
     if (dx * dx + dy * dy < dropSq) continue
     const a = heading + (Math.random() - 0.5) * KITE_AHEAD_ARC
@@ -5764,11 +5764,12 @@ function stepTrawl(run, dt) {
   // that ate the reading time would play as unfair rather than as harder. More walls, same notice.
   if (net.pos > net.end) {
     // HAULED (owner 2026-09-03: "grab the other fishes along the way too ... and then yank them up
-    // at the end, literally fishing them"). Every body still on the line when the pass ends is
-    // pulled up and out: a hazard kill, same path and same rewards as the grind below, plus a
-    // {type:'netHaul'} per body for the tell. The player is not hauled — the hold just lets go.
+    // at the end, literally fishing them"). Every body the net HOLDS (`_netted`, set below) when
+    // the pass ends is pulled up and out: a hazard kill, plus a {type:'netHaul'} per body for the
+    // tell. The player is not hauled — the hold just lets go.
     for (const e of run.enemies) {
-      if (e._dead || Math.abs(netDist(net, e.x, e.y)) > TRAWL_HALF + e.radius || inNetHole(net, e.x, e.y)) continue
+      if (e._dead || !e._netted) continue
+      e._netted = false
       run.events.push({ type: 'netHaul', x: e.x, y: e.y })
       dealDamage(run, e, e.hp + e.maxHP, false, false, true)
     }
@@ -5783,30 +5784,31 @@ function stepTrawl(run, dt) {
   net._acc += dt
   let ticks = 0
   while (net._acc >= TRAWL_TICK) { net._acc -= TRAWL_TICK; ticks++ }
-  // BOTH SIDES, in the same pass — the mechanic, not a side effect. Precedent is shipped twice:
-  // stepRocks and the undergrowth's snap traps, whose config block says outright "it damages BOTH
-  // sides, and that IS the mechanic". The crowd is ground where it stands; the player is TAKEN
-  // (below), which is the 2026-09-03 ruling and the one asymmetry between the two halves.
+  // The crowd is CARRIED, not ground (owner 2026-09-04: "i want it to work as a real net by
+  // dragging enemies in it"). The mesh only hurts what it carries under Tight Weave — that card's
+  // stated trade is the wall doing your killing — otherwise a body rides to the pass end and is
+  // hauled there. The player is TAKEN (below), the 2026-09-03 ruling.
+  const grind = run.anomalies?.tightWeave ? TRAWL_ENEMY_DMG * TIGHT_WEAVE_ENEMY_DMG_MUL : 0
   for (const e of run.enemies) {
-    if (e._dead) continue
+    // Allies and `anchored` are the shipped exemptions of every forced displacement in this file.
+    if (e._dead || isAlly(e) || resistsCC(e)) continue
     let d = netDist(net, e.x, e.y)
-    if (Math.abs(d) > TRAWL_HALF + e.radius) continue
-    if (inNetHole(net, e.x, e.y)) continue
     // GRABBED (owner 2026-09-03: "grab the other fishes along the way too, like it does to the
-    // player"). Every body in the mesh rides the wall at TRAWL_SPEED and is pinned inside the band
-    // — the player's carry, exactly — until the pass ends and hauls it (above). A cruiser (the
-    // turtle: "dragged by the trawl fishnet, but doesn't take dmg from it") pays no tick; the rest
-    // pay the crowd's while they ride.
+    // player"). A body touching solid mesh is HELD — `_netted`, a state, like the player's dragT —
+    // and rides the wall pinned inside the band until the pass ends and hauls it (above). A state
+    // and not a per-frame band test, because the band test's margin is the body's own radius: a
+    // tuna's dash carried it out the next frame and 7 in 8 bodies swam free before the haul
+    // (adversarial pass, 2026-09-04). stepStragglers honours the flag too.
+    if (!e._netted) {
+      if (Math.abs(d) > TRAWL_HALF + e.radius || inNetHole(net, e.x, e.y)) continue
+      e._netted = true
+    }
     e.x += net.nx * TRAWL_SPEED * dt; e.y += net.ny * TRAWL_SPEED * dt; d += TRAWL_SPEED * dt
     const c = Math.max(-TRAWL_HALF, Math.min(TRAWL_HALF, d))
     if (c !== d) { e.x += net.nx * (c - d); e.y += net.ny * (c - d) }
     if (e.flags && e.flags.includes('cruise')) continue
-    if (ticks === 0) continue
-    // tightWeave's other half: the wall does your killing in exchange for your way out of it. The
-    // multiplier is on the CROWD's side only — the player's hold is untouched, or the card would
-    // be a pivot that punishes you twice for one trade.
-    const weaveMul = run.anomalies?.tightWeave ? TIGHT_WEAVE_ENEMY_DMG_MUL : 1
-    dealDamage(run, e, TRAWL_ENEMY_DMG * weaveMul * ticks, false, false, true)   // hazard: the player did not deal it
+    if (ticks === 0 || grind === 0) continue
+    dealDamage(run, e, grind * ticks, false, false, true)   // hazard: the player did not deal it
   }
 
   // THE HOLD (2026-09-03, owner: "trawler net should drag you with it for 3s, and deal you 20dmg
@@ -7472,7 +7474,7 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     // ordinary pickups, so every coin rule — the magnet, Avarice, coinMul, the per-run cap — still
     // applies to them. Chapter-scoped by the field being absent on every other roster entry.
     //   ON SCREEN OR NOTHING (owner 2026-09-03: "loot and xp only if they're visible"). A jackpot
-    // body that dies out of view — ground by the net a pass away, eaten by a whirlpool that drifted
+    // body that dies out of view — hauled by the net a pass away, eaten by a whirlpool that drifted
     // off — drops neither its xp gem nor its jackpot. The kill still counts.
     const jackpot = enemy.rosterId ? CHAPTERS[run.chapter].roster?.find((r) => r.id === enemy.rosterId)?.jackpot : null
     const paid = !jackpot || onScreen(run, enemy.x, enemy.y)

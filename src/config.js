@@ -1237,7 +1237,7 @@ export const ANOMALIES = {
   tightWeave: {
     name: 'Tight Weave', icon: '🕸️',
     from: 'the boat mended its gear overnight',
-    desc: `The net's gaps close to ${Math.round(TIGHT_WEAVE_TEAR_MUL * 100)}% of their width, and it takes the crowd ${TIGHT_WEAVE_ENEMY_DMG_MUL}× harder.`,
+    desc: `The net's gaps close to ${Math.round(TIGHT_WEAVE_TEAR_MUL * 100)}% of their width, and its mesh kills what it carries instead of hauling it in.`,
     // THE CHAPTER IS THE GATE, verbatim from Runoff/Deadfall/Black Tide: `chapter: 'trawl'` is
     // already a narrow gate, so `when` stays unconditional rather than adding a second one.
     when: () => true,
@@ -8450,9 +8450,9 @@ CHAPTERS.trawl = {
     // thing you farm" line above by the owner's own call: the turtle is the thing you hunt now,
     // and maxAlive 1 is what keeps that a hunt rather than a harvest (owner 2026-09-03: "max 1
     // turtle alive"). The kill pays ONLY IF THE BODY DIES ON SCREEN (same ruling): a turtle the
-    // net ground down two screens away, or a whirlpool ate out of view, drops neither its gem nor
-    // its jackpot — the sim's death path reads run.viewW/viewH for it. And the net CARRIES a
-    // cruiser instead of grinding it (stepTrawl): it is dragged along, unhurt.
+    // net hauled two screens away, or a whirlpool ate out of view, drops neither its gem nor
+    // its jackpot — the sim's death path reads run.viewW/viewH for it. The net carries a cruiser
+    // like everything else (stepTrawl), and hauls it at the pass end like everything else.
     { id: 'turtle',   archetype: 'normal', name: 'Sea Turtle', hpMul: 3, speedMul: 0.5, weight: 1, xpMul: 0.6, radiusMul: 1.5, maxAlive: 1, flags: ['cruise'], jackpot: { levels: 1, coins: 20 } },
     { id: 'sealion',  archetype: 'tank',   name: 'Sea Lion', hpMul: 2.4,  speedMul: 0.85, flags: ['pounce'] },
     { id: 'tuna',     archetype: 'fast',   name: 'Tuna',     hpMul: 0.95, speedMul: 1.25, weight: 2, flags: ['dashBurst'] },
@@ -8511,18 +8511,18 @@ CHAPTERS.trawl = {
 
   // ⚠ UNMEASURED FIRST CUT, exactly as The Reef's was, and stated so rather than implied. It is one
   // step up from The Reef's on the ladder Book 1 walks between its own chapters 3 and 4. Read it
-  // knowing the net is NOT in this table and takes a real bite out of the crowd on every pass — the
-  // first probe of this chapter should measure how much, because if the net is doing the thinning
-  // then spawnMul is the wrong knob and maxAliveMul is the right one.
+  // knowing the net is NOT in this table and hauls every body it carries off the map at the end
+  // of each pass — the first probe of this chapter should measure how much of the thinning is the
+  // net's, because if it is most of it then spawnMul is the wrong knob and maxAliveMul is the right one.
   // balance_decision : -15% hp, +20% xp, -25% late spawns, owner 2026-09-02
   //  - lateSpawnMul blends in from SPAWN_LATE_START over SPAWN_LATE_BLEND (lateSpawnMulAt), no step
   balance: { spawnMul: 0.8, enemyHpMul: 0.85, xpMul: 1.2, maxAliveMul: 0.85, lateSpawnMul: 0.75 },
 
   // ---- the arsenal. The chapter's problem is that you spend it running in a straight line with the
   // crowd behind you and a wall periodically making you turn, so what the gear has to do is keep the
-  // pack OFF you and STILL — the chapter's own net does the executing.
+  // pack OFF you and STILL — the chapter's own net carries away whatever it reaches.
   //   longline — the starter. A fence set between you and the pack; see WEAPONS.longline.
-  //   netToss  — the pack held where it stands, for the wall to arrive into.
+  //   netToss  — the pack held where it stands, for the wall to arrive into and take.
   //   whirlpool — swallows the swarm. The third answer to a crowd (move it) that neither native
   //              gives. It was the BORROWED Mini Black Hole until 2026-09-02, kept because a vortex
   //              is abstract — and the owner's verdict from play was that the open ocean had black
@@ -11815,14 +11815,11 @@ export const PASSIVE_RESIST_K = 1
 export const resistFrac = (r) => r / (r + PASSIVE_RESIST_K)
 
 // ---- THE TRAWL (v7.x Book 2 ch 4 — chapters whose signature is `trawl`) ------------------------
-// A net wall crosses the map on a timer, from a direction, and it AIMS AT NOTHING. It kills the
-// player and it kills the crowd, in the same pass, on the same tick. That last part is the chapter,
-// not a side effect: every other threat in this game is pointed at you, and the one thing in Book 2
-// that is indifferent to you is the one that makes the ocean feel industrial.
-//
-// Precedent for hurting both sides is shipped twice already — stepRocks ("hurts the player on
-// contact AND grinds" enemies) and the undergrowth's snap traps, whose config block says outright
-// "it damages BOTH sides, and that IS the mechanic". This is those two at map scale.
+// A net wall crosses the map on a timer, from a direction, and it AIMS AT NOTHING. It takes the
+// player (the hold, below) and it takes the crowd — every body it touches is carried along the
+// sweep and hauled up when the pass ends (owner 2026-09-04: "work as a real net by dragging enemies
+// in it"). Every other threat in this game is pointed at you, and the one thing in Book 2 that is
+// indifferent to you is the one that makes the ocean feel industrial.
 //
 // THE NET IS AN INFINITE LINE, not an entity with ends, and that is a deliberate consequence of the
 // world being streamed and unbounded. A wall with ends is a wall you walk around, and at 300s a
@@ -11864,7 +11861,7 @@ export const TRAWL_HALF = 30             // px half-thickness of the mesh itself
 // has to be survivable, and the desktop simply sees it coming sooner, which is the right way round.
 export const TRAWL_LEAD_MUL = 1.6
 export const TRAWL_TICK = 0.35           // s between the CROWD's contact ticks (the player's are the hold's, below)
-export const TRAWL_ENEMY_DMG = 34        // enemy damage per tick — the net out-kills you, and should
+export const TRAWL_ENEMY_DMG = 34        // enemy damage per tick, ONLY under Tight Weave (× TIGHT_WEAVE_ENEMY_DMG_MUL); plain mesh carries the crowd unhurt
 // ---- THE HOLD (2026-09-03, The Trawl — what the mesh does to YOU) ------------------------------
 // The mesh does not tick on you like a pool: it TAKES you. Touch it and it has hold of you for
 // TRAWL_DRAG_T, carrying you along its sweep at TRAWL_SPEED, and you cannot leave the band until it
@@ -11878,7 +11875,7 @@ export const TRAWL_ENEMY_DMG = 34        // enemy damage per tick — the net ou
 // crowd involved. So the window ends the frame no sample of the body is in solid mesh, and the
 // mesh can take you again the moment you come back. TRAWL_DRAG_FREE_T is only the RIDE CAP: stay
 // inside the mesh that long after a release and it takes you again, so matching the wall's own
-// speed inside it is not a mobile kill zone that grinds the crowd for free. Six seconds covers a
+// speed inside it is not a free ride the wall carries you on. Six seconds covers a
 // full-speed diagonal run to a tear 1200px along the wall. Ticks are counted from the catch on a
 // tick, so it pays exactly TICK_PCT x floor(T / TICK) of max HP (2s at 0.2 = 10 ticks). A body taken by
 // the nose is REELED into the band at TRAWL_DRAG_REEL px/s rather than snapped — faster than the
