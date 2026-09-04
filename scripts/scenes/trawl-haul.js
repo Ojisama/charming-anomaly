@@ -16,6 +16,9 @@
 // which photographs as "the wake does not draw". The closure below re-places the catch at a shrinking
 // distance each frame, which is exactly what the reel does, only slow enough to see.
 
+// PIN THE TILE. Without this every shot lands somewhere else in the world and two frames of an
+// A/B differ by the floor they are standing on, which makes an ablation unreadable.
+run.player.x = -131; run.player.y = 107
 run.weapons = [{ id: 'bringItIn', level: 5 }]
 H.breed(20)
 const crowd = H.keep(20)

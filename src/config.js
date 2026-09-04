@@ -495,7 +495,7 @@ export const SUBMISSION_DMG_FRAC = 0.5     // the spec's "50% of your damage"; f
 // damage), so the fidelity lost is one turret's aim. Upgrade path is retargeting `artillery`,
 // whose shells already damage enemies via run.bombs.
 export const SUBMISSION_STRIP_FLAGS = [
-  'soapTrail', 'oilTrail', 'netTrail', 'webZone', 'wake', 'artillery', 'missileVolley', 'spawner', 'flashlightCone', 'pullBeam',
+  'soapTrail', 'oilTrail', 'webZone', 'wake', 'artillery', 'missileVolley', 'spawner', 'flashlightCone', 'pullBeam',
 ]
 export const SUBMISSION_HIT_EVERY = 0.5    // seconds between an ally's contact hits on one target
 // BLOOD MONEY. Owner overruled a maxHP proposal: flat current HP, and the objection ("that is 23
@@ -8498,16 +8498,7 @@ CHAPTERS.trawl = {
   // (the remora catches you, the turtle does not), not measured. Six seeds and the spread before any
   // claim about this chapter's difficulty ships.
 
-  // THE CHAPTER'S OWN ELITE AFFIX AT LAST. `soapTrail` is the pond's soap-bubble pool and The Trawl
-  // was the last Undertow chapter still borrowing it; The Wreck took its own oilTrail in v7.255.
-  //   An elite drags a length of torn mesh — a small unscheduled piece of the wall, moving on a
-  // creature's logic instead of the sweep's, so the wall can find you BETWEEN passes. That is what
-  // the quiet stretch needs now that no bar fills it.
-  //   ⚠ IT REUSES oilTrail's ENTITY AND NOT ITS LOOK. That flag tags its run.blooms entries
-  // look:'bilge' specifically to inherit Bilge and the Leak's stain and render for free — and this
-  // chapter has neither, so borrowing the look would draw netting as an OIL SLICK. `netTrail` is the
-  // same trail with its own look; see the flag's block in sim.js and syncSlicks in render.js.
-  eliteFlags: ['netTrail'],
+  eliteFlags: [],
 
   // THE NET. See the TRAWL_* block for the geometry (an infinite line, because a streamed world has
   // no edges for a wall to span) and for why 75 px/s is the one number here with a derived band.
