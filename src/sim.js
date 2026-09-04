@@ -190,7 +190,7 @@ import {
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
   TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T, TRAWL_DRAG_REEL,
   TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
-  TIGHT_WEAVE_TEAR_MUL, TIGHT_WEAVE_ENEMY_DMG_MUL, TIGHT_WEAVE_BLAST_RADIUS, TIGHT_WEAVE_BLAST_DMG, TIGHT_WEAVE_BLAST_FUSE,
+  TIGHT_WEAVE_TEAR_MUL, TIGHT_WEAVE_ENEMY_DMG_MUL, TIGHT_WEAVE_BLAST_RADIUS, TIGHT_WEAVE_BLAST_DMG, TIGHT_WEAVE_BLAST_MAX,
   BRING_ARRIVE_PAD, BRING_MAX_LIVE, BRING_SNAP_T,
   ROCK_INTERVAL, ROCK_MAX_LIVE, ROCK_MIN_R, ROCK_MAX_R, ROCK_SPEED, ROCK_DRIFT_X, ROCK_SPIN, ROCK_SPREAD_MUL, ROCK_DMG, ROCK_TICK, ROCK_TICK_DMG,
   PULL_BEAM_INTERVAL, PULL_BEAM_T, PULL_BEAM_RANGE, PULL_BEAM_FORCE, PULL_BEAM_DPS,
@@ -5788,14 +5788,22 @@ function stepTrawl(run, dt) {
   // dragging enemies in it") — that is the PLAIN mesh's whole deal, and it is free: the haul at the
   // pass's end (above) is what kills a plain catch, no card required. Tight Weave used to just grind
   // the same carried body in place, which made its "the wall does your killing" pitch true of the
-  // plain net already and left the card with nothing of its own to sell. Its job now (owner
-  // 2026-09-04: "keep the free kill, give Tight Weave a new job... dragged bodies get pulled toward
-  // the player and detonate near them"): REEL instead of carry, at TRAWL_DRAG_REEL — the same speed
-  // the net already reels a caught PLAYER at, so both halves of one mechanic move at one number —
-  // and whatever it kills leaves a `run.bombs` charge at the death spot, the volatile-elite family
-  // (see volatileBomb/stepBombs), reused rather than reinvented: this is exactly "an enemy corpse
-  // that damages nearby enemies", already built. The player is TAKEN (below), the 2026-09-03 ruling.
+  // plain net already and left the card with nothing of its own to sell. Its job: grind what the
+  // wall is holding, and every body it kills bursts where it died, killing down the line.
+  //
+  // ⚠ THE BURST IS ENEMY-ONLY, AND IT IS NOT `run.bombs`. That reuse shipped in v7.272.0 and made
+  // the card UNPLAYABLE: stepBombs damages the PLAYER first (the `hurtPlayer` at the top of its
+  // loop) — run.bombs is a two-sided family by contract, which is exactly right for a volatile
+  // elite and exactly wrong here. Paired with a reel that dragged the whole catch onto the player,
+  // taking the card meant delivering a stack of fish to your own face and detonating each one on
+  // it (owner: "maille serré is completely broken. the design is complety broken, unplayable").
+  // The reel is gone with it — pulling the crowd onto the player is the opposite of what the wall
+  // is for. A body is carried by the wall exactly as it always was; the card only adds the grind
+  // and the burst. Do NOT "simplify" this back onto run.bombs.
   const grind = run.anomalies?.tightWeave ? TRAWL_ENEMY_DMG * TIGHT_WEAVE_ENEMY_DMG_MUL : 0
+  // Death spots, collected and burst AFTER the crowd loop: a burst kills, and a for…of over
+  // run.enemies visits what it mutates.
+  const bursts = []
   for (const e of run.enemies) {
     // Allies and `anchored` are the shipped exemptions of every forced displacement in this file.
     if (e._dead || isAlly(e) || resistsCC(e)) continue
@@ -5810,32 +5818,34 @@ function stepTrawl(run, dt) {
       if (Math.abs(d) > TRAWL_HALF + e.radius || inNetHole(net, e.x, e.y)) continue
       e._netted = true
     }
-    // A CRUISER IS NEVER GROUND, Tight Weave included — it takes neither the reel nor the grind, so
-    // it falls straight through to the plain wall-carry below, same as it always has.
+    // A CRUISER IS NEVER GROUND, Tight Weave included — it takes the carry below and nothing else,
+    // same as it always has.
     const cruiser = e.flags && e.flags.includes('cruise')
-    if (grind > 0 && !cruiser) {
-      // Reeled OFF the wall's band on purpose, not clamped into it — the band clamp belongs to the
-      // plain carry, and this catch is headed somewhere else entirely.
-      const pdx = p.x - e.x, pdy = p.y - e.y
-      const pdist = Math.hypot(pdx, pdy)
-      if (pdist > 1) {
-        const step = Math.min(pdist, TRAWL_DRAG_REEL * dt)
-        e.x += (pdx / pdist) * step; e.y += (pdy / pdist) * step
-      }
-      if (ticks > 0) {
-        dealDamage(run, e, grind * ticks, false, false, true)   // hazard: the player did not deal it
-        if (e._dead) {
-          run.bombs.push({
-            x: e.x, y: e.y, radius: TIGHT_WEAVE_BLAST_RADIUS,
-            fuse: TIGHT_WEAVE_BLAST_FUSE, duration: TIGHT_WEAVE_BLAST_FUSE, dmg: TIGHT_WEAVE_BLAST_DMG, src: 'tightWeave',
-          })
-        }
-      }
-      continue
+    if (grind > 0 && !cruiser && ticks > 0) {
+      dealDamage(run, e, grind * ticks, false, false, true)   // hazard: the player did not deal it
+      if (e._dead) bursts.push({ x: e.x, y: e.y })
     }
+    if (e._dead) continue
     e.x += net.nx * TRAWL_SPEED * dt; e.y += net.ny * TRAWL_SPEED * dt; d += TRAWL_SPEED * dt
     const c = Math.max(-TRAWL_HALF, Math.min(TRAWL_HALF, d))
     if (c !== d) { e.x += net.nx * (c - d); e.y += net.ny * (c - d) }
+  }
+
+  // THE BURSTS. Worked as a QUEUE so a burst that kills bursts in turn — the chain down the line
+  // the card is sold on — with a cap, because a dense catch is a chain that feeds itself. The
+  // `explode` event is what render.js and SFX_FOR_EVENT already draw and sound for every other
+  // blast in the game; `src` rides it so the Trawl can theme its own.
+  for (let n = 0; n < bursts.length && n < TIGHT_WEAVE_BLAST_MAX; n++) {
+    const { x, y } = bursts[n]
+    const rSq = TIGHT_WEAVE_BLAST_RADIUS * TIGHT_WEAVE_BLAST_RADIUS
+    for (const e of run.enemies) {
+      if (e._dead || isAlly(e)) continue
+      const dx = e.x - x, dy = e.y - y
+      if (dx * dx + dy * dy > rSq) continue
+      dealDamage(run, e, TIGHT_WEAVE_BLAST_DMG, false, false, true)
+      if (e._dead) bursts.push({ x: e.x, y: e.y })
+    }
+    run.events.push({ type: 'explode', x, y, radius: TIGHT_WEAVE_BLAST_RADIUS, src: 'tightWeave' })
   }
 
   // THE HOLD (2026-09-03, owner: "trawler net should drag you with it for 3s, and deal you 20dmg

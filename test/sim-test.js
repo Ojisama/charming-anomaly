@@ -30974,44 +30974,60 @@ function testTrawlHold() {
     console.log(`PASS run TH.l (carried, not ground): turtle and mackerel rode ${turtle.y.toFixed(0)}px unhurt; under Tight Weave the mackerel paid ${(1e6 - m2.hp).toFixed(0)} HP, the turtle none`)
   }
 
-  // (p) TIGHT WEAVE'S NEW JOB: A KILL DETONATES. The 2026-09-04 redesign's whole payout — the plain
-  // net already kills its catch for free at the haul, so Tight Weave has to do something the plain
-  // net does not. Asserted as an EFFECT on a BYSTANDER, never as a run.bombs entry: a push with no
-  // consumer would pass a state check and still do nothing for a player watching. The bystander
-  // sits OUTSIDE the mesh band (60px off the wall's line against a 30px half-thickness) so it is
-  // never netted or ground itself — any HP it loses can only be the blast.
+  // (p) TIGHT WEAVE'S BURST HITS THE CROWD AND NEVER THE PLAYER. Both halves are the assertion, and
+  // the second half is the one that shipped broken: v7.272.0 built this on `run.bombs`, whose
+  // stepBombs damages the PLAYER before it damages anything else, so taking the card cost you 40 HP
+  // per fish the net killed (owner: "completely broken, unplayable"). A test that only checked the
+  // enemy side was green through all of it.
+  //   Asserted as EFFECTS — HP moved on a bystander, HP not moved on the player — never as a queue
+  // entry, which would pass a state check while doing nothing a player can see. The player and the
+  // bystander both sit on the side the wall has ALREADY crossed: netDist there is negative and only
+  // grows more so as `pos` sweeps (+ny), so neither is ever netted or ground, and any HP either one
+  // moves can only be the burst. They are 80px apart so the bystander's own contact damage cannot
+  // be mistaken for it.
   {
     const run = rig()
     run.anomalies.tightWeave = 1
-    run.player.x = 0; run.player.y = 0
-    // A frail catch, close enough to the player that the reel (TRAWL_DRAG_REEL) brings it to the
-    // player's own doorstep well before its first grind tick at TRAWL_TICK.
-    const prey = makeStatusEnemy(run, { x: 40, y: 0, hp: 1, speed: 0 })
+    run.player.x = 90; run.player.y = -70
+    const startHp = run.player.hp
+    // Placed BEHIND the line, not on it: a netted body is carried with the wall while it is ground,
+    // so it travels ~TRAWL_SPEED x TRAWL_TICK before its first tick lands. Starting it back by about
+    // that much leaves the burst near y=0, which is what puts both subjects inside the radius while
+    // still clearing the band themselves.
+    const prey = makeStatusEnemy(run, { x: 40, y: -25, hp: 1, speed: 0 })
     run.enemies.push(prey)
-    // NEGATIVE y, not +60: the wall's `pos` SWEEPS (+ny), so a fixed point on the approaching side
-    // gets netted itself once the sweep reaches it — the first cut of this case put the bystander
-    // there and the wall walked right into it within ~11 frames, well before the kill. A point on
-    // the side the wall has ALREADY crossed only gets MORE distant from the band as pos advances
-    // (netDist's own sign convention: negative = already crossed), so this side is safe for the
-    // whole test regardless of how long it runs.
-    const bystander = makeStatusEnemy(run, { x: 0, y: -60, hp: 1e6, speed: 0 })
+    const bystander = makeStatusEnemy(run, { x: -10, y: -70, hp: 1e6, speed: 0 })
     run.enemies.push(bystander)
-    let deadAt = -1
+    // The burst fires inside the same stepTrawl as the kill (no fuse, no second family to tick), so
+    // the step that reports the death has already resolved it.
+    let deadAt = -1, bx = 0, by = 0
     for (let i = 0; i < 90 && deadAt < 0; i++) {
       stepSim(run, { x: 0, y: 0 }, dt)
-      if (prey._dead) deadAt = i
+      if (prey._dead) { deadAt = i; bx = prey.x; by = prey.y }
       run.events.length = 0
     }
     assert.ok(deadAt >= 0, 'the netted catch never died under Tight Weave\'s own grind')
-    // stepBombs fires the charge one frame after stepTrawl pushes it (fuse behind the kill, not
-    // simultaneous with it) — a few extra frames comfortably clears that beat.
+    // KEEP STEPPING PAST THE DEATH. The burst resolves inside stepTrawl, but a future edit that
+    // routes it through a FUSED family instead (run.bombs, which is how the unplayable v7.272.0 cut
+    // did it) would land its damage a frame or more later — and an assertion taken on the death
+    // frame alone cannot see that, so it would wave the bug straight back through. Nothing else is
+    // in reach of either subject here, so any HP that moves in these frames is still the burst.
     for (let i = 0; i < 20; i++) { stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0 }
+    // ⚠ PRECONDITIONS, NOT DECORATION. The catch is CARRIED by the wall while it is ground, so it
+    // dies some way from where it was placed; if that drift ever puts either subject outside the
+    // radius, the two assertions below stop testing anything and both pass. Fail loudly instead.
+    const toPlayer = Math.hypot(run.player.x - bx, run.player.y - by)
+    const toBystander = Math.hypot(bystander.x - bx, bystander.y - by)
+    assert.ok(toPlayer <= TIGHT_WEAVE_BLAST_RADIUS,
+      `the player is ${Math.round(toPlayer)}px from the burst, outside its ${TIGHT_WEAVE_BLAST_RADIUS}px radius — the friendly-fire assertion below would pass vacuously`)
+    assert.ok(toBystander <= TIGHT_WEAVE_BLAST_RADIUS,
+      `the bystander is ${Math.round(toBystander)}px from the burst, outside its ${TIGHT_WEAVE_BLAST_RADIUS}px radius`)
     const blastDmg = 1e6 - bystander.hp
     assert.ok(blastDmg > 0,
-      `a bystander 60px from the kill (blast radius ${TIGHT_WEAVE_BLAST_RADIUS}px) took no damage — Tight Weave's kill is not detonating`)
-    assert.ok(blastDmg <= TIGHT_WEAVE_BLAST_DMG + 1,
-      `bystander took ${blastDmg} HP against a ${TIGHT_WEAVE_BLAST_DMG} HP blast — hit more than once, or the blast is not the flat charge it is meant to be`)
-    console.log(`PASS run TH.p (Tight Weave's kill detonates): dead at frame ${deadAt}, a bystander 60px away took ${blastDmg} HP from a kill it never touched`)
+      `a bystander ${Math.round(toBystander)}px from the kill took no damage — Tight Weave's kill is not bursting`)
+    assert.equal(run.player.hp, startHp,
+      `the player stood ${Math.round(toPlayer)}px from the burst and lost ${startHp - run.player.hp} HP — Tight Weave is hurting its own owner, the v7.272.0 bug`)
+    console.log(`PASS run TH.p (the burst kills the crowd, never you): dead at frame ${deadAt}, a bystander ${Math.round(toBystander)}px away took ${blastDmg} HP while the player ${Math.round(toPlayer)}px away took 0`)
   }
 
   // (n) THE HAUL. Two bodies on the line and one 200px clear of it when the pass ends: the two are

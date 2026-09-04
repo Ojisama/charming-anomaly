@@ -1247,7 +1247,7 @@ export const ANOMALIES = {
   tightWeave: {
     name: 'Tight Weave', icon: '🕸️',
     from: 'the boat mended its gear overnight',
-    desc: `The net's gaps close to ${Math.round(TIGHT_WEAVE_TEAR_MUL * 100)}% of their width, and it drags whatever it catches to you — anything that dies there detonates, hurting what's nearby.`,
+    desc: `The net's gaps close to ${Math.round(TIGHT_WEAVE_TEAR_MUL * 100)}% of their width, and it grinds down whatever it catches — each one that dies bursts in the mesh, killing along the net.`,
     // THE CHAPTER IS THE GATE, verbatim from Runoff/Deadfall/Black Tide: `chapter: 'trawl'` is
     // already a narrow gate, so `when` stays unconditional rather than adding a second one.
     when: () => true,
@@ -3972,7 +3972,10 @@ export const WEAPON_MODS = {
     // 'hook damage per tick' for the same reason barnacles says 'crust damage per tick' above: the
     // number is small because it is per tick, and a player reading it as a per-hit number concludes
     // the weapon is broken. Name the thing, not the event.
-    barbed:   { name: 'Barbed Hooks', desc: 'hook damage per tick', icon: '🪝', base: 0.30, kind: 'pct' },
+    // balance_decision : Barbed Hooks halved, 30/48/75/120/195% to 15/24/38/60/98% 2026-09-04
+    //  - the five values are base x RARITIES.mult, NOT a literal table; owner asked for
+    //    "15/25/40/60/100 for normal to mythic" and 0.15 lands on it within rounding
+    barbed:   { name: 'Barbed Hooks', desc: 'hook damage per tick', icon: '🪝', base: 0.15, kind: 'pct' },
     longSet:  { name: 'Long Set',     desc: 'line length', icon: '📏', base: 0.25, kind: 'pct' },
     deepSet:  { name: 'Deep Set',     desc: 'how long a set line lasts', icon: '⌛', base: 0.25, kind: 'pct' },
     // A flat count, not a percentage: +30% of one line is one line. The second rope also doubles
@@ -11872,13 +11875,14 @@ export const TRAWL_HALF = 30             // px half-thickness of the mesh itself
 export const TRAWL_LEAD_MUL = 1.6
 export const TRAWL_TICK = 0.35           // s between the CROWD's contact ticks (the player's are the hold's, below)
 export const TRAWL_ENEMY_DMG = 34        // enemy damage per tick, ONLY under Tight Weave (× TIGHT_WEAVE_ENEMY_DMG_MUL); plain mesh carries the crowd unhurt
-// Tight Weave's blast (2026-09-04): what a body it kills leaves behind. Same shape as a volatile
-// elite's death bomb (VOLATILE_RADIUS/VOLATILE_DMG) — a smaller, plain-flat version of it, since this
-// one is not a rare elite death but a repeatable proc off a chapter-scoped card, and never scales
-// with hpScale for the same reason TRAWL_ENEMY_DMG above does not: the grind that feeds it is flat.
+// Tight Weave's burst (2026-09-04): what a body it kills leaves behind, at the net where it died.
+// ENEMY-ONLY, and deliberately NOT a run.bombs entry — that family hurts the player too, which is
+// what made the v7.272.0 cut of this card unplayable (see the ⚠ in sim.js stepTrawl). Flat, and
+// never scaled by hpScale, for the same reason TRAWL_ENEMY_DMG above is not: the grind feeding it
+// is flat.
 export const TIGHT_WEAVE_BLAST_RADIUS = 90
 export const TIGHT_WEAVE_BLAST_DMG = 40
-export const TIGHT_WEAVE_BLAST_FUSE = 0.15   // s — a beat behind the kill, not simultaneous with it
+export const TIGHT_WEAVE_BLAST_MAX = 24      // bursts per pass-frame; a dense catch chains into itself
 // ---- THE HOLD (2026-09-03, The Trawl — what the mesh does to YOU) ------------------------------
 // The mesh does not tick on you like a pool: it TAKES you. Touch it and it has hold of you for
 // TRAWL_DRAG_T, carrying you along its sweep at TRAWL_SPEED, and you cannot leave the band until it
