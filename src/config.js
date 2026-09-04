@@ -6505,6 +6505,14 @@ CHAPTERS.blank = {
 export const TIDE = { surge: 46, period: 14 }
 export const tideAt = (deg) => ({ ...TIDE, axis: deg * Math.PI / 180 })
 
+// THE BEARING TURNS AS THE RUN GOES ON (owner, 2026-09-04: "tide is always on the same axis, it
+// should change"). A chapter's `axis` is now where the sweep STARTS, not where it stays. The push
+// is a sine that reverses, so a bearing and its opposite are one field and 180 degrees is every
+// bearing there is: half a turn over a 300s run. Read once, in tideForce — render's flow streaks
+// and the crowd's rock sample that same function, so the water on screen turns with the water in
+// the sim. Slow against the 14s surge (8.4 deg per cycle), so a single surge still reads as a line.
+export const TIDE_TURN = Math.PI / 300 // rad/s — 180 degrees over a full run
+
 // v7.x Book 2 ("Undertow") chapter 5 — THE TWILIGHT. This block was The Shelf until 2026-08-17,
 // when the light mechanic moved down the book: light-starvation had been sitting two chapters from
 // the surface, in the chapter whose own render comment called it "the BRIGHTEST it ever gets".

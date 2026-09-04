@@ -90,7 +90,7 @@ import {
   ACID_R, ACID_DUR, ACID_DPS, SOAP_INTERVAL, SOAP_R, SOAP_DUR, SOAP_DPS,
   OIL_TRAIL_INTERVAL, OIL_TRAIL_R, OIL_TRAIL_DUR,
   FLAGELLA_CYCLONE_EVERY, BARBED_DMG_MUL, BARBED_DURATION,
-  BLOOM_GROW_FRAC, BLOOM_TICK, SPOREBURST_FRAC, BLOOM_SLOW, BLOOM_SLOW_T, TIDE_DMG_BONUS,
+  BLOOM_GROW_FRAC, BLOOM_TICK, SPOREBURST_FRAC, BLOOM_SLOW, BLOOM_SLOW_T, TIDE_DMG_BONUS, TIDE_TURN,
   STINGER_R, STINGER_HIVE_EVERY, LURE_STICKY_R, LURE_STICKY_DUR,
   PHEROMONE_LIFE, PHEROMONE_FOLLOW_RADIUS, PHEROMONE_SPEED_MUL,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T, DIVE_RECOVER_T,
@@ -4301,7 +4301,10 @@ export function tideForce(run) {
   // Applied HERE and nowhere else: stepTide and render.js both read this function, so one multiply
   // keeps "the water moved me" and "the water is moving" the same number under the mutator too.
   const surge = tide.surge * run.mods.tideSurgeMul
-  return { fx: Math.cos(tide.axis) * surge * s, fy: Math.sin(tide.axis) * surge * s }
+  // The bearing turns as the run goes on (TIDE_TURN) — the chapter's `axis` is where it starts.
+  // Same clock as the phase above, and for the same reason: Time Debt must not spin the water up.
+  const axis = tide.axis + run._realTime * TIDE_TURN
+  return { fx: Math.cos(axis) * surge * s, fy: Math.sin(axis) * surge * s }
 }
 
 export function stepTide(run, dt) {

@@ -109,7 +109,7 @@ import {
   // v6.3.4 anti-turtle pass (Run MM)
   ENEMIES, dmgScale, difficultyDmgMul, difficultyHpMul, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
   // v6.4 pond identity (Run NN)
-  BLOOM_SLOW, TIDE_DMG_BONUS, MINE_STUN, SOAP_INTERVAL,
+  BLOOM_SLOW, TIDE_DMG_BONUS, TIDE_TURN, MINE_STUN, SOAP_INTERVAL,
   // v6.4.1/v6.4.3 early-calm (Run OO)
   EARLY_CALM,
   // v6.4.2 coin cap (Run PP)
@@ -21649,6 +21649,27 @@ function testUndertowTide() {
     const raw = Math.abs(bearings[order[i]] - bearings[order[i - 1]])
     const sep = Math.min(raw, 180 - raw)
     assert.ok(sep >= 44.9, order[i - 1] + ' and ' + order[i] + ' shove within ' + sep.toFixed(1) + ' degrees of each other')
+  }
+
+  // (d2) THE BEARING TURNS DURING THE RUN (owner, 2026-09-04: "it should change"). Measured as the
+  // direction stepTide actually shoves the player, at the same phase of the sine 150s apart, so the
+  // surge cannot explain the gap — reading TIDE_TURN back off config would pass with the term in
+  // tideForce deleted, which is exactly the pathology. mod 180 for the same reason (b) uses it.
+  const shoveDeg = (id, t) => {
+    const r = createRun(meta, { chapter: id, difficulty: 1 })
+    r._realTime = t
+    const x0 = r.player.x, y0 = r.player.y
+    stepTide(r, 1 / 60)
+    return ((Math.atan2(r.player.y - y0, r.player.x - x0) * 180 / Math.PI) % 180 + 180) % 180
+  }
+  for (const id of withTide) {
+    const p = CHAPTERS[id].tide.period
+    const turned = shoveDeg(id, p * 0.25 + 150) - shoveDeg(id, p * 0.25)
+    const got = ((turned % 180) + 180) % 180
+    const want = ((TIDE_TURN * 150 * 180 / Math.PI) % 180 + 180) % 180
+    assert.ok(Math.abs(got - want) < 0.5,
+      id + "'s tide turned " + got.toFixed(1) + ' degrees over 150s, expected ' + want.toFixed(1) +
+      ' — the bearing must sweep, not sit on the chapter axis for the whole run')
   }
 
   // (e) SPRING TIDE reaches every one of them, and none of Book 1. Over-asking randomMutators
