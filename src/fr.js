@@ -703,6 +703,12 @@ const CONFIG = {
   // car that did not finish -- the exact sense of the English, and short enough for the title.
   'Chequered flag! 🏁': 'Drapeau à damier ! 🏁',
   'Out of the race… 🏁': 'Hors course… 🏁',
+  // Le Chalut. Both lines are the player's, like Le Ressac and Le Large above. 'Maille' is the
+  // noun the player already reads on this chapter's own anomaly (Maille Serrée), so neither
+  // line coins a word for the net that exists nowhere else on screen. 'Pris·e' keeps the
+  // participle every other chapter death uses.
+  'You slipped the mesh! 🎉': 'Tu es passé·e à travers la maille ! 🎉',
+  'Caught in the mesh… 🎣': 'Pris·e dans la maille… 🎣',
   // v6.2 Remaster — watcher unlock lines
   'The Pond — word of you travels downstream': 'La Mare — la rumeur descend le courant',
   'The Garden — something marked your trail': 'Le Jardin — quelque chose a marqué ta piste',
