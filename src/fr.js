@@ -1014,14 +1014,13 @@ const CONFIG = {
   // on 2026-08-18 because the mod was an immobilise and the player never saw a roll; the 2026-09-05
   // rework makes it a roll through the crowd, so the owner took the reference back.
   'Death Roll': 'Tonneau de la Mort',
-  'your dash bites everything it passes through, not just the first':
-    'ta ruée mord tout ce qu\'elle traverse, pas seulement le premier',
+  'knockback on the bite': 'recul infligé par la morsure',
   'Bloodrush': 'Coup de Sang',
   'move speed per bite for 2s, stacking 5 times': 'de vitesse par morsure pendant 2s, jusqu\'\u00e0 5 fois',
   'Gorge': 'Gavage',
-  'eating an elite fills Bloodlust': 'd\u00e9vorer une \u00e9lite remplit la Soif de sang',
+  'eating an elite heals you to full': 'd\u00e9vorer une \u00e9lite te rend toute ta vie',
   'Oil Ring': 'Anneau de Mazout',
-  'the oil lands as a ring, penning what is inside': 'le mazout tombe en anneau et enferme ce qui est dedans',
+  'the oil lands as a ring around your target': 'le mazout tombe en anneau autour de ta cible',
   // chum's five and bilge's five (v7.x). 'Nappe' is the word for an oil slick on water and carries
   // both cards' spread, which is what makes them read as one chapter's gear.
   'Wide Slick': 'Nappe Large',
@@ -1031,10 +1030,9 @@ const CONFIG = {
   'Decoy Barrel': 'Baril Leurre',
   'the orca closes on your bait instead of on you': 'l\'orque se referme sur ton app\u00e2t au lieu de toi',
   'Head Down': 'T\u00eate Baiss\u00e9e',
-  'fish eating at your bait slow Bloodlust draining':
-    'les poissons qui mangent ton app\u00e2t ralentissent la Soif de sang',
+  'how long a fed fish stays stopped': 'dur\u00e9e d\'immobilisation d\'un poisson repu',
   'Deep Chum': 'App\u00e2t Profond',
-  'baited fish hold their nerve closer to you': 'les poissons app\u00e2t\u00e9s tiennent bon plus pr\u00e8s de toi',
+  'damage to anything with its head in your bait': 'd\u00e9g\u00e2ts sur ce qui a la t\u00eate dans ton app\u00e2t',
   'Full Bucket': 'Rab',
   'mouthful(s) of food in each bait': 'bouch\u00e9e(s) de nourriture par app\u00e2t',
   'Split Seam': 'Couture Fendue',
@@ -1042,13 +1040,11 @@ const CONFIG = {
   // 'Entonnoir' over the nautical 'Goulet' (owner, 2026-09-05): a card has to read at a glance on
   // the level-up screen, and a funnel is a shape everyone knows.
   'Funnel': 'Entonnoir',
-  'how hard prey slide along the oil toward you':
-    '\u00e0 quel point les proies glissent le long du mazout vers toi',
+  'the oil draws what is in it toward the middle': 'le mazout attire vers son centre ce qui s\'y trouve',
   // 'Goudron' over 'Poisse' (owner, 2026-09-05): plain, and it sits beside 'Mazout' in the cards
   // either side of it.
   'Tar': 'Goudron',
-  'burst of speed taken off oil-stained prey':
-    'vitesse de fuite retir\u00e9e aux proies tach\u00e9es de mazout',
+  'how much speed the stain keeps costing': 'vitesse que la souillure continue de co\u00fbter',
   'Trailing Slick': 'Nappe Tra\u00eenante',
   'the oil pours behind you as you swim': 'le mazout se d\u00e9verse derri\u00e8re toi quand tu nages',
   'Rending Claws': 'Griffes Déchirantes',
@@ -1713,9 +1709,6 @@ const CONFIG = {
   'Pollution': 'Pollution',
   'Light': 'Lumière',
   'Air': 'Air',
-  // 'Soif de sang' is the standard French for bloodlust and keeps the bar's promise in the word:
-  // it is a thirst that has to be fed, not a rage stat.
-  'Bloodlust': 'Soif de sang',
   'the tide decides': 'la marée décide',
   'the light only goes down': 'la lumière ne fait que baisser',
   'the current only runs one way': 'le courant décide pour toi',
@@ -1745,7 +1738,7 @@ const CONFIG = {
   // no longer exists. The English string IS the key here, so changing it orphaned that entry.
   // Neither line below has been through him; ask before treating them as settled.
   'The Wreck': 'L\'Épave',
-  'something else lives here': 'quelque chose vit ici',
+  'the wreck is not as dead as it seems': 'l\'épave est moins morte qu\'elle en a l\'air',
   'Sand Hopper': 'Puce de Mer',
   'Shore Crab': 'Crabe Vert',
   'Sea Roach': 'Cloporte de Mer',
