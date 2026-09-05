@@ -59,7 +59,10 @@ const UI = {
   'Line lasts': 'Ligne',
   'Glow lasts': 'Lueur',
   'Holds for': 'Maintien',
-  'Burns for': 'Brûlure',
+  // 'Durée' is already this file's word for a duration row ('Runs for'), and no weapon carries
+  // both keys, so the repeat cannot appear on one card. It replaced 'Brûlure', which was rendering
+  // on a column of water and on a vortex — see STAT_KEYS.
+  'Lasts': 'Durée',
   'dmg': 'dég',          // no period: weapons with base dmg under 10 render a decimal, and
                          // '6.3 dég. x3' puts two dots three characters apart at 11px
   'LV': 'NIV',

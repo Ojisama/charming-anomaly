@@ -4256,7 +4256,13 @@ export const STAT_KEYS = [
   { key: 'blind', label: 'Blinded for' },
   { key: 'boil', label: 'Bubbles last' },
   { key: 'hold', label: 'Holds for' },
-  { key: 'duration', label: 'Burns for' },
+  // 'Lasts', NOT 'Burns for' (owner, 2026-09-05: "what's the brûlure stuff?"). This key is shared
+  // by seven weapons and only three of them burn anything: the row read 'Burns for' on a falling
+  // COLUMN OF WATER (Downwash), a VORTEX (Whirlpool) and a black hole. The lie was already known —
+  // crustDur, setDur, glowDur, blind, boil and jetDur above are six bespoke duration keys invented
+  // one at a time specifically to avoid it, each carrying a comment that says so — and nobody ever
+  // fixed the label those six were working around. One word here retires the reason for all of them.
+  { key: 'duration', label: 'Lasts' },
   { key: 'maxR', label: 'Radius' },
   { key: 'range', label: 'Range' },
   { key: 'length', label: 'Length' },
@@ -5172,19 +5178,68 @@ export const MAX_ELEMENT_PICKS = 8
 // elementWeightMul multiplies it — see rollCard in sim.js).
 
 // ---- Difficulty (classic runs; picked on the title screen, saved in meta) -----------
-// Level 1 = the base game. Each level above 1 adds one RANDOM mutator to the run AND stacks
-// +DIFFICULTY_HP_PER_LEVEL enemy HP and +DIFFICULTY_DMG_PER_LEVEL enemy damage (multiplied into
-// run.mods.enemyHpMul/enemyDmgMul on top of whatever the mutators themselves do).
+// Level 1 = the base game. Each level above 1 adds one RANDOM mutator to the run AND stacks the
+// three taxes below into run.mods, on top of whatever the mutators themselves do.
+//
+// ⚠ THE LADDER USED TO ADD ENEMY HP AND IT NO LONGER DOES (owner, 2026-09-05: "I feel like the
+// weapons are not impactful enough and the levels are too easy"). Those were one complaint with
+// one cause. +25% HP per level meant a d5 enemy took twice the swings of a d1 one, so the harder
+// you set the game the LESS each hit did — measured over 3 x 300s immortal runs at shop 5, hits
+// to kill and the share of enemies that died to a single hit:
+//        chapter    d1              d3              d5
+//        city       2  (26% 1-shot)  4  (17%)        4  (15%)
+//        surf       2  (49% 1-shot)  2  (30%)        3  (11%)
+//        trawl      2  (26% 1-shot)  3  (26%)        4  (22%)
+// And nothing on the other side moved: the fastest creature in EVERY roster in the game is slower
+// than the player's 220 px/s at every difficulty — 215 in The Blank, 206 in The Beyond and The
+// Trawl, 132 in The Garden — so the crowd could never close whatever the pips said. Harder meant
+// spongier, not scarier.
+//
+// Speed and numbers replace it. Swept on The City at d5 (3 seeds, immortal, shop 5), against the
+// shipped ladder's 120 HP-bars/min, fastest 180 px/s, 4 hits/kill, 15% one-shot:
+//        hp    speed  count   bars/min  fastest        hits/kill  one-shot
+//        x2.0  x1.00  x1.00      120     180              4         15%     <- shipped
+//        x1.0  x1.16  x1.40      156     209              4         21%
+//        x1.0  x1.24  x1.60      152     224 CATCHES      3         20%     <- this
+//        x1.0  x1.32  x1.80      150     238 CATCHES      3         20%
+//        x1.2  x1.24  x1.60      142     224 CATCHES      4         12%
+// x1.24 is the first rung where anything actually catches the player, and the +20% HP row is worse
+// on impact than no HP scaling at all while buying no extra danger — which is the whole finding
+// restated. Validated on four chapters at 3 seeds; every one got harder AND more impactful:
+//        city    120 -> 152 bars/min, 4 -> 3 hits/kill, 180 -> 224 px/s
+//        surf     36 ->  63 bars/min, 3 -> 2 hits/kill, 203 -> 252 px/s
+//        trawl   116 -> 135 bars/min, 4 -> 2 hits/kill, 221 -> 274 px/s
+//        garden   92 -> 105 bars/min, 3 -> 2 hits/kill, 141 -> 175 px/s (still outrunnable, and
+//                 that is right: the Garden is the gentle one and its threat is the trails)
 export const MAX_DIFFICULTY = 5
 // Winning a classic run at this difficulty (or higher) unlocks the next chapter — used by
 // endRun (main.js) at victory time AND by loadMeta (state.js) retroactively, since a chapter
 // can ship AFTER a player already earned its unlock (their win is encoded in the previous
 // chapter's maxDifficulty ladder: winning level d sets it to d+1).
 export const CHAPTER_UNLOCK_DIFFICULTY = 3
-export const DIFFICULTY_HP_PER_LEVEL = 0.25
-export const difficultyHpMul = (d) => 1 + DIFFICULTY_HP_PER_LEVEL * (Math.max(1, d) - 1)
-// HP-only difficulty made runs longer, not more dangerous — the damage tax is what makes flat
-// armor decay on the ladder (v6.3.4 anti-turtle).
+// HOW MUCH FASTER THE CROWD IS, per level above 1. 6% is not a round number, it is the measured
+// threshold: at x1.24 (d5) The City fields a 224 px/s body against the player's 220, and at the
+// next rung down (x1.16) the fastest thing it fields is 209 and the chapter is still a walk.
+// ⚠ 2% OVER THE PLAYER IS THE POINT, and x1.32 was rejected for being more. A crowd at 238 cannot
+// be escaped at all, which deletes kiting as an answer instead of taxing it; at 224 you are caught
+// only if you stop, turn, or get cornered, and the Pulse still buys the gap back.
+// ⚠ IT DOES NOT REACH `skittish` PREY — see spawnEnemy, which divides run.mods.enemySpeedMul back
+// out for them. The Wreck's roster is FOOD and its speeds are a designed triangle against the
+// player's 220 (mackerel 103, squid 140, sardine 183, damselfish 223); a global multiplier makes
+// dinner uncatchable, which is starvation rather than difficulty.
+// balance_decision : difficulty buys enemy speed, swept against the player's 220 2026-09-05
+//  - the exemption for skittish prey is load-bearing; without it The Wreck cannot be played at d5
+export const DIFFICULTY_SPEED_PER_LEVEL = 0.06
+export const difficultySpeedMul = (d) => 1 + DIFFICULTY_SPEED_PER_LEVEL * (Math.max(1, d) - 1)
+// HOW MANY MORE OF THEM, per level above 1 — into BOTH spawnMul and maxAliveMul, because raising
+// the arrival rate without the concurrent cap just means more bodies queueing behind a limit the
+// chapter already hits. x1.6 at d5.
+// balance_decision : difficulty buys crowd size, replacing the HP tax 2026-09-05
+//  - swept 1.4/1.6/1.8 at d5; 1.6 is where kills/min climbs without the field going to mush
+export const DIFFICULTY_COUNT_PER_LEVEL = 0.15
+export const difficultyCountMul = (d) => 1 + DIFFICULTY_COUNT_PER_LEVEL * (Math.max(1, d) - 1)
+// The damage tax survives the rework unchanged: it is what makes flat armor decay on the ladder
+// (v6.3.4 anti-turtle), and it is the half of the old pair that was never the problem.
 export const DIFFICULTY_DMG_PER_LEVEL = 0.15
 export const difficultyDmgMul = (d) => 1 + DIFFICULTY_DMG_PER_LEVEL * (Math.max(1, d) - 1)
 // The payout matching the tax: +25% coins per level above 1 (multiplied into

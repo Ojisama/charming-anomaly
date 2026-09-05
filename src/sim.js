@@ -1546,7 +1546,7 @@ function spawnBlankEnemy(run, rosterId, essential = false, opts = {}) {
   // would silently inflate late waves; the ladder-driven enemyDmgMul stays.
   const base = ENEMIES[ARCHETYPE_TYPE[roster.archetype]]
   e.hp = e.maxHP = roundHP(base.hp * (roster.hpMul ?? 1) * run.mods.enemyHpMul)
-  e.speed = base.speed * (roster.speedMul ?? 1) * run.mods.enemySpeedMul
+  e.speed = base.speed * (roster.speedMul ?? 1) * enemySpeedMulFor(run, roster)
   e.dmg = base.dmg * run.mods.enemyDmgMul
   return e
 }
@@ -2308,6 +2308,21 @@ function elNeverFreezes(e) { return !!(e.affixes && e.affixes.includes('anchored
 // opts: { type, x, y, forceNormal } — lets splitter deaths spawn wisps at a fixed position
 // (never elite, but still time-scaled like any other spawn). Called with no opts by the
 // normal spawn-timer path in stepSpawning.
+// WHAT SPEEDS UP, AND WHAT MUST NOT. Every enemy-speed multiplier in the game arrives through
+// run.mods.enemySpeedMul — the difficulty ladder (difficultySpeedMul, v7.x) and the Caffeinated
+// Swarm mutator — and none of them may reach `skittish` prey.
+//   The Wreck's roster is FOOD, and its speeds are a triangle designed against the player's 220
+// px/s: a mackerel at 103 you outswim, a sardine at 183 you win a chase against, a damselfish at
+// 223 cannot be caught by swimming at all and is what the Lunge button exists for. Multiply that
+// set and the chapter loses its middle — everything is uncatchable, the bar never refills, and the
+// failure reads to the player as starving rather than as a harder level.
+//   ⚠ THIS ALSO FIXES A LATENT BUG. MUTATORS.caffeine (+25% enemy speed) carries no chapter gate,
+// so it could already roll in The Wreck and do exactly that; the ladder is simply the second way in.
+// One guard covers both, and every chapter whose crowd comes AT you is untouched because nothing
+// there is skittish.
+const enemySpeedMulFor = (run, roster) =>
+  (roster?.flags?.includes('skittish') ? 1 : run.mods.enemySpeedMul)
+
 function spawnEnemy(run, opts = {}) {
   const isElite = !opts.forceNormal && run.time >= run._nextEliteAt
   // BOTH ELITE JACKPOTS BRING THEIR OWN ELITES (config: ELITE_SURGE_EVERY_MUL). Read-time, never
@@ -2437,7 +2452,7 @@ function spawnEnemy(run, opts = {}) {
   // two enemy-side damage sites keep hpScale's default, since scaling those with a difficulty knob
   // would buff the player. Read once at spawn, like the rest of this line.
   let hp = base.hp * hpScale(run.time, lateRateFor(run.chapter)) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul * (roster?.hpMul ?? 1)
-  const speed = base.speed * speedCreepMul(run.time) * run.mods.enemySpeedMul * (roster?.speedMul ?? 1)
+  const speed = base.speed * speedCreepMul(run.time) * enemySpeedMulFor(run, roster) * (roster?.speedMul ?? 1)
   // roster.dmgMul (v7.x): the per-creature damage term, added last and in the same shape as the
   // hpMul/speedMul/radiusMul/xpMul lines around it. Until it existed, the only ways to make ONE
   // roster entry hit softer were the archetype base in ENEMIES (which moves that archetype in every
