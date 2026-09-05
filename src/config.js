@@ -5802,7 +5802,7 @@ export const COIN_CAP_PER_RUN = 999
 // chapter at a time. Every chapter at that index or later is hidden from players entirely and
 // reachable only behind meta.dev — see isWipChapter, playableChapterId and titleBookshelf below.
 // Omit the key for a fully-shipped book; `wipFrom: 0` is the old `wip: true`, the whole book gated.
-// Undertow sits at 2: The Surf and The Shelf are live, the five below them are not.
+// Undertow sits at 4: The Surf, The Shelf, The Reef and The Trawl are live, the three below are not.
 //
 // Revealing the next chapter is therefore BUMPING ONE NUMBER — and the suite's own denominator
 // (shippedChapterIds, test/sim-test.js) is derived from this, so the bump immediately demands that
@@ -5835,7 +5835,7 @@ export const BOOKS = {
   // human gear tangled in the water are one chapter told twice" — which only resolves in this order.
   //   `wipFrom` is an INDEX, so this reordering needed no edit to it: The Reef is still the last
   // live rung and The Trawl is still the first gated one. Saves key on chapter ID, never position.
-  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'twilight', 'deep'], hidden: [], wipFrom: 3, startCoins: 100 },
+  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'twilight', 'deep'], hidden: [], wipFrom: 4, startCoins: 100 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -8481,7 +8481,7 @@ CHAPTERS.trawl = {
     // its jackpot — the sim's death path reads run.viewW/viewH for it. The net carries a cruiser
     // like everything else (stepTrawl), and hauls it at the pass end like everything else.
     { id: 'turtle',   archetype: 'normal', name: 'Sea Turtle', hpMul: 3, speedMul: 0.5, weight: 1, xpMul: 0.6, radiusMul: 1.5, maxAlive: 1, flags: ['cruise'], jackpot: { levels: 1, coins: 20 } },
-    { id: 'sealion',  archetype: 'tank',   name: 'Sea Lion', hpMul: 2.4,  speedMul: 0.85, flags: ['pounce'] },
+    { id: 'sealion',  archetype: 'tank',   name: 'Sea Lion', hpMul: 2.4,  speedMul: 0.85, flags: ['pounce', 'unshakeable'] },
     { id: 'tuna',     archetype: 'fast',   name: 'Tuna',     hpMul: 0.95, speedMul: 1.25, weight: 2, flags: ['dashBurst'] },
     // THE ONE THAT HOLDS YOU. A remora attaches BECAUSE you are big, which makes the player's own
     // size the reason it is there — and being held while the wall closes is this chapter's fear
@@ -14394,6 +14394,13 @@ export const CHAPTER_ENDINGS = {
   // kills you three ways (the coral, the clock, drowning) and the summary already prints which one
   // on its own line right beneath. So it names the thing all three have in common instead.
   reef:        { victory: 'Chequered flag! 🏁',                     death: 'Out of the race… 🏁' },
+  // The Trawl has no resource rail, so the death line cannot name a bar the way Humidity and
+  // Pollution do one rung up. It names the MESH instead — dmgSrcName.trawl is 'The Net', and the
+  // mesh is the only thing in the chapter that ends a run whatever actually landed the last hit.
+  // 'Mesh' is a word the player has already read: the chapter anomaly is Tight Weave.
+  //   Both lines are the PLAYER's, keeping The Surf's and The Shelf's idiom one rung up (owner
+  // ruling 2026-09-05) rather than speaking from the net.
+  trawl:       { victory: 'You slipped the mesh! 🎉',              death: 'Caught in the mesh… 🎣' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',
