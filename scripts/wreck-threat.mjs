@@ -95,7 +95,7 @@ function play(moveAt, seed, immortal) {
            anoms: Object.keys(run.anomalies ?? {}).filter((k) => run.anomalies[k]),
            weps: run.weapons.map((w) => `${w.id}${w.level}`), passives, mods, elements }
 }
-const KEYS = ['orca', 'pool', 'slick', 'starve', 'bomb', 'trap', 'contact', 'unknown']
+const KEYS = ['orca', 'pool', 'slick', 'bomb', 'trap', 'contact', 'unknown']
 for (const [mname, moveAt] of Object.entries(MOVES)) {
   for (const immortal of [true, false]) {
     console.log(`\n===== ${mname} / ${immortal ? 'immortal' : 'mortal'} =====  (n=${RUNS} seeds, each printed, FIXED loadout)`)

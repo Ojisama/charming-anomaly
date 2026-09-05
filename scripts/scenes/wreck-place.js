@@ -22,7 +22,7 @@
 //   3 THE LEAK. A spill is FORCED under the player rather than hunted for: at chance 0.34 over a
 //     900px cell, waiting for the streamer to hand one over is a coin flip per boot, and a scene
 //     that usually works is one whose empty frame reads as "the hazard is invisible".
-//   4 THE SHOAL. Does a crowd of `skittish` fish read as a school, or as a ring of enemies?
+//   4 THE SHOAL. Does a clustered crowd read as a body of fish, or as a ring of enemies?
 //   5-7 THE SUNKEN SHIP, at three points along a swim. It gets its own frames BECAUSE IT IS ON A
 //     GRID: one cell is ~4900 world px apart, so whether one is on screen at the origin is luck,
 //     and a scene that shot only the origin would report "there is no ship" on most boots. Walking
@@ -66,9 +66,9 @@ return () => {
     run.slicks.push({ x: p.x + 40, y: p.y + 30, r: 190, shape: 1, rot: 0.7, _cell: 'probe' })
     H.place(AWAY)
   } else if (i === 3) {
-    // Three schools laid out as stepPrey would have them — a body of fish per bucket, each on its
-    // own heading. Placed rather than left to the sim because a bred crowd arrives on a spawn ring
-    // and the question here is the SHAPE of a school, not where spawns come from.
+    // Three schools laid out by hand — a body of fish per bucket, each on its own bearing. Placed
+    // rather than left to the sim because a bred crowd arrives on a spawn ring and the question
+    // here is the SHAPE of a school, not where spawns come from.
     H.place((k, pl) => {
       const shoal = Math.floor(k / 30)
       const a = shoal * 2.399963
@@ -80,7 +80,6 @@ return () => {
         y: cy + Math.sin(a) * (j % 6) * 34 + Math.cos(a) * Math.floor(j / 6) * 30,
       }
     })
-    for (const e of crowd) e.flags = ['skittish']
   } else {
     goto(6000 * (i - 3), 0)
     H.place(AWAY)

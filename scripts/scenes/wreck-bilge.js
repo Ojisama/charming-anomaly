@@ -24,8 +24,8 @@ H.breed(8)
 const crowd = H.keep(4)
 H.weapon('bilge', 5)
 
-// The cast held well out in front, at the sort of gap the chapter's prey actually keep: they flee
-// at PREY_SIGHT_R 340, so a pool that only ever opens underfoot never touches any of them.
+// The cast held well out in front, where the crowd is closing from: a pool that only ever opens
+// underfoot is a pool the arriving pack has already walked past.
 H.place((i, pl) => {
   const a = (i / 4 - 0.5) * 1.1
   const r = 210 + i * 34

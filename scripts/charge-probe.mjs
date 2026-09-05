@@ -28,8 +28,7 @@
 //   - a PER-KILL refill was swept here too, back when the Scavenger unlock existed, and it is why
 //     that unlock is gone: at 4/kill it did not blunt the dark, it ABOLISHED it (61% -> 17%). At
 //     ~0.8 kills/s a per-kill K is worth ~0.8K/s against a 2.2/s drain, so anything large enough to
-//     feel deleted the bar. Only The Wreck refills on a kill now (`killBase`), and only because it
-//     has no refill circle at all.
+//     feel deleted the bar. NOTHING in the game refills a bar on a kill any more.
 //
 // THE RIG IS IMMORTAL + KITING/SEEKING, and every half is load-bearing (CLAUDE.md's rig taxonomy):
 //   - KITING, because a stationary player never travels and so would only ever meet the shaft it
@@ -132,12 +131,7 @@ const trawlCh = sig?.type === 'trawl'
 // Both exemptions are listed here rather than loosening the abort, so a chapter that genuinely
 // forgot its refill geometry still fails loudly.
 const deepCh = sig?.type === 'dark'
-// THE WRECK'S REFILL IS A KILL, which is the third and most extreme version of the same thing: not
-// a place, not even a creature you swim to, just the act of killing. Keyed on `killBase` rather than
-// on the chapter id because that field IS the claim — a chapter with no refill geometry and no
-// baseline kill refill really has forgotten something, and must still fail loudly here.
-const killFedCh = (res?.killBase ?? 0) > 0
-if (!res || (!spec && !trawlCh && !deepCh && !killFedCh)) { console.error(`ABORT: ${CHAPTER} declares no resource/refill geometry — nothing to probe`); process.exit(1) }
+if (!res || (!spec && !trawlCh && !deepCh)) { console.error(`ABORT: ${CHAPTER} declares no resource/refill geometry — nothing to probe`); process.exit(1) }
 
 // Spend policies. ONE policy cannot tell "the bar cannot fill" apart from "this player spent it
 // all": a greedy player pins the bar at zero under every tune there is, which is exactly what the
@@ -211,39 +205,6 @@ const MOVES = {
 //   ride   — hold station in the wake, 40% of the way back. The upper bound on a player working the
 //            mechanic, and it means holding a lane beside a wall that kills on contact.
 // Headings, like MOVES above, because this chapter is free-roam — only the lane throws an axis away.
-// ---- WRECK MOVEMENT (v7.x, The Wreck after the prey rework) -----------------------------------
-// A FIFTH FAMILY, AND ITS ABSENCE PRODUCED THE CONFIDENT WRONG ANSWER THIS FILE KEEPS WARNING
-// ABOUT. Every family above models a player who is being CHASED — `kite` walks away from the crowd,
-// `seek` walks to a refill circle, `flee` outruns the net. The Wreck's crowd RUNS AWAY (the
-// `skittish` flag), and its only refill is a kill, so all three model a player who never eats.
-// Pointed at this chapter the shipped rig reported the bar pinned at zero for 76-84% of a 300s run
-// across every row, with `kite` and `seek` printing IDENTICAL numbers — which is the tell, since
-// `seek` differs from `kite` only by walking toward run.shafts and this chapter has none. That is
-// not a starving chapter, it is a rig walking away from its own food.
-//
-// The pair is the answer, never one row:
-//   ignore — the plain kiting walk. THE DO-NOTHING CONTROL, and a genuinely harsh one here: prey
-//            flee, so a player who does not close is a player whose food accelerates away from
-//            them. This row is the floor, and it is what the old rig was measuring by accident.
-//   hunt   — walk at the nearest body. The honest model of the chapter's own verb, and the only
-//            rig that can tell "the drain is too steep" apart from "nobody went and got dinner".
-// ⚠ `hunt` is a FLOOR on player skill and not a model of one: it always closes on the NEAREST fish,
-// which is often the one already fleeing hardest, and it never spends Lunge to cut off a runner.
-// A real player does better. Read its %at0 as the worst case for someone who is actually engaging.
-const WRECK_MOVES = {
-  ignore: () => null,
-  hunt: (run) => {
-    const p = run.player
-    let best = null, bd = Infinity
-    for (const e of run.enemies) {
-      if (e._dead) continue
-      const d = Math.hypot(e.x - p.x, e.y - p.y)
-      if (d < bd) { bd = d; best = e }
-    }
-    return best ? Math.atan2(best.y - p.y, best.x - p.x) : null
-  },
-}
-
 const TRAWL_MOVES = {
   ignore: () => null,
   flee: (run) => (run.net ? Math.atan2(run.net.ny, run.net.nx) : null),
@@ -367,9 +328,7 @@ const DEEP_MOVES = {
 // off a shared RNG phase, and quoting it from two separate runs re-phases the stream (CLAUDE.md's
 // re-phasing trap — every seeded probe in this repo has fallen for it at least once).
 const results = {}
-// killFedCh BEFORE the generic fallback: a chapter whose only refill is a kill needs a rig that
-// goes and gets one. See WRECK_MOVES for what the generic family measured instead.
-for (const [mname, moveAt] of Object.entries(laneCh ? LANE_MOVES : trawlCh ? TRAWL_MOVES : deepCh ? DEEP_MOVES : killFedCh ? WRECK_MOVES : MOVES)) {
+for (const [mname, moveAt] of Object.entries(laneCh ? LANE_MOVES : trawlCh ? TRAWL_MOVES : deepCh ? DEEP_MOVES : MOVES)) {
 for (const [pname, wants] of Object.entries(POLICIES)) {
   const rows = []
   for (let r = 0; r < RUNS; r++) {
@@ -452,11 +411,7 @@ const avg = (rows, k) => rows.reduce((a, x) => a + x[k], 0) / rows.length
 const modeLabel = LINE_ID ? `line=${LINE_ID}@Lv${LINE_LV}/10 (every other line 0)` : `shop=Lv${SHOP_LV}/10 (every line)`
 const previewRun = createRun(probeMeta({}), { chapter: CHAPTER, difficulty: DIFFICULTY })
 console.log(`chapter=${CHAPTER} book=${bookOfChapter} difficulty=${DIFFICULTY} ${modeLabel} ${DURATION}s x ${RUNS} seeded runs, immortal + kiting`)
-// `killBase` prints only where it exists (The Wreck): it is the one per-kill refill left in the
-// game, and a header that showed it everywhere would read as "kills refill this bar" on the five
-// chapters where nothing of the sort happens.
 console.log(`resource: drain ${res.drain != null ? `${res.drain}/s` : `${res.drainPerSpawn}/spawn-unit (rides spawnRate)`}  refill ${res.refill}/s in-refill-circle` +
-  ((res.killBase ?? 0) > 0 ? `  kill +${res.killBase}` : '') +
   `  config max ${res.max}  resolved chargeMax ${previewRun.chargeMax}`)
 if (res.dark) {
   // The FRACTION threshold (res.dark.from) is fixed; the ABSOLUTE charge it fires at is not — Deep
@@ -478,29 +433,6 @@ if (spec) {
   console.log(`refill:   the churned wake behind the net — ${TRAWL_WAKE_DEPTH}px deep, moving at ${TRAWL_SPEED} px/s. No fixed geometry.`)
   console.log(`duty:     a pass sweeps for ${sweep.toFixed(1)}s (phone, viewRadius 465), then ${TRAWL_INTERVAL}s of nothing` +
     ` — a net is present ${(100 * sweep / (sweep + TRAWL_INTERVAL)).toFixed(0)}% of the run`)
-} else if (killFedCh) {
-  // ⚠ THIS BRANCH EXISTS BECAUSE THE TRAWL'S ONE ABOVE USED TO BE THE `else`. Pointed at The Wreck
-  // it printed "the churned wake behind the net — 420px deep, moving at 75 px/s" and a duty cycle,
-  // for a chapter that has no net at all: a probe describing the wrong chapter in a confident
-  // sentence, which is worse than a crash because it reads as a measurement. Every no-geometry
-  // chapter names ITSELF here from now on.
-  console.log(`refill:   a kill, and nothing else — no cell, no radius, nowhere on the map to stand.`)
-  // ⚠ THE DRAIN IS NOT A CONSTANT HERE and the first version of these two lines pretended it was.
-  // The Wreck declares `drainPerSpawn`, not `drain`, so `res.drain` is undefined: the header printed
-  // "drain undefined/s" and the break-even printed "NaN kills/s holds the bar level" — a probe
-  // answering a question it never asked, in the shape of a measurement. A drain denominated in the
-  // CROWD has a different break-even at every second of the run, so what is printed now is the
-  // curve's ends and its midpoint, and never a single number.
-  if (res.drainPerSpawn != null) {
-    const at = (t) => (res.drainPerSpawn * spawnRate(t) * (CHAPTERS[CHAPTER].balance?.spawnMul ?? 1)) / res.killBase
-    console.log(`break-even: ${at(0).toFixed(2)} kills/s at t=0, ${at(150).toFixed(2)} at t=150, ${at(299).toFixed(2)} at t=299` +
-      ` (drainPerSpawn ${res.drainPerSpawn} x spawnRate(t) x spawnMul ${CHAPTERS[CHAPTER].balance?.spawnMul ?? 1} / killBase ${res.killBase}).` +
-      ` The bar's difficulty RISES with the crowd — read %at0 against the kills column.`)
-  } else {
-    const hold = res.drain / res.killBase
-    console.log(`break-even: ${hold.toFixed(2)} kills/s holds the bar level (drain ${res.drain} / killBase ${res.killBase}).` +
-      ` Read %at0 against the kills column, not against another chapter's number.`)
-  }
 }
 if (sig?.bars) {
   console.log(`sandbars: cell ${sig.bars.cell} chance ${sig.bars.chance} r ${sig.bars.r}  slowMul x${sig.bars.slowMul}  drainMul x${sig.bars.drainMul}` +

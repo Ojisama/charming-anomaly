@@ -1866,7 +1866,6 @@ const CONFIG = {
   'Sardine': 'Sardine',
   'Lionfish': 'Poisson-Lion',
   'Drowning': 'Noyade',
-  'Starvation': 'Famine',
   'The Leak': 'La Fuite',
   'The Coral': 'Le Corail',
   'The Clock': 'Le Chrono',
