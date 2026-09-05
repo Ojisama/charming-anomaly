@@ -5,7 +5,7 @@
 //     --chapter wreck --url 'http://127.0.0.1:5211/'
 //
 // ⚠ `--chapter wreck` IS NOT OPTIONAL AND ITS ABSENCE IS SILENT — fx-probe defaults to `city`,
-// where none of these cards is in the pool and the roster has nothing `skittish` in it.
+// where none of these cards is in the pool and none of this chapter's creatures exists.
 //
 // WHAT EACH FRAME IS FOR:
 //   1 WHICH WAY ARE THEY POINTING. The one that matters most, because it is the bug the owner
@@ -23,7 +23,6 @@ H.note('frames: 1 which way do they point | 2 chum | 3 bilge | 4 the kit togethe
 
 H.breed(70)
 const crowd = H.keep(60)
-for (const e of crowd) e.flags = ['skittish']
 
 // A block of fish off to one side, so "which way is it pointing" has an unambiguous answer: they
 // are to the player's RIGHT, so every nose should be pointing further right, away from the camera's
@@ -57,7 +56,8 @@ return () => {
     run.blooms.push({ x: p.x - 40, y: p.y + 190, t: 5, r: 150, maxR: 150, dur: 8, dmgPerTick: 0, tick: 0, look: 'bilge', slow: 1 })
   }
   // Let the shoal actually MOVE for a beat, so the published heading is real rather than whatever
-  // the placement left behind — the facing is read off _tgtX/_tgtY, which stepPrey writes.
+  // the placement left behind — the facing is derived from the player unless a body publishes
+  // its own heading into _tgtX/_tgtY.
   for (let k = 0; k < 20; k++) { H.tick(); for (const e of crowd) e.hitFlash = 0 }
   H.note(`f${i}: blooms=${run.blooms.length} bilge=${run.blooms.filter(b=>b.look==="bilge").map(b=>Math.round(b.r)).join(",")} lures=${run.lures.length} slicks=${run.slicks.length}`)
   i++

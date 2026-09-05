@@ -5,9 +5,8 @@
 //
 // Squid Ink's product is bodies that lose you and carry on. render.js derives every creature's
 // bearing from run.player each frame, so unless the blind is on the facesOwnHeading branch the
-// bodies swim away with their eyes still locked on you — the exact bug the comment above that
-// branch already records in the owner's words for `skittish` ("a fleeing fish swam BACKWARDS, tail
-// first, eyes on the predator ... a whole shoal read as an escort rather than an escape").
+// bodies swim away with their eyes still locked on you, which reads as a bug rather than as a
+// blinded fish holding the heading it had when it lost you.
 //
 // NOT PINNED, and that is the whole design of this scene. The divergence between "where it is
 // swimming" and "where you are" is produced by the card itself: bodies arrive from up the lane

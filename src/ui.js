@@ -2154,8 +2154,8 @@ export function initUI(hooks) {
       <div class="chaos-wrap" data-charge style="display:none;">
         <span class="chaos-vrail chaos-vrail--charge">
           <!-- v7.x (owner, 2026-08-18): WHICH bar this is. Two vertical batteries ship on the same
-               screen and the chapter's resource is a different noun in every chapter (Hydration,
-               Pollution, Light, Air, Bloodlust, Feed) — a bare number and a colour cannot say which,
+               screen and the chapter's resource is a different noun per chapter (Humidity,
+               Pollution, Light, Air) — a bare number and a colour cannot say which,
                and the number is the one thing a new player has no name for. Same chip as the count
                below it, so the two read as one object: name, value, bar.
                ABOVE the rail rather than under it: an x-lane parks this column at top:56% (see

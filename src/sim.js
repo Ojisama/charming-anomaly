@@ -29,7 +29,7 @@
 
 import {
   RUN_DURATION, PLAYER, WEAPONS, CHAPTERS, MAX_WEAPON_LEVEL, MAX_WEAPONS,
-  PASSIVES, MAX_PASSIVE_LEVEL, passiveTotal, WEAPON_MODS, MAX_WEAPON_MOD_PICKS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
+  PASSIVES, MAX_PASSIVE_LEVEL, passiveTotal, WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MOD_POOL_MAX,
   MOD_CANDIDATES_PER_WEAPON, maxModsPerWeaponPerPool, DUO_PITY_SCREENS, WEAPON_RATE_MODS, WEAPON_COUNT_MODS, WEAPON_COUNT_KEYS, STAT_ROW_KEYS,
   ELEMENTS, MAX_ELEMENT_PICKS,
   // RARITY_ORDER came back in v7.5 for BLIND_FAITH_FLOOR, and the reason it left still stands:
@@ -151,9 +151,9 @@ import {
   CRAB_GUARD_T,
   CRAB_OPEN_T,
   CRAB_GUARD_ARC, PHASE_GHOST_T, PHASE_GHOST_SPEED_MUL,
-  LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
+  laneScrollFor, LANE_STRAFE_MUL, LANE_LEAK_BEHIND_PX, LANE_LEAK_DMG, LANE_CAMERA_FRAC, laneHalfWidth, laneAxes,
   swimthroughsFor, circuitKnob, caveSpecOf,
-  ringXY, ringFU, ringHeading, ringCentre, ringDelta,
+  ringXY, ringFU, ringHeading, ringDelta,
   caveAt, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY,
   LANE_CRUSH_DPS, LANE_CRUSH_TICK,
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
@@ -165,31 +165,26 @@ import {
   SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
   FIRE_CORAL_LEAD, SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, INK_BLIND_REACH, INK_JET_SPREAD, TANK_SHOVE_KB,
   LAST_BREATH_MAX_DMG_MUL, LAST_BREATH_DROWN_TAKEN_MUL,
-  resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
-  LUNGE_ROLL_FRAC,
+  resourceRateMul,
   GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_CARRY_FRAC, GNASH_ROLL_KB, RUSH_DUR, RUSH_MAX_STACKS,
-  CHUM_PULL_MUL, CHUM_PANIC_R, CHUM_FEED_R, CHUM_FEED_HOLD, CHUM_FEED_CD,
+  CHUM_FEED_R, CHUM_FEED_HOLD, CHUM_FEED_CD,
   BLOOD_CHUM_CD, BLOOD_CHUM_DUR, BLOOD_CHUM_R, BLOOD_CHUM_FOOD, OIL_FUNNEL_PULL,
-  BILGE_AVOID_PAD, BILGE_AVOID_BLEND, BILGE_FUNNEL_MAX, TAR_FLEE_MAX, BILGE_TRAIL_STEP_FRAC, BILGE_TRAIL_R_MUL, BILGE_TRAIL_GROW,
-  PREY_PANIC_BLIND_R, OIL_STAIN_RATE, OIL_STAIN_MAX,
+  BILGE_TRAIL_STEP_FRAC, BILGE_TRAIL_R_MUL, BILGE_TRAIL_GROW,
+  OIL_STAIN_RATE, OIL_STAIN_MAX,
   RING_N, RING_R_MUL, RING_POOL_MUL,
-  PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_TURN_RATE, PREY_SHOAL_SIZE, PREY_FLEE_BLEND,
-  PREY_COHESION_BLEND, PREY_COHESION_MIN_N, PREY_PREDATOR_FEAR_R, PREY_PREDATOR_BLEND,
-  BALL_R, BALL_TIGHT_N, FEED_R, FEED_FULL_N, FEED_DRAIN_MIN,
   INK_TRIGGER_R, INK_COOLDOWN, INK_R, INK_DUR, INK_SLOW_MUL,
   PUFFER_TRIGGER_R, PUFFER_PUFF_T, PUFFER_COOL_T, PUFFER_DRIFT_MUL,
-  TIGHT_COHESION_BLEND,
-  ORCA_INTERVAL, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_LEAVE_DUR,
-  ORCA_RING_R, ORCA_RING_MIN_R, ORCA_RING_BAND, ORCA_PUSH, ORCA_ORBIT_RATE,
+  ORCA_HERD_PULL, ORCA_RING_BAND, ORCA_INTERVAL, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_LEAVE_DUR,
+  ORCA_RING_R, ORCA_RING_MIN_R, ORCA_ORBIT_RATE,
   ORCA_COMMIT_SPEED, ORCA_OVERSHOOT, ORCA_HIT_R, ORCA_DMG_FRAC,
   ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_LAST_GAP,
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
-  ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
+  ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_DENS_R, ORCA_DENS_FULL_N, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
   ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
-  TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_ENEMY_DMG, TRAWL_WAKE_DEPTH,
+  TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_ENEMY_DMG,
   TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_WIGGLE_ARC, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T, TRAWL_DRAG_REEL,
   TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, tiredness,
   TIGHT_WEAVE_TEAR_MUL, TIGHT_WEAVE_ENEMY_DMG_MUL, TIGHT_WEAVE_BLAST_RADIUS, TIGHT_WEAVE_BLAST_DMG, TIGHT_WEAVE_BLAST_MAX,
@@ -287,10 +282,6 @@ export function stepSim(run, input, dt) {
   stepTrail(run, dt)      // must precede stepBossScript: a scripted chapter returns out of stepSim below
   if (stepBossScript(run, dt)) return // v5.24 blank: the scripted chapter's ONLY spawner (phase may be 'dead' — P2 yank)
   stepFormations(run, dt) // v5.18 beyond lane: ranks of marchers, alongside the seeking swarm above
-  // v7.x The Wreck: shoal centroids, prey-around-the-player and the predator list, in one O(n) walk.
-  // MUST precede stepEnemyMovement — stepPrey runs inside it and reads all three. No-op in any
-  // chapter with no skittish roster (the loop finds nothing to bucket).
-  stepShoals(run)
   stepEnemyMovement(run, dt)
   stepSubmission(run, dt) // SUBMISSION: the loan's clock, and the ally's contact attack
   stepFlashlightCones(run, dt) // v5.4 undergrowth: elite cones that enrage the swarm (damages nothing)
@@ -320,7 +311,6 @@ export function stepSim(run, input, dt) {
   stepObstacles(run)      // v5.0: push player/enemies out of this chapter's obstacle field (if any) — terrain snaps last and wins
 
   stepRam(run)            // v7.x The Reef: the Burst ploughs the crowd, the bite's own slot
-  stepBite(run)           // v7.x The Wreck: the Lunge's bite, after the dash has moved the player
   stepCrush(run)          // v5.8 skies kaiju: destroy any structure overlapping the crush radius
   stepRampage(run, dt)    // v5.8 skies kaiju: rampage meter decay/trigger/drain (crush-gated, no-op elsewhere)
   stepTrails(run, dt)     // v5.3 garden: expire dropped pheromone nodes (no-op unless any exist)
@@ -338,7 +328,7 @@ export function stepSim(run, input, dt) {
   if (stepPools(run, dt)) return // phase is now 'dead' (acid/soap pool DoT — v5.0)
   if (stepSpurs(run, dt)) return // phase is now 'dead' (The Reef: scraping through coral, v7.x)
   if (stepDrown(run, dt)) return // phase is now 'dead' (The Reef: an empty Air bar, v7.x)
-  if (stepStarve(run, dt)) return // phase is now 'dead' (The Wreck: an empty Bloodlust bar, v7.x)
+
   if (stepSlick(run, dt)) return // phase is now 'dead' (The Wreck: standing in the leak, v7.x)
   if (stepTrawl(run, dt)) return // phase is now 'dead' (The Trawl: the net wall, v7.x)
   if (stepOrca(run, dt)) return // phase is now 'dead' (The Wreck: the orca's strike, v7.x)
@@ -976,22 +966,6 @@ function stepPlayerMovement(run, input, dt) {
       else { run._kickX = (kx / mag) * left; run._kickY = (ky / mag) * left }
     }
     if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
-  } else if ((run._lungeT ?? 0) > 0) {
-    // THE LUNGE (v7.x, The Wreck). The free-roaming twin of the burst above, and it has to live in
-    // this function for the same reason: whatever owns the player's velocity owns the dash. The
-    // Reef's version multiplies a scroll the lane already provides; here there is no scroll, so the
-    // direction is latched at press time (run._lungeX/_lungeY, set by stepRepulse) and REPLACES the
-    // stick for as long as it lasts. Replacing rather than adding is deliberate — a lunge you can
-    // steer is a speed boost, and the whole cost of this button is that you commit to a line.
-    p.vx = run._lungeX * LUNGE_SPEED
-    p.vy = run._lungeY * LUNGE_SPEED
-    run._lungeT = Math.max(0, run._lungeT - dt)
-    // How far THIS dash has actually carried you. stepBite refuses to land until it is non-zero,
-    // and that is not a nicety: stepRepulse runs AFTER this function and stepBite runs later in the
-    // SAME step, so on the press frame the player has not moved yet and a body already standing in
-    // reach was bitten instantly — 45 charge spent, 0 of the advertised 270px travelled, one nibble.
-    // In a chapter that pays you for standing in a crowd that is the common case, not the corner.
-    run._lungeMoved = (run._lungeMoved ?? 0) + LUNGE_SPEED * dt
   } else {
     p.vx = ix * speed
     p.vy = iy * speed
@@ -1009,14 +983,9 @@ function stepPlayerMovement(run, input, dt) {
   // (ARTILLERY_LEAD). Deliberately input-only: drift/pull forces aren't something a tank can read —
   // and in the lane the forward component is the scroll, which is exactly what a shell should lead.
 
-  // `_lungeT` is the third term for the same reason `lane` is the second: both are ways of moving
-  // that the STICK knows nothing about. render.js reads p.moving at four sites (the hop cycle, the
-  // shadow squash, the eye look), so without it the fish holds a full idle pose while crossing
-  // 270px at 900px/s — the same publish-into-the-contract-field fix p.facingAngle needed at the
-  // press site, and invisible for exactly the same reason.
   // ...and in a CIRCUIT the same is true for the same reason: momentum carries you with the stick
   // released, so a `len > 0` test would hold a full idle pose through a coasting corner.
-  p.moving = lane || len > 1e-6 || (run._lungeT ?? 0) > 0 || (CHAPTERS[run.chapter].circuit && (run._laneSpeed ?? 0) > 1)
+  p.moving = lane || len > 1e-6 || (CHAPTERS[run.chapter].circuit && (run._laneSpeed ?? 0) > 1)
   if (ix > 1e-6) p.facing = 1
   else if (ix < -1e-6) p.facing = -1
   // v5.0: last non-zero move direction as a full angle — render orients the pond tail to it, and
@@ -1546,7 +1515,7 @@ function spawnBlankEnemy(run, rosterId, essential = false, opts = {}) {
   // would silently inflate late waves; the ladder-driven enemyDmgMul stays.
   const base = ENEMIES[ARCHETYPE_TYPE[roster.archetype]]
   e.hp = e.maxHP = roundHP(base.hp * (roster.hpMul ?? 1) * run.mods.enemyHpMul)
-  e.speed = base.speed * (roster.speedMul ?? 1) * enemySpeedMulFor(run, roster)
+  e.speed = base.speed * (roster.speedMul ?? 1) * run.mods.enemySpeedMul
   e.dmg = base.dmg * run.mods.enemyDmgMul
   return e
 }
@@ -1621,9 +1590,9 @@ function stepRepulse(run, input, dt) {
   // back enemies, since it kills enemies now." The two halves were cancelling. stepRam eats what the
   // dash ploughs through, and a shove on the same press threw that crowd clear of the reach the ram
   // is measured against (BURST_RAM_MUL, 62px), so the button spent its charge making its own kill
-  // less likely. The Wreck settled the same collision by SEPARATING them — LUNGE_ARM_DIST, the shove
-  // takes what is on top of you and the dash what is out there — but a race is all traffic and has
-  // no "out there" to separate into, so here the shove goes instead.
+  // less likely. Separating the two by reach is the other answer — the shove takes what is on top of
+  // you and the dash what is out there — but a race is all traffic and has no "out there" to
+  // separate into, so here the shove goes instead.
   //
   // Set here rather than in stepPlayerMovement so the whole cast is one place, and read there because
   // the lane owns the forward velocity — see the burstMul line in that function, and BURST_* in
@@ -1665,66 +1634,6 @@ function stepRepulse(run, input, dt) {
   // on the same frame and play the shove's sample twice, which is the exact complaint run SK.e pins
   // for The Surf. The murk visibly opening is the tell, and it is a bigger one than any ring.
   if (ch.clear) run._clearT = CLEAR_DUR_MIN + (CLEAR_DUR_AT_FULL - CLEAR_DUR_MIN) * t
-  // THE LUNGE (v7.x, The Wreck — CHAPTERS[].lunge). Same press, same cooldown, same `t`, and the
-  // shove above still fires — this one is additive, not a replacement like the shorebreak and the burst.
-  //
-  // THE FLOOR IS THE SHOVE ITSELF, and `LUNGE_DUR_AT_FULL * t` is the ONE thing that delivers it.
-  // Every other chapter's second verb has a non-zero floor (BURST_DUR_MIN, SCENT_DUR_MIN) so an
-  // empty bar is weaker and never structurally trapped; here the duration goes
-  // to zero instead, which is the same rule reaching its limit rather than an exception to it. A
-  // lunge exists to buy a kill that refills the bar, so a free one on an empty bar would be a free
-  // refill, and this chapter's whole premise is that the bar is only ever paid for in kills. A
-  // starving player still gets the full v5.21 Pulse.
-  //
-  // ⚠ THERE WAS A `t > 0` GATE HERE AND IT IS DELIBERATELY GONE. It was a second, independent guard
-  // for that same rule, and a mutation run showed exactly what two guards for one fact buy you:
-  // each one MASKS a defect in the other, so flooring the duration to BURST_DUR_MIN's shape — the
-  // plausible mistake, since every other button has such a floor — was invisible to the suite.
-  // One mechanism, one test that can see it. Do not re-add the gate as an optimisation; the cost it
-  // saved was a single nearestEnemy scan on a press this chapter's player has no reason to make.
-  //
-  // Aimed at the NEAREST ENEMY, falling back to facingAngle — fireFlagella's shipped rule, because a
-  // bite that goes where the stick points is a bite you miss with. The direction is latched here and
-  // read by stepPlayerMovement for the life of the dash.
-  if (ch.lunge) {
-    // `nearestEnemy(run)` — ONE argument. Its signature is (run, pad = 100) and it measures from
-    // the player itself; passing (run, p.x, p.y) put the player's world X into `pad` and discarded
-    // p.y, making the acquisition radius |viewRadius + player.x|. That is a dead band centred on
-    // x = -viewRadius, two target-distances wide, in which the button silently stopped aiming at
-    // all — and an unbounded range at large +x, where it would launch at an off-screen body.
-    // Every other call site but the Lest's passes (run) alone; that one passes a deliberate
-    // NEGATIVE pad (BALLAST_REACH_PAD) to aim short of the screen edge.
-    // AIMED AT PREY, NOT AT WHATEVER IS NEAREST. Owner ruling 2026-08-18: "the action button should
-    // be a dash to a nearby non-tank enemy."
-    //   The moray is the one body in this chapter you cannot eat on demand — it is `guard`-windowed,
-    // so a Lunge that picks it spends the bar on a body that may simply refuse the damage, and
-    // LUNGE_KILL_REFILL never pays out. Since the moray is also the SLOWEST thing here, it is very
-    // often the nearest, so the untargeted button spent itself on the one wrong answer most of the
-    // time. Preferring prey makes the press mean "go eat that" instead of "go forward-ish".
-    //   Falls back to nearestEnemy when there is no prey in range, so the button never goes dead —
-    // an empty press that still shoves is the shipped floor and it stays.
-    const tgt = nearestPrey(run) ?? nearestEnemy(run)
-    const ang = tgt ? Math.atan2(tgt.y - p.y, tgt.x - p.x) : (p.facingAngle ?? 0)
-    run._lungeX = Math.cos(ang)
-    run._lungeY = Math.sin(ang)
-    run._lungeT = LUNGE_DUR_AT_FULL * t
-    run._lungeMoved = 0
-    // deathRoll's per-dash bookkeeping (stepBite). `_lungeId` stamps bodies this dash has already
-    // bitten — an id rather than a Set, so a hot path allocates nothing and a body carrying a stale
-    // stamp from a previous press is simply not equal to the current one. `_lungePaid` is why
-    // LUNGE_KILL_REFILL stays a near-wash however many bodies a roll chews through.
-    run._lungeId = (run._lungeId ?? 0) + 1
-    run._lungePaid = false
-    run._rollHit = false
-    // PUBLISH THE FACING, or the fish swims sideways through its own signature move. render.js
-    // rotates the body off `p.facingAngle` and nothing else, and that field is written only from
-    // the STICK (stepPlayerMovement) — so a dash deliberately aimed somewhere other than the stick
-    // is invisible to the renderer, which is the freeze scar's shape exactly: sim knows the
-    // direction, render is never told, and on screen it reads as a bug rather than as a lunge.
-    // The Reef's Burst never needed this because a lane pins facingAngle to the lane's own heading.
-    p.facingAngle = ang
-    p.facing = Math.cos(ang) >= 0 ? 1 : -1
-  }
   // THE SCENT (v7.x, The Deep — CHAPTERS[].scent). The same press, the same cooldown and the same
   // `t` again. Ungated: the smell is cast from the player and finds whatever is out there — in a
   // chapter where you cannot see, a button with a targeting requirement would be a button you
@@ -2308,20 +2217,6 @@ function elNeverFreezes(e) { return !!(e.affixes && e.affixes.includes('anchored
 // opts: { type, x, y, forceNormal } — lets splitter deaths spawn wisps at a fixed position
 // (never elite, but still time-scaled like any other spawn). Called with no opts by the
 // normal spawn-timer path in stepSpawning.
-// WHAT SPEEDS UP, AND WHAT MUST NOT. Every enemy-speed multiplier in the game arrives through
-// run.mods.enemySpeedMul — the difficulty ladder (difficultySpeedMul, v7.x) and the Caffeinated
-// Swarm mutator — and none of them may reach `skittish` prey.
-//   The Wreck's roster is FOOD, and its speeds are a triangle designed against the player's 220
-// px/s: a mackerel at 103 you outswim, a sardine at 183 you win a chase against, a damselfish at
-// 223 cannot be caught by swimming at all and is what the Lunge button exists for. Multiply that
-// set and the chapter loses its middle — everything is uncatchable, the bar never refills, and the
-// failure reads to the player as starving rather than as a harder level.
-//   ⚠ THIS ALSO FIXES A LATENT BUG. MUTATORS.caffeine (+25% enemy speed) carries no chapter gate,
-// so it could already roll in The Wreck and do exactly that; the ladder is simply the second way in.
-// One guard covers both, and every chapter whose crowd comes AT you is untouched because nothing
-// there is skittish.
-const enemySpeedMulFor = (run, roster) =>
-  (roster?.flags?.includes('skittish') ? 1 : run.mods.enemySpeedMul)
 
 function spawnEnemy(run, opts = {}) {
   const isElite = !opts.forceNormal && run.time >= run._nextEliteAt
@@ -2452,7 +2347,7 @@ function spawnEnemy(run, opts = {}) {
   // two enemy-side damage sites keep hpScale's default, since scaling those with a difficulty knob
   // would buff the player. Read once at spawn, like the rest of this line.
   let hp = base.hp * hpScale(run.time, lateRateFor(run.chapter)) * (isElite ? ELITE.hpMul : 1) * run.mods.enemyHpMul * (roster?.hpMul ?? 1)
-  const speed = base.speed * speedCreepMul(run.time) * enemySpeedMulFor(run, roster) * (roster?.speedMul ?? 1)
+  const speed = base.speed * speedCreepMul(run.time) * run.mods.enemySpeedMul * (roster?.speedMul ?? 1)
   // roster.dmgMul (v7.x): the per-creature damage term, added last and in the same shape as the
   // hpMul/speedMul/radiusMul/xpMul lines around it. Until it existed, the only ways to make ONE
   // roster entry hit softer were the archetype base in ENEMIES (which moves that archetype in every
@@ -2656,12 +2551,15 @@ function stepEnemyMovement(run, dt) {
   // v7.x: CHAPTERS[].passiveCrowd -- this chapter's creatures never seek. Hoisted beside laneAx for
   // the same reason: one frozen lookup per frame.
   const passiveCrowd = CHAPTERS[run.chapter].passiveCrowd === true
+  // THE ORCA'S RING (v7.x). Circling ONLY — during the rise it is a shadow, not yet a wall, and a
+  // commit has left the ring behind. run.orca is not in run.enemies, so nothing else in this loop
+  // can see it and it needs its own term.
+  const ring = run.orca && run.orca.state === 'circling' ? run.orca : null
 
   for (const e of run.enemies) {
     // Seek target: the player by default, or the nearest Pheromone Lure decoy (v5.3 garden) whose
     // aggro radius this enemy sits inside — lured foes path to the decoy instead of the player.
     let tx = p.x, ty = p.y
-    let baited = false
     // SUBMISSION — THE RETARGET SEAM. This one line is what every movement machine below reads;
     // they are handed a POINT and never see run.player, which is why pointing an ally at the
     // nearest hostile makes seek, dash, charge, strafe, standoff, dive and pounce all aim correctly
@@ -2686,10 +2584,7 @@ function stepEnemyMovement(run, dt) {
       for (const lu of run.lures) {
         const ldx = lu.x - e.x, ldy = lu.y - e.y
         const lsq = ldx * ldx + ldy * ldy
-        // `baited` (v7.x, The Wreck's Chum): WHICH decoy won, not merely that one did. stepPrey
-        // inverts its response to the seek target, so a bait that did not say so would be read as a
-        // thing to run from — the card doing the exact opposite of its own text, silently.
-        if (lsq <= lu.aggro * lu.aggro && lsq < bestSq) { bestSq = lsq; tx = lu.x; ty = lu.y; baited = !!lu.bait }
+        if (lsq <= lu.aggro * lu.aggro && lsq < bestSq) { bestSq = lsq; tx = lu.x; ty = lu.y }
       }
     }
     // pastSeek flag (v5.24 blank's probes, v7.x The Shelf's dogfish): hunt where the player WAS — a
@@ -2724,7 +2619,7 @@ function stepEnemyMovement(run, dt) {
       tx = e.x + e._blindHx * INK_BLIND_REACH
       ty = e.y + e._blindHy * INK_BLIND_REACH
       // ...and into `_tgtX/_tgtY`, the shipped "face this instead of the player" pair, for exactly
-      // the reason SUBMISSION's allies and The Wreck's skittish prey write it: render derives every
+      // the reason SUBMISSION's allies write it: render derives every
       // bearing from run.player each frame, so without this a blinded body swims away with its eyes
       // still on you and the card's whole product — bodies LOSING you — is undrawn.
       e._tgtX = tx; e._tgtY = ty
@@ -2742,14 +2637,20 @@ function stepEnemyMovement(run, dt) {
     const dragMul = (e.dragT || 0) > 0 ? (1 - BALLAST_DRAG) : 1
     // THE OIL STAIN (v7.x, The Wreck). Unlike every other term here it is not a WINDOW — `oiled`
     // is a fraction the body keeps for the rest of its life, capped at OIL_STAIN_MAX. Applied at
-    // this one site rather than in stepPrey so it reaches every movement machine at once; a
+    // one site above the movement machines, so it reaches every one of them at once; a
     // stained moray is as slow as a stained mackerel, which is what "the oil got on it" means.
     // TAR (WEAPON_MODS.bilge.tarred) raises the ceiling on the stain rather than the stain
     // itself: `oiled` accumulates the same way and is still capped, the cap is just deeper. Before
     // the 2026-09-05 rework this card took the FLEE burst off prey, which no longer exists.
     const oilCap = OIL_STAIN_MAX * (1 + (run.weaponMods.bilge?.tarred ?? 0))
     const oilMul = 1 - Math.min(oilCap, e.oiled || 0)
-    const slowMul = (1 - elSlow(run, e)) * bloomMul * dragMul * oilMul  // 1.0 slow IS the freeze; no separate branch
+    // THE PUFFER'S BALL (v7.x). A body that is inflated, or still deflating after a refused bite,
+    // barely swims — the punish window the `puffup` beat is bought with. Here rather than in
+    // stepPuffUp for the oil stain's reason: this is a SPEED, and every speed in this loop composes
+    // at one site. `puffT` is the published contract field render already poses off, so the tell
+    // and the slow read the same number.
+    const puffMul = ((e.puffT ?? 0) > 0 || (e._puffCd ?? 0) > 0) ? PUFFER_DRIFT_MUL : 1
+    const slowMul = (1 - elSlow(run, e)) * bloomMul * dragMul * oilMul * puffMul  // 1.0 slow IS the freeze; no separate branch
 
     // Frenzied: speeds up once badly hurt. Cheerleader (pacer): speeds up anyone else nearby.
     let affixSpeedMul = 1
@@ -2788,7 +2689,7 @@ function stepEnemyMovement(run, dt) {
     // inkjet / puffup (v7.x The Wreck's squid and pufferfish). Both sit here beside `guard` for the
     // same reason it does: they advance a CLOCK and nothing about the movement resolution below
     // changes shape. The squid's cloud is laid from here; the puffer's refusal lives in guardBlocks
-    // and its drift is one multiplier inside stepPrey, both keyed off the published `puffT`.
+    // and its drift is a multiplier below, both keyed off the published `puffT`.
     if (e.flags && e.flags.includes('inkjet')) stepInkjet(run, e, dt)
     if (e.flags && e.flags.includes('puffup')) stepPuffUp(run, e, dt)
     // Status effects (v5.4, see state.js): enrage is a plain speed multiplier; fear and stun
@@ -2800,7 +2701,19 @@ function stepEnemyMovement(run, dt) {
     // or stunned animal doesn't run its hunting routine); the flag machines REPLACE the normal
     // seek for everyone else; the plain seek runs for the rest. slowMul (chill/freeze) applies
     // throughout. Machines take the seek target, so lured foes run their routine at the decoy.
-    if ((e.stunT || 0) > 0) {
+    if ((e.feedT || 0) > 0) {
+      // HEAD DOWN, EATING (v7.x, Chum). A body that reached a bait took a serving and stopped for
+      // it; for that long it does not steer and does not close, which is the whole reason to cast
+      // the card and the half that separates it from a Pheromone Lure — that one only ever changes
+      // where something walks. Knockback still carries it, exactly as a stun does, so a Pulse can
+      // always clear a fed crowd off you.
+      //   ⚠ IT IS A MOVEMENT BRANCH, NOT AN EARLY-OUT ON THE LOOP. The feedT decay lives BELOW the
+      // movement resolution, so a `continue` placed above it never ends the hold and a `continue`
+      // placed below it never prevents the step — the body eats and keeps swimming. Sitting here,
+      // in the same chain as stun and fear, is what makes the pin real and still time-limited.
+      //   `_tgtX/_tgtY` are left where they were, so the body keeps facing the way it arrived;
+      // render.js draws the nose-down pose off `feedT` itself and needs nothing else.
+    } else if ((e.stunT || 0) > 0) {
       // stunned (hydrant launch / roar stagger / the Vase's daze): no seek at all — knockback still
       // carries it below.
       //
@@ -2837,7 +2750,7 @@ function stepEnemyMovement(run, dt) {
       // streams past and the astern sweep takes it out the back. Closing speed is the scroll PLUS
       // its own, which is the whole of "pass by" -- a body that merely stopped seeking would sit
       // still in the water and read as dead.
-      //   ABOVE every behaviour machine and below stun/fear, exactly where skittish sits and for
+      //   ABOVE every behaviour machine and below stun/fear, for
       // the same reason: a fish that is not hunting you is not running its hunting routine either.
       // That placement is what makes the roster's latch and pounce inert here without deleting
       // them -- the chapter is one boolean away from its combative self.
@@ -2866,12 +2779,6 @@ function stepEnemyMovement(run, dt) {
       // render's facesOwnHeading gains the chapter so it knows to read it.
       e._tgtX = e.x - hx * 100
       e._tgtY = e.y - hy * 100
-    } else if (e.flags && e.flags.includes('skittish')) {
-      // PREY (v7.x, The Wreck). The one branch in this chain that walks AWAY from the player.
-      // Sits directly under fear because it is the same motion for a different reason — fear is a
-      // status a weapon applied, this is what the animal IS — and above every behaviour machine
-      // because a fish that is running is not also running its hunting routine.
-      stepPrey(run, e, dx, dy, d, dt, slowMul, baited)
     } else if (e.flags && e.flags.includes('cruise')) {
       // CRUISE (2026-09-01, The Trawl's sea turtle). Neither hunts you nor flees you: it holds the
       // heading it spawned with and swims off the edge of the world. The book's second threat class
@@ -2879,7 +2786,7 @@ function stepEnemyMovement(run, dt) {
       // attention, not health: you hit it because you were not looking.
       //
       // ⚠ HERE, ABOVE EVERY BEHAVIOUR MACHINE, and NOT down beside stepMarch. Same seam and same
-      // reason as passiveCrowd and skittish either side of it: a fish that is not hunting you is not
+      // reason as passiveCrowd beside it: a fish that is not hunting you is not
       // running its hunting routine either. (weave's "must be last" argument is about a MODIFIER to
       // seeking; this is a replacement for it, which is the opposite placement.)
       //
@@ -2958,6 +2865,19 @@ function stepEnemyMovement(run, dt) {
 
     e.x += e.kb.x * dt
     e.y += e.kb.y * dt
+    // ...and the closing wall drags anything out at its rim back toward the centre it is drawn
+    // around — which is the player, or the fullest bait under WEAPON_MODS.chum.decoyBarrel, since
+    // both the ring and this read the same anchor. Applied as a displacement beside the knockback
+    // rather than as a heading, for the reason ORCA_HERD_PULL's own block gives.
+    if (ring) {
+      const rx = e.x - ring.cx, ry = e.y - ring.cy
+      const rd = Math.hypot(rx, ry)
+      if (rd > ring.r - ORCA_RING_BAND && rd > 1e-6) {
+        const pull = Math.min(rd, ORCA_HERD_PULL * dt)
+        e.x -= (rx / rd) * pull
+        e.y -= (ry / rd) * pull
+      }
+    }
     e.kb.x *= kbDecay
     e.kb.y *= kbDecay
     if (Math.abs(e.kb.x) < 0.5) e.kb.x = 0
@@ -3004,16 +2924,6 @@ function stepEnemyMovement(run, dt) {
     if (e.feedT > 0) e.feedT = Math.max(0, e.feedT - dt)
     // The refusal window that keeps Chum a decoy rather than a freeze field — see CHUM_FEED_CD.
     if (e._fedCd > 0) e._fedCd = Math.max(0, e._fedCd - dt)
-    // HEAD DOWN, EATING (v7.x, Chum). A body that reached a bait took a serving and stopped for it;
-    // for that long it does not steer and does not close, which is the whole reason to cast the
-    // card and the half that separates it from a Pheromone Lure — that one only ever changes where
-    // something walks. `_tgtX/_tgtY` are left where they were, so the body keeps facing the way it
-    // arrived; render.js draws the nose-down pose off `feedT` itself and needs nothing else.
-    //   ⚠ IT MUST SIT BELOW THE TWO DECAYS ABOVE, NOT AT THE TOP OF THIS LOOP. They live INSIDE
-    // stepEnemyMovement rather than in stepStatuses, so an early-out placed before them skips the
-    // line that ends the hold: measured, that pinned 204 of 270 concurrent bodies permanently and
-    // turned the card into the pause button CHUM_PANIC_R's own block warned about.
-    if (e.feedT > 0) continue
     // v7.x The Deep: refreshed by stepScent while inside the smell, exactly as bloomSlowT is by
     // stepBlooms. The decay HAS to live here and not in stepScent — stepScent only walks the bodies
     // currently in range, so a body that swims OUT of the radius would otherwise keep the mark, and
@@ -3036,7 +2946,7 @@ function stepEnemyMovement(run, dt) {
     // drags a wall of oil behind it, on soapTrail's own timer cadence but pushing a run.blooms entry
     // tagged look: 'bilge' rather than a run.pools node. The tag is what makes it the same substance
     // as the player's own Bilge weapon and the chapter's ambient Leak, so it inherits their prey
-    // avoidance (stepPrey), their permanent stain (stepBlooms) and their render for free — no new art.
+    // slow (the oil stain), their spread (stepBlooms) and their render for free — no new art.
     // `slow: 1`, NOT 0: the stain is gated on `bl.slow !== 0` (stepBlooms), while the prey-avoidance
     // loop reads only `bl.look`/`bl.r` and does not check `slow` at all — so 0 would keep the wall but
     // silently drop the stain. `dmgPerTick: 0` (ruling): a fence that walks, not a damage zone.
@@ -3661,6 +3571,12 @@ function stepInkjet(run, e, dt) {
 // ball forever while the player stood near it.
 function stepPuffUp(run, e, dt) {
   if ((e.puffT ?? 0) > 0) {
+    // PUFFING OUTRANKS A MOUTHFUL (owner ruling, 2026-08-23). A body reacting to the predator is
+    // not a body with its head in a bucket, so an inflating fish neither starts nor keeps a Chum
+    // hold. Here rather than at the two sites that could each hold half of it: this function runs
+    // inside stepEnemyMovement's own loop, immediately above the movement resolution that reads
+    // `feedT`, so one clear covers both "does not start" and "does not keep".
+    e.feedT = 0
     e.puffT = Math.max(0, e.puffT - dt)
     if (e.puffT === 0) e._puffCd = PUFFER_COOL_T
     return
@@ -4055,15 +3971,6 @@ function contactHarmless(e) {
   // lineCharge's 'stall' on the next line. 'circle'/'mark'/'strike' are ordinary: hittable AND able
   // to hit you, like any other enemy.
   if (e._airState === 'climb') return true
-  // PREY (v7.x, The Wreck). The other half of `skittish`, and it is one design fact rather than two:
-  // this is food. It runs from you (stepPrey) and it cannot hurt you, ever, in any state.
-  // THIS LINE IS WHY THE ROSTER'S `dmgMul: 0` IS NOT ENOUGH ON ITS OWN — hurtPlayer floors a hit at
-  // Math.max(1, ...), so a zero-damage fish would still take 1 HP off you every time you swam
-  // through one, and this chapter puts 600 of them on the map.
-  // Contrast the fear clause below, which was DELETED in v7.16 for making a machine-gun lock: a
-  // status any build could apply field-wide had to stop disarming, but a roster flag cannot be
-  // stacked, refreshed or spread, so the same rule does not apply to it.
-  if (e.flags && e.flags.includes('skittish')) return true
   // ZERO CONTACT DAMAGE MEANS ZERO. hurtPlayer floors every hit at Math.max(1, ...), so a roster
   // that declares `dmgMul: 0` still took 1 HP per touch — the moray did 204 damage across three
   // 300s runs that way, against the leak's 234, in the chapter built on the leak being the only
@@ -5065,7 +4972,6 @@ function stepCaveWall(run, dt) {
   return died
 }
 
-
 // THE GRATE. What makes a ridge a decision instead of scenery: you are either in a groove, or in
 // coral where it costs HP and your steering while the crowd is still on you. Never a wall — the
 // scroll is untouched, so the lane keeps its one promise and there is nowhere the reef is shut.
@@ -5195,7 +5101,7 @@ export function streamSlicks(run) {
   }
 }
 
-// Standing in a spill. Structurally stepDrown/stepStarve — a fixed-cadence DoT that returns true on
+// Standing in a spill. Structurally stepDrown — a fixed-cadence DoT that returns true on
 // death — plus the fouling, which is the half that makes a slick a decision instead of a tax: you
 // come out slower than you went in, so a shortcut through one costs you the fish as well as the HP.
 // @returns true if the player died.
@@ -5436,10 +5342,12 @@ const inNetHole = (net, x, y) => {
 }
 
 // How much faster than real time the orca's countdown runs, given how packed the water around the
-// player is. `run._feedN` is stepShoals' own count (prey inside FEED_R that are part of a real ball
-// — see BALL_TIGHT_N), so this is the SAME density the Bloodlust drain-slow rewards, read a second
-// time rather than counted a second time. Live chum baits add to it because chum in the water is
-// what an orca actually comes for.
+// player is. It counts the crowd itself — live bodies within ORCA_DENS_R of the player — and live
+// chum baits add to it, because chum in the water is what an orca actually comes for.
+//   ITS OWN LOOP, over the same array stepOrca already walks, once per frame. Counting here rather
+// than publishing a density field from stepEnemyMovement keeps the whole term in one place: this is
+// the only reader, and a field written for one reader is a field that goes stale silently when that
+// reader changes shape.
 // ⚠ CAPPED. Uncapped, a chapter that stays dense is a chapter the orca never leaves.
 // A bait counts for HOW MUCH FOOD IS LEFT IN IT, not for existing: `food` over ORCA_BAIT_FULL_FOOD,
 // clamped, so a fresh L5 bucket rings the bell and one the shoal has already stripped does not.
@@ -5461,22 +5369,32 @@ function orcaAnchor(run) {
 function orcaRush(run) {
   let baits = 0
   if (run.lures) for (const lu of run.lures) if (lu.bait) baits += Math.min(1, (lu.food || 0) / ORCA_BAIT_FULL_FOOD)
-  const dens = Math.min(1, (run._feedN || 0) / FEED_FULL_N) + baits * ORCA_BAIT_PULL
+  const p = run.player
+  const r2 = ORCA_DENS_R * ORCA_DENS_R
+  let near = 0
+  for (const e of run.enemies) {
+    if (e._dead || isAlly(e)) continue
+    const dx = e.x - p.x, dy = e.y - p.y
+    if (dx * dx + dy * dy <= r2) near++
+  }
+  const dens = Math.min(1, near / ORCA_DENS_FULL_N) + baits * ORCA_BAIT_PULL
   return Math.min(ORCA_RUSH_MAX, 1 + ORCA_DENSITY_RUSH * dens)
 }
 
-// THE UNCREDITED DEATH. Prey caught by the sweep just stops existing: `_dead` plus an event and
+// THE UNCREDITED DEATH. A fish caught by the sweep just stops existing: `_dead` plus an event and
 // nothing else, which is stepLeaks' shipped idiom for a body the player did not kill. It therefore
-// pays NO run.kills, no gem, no Bloodlust refill and no on-kill proc — all of which live inside
-// dealDamage, and none of which is reachable from here. That is the whole point of ruling 3: the
-// orca eats your food and you get nothing for it.
-// ⚠ PREY ONLY, AND NEVER AN ELITE. A moray is a threat you cleared and an elite is a reward you
-// were part-way through earning; deleting either for free is a theft, not a tax.
+// pays NO run.kills, no gem and no on-kill proc — all of which live inside dealDamage, and none of
+// which is reachable from here. That is the whole point of ruling 3: the orca eats your crowd and
+// you get nothing for it. The tension survived the chapter's rework intact and reads better in it:
+// the sweep now clears bodies that were coming to hurt you, so it helps you and pays you nothing.
+// ⚠ NEVER AN ELITE. An elite is a reward you were part-way through earning, and deleting it for
+// free is a theft rather than a tax. Everything else in the water is fair game: a roster gate here
+// is one more place the chapter's composition has to be restated, and the last one silently emptied
+// the sweep when the roster it named went away.
 function orcaBite(run, o) {
   const b2 = ORCA_BITE_R * ORCA_BITE_R
   for (const e of run.enemies) {
     if (e._dead || e.elite || isAlly(e)) continue
-    if (!e.flags || !e.flags.includes('skittish')) continue
     const dx = e.x - o.x, dy = e.y - o.y
     if (dx * dx + dy * dy > b2) continue
     e._dead = true
@@ -6127,9 +6045,9 @@ export function stepCharge(run, dt) {
   // 6 seeded 300s runs it spans roughly 0.5/s at t=0 to 15/s at t=280, about 30x. Against a constant
   // drain that means the bar is floored while you are weakest and pinned once you are strong — the
   // pressure curve running backwards against the difficulty curve. Two independent sweeps
-  // (drain 5..45 x killBase 0.5..5) found NO constant pair that works: the share of the run the bar
-  // spends actually being managed never cleared ~31%, and for a player who hunts the crowd, which
-  // is what this chapter asks for, it was 11%.
+  // over a drain x per-kill-refill grid found NO constant pair that works: the share of the run the
+  // bar spends actually being managed never cleared ~31%, and for a player who hunts the crowd it
+  // was 11%.
   //
   // spawnRate(t) is the curve the crowd itself arrives on (0.81/s -> 17.5/s over a run), so scaling
   // the drain by it holds break-even at roughly a fixed FRACTION of the achievable kill rate at
@@ -6141,19 +6059,6 @@ export function stepCharge(run, dt) {
   // v7.x Book 2 Task 9: Slow Burn (chargeDrainMul) and Big Gulp (chargeRefillMul) scale the drain
   // and the in-circle refill respectively — both default to 1 (no-op) unbought, and both are 1 in
   // every chapter with no resource, so this is inert wherever it always was.
-  // FEED — the drain-slow (v7.x, The Wreck's `resource.feedSlow`). Being INSIDE the food slows the
-  // bar's fall; a straight line across the map is never inside anything.
-  //
-  // ⚠ IT IS A RATE, NOT A REFILL, AND THAT IS THE WHOLE POINT. Bloodlust is clamped at chargeMax,
-  // so a multiplier on refill is worth most to whoever is furthest from the clamp — i.e. the player
-  // doing worst. Measured, a killBase multiplier paid a straight-line player +167% against a
-  // hunter's +31% and collapsed the separation between them from 2.69x to 1.33x: it HALVED the
-  // reward for engaging. A rate cannot be clamped, so this pays the same whether the bar is full or
-  // empty, and it pays for a POSITION rather than for a kill rate that a straight line already
-  // maximises. Opt-in per chapter, so nothing else in the game can see it.
-  const feedMul = res.feedSlow
-    ? 1 - (1 - FEED_DRAIN_MIN) * Math.min(1, (run._feedN || 0) / FEED_FULL_N)
-    : 1
   const p = run.player
   // OXYGEN TANK'S BOIL (v7.x, The Reef). It PAUSES the drain and can never add to the bar: the
   // whole effect is this multiplier, and there is no branch anywhere that writes `c` for a boil.
@@ -6166,7 +6071,7 @@ export function stepCharge(run, dt) {
     const dx = p.x - bl.x, dy = p.y - bl.y
     return dx * dx + dy * dy <= bl.r * bl.r
   }) ? 0 : 1
-  let c = run.charge - drainRate * dryMul * run.chargeDrainMul * feedMul * airHold * dt
+  let c = run.charge - drainRate * dryMul * run.chargeDrainMul * airHold * dt
   // Opt-in per FIELD, read through refillSpec() so this asks the streamer's own question rather
   // than a second one that could disagree. 0/undefined everywhere but The Shelf.
   // drawdownSecsFor, not a bare refillSpec read: Dead Water multiplies this clock and all three
@@ -6247,10 +6152,8 @@ export function stepCharge(run, dt) {
     break
   }
   // v7.x Book 2 Task 9: run.chargeMax, not res.max — Deep Lungs raises the RUN's own ceiling, and
-  // this is one of TWO sites that must clamp against it (the other is the per-kill `killBase`,
-  // below in dealDamage's kill branch). Missing either one is a flicker: the bar would refill past
-  // its cap on a kill and snap back down on the very next tick through whichever site still reads
-  // the config max. The Trawl's wake refill feeds `c` too, so it is clamped by this line as well.
+  // this is the site that clamps against it. The Trawl's wake refill feeds `c` too, so it is
+  // clamped by this line as well.
   run.charge = Math.max(0, Math.min(run.chargeMax, c))
   // WHAT THE PLAYER CAN SEE, which is the bar in every chapter but this one and during this
   // chapter's own button. render.js's updateDark reads run.sightCharge and nothing else, so the
@@ -6295,33 +6198,6 @@ function stepDrown(run, dt) {
   return died
 }
 
-// -- Starving (v7.x, The Wreck) -------------------------------------------------------
-// stepDrown's shape, gated on `resource.starve`, and the duplication is deliberate rather than
-// unfactored. They are the same MECHANISM answering opposite PROBLEMS, and folding them into one
-// `dot` block would hide the only thing worth knowing about either: an empty Air bar is a ROUTING
-// failure — you did not cross the lane to a pocket, and the fix is somewhere on the map — where an
-// empty Bloodlust bar is a TEMPO failure, you stopped killing, and the fix is the body in front of
-// you. Same red pulse, different sentence, and a future editor who reads one should not have to
-// discover the other is welded to it.
-//
-// `src` is 'starve', which is what puts it in the death screen's damage recap under its own name
-// rather than inside drowning's row.
-//
-// Same contract as stepDrown/stepPools/stepTraps: returns true if the player died, so it belongs in
-// stepSim's `if (stepX(...)) return` group and never inside stepCharge, which cannot report a death
-// and runs long before the damage steps.
-function stepStarve(run, dt) {
-  const res = CHAPTERS[run.chapter].resource
-  if (!res || !res.starve) return false
-  if (run.charge > 0) { run._starveAcc = 0; return false }
-  run._starveAcc = (run._starveAcc ?? 0) + dt
-  let died = false
-  while (run._starveAcc >= STARVE_TICK) {
-    run._starveAcc -= STARVE_TICK
-    if (!died && hurtPlayer(run, res.starve.dps * STARVE_TICK, true, 'starve')) died = true
-  }
-  return died
-}
 
 // -- Snap traps (v6.5 undergrowth identity: streamed) ---------------------------------
 // Exact copy of streamEddies' idiom above (itself a copy of streamObstacles') — own cell size
@@ -6428,12 +6304,6 @@ function stepEnemySeparation(run) {
   // Pass 1: bucket every eligible enemy by its cell.
   for (let i = 0; i < run.enemies.length; i++) {
     const e = run.enemies[i]
-    // v7.x The Wreck: local-density accumulators, zeroed for EVERY body before the exclusions below
-    // so an excluded one cannot carry a stale count forward. Pass 2 refills them; stepPrey reads
-    // them on the NEXT frame, which is why they are not zeroed anywhere earlier in the step.
-    e._shoalN = 0
-    e._nbrX = 0
-    e._nbrY = 0
     if (e._dead) continue
     if (e._phaseSolid === false) continue // v5.4: a ghosted phase flicker passes through everything
     if (e.rosterId === 'bindnode') continue // v5.24: stationary by design, nothing to separate
@@ -6480,28 +6350,6 @@ function resolveSeparationPair(run, i, j) {
   const dx = b.x - a.x, dy = b.y - a.y
   const minSep = ENEMY_SEP_FRAC * (a.radius + b.radius)
   const distSq = dx * dx + dy * dy
-  // LOCAL DENSITY (v7.x, The Wreck), and it is counted HERE — before the overlap early-out below —
-  // on purpose. After it, `_shoalN` would mean "bodies touching me", which the 2D kissing number
-  // caps at SIX, so any threshold above six is unreachable with nothing thrown; it would also be
-  // measuring the very overlap this pass exists to destroy. BALL_R is bounded by ENEMY_SEP_CELL so
-  // the half-neighbourhood walk above is guaranteed to have visited every pair inside it.
-  //   Free of a new loop: this pair has already been found and its squared distance already taken.
-  //   `|| 0` rather than a bare ++: flushSpawns can add a body AFTER stepShoals has zeroed the
-  // field but BEFORE this pass runs, and ++ on undefined is NaN — which would then poison every
-  // multiplier reading it, silently and for that body's whole life.
-  //   The neighbour SUMS ride along, and they are what cohesion steers toward. A per-shoal centroid
-  // was the first cut and it did not work: shoals are id buckets (floor(id/PREY_SHOAL_SIZE)) whose
-  // membership is fixed at spawn and never re-clustered, so at early spawn rates one bucket spans
-  // tens of seconds of arrivals scattered across the map — measured mean pairwise distance inside a
-  // "shoal" was ~700px, wider than a phone viewport. The centroid of that is not a place, and
-  // steering toward it scattered fish (prey within 200px FELL for every policy). A shared drift
-  // HEADING only has to be shared; a centroid has to be spatially real. Neighbours are.
-  if (distSq < BALL_R * BALL_R) {
-    a._shoalN = (a._shoalN || 0) + 1
-    b._shoalN = (b._shoalN || 0) + 1
-    a._nbrX = (a._nbrX || 0) + b.x; a._nbrY = (a._nbrY || 0) + b.y
-    b._nbrX = (b._nbrX || 0) + a.x; b._nbrY = (b._nbrY || 0) + a.y
-  }
   if (distSq >= minSep * minSep) return // squared-distance early-out, like every other pair loop in the file
   const d = Math.sqrt(distSq)
   let nx, ny, push
@@ -6604,38 +6452,15 @@ function stepObstacles(run) {
 // The half of the Lunge that is not movement. Runs after the player has moved (stepSim's order), so
 // it tests where the dash actually is this frame rather than where it started.
 //
-// ONE BODY, AND THE BITE ENDS THE DASH. Both halves of that are the design rather than an
-// optimisation: a dash that keeps going after connecting would sweep a crowd, which is the Pulse
-// with damage on it, and this chapter's bar is trying to make you CHOOSE a target. Stopping on
-// contact also gives the move a readable ending — you lunge, you connect, you stop — where a lunge
-// that carried on through would read as the bite having missed.
+// EVERY BODY IN REACH, EVERY FRAME OF THE DASH, and never stopping on the first one. A race has no
+// target to choose — the crowd is oncoming traffic — and a dash that stopped dead on the first fish
+// would be a brake in the one chapter where you cannot afford one.
 //
-// A KILL BY THE BITE IS THE ONLY THING IN THE GAME THAT PAYS THE BUTTON BACK. LUNGE_KILL_REFILL
-// against a PULSE_CHARGE_COST spend is what makes committing the correct play and hoarding the
-// mistake — the loop the chapter exists for, as one line. It is clamped against run.chargeMax like
-// the other two charge-writing sites (stepCharge and the kill refill in dealDamage); a third site
-// that forgot would show up as the bar overfilling on a bite and snapping back on the next tick.
+// NO NEW EVENT TYPE: dealDamage already pushes {type:'kill'}, which render.js and SFX_FOR_EVENT both
+// consume, and the press already pushes {type:'burst'} for the wake. A {type:'ram'} would need a
+// consumer in two more files to be anything but silence.
 //
-// NO NEW EVENT TYPE. dealDamage already pushes {type:'hit'} and, on a kill, {type:'kill'} — both of
-// which render.js and SFX_FOR_EVENT already consume — and the dash itself is 900px/s of player
-// movement, which is not subtle. A {type:'lunge'} would have needed a consumer in two files to be
-// anything but silence, which is the freeze scar exactly.
-// -- The ram (v7.x, The Reef) ----------------------------------------------------------------
-// The half of the Burst that is not movement. Owner, 2026-08-28: "i want the dash to kill mobs,
-// and give +10 coins per mob killed". See BURST_RAM_MUL in config.js for why this chapter is the
-// one where a dash may kill, and why the kill is the body's own hp rather than a damage literal.
-//
-// EVERY BODY IN REACH, EVERY FRAME OF THE DASH -- the opposite of stepBite, deliberately. The Wreck
-// stops its lunge on the first body because that chapter's bar is trying to make you CHOOSE a
-// target; a race has no target to choose, the crowd is oncoming traffic, and a dash that stopped
-// dead on the first fish would be a brake in the one chapter where you cannot afford one.
-//
-// NO NEW EVENT TYPE, on stepBite's own argument: dealDamage already pushes {type:'kill'}, which
-// render.js and SFX_FOR_EVENT both consume, and the press already pushes {type:'burst'} for the
-// wake. A {type:'ram'} would need a consumer in two more files to be anything but silence.
-//
-// RUNS IN stepSim's POST-MOVEMENT SLOT, beside stepBite, so it tests where the dash actually is
-// this frame. No chapter declares both buttons, so the ram and the bite can never fire together.
+// RUNS IN stepSim's POST-MOVEMENT SLOT, so it tests where the dash actually is this frame.
 function stepRam(run) {
   const ch = CHAPTERS[run.chapter]
   if (!ch.burst || (run._burstT ?? 0) <= 0) return
@@ -6672,59 +6497,6 @@ function stepRam(run) {
   }
 }
 
-function stepBite(run) {
-  const ch = CHAPTERS[run.chapter]
-  // `_lungeMoved` — the dash must have CARRIED you LUNGE_ARM_DIST before the bite can land. See that
-  // constant's block for both halves of why: the step-ordering bug it fixes, and the division of
-  // labour it settles between the shove (what is on top of you) and the dash (what is out there).
-  if (!ch.lunge || (run._lungeT ?? 0) <= 0 || (run._lungeMoved ?? 0) < LUNGE_ARM_DIST) return
-  const p = run.player
-  const reach = LUNGE_BITE_MUL * PLAYER.radius
-  // deathRoll (WEAPON_MODS.gnash): the dash no longer ENDS on the first body. It keeps its mouth
-  // shut on everything it reaches for the rest of the lunge — each body once, tracked by the dash's
-  // own id rather than by a per-dash Set, so nothing is allocated on a hot path.
-  const roll = (run.weaponMods.gnash?.deathRoll ?? 0) > 0
-  let best = null, bestD = Infinity
-  for (const e of run.enemies) {
-    if (e._dead || damageImmune(e)) continue
-    if (roll && e._rollId === run._lungeId) continue
-    const d = Math.hypot(e.x - p.x, e.y - p.y)
-    if (d <= reach + e.radius && d < bestD) { best = e; bestD = d }
-  }
-  if (!best) return
-  // Only the plain lunge stops here. Under deathRoll the dash runs its full LUNGE_DUR_AT_FULL and
-  // this function is reached again on the next frame, so a press crosses the crowd rather than
-  // ending at its edge.
-  if (!roll) run._lungeT = 0
-  // applyDamage, NOT dealDamage. dealDamage is the raw path sim.js reserves for DoT ticks and arc
-  // damage, precisely so those do not re-roll crit or re-apply elements — and hand-multiplying
-  // p.damageMul on the way in reproduced exactly one of the six factors the real pipeline applies.
-  // A 45-charge signature button belongs on the pipeline: it should crit, it should carry the
-  // player's elements (ignite, freeze, venom), it should read passives, shop damage, anomalies and
-  // rampage. Above all it must read resourceDamageMul — without it, THIS CHAPTER'S OWN 1.0->1.8
-  // Bloodlust damage line did not apply to THIS CHAPTER'S OWN signature verb.
-  // MINIME_BURST_DMG, cited as the precedent for a flat number, reaches the enemy this way too.
-  //   Under deathRoll, everything after the FIRST body takes LUNGE_ROLL_FRAC of it: the first fish
-  // is what you are dragging through the rest, so the rest are hit by it and not by you.
-  let mul = 1
-  if (roll) {
-    best._rollId = run._lungeId
-    if (run._rollHit) mul = LUNGE_ROLL_FRAC
-    run._rollHit = true
-  }
-  applyDamage(run, best, LUNGE_DMG * mul)
-  // `_dead` rather than `hp <= 0`: dealDamage sets it on the kill branch, and it is the flag every
-  // other consumer in this file reads. A shield can also eat the whole bite (SHIELD_HP_FRAC), in
-  // which case nothing died and nothing is owed.
-  //   ⚠ ONCE PER DASH, and that guard is load-bearing under deathRoll. LUNGE_KILL_REFILL is 45
-  // against a PULSE_CHARGE_COST of 45 precisely so a connecting lunge is a near-wash (see the
-  // constant's own block); paying it for every body a roll chews through would make one press worth
-  // several bars and collapse the commit-or-hoard loop the button exists for.
-  if (best._dead && !run._lungePaid) {
-    run._lungePaid = true
-    run.charge = Math.min(run.chargeMax, run.charge + LUNGE_KILL_REFILL)
-  }
-}
 
 function stepCrush(run) {
   const ch = CHAPTERS[run.chapter]
@@ -7546,29 +7318,16 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   if (enemy.hp <= 0 && !enemy._dead) {
     enemy._dead = true
     run.kills++
-    // v7.x: `killBase` (The Wreck) is the ONLY thing a kill adds to a bar. Every chapter whose bar
-    // is refilled by a PLACE gets nothing here — a free kill refill would be a second source
-    // competing with the chapter's own geometry, which is what abolished The Reef's bar when the
-    // Scavenger unlock still existed. The Wreck has no place: it declares `refill: 0` and no
-    // signature field, so with no per-kill baseline its bar would have no refill at all. Undefined
-    // in every other chapter -> `?? 0` -> those chapters come out unchanged.
+    // NO PER-KILL REFILL EXISTS ANYWHERE. Every bar in the game is fed by a field you stand in,
+    // never by a kill — a free kill refill is a second source competing with the chapter's own
+    // geometry, which is what abolished The Reef's bar back when the Scavenger unlock existed.
     //
-    // Clamped against run.chargeMax (Task 9), NOT CHAPTERS[chapter].resource.max — this is the
-    // SECOND of the two clamp sites Deep Lungs needs (see stepCharge's own note above); missing this
-    // one lets the bar refill past its cap on a kill, only to be clamped back down by stepCharge's
-    // own (correct) clamp on the next tick.
-    // NO PER-KILL REFILL EXISTS ANY MORE. `resource.killBase` was The Wreck's, the last one in the
-    // game, and it went with the Bloodlust bar on 2026-09-05. The five remaining bars are all fed
-    // by a field you stand in, never by a kill.
-    // GORGE (v7.x, gnash): "eating elites replenish full hunger bar". Placed here rather than at a
-    // bite site on purpose — the card says EATING an elite, so it must pay however the elite died,
-    // including to the oil, the leak or a Lunge. Guarded by the mod, which only gnash carries, so
-    // every chapter without it is bit-for-bit unchanged.
-    // GORGE (gnash): eating an elite heals you to full. It paid a whole Bloodlust bar until the
-    // 2026-09-05 rework and the shape is deliberately unchanged — a fraction of a resource is a
-    // number nobody can feel, while "an elite pays for everything" is a reason to go and pick a
-    // fight you were avoiding. Placed here rather than at a bite site for the same reason as
-    // before: the card says EATING an elite, so it must pay however the elite died.
+    // GORGE (gnash): eating an elite heals you to full. A switch rather than a fraction, because a
+    // fraction of a health bar is a number nobody can feel while "an elite pays for everything" is
+    // a reason to go and pick a fight you were avoiding. Placed here rather than at a bite site on
+    // purpose: the card says EATING an elite, so it must pay however the elite died — to the oil,
+    // to the leak, to anything. Guarded by the mod, which only gnash carries, so every chapter
+    // without it is bit-for-bit unchanged.
     if (enemy.elite && (run.weaponMods.gnash?.gorge ?? 0) > 0) healPlayer(run, run.player.maxHP)
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
 
@@ -7899,24 +7658,6 @@ function stepStatuses(run, dt) {
 }
 
 // Nearest enemy within (viewRadius + pad), or null. Shared by weapons that target on fire.
-// The nearest body that is FOOD — anything not mapped onto the `tank` archetype. Written against
-// the archetype rather than against `skittish` on purpose: a chapter could field a non-fleeing prey
-// animal, and what the Lunge must avoid is the thing that shrugs the bite off, which is the tank.
-// Returns null when there is none in range; every caller falls back to nearestEnemy.
-function nearestPrey(run, pad = 100) {
-  const p = run.player
-  const rangeSq = (run.viewRadius + pad) ** 2
-  let target = null
-  let bestSq = Infinity
-  for (const e of run.enemies) {
-    if (isAlly(e) || e._dead) continue
-    if (e.type === 'tank') continue
-    const dx = e.x - p.x, dy = e.y - p.y
-    const dSq = dx * dx + dy * dy
-    if (dSq <= rangeSq && dSq < bestSq) { bestSq = dSq; target = e }
-  }
-  return target
-}
 
 function nearestEnemy(run, pad = 100) {
   const p = run.player
@@ -8013,12 +7754,12 @@ const WEAPON_STAT_MODS = {
   // folding.
   clawRake:      { rend: ['dmg', 'pct'], wideRake: ['arc', 'pct'], longClaws: ['range', 'pct'] },
   // v7.x The Wreck. GNASH HAS NO ENTRY AT ALL, and that is the design rather than an omission — all
-  // five of its mods are behavioural and read at their own sites (biteGnash, stepBite,
-  // stepPlayerMovement, dealDamage). deepBite used to fold `dmg` here and was repointed to the
+  // five of its mods are behavioural and read at their own sites (biteGnash, stepPlayerMovement,
+  // dealDamage). deepBite used to fold `dmg` here and was repointed to the
   // GNASH_MAW_MUL ramp in 2026-09-05's rework; see WEAPON_MODS.gnash for the measurement that
   // caused it, and for why a `range`, `arc` or rate entry would each make the weapon worse.
   // v7.x The Wreck's herding kit. Everything except the two spreads is behavioural and read at its
-  // own site (stepPrey, stepChumWeapon, stepShoals, stepOrca, stepBilgeWeapon).
+  // own site (stepLures, stepChumWeapon, stepOrca, stepBlooms, stepEnemyMovement).
   chum:          { widerChum: ['aggro', 'pct'] },
   bilge:         { wideBilge: ['maxR', 'pct'] },
   quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'] },
@@ -9739,7 +9480,6 @@ function stepBloomWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 
-
 // A random live enemy within castRange, else a random offset within castRange of the player.
 function pickBloomSpot(run, castRange) {
   const p = run.player
@@ -10035,17 +9775,14 @@ function stepLures(run, dt) {
         // AND IT STOPS TO EAT IT. `feedT` is the contract field stepEnemyMovement pins the body
         // on and render.js draws nose-down off — one write here, because "took a serving" and "is
         // eating" are the same instant and splitting them is how they drift.
-        //   ⚠ NO LONGER `skittish`-ONLY (2026-09-05). That gate was right while stepPrey was the
+        //   ⚠ NOT ROSTER-GATED. An earlier gate was right while a fleeing roster was the
         // only code that honoured the field; with the prey premise gone, the HOLD is the whole
         // card — Chum is now a decoy that stops the pack it pulls, which is what makes it not a
         // Pheromone Lure. See the guard in stepEnemyMovement.
-        //   `skittish` only: the hold is honoured in stepPrey, which nothing else reaches, so
-        // setting it on a moray would be a field with a tell and no behaviour.
-        //   THE PUFF RULE IS NOT REPEATED HERE, deliberately. stepPrey clears feedT on any body it
-        // finds mid-inflation, so a second guard on this line would enforce the same fact in two
-        // places and be unreachable — and an unreachable guard is one no mutation can prove and no
-        // reader can trust. Reaching the bait takes a serving; whether the body then stops for it
-        // is the movement machine's business.
+        //   THE PUFF RULE IS NOT REPEATED HERE, deliberately. stepPuffUp clears feedT on any body
+        // it finds mid-inflation, so a second guard on this line would enforce the same fact in two
+        // places — and two guards for one rule each mask the other's defects. Reaching the bait
+        // takes a serving; whether the body then stops for it is the movement machine's business.
         // headDown (WEAPON_MODS.chum): how long it stays stopped. The cooldown is NOT scaled with
         // it — a longer hold on a shorter refusal is the freeze field CHUM_FEED_CD exists to stop.
         e.feedT = CHUM_FEED_HOLD * (1 + (run.weaponMods.chum?.headDown ?? 0))
@@ -10171,269 +9908,6 @@ function inSector(ox, oy, angle, range, arc, e, fullCircle) {
 // damage. See the CLAW_* block in config.js before changing that.
 // quickPaws divides the interval (a `rate` fold would slow it); doubleSlash adds a follow-up slash
 // every CLAW_DOUBLE_EVERY-th rake; bleedClaws adds flagella's barbed bleed.
-// -- Prey (v7.x, The Wreck's `skittish` flag) ----------------------------------------------------
-// TWO STATES AND NO STATE VARIABLE. Outside PREY_SIGHT_R the fish has not seen you and mills along
-// its school's heading; inside it, it runs. Both headings are PURE FUNCTIONS of the fish's id and
-// run._realTime, which is what keeps this cheap enough to run on 600 bodies: no per-enemy stored
-// heading, no neighbour queries, no RNG, and nothing to reset when a fish streams out and back.
-//
-// THE SCHOOL IS A MODULO. Consecutive ids arrive in the same spawn burst, so bucketing by id gives
-// fish that appeared together one drift heading and one escape heading — they mill as a body and
-// they break as a body, which is the whole silhouette the chapter is for.
-// ponytail: id buckets, not boids. If schools ever need to MERGE, SPLIT or avoid each other, that
-// is when this becomes a real flocking pass — and not one line before.
-//
-// run._realTime, NOT run.time, for exactly the reason stepShafts uses it: the Time Debt anomaly
-// advances run.time at TIME_DEBT_MUL and would otherwise make every school in the chapter turn 50%
-// faster for the rest of that run.
-// -- The shoal pass (v7.x, The Wreck) ------------------------------------------------------------
-// ONE O(n) WALK FEEDING THREE READERS, because all three want the same scan and none wants a pair
-// loop: the per-shoal CENTROID the cohesion term steers toward, the count of prey around the PLAYER
-// the drain-slow reads, and the hoisted list of PREDATORS prey flees.
-//
-// HOISTING THE PREDATORS IS NOT TIDINESS. stepPrey is called per skittish body from inside
-// stepEnemyMovement's own walk of run.enemies, so finding them inline would be a nested scan —
-// ~577 prey x 620 bodies at this chapter's own cap, which is the magnitude stepEnemySeparation's
-// comment rejects in writing ("700^2/2 ~ 244k pair checks/frame is not a phone-friendly budget").
-// The separation grid cannot help here: it is built AFTER movement, so it is stale and too late.
-//
-// Module-scope and reused, cleared per call — no per-frame Map or array allocation, the same idiom
-// _sepBuckets uses for the same reason.
-const _predators = []          // what prey runs from: alive, not skittish, not an ally
-function stepShoals(run) {
-  _predators.length = 0
-  run._feedN = 0
-  const p = run.player
-  const _headDown = (run.weaponMods.chum?.headDown ?? 0) > 0
-  for (const e of run.enemies) {
-    if (e._dead) continue
-    if (e.flags && e.flags.includes('skittish')) {
-      // FEED COUNTS TIGHTNESS, NOT QUANTITY, and the first cut of this counted quantity and failed.
-      // At spawnMul 2.2 (620 concurrent bodies) a straight line across the map sits inside FEED_R
-      // about as often as a deliberate hunter does — measured 5.3-5.5 prey within 200px mowing
-      // against 5.9-6.2 hunting, a 1.1x spread. A reward keyed on that pays both alike, so the bar
-      // separation NARROWED (1.96x -> 1.48x): the same failure the killBase multiplier had, by a
-      // different route. `_shoalN` at the kill site DOES separate them — 2.57 mowing against 5.45
-      // circling, 2.1x — because ambient crowding is free and TIGHTNESS is not.
-      // headDown (WEAPON_MODS.chum): a fish with its head down at your bait counts too. It has no
-      // neighbours to speak of — a feeding body is pinned and does not tighten (stepPrey returns
-      // early on feedT) — so a bait you cast and stood beside paid the bar nothing, which is the
-      // one place chum and the drain-slow should have met and did not. FEED_DRAIN_MIN still floors
-      // it, so this reaches saturation sooner and never turns the clock off.
-      if (e._shoalN >= BALL_TIGHT_N || (_headDown && (e.feedT ?? 0) > 0)) {
-        const fx = e.x - p.x, fy = e.y - p.y
-        if (fx * fx + fy * fy < FEED_R * FEED_R) run._feedN++
-      }
-    } else if (!isAlly(e)) {
-      // Not prey, not on your side -> something prey runs from. A SUBMISSION-converted moray is
-      // non-skittish and yours, and would otherwise scatter the very balls you are building.
-      _predators.push(e)
-    }
-  }
-}
-
-function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
-  if (slowMul <= 0) return
-  const shoal = Math.floor(e.id / PREY_SHOAL_SIZE)
-  // 2.399963 rad is the golden angle: consecutive shoals get headings as far apart as a sequence
-  // can make them, so two schools spawned back to back never set off in the same direction.
-  // Alternating the turn sign by shoal parity stops the whole field rotating in unison.
-  const drift = shoal * 2.399963 + run._realTime * PREY_TURN_RATE * (shoal % 2 ? 1 : -1)
-  let ux = Math.cos(drift)
-  let uy = Math.sin(drift)
-  let mul = PREY_DRIFT_MUL
-  if (d < PREY_SIGHT_R && d > 1e-6) {
-    // Seen you. The escape heading is BLENDED with the school's own rather than being straight
-    // away from you — at a pure radial the shoal explodes like a firework, which is the one
-    // silhouette a bait ball never makes. See PREY_FLEE_BLEND.
-    ux = (-dx / d) * PREY_FLEE_BLEND + ux * (1 - PREY_FLEE_BLEND)
-    uy = (-dy / d) * PREY_FLEE_BLEND + uy * (1 - PREY_FLEE_BLEND)
-    const m = Math.hypot(ux, uy) || 1
-    ux /= m; uy /= m
-    mul = PREY_FLEE_MUL
-  }
-  // CHUM (v7.x). `dx,dy` is the seek vector, and when the winning seek target was BAIT it points at
-  // the food rather than at the predator — so the fish swims down it instead of away. This is the
-  // one branch in the game where a skittish animal closes on something.
-  //   The panic override is what stops the card being an off-switch for the chapter: inside
-  // CHUM_PANIC_R of the PLAYER a baited fish bolts regardless, so you cannot park in your own bait
-  // ball and have dinner hold still — you have to come in from outside it. deepChum buys that
-  // radius down, never to zero.
-  // The vector to the PLAYER, hoisted: the chum branch, the feeding hold and the panic-blind
-  // clause on the bilge loop all need it, and it was being derived three times.
-  const pdx = run.player.x - e.x, pdy = run.player.y - e.y
-  const pd = Math.hypot(pdx, pdy)
-  const nerve = 1 - Math.min(0.85, run.weaponMods.chum?.deepChum ?? 0)
-
-  // HEAD DOWN, EATING (v7.x). A fish that reached a bait took a serving and stopped for it
-  // (stepLures sets feedT); for that long it is a body sitting still in open water, which is the
-  // whole reason to cast the card. Returning here is the hold: nothing below runs, so it does not
-  // steer, does not flee, does not tighten — and `_tgtX/_tgtY` keep the heading it arrived on, so
-  // it stays nose-on to the food rather than snapping to face you.
-  //   TWO THINGS BREAK IT, and both have to, or this is a stasis field. Coming inside CHUM_PANIC_R
-  // (the same radius the gather already respects) and inflating: a puffing fish is reacting to the
-  // predator, and a pufferfish frozen in a bite would eat its own punish window.
-  if ((e.feedT ?? 0) > 0) {
-    if (pd > CHUM_PANIC_R * nerve && (e.puffT ?? 0) <= 0) return
-    e.feedT = 0
-  }
-
-  if (baited) {
-    if (pd > CHUM_PANIC_R * nerve && d > 1e-6) {
-      ux = dx / d
-      uy = dy / d
-      mul = CHUM_PULL_MUL
-    } else if (pd > 1e-6) {
-      // BOLT FROM THE PLAYER, NOT FROM THE BAIT, and this branch has to exist explicitly. While a
-      // chum is up, `dx,dy` points at the CHUM for every fish in its radius — that is what the lure
-      // override does — so falling through to the ordinary flee above would have a panicking fish
-      // run from the food rather than from the predator, which on the far side of a bait ball means
-      // running straight AT the player. The bug reads as "the fish charge me sometimes".
-      ux = -pdx / pd
-      uy = -pdy / pd
-      mul = PREY_FLEE_MUL
-    }
-  }
-
-  // PREDATORS (v7.x). A moray is a predator and prey did not care, which is what made the roster's
-  // one non-fleeing body a sponge that did nothing but steal the bite's aim. Same "blend, don't
-  // pivot" form the bilge loop below uses, over the list stepShoals hoisted — never a nested scan.
-  //   Threat is measured against the PLAYER directly rather than off `d`, because `d` is the seek
-  // vector and a baited fish's seek target is the chum: reading it here would make a fish inside a
-  // bait ball register as unthreatened and refuse to tighten.
-  let threatened = pd < PREY_SIGHT_R
-  for (const q of _predators) {
-    const qx = e.x - q.x, qy = e.y - q.y
-    const qd = Math.hypot(qx, qy)
-    if (qd >= PREY_PREDATOR_FEAR_R || qd < 1e-6) continue
-    threatened = true
-    const w = PREY_PREDATOR_BLEND * (1 - qd / PREY_PREDATOR_FEAR_R)
-    ux = ux * (1 - w) + (qx / qd) * w
-    uy = uy * (1 - w) + (qy / qd) * w
-    const m = Math.hypot(ux, uy) || 1
-    ux /= m; uy /= m
-  }
-
-  // THE ORCA'S RING (v7.x). The fear is the RING, not the animal, and it pushes INWARD — a fish at
-  // or beyond the wall turns toward the ring's centre rather than away from the orca's body.
-  //   That inversion is the whole mechanism. Two point-repulsors (you and it) cancel for a fish
-  // between them and ADD for a fish on your far side, so an orbiting point drives the shoal out
-  // through your own position; a closing wall drives it in. This is also why it composes with the
-  // player's repulsion instead of fighting it: both push the same way once the fish is inside.
-  //   run.orca is NOT in run.enemies, so the predator loop above cannot see it — it needs this
-  // explicit term. Circling only: during the rise the ring is a shadow, not yet a wall.
-  const orca = run.orca
-  if (orca && orca.state === 'circling') {
-    const rx = e.x - orca.cx, ry = e.y - orca.cy
-    const rd = Math.hypot(rx, ry)
-    if (rd > orca.r - ORCA_RING_BAND && rd > 1e-6) {
-      threatened = true
-      ux = ux * (1 - ORCA_PUSH) + (-rx / rd) * ORCA_PUSH
-      uy = uy * (1 - ORCA_PUSH) + (-ry / rd) * ORCA_PUSH
-      const m = Math.hypot(ux, uy) || 1
-      ux /= m; uy /= m
-    }
-  }
-
-  // THE SELFISH HERD (v7.x). The one attracting force in the chapter — see PREY_COHESION_BLEND for
-  // why the chapter did not work without it. A frightened fish swims toward the middle of its own
-  // school as well as away from the threat; one repulsor alone can only ever make a ring, and it is
-  // this inward pull that closes the ring into a ball.
-  //   THREAT-GATED, which is what preserves the shipped look: an unaware school mills exactly as
-  // loosely as it always did, and only a school that can see something tightens.
-  //   NEIGHBOURS, NOT THE ID BUCKET. The centroid is of the bodies actually within BALL_R of this
-  // fish, accumulated by the previous frame's separation pass — one frame stale, which is invisible
-  // in a steering term and costs no pass of its own.
-  //   `tight` (v7.x, the sardine) IS THIS ONE NUMBER AND NOTHING ELSE — same radius, same minimum,
-  // same accumulate pass, a stronger blend. That is the whole flag: a ball that holds together
-  // under a repulsor a mackerel school would have burst, so the payout is a dozen at once or none.
-  const n = e._shoalN || 0
-  const cohesion = e.flags && e.flags.includes('tight') ? TIGHT_COHESION_BLEND : PREY_COHESION_BLEND
-  if (threatened && n >= PREY_COHESION_MIN_N) {
-    const cx = e._nbrX / n - e.x, cy = e._nbrY / n - e.y
-    const cd = Math.hypot(cx, cy)
-    if (cd > 1e-6) {
-      ux = ux * (1 - cohesion) + (cx / cd) * cohesion
-      uy = uy * (1 - cohesion) + (cy / cd) * cohesion
-      const m = Math.hypot(ux, uy) || 1
-      ux /= m; uy /= m
-    }
-  }
-
-  // BILGE (v7.x). A skittish fish will not swim into the oil. Steering, not a wall it bounces off:
-  // the avoidance heading is BLENDED with whatever it was already doing (BILGE_AVOID_BLEND), so a
-  // shoal driven at a slick peels along it instead of pivoting on the spot, which is what makes the
-  // card a fence you herd against rather than a force field.
-  //   Only `skittish` reads this. Everything else swims in and slows, which is the other half of
-  // the card and the reason it is not purely a barrier.
-  //
-  // ⚠ PANIC BEATS AVOIDANCE (owner ruling, 2026-08-23), and it is what makes the card OFFENSIVE.
-  // Without it the two halves genuinely fight: prey refuse to enter oil, so the only bodies the
-  // slow ever caught were the ones that are not prey, and a player could not drive a shoal into
-  // their own wall however hard they chased it. `watching` ramps the whole avoidance to zero inside
-  // PREY_PANIC_BLIND_R of the PLAYER — a fish being run down at close range is not looking where it
-  // is going. The wall is untouched everywhere the player is not, which is where a fence is for.
-  const watching = Math.min(1, Math.max(0, (pd / PREY_PANIC_BLIND_R - 0.5) * 2))
-  // oilFunnel (WEAPON_MODS.bilge): rotate the refusal off the radial and onto the TANGENT that
-  // heads toward the player. The wall is unchanged in strength — the fish still declines to go into
-  // the oil — but it peels ALONG the rim and arrives at your jaw instead of scattering away from
-  // it. Capped by BILGE_FUNNEL_MAX so some radial always survives; a pure tangent is a fish orbiting
-  // a pool forever, which is a lock and not a chute.
-  const funnel = Math.min(BILGE_FUNNEL_MAX, run.weaponMods.bilge?.oilFunnel ?? 0)
-  for (const bl of run.blooms) {
-    if (bl.look !== 'bilge' || bl.r <= 0) continue
-    const bx = e.x - bl.x, by = e.y - bl.y
-    const bd = Math.hypot(bx, by)
-    const edge = bl.r + BILGE_AVOID_PAD
-    if (bd >= edge || bd < 1e-6) continue
-    // Push out along the radius, weighted by how far in it already is — a fish at the rim barely
-    // deflects, one that got inside turns hard to get out.
-    let axo = bx / bd, ayo = by / bd
-    if (funnel > 0) {
-      // Either tangent is a way round the pool; the one worth taking is the one whose dot with the
-      // vector to the PLAYER is positive, which is what makes this a funnel rather than a stirrer.
-      let tx = -ayo, ty = axo
-      if (tx * pdx + ty * pdy < 0) { tx = -tx; ty = -ty }
-      axo = axo * (1 - funnel) + tx * funnel
-      ayo = ayo * (1 - funnel) + ty * funnel
-      const am = Math.hypot(axo, ayo) || 1
-      axo /= am; ayo /= am
-    }
-    const w = BILGE_AVOID_BLEND * (1 - bd / edge) * watching
-    ux = ux * (1 - w) + axo * w
-    uy = uy * (1 - w) + ayo * w
-    const m = Math.hypot(ux, uy) || 1
-    ux /= m; uy /= m
-  }
-
-  // tarred (WEAPON_MODS.bilge): a stained fish has lost its BURST. Only the excess of the flee
-  // multiplier over 1 is taken, never the base speed — the oil's own `oiled` slow already scales
-  // that (OIL_STAIN_MAX), and taking both would compound into a stationary field. Applied after
-  // every steering term because what it changes is the SPEED of the heading, not the heading, and
-  // it must reach the bolt branch (CHUM_PANIC_R) as well as the plain flee.
-  if ((e.oiled ?? 0) > 0 && mul > 1) {
-    const tar = Math.min(TAR_FLEE_MAX, run.weaponMods.bilge?.tarred ?? 0)
-    if (tar > 0) mul = 1 + (mul - 1) * (1 - tar)
-  }
-
-  // A BALL DOES NOT SWIM (v7.x, the pufferfish). Applied for the inflation AND for the deflating
-  // window after it, which is what makes the punish window generous enough to be a rhythm: the fish
-  // that just bounced your jaw is still there when you swing again. It keeps steering — a puffer
-  // that froze would read as stunned, and would be the aim sponge the moray's `guard` was.
-  const puffMul = ((e.puffT ?? 0) > 0 || (e._puffCd ?? 0) > 0) ? PUFFER_DRIFT_MUL : 1
-  const step = e.speed * mul * slowMul * puffMul * dt
-  e.x += ux * step
-  e.y += uy * step
-  // FACE WHERE YOU ARE SWIMMING, NOT AT THE THING CHASING YOU. Owner, 2026-08-18: "the fish you can
-  // eat should not face you, they should run away from you in a school."
-  //   render.js derives every creature's bearing from run.player every frame, so by default a
-  // fleeing fish swims backwards — tail first, eyes on the predator, in all 48 roster looks. The
-  // fix publishes the heading into `_tgtX/_tgtY`, which is the SHIPPED contract field for "face
-  // this instead of the player" (SUBMISSION's allies already use it) rather than a new one render
-  // would have to be taught. 100px ahead is arbitrary and only its DIRECTION is read.
-  e._tgtX = e.x + ux * 100
-  e._tgtY = e.y + uy * 100
-}
 
 // -- Gnash (v7.x, The Wreck's native) ------------------------------------------------------------
 // A short forward bite whose damage RISES the closer the body is. Structurally slashClaws with a
@@ -10447,7 +9921,7 @@ function stepGnashWeapon(run, w, stats, fireRateMul, dt) {
 // -- Chum (v7.x, The Wreck) ----------------------------------------------------------------------
 // A run.lures entry with `bait: true` — the shipped decoy entity, tagged. See WEAPONS.chum for why
 // this is the same object as a Pheromone Lure and not a fourth kind of zone, and note that WITHOUT
-// the tag it would repel: stepPrey flees the seek target, and the lure override IS the seek target.
+// the tag: the lure override IS the seek target, so a bait pulls the crowd like any other decoy.
 function stepChumWeapon(run, w, stats, fireRateMul, dt) {
   // ipecacN, like every other planted-zone weapon (stepBloomWeapon is the model): IPECAC triples
   // what a cast puts on the map, and a weapon that ignores it fails run PB7 with a message about
@@ -10615,7 +10089,7 @@ function biteGnash(run, stats) {
       const near = 1 - Math.min(1, d / stats.range)
       let mul = 1 + near * (maw - 1)
       // deepChum (WEAPON_MODS.chum): a body with its head in your bait takes more. The card used
-      // to buy the panic radius down so a baited fish held its nerve closer to you; with nothing
+      // to buy a fleeing fish's panic radius down so a fed one held its nerve closer to you; with nothing
       // fleeing, the bait is a kill zone instead and this is what makes it one. Read off `feedT`,
       // which is the same contract field render draws the nose-down pose from.
       if ((e.feedT ?? 0) > 0) mul *= 1 + (run.weaponMods.chum?.deepChum ?? 0)
@@ -11137,7 +10611,6 @@ function leadSpot(run, e, fuse) {
   const lead = Math.min((e.speed ?? 0) * (fuse ?? 0), dist)
   return { x: e.x + (dx / dist) * lead, y: e.y + (dy / dist) * lead }
 }
-
 
 // Shared by the Burst Hydrant and the Reality Shard's tornSeam. Never touches the player.
 //

@@ -2713,8 +2713,8 @@ body {
    never be told apart by position alone, since a left-handed player moves the button, not the rail. */
 .chaos-vrail--charge .chaos-vrail-track i { background: #ffb347; }
 .chaos-vrail--charge .chaos-vrail-num { color: #ffe0b0; }
-/* WHICH bar this is (v7.x). Book 2 gives every chapter a different noun for its rail — Humidity,
-   Pollution, Light, Air, Bloodlust, Feed — and a number in a colour cannot say which of them is
+/* WHICH bar this is (v7.x). Book 2 gives its chapters different nouns for the rail — Humidity,
+   Pollution, Light, Air — and a number in a colour cannot say which of them is
    draining (or, for The Shelf's inverted Pollution rail, filling). Smaller than the count chip above it and letter-spaced so a one-word label reads as a
    name rather than as a second readout; uppercase because the words are titles, not sentences. */
 .chaos-vrail--charge .chaos-vrail-label {

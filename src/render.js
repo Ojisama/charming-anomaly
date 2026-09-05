@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, LUST_TINT_MAX, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_WAKE_R, ORCA_RISE_DUR, ORCA_SPLASH_R,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -4748,7 +4748,7 @@ export function createRenderer(app) {
     // .roster), where a bounced bite was indistinguishable from a miss. The two bakes deliberately
     // share no outline — a spindle and a spined disc — so the refusal reads as a silhouette change
     // rather than as a size change, which is what survives a phone viewport.
-    //   NO faceDir/turnRate override: a puffed fish keeps steering (stepPrey still runs it at
+    //   NO faceDir/turnRate override: a puffed fish keeps steering (its movement machine still runs at
     // PUFFER_DRIFT_MUL), so it should keep turning too. A held heading here would read as stunned.
     pufferfish: {
       archetype: 'normal', draw: drawPufferfish, lean: 90, poses: 2,
@@ -19427,7 +19427,7 @@ const spurG = new Graphics()
           break
         // v7.x The Wreck: a fish the ORCA ate on its commit sweep. Deliberately NOT killPoof —
         // that ends on a white pop, which is this game's "you killed that", and the player gets
-        // nothing at all from these (no kill, no gem, no Bloodlust; see stepOrca's orcaBite). A
+        // nothing at all from these (no kill, no gem; see stepOrca's orcaBite). A
         // dark spread of blood and no flash, so a shoal being taken off you reads as a LOSS.
         case 'orcaFeed':
           for (let i = 0; i < 4; i++) {
@@ -20275,13 +20275,11 @@ const spurG = new Graphics()
   function playerBuffs(run) {
     const a = run.anomalies
     const clamp01 = (v) => Math.max(0, Math.min(1, v))
-    const lust = chapterRender.lustTell ? clamp01((run.charge ?? 0) / (run.chargeMax || 1)) : 0
     // Still null when nothing is on — the common case, and the one that must cost nothing.
-    if (!lust && (!a || (!a.berserk && !a.stillness))) return null
+    if (!a || (!a.berserk && !a.stillness)) return null
     return {
       berserk: a?.berserk ? clamp01((run._berserkT ?? 0) / BERSERK_DURATION) : 0,
       still: a?.stillness ? clamp01((run._stillT ?? 0) / STILLNESS_RAMP) : 0,
-      lust,
     }
   }
 
@@ -20387,16 +20385,8 @@ const spurG = new Graphics()
     // fire rate, and a multiplier is invisible — "cold does nothing" is what the v7.5x freeze looked
     // like on screen, for exactly this reason — so the bar has to reach a contract field render.js
     // already reads. It does not get its own constant: it is the same animal getting hot.
-    //   Capped BELOW berserk's own ceiling. Berserk is a rare, timed, run-defining window and must
-    // stay the strongest red the player ever sees; bloodlust is the ambient state of an entire
-    // chapter, and at BERSERK_TINT_MAX it would sit at full wash for minutes and stop meaning
-    // anything. MAX takes whichever is louder rather than adding them, so a berserk window inside a
-    // full bar still reads as the berserk.
     pHot.alpha = buffs
-      ? Math.max(
-        LUST_TINT_MAX * buffs.lust,
-        BERSERK_TINT_MAX * Math.min(1, buffs.berserk / BERSERK_TINT_TAIL),
-      )
+      ? BERSERK_TINT_MAX * Math.min(1, buffs.berserk / BERSERK_TINT_TAIL)
       : 0
     if (chapterRender.tail) {
       pTail.visible = true
@@ -21238,12 +21228,6 @@ const spurG = new Graphics()
       // frame, and look.faceDir is declared per LOOK, so it cannot express "this INSTANCE has a
       // different target". sim publishes the seek point it already computed as _tgtX/_tgtY.
       // Contract field, read guarded (`|| 0` idiom above): the sim half may not have landed.
-      // v7.x THE WRECK: `skittish` joins the ally on this branch, and it is the same fix for the
-      // same reason. Owner: "the fish you can eat should not face you, they should run away from you
-      // in a school." Bearing is derived from run.player above, so a fleeing fish swam BACKWARDS —
-      // tail first, eyes on the predator — in every roster look, and a whole shoal of them read as
-      // an escort rather than an escape. stepPrey publishes its heading into the same _tgtX/_tgtY
-      // that SUBMISSION's allies already use; nothing here had to learn a new field.
       // v7.x THE REEF: a body blinded by Squid Ink is the third case and it is the same case — it
       // holds a heading it took before it lost you and the lane scroll carries it past. sim's blind
       // branch publishes that held point into the same pair. Without this term the ink's bodies
@@ -21254,7 +21238,7 @@ const spurG = new Graphics()
       // CHAPTER and not off a per-body flag because the declaration is chapter-wide (one fact, one
       // place); sim's own branch publishes the heading into the same pair the three above use.
       const facesOwnHeading = (e.allyT || 0) > 0 || (e.blindT || 0) > 0 ||
-        (e.flags && (e.flags.includes('skittish') || e.flags.includes('cruise'))) ||
+        (e.flags && e.flags.includes('cruise')) ||
         CHAPTERS[run.chapter]?.passiveCrowd === true
       if (facesOwnHeading && (e._tgtX !== undefined)) {
         tdx = e._tgtX - e.x

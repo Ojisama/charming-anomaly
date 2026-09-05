@@ -980,13 +980,14 @@ function generateWells(sig) {
  *                 (guarded by damageImmune — a ghosted phase flicker ignores the cloud like it
  *                 ignores everything else); decays like the other three once outside.
  *               feedT (v7.x The Wreck, s of a mouthful remaining): the fish reached a Chum bait,
- *                 took one serving and STOPPED for it. While > 0 stepPrey returns before it steers,
- *                 so the body sits still in open water — that hold, not the gather, is what the
- *                 card is bought for. Set ONCE, in stepLures, on the frame the serving is taken
- *                 (never refreshed by standing in the cloud: a re-arming hold would pin the shoal
- *                 for the bait's whole duration), `skittish` only, and not at all on a fish that is
- *                 mid-puff. TWO things break it early: the player closing inside
- *                 CHUM_PANIC_R x nerve, and inflating. render.js reads it as a CONTRACT FIELD and
+ *                 took one serving and STOPPED for it. While > 0 stepEnemyMovement returns before
+ *                 it steers, so the body sits still in open water — that hold, not the gather, is
+ *                 what the card is bought for. Set ONCE, in stepLures, on the frame the serving is
+ *                 taken (never refreshed by standing in the cloud: a re-arming hold would pin the
+ *                 pack for the bait's whole duration), never on a fish that is mid-puff, and never
+ *                 again for CHUM_FEED_CD after it lapses — without that cooldown successive casts
+ *                 re-catch the same bodies and the card is a pause button on the chapter.
+ *                 Inflating breaks it early. render.js reads it as a CONTRACT FIELD and
  *                 squashes the body along its own forward axis by CHUM_VIS.feedSquash — the camera
  *                 looks straight down, so nose-first into the food is foreshortening, and no
  *                 roster bake needs a head-down frame.
@@ -1426,7 +1427,8 @@ function generateWells(sig) {
  * charge: number — the chapter resource bar (CHAPTERS[chapter].resource — The Twilight's 'Light', The
  *   Surf's 'Humidity' and The Reef's 'Air'). Drains passively, refills inside a refill circle
  *   (run.shafts: a shaft here, a tide pool there, an air pocket in the third, an anglerfish's open
- *   mouth in the fourth), and on The Wreck alone per kill (`killBase`), clamped to [0, run.chargeMax].
+ *   mouth in the fourth), clamped to [0, run.chargeMax]. NOTHING in the game refills a bar on a
+ *   kill.
  *   The Deep also SPENDS it involuntarily: being devoured by a maw zeroes the bar outright, which
  *   is the only place in the game a hazard is priced in the chapter's own resource.
  *   0 and untouched in every chapter without a resource.
@@ -1470,11 +1472,11 @@ function generateWells(sig) {
  *        vignette/shake/flash is the tell and main.js's `if (e.dot) continue` keeps it silent.
  * chargeMax: number — the bar's ceiling, as a RUN field (v7.x Book 2 Task 9). Used to be read
  *   straight from CHAPTERS[chapter].resource.max at both of sim.js's clamp sites (the drain in
- *   stepCharge and the per-kill `killBase` at the kill site); now both sites read run.chargeMax
- *   instead, which is what lets BOOK_SHOP.undertow.deepLungs ("Resource Capacity") raise it. Set
- *   once at createRun from the SAME hoisted local `charge` starts at, so the two can never drift
- *   apart into "the bar refills past its cap on a kill, then snaps back on the next drain tick" (a
- *   flicker, not a throw, if only one of the two clamp sites gets the new field). 0 in every
+ *   stepCharge and a per-kill refill that has since been removed); now every site reads
+ *   run.chargeMax instead, which is what lets BOOK_SHOP.undertow.deepLungs ("Resource Capacity")
+ *   raise it. Set once at createRun from the SAME hoisted local `charge` starts at, so the two can
+ *   never drift apart into "the bar refills past its cap, then snaps back on the next drain tick"
+ *   (a flicker, not a throw, if only one clamp site gets the new field). 0 in every
  *   chapter that declares no resource, same as `charge`.
  * chargeDrainMul: number — the drain-rate multiplier (BOOK_SHOP.undertow.slowBurn, "Resource Drain",
  *   -4%/level), applied in stepCharge to CHAPTERS[chapter].resource.drain. slowBurn stores a
@@ -1488,8 +1490,7 @@ function generateWells(sig) {
  *   take the full push, which is what makes the surge read as weather. 1 outside Undertow.
  * chargeRefillMul: number — the refill-rate multiplier (BOOK_SHOP.undertow.bigGulp, "Resource Refill",
  *   +10%/level), applied in stepCharge to CHAPTERS[chapter].resource.refill at the same site the
- *   in-shaft/pool/pocket refill already runs. 1 (no-op) unbought. Does NOT reach The Wreck's
- *   `killBase` — a kill is not "a refill pickup".
+ *   in-shaft/pool/pocket refill already runs. 1 (no-op) unbought.
  * _burstT: number — seconds of Reef Burst dash remaining (CHAPTERS[chapter].burst). Set by
  *   stepRepulse on the same press, cooldown and charge spend as the Pulse, to BURST_DUR_MIN +
  *   (BURST_DUR_AT_FULL - BURST_DUR_MIN) * t, so an EMPTY bar still dashes — the no-spiral floor.
@@ -1533,47 +1534,10 @@ function generateWells(sig) {
  * _drownAcc: number — the part-tick accumulator for the DoT above, reset to 0 the moment `charge`
  *   comes off zero so a partial tick banked before you reached a pocket is never spent minutes
  *   later. 0 and untouched everywhere else.
- * _lungeT: number — seconds of Wreck Lunge dash left (CHAPTERS[chapter].lunge). Set by stepRepulse
- *   on the same press, cooldown and charge spend as the Pulse, to LUNGE_DUR_AT_FULL * t — and
- *   UNLIKE _burstT/_shorebreakT there is deliberately NO floor term, so an empty bar gets 0 and
- *   falls back to the shipped shove. That is the same no-spiral rule reaching its limit rather than
- *   an exception to it: a lunge exists to buy a kill that refills the bar, so a free one would be a
- *   free refill in the one chapter whose bar is only ever paid for in kills. There was once a
- *   second `t > 0` guard beside it; it was deleted because two guards for one rule mask each
- *   other's defects (see stepRepulse). Read in two places: stepPlayerMovement's non-lane branch
- *   REPLACES the stick with _lungeX/_lungeY * LUNGE_SPEED while it is positive, and stepBite ends
- *   the dash by zeroing it on contact. 0 on every run of every other chapter.
- * _lungeMoved: number — px this dash has carried the player so far, reset to 0 at the press.
- *   stepBite refuses to land while it is 0, and that is a STEP-ORDERING fix rather than a nicety:
- *   stepRepulse runs after stepPlayerMovement and stepBite runs later in the same step, so on the
- *   press frame the player has not moved yet and a body already standing in reach was bitten
- *   instantly — 45 charge for 0px of dash. In a chapter that pays you for standing in a crowd that
- *   is the common case. 0 and untouched everywhere else.
- * _lungeId: number — a counter bumped at every Lunge press, stamped onto each body that dash has
- *   already bitten (enemy._rollId). Only WEAPON_MODS.gnash.deathRoll reads it, and only because
- *   that mod stops the dash ending on first contact: without a per-dash identity the same fish is
- *   re-bitten every frame it stays in reach. An id rather than a Set so a hot path allocates
- *   nothing, and a body carrying a stamp from an earlier press simply is not equal to this one.
- * _lungePaid: boolean — has LUNGE_KILL_REFILL already been paid this dash. The plain lunge can only
- *   ever kill once (it ends on contact), so this exists for deathRoll: the refill is 45 against a
- *   PULSE_CHARGE_COST of 45 precisely so a connecting lunge is a near-wash, and paying it per body
- *   a roll chews through would make one press worth several bars.
- * _rollHit: boolean — has this dash already bitten one body. Everything after the first takes
- *   LUNGE_ROLL_FRAC of LUNGE_DMG, the fiction being that the first fish is what you are dragging
- *   through the rest. Reset with _lungeId at the press.
  * _bloodT: number — run._realTime before which WEAPON_MODS.gnash.bloodInTheWater will not drop
  *   another blood cloud (BLOOD_CHUM_CD). A latch rather than a ticked timer because its read site
  *   is dealDamage, which is not a per-frame step; and it exists at all because this chapter reaches
  *   ~15 kills/s, where an uncooled version carpets the map instead of being a rhythm you can read.
- * _lungeX, _lungeY: number — the unit direction that dash travels, latched at press time from
- *   nearestEnemy (falling back to facingAngle) rather than from the stick, because a bite that goes
- *   where the stick points is a bite you miss with. The press also publishes the angle into
- *   p.facingAngle, which is the field render.js actually rotates the body off — without that the
- *   fish swims sideways through the move. 0 and untouched everywhere else.
- * _starveAcc: number — the Wreck's part-tick accumulator, the exact twin of _drownAcc above and
- *   reset on the same rule. Two fields rather than one because the two DoTs answer opposite
- *   problems (a routing failure vs a tempo failure) and a shared accumulator would let a chapter
- *   declaring both bank one's part-tick into the other. 0 and untouched everywhere else.
  * slicks[i]: { x, y, r, shape, rot, _cell } — v7.x The Wreck: streamed POLLUTION SPILLS, the
  *   chapter's signature (`{ type: 'leak', slicks: {...} }`) and the only thing in it that can kill
  *   you, the roster being food. Same refillCircleAt geometry as run.shafts above, on salt block 50
@@ -1581,8 +1545,8 @@ function generateWells(sig) {
  *   LOBE_SHAPES outline that sim tests against (inLobe) and render draws from — stored, never
  *   re-derived. A SEPARATE ARRAY from run.shafts deliberately: those are refill circles and
  *   stepCharge loops them handing out resource. Empty in every other chapter.
- * _slickAcc: number — the slick DoT's part-tick accumulator; _drownAcc/_starveAcc's third twin,
- *   separate for the same reason they are separate from each other.
+ * _slickAcc: number — the slick DoT's part-tick accumulator, _drownAcc's twin. Two fields rather
+ *   than one so a chapter declaring both can never bank one's part-tick into the other.
  * _slickDmgCarry: number — the slick tick's RESISTED damage, banked as a float and spent through
  *   hurtPlayer only once it clears a whole point (Oilskin, v7.x). A per-tick round quantises badly
  *   against a 3-damage tick: one normal Oilskin pick scales it to 2.5, which Math.round takes back
@@ -1610,7 +1574,8 @@ function generateWells(sig) {
  *   same idiom as `net` above and never a pool: there is only ever one, and it is UNKILLABLE (no
  *   hp field, no vulnerability window). `state` walks 'shadow' | 'rising' | 'circling' |
  *   'committing' | 'leaving'; `t` is the seconds left in the current state; (cx, cy)/r are the
- *   closing ring's centre and radius (stepPrey reads them — the wall the shoal will not cross);
+ *   closing ring's centre and radius — render draws the band, and while `state` is 'circling'
+ *   stepEnemyMovement drags every body inside it toward (cx, cy) at ORCA_HERD_PULL;
  *   (x, y) is the body; ang is its bearing around the ring; (tx, ty) is the point the commit was
  *   aimed at — the coil's own centre, snapshotted at break-orbit and never re-aimed; (dirX, dirY)
  *   is the locked commit heading; `hit` latches the once-per-pass player hit (and, in 'shadow', the
@@ -1625,9 +1590,10 @@ function generateWells(sig) {
  * _orcaAcc: number — seconds until the next orca event. Seeded at ORCA_SHADOW_FIRST (the first
  *   SHADOW, not the first real visit), then ORCA_SHADOW_GAP / ORCA_SHADOW_LAST_GAP / ORCA_INTERVAL.
  *   ⚠ IT DOES NOT TICK IN REAL TIME. stepOrca's orcaRush multiplies dt by how packed the water
- *   around the player is (run._feedN plus live chum baits WEIGHTED BY THE FOOD LEFT IN THEM, capped
- *   at ORCA_RUSH_MAX), so hoarding a bait ball is what buys the visit — owner: "the more there is
- *   the more it attacks". A bait the shoal has stripped no longer rings the bell.
+ *   around the player is (live bodies within ORCA_DENS_R, plus live chum baits WEIGHTED BY THE FOOD
+ *   LEFT IN THEM, capped at ORCA_RUSH_MAX), so a crowd on top of you is what buys the visit —
+ *   owner: "the more there is the more it attacks". A bait the pack has stripped no longer rings
+ *   the bell.
  * _orcaShadows: number — opening shadow passes still owed, ORCA_SHADOW_PASSES down to 0. While
  *   above zero the countdown produces a harmless pass; at zero the real ladder starts.
  * {type:'orcaShadow', x, y}: an opening pass at its closest approach to the player — fired ONCE per
@@ -1638,9 +1604,10 @@ function generateWells(sig) {
  *   and carrying the AIMED point rather than the body's, so the water goes up where the spiral
  *   closed. Render-only (a big spawnSplash, a T.nova core and droplets); no SFX entry, because
  *   orcaStrike's whoosh is still sounding a quarter-second in front of it.
- * {type:'orcaFeed', x, y}: one prey body eaten by the commit sweep. THE DEATH IS UNCREDITED —
- *   `_dead` and this event, and nothing else (stepLeaks' idiom), so it pays no run.kills, no gem,
- *   no XP, no Bloodlust and no on-kill proc. All of those live inside dealDamage, which this path
+ * {type:'orcaFeed', x, y}: one body eaten by the commit sweep — anything alive that is not an
+ *   elite and not an ally. THE DEATH IS UNCREDITED — `_dead` and this event, and nothing else
+ *   (stepLeaks' idiom), so it pays no run.kills, no gem, no XP and no on-kill proc. All of those
+ *   live inside dealDamage, which this path
  *   never enters. Render-only, no SFX entry: a commit eats a dozen fish in under a second, so a
  *   sound per fish would machine-gun — the strike already has one (`orcaStrike` -> `hole`).
  * _rushT, _rushN: number — BLOODRUSH (gnash's `bloodrush` mod, The Wreck). _rushT is the window in
@@ -1649,9 +1616,8 @@ function generateWells(sig) {
  *   MULTIPLIER (bought, so multiplied — unlike the chapter slows, which MIN-compose). Both drop to
  *   0 together when the window lapses rather than decaying one stack at a time: losing the shoal is
  *   meant to cost the whole run-up, which is what gives the card a failure state.
- * (removed v7.x) killRefill — was light per kill from the Scavenger unlock. Nothing refills a bar
- *   on a kill now except CHAPTERS.wreck.resource.killBase, which sim.js reads straight from config
- *   and no run field mirrors. The save key bm.unlocks.lightThief survives, unread, per R2.
+ * (removed v7.x) killRefill — was light per kill from the Scavenger unlock. NOTHING refills a bar
+ *   on a kill now, in any chapter. The save key bm.unlocks.lightThief survives, unread, per R2.
  *   Undertow's own bookMeta entry — see BOOK_UNLOCKS.undertow in config.js). 0 unbought, and 0
  *   in every chapter with no resource. It exists as a RUN field, rather than sim.js consulting
  *   meta, because sim.js must never see meta — see the plan's R1.
@@ -1787,8 +1753,8 @@ function generateWells(sig) {
  *   t ages to dur, then the lure BURSTS: player-scaled AoE damage (applyDamage) to enemies within
  *   burstR + an {type:'explode', x, y, radius} event, and (sticky, from the stickyScent mod) a
  *   LURE_STICKY_R/DUR slow zone into run.webs (stepLures). Removed on burst. See WEAPONS.lure.
- *   OPTIONAL `bait: true` (The Wreck's Chum) makes it the same object pointed at fleeing animals:
- *   stepPrey inverts its response to the seek target, so a baited fish swims TO it. A bait also
+ *   OPTIONAL `bait: true` (The Wreck's Chum) makes it a decoy that FEEDS what it gathers. A bait
+ *   also
  *   carries `food` (servings left) and `food0` (what it was cast with). Every enemy that reaches
  *   within CHUM_FEED_R takes one serving, once per bait — the fish remembers which bait it ate at
  *   in `_fedBait` (the lure object itself), so a second bait feeds it again. At food 0 the bait is
@@ -1820,10 +1786,8 @@ function generateWells(sig) {
  * the player closes inside INK_TRIGGER_R, on a per-fish INK_COOLDOWN. The cloud slows the PLAYER
  * only — see stepInkjet and the INK_* block),
  * 'puffup' (The Wreck's Pufferfish: inflates when the player closes inside PUFFER_TRIGGER_R and
- * refuses EXACTLY ONE direct hit, which pops it; it then drifts at PUFFER_DRIFT_MUL, bitable, for
- * PUFFER_COOL_T before it may inflate again — see stepPuffUp/guardBlocks and the PUFFER_* block),
- * 'tight' (The Wreck's Sardine: read inside stepPrey, it swaps PREY_COHESION_BLEND for
- * TIGHT_COHESION_BLEND and buys nothing else — the ball that will not break).
+ * refuses EXACTLY ONE direct hit, which pops it; it drifts at PUFFER_DRIFT_MUL, bitable, for
+ * PUFFER_COOL_T before it may inflate again — see stepPuffUp/guardBlocks and the PUFFER_* block).
  * RETIRED v6.9: 'blink' (a crawl punctuated by a burst — it read as teleporting through two
  * rewrites; see the retirement note in config.js before reaching for that shape again).
  * Their phase state lives on sim-internal `_`-prefixed fields following the diveBomb idiom; the
@@ -2435,9 +2399,9 @@ export function createRun(meta, opts = {}) {
   // v7.x Book 2 Task 9 (deepLungs): the chapter resource bar's ceiling, hoisted into a local so it
   // is authored ONCE and shared by both `chargeMax` and the starting `charge` below — a value this
   // repo's own CLAUDE.md documents as its single largest silently-drifting defect class when
-  // written twice. Used to be read straight from config at both of sim.js's clamp sites (the drain
-  // in stepCharge and the per-kill `killBase`); now it is a RUN field so deepLungs can raise
-  // it, and sim.js reads run.chargeMax at both sites instead of CHAPTERS[chapter].resource.max.
+  // written twice. Used to be read straight from config at sim.js's clamp sites; now it is a RUN
+  // field so deepLungs can raise it, and sim.js reads run.chargeMax instead of
+  // CHAPTERS[chapter].resource.max.
   const chargeMax = (CHAPTERS[chapter].resource?.max ?? 0) * (1 + shopBonus(bm, bookId, 'deepLungs'))
   return {
     phase: 'playing',
@@ -2642,7 +2606,7 @@ export function createRun(meta, opts = {}) {
     _crushing: false,      // pinned against the trailing edge this frame — render.js reads it as the tell
     _crushAcc: 0,          // the crush's part-tick accumulator, LANE_CRUSH_TICK's twin of _spurAcc
     polyps: [],            // Fire Coral's lit ridges — snapshots of spurAt, never references into run.spurs
-    _slickAcc: 0,          // part-tick accumulator, the exact twin of _drownAcc/_starveAcc
+    _slickAcc: 0,          // part-tick accumulator, the exact twin of _drownAcc
     _slickDmgCarry: 0,     // Oilskin's resisted-damage remainder, spent once it clears a whole point
     _foulT: 0,             // s of oil still on you — lingers SLICK_SLOW_T past the rim (see sim.js)
     _rushT: 0,             // s left on BLOODRUSH's window (gnash's bloodrush mod)
@@ -2670,7 +2634,7 @@ export function createRun(meta, opts = {}) {
     chargeDrainMul: Math.max(SLOW_BURN_FLOOR, 1 - shopBonus(bm, bookId, 'slowBurn')),
     // v7.x Book 2 Task 9: bigGulp's refill-rate multiplier, applied in stepCharge (sim.js) to
     // CHAPTERS[chapter].resource.refill while the player stands in a shaft/pool/pocket. 1 (no-op)
-    // unbought. Does NOT touch The Wreck's per-kill `killBase` — that is not "a refill pickup".
+    // unbought.
     chargeRefillMul: 1 + shopBonus(bm, bookId, 'bigGulp'),
     // BOOK_SHOP.undertow.currentResist ("Current Resistance"): how much of the tide's push actually
     // reaches the player, applied in stepTide (sim.js). Subtracted like slowBurn's — the line stores
@@ -2682,20 +2646,9 @@ export function createRun(meta, opts = {}) {
     // declaring `burst` / a `resource.drown` block ever moves them off 0.
     _burstT: 0,
     _drownAcc: 0,
-    // v7.x The Wreck: seconds of Lunge dash left, the unit direction it travels, and the starving
-    // DoT's part-tick accumulator. Same pattern as every line around it — every run carries all
-    // four, and only a chapter declaring `lunge` / a `resource.starve` block ever moves them off 0.
-    _lungeT: 0,
-    _lungeX: 0,
-    _lungeY: 0,
-    _lungeMoved: 0,
-    // deathRoll / bloodInTheWater bookkeeping (WEAPON_MODS.gnash). Same pattern as the four above:
-    // every run carries them, and only a run holding those mods in a lunge chapter moves them.
-    _lungeId: 0,
-    _lungePaid: false,
-    _rollHit: false,
+    // bloodInTheWater's cooldown latch (WEAPON_MODS.gnash). Same pattern as the lines around it:
+    // every run carries it, and only a run holding that mod ever moves it.
     _bloodT: 0,
-    _starveAcc: 0,
     // v7.x The Surf: seconds of Shorebreak left. Same pattern — every run carries it, and only a
     // chapter declaring `shorebreak` ever moves it off 0.
     _shorebreakT: 0,

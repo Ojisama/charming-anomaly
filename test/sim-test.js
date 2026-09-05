@@ -143,7 +143,6 @@ import {
   // Book 2 The Shelf: Pollution as a weapon mod (Run MB)
   pollutionFrac, BALLAST_FLIGHT, BALLAST_TANK_MUL, BALLAST_BLIND_THROW, BALLAST_REACH_PAD, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX,
   SILT_PLUME_SPREAD, SILT_FLUSH_MUL,
-  LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_DMG, LUNGE_KILL_REFILL, LUNGE_BITE_MUL, STARVE_TICK,
   // Book 2 The Surf: the Shore Crab's guard (Run US.i)
   CRAB_GUARD_ARC,
   // Book 2 The Surf: the beach floor's look (Run US.j)
@@ -155,15 +154,14 @@ import {
   // the cosmetic shop line and its mastery gate (Run BP.ag)
   MASTERY_UNLOCK, chaptersMastered, shopLineUnlocked, CHEEK_JIGGLE, BUTT_FEET,
   // The Wreck's prey rework (Run WK)
-  PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_SHOAL_SIZE, CHUM_PANIC_R,
   INK_TRIGGER_R, INK_COOLDOWN, INK_SLOW_MUL, INK_DUR,
-  PUFFER_TRIGGER_R, PUFFER_COOL_T, PUFFER_DRIFT_MUL, BALL_R,
+  PUFFER_TRIGGER_R, PUFFER_COOL_T, PUFFER_DRIFT_MUL,
   GNASH_MAW_MUL, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   BALLAST_RING,
   // The Wreck's orca (Run OR)
   ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
-  ORCA_RING_MIN_R, ORCA_BITE_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, FEED_FULL_N,
-  ORCA_COMMITS, ORCA_WAKE_R, ORCA_RING_R, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_SPIRAL_ACCEL, ORCA_TRAIL_MAX,
+  ORCA_RING_MIN_R, ORCA_BITE_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, ORCA_DENS_FULL_N,
+  ORCA_HERD_PULL, ORCA_COMMITS, ORCA_WAKE_R, ORCA_RING_R, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_SPIRAL_ACCEL, ORCA_TRAIL_MAX,
   CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX, CHAPTER_BOARDS_DEFAULT,
   // The Trawl's late-game cut (run TJ)
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
@@ -3731,7 +3729,7 @@ function testDifficulty() {
   // fastest creature in EVERY roster in the game used to sit under the player's 220 px/s at every
   // difficulty, so walking in a straight line was a complete answer to every chapter whatever the
   // pips said. Speeds are computed the way spawnEnemy does — archetype base x the roster's own
-  // speedMul x the ladder — with `skittish` prey excluded, since outrunning food is the design.
+  // speedMul x the ladder, over every roster in the game with nothing exempt.
   //
   // ⚠ COUNTED ACROSS CHAPTERS, NOT MAXIMISED OVER THEM, and the first cut did the latter. "The
   // fastest thing in the GAME beats 220" is satisfied by one outlier — The Blank's Probe already
@@ -3745,7 +3743,6 @@ function testDifficulty() {
     for (const [id, ch] of Object.entries(CHAPTERS)) {
       let top = 0
       for (const r of ch.roster ?? []) {
-        if (r.flags?.includes('skittish')) continue   // food; exempt by design, see enemySpeedMulFor
         top = Math.max(top, (BASE[r.archetype] ?? 90) * (r.speedMul ?? 1) * difficultySpeedMul(MAX_DIFFICULTY))
       }
       if (top > PLAYER.baseSpeed) fast.push(id)
@@ -3760,10 +3757,9 @@ function testDifficulty() {
       'run N.c: The Wreck counts as a chapter whose crowd can catch you — its roster is FOOD and must stay exempt from the ladder (see enemySpeedMulFor)')
   }
 
-  // (d) IS GONE. It asserted that the ladder's speed tax did not reach `skittish` prey, using The
-  // Wreck against an undergrowth control. The 2026-09-05 rework left no skittish roster anywhere in
-  // the game, so the case had nothing to measure — the exemption in spawnEnemy stays as the guard
-  // for MUTATORS.caffeine, which carries no chapter gate.
+  // (d) IS GONE. It asserted that the ladder's speed tax did not reach a fleeing roster, using The
+  // Wreck against an undergrowth control. No such roster exists, and the exemption it guarded is
+  // deleted — the ladder now reaches every chapter, which is what (c) above measures.
 
   const d5bulky = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 5, mutators: ['bulky'] })
   assert.strictEqual(d5bulky.mods.enemyHpMul, 1.5,
@@ -8397,20 +8393,19 @@ function runSpawnTilt() {
 run(runSpawnTilt)
 
 
-// ---- Run PY: THE WRECK, after the premise turned round (v7.x, owner directive) ----------------
-// "about you, a shark, chasing after schools of fishes that run in fear. Turning around the premise
-// of the game." Every other chapter in this game resolves to "walk at the player"; this one is the
-// exception, and the exception has to be guarded on both of its halves.
+// ---- Run PY: THE WRECK (v7.x) -----------------------------------------------------------------
+// A normal survivors level whose identity is in three natives and two hazards rather than in a
+// rule about how the crowd moves: a mouth that pays for closing, a bucket that pulls a pack off you
+// and parks it, a drum of oil that drags whatever swims through it, a leak that stains and kills,
+// and an orca that cannot be killed.
 //
-// WHAT MAKES THIS WORTH A SCENARIO rather than a config assert: `skittish` is ONE flag saying TWO
-// things, in two places, with no import between them — it inverts movement (stepPrey) and it
-// disarms contact damage (contactHarmless). Delete either half and the chapter still runs, still
-// spawns, and still looks approximately right in a screenshot, and it is a different game. A fish
-// that flees but still bites is an aggro chapter with extra steps; a fish that bites nothing but
-// walks at you is a piñata parade.
+// WHAT MAKES EACH OF THESE WORTH A SCENARIO rather than a config assert: every one of them is a
+// number in config.js and a read somewhere else, with nothing between them that throws. A card
+// pointed at a field nothing consumes still offers, still banks and still draws — see run MB.a,
+// whose whole job is that class of defect.
 //
 // Every block below asserts an EFFECT against a CONTROL with the feature removed, because an
-// assertion that only reads a flag back passes with the mechanic deleted.
+// assertion that only reads a field back passes with the mechanic deleted.
 function runPrey() {
   const dt = 1 / 60
   const wkMeta = () => { const m = makeMeta(); m.dev = true; ensureChapterMeta(m); return m }
@@ -8561,13 +8556,12 @@ function runPrey() {
   {
     const run = mk()
     stepSim(run, { x: 0, y: 0 }, dt)
-    run.charge = 10
     run.slicks.push({ x: run.player.x, y: run.player.y, r: 400, shape: null, rot: 0, _cell: 'test' })
-    const c0 = run.charge
+    const hp0 = run.player.hp
     for (let i = 0; i < Math.round(2 / dt); i++) { run.enemies.length = 0; stepSim(run, { x: 0, y: 0 }, dt) }
-    assert.ok(run.charge <= c0, `standing in a spill must never RAISE Bloodlust (${c0} -> ${run.charge}) — that is what putting slicks in run.shafts would do`)
-    assert.strictEqual(run.shafts.length, 0, 'The Wreck declares no refill circle at all, so run.shafts must stay empty — a non-empty one means refillSpec() started recognising the leak')
-    console.log(`PASS run PY.f (a spill is not a refill): 2s in one takes Bloodlust ${c0} -> ${run.charge.toFixed(1)}, and run.shafts stays empty`)
+    assert.ok(run.player.hp < hp0, `standing in a spill must COST the player: 2s in one took ${(hp0 - run.player.hp).toFixed(1)} HP`)
+    assert.strictEqual(run.shafts.length, 0, 'The Wreck declares no refill circle at all, so run.shafts must stay empty — a non-empty one means refillSpec() started recognising the leak, which is the one way a hazard becomes a reward with nothing thrown')
+    console.log(`PASS run PY.f (a spill is a hazard, not a place): 2s in one costs ${(hp0 - run.player.hp).toFixed(1)} HP and run.shafts stays empty`)
   }
 
   // -- PY.l: the OIL lands on a RANDOM VISIBLE body, not on your feet and not on the nearest. -----
@@ -8606,10 +8600,10 @@ function runPrey() {
       // frame rather than to the spawn point: the fence branch travels 26,000px, and a crowd left
       // behind at the origin would put every branch off-screen within a second.
       const at = [[120, 0], [240, 0], [360, 0], [0, 300]]
-      const crowd = at.map(([dx, dy]) => put(run, { x: p.x + dx, y: p.y + dy, hp: 1e12, speed: 0, flags: ['skittish'] }))
+      const crowd = at.map(([dx, dy]) => put(run, { x: p.x + dx, y: p.y + dy, hp: 1e12, speed: 0, flags: [] }))
       // Well outside the viewport. An effect that arrives from off-screen is worse than one that
       // arrives too close, so this must never be picked.
-      const offScreen = put(run, { x: p.x + 2000, y: p.y, hp: 1e12, speed: 0, flags: ['skittish'] })
+      const offScreen = put(run, { x: p.x + 2000, y: p.y, hp: 1e12, speed: 0, flags: [] })
       const all = [...crowd, offScreen]
       const seen = new Set()
       const hits = []            // index into `all` for every pool planted, -1 for the feet
@@ -8726,7 +8720,7 @@ function runPrey() {
       run.weapons = [{ id: 'chum', level: 1 }]
       const fish = []
       for (let k = 0; k < nFish; k++) {
-        fish.push(put(run, { x: run.player.x + 4000, y: run.player.y + k * 7, hp: 1e12, speed: 0, flags: ['skittish'] }))
+        fish.push(put(run, { x: run.player.x + 4000, y: run.player.y + k * 7, hp: 1e12, speed: 0, flags: [] }))
       }
       let bait = null, born = 0, food0 = 0, left = 0, died = Infinity
       for (let i = 0; i < Math.round(9 / dt); i++) {
@@ -8770,30 +8764,36 @@ function runPrey() {
   //   Measured as PATH LENGTH over three windows on the SAME fish, because a pinned body and a
   // body swimming in a circle have the same net displacement and only one of them is held.
   {
-    const swim = ({ gap = 900, puff = false, chase = false }) => {
+    const swim = ({ gap = 900, puff = false, noFeed = false }) => {
       const run = mk(20260827)
       run.weapons = []
       const p = run.player
-      // Bait far from the player, so the panic override is not what is being measured. aggro is
-      // wide enough that the fish is baited from where it starts.
+      // Bait far from the player, so the fish is going for the bait rather than for you. aggro is
+      // wide enough that it is baited from where it starts.
       const bait = { x: p.x + gap, y: p.y, t: 0, dur: 9999, aggro: 500, burstR: 0, burstDmg: 0, bait: true, food: 40, food0: 40, shape: 0, rot: 0 }
       run.lures = [bait]
-      const e = put(run, { x: bait.x - 150, y: bait.y, hp: 1e12, speed: 120, flags: ['skittish'] })
+      const e = put(run, { x: bait.x - 150, y: bait.y, hp: 1e12, speed: 120, flags: puff ? ['puffup'] : [] })
       // The window opens when the fish ARRIVES at the bait, not when feedT is set — an arm in which
       // the hold never starts (the puffed one) must still be measured over the same window, or
       // "never pinned" and "never got there" are the same zero.
+      //   ⚠ THE BAIT IS REMOVED THE MOMENT THE WINDOW OPENS, and that is what makes both halves of
+      // this case mean anything. The crowd is hostile: a body parked ON a decoy it has already
+      // eaten from is standing exactly where its seek target is, so it would read as pinned whether
+      // the hold existed or not, and it would never move again for the lapse arm to see. With the
+      // bait gone its seek target is the player, 900px away — so "did not move" can only be the
+      // hold, and "moved" can only be the hold ending.
       let atBait = -1, before = 0, during = 0, after = 0
       let lx = e.x, ly = e.y
       for (let i = 0; i < Math.round(9 / dt); i++) {
         only(run, [e])
         if (puff) e.puffT = 9        // held inflated for the whole run: puffing must outrank eating
-        if (chase) { p.x = e.x - 40; p.y = e.y }   // the shark right on top of it
+        if (noFeed) e.feedT = 0      // the control: everything else identical, no hold
         stepSim(run, { x: 0, y: 0 }, dt)
         const moved = Math.hypot(e.x - lx, e.y - ly)
         lx = e.x; ly = e.y
         if (atBait < 0) {
           before += moved
-          if (Math.hypot(e.x - bait.x, e.y - bait.y) <= CHUM_FEED_R) atBait = i
+          if (Math.hypot(e.x - bait.x, e.y - bait.y) <= CHUM_FEED_R) { atBait = i; run.lures.length = 0 }
         } else if ((i - atBait) * dt < 1.0) during += moved
         else if ((i - atBait) * dt < 1.0 + CHUM_FEED_HOLD) { /* the tail of the hold, unmeasured */ }
         else if ((i - atBait) * dt < 1.6 + CHUM_FEED_HOLD) after += moved
@@ -8805,13 +8805,16 @@ function runPrey() {
       `precondition: the fish must swim to the bait; it covered ${held.before.toFixed(0)}px and arrived at frame ${held.atBait}`)
     assert.ok(held.during < 2, `a feeding fish must be PINNED; it swam ${held.during.toFixed(1)}px in the second after its bite`)
     assert.ok(held.after > 8, `the hold must LAPSE; the fish still had not moved (${held.after.toFixed(1)}px) well past CHUM_FEED_HOLD`)
-    // The two things that break it early. Both are rulings, and each fails on its own.
-    const bolted = swim({ chase: true })
-    assert.ok(bolted.during > 20, `CHUM_PANIC_R must break the hold: with the shark on top of it the fish only moved ${bolted.during.toFixed(1)}px`)
+    // AND THE PIN IS THE HOLD, NOT THE ARITHMETIC. Same fixture, same removal, feedT never set —
+    // if this arm were also still, "pinned" would just mean "the bait was taken away".
+    const unheld = swim({ noFeed: true })
+    assert.ok(unheld.during > 20,
+      `control: with no hold the fish must leave for the player the moment the bait goes; it moved ${unheld.during.toFixed(1)}px`)
+    // What breaks it early. A ruling, and it fails on its own.
     const puffed = swim({ puff: true })
-    assert.ok(puffed.during > 5, `a fish mid-puff must not stop to eat — puffing outranks a mouthful; it moved ${puffed.during.toFixed(1)}px`)
+    assert.ok(puffed.during > 5, `a fish mid-puff must not stop to eat — puffing outranks a mouthful; it moved ${puffed.during.toFixed(1)}px (arrived at frame ${puffed.atBait} having covered ${puffed.before.toFixed(0)}px)`)
     console.log(`PASS run PY.x (a bite parks the fish): ${held.during.toFixed(1)}px swum in the second after the bite against ${held.after.toFixed(1)}px once it lapses, ` +
-      `${bolted.during.toFixed(0)}px with the shark on top of it and ${puffed.during.toFixed(0)}px mid-puff`)
+      `${unheld.during.toFixed(0)}px with no hold at all, and ${puffed.during.toFixed(0)}px mid-puff`)
   }
 
   // -- PY.y: oil STAINS, permanently, from both oils, and the stain is capped. -------------------
@@ -8840,7 +8843,7 @@ function runPrey() {
       // spill 4000px away is gone on frame one. Re-seeded each frame, and the array is cleared in
       // every arm so an ambient spill materialising near the player can never reach the arm.
       const slick = { x: ox, y: oy, r: 200, shape: 0, rot: 0, _cell: 'fixture' }
-      const e = put(run, { x: ox, y: oy, hp: 1e12, speed: 120, flags: ['skittish'] })
+      const e = put(run, { x: ox, y: oy, hp: 1e12, speed: 120, flags: [] })
       // Soak: pinned in the middle of the zone so the dose is the same in every arm.
       for (let i = 0; i < Math.round(secs / dt); i++) {
         only(run, [e])
@@ -9022,7 +9025,7 @@ function runPrey() {
       run.weaponMods.bilge = mods
       const p = run.player
       const x0 = p.x, y0 = p.y
-      const e = put(run, { x: x0 + 300, y: y0, hp: 1e12, speed: 0, flags: ['skittish'] })
+      const e = put(run, { x: x0 + 300, y: y0, hp: 1e12, speed: 0, flags: [] })
       let pools = []
       for (let i = 0; i < Math.round(10 / dt) && !pools.length; i++) {
         only(run, [e])
@@ -9071,7 +9074,7 @@ function runPrey() {
       // The tank is nearer than the fish in BOTH cases — that is the situation being tested.
       const tank = put(run, { x: p.x + 40, y: p.y, hp: 1e12, speed: 0 })
       tank.type = 'tank'
-      const fish = put(run, { x: p.x, y: p.y + fishGap, hp: 1e12, speed: 0, flags: ['skittish'] })
+      const fish = put(run, { x: p.x, y: p.y + fishGap, hp: 1e12, speed: 0, flags: [] })
       let hitTank = 0, hitFish = 0
       for (let i = 0; i < Math.round(6 / dt); i++) {
         only(run, [tank, fish])
@@ -9115,9 +9118,9 @@ function runPrey() {
       }
       return clouds
     }
-    const near = lay(['skittish', 'inkjet'], INK_TRIGGER_R * 0.5, 12)
-    const far = lay(['skittish', 'inkjet'], INK_TRIGGER_R * 1.6, 12)
-    const control = lay(['skittish'], INK_TRIGGER_R * 0.5, 12)
+    const near = lay(['inkjet'], INK_TRIGGER_R * 0.5, 12)
+    const far = lay(['inkjet'], INK_TRIGGER_R * 1.6, 12)
+    const control = lay([], INK_TRIGGER_R * 0.5, 12)
     assert.ok(near > 0, 'a squid with the player inside INK_TRIGGER_R must lay a cloud; it laid none')
     assert.strictEqual(control, 0, `the same fish without the flag must lay nothing; it laid ${control}`)
     assert.strictEqual(far, 0, `a squid ${(INK_TRIGGER_R * 1.6).toFixed(0)}px away must not ink — the trigger is a range, not an aura; it laid ${far}`)
@@ -9189,8 +9192,8 @@ function runPrey() {
       }
       return { blocks, hits, firstWasBlocked }
     }
-    const puffer = chew(['skittish', 'puffup'], 8)
-    const plain = chew(['skittish'], 8)
+    const puffer = chew(['puffup'], 8)
+    const plain = chew([], 8)
     assert.strictEqual(plain.blocks, 0, `the same fish without the flag must refuse nothing; it refused ${plain.blocks}`)
     assert.strictEqual(puffer.firstWasBlocked, true,
       'the first swing that reaches an inflated puffer must be REFUSED — that is the whole card')
@@ -9202,27 +9205,30 @@ function runPrey() {
     assert.ok(puffer.blocks <= cycles,
       `a puffer must refuse at most one bite per ${PUFFER_COOL_T}s cycle, not one per swing: ${puffer.blocks} refusals in 8s against a cap of ${cycles} (it took ${puffer.hits} landed hits over the same window)`)
 
-    // AND IT DRIFTS. The refusal is only half the beat; the other half is that the ball cannot run,
-    // which is what makes the window a punish rather than an escape. Measured against the same fish
-    // with the flag off, from the same distance, with nothing pinning it.
-    const drift = (flags) => {
+    // AND IT DRIFTS. The refusal is only half the beat; the other half is that the ball cannot
+    // swim, which is what makes the window a punish rather than a body still walking into you.
+    // Measured as GROUND CLOSED on the player, against the same fish with the flag off, from the
+    // same distance, with nothing pinning it. Started just inside PUFFER_TRIGGER_R so the control
+    // has room to close for the whole window without arriving and saturating the measurement — a
+    // control that reaches the player is a control that stops reporting its own speed.
+    const closed = (flags) => {
       const run = mk(20260904)
       run.weapons = []
       const p = run.player
-      const e = put(run, { x: p.x + PUFFER_TRIGGER_R * 0.6, y: p.y, hp: 1e6, speed: 90, flags })
+      const e = put(run, { x: p.x + PUFFER_TRIGGER_R * 0.95, y: p.y, hp: 1e6, speed: 90, flags })
       const d0 = Math.hypot(e.x - p.x, e.y - p.y)
       for (let i = 0; i < Math.round(1.2 / dt); i++) {
         only(run, [e])
         stepSim(run, { x: 0, y: 0 }, dt)
       }
-      return Math.hypot(e.x - run.player.x, e.y - run.player.y) - d0
+      return d0 - Math.hypot(e.x - run.player.x, e.y - run.player.y)
     }
-    const puffed = drift(['skittish', 'puffup'])
-    const loose = drift(['skittish'])
-    assert.ok(loose > 40, `the control must actually escape, or this proves nothing: it gained ${loose.toFixed(0)}px`)
+    const puffed = closed(['puffup'])
+    const loose = closed([])
+    assert.ok(loose > 60, `the control must actually close, or this proves nothing: it covered ${loose.toFixed(0)}px`)
     assert.ok(puffed < loose * (PUFFER_DRIFT_MUL + 0.25),
-      `an inflated puffer must barely swim: it gained ${puffed.toFixed(0)}px where the same fish unflagged gained ${loose.toFixed(0)}px`)
-    console.log(`PASS run PY.t (the puffer refuses one bite): first swing bounced, ${puffer.blocks} refusals in 8s under a ${cycles}-cycle cap against ${puffer.hits} landed hits, 0 without the flag, and it drifts ${puffed.toFixed(0)}px where a loose fish gains ${loose.toFixed(0)}px`)
+      `an inflated puffer must barely swim: it closed ${puffed.toFixed(0)}px where the same fish unflagged closed ${loose.toFixed(0)}px`)
+    console.log(`PASS run PY.t (the puffer refuses one bite): first swing bounced, ${puffer.blocks} refusals in 8s under a ${cycles}-cycle cap against ${puffer.hits} landed hits, 0 without the flag, and it closes ${puffed.toFixed(0)}px where a loose fish closes ${loose.toFixed(0)}px`)
   }
 
   console.log('PASS run PY (The Wreck): the bite pays for closing, prefers what is in reach and crits only sometimes, bloodrush builds on landed bites, the oil lands on the crowd and can be thrown as a ring, chum is a bucket of servings that parks what reaches it, the squid inks and the puffer bounces one bite, and the leak stains forever')
@@ -9270,16 +9276,16 @@ function runOrca() {
     e.flags = o.flags ?? []
     return e
   }
-  // A tight knot of prey pinned around a point. Tight enough that stepEnemySeparation gives every
-  // member a `_shoalN` over BALL_TIGHT_N, which is what makes them count for _feedN — the density
-  // term orcaRush reads to decide how soon the animal comes.
+  // A knot of bodies pinned around a point, inside ORCA_DENS_R of the player. That count IS the
+  // density term orcaRush reads to decide how soon the animal comes — every live non-ally body
+  // within the radius, which since 2026-09-05 is the whole of it.
   const ball = (run, n, cx, cy, spread = 40) => {
     const es = []
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2
       es.push(put(run, {
         x: cx + Math.cos(a) * spread, y: cy + Math.sin(a) * spread,
-        hp: 1e6, speed: 0, flags: ['skittish'],
+        hp: 1e6, speed: 0, flags: [],
       }))
     }
     return es
@@ -9296,10 +9302,6 @@ function runOrca() {
     let hp0 = run.player.hp
     for (let i = 0; i * dt <= ORCA_FIRST_PASS + 6; i++) {
       hold(run, [])
-      // Bloodlust held full for this block ALONE. 100s of empty water starves the bar, and the
-      // starve DoT then bills the player HP that this block would otherwise read as the shadow
-      // hurting them — it did, at 10 and 12 HP on passes 2 and 3, before this line existed.
-      run.charge = run.chargeMax
       const before = run.orca ? run.orca.state : null
       stepSim(run, { x: 0, y: 0 }, dt)
       const now = run.orca ? run.orca.state : null
@@ -9360,8 +9362,8 @@ function runOrca() {
       return Infinity
     }
     const empty = arrival(0, 0)
-    const half = arrival(Math.ceil(FEED_FULL_N / 2), 0)
-    const gorged = arrival(FEED_FULL_N + 4, 2)
+    const half = arrival(Math.ceil(ORCA_DENS_FULL_N / 2), 0)
+    const gorged = arrival(ORCA_DENS_FULL_N + 4, 2)
     assert.ok(Math.abs(empty - ORCA_SHADOW_FIRST) < 1,
       `empty water must tick in REAL time: the first pass came at ${empty.toFixed(1)}s against ORCA_SHADOW_FIRST ${ORCA_SHADOW_FIRST}s`)
     assert.ok(half < empty - 5,
@@ -9409,11 +9411,7 @@ function runOrca() {
         cx, cy, r: ORCA_RING_MIN_R, ang: 0,
         x: cx + ORCA_RING_MIN_R, y: cy, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1,
       }
-      // Bloodlust parked at HALF, deliberately. At full, killBase (5/kill x 14 fish) would clamp
-      // against chargeMax and a credited meal would be invisible; at zero the starve DoT would bill
-      // the player HP this block attributes to the strike. Half is the only value that sees both.
-      run.charge = run.chargeMax / 2
-      const hp0 = p.hp, kills0 = run.kills, gems0 = run.gems.length, charge0 = run.charge
+      const hp0 = p.hp, kills0 = run.kills, gems0 = run.gems.length
       let feeds = 0, killEvents = 0, splashes = []
       let brokeAt = null                                    // where the body was when it broke orbit
       // The centre AS IT STOOD AT THE LOCK — read after the step that flipped the state, not from
@@ -9435,7 +9433,7 @@ function runOrca() {
         feeds, killEvents, splashes, brokeAt, locked, cx, cy,
         eaten: es.filter((e) => e._dead).length, of: es.length,
         dmg: hp0 - run.player.hp,
-        kills: run.kills - kills0, gems: run.gems.length - gems0, charge: run.charge - charge0,
+        kills: run.kills - kills0, gems: run.gems.length - gems0,
       }
     }
     const away = commit(400, true)
@@ -9450,10 +9448,6 @@ function runOrca() {
     assert.strictEqual(away.kills, 0, `the orca's meal must not count as player kills; run.kills moved by ${away.kills}`)
     assert.strictEqual(away.gems, 0, `the orca's meal must drop no XP; ${away.gems} gems appeared`)
     assert.strictEqual(away.killEvents, 0, `the orca's meal must emit no 'kill' events — that is the beat the player hears and sees for their OWN kill; ${away.killEvents} fired`)
-    // A FOURTH LEDGER USED TO BE ASSERTED HERE and is gone with the chapter's bar: the orca's meal
-    // had to leave Bloodlust FALLING, because killBase would otherwise have pushed it up on a
-    // credited sweep. The 2026-09-05 rework removed the bar, and with it the last per-kill refill
-    // in the game. The three ledgers above are the whole claim now.
     assert.strictEqual(away.dmg, 0,
       `the player had outrun the coil by 400px and must take nothing: they lost ${away.dmg}`)
     assert.ok(onYou.dmg > 0,
@@ -9481,16 +9475,16 @@ function runOrca() {
         `those were only ${fromBody.toFixed(0)}px apart, against a ring radius of ${ORCA_RING_MIN_R}`)
     }
     console.log(`PASS run OR.c (it strikes the centre of its coil): a centre parked 400px off the player took ${away.eaten}/${away.of} fish ` +
-      `for ${away.feeds} orcaFeed events, paying 0 kills / 0 gems / 0 Bloodlust and costing the player 0 HP, and threw ONE splash ` +
+      `for ${away.feeds} orcaFeed events, paying 0 kills / 0 gems / 0 kill events and costing the player 0 HP, and threw ONE splash ` +
       `${Math.hypot(away.splashes[0].x - away.locked.x, away.splashes[0].y - away.locked.y).toFixed(1)}px from that centre and ` +
       `${Math.hypot(away.splashes[0].x - away.brokeAt.x, away.splashes[0].y - away.brokeAt.y).toFixed(0)}px from the body — ` +
       `where a centre on the player hits them for ${(onYou.dmg / 1e9).toFixed(2)}x max HP (bite swath ${ORCA_BITE_R}px)`)
   }
 
   // -- OR.d: the pass SCATTERS what it goes under, and still costs nothing. ----------------------
-  // The subject is a NON-skittish body on purpose. Prey already flee the player, so a fleeing fish
-  // proves nothing about the shadow; a body that normally CLOSES is the only one whose reversal is
-  // attributable. fearT is the shipped contract field render.js already tints and poses off.
+  // The subject is a body that normally CLOSES on the player, which is the only one whose reversal
+  // under the shadow is attributable. fearT is the shipped contract field render.js already tints
+  // and poses off.
   {
     const measure = (withPass) => {
       const run = mk()
@@ -9537,9 +9531,8 @@ function runOrca() {
   // everything to each side", and "currently it just circles a bit around you, then goes away, easy
   // to avoid". Two separate mechanisms answer that and this block guards both, because either one
   // failing silently leaves the other looking like the whole fix.
-  //   THE SUBJECTS ARE NON-PREY ON PURPOSE. orcaBite deletes `skittish` bodies inside ORCA_BITE_R,
-  // so a prey fixture cannot tell "thrown aside" from "eaten and gone"; a flagless body is immune to
-  // the bite outright, which makes every px of displacement attributable to the wake alone.
+  //   THE SUBJECTS ARE ELITES ON PURPOSE — see the note at the fixture: orcaBite deletes anything
+  // else inside ORCA_BITE_R, so an ordinary body cannot tell "thrown aside" from "eaten and gone".
   {
     const wake = (withOrca) => {
       const run = mk()
@@ -9556,6 +9549,14 @@ function runOrca() {
       // chord, a radial one has almost no lateral component to give until the orca is on top of it.
       const at = [[100, 70], [340, -70], [580, 180], [820, -430], [1060, 10]]
       const es = at.map(([dx, dy]) => put(run, { x: p.x + dx, y: p.y + dy, hp: 1e12, speed: 0, flags: [] }))
+      // ⚠ ELITES, AND THEY HAVE TO BE. The commit sweep EATS everything it passes that is not an
+      // elite (orcaBite), and ORCA_BITE_R (130) is well inside ORCA_WAKE_R (230) — so three of
+      // these five subjects, the two that carry the sign arm and the one on the line, simply stop
+      // existing half way through the pass and report the throw they had banked so far. An elite is
+      // the one body the sweep spares, which makes it the only thing the wake can be measured on.
+      // No affixes: `anchored` is knockback-immune and would silently zero the very displacement
+      // this case reads.
+      for (const e of es) { e.elite = true; e.affixes = [] }
       // ⚠ WORLD y, NOT PLAYER-RELATIVE. The wake shoves the player as well, so an origin on the
       // player subtracts that drift from the body on one side and adds it to the body on the other
       // — which read as +48/-200 for a shove that is really symmetric, i.e. a false asymmetry
@@ -9813,11 +9814,58 @@ function runOrca() {
     console.log(`PASS run OR.g (decoy barrel): the coil settles ${plain.toPlayer.toFixed(0)}px from the player unbought, and ${decoy.toBait.toFixed(0)}px from a full bait 900px away once the card is taken`)
   }
 
+  // -- OR.h: the CLOSING RING is a wall that herds, not a drawing. -----------------------------
+  // Owner ruling 2026-08-22: "it circles you, then commits". The ring is the whole middle of that
+  // sentence, and it fails in the quietest way there is — render draws the band off run.orca.r
+  // whatever the sim does with it, so a ring with no mechanic behind it is INDISTINGUISHABLE from a
+  // working one in a screenshot and in every other case in this scenario.
+  //
+  // MEASURED AGAINST TWO CONTROLS, because one cannot tell the pull apart from the crowd's own
+  // seek: the same body with no orca at all (it still closes, on its own), and the same body with
+  // the orca CIRCLING but sitting well inside the band (out of the wall's reach). The subject is
+  // parked OUTSIDE the ring, which is the only place the term can be attributed — a body already
+  // inside is walking at the anchor under its own steam.
+  {
+    const drift = (mode) => {
+      const run = mk()
+      const p = run.player
+      // Speed 0: the body has no seek of its own, so every px it moves is the wall's. A moving
+      // control is measured separately below.
+      const e = put(run, { x: p.x + ORCA_RING_R + 60, y: p.y, hp: 1e12, speed: 0, flags: [] })
+      const d0 = Math.hypot(e.x - p.x, e.y - p.y)
+      for (let i = 0; i < Math.round(1 / dt); i++) {
+        hold(run, [e])
+        run.orca = mode === 'none' ? null : {
+          state: mode === 'circling' ? 'circling' : 'rising',
+          t: 9, cx: p.x, cy: p.y, r: ORCA_RING_R, ang: 0,
+          x: p.x, y: p.y, dirX: 1, dirY: 0, hit: true, alpha: 1, passes: 1,
+        }
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return d0 - Math.hypot(e.x - run.player.x, e.y - run.player.y)
+    }
+    const herded = drift('circling')
+    const noOrca = drift('none')
+    const notYet = drift('rising')
+    assert.ok(Math.abs(noOrca) < 5,
+      `control: a speed-0 body must not move on its own, it drifted ${noOrca.toFixed(1)}px`)
+    assert.ok(Math.abs(notYet) < 5,
+      `the RISE is a shadow, not yet a wall — a body outside the ring must not be dragged during it, ` +
+      `it moved ${notYet.toFixed(1)}px`)
+    // The band is what has hold of it, so a second's herding is bounded by the pull rate and must be
+    // a real fraction of it. Stated as arithmetic so a retune of ORCA_HERD_PULL carries.
+    assert.ok(herded > ORCA_HERD_PULL * 0.6,
+      `the closing ring must DRAG what is at its rim toward the centre: a body ${ORCA_RING_R + 60}px out ` +
+      `closed ${herded.toFixed(0)}px in a second against a pull of ${ORCA_HERD_PULL}px/s`)
+    console.log(`PASS run OR.h (the ring herds): a body at the rim closes ${herded.toFixed(0)}px in 1s of circling, ` +
+      `against ${noOrca.toFixed(1)}px with no orca and ${notYet.toFixed(1)}px while it is still rising`)
+  }
+
   console.log('PASS run OR (The Wreck: the orca): three harmless shadow passes open the chapter and scatter what they go under, a packed or baited field brings the next visit in sooner up to a hard cap, the commit runs through the centre of the coil, splashing there and eating what it herded in for free, its bow wave throws the rest of the battlefield to both sides of a line it draws twice a visit, and the whole build is a shadow coiling in from underneath that only surfaces to strike')
 }
 run(runOrca)
 
-// ---- Run WG: THE SUNKEN SHIP'S FIELD (WK is already Bloodlust — do not reuse it) — four numbers in two files that are ONE decision ----------
+// ---- Run WG: THE SUNKEN SHIP'S FIELD — four numbers in two files that are ONE decision ----------
 // The wreck grid's spacing is authored in config.js (`cell`, `len`) and its jitter and size spread
 // in render.js (HULL_JITTER, HULL_SCALE_MAX). Nothing imports anything, so nothing throws when they
 // drift — and the failure does not look like a spacing bug. Two sprites at alpha a stack to
@@ -10792,12 +10840,10 @@ function testChapterBehaviors() {
 
   // (e2) oilTrail (elite flag, The Wreck's own — Part 3 of the defensive-gameplay spec): drags a
   // wall of oil behind it, a run.blooms entry tagged look:'bilge' rather than a run.pools node.
-  // Assert the spawned ENTITY, never the config table: every produced bloom deals no damage, a
-  // skittish body is steered clear of it exactly as it is by the player's own Bilge, and a body
-  // sitting in it stains ('oiled' rises). The last of those is the spec's own unproven trap: the
-  // stain (sim.js ~8629) sits inside `if (bl.slow !== 0)`, while the avoidance loop (sim.js ~9122)
-  // reads only bl.look/bl.r and never checks `slow` at all — so `slow: 0` would keep the wall but
-  // silently drop the stain, and only `slow: 1` (what's shipped) buys both.
+  // Assert the spawned ENTITY, never the config table: every produced bloom deals no damage, and a
+  // body sitting in one stains ('oiled' rises) and is SLOWED by the stain it took. The stain is the
+  // spec's own unproven trap — it sits inside `if (bl.slow !== 0)`, so `slow: 0` would leave a pool
+  // that renders and does nothing, with nothing thrown.
   {
     const run = createRun(makeMeta())
     run.weapons = []
@@ -10830,31 +10876,14 @@ function testChapterBehaviors() {
     assert.ok(/const trail = !!sl\.trail/.test(renderSrc),
       'render.js no longer reads bl.trail off a run.blooms entry — the oilTrail/slickTrail seam-free render may be dead')
 
-    // Remove the elite before testing prey behaviour: stepShoals treats any non-skittish, non-ally
-    // enemy as a PREDATOR prey flees from (sim.js:8974), and an elite still on the field would add
-    // a second fleeing force that has nothing to do with the oil this scenario is about.
-    run.enemies = run.enemies.filter((x) => x !== e)
+    // CLEAR THE FIELD. The elite that laid the trail is a live hostile body, and anything left on
+    // the map walks at the player and bills HP the damage arm below would read as the oil's.
+    run.enemies.length = 0
 
-    // AVOIDANCE. Same geometry PY.j uses for the player's own Bilge: the fish flees the player in a
-    // straight line, and the oil sits directly in that path. Track the CLOSEST approach across the
-    // whole run (not the final distance) — the fish deflects along the rim rather than stopping, so
-    // a late sample could read "clear" after it already breached the wall.
-    run.player.x = spot.x - 420; run.player.y = spot.y
-    const prey = makeStatusEnemy(run, { x: run.player.x + 150, y: run.player.y, hp: 1e6, speed: 90 })
-    prey.flags = ['skittish']
-    run.enemies.push(prey)
-    let deepest = Infinity
-    for (let i = 0; i < Math.round(3 / dt); i++) {
-      stepSim(run, { x: 0, y: 0 }, dt)
-      deepest = Math.min(deepest, Math.hypot(prey.x - spot.x, prey.y - spot.y))
-    }
-    assert(deepest > spot.maxR * 0.6,
-      `expected a skittish body to be steered clear of an oilTrail pool (closest approach ${deepest.toFixed(0)}px to a ${spot.maxR.toFixed(0)}px pool)`)
-
-    // THE STAIN. A body pinned in the pool (speed 0, so it cannot flee out) must accumulate `oiled`
-    // over time — proving `slow: 1` reaches the branch the spec flagged as unproven.
+    // THE STAIN. A body sitting in the pool must accumulate `oiled` over time — that is what proves
+    // `slow: 1` reaches the branch the spec flagged as unproven.
     const pinned = makeStatusEnemy(run, { x: spot.x, y: spot.y, hp: 1e6, speed: 0 })
-    pinned.flags = ['skittish']
+    pinned.flags = []
     run.enemies.push(pinned)
     const oiledBefore = pinned.oiled || 0
     const hpBefore = run.player.hp
@@ -10867,7 +10896,30 @@ function testChapterBehaviors() {
     assert.ok(!run.dmgBySrc || Object.keys(run.dmgBySrc).length === 0,
       `expected run.dmgBySrc to gain nothing from the oil trail, got ${JSON.stringify(run.dmgBySrc)}`)
 
-    console.log(`PASS run V.e2 (oilTrail): ${trail.length} blooms in 1.5s all dmgPerTick=0, prey held ${deepest.toFixed(0)}px clear of a ${spot.maxR.toFixed(0)}px pool, oiled ${oiledBefore.toFixed(3)} -> ${pinned.oiled.toFixed(3)}, 0 HP lost`)
+    // AND THE STAIN IS A SLOW. `oiled` rising is a field moving; this is the field being READ.
+    // Same body, same pool, given a speed and a player to walk at: it must cover measurably less
+    // ground than an unstained twin, or the stain is a number nothing consumes.
+    const walk = (oiled) => {
+      const r2 = createRun(makeMeta())
+      r2.weapons = []
+      r2.player.x = 0; r2.player.y = 0
+      const w = makeStatusEnemy(r2, { x: 600, y: 0, hp: 1e6, speed: 100 })
+      w.flags = []
+      w.oiled = oiled
+      const x0 = w.x
+      for (let i = 0; i < Math.round(1 / dt); i++) {
+        r2.enemies.length = 0; r2.enemies.push(w)
+        stepSim(r2, { x: 0, y: 0 }, dt)
+      }
+      return x0 - w.x
+    }
+    const clean = walk(0)
+    const stained = walk(OIL_STAIN_MAX)
+    assert(clean > 50, `control: an unstained body must actually close, it covered ${clean.toFixed(0)}px`)
+    assert(stained < clean * (1 - OIL_STAIN_MAX * 0.8),
+      `the stain must COST speed: a body at oiled=${OIL_STAIN_MAX} covered ${stained.toFixed(0)}px against a clean one's ${clean.toFixed(0)}px`)
+
+    console.log(`PASS run V.e2 (oilTrail): ${trail.length} blooms in 1.5s all dmgPerTick=0, oiled ${oiledBefore.toFixed(3)} -> ${pinned.oiled.toFixed(3)}, 0 HP lost, and a fully stained body covers ${stained.toFixed(0)}px against a clean ${clean.toFixed(0)}px`)
   }
 
   // (f) currents signature: a stationary pond player drifts, a stationary body player never does.
@@ -27397,7 +27449,7 @@ function testReefPool() {
     const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
     const at = rsrc.indexOf('const facesOwnHeading')
     assert.ok(at > 0,
-      'run RP.j: render.js has no facesOwnHeading — the branch an ally, a skittish fish and a blinded body all steer by is gone, and this case is measuring nothing')
+      'run RP.j: render.js has no facesOwnHeading — the branch an ally, a blinded body and a passive crowd all steer by is gone, and this case is measuring nothing')
     const use = rsrc.indexOf('if (facesOwnHeading', at)
     assert.ok(use > at, 'run RP.j: facesOwnHeading is declared and never used')
     const end = rsrc.indexOf('\n      }\n', use)
@@ -28621,7 +28673,7 @@ function testReefAirBurst() {
     const REACH = BURST_RAM_MUL * PLAYER.radius
     // A plain body, no elements, no affixes. `hp` is a parameter because one of the cases below is
     // specifically that a ram is lethal to a body far too fat for any damage LITERAL to kill --
-    // that is what stops BURST_RAM_* from decaying against hpScale the way LUNGE_DMG's own block
+    // that is what stops BURST_RAM_* from decaying against hpScale the way a damage literal
     // warns a flat number does.
     const body = (run, x, y, hp = 40, extra = {}) => ({
       id: run._nextId++, type: 'drone', x, y, hp, maxHP: hp, radius: 16, speed: 0, dmg: 0,
@@ -28685,7 +28737,7 @@ function testReefAirBurst() {
     assert.ok(on.paid >= on.dead * BURST_RAM_COINS && on.paid <= on.dead * (BURST_RAM_COINS + 1),
       `run RF.g: ${on.dead} rammed bodies banked ${on.paid} coins, outside the ${on.dead * BURST_RAM_COINS}-${on.dead * (BURST_RAM_COINS + 1)} that ${BURST_RAM_COINS} each plus at most one ordinary drop apiece allows — either the payout is the wrong size or the coin was left behind on the track`)
     // LETHAL BY CONSTRUCTION, NOT BY A NUMBER. 4 million HP is past anything hpScale can reach in a
-    // run, so a ram written as a damage literal (LUNGE_DMG's shape) fails this and only this.
+    // run, so a ram written as a flat damage literal fails this and only this.
     const fat = ram({ press: true, hp: 4e6 })
     assert.ok(fat.dead >= 6,
       `run RF.g: ${fat.dead} of ${fat.planted} bodies at 4,000,000 HP died to the ram — the kill is being written as a damage number, which means it stops being a kill as hpScale climbs`)
