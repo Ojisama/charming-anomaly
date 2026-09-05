@@ -8100,7 +8100,7 @@ const WRECK_TIDE_DEG = 45
 
 CHAPTERS.wreck = {
   playerBody: 'fish',   // what touches you is tested against the drawn fish (FISH_BODY); run PH pairs it with render.form
-  name: 'The Wreck', tagline: 'something else lives here', icon: '⚓',
+  name: 'The Wreck', tagline: 'the wreck is not as dead as it seems', icon: '⚓',
 
   // ---- THE ARSENAL --------------------------------------------------------------------------
   // Owner, 2026-08-18: "the attacks must be changed to something more chapter related." The three
