@@ -166,9 +166,11 @@ import {
   FIRE_CORAL_LEAD, SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, INK_BLIND_REACH, INK_JET_SPREAD, TANK_SHOVE_KB,
   LAST_BREATH_MAX_DMG_MUL, LAST_BREATH_DROWN_TAKEN_MUL,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
-  GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_FINISH_FRAC, GNASH_CARRY_FRAC, RUSH_DUR, RUSH_MAX_STACKS,
+  LUNGE_ROLL_FRAC,
+  GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_CARRY_FRAC, RUSH_DUR, RUSH_MAX_STACKS,
   CHUM_PULL_MUL, CHUM_PANIC_R, CHUM_FEED_R, CHUM_FEED_HOLD,
-  BILGE_AVOID_PAD, BILGE_AVOID_BLEND, BILGE_TRAIL_STEP_FRAC, BILGE_TRAIL_R_MUL, BILGE_TRAIL_GROW,
+  BLOOD_CHUM_CD, BLOOD_CHUM_DUR, BLOOD_CHUM_R, BLOOD_CHUM_FOOD,
+  BILGE_AVOID_PAD, BILGE_AVOID_BLEND, BILGE_FUNNEL_MAX, TAR_FLEE_MAX, BILGE_TRAIL_STEP_FRAC, BILGE_TRAIL_R_MUL, BILGE_TRAIL_GROW,
   PREY_PANIC_BLIND_R, OIL_STAIN_RATE, OIL_STAIN_MAX,
   RING_N, RING_R_MUL, RING_POOL_MUL,
   PREY_SIGHT_R, PREY_FLEE_MUL, PREY_DRIFT_MUL, PREY_TURN_RATE, PREY_SHOAL_SIZE, PREY_FLEE_BLEND,
@@ -1707,6 +1709,13 @@ function stepRepulse(run, input, dt) {
     run._lungeY = Math.sin(ang)
     run._lungeT = LUNGE_DUR_AT_FULL * t
     run._lungeMoved = 0
+    // deathRoll's per-dash bookkeeping (stepBite). `_lungeId` stamps bodies this dash has already
+    // bitten — an id rather than a Set, so a hot path allocates nothing and a body carrying a stale
+    // stamp from a previous press is simply not equal to the current one. `_lungePaid` is why
+    // LUNGE_KILL_REFILL stays a near-wash however many bodies a roll chews through.
+    run._lungeId = (run._lungeId ?? 0) + 1
+    run._lungePaid = false
+    run._rollHit = false
     // PUBLISH THE FACING, or the fish swims sideways through its own signature move. render.js
     // rotates the body off `p.facingAngle` and nothing else, and that field is written only from
     // the STICK (stepPlayerMovement) — so a dash deliberately aimed somewhere other than the stick
@@ -5405,6 +5414,19 @@ const inNetHole = (net, x, y) => {
 // clamped, so a fresh L5 bucket rings the bell and one the shoal has already stripped does not.
 // That is the owner's ruling ("the more there is the more it attacks") in the one term that can
 // express it — the bait's own servings, which is the same number the drawing counts out in chunks.
+// WHAT THE COIL CLOSES ON. The player, unless decoyBarrel (WEAPON_MODS.chum) is held and there is
+// a live bait to go for — then the fullest one, which is the same "how much food is left in it"
+// term orcaRush already ranks baits by, so the card and the countdown agree about which barrel is
+// the loud one. Falls back to the player the instant the bait is stripped or ages out, so the card
+// never leaves the orca with nowhere to be.
+function orcaAnchor(run) {
+  const p = run.player
+  if ((run.weaponMods.chum?.decoyBarrel ?? 0) <= 0) return p
+  let best = null, bf = 0
+  if (run.lures) for (const lu of run.lures) if (lu.bait && (lu.food || 0) > bf) { bf = lu.food; best = lu }
+  return best || p
+}
+
 function orcaRush(run) {
   let baits = 0
   if (run.lures) for (const lu of run.lures) if (lu.bait) baits += Math.min(1, (lu.food || 0) / ORCA_BAIT_FULL_FOOD)
@@ -5587,8 +5609,15 @@ function stepOrca(run, dt) {
   if (o.state === 'circling') {
     // The ring tracks the player, but LOOSELY: outrunning it entirely has to be possible or the
     // commit is not a dodge, it is a scheduled hit.
-    o.cx += (p.x - o.cx) * Math.min(1, dt * 1.2)
-    o.cy += (p.y - o.cy) * Math.min(1, dt * 1.2)
+    //   decoyBarrel (WEAPON_MODS.chum): it tracks the BAIT instead. Only the coil is redirected —
+    // the rise still comes up underneath you, so the telegraph the chapter teaches is unchanged and
+    // what the card buys is where the strike LANDS (stepOrca commits through the coil's own centre).
+    // At the shipped 1.2/s track the ring is on the barrel within about three of the four seconds
+    // of ORCA_CIRCLE_DUR, which is exactly as loose as the player-tracking version and for the same
+    // reason: a ring that snapped would be a scheduled hit on the bait rather than a decision.
+    const anc = orcaAnchor(run)
+    o.cx += (anc.x - o.cx) * Math.min(1, dt * 1.2)
+    o.cy += (anc.y - o.cy) * Math.min(1, dt * 1.2)
     const k = 1 - Math.max(0, o.t) / ORCA_CIRCLE_DUR
     // THE COIL TIGHTENS AND QUICKENS AT ONCE, which is the whole difference between a spiral and a
     // corner — see the ORCA_ORBIT_RATE block for the three reasons the first cut read as circling.
@@ -6620,14 +6649,22 @@ function stepBite(run) {
   if (!ch.lunge || (run._lungeT ?? 0) <= 0 || (run._lungeMoved ?? 0) < LUNGE_ARM_DIST) return
   const p = run.player
   const reach = LUNGE_BITE_MUL * PLAYER.radius
+  // deathRoll (WEAPON_MODS.gnash): the dash no longer ENDS on the first body. It keeps its mouth
+  // shut on everything it reaches for the rest of the lunge — each body once, tracked by the dash's
+  // own id rather than by a per-dash Set, so nothing is allocated on a hot path.
+  const roll = (run.weaponMods.gnash?.deathRoll ?? 0) > 0
   let best = null, bestD = Infinity
   for (const e of run.enemies) {
     if (e._dead || damageImmune(e)) continue
+    if (roll && e._rollId === run._lungeId) continue
     const d = Math.hypot(e.x - p.x, e.y - p.y)
     if (d <= reach + e.radius && d < bestD) { best = e; bestD = d }
   }
   if (!best) return
-  run._lungeT = 0
+  // Only the plain lunge stops here. Under deathRoll the dash runs its full LUNGE_DUR_AT_FULL and
+  // this function is reached again on the next frame, so a press crosses the crowd rather than
+  // ending at its edge.
+  if (!roll) run._lungeT = 0
   // applyDamage, NOT dealDamage. dealDamage is the raw path sim.js reserves for DoT ticks and arc
   // damage, precisely so those do not re-roll crit or re-apply elements — and hand-multiplying
   // p.damageMul on the way in reproduced exactly one of the six factors the real pipeline applies.
@@ -6636,11 +6673,26 @@ function stepBite(run) {
   // rampage. Above all it must read resourceDamageMul — without it, THIS CHAPTER'S OWN 1.0->1.8
   // Bloodlust damage line did not apply to THIS CHAPTER'S OWN signature verb.
   // MINIME_BURST_DMG, cited as the precedent for a flat number, reaches the enemy this way too.
-  applyDamage(run, best, LUNGE_DMG)
+  //   Under deathRoll, everything after the FIRST body takes LUNGE_ROLL_FRAC of it: the first fish
+  // is what you are dragging through the rest, so the rest are hit by it and not by you.
+  let mul = 1
+  if (roll) {
+    best._rollId = run._lungeId
+    if (run._rollHit) mul = LUNGE_ROLL_FRAC
+    run._rollHit = true
+  }
+  applyDamage(run, best, LUNGE_DMG * mul)
   // `_dead` rather than `hp <= 0`: dealDamage sets it on the kill branch, and it is the flag every
   // other consumer in this file reads. A shield can also eat the whole bite (SHIELD_HP_FRAC), in
   // which case nothing died and nothing is owed.
-  if (best._dead) run.charge = Math.min(run.chargeMax, run.charge + LUNGE_KILL_REFILL)
+  //   ⚠ ONCE PER DASH, and that guard is load-bearing under deathRoll. LUNGE_KILL_REFILL is 45
+  // against a PULSE_CHARGE_COST of 45 precisely so a connecting lunge is a near-wash (see the
+  // constant's own block); paying it for every body a roll chews through would make one press worth
+  // several bars and collapse the commit-or-hoard loop the button exists for.
+  if (best._dead && !run._lungePaid) {
+    run._lungePaid = true
+    run.charge = Math.min(run.chargeMax, run.charge + LUNGE_KILL_REFILL)
+  }
 }
 
 function stepCrush(run) {
@@ -7489,6 +7541,30 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     }
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
 
+    // BLOOD IN THE WATER (v7.x, gnash): the kill leaves a bait. Placed here beside Gorge and for
+    // the same reason — the card says a KILL, so it must pay however the body died, and this is the
+    // one funnel every kill in the game already goes through.
+    //   A real run.lures bait, not a new entity: it inherits the gather, the panic override, the
+    // servings, the drawing and orcaRush with no second implementation. Latched on run._realTime
+    // (BLOOD_CHUM_CD) because this site is not a per-frame step and because an uncooled version at
+    // this chapter's ~15 kills/s would carpet the map instead of being a rhythm you can read.
+    const _blood = run.weaponMods.gnash?.bloodInTheWater ?? 0
+    if (_blood > 0 && run._realTime >= (run._bloodT ?? 0)) {
+      run._bloodT = run._realTime + BLOOD_CHUM_CD
+      const _bfood = BLOOD_CHUM_FOOD
+      const _br = BLOOD_CHUM_R * (1 + _blood)
+      run.lures.push({
+        x: enemy.x, y: enemy.y,
+        t: 0, dur: BLOOD_CHUM_DUR, aggro: _br,
+        food: _bfood, food0: _bfood,
+        shape: Math.floor(Math.random() * LOBE_SHAPES.length) % LOBE_SHAPES.length,
+        rot: Math.random() * Math.PI * 2,
+        burstR: 0, burstDmg: 0,
+        bait: true,
+      })
+      run.events.push({ type: 'chum', x: enemy.x, y: enemy.y, r: _br })
+    }
+
     // JACKPOT (v7.x, The Trawl's sea turtle — CHAPTERS[].roster[].jackpot): a kill that pays a
     // whole level on the spot and scatters a pile of coins. The level is the Reef's lap idiom
     // (xp += xpNext, so the level-up opens on the next check whatever the bar read); the coins are
@@ -7905,13 +7981,15 @@ const WEAPON_STAT_MODS = {
   // (longQuills = range AND speed, longToss = castRange at the throw site). The rest is plain stat
   // folding.
   clawRake:      { rend: ['dmg', 'pct'], wideRake: ['arc', 'pct'], longClaws: ['range', 'pct'] },
-  // v7.x The Wreck. No `range` entry and that is deliberate — see WEAPON_MODS.gnash for why a reach
-  // mod would make the weapon worse, and no `arc` or rate entry either: gnash sells behaviour
-  // (bloodrush, gorge, bloodInTheWater, deathRoll) rather than its own two most generic numbers.
-  gnash:         { deepBite: ['dmg', 'pct'] },
-  // v7.x The Wreck's herding kit. deepChum/slickTrail are behavioral and read at their own sites.
-  chum:          { widerChum: ['aggro', 'pct'], longerChum: ['dur', 'pct'] },
-  bilge:         { wideBilge: ['maxR', 'pct'], thickOil: ['dur', 'pct'] },
+  // v7.x The Wreck. GNASH HAS NO ENTRY AT ALL, and that is the design rather than an omission — all
+  // five of its mods are behavioural and read at their own sites (biteGnash, stepBite,
+  // stepPlayerMovement, dealDamage). deepBite used to fold `dmg` here and was repointed to the
+  // GNASH_MAW_MUL ramp in 2026-09-05's rework; see WEAPON_MODS.gnash for the measurement that
+  // caused it, and for why a `range`, `arc` or rate entry would each make the weapon worse.
+  // v7.x The Wreck's herding kit. Everything except the two spreads is behavioural and read at its
+  // own site (stepPrey, stepChumWeapon, stepShoals, stepOrca, stepBilgeWeapon).
+  chum:          { widerChum: ['aggro', 'pct'] },
+  bilge:         { wideBilge: ['maxR', 'pct'] },
   quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'] },
   chitterShriek: { terror: ['fear', 'pct'], shockwave: ['radius', 'pct'], shrill: ['dmg', 'pct'] },
   trashTornado:  { heavyTrash: ['dmg', 'pct'], wideHunt: ['hunt', 'pct'], fastWinds: ['travelSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
@@ -10071,6 +10149,7 @@ function stepShoals(run) {
   _predators.length = 0
   run._feedN = 0
   const p = run.player
+  const _headDown = (run.weaponMods.chum?.headDown ?? 0) > 0
   for (const e of run.enemies) {
     if (e._dead) continue
     if (e.flags && e.flags.includes('skittish')) {
@@ -10081,7 +10160,12 @@ function stepShoals(run) {
       // separation NARROWED (1.96x -> 1.48x): the same failure the killBase multiplier had, by a
       // different route. `_shoalN` at the kill site DOES separate them — 2.57 mowing against 5.45
       // circling, 2.1x — because ambient crowding is free and TIGHTNESS is not.
-      if (e._shoalN >= BALL_TIGHT_N) {
+      // headDown (WEAPON_MODS.chum): a fish with its head down at your bait counts too. It has no
+      // neighbours to speak of — a feeding body is pinned and does not tighten (stepPrey returns
+      // early on feedT) — so a bait you cast and stood beside paid the bar nothing, which is the
+      // one place chum and the drain-slow should have met and did not. FEED_DRAIN_MIN still floors
+      // it, so this reaches saturation sooner and never turns the clock off.
+      if (e._shoalN >= BALL_TIGHT_N || (_headDown && (e.feedT ?? 0) > 0)) {
         const fx = e.x - p.x, fy = e.y - p.y
         if (fx * fx + fy * fy < FEED_R * FEED_R) run._feedN++
       }
@@ -10235,6 +10319,12 @@ function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
   // PREY_PANIC_BLIND_R of the PLAYER — a fish being run down at close range is not looking where it
   // is going. The wall is untouched everywhere the player is not, which is where a fence is for.
   const watching = Math.min(1, Math.max(0, (pd / PREY_PANIC_BLIND_R - 0.5) * 2))
+  // oilFunnel (WEAPON_MODS.bilge): rotate the refusal off the radial and onto the TANGENT that
+  // heads toward the player. The wall is unchanged in strength — the fish still declines to go into
+  // the oil — but it peels ALONG the rim and arrives at your jaw instead of scattering away from
+  // it. Capped by BILGE_FUNNEL_MAX so some radial always survives; a pure tangent is a fish orbiting
+  // a pool forever, which is a lock and not a chute.
+  const funnel = Math.min(BILGE_FUNNEL_MAX, run.weaponMods.bilge?.oilFunnel ?? 0)
   for (const bl of run.blooms) {
     if (bl.look !== 'bilge' || bl.r <= 0) continue
     const bx = e.x - bl.x, by = e.y - bl.y
@@ -10243,11 +10333,32 @@ function stepPrey(run, e, dx, dy, d, dt, slowMul, baited = false) {
     if (bd >= edge || bd < 1e-6) continue
     // Push out along the radius, weighted by how far in it already is — a fish at the rim barely
     // deflects, one that got inside turns hard to get out.
+    let axo = bx / bd, ayo = by / bd
+    if (funnel > 0) {
+      // Either tangent is a way round the pool; the one worth taking is the one whose dot with the
+      // vector to the PLAYER is positive, which is what makes this a funnel rather than a stirrer.
+      let tx = -ayo, ty = axo
+      if (tx * pdx + ty * pdy < 0) { tx = -tx; ty = -ty }
+      axo = axo * (1 - funnel) + tx * funnel
+      ayo = ayo * (1 - funnel) + ty * funnel
+      const am = Math.hypot(axo, ayo) || 1
+      axo /= am; ayo /= am
+    }
     const w = BILGE_AVOID_BLEND * (1 - bd / edge) * watching
-    ux = ux * (1 - w) + (bx / bd) * w
-    uy = uy * (1 - w) + (by / bd) * w
+    ux = ux * (1 - w) + axo * w
+    uy = uy * (1 - w) + ayo * w
     const m = Math.hypot(ux, uy) || 1
     ux /= m; uy /= m
+  }
+
+  // tarred (WEAPON_MODS.bilge): a stained fish has lost its BURST. Only the excess of the flee
+  // multiplier over 1 is taken, never the base speed — the oil's own `oiled` slow already scales
+  // that (OIL_STAIN_MAX), and taking both would compound into a stationary field. Applied after
+  // every steering term because what it changes is the SPEED of the heading, not the heading, and
+  // it must reach the bolt branch (CHUM_PANIC_R) as well as the plain flee.
+  if ((e.oiled ?? 0) > 0 && mul > 1) {
+    const tar = Math.min(TAR_FLEE_MAX, run.weaponMods.bilge?.tarred ?? 0)
+    if (tar > 0) mul = 1 + (mul - 1) * (1 - tar)
   }
 
   // A BALL DOES NOT SWIM (v7.x, the pufferfish). Applied for the inflation AND for the deflating
@@ -10424,8 +10535,11 @@ function biteGnash(run, stats) {
   const p = run.player
   const angle = biteAim(run, stats.range)
   const mods = run.weaponMods.gnash
-  const finish = mods?.bloodInTheWater ?? 0
-  const hold = mods?.deathRoll ?? 0
+  // deepBite: THE RAMP, not the damage. It steepens the point-blank end of the falloff — a body at
+  // the very tip of the arc still takes exactly the card's damage, and one at the jaw takes more.
+  // Folding `dmg` (which is what it did until 2026-09-05) paid the same +35% at every distance, in
+  // a chapter whose food dies to one bite with an order of magnitude spare either way.
+  const maw = 1 + (GNASH_MAW_MUL - 1) * (1 + (mods?.deepBite ?? 0))
   // IPECAC: three bites at 120 degrees, de-duplicated across the set — fireFlagella's idiom, and
   // the `struck` set is load-bearing there for the same reason (overlapping sectors would otherwise
   // let one body eat three bites from one cast).
@@ -10443,11 +10557,8 @@ function biteGnash(run, stats) {
       // inSector just tested, so a body that qualified cannot then score above 1 through rounding.
       const d = Math.hypot(e.x - p.x, e.y - p.y)
       const near = 1 - Math.min(1, d / stats.range)
-      let mul = 1 + near * (GNASH_MAW_MUL - 1)
+      const mul = 1 + near * (maw - 1)
       const hpBefore = e.hp
-      // bloodInTheWater: the finisher. Read off CURRENT hp before the bite lands, so the card is
-      // "bite what is already hurt" and never "the last hit of every kill is bigger".
-      if (finish > 0 && e.maxHP > 0 && e.hp / e.maxHP < GNASH_FINISH_FRAC) mul *= 1 + finish
       const nominal = stats.dmg * mul + carry
       applyDamage(run, e, nominal, GNASH_BASE_CRIT)
       // OVERKILL CARRY (v7.x). Excess from a body that DIED rolls on to the next one this sweep
@@ -10457,13 +10568,6 @@ function biteGnash(run, stats) {
       // prey here dies to one bite with an order of magnitude spare, so there is nothing to hit
       // harder and the only honest expression of "deeper into the mass" is what spills over.
       carry = e.hp <= 0 ? Math.max(0, nominal - hpBefore) * GNASH_CARRY_FRAC : 0
-      // deathRoll: hold what you bit. Same one-line stun idiom as the mine, the hydrant and the
-      // longline — through ccScale/spendCC so it takes diminishing returns, and published to the
-      // `stunT` contract field render.js already reads.
-      if (hold > 0 && !e._dead && !resistsCC(e)) {
-        e.stunT = Math.max(e.stunT || 0, hold * ccScale(run, e))
-        spendCC(run, e)
-      }
     }
     if (struck.size > 0 && (mods?.bloodrush ?? 0) > 0) {
       run._rushT = RUSH_DUR

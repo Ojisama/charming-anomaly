@@ -3390,23 +3390,37 @@ export const WEAPON_MODS = {
   // ambushPredator (v6.5, behavioral — see slashClaws/AMBUSH_R): conditional-vs-flat vs rend — counts
   // an armed OR sprung trap near the PLAYER, so springing your own trap can't turn the buff off
   // (that anti-synergy is why the pre-panel 0.30/armed-only draft lost to plain rend).
-  // deepBite folds into gnash's levels[] via WEAPON_STAT_MODS; bloodInTheWater, deathRoll,
-  // bloodrush and gorge are behavioral (see biteGnash, stepPlayerMovement and dealDamage).
+  // NOT ONE OF gnash's FIVE FOLDS A STAT ANY MORE, and that is the second pass at the same
+  // complaint (owner, 2026-08-18: "mods for this level are not relevant enough ... every bite mod
+  // is useless"; again 2026-09-05: "the mods for the wreck are not fun, the mod pool is not
+  // relevant and coherent with unique gameplay of this level").
   //
-  // GNASH CARRIES NO WIDTH AND NO RATE MOD, and both were removed rather than never written (owner,
-  // 2026-08-18: "mods for this level are not relevant enough ... every bite mod is useless").
-  // A bite arc and a bite cadence are the two most generic numbers a melee weapon has — the rake
-  // already sells both — and in the one chapter where the crowd RUNS, neither answers the question
-  // the player is actually asking, which is "how do I get to it and what do I get for landing one".
-  // bloodrush and gorge are those two questions as cards.
+  // ⚠ THE FIRST PASS CUT THE GENERIC NUMBERS AND LEFT THREE MORAY CARDS, which is what the second
+  // complaint is about. deepBite, bloodInTheWater and deathRoll all only paid on a body that
+  // SURVIVES a bite, and this roster's food does not. Measured over 3 x 300s, gnash L5, immortal,
+  // no mods, counting every body whose hp fell in a step:
+  //                                    hunter chases nearest prey    ...nearest ANY body
+  //      bodies damaged                        6498                        5310
+  //      survived the bite                     21.8%                       25.6%
+  //      of those survivors, moray             93.1%                       97.9%
+  //      under 34% hp BEFORE the bite           4.8%                        8.4%
+  // The second column is the rig chasing morays on purpose; both columns say the same thing. Three
+  // of five cards were aimed at the one creature the chapter cut by 70% for being a chore, and
+  // bloodInTheWater's own condition was reachable on one bite in twenty. All three keep their NAME
+  // and change what they do.
   //
-  // THERE IS NO REACH MOD, and it is the one card a reader will expect to find here. Gnash's damage
-  // is a linear falloff over its OWN range (GNASH_MAW_MUL at the jaw, x1 at the tip), so a mod that
-  // lengthened the sweep would stretch the ramp over the new distance and make every bite outside
-  // the old reach weaker than the card that bought it. Long Claws works on the rake because the
-  // rake's damage does not know where in the arc it landed.
+  // THERE IS STILL NO REACH MOD AND NO RATE MOD. Gnash's damage is a linear falloff over its OWN
+  // range (GNASH_MAW_MUL at the jaw, x1 at the tip), so a mod that lengthened the sweep would
+  // stretch the ramp over the new distance and make every bite outside the old reach weaker than
+  // the card that bought it; a bite arc and a bite cadence are the two most generic numbers a melee
+  // weapon has and the rake already sells both.
   gnash: {
-    deepBite:        { name: 'Deep Bite',  desc: 'bite damage', icon: '🦷', base: 0.35, kind: 'pct' },
+    // THE RAMP, NOT THE DAMAGE — repointed 2026-09-05. It used to fold `dmg` through
+    // WEAPON_STAT_MODS, i.e. a flat +35% against a 5 HP mackerel that already died with an order of
+    // magnitude to spare. It now steepens GNASH_MAW_MUL, so it pays for the one thing this chapter
+    // asks of you: being close. Read at biteGnash's own site — deliberately NOT a fold, because the
+    // quantity it moves is not in levels[].
+    deepBite:        { name: 'Deep Bite',  desc: 'bite damage at point-blank range', icon: '🦷', base: 0.35, kind: 'pct' },
     // THE MOMENTUM CARD. Stacking is what makes it a mechanic instead of a flat bonus with a
     // duration painted on: gnash fires 1.5-2.4 times a second, so a non-stacking 2s window would be
     // refreshed long before it ever lapsed and the card would just read "+5% move speed". Stacked,
@@ -3418,18 +3432,55 @@ export const WEAPON_MODS = {
     // go and pick a fight you were avoiding. Normal rarity, because makeWeaponModCard returns null
     // for a switch above normal — see the note on trashTornado.sweepLoot for the epic idiom.
     gorge:           { name: 'Gorge',      desc: 'eating an elite fills Bloodlust', icon: '🫀', kind: 'switch' },
-    bloodInTheWater: { name: 'Blood in the Water', desc: 'bite damage against wounded prey', icon: '🩸', base: 0.55, kind: 'pct' },
-    // `secs`, not `tier`: a tier mod banks an integer COUNT of things-per-cast, and this banks a
-    // DURATION. That kind exists precisely so the raw product does not reach the player as
-    // 1.4000000000000001. The desc names PREY rather than saying "holds for {n}s" — in the one
-    // chapter where the player is the fast thing, an unqualified hold reads as a buff on you.
-    deathRoll:       { name: 'Death Roll', desc: 'holds bitten prey for {n}s', icon: '🌀', base: 0.35, kind: 'secs' },
+    // THE MOUTH BECOMES THE BAIT (v7.x). The name is the shark idiom and it now means what it says:
+    // a kill leaves a cloud of blood that draws the next fish in, i.e. gnash borrows chum's verb off
+    // its own kills. It was "+55% damage against wounded prey" and fired on 6.1% of bites, because
+    // a mackerel is 4.95 HP against a 28.5 bite and is never seen under 34% hp alive.
+    //   `pct` on the cloud's PULL rather than a switch: the stack is how far the smell carries,
+    // which is the one axis a blood trail has. See BLOOD_CHUM_* for the cooldown that stops 15
+    // kills/s carpeting the map, and note the cloud is a real run.lures bait — so it also feeds
+    // orcaRush, which is the correct fiction and a real cost.
+    bloodInTheWater: { name: 'Blood in the Water', desc: 'reach of the blood a kill leaves behind', icon: '🩸', base: 0.60, kind: 'pct' },
+    // THE ONE CARD IN THE CHAPTER THAT TOUCHES THE BUTTON. `lunge: true` is The Wreck's signature
+    // verb and nothing in the pool read it — this does. The dash used to end on the first body it
+    // reached (stepBite's `run._lungeT = 0`); with this it keeps going and keeps biting, each body
+    // once, everything after the first at LUNGE_ROLL_FRAC.
+    //   ⚠ THE REFILL STAYS ONCE PER DASH (run._lungePaid). LUNGE_KILL_REFILL is 45 against a
+    // PULSE_CHARGE_COST of 45 precisely so a connecting lunge is a near-wash; paying it per body
+    // would make one press worth five bars and collapse the loop the button exists for.
+    //   The copy says "dash", not "Lunge": the button has no player-facing name — its only label
+    // anywhere is the generic aria-label "Pulse" — so naming it here would coin a noun the game
+    // shows nowhere.
+    deathRoll:       { name: 'Death Roll', desc: 'your dash bites everything it passes through, not just the first', icon: '🌀', kind: 'switch' },
   },
-  // chum's three. widerChum/longerChum fold into levels[] via WEAPON_STAT_MODS; deepChum is
-  // behavioral (it is read where the bait's pull is applied, in stepPrey).
+  // chum's five. widerChum folds into levels[] via WEAPON_STAT_MODS; the other four are behavioral
+  // and read at their own sites (stepPrey, stepChumWeapon, stepShoals, stepOrca).
+  //
+  // ⚠ 'Ripe Catch' (+35% bait duration) IS GONE, 2026-09-05. Alongside widerChum it was the same
+  // card twice — more of the thing — in a pool whose problem was that nothing pointed at the
+  // chapter's own systems. The two that replace it are the only cards in the game that read the
+  // orca and the drain-slow.
   chum: {
     widerChum:  { name: 'Wide Slick',  desc: 'chum spread',              icon: '🌊', base: 0.30, kind: 'pct' },
-    longerChum: { name: 'Ripe Catch',  desc: 'how long chum lasts',      icon: '🐟', base: 0.35, kind: 'pct' },
+    // THE ORCA BECOMES A TOOL. It is the only thing in this chapter that aims at the player, it
+    // already comes faster for a full bait (orcaRush reads ORCA_BAIT_PULL), and this card lets that
+    // bait take the RING as well as the countdown: while a live bait is on the map the coil closes
+    // on the barrel instead of on you, and stepOrca commits through the centre of the coil it drew.
+    // So you buy a visit somewhere else, and the sweep eats the ball you gathered instead of you.
+    //   `switch`: the ring is on the bait or it is on you, and there is no half of that.
+    decoyBarrel: { name: 'Decoy Barrel', desc: 'the orca closes on your bait instead of on you', icon: '🎯', kind: 'switch' },
+    // THE ONLY CARD THAT READS THE DRAIN-SLOW. `feedSlow` (CHAPTERS.wreck.resource) pays you for
+    // standing inside a real ball — _feedN counts prey within FEED_R that have BALL_TIGHT_N
+    // neighbours — and a fish with its head down at a bait is not a ball, so a bait you cast and
+    // stood beside did nothing for the bar. Now it does: a feeding fish counts.
+    //   ⚠ IT MUST NOT BECOME A PAUSE BUTTON. FEED_DRAIN_MIN (0.45) is the floor whatever feeds it,
+    // so at best this reaches saturation sooner, never a bar that stops falling. `switch` for the
+    // same reason decoyBarrel is one — a fish's head is down or it is not.
+    //   ⚠ NOT 'Bait Ball', which is what it was called first: MUTATORS.baitBall (The Reef)
+    // already owns that string, and t() is keyed by the English text, so the two cards would
+    // have shared one French row. run FR's duplicate-key check is what caught it, not a read.
+    // 'Head Down' also names what the player SEES — render poses a feeding fish nose-down.
+    headDown:   { name: 'Head Down',   desc: 'fish eating at your bait slow Bloodlust draining', icon: '🫧', kind: 'switch' },
     // The one that changes what the card DOES rather than how much of it there is: a baited fish
     // that keeps its nerve closer in. Priced against CHUM_PANIC_R, so at full stacks the ball still
     // breaks — an unbreakable one would be a pause button on the chapter.
@@ -3439,10 +3490,32 @@ export const WEAPON_MODS = {
     // thing either of those can state. Read at the fire site, like every other tier mod.
     fullBucket: { name: 'Full Bucket', desc: 'mouthful(s) of food in each bait', icon: '🍖', kind: 'tier', perTier: 2 },
   },
-  // thickOil/wideBilge fold into levels[] via WEAPON_STAT_MODS; slickTrail is behavioral.
+  // bilge's five. wideBilge folds into levels[] via WEAPON_STAT_MODS; the other four are behavioral
+  // and read at their own sites (stepBilgeWeapon, stepPrey).
+  //
+  // ⚠ 'Thick Oil' (+35% duration) IS GONE, 2026-09-05, for widerChum/longerChum's reason: a wall's
+  // SIZE and a wall's LIFE are one card at two intensities, and neither says anything about the
+  // chapter. The two that replace it both turn the wall from denial into HERDING, which is what
+  // this chapter's arsenal claims to be ("close, gather, cut off").
   bilge: {
     wideBilge:  { name: 'Split Seam',  desc: 'oil spread',               icon: '🛢️', base: 0.30, kind: 'pct' },
-    thickOil:   { name: 'Thick Oil',   desc: 'how long the oil lasts',   icon: '⏳', base: 0.35, kind: 'pct' },
+    // A CHUTE, NOT A FENCE. The shipped avoidance pushes a fish radially OUT of the pool, so a wall
+    // scatters what it turns; this rotates that push onto the TANGENT, picking the way round that
+    // heads toward the player. The shoal peels along the oil and arrives at your jaw instead of
+    // dispersing. Priced as a blend so a full stack still leaves them swimming rather than railed.
+    //   ⚠ IT INHERITS THE PANIC-BLIND CLAUSE. Avoidance already ramps to zero inside
+    // PREY_PANIC_BLIND_R (owner ruling 2026-08-23), so this cannot steer a fish that is being run
+    // down at close range — which is right: the funnel is for the water you are NOT in.
+    oilFunnel:  { name: 'Funnel',      desc: 'how hard prey slide along the oil toward you', icon: '⤵️', base: 0.50, kind: 'pct' },
+    // WHAT COMES OUT OF THE OIL CANNOT SPRINT. `oiled` is already on every body your slick touches
+    // (stepBlooms) and is already PERMANENT and capped at OIL_STAIN_MAX, but until this card only
+    // the Slick Feed passive ever read it. This takes the flee BURST off a stained fish — the
+    // excess of PREY_FLEE_MUL over 1, never its base speed — so a shoal you have oiled once is a
+    // shoal you can catch by swimming, which is the chapter's whole problem stated as a reward.
+    //   ⚠ PRICED ON THE EXCESS, NOT THE SPEED. Taking base speed would stack with the oil's own
+    // slow (OIL_STAIN_MAX) into a stationary field; the excess is 0.35 wide and bottoms out at
+    // "swims like it has not seen you", which is a catchable fish and not a dead one.
+    tarred:     { name: 'Tar',         desc: 'burst of speed taken off oil-stained prey', icon: '🖤', base: 0.50, kind: 'pct' },
     // Turns the wall into a fence you can DRAW. Without it a bilge is one circle at a time and the
     // player is placing dots; with it they are cutting the water into rooms, which is the play the
     // card exists for.
@@ -11165,6 +11238,14 @@ export const LUNGE_DMG = 46
 // back into holding the button down, which is the autoplay failure the roster's guard tank exists
 // to prevent. If this is ever raised, check that first.
 export const LUNGE_KILL_REFILL = 45
+// DEATH ROLL (v7.x, WEAPON_MODS.gnash.deathRoll). What every body AFTER the first takes when the
+// dash no longer stops — the first fish is what you are dragging through the rest, so the rest are
+// hit by it rather than by you. LASH_DRAG_FRAC's 0.5 is the precedent and this sits under it: a
+// lash drags one aircraft through a thin crowd, a lunge here crosses a field of 620 bodies.
+// balance_decision : unswept first cut, bodies after the first take a third 2026-09-05
+//  - the REFILL is once per dash (run._lungePaid) and that is not a tuning knob: see the mod's
+//    own block for why per-body would be worth five bars a press
+export const LUNGE_ROLL_FRAC = 0.34
 
 // RENDER-ONLY. How red the player goes at a FULL Bloodlust bar, as pHot's alpha — the same
 // alpha-blended red silhouette the berserk anomaly uses, because the alternative was teaching
@@ -11224,20 +11305,6 @@ export const RING_N = 8
 export const RING_R_MUL = 2.4
 export const RING_POOL_MUL = 0.5
 
-// bloodInTheWater: below this fraction of max HP a body counts as wounded and the mod's bonus
-// applies. A third, not a half, so it is a finisher rather than a flat damage mod wearing a
-// condition — at half, the majority of a soft prey chapter's bodies qualify on the FIRST bite and
-// the card is just Deep Bite again.
-export const GNASH_FINISH_FRAC = 0.34
-// deathRoll (WEAPON_MODS.gnash) is THE MOD MOST ADAPTED TO THIS CHAPTER — where the whole
-// difficulty is that dinner is faster than you, a bite that stops the thing it lands on is worth
-// more than damage. Its duration lives on the card as `base` rather than as a constant here,
-// because the card's banked bonus IS the number the sim reads and a second copy is the one-fact-
-// two-places trap. Two facts about it that are NOT on the card:
-//   - it is routed through ccScale/spendCC like every other stun in this file, so it takes CC
-//     diminishing returns and cannot become the permanent field-wide lock v7.16 removed;
-//   - it publishes to `stunT`, which render.js already reads and holds the pose for. A private
-//     field would be a status with no tell, which is exactly what "cold does nothing" looked like.
 
 // ---- CHUM (v7.x, The Wreck) --------------------------------------------------------------------
 // A run.lures entry with `bait: true`. The tag is read in exactly two places — stepEnemyMovement's
@@ -11288,6 +11355,25 @@ export const CHUM_FEED_R = 40
 //  - the tell is CHUM_VIS.feedSquash, a nose-down foreshortening: there is no held pose in any of
 //    the roster bakes and this must not need one
 export const CHUM_FEED_HOLD = 1.5
+
+// ---- BLOOD IN THE WATER (v7.x, WEAPON_MODS.gnash.bloodInTheWater) -----------------------------
+// A kill leaves a bait. It is a real run.lures entry with `bait: true` — the same object Chum
+// casts, deliberately, so it inherits the gather, the servings, the panic override, the drawing and
+// orcaRush with no second implementation and no new run.* array. That last one is a real cost and
+// the right one: blood in the water is what an orca comes for, and a build that farms kills into
+// baits should ring the bell.
+//
+// ⚠ THE COOLDOWN IS THE WHOLE DESIGN. This chapter's kill rate reaches ~15/s by t=280, so an
+// uncooled version carpets the map in permanent bait and turns a gather card into ambient terrain.
+// One cloud every BLOOD_CHUM_CD means the card is a rhythm you can see: kill, the shoal turns,
+// kill again. Latched on run._realTime rather than a ticked timer, because the read site
+// (dealDamage) is not a per-frame step and adding one would be a second clock to keep in sync.
+export const BLOOD_CHUM_CD = 2.2       // s between blood clouds, whatever the kill rate
+export const BLOOD_CHUM_DUR = 3.0      // s it lasts — under an L1 chum's 4.0: a smell, not a bucket
+export const BLOOD_CHUM_R = 130        // px of pull at base, x(1 + the mod). Clears CHUM_PANIC_R (80),
+                                       // which is the floor any gather must beat to gather at all
+export const BLOOD_CHUM_FOOD = 2       // servings. Small on purpose: a quarter of ORCA_BAIT_FULL_FOOD,
+                                       // so one cloud nudges orcaRush and a farm of them does not pin it
 
 // RENDER-ONLY. The bait is a cloud of rotted catch in the water, and its STATE is the tactical
 // information the servings created — a full bucket and a stripped one have to be different
@@ -11359,6 +11445,16 @@ export const BILGE_AVOID_BLEND = 0.75
 // balance_decision : prey stop watching for oil once you are on them 2026-08-23
 //  - must stay well under PREY_SIGHT_R (340): at sight range the fence would stop working at all
 export const PREY_PANIC_BLIND_R = 260
+// FUNNEL (v7.x, WEAPON_MODS.bilge.oilFunnel). How much of the avoidance push is rotated off the
+// radial and onto the tangent that heads toward the player — 0 is the shipped wall, 1 is a rail.
+// Capped under 1 so the wall never stops being a wall: a fish that could ONLY slide along the rim
+// would orbit a pool forever instead of leaving it, which is a lock rather than a chute.
+export const BILGE_FUNNEL_MAX = 0.8
+// TAR (v7.x, WEAPON_MODS.bilge.tarred). Most of the flee BURST a stained fish can lose — the
+// excess of PREY_FLEE_MUL over 1, so at the cap a stained damselfish drops from 223 px/s to about
+// 173 against the player's 220. Never 1: a fish that flees at exactly its drift speed reads as
+// broken rather than as tarred, and the chapter's separation lives on the chase still existing.
+export const TAR_FLEE_MAX = 0.85
 
 // THE STAIN (owner ruling, 2026-08-23: "a fish going through mazout should be 'stained' visually,
 // and be slowed forever a bit, even when they get out of the mazout"). A body in oil accumulates
