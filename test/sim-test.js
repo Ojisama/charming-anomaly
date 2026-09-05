@@ -5684,43 +5684,13 @@ function runBookProgression() {
       `the drain clamp must bind at run.chargeMax (${run.chargeMax}), not the config max (${configMax}) — got ${run.charge} after one drain tick from the raised ceiling`)
   }
 
-  // The KILL-REFILL clamp (sim.js's kill branch) must ALSO bind at run.chargeMax — a SEPARATE line
-  // from the drain clamp above, and the brief's own trap: a refill still clamped to the config max
-  // would let the bar refill past its OLD cap on kills and snap back down on the very next drain
-  // tick, a flicker no "does the ceiling move" assertion can see.
-  //
-  // ON THE WRECK, and it has to be: `killBase` is the only per-kill refill left in the game since
-  // v7.x removed Scavenger, so this is the ONLY chapter where that clamp site can fire at all. It
-  // used to run on The Shelf with a hand-set run.killRefill of 50 — a field that no longer exists,
-  // and a rig that could not have caught this today. Proven with a REAL kill (park 1-hp enemies on
-  // the player and let the starter weapon finish them), not a hand-set run.charge: run.charge is
-  // reset to just under the OLD config max before every step — safely below BOTH candidate ceilings
-  // — so the drain clamp (proven separately above) can never be what pushes the peak up.
-  {
-    const m = makeMeta(); m.chapters = {}
-    ensureBookMeta(m, 'undertow').shop.deepLungs = lineMax('deepLungs')
-    Math.random = mulberry32(1)
-    const run = createRun(m, { chapter: 'wreck', difficulty: 1 })
-    const res = CHAPTERS.wreck.resource
-    const configMax = res.max
-    assert.ok(run.chargeMax > configMax, 'precondition: deepLungs must raise the ceiling above the config max for this probe to mean anything')
-    assert.ok((res.killBase ?? 0) > 0, 'precondition: The Wreck must still declare killBase — it is the only per-kill refill this clamp site has left to fire on')
-    run.player.hp = run.player.maxHP = 1e9
-    let peak = 0
-    for (let i = 0; i < 300; i++) {
-      for (const e of run.enemies) { if (!e._dead) { e.x = run.player.x; e.y = run.player.y; e.hp = e.maxHP = 1 } }
-      run.charge = configMax - 1   // one killBase (5) overshoots the OLD cap on its own
-      stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60)
-      run.events.length = 0
-      peak = Math.max(peak, run.charge)
-      run.player.hp = run.player.maxHP
-    }
-    assert.ok(run.kills > 0, `the clamp rig must land at least one kill, got ${run.kills}`)
-    assert.ok(peak > configMax,
-      `a kill's refill must be able to push the bar above the OLD config max (${configMax}) once deepLungs raises the ceiling — peaked at ${peak}, meaning the kill-refill clamp is still reading the config max instead of run.chargeMax`)
-    assert.ok(peak <= run.chargeMax + 1e-6,
-      `kill refill must clamp at run.chargeMax (${run.chargeMax}), peaked at ${peak}`)
-  }
+  // THE KILL-REFILL CLAMP IS GONE, and so is the case that covered it. It bound at run.chargeMax
+  // rather than the config max, and the only chapter that could ever fire it was The Wreck via
+  // `resource.killBase` — the last per-kill refill in the game after v7.x removed Scavenger. The
+  // 2026-09-05 rework took the Bloodlust bar out with the chapter's premise, so no chapter
+  // declares killBase, the branch in dealDamage was unreachable, and it was deleted with this
+  // case rather than left as a clamp nothing can reach. Restore both together if a per-kill
+  // refill ever comes back.
 
   // slowBurn and bigGulp are RATES — assert the effect over stepped time, not the stored field. A
   // test that reads run.chargeDrainMul alone passes with the multiplier never applied to anything.

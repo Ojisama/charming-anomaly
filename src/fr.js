@@ -1739,11 +1739,13 @@ const CONFIG = {
   'the net is not aiming at you': 'ils vous pêcheront tous',
   // The Wreck (Book 2 chapter 5). 'L'Épave' is the hull itself; 'Le Naufrage' would be the sinking
   // as an event and 'La Carcasse' the body being eaten — the owner picked the place over both.
-  // THE TAGLINE IS THE OWNER'S OWN LINE, written by him rather than picked from the drafts: the
-  // English names the punishment ('stop and you starve') and this names the person it happens to.
-  // As everywhere in this file the English string IS the key, so changing it orphans this entry.
+  // ⚠ THE TAGLINE CHANGED WITH THE CHAPTER (2026-09-05) AND BOTH HALVES ARE A DRAFT. The old pair
+  // was the owner's own writing — English 'stop and you starve' naming the punishment, French
+  // 'qui s'arrête s'affame' naming the person it happens to — and both described a hunger bar that
+  // no longer exists. The English string IS the key here, so changing it orphaned that entry.
+  // Neither line below has been through him; ask before treating them as settled.
   'The Wreck': 'L\'Épave',
-  'stop and you starve': 'qui s\'arrête s\'affame',
+  'something else lives here': 'quelque chose vit ici',
   'Sand Hopper': 'Puce de Mer',
   'Shore Crab': 'Crabe Vert',
   'Sea Roach': 'Cloporte de Mer',

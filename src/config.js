@@ -3431,7 +3431,7 @@ export const WEAPON_MODS = {
     // 40% of a bar" is a number nobody can feel, while "an elite pays for everything" is a reason to
     // go and pick a fight you were avoiding. Normal rarity, because makeWeaponModCard returns null
     // for a switch above normal — see the note on trashTornado.sweepLoot for the epic idiom.
-    gorge:           { name: 'Gorge',      desc: 'eating an elite fills Bloodlust', icon: '🫀', kind: 'switch' },
+    gorge:           { name: 'Gorge',      desc: 'eating an elite heals you to full', icon: '🫀', kind: 'switch' },
     // THE MOUTH BECOMES THE BAIT (v7.x). The name is the shark idiom and it now means what it says:
     // a kill leaves a cloud of blood that draws the next fish in, i.e. gnash borrows chum's verb off
     // its own kills. It was "+55% damage against wounded prey" and fired on 6.1% of bites, because
@@ -3451,7 +3451,7 @@ export const WEAPON_MODS = {
     //   The copy says "dash", not "Lunge": the button has no player-facing name — its only label
     // anywhere is the generic aria-label "Pulse" — so naming it here would coin a noun the game
     // shows nowhere.
-    deathRoll:       { name: 'Death Roll', desc: 'your dash bites everything it passes through, not just the first', icon: '🌀', kind: 'switch' },
+    deathRoll:       { name: 'Death Roll', desc: 'knockback on the bite', icon: '🌀', base: 1.0, kind: 'pct' },
   },
   // chum's five. widerChum folds into levels[] via WEAPON_STAT_MODS; the other four are behavioral
   // and read at their own sites (stepPrey, stepChumWeapon, stepShoals, stepOrca).
@@ -3480,11 +3480,11 @@ export const WEAPON_MODS = {
     // already owns that string, and t() is keyed by the English text, so the two cards would
     // have shared one French row. run FR's duplicate-key check is what caught it, not a read.
     // 'Head Down' also names what the player SEES — render poses a feeding fish nose-down.
-    headDown:   { name: 'Head Down',   desc: 'fish eating at your bait slow Bloodlust draining', icon: '🫧', kind: 'switch' },
+    headDown:   { name: 'Head Down',   desc: 'how long a fed fish stays stopped', icon: '🫧', base: 0.45, kind: 'pct' },
     // The one that changes what the card DOES rather than how much of it there is: a baited fish
     // that keeps its nerve closer in. Priced against CHUM_PANIC_R, so at full stacks the ball still
     // breaks — an unbreakable one would be a pause button on the chapter.
-    deepChum:   { name: 'Deep Chum',   desc: 'baited fish hold their nerve closer to you', icon: '🩸', base: 0.30, kind: 'pct' },
+    deepChum:   { name: 'Deep Chum',   desc: 'damage to anything with its head in your bait', icon: '🩸', base: 0.35, kind: 'pct' },
     // The card the servings are for (see CHUM_FEED_R). `tier`, not `pct`: a bait is counted in
     // fish that got a bite, the drawing shows one chunk per serving, and 4.4 mouthfuls is not a
     // thing either of those can state. Read at the fire site, like every other tier mod.
@@ -3506,7 +3506,7 @@ export const WEAPON_MODS = {
     //   ⚠ IT INHERITS THE PANIC-BLIND CLAUSE. Avoidance already ramps to zero inside
     // PREY_PANIC_BLIND_R (owner ruling 2026-08-23), so this cannot steer a fish that is being run
     // down at close range — which is right: the funnel is for the water you are NOT in.
-    oilFunnel:  { name: 'Funnel',      desc: 'how hard prey slide along the oil toward you', icon: '⤵️', base: 0.50, kind: 'pct' },
+    oilFunnel:  { name: 'Funnel',      desc: 'the oil draws what is in it toward the middle', icon: '⤵️', base: 0.50, kind: 'pct' },
     // WHAT COMES OUT OF THE OIL CANNOT SPRINT. `oiled` is already on every body your slick touches
     // (stepBlooms) and is already PERMANENT and capped at OIL_STAIN_MAX, but until this card only
     // the Slick Feed passive ever read it. This takes the flee BURST off a stained fish — the
@@ -3515,7 +3515,7 @@ export const WEAPON_MODS = {
     //   ⚠ PRICED ON THE EXCESS, NOT THE SPEED. Taking base speed would stack with the oil's own
     // slow (OIL_STAIN_MAX) into a stationary field; the excess is 0.35 wide and bottoms out at
     // "swims like it has not seen you", which is a catchable fish and not a dead one.
-    tarred:     { name: 'Tar',         desc: 'burst of speed taken off oil-stained prey', icon: '🖤', base: 0.50, kind: 'pct' },
+    tarred:     { name: 'Tar',         desc: 'how much speed the stain keeps costing', icon: '🖤', base: 0.50, kind: 'pct' },
     // Turns the wall into a fence you can DRAW. Without it a bilge is one circle at a time and the
     // player is placing dots; with it they are cutting the water into rooms, which is the play the
     // card exists for.
@@ -3527,7 +3527,7 @@ export const WEAPON_MODS = {
     // mouthful, not for switching the level off. Mutually exclusive with slickTrail by shape — a
     // fence drawn behind you and a ring thrown around a fish cannot both be where the oil went, so
     // slickTrail wins and the ring stands down (see stepBilgeWeapon).
-    oilRing:    { name: 'Oil Ring',       desc: 'the oil lands as a ring, penning what is inside', icon: '⭕', kind: 'switch' },
+    oilRing:    { name: 'Oil Ring',       desc: 'the oil lands as a ring around your target', icon: '⭕', kind: 'switch' },
   },
   clawRake: {
     rend:        { name: 'Rending Claws', desc: 'claw damage', icon: '🩸', base: 0.35, kind: 'pct' },
@@ -8100,105 +8100,64 @@ const WRECK_TIDE_DEG = 45
 
 CHAPTERS.wreck = {
   playerBody: 'fish',   // what touches you is tested against the drawn fish (FISH_BODY); run PH pairs it with render.form
-  name: 'The Wreck', tagline: 'stop and you starve', icon: '⚓',
+  name: 'The Wreck', tagline: 'something else lives here', icon: '⚓',
 
-  // ---- THE ARSENAL, AND EVERY CARD IN IT IS ABOUT REACHING FOOD THAT RUNS -----------------------
-  // Owner, 2026-08-18: "the attacks must be changed to something more chapter related." They were
-  // The Garden's needle cone and a generic mine, borrowed for their SHAPE against a fleeing target,
-  // and shape was the wrong axis — a chapter reads by its nouns, and neither of those is a noun this
-  // place owns. All three are now the wreck's own.
-  //
-  // Every other chapter's pool answers "how do I hurt the crowd". This one's crowd is food, and the
-  // real problem is that it is faster than you and leaving. So the pool is a HERDING KIT:
-  //   gnash  the mouth, and it now DARTS onto its target rather than snapping at where the fish
-  //          was — see its own block for why a 78-98px reach was a defect in this chapter.
-  //   chum   GATHERS. The one card in the game that turns something already running.
-  //   bilge  WALLS. Prey will not enter it, so it is how you take an escape route away; everything
-  //          that is not prey just slows in it.
-  // Between them the chapter's verbs are close, gather, cut off — which is how anything actually
-  // hunts a shoal, and none of it is a damage number.
+  // ---- THE ARSENAL --------------------------------------------------------------------------
+  // Owner, 2026-08-18: "the attacks must be changed to something more chapter related." The three
+  // natives are the wreck's own nouns — a mouth, a bucket of chum and a split drum of oil — and
+  // that survived the 2026-09-05 rework of the chapter around them. What changed is what two of
+  // them are FOR, because the crowd now comes at you instead of running away:
+  //   gnash  the mouth. Unchanged: a short bite whose damage rises the closer it lands, which is
+  //          a fine verb against a crowd that closes and was always the chapter's damage budget.
+  //   chum   the DECOY, and this is the flip. It used to turn things that were fleeing; now it
+  //          pulls a pack off you and they STOP TO FEED where it lands. The hold is what makes it
+  //          not a Pheromone Lure, and it is what pairs it with the oil.
+  //   bilge  the mazout in your hand. It no longer walls anything (nothing refuses oil any more)
+  //          and is a straight drag zone — which is the half the card always had for everything
+  //          that was not prey.
+  // The play the three make together: bait a pack into a slick, and bite them while they are slow
+  // and stopped.
   weapons: ['gnash', 'chum', 'bilge'], starter: 'gnash',
 
-  // ---- THE ROSTER IS FOOD. This is the one chapter where "enemy" is a lie the code tells. ------
-  // Owner, 2026-08-17: "about you, a shark, chasing after schools of fishes that run in fear.
-  // Turning around the premise of the game."
+  // ---- THE ROSTER: THE WRECK'S RESIDENTS, AND THEY DEFEND IT ------------------------------------
+  // Owner, 2026-09-05: "I don't like the premise of the chapter. Let's turn it back into a normal
+  // level, but keep the wreck, in parallax, the mazout, the orca."
   //
-  // Two of the three carry `skittish`, which is one flag saying two things because they are one
-  // design fact: it RUNS from you, and it CANNOT HURT YOU (contactHarmless, sim.js). Nothing on
-  // this map is aiming at the player — the thing that kills you is the leak, below.
+  // The premise this replaces was the inversion — you were a predator, the roster was FOOD that
+  // fled and could not touch you (`skittish` + `dmgMul: 0`), and the thing that killed you was a
+  // hunger bar. All of that is gone: the bar, the Lunge that spent it, and the whole prey system
+  // in sim.js, which this chapter was the only user of in the entire game.
   //
-  // ⚠ BORROWED IDS, STILL, AND DELIBERATELY. syncEnemies resolves a look as
-  // `T.roster[rosterId] || T.enemies[archetype]` (render.js), so an invented id does NOT fall back
-  // to a sibling fish — it falls back to the GENERIC BOOK 1 ARCHETYPE BLOB, which is three grey
-  // blobs in an ocean chapter with nothing thrown. These three are baked and they are the right
-  // three animals: mackerel are THE schooling fish, a damselfish is a small reef fish that scatters
-  // over wreckage, and a moray is the animal that actually lives inside a sunken hull. The trawl
-  // also fields a mackerel; a chapter reusing another's id is precedented all through this book.
+  // SAME SIX ANIMALS, NOW HOSTILE (owner's pick over swapping in other chapters' creatures). They
+  // are all already baked, the cast row and the French names are unchanged, and the fiction is one
+  // step rather than a new chapter: the wreck is where these things LIVE, and you are in it. The
+  // Trawl already fields an aggressive `mackerel` at hpMul 1 / speedMul 1.05, so a chapter reusing
+  // another's id AND making the same animal a threat is precedented one rung down.
   //
-  // THE HUNT IS A TRIANGLE, and it falls out of shipped archetype speeds rather than being tuned:
-  //   mackerel   90 x 0.85 x PREY_FLEE_MUL = 103 px/s. You outswim it. The staple, and the bar's
-  //              whole income — this is why spawnMul goes up rather than the refill.
-  //   damselfish 165 x 1.0 x PREY_FLEE_MUL = 223 px/s, i.e. FASTER THAN THE PLAYER'S 220. It cannot
-  //              be caught by chasing it, at all, ever. It is what the Lunge button exists for, and
-  //              it is the reason the button's cost/refill wash is the chapter's core loop rather
-  //              than a nicety.
-  //   moray      does NOT flee — no `skittish`, so it runs the ordinary seek and comes to you.
-  //              Harmless (`dmgMul: 0`, honoured by contactHarmless), slow, fat, and worth
-  //              `resource.tankRefill` of Bloodlust when eaten. It is the answer to "why is this
-  //              not just holding the stick down": the prize you break off the chase FOR.
-  //   ⚠ IT CARRIED THE CRAB'S `guard` UNTIL v7.x AND IT EARNED NOTHING. Measured over three 300s
-  //              runs with the full kit: the shield refused 7.6% of bites — far too few to read as
-  //              a timing puzzle — while 78% of morays never died at all and the bite was pointed
-  //              at one on 32.8% of FRAMES, because aimAngle takes the nearest body and a creature
-  //              that neither flees nor hurries is nearly always it. So the chapter's only damage
-  //              source spent a third of itself on a sponge the player had not chosen, which is
-  //              exactly what the owner reported: "they slow you down and clutter the screen".
-  //              The counter is biteAim (sim.js), not a shield.
-  // ⚠ WAVE_TABLE does not introduce `tank` until t = 140s, so that answer is absent for the first
-  // half of a 300s run — the same gate CHAPTERS.deep's roster block records biting it too.
-  //
-  // `dmgMul: 0` MEANS IT, and contactHarmless is what makes that true: hurtPlayer floors every hit
-  // at Math.max(1, ...), so before that clause existed the moray chipped 1 HP per touch and did 204
-  // damage across three 300s runs — against the leak's 234, in the one chapter whose whole premise
-  // is that the leak is the only thing that can kill you. The other two are disarmed by `skittish`
-  // as well; the moray has no skittish, and now needs none.
-  // ---- SIX, AND THREE OF THEM ARE BEHAVIOUR (v7.x) --------------------------------------------
-  // Owner, 2026-08-23: "preys are too similar, they should have different behaviour. Some faster,
-  // some with more hp, some could leave a slowing ink or have defense mechanisms."
-  //
-  // The three above differ only by hpMul/speedMul, which makes them one animal at three sizes: the
-  // player's verb against every one of them is "swim at it". The three added here each take a
-  // different verb away, and none of them is a damage number:
-  //   squid       INKS. Measured, that is a 7% tax on a straight-line hunter's whole kill rate, and
-  //               the answer it rewards is a different TARGET rather than a different route — see
-  //               the INK_* block, which also records that steering round the cloud loses.
-  //   pufferfish  REFUSES ONE BITE, then drifts deflating for PUFFER_COOL_T. Bite, wait, bite —
-  //               a rhythm, not a shield, and read its block for the two ways `guard` failed here.
-  //   sardine     BALLS. Cheap alone and it never splits, so the payout is a dozen at once or none.
-  // ⚠ THE WEIGHTS KEEP THE MACKEREL THE STAPLE. Two new `normal` entries would otherwise cut the
-  // bar's whole income to a third (spawnEnemy picks the TYPE first, then draws within it), and the
-  // mackerel is what CHAPTERS.wreck.resource was fitted against.
-  // ⚠ EVERY NUMBER ON THESE ROWS SHIFTS THE BAR, and adding the last three cost a refit:
-  // drainPerSpawn went 2.4 -> 3.2 because six entries halved the hunt/ignore separation. Re-sweep
-  // this chapter's bar before any balance claim about it ships.
+  // WHAT EACH ONE TAKES AWAY, which is the test for a roster rather than a stat block:
+  //   mackerel    nothing. The staple, weight 2 — the body the chapter is mostly made of.
+  //   damselfish  speed. A `fast` harrier that reaches you before you have finished the last one;
+  //               a territorial reef fish darting at an intruder is what the animal actually does.
+  //   sardine     numbers. Cheap, small and frequent, with xpMul holding the level pace down
+  //               against a kill count that arrives several at a time (`fast` already pays 2x a
+  //               drone per point of health — see the archetype table).
+  //   squid       your route, via `inkjet`. The one thing here that slows you, and it is now
+  //               thrown by something closing rather than by something running.
+  //   pufferfish  your first swing, via `puffup`. Bite, wait, bite — a rhythm, and the one flag
+  //               from the old roster that needed no re-pointing at all: refusing a bite works
+  //               exactly the same whether the body is fleeing or arriving.
+  //   moray       your footing, via `latch`. It is the tank, it is slow, and a moray biting and
+  //               HOLDING is the animal's own behaviour rather than a flag borrowed for shape.
+  // ⚠ UNMEASURED FIRST CUT — every hpMul/speedMul below is a starting point pitched against The
+  // Trawl's roster (mackerel 1/1.05, tuna 0.95/1.25, remora 0.6/1.15, sealion 2.4/0.85), which is
+  // the neighbouring normal chapter in the same book. Measure before quoting any of it.
   roster: [
-    { id: 'mackerel',   archetype: 'normal', name: 'Mackerel',   hpMul: 0.55, speedMul: 0.85, dmgMul: 0, weight: 2,   flags: ['skittish'] },
-    // Faster than the mackerel on purpose: the ink is only a decision if the straight chase was
-    // already marginal. 90 x 1.15 x PREY_FLEE_MUL = 140 px/s against the player's 220 — you win it,
-    // but not while you are inside the cloud.
-    { id: 'squid',      archetype: 'normal', name: 'Squid',      hpMul: 0.7,  speedMul: 1.15, dmgMul: 0, weight: 1,   flags: ['skittish', 'inkjet'] },
-    // The slowest thing that flees, which is WHY it needs a defence: at 90 x 0.6 x 1.35 = 73 px/s
-    // it would otherwise be free food. Fat and wide rather than tanky — one bite once it is down.
-    { id: 'pufferfish', archetype: 'normal', name: 'Pufferfish', hpMul: 1.0,  speedMul: 0.6,  dmgMul: 0, weight: 1, radiusMul: 1.2, flags: ['skittish', 'puffup'] },
-    { id: 'damselfish', archetype: 'fast',   name: 'Damselfish', hpMul: 0.4,  speedMul: 1,    dmgMul: 0, weight: 2,   flags: ['skittish'] },
-    // UNDER the player's 220 (165 x 0.82 x 1.35 = 183), which is the whole separation from the
-    // damselfish sharing its archetype: that one cannot be caught by swimming at all, this one can
-    // — if you can get round the ball. xpMul holds the level pace down against a kill count that
-    // arrives a dozen at a time; `fast` already pays 2x a drone per point of health.
-    { id: 'sardine',    archetype: 'fast',   name: 'Sardine',    hpMul: 0.25, speedMul: 0.82, dmgMul: 0, weight: 1.6, xpMul: 0.45, radiusMul: 0.62, flags: ['skittish', 'tight'] },
-    // balance_decision : moray HP -40%, the chapter's kit is crowd control 2026-08-18
-    //  - chum and bilge deal NO damage at all, so gnash is the entire damage budget all run
-    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 1.32, speedMul: 0.7,  dmgMul: 0, flags: [] },
+    { id: 'mackerel',   archetype: 'normal', name: 'Mackerel',   hpMul: 0.9, speedMul: 1.0,  weight: 2, flags: [] },
+    { id: 'squid',      archetype: 'normal', name: 'Squid',      hpMul: 1.0, speedMul: 0.95, weight: 1, flags: ['inkjet'] },
+    { id: 'pufferfish', archetype: 'normal', name: 'Pufferfish', hpMul: 1.3, speedMul: 0.75, weight: 1, radiusMul: 1.2, flags: ['puffup'] },
+    { id: 'damselfish', archetype: 'fast',   name: 'Damselfish', hpMul: 0.7, speedMul: 1.05, weight: 2, flags: [] },
+    { id: 'sardine',    archetype: 'fast',   name: 'Sardine',    hpMul: 0.45, speedMul: 0.95, weight: 1.6, xpMul: 0.6, radiusMul: 0.62, flags: [] },
+    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 1.1, speedMul: 0.8, flags: ['latch'] },
   ],
   // The chapter's own affix, not the borrowed soapTrail: a wall of oil the elite drags behind it,
   // tagged look:'bilge' so it is the same substance as the player's own Bilge and the ambient Leak
@@ -8277,100 +8236,7 @@ CHAPTERS.wreck = {
   // because until this commit the chapter did not exist. CHAPTERS.reef.resource's own block is the
   // worked example of what reading a refill against the wrong chapter's kill rate does (1.2 here
   // ABOLISHED the bar there). The gate is scripts/charge-probe.mjs on this chapter, both movement
-  // policies, with the drain/killBase pair fitted to what it measures.
-  resource: {
-    // `drainPerSpawn`, NOT `drain` — see stepCharge. The drain rides the same curve the crowd
-    // arrives on, because this is the only bar in the game fed by kills and the kill rate is not a
-    // constant (0.5/s at t=0 to ~15/s at t=280).
-    //
-    // ⚠ REFITTED FOR THE PREY REWORK, AND THE OLD NUMBER WAS MEASURABLY WRONG. 4.5 was fitted when
-    // this chapter's spawnMul was 0.95; at 2.2 the same constant more than doubles the drain. Worse,
-    // the rig that produced that fit could not see this chapter at all — every movement policy in
-    // charge-probe.mjs modelled a player being CHASED, and this crowd runs away, so all of them
-    // measured a player who never eats. WRECK_MOVES (`hunt` against `ignore`) exists because of
-    // that, and this table is off it:
-    //      drainPerSpawn    hunt: mean / at-zero     ignore: mean / at-zero     separation
-    //           1.0             66.9 /  20%              52.8 /  23%              1.27x
-    //           1.6             56.8 /  29%              40.0 /  28%              1.42x
-    //           2.4             51.6 /  38%               9.6 /  58%              5.38x
-    //           4.5             25.4 /  51%               4.9 /  76%              5.18x
-    //   (base save, hoard spend, 3 seeds x 300s, immortal, `hunt` and `ignore` from WRECK_MOVES.)
-    //
-    // ⚠ THAT TABLE IS THE THREE-ENTRY ROSTER'S AND IT NO LONGER DESCRIBES THIS CHAPTER. The prey
-    // rework (six entries, chum servings + feeding hold, the orca eating uncredited) collapsed the
-    // separation the fit bought: the SAME 2.4 measured 2.07x where it had been 5.38x, because gnash
-    // now darts onto a denser, softer, more varied field even under a passive walk. Both halves rose;
-    // the GAP is what fell, and the gap is the whole thesis. Refit, same rig, on the current tree
-    // (i.e. after v7.204.0 deleted killRefill from every resource chapter):
-    //      drainPerSpawn    hunt: mean / at-zero     ignore: mean / at-zero     separation
-    //           1.6             94.3 /   1%             81.9 /   2%              1.15x
-    //           2.4             88.2 /   2%             58.0 /  14%              1.52x
-    //           2.8             86.3 /   4%             43.7 /  20%              1.97x
-    //           3.2             78.0 /   7%             33.5 /  30%              2.33x
-    // 3.2 is where separation is still climbing and the hunter is still healthy (median 89.6, at zero
-    // 7% of the run). Pre-merge the same sweep found the overshoot at 4.0, where separation stops
-    // paying and the HUNTER starts sitting at zero — do not chase the old 5.38x by going past 3.2.
-    // ⚠ 3 SEEDS, AND NOISIER THAN THE FIRST SWEEP: single-cell separation is +/-0.3-0.4x and the
-    // ignore arm's kill count is non-monotonic across it. Read the trend, not one row.
-    // ⚠ LOSING killRefill DID NOT MAKE THIS HARSHER, which was the obvious prediction and it was
-    // wrong: at matching drainPerSpawn the passive player's mean ROSE (2.4: 42.3 -> 58.0), because
-    // something else in the same nine versions raised its kill count 42%. Measure, do not reason
-    // from the diff.
-    // ⚠ SEPARATION IS NO LONGER DRAINPERSPAWN'S ALONE, which is why 5.38x is not the target any more:
-    // ~39-41% of every prey death in an `ignore` run is the ORCA eating it (~20% hunting). A player
-    // who stands off both earns less and has the rest stolen. That punishment used to be the drain's
-    // job entirely. orcaRush and tankRefill are the other levers on this number now.
-    //
-    // THE COLUMN THAT DECIDES IT IS THE SEPARATION, not either bar on its own — this chapter's
-    // thesis is "stop and you starve", so what has to be true is that ENGAGING pays and STANDING
-    // OFF does not. At 1.6 it barely does: a player who never closes still holds a mean of 40
-    // against a hunter's 56.8, which is a chapter about hunting where hunting is worth 40% more.
-    // At 2.4 the same comparison is 9.6 against 51.6 — engage and you are strong, stand off and the
-    // bar is gone — while a hunter still only sits at zero 38% of the time, against 4.5's 51%.
-    // 4.5 buys no more separation and simply starves the player who is doing the right thing.
-    // ⚠ 2.4 IS A MEASURED VALUE, not an interpolation between two that were. It was also very
-    // nearly skipped for wall-clock, and 1.6 was briefly committed in its place; the sweep's own
-    // table is why that is not what shipped. Do not re-tune this from three of the four rows.
-    //
-    // ⚠ ONE STRUCTURAL FINDING THE FIT DOES NOT ADDRESS, recorded because it is an owner decision
-    // and not a knob: break-even RISES with spawnRate(t) (~30x over a run) while the achievable kill
-    // rate does not — it is bounded by weapon dps and by how fast you can physically reach a fleeing
-    // fish. At EVERY value swept the per-10s trace has the same shape: pinned at 98-100 for the
-    // first ~140s, then zero for the last third, whatever the player does. The constant only slides
-    // where that cliff falls; it cannot make the bar cycle. That is not a death spiral — the damage
-    // floor is 1.0, so an empty bar deals exactly what the rest of the game deals — but the bar's
-    // upside is front-loaded and the final minutes cannot be influenced. Damping the law (a cap, or
-    // a sub-linear power on spawnRate) is the fix if that is not wanted, and it is not a change to
-    // make unasked.
-    // tankRefill (v7.x): what a MORAY is worth, on top of killBase, and the whole reason to break
-    // off a chase for one. Sized against the bar rather than against the kill: at 30 of a 100 bar
-    // it is three ordinary fish and change, which is enough to be a decision and short of the full
-    // bar Gorge pays for an elite — the elite must stay the bigger prize.
-    // feedSlow: THE CHAPTER'S PAYOFF FOR HERDING. Being inside the shoal slows the drain (FEED_*).
-    // It is a rate rather than a refill because the bar is CLAMPED and a refill multiplier measured
-    // regressive — see the FEED block in this file and stepCharge for the numbers.
-    // balance_decision : drain 2.4 -> 3.2, the six-prey roster halved separation 2026-08-23
-    //  - re-run the wreck sweep after ANY roster/chum/orca change; the number tracks the kill rate
-    // balance_decision : oilTrail cut the kill rate 28%, drain HELD not re-fitted 2026-08-25
-    //  - owner ruled a harder chapter: 3.2 is now ABOVE what this kill rate would fit, deliberately
-    name: 'Bloodlust', drainPerSpawn: 3.2, refill: 0, killBase: 5, tankRefill: 30, max: 100, feedSlow: true,
-    damage: { floor: 1, peak: 1.8 },
-    rate: { floor: 1, peak: 1.5 },
-    // 4, not 5, and the reason is arithmetic rather than balance: hurtPlayer ROUNDS a dot hit, so
-    // 5 x STARVE_TICK 0.5 = 2.5 -> 3, i.e. a config saying 5 and a game doing 6. STARVE_TICK's own
-    // block states that the cadence exists so the config number survives the multiply, and then the
-    // first number written against it did not. 4 x 0.5 = 2 exactly — the same exact-multiply rule
-    // DROWN_TICK's own block follows (drown's dps 4 x DROWN_TICK 1.0 = 4 exactly).
-    starve: { dps: 4 },
-  },
-
-  // Hull plates, ribs and spilled containers. Scenery with collision, in the shipped streamed-circle
-  // field — it is what makes the place read as a wreck rather than as open water, and it is not a
-  // mechanic. Sized between the reef's coral heads and nothing at all.
   obstacles: { count: 9, cell: 640, minR: 55, maxR: 120, minDist: 420 },
-
-  // The button. See LUNGE_* above for the cast.
-  lunge: true,
 
   // THE ORCA. Four telegraphed visits from t=100s, unkillable, and the only thing in the chapter
   // that aims at the player. See the ORCA_* block for the closing-ring geometry and for why an
@@ -8383,20 +8249,16 @@ CHAPTERS.wreck = {
   // difficulty statement:
   //   spawnMul 2.2    "very numerous" is the owner's word and it is the picture the chapter is for.
   //                   It is also arithmetic: prey RUN, so a given fish is in reach for a fraction
-  //                   of the time an enemy that walks at you would be. A field tuned for a crowd
-  //                   that closes is a thin field once it turns and leaves.
-  //   enemyHpMul 0.45 x the roster's own hpMul, so a mackerel lands at ~5 HP — one bite, no
-  //                   chewing. A bait ball that takes two hits per fish is not a bait ball, it is a
-  //                   wall of HP wearing fish sprites.
-  //   maxAliveMul 1.55 -> 620 concurrent. Held under a doubling ON PURPOSE and it is a perf number
-  //                   as much as a design one: this has not been profiled on a phone, and fleeing
-  //                   bodies spread out (cheaper separation) but also stay alive longer.
-  //   xpMul 0.5       the kill count roughly triples; level pace should not.
-  // ⚠ drainPerSpawn is denominated in spawnRate(t), so spawnMul moves the DRAIN by the same factor
-  // while the kill rate moves by some other one entirely — and the ROSTER moves the kill rate on its
-  // own. Both have now invalidated this block's fit once each. Re-sweep before any balance claim
-  // about this chapter leaves the branch; the current fit (3.2) is recorded in the resource block.
-  balance: { spawnMul: 2.2, enemyHpMul: 0.45, maxAliveMul: 1.55, xpMul: 0.5 },
+  // ⚠ REFITTED FOR A CROWD THAT CLOSES, and the previous four numbers were a consequence of the
+  // roster being FOOD rather than a difficulty statement: spawnMul 2.2 because prey ran and were
+  // therefore in reach for a fraction of the time; enemyHpMul 0.45 so a mackerel died to one bite,
+  // because "a bait ball that takes two hits per fish is a wall of HP wearing fish sprites";
+  // maxAliveMul 1.55 for 620 concurrent bodies; xpMul 0.5 against a tripled kill count. None of
+  // those reasons survives the rework — a body that walks at you is in reach until it dies.
+  // Pitched at The Trawl's shape (0.8 / 0.85 / 0.85 / 1.2), one rung harder because this chapter
+  // sits above it in BOOKS.undertow.
+  // ⚠ UNMEASURED FIRST CUT. Sweep before quoting.
+  balance: { spawnMul: 0.9, enemyHpMul: 0.9, maxAliveMul: 0.9, xpMul: 1.1 },
 
   // ---- render-only (ZERO sim effect) ----
   // THE PLAYER IS NOT A SHARK HERE: owner ruling 2026-08-17, asked directly whether The Wreck
@@ -11326,6 +11188,16 @@ export const GNASH_MAW_MUL = 1.9
 // dealing 1.40x its tuned damage (mean x1.5 against the intended x1.075). It shipped that way and
 // was found from play: "bite has 100% crit chance i dont know why". Run PY.m asserts the RATE.
 export const GNASH_BASE_CRIT = 0.10
+// DEATH ROLL (WEAPON_MODS.gnash.deathRoll), px/s of shove at one pick.
+// ⚠ GNASH SHIPPED WITH ZERO KNOCKBACK ON PURPOSE and this does not contradict that — it inverts
+// with the chapter. The old block's reasoning was "here the crowd is LEAVING: a bite that shoves
+// pushes your dinner further away, out of the very falloff band that makes the next bite worth
+// more". The 2026-09-05 rework turned the crowd around, so the same argument now runs the other
+// way: buying space off a crowd that is closing is what every other melee weapon in the game gets
+// its knockback for, and gnash was the only one denied it. It stays a MOD rather than a base
+// number so the bare bite is still the pure damage ramp.
+// balance_decision : unswept first cut, under the rake's shove 2026-09-05
+export const GNASH_ROLL_KB = 150
 // OVERKILL CARRY — what makes biting into a MASS feel different from biting one fish, and it is the
 // only version of that this roster can express. A mackerel is 4.95 HP and a damselfish 1.8 against a
 // 15-damage bite (28.5 at the jaw), so every prey in the chapter dies to one hit with an order of
@@ -11410,6 +11282,21 @@ export const CHUM_FEED_R = 40
 //  - the tell is CHUM_VIS.feedSquash, a nose-down foreshortening: there is no held pose in any of
 //    the roster bakes and this must not need one
 export const CHUM_FEED_HOLD = 1.5
+// AND IT WILL NOT STOP AGAIN FOR THIS LONG (v7.x). `_fedBait` stops a body eating twice at the SAME
+// bait, which was the whole limiter while the card only worked on prey that fled the panic radius
+// the moment you closed. With the 2026-09-05 rework the hold applies to everything and there is no
+// panic radius left, so successive casts simply re-caught the same bodies: measured over a 300s
+// immortal run at chum L5, ~193 of ~200 concurrent bodies were feeding at any instant — the pause
+// button on the chapter that CHUM_PANIC_R's own block warned against, reached from the other side.
+// Four times the hold, so a body spends at most a fifth of its life stopped.
+// balance_decision : a body can only be held by chum once every 6s 2026-09-05
+export const CHUM_FEED_CD = 6.0
+// FUNNEL (WEAPON_MODS.bilge.oilFunnel), px/s of inward pull at one pick. A slick is 120-174px
+// across, so at 60 px/s a body crosses its own radius in about two seconds — enough to gather what
+// is already inside and nowhere near enough to drag anything in from outside, which would be a
+// vortex and is The Trawl's whirlpool, one chapter down.
+// balance_decision : unswept first cut, the slick gathers what is in it 2026-09-05
+export const OIL_FUNNEL_PULL = 60
 
 // ---- BLOOD IN THE WATER (v7.x, WEAPON_MODS.gnash.bloodInTheWater) -----------------------------
 // A kill leaves a bait. It is a real run.lures entry with `bait: true` — the same object Chum

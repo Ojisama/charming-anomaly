@@ -167,9 +167,9 @@ import {
   LAST_BREATH_MAX_DMG_MUL, LAST_BREATH_DROWN_TAKEN_MUL,
   resourceRateMul, STARVE_TICK, LUNGE_SPEED, LUNGE_DUR_AT_FULL, LUNGE_BITE_MUL, LUNGE_ARM_DIST, LUNGE_DMG, LUNGE_KILL_REFILL,
   LUNGE_ROLL_FRAC,
-  GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_CARRY_FRAC, RUSH_DUR, RUSH_MAX_STACKS,
-  CHUM_PULL_MUL, CHUM_PANIC_R, CHUM_FEED_R, CHUM_FEED_HOLD,
-  BLOOD_CHUM_CD, BLOOD_CHUM_DUR, BLOOD_CHUM_R, BLOOD_CHUM_FOOD,
+  GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_CARRY_FRAC, GNASH_ROLL_KB, RUSH_DUR, RUSH_MAX_STACKS,
+  CHUM_PULL_MUL, CHUM_PANIC_R, CHUM_FEED_R, CHUM_FEED_HOLD, CHUM_FEED_CD,
+  BLOOD_CHUM_CD, BLOOD_CHUM_DUR, BLOOD_CHUM_R, BLOOD_CHUM_FOOD, OIL_FUNNEL_PULL,
   BILGE_AVOID_PAD, BILGE_AVOID_BLEND, BILGE_FUNNEL_MAX, TAR_FLEE_MAX, BILGE_TRAIL_STEP_FRAC, BILGE_TRAIL_R_MUL, BILGE_TRAIL_GROW,
   PREY_PANIC_BLIND_R, OIL_STAIN_RATE, OIL_STAIN_MAX,
   RING_N, RING_R_MUL, RING_POOL_MUL,
@@ -2744,7 +2744,11 @@ function stepEnemyMovement(run, dt) {
     // is a fraction the body keeps for the rest of its life, capped at OIL_STAIN_MAX. Applied at
     // this one site rather than in stepPrey so it reaches every movement machine at once; a
     // stained moray is as slow as a stained mackerel, which is what "the oil got on it" means.
-    const oilMul = 1 - Math.min(OIL_STAIN_MAX, e.oiled || 0)
+    // TAR (WEAPON_MODS.bilge.tarred) raises the ceiling on the stain rather than the stain
+    // itself: `oiled` accumulates the same way and is still capped, the cap is just deeper. Before
+    // the 2026-09-05 rework this card took the FLEE burst off prey, which no longer exists.
+    const oilCap = OIL_STAIN_MAX * (1 + (run.weaponMods.bilge?.tarred ?? 0))
+    const oilMul = 1 - Math.min(oilCap, e.oiled || 0)
     const slowMul = (1 - elSlow(run, e)) * bloomMul * dragMul * oilMul  // 1.0 slow IS the freeze; no separate branch
 
     // Frenzied: speeds up once badly hurt. Cheerleader (pacer): speeds up anyone else nearby.
@@ -2998,6 +3002,18 @@ function stepEnemyMovement(run, dt) {
     // standing in the cloud — a hold that re-armed every frame would pin the shoal on the bait
     // for the bait's whole duration, which is a stasis field, not a mouthful.
     if (e.feedT > 0) e.feedT = Math.max(0, e.feedT - dt)
+    // The refusal window that keeps Chum a decoy rather than a freeze field — see CHUM_FEED_CD.
+    if (e._fedCd > 0) e._fedCd = Math.max(0, e._fedCd - dt)
+    // HEAD DOWN, EATING (v7.x, Chum). A body that reached a bait took a serving and stopped for it;
+    // for that long it does not steer and does not close, which is the whole reason to cast the
+    // card and the half that separates it from a Pheromone Lure — that one only ever changes where
+    // something walks. `_tgtX/_tgtY` are left where they were, so the body keeps facing the way it
+    // arrived; render.js draws the nose-down pose off `feedT` itself and needs nothing else.
+    //   ⚠ IT MUST SIT BELOW THE TWO DECAYS ABOVE, NOT AT THE TOP OF THIS LOOP. They live INSIDE
+    // stepEnemyMovement rather than in stepStatuses, so an early-out placed before them skips the
+    // line that ends the hold: measured, that pinned 204 of 270 concurrent bodies permanently and
+    // turned the card into the pause button CHUM_PANIC_R's own block warned about.
+    if (e.feedT > 0) continue
     // v7.x The Deep: refreshed by stepScent while inside the smell, exactly as bloomSlowT is by
     // stepBlooms. The decay HAS to live here and not in stepScent — stepScent only walks the bodies
     // currently in range, so a body that swims OUT of the radius would otherwise keep the mark, and
@@ -7541,19 +7557,19 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     // SECOND of the two clamp sites Deep Lungs needs (see stepCharge's own note above); missing this
     // one lets the bar refill past its cap on a kill, only to be clamped back down by stepCharge's
     // own (correct) clamp on the next tick.
-    const _res = CHAPTERS[run.chapter].resource
-    const _gain = _res?.killBase ?? 0
-    if (_res && _gain > 0) run.charge = Math.min(run.chargeMax, run.charge + _gain)
+    // NO PER-KILL REFILL EXISTS ANY MORE. `resource.killBase` was The Wreck's, the last one in the
+    // game, and it went with the Bloodlust bar on 2026-09-05. The five remaining bars are all fed
+    // by a field you stand in, never by a kill.
     // GORGE (v7.x, gnash): "eating elites replenish full hunger bar". Placed here rather than at a
     // bite site on purpose — the card says EATING an elite, so it must pay however the elite died,
     // including to the oil, the leak or a Lunge. Guarded by the mod, which only gnash carries, so
     // every chapter without it is bit-for-bit unchanged.
-    if (_res && enemy.elite && (run.weaponMods.gnash?.gorge ?? 0) > 0) run.charge = run.chargeMax
-    // tankRefill (v7.x, The Wreck): a moray is worth breaking off a chase for. Chapter-scoped by
-    // the field being absent everywhere else, and stacked on killBase rather than replacing it.
-    if (_res?.tankRefill && enemy.type === 'tank') {
-      run.charge = Math.min(run.chargeMax, run.charge + _res.tankRefill)
-    }
+    // GORGE (gnash): eating an elite heals you to full. It paid a whole Bloodlust bar until the
+    // 2026-09-05 rework and the shape is deliberately unchanged — a fraction of a resource is a
+    // number nobody can feel, while "an elite pays for everything" is a reason to go and pick a
+    // fight you were avoiding. Placed here rather than at a bite site for the same reason as
+    // before: the card says EATING an elite, so it must pay however the elite died.
+    if (enemy.elite && (run.weaponMods.gnash?.gorge ?? 0) > 0) healPlayer(run, run.player.maxHP)
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
 
     // BLOOD IN THE WATER (v7.x, gnash): the kill leaves a bait. Placed here beside Gorge and for
@@ -9833,6 +9849,23 @@ function stepBlooms(run, dt) {
           if (sdx * sdx + sdy * sdy > slowRSq) continue
         }
         e.bloomSlowT = BLOOM_SLOW_T
+        // FUNNEL (WEAPON_MODS.bilge.oilFunnel): the slick pulls what is in it toward the middle.
+        // It used to rotate prey's REFUSAL of the oil onto a tangent; with nothing refusing oil the
+        // card became inert, and a gather is the same intent — it is what makes a pool a place you
+        // fight rather than a place you avoid, and it pairs with Chum for the same reason.
+        //   Gated on look:'bilge' like the stain below it, so a Toxin Bloom or a Silt Veil never
+        // inherits a Wreck card. Blended into position rather than into velocity: a force term
+        // would fight every seek machine in the file, and this has to compose with all of them.
+        const _fun = bl.look === 'bilge' ? (run.weaponMods.bilge?.oilFunnel ?? 0) : 0
+        if (_fun > 0) {
+          const fdx = bl.x - e.x, fdy = bl.y - e.y
+          const fd = Math.hypot(fdx, fdy)
+          if (fd > 1e-6) {
+            const pull = Math.min(fd, OIL_FUNNEL_PULL * _fun * dt)
+            e.x += (fdx / fd) * pull
+            e.y += (fdy / fd) * pull
+          }
+        }
         // AND OIL STAINS PERMANENTLY. Gated on look:'bilge' and nothing else — this loop also
         // walks Toxin Bloom, Silt Veil and Ballast's stain, and only one of them is oil. (The
         // squid's ink cannot reach here at all: it carries slow: 0.)
@@ -9994,14 +10027,18 @@ function stepLures(run, dt) {
       const fr2 = CHUM_FEED_R * CHUM_FEED_R
       for (const e of run.enemies) {
         if (lu.food <= 0) break
-        if (e._dead || isAlly(e) || e._fedBait === lu) continue
+        if (e._dead || isAlly(e) || e._fedBait === lu || (e._fedCd ?? 0) > 0) continue
         const fdx = e.x - lu.x, fdy = e.y - lu.y
         if (fdx * fdx + fdy * fdy > fr2) continue
         e._fedBait = lu
         lu.food -= 1
-        // AND IT STOPS TO EAT IT. `feedT` is the contract field stepPrey pins the body on and
-        // render.js draws nose-down off — one write here, because "took a serving" and "is eating"
-        // are the same instant and splitting them is how they drift.
+        // AND IT STOPS TO EAT IT. `feedT` is the contract field stepEnemyMovement pins the body
+        // on and render.js draws nose-down off — one write here, because "took a serving" and "is
+        // eating" are the same instant and splitting them is how they drift.
+        //   ⚠ NO LONGER `skittish`-ONLY (2026-09-05). That gate was right while stepPrey was the
+        // only code that honoured the field; with the prey premise gone, the HOLD is the whole
+        // card — Chum is now a decoy that stops the pack it pulls, which is what makes it not a
+        // Pheromone Lure. See the guard in stepEnemyMovement.
         //   `skittish` only: the hold is honoured in stepPrey, which nothing else reaches, so
         // setting it on a moray would be a field with a tell and no behaviour.
         //   THE PUFF RULE IS NOT REPEATED HERE, deliberately. stepPrey clears feedT on any body it
@@ -10009,7 +10046,10 @@ function stepLures(run, dt) {
         // places and be unreachable — and an unreachable guard is one no mutation can prove and no
         // reader can trust. Reaching the bait takes a serving; whether the body then stops for it
         // is the movement machine's business.
-        if (e.flags && e.flags.includes('skittish')) e.feedT = CHUM_FEED_HOLD
+        // headDown (WEAPON_MODS.chum): how long it stays stopped. The cooldown is NOT scaled with
+        // it — a longer hold on a shorter refusal is the freeze field CHUM_FEED_CD exists to stop.
+        e.feedT = CHUM_FEED_HOLD * (1 + (run.weaponMods.chum?.headDown ?? 0))
+        e._fedCd = CHUM_FEED_CD
       }
       if (lu.food <= 0) { lu._burst = true; run.events.push({ type: 'chumOut', x: lu.x, y: lu.y }); continue }
     }
@@ -10555,6 +10595,7 @@ function biteGnash(run, stats) {
   // Folding `dmg` (which is what it did until 2026-09-05) paid the same +35% at every distance, in
   // a chapter whose food dies to one bite with an order of magnitude spare either way.
   const maw = 1 + (GNASH_MAW_MUL - 1) * (1 + (mods?.deepBite ?? 0))
+  const roll = mods?.deathRoll ?? 0
   // IPECAC: three bites at 120 degrees, de-duplicated across the set — fireFlagella's idiom, and
   // the `struck` set is load-bearing there for the same reason (overlapping sectors would otherwise
   // let one body eat three bites from one cast).
@@ -10572,7 +10613,12 @@ function biteGnash(run, stats) {
       // inSector just tested, so a body that qualified cannot then score above 1 through rounding.
       const d = Math.hypot(e.x - p.x, e.y - p.y)
       const near = 1 - Math.min(1, d / stats.range)
-      const mul = 1 + near * (maw - 1)
+      let mul = 1 + near * (maw - 1)
+      // deepChum (WEAPON_MODS.chum): a body with its head in your bait takes more. The card used
+      // to buy the panic radius down so a baited fish held its nerve closer to you; with nothing
+      // fleeing, the bait is a kill zone instead and this is what makes it one. Read off `feedT`,
+      // which is the same contract field render draws the nose-down pose from.
+      if ((e.feedT ?? 0) > 0) mul *= 1 + (run.weaponMods.chum?.deepChum ?? 0)
       const hpBefore = e.hp
       const nominal = stats.dmg * mul + carry
       applyDamage(run, e, nominal, GNASH_BASE_CRIT)
@@ -10583,6 +10629,10 @@ function biteGnash(run, stats) {
       // prey here dies to one bite with an order of magnitude spare, so there is nothing to hit
       // harder and the only honest expression of "deeper into the mass" is what spills over.
       carry = e.hp <= 0 ? Math.max(0, nominal - hpBefore) * GNASH_CARRY_FRAC : 0
+      // deathRoll (WEAPON_MODS.gnash): the bite throws what survives it. shoveFromPlayer is the
+      // shipped sector-sweep idiom — it takes CC diminishing returns, respects anchored elites and
+      // a tank's knockback refractory, so gnash cannot become the field-wide lock v7.16 removed.
+      if (roll > 0 && !e._dead) shoveFromPlayer(run, e, GNASH_ROLL_KB * roll)
     }
     if (struck.size > 0 && (mods?.bloodrush ?? 0) > 0) {
       run._rushT = RUSH_DUR
