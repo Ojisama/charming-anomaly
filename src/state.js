@@ -1549,6 +1549,22 @@ function generateWells(sig) {
  *   press frame the player has not moved yet and a body already standing in reach was bitten
  *   instantly — 45 charge for 0px of dash. In a chapter that pays you for standing in a crowd that
  *   is the common case. 0 and untouched everywhere else.
+ * _lungeId: number — a counter bumped at every Lunge press, stamped onto each body that dash has
+ *   already bitten (enemy._rollId). Only WEAPON_MODS.gnash.deathRoll reads it, and only because
+ *   that mod stops the dash ending on first contact: without a per-dash identity the same fish is
+ *   re-bitten every frame it stays in reach. An id rather than a Set so a hot path allocates
+ *   nothing, and a body carrying a stamp from an earlier press simply is not equal to this one.
+ * _lungePaid: boolean — has LUNGE_KILL_REFILL already been paid this dash. The plain lunge can only
+ *   ever kill once (it ends on contact), so this exists for deathRoll: the refill is 45 against a
+ *   PULSE_CHARGE_COST of 45 precisely so a connecting lunge is a near-wash, and paying it per body
+ *   a roll chews through would make one press worth several bars.
+ * _rollHit: boolean — has this dash already bitten one body. Everything after the first takes
+ *   LUNGE_ROLL_FRAC of LUNGE_DMG, the fiction being that the first fish is what you are dragging
+ *   through the rest. Reset with _lungeId at the press.
+ * _bloodT: number — run._realTime before which WEAPON_MODS.gnash.bloodInTheWater will not drop
+ *   another blood cloud (BLOOD_CHUM_CD). A latch rather than a ticked timer because its read site
+ *   is dealDamage, which is not a per-frame step; and it exists at all because this chapter reaches
+ *   ~15 kills/s, where an uncooled version carpets the map instead of being a rhythm you can read.
  * _lungeX, _lungeY: number — the unit direction that dash travels, latched at press time from
  *   nearestEnemy (falling back to facingAngle) rather than from the stick, because a bite that goes
  *   where the stick points is a bite you miss with. The press also publishes the angle into
@@ -1780,6 +1796,11 @@ function generateWells(sig) {
  *   out emits the same event rather than the burst path, since burstR/burstDmg are 0 for chum.
  *   render sizes the cloud off `aggro` and counts out one chunk per remaining serving, and
  *   orcaRush weights the orca's arrival by `food` (ORCA_BAIT_FULL_FOOD).
+ *   A BAIT IS ALSO WHAT A KILL LEAVES under WEAPON_MODS.gnash.bloodInTheWater — dealDamage pushes
+ *   the same object with BLOOD_CHUM_* numbers, deliberately, so a blood cloud inherits the gather,
+ *   the servings, the drawing and orcaRush with no second implementation. And under
+ *   WEAPON_MODS.chum.decoyBarrel the fullest live bait is what the ORCA'S RING closes on
+ *   (orcaAnchor), which is the one card in the game that aims that animal.
  * {type:'chumOut', x, y}: a chum bait gone — stripped by the shoal or aged out. Render-only, no
  *   SFX entry: it is the quiet end of a zone, and the chapter already sounds the cast.
  *
@@ -2662,6 +2683,12 @@ export function createRun(meta, opts = {}) {
     _lungeX: 0,
     _lungeY: 0,
     _lungeMoved: 0,
+    // deathRoll / bloodInTheWater bookkeeping (WEAPON_MODS.gnash). Same pattern as the four above:
+    // every run carries them, and only a run holding those mods in a lunge chapter moves them.
+    _lungeId: 0,
+    _lungePaid: false,
+    _rollHit: false,
+    _bloodT: 0,
     _starveAcc: 0,
     // v7.x The Surf: seconds of Shorebreak left. Same pattern — every run carries it, and only a
     // chapter declaring `shorebreak` ever moves it off 0.

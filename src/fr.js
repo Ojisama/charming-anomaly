@@ -997,44 +997,55 @@ const CONFIG = {
   'extra decoy(s) per cast': 'leurre(s) bonus par lancer',
   'Sticky Scent': 'Odeur Collante',
   'burst leaves a slow zone': 'l\'explosion laisse une zone qui ralentit',
-  // gnash's five (v7.x). Three of them hang off 'morsure' with the weapon itself, the way the
-  // fin's three are one family on 'nageoire'; the two feeding cards do not.
-  // Owner kept 'L'Odeur du Sang' and 'Prise Mortelle' on 2026-08-18: the first is the
-  // French idiom the English is quoting, and the second names what the mod DOES (a hold) rather
-  // than the crocodile manoeuvre it is named after.
+  // gnash's five (v7.x). All five were rewritten or repointed on 2026-09-05 — see WEAPON_MODS.gnash
+  // for the measurement that caused it.
   'Deep Bite': 'Morsure Profonde',
-  'bite damage': 'dégâts de morsure',
+  'bite damage at point-blank range': 'dégâts de morsure à bout portant',
   // Not the literal 'Sang dans l'Eau': the owner picked the SMELL, which is the thing a shark is
   // actually famous for and the more idiomatic French. ('Curée' — the hunting term for falling on
   // downed quarry — was the third option and is exactly this mod, but it is a word a lot of players
   // would not know.)
   'Blood in the Water': 'L\'Odeur du Sang',
-  'bite damage against wounded prey': 'dégâts de morsure sur une proie blessée',
-  // 'Tonneau de la Mort' is the accurate term for a crocodile's roll and is what this card is named
-  // after, but the mod's EFFECT is an immobilise and the player never sees a roll. Owner picked the
-  // effect over the reference, and it fits the row.
-  'Death Roll': 'Prise Mortelle',
-  'holds bitten prey for {n}s': 'immobilise la proie mordue pendant {n} s',
+  'reach of the blood a kill leaves behind': 'portée du sang laissé par une proie tuée',
+  // 'Tonneau de la Mort' is the accurate term for a crocodile's roll. It LOST to 'Prise Mortelle'
+  // on 2026-08-18 because the mod was an immobilise and the player never saw a roll; the 2026-09-05
+  // rework makes it a roll through the crowd, so the owner took the reference back.
+  'Death Roll': 'Tonneau de la Mort',
+  'your dash bites everything it passes through, not just the first':
+    'ta ruée mord tout ce qu\'elle traverse, pas seulement le premier',
   'Bloodrush': 'Coup de Sang',
   'move speed per bite for 2s, stacking 5 times': 'de vitesse par morsure pendant 2s, jusqu\'\u00e0 5 fois',
   'Gorge': 'Gavage',
   'eating an elite fills Bloodlust': 'd\u00e9vorer une \u00e9lite remplit la Soif de sang',
   'Oil Ring': 'Anneau de Mazout',
   'the oil lands as a ring, penning what is inside': 'le mazout tombe en anneau et enferme ce qui est dedans',
-  // chum's three and bilge's three (v7.x). 'Nappe' is the word for an oil slick on water and carries
+  // chum's five and bilge's five (v7.x). 'Nappe' is the word for an oil slick on water and carries
   // both cards' spread, which is what makes them read as one chapter's gear.
   'Wide Slick': 'Nappe Large',
   'chum spread': 'port\u00e9e de l\'app\u00e2t',
-  'Ripe Catch': 'Prise Faisand\u00e9e',
-  'how long chum lasts': 'dur\u00e9e de l\'app\u00e2t',
+  // 'Baril Leurre' (owner, 2026-09-05) over 'App\u00e2t D\u00e9tourn\u00e9': 'leurre' is already this
+  // dictionary's word for a decoy, and 'baril' is the drum the whole chapter is made of.
+  'Decoy Barrel': 'Baril Leurre',
+  'the orca closes on your bait instead of on you': 'l\'orque se referme sur ton app\u00e2t au lieu de toi',
+  'Head Down': 'T\u00eate Baiss\u00e9e',
+  'fish eating at your bait slow Bloodlust draining':
+    'les poissons qui mangent ton app\u00e2t ralentissent la Soif de sang',
   'Deep Chum': 'App\u00e2t Profond',
   'baited fish hold their nerve closer to you': 'les poissons app\u00e2t\u00e9s tiennent bon plus pr\u00e8s de toi',
   'Full Bucket': 'Rab',
   'mouthful(s) of food in each bait': 'bouch\u00e9e(s) de nourriture par app\u00e2t',
   'Split Seam': 'Couture Fendue',
   'oil spread': '\u00e9tendue du mazout',
-  'Thick Oil': 'Mazout \u00c9pais',
-  'how long the oil lasts': 'dur\u00e9e du mazout',
+  // 'Entonnoir' over the nautical 'Goulet' (owner, 2026-09-05): a card has to read at a glance on
+  // the level-up screen, and a funnel is a shape everyone knows.
+  'Funnel': 'Entonnoir',
+  'how hard prey slide along the oil toward you':
+    '\u00e0 quel point les proies glissent le long du mazout vers toi',
+  // 'Goudron' over 'Poisse' (owner, 2026-09-05): plain, and it sits beside 'Mazout' in the cards
+  // either side of it.
+  'Tar': 'Goudron',
+  'burst of speed taken off oil-stained prey':
+    'vitesse de fuite retir\u00e9e aux proies tach\u00e9es de mazout',
   'Trailing Slick': 'Nappe Tra\u00eenante',
   'the oil pours behind you as you swim': 'le mazout se d\u00e9verse derri\u00e8re toi quand tu nages',
   'Rending Claws': 'Griffes Déchirantes',
