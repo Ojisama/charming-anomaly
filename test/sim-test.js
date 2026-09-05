@@ -107,7 +107,7 @@ import {
   BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_FAN_N_MATURE,
   // v6.3.4 anti-turtle pass (Run MM)
-  ENEMIES, dmgScale, difficultyDmgMul, difficultyHpMul, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
+  ENEMIES, dmgScale, difficultyDmgMul, difficultySpeedMul, difficultyCountMul, DIFFICULTY_DMG_PER_LEVEL, HURT_CAP_FRAC,
   // v6.4 pond identity (Run NN)
   BLOOM_SLOW, TIDE_DMG_BONUS, TIDE_TURN, MINE_STUN, SOAP_INTERVAL,
   // v6.4.1/v6.4.3 early-calm (Run OO)
@@ -3688,21 +3688,119 @@ function testFocusNudge() {
 }
 
 // ---- Run N: difficulty levels -------------------------------------------------------
-// Difficulty d (1..MAX_DIFFICULTY): +25% enemy HP per level above 1, stacked ON TOP of
-// mutator effects; main.js also rolls d-1 random mutators (randomMutators is tested here).
+// Difficulty d (1..MAX_DIFFICULTY) taxes enemy SPEED, enemy COUNT and enemy DAMAGE — and
+// deliberately NOT enemy HP any more (2026-09-05; the measurement is in config.js's difficulty
+// block). main.js also rolls d-1 random mutators, tested here.
+//
+// ⚠ (b) IS THE ONE THAT MATTERS AND IT IS NEW. The old ladder's whole content was +25% HP/level,
+// which meant every rung made the player's hits a smaller share of what they landed on: measured
+// on The City, 2 hits per kill and 26% one-shots at d1 against 4 hits and 15% at d5. Turning the
+// difficulty up made the weapons feel weaker and nothing on the board faster. An HP term creeping
+// back into this ladder is that regression, and this run is what says so.
 function testDifficulty() {
   // undergrowth: this run isolates the DIFFICULTY ladder, so it needs a chapter without a
   // CHAPTERS[id].balance block — v6.4.10's per-chapter HP ladder reached garden (0.95), leaving
   // undergrowth and beyond as the balance-free chapters.
   const base = createRun(makeMeta(), { chapter: 'undergrowth' })
   assert.strictEqual(base.mods.enemyHpMul, 1, 'difficulty defaults to 1 = untouched enemy HP')
+  assert.strictEqual(base.mods.enemySpeedMul, 1, 'difficulty 1 must be the base game — enemy speed untouched')
 
   const d3 = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 3 })
-  assert.strictEqual(d3.mods.enemyHpMul, 1.5, `difficulty 3 => enemyHpMul 1.5, got ${d3.mods.enemyHpMul}`)
+  // (a) THE LADDER BUYS SPEED AND NUMBERS. Read as the RATIO against the d1 run, not against 1:
+  // undergrowth carries its own spawn factor (0.8) at every rung, so a bare equality here asserts
+  // that chapter's balance block as much as the ladder, and moving either one would redden it.
+  const ratio = (k) => d3.mods[k] / base.mods[k]
+  const EPS = 1e-9
+  assert(Math.abs(ratio('enemySpeedMul') - difficultySpeedMul(3)) < EPS,
+    `d1 -> d3 moved enemySpeedMul by x${ratio('enemySpeedMul')}, expected x${difficultySpeedMul(3)}`)
+  assert(Math.abs(ratio('spawnMul') - difficultyCountMul(3)) < EPS,
+    `d1 -> d3 moved spawnMul by x${ratio('spawnMul')}, expected x${difficultyCountMul(3)}`)
+  assert(Math.abs(ratio('maxAliveMul') - difficultyCountMul(3)) < EPS,
+    `d1 -> d3 moved maxAliveMul by x${ratio('maxAliveMul')}, expected x${difficultyCountMul(3)} — raising the arrival rate without the concurrent cap just queues bodies behind a limit the chapter already hits`)
   assert.strictEqual(d3.mods.coinMul, 1.5, `difficulty 3 => coinMul 1.5, got ${d3.mods.coinMul}`)
 
+  // (b) AND IT DOES NOT BUY HP. Asserted at BOTH ends of the ladder, because a term that only
+  // shows up at the top is exactly what a `d > 3` special case would look like.
+  assert.strictEqual(d3.mods.enemyHpMul, 1,
+    `difficulty 3 gave enemyHpMul ${d3.mods.enemyHpMul} — the ladder must not tax HP: that is what made the harder rungs read as weaker weapons (City 2 hits/kill at d1 against 4 at d5)`)
+  const d5 = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 5 })
+  assert.strictEqual(d5.mods.enemyHpMul, 1,
+    `difficulty 5 gave enemyHpMul ${d5.mods.enemyHpMul} — see (b): spongier is not harder, it is only longer`)
+
+  // (c) THE CROWD MUST ACTUALLY CATCH THE PLAYER AT THE TOP. The point of the whole rework: the
+  // fastest creature in EVERY roster in the game used to sit under the player's 220 px/s at every
+  // difficulty, so walking in a straight line was a complete answer to every chapter whatever the
+  // pips said. Speeds are computed the way spawnEnemy does — archetype base x the roster's own
+  // speedMul x the ladder — with `skittish` prey excluded, since outrunning food is the design.
+  //
+  // ⚠ COUNTED ACROSS CHAPTERS, NOT MAXIMISED OVER THEM, and the first cut did the latter. "The
+  // fastest thing in the GAME beats 220" is satisfied by one outlier — The Blank's Probe already
+  // sits at 215 unmodified — so it passed with the speed tax cut to a third of its swept value,
+  // which is a ladder that catches the player in three chapters instead of eight. A count is the
+  // claim; a maximum is a single roster row.
+  let nFastChapters = 0
+  {
+    const BASE = { normal: 90, fast: 165, tank: 55, drone: 90 }
+    const fast = []
+    for (const [id, ch] of Object.entries(CHAPTERS)) {
+      let top = 0
+      for (const r of ch.roster ?? []) {
+        if (r.flags?.includes('skittish')) continue   // food; exempt by design, see enemySpeedMulFor
+        top = Math.max(top, (BASE[r.archetype] ?? 90) * (r.speedMul ?? 1) * difficultySpeedMul(MAX_DIFFICULTY))
+      }
+      if (top > PLAYER.baseSpeed) fast.push(id)
+    }
+    nFastChapters = fast.length
+    // 7 of 15, against the 8 the shipped 6%/level produces. The band is a real one rather than a
+    // round number: 4%/level yields 6 and 2%/level yields 3, so anything that quietly shrinks the
+    // tax to "technically still there" reddens here.
+    assert(fast.length >= 7,
+      `at difficulty ${MAX_DIFFICULTY} only ${fast.length} of ${Object.keys(CHAPTERS).length} chapters field anything faster than the player's ${PLAYER.baseSpeed} px/s (${fast.join(', ') || 'none'}) — in the rest, walking in a straight line is still a complete answer`)
+    assert(!fast.includes('wreck'),
+      'run N.c: The Wreck counts as a chapter whose crowd can catch you — its roster is FOOD and must stay exempt from the ladder (see enemySpeedMulFor)')
+  }
+
+  // (d) THE LADDER MUST NOT SPEED UP FOOD. The Wreck's roster is prey: its speeds are a triangle
+  // designed against the player's 220 px/s (mackerel 103, sardine 183, damselfish 223), and a
+  // global multiplier makes dinner uncatchable — which the player experiences as starving, not as
+  // a harder level. Asserted on the speed the chapter ACTUALLY FIELDS at d1 against d5.
+  //
+  // ⚠ THE CONTROL IS ANOTHER CHAPTER, NOT THE MORAY. The obvious control is The Wreck's one
+  // non-skittish body, and it does not work: WAVE_TABLE withholds `tank` until t=140s, so a 60s
+  // fixture fields no moray at all and the case aborted on its own precondition. Undergrowth
+  // fields ordinary seekers in seconds and proves the same thing — that the exemption is not
+  // simply switching the whole ladder term off.
+  {
+    const speedMeta = makeMeta()
+    for (const id of ALL_CHAPTER_IDS) { ensureChapterMeta(speedMeta, id); speedMeta.chapters[id].unlocked = true }
+    const fielded = (chapter, difficulty, secs) => {
+      const restore = Math.random
+      Math.random = mulberry32(20260905)
+      const run = createRun(speedMeta, { chapter, difficulty })
+      let top = 0
+      for (let i = 0; i < secs * 60; i++) {
+        run.player.hp = run.player.maxHP
+        stepSim(run, { x: 1, y: 0 }, 1 / 60)
+        run.events.length = 0
+        for (const e of run.enemies) if (!e._dead && e.speed > top) top = e.speed
+      }
+      Math.random = restore
+      return top
+    }
+    const preyLo = fielded('wreck', 1, 45)
+    const preyHi = fielded('wreck', 5, 45)
+    const ctrlLo = fielded('undergrowth', 1, 45)
+    const ctrlHi = fielded('undergrowth', 5, 45)
+    assert(preyLo > 0 && ctrlLo > 0, `run N.d fixture fielded nothing (wreck ${preyLo}, undergrowth ${ctrlLo}) — nothing below measures the exemption`)
+    assert(Math.abs(preyHi - preyLo) < 1e-6,
+      `run N.d: The Wreck's fastest body went ${preyLo.toFixed(1)} px/s at d1 to ${preyHi.toFixed(1)} at d5 — the ladder is speeding up FOOD, and at 220 px/s the player already cannot catch a damselfish. That is starvation, not difficulty`)
+    assert(ctrlHi > ctrlLo * 1.05,
+      `run N.d: the undergrowth control is ${ctrlHi.toFixed(1)} px/s at d5 against ${ctrlLo.toFixed(1)} at d1 — the exemption is covering every body, so the ladder buys no speed anywhere`)
+  }
+
   const d5bulky = createRun(makeMeta(), { chapter: 'undergrowth', difficulty: 5, mutators: ['bulky'] })
-  assert.strictEqual(d5bulky.mods.enemyHpMul, 1.5 * 2, `bulky(1.5) x difficulty5(2) => 3, got ${d5bulky.mods.enemyHpMul}`)
+  assert.strictEqual(d5bulky.mods.enemyHpMul, 1.5,
+    `bulky(1.5) is now the WHOLE hp term at d5, got ${d5bulky.mods.enemyHpMul} — a mutator may still fatten the crowd, the ladder may not`)
   assert.strictEqual(d5bulky.mods.coinMul, 1.6 * 2, `bulky coins(1.6) x difficulty5(2) => 3.2, got ${d5bulky.mods.coinMul}`)
 
   for (let i = 0; i < 50; i++) {
@@ -3713,7 +3811,7 @@ function testDifficulty() {
   }
   assert.strictEqual(randomMutators(0).length, 0, 'randomMutators(0) is empty')
 
-  console.log('PASS run N (difficulty): hp scaling stacks with mutators, randomMutators sane')
+  console.log(`PASS run N (difficulty): the ladder buys speed x${difficultySpeedMul(MAX_DIFFICULTY)} and numbers x${difficultyCountMul(MAX_DIFFICULTY).toFixed(2)} at d${MAX_DIFFICULTY}, taxes HP at NO rung, leaves The Wreck's food alone, and puts something faster than the player in ${nFastChapters} of ${Object.keys(CHAPTERS).length} chapters`)
 }
 
 // ---- Run O: v4.3 "crazy-mod pass" (13 new behavioral mods, one focused check each) ----------
@@ -17008,15 +17106,16 @@ function testEarlyCalm() {
     console.log('PASS run OO.a (early-calm composes with chapter balance): body/pond/garden at explicit d1 get spawnMul/xpMul = EARLY_CALM×balance')
   }
 
-  // (b) same chapters at difficulty 2: EARLY_CALM doesn't fire (d1-only gate) and difficulty tax
-  // multipliers don't touch spawn/xp either — but CHAPTERS[chapter].balance has no difficulty gate
-  // at all, so body/pond's spawnMul/xpMul now equal the balance factors alone (garden has none,
-  // stays 1/1).
+  // (b) same chapters at difficulty 2: EARLY_CALM doesn't fire (d1-only gate), and the difficulty
+  // tax no longer touches xp — but since 2026-09-05 it DOES touch spawn, because the ladder buys
+  // crowd size where it used to buy enemy HP (see config.js's difficulty block). So the expected
+  // spawn is the chapter's own balance factor TIMES the ladder's count tax, while xp stays the
+  // balance factor alone (garden has neither, stays 1/1).
   {
     Math.random = mulberry32(20260714)
     for (const chapter of EARLY_CALM_CHAPTERS) {
       const run = createRun(makeMeta(), { chapter, difficulty: 2 })
-      const expectedSpawn = balSpawnMul(chapter)
+      const expectedSpawn = balSpawnMul(chapter) * difficultyCountMul(2)
       const expectedXp = balXpMul(chapter)
       assert(Math.abs(run.mods.spawnMul - expectedSpawn) < EPS,
         `expected ${chapter} d2 mods.spawnMul ≈ ${expectedSpawn}, got ${run.mods.spawnMul}`)
@@ -17201,13 +17300,21 @@ function testChapterBalance() {
     Math.random = mulberry32(20260714)
     const run = createRun(makeMeta(), { chapter: 'pond', difficulty: 3 })
     const expectedDmg = 0.75 * difficultyDmgMul(3)
-    assert(Math.abs(run.mods.spawnMul - 0.75) < EPS,
-      `expected pond d3 mods.spawnMul ≈ 0.75, got ${run.mods.spawnMul}`)
+    // v7.x: spawnMul is the balance factor TIMES the ladder's count tax — the ladder stopped
+    // taxing HP and started taxing speed and numbers instead (see the difficulty block in
+    // config.js for the measurement). Written as the product rather than as a literal so the
+    // stacking is what is asserted, which is what this case is about.
+    const expectedSpawn = 0.75 * difficultyCountMul(3)
+    assert(Math.abs(run.mods.spawnMul - expectedSpawn) < EPS,
+      `expected pond d3 mods.spawnMul ≈ ${expectedSpawn}, got ${run.mods.spawnMul}`)
     assert(Math.abs(run.mods.enemyDmgMul - expectedDmg) < EPS,
       `expected pond d3 mods.enemyDmgMul ≈ ${expectedDmg}, got ${run.mods.enemyDmgMul}`)
-    // v6.4.10 per-chapter HP ladder: pond 0.85, stacking with the d3 tax.
-    assert(Math.abs(run.mods.enemyHpMul - 0.85 * difficultyHpMul(3)) < EPS,
-      `expected pond d3 mods.enemyHpMul ≈ 0.85 × difficulty tax ${0.85 * difficultyHpMul(3)}, got ${run.mods.enemyHpMul}`)
+    // v6.4.10 per-chapter HP ladder: pond 0.85, and NOTHING from the difficulty ladder any more.
+    // The literal is the point: an HP term creeping back in is the regression this now guards.
+    assert(Math.abs(run.mods.enemyHpMul - 0.85) < EPS,
+      `expected pond d3 mods.enemyHpMul ≈ 0.85 (the chapter's own ladder alone — difficulty no longer taxes HP), got ${run.mods.enemyHpMul}`)
+    assert(Math.abs(run.mods.enemySpeedMul - difficultySpeedMul(3)) < EPS,
+      `expected pond d3 mods.enemySpeedMul ≈ ${difficultySpeedMul(3)} — the ladder's speed tax is what replaced the HP one, got ${run.mods.enemySpeedMul}`)
     console.log(`PASS run RR.b (pond d3 stacks balance with the difficulty tax): enemyDmgMul=${run.mods.enemyDmgMul.toFixed(4)} (expected ${expectedDmg.toFixed(4)})`)
   }
 
@@ -23629,10 +23736,18 @@ function testLaneGolden() {
   // elite spawn, so every stream-dependent number below re-phased — the trap the header describes,
   // and the same honesty test as the v7.79 re-capture. `py` is still exactly -12600 on all three
   // seeds, so the scroll rate the chapter guarantees did not move.
+  // RE-CAPTURED A THIRD TIME (2026-09-05) when the difficulty ladder stopped taxing enemy HP and
+  // started taxing enemy SPEED and enemy COUNT instead. These runs are at difficulty 3, so all
+  // three of those terms moved: the crowd arrives 1.3x as fast and moves 1.12x as quickly, which
+  // re-rolls every stream-dependent number here. Same honesty test as the two re-captures above,
+  // and it passes: `py` is still EXACTLY -12600 on all three seeds — 180s x LANE_SCROLL_SPEED, the
+  // one thing this chapter guarantees and the only number a ladder change has no business moving.
+  // The kill counts rising ~40% (269/281/279 -> 408/387/377) is the count tax landing, and is the
+  // corroboration that the re-capture is a real change rather than noise.
   const BEYOND_GOLDEN = [
-    { seed: 11, px: -392.214, py: -12600, enemies: 144, rocks: 1, kills: 269 },
-    { seed: 22, px: -151.081, py: -12600, enemies: 124, rocks: 1, kills: 281 },
-    { seed: 33, px: -189.782, py: -12600, enemies: 133, rocks: 1, kills: 279 },
+    { seed: 11, px: -113.230, py: -12600, enemies: 118, rocks: 1, kills: 408 },
+    { seed: 22, px: -430.000, py: -12600, enemies: 125, rocks: 1, kills: 387 },
+    { seed: 33, px: -189.777, py: -12600, enemies: 131, rocks: 1, kills: 377 },
   ]
   const meta = makeMeta()
   for (const id of ['body', 'pond', 'garden', 'undergrowth', 'city', 'skies', 'beyond']) {

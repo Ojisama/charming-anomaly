@@ -1,7 +1,7 @@
 // State shapes + persistent meta save/load. No Pixi, no DOM (except localStorage).
 import {
   PLAYER, PASSIVES, WEAPON_MODS, ELEMENTS, xpForLevel, mergeMutatorMods,
-  difficultyHpMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, ALL_CHAPTER_IDS, CHAPTERS,
+  difficultySpeedMul, difficultyCountMul, difficultyDmgMul, difficultyCoinMul, MAX_DIFFICULTY, CHAPTER_UNLOCK_DIFFICULTY, CHAPTER_ORDER, ALL_CHAPTER_IDS, CHAPTERS,
   chapterMaxDifficulty, resolveChapterId,
   EARLY_CALM, MAX_CHOICE_SLOTS,
   OBSTACLE_FIELD_RADIUS, OBSTACLE_PLACEMENT_ATTEMPTS, ringCentre, circuitLadder,
@@ -2334,15 +2334,21 @@ export function createRun(meta, opts = {}) {
   const bm = ensureBookMeta(meta, bookId)
   const maxHP = PLAYER.baseHP + shopBonus(bm, bookId, 'maxHP')
   // Pre-run modifiers (see MUTATORS + difficulty consts in config.js and the doc block above):
-  // opts.difficulty (1..MAX_DIFFICULTY, default 1) stacks its enemy-HP AND enemy-damage tax on
-  // top of mutators (v6.3.4 anti-turtle: HP-only difficulty made runs longer, not more dangerous).
+  // opts.difficulty (1..MAX_DIFFICULTY, default 1) stacks its enemy-SPEED, enemy-COUNT and
+  // enemy-damage taxes on top of mutators. It carried an enemy-HP tax until 2026-09-05; the block
+  // in config.js has the measurement that replaced it.
   // v6.4.1/v6.4.3: explicit difficulty 1 of the onboarding chapters (EARLY_CALM in config.js) also
   // thins the swarm and fattens xp per kill, per chapter — see early-calm gate below. v6.4.5: some
   // chapters additionally carry a CHAPTERS[id].balance block that eases spawn/damage at EVERY
   // difficulty (dailies included) — see the chapter-balance block below, which stacks on top.
   const difficulty = opts.difficulty ?? 1
   const mods = mergeMutatorMods(opts.mutators ?? [])
-  mods.enemyHpMul *= difficultyHpMul(difficulty)
+  // NO ENEMY-HP TERM. See the difficulty block in config.js for the measurement that removed it:
+  // +25%/level made every hit a smaller share of the thing it landed on, so the harder rungs read
+  // as weaker weapons. Speed and numbers carry the ladder now, and the damage tax is unchanged.
+  mods.enemySpeedMul *= difficultySpeedMul(difficulty)
+  mods.spawnMul *= difficultyCountMul(difficulty)
+  mods.maxAliveMul *= difficultyCountMul(difficulty)
   mods.enemyDmgMul *= difficultyDmgMul(difficulty)
   mods.coinMul *= difficultyCoinMul(difficulty)
   // A CIRCUIT CLIMBS ON TIME AND ROOM, because the three taxes above are all inert on one (see
