@@ -181,7 +181,7 @@ import {
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
   ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_DENS_R, ORCA_DENS_FULL_N, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
-  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX,
+  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX, ORCA_CLOSE_FRAC,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SLICK_BIRTH_CLEAR, SLICK_SPREAD_STEPS, spillSpread, slickR, slickChance, slickDps,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
@@ -5609,12 +5609,14 @@ function stepOrca(run, dt) {
     o.cx += (anc.x - o.cx) * Math.min(1, dt * 1.2)
     o.cy += (anc.y - o.cy) * Math.min(1, dt * 1.2)
     const k = 1 - Math.max(0, o.t) / ORCA_CIRCLE_DUR
-    // THE COIL TIGHTENS AND QUICKENS AT ONCE, which is the whole difference between a spiral and a
-    // corner — see the ORCA_ORBIT_RATE block for the three reasons the first cut read as circling.
-    // The rate RAMPS to x(1 + ORCA_SPIRAL_ACCEL) and the radius holds wide before plunging, so the
-    // last second is a whip rather than the same lap done smaller.
-    o.ang += ORCA_ORBIT_RATE * (1 + ORCA_SPIRAL_ACCEL * k) * dt
-    o.r = ORCA_RING_MIN_R + (ORCA_RING_R - ORCA_RING_MIN_R) * (1 - Math.pow(k, ORCA_SPIRAL_EASE))
+    // THE COIL TIGHTENS AND QUICKENS ON THE FIRST LAP, AND THEN STOPS. `kc` is the close's own
+    // progress and it saturates at ORCA_CLOSE_FRAC, so the radius and the rate both freeze for the
+    // last two laps and those two laps are the SAME CIRCLE — see ORCA_LAPS for the owner ruling
+    // this shape is. Both curves read the one variable on purpose: a rate still ramping over a
+    // frozen radius would leave a countdown the player cannot measure, which is the defect.
+    const kc = Math.min(1, k / ORCA_CLOSE_FRAC)
+    o.ang += ORCA_ORBIT_RATE * (1 + ORCA_SPIRAL_ACCEL * kc) * dt
+    o.r = ORCA_RING_MIN_R + (ORCA_RING_R - ORCA_RING_MIN_R) * (1 - Math.pow(kc, ORCA_SPIRAL_EASE))
     o.x = o.cx + Math.cos(o.ang) * o.r
     o.y = o.cy + Math.sin(o.ang) * o.r
     // THE SWEPT PATH, published for render to stroke. A coil you can SEE is a coil; the ring tell

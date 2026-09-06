@@ -11428,7 +11428,6 @@ export const ORCA_INTERVAL = 50        // s between visits -> t = 100/150/200/25
 // balance_decision : telegraph halved, the spiral is the read now 2026-08-23
 //  - the rise is the harmless half; cutting it shortens the WAIT, not the dodge window
 export const ORCA_RISE_DUR = 1.5       // s of the silhouette fading up out of the deep
-export const ORCA_CIRCLE_DUR = 4.0     // s of the SHADOW spiralling in underneath you
 export const ORCA_LEAVE_DUR = 1.6
 // ⚠ THE RING HAS TO BE BIGGER THAN THE ANIMAL, and at ORCA_LEN 560 the shipped 300 was not: the
 // body was almost twice the diameter of the circle it was supposedly swimming round, so it read as
@@ -11488,14 +11487,32 @@ export const ORCA_SPIRAL_ACCEL = 1.6   // ...rising to x(1 + this) by the moment
 //   Caught by mutation, not by reading: the LINEAR close it was meant to beat passed the halfway
 // assertion outright, because the eased radius was on the wrong side of it.
 export const ORCA_SPIRAL_EASE = 1.8
+// THREE CIRCLES, AND THE THIRD IS THE SECOND AGAIN. Owner ruling 2026-09-06: "three circle and the
+// third one is the same as the second one so the player can escape during the 3rd one". The coil
+// used to close and quicken continuously for its whole length, so the radius under the player was
+// different on every frame and no moment said "this is your window" - the strike arrived out of a
+// curve that never stopped moving. The close is confined to the FIRST lap now and the last two are
+// the identical circle: same radius, same rate, same duration, drawn over each other. The tell is
+// the coil STOPPING, and what the player measures their way out against is ORCA_RING_MIN_R's 130px
+// of clearance.
+//   Everything below is DERIVED from the two rate knobs above, so the lap count stays exactly three
+// through any re-tune of them. A typed duration silently becomes 2.6 laps the first time
+// ORCA_ORBIT_RATE moves, and nothing would say so.
+export const ORCA_LAPS = 3
+// The close lap runs the rate ramp end to end, so its mean rate is ORBIT x (1 + ACCEL/2); the held
+// laps run at the top of that ramp. One turn each.
+export const ORCA_CLOSE_DUR = (Math.PI * 2) / (ORCA_ORBIT_RATE * (1 + ORCA_SPIRAL_ACCEL / 2))
+export const ORCA_HOLD_DUR = (Math.PI * 2) / (ORCA_ORBIT_RATE * (1 + ORCA_SPIRAL_ACCEL))
+export const ORCA_CIRCLE_DUR = ORCA_CLOSE_DUR + ORCA_HOLD_DUR * (ORCA_LAPS - 1)  // ~4.76s
+export const ORCA_CLOSE_FRAC = ORCA_CLOSE_DUR / ORCA_CIRCLE_DUR                  // ~0.42
 // Points of swept path sim publishes for render to stroke — a MEMORY BOUND, not a look knob, and
 // that distinction cost a round. The first cut capped at 80 to leave a short comet tail, which at
 // 60fps is ~1.3s of path; on a phone the coil's on-screen stretch is only ever an arc of the loop,
 // so a tail that short is off screen for most of the stalk and the player sees nothing at all. 220
-// holds roughly the whole two-lap build, and the per-segment alpha fade (render.js) is what keeps a
-// full coil legible rather than a scribble. At the ticker's 0.05 clamp a whole stalk is 80 points
-// and this never binds; it binds at 60fps, where it drops the oldest fifth of the first lap.
-export const ORCA_TRAIL_MAX = 220
+// holds roughly the whole build, and the per-segment alpha fade (render.js) is what keeps a full
+// coil legible rather than a scribble. At the ticker's 0.05 clamp a whole stalk is 96 points and
+// this never binds; it binds at 60fps, where a three-lap stalk is ~286.
+export const ORCA_TRAIL_MAX = 330
 export const ORCA_COMMIT_SPEED = 940   // px/s of the strike — well over the player's 220
 export const ORCA_OVERSHOOT = 760      // px past you it carries before breaking off - the wake plows the whole way
 export const ORCA_HIT_R = 78           // px contact radius, DURING THE COMMIT ONLY (tracks ORCA_LEN)

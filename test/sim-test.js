@@ -162,6 +162,7 @@ import {
   ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
   ORCA_RING_MIN_R, ORCA_BITE_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, ORCA_DENS_FULL_N,
   ORCA_HERD_PULL, ORCA_COMMITS, ORCA_WAKE_R, ORCA_RING_R, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_SPIRAL_ACCEL, ORCA_TRAIL_MAX,
+  ORCA_LAPS, ORCA_HOLD_DUR, ORCA_CLOSE_FRAC,
   CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX, CHAPTER_BOARDS_DEFAULT,
   // The Trawl's late-game cut (run TJ)
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
@@ -10069,6 +10070,9 @@ function runOrca() {
     const fdt = 1 / 60
     let swept = 0, prevAng = run.orca.ang, firstRate = 0, lastRate = 0, i = 0
     const radii = []
+    // Swept angle alongside the radius, so the stalk can be SPLIT BY LAP rather than by time — the
+    // whole claim below is about what happens on laps 2 and 3 and a time index cannot express it.
+    const sweptAt = [], rates = []
     let peakTrail = 0
     while (run.orca && run.orca.state === 'circling' && i++ < Math.round(20 / fdt)) {
       hold(run, [])
@@ -10081,13 +10085,16 @@ function runOrca() {
       if (!firstRate) firstRate = d / fdt
       lastRate = d / fdt
       radii.push(o.r)
+      sweptAt.push(swept)
+      rates.push(d / fdt)
       peakTrail = Math.max(peakTrail, (o.trail || []).length / 2)
     }
     const laps = swept / (Math.PI * 2)
     // 1. TWO LAPS IS THE FLOOR FOR READING A COIL. The shipped-and-rejected cut managed 1.2, which
     // is a corner that drifts inward — you cannot see a spiral in a single turn.
-    assert.ok(laps >= 1.9,
-      `the stalk must be at least two full laps or there is no coil to see; it swept ${laps.toFixed(2)}`)
+    assert.ok(Math.abs(laps - ORCA_LAPS) < 0.06,
+      `the stalk must be exactly ORCA_LAPS (${ORCA_LAPS}) turns — the count is what the player learns, and ` +
+      `ORCA_CIRCLE_DUR is DERIVED from the rate knobs so it stays three through a re-tune. It swept ${laps.toFixed(2)}`)
     // 2. THE RATE RAMPS. A constant rate cannot express "tightening AND quickening", which is the
     // whole Jaws beat — and a faster constant would satisfy the lap count above on its own.
     assert.ok(lastRate > firstRate * (1 + ORCA_SPIRAL_ACCEL * 0.6),
@@ -10098,22 +10105,48 @@ function runOrca() {
       'the radius must close monotonically; it widened somewhere in the stalk')
     assert.ok(Math.abs(radii[radii.length - 1] - ORCA_RING_MIN_R) < 12,
       `the coil must finish at ORCA_RING_MIN_R (${ORCA_RING_MIN_R}); it ended at ${radii[radii.length - 1].toFixed(0)}`)
-    // ⚠ AND IT MUST HOLD WIDE BEFORE PLUNGING (ORCA_SPIRAL_EASE), so the LAST lap is the one that
-    // collapses. Monotonicity is blind to this and so was the first cut of this very assertion: it
-    // sat at 0.22, which a linear close clears at 0.50 without trying, and the eased curve that
-    // shipped was on the WRONG SIDE of linear anyway. 0.60 brackets the two — eased reads 0.71,
-    // linear reads 0.50 — and the mutation table has the linear close in it for that reason.
-    const mid = radii[Math.floor(radii.length / 2)]
-    const midFrac = (mid - ORCA_RING_MIN_R) / (ORCA_RING_R - ORCA_RING_MIN_R)
-    assert.ok(midFrac > 0.60,
-      `the coil must still be WIDE at the halfway mark and plunge on the LAST lap; it was already at ${mid.toFixed(0)} ` +
-      `of ${ORCA_RING_R}->${ORCA_RING_MIN_R}, i.e. ${midFrac.toFixed(2)} of the way out (a linear close reads exactly 0.50)`)
+    // ⚠ AND THE LAST TWO LAPS ARE THE SAME CIRCLE — the point of the whole shape. Owner ruling
+    // 2026-09-06: "three circle and the third one is the same as the second one so the player can
+    // escape during the 3rd one". A coil that closes for its whole length has a different radius on
+    // every frame, so nothing on screen says when the window opened; the strike simply arrives out
+    // of a curve that never stopped moving. Measured, the dodge itself did not change at all — a
+    // player who commits to a straight line for the last ORCA_HOLD_DUR beats 68% of strikes on both
+    // the old shape and this one. What changed is that the window is now VISIBLE, and the coil
+    // freezing is the thing that shows it. So this asserts the freeze, in both curves:
+    //   RADIUS — constant across laps 2..N, and sitting on the floor.
+    //   RATE — constant too, because a coil still quickening over a frozen radius is the same
+    //   unmeasurable countdown wearing a different knob.
+    // Split by SWEPT ANGLE rather than by time: the close lap is slower than the held ones, so a
+    // time-halfway index lands inside the held stretch and would pass over a broken close.
+    const held = radii.filter((_, n) => sweptAt[n] >= Math.PI * 2)
+    const heldRates = rates.filter((_, n) => sweptAt[n] >= Math.PI * 2)
+    const spanOf = (a) => Math.max(...a) - Math.min(...a)
+    assert.ok(held.length > 40 && spanOf(held) < 1e-6,
+      `laps 2..${ORCA_LAPS} must be ONE repeated circle: across ${held.length} frames past the first turn the radius ` +
+      `ranged ${spanOf(held).toFixed(2)}px (${Math.min(...held).toFixed(0)}-${Math.max(...held).toFixed(0)}), so the coil is still closing and there is no window to see`)
+    assert.ok(spanOf(heldRates) < 0.02,
+      `...and at ONE repeated speed, or the third lap is not the second lap: the rate ranged ` +
+      `${spanOf(heldRates).toFixed(3)} rad/s over those frames`)
+    // The close must genuinely be a LAP of its own, not a corner the freeze is bolted onto: the
+    // fraction is derived in config, and this pins that it buys a real turn of prowling.
+    const closeLaps = (sweptAt.find((v, n) => radii[n] <= ORCA_RING_MIN_R + 1e-6) ?? swept) / (Math.PI * 2)
+    assert.ok(closeLaps > 0.85 && closeLaps < 1.15,
+      `the close must take one whole lap — ORCA_CLOSE_FRAC (${ORCA_CLOSE_FRAC.toFixed(2)}) is derived to make it exactly one; ` +
+      `it finished closing after ${closeLaps.toFixed(2)} laps`)
     // 4. THE COIL IS PUBLISHED, CAPPED, AND READ. Without the published path render draws a circle
     // at the current radius, which is the tell that made a real spiral look like laps — so this is
     // the contract field the whole fix hangs on.
     assert.ok(peakTrail > 20, `the swept path must be published for render to stroke; it peaked at ${peakTrail} points`)
     assert.ok(peakTrail <= ORCA_TRAIL_MAX,
       `the trail must stay capped at ORCA_TRAIL_MAX (${ORCA_TRAIL_MAX}) or a whole stalk is drawn as a scribble; it reached ${peakTrail}`)
+    // ...AND THE CAP MUST NOT BIND ON A WHOLE STALK. The ceiling above moves with the constant, so
+    // it cannot see the cap being cropped — and cropping it drops the OLDEST points, i.e. the wide
+    // first circle, which is the one the other two are read against. Stated as "every frame of the
+    // stalk is still in the path", which is the effect; a bound quoting ORCA_TRAIL_MAX would move
+    // with the mutation exactly like the ceiling does. i counts the frames this loop actually ran.
+    assert.ok(peakTrail >= i - 2,
+      `the whole ${ORCA_LAPS}-lap stalk must fit the published path or the player reads a cropped coil: ` +
+      `${i} frames at ${Math.round(1 / fdt)}fps against a peak of ${peakTrail} points (ORCA_TRAIL_MAX ${ORCA_TRAIL_MAX})`)
     // The CLAUDE.md source-text idiom (run UG.k): a field sim publishes with no consumer in
     // render.js is indistinguishable on screen from the bug it was written to fix, and nothing
     // throws. Both halves are asserted because either one alone passes over a broken pair.
@@ -10164,9 +10197,10 @@ function runOrca() {
       assert.ok(off.every((v, k) => k === 0 || v >= off[k - 1] - 1e-9),
         'the slide out must be monotone — a shadow that jitters in and out is a glitch, not a rise')
     }
-    console.log(`PASS run OR.f (the shadow spirals in): ${laps.toFixed(2)} laps closing ${ORCA_RING_R}->${radii[radii.length - 1].toFixed(0)} ` +
-      `(still ${mid.toFixed(0)} at halfway, so it plunges late) while the rate ramps ${firstRate.toFixed(2)}->${lastRate.toFixed(2)} rad/s, ` +
-      `publishing a ${peakTrail}-point coil render strokes — and the silhouette surfaces UNDER the player before any of it, staying under until it commits`)
+    console.log(`PASS run OR.f (three circles, the last two the same): lap 1 closes ${ORCA_RING_R}->${radii[radii.length - 1].toFixed(0)} over ` +
+      `${closeLaps.toFixed(2)} turns while the rate ramps ${firstRate.toFixed(2)}->${lastRate.toFixed(2)} rad/s, then laps 2-3 repeat ONE circle ` +
+      `(${held.length} frames at a fixed radius and a fixed ${lastRate.toFixed(2)} rad/s, ${(ORCA_HOLD_DUR * (ORCA_LAPS - 1)).toFixed(2)}s of visible window) ` +
+      `for ${laps.toFixed(2)} turns total, publishing a ${peakTrail}-point coil render strokes — and the silhouette surfaces UNDER the player before any of it, staying under until it commits`)
   }
 
   // -- OR.g: DECOY BARREL AIMS THE ANIMAL. -----------------------------------------------------
@@ -28332,26 +28366,46 @@ function testWreckBlackTide() {
     return { coverageFrac: framesInOil / totalFrames, slickDmg: run.dmgBySrc.slick ?? 0 }
   }
 
+  // ⚠ POOLED OVER SEEDS, AND THE SEEDS ARE THE POINT. One walk against a x1.8 floor is an
+  // under-powered band in the exact shape CLAUDE.md warns about: measured over 12 seeds this ratio
+  // is x2.2 with a 1sd of 0.7 and a range of x1.38 to x3.69, so the floor sat inside one sigma and
+  // FOUR of those twelve seeds fail it on a tree where nothing is wrong. It survived only because
+  // seed 1 happened to land at x1.83, and it went red the day ORCA_CIRCLE_DUR moved — the orca's
+  // wake shoves this walk, so any orca re-tune re-rolls the path and therefore the reading.
+  //   The variance is mostly the DENOMINATOR: the ambient field is a different layout per
+  // _obstacleSeed, so `off` alone ranges 5.8%-15.5%. Pooling frames across seeds before dividing
+  // collapses that — the pooled ratio reads x2.0 on both trees, against x2.18 and x2.25 for the
+  // mean of per-seed ratios.
+  //   POWER: n=6, pooled SE ~0.31 (0.75/sqrt 6). The floor below sits ~1.8 SE under the measured
+  // x2.0 and the pathology it must still catch — the card wired to nothing, i.e. exactly x1.0 —
+  // sits 3.2 SE under it. The mutation table has that pathology in it for this reason.
+  //   Computed ONCE and shared: WO.c and WO.d ran the identical pair of walks separately, so six
+  // seeds here cost less than the two they replace did twice over.
+  const WO_SEEDS = [1, 2, 3, 4, 5, 6]
+  const WO_FLOOR = 1.45
+  const woArms = WO_SEEDS.map((sd) => ({ off: walkOilField(sd, false), on: walkOilField(sd, true) }))
+  const woPool = (arm, key) => woArms.reduce((a, w) => a + w[arm][key], 0)
+
   // -- WO.c: THE FIELD MEASURABLY COVERS MORE GROUND, over the same seeded walk. -------------------
   {
-    const off = walkOilField(1, false)
-    const on = walkOilField(1, true)
-    assert.ok(off.coverageFrac > 0, 'the control walk spent 0% of 180s inside a slick — this fixture proves nothing until it does')
-    assert.ok(on.coverageFrac > off.coverageFrac * 1.8,
-      `Marée Noire must measurably widen the ambient field: ${(100 * off.coverageFrac).toFixed(2)}% of the walk was in oil without it, ${(100 * on.coverageFrac).toFixed(2)}% with it`)
-    console.log(`PASS run WO.c (the field covers more ground): the same 180s walk spent ${(100 * off.coverageFrac).toFixed(2)}% of its time in oil without Marée Noire, ${(100 * on.coverageFrac).toFixed(2)}% with it (x${(on.coverageFrac / off.coverageFrac).toFixed(2)})`)
+    const off = woPool('off', 'coverageFrac') / WO_SEEDS.length
+    const on = woPool('on', 'coverageFrac') / WO_SEEDS.length
+    assert.ok(off > 0, 'the control walks spent 0% of 180s inside a slick — this fixture proves nothing until they do')
+    assert.ok(on > off * WO_FLOOR,
+      `Marée Noire must measurably widen the ambient field: pooled over ${WO_SEEDS.length} seeded walks, ${(100 * off).toFixed(2)}% of the time was in oil without it and ${(100 * on).toFixed(2)}% with it (x${(on / off).toFixed(2)}, floor x${WO_FLOOR})`)
+    console.log(`PASS run WO.c (the field covers more ground): ${WO_SEEDS.length} pooled 180s walks spent ${(100 * off).toFixed(2)}% of their time in oil without Marée Noire, ${(100 * on).toFixed(2)}% with it (x${(on / off).toFixed(2)} against a x${WO_FLOOR} floor, per-seed 1sd 0.7)`)
   }
 
   // -- WO.d: THE PLAYER'S DAMAGE FROM THE LEAK RISES WITH IT ON, over the same seeded walk. --------
   // Read off run.dmgBySrc.slick, the exact row §1.1b measures as 25.5% of what kills a mortal
   // hunter — the number this card is meant to move.
   {
-    const off = walkOilField(1, false)
-    const on = walkOilField(1, true)
-    assert.ok(off.slickDmg > 0, 'the control walk took 0 dmgBySrc.slick over 180s — this fixture proves nothing until it does')
-    assert.ok(on.slickDmg > off.slickDmg * 1.8,
-      `Marée Noire must measurably raise run.dmgBySrc.slick over the same walk: ${off.slickDmg} without it, ${on.slickDmg} with it`)
-    console.log(`PASS run WO.d (the Leak's toll rises): the same 180s walk cost ${off.slickDmg} HP to dmgBySrc.slick without Marée Noire, ${on.slickDmg} with it (x${(on.slickDmg / off.slickDmg).toFixed(2)})`)
+    const off = woPool('off', 'slickDmg')
+    const on = woPool('on', 'slickDmg')
+    assert.ok(off > 0, 'the control walks took 0 dmgBySrc.slick over 180s — this fixture proves nothing until they do')
+    assert.ok(on > off * WO_FLOOR,
+      `Marée Noire must measurably raise run.dmgBySrc.slick over the same walks: ${off.toFixed(0)} without it, ${on.toFixed(0)} with it (x${(on / off).toFixed(2)}, floor x${WO_FLOOR})`)
+    console.log(`PASS run WO.d (the Leak's toll rises): ${WO_SEEDS.length} pooled 180s walks cost ${off.toFixed(0)} HP to dmgBySrc.slick without Marée Noire, ${on.toFixed(0)} with it (x${(on / off).toFixed(2)} against a x${WO_FLOOR} floor)`)
   }
 
   console.log('PASS run WO (The Wreck: Marée Noire): the card is chapter-scoped through eligibleAnomalyIds while staying reachable from the dev menu, and turns one knob — CHAPTERS.wreck.signature.slicks.chance, read through run.anomalies?.blackTide in streamSlicks — that measurably widens the ambient field and measurably raises the Leak\'s own toll over the same seeded walk')
