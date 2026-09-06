@@ -1805,16 +1805,31 @@ function generateWells(sig) {
  * turn the body. A guard kept private would step, refuse damage, and never appear on screen.
  * `e.puffT` (s, The Wreck's Pufferfish) is published for the same reason and read the same way:
  * ROSTER_LOOKS.pufferfish takes poseOf off it to swap to the inflated ball. guardBlocks also writes
- * `guardAngle` when a puffer pops, so the guardblock spark below is thrown at the player rather
- * than due east. Its cooldown `e._puffCd` and the squid's `e._inkCd` stay private — neither is
- * drawn.
+ * `guardAngle` when a puffer pops, so the spark below is thrown at the player rather than due east.
+ * Its cooldown `e._puffCd` and the squid's `e._inkCd` stay private — neither is drawn.
+ * `e.puffPopT` (s, 2026-09-06) is published for the same reason again, and it exists because
+ * `puffT` alone posed the refusal WRONG rather than merely weakly: puffT goes to 0 on the refused
+ * bite (the mechanic ends there — the fish is bitable again from that frame), so the inflated
+ * silhouette collapsed on the very frame of the bite it had just eaten, and a spiny ball becoming a
+ * small fish the instant you bite it reads as your bite having landed. poseOf now holds the ball
+ * while EITHER is up, so the beats arrive in the order they happened: bite, bounce, then deflate.
+ * Ticked at the top of stepPuffUp, outside every early return, or a puffer strands in the popped
+ * pose forever. See PUFFER_POP_T.
  * {type:'guardblock', x, y, angle}: a direct hit refused by a Shore Crab's raised claw. Pushed
  *   INSTEAD OF {type:'hit'}, never alongside it — a blocked shot removed no HP, and floating its
  *   damage number would be a lie about the one thing the player needs to read. angle = the guard's
  *   held bearing, so the spark can be thrown back along the side that is covered. No SFX entry, and
- *   that is deliberate: it fires on every refused hit, which for a fast weapon is several a second.
- *   The Wreck's Pufferfish pushes this same event when it pops (guardBlocks) — one refusal, one
- *   tell, and the ball deflating on the very next frame is the rest of it.
+ *   that is deliberate and MEASURED: 662 refusals over a 300s hunt, one every 0.5s, peaking at 45
+ *   in a single second — a note on each would be machine-gun audio.
+ * {type:'puffblock', x, y, angle, r}: the same refusal from The Wreck's Pufferfish, and it is a
+ *   SEPARATE event rather than the one above because the two frequencies are 5x apart and the sound
+ *   decision falls on opposite sides of the line. Measured the same way, 4 x 300s hunting: 134 a
+ *   run, one every 2.2s, busiest second 6, 3.2% of all landed swings — against the ~15 ordinary
+ *   hits a SECOND the bank already plays. So this one HAS an SFX entry (audio.js `puffblock`) and
+ *   the crab's still must not. `r` is the ball's radius, so the burst comes off its rim instead of
+ *   its centre. Until 2026-09-06 the puffer pushed `guardblock` and inherited a tell built for the
+ *   crab's information ("this side is covered, go round") when its own is "that went into the
+ *   spines, wait a beat" — reported by the owner as not clear enough.
  * {type:'inkjet', x, y, r} (v7.x, The Wreck's Squid): a cloud squirted. The bloom it leaves fades UP
  *   over BLOOM_GROW_FRAC of its life, which is far too slow to read as a squirt, so this event is
  *   the burst and the bloom is what is left of it. No SFX entry, for the guardblock reason above:

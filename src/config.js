@@ -2946,6 +2946,11 @@ export const ORB_R = 12       // px, orbit spark hit radius
 // Overspeed makes the blade visibly turn faster rather than only cutting more often — a rate change
 // with no tell reads as no change at all.
 export const SCREW_SPIN_RATE = 7.5
+// GORGE (gnash): what eating an elite pays. It healed to FULL until 2026-09-06 — "an elite pays for
+// everything" was the reasoning, and the owner's ruling is that it paid too well. A flat number
+// rather than a fraction of max HP so the card can print what it does; it is deliberately NOT
+// rarity-scaled, because gorge is a `switch` and switches are normal-only.
+export const GORGE_HEAL = 10
 export const NOVA_LIFE = 0.45 // s, nova ring expansion time
 
 // Black hole vortex shape (applies to all levels; per-level dmg/tick/radius/pull/etc above)
@@ -3500,7 +3505,10 @@ export const WEAPON_MODS = {
     // must not have: "an elite pays 40% of your health" is a number nobody can feel, while "an elite
     // pays for everything" is a reason to go and pick a fight you were avoiding. Normal rarity, because makeWeaponModCard returns null
     // for a switch above normal — see the note on trashTornado.sweepLoot for the epic idiom.
-    gorge:           { name: 'Gorge',      desc: 'eating an elite heals you to full', icon: '🫀', kind: 'switch' },
+    // balance_decision : owner's nerf, heal-to-full -> a flat 10 HP 2026-09-06
+    //  - `base` on a SWITCH is read for nothing but the {n} in this sentence — makeWeaponModCard
+    //    banks 1 for a switch whatever it says, so this cannot change what the card does.
+    gorge:           { name: 'Gorge',      desc: 'eating an elite heals you {n} HP', icon: '🫀', kind: 'switch', base: GORGE_HEAL },
     // THE BITE GETS A SHOVE. gnash ships with no knockback deliberately — see the GNASH_ block —
     // so this card is the one that hands it one, and it is a `pct` on the impulse rather than a
     // switch because how far you throw a body is the whole axis. GNASH_ROLL_KB is the magnitude at
@@ -11377,6 +11385,16 @@ export const PUFFER_COOL_T = 1.5
 // stepEnemyMovement beside the oil stain. A ball does not swim, and this is what makes the punish
 // window generous: the refusal costs you one bite and hands you a slow body to spend it on.
 export const PUFFER_DRIFT_MUL = 0.25
+// HOW LONG THE BALL STAYS A BALL AFTER IT HAS EATEN THE BITE (owner, 2026-09-06: "it's not clear
+// enough that they negate the first damage"). Until now `puffT` went to 0 on the refused hit, so the
+// inflated silhouette vanished on the SAME FRAME as the bite that it refused — and a spiny ball
+// turning back into a small fish the instant you bite it reads as your bite having worked. The tell
+// was not merely weak, it pointed the wrong way.
+//   So the pose is HELD for this long and then deflates, which puts the two events in the order they
+// actually happened: bite, bounce, and only then the ball goes down. Render-only in effect — the
+// mechanic is unchanged, the puffer is bitable again immediately (see guardBlocks), and its drift
+// already keyed off `_puffCd` rather than off the pose.
+export const PUFFER_POP_T = 0.32
 
 
 // ---- THE ORCA (v7.x, The Wreck — chapters declaring `orca: true`) ------------------------------

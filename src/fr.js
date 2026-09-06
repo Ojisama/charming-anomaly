@@ -1018,7 +1018,7 @@ const CONFIG = {
   'Bloodrush': 'Coup de Sang',
   'move speed per bite for 2s, stacking 5 times': 'de vitesse par morsure pendant 2s, jusqu\'\u00e0 5 fois',
   'Gorge': 'Gavage',
-  'eating an elite heals you to full': 'd\u00e9vorer une \u00e9lite te rend toute ta vie',
+  'eating an elite heals you {n} HP': 'd\u00e9vorer une \u00e9lite te rend {n} PV',
   // chum's five and bilge's five (v7.x). 'Nappe' is the word for an oil slick on water and carries
   // both cards' spread, which is what makes them read as one chapter's gear.
   'Wide Slick': 'Nappe Large',

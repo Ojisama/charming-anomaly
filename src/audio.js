@@ -116,6 +116,17 @@ const SFX = {
   // (that one's a fireball burst; this is dead weight hitting the ground). Sub-80Hz sine sliding
   // lower for the mass of falling masonry, plus a brief noise burst for rubble dust. No long tail —
   // this plays dozens of times a second during a rampage (throttled above, but still).
+  // A BITE THAT WENT NOWHERE (v7.x, The Wreck's pufferfish). Deliberately the inverse of hit():
+  // that is a bright 2100Hz square tick and this is a low sine falling 250 -> 120, i.e. a jaw
+  // closing on something that gives and does not break. The short noise on top is the spines.
+  //   IT EARNS ITS ENTRY ON A MEASURED FREQUENCY, which is the bar SFX_FOR_EVENT keeps: one every
+  // 2.2s over 4 x 300s hunting, against the 15 ordinary hits a SECOND the bank already plays. The
+  // Shore Crab's refusal is 5x more frequent (one every 0.5s, peaking at 45 in a second) and
+  // deliberately stays silent — see the two-blockers block in sim.js.
+  puffblock() {
+    tone(250, { type: 'sine', dur: 0.11, gain: 0.13, slide: 120 })
+    noise({ dur: 0.05, gain: 0.05 })
+  },
   crush() {
     tone(70, { type: 'sine', dur: 0.09, gain: 0.26, slide: 32 })
     noise({ dur: 0.07, gain: 0.15 })
