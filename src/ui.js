@@ -3131,7 +3131,9 @@ export function initUI(hooks) {
   // (« 1 volée sur 4 », « les piquants font 2 aller-retours »), and before this it could only ever
   // be prefixed. A desc with no {n} keeps the old "+N " head, which is still most of them.
   function modEffectText(cfg, bonus) {
-    if (cfg.kind === 'switch') return t(cfg.desc)
+    // A switch with a number in it goes through tt() like every other templated line, so the French
+    // is keyed on the SENTENCE and survives the value being re-tuned (gorge, 2026-09-06).
+    if (cfg.kind === 'switch') return cfg.desc.includes('{n}') ? tt(cfg.desc, { n: cfg.base }) : t(cfg.desc)
     const n = cfg.kind === 'pct' ? modPct(bonus) : fmtNum(bonus)
     return cfg.desc.includes('{n}') ? tt(cfg.desc, { n }) : `+${n} ${t(cfg.desc)}`
   }

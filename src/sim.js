@@ -91,7 +91,7 @@ import {
   OIL_TRAIL_INTERVAL, OIL_TRAIL_R, OIL_TRAIL_DUR,
   FLAGELLA_CYCLONE_EVERY, BARBED_DMG_MUL, BARBED_DURATION,
   BLOOM_GROW_FRAC, BLOOM_TICK, SPOREBURST_FRAC, BLOOM_SLOW, BLOOM_SLOW_T, TIDE_DMG_BONUS, TIDE_TURN,
-  SCREW_SPIN_RATE,
+  SCREW_SPIN_RATE, GORGE_HEAL,
   STINGER_R, STINGER_HIVE_EVERY, LURE_STICKY_R, LURE_STICKY_DUR,
   PHEROMONE_LIFE, PHEROMONE_FOLLOW_RADIUS, PHEROMONE_SPEED_MUL,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T, DIVE_RECOVER_T,
@@ -173,7 +173,7 @@ import {
   BILGE_TRAIL_STEP_FRAC, BILGE_TRAIL_R_MUL, BILGE_TRAIL_GROW,
   OIL_STAIN_RATE, OIL_STAIN_MAX,
   INK_TRIGGER_R, INK_COOLDOWN, INK_R, INK_DUR, INK_SLOW_MUL,
-  PUFFER_TRIGGER_R, PUFFER_PUFF_T, PUFFER_COOL_T, PUFFER_DRIFT_MUL,
+  PUFFER_TRIGGER_R, PUFFER_PUFF_T, PUFFER_COOL_T, PUFFER_DRIFT_MUL, PUFFER_POP_T,
   ORCA_HERD_PULL, ORCA_RING_BAND, ORCA_INTERVAL, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_LEAVE_DUR,
   ORCA_RING_R, ORCA_RING_MIN_R, ORCA_ORBIT_RATE,
   ORCA_COMMIT_SPEED, ORCA_OVERSHOOT, ORCA_HIT_R, ORCA_DMG_FRAC,
@@ -3575,6 +3575,10 @@ function stepInkjet(run, e, dt) {
 // this timer only covers the puffer nobody bit — without it a fish that inflated once would be a
 // ball forever while the player stood near it.
 function stepPuffUp(run, e, dt) {
+  // FIRST, AND OUTSIDE EVERY BRANCH BELOW. The pop window has to drain on a body that is inflated,
+  // deflating, or idle alike — every one of the early returns further down would otherwise strand a
+  // puffer permanently in the popped pose, which is a ball that never goes back down.
+  if ((e.puffPopT ?? 0) > 0) e.puffPopT = Math.max(0, e.puffPopT - dt)
   if ((e.puffT ?? 0) > 0) {
     // PUFFING OUTRANKS A MOUTHFUL (owner ruling, 2026-08-23). A body reacting to the predator is
     // not a body with its head in a bucket, so an inflating fish neither starts nor keeps a Chum
@@ -3615,6 +3619,11 @@ function guardBlocks(run, e, dot) {
   if ((e.puffT ?? 0) > 0) {
     e.puffT = 0
     e._puffCd = PUFFER_COOL_T
+    // THE BALL STAYS A BALL FOR A BEAT. `puffT` going to 0 here is the mechanic ending (it can be
+    // bitten again from this frame), and it used to end the POSE at the same instant — so the
+    // silhouette collapsed on the very frame of the bite it had just refused, which reads as the
+    // bite having landed. Published, not private, because render poses off it; see PUFFER_POP_T.
+    e.puffPopT = PUFFER_POP_T
     e.guardAngle = Math.atan2(run.player.y - e.y, run.player.x - e.x)
     return true
   }
@@ -7344,7 +7353,19 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   // measuring damage off `hit` events is already a documented trap in this repo. It also has to be
   // SOME event: a shot that vanishes silently reads as the weapon being broken, which is exactly
   // the failure the elements redesign shipped. render.js and SFX_FOR_EVENT both consume this.
-  if (blocked) run.events.push({ type: 'guardblock', x: enemy.x, y: enemy.y, angle: enemy.guardAngle })
+  // ⚠ TWO BLOCKERS, TWO EVENTS, AND THE REASON IS MEASURED RATHER THAN TIDY. Both the Shore Crab's
+  // raised claw and the Wreck's pufferfish refuse a hit, and both used to push `guardblock` — whose
+  // "no SFX entry" ruling is recorded in state.js as "it fires on every refused hit, which for a
+  // fast weapon is several a second". Measured 2026-09-06 over 4 x 300s hunting, that is true of the
+  // CRAB and not of the puffer:
+  //                       refusals/run   one every   busiest second   % of landed swings
+  //     crab  (surf)           662          0.5s           45               15.0%
+  //     puffer (wreck)         134          2.2s            6                3.2%
+  // A sound is right at one every 2.2s and machine-gun audio at 45 in a second, so the ruling stands
+  // for the crab and had to stop applying to the puffer. `puffPopT` is what tells them apart: only
+  // the puffer's branch in guardBlocks sets it, and it is set on the frame of the refusal.
+  if (blocked && (enemy.puffPopT ?? 0) > 0) run.events.push({ type: 'puffblock', x: enemy.x, y: enemy.y, angle: enemy.guardAngle, r: enemy.radius })
+  else if (blocked) run.events.push({ type: 'guardblock', x: enemy.x, y: enemy.y, angle: enemy.guardAngle })
   else run.events.push({ type: 'hit', x: enemy.x, y: enemy.y, dmg, crit, dot })
 
   if (enemy.hp <= 0 && !enemy._dead) {
@@ -7354,13 +7375,14 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     // never by a kill — a free kill refill is a second source competing with the chapter's own
     // geometry, which is what abolished The Reef's bar back when the Scavenger unlock existed.
     //
-    // GORGE (gnash): eating an elite heals you to full. A switch rather than a fraction, because a
-    // fraction of a health bar is a number nobody can feel while "an elite pays for everything" is
-    // a reason to go and pick a fight you were avoiding. Placed here rather than at a bite site on
-    // purpose: the card says EATING an elite, so it must pay however the elite died — to the oil,
-    // to the leak, to anything. Guarded by the mod, which only gnash carries, so every chapter
-    // without it is bit-for-bit unchanged.
-    if (enemy.elite && (run.weaponMods.gnash?.gorge ?? 0) > 0) healPlayer(run, run.player.maxHP)
+    // GORGE (gnash): eating an elite pays GORGE_HEAL. It healed to FULL until the owner's
+    // 2026-09-06 ruling — the reasoning was that "an elite pays for everything" is a reason to go
+    // and pick a fight you were avoiding, and a flat 10 still is one without ending the run's
+    // attrition in a single kill. Placed here rather than at a bite site on purpose: the card says
+    // EATING an elite, so it must pay however the elite died — to the oil, to the leak, to
+    // anything. Guarded by the mod, which only gnash carries, so every chapter without it is
+    // bit-for-bit unchanged.
+    if (enemy.elite && (run.weaponMods.gnash?.gorge ?? 0) > 0) healPlayer(run, GORGE_HEAL)
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
 
     // JACKPOT (v7.x, The Trawl's sea turtle — CHAPTERS[].roster[].jackpot): a kill that pays a
@@ -12957,8 +12979,10 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   // usual "+N " head — see modEffectText in ui.js, which is what actually renders it (and which
   // each language re-places independently, the number being interpolated after translation).
   const nStr = cfg.kind === 'pct' ? modPct(bonus) : `${bonus}`
+  // A SWITCH CAN CARRY A NUMBER NOW (gorge, 2026-09-06). Its `base` is read for nothing else —
+  // the bonus banked for a switch is 1 regardless — so this is the sentence and never the effect.
   const desc = cfg.kind === 'switch'
-    ? cfg.desc
+    ? (cfg.desc.includes('{n}') ? cfg.desc.replaceAll('{n}', `${cfg.base}`) : cfg.desc)
     : cfg.desc.includes('{n}')
       ? cfg.desc.replaceAll('{n}', nStr)
       : `+${nStr} ${cfg.desc}`

@@ -155,7 +155,7 @@ import {
   // The Wreck's prey rework (Run WK)
   INK_TRIGGER_R, INK_COOLDOWN, INK_SLOW_MUL, INK_DUR,
   PUFFER_TRIGGER_R, PUFFER_COOL_T, PUFFER_DRIFT_MUL,
-  GNASH_MAW_MUL, RUSH_MAX_STACKS, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
+  GNASH_MAW_MUL, RUSH_MAX_STACKS, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, PUFFER_POP_T, GORGE_HEAL,
   SLICK_SPREAD_T, SLICK_R_LATE, slickR,
   BALLAST_RING,
   // The Wreck's orca (Run OR)
@@ -8730,6 +8730,57 @@ function runPrey() {
     console.log(`PASS run PY.b (fresh oil burns): 8s in the player's own oil costs a body ${oiled} HP (${crude} with Crude) and 0 with no drum equipped, while 8s in the chapter's own leak costs 0 and stains ${(e.oiled || 0).toFixed(2)}`)
   }
 
+  // -- PY.h: GORGE pays a FLAT amount for an elite, not a full bar. -------------------------------
+  // Owner, 2026-09-06: "Gavage is too strong, only give back 10hp." It healed to run.player.maxHP.
+  //
+  // ASSERTED AS HP RECOVERED, never as the constant read back: a fixture that checks GORGE_HEAL is
+  // 10 passes with the heal call deleted. And pinned to the shipped constant rather than to a
+  // literal, so a later re-tune moves this case with it instead of failing at it.
+  {
+    // GORGE_KILL_FIXTURE: the elite is killed the way a player kills one — dealDamage is not
+    // exported to this suite, and reaching for it would be testing a private anyway. The heal site
+    // is in the KILL branch rather than at a bite site (the card says eating an elite, so it pays
+    // however the elite died); that placement is a two-line read in sim.js and this case asserts
+    // the AMOUNT, which is the half that can silently drift.
+    const eat = (withGorge, missingHP) => {
+      const run = mk(20260906)
+      run.weapons = [{ id: 'gnash', level: 5 }]
+      run.weaponMods.gnash = withGorge ? { gorge: 1 } : {}
+      const p = run.player
+      p.maxHP = 500
+      p.hp = 500 - missingHP
+      const e = put(run, { x: p.x + 40, y: p.y, hp: 20, speed: 0, flags: [] })
+      e.elite = true
+      e.maxHP = 20
+      e.dmg = 0            // it must not hurt the player back, or the measurement is a net figure
+      const before = p.hp
+      for (let i = 0; i < Math.round(4 / dt) && !e._dead; i++) {
+        only(run, [e])
+        e.x = p.x + 40; e.y = p.y
+        run.blooms.length = 0; run.slicks.length = 0
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      assert.ok(e._dead, 'precondition: the elite must actually die inside the window, or this arm measures nothing')
+      return p.hp - before
+    }
+    const healed = eat(true, 200)
+    const control = eat(false, 200)
+    const nearFull = eat(true, 3)
+    assert.strictEqual(control, 0, `without the card an elite must heal nothing; it healed ${control}`)
+    assert.strictEqual(healed, GORGE_HEAL,
+      `Gorge must pay exactly GORGE_HEAL (${GORGE_HEAL}) for an elite, not a full bar — it healed ${healed} of the 200 HP that was missing`)
+    assert.strictEqual(nearFull, 3,
+      `...and must not overheal past max: with 3 HP missing it must pay 3, not ${nearFull}`)
+    // THE CARD SAYS THE NUMBER, and it says it through {n} rather than baked in — a sentence with
+    // its value written into it is keyed on that value and orphans its French on every re-tune.
+    const cfg = WEAPON_MODS.gnash.gorge
+    assert.ok(cfg.desc.includes('{n}'),
+      `Gorge's copy must carry the amount as a {n} template, not a baked number; it reads "${cfg.desc}"`)
+    assert.strictEqual(cfg.base, GORGE_HEAL,
+      `...and the {n} it prints must be the number the sim pays: card ${cfg.base} against GORGE_HEAL ${GORGE_HEAL}`)
+    console.log(`PASS run PY.h (gorge): an elite dying anywhere pays exactly ${healed} HP with the card and ${control} without, never overheals (3 of 3 with a nearly full bar), and the card prints the amount from a {n} template`)
+  }
+
   // -- PY.c: THE SCREW trails, and MOVING is what powers it. -------------------------------------
   // The chapter's fourth native, and the one card in the game whose output depends on the shape of
   // the player's path rather than on where they are standing.
@@ -9498,6 +9549,7 @@ function runPrey() {
       const e = put(run, { x: p.x + 40, y: p.y, hp: 1e6, speed: 90, flags })
       e.maxHP = 1e6
       let blocks = 0, hits = 0, firstWasBlocked = null
+      let crabEvents = 0, popHeld = 0
       let moved = 0
       for (let i = 0; i < Math.round(secs / dt); i++) {
         only(run, [e])
@@ -9509,17 +9561,44 @@ function runPrey() {
         // does — so a fixture that only reads it recounts the whole backlog every frame. The first
         // cut of this block reported 1292 refusals in 8s for a mechanic that fired 7 times.
         for (const ev of run.events.splice(0)) {
-          if (ev.type === 'guardblock') { blocks++; if (firstWasBlocked === null) firstWasBlocked = true }
+          // THE PUFFER PUSHES ITS OWN EVENT since 2026-09-06 — see the two-blockers block in
+          // dealDamage. `guardblock` is counted separately and must stay at zero here, or the split
+          // has quietly collapsed back into one event and the Shore Crab's silent-by-design ruling
+          // would start applying to a creature whose refusal is 5x rarer.
+          if (ev.type === 'puffblock') { blocks++; if (firstWasBlocked === null) firstWasBlocked = true }
+          if (ev.type === 'guardblock') crabEvents++
         }
+        // ...and the BALL is still a ball for a beat after it. Sampled every frame so this counts
+        // the window rather than catching one moment of it.
+        if ((e.puffPopT ?? 0) > 0) popHeld++
         if (e.hp < hp0) { hits++; if (firstWasBlocked === null) firstWasBlocked = false }
         moved += Math.hypot(e.x - before.x, e.y - before.y)
         void moved
       }
-      return { blocks, hits, firstWasBlocked }
+      return { blocks, hits, firstWasBlocked, crabEvents, popHeld }
     }
     const puffer = chew(['puffup'], 8)
     const plain = chew([], 8)
     assert.strictEqual(plain.blocks, 0, `the same fish without the flag must refuse nothing; it refused ${plain.blocks}`)
+    assert.strictEqual(puffer.crabEvents, 0,
+      `a pufferfish must push puffblock and NEVER guardblock: the two events are split because their measured frequencies are 5x apart (one every 2.2s against one every 0.5s), and only one of them may carry a sound. It pushed ${puffer.crabEvents} crab events`)
+    // ⚠ THE TELL OUTLIVES THE MECHANIC, AND THAT IS THE POINT (owner, 2026-09-06: "it's not clear
+    // enough that they negate the first damage"). `puffT` goes to 0 on the refused bite — the fish
+    // is bitable again from that frame — and posing off that alone collapsed the ball on the very
+    // frame of the bite it had just eaten, which reads as the bite having WORKED. So the pose is
+    // held for PUFFER_POP_T afterwards. A floor of one frame per refusal is the weakest form of
+    // the claim and still fails if the field is never set.
+    assert.ok(puffer.popHeld >= puffer.blocks,
+      `the ball must stay inflated for a beat after each refusal, or the silhouette vanishes on the frame of the bite and reads as a hit landing: ${puffer.popHeld} frames held across ${puffer.blocks} refusals`)
+    assert.ok(puffer.popHeld >= Math.round((PUFFER_POP_T / dt) * 0.5),
+      `...and that beat must be about ${PUFFER_POP_T}s (${Math.round(PUFFER_POP_T / dt)} frames) at least once; only ${puffer.popHeld} frames were held in total`)
+    // ...AND IT COMES BACK DOWN. A floor alone is passed by a window that never drains at all,
+    // which is a puffer stranded as a ball for the rest of the run — the pose would then say
+    // "armoured" permanently, about a fish that is bitable. The bound is what the cycle can
+    // actually produce: one pop window per refusal, plus half a window of slack.
+    const popBudget = Math.round(puffer.blocks * (PUFFER_POP_T / dt) * 1.5)
+    assert.ok(puffer.popHeld <= popBudget,
+      `the ball must DEFLATE again after each beat: ${puffer.popHeld} frames held across ${puffer.blocks} refusals, where ${puffer.blocks} pop windows are at most ${popBudget}`)
     assert.strictEqual(puffer.firstWasBlocked, true,
       'the first swing that reaches an inflated puffer must be REFUSED — that is the whole card')
     assert.ok(puffer.hits > 0, `a puffer must still be eaten; it took ${puffer.hits} landed hits in 8s`)

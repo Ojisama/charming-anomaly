@@ -4752,7 +4752,11 @@ export function createRenderer(app) {
     // PUFFER_DRIFT_MUL), so it should keep turning too. A held heading here would read as stunned.
     pufferfish: {
       archetype: 'normal', draw: drawPufferfish, lean: 90, poses: 2,
-      poseOf: (e) => ((e.puffT ?? 0) > 0 ? 1 : 0),
+      // ...AND IT HOLDS THROUGH THE POP. `puffT` goes to 0 on the refused bite (the mechanic ends
+      // there — it is bitable again immediately), so posing off that alone collapsed the ball on
+      // the very frame of the bite it had just eaten, which reads as the bite having worked. The
+      // extra term is PUFFER_POP_T's whole purpose.
+      poseOf: (e) => ((e.puffT ?? 0) > 0 || (e.puffPopT ?? 0) > 0 ? 1 : 0),
     },
     mackerel: { archetype: 'normal', draw: drawMackerel, lean: 90 }, // top-down: barred spindle, forked tail -x, eyes in a ±y pair
     tuna: { archetype: 'fast', draw: drawTuna, lean: 90 },           // top-down: gold crescent, gold wing pectorals, side bands, sickles and finlets all ±y mirrored
@@ -19454,6 +19458,35 @@ const spurG = new Graphics()
             const sp = 70 + Math.random() * 70
             spawnParticle(T.fx.circle_05, e.x + Math.cos(a0) * 12, e.y + Math.sin(a0) * 12,
               Math.cos(a) * sp, Math.sin(a) * sp, 0.16 + Math.random() * 0.1, 0.05, 0xffe8cf, 0.1, 2)
+          }
+          break
+        }
+        // v7.x THE WRECK's pufferfish ({type:'puffblock',x,y,angle,r}). The crab's three sparks above
+        // are the wrong tell for this creature and were what the owner reported as unclear
+        // (2026-09-06): they are thrown 12px from the centre, live 0.16s, and say "this side is
+        // covered, go round" — which is the crab's information. The puffer's is "that went into the
+        // spines, wait a beat", and it has to survive the most crowded chapter in the game.
+        //   So: a full RING off the ball's own rim rather than a spray off one bearing, at roughly
+        // twice the life. COOL WHITE, and that was a re-shoot: the first cut used the puffer's own
+        // sand-gold, which is the same hue at the same value as the thing it is drawn on top of —
+        // the burst was present and hard to find, which is the whole complaint again. Plus one quick
+        // expanding outline, because a ring is the shape that reads as "bounced" at a glance and it
+        // is the only mark here big enough to find in a frame holding 120 bodies.
+        case 'puffblock': {
+          const pr = e.r ?? 20
+          for (let i = 0; i < 12; i++) {
+            const a = (i / 12) * Math.PI * 2 + Math.random() * 0.24
+            const sp = 90 + Math.random() * 90
+            spawnParticle(T.fx.circle_05, e.x + Math.cos(a) * pr * 0.9, e.y + Math.sin(a) * pr * 0.9,
+              Math.cos(a) * sp, Math.sin(a) * sp, 0.3 + Math.random() * 0.14, 0.06, 0xdff3ff, 0.55, 2)
+          }
+          // The bearing the bite came in on still gets a brighter pair, so the ring does not lose
+          // the one thing the crab's spray got right — where the hit came from.
+          const ba = e.angle ?? 0
+          for (let i = 0; i < 2; i++) {
+            const a = ba + (Math.random() - 0.5) * 0.5
+            spawnParticle(T.fx.circle_05, e.x + Math.cos(ba) * pr, e.y + Math.sin(ba) * pr,
+              Math.cos(a) * 210, Math.sin(a) * 210, 0.26, 0.05, 0xfff4d8, 0.9, 3)
           }
           break
         }

@@ -539,6 +539,10 @@ const SFX_FOR_EVENT = {
   // there like shoot/hit/zap so a rampage flattening dozens of structures a second doesn't machine-
   // gun the audio graph (design doc §2, "audio machine-gunning").
   crush: 'crush',
+  // v7.x The Wreck: a bite refused by an inflated pufferfish. The ONE refusal event with a sound,
+  // and the split from `guardblock` exists for exactly this — see the measured frequencies in
+  // sim.js. `guardblock` (the Shore Crab's) still has no entry and must not gain one.
+  puffblock: 'puffblock',
   // v5.21 lane (beyond): the active shove reuses the hole whoosh, and a rock clipping the player
   // is an ordinary hurt — it is damage, not a special occasion.
   repulse: 'hole', rockhit: 'hurt',
