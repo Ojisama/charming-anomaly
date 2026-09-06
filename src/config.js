@@ -2854,6 +2854,43 @@ export const WEAPONS = {
       { rate: 3.4, castRange: 320, dur: 5.6, aggro: 320, food: 15 },
     ],
   },
+  // THE SCREW (2026-09-06). The Wreck's fourth native, and the answer to a measured hole: this
+  // chapter has the highest spawnMul and maxAliveMul in the game and had no weapon that deals with
+  // a crowd continuously — a bite, a bait and a pool of oil, all of them punctual.
+  //
+  // ⚠ IT TRAILS, IT DOES NOT ORBIT, AND THAT DECISION IS THE WHOLE CARD. The concept as first
+  // pitched was "a propeller spinning beside you", which is `orbit` (Phage Ring) with a different
+  // sprite and different numbers — the "two concepts that differ only in damage, area and rate are
+  // one concept" trap, in the one shape this repo keeps re-buying. Put back to the owner and ruled:
+  // it drags behind you on a chain.
+  //
+  // WHAT THE PLAYER DOES DIFFERENTLY, which is the test a new weapon has to pass: your PATH is the
+  // weapon. An orbiter covers a ring around you and rewards standing still; this covers where you
+  // have BEEN, so a loop around a pack carves through it and a straight line drags the screw along
+  // behind you doing very little. It is also the only weapon in the game that rewards how you move,
+  // and it lands in the chapter that is already about what you leave behind — the oil.
+  //
+  // THE CHAIN IS A CONSTRAINT, NOT A SPEED. The screw is pulled toward the player and snapped to
+  // `chain` px when the line goes taut, which is a rope and not a chaser: swim toward it and the
+  // chain goes slack and it sits still; turn hard and it swings wide through the inside of the
+  // turn. That single rule is where every interesting position it takes comes from, so it has no
+  // speed knob of its own to drift out of sync with the player's.
+  //
+  // ⚠ UNMEASURED FIRST CUT. Pitched against orbit (dmg 10-24 across 2-5 orbs at ORB_R 12, tick
+  // 0.5-0.35): ONE body, so a wider one, hitting a little harder and a little faster, and it has to
+  // be earned by moving. Census before quoting any of it.
+  screw: {
+    name: 'The Screw',
+    desc: 'Drags the ship\'s propeller behind you on a chain. It cuts whatever your wake passes over.',
+    icon: '\u2699\ufe0f', rarity: 'normal',
+    levels: [
+      { dmg: 12, radius: 34, chain: 110, tick: 0.40 },
+      { dmg: 15, radius: 37, chain: 118, tick: 0.37 },
+      { dmg: 19, radius: 40, chain: 126, tick: 0.34 },
+      { dmg: 24, radius: 44, chain: 134, tick: 0.31 },
+      { dmg: 31, radius: 48, chain: 142, tick: 0.28 },
+    ],
+  },
   bilge: {
     name: 'Bilge',
     desc: 'Splits a drum. The oil crawls out, burns what wades through it, and leaves it slow long after.',
@@ -2904,6 +2941,11 @@ export const STAR_LIFE = 1.2  // s, star projectile lifetime
 export const STAR_R = 10      // px, star hit radius
 export const STAR_FAN = 0.15  // rad between fan shots
 export const ORB_R = 12       // px, orbit spark hit radius
+// The Screw's blade rotation, rad/s. RENDER-ONLY: the sim advances it (so there is one clock and
+// render never writes to run) and nothing branches on it. Scaled by the weapon's own fire rate, so
+// Overspeed makes the blade visibly turn faster rather than only cutting more often — a rate change
+// with no tell reads as no change at all.
+export const SCREW_SPIN_RATE = 7.5
 export const NOVA_LIFE = 0.45 // s, nova ring expansion time
 
 // Black hole vortex shape (applies to all levels; per-level dmg/tick/radius/pull/etc above)
@@ -3507,6 +3549,16 @@ export const WEAPON_MODS = {
   // SIZE and a wall's LIFE are one card at two intensities, and neither says anything about the
   // chapter. The two that replace it both turn the wall from denial into HERDING, which is what
   // this chapter's arsenal claims to be ("close, gather, cut off").
+  // Five, and the count mod is the one carrying the build variety. `longChain` is not a plain
+  // number: a longer chain sweeps a WIDER arc through a turn and lags further behind on a straight,
+  // so it is the knob that decides whether this is a weapon you steer or one you tow.
+  screw: {
+    honedBlades: { name: 'Honed',      desc: 'blade damage',                         icon: '\ud83d\udd2a', base: 0.30, kind: 'pct' },
+    wideScrew:   { name: 'Bent Blades', desc: 'how wide the screw cuts',             icon: '\u2699\ufe0f', base: 0.25, kind: 'pct' },
+    longChain:   { name: 'Long Chain', desc: 'how far back it drags',                icon: '\u26d3\ufe0f', base: 0.30, kind: 'pct' },
+    overspeed:   { name: 'Overspeed',  desc: 'how fast the screw turns',             icon: '\ud83c\udf00', base: 0.25, kind: 'pct' },
+    twinScrew:   { name: 'Twin Screw', desc: 'screw(s) on the chain behind you',     icon: '\u2693', kind: 'tier' },
+  },
   bilge: {
     wideBilge:  { name: 'Split Seam',  desc: 'oil spread',               icon: '🛢️', base: 0.30, kind: 'pct' },
     // Now that the oil burns, the card that says so — the mod this weapon could not have while its
@@ -4169,7 +4221,7 @@ export const WEAPON_RATE_MODS = {
   atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash', foxfire: 'quickKindle',
   breaker: 'quickBreak', ballast: 'quickWinch', siltVeil: 'quickStir', downwash: 'quickPour',
   pistolShrimp: 'quickSnap', fireCoral: 'quickWake', squidInk: 'quickInk', oxygenTank: 'quickTank',
-  bringItIn: 'quickReel',
+  bringItIn: 'quickReel', screw: 'overspeed',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.
@@ -4180,10 +4232,12 @@ export const WEAPON_RATE_MODS = {
 // v7.23: the lash's doubleHook (how many aircraft one lash drags down) and the breath's `forked`
 // (+jumps) are read at their own sites too, for the same reason — folding a count into levels[]
 // via WEAPON_STAT_MODS only works for keys effectiveWeaponStats already carries.
-export const WEAPON_COUNT_MODS = { star: 'multishot', tailLash: 'doubleHook', atomicBreath: 'forked' }
+export const WEAPON_COUNT_MODS = { star: 'multishot', tailLash: 'doubleHook', atomicBreath: 'forked', screw: 'twinScrew' }
 // ...and WHICH levels[] key that mod adds to. The star's is literally `count`, which is why this
 // map did not exist before; the two v7.23 weapons count different things. Missing entry = 'count'.
-export const WEAPON_COUNT_KEYS = { tailLash: 'hooks', atomicBreath: 'jumps' }
+// The Screw counts SCREWS ON THE CHAIN, and there is no such key in its levels[] (one is the
+// base case and the mod is the only thing that adds a second), so it is read at the fire site.
+export const WEAPON_COUNT_KEYS = { tailLash: 'hooks', atomicBreath: 'jumps', screw: 'screws' }
 
 // ---- The pause build sheet's stat rows -------------------------------------------------------
 // ONE ordered table, because this was two: an ordered whitelist array inside buildReadout (sim.js)
@@ -8108,7 +8162,10 @@ CHAPTERS.wreck = {
   //          that was not prey.
   // The play the three make together: bait a pack into a slick, and bite them while they are slow
   // and stopped.
-  weapons: ['gnash', 'chum', 'bilge'], starter: 'gnash',
+  //   screw  the ship's own propeller, dragged behind you on a chain. The chapter's answer to its
+  //          own crowd — the only continuous damage in the pool, and the only weapon in the game
+  //          that pays for how you MOVE rather than for where you stand.
+  weapons: ['gnash', 'chum', 'bilge', 'screw'], starter: 'gnash',
 
   // ---- THE ROSTER: THE WRECK'S RESIDENTS, AND THEY DEFEND IT ------------------------------------
   // Owner, 2026-09-05: "I don't like the premise of the chapter. Let's turn it back into a normal

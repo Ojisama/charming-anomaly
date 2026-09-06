@@ -91,6 +91,7 @@ import {
   OIL_TRAIL_INTERVAL, OIL_TRAIL_R, OIL_TRAIL_DUR,
   FLAGELLA_CYCLONE_EVERY, BARBED_DMG_MUL, BARBED_DURATION,
   BLOOM_GROW_FRAC, BLOOM_TICK, SPOREBURST_FRAC, BLOOM_SLOW, BLOOM_SLOW_T, TIDE_DMG_BONUS, TIDE_TURN,
+  SCREW_SPIN_RATE,
   STINGER_R, STINGER_HIVE_EVERY, LURE_STICKY_R, LURE_STICKY_DUR,
   PHEROMONE_LIFE, PHEROMONE_FOLLOW_RADIUS, PHEROMONE_SPEED_MUL,
   DIVE_STANDOFF, DIVE_HOVER_T, DIVE_TELEGRAPH_T, DIVE_T, DIVE_RECOVER_T,
@@ -2120,6 +2121,9 @@ function freshEnemyFields() {
   return {
     hitFlash: 0,
     orbCd: 0,
+    _screwCd: 0,   // The Screw's own per-enemy cooldown — never orbCd, or a run holding both weapons
+                   // would have each one eating the other's hits with nothing thrown
+
     kb: { x: 0, y: 0 },
     holePull: 0,
     // Elemental status (see ELEMENTS in config.js; ticked by stepStatuses). `chill` and `venom`
@@ -2885,6 +2889,7 @@ function stepEnemyMovement(run, dt) {
 
     if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt)
     if (e.orbCd > 0) e.orbCd = Math.max(0, e.orbCd - dt)
+    if (e._screwCd > 0) e._screwCd = Math.max(0, e._screwCd - dt)
     if (e._debrisCd > 0) e._debrisCd = Math.max(0, e._debrisCd - dt) // Trash Tornado's per-chunk cd
     // v5.4 status effects: tick down every frame, like invuln does for the player.
     if (e.fearT > 0) {
@@ -7765,6 +7770,10 @@ const WEAPON_STAT_MODS = {
   // own site (stepLures, stepChumWeapon, stepOrca, stepBlooms, stepEnemyMovement).
   chum:          { widerChum: ['aggro', 'pct'] },
   bilge:         { wideBilge: ['maxR', 'pct'], crudeCut: ['dmgPerTick', 'pct'] },
+  // The Wreck's fourth. `overspeed` is in WEAPON_RATE_MODS rather than here for the usual reason —
+  // `tick` is seconds between cuts, so folding a pct onto it would SLOW the screw. `twinScrew` is a
+  // per-cast count with no key in levels[] and is read at the fire site.
+  screw:         { honedBlades: ['dmg', 'pct'], wideScrew: ['radius', 'pct'], longChain: ['chain', 'pct'] },
   quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'] },
   chitterShriek: { terror: ['fear', 'pct'], shockwave: ['radius', 'pct'], shrill: ['dmg', 'pct'] },
   trashTornado:  { heavyTrash: ['dmg', 'pct'], wideHunt: ['hunt', 'pct'], fastWinds: ['travelSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
@@ -8003,6 +8012,7 @@ function stepWeapons(run, dt) {
     else if (w.id === 'gnash') stepGnashWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'chum') stepChumWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'bilge') stepBilgeWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'screw') stepScrewWeapon(run, stats, fireRateMul, dt)
     else if (w.id === 'pistolShrimp') stepSnapWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'fireCoral') stepFireCoralWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'squidInk') stepSquidInkWeapon(run, w, stats, fireRateMul, dt)
@@ -9965,6 +9975,64 @@ function stepChumWeapon(run, w, stats, fireRateMul, dt) {
 // A run.blooms entry tagged look: 'bilge' — the fourth card on that array. `dmgPerTick: 0` and
 // `slow` ON: this is a drag, not a damage zone. slickTrail lays it at the player's feet as they
 // swim instead of ahead, which is what turns a series of circles into a drawn fence.
+// THE SCREW (v7.x, The Wreck). One body per chain link, dragged behind the player, cutting whatever
+// its own radius touches. See WEAPONS.screw in config.js for why it trails rather than orbits.
+//
+// ⚠ IT IS A ROPE, NOT A CHASER, AND THAT IS THE WHOLE BEHAVIOUR. The screw is never moved toward the
+// player at some speed of its own — it is left exactly where it was and then SNAPPED back to `chain`
+// px when the line goes taut. Everything the card is for falls out of that one rule: swim at it and
+// the chain slackens and it sits still; turn hard and it swings wide through the inside of the turn,
+// sweeping ground the player has already crossed. A speed knob would have to be kept in sync with
+// the player's own (which passives move) and would turn every hard turn into a straight line.
+//
+// run.screws PERSISTS ACROSS FRAMES and is therefore NOT cleared in stepWeapons, unlike run.orbs:
+// the position IS the state here, and an orbiter's is a pure function of run.time. Same contract as
+// run.debris, whose header states the exception.
+function stepScrewWeapon(run, stats, fireRateMul, dt) {
+  const p = run.player
+  // TWIN SCREW puts a second one further down the same chain, so the two sweep different arcs
+  // through a turn rather than sitting on top of each other. ipecacN for the anomaly, exactly as
+  // every other count in this file. The spacing divisor and the loop bound are ONE local: writing
+  // the count twice is the per-cast-count trap, and two screws on one point render as one.
+  // OVERSPEED divides the cut interval, the same `/ (1 + mod)` idiom as quickBreak and quickPour —
+  // `tick` is SECONDS BETWEEN CUTS, so folding a pct onto it through WEAPON_STAT_MODS would make
+  // the card slow the screw down, which is why it is a rate mod and read here instead.
+  const overspeed = run.weaponMods.screw?.overspeed ?? 0
+  const rate = fireRateMul * (1 + overspeed)
+  const n = ipecacN(run, 1 + (run.weaponMods.screw?.twinScrew ?? 0))
+  while (run.screws.length > n) run.screws.pop()
+  // ⚠ IT IS BORN AT THE CHAIN'S LENGTH, NEVER UNDER THE BOAT, and that one line is the difference
+  // between this card and a small aura at your feet. Spawned at the player's own position it sits
+  // in the middle of whatever is touching them, so a player who never moves cuts exactly as much as
+  // one who loops — measured, and it was the same number to the point: 1248 against 1248 over the
+  // same knot. Due west is arbitrary and only lasts until the player moves; what matters is that it
+  // starts a chain away.
+  while (run.screws.length < n) run.screws.push({ x: p.x - stats.chain, y: p.y, r: stats.radius, spin: 0 })
+  for (let i = 0; i < n; i++) {
+    const sc = run.screws[i]
+    // Each link sits further back than the last, evenly spaced along the chain's own length.
+    const link = stats.chain * ((i + 1) / n)
+    sc.r = stats.radius
+    const dx = p.x - sc.x, dy = p.y - sc.y
+    const d = Math.hypot(dx, dy)
+    if (d > link) {
+      sc.x = p.x - (dx / d) * link
+      sc.y = p.y - (dy / d) * link
+    }
+    // Render-only, and derived here so the sim owns one clock: the blade's own rotation, faster
+    // when the cut is faster. render.js reads it and never writes it.
+    sc.spin += dt * SCREW_SPIN_RATE * rate
+    for (const e of run.enemies) {
+      if (e._dead || e._screwCd > 0 || isAlly(e)) continue
+      const ex = e.x - sc.x, ey = e.y - sc.y
+      const rad = sc.r + e.radius
+      if (ex * ex + ey * ey > rad * rad) continue
+      applyDamage(run, e, stats.dmg)
+      e._screwCd = stats.tick / rate
+    }
+  }
+}
+
 function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
   const pools = ipecacN(run, 1)
   // slickTrail: smaller pools, laid by DISTANCE TRAVELLED rather than on the cast timer — see the

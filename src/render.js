@@ -9807,6 +9807,57 @@ export function createRenderer(app) {
       T.boomerang = bake(g)            // anchor = the local origin = mid-rib, so it spins about itself
       T.boomerangScale = 1             // baked at its on-screen size already
     }
+    // THE SCREW (run.screws): a ship's propeller seen from DIRECTLY ABOVE, which is what this camera
+    // is. That is the whole reason it is drawn rather than tinted off a Kenney glyph — a propeller
+    // is only legible as one from the plan view, where it reads as a hub with swept blades, and
+    // every fx sprite in the pack that is roughly the right size is radially symmetric mush.
+    //   FOUR BLADES, SWEPT, NOT FOUR SPOKES. A spoke wheel reads as a wheel; the sweep (each blade
+    // widening and curving back from the hub) is the single feature that says screw. Baked at the
+    // LARGEST shipped size and scaled down per-entity, never up — a small bake magnified comes out
+    // stepped on every edge.
+    {
+      const BLADE = 0x8d99a3           // wet steel, cool: it is metal on a sea floor, not gold
+      const BLADE_LIT = 0xd6dfe6       // the leading edge, which is what makes it read as turning
+      const RIM = 0x2a3238             // dark rim: what separates it from the silt
+      const HUB = 0x5b666e
+      const R = 30                     // baked radius; SCREW_BAKE_R below scales entities off this
+      const N = 4
+      const g = new Graphics()
+      for (let b = 0; b < N; b++) {
+        const a0 = (b / N) * Math.PI * 2
+        // A blade is one closed outline: out along a leading edge, round the tip, back along a
+        // trailing edge that is swept further round than the leading one — that difference IS the
+        // pitch, and setting them equal draws a paddle.
+        const pts = []
+        const STEPS = 12
+        for (let i = 0; i <= STEPS; i++) {
+          const t = i / STEPS
+          const a = a0 + t * 0.55
+          const rr = R * (0.22 + 0.78 * t)
+          pts.push(Math.cos(a) * rr, Math.sin(a) * rr)
+        }
+        for (let i = STEPS; i >= 0; i--) {
+          const t = i / STEPS
+          const a = a0 + t * 1.15
+          const rr = R * (0.22 + 0.72 * t)
+          pts.push(Math.cos(a) * rr, Math.sin(a) * rr)
+        }
+        g.poly(pts).fill(BLADE).stroke({ width: 1.3, color: RIM, join: 'round' })
+        // The lit leading edge, drawn over the fill so the blade has a direction to spin in.
+        const lead = []
+        for (let i = 0; i <= STEPS; i++) {
+          const t = i / STEPS
+          const a = a0 + t * 0.55
+          const rr = R * (0.24 + 0.74 * t)
+          lead.push(Math.cos(a) * rr, Math.sin(a) * rr)
+        }
+        g.poly(lead).stroke({ width: 1.6, color: BLADE_LIT, join: 'round' })
+      }
+      g.circle(0, 0, R * 0.26).fill(HUB).stroke({ width: 1.6, color: RIM })
+      g.circle(0, 0, R * 0.09).fill(RIM)
+      T.screw = bake(g)
+      T.screwBakeR = R
+    }
     // slime mine: coral glow behind a red-pink diamond core
     {
       const c = new Container()
@@ -10406,6 +10457,10 @@ export function createRenderer(app) {
   // One cleared-and-redrawn Graphics rather than a pool: OBSTACLE_STREAM_RADIUS and a 900px cell put
   // at most a handful on screen, and the outline is per-slick anyway (see lobePoly).
   const slickG = new Graphics()
+  // v7.x The Wreck: THE SCREW's chain (run.screws). A redrawn Graphics rather than a pool for the
+  // same reason as the spills above — there are at most a couple of links — but it sits in the
+  // ENTITY layer order rather than on the floor, because a chain is above the silt and reads as
+  // slack in front of the obstacles it passes over.
   // v7.x The Reef: THE SPUR FIELD (run.spurs). One cleared-and-redrawn Graphics rather than a
   // pool, and redrawn only when run._spurRev changes — the field is fifteen ridges of pure
   // geometry that move exactly once per lane crossing, so a per-frame rebuild would be paying
@@ -15955,6 +16010,8 @@ const spurG = new Graphics()
   const holePool = []
   const beamPool = []
   const debrisPool = []
+  const screwPool = []        // v7.x The Wreck: run.screws. FLAT, so it belongs in reset()'s flat list
+  const screwChainG = new Graphics()   // ...and the tether, drawn UNDER them (added to orbLayer first)
   const jetPool = []          // v6.10 open-jet RIGS (see acquireJet); reset() must hide .root
   const shotPool = []
   const prevCount = {
@@ -15963,6 +16020,7 @@ const spurG = new Graphics()
     pool: 0, bloom: 0, trail: 0, web: 0, lure: 0,
     sand: 0,    // v7.x surf: sandbars (run.sandbars) — a flat syncPool, see placeSandbar
     trap: 0, debris: 0, shot: 0, jet: 0,
+    screw: 0,   // v7.x The Wreck: the propeller on the chain (run.screws)
     rock: 0,    // beyond: asteroids (run.rocks). Absent until now, which worked only by accident —
                 // syncPool writes prevCount[key] on its first call, so the surplus-hiding loop
                 // `i < prevCount[key]` compared against undefined and skipped on frame one alone.
@@ -20175,7 +20233,7 @@ const spurG = new Graphics()
     for (const s of snares) s.live = false
     for (const key of Object.keys(prevCount)) prevCount[key] = 0
     for (const pool of [
-      bulletPool, novaPool, orbPool, gemPool, coinPool,
+      bulletPool, novaPool, orbPool, screwPool, gemPool, coinPool,
       boomerangPool, minePool, homingPool, trapPool, shotPool,
       sandPool,    // v7.x surf: FLAT (one Sprite per dry patch) — likewise, not a rig
       coralPool,   // v7.x reef: FLAT (one Sprite per baked coral colony). Flat because a colony
@@ -21724,6 +21782,11 @@ const spurG = new Graphics()
     syncPool(bulletPool, bulletLayer, run.bullets, 'bullet', T.bullet, placeBullet)
     syncPool(novaPool, novaLayer, run.novas, 'nova', T.nova, placeNova)
     syncPool(orbPool, orbLayer, run.orbs, 'orb', T.orb, placeOrb)
+    // The chain FIRST, so it is added to orbLayer before any screw sprite and therefore draws under
+    // them — child order is the stacking order here, the same rule the shaft rig states.
+    if (!screwChainG.parent) orbLayer.addChild(screwChainG)
+    syncScrewChain(run)
+    syncPool(screwPool, orbLayer, run.screws, 'screw', T.screw, placeScrew)
     syncPool(gemPool, gemLayer, run.gems, 'gem', T.gem, placeGem)
     syncPool(coinPool, coinLayer, run.coins, 'coin', T.coin, placeCoin)
     syncPool(boomerangPool, boomerangLayer, run.boomerangs, 'boomerang', T.boomerang, placeBoomerang)
@@ -21877,6 +21940,49 @@ const spurG = new Graphics()
     s.tint = n.fear ? 0xb06cf0 : 0x59b7ff
     s.scale.set(Math.max(n.r, 1) / T.novaTexR)
     s.alpha = 0.9 * Math.max(0, 1 - n.r / n.maxR) + 0.1
+  }
+  // THE CHAIN IS THE CARD. Without it the screw is a free-floating cog that happens to lag behind
+  // you, and the one thing the player has to understand — that it is TETHERED, that it swings wide
+  // when you turn — is nowhere on screen. Drawn as one polyline from the player through every link
+  // in order, which is also exactly the order sim.js spaces them in.
+  function syncScrewChain(run) {
+    screwChainG.clear()
+    const list = run.screws || []
+    if (!list.length) return
+    // ⚠ LINKS, NOT A LINE, and it is not decoration. Shot at both poses as one smooth double
+    // stroke, this read as a rigid POLE — the wrong noun for a card whose mod is called Long Chain
+    // and whose whole behaviour is that the tether goes slack and taut. Short segments with gaps
+    // along the same line is the cheapest thing that says chain, and it costs one loop.
+    const CHAIN_LINK = 9      // px of steel...
+    const CHAIN_GAP = 5       // ...then this much water. Both scale with nothing: a chain's links
+                              // are a fixed size whatever it is towing.
+    const p = run.player
+    let px = p.x, py = p.y
+    for (const sc of list) {
+      const dx = sc.x - px, dy = sc.y - py
+      const len = Math.hypot(dx, dy)
+      if (len > 1e-3) {
+        const ux = dx / len, uy = dy / len
+        for (let d = 0; d < len; d += CHAIN_LINK + CHAIN_GAP) {
+          const e = Math.min(len, d + CHAIN_LINK)
+          screwChainG.moveTo(px + ux * d, py + uy * d).lineTo(px + ux * e, py + uy * e)
+            .stroke({ width: 4.5, color: 0x2a3238, alpha: 0.9, cap: 'round' })
+          screwChainG.moveTo(px + ux * (d + 1.5), py + uy * (d + 1.5)).lineTo(px + ux * Math.max(d + 1.5, e - 1.5), py + uy * Math.max(d + 1.5, e - 1.5))
+            .stroke({ width: 1.8, color: 0x8d99a3, alpha: 0.75, cap: 'round' })
+        }
+      }
+      px = sc.x; py = sc.y
+    }
+  }
+  function placeScrew(s, sc) {
+    s.position.set(sc.x, sc.y)
+    // ROTATION COMES FROM THE SIM, not from animT. Every other spinner here derives its angle from
+    // animT so a paused frame freezes it — that is right for decoration, and wrong here: Overspeed
+    // is a rate mod whose whole tell is the blade turning faster, and animT knows nothing about the
+    // player's fire rate. sim.js advances sc.spin (and it is still frozen when paused, because dt
+    // is 0 then).
+    s.rotation = sc.spin
+    s.scale.set((sc.r ?? T.screwBakeR) / T.screwBakeR)
   }
   function placeOrb(s, o, i) {
     s.position.set(o.x, o.y)
@@ -22262,6 +22368,10 @@ const spurG = new Graphics()
     // redrawn Graphics, invisible to a sweep that sets `.visible` on sprites.
     for (const s of hullSprites) s.visible = false
     slickG.clear()
+    // ...and The Wreck's third, added 2026-09-06 with The Screw. Same reason again: a redrawn
+    // Graphics is invisible to a sweep that sets `.visible` on sprites, so without this the last
+    // run's chain hangs in the next one.
+    screwChainG.clear()
     // The Reef's ridges, for the same reason: a redrawn Graphics is invisible to a sweep that
     // sets `.visible` on sprites, and spurRev has to go with it or the next run draws nothing
     // until its first lane crossing.
