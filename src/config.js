@@ -2946,6 +2946,33 @@ export const ORB_R = 12       // px, orbit spark hit radius
 // Overspeed makes the blade visibly turn faster rather than only cutting more often — a rate change
 // with no tell reads as no change at all.
 export const SCREW_SPIN_RATE = 7.5
+// THE SCREW HAS MASS. Owner ruling 2026-09-06: "the hélice should have some inertia". It was a pure
+// rope constraint — left where it was until the chain went taut, then snapped onto the line — so it
+// carried NO velocity between frames and stopped in the same frame the player did. Measured: 228
+// px/s while towed, and 0px of travel after the player let go. A propeller heavy enough to need a
+// chain does not stop dead, and a body with no momentum cannot swing.
+//   THE FRACTION OF ITS SPEED THE WATER LEAVES IT AFTER ONE SECOND, applied as a power of dt so the
+// coast is the same at 30fps and at 144. Not a px/s drag: a linear one takes a fixed bite whatever
+// the speed, so it barely touches a fast tow and slams a slow drift to a halt — backwards for water.
+//   The floor is what makes this a knob and not a flag: at 0 the velocity is wiped every frame and
+// the behaviour is exactly the rope this replaces, so the test's mutation of it is the honest
+// no-inertia control rather than a different bug.
+//   ⚠ SWEPT, AND THE KNOB IS THE SWING RATHER THAN THE COAST. Owner, 2026-09-06: "Not a lot of
+// inertia but some, with a flick you should be able to have a swirl half circle" — so what was
+// measured is the ANGLE THE SCREW SWEEPS AROUND THE PLAYER after a hard direction change, which is
+// the thing he described; distance coasted says nothing about whether it went ROUND you or just
+// past you. Five values against that, with the weapon census on the same rows:
+//     damp   flick back   flick 90   eff dps   kills/min
+//     0        31 deg      18 deg       83       100.8      <- the rope this replaces
+//     0.15     66          22           97       108.8
+//     0.25     90          39           89       100.4
+//     0.35    115         267          128       124.4      <- 5-seed outlier, not a trend
+//     0.45    129         219           88        99.9
+// Damage barely moves across the whole range, so this is a FEEL knob and not a balance one, and
+// 0.45 is where a flick reads as the half circle asked for.
+// balance_decision : a flick swings it about half a turn 2026-09-06
+//  - dps is flat across 0-0.45 (83 -> 88), so retune this for feel, never for damage
+export const SCREW_DAMP = 0.45
 // GORGE (gnash): what eating an elite pays. It healed to FULL until 2026-09-06 — "an elite pays for
 // everything" was the reasoning, and the owner's ruling is that it paid too well. A flat number
 // rather than a fraction of max HP so the card can print what it does; it is deliberately NOT

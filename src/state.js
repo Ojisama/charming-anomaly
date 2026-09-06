@@ -1534,12 +1534,17 @@ function generateWells(sig) {
  * _drownAcc: number — the part-tick accumulator for the DoT above, reset to 0 the moment `charge`
  *   comes off zero so a partial tick banked before you reached a pocket is never spent minutes
  *   later. 0 and untouched everywhere else.
- * screws[i]: { x, y, r, spin } — v7.x The Wreck: THE SCREW's bodies, one per link of the chain,
- *   dragged behind the player. UNLIKE run.orbs this is NOT rewritten every frame: an orbiter's
- *   position is a pure function of run.time and this one is not — the screw is left where it was
- *   and snapped back to the chain's length when the line goes taut, so its position carries the
- *   whole behaviour. Same persistence exception run.debris states. `spin` is render-only (the
- *   blade's rotation); the sim advances it so there is one clock, and render never writes it.
+ * screws[i]: { x, y, r, spin, vx, vy } — v7.x The Wreck: THE SCREW's bodies, one per link of the
+ *   chain, dragged behind the player. UNLIKE run.orbs this is NOT rewritten every frame: an
+ *   orbiter's position is a pure function of run.time and this one is not — the screw coasts on its
+ *   own velocity and is held to the chain's length when the line goes taut, so its position and
+ *   velocity together carry the whole behaviour. Same persistence exception run.debris states.
+ *   `vx`/`vy` are what makes it a PENDULUM rather than a point on a string (owner, 2026-09-06: "the
+ *   hélice should have some inertia"): the chain's correction is purely radial, so the tangential
+ *   part of the velocity survives it and a flick swings the blade round the player. They are
+ *   DERIVED from the frame's actual displacement rather than integrated separately, so position and
+ *   velocity can never disagree about whether the chain is taut. `spin` is render-only (the blade's
+ *   rotation); the sim advances it so there is one clock, and render never writes it.
  * slicks[i]: { x, y, r, shape, rot, _cell } — v7.x The Wreck: streamed POLLUTION SPILLS, the
  *   chapter's signature (`{ type: 'leak', slicks: {...} }`). Same refillCircleAt geometry as
  *   run.shafts above, on salt block 50 and its own _slickCellI/_slickCellJ cursor; `blob: true` in

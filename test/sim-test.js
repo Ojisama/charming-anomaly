@@ -162,7 +162,7 @@ import {
   ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
   ORCA_RING_MIN_R, ORCA_BITE_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, ORCA_DENS_FULL_N,
   ORCA_HERD_PULL, ORCA_COMMITS, ORCA_WAKE_R, ORCA_RING_R, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_SPIRAL_ACCEL, ORCA_TRAIL_MAX,
-  ORCA_LAPS, ORCA_HOLD_DUR, ORCA_CLOSE_FRAC,
+  ORCA_LAPS, ORCA_HOLD_DUR, ORCA_CLOSE_FRAC, SCREW_DAMP,
   CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX, CHAPTER_BOARDS_DEFAULT,
   // The Trawl's late-game cut (run TJ)
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
@@ -8813,14 +8813,30 @@ function runPrey() {
     assert.ok(Math.abs(taut - SC.chain) < 2,
       `a chain under way must be TAUT at its own length: ${taut.toFixed(1)}px against ${SC.chain}`)
 
-    // 2. AND IT IS A ROPE, NOT A CHASER. Swim back along the chain and it must not move at all: the
-    //    line goes slack and the screw is left where it was. This is the rule every interesting
-    //    position it takes comes from, and a chaser would close the distance instead.
-    const bx = sc.x, by = sc.y
-    for (let i = 0; i < Math.round(0.3 / dt); i++) { straight.enemies.length = 0; stepSim(straight, { x: -1, y: 0 }, dt) }
-    const drift = Math.hypot(straight.screws[0].x - bx, straight.screws[0].y - by)
-    assert.ok(drift < 1,
-      `swimming back along a slack chain must leave the screw where it was; it moved ${drift.toFixed(1)}px`)
+    // 2. AND IT IS A ROPE, NOT A CHASER — but it is a rope with a WEIGHT on the end since
+    //    2026-09-06 ("the hélice should have some inertia"), so the old form of this arm is gone.
+    //    It used to demand the screw sit EXACTLY still on a slack chain, which is the one claim
+    //    momentum has to break: a body that stops the instant the line goes slack has no mass.
+    //    What separates it from a chaser survives, and it is the honest half — the screw is never
+    //    POWERED toward the player. Swim back along the chain and its speed must DECAY: a chaser
+    //    holds its speed or gains, a coasting weight bleeds off. Sampled as two consecutive
+    //    windows, so this is a rate against a rate and not a distance against a literal.
+    const winMove = (steps) => {
+      const ax = straight.screws[0].x, ay = straight.screws[0].y
+      for (let i = 0; i < steps; i++) { straight.enemies.length = 0; stepSim(straight, { x: -1, y: 0 }, dt) }
+      return Math.hypot(straight.screws[0].x - ax, straight.screws[0].y - ay)
+    }
+    const w1 = winMove(Math.round(0.25 / dt))
+    const w2 = winMove(Math.round(0.25 / dt))
+    // The bound is the DAMPING'S OWN ARITHMETIC, not a literal: pure coasting over a quarter second
+    // leaves exactly SCREW_DAMP^0.25 of the speed, so a retune of the knob carries this case with it
+    // instead of failing at it. The 1.08 is slack for the chain re-tautening inside the window.
+    const decay = Math.pow(SCREW_DAMP, 0.25) * 1.08
+    assert.ok(w2 < w1 * decay,
+      `on a SLACK chain the screw must only be coasting, never driven: it covered ${w1.toFixed(1)}px in the first quarter-second ` +
+      `and ${w2.toFixed(1)}px in the next, a ratio of ${(w2 / Math.max(w1, 1e-6)).toFixed(2)} against a coasting bound of ${decay.toFixed(2)} — a chaser holds or gains`)
+    assert.ok(SCREW_DAMP > 0 && SCREW_DAMP < 1,
+      `SCREW_DAMP is the fraction of speed the water leaves it after a second and must be a real fraction; it is ${SCREW_DAMP}`)
 
     // 3. IT CUTS, and only when it is equipped. Pinned bodies laid along the ground the screw
     //    sweeps, re-pinned every frame so both arms take the same dose.
@@ -8937,7 +8953,54 @@ function runPrey() {
     assert.strictEqual(spots.size, sick.screws.length,
       `...at DISTINCT points on the chain: ${sick.screws.length} screws sharing ${spots.size} spot(s) is one screw's damage wearing three sprites`)
 
-    console.log(`PASS run PY.c (the screw): trails ${behind.toFixed(0)}px behind on a ${taut.toFixed(0)}px chain and holds still on a slack one (${drift.toFixed(1)}px), cuts ${cut} through a pinned line (${honed} Honed, 0 unequipped), pays ${looped} for looping a knot against ${parked} for parking on it, Twin Screw hangs a second ${gap.toFixed(0)}px further back, Ipecac spreads ${sick.screws.length} over ${spots.size} distinct points, and it shares no cooldown with the orbiter (${bothOn} together against ${screwOnly}+${orbitOnly} apart)`)
+    // 8. A FLICK SWINGS IT ROUND YOU. Owner, 2026-09-06: "Not a lot of inertia but some, with a
+    //    flick you should be able to have a swirl half circle." Asserted as the ANGLE SWEPT AROUND
+    //    THE PLAYER, which is the thing that sentence describes — distance coasted cannot tell a
+    //    blade that went ROUND you from one that sailed past. Settle the chain due east, flick
+    //    north for a quarter second, then let go and let it swing.
+    //    ⚠ AND THE CHAIN MUST STILL HOLD while it does: a swing is only a swing while something is
+    //    swinging it, and a momentum bug shows up first as the body leaving its own radius.
+    const swing = () => {
+      const run = rig()
+      let swept = 0, prev = null, over = 0, settled = 0
+      const drive = (input, secs) => {
+        for (let i = 0; i < Math.round(secs / dt); i++) {
+          run.enemies.length = 0
+          stepSim(run, input, dt)
+          const s2 = run.screws[0], q = run.player
+          const a = Math.atan2(s2.y - q.y, s2.x - q.x)
+          if (prev !== null) {
+            let d = a - prev
+            while (d > Math.PI) d -= Math.PI * 2
+            while (d < -Math.PI) d += Math.PI * 2
+            swept += d
+          }
+          prev = a
+          settled = Math.hypot(s2.x - q.x, s2.y - q.y)
+          over = Math.max(over, settled - SC.chain)
+        }
+      }
+      drive({ x: 1, y: 0 }, 2.0)
+      prev = null; swept = 0                     // only the flick and what follows it are counted
+      drive({ x: 0, y: -1 }, 0.25)               // THE FLICK
+      drive({ x: 0, y: 0 }, 3.0)
+      return { deg: Math.abs(swept) * 180 / Math.PI, over, settled }
+    }
+    const sw = swing()
+    assert.ok(sw.deg > 100,
+      `a flick must swing the screw round the player — the owner asked for about a half circle — and it swept only ${sw.deg.toFixed(0)} degrees. ` +
+      `With no inertia at all this reads 18`)
+    assert.ok(sw.over < 2,
+      `...on the chain the whole time: it reached ${(SC.chain + sw.over).toFixed(1)}px on a ${SC.chain}px chain`)
+    // AND IT DOES NOT DIE ON TOP OF YOU. A heavily damped screw stops wherever the swing left it,
+    // which after a flick is close in — and a blade parked on the player is an aura, the same
+    // defect as being BORN under the boat that the spawn line exists to prevent. Measured at
+    // SCREW_DAMP 0.04 it settled at 61px of a 126px chain; the shipped 0.45 carries it back out.
+    assert.ok(sw.settled > SC.chain * 0.6,
+      `...and must swing back OUT rather than dying on the player: it ended ${sw.settled.toFixed(0)}px out on a ${SC.chain}px chain`)
+
+    console.log(`PASS run PY.c (the screw): trails ${behind.toFixed(0)}px behind on a ${taut.toFixed(0)}px chain and only COASTS on a slack one (${w1.toFixed(0)}px then ${w2.toFixed(0)}px over two quarter-seconds, never driven), cuts ${cut} through a pinned line (${honed} Honed, 0 unequipped), pays ${looped} for looping a knot against ${parked} for parking on it, Twin Screw hangs a second ${gap.toFixed(0)}px further back, Ipecac spreads ${sick.screws.length} over ${spots.size} distinct points, and it shares no cooldown with the orbiter (${bothOn} together against ${screwOnly}+${orbitOnly} apart), ` +
+      `and a flick swings it ${sw.deg.toFixed(0)} degrees round you before it settles back ${sw.settled.toFixed(0)}px out`)
   }
 
   // -- PY.f: a spill is NOT a refill circle. ---------------------------------------------------
