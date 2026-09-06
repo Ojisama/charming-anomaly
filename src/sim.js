@@ -181,7 +181,7 @@ import {
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
   ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_DENS_R, ORCA_DENS_FULL_N, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
-  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX, ORCA_CLOSE_FRAC,
+  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX, ORCA_CLOSE_FRAC, SCREW_DAMP,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SLICK_BIRTH_CLEAR, SLICK_SPREAD_STEPS, spillSpread, slickR, slickChance, slickDps,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
@@ -10003,11 +10003,25 @@ function stepChumWeapon(run, w, stats, fireRateMul, dt) {
 // its own radius touches. See WEAPONS.screw in config.js for why it trails rather than orbits.
 //
 // ⚠ IT IS A ROPE, NOT A CHASER, AND THAT IS THE WHOLE BEHAVIOUR. The screw is never moved toward the
-// player at some speed of its own — it is left exactly where it was and then SNAPPED back to `chain`
-// px when the line goes taut. Everything the card is for falls out of that one rule: swim at it and
-// the chain slackens and it sits still; turn hard and it swings wide through the inside of the turn,
-// sweeping ground the player has already crossed. A speed knob would have to be kept in sync with
-// the player's own (which passives move) and would turn every hard turn into a straight line.
+// player at some speed of its own — it is left where it was and then held to `chain` px when the
+// line goes taut. Everything the card is for falls out of that one rule: swim at it and the chain
+// slackens; turn hard and it swings wide through the inside of the turn, sweeping ground the player
+// has already crossed. A speed knob would have to be kept in sync with the player's own (which
+// passives move) and would turn every hard turn into a straight line.
+//
+// ⚠ AND IT HAS MASS (owner, 2026-09-06: "the hélice should have some inertia"). The rope above was
+// POSITION-ONLY: nothing carried between frames, so the screw stopped in the same frame the player
+// did — 228 px/s to 0, with 0px of coast, measured. It now keeps a velocity, and the chain redirects
+// that velocity instead of replacing it, which is what a pendulum is: the taut line can only pull
+// the bob toward the anchor, so the RADIAL component is whatever the chain says and the TANGENTIAL
+// component is conserved. That single fact is what buys the swing — stop dead and it sails past you
+// and arcs round; whip a turn and it keeps its old heading for a beat before the chain catches it.
+//   ⚠ THE VELOCITY IS DERIVED FROM THE MOVE THAT ACTUALLY HAPPENED, not integrated separately. That
+// is the whole reason this is six lines and not a solver: the constraint below already produces the
+// correct position, and reading the frame's real displacement back out gives a velocity that agrees
+// with it for free. Integrating a second copy and then correcting it is where rope code grows a
+// stability problem, and it would let position and velocity disagree about whether the chain is
+// taut — the shape where a body jitters on the constraint forever.
 //
 // run.screws PERSISTS ACROSS FRAMES and is therefore NOT cleared in stepWeapons, unlike run.orbs:
 // the position IS the state here, and an orbiter's is a pure function of run.time. Same contract as
@@ -10031,18 +10045,35 @@ function stepScrewWeapon(run, stats, fireRateMul, dt) {
   // one who loops — measured, and it was the same number to the point: 1248 against 1248 over the
   // same knot. Due west is arbitrary and only lasts until the player moves; what matters is that it
   // starts a chain away.
-  while (run.screws.length < n) run.screws.push({ x: p.x - stats.chain, y: p.y, r: stats.radius, spin: 0 })
+  while (run.screws.length < n) run.screws.push({ x: p.x - stats.chain, y: p.y, r: stats.radius, spin: 0, vx: 0, vy: 0 })
   for (let i = 0; i < n; i++) {
     const sc = run.screws[i]
     // Each link sits further back than the last, evenly spaced along the chain's own length.
     const link = stats.chain * ((i + 1) / n)
     sc.r = stats.radius
+    // COAST, then let the chain have it. Math.pow so the water takes the same FRACTION per second
+    // at any frame rate — a per-frame multiply makes the screw heavier on a slow machine.
+    // `?? 0` because a hand-built screw (an fx scene, a test fixture) carries no velocity, and
+    // undefined * keep is NaN, which puts the body at NaN,NaN and vanishes it.
+    const keep = Math.pow(SCREW_DAMP, dt)
+    const x0 = sc.x, y0 = sc.y
+    sc.vx = (sc.vx ?? 0) * keep
+    sc.vy = (sc.vy ?? 0) * keep
+    sc.x += sc.vx * dt
+    sc.y += sc.vy * dt
     const dx = p.x - sc.x, dy = p.y - sc.y
-    const d = Math.hypot(dx, dy)
+    const d = Math.hypot(dx, dy) || 1
     if (d > link) {
       sc.x = p.x - (dx / d) * link
       sc.y = p.y - (dy / d) * link
     }
+    // ...and the velocity is what the frame actually did. The chain's correction above is purely
+    // RADIAL, so this keeps the tangential component untouched — which IS the pendulum — and takes
+    // the pull as read. Deriving it rather than integrating a second copy is why this is a few lines and not a
+    // solver: position and velocity cannot disagree about whether the chain is taut, which is the
+    // shape where a body jitters on its constraint forever.
+    sc.vx = (sc.x - x0) / dt
+    sc.vy = (sc.y - y0) / dt
     // Render-only, and derived here so the sim owns one clock: the blade's own rotation, faster
     // when the cut is faster. render.js reads it and never writes it.
     sc.spin += dt * SCREW_SPIN_RATE * rate
