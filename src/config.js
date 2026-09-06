@@ -2893,7 +2893,13 @@ export const WEAPONS = {
   },
   bilge: {
     name: 'Bilge',
-    desc: 'Splits a drum. The oil crawls out, burns what wades through it, and leaves it slow long after.',
+    // ⚠ IT DOES NOT BURN — the chapter is UNDERWATER, and this desc said "burns what wades through
+    // it" from v7.286 until the owner caught it on sight ("'brûlure' when nothing burns"). The two
+    // clauses are the two things the oil actually does, and they are different mechanics: the middle
+    // one is the damage tick inside the pool (stats.dmgPerTick), the last one is the PERMANENT
+    // `oiled` slow that a body carries out of it. 'gums up' is the owner's own 'engluer', placed on
+    // the lasting half because that is the half it describes — sticking is the slow, not the damage.
+    desc: 'Splits a drum. The oil crawls out, poisons what wades through it, and gums it up long after.',
     icon: '🛢️', rarity: 'normal',
     // THE BARRIER, and it is the chapter's own hazard turned into a tool: the leak is what kills you
     // here (CHAPTERS.wreck.signature), and this card is you doing it back. That is the book's
@@ -2968,11 +2974,16 @@ export const SCREW_SPIN_RATE = 7.5
 //     0.25     90          39           89       100.4
 //     0.35    115         267          128       124.4      <- 5-seed outlier, not a trend
 //     0.45    129         219           88        99.9
-// Damage barely moves across the whole range, so this is a FEEL knob and not a balance one, and
-// 0.45 is where a flick reads as the half circle asked for.
-// balance_decision : a flick swings it about half a turn 2026-09-06
+// Damage barely moves across the whole range, so this is a FEEL knob and not a balance one.
+//   0.45 shipped first and the owner called it too much on sight ("less inertia on the helice",
+// same day). 0.30 is where "less" stops: a reversal still swings 110 degrees and the coast after a
+// stop drops from 193px over 3.08s to 122px over 1.90s, while BELOW it the screw starts dying on
+// top of the player again — it settles 62px out of a 126px chain at 0.22 and 44px at 0.15, which is
+// the aura the spawn line exists to prevent. The floor is that settle distance, not the swing.
+// balance_decision : a flick swings it a third of a turn 2026-09-06
 //  - dps is flat across 0-0.45 (83 -> 88), so retune this for feel, never for damage
-export const SCREW_DAMP = 0.45
+//  - do NOT go below 0.30: the blade settles on the player and the card becomes an aura
+export const SCREW_DAMP = 0.30
 // GORGE (gnash): what eating an elite pays. It healed to FULL until 2026-09-06 — "an elite pays for
 // everything" was the reasoning, and the owner's ruling is that it paid too well. A flat number
 // rather than a fraction of max HP so the card can print what it does; it is deliberately NOT
@@ -3042,7 +3053,12 @@ export const PASSIVES = {
   // balance_decision : unswept first cut, wreck-only (2026-08-24)
   sleek:      { name: 'Sleek',   desc: '{pct}% resistance to slows', base: 0.15, kind: 'resist', icon: '🐬', chapter: 'wreck' },
   // balance_decision : unswept first cut, wreck-only (2026-08-24)
-  oilskin:    { name: 'Oilskin', desc: "{pct}% resistance to the Leak's burn", base: 0.20, kind: 'resist', icon: '🧥', chapter: 'wreck' },
+  // ⚠ IT CUTS THE DAMAGE AND NOTHING ELSE, and the copy has to say so — the Leak does TWO things
+  // to the player (a damage tick through run._slickDmgCarry and a slow through run._foulT) and this
+  // scales only the first. Sleek is the one that resists the slow, so a card reading "resistance to
+  // the Leak" would be claiming half of Sleek's job. It also said "burn" until 2026-09-06, in a
+  // chapter that is underwater.
+  oilskin:    { name: 'Oilskin', desc: "{pct}% resistance to the oil's damage", base: 0.20, kind: 'resist', icon: '🧥', chapter: 'wreck' },
   // Utility, not DEFENSIVE_PASSIVES: this is a damage card, not a reduce-harm one (§4.3 ruling).
   // `pct` kind, not `resist` — there is no diminishing-returns curve to hide, so the printed
   // number is honest additively, same as `damage`/`critChance` above.
@@ -3612,7 +3628,7 @@ export const WEAPON_MODS = {
     //   ⚠ THE CAP IS WHAT KEEPS IT OFF ZERO. A stain deep enough to stop a body is a stationary
     // field rather than a debuff, and a crowd that cannot arrive is a chapter that cannot be
     // played — the ceiling is the whole reason this is a cap mod and not a speed mod.
-    tarred:     { name: 'Tar',         desc: 'how much speed the stain keeps costing', icon: '🖤', base: 0.50, kind: 'pct' },
+    tarred:     { name: 'Tar',         desc: "how strong the stain's slow gets", icon: '🖤', base: 0.50, kind: 'pct' },
     // Turns the wall into a fence you can DRAW. Without it a bilge is one circle at a time and the
     // player is placing dots; with it they are cutting the water into rooms, which is the play the
     // card exists for.
@@ -11467,11 +11483,12 @@ export const ORCA_LEAVE_DUR = 1.6
 // it is above or below the player and lets it swing out of frame to the sides, which is the read
 // that was wanted anyway. Do NOT make this screen-relative to "fix" the sides: it is the fear
 // wall's radius and the commit's own geometry, and a desktop player would get a bigger arena.
-// ⚠ AND ORCA_RING_MIN_R IS THE PLAYER'S ROOM TO STAND. Every commit line leaves the ring, so the
-// closest a strike can pass to the ring's centre is bounded by this radius — set it near
-// ORCA_HIT_R + PLAYER.radius (100) and standing still at the centre becomes an unavoidable hit
-// whatever the line was aimed at, which is precisely the "scheduled hit" the commit is written not
-// to be. 230 leaves 130px of clearance; that margin is the invariant, not the number.
+// ⚠ AND ORCA_RING_MIN_R IS THE PLAYER'S ROOM TO GET OUT. Since the attack became a JAW at the
+// coil's centre (2026-09-06) standing still there is always a hit, by design — so what this radius
+// buys is not clearance from a passing line any more, it is the DISTANCE the player has to cover to
+// leave ORCA_JAW_R before the mouth shuts. 230 against a 150px jaw leaves 80px to cross with the
+// whole third circle (~1.38s) to do it in, which at the player's 220 px/s is comfortable and is
+// meant to be: the difficulty is noticing, not swimming. Shrink this and the dodge stops being one.
 export const ORCA_RING_R = 440         // ring radius when the stalk opens
 export const ORCA_RING_MIN_R = 230     // ...and once fully closed, just before it commits
 export const ORCA_RING_BAND = 150      // px inside the ring where the wall has hold of a body
@@ -11540,9 +11557,30 @@ export const ORCA_CLOSE_FRAC = ORCA_CLOSE_DUR / ORCA_CIRCLE_DUR                 
 // coil legible rather than a scribble. At the ticker's 0.05 clamp a whole stalk is 96 points and
 // this never binds; it binds at 60fps, where a three-lap stalk is ~286.
 export const ORCA_TRAIL_MAX = 330
-export const ORCA_COMMIT_SPEED = 940   // px/s of the strike — well over the player's 220
-export const ORCA_OVERSHOOT = 760      // px past you it carries before breaking off - the wake plows the whole way
-export const ORCA_HIT_R = 78           // px contact radius, DURING THE COMMIT ONLY (tracks ORCA_LEN)
+// ---- THE JAW (2026-09-06) ----------------------------------------------------------------------
+// Owner ruling: "Orca attack should be a jaw opening from under and attacking in the 3rd circle,
+// not a dash impossible to avoid for the player."
+//
+// ⚠ WHAT WAS WRONG WITH THE DASH IS THAT IT WAS A DODGE YOU HAD TO MAKE BEFORE YOU COULD SEE IT.
+// It broke orbit and crossed the coil at 940 px/s with a 78px contact radius — four times the
+// player's own 220, so from the moment the line was locked there was no input that could clear it.
+// The only escape was to have ALREADY left, which makes the whole telegraph a memory test rather
+// than a reaction: everything on screen at the moment of commitment was decoration.
+//
+// A JAW IS THE OPPOSITE SHAPE. It is a PLACE, not a line, and the place is known a whole lap before
+// anything happens — the mouth opens at the centre of the coil the player has been watching tighten
+// for four seconds, and the answer is to not be standing in it. Nothing moves at a speed the player
+// cannot match, because nothing has to.
+//
+// THE CENTRE LOCKS WHEN THE MOUTH OPENS, which is the line that makes it fair. The coil tracks the
+// player loosely right up to that moment and then stops, so the marked ground is ground the player
+// can swim off. A jaw that kept following would be the dash again with extra steps.
+export const ORCA_JAW_R = 150          // px the closing jaws cover — the circle to be standing out of
+// s the jaws take to close once the coil ends. NOT the warning: the warning is the whole third
+// circle (ORCA_HOLD_DUR, ~1.38s) during which the mouth is open and drawn. This is the snap itself,
+// short on purpose — a slow snap reads as a second telegraph and the player stops believing the
+// first one.
+export const ORCA_JAW_T = 0.45
 // ⚠ A FRACTION OF MAX HP, NEVER A FLAT LITERAL. p.maxHP grows within a run (level-up choices) and
 // across saves (the shop's maxHP line), so a literal that is a real hit on a base save is a scratch
 // on an upgraded one.

@@ -838,9 +838,13 @@ const CONFIG = {
   // marine oil spill and for the mar\u00e9e noire, so it names the POLLUTION rather than the part of the
   // boat it came from — which is this book's through-line and this chapter's own hazard.
   'Bilge': 'Mazout',
-  'Splits a drum. The oil crawls out, burns what wades through it, and leaves it slow long after.': 'Fend un f\u00fbt. Le mazout s\'\u00e9chappe, br\u00fble ce qui le traverse et le laisse ralenti bien apr\u00e8s.',
+  // 'engluer' is the owner's own word (2026-09-06) and it sits on the LASTING clause, not the
+  // middle one: gumming up is the permanent `oiled` slow, while the middle clause is the damage the
+  // pool ticks. Putting it in the middle would have said the same thing twice and dropped the
+  // damage from the card entirely.
+  'Splits a drum. The oil crawls out, poisons what wades through it, and gums it up long after.': 'Fend un f\u00fbt. Le mazout s\'\u00e9chappe, empoisonne ce qui le traverse et l\'englue bien apr\u00e8s.',
   'The Screw': 'L\'H\u00e9lice',
-  'Drags the ship\'s propeller behind you on a chain. It cuts whatever your wake passes over.': 'Tra\u00eene l\'h\u00e9lice du navire derri\u00e8re vous, au bout d\'une cha\u00eene. Elle tranche tout ce que votre sillage recouvre.',
+  'Drags the ship\'s propeller behind you on a chain. It cuts whatever your wake passes over.': 'Tra\u00eene l\'h\u00e9lice du navire derri\u00e8re toi, au bout d\'une cha\u00eene. Elle tranche tout ce que ton sillage recouvre.',
   'Net Toss': 'Filet Lesté',
   'Throws a weighted net over a pack and holds them where they stand.': 'Jeté sur un groupe entier, il le cloue sur place.',
   'Membrane Piercer': 'Perce-Membrane',
@@ -1053,8 +1057,8 @@ const CONFIG = {
   'Overspeed': 'Surr\u00e9gime',
   'how fast the screw turns': 'vitesse de rotation de l\'h\u00e9lice',
   'Twin Screw': 'H\u00e9lice Double',
-  'screw(s) on the chain behind you': 'h\u00e9lice(s) sur la cha\u00eene derri\u00e8re vous',
-  'how much speed the stain keeps costing': 'vitesse que la souillure continue de co\u00fbter',
+  'screw(s) on the chain behind you': 'h\u00e9lice(s) sur la cha\u00eene derri\u00e8re toi',
+  "how strong the stain's slow gets": 'puissance du ralentissement de la tache',
   'Trailing Slick': 'Nappe Tra\u00eenante',
   'the oil pours behind you as you swim': 'le mazout se d\u00e9verse derri\u00e8re toi quand tu nages',
   'Rending Claws': 'Griffes Déchirantes',
@@ -1857,7 +1861,7 @@ const CONFIG = {
   'Sleek': 'Fuselé',
   '{pct}% resistance to slows': '{pct}% de résistance aux ralentissements',
   'Oilskin': 'Ciré',
-  "{pct}% resistance to the Leak's burn": "{pct}% de résistance à la brûlure de la Fuite",
+  "{pct}% resistance to the oil's damage": "{pct}% de résistance aux dégâts du mazout",
   'Slick Feed': 'Proie Tachée',
   'damage to oil-stained prey': 'dégâts aux proies tachées de mazout',
 
