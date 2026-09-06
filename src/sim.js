@@ -182,6 +182,7 @@ import {
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
   ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
+  SLICK_BIRTH_CLEAR, SLICK_SPREAD_STEPS, spillSpread, slickR, slickChance, slickDps,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
   TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_FIRST_PASS, TRAWL_HALF, TRAWL_LEAD_MUL, TRAWL_TICK, TRAWL_ENEMY_DMG,
   TRAWL_DRAG_T, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_WIGGLE_ARC, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T, TRAWL_DRAG_REEL,
@@ -5069,11 +5070,33 @@ export function streamSlicks(run) {
   // (run.mods.refillChanceMul), read here instead as a plain run.anomalies?.<id> flag — the field
   // this streamer materializes is the whole of what the card turns, so there is no second site.
   const chanceMul = run.anomalies?.blackTide ? BLACK_TIDE_CHANCE_MUL : 1
-  const spec = chanceMul === 1 ? spec0 : { ...spec0, chance: Math.min(1, spec0.chance * chanceMul) }
+  // THE SPILL SPREADS (2026-09-06). Both numbers this streamer reads climb with the clock, so the
+  // spec is rebuilt every call rather than being the config object: `r` widens every blob and
+  // `chance` opens cells that held nothing. blackTide multiplies the RAMPED chance, so the anomaly
+  // stays "much more oil than there would have been" at every point in the run rather than pinning
+  // the field to its own ceiling and cancelling the spread.
+  const spread = spillSpread(run.time)
+  const chance = Math.min(1, slickChance(spec0.chance, run.time) * chanceMul)
+  const r = slickR(spec0.r, run.time)
+  const spec = { ...spec0, chance, r }
   if (run._obstacleSeed == null) return
   const p = run.player
+  // EVERY LIVE SPILL WIDENS, not only the ones streamed in from here on. A slick already in the
+  // list keeps the `r` it was born with until it is dropped, so without this loop the field a
+  // parked player is looking at is frozen at whatever the clock said when they arrived — and the
+  // one place it would be most visible (standing still, watching) is the one place it would not
+  // happen. Cheap: a handful of entries, and both render and inLobe read this same field.
+  for (const sl of run.slicks) sl.r = r
   const cs = spec.cell
   const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
+  // A RESCAN IS FORCED AS THE CHANCE CLIMBS, and without it the growth is half a mechanic. The
+  // early-out below is keyed on the player crossing a cell boundary, which is right for a field
+  // whose occupancy never changes — but a cell that failed the roll at t=0 passes it at t=200, and
+  // it would only ever be re-rolled if the player happened to leave the neighbourhood and come
+  // back. Stepping on SLICK_SPREAD_STEPS boundaries keeps that to a handful of rescans per run
+  // instead of one per frame.
+  const step = Math.floor(spread * SLICK_SPREAD_STEPS)
+  if (step !== run._slickSpreadStep) { run._slickSpreadStep = step; run._slickCellI = null }
   if (ci === run._slickCellI && cj === run._slickCellJ) return  // field unchanged since the last scan
   run._slickCellI = ci; run._slickCellJ = cj
 
@@ -5093,6 +5116,11 @@ export function streamSlicks(run) {
       const c = refillCircleAt(i, j, seed, spec)
       if (!c) continue
       if (Math.hypot(c.x - p.x, c.y - p.y) > OBSTACLE_STREAM_RADIUS) continue
+      // NOT ON TOP OF THE PLAYER. The old field's occupancy was fixed, so every spill was
+      // materialized from a distance and this could not arise; a rising chance can open one inside
+      // the radius the player is standing in, which is damage they were given no chance to route
+      // around. The cell never enters `live`, so it is simply retried on the next scan.
+      if (Math.hypot(c.x - p.x, c.y - p.y) < SLICK_BIRTH_CLEAR) continue
       // shape/rot STORED, never re-derived — render draws the outline from these and this file tests
       // position against them, and re-deriving in one place is how the two drift apart.
       run.slicks.push({ x: c.x, y: c.y, r: spec.r, shape: c.shape, rot: c.rot, _cell: key })
@@ -5136,7 +5164,7 @@ function stepSlick(run, dt) {
   const oilResist = resistFrac(run.passives.oilskin)
   while (run._slickAcc >= SLICK_TICK) {
     run._slickAcc -= SLICK_TICK
-    run._slickDmgCarry = (run._slickDmgCarry ?? 0) + SLICK_DPS * SLICK_TICK * (1 - oilResist)
+    run._slickDmgCarry = (run._slickDmgCarry ?? 0) + slickDps(run.time) * SLICK_TICK * (1 - oilResist)
     const whole = Math.floor(run._slickDmgCarry)
     if (whole < 1) continue
     run._slickDmgCarry -= whole
@@ -7736,7 +7764,7 @@ const WEAPON_STAT_MODS = {
   // v7.x The Wreck's herding kit. Everything except the two spreads is behavioural and read at its
   // own site (stepLures, stepChumWeapon, stepOrca, stepBlooms, stepEnemyMovement).
   chum:          { widerChum: ['aggro', 'pct'] },
-  bilge:         { wideBilge: ['maxR', 'pct'] },
+  bilge:         { wideBilge: ['maxR', 'pct'], crudeCut: ['dmgPerTick', 'pct'] },
   quillBurst:    { sharpQuills: ['dmg', 'pct'], moreQuills: ['count', 'flat'] },
   chitterShriek: { terror: ['fear', 'pct'], shockwave: ['radius', 'pct'], shrill: ['dmg', 'pct'] },
   trashTornado:  { heavyTrash: ['dmg', 'pct'], wideHunt: ['hunt', 'pct'], fastWinds: ['travelSpeed', 'pct'], moreTrash: ['chunks', 'flat'] },
@@ -9970,7 +9998,11 @@ function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
     const lay = (bx, by, r) => {
       run.blooms.push({
         x: bx, y: by, t: 0, r: 0, maxR: r, dur: stats.dur,
-        dmgPerTick: 0, tick: 0, look: 'bilge',
+        // FRESH OIL BURNS (2026-09-06). `tick: 0` still means "use BLOOM_TICK" — only the damage
+        // moved off a literal, so Crude (crudeCut) has something to fold. The ambient Leak
+        // deliberately does NOT do this; see the weapon's own block in config.js for why the same
+        // substance has two rules.
+        dmgPerTick: stats.dmgPerTick, tick: 0, look: 'bilge',
         // A LOBED OUTLINE, stored at cast and never re-derived, exactly as the chapter's own hazard
         // spills carry one (streamSlicks). render draws the player's oil through the SAME function
         // that draws the leak's, so the card and the thing it is imitating are one drawing — which is

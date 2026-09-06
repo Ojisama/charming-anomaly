@@ -2856,26 +2856,43 @@ export const WEAPONS = {
   },
   bilge: {
     name: 'Bilge',
-    desc: 'Splits a drum. The oil crawls out, and whatever wades through it stays slow long after.',
+    desc: 'Splits a drum. The oil crawls out, burns what wades through it, and leaves it slow long after.',
     icon: '🛢️', rarity: 'normal',
     // THE BARRIER, and it is the chapter's own hazard turned into a tool: the leak is what kills you
     // here (CHAPTERS.wreck.signature), and this card is you doing it back. That is the book's
     // pollution through-line pointed at the player's hand rather than at the player.
     //
     // A run.blooms entry tagged look: 'bilge' — the fourth card on that array after the pond's Toxin
-    // Bloom, The Twilight's Foxfire and The Shelf's Silt Veil. `dmgPerTick: 0` because this is not a
-    // damage zone; what it does is SLOW — bloomSlowT for as long as a body is inside, and `oiled`,
-    // a permanent stain it carries out with it (OIL_STAIN_MAX).
+    // Bloom, The Twilight's Foxfire and The Shelf's Silt Veil. It SLOWS (bloomSlowT for as long as a
+    // body is inside), it STAINS (`oiled`, carried out with it, OIL_STAIN_MAX) — and since
+    // 2026-09-06 it also BURNS.
+    //
+    // ⚠ IT SHIPPED WITH NO DAMAGE STAT AT ALL, and measured across the game that made The Wreck the
+    // only chapter whose natives are not all weapons: every other chapter is 3/3 or 4/4, this one
+    // was 1/3. Nine of its thirteen weapon mods hung off two cards that could not kill, which is the
+    // mechanical floor under the owner's twice-repeated complaint that the pool is "not relevant" —
+    // a mod on a tool with no output has nothing to scale.
+    //
+    // ⚠ THE SAME SUBSTANCE, TWO RULES, AND THAT IS DELIBERATE. The chapter's ambient Leak stains
+    // fish and slows them but never hurts them; a drum you have just split open does both. Fresh oil
+    // against weathered oil is the fiction, and the mechanical reason is the one that decides it: a
+    // Leak that killed would hand the player a bigger and bigger free weapon as the spill spreads
+    // (SLICK_SPREAD_T), i.e. the chapter would get EASIER the worse it gets, which is the exact
+    // opposite of what the spread is for.
+    //
+    // ⚠ UNMEASURED FIRST CUT, pitched at Toxin Bloom (6->14 per tick) and deliberately under it:
+    // bloom is `rare`, this is `normal`, and this zone is wider (120-174 against 90-140), lasts
+    // longer (4.5-6.2s against 3.0-3.8s) and slows on top. Census before quoting any of it.
     //
     // LAY IT WHERE THE CROWD IS COMING, not where it is. Nothing refuses oil, so this is a drag
     // field rather than a fence: a pack that swims through arrives slow and stays slow, which is
     // what pairs it with a bait dropped on the far side and a mouth waiting at the near one.
     levels: [
-      { rate: 4.2, dur: 4.5, maxR: 120 },
-      { rate: 3.9, dur: 4.9, maxR: 132 },
-      { rate: 3.6, dur: 5.3, maxR: 144 },
-      { rate: 3.3, dur: 5.7, maxR: 158 },
-      { rate: 3.0, dur: 6.2, maxR: 174 },
+      { rate: 4.2, dur: 4.5, maxR: 120, dmgPerTick: 3 },
+      { rate: 3.9, dur: 4.9, maxR: 132, dmgPerTick: 4 },
+      { rate: 3.6, dur: 5.3, maxR: 144, dmgPerTick: 5 },
+      { rate: 3.3, dur: 5.7, maxR: 158, dmgPerTick: 6 },
+      { rate: 3.0, dur: 6.2, maxR: 174, dmgPerTick: 8 },
     ],
   },
 }
@@ -3492,6 +3509,9 @@ export const WEAPON_MODS = {
   // this chapter's arsenal claims to be ("close, gather, cut off").
   bilge: {
     wideBilge:  { name: 'Split Seam',  desc: 'oil spread',               icon: '🛢️', base: 0.30, kind: 'pct' },
+    // Now that the oil burns, the card that says so — the mod this weapon could not have while its
+    // output was zero. Folds dmgPerTick, exactly as bloom's `virulent` and siltVeil's `grit` do.
+    crudeCut:   { name: 'Crude',       desc: 'damage the oil deals',      icon: '☠️', base: 0.35, kind: 'pct' },
     // A GATHER, NOT A VORTEX. Every body inside a slick is pulled toward that slick's centre at
     // OIL_FUNNEL_PULL px/s per pick, so a pool stops being a patch the crowd walks through and
     // becomes a place the crowd bunches in — which is what turns a drag zone into a setup for the
@@ -8128,7 +8148,25 @@ CHAPTERS.wreck = {
     { id: 'pufferfish', archetype: 'normal', name: 'Pufferfish', hpMul: 1.3, speedMul: 0.75, weight: 1, radiusMul: 1.2, flags: ['puffup'] },
     { id: 'damselfish', archetype: 'fast',   name: 'Damselfish', hpMul: 0.7, speedMul: 1.05, weight: 2, flags: [] },
     { id: 'sardine',    archetype: 'fast',   name: 'Sardine',    hpMul: 0.45, speedMul: 0.95, weight: 1.6, xpMul: 0.6, radiusMul: 0.62, flags: [] },
-    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 1.1, speedMul: 0.8, flags: ['latch'] },
+    // hpMul 1.1 WAS A PREY-ERA NUMBER. The Reef fields the SAME animal at 2.2, and every other tank
+    // in the game sits between 1.2 and 2.5; this one was halved back when the roster was food and a
+    // moray was "the one thing that cannot be eaten on demand", i.e. a chore to hunt. The roster has
+    // been hostile since 2026-09-05 and the number stayed. 2.0 is the precedent, not a measurement.
+    //
+    // ⚠ IT IS STILL 0% OF THE DAMAGE THE PLAYER TAKES, AND HEALTH IS NOT WHAT WOULD FIX THAT.
+    // Measured 2026-09-06, 6 x 300s immortal + kiting: the moray is 9.7% of the bodies that spawn
+    // and contributes nothing, at 1.1 hp and at 2.0 alike. The reason is arithmetic rather than
+    // tuning — a tank at speedMul 0.8 runs 44 px/s against a player who runs 220, so it never
+    // arrives, and `latch` needs a contact it never gets. `pounce` was tried and measured as
+    // nothing for the same reason one level down: it commits inside POUNCE_RANGE, which is a
+    // distance this animal cannot reach either.
+    //   The chapters where a slow tank DOES land are the ones that PIN the player — The Trawl's net
+    // stops you and its sea lion (47 px/s) is 37% of the damage there. This chapter's only stopper
+    // is the leak's own slow, and 136 px/s is still three times the moray's speed. So the honest
+    // reading is that a chaser is the wrong shape for this creature here, not that its numbers are
+    // wrong: an eel that struck from a hull plate as you passed would be terrain with teeth rather
+    // than a failed pursuer. That is a behaviour change and therefore the owner's call, not a tune.
+    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.0, speedMul: 0.8, flags: ['latch'] },
   ],
   // The chapter's own affix, not the borrowed soapTrail: a wall of oil the elite drags behind it,
   // tagged look:'bilge' so it is the same substance as the player's own Bilge and the ambient Leak
@@ -8144,6 +8182,12 @@ CHAPTERS.wreck = {
   // and only `tank` is a weighted pick over a one-item pool — a silent no-op. See waveWeights.
   // Weights are relative, so the 0.7 the moray gives up is handed to the mackerel and the damselfish
   // and the total spawn count is untouched; this makes the field MORE prey, not emptier.
+  // ⚠ THIS IS AN OWNER RULING AND IT STAYS ONE (2026-08-18: "70% less tanks (murenes)"). It was
+  // raised to 0.55 on 2026-09-06 on the theory that the ruling's REASON was gone — it was made when
+  // the roster was food and hunting a moray was a chore — and put back, for two reasons: run BP
+  // pins the ruling, and the change bought nothing that could be measured. The moray is 0% of the
+  // damage the player takes at 0.3 and at 0.55 alike, so raising its share only adds bodies that do
+  // not participate. See the roster entry above for why, and for what would actually fix it.
   archetypeMul: { tank: 0.3 },
 
   // THE LEAK. Owner ruling 2026-08-17, and it REVERSES the ruling taken earlier the same day —
@@ -8167,15 +8211,21 @@ CHAPTERS.wreck = {
   tide: tideAt(WRECK_TIDE_DEG),
   signature: {
     type: 'leak',
+    // ⚠ THE FIGURES BELOW ARE THE OPENING FIELD, NOT THE RUN'S. Since 2026-09-06 both `r` and
+    // `chance` climb with the clock — see the SLICK_SPREAD_T block for the curve and for why the
+    // late radius is capped by refillCircleAt's jitter slack rather than by taste.
+    //
     // chance/cell together set how much of the floor is poisoned. 0.34 of a 900px cell at r 190
     // covers 3.3% of the plane — MEASURED 2026-08-25 (Monte Carlo over refillCircleAt/inLobe), and
     // the "roughly a tenth" this line claimed until then was a guess that was wrong by 3x. The
-    // geometry's own packing ceiling is 9.9%, reached at chance = 1, which is what ANOMALIES
-    // .blackTide turns it to — so a tenth was never the default, it was the maximum.
-    // Still the right shape for the intent: a straight line across the map usually
+    // geometry's own packing ceiling at THIS radius is 9.9%, reached at chance = 1, which is what
+    // ANOMALIES.blackTide turns it to — so a tenth was never the default, it was the maximum.
+    // Still the right shape for the intent AT THE START: a straight line across the map usually
     // meets one and never enough to wall a route off, which is the whole difference between a
-    // hazard you route around and a hazard you resent — and at 3.3% it is further from walling a
-    // route off than the guess implied, not closer.
+    // hazard you route around and a hazard you resent. What the spread buys is that the same line
+    // meets several by the end, so the route you have been taking all run stops being free — and
+    // it never becomes a wall, because a lobe at r 280 on a 900px cell still leaves open water
+    // between it and its neighbour.
     // `blob: true` because a spill has an outline and a bubble does not: LOBE_SHAPES is the same
     // lobed-outline opt-in The Surf's tide pools use, and sim and render both read the stored
     // shape/rot rather than re-deriving it (the documented way those two drift apart).
@@ -11518,6 +11568,59 @@ export const SLICK_DPS = 6
 // how a shortcut through a slick costs you the fish you were chasing as well as the health.
 export const SLICK_SLOW_MUL = 0.62
 export const SLICK_SLOW_T = 1.4        // s the fouling lasts after you leave
+
+// ---- THE SPILL SPREADS -----------------------------------------------------------------------
+// Owner ruling 2026-09-06, choosing between three chapter identities: "the spill spreads". The
+// chapter's own tagline is "the wreck is not as dead as it seems", and until now the leak was a
+// fixed field — the same 3.3% of the floor at t=0 and at t=299, which is a tax rather than an arc.
+// The hull is still bleeding, so the field GROWS: each spill widens and new cells open, and the
+// water gets more concentrated as it does.
+//
+// This is the chapter's answer to a resource bar. Five of the seven Undertow chapters drain a
+// meter; The Wreck has none and adding a sixth would be the book telling one story six times. The
+// MAP is the clock here instead — you can read how far into the run you are by how much of the
+// floor is black.
+//
+// THREE KNOBS MOVE TOGETHER, all on the same 0->1 fraction (spillSpread below):
+//   the spills get WIDER      SLICK_R      -> SLICK_R_LATE
+//   more cells hold one       chance       -> SLICK_CHANCE_LATE   (the signature's own `chance`)
+//   the water gets STRONGER   SLICK_DPS    -> SLICK_DPS_LATE
+// Growing the radius alone would have been the lazy version and it is the wrong one: a field of
+// nine fat blobs on a 900px lattice reads as a pattern, and the jitter that hides the lattice is
+// the SLACK left over after the radius is subtracted (refillCircleAt: `cs / 2 - r - 20`). Widening
+// and multiplying together keeps the blobs organic while the coverage climbs.
+//
+// ⚠ SLICK_R_LATE IS CAPPED BY THAT SLACK, NOT BY TASTE. At cell 900 the jitter budget is
+// 450 - r - 20, so r = 430 pins every spill dead-centre in its cell and the field becomes a visible
+// grid — with nothing thrown and nothing red. 280 leaves 150px of jitter, which is where this
+// stops. If the cell ever changes, re-derive this; do not carry the number across.
+export const SLICK_SPREAD_T = 300      // s to full spread — the run length, so the arc IS the run
+export const SLICK_R_LATE = 280        // px (from the signature's own 190). See the slack cap above.
+export const SLICK_CHANCE_LATE = 0.72  // of cells (from 0.34)
+// balance_decision : the water thickens as the hull empties 2026-09-06
+//  - x SLICK_TICK is no longer a whole number, which is fine and was not before oilskin: the
+//    resisted damage already banks through run._slickDmgCarry as a float and spends whole points.
+export const SLICK_DPS_LATE = 11
+// A spill never OPENS on top of you. New cells keep passing the occupancy roll as the chance climbs,
+// so unlike the old fixed field this one can materialize a spill inside the radius you are standing
+// in — which is damage you were given no chance to route around. Skipped cells are retried on the
+// next scan (they never enter `live`), so nothing is permanently suppressed.
+export const SLICK_BIRTH_CLEAR = 300   // px
+// How many times over the run the field is re-rolled for newly-opened cells. The radius grows
+// continuously (streamSlicks writes it onto every live spill each frame); OCCUPANCY cannot, because
+// it is a hash test made once when a cell streams in. Stepping it means a handful of rescans per
+// run rather than one per frame, and 12 puts a fresh crop of spills roughly every 25s — often
+// enough to read as the hull still emptying, rare enough that the field is never churning.
+export const SLICK_SPREAD_STEPS = 12
+
+// HOW FAR ALONG THE SPILL IS, 0 at the start of the run and 1 from SLICK_SPREAD_T on. Linear on
+// purpose: the player has to be able to read the field and predict it, and every eased curve makes
+// "how bad is it right now" a thing you can only feel. One definition, read by streamSlicks (the
+// geometry) and stepSlick (the damage) so the two cannot drift.
+export const spillSpread = (t) => Math.min(1, Math.max(0, t) / SLICK_SPREAD_T)
+export const slickR = (r0, t) => r0 + (SLICK_R_LATE - r0) * spillSpread(t)
+export const slickChance = (c0, t) => c0 + (SLICK_CHANCE_LATE - c0) * spillSpread(t)
+export const slickDps = (t) => SLICK_DPS + (SLICK_DPS_LATE - SLICK_DPS) * spillSpread(t)
 // Diminishing returns on a passive's resist fraction (Sleek, Oilskin). run.passives[id] is
 // uncapped — applyChoice just adds — so the raw fraction reaches 4.875 at five mythic picks, and
 // read directly it would cross 1.0 into a speed BONUS for standing in oil. r/(r+K) is asymptotic

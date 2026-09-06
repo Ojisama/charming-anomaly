@@ -1535,12 +1535,19 @@ function generateWells(sig) {
  *   comes off zero so a partial tick banked before you reached a pocket is never spent minutes
  *   later. 0 and untouched everywhere else.
  * slicks[i]: { x, y, r, shape, rot, _cell } — v7.x The Wreck: streamed POLLUTION SPILLS, the
- *   chapter's signature (`{ type: 'leak', slicks: {...} }`) and the only thing in it that can kill
- *   you, the roster being food. Same refillCircleAt geometry as run.shafts above, on salt block 50
- *   and its own _slickCellI/_slickCellJ cursor; `blob: true` in the spec, so shape/rot carry a
- *   LOBE_SHAPES outline that sim tests against (inLobe) and render draws from — stored, never
- *   re-derived. A SEPARATE ARRAY from run.shafts deliberately: those are refill circles and
- *   stepCharge loops them handing out resource. Empty in every other chapter.
+ *   chapter's signature (`{ type: 'leak', slicks: {...} }`). Same refillCircleAt geometry as
+ *   run.shafts above, on salt block 50 and its own _slickCellI/_slickCellJ cursor; `blob: true` in
+ *   the spec, so shape/rot carry a LOBE_SHAPES outline that sim tests against (inLobe) and render
+ *   draws from — stored, never re-derived. A SEPARATE ARRAY from run.shafts deliberately: those are
+ *   refill circles and stepCharge loops them handing out resource. Empty in every other chapter.
+ *   `r` IS NOT CONSTANT for the life of an entry: the field spreads with the clock (2026-09-06),
+ *   and streamSlicks rewrites it on every live spill each frame — see the SLICK_SPREAD_T block in
+ *   config.js. Read it, never cache it.
+ * _slickSpreadStep: number — which of SLICK_SPREAD_STEPS buckets of the spread the streamer last
+ *   re-rolled occupancy at. The radius can grow continuously because it is written onto live
+ *   entries; whether a CELL holds a spill at all is a hash test made once when the cell streams in,
+ *   so a rising chance only reaches the map on a rescan. Bumping this clears _slickCellI, which is
+ *   what forces one. -1 at birth so the first frame always scans.
  * _slickAcc: number — the slick DoT's part-tick accumulator, _drownAcc's twin. Two fields rather
  *   than one so a chapter declaring both can never bank one's part-tick into the other.
  * _slickDmgCarry: number — the slick tick's RESISTED damage, banked as a float and spent through
@@ -2581,6 +2588,7 @@ export function createRun(meta, opts = {}) {
     slicks: [],
     _slickCellI: null,     // streaming cursor, independent of every other streamer's
     _slickCellJ: null,
+    _slickSpreadStep: -1,  // last spread bucket rescanned; -1 so the first frame always scans
     // v7.x The Reef: THE SPUR FIELD (sim.js spurAt/streamSpurs). The coral ridges the lane runs
     // through, and the only streamed field in the game indexed along ONE axis — see spurAt for why
     // a grid cannot hold a 140px channel at this spacing. Unconditional like every field above it,
