@@ -156,6 +156,7 @@ import {
   INK_TRIGGER_R, INK_COOLDOWN, INK_SLOW_MUL, INK_DUR,
   PUFFER_TRIGGER_R, PUFFER_COOL_T, PUFFER_DRIFT_MUL,
   GNASH_MAW_MUL, RUSH_MAX_STACKS, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
+  SLICK_SPREAD_T, SLICK_R_LATE, slickR,
   BALLAST_RING,
   // The Wreck's orca (Run OR)
   ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
@@ -8514,7 +8515,14 @@ function runPrey() {
   // Two effects on one hazard, and the second is the one with no other guard: the slow LINGERS past
   // the rim, which is the whole difference between a decision and a tax.
   {
-    const soak = (withSlick) => {
+    // ⚠ THE FIXTURE DOES NOT OWN THE RADIUS. Since the spill spreads (2026-09-06) streamSlicks
+    // rewrites `r` on every live entry every frame, so a hand-picked radius here is overwritten by
+    // whatever the clock says — which is right for the game and made this fixture's old 3s soak
+    // wander out of a spill less than half the size it believed it was in. So the two claims are
+    // measured over the windows each one actually needs: DAMAGE standing still (inside for the
+    // whole soak, whatever the radius), SLOW over a window short enough that the swimmer is still
+    // inside at the end of it.
+    const soak = (withSlick, aim, secs) => {
       const run = mk()
       // One step first, so streamSlicks does its cell scan and then early-returns for good (the
       // player never leaves the cell). A spill pushed before that scan would be spliced out.
@@ -8522,20 +8530,25 @@ function runPrey() {
       if (withSlick) run.slicks.push({ x: run.player.x, y: run.player.y, r: 400, shape: null, rot: 0, _cell: 'test' })
       const hp0 = run.player.hp
       const x0 = run.player.x
-      for (let i = 0; i < Math.round(3 / dt); i++) {
+      for (let i = 0; i < Math.round(secs / dt); i++) {
         run.enemies.length = 0
-        stepSim(run, { x: 1, y: 0 }, dt)
+        stepSim(run, aim, dt)
       }
       return { lost: hp0 - run.player.hp, moved: run.player.x - x0, run }
     }
-    const inIt = soak(true)
-    const out = soak(false)
+    const STILL = { x: 0, y: 0 }, EAST = { x: 1, y: 0 }
+    const inIt = soak(true, STILL, 3)
+    const outStill = soak(false, STILL, 3)
     assert.ok(inIt.lost >= SLICK_DPS * 3 * 0.8, `3s in a spill must cost about ${SLICK_DPS * 3} HP; it cost ${inIt.lost}`)
-    assert.strictEqual(out.lost, 0, `the same 3s outside one must cost nothing; it cost ${out.lost}`)
-    const slowRatio = inIt.moved / out.moved
+    assert.strictEqual(outStill.lost, 0, `the same 3s outside one must cost nothing; it cost ${outStill.lost}`)
+    // SHORT ENOUGH TO STAY INSIDE: the opening radius is 190px and the player crosses ~220px/s, so
+    // 0.6s from the centre ends comfortably short of the rim even unslowed.
+    const swamIn = soak(true, EAST, 0.6)
+    const out = soak(false, EAST, 0.6)
+    const slowRatio = swamIn.moved / out.moved
     assert.ok(slowRatio < SLICK_SLOW_MUL + 0.06, `oil must slow you to about x${SLICK_SLOW_MUL}; measured x${slowRatio.toFixed(2)}`)
     // THE LINGER. The spill is removed — the player has swum clear — and must still be fouled.
-    const r = inIt.run
+    const r = swamIn.run
     r.slicks.length = 0
     const lx = r.player.x
     const secs = SLICK_SLOW_T * 0.6
@@ -8543,9 +8556,160 @@ function runPrey() {
       r.enemies.length = 0
       stepSim(r, { x: 1, y: 0 }, dt)
     }
-    const afterRatio = (r.player.x - lx) / (out.moved * secs / 3)
+    const afterRatio = (r.player.x - lx) / (out.moved * secs / 0.6)
     assert.ok(afterRatio < SLICK_SLOW_MUL + 0.1, `the fouling must OUTLIVE the rim for ${SLICK_SLOW_T}s; measured x${afterRatio.toFixed(2)} of clean speed immediately after leaving`)
-    console.log(`PASS run PY.e (the leak): 3s inside costs ${inIt.lost} HP and x${slowRatio.toFixed(2)} speed against 0 and x1 outside, and the fouling holds at x${afterRatio.toFixed(2)} once you are clear`)
+    console.log(`PASS run PY.e (the leak): 3s standing in it costs ${inIt.lost} HP against 0 outside, swimming through it costs x${slowRatio.toFixed(2)} speed, and the fouling holds at x${afterRatio.toFixed(2)} once you are clear`)
+  }
+
+  // -- PY.r: THE SPILL SPREADS, and that is what this chapter has instead of a bar. --------------
+  // Owner ruling 2026-09-06. Five of the seven Undertow chapters drain a resource; this one reads
+  // its clock off the MAP, which only works if the map is visibly different at the end. Three
+  // claims plus the guard that keeps it from becoming a wall.
+  //
+  // THE CONTROL IS THE SAME FIELD AT A DIFFERENT CLOCK, which is the only control that can see the
+  // spread: any single moment passes with the whole mechanic deleted.
+  {
+    // run.time is SET, not simulated. streamSlicks and stepSlick read the clock and nothing else
+    // about the run's history, and 250 simulated seconds per arm would cost more than the rest of
+    // this scenario put together. Two steps: the first does the cell scan, the second sees the
+    // spread bucket move and rescans (see _slickSpreadStep).
+    const field = (t) => {
+      const run = mk()
+      run.time = t
+      for (let i = 0; i < 3; i++) { run.enemies.length = 0; stepSim(run, { x: 0, y: 0 }, dt) }
+      return run
+    }
+    const LATE = SLICK_SPREAD_T * 0.9
+    const early = field(0)
+    const late = field(LATE)
+    assert.ok(early.slicks.length > 0 && late.slicks.length > 0,
+      `precondition: both arms must have materialized a field at all; got ${early.slicks.length} and ${late.slicks.length}`)
+    // 1. MORE OF THEM. The occupancy roll is a hash test made once per cell, so this is the half
+    //    that needs the forced rescan — without it the chance climbs and never reaches the map.
+    assert.ok(late.slicks.length > early.slicks.length,
+      `more cells must hold a spill late in the run: ${late.slicks.length} against ${early.slicks.length} at t=0`)
+    // 1b. ...AND THEY OPEN WHILE YOU ARE STANDING THERE. The arm above compares two runs each built
+    //     at its own clock, so both read the ramped chance on their FIRST scan — it cannot see the
+    //     forced rescan being deleted, and a mutation that dropped it passed. The pathology is
+    //     A RUN THAT HAS BEEN PLAYING: occupancy is a hash test made once per cell as it streams in,
+    //     so without the rescan a cell that failed the roll early never gets another, and the field
+    //     a stationary player is looking at never gains a spill however long they wait.
+    const grown = mk()
+    for (let i = 0; i < 3; i++) { grown.enemies.length = 0; stepSim(grown, { x: 0, y: 0 }, dt) }
+    const n0 = grown.slicks.length
+    grown.time = LATE
+    for (let i = 0; i < 3; i++) { grown.enemies.length = 0; stepSim(grown, { x: 0, y: 0 }, dt) }
+    assert.ok(grown.slicks.length > n0,
+      `new spills must open in a run already under way, not only in one built at a late clock: a player who never moved still had ${grown.slicks.length} spills against the ${n0} they started with`)
+    // 2. AND EACH ONE IS WIDER, including the ones that were already there — streamSlicks rewrites
+    //    r on every live entry, so a player who never moves still watches the field grow.
+    const rEarly = Math.max(...early.slicks.map((sl) => sl.r))
+    const rLate = Math.min(...late.slicks.map((sl) => sl.r))
+    assert.ok(rLate > rEarly,
+      `every late spill must be wider than every early one: min late r ${rLate.toFixed(0)} against max early r ${rEarly.toFixed(0)}`)
+    assert.ok(Math.abs(rLate - slickR(CHAPTERS.wreck.signature.slicks.r, LATE)) < 1,
+      `the streamed radius must be the one config computes: ${rLate.toFixed(1)} against ${slickR(CHAPTERS.wreck.signature.slicks.r, LATE).toFixed(1)}`)
+    // 3. AND THE WATER IS STRONGER. Same 3s, same spill, standing still: it costs more late. This is
+    //    a SEPARATE claim from the geometry — a spread that only widened would pass the two above.
+    const cost = (t) => {
+      const run = mk()
+      run.time = t
+      stepSim(run, { x: 0, y: 0 }, dt)
+      run.slicks.push({ x: run.player.x, y: run.player.y, r: 400, shape: null, rot: 0, _cell: 'test' })
+      const hp0 = run.player.hp
+      for (let i = 0; i < Math.round(3 / dt); i++) { run.enemies.length = 0; stepSim(run, { x: 0, y: 0 }, dt) }
+      return hp0 - run.player.hp
+    }
+    const costEarly = cost(0), costLate = cost(LATE)
+    assert.ok(costLate > costEarly * 1.3,
+      `3s in the leak must cost more once the hull has emptied: ${costLate} HP at t=${LATE} against ${costEarly} at t=0`)
+    // 4. ...AND IT IS STILL NOT A WALL. The whole difference between a hazard you route around and
+    //    one you resent, and the one claim a later radius bump would silently break: refillCircleAt
+    //    spends `cs / 2 - r - 20` on jitter, so a big enough SLICK_R_LATE both fills the plane AND
+    //    pins every blob dead-centre in its cell. Sampled on a disc the player could actually cross.
+    // ⚠ NOT AT SLICK_SPREAD_T ITSELF: that is 300, which is where the RUN ends — stepSim flips the
+    // phase and streams nothing, so a field sampled there is empty and this arm passes or fails on
+    // an artefact. `late` is 0.9 of the way through and is the last moment a player is still in it.
+    //
+    // ⚠ AND IT IS SAMPLED OVER THE STREAMING RADIUS, NOT THE PLANE. run.slicks only ever holds what
+    // is near the player, and the field is additionally cleared for `minDist` around the run ORIGIN
+    // (refillCircleAt's spawn-ring clearance), which this fixture never leaves. So the percentage
+    // below is not comparable to the Monte-Carlo figure in config.js and must not be quoted as
+    // coverage — what is asserted is the BAND: enough oil to be a field, not so much that a route
+    // across it is walled off.
+    const lp = late.player
+    let inside = 0, sampled = 0
+    for (let k = 0; k < 2000; k++) {
+      const a = (k * 2.39996) % (Math.PI * 2), rad = 1200 * Math.sqrt(((k * 7919) % 1000) / 1000)
+      const sx = lp.x + Math.cos(a) * rad, sy = lp.y + Math.sin(a) * rad
+      sampled++
+      if (late.slicks.some((sl) => inLobe(sl, sx, sy))) inside++
+    }
+    const covered = inside / sampled
+    // ⚠ TWO GUARDS, BECAUSE THE COVERAGE BAND ALONE COULD NOT SEE THE PATHOLOGY. A mutation setting
+    // SLICK_R_LATE to 430 — the value that zeroes the jitter budget — reached only ~31% here and
+    // passed a 45% ceiling. The slack assert is the exact one: refillCircleAt spends
+    // `cs / 2 - r - 20` on jitter, so at 430 on a 900px cell every spill sits dead-centre in its
+    // cell and the field is a visible lattice, with nothing thrown and nothing else red.
+    const slack = CHAPTERS.wreck.signature.slicks.cell / 2 - SLICK_R_LATE - 20
+    assert.ok(slack >= 100,
+      `the late radius must leave refillCircleAt room to jitter or the spills line up on their own grid: ${slack}px of slack at r ${SLICK_R_LATE} on a ${CHAPTERS.wreck.signature.slicks.cell}px cell`)
+    assert.ok(covered < 0.22,
+      `late in the run the floor must still be mostly open water; ${(covered * 100).toFixed(0)}% of ${sampled} sampled points near the player were inside a spill`)
+    assert.ok(covered > 0.03,
+      `...but it must be a FIELD by then, not a few puddles; only ${(covered * 100).toFixed(0)}% of the sampled floor was oil`)
+    console.log(`PASS run PY.r (the spill spreads): ${early.slicks.length} spills at r ${rEarly.toFixed(0)} become ${late.slicks.length} at r ${rLate.toFixed(0)}, 3s in one costs ${costEarly} HP -> ${costLate}, and ${(covered * 100).toFixed(0)}% of the water around the player is oil by then against open floor at the start`)
+  }
+
+  // -- PY.b: THE DRUM YOU SPLIT BURNS. THE ONE ON THE BOTTOM DOES NOT. ---------------------------
+  // Two rules for one substance, and it is deliberate (see WEAPONS.bilge): fresh oil against
+  // weathered. The mechanical reason is the one that decides it — a Leak that killed would hand the
+  // player a bigger free weapon the further the spill spreads, so the chapter would get EASIER the
+  // worse it gets. That is the assertion the ambient arm below exists for.
+  {
+    // Through the REAL weapon, never a hand-built bloom: `dmgPerTick` reaching the pool is the whole
+    // claim, and a fixture that pushes its own bloom asserts the fixture instead of the card.
+    const burn = (mods, weapon) => {
+      const run = mk(20260906)
+      run.weapons = weapon ? [{ id: 'bilge', level: 1 }] : []
+      run.weaponMods.bilge = mods
+      const p = run.player
+      const e = put(run, { x: p.x + 90, y: p.y, hp: 1e6, speed: 0, flags: [] })
+      const hp0 = e.hp
+      for (let i = 0; i < Math.round(8 / dt); i++) {
+        only(run, [e])
+        e.x = p.x + 90; e.y = p.y   // pinned where the cast lands, so every arm takes the same dose
+        run.slicks.length = 0       // an ambient spill must never reach this arm
+        stepSim(run, { x: 0, y: 0 }, dt)
+      }
+      return hp0 - e.hp
+    }
+    const oiled = burn({}, true)
+    const dry = burn({}, false)
+    const crude = burn({ crudeCut: 1 }, true)
+    assert.strictEqual(dry, 0, `precondition: with no bilge equipped the pinned body must take nothing; it lost ${dry}`)
+    assert.ok(oiled > 0, `the player's own oil must BURN what stands in it — bilge shipped with no damage stat at all and was the reason nine of this chapter's mods had nothing to scale; it dealt ${oiled}`)
+    assert.ok(crude > oiled * 1.1,
+      `Crude must fold that damage: ${crude} against ${oiled} unmodded`)
+    // THE AMBIENT LEAK IS THE CONTROL. Same body, same 8s, in the chapter's OWN spill: stained and
+    // slowed (run PY.y owns those two), never hurt.
+    const run = mk(20260906)
+    run.weapons = []
+    const p = run.player
+    const ox = p.x + 4000, oy = p.y     // far from the player: this is about the oil, not about fear
+    const e = put(run, { x: ox, y: oy, hp: 1e6, speed: 0, flags: [] })
+    const hp0 = e.hp
+    for (let i = 0; i < Math.round(8 / dt); i++) {
+      only(run, [e])
+      run.slicks.length = 0
+      run.slicks.push({ x: ox, y: oy, r: 300, shape: 0, rot: 0, _cell: 'fixture' })
+      e.x = ox; e.y = oy
+      stepSim(run, { x: 0, y: 0 }, dt)
+    }
+    assert.strictEqual(hp0 - e.hp, 0,
+      `the chapter's ambient leak must never damage the shoal — a spreading spill that killed would make the chapter EASIER the worse it gets; it dealt ${hp0 - e.hp}`)
+    assert.ok((e.oiled || 0) > 0.1, `...it must still STAIN, or this arm is passing because nothing reached the fish at all; got ${(e.oiled || 0).toFixed(3)}`)
+    console.log(`PASS run PY.b (fresh oil burns): 8s in the player's own oil costs a body ${oiled} HP (${crude} with Crude) and 0 with no drum equipped, while 8s in the chapter's own leak costs 0 and stains ${(e.oiled || 0).toFixed(2)}`)
   }
 
   // -- PY.f: a spill is NOT a refill circle. ---------------------------------------------------

@@ -838,7 +838,7 @@ const CONFIG = {
   // marine oil spill and for the mar\u00e9e noire, so it names the POLLUTION rather than the part of the
   // boat it came from — which is this book's through-line and this chapter's own hazard.
   'Bilge': 'Mazout',
-  'Splits a drum. The oil crawls out, and whatever wades through it stays slow long after.': 'Fend un f\u00fbt. Le mazout s\'\u00e9chappe, et ce qui le traverse en reste ralenti bien apr\u00e8s.',
+  'Splits a drum. The oil crawls out, burns what wades through it, and leaves it slow long after.': 'Fend un f\u00fbt. Le mazout s\'\u00e9chappe, br\u00fble ce qui le traverse et le laisse ralenti bien apr\u00e8s.',
   'Net Toss': 'Filet Lesté',
   'Throws a weighted net over a pack and holds them where they stand.': 'Jeté sur un groupe entier, il le cloue sur place.',
   'Membrane Piercer': 'Perce-Membrane',
@@ -1033,6 +1033,8 @@ const CONFIG = {
   'mouthful(s) of food in each bait': 'bouch\u00e9e(s) de nourriture par app\u00e2t',
   'Split Seam': 'Couture Fendue',
   'oil spread': '\u00e9tendue du mazout',
+  'Crude': 'Brut',
+  'damage the oil deals': 'd\u00e9g\u00e2ts du mazout',
   // 'Entonnoir' over the nautical 'Goulet' (owner, 2026-09-05): a card has to read at a glance on
   // the level-up screen, and a funnel is a shape everyone knows.
   'Funnel': 'Entonnoir',
