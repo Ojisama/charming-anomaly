@@ -36,7 +36,7 @@ import {
   // it must NEVER be used to WALK the ladder. A failed roll deflecting onto the next tier is what
   // measured 16.1% legendary in the shim's first draft (F1). The floor only ever REMOVES keys from
   // a weight table and lets pickWeighted renormalise the survivors — it never redirects a roll.
-  RARITY_ORDER, RARITIES, RARITY_WEIGHTS, UPGRADE_RARITY,
+  RARITY_ORDER, RARITIES, modPct, RARITY_WEIGHTS, UPGRADE_RARITY,
   BUCKET_WEIGHTS, DEFENSIVE_PASSIVES, WEAPON_UP_WEIGHT, REROLL_RARITY_DECAY, REROLL_RARITY_CAP,
   ANOMALIES, ANOMALY_BASE_WEIGHT, ANOMALY_PITY_PER_SCREEN, ANOMALY_PITY_CAP, ANOMALY_REROLL_MUL, ANOMALY_REROLL_PITY_REFUND,
   MAX_ANOMALIES_PER_RUN, ANOMALY_MIN_LEVEL,
@@ -12856,7 +12856,7 @@ function makeWeaponModCard(run, weaponId, modId, rarity) {
   // A desc carrying {n} places the amount ITSELF, anywhere in the sentence, instead of taking the
   // usual "+N " head — see modEffectText in ui.js, which is what actually renders it (and which
   // each language re-places independently, the number being interpolated after translation).
-  const nStr = cfg.kind === 'pct' ? `${Math.round(bonus * 100)}%` : `${bonus}`
+  const nStr = cfg.kind === 'pct' ? modPct(bonus) : `${bonus}`
   const desc = cfg.kind === 'switch'
     ? cfg.desc
     : cfg.desc.includes('{n}')

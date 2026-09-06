@@ -20,6 +20,16 @@ export const RUN_DURATION = 300 // seconds; reaching it = victory
 // RARITIES, and every real consumer reads .name or .mult only. The tier colours the player actually
 // sees are declared independently in styles.css's .lv-card[data-rarity=...] rules, so the field was
 // a second source of truth that nothing consulted and nothing kept in sync.
+// THE PERCENTAGE A WEAPON MOD'S CARD SHOWS. One author for a number that reaches the player from
+// two places — sim.js composes the level-up card's sentence, ui.js recomposes the same sentence for
+// the pause build sheet — and a card promising two different numbers on two screens is precisely the
+// one-fact-in-two-places drift this file exists to prevent.
+//   ⚠ IT SHOWS A DECIMAL BELOW 1%, and that is the whole reason it is a function rather than an
+// inline Math.round at each site. Bloodrush is 0.2% a stack (owner, 2026-09-06), which rounds to a
+// card reading "+0% move speed" — a card that promises nothing, for a card that does something.
+// Above 1% nothing changes: every other pct mod in the game is 0.19-0.60 and still prints whole.
+export const modPct = (v) => `${v * 100 < 0.95 ? Math.round(v * 1000) / 10 : Math.round(v * 100)}%`
+
 export const RARITIES = {
   normal:    { name: 'Normal',    mult: 1.0 },
   rare:      { name: 'Rare',      mult: 1.6 },
@@ -3418,11 +3428,15 @@ export const WEAPON_MODS = {
     // asks of you: being close. Read at biteGnash's own site — deliberately NOT a fold, because the
     // quantity it moves is not in levels[].
     deepBite:        { name: 'Deep Bite',  desc: 'bite damage at point-blank range', icon: '🦷', base: 0.35, kind: 'pct' },
-    // THE MOMENTUM CARD. Stacking is what makes it a mechanic instead of a flat bonus with a
+    // THE MOMENTUM CARD. Stacking is what makes it a mechanic rather than a flat bonus with a
     // duration painted on: gnash fires 1.5-2.4 times a second, so a non-stacking 2s window would be
-    // refreshed long before it ever lapsed and the card would just read "+5% move speed". Stacked,
-    // a chain of bites builds you up to RUSH_MAX_STACKS and losing the shoal costs it straight back.
-    bloodrush:       { name: 'Bloodrush',  desc: 'move speed per bite for 2s, stacking 5 times', icon: '🏊', base: 0.05, kind: 'pct' },
+    // refreshed long before it ever lapsed. Stacked, a chain of bites builds you up to
+    // RUSH_MAX_STACKS and losing the crowd costs it straight back.
+    // balance_decision : owner's nerf, 5% a stack -> 0.2% 2026-09-06
+    //  - the rarity ladder is what makes it worth taking: 0.2% a stack at normal is 1% at full
+    //    stacks, where mythic's x6.5 is 1.3% a stack and 6.5% at full. It PRINTS as the owner's
+    //    two numbers (0.2% and 1%) only because modPct shows a decimal below 1% — see its block
+    bloodrush:       { name: 'Bloodrush',  desc: 'move speed per bite for 2s, stacking 5 times', icon: '🏊', base: 0.002, kind: 'pct' },
     // THE ELITE PAYOFF. A switch rather than a tiered heal because a fraction is the one shape this
     // must not have: "an elite pays 40% of your health" is a number nobody can feel, while "an elite
     // pays for everything" is a reason to go and pick a fight you were avoiding. Normal rarity, because makeWeaponModCard returns null
@@ -11060,7 +11074,10 @@ export const GNASH_CARRY_FRAC = 0.6
 // chapter's slows, for the reason SCENT_SPEED_MUL gives at the same site: those are floors on how
 // slow the world may make you, this is a bonus you bought.
 export const RUSH_DUR = 2.0          // s, refreshed by every landed bite
-export const RUSH_MAX_STACKS = 5     // ceiling, so a long chain cannot outrun the chapter entirely
+export const RUSH_MAX_STACKS = 5     // ceiling on the chain. It stopped being a safety rail with the
+                                     // 2026-09-06 nerf — at 0.2% a stack the cap is 1% of move speed
+                                     // — and is now what the card's own sentence promises, which is
+                                     // the only reason it must not move without the copy moving
 
 
 // ---- CHUM (v7.x, The Wreck) --------------------------------------------------------------------

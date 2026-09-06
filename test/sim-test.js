@@ -155,7 +155,7 @@ import {
   // The Wreck's prey rework (Run WK)
   INK_TRIGGER_R, INK_COOLDOWN, INK_SLOW_MUL, INK_DUR,
   PUFFER_TRIGGER_R, PUFFER_COOL_T, PUFFER_DRIFT_MUL,
-  GNASH_MAW_MUL, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
+  GNASH_MAW_MUL, RUSH_MAX_STACKS, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T,
   BALLAST_RING,
   // The Wreck's orca (Run OR)
   ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
@@ -8987,12 +8987,40 @@ function runPrey() {
       }
       return { moved: run.player.x - x0, stacks: peak }
     }
+    // PINNED TO THE SHIPPED VALUE, never a literal. This fixture carried a hard-coded 0.05 through
+    // the owner's 2026-09-06 nerf to 0.002 — it kept passing while measuring a card 25x the one in
+    // the game, which is the "quote a number nothing ships" trap with a green board on top.
+    const BR = WEAPON_MODS.gnash.bloodrush.base
     const off = travel({}, true)
-    const on = travel({ bloodrush: 0.05 }, true)
-    const miss = travel({ bloodrush: 0.05 }, false)
-    assert.ok(on.stacks > 1, `biting must STACK the rush; it reached ${on.stacks}`)
-    assert.ok(on.moved > off.moved * 1.05,
-      `bloodrush must actually move the player faster: ${on.moved.toFixed(0)}px against ${off.moved.toFixed(0)}px unbought`)
+    const on = travel({ bloodrush: BR }, true)
+    const rich = travel({ bloodrush: BR * RARITIES.mythic.mult }, true)
+    const miss = travel({ bloodrush: BR }, false)
+    // THE CHAIN REACHES THE CAP AND STOPS THERE. gnash fires 1.5-2.4 times a second, so five
+    // seconds of landed bites is comfortably more swings than RUSH_MAX_STACKS — which makes this
+    // one number both halves of the claim: it STACKS (more than one) and it is CLAMPED (never more
+    // than the cap). The distance arms below cannot see the clamp at all, because every band they
+    // could be written in scales with the same base the stacks do.
+    assert.strictEqual(on.stacks, RUSH_MAX_STACKS,
+      `a 5s chain of landed bites must stack to exactly RUSH_MAX_STACKS (${RUSH_MAX_STACKS}) and be held there; it reached ${on.stacks}`)
+    // MEASURED over this exact 5s window rather than guessed: a normal pick reads +0.58% and a
+    // mythic +3.77%, both short of their own ceilings because the stacks have to ramp. The floor is
+    // half the normal effect, which is a wide band on a fully seeded pair of runs that differ in
+    // nothing but the mod.
+    assert.ok(on.moved > off.moved * 1.003,
+      `bloodrush must actually move the player faster: ${on.moved.toFixed(1)}px against ${off.moved.toFixed(1)}px unbought`)
+    // ...AND THE VALUE IS READ AS A MAGNITUDE, not as a flag. 0.2% is small enough that a bloodrush
+    // rewired as a switch — or floored, or read as `> 0` — would still clear the arm above. A mythic
+    // pick is 6.5x a normal one and has to show it.
+    assert.ok(rich.moved > on.moved * 1.01,
+      `a mythic bloodrush is ${RARITIES.mythic.mult}x a normal one and must carry the player measurably further: ` +
+      `${rich.moved.toFixed(1)}px against ${on.moved.toFixed(1)}px`)
+    // ...AND IT IS PAID ONCE PER STACK. At the cap the speed multiplier is exactly
+    // 1 + BR x RUSH_MAX_STACKS, so a run that beats that band is applying the bonus more than once
+    // — the per-cast-count trap in the shape a multiplier takes. It cannot see the CAP itself (the
+    // arm above does that); it sees the bonus being double-counted underneath it.
+    assert.ok(on.moved < off.moved * (1 + BR * RUSH_MAX_STACKS),
+      `bloodrush must not beat its own ceiling of ${(BR * RUSH_MAX_STACKS * 100).toFixed(1)}%: ` +
+      `${on.moved.toFixed(1)}px against ${off.moved.toFixed(1)}px unbought`)
     assert.strictEqual(miss.stacks, 0, 'biting open water must bank no rush at all, or the card is a flat speed bonus')
     assert.ok(Math.abs(miss.moved - off.moved) < 1,
       `a build that never lands a bite must move exactly like one without the card; ${miss.moved.toFixed(0)} vs ${off.moved.toFixed(0)}`)
@@ -9000,7 +9028,7 @@ function runPrey() {
     // ...and it LAPSES. Same run, bites stopped by emptying the field.
     const run = mk(20260823)
     run.weapons = [{ id: 'gnash', level: 1 }]
-    run.weaponMods.gnash = { bloodrush: 0.05 }
+    run.weaponMods.gnash = { bloodrush: BR }
     const p = run.player
     const e = put(run, { x: p.x + 50, y: p.y, hp: 1e12, speed: 0 })
     for (let i = 0; i < Math.round(3 / dt); i++) { only(run, [e]); e.x = p.x + 50; e.y = p.y; stepSim(run, { x: 0, y: 0 }, dt) }
@@ -9008,7 +9036,8 @@ function runPrey() {
     for (let i = 0; i < Math.round(3 / dt); i++) { only(run, []); stepSim(run, { x: 0, y: 0 }, dt) }
     assert.ok(peak > 0 && (run._rushN ?? 0) === 0 && (run._rushT ?? 0) === 0,
       `the rush must lapse once the bites stop: peaked at ${peak}, left ${run._rushN} stacks / ${(run._rushT ?? 0).toFixed(2)}s`)
-    console.log(`PASS run PY.n (bloodrush): landing bites stacks to ${on.stacks} and carries the player ${on.moved.toFixed(0)}px against ${off.moved.toFixed(0)}px unbought, biting water banks nothing, and ${peak} stacks lapse to 0 when the crowd is gone`)
+    console.log(`PASS run PY.n (bloodrush): landing bites stacks to ${on.stacks} and carries the player ${on.moved.toFixed(1)}px against ${off.moved.toFixed(1)}px unbought at the shipped ${(BR * 100).toFixed(1)}% a stack ` +
+      `(${rich.moved.toFixed(1)}px at mythic), under its own ${(BR * RUSH_MAX_STACKS * 100).toFixed(1)}% ceiling, biting water banks nothing, and ${peak} stacks lapse to 0 when the crowd is gone`)
   }
 
   // -- PY.q: the bite prefers FOOD that is in reach, but still eats a moray you closed on. -------
