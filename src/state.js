@@ -1534,10 +1534,6 @@ function generateWells(sig) {
  * _drownAcc: number — the part-tick accumulator for the DoT above, reset to 0 the moment `charge`
  *   comes off zero so a partial tick banked before you reached a pocket is never spent minutes
  *   later. 0 and untouched everywhere else.
- * _bloodT: number — run._realTime before which WEAPON_MODS.gnash.bloodInTheWater will not drop
- *   another blood cloud (BLOOD_CHUM_CD). A latch rather than a ticked timer because its read site
- *   is dealDamage, which is not a per-frame step; and it exists at all because this chapter reaches
- *   ~15 kills/s, where an uncooled version carpets the map instead of being a rhythm you can read.
  * slicks[i]: { x, y, r, shape, rot, _cell } — v7.x The Wreck: streamed POLLUTION SPILLS, the
  *   chapter's signature (`{ type: 'leak', slicks: {...} }`) and the only thing in it that can kill
  *   you, the roster being food. Same refillCircleAt geometry as run.shafts above, on salt block 50
@@ -1762,10 +1758,7 @@ function generateWells(sig) {
  *   out emits the same event rather than the burst path, since burstR/burstDmg are 0 for chum.
  *   render sizes the cloud off `aggro` and counts out one chunk per remaining serving, and
  *   orcaRush weights the orca's arrival by `food` (ORCA_BAIT_FULL_FOOD).
- *   A BAIT IS ALSO WHAT A KILL LEAVES under WEAPON_MODS.gnash.bloodInTheWater — dealDamage pushes
- *   the same object with BLOOD_CHUM_* numbers, deliberately, so a blood cloud inherits the gather,
- *   the servings, the drawing and orcaRush with no second implementation. And under
- *   WEAPON_MODS.chum.decoyBarrel the fullest live bait is what the ORCA'S RING closes on
+ *   Under  *   WEAPON_MODS.chum.decoyBarrel the fullest live bait is what the ORCA'S RING closes on
  *   (orcaAnchor), which is the one card in the game that aims that animal.
  * {type:'chumOut', x, y}: a chum bait gone — stripped by the shoal or aged out. Render-only, no
  *   SFX entry: it is the quiet end of a zone, and the chapter already sounds the cast.
@@ -2646,9 +2639,6 @@ export function createRun(meta, opts = {}) {
     // declaring `burst` / a `resource.drown` block ever moves them off 0.
     _burstT: 0,
     _drownAcc: 0,
-    // bloodInTheWater's cooldown latch (WEAPON_MODS.gnash). Same pattern as the lines around it:
-    // every run carries it, and only a run holding that mod ever moves it.
-    _bloodT: 0,
     // v7.x The Surf: seconds of Shorebreak left. Same pattern — every run carries it, and only a
     // chapter declaring `shorebreak` ever moves it off 0.
     _shorebreakT: 0,

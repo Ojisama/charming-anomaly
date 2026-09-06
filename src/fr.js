@@ -833,12 +833,12 @@ const CONFIG = {
   // 'App\u00e2t' over 'Bro\u00fbmage' (the exact term for chumming) because the card has to read at a
   // glance and bro\u00fbmage is a word most players have never met.
   'Chum': 'App\u00e2t',
-  'Tears the rotted catch out of the hold. What was fleeing turns and gathers.': 'Arrache les prises pourries de la cale. Ce qui fuyait fait demi-tour et s\'attroupe.',
+  'Tears the rotted catch out of the hold. They break off to feed, and stop where they stand.': 'Arrache les prises pourries de la cale. Ils se détournent pour manger, et ne bougent plus.',
   // 'Mazout' over the literal 'Sentine' (the bilge itself): mazout is the word French uses for a
   // marine oil spill and for the mar\u00e9e noire, so it names the POLLUTION rather than the part of the
   // boat it came from — which is this book's through-line and this chapter's own hazard.
   'Bilge': 'Mazout',
-  'Splits a drum. The oil crawls out, it drags on anything in it, and nothing will swim into it.': 'Fend un f\u00fbt. Le mazout s\'\u00e9chappe, freine ce qui s\'y trouve, et rien ne veut y nager.',
+  'Splits a drum. The oil crawls out, and whatever wades through it stays slow long after.': 'Fend un f\u00fbt. Le mazout s\'\u00e9chappe, et ce qui le traverse en reste ralenti bien apr\u00e8s.',
   'Net Toss': 'Filet Lesté',
   'Throws a weighted net over a pack and holds them where they stand.': 'Jeté sur un groupe entier, il le cloue sur place.',
   'Membrane Piercer': 'Perce-Membrane',
@@ -1008,8 +1008,6 @@ const CONFIG = {
   // actually famous for and the more idiomatic French. ('Curée' — the hunting term for falling on
   // downed quarry — was the third option and is exactly this mod, but it is a word a lot of players
   // would not know.)
-  'Blood in the Water': 'L\'Odeur du Sang',
-  'reach of the blood a kill leaves behind': 'portée du sang laissé par une proie tuée',
   // 'Tonneau de la Mort' is the accurate term for a crocodile's roll. It LOST to 'Prise Mortelle'
   // on 2026-08-18 because the mod was an immobilise and the player never saw a roll; the 2026-09-05
   // rework makes it a roll through the crowd, so the owner took the reference back.
@@ -1019,8 +1017,6 @@ const CONFIG = {
   'move speed per bite for 2s, stacking 5 times': 'de vitesse par morsure pendant 2s, jusqu\'\u00e0 5 fois',
   'Gorge': 'Gavage',
   'eating an elite heals you to full': 'd\u00e9vorer une \u00e9lite te rend toute ta vie',
-  'Oil Ring': 'Anneau de Mazout',
-  'the oil lands as a ring around your target': 'le mazout tombe en anneau autour de ta cible',
   // chum's five and bilge's five (v7.x). 'Nappe' is the word for an oil slick on water and carries
   // both cards' spread, which is what makes them read as one chapter's gear.
   'Wide Slick': 'Nappe Large',
