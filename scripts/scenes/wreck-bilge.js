@@ -40,7 +40,6 @@ return () => {
   H.pin()
   // Frame 0 is the ordinary cast; from frame 1 the ring mod is on, so one shoot carries the
   // comparison rather than two runs whose crowds landed differently.
-  if (i === 1) H.weapon('bilge', 5, { oilRing: 1 })
 
   let fired = false
   for (let k = 0; k < 900 && !fired; k++) {

@@ -90,7 +90,6 @@ import {
   CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
   KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
-  RING_N, RING_R_MUL, RING_POOL_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_R, chapterMaxDifficulty,
@@ -9010,49 +9009,6 @@ function runPrey() {
     assert.ok(peak > 0 && (run._rushN ?? 0) === 0 && (run._rushT ?? 0) === 0,
       `the rush must lapse once the bites stop: peaked at ${peak}, left ${run._rushN} stacks / ${(run._rushT ?? 0).toFixed(2)}s`)
     console.log(`PASS run PY.n (bloodrush): landing bites stacks to ${on.stacks} and carries the player ${on.moved.toFixed(0)}px against ${off.moved.toFixed(0)}px unbought, biting water banks nothing, and ${peak} stacks lapse to 0 when the crowd is gone`)
-  }
-
-  // -- PY.p: the OIL RING lays a ring, and it is a PEN rather than a puddle. ---------------------
-  // Owner: "the mazout could have fun mods like mazout rings that traps groups of enemies".
-  // Asserted as GEOMETRY, not as a count: RING_N pools that all landed on the same spot would pass
-  // any count assert and be one ordinary pool wearing a bigger number (the documented per-cast
-  // trap). So this measures the ring's radius spread AND that the middle is left open — the open
-  // middle is the entire mechanic, since it is where the shoal ends up.
-  {
-    const cast = (mods) => {
-      const run = mk(20260825)
-      run.weapons = [{ id: 'bilge', level: 1 }]
-      run.weaponMods.bilge = mods
-      const p = run.player
-      const x0 = p.x, y0 = p.y
-      const e = put(run, { x: x0 + 300, y: y0, hp: 1e12, speed: 0, flags: [] })
-      let pools = []
-      for (let i = 0; i < Math.round(10 / dt) && !pools.length; i++) {
-        only(run, [e])
-        e.x = x0 + 300; e.y = y0
-        stepSim(run, { x: 0, y: 0 }, dt)
-        pools = run.blooms.filter((b) => b.look === 'bilge')
-      }
-      assert.ok(pools.length, 'bilge never planted — the fixture proves nothing')
-      return { pools, cx: e.x, cy: e.y }
-    }
-    const plain = cast({})
-    const ring = cast({ oilRing: 1 })
-    assert.strictEqual(plain.pools.length, 1, 'an ordinary cast is one pool')
-    assert.strictEqual(ring.pools.length, RING_N, `the ring lays RING_N pools; got ${ring.pools.length}`)
-    const radii = ring.pools.map((b) => Math.hypot(b.x - ring.cx, b.y - ring.cy))
-    const spread = Math.max(...radii) - Math.min(...radii)
-    assert.ok(Math.min(...radii) > 1, 'no ring pool may sit ON the target — the middle is the pen')
-    assert.ok(spread < 1, `every ring pool must sit at the same radius, or it is a smear not a ring; spread ${spread.toFixed(1)}px`)
-    // DISTINCT POSITIONS, not just a count.
-    const spots = new Set(ring.pools.map((b) => `${Math.round(b.x)},${Math.round(b.y)}`))
-    assert.strictEqual(spots.size, RING_N, `the ring's pools must be in ${RING_N} different places; they occupy ${spots.size}`)
-    // The pen must be CLOSED at cast: neighbouring pools have to overlap, or prey walk straight out
-    // of the gap and the card does nothing it says it does.
-    const step = 2 * Math.PI / RING_N
-    const gap = 2 * radii[0] * Math.sin(step / 2)          // centre-to-centre along the circle
-    assert.ok(gap <= ring.pools[0].maxR * 2, `the ring must close: neighbours are ${gap.toFixed(0)}px apart but only ${(ring.pools[0].maxR * 2).toFixed(0)}px wide`)
-    console.log(`PASS run PY.p (the oil ring): ${RING_N} pools at ${radii[0].toFixed(0)}px around the target, ${gap.toFixed(0)}px apart against ${(ring.pools[0].maxR * 2).toFixed(0)}px of width, and nothing in the middle`)
   }
 
   // -- PY.q: the bite prefers FOOD that is in reach, but still eats a moray you closed on. -------

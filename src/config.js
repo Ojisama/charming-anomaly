@@ -2819,7 +2819,7 @@ export const WEAPONS = {
   // that chapter's card in another hat. Chum is the inverse of a scatter and bilge is a wall.
   chum: {
     name: 'Chum',
-    desc: 'Tears the rotted catch out of the hold. What was fleeing turns and gathers.',
+    desc: 'Tears the rotted catch out of the hold. They break off to feed, and stop where they stand.',
     icon: '🪣', rarity: 'normal',
     // A DECOY THAT FEEDS WHAT IT GATHERS, which is the half no other lure has. A Pheromone Lure
     // taunts and that is all it does; this pulls a pack off you AND parks each body that reaches it
@@ -2846,7 +2846,7 @@ export const WEAPONS = {
   },
   bilge: {
     name: 'Bilge',
-    desc: 'Splits a drum. The oil crawls out, it drags on anything in it, and nothing will swim into it.',
+    desc: 'Splits a drum. The oil crawls out, and whatever wades through it stays slow long after.',
     icon: '🛢️', rarity: 'normal',
     // THE BARRIER, and it is the chapter's own hazard turned into a tool: the leak is what kills you
     // here (CHAPTERS.wreck.signature), and this card is you doing it back. That is the book's
@@ -3392,9 +3392,9 @@ export const WEAPON_MODS = {
   // is useless"; again 2026-09-05: "the mods for the wreck are not fun, the mod pool is not
   // relevant and coherent with unique gameplay of this level").
   //
-  // ⚠ THE FIRST PASS CUT THE GENERIC NUMBERS AND LEFT THREE MORAY CARDS, which is what the second
-  // complaint is about. deepBite, bloodInTheWater and deathRoll all only paid on a body that
-  // SURVIVES a bite, and this roster's food does not. Measured over 3 x 300s, gnash L5, immortal,
+  // ⚠ AN EARLIER PASS CUT THE GENERIC NUMBERS AND LEFT THREE MORAY CARDS, which is what the second
+  // complaint is about. deepBite and deathRoll only paid on a body that SURVIVED a bite, and this
+  // roster's smaller creatures do not. Measured over 3 x 300s, gnash L5, immortal,
   // no mods, counting every body whose hp fell in a step:
   //                                    hunter chases nearest prey    ...nearest ANY body
   //      bodies damaged                        6498                        5310
@@ -3402,9 +3402,9 @@ export const WEAPON_MODS = {
   //      of those survivors, moray             93.1%                       97.9%
   //      under 34% hp BEFORE the bite           4.8%                        8.4%
   // The second column is the rig chasing morays on purpose; both columns say the same thing. Three
-  // of five cards were aimed at the one creature the chapter cut by 70% for being a chore, and
-  // bloodInTheWater's own condition was reachable on one bite in twenty. All three keep their NAME
-  // and change what they do.
+  // of five cards were aimed at the one creature the chapter cut by 70% for being a chore. The two
+  // that survive keep their NAME and change what they do; the third was a gather card and went with
+  // the premise that made gathering worth anything (2026-09-06).
   //
   // THERE IS STILL NO REACH MOD AND NO RATE MOD. Gnash's damage is a linear falloff over its OWN
   // range (GNASH_MAW_MUL at the jaw, x1 at the tip), so a mod that lengthened the sweep would
@@ -3428,15 +3428,6 @@ export const WEAPON_MODS = {
     // pays for everything" is a reason to go and pick a fight you were avoiding. Normal rarity, because makeWeaponModCard returns null
     // for a switch above normal — see the note on trashTornado.sweepLoot for the epic idiom.
     gorge:           { name: 'Gorge',      desc: 'eating an elite heals you to full', icon: '🫀', kind: 'switch' },
-    // THE MOUTH BECOMES THE BAIT (v7.x). The name is the shark idiom and it now means what it says:
-    // a kill leaves a cloud of blood that draws the next fish in, i.e. gnash borrows chum's verb off
-    // its own kills. It was "+55% damage against wounded prey" and fired on 6.1% of bites, because
-    // a mackerel is 4.95 HP against a 28.5 bite and is never seen under 34% hp alive.
-    //   `pct` on the cloud's PULL rather than a switch: the stack is how far the smell carries,
-    // which is the one axis a blood trail has. See BLOOD_CHUM_* for the cooldown that stops 15
-    // kills/s carpeting the map, and note the cloud is a real run.lures bait — so it also feeds
-    // orcaRush, which is the correct fiction and a real cost.
-    bloodInTheWater: { name: 'Blood in the Water', desc: 'reach of the blood a kill leaves behind', icon: '🩸', base: 0.60, kind: 'pct' },
     // THE BITE GETS A SHOVE. gnash ships with no knockback deliberately — see the GNASH_ block —
     // so this card is the one that hands it one, and it is a `pct` on the impulse rather than a
     // switch because how far you throw a body is the whole axis. GNASH_ROLL_KB is the magnitude at
@@ -3505,15 +3496,8 @@ export const WEAPON_MODS = {
     // player is placing dots; with it they are cutting the water into rooms, which is the play the
     // card exists for.
     slickTrail: { name: 'Trailing Slick', desc: 'the oil pours behind you as you swim', icon: '〰️', kind: 'switch' },
-    // A RING, NOT A DOT (owner: "mazout rings that traps groups of enemies"). RING_N pools on a
-    // circle around the target instead of one pool on it, so a pack closing on you crosses oil
-    // whichever way it comes in and arrives already stained. The gaps between pools are deliberate:
-    // a solid ring would be a wall, and nothing in this chapter refuses oil — what it buys is
-    // coverage on the approach, not denial. Mutually exclusive with slickTrail by shape — a
-    // fence drawn behind you and a ring thrown around a fish cannot both be where the oil went, so
-    // slickTrail wins and the ring stands down (see stepBilgeWeapon).
-    oilRing:    { name: 'Oil Ring',       desc: 'the oil lands as a ring around your target', icon: '⭕', kind: 'switch' },
   },
+  clawRake: {  },
   clawRake: {
     rend:        { name: 'Rending Claws', desc: 'claw damage', icon: '🩸', base: 0.35, kind: 'pct' },
     wideRake:    { name: 'Wide Rake',     desc: 'claw sweep width', icon: '🪭', base: 0.30, kind: 'pct' },
@@ -11078,22 +11062,6 @@ export const GNASH_CARRY_FRAC = 0.6
 export const RUSH_DUR = 2.0          // s, refreshed by every landed bite
 export const RUSH_MAX_STACKS = 5     // ceiling, so a long chain cannot outrun the chapter entirely
 
-// ---- OIL RING (v7.x, bilge) --------------------------------------------------------------------
-// RING_N pools on a circle instead of one pool at the target. Two constraints fight here and both
-// are load-bearing:
-//   CLOSURE. Neighbours must overlap, or prey walk out of the gap: 2*rr*sin(pi/RING_N) <= 2*pr.
-//     That caps rr at pr/sin(pi/RING_N) — 2*pr for six pools, 2.61*pr for eight.
-//   AN INTERIOR. The hole is rr - pr, and a body's own radius eats into it from every side, so
-//     the free water in the middle is rr - pr - 46. At six pools and the maximum legal rr that is
-//     8px at L1 — no interior at all, and the ring's own avoidance then shoves the school out
-//     through the gaps. Measured: a 6-pool ring HELD 4 of 6 drifting fish where no ring at all
-//     held 5, i.e. it was worse than nothing.
-// Eight pools buys the room: at L1, eight 60px pools on a 144px circle, neighbours 110px apart
-// against 120px of width (closed), leaving an 84px hole and 38px of genuinely free water.
-export const RING_N = 8
-export const RING_R_MUL = 2.4
-export const RING_POOL_MUL = 0.5
-
 
 // ---- CHUM (v7.x, The Wreck) --------------------------------------------------------------------
 // A run.lures entry with `bait: true`. The tag is read by stepEnemyMovement's lure override, which
@@ -11138,24 +11106,6 @@ export const CHUM_FEED_CD = 6.0
 // balance_decision : unswept first cut, the slick gathers what is in it 2026-09-05
 export const OIL_FUNNEL_PULL = 60
 
-// ---- BLOOD IN THE WATER (v7.x, WEAPON_MODS.gnash.bloodInTheWater) -----------------------------
-// A kill leaves a bait. It is a real run.lures entry with `bait: true` — the same object Chum
-// casts, deliberately, so it inherits the gather, the servings, the panic override, the drawing and
-// orcaRush with no second implementation and no new run.* array. That last one is a real cost and
-// the right one: blood in the water is what an orca comes for, and a build that farms kills into
-// baits should ring the bell.
-//
-// ⚠ THE COOLDOWN IS THE WHOLE DESIGN. This chapter's kill rate reaches ~15/s by t=280, so an
-// uncooled version carpets the map in permanent bait and turns a gather card into ambient terrain.
-// One cloud every BLOOD_CHUM_CD means the card is a rhythm you can see: kill, the shoal turns,
-// kill again. Latched on run._realTime rather than a ticked timer, because the read site
-// (dealDamage) is not a per-frame step and adding one would be a second clock to keep in sync.
-export const BLOOD_CHUM_CD = 2.2       // s between blood clouds, whatever the kill rate
-export const BLOOD_CHUM_DUR = 3.0      // s it lasts — under an L1 chum's 4.0: a smell, not a bucket
-export const BLOOD_CHUM_R = 130        // px of pull at base, x(1 + the mod). Clears gnash's own reach,
-                                       // which is the floor any gather must beat to gather at all
-export const BLOOD_CHUM_FOOD = 2       // servings. Small on purpose: a quarter of ORCA_BAIT_FULL_FOOD,
-                                       // so one cloud nudges orcaRush and a farm of them does not pin it
 
 // RENDER-ONLY. The bait is a cloud of rotted catch in the water, and its STATE is the tactical
 // information the servings created — a full bucket and a stripped one have to be different

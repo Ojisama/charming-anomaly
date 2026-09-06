@@ -168,10 +168,9 @@ import {
   resourceRateMul,
   GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_CARRY_FRAC, GNASH_ROLL_KB, RUSH_DUR, RUSH_MAX_STACKS,
   CHUM_FEED_R, CHUM_FEED_HOLD, CHUM_FEED_CD,
-  BLOOD_CHUM_CD, BLOOD_CHUM_DUR, BLOOD_CHUM_R, BLOOD_CHUM_FOOD, OIL_FUNNEL_PULL,
+  OIL_FUNNEL_PULL,
   BILGE_TRAIL_STEP_FRAC, BILGE_TRAIL_R_MUL, BILGE_TRAIL_GROW,
   OIL_STAIN_RATE, OIL_STAIN_MAX,
-  RING_N, RING_R_MUL, RING_POOL_MUL,
   INK_TRIGGER_R, INK_COOLDOWN, INK_R, INK_DUR, INK_SLOW_MUL,
   PUFFER_TRIGGER_R, PUFFER_PUFF_T, PUFFER_COOL_T, PUFFER_DRIFT_MUL,
   ORCA_HERD_PULL, ORCA_RING_BAND, ORCA_INTERVAL, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_LEAVE_DUR,
@@ -7331,30 +7330,6 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
     if (enemy.elite && (run.weaponMods.gnash?.gorge ?? 0) > 0) healPlayer(run, run.player.maxHP)
     run.events.push({ type: 'kill', x: enemy.x, y: enemy.y, elite: enemy.elite, etype: enemy.type })
 
-    // BLOOD IN THE WATER (v7.x, gnash): the kill leaves a bait. Placed here beside Gorge and for
-    // the same reason — the card says a KILL, so it must pay however the body died, and this is the
-    // one funnel every kill in the game already goes through.
-    //   A real run.lures bait, not a new entity: it inherits the gather, the panic override, the
-    // servings, the drawing and orcaRush with no second implementation. Latched on run._realTime
-    // (BLOOD_CHUM_CD) because this site is not a per-frame step and because an uncooled version at
-    // this chapter's ~15 kills/s would carpet the map instead of being a rhythm you can read.
-    const _blood = run.weaponMods.gnash?.bloodInTheWater ?? 0
-    if (_blood > 0 && run._realTime >= (run._bloodT ?? 0)) {
-      run._bloodT = run._realTime + BLOOD_CHUM_CD
-      const _bfood = BLOOD_CHUM_FOOD
-      const _br = BLOOD_CHUM_R * (1 + _blood)
-      run.lures.push({
-        x: enemy.x, y: enemy.y,
-        t: 0, dur: BLOOD_CHUM_DUR, aggro: _br,
-        food: _bfood, food0: _bfood,
-        shape: Math.floor(Math.random() * LOBE_SHAPES.length) % LOBE_SHAPES.length,
-        rot: Math.random() * Math.PI * 2,
-        burstR: 0, burstDmg: 0,
-        bait: true,
-      })
-      run.events.push({ type: 'chum', x: enemy.x, y: enemy.y, r: _br })
-    }
-
     // JACKPOT (v7.x, The Trawl's sea turtle — CHAPTERS[].roster[].jackpot): a kill that pays a
     // whole level on the spot and scatters a pile of coins. The level is the Reef's lap idiom
     // (xp += xpNext, so the level-up opens on the next check whatever the bar read); the coins are
@@ -9960,17 +9935,13 @@ function stepChumWeapon(run, w, stats, fireRateMul, dt) {
 
 // -- Bilge (v7.x, The Wreck) ---------------------------------------------------------------------
 // A run.blooms entry tagged look: 'bilge' — the fourth card on that array. `dmgPerTick: 0` and
-// `slow` ON: this is a wall and a drag, not a damage zone. slickTrail lays it at the player's feet
-// as they swim instead of ahead, which is what turns a series of circles into a drawn fence.
+// `slow` ON: this is a drag, not a damage zone. slickTrail lays it at the player's feet as they
+// swim instead of ahead, which is what turns a series of circles into a drawn fence.
 function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
   const pools = ipecacN(run, 1)
   // slickTrail: smaller pools, laid by DISTANCE TRAVELLED rather than on the cast timer — see the
   // BILGE_TRAIL_* block for why a timer cannot draw a line in a chapter you cross at 220px/s.
   const trail = (run.weaponMods.bilge?.slickTrail ?? 0) > 0
-  // oilRing: lay the cast as a circle of pools around the target instead of one pool on it. Stands
-  // down under slickTrail — a fence drawn behind you and a ring thrown around a fish are two
-  // different answers to "where did the oil go", and silently doing both would be neither.
-  const ring = !trail && (run.weaponMods.bilge?.oilRing ?? 0) > 0
   const maxR = stats.maxR * (trail ? BILGE_TRAIL_R_MUL : 1)
   const cast = () => {
     const p = run.player
@@ -10024,20 +9995,7 @@ function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
       const a = (k / pools) * Math.PI * 2
       const off = pools > 1 ? maxR * 0.9 : 0
       const bx = ox + Math.cos(a) * off, by = oy + Math.sin(a) * off
-      // OIL RING: the same cast spent as RING_N smaller pools on a circle instead of one big pool
-      // on the spot, so the target ends up INSIDE rather than under. Ipecac multiplies RINGS, not
-      // the pools within one — three rings is three pens, where 18 pools on one circle is the same
-      // pen drawn three times.
-      if (ring) {
-        const pr = maxR * RING_POOL_MUL
-        const rr = pr * RING_R_MUL
-        for (let j = 0; j < RING_N; j++) {
-          const t = (j / RING_N) * Math.PI * 2
-          lay(bx + Math.cos(t) * rr, by + Math.sin(t) * rr, pr)
-        }
-      } else {
-        lay(bx, by, maxR)
-      }
+      lay(bx, by, maxR)
     }
   }
   // THE TRAIL IS TRIGGERED BY DISTANCE, THE THROW BY THE TIMER. Two different questions: a thrown
