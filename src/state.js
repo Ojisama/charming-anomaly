@@ -1534,6 +1534,12 @@ function generateWells(sig) {
  * _drownAcc: number — the part-tick accumulator for the DoT above, reset to 0 the moment `charge`
  *   comes off zero so a partial tick banked before you reached a pocket is never spent minutes
  *   later. 0 and untouched everywhere else.
+ * screws[i]: { x, y, r, spin } — v7.x The Wreck: THE SCREW's bodies, one per link of the chain,
+ *   dragged behind the player. UNLIKE run.orbs this is NOT rewritten every frame: an orbiter's
+ *   position is a pure function of run.time and this one is not — the screw is left where it was
+ *   and snapped back to the chain's length when the line goes taut, so its position carries the
+ *   whole behaviour. Same persistence exception run.debris states. `spin` is render-only (the
+ *   blade's rotation); the sim advances it so there is one clock, and render never writes it.
  * slicks[i]: { x, y, r, shape, rot, _cell } — v7.x The Wreck: streamed POLLUTION SPILLS, the
  *   chapter's signature (`{ type: 'leak', slicks: {...} }`). Same refillCircleAt geometry as
  *   run.shafts above, on salt block 50 and its own _slickCellI/_slickCellJ cursor; `blob: true` in
@@ -2586,6 +2592,9 @@ export function createRun(meta, opts = {}) {
     // thanked you for standing in would be a semantic collision that never throws. Unconditional
     // like every field above it, so runs have one shape (R2); only a `leak` signature fills it.
     slicks: [],
+    // v7.x The Wreck: THE SCREW's trailing bodies (sim.js stepScrewWeapon). NOT rebuilt each frame
+    // the way run.orbs is — the position IS the state, so it persists like run.debris.
+    screws: [],
     _slickCellI: null,     // streaming cursor, independent of every other streamer's
     _slickCellJ: null,
     _slickSpreadStep: -1,  // last spread bucket rescanned; -1 so the first frame always scans

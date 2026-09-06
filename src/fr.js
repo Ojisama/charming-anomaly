@@ -839,6 +839,8 @@ const CONFIG = {
   // boat it came from — which is this book's through-line and this chapter's own hazard.
   'Bilge': 'Mazout',
   'Splits a drum. The oil crawls out, burns what wades through it, and leaves it slow long after.': 'Fend un f\u00fbt. Le mazout s\'\u00e9chappe, br\u00fble ce qui le traverse et le laisse ralenti bien apr\u00e8s.',
+  'The Screw': 'L\'H\u00e9lice',
+  'Drags the ship\'s propeller behind you on a chain. It cuts whatever your wake passes over.': 'Tra\u00eene l\'h\u00e9lice du navire derri\u00e8re vous, au bout d\'une cha\u00eene. Elle tranche tout ce que votre sillage recouvre.',
   'Net Toss': 'Filet Lesté',
   'Throws a weighted net over a pack and holds them where they stand.': 'Jeté sur un groupe entier, il le cloue sur place.',
   'Membrane Piercer': 'Perce-Membrane',
@@ -1042,6 +1044,16 @@ const CONFIG = {
   // 'Goudron' over 'Poisse' (owner, 2026-09-05): plain, and it sits beside 'Mazout' in the cards
   // either side of it.
   'Tar': 'Goudron',
+  'Honed': 'Aff\u00fbt\u00e9',
+  'blade damage': 'd\u00e9g\u00e2ts des pales',
+  'Bent Blades': 'Pales Tordues',
+  'how wide the screw cuts': 'largeur de coupe de l\'h\u00e9lice',
+  'Long Chain': 'Cha\u00eene Longue',
+  'how far back it drags': 'distance de tra\u00eene',
+  'Overspeed': 'Surr\u00e9gime',
+  'how fast the screw turns': 'vitesse de rotation de l\'h\u00e9lice',
+  'Twin Screw': 'H\u00e9lice Double',
+  'screw(s) on the chain behind you': 'h\u00e9lice(s) sur la cha\u00eene derri\u00e8re vous',
   'how much speed the stain keeps costing': 'vitesse que la souillure continue de co\u00fbter',
   'Trailing Slick': 'Nappe Tra\u00eenante',
   'the oil pours behind you as you swim': 'le mazout se d\u00e9verse derri\u00e8re toi quand tu nages',

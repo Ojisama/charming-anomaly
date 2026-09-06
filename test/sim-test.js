@@ -1537,6 +1537,17 @@ function testAnomalySlate() {
       // stick above: an explicit per-weapon override, not a heuristic, so the next terrain-coupled
       // card has to be named here rather than failing with a message about the wrong thing.
       const CHAPTER_FOR = { fireCoral: 'reef' }
+      // ⚠ ...AND ONE WEAPON THE FIXTURE'S OWN PIN MAKES UNMEASURABLE. Three lines below, a moving
+      // arm teleports the player back to the origin every frame so the ring of targets stays put —
+      // right for every card that reads VELOCITY, and blind to one that reads DISPLACEMENT. The
+      // Screw is dragged on a chain: pin the player and the line never goes taut, so three screws
+      // sit on one point and read as one, and this sweep reports "did not widen" about a weapon
+      // whose count mod works. Un-pinning would re-break the other 45.
+      //   Third explicit per-weapon override in this fixture, and the same idiom as the two above:
+      // named, not inferred, so the next card like it has to be listed here rather than failing
+      // with a message about the wrong thing. THE CLAIM IS NOT DROPPED — run PY.c asserts Ipecac
+      // spreads this weapon over distinct points, with a player that is actually allowed to move.
+      const NEEDS_TRAVEL = new Set(['screw'])
       const spread = (id, weaponId) => {
         const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 }, CHAPTER_FOR[weaponId] ? { chapter: CHAPTER_FOR[weaponId] } : {})
         assert.strictEqual(r.chapter, CHAPTER_FOR[weaponId] ?? r.chapter, `the ${weaponId} arm did not boot in ${CHAPTER_FOR[weaponId]} — a WIP gate sent it elsewhere and it would report 'spawned nothing'`)
@@ -1584,7 +1595,9 @@ function testAnomalySlate() {
         return best
       }
       const missed = []
+      const handedOff = []
       for (const weaponId of Object.keys(WEAPONS)) {
+        if (NEEDS_TRAVEL.has(weaponId)) { handedOff.push(weaponId); continue }
         const plain = spread(null, weaponId)
         const sick = spread('ipecac', weaponId)
         if (plain === 0) { missed.push(`${weaponId} (fixture spawned nothing — untestable here)`); continue }
@@ -1592,6 +1605,11 @@ function testAnomalySlate() {
       }
       assert.deepStrictEqual(missed, [],
         `IPECAC did not widen these weapons' output: ${JSON.stringify(missed)} — either the fire site was never patched, or the count was tripled while the ANGLE/POSITION divisor was not, which stacks the extra output on top of the original and hands the whole x3 to overkill`)
+      // The hand-off is asserted, not trusted: an override that quietly stopped naming a real
+      // weapon would silently shrink this sweep's denominator, which is the failure the
+      // print-the-denominator rule exists for.
+      assert.deepStrictEqual(handedOff, ['screw'],
+        `the pin-exempt list must name exactly the weapons run PY.c covers instead; it named ${JSON.stringify(handedOff)}`)
     }
 
     // THE FIRE RATE, which is the entire cost and is applied once on take.
@@ -8710,6 +8728,164 @@ function runPrey() {
       `the chapter's ambient leak must never damage the shoal — a spreading spill that killed would make the chapter EASIER the worse it gets; it dealt ${hp0 - e.hp}`)
     assert.ok((e.oiled || 0) > 0.1, `...it must still STAIN, or this arm is passing because nothing reached the fish at all; got ${(e.oiled || 0).toFixed(3)}`)
     console.log(`PASS run PY.b (fresh oil burns): 8s in the player's own oil costs a body ${oiled} HP (${crude} with Crude) and 0 with no drum equipped, while 8s in the chapter's own leak costs 0 and stains ${(e.oiled || 0).toFixed(2)}`)
+  }
+
+  // -- PY.c: THE SCREW trails, and MOVING is what powers it. -------------------------------------
+  // The chapter's fourth native, and the one card in the game whose output depends on the shape of
+  // the player's path rather than on where they are standing.
+  //
+  // ⚠ THE ARMS BELOW EXIST TO SEPARATE IT FROM AN ORBITER, which is what it very nearly shipped as.
+  // A ring of blades around the player would pass "it deals damage", "a mod scales it" and "two of
+  // them appear" without complaint — every assertion a weapon usually gets. What it would fail is
+  // the geometry arm (an orbiter is centred on the player, this hangs behind them) and the movement
+  // arm (an orbiter pays a player who stands still, this one does not).
+  {
+    const SC = WEAPONS.screw.levels[0]
+    const rig = (mods) => {
+      const run = mk(20260906)
+      run.weapons = [{ id: 'screw', level: 1 }]
+      run.weaponMods.screw = mods ?? {}
+      return run
+    }
+    // 1. IT HANGS BEHIND YOU, AT THE CHAIN'S LENGTH. Swim east for two seconds and the screw must be
+    //    WEST of the player and taut — an orbiter would sit at a fixed radius in a rotating
+    //    direction, and a chaser would be sitting on top of them.
+    const straight = rig()
+    for (let i = 0; i < Math.round(2 / dt); i++) { straight.enemies.length = 0; stepSim(straight, { x: 1, y: 0 }, dt) }
+    const sc = straight.screws[0]
+    assert.ok(sc, 'precondition: the screw must exist once the weapon is equipped')
+    const behind = straight.player.x - sc.x
+    assert.ok(behind > 0,
+      `the screw must TRAIL the player, not lead or orbit them: after 2s swimming east it sat ${behind.toFixed(0)}px behind (negative = in front)`)
+    const taut = Math.hypot(sc.x - straight.player.x, sc.y - straight.player.y)
+    assert.ok(Math.abs(taut - SC.chain) < 2,
+      `a chain under way must be TAUT at its own length: ${taut.toFixed(1)}px against ${SC.chain}`)
+
+    // 2. AND IT IS A ROPE, NOT A CHASER. Swim back along the chain and it must not move at all: the
+    //    line goes slack and the screw is left where it was. This is the rule every interesting
+    //    position it takes comes from, and a chaser would close the distance instead.
+    const bx = sc.x, by = sc.y
+    for (let i = 0; i < Math.round(0.3 / dt); i++) { straight.enemies.length = 0; stepSim(straight, { x: -1, y: 0 }, dt) }
+    const drift = Math.hypot(straight.screws[0].x - bx, straight.screws[0].y - by)
+    assert.ok(drift < 1,
+      `swimming back along a slack chain must leave the screw where it was; it moved ${drift.toFixed(1)}px`)
+
+    // 3. IT CUTS, and only when it is equipped. Pinned bodies laid along the ground the screw
+    //    sweeps, re-pinned every frame so both arms take the same dose.
+    const sweep = (mods, armed) => {
+      const run = rig(mods)
+      if (!armed) run.weapons = []
+      const p = run.player
+      const spots = []
+      for (let k = 0; k < 8; k++) spots.push({ x: p.x - 40 - k * 22, y: p.y })
+      const bodies = spots.map((sp) => put(run, { x: sp.x, y: sp.y, hp: 1e6, speed: 0, flags: [] }))
+      const hp0 = bodies.reduce((a, b) => a + b.hp, 0)
+      for (let i = 0; i < Math.round(4 / dt); i++) {
+        only(run, bodies)
+        bodies.forEach((b, k) => { b.x = spots[k].x; b.y = spots[k].y })
+        run.blooms.length = 0; run.slicks.length = 0
+        stepSim(run, { x: 1, y: 0 }, dt)
+      }
+      return hp0 - bodies.reduce((a, b) => a + b.hp, 0)
+    }
+    const cut = sweep(null, true)
+    const unarmed = sweep(null, false)
+    assert.strictEqual(unarmed, 0, `precondition: with no screw equipped the pinned line must take nothing; it lost ${unarmed}`)
+    assert.ok(cut > 0, `the screw must CUT what its wake passes over; it dealt ${cut}`)
+    const honed = sweep({ honedBlades: 1 }, true)
+    assert.ok(honed > cut * 1.1, `Honed must fold the blade damage: ${honed} against ${cut} unmodded`)
+
+    // 4. MOVING IS WHAT POWERS IT, and this is the arm an orbiter would fail. Same crowd, same four
+    //    seconds, same starting point: a player who LOOPS around a knot drags the screw through it
+    //    over and over, and a player parked on top of it drags nothing anywhere. A ring of blades
+    //    centred on the player would pay both the same.
+    const workRate = (circling) => {
+      const run = rig()
+      const p = run.player
+      const cx = p.x, cy = p.y
+      const knot = []
+      for (let k = 0; k < 10; k++) {
+        const a = (k / 10) * Math.PI * 2
+        knot.push({ x: cx + Math.cos(a) * 34, y: cy + Math.sin(a) * 34 })
+      }
+      const bodies = knot.map((sp) => put(run, { x: sp.x, y: sp.y, hp: 1e6, speed: 0, flags: [] }))
+      const hp0 = bodies.reduce((a, b) => a + b.hp, 0)
+      let t = 0
+      for (let i = 0; i < Math.round(4 / dt); i++) {
+        only(run, bodies)
+        bodies.forEach((b, k) => { b.x = knot[k].x; b.y = knot[k].y })
+        run.blooms.length = 0; run.slicks.length = 0
+        t += dt
+        // circling: the stick sweeps a full turn every 1.6s, which at 220px/s traces a loop wide
+        // enough for the chain to whip the screw across the knot on every pass.
+        const a = (t / 1.6) * Math.PI * 2
+        stepSim(run, circling ? { x: Math.cos(a), y: Math.sin(a) } : { x: 0, y: 0 }, dt)
+      }
+      return hp0 - bodies.reduce((a, b) => a + b.hp, 0)
+    }
+    const looped = workRate(true)
+    const parked = workRate(false)
+    assert.ok(looped > parked * 1.5,
+      `THE PATH IS THE WEAPON: looping around a knot must out-cut parking on it, or this card is an orbiter wearing a chain — ${looped} against ${parked}`)
+
+    // 5. TWIN SCREW puts a SECOND body on the chain, at its own place on it. Distinct positions, not
+    //    a count: two screws spawned on one point render as one and deal one body's damage, which is
+    //    the per-cast-count trap in its usual shape.
+    const twin = rig({ twinScrew: 1 })
+    for (let i = 0; i < Math.round(2 / dt); i++) { twin.enemies.length = 0; stepSim(twin, { x: 1, y: 0 }, dt) }
+    assert.strictEqual(twin.screws.length, 2, `Twin Screw must put a second screw on the chain; there were ${twin.screws.length}`)
+    const gap = Math.hypot(twin.screws[0].x - twin.screws[1].x, twin.screws[0].y - twin.screws[1].y)
+    assert.ok(gap > SC.radius,
+      `the two screws must sit at DIFFERENT points on the chain or they are one screw dealing one screw's damage; they were ${gap.toFixed(1)}px apart`)
+
+    // 6. ITS COOLDOWN IS ITS OWN, and this arm needs a SECOND WEAPON to exist at all. Every arm
+    //    above passes with the screw reading orbit's `e.orbCd`, because The Wreck has no orbiter in
+    //    its pool and nothing else ever writes that field — the bug is invisible in the chapter the
+    //    card ships in, and real in `blank`, whose pool is all 23 weapons. Two weapons sharing one
+    //    per-enemy cooldown means each eats the other's hits: nothing throws, and the only symptom
+    //    is that both deal less than they should for no visible reason.
+    //    Measured as INTERFERENCE rather than by reading a field: a line of unkillable bodies laid
+    //    along the player's course, so the ring sweeps them as they pass and the chain drags over
+    //    the same ground a beat later. Together the two must deal what they deal apart.
+    const together = (ids) => {
+      const run = mk(20260906)
+      run.weapons = ids.map((id) => ({ id, level: 1 }))
+      const p = run.player
+      const line = []
+      for (let k = 0; k < 10; k++) line.push({ x: p.x + 120 + k * 55, y: p.y })
+      const bodies = line.map((sp) => put(run, { x: sp.x, y: sp.y, hp: 1e7, speed: 0, flags: [] }))
+      const hp0 = bodies.reduce((a, b) => a + b.hp, 0)
+      for (let i = 0; i < Math.round(5 / dt); i++) {
+        only(run, bodies)
+        bodies.forEach((b, k) => { b.x = line[k].x; b.y = line[k].y })
+        run.blooms.length = 0; run.slicks.length = 0
+        stepSim(run, { x: 1, y: 0 }, dt)
+      }
+      return hp0 - bodies.reduce((a, b) => a + b.hp, 0)
+    }
+    const screwOnly = together(['screw'])
+    const orbitOnly = together(['orbit'])
+    const bothOn = together(['screw', 'orbit'])
+    assert.ok(screwOnly > 0 && orbitOnly > 0,
+      `precondition: both weapons must reach this line alone — screw ${screwOnly}, orbit ${orbitOnly}`)
+    assert.ok(bothOn > (screwOnly + orbitOnly) * 0.9,
+      `the screw and the orbiter must not eat each other's hits: ${bothOn} together against ${screwOnly} + ${orbitOnly} = ${screwOnly + orbitOnly} apart. ` +
+      `Sharing one per-enemy cooldown field is what this looks like, and nothing throws when they do`)
+
+    // ...and IPECAC widens it the same way. This is the claim the every-weapon sweep cannot make
+    // here: that fixture PINS the player back to the origin every frame to keep its geometry
+    // identical across weapons, and a card whose whole output is the player's own DISPLACEMENT is
+    // structurally invisible to it — the chain never goes taut, so three screws sit on one point
+    // and read as one. Named in that sweep's own override list, asserted here instead.
+    const sick = rig()
+    sick.anomalies = { ...(sick.anomalies ?? {}), ipecac: true }
+    for (let i = 0; i < Math.round(2 / dt); i++) { sick.enemies.length = 0; stepSim(sick, { x: 1, y: 0 }, dt) }
+    assert.ok(sick.screws.length > 1, `Ipecac must widen the screw's output too; it left ${sick.screws.length}`)
+    const spots = new Set(sick.screws.map((q) => `${Math.round(q.x)},${Math.round(q.y)}`))
+    assert.strictEqual(spots.size, sick.screws.length,
+      `...at DISTINCT points on the chain: ${sick.screws.length} screws sharing ${spots.size} spot(s) is one screw's damage wearing three sprites`)
+
+    console.log(`PASS run PY.c (the screw): trails ${behind.toFixed(0)}px behind on a ${taut.toFixed(0)}px chain and holds still on a slack one (${drift.toFixed(1)}px), cuts ${cut} through a pinned line (${honed} Honed, 0 unequipped), pays ${looped} for looping a knot against ${parked} for parking on it, Twin Screw hangs a second ${gap.toFixed(0)}px further back, Ipecac spreads ${sick.screws.length} over ${spots.size} distinct points, and it shares no cooldown with the orbiter (${bothOn} together against ${screwOnly}+${orbitOnly} apart)`)
   }
 
   // -- PY.f: a spill is NOT a refill circle. ---------------------------------------------------
