@@ -543,6 +543,9 @@ const SFX_FOR_EVENT = {
   // and the split from `guardblock` exists for exactly this — see the measured frequencies in
   // sim.js. `guardblock` (the Shore Crab's) still has no entry and must not gain one.
   puffblock: 'puffblock',
+  // The Wreck: a spill catching fire (2026-09-07). Rare — once per spill per lighting, never while
+  // it burns — so it can bear the explode whoomp; the burn itself is silent like every other DoT.
+  slickFire: 'explode',
   // v5.21 lane (beyond): the active shove reuses the hole whoosh, and a rock clipping the player
   // is an ordinary hurt — it is damage, not a special occasion.
   repulse: 'hole', rockhit: 'hurt',

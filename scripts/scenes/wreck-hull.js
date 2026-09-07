@@ -29,8 +29,9 @@ const hash = (n) => { const s = Math.sin(n) * 43758.5453; return s - Math.floor(
 // ⚠ ONLY CELLS THAT ACTUALLY HOLD A HULL. updateWreckHull skips a cell when
 // hash(i*3.7 + j*11.3 + 5.1) > chance, so naming a cell that fails that test shoots open water and
 // reads as "the ship is invisible" — the exact false report this scene exists to prevent. Re-derive
-// this list if `chance` moves. At chance 0.90 every cell in the -2..2 block holds one.
-const CELLS = [[0, 0], [-1, -1], [-2, -2], [-1, 1], [0, 1], [-2, 0]]
+// this list if `chance` moves: at chance 0.36 (2026-09-07, "20% more numerous" measured against the
+// packing bound) these are six of the 21 cells of the -3..3 block whose roll passes.
+const CELLS = [[-2, -1], [-2, 0], [-1, -1], [-1, 1], [-2, 2], [-1, 2]]
 // ⚠ MIRRORS CHAPTERS.wreck.render.hull.{cell,parallax}. They are literals here because the page
 // does not expose the config object, and when they go stale this scene silently shoots OPEN WATER
 // rather than erroring — which is exactly the "the ship is invisible" false report it exists to

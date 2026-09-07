@@ -8409,7 +8409,11 @@ CHAPTERS.wreck = {
       // one per 3900px square whatever the cell — the 2026-08 count, at twice the size. 1800 is
       // where the candidates are dense enough to reach that ceiling and fill the holes.
       cell: 1800,
-      chance: 1.0,       // every cell rolls; the roll is the thinning priority — see hullKept
+      // 0.36, MEASURED, not 1.0: at 0.8x the length the packing bound alone gives x1.65 the
+      // shipped count (hulls per px², Matérn replica over 6400 cells, 2026-09-07), and the ask was
+      // "20% more numerous". Thinning the candidates by this roll is what lands x1.20; the roll
+      // still doubles as the priority in hullKept. Raise toward 1.0 for a denser graveyard.
+      chance: 0.36,
       parallax: 0.45,    // fraction of camera motion the layer takes. 1 = welded to the world, 0 =
                          // pinned to the screen. Under 1 = deeper. Far under and it reads as a
                          // painted backdrop that slides, which is the failure mode to shoot for.
@@ -8419,11 +8423,12 @@ CHAPTERS.wreck = {
       // spreads ±90° around this (±34° read as a fleet once the field was twenty hulls deep).
       // WRECK_TIDE_DEG feeds this AND the chapter's own tide, so the two cannot drift apart.
       grain: WRECK_TIDE_DEG * Math.PI / 180,
-      // 3640: twice the 1820 of 2026-08-18 ("boats should be wayyyy bigger"), owner 2026-09-07
-      // ("make them 2x bigger"). ~90x the player's body, four phone-screens down its length, and
-      // a 604px beam that is wider than a phone — it is a floor you cross, not a prop you pass.
+      // 3640 x 0.8: twice the 1820 of 2026-08-18 ("boats should be wayyyy bigger"), owner
+      // 2026-09-07 ("make them 2x bigger"), then "20% smaller and 20% more numerous" the same day.
+      // ~70x the player's body, three phone-screens down its length, and a 483px beam that is
+      // wider than a phone — it is a floor you cross, not a prop you pass.
       // The bake is sampled at HULL_REF and scaled up, so the detail is the 1820 drawing's.
-      len: 3640,
+      len: 3640 * 0.8,
       // Lighter than the floor, not darker: underwater, distance makes a thing PALER and BLUER,
       // because the water column between you and it scatters light in. The first cut used 0x14242c
       // on the reasoning that dead steel is dark and it vanished completely.
@@ -11344,6 +11349,19 @@ export const BILGE_TRAIL_VIS = { filmA: 0.36, sheenA: 0.18, edgeW: 6, edgeA: 0.1
 export const OIL_STAIN_RATE = 0.18   // speed fraction added per second spent in oil
 export const OIL_STAIN_MAX = 0.20    // hard ceiling on `oiled`, forever
 
+// ---- THE SPILL BURNS (2026-09-07, The Wreck) ---------------------------------------------------
+// A body already on fire that swims into oil lights the WHOLE spill (sl.fireT — sim.js
+// stepSlickFire), and a lit spill burns every body inside it. The fire is the oil's answer to the
+// fish, never to you: the player takes the spill's ordinary toll and nothing more. A thrown Bilge
+// pool burns the same way; trail links (the elite's oil trail, Trailing Slick) never do.
+// balance_decision : unswept first cut, ~5s standing in fire kills a body 2026-09-07
+//  - a spill stays lit while ANY burning body is inside it (bodies it lit included), and goes out
+//    SLICK_FIRE_DUR after the last one leaves — a shoal streaming through keeps it burning, and
+//    with a fire card in the build the spreading field kills for you (measured -7% damage taken)
+export const SLICK_FIRE_DUR = 4        // s a spill burns after the last burning body left it
+export const SLICK_FIRE_FRAC = 0.2     // of a body's maxHP per second, while inside a lit spill
+export const SLICK_FIRE_LINGER = 1.0   // s the burning TELL stays on a body after it leaves — the damage stops at the rim
+
 // ---- ELITE OIL TRAIL (v7.x, The Wreck's own elite affix) ---------------------------------------
 // eliteFlags: ['oilTrail'] replaces the borrowed soapTrail here. Laid on soapTrail's own timer
 // cadence (sim.js), but as a run.blooms entry tagged look: 'bilge' rather than a run.pools node —
@@ -11392,6 +11410,7 @@ export const INK_DUR = 3.2         // s of cloud. Long enough to still be there 
 // balance_decision : ink slow, swept 0.45/0.66 against a do-nothing control 2026-08-23
 //  - MIN-composed, so standing in ink AND oil is the oil's 0.62 and never the product
 export const INK_SLOW_MUL = 0.66
+export const INK_STAIN_T = 2.5     // s the ink stays on the SCREEN after you leave the cloud (run._inkT)
 
 // ---- THE PUFFERFISH (v7.x, The Wreck — the `puffup` flag) --------------------------------------
 // A TIMING BEAT, NOT A SHIELD, and the distinction is the entire brief. Owner, 2026-08-23: "puffs

@@ -152,6 +152,12 @@ src path as argv). That also keeps the mutation rule intact — the working tree
   - **A scene that throws renders nothing, which looks exactly like "the effect is invisible".**
     Paint the caught exception into the page so the screenshot carries it, and read that before
     re-shooting anything.
+  - **A value EASED inside sync() shoots at a fraction of itself from a scene that ticks and then
+    renders once.** `H.tick()` steps the sim only; the render-side easing (anything of the form
+    `a += (target - a) * dt * k`, e.g. the Wreck's screen stains) advances only in `H.render()`,
+    and one render at the 0.05s clamp moves it a quarter of the way. The 2026-09-07 stain shots
+    came back at 25% and read as "too faint" — a tuning round that would have brightened a
+    correct value. Interleave `H.tick(); H.render()` for the last second of the warm-up.
 - **ANYTHING THAT READS THE VIEWPORT IS NOT VERIFIED UNTIL IT HAS BEEN SHOT AT TWO VIEWPORTS.**
   `fx-probe.mjs` defaults to a 390x844 phone; pass `--w 1280 --h 800` for the second. The phone's
   half-diagonal is 465px and the desktop's is 755px, so any quantity compared against the screen —

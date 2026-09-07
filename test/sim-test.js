@@ -156,6 +156,7 @@ import {
   INK_TRIGGER_R, INK_COOLDOWN, INK_SLOW_MUL, INK_DUR,
   PUFFER_TRIGGER_R, PUFFER_COOL_T, PUFFER_DRIFT_MUL,
   GNASH_MAW_MUL, RUSH_MAX_STACKS, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, PUFFER_POP_T, GORGE_HEAL,
+  SLICK_FIRE_DUR, SLICK_FIRE_FRAC,
   SLICK_SPREAD_T, SLICK_R_LATE, slickR,
   BALLAST_RING,
   // The Wreck's orca (Run OR)
@@ -8678,6 +8679,79 @@ function runPrey() {
     assert.ok(covered > 0.03,
       `...but it must be a FIELD by then, not a few puddles; only ${(covered * 100).toFixed(0)}% of the sampled floor was oil`)
     console.log(`PASS run PY.r (the spill spreads): ${early.slicks.length} spills at r ${rEarly.toFixed(0)} become ${late.slicks.length} at r ${rLate.toFixed(0)}, 3s in one costs ${costEarly} HP -> ${costLate}, and ${(covered * 100).toFixed(0)}% of the water around the player is oil by then against open floor at the start`)
+  }
+
+  // -- PY.z: THE SPILL BURNS (2026-09-07). A burning body lights the oil it swims into; the lit oil
+  // lights every body in it; the player is never burned by it. Four claims, one fixture, and the
+  // control arm is the same soak with no torch — so the player's toll is compared, not assumed.
+  {
+    const soak = (torch) => {
+      const run = mk(20260907)
+      run.weapons = []
+      stepSim(run, { x: 0, y: 0 }, dt)   // streamSlicks scans once, then early-returns for good
+      const p = run.player
+      const sl = { x: p.x, y: p.y, r: 400, shape: null, rot: 0, _cell: 'test' }
+      run.slicks.length = 0
+      run.slicks.push(sl)
+      // Bodies pinned where they stand: the torch (already on fire, a burn too small to matter), a
+      // victim in the same oil, and a bystander well outside it. 1e6 hp so nothing dies mid-soak.
+      const cast = [
+        put(run, { x: p.x + 120, y: p.y, hp: 1e6, speed: 0, flags: [] }),
+        put(run, { x: p.x - 120, y: p.y, hp: 1e6, speed: 0, flags: [] }),
+        put(run, { x: p.x + 900, y: p.y, hp: 1e6, speed: 0, flags: [] }),
+      ]
+      const [tor, vic, far] = cast
+      if (torch) { tor.ignite = 3; tor.igniteDps = 0.001 }
+      const home = cast.map((e) => [e.x, e.y])
+      const hp0 = { p: p.hp, vic: vic.hp, far: far.hp }
+      let fires = 0, firstFireT = -1, maxFireT = 0
+      for (let i = 0; i < Math.round(3 / dt); i++) {
+        only(run, cast)
+        cast.forEach((e, k) => { e.x = home[k][0]; e.y = home[k][1] })
+        run.slicks.length = 0; run.slicks.push(sl)
+        stepSim(run, { x: 0, y: 0 }, dt)
+        for (const ev of run.events) if (ev.type === 'slickFire') { fires++; if (firstFireT < 0) firstFireT = run.time }
+        run.events.length = 0
+        maxFireT = Math.max(maxFireT, sl.fireT || 0)
+      }
+      const vicLit = vic.ignite > 0, farLit = far.ignite > 0
+      const playerLost = hp0.p - p.hp   // captured HERE: the fade-out below keeps the player in the oil
+      // Then everyone out of the oil: the fire must die on its own within SLICK_FIRE_DUR.
+      cast.forEach((e) => { e.x = p.x + 900 })
+      let outT = 0
+      while ((sl.fireT || 0) > 0 && outT < SLICK_FIRE_DUR * 2) {
+        only(run, cast); cast.forEach((e) => { e.x = p.x + 900; e.y = p.y; e.ignite = 0 })
+        run.slicks.length = 0; run.slicks.push(sl)
+        stepSim(run, { x: 0, y: 0 }, dt); run.events.length = 0
+        outT += dt
+      }
+      return {
+        fires, firstFireT, maxFireT, outT,
+        playerLost, vicLost: hp0.vic - vic.hp, farLost: hp0.far - far.hp,
+        vicLit, farLit,
+      }
+    }
+    const lit = soak(true)
+    const plain = soak(false)
+    assert.ok(lit.fires === 1 && lit.firstFireT < 0.2,
+      `a burning body in the oil must light the spill ONCE, on the first frame: ${lit.fires} slickFire events, first at t=${lit.firstFireT.toFixed(2)}`)
+    assert.ok(Math.abs(lit.maxFireT - SLICK_FIRE_DUR) < 1e-9, `the spill's fireT must be held at SLICK_FIRE_DUR (${SLICK_FIRE_DUR}) while the torch is inside; peaked at ${lit.maxFireT}`)
+    assert.ok(lit.vicLit && lit.vicLost > 0,
+      `the lit spill must burn the OTHER body in it: lit ${lit.vicLit}, lost ${lit.vicLost}`)
+    // 3s at SLICK_FIRE_FRAC of maxHP per second, EL_BURN_TICK-quantised; the linger past the loop
+    // is a fraction of a tick. Half the nominal is the floor, so a burn that only ever pays
+    // EL_BURN_MIN (the rounding trap the ignite tick exists to avoid) cannot pass.
+    assert.ok(lit.vicLost > 1e6 * SLICK_FIRE_FRAC * 3 * 0.5,
+      `...and burn it at SLICK_FIRE_FRAC of its maxHP per second: ${lit.vicLost} over 3s against ${1e6 * SLICK_FIRE_FRAC * 3} nominal`)
+    assert.ok(!lit.farLit && lit.farLost === 0, `a body OUTSIDE the oil must not catch: lit ${lit.farLit}, lost ${lit.farLost}`)
+    assert.ok(plain.fires === 0 && !plain.vicLit && plain.vicLost === 0,
+      `control: with no torch nothing lights (${plain.fires} fires) and nothing burns (${plain.vicLost})`)
+    assert.strictEqual(lit.playerLost, plain.playerLost,
+      `THE PLAYER IS NEVER BURNED: standing in the lit spill must cost exactly the plain spill's toll — ${lit.playerLost} against ${plain.playerLost}`)
+    assert.ok(plain.playerLost > 0, `precondition: the plain spill must still hurt the player, or the equality above is 0 = 0; it cost ${plain.playerLost}`)
+    assert.ok(lit.outT > 0 && lit.outT <= SLICK_FIRE_DUR + dt * 2,
+      `the fire must go out on its own SLICK_FIRE_DUR after the last burning body leaves: took ${lit.outT.toFixed(2)}s`)
+    console.log(`PASS run PY.z (the spill burns): one torch lit the oil at t=${lit.firstFireT.toFixed(2)} (fireT ${lit.maxFireT}s), the other body in it caught and lost ${lit.vicLost} HP in 3s, the one outside lost 0, the player paid ${lit.playerLost} in both arms, and the fire died ${lit.outT.toFixed(2)}s after everyone left`)
   }
 
   // -- PY.b: THE DRUM YOU SPLIT BURNS. THE ONE ON THE BOTTOM DOES NOT. ---------------------------

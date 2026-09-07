@@ -1070,7 +1070,7 @@ function generateWells(sig) {
  *               already visual-safe here since it re-reads h.radius/coreRadius every frame. Big
  *               Crunch (v4.3): on expiry a hole collapses in one last detonation at its FINAL
  *               radius — an {type:'explode'} event, no new field.
- * blooms[i]:    { x, y, r, maxR, t, dur, dmgPerTick, tick?, _mini? }  Toxin Bloom clouds (v5.0 pond
+ * blooms[i]:    { x, y, r, maxR, t, dur, dmgPerTick, tick?, _mini?, fireT? }  Toxin Bloom clouds (v5.0 pond
  *               native, sim-owned/render-drawn). Planted by stepBloomWeapon at a random enemy
  *               within castRange (fallback: a random offset near the player); r grows 0 -> maxR
  *               over dur × BLOOM_GROW_FRAC (see config.js) then holds maxR; every BLOOM_TICK it
@@ -1548,7 +1548,7 @@ function generateWells(sig) {
  *   the player by `r` + PLAYER.radius + SCREW_HULL_PAD and off every other screw by the two radii, so blades never
  *   stack on the player or on each other. `spin` is render-only (the blade's
  *   rotation); the sim advances it so there is one clock, and render never writes it.
- * slicks[i]: { x, y, r, shape, rot, _cell } — v7.x The Wreck: streamed POLLUTION SPILLS, the
+ * slicks[i]: { x, y, r, shape, rot, _cell, fireT? } — v7.x The Wreck: streamed POLLUTION SPILLS, the
  *   chapter's signature (`{ type: 'leak', slicks: {...} }`). Same refillCircleAt geometry as
  *   run.shafts above, on salt block 50 and its own _slickCellI/_slickCellJ cursor; `blob: true` in
  *   the spec, so shape/rot carry a LOBE_SHAPES outline that sim tests against (inLobe) and render
@@ -1557,6 +1557,13 @@ function generateWells(sig) {
  *   `r` IS NOT CONSTANT for the life of an entry: the field spreads with the clock (2026-09-06),
  *   and streamSlicks rewrites it on every live spill each frame — see the SLICK_SPREAD_T block in
  *   config.js. Read it, never cache it.
+ *   `fireT` (s, 2026-09-07): the spill is ON FIRE. Set to SLICK_FIRE_DUR by stepSlickFire whenever
+ *   a body with `ignite` > 0 is inside, run down otherwise; while > 0 every body inside gets the
+ *   `ignite` tell and a hazard tick of SLICK_FIRE_FRAC of its maxHP per second (its own accumulator
+ *   `e._spillBurnAcc`, never `igniteDps`). The player is never burned by it. A thrown Bilge pool in
+ *   run.blooms carries the same field for the same reason — it is the same oil; a `trail: true`
+ *   link never burns. render.js (syncSlicks) draws the fire from it; {type:'slickFire'} below marks
+ *   the moment it catches.
  * _slickSpreadStep: number — which of SLICK_SPREAD_STEPS buckets of the spread the streamer last
  *   re-rolled occupancy at. The radius can grow continuously because it is written onto live
  *   entries; whether a CELL holds a spill at all is a hash test made once when the cell streams in,
@@ -1572,7 +1579,11 @@ function generateWells(sig) {
  * _foulT: number — s of oil still on the player. Refreshed to SLICK_SLOW_T every frame inside a
  *   spill and ticked down after leaving, exactly as bloomSlowT/fearT decay. Read in stepPlayer,
  *   where it joins the MIN of the speed floors rather than multiplying into them (see the block
- *   there). The LINGER is the design: a slow that ends at the rim is just a wider slick.
+ *   there), and by render.js (playerBuffs/sync) as the stain on the skin and the border of the
+ *   screen. The LINGER is the design: a slow that ends at the rim is just a wider slick.
+ * _inkT: number — s the squid's ink stays on the SCREEN (render.js's inkStain). Held at INK_STAIN_T
+ *   every frame the player is inside a look:'inkjet' bloom (stepPlayerMovement, where the slow is
+ *   computed) and run down after. Render-facing only: nothing in the sim reads it back.
  * net: null | { nx, ny, pos, end, holes, _acc, dragT, dragTicks, freeT, wiggle } — The Trawl's net wall,
  *   in chapters whose signature is `trawl`; null between passes and everywhere else. An infinite
  *   LINE, not an entity: (nx, ny) its unit normal, `pos` the signed offset it has swept to, `end`
@@ -1862,6 +1873,9 @@ function generateWells(sig) {
  *   over BLOOM_GROW_FRAC of its life, which is far too slow to read as a squirt, so this event is
  *   the burst and the bloom is what is left of it. No SFX entry, for the guardblock reason above:
  *   at this chapter's density several squid within INK_TRIGGER_R at once is ordinary.
+ * {type:'slickFire', x, y, r} (2026-09-07, The Wreck): a spill (or a Bilge pool) CATCHING FIRE — fired
+ *   once on the frame a burning body lights it, never while it burns (stepSlickFire). render.js
+ *   throws the whoomp; the steady burn is drawn from `fireT` by syncSlicks.
  * {type:'strafeLock', x, y, angle, len} (v5.9.1 bugfix, see sim.js's stepStrafe): fired ONCE, the
  *   instant a 'strafe' jet's bank ends and its heading locks — the start of STRAFE_TELEGRAPH_T s of
  *   holding position before the fast run. x,y = the jet's (stationary, for the telegraph's
@@ -2662,6 +2676,7 @@ export function createRun(meta, opts = {}) {
     _slickAcc: 0,          // part-tick accumulator, the exact twin of _drownAcc
     _slickDmgCarry: 0,     // Oilskin's resisted-damage remainder, spent once it clears a whole point
     _foulT: 0,             // s of oil still on you — lingers SLICK_SLOW_T past the rim (see sim.js)
+    _inkT: 0,              // s of the squid's ink on the SCREEN — render-facing, see stepPlayerMovement
     _rushT: 0,             // s left on BLOODRUSH's window (gnash's bloodrush mod)
     _rushN: 0,             // bites stacked on it, capped at RUSH_MAX_STACKS
     sandbars: [],          // Book 2 surf: streamed dry patches (signature.bars) — see streamSandbars

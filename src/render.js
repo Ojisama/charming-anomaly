@@ -23,6 +23,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   CHEEK_JIGGLE,       // the cheeks skin's spring — see syncPlayer's jiggle block
   BUTT_FEET,          // ...and its feet — see syncPlayer's feet block // The Deep: the anglerfish maw and its esca punched through the dark scrim
   FOXFIRE_GLOW,       // The Twilight: a foxfire punched through the same scrim — a fire is a light
+  SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
 
@@ -5447,6 +5448,21 @@ export function createRenderer(app) {
       T.vignette = Texture.from(c)
     }
 
+    // A WHITE edge wash, tinted per use (The Wreck: the oil on you creeping in from the border —
+    // oilStain). The red vignette above bakes its colour in, so it cannot be borrowed for oil.
+    {
+      const c = document.createElement('canvas')
+      c.width = c.height = 256
+      const ctx = c.getContext('2d')
+      const grad = ctx.createRadialGradient(128, 128, 56, 128, 128, 182)
+      grad.addColorStop(0, 'rgba(255,255,255,0)')
+      grad.addColorStop(0.55, 'rgba(255,255,255,0.35)')
+      grad.addColorStop(1, 'rgba(255,255,255,1)')
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, 256, 256)
+      T.edgeWash = Texture.from(c)
+    }
+
     // The death outro's iris (v7.x, DEATH_OUTRO). Same canvas-radial-gradient trick as the red
     // vignette directly above and tinted per use, but a much TIGHTER ramp: the vignette is an
     // edge-only blush that must never obscure the fight, and this one has to be able to close to a
@@ -10058,6 +10074,16 @@ export function createRenderer(app) {
   // — the safety cue — still visibly wins.
   const lightningFlash = new Sprite(Texture.WHITE)
   lightningFlash.alpha = 0
+  // The Wreck (2026-09-07): WHAT IS ON YOU, ON THE GLASS. The oil (run._foulT) is a film creeping
+  // in from the border; the squid's ink (run._inkT) is splats thrown at the screen, Mario-Kart
+  // style, kept off the centre so the fight stays readable (drawInkStain). Both sit UNDER the red
+  // damage vignette, which must still win, and both read sim timers, so they hold behind a modal
+  // exactly as the world does.
+  const oilStain = new Sprite(T.edgeWash)
+  oilStain.alpha = 0
+  oilStain.tint = 0x4a3350   // the film's own purple sheen — near-black vanished on this floor
+  const inkStain = new Graphics()
+  inkStain.alpha = 0
   // ---- THE WATER (v7.x Book 2 / The Surf) ------------------------------------------------------
   // A flat screen-space wash of colour over the world, from CHAPTERS[id].render.water. Same
   // Texture.WHITE + fitScreen idiom as lightningFlash directly above; a chapter that declares no
@@ -10272,7 +10298,7 @@ export function createRenderer(app) {
   const deathFlat = new Sprite(Texture.WHITE)
   deathFlat.alpha = 0
   world.addChild(floorLayer, swellLayer, causticLayer, cloudShadowLayer, entitiesLayer)
-  app.stage.addChild(world, waterWash, aboveWater, darkLayer, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, lightningFlash, vignette, deathFlat, deathIris)
+  app.stage.addChild(world, waterWash, aboveWater, darkLayer, currentLayer, stormCloudLayer, stormRainLayer, idleLayer, dustLayer, leafLayer, oilStain, inkStain, lightningFlash, vignette, deathFlat, deathIris)
   entitiesLayer.visible = false // title screen shows first; reset(run) reveals entities
 
   // v5.3 garden field layers (empty/hidden for other chapters, driven purely by run.trails/webs/
@@ -13497,6 +13523,52 @@ const spurG = new Graphics()
       // boundary — stroked once, against open water — still gains an edge.
       if (trail) slickG.poly(pts).stroke({ width: BILGE_TRAIL_VIS.edgeW, color: 0x14181a, alpha: BILGE_TRAIL_VIS.edgeA })
       else slickG.poly(pts).stroke({ width: 3, color: 0x2b2016, alpha: 0.72 })
+      // THE FIRE (2026-09-07, sl.fireT — sim.js stepSlickFire). Over the film: a flickering orange
+      // lobe, a hot core, and the rim relit bright, so a lit spill reads from across the screen.
+      // The flames themselves are particles (below), so a burning spill is never a static decal.
+      if (sl.fireT > 0) {
+        const fk = Math.min(1, sl.fireT / 0.6)   // catches at once, dies over its last 0.6s
+        const fl = 1 + Math.sin(animT * 9 + sl.x * 0.03) * 0.06
+        slickG.poly(lobePoly(sl.r * 0.94 * fl, sl.shape, sl.rot, sl.x, sl.y)).fill({ color: 0xff6a20, alpha: 0.42 * fk })
+        slickG.poly(lobePoly(sl.r * 0.6 / fl, sl.shape, sl.rot + 0.3, sl.x + sl.r * 0.04, sl.y - sl.r * 0.03)).fill({ color: 0xffd060, alpha: 0.38 * fk })
+        slickG.poly(pts).stroke({ width: 4, color: 0xffb040, alpha: 0.8 * fk })
+      }
+    }
+    // The flames: a few every 0.12s per burning spill, scaled to its size, anywhere inside its lobe.
+    // Budgeted against the 200-slot particle ring: a lit spill is ~20/s, and about one is lit at a
+    // time (measured over 300s hunts).
+    const burning = all.filter((sl) => sl.fireT > 0)
+    if (!burning.length) { slickFireAcc = 0; return }
+    slickFireAcc += frameDt
+    if (slickFireAcc < 0.12) return
+    slickFireAcc -= 0.12
+    for (const sl of burning) {
+      const n = Math.ceil(sl.r / 110)
+      for (let k = 0; k < n; k++) {
+        const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * sl.r * 0.85
+        const x = sl.x + Math.cos(a) * d, y = sl.y + Math.sin(a) * d
+        if (!inLobe(sl, x, y)) continue
+        spawnParticle(T.fx.flame_05, x, y, (Math.random() - 0.5) * 20, -40 - Math.random() * 30,
+          0.35 + Math.random() * 0.25, 0.08 + Math.random() * 0.07, k % 3 ? 0xff7a30 : 0xffd060, 0.2, 0.6)
+      }
+    }
+  }
+
+  // The squid's ink on the glass (inkStain): eleven lobed splats with a drip each, on the outer band
+  // of the screen — never inside 0.55 of the half-diagonal, so the centre stays legible (owner:
+  // "less at the center of the screen or it's too strong"). Hashed, so a screen size always gets
+  // the same splats; redrawn from fitScreen only when the size changes.
+  function drawInkStain(w, h) {
+    inkStain.clear()
+    const cx = w / 2, cy = h / 2, R = Math.hypot(cx, cy)
+    for (let k = 0; k < 11; k++) {
+      const a = (k / 11) * Math.PI * 2 + hash(k * 7.3 + 1.1) * 0.5
+      const d = R * (0.58 + hash(k * 3.1 + 2.2) * 0.42)
+      const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d
+      const r = Math.min(w, h) * (0.07 + hash(k * 5.7 + 3.3) * 0.08)
+      inkStain.poly(lobePoly(r, k % LOBE_SHAPES.length, hash(k * 2.9) * 6.28, x, y)).fill({ color: 0x0a0812, alpha: 0.85 })
+      inkStain.ellipse(x + r * 0.2, y + r * 0.95, r * 0.16, r * 0.55).fill({ color: 0x0a0812, alpha: 0.7 })
+      inkStain.circle(x + r * 0.2, y + r * 1.55, r * 0.14).fill({ color: 0x0a0812, alpha: 0.7 })
     }
   }
 
@@ -19140,6 +19212,9 @@ const spurG = new Graphics()
   // event never fires there and this timer just sits at 0, unread (playerForm === 'kaiju' gates its use).
   let kaijuSwipeT = 0
   let vignetteA = 0
+  let oilStainA = 0       // eased toward run._foulT's fraction each sync — the oil creeps in, it does not pop
+  let inkStainA = 0       // same, toward run._inkT's
+  let slickFireAcc = 0    // flame cadence for burning spills (syncSlicks)
   let lightningFlashA = 0 // full-field white flash alpha (skies lightning, LIGHTNING.flash), decays in sync()
   let prevSkiesBombs = new Set() // last frame's run.bombs objects (skies only) — see handleEvents
   let prevSkiesShots = new Set() // ditto for run.enemyShots — tells a missile that IMPACTED from one
@@ -19195,6 +19270,11 @@ const spurG = new Graphics()
     if (lightningFlash.width !== w || lightningFlash.height !== h) {
       lightningFlash.width = w
       lightningFlash.height = h
+    }
+    if (oilStain.width !== w || oilStain.height !== h) {
+      oilStain.width = w
+      oilStain.height = h
+      drawInkStain(w, h)
     }
     if (waterWash.width !== w || waterWash.height !== h) {
       waterWash.width = w
@@ -19702,6 +19782,20 @@ const spurG = new Graphics()
         // fast and slowed hard, so they are already spent by the time the cloud has grown under
         // them. Deliberately silent: at this chapter's density several squid inside INK_TRIGGER_R
         // at once is ordinary, which is the frequency bar SFX_FOR_EVENT keeps.
+        // The Wreck (2026-09-07): a spill catching fire (sim.js stepSlickFire, {type:'slickFire'}).
+        // The whoomp — a ring of flame thrown outward the moment the oil lights, so the fire has a
+        // START; the steady burn is syncSlicks', drawn from fireT.
+        case 'slickFire': {
+          const r = e.r ?? 190
+          for (let i = 0; i < 16; i++) {
+            const a = (i / 16) * Math.PI * 2 + Math.random() * 0.35
+            const d = r * (0.25 + Math.random() * 0.6)
+            spawnParticle(T.fx.flame_05, e.x + Math.cos(a) * d, e.y + Math.sin(a) * d,
+              Math.cos(a) * 70, Math.sin(a) * 70 - 50, 0.5 + Math.random() * 0.3, 0.11 + Math.random() * 0.08,
+              i % 3 ? 0xff7a30 : 0xffd060, 0.3, 1.5)
+          }
+          break
+        }
         case 'inkjet': {
           const ir = e.r ?? 110
           for (let i = 0; i < 14; i++) {
@@ -20537,6 +20631,8 @@ const spurG = new Graphics()
     flashT = 0
     vignetteA = 0
     vignette.alpha = 0
+    oilStainA = inkStainA = 0
+    oilStain.alpha = inkStain.alpha = 0
     lightningFlashA = 0
     lightningFlash.alpha = 0
     // The death outro's dark. It is the LAST thing the previous run drew and it is nearly opaque, so
@@ -20572,17 +20668,21 @@ const spurG = new Graphics()
   function playerBuffs(run) {
     const a = run.anomalies
     const clamp01 = (v) => Math.max(0, Math.min(1, v))
+    // The Wreck's oil on you: the fouling timer (held at SLICK_SLOW_T inside a spill, run down
+    // after), as a 0..1 — so the stain on the skin IS the slow, made visible.
+    const foul = clamp01((run._foulT ?? 0) / SLICK_SLOW_T)
     // Still null when nothing is on — the common case, and the one that must cost nothing.
-    if (!a || (!a.berserk && !a.stillness)) return null
+    if ((!a || (!a.berserk && !a.stillness)) && !foul) return null
     return {
       berserk: a?.berserk ? clamp01((run._berserkT ?? 0) / BERSERK_DURATION) : 0,
       still: a?.stillness ? clamp01((run._stillT ?? 0) / STILLNESS_RAMP) : 0,
+      foul,
     }
   }
 
   // `buffs` (v7.14): the two anomalies that change the player's SKIN rather than adding chrome —
   // { berserk, still }, both 0..1, built by playerBuffs() at the call site because this function
-  // takes the PLAYER and both live on the run.
+  // takes the PLAYER and both live on the run. `foul` (The Wreck's oil on you) rides along.
   // `deathP` (v7.x): the death outro's progress, 0..1, or 0 when not dying — see updateDeathOutro,
   // which computes it and is the only caller that passes a non-zero one. Applied at the very BOTTOM
   // of this function, after every normal transform has been written, because the pose is a
@@ -20673,6 +20773,9 @@ const spurG = new Graphics()
     // pale sclera or the fish's fin and gill highlights toward the same hue as the body fill, right
     // when that contrast matters most.
     pBody.tint = (playerForm === 'kaiju' || playerForm === 'fish' || playerSkin) ? 0xffffff : chapterRender.playerTint
+    // OILED (The Wreck, 2026-09-07): the oil on you is on your skin — a multiply toward the film's
+    // own near-black, ramped by the fouling timer, so the stain fades exactly as the slow does.
+    if (buffs && buffs.foul > 0) pBody.tint = mix(pBody.tint, 0x3a2e24, buffs.foul * 0.8)
     // BERSERK (v7.14): the skin runs hot while the window is open. Strongest on the frame you are
     // hit and fading with _berserkT, so the wash IS the timer — no chrome, nothing to read.
     // An alpha-blended red silhouette, NOT a tint on pBody: see pHot's own note at the rig.
@@ -21953,6 +22056,16 @@ const spurG = new Graphics()
     // red vignette flash — keeps fading behind frozen modals/summary (dt=0)
     vignetteA = Math.max(0, vignetteA - (dt > 0 ? dt : 1 / 60) * 2.6)
     vignette.alpha = vignetteA
+    // The Wreck: the oil on you and the squid's ink, on the glass. Sim timers (both hold at their
+    // ceiling while you are inside and run down after), eased so a rim crossing creeps rather
+    // than pops. The ink is deliberately opaque — its job is to be in the way.
+    {
+      const k = Math.min(1, dt * 5)
+      oilStainA += (0.6 * Math.min(1, (run._foulT ?? 0) / SLICK_SLOW_T) - oilStainA) * k
+      inkStainA += (Math.min(1, (run._inkT ?? 0) / INK_STAIN_T) - inkStainA) * k
+      oilStain.alpha = oilStainA
+      inkStain.alpha = inkStainA
+    }
 
     // full-field lightning flash (skies) — same "keeps fading at dt=0" treatment as the vignette
     lightningFlashA = Math.max(0, lightningFlashA - (dt > 0 ? dt : 1 / 60) / LIGHTNING.flash.fadeDur)

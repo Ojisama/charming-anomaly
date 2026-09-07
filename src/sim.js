@@ -171,8 +171,8 @@ import {
   CHUM_FEED_R, CHUM_FEED_HOLD, CHUM_FEED_CD,
   OIL_FUNNEL_PULL,
   BILGE_TRAIL_STEP_FRAC, BILGE_TRAIL_R_MUL, BILGE_TRAIL_GROW,
-  OIL_STAIN_RATE, OIL_STAIN_MAX,
-  INK_TRIGGER_R, INK_COOLDOWN, INK_R, INK_DUR, INK_SLOW_MUL,
+  OIL_STAIN_RATE, OIL_STAIN_MAX, SLICK_FIRE_DUR, SLICK_FIRE_FRAC, SLICK_FIRE_LINGER,
+  INK_TRIGGER_R, INK_COOLDOWN, INK_R, INK_DUR, INK_SLOW_MUL, INK_STAIN_T,
   PUFFER_TRIGGER_R, PUFFER_PUFF_T, PUFFER_COOL_T, PUFFER_DRIFT_MUL, PUFFER_POP_T,
   ORCA_HERD_PULL, ORCA_RING_BAND, ORCA_INTERVAL, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_LEAVE_DUR,
   ORCA_RING_R, ORCA_RING_MIN_R, ORCA_ORBIT_RATE,
@@ -780,6 +780,8 @@ function stepPlayerMovement(run, input, dt) {
     const idx = p.x - bl.x, idy = p.y - bl.y
     if (idx * idx + idy * idy <= bl.r * bl.r) { inkMul = INK_SLOW_MUL; break }
   }
+  // Published for render.js (the ink on the glass): held while inside, run down after leaving.
+  run._inkT = inkMul < 1 ? INK_STAIN_T : Math.max(0, (run._inkT ?? 0) - dt)
   // SCRAPING (v7.x, The Reef): coral takes your STEERING and never the scroll. In the lane branch
   // below `speed` reaches the cross axis only — the forward component is laneScrollFor — so slowing
   // it here is the whole of that promise. Published by stepSpurs, which runs later in the step, so
@@ -5148,6 +5150,7 @@ export function streamSlicks(run) {
 // @returns true if the player died.
 function stepSlick(run, dt) {
   if (run._foulT > 0) run._foulT = Math.max(0, run._foulT - dt)
+  stepSlickFire(run, dt)
   if (!run.slicks.length) return false
   // THE LEAK STAINS THE SHOAL, NOT ONLY YOU (v7.x). Until this loop existed the chapter's own
   // hazard was invisible to every body but the player's — enemies swam through a spill and came
@@ -5187,6 +5190,50 @@ function stepSlick(run, dt) {
     if (!died && hurtPlayer(run, whole, true, 'slick')) died = true
   }
   return died
+}
+
+// THE SPILL BURNS (2026-09-07, see SLICK_FIRE_* in config.js). A body on fire that swims into oil
+// lights the whole spill, and a lit spill burns every body inside it. The player is never burned —
+// the oil's own toll on them (stepSlick) is unchanged. A thrown Bilge pool is the same oil and burns
+// the same way; a TRAIL LINK (`trail: true` — the elite's oil trail, Trailing Slick) never does: a
+// fence that walks is not a damage zone (OIL_TRAIL_*), and an elite stands in its own freshest
+// link, so a trail that burned was a chain of fourteen whoomps and a self-immolating elite.
+// `fireT` is refreshed while any burning body is inside and runs down after.
+//   The TELL rides the ignite contract field (render.js draws `ignite`); the DAMAGE is the spill's
+// own hazard tick of the body's maxHP — never `igniteDps`, which a Wildfire jump or a lightning arc
+// copies verbatim onto bodies of a different size, well outside the oil.
+function stepSlickFire(run, dt) {
+  let oils = run.slicks
+  for (const b of run.blooms) {
+    if (b.look !== 'bilge' || b.trail || !(b.r > 0)) continue
+    if (oils === run.slicks) oils = run.slicks.slice()
+    oils.push(b)
+  }
+  if (!oils.length) return
+  let lit = false
+  for (const sl of oils) if (sl.fireT > 0) { sl.fireT = Math.max(0, sl.fireT - dt); lit = true }
+  // Nothing can catch unless something is already burning — the common frame, and it costs one
+  // pass over the crowd rather than crowd x oils (measured +21% of the sim before this line).
+  if (!lit && !run.enemies.some((e) => e.ignite > 0 && !e._dead)) return
+  for (const e of run.enemies) {
+    if (e._dead || damageImmune(e)) continue
+    for (const sl of oils) {
+      if (!inLobe(sl, e.x, e.y)) continue
+      if (e.ignite > 0) {
+        if (!(sl.fireT > 0)) run.events.push({ type: 'slickFire', x: sl.x, y: sl.y, r: sl.r })
+        sl.fireT = SLICK_FIRE_DUR
+      }
+      if (sl.fireT > 0) {
+        e.ignite = Math.max(e.ignite || 0, SLICK_FIRE_LINGER)
+        e._spillBurnAcc = (e._spillBurnAcc || 0) + dt
+        while (!e._dead && e._spillBurnAcc >= EL_BURN_TICK) {
+          e._spillBurnAcc -= EL_BURN_TICK
+          dealDamage(run, e, Math.max(EL_BURN_MIN, e.maxHP * SLICK_FIRE_FRAC * EL_BURN_TICK), false, true, true)
+        }
+      }
+      break
+    }
+  }
 }
 
 // Shaft drift (v7.x). Pure function of run._realTime and the shaft's own phase: stores no state,
