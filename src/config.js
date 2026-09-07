@@ -8410,8 +8410,8 @@ CHAPTERS.wreck = {
       // THE FIELD HAS A GRAIN, and it is the chapter's own tide bearing. A uniform full-circle
       // heading is the safe answer to "a field all pointing the same way is a fleet" and it is also
       // less physical than it looks: hulls settling in a directional flow scour into it. render.js
-      // spreads ±34° around this, which is scatter by any eye. WRECK_TIDE_DEG feeds this AND the
-      // chapter's own tide, so the two cannot drift apart.
+      // spreads ±90° around this (±34° read as a fleet once the field was twenty hulls deep).
+      // WRECK_TIDE_DEG feeds this AND the chapter's own tide, so the two cannot drift apart.
       grain: WRECK_TIDE_DEG * Math.PI / 180,
       // 3640: twice the 1820 of 2026-08-18 ("boats should be wayyyy bigger"), owner 2026-09-07
       // ("make them 2x bigger"). ~90x the player's body, four phone-screens down its length, and

@@ -12715,11 +12715,11 @@ const spurG = new Graphics()
         // Jitter off the cell centre. Neighbours may overlap — hullAlpha makes that occlusion.
         const jx = (i + 0.5) * cs + (hash(i * 7.1 + j * 2.9 + 13.3) - 0.5) * cs * HULL_JITTER * 2
         const jy = (j + 0.5) * cs + (hash(i * 2.3 + j * 5.7 + 29.7) - 0.5) * cs * HULL_JITTER * 2
-        // HEADING WITH A GRAIN. A full circle is the safe answer to "a field all pointing the same
-        // way is a fleet, not a graveyard" and it is also wrong: wrecks settling in a directional
-        // flow scour into it, so a real graveyard has grain. cfg.grain is the chapter's own tide
-        // bearing and the spread is still ±34°, which is scatter by any eye.
-        sp.rotation = cfg.grain + (hash(i * 1.9 + j * 8.3 + 41.9) - 0.5) * 1.2
+        // HEADING WITH A GRAIN. cfg.grain is the chapter's own tide bearing — wrecks settling in a
+        // directional flow scour into it — and the spread is ±90° (owner, 2026-09-07: "why are they
+        // all the same direction?"). ±34° was scatter with one hull on screen and a parked fleet
+        // with twenty; at ±90° half the field still lies along the flow and half across it.
+        sp.rotation = cfg.grain + (hash(i * 1.9 + j * 8.3 + 41.9) - 0.5) * Math.PI
         // ONE BAKE, FOUR CHEAP AXES OF VARIETY — and the reason to bother is that the eye finds
         // repeated DAMAGE faster than repeated form: damage is supposed to be stochastic, so a field
         // of hulls all snapped in the same place with the same tear screams "stamp" however you
