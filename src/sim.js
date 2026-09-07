@@ -181,7 +181,7 @@ import {
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
   ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_DENS_R, ORCA_DENS_FULL_N, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
-  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_CLOSE_FRAC, SCREW_DAMP, SCREW_HULL_PAD,
+  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_CLOSE_FRAC, SCREW_DAMP, SCREW_HULL_PAD, SCREW_STEER_T, SCREW_DRIVE_MUL, SCREW_LINK_GAP,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SLICK_BIRTH_CLEAR, SLICK_SPREAD_STEPS, spillSpread, slickR, slickChance, slickDps,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
@@ -680,6 +680,11 @@ function healPlayer(run, amount) {
 
 // ---- Player -------------------------------------------------------------------
 
+// The Screw has the stick while it is equipped and on the chain (see SCREW_STEER_T). run._screwChain
+// is published by stepScrewWeapon, so the frame the blade is born the fish still swims itself.
+function screwDriven(run) {
+  return (run._screwChain ?? 0) > 0 && run.screws.length > 0 && run.weapons.some((w) => w.id === 'screw')
+}
 function stepPlayerMovement(run, input, dt) {
   const p = run.player
   let ix = input?.x || 0
@@ -687,7 +692,7 @@ function stepPlayerMovement(run, input, dt) {
   // THE RAW STICK, KEPT. In a `circuit` the forward component is a THROTTLE, not half of a
   // direction, and the unit-circle clamp below is the wrong tool for it — see the lane branch.
   const rawX = ix, rawY = iy
-  const len = Math.hypot(ix, iy)
+  let len = Math.hypot(ix, iy)
   if (len > 1) { ix /= len; iy /= len } // clamp to unit circle, keep sub-unit analog magnitude
 
   // STILLNESS (v7.2) reads INPUT, deliberately, and this is the only place the raw stick is known.
@@ -969,6 +974,52 @@ function stepPlayerMovement(run, input, dt) {
       else { run._kickX = (kx / mag) * left; run._kickY = (ky / mag) * left }
     }
     if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
+  } else if (screwDriven(run)) {
+    // THE SCREW HAS THE STICK (SCREW_STEER_T, config.js). The stick is published for stepScrewWeapon
+    // to drive the lead blade with, and the CHAIN moves the fish: while the line is taut the fish
+    // matches the blade's speed ALONG the chain (plus whatever slack is owed), never faster than
+    // `speed` — so the fish's own slows land on the pair. `speed` is published too, as the blade's
+    // top speed. Matching the blade's radial speed rather than chasing an overlap is load-bearing:
+    // the blade's own chain floor (stepScrewWeapon) settles any excess inside its step, so this
+    // step never sees a chain longer than itself. A blade heading square to the chain tows nothing
+    // and pivots round the fish instead, which is the swing.
+    //   AND THE BLADE CAN RUN YOU OVER. Driven back into the fish it must get PAST, or a reversal is
+    // a dead push and the blade never leads again — and it cannot slide round on its own when the
+    // two are exactly in line, which a keyboard press makes the common case. So the fish SIDESTEPS:
+    // perpendicular to the blade's heading, on the side it already is (left if dead on), at the
+    // blade's own speed and never faster than `speed`. Triggered on TOUCHING with the blade heading
+    // in, not on overlap: the blade's hull floor (stepScrewWeapon) resolves any overlap inside its
+    // own step, so this step would never see one. That floor does the rest — the blade slides by,
+    // the line comes taut behind it and the fish is towed the new way.
+    run._stickX = ix; run._stickY = iy; run._moveSpeed = speed
+    const lead = run.screws[run.screws.length - 1]
+    const dx = lead.x - p.x, dy = lead.y - p.y, d = Math.hypot(dx, dy)
+    const hull = lead.r + PLAYER.radius + SCREW_HULL_PAD
+    let mx = 0, my = 0
+    if (d > run._screwChain - 2) {
+      const along = ((lead.vx ?? 0) * dx + (lead.vy ?? 0) * dy) / Math.max(d, 1e-6)
+      // dt > 0 guard: a 0-length frame (main.js clamps dt above but not below) made this 0/0 and
+      // put the player at NaN for the rest of the run.
+      const owed = dt > 0 ? Math.max(0, d - run._screwChain) / dt : 0
+      const pull = Math.min(speed, Math.max(0, along) + owed)
+      mx = (dx / d) * pull; my = (dy / d) * pull
+    } else if (d < hull + 2) {
+      const vl = Math.hypot(lead.vx ?? 0, lead.vy ?? 0)
+      const tx = vl > 1e-6 ? lead.vx / vl : 0, ty = vl > 1e-6 ? lead.vy / vl : 0
+      if (tx * -dx + ty * -dy > 0) {
+        const side = (tx * -dy - ty * -dx) >= 0 ? 1 : -1
+        const step = Math.min(speed, vl)
+        mx = -ty * side * step; my = tx * side * step
+      }
+    }
+    p.vx = mx
+    p.vy = my
+    // The fish faces the way the chain moves it while it moves, and the stick otherwise. `len`
+    // is left as the STICK: a held stick is the fish working (p.moving drives the swim pose), and
+    // an idle pose under a held stick is exactly the "my input does nothing" read this exists to
+    // remove.
+    const ml = Math.hypot(mx, my)
+    if (ml > 1e-6) { ix = mx / ml; iy = my / ml }
   } else {
     p.vx = ix * speed
     p.vy = iy * speed
@@ -10149,17 +10200,45 @@ function stepScrewWeapon(run, stats, fireRateMul, dt) {
   // one who loops — measured, and it was the same number to the point: 1248 against 1248 over the
   // same knot. Due west is arbitrary and only lasts until the player moves; what matters is that it
   // starts a chain away.
-  while (run.screws.length < n) run.screws.push({ x: p.x - stats.chain, y: p.y, r: stats.radius, spin: 0, vx: 0, vy: 0 })
+  //   ...AND NOW IT IS BORN AHEAD, ALONG THE FACING, CARRYING THE FISH'S SPEED — because it is the
+  // body the stick drives from its first frame. Born behind, in line, at rest, a stick held the way
+  // you were swimming drove it INTO the fish and froze you for 1.2s on the frame you took the card
+  // (measured), with the crowd on you. An added body (Twin Screw, Ipecac) becomes the new lead, so
+  // it is born ON the old lead with its velocity and the stagger below sorts them out.
+  while (run.screws.length < n) {
+    const lead = run.screws[run.screws.length - 1]
+    const fa = p.facingAngle ?? 0
+    run.screws.push(lead
+      ? { x: lead.x, y: lead.y, r: stats.radius, spin: 0, vx: lead.vx ?? 0, vy: lead.vy ?? 0 }
+      : { x: p.x + Math.cos(fa) * stats.chain, y: p.y + Math.sin(fa) * stats.chain, r: stats.radius, spin: 0, vx: p.vx ?? 0, vy: p.vy ?? 0 })
+  }
   // COAST, then let the constraints have it. Math.pow so the water takes the same FRACTION per
   // second at any frame rate — a per-frame multiply makes the screw heavier on a slow machine.
   // `?? 0` because a hand-built screw (an fx scene, a test fixture) carries no velocity, and
   // undefined * keep is NaN, which puts the body at NaN,NaN and vanishes it.
   const keep = Math.pow(SCREW_DAMP, dt)
   const from = []
-  for (const sc of run.screws) {
+  // THE LEAD BLADE TAKES THE STICK (SCREW_STEER_T): its velocity closes on what the stick asks at
+  // the fish's own speed, and it is the LAST body on the chain, so Twin Screw's second rides between
+  // the fish and the blade you are steering. The rest, and the lead once the stick is let go, coast.
+  // The chain lengthens to hold its bodies (SCREW_LINK_GAP): one blade rides at `chain`, each extra
+  // body adds a blade's width and a gap, so they cannot be asked to share a ring they do not fit on.
+  const chainLen = Math.max(stats.chain, stats.radius + PLAYER.radius + SCREW_HULL_PAD + (n - 1) * (2 * stats.radius + SCREW_LINK_GAP))
+  run._screwChain = chainLen
+  const sx = run._stickX ?? 0, sy = run._stickY ?? 0
+  const driven = Math.hypot(sx, sy) > 1e-6
+  for (let i = 0; i < run.screws.length; i++) {
+    const sc = run.screws[i]
     sc.r = stats.radius
-    sc.vx = (sc.vx ?? 0) * keep
-    sc.vy = (sc.vy ?? 0) * keep
+    if (driven && i === run.screws.length - 1) {
+      const k = 1 - Math.exp(-dt / SCREW_STEER_T)
+      const top = (run._moveSpeed ?? PLAYER.baseSpeed) * SCREW_DRIVE_MUL
+      sc.vx = (sc.vx ?? 0) + (sx * top - (sc.vx ?? 0)) * k
+      sc.vy = (sc.vy ?? 0) + (sy * top - (sc.vy ?? 0)) * k
+    } else {
+      sc.vx = (sc.vx ?? 0) * keep
+      sc.vy = (sc.vy ?? 0) * keep
+    }
     from.push(sc.x, sc.y, Math.hypot(sc.vx, sc.vy))
     sc.x += sc.vx * dt
     sc.y += sc.vy * dt
@@ -10193,7 +10272,7 @@ function stepScrewWeapon(run, stats, fireRateMul, dt) {
     for (let i = 0; i < n; i++) {
       const sc = run.screws[i]
       // Each link sits further back than the last, evenly spaced along the chain's own length.
-      const link = stats.chain * ((i + 1) / n)
+      const link = chainLen * ((i + 1) / n)
       let dx = p.x - sc.x, dy = p.y - sc.y, d = Math.hypot(dx, dy)
       if (d < 1e-6) { dx = 1; dy = 0; d = 1 }
       const want = Math.max(sc.r + PLAYER.radius + SCREW_HULL_PAD, Math.min(link, d))
@@ -10212,10 +10291,18 @@ function stepScrewWeapon(run, stats, fireRateMul, dt) {
     // the body had, and the player can add their own, nothing more. Without the cap a body born
     // on top of another (Twin Screw's second, at the same point as the first) reads its 34px
     // stagger as 2000px/s and flies off the chain for half a second.
-    sc.vx = (sc.x - from[i * 3]) / dt
-    sc.vy = (sc.y - from[i * 3 + 1]) / dt
-    const v = Math.hypot(sc.vx, sc.vy), vmax = from[i * 3 + 2] + Math.hypot(p.vx ?? 0, p.vy ?? 0)
-    if (v > vmax) { sc.vx *= vmax / v; sc.vy *= vmax / v }
+    //   ⚠ NOT FOR THE BLADE THE STICK IS DRIVING. Its velocity is the drive state, and it has to
+    // survive the chain clamping its position: read back from the clamped move it is ~0 every
+    // frame the fish has not yet followed, the drive restarts from ~0, and the tow (which reads
+    // this velocity along the chain) never sees a reason to move — a deadlock, measured as a
+    // blade parked at 8px/s against a stick held hard west. The position is still clamped; the
+    // intent is what the fish follows.
+    if (!(driven && i === run.screws.length - 1)) {
+      sc.vx = (sc.x - from[i * 3]) / dt
+      sc.vy = (sc.y - from[i * 3 + 1]) / dt
+      const v = Math.hypot(sc.vx, sc.vy), vmax = from[i * 3 + 2] + Math.hypot(p.vx ?? 0, p.vy ?? 0)
+      if (v > vmax) { sc.vx *= vmax / v; sc.vy *= vmax / v }
+    }
     // Render-only, and derived here so the sim owns one clock: the blade's own rotation, faster
     // when the cut is faster. render.js reads it and never writes it.
     sc.spin += dt * SCREW_SPIN_RATE * rate

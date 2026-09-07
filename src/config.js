@@ -2881,14 +2881,20 @@ export const WEAPONS = {
   // be earned by moving. Census before quoting any of it.
   screw: {
     name: 'The Screw',
-    desc: 'Drags the ship\'s propeller behind you on a chain. It cuts whatever your wake passes over.',
+    desc: 'The ship\'s propeller on a chain, and the stick steers IT: you drive the blade and your body is towed behind it.',
     icon: '\u2699\ufe0f', rarity: 'normal',
+    // balance_decision : driven blade, radius x2 and cut rate x2 2026-09-07
+    //  - measured on the aimed census rig (--aim nearest --stick 1, six seeds, L1 kills/min): the
+    //    driven blade read 42 against the trailing one's 77; damage did nothing (hits fell as it
+    //    rose); x2/x2 reads 71, x3/x3 88, x5/x5 116 (Gnash 116). Owner: keep x2/x2, old parity
+    //  - `chain` is the ONE-blade length; with more bodies on it the chain lengthens to hold them
+    //    (SCREW_LINK_GAP) — six blades of radius 68 cannot fit on 110px, and run PY.c forbids stacking
     levels: [
-      { dmg: 12, radius: 34, chain: 110, tick: 0.40 },
-      { dmg: 15, radius: 37, chain: 118, tick: 0.37 },
-      { dmg: 19, radius: 40, chain: 126, tick: 0.34 },
-      { dmg: 24, radius: 44, chain: 134, tick: 0.31 },
-      { dmg: 31, radius: 48, chain: 142, tick: 0.28 },
+      { dmg: 12, radius: 34 * 2, chain: 110, tick: 0.40 / 2 },
+      { dmg: 15, radius: 37 * 2, chain: 118, tick: 0.37 / 2 },
+      { dmg: 19, radius: 40 * 2, chain: 126, tick: 0.34 / 2 },
+      { dmg: 24, radius: 44 * 2, chain: 134, tick: 0.31 / 2 },
+      { dmg: 31, radius: 48 * 2, chain: 142, tick: 0.28 / 2 },
     ],
   },
   bilge: {
@@ -2985,9 +2991,33 @@ export const SCREW_SPIN_RATE = 7.5
 //  - dps is flat across 0-0.45 (83 -> 88), so retune this for feel, never for damage
 //  - do NOT go below 0.30: the blade settles on the player and the card becomes an aura
 export const SCREW_DAMP = Math.pow(0.30, 1 / 1.2)
+// THE STICK DRIVES THE BLADE. Owner, 2026-09-07: "hélice is not \"drivable\" as i want it to, the
+// gameplay is not good" — and, given four ways to make it drivable, he picked "the stick moves
+// the SCREW, and your fish is pulled along behind it on the chain". So while the card is equipped
+// the joystick is the LEAD blade's throttle and the fish is towed: pulled toward the blade while
+// the chain is taut, never faster than the fish's own composed speed — every slow in the chapter
+// still lands on the pair, because a blade cannot leave a chain that will not follow. Driven back
+// INTO the fish, the blade runs it over: the fish sidesteps and the blade slides past, then tows
+// it the new way (stepPlayerMovement, stepScrewWeapon).
+//   SCREW_STEER_T    s for the blade's velocity to close 63% of the gap to what the stick asks —
+//                    the steering response. SCREW_DAMP is only the coast once the stick is let go.
+//   SCREW_DRIVE_MUL  the blade's top speed as a fraction of the fish's. Above 1 it outruns the tow
+//                    and the chain drags it back every frame; 1 is the honest pair.
+//   ⚠ NOT IN A LANE CHAPTER. The tow branch sits after the lane and circuit branches of
+// stepPlayerMovement, so in `beyond` and `reef` the card falls back to the old rope. It is only
+// in The Wreck's pool and The Blank's, so that is dev-menu territory today — but the desc is
+// false there.
+// balance_decision : the stick drives the blade, the fish is towed 2026-09-07
+export const SCREW_STEER_T = 0.22
+export const SCREW_DRIVE_MUL = 1
 // The hull the blades stop at is PLAYER.radius plus this: the fish sprite is ~1.6 radii long, so a
 // blade tip parked on the collision circle still sits on its nose (shot, 2026-09-07).
 export const SCREW_HULL_PAD = 14
+// THE CHAIN IS AS LONG AS ITS BODIES NEED. `chain` in the levels is the one-blade length; each extra
+// body on it (Twin Screw, Ipecac) adds a blade's width plus this much clear water, so six blades of
+// radius 68 get the ~800px they physically take rather than stacking on a 110px chain. Read by
+// stepScrewWeapon for the links and by the tow.
+export const SCREW_LINK_GAP = 6
 // GORGE (gnash): what eating an elite pays. It healed to FULL until 2026-09-06 — "an elite pays for
 // everything" was the reasoning, and the owner's ruling is that it paid too well. A flat number
 // rather than a fraction of max HP so the card can print what it does; it is deliberately NOT
@@ -3612,7 +3642,7 @@ export const WEAPON_MODS = {
     wideScrew:   { name: 'Bent Blades', desc: 'how wide the screw cuts',             icon: '\u2699\ufe0f', base: 0.25, kind: 'pct' },
     longChain:   { name: 'Long Chain', desc: 'how far back it drags',                icon: '\u26d3\ufe0f', base: 0.30, kind: 'pct' },
     overspeed:   { name: 'Overspeed',  desc: 'how fast the screw turns',             icon: '\ud83c\udf00', base: 0.25, kind: 'pct' },
-    twinScrew:   { name: 'Twin Screw', desc: 'screw(s) on the chain behind you',     icon: '\u2693', kind: 'tier' },
+    twinScrew:   { name: 'Twin Screw', desc: 'screw(s) on the chain',               icon: '\u2693', kind: 'tier' },
   },
   bilge: {
     wideBilge:  { name: 'Split Seam',  desc: 'oil spread',               icon: '🛢️', base: 0.30, kind: 'pct' },

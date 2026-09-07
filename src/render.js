@@ -12727,10 +12727,31 @@ const spurG = new Graphics()
   // smallest offset that puts deck rather than gap under the cell centre, not the biggest.
   const HULL_LEAD = 0.26
   const hullSprites = []
+  // A WRECK UNDER THE SPAWN. Measured (scripts/scenes/wreck-hull-rate.js, 300s, desktop): a player
+  // kiting the genre's circle had a hull on screen 7s of 300 — the field is dense in its own layer,
+  // but that layer moves at `parallax` of the world and a kiting player never carries a new cell
+  // into view, so whether a run ever shows a ship was decided by what the unseeded hash happened
+  // to put near (0,0). Owner, 2026-09-07 ("i almost never seen wreckage ships"): the whole field
+  // is shifted so the kept hull nearest the origin has its placement point AT the origin. It then
+  // sits under the start and, moving slower than the player, stays around the kiting arena all
+  // run. Computed once: hullKept is a pure function of the cell, so the shift never changes.
+  let hullOrigin = null
+  function hullOriginOf(cfg) {
+    if (hullOrigin) return hullOrigin
+    let best = null, bd = Infinity
+    for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) {
+      if (!hullKept(i, j, cfg)) continue
+      const c = hullCandidate(i, j, cfg), d = Math.hypot(c.x, c.y)
+      if (d < bd) { bd = d; best = c }
+    }
+    hullOrigin = best ? { x: best.x, y: best.y } : { x: 0, y: 0 }
+    return hullOrigin
+  }
   function updateWreckHull(cx, cy) {
     const cfg = chapterRender.hull
     if (!cfg) { hullLayer.visible = false; return }
     hullLayer.visible = true
+    const og = hullOriginOf(cfg)
     // Cancel part of the parent's transform: world sits at (cx, cy), so this lands at cx * parallax.
     hullLayer.position.set(cx * (cfg.parallax - 1), cy * (cfg.parallax - 1))
     // The viewport's CENTRE in parallax space. -cx is the camera's world origin (the top-left
@@ -12740,8 +12761,8 @@ const spurG = new Graphics()
     // wider than half a screen so nothing showed, and in map mode at zoom 0.1 the right 40% of the
     // window streamed nothing, which read as "the field is sparse" from the one view meant to
     // judge how dense it is.
-    const px = -cx * cfg.parallax + viewW() / 2
-    const py = -cy * cfg.parallax + viewH() / 2
+    const px = -cx * cfg.parallax + viewW() / 2 + og.x
+    const py = -cy * cfg.parallax + viewH() / 2 + og.y
     const cs = cfg.cell
     const halfW = viewW() / 2 + cfg.len * HULL_REACH * HULL_SCALE_MAX
     const halfH = viewH() / 2 + cfg.len * HULL_REACH * HULL_SCALE_MAX
@@ -12762,7 +12783,7 @@ const spurG = new Graphics()
         sp.visible = true
         sp.rotation = c.rot
         sp.scale.set(c.sc, c.sc * c.heel * c.mirror)
-        sp.position.set(c.x, c.y)
+        sp.position.set(c.x - og.x, c.y - og.y)
         sp.tint = cfg.tint
         sp.alpha = cfg.alpha
         n++

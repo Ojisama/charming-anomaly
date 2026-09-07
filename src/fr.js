@@ -844,7 +844,7 @@ const CONFIG = {
   // damage from the card entirely.
   'Splits a drum. The oil crawls out, poisons what wades through it, and gums it up long after.': 'Fend un f\u00fbt. Le mazout s\'\u00e9chappe, empoisonne ce qui le traverse et l\'englue bien apr\u00e8s.',
   'The Screw': 'L\'H\u00e9lice',
-  'Drags the ship\'s propeller behind you on a chain. It cuts whatever your wake passes over.': 'Tra\u00eene l\'h\u00e9lice du navire derri\u00e8re toi, au bout d\'une cha\u00eene. Elle tranche tout ce que ton sillage recouvre.',
+  'The ship\'s propeller on a chain, and the stick steers IT: you drive the blade and your body is towed behind it.': 'Une h\u00e9lice de navire au bout d\'une cha\u00eene. Le stick pilote l\'h\u00e9lice\u00a0; ton corps est tir\u00e9 derri\u00e8re elle.',
   'Net Toss': 'Filet Lesté',
   'Throws a weighted net over a pack and holds them where they stand.': 'Jeté sur un groupe entier, il le cloue sur place.',
   'Membrane Piercer': 'Perce-Membrane',
@@ -1057,7 +1057,7 @@ const CONFIG = {
   'Overspeed': 'Surr\u00e9gime',
   'how fast the screw turns': 'vitesse de rotation de l\'h\u00e9lice',
   'Twin Screw': 'H\u00e9lice Double',
-  'screw(s) on the chain behind you': 'h\u00e9lice(s) sur la cha\u00eene derri\u00e8re toi',
+  'screw(s) on the chain': 'h\u00e9lice(s) sur la cha\u00eene',
   "how strong the stain's slow gets": 'puissance du ralentissement de la tache',
   'Trailing Slick': 'Nappe Tra\u00eenante',
   'the oil pours behind you as you swim': 'le mazout se d\u00e9verse derri\u00e8re toi quand tu nages',
