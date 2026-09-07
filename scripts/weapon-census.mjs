@@ -90,6 +90,12 @@ const MODS = Object.fromEntries((arg('mods', '') || '').split(',').filter(Boolea
 // at — and it does so SILENTLY, printing a plausible row that is 2.24x too low. Any future
 // movement-coupled card has the same problem. Quote such a weapon at `--stick 1`, and say which.
 const STICK = Number(arg('stick', '0.4472135955'))
+// --aim nearest: the stick POINTS AT THE NEAREST ENEMY each step (at STICK magnitude) instead of
+// walking a fixed line. Exists for The Screw (2026-09-07), whose stick drives the BLADE ahead of a
+// towed fish: on the fixed walk the blade leads into empty water while the crowd chases the fish
+// behind it, and the rig reads 6 kills/min for a card that reads 100+ when driven at the crowd.
+// A weapon you have to AIM must be censused by a rig that aims it. Say which rig you quote.
+const AIM = arg('aim', '') === 'nearest'
 const IN_X = 0.4 / 0.4472135955 * STICK
 const IN_Y = 0.2 / 0.4472135955 * STICK
 
@@ -155,7 +161,13 @@ function census(id, level, seed) {
     before.clear()
     for (const e of run.enemies) before.set(e.id, e.hp)
 
-    stepSim(run, { x: IN_X, y: IN_Y }, DT)
+    let inX = IN_X, inY = IN_Y
+    if (AIM) {
+      let best = null, bd = Infinity
+      for (const e of run.enemies) { const dd = (e.x - run.player.x) ** 2 + (e.y - run.player.y) ** 2; if (dd < bd) { bd = dd; best = e } }
+      if (best) { const dl = Math.sqrt(bd) || 1; inX = (best.x - run.player.x) / dl * STICK; inY = (best.y - run.player.y) / dl * STICK }
+    }
+    stepSim(run, { x: inX, y: inY }, DT)
     // v7.x Book 2: a chapter resource AMPLIFIES the player's Pulse, so in a resource chapter the
     // numbers below are measured against some state of that bar. Reported so a reading is never
     // quoted without it — 0 everywhere else, since createRun leaves charge at 0 with no resource.
@@ -311,7 +323,7 @@ console.log(`chapter ${CHAPTER} (book ${BOOK_ID}), difficulty ${DIFFICULTY}, ${S
 // Printed unconditionally, because a rig property that changes a number has to appear beside the
 // number. A reader comparing two tables with different --stick values and no label would attribute
 // the whole difference to the code under test.
-console.log(`walk: stick ${STICK.toFixed(3)} = ${(STICK * PLAYER.baseSpeed).toFixed(0)} px/s ` +
+console.log(`walk: ${AIM ? 'AIMED at the nearest enemy, ' : ''}stick ${STICK.toFixed(3)} = ${(STICK * PLAYER.baseSpeed).toFixed(0)} px/s ` +
   `(${(STICK * 100).toFixed(0)}% of base) — MOVEMENT-COUPLED weapons read this directly; pass --stick 1 for a full-speed player`)
 if (CHAPTERS[CHAPTER]?.resource) {
   const res = CHAPTERS[CHAPTER].resource
