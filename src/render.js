@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_JAW_R, ORCA_JAW_T,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_WAKE_R, ORCA_OVERSHOOT,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -13808,7 +13808,7 @@ const spurG = new Graphics()
     // THE ANIMAL, and it exists for exactly two states. It used to be drawn through the whole
     // circle as well, which is what made a stalk read as a swim: a lit body doing laps is an
     // animal going somewhere, a black shape under the water is one deciding.
-    orcaSp.visible = o.state === 'biting' || o.state === 'leaving'
+    orcaSp.visible = o.state === 'committing' || o.state === 'leaving'
     if (orcaSp.visible) {
       orcaSp.position.set(o.x, o.y)
       orcaSp.rotation = orcaRot
@@ -13859,47 +13859,159 @@ const spurG = new Graphics()
       }
     }
 
-    // THE MOUTH. Owner ruling 2026-09-06: "a jaw opening from under and attacking in the 3rd
-    // circle, not a dash impossible to avoid". It replaces the dash's bow wave, and the two are
-    // opposite jobs — the wave was drawn AFTER the decision, to show what the strike had done to
-    // the water, while this is drawn BEFORE it and is the whole reason the attack is fair.
+    // THE WATER GOING SLACK ALONG THE LINE THE STRIKE WILL RUN, for the whole third circle and on
+    // through the strike itself. Owner ruling 2026-09-06: "what I want is to prevent the orca to
+    // dash somewhere that is not telegraph", then "I liked the blue/water/ocean only telegraphs and
+    // designs. Make it very beautiful and realistic."
     //
-    // ⚠ IT IS DRAWN ON THE GROUND, AT ORCA_JAW_R, FOR A FULL LAP. Not on the animal: the animal is
-    // still out on the ring while the mouth is opening under the coil's centre, so a tell attached
-    // to the body would be in the wrong place at the only moment it matters. The circle IS the
-    // hazard's footprint, at the radius the sim tests, so what the player is asked to do — get out
-    // of that ring — is a thing they can see the edge of.
+    // ⚠ IT IS BLUE BECAUSE EVERYTHING HERE IS BLUE, and that is a correction, not a preference.
+    // Two earlier cuts were warm — an orange filled rectangle with hard rails ("the orange rectangle
+    // looks bad"), then a maroon trench. Both were the only warm object in the frame, which does
+    // make them findable and also makes them look pasted on: this chapter is drawn in one narrow
+    // band of blue-greens, and the coil (0xbfe6ff), the bow wave (0xdff2ff) and the splash
+    // (0xdff4ff) are all the same pale cyan. A telegraph outside that palette is a HUD element.
     //
-    // ⚠ AND IT IS DRAWN THROUGH `biting` TOO, closing. A telegraph that vanishes on the frame the
-    // attack lands is the pufferfish bug again: the last thing on screen has to be the jaws MEETING
-    // on the mark, not the mark disappearing and a hit arriving from nowhere.
-    if ((o.jaw ?? 0) > 0 && o.jx !== undefined) {
-      const open = o.jaw                       // 0 shut, 1 wide — stepOrca owns it
-      // The rim: a hard ring at the true radius, so the edge is unambiguous. It brightens as the
-      // mouth opens rather than fading, because this is a warning that is getting closer.
-      orcaG.circle(o.jx, o.jy, ORCA_JAW_R)
-        .stroke({ width: 3 + 3 * open, color: 0xffd9c0, alpha: 0.25 + 0.45 * open })
-      // The throat: a dark disc growing inside it, which is what "opening from under" looks like
-      // from directly above — a hole appearing in the seabed.
-      orcaG.circle(o.jx, o.jy, ORCA_JAW_R * (0.20 + 0.62 * open))
-        .fill({ color: 0x05090e, alpha: 0.30 + 0.35 * open })
-      // TEETH, as two arcs of spikes top and bottom, spread apart by how open it is. A plain ring
-      // is a zone marker and this game already has several; teeth say which creature it belongs to,
-      // and they are what make the closing read as a BITE rather than as a circle shrinking.
-      const TEETH = 9
-      for (const sg of [1, -1]) {
-        for (let i = 0; i < TEETH; i++) {
-          const f = i / (TEETH - 1)
-          const ang = Math.PI * f
-          const gap = ORCA_JAW_R * (0.14 + 0.50 * open) * sg
-          const bx = o.jx - Math.cos(ang) * ORCA_JAW_R * 0.92
-          const by = o.jy + gap * Math.sin(ang) * 0.55
-          const h = ORCA_JAW_R * 0.15 * (0.45 + 0.55 * open)
-          orcaG.moveTo(bx - h * 0.45, by)
-          orcaG.lineTo(bx, by - h * sg)
-          orcaG.lineTo(bx + h * 0.45, by)
-          orcaG.fill({ color: 0xfff4e8, alpha: 0.30 + 0.50 * open })
+    // ⚠ SO IT SEPARATES BY MOTION AND SHAPE INSTEAD OF BY HUE. The coil is a thin stroked path that
+    // does not move; this is a broad soft channel with water visibly RUNNING down it, faster as the
+    // moment comes. Nothing else in the chapter flows in a straight line, which is what makes it
+    // findable without a colour that does not belong here.
+    //
+    // ⚠ AND THE HARD FILL IS GONE. Measured on a shot frame it carried 1.07-1.48x luminance contrast
+    // against the water beside it — under this project's own 2x bar for a rim — while covering 206
+    // of a 390px phone screen. Half the arena tinted, for no measurable read. The rails and the flow
+    // carry it; what is left underneath is a faint DARKENING, because a body of water with something
+    // travelling through it is deeper, not brighter.
+    //
+    // ⚠ IT IS DRAWN THROUGH 'committing' TOO, fading as the body runs. A telegraph that vanishes on
+    // the frame the attack lands is the pufferfish bug: the player is still using the line to judge
+    // their gap while the body is on its way, and most of the dodging happens exactly then.
+    if ((o.aim ?? 0) > 0 && o.ax !== undefined && (o.state === 'circling' || o.state === 'committing')) {
+      const k = o.state === 'committing' ? 1 : o.aim         // 0 just drawn -> 1 about to fire
+      // ⚠ THE RAMP IS EASE-OUT, NOT k^2, AND THAT IS THE WHOLE POINT OF THE TELL. It shipped
+      //    once on k^2, which puts almost all the brightening in the last third: measured over the
+      //    chapter's own water the rails sat at 1.86x luminance contrast with 1.4s left to react
+      //    and only crossed 3x with 0.35s left, by which time a player has 77px of swim against a
+      //    121px lane. The line has to be READABLE while it is still worth reading, so it arrives
+      //    most of the way up and then firms.
+      const e = 1 - (1 - k) * (1 - k)
+      const nx = -o.dirY, ny = o.dirX
+      const len = Math.hypot(o.tx - o.ax, o.ty - o.ay) + ORCA_OVERSHOOT
+      // How far the body has run, as a fraction of the lane. Derived from the position rather than
+      // from a new field: sim already publishes everything this needs, and a second clock is a
+      // second thing to keep in step.
+      const gone = o.state === 'committing'
+        ? Math.min(1, Math.max(0, ((o.x - o.ax) * o.dirX + (o.y - o.ay) * o.dirY) / len))
+        : 0
+      const fade = 1 - gone * gone
+      const w = ORCA_AIM_W
+      // ⚠ THERE IS NO FILL AND NO TROUGH UNDER THIS, AND THAT IS MEASURED, NOT TASTE. Two cuts
+      //    put a body of tone between the rails — first an orange fill ("the orange rectangle looks
+      //    bad"), then a dark trough meant to read as depth. Both were ablated and profiled against
+      //    the water beside them: the fill carried 1.07-1.48x luminance contrast over 206 of a
+      //    390px phone screen, and the trough that replaced it managed 1.01-1.24x over 194-227px.
+      //    The replacement was the WEAKER of the two by the same measure used to condemn the first,
+      //    and it was 42 of this block's draw calls. A quarter of the arena tinted below threshold
+      //    is not a soft edge, it is nothing at full price. The rails and the flow carry the read.
+      //
+      // ⚠ THE RAILS TAPER WITH DISTANCE. The lane is ~990px long against a 121px half-width, so
+      //    at a constant weight it is two near-parallel lines leaving the frame — shot, that is
+      //    exactly what it looked like. Fading along the length puts the read in the part the player
+      //    stands in, and reads as water pushed aside near the animal and settling further off.
+      //    Linear and floored well above zero: the earlier 1.6-power taper killed the far end so
+      //    hard that on a phone the visible lane was two lines entering from the edge and stopping.
+      //    Segmented rather than gradiented because Pixi cannot gradient along a stroke.
+      // ⚠ AND THEY SIT AT EXACTLY ORCA_AIM_W, the widest the strike's capsule can reach.
+      const SEG = 14
+      for (let sIdx = 0; sIdx < SEG; sIdx++) {
+        const f0 = sIdx / SEG, f1 = (sIdx + 1) / SEG
+        const taper = 1 - 0.66 * f0
+        const x0 = o.ax + o.dirX * len * f0, y0 = o.ay + o.dirY * len * f0
+        const x1 = o.ax + o.dirX * len * f1, y1 = o.ay + o.dirY * len * f1
+        for (const sg of [1, -1]) {
+          orcaG.moveTo(x0 + nx * sg * w, y0 + ny * sg * w)
+          orcaG.lineTo(x1 + nx * sg * w, y1 + ny * sg * w)
+          orcaG.stroke({ width: 3 + 3 * e, color: 0xbfe6ff, alpha: (0.52 + 0.34 * e) * taper * fade })
         }
+      }
+      // ⚠ THE FLOW IS PHASED OFF THE AIM RAMP, NEVER OFF run.time. This is the bug that shipped
+      //    here and it is worth the paragraph, because it looked completely correct in the code and
+      //    in every probe frame. The phase was run.time / period with period shrinking as k rose,
+      //    i.e. absolute time times a rate that changes every frame — differentiate that and the
+      //    second term is proportional to run.time itself. Replayed at 60fps it wrapped 45 times a
+      //    lap and jumped up to 947px of a 990px lane between consecutive frames: not a current, a
+      //    strobe, and one whose frequency was set by how long the run had been going. The probe
+      //    could not show it (fx-probe composes at run.time ~1-10s, and 8 stills 0.36s apart cannot
+      //    resolve 30Hz) and neither can any still.
+      //    k is monotone 0->1 over the hold lap, so a function of k ALONE is monotone by
+      //    construction and cannot strobe. It also ties the tempo to the thing the tempo is
+      //    supposed to be reporting, which run.time never was.
+      const flow = k * 2.4 + k * k * 2.6                  // ~5 sweeps a lap, quickening
+      // ⚠ A SWELL RUNS DOWN IT. A corridor alone could be run either way and a static shape
+      //    cannot say WHEN; something sweeping from the launch end outward says both.
+      //    WARN TWO ROUND-CAPPED STROKES ACROSS THE LANE, NOT A ROW OF DISCS AND NOT A BAR.
+      //    Straight cross-lines put rungs down the channel and read as a grating; overlapping
+      //    circles read as a string of beads. A wide round-capped stroke is a lens, which is the
+      //    shape a pressure front has, and it is two draws.
+      const ph = flow % 1
+      const soft = Math.min(1, ph / 0.10) * Math.pow(1 - ph, 1.2)   // born at the mouth, dies out
+      if (soft > 0.01) {
+        const sx = o.ax + o.dirX * ph * len, sy = o.ay + o.dirY * ph * len
+        for (let i = 0; i < 2; i++) {
+          const spread = w * (0.62 - i * 0.26)
+          orcaG.moveTo(sx + nx * spread, sy + ny * spread)
+          orcaG.lineTo(sx - nx * spread, sy - ny * spread)
+          orcaG.stroke({
+            width: (w * 0.42 + 14 * k) * (1 - i * 0.4),
+            color: 0xdff2ff, cap: 'round',
+            alpha: (0.14 + 0.20 * e) * soft * fade,
+          })
+        }
+      }
+      // BUBBLES, carried on the same current at a slower drift — what stops the channel reading as
+      // a set of drawn lines. Water that is only streaks is a diagram; water with something
+      // suspended in it is water.
+      const BG = 170
+      const bn = Math.ceil(len / BG)
+      for (let li = 0; li < 5; li++) {
+        const off = w * (-0.74 + li * 0.37)
+        const phase = (flow * BG * 0.62 + li * 71) % BG
+        for (let i = 0; i < bn; i++) {
+          const d0 = i * BG + phase
+          if (d0 > len) continue
+          const taper = 1 - 0.7 * (d0 / len)
+          const wob = Math.sin(d0 * 0.028 + li * 1.7) * w * 0.10
+          orcaG.circle(o.ax + o.dirX * d0 + nx * (off + wob), o.ay + o.dirY * d0 + ny * (off + wob), 1.8 + 2.0 * e)
+            .fill({ color: 0xeaf7ff, alpha: (0.30 + 0.28 * e) * taper * fade })
+        }
+      }
+      // ⚠ NO ARC ACROSS THE MOUTH. Two were drawn here to say "this is the near end", and in a
+      //    frame that already holds the coil's three rings, the fear band and the wreck's own round
+      //    shadows they read as one more circle — a big pale semicircle hanging off the corridor.
+      //    The taper already says it (the rails are brightest at the launch end) and so does the
+      //    swell, which is BORN there on every cycle. Two cues, no marks.
+    }
+
+    // THE BOW WAVE. Two sheets of water peeling off the shoulders and trailing back down the line.
+    // Drawn at ORCA_WAKE_R because that IS the radius bodies get thrown at (stepOrca's orcaWake) —
+    // the player has to be able to see the edge of the thing that is about to move them, so this is
+    // the hazard's own footprint and not a decorative flourish sized by eye.
+    if (o.state === 'committing') {
+      // ⚠ SHORT, AND THAT IS A SHOT NOTE. The first cut trailed 2.3 swaths behind the fluke, which
+      // at ORCA_WAKE_R 230 is over 500px of thin pale line reaching off the side of the screen —
+      // shot at 1400x900 it read as a terrain contour or a road, not as water, because nothing that
+      // long stays attached to the body that made it. Kept inside ~1.3 swaths it reads as a bow.
+      const nx = -o.dirY, ny = o.dirX
+      for (const sg of [1, -1]) {
+        // Starts just off the nose, bows out to the full swath abreast of the body, and closes back
+        // in behind the fluke — a curve, because a straight pair of lines reads as a laser sight.
+        orcaG.moveTo(o.x + o.dirX * ORCA_WAKE_R * 0.42 + nx * sg * ORCA_WAKE_R * 0.10,
+                     o.y + o.dirY * ORCA_WAKE_R * 0.42 + ny * sg * ORCA_WAKE_R * 0.10)
+        orcaG.quadraticCurveTo(
+          o.x - o.dirX * ORCA_WAKE_R * 0.30 + nx * sg * ORCA_WAKE_R * 0.98,
+          o.y - o.dirY * ORCA_WAKE_R * 0.30 + ny * sg * ORCA_WAKE_R * 0.98,
+          o.x - o.dirX * ORCA_WAKE_R * 1.30 + nx * sg * ORCA_WAKE_R * 0.92,
+          o.y - o.dirY * ORCA_WAKE_R * 1.30 + ny * sg * ORCA_WAKE_R * 0.92)
+        orcaG.stroke({ width: 13, color: 0xdff2ff, alpha: 0.30 })
       }
     }
   }

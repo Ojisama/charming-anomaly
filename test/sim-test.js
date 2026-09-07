@@ -162,7 +162,7 @@ import {
   ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
   ORCA_RING_MIN_R, ORCA_BITE_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, ORCA_DENS_FULL_N,
   ORCA_HERD_PULL, ORCA_COMMITS, ORCA_WAKE_R, ORCA_RING_R, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_SPIRAL_ACCEL, ORCA_TRAIL_MAX,
-  ORCA_LAPS, ORCA_HOLD_DUR, ORCA_CLOSE_FRAC, SCREW_DAMP, ORCA_JAW_R, ORCA_JAW_T,
+  ORCA_LAPS, ORCA_HOLD_DUR, ORCA_CLOSE_FRAC, SCREW_DAMP, ORCA_AIM_W, ORCA_HIT_R, ORCA_ORBIT_RATE,
   CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX, CHAPTER_BOARDS_DEFAULT,
   // The Trawl's late-game cut (run TJ)
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
@@ -9862,12 +9862,13 @@ function runOrca() {
       const p = run.player
       // The centre LAGS the player by `off`, which is what the loose track in the circling state
       // leaves behind once the player has been swimming, and the knot sits ON it — where
-      // ORCA_CIRCLE_DUR of tightening coil has been herding it. The MOUTH opens on that centre,
-      // so it is `off` px from the player — well outside ORCA_JAW_R (150) plus the player's radius.
-      // ⚠ ONE BITE, NOT ORCA_COMMITS OF THEM. `passes: 1` is what makes this block measurable: a
-      // full visit bites twice, and the second one re-rises, re-spirals and re-opens on wherever
+      // ORCA_CIRCLE_DUR of tightening coil has been herding it. The line runs from the orca's ring
+      // position through that centre, so it clears the player by `off`, well outside
+      // ORCA_HIT_R + the player's radius (100).
+      // ⚠ ONE LINE, NOT ORCA_COMMITS OF THEM. `passes: 1` is what makes this block measurable: a
+      // full visit commits twice, and the second line re-rises, re-spirals and re-aims at wherever
       // the centre has drifted to by then — so `away.dmg === 0` below would be reading that second
-      // mark, not this one.
+      // aim, not this one.
       const cx = p.x, cy = p.y - off
       const es = withBall ? ball(run, 14, cx, cy, 45) : []
       run.orca = {
@@ -9890,7 +9891,7 @@ function runOrca() {
         hold(run, es)
         if (run.orca.state === 'circling') brokeAt = { x: run.orca.x, y: run.orca.y }
         stepSim(run, { x: 0, y: 0 }, dt)
-        if (!locked && run.orca && run.orca.state === 'biting') locked = { x: run.orca.cx, y: run.orca.cy }
+        if (!locked && run.orca && run.orca.state === 'committing') locked = { x: run.orca.cx, y: run.orca.cy }
         feeds += run.events.filter((ev) => ev.type === 'orcaFeed').length
         killEvents += run.events.filter((ev) => ev.type === 'kill').length
         splashes = splashes.concat(run.events.filter((ev) => ev.type === 'orcaSplash'))
@@ -9906,8 +9907,8 @@ function runOrca() {
     const away = commit(400, true)
     const onYou = commit(0, false)
     assert.ok(away.eaten >= 4,
-      `the mouth must open ON the coil's centre and eat what the coil herded there: ${away.eaten} of ${away.of} died. ` +
-      `Opened on the player instead, the jaw clears the knot by 400px and eats nobody`)
+      `the commit must go THROUGH the coil's centre and eat what the coil herded there: ${away.eaten} of ${away.of} died. ` +
+      `Aimed at the player instead, the line clears the knot by 400px and eats nobody`)
     assert.strictEqual(away.feeds, away.eaten,
       `every eaten fish must emit exactly one orcaFeed (render's only tell for it): ${away.feeds} events for ${away.eaten} deaths`)
     // The credit half. These are three separate ledgers and dealDamage pays all three — routing the
@@ -9918,8 +9919,8 @@ function runOrca() {
     assert.strictEqual(away.dmg, 0,
       `the player had outrun the coil by 400px and must take nothing: they lost ${away.dmg}`)
     assert.ok(onYou.dmg > 0,
-      `with the centre ON the player the same jaw must hit them — it dealt ${onYou.dmg}, so this block cannot tell ` +
-      `"opens on the centre" from "always misses"`)
+      `with the centre ON the player the same line must hit them — it dealt ${onYou.dmg}, so this block cannot tell ` +
+      `"aimed at the centre" from "always misses"`)
     // THE SPLASH, and it is the owner's sentence stated as geometry. Once per commit, and AT the
     // centre of the coil — which in the first arm is 400px from the player and ORCA_RING_MIN_R from
     // the body that threw it, so neither an aim at the player nor an emit at o.x/o.y satisfies it.
@@ -9938,10 +9939,10 @@ function runOrca() {
         `the splash must land on the CENTRE OF THE SPIRAL (${nm}); it landed ${offBy.toFixed(0)}px off it`)
       const fromBody = Math.hypot(s.x - r.brokeAt.x, s.y - r.brokeAt.y)
       assert.ok(fromBody > ORCA_RING_MIN_R * 0.8,
-        `the splash must be the point the mouth OPENED on, not where the body left the ring (${nm}); ` +
+        `the splash must be the point it was AIMED at, not where the body broke orbit (${nm}); ` +
         `those were only ${fromBody.toFixed(0)}px apart, against a ring radius of ${ORCA_RING_MIN_R}`)
     }
-    console.log(`PASS run OR.c (the jaw opens on the centre of its coil): a centre parked 400px off the player took ${away.eaten}/${away.of} fish ` +
+    console.log(`PASS run OR.c (it strikes the centre of its coil): a centre parked 400px off the player took ${away.eaten}/${away.of} fish ` +
       `for ${away.feeds} orcaFeed events, paying 0 kills / 0 gems / 0 kill events and costing the player 0 HP, and threw ONE splash ` +
       `${Math.hypot(away.splashes[0].x - away.locked.x, away.splashes[0].y - away.locked.y).toFixed(1)}px from that centre and ` +
       `${Math.hypot(away.splashes[0].x - away.brokeAt.x, away.splashes[0].y - away.brokeAt.y).toFixed(0)}px from the body — ` +
@@ -9993,87 +9994,90 @@ function runOrca() {
       `against ${control.moved.toFixed(0)}px unshadowed, for 0 orca bites (${passed.dmg} HP of bystander contact) and 0 deaths`)
   }
 
-  // -- OR.e: the bite throws the water OUT, and a visit is ORCA_COMMITS bites. -------------------
+  // -- OR.e: the commit is a BOW WAVE, and a visit is ORCA_COMMITS lines. ------------------------
   // Owner ruling 2026-08-23: "it should have a massive impact on the battlefield, like pushing
   // everything to each side", and "currently it just circles a bit around you, then goes away, easy
   // to avoid". Two separate mechanisms answer that and this block guards both, because either one
   // failing silently leaves the other looking like the whole fix.
-  //
-  // ⚠ REBUILT FOR THE JAW (2026-09-06), AND THE OLD SHAPE WOULD HAVE PASSED IT SILENTLY. Every arm
-  // here used to be signed against a travelling line: bodies strung along the strike at
-  // perpendicular offsets, thrown to the side they already sat on, with one arm existing purely to
-  // prove the shove was PERPENDICULAR and not radial. The attack is a stationary mouth now, so the
-  // shove is radial by construction and all of that reads the wrong quantity. Measured as the
-  // change in DISTANCE FROM THE BITE, which is bearing-independent and is the thing the mechanic
-  // now claims.
-  //   THE SUBJECTS ARE ELITES ON PURPOSE — orcaBite deletes anything else inside ORCA_BITE_R (130),
-  // which is well inside ORCA_WAKE_R (230), so an ordinary body cannot tell "thrown clear" from
-  // "eaten and gone". An elite is the one body the bite spares. No affixes: `anchored` is
-  // knockback-immune and would silently zero the displacement this case reads.
+  //   THE SUBJECTS ARE ELITES ON PURPOSE — see the note at the fixture: orcaBite deletes anything
+  // else inside ORCA_BITE_R, so an ordinary body cannot tell "thrown aside" from "eaten and gone".
   {
-    const wash = (withOrca) => {
+    const wake = (withOrca) => {
       const run = mk()
       const p = run.player
-      // Ringed around the bite point at distinct bearings so stepEnemySeparation never has two of
-      // them in reach of each other — otherwise the control arm drifts and this measures separation.
-      // Two well inside the wash on OPPOSITE bearings, one near its edge, one outside it, and one
-      // sitting almost exactly ON the point (the degenerate direction).
-      const at = [[70, 0], [70, Math.PI], [180, Math.PI / 2], [430, -Math.PI / 2], [3, Math.PI / 4]]
-      const es = at.map(([r, th]) => put(run, { x: p.x + Math.cos(th) * r, y: p.y + Math.sin(th) * r, hp: 1e12, speed: 0, flags: [] }))
+      // Strung along the line the orca will travel (+x through the player) at five perpendicular
+      // offsets: two well inside ORCA_WAKE_R on OPPOSITE sides, one near its edge, one outside it,
+      // and one sitting ON the line. Separated in x so stepEnemySeparation never has two of them in
+      // reach of each other — otherwise the control arm drifts and the measurement is separation.
+      //   ⚠ THE ONE ON THE LINE IS THE ONLY ARM THAT CAN SEE A RADIAL SHOVE, and that is a measured
+      // correction, not a hunch. For a body offset PERPENDICULAR to a straight pass the two are
+      // near-identical (176px vs 179px measured) — the orca's approach and its recession contribute
+      // equal and opposite along-line pushes that cancel, leaving the same lateral throw. A body at
+      // y=+10 separates them outright: a perpendicular wake gives it the full force for the whole
+      // chord, a radial one has almost no lateral component to give until the orca is on top of it.
+      const at = [[100, 70], [340, -70], [580, 180], [820, -430], [1060, 10]]
+      const es = at.map(([dx, dy]) => put(run, { x: p.x + dx, y: p.y + dy, hp: 1e12, speed: 0, flags: [] }))
+      // ⚠ ELITES, AND THEY HAVE TO BE. The commit sweep EATS everything it passes that is not an
+      // elite (orcaBite), and ORCA_BITE_R (130) is well inside ORCA_WAKE_R (230) — so three of
+      // these five subjects, the two that carry the sign arm and the one on the line, simply stop
+      // existing half way through the pass and report the throw they had banked so far. An elite is
+      // the one body the sweep spares, which makes it the only thing the wake can be measured on.
+      // No affixes: `anchored` is knockback-immune and would silently zero the very displacement
+      // this case reads.
       for (const e of es) { e.elite = true; e.affixes = [] }
-      const d0 = es.map((e) => Math.hypot(e.x - p.x, e.y - p.y))
-      const py0 = p.y, px0 = p.x
+      // ⚠ WORLD y, NOT PLAYER-RELATIVE. The wake shoves the player as well, so an origin on the
+      // player subtracts that drift from the body on one side and adds it to the body on the other
+      // — which read as +48/-200 for a shove that is really symmetric, i.e. a false asymmetry
+      // reported as a broken sign. Nothing else moves the world here (the tide is off in mk()).
+      const y0 = es.map((e) => e.y)
+      const py0 = p.y
       if (withOrca) {
-        // Dropped straight into 'biting' rather than walked to it: the subject is the snap. `tx/ty`
-        // is the mark, which is what orcaJawWash measures from — NOT o.x/o.y, so a fixture that set
-        // only the body position would report a wash from the wrong origin and still look sane.
+        // Dropped straight into 'committing' rather than walked to it: the subject is the sweep, and
+        // `hit: true` latches the player contact OFF so this block reads displacement and not HP.
         run.orca = {
-          state: 'biting', t: ORCA_JAW_T,
+          state: 'committing', t: 1.7,
           cx: p.x, cy: p.y, r: ORCA_RING_MIN_R, ang: 0,
-          jx: p.x, jy: p.y, jaw: 1,
-          tx: p.x, ty: p.y,
-          x: p.x, y: p.y, dirX: 1, dirY: 0, hit: false, alpha: 1, passes: 1,
+          x: p.x - 400, y: p.y, dirX: 1, dirY: 0, hit: true, alpha: 1, passes: 1,
         }
       }
-      // Long enough for the snap to land AND for e.kb to decay out, so what is measured is where
-      // the wash actually LEFT them and not a velocity still in flight.
+      // Long enough for the sweep to clear the last body AND for e.kb to decay out, so what is
+      // measured is where the wake actually LEFT them and not a velocity still in flight.
       for (let i = 0; i < Math.round(3.5 / dt); i++) {
         for (const e of es) e.speed = 0
         hold(run, es)
         stepSim(run, { x: 0, y: 0 }, dt)
       }
-      return {
-        out: es.map((e, k) => Math.hypot(e.x - px0, e.y - py0) - d0[k]),
-        player: Math.hypot(run.player.x - px0, run.player.y - py0),
-      }
+      return { dy: es.map((e, k) => e.y - y0[k]), player: run.player.y - py0 }
     }
-    const hit = wash(true)
-    const still = wash(false)
-    assert.ok(still.out.every((v) => Math.abs(v) < 5),
-      `the control must not move: without an orca the five bodies drifted [${still.out.map((v) => v.toFixed(0)).join(', ')}]px`)
-    // OUTWARD, ON BOTH BEARINGS. The pair on opposite sides is what separates a wash from a PULL —
-    // a mechanic that dragged the crowd in would move both of them too, just with the other sign.
-    assert.ok(hit.out[0] > 90 && hit.out[1] > 90,
-      `bodies either side of the bite must be thrown AWAY from it: opposite bearings at 70px moved ` +
-      `${hit.out[0].toFixed(0)}px and ${hit.out[1].toFixed(0)}px further out`)
-    // ⚠ A RATIO AGAINST THE NEAR BODY, not a bare inequality. The falloff term is 1 - d/WAKE_R, so
-    // 180px out should take 0.217/0.696 = 0.31 of what 70px takes; deleting the term entirely still
-    // satisfies "the far one moved less" through separation and drag alone.
-    assert.ok(hit.out[2] > 5 && hit.out[2] < hit.out[0] * 0.55,
-      `the wash must fall off with distance: at 180px out a body moved ${hit.out[2].toFixed(0)}px against ` +
-      `${hit.out[0].toFixed(0)}px at 70px out, a ratio of ${(hit.out[2] / hit.out[0]).toFixed(2)} — the falloff ` +
-      `term predicts 0.31 and a flat force reads 1.00`)
-    assert.ok(hit.out[4] > 90,
-      `a body sitting ON the mark must still be hurled clear rather than left in the mouth: it moved ` +
-      `${hit.out[4].toFixed(0)}px. This is the degenerate direction — with no vector to normalise, ` +
-      `orcaJawWash picks one deterministically, and without that it reads 0 or NaN`)
-    assert.ok(Math.abs(hit.out[3]) < 5,
-      `nothing beyond ORCA_WAKE_R (${ORCA_WAKE_R}px) may be touched; a body 430px out moved ${hit.out[3].toFixed(0)}px`)
-    assert.ok(hit.player > 15,
-      `the player rides the wash too — standing on the mark they must be shoved clear; they moved ${hit.player.toFixed(0)}px`)
+    const hit = wake(true)
+    const still = wake(false)
+    assert.ok(still.dy.every((v) => Math.abs(v) < 5),
+      `the control must not move: without an orca the four bodies drifted [${still.dy.map((v) => v.toFixed(0)).join(', ')}]px`)
+    // SIGN FIRST. A radial shove — the obvious wrong implementation — would push the two inner
+    // bodies apart too, so magnitude alone cannot tell a bow wave from a bubble. What only a
+    // PERPENDICULAR shove gives is each body leaving on the side it was already on.
+    assert.ok(hit.dy[0] > 120 && hit.dy[1] < -120,
+      `bodies either side of the line must be thrown AWAY from it, each on its own side; ` +
+      `+70px went ${hit.dy[0].toFixed(0)}px and -70px went ${hit.dy[1].toFixed(0)}px`)
+    // ⚠ A RATIO, NOT `dy[2] < dy[0]`. The far body is inside the swath for a SHORTER CHORD
+    // (2√(R²-d²): 143px at 180 out against 438px at 70), so it takes less impulse even with the
+    // falloff term deleted — measured 150/300 = 0.50 flat against 46/176 = 0.26 shipped. The bare
+    // inequality is satisfied by the geometry alone and cannot see the term at all.
+    assert.ok(hit.dy[2] > 20 && hit.dy[2] < hit.dy[0] * 0.4,
+      `the wake must fall off with distance: at 180px out a body moved ${hit.dy[2].toFixed(0)}px against ` +
+      `${hit.dy[0].toFixed(0)}px at 70px out, a ratio of ${(hit.dy[2] / hit.dy[0]).toFixed(2)} — wanted under 0.40 ` +
+      `(a flat force reads 0.50 here on chord length alone)`)
+    assert.ok(hit.dy[4] > 200,
+      `a body sitting ON the strike line takes the wake at full force and must be hurled clear; it moved ` +
+      `${hit.dy[4].toFixed(0)}px. A RADIAL shove reads 125px here (measured) — it has almost no lateral component ` +
+      `to give a body it is heading straight at, which is the whole reason this arm exists`)
+    assert.ok(Math.abs(hit.dy[3]) < 5,
+      `nothing beyond ORCA_WAKE_R (${ORCA_WAKE_R}px) may be touched; a body 430px off the line moved ${hit.dy[3].toFixed(0)}px`)
+    assert.ok(Math.abs(hit.player) > 15,
+      `the player rides the wake too — standing on the line they must be shoved clear; they moved ${hit.player.toFixed(0)}px`)
 
-    // THE SECOND BITE. Counts orcaStrike over one whole visit, walked from 'rising' so every state
-    // transition is the shipped one. A visit that ends at the first snap reads 1 here.
+    // THE SECOND LINE. Counts orcaStrike over one whole visit, walked from 'rising' so every state
+    // transition is the shipped one. A visit that ends at the first overshoot reads 1 here.
     const run = mk()
     const p = run.player
     const bearing = 0
@@ -10090,7 +10094,7 @@ function runOrca() {
       stepSim(run, { x: 0, y: 0 }, dt)
       strikes += run.events.filter((ev) => ev.type === 'orcaStrike').length
       rises += run.events.filter((ev) => ev.type === 'orcaRise').length
-      for (const ev of run.events.filter((ev2) => ev2.type === 'orcaGape')) gapes.push({ x: ev.x, y: ev.y })
+      for (const ev of run.events.filter((ev2) => ev2.type === 'orcaAim')) gapes.push({ x: ev.x, y: ev.y })
       run.events.length = 0
     }
     assert.strictEqual(strikes, ORCA_COMMITS,
@@ -10100,22 +10104,22 @@ function runOrca() {
     // announced — a `leaving` that jumped straight back to `committing` would read 0 here.
     assert.strictEqual(rises, ORCA_COMMITS - 1,
       `every line after the first must re-rise with its own telegraph; saw ${rises} orcaRise for ${strikes} strikes`)
-    // ⚠ AND EVERY BITE RE-ARMS ITS OWN MOUTH. `o.jx === undefined` is what the circling branch reads
-    // as "the mark is not set yet", so leaving it behind after the first snap freezes the coil on
-    // that first point and the second bite arrives with NO telegraph on a place the player already
-    // left. Nothing throws, the visit still bites twice, and every arm above stays green — this
+    // ⚠ AND EVERY STRIKE DRAWS ITS OWN LINE. `o.ax === undefined` is what the circling branch reads
+    // as "not aimed yet", so leaving it set after the first commit freezes the coil on that first
+    // line and the second strike arrives with NO telegraph, from a place the player has watched go
+    // quiet. Nothing throws, the visit still strikes twice, and every arm above stays green — this
     // whole-visit walk is the only thing that can see it, and it was a surviving mutation until it
     // did (M7, 2026-09-06).
     assert.strictEqual(gapes.length, ORCA_COMMITS,
-      `each of the ${ORCA_COMMITS} bites must open its own mouth: ${gapes.length} orcaGape events over one visit`)
+      `each of the ${ORCA_COMMITS} strikes must draw its own line: ${gapes.length} orcaAim events over one visit`)
     const gapeMove = Math.hypot(gapes[1].x - gapes[0].x, gapes[1].y - gapes[0].y)
     assert.ok(gapeMove > 1,
-      `...and the second must be a FRESH mark, not the first one left behind: the two opened ${gapeMove.toFixed(1)}px apart`)
-    assert.strictEqual(run.orca, null, 'the visit must still END — after its last bite the object clears, or the orca lives here forever')
-    console.log(`PASS run OR.e (the wash off the jaws): the snap threw bodies on OPPOSITE bearings ${hit.out[0].toFixed(0)}px and ${hit.out[1].toFixed(0)}px further out, ` +
-      `${hit.out[4].toFixed(0)}px for one stood on the mark and ${hit.out[2].toFixed(0)}px at the wash's edge (ratio ${(hit.out[2] / hit.out[0]).toFixed(2)}), ` +
+      `...and the second must be a FRESH line, not the first one left behind: the two were drawn ${gapeMove.toFixed(1)}px apart`)
+    assert.strictEqual(run.orca, null, 'the visit must still END — after its last line the object clears, or the orca lives here forever')
+    console.log(`PASS run OR.e (the bow wave): the sweep threw bodies ${hit.dy[0].toFixed(0)}px and ${hit.dy[1].toFixed(0)}px to OPPOSITE sides of its line, ` +
+      `${hit.dy[4].toFixed(0)}px for one stood on it and ${hit.dy[2].toFixed(0)}px at the swath edge (ratio ${(hit.dy[2] / hit.dy[0]).toFixed(2)}), ` +
       `moved the player ${hit.player.toFixed(0)}px clear and left a body 430px out untouched, ` +
-      `where a visit bites ${strikes} times with ${rises} re-rise, opening ${gapes.length} separate mouths ${gapeMove.toFixed(0)}px apart, and then clears`)
+      `where a visit commits ${strikes} lines with ${rises} re-rise, drawing ${gapes.length} separate lanes ${gapeMove.toFixed(0)}px apart, and then clears`)
   }
 
   // -- OR.f: the stalk is a SPIRAL, and it is a shadow until the strike. -----------------------
@@ -10224,18 +10228,76 @@ function runOrca() {
     // throws. Both halves are asserted because either one alone passes over a broken pair.
     assert.ok(/o\.trail/.test(renderSrc),
       'render.js must READ run.orca.trail — publishing the coil with nothing stroking it leaves the circle-tell bug exactly as it was, silently')
-    // ⚠ ANCHORED ON `o.r`, BECAUSE THE JAW IS A DIFFERENT CIRCLE. What this forbids is a thin
-    // bright ring at the COIL'S CURRENT RADIUS — that is the tell that made a real spiral read as
-    // laps. The mouth (2026-09-06) is also a stroked circle, at a fixed point and a fixed
-    // ORCA_JAW_R, and it is the thing that makes the attack fair; the first form of this regex
-    // matched any `width: 3` circle at all and failed on it, which would have deleted the fix to
-    // satisfy a guard about a different bug.
+    // ⚠ ANCHORED ON `o.r`. What this forbids is a thin bright ring at the COIL'S CURRENT RADIUS —
+    // that is the tell that made a real spiral read as laps. It is deliberately NOT a ban on
+    // stroked circles in general: an earlier form matched any `width: 3` circle at all, which made
+    // it fail on an unrelated new tell and would have deleted that fix to satisfy a guard about a
+    // different bug.
     assert.ok(!/orcaG\.circle\([^)]*o\.r\s*\)\s*\n?\s*\.stroke\(\{ width: 3[,\s]/.test(renderSrc),
       'the bright hairline ring tell must be GONE — a circle drawn at the coil\'s current radius (o.r) reads as a circle whatever moves inside it, which is the defect')
-    // ...AND THE MOUTH IS DRAWN, at the radius the sim actually tests. A jaw with no telegraph is
-    // the dash again: an attack the player cannot see coming and therefore cannot answer.
-    assert.ok(/ORCA_JAW_R/.test(renderSrc),
-      'render.js must draw the jaw at ORCA_JAW_R — the whole correction is that the attack is a PLACE the player can see the edge of')
+    // ...AND THE STRIKE'S LANE IS DRAWN, at the width the sim actually bites at. Owner ruling
+    // 2026-09-06: "what I want is to prevent the orca to dash somewhere that is not telegraph."
+    // Sim publishes o.ax/o.aim and NOTHING ELSE reads them, so a renderer that ignores the pair
+    // leaves the dash exactly as unfair as it was, silently — the CLAUDE.md source-text idiom
+    // (run UG.k) is the only guard there is for that.
+    // ⚠ ANCHORED ON THE ASSIGNMENT, and that is the whole point of this line. `/ORCA_AIM_W/` alone
+    // is satisfied by the IMPORT at the top of render.js and by the comment beside the drawing, so
+    // it can never go red whatever the renderer actually draws — proven: a mutant drawing the lane
+    // at a hardcoded 40px (a third of the true width, the exact lie the comment there warns about)
+    // passed the whole suite. This is CLAUDE.md's MB.a trap, where a raw substring is satisfied by
+    // the prose next to the wiring, with an import line on top of it.
+    // ⚠ THE LINT READS THE LANE BLOCK ITSELF, WITH ITS COMMENTS STRIPPED, and both halves of that
+    // are load-bearing. Searching the whole of render.js for `ORCA_AIM_W` is satisfied by the
+    // IMPORT at the top of the file; searching it with comments in is satisfied by the paragraph
+    // sitting beside the drawing (CLAUDE.md's MB.a trap, which is why MB.a strips too). An earlier
+    // form of this guard anchored on the ASSIGNMENT `const w = ORCA_AIM_W` and was still
+    // unfalsifiable — an adversarial pass ran seven mutants against it and every one survived the
+    // whole suite, including one that DELETED THE ENTIRE TELEGRAPH by gating it on 'committing'
+    // alone. An assignment says a value was read, never that anything was drawn with it.
+    const laneSrc = (() => {
+      const a = renderSrc.indexOf("if ((o.aim ?? 0) > 0 && o.ax !== undefined")
+      const b = renderSrc.indexOf('// THE BOW WAVE.', a)
+      assert.ok(a > 0 && b > a, 'render.js must still hold the orca lane block, gated on the published aim')
+      return renderSrc.slice(a, b).replace(/^\s*\/\/.*$/gm, '')
+    })()
+    // (i) IT IS DRAWN THROUGH THE WHOLE HELD LAP, not just while the body runs. This is the
+    //     mutant that deleted the feature and passed: 'committing' alone draws the lane only once
+    //     the strike is already moving, which is precisely the unfair dash the redesign replaced.
+    const laneGate = laneSrc.slice(0, laneSrc.indexOf('{'))
+    assert.ok(/o\.aim \?\? 0\) > 0/.test(laneGate) && /'circling'/.test(laneGate) && /'committing'/.test(laneGate),
+      `the lane must be drawn for the whole aimed lap AND on through the strike — render.js gates it on: ${laneGate.trim()}`)
+    // (ii) THE HALF-WIDTH COMES FROM ORCA_AIM_W...
+    assert.ok(/const w = ORCA_AIM_W\b/.test(laneSrc),
+      'render.js must take the lane half-width FROM ORCA_AIM_W, not a literal')
+    // (iii) ...AND THE EDGES ARE ACTUALLY DRAWN AT IT. A mutant drawing them at `w * 0.4` — a third
+    //     of the true width, the exact lie the comment there warns about — passed every earlier
+    //     form of this test. The edge is the one line the player is asked to read, so the offset
+    //     has to be the bare half-width, on both sides, along the published heading.
+    const rails = [...laneSrc.matchAll(/orcaG\.(?:moveTo|lineTo)\(x[01] \+ nx \* sg \* w, y[01] \+ ny \* sg \* w\)/g)]
+    assert.strictEqual(rails.length, 2,
+      `both edges of the lane must be stroked at exactly nx/ny * sg * w — an edge drawn at a fraction of the hit width teaches a boundary the sim does not test; found ${rails.length} of 2 endpoints`)
+    assert.ok(/for \(const sg of \[1, -1\]\)/.test(laneSrc),
+      'the lane needs BOTH edges — one side drawn is a heading, not a corridor')
+    // (iv) AND THEY ARE VISIBLE WHILE THE PLAYER CAN STILL ACT. An adversarial contrast pass
+    //     measured the previous k^2 ramp at 1.86x luminance over the chapter's water with 1.4s of
+    //     the lap left, crossing 3x only in the last 0.35s — by which time the dodge is 77px of
+    //     swim against a 121px lane. The floor here is the CONSTANT term of the edge alpha: what
+    //     the line is worth on the frame it appears, before any ramp. A zero-alpha mutant and a
+    //     late-ramp mutant both passed before this line existed.
+    const railAlpha = laneSrc.match(/color: 0xbfe6ff, alpha: \(([\d.]+) \+/)
+    assert.ok(railAlpha && Number(railAlpha[1]) >= 0.45,
+      `the lane's edges must already be readable on the frame they are drawn, not only once it is too late to use them: the edge alpha starts at ${railAlpha ? railAlpha[1] : '(no match)'}, and below ~0.45 over this chapter's water it does not clear a 2x contrast bar`)
+    // (v) NOTHING IN HERE IS PHASED OFF run.time. The flow shipped as `run.time / period` with
+    //     period shrinking as the aim ramps — absolute time times a rate that changes every frame,
+    //     which differentiates to a term proportional to run.time itself. Replayed at 60fps it
+    //     wrapped 45 times a lap and jumped 947px of a 990px lane between consecutive frames: a
+    //     30Hz strobe whose frequency depended on how long the run had been going. No still can
+    //     show it and fx-probe composes at run.time ~1-10s, an order of magnitude below where it
+    //     ships, so this lint is the only thing that can catch it coming back.
+    assert.ok(!/run\.time/.test(laneSrc),
+      'the lane\'s flow must be phased off the aim ramp (monotone 0->1 by construction), never off run.time — a rate that changes every frame turns absolute-time phase into a strobe')
+    assert.ok(/o\.aim/.test(renderSrc) && /o\.ax/.test(renderSrc),
+      'render.js must read the published aim (o.aim, o.ax) — sim drawing a telegraph nothing strokes is indistinguishable on screen from no telegraph at all')
 
     // 5. IT IS A SHADOW UNTIL THE STRIKE. The body surfacing IS the attack; drawing it through the
     // stalk is what made a hunt read as a swim. render.js gates the sprite on the state list.
@@ -10244,8 +10306,8 @@ function runOrca() {
     // that lies in the same direction as the bug — pick the assignment that reads o.state.
     const gates = [...renderSrc.matchAll(/orcaSp\.visible = ([^\n]*)/g)].map((m) => m[1])
     const gate = gates.find((g) => /o\.state/.test(g))
-    assert.ok(gate && /biting/.test(gate) && /leaving/.test(gate) && !/!rising/.test(gate),
-      `the surfaced body must be drawn for 'biting' and 'leaving' ONLY, so the whole build is a silhouette; ` +
+    assert.ok(gate && /committing/.test(gate) && /leaving/.test(gate) && !/!rising/.test(gate),
+      `the surfaced body must be drawn for 'committing' and 'leaving' ONLY, so the whole build is a silhouette; ` +
       `render.js gates it on: ${gate ?? `(none of ${gates.length} orcaSp.visible assignments reads o.state)`}`)
     // 6. AND IT COMES UP FROM UNDER THE PLAYER. The rise used to fade the silhouette up already
     // parked out on the ring, which on a 390x844 phone (half-width 195, ring 440) is off screen for
@@ -10381,22 +10443,132 @@ function runOrca() {
       `against ${noOrca.toFixed(1)}px with no orca and ${notYet.toFixed(1)}px while it is still rising`)
   }
 
-  // -- OR.i: THE ATTACK CAN BE SWUM OUT OF, and the telegraph is what buys the time. -------------
-  // Owner ruling 2026-09-06: "Orca attack should be a jaw opening from under and attacking in the
-  // 3rd circle, NOT A DASH IMPOSSIBLE TO AVOID FOR THE PLAYER." That sentence is a measurement, and
-  // this is it: with the mouth already open, a player who swims must get clear and a player who
-  // stands still must not.
+  // -- OR.i: THE STRIKE IS DRAWN BEFORE IT IS RUN, and it runs exactly where it was drawn. -------
+  // Owner ruling 2026-09-06: "what I want is to prevent the orca to dash somewhere that is not
+  // telegraph." That sentence has two halves and they fail in opposite directions, so both are
+  // asserted here:
+  //   (a) THE LANE EXISTS EARLY ENOUGH TO ANSWER. Measured on the shipped dash, a player reacting
+  //       to the commit was hit on 32% of strikes and one who ran the whole stalk on 30% — i.e.
+  //       reacting bought nothing, because the line only existed once it was already running.
+  //   (b) THE BODY RUNS THAT LANE AND NOT ANOTHER. A telegraph that is drawn and then not honoured
+  //       is worse than none: it teaches a rule and then breaks it.
   //
-  // ⚠ THE CONTROL IS THE STANDING ARM, AND IT IS NOT OPTIONAL. "Swimming survives" is passed
-  // outright by an attack that hits nobody at all — which is a bug in the exact opposite direction
-  // and would read as a fix. The pair is what makes either number mean anything.
-  //
-  // ⚠ AND THE SWIMMER STARTS MOVING ONLY WHEN THE MOUTH OPENS, never before. The dash this replaces
-  // was avoidable too, if you had ALREADY left before it locked — the defect was that no input
-  // after the telegraph could clear it. Starting the swim at the gape is what tests the reaction
-  // rather than the premonition.
+  // ⚠ AND THE SWIMMER STARTS MOVING ONLY WHEN THE LANE APPEARS, never before. The dash was
+  // avoidable too if you had ALREADY left; the defect was that no input AFTER the telegraph could
+  // clear it. Starting the swim at the aim is what tests the reaction rather than the premonition.
   {
-    const dodge = (swim) => {
+    const runLine = (swim, subFrame = 0) => {
+      const run = mk()
+      const p = run.player
+      p.hp = p.maxHP = 1000
+      run.orca = {
+        state: 'circling', t: ORCA_CIRCLE_DUR + subFrame,
+        cx: p.x, cy: p.y, r: ORCA_RING_R, ang: 0,
+        x: p.x + ORCA_RING_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1, trail: [],
+      }
+      const hp0 = p.hp
+      let aims = 0, hits = 0, lane = null, movedAfter = 0, offLine = 0, atLaunch = null
+      let orbitWorst = 0, handoff = 0, prevBody = null
+      let px = p.x, py = p.y
+      for (let i = 0; i < Math.round(12 / dt) && run.orca; i++) {
+        hold(run, [])
+        const o = run.orca
+        const drawn = (o.aim ?? 0) > 0 && o.state === 'circling'
+        // Perpendicular to the drawn lane is the answer the design is asking for, and the fixture
+        // has to compute it from the PUBLISHED heading rather than from a hardcoded axis — reading
+        // the same field render draws with is what makes this a test of the telegraph.
+        const inx = swim && drawn && lane ? -lane.dirY : 0
+        const iny = swim && drawn && lane ? lane.dirX : 0
+        stepSim(run, { x: inx, y: iny }, dt)
+        if (drawn) movedAfter += Math.hypot(run.player.x - px, run.player.y - py)
+        px = run.player.x; py = run.player.y
+        // THE BODY MUST NOT JUMP when the lap hands over to the strike. It used to: firing on the
+        // CLOCK left the sweep at 2π ± rate·dt, so snapping back to the locked launch point moved
+        // it 20-32px at the ticker's 0.05 clamp, on the very frame it becomes visible.
+        if (run.orca && prevBody && (run.orca.state === 'circling' || run.orca.state === 'committing')) {
+          const step = Math.hypot(run.orca.x - prevBody.x, run.orca.y - prevBody.y)
+          if (run.orca.state === 'circling') orbitWorst = Math.max(orbitWorst, step)
+          else if (prevBody.state === 'circling') handoff = step
+        }
+        prevBody = run.orca ? { x: run.orca.x, y: run.orca.y, state: run.orca.state } : null
+        for (const ev of run.events.splice(0)) {
+          if (ev.type === 'orcaAim') { aims++; lane = { x: ev.x, y: ev.y, dirX: Math.cos(ev.angle), dirY: Math.sin(ev.angle) } }
+          if (ev.type === 'orcaHit') hits++
+        }
+        // ⚠ THE OFFSET IS READ AT THE LAUNCH FRAME, and the swim STOPS there. Accumulating distance
+        // across the commit measured the wrong thing entirely: the player keeps swimming for the
+        // 1.05s the body is running, and the bow wave then shoves them at 480 px/s — 2.2x their own
+        // speed — so `movedAfter` read 693-902px against a 100px floor and could not bind. Swept, it
+        // passed a telegraph cut to 0.166s, i.e. it licensed an 88% cut to the one number this whole
+        // redesign is about. What the design claims is that the DRAWN WINDOW is enough on its own,
+        // so that is the window the fixture is allowed to swim in.
+        if (atLaunch === null && run.orca && run.orca.state === 'committing' && lane) {
+          const rx = run.player.x - lane.x, ry = run.player.y - lane.y
+          atLaunch = Math.abs(rx * -lane.dirY + ry * lane.dirX)
+        }
+        // (b): while the body is actually running, how far off the drawn line does it get?
+        if (run.orca && run.orca.state === 'committing' && lane) {
+          const rx = run.orca.x - lane.x, ry = run.orca.y - lane.y
+          offLine = Math.max(offLine, Math.abs(rx * -lane.dirY + ry * lane.dirX))
+        }
+      }
+      return { dmg: hp0 - run.player.hp, aims, hits, lane, movedAfter, offLine, atLaunch, orbitWorst, handoff }
+    }
+    const stood = runLine(false)
+    const swam = runLine(true)
+    assert.strictEqual(stood.aims, 1,
+      `the lane must be drawn exactly once per strike, and it must EMIT — render has no other way to know where it is; it fired ${stood.aims} times`)
+    assert.ok(stood.hits === 1 && stood.dmg > 0,
+      `standing in the lane must cost you: the player took ${stood.dmg} HP over ${stood.hits} hits. Without this the arm below passes on a strike that hits nobody`)
+    assert.strictEqual(swam.hits, 0,
+      `...and stepping OFF the drawn lane must work. This is the owner's whole complaint stated as a number: the player moved square to the published heading from the frame it was drawn and was still hit ${swam.hits} time(s) for ${swam.dmg} HP`)
+    // (b) THE BODY HONOURS THE DRAWING. Zero, not "close": the line is locked, so any drift means
+    // the commit is re-deriving its heading and the lane was a decoration.
+    assert.ok(stood.offLine < 1,
+      `the body must run the lane it drew: at its furthest it was ${stood.offLine.toFixed(1)}px off the published line`)
+    // The lane must not follow the swimmer either — one drawn line, one place, both arms.
+    const drift = Math.hypot(swam.lane.x - stood.lane.x, swam.lane.y - stood.lane.y)
+    assert.ok(drift < 1,
+      `the lane must be locked where the coil was, not track the player: the two arms drew it ${drift.toFixed(0)}px apart`)
+    // AND THE DRAWN WINDOW ALONE HAS TO BE ENOUGH. Perpendicular offset at the LAUNCH frame,
+    // against the half-width the lane is drawn at — this is the assertion the telegraph's length is
+    // actually on the hook for, and the one a shortened telegraph fails.
+    assert.ok(swam.atLaunch > ORCA_AIM_W,
+      `the drawn window alone must buy the dodge: at the frame the body launched, the player was only ${swam.atLaunch.toFixed(0)}px off the line, against a lane half-width of ${ORCA_AIM_W.toFixed(0)}px. Everything after that frame is the commit and the bow wave doing the player's work for them`)
+    // ⚠ AND THE HAND-OFF IS SEAMLESS. The lap closes on ANGLE rather than on the clock precisely so
+    // the body is already at its locked launch point; a jump here means it is being snapped, which
+    // lands as a pop on the frame it becomes visible.
+    // ⚠ MEASURED AGAINST THE ORBIT'S OWN WORST FRAME, NOT AGAINST A COMPUTED CEILING. The ceiling
+    // form of this used ORCA_RING_R, and the hand-off happens at ORCA_RING_MIN_R — the radius has
+    // been frozen at minimum for the whole held lap — so the bound was 1.91x too generous before
+    // its own 1.35 slack, 135px against a real worst frame of 62px. Reverting to clock-based firing
+    // (the exact pathology) left it green. Self-calibrating removes the arithmetic and the slack
+    // together: the claim is that the hand-off is an ORDINARY frame of the orbit, so the ordinary
+    // frames are the yardstick.
+    // ⚠ AND IT IS SWEPT ACROSS THE SUB-FRAME PHASE, WHICH IS THE ONLY THING THAT VARIES IT. Seeding
+    // does not: this fixture poses the orca directly, so its bearing, radius and clock are the same
+    // every run and the error lands in the same place. What moves in a real run is WHERE THE
+    // THRESHOLD FALLS BETWEEN TWO FRAMES, so that is the axis. Swept at one seed the clock-fired
+    // mutant stayed GREEN on the single phase this happened to test — it is only louder than an
+    // ordinary frame on the phases where the body is SHORT of its launch bearing and the snap
+    // therefore adds to the frame's own arc instead of cancelling it.
+    const offs = []
+    for (let j = 0; j < 8; j++) offs.push(runLine(false, (j * dt) / 8))
+    const worstHandoff = offs.reduce((a, b) => (b.handoff > a.handoff ? b : a))
+    assert.ok(offs.every((r) => r.handoff > 0),
+      'the fixture must actually observe the hand-off frame on every phase, or this guard is measuring nothing')
+    assert.ok(worstHandoff.handoff <= worstHandoff.orbitWorst,
+      `the body must not teleport into its strike: over 8 sub-frame phases the worst hand-off moved ${worstHandoff.handoff.toFixed(1)}px, against ${worstHandoff.orbitWorst.toFixed(1)}px for the worst ordinary frame of that same orbit`)
+    // (c) AND THE DRAWN LANE CONTAINS THE BITE. This is the contract ORCA_AIM_W exists for and it
+    // had no test on either side of the boundary: a mutant DOUBLING ORCA_HIT_R — the sim biting
+    // twice as wide as the corridor the player is told to leave — passed the whole suite. A
+    // telegraph that is narrower than the hazard is worse than no telegraph, because it teaches an
+    // edge and then reaches past it.
+    // ⚠ MEASURED BY STANDING THERE, NOT BY RESTATING THE ARITHMETIC. Asserting ORCA_AIM_W equals
+    // its own definition is a tautology that cannot see ORCA_HIT_R move; what has to hold is that
+    // nothing OUTSIDE the drawn half-width takes damage. The player is pinned on the line's own
+    // perpendicular from the frame the lane is drawn, so the sweep reads the strike's real reach.
+    const hitAt = (off) => {
       const run = mk()
       const p = run.player
       p.hp = p.maxHP = 1000
@@ -10405,47 +10577,35 @@ function runOrca() {
         cx: p.x, cy: p.y, r: ORCA_RING_R, ang: 0,
         x: p.x + ORCA_RING_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1, trail: [],
       }
-      const hp0 = p.hp
-      let gaped = 0, hits = 0, jawAt = null, movedAfter = 0
-      let px = p.x, py = p.y
+      let spot = null, hits = 0
       for (let i = 0; i < Math.round(12 / dt) && run.orca; i++) {
         hold(run, [])
         const o = run.orca
-        // Open the throttle the moment the mouth does, and hold ONE bearing — committing to a
-        // direction is the answer the design is asking for.
-        const open = (o.jaw ?? 0) > 0
-        stepSim(run, swim && open ? { x: 1, y: 0 } : { x: 0, y: 0 }, dt)
-        if (open) { movedAfter += Math.hypot(run.player.x - px, run.player.y - py) }
-        px = run.player.x; py = run.player.y
-        for (const ev of run.events.splice(0)) {
-          if (ev.type === 'orcaGape') { gaped++; jawAt = { x: ev.x, y: ev.y } }
-          if (ev.type === 'orcaHit') hits++
+        if (spot) { run.player.x = spot.x; run.player.y = spot.y }
+        stepSim(run, { x: 0, y: 0 }, dt)
+        if (!spot && run.orca && run.orca.ax !== undefined) {
+          // The strike passes through (tx, ty) — the coil's centre — so that point is ON the line.
+          spot = { x: run.orca.tx - run.orca.dirY * off, y: run.orca.ty + run.orca.dirX * off }
         }
+        for (const ev of run.events.splice(0)) if (ev.type === 'orcaHit') hits++
       }
-      return { dmg: hp0 - run.player.hp, gaped, hits, jawAt, movedAfter }
+      return hits > 0
     }
-    const stood = dodge(false)
-    const swam = dodge(true)
-    assert.strictEqual(stood.gaped, 1,
-      `the mouth must open exactly once per bite, and it must EMIT — render has no other way to know where the mark is; it fired ${stood.gaped} times`)
-    assert.ok(stood.hits === 1 && stood.dmg > 0,
-      `standing in the mark must cost you: the player took ${stood.dmg} HP over ${stood.hits} hits. Without this the arm below passes on an attack that hits nobody`)
-    assert.strictEqual(swam.hits, 0,
-      `...and swimming out of it must WORK. This is the owner's whole complaint stated as a number: the player held one bearing from the moment the mouth opened and was still bitten ${swam.hits} time(s) for ${swam.dmg} HP`)
-    // THE MARK STAYS PUT. A jaw that tracked would be the dash again in a slower costume, and the
-    // dodge above would then only be measuring that the player outran the tracking.
-    const drift = Math.hypot(swam.jawAt.x - stood.jawAt.x, swam.jawAt.y - stood.jawAt.y)
-    assert.ok(drift < 1,
-      `the mark must be locked where the coil was, not follow the swimmer: the two arms opened ${drift.toFixed(0)}px apart`)
-    // And the swim has to be a real one — if the player barely moved, "it missed" says nothing.
-    assert.ok(swam.movedAfter > ORCA_JAW_R,
-      `the dodging arm must actually cross the jaw: it swam ${swam.movedAfter.toFixed(0)}px after the mouth opened, against a ${ORCA_JAW_R}px mouth`)
-    console.log(`PASS run OR.i (the jaw can be swum out of): the mouth opens once, locked in place (${drift.toFixed(0)}px between arms), ` +
-      `and costs a standing player ${stood.dmg} HP over ${stood.hits} bite — while a player who commits to one bearing the moment it opens swims ` +
-      `${swam.movedAfter.toFixed(0)}px and takes ${swam.dmg}`)
+    let reach = 0
+    for (let off = 40; off <= 260; off += 4) if (hitAt(off)) reach = off
+    assert.ok(reach <= ORCA_AIM_W,
+      `the drawn lane must CONTAIN the bite: the strike still hit a player standing ${reach}px off the line, outside the ${ORCA_AIM_W.toFixed(0)}px half-width the lane is drawn at. The telegraph is teaching an edge the sim reaches past`)
+    // ...and it must not be drawn so far outside the bite that the edge means nothing either. The
+    // over-draw is deliberate (ORCA_AIM_W is the union over the fish's facings, so a player lying
+    // ALONG the lane sits inside the drawn edge unhurt) but it is bounded — see ORCA_AIM_W.
+    assert.ok(reach >= ORCA_AIM_W * 0.6,
+      `...without being drawn so wide it says nothing: the strike's real reach is ${reach}px against a ${ORCA_AIM_W.toFixed(0)}px lane, so most of the corridor is safe and the player learns to ignore it`)
+    console.log(`PASS run OR.i (the strike is drawn before it is run): the lane is published once, locked in place (${drift.toFixed(0)}px between arms), ` +
+      `and the body runs it to within ${stood.offLine.toFixed(1)}px with no jump at the hand-off (worst of 8 sub-frame phases ${worstHandoff.handoff.toFixed(1)}px against ${worstHandoff.orbitWorst.toFixed(1)}px of ordinary orbit) — costing a standing player ${stood.dmg} HP, ` +
+      `while one who steps square to the published heading is ${swam.atLaunch.toFixed(0)}px clear of a ${ORCA_AIM_W.toFixed(0)}px lane by the launch frame and takes ${swam.dmg} — and the bite itself reaches ${reach}px, inside that lane`)
   }
 
-  console.log('PASS run OR (The Wreck: the orca): three harmless shadow passes open the chapter and scatter what they go under, a packed or baited field brings the next visit in sooner up to a hard cap, and then a shadow coils in from underneath — three circles, the last two the same one — before a JAW opens on the centre it drew, holds open for that third circle so the player can swim off the mark, and shuts, eating what the coil herded there for free and throwing everything else out of the hole it leaves, twice a visit')
+  console.log('PASS run OR (The Wreck: the orca): three harmless shadow passes open the chapter and scatter what they go under, a packed or baited field brings the next visit in sooner up to a hard cap, and then a shadow coils in from underneath — three circles, the last two the same one — while the third draws the LANE the strike will run, locked and held for that whole lap so the player can step off it; then it commits along exactly that line, splashing at the coil centre, eating what the coil herded there for free and throwing the rest of the battlefield to both sides, twice a visit')
 }
 run(runOrca)
 

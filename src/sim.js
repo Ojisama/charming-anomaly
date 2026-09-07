@@ -176,7 +176,7 @@ import {
   PUFFER_TRIGGER_R, PUFFER_PUFF_T, PUFFER_COOL_T, PUFFER_DRIFT_MUL, PUFFER_POP_T,
   ORCA_HERD_PULL, ORCA_RING_BAND, ORCA_INTERVAL, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_LEAVE_DUR,
   ORCA_RING_R, ORCA_RING_MIN_R, ORCA_ORBIT_RATE,
-  ORCA_JAW_R, ORCA_JAW_T, ORCA_DMG_FRAC, ORCA_HOLD_DUR,
+  ORCA_COMMIT_SPEED, ORCA_OVERSHOOT, ORCA_HIT_R, ORCA_DMG_FRAC, ORCA_HOLD_DUR,
   ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_LAST_GAP,
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
   ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_DENS_R, ORCA_DENS_FULL_N, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
@@ -5443,50 +5443,45 @@ function orcaBite(run, o) {
   }
 }
 
-// THE WASH OFF THE JAWS. Everything within ORCA_WAKE_R of the bite is thrown OUTWARD from it —
-// owner ruling 2026-08-23, "it should have a massive impact on the battlefield, like pushing
-// everything to each side", carried over from the dash this replaced. What the bite leaves behind
-// is a cleared hole with the crowd banked around its rim, which is a battlefield the player has to
-// read rather than a few fish quietly missing.
-//   RADIAL NOW, AND THAT IS THE SHAPE CHANGING WITH THE ATTACK. The dash's version threw bodies
-// PERPENDICULAR to a locked line, because a radial shove off something moving at 940 px/s spends
-// most of its budget pushing bodies backward along a line the orca has already left. A jaw does not
-// travel, so it has no line and no backward: it closes on a point and the water leaves that point
-// in every direction.
-// ⚠ APPLIED ONCE, AS AN IMPULSE, not per frame. The dash plowed for most of a second and needed a
-// dt to spread its budget over; the snap is one moment. dt is not a parameter here for that reason.
+// THE BOW WAVE. Everything within ORCA_WAKE_R of the body during a commit is thrown PERPENDICULAR
+// to the locked line, to whichever side it already sits on - owner ruling 2026-08-23, "it should
+// have a massive impact on the battlefield, like pushing everything to each side". What the strike
+// leaves behind is therefore a cleared corridor with the crowd banked along both edges, which is a
+// battlefield the player has to read, rather than a few fish quietly missing.
+//   PERPENDICULAR, NOT RADIAL, and that is the same correction the ring itself already carries: a
+// radial shove off a body moving at ORCA_COMMIT_SPEED spends most of its budget pushing bodies
+// BACKWARD along a line the orca has already left. Only the normal component opens a corridor.
 // ⚠ EVERYTHING, not just prey - the bite is prey-only because an uncredited elite death is theft,
 // but being shoved costs nothing. Only `anchored` (resistsCC) is exempt, the shipped rule for every
 // other shove in the game.
 // ⚠ NOT CC-BUDGETED. claimKb/spendCC exist so a weapon cannot chain-lock a crowd; this is water
-// moving, it happens twice a visit, and running it through the budget would let an orca bite
+// moving, it happens twice a visit, and running it through the budget would let an orca pass
 // silently eat the player's next nova knockback.
-function orcaJawWash(run, o) {
+function orcaWake(run, o, dt) {
+  const nx = -o.dirY, ny = o.dirX   // unit normal to the locked line
   const r2 = ORCA_WAKE_R * ORCA_WAKE_R
   for (const e of run.enemies) {
     if (e._dead || isAlly(e) || resistsCC(e)) continue
-    const dx = e.x - o.tx, dy = e.y - o.ty
+    const dx = e.x - o.x, dy = e.y - o.y
     const d2 = dx * dx + dy * dy
     if (d2 > r2) continue
-    // A body dead on the point has no direction to be thrown in. Pick one deterministically rather
-    // than leaving it sitting in the mouth — the suite's seeding needs the same answer every run.
-    const d = Math.sqrt(d2) || 1
-    const nx = d2 < 1e-6 ? 1 : dx / d, ny = d2 < 1e-6 ? 0 : dy / d
-    const falloff = 1 - d / ORCA_WAKE_R
-    e.kb.x += nx * ORCA_WAKE_FORCE * falloff * ORCA_JAW_T
-    e.kb.y += ny * ORCA_WAKE_FORCE * falloff * ORCA_JAW_T
+    // A body dead on the line has no side to be thrown to. Sign the zero rather than leaving it
+    // sitting in the path - `>= 0` picks one deterministically, which the suite's seeding needs.
+    const sg = dx * nx + dy * ny >= 0 ? 1 : -1
+    const falloff = 1 - Math.sqrt(d2) / ORCA_WAKE_R
+    e.kb.x += nx * sg * ORCA_WAKE_FORCE * falloff * dt
+    e.kb.y += ny * sg * ORCA_WAKE_FORCE * falloff * dt
   }
-  // The player rides it too, as a plain displacement: nothing decays p.x, so an acceleration here
-  // would launch them. Outward by construction, so it can only ever carry them clear.
+  // The player rides it too, as a plain velocity: nothing decays p.x, so an acceleration here
+  // would launch them. Away from the line by construction, so it can only ever help the dodge.
   const p = run.player
-  const dx = p.x - o.tx, dy = p.y - o.ty
+  const dx = p.x - o.x, dy = p.y - o.y
   const d2 = dx * dx + dy * dy
   if (d2 > r2) return
-  const d = Math.sqrt(d2) || 1
-  const nx = d2 < 1e-6 ? 1 : dx / d, ny = d2 < 1e-6 ? 0 : dy / d
-  const falloff = 1 - d / ORCA_WAKE_R
-  p.x += nx * ORCA_WAKE_PLAYER * falloff * ORCA_JAW_T
-  p.y += ny * ORCA_WAKE_PLAYER * falloff * ORCA_JAW_T
+  const sg = dx * nx + dy * ny >= 0 ? 1 : -1
+  const falloff = 1 - Math.sqrt(d2) / ORCA_WAKE_R
+  p.x += nx * sg * ORCA_WAKE_PLAYER * falloff * dt
+  p.y += ny * sg * ORCA_WAKE_PLAYER * falloff * dt
 }
 
 // Returns true if the player died, matching stepRocks/stepPools' contract — it is called from
@@ -5610,10 +5605,10 @@ function stepOrca(run, dt) {
     // At the shipped 1.2/s track the ring is on the barrel within about three of the four seconds
     // of ORCA_CIRCLE_DUR, which is exactly as loose as the player-tracking version and for the same
     // reason: a ring that snapped would be a scheduled hit on the bait rather than a decision.
-    // ⚠ AND IT STOPS TRACKING THE MOMENT THE MOUTH OPENS (see below). A jaw that kept following
-    // would be the dash again wearing a different shape: the marked ground has to be ground the
-    // player can swim off, and it cannot be if it comes with them.
-    if (o.jx === undefined) {
+    // ⚠ AND IT STOPS TRACKING THE MOMENT THE LINE IS DRAWN (see below). A telegraph that follows
+    // the player is not a telegraph: the lane has to be ground they can step off, and it cannot be
+    // if it comes with them.
+    if (o.ax === undefined) {
       const anc = orcaAnchor(run)
       o.cx += (anc.x - o.cx) * Math.min(1, dt * 1.2)
       o.cy += (anc.y - o.cy) * Math.min(1, dt * 1.2)
@@ -5638,21 +5633,48 @@ function stepOrca(run, dt) {
     const tr = (o.trail ??= [])
     tr.push(o.x, o.y)
     if (tr.length > ORCA_TRAIL_MAX * 2) tr.splice(0, tr.length - ORCA_TRAIL_MAX * 2)
-    // THE MOUTH OPENS ON THE THIRD CIRCLE. Owner ruling 2026-09-06: "Orca attack should be a jaw
-    // opening from under and attacking in the 3rd circle, not a dash impossible to avoid for the
-    // player." So the last lap is not just the window the coil freezing announces — it IS the
-    // attack's telegraph, with the mouth drawn open on the ground the whole way through it.
-    //   `o.jx` UNDEFINED IS THE FLAG, deliberately, because it is also the thing the flag guards:
-    // a separate boolean could disagree with the coordinates it gates, and this cannot.
+    // THE LINE IS DRAWN ON THE THIRD CIRCLE. Owner ruling 2026-09-06: "what I want is to prevent
+    // the orca to dash somewhere that is not telegraph." The last lap is not just the window the
+    // coil freezing announces — it is the STRIKE'S OWN telegraph, with the lane drawn on the ground
+    // for its whole length before anything moves.
+    //   ⚠ IT CAN BE LOCKED THIS EARLY BECAUSE THE LAST LAP IS A FULL TURN AT A CONSTANT RATE, so
+    // the orca ends it exactly where it starts it. Its launch point is knowable a lap ahead and the
+    // line through the coil's centre with it — no prediction, no re-aim, and the drawn lane is the
+    // one the body actually takes.
+    //   `o.ax` UNDEFINED IS THE FLAG, deliberately, because it is also the thing the flag guards: a
+    // separate boolean could disagree with the coordinates it gates, and this cannot.
     if (o.t <= ORCA_HOLD_DUR) {
-      if (o.jx === undefined) {
-        o.jx = o.cx; o.jy = o.cy
-        run.events.push({ type: 'orcaGape', x: o.jx, y: o.jy, r: ORCA_JAW_R })
+      if (o.ax === undefined) {
+        o.ax = o.x; o.ay = o.y                 // where it will be when it breaks orbit
+        o.angLock = o.ang                      // ...and the bearing it has to come back round to
+        o.tx = o.cx; o.ty = o.cy               // and the centre it will run through
+        const ldx = o.tx - o.ax, ldy = o.ty - o.ay
+        const ld = Math.hypot(ldx, ldy) || 1
+        o.dirX = ldx / ld; o.dirY = ldy / ld
+        run.events.push({ type: 'orcaAim', x: o.ax, y: o.ay, angle: Math.atan2(ldy, ldx) })
       }
-      // 0 shut -> 1 wide, published for render. The sim owns it so there is one clock.
-      o.jaw = 1 - Math.max(0, o.t) / ORCA_HOLD_DUR
+      // 0 just drawn -> 1 about to fire, published for render. The sim owns it so there is one clock.
+      o.aim = 1 - Math.max(0, o.t) / ORCA_HOLD_DUR
     }
-    if (o.t <= 0) {
+    // ⚠ THE LAP CLOSES ON ANGLE, NOT ON THE CLOCK, and that is what makes the drawn lane honest
+    // rather than approximately honest. Firing on `o.t <= 0` left the sweep at 2π ± rate·dt, because
+    // the lock happens on the first frame past the threshold and the remainder is a whole number of
+    // frames: measured over 40 seeded strikes the body ended between 0.14 rad short and 0.09 rad
+    // past its launch bearing, so snapping it back to (ax, ay) TELEPORTED it 20-32px at the ticker's
+    // 0.05 clamp — on the same frame the body becomes visible, i.e. a pop.
+    //   WAITING ON THE BEARING DOES NOT MAKE THE ERROR ZERO, IT MAKES IT ONE-SIDED AND SMALL, and
+    // the honest version of that is worth having written down. The test is >= 2pi, so the sweep
+    // overshoots into [0, rate*dt): measured at the 0.05 clamp the body is 0.0868 rad — about 20px
+    // of arc — past `angLock` when it fires, and is pulled back that far. What removes the POP is
+    // that the pull-back now partly cancels the frame's own arc, so the hand-off frame moves 32px
+    // where an ordinary orbit frame moves 62px. It is the quietest frame of the orbit, not a still
+    // one. At 1/60 both numbers roughly halve.
+    //   The `o.t <= 0` half stays as a floor. Nothing in the shipped path can reach it (`kc` has
+    // saturated, the rate is constant, and the lap always closes at o.t ~ 0) and no fixture poses
+    // 'circling' past the lock either — so it is unreachable by measurement, kept because the
+    // alternative failure is a state with no exit, i.e. an orca that orbits forever.
+    const lapClosed = o.angLock !== undefined && o.ang - o.angLock >= Math.PI * 2
+    if (lapClosed || o.t <= -ORCA_HOLD_DUR) {
       // THROUGH THE CENTRE OF THE COIL IT JUST DREW. Owner ruling 2026-08-23: "the orca attack
       // should always be on the center of the spiral" — and the spiral is a thing the player can
       // SEE now (o.trail, stroked by render), so its centre is a place they can read and stand off.
@@ -5660,48 +5682,55 @@ function stepOrca(run, dt) {
       // the player through the loose track above, and that lag is the room the player bought by
       // swimming. It still eats the shoal, for a better reason than aiming at it did — the coil has
       // spent ORCA_CIRCLE_DUR herding the ball into exactly this point.
-      o.tx = o.jx ?? o.cx; o.ty = o.jy ?? o.cy
-      const dx = o.tx - o.x, dy = o.ty - o.y
-      const d = Math.hypot(dx, dy) || 1
-      o.dirX = dx / d; o.dirY = dy / d
-      o.state = 'biting'
-      o.t = ORCA_JAW_T
+      // ⚠ IT RUNS THE LINE IT ALREADY DREW. Re-deriving the heading here from the live position
+      // would quietly undo the whole fix — the drawn lane would become an approximation of wherever
+      // the body happened to land. The `??` covers a fixture that poses 'circling' and reaches the
+      // floor above without ever locking; in the shipped path the lap has closed, so these are the
+      // same point to within a frame's arc.
+      o.ax ??= o.x; o.ay ??= o.y
+      o.tx ??= o.cx; o.ty ??= o.cy
+      if (o.dirX === 0 && o.dirY === 0) {
+        const fx = o.tx - o.ax, fy = o.ty - o.ay
+        const fd = Math.hypot(fx, fy) || 1
+        o.dirX = fx / fd; o.dirY = fy / fd
+      }
+      o.x = o.ax; o.y = o.ay
+      const d = Math.hypot(o.tx - o.x, o.ty - o.y) || 1
+      o.state = 'committing'
+      o.t = (d + ORCA_OVERSHOOT) / ORCA_COMMIT_SPEED
       o.hit = false
       o.splashed = false
+      run.events.push({ type: 'orcaStrike', x: o.x, y: o.y, angle: Math.atan2(o.dirY, o.dirX) })
     }
     return false
   }
-  if (o.state === 'biting') {
-    // IT COMES UP FROM UNDER THE MARK. The body slides onto the point it has been circling and the
-    // mouth shuts on it — nothing travels anywhere, which is the whole correction: the attack is a
-    // PLACE and the place was drawn a full lap ago.
-    o.x += (o.tx - o.x) * Math.min(1, dt * 8)
-    o.y += (o.ty - o.y) * Math.min(1, dt * 8)
-    o.jaw = Math.max(0, o.t) / ORCA_JAW_T      // 1 wide -> 0 shut, the snap itself
-    if (o.t > 0) return false
-    // THE JAWS MEET. Everything below happens on ONE frame, in this order for a reason:
-    //   the splash and the strike note first (they are where the player looks),
-    //   then the prey inside ORCA_BITE_R,
-    //   then the contact check,
-    //   then the wash — AFTER the contact check, so the shove can never carry the player out of a
-    //   hit they were already standing in, only clear of the crowd afterwards.
-    o.jaw = 0
-    o.x = o.tx; o.y = o.ty
-    run.events.push({ type: 'orcaStrike', x: o.tx, y: o.ty, angle: Math.atan2(o.dirY, o.dirX) })
-    run.events.push({ type: 'orcaSplash', x: o.tx, y: o.ty })
+  if (o.state === 'committing') {
+    o.x += o.dirX * ORCA_COMMIT_SPEED * dt
+    o.y += o.dirY * ORCA_COMMIT_SPEED * dt
     orcaBite(run, o)
-    o.state = 'leaving'
-    o.t = ORCA_LEAVE_DUR
-    let died = false
-    if (playerTouches(run, o.tx, o.ty, ORCA_JAW_R)) {
-      run.events.push({ type: 'orcaHit', x: p.x, y: p.y })
-      if (hurtPlayer(run, p.maxHP * ORCA_DMG_FRAC, false, 'orca')) died = true
+    // THE BIG SPLASH, where it was AIMED and not where the frame happened to land — latched like
+    // the hit below, and tested as "has the body passed the target's plane" so a slow frame cannot
+    // step clean over the point at ORCA_COMMIT_SPEED.
+    if (!o.splashed && (o.x - o.tx) * o.dirX + (o.y - o.ty) * o.dirY >= 0) {
+      o.splashed = true
+      run.events.push({ type: 'orcaSplash', x: o.tx, y: o.ty })
     }
-    orcaJawWash(run, o)
-    return died
+    // ONCE PER PASS, not a DoT — `hit` latches so a slow frame cannot bill the same strike twice.
+    if (!o.hit) {
+      if (playerTouches(run, o.x, o.y, ORCA_HIT_R)) {
+        o.hit = true
+        run.events.push({ type: 'orcaHit', x: p.x, y: p.y })
+        if (hurtPlayer(run, p.maxHP * ORCA_DMG_FRAC, false, 'orca')) return true
+      }
+    }
+    // AFTER the contact check on purpose: the shove must not be able to carry the player out of a
+    // hit they were already standing in, only out of the one coming next frame.
+    orcaWake(run, o, dt)
+    if (o.t <= 0) { o.state = 'leaving'; o.t = ORCA_LEAVE_DUR }
+    return false
   }
-  // LEAVING: it sinks where it bit. There is no line to carry along any more, so it does not drift —
-  // a body still sliding after a stationary bite reads as a dash that missed.
+  o.x += o.dirX * ORCA_COMMIT_SPEED * 0.4 * dt
+  o.y += o.dirY * ORCA_COMMIT_SPEED * 0.4 * dt
   o.alpha = Math.max(0, o.t) / ORCA_LEAVE_DUR
   if (o.t > 0) return false
   // ORCA_COMMITS LINES PER VISIT. One line is one sidestep and then the visit is over, which is
@@ -5721,10 +5750,10 @@ function stepOrca(run, dt) {
   o.x = p.x + Math.cos(bearing) * ORCA_RING_R
   o.y = p.y + Math.sin(bearing) * ORCA_RING_R
   o.dirX = 0; o.dirY = 0; o.hit = false; o.splashed = false; o.trail = null
-  // ⚠ THE JAW MUST BE CLEARED FOR THE SECOND VISIT, and `undefined` rather than 0: the circling
-  // branch reads `o.jx === undefined` as "the mouth has not opened yet", so a leftover coordinate
-  // would freeze the coil on the FIRST bite's point and never re-arm the telegraph.
-  o.jx = undefined; o.jy = undefined; o.jaw = 0
+  // ⚠ THE AIM MUST BE CLEARED FOR THE SECOND VISIT, and `undefined` rather than 0: the circling
+  // branch reads `o.ax === undefined` as "the line is not drawn yet", so a leftover coordinate
+  // would freeze the coil on the FIRST strike's line and never re-arm the telegraph.
+  o.ax = undefined; o.ay = undefined; o.angLock = undefined; o.aim = 0
   run.events.push({ type: 'orcaRise', x: p.x, y: p.y })
   return false
 }

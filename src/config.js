@@ -11483,12 +11483,14 @@ export const ORCA_LEAVE_DUR = 1.6
 // it is above or below the player and lets it swing out of frame to the sides, which is the read
 // that was wanted anyway. Do NOT make this screen-relative to "fix" the sides: it is the fear
 // wall's radius and the commit's own geometry, and a desktop player would get a bigger arena.
-// ⚠ AND ORCA_RING_MIN_R IS THE PLAYER'S ROOM TO GET OUT. Since the attack became a JAW at the
-// coil's centre (2026-09-06) standing still there is always a hit, by design — so what this radius
-// buys is not clearance from a passing line any more, it is the DISTANCE the player has to cover to
-// leave ORCA_JAW_R before the mouth shuts. 230 against a 150px jaw leaves 80px to cross with the
-// whole third circle (~1.38s) to do it in, which at the player's 220 px/s is comfortable and is
-// meant to be: the difficulty is noticing, not swimming. Shrink this and the dodge stops being one.
+// ⚠ AND ORCA_RING_MIN_R IS THE LENGTH OF THE RUN-UP, NOT CLEARANCE. An older note here claimed the
+// strike passes no closer to the ring's centre than this radius, leaving "130px of clearance" — that
+// was never true of this commit and is worth stating plainly, because config.js is read as ground
+// truth: the line is aimed AT the centre (stepOrca sets tx/ty to cx/cy), so it passes through it at
+// distance zero. Standing on the coil's centre is a hit, by construction and on purpose.
+//   What the radius actually buys is the distance the body covers before it reaches you, which is
+// the length of drawn lane in front of the player. The dodge is not clearance; it is the whole third
+// circle spent looking at a lane you can step out of sideways.
 export const ORCA_RING_R = 440         // ring radius when the stalk opens
 export const ORCA_RING_MIN_R = 230     // ...and once fully closed, just before it commits
 export const ORCA_RING_BAND = 150      // px inside the ring where the wall has hold of a body
@@ -11557,30 +11559,41 @@ export const ORCA_CLOSE_FRAC = ORCA_CLOSE_DUR / ORCA_CIRCLE_DUR                 
 // coil legible rather than a scribble. At the ticker's 0.05 clamp a whole stalk is 96 points and
 // this never binds; it binds at 60fps, where a three-lap stalk is ~286.
 export const ORCA_TRAIL_MAX = 330
-// ---- THE JAW (2026-09-06) ----------------------------------------------------------------------
-// Owner ruling: "Orca attack should be a jaw opening from under and attacking in the 3rd circle,
-// not a dash impossible to avoid for the player."
+// ---- THE STRIKE, AND THE LINE IT DRAWS FIRST (2026-09-06) --------------------------------------
+// Owner ruling: "what I want is to prevent the orca to dash somewhere that is not telegraph."
 //
-// ⚠ WHAT WAS WRONG WITH THE DASH IS THAT IT WAS A DODGE YOU HAD TO MAKE BEFORE YOU COULD SEE IT.
-// It broke orbit and crossed the coil at 940 px/s with a 78px contact radius — four times the
-// player's own 220, so from the moment the line was locked there was no input that could clear it.
-// The only escape was to have ALREADY left, which makes the whole telegraph a memory test rather
-// than a reaction: everything on screen at the moment of commitment was decoration.
+// ⚠ THE DASH WAS NEVER THE PROBLEM. THE MISSING LINE WAS. It crossed the coil at 940 px/s against a
+// player who moves at 220, so from the moment it broke orbit no input could clear it — measured, a
+// player reacting to the commit was hit on 32% of strikes and a player who ran the whole stalk on
+// 30%, i.e. reacting bought nothing. The first fix replaced the dash with a stationary mouth, which
+// solved the fairness and read as "a sandworm from Dune or an ass with teeth" (owner, same day).
+// The animal should charge. The player should simply have been SHOWN WHERE.
 //
-// A JAW IS THE OPPOSITE SHAPE. It is a PLACE, not a line, and the place is known a whole lap before
-// anything happens — the mouth opens at the centre of the coil the player has been watching tighten
-// for four seconds, and the answer is to not be standing in it. Nothing moves at a speed the player
-// cannot match, because nothing has to.
+// So the line is locked and DRAWN for the whole third circle before anything moves. It can be
+// locked that early for a reason worth knowing: the last lap is a full turn at a constant rate, so
+// the orca ends it exactly where it began it — its launch point is known a full lap ahead, and the
+// line through the coil's centre with it.
 //
-// THE CENTRE LOCKS WHEN THE MOUTH OPENS, which is the line that makes it fair. The coil tracks the
-// player loosely right up to that moment and then stops, so the marked ground is ground the player
-// can swim off. A jaw that kept following would be the dash again with extra steps.
-export const ORCA_JAW_R = 150          // px the closing jaws cover — the circle to be standing out of
-// s the jaws take to close once the coil ends. NOT the warning: the warning is the whole third
-// circle (ORCA_HOLD_DUR, ~1.38s) during which the mouth is open and drawn. This is the snap itself,
-// short on purpose — a slow snap reads as a second telegraph and the player stops believing the
-// first one.
-export const ORCA_JAW_T = 0.45
+// ⚠ AND THE CENTRE STOPS TRACKING WHEN THE LINE IS DRAWN. A telegraph that follows the player is
+// not a telegraph, it is a countdown to an unavoidable hit wearing a picture.
+export const ORCA_COMMIT_SPEED = 940   // px/s of the strike — well over the player's 220
+export const ORCA_OVERSHOOT = 760      // px past you it carries before breaking off - the wake plows the whole way
+export const ORCA_HIT_R = 78           // px contact radius, DURING THE COMMIT ONLY (tracks ORCA_LEN)
+// HOW WIDE THE DRAWN LANE IS, in px either side of the line. It has to CONTAIN every position that
+// gets hit, or the player learns to stand just off the edge and is bitten anyway.
+// ⚠ THE HIT SET IS A CAPSULE HERE, NOT A CIRCLE, AND ITS REACH DEPENDS ON WHICH WAY THE FISH POINTS.
+// Book 2's chapters set `playerBody: 'fish'`, so playerTouches tests a capsule built from FISH_R and
+// FISH_BODY rather than PLAYER.radius. Written as ORCA_HIT_R + PLAYER.radius it came to 100 and was
+// wrong in BOTH directions: the boundary is 90.1px with the nose along the lane and 121.3px with the
+// nose across it, so 100 both over-drew and under-drew depending on facing.
+// ⚠ SO THIS IS THE UNION OVER FACINGS, NOT THE HIT SET ITSELF — deliberately the safe error. The
+// lane is drawn at the widest the capsule can ever reach, which means a player lying ALONG the lane
+// can be up to 31px inside the drawn edge and not be hit. Over-drawn by up to a quarter of the
+// half-width; never under-drawn, which is the failure that matters. Facing changes every frame and
+// a telegraph whose width breathes with the player's heading is unreadable, so it is drawn at the
+// bound. `playerBody` is not consulted: the orca is wreck-only and wreck is a fish chapter. Move it
+// to a non-fish chapter and this constant is silently wrong.
+export const ORCA_AIM_W = ORCA_HIT_R + FISH_R * (FISH_BODY.nose + FISH_BODY.halfWidth)
 // ⚠ A FRACTION OF MAX HP, NEVER A FLAT LITERAL. p.maxHP grows within a run (level-up choices) and
 // across saves (the shop's maxHP line), so a literal that is a real hit on a base save is a scratch
 // on an upgraded one.
