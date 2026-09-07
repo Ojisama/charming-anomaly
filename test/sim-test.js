@@ -162,7 +162,7 @@ import {
   // The Wreck's orca (Run OR)
   ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
   ORCA_RING_MIN_R, ORCA_BITE_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, ORCA_DENS_FULL_N,
-  ORCA_HERD_PULL, ORCA_COMMITS, ORCA_WAKE_R, ORCA_RING_R, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_SPIRAL_ACCEL, ORCA_TRAIL_MAX,
+  ORCA_HERD_PULL, ORCA_COMMITS, ORCA_WAKE_R, ORCA_RING_R, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_SPIRAL_ACCEL,
   ORCA_LAPS, ORCA_HOLD_DUR, ORCA_CLOSE_FRAC, SCREW_DAMP, SCREW_HULL_PAD, ORCA_AIM_W, ORCA_HIT_R, ORCA_ORBIT_RATE,
   CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX, CHAPTER_BOARDS_DEFAULT,
   // The Trawl's late-game cut (run TJ)
@@ -10359,7 +10359,7 @@ function runOrca() {
     run.orca = {
       state: 'circling', t: ORCA_CIRCLE_DUR,
       cx: p.x, cy: p.y, r: ORCA_RING_R, ang: 0,
-      x: p.x + ORCA_RING_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1, trail: [],
+      x: p.x + ORCA_RING_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1,
     }
     // ⚠ 1/60, NOT THE FILE'S 0.05. The trail cap below only BINDS at a real frame rate — a 4s
     // stalk is 240 points at 60fps against a 220 cap, and just 80 at the ticker's 0.05 clamp, where
@@ -10372,7 +10372,6 @@ function runOrca() {
     // Swept angle alongside the radius, so the stalk can be SPLIT BY LAP rather than by time — the
     // whole claim below is about what happens on laps 2 and 3 and a time index cannot express it.
     const sweptAt = [], rates = []
-    let peakTrail = 0
     while (run.orca && run.orca.state === 'circling' && i++ < Math.round(20 / fdt)) {
       hold(run, [])
       stepSim(run, { x: 0, y: 0 }, fdt)
@@ -10386,7 +10385,6 @@ function runOrca() {
       radii.push(o.r)
       sweptAt.push(swept)
       rates.push(d / fdt)
-      peakTrail = Math.max(peakTrail, (o.trail || []).length / 2)
     }
     const laps = swept / (Math.PI * 2)
     // 1. TWO LAPS IS THE FLOOR FOR READING A COIL. The shipped-and-rejected cut managed 1.2, which
@@ -10432,25 +10430,10 @@ function runOrca() {
     assert.ok(closeLaps > 0.85 && closeLaps < 1.15,
       `the close must take one whole lap — ORCA_CLOSE_FRAC (${ORCA_CLOSE_FRAC.toFixed(2)}) is derived to make it exactly one; ` +
       `it finished closing after ${closeLaps.toFixed(2)} laps`)
-    // 4. THE COIL IS PUBLISHED, CAPPED, AND READ. Without the published path render draws a circle
-    // at the current radius, which is the tell that made a real spiral look like laps — so this is
-    // the contract field the whole fix hangs on.
-    assert.ok(peakTrail > 20, `the swept path must be published for render to stroke; it peaked at ${peakTrail} points`)
-    assert.ok(peakTrail <= ORCA_TRAIL_MAX,
-      `the trail must stay capped at ORCA_TRAIL_MAX (${ORCA_TRAIL_MAX}) or a whole stalk is drawn as a scribble; it reached ${peakTrail}`)
-    // ...AND THE CAP MUST NOT BIND ON A WHOLE STALK. The ceiling above moves with the constant, so
-    // it cannot see the cap being cropped — and cropping it drops the OLDEST points, i.e. the wide
-    // first circle, which is the one the other two are read against. Stated as "every frame of the
-    // stalk is still in the path", which is the effect; a bound quoting ORCA_TRAIL_MAX would move
-    // with the mutation exactly like the ceiling does. i counts the frames this loop actually ran.
-    assert.ok(peakTrail >= i - 2,
-      `the whole ${ORCA_LAPS}-lap stalk must fit the published path or the player reads a cropped coil: ` +
-      `${i} frames at ${Math.round(1 / fdt)}fps against a peak of ${peakTrail} points (ORCA_TRAIL_MAX ${ORCA_TRAIL_MAX})`)
-    // The CLAUDE.md source-text idiom (run UG.k): a field sim publishes with no consumer in
-    // render.js is indistinguishable on screen from the bug it was written to fix, and nothing
-    // throws. Both halves are asserted because either one alone passes over a broken pair.
-    assert.ok(/o\.trail/.test(renderSrc),
-      'render.js must READ run.orca.trail — publishing the coil with nothing stroking it leaves the circle-tell bug exactly as it was, silently')
+    // 4. NO COIL. The swept path used to be published and stroked here (owner, 2026-09-07: "remove
+    // the white spiral just keep the shadow"); the shadow sprite and the dark band are the stalk
+    // now. The o.r guard below still stands: no bright ring at the coil's current radius.
+    assert.ok(!/o\.trail/.test(renderSrc), 'render.js must not stroke a coil off run.orca.trail any more — the owner removed the white spiral')
     // ⚠ ANCHORED ON `o.r`. What this forbids is a thin bright ring at the COIL'S CURRENT RADIUS —
     // that is the tell that made a real spiral read as laps. It is deliberately NOT a ban on
     // stroked circles in general: an earlier form matched any `width: 3` circle at all, which made
@@ -10567,7 +10550,7 @@ function runOrca() {
     console.log(`PASS run OR.f (three circles, the last two the same): lap 1 closes ${ORCA_RING_R}->${radii[radii.length - 1].toFixed(0)} over ` +
       `${closeLaps.toFixed(2)} turns while the rate ramps ${firstRate.toFixed(2)}->${lastRate.toFixed(2)} rad/s, then laps 2-3 repeat ONE circle ` +
       `(${held.length} frames at a fixed radius and a fixed ${lastRate.toFixed(2)} rad/s, ${(ORCA_HOLD_DUR * (ORCA_LAPS - 1)).toFixed(2)}s of visible window) ` +
-      `for ${laps.toFixed(2)} turns total, publishing a ${peakTrail}-point coil render strokes — and the silhouette surfaces UNDER the player before any of it, staying under until it commits`)
+      `for ${laps.toFixed(2)} turns total, with no coil stroked — and the silhouette surfaces UNDER the player before any of it, staying under until it commits`)
   }
 
   // -- OR.g: DECOY BARREL AIMS THE ANIMAL. -----------------------------------------------------
@@ -10586,7 +10569,7 @@ function runOrca() {
       run.orca = {
         state: 'circling', t: ORCA_CIRCLE_DUR,
         cx: p.x, cy: p.y, r: ORCA_RING_R, ang: 0,
-        x: p.x + ORCA_RING_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1, trail: [],
+        x: p.x + ORCA_RING_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1,
       }
       let last = { cx: p.x, cy: p.y }
       for (let i = 0; i < Math.round(ORCA_CIRCLE_DUR / dt) - 2; i++) {
@@ -10687,7 +10670,7 @@ function runOrca() {
       run.orca = {
         state: 'circling', t: ORCA_CIRCLE_DUR + subFrame,
         cx: p.x, cy: p.y, r: ORCA_RING_R, ang: 0,
-        x: p.x + ORCA_RING_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1, trail: [],
+        x: p.x + ORCA_RING_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1,
       }
       const hp0 = p.hp
       let aims = 0, hits = 0, lane = null, movedAfter = 0, offLine = 0, atLaunch = null
@@ -10798,7 +10781,7 @@ function runOrca() {
       run.orca = {
         state: 'circling', t: ORCA_CIRCLE_DUR,
         cx: p.x, cy: p.y, r: ORCA_RING_R, ang: 0,
-        x: p.x + ORCA_RING_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1, trail: [],
+        x: p.x + ORCA_RING_R, y: p.y, dirX: 0, dirY: 0, hit: false, alpha: 1, passes: 1,
       }
       let spot = null, hits = 0
       for (let i = 0; i < Math.round(12 / dt) && run.orca; i++) {

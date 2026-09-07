@@ -11531,8 +11531,9 @@ export const ORCA_HERD_PULL = 120
 // owner, 2026-08-23: "the spiraling looks just like it's circling". Three things were wrong and
 // only the third is arithmetic:
 //   1. THE TELL WAS A CIRCLE. render drew a ring at the CURRENT radius each frame, and a circle
-//      drawn on the floor says "circle" however the thing inside it moves. It draws the SWEPT PATH
-//      now (run.orca.trail) — a coil you can see is a coil, with no motion needed to read it.
+//      drawn on the floor says "circle" however the thing inside it moves. The swept path was
+//      then stroked as a coil, and the owner removed that too (2026-09-07): the shadow and the
+//      dark band are the whole stalk now.
 //   2. THE ANIMAL WAS SURFACED FOR IT. A bright body doing laps reads as swimming; a black
 //      silhouette under the water reads as stalking. It stays a shadow for the whole build now and
 //      SURFACES ON THE STRIKE — owner: "the SHADOW IS SPIRALING IN FROM UNDERNEATH, just before
@@ -11571,14 +11572,6 @@ export const ORCA_CLOSE_DUR = (Math.PI * 2) / (ORCA_ORBIT_RATE * (1 + ORCA_SPIRA
 export const ORCA_HOLD_DUR = (Math.PI * 2) / (ORCA_ORBIT_RATE * (1 + ORCA_SPIRAL_ACCEL))
 export const ORCA_CIRCLE_DUR = ORCA_CLOSE_DUR + ORCA_HOLD_DUR * (ORCA_LAPS - 1)  // ~4.76s
 export const ORCA_CLOSE_FRAC = ORCA_CLOSE_DUR / ORCA_CIRCLE_DUR                  // ~0.42
-// Points of swept path sim publishes for render to stroke — a MEMORY BOUND, not a look knob, and
-// that distinction cost a round. The first cut capped at 80 to leave a short comet tail, which at
-// 60fps is ~1.3s of path; on a phone the coil's on-screen stretch is only ever an arc of the loop,
-// so a tail that short is off screen for most of the stalk and the player sees nothing at all. 220
-// holds roughly the whole build, and the per-segment alpha fade (render.js) is what keeps a full
-// coil legible rather than a scribble. At the ticker's 0.05 clamp a whole stalk is 96 points and
-// this never binds; it binds at 60fps, where a three-lap stalk is ~286.
-export const ORCA_TRAIL_MAX = 330
 // ---- THE STRIKE, AND THE LINE IT DRAWS FIRST (2026-09-06) --------------------------------------
 // Owner ruling: "what I want is to prevent the orca to dash somewhere that is not telegraph."
 //
@@ -11630,9 +11623,10 @@ export const ORCA_DMG_FRAC = 0.34
 //  - x ORCA_DMG_FRAC that is 0.68 of max HP per visit if you eat both; both are dodgeable
 export const ORCA_COMMITS = 2
 export const ORCA_LEN = 560            // body length px — ~12x the player, it must read as bigger
-export const ORCA_FEAR_TELL = 0.55     // render: alpha of the ring tell at full close
-// balance_decision : strike lane at 0.55 alpha, rails two-thirds as wide 2026-09-07
-export const ORCA_AIM_TELL = 0.55      // render: alpha multiplier on the drawn strike lane (rails, swell, bubbles)
+// balance_decision : the closing ring at 0.30, the lane at 0.30 2026-09-07
+//  - the coil (the trail stroked in pale cyan) is not drawn at all any more; the shadow carries the stalk
+export const ORCA_FEAR_TELL = 0.30     // render: alpha of the ring tell at full close
+export const ORCA_AIM_TELL = 0.30      // render: alpha multiplier on the drawn strike lane (rails, swell, bubbles)
 // The water thrown up where the strike passes through the centre of the coil, fed to render's
 // spawnSplash as an impact radius: the rings reach SPLASH_VIS.rMax x this, so 150 puts the
 // outermost front at ~350px — half again the closed ring, i.e. it covers the ball the coil herded
