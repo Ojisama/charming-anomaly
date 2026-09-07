@@ -1602,7 +1602,7 @@ function generateWells(sig) {
  *   revive zeroing dragT and stepPlayerMovement's wiggle count (with `_stkX/_stkY`, the last held
  *   stick direction, and `_stkA`, the swing banked toward the next flick). _netAcc: s to the next pass, seeded at
  *   TRAWL_FIRST_PASS and reset to TRAWL_INTERVAL x trawlIntervalMul when a pass clears.
- * orca: null | { state, t, cx, cy, r, ang, angLock, x, y, ax, ay, aim, tx, ty, dirX, dirY, hit, splashed, alpha, trail, passes } — The Wreck's apex
+ * orca: null | { state, t, cx, cy, r, ang, angLock, x, y, ax, ay, aim, tx, ty, dirX, dirY, hit, splashed, alpha, passes } — The Wreck's apex
  *   predator, in chapters declaring `orca: true`. A SINGLE NULLABLE OBJECT with a countdown, the
  *   same idiom as `net` above and never a pool: there is only ever one, and it is UNKILLABLE (no
  *   hp field, no vulnerability window). `state` walks 'shadow' | 'rising' | 'circling' |
@@ -1630,8 +1630,7 @@ function generateWells(sig) {
  *   `angLock` is the orbit bearing at the moment the line was locked, and it is the FIRING
  *   CONDITION: the commit starts when `ang` has come round a full 2pi from it, not on the clock, so
  *   the body is at its launch point when the lane it drew begins. Undefined until aimed, cleared
- *   with `ax` on the re-rise. `trail` is the swept path render strokes as the coil, capped at
- *   ORCA_TRAIL_MAX points.
+ *   with `ax` on the re-rise.
  *   `passes` is the strike lines still owed this visit, ORCA_COMMITS down to 0 — a 'leaving' that
  *   still has one left re-enters 'rising' on a fresh bearing instead of clearing the object, so one
  *   visit is two telegraphed lines. Absent on a 'shadow' object, which never commits at all.

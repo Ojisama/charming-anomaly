@@ -13587,8 +13587,10 @@ const spurG = new Graphics()
   // grit rather than one of the six LOBE_SHAPES (owner, 2026-09-07: "shape way more random ... it
   // just changes a bit the size"). 72 vertices for harmonics up to 9 = 8 per lobe (lobePoly's own
   // bar is 7). Size: the first cut's band was 0.07-0.15 of min(w,h) TIMES lobeFactor (mean 0.83), so
-  // its effective mean radius was 0.091; 0.09-0.184 (mean 0.137) is 1.5x that ("50% bigger on
-  // average"), and the profile's reach (1 + every amplitude) is what the push-out clears.
+  // its effective mean radius was 0.091; 0.09-0.184 (mean 0.137) was 1.5x that ("50% bigger on
+  // average"), then doubled to 0.18-0.368 ("double the size of current stains", same day). The
+  // profile's reach (1 + every amplitude) is what the push-out clears, so at this size most of a
+  // splat hangs off the screen edge and what you see is its inner rim.
   let inkSeed = 0
   let inkWasOn = false    // was run._inkT > 0 last sync — the edge that re-rolls inkSeed
   function drawInkStain(w, h) {
@@ -13599,7 +13601,7 @@ const spurG = new Graphics()
     const out = (px, py) => Math.hypot(px - cx, py - cy) >= keep
     for (let k = 0; k < 11; k++) {
       const a = (k / 11) * TAU + hash(s + k * 7.3 + 1.1) * 0.5
-      const r = Math.min(w, h) * (0.09 + hash(s + k * 5.7 + 3.3) * 0.094)
+      const r = Math.min(w, h) * (0.18 + hash(s + k * 5.7 + 3.3) * 0.188)
       const h1 = 2 + Math.floor(hash(s + k * 4.3 + 8.8) * 2)
       const h2 = 4 + Math.floor(hash(s + k * 6.1 + 9.9) * 3)
       const h3 = 7 + Math.floor(hash(s + k * 8.7 + 0.7) * 3)
@@ -14041,36 +14043,9 @@ const spurG = new Graphics()
       // honest way to draw a thickness of water.
       orcaG.circle(o.cx, o.cy, o.r)
         .stroke({ width: ORCA_RING_BAND * 0.5, color: 0x0a1016, alpha: a * 0.5 })
-      // THE COIL, IN PLACE OF THE BRIGHT HAIRLINE CIRCLE THAT USED TO SIT HERE. That circle is the
-      // single biggest reason the spiral read as circling: a ring drawn on the floor says "ring",
-      // and it said so on every frame regardless of the path actually travelled. This strokes the
-      // path itself (run.orca.trail, published by stepOrca), so the tightening is visible in a
-      // STILL — the player is not asked to integrate a moving dot to work out what shape it is on.
-      //   THREE SEGMENTS, not one stroke. A uniform-alpha polyline reads as a drawn glyph lying on
-      // the seabed; a tail that fades reads as somewhere the thing has BEEN. Pixi cannot gradient
-      // along a stroke, so the cheap honest version is to chunk it.
-      //   ⚠ ITS ALPHA IS ITS OWN, NOT `a`. Scaling the coil by the fear tell made it 0.05-0.14 for
-      // the first half of the stalk, and on a 390px phone the body is off screen for the sideways
-      // half of every lap — so the frame at the exact moment the tension should be building was
-      // EMPTY: no silhouette, and a coil too faint to see. The wall may fade up (it is a warning
-      // that grows); the coil is the only thing carrying the beat while the animal is out of frame,
-      // so it starts legible and merely sharpens. This is the whole reason the tell was rewritten.
-      const tr = o.trail
-      if (tr && tr.length >= 6) {
-        const pts = tr.length / 2
-        for (let seg = 0; seg < 3; seg++) {
-          const i0 = Math.floor((seg / 3) * (pts - 1)) * 2
-          const i1 = Math.floor(((seg + 1) / 3) * (pts - 1)) * 2
-          if (i1 <= i0) continue
-          orcaG.moveTo(tr[i0], tr[i0 + 1])
-          for (let i = i0 + 2; i <= i1; i += 2) orcaG.lineTo(tr[i], tr[i + 1])
-          orcaG.stroke({
-            width: 3 + seg * 2,
-            color: 0xbfe6ff,
-            alpha: (0.30 + 0.11 * seg) * (0.60 + 0.40 * k),
-          })
-        }
-      }
+      // NO COIL. The trail (run.orca.trail) used to be stroked here in pale cyan, three laps of it,
+      // and read as white circles on the floor. Owner, 2026-09-07: "remove the white spiral just
+      // keep the shadow" — the shadow sprite above is the stalk's only tell now, with this band.
     }
 
     // THE WATER GOING SLACK ALONG THE LINE THE STRIKE WILL RUN, for the whole third circle and on

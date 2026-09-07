@@ -181,7 +181,7 @@ import {
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
   ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_DENS_R, ORCA_DENS_FULL_N, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
-  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX, ORCA_CLOSE_FRAC, SCREW_DAMP, SCREW_HULL_PAD,
+  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_CLOSE_FRAC, SCREW_DAMP, SCREW_HULL_PAD,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SLICK_BIRTH_CLEAR, SLICK_SPREAD_STEPS, spillSpread, slickR, slickChance, slickDps,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
@@ -5645,7 +5645,7 @@ function stepOrca(run, dt) {
     o.x = o.cx + Math.cos(o.ang) * o.r * out
     o.y = o.cy + Math.sin(o.ang) * o.r * out
     o.alpha = out
-    if (o.t <= 0) { o.state = 'circling'; o.t = ORCA_CIRCLE_DUR; o.alpha = 1; o.trail = [] }
+    if (o.t <= 0) { o.state = 'circling'; o.t = ORCA_CIRCLE_DUR; o.alpha = 1 }
     return false
   }
   if (o.state === 'circling') {
@@ -5676,15 +5676,6 @@ function stepOrca(run, dt) {
     o.r = ORCA_RING_MIN_R + (ORCA_RING_R - ORCA_RING_MIN_R) * (1 - Math.pow(kc, ORCA_SPIRAL_EASE))
     o.x = o.cx + Math.cos(o.ang) * o.r
     o.y = o.cy + Math.sin(o.ang) * o.r
-    // THE SWEPT PATH, published for render to stroke. A coil you can SEE is a coil; the ring tell
-    // this replaces drew a circle at the current radius, which reads as a circle whatever moves
-    // inside it. Sim owns positions and render only reads them, the same split every other tell
-    // here uses — render cannot re-derive this without a second copy of the two curves above.
-    // `??=` because a hand-built fixture (run OR.c, the fx-probe scenes) poses a 'circling' orca
-    // without one, and `undefined.push` would take the whole chapter down.
-    const tr = (o.trail ??= [])
-    tr.push(o.x, o.y)
-    if (tr.length > ORCA_TRAIL_MAX * 2) tr.splice(0, tr.length - ORCA_TRAIL_MAX * 2)
     // THE LINE IS DRAWN ON THE THIRD CIRCLE. Owner ruling 2026-09-06: "what I want is to prevent
     // the orca to dash somewhere that is not telegraph." The last lap is not just the window the
     // coil freezing announces — it is the STRIKE'S OWN telegraph, with the lane drawn on the ground
@@ -5729,7 +5720,7 @@ function stepOrca(run, dt) {
     if (lapClosed || o.t <= -ORCA_HOLD_DUR) {
       // THROUGH THE CENTRE OF THE COIL IT JUST DREW. Owner ruling 2026-08-23: "the orca attack
       // should always be on the center of the spiral" — and the spiral is a thing the player can
-      // SEE now (o.trail, stroked by render), so its centre is a place they can read and stand off.
+      // SEE (the shadow doing laps, and the dark band), so its centre is a place they can read and stand off.
       // The line is locked HERE, at the moment it breaks orbit, and never re-aimed: the centre lags
       // the player through the loose track above, and that lag is the room the player bought by
       // swimming. It still eats the shoal, for a better reason than aiming at it did — the coil has
@@ -5801,7 +5792,7 @@ function stepOrca(run, dt) {
   o.cx = p.x; o.cy = p.y; o.r = ORCA_RING_R; o.ang = bearing
   o.x = p.x + Math.cos(bearing) * ORCA_RING_R
   o.y = p.y + Math.sin(bearing) * ORCA_RING_R
-  o.dirX = 0; o.dirY = 0; o.hit = false; o.splashed = false; o.trail = null
+  o.dirX = 0; o.dirY = 0; o.hit = false; o.splashed = false
   // ⚠ THE AIM MUST BE CLEARED FOR THE SECOND VISIT, and `undefined` rather than 0: the circling
   // branch reads `o.ax === undefined` as "the line is not drawn yet", so a leftover coordinate
   // would freeze the coil on the FIRST strike's line and never re-arm the telegraph.
