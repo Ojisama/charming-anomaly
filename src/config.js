@@ -2984,6 +2984,9 @@ export const SCREW_SPIN_RATE = 7.5
 //  - dps is flat across 0-0.45 (83 -> 88), so retune this for feel, never for damage
 //  - do NOT go below 0.30: the blade settles on the player and the card becomes an aura
 export const SCREW_DAMP = 0.30
+// The hull the blades stop at is PLAYER.radius plus this: the fish sprite is ~1.6 radii long, so a
+// blade tip parked on the collision circle still sits on its nose (shot, 2026-09-07).
+export const SCREW_HULL_PAD = 14
 // GORGE (gnash): what eating an elite pays. It healed to FULL until 2026-09-06 — "an elite pays for
 // everything" was the reasoning, and the owner's ruling is that it paid too well. A flat number
 // rather than a fraction of max HP so the card can print what it does; it is deliberately NOT

@@ -238,8 +238,8 @@ export function createRenderer(app) {
   // updateCurrents. Defaults to the neutral body look (title screen / chapters without render).
   // Half-length the sunken ship is BAKED at. Not its size on screen — updateWreckHull scales the
   // sprite so CHAPTERS.wreck.render.hull.len is the only place the real dimension is stated. 220
-  // rather than something huge because a bake is a texture: this is the resolution the hull is
-  // sampled at, and at the alpha and distance it draws it never earns more.
+  // rather than something huge because the drawing's own stroke widths are stated against it;
+  // the texels come from the bake's `res` (8), not from this.
   // ⚠ DECLARED HERE, ABOVE buildTextures' CALL, and it took two goes: renderer scope alone is
   // not enough, because buildTextures runs during createRenderer and a `const` below that call is
   // in its temporal dead zone. `npm run build` compiles either mistake happily; the only symptom of
@@ -358,10 +358,12 @@ export function createRenderer(app) {
 
   // ---------------------------------------------------------------- textures
   // Bake a Graphics into a texture; return anchor so sprite.position = drawing origin.
-  function bake(g, pad = 3) {
+  // `res` is texels per drawn px. 2 suits a sprite shown near its drawn size; a bake that is
+  // SCALED UP on screen (the sunken hull, x6-9) needs its scale's worth or every edge steps.
+  function bake(g, pad = 3, res = 2) {
     const b = g.getLocalBounds()
     const frame = new Rectangle(b.x - pad, b.y - pad, b.width + pad * 2, b.height + pad * 2)
-    const tex = R.generateTexture({ target: g, frame, resolution: 2, antialias: true })
+    const tex = R.generateTexture({ target: g, frame, resolution: res, antialias: true })
     g.destroy(true)
     return { tex, ax: -frame.x / frame.width, ay: -frame.y / frame.height }
   }
@@ -6597,7 +6599,11 @@ export function createRenderer(app) {
       // so burial is drawn as the FILLET in section 1 instead, at a value the boundary can use.
       // Fifty polygons that do not reach the page are not detail, they are cost. Before adding
       // anything to this bake, state the contrast ratio you expect it to land at.
-      T.wreckHull = bake(g)
+      // 8 texels per drawn px: on screen the hull is this drawing x6-9 (cfg.len / HULL_REF / 2,
+      // then the per-ship scale), so at the default 2 every plate edge was a staircase 3-4px
+      // wide — owner, 2026-09-07: "ships are pixellated". 478x175 drawn -> 3824x1400 baked,
+      // under the 4096 every WebGL device guarantees.
+      T.wreckHull = bake(g, 3, 8)
     }
     {
       // fire hydrant (city): upright, origin at the base. Dome cap, side nozzles, base flange —
