@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, SLICK_FIRE_SPREAD_T, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_WAKE_R, ORCA_OVERSHOOT,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, SLICK_FIRE_SPREAD_T, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_AIM_TELL, ORCA_WAKE_R, ORCA_OVERSHOOT,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -13577,26 +13577,66 @@ const spurG = new Graphics()
     }
   }
 
-  // The squid's ink on the glass (inkStain): eleven lobed splats with a drip each, on the outer band
-  // of the screen — never inside 0.55 of the half-diagonal, so the centre stays legible (owner:
-  // "less at the center of the screen or it's too strong"). Hashed off `inkSeed`, which sync()
-  // re-rolls each time you are inked afresh (owner, 2026-09-07: "randomised position and shape"),
-  // so every squirt lands its own splats; a resize redraws the SAME set, because the seed is kept.
+  // The squid's ink on the glass (inkStain): eleven splats with their own spatter and drips, on the
+  // outer band of the screen — NOTHING inside 0.55 of the half-diagonal, so the centre stays legible
+  // (owner: "less at the center of the screen or it's too strong"): each splat is pushed out until
+  // its body clears that circle, and a droplet or drip that would land inside it is skipped. Hashed
+  // off `inkSeed`, which sync() re-rolls each time you are inked afresh (owner, 2026-09-07:
+  // "randomised position and shape"), so every squirt lands its own splats; a resize redraws the
+  // SAME set, because the seed is kept. Each outline is its OWN three random harmonics plus a little
+  // grit rather than one of the six LOBE_SHAPES (owner, 2026-09-07: "shape way more random ... it
+  // just changes a bit the size"). 72 vertices for harmonics up to 9 = 8 per lobe (lobePoly's own
+  // bar is 7). Size: the first cut's band was 0.07-0.15 of min(w,h) TIMES lobeFactor (mean 0.83), so
+  // its effective mean radius was 0.091; 0.09-0.184 (mean 0.137) is 1.5x that ("50% bigger on
+  // average"), and the profile's reach (1 + every amplitude) is what the push-out clears.
   let inkSeed = 0
   let inkWasOn = false    // was run._inkT > 0 last sync — the edge that re-rolls inkSeed
   function drawInkStain(w, h) {
     inkStain.clear()
-    const cx = w / 2, cy = h / 2, R = Math.hypot(cx, cy)
+    const cx = w / 2, cy = h / 2, R = Math.hypot(cx, cy), keep = R * 0.55
     const s = inkSeed * 97
+    const INK = 0x0a0812, TAU = Math.PI * 2
+    const out = (px, py) => Math.hypot(px - cx, py - cy) >= keep
     for (let k = 0; k < 11; k++) {
-      const a = (k / 11) * Math.PI * 2 + hash(s + k * 7.3 + 1.1) * 0.5
-      const d = R * (0.58 + hash(s + k * 3.1 + 2.2) * 0.42)
+      const a = (k / 11) * TAU + hash(s + k * 7.3 + 1.1) * 0.5
+      const r = Math.min(w, h) * (0.09 + hash(s + k * 5.7 + 3.3) * 0.094)
+      const h1 = 2 + Math.floor(hash(s + k * 4.3 + 8.8) * 2)
+      const h2 = 4 + Math.floor(hash(s + k * 6.1 + 9.9) * 3)
+      const h3 = 7 + Math.floor(hash(s + k * 8.7 + 0.7) * 3)
+      const a1 = 0.12 + hash(s + k * 1.9 + 4.4) * 0.22
+      const a2 = 0.06 + hash(s + k * 2.3 + 5.5) * 0.16
+      const a3 = 0.04 + hash(s + k * 3.7 + 6.6) * 0.10
+      const p1 = hash(s + k * 2.9) * TAU, p2 = hash(s + k * 5.3 + 7.7) * TAU, p3 = hash(s + k * 9.1 + 1.3) * TAU
+      const grit = 0.02 + hash(s + k * 6.7 + 2.8) * 0.04
+      const d = Math.max(R * (0.58 + hash(s + k * 3.1 + 2.2) * 0.42), keep + r * (1 + a1 + a2 + a3 + grit))
       const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d
-      const r = Math.min(w, h) * (0.07 + hash(s + k * 5.7 + 3.3) * 0.08)
-      const shape = Math.floor(hash(s + k * 4.3 + 8.8) * LOBE_SHAPES.length)
-      inkStain.poly(lobePoly(r, shape, hash(s + k * 2.9) * 6.28, x, y)).fill({ color: 0x0a0812, alpha: 0.85 })
-      inkStain.ellipse(x + r * 0.2, y + r * 0.95, r * 0.16, r * 0.55).fill({ color: 0x0a0812, alpha: 0.7 })
-      inkStain.circle(x + r * 0.2, y + r * 1.55, r * 0.14).fill({ color: 0x0a0812, alpha: 0.7 })
+      const pts = []
+      for (let i = 0; i < 72; i++) {
+        const t = (i / 72) * TAU
+        const f = Math.max(0.35, 1 + a1 * Math.cos(h1 * t + p1) + a2 * Math.cos(h2 * t + p2)
+          + a3 * Math.cos(h3 * t + p3) + (hash(s + k * 11.3 + i * 0.37) - 0.5) * grit)
+        pts.push(x + Math.cos(t) * r * f, y + Math.sin(t) * r * f)
+      }
+      inkStain.poly(pts).fill({ color: INK, alpha: 0.82 + hash(s + k * 1.3 + 3.9) * 0.1 })
+      const nd = 2 + Math.floor(hash(s + k * 7.9 + 5.1) * 4)
+      const throwA = hash(s + k * 4.9 + 6.2) * TAU
+      for (let j = 0; j < nd; j++) {
+        const da = throwA + (hash(s + k * 3.3 + j * 1.7) - 0.5) * 2.2
+        const dd = r * (1.05 + hash(s + k * 2.7 + j * 2.3) * 0.9)
+        const dr = r * (0.05 + hash(s + k * 5.9 + j * 3.1) * 0.16)
+        const px = x + Math.cos(da) * dd, py = y + Math.sin(da) * dd
+        if (out(px, py)) inkStain.circle(px, py, dr).fill({ color: INK, alpha: 0.75 })
+      }
+      const ndr = Math.floor(hash(s + k * 8.1 + 4.7) * 3)
+      for (let j = 0; j < ndr; j++) {
+        const dx = x + r * (hash(s + k * 6.3 + j * 5.7) - 0.5) * 1.1
+        const L = r * (0.5 + hash(s + k * 9.7 + j * 4.1) * 1.3)
+        const ww = r * (0.08 + hash(s + k * 1.7 + j * 6.1) * 0.1)
+        const y0 = y + r * 0.6, y1 = y0 + L
+        if (!out(dx, y0) || !out(dx, y1)) continue
+        inkStain.ellipse(dx, (y0 + y1) / 2, ww, L / 2).fill({ color: INK, alpha: 0.7 })
+        inkStain.circle(dx, y1, ww * 1.4).fill({ color: INK, alpha: 0.7 })
+      }
     }
   }
 
@@ -14066,7 +14106,8 @@ const spurG = new Graphics()
       //    chapter's own water the rails sat at 1.86x luminance contrast with 1.4s left to react
       //    and only crossed 3x with 0.35s left, by which time a player has 77px of swim against a
       //    121px lane. The line has to be READABLE while it is still worth reading, so it arrives
-      //    most of the way up and then firms.
+      //    most of the way up and then firms. Those contrast figures were measured at full alpha;
+      //    every alpha below is now scaled by ORCA_AIM_TELL (owner, 2026-09-07: "more subtle").
       const e = 1 - (1 - k) * (1 - k)
       const nx = -o.dirY, ny = o.dirX
       const len = Math.hypot(o.tx - o.ax, o.ty - o.ay) + ORCA_OVERSHOOT
@@ -14104,7 +14145,7 @@ const spurG = new Graphics()
         for (const sg of [1, -1]) {
           orcaG.moveTo(x0 + nx * sg * w, y0 + ny * sg * w)
           orcaG.lineTo(x1 + nx * sg * w, y1 + ny * sg * w)
-          orcaG.stroke({ width: 3 + 3 * e, color: 0xbfe6ff, alpha: (0.52 + 0.34 * e) * taper * fade })
+          orcaG.stroke({ width: 2 + 2 * e, color: 0xbfe6ff, alpha: (0.52 + 0.34 * e) * ORCA_AIM_TELL * taper * fade })
         }
       }
       // ⚠ THE FLOW IS PHASED OFF THE AIM RAMP, NEVER OFF run.time. This is the bug that shipped
@@ -14137,7 +14178,7 @@ const spurG = new Graphics()
           orcaG.stroke({
             width: (w * 0.42 + 14 * k) * (1 - i * 0.4),
             color: 0xdff2ff, cap: 'round',
-            alpha: (0.14 + 0.20 * e) * soft * fade,
+            alpha: (0.14 + 0.20 * e) * ORCA_AIM_TELL * soft * fade,
           })
         }
       }
@@ -14155,7 +14196,7 @@ const spurG = new Graphics()
           const taper = 1 - 0.7 * (d0 / len)
           const wob = Math.sin(d0 * 0.028 + li * 1.7) * w * 0.10
           orcaG.circle(o.ax + o.dirX * d0 + nx * (off + wob), o.ay + o.dirY * d0 + ny * (off + wob), 1.8 + 2.0 * e)
-            .fill({ color: 0xeaf7ff, alpha: (0.30 + 0.28 * e) * taper * fade })
+            .fill({ color: 0xeaf7ff, alpha: (0.30 + 0.28 * e) * ORCA_AIM_TELL * taper * fade })
         }
       }
       // ⚠ NO ARC ACROSS THE MOUTH. Two were drawn here to say "this is the near end", and in a

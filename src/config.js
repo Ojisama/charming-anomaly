@@ -2976,14 +2976,15 @@ export const SCREW_SPIN_RATE = 7.5
 //     0.45    129         219           88        99.9
 // Damage barely moves across the whole range, so this is a FEEL knob and not a balance one.
 //   0.45 shipped first and the owner called it too much on sight ("less inertia on the helice",
-// same day). 0.30 is where "less" stops: a reversal still swings 110 degrees and the coast after a
-// stop drops from 193px over 3.08s to 122px over 1.90s, while BELOW it the screw starts dying on
-// top of the player again — it settles 62px out of a 126px chain at 0.22 and 44px at 0.15, which is
-// the aura the spawn line exists to prevent. The floor is that settle distance, not the swing.
-// balance_decision : a flick swings it a third of a turn 2026-09-06
+// same day); 0.30 was where "less" stopped (a reversal swings 110 degrees, the coast after a stop is
+// 122px over 1.90s). BELOW 0.30 the screw starts dying on top of the player again — it settles 62px
+// out of a 126px chain at 0.22 and 44px at 0.15, which is the aura the spawn line exists to prevent.
+// The floor is that settle distance, not the swing.
+// balance_decision : 20% more inertia than 0.30 2026-09-07
+//  - the coast time constant is -1/ln(damp), so 0.30^(1/1.2) is EXACTLY +20% of it; 0.30*1.2 is +18%
 //  - dps is flat across 0-0.45 (83 -> 88), so retune this for feel, never for damage
 //  - do NOT go below 0.30: the blade settles on the player and the card becomes an aura
-export const SCREW_DAMP = 0.30
+export const SCREW_DAMP = Math.pow(0.30, 1 / 1.2)
 // The hull the blades stop at is PLAYER.radius plus this: the fish sprite is ~1.6 radii long, so a
 // blade tip parked on the collision circle still sits on its nose (shot, 2026-09-07).
 export const SCREW_HULL_PAD = 14
@@ -11630,6 +11631,8 @@ export const ORCA_DMG_FRAC = 0.34
 export const ORCA_COMMITS = 2
 export const ORCA_LEN = 560            // body length px — ~12x the player, it must read as bigger
 export const ORCA_FEAR_TELL = 0.55     // render: alpha of the ring tell at full close
+// balance_decision : strike lane at 0.55 alpha, rails two-thirds as wide 2026-09-07
+export const ORCA_AIM_TELL = 0.55      // render: alpha multiplier on the drawn strike lane (rails, swell, bubbles)
 // The water thrown up where the strike passes through the centre of the coil, fed to render's
 // spawnSplash as an impact radius: the rings reach SPLASH_VIS.rMax x this, so 150 puts the
 // outermost front at ~350px — half again the closed ring, i.e. it covers the ball the coil herded
