@@ -844,7 +844,7 @@ const CONFIG = {
   // damage from the card entirely.
   'Splits a drum. The oil crawls out, poisons what wades through it, and gums it up long after.': 'Fend un f\u00fbt. Le mazout s\'\u00e9chappe, empoisonne ce qui le traverse et l\'englue bien apr\u00e8s.',
   'The Screw': 'L\'H\u00e9lice',
-  'The ship\'s propeller on a chain, and the stick steers IT: you drive the blade and your body is towed behind it.': 'Une h\u00e9lice de navire au bout d\'une cha\u00eene. Le stick pilote l\'h\u00e9lice\u00a0; ton corps est tir\u00e9 derri\u00e8re elle.',
+  'The ship\'s propeller on a chain, riding ahead of you. It cuts whatever you swim at.': 'L\'h\u00e9lice du navire au bout d\'une cha\u00eene, devant toi. Elle tranche tout ce vers quoi tu nages.',
   'Net Toss': 'Filet Lesté',
   'Throws a weighted net over a pack and holds them where they stand.': 'Jeté sur un groupe entier, il le cloue sur place.',
   'Membrane Piercer': 'Perce-Membrane',
@@ -1053,7 +1053,7 @@ const CONFIG = {
   'Bent Blades': 'Pales Tordues',
   'how wide the screw cuts': 'largeur de coupe de l\'h\u00e9lice',
   'Long Chain': 'Cha\u00eene Longue',
-  'how far back it drags': 'distance de tra\u00eene',
+  'how far ahead it rides': 'distance en avant',
   'Overspeed': 'Surr\u00e9gime',
   'how fast the screw turns': 'vitesse de rotation de l\'h\u00e9lice',
   'Twin Screw': 'H\u00e9lice Double',

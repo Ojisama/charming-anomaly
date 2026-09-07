@@ -22367,8 +22367,9 @@ const spurG = new Graphics()
   }
   // THE CHAIN IS THE CARD. Without it the screw is a free-floating cog that happens to lag behind
   // you, and the one thing the player has to understand — that it is TETHERED, that it swings wide
-  // when you turn — is nowhere on screen. Drawn as one polyline from the player through every link
-  // in order, which is also exactly the order sim.js spaces them in.
+  // when you turn — is nowhere on screen. One chain PER BODY, each from the player: the bodies
+  // stand abreast (stepScrewWeapon), so a polyline threaded through them in order crossed back over
+  // the player's own sprite (adversarial review, 2026-09-08).
   function syncScrewChain(run) {
     screwChainG.clear()
     const list = run.screws || []
@@ -22381,8 +22382,8 @@ const spurG = new Graphics()
     const CHAIN_GAP = 5       // ...then this much water. Both scale with nothing: a chain's links
                               // are a fixed size whatever it is towing.
     const p = run.player
-    let px = p.x, py = p.y
     for (const sc of list) {
+      const px = p.x, py = p.y
       const dx = sc.x - px, dy = sc.y - py
       const len = Math.hypot(dx, dy)
       if (len > 1e-3) {
@@ -22395,7 +22396,6 @@ const spurG = new Graphics()
             .stroke({ width: 1.8, color: 0x8d99a3, alpha: 0.75, cap: 'round' })
         }
       }
-      px = sc.x; py = sc.y
     }
   }
   function placeScrew(s, sc) {

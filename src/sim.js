@@ -181,7 +181,7 @@ import {
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
   ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_DENS_R, ORCA_DENS_FULL_N, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
-  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_CLOSE_FRAC, SCREW_DAMP, SCREW_HULL_PAD, SCREW_STEER_T, SCREW_DRIVE_MUL, SCREW_LINK_GAP,
+  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_CLOSE_FRAC, SCREW_HULL_PAD, SCREW_STEER_T, SCREW_LINK_GAP,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SLICK_BIRTH_CLEAR, SLICK_SPREAD_STEPS, spillSpread, slickR, slickChance, slickDps,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
@@ -680,11 +680,6 @@ function healPlayer(run, amount) {
 
 // ---- Player -------------------------------------------------------------------
 
-// The Screw has the stick while it is equipped and on the chain (see SCREW_STEER_T). run._screwChain
-// is published by stepScrewWeapon, so the frame the blade is born the fish still swims itself.
-function screwDriven(run) {
-  return (run._screwChain ?? 0) > 0 && run.screws.length > 0 && run.weapons.some((w) => w.id === 'screw')
-}
 function stepPlayerMovement(run, input, dt) {
   const p = run.player
   let ix = input?.x || 0
@@ -692,7 +687,7 @@ function stepPlayerMovement(run, input, dt) {
   // THE RAW STICK, KEPT. In a `circuit` the forward component is a THROTTLE, not half of a
   // direction, and the unit-circle clamp below is the wrong tool for it — see the lane branch.
   const rawX = ix, rawY = iy
-  let len = Math.hypot(ix, iy)
+  const len = Math.hypot(ix, iy)
   if (len > 1) { ix /= len; iy /= len } // clamp to unit circle, keep sub-unit analog magnitude
 
   // STILLNESS (v7.2) reads INPUT, deliberately, and this is the only place the raw stick is known.
@@ -974,52 +969,6 @@ function stepPlayerMovement(run, input, dt) {
       else { run._kickX = (kx / mag) * left; run._kickY = (ky / mag) * left }
     }
     if (run._burstT > 0) run._burstT = Math.max(0, run._burstT - dt)
-  } else if (screwDriven(run)) {
-    // THE SCREW HAS THE STICK (SCREW_STEER_T, config.js). The stick is published for stepScrewWeapon
-    // to drive the lead blade with, and the CHAIN moves the fish: while the line is taut the fish
-    // matches the blade's speed ALONG the chain (plus whatever slack is owed), never faster than
-    // `speed` — so the fish's own slows land on the pair. `speed` is published too, as the blade's
-    // top speed. Matching the blade's radial speed rather than chasing an overlap is load-bearing:
-    // the blade's own chain floor (stepScrewWeapon) settles any excess inside its step, so this
-    // step never sees a chain longer than itself. A blade heading square to the chain tows nothing
-    // and pivots round the fish instead, which is the swing.
-    //   AND THE BLADE CAN RUN YOU OVER. Driven back into the fish it must get PAST, or a reversal is
-    // a dead push and the blade never leads again — and it cannot slide round on its own when the
-    // two are exactly in line, which a keyboard press makes the common case. So the fish SIDESTEPS:
-    // perpendicular to the blade's heading, on the side it already is (left if dead on), at the
-    // blade's own speed and never faster than `speed`. Triggered on TOUCHING with the blade heading
-    // in, not on overlap: the blade's hull floor (stepScrewWeapon) resolves any overlap inside its
-    // own step, so this step would never see one. That floor does the rest — the blade slides by,
-    // the line comes taut behind it and the fish is towed the new way.
-    run._stickX = ix; run._stickY = iy; run._moveSpeed = speed
-    const lead = run.screws[run.screws.length - 1]
-    const dx = lead.x - p.x, dy = lead.y - p.y, d = Math.hypot(dx, dy)
-    const hull = lead.r + PLAYER.radius + SCREW_HULL_PAD
-    let mx = 0, my = 0
-    if (d > run._screwChain - 2) {
-      const along = ((lead.vx ?? 0) * dx + (lead.vy ?? 0) * dy) / Math.max(d, 1e-6)
-      // dt > 0 guard: a 0-length frame (main.js clamps dt above but not below) made this 0/0 and
-      // put the player at NaN for the rest of the run.
-      const owed = dt > 0 ? Math.max(0, d - run._screwChain) / dt : 0
-      const pull = Math.min(speed, Math.max(0, along) + owed)
-      mx = (dx / d) * pull; my = (dy / d) * pull
-    } else if (d < hull + 2) {
-      const vl = Math.hypot(lead.vx ?? 0, lead.vy ?? 0)
-      const tx = vl > 1e-6 ? lead.vx / vl : 0, ty = vl > 1e-6 ? lead.vy / vl : 0
-      if (tx * -dx + ty * -dy > 0) {
-        const side = (tx * -dy - ty * -dx) >= 0 ? 1 : -1
-        const step = Math.min(speed, vl)
-        mx = -ty * side * step; my = tx * side * step
-      }
-    }
-    p.vx = mx
-    p.vy = my
-    // The fish faces the way the chain moves it while it moves, and the stick otherwise. `len`
-    // is left as the STICK: a held stick is the fish working (p.moving drives the swim pose), and
-    // an idle pose under a held stick is exactly the "my input does nothing" read this exists to
-    // remove.
-    const ml = Math.hypot(mx, my)
-    if (ml > 1e-6) { ix = mx / ml; iy = my / ml }
   } else {
     p.vx = ix * speed
     p.vy = iy * speed
@@ -10150,108 +10099,62 @@ function stepChumWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 
-// -- Bilge (v7.x, The Wreck) ---------------------------------------------------------------------
-// A run.blooms entry tagged look: 'bilge' — the fourth card on that array. `dmgPerTick: 0` and
-// `slow` ON: this is a drag, not a damage zone. slickTrail lays it at the player's feet as they
-// swim instead of ahead, which is what turns a series of circles into a drawn fence.
-// THE SCREW (v7.x, The Wreck). One body per chain link, dragged behind the player, cutting whatever
-// its own radius touches. See WEAPONS.screw in config.js for why it trails rather than orbits.
-//
-// ⚠ IT IS A ROPE, NOT A CHASER, AND THAT IS THE WHOLE BEHAVIOUR. The screw is never moved toward the
-// player at some speed of its own — it is left where it was and then held to `chain` px when the
-// line goes taut. Everything the card is for falls out of that one rule: swim at it and the chain
-// slackens; turn hard and it swings wide through the inside of the turn, sweeping ground the player
-// has already crossed. A speed knob would have to be kept in sync with the player's own (which
-// passives move) and would turn every hard turn into a straight line.
-//
-// ⚠ AND IT HAS MASS (owner, 2026-09-06: "the hélice should have some inertia"). The rope above was
-// POSITION-ONLY: nothing carried between frames, so the screw stopped in the same frame the player
-// did — 228 px/s to 0, with 0px of coast, measured. It now keeps a velocity, and the chain redirects
-// that velocity instead of replacing it, which is what a pendulum is: the taut line can only pull
-// the bob toward the anchor, so the RADIAL component is whatever the chain says and the TANGENTIAL
-// component is conserved. That single fact is what buys the swing — stop dead and it sails past you
-// and arcs round; whip a turn and it keeps its old heading for a beat before the chain catches it.
-//   ⚠ THE VELOCITY IS DERIVED FROM THE MOVE THAT ACTUALLY HAPPENED, not integrated separately. That
-// is the whole reason this is six lines and not a solver: the constraint below already produces the
-// correct position, and reading the frame's real displacement back out gives a velocity that agrees
-// with it for free. Integrating a second copy and then correcting it is where rope code grows a
-// stability problem, and it would let position and velocity disagree about whether the chain is
-// taut — the shape where a body jitters on the constraint forever.
-//
-// run.screws PERSISTS ACROSS FRAMES and is therefore NOT cleared in stepWeapons, unlike run.orbs:
-// the position IS the state here, and an orbiter's is a pure function of run.time. Same contract as
-// run.debris, whose header states the exception.
+// THE SCREW PLOWS (2026-09-08). The blade rides one chain ahead of the player in the direction they
+// swim, closing on that point on SCREW_STEER_T so a turn whips it across rather than snapping it,
+// and settles at the hull (its radius, the player's, SCREW_HULL_PAD) when they stop. Twin Screw
+// and Ipecac stand the bodies ABREAST across the heading, a wider plow, SCREW_LINK_GAP apart. Two
+// clamps survive from the rope it was — never past the chain, never on the player — with the
+// chain clamp set at the ROW'S CORNERS (hypot of the chain and half the row), so a straight row
+// fits inside it: clamped at the chain itself, the row bent onto an arc and the gap between
+// bodies vanished (adversarial review). The stagger pass below is the floor between bodies.
+//   The heading is the player's own velocity (stepPlayerMovement writes p.vx/p.vy from the stick;
+// the tide moves p.x directly and does not count), remembered on run._plowX/_plowY so a stopped
+// player keeps the blade where they were last going. First frame ever: the facing.
+//   run.screws PERSISTS ACROSS FRAMES and is therefore NOT cleared in stepWeapons, unlike run.orbs:
+// the position IS the state here. Same contract as run.debris.
 function stepScrewWeapon(run, stats, fireRateMul, dt) {
   const p = run.player
-  // TWIN SCREW puts a second one further down the same chain, so the two sweep different arcs
-  // through a turn rather than sitting on top of each other. ipecacN for the anomaly, exactly as
-  // every other count in this file. The spacing divisor and the loop bound are ONE local: writing
-  // the count twice is the per-cast-count trap, and two screws on one point render as one.
   // OVERSPEED divides the cut interval, the same `/ (1 + mod)` idiom as quickBreak and quickPour —
   // `tick` is SECONDS BETWEEN CUTS, so folding a pct onto it through WEAPON_STAT_MODS would make
   // the card slow the screw down, which is why it is a rate mod and read here instead.
   const overspeed = run.weaponMods.screw?.overspeed ?? 0
   const rate = fireRateMul * (1 + overspeed)
+  // ipecacN for the anomaly, exactly as every other count in this file. The row spacing and the
+  // loop bound are ONE local: writing the count twice is the per-cast-count trap.
   const n = ipecacN(run, 1 + (run.weaponMods.screw?.twinScrew ?? 0))
   while (run.screws.length > n) run.screws.pop()
-  // ⚠ IT IS BORN AT THE CHAIN'S LENGTH, NEVER UNDER THE BOAT, and that one line is the difference
-  // between this card and a small aura at your feet. Spawned at the player's own position it sits
-  // in the middle of whatever is touching them, so a player who never moves cuts exactly as much as
-  // one who loops — measured, and it was the same number to the point: 1248 against 1248 over the
-  // same knot. Due west is arbitrary and only lasts until the player moves; what matters is that it
-  // starts a chain away.
-  //   ...AND NOW IT IS BORN AHEAD, ALONG THE FACING, CARRYING THE FISH'S SPEED — because it is the
-  // body the stick drives from its first frame. Born behind, in line, at rest, a stick held the way
-  // you were swimming drove it INTO the fish and froze you for 1.2s on the frame you took the card
-  // (measured), with the crowd on you. An added body (Twin Screw, Ipecac) becomes the new lead, so
-  // it is born ON the old lead with its velocity and the stagger below sorts them out.
-  while (run.screws.length < n) {
-    const lead = run.screws[run.screws.length - 1]
-    const fa = p.facingAngle ?? 0
-    run.screws.push(lead
-      ? { x: lead.x, y: lead.y, r: stats.radius, spin: 0, vx: lead.vx ?? 0, vy: lead.vy ?? 0 }
-      : { x: p.x + Math.cos(fa) * stats.chain, y: p.y + Math.sin(fa) * stats.chain, r: stats.radius, spin: 0, vx: p.vx ?? 0, vy: p.vy ?? 0 })
+  const hull = stats.radius + PLAYER.radius + SCREW_HULL_PAD
+  const row = 2 * stats.radius + SCREW_LINK_GAP
+  const clampR = Math.hypot(stats.chain, ((n - 1) / 2) * row)
+  const pv = Math.hypot(p.vx ?? 0, p.vy ?? 0)
+  if (pv > 1e-6) { run._plowX = p.vx / pv; run._plowY = p.vy / pv }
+  const hx = run._plowX ?? Math.cos(p.facingAngle ?? 0), hy = run._plowY ?? Math.sin(p.facingAngle ?? 0)
+  const reach = pv > 1e-6 ? stats.chain : hull
+  const plowAt = (i) => {
+    const lat = (i - (n - 1) / 2) * row
+    return [p.x + hx * reach - hy * lat, p.y + hy * reach + hx * lat]
   }
-  // COAST, then let the constraints have it. Math.pow so the water takes the same FRACTION per
-  // second at any frame rate — a per-frame multiply makes the screw heavier on a slow machine.
-  // `?? 0` because a hand-built screw (an fx scene, a test fixture) carries no velocity, and
-  // undefined * keep is NaN, which puts the body at NaN,NaN and vanishes it.
-  const keep = Math.pow(SCREW_DAMP, dt)
+  while (run.screws.length < n) {
+    const [x, y] = plowAt(run.screws.length)
+    run.screws.push({ x, y, r: stats.radius, spin: 0, vx: 0, vy: 0 })
+  }
+  const k = 1 - Math.exp(-dt / SCREW_STEER_T)
   const from = []
-  // THE LEAD BLADE TAKES THE STICK (SCREW_STEER_T): its velocity closes on what the stick asks at
-  // the fish's own speed, and it is the LAST body on the chain, so Twin Screw's second rides between
-  // the fish and the blade you are steering. The rest, and the lead once the stick is let go, coast.
-  // The chain lengthens to hold its bodies (SCREW_LINK_GAP): one blade rides at `chain`, each extra
-  // body adds a blade's width and a gap, so they cannot be asked to share a ring they do not fit on.
-  const chainLen = Math.max(stats.chain, stats.radius + PLAYER.radius + SCREW_HULL_PAD + (n - 1) * (2 * stats.radius + SCREW_LINK_GAP))
-  run._screwChain = chainLen
-  const sx = run._stickX ?? 0, sy = run._stickY ?? 0
-  const driven = Math.hypot(sx, sy) > 1e-6
-  for (let i = 0; i < run.screws.length; i++) {
+  for (let i = 0; i < n; i++) {
     const sc = run.screws[i]
     sc.r = stats.radius
-    if (driven && i === run.screws.length - 1) {
-      const k = 1 - Math.exp(-dt / SCREW_STEER_T)
-      const top = (run._moveSpeed ?? PLAYER.baseSpeed) * SCREW_DRIVE_MUL
-      sc.vx = (sc.vx ?? 0) + (sx * top - (sc.vx ?? 0)) * k
-      sc.vy = (sc.vy ?? 0) + (sy * top - (sc.vy ?? 0)) * k
-    } else {
-      sc.vx = (sc.vx ?? 0) * keep
-      sc.vy = (sc.vy ?? 0) * keep
-    }
-    from.push(sc.x, sc.y, Math.hypot(sc.vx, sc.vy))
-    sc.x += sc.vx * dt
-    sc.y += sc.vy * dt
+    from.push(sc.x, sc.y)
+    // Carried with the fish, then eased onto the plow point: without the carry a moving target is
+    // always speed x SCREW_STEER_T (48px) ahead of the blade and the chain never reads taut.
+    const [x, y] = plowAt(i)
+    sc.x += (p.vx ?? 0) * dt + (x - sc.x) * k
+    sc.y += (p.vy ?? 0) * dt + (y - sc.y) * k
   }
   // THE CHAIN IS A CEILING AND THE BODIES ARE FLOORS (owner, 2026-09-07: "the blades should never
-  // be on you ... the blades cannot stack on you and on each other"). Three projections, relaxed a
-  // few passes so they agree: no two screws closer than their radii, and each screw held between
-  // the hull (its radius, the player's, and SCREW_HULL_PAD) and its link on the chain. The floor wins where the
-  // two contradict — Ipecac's innermost link is shorter than a hull — so a blade is never on the
-  // player whatever the chain says.
-  // ponytail: 24 Gauss-Seidel passes over n <= 6 bodies (Ipecac x Twin Screw), ~500 ops a frame.
-  // Measured on the crowded case, six blades pinned to one ring: 3 passes leave them 26px into
-  // each other, 16 leave 1.6px, 24 leave 0.3px. A real solver if the chain ever holds more.
+  // be on you ... the blades cannot stack on you and on each other"). Relaxed a few passes so they
+  // agree: no two bodies closer than their radii, each held between the hull and the chain.
+  // ponytail: 24 Gauss-Seidel passes over n <= 6 bodies, ~500 ops a frame. A real solver if the
+  // chain ever holds more.
   for (let pass = 0; pass < 24; pass++) {
     for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
       const a = run.screws[i], b = run.screws[j]
@@ -10260,9 +10163,7 @@ function stepScrewWeapon(run, stats, fireRateMul, dt) {
       if (d >= min) continue
       if (d < 1e-6) { dx = 1; dy = 0; d = 1 }
       let nx = dx / d, ny = dy / d
-      // In line with the player there is no room along the line — and a keyboard tow puts every
-      // screw exactly on it — so the pair is pushed SIDEWAYS instead, which is what beads on a
-      // rope too short for them do: they stagger.
+      // In line with the player there is no room along the line, so the pair is pushed SIDEWAYS.
       const px = p.x - a.x, py = p.y - a.y
       if (Math.abs(nx * py - ny * px) < 0.05 * Math.hypot(px, py)) { const t = nx; nx = -ny; ny = t }
       const push = (min - d) / 2
@@ -10271,38 +10172,18 @@ function stepScrewWeapon(run, stats, fireRateMul, dt) {
     }
     for (let i = 0; i < n; i++) {
       const sc = run.screws[i]
-      // Each link sits further back than the last, evenly spaced along the chain's own length.
-      const link = chainLen * ((i + 1) / n)
       let dx = p.x - sc.x, dy = p.y - sc.y, d = Math.hypot(dx, dy)
       if (d < 1e-6) { dx = 1; dy = 0; d = 1 }
-      const want = Math.max(sc.r + PLAYER.radius + SCREW_HULL_PAD, Math.min(link, d))
+      const want = Math.max(hull, Math.min(clampR, d))
       if (want !== d) { sc.x = p.x - (dx / d) * want; sc.y = p.y - (dy / d) * want }
     }
   }
   for (let i = 0; i < n; i++) {
     const sc = run.screws[i]
-    // ...and the velocity is what the frame actually did. Every correction above is a push along
-    // one line, so the component ACROSS it survives — which IS the pendulum, and is why a blade
-    // that meets the hull slides round it instead of stopping dead. Deriving it rather than
-    // integrating a second copy is why this is a few lines and not a solver: position and velocity
-    // cannot disagree about whether the chain is taut, which is the shape where a body jitters on
-    // its constraint forever.
-    //   ...CAPPED at what the frame could physically hand it: a push can only REDIRECT the speed
-    // the body had, and the player can add their own, nothing more. Without the cap a body born
-    // on top of another (Twin Screw's second, at the same point as the first) reads its 34px
-    // stagger as 2000px/s and flies off the chain for half a second.
-    //   ⚠ NOT FOR THE BLADE THE STICK IS DRIVING. Its velocity is the drive state, and it has to
-    // survive the chain clamping its position: read back from the clamped move it is ~0 every
-    // frame the fish has not yet followed, the drive restarts from ~0, and the tow (which reads
-    // this velocity along the chain) never sees a reason to move — a deadlock, measured as a
-    // blade parked at 8px/s against a stick held hard west. The position is still clamped; the
-    // intent is what the fish follows.
-    if (!(driven && i === run.screws.length - 1)) {
-      sc.vx = (sc.x - from[i * 3]) / dt
-      sc.vy = (sc.y - from[i * 3 + 1]) / dt
-      const v = Math.hypot(sc.vx, sc.vy), vmax = from[i * 3 + 2] + Math.hypot(p.vx ?? 0, p.vy ?? 0)
-      if (v > vmax) { sc.vx *= vmax / v; sc.vy *= vmax / v }
-    }
+    // What the frame actually did, for anything that reads a blade's velocity. dt > 0 guard: a
+    // 0-length frame is 0/0.
+    sc.vx = dt > 0 ? (sc.x - from[i * 2]) / dt : 0
+    sc.vy = dt > 0 ? (sc.y - from[i * 2 + 1]) / dt : 0
     // Render-only, and derived here so the sim owns one clock: the blade's own rotation, faster
     // when the cut is faster. render.js reads it and never writes it.
     sc.spin += dt * SCREW_SPIN_RATE * rate
@@ -10317,6 +10198,10 @@ function stepScrewWeapon(run, stats, fireRateMul, dt) {
   }
 }
 
+// -- Bilge (v7.x, The Wreck) ---------------------------------------------------------------------
+// A run.blooms entry tagged look: 'bilge' — the fourth card on that array. `dmgPerTick: 0` and
+// `slow` ON: this is a drag, not a damage zone. slickTrail lays it at the player's feet as they
+// swim instead of ahead, which is what turns a series of circles into a drawn fence.
 function stepBilgeWeapon(run, w, stats, fireRateMul, dt) {
   const pools = ipecacN(run, 1)
   // slickTrail: smaller pools, laid by DISTANCE TRAVELLED rather than on the cast timer — see the

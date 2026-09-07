@@ -2854,41 +2854,26 @@ export const WEAPONS = {
       { rate: 3.4, castRange: 320, dur: 5.6, aggro: 320, food: 15 },
     ],
   },
-  // THE SCREW (2026-09-06). The Wreck's fourth native, and the answer to a measured hole: this
-  // chapter has the highest spawnMul and maxAliveMul in the game and had no weapon that deals with
-  // a crowd continuously — a bite, a bait and a pool of oil, all of them punctual.
+  // THE SCREW (2026-09-06, plow since 2026-09-08). The Wreck's fourth native, and the answer to a
+  // measured hole: this chapter has the highest spawnMul and maxAliveMul in the game and had no
+  // weapon that deals with a crowd continuously — a bite, a bait and a pool of oil, all punctual.
   //
-  // ⚠ IT TRAILS, IT DOES NOT ORBIT, AND THAT DECISION IS THE WHOLE CARD. The concept as first
-  // pitched was "a propeller spinning beside you", which is `orbit` (Phage Ring) with a different
-  // sprite and different numbers — the "two concepts that differ only in damage, area and rate are
-  // one concept" trap, in the one shape this repo keeps re-buying. Put back to the owner and ruled:
-  // it drags behind you on a chain.
-  //
-  // WHAT THE PLAYER DOES DIFFERENTLY, which is the test a new weapon has to pass: your PATH is the
-  // weapon. An orbiter covers a ring around you and rewards standing still; this covers where you
-  // have BEEN, so a loop around a pack carves through it and a straight line drags the screw along
-  // behind you doing very little. It is also the only weapon in the game that rewards how you move,
-  // and it lands in the chapter that is already about what you leave behind — the oil.
-  //
-  // THE CHAIN IS A CONSTRAINT, NOT A SPEED. The screw is pulled toward the player and snapped to
-  // `chain` px when the line goes taut, which is a rope and not a chaser: swim toward it and the
-  // chain goes slack and it sits still; turn hard and it swings wide through the inside of the
-  // turn. That single rule is where every interesting position it takes comes from, so it has no
-  // speed knob of its own to drift out of sync with the player's.
-  //
-  // ⚠ UNMEASURED FIRST CUT. Pitched against orbit (dmg 10-24 across 2-5 orbs at ORB_R 12, tick
-  // 0.5-0.35): ONE body, so a wider one, hitting a little harder and a little faster, and it has to
-  // be earned by moving. Census before quoting any of it.
+  // IT PLOWS. Three cuts to get here, every one ruled by the owner: it trailed on a rope ("not
+  // drivable"), then the stick drove the blade and towed the fish ("plays bad"), and now it rides
+  // ONE CHAIN AHEAD of you in the direction you swim, lagging a beat so it whips through a turn,
+  // and settles at your nose when you stop. WHAT THE PLAYER DOES DIFFERENTLY: you aim it by
+  // swimming at a pack — the blade is exactly where you are going, never where you have been.
+  // That separates it from an orbiter (which pays a player who stands still: this one covers only
+  // its own width at rest) and from the rope it was (which covered where you HAD been).
+  // Twin Screw and Ipecac put the bodies ABREAST, a wider plow, SCREW_LINK_GAP apart. See
+  // SCREW_STEER_T for the lag and stepScrewWeapon for the geometry.
   screw: {
     name: 'The Screw',
-    desc: 'The ship\'s propeller on a chain, and the stick steers IT: you drive the blade and your body is towed behind it.',
+    desc: 'The ship\'s propeller on a chain, riding ahead of you. It cuts whatever you swim at.',
     icon: '\u2699\ufe0f', rarity: 'normal',
-    // balance_decision : driven blade, radius x2 and cut rate x2 2026-09-07
-    //  - measured on the aimed census rig (--aim nearest --stick 1, six seeds, L1 kills/min): the
-    //    driven blade read 42 against the trailing one's 77; damage did nothing (hits fell as it
-    //    rose); x2/x2 reads 71, x3/x3 88, x5/x5 116 (Gnash 116). Owner: keep x2/x2, old parity
-    //  - `chain` is the ONE-blade length; with more bodies on it the chain lengthens to hold them
-    //    (SCREW_LINK_GAP) — six blades of radius 68 cannot fit on 110px, and run PY.c forbids stacking
+    // balance_decision : radius x2 and cut rate x2, kept for the plow 2026-09-08
+    //  - plow on the aimed census rig (--aim nearest --stick 1, six seeds): 64 kills/min at L1
+    //    (rope 77, Bilge 57, Gnash 116) and 146 at L5 (rope 133, Bilge 132, Gnash 161)
     levels: [
       { dmg: 12, radius: 34 * 2, chain: 110, tick: 0.40 / 2 },
       { dmg: 15, radius: 37 * 2, chain: 118, tick: 0.37 / 2 },
@@ -2958,65 +2943,21 @@ export const ORB_R = 12       // px, orbit spark hit radius
 // Overspeed makes the blade visibly turn faster rather than only cutting more often — a rate change
 // with no tell reads as no change at all.
 export const SCREW_SPIN_RATE = 7.5
-// THE SCREW HAS MASS. Owner ruling 2026-09-06: "the hélice should have some inertia". It was a pure
-// rope constraint — left where it was until the chain went taut, then snapped onto the line — so it
-// carried NO velocity between frames and stopped in the same frame the player did. Measured: 228
-// px/s while towed, and 0px of travel after the player let go. A propeller heavy enough to need a
-// chain does not stop dead, and a body with no momentum cannot swing.
-//   THE FRACTION OF ITS SPEED THE WATER LEAVES IT AFTER ONE SECOND, applied as a power of dt so the
-// coast is the same at 30fps and at 144. Not a px/s drag: a linear one takes a fixed bite whatever
-// the speed, so it barely touches a fast tow and slams a slow drift to a halt — backwards for water.
-//   The floor is what makes this a knob and not a flag: at 0 the velocity is wiped every frame and
-// the behaviour is exactly the rope this replaces, so the test's mutation of it is the honest
-// no-inertia control rather than a different bug.
-//   ⚠ SWEPT, AND THE KNOB IS THE SWING RATHER THAN THE COAST. Owner, 2026-09-06: "Not a lot of
-// inertia but some, with a flick you should be able to have a swirl half circle" — so what was
-// measured is the ANGLE THE SCREW SWEEPS AROUND THE PLAYER after a hard direction change, which is
-// the thing he described; distance coasted says nothing about whether it went ROUND you or just
-// past you. Five values against that, with the weapon census on the same rows:
-//     damp   flick back   flick 90   eff dps   kills/min
-//     0        31 deg      18 deg       83       100.8      <- the rope this replaces
-//     0.15     66          22           97       108.8
-//     0.25     90          39           89       100.4
-//     0.35    115         267          128       124.4      <- 5-seed outlier, not a trend
-//     0.45    129         219           88        99.9
-// Damage barely moves across the whole range, so this is a FEEL knob and not a balance one.
-//   0.45 shipped first and the owner called it too much on sight ("less inertia on the helice",
-// same day); 0.30 was where "less" stopped (a reversal swings 110 degrees, the coast after a stop is
-// 122px over 1.90s). BELOW 0.30 the screw starts dying on top of the player again — it settles 62px
-// out of a 126px chain at 0.22 and 44px at 0.15, which is the aura the spawn line exists to prevent.
-// The floor is that settle distance, not the swing.
-// balance_decision : 20% more inertia than 0.30 2026-09-07
-//  - the coast time constant is -1/ln(damp), so 0.30^(1/1.2) is EXACTLY +20% of it; 0.30*1.2 is +18%
-//  - dps is flat across 0-0.45 (83 -> 88), so retune this for feel, never for damage
-//  - do NOT go below 0.30: the blade settles on the player and the card becomes an aura
-export const SCREW_DAMP = Math.pow(0.30, 1 / 1.2)
-// THE STICK DRIVES THE BLADE. Owner, 2026-09-07: "hélice is not \"drivable\" as i want it to, the
-// gameplay is not good" — and, given four ways to make it drivable, he picked "the stick moves
-// the SCREW, and your fish is pulled along behind it on the chain". So while the card is equipped
-// the joystick is the LEAD blade's throttle and the fish is towed: pulled toward the blade while
-// the chain is taut, never faster than the fish's own composed speed — every slow in the chapter
-// still lands on the pair, because a blade cannot leave a chain that will not follow. Driven back
-// INTO the fish, the blade runs it over: the fish sidesteps and the blade slides past, then tows
-// it the new way (stepPlayerMovement, stepScrewWeapon).
-//   SCREW_STEER_T    s for the blade's velocity to close 63% of the gap to what the stick asks —
-//                    the steering response. SCREW_DAMP is only the coast once the stick is let go.
-//   SCREW_DRIVE_MUL  the blade's top speed as a fraction of the fish's. Above 1 it outruns the tow
-//                    and the chain drags it back every frame; 1 is the honest pair.
-//   ⚠ NOT IN A LANE CHAPTER. The tow branch sits after the lane and circuit branches of
-// stepPlayerMovement, so in `beyond` and `reef` the card falls back to the old rope. It is only
-// in The Wreck's pool and The Blank's, so that is dev-menu territory today — but the desc is
-// false there.
-// balance_decision : the stick drives the blade, the fish is towed 2026-09-07
+// THE PLOW'S LAG. Owner, 2026-09-08, picking the plow over three other concepts after the stick-
+// driven blade "plays bad": the blade rides a chain ahead in the direction you swim and settles at
+// your nose when you stop. It closes 63% of the gap to that point every SCREW_STEER_T seconds, so a
+// turn whips it across the new heading rather than snapping it there — enough lag to read as a
+// weight on a chain, not enough to leave it behind: at 0.22 it is within 15 degrees of a new
+// heading in six tenths of a second (run PY.c).
+// balance_decision : the blade plows one chain ahead, lagging 0.22s 2026-09-08
 export const SCREW_STEER_T = 0.22
-export const SCREW_DRIVE_MUL = 1
 // The hull the blades stop at is PLAYER.radius plus this: the fish sprite is ~1.6 radii long, so a
 // blade tip parked on the collision circle still sits on its nose (shot, 2026-09-07).
 export const SCREW_HULL_PAD = 14
-// THE CHAIN IS AS LONG AS ITS BODIES NEED. `chain` in the levels is the one-blade length; each extra
-// body on it (Twin Screw, Ipecac) adds a blade's width plus this much clear water, so six blades of
-// radius 68 get the ~800px they physically take rather than stacking on a 110px chain. Read by
-// stepScrewWeapon for the links and by the tow.
+// THE ROW'S SPACING. Bodies abreast (Twin Screw, Ipecac) stand a blade's width plus this much clear
+// water apart, centred on the heading; the chain clamp sits at the row's corners so the row stays
+// straight (stepScrewWeapon). Twin Screw's corners are ~131px out at L1 — inside a phone's 195px
+// half-width, where a chain grown to hold the row in SERIES put both blades off screen.
 export const SCREW_LINK_GAP = 6
 // GORGE (gnash): what eating an elite pays. It healed to FULL until 2026-09-06 — "an elite pays for
 // everything" was the reasoning, and the owner's ruling is that it paid too well. A flat number
@@ -3635,12 +3576,12 @@ export const WEAPON_MODS = {
   // chapter. The two that replace it both turn the wall from denial into HERDING, which is what
   // this chapter's arsenal claims to be ("close, gather, cut off").
   // Five, and the count mod is the one carrying the build variety. `longChain` is not a plain
-  // number: a longer chain sweeps a WIDER arc through a turn and lags further behind on a straight,
-  // so it is the knob that decides whether this is a weapon you steer or one you tow.
+  // number: a longer chain puts the plow further AHEAD — more warning for what it meets, a wider
+  // whip through a turn — so it is the knob that decides how far in front of you the fight is.
   screw: {
     honedBlades: { name: 'Honed',      desc: 'blade damage',                         icon: '\ud83d\udd2a', base: 0.30, kind: 'pct' },
     wideScrew:   { name: 'Bent Blades', desc: 'how wide the screw cuts',             icon: '\u2699\ufe0f', base: 0.25, kind: 'pct' },
-    longChain:   { name: 'Long Chain', desc: 'how far back it drags',                icon: '\u26d3\ufe0f', base: 0.30, kind: 'pct' },
+    longChain:   { name: 'Long Chain', desc: 'how far ahead it rides',               icon: '\u26d3\ufe0f', base: 0.30, kind: 'pct' },
     overspeed:   { name: 'Overspeed',  desc: 'how fast the screw turns',             icon: '\ud83c\udf00', base: 0.25, kind: 'pct' },
     twinScrew:   { name: 'Twin Screw', desc: 'screw(s) on the chain',               icon: '\u2693', kind: 'tier' },
   },

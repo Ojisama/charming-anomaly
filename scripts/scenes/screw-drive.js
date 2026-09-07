@@ -11,7 +11,8 @@
 // Drives `step` itself rather than H.tick, which hardcodes a zero stick.
 H.clean()
 run.weapons = [{ id: 'screw', level: 1 }]
-run.weaponMods.screw = {}
+// ?twin=1 on the URL puts Twin Screw on: two blades abreast, one chain each.
+run.weaponMods.screw = new URLSearchParams(location.search).get('twin') ? { twinScrew: 1 } : {}
 const p = run.player
 p.hp = p.maxHP = 99999
 const PLAN = [[1.5, 1, 0], [1.0, 0, -1], [1.5, -1, 0], [1.0, 0, 0]]
