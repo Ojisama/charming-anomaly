@@ -8396,14 +8396,17 @@ CHAPTERS.wreck = {
     // hashed per cell (there was one texture and one uniform scale). A stale comment here is worse
     // than none, because the next tuner trusts it instead of measuring. Both are now true.
     hull: {
-      // A GRAVEYARD. Hulls may overlap — the layer is drawn through a group alpha (hullAlpha,
-      // render.js), so one lying across another occludes it instead of stacking to a brighter
-      // quadrilateral. That is what lets the cell be SMALLER than the hull: the old non-overlap
-      // rule (cell x 0.74 >= 2 x len x 0.68 x 1.12) capped a hull on screen at ~17% of the time
-      // whatever its size, and the owner's read of that was "we don't see enough the wrecked ship".
-      // 2687 = 3800 / sqrt 2: twice the hulls per area of the 2026-08 field.
-      cell: 2687,
-      chance: 0.90,      // under 1 so the field keeps holes and never reads as a lattice
+      // A GRAVEYARD, PACKED AS TIGHT AS SHIPS FIT WITHOUT TOUCHING. The cell is SMALLER than the
+      // hull: every cell rolls a candidate and hullKept (render.js) drops any that would touch a
+      // higher-priority neighbour, so what is drawn is the densest non-touching subset. The old
+      // rule (cell x 0.74 >= 2 x len x 0.68 x 1.12) assumed the worst-case pair everywhere and
+      // capped a hull on screen at ~17% of the time whatever its size — "we don't see enough the
+      // wrecked ship". The survivors are bounded by the hull's own size, not by the grid: a 3640px
+      // ship at a random heading excludes ~15M px² of neighbours, so the field saturates at about
+      // one per 3900px square whatever the cell — the 2026-08 count, at twice the size. 1800 is
+      // where the candidates are dense enough to reach that ceiling and fill the holes.
+      cell: 1800,
+      chance: 1.0,       // every cell rolls; the roll is the thinning priority — see hullKept
       parallax: 0.45,    // fraction of camera motion the layer takes. 1 = welded to the world, 0 =
                          // pinned to the screen. Under 1 = deeper. Far under and it reads as a
                          // painted backdrop that slides, which is the failure mode to shoot for.
@@ -8459,6 +8462,10 @@ CHAPTERS.wreck = {
     // Silt, not marine snow: heavier and slower than The Trawl's, because this is bottom sediment
     // stirred by a crowd of fish rather than detritus falling from the surface.
     dust: { tint: 0xbfae94, alpha: 0.3, speedMul: 0.12, sway: 5 },
+    // Fewer of the pale mottling patches than the shared floor draws (populateBlotch, render.js):
+    // under twice the hulls they read as noise. Owner, 2026-09-07: "a bit less light patches",
+    // then on seeing 0.6: "even less patches, 30% less".
+    blotchChance: 0.42,
   },
 }
 // Book 2 chapter 4 — THE ONE THING THAT IS NOT AIMING AT YOU. Written as a WHOLE literal for the

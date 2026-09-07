@@ -6,7 +6,7 @@
 //   r.reset(run|null)          new run started (build world) or back to title (clear)
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
-import { AlphaFilter, Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
+import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
 import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_WAKE_R, ORCA_OVERSHOOT,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
@@ -249,6 +249,11 @@ export function createRenderer(app) {
   // and the per-frame updater are in different scopes, `npm run build` compiles the mistake
   // happily, and the only symptom is a ReferenceError on the first frame of one chapter.
   const HULL_REF = 220
+  // Half-beam as a fraction of HULL_REF: a ~70m stern trawler at 6:1 (see the bake). Named here
+  // because TWO things read it — the bake draws the plating at it, and hullKept keeps neighbours
+  // apart by it (the texture is 2.4x taller than the hull, scour pit and berm included, and a
+  // capsule sized off the texture thinned the field to a third of what fits).
+  const HULL_BEAM = 0.166
   let chapterRender = BODY_RENDER
   // 'currents' (the pond's drift field), 'tide' (Undertow's alternating surge) or null. A STRING
   // rather than the boolean it started as, because both chapters draw the same pooled streak field
@@ -6200,7 +6205,7 @@ export function createRenderer(app) {
       //
       // Baked at HULL_REF half-length and scaled by CHAPTERS.wreck.render.hull.len.
       const g = new Graphics()
-      const L = HULL_REF, B = HULL_REF * 0.166
+      const L = HULL_REF, B = HULL_REF * HULL_BEAM
       // ---- THE PALETTE. Two ends and an empty middle, on purpose (see ⚠3) ------------------------
       const VOID = 0x000000     // holes: hatches, engine room, the gash, the ramp mouth
       const SCOUR = 0x141414    // the pit the current digs round a hull
@@ -10032,13 +10037,6 @@ export function createRenderer(app) {
   // In a game whose camera looks straight DOWN, slower-than-the-world reads as further from the
   // camera, and further down is DEEPER — a wreck on a terrace below you, seen through the water.
   const hullLayer = new Container()
-  // GROUP alpha, not per-sprite alpha: the hulls overlap on purpose (a graveyard, not a lattice —
-  // see CHAPTERS.wreck.render.hull), and two sprites at alpha a stack to 1-(1-a)², a bright
-  // quadrilateral belonging to neither wreck. The filter flattens the layer first, so one hull lying
-  // on another occludes it. The only filter in this renderer: one screen-sized pass, one chapter.
-  // run WG asserts it exists, because without it the overlap is an artefact and nothing throws.
-  const hullAlpha = new AlphaFilter({ alpha: 0.5, resolution: 'inherit', antialias: 'inherit' })
-  hullLayer.filters = [hullAlpha]
   floorLayer.addChild(groundLayer, hullLayer, blotchLayer, roadLayer, roadDecalLayer, junctionLayer, ruinLayer,
     bigLayer, midLayer, detailLayer, clutterLayer, edgeLayer)
 
@@ -10790,6 +10788,9 @@ const spurG = new Graphics()
         return
       }
     }
+    // Per-chapter thinning of the mottling (CHAPTERS[].render.blotchChance, default 1): The Wreck
+    // wants fewer pale patches under its hulls (owner, 2026-09-07: "a bit less light patches").
+    if (cellHash(i, j, 6) > (chapterRender.blotchChance ?? 1)) { s.visible = false; return }
     const idx = Math.floor(cellHash(i, j, 1) * T.blotches.length)
     s.texture = T.blotches[idx]
     s.anchor.set(0.5)
@@ -12665,7 +12666,7 @@ const spurG = new Graphics()
   // half because the sprite is not centred on its cell (HULL_LEAD) and the texture is longer than
   // cfg.len (bake() frames the drawing's real bounds). LOAD-BEARING: the cull margins read it, so a
   // value too small pops hulls in at the screen edge, which is the kind of wrong you can see.
-  // Overlap between neighbours is allowed — hullAlpha (above) turns it into occlusion.
+  // Spacing is NOT its job any more: hullKept (below) keeps neighbours from touching.
   const HULL_REACH = 0.68
   // Where the CELL CENTRE lands on the drawing, as a fraction of the half-length forward of the
   // bake's origin. The origin is the FRACTURE — graphics x = 0 sits on the tear — so at 0 the grid
@@ -12692,7 +12693,6 @@ const spurG = new Graphics()
     const px = -cx * cfg.parallax + viewW() / 2
     const py = -cy * cfg.parallax + viewH() / 2
     const cs = cfg.cell
-    hullAlpha.alpha = cfg.alpha
     const halfW = viewW() / 2 + cfg.len * HULL_REACH * HULL_SCALE_MAX
     const halfH = viewH() / 2 + cfg.len * HULL_REACH * HULL_SCALE_MAX
     const i0 = Math.floor((px - halfW) / cs), i1 = Math.floor((px + halfW) / cs)
@@ -12700,10 +12700,8 @@ const spurG = new Graphics()
     let n = 0
     for (let i = i0; i <= i1 && n < HULL_POOL; i++) {
       for (let j = j0; j <= j1 && n < HULL_POOL; j++) {
-        // Hashed off the CELL, not off a counter, so a hull keeps its identity when the player
-        // leaves and comes back — the same rule streamObstacles' skin cache follows.
-        // Not every cell holds one — a full lattice reads as tiling rather than as a graveyard.
-        if (hash(i * 3.7 + j * 11.3 + 5.1) > (cfg.chance ?? 0.7)) continue
+        if (!hullKept(i, j, cfg)) continue
+        const c = hullCandidate(i, j, cfg)
         let sp = hullSprites[n]
         if (!sp) {
           sp = new Sprite(T.wreckHull.tex)
@@ -12712,51 +12710,129 @@ const spurG = new Graphics()
           hullSprites[n] = sp
         }
         sp.visible = true
-        // Jitter off the cell centre. Neighbours may overlap — hullAlpha makes that occlusion.
-        const jx = (i + 0.5) * cs + (hash(i * 7.1 + j * 2.9 + 13.3) - 0.5) * cs * HULL_JITTER * 2
-        const jy = (j + 0.5) * cs + (hash(i * 2.3 + j * 5.7 + 29.7) - 0.5) * cs * HULL_JITTER * 2
-        // HEADING WITH A GRAIN. cfg.grain is the chapter's own tide bearing — wrecks settling in a
-        // directional flow scour into it — and the spread is ±90° (owner, 2026-09-07: "why are they
-        // all the same direction?"). ±34° was scatter with one hull on screen and a parked fleet
-        // with twenty; at ±90° half the field still lies along the flow and half across it.
-        sp.rotation = cfg.grain + (hash(i * 1.9 + j * 8.3 + 41.9) - 0.5) * Math.PI
-        // ONE BAKE, FOUR CHEAP AXES OF VARIETY — and the reason to bother is that the eye finds
-        // repeated DAMAGE faster than repeated form: damage is supposed to be stochastic, so a field
-        // of hulls all snapped in the same place with the same tear screams "stamp" however you
-        // rotate them.
-        //   mirror  flipping y reflects the fracture and the cant across the centreline, and a
-        //           mirrored ship is still a valid ship — two variants for one line.
-        //   heel    a wreck lying flat and level is the exception; 20-60° of heel is the norm, and
-        //           in plan a heeled hull is simply a narrower one, so squashing y IS cos(heel).
-        //   size    a real seabed holds a size range. ±0.18 was measured as ~6.7% between two
-        //           random instances, i.e. under the threshold at which anyone calls them different
-        //           sizes; ±0.40 is the smallest spread that actually reads.
-        // Alpha jitter was DELETED rather than widened: ±0.06 moved the deck's contrast against the
-        // floor by ΔL 0.006 — undetectable — and the honest lesson is that three of the four axes
-        // were randomising things nobody can see while the thing the eye matches on (the
-        // constellation of near-black holes, the only marks above 1.4:1) stayed identical in every
-        // instance. Mirror, heel and a real size spread are what is left, and they are the three
-        // that move that constellation.
-        // ponytail: one texture, so both halves keep a fixed relative pose. If the field ever reads
-        // as stamped again, the upgrade is T.wreckBow + T.wreckStern as two sprites per cell with
-        // independently hashed gap and relative heading — not more knobs on this one.
-        const sc = (cfg.len / (HULL_REF * 2)) * (0.72 + hash(i * 4.1 + j * 6.7 + 3.3) * 0.40)
-        // 0.76 floor, not 0.62: at 6:1 the beam is already narrow, and 0.62 (a 52° heel, perfectly
-        // realistic) turned the hull into a stick with sticks on it — the deck furniture stopped
-        // being nameable, which is the whole reason it is there. Read it as a wreck heeled up to 40°.
-        const heel = 0.76 + hash(i * 5.3 + j * 2.1 + 71.3) * 0.24
-        sp.scale.set(sc, sc * heel * (hash(i * 9.1 + j * 1.3 + 17.7) < 0.5 ? -1 : 1))
-        // The bake's origin is the FRACTURE, so without this the grid centres the empty gap on the
-        // viewport — see HULL_LEAD. Push the sprite back along its own heading so the cell centre
-        // lands on the forward working deck instead.
-        const lead = HULL_LEAD * HULL_REF * sc
-        sp.position.set(jx - Math.cos(sp.rotation) * lead, jy - Math.sin(sp.rotation) * lead)
+        sp.rotation = c.rot
+        sp.scale.set(c.sc, c.sc * c.heel * c.mirror)
+        sp.position.set(c.x, c.y)
         sp.tint = cfg.tint
-        // No per-sprite alpha: hullAlpha carries cfg.alpha for the whole layer (see its comment).
+        sp.alpha = cfg.alpha
         n++
       }
     }
     for (let k = n; k < hullSprites.length; k++) hullSprites[k].visible = false
+  }
+
+  // ---- the hull field's cells: candidates, and which of them are drawn --------------------------
+  // Everything about a cell's hull is hashed off (i, j) — no seed, so the field is the same every
+  // run and this cache never goes stale; it is capped, not cleared. Hashed off the CELL, not off a
+  // counter, so a hull keeps its identity when the player leaves and comes back — the same rule
+  // streamObstacles' skin cache follows.
+  const hullCells = new Map()
+  function hullCandidate(i, j, cfg) {
+    const key = i + ',' + j
+    let c = hullCells.get(key)
+    if (c !== undefined) return c
+    if (hullCells.size > 4000) hullCells.clear()
+    // Not every cell holds one — a full lattice reads as tiling rather than as a graveyard. The
+    // roll doubles as the cell's PRIORITY in hullKept: lower wins.
+    const roll = hash(i * 3.7 + j * 11.3 + 5.1)
+    if (roll > (cfg.chance ?? 0.7)) { hullCells.set(key, null); return null }
+    const cs = cfg.cell
+    const jx = (i + 0.5) * cs + (hash(i * 7.1 + j * 2.9 + 13.3) - 0.5) * cs * HULL_JITTER * 2
+    const jy = (j + 0.5) * cs + (hash(i * 2.3 + j * 5.7 + 29.7) - 0.5) * cs * HULL_JITTER * 2
+    // HEADING WITH A GRAIN. cfg.grain is the chapter's own tide bearing — wrecks settling in a
+    // directional flow scour into it — and the spread is ±90° (owner, 2026-09-07: "why are they
+    // all the same direction?"). ±34° was scatter with one hull on screen and a parked fleet
+    // with twenty; at ±90° half the field still lies along the flow and half across it.
+    const rot = cfg.grain + (hash(i * 1.9 + j * 8.3 + 41.9) - 0.5) * Math.PI
+    // ONE BAKE, THREE CHEAP AXES OF VARIETY — and the reason to bother is that the eye finds
+    // repeated DAMAGE faster than repeated form: damage is supposed to be stochastic, so a field
+    // of hulls all snapped in the same place with the same tear screams "stamp" however you
+    // rotate them.
+    //   mirror  flipping y reflects the fracture and the cant across the centreline, and a
+    //           mirrored ship is still a valid ship — two variants for one line.
+    //   heel    a wreck lying flat and level is the exception; 20-60° of heel is the norm, and
+    //           in plan a heeled hull is simply a narrower one, so squashing y IS cos(heel).
+    //   size    a real seabed holds a size range. ±0.18 was measured as ~6.7% between two
+    //           random instances, i.e. under the threshold at which anyone calls them different
+    //           sizes; ±0.40 is the smallest spread that actually reads.
+    // Alpha jitter was DELETED rather than widened: ±0.06 moved the deck's contrast against the
+    // floor by ΔL 0.006 — undetectable. Mirror, heel and a real size spread are the three axes
+    // that move the constellation of near-black holes, which is the thing the eye matches on.
+    // ponytail: one texture, so both halves keep a fixed relative pose. If the field ever reads
+    // as stamped again, the upgrade is T.wreckBow + T.wreckStern as two sprites per cell with
+    // independently hashed gap and relative heading — not more knobs on this one.
+    const sc = (cfg.len / (HULL_REF * 2)) * (0.72 + hash(i * 4.1 + j * 6.7 + 3.3) * 0.40)
+    // 0.76 floor, not 0.62: at 6:1 the beam is already narrow, and 0.62 (a 52° heel, perfectly
+    // realistic) turned the hull into a stick with sticks on it — the deck furniture stopped
+    // being nameable, which is the whole reason it is there. Read it as a wreck heeled up to 40°.
+    const heel = 0.76 + hash(i * 5.3 + j * 2.1 + 71.3) * 0.24
+    const mirror = hash(i * 9.1 + j * 1.3 + 17.7) < 0.5 ? -1 : 1
+    // The bake's origin is the FRACTURE, so without this the grid centres the empty gap on the
+    // viewport — see HULL_LEAD. Push the sprite back along its own heading so the cell centre
+    // lands on the forward working deck instead.
+    const lead = HULL_LEAD * HULL_REF * sc
+    const x = jx - Math.cos(rot) * lead, y = jy - Math.sin(rot) * lead
+    // The hull as a CAPSULE for hullsTouch: the texture's own length from its anchor (the drawing
+    // is only ~9% longer than the plating), and the PLATING's half-beam across — not the texture's,
+    // which carries the scour pit and berm and is 2.4x wider. Two pits may overlap; two hulls not.
+    const { tex, ax } = T.wreckHull
+    c = {
+      x, y, rot, sc, heel, mirror, roll, keep: undefined,
+      fore: (1 - ax) * tex.width * sc, aft: ax * tex.width * sc,
+      r: HULL_REF * HULL_BEAM * HULL_BEAM_PAD * sc * heel,
+    }
+    hullCells.set(key, c)
+    return c
+  }
+  // NO TWO DRAWN HULLS TOUCH (owner, 2026-09-07: "they overlap sometimes now"). Matérn-II thinning:
+  // a candidate is drawn only if no candidate it would touch rolled lower. It reads neighbours'
+  // CANDIDATES, never their keep decisions, so it is a local rule with no dependency chain — the
+  // same cell always gets the same answer, and the field never flickers as the camera pans. The
+  // price is a few hulls dropped for a blocker that was itself dropped; that is fewer ships, never
+  // a touching pair. Priority is the occupancy roll, so a cell that only just passed it yields.
+  // run WG asserts this is wired, because a field that overlaps does not throw.
+  const HULL_GAP = 30       // px of clear water between two capsules
+  const HULL_BEAM_PAD = 1.15 // the side band and rails sit just outboard of the plating
+  function hullKept(i, j, cfg) {
+    const c = hullCandidate(i, j, cfg)
+    if (!c) return false
+    if (c.keep !== undefined) return c.keep
+    // Every cell whose hull could reach this one: two placement points can be as close as
+    // (d - 2 x jitter) cells apart, and a hull reaches at most lead + max extent + half-beam from
+    // its point at the largest scale.
+    const { tex, ax } = T.wreckHull
+    const scMax = (cfg.len / (HULL_REF * 2)) * HULL_SCALE_MAX
+    const reach = (HULL_LEAD * HULL_REF + Math.max(ax, 1 - ax) * tex.width + HULL_REF * HULL_BEAM * HULL_BEAM_PAD) * scMax
+    const span = Math.ceil((2 * reach + HULL_GAP) / cfg.cell + 2 * HULL_JITTER)
+    let keep = true
+    outer: for (let di = -span; di <= span; di++) {
+      for (let dj = -span; dj <= span; dj++) {
+        if (!di && !dj) continue
+        const o = hullCandidate(i + di, j + dj, cfg)
+        if (o && o.roll < c.roll && hullsTouch(c, o)) { keep = false; break outer }
+      }
+    }
+    c.keep = keep
+    return keep
+  }
+  function hullsTouch(a, b) {
+    const ca = Math.cos(a.rot), sa = Math.sin(a.rot), cb = Math.cos(b.rot), sb = Math.sin(b.rot)
+    return segSegDist(a.x - ca * a.aft, a.y - sa * a.aft, a.x + ca * a.fore, a.y + sa * a.fore,
+      b.x - cb * b.aft, b.y - sb * b.aft, b.x + cb * b.fore, b.y + sb * b.fore) < a.r + b.r + HULL_GAP
+  }
+  function ptSegDist(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay
+    const l2 = dx * dx + dy * dy
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+  }
+  function segSegDist(ax, ay, bx, by, cx, cy, dx, dy) {
+    const cross = (px, py, qx, qy, rx, ry) => (qx - px) * (ry - py) - (qy - py) * (rx - px)
+    const o1 = cross(ax, ay, bx, by, cx, cy), o2 = cross(ax, ay, bx, by, dx, dy)
+    const o3 = cross(cx, cy, dx, dy, ax, ay), o4 = cross(cx, cy, dx, dy, bx, by)
+    if (o1 * o2 < 0 && o3 * o4 < 0) return 0 // they cross
+    return Math.min(ptSegDist(ax, ay, cx, cy, dx, dy), ptSegDist(bx, by, cx, cy, dx, dy),
+      ptSegDist(cx, cy, ax, ay, bx, by), ptSegDist(dx, dy, ax, ay, bx, by))
   }
 
   // ---- The Reef: spur and groove (v7.x) ---------------------------------------------------------

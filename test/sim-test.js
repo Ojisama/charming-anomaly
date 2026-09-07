@@ -10632,26 +10632,25 @@ function runWreckGrid() {
   }
   const scaleMax = constOf('HULL_SCALE_MAX')
   const reach = constOf('HULL_REACH')
-  // -- WG.a: overlap is OCCLUSION, not stacking ------------------------------------------------
-  // The cell (2687) is smaller than the hull (3640 x 0.68 reach), so neighbours overlap by design —
-  // the 2026-09 field is a graveyard, and the old spacing rule this arm used to assert capped a
-  // hull on screen at ~17% of the time whatever its size. What makes overlap safe is a GROUP alpha:
-  // hullLayer draws through an AlphaFilter carrying cfg.alpha, and the sprites themselves stay at
-  // 1. Either half alone re-creates the bright quadrilateral — sprites at cfg.alpha under the
-  // filter stack to 1-(1-a)² and THEN get halved; no filter and they stack outright — with nothing
-  // thrown and no other test red.
+  // -- WG.a: the cell is smaller than the hull, so the THINNING must be wired ------------------
+  // The 2026-09 field packs hulls as tight as they fit: every cell rolls a candidate and hullKept
+  // drops any that would touch a lower-rolling neighbour (capsule vs capsule, hullsTouch). Two
+  // sprites at alpha a stack to 1-(1-a)² where they cross — a bright quadrilateral belonging to
+  // neither wreck — and nothing throws when the thinning is bypassed, so this reads the source:
+  // the loop must gate on hullKept, hullKept must consult hullsTouch against neighbours' rolls,
+  // and hullsTouch must compare the capsule distance against BOTH half-beams.
   const hullBody = rSrc.slice(rSrc.indexOf('function updateWreckHull('), rSrc.indexOf('// ---- The Reef: spur and groove'))
   assert.ok(hullBody.length > 200, 'updateWreckHull must sit above the Reef spur block — run WG slices between the two')
-  assert.ok(/const hullAlpha = new AlphaFilter\(\{ alpha: [0-9.]+, resolution: 'inherit'/.test(rSrc),
-    'hullLayer must own an AlphaFilter named hullAlpha at resolution inherit — without inherit the hulls render at 1x on a 3x phone and blur')
-  assert.ok(/hullLayer\.filters = \[hullAlpha\]/.test(rSrc),
-    'hullAlpha must be INSTALLED on hullLayer — a filter that is built and never attached flattens nothing')
-  assert.ok(/hullAlpha\.alpha = cfg\.alpha/.test(hullBody),
-    'updateWreckHull must write cfg.alpha onto hullAlpha, or CHAPTERS.wreck.render.hull.alpha is a number nothing reads')
-  assert.ok(!/sp\.alpha\s*=/.test(hullBody),
-    'updateWreckHull must NOT set a per-sprite alpha — under the group alpha that stacks overlaps to 1-(1-a)² and then halves the whole field')
-  console.log(`PASS run WG.a (group alpha): cell ${hull.cell} < 2 x len ${hull.len} x reach ${reach} x ${scaleMax} = ` +
-    `${(2 * hull.len * reach * scaleMax).toFixed(0)}px so hulls overlap, and hullLayer flattens through hullAlpha at cfg.alpha with no sprite alpha`)
+  assert.ok(hull.cell < 2 * hull.len * reach * scaleMax,
+    `cell ${hull.cell} is not smaller than the hull's reach — if the spacing rule is back, this arm should be the old one`)
+  assert.ok(/if \(!hullKept\(i, j, cfg\)\) continue/.test(hullBody),
+    'updateWreckHull must skip a cell hullKept rejects — without that gate every candidate draws and neighbours overlap')
+  assert.ok(/o\.roll < c\.roll && hullsTouch\(c, o\)/.test(hullBody),
+    'hullKept must yield to a lower-rolling neighbour it touches — that is the whole thinning')
+  assert.ok(/< a\.r \+ b\.r \+ HULL_GAP/.test(hullBody),
+    'hullsTouch must compare the capsule distance against both half-beams plus HULL_GAP')
+  console.log(`PASS run WG.a (thinning): cell ${hull.cell} < 2 x len ${hull.len} x reach ${reach} x ${scaleMax} = ` +
+    `${(2 * hull.len * reach * scaleMax).toFixed(0)}px, so candidates can touch — and hullKept drops the ones that would`)
 
   // -- WG.b: the cull margin's scale ceiling is the scale line's --------------------------------
   // HULL_SCALE_MAX is read by both cull margins; if the scale line tops out higher, the biggest
@@ -10671,8 +10670,8 @@ function runWreckGrid() {
   assert.equal(hull.grain, CHAPTERS.wreck.tide.axis,
     'hull.grain must BE the chapter tide axis — wrecks scour into the flow, and a second literal ' +
     'here is one fact authored twice with nothing importing anything')
-  assert.ok(/sp\.rotation = cfg\.grain \+/.test(rSrc),
-    'updateWreckHull must build its heading off cfg.grain — a bare full-circle hash ignores the grain entirely')
+  assert.ok(/const rot = cfg\.grain \+/.test(rSrc),
+    'hullCandidate must build its heading off cfg.grain — a bare full-circle hash ignores the grain entirely')
   console.log(`PASS run WG.c (grain): hull.grain = tide.axis = ${hull.grain.toFixed(3)} rad, and render.js reads it`)
 
   // -- WG.d: HULL_EXTENT and HULL_LEAD are both CONSUMED --------------------------------------
