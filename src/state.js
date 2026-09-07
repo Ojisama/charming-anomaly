@@ -1583,21 +1583,36 @@ function generateWells(sig) {
  *   revive zeroing dragT and stepPlayerMovement's wiggle count (with `_stkX/_stkY`, the last held
  *   stick direction, and `_stkA`, the swing banked toward the next flick). _netAcc: s to the next pass, seeded at
  *   TRAWL_FIRST_PASS and reset to TRAWL_INTERVAL x trawlIntervalMul when a pass clears.
- * orca: null | { state, t, cx, cy, r, ang, x, y, tx, ty, dirX, dirY, hit, splashed, alpha, passes } — The Wreck's apex
+ * orca: null | { state, t, cx, cy, r, ang, angLock, x, y, ax, ay, aim, tx, ty, dirX, dirY, hit, splashed, alpha, trail, passes } — The Wreck's apex
  *   predator, in chapters declaring `orca: true`. A SINGLE NULLABLE OBJECT with a countdown, the
  *   same idiom as `net` above and never a pool: there is only ever one, and it is UNKILLABLE (no
  *   hp field, no vulnerability window). `state` walks 'shadow' | 'rising' | 'circling' |
  *   'committing' | 'leaving'; `t` is the seconds left in the current state; (cx, cy)/r are the
  *   closing ring's centre and radius — render draws the band, and while `state` is 'circling'
  *   stepEnemyMovement drags every body inside it toward (cx, cy) at ORCA_HERD_PULL;
- *   (x, y) is the body; ang is its bearing around the ring; (tx, ty) is the point the commit was
- *   aimed at — the coil's own centre, snapshotted at break-orbit and never re-aimed; (dirX, dirY)
- *   is the locked commit heading; `hit` latches the once-per-pass player hit (and, in 'shadow', the
- *   once-per-pass whoosh); `splashed` latches the orcaSplash at (tx, ty); alpha is the fade render
- *   draws with. null between visits and in every other chapter.
+ *   (x, y) is the body; ang is its bearing around the ring; (tx, ty) is the point the commit runs
+ *   through — the coil's own centre; (dirX, dirY) is the locked commit heading; `hit` latches the
+ *   once-per-pass player hit (and, in 'shadow', the once-per-pass whoosh); `splashed` latches the
+ *   orcaSplash at (tx, ty); alpha is the fade render draws with. null between visits and in every
+ *   other chapter.
+ *   ⚠ (ax, ay) AND `aim` ARE THE TELEGRAPH, and they exist because a strike the player was not
+ *   shown is the defect this creature has now been rebuilt around twice (owner, 2026-09-06: "what I
+ *   want is to prevent the orca to dash somewhere that is not telegraph"). On the LAST lap of the
+ *   coil the whole line is locked — (ax, ay) is where the body will be when it breaks orbit, and
+ *   (tx, ty)/(dirX, dirY) with it — and `aim` runs 0 -> 1 across that lap for render to draw the
+ *   lane with. It can be locked a lap early because the last lap is a full turn at a constant rate,
+ *   so the orca ends it exactly where it starts it; nothing is predicted.
+ *   `ax === undefined` IS THE FLAG for "not aimed yet", and it also freezes the ring's tracking of
+ *   the player — a telegraph that follows you is not one. It is reset to undefined on the re-rise
+ *   between the two strikes of a visit, or the second line never re-arms.
  *   'shadow' IS THE OPENING AND IT IS HARMLESS: a silhouette that slides under the player, scatters
  *   the shoal by publishing e.fearT, and clears itself without escalating. No ring, no contact,
  *   no death — foreshadowing, so the shape is learned before it can hurt.
+ *   `angLock` is the orbit bearing at the moment the line was locked, and it is the FIRING
+ *   CONDITION: the commit starts when `ang` has come round a full 2pi from it, not on the clock, so
+ *   the body is at its launch point when the lane it drew begins. Undefined until aimed, cleared
+ *   with `ax` on the re-rise. `trail` is the swept path render strokes as the coil, capped at
+ *   ORCA_TRAIL_MAX points.
  *   `passes` is the strike lines still owed this visit, ORCA_COMMITS down to 0 — a 'leaving' that
  *   still has one left re-enters 'rising' on a fresh bearing instead of clearing the object, so one
  *   visit is two telegraphed lines. Absent on a 'shadow' object, which never commits at all.
@@ -1610,6 +1625,11 @@ function generateWells(sig) {
  *   the bell.
  * _orcaShadows: number — opening shadow passes still owed, ORCA_SHADOW_PASSES down to 0. While
  *   above zero the countdown produces a harmless pass; at zero the real ladder starts.
+ * {type:'orcaAim', x, y, angle}: the strike line has been LOCKED AND DRAWN, fired once per commit
+ *   on the frame the lock happens — a full lap before the body moves. (x, y) is the launch point
+ *   (o.ax, o.ay) and `angle` the heading toward the coil's centre, i.e. exactly the lane render
+ *   paints. SFX `orcaAim`, a rising low tone: deliberately the inverse of every other orca note,
+ *   because this is the one that means "you still have time".
  * {type:'orcaShadow', x, y}: an opening pass at its closest approach to the player — fired ONCE per
  *   pass, latched on o.hit, at the midpoint rather than at spawn so the whoosh lands when the shape
  *   is actually underneath you. SFX only (`hole`): the shadow itself is the visual.

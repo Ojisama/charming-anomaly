@@ -127,13 +127,14 @@ const SFX = {
     tone(250, { type: 'sine', dur: 0.11, gain: 0.13, slide: 120 })
     noise({ dur: 0.05, gain: 0.05 })
   },
-  // THE ORCA'S MOUTH OPENING (2026-09-06). It fires twice a visit, roughly once every 25s, so it
-  // comfortably clears the rarity bar that withholds a sound from freezes and guard blocks.
+  // THE ORCA TAKING AIM (2026-09-06): the note that lands when the strike's lane is drawn. It fires
+  // twice a visit, roughly once every 25s, so it comfortably clears the rarity bar that withholds a
+  // sound from freezes and guard blocks.
   //   IT RISES, which is the whole point and the opposite of every other orca note: bossRise is an
   // arrival and crush is an impact, both of which are things that have ALREADY happened. This one
   // is a countdown — a long low tone climbing for most of a second says "it is not over yet", and
   // the player has a full lap to act on that.
-  orcaGape() {
+  orcaAim() {
     tone(48, { type: 'sine', dur: 0.85, gain: 0.20, slide: 96 })
     tone(72, { type: 'triangle', dur: 0.75, gain: 0.07, slide: 130 })
     noise({ dur: 0.30, gain: 0.035 })

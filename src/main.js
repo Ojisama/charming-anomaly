@@ -580,9 +580,9 @@ const SFX_FOR_EVENT = {
   // large is coming" voice and this is exactly that; the commit takes the hole whoosh a big body
   // moving fast has everywhere else; the connect takes crush, the heaviest impact in the bank.
   orcaRise: 'bossRise', orcaStrike: 'hole', orcaHit: 'crush',
-  // The MOUTH opening, on the third circle — the one orca note that is a warning rather than a
+  // The LINE being drawn, on the third circle — the one orca note that is a warning rather than a
   // report. See audio.js for why it rises where every other one falls.
-  orcaGape: 'orcaGape',
+  orcaAim: 'orcaAim',
   // The OPENING shadow passes take the whoosh and NOT bossRise, and the split is the design: three
   // harmless silhouettes before t=100s teach the shape, and giving them the game's "something large
   // is coming" voice would spend that arrival three times before it ever happens. One per pass,
