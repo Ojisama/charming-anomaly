@@ -13579,17 +13579,22 @@ const spurG = new Graphics()
 
   // The squid's ink on the glass (inkStain): eleven lobed splats with a drip each, on the outer band
   // of the screen — never inside 0.55 of the half-diagonal, so the centre stays legible (owner:
-  // "less at the center of the screen or it's too strong"). Hashed, so a screen size always gets
-  // the same splats; redrawn from fitScreen only when the size changes.
+  // "less at the center of the screen or it's too strong"). Hashed off `inkSeed`, which sync()
+  // re-rolls each time you are inked afresh (owner, 2026-09-07: "randomised position and shape"),
+  // so every squirt lands its own splats; a resize redraws the SAME set, because the seed is kept.
+  let inkSeed = 0
+  let inkWasOn = false    // was run._inkT > 0 last sync — the edge that re-rolls inkSeed
   function drawInkStain(w, h) {
     inkStain.clear()
     const cx = w / 2, cy = h / 2, R = Math.hypot(cx, cy)
+    const s = inkSeed * 97
     for (let k = 0; k < 11; k++) {
-      const a = (k / 11) * Math.PI * 2 + hash(k * 7.3 + 1.1) * 0.5
-      const d = R * (0.58 + hash(k * 3.1 + 2.2) * 0.42)
+      const a = (k / 11) * Math.PI * 2 + hash(s + k * 7.3 + 1.1) * 0.5
+      const d = R * (0.58 + hash(s + k * 3.1 + 2.2) * 0.42)
       const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d
-      const r = Math.min(w, h) * (0.07 + hash(k * 5.7 + 3.3) * 0.08)
-      inkStain.poly(lobePoly(r, k % LOBE_SHAPES.length, hash(k * 2.9) * 6.28, x, y)).fill({ color: 0x0a0812, alpha: 0.85 })
+      const r = Math.min(w, h) * (0.07 + hash(s + k * 5.7 + 3.3) * 0.08)
+      const shape = Math.floor(hash(s + k * 4.3 + 8.8) * LOBE_SHAPES.length)
+      inkStain.poly(lobePoly(r, shape, hash(s + k * 2.9) * 6.28, x, y)).fill({ color: 0x0a0812, alpha: 0.85 })
       inkStain.ellipse(x + r * 0.2, y + r * 0.95, r * 0.16, r * 0.55).fill({ color: 0x0a0812, alpha: 0.7 })
       inkStain.circle(x + r * 0.2, y + r * 1.55, r * 0.14).fill({ color: 0x0a0812, alpha: 0.7 })
     }
@@ -20655,6 +20660,7 @@ const spurG = new Graphics()
     vignetteA = 0
     vignette.alpha = 0
     oilStainA = inkStainA = 0
+    inkWasOn = false
     oilStain.alpha = inkStain.alpha = 0
     lightningFlashA = 0
     lightningFlash.alpha = 0
@@ -22084,6 +22090,12 @@ const spurG = new Graphics()
     // than pops. The ink is deliberately opaque — its job is to be in the way.
     {
       const k = Math.min(1, dt * 5)
+      // A NEW inking — the sim's timer coming back from 0 — re-rolls the splats before they fade
+      // in. Re-entering a cloud while the last stain is still running down keeps its set: that
+      // is the same ink, not a fresh squirt.
+      const inkOn = (run._inkT ?? 0) > 0
+      if (inkOn && !inkWasOn) { inkSeed = Math.random(); drawInkStain(app.screen.width, app.screen.height) }
+      inkWasOn = inkOn
       oilStainA += (0.6 * Math.min(1, (run._foulT ?? 0) / SLICK_SLOW_T) - oilStainA) * k
       inkStainA += (Math.min(1, (run._inkT ?? 0) / INK_STAIN_T) - inkStainA) * k
       oilStain.alpha = oilStainA

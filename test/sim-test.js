@@ -157,7 +157,7 @@ import {
   PUFFER_TRIGGER_R, PUFFER_COOL_T, PUFFER_DRIFT_MUL,
   GNASH_MAW_MUL, RUSH_MAX_STACKS, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, PUFFER_POP_T, GORGE_HEAL,
   SLICK_BURN_T, BILGE_BURN_T, SLICK_FIRE_FRAC, SLICK_FIRE_LINGER,
-  SLICK_SPREAD_T, SLICK_R_LATE, slickR,
+  SLICK_SPREAD_T, SLICK_R_LATE, slickR, BLOOM_GROW_FRAC,
   BALLAST_RING,
   // The Wreck's orca (Run OR)
   ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
@@ -8688,6 +8688,7 @@ function runPrey() {
   // torch, so the player's toll and the unlit radius are compared, not assumed.
   {
     const spec = CHAPTERS.wreck.signature.slicks
+    const d = Math.round(spec.r * (1 - 3.2 / SLICK_BURN_T))
     const soak = (torch) => {
       const run = mk(20260907)
       run.weapons = []
@@ -8697,12 +8698,14 @@ function runPrey() {
       run.slicks.length = 0
       run.slicks.push(sl)
       // Bodies pinned where they stand: the torch (already on fire, a burn too small to matter), a
-      // victim in the same oil, and a bystander well outside it. 1e6 hp so nothing dies mid-soak.
-      // ±40 from the centre so both stay in the oil until it is nearly gone (r is ~190 and shrinks).
+      // victim in the same oil, and a bystander well outside it. 1e7 hp so nothing dies mid-soak.
+      // ±d from the centre, d chosen so both stay in the shrinking oil for ~3.2s of the burn: long
+      // enough to cover the 3s soak, short enough that SLICK_FIRE_FRAC (of maxHP, so no hp value
+      // saves them) does not kill a body that has to survive to be measured after burn-out.
       const cast = [
-        put(run, { x: p.x + 40, y: p.y, hp: 1e6, speed: 0, flags: [] }),
-        put(run, { x: p.x - 40, y: p.y, hp: 1e6, speed: 0, flags: [] }),
-        put(run, { x: p.x + 900, y: p.y, hp: 1e6, speed: 0, flags: [] }),
+        put(run, { x: p.x + d, y: p.y, hp: 1e7, speed: 0, flags: [] }),
+        put(run, { x: p.x - d, y: p.y, hp: 1e7, speed: 0, flags: [] }),
+        put(run, { x: p.x + 900, y: p.y, hp: 1e7, speed: 0, flags: [] }),
       ]
       const [tor, vic, far] = cast
       if (torch) { tor.ignite = 3; tor.igniteDps = 0.001 }
@@ -8751,8 +8754,8 @@ function runPrey() {
     // 3s at SLICK_FIRE_FRAC of maxHP per second, EL_BURN_TICK-quantised; the linger past the loop
     // is a fraction of a tick. Half the nominal is the floor, so a burn that only ever pays
     // EL_BURN_MIN (the rounding trap the ignite tick exists to avoid) cannot pass.
-    assert.ok(lit.vicLost > 1e6 * SLICK_FIRE_FRAC * 3 * 0.5,
-      `...and burn it at SLICK_FIRE_FRAC of its maxHP per second: ${lit.vicLost} over 3s against ${1e6 * SLICK_FIRE_FRAC * 3} nominal`)
+    assert.ok(lit.vicLost > 1e7 * SLICK_FIRE_FRAC * 3 * 0.5,
+      `...and burn it at SLICK_FIRE_FRAC of its maxHP per second: ${lit.vicLost} over 3s against ${1e7 * SLICK_FIRE_FRAC * 3} nominal`)
     assert.ok(!lit.farLit && lit.farLost === 0, `a body OUTSIDE the oil must not catch: lit ${lit.farLit}, lost ${lit.farLost}`)
     assert.ok(plain.fires === 0 && !plain.vicLit && plain.vicLost === 0,
       `control: with no torch nothing lights (${plain.fires} fires) and nothing burns (${plain.vicLost})`)
@@ -8771,13 +8774,16 @@ function runPrey() {
     console.log(`PASS run PY.z (the spill burns away): the torch lit the oil at t=${lit.firstFireT.toFixed(2)} from where it stood, the other body in it lost ${lit.vicLost} HP in 3s, the one outside lost 0, the player paid ${lit.playerLost} in both arms, and the oil was half gone at ${lit.halfR.toFixed(0)}/${lit.halfFull.toFixed(0)}px, gone at ${lit.goneT.toFixed(2)}s, and stayed gone`)
 
     // THE PLAYER'S OWN POOL BURNS FASTER — through the real weapon, so the `look: 'bilge'` tag that
-    // routes it to BILGE_BURN_T is the shipped one, not a fixture's.
+    // routes it to BILGE_BURN_T is the shipped one, not a fixture's. Measured as the RADIUS at
+    // half BILGE_BURN_T against what the pool's own grow ramp would give unlit, because a L1 pool's
+    // `dur` (4.5s) is shorter than the burn: it expires part-burnt, so "gone at BILGE_BURN_T" is
+    // not a thing this fixture can see.
     const run = mk(20260907)
     run.weapons = [{ id: 'bilge', level: 1 }]
     const p = run.player
-    const e = put(run, { x: p.x + 90, y: p.y, hp: 1e6, speed: 0, flags: [] })
-    let pool = null, litT = -1, goneT = -1, t = 0
-    while (t < 30 && goneT < 0) {
+    const e = put(run, { x: p.x + 90, y: p.y, hp: 1e7, speed: 0, flags: [] })
+    let pool = null, litT = -1, halfR = -1, halfFull = -1, alive = false, t = 0
+    while (t < 30 && halfR < 0) {
       only(run, [e]); e.x = p.x + 90; e.y = p.y
       run.slicks.length = 0
       if (pool) e.ignite = 3   // the torch, once there is oil under it
@@ -8785,12 +8791,56 @@ function runPrey() {
       if (!pool) pool = run.blooms.find((b) => b.look === 'bilge' && b.r > 0 && inLobe(b, e.x, e.y)) || null
       for (const ev of run.events) if (ev.type === 'slickFire' && litT < 0) litT = t
       run.events.length = 0
-      if (litT >= 0 && !(pool.r > 0)) goneT = t - litT
+      if (litT >= 0 && t - litT >= BILGE_BURN_T / 2) {
+        halfR = pool.r
+        halfFull = pool.maxR * Math.min(1, pool.t / (pool.dur * BLOOM_GROW_FRAC))
+        alive = run.blooms.includes(pool)
+      }
     }
-    assert.ok(pool && litT >= 0, `precondition: the cast must land a pool under the body and the torch must light it (pool ${!!pool}, lit at ${litT})`)
-    assert.ok(goneT > 0 && Math.abs(goneT - BILGE_BURN_T) <= dt * 3,
-      `a lit Bilge pool must be gone BILGE_BURN_T (${BILGE_BURN_T}s) after it caught, not the leak's ${SLICK_BURN_T}: r hit 0 at ${goneT.toFixed(2)}s`)
-    console.log(`PASS run PY.z2 (your oil burns faster): a Bilge pool lit at t=${litT.toFixed(2)} was gone ${goneT.toFixed(2)}s later`)
+    assert.ok(pool && litT >= 0 && alive, `precondition: the cast must land a pool under the body, the torch must light it, and the pool must outlive half the burn (pool ${!!pool}, lit at ${litT}, alive ${alive})`)
+    assert.ok(Math.abs(halfR / halfFull - 0.5) < 0.05,
+      `half BILGE_BURN_T (${BILGE_BURN_T / 2}s) after it caught a Bilge pool must be half its unlit radius — on ITS clock, not the leak's ${SLICK_BURN_T}s: ${halfR.toFixed(1)} of ${halfFull.toFixed(1)}`)
+    console.log(`PASS run PY.z2 (your oil burns faster): a Bilge pool lit at t=${litT.toFixed(2)} was ${halfR.toFixed(0)}/${halfFull.toFixed(0)}px ${BILGE_BURN_T / 2}s later`)
+  }
+
+  // -- PY.i: THE INK ON THE GLASS IS RE-ROLLED PER INKING (owner, 2026-09-07: "ink stains on the
+  // screen should have randomised position and shape"). Render-only, so a source-text tripwire in
+  // the run UG.k idiom: the splats must be hashed off `inkSeed`, and sync() must re-roll that seed
+  // on the frame run._inkT comes back from 0. Either half alone is the shipped bug — a seed nobody
+  // reads, or hashes nobody re-seeds — and neither throws.
+  {
+    const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    const fn = src.slice(src.indexOf('function drawInkStain('), src.indexOf('const shaftPool'))
+    assert.ok(fn.length > 100 && fn.length < 3000, `drawInkStain must sit above shaftPool in render.js (sliced ${fn.length} chars)`)
+    const seeded = (fn.match(/hash\(s \+ /g) || []).length
+    assert.ok(seeded >= 5, `every splat hash must fold the inking's seed in: ${seeded} of the hashes read s`)
+    assert.ok(/const s = inkSeed \* /.test(fn), 'drawInkStain must derive its hash offset from inkSeed')
+    assert.ok(/if \(inkOn && !inkWasOn\) \{ inkSeed = Math\.random\(\); drawInkStain\(/.test(src),
+      'sync() must re-roll inkSeed and redraw on the frame the ink comes back (run._inkT 0 -> >0)')
+    console.log(`PASS run PY.i (ink splats re-rolled per inking): ${seeded} seeded hashes in drawInkStain, and sync re-rolls inkSeed on the ink's rising edge`)
+  }
+
+  // -- PY.u: THE SARDINE SLOWS YOU AND NEVER HURTS YOU (owner, 2026-09-07: "the very small fishes in
+  // this level should do like previous chapter: just slow you not damage you"). The Trawl's remora
+  // is `latch`; so is the sardine now. Asserted as the EFFECT through the roster's own flag list —
+  // a touch costs 0 HP, sets the slow, and spends the fish — so dropping the flag from the row
+  // fails here, and so does a latch branch that starts charging.
+  {
+    const sard = CHAPTERS.wreck.roster.find((r) => r.id === 'sardine')
+    assert.ok(sard, 'the Wreck roster must still field a sardine')
+    const run = mk(20260907)
+    run.weapons = []
+    const p = run.player
+    p.invuln = 0
+    const hp0 = p.hp
+    const fish = put(run, { x: p.x + 4, y: p.y, hp: 10, speed: 0, flags: sard.flags })
+    only(run, [fish])
+    run.slicks.length = 0
+    stepSim(run, { x: 0, y: 0 }, dt)
+    assert.strictEqual(p.hp, hp0, `a sardine touching you must cost 0 HP; it cost ${hp0 - p.hp}`)
+    assert.ok(p.slowT > 0, `...and must slow you (run.player.slowT ${p.slowT})`)
+    assert.ok(fish._dead || fish.hp <= 0, 'a latched sardine spends itself on the touch, like the remora')
+    console.log(`PASS run PY.u (sardines only slow): a touch cost ${hp0 - p.hp} HP, set slowT ${p.slowT.toFixed(2)}s, and the fish is spent`)
   }
 
   // -- PY.b: THE DRUM YOU SPLIT BURNS. THE ONE ON THE BOTTOM DOES NOT. ---------------------------

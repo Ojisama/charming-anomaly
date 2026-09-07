@@ -8258,7 +8258,10 @@ CHAPTERS.wreck = {
     { id: 'squid',      archetype: 'normal', name: 'Squid',      hpMul: 1.0, speedMul: 0.95, weight: 1, flags: ['inkjet'] },
     { id: 'pufferfish', archetype: 'normal', name: 'Pufferfish', hpMul: 1.3, speedMul: 0.75, weight: 1, radiusMul: 1.2, flags: ['puffup'] },
     { id: 'damselfish', archetype: 'fast',   name: 'Damselfish', hpMul: 0.7, speedMul: 1.05, weight: 2, flags: [] },
-    { id: 'sardine',    archetype: 'fast',   name: 'Sardine',    hpMul: 0.45, speedMul: 0.95, weight: 1.6, xpMul: 0.6, radiusMul: 0.62, flags: [] },
+    // `latch`, like The Trawl's remora (owner, 2026-09-07: "the very small fishes in this level
+    // should do like previous chapter: just slow you not damage you"): a touch costs you speed
+    // (LATCH_SLOW_*) and spends the fish, never HP. contactHarmless's latch branch is the one site.
+    { id: 'sardine',    archetype: 'fast',   name: 'Sardine',    hpMul: 0.45, speedMul: 0.95, weight: 1.6, xpMul: 0.6, radiusMul: 0.62, flags: ['latch'] },
     // hpMul 1.1 WAS A PREY-ERA NUMBER. The Reef fields the SAME animal at 2.2, and every other tank
     // in the game sits between 1.2 and 2.5; this one was halved back when the roster was food and a
     // moray was "the one thing that cannot be eaten on demand", i.e. a chore to hunt. The roster has
@@ -11357,10 +11360,12 @@ export const OIL_STAIN_MAX = 0.20    // hard ceiling on `oiled`, forever
 // inside what is left. The fire is the oil's answer to the fish, never to you: the player takes the
 // spill's ordinary toll and nothing more. Trail links (the elite's oil trail, Trailing Slick) never
 // burn. `oilLeft` is the ONE shrink rule, applied by both writers of `r` (streamSlicks, stepBlooms).
-// balance_decision : lit oil burns away, 5s for the leak's, 2.5s for yours 2026-09-07
+// balance_decision : lit oil burns away, 10s for the leak's, 5s for yours 2026-09-07
 //  - a burnt leak spill stays at r 0 until the player leaves its cell; coming back re-streams it
-export const SLICK_BURN_T = 5          // s a lit leak spill takes to burn down to nothing
-export const BILGE_BURN_T = 2.5        // s a lit Bilge pool takes
+//  - BILGE_BURN_T is longer than a L1 pool's own `dur` (4.5s), so a lit pool usually expires
+//    part-burnt rather than burning out; that is the pool's life ending, not the fire's
+export const SLICK_BURN_T = 5 * 2      // s a lit leak spill takes to burn down to nothing ("double the time", 2026-09-07)
+export const BILGE_BURN_T = 2.5 * 2    // s a lit Bilge pool takes — half the leak's, the owner's own ratio
 export const SLICK_FIRE_SPREAD_T = 0.5 // s the flame takes to run from the body that lit it to the rim (render reads it)
 export const SLICK_FIRE_FRAC = 0.2     // of a body's maxHP per second, while inside a lit spill
 export const SLICK_FIRE_LINGER = 1.0   // s the burning TELL stays on a body after it leaves — the damage stops at the rim

@@ -1587,7 +1587,8 @@ function generateWells(sig) {
  *   screen. The LINGER is the design: a slow that ends at the rim is just a wider slick.
  * _inkT: number — s the squid's ink stays on the SCREEN (render.js's inkStain). Held at INK_STAIN_T
  *   every frame the player is inside a look:'inkjet' bloom (stepPlayerMovement, where the slow is
- *   computed) and run down after. Render-facing only: nothing in the sim reads it back.
+ *   computed) and run down after. Render-facing only: nothing in the sim reads it back; render
+ *   re-rolls the splats' positions and shapes on its rising edge (0 -> >0), so each inking differs.
  * net: null | { nx, ny, pos, end, holes, _acc, dragT, dragTicks, freeT, wiggle } — The Trawl's net wall,
  *   in chapters whose signature is `trawl`; null between passes and everywhere else. An infinite
  *   LINE, not an entity: (nx, ny) its unit normal, `pos` the signed offset it has swept to, `end`
