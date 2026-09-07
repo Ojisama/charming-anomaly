@@ -181,7 +181,7 @@ import {
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
   ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_DENS_R, ORCA_DENS_FULL_N, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
-  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX, ORCA_CLOSE_FRAC, SCREW_DAMP,
+  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_TRAIL_MAX, ORCA_CLOSE_FRAC, SCREW_DAMP, SCREW_HULL_PAD,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SLICK_BIRTH_CLEAR, SLICK_SPREAD_STEPS, spillSpread, slickR, slickChance, slickDps,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
@@ -10106,34 +10106,72 @@ function stepScrewWeapon(run, stats, fireRateMul, dt) {
   // same knot. Due west is arbitrary and only lasts until the player moves; what matters is that it
   // starts a chain away.
   while (run.screws.length < n) run.screws.push({ x: p.x - stats.chain, y: p.y, r: stats.radius, spin: 0, vx: 0, vy: 0 })
-  for (let i = 0; i < n; i++) {
-    const sc = run.screws[i]
-    // Each link sits further back than the last, evenly spaced along the chain's own length.
-    const link = stats.chain * ((i + 1) / n)
+  // COAST, then let the constraints have it. Math.pow so the water takes the same FRACTION per
+  // second at any frame rate — a per-frame multiply makes the screw heavier on a slow machine.
+  // `?? 0` because a hand-built screw (an fx scene, a test fixture) carries no velocity, and
+  // undefined * keep is NaN, which puts the body at NaN,NaN and vanishes it.
+  const keep = Math.pow(SCREW_DAMP, dt)
+  const from = []
+  for (const sc of run.screws) {
     sc.r = stats.radius
-    // COAST, then let the chain have it. Math.pow so the water takes the same FRACTION per second
-    // at any frame rate — a per-frame multiply makes the screw heavier on a slow machine.
-    // `?? 0` because a hand-built screw (an fx scene, a test fixture) carries no velocity, and
-    // undefined * keep is NaN, which puts the body at NaN,NaN and vanishes it.
-    const keep = Math.pow(SCREW_DAMP, dt)
-    const x0 = sc.x, y0 = sc.y
     sc.vx = (sc.vx ?? 0) * keep
     sc.vy = (sc.vy ?? 0) * keep
+    from.push(sc.x, sc.y, Math.hypot(sc.vx, sc.vy))
     sc.x += sc.vx * dt
     sc.y += sc.vy * dt
-    const dx = p.x - sc.x, dy = p.y - sc.y
-    const d = Math.hypot(dx, dy) || 1
-    if (d > link) {
-      sc.x = p.x - (dx / d) * link
-      sc.y = p.y - (dy / d) * link
+  }
+  // THE CHAIN IS A CEILING AND THE BODIES ARE FLOORS (owner, 2026-09-07: "the blades should never
+  // be on you ... the blades cannot stack on you and on each other"). Three projections, relaxed a
+  // few passes so they agree: no two screws closer than their radii, and each screw held between
+  // the hull (its radius, the player's, and SCREW_HULL_PAD) and its link on the chain. The floor wins where the
+  // two contradict — Ipecac's innermost link is shorter than a hull — so a blade is never on the
+  // player whatever the chain says.
+  // ponytail: 24 Gauss-Seidel passes over n <= 6 bodies (Ipecac x Twin Screw), ~500 ops a frame.
+  // Measured on the crowded case, six blades pinned to one ring: 3 passes leave them 26px into
+  // each other, 16 leave 1.6px, 24 leave 0.3px. A real solver if the chain ever holds more.
+  for (let pass = 0; pass < 24; pass++) {
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      const a = run.screws[i], b = run.screws[j]
+      let dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy)
+      const min = a.r + b.r
+      if (d >= min) continue
+      if (d < 1e-6) { dx = 1; dy = 0; d = 1 }
+      let nx = dx / d, ny = dy / d
+      // In line with the player there is no room along the line — and a keyboard tow puts every
+      // screw exactly on it — so the pair is pushed SIDEWAYS instead, which is what beads on a
+      // rope too short for them do: they stagger.
+      const px = p.x - a.x, py = p.y - a.y
+      if (Math.abs(nx * py - ny * px) < 0.05 * Math.hypot(px, py)) { const t = nx; nx = -ny; ny = t }
+      const push = (min - d) / 2
+      a.x -= nx * push; a.y -= ny * push
+      b.x += nx * push; b.y += ny * push
     }
-    // ...and the velocity is what the frame actually did. The chain's correction above is purely
-    // RADIAL, so this keeps the tangential component untouched — which IS the pendulum — and takes
-    // the pull as read. Deriving it rather than integrating a second copy is why this is a few lines and not a
-    // solver: position and velocity cannot disagree about whether the chain is taut, which is the
-    // shape where a body jitters on its constraint forever.
-    sc.vx = (sc.x - x0) / dt
-    sc.vy = (sc.y - y0) / dt
+    for (let i = 0; i < n; i++) {
+      const sc = run.screws[i]
+      // Each link sits further back than the last, evenly spaced along the chain's own length.
+      const link = stats.chain * ((i + 1) / n)
+      let dx = p.x - sc.x, dy = p.y - sc.y, d = Math.hypot(dx, dy)
+      if (d < 1e-6) { dx = 1; dy = 0; d = 1 }
+      const want = Math.max(sc.r + PLAYER.radius + SCREW_HULL_PAD, Math.min(link, d))
+      if (want !== d) { sc.x = p.x - (dx / d) * want; sc.y = p.y - (dy / d) * want }
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    const sc = run.screws[i]
+    // ...and the velocity is what the frame actually did. Every correction above is a push along
+    // one line, so the component ACROSS it survives — which IS the pendulum, and is why a blade
+    // that meets the hull slides round it instead of stopping dead. Deriving it rather than
+    // integrating a second copy is why this is a few lines and not a solver: position and velocity
+    // cannot disagree about whether the chain is taut, which is the shape where a body jitters on
+    // its constraint forever.
+    //   ...CAPPED at what the frame could physically hand it: a push can only REDIRECT the speed
+    // the body had, and the player can add their own, nothing more. Without the cap a body born
+    // on top of another (Twin Screw's second, at the same point as the first) reads its 34px
+    // stagger as 2000px/s and flies off the chain for half a second.
+    sc.vx = (sc.x - from[i * 3]) / dt
+    sc.vy = (sc.y - from[i * 3 + 1]) / dt
+    const v = Math.hypot(sc.vx, sc.vy), vmax = from[i * 3 + 2] + Math.hypot(p.vx ?? 0, p.vy ?? 0)
+    if (v > vmax) { sc.vx *= vmax / v; sc.vy *= vmax / v }
     // Render-only, and derived here so the sim owns one clock: the blade's own rotation, faster
     // when the cut is faster. render.js reads it and never writes it.
     sc.spin += dt * SCREW_SPIN_RATE * rate

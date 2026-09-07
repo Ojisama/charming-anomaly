@@ -17,6 +17,9 @@ H.clean()
 
 const p = run.player
 run.weapons = [{ id: 'screw', level: 5 }]
+// ?twin=1 puts the second blade on the chain — the pair's stagger and their slide round the hull
+// after the stop are what the 2026-09-07 collision floors are for, and one blade cannot show it.
+if (new URLSearchParams(location.search).get('twin')) run.weaponMods.screw = { twinScrew: 1 }
 run.screws.length = 0
 
 H.note(JSON.stringify({ weapon: 'screw', chapter: run.chapter }))

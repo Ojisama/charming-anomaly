@@ -162,7 +162,7 @@ import {
   ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
   ORCA_RING_MIN_R, ORCA_BITE_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, ORCA_DENS_FULL_N,
   ORCA_HERD_PULL, ORCA_COMMITS, ORCA_WAKE_R, ORCA_RING_R, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_SPIRAL_ACCEL, ORCA_TRAIL_MAX,
-  ORCA_LAPS, ORCA_HOLD_DUR, ORCA_CLOSE_FRAC, SCREW_DAMP, ORCA_AIM_W, ORCA_HIT_R, ORCA_ORBIT_RATE,
+  ORCA_LAPS, ORCA_HOLD_DUR, ORCA_CLOSE_FRAC, SCREW_DAMP, SCREW_HULL_PAD, ORCA_AIM_W, ORCA_HIT_R, ORCA_ORBIT_RATE,
   CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX, CHAPTER_BOARDS_DEFAULT,
   // The Trawl's late-game cut (run TJ)
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
@@ -8818,22 +8818,27 @@ function runPrey() {
     //    It used to demand the screw sit EXACTLY still on a slack chain, which is the one claim
     //    momentum has to break: a body that stops the instant the line goes slack has no mass.
     //    What separates it from a chaser survives, and it is the honest half — the screw is never
-    //    POWERED toward the player. Swim back along the chain and its speed must DECAY: a chaser
-    //    holds its speed or gains, a coasting weight bleeds off. Sampled as two consecutive
-    //    windows, so this is a rate against a rate and not a distance against a literal.
+    //    POWERED toward the player. Let go of the stick and its speed must DECAY: a chaser holds
+    //    its speed or gains, a coasting weight bleeds off. Sampled as two consecutive windows, so
+    //    this is a rate against a rate and not a distance against a literal.
+    //    ⚠ THE PLAYER STOPS RATHER THAN SWIMMING BACK, AND THE WINDOWS ARE SHORT, because since
+    //    2026-09-07 the blade cannot pass through the player (arm 9): swim at it and it is SHOVED,
+    //    which reads exactly like a chaser gaining (1px then 55px, measured). A stopped player is
+    //    54px from a resting blade and the coast covers that in ~0.29s, so two tenths fit before
+    //    contact and a quarter-second does not.
     const winMove = (steps) => {
       const ax = straight.screws[0].x, ay = straight.screws[0].y
-      for (let i = 0; i < steps; i++) { straight.enemies.length = 0; stepSim(straight, { x: -1, y: 0 }, dt) }
+      for (let i = 0; i < steps; i++) { straight.enemies.length = 0; stepSim(straight, { x: 0, y: 0 }, dt) }
       return Math.hypot(straight.screws[0].x - ax, straight.screws[0].y - ay)
     }
-    const w1 = winMove(Math.round(0.25 / dt))
-    const w2 = winMove(Math.round(0.25 / dt))
-    // The bound is the DAMPING'S OWN ARITHMETIC, not a literal: pure coasting over a quarter second
-    // leaves exactly SCREW_DAMP^0.25 of the speed, so a retune of the knob carries this case with it
-    // instead of failing at it. The 1.08 is slack for the chain re-tautening inside the window.
-    const decay = Math.pow(SCREW_DAMP, 0.25) * 1.08
+    const w1 = winMove(Math.round(0.1 / dt))
+    const w2 = winMove(Math.round(0.1 / dt))
+    // The bound is the DAMPING'S OWN ARITHMETIC, not a literal: pure coasting over a tenth of a
+    // second leaves exactly SCREW_DAMP^0.1 of the speed, so a retune of the knob carries this case
+    // with it instead of failing at it. The 1.08 is slack for the discrete steps.
+    const decay = Math.pow(SCREW_DAMP, 0.1) * 1.08
     assert.ok(w2 < w1 * decay,
-      `on a SLACK chain the screw must only be coasting, never driven: it covered ${w1.toFixed(1)}px in the first quarter-second ` +
+      `on a SLACK chain the screw must only be coasting, never driven: it covered ${w1.toFixed(1)}px in the first tenth of a second ` +
       `and ${w2.toFixed(1)}px in the next, a ratio of ${(w2 / Math.max(w1, 1e-6)).toFixed(2)} against a coasting bound of ${decay.toFixed(2)} — a chaser holds or gains`)
     assert.ok(SCREW_DAMP > 0 && SCREW_DAMP < 1,
       `SCREW_DAMP is the fraction of speed the water leaves it after a second and must be a real fraction; it is ${SCREW_DAMP}`)
@@ -8999,8 +9004,63 @@ function runPrey() {
     assert.ok(sw.settled > SC.chain * 0.6,
       `...and must swing back OUT rather than dying on the player: it ended ${sw.settled.toFixed(0)}px out on a ${SC.chain}px chain`)
 
-    console.log(`PASS run PY.c (the screw): trails ${behind.toFixed(0)}px behind on a ${taut.toFixed(0)}px chain and only COASTS on a slack one (${w1.toFixed(0)}px then ${w2.toFixed(0)}px over two quarter-seconds, never driven), cuts ${cut} through a pinned line (${honed} Honed, 0 unequipped), pays ${looped} for looping a knot against ${parked} for parking on it, Twin Screw hangs a second ${gap.toFixed(0)}px further back, Ipecac spreads ${sick.screws.length} over ${spots.size} distinct points, and it shares no cooldown with the orbiter (${bothOn} together against ${screwOnly}+${orbitOnly} apart), ` +
-      `and a flick swings it ${sw.deg.toFixed(0)} degrees round you before it settles back ${sw.settled.toFixed(0)}px out`)
+    // 9. NEVER ON YOU, NEVER ON EACH OTHER. Owner, 2026-09-07: "the blades should never be 'on
+    //    you', like we should have collision physics, the blades cannot stack on you and on each
+    //    other." Before this the coast after a stop carried the blade straight through the player
+    //    (122px of coast on a 54px gap), and Twin Screw's two bodies rode on top of each other on
+    //    every straight tow (links 55px apart, bodies 68px wide). Asserted as the CLOSEST any body
+    //    came — every frame, both gaps — over a tow, a dead stop, a swim back through the chain and
+    //    a turn across it. A px of solver slack, no more: the floors are hard, not springs.
+    const closest = (mods, ipecac) => {
+      const run = rig(mods)
+      if (ipecac) run.anomalies = { ...(run.anomalies ?? {}), ipecac: true }
+      let toPlayer = Infinity, toEach = Infinity
+      const drive = (input, secs) => {
+        for (let i = 0; i < Math.round(secs / dt); i++) {
+          run.enemies.length = 0
+          stepSim(run, input, dt)
+          const q = run.player
+          for (const s of run.screws) toPlayer = Math.min(toPlayer, Math.hypot(s.x - q.x, s.y - q.y) - s.r - PLAYER.radius - SCREW_HULL_PAD)
+          for (let a = 0; a < run.screws.length; a++) for (let b = a + 1; b < run.screws.length; b++) {
+            const s = run.screws[a], u = run.screws[b]
+            toEach = Math.min(toEach, Math.hypot(s.x - u.x, s.y - u.y) - s.r - u.r)
+          }
+        }
+      }
+      drive({ x: 1, y: 0 }, 2.0)
+      drive({ x: 0, y: 0 }, 2.0)
+      drive({ x: -1, y: 0 }, 1.5)
+      drive({ x: 0, y: 1 }, 1.0)
+      return { toPlayer, toEach, n: run.screws.length }
+    }
+    const solo = closest()
+    assert.ok(solo.toPlayer > -1,
+      `a blade must never be ON the player: over a tow, a stop, a swim back and a turn it came ${(-solo.toPlayer).toFixed(1)}px INTO the hull ` +
+      `(its radius, the player's, and SCREW_HULL_PAD for the fish's nose). With no floor the coast after a stop carries it straight through`)
+    const pair = closest({ twinScrew: 1 })
+    assert.strictEqual(pair.n, 2, 'precondition: Twin Screw must put two bodies on the chain')
+    assert.ok(pair.toEach > -1,
+      `two blades must never stack: Twin Screw's came ${(-pair.toEach).toFixed(1)}px into each other. ` +
+      `On a straight tow the links sit 55px apart and the bodies are 68px wide, so with no floor between them they overlap on every tow`)
+    assert.ok(pair.toPlayer > -1,
+      `...and neither of them on the player: the nearer came ${(-pair.toPlayer).toFixed(1)}px into the hull`)
+    //    ...AND UNDER IPECAC, which is the crowded case: three blades on one chain (six with Twin
+    //    Screw), the innermost link shorter than the hull, every body pinned to the same ring.
+    //    Three relaxation passes left the six 26px into each other and read fine on one or two
+    //    blades; the shipped count leaves under a px, and this is the arm that holds it there.
+    const sick3 = closest({}, true)
+    const sick6 = closest({ twinScrew: 1 }, true)
+    assert.ok(sick3.n === 3 && sick6.n === 6,
+      `precondition: Ipecac must put 3 and 6 blades on the chain; it put ${sick3.n} and ${sick6.n}`)
+    assert.ok(sick3.toEach > -1 && sick6.toEach > -1,
+      `...none of them stacking: Ipecac's three came ${(-sick3.toEach).toFixed(1)}px into each other and Ipecac x Twin's six ${(-sick6.toEach).toFixed(1)}px. ` +
+      `Three relaxation passes read 26px here while one and two blades passed`)
+    assert.ok(sick3.toPlayer > -1 && sick6.toPlayer > -1,
+      `...and none on the player: the nearest came ${(-Math.min(sick3.toPlayer, sick6.toPlayer)).toFixed(1)}px into the hull`)
+
+    console.log(`PASS run PY.c (the screw): trails ${behind.toFixed(0)}px behind on a ${taut.toFixed(0)}px chain and only COASTS on a slack one (${w1.toFixed(0)}px then ${w2.toFixed(0)}px over two tenths of a second, never driven), cuts ${cut} through a pinned line (${honed} Honed, 0 unequipped), pays ${looped} for looping a knot against ${parked} for parking on it, Twin Screw hangs a second ${gap.toFixed(0)}px further back, Ipecac spreads ${sick.screws.length} over ${spots.size} distinct points, and it shares no cooldown with the orbiter (${bothOn} together against ${screwOnly}+${orbitOnly} apart), ` +
+      `and a flick swings it ${sw.deg.toFixed(0)} degrees round you before it settles back ${sw.settled.toFixed(0)}px out, ` +
+      `and no blade ever got closer than ${Math.min(solo.toPlayer, pair.toPlayer, sick3.toPlayer, sick6.toPlayer).toFixed(1)}px to the hull or ${Math.min(pair.toEach, sick3.toEach, sick6.toEach).toFixed(1)}px to another blade (six of them under Ipecac x Twin)`)
   }
 
   // -- PY.f: a spill is NOT a refill circle. ---------------------------------------------------

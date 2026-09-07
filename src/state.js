@@ -1543,7 +1543,10 @@ function generateWells(sig) {
  *   hélice should have some inertia"): the chain's correction is purely radial, so the tangential
  *   part of the velocity survives it and a flick swings the blade round the player. They are
  *   DERIVED from the frame's actual displacement rather than integrated separately, so position and
- *   velocity can never disagree about whether the chain is taut. `spin` is render-only (the blade's
+ *   velocity can never disagree about whether the chain is taut. The chain is a CEILING on its
+ *   distance from the player and the bodies are FLOORS (owner, 2026-09-07): a screw is held off
+ *   the player by `r` + PLAYER.radius + SCREW_HULL_PAD and off every other screw by the two radii, so blades never
+ *   stack on the player or on each other. `spin` is render-only (the blade's
  *   rotation); the sim advances it so there is one clock, and render never writes it.
  * slicks[i]: { x, y, r, shape, rot, _cell } — v7.x The Wreck: streamed POLLUTION SPILLS, the
  *   chapter's signature (`{ type: 'leak', slicks: {...} }`). Same refillCircleAt geometry as
