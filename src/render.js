@@ -6,7 +6,7 @@
 //   r.reset(run|null)          new run started (build world) or back to title (clear)
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
-import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
+import { AlphaFilter, Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
 import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_WAKE_R, ORCA_OVERSHOOT,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
@@ -10032,6 +10032,13 @@ export function createRenderer(app) {
   // In a game whose camera looks straight DOWN, slower-than-the-world reads as further from the
   // camera, and further down is DEEPER — a wreck on a terrace below you, seen through the water.
   const hullLayer = new Container()
+  // GROUP alpha, not per-sprite alpha: the hulls overlap on purpose (a graveyard, not a lattice —
+  // see CHAPTERS.wreck.render.hull), and two sprites at alpha a stack to 1-(1-a)², a bright
+  // quadrilateral belonging to neither wreck. The filter flattens the layer first, so one hull lying
+  // on another occludes it. The only filter in this renderer: one screen-sized pass, one chapter.
+  // run WG asserts it exists, because without it the overlap is an artefact and nothing throws.
+  const hullAlpha = new AlphaFilter({ alpha: 0.5, resolution: 'inherit', antialias: 'inherit' })
+  hullLayer.filters = [hullAlpha]
   floorLayer.addChild(groundLayer, hullLayer, blotchLayer, roadLayer, roadDecalLayer, junctionLayer, ruinLayer,
     bigLayer, midLayer, detailLayer, clutterLayer, edgeLayer)
 
@@ -12644,34 +12651,21 @@ const spurG = new Graphics()
   // called The Wreck and has no wreck in it. See CHAPTERS.wreck.render.hull for the spacing and for
   // why parallax reads as DEPTH under a camera that looks straight down.
   //
-  // The whole thing is four pooled sprites: `cell` is ~2.4 screen-heights, so at most a couple of
-  // cells intersect the view at once and the pool is a safety margin rather than a working set.
-  // 12, not 4: at cell 1250 a desktop viewport plus the hull's own length spans about seven
-  // cells, and a pool that runs out mid-loop drops the cells it had not reached yet — which
-  // shows up as wrecks flickering in and out as the camera pans, not as an error.
-  const HULL_POOL = 12
-  // Cell-relative jitter (each way) and the largest per-cell size multiplier below. Named rather
-  // than inlined because run WK reads both out of this file as source text and checks them against
-  // CHAPTERS.wreck.render.hull — cell, len, jitter and scale are ONE decision about whether the
-  // field is a graveyard or a pile-up, and they live in two files.
+  // A CAP on the pooled sprites, not an allocation — the pool grows lazily. It has to cover every
+  // cell a desktop viewport plus the hull's own reach can touch, or the cells the loop never
+  // reaches drop out, which shows up as wrecks flickering in and out as the camera pans. Map mode
+  // at zoom 0.1 spans about 30 cells; the cap is sized for that, since that is where the field
+  // gets judged.
+  const HULL_POOL = 48
+  // Cell-relative jitter (each way) and the largest per-cell size multiplier below. HULL_SCALE_MAX
+  // is named because the cull margins read it: run WG checks it IS the scale line's maximum.
   const HULL_JITTER = 0.13
   const HULL_SCALE_MAX = 1.12
-  // ⚠ THE SPACING INVARIANT HAS NOW BEEN STATED OVER THE WRONG LENGTH THREE TIMES, AND EACH TIME
-  // THE GUARD WENT GREEN OVER A REAL OVERLAP. First it ignored the jitter. Then it used cfg.len,
-  // and the TEXTURE is not cfg.len long — bake() frames the drawing's real bounds and the drawing
-  // reaches outboard of the plating. Then HULL_LEAD arrived and the sprite stopped being centred on
-  // its cell at all, so even a correct texture length was the wrong quantity: what binds is the
-  // MAX REACH FROM THE PLACEMENT POINT, and with a 0.42 lead that was 1.48x the half-length in one
-  // direction, i.e. 527px of possible plating interpenetration under a PASS line that said it could
-  // not happen. Two sprites at alpha 0.50 stack to 0.75, which is the bright quadrilateral with
-  // straight edges belonging to neither wreck.
-  //
-  // So: HULL_REACH is a fraction of cfg.len, measured FROM THE PLACEMENT POINT, and the requirement
-  // is 2x that (two neighbours leaning their long ends together). The lead came down to 0.26 in the
-  // same breath, because the lead is what buys the reach — and 0.26 still moves the frame centre
-  // 227px off the tear, over half a phone width, which was all it was ever for.
-  // LOAD-BEARING, not decorative: the cull margins below read it, so a value too small pops hulls in
-  // at the screen edge, which is the kind of wrong you can see.
+  // Max reach of the drawing FROM THE PLACEMENT POINT, as a fraction of cfg.len. It is more than
+  // half because the sprite is not centred on its cell (HULL_LEAD) and the texture is longer than
+  // cfg.len (bake() frames the drawing's real bounds). LOAD-BEARING: the cull margins read it, so a
+  // value too small pops hulls in at the screen edge, which is the kind of wrong you can see.
+  // Overlap between neighbours is allowed — hullAlpha (above) turns it into occlusion.
   const HULL_REACH = 0.68
   // Where the CELL CENTRE lands on the drawing, as a fraction of the half-length forward of the
   // bake's origin. The origin is the FRACTURE — graphics x = 0 sits on the tear — so at 0 the grid
@@ -12688,11 +12682,17 @@ const spurG = new Graphics()
     hullLayer.visible = true
     // Cancel part of the parent's transform: world sits at (cx, cy), so this lands at cx * parallax.
     hullLayer.position.set(cx * (cfg.parallax - 1), cy * (cfg.parallax - 1))
-    // Where the viewport lands in PARALLAX space. -cx is the camera's world origin, so -cx * p is
-    // the same point measured in the slower-scrolling frame the hulls are placed in.
-    const px = -cx * cfg.parallax
-    const py = -cy * cfg.parallax
+    // The viewport's CENTRE in parallax space. -cx is the camera's world origin (the top-left
+    // corner), so -cx * p is that corner in the slower frame the hulls are placed in, and the
+    // window's own width in that frame is the viewport's (the layer scales with the world).
+    // ⚠ It used to be the corner, with the margins below centred on it: at 1:1 the reach margin is
+    // wider than half a screen so nothing showed, and in map mode at zoom 0.1 the right 40% of the
+    // window streamed nothing, which read as "the field is sparse" from the one view meant to
+    // judge how dense it is.
+    const px = -cx * cfg.parallax + viewW() / 2
+    const py = -cy * cfg.parallax + viewH() / 2
     const cs = cfg.cell
+    hullAlpha.alpha = cfg.alpha
     const halfW = viewW() / 2 + cfg.len * HULL_REACH * HULL_SCALE_MAX
     const halfH = viewH() / 2 + cfg.len * HULL_REACH * HULL_SCALE_MAX
     const i0 = Math.floor((px - halfW) / cs), i1 = Math.floor((px + halfW) / cs)
@@ -12712,15 +12712,7 @@ const spurG = new Graphics()
           hullSprites[n] = sp
         }
         sp.visible = true
-        // ⚠ THE JITTER IS THE HALF OF THE SPACING THAT ACTUALLY BINDS, AND IT USED TO EAT THE WHOLE
-        // MARGIN. cfg.cell tracks cfg.len at ~1.35x so neighbours do not pile up — but ±cell*0.25 on
-        // BOTH cells removes cell*0.5 from the gap, so at cell 2450 two hulls could sit 1225px apart
-        // while each was 1820 long, i.e. interpenetrating by a third of a ship. That is not a
-        // graveyard, it is an alpha artefact: two sprites at alpha a stack to 1-(1-a)², a visibly
-        // brighter quadrilateral bounded by straight edges belonging to neither wreck, and it is
-        // there in half the probe frames. The invariant is
-        //     cell * (1 - 2*HULL_JITTER) >= 2 * len * HULL_REACH * HULL_SCALE_MAX
-        // and run WG in the suite asserts it against config rather than trusting this comment.
+        // Jitter off the cell centre. Neighbours may overlap — hullAlpha makes that occlusion.
         const jx = (i + 0.5) * cs + (hash(i * 7.1 + j * 2.9 + 13.3) - 0.5) * cs * HULL_JITTER * 2
         const jy = (j + 0.5) * cs + (hash(i * 2.3 + j * 5.7 + 29.7) - 0.5) * cs * HULL_JITTER * 2
         // HEADING WITH A GRAIN. A full circle is the safe answer to "a field all pointing the same
@@ -12760,7 +12752,7 @@ const spurG = new Graphics()
         const lead = HULL_LEAD * HULL_REF * sc
         sp.position.set(jx - Math.cos(sp.rotation) * lead, jy - Math.sin(sp.rotation) * lead)
         sp.tint = cfg.tint
-        sp.alpha = cfg.alpha
+        // No per-sprite alpha: hullAlpha carries cfg.alpha for the whole layer (see its comment).
         n++
       }
     }
@@ -22690,7 +22682,9 @@ const spurG = new Graphics()
     // v7.x The Reef: spurG rides with the structures. The coral ridges ARE this chapter's layout —
     // the braid is the only thing a wide-area view of it exists to judge, and a gameplay shot shows
     // one ridge and a half.
-    for (const child of entitiesLayer.children) child.visible = on ? (child === obstacleLayer || child === spurG) : true
+    // v7.x The Wreck: slickG rides too. The Leak IS this chapter's layout, and a wide view of the
+    // field without it answers nothing about how much of the floor is oil.
+    for (const child of entitiesLayer.children) child.visible = on ? (child === obstacleLayer || child === spurG || child === slickG) : true
     entitiesLayer.visible = true
     cloudShadowLayer.visible = !on
     stormRainLayer.visible = !on

@@ -10609,18 +10609,17 @@ function runOrca() {
 }
 run(runOrca)
 
-// ---- Run WG: THE SUNKEN SHIP'S FIELD — four numbers in two files that are ONE decision ----------
-// The wreck grid's spacing is authored in config.js (`cell`, `len`) and its jitter and size spread
-// in render.js (HULL_JITTER, HULL_SCALE_MAX). Nothing imports anything, so nothing throws when they
-// drift — and the failure does not look like a spacing bug. Two sprites at alpha a stack to
-// 1-(1-a)², so an overlap is a visibly BRIGHTER quadrilateral bounded by straight edges belonging to
-// neither wreck, which reads as a rendering artefact rather than as a graveyard. The shipped pair
-// (cell 2450, jitter ±0.25) allowed 1225px between two 1820px hulls, and it was in half the probe
-// frames while the config comment two lines above it claimed two are never on screen together.
+// ---- Run WG: THE SUNKEN SHIP'S FIELD — a graveyard that must not glow where it overlaps ----------
+// The wreck grid is authored in config.js (`cell`, `len`, `alpha`) and drawn in render.js. Since
+// 2026-09-07 the cell is SMALLER than the hull's reach — twice the hulls at twice the size, owner's
+// ask — so neighbours overlap by design. Two sprites at alpha a stack to 1-(1-a)² where they cross,
+// a visibly BRIGHTER quadrilateral bounded by straight edges belonging to neither wreck; what makes
+// the overlap a graveyard instead is a GROUP alpha (an AlphaFilter on hullLayer) with the sprites at
+// 1. Nothing imports anything across that contract, so nothing throws when half of it goes missing.
 //
 // This is the cheapest guard shape in this repo (see the six cross-file source-text lints in
-// CLAUDE.md): it costs a file read and it is the only thing standing between a one-number tune and
-// a field of interpenetrating ships.
+// CLAUDE.md): it costs a file read and it is the only thing standing between a one-line tune and
+// a field of glowing ships.
 function runWreckGrid() {
   const rSrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
   const hull = CHAPTERS.wreck.render.hull
@@ -10631,41 +10630,39 @@ function runWreckGrid() {
     assert.ok(m, `${name} must exist in render.js as a named const — run WG reads it as source text`)
     return Number(m[1])
   }
-  const jitter = constOf('HULL_JITTER')
   const scaleMax = constOf('HULL_SCALE_MAX')
-  // ⚠ THIS INVARIANT HAS BEEN STATED OVER THE WRONG LENGTH THREE TIMES AND WENT GREEN OVER A REAL
-  // OVERLAP EACH TIME — the first ignored the jitter, the second used cfg.len when the TEXTURE is
-  // longer than cfg.len, and the third still assumed the sprite was CENTRED on its cell when
-  // HULL_LEAD had stopped centring it. The binding quantity is the max reach from the PLACEMENT
-  // POINT, and the requirement is twice it, because two neighbours can lean their long ends
-  // together. HULL_REACH is load-bearing in render.js (the cull margins read it), so it cannot rot
-  // into a number that only this assert believes.
   const reach = constOf('HULL_REACH')
-  const minGap = hull.cell * (1 - 2 * jitter)
-  const maxLen = 2 * hull.len * reach * scaleMax
-  assert.ok(minGap >= maxLen,
-    `two neighbouring wrecks can be ${minGap.toFixed(0)}px apart while together they reach ${maxLen.toFixed(0)}px — ` +
-    'they interpenetrate, and at hull.alpha that is a bright quadrilateral, not a wreck. ' +
-    'Raise cell, or lower HULL_JITTER / HULL_SCALE_MAX / HULL_LEAD (render.js)')
-  console.log(`PASS run WG.a (spacing): cell ${hull.cell} x (1 - 2x${jitter}) = ${minGap.toFixed(0)}px clear ` +
-    `>= 2 x len ${hull.len} x reach ${reach} x ${scaleMax} = ${maxLen.toFixed(0)}px, so no two hulls can overlap`)
+  // -- WG.a: overlap is OCCLUSION, not stacking ------------------------------------------------
+  // The cell (2687) is smaller than the hull (3640 x 0.68 reach), so neighbours overlap by design —
+  // the 2026-09 field is a graveyard, and the old spacing rule this arm used to assert capped a
+  // hull on screen at ~17% of the time whatever its size. What makes overlap safe is a GROUP alpha:
+  // hullLayer draws through an AlphaFilter carrying cfg.alpha, and the sprites themselves stay at
+  // 1. Either half alone re-creates the bright quadrilateral — sprites at cfg.alpha under the
+  // filter stack to 1-(1-a)² and THEN get halved; no filter and they stack outright — with nothing
+  // thrown and no other test red.
+  const hullBody = rSrc.slice(rSrc.indexOf('function updateWreckHull('), rSrc.indexOf('// ---- The Reef: spur and groove'))
+  assert.ok(hullBody.length > 200, 'updateWreckHull must sit above the Reef spur block — run WG slices between the two')
+  assert.ok(/const hullAlpha = new AlphaFilter\(\{ alpha: [0-9.]+, resolution: 'inherit'/.test(rSrc),
+    'hullLayer must own an AlphaFilter named hullAlpha at resolution inherit — without inherit the hulls render at 1x on a 3x phone and blur')
+  assert.ok(/hullLayer\.filters = \[hullAlpha\]/.test(rSrc),
+    'hullAlpha must be INSTALLED on hullLayer — a filter that is built and never attached flattens nothing')
+  assert.ok(/hullAlpha\.alpha = cfg\.alpha/.test(hullBody),
+    'updateWreckHull must write cfg.alpha onto hullAlpha, or CHAPTERS.wreck.render.hull.alpha is a number nothing reads')
+  assert.ok(!/sp\.alpha\s*=/.test(hullBody),
+    'updateWreckHull must NOT set a per-sprite alpha — under the group alpha that stacks overlaps to 1-(1-a)² and then halves the whole field')
+  console.log(`PASS run WG.a (group alpha): cell ${hull.cell} < 2 x len ${hull.len} x reach ${reach} x ${scaleMax} = ` +
+    `${(2 * hull.len * reach * scaleMax).toFixed(0)}px so hulls overlap, and hullLayer flattens through hullAlpha at cfg.alpha with no sprite alpha`)
 
-  // -- WK.b: both halves of the invariant are actually WIRED -----------------------------------
-  // A named constant nothing reads is a comment. Both position axes must consume HULL_JITTER, and
-  // HULL_SCALE_MAX must equal the arithmetic of the scale line rather than merely sitting near it —
-  // widening `hash(...) * 0.18` and leaving HULL_SCALE_MAX at 1.08 makes WK.a a guard over air.
-  const jitterUses = (rSrc.match(/cs \* HULL_JITTER \* 2/g) || []).length
-  assert.equal(jitterUses, 2,
-    `HULL_JITTER must be read on BOTH position axes in updateWreckHull, found ${jitterUses} — ` +
-    'a re-inlined literal is how the invariant above stops describing the code')
+  // -- WG.b: the cull margin's scale ceiling is the scale line's --------------------------------
+  // HULL_SCALE_MAX is read by both cull margins; if the scale line tops out higher, the biggest
+  // hull pops in at the screen edge, which is the kind of wrong you can see.
   const sc = rSrc.match(/const sc = \(cfg\.len \/ \(HULL_REF \* 2\)\) \* \(([0-9.]+) \+ hash\([^)]*\) \* ([0-9.]+)\)/)
   assert.ok(sc, 'updateWreckHull must set `sc` from cfg.len with a hashed spread — run WG reads its two numbers')
   const drawnMax = Number(sc[1]) + Number(sc[2])
   assert.ok(Math.abs(drawnMax - scaleMax) < 1e-9,
     `HULL_SCALE_MAX is ${scaleMax} but the scale line tops out at ${drawnMax.toFixed(3)} — ` +
-    'WK.a is then checking a number the renderer does not use')
-  console.log(`PASS run WG.b (wired): HULL_JITTER read on ${jitterUses} axes, and HULL_SCALE_MAX ${scaleMax} ` +
-    `is exactly the scale line's ${sc[1]} + ${sc[2]}`)
+    'the cull margins are then sized for a hull the renderer does not draw')
+  console.log(`PASS run WG.b (wired): HULL_SCALE_MAX ${scaleMax} is exactly the scale line's ${sc[1]} + ${sc[2]}`)
 
   // -- WK.c: the field's grain and the chapter's tide are ONE fact ------------------------------
   // The hulls settle into the current, so hull.grain IS the tide bearing. Both come from
@@ -28687,8 +28684,13 @@ function testWreckBlackTide() {
   // sits 3.2 SE under it. The mutation table has that pathology in it for this reason.
   //   Computed ONCE and shared: WO.c and WO.d ran the identical pair of walks separately, so six
   // seeds here cost less than the two they replace did twice over.
+  //   2026-09-07: THE BASE DOUBLED (slicks.chance 0.34 -> 0.55, cell 900 -> 800, late 0.72 -> 0.95)
+  // and the card's x3 clamps at 1, so its headroom is now x1.8 at t=0 and ~x1.1 by t=180: the same
+  // six pooled walks read x1.47 coverage and x1.43 toll against the old 1.45 floor. 1.25 sits
+  // between that and the x1.0 pathology. If the card is meant to be "every stretch that could hold
+  // oil does" again, the lever is a radius multiplier on it, not this floor.
   const WO_SEEDS = [1, 2, 3, 4, 5, 6]
-  const WO_FLOOR = 1.45
+  const WO_FLOOR = 1.25
   const woArms = WO_SEEDS.map((sd) => ({ off: walkOilField(sd, false), on: walkOilField(sd, true) }))
   const woPool = (arm, key) => woArms.reduce((a, w) => a + w[arm][key], 0)
 

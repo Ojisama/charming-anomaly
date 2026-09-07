@@ -8323,21 +8323,17 @@ CHAPTERS.wreck = {
     // `chance` climb with the clock — see the SLICK_SPREAD_T block for the curve and for why the
     // late radius is capped by refillCircleAt's jitter slack rather than by taste.
     //
-    // chance/cell together set how much of the floor is poisoned. 0.34 of a 900px cell at r 190
-    // covers 3.3% of the plane — MEASURED 2026-08-25 (Monte Carlo over refillCircleAt/inLobe), and
-    // the "roughly a tenth" this line claimed until then was a guess that was wrong by 3x. The
-    // geometry's own packing ceiling at THIS radius is 9.9%, reached at chance = 1, which is what
-    // ANOMALIES.blackTide turns it to — so a tenth was never the default, it was the maximum.
-    // Still the right shape for the intent AT THE START: a straight line across the map usually
-    // meets one and never enough to wall a route off, which is the whole difference between a
-    // hazard you route around and a hazard you resent. What the spread buys is that the same line
-    // meets several by the end, so the route you have been taking all run stops being free — and
-    // it never becomes a wall, because a lobe at r 280 on a 900px cell still leaves open water
-    // between it and its neighbour.
+    // chance/cell together set how much of the floor is poisoned: chance/cell² spills per px², one
+    // per cell at most, so past chance 1 only a smaller cell adds any — and the cell is capped from
+    // below by SLICK_R_LATE's jitter slack (see it), which is why doubling took both knobs. 0.34 of
+    // a 900px cell at r 190 was MEASURED at 3.3% of the plane (2026-08-25, Monte Carlo over
+    // refillCircleAt/inLobe); this is twice that.
+    // balance_decision : twice the oil, early 2.0x and late 1.7x [2026-09-07]
+    //  - ANOMALIES.blackTide multiplies `chance` and clamps at 1: it is now +80% early, nothing late
     // `blob: true` because a spill has an outline and a bubble does not: LOBE_SHAPES is the same
     // lobed-outline opt-in The Surf's tide pools use, and sim and render both read the stored
     // shape/rot rather than re-deriving it (the documented way those two drift apart).
-    slicks: { cell: 900, chance: 0.34, r: 190, minDist: 620, salt: 50, blob: true },
+    slicks: { cell: 800, chance: 0.55, r: 190, minDist: 620, salt: 50, blob: true },
   },
 
   obstacles: { count: 9, cell: 640, minR: 55, maxR: 120, minDist: 420 },
@@ -8400,27 +8396,14 @@ CHAPTERS.wreck = {
     // hashed per cell (there was one texture and one uniform scale). A stale comment here is worse
     // than none, because the next tuner trusts it instead of measuring. Both are now true.
     hull: {
-      // ⚠ cell, len, HULL_JITTER, HULL_SCALE_MAX and HULL_REACH (render.js) ARE ONE DECISION.
-      //     cell * (1 - 2 * HULL_JITTER) >= 2 * len * HULL_REACH * HULL_SCALE_MAX
-      // run WG asserts it, because getting it wrong does not look like a spacing bug — two sprites
-      // at alpha a stack to 1-(1-a)², so an overlap is a visibly brighter quadrilateral with
-      // straight edges belonging to neither wreck, which reads as a rendering artefact. The first
-      // pair (cell 2450, jitter ±0.25) allowed 1225px between two 1820px hulls and did exactly that.
-      // ⚠ AND SO DID THE NEXT TWO, WITH THE GUARD GREEN EACH TIME. Stated over the stated length it
-      // missed that the TEXTURE is longer; restated over the texture it missed that HULL_LEAD had
-      // stopped the sprite being centred on its cell at all, so the binding quantity is the reach
-      // FROM THE PLACEMENT POINT and the requirement is twice it. 3800 x 0.74 = 2812 against
-      // 2 x 1820 x 0.68 x 1.12 = 2772.
-      cell: 3800,
-      // ⚠ NOT A GRAVEYARD, AND THE COMMENT USED TO SAY IT WAS. At this spacing two cell centres can
-      // never both be inside a viewport — 2812px of guaranteed separation against a 1280px desktop
-      // and 390px phone — so the player never sees two hulls to count. It is a LANDMARK YOU CROSS,
-      // about every 8400 world px. That is a legitimate thing to be and the number below is tuned
-      // for it; the tension is real, though, because run WG's non-overlap requirement at this hull
-      // size is what forces a spacing two-in-frame cannot survive. If the graveyard read is ever
-      // wanted, the answer is the ponytail note in updateWreckHull (two half-sprites per cell), not
-      // another tune here.
-      chance: 0.90,      // under 1 so meeting one stays an event rather than a metronome
+      // A GRAVEYARD. Hulls may overlap — the layer is drawn through a group alpha (hullAlpha,
+      // render.js), so one lying across another occludes it instead of stacking to a brighter
+      // quadrilateral. That is what lets the cell be SMALLER than the hull: the old non-overlap
+      // rule (cell x 0.74 >= 2 x len x 0.68 x 1.12) capped a hull on screen at ~17% of the time
+      // whatever its size, and the owner's read of that was "we don't see enough the wrecked ship".
+      // 2687 = 3800 / sqrt 2: twice the hulls per area of the 2026-08 field.
+      cell: 2687,
+      chance: 0.90,      // under 1 so the field keeps holes and never reads as a lattice
       parallax: 0.45,    // fraction of camera motion the layer takes. 1 = welded to the world, 0 =
                          // pinned to the screen. Under 1 = deeper. Far under and it reads as a
                          // painted backdrop that slides, which is the failure mode to shoot for.
@@ -8430,14 +8413,11 @@ CHAPTERS.wreck = {
       // spreads ±34° around this, which is scatter by any eye. WRECK_TIDE_DEG feeds this AND the
       // chapter's own tide, so the two cannot drift apart.
       grain: WRECK_TIDE_DEG * Math.PI / 180,
-      // 1820. THE EARLIER CUT TO 620 FIXED THE WRONG HALF OF THE PROBLEM. At 1560 the hull read as a
-      // pale slab, and the diagnosis — "a landmark has to FIT" — was wrong: what actually failed was
-      // that all its detail sat at the bow and the stern, so the crop a player really sees was empty
-      // fill. Owner, 2026-08-18: "boats should be wayyyy bigger."
-      // 1820 is ~45x the player's own body and about two phone-screens down its length. It is also
-      // why the BEAM ratio moved instead of the length when the beam turned out to be 391px against
-      // a 390px phone — see the L:B note in the bake (render.js).
-      len: 1820,
+      // 3640: twice the 1820 of 2026-08-18 ("boats should be wayyyy bigger"), owner 2026-09-07
+      // ("make them 2x bigger"). ~90x the player's body, four phone-screens down its length, and
+      // a 604px beam that is wider than a phone — it is a floor you cross, not a prop you pass.
+      // The bake is sampled at HULL_REF and scaled up, so the detail is the 1820 drawing's.
+      len: 3640,
       // Lighter than the floor, not darker: underwater, distance makes a thing PALER and BLUER,
       // because the water column between you and it scatters light in. The first cut used 0x14242c
       // on the reasoning that dead steel is dark and it vanished completely.
@@ -11760,13 +11740,13 @@ export const SLICK_SLOW_T = 1.4        // s the fouling lasts after you leave
 // the SLACK left over after the radius is subtracted (refillCircleAt: `cs / 2 - r - 20`). Widening
 // and multiplying together keeps the blobs organic while the coverage climbs.
 //
-// ⚠ SLICK_R_LATE IS CAPPED BY THAT SLACK, NOT BY TASTE. At cell 900 the jitter budget is
-// 450 - r - 20, so r = 430 pins every spill dead-centre in its cell and the field becomes a visible
-// grid — with nothing thrown and nothing red. 280 leaves 150px of jitter, which is where this
-// stops. If the cell ever changes, re-derive this; do not carry the number across.
+// ⚠ SLICK_R_LATE IS CAPPED BY THAT SLACK, NOT BY TASTE. At cell 800 the jitter budget is
+// 400 - r - 20, so r = 380 pins every spill dead-centre in its cell and the field becomes a visible
+// grid — with nothing thrown and nothing red. 280 leaves 100px of jitter, the floor run PY.r
+// asserts. If the cell ever changes, re-derive this; do not carry the number across.
 export const SLICK_SPREAD_T = 300      // s to full spread — the run length, so the arc IS the run
 export const SLICK_R_LATE = 280        // px (from the signature's own 190). See the slack cap above.
-export const SLICK_CHANCE_LATE = 0.72  // of cells (from 0.34)
+export const SLICK_CHANCE_LATE = 0.95  // of cells (from 0.55); under 1 so the field keeps holes
 // balance_decision : the water thickens as the hull empties 2026-09-06
 //  - x SLICK_TICK is no longer a whole number, which is fine and was not before oilskin: the
 //    resisted damage already banks through run._slickDmgCarry as a float and spends whole points.
