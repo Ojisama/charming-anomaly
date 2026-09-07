@@ -8464,8 +8464,8 @@ CHAPTERS.wreck = {
     dust: { tint: 0xbfae94, alpha: 0.3, speedMul: 0.12, sway: 5 },
     // Fewer of the pale mottling patches than the shared floor draws (populateBlotch, render.js):
     // under twice the hulls they read as noise. Owner, 2026-09-07: "a bit less light patches",
-    // then on seeing 0.6: "even less patches, 30% less".
-    blotchChance: 0.42,
+    // then 0.6 -> 0.42 ("30% less"), then 0.1 by name.
+    blotchChance: 0.1,
   },
 }
 // Book 2 chapter 4 — THE ONE THING THAT IS NOT AIMING AT YOU. Written as a WHOLE literal for the
