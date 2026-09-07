@@ -39,7 +39,10 @@ const CELLS = [[0, 0], [-1, -1], [-2, -2], [-1, 1], [0, 1], [-2, 0]]
 // commit that moved HULL_JITTER 0.25 -> 0.13 and it kept the old factor, so "one hull centred per
 // frame" was false by up to 326px — 84% of a phone width — while the header claimed otherwise. A
 // rig that lies about its own framing turns every art judgement into an argument about the rig.
-const CS = 2687, PX = 0.45, CS_JITTER = 0.26
+// ⚠ SINCE 2026-09-07 A CELL'S HULL CAN BE THINNED AWAY (hullKept, render.js — no two drawn hulls
+// touch), so a listed cell may shoot open water even though its roll passed. For the FIELD use
+// wreck-field.js; this scene is for the bake, and a frame of open water means "pick another cell".
+const CS = 1800, PX = 0.45, CS_JITTER = 0.26
 
 H.note('frames: one hull centred per frame, six different cells (rotation is hashed per cell)')
 
