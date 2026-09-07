@@ -7,7 +7,7 @@
 //   r.sync(run, dt, events)    draw current state; dt=0 means "frozen behind a modal"
 //   r.idle(dt)                 no run active (title screen background)
 import { Assets, Container, FillGradient, Graphics, Mesh, MeshGeometry, Rectangle, Shader, Sprite, Text, Texture, TilingSprite, UniformGroup } from 'pixi.js'
-import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_WAKE_R, ORCA_OVERSHOOT,
+import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC, SUBMISSION_DURATION, MINIME_DRAW_SCALE, BERSERK_DURATION, STILLNESS_RAMP, STILL_STEPS, STILL_MORPH_MAX, BERSERK_TINT, BERSERK_TINT_MAX, BERSERK_TINT_TAIL, ALLY_RING, ALLY_RING_ARC, PACER_RADIUS, ORB_R, CHAPTERS, CURRENT_VIS, EDDY_VIS, STORM_VIS, LIGHTNING, districtAt, districtTintAt, PHEROMONE_LIFE, SNAP_TRAP_REARM, AMBUSH_R, TRAFFIC_WARN, TRAFFIC_CAR_LEN, TRAFFIC_CAR_W, TRAFFIC_APPROACH, TRAFFIC_BEAM, MOWER_DECK_LEN, MOWER_DECK_W, COVER_MIN_R, DEBRIS_R, POUNCE_AIM_T, POUNCE_LEAP_T, POUNCE_LEAP_DIST, POUNCE_TURN_AIM, POUNCE_TURN_LEAP, POUNCE_TURN_IDLE, AERIAL_MARK_T, FLASHLIGHT_RANGE, FLASHLIGHT_ARC, LINE_CHARGE_LOCK_T, LINE_CHARGE_LEN, LINE_CHARGE_W, PULL_BEAM_RANGE, PULL_BEAM_T, PULL_BEAM_W, PRISM_FLASH_T, BEAM_ENVELOPE, RAMPAGE_DURATION, PROP_SCALE, roadAt, ROAD_MINOR_WIDTH, STRAFE_TELEGRAPH_T, DISTRICT_BLEND_PX, SKIES_FLOOR_KEEP, LANE_CAMERA_FRAC, CIRCUIT_CAM_LEAD, CIRCUIT_CAM_EASE, LANE_AXIS_Y, laneAxes, BLANK_BOSS_R, BLANK_YANK_T, HYDRANT_STREAMS_MAX, darkness, lightRadius, refillSpec, drawdownSecsFor, TIDE_VIS, TIDE_POOL_VIS, SANDBAR_VIS, AIR_POCKET_VIS, SPUR_VIS, FIRE_CORAL_VIS, LANE_HALF_W, UPWELLING_VIS, FOUL_SPRING_VIS, FOUL_SPRING_FOUL_T, SPLASH_VIS, CAUSTIC_VIS, WAKE_VIS, LOBE_SHAPES, LOBE_DEPTH, lobeFactor, CORAL_CRUSH, SNAP_CAVITY, DEATH_OUTRO, irisCoverMul, deathProgress, NOVA_LIFE, SHELL_R, TRAWL_HALF, TRAWL_WAKE_DEPTH, BRING_SNAP_T, SHOREBREAK_RADIUS, BURST_WAKE, burstWakeAt, DUST, dustVel, laneScrollFor, BALLAST_THROW_R, BALLAST_RING, ORCA_LEN, ORCA_CIRCLE_DUR, ORCA_RING_BAND, ORCA_FEAR_TELL, CHUM_VIS, BILGE_TRAIL_VIS, OIL_STAIN_MAX, SLICK_FIRE_SPREAD_T, caveAt, laneHalfWidth, laneDrawSpan, CIRCUIT_GATE_VIS, ringXY, ringFU, ringRot, ringHeading, gateAnchorF, caveSpecOf, ORCA_RISE_DUR, ORCA_SPLASH_R, ORCA_AIM_W, ORCA_WAKE_R, ORCA_OVERSHOOT,
   // ---- v5.10 skies art direction (docs/superpowers/specs/2026-07-25-skies-art-direction.md) ----
   // All render-only, skies-only data. See config.js's "SKIES ART DIRECTION" section header.
   SKIES_PALETTE, SKIES_INK, SKIES_TELEGRAPH_LOD_PX, SKIES_FLASH, SKIES_SMOKE, SKIES_JAM, SKIES_FX,
@@ -12677,6 +12677,24 @@ const spurG = new Graphics()
     }
     return pts
   }
+  // How far a lit oil's fire has run from the point it caught (sl.burnX/burnY, sim.js
+  // stepSlickFire): the far rim at SLICK_FIRE_SPREAD_T, and everything past it.
+  const fireReach = (sl) => (Math.hypot(sl.x - sl.burnX, sl.y - sl.burnY) + sl.r) * Math.min(1, sl.burn / SLICK_FIRE_SPREAD_T)
+  // The lobe clipped to a disc of radius R about the ignition point: every vertex past R is pulled
+  // straight in to R, so the fire grows out of that point instead of appearing whole.
+  // ponytail: vertex clamping, not a polygon/disc intersection — the chord between two pulled
+  // vertices cuts the disc, which at 64 vertices under the flame particles is invisible.
+  function fireClip(pts, sl, R) {
+    if (sl.burn >= SLICK_FIRE_SPREAD_T) return pts
+    const out = []
+    for (let i = 0; i < pts.length; i += 2) {
+      const dx = pts[i] - sl.burnX, dy = pts[i + 1] - sl.burnY
+      const d = Math.hypot(dx, dy)
+      const k = d > R ? R / d : 1
+      out.push(sl.burnX + dx * k, sl.burnY + dy * k)
+    }
+    return out
+  }
 
   // ---- The Wreck's sunken ship, on parallax (v7.x) ---------------------------------------------
   // A GRID, NOT ONE SHIP, and on an infinite map that is the only honest answer: a single hull at
@@ -13504,6 +13522,7 @@ const spurG = new Graphics()
     // the outlines — Pixi has no union and a group alpha needs a filter pass per frame. If a trail
     // ever needs one hard outer edge, that filter (or an offset ribbon polygon) is the upgrade.
     for (const sl of all) {
+      if (!(sl.r > 0)) continue   // burnt out (stepSlickFire): nothing left to draw
       const trail = !!sl.trail
       const filmA = trail ? BILGE_TRAIL_VIS.filmA : 0.5
       const sheenA = trail ? BILGE_TRAIL_VIS.sheenA : 1
@@ -13523,31 +13542,35 @@ const spurG = new Graphics()
       // boundary — stroked once, against open water — still gains an edge.
       if (trail) slickG.poly(pts).stroke({ width: BILGE_TRAIL_VIS.edgeW, color: 0x14181a, alpha: BILGE_TRAIL_VIS.edgeA })
       else slickG.poly(pts).stroke({ width: 3, color: 0x2b2016, alpha: 0.72 })
-      // THE FIRE (2026-09-07, sl.fireT — sim.js stepSlickFire). Over the film: a flickering orange
+      // THE FIRE (2026-09-07, sl.burn — sim.js stepSlickFire). Over the film: a flickering orange
       // lobe, a hot core, and the rim relit bright, so a lit spill reads from across the screen.
-      // The flames themselves are particles (below), so a burning spill is never a static decal.
-      if (sl.fireT > 0) {
-        const fk = Math.min(1, sl.fireT / 0.6)   // catches at once, dies over its last 0.6s
+      // It RUNS from the body that lit it (burnX/burnY) to the rim over SLICK_FIRE_SPREAD_T — the
+      // lobe clipped to a disc growing around that point — and the film under it shrinks with the
+      // sim's own `r`, so the fire eats the oil rather than sitting on it. The flames themselves
+      // are particles (below), so a burning spill is never a static decal.
+      if (sl.burn != null) {
+        const reach = fireReach(sl)
         const fl = 1 + Math.sin(animT * 9 + sl.x * 0.03) * 0.06
-        slickG.poly(lobePoly(sl.r * 0.94 * fl, sl.shape, sl.rot, sl.x, sl.y)).fill({ color: 0xff6a20, alpha: 0.42 * fk })
-        slickG.poly(lobePoly(sl.r * 0.6 / fl, sl.shape, sl.rot + 0.3, sl.x + sl.r * 0.04, sl.y - sl.r * 0.03)).fill({ color: 0xffd060, alpha: 0.38 * fk })
-        slickG.poly(pts).stroke({ width: 4, color: 0xffb040, alpha: 0.8 * fk })
+        slickG.poly(fireClip(lobePoly(sl.r * 0.94 * fl, sl.shape, sl.rot, sl.x, sl.y), sl, reach)).fill({ color: 0xff6a20, alpha: 0.42 })
+        slickG.poly(fireClip(lobePoly(sl.r * 0.6 / fl, sl.shape, sl.rot + 0.3, sl.x + sl.r * 0.04, sl.y - sl.r * 0.03), sl, reach)).fill({ color: 0xffd060, alpha: 0.38 })
+        slickG.poly(fireClip(pts, sl, reach)).stroke({ width: 4, color: 0xffb040, alpha: 0.8 })
       }
     }
-    // The flames: a few every 0.12s per burning spill, scaled to its size, anywhere inside its lobe.
-    // Budgeted against the 200-slot particle ring: a lit spill is ~20/s, and about one is lit at a
-    // time (measured over 300s hunts).
-    const burning = all.filter((sl) => sl.fireT > 0)
+    // The flames: a few every 0.12s per burning spill, scaled to its size, anywhere inside its lobe
+    // the front has reached. Budgeted against the 200-slot particle ring: a lit spill is ~20/s,
+    // and about one is lit at a time (measured over 300s hunts).
+    const burning = all.filter((sl) => sl.burn != null && sl.r > 0)
     if (!burning.length) { slickFireAcc = 0; return }
     slickFireAcc += frameDt
     if (slickFireAcc < 0.12) return
     slickFireAcc -= 0.12
     for (const sl of burning) {
+      const reach = fireReach(sl)
       const n = Math.ceil(sl.r / 110)
       for (let k = 0; k < n; k++) {
         const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * sl.r * 0.85
         const x = sl.x + Math.cos(a) * d, y = sl.y + Math.sin(a) * d
-        if (!inLobe(sl, x, y)) continue
+        if (!inLobe(sl, x, y) || Math.hypot(x - sl.burnX, y - sl.burnY) > reach) continue
         spawnParticle(T.fx.flame_05, x, y, (Math.random() - 0.5) * 20, -40 - Math.random() * 30,
           0.35 + Math.random() * 0.25, 0.08 + Math.random() * 0.07, k % 3 ? 0xff7a30 : 0xffd060, 0.2, 0.6)
       }
@@ -19783,16 +19806,16 @@ const spurG = new Graphics()
         // them. Deliberately silent: at this chapter's density several squid inside INK_TRIGGER_R
         // at once is ordinary, which is the frequency bar SFX_FOR_EVENT keeps.
         // The Wreck (2026-09-07): a spill catching fire (sim.js stepSlickFire, {type:'slickFire'}).
-        // The whoomp — a ring of flame thrown outward the moment the oil lights, so the fire has a
-        // START; the steady burn is syncSlicks', drawn from fireT.
+        // The whoomp — a ring of flame thrown out from the BODY that lit it (x/y), at the speed the
+        // front crosses the oil (e.r is the far rim from there, SLICK_FIRE_SPREAD_T the time it
+        // takes), so the burst is the fire's start; the steady burn is syncSlicks', drawn from `burn`.
         case 'slickFire': {
-          const r = e.r ?? 190
+          const v = (e.r ?? 190) / SLICK_FIRE_SPREAD_T
           for (let i = 0; i < 16; i++) {
             const a = (i / 16) * Math.PI * 2 + Math.random() * 0.35
-            const d = r * (0.25 + Math.random() * 0.6)
-            spawnParticle(T.fx.flame_05, e.x + Math.cos(a) * d, e.y + Math.sin(a) * d,
-              Math.cos(a) * 70, Math.sin(a) * 70 - 50, 0.5 + Math.random() * 0.3, 0.11 + Math.random() * 0.08,
-              i % 3 ? 0xff7a30 : 0xffd060, 0.3, 1.5)
+            const s = v * (0.6 + Math.random() * 0.5)
+            spawnParticle(T.fx.flame_05, e.x, e.y, Math.cos(a) * s, Math.sin(a) * s - 50,
+              0.4 + Math.random() * 0.2, 0.11 + Math.random() * 0.08, i % 3 ? 0xff7a30 : 0xffd060, 0.3, 1.5)
           }
           break
         }

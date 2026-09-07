@@ -171,7 +171,7 @@ import {
   CHUM_FEED_R, CHUM_FEED_HOLD, CHUM_FEED_CD,
   OIL_FUNNEL_PULL,
   BILGE_TRAIL_STEP_FRAC, BILGE_TRAIL_R_MUL, BILGE_TRAIL_GROW,
-  OIL_STAIN_RATE, OIL_STAIN_MAX, SLICK_FIRE_DUR, SLICK_FIRE_FRAC, SLICK_FIRE_LINGER,
+  OIL_STAIN_RATE, OIL_STAIN_MAX, SLICK_FIRE_FRAC, SLICK_FIRE_LINGER, oilLeft,
   INK_TRIGGER_R, INK_COOLDOWN, INK_R, INK_DUR, INK_SLOW_MUL, INK_STAIN_T,
   PUFFER_TRIGGER_R, PUFFER_PUFF_T, PUFFER_COOL_T, PUFFER_DRIFT_MUL, PUFFER_POP_T,
   ORCA_HERD_PULL, ORCA_RING_BAND, ORCA_INTERVAL, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_LEAVE_DUR,
@@ -5102,7 +5102,9 @@ export function streamSlicks(run) {
   // parked player is looking at is frozen at whatever the clock said when they arrived — and the
   // one place it would be most visible (standing still, watching) is the one place it would not
   // happen. Cheap: a handful of entries, and both render and inLobe read this same field.
-  for (const sl of run.slicks) sl.r = r
+  //   A LIT spill shrinks instead (oilLeft — stepSlickFire): the spread is folded in here so a
+  // burnt-out spill stays at 0 rather than regrowing with the clock.
+  for (const sl of run.slicks) sl.r = r * oilLeft(sl)
   const cs = spec.cell
   const ci = Math.floor(p.x / cs), cj = Math.floor(p.y / cs)
   // A RESCAN IS FORCED AS THE CHANCE CLIMBS, and without it the growth is half a mechanic. The
@@ -5192,13 +5194,15 @@ function stepSlick(run, dt) {
   return died
 }
 
-// THE SPILL BURNS (2026-09-07, see SLICK_FIRE_* in config.js). A body on fire that swims into oil
-// lights the whole spill, and a lit spill burns every body inside it. The player is never burned —
-// the oil's own toll on them (stepSlick) is unchanged. A thrown Bilge pool is the same oil and burns
-// the same way; a TRAIL LINK (`trail: true` — the elite's oil trail, Trailing Slick) never does: a
-// fence that walks is not a damage zone (OIL_TRAIL_*), and an elite stands in its own freshest
-// link, so a trail that burned was a chain of fourteen whoomps and a self-immolating elite.
-// `fireT` is refreshed while any burning body is inside and runs down after.
+// THE SPILL BURNS (2026-09-07, see SLICK_BURN_T / SLICK_FIRE_* in config.js). A body on fire that
+// swims into oil lights the spill FROM WHERE IT STANDS (`burn` = seconds alight, `burnX/burnY` =
+// the point it caught; render runs the flame out from there), and a lit spill burns every body
+// inside it while the oil itself burns AWAY: `r` shrinks to nothing through oilLeft, which the two
+// writers of `r` (streamSlicks, stepBlooms) apply. The player is never burned — the oil's own toll
+// on them (stepSlick) is unchanged. A thrown Bilge pool is the same oil and burns the same way; a
+// TRAIL LINK (`trail: true` — the elite's oil trail, Trailing Slick) never does: a fence that walks
+// is not a damage zone (OIL_TRAIL_*), and an elite stands in its own freshest link, so a trail that
+// burned was a chain of fourteen whoomps and a self-immolating elite.
 //   The TELL rides the ignite contract field (render.js draws `ignite`); the DAMAGE is the spill's
 // own hazard tick of the body's maxHP — never `igniteDps`, which a Wildfire jump or a lightning arc
 // copies verbatim onto bodies of a different size, well outside the oil.
@@ -5211,19 +5215,20 @@ function stepSlickFire(run, dt) {
   }
   if (!oils.length) return
   let lit = false
-  for (const sl of oils) if (sl.fireT > 0) { sl.fireT = Math.max(0, sl.fireT - dt); lit = true }
+  for (const sl of oils) if (sl.burn != null && sl.r > 0) { sl.burn += dt; lit = true }
   // Nothing can catch unless something is already burning — the common frame, and it costs one
   // pass over the crowd rather than crowd x oils (measured +21% of the sim before this line).
   if (!lit && !run.enemies.some((e) => e.ignite > 0 && !e._dead)) return
   for (const e of run.enemies) {
     if (e._dead || damageImmune(e)) continue
     for (const sl of oils) {
-      if (!inLobe(sl, e.x, e.y)) continue
-      if (e.ignite > 0) {
-        if (!(sl.fireT > 0)) run.events.push({ type: 'slickFire', x: sl.x, y: sl.y, r: sl.r })
-        sl.fireT = SLICK_FIRE_DUR
+      if (!(sl.r > 0) || !inLobe(sl, e.x, e.y)) continue
+      if (sl.burn == null && e.ignite > 0) {
+        sl.burn = 0; sl.burnX = e.x; sl.burnY = e.y
+        // x/y is the body, r the far rim from it — the whoomp and the front both start there.
+        run.events.push({ type: 'slickFire', x: e.x, y: e.y, r: Math.hypot(sl.x - e.x, sl.y - e.y) + sl.r })
       }
-      if (sl.fireT > 0) {
+      if (sl.burn != null) {
         e.ignite = Math.max(e.ignite || 0, SLICK_FIRE_LINGER)
         e._spillBurnAcc = (e._spillBurnAcc || 0) + dt
         while (!e._dead && e._spillBurnAcc >= EL_BURN_TICK) {
@@ -9685,7 +9690,8 @@ function stepBlooms(run, dt) {
     // above it. slickTrail's pools are the only user: on the shared ramp a chain laid at speed is
     // half-grown for its whole visible length, which draws as dots however tightly it is spaced.
     const growT = bl.grow > 0 ? bl.grow : bl.dur * BLOOM_GROW_FRAC
-    bl.r = bl.t >= growT ? bl.maxR : bl.maxR * (bl.t / Math.max(1e-6, growT))
+    // x oilLeft: a lit Bilge pool burns away (stepSlickFire), the same shrink the leak's spills take.
+    bl.r = (bl.t >= growT ? bl.maxR : bl.maxR * (bl.t / Math.max(1e-6, growT))) * oilLeft(bl)
 
     // run.blooms is shared with The Twilight's Foxfire, which tags itself `look`. `sporeOn` and `tide`
     // are read ONCE for the whole list off run.weaponMods.bloom, so without this gate a build

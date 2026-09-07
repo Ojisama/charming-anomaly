@@ -8409,11 +8409,12 @@ CHAPTERS.wreck = {
       // one per 3900px square whatever the cell — the 2026-08 count, at twice the size. 1800 is
       // where the candidates are dense enough to reach that ceiling and fill the holes.
       cell: 1800,
-      // 0.36, MEASURED, not 1.0: at 0.8x the length the packing bound alone gives x1.65 the
-      // shipped count (hulls per px², Matérn replica over 6400 cells, 2026-09-07), and the ask was
-      // "20% more numerous". Thinning the candidates by this roll is what lands x1.20; the roll
-      // still doubles as the priority in hullKept. Raise toward 1.0 for a denser graveyard.
-      chance: 0.36,
+      // 0.55, MEASURED, not 1.0 (Matérn replica over 6400 cells, 2026-09-07): the survivors are
+      // bounded by packing, so the count is NOT linear in this roll — 0.36 -> 0.55 is x1.20 kept
+      // hulls and 1.0 would be x1.39. Owner, twice the same day: "20% more numerous", then "we
+      // don't see enough wreckage in the background". The roll still doubles as the priority in
+      // hullKept.
+      chance: 0.55,
       parallax: 0.45,    // fraction of camera motion the layer takes. 1 = welded to the world, 0 =
                          // pinned to the screen. Under 1 = deeper. Far under and it reads as a
                          // painted backdrop that slides, which is the failure mode to shoot for.
@@ -11350,17 +11351,21 @@ export const OIL_STAIN_RATE = 0.18   // speed fraction added per second spent in
 export const OIL_STAIN_MAX = 0.20    // hard ceiling on `oiled`, forever
 
 // ---- THE SPILL BURNS (2026-09-07, The Wreck) ---------------------------------------------------
-// A body already on fire that swims into oil lights the WHOLE spill (sl.fireT — sim.js
-// stepSlickFire), and a lit spill burns every body inside it. The fire is the oil's answer to the
-// fish, never to you: the player takes the spill's ordinary toll and nothing more. A thrown Bilge
-// pool burns the same way; trail links (the elite's oil trail, Trailing Slick) never do.
-// balance_decision : unswept first cut, ~5s standing in fire kills a body 2026-09-07
-//  - a spill stays lit while ANY burning body is inside it (bodies it lit included), and goes out
-//    SLICK_FIRE_DUR after the last one leaves — a shoal streaming through keeps it burning, and
-//    with a fire card in the build the spreading field kills for you (measured -7% damage taken)
-export const SLICK_FIRE_DUR = 4        // s a spill burns after the last burning body left it
+// A body already on fire that swims into oil lights the spill (sl.burn — sim.js stepSlickFire): the
+// flame runs from that body to the rim in SLICK_FIRE_SPREAD_T, and the oil is then CONSUMED — the
+// spill shrinks to nothing in SLICK_BURN_T (a Bilge pool in BILGE_BURN_T), burning every body still
+// inside what is left. The fire is the oil's answer to the fish, never to you: the player takes the
+// spill's ordinary toll and nothing more. Trail links (the elite's oil trail, Trailing Slick) never
+// burn. `oilLeft` is the ONE shrink rule, applied by both writers of `r` (streamSlicks, stepBlooms).
+// balance_decision : lit oil burns away, 5s for the leak's, 2.5s for yours 2026-09-07
+//  - a burnt leak spill stays at r 0 until the player leaves its cell; coming back re-streams it
+export const SLICK_BURN_T = 5          // s a lit leak spill takes to burn down to nothing
+export const BILGE_BURN_T = 2.5        // s a lit Bilge pool takes
+export const SLICK_FIRE_SPREAD_T = 0.5 // s the flame takes to run from the body that lit it to the rim (render reads it)
 export const SLICK_FIRE_FRAC = 0.2     // of a body's maxHP per second, while inside a lit spill
 export const SLICK_FIRE_LINGER = 1.0   // s the burning TELL stays on a body after it leaves — the damage stops at the rim
+// Fraction of a lit oil's radius still there: 1 unlit, 0 burnt out. `burn` is seconds since it caught.
+export const oilLeft = (sl) => sl.burn == null ? 1 : Math.max(0, 1 - sl.burn / (sl.look === 'bilge' ? BILGE_BURN_T : SLICK_BURN_T))
 
 // ---- ELITE OIL TRAIL (v7.x, The Wreck's own elite affix) ---------------------------------------
 // eliteFlags: ['oilTrail'] replaces the borrowed soapTrail here. Laid on soapTrail's own timer
