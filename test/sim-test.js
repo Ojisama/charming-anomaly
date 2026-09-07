@@ -163,7 +163,7 @@ import {
   ORCA_FIRST_PASS, ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_DUR,
   ORCA_RING_MIN_R, ORCA_BITE_R, ORCA_DENSITY_RUSH, ORCA_RUSH_MAX, ORCA_BAIT_PULL, ORCA_BAIT_FULL_FOOD, ORCA_SHADOW_MARGIN, ORCA_DENS_FULL_N,
   ORCA_HERD_PULL, ORCA_COMMITS, ORCA_WAKE_R, ORCA_RING_R, ORCA_RISE_DUR, ORCA_CIRCLE_DUR, ORCA_SPIRAL_ACCEL,
-  ORCA_LAPS, ORCA_HOLD_DUR, ORCA_CLOSE_FRAC, SCREW_DAMP, SCREW_HULL_PAD, SCREW_STEER_T, ORCA_AIM_W, ORCA_HIT_R, ORCA_ORBIT_RATE,
+  ORCA_LAPS, ORCA_HOLD_DUR, ORCA_CLOSE_FRAC, SCREW_HULL_PAD, SCREW_STEER_T, SCREW_LINK_GAP, ORCA_AIM_W, ORCA_HIT_R, ORCA_ORBIT_RATE,
   CHUM_FEED_HOLD, CHUM_FEED_R, OIL_STAIN_MAX, CHAPTER_BOARDS_DEFAULT,
   // The Trawl's late-game cut (run TJ)
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
@@ -8945,7 +8945,7 @@ function runPrey() {
     console.log(`PASS run PY.h (gorge): an elite dying anywhere pays exactly ${healed} HP with the card and ${control} without, never overheals (3 of 3 with a nearly full bar), and the card prints the amount from a {n} template`)
   }
 
-  // -- PY.c: THE SCREW is what the stick drives, and the fish is towed behind it. ------------------
+  // -- PY.c: THE SCREW plows a chain ahead of you, where you are going. ---------------------------
   // The chapter's fourth native, and the one card in the game whose output depends on the shape of
   // the player's path rather than on where they are standing.
   //
@@ -8962,61 +8962,29 @@ function runPrey() {
       run.weaponMods.screw = mods ?? {}
       return run
     }
-    // 1. THE STICK DRIVES THE BLADE AND THE FISH FOLLOWS (owner, 2026-09-07: "the stick moves the
-    //    SCREW, and your fish is pulled along behind it on the chain"). Hold east for two seconds:
-    //    the blade must be EAST of the fish, the fish must have been towed east, and the chain taut.
-    //    The blade is born AHEAD along the facing (east on a fresh run), so the tow starts at once.
-    //    Cut the tow (the fish's velocity zeroed while driven) and the fish never moves; cut the
-    //    drive (the lead coasts like the rest) and the blade never leaves the fish's side.
+    // 1. IT RIDES AHEAD, AT THE CHAIN'S LENGTH (owner, 2026-09-08: the plow, after "moving the screw
+    //    instead of the player plays bad"). Swim east for two seconds: the blade must be EAST of the
+    //    fish and the chain taut. Point it behind and this fails; an orbiter would fail the bearing.
     const straight = rig()
-    const x0 = straight.player.x
-    for (let i = 0; i < Math.round(3 / dt); i++) { straight.enemies.length = 0; stepSim(straight, { x: 1, y: 0 }, dt) }
+    for (let i = 0; i < Math.round(2 / dt); i++) { straight.enemies.length = 0; stepSim(straight, { x: 1, y: 0 }, dt) }
     const sc = straight.screws[0]
     assert.ok(sc, 'precondition: the screw must exist once the weapon is equipped')
     const ahead = sc.x - straight.player.x
     assert.ok(ahead > 0,
-      `the stick drives the BLADE, so after 3s of east the blade must lead the fish: it sat ${ahead.toFixed(0)}px ahead (negative = behind)`)
-    const towed = straight.player.x - x0
-    // 400 of the 660 a free swim covers in 3s: the blade has to reach speed first (SCREW_STEER_T).
-    // With the tow cut (the fish's velocity zeroed while driven) it reads 0.
-    assert.ok(towed > 400,
-      `...and the fish must be TOWED after it, not parked: it moved ${towed.toFixed(0)}px east in 3s`)
+      `the blade must LEAD the fish along its heading: after 2s swimming east it sat ${ahead.toFixed(0)}px ahead (negative = behind)`)
     const taut = Math.hypot(sc.x - straight.player.x, sc.y - straight.player.y)
     assert.ok(Math.abs(taut - SC.chain) < 2,
-      `a chain under tow must be TAUT at its own length: ${taut.toFixed(1)}px against ${SC.chain}`)
+      `a chain under way must be TAUT at its own length: ${taut.toFixed(1)}px against ${SC.chain}`)
     const behind = -ahead
 
-    // 2. LET GO AND THE FISH STOPS WHILE THE BLADE COASTS. The blade is a weight on a rope, never a
-    //    chaser: released, its speed must DECAY (a chaser holds or gains), sampled as two consecutive
-    //    windows so this is a rate against a rate. And the fish, with nothing pulling, stays put.
-    const winMove = (steps) => {
-      const ax = straight.screws[0].x, ay = straight.screws[0].y
-      for (let i = 0; i < steps; i++) { straight.enemies.length = 0; stepSim(straight, { x: 0, y: 0 }, dt) }
-      return Math.hypot(straight.screws[0].x - ax, straight.screws[0].y - ay)
-    }
-    const fishWin = (steps) => {
-      const ax = straight.player.x, ay = straight.player.y
-      const bx = straight.screws[0].x, by = straight.screws[0].y
-      for (let i = 0; i < steps; i++) { straight.enemies.length = 0; stepSim(straight, { x: 0, y: 0 }, dt) }
-      return [Math.hypot(straight.player.x - ax, straight.player.y - ay), Math.hypot(straight.screws[0].x - bx, straight.screws[0].y - by)]
-    }
-    const [f1, w1] = fishWin(Math.round(0.1 / dt))
-    const [f2, w2] = fishWin(Math.round(0.1 / dt))
-    // The bound is the DAMPING'S OWN ARITHMETIC, not a literal: pure coasting over a tenth of a
-    // second leaves exactly SCREW_DAMP^0.1 of the speed, so a retune of the knob carries this case
-    // with it instead of failing at it. The 1.08 is slack for the discrete steps.
-    const decay = Math.pow(SCREW_DAMP, 0.1) * 1.08
-    assert.ok(w2 < w1 * decay,
-      `released, the blade must only be coasting, never driven: it covered ${w1.toFixed(1)}px in the first tenth of a second ` +
-      `and ${w2.toFixed(1)}px in the next, a ratio of ${(w2 / Math.max(w1, 1e-6)).toFixed(2)} against a coasting bound of ${decay.toFixed(2)}`)
-    // The fish GLIDES with it — a coasting weight still pulls a taut chain — and must slow the same
-    // way, never be driven: its second tenth is shorter than its first, and neither is a full
-    // 220px/s tenth.
-    const drift = f1 + f2
-    assert.ok(f2 < f1 && f1 < PLAYER.baseSpeed * 0.1,
-      `with the stick let go the fish must glide to a stop behind the coasting blade, never be driven: it moved ${f1.toFixed(1)}px then ${f2.toFixed(1)}px over two tenths`)
-    assert.ok(SCREW_DAMP > 0 && SCREW_DAMP < 1,
-      `SCREW_DAMP is the fraction of speed the water leaves it after a second and must be a real fraction; it is ${SCREW_DAMP}`)
+    // 2. STOP AND IT SETTLES AT YOUR NOSE. Let go of the stick and the blade must come back from the
+    //    chain's length to the hull (its radius, the player's, SCREW_HULL_PAD) and no closer — the
+    //    rest position of a plow, and the reason a parked player cuts only a blade's width.
+    for (let i = 0; i < Math.round(1.5 / dt); i++) { straight.enemies.length = 0; stepSim(straight, { x: 0, y: 0 }, dt) }
+    const rest = Math.hypot(sc.x - straight.player.x, sc.y - straight.player.y)
+    const hull = SC.radius + PLAYER.radius + SCREW_HULL_PAD
+    assert.ok(rest < hull + 3 && rest > hull - 1,
+      `stopped, the blade must settle at the hull (${hull}px), not stay out on the chain (${SC.chain}): it sat ${rest.toFixed(1)}px out`)
 
     // 3. IT CUTS, and only when it is equipped. Pinned bodies laid along the ground the screw
     //    sweeps, re-pinned every frame so both arms take the same dose.
@@ -9043,10 +9011,10 @@ function runPrey() {
     const honed = sweep({ honedBlades: 1 }, true)
     assert.ok(honed > cut * 1.1, `Honed must fold the blade damage: ${honed} against ${cut} unmodded`)
 
-    // 4. DRIVING IS WHAT POWERS IT, and this is the arm an orbiter would fail. Same crowd, same four
+    // 4. SWIMMING IS WHAT POWERS IT, and this is the arm an orbiter would fail. Same crowd, same four
     //    seconds, same starting point: a knot 300px NORTH of the fish, out of a resting blade's reach.
-    //    A player who DRIVES the blade north runs it through the knot; a player who leaves the stick
-    //    alone cuts nothing. A ring of blades centred on the player would pay both the same.
+    //    A player who SWIMS north plows the blade through the knot; a player who stands still cuts
+    //    nothing. A ring of blades centred on the player would pay both the same.
     const workRate = (driving) => {
       const run = rig()
       const p = run.player
@@ -9071,7 +9039,7 @@ function runPrey() {
     const looped = workRate(true)
     const parked = workRate(false)
     assert.ok(looped > 0 && parked === 0,
-      `THE STICK IS THE WEAPON: driving the blade through a knot must cut it and a stick left alone must reach nothing, or this card is an orbiter wearing a chain — ${looped} driven against ${parked} parked`)
+      `YOUR HEADING IS THE WEAPON: swimming through a knot must cut it and standing still must reach nothing, or this card is an orbiter wearing a chain — ${looped} swimming against ${parked} still`)
 
     // 5. TWIN SCREW puts a SECOND body on the chain, at its own place on it. Distinct positions, not
     //    a count: two screws spawned on one point render as one and deal one body's damage, which is
@@ -9130,55 +9098,41 @@ function runPrey() {
     assert.strictEqual(spots.size, sick.screws.length,
       `...at DISTINCT points on the chain: ${sick.screws.length} screws sharing ${spots.size} spot(s) is one screw's damage wearing three sprites`)
 
-    // 8. IT IS DRIVABLE, WITH A LITTLE WEIGHT. Owner, 2026-09-07: "hélice is not drivable as i want
-    //    it to". Three claims about the stick: (a) push north after an east tow and the blade's
-    //    heading comes round to north — but not at once, it is SCREW_STEER_T's ramp, so a tenth of a
-    //    second in it still leans east and six tenths in it is north; (b) push back WEST and the
-    //    blade runs the fish over — it sidesteps, the blade slides past, and the fish is towed west
-    //    after it, which is the half of "drivable" a rope alone cannot do; (c) the chain holds.
-    const drivable = () => {
+    // 8. IT TURNS WITH YOU, WITH A LITTLE WEIGHT (SCREW_STEER_T). Swim east, then north: the blade's
+    //    bearing from the fish must come round to north — but not at once. A tenth of a second in it
+    //    still leans east; six tenths in it is north. Snap it (no lag) and the first fails; leave it
+    //    where it was and the second does.
+    const turn = () => {
       const run = rig()
-      let over = 0
-      const drive = (input, secs) => {
-        for (let i = 0; i < Math.round(secs / dt); i++) {
-          run.enemies.length = 0
-          stepSim(run, input, dt)
-          const s2 = run.screws[0], q = run.player
-          over = Math.max(over, Math.hypot(s2.x - q.x, s2.y - q.y) - SC.chain)
-        }
-      }
-      const heading = () => { const s2 = run.screws[0]; return Math.atan2(s2.vy, s2.vx) }
+      const drive = (input, secs) => { for (let i = 0; i < Math.round(secs / dt); i++) { run.enemies.length = 0; stepSim(run, input, dt) } }
+      const bearing = () => { const s2 = run.screws[0], q = run.player; return Math.atan2(s2.y - q.y, s2.x - q.x) }
       const offNorth = (a) => Math.abs(((a + Math.PI / 2 + Math.PI) % (Math.PI * 2)) - Math.PI) * 180 / Math.PI
       drive({ x: 1, y: 0 }, 2.0)
       drive({ x: 0, y: -1 }, 0.1)
-      const early = offNorth(heading())
+      const early = offNorth(bearing())
       drive({ x: 0, y: -1 }, 0.5)
-      const late = offNorth(heading())
-      const xBefore = run.player.x
-      drive({ x: -1, y: 0 }, 3.0)   // ~1.5s for the blade to swing round the fish on a 165px chain, then the tow
-      const shoved = xBefore - run.player.x
-      return { early, late, shoved, over }
+      const late = offNorth(bearing())
+      return { early, late }
     }
-    const dr = drivable()
+    const dr = turn()
     assert.ok(dr.late < 15,
-      `the stick must STEER the blade: six tenths of a second into a north push its heading was still ${dr.late.toFixed(0)} degrees off north`)
+      `the plow must come round to the new heading: six tenths of a second into a north swim the blade's bearing was still ${dr.late.toFixed(0)} degrees off north`)
     assert.ok(dr.early > 25,
       `...with some weight (SCREW_STEER_T ${SCREW_STEER_T}s): a tenth of a second in it should still lean east, and it was already within ${dr.early.toFixed(0)} degrees of north`)
-    assert.ok(dr.shoved > 150,
-      `driving the blade back through the fish must end with the fish towed the new way: pushed west for 3s the fish moved ${dr.shoved.toFixed(0)}px west`)
-    assert.ok(dr.over < 2,
-      `...on the chain the whole time: it reached ${(SC.chain + dr.over).toFixed(1)}px on a ${SC.chain}px chain`)
 
     const closest = (mods, ipecac) => {
       const run = rig(mods)
       if (ipecac) run.anomalies = { ...(run.anomalies ?? {}), ipecac: true }
-      let toPlayer = Infinity, toEach = Infinity
+      let toPlayer = Infinity, toEach = Infinity, far = 0
       const drive = (input, secs) => {
         for (let i = 0; i < Math.round(secs / dt); i++) {
           run.enemies.length = 0
           stepSim(run, input, dt)
           const q = run.player
-          for (const s of run.screws) toPlayer = Math.min(toPlayer, Math.hypot(s.x - q.x, s.y - q.y) - s.r - PLAYER.radius - SCREW_HULL_PAD)
+          for (const s of run.screws) {
+            toPlayer = Math.min(toPlayer, Math.hypot(s.x - q.x, s.y - q.y) - s.r - PLAYER.radius - SCREW_HULL_PAD)
+            far = Math.max(far, Math.hypot(s.x - q.x, s.y - q.y))
+          }
           for (let a = 0; a < run.screws.length; a++) for (let b = a + 1; b < run.screws.length; b++) {
             const s = run.screws[a], u = run.screws[b]
             toEach = Math.min(toEach, Math.hypot(s.x - u.x, s.y - u.y) - s.r - u.r)
@@ -9189,7 +9143,7 @@ function runPrey() {
       drive({ x: 0, y: 0 }, 2.0)
       drive({ x: -1, y: 0 }, 1.5)
       drive({ x: 0, y: 1 }, 1.0)
-      return { toPlayer, toEach, n: run.screws.length }
+      return { toPlayer, toEach, far, n: run.screws.length }
     }
     const solo = closest()
     assert.ok(solo.toPlayer > -1,
@@ -9206,6 +9160,13 @@ function runPrey() {
     //    Screw), the innermost link shorter than the hull, every body pinned to the same ring.
     //    Three relaxation passes left the six 26px into each other and read fine on one or two
     //    blades; the shipped count leaves under a px, and this is the arm that holds it there.
+    // THE ROW STAYS WITHIN REACH. Abreast bodies need lateral room, not a longer chain: the row's
+    // corners sit at hypot(chain, half the row width). A chain grown to hold them in SERIES put
+    // Twin Screw's pair 246px out — off a phone's 195px half-width — and bent the row onto an arc
+    // with no gap left between bodies (adversarial review, 2026-09-08).
+    const rowW = 2 * SC.radius + SCREW_LINK_GAP
+    assert.ok(pair.far < Math.hypot(SC.chain, rowW / 2) + 3,
+      `Twin Screw's two must stand ABREAST at the chain, corners at ${Math.hypot(SC.chain, rowW / 2).toFixed(0)}px: one reached ${pair.far.toFixed(0)}px`)
     const sick3 = closest({}, true)
     const sick6 = closest({ twinScrew: 1 }, true)
     assert.ok(sick3.n === 3 && sick6.n === 6,
@@ -9213,11 +9174,13 @@ function runPrey() {
     assert.ok(sick3.toEach > -1 && sick6.toEach > -1,
       `...none of them stacking: Ipecac's three came ${(-sick3.toEach).toFixed(1)}px into each other and Ipecac x Twin's six ${(-sick6.toEach).toFixed(1)}px. ` +
       `Three relaxation passes read 26px here while one and two blades passed`)
+    assert.ok(sick6.far < Math.hypot(SC.chain, 2.5 * rowW) + 3,
+      `...and six abreast reach no further than the row's corners (${Math.hypot(SC.chain, 2.5 * rowW).toFixed(0)}px): one reached ${sick6.far.toFixed(0)}px`)
     assert.ok(sick3.toPlayer > -1 && sick6.toPlayer > -1,
       `...and none on the player: the nearest came ${(-Math.min(sick3.toPlayer, sick6.toPlayer)).toFixed(1)}px into the hull`)
 
-    console.log(`PASS run PY.c (the screw): the stick drives the blade ${(-behind).toFixed(0)}px ahead of a fish towed ${towed.toFixed(0)}px on a ${taut.toFixed(0)}px chain, released it only COASTS (${w1.toFixed(0)}px then ${w2.toFixed(0)}px over two tenths, the fish drifting ${drift.toFixed(0)}px), cuts ${cut} through a pinned line (${honed} Honed, 0 unequipped), pays ${looped} for driving through a knot against ${parked} for leaving the stick alone, Twin Screw hangs a second ${gap.toFixed(0)}px further back, Ipecac spreads ${sick.screws.length} over ${spots.size} distinct points, and it shares no cooldown with the orbiter (${bothOn} together against ${screwOnly}+${orbitOnly} apart), ` +
-      `and it steers (${dr.early.toFixed(0)} degrees off north a tenth in, ${dr.late.toFixed(0)} six tenths in) and driven back through the fish tows it ${dr.shoved.toFixed(0)}px the new way, ` +
+    console.log(`PASS run PY.c (the screw): plows ${(-behind).toFixed(0)}px ahead on a ${taut.toFixed(0)}px chain and settles ${rest.toFixed(0)}px out when you stop, cuts ${cut} through a pinned line (${honed} Honed, 0 unequipped), pays ${looped} for swimming through a knot against ${parked} for standing still, Twin Screw stands a second ${gap.toFixed(0)}px abreast, Ipecac spreads ${sick.screws.length} over ${spots.size} distinct points, and it shares no cooldown with the orbiter (${bothOn} together against ${screwOnly}+${orbitOnly} apart), ` +
+      `and it turns with you (${dr.early.toFixed(0)} degrees off north a tenth in, ${dr.late.toFixed(0)} six tenths in), ` +
       `and no blade ever got closer than ${Math.min(solo.toPlayer, pair.toPlayer, sick3.toPlayer, sick6.toPlayer).toFixed(1)}px to the hull or ${Math.min(pair.toEach, sick3.toEach, sick6.toEach).toFixed(1)}px to another blade (six of them under Ipecac x Twin)`)
   }
 

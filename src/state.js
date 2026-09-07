@@ -2654,11 +2654,10 @@ export function createRun(meta, opts = {}) {
     // thanked you for standing in would be a semantic collision that never throws. Unconditional
     // like every field above it, so runs have one shape (R2); only a `leak` signature fills it.
     slicks: [],
-    // v7.x The Wreck: THE SCREW's bodies (sim.js stepScrewWeapon). NOT rebuilt each frame the way
-    // run.orbs is — the position IS the state, so it persists like run.debris. While the card is
-    // equipped the STICK drives the last of them and the fish is towed (stepPlayerMovement); the
-    // stick and the fish's composed speed are published on run._stickX/_stickY/_moveSpeed, and the
-    // chain's length on run._screwChain, all lazily — absent until the first driven frame.
+    // v7.x The Wreck: THE SCREW's bodies (sim.js stepScrewWeapon), plowing a chain ahead of the
+    // player. NOT rebuilt each frame the way run.orbs is — the position IS the state, so it persists
+    // like run.debris. The last swim heading is kept on run._plowX/_plowY (lazily, absent until the
+    // player first moves with the card) so a stopped player keeps the blade where they were going.
     screws: [],
     _slickCellI: null,     // streaming cursor, independent of every other streamer's
     _slickCellJ: null,
