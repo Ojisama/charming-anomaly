@@ -153,7 +153,7 @@ import {
   // the cosmetic shop line and its mastery gate (Run BP.ag)
   MASTERY_UNLOCK, chaptersMastered, shopLineUnlocked, CHEEK_JIGGLE, BUTT_FEET,
   // The Wreck's prey rework (Run WK)
-  INK_TRIGGER_R, INK_COOLDOWN, INK_SLOW_MUL, INK_DUR, INK_KEEP_FRAC,
+  INK_TRIGGER_R, INK_COOLDOWN, INK_SLOW_MUL, INK_DUR,
   PUFFER_TRIGGER_R, PUFFER_COOL_T, PUFFER_DRIFT_MUL,
   GNASH_MAW_MUL, RUSH_MAX_STACKS, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, PUFFER_POP_T, GORGE_HEAL,
   SLICK_BURN_T, BILGE_BURN_T, SLICK_FIRE_FRAC, SLICK_FIRE_LINGER,
@@ -8819,16 +8819,18 @@ function runPrey() {
       'sync() must re-roll inkSeed and redraw on the frame the ink comes back (run._inkT 0 -> >0)')
     console.log(`PASS run PY.i (ink splats re-rolled per inking): ${seeded} seeded hashes in drawInkStain, and sync re-rolls inkSeed on the ink's rising edge`)
 
-    // -- PY.i2: THE CENTRE OF THE INKED SCREEN STAYS CLEAN, AS A RATIO OF THE VIEWPORT (owner,
-    // 2026-09-08: "it should not cover the 30% at the center" — on a phone). drawInkStain is Pixi-
-    // free apart from the Graphics it draws INTO, so it is lifted out of render.js as text and run
-    // against a recording stand-in, and the disc of radius INK_KEEP_FRAC x the short side is SAMPLED
-    // for fill — a vertex check would pass the two shipped failures, since neither had a vertex
-    // inside the disc: a splat that CONTAINS the screen centre has none (v7.303.0 inked the centre
-    // on every viewport that way), and a chord between two rim-clamped vertices has none either
-    // (the fix's own first cut cut 38px in). Two viewports, per the probing rule: a px hole is a
-    // different mechanic on each, and the one you shot looks right.
+    // -- PY.i2: THE CENTRE OF THE INKED SCREEN STAYS CLEAN, AS A RATIO OF THE VIEWPORT. The splats
+    // live on the OUTER BAND (nothing inside 0.55 of the half-diagonal — the v7.300.0 rule, restored
+    // 2026-09-08 after a same-day cut let them reach the middle and the owner shot it: "blatantly a
+    // circle cut in the middle ... I like it better before when it was the edges of the screen").
+    // The floor asserted here is the owner's own from that day, 30% of the SHORT side, which the band
+    // rule clears on every aspect (the half-diagonal is at least short/√2, and 0.55/√2 > 0.3).
+    // drawInkStain is Pixi-free apart from the Graphics it draws INTO, so it is lifted out of
+    // render.js as text and run against a recording stand-in, and the disc is SAMPLED for fill — a
+    // vertex check passed both shipped failures, since a splat that CONTAINS the centre has no vertex
+    // inside the disc. Two viewports, per the probing rule: a px hole is a different mechanic on each.
     {
+      const INK_KEEP_FRAC = 0.3
       const fnHash = src.slice(src.indexOf('function hash(n)'), src.indexOf('function lerp('))
       assert.ok(fnHash.length > 20 && fnHash.length < 400, 'render.js hash() must sit above lerp()')
       const shapes = []
@@ -8839,7 +8841,7 @@ function runPrey() {
         circle(x, y, r) { return rec({ k: 'circ', x, y, r }) },
         ellipse(x, y, rx, ry) { return rec({ k: 'ell', x, y, rx, ry }) },
       }
-      const draw = new Function('inkStain', 'inkSeed', 'INK_KEEP_FRAC', fnHash + fn + '\nreturn drawInkStain')
+      const draw = new Function('inkStain', 'inkSeed', fnHash + fn + '\nreturn drawInkStain')
       const inPoly = (pts, x, y) => {
         let inside = false
         for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
@@ -8855,7 +8857,7 @@ function runPrey() {
       for (const [w, h] of [[390, 844], [1280, 800]]) {
         const cx = w / 2, cy = h / 2, keep = Math.min(w, h) * INK_KEEP_FRAC
         for (let n = 0; n < 12; n++) {
-          draw(g, (n + 0.5) / 12, INK_KEEP_FRAC)(w, h)
+          draw(g, (n + 0.5) / 12)(w, h)
           splats += shapes.filter((sh) => sh.k === 'poly').length
           assert.ok(shapes.some((sh) => sh.k === 'poly'), `${w}x${h} seed ${n}: drawInkStain drew no splat at all`)
           // 24 rings x 24 spokes, out to a hair inside the rim, plus the centre itself

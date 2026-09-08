@@ -11398,10 +11398,6 @@ export const INK_DUR = 3.2         // s of cloud. Long enough to still be there 
 //  - MIN-composed, so standing in ink AND oil is the oil's 0.62 and never the product
 export const INK_SLOW_MUL = 0.66
 export const INK_STAIN_T = 2.5     // s the ink stays on the SCREEN after you leave the cloud (run._inkT)
-// The clean disc at the centre of the inked screen, as a RADIUS in fractions of the viewport's SHORT
-// side (render.js drawInkStain) — a ratio, never px: the same 44px hole was fine on a desktop and a
-// blackout on a phone. Owner, 2026-09-08: "it should not cover the 30% at the center."
-export const INK_KEEP_FRAC = 0.3
 
 // ---- THE PUFFERFISH (v7.x, The Wreck — the `puffup` flag) --------------------------------------
 // A TIMING BEAT, NOT A SHIELD, and the distinction is the entire brief. Owner, 2026-08-23: "puffs
