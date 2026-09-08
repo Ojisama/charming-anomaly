@@ -23,7 +23,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   CHEEK_JIGGLE,       // the cheeks skin's spring — see syncPlayer's jiggle block
   BUTT_FEET,          // ...and its feet — see syncPlayer's feet block // The Deep: the anglerfish maw and its esca punched through the dark scrim
   FOXFIRE_GLOW,       // The Twilight: a foxfire punched through the same scrim — a fire is a light
-  SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
+  SLICK_SLOW_T, INK_STAIN_T, INK_KEEP_FRAC, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
 
@@ -13599,10 +13599,15 @@ const spurG = new Graphics()
   }
 
   // The squid's ink on the glass (inkStain): six splats with their own spatter and drips, anywhere
-  // on the screen but a FISH-SIZED circle at the centre (owner, 2026-09-08: "you can empiéter sur le
-  // milieu, just keep maybe a circle of the size of the player as radius clean" — superseding the
-  // earlier outer-band rule): a splat's inner vertices are flattened against that circle and a
-  // droplet or drip that would land inside it is skipped. Hashed
+  // on the screen but a clean disc at the centre — INK_KEEP_FRAC of the short side as its radius
+  // (owner, 2026-09-08: "it should not cover the 30% at the center", superseding the same day's
+  // fish-sized circle, which on a phone was a 44px hole in a screen the splats blacked out). A
+  // splat's inner vertices are flattened against that disc and a droplet or drip that would land
+  // inside it is skipped. ⚠ THE FLATTENING ONLY WORKS ON A SPLAT WHOSE OUTLINE CROSSES THE DISC:
+  // a splat that CONTAINS the screen centre has no vertex inside the disc (or wraps its rim the far
+  // way round) and fills it solid, which is exactly how the fish-sized cut inked the centre on every
+  // viewport. So each splat is pushed out until its whole reach clears the screen centre (the
+  // `d` floor below), and run PY.i samples the disc to prove it stays clean. Hashed
   // off `inkSeed`, which sync() re-rolls each time you are inked afresh (owner, 2026-09-07:
   // "randomised position and shape"), so every squirt lands its own splats; a resize redraws the
   // SAME set, because the seed is kept. Each outline is its OWN three random harmonics plus a little
@@ -13618,10 +13623,10 @@ const spurG = new Graphics()
   let inkWasOn = false    // was run._inkT > 0 last sync — the edge that re-rolls inkSeed
   function drawInkStain(w, h) {
     inkStain.clear()
-    const cx = w / 2, cy = h / 2, R = Math.hypot(cx, cy), keep = PLAYER.radius * 2
+    const cx = w / 2, cy = h / 2, R = Math.hypot(cx, cy), keep = Math.min(w, h) * INK_KEEP_FRAC
     const s = inkSeed * 97
     const INK = 0x0a0812, TAU = Math.PI * 2
-    const out = (px, py) => Math.hypot(px - cx, py - cy) >= keep
+    const out = (px, py, pr = 0) => Math.hypot(px - cx, py - cy) - pr >= keep
     for (let k = 0; k < 6; k++) {
       const a = (k / 6) * TAU + hash(s + k * 7.3 + 1.1) * 0.5
       // Capped at a phone's short side: at 800px six splats stacked into a blackout (shot).
@@ -13634,17 +13639,34 @@ const spurG = new Graphics()
       const a3 = 0.04 + hash(s + k * 3.7 + 6.6) * 0.10
       const p1 = hash(s + k * 2.9) * TAU, p2 = hash(s + k * 5.3 + 7.7) * TAU, p3 = hash(s + k * 9.1 + 1.3) * TAU
       const grit = 0.02 + hash(s + k * 6.7 + 2.8) * 0.04
-      const d = R * (0.2 + hash(s + k * 3.1 + 2.2) * 0.8)
+      // Floors: the splat's centre sits on or past the clean rim, and its farthest reach (every
+      // harmonic peaking at once, plus half the grit) falls short of the screen centre — a blob
+      // seen from a point it cannot contain subtends under 180°, so its clamped inner arc hugs the
+      // rim the SHORT way and the disc stays outside the fill.
+      const d = Math.max(R * (0.2 + hash(s + k * 3.1 + 2.2) * 0.8), keep, r * (1 + a1 + a2 + a3 + grit / 2))
       const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d
       const pts = []
-      for (let i = 0; i < 72; i++) {
-        const t = (i / 72) * TAU
+      // A vertex inside the disc is put on the rim at its own angle — and between two such vertices
+      // the polygon FOLLOWS THE RIM in <= 0.1rad steps rather than taking the chord. Where the
+      // outline passes close to the screen centre, neighbouring vertices 19px apart can sit 90°
+      // apart on the rim, and that chord cut 38px into the disc (measured, 390x844). The loop runs
+      // one past the last vertex so the closing edge gets the same treatment.
+      let prevA = null
+      for (let i = 0; i <= 72; i++) {
+        const ii = i % 72, t = (ii / 72) * TAU
         const f = Math.max(0.35, 1 + a1 * Math.cos(h1 * t + p1) + a2 * Math.cos(h2 * t + p2)
-          + a3 * Math.cos(h3 * t + p3) + (hash(s + k * 11.3 + i * 0.37) - 0.5) * grit)
-        let px = x + Math.cos(t) * r * f, py = y + Math.sin(t) * r * f
-        const dc = Math.hypot(px - cx, py - cy)
-        if (dc < keep) { px = cx + (px - cx) * keep / Math.max(dc, 1e-6); py = cy + (py - cy) * keep / Math.max(dc, 1e-6) }
-        pts.push(px, py)
+          + a3 * Math.cos(h3 * t + p3) + (hash(s + k * 11.3 + ii * 0.37) - 0.5) * grit)
+        const px = x + Math.cos(t) * r * f, py = y + Math.sin(t) * r * f
+        if (Math.hypot(px - cx, py - cy) < keep) {
+          const ang = Math.atan2(py - cy, px - cx)
+          if (prevA != null) {
+            const da = Math.atan2(Math.sin(ang - prevA), Math.cos(ang - prevA))
+            const n = Math.ceil(Math.abs(da) / 0.1)
+            for (let j = 1; j < n; j++) { const aa = prevA + da * j / n; pts.push(cx + Math.cos(aa) * keep, cy + Math.sin(aa) * keep) }
+          }
+          if (i < 72) pts.push(cx + Math.cos(ang) * keep, cy + Math.sin(ang) * keep)
+          prevA = ang
+        } else { if (i < 72) pts.push(px, py); prevA = null }
       }
       inkStain.poly(pts).fill({ color: INK, alpha: 0.64 + hash(s + k * 1.3 + 3.9) * 0.12 })
       const nd = 2 + Math.floor(hash(s + k * 7.9 + 5.1) * 4)
@@ -13654,7 +13676,7 @@ const spurG = new Graphics()
         const dd = r * (1.05 + hash(s + k * 2.7 + j * 2.3) * 0.9)
         const dr = r * (0.05 + hash(s + k * 5.9 + j * 3.1) * 0.16)
         const px = x + Math.cos(da) * dd, py = y + Math.sin(da) * dd
-        if (out(px, py)) inkStain.circle(px, py, dr).fill({ color: INK, alpha: 0.6 })
+        if (out(px, py, dr)) inkStain.circle(px, py, dr).fill({ color: INK, alpha: 0.6 })
       }
       const ndr = Math.floor(hash(s + k * 8.1 + 4.7) * 3)
       for (let j = 0; j < ndr; j++) {
@@ -13662,7 +13684,9 @@ const spurG = new Graphics()
         const L = r * (0.5 + hash(s + k * 9.7 + j * 4.1) * 1.3)
         const ww = r * (0.08 + hash(s + k * 1.7 + j * 6.1) * 0.1)
         const y0 = y + r * 0.6, y1 = y0 + L
-        if (!out(dx, y0) || !out(dx, y1)) continue
+        // The whole drip has to clear the disc, not just its two ends: a long one can start above it
+        // and end below it. Its nearest point to the centre is the clamp of cy onto [y0, y1].
+        if (!out(dx, Math.min(Math.max(cy, y0), y1), ww) || !out(dx, y1, ww * 1.4)) continue
         inkStain.ellipse(dx, (y0 + y1) / 2, ww, L / 2).fill({ color: INK, alpha: 0.55 })
         inkStain.circle(dx, y1, ww * 1.4).fill({ color: INK, alpha: 0.55 })
       }
