@@ -2946,15 +2946,18 @@ export const SCREW_SPIN_RATE = 7.5
 // A LOT OF INERTIA, AND IT BOUNCES. Owner, 2026-09-08: "just have the hélice with a lot of inertia
 // and bouncing around" — after a rope, a stick-driven tow and a plow all read wrong in play.
 //   SCREW_DAMP    the fraction of its speed the water leaves the blade after one second, applied as
-//                 a power of dt. 0.9 is "a lot": a thrown blade is still at 73% three seconds on.
+//                 a power of dt. 0.9 was "a lot" (73% three seconds on); 1 is INFINITE — the water
+//                 takes nothing, and only SCREW_MAX_SPEED bounds it (owner, 2026-09-08: "make the
+//                 hélice inertia infinite, I want it bouncing around like crazy").
 //   SCREW_BOUNCE  restitution at the chain's end, the hull and blade-on-blade: the fraction of the
-//                 closing speed that comes back. 1 would never settle, 0 is the rope this replaces.
+//                 closing speed that comes back. 1 never settles — which is the brief; 0 is the rope.
 //   SCREW_MAX_SPEED  px/s ceiling on a blade. The player is the wall it bounces off, and a wall
 //                 that reverses PUMPS it: a kiting rhythm read 664px/s in 30s and ~1280 at the
 //                 plateau (adversarial review), 3-6x the fish it is chained to. Twice the fish.
 // balance_decision : a heavy blade that bounces, 0.9 kept per second, 0.85 back 2026-09-08
-export const SCREW_DAMP = 0.9
-export const SCREW_BOUNCE = 0.85
+// balance_decision : infinite inertia, nothing lost per second or per bounce 2026-09-08
+export const SCREW_DAMP = 1
+export const SCREW_BOUNCE = 1
 export const SCREW_MAX_SPEED = PLAYER.baseSpeed * 2
 // The hull the blades stop at is PLAYER.radius plus this: the fish sprite is ~1.6 radii long, so a
 // blade tip parked on the collision circle still sits on its nose (shot, 2026-09-07).
@@ -8278,7 +8281,11 @@ CHAPTERS.wreck = {
   // pins the ruling, and the change bought nothing that could be measured. The moray is 0% of the
   // damage the player takes at 0.3 and at 0.55 alike, so raising its share only adds bodies that do
   // not participate. See the roster entry above for why, and for what would actually fix it.
-  archetypeMul: { tank: 0.3 },
+  // fast 0.5 (owner, 2026-09-08: "too many slowing fishes, the small ones ... reduce ramping by 50%"):
+  // WAVE_TABLE ramps the fast share from 1 to 6 over a run, and with the damselfish cut the same
+  // day the sardine is the ONLY fast body here, so the whole late-run frenzy arrived as sardines.
+  // Halving the share halves that ramp; the base weight of 1 falls with it, which is accepted.
+  archetypeMul: { tank: 0.3, fast: 0.5 },
 
   // THE LEAK. Owner ruling 2026-08-17, and it REVERSES the ruling taken earlier the same day —
   // "being an aggro level is sufficient", i.e. signature: null — because the premise moved under it.
