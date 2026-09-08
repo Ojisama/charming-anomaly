@@ -10638,8 +10638,10 @@ function runOrca() {
       const d0 = Math.hypot(e.x - p.x, e.y - p.y)
       for (let i = 0; i < Math.round(1 / dt); i++) {
         hold(run, [e])
+        // The door (ORCA_HERD_GAP): the body sits at bearing 0, so 'door' opens the wedge on it and
+        // every other arm opens it on the far side — the wall is measured WITH a door present.
         run.orca = mode === 'none' ? null : {
-          state: mode === 'circling' ? 'circling' : 'rising',
+          state: mode === 'rising' ? 'rising' : 'circling', gapDir: mode === 'door' ? 0 : Math.PI,
           t: 9, cx: p.x, cy: p.y, r: ORCA_RING_R, ang: 0,
           x: p.x, y: p.y, dirX: 1, dirY: 0, hit: true, alpha: 1, passes: 1,
         }
@@ -10650,6 +10652,9 @@ function runOrca() {
     const herded = drift('circling')
     const noOrca = drift('none')
     const notYet = drift('rising')
+    const inDoor = drift('door')
+    assert.ok(Math.abs(inDoor) < 5,
+      `the ring is a 2/3 circle (owner, 2026-09-08: "like waves in boss book 1"): a body in the open wedge must not be dragged, it moved ${inDoor.toFixed(1)}px`)
     assert.ok(Math.abs(noOrca) < 5,
       `control: a speed-0 body must not move on its own, it drifted ${noOrca.toFixed(1)}px`)
     assert.ok(Math.abs(notYet) < 5,
@@ -10661,7 +10666,7 @@ function runOrca() {
       `the closing ring must DRAG what is at its rim toward the centre: a body ${ORCA_RING_R + 60}px out ` +
       `closed ${herded.toFixed(0)}px in a second against a pull of ${ORCA_HERD_PULL}px/s`)
     console.log(`PASS run OR.h (the ring herds): a body at the rim closes ${herded.toFixed(0)}px in 1s of circling, ` +
-      `against ${noOrca.toFixed(1)}px with no orca and ${notYet.toFixed(1)}px while it is still rising`)
+      `against ${noOrca.toFixed(1)}px with no orca, ${notYet.toFixed(1)}px while it is still rising and ${inDoor.toFixed(1)}px in the door`)
   }
 
   // -- OR.i: THE STRIKE IS DRAWN BEFORE IT IS RUN, and it runs exactly where it was drawn. -------

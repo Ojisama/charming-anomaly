@@ -11511,6 +11511,13 @@ export const ORCA_RING_BAND = 150      // px inside the ring where the wall has 
 // balance_decision : unswept first cut, the wall closes faster than a body swims 2026-09-05
 //  - above the roster's own speeds on purpose: a wall a fish can outswim is not a wall
 export const ORCA_HERD_PULL = 120
+// THE DOOR. Owner, 2026-09-08: "when the orca attacks ... it creates an impenetrable circle wall of
+// enemies ... make it a 2/3 circle like waves in boss book 1" — BLANK_WAVE_GAP's idiom, on the herd
+// instead of the spawn: the closing wall drags everything in its band inward EXCEPT what sits in this
+// wedge, rolled per visit when the coil forms (stepOrca, rising -> circling) so the way out is read
+// each time rather than memorised. render.js leaves the same wedge open in the drawn ring, which is
+// what makes it a door and not a bald spot.
+export const ORCA_HERD_GAP = Math.PI * 2 / 3
 // ⚠ A SPIRAL IS A LOOK, NOT AN EQUATION, AND THIS IS THE SCAR. A constant angular rate with a
 // linearly closing radius IS an Archimedean spiral, and it shipped reading as a circle anyway —
 // owner, 2026-08-23: "the spiraling looks just like it's circling". Three things were wrong and

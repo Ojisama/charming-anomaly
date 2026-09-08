@@ -179,7 +179,7 @@ import {
   ORCA_COMMIT_SPEED, ORCA_OVERSHOOT, ORCA_HIT_R, ORCA_DMG_FRAC, ORCA_HOLD_DUR,
   ORCA_SHADOW_PASSES, ORCA_SHADOW_FIRST, ORCA_SHADOW_GAP, ORCA_SHADOW_LAST_GAP,
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
-  ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_DENS_R, ORCA_DENS_FULL_N, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
+  ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_DENS_R, ORCA_DENS_FULL_N, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R, ORCA_HERD_GAP,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
   ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_CLOSE_FRAC, SCREW_HULL_PAD, SCREW_DAMP, SCREW_BOUNCE, SCREW_MAX_SPEED, SCREW_LINK_GAP,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
@@ -2879,9 +2879,15 @@ function stepEnemyMovement(run, dt) {
       const rx = e.x - ring.cx, ry = e.y - ring.cy
       const rd = Math.hypot(rx, ry)
       if (rd > ring.r - ORCA_RING_BAND && rd > 1e-6) {
-        const pull = Math.min(rd, ORCA_HERD_PULL * dt)
-        e.x -= (rx / rd) * pull
-        e.y -= (ry / rd) * pull
+        // ...except through the door (ORCA_HERD_GAP): a body whose bearing from the centre lies in
+        // the open wedge is left where it is. A ring with no gapDir (a fixture) is closed.
+        const bear = Math.atan2(ry, rx) - (ring.gapDir ?? NaN)
+        const off = Math.abs(Math.atan2(Math.sin(bear), Math.cos(bear)))
+        if (!(off <= ORCA_HERD_GAP / 2)) {
+          const pull = Math.min(rd, ORCA_HERD_PULL * dt)
+          e.x -= (rx / rd) * pull
+          e.y -= (ry / rd) * pull
+        }
       }
     }
     e.kb.x *= kbDecay
@@ -5645,7 +5651,8 @@ function stepOrca(run, dt) {
     o.x = o.cx + Math.cos(o.ang) * o.r * out
     o.y = o.cy + Math.sin(o.ang) * o.r * out
     o.alpha = out
-    if (o.t <= 0) { o.state = 'circling'; o.t = ORCA_CIRCLE_DUR; o.alpha = 1 }
+    // The door is rolled as the coil forms, so both passes of a visit open somewhere new.
+    if (o.t <= 0) { o.state = 'circling'; o.t = ORCA_CIRCLE_DUR; o.alpha = 1; o.gapDir = Math.random() * Math.PI * 2 }
     return false
   }
   if (o.state === 'circling') {
