@@ -2875,11 +2875,14 @@ export const WEAPONS = {
     //  - the radius is back at base: at x2 the hull (104) and the chain (110) left a 6px corridor, the
     //    weight bounced dozens of times a second and SCREW_BOUNCE ate it inside a second (16 of 229px/s)
     levels: [
-      { dmg: 12, radius: 34, chain: 110 * 2, tick: 0.40 / 2 },
-      { dmg: 15, radius: 37, chain: 118 * 2, tick: 0.37 / 2 },
-      { dmg: 19, radius: 40, chain: 126 * 2, tick: 0.34 / 2 },
-      { dmg: 24, radius: 44, chain: 134 * 2, tick: 0.31 / 2 },
-      { dmg: 31, radius: 48, chain: 142 * 2, tick: 0.28 / 2 },
+      // chain x1.6: the x2 of 2026-09-08 cut by 20% the same day (owner: "Screw chain length -20%").
+      // count: a second blade arrives at level 4 (owner, same day: "Lv4 screw should spawn a second
+      // one") — on top of Twin Screw, which stays the mod that buys more (stepScrewWeapon).
+      { dmg: 12, radius: 34, chain: 110 * 1.6, tick: 0.40 / 2, count: 1 },
+      { dmg: 15, radius: 37, chain: 118 * 1.6, tick: 0.37 / 2, count: 1 },
+      { dmg: 19, radius: 40, chain: 126 * 1.6, tick: 0.34 / 2, count: 1 },
+      { dmg: 24, radius: 44, chain: 134 * 1.6, tick: 0.31 / 2, count: 2 },
+      { dmg: 31, radius: 48, chain: 142 * 1.6, tick: 0.28 / 2, count: 2 },
     ],
   },
   bilge: {

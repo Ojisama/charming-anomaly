@@ -10120,7 +10120,7 @@ function stepScrewWeapon(run, stats, fireRateMul, dt) {
   const overspeed = run.weaponMods.screw?.overspeed ?? 0
   const rate = fireRateMul * (1 + overspeed)
   // ipecacN for the anomaly, exactly as every other count in this file.
-  const n = ipecacN(run, 1 + (run.weaponMods.screw?.twinScrew ?? 0))
+  const n = ipecacN(run, stats.count + (run.weaponMods.screw?.twinScrew ?? 0))
   while (run.screws.length > n) run.screws.pop()
   const hull = stats.radius + PLAYER.radius + SCREW_HULL_PAD
   const row = 2 * stats.radius + SCREW_LINK_GAP
