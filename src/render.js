@@ -13598,10 +13598,11 @@ const spurG = new Graphics()
     }
   }
 
-  // The squid's ink on the glass (inkStain): eleven splats with their own spatter and drips, on the
-  // outer band of the screen — NOTHING inside 0.55 of the half-diagonal, so the centre stays legible
-  // (owner: "less at the center of the screen or it's too strong"): each splat is pushed out until
-  // its body clears that circle, and a droplet or drip that would land inside it is skipped. Hashed
+  // The squid's ink on the glass (inkStain): six splats with their own spatter and drips, anywhere
+  // on the screen but a FISH-SIZED circle at the centre (owner, 2026-09-08: "you can empiéter sur le
+  // milieu, just keep maybe a circle of the size of the player as radius clean" — superseding the
+  // earlier outer-band rule): a splat's inner vertices are flattened against that circle and a
+  // droplet or drip that would land inside it is skipped. Hashed
   // off `inkSeed`, which sync() re-rolls each time you are inked afresh (owner, 2026-09-07:
   // "randomised position and shape"), so every squirt lands its own splats; a resize redraws the
   // SAME set, because the seed is kept. Each outline is its OWN three random harmonics plus a little
@@ -13609,20 +13610,22 @@ const spurG = new Graphics()
   // just changes a bit the size"). 72 vertices for harmonics up to 9 = 8 per lobe (lobePoly's own
   // bar is 7). Size: the first cut's band was 0.07-0.15 of min(w,h) TIMES lobeFactor (mean 0.83), so
   // its effective mean radius was 0.091; 0.09-0.184 (mean 0.137) was 1.5x that ("50% bigger on
-  // average"), then doubled to 0.18-0.368 ("double the size of current stains", same day). The
-  // profile's reach (1 + every amplitude) is what the push-out clears, so at this size most of a
-  // splat hangs off the screen edge and what you see is its inner rim.
+  // average"), doubled to 0.18-0.368 ("double the size of current stains", same day), then x1.5
+  // again to 0.27-0.55 with the centre opened ("bigger ink stains on the screen", 2026-09-08) —
+  // which blacked out nine tenths of a desktop screen, so it is SIX splats at 0.7 alpha now (owner:
+  // "dial back"), the world showing through the black.
   let inkSeed = 0
   let inkWasOn = false    // was run._inkT > 0 last sync — the edge that re-rolls inkSeed
   function drawInkStain(w, h) {
     inkStain.clear()
-    const cx = w / 2, cy = h / 2, R = Math.hypot(cx, cy), keep = R * 0.55
+    const cx = w / 2, cy = h / 2, R = Math.hypot(cx, cy), keep = PLAYER.radius * 2
     const s = inkSeed * 97
     const INK = 0x0a0812, TAU = Math.PI * 2
     const out = (px, py) => Math.hypot(px - cx, py - cy) >= keep
-    for (let k = 0; k < 11; k++) {
-      const a = (k / 11) * TAU + hash(s + k * 7.3 + 1.1) * 0.5
-      const r = Math.min(w, h) * (0.18 + hash(s + k * 5.7 + 3.3) * 0.188)
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * TAU + hash(s + k * 7.3 + 1.1) * 0.5
+      // Capped at a phone's short side: at 800px six splats stacked into a blackout (shot).
+      const r = Math.min(w, h, 520) * (0.27 + hash(s + k * 5.7 + 3.3) * 0.28)
       const h1 = 2 + Math.floor(hash(s + k * 4.3 + 8.8) * 2)
       const h2 = 4 + Math.floor(hash(s + k * 6.1 + 9.9) * 3)
       const h3 = 7 + Math.floor(hash(s + k * 8.7 + 0.7) * 3)
@@ -13631,16 +13634,19 @@ const spurG = new Graphics()
       const a3 = 0.04 + hash(s + k * 3.7 + 6.6) * 0.10
       const p1 = hash(s + k * 2.9) * TAU, p2 = hash(s + k * 5.3 + 7.7) * TAU, p3 = hash(s + k * 9.1 + 1.3) * TAU
       const grit = 0.02 + hash(s + k * 6.7 + 2.8) * 0.04
-      const d = Math.max(R * (0.58 + hash(s + k * 3.1 + 2.2) * 0.42), keep + r * (1 + a1 + a2 + a3 + grit))
+      const d = R * (0.2 + hash(s + k * 3.1 + 2.2) * 0.8)
       const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d
       const pts = []
       for (let i = 0; i < 72; i++) {
         const t = (i / 72) * TAU
         const f = Math.max(0.35, 1 + a1 * Math.cos(h1 * t + p1) + a2 * Math.cos(h2 * t + p2)
           + a3 * Math.cos(h3 * t + p3) + (hash(s + k * 11.3 + i * 0.37) - 0.5) * grit)
-        pts.push(x + Math.cos(t) * r * f, y + Math.sin(t) * r * f)
+        let px = x + Math.cos(t) * r * f, py = y + Math.sin(t) * r * f
+        const dc = Math.hypot(px - cx, py - cy)
+        if (dc < keep) { px = cx + (px - cx) * keep / Math.max(dc, 1e-6); py = cy + (py - cy) * keep / Math.max(dc, 1e-6) }
+        pts.push(px, py)
       }
-      inkStain.poly(pts).fill({ color: INK, alpha: 0.82 + hash(s + k * 1.3 + 3.9) * 0.1 })
+      inkStain.poly(pts).fill({ color: INK, alpha: 0.64 + hash(s + k * 1.3 + 3.9) * 0.12 })
       const nd = 2 + Math.floor(hash(s + k * 7.9 + 5.1) * 4)
       const throwA = hash(s + k * 4.9 + 6.2) * TAU
       for (let j = 0; j < nd; j++) {
@@ -13648,7 +13654,7 @@ const spurG = new Graphics()
         const dd = r * (1.05 + hash(s + k * 2.7 + j * 2.3) * 0.9)
         const dr = r * (0.05 + hash(s + k * 5.9 + j * 3.1) * 0.16)
         const px = x + Math.cos(da) * dd, py = y + Math.sin(da) * dd
-        if (out(px, py)) inkStain.circle(px, py, dr).fill({ color: INK, alpha: 0.75 })
+        if (out(px, py)) inkStain.circle(px, py, dr).fill({ color: INK, alpha: 0.6 })
       }
       const ndr = Math.floor(hash(s + k * 8.1 + 4.7) * 3)
       for (let j = 0; j < ndr; j++) {
@@ -13657,8 +13663,8 @@ const spurG = new Graphics()
         const ww = r * (0.08 + hash(s + k * 1.7 + j * 6.1) * 0.1)
         const y0 = y + r * 0.6, y1 = y0 + L
         if (!out(dx, y0) || !out(dx, y1)) continue
-        inkStain.ellipse(dx, (y0 + y1) / 2, ww, L / 2).fill({ color: INK, alpha: 0.7 })
-        inkStain.circle(dx, y1, ww * 1.4).fill({ color: INK, alpha: 0.7 })
+        inkStain.ellipse(dx, (y0 + y1) / 2, ww, L / 2).fill({ color: INK, alpha: 0.55 })
+        inkStain.circle(dx, y1, ww * 1.4).fill({ color: INK, alpha: 0.55 })
       }
     }
   }

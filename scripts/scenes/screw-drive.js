@@ -1,13 +1,13 @@
-// Scene: THE SCREW UNDER THE STICK — the blade is what you drive, the fish is towed behind it.
-// Owner, 2026-09-07: "the stick moves the SCREW, and your fish is pulled along behind it".
+// Scene: THE SCREW, a heavy weight on a chain that bounces (owner, 2026-09-08: "a lot of inertia
+// and bouncing around"). The fish swims the plan below; the weight is yanked, thrown and bounced.
 //
 //   node scripts/fx-probe.mjs --scene scripts/scenes/screw-drive.js --chapter wreck \
 //     --url 'http://127.0.0.1:PORT/' --out /tmp/sd --frames 15 --w 1280 --h 800
 //   ffmpeg -framerate 3 -i /tmp/sd-%02d.png screw-drive.gif
 //
-// Frames every third of a second over 5s: east for 1.5s (the blade gets past the fish, then tows
-// it), north for 1s (it steers, the fish swings in behind), west for 1.5s (it swings right round
-// the fish and tows it back), then let go for 1s (it coasts, the fish glides to a stop).
+// Frames every third of a second over 5s: east for 1.5s (the weight is yanked after the fish and
+// bounces between hull and chain), north for 1s (it slings wide), west for 1.5s (thrown back the
+// other way), then a stop for 1s (it keeps flying and ricochets off the fish).
 // Drives `step` itself rather than H.tick, which hardcodes a zero stick.
 H.clean()
 run.weapons = [{ id: 'screw', level: 1 }]

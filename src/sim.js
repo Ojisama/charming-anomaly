@@ -181,7 +181,7 @@ import {
   ORCA_SHADOW_DUR, ORCA_SHADOW_MARGIN, ORCA_SHADOW_FADE, ORCA_SHADOW_FEAR_R, ORCA_SHADOW_FEAR_T,
   ORCA_DENSITY_RUSH, ORCA_BAIT_PULL, ORCA_DENS_R, ORCA_DENS_FULL_N, ORCA_BAIT_FULL_FOOD, ORCA_RUSH_MAX, ORCA_BITE_R,
   ORCA_COMMITS, ORCA_WAKE_R, ORCA_WAKE_FORCE, ORCA_WAKE_PLAYER,
-  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_CLOSE_FRAC, SCREW_HULL_PAD, SCREW_STEER_T, SCREW_LINK_GAP,
+  ORCA_SPIRAL_ACCEL, ORCA_SPIRAL_EASE, ORCA_CLOSE_FRAC, SCREW_HULL_PAD, SCREW_DAMP, SCREW_BOUNCE, SCREW_MAX_SPEED, SCREW_LINK_GAP,
   SLICK_TICK, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, resistFrac, passiveEffectText, BLACK_TIDE_CHANCE_MUL,
   SLICK_BIRTH_CLEAR, SLICK_SPREAD_STEPS, spillSpread, slickR, slickChance, slickDps,
   SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_RADIUS, SHOREBREAK_FORCE, SHOREBREAK_STAGGER,
@@ -10099,17 +10099,17 @@ function stepChumWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 
-// THE SCREW PLOWS (2026-09-08). The blade rides one chain ahead of the player in the direction they
-// swim, closing on that point on SCREW_STEER_T so a turn whips it across rather than snapping it,
-// and settles at the hull (its radius, the player's, SCREW_HULL_PAD) when they stop. Twin Screw
-// and Ipecac stand the bodies ABREAST across the heading, a wider plow, SCREW_LINK_GAP apart. Two
-// clamps survive from the rope it was — never past the chain, never on the player — with the
-// chain clamp set at the ROW'S CORNERS (hypot of the chain and half the row), so a straight row
-// fits inside it: clamped at the chain itself, the row bent onto an arc and the gap between
-// bodies vanished (adversarial review). The stagger pass below is the floor between bodies.
-//   The heading is the player's own velocity (stepPlayerMovement writes p.vx/p.vy from the stick;
-// the tide moves p.x directly and does not count), remembered on run._plowX/_plowY so a stopped
-// player keeps the blade where they were last going. First frame ever: the facing.
+// THE SCREW IS A HEAVY WEIGHT ON A CHAIN, AND IT BOUNCES (2026-09-08, owner: "just have the hélice
+// with a lot of inertia and bouncing around"). Each body carries a velocity the water barely
+// touches (SCREW_DAMP); the chain and the hull are POSITION clamps (never past the chain, never on
+// the player) and each clamp that fires also reflects the closing speed with SCREW_BOUNCE, so a
+// blade yanked to the chain's end by a swimming player comes flying back inward, hits the hull,
+// bounces out again, and pings around them until the water takes it. Bodies bounce off each other
+// the same way. Closing speeds are RELATIVE to the player, so a player swimming away is a yank and
+// a player swimming at the blade is a hit — both throw it.
+//   Several bodies all swing on the full chain; it grows until its circle holds them all
+// (SCREW_LINK_GAP). Blade velocity is the blade's own state here, not read back from the move: a
+// bounce is a change of velocity the position alone cannot express.
 //   run.screws PERSISTS ACROSS FRAMES and is therefore NOT cleared in stepWeapons, unlike run.orbs:
 // the position IS the state here. Same contract as run.debris.
 function stepScrewWeapon(run, stats, fireRateMul, dt) {
@@ -10119,42 +10119,33 @@ function stepScrewWeapon(run, stats, fireRateMul, dt) {
   // the card slow the screw down, which is why it is a rate mod and read here instead.
   const overspeed = run.weaponMods.screw?.overspeed ?? 0
   const rate = fireRateMul * (1 + overspeed)
-  // ipecacN for the anomaly, exactly as every other count in this file. The row spacing and the
-  // loop bound are ONE local: writing the count twice is the per-cast-count trap.
+  // ipecacN for the anomaly, exactly as every other count in this file.
   const n = ipecacN(run, 1 + (run.weaponMods.screw?.twinScrew ?? 0))
   while (run.screws.length > n) run.screws.pop()
   const hull = stats.radius + PLAYER.radius + SCREW_HULL_PAD
   const row = 2 * stats.radius + SCREW_LINK_GAP
-  const clampR = Math.hypot(stats.chain, ((n - 1) / 2) * row)
-  const pv = Math.hypot(p.vx ?? 0, p.vy ?? 0)
-  if (pv > 1e-6) { run._plowX = p.vx / pv; run._plowY = p.vy / pv }
-  const hx = run._plowX ?? Math.cos(p.facingAngle ?? 0), hy = run._plowY ?? Math.sin(p.facingAngle ?? 0)
-  const reach = pv > 1e-6 ? stats.chain : hull
-  const plowAt = (i) => {
-    const lat = (i - (n - 1) / 2) * row
-    return [p.x + hx * reach - hy * lat, p.y + hy * reach + hx * lat]
-  }
+  const chainLen = Math.max(stats.chain, (n * row) / (2 * Math.PI) * 1.1)
+  // Born at rest a chain BEHIND the facing — a dragged weight starts dragged — fanned round the ring
+  // when there are several.
   while (run.screws.length < n) {
-    const [x, y] = plowAt(run.screws.length)
-    run.screws.push({ x, y, r: stats.radius, spin: 0, vx: 0, vy: 0 })
+    const a = (p.facingAngle ?? 0) + Math.PI + (run.screws.length / Math.max(1, n)) * Math.PI * 2
+    run.screws.push({ x: p.x + Math.cos(a) * chainLen, y: p.y + Math.sin(a) * chainLen, r: stats.radius, spin: 0, vx: 0, vy: 0 })
   }
-  const k = 1 - Math.exp(-dt / SCREW_STEER_T)
-  const from = []
-  for (let i = 0; i < n; i++) {
-    const sc = run.screws[i]
+  const keep = Math.pow(SCREW_DAMP, dt)
+  const pvx = p.vx ?? 0, pvy = p.vy ?? 0
+  for (const sc of run.screws) {
     sc.r = stats.radius
-    from.push(sc.x, sc.y)
-    // Carried with the fish, then eased onto the plow point: without the carry a moving target is
-    // always speed x SCREW_STEER_T (48px) ahead of the blade and the chain never reads taut.
-    const [x, y] = plowAt(i)
-    sc.x += (p.vx ?? 0) * dt + (x - sc.x) * k
-    sc.y += (p.vy ?? 0) * dt + (y - sc.y) * k
+    sc.vx = (sc.vx ?? 0) * keep
+    sc.vy = (sc.vy ?? 0) * keep
+    sc.x += sc.vx * dt
+    sc.y += sc.vy * dt
   }
-  // THE CHAIN IS A CEILING AND THE BODIES ARE FLOORS (owner, 2026-09-07: "the blades should never
-  // be on you ... the blades cannot stack on you and on each other"). Relaxed a few passes so they
-  // agree: no two bodies closer than their radii, each held between the hull and the chain.
+  // THE CLAMPS ARE THE BOUNCES. Relaxed a few passes so they agree (owner, 2026-09-07: "the blades
+  // should never be on you ... the blades cannot stack on you and on each other"); the velocity
+  // reflection happens on the first pass that fires, so one contact is one bounce.
   // ponytail: 24 Gauss-Seidel passes over n <= 6 bodies, ~500 ops a frame. A real solver if the
   // chain ever holds more.
+  const e = SCREW_BOUNCE
   for (let pass = 0; pass < 24; pass++) {
     for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
       const a = run.screws[i], b = run.screws[j]
@@ -10162,38 +10153,48 @@ function stepScrewWeapon(run, stats, fireRateMul, dt) {
       const min = a.r + b.r
       if (d >= min) continue
       if (d < 1e-6) { dx = 1; dy = 0; d = 1 }
-      let nx = dx / d, ny = dy / d
-      // In line with the player there is no room along the line, so the pair is pushed SIDEWAYS.
-      const px = p.x - a.x, py = p.y - a.y
-      if (Math.abs(nx * py - ny * px) < 0.05 * Math.hypot(px, py)) { const t = nx; nx = -ny; ny = t }
+      const nx = dx / d, ny = dy / d
       const push = (min - d) / 2
       a.x -= nx * push; a.y -= ny * push
       b.x += nx * push; b.y += ny * push
+      // Closing along the normal: each gets (1+e)/2 of it back the other way — equal masses.
+      const vn = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny
+      if (vn > 0) {
+        const k = (1 + e) / 2 * vn
+        a.vx -= k * nx; a.vy -= k * ny
+        b.vx += k * nx; b.vy += k * ny
+      }
     }
     for (let i = 0; i < n; i++) {
       const sc = run.screws[i]
-      let dx = p.x - sc.x, dy = p.y - sc.y, d = Math.hypot(dx, dy)
+      let dx = sc.x - p.x, dy = sc.y - p.y, d = Math.hypot(dx, dy)
       if (d < 1e-6) { dx = 1; dy = 0; d = 1 }
-      const want = Math.max(hull, Math.min(clampR, d))
-      if (want !== d) { sc.x = p.x - (dx / d) * want; sc.y = p.y - (dy / d) * want }
+      const ux = dx / d, uy = dy / d
+      const want = Math.max(hull, Math.min(chainLen, d))
+      if (want === d) continue
+      sc.x = p.x + ux * want; sc.y = p.y + uy * want
+      // Radial closing speed RELATIVE to the player: outward at the chain's end, inward at the hull.
+      const vr = (sc.vx - pvx) * ux + (sc.vy - pvy) * uy
+      if ((d > chainLen && vr > 0) || (d < hull && vr < 0)) {
+        sc.vx -= (1 + e) * vr * ux
+        sc.vy -= (1 + e) * vr * uy
+      }
     }
   }
-  for (let i = 0; i < n; i++) {
-    const sc = run.screws[i]
-    // What the frame actually did, for anything that reads a blade's velocity. dt > 0 guard: a
-    // 0-length frame is 0/0.
-    sc.vx = dt > 0 ? (sc.x - from[i * 2]) / dt : 0
-    sc.vy = dt > 0 ? (sc.y - from[i * 2 + 1]) / dt : 0
+  for (const sc of run.screws) {
+    // The ceiling (SCREW_MAX_SPEED): the player is a wall that reverses, and that pumps a bounce.
+    const sv = Math.hypot(sc.vx, sc.vy)
+    if (sv > SCREW_MAX_SPEED) { sc.vx *= SCREW_MAX_SPEED / sv; sc.vy *= SCREW_MAX_SPEED / sv }
     // Render-only, and derived here so the sim owns one clock: the blade's own rotation, faster
     // when the cut is faster. render.js reads it and never writes it.
     sc.spin += dt * SCREW_SPIN_RATE * rate
-    for (const e of run.enemies) {
-      if (e._dead || e._screwCd > 0 || isAlly(e)) continue
-      const ex = e.x - sc.x, ey = e.y - sc.y
-      const rad = sc.r + e.radius
+    for (const en of run.enemies) {
+      if (en._dead || en._screwCd > 0 || isAlly(en)) continue
+      const ex = en.x - sc.x, ey = en.y - sc.y
+      const rad = sc.r + en.radius
       if (ex * ex + ey * ey > rad * rad) continue
-      applyDamage(run, e, stats.dmg)
-      e._screwCd = stats.tick / rate
+      applyDamage(run, en, stats.dmg)
+      en._screwCd = stats.tick / rate
     }
   }
 }

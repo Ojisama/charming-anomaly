@@ -2854,32 +2854,32 @@ export const WEAPONS = {
       { rate: 3.4, castRange: 320, dur: 5.6, aggro: 320, food: 15 },
     ],
   },
-  // THE SCREW (2026-09-06, plow since 2026-09-08). The Wreck's fourth native, and the answer to a
-  // measured hole: this chapter has the highest spawnMul and maxAliveMul in the game and had no
-  // weapon that deals with a crowd continuously — a bite, a bait and a pool of oil, all punctual.
+  // THE SCREW (2026-09-06; a heavy, bouncing weight since 2026-09-08). The Wreck's fourth native,
+  // and the answer to a measured hole: this chapter has the highest spawnMul and maxAliveMul in the
+  // game and had no weapon that deals with a crowd continuously — a bite, a bait and a pool of oil,
+  // all punctual.
   //
-  // IT PLOWS. Three cuts to get here, every one ruled by the owner: it trailed on a rope ("not
-  // drivable"), then the stick drove the blade and towed the fish ("plays bad"), and now it rides
-  // ONE CHAIN AHEAD of you in the direction you swim, lagging a beat so it whips through a turn,
-  // and settles at your nose when you stop. WHAT THE PLAYER DOES DIFFERENTLY: you aim it by
-  // swimming at a pack — the blade is exactly where you are going, never where you have been.
-  // That separates it from an orbiter (which pays a player who stands still: this one covers only
-  // its own width at rest) and from the rope it was (which covered where you HAD been).
-  // Twin Screw and Ipecac put the bodies ABREAST, a wider plow, SCREW_LINK_GAP apart. See
-  // SCREW_STEER_T for the lag and stepScrewWeapon for the geometry.
+  // IT IS A WEIGHT ON A CHAIN THAT BOUNCES. Four cuts to get here, every one ruled by the owner: a
+  // rope it trailed on ("not drivable"), the stick driving the blade with the fish towed ("plays
+  // bad"), a plow riding ahead ("still not good"), and then his own sentence: "just have the hélice
+  // with a lot of inertia and bouncing around". So: the blade keeps its momentum (SCREW_DAMP), the
+  // chain yanks it when you swim away, and it BOUNCES — off the chain's end, off your hull, off the
+  // other blades (SCREW_BOUNCE) — pinging around you, cutting whatever it meets. WHAT THE PLAYER
+  // DOES DIFFERENTLY: you swim to throw it. A hard swim yanks it after you, a stop lets it fly past
+  // and ricochet, a turn slings it wide. See stepScrewWeapon for the geometry.
   screw: {
     name: 'The Screw',
-    desc: 'The ship\'s propeller on a chain, riding ahead of you. It cuts whatever you swim at.',
+    desc: 'The ship\'s propeller on a heavy chain. It swings and bounces around you, cutting whatever it hits.',
     icon: '\u2699\ufe0f', rarity: 'normal',
-    // balance_decision : radius x2 and cut rate x2, kept for the plow 2026-09-08
-    //  - plow on the aimed census rig (--aim nearest --stick 1, six seeds): 64 kills/min at L1
-    //    (rope 77, Bilge 57, Gnash 116) and 146 at L5 (rope 133, Bilge 132, Gnash 161)
+    // balance_decision : chain x2 and cut rate x2 for the bouncing weight 2026-09-08
+    //  - the radius is back at base: at x2 the hull (104) and the chain (110) left a 6px corridor, the
+    //    weight bounced dozens of times a second and SCREW_BOUNCE ate it inside a second (16 of 229px/s)
     levels: [
-      { dmg: 12, radius: 34 * 2, chain: 110, tick: 0.40 / 2 },
-      { dmg: 15, radius: 37 * 2, chain: 118, tick: 0.37 / 2 },
-      { dmg: 19, radius: 40 * 2, chain: 126, tick: 0.34 / 2 },
-      { dmg: 24, radius: 44 * 2, chain: 134, tick: 0.31 / 2 },
-      { dmg: 31, radius: 48 * 2, chain: 142, tick: 0.28 / 2 },
+      { dmg: 12, radius: 34, chain: 110 * 2, tick: 0.40 / 2 },
+      { dmg: 15, radius: 37, chain: 118 * 2, tick: 0.37 / 2 },
+      { dmg: 19, radius: 40, chain: 126 * 2, tick: 0.34 / 2 },
+      { dmg: 24, radius: 44, chain: 134 * 2, tick: 0.31 / 2 },
+      { dmg: 31, radius: 48, chain: 142 * 2, tick: 0.28 / 2 },
     ],
   },
   bilge: {
@@ -2943,21 +2943,26 @@ export const ORB_R = 12       // px, orbit spark hit radius
 // Overspeed makes the blade visibly turn faster rather than only cutting more often — a rate change
 // with no tell reads as no change at all.
 export const SCREW_SPIN_RATE = 7.5
-// THE PLOW'S LAG. Owner, 2026-09-08, picking the plow over three other concepts after the stick-
-// driven blade "plays bad": the blade rides a chain ahead in the direction you swim and settles at
-// your nose when you stop. It closes 63% of the gap to that point every SCREW_STEER_T seconds, so a
-// turn whips it across the new heading rather than snapping it there — enough lag to read as a
-// weight on a chain, not enough to leave it behind: at 0.22 it is within 15 degrees of a new
-// heading in six tenths of a second (run PY.c).
-// balance_decision : the blade plows one chain ahead, lagging 0.22s 2026-09-08
-export const SCREW_STEER_T = 0.22
+// A LOT OF INERTIA, AND IT BOUNCES. Owner, 2026-09-08: "just have the hélice with a lot of inertia
+// and bouncing around" — after a rope, a stick-driven tow and a plow all read wrong in play.
+//   SCREW_DAMP    the fraction of its speed the water leaves the blade after one second, applied as
+//                 a power of dt. 0.9 is "a lot": a thrown blade is still at 73% three seconds on.
+//   SCREW_BOUNCE  restitution at the chain's end, the hull and blade-on-blade: the fraction of the
+//                 closing speed that comes back. 1 would never settle, 0 is the rope this replaces.
+//   SCREW_MAX_SPEED  px/s ceiling on a blade. The player is the wall it bounces off, and a wall
+//                 that reverses PUMPS it: a kiting rhythm read 664px/s in 30s and ~1280 at the
+//                 plateau (adversarial review), 3-6x the fish it is chained to. Twice the fish.
+// balance_decision : a heavy blade that bounces, 0.9 kept per second, 0.85 back 2026-09-08
+export const SCREW_DAMP = 0.9
+export const SCREW_BOUNCE = 0.85
+export const SCREW_MAX_SPEED = PLAYER.baseSpeed * 2
 // The hull the blades stop at is PLAYER.radius plus this: the fish sprite is ~1.6 radii long, so a
 // blade tip parked on the collision circle still sits on its nose (shot, 2026-09-07).
 export const SCREW_HULL_PAD = 14
-// THE ROW'S SPACING. Bodies abreast (Twin Screw, Ipecac) stand a blade's width plus this much clear
-// water apart, centred on the heading; the chain clamp sits at the row's corners so the row stays
-// straight (stepScrewWeapon). Twin Screw's corners are ~131px out at L1 — inside a phone's 195px
-// half-width, where a chain grown to hold the row in SERIES put both blades off screen.
+// ROOM ON THE RING. Several bodies (Twin Screw, Ipecac) all swing on the full chain and bounce off
+// each other, so the chain grows until its circle holds them all with this much clear water
+// between: n x (a blade's width + this) around the circumference, with a tenth of slack
+// (stepScrewWeapon). One or two blades never grow it; six blades of radius 68 make it ~150px.
 export const SCREW_LINK_GAP = 6
 // GORGE (gnash): what eating an elite pays. It healed to FULL until 2026-09-06 — "an elite pays for
 // everything" was the reasoning, and the owner's ruling is that it paid too well. A flat number
@@ -3576,12 +3581,12 @@ export const WEAPON_MODS = {
   // chapter. The two that replace it both turn the wall from denial into HERDING, which is what
   // this chapter's arsenal claims to be ("close, gather, cut off").
   // Five, and the count mod is the one carrying the build variety. `longChain` is not a plain
-  // number: a longer chain puts the plow further AHEAD — more warning for what it meets, a wider
-  // whip through a turn — so it is the knob that decides how far in front of you the fight is.
+  // number: a longer chain lets the weight swing wider and fly further before the yank, so it is
+  // the knob that decides how far from you the bouncing happens.
   screw: {
     honedBlades: { name: 'Honed',      desc: 'blade damage',                         icon: '\ud83d\udd2a', base: 0.30, kind: 'pct' },
     wideScrew:   { name: 'Bent Blades', desc: 'how wide the screw cuts',             icon: '\u2699\ufe0f', base: 0.25, kind: 'pct' },
-    longChain:   { name: 'Long Chain', desc: 'how far ahead it rides',               icon: '\u26d3\ufe0f', base: 0.30, kind: 'pct' },
+    longChain:   { name: 'Long Chain', desc: 'how far it can swing',                 icon: '\u26d3\ufe0f', base: 0.30, kind: 'pct' },
     overspeed:   { name: 'Overspeed',  desc: 'how fast the screw turns',             icon: '\ud83c\udf00', base: 0.25, kind: 'pct' },
     twinScrew:   { name: 'Twin Screw', desc: 'screw(s) on the chain',               icon: '\u2693', kind: 'tier' },
   },
