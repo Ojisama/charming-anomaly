@@ -153,7 +153,7 @@ import {
   // the cosmetic shop line and its mastery gate (Run BP.ag)
   MASTERY_UNLOCK, chaptersMastered, shopLineUnlocked, CHEEK_JIGGLE, BUTT_FEET,
   // The Wreck's prey rework (Run WK)
-  INK_TRIGGER_R, INK_COOLDOWN, INK_SLOW_MUL, INK_DUR,
+  INK_TRIGGER_R, INK_COOLDOWN, INK_SLOW_MUL, INK_DUR, INK_KEEP_FRAC,
   PUFFER_TRIGGER_R, PUFFER_COOL_T, PUFFER_DRIFT_MUL,
   GNASH_MAW_MUL, RUSH_MAX_STACKS, SLICK_DPS, SLICK_SLOW_MUL, SLICK_SLOW_T, PUFFER_POP_T, GORGE_HEAL,
   SLICK_BURN_T, BILGE_BURN_T, SLICK_FIRE_FRAC, SLICK_FIRE_LINGER,
@@ -8811,13 +8811,65 @@ function runPrey() {
   {
     const src = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
     const fn = src.slice(src.indexOf('function drawInkStain('), src.indexOf('const shaftPool'))
-    assert.ok(fn.length > 100 && fn.length < 3000, `drawInkStain must sit above shaftPool in render.js (sliced ${fn.length} chars)`)
+    assert.ok(fn.length > 100 && fn.length < 8000, `drawInkStain must sit above shaftPool in render.js (sliced ${fn.length} chars)`)
     const seeded = (fn.match(/hash\(s \+ /g) || []).length
     assert.ok(seeded >= 5, `every splat hash must fold the inking's seed in: ${seeded} of the hashes read s`)
     assert.ok(/const s = inkSeed \* /.test(fn), 'drawInkStain must derive its hash offset from inkSeed')
     assert.ok(/if \(inkOn && !inkWasOn\) \{ inkSeed = Math\.random\(\); drawInkStain\(/.test(src),
       'sync() must re-roll inkSeed and redraw on the frame the ink comes back (run._inkT 0 -> >0)')
     console.log(`PASS run PY.i (ink splats re-rolled per inking): ${seeded} seeded hashes in drawInkStain, and sync re-rolls inkSeed on the ink's rising edge`)
+
+    // -- PY.i2: THE CENTRE OF THE INKED SCREEN STAYS CLEAN, AS A RATIO OF THE VIEWPORT (owner,
+    // 2026-09-08: "it should not cover the 30% at the center" — on a phone). drawInkStain is Pixi-
+    // free apart from the Graphics it draws INTO, so it is lifted out of render.js as text and run
+    // against a recording stand-in, and the disc of radius INK_KEEP_FRAC x the short side is SAMPLED
+    // for fill — a vertex check would pass the two shipped failures, since neither had a vertex
+    // inside the disc: a splat that CONTAINS the screen centre has none (v7.303.0 inked the centre
+    // on every viewport that way), and a chord between two rim-clamped vertices has none either
+    // (the fix's own first cut cut 38px in). Two viewports, per the probing rule: a px hole is a
+    // different mechanic on each, and the one you shot looks right.
+    {
+      const fnHash = src.slice(src.indexOf('function hash(n)'), src.indexOf('function lerp('))
+      assert.ok(fnHash.length > 20 && fnHash.length < 400, 'render.js hash() must sit above lerp()')
+      const shapes = []
+      const rec = (sh) => ({ fill() { shapes.push(sh) } })
+      const g = {
+        clear() { shapes.length = 0 },
+        poly(pts) { return rec({ k: 'poly', pts }) },
+        circle(x, y, r) { return rec({ k: 'circ', x, y, r }) },
+        ellipse(x, y, rx, ry) { return rec({ k: 'ell', x, y, rx, ry }) },
+      }
+      const draw = new Function('inkStain', 'inkSeed', 'INK_KEEP_FRAC', fnHash + fn + '\nreturn drawInkStain')
+      const inPoly = (pts, x, y) => {
+        let inside = false
+        for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
+          const xi = pts[i], yi = pts[i + 1], xj = pts[j], yj = pts[j + 1]
+          if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside
+        }
+        return inside
+      }
+      const inked = (x, y) => shapes.some((sh) => sh.k === 'poly' ? inPoly(sh.pts, x, y)
+        : sh.k === 'circ' ? Math.hypot(x - sh.x, y - sh.y) <= sh.r
+        : ((x - sh.x) / sh.rx) ** 2 + ((y - sh.y) / sh.ry) ** 2 <= 1)
+      let sampled = 0, splats = 0
+      for (const [w, h] of [[390, 844], [1280, 800]]) {
+        const cx = w / 2, cy = h / 2, keep = Math.min(w, h) * INK_KEEP_FRAC
+        for (let n = 0; n < 12; n++) {
+          draw(g, (n + 0.5) / 12, INK_KEEP_FRAC)(w, h)
+          splats += shapes.filter((sh) => sh.k === 'poly').length
+          assert.ok(shapes.some((sh) => sh.k === 'poly'), `${w}x${h} seed ${n}: drawInkStain drew no splat at all`)
+          // 24 rings x 24 spokes, out to a hair inside the rim, plus the centre itself
+          for (let ri = 0; ri <= 24; ri++) for (let ai = 0; ai < 24; ai++) {
+            const d = keep * 0.995 * ri / 24, a = (ai / 24) * Math.PI * 2 + ri * 0.13
+            const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d
+            sampled++
+            assert.ok(!inked(x, y), `${w}x${h} seed ${n}: the ink reaches ${d.toFixed(0)}px from the screen centre, inside the ${keep.toFixed(0)}px clean disc (${INK_KEEP_FRAC} x short side)`)
+            if (ri === 0) break
+          }
+        }
+      }
+      console.log(`PASS run PY.i2 (the inked screen's centre stays clean): ${sampled} samples of the ${INK_KEEP_FRAC}-of-short-side disc across ${splats} splats at 390x844 and 1280x800, none inked`)
+    }
   }
 
   // -- PY.u: THE SARDINE SLOWS YOU AND NEVER HURTS YOU (owner, 2026-09-07: "the very small fishes in
