@@ -13612,7 +13612,8 @@ const spurG = new Graphics()
   // just changes a bit the size"). 72 vertices for harmonics up to 9 = 8 per lobe (lobePoly's own
   // bar is 7). Size: the first cut's band was 0.07-0.15 of min(w,h) TIMES lobeFactor (mean 0.83), so
   // its effective mean radius was 0.091; 0.09-0.184 (mean 0.137) was 1.5x that ("50% bigger on
-  // average"), then doubled to 0.18-0.368 ("double the size of current stains", same day). The
+  // average"), then doubled to 0.18-0.368 ("double the size of current stains", same day), then
+  // +30% to 0.234-0.478 (owner, 2026-09-08: "increase the size of ink stains by 30%"). The
   // profile's reach (1 + every amplitude) is what the push-out clears, so at this size most of a
   // splat hangs off the screen edge and what you see is its inner rim.
   let inkSeed = 0
@@ -13625,7 +13626,7 @@ const spurG = new Graphics()
     const out = (px, py) => Math.hypot(px - cx, py - cy) >= keep
     for (let k = 0; k < 11; k++) {
       const a = (k / 11) * TAU + hash(s + k * 7.3 + 1.1) * 0.5
-      const r = Math.min(w, h) * (0.18 + hash(s + k * 5.7 + 3.3) * 0.188)
+      const r = Math.min(w, h) * (0.234 + hash(s + k * 5.7 + 3.3) * 0.244)
       const h1 = 2 + Math.floor(hash(s + k * 4.3 + 8.8) * 2)
       const h2 = 4 + Math.floor(hash(s + k * 6.1 + 9.9) * 3)
       const h3 = 7 + Math.floor(hash(s + k * 8.7 + 0.7) * 3)

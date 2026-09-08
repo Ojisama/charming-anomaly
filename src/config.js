@@ -8215,8 +8215,8 @@ CHAPTERS.wreck = {
   //
   // WHAT EACH ONE TAKES AWAY, which is the test for a roster rather than a stat block:
   //   mackerel    nothing. The staple, weight 2 — the body the chapter is mostly made of.
-  //   damselfish  speed. A `fast` harrier that reaches you before you have finished the last one;
-  //               a territorial reef fish darting at an intruder is what the animal actually does.
+  //   (damselfish CUT 2026-09-08, owner: "Remove Demoiselle from the level" — the `fast` harrier slot
+  //               is the sardine's alone now; the animal stays on The Reef's roster.)
   //   sardine     numbers. Cheap, small and frequent, with xpMul holding the level pace down
   //               against a kill count that arrives several at a time (`fast` already pays 2x a
   //               drone per point of health — see the archetype table).
@@ -8234,7 +8234,6 @@ CHAPTERS.wreck = {
     { id: 'mackerel',   archetype: 'normal', name: 'Mackerel',   hpMul: 0.9, speedMul: 1.0,  weight: 2, flags: [] },
     { id: 'squid',      archetype: 'normal', name: 'Squid',      hpMul: 1.0, speedMul: 0.95, weight: 1, flags: ['inkjet'] },
     { id: 'pufferfish', archetype: 'normal', name: 'Pufferfish', hpMul: 1.3, speedMul: 0.75, weight: 1, radiusMul: 1.2, flags: ['puffup'] },
-    { id: 'damselfish', archetype: 'fast',   name: 'Damselfish', hpMul: 0.7, speedMul: 1.05, weight: 2, flags: [] },
     // `latch`, like The Trawl's remora (owner, 2026-09-07: "the very small fishes in this level
     // should do like previous chapter: just slow you not damage you"): a touch costs you speed
     // (LATCH_SLOW_*) and spends the fish, never HP. contactHarmless's latch branch is the one site.
@@ -8271,7 +8270,7 @@ CHAPTERS.wreck = {
   // `archetypeMul`, NOT a roster `weight`, and the difference is load-bearing: spawnEnemy picks the
   // TYPE first and only then narrows to the roster entries wearing it, so weighting a chapter's one
   // and only `tank` is a weighted pick over a one-item pool — a silent no-op. See waveWeights.
-  // Weights are relative, so the 0.7 the moray gives up is handed to the mackerel and the damselfish
+  // Weights are relative, so the 0.7 the moray gives up is handed to the mackerel and the sardine
   // and the total spawn count is untouched; this makes the field MORE prey, not emptier.
   // ⚠ THIS IS AN OWNER RULING AND IT STAYS ONE (2026-08-18: "70% less tanks (murenes)"). It was
   // raised to 0.55 on 2026-09-06 on the theory that the ruling's REASON was gone — it was made when
@@ -8350,7 +8349,7 @@ CHAPTERS.wreck = {
   // reacting, and the premise inversion is in the roster and the bar, not in the body. It used to
   // say so with a bigger formScale as well; that ladder is gone book-wide (see CHAPTERS.surf).
   render: {
-    cast: ['mackerel', 'damselfish', 'moray'],
+    cast: ['mackerel', 'squid', 'moray'],
     form: 'fish',
     // THE SUNKEN SHIP. Owner, 2026-08-17: "there is no sunken ship asset or design in the level",
     // and "I'd like a big sunken ship behind with parallax effect".
