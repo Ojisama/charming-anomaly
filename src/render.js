@@ -4659,10 +4659,8 @@ export function createRenderer(app) {
     // punches the dark scrim the way a lure does, so the lanternfish is the one thing you can see
     // coming from outside your lamp — which is its whole design. A missing key here is SILENT —
     // syncEnemies falls through to a generic archetype blob.
-    // MEASURED, Task 8 (§4, R2.6): scripts/scenes/deep-lantern-range.js, four fish pinned at
-    // 90/180/300/410px on a 20/100 bar (phone AND desktop viewports) — frac 2.4, the shipped value,
-    // already reads the 300px fish as a bright glow well clear of the pure-black scrim past the lamp
-    // (peak pixel sum ~426 against a background of ~1); the 410px fish reads the same. Unchanged.
+    // balance_decision : glow.frac stays 2.4 — 300px fish peaks 426/765 vs ~1/765 bg [2026-09-09]
+    //  - scripts/scenes/deep-lantern-range.js, 90/180/300/410px on a 20/100 bar, phone + desktop
     lanternfish: { archetype: 'normal', draw: drawLanternfish, lean: 90, glow: { frac: 2.4, lit: 0.5, core: 0.96, coreFrac: 0.2 } },  // top-down: deep spindle, photophore rows ±y
     barreleye: { archetype: 'normal', draw: drawBarreleye, lean: 90 },       // top-down: fan pectorals ±y, two green lenses on the head
     fangtooth: { archetype: 'fast', draw: drawFangtooth, lean: 90 },         // top-down: jaws thrown wide ±y at +x, small body -x

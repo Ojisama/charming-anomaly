@@ -372,11 +372,8 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
       // three of the four, and the moving wake for The Trawl. One column, because the QUESTION is
       // the same one ("how much of the run was this player being fed") and a chapter-specific column
       // name is how a reader ends up comparing two different measurements.
-      // inWake (The Trawl's old Feed-bar wake test) was deleted from sim.js in v7.257 along with
-      // that chapter's Feed bar and resource block (CHAPTERS.trawl now declares no `resource` at
-      // all, so trawlCh runs abort above before reaching this line) — this import had gone stale
-      // and broke every invocation of this script, for every chapter, with a module-load
-      // SyntaxError. inMaw alone is the whole test now; no chapter this script can reach has a wake.
+      // inWake was deleted from sim.js in v7.257 with the Trawl's Feed bar; this stale import broke
+      // every invocation. inMaw alone is the whole test now.
       if (run.shafts.some((sh) => inMaw(sh, pl.x, pl.y))) inShaft++
       // Sandbars (v7.x Surf only — onSandbar is a no-op false for any chapter with no run.sandbars
       // entries, so this column reads 0 for The Shelf without a chapter-type branch here).

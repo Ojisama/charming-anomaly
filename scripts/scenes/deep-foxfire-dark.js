@@ -5,8 +5,9 @@
 // scripts/scenes/deep-foxfire.js — the scene this weapon shipped on — writes `run.charge =
 // run.chargeMax` on EVERY captured frame, and says why in its own header: "the honest way to shoot
 // the dark cast — bar at zero — is a black rectangle with the effect somewhere inside it". That
-// sentence is the bug, not a limitation of the probe: the chapter measures 63% of a run dark, the
-// scrim is `dim: 1.0` over `darkTint: 0x00060b`, and updateDark punches holes for the player's lamp,
+// sentence is the bug, not a limitation of the probe: the chapter measures 91-99% of a run dark
+// (charge-probe.mjs --chapter deep), the scrim is `dim: 1.0` over `darkTint: 0x000305`, and
+// updateDark punches holes for the player's lamp,
 // the shafts and The Deep's lures — and for nothing else. A cloud cast at castRange (280-340px)
 // while the lamp is 0.1x the screen's longest side (84px on a phone) is under an opaque scrim.
 //

@@ -27,11 +27,14 @@
 // THE ONLY REMOVAL FROM run.enemies IS dealDamage's `_dead` filter (sim.js:8112), but not every
 // `_dead = true` is a kill — several sites despawn a body silently (no xp, no gem): the lane
 // sweep/leak, the Trawl turtle's drop radius, the Reef's ring-drop, the Trawl orca's bite, and a
-// Submission ally's expiry. Every one of those is gated on a mechanic The Deep does not have
-// (`lane`/`circuit`/`trawl` signatures, or the Submission anomaly — which this probe never grants,
-// since every level-up offer is refused) — so for this chapter, run with this rig, an existence
-// diff on run.enemies is a kill, always. This is more exact than the kill event for our purposes,
-// and it needed no sim.js change: run.enemies already carries every field this asks for.
+// Submission ally's expiry. Four of those five are gated on a mechanic The Deep does not have
+// (`lane`/`circuit`/`trawl` signatures) and cannot fire here regardless of rig. The fifth,
+// Submission, CAN: this probe accepts every first offer, so an accepted Submission anomaly later
+// turning a loan ally's expiry into a silent (no-xp) despawn is reachable, and it fired once in the
+// baseline arm's 6 seeds (1 of 1278 total removals, seed 55) — rare enough that it does not move any
+// reported share, but it is not a zero. An existence diff still reads every OTHER removal here as a
+// kill correctly; it needed no sim.js change, since run.enemies already carries every field this asks
+// for.
 //
 // --srcDir <path> (CLAUDE.md's A/B idiom: "extract the old tree ... take a src path as argv"):
 // point every import at an extracted tree instead of the live src/, for the split-tax comparison
@@ -100,6 +103,13 @@ for (const seed of SEEDS) {
     for (const ev of run.events) if (ev.type === 'hurt') taken[ev.src ?? '?'] = (taken[ev.src ?? '?'] ?? 0) + (ev.dmg ?? 0)
     run.events.length = 0   // drain every step, exactly as main.js does
     if (run.phase === 'levelup') { applyChoice(run, 0); run.phase = 'playing' }   // accept the first offer, always
+    // Immortal has to be reasserted EVERY STEP, not set once before the loop (fix round 1): BRITTLE
+    // (sim.js:448-452, applyAnomalyOnTake) rewrites maxHP to BRITTLE_MAX_HP (1) the instant it is
+    // taken, and clamps hp to match — a single set-before-the-loop `maxHP = hp = 1e9` is worth
+    // nothing once that card lands, and ordinary contact damage the very next step then ends the
+    // run. charge-probe.mjs:367 has carried this exact line for the same reason (its own rig also
+    // accepts every offer); mirrored here rather than reinvented.
+    run.player.hp = run.player.maxHP
     if (run.phase !== 'playing') break
     steps++
   }

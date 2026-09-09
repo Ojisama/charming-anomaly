@@ -350,8 +350,8 @@ export function stepSim(run, input, dt) {
   // read what a weapon did to them; a clamp ahead of stepWeapons would snap those bodies to a wall
   // face mid-step, and the case would then measure a fixture that was never where it put it —
   // which cost RN.d a ratio of 0.733 against the 0.625 the weapon was correctly producing. run RN
-  // was deleted 2026-09-09 with the weapons it tested; this ordering rule is currently unguarded
-  // by any test.
+  // was deleted 2026-09-09 with the weapons it tested; the ordering rule itself is guarded by run
+  // SQ instead (test/sim-test.js), which asserts it directly on this function's own source text.
   clampCrowdToCave(run)
   stepStatuses(run, dt)
   stepPickups(run, dt)

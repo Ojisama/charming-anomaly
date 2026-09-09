@@ -1521,23 +1521,6 @@ function testAnomalySlate() {
       // firing correctly. A melee weapon whose event type is missing from this array is invisible
       // to the assertion below.
       const FX = ['whip', 'clawRake', 'roar', 'tail', 'gnash']
-      // ⚠ SOME WEAPONS CANNOT BE MEASURED BY A MOTIONLESS PLAYER. The fixture below holds the stick
-      // at zero, which is right for every weapon currently in the arsenal — it keeps the ring of
-      // targets and the player in a fixed relationship, so `seen` is comparable frame to frame.
-      // Fin Hit's damage and its very existence read the player's VELOCITY (it returned early at a
-      // standstill and spawned nothing), so a motionless fixture reported "spawned nothing —
-      // untestable" for a weapon that was working perfectly; it needed this override and is now
-      // deleted, so the set is empty. The stick is per-weapon, and the set stays explicit rather
-      // than a heuristic: the next movement-coupled card has to be added here or it will fail this
-      // assertion with a message about the wrong thing.
-      const NEEDS_MOTION = new Set([])
-      // ⚠ AND SOME WEAPONS CANNOT BE MEASURED IN THE DEFAULT CHAPTER AT ALL. Fire Coral armed the
-      // coral RIDGES, so in a chapter with no spur field it correctly did nothing and this fixture
-      // read 'spawned nothing — untestable' about a weapon that worked; it needed this override and
-      // is now deleted, so the table is empty. Same shape as the stick above: an explicit
-      // per-weapon override, not a heuristic, so the next terrain-coupled card has to be named here
-      // rather than failing with a message about the wrong thing.
-      const CHAPTER_FOR = {}
       // ⚠ ...AND ONE WEAPON THE FIXTURE'S OWN PIN MAKES UNMEASURABLE. Three lines below, a moving
       // arm teleports the player back to the origin every frame so the ring of targets stays put —
       // right for every card that reads VELOCITY, and blind to one that reads DISPLACEMENT. The
@@ -1550,11 +1533,10 @@ function testAnomalySlate() {
       // spreads this weapon over distinct points, with a player that is actually allowed to move.
       const NEEDS_TRAVEL = new Set(['screw'])
       const spread = (id, weaponId) => {
-        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 }, CHAPTER_FOR[weaponId] ? { chapter: CHAPTER_FOR[weaponId] } : {})
-        assert.strictEqual(r.chapter, CHAPTER_FOR[weaponId] ?? r.chapter, `the ${weaponId} arm did not boot in ${CHAPTER_FOR[weaponId]} — a WIP gate sent it elsewhere and it would report 'spawned nothing'`)
+        const r = withCard(id, (x) => { x.player.hp = 1e9; x.player.maxHP = 1e9 })
         r.weapons = [{ id: weaponId, level: 3 }]
         r.time = 5
-        const stick = NEEDS_MOTION.has(weaponId) ? { x: 1, y: 0 } : { x: 0, y: 0 }
+        const stick = { x: 0, y: 0 }
         // A ring of unkillable enemies, so every weapon has something to aim at, place a zone on,
         // or lock onto — and nothing dies to change the picture mid-cast.
         for (let i = 0; i < 12; i++) {
@@ -7132,7 +7114,7 @@ function runModBudget() {
   // chapter had already cut by 70%.
   {
     const rows = []
-    for (const ch of ['surf', 'shelf', 'reef', 'wreck']) {
+    for (const ch of ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'deep']) {
       for (const wid of CHAPTERS[ch].weapons) {
         const n = Object.keys(WEAPON_MODS[wid] ?? {}).length
         rows.push(`${wid} ${n}`)
@@ -33149,7 +33131,18 @@ function testSpawnQueueInvariant() {
       `very loop that created it and is acted on before it has lived a frame:\n  ${line}`)
   }
 
-  console.log('PASS run SQ (spawn queue): run.enemies.push confined to spawnEnemy + flushSpawns, no index-back-to-find-it, both corpse-spawn paths deferred')
+  // stepWeapons MUST run before clampCrowdToCave inside stepSim's own body — a clamp ahead of it
+  // corrects a stale position and leaves a weapon fixture (or, in play, a weapon's own aim) reading
+  // a body already snapped to a wall face for the frame it is drawn and touched in. run RN measured
+  // the cost once (0.733 against a correct 0.625) and was deleted 2026-09-09 with the weapons it
+  // tested; asserted here directly on stepSim's own source instead of through a fixture.
+  const stepSimBody = sim.slice(sim.indexOf('export function stepSim('), sim.indexOf('\nexport function applyChoice'))
+  const iWeapons = stepSimBody.indexOf('stepWeapons(run, dt)')
+  const iClamp = stepSimBody.indexOf('clampCrowdToCave(run)')
+  assert.ok(iWeapons > -1 && iClamp > -1 && iWeapons < iClamp,
+    'stepWeapons no longer runs before clampCrowdToCave inside stepSim — a clamp ahead of it snaps bodies to a wall face before weapons read their position this frame')
+
+  console.log('PASS run SQ (spawn queue): run.enemies.push confined to spawnEnemy + flushSpawns, no index-back-to-find-it, both corpse-spawn paths deferred, stepWeapons runs before clampCrowdToCave')
 }
 
 // ---- run CP: every flat sprite pool is cleared between runs -----------------------------------

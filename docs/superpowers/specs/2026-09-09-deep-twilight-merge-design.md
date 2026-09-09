@@ -183,13 +183,17 @@ Also: **the Pulse leaves with the Twilight.** Sunspear's comment calls the bar "
 in the Deep the bar is Scent's. The comment is stale the moment the pool moves and is fixed in the
 same edit.
 
-### Measured (Task 8)
+### Measured (Task 8, fix round 1)
 
 Four measurements, run against the shipped tree (HEAD at the time, `f8e9c3c` plus Tasks 1-7), each
-recorded a second time in the `src/config.js` comment beside the number it bears on. Commands are
-copy-pasteable; every table below is the literal command's output, not a paraphrase.
+recorded a second time in `src/config.js` as one `balance_decision` line beside the number it bears
+on (the full tables live here and in the commit bodies of `9036eb3` and the fix-round commit, per
+this repo's convention that reasoning goes in the commit, not the comment). The fenced command
+output below is pasted verbatim; any table alongside it is a derived summary, labelled as such.
 
-**§6.1/R2.2 — the pool, one invocation.**
+**§6.4/R2.2 — the pool, one invocation** (relabelled from §6.1 — §6.1 itself, a Foxfire census with
+the bar PINNED at empty and at full, was never run: `scripts/weapon-census.mjs` has no flag to pin
+`run.charge`, and none was added — see §7's owed list).
 `node scripts/weapon-census.mjs --chapter deep --level 5 --weapons glint,sunspear,foxfire,sunlance --secs 300`:
 
 ```
@@ -261,21 +265,97 @@ the sim after its warm-up. Fixed by setting both fields; noted in the scene's ow
 
 **R2.1/§7b — the split tax.**
 New script `scripts/deep-roster-probe.mjs`, 6 seeded 300s Deep runs, immortal + kiting, level-ups
-ACCEPTED (first offer always — an unleveled starter never kills a tank at all under this rig: 0/6
-seeds with every offer refused, which cannot answer the question). Kills/xp are read directly off
+ACCEPTED (first offer always — an unleveled starter never kills a tank at all under a refuse-every-
+offer rig: 0/6 seeds, which cannot answer the question). Kills/xp are read directly off
 `run.enemies` (id present before a step and gone after, its pre-step `.xp`), not off the `kill`
 event, which carries only `{x,y,elite,etype}` — an `ARCHETYPE_TYPE`, not a `rosterId`, and no xp at
 all (see the script's header for why an existence diff is exact here and needed no `sim.js` change).
 
-Siphonophore's share of the run's xp, per seed: **[0, 0, 0, 0, 2.2, 5.2]%** (low 0, high 5.2). The
-same probe against the pre-merge tree (`git archive cdd29a7 src` into `/tmp/base`, `--srcDir`) reads
-the old gulper's share per seed as **[24.8, 39.5, 41.3, 48.7, 50.4, 54.1]%** (low 24.8, high 54.1).
+**Fix round 1: "immortal" was set once and lost.** BRITTLE (`sim.js:448-452`) rewrites `maxHP` to 1
+the instant it is taken by the accept-first-offer rig, and a devour deals `0.5 x maxHP` — with no
+per-step reset, ordinary combat after either event ends the run early (the pre-fix baseline arm's
+seed 11 died to a devour at 228s; seed 22 died 2.3s after taking BRITTLE, at 259s). Fixed by
+reasserting `run.player.hp = run.player.maxHP` every step, mirroring `scripts/charge-probe.mjs:367`
+(which has carried this exact line since its own rig started accepting offers). This is not a full
+guarantee: BRITTLE at maxHP 1 is still lethal to the very next hit that lands *before* the next
+reset runs (seed 22 still dies at 259s post-fix, ~2.3s after taking BRITTLE — a residual, honestly
+reported as a truncated `secs`, not eliminated), but it removed the slow, unbounded chip-damage
+leak that had truncated seed 11 (228s -> a full 300s, dead -> victory) and skewed the gulper table
+below.
+
+Raw output, `node scripts/deep-roster-probe.mjs` (`taken` kept in full, per the brief's own ask —
+it is the source for the "top damage source" finding below):
+
+```
+seed 11: secs 300 level 3 kills {"lanternfish":24,"barreleye":10,"fangtooth":11} xp {"lanternfish":24,"barreleye":10,"fangtooth":11} xpShare% {"lanternfish":53.3,"barreleye":22.2,"fangtooth":24.4} taken {"lanternfish":293,"barreleye":225,"fangtooth":112,"siphonophore":444} splitChildren {}
+seed 22: secs 300 level 17 kills {"lanternfish":148,"barreleye":110,"fangtooth":294,"siphonophore":11} xp {"lanternfish":148,"barreleye":113,"fangtooth":297,"siphonophore":31} xpShare% {"lanternfish":25.1,"barreleye":19.2,"fangtooth":50.4,"siphonophore":5.2} taken {"lanternfish":674,"barreleye":484,"fangtooth":133,"siphonophore":2838} splitChildren {"siphonophore":22}
+seed 33: secs 300 level 12 kills {"barreleye":125,"lanternfish":173,"fangtooth":281} xp {"barreleye":128,"lanternfish":176,"fangtooth":287} xpShare% {"barreleye":21.7,"lanternfish":29.8,"fangtooth":48.6} taken {"barreleye":482,"lanternfish":460,"fangtooth":134,"siphonophore":2202} splitChildren {}
+seed 44: secs 300 level 5 kills {"barreleye":31,"lanternfish":31,"fangtooth":27} xp {"barreleye":31,"lanternfish":31,"fangtooth":27} xpShare% {"barreleye":34.8,"lanternfish":34.8,"fangtooth":30.3} taken {"barreleye":540,"lanternfish":688,"fangtooth":70,"siphonophore":1161} splitChildren {}
+seed 55: secs 300 level 18 kills {"barreleye":144,"lanternfish":189,"fangtooth":374,"siphonophore":7} xp {"barreleye":144,"lanternfish":195,"fangtooth":383,"siphonophore":17} xpShare% {"barreleye":19.5,"lanternfish":26.4,"fangtooth":51.9,"siphonophore":2.2} taken {"lanternfish":482,"barreleye":471,"fangtooth":215,"siphonophore":2120} splitChildren {"siphonophore":10}
+seed 66: secs 300 level 4 kills {"lanternfish":20,"barreleye":15,"fangtooth":28} xp {"lanternfish":20,"barreleye":15,"fangtooth":28} xpShare% {"lanternfish":31.7,"barreleye":23.8,"fangtooth":44.4} taken {"barreleye":455,"lanternfish":573,"fangtooth":559,"siphonophore":1601} splitChildren {}
+```
+
+Derived summary, kills by roster id and level reached, in SEED ORDER (11, 22, 33, 44, 55, 66) — printed rather than
+only the derived share, because the zeros need to be legible as **never killed**, not as "paid
+little":
+
+```
+                lanternfish  barreleye  fangtooth  siphonophore  level  xpShare% (siphonophore)
+seed 11                  24         10         11             0      3      0.0
+seed 22                 148        110        294            11     17      5.2
+seed 33                 173        125        281             0     12      0.0
+seed 44                  31         31         27             0      5      0.0
+seed 55                 189        144        374             7     18      2.2
+seed 66                  20         15         28             0      4      0.0
+```
+
+Siphonophore's xp share per seed, in seed order: **[0, 5.2, 0, 0, 2.2, 0]%** — low 0, high 5.2. It
+is **never killed at all in 4 of 6 seeds** (11, 33, 44, 66) — confirmed by counting live
+siphonophores at t=300 in those four runs: **32, 178, 34, 26** respectively, i.e. dozens to hundreds
+spawned and surviving, not merely "expensive to reach". At the same time it is the **top damage
+source taken in 6/6 seeds** (444-2838 damage, against every other roster entry's low hundreds) while
+dying 0-11 times — an **owner item**, not something this task's retune clause has a lever for: the
+tank is currently *near-unkillable under the starter*, which is a different, larger problem than the
+split tax being over- or under-priced.
+
+The same probe against the pre-merge tree (`git archive cdd29a7 src` into `/tmp/base`, `--srcDir`,
+same fix applied there too). Raw output, `node scripts/deep-roster-probe.mjs --srcDir /tmp/base/src`:
+
+```
+seed 11: secs 300 level 31 kills {"hagfish":425,"viperfish":647,"gulper":242} xp {"hagfish":437,"viperfish":665,"gulper":968} xpShare% {"hagfish":21.1,"viperfish":32.1,"gulper":46.8} taken {"hagfish":2884,"viperfish":281,"devour":2000000074} splitChildren {}
+seed 22: secs 259 level 24 kills {"hagfish":377,"viperfish":353,"gulper":123} xp {"hagfish":386,"viperfish":368,"gulper":492} xpShare% {"hagfish":31,"viperfish":29.5,"gulper":39.5} taken {"hagfish":2023,"viperfish":122} splitChildren {}
+seed 33: secs 300 level 30 kills {"hagfish":435,"viperfish":569,"gulper":296} xp {"hagfish":450,"viperfish":575,"gulper":1208} xpShare% {"hagfish":20.2,"viperfish":25.8,"gulper":54.1} taken {"hagfish":2359,"viperfish":380} splitChildren {}
+seed 44: secs 300 level 32 kills {"hagfish":431,"viperfish":623,"gulper":269} xp {"hagfish":440,"viperfish":644,"gulper":1100} xpShare% {"hagfish":20.1,"viperfish":29.5,"gulper":50.4} taken {"hagfish":1958,"viperfish":104,"bomb":26} splitChildren {}
+seed 55: secs 300 level 30 kills {"hagfish":409,"viperfish":619,"gulper":250} xp {"hagfish":421,"viperfish":634,"gulper":1000} xpShare% {"hagfish":20.5,"viperfish":30.9,"gulper":48.7} taken {"hagfish":2777,"viperfish":427} splitChildren {}
+seed 66: secs 300 level 28 kills {"hagfish":409,"viperfish":609,"gulper":184} xp {"hagfish":424,"viperfish":624,"gulper":736} xpShare% {"hagfish":23.8,"viperfish":35,"gulper":41.3} taken {"hagfish":2130,"viperfish":506,"bomb":19} splitChildren {}
+```
+
+Derived summary, gulper kills and xp share, same seed order:
+
+```
+                hagfish  viperfish  gulper  level  xpShare% (gulper)
+seed 11             425        647     242     31     46.8
+seed 22             377        353     123     24     39.5   (truncated at 259s — see below)
+seed 33             435        569     296     30     54.1
+seed 44             431        623     269     32     50.4
+seed 55             409        619     250     30     48.7
+seed 66             409        609     184     28     41.3
+```
+
+Gulper's xp share per seed, seed order: **[46.8, 39.5, 54.1, 50.4, 48.7, 41.3]%** — low 39.5, high
+54.1. (Seed 22 here is the one BRITTLE-truncated run described above; its share is close to the
+others' regardless, so it does not change the low/high.) This range replaces the pre-fix reading of
+**[24.8, ...54.1]**, whose low (24.8) came from baseline seed 11's own truncation (a devour ending
+that run at 228s before the gulper had compounded — exactly the "recorded low came from the
+truncated seed" the review named).
+
 The retune clause ("lower `xpMul` if the new share exceeds the old") does not fire — the new tank
-sits far *under* the old one at every seed, not over. `xpMul` stays at 0.7. Flagged rather than
-chased further: the gap is large enough that it plausibly also reflects Glint being weaker against a
-tank than the old `finHit` was (a confound the brief's own baseline method — comparing each
-chapter's shipped starter — cannot separate from the split tax itself), so a future pass may want to
-ask whether the tank slot is now *under*-paying, which this clause has no lever for.
+sits far *under* the old one at every seed (high of 5.2% against a low of 39.5%), not over. `xpMul`
+stays at 0.7. Flagged rather than chased further: the gap is large enough that it plausibly also
+reflects Glint being weaker against a tank than the old `finHit` was (a confound the brief's own
+baseline method — comparing each chapter's shipped starter — cannot separate from the split tax
+itself), so a future pass may want to ask whether the tank slot is now *near-unkillable*, which this
+clause has no lever for.
 
 ## 7. Still owed after this pass
 
@@ -288,6 +368,15 @@ After the merge The Deep owes:
 2. **A mutator of its own.** `springtide` is the book's.
 3. **The owner's three gates**: a phone playtest, the French review, the assets check. Both
    chapters were at `YOU` on all three; the merged one is too.
+4. **§6.1's own item, still unmeasured**: Foxfire at L5 with the bar PINNED at empty and at full,
+   one invocation. `scripts/weapon-census.mjs` has no flag to pin `run.charge`; none was added this
+   pass (fix round 1's controller ruling: don't add a probe feature nobody asked for). What Task 8
+   *does* now know, from the un-pinned real-play numbers (Measured, above): the Deep's real bar
+   already runs darker across every movement policy (91-99% dark, mean gloom 1.27-1.535) than the
+   Shelf's own tuned play point (1.174 at 63% dark) — the number this card was priced against,
+   with no move-speed cost behind it on this chapter. That makes the owed pinned-bar pair *more*
+   informative to eventually run, not less: the untuned side of Foxfire's curve (near the empty-bar
+   ceiling, 160 eff) is closer to what a Deep player actually meets than it ever was on the Shelf.
 
 The Twilight's diel-migration hazard debt **dies with the chapter**: it existed because the
 Twilight had no hazard, and The Deep has one.
