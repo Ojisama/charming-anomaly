@@ -4310,6 +4310,18 @@ function streamObstacles(run) {
   // structure placement can finally agree with the ground it is standing on. null for every chapter
   // without a terrain map, where all the branches below fall back to the old uniform behaviour.
   const worldSeed = run._districtSeed
+  // NOTHING STANDS IN A MOUTH (The Deep, owner from play 2026-09-09: "there shouldnt be obstacles in
+  // the mouths"). The obstacle field and the refill field are placed on two independent grids that
+  // have never asked about each other, which is harmless where a refill circle is a patch of water
+  // and not harmless where it is a 200px hole you have to swim into: a boulder in the jaws makes the
+  // one place the chapter sends you for Light a place you cannot enter.
+  //   OPT-IN PER FIELD (`keepClear` on the spec) rather than universal, because the same test over
+  // every chapter would reshuffle five shipped obstacle fields to fix one chapter's problem — and
+  // The Reef's pockets are placed on a lap coordinate inRefillCircle cannot read at all.
+  const clearSpec = (() => {
+    const s = effectiveRefillSpec(run)
+    return s?.keepClear ? s : null
+  })()
   const span = Math.ceil(OBSTACLE_STREAM_RADIUS / cs)
   for (let i = ci - span; i <= ci + span; i++) {
     for (let j = cj - span; j <= cj + span; j++) {
@@ -4454,6 +4466,11 @@ function streamObstacles(run) {
         const band = STRUCTURE_RADIUS[kind] || [cfg.minR, cfg.maxR]
         r = band[0] + obstacleCellHash(i, j, seed, 1) * (band[1] - band[0])
       }
+      // Tested at the FINAL position and the FINAL radius — after the block snap and after a
+      // perKindRadius chapter has resolved its real `r` — for the same reason the road re-check
+      // above is: a structure that was moved has to be judged where it ended up. Full clearance
+      // (`r`, not 0), so a rock never crosses the rim either: half in the jaws still reads as in.
+      if (clearSpec && inRefillCircle(x, y, r, seed, clearSpec)) continue
       run.obstacles.push({ x, y, r, _cell: key, kind, rot })
       changed = true
     }
@@ -4638,21 +4655,49 @@ function streamRingPockets(run, spec, cave) {
   }
 }
 
-export function streamShafts(run) {
-  const sig = CHAPTERS[run.chapter].signature
-  const spec0 = refillSpec(sig)
-  if (!spec0) return
-  // DEAD WATER (the shelf's mutator) thins the field, and it has to do it HERE rather than at
-  // refillCircleAt's own roll: the occupancy hash is a pure function of (cell, seed) and taking a
-  // run-state multiplier into it would make the field's geometry depend on which mutators were
-  // picked, which is exactly the impurity the five streaming fields are all written to avoid.
-  // A shallow copy, so cell/r/drawdownSecs stay the spec's own; identity is preserved at x1 so
-  // every chapter without the mutator is byte-for-byte unchanged.
+// The chapter's refill spec with DEAD WATER (the shelf's mutator) already folded in. It has to
+// thin the field HERE rather than at refillCircleAt's own roll: the occupancy hash is a pure
+// function of (cell, seed) and taking a run-state multiplier into it would make the field's
+// geometry depend on which mutators were picked, which is exactly the impurity the five streaming
+// fields are all written to avoid. A shallow copy, so cell/r/drawdownSecs stay the spec's own;
+// identity is preserved at x1 so every chapter without the mutator is byte-for-byte unchanged.
+//   ...and it has to reach BOTH occupancy rolls. The square grid reads `chance`, the ring reads
+// `ringChance`; scaling only the first would leave the mutator silently inert on the one chapter
+// whose bar has a single refill source.
+//   ONE function because it now has TWO callers: streamShafts, which places the circles, and
+// streamObstacles' keep-clear test, which cuts holes for them. Two copies of this arithmetic is
+// two answers to "where are the circles", and the holes would be cut in a field that is not there.
+function effectiveRefillSpec(run) {
+  const spec0 = refillSpec(CHAPTERS[run.chapter].signature)
+  if (!spec0) return null
   const chanceMul = run.mods?.refillChanceMul ?? 1
-  // ...and it has to reach BOTH occupancy rolls. The square grid reads `chance`, the ring reads
-  // `ringChance`; scaling only the first would leave the mutator silently inert on the one chapter
-  // whose bar has a single refill source.
-  const spec = chanceMul === 1 ? spec0 : { ...spec0, chance: spec0.chance * chanceMul, ringChance: (spec0.ringChance ?? 0.7) * chanceMul }
+  return chanceMul === 1 ? spec0 : { ...spec0, chance: spec0.chance * chanceMul, ringChance: (spec0.ringChance ?? 0.7) * chanceMul }
+}
+
+/**
+ * Is (x, y) inside one of this field's circles, padded by `pad`? Asked of the SAME generator
+ * streamShafts places from, so the two can never disagree about where a circle is.
+ * Only the 3x3 cell neighbourhood is scanned, and that is exhaustive rather than approximate: a
+ * circle's centre jitters by at most cell/2 - r - 20 from its own cell centre, so it never leaves
+ * its cell, and a circle two cells away is more than cell - r apart from any point in this one.
+ * SQUARE-GRID FIELDS ONLY — a ring field (The Reef) is placed by streamRingPockets off a lap
+ * coordinate this cannot see, which is why `keepClear` is opt-in per field rather than universal.
+ */
+export function inRefillCircle(x, y, pad, seed, spec) {
+  const cs = spec.cell
+  const ci = Math.floor(x / cs), cj = Math.floor(y / cs)
+  for (let i = ci - 1; i <= ci + 1; i++) {
+    for (let j = cj - 1; j <= cj + 1; j++) {
+      const c = refillCircleAt(i, j, seed, spec)
+      if (c && Math.hypot(c.x - x, c.y - y) < c.r + pad) return true
+    }
+  }
+  return false
+}
+
+export function streamShafts(run) {
+  const spec = effectiveRefillSpec(run)
+  if (!spec) return
   if (run._obstacleSeed == null) return
   const ringCave = caveSpecOf(run)?.ring ? caveSpecOf(run) : null
   if (ringCave) return streamRingPockets(run, spec, ringCave)

@@ -46,7 +46,7 @@ import {
   xpForLevel, REVIVE_HP_FRAC, REVIVE_INVULN, rerollCost,
   MAX_DIFFICULTY, PLAYER, BARNACLE_JUMP_R, SHELL_R,
   LONGLINE_SNAG, LONGLINE_HALF_W, LONGLINE_TWIN_GAP, CC_DR_FLOOR,
-  MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL, spendSecs,
+  MAW_GAPE_T, MAW_DEVOUR_FRAC, MAW_VIS, MAW_REVEAL, LURE_GLOW, SCENT_R, SCENT_DMG_MUL, SCENT_SPEED_MUL, spendSecs,
   BOOKS, BOOK_ORDER, BOOK_SHOP, shopLines, BOOK_UNLOCKS, playableChapterId, isWipChapter, chapterAvailable, titleBookshelf, CHAPTER_SPINE, isBookFinale, nextBook, bookOf, chapterNumber,
   DMG_SRC_NAME, dmgSrcName, DMG_SRC_ART, dmgSrcArt, DMG_SRC_NO_ART,
   DEATH_OUTRO, irisCoverMul, deathProgress, LANE_CAMERA_FRAC,
@@ -168,7 +168,7 @@ import {
   // The Trawl's late-game cut (run TJ)
   lateSpawnMulAt, SPAWN_LATE_BLEND, SPAWN_LATE_START,
 } from '../src/config.js'
-import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, stepCharge, newElWindow, spurAt } from '../src/sim.js'
+import { stepSim, applyChoice, buildLevelUpChoices, eligibleWeaponModCandidates, rerollLevelUpChoices, rerollPrice, anomalyWeightFor, currentForce, buildReadout, devCards, devTake, stepTide, streamSandbars, onSandbar, streamShafts, inRefillCircle, stepCharge, newElWindow, spurAt } from '../src/sim.js'
 
 // ---- Scenario runner: a filter, and a --fast mode ---------------------------------------------
 // The suite is 71s, and 397 of its 430 assertion blocks finish in 4.4s TOTAL — the whole cost sits
@@ -31488,7 +31488,57 @@ function testTheDeep() {
       'run DP.k: the maw rim is not stroked at sh.r — the escape boundary the player reads by eye has drifted off the one the sim tests')
     assert.ok(MAW_VIS.toothFull > MAW_VIS.toothShut,
       `run DP.k: MAW_VIS teeth do not lengthen with the gape (${MAW_VIS.toothShut} -> ${MAW_VIS.toothFull}) — the mouth never visibly closes`)
-    console.log(`PASS run DP.k (huge, hidden, and drawn): r ${spec.r} against a ${PLAYER.radius}px player in a ${spec.cell}px cell, the lure punched at ${LURE_GLOW.lit}/${LURE_GLOW.core} while the mouth stays dark, teeth ${MAW_VIS.toothShut}->${MAW_VIS.toothFull} of r and the rim pinned at r`)
+    // ...AND THE TEETH ARE PART OF "HIDDEN", which the block above assumed and never checked. The
+    // head and the throat are drawn at near-black and multiply away; MAW_VIS.tooth is bone white and
+    // does not, so before MAW_REVEAL a ring of grey needles gave the animal away from across the
+    // water while every other assertion here stayed green (owner from play: "the teeth shouldnt be
+    // visible at first"). Both the needles and the rim have to ride it — the rim alone is still a
+    // circle drawn around the bait.
+    assert.ok(/\* reveal\b/.test(shafts) && (shafts.match(/\* reveal\b/g) || []).length >= 2,
+      'run DP.k: fewer than two of updateShafts\' maw strokes fade with MAW_REVEAL — the needles and the rim are the two bright parts, and either one alone still draws the mouth in the dark')
+    assert.ok(/MAW_REVEAL/.test(shafts),
+      'run DP.k: updateShafts no longer reads MAW_REVEAL — the reveal distance has drifted out of config.js')
+    assert.ok(MAW_REVEAL.far > MAW_REVEAL.near && MAW_REVEAL.near >= 1,
+      `run DP.k: MAW_REVEAL near ${MAW_REVEAL.near} / far ${MAW_REVEAL.far} — near must reach the rim (>= 1 x r) so the gape is at full contrast for anyone standing in the mouth, and far must be outside it`)
+    console.log(`PASS run DP.k (huge, hidden, and drawn): r ${spec.r} against a ${PLAYER.radius}px player in a ${spec.cell}px cell, the lure punched at ${LURE_GLOW.lit}/${LURE_GLOW.core} while the mouth stays dark, teeth ${MAW_VIS.toothShut}->${MAW_VIS.toothFull} of r resolving only inside ${MAW_REVEAL.far}x r, and the rim pinned at r`)
+  }
+
+  // (l) NOTHING STANDS IN A MOUTH. Owner from play, 2026-09-09: "there shouldnt be obstacles in the
+  // mouths." The obstacle field and the maw field are placed on two independent grids off the same
+  // seed and neither has ever asked about the other, so a boulder in the jaws was not a rare roll —
+  // it was 13% of the plane's worth of them, in the one place the chapter sends you for Light.
+  //   Asked of the GENERATOR rather than of run.shafts: the two fields stream and drop on different
+  // radii, so a maw that has not materialised yet is still a maw, and an assertion that only
+  // compared the two live lists would pass on obstacles sitting in mouths just off screen.
+  {
+    const spec = CHAPTERS.deep.signature.maws
+    assert.strictEqual(spec.keepClear, true,
+      'run DP.l: CHAPTERS.deep.signature.maws.keepClear is not set — streamObstacles only cuts holes for a field that asks, so without it rocks are back in the jaws with nothing red')
+    Math.random = mulberry32(20260909)
+    const run = createRun(makeMeta(), { chapter: 'deep', difficulty: 1 })
+    run.player.hp = run.player.maxHP = 1e9
+    let checked = 0
+    let inside = null
+    const cells = new Set()
+    // Walk a wide arc so the field re-streams many times over: a stationary player only ever meets
+    // the cells they spawned in, which is a one-sample test wearing a 60-second coat.
+    for (let i = 0; i < 60 * 90; i++) {
+      const a = i / 900
+      stepSim(run, { x: Math.cos(a), y: Math.sin(a), skill: false }, 1 / 60)
+      run.events.length = 0
+      if (i % 120 !== 0) continue
+      for (const o of run.obstacles) {
+        checked++
+        cells.add(o._cell)
+        if (inRefillCircle(o.x, o.y, o.r, run._obstacleSeed, spec)) inside = inside ?? o
+      }
+    }
+    // DISTINCT CELLS, not raw samples: a stationary player re-counts the same dozen obstacles every
+    // sample and reaches any sample threshold you like while having tested one patch of field.
+    assert.ok(cells.size > 60, `run DP.l: only ${cells.size} distinct obstacle cells over the walk (${checked} samples) — the field is not re-streaming, so a clean result proves nothing`)
+    assert.strictEqual(inside, null,
+      `run DP.l: an obstacle of r ${inside?.r?.toFixed(0)} at (${inside?.x?.toFixed(0)}, ${inside?.y?.toFixed(0)}) stands inside a maw — the keep-clear test is not reaching the placement site`)
+    console.log(`PASS run DP.l (nothing stands in a mouth): ${cells.size} distinct obstacle cells over 90s of a walked field (${checked} samples), none inside a maw padded by its own radius`)
   }
 
   console.log("PASS run DP (The Deep): the anglerfish is a refill CIRCLE and not a mob, huge and hidden behind its own lure, it is the only food and its mouth is the clock, staying costs half your health AND all your light while leaving in time costs nothing, and Scent marks a group and amplifies every source while buying speed")
