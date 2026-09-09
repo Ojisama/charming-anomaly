@@ -164,6 +164,31 @@ of it, deliberately — the bar is a backlog. After the merge The Deep owes:
 The Twilight's diel-migration hazard debt **dies with the chapter**: it existed because the
 Twilight had no hazard, and The Deep has one.
 
+## 7b. The roster is redesigned around the light (owner ruling, same session)
+
+Owner: *"Redesign enemies relevant to the abysses."* The audit behind it: hagfish, viperfish and
+gulper are real abyssal animals, but nothing they DO is about the abyss — a slime patch, a burst
+dash and a hold could be any chapter's crowd. In this game the abyss means light, so the roster
+is re-cut so that each creature's behaviour is about the player's lamp. Phase 1 (feel) rulings,
+under `designing-an-enemy`; phases 2 (look) and 3 (numbers) each end at a further ruling.
+
+| Slot | Creature | What you do differently | Cost |
+|---|---|---|---|
+| normal | **Lanternfish** shoal | It carries its own light, so it is the one enemy visible OUTSIDE your lamp. You read the dark by what glows in it, and a glow coming your way is the warning. | sim: none (flagless `normal`). render: a per-body punch in the dark scrim, the `LURE_GLOW` idiom already in `updateDark`. |
+| fast | **Fangtooth** | A burst dash at you: the viperfish's behaviour under a more abyssal skin. | `dashBurst`, free. |
+| tank | **Siphonophore** | A colony as long as a bus that comes apart into zooids when killed. | `split`, free. The zooids inherit `rosterId` (spawnSplitChildren), so they wear the parent's bake at `SPLIT_RADIUS_FRAC`; a second pose for the zooid is a look decision for phase 2. |
+
+**Hagfish, viperfish and gulper leave the game** with their looks and cast thumbs, on the same
+terms as §5.1's copepod and krill. The Gulper Eel therefore does move after all — out.
+
+**Chapter-wide rule, ruled with the roster: YOUR LAMP IS A BEACON.** Everything in the abyss is
+drawn to light, so the crowd notices you from further away the fuller your bar is, and an empty
+bar hides you. The bar stops being purely a resource and becomes a risk dial: refill at a maw and
+you leave it lit and hunted. **New sim code, one read at the seek site**, scoped by a chapter field
+so every other chapter's seeking is byte-identical. The number it scales, and what "notice" means
+today (enemies currently seek the player unconditionally; the only existing notion of range is a
+lure's `aggro`), are phase 3 questions and are measured before they are chosen.
+
 ## 8. Risks
 
 - **Foxfire may be over-tuned in a dark that does not slow.** Mitigation is §6.1, measured before
