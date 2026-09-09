@@ -4707,13 +4707,13 @@ function runBooks() {
   for (const id of CHAPTER_ORDER) {
     assert.ok(!wip.includes(nextChapter(id)), `nextChapter('${id}') surfaced a WIP chapter — the unlock chain must never cross books`)
   }
-  // THE GATE IS PER CHAPTER, SO A BOOK MAY BE HALF-SHIPPED (BOOKS[].wipFrom). The Reef is live and
-  // The Wreck, one rung below it in the SAME book, is not — which the old book-wide boolean could
+  // THE GATE IS PER CHAPTER, SO A BOOK MAY BE HALF-SHIPPED (BOOKS[].wipFrom). The Wreck is live and
+  // The Twilight, one rung below it in the SAME book, is not — which the old book-wide boolean could
   // not express at all. Asserting both sides of that boundary is the whole point of this pair: a
   // regression to a book-level flag makes one of them fail whichever way it goes. The pair walks
   // down the ladder with every reveal; what is asserted is the BOUNDARY, never these two ids.
-  assert.strictEqual(isWipChapter('reef'), false, "isWipChapter('reef') === false — Undertow's third rung ships")
-  assert.strictEqual(isWipChapter('wreck'), true, "isWipChapter('wreck') — the rung below The Reef is still gated")
+  assert.strictEqual(isWipChapter('wreck'), false, "isWipChapter('wreck') === false — Undertow's fifth rung ships (2026-09-09)")
+  assert.strictEqual(isWipChapter('twilight'), true, "isWipChapter('twilight') — the rung below The Wreck is still gated")
   // isWipChapter is what main.js's onChapter bypasses the unlock check with, so a false positive
   // here would make a SHIPPED locked chapter selectable — the gate leaking in the other direction.
   assert.strictEqual(isWipChapter('pond'), false, "isWipChapter('pond') === false — a shipped chapter is never a WIP bypass")
@@ -4724,8 +4724,8 @@ function runBooks() {
 
   // (c) Gate OFF: a save pointing at a WIP chapter plays a SHIPPED one. resolveChapterId still
   // returns it verbatim — it is a real chapter and that helper is only a "does this exist" test.
-  const metaOff = { chapter: 'wreck', dev: false, chapters: {} }
-  assert.strictEqual(resolveChapterId('wreck'), 'wreck', 'resolveChapterId stays pure — it must NOT learn about the gate (see playableChapterId)')
+  const metaOff = { chapter: 'twilight', dev: false, chapters: {} }
+  assert.strictEqual(resolveChapterId('twilight'), 'twilight', 'resolveChapterId stays pure — it must NOT learn about the gate (see playableChapterId)')
   assert.strictEqual(playableChapterId(metaOff), CHAPTER_ORDER[0], 'gate off: a WIP meta.chapter falls back to the first shipped chapter')
   assert.strictEqual(playableChapterId({ chapter: 'pond', dev: false }), 'pond', 'gate off: a shipped chapter is untouched')
   for (const junk of [undefined, null, {}, { chapter: 'nope' }]) {
@@ -4738,17 +4738,17 @@ function runBooks() {
   // to consult, so every gated run became a Body run credited to body's ledger — no throw, no
   // warning. Note it must name a gated id EXPLICITLY: every existing test of this shape iterates
   // CHAPTER_ORDER, which by design never contains one, so they would all still have passed.
-  const metaOn = { coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'wreck', dev: true, chapters: {} }
-  assert.strictEqual(playableChapterId(metaOn), 'wreck', 'gate on: the WIP chapter is what Play reads')
-  const wipRun = createRun(metaOn, { chapter: 'wreck', difficulty: 1 })
-  assert.strictEqual(wipRun.chapter, 'wreck', "createRun kept 'wreck' — if this reads 'body', the gate leaked into resolveChapterId and endRun would credit the wrong chapter")
+  const metaOn = { coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'twilight', dev: true, chapters: {} }
+  assert.strictEqual(playableChapterId(metaOn), 'twilight', 'gate on: the WIP chapter is what Play reads')
+  const wipRun = createRun(metaOn, { chapter: 'twilight', difficulty: 1 })
+  assert.strictEqual(wipRun.chapter, 'twilight', "createRun kept 'twilight' — if this reads 'body', the gate leaked into resolveChapterId and endRun would credit the wrong chapter")
   // ...ARMED FROM ITS OWN CHAPTER, which is the husk test now that a chapter may be armed with
   // NOTHING. `weapons.length > 0` was the proxy, and it stopped meaning "genuinely playable" the day
   // The Reef declared `starter: null` — but the defect it guards is unchanged and is not about the
   // count: a leaked resolve arms the player from the WRONG chapter's table (body's `star`), which
   // this catches and a length test never did.
-  assert.deepStrictEqual(wipRun.weapons.map((w) => w.id), CHAPTERS.wreck.starter ? [CHAPTERS.wreck.starter] : [],
-    `the WIP run is holding [${wipRun.weapons.map((w) => w.id).join(', ')}] against a declared starter of '${CHAPTERS.wreck.starter}' — it was armed from some other chapter's table, or from a null id, which is a corpse every firing site dereferences`)
+  assert.deepStrictEqual(wipRun.weapons.map((w) => w.id), CHAPTERS.twilight.starter ? [CHAPTERS.twilight.starter] : [],
+    `the WIP run is holding [${wipRun.weapons.map((w) => w.id).join(', ')}] against a declared starter of '${CHAPTERS.twilight.starter}' — it was armed from some other chapter's table, or from a null id, which is a corpse every firing site dereferences`)
 
   // (e) Gate ON: the carousel LISTS it and the selection guard ACCEPTS it. Without both, phase 2
   // ships a chapter nothing can select — and every other assertion in this file still passes.
@@ -4756,9 +4756,9 @@ function runBooks() {
   // Same three assertions the carousel had, against the bookcase that replaced it: what matters is
   // still which chapter ids a player can reach, not the shape they are drawn in.
   const shelved = (m) => titleBookshelf(m).flatMap((sh) => sh.volumes.map((v) => v.id))
-  assert.ok(shelved(listed).includes('wreck'), 'gate on: the bookcase must shelve the WIP chapter, or it cannot be selected')
+  assert.ok(shelved(listed).includes('twilight'), 'gate on: the bookcase must shelve the WIP chapter, or it cannot be selected')
   listed.dev = false
-  assert.ok(!shelved(listed).includes('wreck'), 'gate off: the bookcase must NOT shelve the WIP chapter')
+  assert.ok(!shelved(listed).includes('twilight'), 'gate off: the bookcase must NOT shelve the WIP chapter')
   // THE SHELF IS EVERY LIVE RUNG, AND A HALF-SHIPPED BOOK CONTRIBUTES ONLY ITS LIVE ONES. Derived
   // rather than written down, for the same reason shippedChapterIds is: this used to read
   // `CHAPTER_ORDER` and assert the shelf was exactly book 1, which is a sentence about the release
@@ -4805,15 +4805,15 @@ function runBooks() {
   // fixed only onChapter, and the gated chapter duly appeared in the carousel as a locked "???" card
   // with a dead Play button — listed and unreachable, the same dead end one step further along.
   // Caught by a screenshot, not by a test, which is why it is asserted here now.
-  const wipLocked = { dev: false, chapters: { wreck: { unlocked: false }, pond: { unlocked: true }, beyond: { unlocked: false } } }
-  assert.strictEqual(chapterAvailable(wipLocked, 'wreck'), false, 'gate off: a WIP chapter is not available')
+  const wipLocked = { dev: false, chapters: { twilight: { unlocked: false }, pond: { unlocked: true }, beyond: { unlocked: false } } }
+  assert.strictEqual(chapterAvailable(wipLocked, 'twilight'), false, 'gate off: a WIP chapter is not available')
   assert.strictEqual(chapterAvailable(wipLocked, 'pond'), true, 'an unlocked shipped chapter is available, gate or no gate')
   assert.strictEqual(chapterAvailable(wipLocked, 'beyond'), false, 'a locked shipped chapter stays locked')
   const wipDev = { ...wipLocked, dev: true }
-  assert.strictEqual(chapterAvailable(wipDev, 'wreck'), true, 'gate on: the WIP chapter becomes available WITHOUT writing `unlocked` to the save')
+  assert.strictEqual(chapterAvailable(wipDev, 'twilight'), true, 'gate on: the WIP chapter becomes available WITHOUT writing `unlocked` to the save')
   assert.strictEqual(chapterAvailable(wipDev, 'beyond'), false,
     'gate on must NOT unlock a shipped chapter — the bypass is for chapters with no unlock path, not a cheat for the ones that have one')
-  assert.strictEqual(wipDev.chapters.wreck.unlocked, false,
+  assert.strictEqual(wipDev.chapters.twilight.unlocked, false,
     'chapterAvailable must stay a pure read — persisting the permission would outlive the gate and leave a WIP chapter unlocked after dev is turned off')
 
   // main.js and ui.js cannot be imported here (Pixi / import.meta.glob), so the WIRING is a source

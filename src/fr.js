@@ -712,6 +712,10 @@ const CONFIG = {
   // participle every other chapter death uses.
   'You slipped the mesh! 🎉': 'Tu es passé·e à travers la maille ! 🎉',
   'Caught in the mesh… 🎣': 'Pris·e dans la maille… 🎣',
+  // L'Épave. Both lines the player's, like the three rows above. 'Coulé·e' keeps the participle
+  // every other death uses, and 'l'épave' is the noun the player reads on the chapter's own title.
+  'You left the wreck behind! 🎉': 'Tu as laissé l\'épave derrière toi ! 🎉',
+  'Gone down with the wreck… ⚓': 'Coulé·e avec l\'épave… ⚓',
   // v6.2 Remaster — watcher unlock lines
   'The Pond — word of you travels downstream': 'La Mare — la rumeur descend le courant',
   'The Garden — something marked your trail': 'Le Jardin — quelque chose a marqué ta piste',

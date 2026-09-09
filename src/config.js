@@ -6052,9 +6052,9 @@ export const BOOKS = {
   // Living industry then dead industry: you meet the boat fishing, then you find it on the bottom.
   // The Wreck's own LEAK block argues the same way round — "two adjacent chapters whose hazard is
   // human gear tangled in the water are one chapter told twice" — which only resolves in this order.
-  //   `wipFrom` is an INDEX, so this reordering needed no edit to it: The Reef is still the last
-  // live rung and The Trawl is still the first gated one. Saves key on chapter ID, never position.
-  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'twilight', 'deep'], hidden: [], wipFrom: 4, startCoins: 100 },
+  //   `wipFrom` is an INDEX, so that reordering needed no edit to it. 5 since 2026-09-09: The Wreck
+  // is the last live rung and The Twilight the first gated one. Saves key on chapter ID, never position.
+  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'twilight', 'deep'], hidden: [], wipFrom: 5, startCoins: 100 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -8262,7 +8262,7 @@ CHAPTERS.wreck = {
     // reading is that a chaser is the wrong shape for this creature here, not that its numbers are
     // wrong: an eel that struck from a hull plate as you passed would be terrain with teeth rather
     // than a failed pursuer. That is a behaviour change and therefore the owner's call, not a tune.
-    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.0, speedMul: 0.8, flags: ['latch'] },
+    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.0, speedMul: 0.8, flags: ['latch', 'unshakeable'] },
   ],
   // The chapter's own affix, not the borrowed soapTrail: a wall of oil the elite drags behind it,
   // tagged look:'bilge' so it is the same substance as the player's own Bilge and the ambient Leak
@@ -14352,6 +14352,10 @@ export const CHAPTER_ENDINGS = {
   //   Both lines are the PLAYER's, keeping The Surf's and The Shelf's idiom one rung up (owner
   // ruling 2026-09-05) rather than speaking from the net.
   trawl:       { victory: 'You slipped the mesh! 🎉',              death: 'Caught in the mesh… 🎣' },
+  // The Wreck (live 2026-09-09). No rail here either, and three killers (the oil, the orca, the
+  // shoal), so the death line names the place they share, the way The Reef's names the race.
+  // Player's idiom like every Undertow row above; ⚓ is the chapter's own icon.
+  wreck:       { victory: 'You left the wreck behind! 🎉',          death: 'Gone down with the wreck… ⚓' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',
