@@ -16837,7 +16837,13 @@ const spurG = new Graphics()
   // size rather than one body of silt, which the first frame of the reshape showed plainly. Every
   // slot hides the puffs it does not use, so a rig recycled from a cone to a disc does not leave
   // stray blobs on screen -- the same silent-leftover failure as leaving a rig in reset()'s list.
-  const BLOOM_PUFFS = 6
+  // THE POOL SIZE AND THE CONE'S OWN COUNT ARE TWO NUMBERS NOW. They were one until the Foxfire
+  // stopped being a blob (below) and asked for nine sprites; a silt cone's puff count is part of
+  // its measured shape — the depth ladder divides by it — so raising the pool alone would have
+  // silently re-laid The Wreck's wedges. CONE_PUFFS is the cone's; BLOOM_PUFFS is the allocation.
+  const CONE_PUFFS = 6
+  const FOX_EMBERS = 7           // ...plus the haze and the core: 9, which is what sizes the pool
+  const BLOOM_PUFFS = 2 + FOX_EMBERS
   function acquireBloom() {
     const root = new Container()
     const puffs = []
@@ -16880,6 +16886,8 @@ const spurG = new Graphics()
       // `silt` is The Shelf's Silt Veil. Hoisted out of the puff loop below because the SHAPE of
       // the cloud now depends on it too, not only its tint.
       const silt = bl.look === 'silt'
+      // Hoisted beside `silt` for the same reason it was: the SHAPE depends on it now, not the tint.
+      const fox = bl.look === 'foxfire'
       // EVERY CLOUD OF ONE CAST USED TO BE THE SAME DRAWING. Three puffs at a fixed 0.4r offset, on
       // a fixed angle ladder, churning the same way — so Roil's two or three clouds read as one
       // stamp repeated rather than as several stirred patches. Owner from play, 2026-08-21: "vase
@@ -16901,7 +16909,7 @@ const spurG = new Graphics()
       // the exact complaint the hash was added for (owner: "vase clouds look too similar to each
       // other"), reappearing by a different route. It stays free of Math.random for the reason the
       // note below gives.
-      const hash = silt ? ((bl.x * 0.017 + bl.y * 0.029 + (bl.angle ?? 0) * 0.41) % 1 + 1) % 1 : 0
+      const hash = (silt || fox) ? ((bl.x * 0.017 + bl.y * 0.029 + (bl.angle ?? 0) * 0.41) % 1 + 1) % 1 : 0
       const churn = hash < 0.5 ? 1 : -1
       const frac = (v) => ((v % 1) + 1) % 1
       // THE CONE. Puffs march along the wedge's axis, each sized off the wedge's own half-angle so
@@ -16917,13 +16925,74 @@ const spurG = new Graphics()
       const PUFF_FAT = 1.25   // overlap factor: 1.0 is tangent to the wedge and leaves visible gaps
       const half = cone ? Math.sin(bl.arc / 2) : 0
       bv.root.rotation = cone ? bl.angle : 0
-      const used = cone ? BLOOM_PUFFS : 3
+      const used = fox ? BLOOM_PUFFS : cone ? CONE_PUFFS : 3
       for (let k = 0; k < BLOOM_PUFFS; k++) {
         const s = bv.puffs[k]
         s.visible = k < used
         if (k >= used) continue
+        // A FIRE, NOT A CLOUD, and this is the branch that says so. Owner from play, 2026-09-09:
+        // "Feu follet is pretty bad." Three soft discs on the pond's toxin rig drew it as a pale
+        // smudge — fog, at a distance, in a chapter whose floor is already a wash — and no amount of
+        // tinting fixes a shape with no edge and no motion in it.
+        //   SEEN FROM DIRECTLY OVERHEAD, which is this camera's only projection: the embers
+        // travel OUTWARD rather than standing up, because a flame drawn tall would be the side
+        // elevation the Trash Tornado shipped and the Sunspear's own block warns about.
+        if (fox) {
+          // ONE HOT CORE, ONE HAZE, AND SEVEN EMBERS THAT RISE AND DIE. Fire seen from directly
+          // overhead is not a shape, it is MOTION: material born hot at the middle, carried out,
+          // shrinking and fading. Each ember runs its own loop of that on its own clock, so the
+          // mass boils and no two frames are the same silhouette.
+          //   THE FLAME GLYPH WAS TRIED AND IS NOT IN HERE. T.fx.flame_05 is a broad tapered blade;
+          // nine of them around a centre came back as a rosette, then as an asterisk, then as pale
+          // shards floating in a ring — every arrangement read as something other than a fire, and
+          // at the radius a dark bar buys (maxR 76 in the light, 166 at gloom 1.6) the long ones
+          // were blades bigger than the halo they came out of. Soft circles have no silhouette to
+          // get wrong: they merge, and the READ comes from the motion and from the core's value.
+          const t = k - 2
+          const j = frac(hash * 7.13 + t * 0.371)
+          if (k === 0) {
+            // THE HAZE: the cold light it throws, and the only part that covers the sim's radius.
+            // Wide and faint — updateDark's FOXFIRE_GLOW punch is what lights the floor, so this is
+            // the body of the fire and not a second lamp.
+            s.position.set(0, 0)
+            s.scale.set(sc * 1.02 * (1 + 0.04 * Math.sin(animT * 1.7 + hash * 6.28)))
+            s.tint = 0x9ff0dd
+            s.alpha = alpha * 0.30
+          } else if (k === 1) {
+            // THE CORE, and it is the one part that must not be mint. What separates a cold fire
+            // from this floor is VALUE, not hue: the chapter's water is 0x18567f and its floor wash
+            // 0x9fd6f0, so a pale blue fire on it is a blue smudge on blue — the first probe of
+            // this card came back all but invisible for exactly that reason. A fire with no hot
+            // centre is a puff of gas, and this is the hot centre.
+            s.position.set(0, 0)
+            s.scale.set(sc * 0.46 * (0.88 + 0.18 * Math.sin(animT * 6.1 + hash * 6.28)))
+            s.tint = 0xf2ffff
+            s.alpha = alpha * 0.88
+          } else {
+            // AN EMBER'S WHOLE LIFE IN ONE VALUE. `rise` runs 0 -> 1 and wraps: at 0 it is born
+            // large and bright just off the centre, at 1 it has drifted to 0.72r, shrunk by half
+            // and gone. Its own period and bearing are hashed off the cloud's position, so the
+            // seven are never in step and a field of foxfires never pulses in unison.
+            //   Every phase here comes from `hash` and animT and never from Math.random: this pool
+            // is drawn inside a suite that shares one seeded stream (see the hash's own note above),
+            // and it is safe for the same reason it is for silt — a foxfire never drifts, because
+            // stepBlooms' drift branch is gated on `!bl.look`.
+            const rise = frac(animT * (0.42 + 0.30 * j) + j + t * 0.137)
+            const a = (t / FOX_EMBERS) * Math.PI * 2 + (j - 0.5) * 0.9 + hash * Math.PI * 2
+            const off = bl.r * (0.16 + 0.74 * rise)
+            const rad = bl.r * (0.20 - 0.11 * rise) * (0.70 + 0.60 * j)
+            s.position.set(Math.cos(a) * off, Math.sin(a) * off)
+            s.scale.set(fxScale(T.fx.circle_05, Math.max(1, rad * 2)))
+            // Mint, from the chapter's own eliteIridescent so the fire still belongs to the biome,
+            // and never the Spore Bloom's green: those two are the same ENTITY, and a player
+            // reading their own fire as a pond toxin cloud is the failure this palette avoids.
+            s.tint = t % 2 ? 0xd6fff0 : 0x8ff0d8
+            s.alpha = alpha * 0.8 * (1 - rise) * (0.55 + 0.75 * j)
+          }
+          continue
+        }
         if (cone) {
-          const depth = bl.r * (0.14 + 0.58 * k / (BLOOM_PUFFS - 1))
+          const depth = bl.r * (0.14 + 0.58 * k / (CONE_PUFFS - 1))
           const rad = Math.max(1, depth * half * PUFF_FAT)
           const lump = 0.86 + 0.28 * frac(hash * 11.7 + k * 0.61)
           // A slow perpendicular wobble so the plume boils instead of sitting there. Scaled by the
@@ -16943,15 +17012,6 @@ const spurG = new Graphics()
           s.position.set(Math.cos(ang) * off, Math.sin(ang) * off)
           s.scale.set(sc * (k === 0 ? 1 : 0.72) * lump * (1 + 0.05 * Math.sin(animT * 3 + k)))
         }
-        // The Deep's Foxfire shares this pool. Near-WHITE with a mint fringe, not the blue it
-        // started as: this chapter's water is 0x18567f and its floor wash 0x9fd6f0, so a pale blue
-        // fire on it is a blue smudge on blue — the first probe of this weapon came back with the
-        // cloud all but invisible. What separates a cold fire from this floor is VALUE, not hue,
-        // exactly as CHAPTERS.shelf's own playerTint note says of the player blob. The mint is
-        // borrowed from the chapter's own eliteIridescent so it still belongs to the biome.
-        // It must also never be the Spore Bloom's green: the two are the same ENTITY, and a Shelf
-        // player reading their own fire as a pond toxin cloud is the failure to avoid.
-        const fox = bl.look === 'foxfire'
         // The silt tint (the flag itself is hoisted above the loop). Olive-brown: this is the
         // BOTTOM, lifted. It must not be the Spore Bloom's green — same entity, wrong chapter, and
         // a Shelf player would read their own silt as a pond toxin — and not Foxfire's mint either.
@@ -16974,9 +17034,7 @@ const spurG = new Graphics()
         // its alpha is the highest here, because the one thing an ink cloud has to do is hide the
         // fish inside it.
         const inkjet = bl.look === 'inkjet'
-        s.tint = fox
-          ? (k % 2 ? 0xeafcff : 0xd9ffe8)
-          : silt ? (k % 2 ? 0x9a9670 : 0x6e6a4c)
+        s.tint = silt ? (k % 2 ? 0x9a9670 : 0x6e6a4c)
           : oil ? (k % 2 ? 0x4b3a63 : 0x1b2128)
           : inkjet ? (k % 2 ? 0x0a0812 : 0x040308)
           : inEddy ? (k % 2 ? 0x6fe0c0 : 0x3faea0) : (k % 2 ? 0x6fe04a : 0x3fae2f)
@@ -16985,7 +17043,7 @@ const spurG = new Graphics()
         // stirred is thickest at your feet, and a flat wedge reads as a painted triangle. The per
         // puff figure is LOWER than a disc's because six of them overlap where three did not.
         s.alpha = alpha * (cone ? 0.46 - 0.034 * k : k === 0 ? 0.5 : 0.4) *
-          (fox ? 1.45 : silt ? 1.6 : oil ? 1.7 : inkjet ? 2.5 : 1)
+          (silt ? 1.6 : oil ? 1.7 : inkjet ? 2.5 : 1)
       }
     }
     for (let i = n; i < prevCount.bloom; i++) bloomPool[i].root.visible = false

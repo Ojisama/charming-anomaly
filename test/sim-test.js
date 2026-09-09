@@ -24002,6 +24002,18 @@ function testFoxfire() {
   assert.ok(dbody.includes('bloomFade(') && sbody.includes('bloomFade('),
     'the foxfire light and the cloud puffs no longer share one fade — the light can now outlive its own fire')
 
+  // ...AND IT IS NOT DRAWN AS A CLOUD. The card shared the pond Toxin Bloom's three-soft-disc rig
+  // until the owner called it from play ("Feu follet is pretty bad", 2026-09-09): a pale smudge with
+  // no core and no motion, which on this chapter's own wash reads as fog. The fire now comes out of
+  // its own branch — a hot core and embers that rise and die — and that is a BRANCH, not a tint, so
+  // a look that fell back to the shared path would be the old fog again with every assertion above
+  // still green and nothing thrown.
+  //   COMMENTS STRIPPED FIRST, the run DP.k lesson: this very paragraph names both tokens the grep
+  // looks for, so an unstripped search is satisfied by its own documentation.
+  const bcode = sbody.replace(/^\s*\/\/.*$/gm, '')
+  assert.ok(/if \(fox\) \{/.test(bcode) && /FOX_EMBERS/.test(bcode),
+    'run SH.b: syncBlooms no longer draws the foxfire out of its own branch — it has fallen back to the toxin cloud\'s three soft discs, which is the fog this card was rewritten out of')
+
   console.log(`PASS run SH.b (foxfire): the band ${lvl.maxR}-${(lvl.maxR * FOXFIRE_GLOOM).toFixed(0)}px catches 0/${lit.of} at a full bar and ${dark.burned}/${dark.of} at an empty one, neither cast slows anything, and the cloud punches the dark it is cast into (lit ${FOXFIRE_GLOW.lit}, ${FOXFIRE_GLOW.frac}x r)`)
 }
 
