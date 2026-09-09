@@ -28,7 +28,6 @@ const UI = {
   'Range': 'Portée',
   'Length': 'Longueur',
   'Width': 'Largeur',
-  'Ridges lit': 'Crêtes allumées',
   'Pierce': 'Perforation',
   // 'Délai', not 'Toutes les' (a dangling preposition before a value column, and wrong number
   // agreement under 2s) and NOT 'Cadence' — this dictionary already spends cadence on the INVERSE
@@ -1515,47 +1514,14 @@ const CONFIG = {
   'Backblow': 'Contre-Souffle',
   'a second cone blows out behind you': 'un second cône souffle derrière toi',
   'Silt Veil': 'Voile de Vase',
-  // The Reef's two natives (v7.x). BOTH DISPLAY NAMES ARE DRAFTS pending the owner's pick — each
-  // went to him as a pair (Crevette-pistolet / Claquement, Corail de Feu / Corail Brûlant) and
-  // these are the recommended halves. Both are the real French names of the real animals, which
-  // is the whole argument: a French player already has a word for the thing in the picture.
-  // 'Détonation Arrière' and not 'Contre-Souffle' for Backblast: the Bubble Puff's Backblow four
-  // lines up already owns that, and two cards in Book 2 wearing one French name is the kind of
-  // collision the dictionary cannot see (different keys, identical on screen).
-  'Pistol Shrimp': 'Crevette-pistolet',
-  'Snaps a bolt of boiling water, and a weaker one out the other side.':
-    'Claque un jet d’eau bouillante, et un plus faible dans le dos.',
-  'Fire Coral': 'Corail de Feu',
-  'Wakes the stinging polyps on the coral ahead of you. Anything crossing a lit ridge burns; the gaps through it stay cold.':
-    'Réveille les polypes urticants du corail devant toi. Tout ce qui traverse une crête allumée brûle ; les passages, eux, restent froids.',
-  'Overpressure': 'Surpression',
-  'snap damage': 'dégâts du claquement',
-  'Long Crack': 'Longue Fissure',
-  'crack length': 'longueur de la fissure',
-  'Wide Crack': 'Large Fissure',
-  'crack width': 'largeur de la fissure',
-  'Quick Snap': 'Claquement Rapide',
-  'snap rate': 'cadence de claquement',
-  'Backblast': 'Détonation Arrière',
-  'the crack behind you hits as hard as the one ahead': 'la fissure arrière frappe aussi fort que celle de devant',
-  'Hot Polyps': 'Polypes Ardents',
-  'polyp damage per tick': 'dégâts des polypes par tic',
-  'Ember Bed': 'Lit de Braises',
-  'how long a ridge burns': 'durée de combustion d’une crête',
-  'More Reef': 'Plus de Récif',
-  'extra ridge(s) lit per cast': 'crête(s) allumée(s) en plus par lancer',
-  'Quick Wake': 'Réveil Rapide',
-  'wake rate': 'cadence de réveil',
-  'Overgrowth': 'Prolifération',
-  'the polyps grow over the gaps as well': 'les polypes envahissent aussi les passages',
   // The Reef's other two natives, its anomaly and its mutator (v7.x). EVERY DISPLAY NAME HERE IS A
   // DRAFT pending the owner's pick -- there is no translation subagent for this repo, and each went
   // to him as a pair: Encre de Seiche / Nuage d'Encre, Bouteille d'Oxygene / Bloc de Plongee,
   // Dernier Souffle (verified free in this dictionary), Grand Courant / Courant de Maree. These are
   // the recommended halves.
-  //   'Encre de Seiche' over 'Nuage d'Encre' for the reason the Crevette-pistolet entry above gives:
-  // it is the real French name of the real animal, and a French player already has a word for the
-  // thing in the picture. 'Nuage' also collides in MEANING with the Spore Bloom's clouds.
+  //   'Encre de Seiche' over 'Nuage d'Encre': it is the real French name of the real animal, and a
+  // French player already has a word for the thing in the picture. 'Nuage' also collides in
+  // MEANING with the Spore Bloom's clouds.
   //   'Bouteille de Plongee' is what a diver actually says, but the card is about the OXYGEN and the
   // HUD rail beside it says 'Air' -- so the name keeps the gas in it.
   'Squid Ink': 'Encre de Seiche',

@@ -126,8 +126,8 @@ import {
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_RAM_MUL, BURST_RAM_COINS, BURST_WAKE, burstWakeAt, DUST, dustVel, DROWN_TICK,
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
-  SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, gateAnchorF, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH, FIRE_CORAL_VIS,
-  SNAP_BACKBLAST_FRAC, SNAP_BACKBLAST_FULL_FRAC, SNAP_BACKBLAST_LEN, SNAP_CAVITY, BEAM_ENVELOPE, FIRE_CORAL_LEAD, INK_JET_SPREAD,
+  SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, gateAnchorF, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH,
+  BEAM_ENVELOPE, INK_JET_SPREAD,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, BRING_TANK_FRAC, TIDE, tiredness,
   TRAWL_DRAG_T, TRAWL_TICK, TRAWL_ENEMY_DMG, TIGHT_WEAVE_ENEMY_DMG_MUL, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T,
   TIGHT_WEAVE_BLAST_RADIUS, TIGHT_WEAVE_BLAST_DMG,
@@ -1510,14 +1510,11 @@ function testAnomalySlate() {
       // see — CLAUDE.md documents this exact array as the place `run.geysers` was missed. A weapon
       // whose output lands in a field absent from here reports "fixture spawned nothing —
       // untestable", which is this list being out of date and not the weapon being broken.
-      // 'polyps' is The Reef's Fire Coral (v7.x) — the first weapon in Book 2 to need an array of
-      // its own, and the day it landed this fixture reported 'spawned nothing' for a weapon that
-      // was firing correctly, exactly as the comment above says it would.
       // `hauls` is Bring It In's (2026-09-01). Its entries track the body they hooked rather than
       // owning a fixed position, so two lines read as two shapes here exactly as intended — and the
       // day it landed, its absence from this array reported "spawned nothing" for a weapon that was
       // firing correctly, which is the same bite `gnash` records against FX below.
-      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'polyps', 'hauls']
+      const LISTS = ['bullets', 'orbs', 'mines', 'zones', 'lobs', 'blooms', 'lures', 'holes', 'beams', 'debris', 'homingShots', 'boomerangs', 'novas', 'arcs', 'longlines', 'hauls']
       // Same class of quoted-string list as LISTS above, and it bit for real: `gnash` (The Wreck's
       // native, v7.x) spawns no entity at all — its whole output is this event — so the day it
       // landed this fixture reported "spawned nothing — untestable here" for a weapon that was
@@ -1534,12 +1531,13 @@ function testAnomalySlate() {
       // than a heuristic: the next movement-coupled card has to be added here or it will fail this
       // assertion with a message about the wrong thing.
       const NEEDS_MOTION = new Set([])
-      // ⚠ AND SOME WEAPONS CANNOT BE MEASURED IN THE DEFAULT CHAPTER AT ALL. Fire Coral arms the
-      // coral RIDGES, so in a chapter with no spur field it correctly does nothing and this
-      // fixture reads 'spawned nothing — untestable' about a weapon that works. Same shape as the
-      // stick above: an explicit per-weapon override, not a heuristic, so the next terrain-coupled
-      // card has to be named here rather than failing with a message about the wrong thing.
-      const CHAPTER_FOR = { fireCoral: 'reef' }
+      // ⚠ AND SOME WEAPONS CANNOT BE MEASURED IN THE DEFAULT CHAPTER AT ALL. Fire Coral armed the
+      // coral RIDGES, so in a chapter with no spur field it correctly did nothing and this fixture
+      // read 'spawned nothing — untestable' about a weapon that worked; it needed this override and
+      // is now deleted, so the table is empty. Same shape as the stick above: an explicit
+      // per-weapon override, not a heuristic, so the next terrain-coupled card has to be named here
+      // rather than failing with a message about the wrong thing.
+      const CHAPTER_FOR = {}
       // ⚠ ...AND ONE WEAPON THE FIXTURE'S OWN PIN MAKES UNMEASURABLE. Three lines below, a moving
       // arm teleports the player back to the origin every frame so the ring of targets stays put —
       // right for every card that reads VELOCITY, and blind to one that reads DISPLACEMENT. The
@@ -20042,7 +20040,7 @@ run(testLeLargeWeapons)
   run(testReefMutators)
   run(testRaceRecord)
   run(testCircuitHud)
-  run(testReefNatives)
+  run(testBeamBrightFrame)
   run(testReefPool)
   run(testWreckDefense)
   run(testWreckBlackTide)
@@ -27347,626 +27345,81 @@ function testReefLap() {
     `max|Δhw| ${Math.max(lap2.maxDhw, lap4.maxDhw, behind.maxDhw).toExponential(2)}, max|Δph| ${Math.max(lap2.maxDph, lap4.maxDph, behind.maxDph).toExponential(2)}`)
 }
 
-function testReefNatives() {
+// ---- run BB: every beam gets one bright frame --------------------------------------------------
+// Split out of the old run RN (The Reef's Pistol Shrimp and Fire Coral, deleted 2026-09-09) because
+// this half is generic over every beam-pushing weapon in the game and outlived the native it was
+// discovered on.
+//
+// EVERY BEAM GETS ONE BRIGHT FRAME, and this is arithmetic rather than taste. placeBeam
+// scales the bar's WIDTH by the ramp-in and its ALPHA by the fade-out, so a beam whose whole life
+// is shorter than the pair never shows both at once: the shipped 0.12/0.30 against the Pistol
+// Shrimp's 0.14s crack (since deleted) peaked at 56% width and 24% alpha — a 4px sliver at its
+// brightest and a full-width bar at 2% when it vanished, i.e. that chapter's STARTER with no
+// visible frame in it. Nothing else could see that. run EV only asks that an event has a consumer,
+// weapon-specific cases measure damage, and a look tuned for one weapon silently mis-serves another
+// because the envelope was a pair of literals inside placeBeam rather than a table beside the beam
+// it belongs to. Checked for every beam-pushing weapon at every level, both halves:
+//   the SOURCE, so the numbers cannot drift back inline where nothing can reach them;
+//   the ARITHMETIC, replaying placeBeam's own two lines off BEAM_ENVELOPE.
+function testBeamBrightFrame() {
   const dt = 1 / 60
-  const AX = laneAxes(CHAPTERS.reef)
-  const spec = CHAPTERS.reef.spurs
-  const meta = makeMeta()
-  meta.dev = true
-  for (const id of [...ALL_CHAPTER_IDS, 'blank']) {
-    ensureChapterMeta(meta, id)
-    meta.chapters[id].unlocked = true
-    meta.chapters[id].difficulty = 3
+  const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+  const at = rsrc.indexOf('function placeBeam')
+  assert.ok(at > 0, 'run BB: placeBeam is gone from render.js — the beam envelope has moved and this case is measuring nothing')
+  // TO THE FUNCTION'S REAL END, never a magic length: a source-text lint whose window is a
+  // constant stops covering the code the moment the code grows, and nothing says so. placeBeam is
+  // declared at indent 2 inside the renderer factory, so its own closing brace is the first
+  // "\n  }" after it — every block nested inside it closes at 4 or deeper.
+  const end = rsrc.indexOf('\n  }\n', at)
+  assert.ok(end > at,
+    'run BB: could not find placeBeam\'s closing brace at indent 2 — it has been re-nested or re-indented, and slicing past it would lint the wrong function')
+  // Comments stripped, the run MB.a rule: every one of these numbers is discussed in prose right
+  // beside its wiring, so a raw search over the body is satisfied by the sentence alone.
+  const place = rsrc.slice(at, end).replace(/\/\/.*$/gm, '')
+  assert.ok(/BEAM_ENVELOPE\[b\.look\]/.test(place),
+    'run BB: placeBeam no longer reads BEAM_ENVELOPE[b.look] — its envelope is hardcoded again, so a short-lived beam is back to being tuned by a number written for a long one')
+  // ANY division by a decimal literal, however it is SPELLED. Nothing in this repo enforces the
+  // space around an operator, so `b.life/0.37` and `b.life / .37` are the same pathology as
+  // `b.life / 0.37` and the first two slipped past a pattern that demanded one space and a
+  // leading zero. Safe to widen because the only other division in here is by T.beamRefLen.
+  const inlined = place.match(/\/\s*0?\.\d+/g)
+  assert.ok(!inlined,
+    `run BB: placeBeam divides by the literal(s) ${(inlined ?? []).join(', ')} — balance and look numbers live in config.js and nowhere else, and an envelope inlined here is exactly the bug BEAM_ENVELOPE was extracted to fix`)
+  // THE DENOMINATOR. If a fourth weapon starts pushing run.beams this list is short and the case
+  // quietly stops covering the game; sim.js's own count is the honest check that it does not.
+  const pushers = [['sunlance', 'duration', 'sunlance'], ['rainbow', 'duration', undefined], ['pulsarSweep', 'duration', undefined]]
+  const simSrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
+  const sites = simSrc.split('run.beams.push').length - 1
+  assert.strictEqual(sites, pushers.length,
+    `run BB: sim.js has ${sites} run.beams.push sites against the ${pushers.length} weapons listed here — a beam weapon is unchecked`)
+  // placeBeam's own two lines, replayed. `fade: 0` means the beam's own duration.
+  const brightest = (look, duration) => {
+    const env = BEAM_ENVELOPE[look] ?? BEAM_ENVELOPE.default
+    const fade = env.fade || duration
+    let best = -1, bw = 0, ba = 0
+    for (let life = duration - dt; life > 1e-9; life -= dt) {
+      const elapsed = duration - life
+      const w = elapsed < env.ramp ? Math.max(0, elapsed / env.ramp) : 1
+      const a = life < fade ? Math.max(0, life / fade) : 1
+      if (w * a > best) { best = w * a; bw = w; ba = a }
+    }
+    return { bw, ba }
   }
-
-  // (a) THE POOL IS THE ONE THE CHAPTER DECLARES, and the two natives are natives — a card that
-  // leaked into another chapter's pool would take every branch below into a chapter with no lane
-  // and no ridges, where both weapons are something else entirely.
-  // THE POOL IS EMPTY AND THE NATIVE SET IS STILL FOUR. Owner, playing v7.233.0: "the weapons are
-  // useless, just remove them and the upgrades from this chapter". They were useless structurally
-  // rather than by mis-tune — `passiveCrowd` makes the whole roster harmless traffic, so there is
-  // nothing here to kill — and an empty pool is the SWITCH four separate gates read: the four weapon
-  // passives leave eligiblePassiveIds, eligibleElementIds returns nothing at all, the weapon and
-  // weapon-mod buckets have no subjects, and createRun leaves run.weapons genuinely empty.
-  //   ⚠ EMPTY POOL, NULL STARTER, NOTHING DELETED — and the three have to be asserted together.
-  // A null starter with a non-empty pool arms nobody but still offers weapon cards; an empty pool
-  // with a live starter hands the player a weapon it will never upgrade; and deleting the entries
-  // to "tidy up" would take three cards out of the dev menu and their mods out of run MB.a's fold
-  // check, which is the one place they still have to resolve.
-  const REEF_NATIVES = ['pistolShrimp', 'squidInk', 'oxygenTank', 'fireCoral']
-  assert.deepStrictEqual(CHAPTERS.reef.weapons, [],
-    `run RN.a: The Reef's pool is [${CHAPTERS.reef.weapons.join(', ')}] — the chapter is a race with no combat, and a single weapon in the pool puts the whole dead slate back on the level-up screen`)
-  assert.strictEqual(CHAPTERS.reef.starter, null,
-    `run RN.a: the starter is '${CHAPTERS.reef.starter}' — an unarmed chapter must start unarmed, and a starter outside its own pool is a card that can never be levelled`)
-  for (const id of REEF_NATIVES) {
-    assert.ok(WEAPONS[id], `run RN.a: ${id} was DELETED rather than dropped from The Reef's pool — it is still dev-takeable and still this chapter's creature`)
-    assert.ok(WEAPON_MODS[id] && Object.keys(WEAPON_MODS[id]).length > 0,
-      `run RN.a: ${id} lost its mods when the pool emptied — run MB.a still has to resolve every one of them`)
-  }
-  const elsewhere = Object.entries(CHAPTERS)
-    .filter(([id, ch]) => id !== 'reef' && id !== 'blank' && (ch.weapons ?? []).some((w) => REEF_NATIVES.includes(w)))
-    .map(([id]) => id)
-  assert.deepStrictEqual(elsewhere, [],
-    `run RN.a: a Reef native is in [${elsewhere.join(', ')}]'s pool — none of them has a lane or a ridge to anchor to there`)
-  // THE TWO STAND-INS LEFT THE POOL AND NOT THE GAME. Deleting either from WEAPONS would take it
-  // out of the four other chapters that offer it, which is a change to four chapters nobody asked
-  // about — and a pool edit that quietly did that would pass every other assertion in this file.
-  for (const id of ['quillBurst', 'pulsarSweep']) {
-    assert.ok(WEAPONS[id], `run RN.a: ${id} was DELETED rather than dropped from The Reef's pool`)
-    const owners = Object.entries(CHAPTERS).filter(([, ch]) => (ch.weapons ?? []).includes(id)).map(([cid]) => cid)
-    assert.ok(owners.length > 0, `run RN.a: ${id} is in no chapter's pool at all — it left The Reef and landed nowhere`)
-  }
-  // SQUID INK IS THE THIRD CASE AND ITS OWN SHAPE: it left The Reef's pool and landed in NO pool at
-  // all, which is deliberate and is the one thing the loop above forbids. It is still a built card
-  // with its mods and its blind machinery intact, and devCards ignores every pool, so it is takeable
-  // from the dev menu in any chapter — including the ones whose crowd still seeks, which is where
-  // run RP tests it. Deleting it instead would take the blind seam out of the game entirely.
-  assert.ok(WEAPONS.squidInk, 'run RN.a: squidInk was DELETED rather than dropped from The Reef\'s pool — the blind seam in stepEnemyMovement now has no card at all')
-  assert.ok(WEAPON_MODS.squidInk && Object.keys(WEAPON_MODS.squidInk).length > 0,
-    'run RN.a: squidInk lost its mods when it left the pool — the card is dev-takeable and its upgrades have to still resolve')
-  const inkPools = Object.entries(CHAPTERS).filter(([, ch]) => (ch.weapons ?? []).includes('squidInk')).map(([cid]) => cid)
-  assert.deepStrictEqual(inkPools, [],
-    `run RN.a: squidInk is offered by [${inkPools.join(', ')}] — it was dropped because a passiveCrowd chapter cannot use a blind, and putting it back into any pool re-offers an inert card`)
-
-  // A run with the world switched off: no spawner, an immortal player, and the enemy list rebuilt
-  // from `mine` every frame so the ONLY bodies in it are the ones each case planted. `_off` pins a
-  // body to the PLAYER (the lane carries them both), `_at` pins it to a world point (a ridge does
-  // not move). Air is held full so drowning cannot be mistaken for anything below.
-  const reefRun = (wid, level, mods, seed = 20260822) => {
-    Math.random = mulberry32(seed)
-    const run = createRun(meta, { chapter: 'reef', difficulty: 1 })
-    assert.strictEqual(run.chapter, 'reef', 'run RN did not start in the reef — the WIP gate or the meta is wrong, and every number below is another chapter')
-    run.weapons = [{ id: wid, level }]
-    run.player.hp = run.player.maxHP = 1e9
-    run.mods.spawnMul = 0
-    // NO CRITS. dealDamage rounds every hit, so (b)/(d) compare small integers; one 2x roll on six
-    // hits moves the Backblast ratio further than the whole band it is measured against.
-    run.player.critChance = 0
-    if (mods) Object.assign(run.weaponMods[wid], mods)
-    return run
-  }
-  const plant = (run, opts) => {
-    const e = makeStatusEnemy(run, { x: 0, y: 0, hp: 1e7, speed: 0 })
-    Object.assign(e, opts)
-    return e
-  }
-  // Cases (b) and (d) hold the CROSS stick down for their whole window, so the player is really
-  // swimming the lane while the crack is asked to hold its bearing — and the bodies are pinned
-  // RELATIVE to the player, so the geometry under test does not move with them.
-  //   ⚠ The lane heading and p.facingAngle cannot be told apart here, and nothing can tell them
-  //   apart: stepPlayerMovement PINS facingAngle to laneAxes().angle in every lane chapter (see the
-  //   `if (ax)` line there). Since fireSnap started tracking (aimAngle, owner 2026-08-24) that
-  //   only matters when the screen is EMPTY — with a body on it the crack points at the body, which
-  //   is what (b) below plants two of to separate.
-  const CROSS = AX.cross === 'y' ? { x: 0, y: 1 } : { x: 1, y: 0 }
-  // RUN RN MEASURES WEAPONS IN OPEN WATER, DELIBERATELY.
-  //
-  // These fixtures plant their targets RELATIVE to the player and read what a weapon does to them.
-  // That was stable for as long as the reef's coral was something the player passed through; since
-  // the ridges became solid and then became a CAVE, the walls close on a stationary fixture, push
-  // it back a little every frame, and drag its offset-pinned targets out from under a beam that
-  // was aimed when it was cast. It surfaced as five different weapon "bugs" in a row -- 1 hit from
-  // 6 snaps, a cast that lit behind the player, a ridge that never re-lit -- none of which were
-  // weapons at all.
-  //
-  // Emptying run.spurs each frame gives back the lane these were written against. It is honest
-  // rather than a dodge: the level's geometry is run RS's subject and is tested there against the
-  // real field, and a weapon that only works in a groove is not what any of these lines claim to
-  // measure. Fire Coral is untouched by this -- it snapshots spurAt directly rather than reading
-  // run.spurs, which is exactly why RN.e can still assert against the real field.
-  // `pin` HOLDS THE PLAYER STILL ALONG THE LANE. Off by default: most of these fixtures want the
-  // ordinary scroll. RN.e2 needs it because a refresh means re-lighting a ridge the player is
-  // still near, and at 90px/s they cover more than four ridge spacings in its ten-second window --
-  // it was passing only because the solid bars used to stop them dead, i.e. it was reading a stall
-  // as a stationary camera and would have gone quiet the moment the chapter became playable.
-  const drive = (run, mine, secs, tally, stick = { x: 0, y: 0 }, pin = false) => {
-    for (let i = 0; i < Math.round(secs / dt); i++) {
-      const held = run.player[AX.fwd]
-      run.spurs.length = 0
-      run.enemies.length = 0
-      for (const e of mine) {
-        if (e._off) { e.x = run.player.x + e._off[0]; e.y = run.player.y + e._off[1] }
-        else { e.x = e._at[0]; e.y = e._at[1] }
-        run.enemies.push(e)
-      }
-      stepSim(run, stick, dt)
-      if (pin) run.player[AX.fwd] = held
-      if (tally) tally(run)
-      run.events.length = 0
+  let checked = 0
+  for (const [id, key, look] of pushers) {
+    for (let lv = 0; lv < WEAPONS[id].levels.length; lv++) {
+      const dur = WEAPONS[id].levels[lv][key]
+      assert.ok(dur > 0, `run BB: ${id} L${lv + 1} has no '${key}' — the beam's life is read from a key that is not in its levels[]`)
+      const { bw, ba } = brightest(look, dur)
+      checked++
+      assert.ok(bw >= 0.9 && ba >= 0.6,
+        `run BB: ${id} L${lv + 1} (${dur}s, look '${look ?? 'default'}') is never brighter than ${(ba * 100).toFixed(0)}% alpha at ${(bw * 100).toFixed(0)}% width — the cast has no frame the player can actually see`)
     }
   }
-  const lost = (e) => e.maxHP - e.hp
-
-  // (b) IT TRACKS. The far body sits dead on the lane heading at 300px; the near one is 5x CLOSER
-  // but 220px off the line, i.e. it is what nearestEnemy returns. Only the NEAR one may be struck.
-  // This is the whole card since the owner's 2026-08-24 ruling ("the shrimp gun should aim at
-  // enemies"): weld the crack back to laneAxes().angle and the two numbers below trade places.
-  //
-  // The far body is the half that fails silently. A crack that tracks AND keeps a lane-wide slab
-  // of the old bearing would strike both, and asserting only that the near one bleeds cannot see
-  // it — 220px off a 130px-wide beam at L5 is the whole margin this case has.
-  {
-    const run = reefRun('pistolShrimp', 5)
-    const cross0 = run.player[AX.cross]
-    const far = plant(run, { _off: [300, 0] })
-    const near = plant(run, { _off: [60, -220] })
-    let snaps = 0, hits = 0
-    drive(run, [far, near], 4, (r) => {
-      for (const ev of r.events) { if (ev.type === 'snap') snaps++; else if (ev.type === 'hit') hits++ }
-    }, CROSS)
-    assert.ok(Math.abs(run.player[AX.cross] - cross0) > 100,
-      `run RN.b: the fixture strafed ${Math.abs(run.player[AX.cross] - cross0).toFixed(0)}px — it is standing still, so the crack was never asked to hold its bearing while the player moved`)
-    assert.ok(snaps >= 4, `run RN.b: only ${snaps} snaps in 4s at L5 (interval ${WEAPONS.pistolShrimp.levels[4].interval}) — the weapon is barely firing and every count below is noise`)
-    assert.ok(lost(near) > 0,
-      'run RN.b: the NEAREST body took NOTHING — fireSnap is not reading aimAngle, so the crack is welded to a bearing again')
-    assert.strictEqual(lost(far), 0,
-      `run RN.b: the body 300px dead ahead — 289px off the aimed line, against a ${WEAPONS.pistolShrimp.levels[4].width}px beam — took ${lost(far)}. The crack is covering the old lane bearing as well as the aim, which is two weapons at once`)
-
-    // (c) ONE TICK PER SNAP. snapT/tick is deliberately under 2, so a body held on the line is
-    // struck exactly once however long it stands there. `snaps - 1` is allowed for the single beam
-    // that may still be in flight when the window closes — a second tick would read ~2x, not 1.
-    assert.ok(hits === snaps || hits === snaps - 1,
-      `run RN.c: ${snaps} snaps landed ${hits} hits on one body — the crack is ticking more than once per cast (snapT/tick has crossed 2), which doubles the starter's damage with nothing on screen changing`)
-    assert.ok(Math.abs(lost(near) / hits - WEAPONS.pistolShrimp.levels[4].dmg) < 0.51,
-      `run RN.c: ${hits} hits for ${lost(near)} hp is ${(lost(near) / hits).toFixed(1)} a hit against a stated ${WEAPONS.pistolShrimp.levels[4].dmg}`)
-  }
-
-  // (d) THE REAR CRACK IS BASELINE, AND BACKBLAST BUYS ITS STRENGTH. Two identical fixtures on one
-  // seed, one switch apart. Both halves need asserting and each fails silently on its own: without
-  // the first the starter is rear-blind again in a chapter whose crowd is 53% astern
-  // (scripts/reef-pileup.mjs), and without the last the switch is an INERT CARD — the failure mode
-  // the mod inherited the day the crack it used to grant became free.
-  {
-    // THE REAR BODY SITS AT 100px, NOT 300, AND THE LANE IS WHY. CHAPTERS.reef.sweepAstern deletes
-    // a seeker once it is seekerBack() behind -- (1-LANE_CAMERA_FRAC) x the viewport along the lane
-    // plus SPAWN_RING, which is 138px on the 390px phone this game ships to. A fixture at 300px
-    // behind therefore measured a body the chapter had already swept, and read as "Backblast is an
-    // inert card" when the switch was working perfectly.
-    //
-    // ⚠ THAT IS A REAL CAP ON THE REAR CRACK, NOT A FIXTURE DETAIL. It runs the weapon's full
-    // 340px astern and the lane will not keep a body past 138px, so roughly the outer 200px
-    // of its rear reach can never have a target in this chapter. It is not a defect: only 78px
-    // astern is ON SCREEN at all, so anything the sweep takes was invisible before it was deleted.
-    // If a rear-reaching card is ever meant to out-reach the sweep, seekerBack is the number to
-    // argue with -- deliberately one function, so there is one place to argue.
-    // AND A THIRD BODY, PAST THE REAR CRACK BUT NOT PAST THE SWEEP. SNAP_BACKBLAST_LEN is 140 and
-    // this fixture's viewport puts seekerBack at ~252px, so a body at 200 astern is alive all
-    // window and outside the rear crack's reach — the one position that can tell "the rear line is
-    // short" from "the lane deleted it". Without this the reach is unguarded, and a rear crack
-    // silently back at the forward 340 spends most of itself killing bodies the player cannot see
-    // and the lane was about to drop: free XP on the card whose whole subject is choosing a line.
-    // ⚠ THE FORWARD BODY IS AT 80px AND THAT IS LOAD-BEARING, not a tidier number. Since fireSnap
-    // tracks, the rear crack points opposite the AIM rather than down the lane — so the aim has to
-    // be the forward body or the whole fixture inverts and "the rear crack" measures the front one.
-    // 80 < REAR_PX 100 makes it the nearest, which is what aimAngle picks.
-    const AHEAD_PX = 80
-    const REAR_PX = 100
-    const FAR_REAR_PX = 200
-    const measure = (mods) => {
-      const run = reefRun('pistolShrimp', 5, mods)
-      const ahead = plant(run, { _off: [AHEAD_PX, 0] })
-      const behind = plant(run, { _off: [-REAR_PX, 0] })
-      const farBehind = plant(run, { _off: [-FAR_REAR_PX, 0] })
-      drive(run, [ahead, behind, farBehind], 4, null, CROSS)
-      return { ahead: lost(ahead), behind: lost(behind), farBehind: lost(farBehind), farAlive: !farBehind._dead }
-    }
-    const off = measure(null)
-    const on = measure({ backblast: 1 })
-    assert.ok(off.behind > 0,
-      `run RN.d: a body ${REAR_PX}px BEHIND took nothing from a BARE snap — the rear crack is gated behind Backblast again, and the starter is rear-blind in the chapter whose crowd sits astern of the player`)
-    // AGAINST THE ROUNDED PER-HIT NUMBER, NOT THE RAW FRACTION. dealDamage rounds at every
-    // assignment (hp is an integer, see spawnEnemy), so at the ladder's dmg 8 the rear crack lands
-    // round(8 x 0.6) = 5 and the honest ratio is 5/8. Comparing against 0.6 with a 0.02 band makes
-    // this case a hostage to the damage number — it went red the day the ladder moved, with the
-    // mechanic working perfectly.
-    const D5 = WEAPONS.pistolShrimp.levels[4].dmg
-    const wantBare = Math.round(D5 * SNAP_BACKBLAST_FRAC) / D5
-    assert.ok(Math.abs(off.behind / off.ahead - wantBare) < 0.02,
-      `run RN.d: the bare rear crack lands at x${(off.behind / off.ahead).toFixed(3)} of the forward one, not the x${wantBare.toFixed(3)} that round(${D5} x ${SNAP_BACKBLAST_FRAC})/${D5} states`)
-    assert.strictEqual(on.ahead, off.ahead,
-      `run RN.d: taking Backblast changed the FORWARD damage (${off.ahead} -> ${on.ahead}) — the rear crack is stealing from the front one`)
-    assert.ok(on.behind > off.behind,
-      `run RN.d: Backblast is held and the rear crack still lands ${on.behind} against a bare ${off.behind} — the switch is an INERT CARD, which is exactly what it becomes if the fire site keeps reading the mod as a boolean now that the crack is free`)
-    const wantFull = Math.round(D5 * SNAP_BACKBLAST_FULL_FRAC) / D5
-    assert.ok(Math.abs(on.behind / on.ahead - wantFull) < 0.02,
-      `run RN.d: with Backblast the rear crack lands at x${(on.behind / on.ahead).toFixed(3)} of the forward one, not the stated x${wantFull.toFixed(3)}`)
-    // THE REACH. Assert the body is ALIVE in the same breath as asserting it took nothing — a
-    // swept corpse also reports 0 damage, and the two are indistinguishable in that number alone.
-    assert.ok(on.farAlive,
-      `run RN.d: the ${FAR_REAR_PX}px control body was swept before the window closed, so its 0 damage proves nothing about the rear crack's reach — move it inside seekerBack`)
-    assert.strictEqual(on.farBehind, 0,
-      `run RN.d: a body ${FAR_REAR_PX}px astern took ${on.farBehind} with Backblast held, and SNAP_BACKBLAST_LEN is ${SNAP_BACKBLAST_LEN} — the rear crack has inherited the forward reach, which spends it on bodies the player cannot see and the lane is about to drop`)
-  }
-
-  // (e) FIRE CORAL LIGHTS RIDGES AHEAD, DISTINCT, AND THE BAND IS THE REAL ONE. More Reef x2 takes
-  // the cast to three ridges; they must be three DIFFERENT ridges (the count-mod pathology is a
-  // chooser that lands three things on one spot, which renders identically to no change at all)
-  // and every one of them must still agree with spurAt — the snapshot is the only thing standing
-  // between this weapon and a band that has drifted off the coral it is drawn on.
-  {
-    const run = reefRun('fireCoral', 5, { moreRidges: 2 })
-    // DRIVEN TO THE CAST, NOT FOR A FIXED FIVE SECONDS, and the difference is the whole assertion
-    // below. FIRE_CORAL_LEAD is about where a ridge is WHEN IT LIGHTS; five seconds of scroll is
-    // 450px, more than two ridges, so a player who is actually moving overtakes what they lit and
-    // "it lit behind me" becomes true of a perfectly correct cast. It used to pass only because
-    // the bars stopped the player almost immediately -- an assertion held up by a stall.
-    let castF = run.player[AX.fwd]
-    for (let i = 0; i < Math.round(6 / dt) && run.polyps.length < 3; i++) {
-      drive(run, [], dt)
-      castF = run.player[AX.fwd]
-    }
-    const lit = run.polyps
-    assert.strictEqual(lit.length, 3,
-      `run RN.e: a cast with More Reef x2 lit ${lit.length} ridges, not 3 — the count is read in one place and the loop bound in another`)
-    const idx = lit.map((pl) => pl.i)
-    assert.strictEqual(new Set(idx).size, 3,
-      `run RN.e: the cast lit ridges [${idx.join(', ')}] — the extras landed on a ridge already lit, which is three bands stacked on one spot and looks exactly like no mod at all`)
-    for (const pl of lit) {
-      const truth = spurAt(pl.i, spec, run._obstacleSeed)
-      assert.deepStrictEqual({ f: pl.f, thick: pl.thick, grooves: pl.grooves }, { f: truth.f, thick: truth.thick, grooves: truth.grooves },
-        `run RN.e: lit ridge ${pl.i} no longer matches spurAt — the burning band and the drawn ridge have drifted apart`)
-      assert.ok((pl.f - castF) * AX.dir > 0,
-        `run RN.e: ridge ${pl.i} is at ${pl.f} and the player was at ${castF.toFixed(0)} WHEN IT LIT — it lit BEHIND them, which is a band everything it was meant to catch has already crossed (FIRE_CORAL_LEAD is ${FIRE_CORAL_LEAD})`)
-    }
-  }
-
-  // (e2) A REFRESH MAY NOT RESTART THE FIRE. render.js ramps a lit band in over FIRE_CORAL_VIS.igniteT
-  // and it has to key that off the AGE of the fire, because fireCoral re-lights ridges it is already
-  // burning — every cast at any fire rate, since the target is the nearest ridge and the player only
-  // crosses one every 4.7s. An age derived from the countdown (dur - t) resets to zero on every one
-  // of those, so the band vanishes and fades back in while doing full damage: a weapon that looks
-  // switched off. Measured as the field the ramp reads, over a fixture that PROVES a refresh
-  // happened rather than assuming one did — Quick Wake x1 is the common case, and the assertion is
-  // worthless if the polyp was simply never re-lit.
-  {
-    const run = reefRun('fireCoral', 5, { quickWake: 1 })
-    // KEYED ON THE RIDGE INDEX, never on run.polyps[0]. Several ridges are alight at once at this
-    // fire rate and the array is in cast order, so slot 0 is whichever one is oldest — which on this
-    // seed is a ridge the player outran without ever re-lighting it. Watching the slot instead of
-    // the ridge saw 0 refreshes in a window that contains several.
-    const seenT = new Map(), seenLit = new Map()
-    let refreshes = 0, frames = 0, minLit = Infinity
-    drive(run, [], 10, (r) => {
-      for (const pl of r.polyps) {
-        frames++
-        const wasT = seenT.get(pl.i)
-        if (wasT !== undefined && pl.t > wasT + 1e-9) {
-          refreshes++
-          // The whole assertion, taken on the frame the refresh lands: the burn clock went back UP
-          // and the fire's age did not go back DOWN with it.
-          assert.ok(pl.lit > seenLit.get(pl.i),
-            `run RN.e2: a refresh took ridge ${pl.i}'s burn clock from ${wasT.toFixed(2)}s to ${pl.t.toFixed(2)}s and its age from ${seenLit.get(pl.i).toFixed(2)}s to ${pl.lit.toFixed(2)}s — the render ramp reads that age, so the band blanks and fades back in over ${FIRE_CORAL_VIS.igniteT}s while it is still doing full damage`)
-          minLit = Math.min(minLit, pl.lit)
-        }
-        seenT.set(pl.i, pl.t); seenLit.set(pl.i, pl.lit)
-      }
-    }, { x: 0, y: 0 }, true)
-    assert.ok(refreshes >= 2,
-      `run RN.e2: only ${refreshes} refreshes in 10s with Quick Wake — the fixture never re-lit a burning ridge, so it cannot see the bug it exists for`)
-    assert.ok(minLit >= FIRE_CORAL_VIS.igniteT,
-      `run RN.e2: the lowest age at a refresh was ${minLit.toFixed(2)}s, under the ${FIRE_CORAL_VIS.igniteT}s ignition ramp — a band still being drawn part-lit after seconds of burning`)
-    assert.ok(frames > 300, `run RN.e2: only ${frames} polyp-frames — the fixture is barely burning anything`)
-  }
-
-  // (e3) A REFRESH REFRESHES, IT DOES NOT STACK. fireCoral re-lights the ridge it is already
-  // burning several times per crossing, and the ONE line stopping that from becoming two entries on
-  // one index is fireCoral's `run.polyps.find`. Replace that lookup with null and every case above
-  // still passes — e2 watches the clock, (f) watches which side of a groove burns, (e) counts a
-  // single cast — while a body on the coral quietly takes more from every extra entry: the "silent
-  // damage doubling at a fire rate the player can buy" the guard's own comment names, measured at
-  // 21% on a scratch tree. So this asserts the two things a stacked entry changes — how many
-  // entries carry one index, and HOW MUCH the band takes off a body standing on it.
-  //
-  // A BODY ON EVERY RIDGE IN THE WINDOW, not on one chosen in advance. The lead ridge advances
-  // every spacing/laneScroll = 4.67s while an L5 cast lands every 3.40s (2.72s with Quick Wake
-  // held, which is what makes an overlap certain rather than a phase accident), so WHICH index
-  // collects two casts is a phase accident: pinning the first ridge lit measured one the player
-  // outran before its second cast and asserted nothing. Five consecutive ridges are occupied and
-  // each body is checked against its OWN band's lit time, so whichever ridge takes the refresh
-  // carries the assertion. The re-light is asserted, never assumed.
-  //
-  // ⚠ MEASURED OFF THE dot HIT EVENTS, NOT off the body's hp: an hp read is 'what the band did plus
-  // whatever else the chapter did', and the band it is compared against is tight enough to fail on
-  // that alone.
-  {
-    const run = reefRun('fireCoral', 5, { quickWake: 1 })
-    const L = WEAPONS.fireCoral.levels[4]
-    // fireOnTimer waits a whole interval before the first cast, so drive until one lands rather
-    // than guessing a warm-up.
-    for (let i = 0; i < 60 && run.polyps.length === 0; i++) drive(run, [], 0.1, null, { x: 0, y: 0 }, true)
-    assert.strictEqual(run.polyps.length, 1,
-      `run RN.e3: ${run.polyps.length} ridges lit in the first 6s — the fixture has nothing to stand on`)
-    // Against the lane wall, which run RS proves the braid never reaches, so every body is on CORAL
-    // and not in a channel — and pinned to a world point, because a ridge does not move.
-    const wall = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter]) - 10
-    const watched = []
-    for (let k = 0; k < 5; k++) {
-      const i = run.polyps[0].i + AX.dir * k
-      const f = spurAt(i, spec, run._obstacleSeed).f
-      const at = AX.fwd === 'x' ? [f, wall] : [wall, f]
-      watched.push({ i, at, litT: 0, refreshes: 0, prevT: null, burn: 0, body: plant(run, { _at: at }) })
-    }
-    let worstDup = 0, worstIdx = ''
-    // PINNED: the bodies stand ON specific ridges and the whole case is what a re-light does to
-      // them, so the player has to stay in range of those ridges instead of scrolling past at
-      // 90px/s. This passed before only because the solid bars stopped the player dead.
-      drive(run, watched.map((w) => w.body), 14, (r) => {
-      const idx = r.polyps.map((pl) => pl.i)
-      if (new Set(idx).size !== idx.length && worstIdx === '') worstIdx = idx.join(', ')
-      for (const w of watched) {
-        for (const ev of r.events) {
-          if (ev.type === 'hit' && ev.dot === true && ev.x === w.at[0] && ev.y === w.at[1]) w.burn += ev.dmg
-        }
-        const mine = r.polyps.filter((pl) => pl.i === w.i)
-        worstDup = Math.max(worstDup, mine.length)
-        if (mine.length === 0) { w.prevT = null; continue }
-        w.litT += dt
-        // The LONGEST clock on the index, so a re-light is detected identically in a tree where the
-        // guard has been removed (there the second entry is the fresh one) and in a healthy one.
-        const t = Math.max(...mine.map((pl) => pl.t))
-        if (w.prevT !== null && t > w.prevT + 1e-9) w.refreshes++
-        w.prevT = t
-      }
-    }, { x: 0, y: 0 }, true)
-    const refreshed = watched.filter((w) => w.refreshes > 0)
-    assert.ok(refreshed.length > 0,
-      `run RN.e3: none of ridges [${watched.map((w) => w.i).join(', ')}] was re-lit in 14s with Quick Wake — the fixture never reached the branch it exists to test`)
-    // THE EFFECT, and the half a stacked entry cannot survive: one band ticks L.dmg every L.tick for
-    // as long as it is lit and no faster, refreshed or not — the accumulator is carried across a
-    // refresh — so the burn is the lit time over the tick, with one tick of slack at each end for
-    // where the window's edges fall. A second entry on the index roughly doubles it.
-    for (const w of watched) {
-      const ticks = Math.floor(w.litT / L.tick)
-      assert.ok(w.burn >= (ticks - 1) * L.dmg && w.burn <= (ticks + 1) * L.dmg,
-        `run RN.e3: the band on ridge ${w.i} burned ${w.burn} into the body standing on it over ${w.litT.toFixed(2)}s lit (${w.refreshes} re-lights), against ${ticks} ticks x ${L.dmg} = ${ticks * L.dmg} for the ONE entry a re-cast is meant to leave`)
-    }
-    // And the same fact read off the array rather than off a body, which is the shape the guard is
-    // written in — worth both, because a stacked entry that happened to burn nothing is still a
-    // ridge ticking twice for the next body to walk into it.
-    assert.strictEqual(worstDup, 1,
-      `run RN.e3: a watched ridge carried ${worstDup} entries at once — run.polyps held [${worstIdx}]`)
-    assert.strictEqual(worstIdx, '',
-      `run RN.e3: run.polyps held [${worstIdx}] — one ridge index carries two entries, so that band ticks twice a beat`)
-    // The band is only worth anything on a ridge that was re-lit AND actually burned somebody.
-    assert.ok(refreshed.some((w) => w.burn >= 2 * L.dmg),
-      `run RN.e3: every re-lit ridge burned under two ticks into its body (${refreshed.map((w) => w.i + ':' + w.burn).join(', ')}) — the damage band above is measuring nothing`)
-  }
-
-  // (f) THE CORAL BURNS AND THE GAPS DO NOT — which is the whole card, and the only reason the
-  // chapter's own choice of channel survives it. Two immortal bodies pinned on the SAME lit ridge,
-  // one against the lane wall (always coral — run RS proves the braid never reaches it) and one in
-  // the middle of a channel the ridge actually cuts.
-  {
-    const burn = (mods) => {
-      const run = reefRun('fireCoral', 5, mods)
-      drive(run, [], 4)
-      assert.strictEqual(run.polyps.length, 1, `run RN.f: expected exactly one lit ridge after 4s, found ${run.polyps.length}`)
-      const pl = run.polyps[0]
-      const wall = laneHalfWidth(run.viewRadius, CHAPTERS[run.chapter]) - 10
-      const at = (c) => (AX.fwd === 'x' ? [pl.f, c] : [c, pl.f])
-      const coral = plant(run, { _at: at(wall) })
-      const gap = plant(run, { _at: at(pl.grooves[0].c) })
-      drive(run, [coral, gap], 2)
-      return { coral: lost(coral), gap: lost(gap), hw: pl.grooves[0].hw }
-    }
-    const plain = burn(null)
-    assert.ok(plain.coral > 0,
-      'run RN.f: a body standing in the coral of a LIT ridge lost no hp — Fire Coral is decoration, exactly as the ridges themselves were before run RS')
-    assert.strictEqual(plain.gap, 0,
-      `run RN.f: a body in the middle of a ${(plain.hw * 2).toFixed(0)}px channel lost ${plain.gap} hp — the burn ignores the grooves, so the choice this whole chapter is built on has been deleted`)
-    const spilled = burn({ overgrowth: 1 })
-    assert.ok(spilled.gap > 0,
-      'run RN.f: Overgrowth is held and the channel is still cold — the switch is an inert card')
-    assert.ok(spilled.coral > 0, 'run RN.f: Overgrowth put the coral out')
-  }
-
-  // (g) IT NEVER TOUCHES THE PLAYER, and it is measured as attribution rather than as hp: the reef
-  // runs two DoTs of its own, so a raw health read cannot tell 'the card is safe' from 'the card is
-  // safe and the coral grated me'. Nothing but the chapter's own hazards may appear.
-  {
-    const run = reefRun('fireCoral', 5, { moreRidges: 2, overgrowth: 1 })
-    run.player.hp = run.player.maxHP = 100000
-    drive(run, [], 10)
-    const srcs = Object.keys(run.dmgBySrc ?? {}).sort()
-    {
-      // THE CHAPTER'S OWN HAZARDS ARE NOT THE WEAPON. 'scrape' and 'crush' are what the reef does
-      // to anyone standing in it since spurs.solid, so an exact-empty list would now fail for a
-      // reason that has nothing to do with Fire Coral. Subtracted BY NAME rather than by widening
-      // the check -- the question this asks is whether a WEAPON reached its owner, and any source
-      // outside the chapter's own three is still that.
-      const CHAPTER_HAZARDS = ['scrape', 'crush', 'drown']
-      const fromWeapon = srcs.filter((src) => !CHAPTER_HAZARDS.includes(src)).sort()
-      assert.deepStrictEqual(fromWeapon, [],
-        `run RN.g: the player was damaged by [${fromWeapon.join(', ')}] in a run holding nothing but Fire Coral — a weapon has reached its owner`)
-    }
-  }
-
-  // (h) OFF THE REEF, BOTH DEGRADE THE WAY THEIR OWN COMMENTS SAY. devCards ignores every
-  // eligibility rule and The Blank's pool is a union, so 'this card can only be held here' is not a
-  // thing the code may assume. Fire Coral finds no ridges and quietly does nothing; the snap keeps
-  // firing, aimlessly, off the direction the player last MOVED.
-  {
-    Math.random = mulberry32(20260822)
-    const run = createRun(meta, { chapter: 'shelf', difficulty: 1 })
-    assert.strictEqual(run.chapter, 'shelf', 'run RN.h: the control chapter is not The Shelf')
-    assert.ok(!CHAPTERS.shelf.spurs && CHAPTERS.shelf.lane !== true, 'run RN.h: the control chapter must have neither ridges nor a lane')
-    run.weapons = [{ id: 'fireCoral', level: 5 }, { id: 'pistolShrimp', level: 5 }]
-    run.player.hp = run.player.maxHP = 1e9
-    run.mods.spawnMul = 0
-    // Drive EAST for a second so p.facingAngle is 0, then plant a body due east and hold still.
-    for (let i = 0; i < Math.round(1 / dt); i++) { run.enemies.length = 0; stepSim(run, { x: 1, y: 0 }, dt); run.events.length = 0 }
-    const east = plant(run, { _off: [300, 0] })
-    drive(run, [east], 4)
-    assert.strictEqual(run.polyps.length, 0,
-      `run RN.h: ${run.polyps.length} ridge(s) lit in a chapter with no spur field — stepFireCoralWeapon is not gated on the descriptor`)
-    assert.ok(lost(east) > 0,
-      'run RN.h: the Pistol Shrimp fired nothing outside a lane chapter — the fallback heading is missing and the card is dead everywhere but one chapter')
-  }
-
-  // (i) EVERY BEAM GETS ONE BRIGHT FRAME, and this is arithmetic rather than taste. placeBeam
-  // scales the bar's WIDTH by the ramp-in and its ALPHA by the fade-out, so a beam whose whole life
-  // is shorter than the pair never shows both at once: the shipped 0.12/0.30 against the Pistol
-  // Shrimp's 0.14s crack peaked at 56% width and 24% alpha — a 4px sliver at its brightest and a
-  // full-width bar at 2% when it vanished, i.e. the chapter's STARTER with no visible frame in it.
-  // Nothing else could see that. run EV only asks that the {type:'snap'} event has a consumer, the
-  // cases above measure damage, and a look tuned for one weapon silently mis-serves another because
-  // the envelope was a pair of literals inside placeBeam rather than a table beside the beam it
-  // belongs to. Checked for every beam-pushing weapon at every level, both halves:
-  //   the SOURCE, so the numbers cannot drift back inline where nothing can reach them;
-  //   the ARITHMETIC, replaying placeBeam's own two lines off BEAM_ENVELOPE.
-  {
-    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    const at = rsrc.indexOf('function placeBeam')
-    assert.ok(at > 0, 'run RN.i: placeBeam is gone from render.js — the beam envelope has moved and this case is measuring nothing')
-    // TO THE FUNCTION'S REAL END, never a magic length: a source-text lint whose window is a
-    // constant stops covering the code the moment the code grows, and nothing says so. placeBeam is
-    // declared at indent 2 inside the renderer factory, so its own closing brace is the first
-    // "\n  }" after it — every block nested inside it closes at 4 or deeper.
-    const end = rsrc.indexOf('\n  }\n', at)
-    assert.ok(end > at,
-      'run RN.i: could not find placeBeam\'s closing brace at indent 2 — it has been re-nested or re-indented, and slicing past it would lint the wrong function')
-    // Comments stripped, the run MB.a rule: every one of these numbers is discussed in prose right
-    // beside its wiring, so a raw search over the body is satisfied by the sentence alone.
-    const place = rsrc.slice(at, end).replace(/\/\/.*$/gm, '')
-    assert.ok(/BEAM_ENVELOPE\[b\.look\]/.test(place),
-      'run RN.i: placeBeam no longer reads BEAM_ENVELOPE[b.look] — its envelope is hardcoded again, so a short-lived beam is back to being tuned by a number written for a long one')
-    // ANY division by a decimal literal, however it is SPELLED. Nothing in this repo enforces the
-    // space around an operator, so `b.life/0.37` and `b.life / .37` are the same pathology as
-    // `b.life / 0.37` and the first two slipped past a pattern that demanded one space and a
-    // leading zero. Safe to widen because the only other division in here is by T.beamRefLen.
-    const inlined = place.match(/\/\s*0?\.\d+/g)
-    assert.ok(!inlined,
-      `run RN.i: placeBeam divides by the literal(s) ${(inlined ?? []).join(', ')} — balance and look numbers live in config.js and nowhere else, and an envelope inlined here is exactly the bug BEAM_ENVELOPE was extracted to fix`)
-    // THE DENOMINATOR. If a fifth weapon starts pushing run.beams this list is short and the case
-    // quietly stops covering the game; sim.js's own count is the honest check that it does not.
-    const pushers = [['pistolShrimp', 'snapT', 'snap'], ['sunlance', 'duration', 'sunlance'], ['rainbow', 'duration', undefined], ['pulsarSweep', 'duration', undefined]]
-    const simSrc = readFileSync(new URL('../src/sim.js', import.meta.url), 'utf8')
-    const sites = simSrc.split('run.beams.push').length - 1
-    assert.strictEqual(sites, pushers.length,
-      `run RN.i: sim.js has ${sites} run.beams.push sites against the ${pushers.length} weapons listed here — a beam weapon is unchecked`)
-    // placeBeam's own two lines, replayed. `fade: 0` means the beam's own duration.
-    const brightest = (look, duration) => {
-      const env = BEAM_ENVELOPE[look] ?? BEAM_ENVELOPE.default
-      const fade = env.fade || duration
-      let best = -1, bw = 0, ba = 0
-      for (let life = duration - dt; life > 1e-9; life -= dt) {
-        const elapsed = duration - life
-        const w = elapsed < env.ramp ? Math.max(0, elapsed / env.ramp) : 1
-        const a = life < fade ? Math.max(0, life / fade) : 1
-        if (w * a > best) { best = w * a; bw = w; ba = a }
-      }
-      return { bw, ba }
-    }
-    let checked = 0
-    for (const [id, key, look] of pushers) {
-      for (let lv = 0; lv < WEAPONS[id].levels.length; lv++) {
-        const dur = WEAPONS[id].levels[lv][key]
-        assert.ok(dur > 0, `run RN.i: ${id} L${lv + 1} has no '${key}' — the beam's life is read from a key that is not in its levels[]`)
-        const { bw, ba } = brightest(look, dur)
-        checked++
-        assert.ok(bw >= 0.9 && ba >= 0.6,
-          `run RN.i: ${id} L${lv + 1} (${dur}s, look '${look ?? 'default'}') is never brighter than ${(ba * 100).toFixed(0)}% alpha at ${(bw * 100).toFixed(0)}% width — the cast has no frame the player can actually see`)
-      }
-    }
-    assert.strictEqual(checked, 20, `run RN.i: checked ${checked} weapon-levels, expected 20`)
-  }
-
-  // (j) THE SNAP HAS NO BAR, AND ITS BUBBLES ARE THE HITBOX. The owner's 2026-08-24 ruling took the
-  // blade out from under the cavitation chain ("I don't like the white rectangle underneath all,
-  // remove it it looks too bright"), which moved the whole of this weapon's on-screen extent onto
-  // SNAP_CAVITY. Nothing else in the suite can see that: (b)-(d) measure damage, run EV only asks
-  // that {type:'snap'} has a consumer, and RN.i above measures the ENVELOPE of a bar this look no
-  // longer draws. A snap whose chain collapses to one bubble, or to a row so short it stops at a
-  // third of its reach, is a starter with no readable cast and nothing goes red.
-  //
-  // Two halves, the RN.i idiom: the SOURCE, so the bar cannot quietly come back and the numbers
-  // cannot drift back inline; and the ARITHMETIC, replaying render.js's own two functions off
-  // SNAP_CAVITY so a table edit that makes the chain illegible fails here rather than on a phone.
-  {
-    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    const at = rsrc.indexOf('function placeBeam')
-    const end = rsrc.indexOf('\n  }\n', at)
-    assert.ok(at > 0 && end > at, 'run RN.j: placeBeam is gone or re-indented — this case is measuring nothing')
-    const place = rsrc.slice(at, end).replace(/\/\/.*$/gm, '')
-    // THE BAR IS OFF FOR THIS LOOK. Asserted as the ASSIGNMENT and its polarity, not as the mere
-    // presence of the word: `bv.beamBody.visible = snap` contains every token a name-grep looks for
-    // and is the exact inversion that puts the white slab back under every cast.
-    assert.ok(/bv\.beamBody\.visible\s*=\s*!snap/.test(place),
-      'run RN.j: placeBeam no longer hides beamBody for look \'snap\' — the pale bar is back under the cavitation chain, which is what the owner had removed')
-    assert.ok(/bv\.tip\.visible\s*=\s*!snap/.test(place),
-      'run RN.j: the tip flare is drawn for look \'snap\' again — with no bar under it that is a bright sprite hanging in open water at the end of nothing')
-    assert.ok(/SNAP_CAVITY/.test(rsrc.slice(rsrc.indexOf('function snapBubble'), rsrc.indexOf('function placeBeam'))),
-      'run RN.j: snapBubble no longer reads SNAP_CAVITY — the chain\'s numbers have drifted back inline where config.js cannot reach them')
-
-    // ---- the arithmetic, replayed off the same table render.js reads --------------------------
-    const C = SNAP_CAVITY
-    const count = (len) => Math.max(3, Math.min(C.max, Math.round(len / C.gap)))
-    const bubble = (k, n, len, w, ph) => {
-      if (k === 0) return { x: len * C.leadX, y: 0, r: (w / 2) * C.leadR, a: C.leadA }
-      const h = (m) => { const v = Math.sin((k + 1) * m + ph * 12.9898) * 43758.5453; return v - Math.floor(v) }
-      const fr = 1 - (k - 0.5) / (n - 1)
-      return {
-        x: len * (C.frothX[0] + (C.frothX[1] - C.frothX[0]) * fr),
-        y: (h(3.1) - 0.5) * 2 * (w / 2) * C.frothSpread * (0.35 + 0.65 * fr),
-        r: (w / 2) * (C.frothR[0] + (C.frothR[1] - C.frothR[0]) * fr) * (1 - C.frothJitter / 2 + C.frothJitter * h(5.7)),
-        a: C.alpha[0] + (C.alpha[1] - C.alpha[0]) * fr,
-      }
-    }
-    const L = WEAPONS.pistolShrimp.levels
-    let rows = 0
-    for (let lv = 0; lv < L.length; lv++) {
-      // BOTH BEAMS OF ONE CAST, because they are the pathology this case exists for: the rear crack
-      // is SNAP_BACKBLAST_LEN (140) against a forward 340, and a chain sized for one is wrong for
-      // the other. A fixed count crams the forward layout into 40% of the room and the rear crack
-      // comes out as a single white blob — which is what the first cut of this look actually did.
-      for (const [tag, len] of [['forward', L[lv].length], ['rear', SNAP_BACKBLAST_LEN]]) {
-        const w = L[lv].width
-        const n = count(len)
-        rows++
-        assert.ok(n >= 3, `run RN.j: ${tag} crack at L${lv + 1} draws ${n} bubbles — under three there is no chain, just a dot and a blob`)
-        const qs = []
-        for (let k = 0; k < n; k++) qs.push(bubble(k, n, len, w, 0.7))
-        // IT REACHES. With no bar, the far bubble is the ONLY thing stating how far the crack goes,
-        // so it has to sit near the end of it — a chain stopping at half reach draws a weapon that
-        // hits things it visibly never touched.
-        const far = Math.max(...qs.map((q) => q.x + q.r))
-        assert.ok(far > len * 0.85,
-          `run RN.j: the ${tag} crack at L${lv + 1} draws nothing past ${far.toFixed(0)}px of its ${len}px reach — the chain stops short of the damage`)
-        // IT STAYS INSIDE THE WIDTH. The other direction of the same claim: a bubble wider than the
-        // beam states a hitbox the weapon does not have.
-        const wide = Math.max(...qs.map((q) => Math.abs(q.y) + q.r))
-        assert.ok(wide <= w * 0.62,
-          `run RN.j: the ${tag} crack at L${lv + 1} draws ${wide.toFixed(0)}px off centre against a ${w}px beam — the picture is wider than the hitbox`)
-        // THE LEAD CAVITY IS THE BIGGEST THING IN IT, which is the whole read of the look the owner
-        // picked: small froth at the claw growing into one cavity where the damage lands. Swap the
-        // ramp and the shot reads as travelling the other way.
-        const lead = qs[0]
-        const biggestFroth = Math.max(...qs.slice(1).map((q) => q.r))
-        assert.ok(lead.r > biggestFroth * 1.2,
-          `run RN.j: the lead cavity (${lead.r.toFixed(0)}px) is not clearly the biggest bubble in the ${tag} chain (froth reaches ${biggestFroth.toFixed(0)}px) — the size ramp no longer states which way the crack went`)
-        // ...AND THE FROTH RAMPS THE SAME WAY THE LEAD DOES. The check above only says the lead is
-        // biggest; reversing frothR alone leaves that true while the froth grows toward the CLAW,
-        // so the chain reads as a shot arriving rather than one leaving. Measured over the froth's
-        // own two ends, ignoring the per-index jitter by comparing the modelled ramp rather than a
-        // sampled pair — a jittered pair can invert by chance and that would be a flaky red.
-        assert.ok(C.frothR[1] > C.frothR[0] * 1.3,
-          `run RN.j: SNAP_CAVITY.frothR runs ${C.frothR[0]} -> ${C.frothR[1]} — the froth does not clearly grow toward the front, so the chain no longer says which way the crack went`)
-        assert.ok(C.frothJitter < 2 * (C.frothR[1] - C.frothR[0]) / (C.frothR[1] + C.frothR[0]),
-          `run RN.j: SNAP_CAVITY.frothJitter (${C.frothJitter}) is larger than the ramp it rides on — individual bubbles invert the size gradient and the chain reads as noise`)
-        assert.ok(qs.every((q) => q.a > 0.25),
-          `run RN.j: a bubble in the ${tag} chain at L${lv + 1} is drawn under 25% alpha — over this chapter's coral that is invisible`)
-      }
-      // AND THE COUNT FOLLOWS THE LENGTH. Stated as a comparison rather than as two numbers: at
-      // L1-L5 the forward crack is 2.4x the rear one, so it must draw more of them.
-      assert.ok(count(L[lv].length) > count(SNAP_BACKBLAST_LEN),
-        `run RN.j: at L${lv + 1} the 340px forward crack draws no more bubbles than the ${SNAP_BACKBLAST_LEN}px rear one — the count is fixed rather than sized to the beam, so one of the two is wrong`)
-    }
-    assert.strictEqual(rows, L.length * 2, `run RN.j: replayed ${rows} chains, expected ${L.length * 2}`)
-    console.log(`PASS run RN.j (the snap is its bubbles): placeBeam hides the bar and the tip for look 'snap'; ${rows} chains replayed off SNAP_CAVITY across ${L.length} levels x both cracks, every one reaching past 85% of its beam, inside 62% of its width, led by a cavity over 1.2x the froth, and the forward crack always drawing more than the rear`)
-  }
-
-  console.log(`PASS run RN (The Reef's first two natives): the snap strikes the NEAREST body 220px off the lane heading and never the one 300px dead ahead, exactly once per cast, a BARE snap already cracks astern at x${SNAP_BACKBLAST_FRAC} and Backblast takes that to x${SNAP_BACKBLAST_FULL_FRAC} without touching the forward one; Fire Coral lights 3 DISTINCT ridges ${FIRE_CORAL_LEAD} past the nearest, every one still agreeing with spurAt, burning the coral and never the channel until Overgrowth is taken, reaching the player never, surviving a re-light without its ignition ramp restarting or stacking a second entry on the index (one band's worth of burn, measured on 5 occupied ridges), and lighting nothing at all in a chapter with no ridges; and all 20 beam weapon-levels in the game reach >=90% width at >=60% alpha in one frame`)
+  assert.strictEqual(checked, 15, `run BB: checked ${checked} weapon-levels, expected 15`)
+  console.log(`PASS run BB (every beam gets one bright frame): ${checked} weapon-levels across ${pushers.length} beam-pushing weapons all reach >=90% width at >=60% alpha in one frame`)
 }
+
 // ---- run RP: The Reef's other two natives, its anomaly and its mutator ------------------------
 // WHAT THIS CATCHES THAT NOTHING ELSE CAN. All four of these are behaviour with no health bar
 // attached, which is the shape a damage assertion is blind to:
@@ -28348,12 +27801,15 @@ function testReefPool() {
   let ramp = 0, tax = 0
   {
     const outgoing = (charge, anom) => {
-      const run = reefRun('pistolShrimp', 5)
+      // Any weapon that reliably lands a hit works here — this case is Last Breath's ramp, not the
+      // weapon's. gnash (The Wreck's native, dev-takeable in any chapter) is a short bite whose
+      // 152px L5 range comfortably covers the 120px this fixture holds the target at.
+      const run = reefRun('gnash', 5)
       if (anom) run.anomalies.lastBreath = true
       const target = mk(run, AX.fwd === 'x' ? 120 : 0, AX.fwd === 'y' ? -120 : 0, 0)
       drive(run, [target], 3, { x: 0, y: 0 }, (r) => {
         r.charge = charge
-        // Held on the crack's line as the lane carries the player forward.
+        // Held dead ahead as the lane carries the player forward.
         target.x = r.player.x + (AX.fwd === 'x' ? 120 : 0)
         target.y = r.player.y + (AX.fwd === 'y' ? -120 : 0)
       })
@@ -29598,15 +29054,7 @@ function testReefAirBurst() {
     assert.ok(!/scrap|grit/i.test(sfxMap),
       "the coral scrape got a sound — the owner declined it, and for the reason SUBMISSION's expiry has none: a DoT that runs for seconds at a time is a drone, and this one holds for as long as you ride the wall")
 
-    // AND FIRE CORAL'S BAND MAY NOT BLINK. The ignition ramp reads the fire's monotone AGE, never
-    // its remaining time: a refresh tops the clock back up (fireCoral), so a ramp keyed to
-    // elapsed-of-duration restarts at zero and blanks a still-burning ridge for the whole of
-    // igniteT. Asserted on both sides because either half alone is silent — sim can stop
-    // advancing the age, or render can go back to reading the countdown.
-    assert.ok(/pl\.lit \/ V\.igniteT/.test(bare),
-      'syncPolyps keys the ignition ramp off something other than the polyp age — a re-lit ridge blanks for FIRE_CORAL_VIS.igniteT while it is still doing full damage')
-    assert.ok(FIRE_CORAL_VIS.igniteT > 0, 'a zero ignition ramp makes the blink assertion above unfalsifiable')
-    console.log(`PASS run RF.e (the reef draws its own): refillLook resolves pocket and updateShafts reads AIR_POCKET_VIS; drawBurstWake reads run._burstT through burstWakeAt against BURST_DUR_AT_FULL ${BURST_DUR_AT_FULL}s and the view behind the lane camera, and is called from sync(); updateCoralGrit reads run._scraping and reuses CORAL_CRUSH every ${CORAL_CRUSH.gritEvery}s with no sound; syncPolyps ramps on the polyp age`)
+    console.log(`PASS run RF.e (the reef draws its own): refillLook resolves pocket and updateShafts reads AIR_POCKET_VIS; drawBurstWake reads run._burstT through burstWakeAt against BURST_DUR_AT_FULL ${BURST_DUR_AT_FULL}s and the view behind the lane camera, and is called from sync(); updateCoralGrit reads run._scraping and reuses CORAL_CRUSH every ${CORAL_CRUSH.gritEvery}s with no sound`)
   }
 
   // (f) THE VENT IS A PICKUP: ONE GULP, THEN IT IS EMPTY. Owner, 2026-08-26: "bubble should just

@@ -1347,18 +1347,6 @@ function generateWells(sig) {
  *   FORCED FALSE WHILE _burstT IS LIVE (owner, 2026-08-22): a dash crosses a ridge free, and this
  *   one field carries all three halves of that — no damage, no slow, and no grit — so a bought
  *   crossing is visibly not a paid one without render.js learning a second field.
- * polyps[i]: { i, f, thick, grooves, merged, t, lit, dmg, tick, acc, spill } — v7.x The Reef:
- *   LIT RIDGES (WEAPONS.fireCoral). Everything before `t` is a verbatim SNAPSHOT of spurAt(i, ...),
- *   copied at cast time rather than referenced: run.spurs is emptied and rebuilt in full on every
- *   ridge crossing (streamSpurs), so an entry there is not a place state can live. Because spurAt
- *   is pure the snapshot can never disagree with the field it was taken from, and stepPolyps tests
- *   it with the same onCoral() the grate tests the player with — the coral that burns the crowd is
- *   the coral that grates you. `t` counts the burn down, `acc` is the part-tick accumulator, and
- *   `spill` (Overgrowth) drops the groove test so the ridge burns wall to wall. `lit` is the AGE of
- *   the fire and is RENDER-ONLY: it only ever counts up, is never reset by the refresh that tops
- *   `t` back up, and exists so syncPolyps' ignition ramp cannot blank a ridge that is still
- *   burning. Enemies only: nothing in here can touch the player. render.js draws the band
- *   straight off this list.
  * shafts[i]: { x, y, bx, by, r, phase, _cell, feeding, gape?, _shutT?, drawdown?, fouled? } — v7.x Book 2: streamed REFILL
  *   CIRCLES the player stands in to refill `charge`. ONE list fed from any of FOUR places, decided
  *   by refillSpec() (config.js): The Shelf's upwellings (its signature IS the refill spec:
@@ -2107,28 +2095,6 @@ function generateWells(sig) {
  *   {type:'sunlance', angle, reach} a lance cast. Carries no x,y: the beam is anchored on the
  *                                   player and drawn from run.beams.
  *
- * THE REEF's two natives (v7.x). One adds no array and one adds the only array Book 2 has needed:
- *   - Pistol Shrimp: a run.beams entry carrying `look: 'snap'` with `rotSpeed: 0`, the Sunlance's
- *     shape. What is new is the ANGLE: it is laneAxes(chapter).angle, the lane's own forward
- *     heading, and never aimAngle — the weapon has no targeting at all and the cross stick is the
- *     aim. Outside a lane chapter it falls back to p.facingAngle (still aimless, still steerable).
- *     `tick` clears `duration`/2, so a body on the line is struck exactly ONCE per snap.
- *   - Fire Coral: run.polyps (see the field above) — the one weapon in the book that could not
- *     reuse an entity, because its band IS a piece of terrain and run.spurs is rebuilt from
- *     scratch on every ridge crossing.
- *   {type:'snap', x, y, angle, reach, backFrac}  one Pistol Shrimp cast. x,y is the PLAYER (the
- *                                   beam is anchored there and drawn from run.beams); `angle` is
- *                                   the lane heading, so the cavitation puff does not re-derive a
- *                                   heading that has already moved. `backFrac` is the REAR crack's
- *                                   damage as a fraction of the forward one — baseline
- *                                   SNAP_BACKBLAST_FRAC, full with Backblast — and render scales
- *                                   the rear puff by it, which is the only place that card shows
- *                                   itself now the rear crack always exists. Takes the throttled
- *                                   'shoot' voice.
- *   Fire Coral emits NO event, deliberately: a whole ridge of the level lighting up is a larger
- *   tell than any burst could add, and at one cast every 3.4-4.4s for a whole run a bespoke voice
- *   is the metronome the 'longline'/'ballast' entries in SFX_FOR_EVENT are both denied for.
- *
  * v5.4 weapons (see WEAPONS/WEAPON_MODS in config.js for the per-weapon mod semantics). Entity
  * reuse rather than new arrays: Quill Burst's quills, Reality Shard's shards, the tornado's flung
  * chunks and Debris Toss' splinters are all ordinary run.bullets entries tagged weapon:'quill' /
@@ -2663,7 +2629,6 @@ export function createRun(meta, opts = {}) {
     _laneThrottle: 1,      // the stick's forward lean on the scroll (The Reef); 1 until stepPlayerMovement says otherwise
     _crushing: false,      // pinned against the trailing edge this frame — render.js reads it as the tell
     _crushAcc: 0,          // the crush's part-tick accumulator, LANE_CRUSH_TICK's twin of _spurAcc
-    polyps: [],            // Fire Coral's lit ridges — snapshots of spurAt, never references into run.spurs
     _slickAcc: 0,          // part-tick accumulator, the exact twin of _drownAcc
     _slickDmgCarry: 0,     // Oilskin's resisted-damage remainder, spent once it clears a whole point
     _foulT: 0,             // s of oil still on you — lingers SLICK_SLOW_T past the rim (see sim.js)

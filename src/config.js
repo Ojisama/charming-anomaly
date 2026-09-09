@@ -2553,108 +2553,6 @@ export const WEAPONS = {
       { dmg: 9, tick: 0.25, interval: 2.31, radius: 126, duration: 2.0, pull: 270, burst: 120 },
     ],
   },
-  // -- The Reef's natives (v7.x) ----------------------------------------------------------------
-  // The chapter is a LEFT-TO-RIGHT scroller whose joystick gives only the cross axis, so its own
-  // arsenal answers the one question the borrowed stand-ins could not: what does a weapon look like
-  // when the player cannot turn? Both of these are anchored to the lane rather than to a body —
-  // the first to the heading, the second to the terrain — and neither reads nearestEnemy at all.
-  pistolShrimp: {
-    name: 'Pistol Shrimp',
-    desc: 'Snaps a bolt of boiling water, and a weaker one out the other side.',
-    icon: '🦐', rarity: 'normal',
-    // THE STARTER. The claw TRACKS the nearest body on screen (fireSnap -> aimAngle, owner
-    // 2026-08-24: "the shrimp gun should aim at enemies") and cracks a weaker, shorter bolt straight
-    // out the back of it. A run.beams entry with rotSpeed 0, the Sunlance's idiom, look: 'snap' for
-    // its bake.
-    //   ⚠ THE CARD SAYS NOTHING ABOUT AIMING, AND THAT IS THE OWNER'S RULING, NOT AN OVERSIGHT
-    // (2026-08-24: "just don't mention anything about aiming"). Every other weapon in the game
-    // tracks without saying so; naming it here would make tracking sound like this card's gimmick
-    // when it is the house default. Do not "restore" it.
-    //   snapT/tick     how long the crack is on screen, and ONE tick inside it: stepBeams fires
-    //                  while acc >= tick, so tick must clear snapT/2 or a body on the line is
-    //                  struck twice. That is also why this weapon sells no duration mod.
-    //                  ⚠ NOT NAMED `duration`: that key is labelled 'Burns for' and would spend a
-    //                  build-sheet row saying 0.14 forever. fireSnap maps it across at the cast.
-    //   length         FLAT. L1's 340 already clears the ~312 world px of lane a 390x844 phone
-    //                  shows ahead of the player, so every px past that is reach nobody sees.
-    //   width          THE LADDER: 30px across an 836px lane (3.6%) at L1, 130px (15.6%) at L5. A
-    //                  level buys how many bodies fall inside a bolt that is already pointed at one
-    //                  of them — the aim picks the target, the width picks up its neighbours.
-    //                  ⚠ 130 IS 3.25x THE BAKED BAR. render.js bakes all four blades once at
-    //                  WEAPONS.rainbow's top width (40) and scales, so L5 magnifies rather than
-    //                  scales down — and Wide Crack goes further. Raising the bake is not free:
-    //                  T.beamRefWidth/RefLen also size and scroll the shimmer streaks on the other
-    //                  three beam weapons, so it is a look change to cards nobody asked about.
-    // balance_decision : levels buy width, not length or damage [2026-08-22]
-    //  - per-hit damage is the only lever that really moves the column and it is the one this
-    //    ladder may not spend. Sweep grid in the commit body.
-    // balance_decision : per-hit damage 12 -> 8 pays for the rear crack [2026-08-23]
-    //  - the rear crack's OWN knobs cannot pay for it: swept, its damage fraction and its reach are
-    //    both nearly dead (0.25-0.60 moves kills/min 130-156; reach 80-340 moves it 127-156). What
-    //    it buys is coverage, so the forward column is the only place to pay from.
-    // MEASURED, reef, 240s x 5 seeds, d3 — all four of the chapter's natives in ONE census
-    // invocation, never across two.
-    // ⚠ READ raw dps HERE, NOT eff dps, AND THE REASON IS THIS CHAPTER. The coral grate (SPUR_DPS)
-    // takes enemies down all run, and weapon-census diffs enemy hp, so every card in the reef is
-    // credited with damage it did not deal: all four now read 397-520 eff dps at NEGATIVE waste,
-    // which cannot order anything. The eff-dps table this block used to carry (151 -> 219) predates
-    // the grate and is not comparable to anything measurable today.
-    // THE POOL, ON raw dps — the weapon's own swings — WITH THE STARTER AT THE BOTTOM AT L1:
-    //   L1  Pistol Shrimp 174  <  Fire Coral 178, Squid Ink 180 (rare)  <  Oxygen Tank 190
-    //   L5  Squid Ink 237, Fire Coral 254, Pistol Shrimp 257  <  Oxygen Tank 316
-    // ⚠ TWO THINGS THE CENSUS CANNOT TELL YOU. kills/min is the weaker read — at L5 three of the
-    // four sit inside 169-176, i.e. the rig is measuring the spawner. And the rig walks a fixed
-    // stick, so it measures a line that happens to cross bodies; the skill this card sells is
-    // choosing the groove that puts three of them on it. Treat both numbers as floors.
-    levels: [
-      { dmg: 8, interval: 0.90, length: 340, width: 30, snapT: 0.14, tick: 0.10 },
-      { dmg: 8, interval: 0.82, length: 340, width: 52, snapT: 0.14, tick: 0.10 },
-      { dmg: 8, interval: 0.74, length: 340, width: 76, snapT: 0.14, tick: 0.10 },
-      { dmg: 8, interval: 0.66, length: 340, width: 102, snapT: 0.14, tick: 0.10 },
-      { dmg: 8, interval: 0.58, length: 340, width: 130, snapT: 0.14, tick: 0.10 },
-    ],
-  },
-  fireCoral: {
-    name: 'Fire Coral',
-    desc: 'Wakes the stinging polyps on the coral ahead of you. Anything crossing a lit ridge burns; the gaps through it stay cold.',
-    icon: '🔥', rarity: 'rare',
-    // THE CARD THAT COULD ONLY EXIST HERE. The ridge that has been grating you all chapter
-    // (SPUR_DPS) is the weapon: a cast lights the coral of the next ridge or two ahead and the
-    // oncoming stream burns on the way through. It is a run.polyps entry — its own array, because
-    // run.spurs is WIPED AND REBUILT on every ridge crossing (streamSpurs) and nothing may be hung
-    // off an entry in it. Each polyp is a SNAPSHOT of the pure spurAt() geometry plus a timer, so
-    // the band that burns is, to the pixel, the band that grates.
-    //
-    // ⚠ IT IS A BAND, NOT A FUNNEL. NOTHING in this chapter is solid — enemies swim straight
-    // through coral — so an armed ridge herds nothing. It is a ~520px burn band across an 836px
-    // lane, at right angles to the only direction anything arrives from: area denial placed AHEAD,
-    // never a shove, and it does nothing to what is already beside you.
-    //
-    // WHAT THE PLAYER DOES WITH IT is choose a groove — the choice the grate already asks, now with
-    // the other side of it paid. The gaps stay cold; Overgrowth trades that away for coverage.
-    //   dmg       per TICK, like every other dot-flagged zone in the game (silt, barnacle crust).
-    //   duration  how long a lit ridge burns, read against the SCROLL and not against a fight: the
-    //             player crosses a ridge every 4.7s, so an L1 cast keeps roughly one lit and no
-    //             more.
-    //   ridges    how many CONSECUTIVE ridges a cast lights, counting forward from the first one
-    //             ahead. A real key in levels[], so More Reef folds through WEAPON_STAT_MODS and
-    //             the fire site's one local is both the loop bound and the index step.
-    // MEASURED in the same L1 invocation as the Pistol Shrimp above (never across invocations —
-    // every weapon in one --weapons list shares an RNG stream): 236 eff dps at 6% waste and 0%
-    // duds, second of the four and above both normals, under the epic. Read the dud rate as the
-    // card's real claim: a band the whole oncoming stream has to cross is the one shape in this
-    // chapter that cannot miss.
-    // ⚠ AND THE RIG FLATTERS IT ON ONE AXIS. The census player holds a lane it did not choose, so
-    // it crosses lit coral as often as chance says; a player actually using the grooves meets the
-    // band on their own terms. The kills/min are honest, the waste number is optimistic.
-    levels: [
-      { dmg: 7,  tick: 0.5, interval: 4.40, duration: 5.0, ridges: 1 },
-      { dmg: 9,  tick: 0.5, interval: 4.15, duration: 5.4, ridges: 1 },
-      { dmg: 11, tick: 0.5, interval: 3.90, duration: 5.8, ridges: 1 },
-      { dmg: 14, tick: 0.5, interval: 3.65, duration: 6.2, ridges: 1 },
-      { dmg: 17, tick: 0.5, interval: 3.40, duration: 6.6, ridges: 1 },
-    ],
-  },
   squidInk: {
     name: 'Squid Ink',
     desc: 'Jets a cloud of ink around you. Anything that swims into it loses you and keeps going the way it was already headed.',
@@ -3991,44 +3889,6 @@ export const WEAPON_MODS = {
     //   needs no sentence. This line was the LONGEST in the game at 91 chars and is now 63.
     foulSpring: { name: 'Foul Spring', desc: 'silt clouds consume clean water to gain {n} more power and size', icon: '🌀', base: 0.50, kind: 'pct' },
   },
-  // The Reef's two natives (v7.x). Five apiece: three that fold, one rate division and one
-  // behavioural switch — the shape run MB.a2 asks of a Book 2 native, and the shape the book spec
-  // holds at ~4 rather than padding to six.
-  pistolShrimp: {
-    overpressure: { name: 'Overpressure', desc: 'snap damage',     icon: '💥', base: 0.30, kind: 'pct' },
-    longCrack:    { name: 'Long Crack',   desc: 'crack length',    icon: '📏', base: 0.25, kind: 'pct' },
-    wideCrack:    { name: 'Wide Crack',   desc: 'crack width',     icon: '🪭', base: 0.28, kind: 'pct' },
-    // Registered in WEAPON_RATE_MODS and divided at the fire site: folding a rate pick into
-    // `interval` would multiply the WAIT, i.e. slow the weapon down.
-    quickSnap:    { name: 'Quick Snap',   desc: 'snap rate',       icon: '⏩', base: 0.25, kind: 'pct' },
-    // The Breaker's Backwash idiom, and the only card on this weapon that changes what it covers.
-    // It does NOT break the thesis: the second crack is welded to the same lane heading, pointing
-    // the other way along it, so the weapon still has no targeting and the stick is still the aim.
-    // Read at the fire site (fireSnap).
-    backblast:    { name: 'Backblast',    desc: 'the crack behind you hits as hard as the one ahead', icon: '💨', kind: 'switch' },
-  },
-  fireCoral: {
-    // 'polyp damage per tick' for the reason barnacles says 'crust damage per tick': the number is
-    // small because it is per tick, and a player reading it as a per-hit number concludes the card
-    // is broken. Name the thing, not the event.
-    hotPolyps:  { name: 'Hot Polyps',  desc: 'polyp damage per tick', icon: '💥', base: 0.30, kind: 'pct' },
-    emberBed:   { name: 'Ember Bed',   desc: 'how long a ridge burns', icon: '⌛', base: 0.25, kind: 'pct' },
-    // A flat count onto a real levels[] key, so effectiveWeaponStats folds it and the fire site's
-    // ONE local is both the loop bound and the index step — the eight-site trap CLAUDE.md
-    // documents, where multiplying only the bound stacks the extras on one spot. Here the targets
-    // are RIDGE INDICES counted forward from the first one ahead, so they are distinct by
-    // construction rather than by a chooser (run RN.c asserts the distinct indices).
-    moreRidges: { name: 'More Reef',   desc: 'extra ridge(s) lit per cast', icon: '🔷', kind: 'tier' },
-    quickWake:  { name: 'Quick Wake',  desc: 'wake rate',             icon: '⏩', base: 0.25, kind: 'pct' },
-    // THE CARD THAT COSTS YOU SOMETHING. The polyps grow over the channels too, so the ridge burns
-    // wall to wall — every body that crosses it is caught instead of the ~60% the gaps leave open.
-    // What it gives up is the card's own promise that the channel you were going to swim stays
-    // cold: it never hurts you, but it takes away the read that the lit coral tells you where the
-    // gap is. Read at the fire site (fireCoral), where it LATCHES onto the entry: a ridge already
-    // burning when the card is picked widens to wall-to-wall on its next refresh, and never
-    // narrows again for the rest of that ridge's life.
-    overgrowth: { name: 'Overgrowth',  desc: 'the polyps grow over the gaps as well', icon: '🪸', kind: 'switch' },
-  },
   squidInk: {
     blackout:   { name: 'Blackout',    desc: 'cloud size',            icon: '⭕', base: 0.25, kind: 'pct' },
     // 'how long they stay lost' and not 'blind duration': the card's own noun is what the enemy
@@ -4245,7 +4105,7 @@ export const WEAPON_RATE_MODS = {
   debrisToss: 'rapidToss', realityShard: 'rapidShard', pulsarSweep: 'rapidSweep',
   atomicBreath: 'quickBreath', skippingShell: 'fastSkim', foxfire: 'quickKindle',
   breaker: 'quickBreak', ballast: 'quickWinch', siltVeil: 'quickStir', downwash: 'quickPour',
-  pistolShrimp: 'quickSnap', fireCoral: 'quickWake', squidInk: 'quickInk', oxygenTank: 'quickTank',
+  squidInk: 'quickInk', oxygenTank: 'quickTank',
   bringItIn: 'quickReel', screw: 'overspeed', glint: 'quickGlint',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
@@ -4315,11 +4175,6 @@ export const STAT_KEYS = [
   // Silt Veil then emits clouds + radius + every = 3; Ballast dmg + r + weights + every = 4.
   { key: 'clouds', label: 'Clouds' },
   { key: 'weights', label: 'Weights' },
-  // Fire Coral's per-cast count, on the same reasoning: it is a COUNT and `count` reads
-  // 'Projectiles', which is the wrong noun for a stretch of burning coral. Unique to that weapon's
-  // levels[], and it is 1 at every level — the row exists so More Reef, a tier mod, has a number to
-  // move. Fire Coral then emits dmg, duration, ridges + every = 4.
-  { key: 'ridges', label: 'Ridges lit' },
   { key: 'jetDur', label: 'Runs for' },
   // Deliberately NOT the shared `duration` key: that one reads 'Burns for' for the beam weapons,
   // and a shell crust does not burn. Barnacles emit dmg, count, jumps, crustDur + every = 5,
@@ -7548,9 +7403,11 @@ CHAPTERS.reef = {
   // that does not move the clock is a slot spent reading). armor/regen/maxHP left with them, and
   // CAVE_HIT_DPS was re-swept against their absence rather than left to make up the difference.
   //
-  // NOTHING IS DELETED. pistolShrimp, oxygenTank and fireCoral keep their entries, their mods and
-  // their art, and devCards ignores the chapter pool entirely — so all three stay takeable from the
-  // dev menu, which is where run MB.a still resolves their mods.
+  // UPDATE 2026-09-09: pistolShrimp and fireCoral are gone for real now (owner ruling, "delete
+  // unused weapon code") — no chapter had offered either since this pool went empty. oxygenTank
+  // still keeps its entry, its mods and its art for now, and devCards ignores the chapter pool
+  // entirely, so it stays takeable from the dev menu, which is where run MB.a still resolves its
+  // mods.
   //   ⚠ THE XP TILL IS THE LAP AND NOT THE KILL (stepCircuit): every coin and gem in this game
   //   drops inside dealDamage's enemy-death branch, so an unarmed chapter earns nothing and the
   //   level-up screen would never open once in a whole race. That grant is what keeps this an empty
@@ -9220,29 +9077,6 @@ export const SPUR_VIS = Object.freeze({
   // config table is a knob the next reader will tune and watch do nothing.
 })
 
-// FIRE CORAL'S LIT RIDGE, RENDER-ONLY (v7.x, The Reef — WEAPONS.fireCoral). Zero sim effect: the
-// band that burns is the one stepPolyps tests, drawn from the SAME snapshot, so there is nothing
-// here that can move the edge. Drawn over spurG in entitiesLayer, which render.floorTint never
-// multiplies — these are raw final colours, exactly as AIR_POCKET_VIS' block states.
-//
-// ⚠ HOT AND LIGHT, over a chapter whose decor is already warm. The ridge's own body is a dark
-// plum (SPUR_VIS.body 0x67213d) on a deep cold floor (bgColor 0x0a3358), so a burn painted in the
-// coral's own family would be a slightly redder ridge — invisible at a glance and worthless as a
-// tell. It is the VALUE that separates them: gold and white against plum, which nothing else in
-// this chapter's palette is, plus the pulse. The same lesson CORAL_CRUSH learned the hard way
-// with its chunks — pick the value from what the material is doing, then check it on the floor.
-//   igniteT/fadeT  the band ramps IN over igniteT so the cast reads as an event, and out over
-//                  fadeT so 'the gap is cold again' is readable before it is true.
-//   glow_px        px the outer skirt is grown past the hitbox. The ONLY pass allowed past the
-//                  groove edge, and for the reason SPUR_VIS gives its foot: a light spilling a
-//                  few px into a channel is what a burning thing does, and it is not the
-//                  collider. Both inner passes are inside it or on it.
-export const FIRE_CORAL_VIS = Object.freeze({
-  glow: 0xff6a1e, glowA: 0.42, glow_px: 9,
-  body: 0xffab3c, bodyA: 0.80,
-  core: 0xfff2c8, coreA: 0.85, core_px: 8,
-  igniteT: 0.35, fadeT: 0.9, pulseRate: 7.5,
-})
 // WATER MOVED HARD (v7.x, The Reef). The chapter's FX vocabulary for a body shoving water: a SILT
 // puff that hangs and spreads, and BUBBLES that rise. The bubbles are the load-bearing half — they
 // are the only thing here that moves against the fall, and they are what sells the picture as
@@ -9265,44 +9099,6 @@ export const CORAL_CRUSH = {
   silt: 4, siltSpeed: 50, siltT: 1.2, siltTint: 0xc0aa9e,
   bubbles: 6, bubbleRise: 95, bubbleT: 0.9, bubbleTint: 0xdff2ff,
   grit: 2, gritEvery: 0.1, gritDrift: 70,   // scrape tell: motes per beat, s per beat, px/s down-lane
-}
-
-// THE PISTOL SHRIMP'S CAVITATION CHAIN (The Reef, render.js snapBubble/placeBeam). The weapon's
-// whole picture: a froth of small bubbles at the claw growing along the shot into ONE big cavity at
-// the far end, where the damage lands. Owner's pick out of three bubble layouts, 2026-08-24.
-//
-// ⚠ THERE IS NO BAR BEHIND IT (owner, same round: "I don't like the white rectangle underneath all,
-// remove it it looks too bright"). placeBeam hides beamBody and the tip flare for look 'snap', so
-// these bubbles state the whole hitbox — `per` and `lead` are the only things telling the player
-// how far the crack reaches, which is why they are keyed off the beam's own length and width rather
-// than being px.
-//
-// ⚠ AND THEY ARE SPRITES, NOT PART OF THE BAKE, WHICH IS NOT A STYLE CHOICE. The beam bar is scaled
-// anisotropically (b.length / T.beamRefLen along by b.width / T.beamRefWidth across — 0.85 x 3.25 at
-// L5), so every circle baked into that texture arrives as a 3.8:1 oval; the first cut of this look
-// shipped as a row of eggs. Pre-squashing cannot fix it either, because the ratio moves with the
-// ladder (0.88:1 at L1). Anything round has to live outside beamBody.
-export const SNAP_CAVITY = {
-  max: 16,        // sprite budget per beam. Two beams per cast (forward + rear), one rig slot each.
-  gap: 22,        // px ALONG THE SHOT per bubble: count = clamp(round(length / gap), 3, max).
-                  //   ⚠ COUNT FOLLOWS LENGTH OR THE REAR CRACK IS A BLOB. One cast draws a 340px
-                  //   forward crack and a 140px rear one (SNAP_BACKBLAST_LEN); a fixed count crams
-                  //   the same chain into 40% of the room. 340/22 = 15.5 -> the cap, 140/22 -> 6.
-                  //   ⚠ AND IT IS PX, NOT BUBBLE RADII, WHICH IS THE VERSION THAT FAILED. Radii
-                  //   scale with the level's WIDTH (30 at L1, 130 at L5), so a spacing measured in
-                  //   them collapses to a few px at L1 and BOTH cracks saturate `max` — the rear
-                  //   one at 140px long, i.e. the exact blob this rule exists to stop. The chain is
-                  //   laid out along the shot, so its spacing is a length.
-  leadX: 0.86,    // the big cavity's position along the shot, as a fraction of length
-  leadR: 0.8,     // ...and its radius, as a fraction of the beam's half-width
-  leadA: 0.9,
-  frothX: [0.06, 0.86],  // the froth spans this fraction of the shot, claw end first
-  frothR: [0.12, 0.5],   // ...growing over that span, as a fraction of half-width
-  frothJitter: 0.6,      // ± this fraction of the froth radius, from the index hash
-  frothSpread: 0.7,      // how far off the centre line a froth bubble may sit, x half-width
-  alpha: [0.6, 0.96],    // claw end -> front
-  tint: 0xdff5ff,
-  tintHi: 0xffffff,      // every third bubble, so the chain is not one flat colour
 }
 
 // Night-thunderstorm overlay (skies chapter, v5.6.18, render.js updateStorm): three cosmetic,
@@ -12013,26 +11809,6 @@ export const LANE_CRUSH_TICK = 0.5
 export const SPUR_DPS = 4                // HP/s inside coral — flat for the whole run, exactly like drowning and the slick
 export const SPUR_TICK = 0.5             // s between scrape ticks; 4 x 0.5 = 2 HP exactly, hurtPlayer's own rounding rule
 export const SPUR_SLOW_MUL = 0.6         // strafe multiplier while scraping — joins the MIN in stepPlayerMovement
-
-// Fire Coral's placement (WEAPONS.fireCoral): which ridge a cast lights first, counted forward
-// from the ridge NEAREST the player. The rest of a multi-ridge cast counts on from there.
-// balance_decision : fire coral lights from one ridge past the nearest [2026-08-22]
-//  - 1 is the smallest number that is always AHEAD. At 0 a cast lights the ridge the player is
-//    level with, i.e. a band already half-crossed by everything it was meant to catch.
-export const FIRE_CORAL_LEAD = 1
-
-// Pistol Shrimp's rear crack (fireSnap), as a fraction of the forward one — the Breaker's
-// BREAKER_BACKWASH_DMG_FRAC idiom. BASELINE is 0.6; WEAPON_MODS.pistolShrimp's Backblast raises it
-// to FULL, so that card buys the rear crack's strength rather than its existence.
-// balance_decision : the rear crack is baseline at 0.6, Backblast takes it to 1 [2026-08-23]
-//  - 0.6 and not full: a piercing line pointing both ways down a corridor is close to +100% dps,
-//    which is a starter rewritten rather than a starter given an answer. The mod is what pays for
-//    the other 40%.
-export const SNAP_BACKBLAST_FRAC = 0.6
-export const SNAP_BACKBLAST_FULL_FRAC = 1
-// The rear crack's REACH, flat like the forward one and deliberately far shorter — see fireSnap
-// for why the two are not the same number.
-export const SNAP_BACKBLAST_LEN = 140
 
 // ---- Squid Ink (WEAPONS.squidInk) -------------------------------------------------------------
 // THE BLIND, at the retarget seam in stepEnemyMovement. A blinded body is handed a POINT this far
