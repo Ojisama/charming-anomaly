@@ -36,11 +36,47 @@ today. Nothing about the dark, the maws, the Scent button, the roster, the balan
 obstacles or the palette changes. The one edit to the chapter block:
 
 ```
-weapons: ['sunspear', 'foxfire', 'sunlance'], starter: 'sunspear'
+weapons: ['<starter>', 'sunspear', 'foxfire', 'sunlance'], starter: '<starter>'
 ```
 
-Fin Hit, Chitter Shriek and mines leave the pool. Sunspear is the starter because it is the one
-light card that does not read the bar, which is the same reason it was the Twilight's.
+Fin Hit, Chitter Shriek and mines leave the pool. **Four weapons, so the pool's ideation debt is
+cleared by this change** (owner, same session: "There's a missing weapon right?").
+
+### 3.1 The starter is new: a small light projectile that costs Light (owner ruling)
+
+> "The starter should be a mimic of chapter 1-1, just a small light projectile. Costs 1 light to
+> fire."
+
+**A mimic of Spike Protein** (`WEAPONS.star`, The Body's starter): a dart at the nearest enemy,
+`count` per cast rising with level, `pierce`, `speed`, an `interval` in the half-second band. Its
+fire site reuses `fireStar`'s shape; it is a `run.bullets`-class projectile wearing a light look,
+no new `run.*` array. Rarity normal. Working name **Glint**, desc along the lines of *"Flings a
+dart of light at what is nearest. Each cast costs 1 Light."* — it names the bar in the HUD's own
+word, the Sunlance idiom. Both the name and the French are the owner's pick at the fr review.
+
+**The cost is 1 Light PER CAST** (one volley, whatever its projectile count), ruled over
+per-projectile: across the levels that is ~1.8–3 Light/s, close to the chapter's own 2.0/s drain,
+so owning the starter roughly doubles the drain while it is firing and levelling adds darts, not
+cost. Per-projectile would have reached ~12/s at L5 — a full bar in eight seconds.
+
+**At zero Light it STILL FIRES; the bar simply cannot go below zero** (owner, over "half damage"
+and over "does not fire"). The cost is real for as long as there is Light to lose — sight, and
+Sunlance's reach — and an empty bar leaves you blind but never unarmed. That is the no-spiral rule
+every Book 2 bar block already states, applied to the one weapon every run begins with. The spend
+is a `run.charge` subtraction at the fire site, clamped at 0, and it goes through nothing else:
+NOT `chargeDrainMul` (Slow Burn is a card about the ambient drain, not about ammo) and NOT a
+kill refill in reverse.
+
+### 3.2 Sunspear leaves the starter slot at double damage (owner ruling)
+
+> "Let's move the light column to not starter, double its damage."
+
+`WEAPONS.sunspear.levels[].dmg` is doubled at every level (17→34 … 40→80). Its splash radius,
+cadence, count and castRange are untouched, and it stays normal rarity. Its block's own measurement
+("damage was the wrong knob … weaker columns leave bodies alive to eat more columns") was made at
+starter parity in the Twilight; at double damage in a pool it no longer opens, it is a pick, not
+a baseline, and the census in §6 re-reads it beside the new starter. The stale "the chapter's
+starter" and "the Pulse's AMMO" lines in its comment are fixed in the same edit.
 
 **Why The Deep and not The Twilight:** the maws' sim (`stepMaws`, `inMaw`, `mawFeeding`), their
 tests (run DP, ~340 lines), their render rig, the Scent button and the roster are all keyed to
@@ -149,16 +185,14 @@ same edit.
 
 ## 7. Still owed after this pass
 
-`node scripts/chapter-stage.mjs deep` reads `ideation=owes3` today and this design clears none
-of it, deliberately — the bar is a backlog. After the merge The Deep owes:
+`node scripts/chapter-stage.mjs deep` reads `ideation=owes3` today. §3.1's starter clears the
+weapon line (four in the pool: two normal, two rare — no epic rung, which is a note, not a debt;
+a shaft-flaring epic drafted earlier this session is void, since the sun shafts no longer exist).
+After the merge The Deep owes:
 
-1. **A fourth weapon.** The pool is three. Its rungs are normal / rare / rare, so the gap is the
-   epic, the same slot Bring It In filled for The Trawl. A design was drafted this session for a
-   shaft-flaring epic ("Sunburst") and is void: it read the sun shafts, which no longer exist. The
-   maws are the place a Deep epic reads.
-2. **An anomaly of its own.** None is scoped to `deep`.
-3. **A mutator of its own.** `springtide` is the book's.
-4. **The owner's three gates**: a phone playtest, the French review, the assets check. Both
+1. **An anomaly of its own.** None is scoped to `deep`.
+2. **A mutator of its own.** `springtide` is the book's.
+3. **The owner's three gates**: a phone playtest, the French review, the assets check. Both
    chapters were at `YOU` on all three; the merged one is too.
 
 The Twilight's diel-migration hazard debt **dies with the chapter**: it existed because the
