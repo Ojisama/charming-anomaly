@@ -379,6 +379,17 @@ misses — it measured how *often* the bar was low, never that the player could 
   charge-probe, feed+full row:  mean 27.2 -> 38.1,  %DARK 91 -> 71,  %inRefill unchanged at 65.0
 ```
 
+**And the field itself was doubled a release later** (owner: "double the number of anglerfish light
+sources"). `signature.maws.chance` 0.42 -> 0.84, nothing else touched — `r`, `MAW_GAPE_T` and
+`MAW_SHUT_T` all stand, so it is twice as many offers of the same gamble. Realized off the generator
+over 4500 cells x 5 seeds: 0.836 per cell, mean spacing 1390 -> 984px, coverage 6.5 -> 13.0% (the
+Shelf is 14.2%, the Surf 13.4% — the Deep joins the book's band from below instead of sitting under
+it). It moves the player who was actually suffering and not the one who was already fine:
+`ignore`+`hoard` mean 14.7 -> 26.7 with time pinned at zero 64% -> 30% and time inside a mouth
+5.4% -> 11.9%, while `feed`+`full` is flat (38.1 -> 36.3) because that rig already spent 65% of the
+run in a mouth. `greedy` gets eaten slightly more often (53.3 -> 57.7 bites), which is the trap
+working.
+
 The cadence is now nearly FLAT across the ladder (0.90 -> 0.82) with damage carrying the growth, so a
 level-up no longer buys drain; `GLINT_LIGHT_COST` is scaled by `run.chargeDrainMul`, so Slow Burn
 reaches the ammo (owner: "does it cost less if the player purchased the 'lose less resource'?"); and

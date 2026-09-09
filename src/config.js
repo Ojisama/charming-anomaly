@@ -8248,11 +8248,13 @@ CHAPTERS.deep = {
   // a 96px body; a maw is the whole animal, so its jaws ring a 200px circle and the drawing spans
   // ~460px — comfortably wider than a phone screen. You do not see one coming, you arrive inside it.
   //
-  // SPARSER THAN EVERY OTHER REFILL IN THE BOOK (chance 0.42 against the Shelf's 0.62, the Surf's
-  // 0.77 and the Reef's 0.50), and a bigger cell with it. Two reasons and they point the same way:
-  // this is the darkest chapter, so light has to be worth crossing the map for; and every one of
-  // these is a decision to walk into a mouth, which stops being a decision if there is always
-  // another one in sight.
+  // IN THE BOOK'S BAND NOW, REACHED FROM BELOW. It shipped at chance 0.42, the sparsest refill in
+  // the book, on two arguments pointing the same way: this is the darkest chapter, so light has to
+  // be worth crossing the map for; and every one of these is a decision to walk into a mouth, which
+  // stops being a decision if there is always another one in sight. The second still holds at 0.84
+  // — ~983px mean spacing is about one lure in view on a phone, not a queue of them. The first did
+  // not survive play: the walk IS the cost here, and a lure that only reads from ~230px turned it
+  // into a wander rather than a choice.
   // ⚠ NO `drawdownSecs` (the one Book 2 field with none — see REFILL_ZONE_SPEND). A third of this
   // bar arrives at 2.4s inside a maw (16/s against a 2.0/s drain) where MAW_GAPE_T needs 3.2s, so a
   // drawdown would fade every mouth in the chapter out a second before it could close. Run DP.c went
@@ -8260,7 +8262,11 @@ CHAPTERS.deep = {
   // swallow, which is this chapter's own version of a circle you can only use once.
   // 150° — see the TIDE block for how the six bearings are spread.
   tide: tideAt(150),
-  signature: { type: 'dark', maws: { cell: 900, chance: 0.42, r: 200, minDist: 460 } },
+  // balance_decision : maw chance doubled 0.42 -> 0.84, owner play note [2026-09-09]
+  //  - `r`, MAW_GAPE_T and MAW_SHUT_T are UNTOUCHED: this is twice as many offers of the same
+  //    gamble, never a softer one. 13.0% of the plane against the Shelf's 14.2% and the Surf's
+  //    13.4%, so the paragraph above no longer argues for an outlier — keep the two in step.
+  signature: { type: 'dark', maws: { cell: 900, chance: 0.84, r: 200, minDist: 460 } },
 
   // THE BAR: Light. The maws above are the ONLY source — no shafts, no kill refill, nothing else on
   // the floor. That is what makes this chapter's refill "a place you can fight from, never a place
