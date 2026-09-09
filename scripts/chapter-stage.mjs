@@ -80,10 +80,11 @@ const LOOKS = (() => {
 // Where a chapter's own declaration starts. Book 1 chapters sit as nested properties inside the
 // original `export const CHAPTERS = { body: {...}, ... }` literal (`\n  id: {`); every Book 2
 // chapter was added later as its own top-level `CHAPTERS.id = {` assignment instead, which the
-// nested pattern cannot see — the fallback here is that second syntax.
+// nested pattern cannot see — the fallback here is that second syntax. Both anchors end on a
+// newline so a one-line difficulty row like `  garden: { spawnMul: 0.6 },` cannot match.
 function chapterDeclAt (id, from = 0) {
-  const nested = CONFIG_RAW.indexOf(`\n  ${id}: {`, from)
-  const dotted = CONFIG_RAW.indexOf(`\nCHAPTERS.${id} = {`, from)
+  const nested = CONFIG_RAW.indexOf(`\n  ${id}: {\n`, from)
+  const dotted = CONFIG_RAW.indexOf(`\nCHAPTERS.${id} = {\n`, from)
   if (nested < 0) return dotted
   if (dotted < 0) return nested
   return Math.min(nested, dotted)
