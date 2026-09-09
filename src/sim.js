@@ -12186,7 +12186,7 @@ function stepNetTossWeapon(run, w, stats, fireRateMul, dt) {
 // ---- The Deep's four natives (v7.x) -------------------------------------------------
 // See the block at the end of WEAPONS in config.js for the design, and in particular for why the
 // two rares are allowed to read run.charge when resourceDamageMul's own block says Book 2 spent
-// that licence on The Surf. None of the three adds a run.* array.
+// that licence on The Surf. None of the four adds a run.* array.
 
 /** Where this cast's columns land. `count` DISTINCT spots: the nearest bodies within castRange
  * first, then — if the field holds fewer bodies than the cast has columns — a ring of surplus
