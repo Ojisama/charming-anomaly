@@ -8688,7 +8688,11 @@ function runPrey() {
   // torch, so the player's toll and the unlit radius are compared, not assumed.
   {
     const spec = CHAPTERS.wreck.signature.slicks
-    const d = Math.round(spec.r * (1 - 3.2 / SLICK_BURN_T))
+    // soakT s of measured burn, soakT + 0.2 s in the oil. 2s since SLICK_FIRE_FRAC doubled to 0.4
+    // (2026-09-09): the body loses 0.88 of its maxHP in 2.2s of oil and lives to be measured; at
+    // the old 3s soak it burned to death before the burn-out sample.
+    const soakT = 2
+    const d = Math.round(spec.r * (1 - (soakT + 0.2) / SLICK_BURN_T))
     const soak = (torch) => {
       const run = mk(20260907)
       run.weapons = []
@@ -8699,8 +8703,8 @@ function runPrey() {
       run.slicks.push(sl)
       // Bodies pinned where they stand: the torch (already on fire, a burn too small to matter), a
       // victim in the same oil, and a bystander well outside it. 1e7 hp so nothing dies mid-soak.
-      // ±d from the centre, d chosen so both stay in the shrinking oil for ~3.2s of the burn: long
-      // enough to cover the 3s soak, short enough that SLICK_FIRE_FRAC (of maxHP, so no hp value
+      // ±d from the centre, d chosen so both stay in the shrinking oil for ~soakT+0.2s of the burn:
+      // long enough to cover the soak, short enough that SLICK_FIRE_FRAC (of maxHP, so no hp value
       // saves them) does not kill a body that has to survive to be measured after burn-out.
       const cast = [
         put(run, { x: p.x + d, y: p.y, hp: 1e7, speed: 0, flags: [] }),
@@ -8731,7 +8735,7 @@ function runPrey() {
         if (goneT >= 0) regrew = Math.max(regrew, sl.r)
         if (hpAfterGone < 0 && goneT >= 0 && age >= goneT + SLICK_FIRE_LINGER + 0.5) hpAfterGone = vic.hp
       }
-      for (let i = 0; i < Math.round(3 / dt); i++) step()
+      for (let i = 0; i < Math.round(soakT / dt); i++) step()
       const vicLit = vic.ignite > 0, farLit = far.ignite > 0
       const playerLost = hp0.p - p.hp   // captured HERE: the soak goes on below with everyone in the oil
       const vicLost = hp0.vic - vic.hp
@@ -8751,11 +8755,11 @@ function runPrey() {
       `the slickFire event must carry the BODY that lit the oil, not the spill's centre — render runs the flame out from it: got ${lit.fireAt}, torch at ${lit.torAt}`)
     assert.ok(lit.vicLit && lit.vicLost > 0,
       `the lit spill must burn the OTHER body in it: lit ${lit.vicLit}, lost ${lit.vicLost}`)
-    // 3s at SLICK_FIRE_FRAC of maxHP per second, EL_BURN_TICK-quantised; the linger past the loop
+    // soakT s at SLICK_FIRE_FRAC of maxHP per second, EL_BURN_TICK-quantised; the linger past the loop
     // is a fraction of a tick. Half the nominal is the floor, so a burn that only ever pays
     // EL_BURN_MIN (the rounding trap the ignite tick exists to avoid) cannot pass.
-    assert.ok(lit.vicLost > 1e7 * SLICK_FIRE_FRAC * 3 * 0.5,
-      `...and burn it at SLICK_FIRE_FRAC of its maxHP per second: ${lit.vicLost} over 3s against ${1e7 * SLICK_FIRE_FRAC * 3} nominal`)
+    assert.ok(lit.vicLost > 1e7 * SLICK_FIRE_FRAC * soakT * 0.5,
+      `...and burn it at SLICK_FIRE_FRAC of its maxHP per second: ${lit.vicLost} over ${soakT}s against ${1e7 * SLICK_FIRE_FRAC * soakT} nominal`)
     assert.ok(!lit.farLit && lit.farLost === 0, `a body OUTSIDE the oil must not catch: lit ${lit.farLit}, lost ${lit.farLost}`)
     assert.ok(plain.fires === 0 && !plain.vicLit && plain.vicLost === 0,
       `control: with no torch nothing lights (${plain.fires} fires) and nothing burns (${plain.vicLost})`)
@@ -8771,7 +8775,7 @@ function runPrey() {
     assert.strictEqual(lit.lateLost, 0, `once the oil is gone nothing in it burns: the body lost ${lit.lateLost} after burn-out + linger`)
     assert.ok(plain.goneT < 0 && plain.halfR > 100,
       `control: an unlit spill never shrinks (r ${plain.halfR.toFixed(0)} at ${SLICK_BURN_T / 2}s, gone at ${plain.goneT})`)
-    console.log(`PASS run PY.z (the spill burns away): the torch lit the oil at t=${lit.firstFireT.toFixed(2)} from where it stood, the other body in it lost ${lit.vicLost} HP in 3s, the one outside lost 0, the player paid ${lit.playerLost} in both arms, and the oil was half gone at ${lit.halfR.toFixed(0)}/${lit.halfFull.toFixed(0)}px, gone at ${lit.goneT.toFixed(2)}s, and stayed gone`)
+    console.log(`PASS run PY.z (the spill burns away): the torch lit the oil at t=${lit.firstFireT.toFixed(2)} from where it stood, the other body in it lost ${lit.vicLost} HP in ${soakT}s, the one outside lost 0, the player paid ${lit.playerLost} in both arms, and the oil was half gone at ${lit.halfR.toFixed(0)}/${lit.halfFull.toFixed(0)}px, gone at ${lit.goneT.toFixed(2)}s, and stayed gone`)
 
     // THE PLAYER'S OWN POOL BURNS FASTER — through the real weapon, so the `look: 'bilge'` tag that
     // routes it to BILGE_BURN_T is the shipped one, not a fixture's. Measured as the RADIUS at

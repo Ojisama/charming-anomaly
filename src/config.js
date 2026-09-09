@@ -11353,7 +11353,7 @@ export const OIL_STAIN_MAX = 0.20    // hard ceiling on `oiled`, forever
 export const SLICK_BURN_T = 5 * 2      // s a lit leak spill takes to burn down to nothing ("double the time", 2026-09-07)
 export const BILGE_BURN_T = 2.5 * 2    // s a lit Bilge pool takes — half the leak's, the owner's own ratio
 export const SLICK_FIRE_SPREAD_T = 0.5 // s the flame takes to run from the body that lit it to the rim (render reads it)
-export const SLICK_FIRE_FRAC = 0.2     // of a body's maxHP per second, while inside a lit spill
+export const SLICK_FIRE_FRAC = 0.2 * 2 // of a body's maxHP per second, while inside a lit spill ("double the damage", 2026-09-09)
 export const SLICK_FIRE_LINGER = 1.0   // s the burning TELL stays on a body after it leaves — the damage stops at the rim
 // Fraction of a lit oil's radius still there: 1 unlit, 0 burnt out. `burn` is seconds since it caught.
 export const oilLeft = (sl) => sl.burn == null ? 1 : Math.max(0, 1 - sl.burn / (sl.look === 'bilge' ? BILGE_BURN_T : SLICK_BURN_T))
