@@ -1361,7 +1361,7 @@ function generateWells(sig) {
  *   straight off this list.
  * shafts[i]: { x, y, bx, by, r, phase, _cell, feeding, gape?, _shutT?, drawdown?, fouled? } — v7.x Book 2: streamed REFILL
  *   CIRCLES the player stands in to refill `charge`. ONE list fed from any of FOUR places, decided
- *   by refillSpec() (config.js): The Shelf's sun shafts (its signature IS the refill spec:
+ *   by refillSpec() (config.js): The Shelf's upwellings (its signature IS the refill spec:
  *   cell/chance/r/minDist/driftAmp/driftHz sit directly on it), The Surf's tide pools
  *   (CHAPTERS.surf.signature.pools — no drift, since a pool is a hole in the sand rather than
  *   something that moves), The Reef's air pockets (CHAPTERS.reef.signature.pockets — no drift
@@ -2627,7 +2627,7 @@ export function createRun(meta, opts = {}) {
     // v7.x Book 2: REFILL CIRCLES (sim.js streamShafts/stepShafts), the same _obstacleSeed streaming
     // idiom as obstacles/eddies above with its OWN salts and its OWN cell cursor. Unconditional
     // like eddies, so every chapter carries the field, but only a signature refillSpec() recognises
-    // ever fills it — The Shelf's sun shafts, The Surf's tide pools and The Reef's air pockets,
+    // ever fills it — The Shelf's upwellings, The Surf's tide pools and The Reef's air pockets,
     // which are the same circle with three names and three looks (render.js's refillLook draws
     // whichever). Kept as `shafts` rather than renamed: the field name is quoted as a string in the
     // test suite and in this doc block, which is one of the two silent failure modes CLAUDE.md's

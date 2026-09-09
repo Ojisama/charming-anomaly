@@ -88,7 +88,7 @@ import {
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, circuitKnob, circuitLadder, caveSpecOf, refillGrantFor, swimthroughsFor, SWIMTHROUGHS_PER_LAP, CIRCUIT_GATE_VIS, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
-  KITE_MIN_SPEED, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS,
+  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
@@ -6316,8 +6316,39 @@ function runShelfLight() {
     assert.strictEqual(r._shaftCellI, undefined, 'the shaft cell cursor must never be written outside a shafts chapter')
   }
 
-  // (h) The Pulse is DELETED: no chapter fields the plain Pulse after the merge (The Shelf has its
-  // own Clear button, The Deep has Scent), so there is nothing left to measure here.
+  // (h) The Pulse: an EMPTY bar still fires the shipped v5.21 shove (the floor that stops the spiral
+  // where having no charge prevents you from earning charge), and a full bar spends exactly
+  // PULSE_CHARGE_COST on one press. RESTORED AND RE-POINTED TO THE SHELF (2026-09-09, coordinator
+  // correction): the original ruling deleted this arm claiming "no chapter fields the plain Pulse
+  // after the merge" — wrong. stepRepulse only RETURNS early for `shorebreak` and `burst` (The
+  // Surf, The Reef); The Shelf's `clear` and The Deep's `scent` both still push a `repulse` event
+  // and spend PULSE_CHARGE_COST, same as every other resource chapter (sim.js ~1574). What is NOT
+  // restored is the full-bar RADIUS claim: on a `clear` chapter stepRepulse widens to
+  // CLEAR_RADIUS_AT_FULL instead of PULSE_RADIUS_AT_FULL (sim.js ~1620), and run CL already proves
+  // that reach — this arm only re-proves the cost, which is computed before that branch and is the
+  // same number on every chapter.
+  {
+    const empty = mkRun()
+    empty.charge = 0
+    empty.repulseCd = 0
+    stepSim(empty, { x: 0, y: 0, skill: true }, 1 / 60)
+    const e0 = empty.events.find((e) => e.type === 'repulse')
+    assert.ok(e0, 'an empty bar must still fire the Pulse')
+    assert.ok(Math.abs(e0.r - REPULSE_RADIUS) < 1e-9, `an empty bar fires at the shipped floor ${REPULSE_RADIUS}, got ${e0.r}`)
+    assert.strictEqual(empty.charge, 0, 'an empty bar spends nothing')
+
+    const full = mkRun()
+    full.charge = res.max
+    full.repulseCd = 0
+    stepSim(full, { x: 0, y: 0, skill: true }, 1 / 60)
+    const e1 = full.events.find((e) => e.type === 'repulse')
+    assert.ok(e1, 'a full bar must fire the Pulse')
+    // The same step also applies one frame of DRAIN, so subtract it rather than widening the band:
+    // a tolerance big enough to swallow the drain would also swallow a 3% error in the cost itself.
+    const spend = res.max - full.charge - res.drain / 60
+    assert.ok(Math.abs(spend - PULSE_CHARGE_COST) < 0.01,
+      `a full spend costs exactly ${PULSE_CHARGE_COST} (net of one frame's drain), measured ${spend.toFixed(4)}`)
+  }
 
   // (i) The Beyond is untouched. It declares no resource, so its t is 0 forever and its pulse must
   // be byte-identical to the shipped one — the lane chapter shares this function and nothing else.
@@ -6332,7 +6363,7 @@ function runShelfLight() {
     assert.strictEqual(lane.charge, 0, 'The Beyond has no resource and must never accrue charge')
   }
 
-  console.log(`PASS run BL (The Shelf's shafts): bar drains/refills/clamps, shafts DRIFT with no cell crossing at exactly ${sig.driftAmp}px and ${(sig.driftAmp * sig.driftHz).toFixed(0)} px/s, RNG-free streaming, pond and beyond untouched`)
+  console.log(`PASS run BL (The Shelf's shafts): bar drains/refills/clamps, shafts DRIFT with no cell crossing at exactly ${sig.driftAmp}px and ${(sig.driftAmp * sig.driftHz).toFixed(0)} px/s, RNG-free streaming, empty bar keeps the ${REPULSE_RADIUS}px floor and a full press spends exactly ${PULSE_CHARGE_COST}, pond and beyond untouched`)
 }
 run(runShelfLight)
 
@@ -6604,39 +6635,11 @@ function runRoachSoftening() {
     console.log(`PASS run RO.f (spdMul is the LUNGE's speed knob): ${(st.soft.dashD / st.soft.dashN).toFixed(2)} px/frame vs ${(st.plain.dashD / st.plain.dashN).toFixed(2)} (x${spd.toFixed(2)}), same window (x${window.toFixed(2)}), same wind-up (x${idle.toFixed(2)})`)
   }
 
-  // (g) A SHIPPED SET OF NUMBERS DELIVERS ALL THREE HALVINGS TOGETHER. Everything above proves the
-  // three knobs are WIRED; this proves a real set of values compounds the way the owner asked.
-  // FIXTURE, not a CHAPTERS read: these were The Twilight's krill numbers (owner, 2026-08-17: "Krill
-  // dash should be 50% slower and 50% less frequent and 50% shorter"), kept here as a fixture after
-  // the chapter left — the mechanism this proves (three knobs compounding to a quarter-distance
-  // lunge) is chapter-agnostic and does not need a live roster entry to exercise it.
-  {
-    const KRILL = { restMul: 2.48, lenMul: 0.5, spdMul: 0.5 }
-    const { run, plain, soft } = pairRun(KRILL)
-    const st = { plain: { n: 0, d: 0, f: 0 }, soft: { n: 0, d: 0, f: 0 } }
-    let prevP = 'idle', prevS = 'idle'
-    const SECS = 120
-    for (let i = 0; i < Math.round(SECS / dt); i++) {
-      const p0 = { x: plain.x, y: plain.y }, s0 = { x: soft.x, y: soft.y }
-      stepSim(run, { x: 0, y: 0 }, dt)
-      if (plain._dashPhase === 'dash') { st.plain.f++; st.plain.d += Math.hypot(plain.x - p0.x, plain.y - p0.y); if (prevP !== 'dash') st.plain.n++ }
-      else { plain.x = 300; plain.y = -200 }
-      if (soft._dashPhase === 'dash') { st.soft.f++; st.soft.d += Math.hypot(soft.x - s0.x, soft.y - s0.y); if (prevS !== 'dash') st.soft.n++ }
-      else { soft.x = 300; soft.y = 200 }
-      prevP = plain._dashPhase; prevS = soft._dashPhase
-      run.player.hp = run.player.maxHP
-    }
-    assert(st.plain.n > 40, `the control dasher must actually dash (${st.plain.n} in ${SECS}s) or the ratios below are noise`)
-    const rate = st.soft.n / st.plain.n
-    const spd = (st.soft.d / st.soft.f) / (st.plain.d / st.plain.f)
-    const reach = (st.soft.d / st.soft.n) / (st.plain.d / st.plain.n)
-    assert(Math.abs(rate - 0.5) < 0.08, `the fixture must dash HALF as often, measured x${rate.toFixed(3)}`)
-    assert(Math.abs(spd - 0.5) < 0.04, `and HALF as fast, measured x${spd.toFixed(3)} px/frame`)
-    // The three compound: half the speed for half the window is a QUARTER of the distance. Asserted
-    // explicitly because it is the surprising half of the owner's ask and the number worth reading.
-    assert(Math.abs(reach - 0.25) < 0.05, `and lunge a QUARTER as far (half speed x half window), measured x${reach.toFixed(3)}`)
-    console.log(`PASS run RO.g (a shipped softened-dash fixture): one dash every ${(SECS / st.soft.n).toFixed(2)}s vs ${(SECS / st.plain.n).toFixed(2)}s (x${rate.toFixed(2)}), at x${spd.toFixed(2)} speed, lunging ${(st.soft.d / st.soft.n).toFixed(0)}px vs ${(st.plain.d / st.plain.n).toFixed(0)}px (x${reach.toFixed(2)})`)
-  }
+  // (g) DELETED (2026-09-09, coordinator correction): its literal fixture
+  // `{restMul: 2.48, lenMul: 0.5, spdMul: 0.5}` cannot fail on any config change — no shipped
+  // roster entry carries `spdMul` at all any more — and arm (f) above already proves the spdMul
+  // knob in isolation. Restoring it as a fixture (Task 4's first pass) kept a 120s sim earning
+  // nothing a mutation could kill.
 
   console.log('PASS run RO (per-roster softening): the roster can soften ONE creature\'s dash cadence, reach, SPEED and damage without moving the shared DASH_* globals or the chapter\'s balance block')
 }
@@ -11053,10 +11056,48 @@ function runDark() {
       `The Deep's dark must NOT slow (speedFloor 1, its own ruling) — a slow leaked in (empty ${empty.toFixed(1)}px vs full ${lit.toFixed(1)}px)`)
   }
 
-  // (c) "it joins the slow MIN" is DELETED: The Deep's dark no longer slows at all (speedFloor 1,
-  // arm (b) above), so there is no dark-side slow left to compose against a latch here. The MIN
-  // composition itself is still proven — on The Shelf, which still slows in the dark — by run PB7's
-  // Runoff arm.
+  // (c) it joins the slow MIN, it does not multiply into it. The strongest slow wins, so standing
+  // in a web while dark is exactly as slow as the worse of the two — never the product. Without
+  // this, every web and every latch in this chapter is silently nastier than the same web anywhere
+  // else, which is a difficulty change nobody asked for and which no test would otherwise notice.
+  // RE-POINTED TO THE SHELF (2026-09-09, coordinator correction): The Deep's own dark no longer
+  // slows at all (speedFloor 1, arm (b) above), so it cannot prove this composition any more — but
+  // The Shelf's murk still does (speedFloor < 1), and sim.js's darkMul still folds into the shared
+  // Math.min(...) there (sim.js ~792). PB7's Runoff arm is a DIFFERENT claim — Runoff DEEPENS this
+  // same floor rather than joining the MIN as a sixth term (sim.js ~749) — so it does not already
+  // cover this; deleting this arm citing PB7 was wrong.
+  //
+  // Composed against the LATCH slow rather than a web: latch is a plain player field (slowT) with
+  // no entity shape to get wrong, and the two constants differ (0.55 vs the 0.6 floor), so this
+  // still tells MIN from a product. A hand-built run.webs fixture measured x0.993 — the fixture was
+  // not slowing anything, which would have made the assertion vacuous rather than failing loudly.
+  {
+    const resShelf = CHAPTERS.shelf.resource
+    const dShelf = resShelf.dark
+    const travelShelf = (charge, extra) => {
+      Math.random = mulberry32(4242)
+      const run = createRun(deepMeta(), { chapter: 'shelf', difficulty: 1 })
+      run.shafts.length = 0              // no refill: the bar must hold where it is put
+      run.charge = charge
+      if (extra) extra(run)
+      const x0 = run.player.x, y0 = run.player.y
+      for (let i = 0; i < 60; i++) {
+        run.charge = charge              // re-pin: stepCharge drains it, and this measures ONE level
+        stepSim(run, { x: 1, y: 0, skill: false }, 1 / 60)
+        run.events.length = 0
+      }
+      return Math.hypot(run.player.x - x0, run.player.y - y0)
+    }
+    const latched = (charge) => travelShelf(charge, (run) => { run.player.slowT = 10 })
+    const lit = travelShelf(resShelf.max)
+    const latchLit = latched(resShelf.max) / lit
+    const latchDark = latched(0) / lit
+    assert.ok(Math.abs(latchLit - LATCH_SLOW_MUL) < 0.02,
+      `a latch alone must slow to x${LATCH_SLOW_MUL}, got x${latchLit.toFixed(3)} — if this is 1 the fixture is not slowing and the next assertion proves nothing`)
+    const strongest = Math.min(LATCH_SLOW_MUL, dShelf.speedFloor)
+    assert.ok(Math.abs(latchDark - strongest) < 0.02,
+      `latch + The Shelf's murk must be the STRONGEST of the two (x${strongest}), not the product (x${(LATCH_SLOW_MUL * dShelf.speedFloor).toFixed(3)}) — measured x${latchDark.toFixed(3)}`)
+  }
 
   // (d) a chapter with no resource is untouched. The Pond shares stepPlayer, and the guard that
   // keeps it out of this is one optional-chain away from being deleted by accident.
@@ -11183,7 +11224,7 @@ function runDark() {
       'the dark must stay below the damage vignette/flash, or it takes the safety cues with it')
   }
 
-  console.log(`PASS run DK (the dark): two schedules on purpose — the light you emit closes LINEARLY from ${d.radiusFull}x to ${d.radiusEmpty}x the screen longest side across the WHOLE bar while speedFloor ${d.speedFloor} means The Deep's dark does NOT slow the player, pond untouched, player and shafts filled into an OPAQUE lightmap composited by multiply (no alpha, no bake, no cut)`)
+  console.log(`PASS run DK (the dark): two schedules on purpose — the light you emit closes LINEARLY from ${d.radiusFull}x to ${d.radiusEmpty}x the screen longest side across the WHOLE bar while speedFloor ${d.speedFloor} means The Deep's dark does NOT slow the player, The Shelf's murk still MIN-composes with the latch slow rather than multiplying, pond untouched, player and shafts filled into an OPAQUE lightmap composited by multiply (no alpha, no bake, no cut)`)
 }
 run(runDark)
 
@@ -23204,7 +23245,7 @@ function testBarnacles() {
   console.log(`PASS run US.e-3 (barnacles): a crust ticks its host down (dead with ${hostTAtDeath.toFixed(2)}s left of ${lvl.crustDur}s), seeds ${seeded.length} of 1 neighbour within ${BARNACLE_JUMP_R}px at a FULL ${child.t.toFixed(2)}s each and jumps=${child.jumps}, and reaches nothing at ${DISTANT_PX}px`)
 }
 
-// ---- run SH: The Shelf's three natives ---------------------------------------------------------
+// ---- run SH: The Deep's four light cards ---------------------------------------------------------
 // Every assertion here is on an EFFECT — damage that landed, a body that was reached, a position
 // that is genuinely somewhere else — and never on a stored number. The three failures this suite is
 // written against all pass a state check:
@@ -32858,9 +32899,10 @@ function testUndertowLadder() {
 
     // (e8) THE DRAWDOWN. Standing in an upwelling uses it up over `drawdownSecs`, and the failure
     // mode is silence in both directions: a drawdown that never accumulates is an ordinary infinite
-    // refill (the chapter becomes The Twilight with a different palette), and one that never STOPS
-    // feeding is the same thing wearing a fade. Neither throws, and the bar looks plausible either
-    // way. Driven through stepSim rather than by reaching into stepCharge, which is not exported.
+    // refill circle (a plain `shafts` field with none of this chapter's own spend rule), and one
+    // that never STOPS feeding is the same thing wearing a fade. Neither throws, and the bar looks
+    // plausible either way. Driven through stepSim rather than by reaching into stepCharge, which is
+    // not exported.
     {
       const sig = CHAPTERS.shelf.signature
       const LIFE = sig.drawdownSecs

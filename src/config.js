@@ -2171,11 +2171,13 @@ export const WEAPONS = {
     ],
   },
   // -- The Deep's three natives ---------------------------------------------------------------
-  // The chapter is one resource seen from three sides. `resource` (CHAPTERS.shelf) is a bar that
-  // drains in the dark and refills in a sun shaft, and until now it bought exactly one thing: the
-  // Pulse's shove. These three make it a BUILD decision as well as a timer — the starter ignores it,
-  // and the two rares read it in opposite directions, so a player who owns both is never simply
-  // "topped up" or "empty", they are always strong at one end of their own bar.
+  // The chapter is one resource seen from four sides. `resource` (CHAPTERS.deep) is the Light bar
+  // that drains in the dark and refills only at an anglerfish maw, and until this pool it bought
+  // exactly one thing: Scent. These four make it a BUILD decision as well as a timer — the starter,
+  // Glint, SPENDS it (GLINT_LIGHT_COST per cast, run SH.d, and still fires at zero — spec §3.1),
+  // Sunspear reads it not at all, and the two rares read it in opposite directions — so a player who
+  // owns the whole pool is never simply "topped up" or "empty", they are always strong at one end of
+  // their own bar.
   //
   // ⚠ THIS IS NOT resourceDamageMul, AND THE DIFFERENCE IS THE WHOLE ARGUMENT. That helper's block
   // says §5.3 spent the book's ONE licence for a bar that drives weapon output, spent it on The
@@ -2188,8 +2190,9 @@ export const WEAPONS = {
   //     real one on anything that ticks: throughput is set by how much of the field you cover, not
   //     by the number on a tick.)
   //   - it is OPT-IN PER CARD, not per chapter. resourceDamageMul taxes every weapon a chapter has;
-  //     these are two cards out of a pool, and Sunspear — the starter, the one weapon every Shelf
-  //     run begins with — reads the bar not at all. A run that never picks a rare never meets this.
+  //     these are two cards out of a four-card pool, and Sunspear reads the bar not at all — a run
+  //     that never picks a rare never meets this. (Glint SPENDS the bar rather than reading it,
+  //     which is a different mechanism and not one resourceDamageMul could tax either way.)
   // Neither rare can spiral, for the same reason BURST_DUR_MIN and BREACH_R_MIN exist: Sunlance is
   // the one that gets WORSE as the bar empties, so its reach has a floor (SUNLANCE_REACH_MIN) and an
   // empty bar still fires a real lance. Foxfire moves the other way and needs no floor.
