@@ -291,16 +291,23 @@ it dominates."** So §6 gains a fourth item: `weapon-census.mjs --chapter deep -
 new starter, Sunspear, Foxfire and Sunlance in ONE invocation; if Sunspear is the pool's runaway
 best the knob comes back down with the table shown, not silently.
 
-## R2.3 A shipped save migration writes `meta.chapters.twilight` — §3's "nothing migrates" is false
+## R2.3 The shelf→twilight save hop must be DELETED with the id, not extended
 
-`state.js:317-318` MOVES the light chapter's whole ladder (difficulty, wins, best times) from
-`chapters.shelf` into `chapters.twilight` on every load, because the light chapter used to be
-slot 2; `sim-test.js:32913` asserts it. Delete the id and every returning player's real
-progress is stranded in a slot nothing reads. **Fix, additive by construction:** a second hop
-`chapters.twilight → chapters.deep` taking the MAX of each field, guarded so it runs once; the
-first hop is kept (an old build still writes `twilight`, and the second hop picks it up on the
-next load); `chapters.twilight` is never deleted (meta is additive-only, CLAUDE.md). The test at
-32897–32920 asserts the new destination.
+`state.js:317-320` moves `chapters.shelf` into `chapters.twilight` when the latter is absent —
+written for the 2026-08-17 move, when the light chapter left slot 2. The reviewer read it as
+stranding returning players' progress. **Owner: "The deep and twilight levels have never been
+published so there is no existing record or score"** — and the repo agrees: The Shelf went
+public at v7.196 (fa481f7), *after* the move at v7.133, so the hop never had public progress to
+carry and there is nothing to migrate into `deep`. Rev 1's "nothing migrates" stands.
+
+**But the hop is live code and its guard is the deleted key.** Today `ensureChapterMeta` creates
+`chapters.twilight` on every load (it walks `ALL_CHAPTER_IDS`), so the hop fires at most once and
+in practice never. Remove `twilight` from the chapter list and that key is no longer created; a
+NEW player's first load skips the hop (no `chapters` yet), and their **second load fires it** —
+moving their real, live Shelf ladder into a dead `twilight` slot and resetting the Shelf. So
+§5.1 gains one row: **delete the hop (`state.js:305-320`, comment included) and its test
+(`sim-test.js:32897-32920`)**. No replacement hop; `chapters.twilight` keys already present in
+saves are left alone (additive-only) and read by nothing.
 
 ## R2.4 Deletion sites §5 missed — all added to the bill
 
