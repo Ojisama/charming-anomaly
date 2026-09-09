@@ -178,6 +178,25 @@ under `designing-an-enemy`; phases 2 (look) and 3 (numbers) each end at a furthe
 | fast | **Fangtooth** | A burst dash at you: the viperfish's behaviour under a more abyssal skin. | `dashBurst`, free. |
 | tank | **Siphonophore** | A colony as long as a bus that comes apart into zooids when killed. | `split`, free. The zooids inherit `rosterId` (spawnSplitChildren), so they wear the parent's bake at `SPLIT_RADIUS_FRAC`; a second pose for the zooid is a look decision for phase 2. |
 
+**A fourth entry, ruled during the look round: the Barreleye, a second `normal`.** Owner: "Add a
+fourth 'normal' mob." Its feel is the beacon rule with a bigger number: eyes made for the dark, it
+notices your lamp from further than anything else and is always the first to arrive. Flagless;
+one per-creature multiplier on the beacon's notice range, so it costs nothing the beacon does not
+already cost. It shares the `normal` archetype's spawn share with the lanternfish (`weight` splits
+it — a phase 3 number).
+
+**Phase 2 (look) rulings, same session, off `scripts/scenes/deep-cast.js`:**
+
+| Creature | Picked | Note |
+|---|---|---|
+| Lanternfish | flank rows of photophores | over a single headlamp and a scattered constellation |
+| Fangtooth | the open-jaws cut, redrawn so **"jaws are most of the fish"** | two jaws hinged a third back, thrown wide, dark throat between, small body behind |
+| Siphonophore | **"both a and c"**: A's pink translucency, tentacles and glowing float on C's paired-bell stem | split children wear the same bake at `SPLIT_RADIUS_FRAC` |
+| Barreleye | the realistic cut, hover pose, **dome reduced to a hint** | three rulings in a row: "ugly, make them more realistic", "more defined", "the glass dome looks plain weird". From above a real barreleye is a dark fish with two green lenses on its head; the transparent membrane is nearly invisible, and drawing it as a bright disc read as a helmet. Kept as a faint gradient and one glint. |
+
+The lanternfish's own light is a `glow` field on its `ROSTER_LOOKS` entry, read by `updateDark`
+with the lures' partial-punch idiom; the dark frame of the cast scene is what keeps it honest.
+
 **Hagfish, viperfish and gulper leave the game** with their looks and cast thumbs, on the same
 terms as §5.1's copepod and krill. The Gulper Eel therefore does move after all — out.
 

@@ -2871,157 +2871,255 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 1.5, r)
   }
 
-  // ---- The Deep (Book 2 chapter 5) ------------------------------------------------------------
-  // Four bodies for the darkest floor in the game, and the whole set is built on ONE constraint:
-  // down here a body is not read by its colour, because there is barely any light on it. Every one
-  // of these separates on OUTLINE and on the placement of its few bright marks — a lure, a row of
-  // photophores, a mouth — which is also what deep-sea animals actually do to each other.
-  //
-  // All four are PLAN VIEW and lean 90, the ordinary case: each is bilaterally symmetric about its
-  // own +x nose with paired eyes, and none of them has an UP. (The Shelf's moon jelly is the one
-  // side-on body in the game and it is deliberate — see CLAUDE.md. Nothing here is that case.)
-  //
-  // ⚠ THE ANGLERFISH'S MOUTH IS NOT BAKED HERE. Its gape changes per fish per frame, and a bake is
-  // a texture made once at boot, so the opening mouth is drawn as a per-frame overlay from the
-  // published `gape` field (drawDeepTells). What is baked is the body, the teeth and the dark
-  // socket the gape opens over — the parts that never move.
-  //
-  // hagfish: a rope. No fins, no shoulders, no taper worth the name — the one body in the game whose
-  // outline is very nearly a constant-width tube, which is exactly what separates it from every
-  // other fish on this floor without needing a single colour to survive the dark.
-  function drawHagfish(g, elite, white) {
-    const r = 16
-    const f = (c) => white ? 0xffffff : c
-    const line = f(0x2a1f22)
-    const skin = f(0x8f6f72)
-    const pale = f(0xc0a29e)
-    const lw = Math.max(2, r * 0.09)
-    const noseX = r * 1.15
-    const len = r * 2.5
-    const spine = (t) => [noseX - t * len, Math.sin(t * 5.4) * r * 0.3]  // a body caught mid-writhe
-    const body = (t) => r * 0.19 * Math.max(0.35, 1 - Math.pow(Math.max(0, t - 0.72) / 0.28, 1.3) * 0.6)
-    groundShadow(r * 1.1, r * 0.3)
-    g.poly(spineOutline(spine, body, 40)).fill(skin).stroke({ width: lw, color: line })
-    if (!white) {
-      // THE SLIME PORES, the one mark it has: a row down each flank, which is literally where a
-      // hagfish's slime glands are and the tell for the webZone patch it leaves behind.
-      for (let i = 0; i < 9; i++) {
-        const t = 0.12 + i * 0.085
-        const [px, py] = spine(t)
-        const w = body(t)
-        for (const s of [-1, 1]) g.circle(px, py + s * w * 0.75, r * 0.048).fill({ color: pale, alpha: 0.8 })
-      }
-      // The head is barely a head — a blunt cap and four barbels, no jaw. A hagfish has no jaws at
-      // all, and the absence is the animal.
-      const [hx, hy] = spine(0.04)
-      g.circle(hx, hy, r * 0.21).fill({ color: skin }).stroke({ width: lw * 0.7, color: line })
-      for (let i = 0; i < 4; i++) {
-        const a = -0.9 + i * 0.6
-        g.moveTo(hx + r * 0.14, hy).lineTo(hx + r * 0.14 + Math.cos(a) * r * 0.34, hy + Math.sin(a) * r * 0.3)
-          .stroke({ width: Math.max(0.8, r * 0.03), color: pale, alpha: 0.8 })
-      }
-    }
-    if (elite) eliteCrown(-r * 1.4, r)
-  }
 
-  // viperfish: the fast slot, and it is all jaw and light. A thin dark ribbon you would lose against
-  // this floor entirely if not for two things: fangs too long to close over, and a line of
-  // photophores down each flank. Both are real viperfish anatomy and both are legible at 16px.
-  function drawViperfish(g, elite, white) {
+
+
+  // ---- The Deep's re-cut roster (2026-09-09, spec 2026-09-09-deep-twilight-merge §7b) -----------
+  // Four bodies picked off contact sheets (scripts/scenes/deep-cast.js), each about the player's
+  // LIGHT: the lanternfish carries its own (the only enemy visible outside the lamp — see `glow`
+  // in ROSTER_LOOKS and the punch in updateDark), the fangtooth is the dash, the siphonophore
+  // splits, the barreleye is the one that sees you first. Same constraint as the floor's old
+  // four: separate on OUTLINE and on where the few bright marks sit, because colour barely
+  // survives down here. All PLAN VIEW, lean 90.
+  const lanternBody = (r, deep) => (t) => {
+    const cap = t < 0.1 ? Math.sqrt(Math.max(0, 1 - Math.pow((0.1 - t) / 0.1, 2))) : 1
+    return r * deep * cap * Math.max(0.08, Math.sin(Math.PI * Math.min(1, 0.06 + t * 0.94)))
+  }
+  const lanternTail = (g, tx, r, skin, line, lw) => {
+    g.poly([tx + r * 0.08, 0, tx - r * 0.42, r * 0.34, tx - r * 0.26, 0, tx - r * 0.42, -r * 0.34])
+      .fill({ color: skin, alpha: 0.9 }).stroke({ width: lw * 0.5, color: line })
+  }
+  const photophore = (g, x, y, rad, glow) => {
+    g.circle(x, y, rad * 2.2).fill({ color: glow, alpha: 0.18 })
+    g.circle(x, y, rad).fill({ color: glow, alpha: 0.95 })
+  }
+  // lanternfish: the classic myctophid — a deep spindle, a big eye, and a ROW of photophores down
+  // each flank (owner's pick over a single headlamp and a scattered constellation).
+  function drawLanternfish(g, elite, white) {
     const r = 16
     const f = (c) => white ? 0xffffff : c
-    const line = f(0x0b1418)
-    const skin = f(0x1f3038)
-    const glow = f(0x9fe0ff)
-    const tooth = f(0xf0efe4)
+    const line = f(0x070d16), skin = f(0x16283f), glow = f(0x8ff4ff)
     const lw = Math.max(2, r * 0.09)
-    const noseX = r * 1.1
-    const len = r * 2.4
+    const noseX = r * 1.05, len = r * 2.1
     const spine = (t) => [noseX - t * len, 0]
-    const body = (t) => {
-      const rise = Math.pow(Math.min(1, t / 0.22), 0.6)
-      const fall = Math.pow(Math.max(0, 1 - (t - 0.22) / 0.74), 1.7)
-      return r * 0.22 * Math.max(0.06, t < 0.22 ? rise : fall)
-    }
-    groundShadow(r * 1.0, r * 0.22)
-    const [tx] = spine(0.96)
-    g.poly([tx + r * 0.05, 0, tx - r * 0.5, r * 0.3, tx - r * 0.34, 0, tx - r * 0.5, -r * 0.3])
-      .fill({ color: skin, alpha: 0.9 }).stroke({ width: lw * 0.5, color: line })
+    const body = lanternBody(r, 0.36)
+    groundShadow(r * 1.0, r * 0.36)
+    lanternTail(g, spine(1)[0], r, skin, line, lw)
     g.poly(spineOutline(spine, body, 34)).fill(skin).stroke({ width: lw, color: line })
     if (!white) {
-      // The fangs. FOUR, long, and reaching PAST the snout — a viperfish's teeth do not fit inside
-      // its mouth, and drawing a mouthful of small ones instead reads as a grey smudge.
-      for (const s of [-1, 1]) {
-        for (let i = 0; i < 2; i++) {
-          const bx = noseX - r * 0.1 - i * r * 0.16
-          const by = s * r * 0.1
-          g.poly([bx, by, bx + r * 0.42 - i * r * 0.1, by + s * r * 0.05, bx + r * 0.04, by + s * r * 0.09])
-            .fill({ color: tooth, alpha: 0.94 })
-        }
+      for (let i = 0; i < 7; i++) {
+        const t = 0.2 + i * 0.1
+        const [px] = spine(t); const w = body(t)
+        for (const sg of [-1, 1]) photophore(g, px, sg * (w - r * 0.04), r * 0.06, glow)
       }
-      // Photophores: the row of lights down each flank, and the only colour on the animal.
-      for (let i = 0; i < 8; i++) {
-        const t = 0.22 + i * 0.085
-        const [px] = spine(t)
-        const w = body(t)
-        for (const s of [-1, 1]) {
-          g.circle(px, s * (w + r * 0.02), r * 0.055).fill({ color: glow, alpha: 0.85 })
-        }
-      }
-      for (const s of [-1, 1]) darkEye(g, noseX - r * 0.42, s * r * 0.11, r * 0.075, r * 0.07, 0x040a0d, true)
+      for (const sg of [-1, 1]) darkEye(g, noseX - r * 0.36, sg * r * 0.16, r * 0.13, r * 0.12, 0x0a1218, true)
     }
-    if (elite) eliteCrown(-r * 1.3, r)
+    if (elite) eliteCrown(-r * 1.2, r)
+  }
+  // fangtooth: THE JAWS ARE THE FISH (owner: "where jaws are most of the fish"). Two jaws hinged a
+  // third of the way back and thrown wide toward +x with a dark throat between them; the body is
+  // a small oval and a tail behind the hinge.
+  function drawFangtooth(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0x06040a), skin = f(0x201a1e), gum = f(0x5a1f2c), tooth = f(0xf2efe6)
+    const lw = Math.max(2, r * 0.1)
+    groundShadow(r * 1.1, r * 0.5)
+    // A small body BEHIND the hinge — the animal is the mouth, the rest is what carries it.
+    g.poly([-r * 0.3, 0, -r * 1.35, r * 0.3, -r * 1.2, 0, -r * 1.35, -r * 0.3])
+      .fill({ color: skin, alpha: 0.9 }).stroke({ width: lw * 0.5, color: line })
+    g.ellipse(-r * 0.65, 0, r * 0.62, r * 0.36).fill(skin).stroke({ width: lw, color: line })
+    // Two jaws hinged at x = -0.3r and thrown WIDE toward +x: the gape is the silhouette.
+    for (const sg of [-1, 1]) {
+      g.poly([-r * 0.3, 0, r * 0.35, sg * r * 0.58, r * 1.12, sg * r * 0.7, r * 1.2, sg * r * 0.5, r * 0.55, sg * r * 0.3, -r * 0.25, sg * r * 0.12])
+        .fill(skin).stroke({ width: lw * 0.85, color: line })
+    }
+    if (!white) {
+      // The throat: the dark red wedge between the jaws is what says OPEN from across the screen.
+      g.poly([-r * 0.24, 0, r * 0.5, sg2(r, 1), r * 0.5, sg2(r, -1)]).fill({ color: gum, alpha: 0.95 })
+      for (const sg of [-1, 1]) {
+        // Teeth along the inner edge of each jaw, growing toward the tip; the last pair are the fangs.
+        for (let i = 0; i < 5; i++) {
+          const x = -r * 0.05 + i * r * 0.26
+          const y = sg * (r * 0.16 + i * r * 0.085)
+          const L = i >= 3 ? r * 0.42 : r * 0.2
+          g.poly([x, y, x + r * 0.05, y - sg * L, x - r * 0.06, y]).fill({ color: tooth, alpha: 0.96 })
+        }
+        darkEye(g, -r * 0.5, sg * r * 0.26, r * 0.1, r * 0.09, 0xe8e6da, false)
+      }
+    }
+    if (elite) eliteCrown(-r * 1.2, r)
+  }
+  const sg2 = (r, sg) => sg * r * 0.28
+  // siphonophore: the owner's "both a and c" off the sheet — translucent pink, trailing tentacles
+  // and a glowing float, on a straight stem with bells in ±y PAIRS, each pair a rung. Its split
+  // children wear this same bake at SPLIT_RADIUS_FRAC.
+  function drawSiphonophore(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0xd06a90), skin = f(0xffc4d8), tip = f(0xff8a5b)
+    const lw = Math.max(1.6, r * 0.05)
+    const headX = r * 1.05, len = r * 2.6
+    groundShadow(r * 1.3, r * 0.5)
+    g.moveTo(headX, 0).lineTo(headX - len, 0).stroke({ width: lw * 1.3, color: line, alpha: 0.9 })
+    for (let i = 0; i < 5; i++) {
+      const x = headX - r * 0.42 - i * r * 0.48
+      const br = r * (0.26 - i * 0.02)
+      for (const sg of [-1, 1]) {
+        const y = sg * r * 0.34
+        taperStroke(g, [[x - br * 0.5, y + sg * br * 0.5], [x - r * 0.35, y + sg * (br + r * 0.3)], [x - r * 0.62, y + sg * (br + r * 0.42)]],
+          Math.max(1, r * 0.035), 0.5, line, 4)
+        g.moveTo(x, 0).lineTo(x, y).stroke({ width: lw * 0.8, color: line, alpha: 0.9 })
+        g.ellipse(x, y, br, br * 0.82).fill(white ? 0xffffff : { color: skin, alpha: 0.55 }).stroke({ width: lw, color: line, alpha: 0.9 })
+      }
+    }
+    g.ellipse(headX, 0, r * 0.36, r * 0.3).fill(white ? 0xffffff : { color: skin, alpha: 0.8 }).stroke({ width: lw, color: line })
+    if (!white) photophore(g, headX + r * 0.1, 0, r * 0.1, tip)
+    if (elite) eliteCrown(-r * 0.6, r)
   }
 
-  // gulper eel: a mouth with a thread attached. The proportions ARE the animal — the head is most of
-  // the mass and the tail is a hair — so this is the one body here that needs no marks at all to be
-  // told apart from the other three at a glance, in the dark, at speed.
-  function drawGulperEel(g, elite, white) {
-    const r = 18
+  // Barreleye (Macropinna microstoma), drawn from the animal rather than from a cartoon of it, after
+  // the owner rejected the first three cuts ("that's ugly, make them more realistic"). What a
+  // barreleye IS from directly overhead: a short, deep, dark-brown body no longer than two of its
+  // own depths; a transparent fluid-filled SHIELD over the whole head, slightly wider than the head
+  // under it, with a bright rim where the membrane catches light; inside the shield two tubular eyes
+  // that point UP — so from above you look straight down the barrels, two green discs with a dark
+  // pupil each; two small dark olfactory pits at the snout in front of the shield, which are what
+  // people mistake for the eyes; and enormous fan-shaped pectoral fins with visible rays, held out
+  // wide when it hovers, which it does most of the time. The three cuts share every one of those
+  // and differ in POSE only. All plan view, lean 90.
+  const barrelBody = (r) => (t) => {
+    const rise = Math.pow(Math.min(1, t / 0.3), 0.55)
+    const fall = Math.pow(Math.max(0, 1 - (t - 0.3) / 0.7), 1.5)
+    return r * 0.4 * Math.max(0.09, t < 0.3 ? rise : fall)
+  }
+  // A fan fin: a translucent membrane over n rays radiating from one root, angles in radians from +x.
+  const finFan = (g, bx, by, a0, a1, len, n, ray, memb, lw) => {
+    const pts = [bx, by]
+    for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; pts.push(bx + Math.cos(a) * len, by + Math.sin(a) * len * 0.92) }
+    g.poly(pts).fill({ color: memb, alpha: 0.8 }).stroke({ width: Math.max(0.8, lw * 0.45), color: ray, alpha: 0.95 })
+    for (let i = 0; i <= n; i++) {
+      const a = a0 + (a1 - a0) * i / n
+      g.moveTo(bx, by).lineTo(bx + Math.cos(a) * len * 0.96, by + Math.sin(a) * len * 0.88)
+        .stroke({ width: Math.max(0.8, lw * 0.38), color: ray, alpha: 0.95, cap: 'round' })
+    }
+  }
+  function drawBarreleye(g, elite, white) {
+    const r = 16
     const f = (c) => white ? 0xffffff : c
-    const line = f(0x0d0a12)
-    const skin = f(0x241d2e)
-    const gum = f(0x5c2f3d)
-    const tipGlow = f(0xff9f6b)
-    const lw = Math.max(2, r * 0.1)
-    const noseX = r * 1.0
-    const len = r * 2.9
-    const spine = (t) => [noseX - t * len, Math.sin(t * 3.1) * r * 0.16]
-    // A hard, early peak and then a collapse to almost nothing: the pouch, then the whip.
-    const body = (t) => {
-      const rise = Math.pow(Math.min(1, t / 0.12), 0.45)
-      const fall = Math.pow(Math.max(0, 1 - (t - 0.12) / 0.88), 2.6)
-      return r * 0.66 * Math.max(0.035, t < 0.12 ? rise : fall)
-    }
-    groundShadow(r * 1.0, r * 0.55)
-    g.poly(spineOutline(spine, body, 40)).fill(skin).stroke({ width: lw, color: line })
+    // DEFINED, not murky (owner, 2026-09-09: "more defined"): the first cut's near-black skin
+    // vanished on this floor. Mid-brown body with a paler dorsal sheen, a heavy outline, opaque
+    // lighter fin membranes with dark rays, and a hard white rim on the shield.
+    const line = f(0x0c0806), skin = f(0x55402f), sheen = f(0x8a6c55), memb = f(0x9a8270), ray = f(0x1e1108)
+    const shield = f(0xdcf1fb), rim = f(0xffffff), iris = f(0x52e070), irisDark = f(0x1d6e34), pupil = 0x04120a
+    const lw = Math.max(2.4, r * 0.11)
+    const noseX = r * 0.95, len = r * 2.0
+    const spine = (t) => [noseX - t * len, 0]
+    const body = barrelBody(r)
+    groundShadow(r * 1.05, r * 0.42)
+    // HOVER pose (owner's pick): pectorals fanned out wide, the way it holds itself most of the time.
+    const pecA0 = 0.5, pecA1 = 2.05
+    const pecLen = r * 0.86
+    // Caudal: a rounded, slightly emarginate fin with rays, translucent.
+    const [tx] = spine(0.97)
+    for (const sg of [-1, 1]) finFan(g, tx + r * 0.04, 0, sg * 0.35 + Math.PI, sg * 0.05 + Math.PI, r * 0.5, 4, ray, memb, lw)
+    // Pelvics: a smaller fan pair well back on the body, mostly under it from above.
+    const [pvx] = spine(0.66)
+    for (const sg of [-1, 1]) finFan(g, pvx, sg * body(0.66) * 0.7, sg * 1.1, sg * 2.2, r * 0.36, 3, ray, memb, lw)
+    // Pectorals: THE fins. Rooted just behind the shield, fanned out and back.
+    const [pcx] = spine(0.44)
+    for (const sg of [-1, 1]) finFan(g, pcx, sg * body(0.44) * 0.85, sg * pecA0, sg * pecA1, pecLen, 6, ray, memb, lw)
+    // The body, then its dorsal sheen (the back is the highest point and catches what light there is).
+    g.poly(spineOutline(spine, body, 36)).fill(skin).stroke({ width: lw, color: line })
     if (!white) {
-      // The pouch, open. Drawn as a wedge from the hinge forward rather than as an ellipse, so the
-      // mouth has CORNERS and reads as hinged rather than as a hole cut in the head.
-      //
-      // ⚠ THE GUM IS THE ONLY REASON THIS READS AS A MOUTH. The first cut filled the pouch at
-      // 0x08060c against a 0x241d2e body — two near-blacks — and the thumbnail came back as a KITE:
-      // a dark wedge with a thread, no mouth in it at all. On a floor this dark an interior cannot
-      // be told from a body by its fill, so the opening is carried by a bright RIM instead, and the
-      // rim is thick enough to survive a 16px sprite.
-      g.poly([noseX - r * 0.62, 0, noseX + r * 0.34, -r * 0.62, noseX + r * 0.5, 0, noseX + r * 0.34, r * 0.62])
-        .fill({ color: f(0x0d0a14), alpha: 0.98 }).stroke({ width: lw * 1.15, color: gum })
-      for (const s of [-1, 1]) {
-        g.moveTo(noseX - r * 0.62, 0).lineTo(noseX + r * 0.34, s * r * 0.62)
-          .stroke({ width: lw * 1.3, color: gum, alpha: 1 })
+      g.poly(spineOutline(spine, (t) => body(t) * 0.45, 24, 0.3, 0.92)).fill({ color: sheen, alpha: 0.75 })
+      // Dorsal fin from above: a short low ridge of rays down the back, behind the shield.
+      for (let i = 0; i < 5; i++) {
+        const t = 0.5 + i * 0.07
+        const [dx] = spine(t)
+        g.moveTo(dx, -body(t) * 0.12).lineTo(dx - r * 0.06, body(t) * 0.12).stroke({ width: Math.max(0.6, lw * 0.3), color: ray, alpha: 0.5 })
       }
-      // The jaw line across the gape's leading edge, pale: the lip. It closes the wedge into a shape
-      // the eye reads as a container rather than as a corner of the body.
-      g.moveTo(noseX + r * 0.34, -r * 0.62).lineTo(noseX + r * 0.5, 0).lineTo(noseX + r * 0.34, r * 0.62)
-        .stroke({ width: lw * 0.9, color: f(0xa8697a), alpha: 0.9 })
-      // The tail tip is luminous in the real animal, and here it doubles as the cue that the thread
-      // trailing behind the mouth is still part of the same creature.
-      const [ttx, tty] = spine(0.99)
-      g.circle(ttx, tty, r * 0.13).fill({ color: tipGlow, alpha: 0.28 })
-      g.circle(ttx, tty, r * 0.06).fill({ color: tipGlow, alpha: 0.85 })
-      for (const s of [-1, 1]) darkEye(g, noseX - r * 0.5, s * r * 0.2, r * 0.075, r * 0.07, 0x05040a, true)
+      // Gill line: one thin curve where the head meets the body, just behind the shield.
+      const [gx] = spine(0.4)
+      g.moveTo(gx + r * 0.06, -body(0.4) * 0.9).quadraticCurveTo(gx - r * 0.1, 0, gx + r * 0.06, body(0.4) * 0.9)
+        .stroke({ width: Math.max(0.6, lw * 0.35), color: line, alpha: 0.6 })
     }
-    if (elite) eliteCrown(-r * 1.1, r)
+    // THE SHIELD, drawn as GLASS rather than as a pale sticker (owner, 2026-09-09: "the dome looks
+    // like it was painted on Paint by a kid"). What makes a transparent dome read as one from above:
+    //   - the head is VISIBLE THROUGH IT (a darker skull cap under the glass, drawn first);
+    //   - the fill is a radial gradient, brightest where the light hits the curve and nearly clear
+    //     in the middle, with a faint Fresnel lift back at the rim;
+    //   - the rim is NOT a uniform white line: a faint edge all round, one bright specular arc on
+    //     the lit side, and a thinner counter-highlight opposite;
+    //   - the eyes are lenses, not discs: a dark barrel ring, a graded green iris with spokes, a
+    //     black pupil, one small catch-light.
+    const bulge = 1.14
+    const [shx] = spine(0.21)
+    const srx = r * 0.4, sry = body(0.24) * bulge + r * 0.03
+    const rgba = (hex, a) => `rgba(${(hex >> 16) & 255},${(hex >> 8) & 255},${hex & 255},${a})`
+    if (!white) {
+      // the skull under the glass
+      g.ellipse(shx - r * 0.02, 0, srx * 0.86, sry * 0.8).fill({ color: f(0x2e2119), alpha: 0.95 })
+    }
+    const glass = white ? 0xffffff : new FillGradient({
+      type: 'radial', textureSpace: 'global',
+      center: { x: shx + srx * 0.28, y: -sry * 0.42 }, innerRadius: 0,
+      outerCenter: { x: shx, y: 0 }, outerRadius: Math.max(srx, sry) * 1.02,
+      colorStops: [
+        // BARELY THERE (owner: "this glass dome look just plain weird"). From above a real
+        // barreleye's membrane is almost invisible; what you see is a dark head with two green
+        // lenses in it and one small glint. The dome is now a hint, not a helmet.
+        { offset: 0, color: rgba(0xf4fbff, 0.22) },
+        { offset: 0.4, color: rgba(0xd8ecf6, 0.04) },
+        { offset: 0.85, color: rgba(0xcfe6f2, 0.03) },
+        { offset: 1, color: rgba(0xe8f6ff, 0.12) },
+      ],
+    })
+    g.ellipse(shx, 0, srx, sry).fill(glass)
+    if (!white) {
+      // faint edge all round, then the two highlights that say "curved"
+      g.ellipse(shx, 0, srx, sry).stroke({ width: Math.max(0.6, lw * 0.25), color: f(0xe4f3fb), alpha: 0.16 })
+      const arc = (a0, a1, wd, al) => {
+        g.beginPath()
+        for (let k = 0; k <= 14; k++) {
+          const a = a0 + (a1 - a0) * k / 14
+          const x = shx + Math.cos(a) * srx * 0.93, y = Math.sin(a) * sry * 0.93
+          if (k === 0) g.moveTo(x, y); else g.lineTo(x, y)
+        }
+        g.stroke({ width: wd, color: 0xffffff, alpha: al, cap: 'round' })
+      }
+      arc(-1.15, -0.55, Math.max(0.8, lw * 0.4), 0.5)    // one small glint, front-left, and nothing else
+      // The olfactory pits at the snout — IN FRONT of the shield — and the mouth at the tip.
+      for (const sg of [-1, 1]) g.ellipse(noseX - r * 0.1, sg * r * 0.09, r * 0.045, r * 0.035).fill({ color: 0x080605, alpha: 0.9 })
+      g.moveTo(noseX + r * 0.02, -r * 0.05).lineTo(noseX + r * 0.02, r * 0.05).stroke({ width: Math.max(0.6, lw * 0.3), color: line, alpha: 0.8 })
+      // The eyes: two lenses seen end-on inside the glass.
+      const [ex] = spine(0.23)
+      for (const sg of [-1, 1]) {
+        const ey = sg * r * 0.135, er = r * 0.115
+        g.circle(ex, ey, er * 1.7).fill({ color: iris, alpha: 0.1 })           // the lens's own faint glow
+        g.circle(ex, ey, er * 1.18).fill({ color: 0x07160c, alpha: 0.95 })     // the barrel's dark ring
+        const lens = new FillGradient({
+          type: 'radial', textureSpace: 'global',
+          center: { x: ex - er * 0.2, y: ey - er * 0.2 }, innerRadius: 0,
+          outerCenter: { x: ex, y: ey }, outerRadius: er,
+          colorStops: [
+            { offset: 0, color: rgba(0xb8ffc4, 1) },
+            { offset: 0.5, color: rgba(0x4fd66a, 1) },
+            { offset: 1, color: rgba(0x1c6b31, 1) },
+          ],
+        })
+        g.circle(ex, ey, er).fill(lens)
+        for (let k = 0; k < 6; k++) {                                           // iris spokes
+          const a = k * Math.PI / 3 + 0.3
+          g.moveTo(ex + Math.cos(a) * er * 0.35, ey + Math.sin(a) * er * 0.35)
+            .lineTo(ex + Math.cos(a) * er * 0.95, ey + Math.sin(a) * er * 0.95)
+            .stroke({ width: Math.max(0.5, er * 0.12), color: 0x1a5a2a, alpha: 0.55 })
+        }
+        g.circle(ex, ey, er * 0.36).fill({ color: pupil })
+        g.circle(ex - er * 0.32, ey - er * 0.34, er * 0.16).fill({ color: 0xffffff, alpha: 0.85 })
+      }
+    }
+    if (elite) eliteCrown(-r * 1.15, r)
   }
 
   // lionfish: the one body here that DOES share the reef's own hue, and it separates on shape alone.
@@ -4737,12 +4835,17 @@ export function createRenderer(app) {
     // paired fins in ±y, and nothing in any of them could be called UP. A missing key here is
     // SILENT — syncEnemies falls through to a generic archetype blob. See the Trawl section of the
     // draw fns for why the tank is a mammal and the fast one is all outline.
-    // v7.x The Deep (Book 2 chapter 5). THREE, and the anglerfish is not among them — it is a refill
-    // circle rather than a roster entry (owner: "they are not enemies, they are traps"), so its art
-    // is drawn straight into updateShafts' maw branch at the circle's own r. All PLAN VIEW, lean 90.
-    hagfish: { archetype: 'normal', draw: drawHagfish, lean: 90 },       // top-down: near-constant-width rope, slime pores in ±y rows
-    viperfish: { archetype: 'fast', draw: drawViperfish, lean: 90 },     // top-down: thin ribbon, fangs past the snout, photophore rows
-    gulper: { archetype: 'tank', draw: drawGulperEel, lean: 90 },        // top-down: open pouch at +x collapsing to a whip at -x
+    // v7.x The Deep. The anglerfish is not among them — it is a refill circle rather than a roster
+    // entry (owner: "they are not enemies, they are traps"), so its art is drawn straight into
+    // updateShafts' maw branch at the circle's own r.
+    // The Deep's re-cut roster (2026-09-09). `glow` is read by updateDark: a body carrying it
+    // punches the dark scrim the way a lure does, so the lanternfish is the one thing you can see
+    // coming from outside your lamp — which is its whole design. A missing key here is SILENT —
+    // syncEnemies falls through to a generic archetype blob.
+    lanternfish: { archetype: 'normal', draw: drawLanternfish, lean: 90, glow: { frac: 2.4, lit: 0.5, core: 0.96, coreFrac: 0.2 } },  // top-down: deep spindle, photophore rows ±y
+    barreleye: { archetype: 'normal', draw: drawBarreleye, lean: 90 },       // top-down: fan pectorals ±y, two green lenses on the head
+    fangtooth: { archetype: 'fast', draw: drawFangtooth, lean: 90 },         // top-down: jaws thrown wide ±y at +x, small body -x
+    siphonophore: { archetype: 'tank', draw: drawSiphonophore, lean: 90 },   // top-down: float +x, paired bells ±y down a stem
     // v7.x The Wreck's own three, added when the chapter's prey stopped being three sizes of one
     // animal (see the Wreck section of the draw fns). All PLAN VIEW, all lean 90 — each is
     // bilaterally symmetric about its own +x front with paired eyes and paired appendages in ±y.
@@ -15411,6 +15514,25 @@ const spurG = new Graphics()
       lg.addColorStop(LURE_GLOW.coreFrac, rgbAt(LURE_GLOW.lit))
       lg.addColorStop(1, rgbAt(0))
       darkCtx.fillStyle = lg
+      darkCtx.beginPath()
+      darkCtx.arc(ex * s, ey * s, Math.max(1, gr * s), 0, Math.PI * 2)
+      darkCtx.fill()
+    }
+
+    // BODIES THAT CARRY THEIR OWN LIGHT (ROSTER_LOOKS[id].glow — the lanternfish). The same
+    // 'lighten' pass and the same partial punch as a lure: the animal is visible from across the
+    // dark by its photophores, and nothing around it is.
+    for (const e of run.enemies) {
+      const gl = ROSTER_LOOKS[e.rosterId]?.glow
+      if (!gl || e._dead) continue
+      const ex = e.x + cx, ey = e.y + cy
+      const gr = e.radius * gl.frac
+      if (ex + gr < 0 || ex - gr > w || ey + gr < 0 || ey - gr > h) continue
+      const eg = darkCtx.createRadialGradient(ex * s, ey * s, 0, ex * s, ey * s, Math.max(1, gr * s))
+      eg.addColorStop(0, rgbAt(gl.core))
+      eg.addColorStop(gl.coreFrac, rgbAt(gl.lit))
+      eg.addColorStop(1, rgbAt(0))
+      darkCtx.fillStyle = eg
       darkCtx.beginPath()
       darkCtx.arc(ex * s, ey * s, Math.max(1, gr * s), 0, Math.PI * 2)
       darkCtx.fill()
