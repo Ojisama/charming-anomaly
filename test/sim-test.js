@@ -1525,14 +1525,15 @@ function testAnomalySlate() {
       // to the assertion below.
       const FX = ['whip', 'clawRake', 'roar', 'tail', 'gnash']
       // ⚠ SOME WEAPONS CANNOT BE MEASURED BY A MOTIONLESS PLAYER. The fixture below holds the stick
-      // at zero, which is right for the other 22 weapons — it keeps the ring of targets and the
-      // player in a fixed relationship, so `seen` is comparable frame to frame. Fin Hit's damage
-      // and its very existence read the player's VELOCITY (it returns early at a standstill and
-      // spawns nothing), so a motionless fixture reports "spawned nothing — untestable" for a
-      // weapon that is working perfectly. The stick is therefore per-weapon, and the set is
-      // explicit rather than a heuristic: any future movement-coupled card has to be added here or
-      // it will fail this assertion with a message about the wrong thing.
-      const NEEDS_MOTION = new Set(['finHit'])
+      // at zero, which is right for every weapon currently in the arsenal — it keeps the ring of
+      // targets and the player in a fixed relationship, so `seen` is comparable frame to frame.
+      // Fin Hit's damage and its very existence read the player's VELOCITY (it returned early at a
+      // standstill and spawned nothing), so a motionless fixture reported "spawned nothing —
+      // untestable" for a weapon that was working perfectly; it needed this override and is now
+      // deleted, so the set is empty. The stick is per-weapon, and the set stays explicit rather
+      // than a heuristic: the next movement-coupled card has to be added here or it will fail this
+      // assertion with a message about the wrong thing.
+      const NEEDS_MOTION = new Set([])
       // ⚠ AND SOME WEAPONS CANNOT BE MEASURED IN THE DEFAULT CHAPTER AT ALL. Fire Coral arms the
       // coral RIDGES, so in a chapter with no spur field it correctly does nothing and this
       // fixture reads 'spawned nothing — untestable' about a weapon that works. Same shape as the
@@ -23757,7 +23758,7 @@ function testLeLargeWeapons() {
     }
     assert.ok(calls.length >= 4, `found ${calls.length} spawnNova calls — the scan is broken, not the code`)
     const arced = calls.filter((c) => /\barc:/.test(c))
-    assert.ok(arced.length >= 3, `only ${arced.length} spawnNova calls carry a sector — expected the breaker, the fin and the puff`)
+    assert.ok(arced.length >= 2, `only ${arced.length} spawnNova calls carry a sector — expected the breaker's cone and its backwash`)
     for (const c of arced) {
       assert.ok(/\blook:/.test(c),
         'a spawnNova call carries `arc` but no `look`, so no drawer owns it and drawBreakers will: ' + c.replace(/\s+/g, ' ').slice(0, 120))

@@ -17,7 +17,7 @@ const q = new URLSearchParams(location.search)
 const CHARGE = Number(q.get('mawCharge') || 55)
 const GAPES = (q.get('mawGapes') || '0,0.55,1,2').split(',').map(Number)
 
-run.weapons = [{ id: 'finHit', level: 5 }]
+run.weapons = [{ id: 'glint', level: 5 }]
 H.breed(6)
 const crowd = H.keep(6)
 

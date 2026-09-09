@@ -805,11 +805,6 @@ const CONFIG = {
   //   ordinary French, so it costs the reader nothing and says exactly what the hooks do.
   //   The Filet Lesté desc deliberately does NOT repeat 'filet lesté', which is now the card's own
   //   name: a card whose description restates its title wastes the only two lines it has.
-  // The Deep's native. 'Coup de Nageoire' is the owner's pick over 'Coup de Queue' (punchier,
-  // and what a shark actually swings) precisely because it mirrors the English and the three
-  // mods that hang off it — Nageoire Large, Longue Nageoire — read as one family with it.
-  'Fin Hit': 'Coup de Nageoire',
-  'Your own body, swung where you turn. Worthless standing still — it hits as hard as you swim.': 'Ton propre corps, lancé où tu tournes. Inutile à l\'arrêt : il frappe aussi fort que tu nages.',
   'Longline': 'Ligne à Hameçons',
   'Sets a baited line across their path. Everything that touches it is hooked and bleeds.': 'Pose une ligne appâtée en travers de leur route. Tout ce qui la touche est ferré et saigne.',
   // The Trawl's epic (2026-09-01). 'On Rentre' is the owner's pick over Halage / À Bord / Ligne
@@ -1289,16 +1284,6 @@ const CONFIG = {
   'extra jump(s) when a crusted body dies': 'saut(s) supplémentaire(s) à la mort d\'un corps incrusté',
   // The Trawl's two natives. 'par tick' matches the Balanes rows just above — the same wording for
   // the same idea, so a player reading two grinder cards is not told it twice in two ways.
-  // 'balayage' for the sweep across all three, so the card, the sheet and the mods say one word
-  // for one thing — the rule the Coquille Ricochet entry states.
-  'Serrated': 'Dentelé',
-  'fin damage': 'dégâts de la nageoire',
-  'Broad Fin': 'Nageoire Large',
-  'how wide the sweep is': 'largeur du balayage',
-  'Long Fin': 'Longue Nageoire',
-  'sweep reach': 'portée du balayage',
-  'Thrash': 'Battement',
-  'sweep rate': 'cadence du balayage',
   'Barbed Hooks': 'Hameçons Barbelés',
   'hook damage per tick': 'dégâts des hameçons par tick',
   'Long Set': 'Longue Pose',

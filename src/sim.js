@@ -204,7 +204,6 @@ import {
   LONGLINE_HALF_W, LONGLINE_SNAG, LONGLINE_TWIN_GAP, LONGLINE_MAX_LIVE,
   MAW_GAPE_T, MAW_CLOSE_MUL, MAW_DEVOUR_FRAC, MAW_SHUT_T,
   SCENT_R, SCENT_DUR_MIN, SCENT_DUR_AT_FULL, SCENT_DMG_MUL, SCENT_SPEED_MUL,
-  FINHIT_SPEED_CAP, FINHIT_TURN_MIN, FINHIT_SWEEP_BIAS,
   // v5.24 The Blank (scripted boss chapter — see stepBossScript)
   BLANK_SCRIPT, BLANK_WAVE_TIMEOUT, BLANK_BOSS_HP, BLANK_BOSS_R, BLANK_BOSS_SPEED, BLANK_BOSS_XP,
   BLANK_STANDOFF_MIN, BLANK_STANDOFF_MAX, BLANK_TRAIL_DT, BLANK_TRAIL_MAX,
@@ -7976,10 +7975,6 @@ const WEAPON_STAT_MODS = {
   // divisor — and so the pause sheet reports the modified count with no second registration.
   squidInk:      { blackout: ['maxR', 'pct'], deepDark: ['blind', 'pct'], lingering: ['dur', 'pct'], secondJet: ['clouds', 'flat'] },
   oxygenTank:    { overfilled: ['dmg', 'pct'], wideRupture: ['r', 'pct'], longBoil: ['boil', 'pct'] },
-  // The Deep's native. `thrash` is absent for the reason the pond block above gives: it is an
-  // attack-RATE mod, and folding one into `interval` would slow the weapon down. It divides the
-  // interval at the fire site instead and is registered in WEAPON_RATE_MODS.
-  finHit:        { serrated: ['dmg', 'pct'], broadFin: ['arc', 'pct'], longFin: ['range', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -8146,7 +8141,6 @@ function stepWeapons(run, dt) {
     else if (w.id === 'foxfire') stepFoxfireWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'sunlance') stepSunlanceWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'glint') stepGlintWeapon(run, w, stats, fireRateMul, dt)
-    else if (w.id === 'finHit') stepFinHitWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'gnash') stepGnashWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'chum') stepChumWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'bilge') stepBilgeWeapon(run, w, stats, fireRateMul, dt)
@@ -12680,57 +12674,6 @@ function fireTank(run, stats) {
     })
   }
   run.events.push({ type: 'toss', x: p.x, y: p.y })
-}
-
-// -- Fin Hit (v7.x, The Deep's native) ---------------------------------------------------------
-// The only movement-coupled weapon in the game. Both halves read the player's own motion and
-// neither reads where the enemies are, which is what makes it feel like the animal's body rather
-// than a weapon the animal is carrying.
-//
-// It reuses run.novas with an `arc` — the Breaker's sector machinery, including the once-per-body
-// `hit` set that stops an expanding front re-hitting as it passes. No new entity, no new array.
-function stepFinHitWeapon(run, w, stats, fireRateMul, dt) {
-  const thrash = run.weaponMods.finHit?.thrash ?? 0
-  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + thrash)), dt, () => fireFinHit(run, stats))
-}
-
-function fireFinHit(run, stats) {
-  const p = run.player
-  // p.vx/p.vy are stepPlayerMovement's own velocity in px/s — the same snapshot the skies' artillery
-  // leads its shells with, so this reads the player's REAL speed after every slow, floor and boost
-  // rather than re-deriving it from the input.
-  const speed = Math.hypot(p.vx, p.vy)
-  const power = Math.min(FINHIT_SPEED_CAP, speed / PLAYER.baseSpeed)
-  // THE ZERO AT A STANDSTILL IS THE CARD, not an edge case to paper over — see WEAPONS.finHit, and
-  // the ANOMALIES.stillness interaction its description states out loud. Returning early also means
-  // a stationary player emits no event, so the fin does not visibly swing while doing nothing.
-  if (power <= 0) return
-
-  const heading = Math.atan2(p.vy, p.vx)
-  // The signed turn since the last sweep, wrapped into (-pi, pi] so that crossing the ±pi seam
-  // reads as a small turn rather than a full reversal.
-  const prev = run._finPrevA
-  const turn = prev == null ? 0 : Math.atan2(Math.sin(heading - prev), Math.cos(heading - prev))
-  run._finPrevA = heading
-
-  // OUTSIDE OF THE TURN when you are turning, ALTERNATING when you are not. The second half is what
-  // stops the weapon being dead on a straight line, and together they are the "damage where you
-  // turn" the spec asks for: swim straight and the body beats side to side, cut a corner and the
-  // whole sweep goes to the outside of it.
-  let side
-  if (Math.abs(turn) > FINHIT_TURN_MIN) side = Math.sign(turn)
-  else side = run._finSide = -(run._finSide || 1)
-  // Square to the heading, then biased BACKWARD — see FINHIT_SWEEP_BIAS for the measurement that
-  // put it there. The sweep still reads as "out to the side", it just covers the shoulder.
-  const angle = heading + side * (Math.PI / 2 + FINHIT_SWEEP_BIAS)
-
-  for (const a of ipecacAngles(run, angle)) {
-    spawnNova(run, p.x, p.y, stats.range, stats.dmg * power, stats.knockback, 0, { look: 'finHit', arc: stats.arc, angle: a })
-  }
-  // `power` rides the event so render can swing a harder-looking fin when the shark is moving fast —
-  // the card's whole claim is that speed matters, and a sweep drawn identically at 0.3 and at 1.6
-  // would be that claim being invisible.
-  run.events.push({ type: 'finHit', x: p.x, y: p.y, angle, arc: stats.arc, range: stats.range, power })
 }
 
 // ---- Pickups ------------------------------------------------------------------------

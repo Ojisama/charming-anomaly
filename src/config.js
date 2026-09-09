@@ -2757,56 +2757,6 @@ export const WEAPONS = {
       { dmg: 44, rate: 3.40, flight: 0.85, r: 190, range: 170, boil: 2.0 },
     ],
   },
-  // -- The Deep's native (spec §6.5) -------------------------------------------------------------
-  finHit: {
-    name: 'Fin Hit',
-    desc: 'Your own body, swung where you turn. Worthless standing still — it hits as hard as you swim.',
-    icon: '🦈', rarity: 'normal',
-    // MOVEMENT-COUPLED, and the only weapon in the game that is. Two halves, both of which need the
-    // player to be moving, and neither of which asks them to aim:
-    //   WHERE   a sector swung to the OUTSIDE OF YOUR TURN — the shark's body doing what a body does
-    //           when it changes direction. Swimming straight, it alternates sides like a tail beat.
-    //           Nothing else here decides its direction from the player's steering rather than from
-    //           where the enemies are, which is what makes it feel like the animal instead of a gun.
-    //   HOW HARD  damage scales LINEARLY WITH YOUR CURRENT SPEED, from 0 at a standstill to full at
-    //           base speed, and it keeps climbing past that to FINHIT_SPEED_CAP — so Zoomies and
-    //           every move-speed source finally has a weapon that reads them.
-    //
-    // ⚠ THE ZERO AT A STANDSTILL IS REAL AND IS THE CARD. It is also why the desc says so out loud:
-    // ANOMALIES.stillness ramps damage the longer you DO NOT MOVE, is `weight: 1` and unconditional,
-    // so it WILL be offered in this chapter, and the two cards cancel each other exactly. A player
-    // who takes both has one of them switched off at all times, and nothing else in the game would
-    // tell them that.
-    //
-    // ⚠ QUOTE THIS WEAPON AT `--stick 1` OR NOT AT ALL. weapon-census.mjs walks a FIXED input whose
-    // default magnitude is 0.447 — measured, 98 px/s against a 220 px/s base — so the default rig
-    // runs this card at 45% power and prints a plausible row that is 2.24x too low. It is the first
-    // weapon in the game that reads the player's speed, and the `--stick` flag was added for it.
-    //
-    // Pinned against Breaker and Longline, the book's other two normal-rarity starters, in ONE
-    // invocation at `--stick 1` (surf, 240s x 5 seeds):
-    //
-    //              L1 eff   L5 eff   L5 waste   L5 dud
-    //   Fin Hit        62      118        23%      21%
-    //   Breaker        63      126        21%       5%
-    //   Longline       70      121         8%       3%
-    //
-    // Parity at both levels WHEN MOVING, which is the deal: the same output as its siblings for a
-    // card that pays with a hard zero at a standstill. The dud column is the other half of that
-    // price and is meant to be high — this is the one weapon that does not aim, so a fifth of its
-    // sweeps find nothing. Do not "fix" that by aiming it; aiming it deletes the card.
-    //
-    // The first cut measured 165 at L5 in real-play terms (74 on the 45% rig) and was cut 32%, then
-    // the backward sweep bias raised its hit rate and it needed cutting again — see
-    // FINHIT_SWEEP_BIAS. Both knobs move throughput, so retune them together, not in sequence.
-    levels: [
-      { dmg: 20, interval: 1.05, range: 132, arc: 1.70, knockback: 55 },
-      { dmg: 25, interval: 1.00, range: 140, arc: 1.78, knockback: 60 },
-      { dmg: 31, interval: 0.94, range: 150, arc: 1.86, knockback: 66 },
-      { dmg: 39, interval: 0.88, range: 160, arc: 1.95, knockback: 72 },
-      { dmg: 48, interval: 0.82, range: 172, arc: 2.05, knockback: 80 },
-    ],
-  },
   // -- The Wreck's native (spec §9, built v7.x with the prey rework) -----------------------------
   gnash: {
     name: 'Gnash',
@@ -2818,10 +2768,10 @@ export const WEAPONS = {
     // identity, not the absolute reach: there is no reason to be at range here, and the card pays
     // you for every px you close.
     //
-    // NOT A SECOND FIN HIT, and the axis is the whole distinction: finHit reads the player's SPEED
-    // and swings to the outside of your turn, gnash reads the TARGET'S DISTANCE and points where
-    // you aim. One is the animal's body, the other is its mouth. They are also two chapters apart
-    // and never share a pool outside `blank`.
+    // NOT A SECOND FIN HIT (since deleted), and the axis was the whole distinction: finHit read the
+    // player's SPEED and swung to the outside of your turn, gnash reads the TARGET'S DISTANCE and
+    // points where you aim. One was the animal's body, the other is its mouth. They were also two
+    // chapters apart and never shared a pool outside `blank`.
     //
     // ⚠ IT DOES NOT CLOSE ITS OWN GAP, AND NOTHING IN THE GAME'S ARSENAL DOES (owner,
     // 2026-08-18: "attacks = no movement that's the golden rule"). It is a short jaw in the one
@@ -2836,8 +2786,8 @@ export const WEAPONS = {
     // further away, out of the very falloff band that makes the next bite worth more. Adding
     // knockback to this weapon would make it worse the harder it hit.
     //
-    // Geometry is clawRake/flagella/finHit's shipped `inSector` sweep — a new bake and a new tuning
-    // table, not a new system.
+    // Geometry is clawRake/flagella's shipped `inSector` sweep (finHit used the same one before it
+    // was deleted) — a new bake and a new tuning table, not a new system.
     // ⚠ UNMEASURED FIRST CUT. Pitched between the two melee starters at the JAW and under both at
     // the tip: dmg 15 x GNASH_MAW_MUL 1.9 = 28.5 at L1 point blank against flagella's flat 14 and
     // the rake's 11, on a cadence between theirs. weapon-census it against Fin Hit and Breaker in
@@ -4271,16 +4221,6 @@ export const WEAPON_MODS = {
     secondGlint: { name: 'Second Glint', desc: 'extra dart(s) per cast', icon: '💫', kind: 'tier' },
     quickGlint:  { name: 'Quick Glint',  desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
-  finHit: {
-    serrated:  { name: 'Serrated',   desc: 'fin damage', icon: '💥', base: 0.30, kind: 'pct' },
-    broadFin:  { name: 'Broad Fin',  desc: 'how wide the sweep is', icon: '📐', base: 0.22, kind: 'pct' },
-    longFin:   { name: 'Long Fin',   desc: 'sweep reach', icon: '📏', base: 0.25, kind: 'pct' },
-    // The cadence mod, registered in WEAPON_RATE_MODS below rather than folded into levels[] —
-    // folding an attack-rate mod into `interval` would SLOW the weapon, which is the trap that block
-    // documents. Named for what a shark does, and it is the mod that compounds hardest with the
-    // speed scaling: swimming fast already makes each hit bigger, so more of them is more of both.
-    thrash:    { name: 'Thrash',     desc: 'sweep rate', icon: '⚡', base: 0.20, kind: 'pct' },
-  },
 }
 export const MAX_WEAPON_MOD_PICKS = 5
 // Shared by every tier mod: a single pick's bonus is looked up by rolled rarity rather than
@@ -4303,7 +4243,7 @@ export const WEAPON_RATE_MODS = {
   clawRake: 'quickPaws', quillBurst: 'rapidQuills', chitterShriek: 'rapidShriek',
   burstHydrant: 'rapidHydrant', roar: 'rapidRoar', tailLash: 'quickTail',
   debrisToss: 'rapidToss', realityShard: 'rapidShard', pulsarSweep: 'rapidSweep',
-  atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash', foxfire: 'quickKindle',
+  atomicBreath: 'quickBreath', skippingShell: 'fastSkim', foxfire: 'quickKindle',
   breaker: 'quickBreak', ballast: 'quickWinch', siltVeil: 'quickStir', downwash: 'quickPour',
   pistolShrimp: 'quickSnap', fireCoral: 'quickWake', squidInk: 'quickInk', oxygenTank: 'quickTank',
   bringItIn: 'quickReel', screw: 'overspeed', glint: 'quickGlint',
@@ -5271,25 +5211,6 @@ export const SCENT_DUR_MIN = 1.3        // s on an EMPTY bar. Never 0: spec §8.
 export const SCENT_DUR_AT_FULL = 4.2
 export const SCENT_DMG_MUL = 1.5        // damage multiplier against a marked body
 export const SCENT_SPEED_MUL = 1.26     // and you close on them faster while it lasts
-
-// ---- Fin Hit's movement coupling --------------------------------------------------------------
-// Damage scales with the player's ACTUAL speed as a fraction of PLAYER.baseSpeed (220 px/s), so:
-// standing still is 0, a normal swim is 1.0, and every move-speed source in the game pushes past
-// that up to this cap. The cap exists because the multiplier compounds with `serrated` and with
-// every ordinary damage passive, and an uncapped speed term would make Zoomies the best damage
-// card in the chapter rather than a good one.
-export const FINHIT_SPEED_CAP = 1.6
-// Radians of heading change since the last sweep before the fin commits to that side. Below it the
-// player is swimming straight and the fin ALTERNATES, which is a tail beat; without a threshold the
-// float noise in a held joystick direction would pick a random side every sweep and the weapon
-// would read as having no rule at all.
-export const FINHIT_TURN_MIN = 0.12
-// Extra radians BEHIND square, added to the 90 degrees the sweep already sits off the heading. A
-// tail beat drives water BACKWARD, and — more to the point — the crowd in this genre is behind you,
-// because you are running away from it. At a dead 90 degrees the sector points at empty water on
-// either flank and the census measured 26% of casts landing nothing at all at L5; biasing the
-// centre back to ~110 degrees puts the swept wedge over the shoulder where the chasers actually are.
-export const FINHIT_SWEEP_BIAS = 0.35
 
 /** The split ladder for a `first` sub-beam count: [first, first-1, ..., 2]. See the block above. */
 export const prismLadder = (first) => {
@@ -8174,10 +8095,11 @@ CHAPTERS.wreck = {
 
   // ---- render-only (ZERO sim effect) ----
   // THE PLAYER IS NOT A SHARK HERE: owner ruling 2026-08-17, asked directly whether The Wreck
-  // should take the shark identity from The Deep (which owns it — `finHit`, "the shark's own
-  // body"). "Predator, not literally a shark." This chapter is where you START hunting rather than
-  // reacting, and the premise inversion is in the roster and the bar, not in the body. It used to
-  // say so with a bigger formScale as well; that ladder is gone book-wide (see CHAPTERS.surf).
+  // should take the shark identity from The Deep (which owned it — `finHit`, "the shark's own
+  // body"; the weapon is since deleted). "Predator, not literally a shark." This chapter is where
+  // you START hunting rather than reacting, and the premise inversion is in the roster and the bar,
+  // not in the body. It used to say so with a bigger formScale as well; that ladder is gone
+  // book-wide (see CHAPTERS.surf).
   render: {
     cast: ['mackerel', 'squid', 'moray'],
     form: 'fish',

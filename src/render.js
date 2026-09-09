@@ -20240,13 +20240,6 @@ const spurG = new Graphics()
           spawnRing(e.x, e.y, e.r, 0.34, T.novaRing, 0xff4a2a)
           addShake(6, 0.22)
           break
-        case 'finHit':
-          // The shark's own body. `power` is the speed scaling the card is sold on — a sweep drawn
-          // identically at a crawl and at a sprint would make the whole mechanic invisible — so it
-          // drives both the swoosh's reach and the kick.
-          spawnWhip(e.x, e.y, e.angle, e.range * (0.72 + 0.28 * e.power), e.arc)
-          addShake(1 + 2.4 * e.power, 0.07)
-          break
         case 'snare':
           // The landed mesh has no sim entity behind it (the hold lives on each body as `stunT`),
           // so THIS is where the drawing is born — see pushSnare. The kick scales with the catch:

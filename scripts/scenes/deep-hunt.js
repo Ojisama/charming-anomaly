@@ -17,7 +17,7 @@ const q = new URLSearchParams(location.search)
 const CHARGE = Number(q.get('huntCharge') || 25)
 const AT = Number(q.get('huntAt') || 520)
 
-run.weapons = [{ id: 'finHit', level: 5 }]
+run.weapons = [{ id: 'glint', level: 5 }]
 H.breed(10)
 const crowd = H.keep(10)
 
