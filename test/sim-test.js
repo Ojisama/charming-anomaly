@@ -8868,6 +8868,27 @@ function runPrey() {
     console.log(`PASS run PY.u (sardines only slow): a touch cost ${hp0 - p.hp} HP, set slowT ${p.slowT.toFixed(2)}s, and the fish is spent`)
   }
 
+  // -- PY.u2: THE MORAY HOLDS AND BITES (owner, 2026-09-09: "Moray should latch indeed, but do 1hp
+  // per 2s"). Same latch branch, opposite ending: the body stays, the slow stays, and contact costs
+  // exactly 1 HP per `bite` seconds — so 3s of touching is 2 bites, not 180 and not 0.
+  {
+    const mor = CHAPTERS.wreck.roster.find((r) => r.id === 'moray')
+    assert.ok(mor?.flags.includes('latch') && mor.bite > 0, 'the Wreck moray must be a latching biter')
+    const run = mk(20260909)
+    run.weapons = []
+    const p = run.player
+    p.invuln = 0
+    const hp0 = p.hp
+    const eel = put(run, { x: p.x + 4, y: p.y, hp: 500, speed: 0, flags: mor.flags })
+    eel.bite = mor.bite; eel.rosterId = 'moray'   // makeStatusEnemy only takes the stats it names
+    only(run, [eel])
+    for (let i = 0; i < Math.round(3 / dt); i++) { run.slicks.length = 0; stepSim(run, { x: 0, y: 0 }, dt); eel.x = p.x + 4; eel.y = p.y }
+    assert.strictEqual(hp0 - p.hp, 2, `3s on a moray must cost 2 HP (1 per ${mor.bite}s); it cost ${hp0 - p.hp}`)
+    assert.ok(p.slowT > 0, `...and must keep you slowed (run.player.slowT ${p.slowT})`)
+    assert.ok(!eel._dead && eel.hp > 0, 'a latched moray is not spent by the touch')
+    console.log(`PASS run PY.u2 (the moray holds and bites): 3s of contact cost ${hp0 - p.hp} HP, slowT ${p.slowT.toFixed(2)}s, and the eel is still there`)
+  }
+
   // -- PY.b: THE DRUM YOU SPLIT BURNS. THE ONE ON THE BOTTOM DOES NOT. ---------------------------
   // Two rules for one substance, and it is deliberate (see WEAPONS.bilge): fresh oil against
   // weathered. The mechanical reason is the one that decides it — a Leak that killed would hand the

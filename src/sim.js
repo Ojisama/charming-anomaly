@@ -2398,6 +2398,7 @@ function spawnEnemy(run, opts = {}) {
     // ~0.35s, paired with speedMul 1.3 so it hangs just off your shoulder), and a chapter that wants
     // a creature to arrive somewhere you have actually left must not drag the boss's number with it.
     trailLag: roster?.trailLag ?? null,
+    bite: roster?.bite ?? 0,   // s per 1 HP while a `latch` body holds you; 0 = the latch spends the fish instead
     // xpMul is the roster's third stat lever, alongside hpMul/speedMul above: what a kill of
     // this creature is WORTH, independent of how much health it has. They are separate on
     // purpose — a chapter can make something cheaper to kill and still pay well for it.
@@ -4070,6 +4071,17 @@ function stepContactDamage(run) {
     // antibody still latches on and dies even while the player is briefly invulnerable).
     if (e.flags && e.flags.includes('latch')) {
       p.slowT = LATCH_SLOW_T
+      // A biter HOLDS instead of spending itself (owner, 2026-09-09: "Moray should latch indeed,
+      // but do 1hp per 2s"). `bite` is the roster's seconds-per-HP; the timer lives on the body so
+      // a moray that brushes you twice in a second still bites once. Sent as a dot: flat 1 HP,
+      // no armor, and no invuln window that would shield you from the rest of the crowd.
+      if (e.bite > 0) {
+        if (run.time >= (e._biteAt ?? 0)) {
+          e._biteAt = run.time + e.bite
+          if (hurtPlayer(run, 1, true, e.rosterId ?? e.type)) return true
+        }
+        continue
+      }
       dealDamage(run, e, e.hp, false)
       continue
     }

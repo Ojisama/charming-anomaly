@@ -7780,7 +7780,10 @@ CHAPTERS.wreck = {
     // reading is that a chaser is the wrong shape for this creature here, not that its numbers are
     // wrong: an eel that struck from a hull plate as you passed would be terrain with teeth rather
     // than a failed pursuer. That is a behaviour change and therefore the owner's call, not a tune.
-    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.0, speedMul: 0.8, flags: ['latch', 'unshakeable'] },
+    // bite: 2 (owner, 2026-09-09: "Moray should latch indeed, but do 1hp per 2s"): unlike the sardine
+    // the moray is NOT spent by its latch — it holds, keeps the slow on you, and takes 1 HP every
+    // 2s of contact. The speed problem above is untouched: it still has to reach you first.
+    { id: 'moray',      archetype: 'tank',   name: 'Moray',      hpMul: 2.0, speedMul: 0.8, flags: ['latch', 'unshakeable'], bite: 2 },
   ],
   // The chapter's own affix, not the borrowed soapTrail: a wall of oil the elite drags behind it,
   // tagged look:'bilge' so it is the same substance as the player's own Bilge and the ambient Leak
