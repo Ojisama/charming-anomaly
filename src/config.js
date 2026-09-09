@@ -4735,10 +4735,17 @@ export const LONGLINE_MAX_LIVE = 8
 // ---- The Deep's three natives ---------------------------------------------------------------
 // How long a Sunspear column hangs before it lands. It is a TELEGRAPH, so it has to be long enough
 // to see and short enough that the body it was called on is still standing there: at the roster's
-// top speed (fangtooth, speedMul 1.08, ~130 px/s at this chapter's balance) a body walks ~34px in this
+// top speed (fangtooth, speedMul 1.08, ~130 px/s at this chapter's balance) a body walks ~44px in this
 // window, against a splash radius of 62-82. So a column that was aimed correctly still lands on
 // what it was aimed at, and a player still gets a frame of warning to read.
-export const SUNSPEAR_FALL = 0.26
+//   IT IS ALSO THE WHOLE ANIMATION'S CLOCK, which is not obvious from the name: drawColumns
+// (render.js) drives the closing aperture, the converging rays and the falling motes off
+// `lo.t / lo.flight`, and `flight` is this number. Moving it retimes the drawing and the telegraph
+// together, which is the only way those two can stay the same event.
+// balance_decision : fall 0.26 -> 0.34, the strike read too fast [2026-09-09]
+//  - +30% on owner's play note. The walk figure above moves with it — re-derive it, do not carry
+//    the old one, or the "still lands on what it was aimed at" claim goes stale silently.
+export const SUNSPEAR_FALL = 0.34
 // Where a SURPLUS column goes when the field holds fewer bodies than the cast has columns. They are
 // pushed onto a ring of this radius around the last real target, evenly divided — which keeps the
 // cast's full output AND keeps every column at a distinct position. Both halves matter: stacking
@@ -4950,6 +4957,25 @@ export const MAW_VIS = {
   escaR: 0.075,                                 // the bait's core radius, as a fraction of r
   shutA: 0.35,                                  // everything dims to this while the mouth is shut and spent
 }
+// HOW CLOSE THE MOUTH HAS TO BE BEFORE IT EXISTS, in multiples of the maw's own r. Owner from play,
+// 2026-09-09: "the teeth shouldnt be visible at first."
+//   The block above claims the animal "reads as nothing at any distance because the multiply scrim
+// flattens it", and that was true of the head, the throat and the tail — they are drawn at 0x140e1c
+// and 0x05070b, which multiply to black. It was never true of the NEEDLES: MAW_VIS.tooth is bone
+// white, and white multiplied by this chapter's tint is still (2,19,29) against a pure-black floor,
+// i.e. a ring of grey spikes you can count from across the water. The picture the chapter is built
+// on — "you steer at a green light and find out what it was attached to on arrival" — was being
+// given away by the one part of the drawing that is brightest.
+//   So the teeth and the rim FADE IN with proximity, and nothing else does: the esca stays at full
+// strength (it is the bait, and the punch in updateDark is a separate pass anyway), and the dark
+// body stays exactly as dark as it was. `far` is where they begin to resolve, `near` is where they
+// are fully drawn — the rim itself, so the gape countdown is at full contrast for every frame a
+// player is in a position to read it, which is when they are standing in the mouth.
+//   SQUARED at the read site, and that is not a flourish. Against a floor multiplied to pure black
+// a linear ramp is still plainly legible at 0.3: shot at far 1.7 with the player 292px out, the
+// needles were dimmer and still the loudest thing on screen. The square collapses the far half of
+// the band to a hint and keeps the near half, which is the shape the sentence above describes.
+export const MAW_REVEAL = { far: 1.35, near: 1.0 }
 
 // ---- The Deep's Scent -------------------------------------------------------------------------
 // The button. Owner's framing: "you use the light to see the weak points, or to see the enemies
@@ -8266,7 +8292,10 @@ CHAPTERS.deep = {
   //  - `r`, MAW_GAPE_T and MAW_SHUT_T are UNTOUCHED: this is twice as many offers of the same
   //    gamble, never a softer one. 13.0% of the plane against the Shelf's 14.2% and the Surf's
   //    13.4%, so the paragraph above no longer argues for an outlier — keep the two in step.
-  signature: { type: 'dark', maws: { cell: 900, chance: 0.84, r: 200, minDist: 460 } },
+  //  - `keepClear` is read by streamObstacles, not by anything that places a maw: no rock, ever,
+  //    inside the jaws. It takes 30% of the obstacle placements with it — `obstacles.cell` below is
+  //    sized against that loss, so move the two together or the chapter quietly empties out.
+  signature: { type: 'dark', maws: { cell: 900, chance: 0.84, r: 200, minDist: 460, keepClear: true } },
 
   // THE BAR: Light. The maws above are the ONLY source — no shafts, no kill refill, nothing else on
   // the floor. That is what makes this chapter's refill "a place you can fight from, never a place
@@ -8353,7 +8382,14 @@ CHAPTERS.deep = {
   // The wreck field. Ships, containers and drums lying on the bottom — big and sparse, the Reef's
   // size class rather than the Shelf's, because the fantasy is swimming BETWEEN hulls rather than
   // around rocks. Plan view like everything else that is not a building: these are lying down.
-  obstacles: { count: 9, cell: 700, minR: 62, maxR: 138, minDist: 400 },
+  // ⚠ `count` IS ALREADY SATURATED HERE and cannot raise the density: streamObstacles turns it into
+  // a per-cell probability of count x cell^2 / (pi x OBSTACLE_FIELD_RADIUS^2), which is 1.7 at these
+  // numbers, so every eligible cell already places one. THE CELL IS THE ONLY DENSITY KNOB in this
+  // chapter — raise `count` to compensate for anything and you have changed nothing at all.
+  // balance_decision : cell 700 -> 585, holds the field's count under keepClear [2026-09-09]
+  //  - Sized to the measured loss, not guessed: the maws' keep-clear takes 30% of the placements
+  //    (16.1 -> 11.3 live), and 585 puts it back to 15.8. Re-derive it if maws.chance moves again.
+  obstacles: { count: 9, cell: 585, minR: 62, maxR: 138, minDist: 400 },
 
   // One step on from The Trawl, the same size step Book 1 takes between its own chapters 4 and 5.
   // The dark is doing work the numbers cannot see — an enemy you meet at 200px is a different fight

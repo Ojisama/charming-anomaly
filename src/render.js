@@ -18,7 +18,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   ARTILLERY_FUSE, BOMBARDMENT_FUSE, ARTILLERY_ELITE_RADIUS, MISSILE_FIRE_RANGE,
   BREATH_CHARGE_T, // v7.23: the Atomic Breath's wind-up ring closes on exactly the sim's charge clock
   ROAD_MAJOR_WIDTH, HIGHWAY_WIDTH, highwaysNear, BLOCK_U, BLOCK_V, cityAt, nearestCity, CITY_GRID, STREET_SPACING_MAJOR_EVERY, parcelAt, PARCEL, terrainAt, clumpAt,
-  LURE_GLOW, MAW_VIS,
+  LURE_GLOW, MAW_VIS, MAW_REVEAL,
   FISH_R, FISH_BODY,  // Book 2's fish: the bake draws the same body the sim collides with (playerTouches)
   CHEEK_JIGGLE,       // the cheeks skin's spring — see syncPlayer's jiggle block
   BUTT_FEET,          // ...and its feet — see syncPlayer's feet block // The Deep: the anglerfish maw and its esca punched through the dark scrim
@@ -13561,6 +13561,15 @@ const spurG = new Graphics()
         const gp = sh.gape || 0
         const shut = (sh._shutT ?? 0) > 0
         const A = shut ? M.shutA : 1
+        // THE MOUTH RESOLVES OUT OF THE DARK AS YOU ARRIVE (MAW_REVEAL, owner: "the teeth shouldnt
+        // be visible at first"). Only the two BRIGHT parts ride this — the bone needles and the rim
+        // — because they are the only ones the multiply scrim cannot flatten, and they were handing
+        // the animal away from across the water. Distance to the PLAYER and not to the camera: on
+        // a lane chapter those differ, and this is a fact about how close you are to the mouth.
+        const dp = Math.hypot(run.player.x - sh.x, run.player.y - sh.y)
+        const band = Math.max(1, (MAW_REVEAL.far - MAW_REVEAL.near) * sh.r)
+        const rv = Math.max(0, Math.min(1, (MAW_REVEAL.far * sh.r - dp) / band))
+        const reveal = rv * rv   // see MAW_REVEAL: linear still reads at 0.3 against a black floor
         sv.glow.visible = false     // the lure is punched into the LIGHTMAP (updateDark), not stacked here
         sv.ring.clear()
         const g = sv.body
@@ -13596,7 +13605,7 @@ const spurG = new Graphics()
             (sh.r + halfW * 0.4) * ca - halfW * sa, (sh.r + halfW * 0.4) * sa + halfW * ca,
             (sh.r + halfW * 0.4) * ca + halfW * sa, (sh.r + halfW * 0.4) * sa - halfW * ca,
             (sh.r - len) * ca, (sh.r - len) * sa,
-          ]).fill({ color: M.tooth, alpha: M.toothA * A })
+          ]).fill({ color: M.tooth, alpha: M.toothA * A * reveal })
         }
         // The rim goes cold -> HOT as the swallow approaches. Colour and not only width, because the
         // player is reading this at the edge of their own light: a size change alone is a
@@ -13604,7 +13613,7 @@ const spurG = new Graphics()
         g.circle(0, 0, sh.r).stroke({
           width: M.rimW + M.rimWGape * gp,
           color: shut ? M.rimCold : lerpTint(M.rimCold, M.rimHot, gp),
-          alpha: (0.5 + 0.45 * gp) * A,
+          alpha: (0.5 + 0.45 * gp) * A * reveal,
         })
         // THE ILLICIUM AND THE BAIT. The stalk arches forward off the animal's back and hangs the
         // esca over the middle of its own mouth — which is the whole trick the fish is playing, and
