@@ -2279,36 +2279,39 @@ export const WEAPONS = {
     // stands in it, and inheriting that here would hand a second slow to the one chapter that
     // already has one, unadvertised, on a card whose text says nothing about it.
     //
-    // MEASURED in the same invocation as Sunspear above. The rare band it has to sit in is
-    // Barnacles 114 and Net Toss 111:
+    // WHICH KNOB THE CARD IS BOUND BY CHANGES AS YOU TURN THEM, and that is the whole lesson of
+    // this block. The Shelf-era tune found COVERAGE saturated (1.6x radius bought +23%) and tick
+    // damage with leverage, so the ship cut the tick. Re-measured on The Deep at the owner's "improve
+    // the DPS", the reading had INVERTED: tick damage was the saturated one. All --chapter deep,
+    // level 5, 240s x 5 seeds, each row cumulative on the one above:
     //
-    //                                  L5 eff  L5 waste  hits/s
-    //   Foxfire (first cut)               159       11%    12.8
-    //   Foxfire (radius -19%)             139       12%    11.2
-    //   Foxfire (shipped, tick -29%)      109        9%    12.0
+    //                          eff  kills/min  waste  hits/s   dmg/hit
+    //   shipped v7.316          57       79     10%     6.3      10.0
+    //   tick x1.8               61       81     15%     4.0      17.9   bodies die faster, not more
+    //   + radius x1.4           74       93     14%     4.8      17.9
+    //   + cadence x0.75         79      103     15%     5.2      18.0   <- shipped
+    //   ...and tick x1.25 more  74       94     19%     4.2      22.0   overkill, reverted
+    //   ...or radius x1.6       79       96     14%     5.1      17.9   flat, reverted
     //
-    // COVERAGE WAS TRIED FIRST, on WEAPONS.longline's rule, and it SATURATED: a same-stream probe
-    // carrying 1.6x the radius bought only +23% (139 -> 171), because this chapter's spawn rate caps
-    // what any grinder can remove and the extra area lands on water. Tick damage was the knob with
-    // leverage left, and at 9% waste there was no overkill to absorb it — which is the OPPOSITE of
-    // the reading Sunspear gave two blocks up. Neither knob is right by default; measure which one
-    // the weapon is currently bounded by.
+    // A GRINDER IS BOUND BY BODIES IN THE FIRE, not by what each tick does to them: the 80% tick
+    // raise moved eff by 7% and drove hits/s DOWN, because the same crowd simply died sooner. What
+    // bought the card its damage was area and cadence — more fires, on more bodies, more often —
+    // and both of those hit their own ceiling one step later. Measure which one binds before you
+    // turn either; neither is right by default, and this card has now answered both ways.
     //
-    // ⚠ THE CEILING IS 160, AND IT IS ONLY REACHED ON A FULLY EMPTY BAR. The same probe pinned at
-    // maximum gloom read 160 eff, ~40% clear of the rare band. On The Deep the real bar runs darker
-    // than the Shelf's did: charge-probe.mjs's three movement policies average 5.4/11.4/27.2, giving
-    // gloom 1.535/1.463/1.274 — HIGHER than the Shelf's own tuned play point (1.174 at a mean charge
-    // of 63%-dark), and free of the Shelf's move-speed cost (`speedFloor: 1` here). That trade is
-    // gone; what the bar buys here is the Scent's shove and its duration.
-    // balance_decision : base stays at the bottom of the rare band this pass, owner to rule [2026-09-09]
-    //  - censused as the only weapon at charge 30 (gloom 1.24): 81 eff under Glint's 104; at the
-    //    real bar (gloom 1.27-1.54) it reads ABOVE 81
+    // ⚠ EVERY NUMBER ABOVE IS AT THE CENSUS'S charge 38 (gloom ~1.15), and the real bar is darker:
+    // charge-probe.mjs's three movement policies give gloom 1.27-1.54, so play reads higher than
+    // this table does. The Deep also has no move-speed cost for being dark (`speedFloor: 1`), so
+    // unlike the Shelf there is no trade against it — what the bar buys here is the Scent instead.
+    // balance_decision : tick x1.8, radius x1.4, cadence x0.75 - owner note "improve the DPS" [2026-09-09]
+    //  - L5 eff 57 -> 79, the pool's top (Glint 75, Sunspear 53, Sunlance 48), and L1 49 likewise.
+    //    THE TICK IS AT ITS CEILING: +25% more took eff DOWN to 74 on 19% waste. Radius is too.
     levels: [
-      { dmg: 4,  interval: 3.00, maxR: 54, glowDur: 2.4, castRange: 280 },
-      { dmg: 5,  interval: 2.85, maxR: 59, glowDur: 2.6, castRange: 295 },
-      { dmg: 6,  interval: 2.70, maxR: 64, glowDur: 2.8, castRange: 310 },
-      { dmg: 8,  interval: 2.55, maxR: 69, glowDur: 3.0, castRange: 325 },
-      { dmg: 10, interval: 2.40, maxR: 74, glowDur: 3.2, castRange: 340 },
+      { dmg: 7,  interval: 2.25, maxR: 76,  glowDur: 2.4, castRange: 280 },
+      { dmg: 9,  interval: 2.14, maxR: 83,  glowDur: 2.6, castRange: 295 },
+      { dmg: 11, interval: 2.03, maxR: 90,  glowDur: 2.8, castRange: 310 },
+      { dmg: 15, interval: 1.91, maxR: 97,  glowDur: 3.0, castRange: 325 },
+      { dmg: 18, interval: 1.80, maxR: 104, glowDur: 3.2, castRange: 340 },
     ],
   },
   sunlance: {
