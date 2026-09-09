@@ -9,7 +9,7 @@
 //   - Bubble Puff's ring must not read as The Surf's Breaker crest (also a nova) or as its Skipping
 //     Shell splash (also a nova, and deliberately a DARK mark).
 //   - Silt Veil's cloud must not read as the pond's Toxin Bloom (same entity, green) or as The
-//     Twilight's Foxfire (same entity, mint). It is olive-brown for that reason.
+//     Deep's Foxfire (same entity, mint). It is olive-brown for that reason.
 //   - Ballast's landing ring is the shared amber Debris Toss telegraph, KEPT on purpose — the one
 //     thing to check is that it does not collide with the upwelling rim it may land beside.
 

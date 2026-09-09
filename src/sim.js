@@ -4307,7 +4307,7 @@ export function stepTide(run, dt) {
 // one" and never as an error. Claimed so far:
 //   0-4   streamObstacles (occupancy, radius, x, y, kind)
 //   11-14 streamEddies     15-17 streamTraps
-//   20-23 refill circles: The Twilight's shafts, The Surf's tide pools (streamShafts' default)
+//   20-23 refill circles: The Shelf's shafts, The Surf's tide pools (streamShafts' default)
 //   30-32 streamSandbars
 //   40-43 refill circles: The Reef's air pockets (CHAPTERS.reef.signature.pockets.salt)
 //   44-46 The Reef's spur field (CHAPTERS.reef.spurs.salt): 44/45 the two channel widths, 46 the
@@ -4562,9 +4562,9 @@ function streamEddies(run) {
 // identity, because the Shelf's tune was measured against that exact object), while The Surf's tide
 // pools live at signature.pools and The Reef's air pockets at signature.pockets. Same cell/hash-salt
 // geometry every time, so a pool, a pocket and a shaft are mechanically the same circle with
-// different names and different art; only a `shafts` signature carries drift, and TWO chapters
-// declare one now — The Twilight and The Shelf
-// (driftAmp/driftHz), which is why stepShafts below still gates on sig.type === 'shafts'.
+// different names and different art; only a `shafts` signature carries drift, and only The Shelf
+// declares one now (driftAmp/driftHz) — The Twilight also did, before its 2026-09-09 merge into The
+// Deep — which is why stepShafts below still gates on sig.type === 'shafts'.
 //
 // THIS FUNCTION DECIDES EXISTENCE ONLY. It early-returns whenever the player has not crossed a cell
 // boundary, exactly like streamEddies, so anything it computes is computed ONCE per materialization
@@ -4613,8 +4613,8 @@ export function refillCircleAt(i, j, seed, spec) {
   // field does not pulse in unison. Stored by the caller, not re-derived, because x/y are recomputed
   // every frame and a per-frame hash would be the one avoidable cost in that loop.
   const c = { x, y, r: spec.r, phase: obstacleCellHash(i, j, seed, s0 + 3) * Math.PI * 2 }
-  // Lobed outline, opt-in per FIELD (see LOBE_SHAPES). The Twilight's sun shafts and The Reef's air
-  // pockets stay circles deliberately — a column of light and a trapped bubble are both round
+  // Lobed outline, opt-in per FIELD (see LOBE_SHAPES). The Deep's maws and The Reef's air
+  // pockets stay circles deliberately — an anglerfish's mouth and a trapped bubble are both round
   // things. The Surf's tide pools are a hole in the ground and The Shelf's upwellings are clean
   // water pushing through silt, and neither has an edge a circle would describe. Both fields are
   // stored, never re-derived: render draws the outline from them and the sim tests position against
@@ -5251,7 +5251,7 @@ function stepSlickFire(run, dt) {
 // consumes no RNG, and is therefore identical across a reload or a re-run of the same seed.
 //
 // run._realTime, NOT run.time. The Time Debt anomaly advances run.time at TIME_DEBT_MUL (1.5x, see
-// the step order above) and its `chapter` is null so it rolls in The Twilight - deriving drift from
+// the step order above) and its `chapter` is null so it rolls in The Shelf - deriving drift from
 // run.time would multiply peak drift speed by 1.5 and push the shipped tune (63 px/s) to 95, within
 // a rounding error of the KITE_MIN_SPEED ceiling the number was chosen to sit under. _realTime
 // exists precisely to be a unit that means the same thing in every run.
@@ -7951,7 +7951,7 @@ const WEAPON_STAT_MODS = {
   // and the star's multishot: it is a per-cast COUNT of LINES, and there is no `lines` key in
   // levels[] for it to fold into. `quickReel` is in WEAPON_RATE_MODS for the usual reason.
   bringItIn:     { barbedLine: ['dmg', 'pct'], wideDrag: ['width', 'pct'] },
-  // The Twilight's three natives. `secondSun` folds as 'flat' rather than going through
+  // The Deep's three natives. `secondSun` folds as 'flat' rather than going through
   // WEAPON_COUNT_MODS for the reason the Surf block above gives: `count` is a real key in levels[],
   // so effectiveWeaponStats folds it and the pause sheet reports it without a second registration —
   // and sunspearSpots reads the folded number as BOTH its loop bound and its padding divisor.
@@ -9695,7 +9695,7 @@ function stepBlooms(run, dt) {
     // x oilLeft: a lit Bilge pool burns away (stepSlickFire), the same shrink the leak's spills take.
     bl.r = (bl.t >= growT ? bl.maxR : bl.maxR * (bl.t / Math.max(1e-6, growT))) * oilLeft(bl)
 
-    // run.blooms is shared with The Twilight's Foxfire, which tags itself `look`. `sporeOn` and `tide`
+    // run.blooms is shared with The Deep's Foxfire, which tags itself `look`. `sporeOn` and `tide`
     // are read ONCE for the whole list off run.weaponMods.bloom, so without this gate a build
     // holding both would drift a foxfire on the tide and spore-burst it — the same cross-weapon leak
     // stepLobs guards between Net Toss and Debris Toss' shrapnel, and just as silent.
@@ -9725,8 +9725,8 @@ function stepBlooms(run, dt) {
       }
     }
 
-    // `slow: 0` opts a cloud out entirely (Foxfire does). The Twilight already slows the player in the
-    // dark; a card whose text never mentions a slow must not quietly add a second one.
+    // `slow: 0` opts a cloud out entirely (Foxfire does): its own card text never mentions a slow, so
+    // it must not quietly add one.
     if (bl.slow !== 0) {
       const slowRSq = bl.r * bl.r
       for (const e of run.enemies) {
@@ -11781,7 +11781,7 @@ function firePulsar(run, stats) {
 //                  touch-down and re-aims from where it landed.
 //   barnacles      run.bullets carriers that attach `e.barnacle` — a published contract field, so
 //                  render.js can draw the crust — which then ticks and spreads on its host's death.
-// None of them needed a new run.* array, which is the same argument The Twilight's doc block makes
+// None of them needed a new run.* array, which is the same argument The Blank's doc block makes
 // about reusing run.bombs and run.strips.
 
 // Every one of the three aims the same way, and it is fireFlagella's hard-won rule (v5.1.2): the
@@ -12308,7 +12308,7 @@ function stepNetTossWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 
-// ---- The Twilight's three natives (v7.x) ------------------------------------------------
+// ---- The Deep's three natives (v7.x) ------------------------------------------------
 // See the block at the end of WEAPONS in config.js for the design, and in particular for why the
 // two rares are allowed to read run.charge when resourceDamageMul's own block says Book 2 spent
 // that licence on The Surf. None of the three adds a run.* array.

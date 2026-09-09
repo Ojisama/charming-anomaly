@@ -1499,11 +1499,6 @@ const CONFIG = {
   'Amoeba': 'Amibe',
   'Tadpole': 'Têtard',
   'Tardigrade': 'Tardigrade',
-  // Book 2 plankton. 'Krill' is the French word too. 'Méduse Lune' over the real common
-  // name 'Aurélie', which is correct but reads as a first name rather than an animal.
-  // These three no longer share a chapter: the copepod and the krill went down to The Twilight
-  // with the light (diel migration is what the mesopelagic is made of), the moon jelly stayed at
-  // The Shelf (Aurelia blooms are the signal of exactly the water that chapter is about).
   // The Surf (Book 2 chapter 1).
   'The Surf': 'La Plage',
   'The Shelf': 'Le Large',
@@ -1698,7 +1693,7 @@ const CONFIG = {
   // exactly the joke that fiction is already making.
   //   'colonne' runs through four of the five mods -- the Voile de Vase rule, one word for one
   // thing across the card, the sheet and the mods -- and 'rayon de la colonne' /
-  // 'colonne(s) supplementaire(s) par lancer' were already in this file for The Twilight's
+  // 'colonne(s) supplementaire(s) par lancer' were already in this file for The Deep's
   // Sunspear, so the two weapons name the same shape with the same words for free.
   'Downwash': 'Chasse d\'eau',
   'A column of clean water falls on the crowd, drags it into one spot, then bursts.': 'Une colonne d\'eau claire rassemble la meute, puis éclate.',
@@ -1726,11 +1721,6 @@ const CONFIG = {
   'Dead Water': 'Eau Croupie',
   'A third as many clean-water spots, each worth three times as much.': 'Trois fois moins de zones d\'eau claire, chacune trois fois plus généreuse.',
   'in troubled water': 'en eaux troubles',
-  // The Twilight (Book 2 chapter 6). Owner's pick, 2026-08-18: 'La Pénombre' is the half-light
-  // itself — the state the whole chapter is about — and the spine takes the same word with the
-  // article dropped, where a two-word name would not have fit the 110px slot.
-  'The Twilight': 'La Pénombre',
-  'Twilight': 'Pénombre',
   'The Reef': 'Le Récif',
 
   // Book 2's RESOURCE BARS (CHAPTERS[].resource.name). On the HUD rail from v7.x — before that the
@@ -1742,7 +1732,6 @@ const CONFIG = {
   'Light': 'Lumière',
   'Air': 'Air',
   'the tide decides': 'la marée décide',
-  'the light only goes down': 'la lumière ne fait que baisser',
   'the current only runs one way': 'le courant décide pour toi',
   // The Trawl (Book 2 chapter 4). 'Le Chalut' is the net itself — 'chalutage' is the activity and
   // 'drague' is a different gear (and slang for chatting someone up).
@@ -1774,8 +1763,6 @@ const CONFIG = {
   'Sand Hopper': 'Puce de Mer',
   'Shore Crab': 'Crabe Vert',
   'Sea Roach': 'Cloporte de Mer',
-  'Copepod': 'Copépode',
-  'Krill': 'Krill',
   // The Deep's re-cut roster (2026-09-09). DRAFTS pending the owner's review, like every creature
   // name in this block: 'Poisson-lanterne' and 'Poisson-ogre' are the French common names;
   // 'Revenant' is the trade name for Macropinna and reads better on a card than 'Œil-tonneau';

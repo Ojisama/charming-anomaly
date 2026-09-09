@@ -1,8 +1,8 @@
-// Scene: The Twilight's Sunlance at both ends of the bar. A lance is a run.beams entry with
+// Scene: The Deep's Sunlance at both ends of the bar. A lance is a run.beams entry with
 // rotSpeed 0 — it does not sweep — whose LENGTH is bought with Light: full at a full bar, down to
 // SUNLANCE_REACH_MIN of it at an empty one.
 //
-//   node scripts/fx-probe.mjs --scene scripts/scenes/twilight-sunlance.js --out /tmp/sl --frames 12 --chapter twilight
+//   node scripts/fx-probe.mjs --scene scripts/scenes/deep-sunlance.js --out /tmp/sl --frames 12 --chapter deep
 //
 // What the frames have to answer:
 //   1. is it clearly SUNLIGHT and not the Neon Beam? The two share run.beams AND the beam pool, and
@@ -12,7 +12,7 @@
 //   3. does it read as a STAB held on one bearing rather than a sweep? A third rotating rake is the
 //      shape this weapon must not have.
 //
-// ⚠ THE SIM'S BAR AND THE CAMERA'S BAR ARE HELD APART, as in shelf-foxfire.js: the bar is dropped to
+// ⚠ THE SIM'S BAR AND THE CAMERA'S BAR ARE HELD APART, as in deep-foxfire.js: the bar is dropped to
 // 0 for the step that COMPUTES the empty-bar cast and put back up for every captured frame, because
 // this chapter's light radius is a function of run.charge and an honest empty-bar shot is a black
 // rectangle. Sound because `length` is computed once, at cast, and never re-read.

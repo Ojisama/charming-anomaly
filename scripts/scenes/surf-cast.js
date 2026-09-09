@@ -5,7 +5,7 @@
 //
 // WHY IT OVERRIDES rosterId RATHER THAN WAITING FOR A SPAWN: WAVE_TABLE gates archetypes by TIME
 // (tank not until t=140s, fast not until 40s — see the headless-probe section of CLAUDE.md), so a
-// scene that just breeds a crowd at t=0 photographs nine copepods and reports the tank and the fast
+// scene that just breeds a crowd at t=0 photographs nine sand hoppers and reports the tank and the fast
 // one as "missing". syncEnemies keys the texture off e.rosterId alone, so re-labelling a bred body
 // gets the right bake without also having to fast-forward five minutes of a run.
 //

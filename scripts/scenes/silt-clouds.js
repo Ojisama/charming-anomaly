@@ -7,7 +7,7 @@
 //
 // It waits for a REAL cast rather than fabricating blooms, which is the whole point after the
 // reshape: `arc` and `angle` are new fields on a SHARED array (run.blooms also carries the pond's
-// toxin, The Twilight's foxfire and The Wreck's bilge), and the two ways this goes wrong are both
+// toxin, The Deep's foxfire and The Wreck's bilge), and the two ways this goes wrong are both
 // invisible to the suite — (1) syncBlooms ignores the wedge and draws the old disc, so the picture
 // and the hitbox disagree, and (2) the extra puffs of a recycled cone rig stay visible on a disc.
 // run MB.c measures the sim either way. Only a frame tells them apart.

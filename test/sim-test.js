@@ -88,7 +88,7 @@ import {
   LANE_SCROLL_SPEED, laneScrollFor, LANE_STRAFE_MUL, circuitKnob, circuitLadder, caveSpecOf, refillGrantFor, swimthroughsFor, SWIMTHROUGHS_PER_LAP, CIRCUIT_GATE_VIS, RUN_DURATION, MARCH_SWAY_RATE, REPULSE_RADIUS, REPULSE_CD,
   SHOREBREAK_RADIUS, SHOREBREAK_DUR_MIN, SHOREBREAK_DUR_AT_FULL, SHOREBREAK_STAGGER, SHOREBREAK_FORCE,
   CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, REPULSE_STUN,
-  KITE_MIN_SPEED, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS, LATCH_SLOW_MUL,
+  KITE_MIN_SPEED, PULSE_RADIUS_AT_FULL, darkness, lightRadius, unlockCost, unlockLevel, unlockMax, SACRIFICE_COSTS,
   STRUCTURE_KINDS, STRUCTURE_RADIUS, CRUSH_XP, GEM_VALUE, RAMPAGE_GAIN, RAMPAGE_DECAY, RAMPAGE_DURATION, RAMPAGE_CRUSH_MUL,
   RAMPAGE_SPEED_MUL,
   roadAt, nearestCity, CITY_GRID, elevationAt, urbanAt, pickWorldSeed, terrainAt, BIOME_BUILD_DENSITY, BLOCK_U,
@@ -4708,12 +4708,12 @@ function runBooks() {
     assert.ok(!wip.includes(nextChapter(id)), `nextChapter('${id}') surfaced a WIP chapter — the unlock chain must never cross books`)
   }
   // THE GATE IS PER CHAPTER, SO A BOOK MAY BE HALF-SHIPPED (BOOKS[].wipFrom). The Wreck is live and
-  // The Twilight, one rung below it in the SAME book, is not — which the old book-wide boolean could
+  // The Deep, one rung below it in the SAME book, is not — which the old book-wide boolean could
   // not express at all. Asserting both sides of that boundary is the whole point of this pair: a
   // regression to a book-level flag makes one of them fail whichever way it goes. The pair walks
   // down the ladder with every reveal; what is asserted is the BOUNDARY, never these two ids.
   assert.strictEqual(isWipChapter('wreck'), false, "isWipChapter('wreck') === false — Undertow's fifth rung ships (2026-09-09)")
-  assert.strictEqual(isWipChapter('twilight'), true, "isWipChapter('twilight') — the rung below The Wreck is still gated")
+  assert.strictEqual(isWipChapter('deep'), true, "isWipChapter('deep') — the rung below The Wreck is still gated")
   // isWipChapter is what main.js's onChapter bypasses the unlock check with, so a false positive
   // here would make a SHIPPED locked chapter selectable — the gate leaking in the other direction.
   assert.strictEqual(isWipChapter('pond'), false, "isWipChapter('pond') === false — a shipped chapter is never a WIP bypass")
@@ -4724,8 +4724,8 @@ function runBooks() {
 
   // (c) Gate OFF: a save pointing at a WIP chapter plays a SHIPPED one. resolveChapterId still
   // returns it verbatim — it is a real chapter and that helper is only a "does this exist" test.
-  const metaOff = { chapter: 'twilight', dev: false, chapters: {} }
-  assert.strictEqual(resolveChapterId('twilight'), 'twilight', 'resolveChapterId stays pure — it must NOT learn about the gate (see playableChapterId)')
+  const metaOff = { chapter: 'deep', dev: false, chapters: {} }
+  assert.strictEqual(resolveChapterId('deep'), 'deep', 'resolveChapterId stays pure — it must NOT learn about the gate (see playableChapterId)')
   assert.strictEqual(playableChapterId(metaOff), CHAPTER_ORDER[0], 'gate off: a WIP meta.chapter falls back to the first shipped chapter')
   assert.strictEqual(playableChapterId({ chapter: 'pond', dev: false }), 'pond', 'gate off: a shipped chapter is untouched')
   for (const junk of [undefined, null, {}, { chapter: 'nope' }]) {
@@ -4738,17 +4738,17 @@ function runBooks() {
   // to consult, so every gated run became a Body run credited to body's ledger — no throw, no
   // warning. Note it must name a gated id EXPLICITLY: every existing test of this shape iterates
   // CHAPTER_ORDER, which by design never contains one, so they would all still have passed.
-  const metaOn = { coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'twilight', dev: true, chapters: {} }
-  assert.strictEqual(playableChapterId(metaOn), 'twilight', 'gate on: the WIP chapter is what Play reads')
-  const wipRun = createRun(metaOn, { chapter: 'twilight', difficulty: 1 })
-  assert.strictEqual(wipRun.chapter, 'twilight', "createRun kept 'twilight' — if this reads 'body', the gate leaked into resolveChapterId and endRun would credit the wrong chapter")
+  const metaOn = { coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'deep', dev: true, chapters: {} }
+  assert.strictEqual(playableChapterId(metaOn), 'deep', 'gate on: the WIP chapter is what Play reads')
+  const wipRun = createRun(metaOn, { chapter: 'deep', difficulty: 1 })
+  assert.strictEqual(wipRun.chapter, 'deep', "createRun kept 'deep' — if this reads 'body', the gate leaked into resolveChapterId and endRun would credit the wrong chapter")
   // ...ARMED FROM ITS OWN CHAPTER, which is the husk test now that a chapter may be armed with
   // NOTHING. `weapons.length > 0` was the proxy, and it stopped meaning "genuinely playable" the day
   // The Reef declared `starter: null` — but the defect it guards is unchanged and is not about the
   // count: a leaked resolve arms the player from the WRONG chapter's table (body's `star`), which
   // this catches and a length test never did.
-  assert.deepStrictEqual(wipRun.weapons.map((w) => w.id), CHAPTERS.twilight.starter ? [CHAPTERS.twilight.starter] : [],
-    `the WIP run is holding [${wipRun.weapons.map((w) => w.id).join(', ')}] against a declared starter of '${CHAPTERS.twilight.starter}' — it was armed from some other chapter's table, or from a null id, which is a corpse every firing site dereferences`)
+  assert.deepStrictEqual(wipRun.weapons.map((w) => w.id), CHAPTERS.deep.starter ? [CHAPTERS.deep.starter] : [],
+    `the WIP run is holding [${wipRun.weapons.map((w) => w.id).join(', ')}] against a declared starter of '${CHAPTERS.deep.starter}' — it was armed from some other chapter's table, or from a null id, which is a corpse every firing site dereferences`)
 
   // (e) Gate ON: the carousel LISTS it and the selection guard ACCEPTS it. Without both, phase 2
   // ships a chapter nothing can select — and every other assertion in this file still passes.
@@ -4756,9 +4756,9 @@ function runBooks() {
   // Same three assertions the carousel had, against the bookcase that replaced it: what matters is
   // still which chapter ids a player can reach, not the shape they are drawn in.
   const shelved = (m) => titleBookshelf(m).flatMap((sh) => sh.volumes.map((v) => v.id))
-  assert.ok(shelved(listed).includes('twilight'), 'gate on: the bookcase must shelve the WIP chapter, or it cannot be selected')
+  assert.ok(shelved(listed).includes('deep'), 'gate on: the bookcase must shelve the WIP chapter, or it cannot be selected')
   listed.dev = false
-  assert.ok(!shelved(listed).includes('twilight'), 'gate off: the bookcase must NOT shelve the WIP chapter')
+  assert.ok(!shelved(listed).includes('deep'), 'gate off: the bookcase must NOT shelve the WIP chapter')
   // THE SHELF IS EVERY LIVE RUNG, AND A HALF-SHIPPED BOOK CONTRIBUTES ONLY ITS LIVE ONES. Derived
   // rather than written down, for the same reason shippedChapterIds is: this used to read
   // `CHAPTER_ORDER` and assert the shelf was exactly book 1, which is a sentence about the release
@@ -4805,15 +4805,15 @@ function runBooks() {
   // fixed only onChapter, and the gated chapter duly appeared in the carousel as a locked "???" card
   // with a dead Play button — listed and unreachable, the same dead end one step further along.
   // Caught by a screenshot, not by a test, which is why it is asserted here now.
-  const wipLocked = { dev: false, chapters: { twilight: { unlocked: false }, pond: { unlocked: true }, beyond: { unlocked: false } } }
-  assert.strictEqual(chapterAvailable(wipLocked, 'twilight'), false, 'gate off: a WIP chapter is not available')
+  const wipLocked = { dev: false, chapters: { deep: { unlocked: false }, pond: { unlocked: true }, beyond: { unlocked: false } } }
+  assert.strictEqual(chapterAvailable(wipLocked, 'deep'), false, 'gate off: a WIP chapter is not available')
   assert.strictEqual(chapterAvailable(wipLocked, 'pond'), true, 'an unlocked shipped chapter is available, gate or no gate')
   assert.strictEqual(chapterAvailable(wipLocked, 'beyond'), false, 'a locked shipped chapter stays locked')
   const wipDev = { ...wipLocked, dev: true }
-  assert.strictEqual(chapterAvailable(wipDev, 'twilight'), true, 'gate on: the WIP chapter becomes available WITHOUT writing `unlocked` to the save')
+  assert.strictEqual(chapterAvailable(wipDev, 'deep'), true, 'gate on: the WIP chapter becomes available WITHOUT writing `unlocked` to the save')
   assert.strictEqual(chapterAvailable(wipDev, 'beyond'), false,
     'gate on must NOT unlock a shipped chapter — the bypass is for chapters with no unlock path, not a cheat for the ones that have one')
-  assert.strictEqual(wipDev.chapters.twilight.unlocked, false,
+  assert.strictEqual(wipDev.chapters.deep.unlocked, false,
     'chapterAvailable must stay a pure read — persisting the permission would outlive the gate and leave a WIP chapter unlocked after dev is turned off')
 
   // main.js and ui.js cannot be imported here (Pixi / import.meta.glob), so the WIRING is a source
@@ -6150,16 +6150,16 @@ run(runBookProgression)
 // field looks correct in any still frame, a resource that leaks into other chapters shows up as
 // balance drift nobody attributes to it, and a pulse whose event lies about its radius draws the
 // wrong ring around a real shove.
-function runTwilight() {
-  const twilightMeta = () => ({
-    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'twilight', dev: true,
-    chapters: Object.fromEntries([...CHAPTER_ORDER, 'twilight'].map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
+function runShelfLight() {
+  const shelfMeta = () => ({
+    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'shelf', dev: true,
+    chapters: Object.fromEntries([...CHAPTER_ORDER, 'shelf'].map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
   })
-  const res = CHAPTERS.twilight.resource
-  const sig = CHAPTERS.twilight.signature
+  const res = CHAPTERS.shelf.resource
+  const sig = CHAPTERS.shelf.signature
   const mkRun = (seed = 20260812, opts = {}) => {
     Math.random = mulberry32(seed)
-    return createRun(twilightMeta(), { chapter: 'twilight', difficulty: 1, ...opts })
+    return createRun(shelfMeta(), { chapter: 'shelf', difficulty: 1, ...opts })
   }
   // Step without any of stepSim's other machinery mattering: no input, no skill.
   const idle = { x: 0, y: 0, skill: false }
@@ -6299,7 +6299,7 @@ function runTwilight() {
   {
     const other = () => {
       Math.random = mulberry32(777)
-      const m = twilightMeta()
+      const m = shelfMeta()
       const r = createRun(m, { chapter: 'pond', difficulty: 1 })
       for (let i = 0; i < 240; i++) { stepSim(r, { x: 0.5, y: 0.3, skill: true }, 1 / 60); r.events.length = 0 }
       return r
@@ -6316,41 +6316,14 @@ function runTwilight() {
     assert.strictEqual(r._shaftCellI, undefined, 'the shaft cell cursor must never be written outside a shafts chapter')
   }
 
-  // (h) The Pulse. An EMPTY bar still fires the shipped v5.21 shove — the floor that stops the
-  // spiral where having no charge prevents you from earning charge — and a full spend scales both
-  // radius and force. The EVENT must carry the SCALED radius: render draws both rings at e.r under
-  // a comment saying a burst that lies about its reach makes the cooldown feel arbitrary.
-  {
-    const empty = mkRun()
-    empty.charge = 0
-    empty.repulseCd = 0
-    stepSim(empty, { x: 0, y: 0, skill: true }, 1 / 60)
-    const e0 = empty.events.find((e) => e.type === 'repulse')
-    assert.ok(e0, 'an empty bar must still fire the Pulse')
-    assert.ok(Math.abs(e0.r - REPULSE_RADIUS) < 1e-9, `an empty bar fires at the shipped floor ${REPULSE_RADIUS}, got ${e0.r}`)
-    assert.strictEqual(empty.charge, 0, 'an empty bar spends nothing')
-
-    const full = mkRun()
-    full.charge = res.max
-    full.repulseCd = 0
-    stepSim(full, { x: 0, y: 0, skill: true }, 1 / 60)
-    const e1 = full.events.find((e) => e.type === 'repulse')
-    assert.ok(e1, 'a full bar must fire the Pulse')
-    assert.ok(Math.abs(e1.r - PULSE_RADIUS_AT_FULL) < 1e-9,
-      `a full spend must PUSH the scaled radius ${PULSE_RADIUS_AT_FULL}, got ${e1.r} — pushing the constant draws the floor ring around a bigger shove`)
-    // The same step also applies one frame of DRAIN, so subtract it rather than widening the band:
-    // a tolerance big enough to swallow the drain would also swallow a 3% error in the cost itself.
-    const spend = res.max - full.charge - res.drain / 60
-    assert.ok(Math.abs(spend - PULSE_CHARGE_COST) < 0.01,
-      `a full spend costs exactly ${PULSE_CHARGE_COST} (net of one frame's drain), measured ${spend.toFixed(4)}`)
-    assert.ok(e1.r > e0.r, 'a charged pulse must reach further than an empty one, or the bar buys nothing')
-  }
+  // (h) The Pulse is DELETED: no chapter fields the plain Pulse after the merge (The Shelf has its
+  // own Clear button, The Deep has Scent), so there is nothing left to measure here.
 
   // (i) The Beyond is untouched. It declares no resource, so its t is 0 forever and its pulse must
   // be byte-identical to the shipped one — the lane chapter shares this function and nothing else.
   {
     Math.random = mulberry32(31337)
-    const lane = createRun(twilightMeta(), { chapter: 'beyond', difficulty: 1 })
+    const lane = createRun(shelfMeta(), { chapter: 'beyond', difficulty: 1 })
     lane.repulseCd = 0
     stepSim(lane, { x: 0, y: 0, skill: true }, 1 / 60)
     const ev = lane.events.find((e) => e.type === 'repulse')
@@ -6359,16 +6332,16 @@ function runTwilight() {
     assert.strictEqual(lane.charge, 0, 'The Beyond has no resource and must never accrue charge')
   }
 
-  console.log(`PASS run BL (The Twilight): bar drains/refills/clamps, shafts DRIFT with no cell crossing at exactly ${sig.driftAmp}px and ${(sig.driftAmp * sig.driftHz).toFixed(0)} px/s, RNG-free streaming, empty bar keeps the ${REPULSE_RADIUS}px floor and a full spend pushes ${PULSE_RADIUS_AT_FULL}px, pond and beyond untouched`)
+  console.log(`PASS run BL (The Shelf's shafts): bar drains/refills/clamps, shafts DRIFT with no cell crossing at exactly ${sig.driftAmp}px and ${(sig.driftAmp * sig.driftHz).toFixed(0)} px/s, RNG-free streaming, pond and beyond untouched`)
 }
-run(runTwilight)
+run(runShelfLight)
 
 // ---- Run RO: PER-ROSTER SOFTENING (v7.x, The Surf's Sea Roach) ---------------------------------
 // Owner, 2026-08-17: "The dasher should dash much less often and less far. like 50%. And deal 50%
 // less dmg. It's the first level of the book, that's too harsh."
 //
 // That reason is about ONE CHAPTER, and the dash knobs are global — DASH_IDLE_T and DASH_T are
-// shared by pond's tadpole, twilight's krill, reef's tuna and trawl's viperfish as well. So the
+// shared by pond's tadpole, deep's fangtooth, reef's tuna and trawl's viperfish as well. So the
 // softening is expressed as NEW roster fields (`dash: {restMul, lenMul, spdMul}` and `dmgMul`), and
 // the job of this block is to prove they are actually wired AND that they stay put: a per-roster
 // override that silently applied to everyone would look identical on The Surf and quietly halve the
@@ -6445,8 +6418,8 @@ function runRoachSoftening() {
     // The EXACT set, sorted so the assertion does not also pin CHAPTERS' key order. Adding a third
     // softened creature is meant to land here first: this line is the tripwire that makes "soften
     // one chapter" impossible to do quietly to a chapter you were not thinking about.
-    assert.deepStrictEqual(overridden.slice().sort(), ['surf/searoach', 'twilight/krill'],
-      `only The Surf's Sea Roach and The Twilight's Krill may carry the softening; found ${overridden.join(', ') || 'none'}`)
+    assert.deepStrictEqual(overridden.slice().sort(), ['surf/searoach'],
+      `only The Surf's Sea Roach may carry the softening; found ${overridden.join(', ') || 'none'}`)
     // And behaviourally: a carrier with no override still runs the shared globals.
     const { run, plain } = pairRun()
     for (let i = 0; i < Math.round(DASH_IDLE_T / dt) + 2; i++) stepSim(run, { x: 0, y: 0 }, dt)
@@ -6631,12 +6604,14 @@ function runRoachSoftening() {
     console.log(`PASS run RO.f (spdMul is the LUNGE's speed knob): ${(st.soft.dashD / st.soft.dashN).toFixed(2)} px/frame vs ${(st.plain.dashD / st.plain.dashN).toFixed(2)} (x${spd.toFixed(2)}), same window (x${window.toFixed(2)}), same wind-up (x${idle.toFixed(2)})`)
   }
 
-  // (g) THE KRILL'S SHIPPED NUMBERS DELIVER ALL THREE HALVINGS. Everything above proves the three
-  // knobs are WIRED; this proves the values actually in config.js use them. The override is read
-  // from CHAPTERS, never retyped, so dropping one of the three from the roster entry lands here —
-  // and nothing else would notice, since RO.b only asks whether a `dash` object exists at all.
+  // (g) A SHIPPED SET OF NUMBERS DELIVERS ALL THREE HALVINGS TOGETHER. Everything above proves the
+  // three knobs are WIRED; this proves a real set of values compounds the way the owner asked.
+  // FIXTURE, not a CHAPTERS read: these were The Twilight's krill numbers (owner, 2026-08-17: "Krill
+  // dash should be 50% slower and 50% less frequent and 50% shorter"), kept here as a fixture after
+  // the chapter left — the mechanism this proves (three knobs compounding to a quarter-distance
+  // lunge) is chapter-agnostic and does not need a live roster entry to exercise it.
   {
-    const KRILL = CHAPTERS.twilight.roster.find((r) => r.id === 'krill').dash
+    const KRILL = { restMul: 2.48, lenMul: 0.5, spdMul: 0.5 }
     const { run, plain, soft } = pairRun(KRILL)
     const st = { plain: { n: 0, d: 0, f: 0 }, soft: { n: 0, d: 0, f: 0 } }
     let prevP = 'idle', prevS = 'idle'
@@ -6655,12 +6630,12 @@ function runRoachSoftening() {
     const rate = st.soft.n / st.plain.n
     const spd = (st.soft.d / st.soft.f) / (st.plain.d / st.plain.f)
     const reach = (st.soft.d / st.soft.n) / (st.plain.d / st.plain.n)
-    assert(Math.abs(rate - 0.5) < 0.08, `the krill must dash HALF as often, measured x${rate.toFixed(3)}`)
+    assert(Math.abs(rate - 0.5) < 0.08, `the fixture must dash HALF as often, measured x${rate.toFixed(3)}`)
     assert(Math.abs(spd - 0.5) < 0.04, `and HALF as fast, measured x${spd.toFixed(3)} px/frame`)
     // The three compound: half the speed for half the window is a QUARTER of the distance. Asserted
     // explicitly because it is the surprising half of the owner's ask and the number worth reading.
     assert(Math.abs(reach - 0.25) < 0.05, `and lunge a QUARTER as far (half speed x half window), measured x${reach.toFixed(3)}`)
-    console.log(`PASS run RO.g (the krill's shipped tune): one dash every ${(SECS / st.soft.n).toFixed(2)}s vs ${(SECS / st.plain.n).toFixed(2)}s (x${rate.toFixed(2)}), at x${spd.toFixed(2)} speed, lunging ${(st.soft.d / st.soft.n).toFixed(0)}px vs ${(st.plain.d / st.plain.n).toFixed(0)}px (x${reach.toFixed(2)})`)
+    console.log(`PASS run RO.g (a shipped softened-dash fixture): one dash every ${(SECS / st.soft.n).toFixed(2)}s vs ${(SECS / st.plain.n).toFixed(2)}s (x${rate.toFixed(2)}), at x${spd.toFixed(2)} speed, lunging ${(st.soft.d / st.soft.n).toFixed(0)}px vs ${(st.plain.d / st.plain.n).toFixed(0)}px (x${reach.toFixed(2)})`)
   }
 
   console.log('PASS run RO (per-roster softening): the roster can soften ONE creature\'s dash cadence, reach, SPEED and damage without moving the shared DASH_* globals or the chapter\'s balance block')
@@ -6843,8 +6818,9 @@ function runShorebreak() {
 run(runShorebreak)
 // ---- run CL: The Shelf's Clear (2026-08-20) ---------------------------------------------------
 // The chapter's second verb, and the last one in Book 2 to get one. Three things happen on the
-// press and each is asserted against a CONTROL CHAPTER running the identical rig — The Twilight,
-// which has the same bar, the same `shafts` signature and the same dark block, and no `clear`.
+// press and each is asserted against a CONTROL CHAPTER running the identical rig — The Deep,
+// which has the same bar and the same dark block (its maws refill through the same run.shafts
+// array every other chapter's circles do), and no `clear`.
 // Without that control every block below would pass on the plain Pulse.
 //
 // THE ONE THIS SCENARIO EXISTS FOR IS (c). Design spec §6.2 warned that "blows wide and everything
@@ -6908,7 +6884,7 @@ function runClear() {
     advance(shelf, 0.5, true)
     const shelfAfter = meanDist(shelf)
 
-    const ctl = ringRun('twilight', CHAPTERS.twilight.resource.max, 700)
+    const ctl = ringRun('deep', CHAPTERS.deep.resource.max, 700)
     advance(ctl, 0.5, true)
     const ctlAfter = meanDist(ctl)
 
@@ -6916,7 +6892,7 @@ function runClear() {
       `the control must NOT reach 700px with a ${PULSE_RADIUS_AT_FULL}px Pulse (moved to ${ctlAfter.toFixed(1)}px) or this block proves nothing`)
     assert(shelfAfter > before + 20,
       `the Clear must reach the 700px ring: ${before.toFixed(0)} -> ${shelfAfter.toFixed(0)}px`)
-    console.log(`PASS run CL.a (reaches past the Pulse): ring at 700px -> shelf ${shelfAfter.toFixed(0)}px, twilight control ${ctlAfter.toFixed(0)}px`)
+    console.log(`PASS run CL.a (reaches past the Pulse): ring at 700px -> shelf ${shelfAfter.toFixed(0)}px, deep control ${ctlAfter.toFixed(0)}px`)
   }
 
   // (b) IT STAGGERS FOR LONGER. Read off e.stunT, which is the SHIPPED contract field the enemy
@@ -6925,7 +6901,7 @@ function runClear() {
   {
     const shelf = ringRun('shelf', RES.max, 200)
     advance(shelf, dt, true)
-    const ctl = ringRun('twilight', CHAPTERS.twilight.resource.max, 200)
+    const ctl = ringRun('deep', CHAPTERS.deep.resource.max, 200)
     advance(ctl, dt, true)
     const sStun = shelf.run.enemies.find((e) => shelf.ids.includes(e.id)).stunT
     const cStun = ctl.run.enemies.find((e) => ctl.ids.includes(e.id)).stunT
@@ -6933,7 +6909,7 @@ function runClear() {
     // compare against that, not against the raw constant, or the band is a frame-rate literal.
     assert(cStun > REPULSE_STUN - 2 * dt && cStun <= REPULSE_STUN, `the control must carry the shipped ${REPULSE_STUN}s stagger, got ${cStun}`)
     assert(sStun > cStun * 1.5, `the Clear must stagger materially longer: ${sStun}s vs the Pulse's ${cStun}s`)
-    console.log(`PASS run CL.b (staggers longer): shelf ${sStun}s vs twilight ${cStun}s`)
+    console.log(`PASS run CL.b (staggers longer): shelf ${sStun}s vs deep ${cStun}s`)
   }
 
   // (c) THE MURK OPENS — the block this scenario exists for, and the only one that can tell a live
@@ -6956,11 +6932,11 @@ function runClear() {
     assert(seeing(shelf.run) > blind * 3,
       `the Clear must open the water: ${blind.toFixed(0)}px blind -> ${seeing(shelf.run).toFixed(0)}px`)
 
-    const ctl = ringRun('twilight', 0, 200)
+    const ctl = ringRun('deep', 0, 200)
     advance(ctl, dt, true)
     assert(Math.abs(seeing(ctl.run) - barAlone(ctl.run)) < 1e-9,
       'only a `clear` chapter may lend sight — the control chapter sees exactly its bar')
-    console.log(`PASS run CL.c (the murk opens): empty bar ${blind.toFixed(0)}px -> ${seeing(shelf.run).toFixed(0)}px on a ${maxDim}px screen; twilight unchanged at ${seeing(ctl.run).toFixed(0)}px`)
+    console.log(`PASS run CL.c (the murk opens): empty bar ${blind.toFixed(0)}px -> ${seeing(shelf.run).toFixed(0)}px on a ${maxDim}px screen; deep unchanged at ${seeing(ctl.run).toFixed(0)}px`)
   }
 
   // (d) AND IT CLOSES AGAIN, easing rather than snapping. The cost of this button is paid here and
@@ -7015,7 +6991,7 @@ function runClear() {
     // ⚠ NOT The Trawl. It is the one Book 2 chapter with no `resource` at all (2026-09-01 — it is
     // the book's normal chapter), so it has no bar for sightCharge to track and reading
     // `.resource.max` here would be a TypeError rather than a failed assertion.
-    const others = ['surf', 'reef', 'twilight', 'deep']
+    const others = ['surf', 'reef', 'deep']
     for (const id of others) {
       Math.random = mulberry32(4242)
       const run = createRun(devMeta(), { chapter: id, difficulty: 1 })
@@ -7028,7 +7004,7 @@ function runClear() {
     console.log(`PASS run CL.f (${others.length} other Undertow chapters unchanged): sightCharge === charge, no window armed`)
   }
 
-  console.log(`PASS run CL (The Clear): reaches ${CLEAR_RADIUS_AT_FULL}px against the Pulse's ${PULSE_RADIUS_AT_FULL}, staggers ${CLEAR_STUN}s against ${REPULSE_STUN}, opens the murk for ${CLEAR_DUR_MIN}-${CLEAR_DUR_AT_FULL}s and eases shut over ${CLEAR_SIGHT_FADE}s, one honest ring, 5 other chapters untouched`)
+  console.log(`PASS run CL (The Clear): reaches ${CLEAR_RADIUS_AT_FULL}px against the Pulse's ${PULSE_RADIUS_AT_FULL}, staggers ${CLEAR_STUN}s against ${REPULSE_STUN}, opens the murk for ${CLEAR_DUR_MIN}-${CLEAR_DUR_AT_FULL}s and eases shut over ${CLEAR_SIGHT_FADE}s, one honest ring, 4 other chapters untouched`)
 }
 run(runClear)
 // ---- run MB: the mod budget in Book 2's first two chapters (2026-08-19) ------------------------
@@ -7286,7 +7262,7 @@ function runModBudget() {
 
     // THE SHARED DEFAULT IS UNTOUCHED. Silt Veil got its own cadence by overriding BLOOM_TICK, and
     // the failure mode of doing that badly is moving the constant itself — which silently retunes
-    // the pond's Toxin Bloom and The Twilight's Foxfire, two chapters away, with nothing red.
+    // the pond's Toxin Bloom and The Deep's Foxfire, two chapters away, with nothing red.
     assert.strictEqual(BLOOM_TICK, 0.5, 'BLOOM_TICK moved — Toxin Bloom and Foxfire ride it and neither was meant to change')
     {
       const r = boot('pond', 'bloom', 5, null)
@@ -7576,7 +7552,7 @@ function runModBudget() {
     assert(Math.abs(blown[0].maxR - col * SILT_FLUSH_MUL) < 1e-9,
       `...sized off the COLUMN (${col} x ${SILT_FLUSH_MUL}), not the veil: got ${blown[0].maxR.toFixed(1)}`)
     // The control, and it is not ceremony: run.holes is shared with the Black Hole and run.blooms
-    // with the pond's and The Twilight's clouds, so 'a disc appeared' has more than one possible
+    // with the pond's and The Deep's clouds, so 'a disc appeared' has more than one possible
     // author. An unmodded column must leave none over the same window.
     const bareCol = duo('downwash', null)
     bareCol.enemies.push(makeStatusEnemy(bareCol, { x: bareCol.player.x + 200, y: bareCol.player.y, hp: 1e6, speed: 0 }))
@@ -10936,11 +10912,11 @@ run(runWreckGrid)
 // world would dim on a different schedule from the one your legs are on, and the player would have
 // no way to tell what state they are in.
 function runDark() {
-  const res = CHAPTERS.twilight.resource
+  const res = CHAPTERS.deep.resource
   const d = res.dark
-  const twilightMeta = () => ({
-    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'twilight', dev: true,
-    chapters: Object.fromEntries(['body', 'pond', 'twilight', 'beyond']
+  const deepMeta = () => ({
+    coins: 0, shop: {}, best: {}, runs: 0, choiceSlots: 2, chapter: 'deep', dev: true,
+    chapters: Object.fromEntries(['body', 'pond', 'deep', 'beyond']
       .map((id) => [id, { unlocked: true, maxDifficulty: 5, difficulty: 1 }])),
   })
 
@@ -11010,9 +10986,11 @@ function runDark() {
       assert.ok(Math.abs(lightRadius(c, res, PHONE) / PHONE - lightRadius(c, res, DESK) / DESK) < 1e-9,
         `phone and desktop must light the same fraction of the screen (charge ${c})`)
     }
-    // radiusFull >= 1: at a full bar the rim is at least a screen away, so the chapter opens with
-    // no dark on it whatever the aspect ratio.
-    assert.ok(d.radiusFull >= 1, 'a full bar must put the light\'s rim off-screen on any aspect ratio')
+    // NO radiusFull >= 1 CLAIM HERE: that was The Twilight's own ruling (a full bar puts the rim
+    // off-screen, "the light only goes down"). The Deep's is the opposite by design — radiusFull
+    // 0.50, so even a full bar leaves the screen CORNERS dark, which is what "the darkest chapter"
+    // has to mean — and that inequality is proven against the tightest shipped aspect ratio by run
+    // DP.j, not duplicated here.
     // Monotone shrinking, sampled — a non-monotone radius would read as the light flickering back
     // out as you get worse, and no endpoint check can catch it.
     let prev = Infinity
@@ -11052,7 +11030,7 @@ function runDark() {
   // what fails if stepPlayer stops consulting the curve.
   const travel = (charge, extra) => {
     Math.random = mulberry32(4242)
-    const run = createRun(twilightMeta(), { chapter: 'twilight', difficulty: 1 })
+    const run = createRun(deepMeta(), { chapter: 'deep', difficulty: 1 })
     run.shafts.length = 0              // no refill: the bar must hold where it is put
     run.charge = charge
     if (extra) extra(run)
@@ -11067,51 +11045,29 @@ function runDark() {
   {
     const lit = travel(res.max)
     const empty = travel(0)
-    const ratio = empty / lit
-    assert.ok(Math.abs(ratio - d.speedFloor) < 0.02,
-      `an empty bar must move at x${d.speedFloor} of a full one, measured x${ratio.toFixed(3)} (${empty.toFixed(1)}px vs ${lit.toFixed(1)}px)`)
-    // Above the threshold nothing happens at all — the chapter plays like any other.
-    const atThreshold = travel(res.max * d.from)
-    assert.ok(Math.abs(atThreshold - lit) < 0.01,
-      `at the threshold the player must move at FULL speed, got ${atThreshold.toFixed(1)}px vs ${lit.toFixed(1)}px`)
-    // ...and halfway down, halfway to the floor. A curve applied as a step rather than a ramp
-    // passes both endpoints above and fails here.
-    const half = travel(res.max * d.from * 0.5) / lit
-    const want = 1 - (1 - d.speedFloor) * 0.5
-    assert.ok(Math.abs(half - want) < 0.02, `halfway dark must move at x${want}, measured x${half.toFixed(3)}`)
+    // The Deep's own ruling (spec 2026-09-09-deep-twilight-merge §6.1): speedFloor 1, i.e. NO SPEED
+    // PENALTY — an empty bar costs sight and the maws' bite, never move speed. So this is an
+    // EQUALITY, not a ratio against d.speedFloor: travelled distance at an empty bar must land
+    // within 2% of a full one, or a slow leaked in.
+    assert.ok(Math.abs(empty - lit) / lit < 0.02,
+      `The Deep's dark must NOT slow (speedFloor 1, its own ruling) — a slow leaked in (empty ${empty.toFixed(1)}px vs full ${lit.toFixed(1)}px)`)
   }
 
-  // (c) it joins the slow MIN, it does not multiply into it. The strongest slow wins, so standing
-  // in a web while dark is exactly as slow as the worse of the two — never the product. Without
-  // this, every web and every latch in this chapter is silently nastier than the same web anywhere
-  // else, which is a difficulty change nobody asked for and which no test would otherwise notice.
-  //
-  // Composed against the LATCH slow rather than a web: latch is a plain player field (slowT) with
-  // no entity shape to get wrong, and the two constants differ (0.55 vs the 0.6 floor), so this
-  // still tells MIN from a product. A hand-built run.webs fixture measured x0.993 — the fixture was
-  // not slowing anything, which would have made the assertion vacuous rather than failing loudly.
-  {
-    const latched = (charge) => travel(charge, (run) => { run.player.slowT = 10 })
-    const lit = travel(res.max)
-    const latchLit = latched(res.max) / lit
-    const latchDark = latched(0) / lit
-    assert.ok(Math.abs(latchLit - LATCH_SLOW_MUL) < 0.02,
-      `a latch alone must slow to x${LATCH_SLOW_MUL}, got x${latchLit.toFixed(3)} — if this is 1 the fixture is not slowing and the next assertion proves nothing`)
-    const strongest = Math.min(LATCH_SLOW_MUL, d.speedFloor)
-    assert.ok(Math.abs(latchDark - strongest) < 0.02,
-      `latch + dark must be the STRONGEST of the two (x${strongest}), not the product (x${(LATCH_SLOW_MUL * d.speedFloor).toFixed(3)}) — measured x${latchDark.toFixed(3)}`)
-  }
+  // (c) "it joins the slow MIN" is DELETED: The Deep's dark no longer slows at all (speedFloor 1,
+  // arm (b) above), so there is no dark-side slow left to compose against a latch here. The MIN
+  // composition itself is still proven — on The Shelf, which still slows in the dark — by run PB7's
+  // Runoff arm.
 
   // (d) a chapter with no resource is untouched. The Pond shares stepPlayer, and the guard that
   // keeps it out of this is one optional-chain away from being deleted by accident.
   {
     Math.random = mulberry32(4242)
-    const pond = createRun(twilightMeta(), { chapter: 'pond', difficulty: 1 })
+    const pond = createRun(deepMeta(), { chapter: 'pond', difficulty: 1 })
     const x0 = pond.player.x
     for (let i = 0; i < 60; i++) { pond.charge = 0; stepSim(pond, { x: 1, y: 0 }, 1 / 60); pond.events.length = 0 }
     const dist = pond.player.x - x0
     Math.random = mulberry32(4242)
-    const pond2 = createRun(twilightMeta(), { chapter: 'pond', difficulty: 1 })
+    const pond2 = createRun(deepMeta(), { chapter: 'pond', difficulty: 1 })
     const x1 = pond2.player.x
     for (let i = 0; i < 60; i++) { pond2.charge = 100; stepSim(pond2, { x: 1, y: 0 }, 1 / 60); pond2.events.length = 0 }
     assert.ok(Math.abs(dist - (pond2.player.x - x1)) < 1e-9,
@@ -11227,7 +11183,7 @@ function runDark() {
       'the dark must stay below the damage vignette/flash, or it takes the safety cues with it')
   }
 
-  console.log(`PASS run DK (the dark): two schedules on purpose — the light you emit closes LINEARLY from ${d.radiusFull}x to ${d.radiusEmpty}x the screen longest side across the WHOLE bar while the player slows to x${d.speedFloor} only below ${(d.from * 100).toFixed(0)}/${res.max}, MIN-composed with the latch slow, pond untouched, player and shafts filled into an OPAQUE lightmap composited by multiply (no alpha, no bake, no cut)`)
+  console.log(`PASS run DK (the dark): two schedules on purpose — the light you emit closes LINEARLY from ${d.radiusFull}x to ${d.radiusEmpty}x the screen longest side across the WHOLE bar while speedFloor ${d.speedFloor} means The Deep's dark does NOT slow the player, pond untouched, player and shafts filled into an OPAQUE lightmap composited by multiply (no alpha, no bake, no cut)`)
 }
 run(runDark)
 
@@ -19356,7 +19312,7 @@ function testLeaderboard() {
   const chapterRe = new RegExp(chapterLiteral.slice(1, -1))
   const allChapterIds = Object.keys(CHAPTERS)
   const refused = allChapterIds.filter((id) => !chapterRe.test(id))
-  assert.ok(allChapterIds.length >= 15, `expected the whole chapter table, got ${allChapterIds.length}`)
+  assert.ok(allChapterIds.length >= 14, `expected the whole chapter table, got ${allChapterIds.length}`)
   assert.deepStrictEqual(refused, [],
     `chapter id(s) the Worker's validChapter would refuse: [${refused.join(', ')}] — every submit and every ` +
     `board read for those chapters 400s, and the podium is empty there with no error anywhere`)
@@ -20024,7 +19980,7 @@ try {
   run(testSurfHumidity)
   run(testSurfHumidityDamage)
   run(testSurfWeapons)
-  run(testTwilightWeapons)
+  run(testDeepLightWeapons)
   run(testEliteSurge)
 run(testLeLargeWeapons)
   run(testCrabGuard)
@@ -22329,7 +22285,7 @@ function testUndertowTide() {
   // (c) THE TIDE DID NOT EAT THE SIGNATURE. The whole reason it moved out of signature is that six of
   // these chapters already spend theirs; if a merge ever puts it back, this is what says so.
   for (const [id, type] of [['shelf', 'shafts'], ['wreck', 'leak'],
-                            ['trawl', 'trawl'], ['twilight', 'shafts'], ['deep', 'dark']]) {
+                            ['trawl', 'trawl'], ['deep', 'dark']]) {
     assert.strictEqual(CHAPTERS[id].signature?.type, type,
       id + ' must keep its own signature — the tide is a separate chapter-declared block')
   }
@@ -23257,8 +23213,8 @@ function testBarnacles() {
 //   - a foxfire whose `maxR` grew still catches nobody if the growth is smaller than the gap to the
 //     next body.
 //   - a lance whose `length` shrank to nothing still exists in run.beams.
-function testTwilightWeapons() {
-  testTwilightPool()
+function testDeepLightWeapons() {
+  testDeepPool()
   testSunspear()
   testFoxfire()
   testSunlance()
@@ -23775,11 +23731,11 @@ function testLeLargeWeapons() {
   console.log('PASS run LL (Le Large natives): Bubble Puff cuts without shoving and its reach is level-only, Silt Veil dazes AND poisons what stands in it and its daze CANCELS a dasher\'s lunge instead of pausing it, Ballast lands and drags without staining and aims short of the screen edge, the puff is a 90 degree cone that Flare widens up to a capped wedge and never a ring, and every sector nova names its drawer')
 }
 
-function twilightRun(weaponId, level = 1) {
+function deepRun(weaponId, level = 1) {
   const meta = makeMeta()
   meta.dev = true
   ensureChapterMeta(meta)
-  const run = createRun(meta, { chapter: 'twilight', difficulty: 1 })
+  const run = createRun(meta, { chapter: 'deep', difficulty: 1 })
   run.weapons = [{ id: weaponId, level }]
   run.player.maxHP = run.player.hp = 1e9
   run.enemies.length = 0
@@ -23794,27 +23750,20 @@ function twilightRun(weaponId, level = 1) {
   return run
 }
 
-// (0) THE CHAPTER FIGHTS WITH ITS OWN GEAR. CHAPTERS.twilight spreads CHAPTERS.pond, so the pool is
-// inherited unless it is overridden — and an inherited pool is invisible in a diff of this file.
-function testTwilightPool() {
-  const pool = CHAPTERS.twilight.weapons
-  for (const borrowed of ['flagella', 'mines', 'bloom']) {
-    assert.ok(!pool.includes(borrowed),
-      `The Twilight still offers ${borrowed} — the spread from CHAPTERS.pond is not overridden`)
-  }
-  assert.deepStrictEqual([...pool].sort(), ['foxfire', 'sunlance', 'sunspear'],
-    `The Twilight's pool is ${JSON.stringify(pool)}, not its three natives`)
-  assert.ok(pool.includes(CHAPTERS.twilight.starter),
-    `The Twilight starts you with ${CHAPTERS.twilight.starter}, which is not in its own pool`)
-  assert.strictEqual(CHAPTERS.twilight.starter, 'sunspear',
-    'The Twilight no longer starts on its own starter')
+// (0) THE POOL IS EXACTLY THE FOUR LIGHT CARDS, no more and no fewer.
+function testDeepPool() {
+  // CHAPTERS.deep is a plain literal (no `...CHAPTERS.pond` spread), so there is no borrowed-weapon
+  // leak to check for — the exact array, in order, is the whole contract.
+  assert.deepStrictEqual(CHAPTERS.deep.weapons, ['glint', 'sunspear', 'foxfire', 'sunlance'],
+    `The Deep's pool is ${JSON.stringify(CHAPTERS.deep.weapons)}, not the four light cards`)
+  assert.strictEqual(CHAPTERS.deep.starter, 'glint', 'The Deep must start on Glint, its own native starter')
 }
 
 // (a) EVERY COLUMN OF A CAST LANDS SOMEWHERE ELSE — including the surplus ones.
 function testSunspear() {
   Math.random = mulberry32(20260816)
   const L = 5
-  const run = twilightRun('sunspear', L)
+  const run = deepRun('sunspear', L)
   const p = run.player
   const lvl = WEAPONS.sunspear.levels[L - 1]
   assert.ok(lvl.count >= 3, `this fixture needs a multi-column level; L${L} casts ${lvl.count}`)
@@ -23855,7 +23804,7 @@ function testSunspear() {
   // first, which counts three, renders as one, and deals ONE column's damage. So the assertion is
   // the damage: three columns on one body must cost it about three columns' worth.
   Math.random = mulberry32(20260816)
-  const run2 = twilightRun('sunspear', L)
+  const run2 = deepRun('sunspear', L)
   const p2 = run2.player
   const lone = makeStatusEnemy(run2, { x: p2.x + 140, y: p2.y, hp: 1e6, speed: 0 })
   run2.enemies.push(lone)
@@ -23911,7 +23860,7 @@ function testFoxfire() {
   // the time and read the neighbours it caught as the gloom.
   const cast = (charge) => {
     Math.random = mulberry32(20260816)
-    const run = twilightRun('foxfire', L)
+    const run = deepRun('foxfire', L)
     const p = run.player
     run.charge = charge
     const centre = makeStatusEnemy(run, { x: p.x, y: p.y + 20, hp: 1e6, speed: 0 })
@@ -23955,8 +23904,8 @@ function testFoxfire() {
     `a foxfire cast at an EMPTY bar burned nothing in the band the gloom is supposed to open (${lvl.maxR} -> ${(lvl.maxR * FOXFIRE_GLOOM).toFixed(0)}px) — the dark buys no reach`)
 
   // AND IT DOES NOT SLOW. run.blooms is shared with the Spore Bloom, whose slow is applied to every
-  // entry in the list; The Twilight already slows the player in the dark and must not hand out a
-  // second, unadvertised slow on a card whose text never mentions one.
+  // entry in the list; Foxfire's own card text never mentions a slow, so it must not quietly hand
+  // out one through this shared array.
   assert.ok(!dark.slowed && !lit.slowed,
     'a foxfire slowed what stood in it — it has inherited the Spore Bloom\'s slow through run.blooms')
 
@@ -24000,15 +23949,6 @@ function testGlint() {
   const L = 1
   const lvl = WEAPONS.glint.levels[L - 1]
   assert.strictEqual(WEAPONS.glint.rarity, 'normal', 'Glint is the starter, and a starter is normal rarity')
-  // `deepRun` does not exist yet — Task 4 renames `twilightRun` to it. Local until then.
-  const deepRun = (weaponId, level) => {
-    const meta = makeMeta(); meta.dev = true; ensureChapterMeta(meta)
-    const run = createRun(meta, { chapter: 'deep', difficulty: 1 })
-    run.weapons = [{ id: weaponId, level }]
-    run.player.maxHP = run.player.hp = 1e9
-    run.enemies.length = 0; run.shafts.length = 0
-    return run
-  }
   const mk = (charge) => {
     Math.random = mulberry32(20260909)
     const run = deepRun('glint', L)
@@ -24056,12 +23996,12 @@ function testGlint() {
   console.log(`PASS run SH.d (glint): 1 Light per cast (${GLINT_LIGHT_COST}), fires at an empty bar with the bar held at 0, cost independent of chargeDrainMul`)
 }
 
-/** The bar's ceiling for a fresh Shelf run, read off a run rather than off config — Deep Lungs can
+/** The bar's ceiling for a fresh Deep run, read off a run rather than off config — Deep Lungs can
  * raise run.chargeMax above resource.max, and every consumer in sim.js reads the run's own. */
 function run0ChargeMax() {
   const meta = makeMeta()
   ensureChapterMeta(meta)
-  return createRun(meta, { chapter: 'twilight', difficulty: 1 }).chargeMax
+  return createRun(meta, { chapter: 'deep', difficulty: 1 }).chargeMax
 }
 
 // (c) THE LANCE REACHES AS FAR AS THE BAR, AND AN EMPTY BAR STILL KILLS.
@@ -24076,7 +24016,7 @@ function testSunlance() {
 
   const cast = (charge, dist) => {
     Math.random = mulberry32(20260816)
-    const run = twilightRun('sunlance', L)
+    const run = deepRun('sunlance', L)
     const p = run.player
     run.charge = charge
     // Both bodies on the +x axis: the near one is what surfAim locks onto, so the lance is aimed
@@ -32272,7 +32212,7 @@ function testTheDeep() {
     assert.ok(CHAPTERS.deep.weapons.includes(CHAPTERS.deep.starter),
       `run DP.i: the pool is [${CHAPTERS.deep.weapons}] starting '${CHAPTERS.deep.starter}' — the starter is not in its own pool`)
     assert.deepStrictEqual(CHAPTERS.deep.roster.map((r) => r.id), ['lanternfish', 'barreleye', 'fangtooth', 'siphonophore'],
-      'run DP.i: the roster is not the 2026-09-09 re-cut (spec 2026-09-09-deep-twilight-merge §7b)')
+      'run DP.i: the roster is not the 2026-09-09 re-cut (design spec §7b)')
     assert.deepStrictEqual(CHAPTERS.deep.eliteFlags, [], 'run DP.i: an elite behaviour flag came back — nothing on this roster produces slime (R2.4)')
     // Every archetype covered, which is what stops the tank share of WAVE_TABLE finding an empty
     // pool from t=140s and spawning an unskinned body.
@@ -32739,7 +32679,7 @@ function testUndertowLadder() {
     // `trawl: null` is a REAL ROW, not an omission: as of 2026-09-01 it is Book 2's normal chapter
     // and having no bar at all is the point of it. Left in the map so that quietly giving it one
     // back — the easiest way to undo that design without touching a word of prose — goes red here.
-    const BARS = { surf: 'Humidity', shelf: 'Pollution', reef: 'Air', trawl: null, twilight: 'Light', deep: 'Light' }
+    const BARS = { surf: 'Humidity', shelf: 'Pollution', reef: 'Air', trawl: null, deep: 'Light' }
     for (const [id, bar] of Object.entries(BARS)) {
       assert.strictEqual(CHAPTERS[id]?.resource?.name ?? null, bar,
         `${id}'s bar is '${CHAPTERS[id]?.resource?.name}', not '${bar}' — the light and the murk have swapped or drifted, or The Trawl has been handed a bar back`)
@@ -32766,19 +32706,15 @@ function testUndertowLadder() {
       "paintCharge no longer inverts the bar's HEIGHT — the Pollution rail empties as the water fouls")
     assert.ok(/invert \? Math\.max\(0, max - charge\) : charge/.test(uiSrc),
       'paintCharge no longer inverts the NUMBER — the rail would count down beside a bar filling up')
-    // THE MURK SLOWS YOU, and it slows you LESS than the dark does. Owner from play, 2026-08-18,
-    // overturning the speedFloor 1 this scenario used to assert — the argument for it was that 2.4
-    // and 2.5 already both slow you, and it lost to the chapter being played, where a cost paid only
-    // in sight turned out not to bite. What is guarded now is the ORDER, not the value: slot 2 must
-    // stay gentler than slot 6, or the book arrives at its full weight in its second chapter.
+    // THE MURK SLOWS YOU (owner from play, 2026-08-18, overturning the speedFloor 1 this scenario
+    // used to assert). The ORDERING check that used to live here (slot 2's slow must stay gentler
+    // than slot 6's) is DELETED per R2.4: after the merge no Book 2 chapter but The Shelf slows in
+    // the dark at all — The Deep's speedFloor 1 is its own recorded ruling (run DK), so there is no
+    // second term left to order against. What survives is the two standalone facts.
     const murk = CHAPTERS.shelf.resource.dark.speedFloor
-    const dark = CHAPTERS.twilight.resource.dark.speedFloor
     assert.ok(murk < 1, 'The Shelf\'s murk stopped slowing the player (owner ruling 2026-08-18)')
-    assert.ok(dark < 1, 'The Twilight\'s dark stopped slowing the player, which is The Deep\'s inversion, not this chapter\'s')
-    assert.ok(murk > dark,
-      `The Shelf slows you as hard as The Twilight (${murk} vs ${dark}) — slot 2 must stay gentler than slot 6`)
     assert.strictEqual(CHAPTERS.deep.resource.dark.speedFloor, 1,
-      'The Deep started slowing the player — its speedFloor 1 is that chapter\'s deliberate inversion')
+      'The Deep started slowing the player — its speedFloor 1 is its own recorded ruling (run DK)')
 
     // (e2) THE ARSENAL FOLLOWED THE LIGHT, asserted semantically rather than as a source-text lint.
     // A text lint was tried first and is the wrong instrument: `CHAPTERS.shelf.resource.dark` is a
@@ -32788,17 +32724,16 @@ function testUndertowLadder() {
     //   Two of them are welded to it: Foxfire scales its radius by darkness() and punches the
     //   lightmap, Sunlance's reach IS charge/chargeMax. In a chapter whose bar does not slow or
     //   blind, Foxfire keeps firing and simply stops doing the thing it is for — no throw, no red.
+    // CHAPTERS.deep.weapons is checked in full by testDeepPool; what is left here is the half
+    // that check cannot see — that none of the three sun natives leaked into the murk chapter.
     const SUN = ['sunspear', 'foxfire', 'sunlance']
-    assert.deepStrictEqual(CHAPTERS.twilight.weapons, SUN,
-      'The Twilight no longer fields the three sun natives — the light moved and its arsenal did not follow')
     for (const w of SUN) {
       assert.ok(!CHAPTERS.shelf.weapons.includes(w),
         `The Shelf offers ${w}, a sun card, in the chapter that is now about murk`)
     }
-    // …and the suite's own coverage of the mechanic moved with it.
-    const tsrc = readFileSync(new URL('./sim-test.js', import.meta.url), 'utf8')
-    assert.ok(tsrc.includes('CHAPTERS.twilight.resource.dark'),
-      'nothing in the suite reads CHAPTERS.twilight.resource.dark — the light chapter moved and its coverage did not follow')
+    // The self-referential grep this used to run (does the suite still read
+    // CHAPTERS.twilight.resource.dark) is deleted with the id per R2.4 — it cannot be "moved", and
+    // run DK already reads The Deep's own resource.dark block.
 
     // (e3) THE FISH IS ONE SIZE ACROSS THE BOOK, and this assertion is the inverse of the one it
     // replaces. formScale used to be a strictly-increasing ladder (1 -> 1.7) sold as "you grow in
@@ -32828,7 +32763,7 @@ function testUndertowLadder() {
     }
     // NON-INCREASING, not strictly decreasing. A TIE is legitimate here and a rise is not: a chapter
     // shipped in phases borrows a neighbour's palette wholesale as a named stand-in (The Wreck
-    // borrows The Reef's, and The Twilight borrows The Shelf's prop family), so equal rungs mean
+    // borrows The Reef's), so equal rungs mean
     // "not authored yet" and would make this guard a test that has to be edited to stay passing.
     // The pathology worth catching is water getting BRIGHTER the deeper you go.
     const lums = undertowIds.map((id) => [id, rel(CHAPTERS[id].render.bgColor)])
@@ -32893,11 +32828,12 @@ function testUndertowLadder() {
       }
     }
 
-    // (e7) THE SAVE MIGRATION. `chapters.shelf` used to hold the light chapter's ladder, and slot 2
-    // is now a different chapter. Without the move in loadMeta the failure is not a wipe, it is
-    // SILENT MISATTRIBUTION: a never-played murk chapter inherits five wins and someone else's best
-    // times, while `twilight` is created by ensureChapterMeta as `unlocked: id === 'body'` — locked,
-    // holding none of the progress it earned. Nothing looks wrong, which is what makes it worse.
+    // (e7) THE RETROACTIVE UNLOCK, across the whole Undertow ladder. The shelf->twilight hop that
+    // used to live here (moving the light chapter's ladder off `shelf` before the murk chapter could
+    // misattribute it) is DELETED with the id, per R2.3 — neither chapter ever had public progress to
+    // carry (The Shelf shipped at v7.196, after the 2026-08-17 move), so there is nothing to migrate
+    // and no replacement hop. `chapters.twilight` keys already on a save are left alone (additive-only)
+    // and read by nothing. What this fixture still proves is unrelated to that hop.
     {
       // A REALISTIC dev save: the whole shipped five-rung Undertow ladder beaten, which is the only
       // shape this migration ever meets. (Seeding `shelf` alone was tried first and made the no-gap
@@ -32910,13 +32846,7 @@ function testUndertowLadder() {
           shelf: { unlocked: true, maxDifficulty: 5, difficulty: 5, won: 5, best: { time: 123, kills: 45 } } } }
       globalThis.localStorage = { getItem: () => JSON.stringify(seeded), setItem: () => {}, removeItem: () => {} }
       const m = loadMeta()
-      assert.strictEqual(m.chapters.twilight?.maxDifficulty, 5,
-        'the light chapter\'s ladder did not follow it to `twilight` — its progress is being read as the murk chapter\'s')
-      assert.strictEqual(m.chapters.twilight?.best?.time, 123, 'the moved ladder lost its best times')
-      assert.strictEqual(m.chapters.shelf?.maxDifficulty, 1,
-        'the NEW murk chapter inherited the light chapter\'s ladder — a chapter nobody has played shows its stars')
-      assert.strictEqual(m.chapters.shelf?.won ?? 0, 0, 'the new murk chapter inherited wins it never earned')
-      // …and the generalised retroactive unlock must leave no locked rung under an unlocked one.
+      // …the generalised retroactive unlock must leave no locked rung under an unlocked one.
       // That loop read CHAPTER_ORDER (Book 1 only) until this change, so it had never run for Book 2.
       let sawLocked = null
       for (const id of BOOKS.undertow.chapters) {
@@ -32949,7 +32879,7 @@ function testUndertowLadder() {
       // NEITHER is still the silent failure this case exists for. A chapter with BOTH would be two
       // rules on one field and is rejected outright — stepCharge's grant branch returns before the
       // soak, so the drawdown would be dead config that reads as live.
-      const WANT_SPEND = ['shelf', 'twilight', 'reef']
+      const WANT_SPEND = ['shelf', 'reef']
       const EXEMPT = ['surf', 'deep']
       for (const id of WANT_SPEND) {
         const spec = refillSpec(CHAPTERS[id].signature)
@@ -33040,8 +32970,8 @@ function testUndertowLadder() {
         `(bar fell to ${run.charge.toFixed(1)} while parked in it); render fades off the same field`)
     }
 
-    console.log(`PASS run US.j (shelf/twilight split): ${Object.keys(BARS).length} chapter bars map as designed (the murk slows you less than the dark does; ${inverted.length} reads inverted, and ui.js flips both its height and its number), ` +
-      `the sun arsenal followed the light and no sun card is left in the murk, the fish is one size across all ${scales.length} chapters (no formScale rung anywhere), ` +
+    console.log(`PASS run US.j (bars + resource identity): ${Object.keys(BARS).length} chapter bars map as designed (The Shelf's murk still slows, The Deep's dark does not; ${inverted.length} reads inverted, and ui.js flips both its height and its number), ` +
+      `no sun card is left in the murk chapter, the fish is one size across all ${scales.length} chapters (no formScale rung anywhere), ` +
       `refillLook '${[...declared].join("','")}' resolves both ways, ${Object.keys(CHAPTERS).length} chapters cast only their own roster, ` +
       `and ${byId.size} roster ids agree on their names`)
   }

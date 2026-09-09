@@ -44,8 +44,6 @@ const FOOT = {
   trawl: 0x0d161f, deep: 0x070c12,
   // The Wreck borrows The Reef's BIOMES entry wholesale in phase 1, so it shares the reef foot.
   wreck: 0x1c0a1a,
-  // The Twilight is ALIASED to BIOME_SHELF's prop family (render.js), so it shares its foot.
-  twilight: 0x122029,
   // District chapters: the value their obstacle style resolves to on the district the audit reads.
   undergrowth: 0xffffff, city: 0x161a20, skies: 0x38332b, beyond: 0xffffff,
 }

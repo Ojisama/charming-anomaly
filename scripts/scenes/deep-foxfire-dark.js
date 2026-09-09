@@ -1,8 +1,8 @@
 // Scene: a Foxfire cast in the DARK, shot honestly — the bar stays where it was cast.
 //
-//   node scripts/fx-probe.mjs --scene scripts/scenes/twilight-foxfire-dark.js --chapter twilight --out /tmp/ffd --frames 5
+//   node scripts/fx-probe.mjs --scene scripts/scenes/deep-foxfire-dark.js --chapter deep --out /tmp/ffd --frames 5
 //
-// scripts/scenes/twilight-foxfire.js — the scene this weapon shipped on — writes `run.charge =
+// scripts/scenes/deep-foxfire.js — the scene this weapon shipped on — writes `run.charge =
 // run.chargeMax` on EVERY captured frame, and says why in its own header: "the honest way to shoot
 // the dark cast — bar at zero — is a black rectangle with the effect somewhere inside it". That
 // sentence is the bug, not a limitation of the probe: the chapter measures 63% of a run dark, the
@@ -25,7 +25,7 @@ H.place((i, p) => {
 })
 
 // Cast on an EMPTY bar (full FOXFIRE_GLOOM), which is the state the card is sold on. The bar has to
-// be written before the step that casts — the same reason shelf-foxfire.js drives its own loop
+// be written before the step that casts — the same reason deep-foxfire.js drives its own loop
 // rather than using H.until, whose predicate runs after the tick.
 run.blooms.length = 0
 for (let i = 0; i < 900 && run.blooms.length === 0; i++) { run.charge = 0; H.tick(1 / 60); H.pin() }

@@ -22,7 +22,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   FISH_R, FISH_BODY,  // Book 2's fish: the bake draws the same body the sim collides with (playerTouches)
   CHEEK_JIGGLE,       // the cheeks skin's spring — see syncPlayer's jiggle block
   BUTT_FEET,          // ...and its feet — see syncPlayer's feet block // The Deep: the anglerfish maw and its esca punched through the dark scrim
-  FOXFIRE_GLOW,       // The Twilight: a foxfire punched through the same scrim — a fire is a light
+  FOXFIRE_GLOW,       // The Deep: a foxfire punched through the same scrim — a fire is a light
   SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
@@ -1037,194 +1037,13 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-H * 1.05, r)
   }
 
-  // --- Shelf chapter (open blue water) ---
-  // Owner: "the enemies should be new, this is open sea not a pond" — then, on a first set of
-  // jellyfish/squid/turtle: "too big, those could be for next chapter. maybe plankton, shrimp and
-  // jelly". So the cast is the PLANKTON COLUMN, at the pond's own size class: nothing here is
-  // bigger than the tardigrade it replaces, and two of the three are smaller.
-  //
-  // These three were baked for the chapter at slot 2 when it was still the light chapter, whose
-  // floor was mid-blue (bg 0x18567f, floorTint 0x9fd6f0). BOTH of those palettes moved on
-  // 2026-08-17 — the copepod and the krill went down to The Twilight (0x04192e / 0x80a0b8) and
-  // the jelly stayed at a Shelf that is now murk (0x2e4f52 / 0xb6c9bd) — so re-read the contrast
-  // argument below against BOTH floors rather than trusting it. It survives because it is an
-  // argument about VALUE and HUE separation, and both new floors are still mid-value, but that
-  // is a thing to check with a shot and not a thing to assume. Originally: mid-blue floor, so —
-  // exactly as in the pond above — the three have to separate from the water on VALUE and HUE and
-  // from each other as well. Warm is the whole opportunity: nothing else in this chapter is warm,
-  // and it is also true to life (copepods and krill are carotenoid orange-red), so two of the three
-  // take it and the third goes pale and cold.
-  //   copepod = MID WARM   (saturated amber, the loudest body in the water)
-  //   krill   = PALE WARM  (translucent coral, lighter and two thirds the size)
-  //   jelly   = COLD LIGHT (dark bell, lit rim, the biggest and the only one that EMITS)
-  // The jelly's column was "near-white bell, the faintest" until it went side-on: a lantern is the
-  // opposite reading, and it is the better one for the same reason the rule was written. This
-  // chapter dims its OWN world, so the question is what survives the scrim — and a body that emits
-  // survives it completely, while the palest reflector is the first thing it takes.
-  // EYE COUNT is the backup read, and it needs no light at all: the copepod has ONE median eye, the
-  // krill has TWO on stalks, the jelly has none — three silhouettes still tellable apart at the edge
-  // of your lamp. The jelly now also has the only non-plan-view silhouette in the chapter (see
-  // drawJelly for why a water column earns that), which is a third, shape-only read on top.
-  //
-  // Every flag is inherited unchanged from the pond roster (split / dashBurst / phase+unshakeable):
-  // this is an art change, and the spawn economy the refill sweep was tuned against is untouched.
-
-  // copepod: the plankton everyone has seen down a microscope. A blunt teardrop prosome, a narrow
-  // segmented urosome behind it, two caudal setae trailing, and the pair of enormous first antennae
-  // held out sideways that nothing else in this game has — at 24px the antennae ARE the silhouette,
-  // the body is just the blob between them. One median (nauplius) eye, dead centre on the head.
-  //
-  // The paired EGG SACS are not decoration. This is the roster's `split` carrier, and a gravid
-  // copepod slung with two egg sacs that burst into nauplii is exactly, literally what the flag
-  // does (SPLIT_CHILD_COUNT = 2, at SPLIT_RADIUS_FRAC 0.7 of the parent). They are drawn where they
-  // really sit, either side of the prosome/urosome joint, so the tell is on the animal before it
-  // dies rather than being a surprise afterwards.
-  function drawCopepod(g, elite, white) {
-    const r = 16
-    const f = (c) => white ? 0xffffff : c
-    const line = f(0x7c3c08)
-    const noseX = r * 0.92
-    const len = r * 1.5           // prosome: nose +0.92r -> waist -0.58r
-    const H = r * 0.4             // SLIM. A round prosome plus jointed limbs is a flea, not plankton
-    const spine = (t) => [noseX - t * len, 0]
-    // Blunt round head, narrowing steadily to the waist: k=0.3 up front is the tardigrade's flat-cap
-    // trick, k=0.85 behind lets it actually taper to a teardrop instead of closing as a capsule.
-    const prosome = (t) => H * bulge(Math.min(0.999, Math.max(0.001, t)), t < 0.4 ? 0.3 : 0.85)
-    groundShadow(r * 1.15, H + r * 0.18)
-    const waistX = noseX - len
-    // FIRST ANTENNAE — the whole silhouette. Held nearly STRAIGHT OUT to the sides and barely swept,
-    // which is the copepod's own resting pose and the thing that separates it from every jointed
-    // bug in this bestiary: two long straight spars making a T, not a splay of legs. Drawn before
-    // the body so their roots disappear under it, and identical in both twins (taperStroke takes
-    // `line`, which is white on the flash twin) so the baked bounds stay equal.
-    for (const s of [-1, 1]) {
-      taperStroke(g, [[r * 0.6, s * H * 0.5], [r * 0.36, s * r * 1.0], [r * 0.08, s * r * 1.92]],
-        Math.max(1.7, r * 0.105), 0.7, line, 6)
-    }
-    // swimming legs: three short paired oars, tucked close under the prosome. Deliberately stubby —
-    // long jointed legs are what made the first cut of this read as an insect.
-    for (let i = 0; i < 3; i++) {
-      const t = 0.42 + i * 0.16
-      const [x] = spine(t)
-      const w = prosome(t)
-      for (const s of [-1, 1]) {
-        taperStroke(g, [[x, s * w * 0.5], [x - r * 0.13, s * (w + r * 0.17)]], Math.max(1.1, r * 0.065), 0.6, line, 2)
-      }
-    }
-    // urosome + caudal setae: a narrow rod carrying on from the waist, ending in two splayed hairs
-    const uroLen = r * 0.8
-    const uro = (t) => [waistX - t * uroLen, 0]
-    const uroW = (t) => H * (0.36 - 0.16 * t)
-    g.poly(spineOutline(uro, uroW, 10)).fill(f(0xd97a22)).stroke({ width: Math.max(1.7, r * 0.095), color: line })
-    for (const s of [-1, 1]) {
-      taperStroke(g, [[waistX - uroLen, s * H * 0.1], [waistX - uroLen - r * 0.66, s * r * 0.3]],
-        Math.max(1.4, r * 0.08), 0.7, line, 3)
-    }
-    // EGG SACS. BEHIND the waist, flanking the urosome and angled back like a pair of saddlebags —
-    // this is where a gravid copepod really carries them, and it is also the only placement that
-    // reads as CARRIED. The first cut sat them over the prosome and they read as beetle wing-cases.
-    for (const s of [-1, 1]) {
-      const ex = waistX - uroLen * 0.42
-      const ey = s * (H * 0.42 + r * 0.13)
-      g.ellipse(ex, ey, r * 0.3, r * 0.17)
-        .fill(white ? 0xffffff : { color: 0xa9cede, alpha: 0.95 })
-        .stroke({ width: Math.max(1.3, r * 0.07), color: line })
-      if (!white) {
-        for (const [ox, oy] of [[-0.11, -0.02], [0.02, 0.03], [0.13, -0.01]]) {
-          g.circle(ex + ox * r, ey + oy * r, r * 0.05).fill({ color: 0x5d86a0, alpha: 0.6 })
-        }
-      }
-    }
-    g.poly(spineOutline(spine, prosome, 34)).fill(f(0xef8f28)).stroke({ width: Math.max(2.2, r * 0.14), color: line })
-    if (!white) {
-      g.ellipse(noseX - r * 0.5, -H * 0.34, r * 0.5, H * 0.3).fill({ color: 0xffd9a0, alpha: 0.45 }) // dorsal sheen
-      g.ellipse(noseX - r * 0.72, H * 0.38, r * 0.42, H * 0.26).fill({ color: 0xa8560c, alpha: 0.26 })
-      g.beginPath()
-      for (const t of [0.52, 0.7, 0.86]) { // prosome segment creases
-        const [x] = spine(t)
-        const w = prosome(t)
-        g.moveTo(x, -w * 0.88).lineTo(x, w * 0.88)
-      }
-      g.stroke({ width: 1.3, color: 0x8f4a0c, alpha: 0.6 })
-      g.beginPath()
-      for (let i = 1; i < 3; i++) { // urosome segments
-        const x = waistX - (i / 3) * uroLen
-        g.moveTo(x, -H * 0.26).lineTo(x, H * 0.26)
-      }
-      g.stroke({ width: 1.1, color: 0x8f4a0c, alpha: 0.55 })
-      // the single median eye: one dark red lens on the midline, the copepod's whole species read
-      g.ellipse(noseX - r * 0.16, 0, r * 0.2, r * 0.17).fill(0xffe0b4)
-      darkEye(g, noseX - r * 0.16, 0, r * 0.13, r * 0.115, 0x8c1218, true)
-    }
-    if (elite) eliteCrown(-r * 1.5, r)
-  }
-
-  // krill: a small shrimp, and drawn as one — segmented carapace, a rostrum spike off the front, two
-  // BLACK STALKED EYES set wide, a row of thoracic legs down each side and a three-bladed tail fan.
-  // Pale translucent coral with hard dark segment creases: at 18px on blue it reads as a light,
-  // busy, fast thing, which is the archetype. The tail fan is what sells `dashBurst` — the flag is a
-  // burst of speed and a krill's escape is one flick of exactly that fan.
-  function drawKrill(g, elite, white) {
-    const r = 12
-    const f = (c) => white ? 0xffffff : c
-    const line = f(0xb04a2e)
-    const noseX = r * 1.05
-    const len = r * 2.5           // rostrum tip +1.05r -> tail root -1.45r
-    const H = r * 0.44
-    // A shrimp is never straight: a gentle constant camber down the body, deepest at the abdomen.
-    const spine = (t) => [noseX - t * len, Math.sin(t * Math.PI * 0.85) * r * 0.16]
-    const body = (t) => {
-      const head = Math.exp(-Math.pow((t - 0.26) / 0.22, 2))       // fat carapace
-      const tail = 0.42 * Math.pow(Math.max(0, 1 - t), 0.7)        // abdomen tapering back
-      const cap = t < 0.08 ? Math.sqrt(Math.max(0, 1 - Math.pow((0.08 - t) / 0.08, 2))) : 1
-      return H * cap * (head + tail)
-    }
-    groundShadow(r * 1.3, H + r * 0.3)
-    // antennae: two long ones streaming back past the tail, the giveaway that this is a crustacean
-    for (const s of [-1, 1]) {
-      taperStroke(g, [[r * 0.78, s * H * 0.5], [-r * 0.4, s * r * 0.66], [-r * 1.9, s * r * 0.82]],
-        Math.max(1.4, r * 0.1), 0.7, line, 5)
-    }
-    // thoracic legs: six short paired oars under the carapace
-    for (let i = 0; i < 6; i++) {
-      const t = 0.2 + i * 0.078
-      const [x, y] = spine(t)
-      const w = body(t)
-      for (const s of [-1, 1]) {
-        taperStroke(g, [[x, y + s * w * 0.6], [x - r * 0.1, y + s * (w + r * 0.26)]], Math.max(1.1, r * 0.07), 0.6, line, 2)
-      }
-    }
-    // TAIL FAN: telson on the midline plus a uropod blade either side, the whole thing spread
-    const [tx, ty] = spine(1)
-    for (const [ax, ay] of [[-r * 0.72, 0], [-r * 0.62, -r * 0.44], [-r * 0.62, r * 0.44]]) {
-      g.poly([tx, ty, tx + ax, ty + ay - r * 0.1, tx + ax * 1.1, ty + ay + r * 0.1])
-        .fill(white ? 0xffffff : { color: 0xff9d84, alpha: 0.85 }).stroke({ width: Math.max(1.3, r * 0.08), color: line })
-    }
-    g.poly(spineOutline(spine, body, 30)).fill(f(0xffc0a6)).stroke({ width: Math.max(2, r * 0.15), color: line })
-    if (!white) {
-      g.beginPath()
-      for (let i = 0; i < 5; i++) { // abdominal segment creases, the busy detail that reads as "shrimp"
-        const t = 0.5 + i * 0.1
-        const [x, y] = spine(t)
-        const w = body(t)
-        g.moveTo(x + r * 0.04, y - w * 0.92).lineTo(x - r * 0.04, y + w * 0.92)
-      }
-      g.stroke({ width: 1.3, color: 0xc4553a, alpha: 0.8 })
-      g.ellipse(noseX - r * 0.6, -H * 0.4, r * 0.5, H * 0.34).fill({ color: 0xfff0e4, alpha: 0.5 }) // carapace sheen
-      // photophores: the light organs a krill actually has. Two faint dots — and in a chapter about
-      // stealing light, the one animal here that MAKES its own gets to show it.
-      for (const t of [0.62, 0.82]) {
-        const [x, y] = spine(t)
-        g.circle(x, y, r * 0.075).fill({ color: 0xbfefff, alpha: 0.75 })
-      }
-      // two black eyes on short stalks, set wide off the rostrum
-      for (const s of [-1, 1]) {
-        taperStroke(g, [[noseX - r * 0.62, s * H * 0.36], [noseX - r * 0.34, s * H * 0.78]], Math.max(1.2, r * 0.08), 1, 0xb04a2e, 2)
-        darkEye(g, noseX - r * 0.3, s * H * 0.86, r * 0.16, r * 0.15, 0x140a08, true)
-      }
-    }
-    if (elite) eliteCrown(-r * 1.05, r)
-  }
+  // --- Shelf chapter (moon jelly) ---
+  // The lone survivor of the original three-creature plankton column (owner: "the enemies should
+  // be new, this is open sea not a pond" — then "maybe plankton, shrimp and jelly"). The copepod
+  // and the krill went down to The Twilight in the 2026-08-17 roster split and were deleted with
+  // that chapter on 2026-09-09; the jelly alone stayed at The Shelf, which is now the murk
+  // chapter. Its own design argument is below; the `phase` flag is inherited unchanged from the
+  // pond's tardigrade.
 
   // MOON JELLY, side elevation. Owner: "I want some design with tentacles. It's a top down game but
   // those chapters are in the water so the jellyfish can be sideways." That is an exception to the
@@ -1244,8 +1063,8 @@ export function createRenderer(app) {
   // reason — r = 26 is the hitbox, and the tentacles are overhang exactly like the tadpole's tail.
   //
   // It is a LANTERN: dark body, lit rim, a bead of light at every tentacle tip. This chapter dims
-  // its own world (The Twilight's Light bar), and a creature that EMITS rather than reflects is the one
-  // still readable at the edge of your lamp. That inverts the role it used to play in the cast, so
+  // its own world (The Shelf's murk, the same `dark` rig the light chapters use), and a creature that
+  // EMITS rather than reflects is the one still readable at the edge of your lamp. That inverts the role it used to play in the cast, so
   // the art-direction block above is written to match rather than left to contradict it.
   //
   // It carries the tardigrade's `phase` (PHASE_* in config.js), ghosting through obstacles and out
@@ -1514,7 +1333,7 @@ export function createRenderer(app) {
   function drawCatfish(g, elite, white) {
     // r 13, not 16. ROSTER_BASE_R maps `fast` to ENEMIES.wisp.radius (12), and syncEnemies draws at
     // k = e.radius / baseR — so a look authored at 16 renders a third larger than every other wisp
-    // in the game. The Krill and the Gull are 12 and the Sea Roach this replaces was 13; the Tuna's
+    // in the game. The Fangtooth and the Gull are 12 and the Sea Roach this replaces was 13; the Tuna's
     // 16 is the one deliberate outlier, and a catfish is not a tuna.
     const r = 13
     const f = (c) => white ? 0xffffff : c
@@ -4791,13 +4610,11 @@ export function createRenderer(app) {
     amoeba: { archetype: 'normal', draw: drawAmoeba, lean: 0 },        // radial blob, pseudopods in 4 directions; no nose
     tadpole: { archetype: 'fast', draw: drawTadpole, lean: 90 },       // top-down: nose +x, tail -x, lateral eyes in a ±y pair
     tardigrade: { archetype: 'tank', draw: drawTardigrade, lean: 30 }, // 3/4: all 7 legs at +y, eyespot at -y
-    // v7.x Book 2 plankton. Replaces the pond ids the chapter at slot 2 was standing in with; every
-    // flag is inherited unchanged, so these three are a repaint of amoeba/tadpole/tardigrade and not
-    // a re-tune. THEY NO LONGER SHARE A CHAPTER (2026-08-17): the copepod and the krill went down to
-    // The Twilight with the light, the moon jelly stayed at The Shelf, which is the murk chapter now.
-    // A missing key here is SILENT — syncEnemies falls through to a generic archetype blob.
-    copepod: { archetype: 'normal', draw: drawCopepod, lean: 90 },     // top-down: antennae, legs, setae and egg sacs all ±y mirrored
-    krill: { archetype: 'fast', draw: drawKrill, lean: 90 },           // top-down: stalked eyes, leg rows and tail fan all ±y mirrored
+    // v7.x The Shelf's moon jelly. Replaces the pond's tardigrade id the chapter at slot 2 was
+    // standing in with; the `phase` flag is inherited unchanged. Its former plankton co-stars —
+    // copepod and krill — moved to The Twilight in the 2026-08-17 split and were deleted with that
+    // chapter on 2026-09-09. A missing key here is SILENT — syncEnemies falls through to a generic
+    // archetype blob.
     // side elevation: apex +x, mouth and tentacles -x, mirrored about that axis — so it rotates
     // freely and always swims bell-first at you, tentacles streaming behind. See drawJelly.
     jelly: { archetype: 'tank', draw: drawJelly, lean: 90 },
@@ -5510,7 +5327,7 @@ export function createRenderer(app) {
       // the only saturated red in it. Same blade, folded into the chapter's own colour. Tinting
       // wasn't an option: a blue tint on a red bake multiplies to mud.
       T.beamSweep = blade(0x2d2a8c, 0x4b46d6, 0x8f7dff, 0xf0ecff)
-      // The Twilight's Sunlance is the THIRD weapon through run.beams, and it needed the third blade
+      // The Deep's Sunlance is the THIRD weapon through run.beams, and it needed the third blade
       // for the reason stated one line up: it is not `swept`, so it fell into the saber's arm and a
       // shaft of SUNLIGHT came out crimson. Re-tinting the bar was tried first and is the mud this
       // block already warns about — gold multiplied onto a red bake is brown. Baked warm instead:
@@ -10541,7 +10358,7 @@ export function createRenderer(app) {
   // cannot be a baked texture — and it must not be drawn by drawBreakers, which would put The
   // Surf's whitewater in a chapter of silt.
   const puffG = new Graphics()
-  // The Twilight's Sunspear. Additive, like every other light in this chapter (the sun shafts' own
+  // The Deep's Sunspear. Additive, like every other light in this chapter (the sun shafts' own
   // sheen is a `blendMode = 'add'` sprite): the chapter it lands in is dark, and a flat fill over a
   // dark floor reads as paint rather than as light.
   const columnG = new Graphics()
@@ -11644,13 +11461,6 @@ const spurG = new Graphics()
     // decorative: chapterBiome falls back to BIOMES.body for an unknown id, so without this line
     // The Shelf draws villi and platelets under a blue tint.
     shelf: BIOME_SHELF,
-    // ⚠ THE TWILIGHT IS ALIASED TO THE SHELF'S FAMILY, AND THAT IS A NAMED STAND-IN (2026-08-17).
-    // These are shelf-floor props seen four chapters deeper, carried by the two chapters' very
-    // different floorTints rather than by their own art. Defensible only because they are already
-    // OCEAN props — the failure this repo has actually shipped is the other kind, where The Shelf
-    // spent a version aliased to BIOME_POND and drew reeds in open water. Phase 3 authors
-    // BIOME_TWILIGHT; until then this line is the difference between a stand-in and villi.
-    twilight: BIOME_SHELF,
     // Load-bearing for the same reason as the line above it: a chapter with no BIOMES entry does not
     // throw and does not warn, it silently draws ANOTHER chapter's world (chapterBiome falls back to
     // BIOMES.body, which is how The Surf shipped villi, platelets and plasma motes on its beach).
@@ -12779,7 +12589,10 @@ const spurG = new Graphics()
   // all: this function early-returned on `signature.type === 'shafts'`, so the tide pools — the only
   // way to refill Humidity, which drives the chapter's damage — drew nothing whatsoever. The gate is
   // now refillLook (see reset), which asks the same refillSpec() question the streamer asks.
-  //   'shaft' — The Twilight. A warm additive column of light. `body` is unused and stays cleared.
+  //   'shaft' — the default look for a `type: 'shafts'` signature with no explicit `refillLook`
+  //             override (The Twilight used it before its 2026-09-09 merge into The Deep; The Shelf,
+  //             the book's only current `shafts` chapter, overrides to 'upwelling'). A warm additive
+  //             column of light. `body` is unused and stays cleared.
   //   'pool'  — The Surf. A hole in wet sand with water standing in it: a damp collar, a dark water
   //             body, an off-centre shallow shelf, a bright meniscus, and one soft additive sheen
   //             for the sky caught on the surface. Drawn from directly overhead like everything
@@ -17159,7 +16972,7 @@ const spurG = new Graphics()
       // where it was planted for its whole life. Give silt a drift and this hash changes under it
       // every frame and the puffs crawl; bake a real seed field at the cast then.
       //   Every expression it feeds collapses to the constant it replaced at hash 0, so the pond's
-      // toxin, The Twilight's foxfire and The Wreck's bilge draw exactly as they did.
+      // toxin, The Deep's foxfire and The Wreck's bilge draw exactly as they did.
       // `bl.angle` IS IN THE HASH, not just the position. Roil fans several cones out of the SAME
       // apex, so a hash of (x, y) alone gives every cone of one cast an identical churn -- which is
       // the exact complaint the hash was added for (owner: "vase clouds look too similar to each
@@ -17207,7 +17020,7 @@ const spurG = new Graphics()
           s.position.set(Math.cos(ang) * off, Math.sin(ang) * off)
           s.scale.set(sc * (k === 0 ? 1 : 0.72) * lump * (1 + 0.05 * Math.sin(animT * 3 + k)))
         }
-        // The Twilight's Foxfire shares this pool. Near-WHITE with a mint fringe, not the blue it
+        // The Deep's Foxfire shares this pool. Near-WHITE with a mint fringe, not the blue it
         // started as: this chapter's water is 0x18567f and its floor wash 0x9fd6f0, so a pale blue
         // fire on it is a blue smudge on blue — the first probe of this weapon came back with the
         // cloud all but invisible. What separates a cold fire from this floor is VALUE, not hue,
@@ -20549,7 +20362,7 @@ const spurG = new Graphics()
           addShake(2, 0.12)
           break
 
-        // The Twilight. A column LANDING — white-hot, and thrown outward along the floor rather than
+        // The Deep. A column LANDING — white-hot, and thrown outward along the floor rather than
         // up, because the light came down and what scatters is the water it hit. The fall itself is
         // drawn every frame by drawColumns; this is only the last beat of it.
         // A BALLAST landing. The visual counterpart of sunfall one case down, and its opposite in
@@ -22777,7 +22590,7 @@ const spurG = new Graphics()
     // the whole weapon test — a pool slot serves either weapon, hence swapping here and not in
     // acquireBeam. Both bakes share geometry, so the anchor spriteOf set still holds.
     const swept = b.swept === true
-    // The Twilight's Sunlance is the third weapon through this pool, and `swept` alone can no longer
+    // The Deep's Sunlance is the third weapon through this pool, and `swept` alone can no longer
     // decide the palette: a lance does NOT sweep (it is a stab held on one bearing), so it fell into
     // the Neon Beam's arm and came out red — the one colour a shaft of sunlight cannot be. It keeps
     // the unswept BAKE (it is a straight beam) and takes its own tints.

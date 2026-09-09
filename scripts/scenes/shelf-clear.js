@@ -22,8 +22,9 @@
 //   2. Frames ~5-7: does it CLOSE by easing rather than snapping? A snap is the shape of a render
 //      glitch, and this chapter has already shipped one complaint about clear water that "does
 //      nothing and never goes away".
-//   3. Does anything about the open frame read as The Twilight? The two chapters run one radius rig
-//      and the far field is the only thing keeping them apart — see shelf-murk.js's own header.
+//   3. Does anything about the open frame read as a light chapter's dark rather than this chapter's
+//      murk? They share one radius rig and the far field is the only thing keeping them apart — see
+//      shelf-murk.js's own header.
 //   4. The stagger count in the overlay must move on the press. A Clear that shoved nothing would
 //      look identical here, because the murk opening is not evidence that the crowd was touched.
 const world = app.stage.children[0]

@@ -1,8 +1,8 @@
-// Scene: The Twilight's Sunspear, mid-fall and landing. A column is a run.lobs entry that never
+// Scene: The Deep's Sunspear, mid-fall and landing. A column is a run.lobs entry that never
 // travels (fromX/fromY are its target), so what is on screen while it falls is drawn by
 // drawColumns — an aperture closing onto the splash radius, with motes converging inward.
 //
-//   node scripts/fx-probe.mjs --scene scripts/scenes/twilight-sunspear.js --out /tmp/ss --frames 14 --chapter twilight
+//   node scripts/fx-probe.mjs --scene scripts/scenes/deep-sunspear.js --out /tmp/ss --frames 14 --chapter deep
 //
 // What the frames have to answer, in order:
 //   1. is the telegraph READABLE as light coming down, or as a blast that already happened?
@@ -17,7 +17,7 @@
 // as a black rectangle with the note reading "columns: 3" — the weapon had fired perfectly, 190px
 // outside the lit disc. Sunspear does not read the bar at all, so holding it up costs the
 // measurement nothing here; the two scenes that DO read it hold the sim's bar and the camera's bar
-// apart on purpose (see shelf-foxfire.js / shelf-sunlance.js).
+// apart on purpose (see deep-foxfire.js / deep-sunlance.js).
 const lightUp = () => { run.charge = run.chargeMax }
 
 H.weapon('sunspear', 5)

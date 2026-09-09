@@ -27,7 +27,7 @@ run.lures = [bait]
 
 // THE FEEDING PAIR HAS TO BE THE SAME CREATURE, or the frame compares two species rather than two
 // states. First matching rosterId in the cast wins; if the roll gives none, the first two are used
-// and the note says so — a probe that silently compared a mackerel with a copepod would read as
+// and the note says so — a probe that silently compared a mackerel with a puffer would read as
 // "the pose does nothing".
 // An ELONGATED body first: foreshortening is a change of length, so a round creature (the puffer)
 // states it far worse than a mackerel does, and the frame exists to show the tell at its clearest.

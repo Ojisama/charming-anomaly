@@ -51,12 +51,13 @@ import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScroll
 // net's wake, Light and the maws), so the probe reads the geometry through refillSpec() below rather
 // than through any one chapter's field names.
 //
-// DEFAULTS TO 'twilight', which is where the light this file's tables were measured against now
-// lives. It was 'shelf' until 2026-08-17; that id still resolves, but it is the MURK chapter now, so
-// a bare invocation would have quietly reproduced this file's documented numbers against a
-// different chapter — the same measured-the-wrong-thing failure the rename hit in the test suite.
+// DEFAULTS TO 'deep'. This file's shafts tables were originally measured on The Twilight, which was
+// folded into The Deep in the 2026-09-09 merge; the shafts machinery itself now lives on The Shelf
+// (same `type: 'shafts'`, same drift) while The Deep reads its own maws. A bare invocation without
+// this default would have quietly reproduced the wrong chapter's numbers — the same
+// measured-the-wrong-thing failure the 2026-08-17 rename hit in the test suite.
 const argChapter = process.argv.indexOf('--chapter')
-const CHAPTER = argChapter >= 0 ? process.argv[argChapter + 1] : 'twilight'
+const CHAPTER = argChapter >= 0 ? process.argv[argChapter + 1] : 'deep'
 // --shop=N (v7.x, Task 9's Slow Burn gate): the permanent book-shop level, 0..10, same flag
 // spelling as pool-probe.mjs. Task 9 needs to compare Lv0 against Lv10 of Undertow's own lines
 // (deepLungs/slowBurn/bigGulp) — the probe had no way to move that knob before this. Clamped
