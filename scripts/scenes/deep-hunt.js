@@ -44,7 +44,13 @@ if (target) {
   target = nearest() || target
 }
 
-run.charge = CHARGE
+// run.sightCharge, NOT run.charge alone: updateDark reads `run.sightCharge ?? run.charge`, and
+// only stepCharge ever brings it down to track the bar. The warm-up above steps the sim BEFORE this
+// line, so setting the bar alone left the lamp at whatever sightCharge the warm-up ended on — i.e.
+// every frame this scene ever shot was lit by a fuller lamp than its own caption claimed, which is
+// the one thing that would make an unfindable maw look findable. See deep-lantern-range.js, which
+// documented the same trap.
+run.charge = run.sightCharge = CHARGE
 
 const d = target ? Math.round(Math.hypot(target.x - run.player.x, target.y - run.player.y)) : -1
 H.note(`${run.chapter} charge=${Math.round(run.charge)} maws=${run.shafts.length} ` +
@@ -54,7 +60,7 @@ H.note(`${run.chapter} charge=${Math.round(run.charge)} maws=${run.shafts.length
 return () => {
   for (const e of crowd) e.hitFlash = 0
   run.player.invuln = 0
-  run.charge = CHARGE
+  run.charge = run.sightCharge = CHARGE
   H.pin()
   H.tickFx(1 / 60)
 }

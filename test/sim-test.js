@@ -37,7 +37,7 @@ import {
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, GLINT_GLOW,
   WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
@@ -24000,41 +24000,101 @@ function testGlint() {
     return { run, e }
   }
   const step = (run, n) => { for (let i = 0; i < n; i++) { stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0 } }
-  // (1) ONE CAST COSTS ONE LIGHT. Drain is switched off so the only thing moving the bar is the cast.
   // POST_CAST_TRAVEL is 0.2s, not the task brief's original 0.05s: at L1 the spark is 480px/s and the
   // body sits 90px out (64px past its 26px hit radius), so it needs >=0.133s of flight AFTER the one
   // cast this window is sized to contain — 0.05s only bought it 24px and 'the spark never landed'
   // fired even with the cost correctly wired (checked by hand: fireGlint aims and moves it exactly
   // like fireStar). 0.2s clears that with margin for the chapter's own tide drift and still holds
-  // exactly one cast (floor((0.55+0.2)/0.55) === 1).
+  // exactly one cast (floor((interval + 0.2) / interval) === 1 for any interval above 0.2).
+  const POST_CAST_TRAVEL = 0.2
+  const WINDOW = lvl.interval + POST_CAST_TRAVEL
+  const STEPS = Math.round(WINDOW * 60)
+  const casts = Math.floor(WINDOW / lvl.interval)
+  assert.strictEqual(casts, 1, `the window holds ${casts} casts, not 1 — POST_CAST_TRAVEL is now longer than an interval of ${lvl.interval}s`)
+  // WHAT ONE CAST COSTS, measured as a DIFFERENCE against the identical window with nothing
+  // equipped. chargeDrainMul is no longer usable as the isolation knob the first cut of this test
+  // used: Slow Burn now buys the CAST down as well as the ambient drain (owner, 2026-09-09 — see
+  // GLINT_LIGHT_COST's block), so `chargeDrainMul = 0` would zero the very thing under test and the
+  // assertion would pass on a weapon that had stopped charging for its shots entirely.
+  //   The two runs are seeded identically and the player never moves, and The Deep's resource has no
+  // `drainPerSpawn`, so the ambient term is the same constant in both arms whatever the crowd does.
+  const spentOnCasts = (drainMul) => {
+    const arm = (armed) => {
+      const { run, e } = mk(50)
+      run.chargeDrainMul = drainMul
+      if (!armed) run.weapons = []
+      const before = run.charge
+      step(run, STEPS)
+      return { drop: before - run.charge, e }
+    }
+    const armed = arm(true), idle = arm(false)
+    return { spent: armed.drop - idle.drop, e: armed.e }
+  }
+  // (1) ONE CAST COSTS ONE LIGHT.
   {
-    const POST_CAST_TRAVEL = 0.2
-    const { run, e } = mk(50)
-    run.chargeDrainMul = 0
-    const before = run.charge
-    step(run, Math.round((lvl.interval + POST_CAST_TRAVEL) * 60))
+    const { spent, e } = spentOnCasts(1)
     assert.ok(e.hp < 1e6, 'the spark never landed — the fixture is not exercising the weapon')
-    const casts = Math.floor((lvl.interval + POST_CAST_TRAVEL) / lvl.interval)
-    assert.ok(Math.abs((before - run.charge) - casts * GLINT_LIGHT_COST) < 1e-6,
-      `${casts} cast(s) moved the bar ${(before - run.charge).toFixed(2)}, want ${casts * GLINT_LIGHT_COST} — the cost is per projectile, or missing`)
+    assert.ok(Math.abs(spent - casts * GLINT_LIGHT_COST) < 1e-6,
+      `${casts} cast(s) moved the bar ${spent.toFixed(2)} past the ambient drain, want ${casts * GLINT_LIGHT_COST} — the cost is per projectile, or missing`)
   }
   // (2) AT ZERO IT STILL FIRES AND THE BAR STAYS AT ZERO — the no-spiral floor, spec §3.1.
   {
     const { run, e } = mk(0)
-    run.chargeDrainMul = 0
     step(run, Math.round((lvl.interval * 3) * 60))
     assert.ok(e.hp < 1e6, 'Glint refused to fire at an empty bar — that is the death spiral the spec forbids')
     assert.strictEqual(run.charge, 0, `the bar went to ${run.charge} — a clamp is missing`)
   }
-  // (3) THE COST DOES NOT GO THROUGH THE AMBIENT DRAIN'S MULTIPLIER (Slow Burn is not an ammo card).
+  // (3) SLOW BURN BUYS THE CAST DOWN. Owner, 2026-09-09: "does it cost less if the player purchased
+  // the 'lose less resource'?" It does now, at exactly the shop line's own multiplier — a "-6%
+  // resource drain" that skipped the largest drain in its own chapter was the line lying.
   {
-    const { run } = mk(50)
-    run.chargeDrainMul = 0
-    run.chargeMax = 100
-    step(run, Math.round((lvl.interval + 0.05) * 60))
-    assert.ok(run.charge < 50, 'with chargeDrainMul 0 the cast still costs — it must not be folded into the drain term')
+    const HALF = 0.5
+    const { spent } = spentOnCasts(HALF)
+    assert.ok(Math.abs(spent - casts * GLINT_LIGHT_COST * HALF) < 1e-6,
+      `at chargeDrainMul ${HALF} the cast cost ${spent.toFixed(3)}, want ${casts * GLINT_LIGHT_COST * HALF} — Slow Burn no longer reaches the ammo`)
   }
-  console.log(`PASS run SH.d (glint): 1 Light per cast (${GLINT_LIGHT_COST}), fires at an empty bar with the bar held at 0, cost independent of chargeDrainMul`)
+  // (4) NOTHING IN REACH, NOTHING SPENT. The other half of the same complaint: censused at L5 the
+  // card threw away 31% of its casts on empty water, and every one of those was a Light off a bar
+  // the chapter makes you walk into a mouth for. spawnMul 0 is what makes "nothing to shoot at"
+  // hold for a whole window — enemies stream in at viewRadius + SPAWN_RING (60px), which is INSIDE
+  // nearestEnemy's own viewRadius + 100 reach, so an un-suppressed run re-acquires a target within
+  // a second and this would silently measure nothing.
+  {
+    const dryArm = (armed) => {
+      Math.random = mulberry32(20260909)
+      const run = deepRun('glint', L)
+      run.mods.spawnMul = 0
+      if (!armed) run.weapons = []
+      run.charge = 50
+      const before = run.charge
+      step(run, Math.round(lvl.interval * 4 * 60))
+      return { drop: before - run.charge, run }
+    }
+    const armed = dryArm(true), idle = dryArm(false)
+    assert.strictEqual(armed.run.enemies.length, 0, 'the empty-water fixture grew a crowd — spawnMul 0 is not holding')
+    assert.strictEqual(armed.run.bullets.length, 0, `${armed.run.bullets.length} spark(s) left with nothing in reach — the cadence is not holding`)
+    assert.ok(Math.abs(armed.drop - idle.drop) < 1e-6,
+      `four intervals of empty water cost ${(armed.drop - idle.drop).toFixed(2)} Light over the ambient drain — the weapon is still paying to fire at nothing`)
+  }
+  // (5) AND A SPARK IS A LIGHT — it punches the dark scrim like a foxfire and a lure. Same argument
+  // as run SH.b's block, one weapon further: the spark is drawn inside `world`, the dark is a
+  // dim-1.0 MULTIPLY scrim above it, so a spark past the lamp was not faint, it was gone. Owner from
+  // play, 2026-09-09: "the glint itself is not visible enough".
+  // ponytail: a source grep proves the punch is WRITTEN, never that it RUNS. The picture that closes
+  // that gap is scripts/scenes/deep-glint-dark.js — shoot it if you touch the dark.
+  {
+    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    const dstart = rsrc.indexOf('function updateDark(')
+    assert.ok(dstart > 0, 'updateDark is gone from render.js — the dark is drawn somewhere else now and this guard is blind')
+    const dbody = rsrc.slice(dstart, rsrc.indexOf('\n  function ', dstart + 10))
+    assert.ok(/for \(const \w+ of run\.bullets\)/.test(dbody) && dbody.includes("'glint'"),
+      'updateDark no longer walks run.bullets to punch the lightmap for a spark — in the dark the card you PAY the bar to fire is invisible')
+    assert.ok(dbody.includes('GLINT_GLOW'),
+      'the spark punch does not read GLINT_GLOW — its brightness has drifted out of config.js')
+    assert.ok(GLINT_GLOW.lit > 0.05 && GLINT_GLOW.frac > 0.5,
+      `GLINT_GLOW is tuned to nothing (lit ${GLINT_GLOW.lit}, frac ${GLINT_GLOW.frac}) — the punch runs and lights nothing, which looks identical to no punch at all`)
+  }
+  console.log(`PASS run SH.d (glint): ${GLINT_LIGHT_COST} Light per cast at a ${lvl.interval}s cadence, halved by a x0.5 Slow Burn, nothing spent with nothing in reach, fires at an empty bar with the bar held at 0, and the spark punches the dark (lit ${GLINT_GLOW.lit}, ${GLINT_GLOW.frac}x r)`)
 }
 
 /** The bar's ceiling for a fresh Deep run, read off a run rather than off config — Deep Lungs can

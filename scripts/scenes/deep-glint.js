@@ -1,5 +1,5 @@
-// Scene: The Deep's starter, Glint — darts of light leaving the player toward a crowd, at the bar
-// the card is actually played on (half). Question: does a dart read as LIGHT against this floor,
+// Scene: The Deep's starter, Glint — sparks of light leaving the player toward a crowd, at the bar
+// the card is actually played on (half). Question: does a spark read as LIGHT against this floor,
 // and not as Spike Protein's amber star?
 //   node scripts/fx-probe.mjs --scene scripts/scenes/deep-glint.js --chapter deep --out /tmp/gl --frames 8
 H.weapon('glint', 3)
@@ -14,5 +14,5 @@ run.charge = run.chargeMax * 0.5
 // nowhere (a scene bug the brief's own literal script hits; deep-glint is not special-cased here).
 run.bullets.length = 0
 H.until(() => run.bullets.some((b) => b.weapon === 'glint'))
-H.note([run.chapter, 'glint L3, bar 50%, darts=' + run.bullets.length].join(' '))
+H.note([run.chapter, 'glint L3, bar 50%, sparks=' + run.bullets.length].join(' '))
 return () => { run.charge = run.chargeMax * 0.5; for (let k = 0; k < 3; k++) H.tickFx(1 / 60); H.pin(); H.render() }

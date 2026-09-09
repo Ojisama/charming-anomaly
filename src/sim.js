@@ -12310,18 +12310,30 @@ function stepSunlanceWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 
-// Glint. fireStar's shape in light (a run.bullets entry tagged weapon:'glint'), with ONE addition:
+// Glint. fireStar's shape in light (a run.bullets entry tagged weapon:'glint'), with TWO additions:
 // the cast spends GLINT_LIGHT_COST off run.charge, clamped at 0, BEFORE the sparks leave — and it
-// fires whether or not there was Light to spend. Not chargeDrainMul (Slow Burn is about the
-// ambient drain, not ammo) and not a refill in reverse. Spec 2026-09-09-deep-twilight-merge §3.1.
+// fires whether or not there was Light to spend. Scaled by chargeDrainMul, so Slow Burn buys it
+// down like every other drain in the chapter (see GLINT_LIGHT_COST's own block for the owner's
+// question that settled that). Spec 2026-09-09-deep-twilight-merge §3.1.
 function stepGlintWeapon(run, w, stats, fireRateMul, dt) {
   const quick = run.weaponMods.glint?.quickGlint ?? 0
-  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireGlint(run, stats))
+  const interval = stats.interval / (fireRateMul * (1 + quick))
+  // NOTHING IN REACH, NOTHING SPENT. Every other weapon in the game fires on a timer that never
+  // asks whether anything is there, and pays nothing when it is not; this one pays the chapter's
+  // own bar for the privilege, and censused at L5 it dudded 31% of its casts.
+  //   The timer keeps TICKING (floored at 0, not frozen) — the missile-volley idiom above, minus
+  // its telegraph: a body that walks into reach is shot at once rather than up to a full interval
+  // later, so holding fire never reads as the weapon jamming.
+  if (!nearestEnemy(run)) {
+    run.weaponTimers[w.id] = Math.max(0, (run.weaponTimers[w.id] ?? interval) - dt)
+    return
+  }
+  fireOnTimer(run, w.id, interval, dt, () => fireGlint(run, stats))
 }
 
 function fireGlint(run, stats) {
   const p = run.player
-  run.charge = Math.max(0, run.charge - GLINT_LIGHT_COST)
+  run.charge = Math.max(0, run.charge - GLINT_LIGHT_COST * run.chargeDrainMul)
   const target = nearestEnemy(run)
   const baseAngle = target ? Math.atan2(target.y - p.y, target.x - p.x) : (p.facing >= 0 ? 0 : Math.PI)
   // ONE local for the count, used as the loop bound AND the fan divisor (the per-cast-count trap).
