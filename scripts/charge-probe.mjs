@@ -43,7 +43,7 @@
 // power it did not earn, whereas this asks whether the bar keeps up with a REAL run, and a real run
 // takes cards and kills far more than a starter-only one ever would.
 import { createRun, ensureBookMeta, ensureChapterMeta } from '../src/state.js'
-import { stepSim, applyChoice, onSandbar, inWake, inMaw } from '../src/sim.js'
+import { stepSim, applyChoice, onSandbar, inMaw } from '../src/sim.js'
 import { CHAPTERS, PULSE_CHARGE_COST, darkness, refillSpec, laneAxes, laneScrollFor, bookOf, shopLines, MAX_SHOP_LEVEL, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, spawnRate } from '../src/config.js'
 
 // --chapter <id> (v7.x, run US.c): every Book 2 chapter shares one `resource`/refill-circle
@@ -372,7 +372,12 @@ for (const [pname, wants] of Object.entries(POLICIES)) {
       // three of the four, and the moving wake for The Trawl. One column, because the QUESTION is
       // the same one ("how much of the run was this player being fed") and a chapter-specific column
       // name is how a reader ends up comparing two different measurements.
-      if (run.shafts.some((sh) => inMaw(sh, pl.x, pl.y)) || inWake(run, pl.x, pl.y)) inShaft++
+      // inWake (The Trawl's old Feed-bar wake test) was deleted from sim.js in v7.257 along with
+      // that chapter's Feed bar and resource block (CHAPTERS.trawl now declares no `resource` at
+      // all, so trawlCh runs abort above before reaching this line) — this import had gone stale
+      // and broke every invocation of this script, for every chapter, with a module-load
+      // SyntaxError. inMaw alone is the whole test now; no chapter this script can reach has a wake.
+      if (run.shafts.some((sh) => inMaw(sh, pl.x, pl.y))) inShaft++
       // Sandbars (v7.x Surf only — onSandbar is a no-op false for any chapter with no run.sandbars
       // entries, so this column reads 0 for The Shelf without a chapter-type branch here).
       if (onSandbar(run)) onBar++

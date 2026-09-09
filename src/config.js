@@ -2243,6 +2243,12 @@ export const WEAPONS = {
     // balance_decision : dmg doubled on leaving the starter slot, owner ruling [2026-09-09]
     //  - its own block above says damage was the WRONG knob (-23% measured better); Task 8 measures
     //    this beside Glint and the two rares, and it comes back down if it is the pool's runaway best
+    //
+    // MEASURED, Task 8 (R2.2 retune clause): node scripts/weapon-census.mjs --chapter deep --level 5
+    // --weapons glint,sunspear,foxfire,sunlance --secs 300 — see WEAPONS.glint's block for the table.
+    // Sunspear (doubled) comes back at 75 eff, BELOW Glint's 104 and not even the pool's top card —
+    // the clause's "more than 1.5x the next card" never fires, so the doubling STANDS at x2 rather
+    // than dropping to x1.5. It still opens ahead of Glint at L1 (57 vs 18) — see that block.
     levels: [
       { dmg: 34, interval: 2.10, count: 1, r: 50, castRange: 300 },
       { dmg: 42, interval: 1.98, count: 1, r: 54, castRange: 320 },
@@ -2293,6 +2299,11 @@ export const WEAPONS = {
     // what a player buys by running on empty — which costs them the Pulse and 40% of their move
     // speed at the same time. That trade IS the card, and it is why the base had to come down to
     // the bottom of the band rather than the middle of it.
+    //
+    // RE-CENSUSED, Task 8 (§1): the pool above was measured on --chapter shelf before the merge; on
+    // --chapter deep, the chapter this card actually ships in, level 5 300s reads 81 eff, 8% waste —
+    // see WEAPONS.glint's block for the full four-card table. No retune clause hangs on this number
+    // (only Sunspear's does); recorded so the shelf-era table above is not read as this chapter's own.
     levels: [
       { dmg: 4,  interval: 3.00, maxR: 54, glowDur: 2.4, castRange: 280 },
       { dmg: 5,  interval: 2.85, maxR: 59, glowDur: 2.6, castRange: 295 },
@@ -2323,6 +2334,13 @@ export const WEAPONS = {
     // chapter that gets WORSE as the bar empties. A real run is under half a bar for 63% of its
     // length, so this weapon's PLAY average sits below the number above rather than on it — trimming
     // to parity with a static rare would ship it under the band it is supposed to be in.
+    //
+    // RE-CENSUSED, Task 8 (§1): the 122/18% pair above is the pre-merge --chapter shelf reading; on
+    // --chapter deep, this card's actual chapter, level 5 300s reads 63 eff, 20% waste, the pool's
+    // lowest eff dps of the four — see WEAPONS.glint's block for the full table. Consistent with its
+    // own note above (the census sits at a mid charge, and this is the card that reads WORSE the
+    // emptier the bar): no retune clause hangs on it, but a future pass should ask whether it wants
+    // one now that it sits at the bottom of a four-card pool rather than the middle of a five-card one.
     levels: [
       { dmg: 10, interval: 2.20, length: 360, width: 26, duration: 0.40, tick: 0.13 },
       { dmg: 12, interval: 2.08, length: 405, width: 29, duration: 0.40, tick: 0.13 },
@@ -2342,8 +2360,21 @@ export const WEAPONS = {
     name: 'Glint',
     desc: `Flings a dart of light at what is nearest. Each cast costs ${GLINT_LIGHT_COST} Light.`,
     icon: '✨', rarity: 'normal',
-    // ⚠ UNMEASURED FIRST CUT: Spike Protein's numbers with the fan one dart narrower at L5, so the
-    // chapter's opening is Book 1's opening. Task 8 censuses it beside Sunspear.
+    // MEASURED (Task 8, R2.2): node scripts/weapon-census.mjs --chapter deep --level 5
+    // --weapons glint,sunspear,foxfire,sunlance --secs 300, the pool in one invocation —
+    //
+    //                      L5 raw  L5 eff  L5 waste  kills/min  dud
+    //   Glint                127     104       18%      117.2   31%
+    //   Sunspear             150      75       50%       97.1   15%
+    //   Foxfire               88      81        8%       98.8    6%
+    //   Sunlance              78      63       20%       85.6    6%
+    //
+    // Glint OPENS ahead of the doubled Sunspear, not behind it — the retune clause on Sunspear's own
+    // block (R2.2) never fires (75 is not > 1.5x anything here; it isn't even the pool's top card),
+    // so the doubling stands unchanged. Read as an opener rather than as a ranking: at L1
+    // (--level 1 --weapons glint,sunspear) Glint is 18 eff against Sunspear's 57 — a chapter-1 run
+    // still meets Sunspear as the harder-hitting of the two for its first several levels, same as
+    // when Sunspear itself was the starter, only now via a level-up rather than the opening slot.
     levels: [
       { dmg: 12, interval: 0.55, count: 1, speed: 480, pierce: 1 },
       { dmg: 14, interval: 0.50, count: 2, speed: 480, pierce: 1 },
@@ -8257,6 +8288,25 @@ CHAPTERS.deep = {
   // makes it a trap rather than a toll.
   //   The `ignore` row is the CONTROL and answers "does this chapter have the dark from the chapter
   // before it": 99% of the run dark, a bar at 10 of 100, half of it pinned at empty. It does.
+  //
+  // RE-MEASURED, Task 8 (§2), same command, AFTER Glint shipped as the starter (Glint spends
+  // GLINT_LIGHT_COST per cast and fires on a ~0.3-0.5s timer while a target is in reach — an ongoing
+  // ammo drain the table above was measured without, since it predates Glint). The `full` spend row:
+  //
+  //   policy   mean  %at0  %DARK  %inRefill  bites   vs. the table above
+  //   ignore    5.4    65     99        7.7    0.0   down from 10.0 — Glint drains even while blind
+  //   feed     27.2     1    91        65.0    0.7   down from 78.1/5% dark — THIS is what changed
+  //   greedy   11.4    41     99       58.1   54.3   ~unchanged (12.0 -> 11.4): already at the floor
+  //
+  // GLINT'S COST MOVES THE DISCIPLINED ROW, not the reckless ones — `feed` still spends about the
+  // same SHARE of the run in a mouth (65.0% against 64.8%), but the bar it comes home to is a
+  // quarter full and 91% dark instead of nearly full and lit, because the starter is now burning
+  // Light the whole time it fights rather than only when the chapter's own drain runs. `ignore` and
+  // `greedy` were already pinned near the floor and barely move.
+  //   CHECKED AGAINST THE REFILL-RAISE CLAUSE (R2.2's sibling in §2): a seeking (`feed`) player sits
+  // under 25% of the bar for 41.9-53.8% of a run (3 seeded 300s runs, one-off check alongside this
+  // table) — under the 70% trigger, so `refill` stays at 16. The mouths' bite clock is untouched
+  // either way, per the brief.
   resource: {
     name: 'Light', drain: 2.0, refill: 16, max: 100,
     dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.50, radiusEmpty: 0.06 },
@@ -8282,8 +8332,23 @@ CHAPTERS.deep = {
   //                 (`split`). Its children wear this same bake at SPLIT_RADIUS_FRAC and inherit
   //                 SPLIT_HP_FRAC of its HP and xp, which is why xpMul sits under 1 — see Task 8's
   //                 measurement in the commit that set it.
-  // hpMul/speedMul below are the OLD slots' numbers carried one-for-one (viperfish -> fangtooth,
-  // gulper -> siphonophore) until Task 8 measures them; the two normals split a `normal`'s share.
+  // hpMul/speedMul below are the OLD slot's numbers carried one-for-one (viperfish -> fangtooth,
+  // gulper -> siphonophore) — same hp/speed as the old gulper, deliberately, so the split-tax
+  // question below is about `split` + xpMul alone and not a second confound; the two normals split
+  // a `normal`'s share.
+  //
+  // MEASURED, Task 8 (§3, split tax): scripts/deep-roster-probe.mjs, 6 seeded 300s Deep runs,
+  // immortal + kiting, level-ups ACCEPTED (first offer — an unleveled starter never kills a tank at
+  // all in this rig: 0/6 seeds, see the script's own header). Siphonophore's share of the run's xp,
+  // per seed: [0, 0, 0, 0, 2.2, 5.2]% — low 0, high 5.2. The same probe on the pre-merge tree
+  // (`git archive cdd29a7 src`, --srcDir) reads the old gulper's share per seed as
+  // [24.8, 39.5, 41.3, 48.7, 50.4, 54.1]% — low 24.8, high 54.1.
+  //   The retune clause (R2.1) is "lower xpMul if siphonophore's share EXCEEDS the old gulper's" —
+  // it does not; it sits far UNDER it at every seed, so xpMul stays at 0.7. Flagged rather than
+  // acted on: the gap is large enough (high of 5.2% against a low of 24.8%) that it likely also
+  // reflects the new starter (Glint) being weaker against a tank than the old finHit was, not only
+  // the split tax the clause was written to catch — a future pass may want to ask whether the tank
+  // slot is now UNDER-contributing, which this clause has no lever for.
   roster: [
     { id: 'lanternfish',  archetype: 'normal', name: 'Lanternfish',  hpMul: 1,   speedMul: 0.95, weight: 1.2, flags: [] },
     { id: 'barreleye',    archetype: 'normal', name: 'Barreleye',    hpMul: 1.1, speedMul: 0.9,  weight: 1,   flags: [] },

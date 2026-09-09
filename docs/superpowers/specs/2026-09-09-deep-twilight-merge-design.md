@@ -183,6 +183,100 @@ Also: **the Pulse leaves with the Twilight.** Sunspear's comment calls the bar "
 in the Deep the bar is Scent's. The comment is stale the moment the pool moves and is fixed in the
 same edit.
 
+### Measured (Task 8)
+
+Four measurements, run against the shipped tree (HEAD at the time, `f8e9c3c` plus Tasks 1-7), each
+recorded a second time in the `src/config.js` comment beside the number it bears on. Commands are
+copy-pasteable; every table below is the literal command's output, not a paraphrase.
+
+**§6.1/R2.2 — the pool, one invocation.**
+`node scripts/weapon-census.mjs --chapter deep --level 5 --weapons glint,sunspear,foxfire,sunlance --secs 300`:
+
+```
+  weapon           raw dps  eff dps  waste  kills/min  hits/s  dmg/hit  dud   charge
+  Glint               127      104    18%      117.2     5.2     24.5  31%       14
+  Sunspear            150       75    50%       97.1     1.9     79.6  15%       30
+  Foxfire              88       81     8%       98.8     8.9     10.0   6%       30
+  Sunlance             78       63    20%       85.6     3.6     21.5   6%       30
+```
+
+Sunspear (doubled) is neither the pool's top card nor >1.5x the next one — R2.2's retune clause does
+not fire, the doubling stands. `--level 1 --weapons glint,sunspear` (the run's opening):
+
+```
+  weapon           raw dps  eff dps  waste  kills/min  hits/s  dmg/hit  dud   charge
+  Glint                21       18    15%       34.7     1.7     12.3   8%       17
+  Sunspear             77       57    26%       79.9     2.2     34.4   8%       30
+```
+
+Sunspear still opens well ahead of Glint (57 vs 18 eff) — the same shape as when it held the starter
+slot, now reached by a level-up instead of the first cast.
+
+**§6.2 — the bar under a maw-working player.**
+`node scripts/charge-probe.mjs --chapter deep`, `full` spend row, before/after Glint's per-cast Light
+cost existed (the table already in `CHAPTERS.deep.resource`'s comment predates the starter):
+
+```
+policy   mean  %at0  %DARK  %inRefill  bites    (pre-Glint, for reference)
+ignore   10.0    48     99        7.8    0.3
+feed     78.1     1      5       64.8    0.7
+greedy   12.0    50     99       49.5   46.7
+
+policy   mean  %at0  %DARK  %inRefill  bites    (measured now, Glint equipped)
+ignore    5.4    65     99        7.7    0.0
+feed     27.2     1     91       65.0    0.7
+greedy   11.4    41     99       58.1   54.3
+```
+
+Glint's ~1 Light/cast on a sub-second timer moves the disciplined (`feed`) row from a mostly-lit bar
+(78/100, 5% dark) to mostly-dark (27/100, 91% dark) without changing how much of the run that player
+actually spends feeding (65.0% vs 64.8%) — the starter is now an ongoing drain on top of the
+chapter's own. `ignore`/`greedy` were already near the floor and barely move. Checked against the
+brief's refill-raise trigger with a one-off script mirroring the `feed`+`full` rig: a seeking player
+sits under 25% of the bar for 41.9-53.8% of a 300s run across 3 seeds — under the 70% threshold, so
+`resource.refill` stays at 16 (the maws' bite clock, `MAW_GAPE_T`/`MAW_SHUT_T`, is untouched either
+way, as instructed).
+
+**§6.3 — Foxfire on the Deep's scrim.**
+`node scripts/fx-probe.mjs --scene scripts/scenes/deep-foxfire-dark.js --chapter deep --out /tmp/ffd --frames 6 --wait 20000`.
+Last frame: `/tmp/ffd-05.png` (charge=0, full FOXFIRE_GLOOM, cloud maxR 118, one bred body lit inside
+a cast 233px from the player). This is an owner picture per the brief; `FOXFIRE_GLOW` is untouched.
+
+**R2.6 — the lanternfish's glow at spawn distance.**
+New scene `scripts/scenes/deep-lantern-range.js` (modelled on `deep-hunt.js`), four lanternfish
+pinned at 90/180/300/410px on a 20/100 bar, `run.shafts.length = 0`. Shot at both viewports:
+- phone (390x844): `/tmp/lr-24b-00.png` — lamp reaches ~125px at this charge, so 180/300/410px sit
+  outside it by a growing margin.
+- desktop (1280x800): `/tmp/lr-desktop-00.png` — lamp reaches ~189px; the gap the glow has to
+  bridge at 300/410px is smaller here than on the phone, so the phone shot is the tighter case.
+
+`glow.frac` at its shipped value (2.4) already reads the 300px fish as a distinct glow well clear of
+the pure-black scrim past the lamp (sampled peak pixel brightness ~426/765 against a ~1/765
+background); the 410px fish reads the same on both viewports. **`ROSTER_LOOKS.lanternfish.glow.frac`
+is unchanged** — the first value in the brief's escalation (2.4 -> 3.5 -> 5) already passes, so the
+scene stopped there. (First cut of this scene shot at full brightness by mistake: `run.charge` alone
+does not gate the lamp — `updateDark` reads `run.sightCharge ?? run.charge`, and `createRun` seeds
+`sightCharge` at `chargeMax`; only `stepCharge` ever brings it back down, and this scene never steps
+the sim after its warm-up. Fixed by setting both fields; noted in the scene's own header.)
+
+**R2.1/§7b — the split tax.**
+New script `scripts/deep-roster-probe.mjs`, 6 seeded 300s Deep runs, immortal + kiting, level-ups
+ACCEPTED (first offer always — an unleveled starter never kills a tank at all under this rig: 0/6
+seeds with every offer refused, which cannot answer the question). Kills/xp are read directly off
+`run.enemies` (id present before a step and gone after, its pre-step `.xp`), not off the `kill`
+event, which carries only `{x,y,elite,etype}` — an `ARCHETYPE_TYPE`, not a `rosterId`, and no xp at
+all (see the script's header for why an existence diff is exact here and needed no `sim.js` change).
+
+Siphonophore's share of the run's xp, per seed: **[0, 0, 0, 0, 2.2, 5.2]%** (low 0, high 5.2). The
+same probe against the pre-merge tree (`git archive cdd29a7 src` into `/tmp/base`, `--srcDir`) reads
+the old gulper's share per seed as **[24.8, 39.5, 41.3, 48.7, 50.4, 54.1]%** (low 24.8, high 54.1).
+The retune clause ("lower `xpMul` if the new share exceeds the old") does not fire — the new tank
+sits far *under* the old one at every seed, not over. `xpMul` stays at 0.7. Flagged rather than
+chased further: the gap is large enough that it plausibly also reflects Glint being weaker against a
+tank than the old `finHit` was (a confound the brief's own baseline method — comparing each
+chapter's shipped starter — cannot separate from the split tax itself), so a future pass may want to
+ask whether the tank slot is now *under*-paying, which this clause has no lever for.
+
 ## 7. Still owed after this pass
 
 `node scripts/chapter-stage.mjs deep` reads `ideation=owes3` today. §3.1's starter clears the
