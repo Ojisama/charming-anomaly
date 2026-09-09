@@ -259,3 +259,107 @@ lure's `aggro`), are phase 3 questions and are measured before they are chosen.
 - Survivor: **The Deep** (id, name, roster, Scent, maws, dark all kept; the Twilight deleted).
 - Fin Hit: **drop it, light weapons only.**
 - "Also delete unused weapon code" — scoped to **all five**: Fin Hit and the four Reef leftovers.
+
+---
+
+# Revision 2 — after adversarial review (2026-09-09, Opus reviewer)
+
+Rev 1 above is kept as written. Everything below CORRECTS it; where the two disagree, this wins.
+
+## R2.1 The beacon rule is DROPPED (owner ruling)
+
+Rev 1's §7b lamp-as-beacon and §3.1's Light-spending starter were mutually destructive: with the
+starter draining the bar, an empty bar is the steady state while firing, and a rule that makes an
+empty bar hide you turns firing into a stealth button. The reviewer also showed the mechanism was
+not "one read at the seek site": nothing in the game wanders, `stepStragglers` (sim.js:2436) would
+teleport a non-seeking body back onto the spawn ring forever, `_tgtX/_tgtY` must be published or
+the crowd crabs sideways, and a notice range keyed to `lightRadius` is smaller than the spawn
+distance at every bar level on every device (phone: 422 vs 525; desktop: 640 vs 814).
+
+Owner, offered "light brings more / drop it / keep it": **"Drop the beacon rule."** Enemies seek
+as in every chapter. **The Barreleye stays as a flagless second `normal`** — the roster's
+baseline body, on the argument the Trawl spec made for its mackerel: with a flag on every entry
+none of them reads as special. Its look is the ruling that stands.
+
+## R2.2 Sunspear at double damage: the ruling stands, and it is MEASURED
+
+The reviewer is right that §3.2 doubles the knob Sunspear's own block measured as wrong (-23%
+dmg read BETTER, 135→140 eff, because weaker columns leave bodies alive for more columns), that
+the block's `r` cut 82→66 was the compensating knob and is kept, and that Sunspear already reads
+123 eff at L5 against a rare band of 109–122. Owner: **"Keep double damage, measure it, retune if
+it dominates."** So §6 gains a fourth item: `weapon-census.mjs --chapter deep --level 5` with the
+new starter, Sunspear, Foxfire and Sunlance in ONE invocation; if Sunspear is the pool's runaway
+best the knob comes back down with the table shown, not silently.
+
+## R2.3 A shipped save migration writes `meta.chapters.twilight` — §3's "nothing migrates" is false
+
+`state.js:317-318` MOVES the light chapter's whole ladder (difficulty, wins, best times) from
+`chapters.shelf` into `chapters.twilight` on every load, because the light chapter used to be
+slot 2; `sim-test.js:32913` asserts it. Delete the id and every returning player's real
+progress is stranded in a slot nothing reads. **Fix, additive by construction:** a second hop
+`chapters.twilight → chapters.deep` taking the MAX of each field, guarded so it runs once; the
+first hop is kept (an old build still writes `twilight`, and the second hop picks it up on the
+next load); `chapters.twilight` is never deleted (meta is additive-only, CLAUDE.md). The test at
+32897–32920 asserts the new destination.
+
+## R2.4 Deletion sites §5 missed — all added to the bill
+
+- **`CHAPTERS.deep.eliteFlags: ['webZone']` and `render.webLook: 'slime'`** exist only for the
+  hagfish. `webZone` stays a legal flag, so run VO stays green over an elite that lays slime no
+  animal produces. The honest cut is **no elite behaviour flag** — elites still carry affixes. If
+  `eliteFlags: []` is rejected anywhere (spawn code, run VO), the fallback is `['unshakeable']`
+  on the siphonophore. `webLook` and the Deep's slime render path go with it.
+- **Squid Ink owns a published enemy contract field, `blindT`** (producer sim.js:9720; consumers
+  sim.js:2146/2619/2929, render.js:21839/21907/22047; state.js:966/1088). Deleting the weapon by
+  §5.2's checklist leaves the whole blind machinery as a dead branch in the hottest loop. It goes
+  too, and **§5.2 gains a `state.js` row** for every deleted weapon's fields and events.
+- `render.js:11629` `twilight: BIOME_SHELF` and `scripts/obstacle-contrast.mjs:48` `twilight:`.
+- `test/sim-test.js:1535` `NEEDS_MOTION = new Set(['finHit'])` and `:1541` `CHAPTER_FOR = { fireCoral: 'reef' }`
+  in the IPECAC sweep: both become tables asserting nothing.
+- `test/sim-test.js:32799` greps the suite for the literal `CHAPTERS.twilight.resource.dark` —
+  self-referential, cannot be "moved"; deleted, and run DK already reads the Deep's block.
+- `test/sim-test.js:32774` asserts `murk > dark` (slot 2 gentler than the light chapter's slow).
+  After the merge no Book 2 chapter but the Shelf slows in the dark — the Deep's `speedFloor: 1`
+  is its own recorded ruling — so the ordering has no second term. Deleted, with this paragraph
+  as the reason.
+- The count in §5.1 is **61** test references, not 28.
+- `scripts/scenes/twilight-cast.js` is still in the tree (deep-cast.js's header says "now gone" —
+  it goes with §5.1's seven).
+
+## R2.5 The starter's wiring, which §3.1 under-specified
+
+- **Its own `WEAPON_MODS` block, four mods**, or run MB.a2 does not even look: that lint covers
+  `['surf','shelf','reef','wreck']` only. Four is the Book 2 ceiling; mirror Spike Protein's axes
+  (pierce, extra dart, cast rate, damage) — never a mod that refunds or discounts the Light cost,
+  the same line the Twilight's mods held ("none of them buys the BAR").
+- `fireStar` pushes NO `weapon` tag on its bullets and `placeBullet` (render.js:22401) draws
+  `T.bullet` unless `b.weapon` names a case. The dart needs its tag, its case and its own texture.
+- `fireStar` reads `run.weaponMods.star?.*` by hardcoded id; the copy reads its own.
+- The spend is `run.charge = Math.max(0, run.charge - 1)` at the cast site, once per cast.
+
+## R2.6 Roster numbers the reviewer priced (phase 3 inputs, not decisions)
+
+- **`split` on a `tank` is not free.** Children inherit `parent.maxHP × SPLIT_HP_FRAC` off a
+  `hpMul 1.9` body and `parent.xp × 0.45` off a tank's xp 4 (a normal's is 1): the tank slot goes
+  4 → 7.6 xp. `xpMul` on the siphonophore is the lever, independent of `hpMul`, and it lands in
+  the back half (`WAVE_TABLE` gates tank to t ≥ 140s) so the probe runs the full 300s.
+- **`cast` is three ids in all 15 chapters** and the roster is four. The title card shows
+  lanternfish, fangtooth, siphonophore; the barreleye is off it (the owner's assets check can
+  swap one).
+- **The glow is verified at ≤230px and enemies spawn at ~525px.** Before the design claim is
+  treated as true, a `deep-hunt`-style scene puts lanternfish at 90/180/300/410px on a low bar;
+  `glow.frac` is the knob (38px screen radius today against the lure's 230).
+- **`glow` is the only `ROSTER_LOOKS` field read outside the bake path** and nothing guards
+  that; run RA gains one source-text assert that `updateDark` reads `.glow` off `ROSTER_LOOKS`.
+- `sg2` (render.js:2953) is inlined.
+
+## R2.7 Corrections to wording
+
+- `SCENT_DMG_MUL` is applied in **`dealDamage`** (sim.js:7436), not `applyDamage` — the shared
+  tail every source routes through, so the claim is stronger, not weaker.
+- The stale Sunspear line is config.js:2193 *"the tagline made literal — the light only goes
+  down"* (the Twilight's tagline); "the Pulse's AMMO" is in the Twilight block §5.1 deletes.
+- The art commit alone (60e701e) aborts `npm run test:fast` at run RA because the config roster
+  still names hagfish/viperfish/gulper; the roster lands in the same change as the plan's first
+  task. Separately noted, out of scope: `run(fn)` in the suite has no try/catch, so one red
+  scenario hides the 55 after it.
