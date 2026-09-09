@@ -23,6 +23,7 @@ import { PLAYER, ENEMIES, WEAPONS, HOLE_CORE_FRAC, ELITE_AFFIXES, SHIELD_HP_FRAC
   CHEEK_JIGGLE,       // the cheeks skin's spring — see syncPlayer's jiggle block
   BUTT_FEET,          // ...and its feet — see syncPlayer's feet block // The Deep: the anglerfish maw and its esca punched through the dark scrim
   FOXFIRE_GLOW,       // The Deep: a foxfire punched through the same scrim — a fire is a light
+  GLINT_GLOW,         // ...and a Glint's spark, which is the card that BUYS its light with the bar
   SLICK_SLOW_T, INK_STAIN_T, inLobe,  // The Wreck: the oil and the ink on you, on the glass and the skin
 } from './config.js'
 import { currentForce, tideForce } from './sim.js'
@@ -15303,6 +15304,28 @@ const spurG = new Graphics()
       darkCtx.arc(fx * s, fy * s, Math.max(1, fr * s), 0, Math.PI * 2)
       darkCtx.fill()
     }
+
+    // THE GLINT'S SPARKS (The Deep). Same primitive, same 'lighten' pass, and the same sentence the
+    // foxfire's block makes: a spark is drawn inside `world`, this scrim multiplies `world` down
+    // without caring what is under it, so a spark that leaves the lamp was not faint, it was gone —
+    // owner from play, "the glint itself is not visible enough" (see GLINT_GLOW).
+    //   It is the one card in the chapter you PAY the bar to fire, so it lighting the water it
+    // crosses is the card's own promise rather than a decoration on it. STAR_R-sized and partial:
+    // a volley reads as a trail toward what you are shooting at, never as a second lamp.
+    for (const b of run.bullets) {
+      if (b.weapon !== 'glint') continue
+      const bx = b.x + cx, by = b.y + cy
+      const br = b.r * GLINT_GLOW.frac
+      if (bx + br < 0 || bx - br > w || by + br < 0 || by - br > h) continue
+      const bg = darkCtx.createRadialGradient(bx * s, by * s, 0, bx * s, by * s, Math.max(1, br * s))
+      bg.addColorStop(0, rgbAt(GLINT_GLOW.core))
+      bg.addColorStop(GLINT_GLOW.coreFrac, rgbAt(GLINT_GLOW.lit))
+      bg.addColorStop(1, rgbAt(0))
+      darkCtx.fillStyle = bg
+      darkCtx.beginPath()
+      darkCtx.arc(bx * s, by * s, Math.max(1, br * s), 0, Math.PI * 2)
+      darkCtx.fill()
+    }
     darkCtx.globalCompositeOperation = 'source-over'
 
     darkTex.source.update()
@@ -21998,7 +22021,11 @@ const spurG = new Graphics()
       if (s.texture !== T.glint.tex) { s.texture = T.glint.tex; s.anchor.set(T.glint.ax, T.glint.ay) }
       s.tint = 0xffffff
       s.rotation = Math.atan2(b.vy, b.vx)
-      s.scale.set(0.75)
+      // Full size (was 0.75, the same frame the scrim punch was added on): a spark three quarters
+      // the size of Spike Protein's star, against the darkest floor in the game, was a speck even
+      // INSIDE the lamp. updateDark's GLINT_GLOW pass does the rest of the work, out where the
+      // scrim used to eat it whole.
+      s.scale.set(1)
       return
     }
     if (s.texture !== T.bullet.tex) { s.texture = T.bullet.tex; s.anchor.set(T.bullet.ax, T.bullet.ay) }

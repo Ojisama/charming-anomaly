@@ -1306,8 +1306,15 @@ export const HURT_CAP_FRAC = 0.5
 
 // GLINT (The Deep's starter, 2026-09-09). Light spent per CAST, whatever the spark count; clamped at
 // zero at the fire site, and the weapon fires at zero — spec 2026-09-09-deep-twilight-merge §3.1.
-// Per cast rather than per spark so levelling adds sparks, not cost (~1.8-3 Light/s across the
+// Per cast rather than per spark so levelling adds sparks, not cost (~1.1-1.2 Light/s across the
 // ladder against the chapter's own 2.0/s ambient drain).
+//   SCALED BY run.chargeDrainMul at the fire site, so Slow Burn ("Resource Drain -6%") pays here
+// too. Owner, 2026-09-09: "are shop upgrades applied to glint? like does it cost less if the player
+// purchased the 'lose less resource'?" — it did not, and a shop line whose whole copy is "resource
+// drain" that skips the single largest drain in its own chapter is the line lying to the player.
+//   AND NOTHING IS SPENT ON EMPTY WATER: stepGlintWeapon holds the cadence while nothing is in
+// nearestEnemy's reach. Censused at L5 the card dudded 31% of its casts — a third of the bar bought
+// nothing — and a dud is not a miss you can play around, it is the weapon firing at black.
 //   Declared HERE, ahead of WEAPONS, rather than beside STAR_FAN/STAR_LIFE below (where the task
 // brief for this weapon first placed it) for the same reason HUMIDITY_DMG_FLOOR sits ahead of
 // CHAPTERS: WEAPONS.glint.desc references it inside a template literal, and a const referenced
@@ -2346,14 +2353,16 @@ export const WEAPONS = {
     name: 'Glint',
     desc: `Flings a spark of light at what is nearest. Each cast costs ${GLINT_LIGHT_COST} Light.`,
     icon: '✨', rarity: 'normal',
-    // balance_decision : no retune, pool-leading 104 eff censused as the only weapon at charge 14 (its own cost on top of the chapter's drain), opens behind Sunspear at L1 (18 vs 57) [2026-09-09]
-    //  - full 4-card table: commit 9036eb3 body, spec 2026-09-09-deep-twilight-merge-design.md §6
+    // balance_decision : cadence cut ~40%, damage carries the ladder instead [2026-09-09]
+    //  - THE INTERVAL IS ALMOST FLAT AND MUST STAY SO: cadence is what this card spends the bar
+    //    with, so buying it back at level-up buys drain. Owner from play: "too high, i lose light
+    //    too fast". Previous ladder + full 4-card table: commit bodies, 9036eb3 and this one.
     levels: [
-      { dmg: 12, interval: 0.55, count: 1, speed: 480, pierce: 1 },
-      { dmg: 14, interval: 0.50, count: 2, speed: 480, pierce: 1 },
-      { dmg: 16, interval: 0.45, count: 2, speed: 500, pierce: 2 },
-      { dmg: 19, interval: 0.40, count: 3, speed: 520, pierce: 2 },
-      { dmg: 24, interval: 0.34, count: 3, speed: 560, pierce: 3 },
+      { dmg: 20, interval: 0.90, count: 1, speed: 480, pierce: 1 },
+      { dmg: 23, interval: 0.88, count: 2, speed: 480, pierce: 1 },
+      { dmg: 26, interval: 0.86, count: 2, speed: 500, pierce: 2 },
+      { dmg: 31, interval: 0.84, count: 3, speed: 520, pierce: 2 },
+      { dmg: 38, interval: 0.82, count: 3, speed: 560, pierce: 3 },
     ],
   },
   // ---- The Shelf's three natives (v7.x) -------------------------------------------------
@@ -4765,6 +4774,24 @@ export const FOXFIRE_GLOW = {
   lit: 0.55,       // 0 = the chapter's dark, 1 = a shaft
   core: 0.95,      // ...at the centre, where the puffs are drawn
   coreFrac: 0.5,   // how much of the glow's radius that core covers
+}
+// RENDER-ONLY, the same punch FOXFIRE_GLOW makes and for exactly the same reason: a spark is drawn
+// inside `world`, the dark is a MULTIPLY scrim above it, so a spark that leaves the lamp is not
+// dim, it is ABSENT. Owner from play, 2026-09-09: "the glint itself is not visible enough". Shot on
+// scripts/scenes/deep-glint-dark.js at 20/100 (lamp ~125px, crowd pinned at 300px): two pale specks
+// inside the lamp and black everywhere else — the card you spend the chapter's own bar on, firing
+// into water it does not light.
+//   A SPARK IS A LIGHT, and this one is bought with Light, so the punch is the card's promise
+// drawn rather than an effect added to it. Small and partial on purpose: `frac` multiplies STAR_R
+// (10px), not a foxfire's cloud, so a spark lights a pinprick of floor as it travels and a volley
+// reads as a trail toward what you are shooting at — never as a second lamp. Raising `lit` past
+// ~0.6 or `frac` past ~6 starts handing the player the crowd for free, which is the one thing the
+// dark is for.
+export const GLINT_GLOW = {
+  frac: 4.5,       // glow radius as a multiple of the spark's own r (STAR_R) — ~45px of lit water
+  lit: 0.45,       // 0 = the chapter's dark, 1 = a shaft
+  core: 0.95,      // ...at the centre, where the spark itself is drawn
+  coreFrac: 0.3,   // how much of the glow's radius that core covers
 }
 // The Sunlance's reach at an EMPTY bar, as a fraction of its `length`. The no-spiral floor, in the
 // same idiom as BURST_DUR_MIN and BREACH_R_MIN: this is the one card in the chapter that gets worse

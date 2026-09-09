@@ -361,6 +361,31 @@ baseline method — comparing each chapter's shipped starter — cannot separate
 itself), so a future pass may want to ask whether the tank slot is now *near-unkillable*, which this
 clause has no lever for.
 
+**§6.5 — OVERTURNED IN PLAY, 2026-09-09 (same day).** The tables above are kept as the record of what
+shipped; the owner played it and the reading was the opposite of the trigger's. "The base fire rate of
+the starter weapon is too high, i lose light too fast", and — the same complaint from the other end —
+"there are no anglerfish anymore? how am i supposed to get light?" The maws were untouched and still
+streaming (five in the tile `deep-hunt` shoots); what changed is that a bar burning 3.8-4.9/s does not
+survive the walk to one. The `charge` column above is that sentence as a number: Glint is the only
+card in the pool that plays at 14-17 of 100 while the other three sit at 30.
+  Three changes, and the trigger clause that said "no retune" is what a 41.9-53.8% under-25% share
+misses — it measured how *often* the bar was low, never that the player could not act on it:
+
+```
+  weapon        raw  eff  waste  kills/min  hits/s  dmg/hit  dud   charge
+  Glint L1  22 (21)  16 (18)  26%  32.9  1.1  20.4   3% (8%)   21 (17)
+  Glint L5 128 (127) 92 (104) 28% 112.8  3.3  38.8  13% (31%)  20 (14)
+
+  charge-probe, feed+full row:  mean 27.2 -> 38.1,  %DARK 91 -> 71,  %inRefill unchanged at 65.0
+```
+
+The cadence is now nearly FLAT across the ladder (0.90 -> 0.82) with damage carrying the growth, so a
+level-up no longer buys drain; `GLINT_LIGHT_COST` is scaled by `run.chargeDrainMul`, so Slow Burn
+reaches the ammo (owner: "does it cost less if the player purchased the 'lose less resource'?"); and
+the cadence HOLDS while `nearestEnemy` finds nothing, which is where a third of the L5 casts were
+going. The fourth complaint — "the glint itself is not visible enough" — was a missing scrim punch,
+not a tune: see `GLINT_GLOW` and `scripts/scenes/deep-glint-dark.js`.
+
 ## 7. Still owed after this pass
 
 `node scripts/chapter-stage.mjs deep` reads `ideation=owes3` today. §3.1's starter clears the
