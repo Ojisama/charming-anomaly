@@ -1963,8 +1963,8 @@ export const WEAPONS = {
     icon: '🪝', rarity: 'normal',
     // Laid PERPENDICULAR to the nearest enemy, `offset` px toward them — a fence between you and
     // the pack, which works standing still as well as running. (Laying it in the player's wake
-    // instead was the first idea and it is Fin Hit's job: a weapon that only works while moving is
-    // The Deep's claim, not this one.)
+    // instead was the first idea and it was Fin Hit's job, before that weapon was deleted
+    // (2026-09-09): a weapon that only works while moving was The Deep's claim, not this one.)
     //   dmg      damage per TICK, not per cast. Small on purpose — a line is a grinder, and the
     //            value is the number of bodies crossing it, never the number on one of them.
     //   length   the segment's full length. LONGLINE_HALF_W is its thickness and is fixed: a line
@@ -2586,8 +2586,8 @@ export const WEAPONS = {
     // was deleted) — a new bake and a new tuning table, not a new system.
     // ⚠ UNMEASURED FIRST CUT. Pitched between the two melee starters at the JAW and under both at
     // the tip: dmg 15 x GNASH_MAW_MUL 1.9 = 28.5 at L1 point blank against flagella's flat 14 and
-    // the rake's 11, on a cadence between theirs. weapon-census it against Fin Hit and Breaker in
-    // ONE invocation before quoting any of it.
+    // the rake's 11, on a cadence between theirs. weapon-census it against Breaker (Fin Hit
+    // deleted 2026-09-09) before quoting any of it.
     // balance_decision : reach carries the closing the dart used to do 2026-08-18
     //  - swept 78/100/118/135px base against the census: whiffed casts 60% -> 47%, kills/min
     //    49 -> 78 at L1. It does NOT reach the dart's 26% and is not meant to — the rest of that
@@ -4016,10 +4016,6 @@ export const WEAPON_COUNT_KEYS = { tailLash: 'hooks', atomicBreath: 'jumps', scr
 //  - v7.26 `arcRange` carries a label but is NOT a row: the breath already has `range` (reach to
 //    its first target), and a sixth row would push the cadence off. Arc Reach still appears in the
 //    picked-mods list, the same treatment `streams` gets.
-//  - `ridges` after 'weights': Fire Coral emits dmg, duration, ridges + every = 4, so it can take
-//    the row, and without it More Reef is the one count mod in the game whose pick shows nowhere on
-//    the sheet. Compare `streams`, which is deliberately absent because the Burst Hydrant is
-//    already at exactly five and a sixth row would push the cadence off.
 //  - v7.55 `knock`/`cd` for the Pincer, after 'r', so it emits dmg, r, knock, cd and stops — it
 //    has no rate/interval, making it the one weapon with no cadence row, which is the point of it.
 //    Both keys are unique to the Pincer's levels[] (every other knockback stat is `knockback`), so

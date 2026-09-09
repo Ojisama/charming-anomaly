@@ -13721,6 +13721,8 @@ function testV54Weapons() {
       // trusting the filter above: a typo'd field name would make every chapter "unarmed".
       assert.strictEqual(CHAPTERS.reef.weapons.length, 0,
         'The Reef is exempt from unshakeable because it has no weapons — if it has an arsenal now, delete the exemption and give the Moray the flag')
+      assert.strictEqual(CHAPTERS.reef.starter, null,
+        'an unarmed chapter must start unarmed — the Reef is a race')
       assert.ok(chapterIds.length - unarmed.length >= 8,
         `only ${chapterIds.length - unarmed.length} chapters were actually checked for unshakeable — the exemption has eaten the assertion`)
 

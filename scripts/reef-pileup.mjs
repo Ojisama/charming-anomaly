@@ -1,11 +1,12 @@
 // WHERE DO LIVE REEF ENEMIES SIT RELATIVE TO THE PLAYER, and how many are permanently out of reach?
 //
-// ⚠ THIS EXISTS BECAUSE reef-astern.mjs ANSWERS A DIFFERENT QUESTION AND READS LIKE THIS ONE.
-// That rig measures the share of DAMAGE DEALT that landed astern, and reported 91.2% for Squid Ink
-// — which sounds like the rear is covered. It cannot see the pathology: a body that is never
-// reached deals and takes nothing, so it contributes to NEITHER side of that ratio. The chapter can
-// be 100% astern-covered by that metric while a tail of enemies streams away behind the player
-// forever. Damage share is the wrong denominator; LIVE BODIES BY POSITION is the right one.
+// ⚠ THIS EXISTS BECAUSE reef-astern.mjs (deleted 2026-09-09 with the Reef's last weapons) ANSWERED
+// A DIFFERENT QUESTION AND READ LIKE THIS ONE. That rig measured the share of DAMAGE DEALT that
+// landed astern, and reported 91.2% for Squid Ink — which sounds like the rear is covered. It
+// could not see the pathology: a body that is never reached deals and takes nothing, so it
+// contributes to NEITHER side of that ratio. The chapter can be 100% astern-covered by that metric
+// while a tail of enemies streams away behind the player forever. Damage share is the wrong
+// denominator; LIVE BODIES BY POSITION is the right one.
 //
 // The reef is an x-lane, player advancing +x at laneScroll px/s. "Astern" is enemy.x < player.x.
 // The viewport is the other half of the answer: at LANE_CAMERA_FRAC the player sits 80% of the way

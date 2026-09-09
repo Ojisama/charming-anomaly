@@ -346,10 +346,12 @@ export function stepSim(run, input, dt) {
   // position is written by half a dozen things in a frame: its own swim, separation, the obstacle
   // push-out, knockback, a weapon's shove. Clamping before those runs corrects a stale position and
   // leaves a body sitting in coral for the frame it is actually drawn and touched in.
-  //   It also keeps every weapon fixture honest. run RN plants bodies at exact offsets and reads
-  // what a weapon does to them; a clamp ahead of stepWeapons snaps those bodies to a wall face
-  // mid-step, and the case then measures a fixture that was never where it put it — which cost
-  // RN.d a ratio of 0.733 against the 0.625 the weapon was correctly producing.
+  //   It also used to keep every weapon fixture honest. run RN planted bodies at exact offsets and
+  // read what a weapon did to them; a clamp ahead of stepWeapons would snap those bodies to a wall
+  // face mid-step, and the case would then measure a fixture that was never where it put it —
+  // which cost RN.d a ratio of 0.733 against the 0.625 the weapon was correctly producing. run RN
+  // was deleted 2026-09-09 with the weapons it tested; this ordering rule is currently unguarded
+  // by any test.
   clampCrowdToCave(run)
   stepStatuses(run, dt)
   stepPickups(run, dt)
@@ -5007,9 +5009,9 @@ function stepSpurs(run, dt) {
     // The band reaches a PLAYER.radius past the ridge on a solid field, so a player held flush
     // against the face is inside it rather than a hair outside and paying nothing.
     if (Math.abs(f - sp.f) > sp.thick / 2 + (spec0.pinchSpan ?? 0) + reach) continue
-    // onCoral is the file's single definition of "this cross position is coral and not a channel",
-    // shared with Fire Coral's burn band -- which is the point of it existing at all, since the two
-    // drifting apart is the one-fact-in-two-places class CLAUDE.md names as the largest defect
+    // onCoral is the file's single definition of "this cross position is coral and not a channel".
+    // Fire Coral's burn band shared it too, before the weapon was deleted (2026-09-09) -- the two
+    // drifting apart was the one-fact-in-two-places class CLAUDE.md names as the largest defect
     // source here. It reads the CROSS coordinate only; the forward band above is this caller's half.
     inside = onCoral(sp, c)
     break

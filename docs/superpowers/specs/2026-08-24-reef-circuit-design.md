@@ -714,9 +714,10 @@ the lane". With `fwdIn` always 0, `_laneThrottle` is pinned at exactly **1.0** f
 Reef row. The 0.5x–3x range the chapter shipped has never been measured at all, and the resource
 block's own note that the 3x ratio is unmeasured is more literally true than it reads.
 
-`reef-astern`/`reef-pileup` do pass a nonzero forward stick (`{x:0.4}` → throttle 1.8), which proves
-throttle **can** be injected through the existing input contract — but it is one hardcoded constant,
-never swept, in rigs that measure something else.
+`reef-astern` (deleted 2026-09-09 with the Reef's last weapons) and `reef-pileup` do/did pass a
+nonzero forward stick (`{x:0.4}` → throttle 1.8), which proves throttle **can** be injected through
+the existing input contract — but it is one hardcoded constant, never swept, in rigs that measure
+something else.
 
 **So a throttle axis is the first thing the rig needs**, crossed with the existing movement family.
 Mind the axis math: the forward literal has to land on whichever of x/y is `ax.fwd`.

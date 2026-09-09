@@ -53,8 +53,9 @@ const CH = 'reef'
 const DT = 1 / 60
 const MAX_SECS = 300   // safety valve only — every policy below either finishes or dies to the
                         // clock well under this; a run that hits it prints 'timeout', not a number
-// FIXED, and the first three are the same list as reef-astern.mjs/reef-pileup.mjs so a row here can
-// be compared with a row there. --seeds=N takes the first N of the extended list: three is enough to
+// FIXED, and the first three are the same list reef-pileup.mjs uses (reef-astern.mjs used them too,
+// before it was deleted 2026-09-09) so a row here can be compared with a row there. --seeds=N takes
+// the first N of the extended list: three is enough to
 // rank two tracks against each other, but NOT enough to call a ladder monotone — a policy sitting on
 // the edge of the clock flips a whole 1/3 on one seed, which reads as a rung being easier than the
 // one below it. Ask for six before quoting a gradient.
