@@ -85,7 +85,7 @@ import {
   newWeaponChance, NEW_WEAPON_MIN_RATE,
   REVIVE_HP_FRAC, REVIVE_INVULN, REVIVE_SHOVE_RADIUS, REVIVE_SHOVE_KB, HURT_CAP_FRAC,
   ARCHETYPE_TYPE, TYPE_ARCHETYPE, LATCH_SLOW_T, LATCH_SLOW_MUL, TANK_KB_REFRACTORY,
-  SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC,
+  SPLIT_CHILD_COUNT, SPLIT_HP_FRAC, SPLIT_RADIUS_FRAC, SPLIT_SPEED_MUL, SPLIT_DMG_MUL,
   DASH_IDLE_T, DASH_T, DASH_IDLE_SPEED_MUL, DASH_SPEED_MUL,
   ACID_R, ACID_DUR, ACID_DPS, SOAP_INTERVAL, SOAP_R, SOAP_DUR, SOAP_DPS,
   OIL_TRAIL_INTERVAL, OIL_TRAIL_R, OIL_TRAIL_DUR,
@@ -2398,6 +2398,10 @@ function spawnEnemy(run, opts = {}) {
     // ~0.35s, paired with speedMul 1.3 so it hangs just off your shoulder), and a chapter that wants
     // a creature to arrive somewhere you have actually left must not drag the boss's number with it.
     trailLag: roster?.trailLag ?? null,
+    // roster.split (v7.x): the same idiom again, for the `split` flag's own numbers — count, and
+    // the child's hp/radius/speed/damage as fractions of this body's. null on every splitter but
+    // The Deep's siphonophore, which comes apart into a swarm rather than into two halves.
+    split: roster?.split ?? null,
     bite: roster?.bite ?? 0,   // s per 1 HP while a `latch` body holds you; 0 = the latch spends the fish instead
     // xpMul is the roster's third stat lever, alongside hpMul/speedMul above: what a kill of
     // this creature is WORTH, independent of how much health it has. They are separate on
@@ -2474,12 +2478,26 @@ function flushSpawns(run) {
   q.length = 0
 }
 
+// `count` is the caller's, so the ONE place that knows how many children there are stays the call
+// site; everything about what a child IS comes off the parent's own `split` override, falling back
+// to the shared SPLIT_* defaults. A chapter that wants a swarm therefore changes one object in its
+// roster and nothing here (see CHAPTERS.deep's siphonophore).
 function spawnSplitChildren(run, parent, count) {
   if (!run._spawnQueue) run._spawnQueue = []
+  const spec = parent.split
+  const hpFrac = spec?.hpFrac ?? SPLIT_HP_FRAC
+  const radiusFrac = spec?.radiusFrac ?? SPLIT_RADIUS_FRAC
+  const speedMul = spec?.speedMul ?? SPLIT_SPEED_MUL
+  const dmgMul = spec?.dmgMul ?? SPLIT_DMG_MUL
+  // Scattered across the parent's OWN body rather than in a 20px huddle: at seven children of a
+  // 26px colony they all spawned inside one another, which reads as one blob that then unsticks
+  // rather than as a colony coming apart. Rides the parent's radius so the amoeba's two are
+  // unchanged in practice (26 x 0.9 against the old flat 20).
+  const spread = parent.radius * 0.9
   for (let i = 0; i < count; i++) {
     const a = Math.random() * Math.PI * 2
-    const d = Math.random() * 20
-    const hp = roundHP(parent.maxHP * SPLIT_HP_FRAC)
+    const d = Math.random() * spread
+    const hp = roundHP(parent.maxHP * hpFrac)
     // QUEUED, not pushed. 63 loops in this file walk `run.enemies` with for...of while dealing
     // damage, and a for...of re-reads the array's length every step — so an enemy appended during
     // one of them is visited by that very loop. The parent dies mid-sweep, its children are
@@ -2494,9 +2512,9 @@ function spawnSplitChildren(run, parent, count) {
       x: parent.x + Math.cos(a) * d,
       y: parent.y + Math.sin(a) * d,
       hp, maxHP: hp,
-      radius: parent.radius * SPLIT_RADIUS_FRAC,
-      speed: parent.speed,
-      dmg: parent.dmg,
+      radius: parent.radius * radiusFrac,
+      speed: parent.speed * speedMul,
+      dmg: parent.dmg * dmgMul,
       elite: false,
       affixes: [],
       flags: parent.flags,
@@ -2509,7 +2527,7 @@ function spawnSplitChildren(run, parent, count) {
       // level 10.5 at 180s against undergrowth's 8.5 and city's 8.0, then finished 5 levels behind
       // them. At this fraction its 180s level is 8.5, level with the pack. Zeroing it instead put
       // the chapter below body, the poorest in the game, at every mark.
-      xp: parent.xp * SPLIT_HP_FRAC,
+      xp: parent.xp * hpFrac,
       _splitChild: true,
       ...freshEnemyFields(),
     })
@@ -7601,10 +7619,10 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
       run.bombs.push(volatileBomb(run, enemy.x, enemy.y))
     }
     // split flag (v5.0, e.g. pond's amoeba): generalized version of the splitter affix above —
-    // spawns SPLIT_CHILD_COUNT smaller clones of THIS enemy (not fresh wisps). Guarded by
-    // `!enemy._splitChild` so a spawned child's own death never re-splits.
+    // spawns smaller clones of THIS enemy (not fresh wisps), SPLIT_CHILD_COUNT of them unless the
+    // roster entry overrides it. Guarded by `!enemy._splitChild` so a child's death never re-splits.
     if (enemy.flags && enemy.flags.includes('split') && !enemy._splitChild) {
-      spawnSplitChildren(run, enemy, SPLIT_CHILD_COUNT)
+      spawnSplitChildren(run, enemy, enemy.split?.count ?? SPLIT_CHILD_COUNT)
     }
     // acidPool elite flag (v5.0, e.g. body's pill elites): leaves a damaging pool where the
     // elite died (see run.pools in state.js / stepPools above).

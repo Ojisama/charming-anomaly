@@ -2798,6 +2798,34 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 0.6, r)
   }
 
+  // A SINGLE ZOOID — what one of those bells is once the colony has come apart, and the picture the
+  // owner was expecting from a split ("several pink balls"). A split child used to wear the whole
+  // colony's bake at SPLIT_RADIUS_FRAC, i.e. a complete miniature siphonophore, stem and ten bells
+  // and all: at the swarm's radius that is an unreadable pink scribble, and it says the animal
+  // cloned itself rather than fell apart.
+  //   Same three colours as the parent, so the swarm is visibly ITS swarm, and drawn at the parent's
+  // own r — makeRosterLook bakes at the draw fn's scale and syncEnemies sizes the sprite off
+  // e.radius, so a child is this picture shrunk, not a picture drawn small.
+  function drawZooid(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const line = f(0xd06a90), skin = f(0xffc4d8), tip = f(0xff8a5b)
+    const lw = Math.max(1.6, r * 0.09)
+    groundShadow(r * 0.62, r * 0.28)
+    // Two trailing filaments, back along -x, so a zooid still has a heading and the swarm reads as
+    // swimming rather than as drifting confetti.
+    for (const sg of [-1, 1]) {
+      taperStroke(g, [[-r * 0.25, sg * r * 0.16], [-r * 0.62, sg * r * 0.34], [-r * 0.92, sg * r * 0.3]],
+        Math.max(1, r * 0.06), 0.4, line, 4)
+    }
+    // The bell. Round, because "little balls" is the note and because at this size anything else is
+    // a smudge; the flattening is just enough to say which way it is going.
+    g.ellipse(0, 0, r * 0.62, r * 0.54).fill(white ? 0xffffff : { color: skin, alpha: 0.72 })
+      .stroke({ width: lw, color: line, alpha: 0.95 })
+    if (!white) photophore(g, r * 0.2, 0, r * 0.16, tip)
+    if (elite) eliteCrown(-r * 0.4, r * 0.7)
+  }
+
   // Barreleye (Macropinna microstoma), drawn from the animal rather than from a cartoon of it, after
   // the owner rejected the first three cuts ("that's ugly, make them more realistic"). What a
   // barreleye IS from directly overhead: a short, deep, dark-brown body no longer than two of its
@@ -4665,7 +4693,11 @@ export function createRenderer(app) {
     lanternfish: { archetype: 'normal', draw: drawLanternfish, lean: 90, glow: { frac: 2.4, lit: 0.5, core: 0.96, coreFrac: 0.2 } },  // top-down: deep spindle, photophore rows ±y
     barreleye: { archetype: 'normal', draw: drawBarreleye, lean: 90 },       // top-down: fan pectorals ±y, two green lenses on the head
     fangtooth: { archetype: 'fast', draw: drawFangtooth, lean: 90 },         // top-down: jaws thrown wide ±y at +x, small body -x
-    siphonophore: { archetype: 'tank', draw: drawSiphonophore, lean: 90 },   // top-down: float +x, paired bells ±y down a stem
+    // `childDraw` (v7.x): what a `split` child of this creature looks like, baked under the id's
+    // '_child' key and preferred by syncEnemies for any body carrying _splitChild. Only this entry
+    // has one — everything else that splits is a blob halving, which the parent's own bake says
+    // perfectly well; a colony coming apart is the case that needs a second picture.
+    siphonophore: { archetype: 'tank', draw: drawSiphonophore, childDraw: drawZooid, lean: 90 },   // top-down: float +x, paired bells ±y down a stem
     // v7.x The Wreck's own three, added when the chapter's prey stopped being three sizes of one
     // animal (see the Wreck section of the draw fns). All PLAN VIEW, all lean 90 — each is
     // bilaterally symmetric about its own +x front with paired eyes and paired appendages in ±y.
@@ -4786,8 +4818,12 @@ export function createRenderer(app) {
     antibody3: { archetype: 'boss', draw: (g, e, w) => drawTheAntibody(g, e, w, 3), lean: 0, spin: 0.55, noElite: true },
   }
   const DEG = Math.PI / 180
-  function makeRosterLook(id, elite) {
-    const entry = ROSTER_LOOKS[id]
+  function makeRosterLook(id, elite, child = false) {
+    const entry0 = ROSTER_LOOKS[id]
+    // A child look is the same entry wearing a different draw fn, so it inherits `lean`, `phases`
+    // and everything else the parent declared — a zooid that swam on a different axis from the
+    // colony it came out of would be a second bug wearing the first one's clothes.
+    const entry = child ? { ...entry0, draw: entry0.childDraw } : entry0
     shadowSpec = null
     crownSpec = null
     // A look is 1 frame unless the entry declares `phases: n` — then the draw fn takes a 4th
@@ -4980,6 +5016,10 @@ export function createRenderer(app) {
       // noElite (the blank's bosses): alias the elite key instead of baking a second giant twin
       // pair — the blank's script spawns everything forceNormal, so it's unreachable anyway
       T.roster[id + '_elite'] = ROSTER_LOOKS[id].noElite ? T.roster[id] : makeRosterLook(id, true)
+      // ...and the split child's own silhouette, where the entry declares one. Baked here rather
+      // than swapped live for the same reason every other look is: syncEnemies picks a texture, it
+      // never draws one.
+      if (ROSTER_LOOKS[id].childDraw) T.roster[id + '_child'] = makeRosterLook(id, false, true)
     }
 
     // The gull STRIKE's three poses (The Surf). Baked at GULL_DIVE_R rather than reusing the 12px
@@ -21426,7 +21466,12 @@ const spurG = new Graphics()
       s._seen = true
       // prefer the per-rosterId themed silhouette; fall back to the archetype look for enemies
       // whose rosterId has no baked creature (title/future chapters)
-      const rkey = e.rosterId ? e.rosterId + (e.elite ? '_elite' : '') : null
+      // A split child takes its own silhouette where the look declares one (ROSTER_LOOKS.childDraw
+      // — The Deep's zooid). Children are never elite (spawnSplitChildren sets elite: false), so
+      // the two suffixes cannot both apply and this needs no ordering rule.
+      const rkey = e.rosterId
+        ? e.rosterId + (e._splitChild && T.roster[e.rosterId + '_child'] ? '_child' : (e.elite ? '_elite' : ''))
+        : null
       const look = (rkey && T.roster[rkey]) || T.enemies[e.elite ? e.type + '_elite' : e.type]
       // Animated looks (look.frames, e.g. the centipede's baked wave phases): flip through the
       // frames on animT, offset per enemy id so a pack doesn't slither in lockstep. Frozen/stunned
