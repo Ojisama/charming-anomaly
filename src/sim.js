@@ -12311,7 +12311,7 @@ function stepSunlanceWeapon(run, w, stats, fireRateMul, dt) {
 }
 
 // Glint. fireStar's shape in light (a run.bullets entry tagged weapon:'glint'), with ONE addition:
-// the cast spends GLINT_LIGHT_COST off run.charge, clamped at 0, BEFORE the darts leave — and it
+// the cast spends GLINT_LIGHT_COST off run.charge, clamped at 0, BEFORE the sparks leave — and it
 // fires whether or not there was Light to spend. Not chargeDrainMul (Slow Burn is about the
 // ambient drain, not ammo) and not a refill in reverse. Spec 2026-09-09-deep-twilight-merge §3.1.
 function stepGlintWeapon(run, w, stats, fireRateMul, dt) {

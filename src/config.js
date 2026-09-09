@@ -1304,9 +1304,9 @@ export const FISH_BODY = {
 // crossing the one-shot line.
 export const HURT_CAP_FRAC = 0.5
 
-// GLINT (The Deep's starter, 2026-09-09). Light spent per CAST, whatever the dart count; clamped at
+// GLINT (The Deep's starter, 2026-09-09). Light spent per CAST, whatever the spark count; clamped at
 // zero at the fire site, and the weapon fires at zero — spec 2026-09-09-deep-twilight-merge §3.1.
-// Per cast rather than per dart so levelling adds darts, not cost (~1.8-3 Light/s across the
+// Per cast rather than per spark so levelling adds sparks, not cost (~1.8-3 Light/s across the
 // ladder against the chapter's own 2.0/s ambient drain).
 //   Declared HERE, ahead of WEAPONS, rather than beside STAR_FAN/STAR_LIFE below (where the task
 // brief for this weapon first placed it) for the same reason HUMIDITY_DMG_FLOOR sits ahead of
@@ -2337,14 +2337,14 @@ export const WEAPONS = {
   },
   // -- The Deep's starter (2026-09-09) ------------------------------------------------------------
   // Owner: "a mimic of chapter 1-1, just a small light projectile. Costs 1 light to fire." This is
-  // Spike Protein's ladder in light: a dart at the nearest body, `count` rising with level, pierce,
+  // Spike Protein's ladder in light: a spark at the nearest body, `count` rising with level, pierce,
   // speed. It reads the bar ONCE, as ammo — GLINT_LIGHT_COST per cast — and never for damage or
   // reach (the Foxfire/Sunlance pair own the bar's two ends). At zero Light it still fires and the
   // bar simply cannot go lower: blind, never unarmed.
   // NAMES THE BAR in the HUD's own word ('Light'), the Sunlance idiom.
   glint: {
     name: 'Glint',
-    desc: `Flings a dart of light at what is nearest. Each cast costs ${GLINT_LIGHT_COST} Light.`,
+    desc: `Flings a spark of light at what is nearest. Each cast costs ${GLINT_LIGHT_COST} Light.`,
     icon: '✨', rarity: 'normal',
     // balance_decision : no retune, pool-leading 104 eff censused as the only weapon at charge 14 (its own cost on top of the chapter's drain), opens behind Sunspear at L1 (18 vs 57) [2026-09-09]
     //  - full 4-card table: commit 9036eb3 body, spec 2026-09-09-deep-twilight-merge-design.md §6
@@ -3952,9 +3952,9 @@ export const WEAPON_MODS = {
   // that discounted or refunded it would sell the bar back as a card, the line the Deep's own mods
   // hold ("none of them buys the BAR"). Display names checked against fr.js for collisions.
   glint: {
-    bright:      { name: 'Bright',       desc: 'dart damage', icon: '💥', base: 0.30, kind: 'pct' },
-    keenLight:   { name: 'Keen Light',   desc: 'dart pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
-    secondGlint: { name: 'Second Glint', desc: 'extra dart(s) per cast', icon: '💫', kind: 'tier' },
+    bright:      { name: 'Bright',       desc: 'spark damage', icon: '💥', base: 0.30, kind: 'pct' },
+    keenLight:   { name: 'Keen Light',   desc: 'spark pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
+    secondGlint: { name: 'Second Glint', desc: 'extra spark(s) per cast', icon: '💫', kind: 'tier' },
     quickGlint:  { name: 'Quick Glint',  desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
   },
 }
@@ -8331,7 +8331,7 @@ CHAPTERS.deep = {
   // ---- the arsenal (2026-09-09, spec 2026-09-09-deep-twilight-merge §3). Owner: "I want the
   // weapons of the twilight (light related) but the darkness of the abyss." Four light cards, no
   // borrows: two normal, two rare — The Shelf's exact shape.
-  //   glint     the starter (§3.1): a dart at what is nearest, 1 Light per cast, fires at zero.
+  //   glint     the starter (§3.1): a spark at what is nearest, 1 Light per cast, fires at zero.
   //   sunspear  columns of light on what is nearest, at DOUBLE its Twilight damage (§3.2, R2.2 —
   //             measured in Task 8; the retune clause is written down there).
   //   foxfire   a cold fire that takes hold in the dark — the bar's empty end.

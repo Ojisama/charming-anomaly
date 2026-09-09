@@ -9661,11 +9661,11 @@ export function createRenderer(app) {
       c.addChild(glow, star, star2)
       T.bullet = bakeComposite(c)
     }
-    // glint dart (The Deep, 2026-09-09): the star bullet's SHAPE, baked in the chapter's own cold
+    // glint spark (The Deep, 2026-09-09): the star bullet's SHAPE, baked in the chapter's own cold
     // light instead of Spike Protein's amber. A live re-tint of T.bullet cannot get there — Pixi's
     // sprite.tint is a per-channel MULTIPLY against the baked pixels, and 0xffb347/0xff9d1a both
     // have a near-zero blue channel, so no tint can raise it back out; a probe frame confirmed the
-    // dart still reads gold, not light, with placeBullet tinting the shared T.bullet.tex. Its own
+    // spark still reads gold, not light, with placeBullet tinting the shared T.bullet.tex. Its own
     // small bake, tinted at BUILD time, is the fix — same glyphs, same sizes, cold tint baked in.
     {
       const c = new Container()
@@ -21991,7 +21991,7 @@ const spurG = new Graphics()
       return
     }
     if (b.weapon === 'glint') {
-      // A dart of light: T.glint carries its own cold tint baked in (see buildFxTextures) — a live
+      // A spark of light: T.glint carries its own cold tint baked in (see buildFxTextures) — a live
       // tint here on the shared T.bullet texture cannot reach it, so this is a small bake of its
       // own, not a recolor of the star's. white, matching the boomerang's "carries its own colour"
       // idiom, so a slot recycled from a warm-tinted pool member doesn't bleed into it.

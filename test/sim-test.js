@@ -23984,8 +23984,8 @@ function testFoxfire() {
   console.log(`PASS run SH.b (foxfire): the band ${lvl.maxR}-${(lvl.maxR * FOXFIRE_GLOOM).toFixed(0)}px catches 0/${lit.of} at a full bar and ${dark.burned}/${dark.of} at an empty one, neither cast slows anything, and the cloud punches the dark it is cast into (lit ${FOXFIRE_GLOW.lit}, ${FOXFIRE_GLOW.frac}x r)`)
 }
 
-// (d) GLINT, the starter: a dart at the nearest body that costs 1 Light per CAST and never
-// refuses to fire. Both halves are EFFECTS: the bar read after casts, the enemy's HP after darts.
+// (d) GLINT, the starter: a spark at the nearest body that costs 1 Light per CAST and never
+// refuses to fire. Both halves are EFFECTS: the bar read after casts, the enemy's HP after sparks.
 function testGlint() {
   const L = 1
   const lvl = WEAPONS.glint.levels[L - 1]
@@ -24001,9 +24001,9 @@ function testGlint() {
   }
   const step = (run, n) => { for (let i = 0; i < n; i++) { stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0 } }
   // (1) ONE CAST COSTS ONE LIGHT. Drain is switched off so the only thing moving the bar is the cast.
-  // POST_CAST_TRAVEL is 0.2s, not the task brief's original 0.05s: at L1 the dart is 480px/s and the
+  // POST_CAST_TRAVEL is 0.2s, not the task brief's original 0.05s: at L1 the spark is 480px/s and the
   // body sits 90px out (64px past its 26px hit radius), so it needs >=0.133s of flight AFTER the one
-  // cast this window is sized to contain — 0.05s only bought it 24px and 'the dart never landed'
+  // cast this window is sized to contain — 0.05s only bought it 24px and 'the spark never landed'
   // fired even with the cost correctly wired (checked by hand: fireGlint aims and moves it exactly
   // like fireStar). 0.2s clears that with margin for the chapter's own tide drift and still holds
   // exactly one cast (floor((0.55+0.2)/0.55) === 1).
@@ -24013,7 +24013,7 @@ function testGlint() {
     run.chargeDrainMul = 0
     const before = run.charge
     step(run, Math.round((lvl.interval + POST_CAST_TRAVEL) * 60))
-    assert.ok(e.hp < 1e6, 'the dart never landed — the fixture is not exercising the weapon')
+    assert.ok(e.hp < 1e6, 'the spark never landed — the fixture is not exercising the weapon')
     const casts = Math.floor((lvl.interval + POST_CAST_TRAVEL) / lvl.interval)
     assert.ok(Math.abs((before - run.charge) - casts * GLINT_LIGHT_COST) < 1e-6,
       `${casts} cast(s) moved the bar ${(before - run.charge).toFixed(2)}, want ${casts * GLINT_LIGHT_COST} — the cost is per projectile, or missing`)
