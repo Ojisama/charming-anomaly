@@ -2201,7 +2201,7 @@ export const WEAPONS = {
     name: 'Sunspear',
     desc: 'Calls down a column of light on what is nearest. More columns as it grows.',
     icon: '☀️', rarity: 'normal',
-    // The chapter's starter and the tagline made literal — the light only goes down. A column is a
+    // The Deep's second normal (the starter until 2026-09-09; see CHAPTERS.deep). A column is a
     // run.lobs entry whose `fromX/fromY` ARE its target, so it does not travel: it hangs for
     // SUNSPEAR_FALL seconds as a telegraph and then lands. That is the whole trick, and it is why
     // this needed no entity of its own (see the `column` branch in stepLobs).
@@ -2237,12 +2237,15 @@ export const WEAPONS = {
     // 34% -> 29% and hits/s rose 3.8 -> 4.8, which more than absorbed the cut. `r` is what came down
     // instead (82 -> 66 at L5). That is WEAPONS.longline's rule about grinders, and it applies here
     // because a multi-strike that re-aims at whatever is still standing IS one.
+    // balance_decision : dmg doubled on leaving the starter slot, owner ruling [2026-09-09]
+    //  - its own block above says damage was the WRONG knob (-23% measured better); Task 8 measures
+    //    this beside Glint and the two rares, and it comes back down if it is the pool's runaway best
     levels: [
-      { dmg: 17, interval: 2.10, count: 1, r: 50, castRange: 300 },
-      { dmg: 21, interval: 1.98, count: 1, r: 54, castRange: 320 },
-      { dmg: 26, interval: 1.85, count: 2, r: 58, castRange: 340 },
-      { dmg: 32, interval: 1.72, count: 2, r: 62, castRange: 360 },
-      { dmg: 40, interval: 1.60, count: 3, r: 66, castRange: 380 },
+      { dmg: 34, interval: 2.10, count: 1, r: 50, castRange: 300 },
+      { dmg: 42, interval: 1.98, count: 1, r: 54, castRange: 320 },
+      { dmg: 52, interval: 1.85, count: 2, r: 58, castRange: 340 },
+      { dmg: 64, interval: 1.72, count: 2, r: 62, castRange: 360 },
+      { dmg: 80, interval: 1.60, count: 3, r: 66, castRange: 380 },
     ],
   },
   foxfire: {
@@ -8891,16 +8894,16 @@ CHAPTERS.deep = {
   // being simply denser.
   balance: { spawnMul: 0.75, enemyHpMul: 1.15, enemyDmgMul: 1.1, maxAliveMul: 0.8 },
 
-  // ---- the arsenal. One native and two borrowed, and BOTH BORROWS ARE ABSTRACT CASTS — the rule
-  // The Trawl's own list block records after opening with a weapon whose sprite is a maple leaf.
-  //   finHit        the native. The shark's own body; see WEAPONS.finHit.
-  //   chitterShriek staggered violet panic rings (render.js) — a ring that hurts, shoves and panics,
-  //                 aimed at nothing. In a chapter where you cannot see, a weapon that does not need
-  //                 you to aim is the honest borrow, and a ring pulsing out of an animal in the dark
-  //                 is echolocation whatever the card calls it.
-  //   mines         a coral glow behind a red-pink diamond core (T.mine) — a planted light on the
-  //                 sea floor of a wreck field, which is what it already looks like.
-  weapons: ['finHit', 'chitterShriek', 'mines'], starter: 'finHit',
+  // ---- the arsenal (2026-09-09, spec 2026-09-09-deep-twilight-merge §3). Owner: "I want the
+  // weapons of the twilight (light related) but the darkness of the abyss." Four light cards, no
+  // borrows: two normal, two rare — The Shelf's exact shape.
+  //   glint     the starter (§3.1): a dart at what is nearest, 1 Light per cast, fires at zero.
+  //   sunspear  columns of light on what is nearest, at DOUBLE its Twilight damage (§3.2, R2.2 —
+  //             measured in Task 8; the retune clause is written down there).
+  //   foxfire   a cold fire that takes hold in the dark — the bar's empty end.
+  //   sunlance  a stab of hard light that reaches as far as your Light does — the bar's full end.
+  // Fin Hit, Chitter Shriek and mines left with this change; Fin Hit is deleted outright (§5.2).
+  weapons: ['glint', 'sunspear', 'foxfire', 'sunlance'], starter: 'glint',
 
   // ---- render-only (ZERO sim effect) ----
   // The bottom of the descent. The floor steps down one more measured stop from The Trawl's, and the

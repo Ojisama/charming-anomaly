@@ -32017,7 +32017,7 @@ function testTrawlNatives() {
   console.log("PASS run LG (The Trawl's natives): the line is a finite segment that is set and left and catches once per body, and the net holds a group on the CC budget without borrowing another weapon's shrapnel")
 }
 
-// ---- run DP: The Deep — the anglerfish, Scent, and Fin Hit ------------------------------------
+// ---- run DP: The Deep — the anglerfish and Scent -------------------------------------------------
 // The chapter's premise is that Light is scarce and the only source of it is an animal that bites,
 // so the cases below are about the SHAPE of that bargain rather than about any one number: does
 // standing near the fish feed you, does staying too long cost you, and does leaving in time save
@@ -32261,86 +32261,6 @@ function testTheDeep() {
     console.log(`PASS run DP.f (light buys speed): ${plain.toFixed(0)} -> ${scented.toFixed(0)} px/s at x${(scented / plain).toFixed(2)}, and the dark itself never slows`)
   }
 
-  // (g) FIN HIT IS ZERO AT A STANDSTILL AND SCALES WITH SPEED. The whole card, and the reason its
-  // description says so out loud — ANOMALIES.stillness is unconditional `weight: 1` and will be
-  // offered in this chapter, and it cancels this weapon exactly.
-  {
-    // ⚠ THE PLAYER IS PINNED AT THE ORIGIN AFTER EACH STEP, and without it this case measures the
-    // wrong thing entirely. p.vx/p.vy are set from the input every frame and are what Fin Hit
-    // reads, but the position they produce also carries the player AWAY: at full stick that is
-    // 880px over these 4 seconds, so the fastest run left its targets behind and scored ZERO while
-    // a third-speed run scored 17 — which reads exactly like "the damage ignores velocity" and is
-    // the opposite. Pinning isolates the speed term from the player outrunning the fight.
-    const swim = (input) => {
-      const run = rig('finHit', 5)
-      for (const d of [-1, 1]) fish(run, 60 * d, 40)
-      for (let i = 0; i < 240; i++) {
-        stepSim(run, input, dt)
-        run.events.length = 0
-        run.player.x = 0; run.player.y = 0
-      }
-      return run.enemies.reduce((s, e) => s + (e.maxHP - e.hp), 0)
-    }
-    const stillDmg = swim({ x: 0, y: 0 })
-    const slowDmg = swim({ x: 0.35, y: 0 })
-    const fastDmg = swim({ x: 1, y: 0 })
-
-    assert.strictEqual(stillDmg, 0,
-      `run DP.g: a motionless player dealt ${stillDmg} with Fin Hit — the zero at a standstill IS the card, and the stillness anomaly no longer cancels it`)
-    assert.ok(slowDmg > 0, 'run DP.g: a player moving at a third speed dealt nothing — the scaling has a floor it should not have')
-    assert.ok(fastDmg > slowDmg * 1.5,
-      `run DP.g: full speed dealt ${fastDmg} against ${slowDmg} at a third speed — the damage barely reads the player's velocity`)
-    console.log(`PASS run DP.g (it hits as hard as you swim): ${stillDmg} standing still, ${slowDmg} at a third speed, ${fastDmg} at full`)
-  }
-
-  // (h) THE SWEEP GOES TO THE OUTSIDE OF THE TURN. This is the half that makes the weapon read as a
-  // body rather than as a gun, and it is invisible in a damage total — so it is asserted on the
-  // event's own angle, relative to the heading, which is the number the renderer draws from.
-  {
-    // ⚠ THE TWO HALVES ARE MEASURED SEPARATELY, and the first cut did not do that. Swimming east
-    // and then turning north exercises the TURN branch for most of the run, so pinning the
-    // alternation to one side still produced both signs — the mutation survived a case that
-    // appeared to be testing it. A straight swim is the only condition under which the alternation
-    // is reachable at all, so that is where it has to be asserted.
-    const sweeps = (inputAt, frames) => {
-      const run = rig('finHit', 5)
-      const rel = []
-      for (let i = 0; i < frames; i++) {
-        stepSim(run, inputAt(i), dt)
-        for (const ev of run.events) {
-          if (ev.type !== 'finHit') continue
-          const h = Math.atan2(run.player.vy, run.player.vx)
-          rel.push(Math.atan2(Math.sin(ev.angle - h), Math.cos(ev.angle - h)))
-        }
-        run.events.length = 0
-      }
-      return rel
-    }
-
-    // Straight: the tail beat. Both flanks, alternating.
-    const straight = sweeps(() => ({ x: 1, y: 0 }), 600)
-    assert.ok(straight.length >= 6, `run DP.h: only ${straight.length} sweeps over a 10s straight swim — the rig cannot see the pattern`)
-    const left = straight.filter((a) => a > 0).length, right = straight.filter((a) => a < 0).length
-    assert.ok(left > 0 && right > 0,
-      `run DP.h: over a STRAIGHT swim the fin went ${left} one way and ${right} the other — it never alternates, so a player swimming straight only ever hits one flank`)
-
-    // Turning: the sweep commits to the OUTSIDE of the turn, so a sustained turn one way must put
-    // essentially every sweep on one side, and the other way on the other.
-    const ccw = sweeps((i) => ({ x: Math.cos(i * 0.012), y: Math.sin(i * 0.012) }), 600)
-    const cw = sweeps((i) => ({ x: Math.cos(-i * 0.012), y: Math.sin(-i * 0.012) }), 600)
-    const share = (arr, sign) => arr.filter((a) => Math.sign(a) === sign).length / Math.max(1, arr.length)
-    assert.ok(share(ccw, 1) > 0.8,
-      `run DP.h: turning one way put only ${(share(ccw, 1) * 100).toFixed(0)}% of sweeps on that side — the fin does not follow the turn`)
-    assert.ok(share(cw, -1) > 0.8,
-      `run DP.h: turning the other way put only ${(share(cw, -1) * 100).toFixed(0)}% of sweeps on that side — the fin does not follow the turn`)
-
-    // And never forward, never straight astern, in any of the three.
-    const bad = [...straight, ...ccw, ...cw].filter((a) => Math.abs(a) < 0.6 || Math.abs(a) > Math.PI - 0.35)
-    assert.deepStrictEqual(bad.map((a) => a.toFixed(2)), [],
-      `run DP.h: sweep(s) at ${bad.map((a) => a.toFixed(2))} rad off the heading — the fin is firing forward or straight astern instead of across the flank`)
-    console.log(`PASS run DP.h (out to the side, both sides): straight ${left}/${right} split, turns ${(share(ccw, 1) * 100).toFixed(0)}%/${(share(cw, -1) * 100).toFixed(0)}% to the outside, none forward or astern`)
-  }
-
   // (i) THE CHAPTER IS ACTUALLY WIRED IN. Cheap, and it is the class of failure that ships a
   // chapter reachable through the dev gate with a piece missing.
   {
@@ -32439,7 +32359,7 @@ function testTheDeep() {
     console.log(`PASS run DP.k (huge, hidden, and drawn): r ${spec.r} against a ${PLAYER.radius}px player in a ${spec.cell}px cell, the lure punched at ${LURE_GLOW.lit}/${LURE_GLOW.core} while the mouth stays dark, teeth ${MAW_VIS.toothShut}->${MAW_VIS.toothFull} of r and the rim pinned at r`)
   }
 
-  console.log("PASS run DP (The Deep): the anglerfish is a refill CIRCLE and not a mob, huge and hidden behind its own lure, it is the only food and its mouth is the clock, staying costs half your health AND all your light while leaving in time costs nothing, Scent marks a group and amplifies every source while buying speed, and Fin Hit is worth nothing standing still")
+  console.log("PASS run DP (The Deep): the anglerfish is a refill CIRCLE and not a mob, huge and hidden behind its own lure, it is the only food and its mouth is the clock, staying costs half your health AND all your light while leaving in time costs nothing, and Scent marks a group and amplifies every source while buying speed")
 }
 
 // ---- run MT: the in-run controls do not depend on a compatibility click ------------------------
