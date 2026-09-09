@@ -11666,7 +11666,61 @@ function testChapterBehaviors() {
     assert(childDead, 'expected the split child to die from the ignite DoT')
     assert.strictEqual(run.enemies.filter((e) => e._splitChild).length, 0,
       "expected a split child's own death to spawn no further children (no re-split)")
-    console.log(`PASS run V.b (split): children=${children.length} hp=${children[0].maxHP.toFixed(1)} radius=${children[0].radius.toFixed(1)}`)
+    // ...AND A ROSTER MAY OVERRIDE ALL OF IT. Everything above is the SHARED default path (the pond
+    // amoeba's two fat halves), and it stays the default — this half asserts the `split` object a
+    // roster entry can carry instead, which is what turns The Deep's siphonophore into a swarm.
+    // Both arms matter: an override that silently fell back would draw the owner's complaint again,
+    // and a default that started reading the override would rewrite a chapter nobody touched.
+    {
+      const run = createRun(makeMeta())
+      run.weapons = []
+      run.player.hp = run.player.maxHP = 1e9
+      const spec = { count: 6, hpFrac: 0.1, radiusFrac: 0.25, speedMul: 3, dmgMul: 0.5 }
+      const kill = (r, p2) => {
+        // dealDamage is not exported, so the parent dies the way run V.b's first arm kills its
+        // own: a star, then the weapon taken away before the queued children arrive — otherwise
+        // the cast that killed the parent chews the swarm before it can be counted.
+        r.weapons = [{ id: 'star', level: 5 }]
+        let dead = false
+        for (let i = 0; i < Math.round(4 / dt) && !dead; i++) {
+          if (r.phase === 'levelup') { declineLevelUp(r); continue }
+          stepSim(r, { x: 0, y: 0 }, dt)
+          if (r.kills > 0) dead = true
+        }
+        assert(dead, `run V.b: the split parent never died, so this arm asserts nothing (hp ${p2.maxHP})`)
+        r.weapons = []; r.bullets = []
+        stepSim(r, { x: 0, y: 0 }, dt)   // ...and the queued children arrive
+      }
+      const parent = makeStatusEnemy(run, { x: 70, y: 0, hp: 6, speed: 30 })
+      parent.flags = ['split']
+      parent.split = spec
+      parent.dmg = 12
+      run.enemies.push(parent)
+      kill(run, parent)
+      const kids = run.enemies.filter((e) => e._splitChild)
+      assert.strictEqual(kids.length, spec.count,
+        `run V.b: a parent carrying split.count ${spec.count} spawned ${kids.length} children — the override is not reaching the call site, so every splitter in the game is still the amoeba`)
+      for (const c of kids) {
+        assert(Math.abs(c.maxHP - Math.max(1, Math.round(parent.maxHP * spec.hpFrac))) < 1e-6, `run V.b: child maxHP ${c.maxHP} ignores split.hpFrac`)
+        assert(Math.abs(c.radius - parent.radius * spec.radiusFrac) < 1e-6, `run V.b: child radius ${c.radius} ignores split.radiusFrac`)
+        assert(Math.abs(c.speed - parent.speed * spec.speedMul) < 1e-6, `run V.b: child speed ${c.speed} ignores split.speedMul — the swarm walks at the colony's pace`)
+        assert(Math.abs(c.dmg - parent.dmg * spec.dmgMul) < 1e-6, `run V.b: child dmg ${c.dmg} ignores split.dmgMul — ${spec.count} bodies at the parent's full contact damage is ${spec.count}x the pressure the parent was`)
+        assert(Math.abs(c.xp - parent.xp * spec.hpFrac) < 1e-6, `run V.b: child xp ${c.xp} does not ride split.hpFrac — xp per point of health must stay 1, see the default arm above`)
+      }
+      // The DEFAULT still is the default: same fixture, no override, the shared constants.
+      const run2 = createRun(makeMeta())
+      run2.weapons = []
+      run2.player.hp = run2.player.maxHP = 1e9
+      const plain = makeStatusEnemy(run2, { x: 70, y: 0, hp: 6, speed: 30 })
+      plain.flags = ['split']
+      run2.enemies.push(plain)
+      kill(run2, plain)
+      const plainKids = run2.enemies.filter((e) => e._splitChild)
+      assert.strictEqual(plainKids.length, SPLIT_CHILD_COUNT,
+        `run V.b: a parent with NO override spawned ${plainKids.length} children — the override has leaked into the shared path and taken the pond's amoeba with it`)
+      assert(Math.abs(plainKids[0].speed - plain.speed) < 1e-6, 'run V.b: an un-overridden child no longer inherits its parent speed exactly')
+    }
+    console.log(`PASS run V.b (split): children=${children.length} hp=${children[0].maxHP.toFixed(1)} radius=${children[0].radius.toFixed(1)}, and a roster override takes 6 at x3 speed while the default stays ${SPLIT_CHILD_COUNT}`)
   }
 
   // (c) dashBurst: displacement over the dash window far exceeds the idle window.
@@ -31572,6 +31626,46 @@ function testTheDeep() {
     assert.strictEqual(inside, null,
       `run DP.l: an obstacle of r ${inside?.r?.toFixed(0)} at (${inside?.x?.toFixed(0)}, ${inside?.y?.toFixed(0)}) stands inside a maw — the keep-clear test is not reaching the placement site`)
     console.log(`PASS run DP.l (nothing stands in a mouth): ${cells.size} distinct obstacle cells over 90s of a walked field (${checked} samples), none inside a maw padded by its own radius`)
+  }
+
+  // (m) THE COLONY COMES APART INTO A SWARM. Owner from play, 2026-09-09: "I thought the tanks
+  // would split up into several pink balls? They just split into two rn, I want like a swarm of
+  // little balls swimming to you quite fast." Run V.b proves the MECHANISM (a roster's `split`
+  // override reaches spawnSplitChildren); this proves THE DEEP ACTUALLY USES IT, which is the half
+  // that goes quietly wrong — delete the override and every assertion in V.b still passes while the
+  // siphonophore is back to two fat halves.
+  {
+    const sipho = CHAPTERS.deep.roster.find((r) => r.id === 'siphonophore')
+    assert.ok(sipho && sipho.flags.includes('split'), 'run DP.m: The Deep has no splitting tank at all')
+    const sp = sipho.split
+    assert.ok(sp, "run DP.m: the siphonophore carries no `split` override, so it takes the pond amoeba's two-fat-halves defaults — which is the picture the owner rejected")
+    assert.ok(sp.count >= 5 && sp.count > SPLIT_CHILD_COUNT,
+      `run DP.m: split.count is ${sp.count} against the shared default of ${SPLIT_CHILD_COUNT} — "a swarm of little balls" is not two of anything`)
+    assert.ok(sp.radiusFrac < SPLIT_RADIUS_FRAC && sp.speedMul > 1,
+      `run DP.m: the children are radiusFrac ${sp.radiusFrac} at speedMul ${sp.speedMul} — a swarm has to be LITTLE and FAST, and the parent is deliberately the slowest thing in the chapter`)
+    // The swarm must not become the whole fight by accident: seven bodies at the colony's own
+    // contact damage is 3.5x the pressure two halves were, and this is the number that says so.
+    assert.ok(sp.count * (sp.dmgMul ?? 1) <= 2 * SPLIT_CHILD_COUNT,
+      `run DP.m: the swarm lands ${(sp.count * (sp.dmgMul ?? 1)).toFixed(1)} contact hits' worth against the ${SPLIT_CHILD_COUNT} the default leaves — scale dmgMul with count or the tank's death is the lethal event, not the tank`)
+    // XP RIDES hpFrac (spawnSplitChildren), so the swarm's total is count x hpFrac of the parent's.
+    // Far from 1 and the tank is either an xp piñata or a waste of the health it took to kill.
+    const xpShare = sp.count * sp.hpFrac
+    assert.ok(xpShare > 0.7 && xpShare < 1.3,
+      `run DP.m: the swarm carries ${xpShare.toFixed(2)} of the colony's xp — count x hpFrac has drifted, and this is the only enemy in the game whose xp-per-health would stop being 1`)
+
+    // AND IT HAS ITS OWN PICTURE. A split child wears its parent's bake by default, so a zooid was
+    // a complete miniature siphonophore — stem, ten bells and all — drawn at 15px. Three sites have
+    // to agree and none of them throws if one is missing: the look declares childDraw, the bake
+    // makes a '_child' texture, and syncEnemies prefers it for _splitChild bodies.
+    const rsrc2 = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
+    const code2 = rsrc2.replace(/^\s*\/\/.*$/gm, '')
+    assert.ok(/siphonophore: \{[^}]*childDraw:/.test(code2),
+      'run DP.m: ROSTER_LOOKS.siphonophore declares no childDraw — its swarm is drawn as a field of tiny complete colonies')
+    assert.ok(/childDraw\) T\.roster\[id \+ '_child'\]/.test(code2),
+      "run DP.m: nothing bakes the '_child' look, so the key syncEnemies asks for can never exist and the fallback is silent")
+    assert.ok(/_splitChild && T\.roster\[e\.rosterId \+ '_child'\]/.test(code2),
+      'run DP.m: syncEnemies no longer prefers the child look for a split child — the bake exists and nothing reads it')
+    console.log(`PASS run DP.m (the colony comes apart): ${sp.count} zooids at ${sp.hpFrac} hp and ${sp.radiusFrac} radius, x${sp.speedMul} speed and x${sp.dmgMul} contact, carrying ${xpShare.toFixed(2)} of the colony's xp, drawn from their own bake`)
   }
 
   console.log("PASS run DP (The Deep): the anglerfish is a refill CIRCLE and not a mob, huge and hidden behind its own lure, it is the only food and its mouth is the clock, staying costs half your health AND all your light while leaving in time costs nothing, and Scent marks a group and amplifies every source while buying speed")

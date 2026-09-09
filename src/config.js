@@ -8378,7 +8378,21 @@ CHAPTERS.deep = {
     { id: 'lanternfish',  archetype: 'normal', name: 'Lanternfish',  hpMul: 1,   speedMul: 0.95, weight: 1.2, flags: [] },
     { id: 'barreleye',    archetype: 'normal', name: 'Barreleye',    hpMul: 1.1, speedMul: 0.9,  weight: 1,   flags: [] },
     { id: 'fangtooth',    archetype: 'fast',   name: 'Fangtooth',    hpMul: 0.9, speedMul: 1.08, flags: ['dashBurst'] },
-    { id: 'siphonophore', archetype: 'tank',   name: 'Siphonophore', hpMul: 1.9, speedMul: 0.62, xpMul: 0.7, flags: ['split'] },
+    // THE COLONY COMES APART INTO A SWARM, which is what a siphonophore IS — a chain of clonal
+    // zooids, not an animal that halves. Owner from play, 2026-09-09: "I thought the tanks would
+    // split up into several pink balls? They just split into two rn, I want like a swarm of little
+    // balls swimming to you quite fast." The shared SPLIT_* defaults are the pond amoeba's (two
+    // children at 0.45 hp and 0.7 radius, same speed), which draws exactly the two fat halves the
+    // owner is describing. Read by spawnSplitChildren; the fields it does not name fall back.
+    //   speedMul is LARGE because it multiplies a deliberately slow parent: 0.62 x 55 = 34 px/s,
+    // so x4 is 136 — between a drone's 86 and the fangtooth's dash, i.e. the fastest ordinary thing
+    // in the chapter without out-running the one creature whose whole card is speed.
+    //   hpFrac and dmgFrac are sized so the swarm is the SAME total as the two halves it replaces,
+    // spread over seven bodies that each die in a hit: 7 x 0.14 = 0.98 of the parent's health
+    // against the old 2 x 0.45 = 0.90, and 7 x 0.4 = 2.8 contact hits against the old 2 x 1 = 2.
+    // xp rides hpFrac in spawnSplitChildren, so the total xp is unchanged too — see xpMul below.
+    { id: 'siphonophore', archetype: 'tank',   name: 'Siphonophore', hpMul: 1.9, speedMul: 0.62, xpMul: 0.7, flags: ['split'],
+      split: { count: 7, hpFrac: 0.14, radiusFrac: 0.38, speedMul: 4, dmgMul: 0.4 } },
   ],
   // NO elite behaviour flag (R2.4): `webZone` existed for the hagfish's slime and nothing here
   // produces slime. Elites still roll affixes (ELITE_AFFIXES); this only stops a chapter flag being
@@ -12199,9 +12213,16 @@ export const LATCH_SLOW_MUL = 0.55 // player move speed multiplier while run.pla
 
 // split (e.g. pond's amoeba): on death, spawns children at reduced hp/radius; children never
 // re-split (see e._splitChild in sim.js's dealDamage death branch / spawnSplitChildren).
+//   THESE ARE THE DEFAULTS, NOT THE ONLY ANSWER. A roster entry may carry its own `split: {...}`
+// override — the fourth instance of the `dash`/`phase`/`trailLag` idiom, and for the same reason:
+// The Deep's siphonophore is a COLONY that comes apart into a swarm of zooids, and the amoeba's
+// two-fat-halves numbers say something else entirely. Every field below has an override name in
+// CHAPTERS.deep's roster; anything a chapter does not override takes the value here.
 export const SPLIT_CHILD_COUNT = 2
 export const SPLIT_HP_FRAC = 0.45     // child hp/maxHP, as a fraction of the parent's maxHP
 export const SPLIT_RADIUS_FRAC = 0.7  // child radius, as a fraction of the parent's radius
+export const SPLIT_SPEED_MUL = 1      // child speed, as a multiple of the parent's
+export const SPLIT_DMG_MUL = 1        // ...and its contact damage
 
 // weave (v6.6.29, undergrowth's centipede — owner directive, see stepEnemyMovement's last branch):
 // a serpentine lateral drift laid ON the plain seek. It exists because v6.6.28 deleted the chapter's
