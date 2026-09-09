@@ -947,16 +947,6 @@ function generateWells(sig) {
  *                 why it is not bloomSlowT with a magnitude: that field IS refreshed every frame a
  *                 body stands in a cloud, and sharing it would let any bloom hold the heavier
  *                 ballast number alive for the cloud's whole duration.
- *               blindT (v7.x The Reef, s of blindness remaining): while > 0 the retarget seam in
- *                 stepEnemyMovement hands this body a point INK_BLIND_REACH down the heading it
- *                 held when the blind landed, instead of run.player -- so it "loses you and keeps
- *                 going", and a lane's scroll carries it past you. Refreshed every frame a body is
- *                 inside a run.blooms entry carrying `blind` (Squid Ink), decayed in
- *                 stepEnemyMovement. render.js tints an inked body dark and sheds ink off it.
- *                 The held heading itself is _blindHx/_blindHy, sim-internal, cleared on expiry --
- *                 without that clear a second cloud would resume the FIRST cloud's bearing.
- *                 NOT routed through the CC-DR budget: resistsCC guards holds, and a blinded body
- *                 keeps its full speed.
  *               bloomSlowT (v6.4, s of bloom-slow remaining): while > 0, stepEnemyMovement's
  *                 slowMul is multiplied by (1 - BLOOM_SLOW) — a plain speed debuff, stacking with
  *                 chill/freeze rather than replacing the seek like fearT/stunT do. Refreshed to
@@ -1066,14 +1056,8 @@ function generateWells(sig) {
  *               notes below) — or as a CREATURE's: look:'inkjet' is The Wreck's squid, the one entry
  *               on this array no weapon casts, and the only one that slows the PLAYER (read in
  *               stepPlayerMovement's MIN, not here — see INK_SLOW_MUL). It carries `slow: 0`, so
- *               the enemy slow below never touches it. NOT to be confused with The Reef's Squid
- *               Ink WEAPON, which is a `blind` bloom and a different mechanic entirely;
+ *               the enemy slow below never touches it.
  *               OPTIONAL `slow: 0` opts it out of BLOOM_SLOW_T entirely; OPTIONAL
- *               `blind` (seconds, v7.x Squid Ink) refreshes e.blindT on every body inside, every
- *               frame; OPTIONAL `airHold: true` (v7.x Oxygen Tank's boil) is read by stepCharge
- *               ALONE, where it multiplies the chapter bar's drain by zero while the PLAYER stands
- *               in it -- it can never add to the bar, and CHAPTERS.reef.resource records why that
- *               is a constraint rather than a tuning choice; OPTIONAL
  *               `daze` (seconds) is Silt Veil's, published into e.stunT against the enemy's own
  *               dazeCd window (see SILT_DAZE_REFRACTORY). It replaced a `fear` field in v7.x --
  *               fear scattered the crowd out of the cloud that was damaging it.
@@ -1997,12 +1981,6 @@ function generateWells(sig) {
  *   that ring and became a cadence card read at the fire site instead.
  *   It pushed a run.blooms stain until v7.x; the owner cut it because that stain was
  *   Silt Veil's whole card, drawn Silt Veil's way, given away free on a rare.
- *   OPTIONAL `tank: true` makes it an OXYGEN TANK (The Reef) instead: the throw is aimed down the
- *   LANE rather than at a body (fireTank), so the scroll carries the player to their own landing
- *   point; the rupture deals dmg in r, optionally shoves everything in r by TANK_SHOVE_KB
- *   (`shove`, Pressure Wave), plants a run.blooms entry with `airHold` for `boil` seconds, and
- *   emits {type:'rupture'}. Both `boil` and `shove` are banked AT THE THROW. Its branch sits above
- *   the shrapnel block for the same reason the net's and the column's do.
  *   ⚠ run.lobs has THREE render consumers (syncLobs, redrawHazards' amber landing ring, and
  *   drawColumns) and nothing about the array says so -- `look` is what each one filters on.
  * longlines[i]: { x, y, nx, ny, half, len, dmg, tick, acc, life, duration, snagged } — Longline's

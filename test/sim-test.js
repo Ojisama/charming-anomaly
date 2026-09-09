@@ -127,7 +127,7 @@ import {
   // v7.x the lane has an AXIS (Run LX)
   laneHalfWidth, laneAxes, ROCK_SPREAD_MUL, ALL_CHAPTER_IDS,
   SPUR_DPS, SPUR_TICK, caveAt, ringXY, ringFU, ringRot, ringCentre, ringDelta, ringHeading, gateAnchorF, laneDrawSpan, CAVE_BOUNCE_PX, CAVE_HIT_DPS, CAVE_HIT_TICK, CLEAN_LINE_DELAY, LANE_CRUSH_DPS, LANE_CRUSH_TICK, SPUR_SLOW_MUL, SPUR_VIS, AIR_POCKET_VIS, CORAL_CRUSH,
-  BEAM_ENVELOPE, INK_JET_SPREAD,
+  BEAM_ENVELOPE,
   TRAWL_HALF, TRAWL_WAKE_DEPTH, TRAWL_SPEED, TRAWL_INTERVAL, TRAWL_LEAD_MUL, TRAWL_TEAR_SPACE_MUL, TRAWL_TEAR_R, TRAWL_TEAR_R_VAR, BRING_TANK_FRAC, TIDE, tiredness,
   TRAWL_DRAG_T, TRAWL_TICK, TRAWL_ENEMY_DMG, TIGHT_WEAVE_ENEMY_DMG_MUL, TRAWL_DRAG_TICK_PCT, TRAWL_DRAG_TICK, TRAWL_WIGGLE_FLICKS, TRAWL_DRAG_STICK_MUL, TRAWL_DRAG_FREE_T,
   TIGHT_WEAVE_BLAST_RADIUS, TIGHT_WEAVE_BLAST_DMG,
@@ -20041,7 +20041,7 @@ run(testLeLargeWeapons)
   run(testRaceRecord)
   run(testCircuitHud)
   run(testBeamBrightFrame)
-  run(testReefPool)
+  run(testReefCards)
   run(testWreckDefense)
   run(testWreckBlackTide)
   run(testTrawlNet)
@@ -27420,25 +27420,16 @@ function testBeamBrightFrame() {
   console.log(`PASS run BB (every beam gets one bright frame): ${checked} weapon-levels across ${pushers.length} beam-pushing weapons all reach >=90% width at >=60% alpha in one frame`)
 }
 
-// ---- run RP: The Reef's other two natives, its anomaly and its mutator ------------------------
-// WHAT THIS CATCHES THAT NOTHING ELSE CAN. All four of these are behaviour with no health bar
-// attached, which is the shape a damage assertion is blind to:
-//   - Squid Ink's whole mechanic is a PERCEPTION change. A blinded body and an un-blinded one look
-//     identical in run.enemies — same speed, same hp, same position fields — and the difference is
-//     one line at a seam three thousand lines away from the weapon. Delete it and the card is a
-//     small damage cloud that also does nothing, with nothing thrown.
-//   - the held heading is captured ONCE. Recompute it per frame off the seek target and the blind
-//     silently becomes a no-op that still tints the body, still sheds ink, and still passes any
-//     test that checks the status is applied.
-//   - the boil MUST NOT REFILL. A one-word edit turns a pause into a source and deletes the
-//     chapter's measured economy (CHAPTERS.reef.resource: 76% of a run at zero against 0%), and a
-//     test that only checks 'the bar behaved differently inside the bubbles' cannot tell them apart.
+// ---- run RP: The Reef's anomaly and its mutator ------------------------------------------------
+// Squid Ink, Oxygen Tank and their arms (a)-(g)/(j) went with the weapons (deleted 2026-09-09, no
+// chapter had offered either since the pool went empty). Last Breath and Tidal Race are behaviour
+// with no health bar attached, which is the shape a damage assertion is blind to, and outlived them:
 //   - Last Breath's ramp and its drown tax are two different sites (anomalyDamageMul and
 //     hurtPlayer) and either can be missing while the card still reads as working.
 //   - Tidal Race has to be scoped to reef ALONE. Spring Tide is the counter-example that already
 //     ships: it computes its chapter list from a field, so it belongs to the BOOK and can never
 //     satisfy this chapter's audit however many chapters carry it.
-function testReefPool() {
+function testReefCards() {
   const dt = 1 / 60
   const AX = laneAxes(CHAPTERS.reef)
   const meta = makeMeta()
@@ -27447,25 +27438,6 @@ function testReefPool() {
     ensureChapterMeta(meta, id)
     meta.chapters[id].unlocked = true
     meta.chapters[id].difficulty = 3
-  }
-  // THE INK IS TESTED IN THE BEYOND AND THE REST OF THE POOL IN THE REEF, and that split is the
-  // whole of CHAPTERS.reef.passiveCrowd's fallout on this file. Squid Ink's entire payload is the
-  // blind at the retarget seam; the reef's crowd no longer seeks anything, so a blind there changes
-  // nothing that can be measured and cases (a)-(c) were reduced to watching a body swim away on its
-  // own. The card left the reef's pool for exactly that reason (config.js) — it is dev-takeable in
-  // every chapter, and The Beyond is the one other LANE, which cases (a) and (c) both need: their
-  // subject is a blinded body being carried off by a scroll the player is riding.
-  const IAX = laneAxes(CHAPTERS.beyond)
-  const inkRun = (wid, level, mods, seed = 20260822) => {
-    Math.random = mulberry32(seed)
-    const run = createRun(meta, { chapter: 'beyond', difficulty: 1 })
-    assert.strictEqual(run.chapter, 'beyond', 'run RP: the ink fixture is not in The Beyond, so it is measuring a blind in a chapter that may not seek')
-    run.weapons = wid ? [{ id: wid, level }] : []
-    run.player.hp = run.player.maxHP = 1e9
-    run.mods.spawnMul = 0
-    run.player.critChance = 0
-    if (wid && mods) Object.assign(run.weaponMods[wid], mods)
-    return run
   }
   const reefRun = (wid, level, mods, seed = 20260822) => {
     Math.random = mulberry32(seed)
@@ -27478,322 +27450,18 @@ function testReefPool() {
     if (wid && mods) Object.assign(run.weaponMods[wid], mods)
     return run
   }
-  // ⚠ THE BODIES ARE FREE HERE, unlike run RN's pinned fixtures — the whole subject is where a body
-  // GOES, so pinning it would delete the measurement. What IS pinned is the population: the lane
-  // runs stepFormations beside the ordinary ring spawner and `spawnMul` does not reach it, so seven
-  // marchers arrived inside the first two seconds of the first draft of this scenario and shoved the
-  // subject through the separation pass. Every frame here therefore rebuilds run.enemies from the
-  // fixture's own list, which is the pinned-population half of run RN's `drive` without its pinned
-  // POSITIONS.
   const mk = (run, ox, oy, speed = 60) =>
     makeStatusEnemy(run, { x: run.player.x + ox, y: run.player.y + oy, hp: 1e7, speed })
   const drive = (run, mine, secs, stick = { x: 0, y: 0 }, each = null) => {
     for (let i = 0; i < Math.round(secs / dt); i++) {
-      // OPEN WATER, same reason run RN's drive empties it: this scenario measures what the LANE
-      // does to a blinded body relative to the player, and since the reef became a cave the walls
-      // stop the player at a gate while the bodies keep drifting -- which changes every distance
-      // here for a reason that has nothing to do with Squid Ink. The level's own geometry is run
-      // RS's subject and is tested there against the real field.
+      // OPEN WATER: the level's own geometry is run RS's subject and is tested there against the
+      // real field, and this scenario measures Last Breath's ramp, not the cave's walls.
       if (run.spurs) run.spurs.length = 0
-      // The Beyond's own hazard, for the ink fixtures: an asteroid drifting through the measurement
-      // moves the player and the bodies for a reason that is not Squid Ink.
-      if (run.rocks) run.rocks.length = 0
       run.enemies = mine.filter((e) => !e._dead)
       stepSim(run, stick, dt)
       if (each) each(run)
       run.events.length = 0
     }
-  }
-  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
-  // The shortest angle between two bearings, folded to [0, pi].
-  const between = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)))
-  const crossStick = (ax) => (ax.cross === 'y' ? { x: 0, y: 1 } : { x: 1, y: 0 })
-  const CROSS = crossStick(AX)
-  const ICROSS = crossStick(IAX)
-
-  // (a) THE BLIND IS A PERCEPTION CHANGE, MEASURED AS A HEADING THAT STOPS TURNING. Two runs off the
-  // same seed and the same fixture, one holding the ink and one holding nothing at all; in both the
-  // player then runs across the lane for 1.2s, which is an instruction to any seeking body to turn.
-  //   The subject is the body's own DIRECTION OF TRAVEL at the start of that window against its
-  // direction at the end. That is deliberately not a distance and not a bearing-to-player: a
-  // distance is explained equally well by a slow (which (b) exists to rule out), and a bearing read
-  // near contact is numerically meaningless — the first draft of this case measured 88° of "drift"
-  // off two bodies 3px apart.
-  let blindTurn = 0, seeTurn = 0, blindGap = 0, seeGap = 0, blindTravel = 0, seeTravel = 0
-  let blindDot = 0, blindTgtGap = 0
-  const WINDOW = 1.2
-  {
-    const sample = (withInk, forSecs) => {
-      const run = inkRun(withInk ? 'squidInk' : null, 5)
-      // The cadence is 3.8s at L5 and the body would be standing on the player by then. Arming the
-      // timer is a fixture convenience and changes nothing the case measures — the cloud that lands
-      // is the one fireInk builds, at the level's own numbers.
-      if (withInk) run.weaponTimers.squidInk = 0.02
-      const e = mk(run, IAX.cross === 'x' ? 150 : 0, IAX.cross === 'y' ? 150 : 0)
-      const mine = [e]
-      let t = 0
-      while (t < 4 && (withInk ? (e.blindT ?? 0) <= 0 : t < forSecs)) { drive(run, mine, dt); t += dt }
-      if (withInk) assert.ok((e.blindT ?? 0) > 0, 'run RP.a: 4s of Squid Ink and nothing was ever blinded — the cloud carries no `blind` tag, or stepBlooms never reads it')
-      // Direction of travel over the first six frames of the window, and over the last six.
-      const leg = (frames) => {
-        const from = { x: e.x, y: e.y }
-        drive(run, mine, frames * dt, ICROSS)
-        return { b: Math.atan2(e.y - from.y, e.x - from.x), d: dist(from, e) }
-      }
-      const first = leg(6)
-      const mid = leg(Math.round(WINDOW / dt) - 12)
-      const last = leg(6)
-      // AND THE POINT THE DRAWING READS, measured rather than linted. render.js faces a body down
-      // `_tgtX/_tgtY`, so everything above can be perfect while the sprite still stares at you:
-      // publishing `p.x/p.y` there keeps the field present, keeps this body's TRAVEL untouched, and
-      // restores the pre-fix picture exactly. What makes it a blind on screen is that the published
-      // point lies along the HELD heading and nowhere near the player.
-      //   ⚠ READ HERE, at the end of the window, and never beside the `blindT > 0` assert above: on
-      // the frame blindT first turns positive the seek loop has not run yet, so the pair still holds
-      // whatever the last seeing frame left and the check false-fires.
-      if (withInk) {
-        assert.ok(e._tgtX !== undefined && e._tgtY !== undefined,
-          'run RP.a: a blinded body publishes no _tgtX/_tgtY — render derives every bearing from run.player, so the held heading never leaves the sim and the body is drawn facing you for the whole blind')
-        const tl = Math.hypot(e._tgtX - e.x, e._tgtY - e.y) || 1
-        const dot = ((e._tgtX - e.x) / tl) * e._blindHx + ((e._tgtY - e.y) / tl) * e._blindHy
-        assert.ok(dot > 0.99,
-          `run RP.a: the published seek point sits ${(Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI).toFixed(0)}° off the held heading _blindHx/_blindHy — the pair render faces the sprite by is being written off something else (the player is the one that costs nothing to write and looks identical in every other number here)`)
-        assert.ok(dist({ x: e._tgtX, y: e._tgtY }, run.player) > 400,
-          `run RP.a: a blinded body's published seek point is ${dist({ x: e._tgtX, y: e._tgtY }, run.player).toFixed(0)}px from the player — that is the player's own position wearing the contract field's name, and the sprite is drawn with its eyes locked on you while it swims away`)
-        blindDot = dot; blindTgtGap = dist({ x: e._tgtX, y: e._tgtY }, run.player)
-      }
-      return {
-        t, turn: between(first.b, last.b), gap: dist(e, run.player),
-        travel: first.d + mid.d + last.d, speed: e.speed, alive: !e._dead,
-      }
-    }
-    const blind = sample(true)
-    const see = sample(false, 0)   // filled in below with the ink run's own time-to-blind
-    const seeMatched = sample(false, blind.t)
-    assert.ok(blind.alive && seeMatched.alive, 'run RP.a: a fixture body died mid-window — every number here is about a corpse')
-    blindTurn = blind.turn; seeTurn = seeMatched.turn
-    blindGap = blind.gap; seeGap = seeMatched.gap
-    blindTravel = blind.travel; seeTravel = seeMatched.travel
-    void see
-    assert.ok(seeMatched.turn > 0.4,
-      `run RP.a: the CONTROL body — no ink anywhere in the run — turned only ${(seeMatched.turn * 180 / Math.PI).toFixed(0)}° while the player crossed the lane in front of it. The fixture is not asking anything to re-aim, so the ink reading below proves nothing.`)
-    assert.ok(blind.turn < 0.02,
-      `run RP.a: the blinded body turned ${(blind.turn * 180 / Math.PI).toFixed(1)}° over ${WINDOW}s — it is still steering, so either the seam branch is gone or the held heading is being recomputed off the seek target every frame (which looks exactly like a working blind and does nothing)`)
-    assert.ok(blind.gap > seeMatched.gap + 40,
-      `run RP.a: the blinded body ended ${blind.gap.toFixed(0)}px from the player against the seeing body's ${seeMatched.gap.toFixed(0)}px — the lane is not carrying it away from you, which is the entire reason this card was built in a scroller rather than on an open map`)
-  }
-
-  // (b) IT IS NOT A HOLD AND NOT A SLOW. A blinded body that had quietly been stunned or slowed
-  // would satisfy every assertion in (a) while being a completely different card — and `slow: 0` on
-  // the cloud is one deleted key away from being false. Measured against the body's OWN speed, not
-  // against the control, because the control is turning and a turning body covers less ground.
-  {
-    const want = 60 * WINDOW
-    assert.ok(Math.abs(blindTravel - want) < want * 0.02,
-      `run RP.b: a blinded body covered ${blindTravel.toFixed(1)}px in ${WINDOW}s at speed 60, against ${want.toFixed(0)}px at full speed — the ink is holding or slowing it, and (a) is then measuring a stun`)
-    assert.ok(blindTravel >= seeTravel,
-      `run RP.b: the blinded body (${blindTravel.toFixed(1)}px) covered less ground than the seeing one (${seeTravel.toFixed(1)}px)`)
-  }
-
-  // (c) IT WEARS OFF AND THE BODY RE-ACQUIRES. The weapon and the clouds are dropped the moment the
-  // blind lands, so nothing re-inks; then the clock runs past `blind`. Guards BOTH halves of the
-  // decay — the timer, and the CLEARED HEADING. Leave _blindHx set and a body inked a second time
-  // resumes a bearing it has not held since the first cloud, which no damage assertion can see.
-  {
-    const run = inkRun('squidInk', 5)
-    run.weaponTimers.squidInk = 0.02
-    // FASTER THAN THE FIXTURES ABOVE, and it has to be: the lane carries the player forward at its
-    // own laneScroll, so a 60 px/s body re-acquiring perfectly still barely closes at all and "it
-    // never re-acquired" and "it re-acquired and the scroll outran it" read the same. At 150 the
-    // net closing rate is 80 px/s in The Beyond and the two are no longer the same measurement.
-    const e = mk(run, IAX.cross === 'x' ? 150 : 0, IAX.cross === 'y' ? 150 : 0, 150)
-    const mine = [e]
-    let t = 0
-    while (t < 4 && (e.blindT ?? 0) <= 0) { drive(run, mine, dt); t += dt }
-    assert.ok((e.blindT ?? 0) > 0, 'run RP.c: never blinded')
-    const held = e.blindT
-    run.weapons.length = 0
-    run.blooms.length = 0
-    drive(run, mine, held + 0.5)
-    assert.strictEqual(e.blindT, 0,
-      `run RP.c: blindT is still ${e.blindT} a full ${(held + 0.5).toFixed(1)}s after the last cloud went out — the decay is missing and one jet blinds a body for the rest of the run`)
-    assert.strictEqual(e._blindHx, undefined,
-      'run RP.c: the held heading survived the blind — the next cloud would resume a bearing this body has not had since the last one')
-    const before = dist(e, run.player)
-    drive(run, mine, 1.0)
-    assert.ok(dist(e, run.player) < before - 60,
-      `run RP.c: the body closed only ${(before - dist(e, run.player)).toFixed(0)}px in the second after its blind expired, against ~105 for a body swimming straight at a player the lane is carrying away — it never re-acquired`)
-  }
-
-  // (d) SECOND JET SPREADS TO DISTINCT POSITIONS, ACROSS THE LANE. Asserted as POSITIONS and never
-  // as a count: three clouds stacked on one point is one cloud, renders identically to no mod at
-  // all, and passes any count assertion happily — CLAUDE.md's eight-site trap.
-  {
-    const run = reefRun('squidInk', 5, { secondJet: 2 })
-    run.weaponTimers.squidInk = 0.02
-    let t = 0
-    while (t < 4 && run.blooms.length === 0) { drive(run, [], dt); t += dt }
-    const jets = run.blooms.filter((b) => b.look === 'ink')
-    assert.strictEqual(jets.length, 3, `run RP.d: Second Jet x2 produced ${jets.length} clouds, not 3 — the count is not folding onto levels[].clouds`)
-    const cross = jets.map((b) => b[AX.cross]).sort((a, b) => a - b)
-    const uniq = new Set(cross.map((c) => c.toFixed(2)))
-    assert.strictEqual(uniq.size, 3,
-      `run RP.d: 3 jets landed on ${uniq.size} distinct cross positions — the extra clouds stack on the first, which draws and damages identically to no mod at all`)
-    for (const sp of [cross[1] - cross[0], cross[2] - cross[1]]) {
-      assert.ok(sp > jets[0].maxR * 0.9,
-        `run RP.d: two jets sit ${sp.toFixed(0)}px apart against a ${jets[0].maxR}px radius — that is one blot with a wide middle, not a curtain across the lane`)
-    }
-    const fwd = new Set(jets.map((b) => b[AX.fwd].toFixed(2)))
-    assert.strictEqual(fwd.size, 1,
-      `run RP.d: the jets spread ALONG the lane (${fwd.size} forward positions) instead of across it — a line drawn down the corridor you are already swimming covers nothing new`)
-  }
-
-  // (e) THE BOIL PAUSES THE DRAIN AND NEVER, EVER REFILLS. Three readings off one run: the bar is
-  // FLAT while the player is standing in the bubbles, it is FALLING when they are not, and it never
-  // ends a single frame higher than it started. The third is the one that matters — "the bar
-  // behaved differently in there" is satisfied by a refill just as well as by a pause, and a refill
-  // is the one edit CHAPTERS.reef.resource's measured economy cannot survive.
-  let boiled = 0, boilDrop = 0, freeDrop = 0
-  {
-    const run = reefRun('oxygenTank', 5)
-    run.charge = 60
-    let rose = 0
-    const inBoil = (r) => (r.blooms ?? []).some((bl) => bl.airHold && bl.r > 0 &&
-      Math.hypot(r.player.x - bl.x, r.player.y - bl.y) <= bl.r)
-    let prev = run.charge, wasIn = false
-    drive(run, [], 12, { x: 0, y: 0 }, (r) => {
-      // The other two ways this bar can move, switched off, so what is left is the drain and the
-      // boil alone: no pocket may refill it (run.shafts) and no kill can (the list is empty).
-      r.shafts.length = 0
-      const now = r.charge
-      if (now > prev + 1e-9) rose++
-      if (wasIn) { boiled++; boilDrop += prev - now } else { freeDrop += prev - now }
-      prev = now
-      wasIn = inBoil(r)
-    })
-    assert.ok(boiled > 60,
-      `run RP.e: the player spent only ${(boiled * dt).toFixed(2)}s inside a boil over 12s — the throw and the scroll are not keeping the appointment WEAPONS.oxygenTank.range is arithmetically set for, so half of what the card says never happens`)
-    assert.strictEqual(rose, 0,
-      `run RP.e: the Air bar ROSE on ${rose} frames in a run with no pockets and no kills — the boil has become a refill source, which is the one thing this weapon may never be`)
-    assert.ok(boilDrop < 1e-6,
-      `run RP.e: the bar still fell ${boilDrop.toFixed(2)} over ${boiled} frames inside the bubbles — the drain is not being paused`)
-    assert.ok(freeDrop > 1,
-      `run RP.e: the bar fell only ${freeDrop.toFixed(2)} outside the bubbles — the fixture is not draining at all, so "flat inside" means nothing`)
-  }
-
-  // (f) THROWN DOWN THE LANE, NOT AT A BODY. A fat target is parked 300px OFF the axis — which is
-  // exactly what pickBloomSpot (Debris Toss, Ballast, Silt Veil) would throw at — and the rupture
-  // must land on the forward axis regardless. Swap laneAxes for pickBloomSpot here and this card is
-  // Debris Toss with a reef noun, which is the objection it was rebuilt against.
-  {
-    const run = reefRun('oxygenTank', 5)
-    // Far enough out that the tank's own blast cannot reach it: WEAPONS.oxygenTank tops out at
-    // r 190, thrown range 170 ahead, so 420 to the side leaves 230px of clearance at the worst
-    // level. Close enough that pickBloomSpot would still choose it, which is the failure this
-    // case exists to catch.
-    const BAIT_OFF = 420
-    // ⚠ OFF THE PLAYER'S HEADING, AND THAT HAS TO BE READ FROM THE TRACK RATHER THAN ASSUMED.
-    // This has now been wrong twice for the same reason — a world axis standing in for "sideways".
-    // First it was `AX.cross`, the lane's own axis, which the ring made meaningless. Then it was
-    // world +x, i.e. radially outward, which is only perpendicular to the track on a track whose
-    // centreline runs perfectly circumferentially: at wander 380 the centreline crosses the radii at
-    // up to ~50°, so "radially outward" became "half ahead" and the tank hit the bait legitimately.
-    // The tangent is the only honest source, and ringHeading is what answers it at any shape.
-    const h0 = ringHeading(caveSpecOf(run), ringFU(caveSpecOf(run), run.player.x, run.player.y).f, run._obstacleSeed)
-    const bait = mk(run, Math.cos(h0 + Math.PI / 2) * BAIT_OFF, Math.sin(h0 + Math.PI / 2) * BAIT_OFF, 0)
-    let hit = null, toss = null, baitHp = null
-    drive(run, [bait], 6, { x: 0, y: 0 }, (r) => {
-      // ⚠ HELD BESIDE THE PLAYER UNTIL THE THROW, and re-derived from the heading the CARD reads.
-      // A bait parked at a world point is only off-axis at t=0: the first tank does not fly for
-      // seconds, and by then the player has driven a few hundred px round a bend and the bait has
-      // swum off with the traffic, so a fixture that pre-places it is really asserting where two
-      // drifting things happened to end up. Pinned, the geometry at the cast is the geometry the
-      // case describes — a fat body BAIT_OFF px to one side, outside the blast, ignored.
-      if (!toss) {
-        const a0 = r.player.facingAngle ?? h0
-        bait.x = r.player.x + Math.cos(a0 + Math.PI / 2) * BAIT_OFF
-        bait.y = r.player.y + Math.sin(a0 + Math.PI / 2) * BAIT_OFF
-      }
-      // ⚠ MEASURED AGAINST THE THROW, NOT AGAINST WHERE THE PLAYER ENDED UP. The lob's target is
-      // banked at the cast (fireTank), and since the cave forks the player is no longer guaranteed
-      // to sit still across the flight — an island's tip nudges them a few px off and the fixture
-      // reported that drift as the CARD aiming at bodies.
-      for (const ev of r.events) {
-        // The HEADING AT THE CAST, banked with the toss. fireTank reads p.facingAngle, and on a ring
-        // that is the direction the player is travelling rather than a fixed world axis — so the
-        // claim "thrown ahead of you, not at a body" can only be measured against it.
-        if (ev.type === 'toss' && !hit) toss = { ...ev, a: r.player.facingAngle ?? 0 }
-        if (ev.type === 'rupture' && !hit) { hit = { ...ev }; baitHp = bait.hp }
-      }
-    })
-    assert.ok(hit && toss, 'run RP.f: no rupture in 6s — the tank never landed')
-    // ⚠ AGAINST THE PLAYER'S OWN HEADING, NOT AGAINST THE LANE AXIS. This used to compare the
-    // landing's CROSS coordinate with the throw's, which was the same statement while the chapter's
-    // forward direction was a fixed world axis. The Reef's track is a ring now: "up the lane" is
-    // the tangent under the player, so the old form read the difference between the tangent and +x
-    // as the card aiming at bodies — 164px of it, with the card working perfectly.
-    const dev = Math.abs(Math.atan2(hit.y - toss.y, hit.x - toss.x) - toss.a)
-    const off = Math.min(dev, Math.abs(dev - 2 * Math.PI)) * 180 / Math.PI
-    assert.ok(off < 2,
-      `run RP.f: the tank landed ${off.toFixed(0)}° off the player's own heading, with a fat body sitting off to one side — it is aiming at enemies rather than throwing ahead of you`)
-    // READ ON THE FRAME THE FIRST TANK RUPTURES, not at the end of the drive. The claim is about
-    // where a throw GOES; a 6s drive covers 3240px of a 7000px lap at this chapter's speed, so a
-    // static bait 300px off the start heading is swept up by a LATER throw somewhere round the
-    // bend, and the fixture read that as targeting.
-    assert.strictEqual(baitHp, bait.maxHP,
-      'run RP.f: the off-axis bait took damage from the first tank — the throw found it, so this card has targeting it must not have')
-  }
-
-  // (g) PRESSURE WAVE SHOVES, AND ONLY WITH THE SWITCH HELD. An inert switch is the failure run MB.a
-  // exists for, and it is invisible from every other angle: the card is offered, picked, banked and
-  // does nothing, with nothing thrown.
-  {
-    const R = WEAPONS.oxygenTank.levels[4].range
-    const shoved = (mods) => {
-      const run = reefRun('oxygenTank', 5, mods)
-      // ARMED, so the throw leaves on the first frame. The target is computed from the player's
-      // position AT THE THROW and the lane carries them 45px/s, so every second fireOnTimer waits
-      // puts the landing point another 45px up the lane from this parked body. Arming makes where
-      // the tank lands and where the body is parked the same place, which is what this case is
-      // about (the shove) rather than the geometry (that is RP.f). The RP.g assert below proves
-      // the body was in the blast, so this stays honest if the radius ladder moves again.
-      run.weaponTimers.oxygenTank = 0.02
-      // ON THE LANDING POINT, WHICH ON A RING IS R px ALONG THE TRACK rather than R px up a world
-      // axis. fireTank throws along p.facingAngle — the tangent under the player — so `AX.fwd`
-      // pointed the fixture 90 degrees away from where the tank actually goes and the body sat
-      // outside every blast.
-      const sp = caveSpecOf(run)
-      const fu0 = ringFU(sp, run.player.x, run.player.y)
-      const w0 = ringCentre(sp, fu0.f + 200, run._obstacleSeed)
-      const ul = Math.hypot(w0.x - run.player.x, w0.y - run.player.y) || 1
-      const at = mk(run, ((w0.x - run.player.x) / ul) * R, ((w0.y - run.player.y) / ul) * R, 0)
-      let kb = 0
-      // 5s, not 3: the cadence at L5 is 2.60s and the flight another 0.85, so the first tank lands
-      // at 3.45 and a 3s window measured a weapon that had not gone off yet.
-      drive(run, [at], 5, { x: 0, y: 0 }, (r) => {
-        kb = Math.max(kb, Math.hypot(at.kb.x, at.kb.y))
-        // A CLOUD THAT DEALS NO DAMAGE MAY NOT EMIT A HIT, asserted on the one fixture in the file
-        // that parks a body inside a boil for seconds. The boil is a run.blooms entry with
-        // dmgPerTick 0 — it exists to pause Air, not to hurt — and stepBlooms used to hand every
-        // body inside it to dealDamage every BLOOM_TICK regardless, which pushes {type:'hit',
-        // dmg: 0} and render.js turns into a floating "0" (its own guardblock case: "a floating 0
-        // is worse than a spark"). Measured on the census before the guard: oxygenTank L1 read
-        // 44.3 hits/s against 185 raw dps and a dmg/hit of 4.2 for a weapon whose levels[] says 44
-        // — ~40 zeroes a second, evicting real numbers from the shared dmgTexts pool. Nothing
-        // threw, no test went red, and dps was untouched, so only the hit COUNT could ever see it.
-        for (const ev of r.events) {
-          if (ev.type === 'hit') assert.ok(ev.dmg > 0,
-            `run RP.g: a {type:'hit'} carrying dmg ${ev.dmg} — the Oxygen Tank's boil deals no damage by design, so every hit it emits paints a floating zero over the body and costs a real damage number its slot`)
-        }
-      })
-      assert.ok(at.hp < at.maxHP,
-        'run RP.g: the body parked on the landing point took no damage — it was never in the blast, so the shove reading below is meaningless')
-      return kb
-    }
-    const off = shoved(null)
-    const on = shoved({ pressureWave: 1 })
-    assert.strictEqual(off, 0, `run RP.g: a rupture shoved ${off.toFixed(0)} with Pressure Wave NOT held — the switch is free`)
-    assert.ok(on > 100, `run RP.g: Pressure Wave is held and the rupture shoved ${on.toFixed(0)} — the switch is an inert card`)
   }
 
   // (h) LAST BREATH IS TWO SITES AND BOTH HAVE TO BE THERE. The ramp lives in anomalyDamageMul, the
@@ -27919,34 +27587,7 @@ function testReefPool() {
       `run RP.i: the CAP moved x${(taxed.peak / base.peak).toFixed(2)} against ${M.effects.raceClockMul} — taxing the start alone is no tax at all, one checkpoint puts the player back level`)
   }
 
-  // (j) THE RENDER HALF OF THE FACING, AND ONLY THAT HALF. The sim half — that the point published
-  // into _tgtX/_tgtY really is the held heading and not the player — is measured in (a), inside the
-  // fixture that already holds a blinded body; a SOURCE lint there would only prove the token is
-  // still typed, which `e._tgtX = p.x` satisfies while restoring the whole pre-fix drawing.
-  //   render.js is the one side with no such fixture (Pixi + DOM, not importable), so it is linted
-  // as SOURCE TEXT — the run UG.k idiom, RN.i above — and the lint is written as the COMPARISON,
-  // not the field name: `(e.blindT || 0) > 1e9` names blindT too and draws exactly what deleting
-  // the term draws.
-  //   COMMENTS ARE STRIPPED, the run MB.a rule and not ceremony: the paragraph directly above this
-  // branch names blindT and _tgtX out loud, so a raw search over the block is satisfied by the
-  // prose alone and deleting the code would leave this green.
-  {
-    const rsrc = readFileSync(new URL('../src/render.js', import.meta.url), 'utf8')
-    const at = rsrc.indexOf('const facesOwnHeading')
-    assert.ok(at > 0,
-      'run RP.j: render.js has no facesOwnHeading — the branch an ally, a blinded body and a passive crowd all steer by is gone, and this case is measuring nothing')
-    const use = rsrc.indexOf('if (facesOwnHeading', at)
-    assert.ok(use > at, 'run RP.j: facesOwnHeading is declared and never used')
-    const end = rsrc.indexOf('\n      }\n', use)
-    assert.ok(end > use,
-      'run RP.j: could not find the end of the facesOwnHeading block at indent 6 — it has been re-nested, and slicing past it would lint the wrong code')
-    const faces = rsrc.slice(at, end).replace(/\/\/.*$/gm, '')
-    assert.ok(/\(e\.blindT \|\| 0\) > 0/.test(faces),
-      'run RP.j: facesOwnHeading does not test `(e.blindT || 0) > 0` — an inked body is back on the run.player bearing, drawn crabbing sideways with its eyes locked on you while it swims away, which is this card\'s product drawn inside out. Nothing else can see it: RP.a measures the sim, and the sim stays perfect.')
-    assert.ok(/_tgtX/.test(faces),
-      'run RP.j: the facesOwnHeading branch does not read _tgtX — the contract pair sim publishes has no consumer, so every case on that branch draws off run.player again')
-  }
-  console.log(`PASS run RP (The Reef's other two natives, its anomaly and its mutator): an inked body's heading stops turning entirely (${(blindTurn * 180 / Math.PI).toFixed(1)}° over ${WINDOW}s against a seeing body's ${(seeTurn * 180 / Math.PI).toFixed(0)}°), keeps every pixel of its speed doing it (${blindTravel.toFixed(0)}px of a possible ${(60 * WINDOW).toFixed(0)}), ends ${blindGap.toFixed(0)}px away against ${seeGap.toFixed(0)}px, and re-acquires the moment the blind lapses; Second Jet lays 3 clouds on 3 distinct cross positions ${(WEAPONS.squidInk.levels[4].maxR * INK_JET_SPREAD).toFixed(0)}px apart; the tank throws down the lane past a fat off-axis bait and its boil holds the bar EXACTLY flat for ${(boiled * dt).toFixed(1)}s with 0 refill frames against ${freeDrop.toFixed(1)} lost outside it, and Pressure Wave shoves only when held; Last Breath pays x${ramp.toFixed(2)} at an empty bar and charges x${tax.toFixed(2)} for it in the drown; Tidal Race is scoped to reef alone out of ${Object.keys(CHAPTERS).length} chapters and really moves the scroll; and the DRAWING of the blind holds on both sides — the point sim publishes for render to face sits ${(Math.acos(Math.max(-1, Math.min(1, blindDot))) * 180 / Math.PI).toFixed(1)}° off the held heading and ${blindTgtGap.toFixed(0)}px from the player, and render.js's facesOwnHeading really tests (e.blindT || 0) > 0`)
+  console.log(`PASS run RP (Last Breath and Tidal Race): Last Breath pays x${ramp.toFixed(2)} at an empty bar and charges x${tax.toFixed(2)} for it in the drown; Tidal Race is scoped to reef alone out of ${Object.keys(CHAPTERS).length} chapters and really moves the scroll`)
 }
 
 

@@ -164,7 +164,6 @@ import {
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_RAM_MUL, BURST_RAM_COINS, DROWN_TICK,
   SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
-  INK_BLIND_REACH, INK_JET_SPREAD, TANK_SHOVE_KB,
   LAST_BREATH_MAX_DMG_MUL, LAST_BREATH_DROWN_TAKEN_MUL,
   resourceRateMul,
   GNASH_MAW_MUL, GNASH_BASE_CRIT, GNASH_CARRY_FRAC, GNASH_ROLL_KB, RUSH_DUR, RUSH_MAX_STACKS,
@@ -2139,10 +2138,6 @@ function freshEnemyFields() {
     // freezes it, enrage speeds it up and hardens its contact damage. Ticked in stepEnemyMovement.
     fearT: 0, fearCd: 0, dazeCd: 0, dragT: 0, _ccDR: 1, stunT: 0, enrageT: 0,
     bloomSlowT: 0, // v6.4: a plain speed debuff (folds into slowMul), refreshed by stepBlooms
-    // v7.x The Reef, PUBLISHED for render.js (see the status block there): seconds of blindness
-    // left. While > 0 the retarget seam hands this body a point down its own held heading instead
-    // of the player's position. Refreshed by stepBlooms, decayed in stepEnemyMovement.
-    blindT: 0,
     // v7.x The Deep, both PUBLISHED for render.js (see the status block there):
     //   scentT  seconds left on the Scent mark. Amplifies every source of damage (dealDamage) and
     //           is what render outlines the body with. Refreshed by stepScent, decayed above.
@@ -2604,31 +2599,6 @@ function stepEnemyMovement(run, dt) {
       const pt = run.trail && run.trail[run.trail.length - 1 - lag]
       if (pt) { tx = pt.x; ty = pt.y }
     }
-    // SQUID INK'S BLIND (v7.x, The Reef). LAST at this seam, so it overrides a lure and a trail
-    // sample alike: a body that cannot see the player cannot see a decoy of them either.
-    //
-    // It hands the machines a point INK_BLIND_REACH down the heading the body already had, which is
-    // what "loses you and keeps going" means in a file where every machine reads a point. The
-    // heading is captured ONCE, on the first frame of the blind, and held for its whole length —
-    // recomputing it per frame off (tx - e.x) would re-derive the player's bearing every frame and
-    // the blind would do nothing at all, silently.
-    //   The capture is deliberately taken from the seek target as it stands HERE, after the lure
-    // and pastSeek branches, so a body blinded while chasing a decoy carries on toward the decoy's
-    // last position rather than snapping onto the player's.
-    if ((e.blindT ?? 0) > 0) {
-      if (e._blindHx === undefined) {
-        const bl = Math.hypot(tx - e.x, ty - e.y) || 1
-        e._blindHx = (tx - e.x) / bl
-        e._blindHy = (ty - e.y) / bl
-      }
-      tx = e.x + e._blindHx * INK_BLIND_REACH
-      ty = e.y + e._blindHy * INK_BLIND_REACH
-      // ...and into `_tgtX/_tgtY`, the shipped "face this instead of the player" pair, for exactly
-      // the reason SUBMISSION's allies write it: render derives every
-      // bearing from run.player each frame, so without this a blinded body swims away with its eyes
-      // still on you and the card's whole product — bodies LOSING you — is undrawn.
-      e._tgtX = tx; e._tgtY = ty
-    }
     const dx = tx - e.x, dy = ty - e.y
     const d = Math.hypot(dx, dy)
     // chill/freeze/bloom slow the seek movement only. // ponytail: movement state machines that
@@ -2919,16 +2889,6 @@ function stepEnemyMovement(run, dt) {
     if (e.stunT > 0) e.stunT = Math.max(0, e.stunT - dt)
     if (e.enrageT > 0) e.enrageT = Math.max(0, e.enrageT - dt)
     if (e.bloomSlowT > 0) e.bloomSlowT = Math.max(0, e.bloomSlowT - dt) // v6.4: refreshed by stepBlooms while inside a cloud
-    // Squid Ink's blind. Refreshed by stepBlooms while inside the ink, decayed here for the reason
-    // scentT's note below gives: stepBlooms only walks the bodies currently in a cloud, so a body
-    // that swims out would otherwise keep the mark for the rest of the run.
-    //   THE HELD HEADING IS CLEARED ON THE FRAME THE BLIND EXPIRES, and that line is the whole
-    // re-blind story: without it a second cloud would resume the FIRST cloud's heading, and a body
-    // blinded twice would swim a direction it has not had for ten seconds.
-    if (e.blindT > 0) {
-      e.blindT = Math.max(0, e.blindT - dt)
-      if (e.blindT === 0) { e._blindHx = undefined; e._blindHy = undefined }
-    }
     if (e.dragT > 0) e.dragT = Math.max(0, e.dragT - dt) // Ballast's impact drag; set once at the landing, never refreshed
     // The Wreck's Chum. Set ONCE when a serving is taken (stepLures) and never refreshed by
     // standing in the cloud — a hold that re-armed every frame would pin the shoal on the bait
@@ -6211,18 +6171,7 @@ export function stepCharge(run, dt) {
   // and the in-circle refill respectively — both default to 1 (no-op) unbought, and both are 1 in
   // every chapter with no resource, so this is inert wherever it always was.
   const p = run.player
-  // OXYGEN TANK'S BOIL (v7.x, The Reef). It PAUSES the drain and can never add to the bar: the
-  // whole effect is this multiplier, and there is no branch anywhere that writes `c` for a boil.
-  // Written as a factor on the drain term rather than as `if (boiling) { ... }` deliberately —
-  // WEAPONS.oxygenTank's block says why a second refill source is forbidden (the chapter's measured
-  // pocket economy is denominated in pockets being the only one), and a factor of zero is the shape
-  // a future editor cannot accidentally turn into a refill by adding a line.
-  const airHold = (run.blooms ?? []).some((bl) => {
-    if (!bl.airHold || bl.r <= 0) return false
-    const dx = p.x - bl.x, dy = p.y - bl.y
-    return dx * dx + dy * dy <= bl.r * bl.r
-  }) ? 0 : 1
-  let c = run.charge - drainRate * dryMul * run.chargeDrainMul * airHold * dt
+  let c = run.charge - drainRate * dryMul * run.chargeDrainMul * dt
   // Opt-in per FIELD, read through refillSpec() so this asks the streamer's own question rather
   // than a second one that could disagree. 0/undefined everywhere but The Shelf.
   // drawdownSecsFor, not a bare refillSpec read: Dead Water multiplies this clock and all three
@@ -7961,12 +7910,6 @@ const WEAPON_STAT_MODS = {
   // Glint: `secondGlint` is a per-cast COUNT read at the fire site like star's multishot;
   // `quickGlint` is in WEAPON_RATE_MODS. The other two fold.
   glint:         { bright: ['dmg', 'pct'], keenLight: ['pierce', 'flat'] },
-  // The Reef's other two. Same split: three folds apiece, one rate mod in WEAPON_RATE_MODS, and one
-  // switch read at its own site (`pressureWave`, at the landing in stepLobs). `secondJet` folds as
-  // 'flat' onto a real levels[] key so fireInk's ONE local is both the loop bound and the spacing
-  // divisor — and so the pause sheet reports the modified count with no second registration.
-  squidInk:      { blackout: ['maxR', 'pct'], deepDark: ['blind', 'pct'], lingering: ['dur', 'pct'], secondJet: ['clouds', 'flat'] },
-  oxygenTank:    { overfilled: ['dmg', 'pct'], wideRupture: ['r', 'pct'], longBoil: ['boil', 'pct'] },
 }
 
 /** Copies WEAPONS[w.id]'s current-level stats and folds in that weapon's accumulated STAT mods
@@ -8137,8 +8080,6 @@ function stepWeapons(run, dt) {
     else if (w.id === 'chum') stepChumWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'bilge') stepBilgeWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'screw') stepScrewWeapon(run, stats, fireRateMul, dt)
-    else if (w.id === 'squidInk') stepSquidInkWeapon(run, w, stats, fireRateMul, dt)
-    else if (w.id === 'oxygenTank') stepTankWeapon(run, w, stats, fireRateMul, dt)
   }
 
   stepBullets(run, dt)
@@ -9690,24 +9631,6 @@ function stepBlooms(run, dt) {
       bl.y += f.fy * dt * tide
     }
 
-    // SQUID INK'S BLIND (The Reef). Refreshed EVERY FRAME a body is inside the cloud, exactly as
-    // bloomSlowT is one branch down and for the same reason: the decay lives in stepEnemyMovement,
-    // so a body that swims out keeps the mark for `blind` seconds and no longer. It is its own
-    // pass rather than a line inside the tick loop because the tick is metered on BLOOM_TICK and a
-    // status the player watches has to arrive on the frame the body enters the ink.
-    //   NOT through resistsCC, on Ballast's dragT rule: that budget guards HOLDS, and this stops
-    // nobody — a blinded body keeps its full speed and simply keeps going. damageImmune-guarded
-    // like the slow, so a ghosted phase flicker ignores it like it ignores everything else.
-    if ((bl.blind ?? 0) > 0) {
-      const bSq = bl.r * bl.r
-      for (const e of run.enemies) {
-        if (e._dead || damageImmune(e) || isAlly(e)) continue
-        const bdx = e.x - bl.x, bdy = e.y - bl.y
-        if (bdx * bdx + bdy * bdy > bSq) continue
-        e.blindT = bl.blind
-      }
-    }
-
     // `slow: 0` opts a cloud out entirely (Foxfire does): its own card text never mentions a slow, so
     // it must not quietly add one.
     if (bl.slow !== 0) {
@@ -9768,11 +9691,11 @@ function stepBlooms(run, dt) {
           const dx = e.x - bl.x, dy = e.y - bl.y
           if (dx * dx + dy * dy > rSq) continue
         }
-        // A CLOUD THAT DEALS NO DAMAGE EMITS NO HIT. Two blooms on this array carry dmgPerTick 0
-        // and exist for something other than damage — the Oxygen Tank's boil (it pauses Air) and
-        // the bilge — and a {type:'hit', dmg: 0} draws a floating "0" over the body and evicts a
-        // real number from the shared dmgTexts pool. Everything below still runs — the daze and
-        // sporeburst are not damage.
+        // A CLOUD THAT DEALS NO DAMAGE EMITS NO HIT. The bilge carries dmgPerTick 0 and exists for
+        // something other than damage (the Oxygen Tank's boil, which paused Air rather than
+        // dealing it, was the same shape until the weapon was deleted) — and a {type:'hit', dmg: 0}
+        // draws a floating "0" over the body and evicts a real number from the shared dmgTexts
+        // pool. Everything below still runs — the daze and sporeburst are not damage.
         if (tickDmg > 0) applyDotDamage(run, e, tickDmg)
         // SILT VEIL's daze, published into the e.stunT contract field render.js already reads.
         // The window is the whole guard: gating on "is it stunned" alone lets a persistent cloud
@@ -11333,39 +11256,6 @@ function stepLobs(run, dt) {
       continue
     }
 
-    // AN OXYGEN TANK RUPTURING. Above the shrapnel block for exactly the reason the net and the
-    // column are: `shrapnel` is read ONCE off run.weaponMods for every lob in the list whatever
-    // weapon made it, so a build holding Debris Toss alongside this would spray splinters out of a
-    // scuba tank — a cross-weapon leak nothing throws on.
-    //
-    // THE BOIL PAUSES THE DRAIN AND NEVER REFILLS. It is a run.blooms entry with dmgPerTick 0 and
-    // slow 0 — a marked patch of water and nothing else — and the ONLY thing that reads `airHold`
-    // is stepCharge, where it multiplies the drain by zero. See WEAPONS.oxygenTank for why a second
-    // refill source is forbidden here rather than merely unwanted.
-    if (lo.tank) {
-      const rSq = lo.r * lo.r
-      for (const e of run.enemies) {
-        if (e._dead || isAlly(e)) continue
-        const dx = e.x - lo.tx, dy = e.y - lo.ty
-        if (dx * dx + dy * dy > rSq) continue
-        applyDamage(run, e, lo.dmg)
-        // Pressure Wave. A flat shove out of the blast (see TANK_SHOVE_KB) and NOT a hold, so it
-        // runs outside the CC-DR budget like Ballast's drag: resistsCC guards holds, and this
-        // stops nobody — it moves them. `anchored` elites are kb-immune everywhere, so they are
-        // exempt here the way the revive shove exempts them.
-        if (!lo.shove || (e.affixes && e.affixes.includes('anchored'))) continue
-        const d = Math.hypot(dx, dy)
-        e.kb.x += (d > 1e-6 ? dx / d : 1) * TANK_SHOVE_KB
-        e.kb.y += (d > 1e-6 ? dy / d : 0) * TANK_SHOVE_KB
-      }
-      run.blooms.push({
-        x: lo.tx, y: lo.ty, t: 0, r: 0, maxR: lo.r, dur: lo.boil,
-        dmgPerTick: 0, look: 'boil', slow: 0, airHold: true,
-      })
-      run.events.push({ type: 'rupture', x: lo.tx, y: lo.ty, radius: lo.r, shove: !!lo.shove })
-      continue
-    }
-
     // A BALLAST landing: impact damage in lo.r, then a DRAG in a wider ring around it.
     //
     // NO STAIN. It used to push a run.blooms entry tagged look: 'silt' — Silt Veil's own cloud,
@@ -12450,83 +12340,6 @@ function fireGlint(run, stats) {
     })
   }
   run.events.push({ type: 'shoot', weapon: 'glint' })
-}
-
-// SQUID INK. A run.blooms entry carrying `blind`, planted ON the player. The cloud does not move —
-// it is world-anchored like every other bloom — so in a lane the scroll carries it astern while
-// the crowd swims into it, which is the picture and also the mechanic: what is blinded is behind
-// you within a second or two.
-//
-// ⚠ THE PERCEPTION HALF IS NOT HERE. It is at the retarget seam in stepEnemyMovement, where lure,
-// pastSeek and ally already live, and the whole reason it is one edit is that every movement
-// machine below that seam reads a POINT and never run.player.
-function stepSquidInkWeapon(run, w, stats, fireRateMul, dt) {
-  const quick = run.weaponMods.squidInk?.quickInk ?? 0
-  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quick)), dt, () => fireInk(run, stats))
-}
-
-function fireInk(run, stats) {
-  const p = run.player
-  const ax = laneAxes(CHAPTERS[run.chapter])
-  // ONE local for the count, used as the loop BOUND and as the spacing divisor — the eight-site
-  // trap CLAUDE.md documents, where multiplying only the bound stacks the extra jets on one point
-  // and renders identically to no change at all. Run SQ.d asserts DISTINCT cross positions.
-  const n = ipecacN(run, Math.max(1, Math.round(stats.clouds)))
-  const step = stats.maxR * INK_JET_SPREAD
-  for (let k = 0; k < n; k++) {
-    // Spread ACROSS the lane, so a picked-up count draws a curtain over the corridor rather than a
-    // deeper blot on one spot. In a non-lane chapter laneAxes reads 'y'/'x' as it always did and the
-    // jets spread along that cross axis, which is still a line and still distinct.
-    const off = (k - (n - 1) / 2) * step
-    run.blooms.push({
-      x: p.x + (ax.cross === 'x' ? off : 0),
-      y: p.y + (ax.cross === 'y' ? off : 0),
-      t: 0, r: 0, maxR: stats.maxR, dur: stats.dur,
-      dmgPerTick: stats.dmgPerTick, look: 'ink',
-      // `slow: 0` opts OUT of stepBlooms' bloom-slow branch, Foxfire's idiom. A cloud that also
-      // slowed would keep the blinded bodies inside itself, which is the exact opposite of the
-      // card: the whole payoff is watching the lane carry them past you.
-      slow: 0,
-      // The tag stepBlooms reads. Seconds of blindness, refreshed every frame a body is inside.
-      blind: stats.blind,
-    })
-  }
-  run.events.push({ type: 'ink', x: p.x, y: p.y, r: stats.maxR })
-}
-
-// OXYGEN TANK. A run.lobs entry tagged `tank`, thrown at a point on the lane AHEAD of the player
-// rather than at a body — the one throw in the game whose target is a place the thrower is going.
-// The scroll closes the gap, so the throw and the oncoming stream keep the same appointment.
-//
-// ⚠ THE NON-LANE BRANCH IS A FALLBACK, NOT A SECOND DESIGN, for the reason fireSnap's block gives:
-// the card is scoped to The Reef's pool, but devCards ignores every eligibility rule and ships in
-// the production bundle. There 'up the lane' has no meaning, so it takes p.facingAngle — the
-// direction you last MOVED — which keeps the throw untargeted. Deliberately not aimAngle.
-function stepTankWeapon(run, w, stats, fireRateMul, dt) {
-  const quick = run.weaponMods.oxygenTank?.quickTank ?? 0
-  fireOnTimer(run, w.id, stats.rate / (fireRateMul * (1 + quick)), dt, () => fireTank(run, stats))
-}
-
-function fireTank(run, stats) {
-  const ch = CHAPTERS[run.chapter]
-  const p = run.player
-  const heading = ch.lane === true
-    ? laneAxes(ch).angle
-    : (p.facingAngle ?? (p.facing >= 0 ? 0 : Math.PI))
-  const shove = (run.weaponMods.oxygenTank?.pressureWave ?? 0) > 0
-  // ipecacAngles is what every other angle-carrying cast in this file uses for the anomaly, so a
-  // Reef run that took Ipecac throws a fan of tanks rather than three stacked on one point.
-  for (const a of ipecacAngles(run, heading)) {
-    run.lobs.push({
-      x: p.x, y: p.y, fromX: p.x, fromY: p.y,
-      tx: p.x + Math.cos(a) * stats.range, ty: p.y + Math.sin(a) * stats.range,
-      t: 0, flight: stats.flight, r: stats.r, dmg: stats.dmg,
-      // The two fields the `tank` branch in stepLobs reads. `boil` is banked AT THE THROW, so a
-      // Long Boil picked while a tank is in the air does not lengthen the one already thrown.
-      tank: true, boil: stats.boil, shove,
-    })
-  }
-  run.events.push({ type: 'toss', x: p.x, y: p.y })
 }
 
 // ---- Pickups ------------------------------------------------------------------------

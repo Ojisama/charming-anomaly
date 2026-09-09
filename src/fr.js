@@ -1514,49 +1514,6 @@ const CONFIG = {
   'Backblow': 'Contre-Souffle',
   'a second cone blows out behind you': 'un second cône souffle derrière toi',
   'Silt Veil': 'Voile de Vase',
-  // The Reef's other two natives, its anomaly and its mutator (v7.x). EVERY DISPLAY NAME HERE IS A
-  // DRAFT pending the owner's pick -- there is no translation subagent for this repo, and each went
-  // to him as a pair: Encre de Seiche / Nuage d'Encre, Bouteille d'Oxygene / Bloc de Plongee,
-  // Dernier Souffle (verified free in this dictionary), Grand Courant / Courant de Maree. These are
-  // the recommended halves.
-  //   'Encre de Seiche' over 'Nuage d'Encre': it is the real French name of the real animal, and a
-  // French player already has a word for the thing in the picture. 'Nuage' also collides in
-  // MEANING with the Spore Bloom's clouds.
-  //   'Bouteille de Plongee' is what a diver actually says, but the card is about the OXYGEN and the
-  // HUD rail beside it says 'Air' -- so the name keeps the gas in it.
-  'Squid Ink': 'Encre de Seiche',
-  'Jets a cloud of ink around you. Anything that swims into it loses you and keeps going the way it was already headed.':
-    'Projette un nuage d’encre autour de toi. Tout ce qui y nage te perd de vue et continue tout droit.',
-  'Blackout': 'Voile Noir',
-  'cloud size': 'taille du nuage',
-  'Deep Dark': 'Noir Profond',
-  'how long they stay lost': 'durée pendant laquelle ils te perdent',
-  'Lingering Ink': 'Encre Persistante',
-  'how long the cloud hangs': 'durée du nuage',
-  'Quick Ink': 'Encre Rapide',
-  'jet rate': 'cadence des jets',
-  'Second Jet': 'Second Jet',
-  'extra ink cloud(s) per jet': 'nuage(s) d’encre en plus par jet',
-  'Oxygen Tank': 'Bouteille d’Oxygène',
-  'Tumbles a lost tank up the lane. It ruptures where you are about to be, and your Air stops draining inside the bubbles.':
-    'Envoie une bouteille perdue devant toi. Elle éclate là où tu vas arriver, et ton Air cesse de baisser dans les bulles.',
-  'Overfilled': 'Surgonflée',
-  'rupture damage': 'dégâts de l’éclatement',
-  'Wide Rupture': 'Large Éclatement',
-  'blast radius': 'rayon du souffle',
-  'Long Boil': 'Long Bouillonnement',
-  'how long the bubbles hold your Air': 'durée pendant laquelle les bulles retiennent ton Air',
-  // 'throw rate' is DELIBERATELY NOT REPEATED HERE: the Debris Toss and Skipping Shell mods
-  // already share that exact English key, and it is translated above. A second entry would be a
-  // duplicate key -- the later section silently wins and the earlier translation goes dead.
-  'Quick Tank': 'Bouteille Rapide',
-  'Pressure Wave': 'Onde de Choc',
-  'the rupture shoves everything clear': 'l’éclatement repousse tout autour',
-  // The stat rows (STAT_KEYS). 'Aveuglé pendant' and not 'Cécité': the sheet's other rows are all
-  // verbs or states with a duration after them ('Brûle pendant', 'Tient pendant'), and a bare noun
-  // in a column of those reads as a different kind of number.
-  'Blinded for': 'Aveuglé pendant',
-  'Bubbles last': 'Bulles pendant',
   // The chapter anomaly. 'Dernier Souffle' is the ordinary French idiom for exactly this, and it was
   // re-checked against every key in this file before being used.
   'Last Breath': 'Dernier Souffle',
