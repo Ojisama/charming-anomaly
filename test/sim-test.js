@@ -20495,7 +20495,15 @@ function testBuildReadout() {
     run.weaponModPicks.star.multishot = 2
     assert.strictEqual(statOf(weaponOf(run, 'star'), 'count').value, before + 3,
       'multishot is read at the fire site, so the readout has to add it back by hand')
-    console.log('PASS run BR.c (behavioural count): multishot reaches the table it does not fold into')
+    // Glint's secondGlint is the same shape (WEAPON_COUNT_MODS.glint) — read at fireGlint's own
+    // site, never folded through WEAPON_STAT_MODS.
+    const gRun = mk([{ id: 'glint', level: 1 }])
+    const gBefore = statOf(weaponOf(gRun, 'glint'), 'count').value
+    gRun.weaponMods.glint.secondGlint = 2
+    gRun.weaponModPicks.glint.secondGlint = 2
+    assert.strictEqual(statOf(weaponOf(gRun, 'glint'), 'count').value, gBefore + 2,
+      'secondGlint is read at the fire site too, so the readout has to add it back by hand')
+    console.log('PASS run BR.c (behavioural count): multishot and secondGlint reach the table they do not fold into')
   }
 
   // -- BR.d/e: passives and elements appear only once picked ----------------------------------

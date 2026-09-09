@@ -4311,7 +4311,9 @@ export const WEAPON_RATE_MODS = {
 // v7.23: the lash's doubleHook (how many aircraft one lash drags down) and the breath's `forked`
 // (+jumps) are read at their own sites too, for the same reason — folding a count into levels[]
 // via WEAPON_STAT_MODS only works for keys effectiveWeaponStats already carries.
-export const WEAPON_COUNT_MODS = { star: 'multishot', tailLash: 'doubleHook', atomicBreath: 'forked', screw: 'twinScrew' }
+// glint's secondGlint is the same shape as star's multishot: read at fireGlint's own site, not
+// folded through WEAPON_STAT_MODS, so it needs the same by-hand add-back here.
+export const WEAPON_COUNT_MODS = { star: 'multishot', tailLash: 'doubleHook', atomicBreath: 'forked', screw: 'twinScrew', glint: 'secondGlint' }
 // ...and WHICH levels[] key that mod adds to. The star's is literally `count`, which is why this
 // map did not exist before; the two v7.23 weapons count different things. Missing entry = 'count'.
 // The Screw counts SCREWS ON THE CHAIN, and there is no such key in its levels[] (one is the
