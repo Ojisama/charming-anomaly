@@ -2243,7 +2243,7 @@ export const WEAPONS = {
     // balance_decision : dmg doubled on leaving the starter slot, owner ruling [2026-09-09]
     //  - its own block above says damage was the WRONG knob (-23% measured better); Task 8 measures
     //    this beside Glint and the two rares, and it comes back down if it is the pool's runaway best
-    // balance_decision : doubling kept — 75 eff, third of four, 50% waste [2026-09-09]
+    // balance_decision : doubling kept — 75 eff, third of four, 50% waste; censused as the only weapon at charge 30 [2026-09-09]
     levels: [
       { dmg: 34, interval: 2.10, count: 1, r: 50, castRange: 300 },
       { dmg: 42, interval: 1.98, count: 1, r: 54, castRange: 320 },
@@ -2292,8 +2292,8 @@ export const WEAPONS = {
     // than the Shelf's did: charge-probe.mjs's three movement policies average 5.4/11.4/27.2, giving
     // gloom 1.535/1.463/1.274 — HIGHER than the Shelf's own tuned play point (1.174 at a mean charge
     // of 63%-dark), and free of the Shelf's move-speed cost (`speedFloor: 1` here). That trade is
-    // gone; what is left is the Pulse alone.
-    // balance_decision : no retune, 81 eff under Glint's pool-leading 104 at the real bar [2026-09-09]
+    // gone; what the bar buys here is the Scent's shove and its duration.
+    // balance_decision : base stays at the bottom of the rare band this pass, owner to rule — censused as the only weapon at charge 30 (gloom 1.24) it read 81 eff under Glint's 104; at the real bar (gloom 1.27-1.54) it reads ABOVE 81 [2026-09-09]
     levels: [
       { dmg: 4,  interval: 3.00, maxR: 54, glowDur: 2.4, castRange: 280 },
       { dmg: 5,  interval: 2.85, maxR: 59, glowDur: 2.6, castRange: 295 },
@@ -2322,7 +2322,7 @@ export const WEAPONS = {
     // L5 at 18% waste, against the rare band's 114 (Barnacles) and 111 (Net Toss). That run's own
     // charge (63, i.e. 80% reach) is NOT this chapter's — see the balance_decision below for the
     // Deep's own census and its real-bar reach.
-    // balance_decision : no retune, 63 eff (lowest of four), reach reads high off the rig [2026-09-09]
+    // balance_decision : no retune, 63 eff (lowest of four), censused as the only weapon at charge 30, reach reads high off the rig [2026-09-09]
     //  - census sits at charge 30 (61.5% reach); charge-probe's real means (5.4/11.4/27.2) give
     //    48-60% reach — the census OVER-states real reach, this card's real play sits below 63 eff
     levels: [
@@ -2344,7 +2344,7 @@ export const WEAPONS = {
     name: 'Glint',
     desc: `Flings a dart of light at what is nearest. Each cast costs ${GLINT_LIGHT_COST} Light.`,
     icon: '✨', rarity: 'normal',
-    // balance_decision : no retune, pool-leading 104 eff, opens behind Sunspear at L1 (18 vs 57) [2026-09-09]
+    // balance_decision : no retune, pool-leading 104 eff censused as the only weapon at charge 14 (its own cost is the only drain), opens behind Sunspear at L1 (18 vs 57) [2026-09-09]
     //  - full 4-card table: commit 9036eb3 body, spec 2026-09-09-deep-twilight-merge-design.md §6
     levels: [
       { dmg: 12, interval: 0.55, count: 1, speed: 480, pierce: 1 },

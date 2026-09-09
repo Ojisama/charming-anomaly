@@ -188,8 +188,9 @@ same edit.
 Four measurements, run against the shipped tree (HEAD at the time, `f8e9c3c` plus Tasks 1-7), each
 recorded a second time in `src/config.js` as one `balance_decision` line beside the number it bears
 on (the full tables live here and in the commit bodies of `9036eb3` and the fix-round commit, per
-this repo's convention that reasoning goes in the commit, not the comment). The fenced command
-output below is pasted verbatim; any table alongside it is a derived summary, labelled as such.
+this repo's convention that reasoning goes in the commit, not the comment). The roster probe's
+fences are pasted whole; the census and charge-probe fences are TRIMMED to the columns a decision
+reads, and the §6.2 block merges two separate runs — the full output lives in the commit bodies.
 
 **§6.4/R2.2 — the pool, one invocation** (relabelled from §6.1 — §6.1 itself, a Foxfire census with
 the bar PINNED at empty and at full, was never run: `scripts/weapon-census.mjs` has no flag to pin
