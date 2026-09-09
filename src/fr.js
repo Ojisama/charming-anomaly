@@ -1762,9 +1762,14 @@ const CONFIG = {
   'Sea Roach': 'Cloporte de Mer',
   'Copepod': 'Copépode',
   'Krill': 'Krill',
-  'Hagfish': 'Myxine Gluante',
-  'Viperfish': 'Poisson-Vipère',
-  'Gulper Eel': 'Grandgousier',
+  // The Deep's re-cut roster (2026-09-09). DRAFTS pending the owner's review, like every creature
+  // name in this block: 'Poisson-lanterne' and 'Poisson-ogre' are the French common names;
+  // 'Revenant' is the trade name for Macropinna and reads better on a card than 'Œil-tonneau';
+  // 'Siphonophore' is the same word.
+  'Lanternfish': 'Poisson-lanterne',
+  'Barreleye': 'Revenant',
+  'Fangtooth': 'Poisson-ogre',
+  'Siphonophore': 'Siphonophore',
   // The Trawl's three, which shipped in v7.96 with no French at all. Roster `name`s are NOT in
   // run XX's coverage walk (it enumerates config tables for name/desc/title/from, and a roster
   // entry's name is inside an array inside a chapter), so the suite was fully green with three

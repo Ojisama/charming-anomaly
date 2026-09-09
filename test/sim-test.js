@@ -11307,6 +11307,12 @@ function runRosterArt() {
   assert.ok(/const xf = r \* 0\.\d+/.test(jbody) && /const xa = -r \* 0\.\d+/.test(jbody),
     'drawJelly must keep the apex at +x (xf) and the mouth plane at -x (xa) — reversed, it swims tentacles-first')
 
+  // THE LANTERNFISH'S OWN LIGHT (R2.6): `glow` is the only ROSTER_LOOKS field read outside the bake
+  // path, and nothing else guards that read. Delete it from updateDark and the lantern's photophores
+  // still bake fine, still sit in the look table, and the body simply never punches the dark scrim —
+  // no throw, no missing texture, just a lit fish rendering as a dark body like any other.
+  assert.ok(/ROSTER_LOOKS\[e\.rosterId\]\?\.glow/.test(src), "updateDark no longer reads `.glow` off ROSTER_LOOKS — the lanternfish's own light is inert and it renders as a dark body like any other")
+
   console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, all ${thumbs} title-card thumbnails exist on disk, and the side-on jelly is lean 90 with its apex forward`)
 }
 run(runRosterArt)
@@ -32272,8 +32278,11 @@ function testTheDeep() {
     assert.ok(isWipChapter('deep'), 'run DP.i: The Deep is not WIP-gated, so it is reachable without the dev flag')
     assert.strictEqual(CHAPTERS.deep.signature.type, 'dark', 'run DP.i: the signature is not `dark`, so stepAnglers and the lightmap both no-op')
     assert.ok(CHAPTERS.deep.scent === true, 'run DP.i: the chapter does not declare `scent`, so the button spends the bar and does nothing')
-    assert.ok(CHAPTERS.deep.weapons.includes('finHit') && CHAPTERS.deep.starter === 'finHit',
-      `run DP.i: the pool is [${CHAPTERS.deep.weapons}] starting '${CHAPTERS.deep.starter}' — its own native is not fielded`)
+    assert.ok(CHAPTERS.deep.weapons.includes(CHAPTERS.deep.starter),
+      `run DP.i: the pool is [${CHAPTERS.deep.weapons}] starting '${CHAPTERS.deep.starter}' — the starter is not in its own pool`)
+    assert.deepStrictEqual(CHAPTERS.deep.roster.map((r) => r.id), ['lanternfish', 'barreleye', 'fangtooth', 'siphonophore'],
+      'run DP.i: the roster is not the 2026-09-09 re-cut (spec 2026-09-09-deep-twilight-merge §7b)')
+    assert.deepStrictEqual(CHAPTERS.deep.eliteFlags, [], 'run DP.i: an elite behaviour flag came back — nothing on this roster produces slime (R2.4)')
     // Every archetype covered, which is what stops the tank share of WAVE_TABLE finding an empty
     // pool from t=140s and spawning an unskinned body.
     const arch = new Set(CHAPTERS.deep.roster.map((r) => r.archetype))

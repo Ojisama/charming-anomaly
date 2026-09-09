@@ -8807,28 +8807,33 @@ CHAPTERS.deep = {
   // they are not enemies, they are traps." It is `signature.maws` above — a streamed refill circle,
   // the same system The Surf's tide pools use — and the MAW_* block in this file says why at length.
   //
-  // WHAT THAT COST, and it is the reason the deletion is worth a paragraph rather than a line: the
-  // earlier cut held `normal` for a forced reason, and removing it un-forces that reason rather than
-  // leaving a hole. spawnEnemy picks the WAVE_TABLE spawn TYPE first and only then narrows to the
-  // roster entries wearing it, and WAVE_TABLE does not introduce `tank` until t = 140s — so as a
-  // tank the chapter's only source of Light could not have existed for the first two and a half
-  // minutes of a five-minute run. That whole trap simply does not apply to a streamed field: a maw
-  // is on the map from t = 0 because streamShafts materialises it from the terrain seed, with no
-  // archetype, no wave clock and no live cap to keep it from carpeting the floor.
-  //
-  // The three that remain still cover normal/fast/tank, which every chapter must — the tank share of
-  // WAVE_TABLE from t=140s otherwise finds an empty pool. The gulper eel was added for exactly that
-  // reason back when the anglerfish held `normal`, and it keeps the slot now for its own sake.
+  // RE-CUT 2026-09-09 (spec 2026-09-09-deep-twilight-merge §7b, R2.1). Owner: "Redesign enemies
+  // relevant to the abysses." The old three (hagfish/viperfish/gulper) were real abyssal animals
+  // whose behaviour could have been any chapter's; these four are about the player's LIGHT. Every
+  // flag is an existing one — no movement code was added for this roster.
+  //   lanternfish   the crowd, and the ONE enemy you can see outside your lamp: it carries its own
+  //                 photophores, and render.js punches the dark scrim for it (ROSTER_LOOKS.glow).
+  //                 Flagless: what it does is be visible.
+  //   barreleye     the second `normal`, flagless, the roster's baseline body (the Trawl's mackerel
+  //                 argument: with a flag on every entry none reads as special). It shares the
+  //                 archetype's spawn share with the lanternfish through `weight`.
+  //   fangtooth     the fast slot: a burst dash, the viperfish's flag under an abyssal skin.
+  //   siphonophore  the tank: a colony as long as a bus that comes apart into zooids when killed
+  //                 (`split`). Its children wear this same bake at SPLIT_RADIUS_FRAC and inherit
+  //                 SPLIT_HP_FRAC of its HP and xp, which is why xpMul sits under 1 — see Task 8's
+  //                 measurement in the commit that set it.
+  // hpMul/speedMul below are the OLD slots' numbers carried one-for-one (viperfish -> fangtooth,
+  // gulper -> siphonophore) until Task 8 measures them; the two normals split a `normal`'s share.
   roster: [
-    // Slime is literally a patch it leaves behind, which is what webZone already is — the flag and
-    // the animal are the same fact for once, rather than a behaviour borrowed onto a new skin.
-    { id: 'hagfish',    archetype: 'normal', name: 'Hagfish',    hpMul: 1,   speedMul: 0.92, flags: ['webZone'] },
-    { id: 'viperfish',  archetype: 'fast',   name: 'Viperfish',  hpMul: 0.9, speedMul: 1.08, flags: ['dashBurst'] },
-    // The big slow mouth. `latch` for the same reason webZone suits the hagfish: a gulper eel that
-    // grabs and holds is the flag and the animal being one fact rather than two.
-    { id: 'gulper',     archetype: 'tank',   name: 'Gulper Eel', hpMul: 1.9, speedMul: 0.62, flags: ['latch'] },
+    { id: 'lanternfish',  archetype: 'normal', name: 'Lanternfish',  hpMul: 1,   speedMul: 0.95, weight: 1.2, flags: [] },
+    { id: 'barreleye',    archetype: 'normal', name: 'Barreleye',    hpMul: 1.1, speedMul: 0.9,  weight: 1,   flags: [] },
+    { id: 'fangtooth',    archetype: 'fast',   name: 'Fangtooth',    hpMul: 0.9, speedMul: 1.08, flags: ['dashBurst'] },
+    { id: 'siphonophore', archetype: 'tank',   name: 'Siphonophore', hpMul: 1.9, speedMul: 0.62, xpMul: 0.7, flags: ['split'] },
   ],
-  eliteFlags: ['webZone'],
+  // NO elite behaviour flag (R2.4): `webZone` existed for the hagfish's slime and nothing here
+  // produces slime. Elites still roll affixes (ELITE_AFFIXES); this only stops a chapter flag being
+  // pushed on top. `[]` is the Garden's shipped shape (config.js ~6241), so it is a legal value.
+  eliteFlags: [],
 
   // The wreck field. Ships, containers and drums lying on the bottom — big and sparse, the Reef's
   // size class rather than the Shelf's, because the fantasy is swimming BETWEEN hulls rather than
@@ -8860,7 +8865,8 @@ CHAPTERS.deep = {
     // The maw is NOT in the cast: `cast` is roster thumbnails (scripts/bake-cast.mjs bakes them
     // from ROSTER_LOOKS), and the anglerfish is no longer a roster entry. Its art lives in
     // T.maw instead — a whole animal ringing a 200px circle, which is not a 34px portrait.
-    cast: ['hagfish', 'viperfish', 'gulper'],
+    // Three, like every chapter card; the barreleye is off the card (R2.6) — swap at the assets check.
+    cast: ['lanternfish', 'fangtooth', 'siphonophore'],
     form: 'fish',   // the shark, and the same size as every other chapter's fish
     bgColor: 0x03101d,
     floorTint: 0x6f8ea6,
@@ -8869,12 +8875,6 @@ CHAPTERS.deep = {
     tailTint: 0x9fc4dc,
     eliteIridescent: [0xa8d8f0, 0xc9e4f4, 0xbcd6cc],
     darkTint: 0x000305,
-    // The hagfish's slow patch is SLIME, not silk. `webZone` is a chapter-agnostic flag whose only
-    // art was the garden spider's orb web, and the first probe frame of this chapter came back with
-    // the abyssal plain under giant white spider webs — the loudest thing on a screen whose premise
-    // is that there is almost no light. Render-only: the radius, the slow and the mechanic are
-    // byte-identical to the garden's, and only the drawing changes (see syncWebs).
-    webLook: 'slime',
     // Marine snow, thinner and slower than The Trawl's: less of it survives this far down, and what
     // does is falling through water nothing is stirring.
     dust: { tint: 0xb8ccdc, alpha: 0.28, speedMul: 0.1, sway: 4 },

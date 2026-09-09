@@ -17338,72 +17338,16 @@ const spurG = new Graphics()
     g.stroke({ width: 0.8, color: 0xeef6fb, alpha: 0.7, cap: 'round' })
     return bake(g)
   })()
-  // SLIME, for The Deep's hagfish (run.webs again — same mechanic, same array, different animal).
-  //
-  // ⚠ THIS EXISTS BECAUSE AN FX BAKED FOR ONE BIOME IS WRONG ON THE NEXT ONE, and the first probe
-  // frame of The Deep is the evidence: the abyssal plain was covered in GIANT WHITE ORB-WEAVER
-  // WEBS, because `webZone` is a chapter-agnostic flag and the only art it had was a garden
-  // spider's. Nothing throws, no test can see it, and it was the loudest thing on a screen whose
-  // whole premise is that there is almost no light. A hagfish's slow patch is MUCUS: a low
-  // irregular sheet with no hub, no spokes and no rings — every one of which is a structure a
-  // spider builds and a hagfish cannot.
-  const SLIME_BAKE_RIM = 144
-  const slimeTex = (() => {
-    const g = new Graphics()
-    const R = SLIME_BAKE_RIM
-    // An irregular lobed outline rather than a circle: slime spreads by flowing, so its edge is
-    // uneven and its centre is wherever it landed.
-    const lobe = (scale, alpha, color) => {
-      const pts = []
-      for (let i = 0; i < 26; i++) {
-        const a = (i / 26) * Math.PI * 2
-        const rr = R * scale * (0.82 + hash(i * 3.7 + scale * 11) * 0.32)
-        pts.push(Math.cos(a) * rr, Math.sin(a) * rr)
-      }
-      g.poly(pts).fill({ color, alpha })
-    }
-    // ⚠ THESE ALPHAS ARE FOR THE STACK, NOT FOR ONE PATCH. Slime patches overlap heavily (a hagfish
-    // lays one every few seconds while it walks), and alpha compounds — the first cut used
-    // 0.20/0.16/0.14, which reads correctly in isolation and piles into a bright pale MASS around
-    // the player in a chapter whose premise is near-total darkness. Judge this on a frame with
-    // several overlapping, never on one.
-    lobe(1.0, 0.11, 0xbfe0d2)
-    lobe(0.78, 0.09, 0xd6efe2)
-    lobe(0.5, 0.08, 0xeafaf2)
-    // Strands: a hagfish's slime is famously FIBROUS — it comes out in threads that catch. A few
-    // long meandering ones, not a radial set, so it never reads as a wheel.
-    for (let i = 0; i < 7; i++) {
-      const a0 = hash(i * 5.3 + 1.7) * Math.PI * 2
-      const a1 = a0 + 1.4 + hash(i * 2.9) * 1.8
-      const r0 = R * (0.25 + hash(i * 7.1) * 0.55)
-      const r1 = R * (0.35 + hash(i * 4.4) * 0.6)
-      g.moveTo(Math.cos(a0) * r0, Math.sin(a0) * r0)
-        .quadraticCurveTo(0, 0, Math.cos(a1) * r1, Math.sin(a1) * r1)
-        .stroke({ width: R * 0.018, color: 0xe8fbf3, alpha: 0.32, cap: 'round' })
-    }
-    // Trapped bubbles — the one detail that says "this is a fluid" rather than "this is a stain".
-    for (let i = 0; i < 12; i++) {
-      const a = hash(i * 9.1 + 4.2) * Math.PI * 2
-      const d = R * hash(i * 6.6 + 2.2) * 0.85
-      g.circle(Math.cos(a) * d, Math.sin(a) * d, R * (0.014 + hash(i * 3.3) * 0.026))
-        .fill({ color: 0xf4fffb, alpha: 0.2 })
-    }
-    return bake(g)
-  })()
-
   const webPool = []
   function acquireWeb() {
     const spr = new Sprite(webTex.tex); spr.anchor.set(webTex.ax, webTex.ay)
     webLayer.addChild(spr)
     return { root: spr, spr }
   }
-  // `slimy` is a RENDER-ONLY chapter flag (CHAPTERS[].render.webLook), so the mechanic, its radius
-  // and its slow are byte-identical in both chapters and only the drawing changes — which is the
-  // whole contract the `render` block exists to keep.
-  function syncWebs(list, slimy = false) {
+  function syncWebs(list) {
     const n = list.length
-    const look = slimy ? slimeTex : webTex
-    const rim = slimy ? SLIME_BAKE_RIM : WEB_BAKE_RIM
+    const look = webTex
+    const rim = WEB_BAKE_RIM
     while (webPool.length < n) webPool.push(acquireWeb())
     for (let i = 0; i < n; i++) {
       const wv = webPool[i]
@@ -22296,7 +22240,7 @@ const spurG = new Graphics()
     syncGates(run)    // ...and the circuit's checkpoints and start line (no-op unless `circuit`)
     syncPolyps(run)   // ...and Fire Coral burning on them (no-op unless the card is held)
     syncTrails(run.trails || [])
-    syncWebs(run.webs || [], CHAPTERS[run.chapter]?.render?.webLook === 'slime')
+    syncWebs(run.webs || [])
     // v7.x surf: the dry patches. `|| []` like every field above — a save or a test run predating
     // the chapter has no run.sandbars at all.
     // sandbarTex is a LIST now (one bake per outline) — the pool's default texture is the first, and
