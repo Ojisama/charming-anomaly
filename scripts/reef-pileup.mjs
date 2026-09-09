@@ -42,7 +42,7 @@ function makeMeta() {
 
 const ch = CHAPTERS.reef
 const scroll = laneScrollFor(ch)
-console.log(`reef, d3, ${SECS}s x ${SEEDS.length} seeds, starter-only, immortal player, stick {0.4,0.2}`)
+console.log(`reef, d3, ${SECS}s x ${SEEDS.length} seeds, no weapon, immortal player, stick {0.4,0.2}`)
 console.log(`  scroll ${scroll}px/s   visible astern ${BEHIND_PX.toFixed(0)}px (${PHONE_W}px phone, LANE_CAMERA_FRAC ${LANE_CAMERA_FRAC})`)
 console.log(`  roster closing speed vs the player's own ${scroll}px/s advance:`)
 // ARCHETYPE_TYPE, not the roster's own word: a roster entry says normal/fast/tank and ENEMIES is

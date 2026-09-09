@@ -1564,10 +1564,12 @@ function testAnomalySlate() {
               // into two.
               const arms = Math.max(1, o.arms ?? 1)
               for (let k = 0; k < arms; k++) {
-                // `i` is Fire Coral's ridge INDEX, and it is the shape here for the same reason
-                // `angle` is a beam's: a lit ridge has no x/y at all (it is a band across the
-                // lane, addressed by index), so position alone reads three DIFFERENT ridges as
-                // one thing and waves the card through — the exact failure this key exists for.
+                // `i` was Fire Coral's ridge INDEX (the weapon is deleted; the `o.i ?? ''` guard
+                // stays for whatever entity next addresses itself by index instead of x/y) — it
+                // existed for the same reason `angle` is a beam's: a lit ridge had no x/y at all
+                // (it was a band across the lane, addressed by index), so position alone would
+                // have read three DIFFERENT ridges as one thing and waved the card through — the
+                // exact failure this key exists to catch.
                 seen.add(`${key}:${Math.round(o.x)},${Math.round(o.y)},${(o.angle ?? 0).toFixed(2)},${Math.round(o.radius ?? o.r ?? 0)},i${o.i ?? ''},arm${k}`)
               }
             }
@@ -7111,7 +7113,12 @@ function runModBudget() {
   // what happened. The Reef joined the day its natives landed, not the day someone noticed, and
   // The Wreck joined the day its pool was reworked (2026-09-05) — where the failure was not an
   // empty weapon but five cards that were the same card twice and three aimed at a creature the
-  // chapter had already cut by 70%.
+  // chapter had already cut by 70%. The Trawl joined this sweep on 2026-09-09 having already
+  // shipped its four apiece days earlier (longline/netToss 2026-09-04, bringItIn 2026-09-03) — the
+  // gap here was in the SWEEP, not the arsenal. The Deep joined the same day for the opposite
+  // reason: the Twilight merge brought three natives with a shipped budget (Sunspear/Foxfire/
+  // Sunlance) but a fourth, Glint, that needed its own four mods authored from nothing (§6.2 of
+  // the merge design doc) before this floor could hold for the whole chapter.
   {
     const rows = []
     for (const ch of ['surf', 'shelf', 'reef', 'wreck', 'trawl', 'deep']) {
@@ -11290,6 +11297,16 @@ function runRosterArt() {
   // still bake fine, still sit in the look table, and the body simply never punches the dark scrim —
   // no throw, no missing texture, just a lit fish rendering as a dark body like any other.
   assert.ok(/ROSTER_LOOKS\[e\.rosterId\]\?\.glow/.test(src), "updateDark no longer reads `.glow` off ROSTER_LOOKS — the lanternfish's own light is inert and it renders as a dark body like any other")
+
+  // THE WRITER SIDE OF THAT SAME CONTRACT. The assert above only proves updateDark still READS
+  // `.glow` — it says nothing about whether the lanternfish's own entry still SUPPLIES one. Delete
+  // `glow` from ROSTER_LOOKS.lanternfish and that read is still there, still true, still matching
+  // nothing: the fish bakes fine, sits in the look table, and simply never punches the dark scrim —
+  // no throw, no missing texture, just a lit fish rendering as a dark body like any other, and the
+  // balance_decision line beside it in render.js measures nothing.
+  const lanternfish = block.match(/^ {4}lanternfish:\s*\{[^}]*\}/m)
+  assert.ok(lanternfish && /glow:\s*\{[^}]*frac:\s*[\d.]+[^}]*\}/.test(lanternfish[0]),
+    'ROSTER_LOOKS.lanternfish must still declare glow: { ... frac: <number> ... } — without it the lanternfish renders as a dark body like any other and updateDark has nothing to read')
 
   console.log(`PASS run RA (roster art): ${looks.size} baked looks cover all ${rosters} roster entries across ${ALL_IDS.length} chapters, all ${thumbs} title-card thumbnails exist on disk, and the side-on jelly is lean 90 with its apex forward`)
 }

@@ -5,6 +5,7 @@
 **Executes:** §6.2 of `2026-08-13-book-2-undertow-design.md` (the Clarity / murk retint), specced
 2026-08-13 and never built
 **Amends:** §5 of the same document (five chapters → six; see §7)
+**Status:** superseded in part by `2026-09-09-deep-twilight-merge-design.md` (2026-09-09): the chapter, its roster and Fin Hit merged into The Deep
 
 **Revision history.** Rev 1 was reviewed by three adversarial passes (design, fact-check, silent
 failure) and came back with a RETHINK, thirteen false or overstated claims, and fifteen silent

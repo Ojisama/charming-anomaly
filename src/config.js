@@ -2170,7 +2170,7 @@ export const WEAPONS = {
       { dmg: 22, tick: 0.16, interval: 4.5, radius: 215 * 0.8, duration: 2.6, pull: 215 },
     ],
   },
-  // -- The Deep's three natives ---------------------------------------------------------------
+  // -- The Deep's four natives ----------------------------------------------------------------
   // The chapter is one resource seen from four sides. `resource` (CHAPTERS.deep) is the Light bar
   // that drains in the dark and refills only at an anglerfish maw, and until this pool it bought
   // exactly one thing: Scent. These four make it a BUILD decision as well as a timer — the starter,
@@ -2228,7 +2228,7 @@ export const WEAPONS = {
     //                      L1 eff  L5 eff  L5 waste  L5 dud
     //   Breaker                63     106       45%     11%   the book's other BURST starter
     //   Longline               73     156       11%      4%   the book's other starter, a grinder
-    //   Sunspear (shipped)     56     123       29%      6%
+    //   Sunspear (pre-doubling, --chapter shelf)  56    123      29%     6%
     //   Barnacles              19     114        9%      2%   the rare band, for scale
     //   Net Toss               65     111       34%      2%
     //
@@ -2293,7 +2293,9 @@ export const WEAPONS = {
     // gloom 1.535/1.463/1.274 — HIGHER than the Shelf's own tuned play point (1.174 at a mean charge
     // of 63%-dark), and free of the Shelf's move-speed cost (`speedFloor: 1` here). That trade is
     // gone; what the bar buys here is the Scent's shove and its duration.
-    // balance_decision : base stays at the bottom of the rare band this pass, owner to rule — censused as the only weapon at charge 30 (gloom 1.24) it read 81 eff under Glint's 104; at the real bar (gloom 1.27-1.54) it reads ABOVE 81 [2026-09-09]
+    // balance_decision : base stays at the bottom of the rare band this pass, owner to rule [2026-09-09]
+    //  - censused as the only weapon at charge 30 (gloom 1.24): 81 eff under Glint's 104; at the
+    //    real bar (gloom 1.27-1.54) it reads ABOVE 81
     levels: [
       { dmg: 4,  interval: 3.00, maxR: 54, glowDur: 2.4, castRange: 280 },
       { dmg: 5,  interval: 2.85, maxR: 59, glowDur: 2.6, castRange: 295 },
@@ -2344,7 +2346,7 @@ export const WEAPONS = {
     name: 'Glint',
     desc: `Flings a dart of light at what is nearest. Each cast costs ${GLINT_LIGHT_COST} Light.`,
     icon: '✨', rarity: 'normal',
-    // balance_decision : no retune, pool-leading 104 eff censused as the only weapon at charge 14 (its own cost is the only drain), opens behind Sunspear at L1 (18 vs 57) [2026-09-09]
+    // balance_decision : no retune, pool-leading 104 eff censused as the only weapon at charge 14 (its own cost on top of the chapter's drain), opens behind Sunspear at L1 (18 vs 57) [2026-09-09]
     //  - full 4-card table: commit 9036eb3 body, spec 2026-09-09-deep-twilight-merge-design.md §6
     levels: [
       { dmg: 12, interval: 0.55, count: 1, speed: 480, pierce: 1 },
@@ -4659,6 +4661,10 @@ export const PRISM_FLASH_T = 0.26
 // bright frame anywhere; its own `snap` entry (ramp 0.03, fade 0) went with it.
 // Every look through placeBeam is here or falls to `default`: rainbow and pulsarSweep push no
 // `look` at all, and 'sunlance' keeps the default deliberately (0.40s duration, already fine).
+// `snap` left with the Pistol Shrimp's crack, so this table holds only `default` again — but it
+// stays a per-look TABLE rather than collapsing to a bare {ramp,fade} pair, because placeBeam on
+// every live chapter still does `BEAM_ENVELOPE[b.look] ?? BEAM_ENVELOPE.default`: the hook is kept
+// with its one key for the next beam whose life is short enough to need its own ramp/fade.
 export const BEAM_ENVELOPE = Object.freeze({
   default: Object.freeze({ ramp: 0.12, fade: 0.30 }),
 })

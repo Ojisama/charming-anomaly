@@ -39,7 +39,7 @@ GAPES.forEach((gp, i) => {
 run.charge = CHARGE
 
 const layout = () => {
-  // The crowd shoved well clear: this frame is about the maw, and a hagfish parked in one of them
+  // The crowd shoved well clear: this frame is about the maw, and an enemy parked in one of them
   // is a different question (and one the chapter answers on its own).
   H.place((i, p) => ({ x: p.x - 240 + i * 96, y: p.y + 420 }))
 }

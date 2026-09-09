@@ -4,9 +4,10 @@
 //
 //   node scripts/fx-probe.mjs --scene scripts/scenes/deep-cast.js --chapter deep --out /tmp/dc --frames 2
 //
-// rosterId is overridden rather than waiting for a spawn, and RADIUS with it — see twilight-cast.js
-// (now gone) for why: WAVE_TABLE gates the tank to t=140s, and syncEnemies draws at
-// e.radius / look.baseR, so a bred drone relabelled as the tank renders at 16/26 of its size.
+// rosterId is overridden rather than waiting for a spawn, and RADIUS with it — this was also true of
+// twilight-cast.js, the Twilight's own cast sheet before the 2026-09-09 merge (deleted, roster now
+// lives here): WAVE_TABLE gates the tank to t=140s, and syncEnemies draws at e.radius / look.baseR,
+// so a bred drone relabelled as the tank renders at 16/26 of its size.
 const IDS = [['lanternfish', 16], ['barreleye', 16], ['fangtooth', 12], ['siphonophore', 26]]
 
 H.breed(8)

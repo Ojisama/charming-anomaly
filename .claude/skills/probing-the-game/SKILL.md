@@ -260,7 +260,7 @@ extension connected. Both can be unavailable at once. Fallbacks, in order:
 
 ## Two probes with a rig that lies, and the wide-area view (moved out of CLAUDE.md)
 
-- **`scripts/charge-probe.mjs` — what a chapter RESOURCE bar (The Twilight's Light) actually does** over
+- **`scripts/charge-probe.mjs` — what a chapter RESOURCE bar (The Deep's Light) actually does** over
   real 300s runs, across THREE axes: spend policy, MOVEMENT policy, and whether Light Thief is
   bought. One spend policy cannot tell "the bar cannot fill" from "this player spent it all" — a
   greedy player pins the bar at zero under every tune there is, which is what the first cut of this

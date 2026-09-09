@@ -55,10 +55,10 @@ const MAX_SECS = 300   // safety valve only — every policy below either finish
                         // clock well under this; a run that hits it prints 'timeout', not a number
 // FIXED, and the first three are the same list reef-pileup.mjs uses (reef-astern.mjs used them too,
 // before it was deleted 2026-09-09) so a row here can be compared with a row there. --seeds=N takes
-// the first N of the extended list: three is enough to
-// rank two tracks against each other, but NOT enough to call a ladder monotone — a policy sitting on
-// the edge of the clock flips a whole 1/3 on one seed, which reads as a rung being easier than the
-// one below it. Ask for six before quoting a gradient.
+// the first N of the extended list: three is enough to rank two tracks against each other, but NOT
+// enough to call a ladder monotone — a policy sitting on the edge of the clock flips a whole 1/3 on
+// one seed, which reads as a rung being easier than the one below it. Ask for six before quoting a
+// gradient.
 const ALL_SEEDS = [1001, 2002, 3003, 4004, 5005, 6006, 7007, 8008]
 const SEED_N = Number(process.argv.find((a) => a.startsWith('--seeds='))?.slice(8) ?? 3)
 if (!Number.isFinite(SEED_N) || SEED_N < 1 || SEED_N > ALL_SEEDS.length) {

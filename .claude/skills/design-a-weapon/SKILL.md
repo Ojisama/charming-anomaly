@@ -254,7 +254,7 @@ always "the feature seems to do nothing".
 
 - **A SHARED ENTITY ARRAY HAS MORE RENDER CONSUMERS THAN THE ONE YOU EDITED.** `run.lobs` has
   THREE — `syncLobs` (the thrown-object rig), `redrawHazards` (the amber landing ring), and now
-  `drawColumns` — and nothing about the array says so. The Twilight's Sunspear reused `run.lobs`, was
+  `drawColumns` — and nothing about the array says so. The Deep's Sunspear reused `run.lobs`, was
   filtered out of `syncLobs`, and still came back wearing a Debris Toss landing ring: two telegraphs
   on one strike, which read as "the effect looks like soap bubbles" rather than as a missed site.
   **Reading the render code named the wrong culprit twice; one ablation pass (hide the layer, shoot

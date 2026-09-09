@@ -188,9 +188,12 @@ same edit.
 Four measurements, run against the shipped tree (HEAD at the time, `f8e9c3c` plus Tasks 1-7), each
 recorded a second time in `src/config.js` as one `balance_decision` line beside the number it bears
 on (the full tables live here and in the commit bodies of `9036eb3` and the fix-round commit, per
-this repo's convention that reasoning goes in the commit, not the comment). The roster probe's
-fences are pasted whole; the census and charge-probe fences are TRIMMED to the columns a decision
-reads, and the §6.2 block merges two separate runs — the full output lives in the commit bodies.
+this repo's convention that reasoning goes in the commit, not the comment). None of the fences
+below is a raw paste: the roster fences drop the script's own first `src=` line; the census fence
+keeps every column but drops the preamble (`chapter deep ..., one weapon equipped, all offers
+refused` and the `--- level 5 ---` header); the charge-probe fence is TRIMMED to the columns a
+decision reads AND REORDERED (`%DARK` moved ahead of `%inRefill`) against the script's own column
+order. The §6.2 block also merges two separate runs — the full output lives in the commit bodies.
 
 **§6.4/R2.2 — the pool, one invocation** (relabelled from §6.1 — §6.1 itself, a Foxfire census with
 the bar PINNED at empty and at full, was never run: `scripts/weapon-census.mjs` has no flag to pin

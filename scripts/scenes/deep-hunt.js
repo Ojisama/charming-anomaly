@@ -44,11 +44,6 @@ if (target) {
   target = nearest() || target
 }
 
-// The bred hagfish lay a slime patch every few seconds, so a warmed-up field is CARPETED in them —
-// honest, and it buries the one thing this frame exists to judge. Two is enough to see slime beside
-// a lure without the lure being under it.
-if (run.webs) run.webs.length = Math.min(run.webs.length, 2)
-
 run.charge = CHARGE
 
 const d = target ? Math.round(Math.hypot(target.x - run.player.x, target.y - run.player.y)) : -1
@@ -57,7 +52,6 @@ H.note(`${run.chapter} charge=${Math.round(run.charge)} maws=${run.shafts.length
   `enemies=${run.enemies.length} viewR=${Math.round(run.viewRadius)}`)
 
 return () => {
-  if (run.webs) run.webs.length = Math.min(run.webs.length, 2)
   for (const e of crowd) e.hitFlash = 0
   run.player.invuln = 0
   run.charge = CHARGE

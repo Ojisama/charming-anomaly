@@ -12183,7 +12183,7 @@ function stepNetTossWeapon(run, w, stats, fireRateMul, dt) {
   })
 }
 
-// ---- The Deep's three natives (v7.x) ------------------------------------------------
+// ---- The Deep's four natives (v7.x) -------------------------------------------------
 // See the block at the end of WEAPONS in config.js for the design, and in particular for why the
 // two rares are allowed to read run.charge when resourceDamageMul's own block says Book 2 spent
 // that licence on The Surf. None of the three adds a run.* array.

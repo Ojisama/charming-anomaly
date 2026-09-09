@@ -77,14 +77,39 @@ const LOOKS = (() => {
   return new Set([...RENDER.slice(start, end).matchAll(/^ {4}(\w+):\s*\{/gm)].map(m => m[1]))
 })()
 
+// Where a chapter's own declaration starts. Book 1 chapters sit as nested properties inside the
+// original `export const CHAPTERS = { body: {...}, ... }` literal (`\n  id: {`); every Book 2
+// chapter was added later as its own top-level `CHAPTERS.id = {` assignment instead, which the
+// nested pattern cannot see — the fallback here is that second syntax.
+function chapterDeclAt (id, from = 0) {
+  const nested = CONFIG_RAW.indexOf(`\n  ${id}: {`, from)
+  const dotted = CONFIG_RAW.indexOf(`\nCHAPTERS.${id} = {`, from)
+  if (nested < 0) return dotted
+  if (dotted < 0) return nested
+  return Math.min(nested, dotted)
+}
+
+// Where `id`'s own literal closes, counting braces from its opener. This is the END fallback for
+// whichever chapter is declared LAST in the file — currently `deep`, the newest one — where no
+// sibling comes after it to bound the slice against. Without this, that chapter's slab ran to
+// EOF and counted every OTHER chapter's own balance_decision comments too.
+function chapterDeclEnd (start) {
+  let depth = 0
+  for (let i = start; i < CONFIG_RAW.length; i++) {
+    if (CONFIG_RAW[i] === '{') depth++
+    else if (CONFIG_RAW[i] === '}' && --depth === 0) return i + 1
+  }
+  return CONFIG_RAW.length
+}
+
 // The chapter's own slab of config.js, for balance_decision hunting.
 function configSlab (id) {
-  const start = CONFIG_RAW.indexOf(`\n  ${id}: {`)
+  const start = chapterDeclAt(id)
   if (start < 0) return ''
-  let end = CONFIG_RAW.length
+  let end = chapterDeclEnd(start)
   for (const k of Object.keys(CHAPTERS)) {
     if (k === id) continue
-    const at = CONFIG_RAW.indexOf(`\n  ${k}: {`, start + 1)
+    const at = chapterDeclAt(k, start + 1)
     if (at > start && at < end) end = at
   }
   return CONFIG_RAW.slice(start, end)
