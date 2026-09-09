@@ -6835,7 +6835,8 @@ CHAPTERS.twilight = {
     //    number because the derivation is the same one (cycle = idle + dash, doubled).
     { id: 'krill',   archetype: 'fast',   name: 'Krill',      hpMul: 1,   speedMul: 1,   flags: ['dashBurst'],
       dash: { restMul: 2.48, lenMul: 0.5, spdMul: 0.5 } },
-    { id: 'gulper',  archetype: 'tank',   name: 'Gulper Eel', hpMul: 1.9, speedMul: 0.62, flags: ['latch'] },
+    // STOPGAP (2026-09-09): wears the Deep's siphonophore bake until this whole block is deleted in the merge plan's Task 4.
+    { id: 'siphonophore',  archetype: 'tank',   name: 'Siphonophore', hpMul: 1.9, speedMul: 0.62, flags: ['latch'] },
   ],
 
   // 95° — see the TIDE block for how the six bearings are spread.
@@ -6948,7 +6949,7 @@ CHAPTERS.twilight = {
   // which means moving The Deep's 1.7 — out of scope for this change. Recorded so the next edit to
   // that ladder knows why this rung is cramped.
   render: {
-    cast: ['copepod', 'krill', 'gulper'],
+    cast: ['copepod', 'krill', 'siphonophore'],
     form: 'fish',
     bgColor: 0x04192e,     // mid-water: no surface above, no floor below
     floorTint: 0x80a0b8,   // one stop under The Trawl's 0x93b6cc, one above The Deep's 0x6f8ea6
