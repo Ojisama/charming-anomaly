@@ -1265,6 +1265,20 @@ const CONFIG = {
   'lance width': 'largeur de la lance',
   'Held Lance': 'Lance Maintenue',
   'how long the lance is held': 'durée de maintien de la lance',
+  // The Deep's starter (2026-09-09). DRAFTS pending the owner's review.
+  'Glint': 'Lueur',
+  // The desc is a template on the JS side (config.js bakes GLINT_LIGHT_COST into it), so per the
+  // Sunspear/Trawl precedent the KEY is the RENDERED English sentence, not a {n} placeholder form —
+  // change GLINT_LIGHT_COST and this key goes stale together with the English, and run XX says so.
+  'Flings a dart of light at what is nearest. Each cast costs 1 Light.': 'Lance un dard de lumière sur ce qui est le plus proche. Chaque tir coûte 1 Lumière.',
+  'Bright': 'Vive',
+  'dart damage': 'dégâts du dard',
+  'Keen Light': 'Lumière Acérée',
+  'dart pierce': 'perforation du dard',
+  'Second Glint': 'Seconde Lueur',
+  'extra dart(s) per cast': 'dard(s) en plus par tir',
+  'Quick Glint': 'Lueur Rapide',
+  // 'cast rate' already exists in the dictionary (Foxfire's quickKindle) — not duplicated here.
   'Grinder': 'Râpe',
   'crust damage per tick': 'dégâts de la croûte par tick',
   'Encrust': 'Incrustation',

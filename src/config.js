@@ -1304,6 +1304,18 @@ export const FISH_BODY = {
 // crossing the one-shot line.
 export const HURT_CAP_FRAC = 0.5
 
+// GLINT (The Deep's starter, 2026-09-09). Light spent per CAST, whatever the dart count; clamped at
+// zero at the fire site, and the weapon fires at zero — spec 2026-09-09-deep-twilight-merge §3.1.
+// Per cast rather than per dart so levelling adds darts, not cost (~1.8-3 Light/s across the
+// ladder against the chapter's own 2.0/s ambient drain).
+//   Declared HERE, ahead of WEAPONS, rather than beside STAR_FAN/STAR_LIFE below (where the task
+// brief for this weapon first placed it) for the same reason HUMIDITY_DMG_FLOOR sits ahead of
+// CHAPTERS: WEAPONS.glint.desc references it inside a template literal, and a const referenced
+// inside an object literal must already be initialized. STAR_FAN/STAR_LIFE/STAR_R sit AFTER
+// WEAPONS closes, so a const declared beside them is still in the TDZ while WEAPONS's own literal
+// is being built — `node -e` confirms this throws ReferenceError, not a silent wrong value.
+export const GLINT_LIGHT_COST = 1
+
 // ---- Weapons ----------------------------------------------------------------
 // levels[i] applies at weapon level i+1 (cumulative object replaces stats).
 export const WEAPONS = {
@@ -2311,6 +2323,27 @@ export const WEAPONS = {
       { dmg: 14, interval: 1.96, length: 455, width: 32, duration: 0.40, tick: 0.13 },
       { dmg: 17, interval: 1.84, length: 505, width: 35, duration: 0.40, tick: 0.13 },
       { dmg: 21, interval: 1.70, length: 560, width: 38, duration: 0.40, tick: 0.13 },
+    ],
+  },
+  // -- The Deep's starter (2026-09-09) ------------------------------------------------------------
+  // Owner: "a mimic of chapter 1-1, just a small light projectile. Costs 1 light to fire." This is
+  // Spike Protein's ladder in light: a dart at the nearest body, `count` rising with level, pierce,
+  // speed. It reads the bar ONCE, as ammo — GLINT_LIGHT_COST per cast — and never for damage or
+  // reach (the Foxfire/Sunlance pair own the bar's two ends). At zero Light it still fires and the
+  // bar simply cannot go lower: blind, never unarmed.
+  // NAMES THE BAR in the HUD's own word ('Light'), the Sunlance idiom.
+  glint: {
+    name: 'Glint',
+    desc: `Flings a dart of light at what is nearest. Each cast costs ${GLINT_LIGHT_COST} Light.`,
+    icon: '✨', rarity: 'normal',
+    // ⚠ UNMEASURED FIRST CUT: Spike Protein's numbers with the fan one dart narrower at L5, so the
+    // chapter's opening is Book 1's opening. Task 8 censuses it beside Sunspear.
+    levels: [
+      { dmg: 12, interval: 0.55, count: 1, speed: 480, pierce: 1 },
+      { dmg: 14, interval: 0.50, count: 2, speed: 480, pierce: 1 },
+      { dmg: 16, interval: 0.45, count: 2, speed: 500, pierce: 2 },
+      { dmg: 19, interval: 0.40, count: 3, speed: 520, pierce: 2 },
+      { dmg: 24, interval: 0.34, count: 3, speed: 560, pierce: 3 },
     ],
   },
   // ---- The Shelf's three natives (v7.x) -------------------------------------------------
@@ -4223,6 +4256,15 @@ export const WEAPON_MODS = {
     broadEdge: { name: 'Broad Edge', desc: 'lance width', icon: '🪭', base: 0.28, kind: 'pct' },
     heldLance: { name: 'Held Lance', desc: 'how long the lance is held', icon: '⌛', base: 0.25, kind: 'pct' },
   },
+  // Glint's four (2026-09-09). Spike Protein's axes in light. NONE touches the Light cost — a mod
+  // that discounted or refunded it would sell the bar back as a card, the line the Twilight's mods
+  // held ("none of them buys the BAR"). Display names checked against fr.js for collisions.
+  glint: {
+    bright:      { name: 'Bright',       desc: 'dart damage', icon: '💥', base: 0.30, kind: 'pct' },
+    keenLight:   { name: 'Keen Light',   desc: 'dart pierce', icon: '🎯', base: 1, kind: 'flat', maxPicks: PIERCE_MAX_PICKS },
+    secondGlint: { name: 'Second Glint', desc: 'extra dart(s) per cast', icon: '💫', kind: 'tier' },
+    quickGlint:  { name: 'Quick Glint',  desc: 'cast rate', icon: '⏩', base: 0.25, kind: 'pct' },
+  },
   finHit: {
     serrated:  { name: 'Serrated',   desc: 'fin damage', icon: '💥', base: 0.30, kind: 'pct' },
     broadFin:  { name: 'Broad Fin',  desc: 'how wide the sweep is', icon: '📐', base: 0.22, kind: 'pct' },
@@ -4258,7 +4300,7 @@ export const WEAPON_RATE_MODS = {
   atomicBreath: 'quickBreath', skippingShell: 'fastSkim', finHit: 'thrash', foxfire: 'quickKindle',
   breaker: 'quickBreak', ballast: 'quickWinch', siltVeil: 'quickStir', downwash: 'quickPour',
   pistolShrimp: 'quickSnap', fireCoral: 'quickWake', squidInk: 'quickInk', oxygenTank: 'quickTank',
-  bringItIn: 'quickReel', screw: 'overspeed',
+  bringItIn: 'quickReel', screw: 'overspeed', glint: 'quickGlint',
   // chum and bilge are absent DELIBERATELY: neither carries a rate mod, and this table's own
   // header says a weapon with none simply does not appear here. Naming one that does not exist
   // would put a phantom row in the pause build sheet's cadence line.

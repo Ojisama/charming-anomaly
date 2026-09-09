@@ -9888,6 +9888,30 @@ export function createRenderer(app) {
       c.addChild(glow, star, star2)
       T.bullet = bakeComposite(c)
     }
+    // glint dart (The Deep, 2026-09-09): the star bullet's SHAPE, baked in the chapter's own cold
+    // light instead of Spike Protein's amber. A live re-tint of T.bullet cannot get there — Pixi's
+    // sprite.tint is a per-channel MULTIPLY against the baked pixels, and 0xffb347/0xff9d1a both
+    // have a near-zero blue channel, so no tint can raise it back out; a probe frame confirmed the
+    // dart still reads gold, not light, with placeBullet tinting the shared T.bullet.tex. Its own
+    // small bake, tinted at BUILD time, is the fix — same glyphs, same sizes, cold tint baked in.
+    {
+      const c = new Container()
+      const glow = new Sprite(T.fx.flare_01)
+      glow.anchor.set(0.5)
+      glow.tint = 0xbfefff
+      glow.alpha = 0.8
+      glow.scale.set(fxScale(T.fx.flare_01, 44))
+      const star = new Sprite(T.fx.star_04)
+      star.anchor.set(0.5)
+      star.tint = 0x8fe0ff
+      star.scale.set(fxScale(T.fx.star_04, 30))
+      const star2 = new Sprite(T.fx.star_04)
+      star2.anchor.set(0.5)
+      star2.tint = 0x8fe0ff
+      star2.scale.set(star.scale.x)
+      c.addChild(glow, star, star2)
+      T.glint = bakeComposite(c)
+    }
     // orbit spark: mint/teal diamond sparkle, tinted live (see placeOrb)
     {
       const tex = T.fx.magic_05
@@ -22390,6 +22414,17 @@ const spurG = new Graphics()
       s.tint = 0xe9dcc6
       s.rotation = 0
       s.scale.set(0.55)
+      return
+    }
+    if (b.weapon === 'glint') {
+      // A dart of light: T.glint carries its own cold tint baked in (see buildFxTextures) — a live
+      // tint here on the shared T.bullet texture cannot reach it, so this is a small bake of its
+      // own, not a recolor of the star's. white, matching the boomerang's "carries its own colour"
+      // idiom, so a slot recycled from a warm-tinted pool member doesn't bleed into it.
+      if (s.texture !== T.glint.tex) { s.texture = T.glint.tex; s.anchor.set(T.glint.ax, T.glint.ay) }
+      s.tint = 0xffffff
+      s.rotation = Math.atan2(b.vy, b.vx)
+      s.scale.set(0.75)
       return
     }
     if (s.texture !== T.bullet.tex) { s.texture = T.bullet.tex; s.anchor.set(T.bullet.ax, T.bullet.ay) }

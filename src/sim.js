@@ -160,7 +160,7 @@ import {
   MARCH_SPEED_MUL, MARCH_SWAY_PX, MARCH_SWAY_RATE, MARCH_HOME_MUL,
   FORMATION_INTERVAL, FORMATION_COLS, FORMATION_AHEAD_MUL, FORMATION_AHEAD_MIN, FORMATION_ROW_PX, LANE_SPAWN_MUL, LANE_CONTACT_MUL, laneEarlyMul,
   REPULSE_CD, REPULSE_RADIUS, REPULSE_FORCE, REPULSE_STUN, PULSE_CHARGE_COST, PULSE_RADIUS_AT_FULL, PULSE_FORCE_AT_FULL, CLEAR_DUR_MIN, CLEAR_DUR_AT_FULL, CLEAR_SIGHT_FADE, CLEAR_RADIUS_AT_FULL, CLEAR_STUN, darkness, refillSpec, resourceDamageMul, refillGrantFor, pollutionFrac, RUNOFF_MAX_DMG_MUL, RUNOFF_SPEED_FLOOR, FOUL_SPRING_FOUL_T, SILT_PLUME_SPREAD, SILT_FLUSH_MUL, LOBE_SHAPES, inLobe, lobeFactor, SEPARATION_SAMPLES,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST, BUBBLE_COVER_MAX, BUBBLE_ARC_MAX, BALLAST_FLIGHT, BALLAST_BLIND_THROW, BALLAST_REACH_PAD,
   BALLAST_TANK_MUL, BALLAST_DRAG, BALLAST_DRAG_T,
   BURST_SPEED_MUL, BURST_DUR_MIN, BURST_DUR_AT_FULL, BURST_RAM_MUL, BURST_RAM_COINS, DROWN_TICK,
   SPUR_DPS, SPUR_TICK, SPUR_SLOW_MUL,
@@ -7960,6 +7960,9 @@ const WEAPON_STAT_MODS = {
   sunspear:      { highNoon: ['dmg', 'pct'], broadBeam: ['r', 'pct'], zenith: ['castRange', 'pct'], secondSun: ['count', 'flat'] },
   foxfire:       { emberfeed: ['dmg', 'pct'], gloaming: ['maxR', 'pct'], longBurn: ['glowDur', 'pct'] },
   sunlance:      { whetted: ['dmg', 'pct'], farReach: ['length', 'pct'], broadEdge: ['width', 'pct'], heldLance: ['duration', 'pct'] },
+  // Glint: `secondGlint` is a per-cast COUNT read at the fire site like star's multishot;
+  // `quickGlint` is in WEAPON_RATE_MODS. The other two fold.
+  glint:         { bright: ['dmg', 'pct'], keenLight: ['pierce', 'flat'] },
   // The Reef's two natives. `quickSnap`/`quickWake` are rate mods registered in
   // WEAPON_RATE_MODS (folding one into an interval would SLOW the weapon), and `backblast` and
   // `overgrowth` are switches read at their own fire sites. `moreRidges` folds as 'flat' onto a
@@ -8142,6 +8145,7 @@ function stepWeapons(run, dt) {
     else if (w.id === 'downwash') stepDownwashWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'foxfire') stepFoxfireWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'sunlance') stepSunlanceWeapon(run, w, stats, fireRateMul, dt)
+    else if (w.id === 'glint') stepGlintWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'finHit') stepFinHitWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'gnash') stepGnashWeapon(run, w, stats, fireRateMul, dt)
     else if (w.id === 'chum') stepChumWeapon(run, w, stats, fireRateMul, dt)
@@ -12429,6 +12433,40 @@ function stepSunlanceWeapon(run, w, stats, fireRateMul, dt) {
     }
     run.events.push({ type: 'sunlance', angle: aim, reach })
   })
+}
+
+// Glint. fireStar's shape in light (a run.bullets entry tagged weapon:'glint'), with ONE addition:
+// the cast spends GLINT_LIGHT_COST off run.charge, clamped at 0, BEFORE the darts leave — and it
+// fires whether or not there was Light to spend. Not chargeDrainMul (Slow Burn is about the
+// ambient drain, not ammo) and not a refill in reverse. Spec 2026-09-09-deep-twilight-merge §3.1.
+function stepGlintWeapon(run, w, stats, fireRateMul, dt) {
+  const quick = run.weaponMods.glint?.quickGlint ?? 0
+  fireOnTimer(run, w.id, stats.interval / (fireRateMul * (1 + quick)), dt, () => fireGlint(run, stats))
+}
+
+function fireGlint(run, stats) {
+  const p = run.player
+  run.charge = Math.max(0, run.charge - GLINT_LIGHT_COST)
+  const target = nearestEnemy(run)
+  const baseAngle = target ? Math.atan2(target.y - p.y, target.x - p.x) : (p.facing >= 0 ? 0 : Math.PI)
+  // ONE local for the count, used as the loop bound AND the fan divisor (the per-cast-count trap).
+  const count = ipecacN(run, stats.count + (run.weaponMods.glint?.secondGlint ?? 0))
+  for (let i = 0; i < count; i++) {
+    const angle = baseAngle + (i - (count - 1) / 2) * STAR_FAN
+    run.bullets.push({
+      x: p.x, y: p.y,
+      vx: Math.cos(angle) * stats.speed, vy: Math.sin(angle) * stats.speed,
+      dmg: stats.dmg, pierce: stats.pierce, life: STAR_LIFE, r: STAR_R, speed: stats.speed,
+      // _splitDone: true (not false) — EVERY other non-star weapon on run.bullets sets this to
+      // opt out of star's Split Stars, for the reason their own comments give: "they share
+      // run.bullets/stepBullets" and stepBullets's split check keys off this field, not b.weapon.
+      // No chapter pool holds both star and glint (Blank's union is Book 1 only), but the dev
+      // card menu ignores pool eligibility entirely, so the cross-weapon leak IS reachable there.
+      hitIds: new Set(), _shard: false, _splitDone: true, _chainsLeft: 0,
+      weapon: 'glint',
+    })
+  }
+  run.events.push({ type: 'shoot', weapon: 'glint' })
 }
 
 // -- The Reef's natives (v7.x) ------------------------------------------------------------------

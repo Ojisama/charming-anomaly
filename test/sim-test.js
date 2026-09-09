@@ -37,7 +37,7 @@ import {
   MAX_PASSIVE_LEVEL, MAX_ELEMENT_PICKS, passiveTotal,
   OBSTACLE_STREAM_RADIUS, OBSTACLE_DROP_RADIUS,
   FRENZY_HP_FRAC, PACER_RADIUS, ELITE, GILDED_COIN_MUL, NOVA_LIFE,
-  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_GLOW, SUNLANCE_REACH_MIN,
+  SUNSPEAR_FALL, SUNSPEAR_SPREAD, FOXFIRE_GLOOM, FOXFIRE_GLOW, SUNLANCE_REACH_MIN, GLINT_LIGHT_COST,
   WEAPONS, HOLE_SINGULARITY_FRAC, DOWNWASH_PLUNGE_N, DOWNWASH_PLUNGE_FRAC, DOWNWASH_PLUNGE_ARM,
   ORBIT_NOVA_RADIUS, WISP_NOVA_RADIUS, CRUNCH_DMG_MUL, UNDERTOW_VAC_RADIUS_PER_STACK,
   WEAPON_MODS, WEAPON_MOD_TIER_BONUS, MAX_WEAPON_MOD_PICKS, maxModsPerWeaponPerPool, PIERCE_MAX_PICKS,
@@ -23254,6 +23254,7 @@ function testTwilightWeapons() {
   testSunspear()
   testFoxfire()
   testSunlance()
+  testGlint()
 }
 
 // ---- run LL: Le Large's three natives (v7.x) --------------------------------------------------
@@ -23983,6 +23984,68 @@ function testFoxfire() {
     'the foxfire light and the cloud puffs no longer share one fade — the light can now outlive its own fire')
 
   console.log(`PASS run SH.b (foxfire): the band ${lvl.maxR}-${(lvl.maxR * FOXFIRE_GLOOM).toFixed(0)}px catches 0/${lit.of} at a full bar and ${dark.burned}/${dark.of} at an empty one, neither cast slows anything, and the cloud punches the dark it is cast into (lit ${FOXFIRE_GLOW.lit}, ${FOXFIRE_GLOW.frac}x r)`)
+}
+
+// (d) GLINT, the starter: a dart at the nearest body that costs 1 Light per CAST and never
+// refuses to fire. Both halves are EFFECTS: the bar read after casts, the enemy's HP after darts.
+function testGlint() {
+  const L = 1
+  const lvl = WEAPONS.glint.levels[L - 1]
+  assert.strictEqual(WEAPONS.glint.rarity, 'normal', 'Glint is the starter, and a starter is normal rarity')
+  // `deepRun` does not exist yet — Task 4 renames `twilightRun` to it. Local until then.
+  const deepRun = (weaponId, level) => {
+    const meta = makeMeta(); meta.dev = true; ensureChapterMeta(meta)
+    const run = createRun(meta, { chapter: 'deep', difficulty: 1 })
+    run.weapons = [{ id: weaponId, level }]
+    run.player.maxHP = run.player.hp = 1e9
+    run.enemies.length = 0; run.shafts.length = 0
+    return run
+  }
+  const mk = (charge) => {
+    Math.random = mulberry32(20260909)
+    const run = deepRun('glint', L)
+    run.charge = charge
+    const p = run.player
+    const e = makeStatusEnemy(run, { x: p.x + 90, y: p.y, hp: 1e6, speed: 0 })
+    run.enemies.push(e)
+    return { run, e }
+  }
+  const step = (run, n) => { for (let i = 0; i < n; i++) { stepSim(run, { x: 0, y: 0, skill: false }, 1 / 60); run.events.length = 0 } }
+  // (1) ONE CAST COSTS ONE LIGHT. Drain is switched off so the only thing moving the bar is the cast.
+  // POST_CAST_TRAVEL is 0.2s, not the task brief's original 0.05s: at L1 the dart is 480px/s and the
+  // body sits 90px out (64px past its 26px hit radius), so it needs >=0.133s of flight AFTER the one
+  // cast this window is sized to contain — 0.05s only bought it 24px and 'the dart never landed'
+  // fired even with the cost correctly wired (checked by hand: fireGlint aims and moves it exactly
+  // like fireStar). 0.2s clears that with margin for the chapter's own tide drift and still holds
+  // exactly one cast (floor((0.55+0.2)/0.55) === 1).
+  {
+    const POST_CAST_TRAVEL = 0.2
+    const { run, e } = mk(50)
+    run.chargeDrainMul = 0
+    const before = run.charge
+    step(run, Math.round((lvl.interval + POST_CAST_TRAVEL) * 60))
+    assert.ok(e.hp < 1e6, 'the dart never landed — the fixture is not exercising the weapon')
+    const casts = Math.floor((lvl.interval + POST_CAST_TRAVEL) / lvl.interval)
+    assert.ok(Math.abs((before - run.charge) - casts * GLINT_LIGHT_COST) < 1e-6,
+      `${casts} cast(s) moved the bar ${(before - run.charge).toFixed(2)}, want ${casts * GLINT_LIGHT_COST} — the cost is per projectile, or missing`)
+  }
+  // (2) AT ZERO IT STILL FIRES AND THE BAR STAYS AT ZERO — the no-spiral floor, spec §3.1.
+  {
+    const { run, e } = mk(0)
+    run.chargeDrainMul = 0
+    step(run, Math.round((lvl.interval * 3) * 60))
+    assert.ok(e.hp < 1e6, 'Glint refused to fire at an empty bar — that is the death spiral the spec forbids')
+    assert.strictEqual(run.charge, 0, `the bar went to ${run.charge} — a clamp is missing`)
+  }
+  // (3) THE COST DOES NOT GO THROUGH THE AMBIENT DRAIN'S MULTIPLIER (Slow Burn is not an ammo card).
+  {
+    const { run } = mk(50)
+    run.chargeDrainMul = 0
+    run.chargeMax = 100
+    step(run, Math.round((lvl.interval + 0.05) * 60))
+    assert.ok(run.charge < 50, 'with chargeDrainMul 0 the cast still costs — it must not be folded into the drain term')
+  }
+  console.log(`PASS run SH.d (glint): 1 Light per cast (${GLINT_LIGHT_COST}), fires at an empty bar with the bar held at 0, cost independent of chargeDrainMul`)
 }
 
 /** The bar's ceiling for a fresh Shelf run, read off a run rather than off config — Deep Lungs can
