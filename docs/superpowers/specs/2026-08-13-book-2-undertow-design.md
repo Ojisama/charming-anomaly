@@ -355,8 +355,8 @@ seconds standing still, dropping instantly on movement) **zeroes Fin Hit entirel
 
 Owner: **the kraken sank the vessels, and the graveyard is its domain.**
 **Full design: `2026-09-09-the-kraken-final-boss-design.md`** (in iteration) — a scripted parry boss
-on eight tentacles shielding a persistent head, a wave and a new pattern every two arms down, the
-button as a parry with the shove floor, the Deep's light bar refilled by parry.
+on a ring of tentacles (4 / 6 / 8 by difficulty) shielding a persistent head, a wave and a new pattern
+as the arms break, the button as a parry with the shove floor, the Deep's light bar refilled by parry.
 
 A **scripted boss chapter** on `stepBossScript` and the `BLANK_*` machinery (sim.js:755+), the only
 boss system this game has. Unlocked by winning The Deep at difficulty 5, mirroring The Blank — which

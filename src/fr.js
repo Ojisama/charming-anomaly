@@ -715,6 +715,9 @@ const CONFIG = {
   // every other death uses, and 'l'épave' is the noun the player reads on the chapter's own title.
   'You left the wreck behind! 🎉': 'Tu as laissé l\'épave derrière toi ! 🎉',
   'Gone down with the wreck… ⚓': 'Coulé·e avec l\'épave… ⚓',
+  // The Kraken (the graveyard): the boss idiom like The Blank; the death line names the dark.
+  'THE KRAKEN FAILED. 🎉': 'LE KRAKEN A ÉCHOUÉ. 🎉',
+  'Swallowed by the dark… 🌑': 'Avalé·e par l\'obscurité… 🌑',
   // v6.2 Remaster — watcher unlock lines
   'The Pond — word of you travels downstream': 'La Mare — la rumeur descend le courant',
   'The Garden — something marked your trail': 'Le Jardin — quelque chose a marqué ta piste',
@@ -1657,6 +1660,17 @@ const CONFIG = {
   'The Deep': 'Les Abysses',
   'nothing up there can reach you': 'ils ne descendent pas jusqu\'ici',
   'Deep': 'Abysses',
+  // The Kraken (the graveyard). 'Kraken' is a loanword kept in French, and the
+  // boss head shares the chapter's name, so 'The Kraken' is one key. The tagline is the owner's
+  // line, DRAFT like The Deep's; the English string IS the key, so changing it orphans this entry.
+  // The four roster names below are DRAFTS pending the owner.
+  'The Kraken': 'Le Kraken',
+  'the graveyard is its domain': 'le cimetière est son domaine',
+  'Kraken': 'Kraken',
+  'The Bulkhead': 'La Cloison',
+  'The Gaff': 'La Gaffe',
+  'The Tentacle': 'Le Tentacule',
+  'The Arm': 'Le Bras',
   'The Trawl': 'Le Chalut',
   'the net is not aiming at you': 'ils vous pêcheront tous',
   // The Wreck (Book 2 chapter 5). 'L'Épave' is the hull itself; 'Le Naufrage' would be the sinking

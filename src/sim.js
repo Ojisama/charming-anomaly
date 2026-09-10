@@ -221,6 +221,13 @@ import {
   BLANK_XREACT_READ1_MUL, BLANK_XREACT_READ3_K, BLANK_XREACT_STRIDE,
   BLANK_READ1_K_MATURE, BLANK_NODE_MAX_MATURE, BLANK_FAN_N_MATURE,
   BLANK_BAND_ANGLES, BLANK_BAND_ANGLES_MATURE, BLANK_READ3_DESPERATE_MUL,
+  // The Kraken (scripted parry boss — see stepKrakenScript / krakenParry)
+  KRAKEN_ARMS_BY_DIFFICULTY, KRAKEN_HEAD_HP, KRAKEN_HEAD_R, KRAKEN_HEAD_SPEED,
+  KRAKEN_ARM_HP, KRAKEN_ARM_R, KRAKEN_ARM_SPEED, KRAKEN_RING_R,
+  KRAKEN_ARM_LASH_T, KRAKEN_LASH_TELE_T, KRAKEN_LASH_R, KRAKEN_LASH_DMG,
+  KRAKEN_PARRY_WINDOW, KRAKEN_PERFECT_WINDOW, KRAKEN_PERFECT_MUL, KRAKEN_PARRY_CD,
+  KRAKEN_PARRY_DMG, KRAKEN_PARRY_REFILL, KRAKEN_BLAZE_R, KRAKEN_ARM_BLOCK, KRAKEN_MAX_HEAD_SHIELD,
+  KRAKEN_LUNGE_T, KRAKEN_LUNGE_DMG, KRAKEN_WAVE, KRAKEN_WAVE_TIMEOUT, KRAKEN_WAVE_XP_MUL,
   // v6.4.2 (owner directive): per-run coin cap
   COIN_CAP_PER_RUN,
   // v6.4.3 (owner directive): opening spawn credit
@@ -1226,6 +1233,9 @@ function stepTrail(run, dt) {
 
 function stepBossScript(run, dt) {
   if (!CHAPTERS[run.chapter].scripted) return false
+  // The Kraken drives its own block ladder (head + arm ring), not BLANK_SCRIPT's phase table, so it
+  // delegates out here and leaves The Blank's machinery untouched.
+  if (run.chapter === 'kraken') return stepKrakenScript(run, dt)
   const p = run.player
   const s = run.script
   const accel = run.mutators.includes('accelResponse') ? BLANK_ACCEL_MUL : 1
@@ -1486,6 +1496,187 @@ function stepBossScript(run, dt) {
   return playerDied
 }
 
+// THE KRAKEN (config CHAPTERS.kraken — the Undertow's hidden parry boss). Drives run.script's phase
+// machine instead of BLANK_SCRIPT:
+//   'wave'  — a breather wave of placeholder mobs (KRAKEN_WAVE) stacks pressure; the head is hidden.
+//   'boss'  — the arm ring. Each arm telegraphs a slam (e._tele counts to 0, staggered); at 0 it
+//             lashes out and hits the player if they are within KRAKEN_LASH_R. Parrying (the dash
+//             button, stepRepulse's parry branch) negates an arm's pending slam and chunks it.
+//             2 arms down -> the ring advances.
+//   'chase' — 0 arms: the head is bare and hunts the player with lunge bursts.
+// The head is ONE persistent HP pool (s.headId) carried across blocks; killing it is victory. Its
+// damage is softened while arms are up (see dealDamage's tentacle shield) and full once bare. All
+// numbers are the KRAKEN_* constants in config.js.
+function stepKrakenScript(run, dt) {
+  const p = run.player
+  const s = run.script
+  const diff = Math.min(3, Math.max(1, run.difficulty))
+  const armsTotal = KRAKEN_ARMS_BY_DIFFICULTY[diff - 1]
+  const head = s.headId != null ? run.enemies.find((e) => e.id === s.headId && !e._dead) : null
+
+  // The boss bar (the head's single pool) is up in every phase once the head exists; a head that
+  // existed and is now gone is the win. headId null = not spawned yet (the opening wave).
+  if (head) {
+    run.bossBar = { hp: head.hp, max: head.maxHP, stage: s.bossIdx + 1, kraken: true }
+  } else if (s.headId != null) {
+    run.bossBar = null
+    run.phase = 'victory'
+    run.events.push({ type: 'victory' })
+    return true
+  }
+
+  if (s.phase === 'wave') {
+    if (head) head._hidden = true
+    if (!s.spawned) {
+      for (let i = 0; i < KRAKEN_WAVE.n; i++) {
+        const a = (i / KRAKEN_WAVE.n) * Math.PI * 2
+        const e = spawnBlankEnemy(run, KRAKEN_WAVE.ids[i % KRAKEN_WAVE.ids.length], false, {
+          x: p.x + Math.cos(a) * KRAKEN_RING_R,
+          y: p.y + Math.sin(a) * KRAKEN_RING_R,
+        })
+        if (!e) continue
+        e._wave = true
+        e.xp = Math.round(e.xp * KRAKEN_WAVE_XP_MUL)
+      }
+      s.spawned = true
+      s.waveT = 0
+      return false
+    }
+    s.waveT += dt
+    if (!run.enemies.some((e) => e._wave && !e._dead) || s.waveT >= KRAKEN_WAVE_TIMEOUT) {
+      s.spawned = false
+      s.waveT = 0
+      s.bossIdx++
+      s.blockKills = 0
+      const survivors = run.enemies.filter((e) => e._arm && !e._dead)
+      if (!s.armsSpawned) {
+        s.phase = 'boss' // first block: raise the head + full ring next frame
+      } else if (survivors.length === 0) {
+        s.phase = 'chase'
+        if (head) {
+          head.dmg = KRAKEN_LUNGE_DMG
+          head._lungeT = KRAKEN_LUNGE_T
+          head._hidden = false
+        }
+      } else {
+        s.phase = 'boss'
+        s.blockStartArms = survivors.length
+        const cx = head ? head.x : p.x
+        const cy = head ? head.y : p.y
+        for (let i = 0; i < survivors.length; i++) {
+          const a = survivors[i]
+          const ang = (i / survivors.length) * Math.PI * 2
+          a.x = cx + Math.cos(ang) * KRAKEN_RING_R
+          a.y = cy + Math.sin(ang) * KRAKEN_RING_R
+          a.speed = KRAKEN_ARM_SPEED
+          a.dmg = 0
+          a._hidden = false
+          a._tele = KRAKEN_LASH_TELE_T * (0.4 + (i / survivors.length) * 0.6)
+        }
+      }
+    }
+    return false
+  }
+
+  if (s.phase === 'boss') {
+    if (head) head._hidden = false
+    if (!s.armsSpawned) {
+      const h = spawnBlankEnemy(run, 'krakenHead', true, { x: p.x + KRAKEN_RING_R * 2, y: p.y })
+      if (h) {
+        h.hp = h.maxHP = roundHP(KRAKEN_HEAD_HP)
+        h.radius = KRAKEN_HEAD_R
+        h.speed = KRAKEN_HEAD_SPEED * 0.35
+        h.dmg = 0
+        h.affixes = ['anchored']
+        h._hidden = false
+        h._lungeT = KRAKEN_LUNGE_T
+        s.headId = h.id
+      }
+      for (let i = 0; i < armsTotal; i++) {
+        const ang = (i / armsTotal) * Math.PI * 2
+        const a = spawnBlankEnemy(run, 'krakenArm', true, {
+          x: p.x + Math.cos(ang) * KRAKEN_RING_R,
+          y: p.y + Math.sin(ang) * KRAKEN_RING_R,
+        })
+        if (!a) continue
+        a.hp = a.maxHP = roundHP(KRAKEN_ARM_HP)
+        a.radius = KRAKEN_ARM_R
+        a.speed = KRAKEN_ARM_SPEED
+        a.dmg = 0
+        a._arm = true
+        a._hidden = false
+        a._tele = KRAKEN_LASH_TELE_T * (0.4 + (i / armsTotal) * 0.6)
+      }
+      s.armsSpawned = true
+      s.blockStartArms = armsTotal
+      s.blockKills = 0
+      return false
+    }
+    for (const a of run.enemies) {
+      if (a._dead || !a._arm) continue
+      a._tele -= dt
+      if (a._tele > 0) continue
+      const dx = p.x - a.x
+      const dy = p.y - a.y
+      if (dx * dx + dy * dy <= KRAKEN_LASH_R * KRAKEN_LASH_R) hurtPlayer(run, KRAKEN_LASH_DMG, false, 'krakenArm')
+      a._tele = KRAKEN_ARM_LASH_T
+    }
+    s.blockKills = Math.max(0, s.blockStartArms - run.enemies.filter((e) => e._arm && !e._dead).length)
+    if (s.blockKills >= 2) {
+      s.phase = 'wave'
+      s.spawned = false
+      s.waveT = 0
+    }
+    return false
+  }
+
+  // 'chase': 0 arms, the head is bare.
+  if (head) {
+    head._hidden = false
+    head._lungeT = (head._lungeT ?? KRAKEN_LUNGE_T) - dt
+    if (head._lungeT <= 0) {
+      head._lungeT = KRAKEN_LUNGE_T
+      head._lungeBurst = 0.5
+      run.events.push({ type: 'headLunge', x: head.x, y: head.y })
+    }
+    head.speed = (head._lungeBurst ?? 0) > 0 ? KRAKEN_HEAD_SPEED * 2 : KRAKEN_HEAD_SPEED
+    if ((head._lungeBurst ?? 0) > 0) head._lungeBurst -= dt
+  }
+  return false
+}
+
+// THE KRAKEN'S PARRY (called from stepRepulse's parry branch — the dash button, not a shove).
+// Negates the nearest arm whose slam is inside the parry window: the pending slam is cancelled, the
+// arm takes a chunk, and Light is refilled. A parry that tops the Light bar BLAZES the arm (breaks
+// it outright) and dumps the bar; otherwise it is a normal or perfect parry. A press with no arm in
+// the window is a whiff — the commit is the cooldown, nothing else.
+function krakenParry(run) {
+  const p = run.player
+  let best = null
+  let bestD = Infinity
+  for (const e of run.enemies) {
+    if (e._dead || !e._arm) continue
+    if (!(e._tele > 0 && e._tele <= KRAKEN_PARRY_WINDOW)) continue
+    const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2
+    if (d < bestD) { bestD = d; best = e }
+  }
+  if (!best) return
+  const perfect = best._tele <= KRAKEN_PERFECT_WINDOW
+  const mul = perfect ? KRAKEN_PERFECT_MUL : 1
+  best._tele = KRAKEN_ARM_LASH_T // negate the pending slam (re-arm the cycle)
+  const wasFull = run.chargeMax > 0 && run.charge >= run.chargeMax - 0.01
+  run.charge = Math.min(run.chargeMax, run.charge + KRAKEN_PARRY_REFILL * mul)
+  const blazed = !wasFull && run.chargeMax > 0 && run.charge >= run.chargeMax - 0.01
+  if (blazed) {
+    run.charge = 0
+    dealDamage(run, best, best.hp, false)
+    run.events.push({ type: 'blaze', x: p.x, y: p.y, r: KRAKEN_BLAZE_R })
+  } else {
+    dealDamage(run, best, KRAKEN_PARRY_DMG * mul, false)
+    run.events.push({ type: perfect ? 'parryPerfect' : 'parry', x: best.x, y: best.y })
+  }
+}
+
 // v6.3.1: detonate k points of the player's trail as staggered telegraph bombs (oldest first,
 // same shape as P1's own read). Borrowed (cross-reactive) reads pass stride > 1: every stride-th
 // sample, so a stationary player yields a spread field, not a stacked blast. Stagger scales with
@@ -1555,6 +1746,15 @@ function stepRepulse(run, input, dt) {
   if (!ch.lane && !ch.resource) return
   run.repulseCd = Math.max(0, (run.repulseCd ?? 0) - dt)
   if (!input.skill || run.repulseCd > 0) return
+  // The Kraken's button is a PARRY, not a shove: the same dash press negates the nearest arm's
+  // pending slam and chunks it, and a fast KRAKEN_PARRY_CD is the whole skill. It returns before
+  // the shove below so a parry never spends Light or pushes enemies, and the commit is the cooldown
+  // either way (a whiff is a whiff).
+  if (ch.parry) {
+    run.repulseCd = KRAKEN_PARRY_CD
+    krakenParry(run)
+    return
+  }
   // FAST TWITCH (PASSIVES.dashCooldown) comes off the cooldown HERE, at the one site that arms it,
   // for the reason passiveTotal's own block gives about applyChoice: run.passives holds the applied
   // total, so a single subtraction at the single write site cannot drift against a second one.
@@ -7437,6 +7637,15 @@ function dealDamage(run, enemy, dmg, crit, dot = false, hazard = false) {
   // Untouchable windows (v5.4): an owl overhead / a ghosted flicker eats nothing at all — no
   // number, no flash, no status, no death. Checked before everything else, including DoT ticks.
   if (damageImmune(enemy)) return
+  // THE KRAKEN'S TENTACLE SHIELD. The head sits behind its ring: each up-arm absorbs a share of every
+  // hit, so the ring you are breaking IS the shield, and baring the head (0 arms) is what opens it.
+  // Counted live per hit — the ring is small and counting is the point of the fight.
+  if (enemy.rosterId === 'krakenHead' && CHAPTERS[run.chapter].parry) {
+    let arms = 0
+    for (const e of run.enemies) if (!e._dead && e._arm) arms++
+    const frac = Math.min(KRAKEN_MAX_HEAD_SHIELD, arms * KRAKEN_ARM_BLOCK)
+    if (frac > 0) dmg *= (1 - frac)
+  }
   // Shielded (elite affix): while above SHIELD_HP_FRAC of maxHP, the shield absorbs part
   // of every hit. Checked before venom amp per spec (shield softens the raw hit first).
   if (enemy.elite && enemy.affixes && enemy.affixes.includes('shielded') && enemy.hp > enemy.maxHP * SHIELD_HP_FRAC) {

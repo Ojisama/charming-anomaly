@@ -4740,8 +4740,10 @@ function runBooks() {
   // still which chapter ids a player can reach, not the shape they are drawn in.
   const shelved = (m) => titleBookshelf(m).flatMap((sh) => sh.volumes.map((v) => v.id))
   assert.ok(shelved(listed).includes('deep'), 'gate on: the bookcase must shelve the WIP chapter, or it cannot be selected')
+  assert.ok(shelved(listed).includes('kraken'), 'gate on: the hidden chapter (The Kraken) is shelved for testing, exactly like the WIP rung')
   listed.dev = false
   assert.ok(!shelved(listed).includes('deep'), 'gate off: the bookcase must NOT shelve the WIP chapter')
+  assert.ok(!shelved(listed).includes('kraken'), 'gate off: a non-dev save does not shelve a hidden chapter it has not earned')
   // THE SHELF IS EVERY LIVE RUNG, AND A HALF-SHIPPED BOOK CONTRIBUTES ONLY ITS LIVE ONES. Derived
   // rather than written down, for the same reason shippedChapterIds is: this used to read
   // `CHAPTER_ORDER` and assert the shelf was exactly book 1, which is a sentence about the release
@@ -4798,6 +4800,13 @@ function runBooks() {
     'gate on must NOT unlock a shipped chapter — the bypass is for chapters with no unlock path, not a cheat for the ones that have one')
   assert.strictEqual(wipDev.chapters.deep.unlocked, false,
     'chapterAvailable must stay a pure read — persisting the permission would outlive the gate and leave a WIP chapter unlocked after dev is turned off')
+  // The HIDDEN chapter (The Kraken) runs on the same single permission: dead in a non-dev save with
+  // no earned entry, open under the gate — and, like the WIP gate above, a pure read that persists
+  // nothing, so the reveal does not outlive the toggle.
+  assert.strictEqual(chapterAvailable(wipLocked, 'kraken'), false, 'gate off: a hidden chapter with no earned entry is not available')
+  assert.strictEqual(chapterAvailable(wipDev, 'kraken'), true, 'gate on: the hidden chapter becomes available WITHOUT writing `unlocked` to the save')
+  assert.strictEqual(wipDev.chapters.kraken, undefined,
+    'chapterAvailable must stay a pure read for hidden chapters too — the gate must not persist a chapters entry')
 
   // main.js and ui.js cannot be imported here (Pixi / import.meta.glob), so the WIRING is a source
   // tripwire: the helper existing proves nothing if a call site still reads `unlocked` directly.

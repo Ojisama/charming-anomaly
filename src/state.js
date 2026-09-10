@@ -2264,9 +2264,14 @@ function generateWells(sig) {
  *   borrowed) reads detonate it, and every `pastSeek` creature aims at a sample behind its newest
  *   end. The pastSeek read is guarded, so an empty buffer degrades that flag to a plain seek in
  *   silence — which is exactly what it did everywhere but The Blank for the whole life of the flag.
- * bossBar: null whenever no scripted boss is alive; while one is, { hp, max, stage } mirrors the
- *   current phase entity so ui.js can render a boss HP bar without reaching into run.enemies
- *   (rampage pattern: the field always exists, stays inert for every non-scripted chapter).
+  *   ...same shape, extended for The Kraken (stepKrakenScript): phase ('wave'|'boss'|'chase') is the
+  *   block state machine; bossIdx counts finished arm blocks; blockKills is arms down THIS block (the
+  *   block ends at 2); armsSpawned marks the ring's first go-out; headId is the head's run.enemies id
+  *   (persistent across blocks; its HP is the whole fight). Blank never reads these five, The Kraken
+  *   never reads stage/waveIdx/waveT/bossId, so the two ladders share one object.
+  * bossBar: null whenever no scripted boss is alive; while one is, { hp, max, stage } mirrors the
+  *   current phase entity so ui.js can render a boss HP bar without reaching into run.enemies
+  *   (rampage pattern: the field always exists, stays inert for every non-scripted chapter).
  * The chapter reuses two existing generic entities rather than adding new run arrays: run.bombs
  *   (telegraph->blast) carries `src:'trail'` for every trail detonation (P1's own read, and at
  *   d2+ P2's borrowed spread read / P3's borrowed echo — all through sim.js's shared
@@ -2714,7 +2719,12 @@ export function createRun(meta, opts = {}) {
     // v5.24 The Blank (see doc block above): rampage pattern again — these three fields exist on
     // every run but stepBossScript (sim.js) is the only thing that ever writes them, and it early-
     // returns unless CHAPTERS[chapter].scripted, so a non-blank run carries them inert forever.
-    script: CHAPTERS[chapter].scripted ? { stage: 0, waveIdx: 0, waveT: 0, spawned: false, bossId: null } : null,
+    script: CHAPTERS[chapter].scripted
+      ? { stage: 0, waveIdx: 0, waveT: 0, spawned: false, bossId: null,
+          // The Kraken (see sim.js's stepKrakenScript). Blank never reads these and The Kraken
+          // never reads stage/waveIdx/waveT/bossId, so the two ladders share one shape.
+          phase: 'wave', bossIdx: 0, blockKills: 0, blockStartArms: 0, armsSpawned: false, headId: null }
+      : null,
     trail: [],
     bossBar: null,
     // v5.9.1 bugfix: PROMOTED from render-only to a real, READ-ONLY sim contract — see the full

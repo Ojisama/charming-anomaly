@@ -165,16 +165,19 @@ const ui = initUI({
     const chMeta = ensureChapterMeta(meta, chapterId)
     // The Blank's difficulty ladder is a fixed, named set of modifiers per level (see
     // CHAPTERS.blank.modsByDifficulty) rather than random picks — its whole point is a
-    // scripted, repeatable fight.
+    // scripted, repeatable fight. The Kraken is the same kind of scripted boss (stepKrakenScript
+    // owns its rhythm), so it too gets no random anomalies and no reroll.
     const mutators = chapterId === 'blank'
       ? (CHAPTERS.blank.modsByDifficulty[chMeta.difficulty] ?? [])
-      : randomMutators(chMeta.difficulty - 1, chapterId)
+      : chapterId === 'kraken'
+        ? []
+        : randomMutators(chMeta.difficulty - 1, chapterId)
     // v6.7: EVERY classic run stops here first, even a difficulty-1 roll with no anomalies at all —
     // the brief is the pre-run summary now and owns the booster picks, so skipping it when the roll
     // is empty would make boosters unreachable at difficulty 1. The booster picks arrive one hook
     // later, on onBriefStart (see the ui.js contract).
     pendingPlay = { chapter: chapterId, difficulty: chMeta.difficulty, mutators }
-    ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: chapterId !== 'blank' })
+    ui.showScreen('brief', { chapterId, difficulty: chMeta.difficulty, mutators, reroll: chapterId !== 'blank' && chapterId !== 'kraken' })
   },
   onBriefStart(consumableIds = []) {
     if (!pendingPlay) return
@@ -673,6 +676,11 @@ const SFX_FOR_EVENT = {
   // 'ballast' lands every 2.0-2.6s, which is the 'longline' case verbatim — it has a render
   // case instead, and the weight of it is carried by the screen shake.
   sunspear: 'shoot', sunlance: 'beam',
+  // The Kraken (the Undertow's hidden parry boss). parry/parryPerfect are the dash button landing
+  // on an arm's pending slam — puffblock is the "block" voice, crush the heavier perfect one. blaze
+  // is the bar topping and the arm breaking outright. headLunge is the bare head's wind-up in the
+  // chase — orcaAim, the one note in the bank that is a countdown rather than a report.
+  parry: 'puffblock', parryPerfect: 'crush', blaze: 'explode', headLunge: 'orcaAim',
 }
 
 function endRun(victory) {

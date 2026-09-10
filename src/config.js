@@ -5804,8 +5804,9 @@ export const BOOKS = {
   // The Wreck's own LEAK block argues the same way round — "two adjacent chapters whose hazard is
   // human gear tangled in the water are one chapter told twice" — which only resolves in this order.
   //   `wipFrom` is an INDEX, so that reordering needed no edit to it. 5 since 2026-09-09: The Wreck
-  // is the last live rung and The Deep the first gated one. Saves key on chapter ID, never position.
-  undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: [], wipFrom: 5, startCoins: 100 },
+   // is the last live rung, The Deep the first gated one, and The Kraken (appended 2026-09-10) the
+   // next, still gated: a dev-gated shell whose boss sim lands in a later increment. Saves key on chapter ID, never position.
+   undertow: { name: 'Undertow', cloth: '#1f5c7c', chapters: ['surf', 'shelf', 'reef', 'trawl', 'wreck', 'deep'], hidden: ['kraken'], wipFrom: 5, startCoins: 100 },
 }
 // Explicit, for the same reason CHAPTER_ORDER is explicit: a sweep that means "every book, in
 // campaign order" must not depend on object key order surviving an edit. The FIRST entry is the
@@ -8452,6 +8453,91 @@ CHAPTERS.deep = {
   },
 }
 
+// THE KRAKEN (the graveyard, the Undertow book's last chapter). A FOUNDATION SHELL: the roster, the
+// dark Light bar and the art land now; the scripted boss (parry + blaze) is a LATER increment, so
+// this is NOT `scripted: true` and `signature` is null — the dark is a resource.dark rig, not a
+// signature. `refill: 0` on Light is deliberate (the dark is the cost, there is no pool left to
+// spend down), which is why kraken stays out of the DRAWDOWN loop below, exactly as wreck does. A
+// full literal, like The Deep — never a spread, so it cannot inherit a sibling's shape.
+CHAPTERS.kraken = {
+  playerBody: 'fish',
+  name: 'The Kraken',
+  tagline: 'the graveyard is its domain',
+  icon: '🐙',
+  resource: { name: 'Light', drain: 1.5, refill: 0, max: 100, noSpend: true, dark: { from: 0.5, speedFloor: 1, dim: 1.0, radiusFull: 0.50, radiusEmpty: 0.06 } },
+  // The scripted parry boss (see sim.js's stepKrakenScript). `scripted` opts out of the ordinary
+  // run clock (the fight ends on the head dying, not the timer); `parry` routes the dash button to
+  // the parry in stepRepulse; `noSpend` keeps the Light bar from being spent (it is the parry fuel,
+  // refilled by parries). `maxDifficultyCap: 3` bounds the arm-ring size. Placeholder spine:
+  // borrowed weapons/mobs, one pattern (Lash) + the chase. See the 2026-09-09 design doc.
+  scripted: true,
+  parry: true,
+  boards: ['kills', 'time'],
+  maxDifficultyCap: 3,
+  // No tide: it is a boss arena, not a rung — the Undertow sway would fight the parry (see run US).
+  tide: null,
+  signature: null,
+  roster: [
+    { id: 'krakenWall',  archetype: 'tank',   name: 'The Bulkhead',  hpMul: 2.6, speedMul: 0.25, flags: [] },
+    { id: 'krakenDart',  archetype: 'fast',   name: 'The Gaff',      hpMul: 0.8, speedMul: 1.1,  flags: ['dashBurst'] },
+    { id: 'krakenSnare', archetype: 'normal', name: 'The Tentacle',  hpMul: 1.3, speedMul: 0.85, flags: ['latch'] },
+    { id: 'krakenHead',  archetype: 'tank',   name: 'The Kraken',    hpMul: 1,   speedMul: 1,    flags: [], formationOnly: true },
+    { id: 'krakenArm',   archetype: 'tank',   name: 'The Arm',       hpMul: 1,   speedMul: 1,    flags: [], formationOnly: true },
+  ],
+  eliteFlags: [],
+  obstacles: { count: 9, cell: 585, minR: 62, maxR: 138, minDist: 400 },
+  balance: { spawnMul: 0.75, enemyHpMul: 1.15, enemyDmgMul: 1.1, maxAliveMul: 0.8 },
+  weapons: ['breaker', 'skippingShell', 'barnacles'], starter: 'breaker',
+  // ---- render-only (ZERO sim effect) ----
+  // The graveyard: The Deep's near-black carried one more step toward the void.
+  render: {
+    cast: ['krakenWall', 'krakenDart', 'krakenSnare'],
+    form: 'fish',
+    bgColor: 0x02101a,
+    floorTint: 0x5f7d94,
+    playerTint: 0xcfe6f2,
+    tail: true,
+    tailTint: 0x9fc4dc,
+    eliteIridescent: [0xa8d8f0, 0xc9e4f4, 0xbcd6cc],
+    darkTint: 0x000305,
+    dust: { tint: 0xb8ccdc, alpha: 0.28, speedMul: 0.1, sway: 4 },
+  },
+}
+
+// ---- The Kraken (v7.x hidden boss — the tuning block, sim.js's stepKrakenScript owns the flow) --
+// A RING of tentacles shields one head. The ring is the difficulty dial and the block ladder: kill
+// two arms and the block ends (head hides, breather wave, ring re-forms with the survivors). At 0
+// arms the chase opens and the head hunts. Parrying an arm's slam negates it, chunks the arm, and
+// refills Light; a parry that tops the bar BLAZES the arm. Placeholder spine: one pattern (Lash)
+// + the chase; Grip/Coil are deferred. See the 2026-09-09 design doc.
+export const KRAKEN_ARMS_BY_DIFFICULTY = [4, 6, 8] // D1/D2/D3 arm counts (index = difficulty-1)
+export const KRAKEN_HEAD_HP = 2400 // one persistent HP pool across all blocks
+export const KRAKEN_HEAD_R = 78 // world px
+export const KRAKEN_HEAD_SPEED = 165 // px/s the chase lunges at the player
+export const KRAKEN_ARM_HP = 200 // per tentacle
+export const KRAKEN_ARM_R = 26 // world px
+export const KRAKEN_ARM_SPEED = 80 // px/s the arms creep toward you between slams
+export const KRAKEN_RING_R = 150 // px the arm ring sits from the head
+export const KRAKEN_ARM_LASH_T = 2.6 // s between an arm's slams (staggered across the ring)
+export const KRAKEN_LASH_TELE_T = 1.0 // s wind-up before the slam (the telegraph)
+export const KRAKEN_LASH_R = 120 // px the arm's slam reaches (touches the player)
+export const KRAKEN_LASH_DMG = 22 // an un-parried slam's damage (the floor shove)
+export const KRAKEN_PARRY_WINDOW = 0.35 // s of the telegraph that is the parry window
+export const KRAKEN_PERFECT_WINDOW = 0.14 // s of the window that is "perfect"
+export const KRAKEN_PERFECT_MUL = 1.8 // damage + refill multiplier inside the perfect window
+export const KRAKEN_PARRY_CD = 0.8 // s the parry button's cooldown (vs REPULSE_CD 6.0)
+export const KRAKEN_PARRY_DMG = 130 // chunk an arm takes on a clean parry
+export const KRAKEN_PARRY_REFILL = 26 // Light regained per parry
+export const KRAKEN_BLAZE_R = KRAKEN_RING_R // the blaze flash's radius
+export const KRAKEN_ARM_BLOCK = 0.28 // head-damage reduction per up-arm, capped below
+export const KRAKEN_MAX_HEAD_SHIELD = 0.8 // most any ring can absorb (head always takes >=20%)
+export const KRAKEN_LUNGE_T = 3.2 // s between chase lunges (final block)
+export const KRAKEN_LUNGE_DMG = 26
+export const KRAKEN_WAVE = { n: 10, ids: ['krakenWall', 'krakenDart', 'krakenSnare'] } // placeholder breather
+export const KRAKEN_WAVE_GAP = Math.PI / 2
+export const KRAKEN_WAVE_TIMEOUT = 18
+export const KRAKEN_WAVE_XP_MUL = 1.5
+
 // THE DRAWDOWN, APPLIED TO THE WHOLE BOOK (owner, 2026-08-18 — see REFILL_ZONE_SPEND above). Written
 // HERE rather than inside each chapter's literal because the seconds are derived from that chapter's
 // OWN resource block, and a literal cannot reference a sibling key of the object it is inside. One
@@ -8460,6 +8546,7 @@ CHAPTERS.deep = {
 //   wreck  — no resource bar at all, so there is nothing to draw down.
 //   trawl  — its food is the net's wake, which is not a place and cannot be used up.
 //   deep   — exempt: see the ⚠ at CHAPTERS.deep.signature. The maw already takes itself away.
+//   kraken — drain-only dark bar (refill 0): the dark is the cost, there is no refill to spend down.
 //   reef   — exempt since 2026-08-26, and it is the ruling's OWN SPIRIT rather than an escape from
 //            it. The owner: "bubble should just give 25 air when you pass through it, remove the
 //            'stay in it to get more' part." A vent still disappears once it has given you a share
@@ -9591,8 +9678,14 @@ export const playableChapterId = (meta) => {
 //
 // NOT by marking WIP chapters `unlocked` in the save instead: that writes a permission to disk that
 // outlives the gate, so turning dev back off would leave an unlocked WIP chapter behind.
+// A HIDDEN chapter (named in BOOKS[book].hidden — The Kraken, and The Blank) sits on no ladder and
+// has no ordinary unlock path. Like a WIP rung, the dev gate is its route in for testing: the shelf
+// and chapterAvailable both read `meta.dev`, so toggling dev reveals it without writing `unlocked`
+// to the save. (The Blank is also EARNED by winning the ladder — that route stays.)
+const isHiddenChapter = (id) => !!BOOKS[bookOf(id)]?.hidden?.includes(id)
+
 export const chapterAvailable = (meta, id) =>
-  !!meta?.chapters?.[id]?.unlocked || (meta?.dev === true && isWipChapter(id))
+  !!meta?.chapters?.[id]?.unlocked || (meta?.dev === true && (isWipChapter(id) || isHiddenChapter(id)))
 
 // The name printed on a chapter's SPINE — its own name with the article dropped. A spine is about
 // 47px wide and reads its title VERTICALLY, which leaves roughly 110px of height for it: 'The
@@ -9605,7 +9698,7 @@ export const chapterAvailable = (meta, id) =>
 export const CHAPTER_SPINE = {
   body: 'Body', pond: 'Pond', garden: 'Garden', undergrowth: 'Undergrowth',
   city: 'City', skies: 'Skies', beyond: 'Beyond', blank: 'Blank',
-  surf: 'Surf', shelf: 'Shelf', reef: 'Reef', wreck: 'Wreck', trawl: 'Trawl', deep: 'Deep',
+  surf: 'Surf', shelf: 'Shelf', reef: 'Reef', wreck: 'Wreck', trawl: 'Trawl', deep: 'Deep', kraken: 'Kraken',
 }
 // Falls back to the full name rather than throwing: a chapter added without a spine entry renders
 // with its article and looks slightly wrong, which is a far better failure than a blank spine.
@@ -9640,7 +9733,10 @@ export function titleBookshelf(meta) {
     // same meaning the old boolean had, reached from the other end.
     const ladder = def.chapters.filter((id) => meta?.dev === true || !isWipChapter(id))
     if (ladder.length === 0) continue
-    const ids = [...ladder, ...def.hidden.filter((id) => meta?.chapters?.[id]?.unlocked)]
+    // A hidden chapter takes a slot once EARNED, or whenever the dev gate is up (The Kraken is
+    // reached that way to test, without writing `unlocked` to the save) — mirroring the WIP rung
+    // one line above, which the same gate reveals.
+    const ids = [...ladder, ...def.hidden.filter((id) => meta?.dev === true || meta?.chapters?.[id]?.unlocked)]
     const volumes = ids.map((id) => ({ id, unlocked: chapterAvailable(meta, id) }))
     shelf.push({
       book,
@@ -13830,6 +13926,9 @@ export const CHAPTER_ENDINGS = {
   // shoal), so the death line names the place they share, the way The Reef's names the race.
   // Player's idiom like every Undertow row above; ⚓ is the chapter's own icon.
   wreck:       { victory: 'You left the wreck behind! 🎉',          death: 'Gone down with the wreck… ⚓' },
+  // The Kraken (the graveyard): the boss idiom like The Blank ('THE X FAILED'); the death line
+  // names the dark rather than the last hit, the way The Wreck's names the place. Gated, like deep.
+  kraken:      { victory: 'THE KRAKEN FAILED. 🎉',                  death: 'Swallowed by the dark… 🌑' },
 }
 export const CHAPTER_UNLOCK_LINES = {
   pond:        'The Pond — word of you travels downstream',
@@ -14067,7 +14166,7 @@ export const MUTATORS = {
   // a lie there — it'd roll as pure downside without saying so. v6.4: pond excluded too — a flat
   // player-slow stacked on the currents/eddy chapter breaks the escape-margin math (see the v6.4
   // "Pond identity" plan).
-  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond', 'shelf', 'surf', 'reef', 'wreck', 'trawl', 'deep'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
+  sticky:   { name: 'Sticky Floor',      icon: '🍯', desc: 'You move slower, but pickups fly to you.',     exclude: ['beyond', 'pond', 'shelf', 'surf', 'reef', 'wreck', 'trawl', 'deep', 'kraken'], effects: { playerSpeedMul: 0.85, magnetMul: 1.7 } },
   jumbo:    { name: 'Jumbo Anomalies',   icon: '🎈', desc: 'Big squishy enemies, bonus XP and coins.',     effects: { enemyRadiusMul: 1.25, enemyHpMul: 1.25, enemySpeedMul: 0.9, xpMul: 1.2, coinMul: 1.2 } },
   // v5.24: The Blank's named difficulty-ladder modifiers (CHAPTERS.blank.modsByDifficulty) are
   // MUTATORS entries too, so the existing HUD/pause chip machinery renders them for free — but

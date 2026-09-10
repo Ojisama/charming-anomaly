@@ -4622,6 +4622,150 @@ export function createRenderer(app) {
     if (elite) eliteCrown(-r * 0.8, r)
   }
 
+  // ---- The Kraken (the graveyard, the Undertow book's last chapter) ----
+  // All five are plan view (top-down): these are water levels, so top-down is not mandatory, and
+  // every other Undertow spawnable is a lean-90 body symmetric about its +x nose — the Kraken's
+  // follow suit so they turn to face you. From directly above a squid reads as a mantle with its
+  // arms fanned out, which is the whole vocabulary here. The palette is deep-violet flesh with a
+  // bioluminescent cyan note, so a body glows faintly off the graveyard's near-black floor the way
+  // the lanternfish does. The two boss parts only ever appear under the boss script — a LATER
+  // increment — so they lean 0 and spin, exactly like the Blank's antibody phases, and bake at
+  // BLANK_BOSS_R. They carry `noElite` for the same reason the antibodies do.
+  const K_LINE = 0x0a0c16, K_SKIN = 0x3a2f52, K_SKIN2 = 0x50416b, K_GLOW = 0x7af2ff
+  // A rounded tentacle: a quad from a wide root to a narrow (or bulbous) tip, built from unit
+  // perpendiculars so it reads as a limb at any size. Returns a poly for .fill/.stroke.
+  const krakenLimb = (g, x0, y0, x1, y1, w0, w1) => {
+    const dx = x1 - x0, dy = y1 - y0
+    const l = Math.hypot(dx, dy) || 1
+    const nx = -dy / l, ny = dx / l
+    return g.poly([x0 - nx * w0, y0 - ny * w0, x1 - nx * w1, y1 - ny * w1, x1 + nx * w1, y1 + ny * w1, x0 + nx * w0, y0 + ny * w0])
+  }
+  // Suckers in a row along a limb, offset by the unit perpendicular so they sit on both faces.
+  const krakenSuckers = (g, x0, y0, x1, y1, n, rad) => {
+    const dx = x1 - x0, dy = y1 - y0
+    const l = Math.hypot(dx, dy) || 1
+    const nx = -dy / l, ny = dx / l
+    for (let i = 1; i < n; i++) {
+      const t = i / n, x = x0 + dx * t, y = y0 + dy * t
+      g.circle(x + nx * rad * 1.5, y + ny * rad * 1.5, rad).fill(K_GLOW)
+      g.circle(x - nx * rad * 1.5, y - ny * rad * 1.5, rad).fill(K_GLOW)
+    }
+  }
+  // "The Bulkhead" — a broad armored slab with a dense fringe of thick club arms around its whole
+  // rim; the wall is the body, and the wide gape at +x is the only part of it that moves toward you.
+  function drawKrakenWall(g, elite, white) {
+    const r = 26
+    const f = (c) => white ? 0xffffff : c
+    const line = f(K_LINE), skin = f(K_SKIN), skin2 = f(K_SKIN2)
+    const lw = Math.max(2, r * 0.07)
+    groundShadow(r * 1.0, r * 0.4)
+    for (let i = 0; i < 6; i++) {
+      const a = i / 6 * Math.PI * 2
+      krakenLimb(g, Math.cos(a) * r * 0.4, Math.sin(a) * r * 0.34, Math.cos(a) * r * 1.02, Math.sin(a) * r * 0.84, r * 0.17, r * 0.08)
+        .fill(skin).stroke({ width: lw, color: line })
+    }
+    g.ellipse(0, 0, r * 0.7, r * 0.48).fill(skin2).stroke({ width: lw, color: line })
+    g.ellipse(r * 0.5, 0, r * 0.24, r * 0.3).fill(white ? 0xffffff : { color: line, alpha: 0.9 })
+    if (!white) {
+      g.ellipse(0, r * 0.06, r * 0.42, r * 0.18).fill({ color: mix(K_SKIN2, 0xffffff, 0.16), alpha: 0.35 })
+      photophore(g, -r * 0.05, -r * 0.3, r * 0.05, K_GLOW)
+      photophore(g, r * 0.15, -r * 0.26, r * 0.04, K_GLOW)
+    }
+    if (elite) eliteCrown(-r * 0.9, r)
+  }
+  // "The Gaff" — a small darting body with three whip-arms thrown forward, each ending in a hooked
+  // barbed tip; it lunges along its arms (dashBurst), the way a gaff goes in.
+  function drawKrakenDart(g, elite, white) {
+    const r = 12
+    const f = (c) => white ? 0xffffff : c
+    const line = f(K_LINE), skin = f(K_SKIN), skin2 = f(K_SKIN2), glow = f(K_GLOW)
+    const lw = Math.max(1.6, r * 0.1)
+    groundShadow(r * 1.1, r * 0.4)
+    for (const s of [-1, 0, 1]) {
+      krakenLimb(g, r * 0.2, s * r * 0.08, r * 1.3, s * r * 0.5, r * 0.14, r * 0.05).fill(skin).stroke({ width: lw * 0.7, color: line })
+      krakenLimb(g, r * 1.3, s * r * 0.5, r * 1.46, s * r * 0.66, r * 0.05, r * 0.02).fill(skin).stroke({ width: lw * 0.5, color: line })
+      if (!white) g.circle(r * 1.46, s * r * 0.66, r * 0.045).fill(glow)
+    }
+    g.poly([r * 0.55, 0, r * 0.2, r * 0.4, -r * 0.5, r * 0.24, -r * 0.9, 0, -r * 0.5, -r * 0.24, r * 0.2, -r * 0.4])
+      .fill(skin2).stroke({ width: lw, color: line })
+    if (!white) darkEye(g, r * 0.3, r * 0.13, r * 0.09, r * 0.08, K_LINE, true)
+    if (elite) eliteCrown(-r * 1.0, r)
+  }
+  // "The Tentacle" — a mid mantle with two long arms curving forward into a snare and two shorter
+  // ones braced back; the latch is the whole point of the creature.
+  function drawKrakenSnare(g, elite, white) {
+    const r = 16
+    const f = (c) => white ? 0xffffff : c
+    const line = f(K_LINE), skin = f(K_SKIN), skin2 = f(K_SKIN2), glow = f(K_GLOW)
+    const lw = Math.max(1.8, r * 0.07)
+    groundShadow(r * 1.05, r * 0.42)
+    for (const s of [-1, 1]) {
+      krakenLimb(g, -r * 0.3, s * r * 0.12, -r * 0.92, s * r * 0.36, r * 0.13, r * 0.035)
+        .fill(skin).stroke({ width: lw * 0.7, color: line })
+      krakenLimb(g, r * 0.1, s * r * 0.14, r * 0.62, s * r * 0.5, r * 0.15, r * 0.07)
+        .fill(skin).stroke({ width: lw, color: line })
+      krakenLimb(g, r * 0.62, s * r * 0.5, r * 0.86, s * r * 0.2, r * 0.07, r * 0.03)
+        .fill(skin).stroke({ width: lw * 0.8, color: line })
+    }
+    g.ellipse(-r * 0.05, 0, r * 0.58, r * 0.42).fill(skin2).stroke({ width: lw, color: line })
+    if (!white) {
+      for (const s of [-1, 1]) {
+        krakenSuckers(g, r * 0.1, s * r * 0.14, r * 0.62, s * r * 0.5, 4, r * 0.03)
+        g.circle(r * 0.86, s * r * 0.2, r * 0.035).fill(glow)
+      }
+      darkEye(g, r * 0.26, r * 0.14, r * 0.09, r * 0.08, K_LINE, true)
+      darkEye(g, -r * 0.02, r * 0.12, r * 0.08, r * 0.07, K_LINE, true)
+    }
+    if (elite) eliteCrown(-r * 0.85, r)
+  }
+  // The Kraken's head — a huge mantle with two big glowing eyes and a wide gape, a crown of arms
+  // fanned across the back. Only the boss script ever places it; baked at BLANK_BOSS_R.
+  function drawKrakenHead(g, elite, white) {
+    const r = BLANK_BOSS_R
+    const f = (c) => white ? 0xffffff : c
+    const line = f(K_LINE), skin = f(K_SKIN), skin2 = f(K_SKIN2), glow = f(K_GLOW)
+    const lw = Math.max(4, r * 0.045)
+    groundShadow(r * 0.9, r * 0.55)
+    for (let i = 0; i < 6; i++) {
+      const a = Math.PI * (0.6 + i * 0.133)
+      krakenLimb(g, Math.cos(a) * r * 0.42, Math.sin(a) * r * 0.42, Math.cos(a) * r * 1.0, Math.sin(a) * r * 1.0, r * 0.2, r * 0.06)
+        .fill(skin).stroke({ width: lw, color: line })
+    }
+    g.ellipse(0, 0, r * 0.62, r * 0.62).fill(skin2).stroke({ width: lw, color: line })
+    g.ellipse(r * 0.34, 0, r * 0.24, r * 0.34).fill(white ? 0xffffff : { color: line, alpha: 0.92 })
+    if (!white) {
+      g.ellipse(0, r * 0.16, r * 0.4, r * 0.2).fill({ color: mix(K_SKIN2, 0xffffff, 0.14), alpha: 0.32 })
+      for (const s of [-1, 1]) {
+        g.circle(r * 0.2, s * r * 0.3, r * 0.13).fill(glow)
+        g.circle(r * 0.2, s * r * 0.3, r * 0.06).fill(K_LINE)
+      }
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI * (0.6 + i * 0.133)
+        photophore(g, Math.cos(a) * r * 0.85, Math.sin(a) * r * 0.85, r * 0.05, K_GLOW)
+      }
+    }
+    if (elite) eliteCrown(-r * 0.9, r)
+  }
+  // A single massive curling arm — the boss's grab. Wide at the shoulder, curling to a bulbous club.
+  function drawKrakenArm(g, elite, white) {
+    const r = BLANK_BOSS_R
+    const f = (c) => white ? 0xffffff : c
+    const line = f(K_LINE), skin = f(K_SKIN), glow = f(K_GLOW)
+    const lw = Math.max(4, r * 0.04)
+    groundShadow(r * 0.8, r * 0.5)
+    const p0 = [r * 0.55, r * 0.1], p1 = [-r * 0.1, r * 0.32], p2 = [-r * 0.62, -r * 0.02], p3 = [-r * 0.42, -r * 0.42]
+    krakenLimb(g, p0[0], p0[1], p1[0], p1[1], r * 0.26, r * 0.19).fill(skin).stroke({ width: lw, color: line })
+    krakenLimb(g, p1[0], p1[1], p2[0], p2[1], r * 0.19, r * 0.13).fill(skin).stroke({ width: lw, color: line })
+    krakenLimb(g, p2[0], p2[1], p3[0], p3[1], r * 0.13, r * 0.1).fill(skin).stroke({ width: lw, color: line })
+    g.circle(p3[0], p3[1], r * 0.2).fill(skin).stroke({ width: lw, color: line })
+    if (!white) {
+      krakenSuckers(g, p0[0], p0[1], p1[0], p1[1], 5, r * 0.045)
+      krakenSuckers(g, p1[0], p1[1], p2[0], p2[1], 5, r * 0.04)
+      g.circle(p3[0], p3[1], r * 0.07).fill(glow)
+    }
+    if (elite) eliteCrown(-r * 0.6, r * 0.7)
+  }
+
   // `lean` = MAX LEAN IN DEGREES, 0..90: how far off horizontal this creature may aim its +x nose
   // at the player (syncEnemies mirrors it left/right on top of that, so lean+flip spans the circle).
   // The number falls straight out of the VIEW the art is drawn in, so judge it from the geometry:
@@ -4816,6 +4960,15 @@ export function createRenderer(app) {
     antibody1: { archetype: 'boss', draw: (g, e, w) => drawTheAntibody(g, e, w, 1), lean: 0, spin: 0.25, noElite: true },
     antibody2: { archetype: 'boss', draw: (g, e, w) => drawTheAntibody(g, e, w, 2), lean: 0, spin: 0.38, noElite: true },
     antibody3: { archetype: 'boss', draw: (g, e, w) => drawTheAntibody(g, e, w, 3), lean: 0, spin: 0.55, noElite: true },
+    // The Kraken (the graveyard). The three spawnables lean 90 so they turn to face the player;
+    // the two boss parts lean 0 and spin, mirroring the antibody phases above, and carry noElite —
+    // the boss script only ever spawns them, and a boss bake is a ~430px pair nothing could reach.
+    // Boss parts are NOT on render.cast, so they have no cast PNG (same as the antibodies).
+    krakenWall: { archetype: 'tank', draw: drawKrakenWall, lean: 90 },
+    krakenDart: { archetype: 'fast', draw: drawKrakenDart, lean: 90 },
+    krakenSnare: { archetype: 'normal', draw: drawKrakenSnare, lean: 90 },
+    krakenHead: { archetype: 'boss', draw: drawKrakenHead, lean: 0, spin: 0.2, noElite: true },
+    krakenArm: { archetype: 'boss', draw: drawKrakenArm, lean: 0, spin: 0.2, noElite: true },
   }
   const DEG = Math.PI / 180
   function makeRosterLook(id, elite, child = false) {
