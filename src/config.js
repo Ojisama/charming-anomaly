@@ -2016,6 +2016,15 @@ export const WEAPONS = {
     // 318/411 on the first cut there). `eff dps` is a global enemy-HP diff, so in the Trawl it
     // credits every weapon with the chapter's own net — roughly two thirds of the figure. Surf is
     // the control chapter precisely because nothing in it damages the crowd on its own.
+    //   ⚠ AND THAT RULE IS FOR RANKING THIS WEAPON AGAINST A SIBLING, NOT FOR SIZING A CHANGE TO
+    // IT. Surf is where Longline is pinned against Breaker; it is NOT where Longline is played —
+    // this weapon is offered in The Trawl and nowhere else, not even in `blank`'s catch-all pool.
+    // Measuring a DELTA in Surf understated one by 3x (2026-09-12: the same ladder change read +6%
+    // in Surf and +20% in The Trawl), because Surf has its own Humidity resource tapering all
+    // damage 0.7-1.0x and a different roster and density. For a delta, measure IN THE CHAPTER with
+    // `run.net = null; run._netAcc = 1e9` set every step — the same two lines test/sim-test.js's
+    // own Trawl rigs use — which removes the wall's damage from the HP diff without leaving the
+    // chapter. Then the number is the weapon's AND it is the weapon where it lives.
     levels: [
       // balance_decision : +20% dmg, every Trawl weapon, owner ruling 2026-09-02
       //  - x1.2 rounded to whole numbers, unmeasured (owner: "don't test, just ship")

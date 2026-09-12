@@ -31508,6 +31508,36 @@ function testTrawlNatives() {
     console.log(`PASS run LG.m (the draw cost is flat): ${issued} stroke/fill calls per rope, 0 of ${loops.length} loops issuing one`)
   }
 
+  // (n) THE LADDER REACHES THE WATER AT EVERY RUNG. levels[].lines is the weapon's own progression
+  // — the rope count IS the level reward — and until this case existed nothing in the suite cast at
+  // L2, L3 or L4 at all: every other case here uses ONE_ROPE_LVL or L5. So a fire site that honours
+  // the ladder only at the top rung was invisible, and that is the shape this catches.
+  //
+  // ⚠ WHAT IT PINS IS THE FIRE SITE, NOT THE NUMBERS. The expected count is read from the shipped
+  // ladder on purpose, the rule run LG.i already states: the values are BALANCE and a test that
+  // hardcoded them would go red on every retune instead of on a defect. So editing levels[2].lines
+  // is deliberately NOT caught here — it is a tune, not a bug. What cannot pass is the fire site
+  // ignoring `stats.lines` at any rung, which is the level-up reward silently not arriving.
+  {
+    const laid = []
+    for (let lvl = 1; lvl <= WEAPONS.longline.levels.length; lvl++) {
+      const run = rig('longline', lvl)
+      dummy(run, 600, 0)                               // a bait, so aimAngle has something to aim at
+      for (let i = 0; i < 600 && run.longlines.length === 0; i++) step(run, 1)
+      laid.push(run.longlines.length)
+      assert.strictEqual(run.longlines.length, baseLines(lvl),
+        `run LG.n: at L${lvl} one cast laid ${run.longlines.length} rope(s) against the ${baseLines(lvl)} its levels[] promises — the fire site is not reading stats.lines, so the level reward never reaches the water`)
+    }
+    // ...and the ladder has to actually CLIMB, or every rung above could read its own flat value
+    // and this case would still pass. Monotone, and strictly more at the top than at the bottom.
+    for (let i = 1; i < laid.length; i++) {
+      assert.ok(laid[i] >= laid[i - 1], `run LG.n: the rope ladder goes DOWN from L${i} to L${i + 1} (${laid.join('/')}) — a level-up that takes gear away`)
+    }
+    assert.ok(laid[laid.length - 1] > laid[0],
+      `run LG.n: the ladder is flat at ${laid.join('/')} — levels[].lines exists but buys nothing, which is the card doing nothing while the sheet prints a number for it`)
+    console.log(`PASS run LG.n (the rope ladder fires): one cast lays ${laid.join('/')} ropes at L1-L${laid.length}, matching levels[].lines and climbing`)
+  }
+
   console.log("PASS run LG (The Trawl's natives): the line is a finite segment that is set and left and catches once per body, and the net holds a group on the CC budget without borrowing another weapon's shrapnel")
 }
 
